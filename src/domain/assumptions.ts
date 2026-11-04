@@ -1,0 +1,50 @@
+/**
+ * Model assumptions. These are AutoFlip rules, not market facts from a pricing vendor.
+ * Every report prints the values it actually used.
+ */
+export const ASSUMPTIONS = {
+  milesPerYear: 12_000,
+  /** Share of the reference price removed per 1,000 miles above a comparable. */
+  mileageRatePerThousandMiles: 0.005,
+  minComps: 3,
+  yearWindow: 1,
+  yearWindowExpanded: 2,
+  accidentHaircutEach: 0.04,
+  accidentHaircutCap: 0.12,
+  fleetHaircut: 0.06,
+  multiOwnerHaircut: 0.03,
+  multiOwnerAt: 3,
+  oneOwnerBonus: 0.015,
+  cpoBonusPersonal: 0.02,
+  /** Asking gap below fair value. Strictly under this is a good deal. */
+  goodDealGap: -0.08,
+  /** Asking gap at or under this (and not a good deal) is fair. */
+  fairGap: 0.06,
+  /** Asking gap at or under this (and not fair) is overpriced. Above it, walk away on price. */
+  overpricedGap: 0.15,
+  flipTitleFeeUsd: 350,
+  flipReconBaseUsd: 600,
+  flipReconPerAccidentUsd: 400,
+  flipReconHighMileUsd: 200,
+  flipHighMileThreshold: 100_000,
+  flipDesiredProfitUsd: 1_500,
+  /** Haircut from comparable asking prices to a realistic resale. */
+  flipSellFriction: 0.03,
+  flipThinMarginUsd: 500,
+  radarScoreSlope: 250,
+  autodevMonthlyStop: 900,
+  cacheTtlMs: 6 * 60 * 60 * 1000,
+  cacheMaxEntries: 200,
+  complaintContextMin: 100,
+} as const;
+
+export const CREDIT_PACKS = [
+  { id: "pack_3", credits: 3, amountCents: 900, name: "3 reports" },
+  { id: "pack_10", credits: 10, amountCents: 2500, name: "10 reports" },
+] as const;
+
+export type CreditPackId = (typeof CREDIT_PACKS)[number]["id"];
+
+export function creditPack(id: string) {
+  return CREDIT_PACKS.find((pack) => pack.id === id) ?? null;
+}

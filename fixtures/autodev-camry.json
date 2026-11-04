@@ -1,0 +1,321 @@
+{
+  "api": {
+    "name": "api.auto.dev",
+    "description": "🚘 Vehicle Listings",
+    "url": "https://api.auto.dev/listings",
+    "account": "https://api.auto.dev/account",
+    "docs": "https://docs.auto.dev/v2/products/vehicle-listings",
+    "type": "data",
+    "from": "https://auto.dev"
+  },
+  "links": {
+    "self": "https://api.auto.dev/listings?vehicle.make=Toyota&vehicle.model=Camry&limit=5&page=1",
+    "first": "https://api.auto.dev/listings?vehicle.make=Toyota&vehicle.model=Camry&limit=5&page=1",
+    "prev": "https://api.auto.dev/listings?vehicle.make=Toyota&vehicle.model=Camry&limit=5&page=1",
+    "next": "https://api.auto.dev/listings?vehicle.make=Toyota&vehicle.model=Camry&limit=5&page=2",
+    "toggleFacets": "https://api.auto.dev/listings?vehicle.make=Toyota&vehicle.model=Camry&limit=5&includes=facets",
+    "toggleTotal": "https://api.auto.dev/listings?vehicle.make=Toyota&vehicle.model=Camry&limit=5&includes=total"
+  },
+  "data": [
+    {
+      "@id": "https://api.auto.dev/listings/4T1KZ1AK4MU060006",
+      "vin": "4T1KZ1AK4MU060006",
+      "createdAt": "2026-09-16 01:50:58",
+      "location": [
+        -94.185895,
+        36.331975
+      ],
+      "vehicle": {
+        "baseInvoice": 29357,
+        "baseMsrp": 32260,
+        "bodyStyle": "Car",
+        "confidence": 0.995,
+        "cylinders": 6,
+        "doors": 4,
+        "drivetrain": "FWD",
+        "engine": "3.5L 6Cyl Gasoline",
+        "exteriorColor": "Ice Edge/Midnight Black Metallic Roof",
+        "fuel": "Gasoline",
+        "interiorColor": "Black/Red leatherette/cloth",
+        "make": "Toyota",
+        "model": "Camry",
+        "seats": 5,
+        "series": "TRD 4dr Sedan (3.5L 6cyl 8A)",
+        "squishVin": "4T1KZ1AKMU",
+        "style": "Sedan",
+        "transmission": "Automatic",
+        "trim": "TRD",
+        "type": "Performance/Sports",
+        "vin": "4T1KZ1AK4MU060006",
+        "year": 2021,
+        "transmissionSource": "listing"
+      },
+      "wholesaleListing": null,
+      "retailListing": {
+        "carfaxUrl": "https://www.carfax.com/VehicleHistory/p/Report.cfx?vin=4T1KZ1AK4MU060006&partner=FRD_2",
+        "city": "Rogers",
+        "cpo": false,
+        "dealer": "Landers Toyota NWA",
+        "miles": 31149,
+        "photoCount": 25,
+        "price": 34988,
+        "primaryImage": "https://retail.photos.vin/4T1KZ1AK4MU060006-1.jpg",
+        "state": "AR",
+        "used": true,
+        "vdp": "https://www.landerstoyotanwa.com/inventory/used-2021-toyota-camry-trd-v6-fwd-4dr-car-4t1kz1ak4mu060006/",
+        "zip": "72758",
+        "dealerId": "d_3bad835bd0d91902"
+      },
+      "history": {
+        "accidentCount": 0,
+        "accidents": false,
+        "oneOwner": true,
+        "ownerCount": 1,
+        "usageType": "Personal Use"
+      }
+    },
+    {
+      "@id": "https://api.auto.dev/listings/4T1K61AK0MU423359",
+      "vin": "4T1K61AK0MU423359",
+      "createdAt": "2026-11-03 06:38:54",
+      "location": [
+        -84.52948,
+        33.56844
+      ],
+      "vehicle": {
+        "baseInvoice": 27750,
+        "baseMsrp": 30495,
+        "bodyStyle": "Car",
+        "confidence": 0.995,
+        "cylinders": 4,
+        "doors": 4,
+        "drivetrain": "FWD",
+        "engine": "2.5L 4Cyl Gasoline",
+        "exteriorColor": "Midnight Black Metallic",
+        "fuel": "Gasoline",
+        "interiorColor": "Black leather",
+        "make": "Toyota",
+        "model": "Camry",
+        "seats": 5,
+        "series": "XSE 4dr Sedan (2.5L 4cyl 8A)",
+        "squishVin": "4T1K61AKMU",
+        "style": "Sedan",
+        "transmission": "Automatic",
+        "trim": "XSE",
+        "type": "Sedan",
+        "vin": "4T1K61AK0MU423359",
+        "year": 2021,
+        "transmissionSource": "listing"
+      },
+      "wholesaleListing": null,
+      "retailListing": {
+        "carfaxUrl": "https://www.carfax.com/VehicleHistory/p/Report.cfx?vin=4T1K61AK0MU423359&partner=FRD_2",
+        "city": "Union City",
+        "cpo": false,
+        "dealer": "Heritage Volkswagen",
+        "miles": 53508,
+        "photoCount": 13,
+        "price": 28795,
+        "primaryImage": "https://retail.photos.vin/4T1K61AK0MU423359-1.jpg",
+        "state": "GA",
+        "used": true,
+        "vdp": "https://www.atlantavolkswagen.com/inventory/used-2021-toyota-camry-xse-fwd-4d-sedan-4t1k61ak0mu423359/",
+        "zip": "30291",
+        "dealerId": "d_99d49283866589a7"
+      },
+      "history": {
+        "accidentCount": 0,
+        "accidents": false,
+        "oneOwner": false,
+        "ownerCount": 2,
+        "usageType": "Lease"
+      }
+    },
+    {
+      "@id": "https://api.auto.dev/listings/4T1K61AK4MU610393",
+      "vin": "4T1K61AK4MU610393",
+      "createdAt": "2026-08-13 01:09:36",
+      "location": [
+        -95.5044,
+        29.7091
+      ],
+      "vehicle": {
+        "baseInvoice": 27750,
+        "baseMsrp": 30495,
+        "bodyStyle": "Car",
+        "confidence": 0.995,
+        "cylinders": 4,
+        "doors": 4,
+        "drivetrain": "FWD",
+        "engine": "2.5L 4Cyl Gasoline",
+        "exteriorColor": "Midnight Black Metallic",
+        "fuel": "Gasoline",
+        "interiorColor": "Cockpit Red leather",
+        "make": "Toyota",
+        "model": "Camry",
+        "seats": 5,
+        "series": "XSE 4dr Sedan (2.5L 4cyl 8A)",
+        "squishVin": "4T1K61AKMU",
+        "style": "Sedan",
+        "transmission": "Automatic",
+        "trim": "XSE",
+        "type": "Sedan",
+        "vin": "4T1K61AK4MU610393",
+        "year": 2021,
+        "transmissionSource": "listing"
+      },
+      "wholesaleListing": null,
+      "retailListing": {
+        "carfaxUrl": "https://www.carfax.com/VehicleHistory/p/Report.cfx?vin=4T1K61AK4MU610393&partner=FRD_2",
+        "city": "Houston",
+        "cpo": false,
+        "dealer": "CarMax Southwest Freeway",
+        "miles": 45872,
+        "photoCount": 28,
+        "price": 29998,
+        "primaryImage": "https://retail.photos.vin/4T1K61AK4MU610393-1.jpg",
+        "state": "TX",
+        "used": true,
+        "vdp": "https://www.carmax.com/car/70163746",
+        "zip": "77074",
+        "dealerId": "d_2b9104da88b5f014"
+      },
+      "history": {
+        "accidentCount": 0,
+        "accidents": false,
+        "oneOwner": true,
+        "ownerCount": 1,
+        "usageType": "Personal Use"
+      }
+    },
+    {
+      "@id": "https://api.auto.dev/listings/4T1NZ1AK2LU042082",
+      "vin": "4T1NZ1AK2LU042082",
+      "createdAt": "2026-10-31 20:44:14",
+      "location": [
+        -77.445496,
+        38.769473
+      ],
+      "vehicle": {
+        "baseInvoice": 28366,
+        "baseMsrp": 31170,
+        "bodyStyle": "Car",
+        "confidence": 0.995,
+        "cylinders": 6,
+        "doors": 4,
+        "drivetrain": "FWD",
+        "engine": "3.5L 6Cyl Gasoline",
+        "exteriorColor": "Wind Chill Pearl/Midnight Black Metallic Roof",
+        "fuel": "Gasoline",
+        "interiorColor": "Black leatherette/cloth",
+        "make": "Toyota",
+        "model": "Camry",
+        "seats": 5,
+        "series": "TRD 4dr Sedan (3.5L 6cyl 8A)",
+        "squishVin": "4T1NZ1AKLU",
+        "style": "Sedan",
+        "transmission": "Automatic",
+        "trim": "TRD",
+        "type": "Performance/Sports",
+        "vin": "4T1NZ1AK2LU042082",
+        "year": 2020,
+        "transmissionSource": "listing"
+      },
+      "wholesaleListing": null,
+      "retailListing": {
+        "carfaxUrl": "https://www.carfax.com/VehicleHistory/p/Report.cfx?vin=4T1NZ1AK2LU042082&partner=FRD_2",
+        "city": "Manassas",
+        "cpo": false,
+        "dealer": "Maximum Auto Outlet",
+        "miles": 57711,
+        "photoCount": 36,
+        "price": 30995,
+        "primaryImage": "https://retail.photos.vin/4T1NZ1AK2LU042082-1.jpg",
+        "state": "VA",
+        "used": true,
+        "vdp": "http://details.vast.com/details/cars/ob-48ae10cec45c5264c0c05239af7ac2c3eda678223f9171ac63be6a3107cd3db63b027b96ef83ac88fd6ccb42933d4f3c6bf26f82a637df6dbf6160746a741de28080dae7241642dfd17d1e4e893d862d7576d2a854ac403632d256da4a63902a228c1c8d7f8a6a7bc36a232763da1a10ebe376e6b8d9456e387fcda8adb8ca08fb7f16011f22412ebedeee38685f0721f74c31246e538ff42db94d2ceb09e6950fb15e40f90d9a2a0fa486f173a58cc4/?pl=41&context=1e0d811633d20dd94c351375e543927eda3d8b1a",
+        "zip": "20111",
+        "dealerId": "d_460cbc29ebb7c3a3"
+      },
+      "history": {
+        "accidentCount": 0,
+        "accidents": false,
+        "oneOwner": true,
+        "ownerCount": 1,
+        "usageType": "Personal Use"
+      }
+    },
+    {
+      "@id": "https://api.auto.dev/listings/4T1K61AK4LU371927",
+      "vin": "4T1K61AK4LU371927",
+      "createdAt": "2026-10-18 15:20:05",
+      "location": [
+        -117.323694,
+        34.518043
+      ],
+      "vehicle": {
+        "baseInvoice": 27304,
+        "baseMsrp": 30005,
+        "bodyStyle": "Car",
+        "confidence": 0.995,
+        "cylinders": 4,
+        "doors": 4,
+        "drivetrain": "FWD",
+        "engine": "2.5L 4Cyl Gasoline",
+        "exteriorColor": "Wind Chill Pearl/Midnight Black Metallic Roof",
+        "fuel": "Gasoline",
+        "interiorColor": "Cockpit Red leather",
+        "make": "Toyota",
+        "model": "Camry",
+        "seats": 5,
+        "series": "XSE 4dr Sedan (2.5L 4cyl 8A)",
+        "squishVin": "4T1K61AKLU",
+        "style": "Sedan",
+        "transmission": "Automatic",
+        "trim": "XSE",
+        "type": "Sedan",
+        "vin": "4T1K61AK4LU371927",
+        "year": 2020,
+        "transmissionSource": "listing"
+      },
+      "wholesaleListing": null,
+      "retailListing": {
+        "carfaxUrl": "https://www.carfax.com/VehicleHistory/p/Report.cfx?vin=4T1K61AK4LU371927&partner=FRD_2",
+        "city": "Victorville",
+        "cpo": false,
+        "dealer": "CarMax Victorville",
+        "miles": 41530,
+        "photoCount": 28,
+        "price": 27998,
+        "primaryImage": "https://retail.photos.vin/4T1K61AK4LU371927-1.jpg",
+        "state": "CA",
+        "used": true,
+        "vdp": "https://www.carmax.com/car/70178836",
+        "zip": "92394",
+        "dealerId": "d_a79b3b43e47ab889"
+      },
+      "history": {
+        "accidentCount": 1,
+        "accidents": true,
+        "oneOwner": false,
+        "ownerCount": 2,
+        "usageType": "Personal Use"
+      }
+    }
+  ],
+  "discover": {
+    "🗂️ Vehicle VIN Decode": "https://api.auto.dev/vin/1FTFW3LDXRFB40317",
+    "📋 Specifications": "https://api.auto.dev/specs/1FTFW3LDXRFB40317",
+    "🏗️ OEM Build Data": "https://api.auto.dev/build/1FTFW3LDXRFB40317",
+    "📷 Vehicle Photos": "https://api.auto.dev/photos/1FTFW3LDXRFB40317",
+    "📈 Current Interest Rates": "https://api.auto.dev/apr/1FTFW3LDXRFB40317",
+    "💳 Vehicle Payments": "https://api.auto.dev/payments/1FTFW3LDXRFB40317",
+    "⚠️ Vehicle Recalls": "https://api.auto.dev/recalls/1FTFW3LDXRFB40317",
+    "🔓 Open Vehicle Recalls": "https://api.auto.dev/openrecalls/1FTFW3LDXRFB40317",
+    "🧾 Vehicle Taxes & Fees": "https://api.auto.dev/taxes/1FTFW3LDXRFB40317",
+    "💸 Total Cost of Ownership": "https://api.auto.dev/tco/1FTFW3LDXRFB40317"
+  },
+  "actions": {
+    "Toggle Link Domains": "https://api.auto.dev/listings?vehicle.make=Toyota&vehicle.model=Camry&limit=5&domains=true"
+  }
+}
