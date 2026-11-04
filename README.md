@@ -33,7 +33,7 @@ The bounded reasoning graph is the engine under every call. This app does not co
 | `-serv-multipath` | `flip_judge` | Alert versus skip is a branching policy. |
 | `-serv-kronos` | `check_rules`, `flip_feasibility` | Procedural VIN/listing rules and flip feasibility rules. Output is prose. A number that is not in the facts is dropped, and the deterministic result remains. |
 | Strict `json_schema` | `need_extract`, `flip_judge` | Software consumes the need and the alert-or-skip verdict. |
-| `reasoning_effort` | `low` on gates, extraction, explanations, and Telegram. `medium` on the rules, flip, and personal-alert steps | Day-one default is low. Medium is for several constraints. |
+| `reasoning_effort` | `none` on `report_explain` and `agent_explain` (a function tool on chat completions). `low` on gates, extraction, and Telegram. `medium` on the rules, flip, and personal-alert steps | Chat completions reject `read_computed_facts` unless effort is `none`. The responses tool round-trip is not used for that tool. |
 | Prompt cache, left on | every profile | System text is stable. Changing data stays in the user message. The cache opt-out is for tests, not this preview. |
 | Streaming | `telegram_reply` | The reply is prose and has no second pass. Shadow agent rejects a stream. |
 | Responses reasoning summary | `check_rules` | That step needs the reasoning trace (`output` when the body includes it) beside the rules prose. |

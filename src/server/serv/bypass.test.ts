@@ -101,6 +101,21 @@ describe("SERV layer", () => {
     );
   });
 
+  it("rejects chat function tools that still ask for reasoning effort", () => {
+    const offenders = (Object.keys(PROFILES) as ProfileId[]).filter((id) => {
+      const entry = PROFILES[id] as ServProfile;
+      return entry.endpoint === "chat" && Boolean(entry.applicationTool) && entry.reasoningEffort !== "none";
+    });
+    expect(offenders).toEqual([]);
+    for (const id of ["report_explain", "agent_explain"] as const) {
+      const request = requestFor(id, "facts");
+      expect(request.endpoint).toBe("chat");
+      if (request.endpoint !== "chat") continue;
+      expect(request.reasoning_effort).toBe("none");
+      expect(toolNames(request.tools)).toContain("read_computed_facts");
+    }
+  });
+
   it("uses every documented non-Graph feature on at least one profile", () => {
     const used = new Set<string>();
     for (const id of Object.keys(PROFILES) as ProfileId[]) {
@@ -195,6 +210,7 @@ describe("SERV layer", () => {
     const result = await runServ("report_explain", { user: "lookup", facts: { fairValueUsd: 10000 } }, { fetch: fetchImpl, apiKey: "test" });
     expect(result.ok).toBe(true);
     expect(bodies[0]?.tool_choice?.function?.name).toBe("read_computed_facts");
+    expect((bodies[0] as { reasoning_effort?: string }).reasoning_effort).toBe("none");
     const facts = bodies[0]?.tools.find((tool) => tool.function?.name === "read_computed_facts")?.function as { parameters?: { required?: string[]; properties?: Record<string, unknown> } } | undefined;
     expect(facts?.parameters?.required).toEqual(["seen"]);
     expect(facts?.parameters?.properties?.seen).toBeTruthy();
