@@ -1,4 +1,7 @@
 import type { FullReport } from "@/domain/types";
+import { agentProof, type ServProof } from "@/server/serv";
+
+const CODE_FIELDS = ["fairValueUsd", "priceGap", "percentile", "score", "recalls", "complaintCount", "flip", "subject"];
 
 /** Agent payload: the verdict and the math, without photos or history-report links. */
 export function agentReport(report: FullReport) {
@@ -25,6 +28,6 @@ export function agentReport(report: FullReport) {
     flip: report.computed.flip,
     dataNotes: report.computed.dataNotes,
     assumptions: report.computed.assumptions,
-    proof: report.proof,
+    proof: agentProof((report.proof.servChecks ?? []) as ServProof[], CODE_FIELDS),
   };
 }

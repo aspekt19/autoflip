@@ -1,6 +1,8 @@
 import { fitHeadline, midProfitUsd, walkAwayAskingUsd } from "@/domain/fit";
 import { formatNumber, formatPct, formatUsd, verdictLabel } from "@/domain/format";
+import type { DecisionScene } from "@/domain/decision-note";
 import type { FullReport } from "@/domain/types";
+import { DecisionNote } from "./DecisionNote";
 
 export function ReportView({ report }: { report: FullReport }) {
   const { computed } = report;
@@ -260,48 +262,18 @@ export function ReportView({ report }: { report: FullReport }) {
       </section>
 
       <section className="ask">
-        <h2>Proof of AI</h2>
+        <h2>How to read this</h2>
         <p className="hint">
           We show which data the verdict is based on. We separate facts from estimates. We flag what still needs checking before you buy.
         </p>
-        <p>
-          Inputs hash <code>{report.proof.inputsHash}</code>
-        </p>
-        <p>
-          Model <code>{report.proof.model ?? "none — template summary"}</code> · prompt <code>{report.proof.promptVersion}</code> · summary source{" "}
-          <code>{report.proof.explanationSource}</code>
-        </p>
-        <p>
-          Shadow check: requested {report.proof.shadow.requested ? "yes" : "no"}, outcome <code>{report.proof.shadow.outcome}</code>, max iterations{" "}
-          {report.proof.shadow.maxIterations}.
-        </p>
-        <h3>How this was checked</h3>
-        {(report.proof.servChecks ?? []).length === 0 ? <p className="hint">No model call was recorded for this report.</p> : null}
-        <ul className="refuse">
-          {(report.proof.servChecks ?? []).map((check) => (
-            <li key={`${check.purpose}-${check.latencyMs}`}>
-              {check.purpose}: model {check.modelReported}, tools {check.tools.join(", ") || "none"}
-              {check.features.length ? `, ${check.features.join(" + ")}` : ""}, guard {check.promptGuard}, shadow {check.shadowOutcome}, {check.latencyMs} ms
-              {report.proof.explanationSource === "unavailable" ? ". Explanation unavailable." : ""}
-            </li>
-          ))}
-        </ul>
-        <ul className="step-list">
-          {report.proof.steps.map((step) => (
-            <li key={`${step.id}-${step.status}`}>
-              {step.id}: {step.status}
-            </li>
-          ))}
-        </ul>
-        <details>
-          <summary>Tool outputs</summary>
-          <pre className="doc">{JSON.stringify(report.proof.toolOutputs, null, 2)}</pre>
-        </details>
-        <details>
-          <summary>Model assumptions used</summary>
-          <pre className="doc">{JSON.stringify(computed.assumptions, null, 2)}</pre>
-        </details>
+        <DecisionNote scene={reportScene(report)} proofs={report.proof.servChecks ?? []} />
       </section>
     </article>
   );
+}
+
+function reportScene(report: FullReport): DecisionScene {
+  const purposes = (report.proof.servChecks ?? []).map((item) => item.purpose);
+  if (purposes.includes("check_guard")) return "check";
+  return "report";
 }

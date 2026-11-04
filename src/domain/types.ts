@@ -1,3 +1,5 @@
+import type { DecisionProof } from "./decision-note";
+
 export type ListingSource = "autodev" | "sample";
 
 export type Listing = {
@@ -158,17 +160,7 @@ export type Proof = {
   steps: ProofStep[];
   toolOutputs: Record<string, unknown>;
   explanationSource: "serv" | "template" | "unavailable";
-  servChecks?: Array<{
-    purpose: string;
-    modelRequested: string;
-    modelReported: string;
-    tools: string[];
-    features: string[];
-    promptGuard: string;
-    shadowOutcome: string;
-    shadowMaxIterations: number | null;
-    latencyMs: number;
-  }>;
+  servChecks?: DecisionProof[];
   shadow: {
     requested: boolean;
     hint: string;

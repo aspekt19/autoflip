@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { auditExplanation } from "@/domain/audit";
+import { quotedNumbersStayIn } from "@/domain/decision-note";
 import { haversineMiles } from "@/domain/geo";
 import { sha256Canonical } from "@/domain/hash";
 import { buildComputedReport } from "@/domain/report";
@@ -16,7 +17,7 @@ import {
   SHADOW_HINT,
   SHADOW_MAX_ITERATIONS,
 } from "@/io/serv";
-import { interpretGuard, runServ, type ProfileId, type ServProof } from "@/server/serv";
+import { agentProof, interpretGuard, plannedProof, runServ, type AgentProof, type ProfileId, type ServProof } from "@/server/serv";
 
 export type AssembleInput = {
   mode: Mode;
@@ -213,7 +214,11 @@ export async function assembleReport(input: AssembleInput, deps: AssembleDeps): 
   let explanation = templateExplanation(computed);
   let explanationSource: Proof["explanationSource"] = "template";
   let usedModel: string | null = null;
-  const servChecks: NonNullable<Proof["servChecks"]> = guardProof ? [guardProof] : [];
+  const servChecks: ServProof[] = deps.servKey
+    ? guardProof
+      ? [guardProof]
+      : []
+    : [plannedProof(guardProfile), plannedProof("check_rules"), plannedProof(explainProfile)];
   const shadow = {
     requested: false,
     hint: SHADOW_HINT,
@@ -223,7 +228,18 @@ export async function assembleReport(input: AssembleInput, deps: AssembleDeps): 
 
   if (deps.servKey) {
     shadow.requested = true;
-    const explained = await runServ(explainProfile, { user: JSON.stringify({ facts: factsOf(computed), userLookup: screened.text }) }, {
+    const facts = factsOf(computed);
+    const allowed = JSON.stringify(facts);
+    const rules = await runServ("check_rules", { user: JSON.stringify({ facts, userLookup: screened.text }) }, {
+      fetch: fetchImpl,
+      apiKey: deps.servKey,
+      baseUrl: deps.servBaseUrl,
+      model,
+    });
+    const rulesNote = rules.ok && quotedNumbersStayIn(rules.text, allowed) ? rules.text : null;
+    if (!rulesNote) rules.proof.fallbackUsed = true;
+    servChecks.push(rules.proof);
+    const explained = await runServ(explainProfile, { user: JSON.stringify({ facts, userLookup: screened.text, rulesNote }), facts }, {
       fetch: fetchImpl,
       apiKey: deps.servKey,
       baseUrl: deps.servBaseUrl,
@@ -424,35 +440,38 @@ export async function assembleRadar(
   },
   deps: AssembleDeps,
 ): Promise<
-  | { ok: true; listings: Listing[]; sample: boolean; message: string | null }
-  | { ok: false; status: number; error: string; message: string }
+  | { ok: true; listings: Listing[]; sample: boolean; message: string | null; proof: AgentProof }
+  | { ok: false; status: number; error: string; message: string; proof: AgentProof }
 > {
   const screened = screenUserInput(
     [input.make, input.model, input.zip, input.year?.toString(), input.yearMin?.toString(), input.yearMax?.toString()]
       .filter(Boolean)
       .join(" "),
   );
-  if (!screened.ok) return { ok: false, status: 400, error: "rejected_input", message: screened.reason };
-  if (deps.servKey) {
-    const guard = await runServ("radar_guard", { user: screened.text }, {
-      fetch: deps.fetch ?? fetch,
-      apiKey: deps.servKey,
-      baseUrl: deps.servBaseUrl,
-      model: deps.servModel,
-    });
-    if (!guard.ok || interpretGuard(guard.text) === "block") {
-      return {
-        ok: false,
-        status: guard.ok ? 400 : 503,
-        error: guard.ok ? "rejected_input" : "serv_unavailable",
-        message: guard.ok
-          ? "That input was rejected by the input check."
-          : "The input check could not be completed, so this request was not run.",
-      };
-    }
+  const scanFields = ["score", "verdict", "reason", "priceUsd", "miles"];
+  if (!screened.ok) {
+    return { ok: false, status: 400, error: "rejected_input", message: screened.reason, proof: agentProof([plannedProof("radar_guard")], scanFields) };
+  }
+  const guard = await runServ("radar_guard", { user: screened.text }, {
+    fetch: deps.fetch ?? fetch,
+    apiKey: deps.servKey,
+    baseUrl: deps.servBaseUrl,
+    model: deps.servModel,
+  });
+  const proof = agentProof([guard.proof], scanFields);
+  if (deps.servKey && (!guard.ok || interpretGuard(guard.text) === "block")) {
+    return {
+      ok: false,
+      status: guard.ok ? 400 : 503,
+      error: guard.ok ? "rejected_input" : "serv_unavailable",
+      message: guard.ok
+        ? "That input was rejected by the input check."
+        : "The input check could not be completed, so this request was not run.",
+      proof,
+    };
   }
   if (!input.make.trim()) {
-    return { ok: false, status: 400, error: "make_required", message: "Choose a make." };
+    return { ok: false, status: 400, error: "make_required", message: "Choose a make.", proof };
   }
   if (!deps.autodevKey || !deps.autodev) {
     return {
@@ -461,6 +480,7 @@ export async function assembleRadar(
       sample: true,
       message:
         "No listings key is configured. These five Toyota Camry rows are the labeled sample fixture. They are not the result of your search.",
+      proof,
     };
   }
   const fetchImpl = deps.fetch ?? fetch;
@@ -488,6 +508,7 @@ export async function assembleRadar(
       status: search.error === "demo_limit" ? 429 : 502,
       error: search.error === "demo_limit" ? "demo_limit" : "listings_error",
       message: search.message,
+      proof,
     };
   }
   return {
@@ -495,6 +516,7 @@ export async function assembleRadar(
     listings: search.listings,
     sample: false,
     message: search.listings.length === 0 ? "No listings came back for that search." : null,
+    proof,
   };
 }
 

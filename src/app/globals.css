@@ -548,6 +548,20 @@ pre.doc {
   font-family: var(--mono);
   font-size: 13px;
 }
+.decision {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--paper);
+  margin: 16px 0;
+}
+.decision summary {
+  cursor: pointer;
+  font-family: var(--sans);
+  font-weight: 700;
+  padding: 14px 16px;
+  min-height: 48px;
+}
+.decision p { margin: 0; padding: 0 16px 14px; }
 .ask details { border-top: 1px solid var(--line); }
 .ask summary {
   min-height: 56px;

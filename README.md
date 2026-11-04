@@ -19,20 +19,41 @@ This build is an evaluation preview. The Auto.dev free plan is not a production 
 
 ## How we use SERV
 
-Checked against the SERV Reasoning docs (day one, tools, prompt guard, shadow agent, multipath, Kronos, structured outputs, streaming, usage). Shadow settings are schema `default`s, not call-time arguments. Shadow agent is non-streaming (`stream: false`). Multipath and Kronos are model-id suffixes. The chat-completions response schema does not document a shadow outcome field; we record a header only when its name contains `shadow`, and the documented word `exhausted` if it appears in the body. Otherwise the log says `not_exposed`. Kronos is not enabled: this environment could not measure a live call, and an unmeasured suffix can invalidate JSON.
+Checked against the SERV Reasoning docs (why, day one, tools, prompt guard, content filter, shadow agent, structured outputs, reasoning effort, streaming, prompt caching, application tools, Kronos, multipath, chat completions, responses, usage and billing). Shadow settings are schema `default`s, not call-time arguments. Shadow agent is non-streaming. Multipath and Kronos are model-id suffixes, and they are not combined on one call: Kronos sits on a prose step whose numbers are checked, and the strict JSON step that follows does not use Kronos. The chat-completions schema does not document a proof object. We copy `id`, `object`, `model`, `finish_reason`, `usage`, and, on the Responses API, `output` and `output_text`, only when the body actually contains them. A header is recorded as a shadow outcome only when its name contains `shadow`. The word `exhausted` is recorded when it appears in the body. Otherwise the log says `not_exposed`.
 
 Profiles live in `src/server/serv/profiles.ts`. Every model call uses `runServ(profileId)`. A new service is one new profile. No other file posts to the inference API.
 
+The bounded reasoning graph is the engine under every call. This app does not configure Graph. `serv_disable_content_filter` and `serv_prompt_guard_legacy` are documented and not sent: the filter stays on, and the legacy guard is rejected if it is declared beside the current one. The Messages API is for an Anthropic-shaped client. This app uses Chat Completions and, for the rules step, Responses.
+
+| Feature | Where | Why |
+| --- | --- | --- |
+| `serv_prompt_guard` | every profile | User and agent text is untrusted. The instructions are protected. |
+| Content filter, left on | every profile | Default leak check on Chat Completions and Responses. Nothing here should quote hidden instructions. |
+| `serv_shadow_agent` | `report_explain` (hint about facts vs estimates, 3 iterations), `agent_explain` (agent hint, 3), `personal_alert_review` (one-sentence hint, 2), `flip_feasibility` (comp-count hint, 2), `flip_judge` (estimate hint, 2) | A second pass on wording that can change what a person sees. Hints and caps differ by task. Radar stays at 2 so it fits the 8s budget. |
+| `-serv-multipath` | `flip_judge` | Alert versus skip is a branching policy. |
+| `-serv-kronos` | `check_rules`, `flip_feasibility` | Procedural VIN/listing rules and flip feasibility rules. Output is prose. A number that is not in the facts is dropped, and the deterministic result remains. |
+| Strict `json_schema` | `need_extract`, `flip_judge` | Software consumes the need and the alert-or-skip verdict. |
+| `reasoning_effort` | `low` on gates, extraction, explanations, and Telegram. `medium` on the rules, flip, and personal-alert steps | Day-one default is low. Medium is for several constraints. |
+| Prompt cache, left on | every profile | System text is stable. Changing data stays in the user message. The cache opt-out is for tests, not this preview. |
+| Streaming | `telegram_reply` | The reply is prose and has no second pass. Shadow agent rejects a stream. |
+| Responses reasoning summary | `check_rules` | That step needs the reasoning trace (`output` when the body includes it) beside the rules prose. |
+| Application tool `read_computed_facts` | `report_explain`, `agent_explain` | The writer must read figures the site already calculated. It does not calculate them. |
+| Usage logging | every call | `usage`, `finish_reason`, latency, and the fields above are stored on the proof. |
+
 | Profile | Model suffix | Tools | Why |
 | --- | --- | --- | --- |
-| `need_guard`, `need_extract` | none | guard; extract also has strict `json_schema` | `/find`. The app consumes the JSON. Multipath and Kronos stay off until a measured run shows the schema still validates. |
+| `need_guard`, `need_extract` | none | guard; extract also has strict `json_schema` | `/find`. The app consumes the JSON. |
 | `check_guard` | none | prompt guard | `/check` listing or VIN before the report runs. |
-| `report_guard`, `report_explain` | none | guard; explain also has shadow agent | Personal and Flip full reports. The hint forbids new numbers. Kronos stays off until measured. |
-| `agent_guard`, `agent_explain` | none | same pair as the report | `/api/mcp` `full_report` and `POST /api/v1/report`. |
+| `check_rules` | `-serv-kronos` on the Responses API | prompt guard, reasoning summary | VIN and listing rules. Prose is dropped when it adds a number. |
+| `report_guard`, `report_explain` | none | guard; explain also has shadow agent and `read_computed_facts` | Personal and Flip full reports. |
+| `agent_guard`, `agent_explain` | none | same pair as the report, with the agent hint | `/api/mcp` `full_report` and `POST /api/v1/report`. |
 | `radar_guard` | none | prompt guard | Saved-search text and one-off scans. |
 | `personal_alert_review` | none | prompt guard plus shadow agent | Personal radar sentence. Code owns the numbers. |
-| `flip_judge` | `-serv-multipath` | prompt guard, shadow (`hint` requires facts-only numbers and the word estimate, `max_iterations` 2) | Flip top 5. Code already computed profit, comps, and speed. The model only chooses alert or skip. |
-| `telegram_reply` | none | prompt guard plus shadow agent | `/help` and a bare `/start`. If the call fails, the published connect text is sent. |
+| `flip_feasibility` | `-serv-kronos` | prompt guard plus shadow agent | Flip rules before the verdict. |
+| `flip_judge` | `-serv-multipath` | prompt guard, shadow, strict `json_schema` | Flip top 5. Code already computed profit, comps, and speed. |
+| `telegram_reply` | none | prompt guard, streamed | `/help` and a bare `/start`. If the call fails, the published connect text is sent. |
+
+Paid agent responses (`deal_radar`, `full_report`, `POST /api/v1/report`) always include `proof`. It copies the inference fields that were actually present and adds `profiles` (tools, suffixes, guard result, shadow outcome and iteration cap, latency) plus `codeComputed`. The shopper-facing "Why we decided this" note is rendered from those recorded flags. It is not another model call.
 
 If a SERV call fails or times out, the deterministic result still shows and the log says explanation unavailable. The model cannot change the numbers. `/compare` shows a labeled sample beside that unavailable state. It is not a fabricated model paragraph.
 - Auto.dev calls stop at 900 per UTC month and are cached for 6 hours. A stopped month returns a plain “demo limit reached” message and does not call the provider.

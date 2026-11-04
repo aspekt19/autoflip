@@ -1,4 +1,5 @@
 import { agentReport } from "@/server/agent-report";
+import { agentProof, plannedProof } from "@/server/serv";
 import { assembleReport } from "@/server/assemble";
 import { runtimeDeps } from "@/server/deps";
 import { parseMode, paymentRequiredBody } from "@/server/mcp";
@@ -23,7 +24,15 @@ export async function POST(request: Request) {
   const requirement = requirementsFor(resource, config);
   const settled = await verifyAndSettle(header, requirement, { fetch, facilitatorUrl: config.facilitatorUrl });
   if (!settled.ok) {
-    return Response.json({ error: "payment_rejected", message: settled.error, accepts: [requirement] }, { status: 402 });
+    return Response.json(
+      {
+        error: "payment_rejected",
+        message: settled.error,
+        accepts: [requirement],
+        proof: agentProof([plannedProof("agent_guard")], ["fairValueUsd", "priceGap"]),
+      },
+      { status: 402 },
+    );
   }
 
   const body = (await request.json().catch(() => null)) as Record<string, unknown> | null;
@@ -39,7 +48,10 @@ export async function POST(request: Request) {
     { ...runtimeDeps(), servSurface: "agent" as const },
   );
   if (!assembled.ok) {
-    return Response.json({ error: assembled.error, message: assembled.message, txHash: settled.txHash }, { status: assembled.status });
+    return Response.json(
+      { error: assembled.error, message: assembled.message, txHash: settled.txHash, proof: agentProof([plannedProof("agent_guard")], ["vin", "fairValueUsd", "priceGap"]) },
+      { status: assembled.status },
+    );
   }
   await persistReport(assembled.report);
   return Response.json({ ...agentReport(assembled.report), txHash: settled.txHash });
