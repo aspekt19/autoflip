@@ -1,12 +1,12 @@
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import path from "node:path";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { DOCUMENTED_FEATURES, PROFILES, featuresUsedBy, requestFor, runServ, type ProfileId, type ServProfile } from "./index";
 import { agentReport } from "@/server/agent-report";
 import { buildSampleReport } from "@/server/sample-report";
 import { paymentRequiredBody, radarToolResult } from "@/server/mcp";
 import { agentProof, buildServProof, openservReportFrom } from "./index";
-import { toolCall } from "./run";
+import { messageText, servErrorSummary, toolCall } from "./run";
 
 function filesUnder(dir: string): string[] {
   const found: string[] = [];
@@ -81,6 +81,7 @@ describe("SERV layer", () => {
 
     const feasibility = requestFor("flip_feasibility", "facts");
     expect(feasibility.model).toBe("gpt-5.4-mini-serv-kronos");
+    expect(toolNames(feasibility.tools)).toEqual(["serv_prompt_guard"]);
     expect(feasibility.endpoint).toBe("chat");
     expect("response_format" in feasibility).toBe(false);
     expect(Object.keys(PROFILES)).toEqual(
@@ -194,6 +195,9 @@ describe("SERV layer", () => {
     const result = await runServ("report_explain", { user: "lookup", facts: { fairValueUsd: 10000 } }, { fetch: fetchImpl, apiKey: "test" });
     expect(result.ok).toBe(true);
     expect(bodies[0]?.tool_choice?.function?.name).toBe("read_computed_facts");
+    const facts = bodies[0]?.tools.find((tool) => tool.function?.name === "read_computed_facts")?.function as { parameters?: { required?: string[]; properties?: Record<string, unknown> } } | undefined;
+    expect(facts?.parameters?.required).toEqual(["seen"]);
+    expect(facts?.parameters?.properties?.seen).toBeTruthy();
     expect(bodies[0]?.tools.some((tool) => tool.function?.name === "serv_shadow_agent")).toBe(false);
     expect(bodies[1]?.messages?.some((message) => message.role === "tool" && String(message.content).includes("10000"))).toBe(true);
     expect(bodies[1]?.tools.some((tool) => tool.function?.name === "serv_shadow_agent")).toBe(true);
@@ -247,6 +251,48 @@ describe("SERV layer", () => {
     expect(unpaid.proof.profiles.length).toBeGreaterThan(0);
     expect(unpaid.proof.codeComputed.length).toBeGreaterThan(0);
   });
+});
+
+it("reads text parts, ignores a reasoning-only body, and retries one blank answer", async () => {
+  expect(messageText({ choices: [{ message: { content: [{ type: "reasoning", text: "hidden" }, { type: "text", text: "Worth a look." }] } }] })).toBe("Worth a look.");
+  expect(messageText({ output: [{ type: "output_text", text: "Kept." }] })).toBe("Kept.");
+  expect(messageText({ choices: [{ message: { content: null, reasoning: "hidden only" } }] })).toBe("");
+  expect(servErrorSummary({ error: { type: "invalid_request_error", message: "Invalid schema. Bearer sk-live-secret" } })).not.toContain("sk-live");
+
+  const logged: string[] = [];
+  const spy = vi.spyOn(console, "error").mockImplementation((line) => {
+    logged.push(String(line));
+  });
+  const rejected = await runServ(
+    "report_explain",
+    { user: "lookup", facts: { fairValueUsd: 1 } },
+    {
+      apiKey: "sk-test-secret",
+      fetch: async () => Response.json({ error: { message: "Invalid schema for function read_computed_facts" } }, { status: 400 }),
+    },
+  );
+  expect(rejected.ok).toBe(false);
+  if (rejected.ok) return;
+  expect(rejected.upstream).toContain("Invalid schema");
+  expect(rejected.upstream).not.toContain("sk-test");
+  expect(logged.join(" ")).toContain("HTTP 400");
+  spy.mockRestore();
+
+  let calls = 0;
+  const recovered = await runServ(
+    "flip_judge",
+    { user: "{}" },
+    {
+      apiKey: "test",
+      fetch: async () => {
+        calls += 1;
+        if (calls === 1) return Response.json({ choices: [{ message: { content: "" } }] });
+        return Response.json({ choices: [{ message: { content: "{\"decisions\":[]}" } }] });
+      },
+    },
+  );
+  expect(recovered.ok).toBe(true);
+  expect(calls).toBe(2);
 });
 
 function toolNames(tools: ReadonlyArray<{ name?: string; function?: { name?: string } }>): string[] {

@@ -1,5 +1,5 @@
 import { bearer, secretMatch } from "@/server/secrets";
-import { HOBBY_FUNCTION_MS, runSelftestChecks } from "@/server/serv/selftest";
+import { HOBBY_FUNCTION_MS, runSelftestChecks, selftestRepeat } from "@/server/serv/selftest";
 
 export const dynamic = "force-dynamic";
 /** Parallel checks. The slowest shape is two requests at the profile timeout, under the 60s Hobby cap. */
@@ -25,13 +25,16 @@ async function run(request: Request) {
   if (!apiKey) {
     return Response.json({ error: "not_configured", message: "SERV_API_KEY is not set." }, { status: 503 });
   }
+  const repeat = selftestRepeat(new URL(request.url).searchParams.get("repeat"));
   const checks = await runSelftestChecks({
     apiKey,
     model: process.env.SERV_MODEL,
     baseUrl: process.env.SERV_BASE_URL,
+    repeat,
   });
   return Response.json({
     ok: checks.every((item) => item.ok),
+    repeat,
     maxDurationMs: HOBBY_FUNCTION_MS,
     checks,
   });

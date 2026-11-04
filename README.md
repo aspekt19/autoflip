@@ -29,7 +29,7 @@ The bounded reasoning graph is the engine under every call. This app does not co
 | --- | --- | --- |
 | `serv_prompt_guard` | every profile | User and agent text is untrusted. The instructions are protected. |
 | Content filter, left on | every profile | Default leak check on Chat Completions and Responses. Nothing here should quote hidden instructions. |
-| `serv_shadow_agent` | `report_explain` (hint about facts vs estimates, 3 iterations), `agent_explain` (agent hint, 3), `personal_alert_review` (one-sentence hint, 2), `flip_feasibility` (comp-count hint, 2), `flip_judge` (estimate hint, 2) | A second pass on wording that can change what a person sees. Hints and caps differ by task. Radar stays at 2 so it fits the 8s budget. |
+| `serv_shadow_agent` | `report_explain` and `agent_explain` (facts hint, 2 iterations), `personal_alert_review` (one-sentence hint, 2), `flip_judge` (estimate hint, 2) | A second pass on wording that can change what a person sees. `flip_feasibility` does not use it: Kronos plus a shadow pass ran past its timeout. |
 | `-serv-multipath` | `flip_judge` | Alert versus skip is a branching policy. |
 | `-serv-kronos` | `check_rules`, `flip_feasibility` | Procedural VIN/listing rules and flip feasibility rules. Output is prose. A number that is not in the facts is dropped, and the deterministic result remains. |
 | Strict `json_schema` | `need_extract`, `flip_judge` | Software consumes the need and the alert-or-skip verdict. |
@@ -49,7 +49,7 @@ The bounded reasoning graph is the engine under every call. This app does not co
 | `agent_guard`, `agent_explain` | none | same pair as the report, with the agent hint | `/api/mcp` `full_report` and `POST /api/v1/report`. |
 | `radar_guard` | none | prompt guard | Saved-search text and one-off scans. |
 | `personal_alert_review` | none | prompt guard plus shadow agent | Personal radar sentence. Code owns the numbers. |
-| `flip_feasibility` | `-serv-kronos` | prompt guard plus shadow agent | Flip rules before the verdict. |
+| `flip_feasibility` | `-serv-kronos` | prompt guard | Flip rules before the verdict. No shadow pass, so the step stays inside its timeout. |
 | `flip_judge` | `-serv-multipath` | prompt guard, shadow, strict `json_schema` | Flip top 5. Code already computed profit, comps, and speed. |
 | `telegram_reply` | none | prompt guard, streamed | `/help` and a bare `/start`. If the call fails, the published connect text is sent. |
 

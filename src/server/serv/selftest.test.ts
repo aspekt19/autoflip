@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { GET } from "@/app/api/serv/selftest/route";
 import { profile, PROFILES, type ProfileId } from "./profiles";
 import type { ServDeps, ServResult } from "./run";
-import { distinctSelftestProfiles, HOBBY_FUNCTION_MS, runSelftestChecks, selftestWallClockMs } from "./selftest";
+import { distinctSelftestProfiles, HOBBY_FUNCTION_MS, runSelftestChecks, selftestRepeat, selftestWallClockMs } from "./selftest";
 
 describe("SERV self-test", () => {
   it("covers each distinct request shape once", () => {
@@ -81,5 +81,49 @@ describe("SERV self-test", () => {
     }
     expect(selftestWallClockMs()).toBeLessThan(HOBBY_FUNCTION_MS);
     expect(selftestWallClockMs()).toBe(profile("report_explain").timeoutMs * 2);
+  });
+
+  it("repeats each profile in parallel and scores a 95 percent pass rate", async () => {
+    expect(selftestRepeat("3")).toBe(3);
+    expect(selftestRepeat("9")).toBe(5);
+    expect(selftestRepeat("no")).toBe(1);
+    const counts = new Map<string, number>();
+    const run = async (id: ProfileId): Promise<ServResult> => {
+      const n = (counts.get(id) ?? 0) + 1;
+      counts.set(id, n);
+      const proof: ServResult extends { proof: infer P } ? P : never = {
+        purpose: id,
+        modelRequested: "gpt-5.4-mini",
+        modelReported: "gpt-5.4-mini",
+        tools: [],
+        features: [],
+        promptGuard: "unavailable",
+        shadowOutcome: "not_used",
+        shadowMaxIterations: null,
+        latencyMs: 1,
+        reasoningEffort: null,
+        contentFilter: "default_on",
+        promptCache: "default",
+        streamed: false,
+        endpoint: "chat",
+        applicationTool: null,
+        jsonSchema: null,
+        codeComputed: [],
+        fallbackUsed: n === 1,
+        openserv: null,
+      };
+      if (n === 1) return { ok: false, error: "SERV returned an empty explanation.", status: 200, fallback: "explanation unavailable", upstream: null, proof };
+      return { ok: true, text: "ok", model: "gpt-5.4-mini", shadowOutcome: "not_used", rawStatus: 200, proof };
+    };
+    const checks = await runSelftestChecks({ apiKey: "test-key", repeat: 3 }, run);
+    expect(checks).toHaveLength(distinctSelftestProfiles().length);
+    expect([...counts.values()].every((count) => count === 3)).toBe(true);
+    for (const check of checks) {
+      expect(check.runs).toBe(3);
+      expect(check.passes).toBe(2);
+      expect(check.passRate).toBeCloseTo(2 / 3);
+      expect(check.ok).toBe(false);
+      expect(check.attempts).toHaveLength(3);
+    }
   });
 });
