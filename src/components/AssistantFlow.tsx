@@ -1,6 +1,5 @@
 "use client";
 
-import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import type { SearchDirection } from "@/domain/directions";
@@ -37,9 +36,19 @@ const USE_LABEL: Record<(typeof USE_CASES)[number], string> = {
   unspecified: "Not sure yet",
 };
 
-export function AssistantFlow() {
+const FIND_STEPS = ["Need", "Budget", "Confirm", "Results"] as const;
+
+export function FindFlow() {
+  return <AssistantFlow variant="find" />;
+}
+
+export function CheckFlow() {
+  return <AssistantFlow variant="check" />;
+}
+
+function AssistantFlow({ variant }: { variant: "find" | "check" }) {
   const router = useRouter();
-  const [path, setPath] = useState<"choose" | "check" | null>(null);
+  const path = variant === "find" ? "choose" : "check";
   const [mode, setMode] = useState<Mode>("personal");
   const [text, setText] = useState("");
   const [budget, setBudget] = useState("");
@@ -49,7 +58,8 @@ export function AssistantFlow() {
   const [source, setSource] = useState<"model" | "form" | null>(null);
   const [questions, setQuestions] = useState<FollowUp[]>([]);
   const [answers, setAnswers] = useState<Record<string, string>>({});
-  const [stage, setStage] = useState<"intake" | "follow" | "confirm" | "results">("intake");
+  const [stage, setStage] = useState<"need" | "budget" | "follow" | "confirm" | "results">("need");
+  const [zipDraft, setZipDraft] = useState("");
   const [groups, setGroups] = useState<MatchGroup[]>([]);
   const [sample, setSample] = useState(false);
   const [affordability, setAffordability] = useState(true);
@@ -80,7 +90,7 @@ export function AssistantFlow() {
           budgetUsd: budgetKnown && Number.isFinite(amount) ? amount : null,
           budgetKnown,
           budgetScope,
-          zip: need?.zip ?? null,
+          zip: zipDraft.trim() || need?.zip || null,
           repairAbility: need?.repairAbility,
           useCase: need?.useCase,
           targetProfitUsd: need?.targetProfitUsd,
@@ -286,28 +296,36 @@ export function AssistantFlow() {
     router.push(`/report/${body.id}`);
   }
 
+  const findStep = stage === "need" ? 0 : stage === "budget" || stage === "follow" ? 1 : stage === "confirm" ? 2 : 3;
+
+  function goBack() {
+    setError(null);
+    if (variant === "check" || stage === "need") {
+      router.push("/");
+      return;
+    }
+    if (stage === "budget" || stage === "follow") setStage("need");
+    else if (stage === "confirm") setStage("budget");
+    else setStage("confirm");
+  }
+
   return (
     <div className="panel">
-      <p>
-        <Link href="/report/sample">Try a sample report</Link>
-        <span className="hint"> Labeled sample. It does not spend a credit.</span>
-      </p>
-      {path === null ? (
-        <div className="hero-actions">
-          <button className="action" type="button" onClick={() => setPath("choose")}>
-            Help me choose a car
-          </button>
-          <button className="quiet" type="button" onClick={() => setPath("check")}>
-            Check a specific listing
-          </button>
-        </div>
+      {variant === "find" ? (
+        <ol className="progress" aria-label="Progress">
+          {FIND_STEPS.map((label, index) => (
+            <li key={label} className={index === findStep ? "is-current" : index < findStep ? "is-done" : undefined}>
+              {label}
+            </li>
+          ))}
+        </ol>
       ) : null}
 
-      {path === "choose" && stage === "intake" ? (
+      {path === "choose" && stage === "need" ? (
         <form
           onSubmit={(event) => {
             event.preventDefault();
-            void understand();
+            setStage("budget");
           }}
         >
           <ModePills mode={mode} onMode={setMode} />
@@ -320,6 +338,24 @@ export function AssistantFlow() {
             <label htmlFor="need">What do you need?</label>
             <textarea id="need" rows={4} value={text} onChange={(event) => setText(event.target.value)} placeholder="Need a reliable family car under $18,000, mostly city driving." />
           </div>
+          <div className="btn-row">
+            <button className="ghost" type="button" onClick={goBack}>
+              Back
+            </button>
+            <button className="action" type="submit" disabled={text.trim().length < 8}>
+              Continue
+            </button>
+          </div>
+        </form>
+      ) : null}
+
+      {path === "choose" && stage === "budget" ? (
+        <form
+          onSubmit={(event) => {
+            event.preventDefault();
+            void understand();
+          }}
+        >
           <div className="field">
             <label htmlFor="budget">What&apos;s your budget?</label>
             <input id="budget" value={budget} onChange={(event) => setBudget(event.target.value)} inputMode="decimal" disabled={!budgetKnown} placeholder="18000" />
@@ -341,9 +377,18 @@ export function AssistantFlow() {
               </label>
             </div>
           </fieldset>
-          <button className="action" type="submit" disabled={pending === "need" || text.trim().length < 8}>
-            {pending === "need" ? "Reading…" : "Continue"}
-          </button>
+          <div className="field">
+            <label htmlFor="zip-draft">ZIP, if you know where you&apos;ll shop</label>
+            <input id="zip-draft" value={zipDraft} onChange={(event) => setZipDraft(event.target.value)} inputMode="numeric" placeholder="33101" />
+          </div>
+          <div className="btn-row">
+            <button className="ghost" type="button" onClick={goBack}>
+              Back
+            </button>
+            <button className="action" type="submit" disabled={pending === "need"}>
+              {pending === "need" ? "Reading…" : "Continue"}
+            </button>
+          </div>
         </form>
       ) : null}
 
@@ -381,13 +426,18 @@ export function AssistantFlow() {
               ) : null}
             </div>
           ))}
-          <button className="action" type="submit">
-            Continue
-          </button>
+          <div className="btn-row">
+            <button className="ghost" type="button" onClick={goBack}>
+              Back
+            </button>
+            <button className="action" type="submit">
+              Continue
+            </button>
+          </div>
         </form>
       ) : null}
 
-      {path === "choose" && need && (stage === "confirm" || stage === "results") ? (
+      {path === "choose" && need && stage === "confirm" ? (
         <form
           onSubmit={(event) => {
             event.preventDefault();
@@ -400,7 +450,6 @@ export function AssistantFlow() {
               ? "A model extracted this from your note. Edit anything that is wrong. Directions below are AutoFlip guidance, not market data."
               : "No model reading was available, so this is only what you typed and the words we could match. Nothing was invented."}
           </p>
-          {!affordability && stage === "results" ? <p className="hint">Budget was not set, so affordability was not assessed.</p> : null}
           <div className="field">
             <label htmlFor="note">Your note</label>
             <textarea id="note" rows={3} value={need.note} onChange={(event) => setNeed({ ...need, note: event.target.value })} />
@@ -452,7 +501,10 @@ export function AssistantFlow() {
               onYearMax={setYearMax}
             />
           ) : null}
-          <div className="hero-actions">
+          <div className="btn-row">
+            <button className="ghost" type="button" onClick={goBack}>
+              Back
+            </button>
             <button className="action" type="submit" disabled={pending === "match"}>
               {pending === "match" ? "Searching…" : "Find matching cars"}
             </button>
@@ -462,6 +514,7 @@ export function AssistantFlow() {
 
       {stage === "results" ? (
         <div>
+          {!affordability ? <p className="hint">Budget was not set, so affordability was not assessed.</p> : null}
           {sample ? <p className="warn-box">Sample. These rows are the labeled fixture, not live matches for your note.</p> : null}
           {groups.length === 0 ? <p>No directions yet. Choose what the car is for, then search again.</p> : null}
           {groups.map((group) => (
@@ -532,30 +585,28 @@ export function AssistantFlow() {
             <label htmlFor="vin-zip">ZIP</label>
             <input id="vin-zip" value={vinZip} onChange={(event) => setVinZip(event.target.value)} inputMode="numeric" />
           </div>
-          <button className="action" type="submit" disabled={pending === "report"}>
-            {pending === "report" ? "Building report…" : "Full analysis — 1 credit"}
-          </button>
+          <div className="btn-row">
+            <button className="ghost" type="button" onClick={goBack}>
+              Back
+            </button>
+            <button className="action" type="submit" disabled={pending === "report"}>
+              {pending === "report" ? "Building report…" : "Full analysis — 1 credit"}
+            </button>
+          </div>
         </form>
+      ) : null}
+
+      {variant === "find" && stage === "results" ? (
+        <div className="btn-row">
+          <button className="ghost" type="button" onClick={goBack}>
+            Back
+          </button>
+        </div>
       ) : null}
 
       {error ? (
         <p className="warn" role="alert">
           {error}
-        </p>
-      ) : null}
-      {path !== null ? (
-        <p>
-          <button
-            className="quiet"
-            type="button"
-            onClick={() => {
-              setPath(null);
-              setStage("intake");
-              setError(null);
-            }}
-          >
-            Start over
-          </button>
         </p>
       ) : null}
     </div>
