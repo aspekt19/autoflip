@@ -1,5 +1,6 @@
 import { scoreRadar } from "@/domain/radar";
 import { agentReport } from "@/server/agent-report";
+import { agentProof, plannedProof } from "@/server/serv";
 import { assembleRadar, assembleReport } from "@/server/assemble";
 import { runtimeDeps } from "@/server/deps";
 import {
@@ -60,11 +61,11 @@ export async function POST(request: Request) {
         rpcResult(id, {
           content: [{ type: "text", text: result.message }],
           isError: true,
-          structuredContent: { error: result.error, message: result.message },
+          structuredContent: { error: result.error, message: result.message, proof: result.proof },
         }),
       );
     }
-    const payload = radarToolResult(scoreRadar(result.listings, parseMode(args.mode)), result.sample, result.message);
+    const payload = radarToolResult(scoreRadar(result.listings, parseMode(args.mode)), result.sample, result.message, result.proof);
     return Response.json(rpcResult(id, { content: [{ type: "text", text: JSON.stringify(payload) }], structuredContent: payload }));
   }
 
@@ -91,7 +92,12 @@ export async function POST(request: Request) {
         rpcResult(id, {
           content: [{ type: "text", text: settled.error }],
           isError: true,
-          structuredContent: { error: "payment_rejected", message: settled.error, next_action: "Create a new payment and retry." },
+          structuredContent: {
+            error: "payment_rejected",
+            message: settled.error,
+            next_action: "Create a new payment and retry.",
+            proof: agentProof([plannedProof("agent_guard")], ["fairValueUsd", "priceGap"]),
+          },
         }),
       );
     }
@@ -109,7 +115,12 @@ export async function POST(request: Request) {
         rpcResult(id, {
           content: [{ type: "text", text: assembled.message }],
           isError: true,
-          structuredContent: { error: assembled.error, message: assembled.message, txHash: settled.txHash },
+          structuredContent: {
+            error: assembled.error,
+            message: assembled.message,
+            txHash: settled.txHash,
+            proof: agentProof([plannedProof("agent_guard"), plannedProof("check_rules"), plannedProof("agent_explain")], ["vin", "fairValueUsd", "priceGap"]),
+          },
         }),
       );
     }

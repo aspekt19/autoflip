@@ -1,4 +1,5 @@
 import { ASSUMPTIONS } from "./assumptions";
+import type { DecisionProof } from "./decision-note";
 import { canonicalString, sha256Canonical } from "./hash";
 import { median, percentileValue, roundDollars } from "./stats";
 import type { Listing, Mode } from "./types";
@@ -75,6 +76,7 @@ export type WatchAlert = {
   why: string;
   numbers: AlertNumbers;
   sample: boolean;
+  checks?: DecisionProof[];
 };
 
 export type PrefilterDecision =

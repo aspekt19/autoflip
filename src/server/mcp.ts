@@ -1,6 +1,7 @@
 import { scoreRadar } from "@/domain/radar";
 import type { Mode } from "@/domain/types";
 import { paymentsConfigured, readX402Config, requirementsFor, type PaymentRequirements } from "@/io/x402";
+import { agentProof, plannedProof, type AgentProof } from "@/server/serv";
 
 const PROTOCOL = "2025-06-18";
 
@@ -9,7 +10,7 @@ export function toolList() {
     {
       name: "deal_radar",
       description:
-        "Free scan of current listings for one make and model. Returns a deal score from comparable asking prices in that result set. Does not charge. Recalls and fuel are not included; use full_report for those.",
+        "Free scan of current listings for one make and model. Returns a deal score from comparable asking prices in that result set. Does not charge. Recalls and fuel are not included; use full_report for those. The result always includes proof: profiles that ran, tools, model suffixes, guard result, shadow outcome and iteration cap, latency, which fields were computed in code, and any id, model, finish_reason, usage, or reasoning output the inference response included.",
       inputSchema: {
         type: "object",
         properties: {
@@ -27,7 +28,7 @@ export function toolList() {
     {
       name: "full_report",
       description:
-        "Paid AutoFlip verdict for one VIN. The price is the configured x402 amount. Ask the human before paying. Call once without a payment to read the requirements, then call again with the payment payload from a Kite Passport session.",
+        "Paid AutoFlip verdict for one VIN. The price is the configured x402 amount. Ask the human before paying. Call once without a payment to read the requirements, then call again with the payment payload from a Kite Passport session. Every response includes proof: profiles that ran, tools, model suffixes, guard result, shadow outcome and iteration cap, latency, which fields were computed in code, and any id, model, finish_reason, usage, or reasoning output the inference response included.",
       inputSchema: {
         type: "object",
         properties: {
@@ -49,13 +50,16 @@ export function paymentRequiredBody(resource: string): {
   message: string;
   accepts?: PaymentRequirements[];
   next_action: string;
+  proof: AgentProof;
 } {
   const config = readX402Config();
+  const proof = agentProof([plannedProof("agent_guard"), plannedProof("check_rules"), plannedProof("agent_explain")], ["fairValueUsd", "priceGap", "score"]);
   if (!paymentsConfigured(config)) {
     return {
       error: "payments_not_configured",
       message: "The agent payment endpoint is not configured yet (payee, network, or asset is empty). No charge was attempted.",
       next_action: "Set X402_PAY_TO, X402_NETWORK, and X402_ASSET, then retry.",
+      proof,
     };
   }
   return {
@@ -64,6 +68,7 @@ export function paymentRequiredBody(resource: string): {
     accepts: [requirementsFor(resource, config)],
     next_action:
       "Pay this resource with a Kite Passport session using the x402 requirements, then call full_report again with the payment payload.",
+    proof,
   };
 }
 
@@ -89,10 +94,11 @@ export function describeInitialize(id: unknown) {
   });
 }
 
-export function radarToolResult(rows: ReturnType<typeof scoreRadar>, sample: boolean, message: string | null) {
+export function radarToolResult(rows: ReturnType<typeof scoreRadar>, sample: boolean, message: string | null, proof?: unknown) {
   return {
     sample,
     message,
+    ...(proof !== undefined ? { proof } : {}),
     listings: rows.map((row) => ({
       vin: row.listing.vin,
       year: row.listing.year,

@@ -2,7 +2,9 @@
 
 import { useRouter } from "next/navigation";
 import { useState } from "react";
+import type { DecisionProof } from "@/domain/decision-note";
 import type { SearchDirection } from "@/domain/directions";
+import { DecisionNote } from "./DecisionNote";
 import { USE_CASES, type FollowUp, type StructuredNeed } from "@/domain/need";
 import type { Mode } from "@/domain/types";
 import { MakeModelFields } from "./MakeModelFields";
@@ -56,6 +58,7 @@ function AssistantFlow({ variant }: { variant: "find" | "check" }) {
   const [budgetScope, setBudgetScope] = useState<StructuredNeed["budgetScope"]>("unspecified");
   const [need, setNeed] = useState<StructuredNeed | null>(null);
   const [source, setSource] = useState<"model" | "form" | null>(null);
+  const [checks, setChecks] = useState<DecisionProof[]>([]);
   const [questions, setQuestions] = useState<FollowUp[]>([]);
   const [answers, setAnswers] = useState<Record<string, string>>({});
   const [stage, setStage] = useState<"need" | "budget" | "follow" | "confirm" | "results">("need");
@@ -101,6 +104,7 @@ function AssistantFlow({ variant }: { variant: "find" | "check" }) {
         source?: "model" | "form";
         need?: StructuredNeed;
         followUps?: FollowUp[];
+        checks?: DecisionProof[];
         message?: string;
       };
       if (!response.ok || !body.need) {
@@ -109,6 +113,7 @@ function AssistantFlow({ variant }: { variant: "find" | "check" }) {
       }
       setNeed(body.need);
       setSource(body.source ?? "form");
+      setChecks(body.checks ?? []);
       const next = body.followUps ?? [];
       if (!followUp && next.length > 0) {
         setQuestions(next);
@@ -522,6 +527,7 @@ function AssistantFlow({ variant }: { variant: "find" | "check" }) {
 
       {stage === "results" ? (
         <div>
+          <DecisionNote scene="find" proofs={checks} />
           {!affordability ? <p className="hint">Budget was not set, so affordability was not assessed.</p> : null}
           {sample ? <p className="warn-box">Sample. These rows are the labeled fixture, not live matches for your note.</p> : null}
           {groups.length === 0 ? <p>No directions yet. Choose what the car is for, then search again.</p> : null}

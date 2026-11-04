@@ -1,0 +1,54 @@
+import { describe, expect, it } from "vitest";
+import { quotedNumbersStayIn, whyWeDecided, type DecisionProof } from "./decision-note";
+
+const banned = /\b(openserv|gpt-|serv_|kronos|multipath|shadow|json|hackathon|judges?|crypto|x402|kite|wallet)\b/i;
+
+function proof(partial: Partial<DecisionProof> & Pick<DecisionProof, "purpose">): DecisionProof {
+  return {
+    tools: [],
+    features: [],
+    promptGuard: "not_used",
+    shadowOutcome: "not_used",
+    shadowMaxIterations: null,
+    latencyMs: 10,
+    ...partial,
+  };
+}
+
+describe("why we decided", () => {
+  it("turns recorded checks into plain language and does not invent a source name", () => {
+    const paragraphs = whyWeDecided("flip", [
+      proof({ purpose: "radar_guard", tools: ["serv_prompt_guard"], promptGuard: "allow" }),
+      proof({ purpose: "flip_feasibility", tools: ["serv_prompt_guard", "serv_shadow_agent"], features: ["kronos"], shadowOutcome: "not_exposed", shadowMaxIterations: 2 }),
+      proof({
+        purpose: "flip_judge",
+        tools: ["serv_prompt_guard", "serv_shadow_agent"],
+        features: ["multipath"],
+        jsonSchema: "flip_alert_judgment",
+        promptGuard: "passed",
+        shadowOutcome: "not_exposed",
+        shadowMaxIterations: 2,
+      }),
+    ]);
+    const text = paragraphs.join(" ");
+    expect(text).toMatch(/safety check/i);
+    expect(text).toMatch(/second pass/i);
+    expect(text).toMatch(/more than one way/i);
+    expect(text).toMatch(/fixed set of rules/i);
+    expect(text).toMatch(/fixed form/i);
+    expect(text).toMatch(/calculated/i);
+    expect(text).not.toMatch(banned);
+    expect(text).not.toMatch(/\{|\}/);
+  });
+
+  it("says the calculated result stands when no check was recorded", () => {
+    const text = whyWeDecided("find", []).join(" ");
+    expect(text).toMatch(/not recorded|missing or unusable|Nothing was invented/i);
+    expect(text).not.toMatch(banned);
+  });
+
+  it("rejects a sentence that introduces a number the facts do not contain", () => {
+    expect(quotedNumbersStayIn("Estimate about $1,200 from 5 cars.", JSON.stringify({ profitMidUsd: 1200, compCount: 5 }))).toBe(true);
+    expect(quotedNumbersStayIn("Profit near $9,999.", JSON.stringify({ profitMidUsd: 1200 }))).toBe(false);
+  });
+});

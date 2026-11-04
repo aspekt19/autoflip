@@ -56,9 +56,9 @@ export default function DevelopersPage() {
         <p>
           Each run tries a Kite Passport testnet session payment to <code>POST /api/v1/radar-ticket</code>. Required together: <code>KITE_PASSPORT_BASE_URL</code>, <code>KITE_SESSION_ID</code>, <code>KITE_SESSION_TOKEN</code>, <code>X402_PAY_TO</code>, <code>X402_ASSET</code>, and <code>X402_NETWORK=kite-testnet</code>. Anything missing is logged as not configured. A transaction reference is recorded only when the execute response includes one.
         </p>
-        <h2>SERV</h2>
+        <h2>Writing checks</h2>
         <p>
-          User text goes through a local screen and, when <code>SERV_API_KEY</code> is set, through <code>serv_prompt_guard</code>. The explanation call also sends <code>serv_prompt_guard</code> and <code>serv_shadow_agent</code> (hint: every number must be in the computed facts, max 2 iterations). AutoFlip then re-checks dollars, percentages, mileages, and VINs. A mismatch, or a shadow outcome of exhausted or failed, is replaced by the deterministic template. The report’s Proof of AI block records the steps, the inputs hash, the tool outputs, and the model.
+          Set <code>SERV_API_KEY</code> to turn on the writing checks. Without it, reports keep the calculated summary. Paid tool results always include a <code>proof</code> object. The README lists which checks that object records.
         </p>
       </section>
       </div>
