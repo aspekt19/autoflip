@@ -4,6 +4,8 @@ import Link from "next/link";
 import type { DecisionProof } from "@/domain/decision-note";
 import { CoverageLine } from "@/components/CoverageNote";
 import { DecisionNote } from "@/components/DecisionNote";
+import { PriceBadgeView, PriceRatingHow } from "@/components/PriceBadge";
+import type { PriceBadge } from "@/domain/price-badge";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useState, type FormEvent } from "react";
 import { MakeModelFields } from "@/components/MakeModelFields";
@@ -26,6 +28,7 @@ type Row = {
   verdict: string;
   reason: string;
   source: string;
+  badge?: PriceBadge;
 };
 
 function RadarInner() {
@@ -45,7 +48,7 @@ function RadarInner() {
   const [busyVin, setBusyVin] = useState<string | null>(null);
   const [demo, setDemo] = useState(false);
   const [searches, setSearches] = useState<Array<{ id: string; name: string; mode: string; criteria: { priceMax: number; zip: string; radiusMiles: number; make?: string; model?: string }; preset: boolean }>>([]);
-  const [alerts, setAlerts] = useState<Array<{ id: string; vin: string; why: string; createdAt: string; mode: string; priceUsd: number; year: number; make: string; model: string; checks?: DecisionProof[]; coverage?: string; coverageLevel?: "low" | "medium" | "high" }>>([]);
+  const [alerts, setAlerts] = useState<Array<{ id: string; vin: string; why: string; createdAt: string; mode: string; priceUsd: number; year: number; make: string; model: string; checks?: DecisionProof[]; coverage?: string; coverageLevel?: "low" | "medium" | "high"; badge?: PriceBadge }>>([]);
   const [watchNote, setWatchNote] = useState<string | null>(null);
   const [checking, setChecking] = useState(false);
   const [telegramNote, setTelegramNote] = useState<string | null>(null);
@@ -291,6 +294,7 @@ function RadarInner() {
                 <h2 className="car-title">
                   {alert.year} {alert.make} {alert.model}
                 </h2>
+                {alert.badge ? <PriceBadgeView badge={alert.badge} /> : null}
                 <p><strong>Why this car. </strong>{alert.why}</p>
                 {alert.coverage && alert.coverageLevel ? (
                   <CoverageLine confidence={alert.coverageLevel} sentence={alert.coverage} />
@@ -311,7 +315,12 @@ function RadarInner() {
             </article>
           ))}
         </div>
-        {rows && rows.length > 0 ? <h2 id="scan-results">Scan results</h2> : null}
+        {rows && rows.length > 0 ? (
+          <>
+            <h2 id="scan-results">Scan results</h2>
+            <PriceRatingHow />
+          </>
+        ) : null}
         {sample ? (
           <p className="warn-box">
             <span className="file-chip">Sample</span> {message}
@@ -343,6 +352,7 @@ function RadarInner() {
                   {row.miles === null ? "No mileage" : `${formatNumber(row.miles)} miles`}
                   {row.city ? ` · ${row.city}, ${row.state ?? ""}` : ""}
                 </p>
+                {row.badge ? <PriceBadgeView badge={row.badge} /> : null}
                 <p><strong>Why this car. </strong>{row.reason}</p>
                 <p className="mono">{row.vin}</p>
               </div>

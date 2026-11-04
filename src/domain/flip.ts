@@ -1,4 +1,6 @@
 import { ASSUMPTIONS } from "./assumptions";
+import type { RepairAbility } from "./need";
+import { reconUsd } from "./recon";
 import { median, percentileValue, roundDollars } from "./stats";
 import type { FlipMath } from "./types";
 
@@ -8,6 +10,8 @@ export function flipMath(input: {
   miles: number | null;
   adjustedCompPrices: number[];
   compCount: number;
+  repairAbility?: RepairAbility;
+  targetProfitUsd?: number | null;
 }): FlipMath | null {
   if (input.adjustedCompPrices.length < ASSUMPTIONS.minComps) return null;
   const low = percentileValue(input.adjustedCompPrices, 25);
@@ -16,8 +20,13 @@ export function flipMath(input: {
   if (low === null || mid === null || high === null) return null;
 
   const accidents = input.accidentCount ?? 0;
-  let recon = ASSUMPTIONS.flipReconBaseUsd + accidents * ASSUMPTIONS.flipReconPerAccidentUsd;
-  if ((input.miles ?? 0) >= ASSUMPTIONS.flipHighMileThreshold) recon += ASSUMPTIONS.flipReconHighMileUsd;
+  const skilled = input.repairAbility && input.repairAbility !== "unknown";
+  const recon = skilled
+    ? reconUsd({ miles: input.miles, accidentCount: accidents, repairAbility: input.repairAbility }).usd
+    : ASSUMPTIONS.flipReconBaseUsd +
+      accidents * ASSUMPTIONS.flipReconPerAccidentUsd +
+      ((input.miles ?? 0) >= ASSUMPTIONS.flipHighMileThreshold ? ASSUMPTIONS.flipReconHighMileUsd : 0);
+  const profitTarget = input.targetProfitUsd ?? ASSUMPTIONS.flipDesiredProfitUsd;
 
   const resaleLowUsd = roundDollars(low);
   const resaleMidUsd = roundDollars(mid);
@@ -29,7 +38,7 @@ export function flipMath(input: {
     resaleMidUsd * (1 - ASSUMPTIONS.flipSellFriction) -
       ASSUMPTIONS.flipTitleFeeUsd -
       recon -
-      ASSUMPTIONS.flipDesiredProfitUsd,
+      profitTarget,
   );
 
   let timeToSellRisk: FlipMath["timeToSellRisk"] = "low";

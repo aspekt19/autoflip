@@ -1,4 +1,5 @@
 import { ASSUMPTIONS } from "./assumptions";
+import type { PriceBadge } from "./price-badge";
 import type { CoverageConfidence } from "./coverage";
 import type { DecisionProof } from "./decision-note";
 import { canonicalString, sha256Canonical } from "./hash";
@@ -75,6 +76,7 @@ export type WatchAlert = {
   city: string | null;
   state: string | null;
   why: string;
+  badge?: PriceBadge;
   numbers: AlertNumbers;
   sample: boolean;
   checks?: DecisionProof[];

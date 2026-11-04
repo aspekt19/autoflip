@@ -56,6 +56,7 @@ function normalizeCriteria(criteria: WatchCriteria, mode: "personal" | "flip"): 
       zip: String(criteria.zip),
       radiusMiles: Number(criteria.radiusMiles || 50),
       repairAbility: criteria.repairAbility ?? "unknown",
+      minProfitUsd: typeof criteria.minProfitUsd === "number" ? criteria.minProfitUsd : undefined,
     };
   }
   const models = modelList(criteria);

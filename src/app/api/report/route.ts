@@ -22,6 +22,10 @@ export async function POST(request: Request) {
   const vin = typeof body.vin === "string" ? body.vin : undefined;
   const askingPriceUsd = typeof body.askingPriceUsd === "number" ? body.askingPriceUsd : undefined;
   const miles = typeof body.miles === "number" ? body.miles : undefined;
+  const repairAbility = body.repairAbility === "none" || body.repairAbility === "minor" || body.repairAbility === "major" || body.repairAbility === "unknown"
+    ? body.repairAbility
+    : undefined;
+  const targetProfitUsd = typeof body.targetProfitUsd === "number" ? body.targetProfitUsd : undefined;
   const zip = typeof body.zip === "string" ? body.zip : undefined;
   if (isVinOnlyLookup({ url, vin })) {
     const missing = vinDetailGaps({ askingPriceUsd, miles, zip });
@@ -70,6 +74,8 @@ export async function POST(request: Request) {
       year: typeof body.year === "number" ? body.year : undefined,
       askingPriceUsd,
       miles,
+      repairAbility,
+      targetProfitUsd,
     },
     { ...runtimeDeps(), servSurface: body.surface === "check" ? "check" : "report" },
   );

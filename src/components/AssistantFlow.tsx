@@ -1,7 +1,9 @@
 "use client";
 
 import { parseCountInput, parseUsdInput } from "@/domain/budget";
+import type { PriceBadge } from "@/domain/price-badge";
 import { whyThisCar } from "@/domain/why-car";
+import { PriceBadgeView, PriceRatingHow } from "./PriceBadge";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import type { DecisionProof } from "@/domain/decision-note";
@@ -26,6 +28,9 @@ type ListingCard = {
   primaryImage: string | null;
   source: string;
   overBudget?: boolean;
+  badge?: PriceBadge;
+  flipNote?: string | null;
+  clearsTarget?: boolean | null;
 };
 
 type MatchGroup = {
@@ -85,6 +90,14 @@ function AssistantFlow({ variant }: { variant: "find" | "check" }) {
   const [vinPrice, setVinPrice] = useState("");
   const [vinMiles, setVinMiles] = useState("");
   const [vinZip, setVinZip] = useState("");
+  const [freeCheck, setFreeCheck] = useState<{
+    title: string;
+    sample?: boolean;
+    badge: PriceBadge;
+    reasons: string[];
+    coverage: string;
+    coverageLevel: "low" | "medium" | "high";
+  } | null>(null);
 
   async function understand(followUp?: { id: FollowUp["id"]; value: string }) {
     setError(null);
@@ -285,6 +298,7 @@ function AssistantFlow({ variant }: { variant: "find" | "check" }) {
                   zip: need.zip,
                   radiusMiles: 50,
                   repairAbility: need.repairAbility,
+                  minProfitUsd: need.targetProfitUsd ?? undefined,
                 }
               : {
                   models: direction.models.slice(0, 6),
@@ -319,7 +333,7 @@ function AssistantFlow({ variant }: { variant: "find" | "check" }) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(
           listingLink
-            ? { mode: need.mode, url: car.vdp, zip: need.zip ?? undefined, surface: "check" }
+            ? { mode: need.mode, url: car.vdp, zip: need.zip ?? undefined, surface: "check", repairAbility: need.repairAbility, targetProfitUsd: need.targetProfitUsd }
             : {
                 mode: need.mode,
                 surface: "check",
@@ -327,6 +341,8 @@ function AssistantFlow({ variant }: { variant: "find" | "check" }) {
                 askingPriceUsd: car.priceUsd ?? undefined,
                 miles: car.miles ?? undefined,
                 zip: need.zip ?? undefined,
+                repairAbility: need.repairAbility,
+                targetProfitUsd: need.targetProfitUsd,
               },
         ),
       });
@@ -343,6 +359,54 @@ function AssistantFlow({ variant }: { variant: "find" | "check" }) {
       router.push(`/report/${body.id}`);
     } catch {
       setError("The report request did not finish.");
+    } finally {
+      setPending(null);
+    }
+  }
+
+  function checkPayload() {
+    const price = checkKind === "vin" ? parseUsdInput(vinPrice) : null;
+    const miles = checkKind === "vin" ? parseCountInput(vinMiles) : null;
+    return checkKind === "link"
+      ? { mode, url: lookup.trim(), zip: vinZip.trim() || undefined }
+      : { mode, vin: lookup.trim(), askingPriceUsd: price, miles, zip: vinZip.trim() };
+  }
+
+  async function previewCheck() {
+    setError(null);
+    if (!lookup.trim()) {
+      setError(checkKind === "vin" ? "Enter a 17-character VIN." : "Paste a listing link.");
+      return;
+    }
+    const price = checkKind === "vin" ? parseUsdInput(vinPrice) : null;
+    const miles = checkKind === "vin" ? parseCountInput(vinMiles) : null;
+    if (checkKind === "vin" && (price === null || miles === null || !vinZip.trim())) {
+      setError(price === null ? "Enter the asking price, like $18,773." : miles === null ? "Enter the mileage, like 109,333." : "Enter a ZIP.");
+      return;
+    }
+    setPending("preview");
+    setFreeCheck(null);
+    try {
+      const response = await fetch("/api/check", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(checkPayload()),
+      });
+      const body = (await response.json()) as { title?: string; badge?: PriceBadge; reasons?: string[]; coverage?: string; coverageLevel?: "low" | "medium" | "high"; sample?: boolean; message?: string };
+      if (!response.ok || !body.badge || !body.title) {
+        setError(body.message || "The price check did not finish.");
+        return;
+      }
+      setFreeCheck({
+        title: body.title,
+        sample: body.sample,
+        badge: body.badge,
+        reasons: body.reasons ?? [],
+        coverage: body.coverage ?? "",
+        coverageLevel: body.coverageLevel ?? "low",
+      });
+    } catch {
+      setError("The price check did not finish.");
     } finally {
       setPending(null);
     }
@@ -500,10 +564,23 @@ function AssistantFlow({ variant }: { variant: "find" | "check" }) {
             void answerFollowUps();
           }}
         >
-          <p className="hint">One or two questions. Nothing else.</p>
+          <p className="hint">{need?.mode === "flip" ? "These answers change the reconditioning assumption and the profit target. They are not a quote." : "A couple of questions. Nothing else."}</p>
           {questions.map((question) => (
             <div className="field" key={question.id}>
               <label htmlFor={question.id}>{question.prompt}</label>
+              {question.id === "profit" ? (
+                <div className="pills">
+                  {[
+                    ["1000", "$1,000"],
+                    ["1500", "$1,500"],
+                    ["2500", "$2,500+"],
+                  ].map(([value, label]) => (
+                    <label className="pill" key={value}>
+                      <input type="radio" name="profit" checked={answers.profit === value} onChange={() => setAnswers({ ...answers, profit: value })} /> {label}
+                    </label>
+                  ))}
+                </div>
+              ) : null}
               {question.id === "use" ? (
                 <select id={question.id} value={answers.use ?? ""} onChange={(event) => setAnswers({ ...answers, use: event.target.value })}>
                   <option value="">Choose</option>
@@ -517,13 +594,13 @@ function AssistantFlow({ variant }: { variant: "find" | "check" }) {
               {question.id === "repair" ? (
                 <select id={question.id} value={answers.repair ?? ""} onChange={(event) => setAnswers({ ...answers, repair: event.target.value })}>
                   <option value="">Choose</option>
-                  <option value="none">I won&apos;t do repairs</option>
-                  <option value="minor">Minor repairs</option>
-                  <option value="major">I can do major repairs</option>
+                  <option value="none">None</option>
+                  <option value="minor">Basic</option>
+                  <option value="major">Can do mechanical work</option>
                 </select>
               ) : null}
-              {question.id === "zip" || question.id === "profit" ? (
-                <input id={question.id} value={answers[question.id] ?? ""} onChange={(event) => setAnswers({ ...answers, [question.id]: event.target.value })} />
+              {question.id === "zip" || question.id === "cash" ? (
+                <input id={question.id} value={answers[question.id] ?? ""} onChange={(event) => setAnswers({ ...answers, [question.id]: event.target.value })} inputMode="decimal" placeholder={question.id === "cash" ? "for example 12000" : "ZIP"} />
               ) : null}
             </div>
           ))}
@@ -548,13 +625,19 @@ function AssistantFlow({ variant }: { variant: "find" | "check" }) {
           <h3>Here&apos;s what I understood</h3>
           <p className="hint">
             {source === "model"
-              ? "A model extracted this from your note. Edit anything that is wrong. Directions below are AutoFlip guidance, not market data."
-              : "No model reading was available, so this is only what you typed and the words we could match. Nothing was invented."}
+              ? "We read this from your note. Edit anything that is wrong. Directions below are guidance, not a market study."
+              : "This is only what you typed and the words we could match. Nothing was invented."}
           </p>
           <div className="field">
             <label htmlFor="note">Your note</label>
             <textarea id="note" rows={3} value={need.note} onChange={(event) => setNeed({ ...need, note: event.target.value })} />
           </div>
+          {need.mode === "flip" ? (
+            <p className="hint">
+              Profit target {need.targetProfitUsd === null ? "not set" : `$${need.targetProfitUsd.toLocaleString("en-US")}`}. Repair skill{" "}
+              {need.repairAbility === "none" ? "none" : need.repairAbility === "minor" ? "basic" : need.repairAbility === "major" ? "mechanical work" : "not set"}.
+            </p>
+          ) : (
           <div className="field">
             <label htmlFor="use-edit">Use</label>
             <select id="use-edit" value={need.useCase} onChange={(event) => setNeed({ ...need, useCase: event.target.value as StructuredNeed["useCase"] })}>
@@ -565,12 +648,13 @@ function AssistantFlow({ variant }: { variant: "find" | "check" }) {
               ))}
             </select>
           </div>
+          )}
           <div className="field">
             <label htmlFor="zip-edit">ZIP</label>
             <input id="zip-edit" value={need.zip ?? ""} onChange={(event) => setNeed({ ...need, zip: event.target.value || null })} />
           </div>
           <div className="field">
-            <label htmlFor="budget-edit">Budget</label>
+            <label htmlFor="budget-edit">{need.mode === "flip" ? "Cash you can put in" : "Budget"}</label>
             <input
               id="budget-edit"
               value={need.budgetUsd ?? ""}
@@ -616,6 +700,7 @@ function AssistantFlow({ variant }: { variant: "find" | "check" }) {
       {stage === "results" ? (
         <div id="find-results">
           <h2>Cars that fit</h2>
+          <PriceRatingHow />
           <DecisionNote scene="find" proofs={checks} />
           {!affordability ? <p className="hint">Budget was not set, so affordability was not assessed.</p> : null}
           {sample ? <p className="warn-box">Sample. These rows are the labeled fixture, not live matches for your note.</p> : null}
@@ -646,6 +731,10 @@ function AssistantFlow({ variant }: { variant: "find" | "check" }) {
                     {car.city ? ` · ${car.city}` : ""}
                     {car.overBudget ? " · slightly over budget" : ""}
                     {car.source === "sample" ? " · Sample" : ""}
+                    {car.badge ? <PriceBadgeView badge={car.badge} /> : null}
+                    {car.flipNote ? <p className="hint">{car.flipNote}</p> : null}
+                    {car.clearsTarget === false ? <p className="hint">Under the profit target, so it ranks lower.</p> : null}
+                    {car.clearsTarget === true ? <p className="hint">Clears the profit target. That target is an assumption, not a promised sale.</p> : null}
                     {car.vdp ? (
                       <>
                         {" "}
@@ -680,7 +769,7 @@ function AssistantFlow({ variant }: { variant: "find" | "check" }) {
         <form
           onSubmit={(event) => {
             event.preventDefault();
-            void checkListing();
+            void previewCheck();
           }}
         >
           <ModePills mode={mode} onMode={setMode} />
@@ -717,10 +806,27 @@ function AssistantFlow({ variant }: { variant: "find" | "check" }) {
             <button className="ghost" type="button" onClick={goBack}>
               Back
             </button>
-            <button className="action" type="submit" disabled={pending === "report"}>
-              {pending === "report" ? "Building report…" : "Full analysis — 1 credit"}
+            <button className="action" type="submit" disabled={pending === "preview"}>
+              {pending === "preview" ? "Checking the price…" : "Check the price"}
             </button>
           </div>
+          {freeCheck ? (
+            <article className="warn-box">
+              <h2>{freeCheck.title}</h2>
+              {freeCheck.sample ? <p className="hint">Sample. This is the labeled fixture, not a live listing.</p> : null}
+              <PriceBadgeView badge={freeCheck.badge} />
+              <ul className="refuse">
+                {freeCheck.reasons.map((reason) => (
+                  <li key={reason}>{reason}</li>
+                ))}
+              </ul>
+              <CoverageLine confidence={freeCheck.coverageLevel} sentence={freeCheck.coverage} />
+              <PriceRatingHow />
+              <button className="action" type="button" onClick={() => void checkListing()} disabled={pending === "report"}>
+                {pending === "report" ? "Building report…" : "Full analysis — 1 credit"}
+              </button>
+            </article>
+          ) : null}
         </form>
       ) : null}
 

@@ -1,5 +1,6 @@
 import { CoverageNote } from "./CoverageNote";
 import { fitHeadline, midProfitUsd, walkAwayAskingUsd } from "@/domain/fit";
+import { summaryLine } from "@/domain/summary-line";
 import { formatNumber, formatPct, formatUsd, verdictLabel } from "@/domain/format";
 import type { DecisionScene } from "@/domain/decision-note";
 import type { FullReport } from "@/domain/types";
@@ -9,6 +10,12 @@ export function ReportView({ report }: { report: FullReport }) {
   const { computed } = report;
   const car = computed.subject;
   const title = `${car.year} ${car.make} ${car.model}${car.trim ? ` ${car.trim}` : ""}`;
+  const decision = summaryLine({
+    mode: computed.mode,
+    verdict: computed.verdict,
+    fairValueUsd: computed.fairValueUsd,
+    flip: computed.flip,
+  });
 
   return (
     <article>
@@ -37,6 +44,8 @@ export function ReportView({ report }: { report: FullReport }) {
         }}
       />
       <h2>{computed.mode === "flip" ? "Does this deal fit?" : "Does this car fit?"}</h2>
+      <p className="summary-line">{decision.line}</p>
+      <p>{decision.detail}</p>
       <p>{fitHeadline(computed)}</p>
       <div className="split">
         <section>

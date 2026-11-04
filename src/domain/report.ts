@@ -27,6 +27,8 @@ export type ReportInput = {
   distanceToSearchZipMiles: number | null;
   asOfYear?: number;
   sample?: boolean;
+  repairAbility?: import("./need").RepairAbility;
+  targetProfitUsd?: number | null;
 };
 
 function expectedMiles(year: number, asOfYear: number): number {
@@ -162,6 +164,8 @@ export function buildComputedReport(input: ReportInput): ComputedReport {
           miles: subjectMiles,
           adjustedCompPrices: comps.map((row) => row.adjustedPriceUsd),
           compCount: comps.length,
+          repairAbility: input.repairAbility,
+          targetProfitUsd: input.targetProfitUsd,
         })
       : null;
 
@@ -178,7 +182,7 @@ export function buildComputedReport(input: ReportInput): ComputedReport {
         `Resale range from current comparable asking prices: ${formatUsd(flip.resaleLowUsd)} to ${formatUsd(flip.resaleHighUsd)}. These are asking prices, not closed sales.`,
       );
       reasons.push(
-        `Buy target for a ${formatUsd(ASSUMPTIONS.flipDesiredProfitUsd)} margin at the midpoint is ${formatUsd(flip.targetBuyUsd)}, before any negotiation you still have to win.`,
+        `Buy target for a ${formatUsd(input.targetProfitUsd ?? ASSUMPTIONS.flipDesiredProfitUsd)} margin at the midpoint is ${formatUsd(flip.targetBuyUsd)}, before any negotiation you still have to win.`,
       );
       reasons.push(`Time-to-sell risk is ${flip.timeToSellRisk}. ${flip.timeToSellNote}`);
       if (parkIt) reasons.push("A park-it or park-outside recall makes this a walk-away for a resale.");

@@ -1,8 +1,13 @@
 import { budgetFit } from "@/domain/budget";
 import { coverageConfidence, coverageSentence } from "@/domain/coverage";
 import { proposeDirections } from "@/domain/directions";
+import { rankFlipCandidates } from "@/domain/flip-rank";
 import { validateNeed } from "@/domain/need";
+import { priceBadge, type PriceBadge } from "@/domain/price-badge";
+import { reconUsd } from "@/domain/recon";
 import type { Listing } from "@/domain/types";
+import { rememberComps } from "@/io/comp-cache";
+import { getKv } from "@/io/kv";
 import { assembleRadar } from "@/server/assemble";
 import { runtimeDeps } from "@/server/deps";
 
@@ -27,7 +32,7 @@ export async function POST(request: Request) {
   const deps = runtimeDeps();
   const groups: Array<{
     direction: ReturnType<typeof proposeDirections>[number];
-    listings: Array<Listing & { overBudget?: boolean }>;
+    listings: Array<Listing & { overBudget?: boolean; badge: PriceBadge; flipNote: string | null; clearsTarget: boolean | null }>;
     coverage: string;
     coverageLevel: "low" | "medium" | "high";
     note: string | null;
@@ -68,9 +73,26 @@ export async function POST(request: Request) {
       }
       collected.push(...result.listings);
       directionNote = result.message;
+      await rememberComps(getKv(), { make: query.make, model: query.model, zip: parsed.need.zip }, result.listings).catch(() => undefined);
     }
-    const capped = withinBudget(collected, parsed.need.budgetUsd, parsed.need.budgetKnown).slice(0, 8);
-    const listings = capped;
+    const ranked =
+      parsed.need.mode === "flip"
+        ? rankFlipCandidates(collected, new Date(), {
+            repairAbility: parsed.need.repairAbility,
+            targetProfitUsd: parsed.need.targetProfitUsd,
+          })
+        : [];
+    const byVin = new Map(ranked.map((item) => [item.vin, item]));
+    const assumption = parsed.need.mode === "flip" ? reconUsd({ miles: null, repairAbility: parsed.need.repairAbility }).because : null;
+    const listings = withinBudget(collected, parsed.need.budgetUsd, parsed.need.budgetKnown)
+      .map((item) => ({
+        ...item,
+        badge: priceBadge(item, collected),
+        flipNote: byVin.get(item.vin)?.assumption ?? assumption,
+        clearsTarget: byVin.get(item.vin)?.clearsTarget ?? null,
+      }))
+      .sort((a, b) => (byVin.get(b.vin)?.score ?? 0) - (byVin.get(a.vin)?.score ?? 0))
+      .slice(0, 8);
     const coverageInput = {
       mode: parsed.need.mode,
       sample: directionSample,
@@ -97,7 +119,7 @@ export async function POST(request: Request) {
       listings,
       coverage,
       coverageLevel,
-      note: listings.length === 0 && parsed.need.budgetKnown ? "Nothing in this group fit the budget." : directionNote,
+      note: listings.length === 0 && parsed.need.budgetKnown ? "Nothing in this group fit the budget." : [directionNote, assumption].filter(Boolean).join(" "),
     });
   }
   return Response.json({

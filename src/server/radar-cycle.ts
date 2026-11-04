@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { ASSUMPTIONS } from "@/domain/assumptions";
+import { priceBadge } from "@/domain/price-badge";
 import {
   formatFilterBreakdown,
   groupByCriteria,
@@ -218,7 +219,10 @@ export async function runRadarCycle(deps: CycleDeps): Promise<StoredRun> {
       const band = marketBand(eligible);
       for (const search of job.group) {
         if (isBroadFlip(search)) {
-          const ranked = topFlipCandidates(job.listings, deps.now, ASSUMPTIONS.radarMaxAlertsPerSearch);
+          const ranked = topFlipCandidates(job.listings, deps.now, ASSUMPTIONS.radarMaxAlertsPerSearch, {
+            repairAbility: search.criteria.repairAbility,
+            targetProfitUsd: search.criteria.minProfitUsd ?? null,
+          });
           const storageKey = seenStorageKey(search.id, search.criteria);
           const book = await seenBook(deps.kv, storageKey);
           const fresh = ranked.flatMap((item) => {
@@ -274,6 +278,7 @@ export async function runRadarCycle(deps: CycleDeps): Promise<StoredRun> {
               coverageSentence(flipCoverage),
               coverageConfidence(flipCoverage),
               item.priceDropFrom,
+              priceBadge(item.listing, job.listings),
             );
             alerts.unshift(alert);
             freshAlerts.push(alert);
@@ -339,6 +344,7 @@ export async function runRadarCycle(deps: CycleDeps): Promise<StoredRun> {
             coverageSentence(personalCoverage),
             coverageConfidence(personalCoverage),
             winner.priceDropFrom,
+            priceBadge(winner.listing, scoped),
           );
           alerts.unshift(alert);
           freshAlerts.push(alert);
@@ -738,6 +744,7 @@ function makeAlert(
   coverage?: string,
   coverageLevel?: WatchAlert["coverageLevel"],
   priceDropFrom?: number | null,
+  badge?: WatchAlert["badge"],
 ): WatchAlert {
   return {
     id: randomUUID(),
@@ -762,6 +769,7 @@ function makeAlert(
     coverage,
     coverageLevel,
     priceDropFrom,
+    badge,
   };
 }
 

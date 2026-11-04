@@ -1,3 +1,4 @@
+import { priceBadge } from "@/domain/price-badge";
 import { scoreRadar } from "@/domain/radar";
 import type { Mode } from "@/domain/types";
 import { paymentsConfigured, readX402Config, requirementsFor, type PaymentRequirements } from "@/io/x402";
@@ -95,6 +96,7 @@ export function describeInitialize(id: unknown) {
 }
 
 export function radarToolResult(rows: ReturnType<typeof scoreRadar>, sample: boolean, message: string | null, proof?: unknown) {
+  const pool = rows.map((row) => row.listing);
   return {
     sample,
     message,
@@ -114,6 +116,7 @@ export function radarToolResult(rows: ReturnType<typeof scoreRadar>, sample: boo
       verdict: row.verdict,
       reason: row.reason,
       source: row.listing.source,
+      badge: priceBadge(row.listing, pool),
     })),
   };
 }
