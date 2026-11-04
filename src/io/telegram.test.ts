@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { alertMessage, parseSkipCallback, parseStartCommand, telegramDeepLink, webhookAuthorized } from "./telegram";
+import { CONNECT_HELP, alertMessage, isBareStart, isHelpCommand, parseSkipCallback, parseStartCommand, telegramDeepLink, webhookAuthorized } from "./telegram";
 
 describe("telegram linking", () => {
   it("parses a start code and ignores a bare start", () => {
@@ -7,6 +7,14 @@ describe("telegram linking", () => {
     expect(parseStartCommand("/start@AutoFlipBot abcdef12")).toBe("abcdef12");
     expect(parseStartCommand("/start")).toBeNull();
     expect(parseStartCommand("hello")).toBeNull();
+    expect(isBareStart("/start")).toBe(true);
+    expect(isBareStart("/start@AutoFlipBot")).toBe(true);
+    expect(isBareStart("/start abcdef12")).toBe(false);
+    expect(isHelpCommand("/help")).toBe(true);
+    expect(isHelpCommand("/help@AutoFlipBot")).toBe(true);
+    expect(isHelpCommand("/start")).toBe(false);
+    expect(CONNECT_HELP).toMatch(/Deal Radar/);
+    expect(CONNECT_HELP).toMatch(/Connect Telegram/);
   });
 
   it("builds the deep link and the alert keyboard", () => {
