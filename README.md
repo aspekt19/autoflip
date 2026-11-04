@@ -29,7 +29,7 @@ The bounded reasoning graph is the engine under every call. This app does not co
 | --- | --- | --- |
 | `serv_prompt_guard` | every profile | User and agent text is untrusted. The instructions are protected. |
 | Content filter, left on | every profile | Default leak check on Chat Completions and Responses. Nothing here should quote hidden instructions. |
-| `serv_shadow_agent` | `report_explain` and `agent_explain` (facts hint, 2 iterations), `personal_alert_review` (one-sentence hint, 2), `flip_judge` (estimate hint, 2) | A second pass on wording that can change what a person sees. `flip_feasibility` does not use it: Kronos plus a shadow pass ran past its timeout. |
+| `serv_shadow_agent` | `report_explain` and `agent_explain` (facts hint, 2 iterations), `personal_alert_review` (one-sentence hint, 1), `flip_judge` (estimate hint, 2) | A second pass on wording that can change what a person sees. The personal review uses one pass so it stays near a few seconds. `flip_feasibility` does not use it: Kronos plus a shadow pass ran past its timeout. |
 | `-serv-multipath` | `flip_judge` | Alert versus skip is a branching policy. |
 | `-serv-kronos` | `check_rules`, `flip_feasibility` | Procedural VIN/listing rules and flip feasibility rules. Output is prose. A number that is not in the facts is dropped, and the deterministic result remains. |
 | Strict `json_schema` | `need_extract`, `flip_judge` | Software consumes the need and the alert-or-skip verdict. |

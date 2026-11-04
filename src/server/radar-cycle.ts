@@ -37,7 +37,7 @@ export const CYCLE_BUDGET_MS = 40_000;
 
 const CALL_MS = {
   autodev: 8_000,
-  /** Ceiling for one SERV request. A personal alert review needs more than 15s of headroom. */
+  /** Ceiling for one SERV request. Personal reviews use a shorter profile timeout. */
   serv: 25_000,
   telegram: 5_000,
   kite: 8_000,

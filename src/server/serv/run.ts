@@ -125,7 +125,80 @@ function visibleText(value: unknown): string[] {
   return chunks;
 }
 
-/** Shopper-facing text. Reasoning traces are not the answer, even when content is blank. */
+/** Keys and lengths only. String values are never copied into the log. */
+export function responseShape(value: unknown, depth = 0): string {
+  if (value === null) return "null";
+  if (value === undefined) return "missing";
+  if (typeof value === "string") return `string(${value.length})`;
+  if (typeof value === "number") return "number";
+  if (typeof value === "boolean") return "boolean";
+  if (typeof value !== "object") return typeof value;
+  if (depth >= 4) return Array.isArray(value) ? `array(${value.length})` : "object";
+  if (Array.isArray(value)) {
+    const preview = value.slice(0, 3).map((item) => responseShape(item, depth + 1)).join(",");
+    return `array(${value.length})[${preview}]`;
+  }
+  const parts = Object.keys(value as object)
+    .slice(0, 16)
+    .map((key) => `${key}:${responseShape((value as Record<string, unknown>)[key], depth + 1)}`);
+  return `{${parts.join(" ")}}`;
+}
+
+function jsonObject(text: string): string {
+  const start = text.indexOf("{");
+  const end = text.lastIndexOf("}");
+  if (start < 0 || end <= start) return "";
+  return text.slice(start, end + 1).trim();
+}
+
+function toolArgumentText(calls: unknown): string {
+  if (!Array.isArray(calls)) return "";
+  for (const item of calls) {
+    if (!item || typeof item !== "object") continue;
+    const call = item as { name?: unknown; arguments?: unknown; function?: { name?: unknown; arguments?: unknown } };
+    const name = typeof call.function?.name === "string" ? call.function.name : typeof call.name === "string" ? call.name : "";
+    if (!name || name.startsWith("serv_")) continue;
+    const args = call.function?.arguments ?? call.arguments;
+    if (typeof args === "string" && args.trim()) return args.trim();
+    if (args && typeof args === "object") return JSON.stringify(args);
+  }
+  return "";
+}
+
+function fromMessage(message: unknown): string {
+  if (!message || typeof message !== "object") return "";
+  const record = message as {
+    content?: unknown;
+    parsed?: unknown;
+    refusal?: unknown;
+    reasoning?: unknown;
+    reasoning_content?: unknown;
+    tool_calls?: unknown;
+  };
+  const text = visibleText(record.content).join("").trim();
+  if (text) return text;
+  if (record.content && typeof record.content === "object" && !Array.isArray(record.content)) return JSON.stringify(record.content);
+  if (typeof record.parsed === "string" && record.parsed.trim()) return record.parsed.trim();
+  if (record.parsed && typeof record.parsed === "object") return JSON.stringify(record.parsed);
+  const args = toolArgumentText(record.tool_calls);
+  if (args) return args;
+  if (typeof record.refusal === "string" && record.refusal.trim()) return record.refusal.trim();
+  const reasoningParts: string[] = [];
+  if (Array.isArray(record.content)) {
+    for (const part of record.content) {
+      if (!part || typeof part !== "object") continue;
+      const row = part as { type?: unknown; text?: unknown; reasoning?: unknown };
+      if (row.type !== "reasoning" && row.type !== "reasoning_text") continue;
+      if (typeof row.text === "string") reasoningParts.push(row.text);
+      if (typeof row.reasoning === "string") reasoningParts.push(row.reasoning);
+    }
+  }
+  if (typeof record.reasoning === "string") reasoningParts.push(record.reasoning);
+  if (typeof record.reasoning_content === "string") reasoningParts.push(record.reasoning_content);
+  return jsonObject(reasoningParts.join("\n"));
+}
+
+/** Shopper-facing text. A reasoning trace is used only when it contains the JSON object. */
 export function messageText(payload: unknown): string {
   if (!payload || typeof payload !== "object") return "";
   const record = payload as { output_text?: unknown; output?: unknown; choices?: unknown };
@@ -134,19 +207,31 @@ export function messageText(payload: unknown): string {
     const chunks: string[] = [];
     for (const item of record.output) {
       if (!item || typeof item !== "object") continue;
-      const row = item as { type?: unknown; text?: unknown; content?: unknown };
-      if (row.type === "reasoning") continue;
-      if (row.type === "output_text" && typeof row.text === "string") chunks.push(row.text);
+      const row = item as { type?: unknown; text?: unknown; content?: unknown; name?: unknown; arguments?: unknown };
+      if (row.type === "function_call" && typeof row.name === "string" && !row.name.startsWith("serv_")) {
+        const args = typeof row.arguments === "string" ? row.arguments : row.arguments && typeof row.arguments === "object" ? JSON.stringify(row.arguments) : "";
+        if (args.trim()) chunks.push(args);
+      }
+      if (row.type === "reasoning") {
+        const buried = typeof row.text === "string" ? jsonObject(row.text) : "";
+        if (buried) chunks.push(buried);
+        continue;
+      }
+      if ((row.type === "output_text" || row.type === "text") && typeof row.text === "string") chunks.push(row.text);
       chunks.push(...visibleText(row.content));
     }
     const joined = chunks.join("").trim();
     if (joined) return joined;
   }
-  if (!Array.isArray(record.choices) || record.choices.length === 0) return "";
-  const choice = record.choices[0] as { text?: unknown; message?: { content?: unknown } };
-  const fromMessage = visibleText(choice.message?.content).join("").trim();
-  if (fromMessage) return fromMessage;
-  return typeof choice.text === "string" ? choice.text.trim() : "";
+  if (!Array.isArray(record.choices)) return "";
+  for (const choice of record.choices) {
+    if (!choice || typeof choice !== "object") continue;
+    const row = choice as { text?: unknown; message?: unknown };
+    if (typeof row.text === "string" && row.text.trim()) return row.text.trim();
+    const text = fromMessage(row.message);
+    if (text) return text;
+  }
+  return "";
 }
 
 /** Upstream error fields only. Request bodies and credentials are not included. */
@@ -168,6 +253,10 @@ export function servErrorSummary(payload: unknown): string {
     .replace(/\s+/g, " ")
     .trim()
     .slice(0, 300);
+}
+
+function isTimeout(error: unknown): boolean {
+  return error instanceof Error && (error.name === "TimeoutError" || error.name === "AbortError");
 }
 
 function logServError(id: string, status: number, payload: unknown) {
@@ -280,23 +369,37 @@ export async function runServ(
 
   const rounds = entry.applicationTool && entry.endpoint === "chat" ? 2 : 1;
   const deadline = started + timeoutMs * rounds;
-  const post = async (body: unknown, stream: boolean) => {
-    const remain = deadline - Date.now();
-    if (remain < 500) throw new DOMException("The operation was aborted.", "TimeoutError");
+  const postOnce = async (body: unknown, stream: boolean, capMs: number) => {
+    const budget = Math.min(deadline - Date.now(), capMs);
+    if (budget < 500) throw new DOMException("The operation was aborted.", "TimeoutError");
     const path = entry.endpoint === "responses" ? "/responses" : "/chat/completions";
     const response = await (deps.fetch ?? fetch)(`${base}${path}`, {
       method: "POST",
       headers: { Authorization: `Bearer ${deps.apiKey}`, "Content-Type": "application/json" },
       body: JSON.stringify(body),
-      signal: AbortSignal.timeout(remain),
+      signal: AbortSignal.timeout(budget),
     });
     if (stream && response.ok) {
       const streamed = await readChatStream(response);
-      return { response, payload: streamed.payload, text: streamed.text };
+      return { response, payload: streamed.payload, text: streamed.text, shape: responseShape(streamed.payload) };
     }
     const payload: unknown = await response.json().catch(() => null);
+    const text = messageText(payload);
+    const shape = responseShape(payload);
     if (!response.ok) logServError(id, response.status, payload);
-    return { response, payload, text: messageText(payload) };
+    else if (!text) console.error(`[serv] ${id} HTTP ${response.status} empty ${shape}`);
+    return { response, payload, text, shape };
+  };
+  const post = async (body: unknown, stream: boolean) => {
+    const remain = deadline - Date.now();
+    if (id !== "personal_alert_review") return postOnce(body, stream, remain);
+    const firstWait = Math.min(8_000, Math.floor(timeoutMs / 2));
+    try {
+      return await postOnce(body, stream, firstWait);
+    } catch (error) {
+      if (!isTimeout(error) || deadline - Date.now() < 1_000) throw error;
+      return await postOnce(body, stream, deadline - Date.now());
+    }
   };
 
   const postProse = async (body: unknown, stream: boolean) => {
@@ -402,7 +505,7 @@ export async function runServ(
         status: turn.response.status,
         proof,
         fallback: entry.fallback,
-        upstream: turn.response.ok ? null : servErrorSummary(turn.payload) || null,
+        upstream: turn.response.ok ? turn.shape || null : servErrorSummary(turn.payload) || null,
       };
     }
     return { ok: true, text: turn.text, model: proof.modelReported, shadowOutcome: proof.shadowOutcome, rawStatus: turn.response.status, proof };

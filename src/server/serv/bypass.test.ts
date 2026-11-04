@@ -6,7 +6,7 @@ import { agentReport } from "@/server/agent-report";
 import { buildSampleReport } from "@/server/sample-report";
 import { paymentRequiredBody, radarToolResult } from "@/server/mcp";
 import { agentProof, buildServProof, openservReportFrom } from "./index";
-import { messageText, servErrorSummary, toolCall } from "./run";
+import { messageText, responseShape, servErrorSummary, toolCall } from "./run";
 
 function filesUnder(dir: string): string[] {
   const found: string[] = [];
@@ -64,6 +64,8 @@ describe("SERV layer", () => {
       expect(toolNames(request.tools)).toContain("read_computed_facts");
     }
     const personal = requestFor("personal_alert_review", "alert");
+    expect(personal.endpoint).toBe("chat");
+    if (personal.endpoint === "chat") expect(personal.reasoning_effort).toBe("none");
     expect(personal.stream).toBe(false);
     expect(toolNames(personal.tools)).toContain("serv_shadow_agent");
     expect(toolNames(personal.tools)).not.toContain("read_computed_facts");
@@ -269,7 +271,22 @@ describe("SERV layer", () => {
   });
 });
 
-it("reads text parts, ignores a reasoning-only body, and retries one blank answer", async () => {
+  it("reads a verdict from a later choice, parsed JSON, or tool arguments", () => {
+    expect(messageText({ choices: [{ message: { content: null } }, { message: { content: "{\"decisions\":[]}" } }] })).toBe("{\"decisions\":[]}");
+    expect(messageText({ choices: [{ message: { content: null, parsed: { decisions: [{ verdict: "skip" }] } } }] })).toContain("skip");
+    expect(
+      messageText({
+        choices: [{ message: { content: "", tool_calls: [{ function: { name: "judge", arguments: "{\"decisions\":[]}" } }] } }],
+      }),
+    ).toContain("decisions");
+    expect(messageText({ choices: [{ message: { content: null, reasoning: "thinking {\"decisions\":[{\"verdict\":\"alert\"}]}" } }] })).toContain("alert");
+    const shape = responseShape({ choices: [{ message: { content: "secret prose", parsed: { decisions: ["hidden"] } } }] });
+    expect(shape).toContain("content:string(");
+    expect(shape).not.toContain("secret");
+    expect(shape).not.toContain("hidden");
+  });
+
+  it("reads text parts, ignores a reasoning-only body, and retries one blank answer", async () => {
   expect(messageText({ choices: [{ message: { content: [{ type: "reasoning", text: "hidden" }, { type: "text", text: "Worth a look." }] } }] })).toBe("Worth a look.");
   expect(messageText({ output: [{ type: "output_text", text: "Kept." }] })).toBe("Kept.");
   expect(messageText({ choices: [{ message: { content: null, reasoning: "hidden only" } }] })).toBe("");
@@ -309,6 +326,59 @@ it("reads text parts, ignores a reasoning-only body, and retries one blank answe
   );
   expect(recovered.ok).toBe(true);
   expect(calls).toBe(2);
+});
+
+it("logs a redacted shape when a 200 is empty, and retries a personal review that misses its first deadline", async () => {
+  const logged: string[] = [];
+  const spy = vi.spyOn(console, "error").mockImplementation((line) => {
+    logged.push(String(line));
+  });
+  let judgeCalls = 0;
+  const empty = await runServ(
+    "flip_judge",
+    { user: "{}" },
+    {
+      apiKey: "test",
+      fetch: async () => {
+        judgeCalls += 1;
+        return Response.json({
+          id: "chatcmpl-empty",
+          choices: [{ finish_reason: "stop", message: { content: null, refusal: null } }],
+        });
+      },
+    },
+  );
+  expect(empty.ok).toBe(false);
+  if (!empty.ok) expect(empty.upstream).toContain("choices:array(");
+  expect(logged.join(" ")).toContain("empty");
+  expect(logged.join(" ")).not.toMatch(/sk-/);
+  expect(judgeCalls).toBe(2);
+  spy.mockRestore();
+
+  let reviewCalls = 0;
+  const recovered = await runServ(
+    "personal_alert_review",
+    { user: "alert" },
+    {
+      apiKey: "test",
+      timeoutMs: 3_000,
+      fetch: async (_url, init) => {
+        reviewCalls += 1;
+        if (reviewCalls === 1) {
+          await new Promise((_resolve, reject) => {
+            const timer = setTimeout(() => reject(new Error("should have aborted")), 5_000);
+            init?.signal?.addEventListener("abort", () => {
+              clearTimeout(timer);
+              reject(new DOMException("The operation was aborted.", "TimeoutError"));
+            });
+          });
+        }
+        return Response.json({ choices: [{ message: { content: "The price is already in the facts." } }] });
+      },
+    },
+  );
+  expect(recovered.ok).toBe(true);
+  expect(reviewCalls).toBe(2);
 });
 
 function toolNames(tools: ReadonlyArray<{ name?: string; function?: { name?: string } }>): string[] {
