@@ -1,4 +1,6 @@
 import { ASSUMPTIONS } from "./assumptions";
+import type { RepairAbility } from "./need";
+import { reconUsd } from "./recon";
 import { median, percentileValue, roundDollars } from "./stats";
 import type { Listing } from "./types";
 
@@ -21,6 +23,13 @@ export type FlipEstimate = {
   excluded: boolean;
   excludeReason: string | null;
   score: number;
+  clearsTarget: boolean | null;
+  assumption: string | null;
+};
+
+export type FlipRankOptions = {
+  repairAbility?: RepairAbility;
+  targetProfitUsd?: number | null;
 };
 
 const MIN_COMPS = 3;
@@ -49,9 +58,13 @@ function compsFor(subject: Listing, pool: Listing[]): Listing[] {
   });
 }
 
-function exampleCost(miles: number | null): number {
-  const highMile = (miles ?? 0) >= ASSUMPTIONS.flipHighMileThreshold ? ASSUMPTIONS.flipReconHighMileUsd : 0;
-  return ASSUMPTIONS.flipTitleFeeUsd + ASSUMPTIONS.flipReconBaseUsd + highMile;
+function exampleCost(miles: number | null, repairAbility?: RepairAbility): { usd: number; assumption: string | null } {
+  if (!repairAbility || repairAbility === "unknown") {
+    const highMile = (miles ?? 0) >= ASSUMPTIONS.flipHighMileThreshold ? ASSUMPTIONS.flipReconHighMileUsd : 0;
+    return { usd: ASSUMPTIONS.flipTitleFeeUsd + ASSUMPTIONS.flipReconBaseUsd + highMile, assumption: null };
+  }
+  const recon = reconUsd({ miles, accidentCount: 0, repairAbility });
+  return { usd: ASSUMPTIONS.flipTitleFeeUsd + recon.usd, assumption: recon.because };
 }
 
 function profit(resale: number, asking: number, cost: number): number {
@@ -63,15 +76,15 @@ function profit(resale: number, asking: number, cost: number): number {
  * Fewer than 3 comps is excluded. Every dollar is an estimate from those asking prices
  * minus labeled example costs. Listing age is used only when the feed included it.
  */
-export function rankFlipCandidates(pool: Listing[], now: Date): FlipEstimate[] {
+export function rankFlipCandidates(pool: Listing[], now: Date, options?: FlipRankOptions): FlipEstimate[] {
   const estimates = pool
     .filter((item) => typeof item.priceUsd === "number" && item.priceUsd > 0)
-    .map((listing) => estimateOne(listing, pool, now));
+    .map((listing) => estimateOne(listing, pool, now, options));
   return estimates.sort((a, b) => b.score - a.score);
 }
 
-export function topFlipCandidates(pool: Listing[], now: Date, limit = 5): FlipEstimate[] {
-  return rankFlipCandidates(pool, now)
+export function topFlipCandidates(pool: Listing[], now: Date, limit = 5, options?: FlipRankOptions): FlipEstimate[] {
+  return rankFlipCandidates(pool, now, options)
     .filter((item) => !item.excluded)
     .slice(0, limit);
 }
@@ -85,16 +98,23 @@ export function flipAlertWhy(item: FlipEstimate): string {
     `Basis: ${item.compCount} comparable asking prices in this scan, same make and model, within 2 model years, minus example costs of ${money(item.costUsd ?? 0)} (fee and reconditioning assumptions, not a quote for this car).`,
     item.confidence === "low" ? "Confidence is low because this scan had only 3 or 4 comps." : "Confidence uses 5 or more comps in this scan.",
     `Speed of sale: ${item.speed}. ${item.speedBasis}`,
-  ].join(" ");
+    item.assumption,
+    item.clearsTarget === false ? "This ranks lower because the estimate is under the profit target." : null,
+    item.clearsTarget === true ? "This clears the profit target. The target is an assumption, not a promised sale." : null,
+  ]
+    .filter((line): line is string => Boolean(line))
+    .join(" ");
 }
 
-function estimateOne(listing: Listing, pool: Listing[], now: Date): FlipEstimate {
+function estimateOne(listing: Listing, pool: Listing[], now: Date, options?: FlipRankOptions): FlipEstimate {
   const comps = compsFor(listing, pool);
   const prices = comps.map((item) => item.priceUsd).filter((price): price is number => price !== null);
   const age = listingAgeDays(listing, now);
   const speed = speedOf(comps.length, age);
   const asking = listing.priceUsd ?? 0;
-  const cost = exampleCost(listing.miles);
+  const priced = exampleCost(listing.miles, options?.repairAbility);
+  const cost = priced.usd;
+  const target = options?.targetProfitUsd ?? null;
   if (prices.length < MIN_COMPS) {
     return {
       vin: listing.vin,
@@ -113,6 +133,8 @@ function estimateOne(listing: Listing, pool: Listing[], now: Date): FlipEstimate
       excluded: true,
       excludeReason: `fewer than ${MIN_COMPS} comparable asking prices in this scan`,
       score: Number.NEGATIVE_INFINITY,
+      clearsTarget: null,
+      assumption: priced.assumption,
     };
   }
   const low = percentileValue(prices, 25)!;
@@ -126,7 +148,8 @@ function estimateOne(listing: Listing, pool: Listing[], now: Date): FlipEstimate
   const profitHighUsd = profit(resaleHighUsd, asking, cost);
   const confidence = prices.length >= 5 ? "ok" : "low";
   const confidenceFactor = confidence === "ok" ? 1 : 0.75;
-  const score = profitMidUsd * confidenceFactor * speed.factor;
+  const clearsTarget = target === null ? null : profitMidUsd >= target;
+  const score = profitMidUsd * confidenceFactor * speed.factor * (clearsTarget === false ? 0.5 : 1);
   return {
     vin: listing.vin,
     listing,
@@ -144,6 +167,8 @@ function estimateOne(listing: Listing, pool: Listing[], now: Date): FlipEstimate
     excluded: false,
     excludeReason: null,
     score,
+    clearsTarget,
+    assumption: priced.assumption,
   };
 }
 

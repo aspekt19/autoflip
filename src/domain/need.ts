@@ -1,3 +1,5 @@
+import { parseUsdInput } from "./budget";
+
 export const USE_CASES = ["family", "commute", "haul", "first_car", "comfort", "unspecified"] as const;
 export type UseCase = (typeof USE_CASES)[number];
 
@@ -150,24 +152,31 @@ export function explicitNeedFromText(text: string, mode: "personal" | "flip"): S
   };
 }
 
-export type FollowUp = { id: "zip" | "use" | "repair" | "profit"; prompt: string };
+export type FollowUp = { id: "zip" | "use" | "repair" | "profit" | "cash"; prompt: string };
 
 export function followUps(need: StructuredNeed): FollowUp[] {
+  if (need.mode === "flip") {
+    const questions: FollowUp[] = [];
+    if (need.targetProfitUsd === null) {
+      questions.push({ id: "profit", prompt: "What profit do you want after fees and reconditioning?" });
+    }
+    if (need.repairAbility === "unknown") {
+      questions.push({ id: "repair", prompt: "What repair work can you do? This changes the reconditioning assumption, not a risk level." });
+    }
+    if (!need.budgetKnown) {
+      questions.push({ id: "cash", prompt: "How much cash can you put into the car?" });
+    }
+    if (!need.zip && questions.length < 3) {
+      questions.push({ id: "zip", prompt: "What ZIP should we shop around?" });
+    }
+    return questions.slice(0, 3);
+  }
   const questions: FollowUp[] = [];
   if (!need.zip) {
     questions.push({ id: "zip", prompt: "What ZIP should we shop around?" });
   }
   if (need.useCase === "unspecified") {
-    questions.push({
-      id: "use",
-      prompt: need.mode === "flip" ? "What kind of car are you trying to resell?" : "What will you use the car for most?",
-    });
-  }
-  if (questions.length < 2 && need.mode === "flip" && need.repairAbility === "unknown") {
-    questions.push({ id: "repair", prompt: "Can you do repairs yourself? This does not set a risk level." });
-  }
-  if (questions.length < 2 && need.mode === "flip" && need.targetProfitUsd === null) {
-    questions.push({ id: "profit", prompt: "What profit do you want left after fees and reconditioning?" });
+    questions.push({ id: "use", prompt: "What will you use the car for most?" });
   }
   return questions.slice(0, 2);
 }
@@ -176,9 +185,12 @@ export function applyFollowUp(need: StructuredNeed, id: FollowUp["id"], value: s
   if (id === "zip") return { ...need, zip: ZIP.test(value.trim()) ? value.trim() : need.zip };
   if (id === "use" && USE_CASES.includes(value as UseCase)) return { ...need, useCase: value as UseCase };
   if (id === "repair" && REPAIR_ABILITIES.includes(value as RepairAbility)) return { ...need, repairAbility: value as RepairAbility };
-  if (id === "profit") {
-    const amount = Number(value.replace(/[$,\s]/g, ""));
-    if (Number.isFinite(amount) && amount >= 0 && amount <= 50_000) return { ...need, targetProfitUsd: Math.round(amount) };
+  if (id === "profit" || id === "cash") {
+    const amount = parseUsdInput(value);
+    if (amount !== null && amount <= 50_000) {
+      if (id === "cash") return { ...need, budgetUsd: amount, budgetKnown: true };
+      return { ...need, targetProfitUsd: amount };
+    }
   }
   return need;
 }

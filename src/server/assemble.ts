@@ -3,12 +3,16 @@ import { auditExplanation } from "@/domain/audit";
 import { quotedNumbersStayIn } from "@/domain/decision-note";
 import { haversineMiles } from "@/domain/geo";
 import { sha256Canonical } from "@/domain/hash";
+import { coverageConfidence, coverageSentence } from "@/domain/coverage";
+import { priceBadge } from "@/domain/price-badge";
 import { buildComputedReport } from "@/domain/report";
 import { screenUserInput } from "@/domain/screen";
 import { templateExplanation } from "@/domain/template";
 import { extractVin } from "@/domain/vin";
 import type { FullReport, Listing, Mode, Proof, ProofStep } from "@/domain/types";
 import { autodevByVin, autodevSearch, type AutodevDeps } from "@/io/autodev";
+import { readComps, rememberComps } from "@/io/comp-cache";
+import { getKv } from "@/io/kv";
 import { complaintCountFor, decodeVin, fuelFor, geocodeZipCity, recallsFor, type GovDeps } from "@/io/gov";
 import { sampleByVin, sampleListings } from "@/io/sample";
 import {
@@ -30,6 +34,8 @@ export type AssembleInput = {
   /** Typed by the shopper when the lookup is a VIN, which has no asking price of its own. */
   askingPriceUsd?: number;
   miles?: number;
+  repairAbility?: import("@/domain/need").RepairAbility;
+  targetProfitUsd?: number | null;
 };
 
 export type AssembleDeps = {
@@ -197,6 +203,8 @@ export async function assembleReport(input: AssembleInput, deps: AssembleDeps): 
     distanceToSearchZipMiles: distance,
     asOfYear: (deps.now ?? new Date()).getUTCFullYear(),
     sample: resolved.sample,
+    repairAbility: input.repairAbility,
+    targetProfitUsd: input.targetProfitUsd,
   });
   if (typeof input.askingPriceUsd === "number") {
     computed.dataNotes.push("Asking price was typed in for this VIN. It did not come from a listing feed.");
@@ -387,6 +395,17 @@ async function resolveSubject(
       },
     };
   }
+  const regionZip = input.zip || subject.zip;
+  const cachedListings = await readComps(getKv(), {
+    make: subject.make,
+    model: subject.model,
+    year: subject.year,
+    zip: regionZip,
+  }).catch(() => null);
+  if (cachedListings && cachedListings.length > 0) {
+    const candidates = cachedListings.some((item) => item.vin === subject.vin) ? cachedListings : [subject, ...cachedListings];
+    return { ok: true, subject, candidates, sample: false, cached: true };
+  }
   const search = await autodevSearch(
     {
       make: subject.make,
@@ -418,6 +437,7 @@ async function resolveSubject(
   const candidates = search.listings.some((item) => item.vin === subject.vin)
     ? search.listings
     : [subject, ...search.listings];
+  await rememberComps(getKv(), { make: subject.make, model: subject.model, zip: regionZip }, candidates).catch(() => undefined);
   return {
     ok: true,
     subject,
@@ -521,6 +541,47 @@ export async function assembleRadar(
     sample: false,
     message: search.listings.length === 0 ? "No listings came back for that search." : null,
     proof,
+  };
+}
+
+/** Free price check. Listings and the public recall list only. No written explanation and no credit. */
+export async function previewListing(input: AssembleInput, deps: AssembleDeps) {
+  const lookupText = [input.url, input.vin, input.zip].filter(Boolean).join(" ");
+  const screened = screenUserInput(lookupText || "");
+  if (!screened.ok) return { ok: false as const, status: 400, error: "rejected_input", message: screened.reason };
+  const vin = extractVin(input.vin || input.url || "");
+  if (!vin) {
+    return { ok: false as const, status: 400, error: "vin_required", message: "Paste a listing link that contains a VIN, or a 17-character VIN." };
+  }
+  const resolved = await resolveSubject(vin, input, deps, deps.fetch ?? fetch);
+  if (!resolved.ok) return resolved.result;
+  const subject = overlayStatedFacts(resolved.subject, input);
+  const recalls = await recallsFor(subject.make, subject.model, subject.year, { fetch: deps.fetch ?? fetch });
+  const badge = priceBadge(subject, resolved.candidates);
+  const open = recalls.length;
+  const park = recalls.some((item) => item.parkIt || item.parkOutSide);
+  const reasons = [
+    badge.deltaLabel ?? badge.label,
+    open > 0
+      ? `${open} open recall${open === 1 ? "" : "s"} on the public list.${park ? " One says to park the car." : ""}`
+      : "No open recalls came back for this year and model.",
+  ];
+  const coverageInput = {
+    mode: input.mode,
+    sample: resolved.sample,
+    dealerListingCount: resolved.candidates.filter((item) => item.vin !== subject.vin && item.priceUsd !== null).length,
+    radiusMiles: input.zip || subject.zip ? 100 : null,
+    historyOnListing: subject.accidentCount !== null,
+  };
+  return {
+    ok: true as const,
+    sample: resolved.sample,
+    vin: subject.vin,
+    title: `${subject.year} ${subject.make} ${subject.model}`,
+    badge,
+    reasons,
+    coverage: coverageSentence(coverageInput),
+    coverageLevel: coverageConfidence(coverageInput),
   };
 }
 

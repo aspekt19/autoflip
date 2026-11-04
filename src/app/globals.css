@@ -548,6 +548,13 @@ textarea { min-height: 140px; }
 .badge.overpriced { background: var(--blue-soft); color: var(--ink); }
 .badge.walk_away { background: var(--ink); color: var(--canvas); }
 .badge.insufficient_data, .badge.not_scored { background: transparent; color: var(--muted); border: 1px solid var(--line); }
+.price-badge { margin: 8px 0; font-family: var(--sans); font-size: 15px; font-weight: 500; }
+.price-badge strong { font-weight: 700; }
+.price-badge.good strong { color: #8a6a00; }
+.price-badge.fair strong { color: var(--ink); }
+.price-badge.high strong { color: #8a3b12; }
+.price-badge.unknown { color: var(--muted); }
+.summary-line { font-family: var(--sans); font-size: 28px; font-weight: 700; letter-spacing: -0.03em; margin: 8px 0 4px; }
 .verdict-level.badge {
   font-size: clamp(44px, 6vw, 72px);
   padding: 8px 14px;

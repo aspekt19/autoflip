@@ -1,4 +1,5 @@
 import { flipAlertWhy, topFlipCandidates } from "@/domain/flip-rank";
+import { priceBadge } from "@/domain/price-badge";
 import { scoreRadar } from "@/domain/radar";
 import { autoDevMake, autoDevModel } from "@/domain/vehicle-names";
 import { assembleRadar } from "@/server/assemble";
@@ -47,6 +48,7 @@ export async function POST(request: Request) {
         verdict: "pass",
         reason: flipAlertWhy(item),
         source: item.listing.source,
+        badge: priceBadge(item.listing, result.listings),
       })),
     });
   }
