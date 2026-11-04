@@ -19,6 +19,7 @@ import {
   postServ,
   SHADOW_HINT,
   SHADOW_MAX_ITERATIONS,
+  type ServProof,
 } from "@/io/serv";
 
 export type AssembleInput = {
@@ -126,6 +127,7 @@ export async function assembleReport(input: AssembleInput, deps: AssembleDeps): 
   const model = deps.servModel || process.env.SERV_MODEL || "gpt-5.4-mini";
   const baseUrl = deps.servBaseUrl || process.env.SERV_BASE_URL || "https://inference-api.openserv.ai/v1";
 
+  let guardProof: ServProof | null = null;
   if (!deps.servKey) {
     steps.push({
       id: "serv_prompt_guard",
@@ -137,7 +139,9 @@ export async function assembleReport(input: AssembleInput, deps: AssembleDeps): 
       fetch: fetchImpl,
       apiKey: deps.servKey,
       baseUrl,
+      purpose: "report_guard",
     });
+    guardProof = guard.proof;
     if (!guard.ok) {
       steps.push({ id: "serv_prompt_guard", status: "error", detail: guard.error });
       return {
@@ -210,6 +214,7 @@ export async function assembleReport(input: AssembleInput, deps: AssembleDeps): 
   let explanation = templateExplanation(computed);
   let explanationSource: Proof["explanationSource"] = "template";
   let usedModel: string | null = null;
+  const servChecks: NonNullable<Proof["servChecks"]> = guardProof ? [guardProof] : [];
   const shadow = {
     requested: false,
     hint: SHADOW_HINT,
@@ -223,10 +228,13 @@ export async function assembleReport(input: AssembleInput, deps: AssembleDeps): 
       fetch: fetchImpl,
       apiKey: deps.servKey,
       baseUrl,
+      purpose: "report_explain",
     });
+    servChecks.push(explained.proof);
     if (!explained.ok) {
       shadow.outcome = "error";
-      steps.push({ id: "serv_shadow_agent", status: "fallback_template", detail: explained.error });
+      explanationSource = "unavailable";
+      steps.push({ id: "serv_shadow_agent", status: "explanation_unavailable", detail: explained.error });
     } else {
       shadow.outcome = explained.shadowOutcome;
       usedModel = explained.model;
@@ -283,6 +291,7 @@ export async function assembleReport(input: AssembleInput, deps: AssembleDeps): 
       fuel: computed.fuel,
     },
     explanationSource,
+    servChecks,
     shadow,
   };
 

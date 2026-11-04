@@ -16,6 +16,19 @@ This build is an evaluation preview. The Auto.dev free plan is not a production 
 - Flip mode estimates a resale range from comparable **asking** prices (not closed sales), then subtracts fee and reconditioning assumptions.
 - Every dollar, percentage, mileage, and VIN in the written summary is checked against the tool output. A mismatch is replaced by a deterministic template.
 - When `SERV_API_KEY` is set, user text is sent through `serv_prompt_guard`, and the explanation is sent through `serv_prompt_guard` plus `serv_shadow_agent`. The Proof of AI block records the steps, an inputs hash, the tool outputs, and the model.
+
+## How we use SERV
+
+Checked against the SERV Reasoning docs (day one, tools, prompt guard, shadow agent, multipath, Kronos, structured outputs, streaming, usage). Shadow settings are schema `default`s, not call-time arguments. Shadow agent is non-streaming (`stream: false`). Multipath and Kronos are model-id suffixes. The chat-completions response schema does not document a shadow outcome field; we record a header only when its name contains `shadow`, and the documented word `exhausted` if it appears in the body. Otherwise the log says `not_exposed`. Kronos is not enabled: this environment could not measure a live call, and an unmeasured suffix can invalidate JSON.
+
+| Call | Model suffix | Tools | Why |
+| --- | --- | --- | --- |
+| Need extraction | none | `serv_prompt_guard` plus strict `json_schema` | The app consumes the JSON. Multipath and Kronos stay off until a measured run shows the schema still validates. |
+| Flip top-5 judgment | `-serv-multipath` | prompt guard, shadow agent (`hint` requires facts-only numbers and the word estimate, `max_iterations` 2) | Code already computed profit, comps, and speed. The model only chooses alert or skip. Multipath fits that policy matrix. Two iterations stay inside the 8s radar budget. The documented default is 3. |
+| Personal alert review and report explanation | none | prompt guard plus shadow agent | The hint forbids new numbers and asks to separate facts from estimates. Kronos was considered for the report rules and left off until measured. |
+| Radar input gate | none | prompt guard | The gate text is a protected instruction. |
+
+If a SERV call fails or times out, the deterministic result still shows and the log says explanation unavailable. The model cannot change the numbers. `/compare` shows a labeled sample beside that unavailable state. It is not a fabricated model paragraph.
 - Auto.dev calls stop at 900 per UTC month and are cached for 6 hours. A stopped month returns a plain “demo limit reached” message and does not call the provider.
 - Without `AUTODEV_API_KEY`, Deal Radar and reports for the five fixture VINs use the labeled sample. Other VINs are refused. The sample is never mixed into a live result.
 - Stripe Checkout in test mode, with live keys refused. The webhook grants credits once per event.

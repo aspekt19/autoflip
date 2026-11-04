@@ -71,7 +71,9 @@ export default function HomePage() {
           </ol>
           <p className="sample-link">
             <Link href="/pricing">Radar plans</Link>
-            <span> are preview prices. Report credits stay separate.</span>
+            <span> are preview prices. Report credits stay separate. </span>
+            <Link href="/compare">Compare a sample explanation</Link>
+            <span>.</span>
           </p>
         </div>
       </section>

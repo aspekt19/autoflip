@@ -23,7 +23,7 @@ import { storageMode } from "@/io/kv";
 import { payRadarTicket } from "@/io/kite-pay";
 import { parseAutoDevListings } from "@/io/parsers";
 import { reserveRadarCall } from "@/io/persistent-quota";
-import { buildAlertReviewRequest, buildGuardRequest, interpretGuard, postServ } from "@/io/serv";
+import { buildAlertReviewRequest, buildFlipJudgeRequest, buildGuardRequest, interpretGuard, postServ, type FlipJudgeFact, type ServProof } from "@/io/serv";
 import { alertMessage } from "@/io/telegram";
 import type { ComputedReport, Listing } from "@/domain/types";
 import { syncPresetSearches } from "@/domain/demo-presets";
@@ -77,6 +77,7 @@ export async function runRadarCycle(deps: CycleDeps): Promise<StoredRun> {
   let uniqueSearches = 0;
   let promptGuard = "not_started";
   let shadow = "not_started";
+  const servChecks: ServProof[] = [];
   let payment: StoredRun["payment"] = {
     status: "not_configured",
     missing: [],
@@ -104,6 +105,7 @@ export async function runRadarCycle(deps: CycleDeps): Promise<StoredRun> {
       steps,
       promptGuard,
       shadow,
+      servChecks,
       payment,
     );
 
@@ -119,7 +121,7 @@ export async function runRadarCycle(deps: CycleDeps): Promise<StoredRun> {
     const alerts = await listAlerts(deps.kv);
     const freshAlerts: WatchAlert[] = [];
 
-    promptGuard = await runGuard(searches, deps, Math.min(limits.serv, remain()));
+    promptGuard = await runGuard(searches, deps, Math.min(limits.serv, remain()), servChecks);
     steps.push({ id: "serv_prompt_guard", status: promptGuard });
     notes.push(`prompt guard: ${promptGuard}`);
     if (promptGuard === "block") {
@@ -230,7 +232,11 @@ export async function runRadarCycle(deps: CycleDeps): Promise<StoredRun> {
             storageKey,
             [...book.entries()].map(([vin, priceUsd]) => ({ vin, priceUsd })),
           );
+          const judged = await judgeFlipAlerts(fresh, deps, Math.min(limits.serv, remain()), servChecks);
+          if (deps.servKey && !judged) notes.push("Flip explanation unavailable. The estimates below are from the scan only.");
           for (const item of fresh) {
+            const decision = judged?.get(item.vin);
+            if (decision?.verdict === "skip") continue;
             const numbers = {
               priceUsd: item.listing.priceUsd ?? 0,
               medianUsd: item.resaleMidUsd ?? 0,
@@ -241,7 +247,8 @@ export async function runRadarCycle(deps: CycleDeps): Promise<StoredRun> {
               expectedMiles: null,
               roughMarginUsd: item.profitMidUsd,
             };
-            const alert = makeAlert(search, item.listing, flipAlertWhy(item), numbers, deps.now.toISOString());
+            const why = decision?.note ? `${flipAlertWhy(item)} ${decision.note}` : flipAlertWhy(item);
+            const alert = makeAlert(search, item.listing, why, numbers, deps.now.toISOString());
             alerts.unshift(alert);
             freshAlerts.push(alert);
             alertsSent += 1;
@@ -324,7 +331,7 @@ export async function runRadarCycle(deps: CycleDeps): Promise<StoredRun> {
         freshAlerts.map(async (alert) => {
           try {
             return await withTimeout(
-              reviewWhy(alert.why, alert.numbers, deps, Math.min(limits.serv, remain())),
+              reviewWhy(alert.why, alert.numbers, deps, Math.min(limits.serv, remain()), servChecks),
               Math.min(limits.serv, remain()),
             );
           } catch {
@@ -406,6 +413,7 @@ function finish(
   steps: Step[],
   promptGuard: string,
   shadow: string,
+  servChecks: ServProof[],
   payment: StoredRun["payment"],
 ): StoredRun {
   return {
@@ -426,11 +434,73 @@ function finish(
     notes,
     steps,
     serv: { promptGuard, shadow },
+    servChecks,
     payment,
   };
 }
 
-async function runGuard(searches: SavedSearch[], deps: CycleDeps, timeoutMs: number): Promise<string> {
+async function judgeFlipAlerts(
+  fresh: ReturnType<typeof topFlipCandidates>,
+  deps: CycleDeps,
+  timeoutMs: number,
+  proofs: ServProof[],
+): Promise<Map<string, { verdict: "alert" | "skip"; note: string }> | null> {
+  if (!deps.servKey || fresh.length === 0 || timeoutMs <= 0) return null;
+  const facts: FlipJudgeFact[] = fresh.map((item) => ({
+    vin: item.vin,
+    year: item.listing.year,
+    make: item.listing.make,
+    model: item.listing.model,
+    askingUsd: item.listing.priceUsd ?? 0,
+    compCount: item.compCount,
+    profitLowUsd: item.profitLowUsd,
+    profitMidUsd: item.profitMidUsd,
+    profitHighUsd: item.profitHighUsd,
+    confidence: item.confidence,
+    speed: item.speed,
+    speedBasis: item.speedBasis,
+  }));
+  try {
+    const result = await withTimeout(
+      postServ(buildFlipJudgeRequest(facts, deps.servModel || "gpt-5.4-mini"), {
+        fetch: deps.fetchImpl,
+        apiKey: deps.servKey,
+        baseUrl: deps.servBaseUrl || "https://inference-api.openserv.ai/v1",
+        timeoutMs,
+        purpose: "flip_judge",
+      }),
+      timeoutMs,
+    );
+    proofs.push(result.proof);
+    if (!result.ok) return null;
+    return parseFlipJudgment(result.text, facts);
+  } catch {
+    return null;
+  }
+}
+
+function parseFlipJudgment(text: string, facts: FlipJudgeFact[]): Map<string, { verdict: "alert" | "skip"; note: string }> | null {
+  try {
+    const parsed = JSON.parse(text) as { decisions?: Array<{ vin?: string; verdict?: string; note?: string }> };
+    if (!Array.isArray(parsed.decisions)) return null;
+    const allowed = JSON.stringify(facts);
+    const known = new Set(facts.map((item) => item.vin));
+    const decisions = new Map<string, { verdict: "alert" | "skip"; note: string }>();
+    for (const decision of parsed.decisions) {
+      if (!decision.vin || !known.has(decision.vin)) continue;
+      if (decision.verdict !== "alert" && decision.verdict !== "skip") continue;
+      const note = typeof decision.note === "string" ? decision.note : "";
+      const numbers = note.match(/\d[\d,]*/g) ?? [];
+      const safe = numbers.every((token) => allowed.includes(token.replace(/,/g, "")));
+      decisions.set(decision.vin, { verdict: decision.verdict, note: safe ? note : "" });
+    }
+    return decisions;
+  } catch {
+    return null;
+  }
+}
+
+async function runGuard(searches: SavedSearch[], deps: CycleDeps, timeoutMs: number, proofs: ServProof[]): Promise<string> {
   if (!deps.servKey) return "not_configured";
   const text = searches.map((item) => `${item.name} ${item.mode} ${item.criteria.zip} ${item.criteria.priceMax}`).join("\n");
   if (!text.trim()) return "skipped_empty";
@@ -442,9 +512,11 @@ async function runGuard(searches: SavedSearch[], deps: CycleDeps, timeoutMs: num
         apiKey: deps.servKey,
         baseUrl: deps.servBaseUrl || "https://inference-api.openserv.ai/v1",
         timeoutMs,
+        purpose: "radar_guard",
       }),
       timeoutMs,
     );
+    proofs.push(result.proof);
     if (!result.ok) return result.error === "SERV did not respond." ? "timeout" : `error: ${result.error}`;
     return interpretGuard(result.text);
   } catch {
@@ -457,6 +529,7 @@ async function reviewWhy(
   numbers: WatchAlert["numbers"],
   deps: CycleDeps,
   timeoutMs: number,
+  proofs: ServProof[],
 ): Promise<{ why: string; source: string }> {
   if (!deps.servKey) return { why, source: "template" };
   if (timeoutMs <= 0) return { why, source: "timeout" };
@@ -465,7 +538,9 @@ async function reviewWhy(
     apiKey: deps.servKey,
     baseUrl: deps.servBaseUrl || "https://inference-api.openserv.ai/v1",
     timeoutMs,
+    purpose: "personal_alert_review",
   });
+  proofs.push(result.proof);
   if (!result.ok) return { why, source: result.error === "SERV did not respond." ? "timeout" : "template_after_error" };
   const audit = auditExplanation(result.text, fakeReport(numbers, why));
   const failed = result.shadowOutcome === "exhausted" || result.shadowOutcome === "failed";

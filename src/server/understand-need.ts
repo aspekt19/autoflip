@@ -65,6 +65,7 @@ export async function understandNeed(
       fetch: fetchImpl,
       apiKey: deps.servKey,
       baseUrl,
+      purpose: "need_guard",
     });
     if (!guarded.ok) {
       guard = "unavailable";
@@ -77,6 +78,7 @@ export async function understandNeed(
         fetch: fetchImpl,
         apiKey: deps.servKey,
         baseUrl,
+        purpose: "need_extract",
       });
       if (extractedCall.ok) {
         try {

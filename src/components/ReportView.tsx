@@ -275,6 +275,17 @@ export function ReportView({ report }: { report: FullReport }) {
           Shadow check: requested {report.proof.shadow.requested ? "yes" : "no"}, outcome <code>{report.proof.shadow.outcome}</code>, max iterations{" "}
           {report.proof.shadow.maxIterations}.
         </p>
+        <h3>How this was checked</h3>
+        {(report.proof.servChecks ?? []).length === 0 ? <p className="hint">No model call was recorded for this report.</p> : null}
+        <ul className="refuse">
+          {(report.proof.servChecks ?? []).map((check) => (
+            <li key={`${check.purpose}-${check.latencyMs}`}>
+              {check.purpose}: model {check.modelReported}, tools {check.tools.join(", ") || "none"}
+              {check.features.length ? `, ${check.features.join(" + ")}` : ""}, guard {check.promptGuard}, shadow {check.shadowOutcome}, {check.latencyMs} ms
+              {report.proof.explanationSource === "unavailable" ? ". Explanation unavailable." : ""}
+            </li>
+          ))}
+        </ul>
         <ul className="step-list">
           {report.proof.steps.map((step) => (
             <li key={`${step.id}-${step.status}`}>

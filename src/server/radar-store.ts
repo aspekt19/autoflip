@@ -105,6 +105,17 @@ export type StoredRun = {
   notes: string[];
   steps: { id: string; status: string; detail?: string }[];
   serv: { promptGuard: string; shadow: string };
+  servChecks?: Array<{
+    purpose: string;
+    modelRequested: string;
+    modelReported: string;
+    tools: string[];
+    features: string[];
+    promptGuard: string;
+    shadowOutcome: string;
+    shadowMaxIterations: number | null;
+    latencyMs: number;
+  }>;
   payment: {
     status: string;
     missing: string[];

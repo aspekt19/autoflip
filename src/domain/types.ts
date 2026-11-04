@@ -157,7 +157,18 @@ export type Proof = {
   promptVersion: string;
   steps: ProofStep[];
   toolOutputs: Record<string, unknown>;
-  explanationSource: "serv" | "template";
+  explanationSource: "serv" | "template" | "unavailable";
+  servChecks?: Array<{
+    purpose: string;
+    modelRequested: string;
+    modelReported: string;
+    tools: string[];
+    features: string[];
+    promptGuard: string;
+    shadowOutcome: string;
+    shadowMaxIterations: number | null;
+    latencyMs: number;
+  }>;
   shadow: {
     requested: boolean;
     hint: string;
