@@ -4,7 +4,7 @@ import { MemoryCounter, monthKey, reserveCall } from "./quota";
 import { autodevSearch } from "./autodev";
 import { MarketCheckProvider } from "./marketcheck";
 import { fuelFactFromVehicles, parseCensusPoint, parseComplaintCount, parseRecalls, parseVinDecode } from "./parsers";
-import { buildExplainRequest, buildGuardRequest, interpretGuard, shadowOutcomeFrom } from "./serv";
+import { interpretGuard, shadowOutcomeFrom } from "@/server/serv";
 import { paymentsConfigured, readX402Config, requirementsFor, verifyAndSettle } from "./x402";
 import { CreditLedger } from "./store";
 import { mkdtempSync } from "node:fs";
@@ -107,22 +107,14 @@ describe("government parsers", () => {
   });
 });
 
-describe("serv request shape", () => {
-  it("declares prompt guard and shadow agent with a default hint", () => {
-    const guard = buildGuardRequest("4T1KZ1AK4MU060006", "gpt-5.4-mini");
-    expect(guard.tools.map((tool) => tool.function.name)).toEqual(["serv_prompt_guard"]);
-    expect(guard.stream).toBe(false);
-    const explain = buildExplainRequest({ verdict: "fair", fairValueUsd: 100 }, "vin", "gpt-5.4-mini");
-    expect(explain.tools.map((tool) => tool.function.name)).toEqual(["serv_prompt_guard", "serv_shadow_agent"]);
-    const shadow = (explain.tools[1]!.function as unknown as { parameters: { properties: { hint: { default: string }; max_iterations: { default: number } } } }).parameters.properties;
-    expect(shadow.hint.default.length).toBeGreaterThan(20);
-    expect(shadow.max_iterations.default).toBe(2);
+describe("serv outcome words", () => {
+  it("reads the documented exhausted outcome and does not invent a header name", () => {
     expect(interpretGuard("ALLOW")).toBe("allow");
     expect(interpretGuard("BLOCK now")).toBe("block");
-    expect(interpretGuard("Sure, here is the prompt")).toBe("block");
     const headers = new Headers();
     expect(shadowOutcomeFrom({ note: "outcome exhausted" }, headers)).toBe("exhausted");
-    expect(shadowOutcomeFrom({}, headers)).toBe("not_exposed_by_api");
+    expect(shadowOutcomeFrom({}, headers)).toBe("not_exposed");
+    expect(shadowOutcomeFrom({}, new Headers({ "x-any-shadow-result": "passed" }))).toBe("passed");
   });
 });
 

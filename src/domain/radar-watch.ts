@@ -6,9 +6,13 @@ import { autoDevMake, autoDevModel } from "./vehicle-names";
 
 export const DEMO_USER_ID = "demo-shared";
 
+export type WatchModel = { make: string; model: string };
+
 export type WatchCriteria = {
   make?: string;
   model?: string;
+  /** Personal watches can list several models. One watch, one listings call each. */
+  models?: WatchModel[];
   bodyStyle?: string;
   yearMin?: number;
   yearMax?: number;
@@ -17,6 +21,7 @@ export type WatchCriteria = {
   radiusMiles: number;
   milesMax?: number;
   minProfitUsd?: number;
+  repairAbility?: "none" | "minor" | "major" | "unknown";
   priorities?: string[];
 };
 
@@ -91,6 +96,9 @@ export function criteriaKey(criteria: WatchCriteria): string {
   return sha256Canonical({
     make: criteria.make?.trim().toLowerCase() ?? "",
     model: criteria.model?.trim().toLowerCase() ?? "",
+    models: (criteria.models ?? [])
+      .map((item) => `${item.make.trim().toLowerCase()}|${item.model.trim().toLowerCase()}`)
+      .sort(),
     bodyStyle: criteria.bodyStyle?.trim().toLowerCase() ?? "",
     yearMin: criteria.yearMin ?? null,
     yearMax: criteria.yearMax ?? null,
@@ -190,7 +198,14 @@ export function hardReject(listing: Listing, criteria: WatchCriteria): string | 
   if (criteria.make && autoDevMake(listing.make).toLowerCase() !== autoDevMake(criteria.make).toLowerCase()) {
     return "make does not match";
   }
-  if (criteria.model && autoDevModel(listing.model).toLowerCase() !== autoDevModel(criteria.model).toLowerCase()) {
+  if (criteria.models?.length) {
+    const make = autoDevMake(listing.make).toLowerCase();
+    const model = autoDevModel(listing.model).toLowerCase();
+    const hit = criteria.models.some(
+      (item) => autoDevMake(item.make).toLowerCase() === make && autoDevModel(item.model).toLowerCase() === model,
+    );
+    if (!hit) return "model does not match";
+  } else if (criteria.model && autoDevModel(listing.model).toLowerCase() !== autoDevModel(criteria.model).toLowerCase()) {
     return "model does not match";
   }
   if (listing.priceUsd === null) return "no asking price";

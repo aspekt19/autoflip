@@ -52,6 +52,7 @@ describe("radar cycle", () => {
     expect(alerts.every((item) => item.sample === false)).toBe(true);
     const seen = await seenVins(kv, seenStorageKey(preset.id, preset.criteria));
     expect(seen.size).toBe(4);
+    const personalBefore = (await listAlerts(kv)).filter((item) => item.mode === "personal").length;
 
     const second = await runRadarCycle({
       kv,
@@ -63,9 +64,10 @@ describe("radar cycle", () => {
       env: {},
       forceAll: true,
     });
-    expect(second.alertsSent).toBe(0);
-    expect(second.autodevCalls).toBe(2);
-    expect(calls).toBe(3);
+    const personalAfter = (await listAlerts(kv)).filter((item) => item.mode === "personal").length;
+    expect(personalAfter).toBe(personalBefore);
+    expect(second.autodevCalls).toBe(3);
+    expect(calls).toBe(4);
   });
 
   it("keeps fetched listings and records a partial run when SERV times out", async () => {

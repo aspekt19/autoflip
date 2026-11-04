@@ -33,35 +33,33 @@ export function demoPresets(now = "2026-11-04T00:00:00.000Z"): SavedSearch[] {
       },
     },
     {
-      id: "preset-flip-civic",
+      id: "preset-flip-miami",
       ownerId: DEMO_USER_ID,
-      name: "Local Civic buy box",
+      name: "Miami resale scan",
       mode: "flip",
       preset: true,
       enabled: true,
       createdAt: now,
       lastCheckedAt: null,
       criteria: {
-        make: "Honda",
-        model: "Civic",
-        yearMin: 2008,
-        yearMax: 2018,
-        priceMax: 16_000,
+        priceMax: 12_000,
         zip: "33101",
-        radiusMiles: 100,
-        milesMax: 180_000,
-        minProfitUsd: 1_500,
-        priorities: ["local resale", "minor repairs"],
+        radiusMiles: 50,
+        repairAbility: "unknown",
       },
     },
   ];
 }
 
 /** Replace stored preset criteria when this file changes. Custom searches are left alone. */
+const RETIRED_PRESETS = new Set(["preset-flip-civic"]);
+
 export function syncPresetSearches(existing: SavedSearch[], nowIso: string): { searches: SavedSearch[]; changed: boolean } {
   const presets = demoPresets(nowIso);
   let changed = false;
-  const searches = existing.map((item) => {
+  const kept = existing.filter((item) => !RETIRED_PRESETS.has(item.id));
+  if (kept.length !== existing.length) changed = true;
+  const searches = kept.map((item) => {
     const preset = presets.find((candidate) => candidate.id === item.id);
     if (!preset || !item.preset) return item;
     const same =

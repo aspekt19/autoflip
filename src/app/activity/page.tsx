@@ -20,6 +20,16 @@ type Run = {
   notes: string[];
   steps?: { id: string; status: string; detail?: string }[];
   serv: { promptGuard: string; shadow: string };
+  servChecks?: Array<{
+    purpose: string;
+    modelReported: string;
+    tools: string[];
+    features: string[];
+    promptGuard: string;
+    shadowOutcome: string;
+    shadowMaxIterations: number | null;
+    latencyMs: number;
+  }>;
   payment: { status: string; missing: string[]; tx: string | null; detail: string; costAtomic: string | null; network: string | null };
 };
 
@@ -72,6 +82,13 @@ export default function ActivityPage() {
               ))}
               <li>SERV prompt guard: {run.serv.promptGuard}</li>
               <li>SERV shadow check: {run.serv.shadow}</li>
+              {(run.servChecks ?? []).map((check, index) => (
+                <li key={`${check.purpose}-${index}`}>
+                  SERV {check.purpose}: model {check.modelReported}, tools {check.tools.join(", ") || "none"}
+                  {check.features.length ? `, features ${check.features.join("+")}` : ""}, guard {check.promptGuard}, shadow {check.shadowOutcome}
+                  {check.shadowMaxIterations !== null ? ` (max ${check.shadowMaxIterations})` : ""}, {check.latencyMs}ms
+                </li>
+              ))}
               <li>
                 Kite testnet payment: {run.payment.status}
                 {run.payment.tx ? ` · ${run.payment.tx}` : ""} · {run.payment.detail}

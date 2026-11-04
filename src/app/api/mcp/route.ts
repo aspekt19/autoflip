@@ -102,7 +102,7 @@ export async function POST(request: Request) {
         url: typeof args.url === "string" ? args.url : undefined,
         zip: typeof args.zip === "string" ? args.zip : undefined,
       },
-      runtimeDeps(),
+      { ...runtimeDeps(), servSurface: "agent" },
     );
     if (!assembled.ok) {
       return Response.json(

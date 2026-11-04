@@ -13,6 +13,7 @@ export type ListingQuery = {
   distanceMiles?: number;
   limit?: number;
   sort?: string;
+  page?: number;
 };
 
 /**

@@ -35,13 +35,55 @@ export async function saveAlerts(kv: Kv, rows: WatchAlert[]): Promise<void> {
   await kv.set(ALERTS, JSON.stringify(rows.slice(0, 80)));
 }
 
+type SeenEntry = { vin: string; priceUsd: number | null };
+
+function parseSeen(raw: unknown[]): SeenEntry[] {
+  const entries: SeenEntry[] = [];
+  for (const item of raw) {
+    if (typeof item === "string") entries.push({ vin: item, priceUsd: null });
+    else if (item && typeof item === "object" && "vin" in item && typeof (item as { vin?: unknown }).vin === "string") {
+      const price = (item as { priceUsd?: unknown }).priceUsd;
+      entries.push({ vin: (item as { vin: string }).vin, priceUsd: typeof price === "number" ? price : null });
+    }
+  }
+  return entries;
+}
+
+export async function seenBook(kv: Kv, criteriaHash: string): Promise<Map<string, number | null>> {
+  const rows = parseSeen(await readJson<unknown[]>(kv, `radar:seen:${criteriaHash}`, []));
+  return new Map(rows.map((item) => [item.vin, item.priceUsd]));
+}
+
 export async function seenVins(kv: Kv, criteriaHash: string): Promise<Set<string>> {
-  const rows = await readJson<string[]>(kv, `radar:seen:${criteriaHash}`, []);
-  return new Set(rows);
+  return new Set((await seenBook(kv, criteriaHash)).keys());
 }
 
 export async function storeSeen(kv: Kv, criteriaHash: string, vins: string[]): Promise<void> {
-  await kv.set(`radar:seen:${criteriaHash}`, JSON.stringify(vins.slice(-2000)));
+  const prior = await seenBook(kv, criteriaHash);
+  const entries = vins.slice(-2000).map((vin) => ({ vin, priceUsd: prior.get(vin) ?? null }));
+  await kv.set(`radar:seen:${criteriaHash}`, JSON.stringify(entries));
+}
+
+export async function storeSeenPrices(kv: Kv, criteriaHash: string, rows: SeenEntry[]): Promise<void> {
+  await kv.set(`radar:seen:${criteriaHash}`, JSON.stringify(rows.slice(-2000)));
+}
+
+const LISTING_CACHE_MS = 3 * 60 * 60 * 1000;
+
+export async function readListingCache(kv: Kv, url: string, nowMs: number): Promise<unknown | null> {
+  const raw = await kv.get(`radar:listing-cache:${url}`);
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw) as { at?: number; body?: unknown };
+    if (typeof parsed.at !== "number" || nowMs - parsed.at > LISTING_CACHE_MS) return null;
+    return parsed.body ?? null;
+  } catch {
+    return null;
+  }
+}
+
+export async function writeListingCache(kv: Kv, url: string, body: unknown, nowMs: number): Promise<void> {
+  await kv.set(`radar:listing-cache:${url}`, JSON.stringify({ at: nowMs, body }));
 }
 
 export type StoredRun = {
@@ -63,6 +105,17 @@ export type StoredRun = {
   notes: string[];
   steps: { id: string; status: string; detail?: string }[];
   serv: { promptGuard: string; shadow: string };
+  servChecks?: Array<{
+    purpose: string;
+    modelRequested: string;
+    modelReported: string;
+    tools: string[];
+    features: string[];
+    promptGuard: string;
+    shadowOutcome: string;
+    shadowMaxIterations: number | null;
+    latencyMs: number;
+  }>;
   payment: {
     status: string;
     missing: string[];

@@ -33,6 +33,7 @@ export function Header() {
       </Link>
       <nav aria-label="Primary">
         <Link href="/radar">Deal Radar</Link>
+        <Link href="/pricing">Pricing</Link>
         <Link href="/developers">Developers</Link>
         <Link className="nav-go" href="/credits">
           {creditLabel}

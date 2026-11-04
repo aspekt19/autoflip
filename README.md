@@ -16,6 +16,25 @@ This build is an evaluation preview. The Auto.dev free plan is not a production 
 - Flip mode estimates a resale range from comparable **asking** prices (not closed sales), then subtracts fee and reconditioning assumptions.
 - Every dollar, percentage, mileage, and VIN in the written summary is checked against the tool output. A mismatch is replaced by a deterministic template.
 - When `SERV_API_KEY` is set, user text is sent through `serv_prompt_guard`, and the explanation is sent through `serv_prompt_guard` plus `serv_shadow_agent`. The Proof of AI block records the steps, an inputs hash, the tool outputs, and the model.
+
+## How we use SERV
+
+Checked against the SERV Reasoning docs (day one, tools, prompt guard, shadow agent, multipath, Kronos, structured outputs, streaming, usage). Shadow settings are schema `default`s, not call-time arguments. Shadow agent is non-streaming (`stream: false`). Multipath and Kronos are model-id suffixes. The chat-completions response schema does not document a shadow outcome field; we record a header only when its name contains `shadow`, and the documented word `exhausted` if it appears in the body. Otherwise the log says `not_exposed`. Kronos is not enabled: this environment could not measure a live call, and an unmeasured suffix can invalidate JSON.
+
+Profiles live in `src/server/serv/profiles.ts`. Every model call uses `runServ(profileId)`. A new service is one new profile. No other file posts to the inference API.
+
+| Profile | Model suffix | Tools | Why |
+| --- | --- | --- | --- |
+| `need_guard`, `need_extract` | none | guard; extract also has strict `json_schema` | `/find`. The app consumes the JSON. Multipath and Kronos stay off until a measured run shows the schema still validates. |
+| `check_guard` | none | prompt guard | `/check` listing or VIN before the report runs. |
+| `report_guard`, `report_explain` | none | guard; explain also has shadow agent | Personal and Flip full reports. The hint forbids new numbers. Kronos stays off until measured. |
+| `agent_guard`, `agent_explain` | none | same pair as the report | `/api/mcp` `full_report` and `POST /api/v1/report`. |
+| `radar_guard` | none | prompt guard | Saved-search text and one-off scans. |
+| `personal_alert_review` | none | prompt guard plus shadow agent | Personal radar sentence. Code owns the numbers. |
+| `flip_judge` | `-serv-multipath` | prompt guard, shadow (`hint` requires facts-only numbers and the word estimate, `max_iterations` 2) | Flip top 5. Code already computed profit, comps, and speed. The model only chooses alert or skip. |
+| `telegram_reply` | none | prompt guard plus shadow agent | `/help` and a bare `/start`. If the call fails, the published connect text is sent. |
+
+If a SERV call fails or times out, the deterministic result still shows and the log says explanation unavailable. The model cannot change the numbers. `/compare` shows a labeled sample beside that unavailable state. It is not a fabricated model paragraph.
 - Auto.dev calls stop at 900 per UTC month and are cached for 6 hours. A stopped month returns a plain “demo limit reached” message and does not call the provider.
 - Without `AUTODEV_API_KEY`, Deal Radar and reports for the five fixture VINs use the labeled sample. Other VINs are refused. The sample is never mixed into a live result.
 - Stripe Checkout in test mode, with live keys refused. The webhook grants credits once per event.
@@ -138,7 +157,9 @@ Auto.dev terms limit the free plan to evaluation and restrict resale of the feed
 
 A saved search is checked on a schedule. Monitoring does not spend a credit. A full report still costs 1 credit, and only after an explicit Analyze click. A VIN is marked seen only after it passes the pre-filter for that search and rule version. Rows that were filtered out are judged again on the next run, and a criteria or rule change uses a new seen key.
 
-The shared preview is `/demo?key=$DEMO_ACCESS_KEY`. It signs every visitor in as one client, refills `DEMO_CREDITS` once per UTC day, and installs two presets: a 2012–2020 Toyota RAV4 up to $24,000 within 100 miles of Miami (33101), and a 2008–2018 Honda Civic up to $16,000 in the same radius with a $1,500 rough-margin buy box. Visitors can add at most one extra shared search. Check now is limited to once per 30 minutes globally. A preset’s criteria update the next time the preview or the cron runs.
+The shared preview is `/demo?key=$DEMO_ACCESS_KEY`. It signs every visitor in as one client, refills `DEMO_CREDITS` once per UTC day, and turns on both radar modes without a charge. Presets: a 2012–2020 Toyota RAV4 up to $24,000 within 100 miles of Miami (33101), and a budget-only Flip scan at $12,000 within 50 miles of 33101 (no model, no mileage, no profit target). Visitors can add at most one extra shared search. Check now is limited to once per 30 minutes globally. A preset’s criteria update the next time the preview or the cron runs.
+
+Personal watches can list several models and alert on a new match or a price drop of at least $300 and 3%. Flip scans use at most two cached pages per cycle, then rank up to five cars. Profit and speed of sale are estimates from that scan. Fewer than three comps is excluded. Listing age is used only when the feed includes it; otherwise speed is unknown. Preview plan prices are on `/pricing`. Report credits stay separate.
 
 ### Auto.dev, checked 4 Nov 2026
 

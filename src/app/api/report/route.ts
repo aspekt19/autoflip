@@ -53,7 +53,7 @@ export async function POST(request: Request) {
       askingPriceUsd,
       miles,
     },
-    runtimeDeps(),
+    { ...runtimeDeps(), servSurface: body.surface === "check" ? "check" : "report" },
   );
   if (!assembled.ok) {
     return Response.json({ error: assembled.error, message: assembled.message }, { status: assembled.status });
