@@ -27,6 +27,7 @@ type MatchGroup = {
   direction: SearchDirection;
   listings: ListingCard[];
   note: string | null;
+  coverage?: string;
 };
 
 const USE_LABEL: Record<(typeof USE_CASES)[number], string> = {
@@ -535,6 +536,7 @@ function AssistantFlow({ variant }: { variant: "find" | "check" }) {
             <section key={group.direction.id}>
               <h3>{group.direction.segment}</h3>
               <p>{group.direction.why}</p>
+              {group.coverage ? <p className="hint">{group.coverage}</p> : null}
               <p className="hint">
                 Candidate models: {group.direction.models.map((item) => `${item.make} ${item.model}`).join(", ")}. Years {group.direction.yearMin}–{group.direction.yearMax}. {group.direction.yearBecause} One listings call uses {group.direction.search.make} {group.direction.search.model}.
               </p>

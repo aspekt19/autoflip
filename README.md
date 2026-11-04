@@ -55,6 +55,14 @@ The bounded reasoning graph is the engine under every call. This app does not co
 
 Paid agent responses (`deal_radar`, `full_report`, `POST /api/v1/report`) always include `proof`. It copies the inference fields that were actually present and adds `profiles` (tools, suffixes, guard result, shadow outcome and iteration cap, latency) plus `codeComputed`. The shopper-facing "Why we decided this" note is rendered from those recorded flags. It is not another model call.
 
+## Compare standard and checked answers
+
+`npm run eval:serv` is an offline script. It exits immediately when `SERV_API_KEY` is missing. It runs the fixed cases in `src/domain/eval-cases.ts` twice per assigned profile: the same base model with no SERV tools and no suffix, then the profile. Prices and VINs come from `fixtures/autodev-camry.json`. Adversarial seller notes are marked synthetic. Scores are injection followed, invented number, schema valid, and verdict consistent with the facts. Output is `eval/results/latest.json` and `latest.md`. Commit those after a real run. `/compare` reads the JSON and will not invent a trap.
+
+The published GPT-5.4 Mini rates, which include SERV Reasoning, are $1 per million input tokens and $6 per million output tokens. The script prints an estimate before it starts: 44 pairs, one plain call each, and about three model calls on the checked side (shadow, Kronos, or the figure-reading follow-up). At 900 input and 180 output tokens per call, that is roughly $0.35 to $2 at the published mini rates. Treat that as an estimate, not a credit balance. The JSON records the token totals the API actually returned.
+
+`GET /api/serv/selftest` with `Authorization: Bearer $RADAR_CRON_SECRET` makes one short call per distinct profile shape and returns ok, latency, and whether the guard, shadow agent, and suffix were accepted. It is the live check. The eval is the comparison.
+
 If a SERV call fails or times out, the deterministic result still shows and the log says explanation unavailable. The model cannot change the numbers. `/compare` shows a labeled sample beside that unavailable state. It is not a fabricated model paragraph.
 - Auto.dev calls stop at 900 per UTC month and are cached for 6 hours. A stopped month returns a plain “demo limit reached” message and does not call the provider.
 - Without `AUTODEV_API_KEY`, Deal Radar and reports for the five fixture VINs use the labeled sample. Other VINs are refused. The sample is never mixed into a live result.

@@ -1,3 +1,4 @@
+import { coverageNote } from "@/domain/coverage";
 import { fitHeadline, midProfitUsd, walkAwayAskingUsd } from "@/domain/fit";
 import { formatNumber, formatPct, formatUsd, verdictLabel } from "@/domain/format";
 import type { DecisionScene } from "@/domain/decision-note";
@@ -26,6 +27,15 @@ export function ReportView({ report }: { report: FullReport }) {
         {car.dealer ? ` · ${car.dealer}` : ""}
       </p>
       <p className={`verdict-level badge ${computed.verdict}`}>{verdictLabel(computed.verdict)}</p>
+      <p className="hint">
+        {coverageNote({
+          mode: computed.mode,
+          sample: computed.sample,
+          dealerListingCount: computed.comps.length,
+          radiusMiles: null,
+          historyOnListing: computed.subject.accidentCount !== null && computed.subject.ownerCount !== null,
+        })}
+      </p>
       <h2>{computed.mode === "flip" ? "Does this deal fit?" : "Does this car fit?"}</h2>
       <p>{fitHeadline(computed)}</p>
       <div className="split">

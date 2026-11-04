@@ -77,6 +77,7 @@ export type WatchAlert = {
   numbers: AlertNumbers;
   sample: boolean;
   checks?: DecisionProof[];
+  coverage?: string;
 };
 
 export type PrefilterDecision =

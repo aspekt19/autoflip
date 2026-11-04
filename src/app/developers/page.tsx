@@ -45,7 +45,7 @@ export default function DevelopersPage() {
       <section>
         <h2>Saved-search schedule</h2>
         <p>
-          GitHub Actions calls <code>POST /api/radar/cron</code> every 3 hours with <code>Authorization: Bearer $RADAR_CRON_SECRET</code>. One unique search is one listings call. Identical criteria are shared. The watcher stops at 650 calls a month so reports keep the rest of the 900 cap. A Check now button is limited to once per 30 minutes for everyone.
+          <code>GET /api/serv/selftest</code> uses the same <code>Authorization: Bearer $RADAR_CRON_SECRET</code> header and makes one short call per request shape. GitHub Actions calls <code>POST /api/radar/cron</code> every 3 hours with that header. One unique search is one listings call. Identical criteria are shared. The watcher stops at 650 calls a month so reports keep the rest of the 900 cap. A Check now button is limited to once per 30 minutes for everyone.
         </p>
         <p>
           Persistent storage is Upstash Redis (free REST). Set <code>UPSTASH_REDIS_REST_URL</code> and <code>UPSTASH_REDIS_REST_TOKEN</code>. Without them on Vercel, saved searches are not kept. Locally they fall back to <code>.data/kv.json</code>.
