@@ -324,13 +324,13 @@ export async function runServ(
         : {
             model: inspected.model,
             stream: entry.stream,
-            reasoning_effort: entry.reasoningEffort,
+            // gpt-5.4-mini rejects a function tool on chat completions unless effort is none.
+            reasoning_effort: entry.applicationTool ? "none" : entry.reasoningEffort,
             messages: [
               { role: "system", content: entry.system },
               { role: "user", content: userText },
             ],
             tools: firstTools,
-            ...(entry.applicationTool ? {} : { reasoning_effort: entry.reasoningEffort }),
             ...(entry.jsonSchema
               ? { response_format: { type: "json_schema", json_schema: { name: entry.jsonSchema.name, strict: true, schema: entry.jsonSchema.schema } } }
               : {}),
