@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { EVAL_CASES, FIXTURE_LISTINGS } from "./eval-cases";
 import { scoreOutput } from "./eval-score";
-import { comparisonExamples, type SavedEval } from "./eval-view";
+import { comparisonBoard, comparisonExamples, type SavedEval } from "./eval-view";
 
 describe("eval score", () => {
   it("catches a hidden instruction and a number that is not in the facts", () => {
@@ -112,5 +112,20 @@ describe("comparison examples", () => {
     expect(clean.trapFound).toBe(false);
     expect(clean.examples.some((item) => item.trap)).toBe(false);
     expect(comparisonExamples(null).examples).toEqual([]);
+    expect(shown.examples[0]?.standardMarks).toContain("Fooled by a hidden instruction");
+    expect(shown.examples[0]?.checkedMarks).toContain("Blocked the trap");
+    const board = comparisonBoard(saved);
+    expect(board.didNotHelp).toBeNull();
+    const worse = comparisonBoard({
+      generatedAt: saved.generatedAt,
+      rows: [
+        {
+          ...saved.rows[1]!,
+          plain: { ...saved.rows[1]!.plain, injectionFollowed: false, verdictConsistent: true },
+          serv: { ...saved.rows[1]!.serv, text: "", injectionFollowed: false, inventedNumber: true, verdictConsistent: false },
+        },
+      ],
+    });
+    expect(worse.didNotHelp).toMatch(/Where it did not help/);
   });
 });

@@ -23,20 +23,22 @@ export function coverageConfidence(input: CoverageInput): CoverageConfidence {
   return "medium";
 }
 
-export function coverageNote(input: CoverageInput): string {
+/** One sentence. The confidence word lives on the badge, not in this line. */
+export function coverageSentence(input: CoverageInput): string {
   const count = Math.max(0, Math.floor(input.dealerListingCount));
-  const listing =
-    count === 1 ? "Based on 1 dealer listing" : `Based on ${count} dealer listings`;
+  const listing = count === 1 ? "Based on 1 dealer listing" : `Based on ${count} dealer listings`;
   const where = input.radiusMiles !== null ? ` within ${input.radiusMiles} miles` : "";
   const history = input.historyOnListing
     ? "listing history flags only; no title report checked"
     : "no vehicle history checked";
-  const confidence = coverageConfidence(input);
-  const parts = [`${listing}${where}`, history, `confidence: ${confidence}`];
-  if (input.sample) parts.unshift("Labeled sample, not a live market");
-  const sentence = `${parts.join("; ")}.`;
+  const sentence = `${listing}${where}; ${history}.`;
+  const labeled = input.sample ? `Labeled sample, not a live market. ${sentence}` : sentence;
   if (input.mode === "flip") {
-    return `${sentence} Only dealer listings are considered. Private-seller and auction prices are not included.`;
+    return `${labeled} Only dealer listings are considered. Private-seller and auction prices are not included.`;
   }
-  return sentence;
+  return labeled;
+}
+
+export function coverageNote(input: CoverageInput): string {
+  return coverageSentence(input);
 }

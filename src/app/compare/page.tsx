@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import Link from "next/link";
-import { comparisonExamples, type SavedEval } from "@/domain/eval-view";
+import { comparisonBoard, type SavedEval } from "@/domain/eval-view";
 
 export const dynamic = "force-dynamic";
 
@@ -17,49 +17,112 @@ function savedEval(): SavedEval | null {
 }
 
 export default function ComparePage() {
-  const view = comparisonExamples(savedEval());
+  const board = comparisonBoard(savedEval());
   return (
-    <div className="sub">
-      <div className="sheet-page">
-        <p className="kicker">Comparison</p>
-        <h1>Standard AI vs AutoFlip&apos;s checked AI</h1>
-        <p className="lead">
-          Side by side answers from the last saved comparison. Synthetic trap text is labeled. Nothing on this page is made up to fill a gap.
-        </p>
-        {view.examples.length === 0 ? (
-          <p>This comparison has not been run yet.</p>
+    <>
+      <section className="hero hero-home compare-hero">
+        <div className="hero-wash" aria-hidden="true">
+          <span className="orb orb-y" />
+          <span className="orb orb-b" />
+          <svg className="flow" viewBox="0 0 800 520" preserveAspectRatio="none">
+            <path d="M-40 460 C 160 420, 220 300, 400 320 S 640 460, 860 280" />
+            <path d="M-20 500 C 200 440, 280 360, 480 380 S 680 500, 880 340" />
+          </svg>
+        </div>
+        <div className="wrap hero-copy">
+          <p className="kicker">Comparison</p>
+          <h1>Standard AI vs AutoFlip</h1>
+          <p className="lead">The same listing, read two ways. AutoFlip keeps the writing tied to the figures it calculated.</p>
+        </div>
+      </section>
+      <div className="compare-sheet">
+        {board.examples.length === 0 ? (
+          <section className="compare-listing">
+            <p className="kicker">No saved run</p>
+            <h2>Waiting for a real comparison</h2>
+            <p>No listing is shown until a saved run exists. Nothing here is filled in to look finished.</p>
+            <div className="choice-grid compare-pair">
+              <article className="compare-card">
+                <strong className="choice-title">Standard AI</strong>
+                <p>No answer yet.</p>
+              </article>
+              <article className="compare-card">
+                <strong className="choice-title">AutoFlip</strong>
+                <p>No answer yet.</p>
+              </article>
+            </div>
+          </section>
         ) : (
-          <>
-            {view.trapFound ? null : (
-              <p>In the saved run, the standard answer was not caught following a hidden instruction.</p>
-            )}
-            {view.examples.map((example) => (
-              <section key={`${example.title}-${example.task}`}>
-                <h2>{example.title}</h2>
-                <p className="hint">
-                  {example.task}
-                  {example.synthetic ? " · Synthetic trap text" : ""}
-                </p>
-                <div className="choice-grid">
-                  <article className="choice-card">
-                    <strong className="choice-title">Standard AI</strong>
-                    <span className="choice-desc">{example.standardNote}</span>
-                    <p>{example.standard}</p>
-                  </article>
-                  <article className="choice-card">
-                    <strong className="choice-title">Checked AI</strong>
-                    <span className="choice-desc">{example.checkedNote}</span>
-                    <p>{example.checked}</p>
-                  </article>
-                </div>
-              </section>
-            ))}
-          </>
+          board.examples.map((example) => (
+            <section className="compare-listing" key={`${example.title}-${example.task}`}>
+              <p className="kicker">{example.synthetic ? "Synthetic trap" : "Saved listing"}</p>
+              <h2>{example.title}</h2>
+              <p>{example.task}</p>
+              <div className="choice-grid compare-pair">
+                <article className="compare-card">
+                  <strong className="choice-title">Standard AI</strong>
+                  <p>{example.standard}</p>
+                  <ul className="compare-marks">
+                    {example.standardMarks.map((mark) => (
+                      <li className={mark.startsWith("Fooled") || mark.startsWith("Invented") || mark.startsWith("Missing") || mark.startsWith("Did not") || mark.startsWith("Answer") ? "is-bad" : ""} key={mark}>
+                        {mark}
+                      </li>
+                    ))}
+                  </ul>
+                </article>
+                <article className="compare-card">
+                  <strong className="choice-title">AutoFlip</strong>
+                  <p>{example.checked}</p>
+                  <ul className="compare-marks">
+                    {example.checkedMarks.map((mark) => (
+                      <li className={mark.startsWith("Followed") || mark.startsWith("Invented") || mark.startsWith("Missing") || mark.startsWith("Did not") || mark.startsWith("Answer") ? "is-bad" : ""} key={mark}>
+                        {mark}
+                      </li>
+                    ))}
+                  </ul>
+                </article>
+              </div>
+            </section>
+          ))
         )}
-        <p>
-          <Link href="/find">Back to find a car</Link>
-        </p>
+        {board.trapFound ? null : board.hasRun ? <p className="compare-gap">In the saved run, standard AI was not caught following a hidden instruction.</p> : null}
+        {board.didNotHelp ? <p className="compare-gap">{board.didNotHelp}</p> : null}
+        <div className="compare-table-wrap">
+          <table className="compare-table">
+            <caption className="kicker">Saved results</caption>
+            <thead>
+              <tr>
+                <th scope="col">Check</th>
+                <th scope="col">Standard AI</th>
+                <th scope="col">AutoFlip</th>
+              </tr>
+            </thead>
+            <tbody>
+              {board.summary.length === 0 ? (
+                <tr>
+                  <td colSpan={3}>No saved rows yet.</td>
+                </tr>
+              ) : (
+                board.summary.map((row) => (
+                  <tr key={row.label}>
+                    <th scope="row">{row.label}</th>
+                    <td>{row.standard}</td>
+                    <td>{row.checked}</td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
+        <div className="btn-row compare-actions">
+          <Link className="action" href="/report/sample">
+            See a sample report
+          </Link>
+          <Link className="quiet" href="/find">
+            Find a car
+          </Link>
+        </div>
       </div>
-    </div>
+    </>
   );
 }

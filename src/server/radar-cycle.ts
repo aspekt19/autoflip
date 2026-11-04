@@ -23,7 +23,7 @@ import { storageMode } from "@/io/kv";
 import { payRadarTicket } from "@/io/kite-pay";
 import { parseAutoDevListings } from "@/io/parsers";
 import { reserveRadarCall } from "@/io/persistent-quota";
-import { coverageNote } from "@/domain/coverage";
+import { coverageConfidence, coverageSentence } from "@/domain/coverage";
 import { quotedNumbersStayIn, visibleProof, type DecisionProof } from "@/domain/decision-note";
 import { interpretGuard, runServ, type ServProof } from "@/server/serv";
 import { alertMessage } from "@/io/telegram";
@@ -250,13 +250,23 @@ export async function runRadarCycle(deps: CycleDeps): Promise<StoredRun> {
               roughMarginUsd: item.profitMidUsd,
             };
             const why = decision?.note ? `${flipAlertWhy(item)} ${decision.note}` : flipAlertWhy(item);
-            const alert = makeAlert(search, item.listing, why, numbers, deps.now.toISOString(), judged?.checks, coverageNote({
-              mode: "flip",
+            const flipCoverage = {
+              mode: "flip" as const,
               sample: item.listing.source === "sample",
               dealerListingCount: job.listings.length,
               radiusMiles: search.criteria.radiusMiles,
               historyOnListing: item.listing.accidentCount !== null && item.listing.ownerCount !== null,
-            }));
+            };
+            const alert = makeAlert(
+              search,
+              item.listing,
+              why,
+              numbers,
+              deps.now.toISOString(),
+              judged?.checks,
+              coverageSentence(flipCoverage),
+              coverageConfidence(flipCoverage),
+            );
             alerts.unshift(alert);
             freshAlerts.push(alert);
             alertsSent += 1;
@@ -304,13 +314,23 @@ export async function runRadarCycle(deps: CycleDeps): Promise<StoredRun> {
           [...book.entries()].map(([vin, priceUsd]) => ({ vin, priceUsd })),
         );
         for (const winner of winners) {
-          const alert = makeAlert(search, winner.listing, winner.why, winner.numbers, deps.now.toISOString(), undefined, coverageNote({
-            mode: "personal",
+          const personalCoverage = {
+            mode: "personal" as const,
             sample: winner.listing.source === "sample",
             dealerListingCount: scoped.length,
             radiusMiles: search.criteria.radiusMiles,
             historyOnListing: winner.listing.accidentCount !== null && winner.listing.ownerCount !== null,
-          }));
+          };
+          const alert = makeAlert(
+            search,
+            winner.listing,
+            winner.why,
+            winner.numbers,
+            deps.now.toISOString(),
+            undefined,
+            coverageSentence(personalCoverage),
+            coverageConfidence(personalCoverage),
+          );
           alerts.unshift(alert);
           freshAlerts.push(alert);
           alertsSent += 1;
@@ -702,6 +722,7 @@ function makeAlert(
   iso: string,
   checks?: DecisionProof[],
   coverage?: string,
+  coverageLevel?: WatchAlert["coverageLevel"],
 ): WatchAlert {
   return {
     id: randomUUID(),
@@ -724,6 +745,7 @@ function makeAlert(
     sample: listing.source === "sample",
     checks,
     coverage,
+    coverageLevel,
   };
 }
 

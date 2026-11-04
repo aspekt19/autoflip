@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { coverageNote } from "./coverage";
+import { coverageConfidence, coverageNote } from "./coverage";
 
 describe("coverage note", () => {
   it("uses the count and radius it was given and caps confidence when history is missing", () => {
@@ -10,7 +10,7 @@ describe("coverage note", () => {
       radiusMiles: 150,
       historyOnListing: false,
     });
-    expect(note).toBe("Based on 34 dealer listings within 150 miles; no vehicle history checked; confidence: medium.");
+    expect(note).toBe("Based on 34 dealer listings within 150 miles; no vehicle history checked.");
   });
 
   it("says low confidence for a thin or sample set and does not invent a radius", () => {
@@ -18,8 +18,8 @@ describe("coverage note", () => {
       coverageNote({ mode: "personal", sample: true, dealerListingCount: 5, radiusMiles: null, historyOnListing: false }),
     ).toMatch(/Labeled sample/);
     expect(
-      coverageNote({ mode: "personal", sample: false, dealerListingCount: 2, radiusMiles: 50, historyOnListing: true }),
-    ).toMatch(/confidence: low/);
+      coverageConfidence({ mode: "personal", sample: false, dealerListingCount: 2, radiusMiles: 50, historyOnListing: true }),
+    ).toBe("low");
     expect(
       coverageNote({ mode: "personal", sample: false, dealerListingCount: 2, radiusMiles: null, historyOnListing: false }),
     ).not.toMatch(/within/);
@@ -33,7 +33,15 @@ describe("coverage note", () => {
       radiusMiles: 50,
       historyOnListing: true,
     });
-    expect(note).toMatch(/confidence: high/);
+    expect(
+      coverageConfidence({
+        mode: "flip",
+        sample: false,
+        dealerListingCount: 8,
+        radiusMiles: 50,
+        historyOnListing: true,
+      }),
+    ).toBe("high");
     expect(note).toMatch(/Only dealer listings are considered/);
     expect(note).toMatch(/Private-seller and auction prices are not included/);
   });
