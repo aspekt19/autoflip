@@ -6,6 +6,7 @@ import { agentReport } from "@/server/agent-report";
 import { buildSampleReport } from "@/server/sample-report";
 import { paymentRequiredBody, radarToolResult } from "@/server/mcp";
 import { agentProof, buildServProof, openservReportFrom } from "./index";
+import { toolCall } from "./run";
 
 function filesUnder(dir: string): string[] {
   const found: string[] = [];
@@ -196,6 +197,44 @@ describe("SERV layer", () => {
     expect(bodies[0]?.tools.some((tool) => tool.function?.name === "serv_shadow_agent")).toBe(false);
     expect(bodies[1]?.messages?.some((message) => message.role === "tool" && String(message.content).includes("10000"))).toBe(true);
     expect(bodies[1]?.tools.some((tool) => tool.function?.name === "serv_shadow_agent")).toBe(true);
+  });
+
+  it("reads a flat tool call and still explains when the model writes prose instead", async () => {
+    expect(
+      toolCall({
+        choices: [{ message: { tool_calls: [{ name: "read_computed_facts", arguments: { year: 2016 } }] } }],
+      })?.name,
+    ).toBe("read_computed_facts");
+    expect(
+      toolCall({
+        output: [{ type: "function_call", call_id: "call_r", name: "read_computed_facts", arguments: "{}" }],
+      })?.id,
+    ).toBe("call_r");
+
+    const bodies: Array<{ messages?: Array<{ role: string; content: string | null }>; tools: Array<{ function?: { name?: string } }> }> = [];
+    const prose = await runServ(
+      "report_explain",
+      { user: "lookup", facts: { fairValueUsd: 10000 } },
+      {
+        fetch: async (_url, init) => {
+          bodies.push(JSON.parse(String(init?.body)));
+          if (bodies.length === 1) {
+            return Response.json({
+              choices: [{ finish_reason: "stop", message: { content: "Here is a writeup with no tool call." } }],
+            });
+          }
+          return Response.json({
+            choices: [{ finish_reason: "stop", message: { content: "The fair value is 10000." } }],
+          });
+        },
+        apiKey: "test",
+      },
+    );
+    expect(prose.ok).toBe(true);
+    const follow = bodies[1];
+    expect(follow?.messages?.some((message) => message.role === "user" && String(message.content).includes("10000"))).toBe(true);
+    expect(follow?.messages?.some((message) => message.role === "tool")).toBe(false);
+    expect(follow?.tools.some((tool) => tool.function?.name === "serv_shadow_agent")).toBe(true);
   });
 
   it("puts a proof object on every agent payload", () => {
