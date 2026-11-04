@@ -13,6 +13,7 @@ type Props = {
   onYearMin: (value: string) => void;
   onYearMax: (value: string) => void;
   allowAnyModel?: boolean;
+  anyMakeLabel?: string;
 };
 
 export function MakeModelFields({
@@ -25,6 +26,7 @@ export function MakeModelFields({
   onYearMin,
   onYearMax,
   allowAnyModel = true,
+  anyMakeLabel = "Not sure / Any",
 }: Props) {
   const id = useId();
   const [makes, setMakes] = useState<string[]>([]);
@@ -97,7 +99,7 @@ export function MakeModelFields({
             setModelFilter("");
           }}
         >
-          <option value="">Choose a make</option>
+          <option value="">{anyMakeLabel}</option>
           {shownMakes.map((item) => (
             <option key={item} value={item}>
               {item}

@@ -29,6 +29,9 @@ export type AssembleInput = {
   model?: string;
   zip?: string;
   year?: number;
+  /** Typed by the shopper when the lookup is a VIN, which has no asking price of its own. */
+  askingPriceUsd?: number;
+  miles?: number;
 };
 
 export type AssembleDeps = {
@@ -44,6 +47,13 @@ export type AssembleDeps = {
 export type AssembleResult =
   | { ok: true; report: FullReport }
   | { ok: false; status: number; error: string; message: string };
+
+function overlayStatedFacts(subject: Listing, input: AssembleInput): Listing {
+  const next = { ...subject };
+  if (typeof input.askingPriceUsd === "number" && input.askingPriceUsd > 0) next.priceUsd = input.askingPriceUsd;
+  if (typeof input.miles === "number" && input.miles >= 0) next.miles = input.miles;
+  return next;
+}
 
 function factsOf(report: FullReport["computed"]) {
   return {
@@ -171,9 +181,10 @@ export async function assembleReport(input: AssembleInput, deps: AssembleDeps): 
     detail: "NHTSA vPIC, NHTSA recalls, NHTSA complaints, fueleconomy.gov, US Census geocoder",
   });
 
+  const subject = overlayStatedFacts(resolved.subject, input);
   const computed = buildComputedReport({
     mode: input.mode,
-    subject: resolved.subject,
+    subject,
     candidates: resolved.candidates,
     recalls,
     complaintCount,
@@ -183,6 +194,12 @@ export async function assembleReport(input: AssembleInput, deps: AssembleDeps): 
     asOfYear: (deps.now ?? new Date()).getUTCFullYear(),
     sample: resolved.sample,
   });
+  if (typeof input.askingPriceUsd === "number") {
+    computed.dataNotes.push("Asking price was typed in for this VIN. It did not come from a listing feed.");
+  }
+  if (typeof input.miles === "number") {
+    computed.dataNotes.push("Mileage was typed in for this VIN. It did not come from a listing feed.");
+  }
   steps.push({
     id: "deterministic_tools",
     status: "ran",

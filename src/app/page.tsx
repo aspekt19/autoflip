@@ -1,4 +1,4 @@
-import { SearchPanel } from "@/components/SearchPanel";
+import { AssistantFlow } from "@/components/AssistantFlow";
 
 export default function HomePage() {
   return (
@@ -17,12 +17,12 @@ export default function HomePage() {
             <p className="kicker">Used cars</p>
             <h1>Should you buy this car, or walk away?</h1>
             <p className="lead">
-              Paste a listing or scan a make and model. AutoFlip scores the asking price against comparable listings, mileage, history flags, recalls, and fuel cost.
+              Start with what you need. AutoFlip suggests a few search directions, watches a search you save, and spends 1 credit only when you ask for a full analysis of one car.
             </p>
             <ul className="facts">
-              <li>A saved search is checked on a schedule</li>
-              <li>A full report is 1 credit</li>
-              <li>The paragraph does not invent the numbers</li>
+              <li>Monitoring is included in your plan and doesn&apos;t use report credits</li>
+              <li>A full analysis of one car is 1 credit</li>
+              <li>We show which data the verdict is based on. We separate facts from estimates. We flag what still needs checking before you buy.</li>
             </ul>
           </div>
           <figure className="dossier">
@@ -36,7 +36,7 @@ export default function HomePage() {
                 <ol className="trace">
                   <li>Asking price against current comps</li>
                   <li>Mileage, history flags, recalls, fuel</li>
-                  <li>A paragraph that only explains those figures</li>
+                  <li>Facts, estimates, and what still needs checking</li>
                 </ol>
               </article>
             </div>
@@ -47,23 +47,23 @@ export default function HomePage() {
       <section className="band paper" id="lookup">
         <div className="wrap split">
           <div>
-            <h2>Look up a car</h2>
+            <h2>How a search works</h2>
             <ol className="path">
               <li>
-                <strong>Scan</strong>
-                <span>Deal Radar stays inside one search and does not spend a credit.</span>
+                <strong>Tell us the need</strong>
+                <span>A short note, a budget, and at most two follow-up questions.</span>
               </li>
               <li>
-                <strong>Read the report</strong>
-                <span>One credit adds recalls, complaints, and fuel to the price math.</span>
+                <strong>See directions, then listings</strong>
+                <span>Watch a search if you want alerts. That does not spend a report credit.</span>
               </li>
               <li>
-                <strong>Ask the dealer</strong>
-                <span>The report lists questions. It does not inspect the car.</span>
+                <strong>Analyze one car</strong>
+                <span>1 credit answers whether that car fits you or the deal. It does not inspect the car.</span>
               </li>
             </ol>
           </div>
-          <SearchPanel />
+          <AssistantFlow />
         </div>
       </section>
     </>
