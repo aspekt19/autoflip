@@ -80,6 +80,6 @@ describe("SERV self-test", () => {
       expect(check.withinTimeout).toBe(true);
     }
     expect(selftestWallClockMs()).toBeLessThan(HOBBY_FUNCTION_MS);
-    expect(selftestWallClockMs()).toBe(15_000 * 2);
+    expect(selftestWallClockMs()).toBe(profile("report_explain").timeoutMs * 2);
   });
 });

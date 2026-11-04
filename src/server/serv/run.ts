@@ -124,20 +124,35 @@ function messageText(payload: unknown): string {
   return typeof message?.content === "string" ? message.content.trim() : "";
 }
 
-function toolCall(payload: unknown): { id: string; name: string; arguments: string } | null {
+function argumentText(value: unknown): string {
+  if (typeof value === "string") return value;
+  if (value && typeof value === "object") return JSON.stringify(value);
+  return "{}";
+}
+
+/** Chat completions nest the name under function. Responses uses a flat function_call item. Neither is required to send an id. */
+export function toolCall(payload: unknown): { id: string; name: string; arguments: string } | null {
   if (!payload || typeof payload !== "object") return null;
-  const choices = (payload as { choices?: unknown }).choices;
-  if (!Array.isArray(choices) || choices.length === 0) return null;
-  const message = (choices[0] as { message?: { tool_calls?: unknown } }).message;
-  const calls = message?.tool_calls;
-  if (!Array.isArray(calls) || calls.length === 0) return null;
-  const first = calls[0] as { id?: unknown; function?: { name?: unknown; arguments?: unknown } };
-  if (typeof first.id !== "string" || typeof first.function?.name !== "string") return null;
-  return {
-    id: first.id,
-    name: first.function.name,
-    arguments: typeof first.function.arguments === "string" ? first.function.arguments : "{}",
-  };
+  const record = payload as { choices?: unknown; output?: unknown };
+  const lists: unknown[] = [];
+  if (Array.isArray(record.choices) && record.choices[0] && typeof record.choices[0] === "object") {
+    lists.push((record.choices[0] as { message?: { tool_calls?: unknown } }).message?.tool_calls);
+  }
+  if (Array.isArray(record.output)) {
+    lists.push(record.output.filter((item) => item && typeof item === "object" && (item as { type?: string }).type === "function_call"));
+  }
+  for (const list of lists) {
+    if (!Array.isArray(list)) continue;
+    for (const item of list) {
+      if (!item || typeof item !== "object") continue;
+      const call = item as { id?: unknown; call_id?: unknown; name?: unknown; arguments?: unknown; function?: { name?: unknown; arguments?: unknown } };
+      const name = typeof call.function?.name === "string" ? call.function.name : typeof call.name === "string" ? call.name : "";
+      if (!name || name.startsWith("serv_")) continue;
+      const id = typeof call.id === "string" ? call.id : typeof call.call_id === "string" ? call.call_id : `call_${name}`;
+      return { id, name, arguments: argumentText(call.function?.arguments ?? call.arguments) };
+    }
+  }
+  return null;
 }
 
 async function readChatStream(response: Response): Promise<{ text: string; payload: unknown }> {
@@ -229,13 +244,15 @@ export async function runServ(
   };
 
   try {
+    const factsText = JSON.stringify(input.facts ?? {});
+    const userText = entry.applicationTool ? `${input.user}\n\nCalculated facts, the only numbers you may use:\n${factsText}` : input.user;
     const firstTools = toolsFor(entry, !entry.applicationTool);
     const firstBody =
       entry.endpoint === "responses"
         ? {
             model: inspected.model,
             instructions: entry.system,
-            input: input.user,
+            input: userText,
             reasoning: { effort: entry.reasoningEffort, summary: "auto" },
             stream: false,
             tools: firstTools,
@@ -246,7 +263,7 @@ export async function runServ(
             reasoning_effort: entry.reasoningEffort,
             messages: [
               { role: "system", content: entry.system },
-              { role: "user", content: input.user },
+              { role: "user", content: userText },
             ],
             tools: firstTools,
             ...(entry.jsonSchema
@@ -258,8 +275,7 @@ export async function runServ(
     let turn = await post(firstBody, entry.stream && !entry.applicationTool);
     let recordedBody: unknown = firstBody;
     if (entry.applicationTool && entry.endpoint === "chat") {
-      const call = toolCall(turn.payload);
-      if (!turn.response.ok || !call || call.name !== entry.applicationTool) {
+      if (!turn.response.ok) {
         const proof = recordServProof(
           buildServProof({
             purpose: id,
@@ -274,19 +290,26 @@ export async function runServ(
             ...proofMeta,
           }),
         );
-        return { ok: false, error: "SERV did not read the calculated figures.", status: turn.response.status, proof, fallback: entry.fallback };
+        return { ok: false, error: "SERV returned an error.", status: turn.response.status, proof, fallback: entry.fallback };
       }
+      const call = toolCall(turn.payload);
+      const matched = call?.name === entry.applicationTool ? call : null;
       const followTools = toolsFor({ ...entry, applicationTool: undefined }, true);
       const followBody = {
         model: inspected.model,
         stream: false,
         reasoning_effort: entry.reasoningEffort,
-        messages: [
-          { role: "system", content: entry.system },
-          { role: "user", content: input.user },
-          { role: "assistant", content: null, tool_calls: [{ id: call.id, type: "function", function: { name: call.name, arguments: call.arguments } }] },
-          { role: "tool", tool_call_id: call.id, content: JSON.stringify(input.facts ?? {}) },
-        ],
+        messages: matched
+          ? [
+              { role: "system", content: entry.system },
+              { role: "user", content: userText },
+              { role: "assistant", content: null, tool_calls: [{ id: matched.id, type: "function", function: { name: matched.name, arguments: matched.arguments } }] },
+              { role: "tool", tool_call_id: matched.id, content: factsText },
+            ]
+          : [
+              { role: "system", content: entry.system },
+              { role: "user", content: userText },
+            ],
         tools: followTools,
       };
       turn = await post(followBody, false);

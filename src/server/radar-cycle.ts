@@ -36,8 +36,8 @@ export const CYCLE_BUDGET_MS = 40_000;
 
 const CALL_MS = {
   autodev: 8_000,
-  /** Ceiling for one SERV request. Feature-heavy profiles use up to this; guards stay at their own 8s. */
-  serv: 15_000,
+  /** Ceiling for one SERV request. A personal alert review needs more than 15s of headroom. */
+  serv: 25_000,
   telegram: 5_000,
   kite: 8_000,
 };
