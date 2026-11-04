@@ -2,7 +2,8 @@
 
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { Suspense, useEffect, useState } from "react";
+import { Suspense, useEffect, useState, type FormEvent } from "react";
+import { MakeModelFields } from "@/components/MakeModelFields";
 import { SearchPanel } from "@/components/SearchPanel";
 import { formatNumber, formatUsd, verdictLabel } from "@/domain/format";
 import type { Mode } from "@/domain/types";
@@ -30,17 +31,39 @@ function RadarInner() {
   const make = params.get("make") ?? "";
   const model = params.get("model") ?? "";
   const zip = params.get("zip") ?? "";
-  const year = params.get("year") ?? "";
+  const yearMin = params.get("yearMin") ?? params.get("year") ?? "";
+  const yearMax = params.get("yearMax") ?? params.get("year") ?? "";
   const mode = (params.get("mode") === "flip" ? "flip" : "personal") as Mode;
   const [rows, setRows] = useState<Row[] | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [sample, setSample] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [busyVin, setBusyVin] = useState<string | null>(null);
+  const [demo, setDemo] = useState(false);
+  const [searches, setSearches] = useState<Array<{ id: string; name: string; mode: string; criteria: { priceMax: number; zip: string; radiusMiles: number; make?: string; model?: string }; preset: boolean }>>([]);
+  const [alerts, setAlerts] = useState<Array<{ id: string; vin: string; why: string; createdAt: string; mode: string; priceUsd: number; year: number; make: string; model: string }>>([]);
+  const [watchNote, setWatchNote] = useState<string | null>(null);
+  const [checking, setChecking] = useState(false);
+  const [telegramNote, setTelegramNote] = useState<string | null>(null);
+  const [feedReady, setFeedReady] = useState(false);
+
+  async function loadFeed() {
+    const response = await fetch("/api/radar/feed");
+    if (!response.ok) return;
+    const body = (await response.json()) as { demo?: boolean; searches?: typeof searches; alerts?: typeof alerts };
+    setDemo(Boolean(body.demo));
+    setSearches(body.searches ?? []);
+    setAlerts(body.alerts ?? []);
+    setFeedReady(true);
+  }
 
   useEffect(() => {
-    if (!make || !model) {
-      setRows(null);
+    void loadFeed();
+  }, []);
+
+  useEffect(() => {
+    if (!feedReady || demo || !make) {
+      if (!make) setRows(null);
       return;
     }
     let cancelled = false;
@@ -51,9 +74,10 @@ function RadarInner() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         make,
-        model,
+        model: model || undefined,
         zip: zip || undefined,
-        year: year ? Number(year) : undefined,
+        yearMin: yearMin ? Number(yearMin) : undefined,
+        yearMax: yearMax ? Number(yearMax) : undefined,
         mode,
       }),
     })
@@ -75,16 +99,21 @@ function RadarInner() {
     return () => {
       cancelled = true;
     };
-  }, [make, model, zip, year, mode]);
+  }, [feedReady, demo, make, model, zip, yearMin, yearMax, mode]);
 
-  async function openReport(vin: string) {
+  async function openReport(vin: string, reportMode: Mode = mode) {
     setBusyVin(vin);
     setError(null);
     try {
       const response = await fetch("/api/report", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ mode, vin, zip: zip || undefined, year: year ? Number(year) : undefined }),
+        body: JSON.stringify({
+          mode: reportMode,
+          vin,
+          zip: zip || undefined,
+          year: yearMin && yearMin === yearMax ? Number(yearMin) : undefined,
+        }),
       });
       const body = (await response.json()) as { id?: string; message?: string; error?: string };
       if (response.status === 403 && body.error === "credits_required") {
@@ -103,13 +132,118 @@ function RadarInner() {
     }
   }
 
+  async function checkNow() {
+    setChecking(true);
+    setWatchNote(null);
+    try {
+      const response = await fetch("/api/radar/check", { method: "POST" });
+      const body = (await response.json()) as { message?: string; alertsSent?: number };
+      setWatchNote(body.message || (response.ok ? `Check finished. ${body.alertsSent ?? 0} new alerts.` : "The check did not run."));
+      await loadFeed();
+    } catch {
+      setWatchNote("The check did not finish.");
+    } finally {
+      setChecking(false);
+    }
+  }
+
+  async function skipAlert(alertId: string) {
+    await fetch("/api/radar/skip", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ alertId }),
+    });
+    await loadFeed();
+  }
+
+  async function connectTelegram() {
+    const response = await fetch("/api/telegram/link", { method: "POST" });
+    const body = (await response.json()) as { configured?: boolean; url?: string; message?: string };
+    if (!body.configured || !body.url) {
+      setTelegramNote(body.message || "Telegram is not configured. Alerts stay in this app.");
+      return;
+    }
+    window.location.href = body.url;
+  }
+
   return (
     <div className="sub">
       <div className="wrap">
-        <p className="kicker">Free scan</p>
+        <p className="kicker">{demo ? "Guided preview" : "Saved search"}</p>
         <h1>Deal Radar</h1>
-        <p className="lead">Each score uses the other cars in this result set. It does not include recalls or fuel. Those are on the full report.</p>
-        <SearchPanel initial={{ make, model, zip, year, mode }} />
+        <p className="lead">
+          Save the car you want once. AutoFlip checks new listings on a schedule, and a full report runs only when you ask for it. Watching costs nothing.
+        </p>
+        {demo ? (
+          <p className="hint">
+            <Link href="/activity">Activity log</Link>
+          </p>
+        ) : null}
+        <div className="hero-actions">
+          <button className="action" type="button" onClick={checkNow} disabled={checking}>
+            {checking ? "Checking…" : "Check now"}
+          </button>
+          <button className="quiet" type="button" onClick={connectTelegram}>
+            Connect Telegram
+          </button>
+        </div>
+        {watchNote ? <p className="warn">{watchNote}</p> : null}
+        {telegramNote ? <p className="warn-box">{telegramNote}</p> : null}
+        <h2>Saved searches</h2>
+        {searches.length === 0 ? <p>No saved search yet.</p> : null}
+        <ul className="refuse">
+          {searches.map((search) => (
+            <li key={search.id}>
+              <strong>{search.name}</strong>
+              {search.preset ? " · preset" : ""}
+              {" · "}
+              {search.mode === "flip" ? "Flip" : "Drive it"}
+              {" · "}
+              up to {formatUsd(search.criteria.priceMax)} near {search.criteria.zip}, {search.criteria.radiusMiles} mi
+              {search.criteria.make ? ` · ${search.criteria.make} ${search.criteria.model ?? ""}` : ""}
+            </li>
+          ))}
+        </ul>
+        {!demo || !searches.some((search) => !search.preset) ? (
+          <SaveSearchForm onSaved={() => void loadFeed()} />
+        ) : (
+          <p className="hint">The shared preview already has its one extra saved search.</p>
+        )}
+        <h2>Alerts</h2>
+        {alerts.length === 0 ? <p>No alerts yet. A scheduled check has not produced a new listing that passed the filter.</p> : null}
+        <div className="radar-list">
+          {alerts.map((alert) => (
+            <article className="radar-row" key={alert.id} id={`alert-${alert.id}`}>
+              <div>
+                <div className="score">{formatUsd(alert.priceUsd)}</div>
+                <span className="file-chip">{alert.mode === "flip" ? "Flip" : "Drive it"}</span>
+              </div>
+              <div />
+              <div>
+                <h2 className="car-title">
+                  {alert.year} {alert.make} {alert.model}
+                </h2>
+                <p>{alert.why}</p>
+                <p className="hint">{new Date(alert.createdAt).toLocaleString("en-US", { timeZone: "UTC" })} UTC · {alert.vin}</p>
+              </div>
+              <div className="row-actions">
+                <button className="action" type="button" onClick={() => openReport(alert.vin, alert.mode === "flip" ? "flip" : "personal")} disabled={busyVin === alert.vin}>
+                  {busyVin === alert.vin ? "Working…" : "Analyze — 1 credit"}
+                </button>
+                <button className="quiet" type="button" onClick={() => skipAlert(alert.id)}>
+                  Skip
+                </button>
+              </div>
+            </article>
+          ))}
+        </div>
+        {demo ? null : (
+          <>
+            <h2>One-time scan</h2>
+            <p className="hint">This scan is not saved and does not alert you later.</p>
+            <SearchPanel initial={{ make, model, zip, yearMin, yearMax, mode }} />
+          </>
+        )}
         {sample ? (
           <p className="warn-box">
             <span className="file-chip">Sample</span> {message}
@@ -117,8 +251,8 @@ function RadarInner() {
         ) : null}
         {!sample && message ? <p className="warn-box">{message}</p> : null}
         {error ? <p className="warn">{error}</p> : null}
-        {!make || !model ? <p>Enter a make and model to scan.</p> : null}
-        {make && model && rows === null && !error ? <p>Scanning…</p> : null}
+        {!make ? <p>Choose a make to scan. Any model is allowed.</p> : null}
+        {make && rows === null && !error ? <p>Scanning…</p> : null}
         <div className="radar-list">
           {(rows ?? []).map((row) => (
             <article className="radar-row" key={row.vin}>
@@ -158,6 +292,115 @@ function RadarInner() {
         </p>
       </div>
     </div>
+  );
+}
+
+function SaveSearchForm({ onSaved }: { onSaved: () => void }) {
+  const [name, setName] = useState("Saved search");
+  const [searchMode, setSearchMode] = useState<Mode>("personal");
+  const [make, setMake] = useState("");
+  const [model, setModel] = useState("");
+  const [yearMin, setYearMin] = useState("");
+  const [yearMax, setYearMax] = useState("");
+  const [priceMax, setPriceMax] = useState("18000");
+  const [zip, setZip] = useState("");
+  const [radius, setRadius] = useState("50");
+  const [error, setError] = useState<string | null>(null);
+  const [pending, setPending] = useState(false);
+
+  async function submit(event: FormEvent) {
+    event.preventDefault();
+    setError(null);
+    if (!make) {
+      setError("Choose a make. Any model is allowed.");
+      return;
+    }
+    if (!zip.trim() || !Number(priceMax)) {
+      setError("Add a ZIP and a maximum price.");
+      return;
+    }
+    setPending(true);
+    try {
+      const response = await fetch("/api/radar/searches", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name,
+          mode: searchMode,
+          criteria: {
+            make,
+            model: model || undefined,
+            yearMin: yearMin ? Number(yearMin) : undefined,
+            yearMax: yearMax ? Number(yearMax) : undefined,
+            priceMax: Number(priceMax),
+            zip: zip.trim(),
+            radiusMiles: Number(radius) || 50,
+            minProfitUsd: searchMode === "flip" ? 1500 : undefined,
+          },
+        }),
+      });
+      const body = (await response.json()) as { message?: string };
+      if (!response.ok) {
+        setError(body.message || "The search was not saved.");
+        return;
+      }
+      onSaved();
+    } catch {
+      setError("The search was not saved.");
+    } finally {
+      setPending(false);
+    }
+  }
+
+  return (
+    <form className="panel" onSubmit={submit}>
+      <h2>Save a search</h2>
+      <div className="field">
+        <label htmlFor="search-name">Name</label>
+        <input id="search-name" value={name} onChange={(event) => setName(event.target.value)} />
+      </div>
+      <fieldset className="field">
+        <legend>Mode</legend>
+        <div className="pills">
+          <label className="pill">
+            <input type="radio" name="search-mode" checked={searchMode === "personal"} onChange={() => setSearchMode("personal")} />
+            Drive it
+          </label>
+          <label className="pill">
+            <input type="radio" name="search-mode" checked={searchMode === "flip"} onChange={() => setSearchMode("flip")} />
+            Flip it
+          </label>
+        </div>
+      </fieldset>
+      <MakeModelFields
+        make={make}
+        model={model}
+        yearMin={yearMin}
+        yearMax={yearMax}
+        onMake={setMake}
+        onModel={setModel}
+        onYearMin={setYearMin}
+        onYearMax={setYearMax}
+      />
+      <div className="pair">
+        <div className="field">
+          <label htmlFor="search-price">Maximum price</label>
+          <input id="search-price" inputMode="numeric" value={priceMax} onChange={(event) => setPriceMax(event.target.value)} />
+        </div>
+        <div className="field">
+          <label htmlFor="search-zip">ZIP</label>
+          <input id="search-zip" inputMode="numeric" autoComplete="postal-code" value={zip} onChange={(event) => setZip(event.target.value)} />
+        </div>
+      </div>
+      <div className="field">
+        <label htmlFor="search-radius">Radius in miles</label>
+        <input id="search-radius" inputMode="numeric" value={radius} onChange={(event) => setRadius(event.target.value)} />
+      </div>
+      <button className="action" type="submit" disabled={pending}>
+        {pending ? "Saving…" : "Save search"}
+      </button>
+      {error ? <p className="warn">{error}</p> : null}
+    </form>
   );
 }
 

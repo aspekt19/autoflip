@@ -75,6 +75,7 @@ export function normalizeAutoDevListing(raw: unknown, source: ListingSource): Li
     fuel: str(vehicle.fuel),
     engine: str(vehicle.engine),
     drivetrain: str(vehicle.drivetrain),
+    bodyStyle: str(vehicle.bodyStyle),
     latitude,
     longitude,
     removedAt: str(record.removedAt),

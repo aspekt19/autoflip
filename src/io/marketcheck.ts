@@ -4,6 +4,11 @@ export type ListingQuery = {
   make?: string;
   model?: string;
   year?: number;
+  yearRange?: string;
+  bodyStyle?: string;
+  priceRange?: string;
+  milesRange?: string;
+  used?: boolean;
   zip?: string;
   distanceMiles?: number;
   limit?: number;

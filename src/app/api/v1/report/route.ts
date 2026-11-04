@@ -2,7 +2,7 @@ import { agentReport } from "@/server/agent-report";
 import { assembleReport } from "@/server/assemble";
 import { runtimeDeps } from "@/server/deps";
 import { parseMode, paymentRequiredBody } from "@/server/mcp";
-import { saveReport } from "@/io/store";
+import { persistReport } from "@/io/persist-report";
 import { paymentHeader, paymentsConfigured, readX402Config, requirementsFor, verifyAndSettle } from "@/io/x402";
 
 export const dynamic = "force-dynamic";
@@ -41,6 +41,6 @@ export async function POST(request: Request) {
   if (!assembled.ok) {
     return Response.json({ error: assembled.error, message: assembled.message, txHash: settled.txHash }, { status: assembled.status });
   }
-  saveReport(assembled.report);
+  await persistReport(assembled.report);
   return Response.json({ ...agentReport(assembled.report), txHash: settled.txHash });
 }

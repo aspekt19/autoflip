@@ -1,5 +1,5 @@
-import { creditStore } from "@/io/store";
 import { stripeClient, stripeWebhookSecret } from "@/server/stripe";
+import { grantCredit } from "@/server/session";
 
 export const dynamic = "force-dynamic";
 
@@ -23,7 +23,7 @@ export async function POST(request: Request) {
     const user = session.metadata?.userId;
     const credits = Number(session.metadata?.credits ?? "0");
     if (user && Number.isInteger(credits) && credits > 0 && session.payment_status === "paid") {
-      creditStore().grant(user, credits, `stripe:${event.id}`);
+      await grantCredit(user, credits, `stripe:${event.id}`);
     }
   }
   return Response.json({ received: true });

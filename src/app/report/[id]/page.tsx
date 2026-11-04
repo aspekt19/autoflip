@@ -1,12 +1,12 @@
 import Link from "next/link";
 import { ReportView } from "@/components/ReportView";
-import { loadReport } from "@/io/store";
+import { readPersistedReport } from "@/io/persist-report";
 
 export const dynamic = "force-dynamic";
 
 export default async function ReportPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const report = loadReport(id);
+  const report = await readPersistedReport(id);
   if (!report) {
     return (
       <div className="sub">

@@ -1,10 +1,10 @@
-import { loadReport } from "@/io/store";
+import { readPersistedReport } from "@/io/persist-report";
 
 export const dynamic = "force-dynamic";
 
 export async function GET(_request: Request, context: { params: Promise<{ id: string }> }) {
   const { id } = await context.params;
-  const report = loadReport(id);
+  const report = await readPersistedReport(id);
   if (!report) {
     return Response.json(
       { error: "not_found", message: "That report is not on this server. Reports live in local storage and can expire on a fresh deploy." },

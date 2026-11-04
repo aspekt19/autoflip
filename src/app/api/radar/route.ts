@@ -1,4 +1,5 @@
 import { scoreRadar } from "@/domain/radar";
+import { autoDevMake, autoDevModel } from "@/domain/vehicle-names";
 import { assembleRadar } from "@/server/assemble";
 import { runtimeDeps } from "@/server/deps";
 import { parseMode, radarToolResult } from "@/server/mcp";
@@ -8,13 +9,15 @@ export const dynamic = "force-dynamic";
 export async function POST(request: Request) {
   const body = (await request.json().catch(() => null)) as Record<string, unknown> | null;
   if (!body) return Response.json({ error: "invalid_json", message: "Send JSON." }, { status: 400 });
-  const make = typeof body.make === "string" ? body.make : "";
-  const model = typeof body.model === "string" ? body.model : "";
+  const make = autoDevMake(typeof body.make === "string" ? body.make : "");
+  const model = autoDevModel(typeof body.model === "string" ? body.model : "");
   const zip = typeof body.zip === "string" ? body.zip : undefined;
   const year = typeof body.year === "number" ? body.year : undefined;
+  const yearMin = typeof body.yearMin === "number" ? body.yearMin : undefined;
+  const yearMax = typeof body.yearMax === "number" ? body.yearMax : undefined;
   const distanceMiles = typeof body.distanceMiles === "number" ? body.distanceMiles : undefined;
   const result = await assembleRadar(
-    { make, model, zip, year, distanceMiles, mode: parseMode(body.mode) },
+    { make, model: model || undefined, zip, year, yearMin, yearMax, distanceMiles, mode: parseMode(body.mode) },
     runtimeDeps(),
   );
   if (!result.ok) {

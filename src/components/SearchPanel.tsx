@@ -3,6 +3,7 @@
 import { useRouter } from "next/navigation";
 import { useState, type FormEvent } from "react";
 import type { Mode } from "@/domain/types";
+import { MakeModelFields } from "./MakeModelFields";
 
 type Props = {
   initial?: {
@@ -11,6 +12,8 @@ type Props = {
     model?: string;
     zip?: string;
     year?: string;
+    yearMin?: string;
+    yearMax?: string;
     mode?: Mode;
   };
 };
@@ -22,20 +25,24 @@ export function SearchPanel({ initial }: Props) {
   const [make, setMake] = useState(initial?.make ?? "");
   const [model, setModel] = useState(initial?.model ?? "");
   const [zip, setZip] = useState(initial?.zip ?? "");
-  const [year, setYear] = useState(initial?.year ?? "");
+  const [yearMin, setYearMin] = useState(initial?.yearMin ?? initial?.year ?? "");
+  const [yearMax, setYearMax] = useState(initial?.yearMax ?? initial?.year ?? "");
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState<"radar" | "report" | null>(null);
 
   async function onRadar(event: FormEvent) {
     event.preventDefault();
     setError(null);
-    if (!make.trim() || !model.trim()) {
-      setError("Deal Radar needs a make and a model. A single VIN uses the full report.");
+    if (!make.trim()) {
+      setError("Choose a make. A single VIN still uses the full report.");
       return;
     }
-    const params = new URLSearchParams({ make: make.trim(), model: model.trim(), mode });
+    const [from, to] = orderedYears(yearMin, yearMax);
+    const params = new URLSearchParams({ make: make.trim(), mode });
+    if (model.trim()) params.set("model", model.trim());
     if (zip.trim()) params.set("zip", zip.trim());
-    if (year.trim()) params.set("year", year.trim());
+    if (from) params.set("yearMin", from);
+    if (to) params.set("yearMax", to);
     router.push(`/radar?${params.toString()}`);
   }
 
@@ -57,7 +64,8 @@ export function SearchPanel({ initial }: Props) {
           make: make.trim() || undefined,
           model: model.trim() || undefined,
           zip: zip.trim() || undefined,
-          year: year.trim() ? Number(year) : undefined,
+          yearMin: orderedYears(yearMin, yearMax)[0] ? Number(orderedYears(yearMin, yearMax)[0]) : undefined,
+          yearMax: orderedYears(yearMin, yearMax)[1] ? Number(orderedYears(yearMin, yearMax)[1]) : undefined,
         }),
       });
       const body = (await response.json()) as { id?: string; message?: string; error?: string };
@@ -105,25 +113,19 @@ export function SearchPanel({ initial }: Props) {
           onChange={(event) => setLookup(event.target.value)}
         />
       </div>
-      <div className="pair">
-        <div className="field">
-          <label htmlFor="make">Make</label>
-          <input id="make" name="make" type="text" autoComplete="off" value={make} onChange={(event) => setMake(event.target.value)} placeholder="Toyota" />
-        </div>
-        <div className="field">
-          <label htmlFor="model">Model</label>
-          <input id="model" name="model" type="text" autoComplete="off" value={model} onChange={(event) => setModel(event.target.value)} placeholder="Camry" />
-        </div>
-      </div>
-      <div className="pair">
-        <div className="field">
-          <label htmlFor="zip">ZIP</label>
-          <input id="zip" name="zip" type="text" inputMode="numeric" autoComplete="postal-code" value={zip} onChange={(event) => setZip(event.target.value)} placeholder="72758" />
-        </div>
-        <div className="field">
-          <label htmlFor="year">Year</label>
-          <input id="year" name="year" type="text" inputMode="numeric" value={year} onChange={(event) => setYear(event.target.value)} placeholder="2021" />
-        </div>
+      <MakeModelFields
+        make={make}
+        model={model}
+        yearMin={yearMin}
+        yearMax={yearMax}
+        onMake={setMake}
+        onModel={setModel}
+        onYearMin={setYearMin}
+        onYearMax={setYearMax}
+      />
+      <div className="field">
+        <label htmlFor="zip">ZIP</label>
+        <input id="zip" name="zip" type="text" inputMode="numeric" autoComplete="postal-code" value={zip} onChange={(event) => setZip(event.target.value)} placeholder="72758" />
       </div>
       <div className="hero-actions">
         <button className="quiet" type="submit">
@@ -140,4 +142,9 @@ export function SearchPanel({ initial }: Props) {
       ) : null}
     </form>
   );
+}
+
+function orderedYears(yearMin: string, yearMax: string): [string, string] {
+  if (yearMin && yearMax && Number(yearMin) > Number(yearMax)) return [yearMax, yearMin];
+  return [yearMin, yearMax];
 }

@@ -41,6 +41,7 @@ function car(partial: Partial<Listing> & Pick<Listing, "vin" | "priceUsd" | "mil
     fuel: "Gasoline",
     engine: "2.5L",
     drivetrain: "FWD",
+    bodyStyle: "Car",
     latitude: null,
     longitude: null,
     removedAt: null,

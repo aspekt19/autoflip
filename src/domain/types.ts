@@ -24,6 +24,7 @@ export type Listing = {
   fuel: string | null;
   engine: string | null;
   drivetrain: string | null;
+  bodyStyle: string | null;
   latitude: number | null;
   longitude: number | null;
   removedAt: string | null;

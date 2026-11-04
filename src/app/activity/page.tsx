@@ -1,0 +1,83 @@
+"use client";
+
+import { useEffect, useState } from "react";
+
+type Run = {
+  id: string;
+  startedAt: string;
+  finishedAt: string;
+  trigger: string;
+  storage: string;
+  uniqueSearches: number;
+  intervalHours: number;
+  listings: number;
+  passed: number;
+  filteredOut: number;
+  alertsSent: number;
+  autodevCalls: number;
+  skippedDue: number;
+  notes: string[];
+  serv: { promptGuard: string; shadow: string };
+  payment: { status: string; missing: string[]; tx: string | null; detail: string; costAtomic: string | null; network: string | null };
+};
+
+export default function ActivityPage() {
+  const [runs, setRuns] = useState<Run[] | null>(null);
+  const [message, setMessage] = useState<string | null>(null);
+
+  useEffect(() => {
+    fetch("/api/radar/activity")
+      .then(async (response) => {
+        const body = (await response.json()) as { runs?: Run[]; message?: string };
+        if (!response.ok) {
+          setMessage(body.message || "The activity log is part of the shared preview.");
+          setRuns([]);
+          return;
+        }
+        setRuns(body.runs ?? []);
+      })
+      .catch(() => setMessage("The activity log did not load."));
+  }, []);
+
+  return (
+    <div className="sub">
+      <div className="sheet-page">
+        <p className="kicker">Guided preview</p>
+        <h1>Activity log</h1>
+        <p className="lead">Every saved-search run, in order. This page is the technical record.</p>
+        {message ? <p className="warn">{message}</p> : null}
+        {runs === null ? <p>Loading…</p> : null}
+        {(runs ?? []).map((run) => (
+          <article key={run.id} className="warn-box">
+            <p className="sheet-label">{run.trigger}</p>
+            <h2>
+              {new Date(run.startedAt).toLocaleString("en-US", { timeZone: "UTC" })} UTC
+            </h2>
+            <ul className="refuse">
+              <li>Storage: {run.storage}</li>
+              <li>
+                Unique searches {run.uniqueSearches}, interval {run.intervalHours}h, skipped because not due {run.skippedDue}
+              </li>
+              <li>
+                Listings {run.listings}, passed {run.passed}, filtered out {run.filteredOut}, alerts {run.alertsSent}, provider calls {run.autodevCalls}
+              </li>
+              <li>SERV prompt guard: {run.serv.promptGuard}</li>
+              <li>SERV shadow check: {run.serv.shadow}</li>
+              <li>
+                Kite testnet payment: {run.payment.status}
+                {run.payment.tx ? ` · ${run.payment.tx}` : ""} · {run.payment.detail}
+                {run.payment.costAtomic ? ` · amount ${run.payment.costAtomic}` : ""}
+                {run.payment.network ? ` · ${run.payment.network}` : ""}
+              </li>
+              {run.payment.missing.length > 0 ? <li>Missing env: {run.payment.missing.join(", ")}</li> : null}
+              {run.notes.map((note) => (
+                <li key={note}>{note}</li>
+              ))}
+            </ul>
+          </article>
+        ))}
+        {runs && runs.length === 0 && !message ? <p>No runs yet.</p> : null}
+      </div>
+    </div>
+  );
+}
