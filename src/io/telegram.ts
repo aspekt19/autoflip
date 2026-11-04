@@ -9,6 +9,17 @@ export function parseStartCommand(text: string): string | null {
   return match?.[1] ?? null;
 }
 
+export function isBareStart(text: string): boolean {
+  return /^\/start(?:@\w+)?\s*$/i.test(text.trim());
+}
+
+export function isHelpCommand(text: string): boolean {
+  return /^\/help(?:@\w+)?(?:\s|$)/i.test(text.trim());
+}
+
+export const CONNECT_HELP =
+  "AutoFlip Deal Radar can send new listing alerts to this chat. On the AutoFlip site, open Deal Radar and choose Connect Telegram. That link brings you back here with a code, and this chat is then tied to your alerts. Each alert has Analyze (a full report, 1 credit) and Skip. Watching a saved search does not use a credit.";
+
 export function telegramDeepLink(username: string, code: string): string {
   const handle = username.replace(/^@/, "");
   return `https://t.me/${handle}?start=${code}`;
