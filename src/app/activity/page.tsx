@@ -17,6 +17,7 @@ type Run = {
   autodevCalls: number;
   skippedDue: number;
   notes: string[];
+  steps?: { id: string; status: string; detail?: string }[];
   serv: { promptGuard: string; shadow: string };
   payment: { status: string; missing: string[]; tx: string | null; detail: string; costAtomic: string | null; network: string | null };
 };
@@ -61,6 +62,12 @@ export default function ActivityPage() {
               <li>
                 Listings {run.listings}, passed {run.passed}, filtered out {run.filteredOut}, alerts {run.alertsSent}, provider calls {run.autodevCalls}
               </li>
+              {(run.steps ?? []).map((step) => (
+                <li key={step.id}>
+                  {step.id}: {step.status}
+                  {step.detail ? ` · ${step.detail}` : ""}
+                </li>
+              ))}
               <li>SERV prompt guard: {run.serv.promptGuard}</li>
               <li>SERV shadow check: {run.serv.shadow}</li>
               <li>

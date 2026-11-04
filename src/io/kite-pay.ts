@@ -74,7 +74,7 @@ export async function payRadarTicket(input: {
         url: input.ticketUrl,
         method: "POST",
       }),
-      signal: AbortSignal.timeout(45_000),
+      signal: AbortSignal.timeout(8_000),
     });
     const body: unknown = await response.json().catch(() => null);
     const tx = pickTx(body);

@@ -3,6 +3,7 @@ import { runRadarCycle } from "@/server/radar-cycle";
 import { bearer, originOf, secretMatch } from "@/server/secrets";
 
 export const dynamic = "force-dynamic";
+/** Hobby allows 60 seconds. The cycle itself stops at 40 so the log is written first. */
 export const maxDuration = 60;
 
 export async function POST(request: Request) {
