@@ -17,8 +17,48 @@ export function isHelpCommand(text: string): boolean {
   return /^\/help(?:@\w+)?(?:\s|$)/i.test(text.trim());
 }
 
+export function isSearchesCommand(text: string): boolean {
+  return /^\/searches(?:@\w+)?(?:\s|$)/i.test(text.trim());
+}
+
+export function isPauseCommand(text: string): boolean {
+  return /^\/pause(?:@\w+)?(?:\s|$)/i.test(text.trim());
+}
+
+export function isResumeCommand(text: string): boolean {
+  return /^\/resume(?:@\w+)?(?:\s|$)/i.test(text.trim());
+}
+
+export function parsePauseCallback(data: string): "pause" | "resume" | null {
+  if (data === "pause" || data === "resume") return data;
+  return null;
+}
+
 export const CONNECT_HELP =
-  "AutoFlip Deal Radar can send new listing alerts to this chat. On the AutoFlip site, open Deal Radar and choose Connect Telegram. That link brings you back here with a code, and this chat is then tied to your alerts. Each alert has Analyze (a full report, 1 credit) and Skip. Watching a saved search does not use a credit.";
+  "AutoFlip can send Deal Radar alerts to this chat. On the site, open Deal Radar and choose Connect Telegram. That link lasts 15 minutes and works once. Commands: /searches, /pause, /resume, and /help. View in AutoFlip does not use a credit. Full analysis is 1 credit, and only after you confirm on the site. Not for me hides that listing only. Watching a saved search does not use a credit.";
+
+export const CODE_EXPIRED =
+  "That connect link expired. Open Deal Radar and choose Connect Telegram for a new one. Links last 15 minutes.";
+
+export const CODE_USED =
+  "That connect link was already used or is not valid. Open Deal Radar and choose Connect Telegram for a new one.";
+
+export const LINKED_TEXT =
+  "This chat is connected. Alerts for your saved searches will arrive here. View in AutoFlip does not use a credit. Full analysis is 1 credit, and only after you confirm on the site.";
+
+export const PAUSED_TEXT =
+  "Telegram alerts are paused. Your saved searches are unchanged, and new matches still show in AutoFlip. Send /resume when you want Telegram alerts again.";
+
+export const RESUMED_TEXT = "Telegram alerts are on again. Send /pause to stop them without deleting your searches.";
+
+export const SEARCHES_TEXT = "Your saved searches are on the Deal Radar page.";
+
+export const NOT_LINKED_TEXT =
+  "This chat is not connected yet. Open Deal Radar and choose Connect Telegram. The link lasts 15 minutes.";
+
+export const REPORT_FAILED_TEXT = "The report did not finish. No credit was used.";
+
+export const LINK_TTL_MS = 15 * 60 * 1000;
 
 export function telegramDeepLink(username: string, code: string): string {
   const handle = username.replace(/^@/, "");
@@ -34,20 +74,111 @@ export function webhookAuthorized(header: string | null, expected: string): bool
 
 export type TelegramButton = { text: string; url?: string; callback_data?: string };
 
-export function alertMessage(input: { why: string; origin: string; alertId: string }): {
+export type AlertCopy = {
+  searchName: string;
+  mode: "personal" | "flip";
+  year: number;
+  make: string;
+  model: string;
+  priceUsd: number;
+  miles: number | null;
+  city: string | null;
+  state: string | null;
+  priceDropFrom: number | null;
+  budgetUsd: number | null;
+  radiusMiles: number | null;
+  zip: string | null;
+  yearMin: number | null;
+  yearMax: number | null;
+  milesMax: number | null;
+  bodyStyle: string | null;
+  /** True only when comparable asking prices were calculated and this asking price is under that midpoint. */
+  belowTypical: boolean;
+  origin: string;
+  alertId: string;
+};
+
+function money(value: number): string {
+  return value.toLocaleString("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 });
+}
+
+export function alertText(input: AlertCopy): string {
+  const place = [input.city, input.state].filter(Boolean).join(", ");
+  const lines = [
+    `Saved search: ${input.searchName}`,
+    "",
+    `${input.year} ${input.make} ${input.model}`,
+    money(input.priceUsd),
+    input.miles === null ? "Mileage not listed" : `${input.miles.toLocaleString("en-US")} mi`,
+    place || "Location not listed",
+    "",
+    input.mode === "flip" ? "Worth a look" : "Why it matched",
+  ];
+  const bullets: string[] = [];
+  if (input.budgetUsd !== null && input.priceUsd <= input.budgetUsd) {
+    bullets.push(`Asking price is within the ${money(input.budgetUsd)} budget`);
+  }
+  if (input.radiusMiles !== null && input.zip) bullets.push(`Within ${input.radiusMiles} miles of ${input.zip}`);
+  if (input.yearMin !== null && input.yearMax !== null) bullets.push(`Year is inside ${input.yearMin}–${input.yearMax}`);
+  if (input.milesMax !== null && input.miles !== null && input.miles <= input.milesMax) {
+    bullets.push(`Mileage is within the ${input.milesMax.toLocaleString("en-US")} mi limit`);
+  }
+  if (input.bodyStyle) bullets.push(`Body type matches ${input.bodyStyle}`);
+  if (input.priceDropFrom !== null) bullets.push(`Price dropped from ${money(input.priceDropFrom)}`);
+  if (input.mode === "flip" && input.belowTypical) bullets.push("Below the typical range of comparable listings");
+  for (const bullet of bullets) lines.push(`• ${bullet}`);
+  lines.push("");
+  lines.push("This is a preliminary match. History and condition are not checked yet.");
+  if (input.mode === "flip") {
+    lines.push("Fees, repairs, and history still need checking before a full analysis.");
+  }
+  lines.push("");
+  lines.push("Viewing this alert does not use a credit. A full analysis is 1 credit, and only after you confirm on the site.");
+  return lines.join("\n");
+}
+
+export function alertKeyboard(origin: string, alertId: string): { inline_keyboard: TelegramButton[][] } {
+  const root = origin.replace(/\/$/, "");
+  return {
+    inline_keyboard: [
+      [{ text: "View in AutoFlip", url: `${root}/radar#alert-${alertId}` }],
+      [
+        { text: "Full analysis — 1 credit", url: `${root}/radar?confirm=${alertId}` },
+        { text: "Not for me", callback_data: `skip:${alertId}` },
+      ],
+      [
+        { text: "My searches", url: `${root}/radar` },
+        { text: "Pause alerts", callback_data: "pause" },
+      ],
+    ],
+  };
+}
+
+export function alertMessage(input: AlertCopy): {
   text: string;
   reply_markup: { inline_keyboard: TelegramButton[][] };
 } {
+  return { text: alertText(input), reply_markup: alertKeyboard(input.origin, input.alertId) };
+}
+
+export function helpKeyboard(origin: string, paused: boolean): { inline_keyboard: TelegramButton[][] } {
+  const root = origin.replace(/\/$/, "");
   return {
-    text: `${input.why}\n\nMonitoring did not use a credit. A full report is 1 credit.`,
-    reply_markup: {
-      inline_keyboard: [
-        [
-          { text: "Analyze — 1 credit", url: `${input.origin}/radar?alert=${input.alertId}` },
-          { text: "Skip", callback_data: `skip:${input.alertId}` },
-        ],
-      ],
-    },
+    inline_keyboard: [
+      [{ text: "My searches", url: `${root}/radar` }],
+      [{ text: paused ? "Resume alerts" : "Pause alerts", callback_data: paused ? "resume" : "pause" }],
+    ],
+  };
+}
+
+export function reportReadyMessage(input: { car: string; recommendation: string; origin: string; reportId: string }): {
+  text: string;
+  reply_markup: { inline_keyboard: TelegramButton[][] };
+} {
+  const root = input.origin.replace(/\/$/, "");
+  return {
+    text: `✅ Report ready — ${input.car}\n${input.recommendation}\nUsed 1 credit.`,
+    reply_markup: { inline_keyboard: [[{ text: "Open full report", url: `${root}/report/${input.reportId}` }]] },
   };
 }
 

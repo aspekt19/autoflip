@@ -26,10 +26,10 @@ import { reserveRadarCall } from "@/io/persistent-quota";
 import { coverageConfidence, coverageSentence } from "@/domain/coverage";
 import { quotedNumbersStayIn, visibleProof, type DecisionProof } from "@/domain/decision-note";
 import { interpretGuard, runServ, servBudget, type ProfileId, type ServProof } from "@/server/serv";
-import { alertMessage } from "@/io/telegram";
+import { alertMessage, type AlertCopy } from "@/io/telegram";
 import type { ComputedReport, Listing } from "@/domain/types";
 import { syncPresetSearches } from "@/domain/demo-presets";
-import { listSearches, upsertRun, saveAlerts, saveSearches, seenBook, storeSeenPrices, readListingCache, writeListingCache, telegramChat, type StoredRun, listAlerts } from "./radar-store";
+import { listSearches, upsertRun, saveAlerts, saveSearches, seenBook, storeSeenPrices, readListingCache, writeListingCache, telegramChat, telegramPaused, type StoredRun, listAlerts } from "./radar-store";
 
 /** Stay under the 60s Hobby limit so the log write still happens. */
 export const CYCLE_BUDGET_MS = 40_000;
@@ -221,9 +221,11 @@ export async function runRadarCycle(deps: CycleDeps): Promise<StoredRun> {
           const ranked = topFlipCandidates(job.listings, deps.now, ASSUMPTIONS.radarMaxAlertsPerSearch);
           const storageKey = seenStorageKey(search.id, search.criteria);
           const book = await seenBook(deps.kv, storageKey);
-          const fresh = ranked.filter((item) => {
+          const fresh = ranked.flatMap((item) => {
             const previous = book.get(item.vin);
-            return previous === undefined || isPriceDrop(previous, item.listing.priceUsd);
+            if (previous !== undefined && !isPriceDrop(previous, item.listing.priceUsd)) return [];
+            const priceDropFrom = previous != null && isPriceDrop(previous, item.listing.priceUsd) ? previous : null;
+            return [{ ...item, priceDropFrom }];
           });
           tallyReason(reasons, "already seen", ranked.length - fresh.length);
           tallyReason(reasons, "fewer than 3 comps", job.listings.length - ranked.length);
@@ -271,6 +273,7 @@ export async function runRadarCycle(deps: CycleDeps): Promise<StoredRun> {
               judged?.checks,
               coverageSentence(flipCoverage),
               coverageConfidence(flipCoverage),
+              item.priceDropFrom,
             );
             alerts.unshift(alert);
             freshAlerts.push(alert);
@@ -301,11 +304,11 @@ export async function runRadarCycle(deps: CycleDeps): Promise<StoredRun> {
           passedRows.flatMap((item) => {
             if (!item.decision.pass) return [];
             const previous = book.get(item.listing.vin);
-            const why =
-              previous != null && isPriceDrop(previous, item.listing.priceUsd)
-                ? `Price dropped from ${previous.toLocaleString("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 })} to the new asking price. ${item.decision.why}`
-                : item.decision.why;
-            return [{ listing: item.listing, numbers: item.decision.numbers, why }];
+            const dropped = previous != null && isPriceDrop(previous, item.listing.priceUsd);
+            const why = dropped
+              ? `Price dropped from ${previous.toLocaleString("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 })} to the new asking price. ${item.decision.why}`
+              : item.decision.why;
+            return [{ listing: item.listing, numbers: item.decision.numbers, why, priceDropFrom: dropped ? previous : null }];
           }),
         ).slice(0, ASSUMPTIONS.radarMaxAlertsPerSearch);
         const winnerVins = new Set(winners.map((winner) => winner.listing.vin));
@@ -335,6 +338,7 @@ export async function runRadarCycle(deps: CycleDeps): Promise<StoredRun> {
             undefined,
             coverageSentence(personalCoverage),
             coverageConfidence(personalCoverage),
+            winner.priceDropFrom,
           );
           alerts.unshift(alert);
           freshAlerts.push(alert);
@@ -733,6 +737,7 @@ function makeAlert(
   checks?: DecisionProof[],
   coverage?: string,
   coverageLevel?: WatchAlert["coverageLevel"],
+  priceDropFrom?: number | null,
 ): WatchAlert {
   return {
     id: randomUUID(),
@@ -756,6 +761,7 @@ function makeAlert(
     checks,
     coverage,
     coverageLevel,
+    priceDropFrom,
   };
 }
 
@@ -782,7 +788,32 @@ async function fetchListings(
 async function sendTelegram(chatId: string, alert: WatchAlert, deps: CycleDeps, timeoutMs: number): Promise<"ok" | "timeout" | "skipped"> {
   const token = deps.env.TELEGRAM_BOT_TOKEN;
   if (!token || timeoutMs <= 0) return "skipped";
-  const message = alertMessage({ why: alert.why, origin: deps.origin, alertId: alert.id });
+  if (await telegramPaused(deps.kv, alert.ownerId)) return "skipped";
+  const search = (await listSearches(deps.kv)).find((item) => item.id === alert.searchId);
+  const criteria = search?.criteria;
+  const copy: AlertCopy = {
+    searchName: search?.name ?? "Saved search",
+    mode: alert.mode,
+    year: alert.year,
+    make: alert.make,
+    model: alert.model,
+    priceUsd: alert.priceUsd,
+    miles: alert.miles,
+    city: alert.city,
+    state: alert.state,
+    priceDropFrom: alert.priceDropFrom ?? null,
+    budgetUsd: criteria?.priceMax ?? null,
+    radiusMiles: criteria?.radiusMiles ?? null,
+    zip: criteria?.zip ?? null,
+    yearMin: criteria?.yearMin ?? null,
+    yearMax: criteria?.yearMax ?? null,
+    milesMax: criteria?.milesMax ?? null,
+    bodyStyle: criteria?.bodyStyle ?? null,
+    belowTypical: alert.mode === "flip" && alert.numbers.medianUsd > 0 && alert.priceUsd < alert.numbers.medianUsd,
+    origin: deps.origin,
+    alertId: alert.id,
+  };
+  const message = alertMessage(copy);
   try {
     await withTimeout(
       deps.fetchImpl(`https://api.telegram.org/bot${token}/sendMessage`, {
