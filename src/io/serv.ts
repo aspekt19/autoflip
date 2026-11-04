@@ -43,6 +43,22 @@ export function buildGuardRequest(userText: string, model: string) {
   };
 }
 
+export function buildAlertReviewRequest(why: string, numbers: unknown, model: string) {
+  return {
+    model,
+    stream: false,
+    messages: [
+      {
+        role: "system",
+        content:
+          "You check a one-sentence car alert. Repeat the alert only if every dollar amount and mileage already appears in the numbers JSON. Do not add a new number. If the sentence is already faithful, return it unchanged. Two sentences at most.",
+      },
+      { role: "user", content: JSON.stringify({ alert: why, numbers }) },
+    ],
+    tools: [promptGuardTool(), shadowAgentTool()],
+  };
+}
+
 export function buildExplainRequest(facts: unknown, userLookup: string, model: string) {
   return {
     model,

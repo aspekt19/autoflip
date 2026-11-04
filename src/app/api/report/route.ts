@@ -1,8 +1,8 @@
 import { assembleReport } from "@/server/assemble";
 import { runtimeDeps } from "@/server/deps";
 import { parseMode } from "@/server/mcp";
-import { balanceOf, userId } from "@/server/session";
-import { creditStore, saveReport } from "@/io/store";
+import { balanceOf, spendCredit, userId } from "@/server/session";
+import { persistReport } from "@/io/persist-report";
 
 export const dynamic = "force-dynamic";
 
@@ -10,7 +10,7 @@ export async function POST(request: Request) {
   const body = (await request.json().catch(() => null)) as Record<string, unknown> | null;
   if (!body) return Response.json({ error: "invalid_json", message: "Send JSON." }, { status: 400 });
   const id = await userId();
-  if (balanceOf(id) < 1) {
+  if ((await balanceOf(id)) < 1) {
     return Response.json(
       {
         error: "credits_required",
@@ -37,13 +37,13 @@ export async function POST(request: Request) {
     return Response.json({ error: assembled.error, message: assembled.message }, { status: assembled.status });
   }
 
-  const spent = creditStore().spend(id, `report:${assembled.report.id}`);
+  const spent = await spendCredit(id, `report:${assembled.report.id}`);
   if (!spent.ok) {
     return Response.json(
       { error: "credits_required", balance: spent.balance, message: "A full report costs 1 credit." },
       { status: 403 },
     );
   }
-  saveReport(assembled.report);
+  await persistReport(assembled.report);
   return Response.json({ ...assembled.report, balance: spent.balance });
 }

@@ -8,7 +8,7 @@ export default function DevelopersPage() {
       </p>
 
       <section>
-        <h2>Deal Radar is free</h2>
+        <h2>Deal Radar watches a saved search</h2>
         <p>
           <code>POST /api/radar</code> with <code>{`{ make, model, zip?, year?, mode? }`}</code>. No credit and no payment. The MCP tool is <code>deal_radar</code>.
         </p>
@@ -43,6 +43,19 @@ export default function DevelopersPage() {
       </section>
 
       <section>
+        <h2>Saved-search schedule</h2>
+        <p>
+          GitHub Actions calls <code>POST /api/radar/cron</code> every 3 hours with <code>Authorization: Bearer $RADAR_CRON_SECRET</code>. One unique search is one listings call. Identical criteria are shared. The watcher stops at 650 calls a month so reports keep the rest of the 900 cap. A Check now button is limited to once per 30 minutes for everyone.
+        </p>
+        <p>
+          Persistent storage is Upstash Redis (free REST). Set <code>UPSTASH_REDIS_REST_URL</code> and <code>UPSTASH_REDIS_REST_TOKEN</code>. Without them on Vercel, saved searches are not kept. Locally they fall back to <code>.data/kv.json</code>.
+        </p>
+        <p>
+          The shared preview is <code>/demo?key=$DEMO_ACCESS_KEY</code>. <code>DEMO_CREDITS</code> is the balance restored once a day. Telegram uses <code>TELEGRAM_BOT_TOKEN</code>, <code>TELEGRAM_BOT_USERNAME</code>, and <code>TELEGRAM_WEBHOOK_SECRET</code> (header <code>X-Telegram-Bot-Api-Secret-Token</code>).
+        </p>
+        <p>
+          Each run tries a Kite Passport testnet session payment to <code>POST /api/v1/radar-ticket</code>. Required together: <code>KITE_PASSPORT_BASE_URL</code>, <code>KITE_SESSION_ID</code>, <code>KITE_SESSION_TOKEN</code>, <code>X402_PAY_TO</code>, <code>X402_ASSET</code>, and <code>X402_NETWORK=kite-testnet</code>. Anything missing is logged as not configured. A transaction reference is recorded only when the execute response includes one.
+        </p>
         <h2>SERV</h2>
         <p>
           User text goes through a local screen and, when <code>SERV_API_KEY</code> is set, through <code>serv_prompt_guard</code>. The explanation call also sends <code>serv_prompt_guard</code> and <code>serv_shadow_agent</code> (hint: every number must be in the computed facts, max 2 iterations). AutoFlip then re-checks dollars, percentages, mileages, and VINs. A mismatch, or a shadow outcome of exhausted or failed, is replaced by the deterministic template. The report’s Proof of AI block records the steps, the inputs hash, the tool outputs, and the model.

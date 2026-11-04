@@ -12,6 +12,9 @@ export type AutodevDeps = {
   apiKey: string;
   now?: Date;
   source?: ListingSource;
+  /** When set, this replaces the sync counter. Used for the persistent monthly cap. */
+  reserve?: () => Promise<QuotaDecision>;
+  bypassCache?: boolean;
 };
 
 export type AutodevResult =
@@ -19,11 +22,16 @@ export type AutodevResult =
   | { ok: false; error: "demo_limit"; message: string; quota: QuotaDecision & { ok: false } }
   | { ok: false; error: "upstream"; status: number; message: string; quota: QuotaDecision & { ok: true } };
 
-function searchUrl(query: ListingQuery): string {
+export function listingsSearchUrl(query: ListingQuery): string {
   const params = new URLSearchParams();
   if (query.make) params.set("vehicle.make", query.make);
   if (query.model) params.set("vehicle.model", query.model);
-  if (query.year) params.set("vehicle.year", String(query.year));
+  if (query.yearRange) params.set("vehicle.year", query.yearRange);
+  else if (query.year) params.set("vehicle.year", String(query.year));
+  if (query.bodyStyle) params.set("vehicle.bodyStyle", query.bodyStyle);
+  if (query.priceRange) params.set("retailListing.price", query.priceRange);
+  if (query.milesRange) params.set("retailListing.miles", query.milesRange);
+  if (query.used) params.set("retailListing.used", "true");
   if (query.zip) params.set("zip", query.zip);
   if (query.distanceMiles) params.set("distance", String(query.distanceMiles));
   params.set("limit", String(query.limit ?? 20));
@@ -35,7 +43,7 @@ export function listingByVinUrl(vin: string): string {
 }
 
 async function cachedGet(url: string, deps: AutodevDeps): Promise<AutodevResult> {
-  const hit = deps.cache.get(url);
+  const hit = deps.bypassCache ? undefined : deps.cache.get(url);
   if (hit !== undefined) {
     const used = deps.counter.get(monthKey(deps.now ?? new Date()));
     return {
@@ -46,7 +54,7 @@ async function cachedGet(url: string, deps: AutodevDeps): Promise<AutodevResult>
     };
   }
 
-  const quota = reserveCall(deps.counter, deps.now);
+  const quota = deps.reserve ? await deps.reserve() : reserveCall(deps.counter, deps.now);
   if (!quota.ok) return { ok: false, error: "demo_limit", message: quota.message, quota };
 
   let response: Response;
@@ -94,7 +102,7 @@ async function cachedGet(url: string, deps: AutodevDeps): Promise<AutodevResult>
 }
 
 export function autodevSearch(query: ListingQuery, deps: AutodevDeps): Promise<AutodevResult> {
-  return cachedGet(searchUrl(query), deps);
+  return cachedGet(listingsSearchUrl(query), deps);
 }
 
 export function autodevByVin(vin: string, deps: AutodevDeps): Promise<AutodevResult> {

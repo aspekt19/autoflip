@@ -12,7 +12,7 @@ import {
   rpcResult,
   toolList,
 } from "@/server/mcp";
-import { saveReport } from "@/io/store";
+import { persistReport } from "@/io/persist-report";
 import { paymentHeader, paymentsConfigured, readX402Config, requirementsFor, verifyAndSettle } from "@/io/x402";
 
 export const dynamic = "force-dynamic";
@@ -113,7 +113,7 @@ export async function POST(request: Request) {
         }),
       );
     }
-    saveReport(assembled.report);
+    await persistReport(assembled.report);
     const payload = { ...agentReport(assembled.report), txHash: settled.txHash };
     return Response.json(rpcResult(id, { content: [{ type: "text", text: JSON.stringify(payload) }], structuredContent: payload }));
   }

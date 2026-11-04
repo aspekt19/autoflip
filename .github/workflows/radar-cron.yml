@@ -1,0 +1,24 @@
+name: radar
+
+on:
+  schedule:
+    - cron: "0 */3 * * *"
+  workflow_dispatch:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Run the saved-search check
+        env:
+          RADAR_CRON_URL: ${{ secrets.RADAR_CRON_URL }}
+          RADAR_CRON_SECRET: ${{ secrets.RADAR_CRON_SECRET }}
+        run: |
+          if [ -z "$RADAR_CRON_URL" ] || [ -z "$RADAR_CRON_SECRET" ]; then
+            echo "Set RADAR_CRON_URL and RADAR_CRON_SECRET repository secrets."
+            exit 1
+          fi
+          curl -fsS -X POST "${RADAR_CRON_URL%/}/api/radar/cron" \
+            -H "authorization: Bearer ${RADAR_CRON_SECRET}" \
+            -H "content-type: application/json" \
+            --max-time 90

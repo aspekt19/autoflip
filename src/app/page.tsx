@@ -20,7 +20,7 @@ export default function HomePage() {
               Paste a listing or scan a make and model. AutoFlip scores the asking price against comparable listings, mileage, history flags, recalls, and fuel cost.
             </p>
             <ul className="facts">
-              <li>Deal Radar is free</li>
+              <li>A saved search is checked on a schedule</li>
               <li>A full report is 1 credit</li>
               <li>The paragraph does not invent the numbers</li>
             </ul>

@@ -131,6 +131,38 @@ The agent payload includes the verdict, the math, comps needed to read the math,
 
 Auto.dev terms limit the free plan to evaluation and restrict resale of the feed. This app sells a verdict, not a raw dump, and it still needs written permission before a public paid launch.
 
+## Deal Radar watcher
+
+A saved search is checked on a schedule. Monitoring does not spend a credit. A full report still costs 1 credit, and only after an explicit Analyze click. Seen VINs are stored per criteria key, so a listing alerts once.
+
+The shared preview is `/demo?key=$DEMO_ACCESS_KEY`. It signs every visitor in as one client, refills `DEMO_CREDITS` once per UTC day, and installs two presets: a 2014–2019 Toyota RAV4 up to $18,000 within 50 miles of Miami (33101), and a 2012–2018 Honda Civic up to $12,000 in the same radius with a $1,500 rough-margin buy box. Visitors can add at most one extra shared search. Check now is limited to once per 30 minutes globally.
+
+### Auto.dev, checked 4 Nov 2026
+
+One radar check is one `GET /listings` with `limit=20`. The listings product page says the Free plan clamps `limit` to 20 (Growth 100, Scale 500). The reference page still says the default is 100 and that the per-plan cap “will be enforced in a future release.” Requesting 20 stays inside both descriptions. Free plan is 1,000 calls/month and 5 requests/second.
+
+Server-side filters used here: `vehicle.make`, `vehicle.model`, `vehicle.bodyStyle`, `vehicle.year` (`2014-2019`), `retailListing.price` (`1-18000`), `retailListing.miles` (`0-120000`), `retailListing.used`, `zip`, and `distance`. Comma means OR and a dash is an inclusive range. Priorities such as “family” or “minor repairs” are not API filters. They stay on the saved search and are not sent.
+
+This environment had no `AUTODEV_API_KEY`, so the presets were not executed against live inventory. The first scheduled run records the real count. An empty result is logged and is not filled with sample cars.
+
+### Call budget
+
+The existing hard stop remains 900 calls/month for every listings request. Radar checks stop at 650. The gap is left for full reports and one-time scans. Identical criteria across people share one call. The gap between checks stretches from 3 hours toward 24 so that `unique searches × checks per day × 30` stays near 650. GitHub Actions (`.github/workflows/radar-cron.yml`) calls `POST /api/radar/cron` every 3 hours. Vercel Hobby crons are daily, so they are not used. Repository secrets: `RADAR_CRON_URL`, `RADAR_CRON_SECRET`.
+
+### Storage
+
+Upstash Redis free tier, REST API, no extra npm package. Set `UPSTASH_REDIS_REST_URL` and `UPSTASH_REDIS_REST_TOKEN` on Vercel. That holds saved searches, seen VINs, alerts, the run log, credits, reports, and both monthly counters. On Vercel without those variables the cron refuses to run and says storage is not configured. On a laptop the same data goes to `.data/kv.json`.
+
+### Each run
+
+1. `serv_prompt_guard` on the saved criteria when `SERV_API_KEY` is set. Otherwise the log says `not_configured`.
+2. The listings call, then a local pre-filter: budget, year, miles, body style, a rough band from that page (median and 25th percentile), and a reject for a price under $800 or under 40% of the median.
+3. `serv_shadow_agent` reviews each alert sentence. A sentence that adds a number is replaced by the deterministic sentence. The log records the outcome.
+4. A Kite Passport testnet payment to `POST /api/v1/radar-ticket` when `KITE_PASSPORT_BASE_URL`, `KITE_SESSION_ID`, `KITE_SESSION_TOKEN`, `X402_PAY_TO`, `X402_ASSET`, and `X402_NETWORK=kite-testnet` are all set. Any other network is refused. Missing variables are listed in the run and no transaction is invented. The amount shown is `X402_PRICE_ATOMIC`. Remaining session budget is recorded only if the execute response includes it.
+5. Telegram, when `TELEGRAM_BOT_TOKEN`, `TELEGRAM_BOT_USERNAME`, and `TELEGRAM_WEBHOOK_SECRET` are set. Connect from Deal Radar. The webhook is `POST /api/telegram/webhook` and checks `X-Telegram-Bot-Api-Secret-Token`. Set that secret with `setWebhook`. Without the bot, alerts stay in the app and the log says Telegram is not configured.
+
+The activity log (`/activity`, shared preview only) shows runs, counts, SERV results, and the testnet payment status. Those words stay off the home page, the alert feed, and the report.
+
 ## Design
 
 The interface follows the previous product’s frontend: warm paper canvas, Inter Tight for headings and controls, Source Serif 4 for body text, 4px controls, and the same light/dark variables. The AutoFlip mark is `public/logo.svg` (yellow tile, ink arrows). Consumer pages do not reuse that product’s name or copy.

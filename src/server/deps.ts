@@ -1,5 +1,7 @@
 import { TtlCache } from "@/io/cache";
 import { counterStore } from "@/io/store";
+import { getKv } from "@/io/kv";
+import { reserveTotalCall } from "@/io/persistent-quota";
 
 const globalCache = globalThis as unknown as { __autoflipCache?: TtlCache<unknown> };
 
@@ -16,6 +18,8 @@ export function runtimeDeps() {
     servKey,
     servModel: process.env.SERV_MODEL,
     servBaseUrl: process.env.SERV_BASE_URL,
-    autodev: autodevKey ? { cache: listingCache(), counter: counterStore() } : undefined,
+    autodev: autodevKey
+      ? { cache: listingCache(), counter: counterStore(), reserve: () => reserveTotalCall(getKv()) }
+      : undefined,
   };
 }
