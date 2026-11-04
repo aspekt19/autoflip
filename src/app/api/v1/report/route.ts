@@ -7,6 +7,7 @@ import { persistReport } from "@/io/persist-report";
 import { paymentHeader, paymentsConfigured, readX402Config, requirementsFor, verifyAndSettle } from "@/io/x402";
 
 export const dynamic = "force-dynamic";
+export const maxDuration = 60;
 
 export async function POST(request: Request) {
   const config = readX402Config();

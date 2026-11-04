@@ -25,7 +25,7 @@ import { parseAutoDevListings } from "@/io/parsers";
 import { reserveRadarCall } from "@/io/persistent-quota";
 import { coverageConfidence, coverageSentence } from "@/domain/coverage";
 import { quotedNumbersStayIn, visibleProof, type DecisionProof } from "@/domain/decision-note";
-import { interpretGuard, runServ, type ServProof } from "@/server/serv";
+import { interpretGuard, runServ, servBudget, type ProfileId, type ServProof } from "@/server/serv";
 import { alertMessage } from "@/io/telegram";
 import type { ComputedReport, Listing } from "@/domain/types";
 import { syncPresetSearches } from "@/domain/demo-presets";
@@ -36,7 +36,8 @@ export const CYCLE_BUDGET_MS = 40_000;
 
 const CALL_MS = {
   autodev: 8_000,
-  serv: 8_000,
+  /** Ceiling for one SERV request. Feature-heavy profiles use up to this; guards stay at their own 8s. */
+  serv: 15_000,
   telegram: 5_000,
   kite: 8_000,
 };
@@ -123,7 +124,7 @@ export async function runRadarCycle(deps: CycleDeps): Promise<StoredRun> {
     const alerts = await listAlerts(deps.kv);
     const freshAlerts: WatchAlert[] = [];
 
-    promptGuard = await runGuard(searches, deps, Math.min(limits.serv, remain()), servChecks);
+    promptGuard = await runGuard(searches, deps, servBudget("radar_guard", remain(), limits.serv), servChecks);
     steps.push({ id: "serv_prompt_guard", status: promptGuard });
     notes.push(`prompt guard: ${promptGuard}`);
     if (promptGuard === "block") {
@@ -234,7 +235,7 @@ export async function runRadarCycle(deps: CycleDeps): Promise<StoredRun> {
             storageKey,
             [...book.entries()].map(([vin, priceUsd]) => ({ vin, priceUsd })),
           );
-          const judged = await judgeFlipAlerts(fresh, deps, Math.min(limits.serv, remain()), servChecks);
+          const judged = await judgeFlipAlerts(fresh, deps, remain(), limits.serv, servChecks);
           if (deps.servKey && !judged?.decisions) notes.push("Flip explanation unavailable. The estimates below are from the scan only.");
           for (const item of fresh) {
             const decision = judged?.decisions?.get(item.vin);
@@ -249,7 +250,11 @@ export async function runRadarCycle(deps: CycleDeps): Promise<StoredRun> {
               expectedMiles: null,
               roughMarginUsd: item.profitMidUsd,
             };
-            const why = decision?.note ? `${flipAlertWhy(item)} ${decision.note}` : flipAlertWhy(item);
+            const why = decision?.note
+              ? `${flipAlertWhy(item)} ${decision.note}`
+              : deps.servKey && !decision
+                ? `${flipAlertWhy(item)} The written check did not finish. These figures are from the scan.`
+                : flipAlertWhy(item);
             const flipCoverage = {
               mode: "flip" as const,
               sample: item.listing.source === "sample",
@@ -365,10 +370,7 @@ export async function runRadarCycle(deps: CycleDeps): Promise<StoredRun> {
         freshAlerts.map(async (alert) => {
           if (alert.mode === "flip") return { why: alert.why, source: "flip_judge", checks: alert.checks ?? [] };
           try {
-            return await withTimeout(
-              reviewWhy(alert.why, alert.numbers, deps, Math.min(limits.serv, remain()), servChecks),
-              Math.min(limits.serv, remain()),
-            );
+            return await reviewWhy(alert.why, alert.numbers, deps, servBudget("personal_alert_review", remain(), limits.serv), servChecks);
           } catch {
             return { why: alert.why, source: "timeout", checks: alert.checks ?? [] };
           }
@@ -377,7 +379,10 @@ export async function runRadarCycle(deps: CycleDeps): Promise<StoredRun> {
       reviews.forEach((review, index) => {
         const alert = freshAlerts[index];
         if (!alert) return;
-        alert.why = review.why;
+        const unfinished = review.source === "timeout" || review.source === "template_after_error";
+        alert.why = unfinished
+          ? `${review.why} The written check did not finish. This match is calculated from the saved search.`
+          : review.why;
         alert.checks = review.checks;
       });
       shadow = summarizeShadow(reviews.map((review) => review.source));
@@ -480,10 +485,11 @@ function finish(
 async function judgeFlipAlerts(
   fresh: ReturnType<typeof topFlipCandidates>,
   deps: CycleDeps,
-  timeoutMs: number,
+  remainMs: number,
+  ceilingMs: number,
   proofs: ServProof[],
 ): Promise<{ decisions: Map<string, { verdict: "alert" | "skip"; note: string }> | null; checks: DecisionProof[] } | null> {
-  if (!deps.servKey || fresh.length === 0 || timeoutMs <= 0) return null;
+  if (!deps.servKey || fresh.length === 0 || remainMs <= 0) return null;
   const facts = fresh.map((item) => ({
     vin: item.vin,
     year: item.listing.year,
@@ -499,36 +505,40 @@ async function judgeFlipAlerts(
     speedBasis: item.speedBasis,
   }));
   const guards = proofs.filter((item) => item.purpose === "radar_guard").map(visibleProof);
+  const deadline = Date.now() + remainMs;
+  const budget = (id: ProfileId) => servBudget(id, deadline - Date.now(), ceilingMs);
   try {
-    const outcome = await withTimeout(
-      (async () => {
-        const rules = await runServ("flip_feasibility", { user: JSON.stringify({ facts }) }, {
-          fetch: deps.fetchImpl,
-          apiKey: deps.servKey,
-          baseUrl: deps.servBaseUrl,
-          model: deps.servModel,
-          timeoutMs,
-        });
-        const allowed = JSON.stringify(facts);
-        const rulesNote = rules.ok && quotedNumbersStayIn(rules.text, allowed) ? rules.text : null;
-        if (!rulesNote) rules.proof.fallbackUsed = true;
-        proofs.push(rules.proof);
-        const judged = await runServ("flip_judge", { user: JSON.stringify({ facts, rulesNote }) }, {
-          fetch: deps.fetchImpl,
-          apiKey: deps.servKey,
-          baseUrl: deps.servBaseUrl,
-          model: deps.servModel,
-          timeoutMs,
-        });
-        proofs.push(judged.proof);
-        return {
-          decisions: judged.ok ? parseFlipJudgment(judged.text, facts) : null,
-          checks: [...guards, visibleProof(rules.proof), visibleProof(judged.proof)],
-        };
-      })(),
-      timeoutMs,
-    );
-    return outcome;
+    const rulesMs = budget("flip_feasibility");
+    const rules =
+      rulesMs < 500
+        ? null
+        : await runServ("flip_feasibility", { user: JSON.stringify({ facts }) }, {
+            fetch: deps.fetchImpl,
+            apiKey: deps.servKey,
+            baseUrl: deps.servBaseUrl,
+            model: deps.servModel,
+            timeoutMs: rulesMs,
+          });
+    const allowed = JSON.stringify(facts);
+    const rulesNote = rules?.ok && quotedNumbersStayIn(rules.text, allowed) ? rules.text : null;
+    if (rules) {
+      if (!rulesNote) rules.proof.fallbackUsed = true;
+      proofs.push(rules.proof);
+    }
+    const judgeMs = budget("flip_judge");
+    if (judgeMs < 500) return { decisions: null, checks: rules ? [...guards, visibleProof(rules.proof)] : guards };
+    const judged = await runServ("flip_judge", { user: JSON.stringify({ facts, rulesNote }) }, {
+      fetch: deps.fetchImpl,
+      apiKey: deps.servKey,
+      baseUrl: deps.servBaseUrl,
+      model: deps.servModel,
+      timeoutMs: judgeMs,
+    });
+    proofs.push(judged.proof);
+    return {
+      decisions: judged.ok ? parseFlipJudgment(judged.text, facts) : null,
+      checks: [...guards, ...(rules ? [visibleProof(rules.proof)] : []), visibleProof(judged.proof)],
+    };
   } catch {
     return { decisions: null, checks: guards };
   }
