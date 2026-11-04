@@ -32,6 +32,8 @@ export type Listing = {
   latitude: number | null;
   longitude: number | null;
   removedAt: string | null;
+  /** When the listing was first seen by the provider, if that field was present. */
+  createdAt?: string | null;
   source: ListingSource;
 };
 

@@ -35,6 +35,7 @@ export function listingsSearchUrl(query: ListingQuery): string {
   if (query.zip) params.set("zip", query.zip);
   if (query.distanceMiles) params.set("distance", String(query.distanceMiles));
   if (query.sort) params.set("sort", query.sort);
+  if (query.page && query.page > 1) params.set("page", String(query.page));
   params.set("limit", String(query.limit ?? 20));
   return `https://api.auto.dev/listings?${params.toString()}`;
 }

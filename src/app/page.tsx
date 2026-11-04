@@ -69,6 +69,10 @@ export default function HomePage() {
               <span>1 credit answers whether that car fits you or the deal. It does not inspect the car.</span>
             </li>
           </ol>
+          <p className="sample-link">
+            <Link href="/pricing">Radar plans</Link>
+            <span> are preview prices. Report credits stay separate.</span>
+          </p>
         </div>
       </section>
       <section className="wrap trust-row" aria-label="How a verdict is built">

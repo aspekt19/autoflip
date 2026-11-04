@@ -81,6 +81,7 @@ export function normalizeAutoDevListing(raw: unknown, source: ListingSource): Li
     latitude,
     longitude,
     removedAt: str(record.removedAt),
+    createdAt: str(record.createdAt),
     source,
   };
 }

@@ -138,7 +138,9 @@ Auto.dev terms limit the free plan to evaluation and restrict resale of the feed
 
 A saved search is checked on a schedule. Monitoring does not spend a credit. A full report still costs 1 credit, and only after an explicit Analyze click. A VIN is marked seen only after it passes the pre-filter for that search and rule version. Rows that were filtered out are judged again on the next run, and a criteria or rule change uses a new seen key.
 
-The shared preview is `/demo?key=$DEMO_ACCESS_KEY`. It signs every visitor in as one client, refills `DEMO_CREDITS` once per UTC day, and installs two presets: a 2012–2020 Toyota RAV4 up to $24,000 within 100 miles of Miami (33101), and a 2008–2018 Honda Civic up to $16,000 in the same radius with a $1,500 rough-margin buy box. Visitors can add at most one extra shared search. Check now is limited to once per 30 minutes globally. A preset’s criteria update the next time the preview or the cron runs.
+The shared preview is `/demo?key=$DEMO_ACCESS_KEY`. It signs every visitor in as one client, refills `DEMO_CREDITS` once per UTC day, and turns on both radar modes without a charge. Presets: a 2012–2020 Toyota RAV4 up to $24,000 within 100 miles of Miami (33101), and a budget-only Flip scan at $12,000 within 50 miles of 33101 (no model, no mileage, no profit target). Visitors can add at most one extra shared search. Check now is limited to once per 30 minutes globally. A preset’s criteria update the next time the preview or the cron runs.
+
+Personal watches can list several models and alert on a new match or a price drop of at least $300 and 3%. Flip scans use at most two cached pages per cycle, then rank up to five cars. Profit and speed of sale are estimates from that scan. Fewer than three comps is excluded. Listing age is used only when the feed includes it; otherwise speed is unknown. Preview plan prices are on `/pricing`. Report credits stay separate.
 
 ### Auto.dev, checked 4 Nov 2026
 

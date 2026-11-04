@@ -203,16 +203,22 @@ function AssistantFlow({ variant }: { variant: "find" | "check" }) {
         body: JSON.stringify({
           name: direction.segment,
           mode: need.mode,
-          criteria: {
-            make: direction.search.make,
-            model: direction.search.model,
-            yearMin: direction.yearMin,
-            yearMax: direction.yearMax,
-            priceMax,
-            zip: need.zip,
-            radiusMiles: 100,
-            minProfitUsd: need.mode === "flip" ? need.targetProfitUsd ?? undefined : undefined,
-          },
+          criteria:
+            need.mode === "flip"
+              ? {
+                  priceMax,
+                  zip: need.zip,
+                  radiusMiles: 50,
+                  repairAbility: need.repairAbility,
+                }
+              : {
+                  models: direction.models.slice(0, 6),
+                  yearMin: direction.yearMin,
+                  yearMax: direction.yearMax,
+                  priceMax,
+                  zip: need.zip,
+                  radiusMiles: 100,
+                },
         }),
       });
       const body = (await response.json()) as { message?: string };
@@ -525,7 +531,7 @@ function AssistantFlow({ variant }: { variant: "find" | "check" }) {
                 Candidate models: {group.direction.models.map((item) => `${item.make} ${item.model}`).join(", ")}. Years {group.direction.yearMin}–{group.direction.yearMax}. {group.direction.yearBecause} One listings call uses {group.direction.search.make} {group.direction.search.model}.
               </p>
               <button className="quiet" type="button" onClick={() => void watch(group.direction)} disabled={pending === group.direction.id}>
-                {need?.budgetKnown ? "Watch this search" : "Watch this search (wide price cap, budget was not set)"}
+                {need?.mode === "flip" ? "Watch this budget" : need?.budgetKnown ? "Watch these models" : "Watch these models (wide price cap, budget was not set)"}
               </button>
               {group.note ? <p className="hint">{group.note}</p> : null}
               <ul className="refuse">

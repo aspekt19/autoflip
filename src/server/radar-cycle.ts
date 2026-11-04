@@ -7,17 +7,16 @@ import {
   intervalHours,
   isDue,
   marketBand,
-  mergeSeen,
   prefilterListing,
   rankPasses,
   seenStorageKey,
   tallyReason,
-  toListingsQuery,
-  unseenListings,
   type SavedSearch,
   type WatchAlert,
 } from "@/domain/radar-watch";
 import { auditExplanation } from "@/domain/audit";
+import { topFlipCandidates, flipAlertWhy } from "@/domain/flip-rank";
+import { isBroadFlip, isPriceDrop, listingQueries, matchesWatchModels } from "@/domain/watch-queries";
 import { listingsSearchUrl } from "@/io/autodev";
 import type { Kv } from "@/io/kv";
 import { storageMode } from "@/io/kv";
@@ -28,7 +27,7 @@ import { buildAlertReviewRequest, buildGuardRequest, interpretGuard, postServ } 
 import { alertMessage } from "@/io/telegram";
 import type { ComputedReport, Listing } from "@/domain/types";
 import { syncPresetSearches } from "@/domain/demo-presets";
-import { listSearches, upsertRun, saveAlerts, saveSearches, seenVins, storeSeen, telegramChat, type StoredRun, listAlerts } from "./radar-store";
+import { listSearches, upsertRun, saveAlerts, saveSearches, seenBook, storeSeenPrices, readListingCache, writeListingCache, telegramChat, type StoredRun, listAlerts } from "./radar-store";
 
 /** Stay under the 60s Hobby limit so the log write still happens. */
 export const CYCLE_BUDGET_MS = 40_000;
@@ -114,7 +113,8 @@ export async function runRadarCycle(deps: CycleDeps): Promise<StoredRun> {
     const searches = synced.searches.filter((item) => item.enabled);
     const groups = groupByCriteria(searches);
     uniqueSearches = groups.size;
-    hours = intervalHours(groups.size || 1);
+    const callWeight = [...groups.values()].reduce((sum, group) => sum + listingQueries(group[0]!).length, 0);
+    hours = intervalHours(callWeight || 1);
     const intervalMs = hours * 60 * 60 * 1000;
     const alerts = await listAlerts(deps.kv);
     const freshAlerts: WatchAlert[] = [];
@@ -132,7 +132,7 @@ export async function runRadarCycle(deps: CycleDeps): Promise<StoredRun> {
 
     if (!deps.autodevKey) notes.push("AUTODEV_API_KEY is not set. No listings were requested and no alerts were invented.");
 
-    const due: { key: string; group: SavedSearch[] }[] = [];
+    const due: { key: string; group: SavedSearch[]; urls: string[] }[] = [];
     for (const [key, group] of groups) {
       const ready = deps.forceAll || group.some((item) => isDue(item.lastCheckedAt, deps.now.getTime(), intervalMs));
       if (!ready) {
@@ -143,27 +143,58 @@ export async function runRadarCycle(deps: CycleDeps): Promise<StoredRun> {
         stamp(group, deps.now.toISOString());
         continue;
       }
-      if (remain() < 1_500) {
-        notes.push("Stopped before another listings call so this run can be saved.");
-        steps.push({ id: "listings", status: "partial", detail: "deadline" });
-        break;
+      const urls: string[] = [];
+      let halted = false;
+      for (const query of listingQueries(group[0]!)) {
+        const url = listingsSearchUrl(query);
+        const cached = await readListingCache(deps.kv, url, deps.now.getTime());
+        if (cached) {
+          urls.push(url);
+          continue;
+        }
+        if (remain() < 1_500) {
+          notes.push("Stopped before another listings call so this run can be saved.");
+          steps.push({ id: "listings", status: "partial", detail: "deadline" });
+          halted = true;
+          break;
+        }
+        const slot = await reserveRadarCall(deps.kv, deps.now);
+        if (!slot.ok) {
+          notes.push(slot.message);
+          steps.push({ id: "listings", status: "budget", detail: slot.message });
+          halted = true;
+          break;
+        }
+        autodevCalls += 1;
+        urls.push(url);
       }
-      const slot = await reserveRadarCall(deps.kv, deps.now);
-      if (!slot.ok) {
-        notes.push(slot.message);
-        steps.push({ id: "listings", status: "budget", detail: slot.message });
-        break;
-      }
-      autodevCalls += 1;
-      due.push({ key, group });
+      if (urls.length) due.push({ key, group, urls });
+      if (halted) break;
     }
 
     const fetched = await Promise.all(
       due.map(async (job) => {
-        const url = listingsSearchUrl(toListingsQuery(job.group[0]!.criteria));
-        const result = await fetchListings(url, deps.autodevKey!, deps.fetchImpl, Math.min(limits.autodev, remain()));
-        if (!result.ok) return { ...job, listings: null as Listing[] | null, error: result.message };
-        return { ...job, listings: result.listings, error: undefined as string | undefined };
+        const pages: Listing[] = [];
+        const seenVin = new Set<string>();
+        let error: string | undefined;
+        for (const url of job.urls) {
+          const cached = await readListingCache(deps.kv, url, deps.now.getTime());
+          const result = Array.isArray(cached)
+            ? { ok: true as const, listings: cached as Listing[] }
+            : await fetchListings(url, deps.autodevKey!, deps.fetchImpl, Math.min(limits.autodev, remain()));
+          if (!result.ok) {
+            error = result.message;
+            continue;
+          }
+          if (!Array.isArray(cached)) await writeListingCache(deps.kv, url, result.listings, deps.now.getTime());
+          for (const listing of result.listings) {
+            if (seenVin.has(listing.vin)) continue;
+            seenVin.add(listing.vin);
+            pages.push(listing);
+          }
+        }
+        if (pages.length === 0) return { ...job, listings: null as Listing[] | null, error: error ?? "Listings call failed." };
+        return { ...job, listings: pages, error: undefined as string | undefined };
       }),
     );
 
@@ -181,34 +212,81 @@ export async function runRadarCycle(deps: CycleDeps): Promise<StoredRun> {
       const eligible = job.listings.filter((listing) => hardReject(listing, criteria) === null);
       const band = marketBand(eligible);
       for (const search of job.group) {
+        if (isBroadFlip(search)) {
+          const ranked = topFlipCandidates(job.listings, deps.now, ASSUMPTIONS.radarMaxAlertsPerSearch);
+          const storageKey = seenStorageKey(search.id, search.criteria);
+          const book = await seenBook(deps.kv, storageKey);
+          const fresh = ranked.filter((item) => {
+            const previous = book.get(item.vin);
+            return previous === undefined || isPriceDrop(previous, item.listing.priceUsd);
+          });
+          tallyReason(reasons, "already seen", ranked.length - fresh.length);
+          tallyReason(reasons, "fewer than 3 comps", job.listings.length - ranked.length);
+          passed += fresh.length;
+          filteredOut += job.listings.length - fresh.length;
+          for (const item of ranked) book.set(item.vin, item.listing.priceUsd);
+          await storeSeenPrices(
+            deps.kv,
+            storageKey,
+            [...book.entries()].map(([vin, priceUsd]) => ({ vin, priceUsd })),
+          );
+          for (const item of fresh) {
+            const numbers = {
+              priceUsd: item.listing.priceUsd ?? 0,
+              medianUsd: item.resaleMidUsd ?? 0,
+              lowUsd: item.resaleLowUsd ?? 0,
+              highUsd: item.resaleHighUsd ?? 0,
+              gapUsd: item.profitMidUsd ?? 0,
+              miles: item.listing.miles,
+              expectedMiles: null,
+              roughMarginUsd: item.profitMidUsd,
+            };
+            const alert = makeAlert(search, item.listing, flipAlertWhy(item), numbers, deps.now.toISOString());
+            alerts.unshift(alert);
+            freshAlerts.push(alert);
+            alertsSent += 1;
+          }
+          search.lastCheckedAt = deps.now.toISOString();
+          continue;
+        }
         const storageKey = seenStorageKey(search.id, search.criteria);
-        const seen = await seenVins(deps.kv, storageKey);
-        const fresh = unseenListings(job.listings, seen);
-        tallyReason(reasons, "already seen", job.listings.length - fresh.length);
+        const book = await seenBook(deps.kv, storageKey);
+        const scoped = job.listings.filter((listing) => matchesWatchModels(listing, search.criteria));
+        tallyReason(reasons, "model does not match", job.listings.length - scoped.length);
+        const fresh = scoped.filter((listing) => {
+          const previous = book.get(listing.vin);
+          return previous === undefined || isPriceDrop(previous, listing.priceUsd);
+        });
+        tallyReason(reasons, "already seen", scoped.length - fresh.length);
         const decisions = fresh.map((listing) => ({
           listing,
           decision: prefilterListing(listing, search.criteria, band, search.mode, deps.now.getUTCFullYear()),
+          dropped: book.has(listing.vin),
         }));
         const passedRows = decisions.filter((item) => item.decision.pass);
         for (const item of decisions) {
           if (!item.decision.pass) tallyReason(reasons, item.decision.reason);
         }
         const winners = rankPasses(
-          passedRows.flatMap((item) =>
-            item.decision.pass ? [{ listing: item.listing, numbers: item.decision.numbers, why: item.decision.why }] : [],
-          ),
+          passedRows.flatMap((item) => {
+            if (!item.decision.pass) return [];
+            const previous = book.get(item.listing.vin);
+            const why =
+              previous != null && isPriceDrop(previous, item.listing.priceUsd)
+                ? `Price dropped from ${previous.toLocaleString("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 })} to the new asking price. ${item.decision.why}`
+                : item.decision.why;
+            return [{ listing: item.listing, numbers: item.decision.numbers, why }];
+          }),
         ).slice(0, ASSUMPTIONS.radarMaxAlertsPerSearch);
         const winnerVins = new Set(winners.map((winner) => winner.listing.vin));
         tallyReason(reasons, "past the alert cap", passedRows.filter((item) => !winnerVins.has(item.listing.vin)).length);
         filteredOut += decisions.length - passedRows.length;
         passed += passedRows.length;
-        await storeSeen(
+        for (const item of passedRows) book.set(item.listing.vin, item.listing.priceUsd);
+        await storeSeenPrices(
           deps.kv,
           storageKey,
-          mergeSeen(
-            seen,
-            passedRows.map((item) => item.listing.vin),
-          ),
+          [...book.entries()].map(([vin, priceUsd]) => ({ vin, priceUsd })),
         );
         for (const winner of winners) {
           const alert = makeAlert(search, winner.listing, winner.why, winner.numbers, deps.now.toISOString());
