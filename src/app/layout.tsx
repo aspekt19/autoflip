@@ -11,10 +11,11 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     <html lang="en">
       <head>
+        <meta name="color-scheme" content="light dark" />
         <link rel="preconnect" href="https://fonts.googleapis.com" />
         <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="" />
         <link
-          href="https://fonts.googleapis.com/css2?family=Source+Sans+3:wght@400;600;700&family=Source+Serif+4:opsz,wght@8..60,560;8..60,650&display=swap"
+          href="https://fonts.googleapis.com/css2?family=Inter+Tight:wght@500;700&family=Source+Serif+4:opsz,wght@8..60,400;8..60,600&display=swap"
           rel="stylesheet"
         />
       </head>
@@ -22,15 +23,23 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <a className="skip" href="#main">
           Skip to content
         </a>
-        <div className="eval-banner">
-          <div className="wrap">Evaluation preview. Listing figures are from the configured listings provider or a labeled sample. This is not a production offer.</div>
-        </div>
+        <p className="eval-line">Evaluation preview. Listing figures are from the configured listings provider or a labeled sample. This is not a production offer.</p>
         <Header />
         <main id="main">{children}</main>
-        <footer className="site-footer">
-          <div className="wrap">
-            AutoFlip prepares a price verdict from listing comps and public government data. It is not a dealer, lender, inspector, or insurer. Recalls can be incomplete. Confirm the car, the out-the-door price, and any open campaigns with the seller before you pay.
-          </div>
+        <p className="foot-note">
+          AutoFlip prepares a price verdict from listing comps and public government data. It is not a dealer, lender, inspector, or insurer. Recalls can be incomplete. Confirm the car, the out-the-door price, and any open campaigns with the seller before you pay.
+        </p>
+        <footer className="colophon">
+          <a className="brand brand-foot" href="/">
+            <img src="/logo.svg" alt="" width={32} height={32} />
+            <span className="brand-name">AutoFlip</span>
+          </a>
+          <p className="foot-links">
+            <a href="/radar">Deal Radar</a>
+            <a href="/credits">Credits</a>
+            <a href="/developers">Developers</a>
+          </p>
+          <p>Evaluation preview</p>
         </footer>
       </body>
     </html>

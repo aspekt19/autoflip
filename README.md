@@ -133,7 +133,7 @@ Auto.dev terms limit the free plan to evaluation and restrict resale of the feed
 
 ## Design
 
-The previous product’s repository was not readable from this environment (`github.com/aspekt19/thaw` returned 404). The interface uses that product’s documented palette: blue `#1F5BFF`, hover `#1747CC`, tint `#E8EFFF`, navy `#0B1530`, soft blue `#5C88FF`. Sticky header is opaque white. Type is Source Serif 4 and Source Sans 3. The logo is `public/logo.svg`.
+The interface follows the previous product’s frontend: warm paper canvas, Inter Tight for headings and controls, Source Serif 4 for body text, 4px controls, and the same light/dark variables. The AutoFlip mark is `public/logo.svg` (yellow tile, ink arrows). Consumer pages do not reuse that product’s name or copy.
 
 ## Deploy
 

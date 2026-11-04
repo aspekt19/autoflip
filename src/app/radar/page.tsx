@@ -104,60 +104,59 @@ function RadarInner() {
   }
 
   return (
-    <div className="wrap page">
-      <h1>Deal Radar</h1>
-      <p className="lede">A free scan. Each score uses the other cars in this result set. It does not include recalls or fuel — those are on the full report.</p>
-      <SearchPanel initial={{ make, model, zip, year, mode }} />
-      {sample ? (
-        <p className="banner-note">
-          <span className="sample-chip">Sample</span> {message}
+    <div className="sub">
+      <div className="wrap">
+        <p className="kicker">Free scan</p>
+        <h1>Deal Radar</h1>
+        <p className="lead">Each score uses the other cars in this result set. It does not include recalls or fuel. Those are on the full report.</p>
+        <SearchPanel initial={{ make, model, zip, year, mode }} />
+        {sample ? (
+          <p className="warn-box">
+            <span className="file-chip">Sample</span> {message}
+          </p>
+        ) : null}
+        {!sample && message ? <p className="warn-box">{message}</p> : null}
+        {error ? <p className="warn">{error}</p> : null}
+        {!make || !model ? <p>Enter a make and model to scan.</p> : null}
+        {make && model && rows === null && !error ? <p>Scanning…</p> : null}
+        <div className="radar-list">
+          {(rows ?? []).map((row) => (
+            <article className="radar-row" key={row.vin}>
+              {row.primaryImage ? <img src={row.primaryImage} alt="" width={128} height={84} /> : <div className="photo-fallback" />}
+              <div>
+                <div className="score">{row.score === null ? "—" : row.score}</div>
+                <span className={`badge ${row.verdict}`}>{verdictLabel(row.verdict === "not_scored" ? "insufficient_data" : row.verdict)}</span>
+                {row.source === "sample" ? (
+                  <div style={{ marginTop: 8 }}>
+                    <span className="file-chip">Sample</span>
+                  </div>
+                ) : null}
+              </div>
+              <div>
+                <h2 className="car-title">
+                  {row.year} {row.make} {row.model} {row.trim ?? ""}
+                </h2>
+                <p className="hint">
+                  {row.priceUsd === null ? "No price" : formatUsd(row.priceUsd)}
+                  {" · "}
+                  {row.miles === null ? "No mileage" : `${formatNumber(row.miles)} miles`}
+                  {row.city ? ` · ${row.city}, ${row.state ?? ""}` : ""}
+                </p>
+                <p>{row.reason}</p>
+                <p className="mono">{row.vin}</p>
+              </div>
+              <div className="row-actions">
+                <button className="action" type="button" onClick={() => openReport(row.vin)} disabled={busyVin === row.vin}>
+                  {busyVin === row.vin ? "Working…" : "Full report · 1 credit"}
+                </button>
+              </div>
+            </article>
+          ))}
+        </div>
+        <p className="hint">
+          <Link href="/credits">Buy credits</Link> for a full report.
         </p>
-      ) : null}
-      {!sample && message ? <p className="banner-note">{message}</p> : null}
-      {error ? <p className="form-error">{error}</p> : null}
-      {!make || !model ? <p>Enter a make and model to scan.</p> : null}
-      {make && model && rows === null && !error ? <p>Scanning…</p> : null}
-      <div className="cards" style={{ marginTop: 16 }}>
-        {(rows ?? []).map((row) => (
-          <article className="card radar-card" key={row.vin}>
-            {row.primaryImage ? (
-              <img src={row.primaryImage} alt="" width={168} height={112} />
-            ) : (
-              <div className="photo-fallback" />
-            )}
-            <div>
-              <div className="score">{row.score === null ? "—" : row.score}</div>
-              <span className={`badge ${row.verdict}`}>{verdictLabel(row.verdict === "not_scored" ? "insufficient_data" : row.verdict)}</span>
-              {row.source === "sample" ? (
-                <div style={{ marginTop: 8 }}>
-                  <span className="sample-chip">Sample</span>
-                </div>
-              ) : null}
-            </div>
-            <div>
-              <h2>
-                {row.year} {row.make} {row.model} {row.trim ?? ""}
-              </h2>
-              <p className="meta">
-                {row.priceUsd === null ? "No price" : formatUsd(row.priceUsd)}
-                {" · "}
-                {row.miles === null ? "No mileage" : `${formatNumber(row.miles)} miles`}
-                {row.city ? ` · ${row.city}, ${row.state ?? ""}` : ""}
-              </p>
-              <p>{row.reason}</p>
-              <p className="mono">{row.vin}</p>
-            </div>
-            <div className="row-actions">
-              <button className="btn" type="button" onClick={() => openReport(row.vin)} disabled={busyVin === row.vin}>
-                {busyVin === row.vin ? "Working…" : "Full report · 1 credit"}
-              </button>
-            </div>
-          </article>
-        ))}
       </div>
-      <p className="meta" style={{ marginTop: 18 }}>
-        <Link href="/credits">Buy credits</Link> for a full report.
-      </p>
     </div>
   );
 }

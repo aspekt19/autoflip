@@ -9,75 +9,67 @@ export function ReportView({ report }: { report: FullReport }) {
   return (
     <article>
       {computed.sample ? (
-        <p className="banner-note">
-          <span className="sample-chip">Sample</span> This report is built from the labeled evaluation fixture, not a live listings search.
+        <p className="warn-box">
+          <span className="file-chip">Sample</span> This report is built from the labeled evaluation fixture, not a live listings search.
         </p>
       ) : null}
-      <div className="card">
-        <div className="verdict-hero">
-          <div>
-            <p className="meta">{computed.mode === "flip" ? "Resale view" : "Drive-it view"}</p>
-            <h1>{title}</h1>
-            <p className="meta">
-              {car.priceUsd === null ? "Price not listed" : formatUsd(car.priceUsd)}
-              {" · "}
-              {car.miles === null ? "Mileage not listed" : `${formatNumber(car.miles)} miles`}
-              {car.city ? ` · ${car.city}, ${car.state ?? ""}` : ""}
-              {car.dealer ? ` · ${car.dealer}` : ""}
-            </p>
-          </div>
-          <div>
-            <div className={`verdict-word badge ${computed.verdict}`}>{verdictLabel(computed.verdict)}</div>
-            {computed.score !== null ? <p className="meta">Price score {computed.score} / 100</p> : null}
-          </div>
-        </div>
-        <div className="stat-grid">
-          <div className="stat">
-            <b>{computed.fairValueUsd === null ? "—" : formatUsd(computed.fairValueUsd)}</b>
-            <span>Fair value</span>
-          </div>
-          <div className="stat">
-            <b>{computed.priceGap === null ? "—" : formatPct(computed.priceGap)}</b>
-            <span>Asking vs fair value</span>
-          </div>
-          <div className="stat">
-            <b>{computed.comps.length}</b>
-            <span>Comparables</span>
-          </div>
-          <div className="stat">
-            <b>
-              {computed.fuel?.annualFuelCostUsd
-                ? formatUsd(computed.fuel.annualFuelCostUsd)
-                : computed.fuel?.annualFuelCostLowUsd != null && computed.fuel.annualFuelCostHighUsd != null
-                  ? `${formatUsd(computed.fuel.annualFuelCostLowUsd)}–${formatUsd(computed.fuel.annualFuelCostHighUsd)}`
-                  : "—"}
-            </b>
-            <span>EPA annual fuel</span>
-          </div>
-        </div>
+      <p className="kicker">{computed.mode === "flip" ? "Resale view" : "Drive-it view"}</p>
+      <h1>{title}</h1>
+      <p className="support">
+        {car.priceUsd === null ? "Price not listed" : formatUsd(car.priceUsd)}
+        {" · "}
+        {car.miles === null ? "Mileage not listed" : `${formatNumber(car.miles)} miles`}
+        {car.city ? ` · ${car.city}, ${car.state ?? ""}` : ""}
+        {car.dealer ? ` · ${car.dealer}` : ""}
+      </p>
+      <p className={`verdict-level badge ${computed.verdict}`}>{verdictLabel(computed.verdict)}</p>
+      {computed.score !== null ? <p className="hint">Price score {computed.score} / 100</p> : null}
+      <div className="facts-row">
+        <article>
+          <b>{computed.fairValueUsd === null ? "—" : formatUsd(computed.fairValueUsd)}</b>
+          <span>Fair value</span>
+        </article>
+        <article>
+          <b>{computed.priceGap === null ? "—" : formatPct(computed.priceGap)}</b>
+          <span>Asking vs fair value</span>
+        </article>
+        <article>
+          <b>{computed.comps.length}</b>
+          <span>Comparables</span>
+        </article>
+        <article>
+          <b>
+            {computed.fuel?.annualFuelCostUsd
+              ? formatUsd(computed.fuel.annualFuelCostUsd)
+              : computed.fuel?.annualFuelCostLowUsd != null && computed.fuel.annualFuelCostHighUsd != null
+                ? `${formatUsd(computed.fuel.annualFuelCostLowUsd)}–${formatUsd(computed.fuel.annualFuelCostHighUsd)}`
+                : "—"}
+          </b>
+          <span>EPA annual fuel</span>
+        </article>
       </div>
 
-      <div className="split">
-        <section className="card">
+      <div className="split" style={{ marginTop: 36 }}>
+        <section>
           <h2>Plain-English read</h2>
           <p>{report.explanation}</p>
           <h3>Why this verdict</h3>
-          <ul className="clean">
+          <ul className="refuse">
             {computed.reasons.map((reason) => (
               <li key={reason}>{reason}</li>
             ))}
           </ul>
         </section>
-        <section className="card">
+        <section>
           <h2>Flags</h2>
           {computed.flags.length === 0 ? <p>No flags were raised from the fields we had.</p> : null}
           {computed.flags.map((flag) => (
-            <p className={`flag ${flag.level}`} key={`${flag.source}-${flag.text}`}>
+            <p className={flag.level === "stop" ? "warn" : "warn-box"} key={`${flag.source}-${flag.text}`}>
               {flag.text}
             </p>
           ))}
           <h3>Questions for the dealer</h3>
-          <ol className="clean">
+          <ol className="refuse">
             {computed.questions.map((question) => (
               <li key={question}>{question}</li>
             ))}
@@ -86,38 +78,38 @@ export function ReportView({ report }: { report: FullReport }) {
       </div>
 
       {computed.flip ? (
-        <section className="card" style={{ marginTop: 16 }}>
+        <section>
           <h2>Resale math</h2>
-          <p className="meta">
+          <p className="hint">
             Range comes from current comparable asking prices, not closed sales. Fees and reconditioning are model assumptions, printed below.
           </p>
-          <div className="stat-grid">
-            <div className="stat">
+          <div className="facts-row">
+            <article>
               <b>
                 {formatUsd(computed.flip.resaleLowUsd)}–{formatUsd(computed.flip.resaleHighUsd)}
               </b>
               <span>Asking-price range</span>
-            </div>
-            <div className="stat">
+            </article>
+            <article>
               <b>{formatUsd(computed.flip.marginUsd)}</b>
               <span>Conservative margin</span>
-            </div>
-            <div className="stat">
+            </article>
+            <article>
               <b>{formatUsd(computed.flip.targetBuyUsd)}</b>
               <span>Buy target</span>
-            </div>
-            <div className="stat">
+            </article>
+            <article>
               <b>{computed.flip.timeToSellRisk}</b>
               <span>Time-to-sell risk</span>
-            </div>
+            </article>
           </div>
           <p>{computed.flip.timeToSellNote}</p>
         </section>
       ) : null}
 
-      <section className="card" style={{ marginTop: 16 }}>
+      <section>
         <h2>Comparables</h2>
-        <p className="meta">Scope: {computed.compScope.replaceAll("_", " ")}. Prices are adjusted to this car’s mileage.</p>
+        <p className="hint">Scope: {computed.compScope.replaceAll("_", " ")}. Prices are adjusted to this car’s mileage.</p>
         {computed.comps.length === 0 ? <p>No comparables qualified.</p> : null}
         {computed.comps.length > 0 ? (
           <table>
@@ -148,9 +140,9 @@ export function ReportView({ report }: { report: FullReport }) {
         ) : null}
       </section>
 
-      <section className="card" style={{ marginTop: 16 }}>
+      <section>
         <h2>History, recalls, fuel</h2>
-        <ul className="clean">
+        <ul className="refuse">
           {computed.history.lines.map((line) => (
             <li key={line}>{line}</li>
           ))}
@@ -185,7 +177,7 @@ export function ReportView({ report }: { report: FullReport }) {
                   <td>{recall.campaignNumber}</td>
                   <td>
                     {recall.component}
-                    <div className="meta">{recall.summary}</div>
+                    <div className="hint">{recall.summary}</div>
                   </td>
                   <td>{recall.parkIt || recall.parkOutSide ? "Yes" : "No"}</td>
                 </tr>
@@ -201,7 +193,7 @@ export function ReportView({ report }: { report: FullReport }) {
         {computed.dataNotes.length > 0 ? (
           <>
             <h3>Missing or unused data</h3>
-            <ul className="clean">
+            <ul className="refuse">
               {computed.dataNotes.map((note) => (
                 <li key={note}>{note}</li>
               ))}
@@ -210,9 +202,9 @@ export function ReportView({ report }: { report: FullReport }) {
         ) : null}
       </section>
 
-      <section className="card proof">
+      <section className="ask">
         <h2>Proof of AI</h2>
-        <p className="meta">
+        <p className="hint">
           The verdict and every dollar figure come from the tools below. The written summary is allowed to explain those figures and is dropped if it introduces a number that is not in the tool output.
         </p>
         <p>
@@ -226,13 +218,13 @@ export function ReportView({ report }: { report: FullReport }) {
           Shadow check: requested {report.proof.shadow.requested ? "yes" : "no"}, outcome <code>{report.proof.shadow.outcome}</code>, max iterations{" "}
           {report.proof.shadow.maxIterations}.
         </p>
-        <div className="step-list">
+        <ul className="step-list">
           {report.proof.steps.map((step) => (
-            <span key={`${step.id}-${step.status}`}>
+            <li key={`${step.id}-${step.status}`}>
               {step.id}: {step.status}
-            </span>
+            </li>
           ))}
-        </div>
+        </ul>
         <details>
           <summary>Tool outputs</summary>
           <pre className="doc">{JSON.stringify(report.proof.toolOutputs, null, 2)}</pre>

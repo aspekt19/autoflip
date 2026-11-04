@@ -78,57 +78,63 @@ export function SearchPanel({ initial }: Props) {
   }
 
   return (
-    <form className="card" onSubmit={onRadar}>
-      <div className="modes" role="radiogroup" aria-label="Report mode">
-        <label>
-          <input type="radio" name="mode" value="personal" checked={mode === "personal"} onChange={() => setMode("personal")} />
-          Drive it
-        </label>
-        <label>
-          <input type="radio" name="mode" value="flip" checked={mode === "flip"} onChange={() => setMode("flip")} />
-          Flip it
-        </label>
+    <form className="panel" onSubmit={onRadar}>
+      <fieldset className="field">
+        <legend>What do you want to know?</legend>
+        <div className="pills" role="radiogroup" aria-label="Report mode">
+          <label className="pill">
+            <input type="radio" name="mode" value="personal" checked={mode === "personal"} onChange={() => setMode("personal")} />
+            Drive it
+          </label>
+          <label className="pill">
+            <input type="radio" name="mode" value="flip" checked={mode === "flip"} onChange={() => setMode("flip")} />
+            Flip it
+          </label>
+        </div>
+      </fieldset>
+      <div className="field">
+        <label htmlFor="lookup">Listing URL or VIN</label>
+        <input
+          id="lookup"
+          name="lookup"
+          type="text"
+          inputMode="text"
+          autoComplete="off"
+          placeholder="Paste a dealer listing URL or a 17-character VIN"
+          value={lookup}
+          onChange={(event) => setLookup(event.target.value)}
+        />
       </div>
-      <div className="fields">
-        <label className="wide">
-          <span>Listing URL or VIN</span>
-          <input
-            name="lookup"
-            type="text"
-            inputMode="text"
-            autoComplete="off"
-            placeholder="Paste a dealer listing URL or a 17-character VIN"
-            value={lookup}
-            onChange={(event) => setLookup(event.target.value)}
-          />
-        </label>
-        <label>
-          <span>Make</span>
-          <input name="make" type="text" autoComplete="off" value={make} onChange={(event) => setMake(event.target.value)} placeholder="Toyota" />
-        </label>
-        <label>
-          <span>Model</span>
-          <input name="model" type="text" autoComplete="off" value={model} onChange={(event) => setModel(event.target.value)} placeholder="Camry" />
-        </label>
-        <label>
-          <span>ZIP</span>
-          <input name="zip" type="text" inputMode="numeric" autoComplete="postal-code" value={zip} onChange={(event) => setZip(event.target.value)} placeholder="72758" />
-        </label>
-        <label>
-          <span>Year</span>
-          <input name="year" type="text" inputMode="numeric" value={year} onChange={(event) => setYear(event.target.value)} placeholder="2021" />
-        </label>
+      <div className="pair">
+        <div className="field">
+          <label htmlFor="make">Make</label>
+          <input id="make" name="make" type="text" autoComplete="off" value={make} onChange={(event) => setMake(event.target.value)} placeholder="Toyota" />
+        </div>
+        <div className="field">
+          <label htmlFor="model">Model</label>
+          <input id="model" name="model" type="text" autoComplete="off" value={model} onChange={(event) => setModel(event.target.value)} placeholder="Camry" />
+        </div>
       </div>
-      <div className="actions">
-        <button className="btn secondary" type="submit">
-          Scan Deal Radar · free
+      <div className="pair">
+        <div className="field">
+          <label htmlFor="zip">ZIP</label>
+          <input id="zip" name="zip" type="text" inputMode="numeric" autoComplete="postal-code" value={zip} onChange={(event) => setZip(event.target.value)} placeholder="72758" />
+        </div>
+        <div className="field">
+          <label htmlFor="year">Year</label>
+          <input id="year" name="year" type="text" inputMode="numeric" value={year} onChange={(event) => setYear(event.target.value)} placeholder="2021" />
+        </div>
+      </div>
+      <div className="hero-actions">
+        <button className="quiet" type="submit">
+          Scan Deal Radar
         </button>
-        <button className="btn" type="button" onClick={onReport} disabled={pending === "report"}>
+        <button className="action" type="button" onClick={onReport} disabled={pending === "report"}>
           {pending === "report" ? "Building report…" : "Full report · 1 credit"}
         </button>
       </div>
       {error ? (
-        <p className="form-error" role="alert">
+        <p className="warn" role="alert">
           {error}
         </p>
       ) : null}

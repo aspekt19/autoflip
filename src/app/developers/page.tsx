@@ -1,12 +1,13 @@
 export default function DevelopersPage() {
   return (
-    <div className="wrap page">
+    <div className="sub">
+      <div className="sheet-page prose">
       <h1>Developer API</h1>
-      <p className="lede">
+      <p className="lead">
         Other agents can buy the same verdict. The consumer site sells credits. This page is the only place that describes the agent payment rail.
       </p>
 
-      <section className="card">
+      <section>
         <h2>Deal Radar is free</h2>
         <p>
           <code>POST /api/radar</code> with <code>{`{ make, model, zip?, year?, mode? }`}</code>. No credit and no payment. The MCP tool is <code>deal_radar</code>.
@@ -20,7 +21,7 @@ export default function DevelopersPage() {
         </p>
       </section>
 
-      <section className="card" style={{ marginTop: 16 }}>
+      <section>
         <h2>MCP</h2>
         <p>
           <code>POST /api/mcp</code> speaks JSON-RPC: <code>initialize</code>, <code>tools/list</code>, <code>tools/call</code>, <code>ping</code>. <code>GET /api/mcp</code> describes the server. There is no session. Send a new request each time.
@@ -33,7 +34,7 @@ export default function DevelopersPage() {
         </p>
       </section>
 
-      <section className="card" style={{ marginTop: 16 }}>
+      <section>
         <h2>x402 and Kite</h2>
         <p>
           The seller advertises <code>X402_SCHEME</code> (default <code>gokite-aa</code>), <code>X402_NETWORK</code>, <code>X402_ASSET</code>, <code>X402_PRICE_ATOMIC</code>, and <code>X402_PAY_TO</code>. The buyer’s agent pays with a Kite Passport session. AutoFlip then asks <code>X402_FACILITATOR_URL</code> (default Pieverse) to <code>/verify</code> and <code>/settle</code>. Retry the call with the payment payload in <code>PAYMENT-SIGNATURE</code> or <code>X-PAYMENT</code>, or in the MCP argument <code>payment</code>.
@@ -41,12 +42,13 @@ export default function DevelopersPage() {
         <p>Leave <code>X402_PAY_TO</code> empty until you are ready. An empty payee returns 402 and does not call the facilitator.</p>
       </section>
 
-      <section className="card" style={{ marginTop: 16 }}>
+      <section>
         <h2>SERV</h2>
         <p>
           User text goes through a local screen and, when <code>SERV_API_KEY</code> is set, through <code>serv_prompt_guard</code>. The explanation call also sends <code>serv_prompt_guard</code> and <code>serv_shadow_agent</code> (hint: every number must be in the computed facts, max 2 iterations). AutoFlip then re-checks dollars, percentages, mileages, and VINs. A mismatch, or a shadow outcome of exhausted or failed, is replaced by the deterministic template. The report’s Proof of AI block records the steps, the inputs hash, the tool outputs, and the model.
         </p>
       </section>
+      </div>
     </div>
   );
 }

@@ -9,20 +9,24 @@ export default async function ReportPage({ params }: { params: Promise<{ id: str
   const report = loadReport(id);
   if (!report) {
     return (
-      <div className="wrap page">
+      <div className="sub">
+        <div className="sheet-page">
         <h1>Report unavailable</h1>
-        <p className="lede">
+        <p className="lead">
           This server does not have that report. Stored reports sit on local disk and can disappear when the host restarts.
         </p>
         <p>
           <Link href="/">Start another search</Link>
         </p>
+        </div>
       </div>
     );
   }
   return (
-    <div className="wrap page">
-      <ReportView report={report} />
+    <div className="sub">
+      <div className="sheet-page">
+        <ReportView report={report} />
+      </div>
     </div>
   );
 }
