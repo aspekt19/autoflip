@@ -172,7 +172,7 @@ function RadarInner() {
         <p className="kicker">{demo ? "Guided preview" : "Saved search"}</p>
         <h1>Deal Radar</h1>
         <p className="lead">
-          Save the car you want once. AutoFlip checks new listings on a schedule, and a full report runs only when you ask for it. Watching costs nothing.
+          Save the car you want once. AutoFlip checks new listings on a schedule, and a full report runs only when you ask for it. Monitoring is included in your plan and doesn&apos;t use report credits.
         </p>
         {demo ? (
           <p className="hint">

@@ -1,13 +1,15 @@
 # AutoFlip
 
-Evaluation preview of a US used-car verdict. Paste a listing URL or VIN, or scan a make and model. AutoFlip says **good deal**, **fair**, **overpriced**, or **walk away**, and shows the arithmetic.
+Evaluation preview of a US used-car verdict. The home page starts from what the shopper needs, suggests a few editorial search directions, and spends a credit only on a full analysis of one car. AutoFlip says **good deal**, **fair**, **overpriced**, or **walk away**, and shows the arithmetic.
 
-Deal Radar is free. A full report costs 1 credit. Credits are sold with **Stripe test mode** only. Agents can buy the same verdict through MCP and an HTTP endpoint. The consumer pages do not describe that payment rail; the [developer page](src/app/developers/page.tsx) does.
+Monitoring a saved search does not use report credits. A full analysis costs 1 credit. Anyone can open the labeled sample report at `/report/sample`. The shared preview (`/demo?key=`) still refills a small daily credit balance. Credits are sold with **Stripe test mode** only. Agents can buy the same verdict through MCP and an HTTP endpoint. The consumer pages do not describe that payment rail; the [developer page](src/app/developers/page.tsx) does.
 
 This build is an evaluation preview. The Auto.dev free plan is not a production license.
 
 ## What works
 
+- The home flow is: a note and a budget, at most two follow-up questions, a confirmation the shopper can edit, then up to three listing searches (one Auto.dev call per direction). [Watch this search] saves a Deal Radar search. [Full analysis — 1 credit] runs on one car. A VIN asks for asking price, mileage, and ZIP. A listing link does not.
+- Search directions come from a deterministic table in `src/domain/directions.ts`, labeled as AutoFlip guidance, not market data. `POST /api/need` may extract a structured need when `SERV_API_KEY` is set (`serv_prompt_guard`, then a JSON extract). If that call is missing or unusable, the form uses only the shopper's words. It does not invent a budget or a use case.
 - Deal Radar scores each listing against the other listings in the same result (price, mileage, and history flags that are actually present).
 - A full report adds NHTSA VIN decode, NHTSA recalls, NHTSA complaint count, fueleconomy.gov, and a Census distance when both ZIPs geocode.
 - Personal mode compares the asking price with a mileage-adjusted, history-adjusted fair value.
@@ -25,7 +27,8 @@ This build is an evaluation preview. The Auto.dev free plan is not a production 
 - **Listing URLs are not scraped.** A URL is accepted only when it contains a valid VIN. The VIN is then looked up at Auto.dev.
 - **No days-on-market and no NMVTIS title brands.** They are not in the listing fields this app uses, and no second paid history vendor is connected. The report says so.
 - **Fuel cost** is the EPA figure from fueleconomy.gov when a configuration matches. AutoFlip does not invent a gas price.
-- **SERV** is skipped, and the template is used, when `SERV_API_KEY` is unset. If the key is set and the guard call fails, the request stops instead of skipping the check.
+- **SERV** is skipped, and the template is used, when `SERV_API_KEY` is unset. If the key is set and the guard call fails on a report or a listings scan, the request stops. On `POST /api/need`, a failed or missing model call falls back to the form instead of inventing a need.
+- **Editorial directions** are not prices and not a ranking. A budget that was skipped is not treated as an affordability check. Flip repair ability is stored as repair ability only.
 - **Credits, quota, cache, and saved reports** are JSON files (`.data/` locally, `/tmp/autoflip` on Vercel). They are ephemeral on serverless and are not safe for a public launch. Point `AUTOFLIP_DATA_DIR` at durable storage, or replace `src/io/store.ts`, before real customers.
 - **Agent payment** is implemented as verify-then-settle against `X402_FACILITATOR_URL`. Nothing is paid from this app. Set `X402_PAY_TO`, `X402_NETWORK`, and `X402_ASSET` when you want agents to pay. The default scheme is `gokite-aa` so a Kite Passport session can pay.
 - **Distance** is omitted when the Census geocoder returns no match.

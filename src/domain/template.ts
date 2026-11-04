@@ -38,7 +38,7 @@ export function templateExplanation(report: ComputedReport): string {
 
   const mode =
     report.mode === "flip"
-      ? "This is the resale view. The margin uses model assumptions for fees and reconditioning, shown in the calculation."
+      ? "This is the resale view. Fees and reconditioning are example assumptions, not a quote for this car."
       : "This is the drive-it view. It compares the asking price with current comparable listings, then applies mileage and the history flags that were actually present.";
 
   const gap =
