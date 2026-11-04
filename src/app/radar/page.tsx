@@ -7,7 +7,7 @@ import { DecisionNote } from "@/components/DecisionNote";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useState, type FormEvent } from "react";
 import { MakeModelFields } from "@/components/MakeModelFields";
-import { SearchPanel } from "@/components/SearchPanel";
+import { parseUsdInput } from "@/domain/budget";
 import { formatNumber, formatUsd, verdictLabel } from "@/domain/format";
 import type { Mode } from "@/domain/types";
 
@@ -37,6 +37,7 @@ function RadarInner() {
   const yearMin = params.get("yearMin") ?? params.get("year") ?? "";
   const yearMax = params.get("yearMax") ?? params.get("year") ?? "";
   const mode = (params.get("mode") === "flip" ? "flip" : "personal") as Mode;
+  const priceMax = params.get("priceMax") ?? "";
   const [rows, setRows] = useState<Row[] | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [sample, setSample] = useState(false);
@@ -48,6 +49,7 @@ function RadarInner() {
   const [watchNote, setWatchNote] = useState<string | null>(null);
   const [checking, setChecking] = useState(false);
   const [telegramNote, setTelegramNote] = useState<string | null>(null);
+  const [credits, setCredits] = useState<number | null>(null);
   const [feedReady, setFeedReady] = useState(false);
   const [savedReportId, setSavedReportId] = useState<string | null>(null);
   const confirmId = params.get("confirm");
@@ -64,6 +66,12 @@ function RadarInner() {
 
   useEffect(() => {
     void loadFeed();
+    fetch("/api/account")
+      .then((response) => response.json())
+      .then((body: { credits?: number }) => {
+        if (typeof body.credits === "number") setCredits(body.credits);
+      })
+      .catch(() => setCredits(null));
   }, []);
 
   useEffect(() => {
@@ -87,9 +95,10 @@ function RadarInner() {
       .catch(() => setSavedReportId(null));
   }, [confirmAlert]);
 
+  const flipReady = mode === "flip" && Boolean(priceMax) && Boolean(zip);
   useEffect(() => {
-    if (!feedReady || demo || !make) {
-      if (!make) setRows(null);
+    if (!feedReady || demo || (mode === "flip" ? !flipReady : !make)) {
+      if (mode === "flip" ? !flipReady : !make) setRows(null);
       return;
     }
     let cancelled = false;
@@ -99,9 +108,10 @@ function RadarInner() {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        make,
+        make: make || undefined,
         model: model || undefined,
         zip: zip || undefined,
+        priceMax: priceMax ? Number(priceMax) : undefined,
         yearMin: yearMin ? Number(yearMin) : undefined,
         yearMax: yearMax ? Number(yearMax) : undefined,
         mode,
@@ -125,7 +135,7 @@ function RadarInner() {
     return () => {
       cancelled = true;
     };
-  }, [feedReady, demo, make, model, zip, yearMin, yearMax, mode]);
+  }, [feedReady, demo, make, model, zip, yearMin, yearMax, mode, priceMax, flipReady]);
 
   async function openReport(vin: string, reportMode: Mode = mode) {
     setBusyVin(vin);
@@ -159,6 +169,10 @@ function RadarInner() {
   }
 
   async function checkNow() {
+    if (!demo && searches.length === 0) {
+      setWatchNote("Save a search before checking. A check with nothing saved does not look up listings.");
+      return;
+    }
     setChecking(true);
     setWatchNote(null);
     try {
@@ -189,7 +203,7 @@ function RadarInner() {
       setTelegramNote(body.message || "Telegram is not configured. Alerts stay in this app.");
       return;
     }
-    window.location.href = body.url;
+    window.open(body.url, "_blank", "noopener,noreferrer");
   }
 
   return (
@@ -277,7 +291,7 @@ function RadarInner() {
                 <h2 className="car-title">
                   {alert.year} {alert.make} {alert.model}
                 </h2>
-                <p>{alert.why}</p>
+                <p><strong>Why this car. </strong>{alert.why}</p>
                 {alert.coverage && alert.coverageLevel ? (
                   <CoverageLine confidence={alert.coverageLevel} sentence={alert.coverage} />
                 ) : (
@@ -297,13 +311,7 @@ function RadarInner() {
             </article>
           ))}
         </div>
-        {demo ? null : (
-          <>
-            <h2>One-time scan</h2>
-            <p className="hint">This scan is not saved and does not alert you later.</p>
-            <SearchPanel initial={{ make, model, zip, yearMin, yearMax, mode }} />
-          </>
-        )}
+        {rows && rows.length > 0 ? <h2 id="scan-results">Scan results</h2> : null}
         {sample ? (
           <p className="warn-box">
             <span className="file-chip">Sample</span> {message}
@@ -311,8 +319,7 @@ function RadarInner() {
         ) : null}
         {!sample && message ? <p className="warn-box">{message}</p> : null}
         {error ? <p className="warn">{error}</p> : null}
-        {!make ? <p>Choose a make to scan. Any model is allowed.</p> : null}
-        {make && rows === null && !error ? <p>Scanning…</p> : null}
+        {(mode === "flip" ? flipReady : Boolean(make)) && rows === null && !error ? <p>Scanning…</p> : null}
         <div className="radar-list">
           {(rows ?? []).map((row) => (
             <article className="radar-row" key={row.vin}>
@@ -336,7 +343,7 @@ function RadarInner() {
                   {row.miles === null ? "No mileage" : `${formatNumber(row.miles)} miles`}
                   {row.city ? ` · ${row.city}, ${row.state ?? ""}` : ""}
                 </p>
-                <p>{row.reason}</p>
+                <p><strong>Why this car. </strong>{row.reason}</p>
                 <p className="mono">{row.vin}</p>
               </div>
               <div className="row-actions">
@@ -347,15 +354,18 @@ function RadarInner() {
             </article>
           ))}
         </div>
-        <p className="hint">
-          <Link href="/credits">Buy credits</Link> for a full report.
-        </p>
+        {credits === null || credits === 0 ? (
+          <p className="hint">
+            <Link href="/credits">Buy credits</Link> for a full report.
+          </p>
+        ) : null}
       </div>
     </div>
   );
 }
 
 function SaveSearchForm({ onSaved }: { onSaved: () => void }) {
+  const router = useRouter();
   const [name, setName] = useState("Saved search");
   const [searchMode, setSearchMode] = useState<Mode>("personal");
   const [make, setMake] = useState("");
@@ -371,11 +381,12 @@ function SaveSearchForm({ onSaved }: { onSaved: () => void }) {
   async function submit(event: FormEvent) {
     event.preventDefault();
     setError(null);
-    if (!make) {
-      setError("Choose a make. Any model is allowed.");
+    const budget = parseUsdInput(priceMax);
+    if (searchMode === "personal" && !make) {
+      setError("Choose a make for a drive-it watch. Flip watches can stay on Any.");
       return;
     }
-    if (!zip.trim() || !Number(priceMax)) {
+    if (!zip.trim() || budget === null) {
       setError("Add a ZIP and a maximum price.");
       return;
     }
@@ -392,7 +403,7 @@ function SaveSearchForm({ onSaved }: { onSaved: () => void }) {
             model: model || undefined,
             yearMin: yearMin ? Number(yearMin) : undefined,
             yearMax: yearMax ? Number(yearMax) : undefined,
-            priceMax: Number(priceMax),
+            priceMax: budget,
             zip: zip.trim(),
             radiusMiles: Number(radius) || 50,
             minProfitUsd: searchMode === "flip" ? 1500 : undefined,
@@ -432,16 +443,20 @@ function SaveSearchForm({ onSaved }: { onSaved: () => void }) {
           </label>
         </div>
       </fieldset>
-      <MakeModelFields
-        make={make}
-        model={model}
-        yearMin={yearMin}
-        yearMax={yearMax}
-        onMake={setMake}
-        onModel={setModel}
-        onYearMin={setYearMin}
-        onYearMax={setYearMax}
-      />
+      {searchMode === "flip" ? (
+        <p className="hint">Flip uses the budget and ZIP only. Make stays Any.</p>
+      ) : (
+        <MakeModelFields
+          make={make}
+          model={model}
+          yearMin={yearMin}
+          yearMax={yearMax}
+          onMake={setMake}
+          onModel={setModel}
+          onYearMin={setYearMin}
+          onYearMax={setYearMax}
+        />
+      )}
       <div className="pair">
         <div className="field">
           <label htmlFor="search-price">Maximum price</label>
@@ -456,10 +471,39 @@ function SaveSearchForm({ onSaved }: { onSaved: () => void }) {
         <label htmlFor="search-radius">Radius in miles</label>
         <input id="search-radius" inputMode="numeric" value={radius} onChange={(event) => setRadius(event.target.value)} />
       </div>
-      <button className="action" type="submit" disabled={pending}>
-        {pending ? "Saving…" : "Save search"}
-      </button>
-      {error ? <p className="warn">{error}</p> : null}
+      <div className="btn-row">
+        <button className="action" type="submit" disabled={pending}>
+          {pending ? "Saving…" : "Save search"}
+        </button>
+        <button
+          className="quiet"
+          type="button"
+          onClick={() => {
+            const budget = parseUsdInput(priceMax);
+            if (searchMode === "personal" && !make) {
+              setError("Choose a make for a drive-it scan. Flip scans can stay on Any.");
+              return;
+            }
+            if (!zip.trim() || budget === null) {
+              setError("Add a ZIP and a maximum price.");
+              return;
+            }
+            const next = new URLSearchParams({ mode: searchMode, zip: zip.trim(), priceMax: String(budget) });
+            if (make) next.set("make", make);
+            if (model) next.set("model", model);
+            if (yearMin) next.set("yearMin", yearMin);
+            if (yearMax) next.set("yearMax", yearMax);
+            router.push(`/radar?${next.toString()}#scan-results`);
+          }}
+        >
+          Scan once
+        </button>
+      </div>
+      {error ? (
+        <p className="warn" role="alert">
+          {error} {/plan/i.test(error) ? <Link href="/pricing">See radar plans</Link> : null}
+        </p>
+      ) : null}
     </form>
   );
 }

@@ -1,27 +1,15 @@
-import Link from "next/link";
+import type { Metadata } from "next";
+import { notFound } from "next/navigation";
 import { ReportView } from "@/components/ReportView";
 import { readPersistedReport } from "@/io/persist-report";
 
 export const dynamic = "force-dynamic";
+export const metadata: Metadata = { title: "Report" };
 
 export default async function ReportPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   const report = await readPersistedReport(id);
-  if (!report) {
-    return (
-      <div className="sub">
-        <div className="sheet-page">
-        <h1>Report unavailable</h1>
-        <p className="lead">
-          This server does not have that report. Stored reports sit on local disk and can disappear when the host restarts.
-        </p>
-        <p>
-          <Link href="/">Start another search</Link>
-        </p>
-        </div>
-      </div>
-    );
-  }
+  if (!report) notFound();
   return (
     <div className="sub">
       <div className="sheet-page">

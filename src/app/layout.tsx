@@ -3,8 +3,8 @@ import { Header } from "@/components/Header";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "AutoFlip — a clear verdict on a used car",
-  description: "Evaluation preview. Compare a used-car listing with current comps, history flags, recalls, and fuel cost.",
+  title: { default: "AutoFlip", template: "%s — AutoFlip" },
+  description: "A clear verdict on a used car, from the listing and public records.",
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
@@ -23,7 +23,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <a className="skip" href="#main">
           Skip to content
         </a>
-        <p className="eval-line">Evaluation preview. Listing figures are from the configured listings provider or a labeled sample. This is not a production offer.</p>
+        <p className="eval-line">Preview. Listing figures come from dealer listings or a labeled sample. This is not a production offer.</p>
         <Header />
         <main id="main">{children}</main>
         <p className="foot-note">

@@ -1,4 +1,7 @@
+import type { Metadata } from "next";
 import { FindFlow } from "@/components/AssistantFlow";
+
+export const metadata: Metadata = { title: "Find a car" };
 
 export default function FindPage() {
   return (

@@ -1,9 +1,11 @@
+import type { Metadata } from "next";
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import Link from "next/link";
 import { comparisonBoard, type SavedEval } from "@/domain/eval-view";
 
 export const dynamic = "force-dynamic";
+export const metadata: Metadata = { title: "Compare" };
 
 function savedEval(): SavedEval | null {
   try {

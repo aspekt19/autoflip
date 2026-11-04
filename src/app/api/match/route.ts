@@ -1,3 +1,4 @@
+import { budgetFit } from "@/domain/budget";
 import { coverageConfidence, coverageSentence } from "@/domain/coverage";
 import { proposeDirections } from "@/domain/directions";
 import { validateNeed } from "@/domain/need";
@@ -26,48 +27,68 @@ export async function POST(request: Request) {
   const deps = runtimeDeps();
   const groups: Array<{
     direction: ReturnType<typeof proposeDirections>[number];
-    listings: Listing[];
+    listings: Array<Listing & { overBudget?: boolean }>;
     coverage: string;
     coverageLevel: "low" | "medium" | "high";
     note: string | null;
   }> = [];
   let sample = false;
   let message: string | null = null;
+  let extraUsed = false;
   for (const direction of directions) {
-    const result = await assembleRadar(
-      {
-        make: direction.search.make,
-        model: direction.search.model,
-        zip: parsed.need.zip ?? undefined,
-        yearMin: direction.yearMin,
-        yearMax: direction.yearMax,
-        distanceMiles: parsed.need.zip ? 100 : undefined,
-        mode: parsed.need.mode,
-      },
-      deps,
-    );
-    if (!result.ok) {
-      return Response.json({ error: result.error, message: result.message }, { status: result.status });
+    const queries = [direction.search];
+    if (!extraUsed && direction.models[1]) {
+      queries.push(direction.models[1]);
+      extraUsed = true;
     }
-    const listings = result.sample ? (groups.length === 0 ? result.listings.slice(0, 8) : []) : result.listings.slice(0, 8);
+    const collected: Listing[] = [];
+    let directionNote: string | null = null;
+    let directionSample = false;
+    for (const query of queries) {
+      const result = await assembleRadar(
+        {
+          make: query.make,
+          model: query.model,
+          zip: parsed.need.zip ?? undefined,
+          yearMin: direction.yearMin,
+          yearMax: direction.yearMax,
+          distanceMiles: parsed.need.zip ? 100 : undefined,
+          mode: parsed.need.mode,
+        },
+        deps,
+      );
+      if (!result.ok) {
+        return Response.json({ error: result.error, message: result.message }, { status: result.status });
+      }
+      if (result.sample) {
+        directionSample = true;
+        directionNote = result.message;
+        if (groups.length === 0 && collected.length === 0) collected.push(...result.listings.slice(0, 8));
+        break;
+      }
+      collected.push(...result.listings);
+      directionNote = result.message;
+    }
+    const capped = withinBudget(collected, parsed.need.budgetUsd, parsed.need.budgetKnown).slice(0, 8);
+    const listings = capped;
     const coverageInput = {
       mode: parsed.need.mode,
-      sample: result.sample,
+      sample: directionSample,
       dealerListingCount: listings.length,
       radiusMiles: parsed.need.zip ? 100 : null,
       historyOnListing: false,
     };
     const coverage = coverageSentence(coverageInput);
     const coverageLevel = coverageConfidence(coverageInput);
-    if (result.sample) {
+    if (directionSample) {
       sample = true;
-      message = result.message;
+      message = directionNote;
       groups.push({
         direction,
         listings,
         coverage,
         coverageLevel,
-        note: groups.length === 0 ? result.message : "The labeled sample is shown once. These other directions were not fetched.",
+        note: groups.length === 0 ? directionNote : "The labeled sample is shown once. These other directions were not fetched.",
       });
       continue;
     }
@@ -76,7 +97,7 @@ export async function POST(request: Request) {
       listings,
       coverage,
       coverageLevel,
-      note: result.message,
+      note: listings.length === 0 && parsed.need.budgetKnown ? "Nothing in this group fit the budget." : directionNote,
     });
   }
   return Response.json({
@@ -85,5 +106,15 @@ export async function POST(request: Request) {
     message,
     affordabilityAssessed: parsed.need.budgetKnown,
     directions: groups,
+  });
+}
+
+function withinBudget(listings: Listing[], budgetUsd: number | null, known: boolean): Array<Listing & { overBudget?: boolean }> {
+  if (!known || budgetUsd == null) return listings;
+  return listings.flatMap((item) => {
+    if (item.priceUsd == null) return [];
+    const fit = budgetFit(item.priceUsd, budgetUsd);
+    if (fit === "over") return [];
+    return [{ ...item, overBudget: fit === "slight" }];
   });
 }

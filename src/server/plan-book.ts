@@ -142,13 +142,13 @@ export async function allowance(
   if (userId === DEMO_USER_ID) return { ok: true };
   if (mode === "flip") {
     if (plans.flip.status === "active") return { ok: true };
-    return { ok: false, message: "A Flip radar plan is required for a resale watch. Report credits are separate." };
+    return { ok: false, message: "A Flip radar plan is required before this watch can be saved. Report credits stay separate." };
   }
-  if (plans.personal.status !== "active" || personalCount >= plans.personal.searchLimit) {
-    return {
-      ok: false,
-      message: "A Personal radar plan is required for another model watch. Report credits are separate.",
-    };
+  if (plans.personal.status !== "active") {
+    return { ok: false, message: "A Personal radar plan is required before this watch can be saved. Report credits stay separate." };
+  }
+  if (personalCount >= plans.personal.searchLimit) {
+    return { ok: false, message: "This Personal plan has no room for another watch. Report credits stay separate." };
   }
   return { ok: true };
 }

@@ -73,7 +73,7 @@ async function cachedGet(url: string, deps: AutodevDeps): Promise<AutodevResult>
       ok: false,
       error: "upstream",
       status: 0,
-      message: "The listings provider did not respond.",
+      message: "The listing lookup did not respond.",
       quota,
     };
   }
@@ -87,8 +87,8 @@ async function cachedGet(url: string, deps: AutodevDeps): Promise<AutodevResult>
         response.status === 404
           ? "No current listing was found for that VIN."
           : response.status === 401 || response.status === 403
-            ? "The listings provider rejected the API key."
-            : "The listings provider returned an error.",
+            ? "The listing lookup rejected the key."
+            : "The listing lookup returned an error.",
       quota,
     };
   }

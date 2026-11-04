@@ -81,7 +81,11 @@ export function proposeDirections(
   }
   if (need.useCase === "unspecified" && need.mode === "personal") return [];
 
-  const built = directionsFor(need).slice(0, MAX_DIRECTIONS).map((item, index) => ({
+  const body = requestedBody(need);
+  const built = directionsFor(need)
+    .filter((item) => fitsBody(body, item.segment))
+    .slice(0, MAX_DIRECTIONS)
+    .map((item, index) => ({
     ...item,
     id: `${need.useCase}-${index + 1}`,
     guidance: "editorial" as const,
@@ -92,6 +96,21 @@ export function proposeDirections(
     search: item.models[0]!,
   }));
   return built;
+}
+
+function requestedBody(need: StructuredNeed): "suv" | "sedan" | "truck" | null {
+  const blob = `${need.note} ${need.mustHaves.join(" ")}`.toLowerCase();
+  if (/\b(suv|crossover|crossovers)\b/.test(blob)) return "suv";
+  if (/\b(truck|pickup)\b/.test(blob)) return "truck";
+  if (/\bsedan\b/.test(blob)) return "sedan";
+  return null;
+}
+
+function fitsBody(body: ReturnType<typeof requestedBody>, segment: string): boolean {
+  if (body === "suv") return /crossover|suv/i.test(segment);
+  if (body === "sedan") return /sedan|compact car/i.test(segment);
+  if (body === "truck") return /pickup|truck/i.test(segment);
+  return true;
 }
 
 function directionsFor(need: StructuredNeed): Array<Pick<SearchDirection, "segment" | "why" | "models">> {

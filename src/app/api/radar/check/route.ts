@@ -1,22 +1,32 @@
 import { checkNowAllowed } from "@/domain/radar-watch";
 import { getKv, storageMode } from "@/io/kv";
-import { lastCheckNow, markCheckNow } from "@/server/radar-store";
+import { lastCheckNow, listSearches, markCheckNow } from "@/server/radar-store";
 import { runRadarCycle } from "@/server/radar-cycle";
 import { originOf } from "@/server/secrets";
-import { userId } from "@/server/session";
+import { isDemoUser, userId } from "@/server/session";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 
 export async function POST(request: Request) {
-  await userId();
   if (storageMode() === "unconfigured") {
     return Response.json(
       { error: "storage_not_configured", message: "Persistent storage is not configured, so a check would not be saved." },
       { status: 503 },
     );
   }
+  const id = await userId();
   const kv = getKv();
+  const mine = (await listSearches(kv)).filter((item) => item.ownerId === id && item.enabled);
+  if (!isDemoUser(id) && mine.length === 0) {
+    return Response.json({
+      ok: true,
+      alertsSent: 0,
+      listings: 0,
+      filteredOut: 0,
+      message: "Save a search before checking. A check with nothing saved does not look up listings.",
+    });
+  }
   const now = Date.now();
   if (!checkNowAllowed(await lastCheckNow(kv), now)) {
     return Response.json(
@@ -43,6 +53,6 @@ export async function POST(request: Request) {
     alertsSent: run.alertsSent,
     listings: run.listings,
     filteredOut: run.filteredOut,
-    message: run.notes[0] ?? "Check finished.",
+    message: `Check finished. ${run.alertsSent} new alerts.`,
   });
 }

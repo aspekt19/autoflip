@@ -30,7 +30,7 @@ function CreditsInner() {
       const response = await fetch("/api/credits/checkout", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ pack }),
+        body: JSON.stringify({ pack, returnTo: params.get("return") }),
       });
       const body = (await response.json()) as { url?: string; message?: string };
       if (!response.ok || !body.url) {
@@ -50,14 +50,22 @@ function CreditsInner() {
       <div className="sheet-page">
       <p className="kicker">Test checkout</p>
       <h1>Credits</h1>
-      <p className="lead">Deal Radar is free. A full report costs 1 credit. Checkout runs in Stripe test mode.</p>
+      <p className="lead">Monitoring (saved searches and Deal Radar alerts) needs a radar plan. A full report costs 1 credit. Checkout is charged in US dollars.</p>
       <p className="warn-box">
         Balance: <strong>{credits === null ? "…" : credits}</strong>
         {stripeOn === false ? " Stripe test keys are not configured, so checkout cannot start." : null}
       </p>
       {need ? <p className="warn">A full report needs 1 credit.</p> : null}
       {status === "success" ? (
-        <p className="warn-box">Payment returned from checkout. If the balance has not moved, the test webhook has not been delivered yet.</p>
+        <p className="warn-box">
+          Payment returned from checkout. If the balance has not moved, the payment notice has not arrived yet.
+          {params.get("return")?.startsWith("/") ? (
+            <>
+              {" "}
+              <a href={params.get("return") ?? "/find"}>Back to the car</a>
+            </>
+          ) : null}
+        </p>
       ) : null}
       {status === "cancel" ? <p className="warn-box">Checkout was canceled. No credit was added.</p> : null}
       <div className="prices">
@@ -74,7 +82,7 @@ function CreditsInner() {
       </div>
       {error ? <p className="warn">{error}</p> : null}
       <p className="hint">
-        Use Stripe’s test card 4242 4242 4242 4242, any future date, and any CVC. A real card is not accepted because live keys are refused.         For a local preview without Stripe, set AUTOFLIP_DEV_CREDITS and restart.
+        In test mode, use card 4242 4242 4242 4242, any future date, and any CVC. A live card is refused.
       </p>
       </div>
     </div>

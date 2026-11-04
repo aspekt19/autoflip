@@ -28,7 +28,7 @@ export function monthKey(now = new Date()): string {
 }
 
 export const DEMO_LIMIT_MESSAGE =
-  "AutoFlip's evaluation limit for listing lookups is 900 calls this month. That limit has been reached, so this request did not call the listings provider. It resets at the start of next month (UTC).";
+  "AutoFlip's evaluation limit for listing lookups is 900 calls this month. That limit has been reached, so this request did not look up listings. It resets at the start of next month (UTC).";
 
 export function reserveCall(
   counter: MonthlyCounter,

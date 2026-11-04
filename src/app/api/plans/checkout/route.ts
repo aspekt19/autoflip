@@ -26,6 +26,7 @@ export async function POST(request: Request) {
     mode: "subscription",
     success_url: `${origin}/pricing?status=success`,
     cancel_url: `${origin}/pricing?status=cancel`,
+    adaptive_pricing: { enabled: false },
     client_reference_id: id,
     metadata: { userId: id, planId: plan.id, lookupKey: plan.lookupKey },
     subscription_data: { metadata: { userId: id, planId: plan.id, lookupKey: plan.lookupKey } },

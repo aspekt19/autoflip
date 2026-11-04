@@ -7,6 +7,7 @@ import { useEffect, useState } from "react";
 export function Header() {
   const pathname = usePathname();
   const [credits, setCredits] = useState<number | null>(null);
+  const [menuOpen, setMenuOpen] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -31,10 +32,12 @@ export function Header() {
         <img src="/logo.svg" alt="" width={40} height={40} />
         <span className="brand-name">AutoFlip</span>
       </Link>
-      <nav aria-label="Primary">
-        <Link href="/radar">Deal Radar</Link>
-        <Link href="/pricing">Pricing</Link>
-        <Link href="/developers">Developers</Link>
+      <button className="menu-btn" type="button" aria-expanded={menuOpen} aria-controls="primary-nav" onClick={() => setMenuOpen((open) => !open)}>
+        Menu
+      </button>
+      <nav id="primary-nav" aria-label="Primary" className={menuOpen ? "nav-open" : undefined}>
+        <Link href="/radar" onClick={() => setMenuOpen(false)}>Deal Radar</Link>
+        <Link href="/pricing" onClick={() => setMenuOpen(false)}>Pricing</Link>
         <Link className="nav-go" href="/credits">
           {creditLabel}
         </Link>

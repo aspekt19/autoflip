@@ -71,7 +71,7 @@ export default function ActivityPage() {
                 Unique searches {run.uniqueSearches}, interval {run.intervalHours}h, skipped because not due {run.skippedDue}
               </li>
               <li>
-                Listings {run.listings}, passed {run.passed}, filtered out {run.filteredOut}, alerts {run.alertsSent}, provider calls {run.autodevCalls}
+                Listings {run.listings}, passed {run.passed}, filtered out {run.filteredOut}, alerts {run.alertsSent}, listing calls {run.autodevCalls}
               </li>
               {run.filterBreakdown ? <li>Filtered out: {run.filterBreakdown}</li> : null}
               {(run.steps ?? []).map((step) => (
@@ -80,25 +80,24 @@ export default function ActivityPage() {
                   {step.detail ? ` · ${step.detail}` : ""}
                 </li>
               ))}
-              <li>SERV prompt guard: {run.serv.promptGuard}</li>
-              <li>SERV shadow check: {run.serv.shadow}</li>
+              <li>Input check: {run.serv.promptGuard}</li>
+              <li>Second pass: {run.serv.shadow}</li>
               {(run.servChecks ?? []).map((check, index) => (
                 <li key={`${check.purpose}-${index}`}>
-                  SERV {check.purpose}: model {check.modelReported}, tools {check.tools.join(", ") || "none"}
-                  {check.features.length ? `, features ${check.features.join("+")}` : ""}, guard {check.promptGuard}, shadow {check.shadowOutcome}
-                  {check.shadowMaxIterations !== null ? ` (max ${check.shadowMaxIterations})` : ""}, {check.latencyMs}ms
+                  Writing check {check.purpose}: finished in {check.latencyMs} ms
                 </li>
               ))}
               <li>
-                Kite testnet payment: {run.payment.status}
+                Agent payment: {run.payment.status}
                 {run.payment.tx ? ` · ${run.payment.tx}` : ""} · {run.payment.detail}
                 {run.payment.costAtomic ? ` · amount ${run.payment.costAtomic}` : ""}
                 {run.payment.network ? ` · ${run.payment.network}` : ""}
               </li>
-              {run.payment.missing.length > 0 ? <li>Missing env: {run.payment.missing.join(", ")}</li> : null}
-              {run.notes.map((note) => (
-                <li key={note}>{note}</li>
-              ))}
+              {run.notes
+                .filter((note) => !/prompt guard|\bserv\b/i.test(note))
+                .map((note) => (
+                  <li key={note}>{note}</li>
+                ))}
             </ul>
           </article>
         ))}

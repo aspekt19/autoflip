@@ -69,9 +69,8 @@ export async function understandNeed(
       guard = "unavailable";
     } else {
       guard = interpretGuard(guarded.text);
-      if (guard === "block") {
-        return { ok: false, status: 400, error: "rejected_input", message: "That note was rejected by the input check." };
-      }
+    }
+    if (guard !== "block") {
       const extractedCall = await runServ("need_extract", { user: screened.text }, servDeps);
       checks.push(extractedCall.proof);
       if (extractedCall.ok) {

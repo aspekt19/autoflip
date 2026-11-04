@@ -138,11 +138,11 @@ export function buildComputedReport(input: ReportInput): ComputedReport {
       reasons.push("A park-it or park-outside recall overrides the price verdict.");
     }
     reasons.push(
-      `Asking ${formatUsd(subjectPrice)} versus a mileage-and-history fair value of ${formatUsd(fairValueUsd)} (${formatPct(gap)} ${gap >= 0 ? "above" : "below"}).`,
+      `Asking ${formatUsd(subjectPrice)} versus a mileage-and-history fair value of ${formatUsd(fairValueUsd)} (${formatPct(Math.abs(gap))} ${gap >= 0 ? "above" : "below"}).`,
     );
     if (percentile !== null) {
       reasons.push(
-        `The asking price ranks at the ${formatPct(percentile / 100, 0)} mark of the mileage-adjusted comparables (higher means more expensive than more of them).`,
+        `About ${formatPct(percentile / 100, 0)} of the mileage-adjusted comparable listings are priced at or below this asking price.`,
       );
     }
     const expected = expectedMiles(input.subject.year, asOfYear);
