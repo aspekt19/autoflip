@@ -13,11 +13,13 @@ const MAKE_ALIASES: Record<string, string> = {
 };
 
 /**
- * A short offline list used only when vPIC does not answer.
+ * Makes a US used-car shopper actually searches.
+ * vPIC's car/MPV lists also include kit builders, buses, and one-off replicas.
  * Spellings match Auto.dev's vehicle.make parameter.
  */
-export const FALLBACK_MAKES = [
+export const MAINSTREAM_MAKES = [
   "Acura",
+  "Alfa Romeo",
   "Audi",
   "BMW",
   "Buick",
@@ -25,28 +27,47 @@ export const FALLBACK_MAKES = [
   "Chevrolet",
   "Chrysler",
   "Dodge",
+  "FIAT",
   "Ford",
   "Genesis",
   "GMC",
   "Honda",
+  "Hummer",
   "Hyundai",
   "Infiniti",
+  "Jaguar",
   "Jeep",
   "Kia",
+  "Land Rover",
   "Lexus",
   "Lincoln",
   "Mazda",
   "Mercedes-Benz",
+  "Mercury",
   "MINI",
   "Mitsubishi",
   "Nissan",
+  "Polestar",
+  "Pontiac",
+  "Porsche",
   "Ram",
+  "Rivian",
+  "Saab",
+  "Saturn",
+  "Scion",
   "Subaru",
   "Tesla",
   "Toyota",
   "Volkswagen",
   "Volvo",
 ] as const;
+
+/** Same list. Kept so a catalog miss still offers real makes, not the raw vPIC dump. */
+export const FALLBACK_MAKES = MAINSTREAM_MAKES;
+
+export function mainstreamMakes(): string[] {
+  return [...MAINSTREAM_MAKES].sort((a, b) => a.localeCompare(b, "en", { sensitivity: "base" }));
+}
 
 /** Common models, same role: a fallback, not a live market feed. */
 export const FALLBACK_MODELS: Record<string, string[]> = {
@@ -146,9 +167,39 @@ function uniqueNames(payload: unknown, keys: string[]): string[] {
   );
 }
 
+/** Newest year a shopper can pick. Current calendar year + 1, never further, even if vPIC answers for later years. */
+export function maxModelYear(now = new Date()): number {
+  return now.getUTCFullYear() + 1;
+}
+
 export function yearChoices(now = new Date()): number[] {
-  const end = now.getUTCFullYear() + 1;
+  const end = maxModelYear(now);
   const years: number[] = [];
   for (let year = end; year >= 1995; year -= 1) years.push(year);
   return years;
+}
+
+const NON_PASSENGER =
+  /\b(chassis|cutaway|incomplete|motorhome|motor home|trailers?|hearse|buses?|motorcycles?|scooters?|chopper|glider|stripped|recreational vehicle|military|foldaway|street bikes?|dual sport|bomber|warhawk|fortress|king cobra|fabrication|manufacturing|welding|enterprises|industries|radiator|mfg|l\.?l\.?c\.?|inc|low cab|forward control|heavy conventional|hi-?cube|truck forward|supply|steel|overland|built|frames|cycles)\b/i;
+
+/** Drop chassis codes, trailer shops, and buses that vPIC files under a real make. */
+export function isPassengerModel(name: string): boolean {
+  const trimmed = name.trim();
+  if (!trimmed || /^[^a-z0-9]/i.test(trimmed)) return false;
+  if (trimmed.split(/\s+/).length > 3) return false;
+  if (NON_PASSENGER.test(trimmed)) return false;
+  if (isCommercialCode(trimmed)) return false;
+  return true;
+}
+
+function isCommercialCode(name: string): boolean {
+  if (/^(F)-(100|150|250|350|450)$/i.test(name)) return false;
+  if (/^(E)-(100|150|250|350)$/i.test(name)) return false;
+  if (/^(1500|2500|3500)$/.test(name)) return false;
+  if (/^\d{1,3}$/.test(name)) return false;
+  const compact = name.replace(/[\s-]/g, "");
+  if (/^[A-Z]{1,4}\d{3,}[A-Z]{0,3}$/i.test(compact)) return true;
+  if (/^\d{4,}[A-Z]{0,3}$/i.test(compact)) return true;
+  if (/^\d{4,}$/.test(name)) return true;
+  return false;
 }

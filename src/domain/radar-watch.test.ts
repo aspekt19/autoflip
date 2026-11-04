@@ -69,7 +69,7 @@ describe("radar pre-filter", () => {
   });
 
   it("drops an over-budget car, a suspiciously cheap car, and a car inside the band", () => {
-    expect(prefilterListing(row({ vin: "E", priceUsd: 19_000, miles: 40_000, year: 2016 }), criteria, band, "personal", 2026).pass).toBe(false);
+    expect(prefilterListing(row({ vin: "E", priceUsd: 25_000, miles: 40_000, year: 2016 }), criteria, band, "personal", 2026).pass).toBe(false);
     const scam = prefilterListing(row({ vin: "F", priceUsd: 700, miles: 40_000, year: 2016 }), criteria, band, "personal", 2026);
     expect(scam.pass).toBe(false);
     if (!scam.pass) expect(scam.reason).toMatch(/suspiciously/);
@@ -139,17 +139,87 @@ describe("dedupe, seen VINs, and budget", () => {
     expect(checkNowAllowed(Date.now() - ASSUMPTIONS.radarCheckNowMs, Date.now())).toBe(true);
   });
 
-  it("asks Auto.dev for one filtered page of 20", () => {
+  it("asks Auto.dev for the cheapest page of 20", () => {
     const url = listingsSearchUrl(toListingsQuery(criteria));
     expect(url).toContain("limit=20");
+    expect(url).toContain("sort=price.asc");
     expect(url).toContain("vehicle.make=Toyota");
     expect(url).toContain("vehicle.model=RAV4");
-    expect(url).toContain("vehicle.bodyStyle=SUV");
-    expect(url).toContain("vehicle.year=2014-2019");
-    expect(url).toContain("retailListing.price=1-18000");
-    expect(url).toContain("retailListing.miles=0-120000");
+    expect(url).not.toContain("bodyStyle");
+    expect(url).toContain("vehicle.year=2012-2020");
+    expect(url).toContain("retailListing.price=1-24000");
+    expect(url).toContain("retailListing.miles=0-150000");
     expect(url).toContain("zip=33101");
-    expect(url).toContain("distance=50");
+    expect(url).toContain("distance=100");
     expect(url).toContain("retailListing.used=true");
+  });
+});
+
+describe("body style and a 20-row flip page", () => {
+  it("treats sport-utility wording as an SUV and rejects a sedan", () => {
+    const suv = { ...criteria, bodyStyle: "SUV" };
+    const utility = prefilterListing(
+      row({ vin: "SU", priceUsd: 15_000, miles: 40_000, year: 2016, bodyStyle: "4D Sport Utility" }),
+      suv,
+      marketBand([
+        row({ vin: "SU", priceUsd: 15_000, miles: 40_000, year: 2016, bodyStyle: "4D Sport Utility" }),
+        row({ vin: "B", priceUsd: 17_000, miles: 80_000, year: 2016, bodyStyle: "SUV" }),
+        row({ vin: "C", priceUsd: 18_000, miles: 90_000, year: 2017, bodyStyle: "Sport Utility Vehicle" }),
+        row({ vin: "D", priceUsd: 16_000, miles: 70_000, year: 2016, bodyStyle: "SUV" }),
+      ]),
+      "personal",
+      2026,
+    );
+    expect(utility.pass).toBe(true);
+    const sedan = prefilterListing(
+      row({ vin: "CAR", priceUsd: 15_000, miles: 40_000, year: 2016, bodyStyle: "Car", style: "Sedan" }),
+      suv,
+      marketBand([
+        row({ vin: "CAR", priceUsd: 15_000, miles: 40_000, year: 2016, bodyStyle: "Car" }),
+        row({ vin: "B", priceUsd: 17_000, miles: 80_000, year: 2016, bodyStyle: "Car" }),
+        row({ vin: "C", priceUsd: 18_000, miles: 90_000, year: 2017, bodyStyle: "Car" }),
+        row({ vin: "D", priceUsd: 16_000, miles: 70_000, year: 2016, bodyStyle: "Car" }),
+      ]),
+      "personal",
+      2026,
+    );
+    expect(sedan.pass).toBe(false);
+    if (!sedan.pass) expect(sedan.reason).toBe("body style does not match");
+  });
+
+  it("rejects a tight Civic page and keeps a cheap outlier on a wider page", () => {
+    const flip = demoPresets()[1]!.criteria;
+    const tight = Array.from({ length: 20 }, (_, index) =>
+      row({
+        vin: `T${index}`,
+        make: "Honda",
+        model: "Civic",
+        bodyStyle: "Sedan",
+        priceUsd: 11_000 + index * 50,
+        miles: 90_000,
+        year: 2016,
+      }),
+    );
+    const tightBand = marketBand(tight);
+    const tightCheap = prefilterListing(tight[0]!, flip, tightBand, "flip", 2026);
+    expect(tightCheap.pass).toBe(false);
+    if (!tightCheap.pass) expect(tightCheap.reason).toBe("rough margin is under the buy box");
+
+    const wide = Array.from({ length: 20 }, (_, index) =>
+      row({
+        vin: `W${index}`,
+        make: "Honda",
+        model: "Civic",
+        bodyStyle: "Sedan",
+        priceUsd: 5_000 + index * 500,
+        miles: 110_000,
+        year: 2012,
+      }),
+    );
+    const wideBand = marketBand(wide);
+    const outlier = prefilterListing(wide[0]!, flip, wideBand, "flip", 2026);
+    expect(outlier.pass).toBe(true);
+    const ordinary = prefilterListing(wide[10]!, flip, wideBand, "flip", 2026);
+    expect(ordinary.pass).toBe(false);
   });
 });

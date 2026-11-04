@@ -1,4 +1,4 @@
-import { autoDevMake } from "@/domain/vehicle-names";
+import { autoDevMake, maxModelYear } from "@/domain/vehicle-names";
 import { catalogModels } from "@/io/vpic-catalog";
 
 export const dynamic = "force-dynamic";
@@ -8,7 +8,8 @@ export async function GET(request: Request) {
   const url = new URL(request.url);
   const make = autoDevMake(url.searchParams.get("make") ?? "");
   const yearRaw = url.searchParams.get("year");
-  const year = yearRaw && /^\d{4}$/.test(yearRaw) ? Number(yearRaw) : null;
+  const parsed = yearRaw && /^\d{4}$/.test(yearRaw) ? Number(yearRaw) : null;
+  const year = parsed !== null && parsed >= 1995 && parsed <= maxModelYear() ? parsed : null;
   if (!make) return Response.json({ models: [], source: "bundled" });
   const result = await catalogModels(make, year);
   return Response.json({ ...result, make }, { headers: { "cache-control": "public, max-age=86400" } });

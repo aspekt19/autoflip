@@ -1,6 +1,6 @@
 import type { Kv } from "@/io/kv";
 import type { SavedSearch, WatchAlert } from "@/domain/radar-watch";
-import { demoPresets } from "@/domain/demo-presets";
+import { syncPresetSearches } from "@/domain/demo-presets";
 import { DEMO_USER_ID } from "@/domain/radar-watch";
 import { creditSet } from "@/io/credit-book";
 
@@ -55,6 +55,8 @@ export type StoredRun = {
   listings: number;
   passed: number;
   filteredOut: number;
+  /** "over budget: 12, outside radius: 5" — empty when nothing was rejected. */
+  filterBreakdown: string;
   alertsSent: number;
   autodevCalls: number;
   skippedDue: number;
@@ -117,14 +119,6 @@ export async function ensureDemoAccount(kv: Kv, now = new Date()): Promise<void>
   if (Number.isInteger(credits) && credits >= 0) {
     await creditSet(kv, DEMO_USER_ID, credits, `demo-refill:${day}`);
   }
-  const searches = await listSearches(kv);
-  const presets = demoPresets(now.toISOString());
-  let changed = false;
-  for (const preset of presets) {
-    if (!searches.some((item) => item.id === preset.id)) {
-      searches.push(preset);
-      changed = true;
-    }
-  }
-  if (changed) await saveSearches(kv, searches);
+  const synced = syncPresetSearches(await listSearches(kv), now.toISOString());
+  if (synced.changed) await saveSearches(kv, synced.searches);
 }

@@ -25,6 +25,10 @@ export type Listing = {
   engine: string | null;
   drivetrain: string | null;
   bodyStyle: string | null;
+  /** Dealer body description when it differs from bodyStyle, such as "Sedan" next to "Car". */
+  style?: string | null;
+  /** Miles from the search ZIP when the listings payload includes it. */
+  distanceMiles?: number | null;
   latitude: number | null;
   longitude: number | null;
   removedAt: string | null;

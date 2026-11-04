@@ -1,9 +1,12 @@
 import type { SavedSearch } from "./radar-watch";
-import { DEMO_USER_ID } from "./radar-watch";
+import { canonicalCriteria, DEMO_USER_ID } from "./radar-watch";
 
 /**
- * Two shared preview searches.
- * Chosen as high-volume used models in a large metro so one Auto.dev page can return rows.
+ * Two shared preview searches around Miami.
+ * The ranges are wide enough that one price-sorted page of 20 includes both ordinary asking
+ * prices and cheaper cars. A tight cap (2014–2019 RAV4 ≤ $18k, or a Civic ≤ $12k) came back
+ * full and then failed every row: the SUV body string was not exactly "SUV", and a Civic page
+ * clustered under $12k cannot clear a $1,500 margin after fees.
  * Live matches still depend on the listings key and whatever is actually listed.
  */
 export function demoPresets(now = "2026-11-04T00:00:00.000Z"): SavedSearch[] {
@@ -20,13 +23,12 @@ export function demoPresets(now = "2026-11-04T00:00:00.000Z"): SavedSearch[] {
       criteria: {
         make: "Toyota",
         model: "RAV4",
-        bodyStyle: "SUV",
-        yearMin: 2014,
-        yearMax: 2019,
-        priceMax: 18_000,
+        yearMin: 2012,
+        yearMax: 2020,
+        priceMax: 24_000,
         zip: "33101",
-        radiusMiles: 50,
-        milesMax: 120_000,
+        radiusMiles: 100,
+        milesMax: 150_000,
         priorities: ["reliability", "low cost of ownership"],
       },
     },
@@ -42,15 +44,39 @@ export function demoPresets(now = "2026-11-04T00:00:00.000Z"): SavedSearch[] {
       criteria: {
         make: "Honda",
         model: "Civic",
-        yearMin: 2012,
+        yearMin: 2008,
         yearMax: 2018,
-        priceMax: 12_000,
+        priceMax: 16_000,
         zip: "33101",
-        radiusMiles: 50,
-        milesMax: 140_000,
+        radiusMiles: 100,
+        milesMax: 180_000,
         minProfitUsd: 1_500,
         priorities: ["local resale", "minor repairs"],
       },
     },
   ];
+}
+
+/** Replace stored preset criteria when this file changes. Custom searches are left alone. */
+export function syncPresetSearches(existing: SavedSearch[], nowIso: string): { searches: SavedSearch[]; changed: boolean } {
+  const presets = demoPresets(nowIso);
+  let changed = false;
+  const searches = existing.map((item) => {
+    const preset = presets.find((candidate) => candidate.id === item.id);
+    if (!preset || !item.preset) return item;
+    const same =
+      item.mode === preset.mode &&
+      item.name === preset.name &&
+      canonicalCriteria(item.criteria) === canonicalCriteria(preset.criteria);
+    if (same) return item;
+    changed = true;
+    return { ...item, name: preset.name, mode: preset.mode, criteria: preset.criteria, lastCheckedAt: null };
+  });
+  for (const preset of presets) {
+    if (!searches.some((item) => item.id === preset.id)) {
+      searches.push(preset);
+      changed = true;
+    }
+  }
+  return { searches, changed };
 }
