@@ -2,7 +2,7 @@ import { bearer, secretMatch } from "@/server/secrets";
 import { HOBBY_FUNCTION_MS, runSelftestChecks, selftestRepeat } from "@/server/serv/selftest";
 
 export const dynamic = "force-dynamic";
-/** Parallel checks. The slowest shape is two requests at the profile timeout, under the 60s Hobby cap. */
+/** Parallel checks, including ?repeat=5. Repeats share one wall clock, so the slowest shape stays under the 60s Hobby cap. */
 export const maxDuration = 60;
 
 export async function GET(request: Request) {

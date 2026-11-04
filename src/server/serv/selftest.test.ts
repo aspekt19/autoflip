@@ -85,7 +85,9 @@ describe("SERV self-test", () => {
 
   it("repeats each profile in parallel and scores a 95 percent pass rate", async () => {
     expect(selftestRepeat("3")).toBe(3);
+    expect(selftestRepeat("5")).toBe(5);
     expect(selftestRepeat("9")).toBe(5);
+    expect(selftestWallClockMs()).toBeLessThan(HOBBY_FUNCTION_MS);
     expect(selftestRepeat("no")).toBe(1);
     const counts = new Map<string, number>();
     const run = async (id: ProfileId): Promise<ServResult> => {
@@ -118,6 +120,17 @@ describe("SERV self-test", () => {
     const checks = await runSelftestChecks({ apiKey: "test-key", repeat: 3 }, run);
     expect(checks).toHaveLength(distinctSelftestProfiles().length);
     expect([...counts.values()].every((count) => count === 3)).toBe(true);
+    let inFlight = 0;
+    let maxInFlight = 0;
+    const parallel = async (id: ProfileId): Promise<ServResult> => {
+      inFlight += 1;
+      maxInFlight = Math.max(maxInFlight, inFlight);
+      await new Promise((resolve) => setTimeout(resolve, 10));
+      inFlight -= 1;
+      return run(id);
+    };
+    await runSelftestChecks({ apiKey: "test-key", repeat: 5 }, parallel);
+    expect(maxInFlight).toBe(distinctSelftestProfiles().length * 5);
     for (const check of checks) {
       expect(check.runs).toBe(3);
       expect(check.passes).toBe(2);
