@@ -59,6 +59,7 @@ export type StoredRun = {
   autodevCalls: number;
   skippedDue: number;
   notes: string[];
+  steps: { id: string; status: string; detail?: string }[];
   serv: { promptGuard: string; shadow: string };
   payment: {
     status: string;
@@ -75,8 +76,14 @@ export async function listRuns(kv: Kv): Promise<StoredRun[]> {
 }
 
 export async function pushRun(kv: Kv, run: StoredRun): Promise<void> {
+  await upsertRun(kv, run);
+}
+
+export async function upsertRun(kv: Kv, run: StoredRun): Promise<void> {
   const rows = await listRuns(kv);
-  rows.unshift(run);
+  const index = rows.findIndex((item) => item.id === run.id);
+  if (index >= 0) rows[index] = run;
+  else rows.unshift(run);
   await kv.set(RUNS, JSON.stringify(rows.slice(0, 40)));
 }
 

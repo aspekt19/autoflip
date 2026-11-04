@@ -73,7 +73,7 @@ export class UpstashKv implements Kv {
         "Content-Type": "application/json",
       },
       body: JSON.stringify(args),
-      signal: AbortSignal.timeout(10_000),
+      signal: AbortSignal.timeout(8_000),
     });
     if (!response.ok) throw new Error(`Persistent store returned ${response.status}`);
     const body = (await response.json()) as { result?: unknown; error?: string };

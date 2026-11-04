@@ -120,8 +120,9 @@ export function interpretGuard(text: string): "allow" | "block" {
 
 export async function postServ(
   body: unknown,
-  deps: { fetch: typeof fetch; apiKey: string; baseUrl: string },
+  deps: { fetch: typeof fetch; apiKey: string; baseUrl: string; timeoutMs?: number },
 ): Promise<ServCallResult> {
+  const timeoutMs = deps.timeoutMs ?? 12_000;
   let response: Response;
   try {
     response = await deps.fetch(`${deps.baseUrl.replace(/\/$/, "")}/chat/completions`, {
@@ -131,7 +132,7 @@ export async function postServ(
         "Content-Type": "application/json",
       },
       body: JSON.stringify(body),
-      signal: AbortSignal.timeout(45_000),
+      signal: AbortSignal.timeout(timeoutMs),
     });
   } catch {
     return { ok: false, error: "SERV did not respond.", status: 0 };

@@ -24,7 +24,17 @@ import { reserveRadarCall } from "@/io/persistent-quota";
 import { buildAlertReviewRequest, buildGuardRequest, interpretGuard, postServ } from "@/io/serv";
 import { alertMessage } from "@/io/telegram";
 import type { ComputedReport, Listing } from "@/domain/types";
-import { listSearches, pushRun, saveAlerts, saveSearches, seenVins, storeSeen, telegramChat, type StoredRun, listAlerts } from "./radar-store";
+import { listSearches, upsertRun, saveAlerts, saveSearches, seenVins, storeSeen, telegramChat, type StoredRun, listAlerts } from "./radar-store";
+
+/** Stay under the 60s Hobby limit so the log write still happens. */
+export const CYCLE_BUDGET_MS = 40_000;
+
+const CALL_MS = {
+  autodev: 8_000,
+  serv: 8_000,
+  telegram: 5_000,
+  kite: 8_000,
+};
 
 export type CycleDeps = {
   kv: Kv;
@@ -38,107 +48,213 @@ export type CycleDeps = {
   origin: string;
   env: Record<string, string | undefined>;
   forceAll?: boolean;
+  deadlineMs?: number;
+  timeouts?: Partial<typeof CALL_MS>;
 };
+
+type Step = StoredRun["steps"][number];
 
 export async function runRadarCycle(deps: CycleDeps): Promise<StoredRun> {
   const startedAt = deps.now.toISOString();
+  const startedWall = Date.now();
+  const budget = deps.deadlineMs ?? CYCLE_BUDGET_MS;
+  const remain = () => budget - (Date.now() - startedWall);
+  const limits = { ...CALL_MS, ...deps.timeouts };
   const notes: string[] = [];
-  const searches = (await listSearches(deps.kv)).filter((item) => item.enabled);
-  const groups = groupByCriteria(searches);
-  const hours = intervalHours(groups.size || 1);
-  const intervalMs = hours * 60 * 60 * 1000;
+  const steps: Step[] = [];
+  const runId = randomUUID();
   let listings = 0;
   let passed = 0;
   let filteredOut = 0;
   let alertsSent = 0;
   let autodevCalls = 0;
   let skippedDue = 0;
-  const alerts = await listAlerts(deps.kv);
-  const shadowNotes: string[] = [];
+  let hours = 3;
+  let uniqueSearches = 0;
+  let promptGuard = "not_started";
+  let shadow = "not_started";
+  let payment: StoredRun["payment"] = {
+    status: "not_configured",
+    missing: [],
+    tx: null,
+    detail: "Payment step did not run.",
+    costAtomic: null,
+    network: null,
+  };
 
-  const guardText = searches.map((item) => `${item.name} ${item.mode} ${item.criteria.zip} ${item.criteria.priceMax}`).join("\n");
-  const promptGuard = await runGuard(guardText, deps);
-  notes.push(`prompt guard: ${promptGuard}`);
+  const snapshot = () =>
+    finish(deps, runId, startedAt, hours, uniqueSearches, listings, passed, filteredOut, alertsSent, autodevCalls, skippedDue, notes, steps, promptGuard, shadow, payment);
 
-  if (promptGuard === "block") {
-    const run = finish(deps, startedAt, hours, groups.size, 0, 0, 0, 0, 0, 0, ["Saved criteria were rejected by the input check. No listings call was made."], promptGuard, "not_run");
-    await pushRun(deps.kv, run);
+  try {
+    const searches = (await listSearches(deps.kv)).filter((item) => item.enabled);
+    const groups = groupByCriteria(searches);
+    uniqueSearches = groups.size;
+    hours = intervalHours(groups.size || 1);
+    const intervalMs = hours * 60 * 60 * 1000;
+    const alerts = await listAlerts(deps.kv);
+    const freshAlerts: WatchAlert[] = [];
+
+    promptGuard = await runGuard(searches, deps, Math.min(limits.serv, remain()));
+    steps.push({ id: "serv_prompt_guard", status: promptGuard });
+    notes.push(`prompt guard: ${promptGuard}`);
+    if (promptGuard === "block") {
+      notes.push("Saved criteria were rejected by the input check. No listings call was made.");
+      shadow = "not_run";
+      const run = snapshot();
+      await upsertRun(deps.kv, run);
+      return run;
+    }
+
+    if (!deps.autodevKey) notes.push("AUTODEV_API_KEY is not set. No listings were requested and no alerts were invented.");
+
+    const due: { key: string; group: SavedSearch[] }[] = [];
+    for (const [key, group] of groups) {
+      const ready = deps.forceAll || group.some((item) => isDue(item.lastCheckedAt, deps.now.getTime(), intervalMs));
+      if (!ready) {
+        skippedDue += group.length;
+        continue;
+      }
+      if (!deps.autodevKey) {
+        stamp(group, deps.now.toISOString());
+        continue;
+      }
+      if (remain() < 1_500) {
+        notes.push("Stopped before another listings call so this run can be saved.");
+        steps.push({ id: "listings", status: "partial", detail: "deadline" });
+        break;
+      }
+      const slot = await reserveRadarCall(deps.kv, deps.now);
+      if (!slot.ok) {
+        notes.push(slot.message);
+        steps.push({ id: "listings", status: "budget", detail: slot.message });
+        break;
+      }
+      autodevCalls += 1;
+      due.push({ key, group });
+    }
+
+    const fetched = await Promise.all(
+      due.map(async (job) => {
+        const url = listingsSearchUrl(toListingsQuery(job.group[0]!.criteria));
+        const result = await fetchListings(url, deps.autodevKey!, deps.fetchImpl, Math.min(limits.autodev, remain()));
+        if (!result.ok) return { ...job, listings: null as Listing[] | null, seen: new Set<string>(), error: result.message };
+        const seen = await seenVins(deps.kv, job.key);
+        await storeSeen(deps.kv, job.key, mergeSeen(seen, result.listings.map((item) => item.vin)));
+        return { ...job, listings: result.listings, seen, error: undefined as string | undefined };
+      }),
+    );
+
+    let listingTimeouts = 0;
+    for (const job of fetched) {
+      if (!job.listings) {
+        notes.push(job.error ?? "Listings call failed.");
+        if (job.error === "timeout") listingTimeouts += 1;
+        stamp(job.group, deps.now.toISOString());
+        continue;
+      }
+      listings += job.listings.length;
+      const fresh = unseenListings(job.listings, job.seen);
+      filteredOut += job.listings.length - fresh.length;
+      const band = marketBand(job.listings);
+      for (const search of job.group) {
+        const decisions = fresh.map((listing) => ({
+          listing,
+          decision: prefilterListing(listing, search.criteria, band, search.mode, deps.now.getUTCFullYear()),
+        }));
+        const winners = rankPasses(
+          decisions.flatMap((item) => (item.decision.pass ? [{ listing: item.listing, numbers: item.decision.numbers, why: item.decision.why }] : [])),
+        ).slice(0, ASSUMPTIONS.radarMaxAlertsPerSearch);
+        const passCount = decisions.filter((item) => item.decision.pass).length;
+        filteredOut += decisions.length - passCount;
+        passed += passCount;
+        for (const winner of winners) {
+          const alert = makeAlert(search, winner.listing, winner.why, winner.numbers, deps.now.toISOString());
+          alerts.unshift(alert);
+          freshAlerts.push(alert);
+          alertsSent += 1;
+        }
+        search.lastCheckedAt = deps.now.toISOString();
+      }
+    }
+    steps.push({
+      id: "listings",
+      status: listingTimeouts > 0 ? "timeout" : "ok",
+      detail: `${listings} rows, ${autodevCalls} calls`,
+    });
+
+    await saveSearches(deps.kv, await mergeChecked(deps.kv, searches));
+    await saveAlerts(deps.kv, alerts);
+    shadow = deps.servKey ? "pending" : "not_configured";
+    await upsertRun(deps.kv, snapshot());
+
+    if (!deps.servKey) {
+      shadow = "not_configured";
+      steps.push({ id: "serv_shadow_agent", status: "not_configured" });
+    } else if (freshAlerts.length === 0) {
+      shadow = "no_alerts";
+      steps.push({ id: "serv_shadow_agent", status: "no_alerts" });
+    } else if (remain() < 500) {
+      shadow = "timeout";
+      notes.push("Shadow check skipped. Alerts kept the deterministic text.");
+      steps.push({ id: "serv_shadow_agent", status: "timeout", detail: "no time left" });
+    } else {
+      const reviews = await Promise.all(
+        freshAlerts.map(async (alert) => {
+          try {
+            return await withTimeout(
+              reviewWhy(alert.why, alert.numbers, deps, Math.min(limits.serv, remain())),
+              Math.min(limits.serv, remain()),
+            );
+          } catch {
+            return { why: alert.why, source: "timeout" };
+          }
+        }),
+      );
+      reviews.forEach((review, index) => {
+        freshAlerts[index]!.why = review.why;
+      });
+      shadow = summarizeShadow(reviews.map((review) => review.source));
+      const timedOut = reviews.some((review) => review.source === "timeout");
+      steps.push({ id: "serv_shadow_agent", status: timedOut ? "timeout" : "ok", detail: shadow });
+      await saveAlerts(deps.kv, alerts);
+    }
+
+    const chats = new Map<string, string | null>();
+    await Promise.all(
+      [...new Set(freshAlerts.map((alert) => alert.ownerId))].map(async (ownerId) => {
+        chats.set(ownerId, await telegramChat(deps.kv, ownerId));
+      }),
+    );
+    if (!deps.env.TELEGRAM_BOT_TOKEN) {
+      notes.push("Telegram is not configured. Alerts stay in the app.");
+      steps.push({ id: "telegram", status: "not_configured" });
+    } else {
+      const sends = freshAlerts.filter((alert) => chats.get(alert.ownerId));
+      const outcomes = await Promise.all(sends.map((alert) => sendTelegram(chats.get(alert.ownerId)!, alert, deps, Math.min(limits.telegram, remain()))));
+      const telegramStatus = outcomes.some((item) => item === "timeout") ? "timeout" : "ok";
+      steps.push({ id: "telegram", status: sends.length === 0 ? "no_chat" : telegramStatus });
+    }
+
+    try {
+      payment = await withTimeout(
+        payRadarTicket({ ticketUrl: `${deps.origin}/api/v1/radar-ticket`, env: deps.env, fetchImpl: deps.fetchImpl }),
+        Math.min(limits.kite, remain()),
+      );
+    } catch {
+      payment = { ...payment, status: "failed", detail: "Payment step timed out. No transaction was recorded." };
+    }
+    steps.push({ id: "payment", status: payment.status, detail: payment.detail });
+
+    const run = snapshot();
+    await upsertRun(deps.kv, run);
+    return run;
+  } catch (error) {
+    notes.push(error instanceof Error ? error.message : "The cycle stopped.");
+    steps.push({ id: "cycle", status: "error", detail: notes[notes.length - 1] });
+    const run = snapshot();
+    await upsertRun(deps.kv, run).catch(() => undefined);
     return run;
   }
-
-  if (!deps.autodevKey) {
-    notes.push("AUTODEV_API_KEY is not set. No listings were requested and no alerts were invented.");
-  }
-
-  for (const [key, group] of groups) {
-    const due = deps.forceAll || group.some((item) => isDue(item.lastCheckedAt, deps.now.getTime(), intervalMs));
-    if (!due) {
-      skippedDue += group.length;
-      continue;
-    }
-    if (!deps.autodevKey) {
-      stamp(group, deps.now.toISOString());
-      continue;
-    }
-    const slot = await reserveRadarCall(deps.kv, deps.now);
-    if (!slot.ok) {
-      notes.push(slot.message);
-      break;
-    }
-    autodevCalls += 1;
-    const url = listingsSearchUrl(toListingsQuery(group[0]!.criteria));
-    const fetched = await fetchListings(url, deps.autodevKey, deps.fetchImpl);
-    if (!fetched.ok) {
-      notes.push(fetched.message);
-      stamp(group, deps.now.toISOString());
-      continue;
-    }
-    listings += fetched.listings.length;
-    const seen = await seenVins(deps.kv, key);
-    const fresh = unseenListings(fetched.listings, seen);
-    filteredOut += fetched.listings.length - fresh.length;
-    const band = marketBand(fetched.listings);
-    await storeSeen(deps.kv, key, mergeSeen(seen, fetched.listings.map((item) => item.vin)));
-
-    for (const search of group) {
-      const decisions = fresh.map((listing) => ({
-        listing,
-        decision: prefilterListing(listing, search.criteria, band, search.mode, deps.now.getUTCFullYear()),
-      }));
-      const winners = rankPasses(
-        decisions.flatMap((item) => (item.decision.pass ? [{ listing: item.listing, numbers: item.decision.numbers, why: item.decision.why }] : [])),
-      ).slice(0, ASSUMPTIONS.radarMaxAlertsPerSearch);
-      const passCount = decisions.filter((item) => item.decision.pass).length;
-      filteredOut += decisions.length - passCount;
-      passed += passCount;
-      for (const winner of winners) {
-        const reviewed = await reviewWhy(winner.why, winner.numbers, deps);
-        shadowNotes.push(reviewed.source);
-        const alert = makeAlert(search, winner.listing, reviewed.why, winner.numbers, deps.now.toISOString());
-        alerts.unshift(alert);
-        alertsSent += 1;
-        const chat = await telegramChat(deps.kv, search.ownerId);
-        if (chat && deps.env.TELEGRAM_BOT_TOKEN) {
-          await sendTelegram(chat, alert, deps);
-        }
-      }
-      search.lastCheckedAt = deps.now.toISOString();
-    }
-  }
-
-  await saveSearches(deps.kv, await mergeChecked(deps.kv, searches));
-  await saveAlerts(deps.kv, alerts);
-
-  const payment = await payRadarTicket({
-    ticketUrl: `${deps.origin}/api/v1/radar-ticket`,
-    env: deps.env,
-    fetchImpl: deps.fetchImpl,
-  });
-  if (!deps.env.TELEGRAM_BOT_TOKEN) notes.push("Telegram is not configured. Alerts stay in the app.");
-  const shadow = deps.servKey ? summarizeShadow(shadowNotes) : "not_configured";
-  const run = finish(deps, startedAt, hours, groups.size, listings, passed, filteredOut, alertsSent, autodevCalls, skippedDue, notes, promptGuard, shadow, payment);
-  await pushRun(deps.kv, run);
-  return run;
 }
 
 function stamp(group: SavedSearch[], iso: string) {
@@ -153,6 +269,7 @@ async function mergeChecked(kv: Kv, updated: SavedSearch[]): Promise<SavedSearch
 
 function finish(
   deps: CycleDeps,
+  id: string,
   startedAt: string,
   hours: number,
   uniqueSearches: number,
@@ -163,12 +280,13 @@ function finish(
   autodevCalls: number,
   skippedDue: number,
   notes: string[],
+  steps: Step[],
   promptGuard: string,
   shadow: string,
-  payment?: StoredRun["payment"],
+  payment: StoredRun["payment"],
 ): StoredRun {
   return {
-    id: randomUUID(),
+    id,
     startedAt,
     finishedAt: new Date().toISOString(),
     trigger: deps.trigger,
@@ -182,42 +300,70 @@ function finish(
     autodevCalls,
     skippedDue,
     notes,
+    steps,
     serv: { promptGuard, shadow },
-    payment: payment ?? {
-      status: "not_configured",
-      missing: [],
-      tx: null,
-      detail: "Payment step did not run.",
-      costAtomic: null,
-      network: null,
-    },
+    payment,
   };
 }
 
-async function runGuard(text: string, deps: CycleDeps): Promise<string> {
+async function runGuard(searches: SavedSearch[], deps: CycleDeps, timeoutMs: number): Promise<string> {
   if (!deps.servKey) return "not_configured";
+  const text = searches.map((item) => `${item.name} ${item.mode} ${item.criteria.zip} ${item.criteria.priceMax}`).join("\n");
   if (!text.trim()) return "skipped_empty";
-  const result = await postServ(buildGuardRequest(text, deps.servModel || "gpt-5.4-mini"), {
-    fetch: deps.fetchImpl,
-    apiKey: deps.servKey,
-    baseUrl: deps.servBaseUrl || "https://inference-api.openserv.ai/v1",
-  });
-  if (!result.ok) return `error: ${result.error}`;
-  return interpretGuard(result.text);
+  if (timeoutMs <= 0) return "timeout";
+  try {
+    const result = await withTimeout(
+      postServ(buildGuardRequest(text, deps.servModel || "gpt-5.4-mini"), {
+        fetch: deps.fetchImpl,
+        apiKey: deps.servKey,
+        baseUrl: deps.servBaseUrl || "https://inference-api.openserv.ai/v1",
+        timeoutMs,
+      }),
+      timeoutMs,
+    );
+    if (!result.ok) return result.error === "SERV did not respond." ? "timeout" : `error: ${result.error}`;
+    return interpretGuard(result.text);
+  } catch {
+    return "timeout";
+  }
 }
 
-async function reviewWhy(why: string, numbers: WatchAlert["numbers"], deps: CycleDeps): Promise<{ why: string; source: string }> {
+async function reviewWhy(
+  why: string,
+  numbers: WatchAlert["numbers"],
+  deps: CycleDeps,
+  timeoutMs: number,
+): Promise<{ why: string; source: string }> {
   if (!deps.servKey) return { why, source: "template" };
+  if (timeoutMs <= 0) return { why, source: "timeout" };
   const result = await postServ(buildAlertReviewRequest(why, numbers, deps.servModel || "gpt-5.4-mini"), {
     fetch: deps.fetchImpl,
     apiKey: deps.servKey,
     baseUrl: deps.servBaseUrl || "https://inference-api.openserv.ai/v1",
+    timeoutMs,
   });
-  if (!result.ok) return { why, source: "template_after_error" };
+  if (!result.ok) return { why, source: result.error === "SERV did not respond." ? "timeout" : "template_after_error" };
   const audit = auditExplanation(result.text, fakeReport(numbers, why));
   const failed = result.shadowOutcome === "exhausted" || result.shadowOutcome === "failed";
   if (!audit.ok || failed) return { why, source: failed ? "shadow_rejected" : "audit_rejected" };
   return { why: result.text, source: result.shadowOutcome };
+}
+
+function withTimeout<T>(work: Promise<T>, ms: number): Promise<T> {
+  if (ms <= 0) return Promise.reject(new Error("timed out"));
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error("timed out")), ms);
+    work.then(
+      (value) => {
+        clearTimeout(timer);
+        resolve(value);
+      },
+      (error) => {
+        clearTimeout(timer);
+        reject(error);
+      },
+    );
+  });
 }
 
 function fakeReport(numbers: WatchAlert["numbers"], why: string): ComputedReport {
@@ -332,29 +478,44 @@ function makeAlert(search: SavedSearch, listing: Listing, why: string, numbers: 
   };
 }
 
-async function fetchListings(url: string, apiKey: string, fetchImpl: typeof fetch): Promise<{ ok: true; listings: Listing[] } | { ok: false; message: string }> {
+async function fetchListings(
+  url: string,
+  apiKey: string,
+  fetchImpl: typeof fetch,
+  timeoutMs: number,
+): Promise<{ ok: true; listings: Listing[] } | { ok: false; message: string }> {
+  if (timeoutMs <= 0) return { ok: false, message: "timeout" };
   try {
     const response = await fetchImpl(url, {
       headers: { Authorization: `Bearer ${apiKey}`, Accept: "application/json" },
-      signal: AbortSignal.timeout(12_000),
+      signal: AbortSignal.timeout(timeoutMs),
     });
     if (!response.ok) return { ok: false, message: `Listings provider returned ${response.status}.` };
-    const json: unknown = await response.json();
+    const json = await withTimeout(response.json() as Promise<unknown>, timeoutMs);
     return { ok: true, listings: parseAutoDevListings(json, "autodev") };
   } catch {
-    return { ok: false, message: "Listings provider did not respond." };
+    return { ok: false, message: "timeout" };
   }
 }
 
-async function sendTelegram(chatId: string, alert: WatchAlert, deps: CycleDeps) {
+async function sendTelegram(chatId: string, alert: WatchAlert, deps: CycleDeps, timeoutMs: number): Promise<"ok" | "timeout" | "skipped"> {
   const token = deps.env.TELEGRAM_BOT_TOKEN;
-  if (!token) return;
+  if (!token || timeoutMs <= 0) return "skipped";
   const message = alertMessage({ why: alert.why, origin: deps.origin, alertId: alert.id });
-  await deps.fetchImpl(`https://api.telegram.org/bot${token}/sendMessage`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ chat_id: chatId, text: message.text, reply_markup: message.reply_markup }),
-  }).catch(() => undefined);
+  try {
+    await withTimeout(
+      deps.fetchImpl(`https://api.telegram.org/bot${token}/sendMessage`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ chat_id: chatId, text: message.text, reply_markup: message.reply_markup }),
+        signal: AbortSignal.timeout(timeoutMs),
+      }),
+      timeoutMs,
+    );
+    return "ok";
+  } catch {
+    return "timeout";
+  }
 }
 
 function summarizeShadow(notes: string[]): string {
