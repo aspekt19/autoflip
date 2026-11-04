@@ -1,7 +1,9 @@
 "use client";
 
+import { parseCountInput, parseUsdInput } from "@/domain/budget";
+import { whyThisCar } from "@/domain/why-car";
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { DecisionProof } from "@/domain/decision-note";
 import type { SearchDirection } from "@/domain/directions";
 import { CoverageLine } from "./CoverageNote";
@@ -21,7 +23,9 @@ type ListingCard = {
   city: string | null;
   state: string | null;
   vdp: string | null;
+  primaryImage: string | null;
   source: string;
+  overBudget?: boolean;
 };
 
 type MatchGroup = {
@@ -85,10 +89,13 @@ function AssistantFlow({ variant }: { variant: "find" | "check" }) {
   async function understand(followUp?: { id: FollowUp["id"]; value: string }) {
     setError(null);
     setPending("need");
+    const controller = new AbortController();
+    const timer = window.setTimeout(() => controller.abort(), 20_000);
     try {
-      const amount = Number(budget.replace(/[$,\s]/g, ""));
+      const amount = parseUsdInput(budget) ?? Number.NaN;
       const response = await fetch("/api/need", {
         method: "POST",
+        signal: controller.signal,
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           text,
@@ -128,7 +135,50 @@ function AssistantFlow({ variant }: { variant: "find" | "check" }) {
     } catch {
       setError("The request did not finish.");
     } finally {
+      window.clearTimeout(timer);
       setPending(null);
+    }
+  }
+
+  useEffect(() => {
+    if (variant !== "find") return;
+    try {
+      const raw = sessionStorage.getItem("af-flow");
+      if (!raw) return;
+      const saved = JSON.parse(raw) as {
+        need?: StructuredNeed;
+        stage?: "need" | "budget" | "follow" | "confirm" | "results";
+        groups?: MatchGroup[];
+        source?: "model" | "form";
+        checks?: DecisionProof[];
+        affordability?: boolean;
+        sample?: boolean;
+      };
+      if (!saved.need || !saved.stage || saved.stage === "need") return;
+      setNeed(saved.need);
+      setStage(saved.stage);
+      setGroups(saved.groups ?? []);
+      setSource(saved.source ?? "form");
+      setChecks(saved.checks ?? []);
+      setAffordability(saved.affordability ?? true);
+      setSample(Boolean(saved.sample));
+      if (saved.need.budgetUsd) setBudget(String(saved.need.budgetUsd));
+      if (saved.need.zip) setZipDraft(saved.need.zip);
+    } catch {
+      /* ignore a bad saved draft */
+    }
+  }, [variant]);
+
+  useEffect(() => {
+    if (stage !== "results") return;
+    document.getElementById("find-results")?.scrollIntoView({ block: "start" });
+  }, [stage]);
+
+  function rememberFlow() {
+    try {
+      sessionStorage.setItem("af-flow", JSON.stringify({ need, stage, groups, source, checks, affordability, sample }));
+    } catch {
+      /* the browser may block storage */
     }
   }
 
@@ -186,10 +236,27 @@ function AssistantFlow({ variant }: { variant: "find" | "check" }) {
         setError(body.message || "The search did not finish.");
         return;
       }
-      setGroups(body.directions ?? []);
+      const nextGroups = body.directions ?? [];
+      setGroups(nextGroups);
       setSample(Boolean(body.sample));
       setAffordability(body.affordabilityAssessed !== false);
       setStage("results");
+      try {
+        sessionStorage.setItem(
+          "af-flow",
+          JSON.stringify({
+            need,
+            stage: "results",
+            groups: nextGroups,
+            source,
+            checks,
+            affordability: body.affordabilityAssessed !== false,
+            sample: Boolean(body.sample),
+          }),
+        );
+      } catch {
+        /* ignore */
+      }
     } catch {
       setError("The search did not finish.");
     } finally {
@@ -265,7 +332,8 @@ function AssistantFlow({ variant }: { variant: "find" | "check" }) {
       });
       const body = (await response.json()) as { id?: string; message?: string; error?: string };
       if (response.status === 403 && body.error === "credits_required") {
-        router.push("/credits?need=1");
+        rememberFlow();
+        router.push("/credits?need=1&return=%2Ffind");
         return;
       }
       if (!response.ok || !body.id) {
@@ -282,34 +350,50 @@ function AssistantFlow({ variant }: { variant: "find" | "check" }) {
 
   async function checkListing() {
     setError(null);
+    if (!lookup.trim()) {
+      setError(checkKind === "vin" ? "Enter a 17-character VIN." : "Paste a listing link.");
+      return;
+    }
+    const price = checkKind === "vin" ? parseUsdInput(vinPrice) : null;
+    const miles = checkKind === "vin" ? parseCountInput(vinMiles) : null;
+    if (checkKind === "vin" && (price === null || miles === null || !vinZip.trim())) {
+      setError(price === null ? "Enter the asking price, like $18,773." : miles === null ? "Enter the mileage, like 109,333." : "Enter a ZIP.");
+      return;
+    }
     setPending("report");
-    const response = await fetch("/api/report", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(
-        checkKind === "link"
-          ? { mode, surface: "check", url: lookup.trim(), zip: vinZip.trim() || undefined }
-          : {
-              mode,
-              surface: "check",
-              vin: lookup.trim(),
-              askingPriceUsd: Number(vinPrice),
-              miles: Number(vinMiles),
-              zip: vinZip.trim(),
-            },
-      ),
-    });
-    const body = (await response.json()) as { id?: string; message?: string; error?: string };
-    if (response.status === 403 && body.error === "credits_required") {
-      router.push("/credits?need=1");
-      return;
-    }
-    if (!response.ok || !body.id) {
-      setError(body.message || "The report could not be built.");
+    try {
+      const response = await fetch("/api/report", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(
+          checkKind === "link"
+            ? { mode, surface: "check", url: lookup.trim(), zip: vinZip.trim() || undefined }
+            : {
+                mode,
+                surface: "check",
+                vin: lookup.trim(),
+                askingPriceUsd: price,
+                miles,
+                zip: vinZip.trim(),
+              },
+        ),
+      });
+      const body = (await response.json()) as { id?: string; message?: string; error?: string };
+      if (response.status === 403 && body.error === "credits_required") {
+        sessionStorage.setItem("af-check", JSON.stringify({ mode, checkKind, lookup, vinPrice, vinMiles, vinZip }));
+        router.push("/credits?need=1&return=%2Fcheck");
+        return;
+      }
+      if (!response.ok || !body.id) {
+        setError(body.message || "The report could not be built.");
+        return;
+      }
+      router.push(`/report/${body.id}`);
+    } catch {
+      setError("The report request did not finish.");
+    } finally {
       setPending(null);
-      return;
     }
-    router.push(`/report/${body.id}`);
   }
 
   const findStep = stage === "need" ? 0 : stage === "budget" || stage === "follow" ? 1 : stage === "confirm" ? 2 : 3;
@@ -362,6 +446,7 @@ function AssistantFlow({ variant }: { variant: "find" | "check" }) {
               Continue
             </button>
           </div>
+          {text.trim().length < 8 ? <p className="hint">Write a short note first, at least a few words.</p> : null}
         </form>
       ) : null}
 
@@ -374,7 +459,7 @@ function AssistantFlow({ variant }: { variant: "find" | "check" }) {
         >
           <div className="field">
             <label htmlFor="budget">What&apos;s your budget?</label>
-            <input id="budget" value={budget} onChange={(event) => setBudget(event.target.value)} inputMode="decimal" disabled={!budgetKnown} placeholder="18000" />
+            <input id="budget" value={budget} onChange={(event) => setBudget(event.target.value)} inputMode="decimal" disabled={!budgetKnown} placeholder="for example 12000" />
             <label className="pill">
               <input type="checkbox" checked={!budgetKnown} onChange={(event) => setBudgetKnown(!event.target.checked)} /> Not sure yet
             </label>
@@ -395,7 +480,7 @@ function AssistantFlow({ variant }: { variant: "find" | "check" }) {
           </fieldset>
           <div className="field">
             <label htmlFor="zip-draft">ZIP, if you know where you&apos;ll shop</label>
-            <input id="zip-draft" value={zipDraft} onChange={(event) => setZipDraft(event.target.value)} inputMode="numeric" placeholder="33101" />
+            <input id="zip-draft" value={zipDraft} onChange={(event) => setZipDraft(event.target.value)} inputMode="numeric" placeholder="ZIP" />
           </div>
           <div className="btn-row">
             <button className="ghost" type="button" onClick={goBack}>
@@ -529,7 +614,8 @@ function AssistantFlow({ variant }: { variant: "find" | "check" }) {
       ) : null}
 
       {stage === "results" ? (
-        <div>
+        <div id="find-results">
+          <h2>Cars that fit</h2>
           <DecisionNote scene="find" proofs={checks} />
           {!affordability ? <p className="hint">Budget was not set, so affordability was not assessed.</p> : null}
           {sample ? <p className="warn-box">Sample. These rows are the labeled fixture, not live matches for your note.</p> : null}
@@ -540,19 +626,43 @@ function AssistantFlow({ variant }: { variant: "find" | "check" }) {
               <p>{group.direction.why}</p>
               {group.coverage && group.coverageLevel ? <CoverageLine confidence={group.coverageLevel} sentence={group.coverage} /> : null}
               <p className="hint">
-                Candidate models: {group.direction.models.map((item) => `${item.make} ${item.model}`).join(", ")}. Years {group.direction.yearMin}–{group.direction.yearMax}. {group.direction.yearBecause} One listings call uses {group.direction.search.make} {group.direction.search.model}.
+                Cars in this group include {group.direction.models.map((item) => `${item.make} ${item.model}`).join(", ")}. Years {group.direction.yearMin}–{group.direction.yearMax}. {group.direction.yearBecause}
               </p>
               <button className="quiet" type="button" onClick={() => void watch(group.direction)} disabled={pending === group.direction.id}>
-                {need?.mode === "flip" ? "Watch this budget" : need?.budgetKnown ? "Watch these models" : "Watch these models (wide price cap, budget was not set)"}
+                {need?.mode === "flip" ? "Watch this budget" : need?.budgetKnown ? "Watch these cars" : "Watch these cars (budget was not set)"}
               </button>
+              {error && pending === null ? (
+                <p className="warn" role="alert">
+                  {error} {/plan|watch/i.test(error) ? <a href="/pricing">See radar plans</a> : null}
+                </p>
+              ) : null}
               {group.note ? <p className="hint">{group.note}</p> : null}
               <ul className="refuse">
                 {group.listings.map((car) => (
                   <li key={car.vin}>
+                    {car.primaryImage ? <img src={car.primaryImage} alt="" width={160} height={100} /> : null}
                     {car.year} {car.make} {car.model} {car.trim ?? ""} · {car.priceUsd === null ? "price n/a" : `$${car.priceUsd.toLocaleString("en-US")}`} ·{" "}
                     {car.miles === null ? "miles n/a" : `${car.miles.toLocaleString("en-US")} mi`}
                     {car.city ? ` · ${car.city}` : ""}
+                    {car.overBudget ? " · slightly over budget" : ""}
                     {car.source === "sample" ? " · Sample" : ""}
+                    {car.vdp ? (
+                      <>
+                        {" "}
+                        · <a href={car.vdp}>Dealer listing</a>
+                      </>
+                    ) : null}
+                    <p>
+                      {whyThisCar({
+                        year: car.year,
+                        make: car.make,
+                        model: car.model,
+                        priceUsd: car.priceUsd,
+                        budgetUsd: need?.budgetUsd ?? null,
+                        overBudget: car.overBudget,
+                        segment: group.direction.segment,
+                      })}
+                    </p>
                     <div>
                       <button className="action" type="button" onClick={() => void analyze(car)} disabled={pending === car.vin}>
                         {pending === car.vin ? "Building…" : "Full analysis — 1 credit"}

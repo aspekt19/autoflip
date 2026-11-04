@@ -38,7 +38,7 @@ export async function reserveTotalCall(kv: Kv, now = new Date()): Promise<QuotaD
       ok: false,
       used,
       limit: ASSUMPTIONS.autodevMonthlyStop,
-      message: "The monthly listings cap is reached, so this request did not call the provider.",
+      message: "The monthly listings cap is reached, so this request did not look up listings.",
     };
   }
   const next = await bump(kv, TOTAL_KEY, month);
@@ -55,7 +55,7 @@ export async function reserveRadarCall(kv: Kv, now = new Date()): Promise<QuotaD
       ok: false,
       used: total,
       limit: ASSUMPTIONS.autodevMonthlyStop,
-      message: "The monthly listings cap is reached, so this radar check did not call the provider.",
+      message: "The monthly listings cap is reached, so this radar check did not look up listings.",
     };
   }
   if (radar >= ASSUMPTIONS.radarMonthlyBudget) {
@@ -63,7 +63,7 @@ export async function reserveRadarCall(kv: Kv, now = new Date()): Promise<QuotaD
       ok: false,
       used: radar,
       limit: ASSUMPTIONS.radarMonthlyBudget,
-      message: "The saved-search budget for this month is used up, so this check did not call the provider. Full reports still have the remaining monthly calls.",
+      message: "The saved-search budget for this month is used up, so this check did not look up listings. Full reports still have the remaining monthly calls.",
     };
   }
   await bump(kv, RADAR_KEY, month);

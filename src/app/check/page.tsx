@@ -1,4 +1,7 @@
+import type { Metadata } from "next";
 import { CheckFlow } from "@/components/AssistantFlow";
+
+export const metadata: Metadata = { title: "Check a listing" };
 
 export default function CheckPage() {
   return (

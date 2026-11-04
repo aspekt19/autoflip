@@ -75,7 +75,8 @@
 
 * { box-sizing: border-box; }
 html { scroll-behavior: smooth; }
-body { margin: 0; background: var(--canvas); color: var(--ink); }
+body {
+  overflow-x: hidden; margin: 0; background: var(--canvas); color: var(--ink); }
 img { max-width: 100%; display: block; }
 button, input, select, textarea { font: inherit; color: inherit; }
 a { color: inherit; }
@@ -171,7 +172,9 @@ nav a { text-decoration: none; font-weight: 500; }
   height: 100%;
   mask-image: radial-gradient(ellipse at center, transparent 0 46%, #000 78%);
 }
-.hero-home { padding: 72px 0 36px; text-align: center; }
+.hero-home { padding: 72px 0 36px; text-align: center; overflow: hidden; }
+.menu-btn { display: none; }
+.table-scroll { max-width: 100%; overflow-x: auto; }
 .hero-copy { position: relative; z-index: 1; }
 .hero-home h1 { max-width: 16ch; margin-inline: auto; }
 .hero-home .lead { max-width: 42ch; margin-inline: auto; }
@@ -670,6 +673,10 @@ pre.doc {
   .hero { padding-top: 28px; }
   h1 { max-width: none; }
   nav a:not(.nav-go) { display: none; }
+  nav.nav-open { position: absolute; top: 64px; left: 0; right: 0; z-index: 5; display: flex; flex-direction: column; gap: 8px; padding: 16px var(--pad); background: var(--paper); border-bottom: 1px solid var(--line); }
+  nav.nav-open a:not(.nav-go) { display: inline-flex; }
+  .menu-btn { display: inline-flex; }
+  .bar { position: relative; }
   .brand img { height: 34px; width: 34px; }
   .band { padding: 48px 0; }
   .file-stack { min-height: 380px; }

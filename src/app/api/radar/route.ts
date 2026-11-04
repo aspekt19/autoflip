@@ -1,3 +1,4 @@
+import { flipAlertWhy, topFlipCandidates } from "@/domain/flip-rank";
 import { scoreRadar } from "@/domain/radar";
 import { autoDevMake, autoDevModel } from "@/domain/vehicle-names";
 import { assembleRadar } from "@/server/assemble";
@@ -16,13 +17,39 @@ export async function POST(request: Request) {
   const yearMin = typeof body.yearMin === "number" ? body.yearMin : undefined;
   const yearMax = typeof body.yearMax === "number" ? body.yearMax : undefined;
   const distanceMiles = typeof body.distanceMiles === "number" ? body.distanceMiles : undefined;
+  const priceMax = typeof body.priceMax === "number" ? body.priceMax : undefined;
+  const mode = parseMode(body.mode);
   const result = await assembleRadar(
-    { make, model: model || undefined, zip, year, yearMin, yearMax, distanceMiles, mode: parseMode(body.mode) },
+    { make, model: model || undefined, zip, year, yearMin, yearMax, distanceMiles, priceMax, mode },
     runtimeDeps(),
   );
   if (!result.ok) {
     return Response.json({ error: result.error, message: result.message }, { status: result.status });
   }
-  const rows = scoreRadar(result.listings, parseMode(body.mode));
+  if (mode === "flip") {
+    const top = topFlipCandidates(result.listings, new Date(), 5);
+    const empty = "None of the cars in this scan had enough comparable listings to rank. Widen the region or the budget and try again.";
+    return Response.json({
+      sample: result.sample,
+      message: top.length === 0 ? empty : result.message,
+      listings: top.map((item) => ({
+        vin: item.listing.vin,
+        year: item.listing.year,
+        make: item.listing.make,
+        model: item.listing.model,
+        trim: item.listing.trim,
+        priceUsd: item.listing.priceUsd,
+        miles: item.listing.miles,
+        city: item.listing.city,
+        state: item.listing.state,
+        primaryImage: item.listing.primaryImage,
+        score: item.profitMidUsd,
+        verdict: "pass",
+        reason: flipAlertWhy(item),
+        source: item.listing.source,
+      })),
+    });
+  }
+  const rows = scoreRadar(result.listings, mode);
   return Response.json(radarToolResult(rows, result.sample, result.message));
 }

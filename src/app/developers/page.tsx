@@ -1,3 +1,7 @@
+import type { Metadata } from "next";
+
+export const metadata: Metadata = { title: "Developers" };
+
 export default function DevelopersPage() {
   return (
     <div className="sub">
@@ -14,7 +18,7 @@ export default function DevelopersPage() {
         </p>
         <h2>Full report</h2>
         <p>
-          People on the site spend 1 credit, bought in Stripe test mode. Agents pay per call over x402, under a Kite Passport session. The HTTP endpoint is <code>POST /api/v1/report</code>. The MCP tool is <code>full_report</code>.
+          People on the site spend 1 credit, bought with Stripe. Agents pay per call over x402. The HTTP endpoint is <code>POST /api/v1/report</code>. The MCP tool is <code>full_report</code>.
         </p>
         <p>
           What you buy is AutoFlip’s verdict and the calculation. The response leaves out photos and third-party history-report links. Raw listing resale is not the product. The current data plan is an evaluation tier; get a written license before a public paid launch.
@@ -30,14 +34,14 @@ export default function DevelopersPage() {
   -H 'content-type: application/json' \\
   -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}'`}</pre>
         <p>
-          <code>full_report</code> without a payment returns <code>payment_required</code> and the x402 <code>accepts</code> object, or <code>payments_not_configured</code> when the payee is empty. AutoFlip never pretends a payment succeeded. Ask the human before a Kite session pays.
+          <code>full_report</code> without a payment returns <code>payment_required</code> and the x402 <code>accepts</code> object, or <code>payments_not_configured</code> when the payee is empty. AutoFlip never pretends a payment succeeded.
         </p>
       </section>
 
       <section>
-        <h2>x402 and Kite</h2>
+        <h2>x402</h2>
         <p>
-          The seller advertises <code>X402_SCHEME</code> (default <code>gokite-aa</code>), <code>X402_NETWORK</code>, <code>X402_ASSET</code>, <code>X402_PRICE_ATOMIC</code>, and <code>X402_PAY_TO</code>. The buyer’s agent pays with a Kite Passport session. AutoFlip then asks <code>X402_FACILITATOR_URL</code> (default Pieverse) to <code>/verify</code> and <code>/settle</code>. Retry the call with the payment payload in <code>PAYMENT-SIGNATURE</code> or <code>X-PAYMENT</code>, or in the MCP argument <code>payment</code>.
+          The seller advertises <code>X402_SCHEME</code>, <code>X402_NETWORK</code>, <code>X402_ASSET</code>, <code>X402_PRICE_ATOMIC</code>, and <code>X402_PAY_TO</code>. AutoFlip asks <code>X402_FACILITATOR_URL</code> to <code>/verify</code> and <code>/settle</code>. Retry the call with the payment payload in <code>PAYMENT-SIGNATURE</code> or <code>X-PAYMENT</code>, or in the MCP argument <code>payment</code>.
         </p>
         <p>Leave <code>X402_PAY_TO</code> empty until you are ready. An empty payee returns 402 and does not call the facilitator.</p>
       </section>
@@ -52,9 +56,6 @@ export default function DevelopersPage() {
         </p>
         <p>
           The shared preview is <code>/demo?key=$DEMO_ACCESS_KEY</code>. <code>DEMO_CREDITS</code> is the balance restored once a day. Telegram uses <code>TELEGRAM_BOT_TOKEN</code>, <code>TELEGRAM_BOT_USERNAME</code>, and <code>TELEGRAM_WEBHOOK_SECRET</code> (header <code>X-Telegram-Bot-Api-Secret-Token</code>).
-        </p>
-        <p>
-          Each run tries a Kite Passport testnet session payment to <code>POST /api/v1/radar-ticket</code>. Required together: <code>KITE_PASSPORT_BASE_URL</code>, <code>KITE_SESSION_ID</code>, <code>KITE_SESSION_TOKEN</code>, <code>X402_PAY_TO</code>, <code>X402_ASSET</code>, and <code>X402_NETWORK=kite-testnet</code>. Anything missing is logged as not configured. A transaction reference is recorded only when the execute response includes one.
         </p>
         <h2>Writing checks</h2>
         <p>

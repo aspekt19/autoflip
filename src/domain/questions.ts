@@ -59,7 +59,7 @@ export function buildFlags(input: {
     flags.push({
       level: "note",
       source: "listing",
-      text: `The provider’s last stored listing is marked removed at ${input.removedAt}. It may already be gone.`,
+      text: `The last stored listing is marked removed at ${input.removedAt}. It may already be gone.`,
     });
   }
   if (input.parkIt) {

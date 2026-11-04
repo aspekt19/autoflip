@@ -13,7 +13,7 @@ function originOf(request: Request): string {
 }
 
 export async function POST(request: Request) {
-  const body = (await request.json().catch(() => null)) as { pack?: string } | null;
+  const body = (await request.json().catch(() => null)) as { pack?: string; returnTo?: string } | null;
   const pack = creditPack(body?.pack ?? "");
   if (!pack) return Response.json({ error: "unknown_pack", message: "Choose a credit pack." }, { status: 400 });
   const stripe = stripeClient();
@@ -22,10 +22,12 @@ export async function POST(request: Request) {
   }
   const id = await userId();
   const origin = originOf(request);
+  const back = safeReturn(body?.returnTo);
   const session = await stripe.checkout.sessions.create({
     mode: "payment",
-    success_url: `${origin}/credits?status=success`,
-    cancel_url: `${origin}/credits?status=cancel`,
+    success_url: `${origin}/credits?status=success${back ? `&return=${encodeURIComponent(back)}` : ""}`,
+    cancel_url: `${origin}/credits?status=cancel${back ? `&return=${encodeURIComponent(back)}` : ""}`,
+    adaptive_pricing: { enabled: false },
     metadata: { userId: id, credits: String(pack.credits), packId: pack.id },
     line_items: [
       {
@@ -39,4 +41,9 @@ export async function POST(request: Request) {
     ],
   });
   return Response.json({ url: session.url });
+}
+
+function safeReturn(value: string | undefined): string | null {
+  if (!value || !value.startsWith("/") || value.startsWith("//") || value.includes("://")) return null;
+  return value.slice(0, 200);
 }

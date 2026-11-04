@@ -180,7 +180,7 @@ export function yearChoices(now = new Date()): number[] {
 }
 
 const NON_PASSENGER =
-  /\b(chassis|cutaway|incomplete|motorhome|motor home|trailers?|hearse|buses?|motorcycles?|scooters?|chopper|glider|stripped|recreational vehicle|military|foldaway|street bikes?|dual sport|bomber|warhawk|fortress|king cobra|fabrication|manufacturing|welding|enterprises|industries|radiator|mfg|l\.?l\.?c\.?|inc|low cab|forward control|heavy conventional|hi-?cube|truck forward|supply|steel|overland|built|frames|cycles)\b/i;
+  /\b(chassis|cutaway|incomplete|motorhome|motor home|trailers?|hearse|buses?|motorcycles?|scooters?|chopper|glider|stripped|recreational vehicle|military|foldaway|street bikes?|dual sport|bomber|warhawk|fortress|king cobra|fabrication|manufacturing|welding|enterprises|industries|radiator|mfg|l\.?l\.?c\.?|inc|low cab|forward control|heavy conventional|hi-?cube|truck forward|supply|steel|overland|built|frames|cycles|africa twin|gold ?wing|grom|rebel|cbr\d*|crf\d*|trx\d*|atv|utv|rancher|foreman|rubicon|pioneer|talon|rincon|fourtrax|nighthawk|valkyrie|interceptor|monkey|super cub|pcx|side[- ]by[- ]side)\b/i;
 
 /** Drop chassis codes, trailer shops, and buses that vPIC files under a real make. */
 export function isPassengerModel(name: string): boolean {

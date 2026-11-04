@@ -78,7 +78,7 @@ If a SERV call fails or times out, the deterministic result still shows and the 
 - **SERV** is skipped, and the template is used, when `SERV_API_KEY` is unset. If the key is set and the guard call fails on a report or a listings scan, the request stops. On `POST /api/need`, a failed or missing model call falls back to the form instead of inventing a need.
 - **Editorial directions** are not prices and not a ranking. A budget that was skipped is not treated as an affordability check. Flip repair ability is stored as repair ability only.
 - **Credits, quota, cache, and saved reports** are JSON files (`.data/` locally, `/tmp/autoflip` on Vercel). They are ephemeral on serverless and are not safe for a public launch. Point `AUTOFLIP_DATA_DIR` at durable storage, or replace `src/io/store.ts`, before real customers.
-- **Agent payment** is implemented as verify-then-settle against `X402_FACILITATOR_URL`. Nothing is paid from this app. Set `X402_PAY_TO`, `X402_NETWORK`, and `X402_ASSET` when you want agents to pay. The default scheme is `gokite-aa` so a Kite Passport session can pay.
+- **Agent payment** is implemented as verify-then-settle against `X402_FACILITATOR_URL`. Nothing is paid from this app. Set `X402_PAY_TO`, `X402_NETWORK`, and `X402_ASSET` when you want agents to pay. The default scheme is `gokite-aa`. Set `X402_SCHEME` when the facilitator expects a different one.
 - **Distance** is omitted when the Census geocoder returns no match.
 
 ## Setup
@@ -163,7 +163,7 @@ The OpenServ console’s Shadow Agent report is the provider-side record. AutoFl
 `GET /api/mcp` describes the server. `POST /api/mcp` is stateless JSON-RPC (`initialize`, `ping`, `tools/list`, `tools/call`).
 
 - `deal_radar` — free. Same engine as the site.
-- `full_report` — paid. Without a payment payload the tool returns `payment_required` (or `payments_not_configured`) and `next_action`. Ask a person before a Kite Passport session pays. Retry with `payment` set to the payload, or send `PAYMENT-SIGNATURE` / `X-PAYMENT` on `POST /api/v1/report`.
+- `full_report` — paid. Without a payment payload the tool returns `payment_required` (or `payments_not_configured`) and `next_action`. Ask a person before a session pays. Retry with `payment` set to the payload, or send `PAYMENT-SIGNATURE` / `X-PAYMENT` on `POST /api/v1/report`.
 
 Settlement is `POST {facilitator}/verify` then `POST {facilitator}/settle` with `{ x402Version: 1, paymentPayload, paymentRequirements }`. A failed verify does not settle.
 
@@ -213,7 +213,7 @@ Upstash Redis free tier, REST API, no extra npm package. Set `UPSTASH_REDIS_REST
 1. `serv_prompt_guard` on the saved criteria when `SERV_API_KEY` is set. Otherwise the log says `not_configured`.
 2. The listings call (`sort=price.asc`), then a local pre-filter. The market band is built only from rows that already match make, model, budget, year, miles, body, and radius. Personal mode flags a price at or under the 25th percentile, a price at or under 92% of the median, or low miles. Flip mode still requires a $1,500 rough margin after the fee and reconditioning assumptions, measured against the 75th percentile of that page, because the median of ~20 similar cars sits too close to every asking price to clear those costs. The run log records a count per reject reason. A price under $800 or under 40% of the median is rejected as suspicious.
 3. `serv_shadow_agent` reviews each alert sentence. A sentence that adds a number is replaced by the deterministic sentence. The log records the outcome.
-4. A Kite Passport testnet payment to `POST /api/v1/radar-ticket` when `KITE_PASSPORT_BASE_URL`, `KITE_SESSION_ID`, `KITE_SESSION_TOKEN`, `X402_PAY_TO`, `X402_ASSET`, and `X402_NETWORK=kite-testnet` are all set. Any other network is refused. Missing variables are listed in the run and no transaction is invented. The amount shown is `X402_PRICE_ATOMIC`. Remaining session budget is recorded only if the execute response includes it.
+4. An agent payment to `POST /api/v1/radar-ticket` only when the payment variables are set and the network is the test network the route accepts. Missing variables are listed in the run and no transaction is invented. The amount shown is `X402_PRICE_ATOMIC`. Remaining session budget is recorded only if the execute response includes it.
 5. Telegram, when `TELEGRAM_BOT_TOKEN`, `TELEGRAM_BOT_USERNAME`, and `TELEGRAM_WEBHOOK_SECRET` are set. Connect from Deal Radar. The webhook is `POST /api/telegram/webhook` and checks `X-Telegram-Bot-Api-Secret-Token`. Set that secret with `setWebhook`. Without the bot, alerts stay in the app and the log says Telegram is not configured.
 
 The activity log (`/activity`, shared preview only) shows runs, counts, SERV results, and the testnet payment status. Those words stay off the home page, the alert feed, and the report.

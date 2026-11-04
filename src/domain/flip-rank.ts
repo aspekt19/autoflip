@@ -158,7 +158,7 @@ function speedOf(compCount: number, ageDays: number | null): { label: SaleSpeed;
   if (ageDays > 45) {
     return {
       label: "slower",
-      basis: `Listing age about ${ageDays} days, from the provider timestamp. ${compCount} comps in this scan.`,
+      basis: `Listing age about ${ageDays} days, from the listing timestamp. ${compCount} comps in this scan.`,
       factor: 0.75,
     };
   }

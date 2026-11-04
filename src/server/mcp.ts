@@ -28,7 +28,7 @@ export function toolList() {
     {
       name: "full_report",
       description:
-        "Paid AutoFlip verdict for one VIN. The price is the configured x402 amount. Ask the human before paying. Call once without a payment to read the requirements, then call again with the payment payload from a Kite Passport session. Every response includes proof: profiles that ran, tools, model suffixes, guard result, shadow outcome and iteration cap, latency, which fields were computed in code, and any id, model, finish_reason, usage, or reasoning output the inference response included.",
+        "Paid AutoFlip verdict for one VIN. The price is the configured x402 amount. Ask the human before paying. Call once without a payment to read the requirements, then call again with the payment payload. Every response includes proof: profiles that ran, tools, model suffixes, guard result, shadow outcome and iteration cap, latency, which fields were computed in code, and any id, model, finish_reason, usage, or reasoning output the inference response included.",
       inputSchema: {
         type: "object",
         properties: {
@@ -67,7 +67,7 @@ export function paymentRequiredBody(resource: string): {
     message: "A full report is a paid request.",
     accepts: [requirementsFor(resource, config)],
     next_action:
-      "Pay this resource with a Kite Passport session using the x402 requirements, then call full_report again with the payment payload.",
+      "Pay this resource using the x402 requirements, then call full_report again with the payment payload.",
     proof,
   };
 }

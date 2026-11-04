@@ -174,7 +174,7 @@ export function ReportView({ report }: { report: FullReport }) {
         <p className="hint">Scope: {computed.compScope.replaceAll("_", " ")}. Prices are adjusted to this car’s mileage.</p>
         {computed.comps.length === 0 ? <p>No comparables qualified.</p> : null}
         {computed.comps.length > 0 ? (
-          <table>
+          <div className="table-scroll"><table>
             <thead>
               <tr>
                 <th>Vehicle</th>
@@ -198,7 +198,7 @@ export function ReportView({ report }: { report: FullReport }) {
                 </tr>
               ))}
             </tbody>
-          </table>
+          </table></div>
         ) : null}
       </section>
 
@@ -235,7 +235,7 @@ export function ReportView({ report }: { report: FullReport }) {
             : `About ${formatNumber(computed.distanceToSearchZipMiles)} miles from the search ZIP. Source: Census geocoder.`}
         </p>
         {computed.recalls.length > 0 ? (
-          <table>
+          <div className="table-scroll"><table>
             <thead>
               <tr>
                 <th>Campaign</th>
@@ -255,7 +255,7 @@ export function ReportView({ report }: { report: FullReport }) {
                 </tr>
               ))}
             </tbody>
-          </table>
+          </table></div>
         ) : null}
         {car.vdp ? (
           <p>
@@ -280,6 +280,11 @@ export function ReportView({ report }: { report: FullReport }) {
           We show which data the verdict is based on. We separate facts from estimates. We flag what still needs checking before you buy.
         </p>
         <DecisionNote scene={reportScene(report)} proofs={report.proof.servChecks ?? []} />
+        <p className="btn-row">
+          <a className="quiet" href="/find">Find another car</a>
+          <a className="quiet" href="/check">Check another listing</a>
+          <a className="ghost" href="/radar">Deal Radar</a>
+        </p>
       </section>
     </article>
   );

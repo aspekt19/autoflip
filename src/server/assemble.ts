@@ -383,7 +383,7 @@ async function resolveSubject(
         ok: false,
         status: 404,
         error: "not_found",
-        message: "The listings provider did not return a vehicle for that VIN.",
+        message: "No vehicle came back for that VIN.",
       },
     };
   }
@@ -437,6 +437,7 @@ export async function assembleRadar(
     yearMax?: number;
     distanceMiles?: number;
     mode: Mode;
+    priceMax?: number;
   },
   deps: AssembleDeps,
 ): Promise<
@@ -459,19 +460,21 @@ export async function assembleRadar(
     model: deps.servModel,
   });
   const proof = agentProof([guard.proof], scanFields);
-  if (deps.servKey && (!guard.ok || interpretGuard(guard.text) === "block")) {
+  if (deps.servKey && guard.ok && interpretGuard(guard.text) === "block") {
     return {
       ok: false,
-      status: guard.ok ? 400 : 503,
-      error: guard.ok ? "rejected_input" : "serv_unavailable",
-      message: guard.ok
-        ? "That input was rejected by the input check."
-        : "The input check could not be completed, so this request was not run.",
+      status: 400,
+      error: "rejected_input",
+      message: "That input was rejected by the input check.",
       proof,
     };
   }
-  if (!input.make.trim()) {
+  const flipOpen = input.mode === "flip" && !input.make.trim();
+  if (!input.make.trim() && !flipOpen) {
     return { ok: false, status: 400, error: "make_required", message: "Choose a make.", proof };
+  }
+  if (flipOpen && (!input.priceMax || !input.zip)) {
+    return { ok: false, status: 400, error: "budget_required", message: "A flip scan needs a budget and a ZIP.", proof };
   }
   if (!deps.autodevKey || !deps.autodev) {
     return {
@@ -487,11 +490,12 @@ export async function assembleRadar(
   const years = yearQuery(input);
   const search = await autodevSearch(
     {
-      make: input.make.trim(),
+      make: input.make.trim() || undefined,
       model: input.model?.trim() || undefined,
       ...years,
       zip: input.zip,
-      distanceMiles: input.distanceMiles ?? (input.zip ? 100 : undefined),
+      distanceMiles: input.distanceMiles ?? (input.zip ? (flipOpen ? 50 : 100) : undefined),
+      priceRange: flipOpen && input.priceMax ? `1-${Math.round(input.priceMax * 1.05)}` : undefined,
       limit: 20,
     },
     {
