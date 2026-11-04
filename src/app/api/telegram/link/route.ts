@@ -1,6 +1,7 @@
 import { randomBytes } from "node:crypto";
 import { getKv } from "@/io/kv";
 import { telegramDeepLink } from "@/io/telegram";
+import { saveTelegramCode } from "@/server/radar-store";
 import { userId } from "@/server/session";
 
 export const dynamic = "force-dynamic";
@@ -16,6 +17,6 @@ export async function POST() {
     });
   }
   const code = randomBytes(9).toString("hex");
-  await getKv().set(`telegram:code:${code}`, id);
+  await saveTelegramCode(getKv(), code, id);
   return Response.json({ configured: true, url: telegramDeepLink(username, code) });
 }

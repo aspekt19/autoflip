@@ -1,9 +1,15 @@
+import { fitHeadline } from "@/domain/fit";
+import { extractVin } from "@/domain/vin";
 import { isVinOnlyLookup, vinDetailGaps } from "@/domain/vin-report";
+import { findUserReport, persistReport, readPersistedReport, rememberUserReport } from "@/io/persist-report";
+import { getKv } from "@/io/kv";
+import { REPORT_FAILED_TEXT, reportReadyMessage } from "@/io/telegram";
 import { assembleReport } from "@/server/assemble";
 import { runtimeDeps } from "@/server/deps";
 import { parseMode } from "@/server/mcp";
-import { balanceOf, spendCredit, userId } from "@/server/session";
-import { persistReport } from "@/io/persist-report";
+import { balanceOf, grantCredit, spendCredit, userId } from "@/server/session";
+import { sendLinkedTelegram } from "@/server/telegram-notify";
+import { originOf } from "@/server/secrets";
 
 export const dynamic = "force-dynamic";
 /** Listings, government data, then a rules call and a two-step explanation. Hobby allows 60s. */
@@ -32,6 +38,16 @@ export async function POST(request: Request) {
   }
 
   const id = await userId();
+  const vinKey = extractVin(vin || url || "");
+  if (vinKey) {
+    const existingId = await findUserReport(getKv(), id, vinKey);
+    if (existingId) {
+      const existing = await readPersistedReport(existingId);
+      if (existing) {
+        return Response.json({ ...existing, balance: await balanceOf(id), alreadySaved: true });
+      }
+    }
+  }
   if ((await balanceOf(id)) < 1) {
     return Response.json(
       {
@@ -58,6 +74,7 @@ export async function POST(request: Request) {
     { ...runtimeDeps(), servSurface: body.surface === "check" ? "check" : "report" },
   );
   if (!assembled.ok) {
+    await sendLinkedTelegram(id, REPORT_FAILED_TEXT);
     return Response.json({ error: assembled.error, message: assembled.message }, { status: assembled.status });
   }
 
@@ -68,6 +85,21 @@ export async function POST(request: Request) {
       { status: 403 },
     );
   }
-  await persistReport(assembled.report);
+  try {
+    await persistReport(assembled.report);
+    if (vinKey) await rememberUserReport(getKv(), id, vinKey, assembled.report.id);
+  } catch {
+    await grantCredit(id, 1, `refund:${assembled.report.id}`);
+    await sendLinkedTelegram(id, REPORT_FAILED_TEXT);
+    return Response.json({ error: "save_failed", message: "The report did not finish. No credit was used." }, { status: 500 });
+  }
+  const car = assembled.report.computed.subject;
+  const ready = reportReadyMessage({
+    car: `${car.year} ${car.make} ${car.model}`,
+    recommendation: fitHeadline(assembled.report.computed),
+    origin: originOf(request),
+    reportId: assembled.report.id,
+  });
+  await sendLinkedTelegram(id, ready.text, ready.reply_markup.inline_keyboard[0]?.[0]);
   return Response.json({ ...assembled.report, balance: spent.balance });
 }

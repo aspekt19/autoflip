@@ -49,6 +49,8 @@ function RadarInner() {
   const [checking, setChecking] = useState(false);
   const [telegramNote, setTelegramNote] = useState<string | null>(null);
   const [feedReady, setFeedReady] = useState(false);
+  const [savedReportId, setSavedReportId] = useState<string | null>(null);
+  const confirmId = params.get("confirm");
 
   async function loadFeed() {
     const response = await fetch("/api/radar/feed");
@@ -63,6 +65,27 @@ function RadarInner() {
   useEffect(() => {
     void loadFeed();
   }, []);
+
+  useEffect(() => {
+    if (!feedReady) return;
+    const id = window.location.hash.replace(/^#/, "");
+    if (id.startsWith("alert-")) document.getElementById(id)?.scrollIntoView({ block: "center" });
+  }, [feedReady, alerts]);
+
+  const confirmAlert = alerts.find((item) => item.id === confirmId) ?? null;
+
+  useEffect(() => {
+    if (!confirmAlert) {
+      setSavedReportId(null);
+      return;
+    }
+    fetch(`/api/report/by-vin?vin=${encodeURIComponent(confirmAlert.vin)}`)
+      .then(async (response) => {
+        const body = (await response.json()) as { id?: string | null };
+        setSavedReportId(body.id ?? null);
+      })
+      .catch(() => setSavedReportId(null));
+  }, [confirmAlert]);
 
   useEffect(() => {
     if (!feedReady || demo || !make) {
@@ -216,6 +239,30 @@ function RadarInner() {
         ) : (
           <p className="hint">The shared preview already has its one extra saved search.</p>
         )}
+        {confirmAlert ? (
+          <article className="warn-box" id="confirm-analysis">
+            <h2>Full analysis — 1 credit</h2>
+            <p>
+              {confirmAlert.year} {confirmAlert.make} {confirmAlert.model}. A full analysis uses 1 credit only after you confirm. Viewing the alert does not.
+            </p>
+            {savedReportId ? (
+              <p>
+                <Link className="action" href={`/report/${savedReportId}`}>
+                  Open full report
+                </Link>
+              </p>
+            ) : (
+              <button
+                className="action"
+                type="button"
+                onClick={() => openReport(confirmAlert.vin, confirmAlert.mode === "flip" ? "flip" : "personal")}
+                disabled={busyVin === confirmAlert.vin}
+              >
+                {busyVin === confirmAlert.vin ? "Working…" : "Confirm — 1 credit"}
+              </button>
+            )}
+          </article>
+        ) : null}
         <h2>Alerts</h2>
         {alerts.length === 0 ? <p>No alerts yet. A scheduled check has not produced a new listing that passed the filter.</p> : null}
         <div className="radar-list">

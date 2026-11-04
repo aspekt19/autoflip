@@ -80,6 +80,7 @@ export type WatchAlert = {
   checks?: DecisionProof[];
   coverage?: string;
   coverageLevel?: CoverageConfidence;
+  priceDropFrom?: number | null;
 };
 
 export type PrefilterDecision =
