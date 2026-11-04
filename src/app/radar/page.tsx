@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import type { DecisionProof } from "@/domain/decision-note";
+import { CoverageLine } from "@/components/CoverageNote";
 import { DecisionNote } from "@/components/DecisionNote";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useState, type FormEvent } from "react";
@@ -43,7 +44,7 @@ function RadarInner() {
   const [busyVin, setBusyVin] = useState<string | null>(null);
   const [demo, setDemo] = useState(false);
   const [searches, setSearches] = useState<Array<{ id: string; name: string; mode: string; criteria: { priceMax: number; zip: string; radiusMiles: number; make?: string; model?: string }; preset: boolean }>>([]);
-  const [alerts, setAlerts] = useState<Array<{ id: string; vin: string; why: string; createdAt: string; mode: string; priceUsd: number; year: number; make: string; model: string; checks?: DecisionProof[] }>>([]);
+  const [alerts, setAlerts] = useState<Array<{ id: string; vin: string; why: string; createdAt: string; mode: string; priceUsd: number; year: number; make: string; model: string; checks?: DecisionProof[]; coverage?: string; coverageLevel?: "low" | "medium" | "high" }>>([]);
   const [watchNote, setWatchNote] = useState<string | null>(null);
   const [checking, setChecking] = useState(false);
   const [telegramNote, setTelegramNote] = useState<string | null>(null);
@@ -230,6 +231,11 @@ function RadarInner() {
                   {alert.year} {alert.make} {alert.model}
                 </h2>
                 <p>{alert.why}</p>
+                {alert.coverage && alert.coverageLevel ? (
+                  <CoverageLine confidence={alert.coverageLevel} sentence={alert.coverage} />
+                ) : (
+                  <p className="hint">{alert.coverage ?? "Coverage was not recorded for this alert."}</p>
+                )}
                 <DecisionNote scene={alert.mode === "flip" ? "flip" : "personal_alert"} proofs={alert.checks ?? []} />
                 <p className="hint">{new Date(alert.createdAt).toLocaleString("en-US", { timeZone: "UTC" })} UTC · {alert.vin}</p>
               </div>

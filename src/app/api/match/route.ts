@@ -1,5 +1,7 @@
+import { coverageConfidence, coverageSentence } from "@/domain/coverage";
 import { proposeDirections } from "@/domain/directions";
 import { validateNeed } from "@/domain/need";
+import type { Listing } from "@/domain/types";
 import { assembleRadar } from "@/server/assemble";
 import { runtimeDeps } from "@/server/deps";
 
@@ -22,7 +24,13 @@ export async function POST(request: Request) {
     });
   }
   const deps = runtimeDeps();
-  const groups = [];
+  const groups: Array<{
+    direction: ReturnType<typeof proposeDirections>[number];
+    listings: Listing[];
+    coverage: string;
+    coverageLevel: "low" | "medium" | "high";
+    note: string | null;
+  }> = [];
   let sample = false;
   let message: string | null = null;
   for (const direction of directions) {
@@ -41,19 +49,33 @@ export async function POST(request: Request) {
     if (!result.ok) {
       return Response.json({ error: result.error, message: result.message }, { status: result.status });
     }
+    const listings = result.sample ? (groups.length === 0 ? result.listings.slice(0, 8) : []) : result.listings.slice(0, 8);
+    const coverageInput = {
+      mode: parsed.need.mode,
+      sample: result.sample,
+      dealerListingCount: listings.length,
+      radiusMiles: parsed.need.zip ? 100 : null,
+      historyOnListing: false,
+    };
+    const coverage = coverageSentence(coverageInput);
+    const coverageLevel = coverageConfidence(coverageInput);
     if (result.sample) {
       sample = true;
       message = result.message;
       groups.push({
         direction,
-        listings: groups.length === 0 ? result.listings.slice(0, 8) : [],
+        listings,
+        coverage,
+        coverageLevel,
         note: groups.length === 0 ? result.message : "The labeled sample is shown once. These other directions were not fetched.",
       });
       continue;
     }
     groups.push({
       direction,
-      listings: result.listings.slice(0, 8),
+      listings,
+      coverage,
+      coverageLevel,
       note: result.message,
     });
   }

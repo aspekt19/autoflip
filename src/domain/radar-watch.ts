@@ -1,4 +1,5 @@
 import { ASSUMPTIONS } from "./assumptions";
+import type { CoverageConfidence } from "./coverage";
 import type { DecisionProof } from "./decision-note";
 import { canonicalString, sha256Canonical } from "./hash";
 import { median, percentileValue, roundDollars } from "./stats";
@@ -77,6 +78,8 @@ export type WatchAlert = {
   numbers: AlertNumbers;
   sample: boolean;
   checks?: DecisionProof[];
+  coverage?: string;
+  coverageLevel?: CoverageConfidence;
 };
 
 export type PrefilterDecision =

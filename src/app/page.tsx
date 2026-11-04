@@ -72,7 +72,7 @@ export default function HomePage() {
           <p className="sample-link">
             <Link href="/pricing">Radar plans</Link>
             <span> are preview prices. Report credits stay separate. </span>
-            <Link href="/compare">Compare a sample explanation</Link>
+            <Link href="/compare">Compare standard and checked answers</Link>
             <span>.</span>
           </p>
         </div>
