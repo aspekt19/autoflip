@@ -8,7 +8,7 @@ import {
   type FollowUp,
   type StructuredNeed,
 } from "@/domain/need";
-import { buildNeedExtractRequest, buildNeedGuardRequest, interpretGuard, postServ } from "@/io/serv";
+import { interpretGuard, runServ } from "@/server/serv";
 import { screenUserInput } from "@/domain/screen";
 
 export type UnderstandDeps = {
@@ -58,15 +58,10 @@ export async function understandNeed(
   let extracted = explicitNeedFromText(screened.text, mode);
 
   if (deps.servKey) {
-    const model = deps.servModel || "gpt-5.4-mini";
-    const baseUrl = deps.servBaseUrl || "https://inference-api.openserv.ai/v1";
+    const model = deps.servModel;
     const fetchImpl = deps.fetchImpl ?? fetch;
-    const guarded = await postServ(buildNeedGuardRequest(screened.text, model), {
-      fetch: fetchImpl,
-      apiKey: deps.servKey,
-      baseUrl,
-      purpose: "need_guard",
-    });
+    const servDeps = { fetch: fetchImpl, apiKey: deps.servKey, baseUrl: deps.servBaseUrl, model };
+    const guarded = await runServ("need_guard", { user: screened.text }, servDeps);
     if (!guarded.ok) {
       guard = "unavailable";
     } else {
@@ -74,12 +69,7 @@ export async function understandNeed(
       if (guard === "block") {
         return { ok: false, status: 400, error: "rejected_input", message: "That note was rejected by the input check." };
       }
-      const extractedCall = await postServ(buildNeedExtractRequest(screened.text, model), {
-        fetch: fetchImpl,
-        apiKey: deps.servKey,
-        baseUrl,
-        purpose: "need_extract",
-      });
+      const extractedCall = await runServ("need_extract", { user: screened.text }, servDeps);
       if (extractedCall.ok) {
         try {
           const parsed = validateNeed({ ...(parseNeedJson(extractedCall.text) as object), mode, note: screened.text });

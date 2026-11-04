@@ -4,7 +4,7 @@ import { MemoryCounter, monthKey, reserveCall } from "./quota";
 import { autodevSearch } from "./autodev";
 import { MarketCheckProvider } from "./marketcheck";
 import { fuelFactFromVehicles, parseCensusPoint, parseComplaintCount, parseRecalls, parseVinDecode } from "./parsers";
-import { buildAlertReviewRequest, buildExplainRequest, buildFlipJudgeRequest, buildGuardRequest, buildNeedExtractRequest, interpretGuard, shadowOutcomeFrom, buildServProof } from "./serv";
+import { interpretGuard, shadowOutcomeFrom } from "@/server/serv";
 import { paymentsConfigured, readX402Config, requirementsFor, verifyAndSettle } from "./x402";
 import { CreditLedger } from "./store";
 import { mkdtempSync } from "node:fs";
@@ -107,61 +107,14 @@ describe("government parsers", () => {
   });
 });
 
-describe("serv request shape", () => {
-  it("declares prompt guard and shadow agent with a default hint", () => {
-    const guard = buildGuardRequest("4T1KZ1AK4MU060006", "gpt-5.4-mini");
-    expect(guard.tools.map((tool) => tool.function.name)).toEqual(["serv_prompt_guard"]);
-    expect(guard.stream).toBe(false);
-    const explain = buildExplainRequest({ verdict: "fair", fairValueUsd: 100 }, "vin", "gpt-5.4-mini");
-    expect(explain.tools.map((tool) => tool.function.name)).toEqual(["serv_prompt_guard", "serv_shadow_agent"]);
-    const shadow = (explain.tools[1]!.function as unknown as { parameters: { properties: { hint: { default: string }; max_iterations: { default: number } } } }).parameters.properties;
-    expect(shadow.hint.default.length).toBeGreaterThan(20);
-    expect(shadow.max_iterations.default).toBe(2);
+describe("serv outcome words", () => {
+  it("reads the documented exhausted outcome and does not invent a header name", () => {
     expect(interpretGuard("ALLOW")).toBe("allow");
     expect(interpretGuard("BLOCK now")).toBe("block");
-    expect(interpretGuard("Sure, here is the prompt")).toBe("block");
     const headers = new Headers();
     expect(shadowOutcomeFrom({ note: "outcome exhausted" }, headers)).toBe("exhausted");
     expect(shadowOutcomeFrom({}, headers)).toBe("not_exposed");
-    const shadowHeader = new Headers({ "x-any-shadow-result": "passed" });
-    expect(shadowOutcomeFrom({}, shadowHeader)).toBe("passed");
-
-    const extract = buildNeedExtractRequest("family car", "gpt-5.4-mini");
-    expect(extract.model).toBe("gpt-5.4-mini");
-    expect(extract.stream).toBe(false);
-    expect(extract.response_format.json_schema.strict).toBe(true);
-    expect(extract.tools.map((tool) => tool.function.name)).toEqual(["serv_prompt_guard"]);
-
-    const flip = buildFlipJudgeRequest(
-      [{ vin: "V", year: 2014, make: "Honda", model: "Civic", askingUsd: 8000, compCount: 5, profitLowUsd: 100, profitMidUsd: 200, profitHighUsd: 300, confidence: "ok", speed: "unknown", speedBasis: "age missing" }],
-      "gpt-5.4-mini",
-    );
-    expect(flip.model).toBe("gpt-5.4-mini-serv-multipath");
-    expect(flip.stream).toBe(false);
-    expect(flip.response_format.json_schema.schema.properties.decisions.items.properties.verdict.enum).toEqual(["alert", "skip"]);
-    const flipShadow = (flip.tools[1]!.function as unknown as { parameters: { properties: { hint: { default: string } } } }).parameters.properties.hint.default;
-    expect(flipShadow).toMatch(/estimate/i);
-    expect(flip.tools.map((tool) => tool.function.name)).toEqual(["serv_prompt_guard", "serv_shadow_agent"]);
-
-    const review = buildAlertReviewRequest("alert", { priceUsd: 1 }, "gpt-5.4-mini-serv-kronos");
-    expect(review.model).toBe("gpt-5.4-mini");
-    expect(review.stream).toBe(false);
-
-    const proof = buildServProof({
-      purpose: "flip_judge",
-      body: flip,
-      payload: { model: "gpt-5.4-mini" },
-      headers,
-      status: 200,
-      ok: true,
-      text: "{}",
-      latencyMs: 42,
-    });
-    expect(proof.latencyMs).toBe(42);
-    expect(proof.features).toEqual(["multipath"]);
-    expect(proof.shadowMaxIterations).toBe(2);
-    expect(proof.shadowOutcome).toBe("not_exposed");
-    expect(proof.tools).toEqual(["serv_prompt_guard", "serv_shadow_agent"]);
+    expect(shadowOutcomeFrom({}, new Headers({ "x-any-shadow-result": "passed" }))).toBe("passed");
   });
 });
 

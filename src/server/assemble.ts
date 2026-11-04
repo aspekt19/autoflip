@@ -11,16 +11,12 @@ import { autodevByVin, autodevSearch, type AutodevDeps } from "@/io/autodev";
 import { complaintCountFor, decodeVin, fuelFor, geocodeZipCity, recallsFor, type GovDeps } from "@/io/gov";
 import { sampleByVin, sampleListings } from "@/io/sample";
 import {
-  buildExplainRequest,
-  buildGuardRequest,
   EXPLAIN_PROMPT_VERSION,
   GUARD_PROMPT_VERSION,
-  interpretGuard,
-  postServ,
   SHADOW_HINT,
   SHADOW_MAX_ITERATIONS,
-  type ServProof,
 } from "@/io/serv";
+import { interpretGuard, runServ, type ProfileId, type ServProof } from "@/server/serv";
 
 export type AssembleInput = {
   mode: Mode;
@@ -40,6 +36,8 @@ export type AssembleDeps = {
   servKey?: string;
   servModel?: string;
   servBaseUrl?: string;
+  /** Which guard and explain profiles to use. Report, /check, and the agent API are separate profiles. */
+  servSurface?: "report" | "check" | "agent";
   fetch?: typeof fetch;
   autodev?: Pick<AutodevDeps, "cache" | "counter">;
   now?: Date;
@@ -124,8 +122,9 @@ export async function assembleReport(input: AssembleInput, deps: AssembleDeps): 
   }
 
   const fetchImpl = deps.fetch ?? fetch;
-  const model = deps.servModel || process.env.SERV_MODEL || "gpt-5.4-mini";
-  const baseUrl = deps.servBaseUrl || process.env.SERV_BASE_URL || "https://inference-api.openserv.ai/v1";
+  const model = deps.servModel || process.env.SERV_MODEL;
+  const guardProfile: ProfileId = deps.servSurface === "check" ? "check_guard" : deps.servSurface === "agent" ? "agent_guard" : "report_guard";
+  const explainProfile: ProfileId = deps.servSurface === "agent" ? "agent_explain" : "report_explain";
 
   let guardProof: ServProof | null = null;
   if (!deps.servKey) {
@@ -135,11 +134,11 @@ export async function assembleReport(input: AssembleInput, deps: AssembleDeps): 
       detail: "SERV_API_KEY is not set. The local screen still ran. The written summary is the template.",
     });
   } else {
-    const guard = await postServ(buildGuardRequest(screened.text, model), {
+    const guard = await runServ(guardProfile, { user: screened.text }, {
       fetch: fetchImpl,
       apiKey: deps.servKey,
-      baseUrl,
-      purpose: "report_guard",
+      baseUrl: deps.servBaseUrl,
+      model,
     });
     guardProof = guard.proof;
     if (!guard.ok) {
@@ -224,11 +223,11 @@ export async function assembleReport(input: AssembleInput, deps: AssembleDeps): 
 
   if (deps.servKey) {
     shadow.requested = true;
-    const explained = await postServ(buildExplainRequest(factsOf(computed), screened.text, model), {
+    const explained = await runServ(explainProfile, { user: JSON.stringify({ facts: factsOf(computed), userLookup: screened.text }) }, {
       fetch: fetchImpl,
       apiKey: deps.servKey,
-      baseUrl,
-      purpose: "report_explain",
+      baseUrl: deps.servBaseUrl,
+      model,
     });
     servChecks.push(explained.proof);
     if (!explained.ok) {
@@ -435,12 +434,11 @@ export async function assembleRadar(
   );
   if (!screened.ok) return { ok: false, status: 400, error: "rejected_input", message: screened.reason };
   if (deps.servKey) {
-    const model = deps.servModel || process.env.SERV_MODEL || "gpt-5.4-mini";
-    const baseUrl = deps.servBaseUrl || process.env.SERV_BASE_URL || "https://inference-api.openserv.ai/v1";
-    const guard = await postServ(buildGuardRequest(screened.text, model), {
+    const guard = await runServ("radar_guard", { user: screened.text }, {
       fetch: deps.fetch ?? fetch,
       apiKey: deps.servKey,
-      baseUrl,
+      baseUrl: deps.servBaseUrl,
+      model: deps.servModel,
     });
     if (!guard.ok || interpretGuard(guard.text) === "block") {
       return {

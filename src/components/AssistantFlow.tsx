@@ -244,9 +244,10 @@ function AssistantFlow({ variant }: { variant: "find" | "check" }) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(
           listingLink
-            ? { mode: need.mode, url: car.vdp, zip: need.zip ?? undefined }
+            ? { mode: need.mode, url: car.vdp, zip: need.zip ?? undefined, surface: "check" }
             : {
                 mode: need.mode,
+                surface: "check",
                 vin: car.vin,
                 askingPriceUsd: car.priceUsd ?? undefined,
                 miles: car.miles ?? undefined,
@@ -279,9 +280,10 @@ function AssistantFlow({ variant }: { variant: "find" | "check" }) {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(
         checkKind === "link"
-          ? { mode, url: lookup.trim(), zip: vinZip.trim() || undefined }
+          ? { mode, surface: "check", url: lookup.trim(), zip: vinZip.trim() || undefined }
           : {
               mode,
+              surface: "check",
               vin: lookup.trim(),
               askingPriceUsd: Number(vinPrice),
               miles: Number(vinMiles),

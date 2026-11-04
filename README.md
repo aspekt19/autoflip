@@ -21,12 +21,18 @@ This build is an evaluation preview. The Auto.dev free plan is not a production 
 
 Checked against the SERV Reasoning docs (day one, tools, prompt guard, shadow agent, multipath, Kronos, structured outputs, streaming, usage). Shadow settings are schema `default`s, not call-time arguments. Shadow agent is non-streaming (`stream: false`). Multipath and Kronos are model-id suffixes. The chat-completions response schema does not document a shadow outcome field; we record a header only when its name contains `shadow`, and the documented word `exhausted` if it appears in the body. Otherwise the log says `not_exposed`. Kronos is not enabled: this environment could not measure a live call, and an unmeasured suffix can invalidate JSON.
 
-| Call | Model suffix | Tools | Why |
+Profiles live in `src/server/serv/profiles.ts`. Every model call uses `runServ(profileId)`. A new service is one new profile. No other file posts to the inference API.
+
+| Profile | Model suffix | Tools | Why |
 | --- | --- | --- | --- |
-| Need extraction | none | `serv_prompt_guard` plus strict `json_schema` | The app consumes the JSON. Multipath and Kronos stay off until a measured run shows the schema still validates. |
-| Flip top-5 judgment | `-serv-multipath` | prompt guard, shadow agent (`hint` requires facts-only numbers and the word estimate, `max_iterations` 2) | Code already computed profit, comps, and speed. The model only chooses alert or skip. Multipath fits that policy matrix. Two iterations stay inside the 8s radar budget. The documented default is 3. |
-| Personal alert review and report explanation | none | prompt guard plus shadow agent | The hint forbids new numbers and asks to separate facts from estimates. Kronos was considered for the report rules and left off until measured. |
-| Radar input gate | none | prompt guard | The gate text is a protected instruction. |
+| `need_guard`, `need_extract` | none | guard; extract also has strict `json_schema` | `/find`. The app consumes the JSON. Multipath and Kronos stay off until a measured run shows the schema still validates. |
+| `check_guard` | none | prompt guard | `/check` listing or VIN before the report runs. |
+| `report_guard`, `report_explain` | none | guard; explain also has shadow agent | Personal and Flip full reports. The hint forbids new numbers. Kronos stays off until measured. |
+| `agent_guard`, `agent_explain` | none | same pair as the report | `/api/mcp` `full_report` and `POST /api/v1/report`. |
+| `radar_guard` | none | prompt guard | Saved-search text and one-off scans. |
+| `personal_alert_review` | none | prompt guard plus shadow agent | Personal radar sentence. Code owns the numbers. |
+| `flip_judge` | `-serv-multipath` | prompt guard, shadow (`hint` requires facts-only numbers and the word estimate, `max_iterations` 2) | Flip top 5. Code already computed profit, comps, and speed. The model only chooses alert or skip. |
+| `telegram_reply` | none | prompt guard plus shadow agent | `/help` and a bare `/start`. If the call fails, the published connect text is sent. |
 
 If a SERV call fails or times out, the deterministic result still shows and the log says explanation unavailable. The model cannot change the numbers. `/compare` shows a labeled sample beside that unavailable state. It is not a fabricated model paragraph.
 - Auto.dev calls stop at 900 per UTC month and are cached for 6 hours. A stopped month returns a plain “demo limit reached” message and does not call the provider.

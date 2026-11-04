@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { topFlipCandidates } from "@/domain/flip-rank";
 import type { Listing } from "@/domain/types";
+import { recentServProofs } from "@/server/serv";
 
 function car(partial: Partial<Listing> & Pick<Listing, "vin" | "priceUsd">): Listing {
   return {
@@ -44,6 +45,8 @@ const recorded = [
 
 export default function ComparePage() {
   const [best] = topFlipCandidates(recorded, new Date("2026-11-04T00:00:00Z"), 1);
+  const recordedChecks = recentServProofs();
+  const latest = recordedChecks[0];
   return (
     <div className="sub">
       <div className="sheet-page">
@@ -63,7 +66,12 @@ export default function ComparePage() {
           </article>
           <article className="choice-card">
             <strong className="choice-title">With SERV</strong>
-            <span className="choice-desc">Explanation unavailable. No recorded SERV reply is stored for this sample.</span>
+            <span className="choice-desc">
+              Explanation unavailable. No recorded SERV reply is stored for this sample.
+              {latest
+                ? ` This server process has ${recordedChecks.length} shared proof records. The latest is ${latest.purpose} (${latest.modelRequested}, guard ${latest.promptGuard}).`
+                : ""}
+            </span>
           </article>
         </div>
         <p>

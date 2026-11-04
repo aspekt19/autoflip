@@ -36,7 +36,7 @@ export async function POST(request: Request) {
       zip: typeof body.zip === "string" ? body.zip : undefined,
       year: typeof body.year === "number" ? body.year : undefined,
     },
-    runtimeDeps(),
+    { ...runtimeDeps(), servSurface: "agent" as const },
   );
   if (!assembled.ok) {
     return Response.json({ error: assembled.error, message: assembled.message, txHash: settled.txHash }, { status: assembled.status });

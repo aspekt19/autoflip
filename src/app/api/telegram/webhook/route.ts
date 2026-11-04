@@ -1,6 +1,7 @@
 import { getKv } from "@/io/kv";
-import { CONNECT_HELP, isBareStart, isHelpCommand, parseSkipCallback, parseStartCommand, webhookAuthorized } from "@/io/telegram";
+import { isBareStart, isHelpCommand, parseSkipCallback, parseStartCommand, webhookAuthorized } from "@/io/telegram";
 import { listAlerts, saveAlerts, bindTelegram } from "@/server/radar-store";
+import { runServ } from "@/server/serv";
 
 export const dynamic = "force-dynamic";
 
@@ -18,10 +19,16 @@ export async function POST(request: Request) {
   const code = text ? parseStartCommand(text) : null;
   const chatId = update?.message?.chat?.id;
   if (chatId !== undefined && (isHelpCommand(text) || isBareStart(text)) && process.env.TELEGRAM_BOT_TOKEN) {
+    const reply = await runServ(
+      "telegram_reply",
+      { user: "The user asked how to connect alerts. Use only the published connect steps." },
+      { apiKey: process.env.SERV_API_KEY?.trim(), model: process.env.SERV_MODEL, baseUrl: process.env.SERV_BASE_URL },
+    );
+    const message = reply.ok ? reply.text : reply.fallback;
     await fetch(`https://api.telegram.org/bot${process.env.TELEGRAM_BOT_TOKEN}/sendMessage`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ chat_id: chatId, text: CONNECT_HELP }),
+      body: JSON.stringify({ chat_id: chatId, text: message }),
     }).catch(() => undefined);
   }
   if (code && chatId !== undefined) {

@@ -23,7 +23,7 @@ import { storageMode } from "@/io/kv";
 import { payRadarTicket } from "@/io/kite-pay";
 import { parseAutoDevListings } from "@/io/parsers";
 import { reserveRadarCall } from "@/io/persistent-quota";
-import { buildAlertReviewRequest, buildFlipJudgeRequest, buildGuardRequest, interpretGuard, postServ, type FlipJudgeFact, type ServProof } from "@/io/serv";
+import { interpretGuard, runServ, type ServProof } from "@/server/serv";
 import { alertMessage } from "@/io/telegram";
 import type { ComputedReport, Listing } from "@/domain/types";
 import { syncPresetSearches } from "@/domain/demo-presets";
@@ -446,7 +446,7 @@ async function judgeFlipAlerts(
   proofs: ServProof[],
 ): Promise<Map<string, { verdict: "alert" | "skip"; note: string }> | null> {
   if (!deps.servKey || fresh.length === 0 || timeoutMs <= 0) return null;
-  const facts: FlipJudgeFact[] = fresh.map((item) => ({
+  const facts = fresh.map((item) => ({
     vin: item.vin,
     year: item.listing.year,
     make: item.listing.make,
@@ -462,12 +462,12 @@ async function judgeFlipAlerts(
   }));
   try {
     const result = await withTimeout(
-      postServ(buildFlipJudgeRequest(facts, deps.servModel || "gpt-5.4-mini"), {
+      runServ("flip_judge", { user: JSON.stringify({ facts }) }, {
         fetch: deps.fetchImpl,
         apiKey: deps.servKey,
-        baseUrl: deps.servBaseUrl || "https://inference-api.openserv.ai/v1",
+        baseUrl: deps.servBaseUrl,
+        model: deps.servModel,
         timeoutMs,
-        purpose: "flip_judge",
       }),
       timeoutMs,
     );
@@ -479,7 +479,10 @@ async function judgeFlipAlerts(
   }
 }
 
-function parseFlipJudgment(text: string, facts: FlipJudgeFact[]): Map<string, { verdict: "alert" | "skip"; note: string }> | null {
+function parseFlipJudgment(
+  text: string,
+  facts: Array<{ vin: string }>,
+): Map<string, { verdict: "alert" | "skip"; note: string }> | null {
   try {
     const parsed = JSON.parse(text) as { decisions?: Array<{ vin?: string; verdict?: string; note?: string }> };
     if (!Array.isArray(parsed.decisions)) return null;
@@ -507,12 +510,12 @@ async function runGuard(searches: SavedSearch[], deps: CycleDeps, timeoutMs: num
   if (timeoutMs <= 0) return "timeout";
   try {
     const result = await withTimeout(
-      postServ(buildGuardRequest(text, deps.servModel || "gpt-5.4-mini"), {
+      runServ("radar_guard", { user: text }, {
         fetch: deps.fetchImpl,
         apiKey: deps.servKey,
-        baseUrl: deps.servBaseUrl || "https://inference-api.openserv.ai/v1",
+        baseUrl: deps.servBaseUrl,
+        model: deps.servModel,
         timeoutMs,
-        purpose: "radar_guard",
       }),
       timeoutMs,
     );
@@ -533,12 +536,12 @@ async function reviewWhy(
 ): Promise<{ why: string; source: string }> {
   if (!deps.servKey) return { why, source: "template" };
   if (timeoutMs <= 0) return { why, source: "timeout" };
-  const result = await postServ(buildAlertReviewRequest(why, numbers, deps.servModel || "gpt-5.4-mini"), {
+  const result = await runServ("personal_alert_review", { user: JSON.stringify({ alert: why, facts: numbers }) }, {
     fetch: deps.fetchImpl,
     apiKey: deps.servKey,
-    baseUrl: deps.servBaseUrl || "https://inference-api.openserv.ai/v1",
+    baseUrl: deps.servBaseUrl,
+    model: deps.servModel,
     timeoutMs,
-    purpose: "personal_alert_review",
   });
   proofs.push(result.proof);
   if (!result.ok) return { why, source: result.error === "SERV did not respond." ? "timeout" : "template_after_error" };
