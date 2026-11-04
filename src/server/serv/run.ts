@@ -11,7 +11,7 @@ export type ServDeps = {
 
 export type ServResult =
   | { ok: true; text: string; model: string; shadowOutcome: string; rawStatus: number; proof: ServProof }
-  | { ok: false; error: string; status: number; proof: ServProof; fallback: string };
+  | { ok: false; error: string; status: number; proof: ServProof; fallback: string; upstream?: string | null };
 
 type Tool = {
   type: "function";
@@ -48,9 +48,14 @@ function shadowTool(entry: ServProfile): Tool {
 }
 
 function factsTool(endpoint: ServProfile["endpoint"]): Tool {
+  // Chat completions reject a forced tool whose schema has no properties.
+  // https://docs.openserv.ai/serv-reasoning/tutorials/tools
   const parameters = {
     type: "object",
-    properties: {},
+    properties: {
+      seen: { type: "boolean", description: "True after reading the calculated facts already in the message." },
+    },
+    required: ["seen"],
     additionalProperties: false,
   };
   const description = "Read the figures already calculated for this car. Do not calculate them yourself.";
@@ -103,7 +108,25 @@ export function requestFor(id: ProfileId, user: string, model = BASE_MODEL) {
   };
 }
 
-function messageText(payload: unknown): string {
+function visibleText(value: unknown): string[] {
+  if (typeof value === "string") return [value];
+  if (!Array.isArray(value)) return [];
+  const chunks: string[] = [];
+  for (const part of value) {
+    if (typeof part === "string") {
+      chunks.push(part);
+      continue;
+    }
+    if (!part || typeof part !== "object") continue;
+    const record = part as { type?: unknown; text?: unknown };
+    if (record.type === "reasoning" || record.type === "reasoning_text") continue;
+    if (typeof record.text === "string") chunks.push(record.text);
+  }
+  return chunks;
+}
+
+/** Shopper-facing text. Reasoning traces are not the answer, even when content is blank. */
+export function messageText(payload: unknown): string {
   if (!payload || typeof payload !== "object") return "";
   const record = payload as { output_text?: unknown; output?: unknown; choices?: unknown };
   if (typeof record.output_text === "string" && record.output_text.trim()) return record.output_text.trim();
@@ -111,17 +134,45 @@ function messageText(payload: unknown): string {
     const chunks: string[] = [];
     for (const item of record.output) {
       if (!item || typeof item !== "object") continue;
-      const content = (item as { content?: unknown }).content;
-      if (!Array.isArray(content)) continue;
-      for (const part of content) {
-        if (part && typeof part === "object" && typeof (part as { text?: unknown }).text === "string") chunks.push((part as { text: string }).text);
-      }
+      const row = item as { type?: unknown; text?: unknown; content?: unknown };
+      if (row.type === "reasoning") continue;
+      if (row.type === "output_text" && typeof row.text === "string") chunks.push(row.text);
+      chunks.push(...visibleText(row.content));
     }
-    if (chunks.length > 0) return chunks.join("").trim();
+    const joined = chunks.join("").trim();
+    if (joined) return joined;
   }
   if (!Array.isArray(record.choices) || record.choices.length === 0) return "";
-  const message = (record.choices[0] as { message?: { content?: unknown } }).message;
-  return typeof message?.content === "string" ? message.content.trim() : "";
+  const choice = record.choices[0] as { text?: unknown; message?: { content?: unknown } };
+  const fromMessage = visibleText(choice.message?.content).join("").trim();
+  if (fromMessage) return fromMessage;
+  return typeof choice.text === "string" ? choice.text.trim() : "";
+}
+
+/** Upstream error fields only. Request bodies and credentials are not included. */
+export function servErrorSummary(payload: unknown): string {
+  if (!payload || typeof payload !== "object") return "";
+  const error = (payload as { error?: unknown }).error;
+  const parts =
+    typeof error === "string"
+      ? [error]
+      : error && typeof error === "object"
+        ? [error as { type?: unknown; code?: unknown; param?: unknown; message?: unknown }].flatMap((record) =>
+            [record.type, record.code, record.param, record.message].filter((part): part is string => typeof part === "string"),
+          )
+        : [];
+  return parts
+    .join(": ")
+    .replace(/Bearer\s+\S+/gi, "Bearer [redacted]")
+    .replace(/\bsk-[A-Za-z0-9_-]+\b/g, "[redacted]")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 300);
+}
+
+function logServError(id: string, status: number, payload: unknown) {
+  const summary = servErrorSummary(payload);
+  console.error(`[serv] ${id} HTTP ${status}${summary ? ` ${summary}` : " no error body"}`);
 }
 
 function argumentText(value: unknown): string {
@@ -227,20 +278,33 @@ export async function runServ(
     return { ok: false, error: "SERV is not configured.", status: 0, proof, fallback: entry.fallback };
   }
 
+  const rounds = entry.applicationTool && entry.endpoint === "chat" ? 2 : 1;
+  const deadline = started + timeoutMs * rounds;
   const post = async (body: unknown, stream: boolean) => {
+    const remain = deadline - Date.now();
+    if (remain < 500) throw new DOMException("The operation was aborted.", "TimeoutError");
     const path = entry.endpoint === "responses" ? "/responses" : "/chat/completions";
     const response = await (deps.fetch ?? fetch)(`${base}${path}`, {
       method: "POST",
       headers: { Authorization: `Bearer ${deps.apiKey}`, "Content-Type": "application/json" },
       body: JSON.stringify(body),
-      signal: AbortSignal.timeout(timeoutMs),
+      signal: AbortSignal.timeout(remain),
     });
     if (stream && response.ok) {
       const streamed = await readChatStream(response);
       return { response, payload: streamed.payload, text: streamed.text };
     }
     const payload: unknown = await response.json().catch(() => null);
+    if (!response.ok) logServError(id, response.status, payload);
     return { response, payload, text: messageText(payload) };
+  };
+
+  const postProse = async (body: unknown, stream: boolean) => {
+    let turn = await post(body, stream);
+    if (turn.response.ok && !turn.text.trim() && deadline - Date.now() > 1_000) {
+      turn = await post(body, stream);
+    }
+    return turn;
   };
 
   try {
@@ -266,13 +330,14 @@ export async function runServ(
               { role: "user", content: userText },
             ],
             tools: firstTools,
+            ...(entry.applicationTool ? {} : { reasoning_effort: entry.reasoningEffort }),
             ...(entry.jsonSchema
               ? { response_format: { type: "json_schema", json_schema: { name: entry.jsonSchema.name, strict: true, schema: entry.jsonSchema.schema } } }
               : {}),
             ...(entry.applicationTool ? { tool_choice: { type: "function", function: { name: entry.applicationTool } } } : {}),
           };
 
-    let turn = await post(firstBody, entry.stream && !entry.applicationTool);
+    let turn = entry.applicationTool ? await post(firstBody, false) : await postProse(firstBody, entry.stream);
     let recordedBody: unknown = firstBody;
     if (entry.applicationTool && entry.endpoint === "chat") {
       if (!turn.response.ok) {
@@ -290,7 +355,7 @@ export async function runServ(
             ...proofMeta,
           }),
         );
-        return { ok: false, error: "SERV returned an error.", status: turn.response.status, proof, fallback: entry.fallback };
+        return { ok: false, error: "SERV returned an error.", status: turn.response.status, proof, fallback: entry.fallback, upstream: servErrorSummary(turn.payload) || null };
       }
       const call = toolCall(turn.payload);
       const matched = call?.name === entry.applicationTool ? call : null;
@@ -312,7 +377,7 @@ export async function runServ(
             ],
         tools: followTools,
       };
-      turn = await post(followBody, false);
+      turn = await postProse(followBody, false);
       recordedBody = { ...followBody, tools: toolsFor(entry, true) };
     }
 
@@ -337,6 +402,7 @@ export async function runServ(
         status: turn.response.status,
         proof,
         fallback: entry.fallback,
+        upstream: turn.response.ok ? null : servErrorSummary(turn.payload) || null,
       };
     }
     return { ok: true, text: turn.text, model: proof.modelReported, shadowOutcome: proof.shadowOutcome, rawStatus: turn.response.status, proof };
@@ -355,6 +421,6 @@ export async function runServ(
         ...proofMeta,
       }),
     );
-    return { ok: false, error: "SERV did not respond.", status: 0, proof, fallback: entry.fallback };
+    return { ok: false, error: "SERV did not respond.", status: 0, proof, fallback: entry.fallback, upstream: null };
   }
 }
