@@ -6,6 +6,8 @@ import { balanceOf, spendCredit, userId } from "@/server/session";
 import { persistReport } from "@/io/persist-report";
 
 export const dynamic = "force-dynamic";
+/** Listings, government data, then a rules call and a two-step explanation. Hobby allows 60s. */
+export const maxDuration = 60;
 
 export async function POST(request: Request) {
   const body = (await request.json().catch(() => null)) as Record<string, unknown> | null;

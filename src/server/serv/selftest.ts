@@ -1,4 +1,11 @@
 import { profile, PROFILES, type ProfileId } from "./profiles";
+import { runServ, type ServDeps, type ServResult } from "./run";
+
+/** Hobby serverless functions stop at 60s. Parallel checks must finish inside that. */
+export const HOBBY_FUNCTION_MS = 60_000;
+
+const CHEAP_USER = "2016 Toyota Camry.";
+const CHEAP_FACTS = { year: 2016, make: "Toyota", model: "Camry", priceUsd: 12000, miles: 80000, compCount: 4, profitMidUsd: 500 };
 
 /** One profile per distinct request shape: endpoint, suffix, tools, schema, stream, effort, tool, shadow cap. */
 export function distinctSelftestProfiles(): ProfileId[] {
@@ -21,4 +28,61 @@ export function distinctSelftestProfiles(): ProfileId[] {
     ids.push(id);
   }
   return ids;
+}
+
+/** Worst-case wall clock when every shape runs at once. A figure-reading profile makes two requests. */
+export function selftestWallClockMs(ids = distinctSelftestProfiles()): number {
+  return Math.max(
+    ...ids.map((id) => {
+      const entry = profile(id);
+      const rounds = entry.applicationTool && entry.endpoint === "chat" ? 2 : 1;
+      return entry.timeoutMs * rounds;
+    }),
+    0,
+  );
+}
+
+export type SelftestCheck = {
+  profile: ProfileId;
+  ok: boolean;
+  latencyMs: number;
+  timeoutMs: number;
+  withinTimeout: boolean;
+  status: number;
+  guardAccepted: boolean | null;
+  shadowAccepted: boolean | null;
+  suffixAccepted: boolean | null;
+  error: string | null;
+};
+
+export async function runSelftestChecks(
+  opts: { apiKey: string; model?: string; baseUrl?: string },
+  run: (id: ProfileId, input: { user: string; facts?: unknown }, deps: ServDeps) => Promise<ServResult> = runServ,
+): Promise<SelftestCheck[]> {
+  return Promise.all(
+    distinctSelftestProfiles().map(async (id) => {
+      const entry = profile(id);
+      const started = Date.now();
+      const result = await run(id, { user: CHEAP_USER, facts: CHEAP_FACTS }, {
+        apiKey: opts.apiKey,
+        model: opts.model,
+        baseUrl: opts.baseUrl,
+      });
+      const latencyMs = Date.now() - started;
+      const status = result.ok ? result.rawStatus : result.status;
+      const accepted = status !== 400 && status !== 403 && status !== 0;
+      return {
+        profile: id,
+        ok: result.ok,
+        latencyMs,
+        timeoutMs: entry.timeoutMs,
+        withinTimeout: latencyMs < entry.timeoutMs,
+        status,
+        guardAccepted: entry.tools.includes("prompt_guard") ? accepted : null,
+        shadowAccepted: entry.tools.includes("shadow") ? accepted : null,
+        suffixAccepted: entry.feature === "none" ? null : accepted,
+        error: result.ok ? null : result.error,
+      };
+    }),
+  );
 }

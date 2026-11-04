@@ -171,7 +171,7 @@ export const PROFILES = {
     reason: "These are procedural rules. Kronos audits that prompt. The prose is checked for new numbers and dropped if it fails.",
     feature: "kronos",
     tools: ["prompt_guard"],
-    timeoutMs: 12_000,
+    timeoutMs: 15_000,
     fallback: "The rules check was unavailable. The figures below were calculated by the site.",
     system: rulesSystem,
     reasoningEffort: "medium",
@@ -205,7 +205,7 @@ export const PROFILES = {
     tools: ["prompt_guard", "shadow"],
     shadowHint: REPORT_SHADOW_HINT,
     shadowMaxIterations: 3,
-    timeoutMs: 12_000,
+    timeoutMs: 15_000,
     fallback: "explanation unavailable",
     system: explainSystem,
     reasoningEffort: "low",
@@ -240,7 +240,7 @@ export const PROFILES = {
     tools: ["prompt_guard", "shadow"],
     shadowHint: AGENT_SHADOW_HINT,
     shadowMaxIterations: 3,
-    timeoutMs: 12_000,
+    timeoutMs: 15_000,
     fallback: "explanation unavailable",
     system: explainSystem,
     reasoningEffort: "low",
@@ -275,7 +275,7 @@ export const PROFILES = {
     tools: ["prompt_guard", "shadow"],
     shadowHint: PERSONAL_SHADOW_HINT,
     shadowMaxIterations: SHADOW_MAX_ITERATIONS,
-    timeoutMs: 8_000,
+    timeoutMs: 15_000,
     fallback: "explanation unavailable",
     system:
       "You check a one-sentence car alert. Repeat it only if every number already appears in the facts. Separate facts from estimates. Name what still needs checking. Do not add a number. Two sentences at most.",
@@ -294,7 +294,7 @@ export const PROFILES = {
     tools: ["prompt_guard", "shadow"],
     shadowHint: FLIP_RULES_HINT,
     shadowMaxIterations: SHADOW_MAX_ITERATIONS,
-    timeoutMs: 8_000,
+    timeoutMs: 15_000,
     fallback: "explanation unavailable",
     system: [
       "Apply the flip feasibility rules to facts that code already scored. Do not recalculate profit.",
@@ -318,7 +318,7 @@ export const PROFILES = {
     tools: ["prompt_guard", "shadow"],
     shadowHint: FLIP_SHADOW_HINT,
     shadowMaxIterations: SHADOW_MAX_ITERATIONS,
-    timeoutMs: 8_000,
+    timeoutMs: 15_000,
     fallback: "explanation unavailable",
     system: [
       "You judge flip candidates that code already scored. You do not recalculate profit.",
@@ -362,7 +362,7 @@ export const PROFILES = {
     reason: "The reply is prose with no second pass, so it can stream. A second pass cannot run on a stream.",
     feature: "none",
     tools: ["prompt_guard"],
-    timeoutMs: 8_000,
+    timeoutMs: 15_000,
     fallback: CONNECT_HELP,
     system:
       "You reply in Telegram about connecting AutoFlip Deal Radar alerts. Say that the reader opens Deal Radar, chooses Connect Telegram, and that a full report costs 1 credit. Do not invent prices or other features. Two sentences.",
@@ -379,6 +379,12 @@ export type ProfileId = keyof typeof PROFILES;
 
 export function profile(id: ProfileId): ServProfile {
   return PROFILES[id];
+}
+
+/** Never longer than the profile, the caller's remaining budget, or an explicit ceiling. */
+export function servBudget(id: ProfileId, remainMs: number, ceilingMs = Number.POSITIVE_INFINITY): number {
+  if (!Number.isFinite(remainMs) || remainMs <= 0) return 0;
+  return Math.max(0, Math.min(profile(id).timeoutMs, ceilingMs, Math.floor(remainMs)));
 }
 
 export function modelFor(id: ProfileId, requested = BASE_MODEL): string {

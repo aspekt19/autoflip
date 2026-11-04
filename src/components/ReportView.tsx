@@ -105,6 +105,9 @@ export function ReportView({ report }: { report: FullReport }) {
       <div className="split" style={{ marginTop: 36 }}>
         <section>
           <h2>Plain-English read</h2>
+          {report.proof.explanationSource === "unavailable" ? (
+            <p className="hint">The written check did not finish. This verdict is calculated from the listing figures.</p>
+          ) : null}
           <p>{report.explanation}</p>
           <h3>Why this verdict</h3>
           <ul className="refuse">
