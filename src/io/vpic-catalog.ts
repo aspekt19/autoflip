@@ -1,38 +1,14 @@
-import { FALLBACK_MAKES, FALLBACK_MODELS, autoDevMake, parseVpicMakes, parseVpicModels } from "@/domain/vehicle-names";
+import { FALLBACK_MODELS, autoDevMake, isPassengerModel, mainstreamMakes, parseVpicModels } from "@/domain/vehicle-names";
 import { TtlCache } from "./cache";
 
 const DAY = 24 * 60 * 60 * 1000;
 const cache = new TtlCache<string[]>(DAY);
 
-const MAKES_URLS = [
-  "https://vpic.nhtsa.dot.gov/api/vehicles/GetMakesForVehicleType/car?format=json",
-  "https://vpic.nhtsa.dot.gov/api/vehicles/GetMakesForVehicleType/mpv?format=json",
-];
-
 export type CatalogDeps = { fetch?: typeof fetch; now?: number };
 
-export async function catalogMakes(deps: CatalogDeps = {}): Promise<{ makes: string[]; source: "vpic" | "bundled" }> {
-  const hit = cache.get("makes", deps.now);
-  if (hit) return { makes: hit, source: "vpic" };
-  const fetchImpl = deps.fetch ?? fetch;
-  const merged = new Set<string>();
-  let any = false;
-  for (const url of MAKES_URLS) {
-    try {
-      const response = await fetchImpl(url, { signal: AbortSignal.timeout(12_000) });
-      if (!response.ok) continue;
-      const names = parseVpicMakes(await response.json());
-      if (names.length === 0) continue;
-      any = true;
-      for (const name of names) merged.add(name);
-    } catch {
-      /* try the other vehicle type, then the bundled list */
-    }
-  }
-  if (!any) return { makes: [...FALLBACK_MAKES], source: "bundled" };
-  const makes = [...merged].sort((a, b) => a.localeCompare(b));
-  cache.set("makes", makes, deps.now);
-  return { makes, source: "vpic" };
+/** Curated makes. vPIC is not asked; its car list includes kit cars, buses, and replica builders. */
+export async function catalogMakes(_deps: CatalogDeps = {}): Promise<{ makes: string[]; source: "curated" }> {
+  return { makes: mainstreamMakes(), source: "curated" };
 }
 
 export async function catalogModels(
@@ -52,7 +28,9 @@ export async function catalogModels(
   try {
     const response = await (deps.fetch ?? fetch)(url, { signal: AbortSignal.timeout(12_000) });
     if (response.ok) {
-      const models = parseVpicModels(await response.json()).sort((a, b) => a.localeCompare(b));
+      const models = parseVpicModels(await response.json())
+        .filter(isPassengerModel)
+        .sort((a, b) => a.localeCompare(b, "en", { sensitivity: "base" }));
       if (models.length > 0) {
         cache.set(cacheKey, models, deps.now);
         return { models, source: "vpic" };
@@ -61,5 +39,5 @@ export async function catalogModels(
   } catch {
     /* bundled models below */
   }
-  return { models: FALLBACK_MODELS[canonical] ?? [], source: "bundled" };
+  return { models: (FALLBACK_MODELS[canonical] ?? []).filter(isPassengerModel), source: "bundled" };
 }

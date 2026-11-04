@@ -13,6 +13,7 @@ type Run = {
   listings: number;
   passed: number;
   filteredOut: number;
+  filterBreakdown?: string;
   alertsSent: number;
   autodevCalls: number;
   skippedDue: number;
@@ -62,6 +63,7 @@ export default function ActivityPage() {
               <li>
                 Listings {run.listings}, passed {run.passed}, filtered out {run.filteredOut}, alerts {run.alertsSent}, provider calls {run.autodevCalls}
               </li>
+              {run.filterBreakdown ? <li>Filtered out: {run.filterBreakdown}</li> : null}
               {(run.steps ?? []).map((step) => (
                 <li key={step.id}>
                   {step.id}: {step.status}

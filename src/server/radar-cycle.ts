@@ -1,14 +1,17 @@
 import { randomUUID } from "node:crypto";
 import { ASSUMPTIONS } from "@/domain/assumptions";
 import {
-  criteriaKey,
+  formatFilterBreakdown,
   groupByCriteria,
+  hardReject,
   intervalHours,
   isDue,
   marketBand,
   mergeSeen,
   prefilterListing,
   rankPasses,
+  seenStorageKey,
+  tallyReason,
   toListingsQuery,
   unseenListings,
   type SavedSearch,
@@ -24,6 +27,7 @@ import { reserveRadarCall } from "@/io/persistent-quota";
 import { buildAlertReviewRequest, buildGuardRequest, interpretGuard, postServ } from "@/io/serv";
 import { alertMessage } from "@/io/telegram";
 import type { ComputedReport, Listing } from "@/domain/types";
+import { syncPresetSearches } from "@/domain/demo-presets";
 import { listSearches, upsertRun, saveAlerts, saveSearches, seenVins, storeSeen, telegramChat, type StoredRun, listAlerts } from "./radar-store";
 
 /** Stay under the 60s Hobby limit so the log write still happens. */
@@ -69,6 +73,7 @@ export async function runRadarCycle(deps: CycleDeps): Promise<StoredRun> {
   let alertsSent = 0;
   let autodevCalls = 0;
   let skippedDue = 0;
+  let filterBreakdown = "";
   let hours = 3;
   let uniqueSearches = 0;
   let promptGuard = "not_started";
@@ -83,10 +88,30 @@ export async function runRadarCycle(deps: CycleDeps): Promise<StoredRun> {
   };
 
   const snapshot = () =>
-    finish(deps, runId, startedAt, hours, uniqueSearches, listings, passed, filteredOut, alertsSent, autodevCalls, skippedDue, notes, steps, promptGuard, shadow, payment);
+    finish(
+      deps,
+      runId,
+      startedAt,
+      hours,
+      uniqueSearches,
+      listings,
+      passed,
+      filteredOut,
+      filterBreakdown,
+      alertsSent,
+      autodevCalls,
+      skippedDue,
+      notes,
+      steps,
+      promptGuard,
+      shadow,
+      payment,
+    );
 
   try {
-    const searches = (await listSearches(deps.kv)).filter((item) => item.enabled);
+    const synced = syncPresetSearches(await listSearches(deps.kv), deps.now.toISOString());
+    if (synced.changed) await saveSearches(deps.kv, synced.searches);
+    const searches = synced.searches.filter((item) => item.enabled);
     const groups = groupByCriteria(searches);
     uniqueSearches = groups.size;
     hours = intervalHours(groups.size || 1);
@@ -137,13 +162,12 @@ export async function runRadarCycle(deps: CycleDeps): Promise<StoredRun> {
       due.map(async (job) => {
         const url = listingsSearchUrl(toListingsQuery(job.group[0]!.criteria));
         const result = await fetchListings(url, deps.autodevKey!, deps.fetchImpl, Math.min(limits.autodev, remain()));
-        if (!result.ok) return { ...job, listings: null as Listing[] | null, seen: new Set<string>(), error: result.message };
-        const seen = await seenVins(deps.kv, job.key);
-        await storeSeen(deps.kv, job.key, mergeSeen(seen, result.listings.map((item) => item.vin)));
-        return { ...job, listings: result.listings, seen, error: undefined as string | undefined };
+        if (!result.ok) return { ...job, listings: null as Listing[] | null, error: result.message };
+        return { ...job, listings: result.listings, error: undefined as string | undefined };
       }),
     );
 
+    const reasons = new Map<string, number>();
     let listingTimeouts = 0;
     for (const job of fetched) {
       if (!job.listings) {
@@ -153,20 +177,39 @@ export async function runRadarCycle(deps: CycleDeps): Promise<StoredRun> {
         continue;
       }
       listings += job.listings.length;
-      const fresh = unseenListings(job.listings, job.seen);
-      filteredOut += job.listings.length - fresh.length;
-      const band = marketBand(job.listings);
+      const criteria = job.group[0]!.criteria;
+      const eligible = job.listings.filter((listing) => hardReject(listing, criteria) === null);
+      const band = marketBand(eligible);
       for (const search of job.group) {
+        const storageKey = seenStorageKey(search.id, search.criteria);
+        const seen = await seenVins(deps.kv, storageKey);
+        const fresh = unseenListings(job.listings, seen);
+        tallyReason(reasons, "already seen", job.listings.length - fresh.length);
         const decisions = fresh.map((listing) => ({
           listing,
           decision: prefilterListing(listing, search.criteria, band, search.mode, deps.now.getUTCFullYear()),
         }));
+        const passedRows = decisions.filter((item) => item.decision.pass);
+        for (const item of decisions) {
+          if (!item.decision.pass) tallyReason(reasons, item.decision.reason);
+        }
         const winners = rankPasses(
-          decisions.flatMap((item) => (item.decision.pass ? [{ listing: item.listing, numbers: item.decision.numbers, why: item.decision.why }] : [])),
+          passedRows.flatMap((item) =>
+            item.decision.pass ? [{ listing: item.listing, numbers: item.decision.numbers, why: item.decision.why }] : [],
+          ),
         ).slice(0, ASSUMPTIONS.radarMaxAlertsPerSearch);
-        const passCount = decisions.filter((item) => item.decision.pass).length;
-        filteredOut += decisions.length - passCount;
-        passed += passCount;
+        const winnerVins = new Set(winners.map((winner) => winner.listing.vin));
+        tallyReason(reasons, "past the alert cap", passedRows.filter((item) => !winnerVins.has(item.listing.vin)).length);
+        filteredOut += decisions.length - passedRows.length;
+        passed += passedRows.length;
+        await storeSeen(
+          deps.kv,
+          storageKey,
+          mergeSeen(
+            seen,
+            passedRows.map((item) => item.listing.vin),
+          ),
+        );
         for (const winner of winners) {
           const alert = makeAlert(search, winner.listing, winner.why, winner.numbers, deps.now.toISOString());
           alerts.unshift(alert);
@@ -176,6 +219,7 @@ export async function runRadarCycle(deps: CycleDeps): Promise<StoredRun> {
         search.lastCheckedAt = deps.now.toISOString();
       }
     }
+    filterBreakdown = formatFilterBreakdown(reasons);
     steps.push({
       id: "listings",
       status: listingTimeouts > 0 ? "timeout" : "ok",
@@ -276,6 +320,7 @@ function finish(
   listings: number,
   passed: number,
   filteredOut: number,
+  filterBreakdown: string,
   alertsSent: number,
   autodevCalls: number,
   skippedDue: number,
@@ -296,6 +341,7 @@ function finish(
     listings,
     passed,
     filteredOut,
+    filterBreakdown,
     alertsSent,
     autodevCalls,
     skippedDue,
@@ -422,7 +468,7 @@ function fakeReport(numbers: WatchAlert["numbers"], why: string): ComputedReport
       : {
           resaleLowUsd: numbers.lowUsd,
           resaleMidUsd: numbers.medianUsd,
-          resaleHighUsd: numbers.medianUsd,
+          resaleHighUsd: numbers.highUsd,
           titleFeeUsd: 350,
           reconUsd: 600,
           sellFriction: 0.03,

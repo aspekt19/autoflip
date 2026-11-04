@@ -2,7 +2,7 @@ import { catalogMakes } from "@/io/vpic-catalog";
 
 export const dynamic = "force-dynamic";
 
-/** NHTSA vPIC only. This route does not call the listings provider. */
+/** Curated makes. This route does not call vPIC or the listings provider. */
 export async function GET() {
   const result = await catalogMakes();
   return Response.json(result, {

@@ -12,6 +12,7 @@ export type ListingQuery = {
   zip?: string;
   distanceMiles?: number;
   limit?: number;
+  sort?: string;
 };
 
 /**
