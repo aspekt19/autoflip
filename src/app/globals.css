@@ -149,42 +149,90 @@ nav a { text-decoration: none; font-weight: 500; }
 .hero {
   position: relative;
   overflow: hidden;
-  padding: 56px 0 36px;
+  padding: 56px 0 156px;
   background: var(--canvas);
   color: var(--ink);
 }
-.hero-wash { position: absolute; inset: 0; pointer-events: none; z-index: 0; }
-.orb {
+.hero-wash {
   position: absolute;
-  width: 48%;
-  aspect-ratio: 1;
-  border-radius: 50%;
-  filter: blur(46px);
-  opacity: 0.42;
+  inset: 0;
+  pointer-events: none;
+  z-index: 0;
+  overflow: hidden;
+  color: var(--ink);
 }
-.orb-y { right: -4%; top: 6%; background: #ffd60a; }
-.orb-b { right: 16%; bottom: -28%; width: 42%; background: #1f5bff; opacity: 0.26; }
-.flow {
+.hero-wash::after {
+  content: "";
   position: absolute;
-  inset: 8% 0 0;
-  width: 100%;
-  height: 88%;
-  mask-image: linear-gradient(to right, transparent 0%, #000 46%);
+  z-index: 1;
+  left: 0;
+  top: 0;
+  width: min(680px, 62%);
+  height: calc(100% - 148px);
+  background: linear-gradient(90deg, var(--canvas) 62%, transparent);
 }
-.flow path {
+.skyline {
+  position: absolute;
+  right: 0;
+  bottom: 78px;
+  width: min(760px, 68%);
+  height: auto;
+  opacity: 0.45;
+}
+.ping {
+  position: absolute;
+  left: 44%;
+  bottom: 96px;
+  width: 72px;
+  height: 72px;
+}
+.ping .ring {
   fill: none;
   stroke: #1f5bff;
-  stroke-width: 1.6;
-  stroke-linecap: round;
-  stroke-dasharray: 140 320;
-  opacity: 0.35;
+  stroke-width: 2;
+  transform-origin: 40px 40px;
+  opacity: 0.45;
 }
-.flow path:nth-child(2) { stroke: #ffd60a; stroke-width: 2.2; opacity: 0.55; }
+.tag {
+  position: absolute;
+  left: 6%;
+  bottom: 102px;
+  width: 52px;
+  height: auto;
+  color: var(--ink);
+}
+.lane {
+  position: absolute;
+  left: -8%;
+  right: -8%;
+  bottom: 28px;
+  height: 48px;
+  border-top: 2px solid color-mix(in srgb, var(--ink) 45%, transparent);
+  border-bottom: 2px solid color-mix(in srgb, var(--ink) 22%, transparent);
+  background: color-mix(in srgb, var(--manila) 55%, transparent);
+}
+.lane-dashes {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 50%;
+  height: 3px;
+  margin-top: -2px;
+  background: repeating-linear-gradient(90deg, #1f5bff 0 34px, transparent 34px 62px);
+  opacity: 0.75;
+}
+.drive-car {
+  position: absolute;
+  z-index: 2;
+  width: min(232px, 30vw);
+  height: auto;
+  left: 0;
+  bottom: 46px;
+  color: var(--ink);
+}
 @media (prefers-color-scheme: dark) {
-  .orb-y { opacity: 0.18; }
-  .orb-b { opacity: 0.32; }
-  .flow path { opacity: 0.45; }
-  .flow path:nth-child(2) { opacity: 0.4; }
+  .skyline { opacity: 0.4; }
+  .lane { background: color-mix(in srgb, var(--manila) 28%, transparent); }
 }
 .hero-grid {
   position: relative;
@@ -294,7 +342,16 @@ button:disabled, .action:disabled { opacity: 0.45; cursor: not-allowed; }
 .trace li:nth-child(1)::before { content: "1"; }
 .trace li:nth-child(2)::before { content: "2"; }
 .trace li:nth-child(3)::before { content: "3"; }
-.dossier figcaption { margin-top: 8px; color: var(--muted); font-size: 14px; }
+.dossier figcaption {
+  position: relative;
+  z-index: 1;
+  display: inline-block;
+  margin-top: 8px;
+  padding: 2px 8px 2px 0;
+  background: var(--canvas);
+  color: var(--muted);
+  font-size: 14px;
+}
 
 .band { padding: 72px 0; }
 .band.paper, .sub { background: var(--paper); }
@@ -331,6 +388,7 @@ button:disabled, .action:disabled { opacity: 0.45; cursor: not-allowed; }
 .field legend, .field label { font-family: var(--sans); font-weight: 700; }
 .field legend { margin-bottom: 8px; }
 .field > label, .field label.block { display: block; margin-bottom: 6px; }
+.field select { margin-top: 8px; }
 .pills { display: flex; flex-wrap: wrap; gap: 8px; }
 .pill {
   display: inline-flex;
@@ -467,20 +525,30 @@ pre.doc {
 .foot-links a { font-weight: 700; text-decoration: none; }
 
 @media (prefers-reduced-motion: no-preference) {
-  .orb-y { animation: drift-y 24s ease-in-out infinite alternate; }
-  .orb-b { animation: drift-b 30s ease-in-out infinite alternate; }
-  .flow path { animation: flow 22s linear infinite; }
+  .skyline { animation: drift-sky 26s ease-in-out infinite alternate; }
+  .lane-dashes { animation: march 1.1s linear infinite; }
+  .drive-car { animation: drive 16s linear infinite; }
+  .wheel { transform-box: fill-box; transform-origin: center; animation: spin 0.7s linear infinite; }
+  .tag { animation: bob 5.5s ease-in-out infinite alternate; }
+  .ping .ring { animation: ping 2.8s ease-out infinite; }
+  .ping .ring-2 { animation-delay: 0.9s; }
   .verdict-level { animation: enter 0.6s var(--ease) both; }
 }
-@keyframes drift-y { from { transform: translate3d(0, 0, 0); } to { transform: translate3d(-8%, 10%, 0); } }
-@keyframes drift-b { from { transform: translate3d(0, 0, 0); } to { transform: translate3d(6%, -8%, 0); } }
-@keyframes flow { to { stroke-dashoffset: -460; } }
+@keyframes drift-sky { from { transform: translate3d(0, 0, 0); } to { transform: translate3d(-4%, 0, 0); } }
+@keyframes march { to { background-position: -62px 0; } }
+@keyframes drive { from { transform: translate3d(-18vw, 0, 0); } to { transform: translate3d(92vw, 0, 0); } }
+@keyframes spin { to { transform: rotate(360deg); } }
+@keyframes bob { from { transform: translateY(0) rotate(-8deg); } to { transform: translateY(10px) rotate(-2deg); } }
+@keyframes ping {
+  from { transform: scale(0.55); opacity: 0.7; }
+  to { transform: scale(1.45); opacity: 0; }
+}
 @keyframes enter { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: none; } }
 
 @media (max-width: 900px) {
   :root { --pad: 18px; }
   .hero-grid, .split, .pair, .facts-row, .prices, .radar-row { grid-template-columns: 1fr; }
-  .hero { padding-top: 28px; }
+  .hero { padding-top: 28px; padding-bottom: 108px; }
   h1 { max-width: none; }
   nav a:not(.nav-go) { display: none; }
   .brand img { height: 34px; width: 34px; }
@@ -489,10 +557,18 @@ pre.doc {
   .radar-row img, .photo-fallback { width: 100%; height: 180px; }
   .row-actions { justify-content: flex-start; }
   .path li { grid-template-columns: 48px 1fr; }
+  .hero-wash::after { width: 100%; height: calc(100% - 96px); background: linear-gradient(180deg, var(--canvas) 0 78%, transparent); }
+  .skyline { width: 100%; bottom: 64px; opacity: 0.35; }
+  .tag { left: auto; right: 16px; bottom: 78px; width: 40px; }
+  .ping { display: none; }
+  .lane { bottom: 18px; height: 36px; }
+  .drive-car { width: 132px; bottom: 32px; }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .orb, .flow path, .verdict-level { animation: none; }
+  .skyline, .lane-dashes, .drive-car, .wheel, .tag, .ping .ring, .verdict-level { animation: none; }
+  .drive-car { transform: translate3d(28vw, 0, 0); }
+  .ping .ring { opacity: 0.35; }
 }
 
 @media (forced-colors: active) {

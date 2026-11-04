@@ -141,6 +141,8 @@ The shared preview is `/demo?key=$DEMO_ACCESS_KEY`. It signs every visitor in as
 
 One radar check is one `GET /listings` with `limit=20`. The listings product page says the Free plan clamps `limit` to 20 (Growth 100, Scale 500). The reference page still says the default is 100 and that the per-plan cap “will be enforced in a future release.” Requesting 20 stays inside both descriptions. Free plan is 1,000 calls/month and 5 requests/second.
 
+Make and model menus come from NHTSA vPIC (`GetMakesForVehicleType` for car and MPV, then `GetModelsForMake` or `GetModelsForMakeYear`). Those calls are cached for a day and never use the listings quota. vPIC returns makes in uppercase (`TOYOTA`, `MERCEDES-BENZ`); the app stores the spelling Auto.dev expects (`Toyota`, `Mercedes-Benz`, `RAV4`, `CR-V`, `F-150`). Any model leaves `vehicle.model` off the request. A year range is optional.
+
 Server-side filters used here: `vehicle.make`, `vehicle.model`, `vehicle.bodyStyle`, `vehicle.year` (`2014-2019`), `retailListing.price` (`1-18000`), `retailListing.miles` (`0-120000`), `retailListing.used`, `zip`, and `distance`. Comma means OR and a dash is an inclusive range. Priorities such as “family” or “minor repairs” are not API filters. They stay on the saved search and are not sent.
 
 This environment had no `AUTODEV_API_KEY`, so the presets were not executed against live inventory. The first scheduled run records the real count. An empty result is logged and is not filled with sample cars.

@@ -387,13 +387,26 @@ async function resolveSubject(
 }
 
 export async function assembleRadar(
-  input: { make: string; model: string; zip?: string; year?: number; distanceMiles?: number; mode: Mode },
+  input: {
+    make: string;
+    model?: string;
+    zip?: string;
+    year?: number;
+    yearMin?: number;
+    yearMax?: number;
+    distanceMiles?: number;
+    mode: Mode;
+  },
   deps: AssembleDeps,
 ): Promise<
   | { ok: true; listings: Listing[]; sample: boolean; message: string | null }
   | { ok: false; status: number; error: string; message: string }
 > {
-  const screened = screenUserInput([input.make, input.model, input.zip, input.year?.toString()].filter(Boolean).join(" "));
+  const screened = screenUserInput(
+    [input.make, input.model, input.zip, input.year?.toString(), input.yearMin?.toString(), input.yearMax?.toString()]
+      .filter(Boolean)
+      .join(" "),
+  );
   if (!screened.ok) return { ok: false, status: 400, error: "rejected_input", message: screened.reason };
   if (deps.servKey) {
     const model = deps.servModel || process.env.SERV_MODEL || "gpt-5.4-mini";
@@ -414,8 +427,8 @@ export async function assembleRadar(
       };
     }
   }
-  if (!input.make.trim() || !input.model.trim()) {
-    return { ok: false, status: 400, error: "make_model_required", message: "Enter a make and a model." };
+  if (!input.make.trim()) {
+    return { ok: false, status: 400, error: "make_required", message: "Choose a make." };
   }
   if (!deps.autodevKey || !deps.autodev) {
     return {
@@ -427,11 +440,12 @@ export async function assembleRadar(
     };
   }
   const fetchImpl = deps.fetch ?? fetch;
+  const years = yearQuery(input);
   const search = await autodevSearch(
     {
       make: input.make.trim(),
-      model: input.model.trim(),
-      year: input.year,
+      model: input.model?.trim() || undefined,
+      ...years,
       zip: input.zip,
       distanceMiles: input.distanceMiles ?? (input.zip ? 100 : undefined),
       limit: 20,
@@ -458,4 +472,17 @@ export async function assembleRadar(
     sample: false,
     message: search.listings.length === 0 ? "No listings came back for that search." : null,
   };
+}
+
+function yearQuery(input: { year?: number; yearMin?: number; yearMax?: number }): { year?: number; yearRange?: string } {
+  const min = input.yearMin ?? input.year;
+  const max = input.yearMax ?? (input.yearMin ? undefined : input.year);
+  if (min && max) {
+    const low = Math.min(min, max);
+    const high = Math.max(min, max);
+    return low === high ? { year: low } : { yearRange: `${low}-${high}` };
+  }
+  if (min) return { year: min };
+  if (max) return { year: max };
+  return {};
 }

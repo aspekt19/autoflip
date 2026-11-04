@@ -2,7 +2,8 @@
 
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { Suspense, useEffect, useState } from "react";
+import { Suspense, useEffect, useState, type FormEvent } from "react";
+import { MakeModelFields } from "@/components/MakeModelFields";
 import { SearchPanel } from "@/components/SearchPanel";
 import { formatNumber, formatUsd, verdictLabel } from "@/domain/format";
 import type { Mode } from "@/domain/types";
@@ -30,7 +31,8 @@ function RadarInner() {
   const make = params.get("make") ?? "";
   const model = params.get("model") ?? "";
   const zip = params.get("zip") ?? "";
-  const year = params.get("year") ?? "";
+  const yearMin = params.get("yearMin") ?? params.get("year") ?? "";
+  const yearMax = params.get("yearMax") ?? params.get("year") ?? "";
   const mode = (params.get("mode") === "flip" ? "flip" : "personal") as Mode;
   const [rows, setRows] = useState<Row[] | null>(null);
   const [message, setMessage] = useState<string | null>(null);
@@ -60,8 +62,8 @@ function RadarInner() {
   }, []);
 
   useEffect(() => {
-    if (!feedReady || demo || !make || !model) {
-      if (!make || !model) setRows(null);
+    if (!feedReady || demo || !make) {
+      if (!make) setRows(null);
       return;
     }
     let cancelled = false;
@@ -72,9 +74,10 @@ function RadarInner() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         make,
-        model,
+        model: model || undefined,
         zip: zip || undefined,
-        year: year ? Number(year) : undefined,
+        yearMin: yearMin ? Number(yearMin) : undefined,
+        yearMax: yearMax ? Number(yearMax) : undefined,
         mode,
       }),
     })
@@ -96,7 +99,7 @@ function RadarInner() {
     return () => {
       cancelled = true;
     };
-  }, [feedReady, demo, make, model, zip, year, mode]);
+  }, [feedReady, demo, make, model, zip, yearMin, yearMax, mode]);
 
   async function openReport(vin: string, reportMode: Mode = mode) {
     setBusyVin(vin);
@@ -105,7 +108,12 @@ function RadarInner() {
       const response = await fetch("/api/report", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ mode: reportMode, vin, zip: zip || undefined, year: year ? Number(year) : undefined }),
+        body: JSON.stringify({
+          mode: reportMode,
+          vin,
+          zip: zip || undefined,
+          year: yearMin && yearMin === yearMax ? Number(yearMin) : undefined,
+        }),
       });
       const body = (await response.json()) as { id?: string; message?: string; error?: string };
       if (response.status === 403 && body.error === "credits_required") {
@@ -196,6 +204,11 @@ function RadarInner() {
             </li>
           ))}
         </ul>
+        {!demo || !searches.some((search) => !search.preset) ? (
+          <SaveSearchForm onSaved={() => void loadFeed()} />
+        ) : (
+          <p className="hint">The shared preview already has its one extra saved search.</p>
+        )}
         <h2>Alerts</h2>
         {alerts.length === 0 ? <p>No alerts yet. A scheduled check has not produced a new listing that passed the filter.</p> : null}
         <div className="radar-list">
@@ -228,7 +241,7 @@ function RadarInner() {
           <>
             <h2>One-time scan</h2>
             <p className="hint">This scan is not saved and does not alert you later.</p>
-            <SearchPanel initial={{ make, model, zip, year, mode }} />
+            <SearchPanel initial={{ make, model, zip, yearMin, yearMax, mode }} />
           </>
         )}
         {sample ? (
@@ -238,8 +251,8 @@ function RadarInner() {
         ) : null}
         {!sample && message ? <p className="warn-box">{message}</p> : null}
         {error ? <p className="warn">{error}</p> : null}
-        {!make || !model ? <p>Enter a make and model to scan.</p> : null}
-        {make && model && rows === null && !error ? <p>Scanning…</p> : null}
+        {!make ? <p>Choose a make to scan. Any model is allowed.</p> : null}
+        {make && rows === null && !error ? <p>Scanning…</p> : null}
         <div className="radar-list">
           {(rows ?? []).map((row) => (
             <article className="radar-row" key={row.vin}>
@@ -279,6 +292,115 @@ function RadarInner() {
         </p>
       </div>
     </div>
+  );
+}
+
+function SaveSearchForm({ onSaved }: { onSaved: () => void }) {
+  const [name, setName] = useState("Saved search");
+  const [searchMode, setSearchMode] = useState<Mode>("personal");
+  const [make, setMake] = useState("");
+  const [model, setModel] = useState("");
+  const [yearMin, setYearMin] = useState("");
+  const [yearMax, setYearMax] = useState("");
+  const [priceMax, setPriceMax] = useState("18000");
+  const [zip, setZip] = useState("");
+  const [radius, setRadius] = useState("50");
+  const [error, setError] = useState<string | null>(null);
+  const [pending, setPending] = useState(false);
+
+  async function submit(event: FormEvent) {
+    event.preventDefault();
+    setError(null);
+    if (!make) {
+      setError("Choose a make. Any model is allowed.");
+      return;
+    }
+    if (!zip.trim() || !Number(priceMax)) {
+      setError("Add a ZIP and a maximum price.");
+      return;
+    }
+    setPending(true);
+    try {
+      const response = await fetch("/api/radar/searches", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name,
+          mode: searchMode,
+          criteria: {
+            make,
+            model: model || undefined,
+            yearMin: yearMin ? Number(yearMin) : undefined,
+            yearMax: yearMax ? Number(yearMax) : undefined,
+            priceMax: Number(priceMax),
+            zip: zip.trim(),
+            radiusMiles: Number(radius) || 50,
+            minProfitUsd: searchMode === "flip" ? 1500 : undefined,
+          },
+        }),
+      });
+      const body = (await response.json()) as { message?: string };
+      if (!response.ok) {
+        setError(body.message || "The search was not saved.");
+        return;
+      }
+      onSaved();
+    } catch {
+      setError("The search was not saved.");
+    } finally {
+      setPending(false);
+    }
+  }
+
+  return (
+    <form className="panel" onSubmit={submit}>
+      <h2>Save a search</h2>
+      <div className="field">
+        <label htmlFor="search-name">Name</label>
+        <input id="search-name" value={name} onChange={(event) => setName(event.target.value)} />
+      </div>
+      <fieldset className="field">
+        <legend>Mode</legend>
+        <div className="pills">
+          <label className="pill">
+            <input type="radio" name="search-mode" checked={searchMode === "personal"} onChange={() => setSearchMode("personal")} />
+            Drive it
+          </label>
+          <label className="pill">
+            <input type="radio" name="search-mode" checked={searchMode === "flip"} onChange={() => setSearchMode("flip")} />
+            Flip it
+          </label>
+        </div>
+      </fieldset>
+      <MakeModelFields
+        make={make}
+        model={model}
+        yearMin={yearMin}
+        yearMax={yearMax}
+        onMake={setMake}
+        onModel={setModel}
+        onYearMin={setYearMin}
+        onYearMax={setYearMax}
+      />
+      <div className="pair">
+        <div className="field">
+          <label htmlFor="search-price">Maximum price</label>
+          <input id="search-price" inputMode="numeric" value={priceMax} onChange={(event) => setPriceMax(event.target.value)} />
+        </div>
+        <div className="field">
+          <label htmlFor="search-zip">ZIP</label>
+          <input id="search-zip" inputMode="numeric" autoComplete="postal-code" value={zip} onChange={(event) => setZip(event.target.value)} />
+        </div>
+      </div>
+      <div className="field">
+        <label htmlFor="search-radius">Radius in miles</label>
+        <input id="search-radius" inputMode="numeric" value={radius} onChange={(event) => setRadius(event.target.value)} />
+      </div>
+      <button className="action" type="submit" disabled={pending}>
+        {pending ? "Saving…" : "Save search"}
+      </button>
+      {error ? <p className="warn">{error}</p> : null}
+    </form>
   );
 }
 

@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type { WatchCriteria } from "@/domain/radar-watch";
+import { autoDevMake, autoDevModel } from "@/domain/vehicle-names";
 import { getKv } from "@/io/kv";
 import { listSearches, saveSearches } from "@/server/radar-store";
 import { isDemoUser, userId } from "@/server/session";
@@ -31,8 +32,8 @@ export async function POST(request: Request) {
     name: (body?.name || "Saved search").slice(0, 80),
     mode: body?.mode === "flip" ? "flip" : "personal",
     criteria: {
-      make: criteria.make,
-      model: criteria.model,
+      make: criteria.make ? autoDevMake(criteria.make) : undefined,
+      model: criteria.model ? autoDevModel(criteria.model) : undefined,
       bodyStyle: criteria.bodyStyle,
       yearMin: criteria.yearMin,
       yearMax: criteria.yearMax,

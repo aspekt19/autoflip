@@ -5,11 +5,39 @@ export default function HomePage() {
     <>
       <section className="hero">
         <div className="hero-wash" aria-hidden="true">
-          <span className="orb orb-y" />
-          <span className="orb orb-b" />
-          <svg className="flow" viewBox="0 0 800 520" preserveAspectRatio="none">
-            <path d="M-40 420 C 140 390, 200 210, 340 230 S 560 420, 860 160" />
-            <path d="M-40 300 C 180 270, 250 90, 420 140 S 620 300, 860 70" />
+          <svg className="skyline" viewBox="0 0 760 150" preserveAspectRatio="xMaxYMax meet">
+            <path
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              d="M8 150V72H36V44H62V72H98V22H124V72H160V88H198V150M220 150V60H248V28H270V60H308V12H334V60H372V80H410V150M432 150V66H458V34H484V66H526V16H552V66H590V92H628V150"
+            />
+          </svg>
+          <svg className="ping" viewBox="0 0 80 80">
+            <circle cx="40" cy="40" r="5" fill="#1f5bff" />
+            <circle className="ring" cx="40" cy="40" r="16" />
+            <circle className="ring ring-2" cx="40" cy="40" r="28" />
+          </svg>
+          <svg className="tag" viewBox="0 0 72 48">
+            <path d="M6 8h36l22 16-22 16H6V8z" fill="#ffd60a" stroke="currentColor" strokeWidth="2" />
+            <circle cx="18" cy="24" r="3" fill="currentColor" />
+          </svg>
+          <div className="lane">
+            <span className="lane-dashes" />
+          </div>
+          <svg className="drive-car" viewBox="0 0 228 78">
+            <path d="M14 54h48l22-20h58l18 20h52" fill="none" stroke="currentColor" strokeWidth="2.6" strokeLinejoin="round" />
+            <path d="M84 34l12-16h42l14 16" fill="none" stroke="currentColor" strokeWidth="2.6" strokeLinejoin="round" />
+            <path d="M100 20h34l10 12H96V20z" fill="#ffd60a" stroke="currentColor" strokeWidth="2" />
+            <path d="M186 42h16" stroke="#ffd60a" strokeWidth="4" strokeLinecap="round" />
+            <g className="wheel">
+              <circle cx="62" cy="56" r="13" fill="var(--canvas)" stroke="currentColor" strokeWidth="2.6" />
+              <circle cx="62" cy="56" r="4" fill="#1f5bff" />
+            </g>
+            <g className="wheel wheel-rear">
+              <circle cx="176" cy="56" r="13" fill="var(--canvas)" stroke="currentColor" strokeWidth="2.6" />
+              <circle cx="176" cy="56" r="4" fill="#1f5bff" />
+            </g>
           </svg>
         </div>
         <div className="hero-grid">
