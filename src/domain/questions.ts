@@ -41,6 +41,7 @@ export function dealerQuestions(input: {
 export function buildFlags(input: {
   listing: Listing;
   recalls: RecallRecord[];
+  recallsAvailable?: boolean;
   parkIt: boolean;
   complaintCount: number | null;
   priceGap: number | null;
@@ -60,6 +61,13 @@ export function buildFlags(input: {
       level: "note",
       source: "listing",
       text: `The last stored listing is marked removed at ${input.removedAt}. It may already be gone.`,
+    });
+  }
+  if (input.recallsAvailable === false) {
+    flags.push({
+      level: "note",
+      source: "nhtsa-recalls",
+      text: "NHTSA recall data was unavailable. No conclusion about model-year campaigns or this VIN's recall status can be drawn.",
     });
   }
   if (input.parkIt) {
