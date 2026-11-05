@@ -3,28 +3,41 @@
 import Link from "next/link";
 import { useState } from "react";
 import type { Mode } from "@/domain/types";
+import { FilmScrub } from "./FilmScrub";
 import { HomeSearch } from "./HomeSearch";
-import { Showroom } from "./Showroom";
 
 export function HomeStage() {
   const [mode, setMode] = useState<Mode>("personal");
 
   return (
     <div className="home-story">
-      <Showroom mode={mode} />
-      <p className="wordmark">AutoFlip</p>
-      <section className="story-panel story-hero">
-        <p className="kicker">One car, two goals</p>
-        <h1>Describe the car you need</h1>
-        <p className="lead">
-          Buy it for yourself, or buy it to resell. We rate the price against other listings, show the math, and leave the gaps in view. The same full analysis is 1 credit here, or from your own agent.
-        </p>
-        <HomeSearch onModeChange={setMode} />
-        <p className="sample-link">
-          <Link href="/report/sample">See a sample report</Link>
-          <span> (labeled sample, no credit)</span>
-        </p>
-        <p className="showroom-credit">Studio model: Kenney Car Kit, CC0. Lighting: Poly Haven, CC0. Photo when the model is off: Charlie Deets, Pexels. Not a car for sale.</p>
+      <section className="film-pin">
+        <div className="film-sticky">
+          <div className="film-stage">
+            <img className="film-poster" src="/frames/poster.jpg" alt="" width={1280} height={720} />
+            <FilmScrub mode={mode} />
+          </div>
+          <div className="film-sheet">
+            <p className="wordmark">AutoFlip</p>
+            <div className="film-grid">
+              <div>
+                <p className="kicker">One car, two goals</p>
+                <h1>Describe the car you need</h1>
+                <p className="lead">
+                  Buy it for yourself, or buy it to resell. We rate the price against other listings, show the math, and leave the gaps in view. The same full analysis is 1 credit here, or from your own agent.
+                </p>
+              </div>
+              <div>
+                <HomeSearch onModeChange={setMode} />
+                <p className="sample-link">
+                  <Link href="/report/sample">See a sample report</Link>
+                  <span> (labeled sample, no credit)</span>
+                </p>
+                <p className="showroom-credit">Film: Mixkit, red sports car side view, free license. Not a car for sale.</p>
+              </div>
+            </div>
+          </div>
+        </div>
       </section>
       <div className="marquee" aria-hidden="true">
         <div className="marquee-track">
@@ -42,7 +55,7 @@ export function HomeStage() {
           <span>For agents</span>
         </div>
       </div>
-      <section className="story-panel reveal">
+      <section className="story-after reveal">
         <p className="kicker">How it works</p>
         <ol className="steps-3 story-steps">
           <li>
@@ -63,7 +76,7 @@ export function HomeStage() {
           <span>. Report credits and Deal Radar plans are separate.</span>
         </p>
       </section>
-      <section className="story-panel reveal trust-row story-trust" aria-label="How a verdict is built">
+      <section className="story-after trust-row story-trust reveal" aria-label="How a verdict is built">
         <article>
           <strong>The math is on the page</strong>
           <span>Price, comps, and the gap are calculated in code and shown.</span>

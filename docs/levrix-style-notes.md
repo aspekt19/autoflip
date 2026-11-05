@@ -24,13 +24,25 @@ Rebuilt here: the black field, the red action color, Orbitron for the wordmark a
 
 Rebuilt here: Big Shoulders for headlines, the floating capsule nav, the marquee, and scroll that moves one car through several home sections instead of swapping photographs. The accent on actions stays the LEVRIX red so the site has one action color.
 
-## Scroll choreography (this site)
+## Real-car shortlist
 
-The car and camera are driven with GSAP ScrollTrigger across `.home-story`. Progress turns the model and pulls the camera from a front three-quarter view toward a higher, tighter view. Choosing For me or For resale eases the camera sideways. Lenis smooths the wheel. Each route fades in. Reveals use a scroll-driven CSS timeline where the browser supports it.
+All six are filmed cars under the Mixkit Stock Video Free License (https://mixkit.co/license/modal/videoFree/): commercial use and modification are allowed, attribution is not required. Stills are `cand-1.jpg` through `cand-6.jpg`.
 
-The 3D scene is lazy, after first paint. The chat form is in the first HTML. A static Pexels photo covers the hero until the scene paints, and it stays on a phone, a low-power device, reduced motion, or when WebGL is missing.
+| Still | Clip | Why it was or was not used |
+|---|---|---|
+| cand-1 | [Red sports car side view](https://mixkit.co/free-stock-video/red-sports-car-side-view-50/) | Chosen. Dark garage, real paint, and the camera tracks along the body, so a scroll scrub moves. |
+| cand-2 | [Closeup of red sports car](https://mixkit.co/free-stock-video/closeup-of-red-sports-car-49/) | Dark and glossy, but the frame is only the bumper and a headlight. |
+| cand-3 | [Close up of red sports car](https://mixkit.co/free-stock-video/close-up-of-red-sports-car-63/) | Real paint, too tight (fuel door) to read as a whole car. |
+| cand-4 | [Parked red sports car](https://mixkit.co/free-stock-video/parked-red-sports-car-66/) | Whole car in a dark bay, little camera move. |
+| cand-5 | [BMW in a parking lot](https://mixkit.co/free-stock-video/bmw-in-a-parking-lot-3527/) | Real car, daylight, mostly a wheel. |
+| cand-6 | [Red sports car on a curvy road at dawn](https://mixkit.co/free-stock-video/a-red-sports-car-traveling-along-a-curvy-asphalt-road-52427/) | Real car, but small in a bright landscape. |
 
-## Model and light
+A rear-view white muscle car on Mixkit looked computer-rendered, so it was dropped.
 
-- Car: Kenney Car Kit `suv-luxury`, CC0, confirmed on https://kenney.nl/assets/car-kit (“Creative Commons CC0”). File `public/models/showroom-suv.glb`, meshopt, under 5 MB. Not a car for sale.
-- Light: Poly Haven `studio_small_03` 1k HDR, CC0, https://polyhaven.com/a/studio_small_03. File `public/hdri/studio.hdr`.
+## Scroll film (this site)
+
+The first 3D model was a CC0 Kenney SUV. On screen it read as a low-poly game asset, not the photoreal cars in the references. A photoreal `.glb` under a license that could be verified and kept small was not available, so the hero is a frame sequence instead.
+
+Source clip: Mixkit “Red sports car side view” (https://mixkit.co/free-stock-video/red-sports-car-side-view-50/), Stock Video Free License (https://mixkit.co/license/modal/videoFree/). Commercial use and modification are allowed. The shot is a close side pan of a real red sports car, which is nearer to the Ford and Project Cars references than a toy model.
+
+ffmpeg extracted 102 desktop WebP frames (1280px, 12 fps) and 68 phone frames (720px, 8 fps). A canvas in a pinned hero draws the frame GSAP ScrollTrigger selects. Phones use the lighter set and still scrub. Reduced motion holds the poster. Choosing For me or For resale eases the frame a few percent sideways. The form sits on a solid band under the picture, so the car does not run through the type or the later cards. The wordmark is a full word in that band, not a ghost clipped at the edge.
