@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { scoreRadar } from "@/domain/radar";
 import { getKv } from "@/io/kv";
 import { persistReport } from "@/io/persist-report";
-import { paymentHeader, paymentsConfigured, readX402Config, requirementsFor, verifyAndSettle } from "@/io/x402";
+import { paymentHeader, paymentsConfigured, readX402Config, requirementsFor, settlePayment, verifyPayment } from "@/io/x402";
 import { agentAccount, invalidKeyBody, reportCreditReady, reportPaymentBody, settleReportCredit } from "@/server/agent-access";
 import { agentReport } from "@/server/agent-report";
 import { assembleRadar, assembleReport } from "@/server/assemble";
@@ -118,20 +118,22 @@ export async function POST(request: Request) {
       const body = reportPaymentBody(resource, origin);
       return Response.json(toolError(id, body), { status: 402 });
     }
-    const settled = await verifyAndSettle(provided, requirementsFor(resource, config), {
+    const requirement = requirementsFor(resource, config);
+    const verified = await verifyPayment(provided, requirement, {
       fetch,
       facilitatorUrl: config.facilitatorUrl,
     });
-    if (!settled.ok) {
+    if (!verified.ok) {
       return Response.json(
         toolError(id, {
           error: "payment_rejected",
-          message: settled.error,
+          message: verified.error,
           next_action: "Create a new payment and retry, or send an API key.",
           proof: agentProof([plannedProof("agent_guard")], ["fairValueUsd", "priceGap"]),
         }),
       );
     }
+    // Verify funds first, but do not settle until the report has actually been built.
     const assembled = await assembleReport(
       { mode: parseMode(args.mode), vin: vin || undefined, url: url || undefined, zip: typeof args.zip === "string" ? args.zip : undefined },
       { ...runtimeDeps(), servSurface: "agent" },
@@ -141,8 +143,20 @@ export async function POST(request: Request) {
         toolError(id, {
           error: assembled.error,
           message: assembled.message,
-          txHash: settled.txHash,
           proof: agentProof([plannedProof("agent_guard"), plannedProof("check_rules"), plannedProof("agent_explain")], ["vin", "fairValueUsd", "priceGap"]),
+        }),
+      );
+    }
+    const settled = await settlePayment(verified.verified, requirement, {
+      fetch,
+      facilitatorUrl: config.facilitatorUrl,
+    });
+    if (!settled.ok) {
+      return Response.json(
+        toolError(id, {
+          error: "payment_rejected",
+          message: settled.error,
+          next_action: "Create a new payment and retry, or send an API key.",
         }),
       );
     }
