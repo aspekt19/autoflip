@@ -550,15 +550,17 @@ export async function previewListing(input: AssembleInput, deps: AssembleDeps) {
   const resolved = await resolveSubject(vin, input, deps, deps.fetch ?? fetch);
   if (!resolved.ok) return resolved.result;
   const subject = overlayStatedFacts(resolved.subject, input);
-  const recalls = await recallsFor(subject.make, subject.model, subject.year, { fetch: deps.fetch ?? fetch });
+  const recallLookup = await recallsFor(subject.make, subject.model, subject.year, { fetch: deps.fetch ?? fetch });
   const badge = priceBadge(subject, resolved.candidates);
-  const open = recalls.length;
-  const park = recalls.some((item) => item.parkIt || item.parkOutSide);
+  const campaignCount = recallLookup.records.length;
+  const park = recallLookup.records.some((item) => item.parkIt || item.parkOutSide);
   const reasons = [
     badge.deltaLabel ?? badge.label,
-    open > 0
-      ? `${open} open recall${open === 1 ? "" : "s"} on the public list.${park ? " One says to park the car." : ""}`
-      : "No open recalls came back for this year and model.",
+    !recallLookup.available
+      ? "NHTSA recall lookup was unavailable. Check this VIN directly with NHTSA and the dealer."
+      : campaignCount > 0
+        ? `${campaignCount} model-year recall campaign${campaignCount === 1 ? "" : "s"} returned by NHTSA.${park ? " At least one campaign carries a park-it or park-outside warning; verify VIN applicability and repair status before driving." : " Verify VIN applicability and repair status with the dealer."}`
+        : "NHTSA returned no campaigns for this model year, make and model. This does not confirm the VIN has no open recall.",
   ];
   const coverageInput = {
     mode: input.mode,
