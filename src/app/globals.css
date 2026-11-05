@@ -746,7 +746,7 @@ pre.doc {
 @keyframes page-in { from { opacity: 0; } to { opacity: 1; } }
 
 .home-story { position: relative; z-index: 1; background: #050505; margin-top: -104px; }
-.film-pin { height: 480vh; }
+.film-pin { height: 150vh; }
 .film-sticky {
   position: sticky;
   top: 0;
@@ -776,7 +776,6 @@ pre.doc {
   transition: opacity 0.4s ease, transform 0.4s ease;
 }
 .phase-detail .film-copy { opacity: 0; transform: translateY(-10px); pointer-events: none; }
-.phase-leave .film-copy { top: auto; bottom: 42px; right: auto; width: min(620px, 54vw); }
 .film-copy h1 { text-transform: none; font-size: clamp(26px, 2.4vw, 36px); max-width: 14ch; margin: 4px 0 6px; line-height: 0.95; }
 .film-copy .lead { font-size: 13px; line-height: 1.35; margin: 0 0 8px; color: rgba(255,255,255,0.8); }
 .film-copy textarea { min-height: 0; height: 58px; font-size: 14px; }
@@ -796,7 +795,6 @@ pre.doc {
   letter-spacing: 0.12em;
   text-transform: uppercase;
 }
-.phase-leave .sale-caption { bottom: auto; top: 112px; left: 3vw; transform: none; }
 .story-after { width: min(1100px, calc(100% - 48px)); margin: 0 auto; padding: 72px 0; }
 .story-steps { margin-top: 8px; }
 .story-steps li { background: #101010; border: 1px solid rgba(255,255,255,0.12); }
@@ -817,7 +815,7 @@ pre.doc {
 @keyframes rise { from { opacity: 0; transform: translateY(36px); } to { opacity: 1; transform: none; } }
 
 @media (max-width: 800px) {
-  .film-pin { height: 420vh; }
+  .film-pin { height: 142vh; }
   .home-story { margin-top: -88px; }
   .film-sticky { height: 100vh; height: 100dvh; }
   .film-copy {
@@ -841,8 +839,6 @@ pre.doc {
     border-radius: 16px;
     padding: 12px;
   }
-  .phase-leave .film-copy { top: auto; bottom: 52px; justify-content: flex-end; }
-  .phase-leave .film-copy > div:first-child { display: none; }
   .story-after { width: calc(100% - 32px); padding: 48px 0; }
 }
 @media (prefers-reduced-motion: reduce) {
