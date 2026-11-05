@@ -20,7 +20,7 @@ const ROWS: Row[] = [
   { label: "Mileage", value: (r) => r.computed.subject.miles === null ? "Not available" : `${formatNumber(r.computed.subject.miles)} miles` },
   { label: "Accidents reported", value: (r) => r.computed.subject.accidentCount === null ? "Not disclosed in data" : String(r.computed.subject.accidentCount) },
   { label: "NHTSA recall campaigns", value: (r) => r.computed.recallsAvailable ? String(r.computed.recalls.length) : "Unavailable — check by VIN" },
-  { label: "Park-it / park-outside notice", value: (r) => !r.computed.recallsAvailable ? "Could not check — verify by VIN" : r.computed.openParkIt ? "Yes — verify repair status on this VIN" : "No matching model-year notice returned" }
+  { label: "Park-it / park-outside notice", value: (r) => !r.computed.recallsAvailable ? "Could not check — verify by VIN" : r.computed.openParkIt ? "Yes — verify repair status on this VIN" : "No matching model-year notice returned" },
   { label: "NHTSA model-year complaints", value: (r) => r.computed.complaintCount === null ? "Unavailable" : String(r.computed.complaintCount) },
   { label: "Comparable listings used", value: (r) => String(r.computed.comps.length) },
   { label: "Risk flags", value: (r) => `${r.computed.flags.filter((f) => f.level === "stop").length} stop · ${r.computed.flags.filter((f) => f.level === "caution").length} caution · ${r.computed.flags.filter((f) => f.level === "note").length} notes` },
