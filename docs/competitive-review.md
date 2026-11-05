@@ -22,6 +22,14 @@ AutoFlip should not try to out-CARFAX CARFAX using the current data feed. Its be
 
 This is a credible architecture and a better hackathon story than claiming complete vehicle history. It is not yet a substitute for a paid vehicle-history report or an inspection.
 
+### How this maps to the first SERV Reasoning winners
+
+The closest architectural comparison is **Payrun**, not ASSAY or SERVPIT: a deterministic policy/data layer constrains a SERV reasoning step, and a separate application layer handles the result. AutoFlip already has a genuine bounded decision profile in `flip_judge`: TypeScript computes profit estimates, comparable count and speed; SERV returns a strict-schema `alert` or `skip` decision, and the application consumes it. That is more than prose generation, but it is a narrower decision than Payrun's payment-policy execution.
+
+AutoFlip also already contains an optional x402 payment rail for agent reports. It is implemented in `src/io/x402.ts` and exposed through `POST /api/v1/report` and MCP `full_report`. It uses a configured payee, network, asset, facilitator and price; the default scheme is `gokite-aa`. It is not proof of live on-chain usage by itself: the rail is only active when the required environment variables are configured, and a real successful settlement with a transaction hash must be demonstrated before claiming live x402 commerce.
+
+**Do not add a token, wallet custody, or autonomous spending just to look more on-chain.** A non-custodial agent payment for a real report is enough to make the agent-commerce connection concrete. Keep the human-facing Stripe/credit flow separate.
+
 ## Gaps, ranked by buyer value
 
 ### P0 — Fix trust and coverage before adding more AI
@@ -48,7 +56,7 @@ This is a credible architecture and a better hackathon story than claiming compl
 3. Add source-level provenance and timestamps to report facts.
 4. Add an editable negotiation checklist and an out-the-door estimate.
 5. Evaluate a licensed history provider (CARFAX or another provider) only after pricing, API coverage, display rights and retention terms are confirmed.
-6. Add listing timeline signals only when source data and caching terms permit it.
+6. Add listing timeline signals only when source data and caching terms permit it.\n7. Harden and demonstrate the existing x402 flow end-to-end, including no-charge failure paths and a real settlement receipt.\n8. Consider a separate `BUY / NEGOTIATE / PASS` report-action profile only after a deterministic policy defines allowed actions; never let SERV override price math or safety hard stops.
 
 ## Product and commercial caveats
 
