@@ -21,6 +21,10 @@ jobs:
           cache: npm
       - name: Install dependencies
         run: npm ci
+      - name: Audit dependency tree
+        run: |
+          npm audit --json > npm-audit.json || true
+          node -e 'const a=require("./npm-audit.json"); for (const [name,v] of Object.entries(a.vulnerabilities ?? {})) { const via=v.via.map(x => typeof x === "string" ? x : `${x.title} [${x.url}]`).join("; "); console.log(`${name}: ${v.severity}; direct=${v.isDirect}; range=${v.range}; fix=${JSON.stringify(v.fixAvailable)}; ${via}`); } console.log("Totals:", JSON.stringify(a.metadata?.vulnerabilities ?? {}));'
       - name: Check types
         run: npm run typecheck
       - name: Run unit tests
