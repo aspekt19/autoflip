@@ -3,10 +3,14 @@ import type { Flag, Listing, RecallRecord } from "./types";
 export function dealerQuestions(input: {
   listing: Listing;
   recalls: RecallRecord[];
+  vinIdentityMismatch?: boolean;
   parkIt: boolean;
   historyMissing: boolean;
 }): string[] {
   const questions: string[] = [];
+  if (input.vinIdentityMismatch) {
+    questions.push("The VIN decoder returned a different year, make, or model from the listing. Ask the seller to photograph the VIN plate and title, then correct the listing before paying or arranging an inspection.");
+  }
   const accidents = input.listing.accidentCount;
   if (accidents === null) {
     questions.push("Ask whether the vehicle has any accident or damage history, and ask to see a Carfax or AutoCheck.");
@@ -42,6 +46,7 @@ export function buildFlags(input: {
   listing: Listing;
   recalls: RecallRecord[];
   recallsAvailable?: boolean;
+  vinIdentityMismatch?: boolean;
   parkIt: boolean;
   complaintCount: number | null;
   priceGap: number | null;
@@ -61,6 +66,13 @@ export function buildFlags(input: {
       level: "note",
       source: "listing",
       text: `The last stored listing is marked removed at ${input.removedAt}. It may already be gone.`,
+    });
+  }
+  if (input.vinIdentityMismatch) {
+    flags.push({
+      level: "stop",
+      source: "vin-identity",
+      text: "NHTSA's clean VIN decode conflicts with the year, make, or model shown in the listing. The price verdict is withheld; verify the VIN and title with the seller before proceeding.",
     });
   }
   if (input.recallsAvailable === false) {
