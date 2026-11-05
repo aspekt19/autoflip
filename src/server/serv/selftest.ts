@@ -1,5 +1,5 @@
 import { profile, PROFILES, type ProfileId } from "./profiles";
-import { runServ, type ServDeps, type ServResult } from "./run";
+import { runServ, type ServDeps, type ServFacts, type ServResult } from "./run";
 
 /** Hobby serverless functions stop at 60s. Parallel checks must finish inside that. */
 export const HOBBY_FUNCTION_MS = 60_000;
@@ -77,7 +77,7 @@ async function oneAttempt(
   id: ProfileId,
   attempt: number,
   opts: { apiKey: string; model?: string; baseUrl?: string },
-  run: (id: ProfileId, input: { user: string; facts?: unknown }, deps: ServDeps) => Promise<ServResult>,
+  run: (id: ProfileId, input: { user: string; facts?: ServFacts }, deps: ServDeps) => Promise<ServResult>,
 ): Promise<SelftestAttempt> {
   const entry = profile(id);
   const started = Date.now();
@@ -107,7 +107,7 @@ async function oneAttempt(
 
 export async function runSelftestChecks(
   opts: { apiKey: string; model?: string; baseUrl?: string; repeat?: number },
-  run: (id: ProfileId, input: { user: string; facts?: unknown }, deps: ServDeps) => Promise<ServResult> = runServ,
+  run: (id: ProfileId, input: { user: string; facts?: ServFacts }, deps: ServDeps) => Promise<ServResult> = runServ,
 ): Promise<SelftestCheck[]> {
   const repeat = selftestRepeat(opts.repeat == null ? null : String(opts.repeat));
   const ids = distinctSelftestProfiles();
