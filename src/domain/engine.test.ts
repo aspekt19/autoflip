@@ -5,6 +5,7 @@ import { ASSUMPTIONS } from "./assumptions";
 import { mileageAdjust, selectComparables } from "./comparables";
 import { haversineMiles } from "./geo";
 import { historyAdjustment } from "./history";
+import { dealerQuestions, buildFlags } from "./questions";
 import { buildComputedReport } from "./report";
 import { scoreRadar } from "./radar";
 import { screenUserInput } from "./screen";
@@ -93,6 +94,32 @@ describe("verdict bands", () => {
     expect(scoreFromGap(0)).toBe(50);
     expect(scoreFromGap(-0.2)).toBe(100);
     expect(scoreFromGap(0.3)).toBe(0);
+  });
+});
+
+describe("VIN-specific recall wording", () => {
+  it("does not describe model-year recall results as open recalls on a specific VIN", () => {
+    const listing = car({ vin: "1M8GDM9AXKP042788", priceUsd: 10000, miles: 50000 });
+    const questions = dealerQuestions({
+      listing,
+      recalls: [{ campaignNumber: "24V123", component: "Airbags", summary: "", consequence: "", remedy: "", parkIt: false, parkOutSide: false }],
+      parkIt: false,
+      historyMissing: true,
+    });
+    expect(questions.join(" ")).toMatch(/verify.*VIN/i);
+    expect(questions.join(" ")).not.toMatch(/open recall campaign was completed/i);
+
+    const flags = buildFlags({
+      listing,
+      recalls: [{ campaignNumber: "24V456", component: "Fuel system", summary: "", consequence: "", remedy: "", parkIt: true, parkOutSide: false }],
+      parkIt: true,
+      complaintCount: null,
+      priceGap: null,
+      sample: false,
+      removedAt: null,
+    });
+    expect(flags.find((flag) => flag.source === "nhtsa-recalls")?.text).toMatch(/model-level warning/i);
+    expect(flags.find((flag) => flag.source === "nhtsa-recalls")?.text).toMatch(/does not confirm.*VIN/i);
   });
 });
 
