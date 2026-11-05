@@ -12,6 +12,7 @@ export function buildSampleReport(mode: Mode = "personal"): FullReport {
     subject,
     candidates: listings,
     recalls: [],
+    recallsAvailable: false,
     complaintCount: null,
     fuel: null,
     vinDecode: null,
