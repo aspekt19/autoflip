@@ -1,6 +1,13 @@
 import type { Metadata } from "next";
+import { Big_Shoulders, Manrope, Orbitron } from "next/font/google";
 import { Header } from "@/components/Header";
+import { PageFade } from "@/components/PageFade";
+import { SmoothScroll } from "@/components/SmoothScroll";
 import "./globals.css";
+
+const sans = Manrope({ subsets: ["latin"], weight: ["400", "500", "600", "700"], variable: "--font-sans" });
+const display = Orbitron({ subsets: ["latin"], weight: ["500", "600", "700"], variable: "--font-display" });
+const wide = Big_Shoulders({ subsets: ["latin"], weight: ["700", "800"], variable: "--font-wide", adjustFontFallback: false });
 
 export const metadata: Metadata = {
   title: { default: "AutoFlip", template: "%s — AutoFlip" },
@@ -9,22 +16,16 @@ export const metadata: Metadata = {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en">
-      <head>
-        <meta name="color-scheme" content="light dark" />
-        <link rel="preconnect" href="https://fonts.googleapis.com" />
-        <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="" />
-        <link
-          href="https://fonts.googleapis.com/css2?family=Inter+Tight:wght@500;700&family=Source+Serif+4:opsz,wght@8..60,400;8..60,600&display=swap"
-          rel="stylesheet"
-        />
-      </head>
+    <html lang="en" className={`${sans.variable} ${display.variable} ${wide.variable}`}>
       <body>
+        <SmoothScroll />
         <a className="skip" href="#main">
           Skip to content
         </a>
         <Header />
-        <main id="main">{children}</main>
+        <main id="main">
+          <PageFade>{children}</PageFade>
+        </main>
         <p className="foot-note">
           AutoFlip prepares a price verdict from listing comps and public government data. It is not a dealer, lender, inspector, or insurer. Recalls can be incomplete. Confirm the car, the out-the-door price, and any open campaigns with the seller before you pay.
         </p>
