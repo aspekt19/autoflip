@@ -33,6 +33,14 @@ export function ReportView({ report }: { report: FullReport }) {
         {car.city ? ` · ${car.city}, ${car.state ?? ""}` : ""}
         {car.dealer ? ` · ${car.dealer}` : ""}
       </p>
+      <nav className="report-toc" aria-label="Report sections">
+        <a href="#report-summary">Verdict</a>
+        <a href="#report-facts">Facts &amp; estimates</a>
+        <a href="#report-comparables">Comparables</a>
+        <a href="#report-history">History &amp; recalls</a>
+        <a href="#report-method">Method</a>
+        <a href="/reports">My reports</a>
+      </nav>
       <p className={`verdict-level badge ${computed.verdict}`}>{verdictLabel(computed.verdict)}</p>
       <CoverageNote
         input={{
@@ -43,11 +51,11 @@ export function ReportView({ report }: { report: FullReport }) {
           historyOnListing: computed.subject.accidentCount !== null && computed.subject.ownerCount !== null,
         }}
       />
-      <h2>{computed.mode === "flip" ? "Does this deal fit?" : "Does this car fit?"}</h2>
+      <h2 id="report-summary">{computed.mode === "flip" ? "Does this deal fit?" : "Does this car fit?"}</h2>
       <p className="summary-line">{decision.line}</p>
       <p>{decision.detail}</p>
       <p>{fitHeadline(computed)}</p>
-      <div className="split">
+      <div className="split" id="report-facts">
         <section>
           <h3>Facts</h3>
           <ul className="refuse">
@@ -178,7 +186,7 @@ export function ReportView({ report }: { report: FullReport }) {
         </section>
       ) : null}
 
-      <section>
+      <section id="report-comparables">
         <h2>Comparables</h2>
         <p className="hint">Scope: {computed.compScope.replaceAll("_", " ")}. Prices are adjusted to this car’s mileage.</p>
         {computed.comps.length === 0 ? <p>No comparables qualified.</p> : null}
@@ -211,7 +219,7 @@ export function ReportView({ report }: { report: FullReport }) {
         ) : null}
       </section>
 
-      <section>
+      <section id="report-history">
         <h2>This car&apos;s history</h2>
         <p className="hint">Source: history flags on the listing. This is not the recall list and not the complaint count.</p>
         <ul className="refuse">
@@ -283,13 +291,14 @@ export function ReportView({ report }: { report: FullReport }) {
         ) : null}
       </section>
 
-      <section className="ask">
+      <section className="ask" id="report-method">
         <h2>How to read this</h2>
         <p className="hint">
           We show which data the verdict is based on. We separate facts from estimates. We flag what still needs checking before you buy.
         </p>
         <DecisionNote scene={reportScene(report)} proofs={report.proof.servChecks ?? []} />
         <p className="btn-row">
+          <a className="quiet" href="/reports">My report history</a>
           <a className="quiet" href="/find">Find another car</a>
           <a className="quiet" href="/check">Check another listing</a>
           <a className="ghost" href="/radar">Deal Radar</a>

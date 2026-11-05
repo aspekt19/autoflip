@@ -33,7 +33,14 @@ export async function POST(request: Request) {
   }
   if (effect.kind === "plans") {
     const kv = getKv();
-    await writePlans(kv, effect.userId, effect.plans);
+    const customer = object.customer;
+    const customerId = typeof customer === "string"
+      ? customer
+      : customer && typeof customer === "object" && "id" in customer && typeof (customer as { id?: unknown }).id === "string"
+        ? (customer as { id: string }).id
+        : null;
+    const plans = customerId ? { ...effect.plans, stripeCustomerId: customerId } : effect.plans;
+    await writePlans(kv, effect.userId, plans);
     if (effect.disableMode) {
       const rows = await listSearches(kv);
       await saveSearches(

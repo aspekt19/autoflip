@@ -7,6 +7,12 @@ import { ensureDemoAccount } from "./radar-store";
 const COOKIE = "af_uid";
 const ID_RE = /^(?:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|demo-shared)$/i;
 
+export async function existingUserId(): Promise<string | null> {
+  const jar = await cookies();
+  const existing = jar.get(COOKIE)?.value;
+  return existing && ID_RE.test(existing) ? existing : null;
+}
+
 export async function userId(): Promise<string> {
   const jar = await cookies();
   const existing = jar.get(COOKIE)?.value;
