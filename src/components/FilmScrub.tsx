@@ -8,15 +8,14 @@ import type { Mode } from "@/domain/types";
 gsap.registerPlugin(ScrollTrigger);
 
 /** Swap the clip by replacing public/frames and these counts. */
-export const DESKTOP_FRAMES = 359;
-export const MOBILE_FRAMES = 239;
+export const DESKTOP_FRAMES = 48;
+export const MOBILE_FRAMES = 32;
 
-export type FilmPhase = "open" | "detail" | "leave";
+export type FilmPhase = "open" | "detail";
 
 function phaseFor(progress: number): FilmPhase {
   if (progress < 0.14) return "open";
-  if (progress < 0.88) return "detail";
-  return "leave";
+  return "detail";
 }
 
 function frameSrc(folder: "desktop" | "mobile", index: number) {
@@ -54,7 +53,7 @@ export function FilmScrub({ mode, onPhase }: { mode: Mode; onPhase: (phase: Film
   const images = useRef<Array<HTMLImageElement | undefined>>([]);
   const index = useRef(0);
   const shift = useRef(0);
-    const onPhaseRef = useRef(onPhase);
+  const onPhaseRef = useRef(onPhase);
   const phaseRef = useRef<FilmPhase>("open");
   onPhaseRef.current = onPhase;
 
