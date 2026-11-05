@@ -79,4 +79,4 @@ Run npm run eval:serv with SERV_API_KEY set. The script in [eval/run.ts](../eval
 - Serverless JSON-file storage is ephemeral and is not suitable for public production accounts. Durable storage is a launch prerequisite.
 - Asking-price comparables are not completed sale prices. Public recalls are not a VIN-specific repair confirmation.
 
-These constraints are also documented in the main [README](../README.md); they are disclosed rather than hidden behind a polished demo.
+The CI quality gate runs typecheck, the unit suite and npm audit, and blocks critical/high dependency advisories. The current lockfile was refreshed to Vitest 5.1.0 and PostCSS 8.5.32; the lockfile refresh run reported zero advisories. These constraints are also documented in the main [README](../README.md); they are disclosed rather than hidden behind a polished demo.
