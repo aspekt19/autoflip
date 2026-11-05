@@ -2,6 +2,20 @@
 
 Evaluation preview of a US used-car verdict. The home page starts from what the shopper needs, suggests a few editorial search directions, and spends a credit only on a full analysis of one car. AutoFlip says **good deal**, **fair**, **overpriced**, or **walk away**, and shows the arithmetic.
 
+## Judge in 60 seconds
+
+**AutoFlip turns a US used-car listing into an explainable buy / caution / walk-away decision.** TypeScript owns every price, comparison, risk flag, and flip estimate; OpenServ SERV Reasoning screens untrusted input and explains those already-computed facts. The model never writes a price or profit number back into the decision.
+
+- **Try the product:** [AutoFlip preview](https://autoflip-umber.vercel.app/) · [labeled sample report](https://autoflip-umber.vercel.app/report/sample) · [SERV comparison page](https://autoflip-umber.vercel.app/compare)
+- **Trace the architecture:** [one-page judge guide](docs/judge-guide.md) · [SERV profiles](src/server/serv/profiles.ts) · [single inference gateway](src/server/serv/run.ts) · [report assembly and deterministic calculation](src/server/assemble.ts) · [report types](src/domain/types.ts)
+- **Inspect evidence:** [Proof recorder and agent payload](src/server/serv/proof.ts) · [decision explanation from recorded proof](src/domain/decision-note.ts) · [offline evaluation cases](src/domain/eval-cases.ts) · [evaluation runner](eval/run.ts)
+- **Know the honest limits:** this is an evaluation preview, not a production vehicle-history service. Auto.dev free-plan use is evaluation-only; title-brand and full service-history coverage are not connected; Stripe remains test mode; saved state is ephemeral on serverless.
+
+**SERV is not presented as a swarm of autonomous agents.** Kronos and Multipath are model-routing features selected by profiles; Shadow Agent is an optional second pass. The app routes tasks to explicit profiles and records what each call actually exposed. See [How we use SERV](#how-we-use-serv) for the implementation details.
+
+**Evaluation status:** the runner can compare standard and SERV-checked answers, but no committed evaluation result files exist yet. We do not publish performance percentages until a real run with SERV_API_KEY has generated them. The same rule applies to Proof of AI examples: inspect a real report or agent response rather than treating a hand-written illustration as a live trace.
+
+
 Monitoring a saved search does not use report credits. A full analysis costs 1 credit. Anyone can open the labeled sample report at `/report/sample`. The shared preview (`/demo?key=`) still refills a small daily credit balance. Credits are sold with **Stripe test mode** only. Agents run the same full analysis by spending 1 credit with an API key. The [For agents page](src/app/developers/page.tsx) has the key buttons and the MCP snippets.
 
 This build is an evaluation preview. The Auto.dev free plan is not a production license. The homepage film is an AI-generated scene of a car, not a car for sale. See [CREDITS.md](CREDITS.md).
