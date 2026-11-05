@@ -179,6 +179,11 @@ describe("VIN identity validation", () => {
     expect(note).toMatch(/year 2021 vs 2020/);
     expect(note).toMatch(/make Honda vs Toyota/);
     expect(note).toMatch(/model Accord vs Camry/);
+    expect(report.verdict).toBe("insufficient_data");
+    expect(report.fairValueUsd).toBeNull();
+    expect(report.priceGap).toBeNull();
+    expect(report.flags.some((flag) => flag.source === "vin-identity" && flag.level === "stop")).toBe(true);
+    expect(report.questions.join(" ")).toMatch(/different year, make, or model/i);
   });
 
   it("does not flag an unclean VIN decode as a listing mismatch", () => {
@@ -194,6 +199,7 @@ describe("VIN identity validation", () => {
       asOfYear: 2026,
     });
     expect(report.dataNotes.join(" ")).not.toMatch(/listing identity differs/);
+    expect(report.flags.some((flag) => flag.source === "vin-identity")).toBe(false);
   });
 });
 
