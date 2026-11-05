@@ -2,6 +2,8 @@ import {
   applyFollowUp,
   explicitNeedFromText,
   followUps,
+  makeFromText,
+  milesFromText,
   overlayExplicit,
   parseNeedJson,
   validateNeed,
@@ -88,6 +90,11 @@ export async function understandNeed(
   }
 
   let need = overlayExplicit(extracted, explicit);
+  need = {
+    ...need,
+    milesMax: milesFromText(need.note) ?? need.milesMax,
+    make: makeFromText(need.note) ?? need.make,
+  };
   if (body.followUp) need = applyFollowUp(need, body.followUp.id, body.followUp.value);
   const checked = validateNeed(need);
   if (!checked.ok) return { ok: false, status: 400, error: "invalid_need", message: checked.issues[0]?.message ?? "That need is not usable." };

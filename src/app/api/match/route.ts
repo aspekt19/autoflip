@@ -2,7 +2,7 @@ import { budgetFit } from "@/domain/budget";
 import { coverageConfidence, coverageSentence } from "@/domain/coverage";
 import { proposeDirections } from "@/domain/directions";
 import { rankFlipCandidates } from "@/domain/flip-rank";
-import { validateNeed } from "@/domain/need";
+import { listingWithinNeed, noMatchMessage, validateNeed } from "@/domain/need";
 import { priceBadge, type PriceBadge } from "@/domain/price-badge";
 import { reconUsd } from "@/domain/recon";
 import type { Listing } from "@/domain/types";
@@ -59,6 +59,8 @@ export async function POST(request: Request) {
           yearMax: direction.yearMax,
           distanceMiles: parsed.need.zip ? 100 : undefined,
           mode: parsed.need.mode,
+          milesMax: parsed.need.milesMax ?? undefined,
+          priceMax: parsed.need.budgetKnown && parsed.need.budgetUsd ? parsed.need.budgetUsd : undefined,
         },
         deps,
       );
@@ -84,7 +86,8 @@ export async function POST(request: Request) {
         : [];
     const byVin = new Map(ranked.map((item) => [item.vin, item]));
     const assumption = parsed.need.mode === "flip" ? reconUsd({ miles: null, repairAbility: parsed.need.repairAbility }).because : null;
-    const listings = withinBudget(collected, parsed.need.budgetUsd, parsed.need.budgetKnown)
+    const narrowed = collected.filter((item) => listingWithinNeed(item, parsed.need));
+    const listings = withinBudget(narrowed, parsed.need.budgetUsd, parsed.need.budgetKnown)
       .map((item) => ({
         ...item,
         badge: priceBadge(item, collected),
@@ -110,7 +113,7 @@ export async function POST(request: Request) {
         listings,
         coverage,
         coverageLevel,
-        note: groups.length === 0 ? directionNote : "The labeled sample is shown once. These other directions were not fetched.",
+        note: listings.length === 0 ? noMatchMessage(parsed.need) : groups.length === 0 ? directionNote : "The labeled sample is shown once. These other directions were not fetched.",
       });
       continue;
     }
@@ -119,17 +122,19 @@ export async function POST(request: Request) {
       listings,
       coverage,
       coverageLevel,
-      note: listings.length === 0 && parsed.need.budgetKnown ? "Nothing in this group fit the budget." : [directionNote, assumption].filter(Boolean).join(" "),
+      note: listings.length === 0 ? noMatchMessage(parsed.need) : [directionNote, assumption].filter(Boolean).join(" "),
     });
   }
+  const visible = groups.reduce((sum, group) => sum + group.listings.length, 0);
   return Response.json({
     ok: true,
     sample,
-    message,
+    message: visible === 0 ? noMatchMessage(parsed.need) : message,
     affordabilityAssessed: parsed.need.budgetKnown,
     directions: groups,
   });
 }
+
 
 function withinBudget(listings: Listing[], budgetUsd: number | null, known: boolean): Array<Listing & { overBudget?: boolean }> {
   if (!known || budgetUsd == null) return listings;
