@@ -21,8 +21,12 @@ jobs:
           cache: npm
       - name: Update patched dependency versions
         run: |
+          # Start from a clean dependency graph. npm 10 can fail while reconciling
+          # this repository's old lockfile after the Vitest/PostCSS overrides.
+          rm -rf node_modules package-lock.json
+          npm cache clean --force
           npm pkg set 'devDependencies.vitest=^4.1.12' 'devDependencies.vite=^7.3.7' 'overrides.postcss=8.5.32'
-          npm install --ignore-scripts
+          npm install --ignore-scripts --no-audit --no-fund
       - name: Verify generated lockfile
         run: |
           npm ci
