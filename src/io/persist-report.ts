@@ -18,9 +18,14 @@ export type UserReportSummary = {
 };
 
 const HISTORY_LIMIT = 50;
+const FAVORITES_LIMIT = 50;
 
 function historyKey(userId: string): string {
   return `reports:user:${userId}`;
+}
+
+function favoritesKey(userId: string): string {
+  return `reports:favorites:${userId}`;
 }
 
 export async function persistReport(report: FullReport): Promise<void> {
@@ -109,4 +114,44 @@ export async function readPersistedReport(id: string): Promise<FullReport | null
     }
   }
   return loadReport(id);
+}
+
+
+export async function listFavoriteReportIds(kv: Kv, userId: string): Promise<string[]> {
+  const raw = await kv.get(favoritesKey(userId));
+  if (!raw) return [];
+  let ids: unknown;
+  try {
+    ids = JSON.parse(raw);
+  } catch {
+    return [];
+  }
+  if (!Array.isArray(ids)) return [];
+  const owned = new Set((await listUserReports(kv, userId)).map((item) => item.id));
+  return [...new Set(ids.filter((id): id is string => typeof id === "string" && owned.has(id)))]
+    .slice(0, FAVORITES_LIMIT);
+}
+
+export async function setFavoriteReport(
+  kv: Kv,
+  userId: string,
+  reportId: string,
+  favorite: boolean,
+): Promise<{ ok: true; favoriteIds: string[] } | { ok: false }> {
+  if (!/^[a-zA-Z0-9-]{8,80}$/.test(reportId)) return { ok: false };
+  const reports = await listUserReports(kv, userId);
+  if (!reports.some((item) => item.id === reportId)) return { ok: false };
+
+  const prior = await listFavoriteReportIds(kv, userId);
+  const next = favorite
+    ? [reportId, ...prior.filter((id) => id !== reportId)].slice(0, FAVORITES_LIMIT)
+    : prior.filter((id) => id !== reportId);
+  await kv.set(favoritesKey(userId), JSON.stringify(next));
+  return { ok: true, favoriteIds: next };
+}
+
+export async function listFavoriteReports(kv: Kv, userId: string): Promise<UserReportSummary[]> {
+  const ids = await listFavoriteReportIds(kv, userId);
+  const byId = new Map((await listUserReports(kv, userId)).map((item) => [item.id, item]));
+  return ids.map((id) => byId.get(id)).filter((item): item is UserReportSummary => Boolean(item));
 }

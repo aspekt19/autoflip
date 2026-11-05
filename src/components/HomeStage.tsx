@@ -23,7 +23,7 @@ export function HomeStage() {
               <div>
                 <p className="kicker">One car, two goals</p>
                 <h1>Describe the car you need</h1>
-                <p className="lead">Buy it for yourself, or buy it to resell. The price check and the gaps stay on the page.</p>
+                <p className="lead">Find options for your budget, for yourself or for resale. The first search is free; a full report on one car costs 1 credit. Ongoing price alerts are a separate optional plan.</p>
               </div>
               <div>
                 <HomeSearch onModeChange={setMode} />
