@@ -33,11 +33,22 @@ export async function decodeVin(vin: string, deps: GovDeps): Promise<VinDecode |
   return parseVinDecode(payload);
 }
 
-export async function recallsFor(make: string, model: string, year: number, deps: GovDeps): Promise<RecallRecord[]> {
+export type RecallsLookup = {
+  records: RecallRecord[];
+  /** True only when NHTSA returned a well-formed results array (including an empty one). */
+  available: boolean;
+};
+
+export async function recallsFor(make: string, model: string, year: number, deps: GovDeps): Promise<RecallsLookup> {
   const params = new URLSearchParams({ make, model, modelYear: String(year) });
   const payload = await getJson(`https://api.nhtsa.gov/recalls/recallsByVehicle?${params.toString()}`, deps);
-  if (!payload) return [];
-  return parseRecalls(payload);
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
+    return { records: [], available: false };
+  }
+  const record = payload as Record<string, unknown>;
+  const results = record.results ?? record.Results;
+  if (!Array.isArray(results)) return { records: [], available: false };
+  return { records: parseRecalls(payload), available: true };
 }
 
 export async function complaintCountFor(
