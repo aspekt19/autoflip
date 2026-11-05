@@ -178,7 +178,7 @@ export async function assembleReport(input: AssembleInput, deps: AssembleDeps): 
   });
 
   const gov: GovDeps = { fetch: fetchImpl };
-  const [vinDecode, recalls, complaintCount, fuel, distance] = await Promise.all([
+  const [vinDecode, recallLookup, complaintCount, fuel, distance] = await Promise.all([
     decodeVin(vin, gov),
     recallsFor(resolved.subject.make, resolved.subject.model, resolved.subject.year, gov),
     complaintCountFor(resolved.subject.make, resolved.subject.model, resolved.subject.year, gov),
@@ -196,7 +196,8 @@ export async function assembleReport(input: AssembleInput, deps: AssembleDeps): 
     mode: input.mode,
     subject,
     candidates: resolved.candidates,
-    recalls,
+    recalls: recallLookup.records,
+    recallsAvailable: recallLookup.available,
     complaintCount,
     fuel,
     vinDecode,
