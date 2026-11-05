@@ -94,6 +94,7 @@ function factsOf(report: FullReport["computed"]) {
     })),
     reasons: report.reasons,
     dataNotes: report.dataNotes,
+    recallsAvailable: report.recallsAvailable,
     recalls: report.recalls.map((recall) => ({
       campaignNumber: recall.campaignNumber,
       component: recall.component,
