@@ -5,9 +5,8 @@ describe("scroll film frames", () => {
   it("ships a desktop sequence and a lighter phone sequence", () => {
     const desktop = readdirSync("public/frames/desktop").filter((name) => name.endsWith(".webp"));
     const mobile = readdirSync("public/frames/mobile").filter((name) => name.endsWith(".webp"));
-    expect(desktop.length).toBeGreaterThanOrEqual(60);
-    expect(desktop.length).toBeLessThanOrEqual(120);
-    expect(mobile.length).toBeGreaterThanOrEqual(48);
+    expect(desktop.length).toBe(359);
+    expect(mobile.length).toBe(239);
     expect(mobile.length).toBeLessThan(desktop.length);
   });
 });

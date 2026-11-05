@@ -41,8 +41,6 @@ A rear-view white muscle car on Mixkit looked computer-rendered, so it was dropp
 
 ## Scroll film (this site)
 
-The first 3D model was a CC0 Kenney SUV. On screen it read as a low-poly game asset, not the photoreal cars in the references. A photoreal `.glb` under a license that could be verified and kept small was not available, so the hero is a frame sequence instead.
+The hero is a scroll-scrubbed frame sequence. The clip is an AI-generated night-city scene made for this project: a graphite coupe, 29.9 seconds, kept in full. See `CREDITS.md`.
 
-Source clip: Mixkit “Red sports car side view” (https://mixkit.co/free-stock-video/red-sports-car-side-view-50/), Stock Video Free License (https://mixkit.co/license/modal/videoFree/). Commercial use and modification are allowed. The shot is a close side pan of a real red sports car, which is nearer to the Ford and Project Cars references than a toy model.
-
-ffmpeg extracted 102 desktop WebP frames (1280px, 12 fps) and 68 phone frames (720px, 8 fps). A canvas in a pinned hero draws the frame GSAP ScrollTrigger selects. Phones use the lighter set and still scrub. Reduced motion holds the poster. Choosing For me or For resale eases the frame a few percent sideways. The form sits on a solid band under the picture, so the car does not run through the type or the later cards. The wordmark is a full word in that band, not a ghost clipped at the edge.
+ffmpeg extracted 359 desktop WebP frames (1920px, 12 fps) and 239 phone frames (960px, 8 fps), plus a poster from the first frame. A canvas in a pinned hero draws the frame GSAP ScrollTrigger selects. Frames load as the scroll approaches them; the poster shows first. Phones use the lighter set and still scrub. Reduced motion holds the poster with the form visible. Choosing For me or For resale eases the frame a few percent sideways. The headline and search sit in the sky on the opening wide shot, leave the frame during the headlight, wheel, and interior, and return in the empty foreground as the car drives off. A caption on the hero reads “Not a car for sale.” Pinned scroll is 480vh on desktop and 420vh on a phone.

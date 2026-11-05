@@ -3,29 +3,27 @@
 import Link from "next/link";
 import { useState } from "react";
 import type { Mode } from "@/domain/types";
-import { FilmScrub } from "./FilmScrub";
+import { FilmScrub, type FilmPhase } from "./FilmScrub";
 import { HomeSearch } from "./HomeSearch";
 
 export function HomeStage() {
   const [mode, setMode] = useState<Mode>("personal");
+  const [phase, setPhase] = useState<FilmPhase>("open");
 
   return (
     <div className="home-story">
       <section className="film-pin">
         <div className="film-sticky">
           <div className="film-stage">
-            <img className="film-poster" src="/frames/poster.jpg" alt="" width={1280} height={720} />
-            <FilmScrub mode={mode} />
+            <img className="film-poster" src="/frames/poster.jpg" alt="" width={1920} height={1080} />
+            <FilmScrub mode={mode} onPhase={setPhase} />
           </div>
-          <div className="film-sheet">
-            <p className="wordmark">AutoFlip</p>
-            <div className="film-grid">
+          <div className={`film-overlay phase-${phase}`}>
+            <div className="film-copy">
               <div>
                 <p className="kicker">One car, two goals</p>
                 <h1>Describe the car you need</h1>
-                <p className="lead">
-                  Buy it for yourself, or buy it to resell. We rate the price against other listings, show the math, and leave the gaps in view. The same full analysis is 1 credit here, or from your own agent.
-                </p>
+                <p className="lead">Buy it for yourself, or buy it to resell. The price check and the gaps stay on the page.</p>
               </div>
               <div>
                 <HomeSearch onModeChange={setMode} />
@@ -33,9 +31,9 @@ export function HomeStage() {
                   <Link href="/report/sample">See a sample report</Link>
                   <span> (labeled sample, no credit)</span>
                 </p>
-                <p className="showroom-credit">Film: Mixkit, red sports car side view, free license. Not a car for sale.</p>
               </div>
             </div>
+            <p className="sale-caption">Not a car for sale</p>
           </div>
         </div>
       </section>
