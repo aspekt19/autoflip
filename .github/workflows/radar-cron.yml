@@ -5,20 +5,50 @@ on:
     - cron: "0 */3 * * *"
   workflow_dispatch:
 
+permissions:
+  contents: read
+  id-token: write
+
 jobs:
   check:
     runs-on: ubuntu-latest
     steps:
       - name: Run the saved-search check
         env:
-          RADAR_CRON_URL: ${{ secrets.RADAR_CRON_URL }}
           RADAR_CRON_SECRET: ${{ secrets.RADAR_CRON_SECRET }}
         run: |
-          if [ -z "$RADAR_CRON_URL" ] || [ -z "$RADAR_CRON_SECRET" ]; then
-            echo "Set RADAR_CRON_URL and RADAR_CRON_SECRET repository secrets."
+          set -euo pipefail
+
+          if [ -z "${RADAR_CRON_SECRET:-}" ]; then
+            echo "Set the RADAR_CRON_SECRET repository secret."
             exit 1
           fi
-          curl -fsS -X POST "${RADAR_CRON_URL%/}/api/radar/cron" \
+          if [ -z "${ACTIONS_ID_TOKEN_REQUEST_URL:-}" ] || [ -z "${ACTIONS_ID_TOKEN_REQUEST_TOKEN:-}" ]; then
+            echo "GitHub did not provide an OIDC token endpoint. Check the workflow id-token: write permission."
+            exit 1
+          fi
+
+          oidc_response="$(curl -fsS \
+            -H "Authorization: bearer ${ACTIONS_ID_TOKEN_REQUEST_TOKEN}" \
+            "${ACTIONS_ID_TOKEN_REQUEST_URL}")"
+          oidc_token="$(node -e 'const body = JSON.parse(require("node:fs").readFileSync(0, "utf8")); if (!body.value) process.exit(1); process.stdout.write(body.value);' <<< "$oidc_response")"
+          if [ -z "$oidc_token" ]; then
+            echo "GitHub returned an empty OIDC token."
+            exit 1
+          fi
+          echo "::add-mask::$oidc_token"
+
+          response_file="$(mktemp)"
+          trap 'rm -f "$response_file"' EXIT
+          status="$(curl --silent --show-error --output "$response_file" --write-out "%{http_code}" \
+            -X POST "https://autoflip-umber.vercel.app/api/radar/cron" \
             -H "authorization: Bearer ${RADAR_CRON_SECRET}" \
+            -H "x-vercel-trusted-oidc-idp-token: ${oidc_token}" \
             -H "content-type: application/json" \
-            --max-time 90
+            --max-time 90)"
+
+          cat "$response_file"
+          case "$status" in
+            2*) echo "Radar cron completed (HTTP $status)." ;;
+            *) echo "Radar cron failed (HTTP $status)." >&2; exit 1 ;;
+          esac
