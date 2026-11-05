@@ -142,7 +142,7 @@ export function buildComputedReport(input: ReportInput): ComputedReport {
     }
     if (parkIt) {
       verdict = "walk_away";
-      reasons.push("A park-it or park-outside recall overrides the price verdict.");
+      reasons.push("A model-year park-it or park-outside campaign is a conservative safety override. Confirm that it applies to this VIN and whether it has been repaired before driving.");
     }
     reasons.push(
       `Asking ${formatUsd(subjectPrice)} versus a mileage-and-history fair value of ${formatUsd(fairValueUsd)} (${formatPct(Math.abs(gap))} ${gap >= 0 ? "above" : "below"}).`,
@@ -190,7 +190,7 @@ export function buildComputedReport(input: ReportInput): ComputedReport {
         `Buy target for a ${formatUsd(input.targetProfitUsd ?? ASSUMPTIONS.flipDesiredProfitUsd)} margin at the midpoint is ${formatUsd(flip.targetBuyUsd)}, before any negotiation you still have to win.`,
       );
       reasons.push(`Time-to-sell risk is ${flip.timeToSellRisk}. ${flip.timeToSellNote}`);
-      if (parkIt) reasons.push("A park-it or park-outside recall makes this a walk-away for a resale.");
+      if (parkIt) reasons.push("A model-year park-it or park-outside campaign makes this a conservative walk-away until VIN applicability and repair status are verified.");
     }
   }
 
@@ -198,6 +198,7 @@ export function buildComputedReport(input: ReportInput): ComputedReport {
   const flags = buildFlags({
     listing: input.subject,
     recalls: input.recalls,
+    recallsAvailable,
     parkIt,
     complaintCount: input.complaintCount,
     priceGap: gap,
