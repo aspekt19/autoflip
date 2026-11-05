@@ -71,29 +71,55 @@ export function decodePayment(header: string): unknown | null {
   }
 }
 
+export type VerifiedPayment = { paymentPayload: unknown };
 export type SettleResult =
   | { ok: true; txHash: string | null }
   | { ok: false; error: string };
+export type VerifyResult =
+  | { ok: true; verified: VerifiedPayment }
+  | { ok: false; error: string };
 
+/** Verify first; callers should only settle after the paid resource has been produced successfully. */
+export async function verifyPayment(
+  header: string,
+  requirement: PaymentRequirements,
+  deps: { fetch: typeof fetch; facilitatorUrl: string },
+): Promise<VerifyResult> {
+  const paymentPayload = decodePayment(header);
+  if (!paymentPayload) return { ok: false, error: "Payment header was not valid JSON." };
+  const verify = await postFacilitator(deps, "/verify", { x402Version: 1, paymentPayload, paymentRequirements: requirement });
+  if (!verify.ok) return verify;
+  const verifyBody = verify.body as { isValid?: boolean; invalidReason?: string };
+  if (!verifyBody.isValid) return { ok: false, error: verifyBody.invalidReason || "Payment was not valid." };
+  return { ok: true, verified: { paymentPayload } };
+}
+
+/** Settlement is deliberately separate so failed report generation does not charge the caller. */
+export async function settlePayment(
+  verified: VerifiedPayment,
+  requirement: PaymentRequirements,
+  deps: { fetch: typeof fetch; facilitatorUrl: string },
+): Promise<SettleResult> {
+  const settle = await postFacilitator(deps, "/settle", {
+    x402Version: 1,
+    paymentPayload: verified.paymentPayload,
+    paymentRequirements: requirement,
+  });
+  if (!settle.ok) return settle;
+  const settleBody = settle.body as { success?: boolean; txHash?: string; error?: string };
+  if (!settleBody.success) return { ok: false, error: settleBody.error || "Payment could not be settled." };
+  return { ok: true, txHash: settleBody.txHash ?? null };
+}
+
+/** Backwards-compatible helper for callers that intentionally need immediate settlement. */
 export async function verifyAndSettle(
   header: string,
   requirement: PaymentRequirements,
   deps: { fetch: typeof fetch; facilitatorUrl: string },
 ): Promise<SettleResult> {
-  const paymentPayload = decodePayment(header);
-  if (!paymentPayload) return { ok: false, error: "Payment header was not valid JSON." };
-  const body = { x402Version: 1, paymentPayload, paymentRequirements: requirement };
-  const verify = await postFacilitator(deps, "/verify", body);
-  if (!verify.ok) return verify;
-  const verifyBody = verify.body as { isValid?: boolean; invalidReason?: string };
-  if (!verifyBody.isValid) {
-    return { ok: false, error: verifyBody.invalidReason || "Payment was not valid." };
-  }
-  const settle = await postFacilitator(deps, "/settle", body);
-  if (!settle.ok) return settle;
-  const settleBody = settle.body as { success?: boolean; txHash?: string; error?: string };
-  if (!settleBody.success) return { ok: false, error: settleBody.error || "Payment could not be settled." };
-  return { ok: true, txHash: settleBody.txHash ?? null };
+  const verified = await verifyPayment(header, requirement, deps);
+  if (!verified.ok) return verified;
+  return settlePayment(verified.verified, requirement, deps);
 }
 
 async function postFacilitator(

@@ -1,6 +1,9 @@
 import { BASE_MODEL, modelFor, profile, type ProfileId, type ServProfile } from "./profiles";
 import { buildServProof, recordServProof, type ServProof } from "./proof";
 
+/** JSON-shaped, read-only facts computed by the application before any model call. */
+export type ServFacts = Readonly<Record<string, unknown>>;
+
 export type ServDeps = {
   fetch?: typeof fetch;
   apiKey?: string;
@@ -328,7 +331,7 @@ async function readChatStream(response: Response): Promise<{ text: string; paylo
 
 export async function runServ(
   id: ProfileId,
-  input: { user: string; facts?: unknown },
+  input: { user: string; facts?: ServFacts },
   deps: ServDeps = {},
 ): Promise<ServResult> {
   const entry = profile(id);

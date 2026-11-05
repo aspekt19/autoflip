@@ -3,10 +3,14 @@ import type { Flag, Listing, RecallRecord } from "./types";
 export function dealerQuestions(input: {
   listing: Listing;
   recalls: RecallRecord[];
+  vinIdentityMismatch?: boolean;
   parkIt: boolean;
   historyMissing: boolean;
 }): string[] {
   const questions: string[] = [];
+  if (input.vinIdentityMismatch) {
+    questions.push("The VIN decoder returned a different year, make, or model from the listing. Ask the seller to photograph the VIN plate and title, then correct the listing before paying or arranging an inspection.");
+  }
   const accidents = input.listing.accidentCount;
   if (accidents === null) {
     questions.push("Ask whether the vehicle has any accident or damage history, and ask to see a Carfax or AutoCheck.");
@@ -14,11 +18,11 @@ export function dealerQuestions(input: {
     questions.push("Ask for the repair invoices and whether any airbags deployed.");
   }
   if (input.parkIt) {
-    questions.push("Ask the dealer not to sell the car until the park-it or park-outside recall has a completed repair order.");
+    questions.push("NHTSA lists a park-it or park-outside campaign for this model year, make, and model. Ask the dealer to verify whether it applies to this VIN and provide the repair order before driving; the model-level result alone does not confirm this vehicle is affected.");
   } else if (input.recalls.length > 0) {
-    questions.push("Ask for proof that each open recall campaign was completed, including the repair-order number.");
+    questions.push("Ask the dealer to run this VIN through NHTSA, identify which model-year campaigns apply to this vehicle, and provide repair orders for any applicable campaign already completed.");
   } else {
-    questions.push("Ask the dealer to run the VIN through NHTSA’s recall lookup with you before you pay.");
+    questions.push("Ask the dealer to run this VIN through NHTSA’s recall lookup before you pay. A model-year search is not a VIN-specific repair-status check.");
   }
   if (input.listing.oneOwner === false || (input.listing.ownerCount ?? 0) > 1) {
     questions.push("Ask why the previous owners sold it, and whether it was ever a rental, fleet, or commercial unit.");
@@ -41,6 +45,8 @@ export function dealerQuestions(input: {
 export function buildFlags(input: {
   listing: Listing;
   recalls: RecallRecord[];
+  recallsAvailable?: boolean;
+  vinIdentityMismatch?: boolean;
   parkIt: boolean;
   complaintCount: number | null;
   priceGap: number | null;
@@ -62,11 +68,25 @@ export function buildFlags(input: {
       text: `The last stored listing is marked removed at ${input.removedAt}. It may already be gone.`,
     });
   }
+  if (input.vinIdentityMismatch) {
+    flags.push({
+      level: "stop",
+      source: "vin-identity",
+      text: "NHTSA's clean VIN decode conflicts with the year, make, or model shown in the listing. The price verdict is withheld; verify the VIN and title with the seller before proceeding.",
+    });
+  }
+  if (input.recallsAvailable === false) {
+    flags.push({
+      level: "note",
+      source: "nhtsa-recalls",
+      text: "NHTSA recall data was unavailable. No conclusion about model-year campaigns or this VIN's recall status can be drawn.",
+    });
+  }
   if (input.parkIt) {
     flags.push({
       level: "stop",
       source: "nhtsa-recalls",
-      text: "NHTSA marks at least one campaign for this year, make, and model as park-it or park-outside. Confirm it is repaired before anyone drives the car.",
+      text: "NHTSA lists a park-it or park-outside campaign for this year, make, and model. This is a model-level warning, not confirmation that the campaign applies to this VIN. Do not drive until the dealer or NHTSA verifies VIN applicability and repair status.",
     });
   }
   if ((input.listing.accidentCount ?? 0) > 0) {

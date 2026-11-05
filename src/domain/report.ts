@@ -21,6 +21,8 @@ export type ReportInput = {
   subject: Listing;
   candidates: Listing[];
   recalls: RecallRecord[];
+  /** Explicit upstream state: an empty array is only meaningful when the lookup succeeded. */
+  recallsAvailable: boolean;
   complaintCount: number | null;
   fuel: FuelFact | null;
   vinDecode: VinDecode | null;
@@ -33,6 +35,17 @@ export type ReportInput = {
 
 function expectedMiles(year: number, asOfYear: number): number {
   return Math.max(0, asOfYear - year) * ASSUMPTIONS.milesPerYear;
+}
+
+function normalizedVehicleName(value: string): string {
+  return value.toLowerCase().replace(/[^a-z0-9]/g, "");
+}
+
+function vehicleNameMatches(decoded: string, listed: string): boolean {
+  const a = normalizedVehicleName(decoded);
+  const b = normalizedVehicleName(listed);
+  // NHTSA sometimes omits a marketed sub-model (for example, a hybrid label).
+  return a === b || a.startsWith(b) || b.startsWith(a);
 }
 
 function assumptionSnapshot(): Record<string, number> {
@@ -64,6 +77,25 @@ export function buildComputedReport(input: ReportInput): ComputedReport {
   const asOfYear = input.asOfYear ?? new Date().getUTCFullYear();
   const sample = input.sample ?? input.subject.source === "sample";
   const dataNotes: string[] = [];
+  const vinIdentityMismatches: string[] = [];
+  if (input.vinDecode?.errorCode === "0") {
+    const decoded = input.vinDecode;
+    if (decoded.year !== null && decoded.year !== input.subject.year) {
+      vinIdentityMismatches.push(`year ${decoded.year} vs ${input.subject.year}`);
+    }
+    if (decoded.make && !vehicleNameMatches(decoded.make, input.subject.make)) {
+      vinIdentityMismatches.push(`make ${decoded.make} vs ${input.subject.make}`);
+    }
+    if (decoded.model && !vehicleNameMatches(decoded.model, input.subject.model)) {
+      vinIdentityMismatches.push(`model ${decoded.model} vs ${input.subject.model}`);
+    }
+  }
+  const vinIdentityMismatch = vinIdentityMismatches.length > 0;
+  if (vinIdentityMismatch && input.vinDecode) {
+    dataNotes.push(
+      `NHTSA cleanly decoded this VIN, but the listing identity differs (${vinIdentityMismatches.join("; ")}). Decoder: ${input.vinDecode.year ?? "?"} ${input.vinDecode.make ?? "unknown"} ${input.vinDecode.model ?? "unknown"}; listing: ${input.subject.year} ${input.subject.make} ${input.subject.model}. Verify the VIN and listing before relying on this report.`,
+    );
+  }
   const selection = selectComparables(input.subject, input.candidates);
   dataNotes.push(...selection.notes);
 
@@ -88,7 +120,7 @@ export function buildComputedReport(input: ReportInput): ComputedReport {
   }
 
   const history = historyAdjustment(input.subject, input.mode);
-  const enough = selection.scope !== "insufficient" && fairBeforeHistory !== null && subjectPrice !== null;
+  const enough = !vinIdentityMismatch && selection.scope !== "insufficient" && fairBeforeHistory !== null && subjectPrice !== null;
   const fairValueUsd =
     enough && fairBeforeHistory !== null ? roundDollars(fairBeforeHistory * history.multiplier) : null;
   const gap = fairValueUsd !== null && subjectPrice !== null ? priceGap(subjectPrice, fairValueUsd) : null;
@@ -101,8 +133,11 @@ export function buildComputedReport(input: ReportInput): ComputedReport {
       : null;
 
   const parkIt = input.recalls.some((recall) => recall.parkIt || recall.parkOutSide);
-  if (input.recalls.length === 0) {
-    dataNotes.push("No NHTSA campaigns were returned for this year, make, and model. That is not proof there are none.");
+  const recallsAvailable = input.recallsAvailable;
+  if (!recallsAvailable) {
+    dataNotes.push("NHTSA's recall lookup was unavailable or returned an unusable response. No conclusion about recall campaigns can be drawn.");
+  } else if (input.recalls.length === 0) {
+    dataNotes.push("NHTSA returned no campaigns for this year, make, and model. That is not proof there are none, and it is not a VIN-specific repair check.");
   }
   if (input.complaintCount === null) {
     dataNotes.push("NHTSA complaint count was unavailable.");
@@ -113,21 +148,15 @@ export function buildComputedReport(input: ReportInput): ComputedReport {
   if (input.distanceToSearchZipMiles === null) {
     dataNotes.push("Distance from the search ZIP was not calculated.");
   }
-  if (input.vinDecode && input.vinDecode.make && input.subject.make) {
-    const decodeMake = input.vinDecode.make.toLowerCase();
-    const listMake = input.subject.make.toLowerCase();
-    if (!decodeMake.includes(listMake) && !listMake.includes(decodeMake)) {
-      dataNotes.push(
-        `NHTSA decoded the VIN as ${input.vinDecode.year ?? "?"} ${input.vinDecode.make} ${input.vinDecode.model ?? ""}. The listing says ${input.subject.year} ${input.subject.make} ${input.subject.model}. The report keeps the listing identity and shows both.`,
-      );
-    }
-  }
-
   let verdict: Verdict = "insufficient_data";
   const reasons: string[] = [];
 
   if (!enough || gap === null || fairValueUsd === null || subjectPrice === null) {
-    reasons.push("There are not enough priced, same-model listings with mileage to score this asking price.");
+    if (vinIdentityMismatch) {
+      reasons.push("The VIN's NHTSA decode conflicts with the vehicle identity in the listing. The price verdict is withheld until the seller verifies the VIN and corrects the listing.");
+    } else {
+      reasons.push("There are not enough priced, same-model listings with mileage to score this asking price.");
+    }
     if (subjectPrice === null) reasons.push("The listing has no asking price.");
   } else if (input.mode === "personal") {
     verdict = verdictFromPriceGap(gap);
@@ -137,7 +166,7 @@ export function buildComputedReport(input: ReportInput): ComputedReport {
     }
     if (parkIt) {
       verdict = "walk_away";
-      reasons.push("A park-it or park-outside recall overrides the price verdict.");
+      reasons.push("A model-year park-it or park-outside campaign is a conservative safety override. Confirm that it applies to this VIN and whether it has been repaired before driving.");
     }
     reasons.push(
       `Asking ${formatUsd(subjectPrice)} versus a mileage-and-history fair value of ${formatUsd(fairValueUsd)} (${formatPct(Math.abs(gap))} ${gap >= 0 ? "above" : "below"}).`,
@@ -157,7 +186,7 @@ export function buildComputedReport(input: ReportInput): ComputedReport {
   }
 
   const flip =
-    input.mode === "flip" && subjectPrice !== null
+    input.mode === "flip" && subjectPrice !== null && !vinIdentityMismatch
       ? flipMath({
           askingUsd: subjectPrice,
           accidentCount: input.subject.accidentCount,
@@ -172,7 +201,7 @@ export function buildComputedReport(input: ReportInput): ComputedReport {
   if (input.mode === "flip") {
     if (!flip) {
       verdict = "insufficient_data";
-      reasons.push("A resale range needs at least three mileage-adjusted comparables.");
+      if (!vinIdentityMismatch) reasons.push("A resale range needs at least three mileage-adjusted comparables.");
     } else {
       verdict = flipVerdict(flip.marginUsd, parkIt);
       reasons.push(
@@ -185,7 +214,7 @@ export function buildComputedReport(input: ReportInput): ComputedReport {
         `Buy target for a ${formatUsd(input.targetProfitUsd ?? ASSUMPTIONS.flipDesiredProfitUsd)} margin at the midpoint is ${formatUsd(flip.targetBuyUsd)}, before any negotiation you still have to win.`,
       );
       reasons.push(`Time-to-sell risk is ${flip.timeToSellRisk}. ${flip.timeToSellNote}`);
-      if (parkIt) reasons.push("A park-it or park-outside recall makes this a walk-away for a resale.");
+      if (parkIt) reasons.push("A model-year park-it or park-outside campaign makes this a conservative walk-away until VIN applicability and repair status are verified.");
     }
   }
 
@@ -193,6 +222,8 @@ export function buildComputedReport(input: ReportInput): ComputedReport {
   const flags = buildFlags({
     listing: input.subject,
     recalls: input.recalls,
+    recallsAvailable,
+    vinIdentityMismatch,
     parkIt,
     complaintCount: input.complaintCount,
     priceGap: gap,
@@ -202,6 +233,7 @@ export function buildComputedReport(input: ReportInput): ComputedReport {
   const questions = dealerQuestions({
     listing: input.subject,
     recalls: input.recalls,
+    vinIdentityMismatch,
     parkIt,
     historyMissing,
   });
@@ -227,6 +259,7 @@ export function buildComputedReport(input: ReportInput): ComputedReport {
     },
     history,
     recalls: input.recalls,
+    recallsAvailable,
     openParkIt: parkIt,
     complaintCount: input.complaintCount,
     fuel: input.fuel,

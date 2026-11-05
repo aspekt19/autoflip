@@ -135,6 +135,8 @@ export type ComputedReport = {
   };
   history: HistoryAdjustment;
   recalls: RecallRecord[];
+  /** False when NHTSA did not return a usable recall result; an empty array alone is not enough. */
+  recallsAvailable: boolean;
   openParkIt: boolean;
   complaintCount: number | null;
   fuel: FuelFact | null;

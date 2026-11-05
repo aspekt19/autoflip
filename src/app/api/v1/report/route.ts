@@ -8,7 +8,7 @@ import { parseMode } from "@/server/mcp";
 import { bearer, originOf } from "@/server/secrets";
 import { persistReport } from "@/io/persist-report";
 import { getKv } from "@/io/kv";
-import { paymentHeader, paymentsConfigured, readX402Config, requirementsFor, verifyAndSettle } from "@/io/x402";
+import { paymentHeader, paymentsConfigured, readX402Config, requirementsFor, settlePayment, verifyPayment } from "@/io/x402";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -20,6 +20,9 @@ export async function POST(request: Request) {
   if (account === "invalid") return Response.json(invalidKeyBody(), { status: 401 });
   if (account) return reportWithCredit(request, account, origin);
 
+  const body = (await request.json().catch(() => null)) as Record<string, unknown> | null;
+  if (!body) return Response.json({ error: "invalid_json", message: "Send JSON." }, { status: 400 });
+
   const config = readX402Config();
   const unpaid = reportPaymentBody(resource, origin);
   if (!paymentsConfigured(config)) return Response.json(unpaid, { status: 402 });
@@ -30,13 +33,14 @@ export async function POST(request: Request) {
       headers: { "PAYMENT-REQUIRED": Buffer.from(JSON.stringify(unpaid)).toString("base64") },
     });
   }
+
   const requirement = requirementsFor(resource, config);
-  const settled = await verifyAndSettle(header, requirement, { fetch, facilitatorUrl: config.facilitatorUrl });
-  if (!settled.ok) {
+  const verified = await verifyPayment(header, requirement, { fetch, facilitatorUrl: config.facilitatorUrl });
+  if (!verified.ok) {
     return Response.json(
       {
         error: "payment_rejected",
-        message: settled.error,
+        message: verified.error,
         accepts: [requirement],
         proof: agentProof([plannedProof("agent_guard")], ["fairValueUsd", "priceGap"]),
       },
@@ -44,8 +48,8 @@ export async function POST(request: Request) {
     );
   }
 
-  const body = (await request.json().catch(() => null)) as Record<string, unknown> | null;
-  if (!body) return Response.json({ error: "invalid_json", message: "Send JSON." }, { status: 400 });
+  // Run the complete report before settlement: bad VINs, provider failures and SERV
+  // failures must not consume a payment. Verification above does not move funds.
   const assembled = await assembleReport(
     {
       mode: parseMode(body.mode),
@@ -58,8 +62,16 @@ export async function POST(request: Request) {
   );
   if (!assembled.ok) {
     return Response.json(
-      { error: assembled.error, message: assembled.message, txHash: settled.txHash, proof: agentProof([plannedProof("agent_guard")], ["vin", "fairValueUsd", "priceGap"]) },
+      { error: assembled.error, message: assembled.message, proof: agentProof([plannedProof("agent_guard")], ["vin", "fairValueUsd", "priceGap"]) },
       { status: assembled.status },
+    );
+  }
+
+  const settled = await settlePayment(verified.verified, requirement, { fetch, facilitatorUrl: config.facilitatorUrl });
+  if (!settled.ok) {
+    return Response.json(
+      { error: "payment_rejected", message: settled.error, accepts: [requirement] },
+      { status: 402 },
     );
   }
   await persistReport(assembled.report);
