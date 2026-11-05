@@ -22,7 +22,7 @@ const header = Buffer.from(JSON.stringify({ accepted: true })).toString("base64"
 
 describe("x402 payment lifecycle", () => {
   it("verifies without settling so the caller can build the paid resource first", async () => {
-    const fetcher = vi.fn(async () => Response.json({ isValid: true }));
+    const fetcher = vi.fn(async (_input: RequestInfo | URL) => Response.json({ isValid: true }));
     const result = await verifyPayment(header, requirement, {
       fetch: fetcher as typeof fetch,
       facilitatorUrl: "https://facilitator.example",
@@ -52,7 +52,7 @@ describe("x402 payment lifecycle", () => {
     expect(verified.ok).toBe(true);
     if (!verified.ok) return;
 
-    const fetcher = vi.fn(async () => Response.json({ success: true, txHash: "0xabc" }));
+    const fetcher = vi.fn(async (_input: RequestInfo | URL) => Response.json({ success: true, txHash: "0xabc" }));
     const result = await settlePayment(verified.verified, requirement, {
       fetch: fetcher as typeof fetch,
       facilitatorUrl: "https://facilitator.example",
