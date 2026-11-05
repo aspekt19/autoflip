@@ -7,6 +7,7 @@ import { fuelFactFromVehicles, parseCensusPoint, parseComplaintCount, parseRecal
 import { interpretGuard, shadowOutcomeFrom } from "@/server/serv";
 import { paymentsConfigured, readX402Config, requirementsFor, verifyAndSettle } from "./x402";
 import { CreditLedger } from "./store";
+import { recallsFor } from "./gov";
 import { mkdtempSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -104,6 +105,25 @@ describe("government parsers", () => {
       longitude: -94.1,
     });
     expect(parseCensusPoint({ result: { addressMatches: [] } })).toBeNull();
+  });
+});
+
+describe("recall lookup availability", () => {
+  it("distinguishes a successful empty result from an unavailable upstream", async () => {
+    const empty = await recallsFor("Toyota", "Camry", 2021, {
+      fetch: async () => Response.json({ results: [] }),
+    });
+    expect(empty).toEqual({ records: [], available: true });
+
+    const unavailable = await recallsFor("Toyota", "Camry", 2021, {
+      fetch: async () => new Response("upstream unavailable", { status: 503 }),
+    });
+    expect(unavailable).toEqual({ records: [], available: false });
+
+    const malformed = await recallsFor("Toyota", "Camry", 2021, {
+      fetch: async () => Response.json({ message: "unexpected response" }),
+    });
+    expect(malformed).toEqual({ records: [], available: false });
   });
 });
 
