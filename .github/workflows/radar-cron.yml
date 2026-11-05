@@ -28,9 +28,10 @@ jobs:
             exit 1
           fi
 
+          oidc_url="${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=https%3A%2F%2Fgithub.com%2Faspekt19"
           oidc_response="$(curl -fsS \
             -H "Authorization: bearer ${ACTIONS_ID_TOKEN_REQUEST_TOKEN}" \
-            "${ACTIONS_ID_TOKEN_REQUEST_URL}")"
+            "${oidc_url}")"
           oidc_token="$(node -e 'const body = JSON.parse(require("node:fs").readFileSync(0, "utf8")); if (!body.value) process.exit(1); process.stdout.write(body.value);' <<< "$oidc_response")"
           if [ -z "$oidc_token" ]; then
             echo "GitHub returned an empty OIDC token."
