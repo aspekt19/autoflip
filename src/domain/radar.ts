@@ -33,6 +33,7 @@ export function scoreRadar(listings: Listing[], mode: Mode, asOfYear?: number): 
       subject: listing,
       candidates: listings,
       recalls: [],
+      recallsAvailable: false,
       complaintCount: null,
       fuel: null,
       vinDecode: null,
