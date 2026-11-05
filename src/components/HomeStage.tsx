@@ -1,0 +1,82 @@
+"use client";
+
+import Link from "next/link";
+import { useState } from "react";
+import type { Mode } from "@/domain/types";
+import { HomeSearch } from "./HomeSearch";
+import { Showroom } from "./Showroom";
+
+export function HomeStage() {
+  const [mode, setMode] = useState<Mode>("personal");
+
+  return (
+    <div className="home-story">
+      <Showroom mode={mode} />
+      <p className="wordmark">AutoFlip</p>
+      <section className="story-panel story-hero">
+        <p className="kicker">One car, two goals</p>
+        <h1>Describe the car you need</h1>
+        <p className="lead">
+          Buy it for yourself, or buy it to resell. We rate the price against other listings, show the math, and leave the gaps in view. The same full analysis is 1 credit here, or from your own agent.
+        </p>
+        <HomeSearch onModeChange={setMode} />
+        <p className="sample-link">
+          <Link href="/report/sample">See a sample report</Link>
+          <span> (labeled sample, no credit)</span>
+        </p>
+        <p className="showroom-credit">Studio model: Kenney Car Kit, CC0. Lighting: Poly Haven, CC0. Photo when the model is off: Charlie Deets, Pexels. Not a car for sale.</p>
+      </section>
+      <div className="marquee" aria-hidden="true">
+        <div className="marquee-track">
+          <span>For me</span>
+          <span>For resale</span>
+          <span>Price badge</span>
+          <span>Mileage</span>
+          <span>Full analysis</span>
+          <span>For agents</span>
+          <span>For me</span>
+          <span>For resale</span>
+          <span>Price badge</span>
+          <span>Mileage</span>
+          <span>Full analysis</span>
+          <span>For agents</span>
+        </div>
+      </div>
+      <section className="story-panel reveal">
+        <p className="kicker">How it works</p>
+        <ol className="steps-3 story-steps">
+          <li>
+            <strong>01 Say which goal</strong>
+            <span>For me, or for resale. A note, a budget, and a ZIP. Resale also asks what profit you want and what repairs you can do.</span>
+          </li>
+          <li>
+            <strong>02 Read the listing</strong>
+            <span>Photo, price, miles, and a free Good, Fair, or High price badge. Save the search if you want alerts. Alerts are a plan, not a report credit.</span>
+          </li>
+          <li>
+            <strong>03 Open the full analysis</strong>
+            <span>1 credit shows the numbers, what we could not check, and a buy, negotiate, or pass line. Your agent can request that same analysis.</span>
+          </li>
+        </ol>
+        <p className="sample-link">
+          <Link href="/pricing">See pricing</Link>
+          <span>. Report credits and Deal Radar plans are separate.</span>
+        </p>
+      </section>
+      <section className="story-panel reveal trust-row story-trust" aria-label="How a verdict is built">
+        <article>
+          <strong>The math is on the page</strong>
+          <span>Price, comps, and the gap are calculated in code and shown.</span>
+        </article>
+        <article>
+          <strong>Gaps stay visible</strong>
+          <span>Missing history, mileage, or comps is labeled, not filled in.</span>
+        </article>
+        <article>
+          <strong>Same analysis for agents</strong>
+          <span>A key on For agents spends the same report credit.</span>
+        </article>
+      </section>
+    </div>
+  );
+}

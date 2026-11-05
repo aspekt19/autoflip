@@ -4,10 +4,15 @@ import { useRouter } from "next/navigation";
 import { useState, type FormEvent } from "react";
 import type { Mode } from "@/domain/types";
 
-export function HomeSearch() {
+export function HomeSearch({ onModeChange }: { onModeChange?: (mode: Mode) => void }) {
   const router = useRouter();
   const [note, setNote] = useState("");
   const [mode, setMode] = useState<Mode>("personal");
+
+  function choose(next: Mode) {
+    setMode(next);
+    onModeChange?.(next);
+  }
 
   function submit(event: FormEvent) {
     event.preventDefault();
@@ -21,10 +26,10 @@ export function HomeSearch() {
     <form className="hero-chat" onSubmit={submit}>
       <fieldset className="pills" aria-label="Who is this for">
         <label className="pill">
-          <input type="radio" name="home-mode" checked={mode === "personal"} onChange={() => setMode("personal")} /> For me
+          <input type="radio" name="home-mode" checked={mode === "personal"} onChange={() => choose("personal")} /> For me
         </label>
         <label className="pill">
-          <input type="radio" name="home-mode" checked={mode === "flip"} onChange={() => setMode("flip")} /> For resale
+          <input type="radio" name="home-mode" checked={mode === "flip"} onChange={() => choose("flip")} /> For resale
         </label>
       </fieldset>
       <label className="sr-only" htmlFor="home-note">
