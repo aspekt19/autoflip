@@ -14,11 +14,11 @@ export function dealerQuestions(input: {
     questions.push("Ask for the repair invoices and whether any airbags deployed.");
   }
   if (input.parkIt) {
-    questions.push("Ask the dealer not to sell the car until the park-it or park-outside recall has a completed repair order.");
+    questions.push("NHTSA lists a park-it or park-outside campaign for this model year, make, and model. Ask the dealer to verify whether it applies to this VIN and provide the repair order before driving; the model-level result alone does not confirm this vehicle is affected.");
   } else if (input.recalls.length > 0) {
-    questions.push("Ask for proof that each open recall campaign was completed, including the repair-order number.");
+    questions.push("Ask the dealer to run this VIN through NHTSA, identify which model-year campaigns apply to this vehicle, and provide repair orders for any applicable campaign already completed.");
   } else {
-    questions.push("Ask the dealer to run the VIN through NHTSA’s recall lookup with you before you pay.");
+    questions.push("Ask the dealer to run this VIN through NHTSA’s recall lookup before you pay. A model-year search is not a VIN-specific repair-status check.");
   }
   if (input.listing.oneOwner === false || (input.listing.ownerCount ?? 0) > 1) {
     questions.push("Ask why the previous owners sold it, and whether it was ever a rental, fleet, or commercial unit.");
@@ -66,7 +66,7 @@ export function buildFlags(input: {
     flags.push({
       level: "stop",
       source: "nhtsa-recalls",
-      text: "NHTSA marks at least one campaign for this year, make, and model as park-it or park-outside. Confirm it is repaired before anyone drives the car.",
+      text: "NHTSA lists a park-it or park-outside campaign for this year, make, and model. This is a model-level warning, not confirmation that the campaign applies to this VIN. Do not drive until the dealer or NHTSA verifies VIN applicability and repair status.",
     });
   }
   if ((input.listing.accidentCount ?? 0) > 0) {
