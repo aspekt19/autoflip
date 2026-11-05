@@ -1,3 +1,12 @@
+/** The body words on the listing itself. A search for SUVs does not relabel a sedan. */
+export function listingBodyLabel(bodyStyle: string | null | undefined, style: string | null | undefined): string | null {
+  const styleText = style?.trim() || null;
+  const bodyText = bodyStyle?.trim() || null;
+  if (styleText && styleText.toLowerCase() !== "car") return styleText;
+  if (bodyText && bodyText.toLowerCase() !== "car") return bodyText;
+  return styleText ?? bodyText;
+}
+
 /** Why one car stayed on a results list. Uses only the fields already shown. */
 export function whyThisCar(input: {
   year: number;
@@ -8,13 +17,12 @@ export function whyThisCar(input: {
   milesMax?: number | null;
   budgetUsd: number | null;
   overBudget?: boolean;
-  segment: string;
+  bodyStyle?: string | null;
+  style?: string | null;
   requestedMake?: string | null;
 }): string {
-  const facts = [
-    input.requestedMake ?? input.make,
-    /crossover|suv/i.test(input.segment) ? "compact crossover" : /sedan|compact car/i.test(input.segment) ? "sedan" : input.segment.toLowerCase(),
-  ];
+  const body = listingBodyLabel(input.bodyStyle, input.style);
+  const facts = [input.requestedMake ?? input.make, ...(body ? [body] : [])];
   if (input.miles != null) {
     facts.push(
       input.milesMax != null

@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { proposeDirections } from "./directions";
-import { explicitNeedFromText, listingWithinNeed, makeFromText, milesFromText, noMatchMessage, validateNeed, yearBandForBudget } from "./need";
+import { explicitNeedFromText, listingWithinNeed, makeFromText, milesFromText, noMatchMessage, sampleGapMessage, validateNeed, yearBandForBudget } from "./need";
 import { whyThisCar } from "./why-car";
+import { sampleListings } from "@/io/sample";
 import { understandNeed } from "@/server/understand-need";
 import { assembleRadar } from "@/server/assemble";
 import { listingsSearchUrl } from "@/io/autodev";
@@ -43,11 +44,14 @@ describe("mileage cap from a note", () => {
     });
     expect(need.ok).toBe(true);
     if (!need.ok) return;
-    expect(noMatchMessage(need.need)).toBe("No Toyota cars under 50,000 mi within budget near 68114. You can raise the mileage cap and search again.");
-    expect(listingWithinNeed({ make: "Toyota", miles: 109_488 }, need.need)).toBe(false);
-    expect(listingWithinNeed({ make: "Toyota", miles: 119_010 }, need.need)).toBe(false);
-    expect(listingWithinNeed({ make: "Honda", miles: 42_100 }, need.need)).toBe(false);
-    expect(listingWithinNeed({ make: "Toyota", miles: 42_100 }, need.need)).toBe(true);
+    expect(noMatchMessage(need.need)).toBe("No Toyota SUV listings under 50,000 mi within budget near 68114. You can raise the mileage cap and search again.");
+    expect(listingWithinNeed({ make: "Toyota", miles: 109_488, bodyStyle: "SUV" }, need.need)).toBe(false);
+    expect(listingWithinNeed({ make: "Toyota", miles: 119_010, bodyStyle: "SUV" }, need.need)).toBe(false);
+    expect(listingWithinNeed({ make: "Honda", miles: 42_100, bodyStyle: "SUV" }, need.need)).toBe(false);
+    expect(listingWithinNeed({ make: "Toyota", miles: 42_100, bodyStyle: "SUV" }, need.need)).toBe(true);
+    expect(listingWithinNeed({ make: "Toyota", miles: 42_100, bodyStyle: "Car", style: "Sedan" }, need.need)).toBe(false);
+    expect(sampleListings().filter((car) => listingWithinNeed(car, need.need))).toHaveLength(0);
+    expect(sampleGapMessage(need.need)).toContain("no Toyota SUV");
     expect(listingsSearchUrl({ make: "Toyota", model: "RAV4", milesRange: "0-50000", zip: "68114" })).toContain("retailListing.miles=0-50000");
     expect(
       whyThisCar({
@@ -58,10 +62,24 @@ describe("mileage cap from a note", () => {
         milesMax: 50_000,
         priceUsd: 17_500,
         budgetUsd: 25_000,
-        segment: "Compact crossovers",
+        bodyStyle: "SUV",
         requestedMake: "Toyota",
       }),
-    ).toBe("2017 Toyota RAV4. Toyota, compact crossover, 42,100 mi (under your 50,000 cap), $17,500 (within $25,000).");
+    ).toBe("2017 Toyota RAV4. Toyota, SUV, 42,100 mi (under your 50,000 cap), $17,500 (within $25,000).");
+    const camry = whyThisCar({
+      year: 2021,
+      make: "Toyota",
+      model: "Camry",
+      miles: 31_149,
+      milesMax: 50_000,
+      priceUsd: 34_988,
+      budgetUsd: 40_000,
+      bodyStyle: "Car",
+      style: "Sedan",
+      requestedMake: "Toyota",
+    });
+    expect(camry).toContain("Sedan");
+    expect(camry).not.toMatch(/suv|crossover/i);
   });
 });
 

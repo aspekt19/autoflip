@@ -2,7 +2,7 @@
 
 Evaluation preview of a US used-car verdict. The home page starts from what the shopper needs, suggests a few editorial search directions, and spends a credit only on a full analysis of one car. AutoFlip says **good deal**, **fair**, **overpriced**, or **walk away**, and shows the arithmetic.
 
-Monitoring a saved search does not use report credits. A full analysis costs 1 credit. Anyone can open the labeled sample report at `/report/sample`. The shared preview (`/demo?key=`) still refills a small daily credit balance. Credits are sold with **Stripe test mode** only. Agents can buy the same verdict through MCP and an HTTP endpoint. The consumer pages do not describe that payment rail; the [developer page](src/app/developers/page.tsx) does.
+Monitoring a saved search does not use report credits. A full analysis costs 1 credit. Anyone can open the labeled sample report at `/report/sample`. The shared preview (`/demo?key=`) still refills a small daily credit balance. Credits are sold with **Stripe test mode** only. Agents run the same full analysis by spending 1 credit with an API key. The [For agents page](src/app/developers/page.tsx) has the key buttons and the MCP snippets.
 
 This build is an evaluation preview. The Auto.dev free plan is not a production license. The homepage photo is a licensed stock image, not a car for sale. See [CREDITS.md](CREDITS.md).
 
@@ -67,7 +67,7 @@ If a SERV call fails or times out, the deterministic result still shows and the 
 - Auto.dev calls stop at 900 per UTC month and are cached for 6 hours. A stopped month returns a plain “demo limit reached” message and does not call the provider.
 - Without `AUTODEV_API_KEY`, Deal Radar and reports for the five fixture VINs use the labeled sample. Other VINs are refused. The sample is never mixed into a live result.
 - Stripe Checkout in test mode, with live keys refused. The webhook grants credits once per event.
-- MCP (`deal_radar`, `full_report`) and `POST /api/v1/report`. Agent payment is x402: the server returns 402 until a facilitator verifies and settles. An empty payee does not pretend a payment worked.
+- MCP (`deal_radar`, `full_report`) and `POST /api/v1/report`. A signed-in browser creates an API key on `/developers`. The raw key is shown once and stored as a SHA-256 hash. `Authorization: Bearer af_…` spends 1 credit from that account for `full_report`. `deal_radar` stays free. A zero balance returns `insufficient_credits` and a buy-credits link, and does not run the analysis. The same JSON-RPC id or `Idempotency-Key` does not spend twice. Responses still include `proof`. A payment header remains optional when that rail is configured.
 
 ## What is stubbed, and why
 

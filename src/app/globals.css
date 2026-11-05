@@ -544,6 +544,12 @@ textarea { min-height: 140px; }
 .pair { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
 .warn { background: var(--blue-soft); padding: 12px 14px; margin: 12px 0 0; }
 .warn-box { background: var(--canvas); border: 1px solid var(--line); padding: 14px; margin: 12px 0; }
+.key-create { display: flex; gap: 12px; align-items: flex-end; flex-wrap: wrap; margin: 12px 0; }
+.key-create input { width: min(280px, 100%); }
+.key-create .action { width: auto; min-width: 140px; }
+.key-list { list-style: none; padding: 0; margin: 16px 0; display: grid; gap: 8px; }
+.key-list li { display: flex; justify-content: space-between; gap: 12px; align-items: center; border: 1px solid var(--line); padding: 10px 12px; }
+.key-list .quiet { width: auto; min-height: 40px; }
 .mono, .meta dd, code { font-family: var(--mono); }
 .verdict-level { font-family: var(--sans); font-weight: 700; letter-spacing: -0.04em; line-height: 0.95; font-size: clamp(44px, 6vw, 72px); margin: 8px 0 0; }
 .badge {
