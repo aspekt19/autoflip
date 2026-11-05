@@ -1,10 +1,12 @@
 "use client";
 
 import Link from "next/link";
-import { useState } from "react";
+import { Suspense, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { PLAN_CATALOG } from "@/domain/plans";
 
-export default function PricingPage() {
+function PricingContent() {
+  const params = useSearchParams();
   const [message, setMessage] = useState<string | null>(null);
   const [pending, setPending] = useState<string | null>(null);
 
@@ -35,11 +37,12 @@ export default function PricingPage() {
       <div className="sheet-page">
         <p className="kicker">Preview pricing</p>
         <h1>Radar plans</h1>
-        <p className="lead">
-          These amounts are placeholders for the preview. A radar plan does not include report credits. The shared demo turns both modes on without a charge.
-        </p>
-        <h2>Personal</h2>
-        <p className="hint">Priced by how many model lists you watch. Each model is one listings call.</p>
+        <p className="lead">Preview-only test subscriptions. Displayed monthly amounts are placeholders, and Stripe test mode does not charge real money. Radar plans cover ongoing saved-search alerts; report credits are separate.</p>
+        <p className="hint">To test a subscription, use Stripe card 4242 4242 4242 4242, any future expiry date and any CVC. No real payment is taken.</p>
+        {params.get("status") === "success" ? <p className="warn-box">Stripe returned from a successful test checkout. Refresh Price alerts after a few seconds if the new plan is not available yet.</p> : null}
+        {params.get("status") === "cancel" ? <p className="warn-box">Test checkout was canceled. No real payment was taken.</p> : null}
+        <h2>For me</h2>
+        <p className="hint">Choose how many saved vehicle searches you want AutoFlip to monitor.</p>
         <div className="choice-grid">
           {PLAN_CATALOG.filter((plan) => plan.mode === "personal").map((plan) => (
             <article className="choice-card" key={plan.id}>
@@ -47,13 +50,13 @@ export default function PricingPage() {
               <span className="choice-desc">{plan.detail}</span>
               <b>${plan.amountCents / 100}/month</b>
               <button className="action" type="button" disabled={pending === plan.id} onClick={() => void subscribe(plan.id)}>
-                {pending === plan.id ? "Starting…" : "Subscribe in test mode"}
+                {pending === plan.id ? "Starting…" : "Start test subscription"}
               </button>
             </article>
           ))}
         </div>
-        <h2>Flip</h2>
-        <p className="hint">Priced higher because a resale scan reads the whole budget in a ZIP, not one model.</p>
+        <h2>For resale</h2>
+        <p className="hint">Monitor one local market using a ZIP code, search radius and maximum purchase budget.</p>
         <div className="choice-grid">
           {PLAN_CATALOG.filter((plan) => plan.mode === "flip").map((plan) => (
             <article className="choice-card" key={plan.id}>
@@ -61,7 +64,7 @@ export default function PricingPage() {
               <span className="choice-desc">{plan.detail}</span>
               <b>${plan.amountCents / 100}/month</b>
               <button className="action" type="button" disabled={pending === plan.id} onClick={() => void subscribe(plan.id)}>
-                {pending === plan.id ? "Starting…" : "Subscribe in test mode"}
+                {pending === plan.id ? "Starting…" : "Start test subscription"}
               </button>
             </article>
           ))}
@@ -73,4 +76,9 @@ export default function PricingPage() {
       </div>
     </div>
   );
+}
+
+
+export default function PricingPage() {
+  return <Suspense fallback={<div className="wrap page">Loading pricing…</div>}><PricingContent /></Suspense>;
 }

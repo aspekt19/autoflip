@@ -24,7 +24,7 @@ export function Header() {
     };
   }, [pathname]);
 
-  const creditLabel = credits === null ? "Credits" : `${credits} credit${credits === 1 ? "" : "s"}`;
+  const creditLabel = credits === null ? "Report credits" : `${credits} report credit${credits === 1 ? "" : "s"}`;
 
   return (
     <header className="bar">
@@ -36,11 +36,11 @@ export function Header() {
         Menu
       </button>
       <nav id="primary-nav" aria-label="Primary" className={menuOpen ? "nav-open" : undefined}>
-        <Link href="/find" onClick={() => setMenuOpen(false)}>Find</Link>
-        <Link href="/check" onClick={() => setMenuOpen(false)}>Check by VIN</Link>
-        <Link href="/radar" onClick={() => setMenuOpen(false)}>Deal Radar</Link>
+        <Link href="/find" onClick={() => setMenuOpen(false)}>Find a car</Link>
+        <Link href="/check" onClick={() => setMenuOpen(false)}>Check a car</Link>
+        <Link href="/radar" onClick={() => setMenuOpen(false)}>Price alerts</Link>
         <Link href="/pricing" onClick={() => setMenuOpen(false)}>Pricing</Link>
-        <Link href="/developers" onClick={() => setMenuOpen(false)}>For agents</Link>
+        <Link href="/developers" onClick={() => setMenuOpen(false)}>For AI agents</Link>
         <Link className="nav-go" href="/credits">
           {creditLabel}
         </Link>

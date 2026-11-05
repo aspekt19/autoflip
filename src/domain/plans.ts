@@ -7,7 +7,7 @@ export const PLAN_CATALOG = [
     amountCents: 900,
     searchLimit: 1,
     lookupKey: "autoflip_personal_1_monthly",
-    detail: "One saved model list, checked on the shared schedule.",
+    detail: "Monitor one saved vehicle search for new matching dealer listings.",
   },
   {
     id: "personal_3",
@@ -16,7 +16,7 @@ export const PLAN_CATALOG = [
     amountCents: 1900,
     searchLimit: 3,
     lookupKey: "autoflip_personal_3_monthly",
-    detail: "Three saved model lists. Each model is one listings call.",
+    detail: "Monitor up to three saved vehicle searches for new matching dealer listings.",
   },
   {
     id: "flip_metro",
@@ -25,7 +25,7 @@ export const PLAN_CATALOG = [
     amountCents: 4900,
     searchLimit: 1,
     lookupKey: "autoflip_flip_metro_monthly",
-    detail: "One ZIP and radius. Each cycle scans in-budget inventory, up to two cached pages.",
+    detail: "Monitor one local market using a ZIP code, search radius and maximum purchase budget.",
   },
 ] as const;
 

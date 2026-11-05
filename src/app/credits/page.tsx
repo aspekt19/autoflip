@@ -10,15 +10,17 @@ function CreditsInner() {
   const status = params.get("status");
   const [credits, setCredits] = useState<number | null>(null);
   const [stripeOn, setStripeOn] = useState<boolean | null>(null);
+  const [demo, setDemo] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState<string | null>(null);
 
   useEffect(() => {
     fetch("/api/account")
       .then((response) => response.json())
-      .then((body: { credits?: number; stripeConfigured?: boolean }) => {
+      .then((body: { credits?: number; stripeConfigured?: boolean; demo?: boolean }) => {
         if (typeof body.credits === "number") setCredits(body.credits);
         setStripeOn(Boolean(body.stripeConfigured));
+        setDemo(Boolean(body.demo));
       })
       .catch(() => setError("Could not load the credit balance."));
   }, []);
@@ -50,7 +52,9 @@ function CreditsInner() {
       <div className="sheet-page">
       <p className="kicker">Test checkout</p>
       <h1>Credits</h1>
-      <p className="lead">Monitoring (saved searches and Deal Radar alerts) needs a radar plan. A full report costs 1 credit. Checkout is charged in US dollars.</p>
+      <p className="lead">A full vehicle report costs 1 report credit. Ongoing saved-search alerts require a separate Radar plan. All preview prices are in U.S. dollars.</p>
+      <p className="hint">This is Stripe test mode: test-card checkouts do not take real money. Use 4242 4242 4242 4242, any future expiry date and any CVC.</p>
+      <p className="hint">{demo ? "You are using the shared demo account. Its credits and saved activity may be visible to other demo visitors." : "This preview account is tied to this browser. Keep using the same browser to retain access to its credits and reports."}</p>
       <p className="warn-box">
         Balance: <strong>{credits === null ? "…" : credits}</strong>
         {stripeOn === false ? " Stripe test keys are not configured, so checkout cannot start." : null}
@@ -81,9 +85,7 @@ function CreditsInner() {
         ))}
       </div>
       {error ? <p className="warn">{error}</p> : null}
-      <p className="hint">
-        In test mode, use card 4242 4242 4242 4242, any future date, and any CVC. A live card is refused.
-      </p>
+      <p className="hint">These are test prices and test transactions only. No live payment is processed.</p>
       </div>
     </div>
   );
