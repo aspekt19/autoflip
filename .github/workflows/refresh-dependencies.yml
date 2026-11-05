@@ -1,0 +1,43 @@
+name: Refresh dependency lockfile
+
+on:
+  push:
+    branches: [fix/nhtsa-recall-availability]
+
+permissions:
+  contents: write
+
+jobs:
+  refresh:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref_name }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Update patched dependency versions
+        run: |
+          npm pkg set 'devDependencies.vitest=^4.1.12' 'devDependencies.vite=^7.3.7' 'overrides.postcss=8.5.32'
+          npm install --package-lock-only --ignore-scripts
+      - name: Verify generated lockfile
+        run: |
+          npm ci
+          npm run typecheck
+          npm test
+          npm audit --json > npm-audit.json || true
+          node -e 'const a=require("./npm-audit.json"); for (const [name,v] of Object.entries(a.vulnerabilities ?? {})) { const via=v.via.map(x => typeof x === "string" ? x : `${x.title} [${x.url}]`).join("; "); console.log(`${name}: ${v.severity}; range=${v.range}; fix=${JSON.stringify(v.fixAvailable)}; ${via}`); } console.log("Totals:", JSON.stringify(a.metadata?.vulnerabilities ?? {}));'
+      - name: Commit updated lockfile
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add package.json package-lock.json
+          if git diff --cached --quiet; then
+            echo "No dependency changes."
+            exit 0
+          fi
+          git commit -m "chore: patch vulnerable test and CSS dependencies"
+          git push origin "HEAD:${GITHUB_REF_NAME}"
