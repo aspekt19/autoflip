@@ -37,6 +37,10 @@ function expectedMiles(year: number, asOfYear: number): number {
   return Math.max(0, asOfYear - year) * ASSUMPTIONS.milesPerYear;
 }
 
+function normalizedVehicleName(value: string): string {
+  return value.toLowerCase().replace(/[^a-z0-9]/g, "");
+}
+
 function assumptionSnapshot(): Record<string, number> {
   return {
     milesPerYear: ASSUMPTIONS.milesPerYear,
@@ -118,12 +122,21 @@ export function buildComputedReport(input: ReportInput): ComputedReport {
   if (input.distanceToSearchZipMiles === null) {
     dataNotes.push("Distance from the search ZIP was not calculated.");
   }
-  if (input.vinDecode && input.vinDecode.make && input.subject.make) {
-    const decodeMake = input.vinDecode.make.toLowerCase();
-    const listMake = input.subject.make.toLowerCase();
-    if (!decodeMake.includes(listMake) && !listMake.includes(decodeMake)) {
+  if (input.vinDecode?.errorCode === "0") {
+    const decoded = input.vinDecode;
+    const mismatches: string[] = [];
+    if (decoded.year !== null && decoded.year !== input.subject.year) {
+      mismatches.push(`year ${decoded.year} vs ${input.subject.year}`);
+    }
+    if (decoded.make && normalizedVehicleName(decoded.make) !== normalizedVehicleName(input.subject.make)) {
+      mismatches.push(`make ${decoded.make} vs ${input.subject.make}`);
+    }
+    if (decoded.model && normalizedVehicleName(decoded.model) !== normalizedVehicleName(input.subject.model)) {
+      mismatches.push(`model ${decoded.model} vs ${input.subject.model}`);
+    }
+    if (mismatches.length > 0) {
       dataNotes.push(
-        `NHTSA decoded the VIN as ${input.vinDecode.year ?? "?"} ${input.vinDecode.make} ${input.vinDecode.model ?? ""}. The listing says ${input.subject.year} ${input.subject.make} ${input.subject.model}. The report keeps the listing identity and shows both.`,
+        `NHTSA cleanly decoded this VIN, but the listing identity differs (${mismatches.join("; ")}). Decoder: ${decoded.year ?? "?"} ${decoded.make ?? "unknown"} ${decoded.model ?? "unknown"}; listing: ${input.subject.year} ${input.subject.make} ${input.subject.model}. Verify the VIN and listing before relying on this report.`,
       );
     }
   }
