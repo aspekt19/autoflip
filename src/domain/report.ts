@@ -21,8 +21,8 @@ export type ReportInput = {
   subject: Listing;
   candidates: Listing[];
   recalls: RecallRecord[];
-  /** Optional for pure domain callers; production assembly passes the upstream lookup status. */
-  recallsAvailable?: boolean;
+  /** Explicit upstream state: an empty array is only meaningful when the lookup succeeded. */
+  recallsAvailable: boolean;
   complaintCount: number | null;
   fuel: FuelFact | null;
   vinDecode: VinDecode | null;
@@ -133,7 +133,7 @@ export function buildComputedReport(input: ReportInput): ComputedReport {
       : null;
 
   const parkIt = input.recalls.some((recall) => recall.parkIt || recall.parkOutSide);
-  const recallsAvailable = input.recallsAvailable ?? true;
+  const recallsAvailable = input.recallsAvailable;
   if (!recallsAvailable) {
     dataNotes.push("NHTSA's recall lookup was unavailable or returned an unusable response. No conclusion about recall campaigns can be drawn.");
   } else if (input.recalls.length === 0) {
