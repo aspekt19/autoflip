@@ -691,6 +691,7 @@ function fakeReport(numbers: WatchAlert["numbers"], why: string): ComputedReport
     mileage: { expectedMiles: numbers.expectedMiles, subjectMiles: numbers.miles, medianCompMiles: null, perMileUsd: null },
     history: { multiplier: 1, lines: [] },
     recalls: [],
+    recallsAvailable: false,
     openParkIt: false,
     complaintCount: null,
     fuel: null,
