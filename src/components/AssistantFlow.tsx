@@ -4,8 +4,9 @@ import { parseCountInput, parseUsdInput } from "@/domain/budget";
 import type { PriceBadge } from "@/domain/price-badge";
 import { whyThisCar } from "@/domain/why-car";
 import { PriceBadgeView, PriceRatingHow } from "./PriceBadge";
+import { budgetFromText } from "@/domain/need";
 import { useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { DecisionProof } from "@/domain/decision-note";
 import type { SearchDirection } from "@/domain/directions";
 import { CoverageLine } from "./CoverageNote";
@@ -52,15 +53,23 @@ const USE_LABEL: Record<(typeof USE_CASES)[number], string> = {
 
 const FIND_STEPS = ["Need", "Budget", "Confirm", "Results"] as const;
 
-export function FindFlow() {
-  return <AssistantFlow variant="find" />;
+export function FindFlow({ initialNote, initialMode }: { initialNote?: string; initialMode?: "personal" | "flip" }) {
+  return <AssistantFlow variant="find" initialNote={initialNote} initialMode={initialMode} />;
 }
 
 export function CheckFlow() {
   return <AssistantFlow variant="check" />;
 }
 
-function AssistantFlow({ variant }: { variant: "find" | "check" }) {
+function AssistantFlow({
+  variant,
+  initialNote,
+  initialMode,
+}: {
+  variant: "find" | "check";
+  initialNote?: string;
+  initialMode?: "personal" | "flip";
+}) {
   const router = useRouter();
   const path = variant === "find" ? "choose" : "check";
   const [mode, setMode] = useState<Mode>("personal");
@@ -90,6 +99,7 @@ function AssistantFlow({ variant }: { variant: "find" | "check" }) {
   const [vinPrice, setVinPrice] = useState("");
   const [vinMiles, setVinMiles] = useState("");
   const [vinZip, setVinZip] = useState("");
+  const booted = useRef(false);
   const [freeCheck, setFreeCheck] = useState<{
     title: string;
     sample?: boolean;
@@ -154,7 +164,17 @@ function AssistantFlow({ variant }: { variant: "find" | "check" }) {
   }
 
   useEffect(() => {
-    if (variant !== "find") return;
+    if (booted.current || variant !== "find" || !initialNote?.trim()) return;
+    booted.current = true;
+    setText(initialNote);
+    setMode(initialMode === "flip" ? "flip" : "personal");
+    const amount = budgetFromText(initialNote);
+    if (amount) setBudget(String(amount));
+    setStage("budget");
+  }, [initialMode, initialNote, variant]);
+
+  useEffect(() => {
+    if (variant !== "find" || initialNote?.trim()) return;
     try {
       const raw = sessionStorage.getItem("af-flow");
       if (!raw) return;
@@ -180,7 +200,7 @@ function AssistantFlow({ variant }: { variant: "find" | "check" }) {
     } catch {
       /* ignore a bad saved draft */
     }
-  }, [variant]);
+  }, [initialNote, variant]);
 
   useEffect(() => {
     if (stage !== "results") return;
@@ -736,15 +756,26 @@ function AssistantFlow({ variant }: { variant: "find" | "check" }) {
                 </p>
               ) : null}
               {group.note ? <p className="hint">{group.note}</p> : null}
-              <ul className="refuse">
+              <div className="listing-grid">
                 {group.listings.map((car) => (
-                  <li key={car.vin}>
-                    {car.primaryImage ? <img src={car.primaryImage} alt="" width={160} height={100} /> : null}
-                    {car.year} {car.make} {car.model} {car.trim ?? ""} · {car.priceUsd === null ? "price n/a" : `$${car.priceUsd.toLocaleString("en-US")}`} ·{" "}
-                    {car.miles === null ? "miles n/a" : `${car.miles.toLocaleString("en-US")} mi`}
-                    {car.city ? ` · ${car.city}` : ""}
-                    {car.overBudget ? " · slightly over budget" : ""}
-                    {car.source === "sample" ? " · Sample" : ""}
+                  <article className="listing-card" key={car.vin}>
+                    {car.primaryImage ? (
+                      <img src={car.primaryImage} alt="" width={640} height={400} />
+                    ) : (
+                      <div className="photo-fallback" role="img" aria-label="No photo from the listing" />
+                    )}
+                    <div className="listing-body">
+                    <h3 className="car-title">
+                      {car.year} {car.make} {car.model} {car.trim ?? ""}
+                    </h3>
+                    <p className="listing-meta">
+                      {car.priceUsd === null ? "Price not listed" : `$${car.priceUsd.toLocaleString("en-US")}`}
+                      {" · "}
+                      {car.miles === null ? "Mileage not listed" : `${car.miles.toLocaleString("en-US")} mi`}
+                      {car.city ? ` · ${car.city}${car.state ? `, ${car.state}` : ""}` : ""}
+                      {car.overBudget ? " · slightly over budget" : ""}
+                    </p>
+                    {car.source === "sample" ? <p className="hint">Sample listing, not a live match.</p> : null}
                     {car.badge ? <PriceBadgeView badge={car.badge} /> : null}
                     {car.flipNote ? <p className="hint">{car.flipNote}</p> : null}
                     {car.clearsTarget === false ? <p className="hint">Under the profit target, so it ranks lower.</p> : null}
@@ -774,9 +805,10 @@ function AssistantFlow({ variant }: { variant: "find" | "check" }) {
                         {pending === car.vin ? "Building…" : "Full analysis — 1 credit"}
                       </button>
                     </div>
-                  </li>
+                    </div>
+                  </article>
                 ))}
-              </ul>
+              </div>
             </section>
           ))}
         </div>

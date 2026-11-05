@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
+import { HomeSearch } from "@/components/HomeSearch";
 
 export const metadata: Metadata = { title: "A clear verdict on a used car" };
 
@@ -7,52 +8,23 @@ export default function HomePage() {
   return (
     <>
       <section className="hero hero-home">
-        <div className="hero-wash" aria-hidden="true">
-          <span className="orb orb-y" />
-          <span className="orb orb-b" />
-          <svg className="flow" viewBox="0 0 800 520" preserveAspectRatio="none">
-            <path d="M-40 460 C 160 420, 220 300, 400 320 S 640 460, 860 280" />
-            <path d="M-20 500 C 200 440, 280 360, 480 380 S 680 500, 880 340" />
-          </svg>
-        </div>
-        <div className="wrap hero-copy">
-          <p className="kicker">Used cars</p>
-          <h1>Find the right used car, then know if it&apos;s a good deal</h1>
-          <p className="lead">
-            Describe what you need, or check one listing. A full analysis of a single car is 1 credit.
-          </p>
-          <div className="choice-grid">
-            <Link className="choice-card" href="/find">
-              <span className="choice-icon" aria-hidden="true">
-                <svg viewBox="0 0 32 32" width="32" height="32">
-                  <path d="M16 6a7 7 0 0 0-7 7c0 5 7 13 7 13s7-8 7-13a7 7 0 0 0-7-7z" fill="none" stroke="currentColor" strokeWidth="2" />
-                  <circle cx="16" cy="13" r="2.2" fill="currentColor" />
-                </svg>
-              </span>
-              <span className="choice-title">Help me choose a car</span>
-              <span className="choice-desc">Tell us what you need. We&apos;ll suggest a few directions to search.</span>
-              <span className="choice-arrow" aria-hidden="true">
-                →
-              </span>
-            </Link>
-            <Link className="choice-card" href="/check">
-              <span className="choice-icon" aria-hidden="true">
-                <svg viewBox="0 0 32 32" width="32" height="32">
-                  <rect x="7" y="5" width="18" height="22" rx="2" fill="none" stroke="currentColor" strokeWidth="2" />
-                  <path d="M11 12h10M11 17h10M11 22h6" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
-                </svg>
-              </span>
-              <span className="choice-title">Check a specific listing</span>
-              <span className="choice-desc">Paste a listing link, or a VIN with the price and mileage.</span>
-              <span className="choice-arrow" aria-hidden="true">
-                →
-              </span>
-            </Link>
+        <div className="wrap hero-split">
+          <div className="hero-copy">
+            <p className="kicker">One car, two goals</p>
+            <h1>Describe the car you need</h1>
+            <p className="lead">
+              Buy it for yourself, or buy it to resell. We rate the price against other listings, show the math, and leave the gaps in view. The same full analysis is 1 credit here, or from your own agent.
+            </p>
+            <HomeSearch />
+            <p className="sample-link">
+              <Link href="/report/sample">See a sample report</Link>
+              <span> (labeled sample, no credit)</span>
+            </p>
           </div>
-          <p className="sample-link">
-            <Link href="/report/sample">See a sample report</Link>
-            <span> (labeled sample, no credit)</span>
-          </p>
+          <figure className="hero-photo">
+            <img src="/hero-suv.jpg" alt="A white sport utility vehicle parked outdoors" width={1400} height={788} />
+            <figcaption>Photo: Charlie Deets, Pexels. Not a car for sale.</figcaption>
+          </figure>
         </div>
       </section>
       <section className="band paper">
@@ -60,38 +32,36 @@ export default function HomePage() {
           <h2 className="center-title">How it works</h2>
           <ol className="steps-3">
             <li>
-              <strong>Tell us the need</strong>
-              <span>A short note, a budget, and at most two follow-up questions.</span>
+              <strong>Say which goal</strong>
+              <span>For me, or for resale. A note, a budget, and a ZIP. Resale also asks what profit you want and what repairs you can do.</span>
             </li>
             <li>
-              <strong>See directions, then listings</strong>
-              <span>Watch a search if you want alerts. Monitoring is included in your plan and doesn&apos;t use report credits.</span>
+              <strong>Read the listing</strong>
+              <span>Photo, price, miles, and a free Good, Fair, or High price badge. Save the search if you want alerts. Alerts are a plan, not a report credit.</span>
             </li>
             <li>
-              <strong>Analyze one car</strong>
-              <span>1 credit answers whether that car fits you or the deal. It does not inspect the car.</span>
+              <strong>Open the full analysis</strong>
+              <span>1 credit shows the numbers, what we could not check, and a buy, negotiate, or pass line. Your agent can request that same analysis.</span>
             </li>
           </ol>
           <p className="sample-link">
-            <Link href="/pricing">Radar plans</Link>
-            <span> are preview prices. Report credits stay separate. </span>
-            <Link href="/compare">Compare standard and checked answers</Link>
-            <span>.</span>
+            <Link href="/pricing">See pricing</Link>
+            <span>. Report credits and Deal Radar plans are separate.</span>
           </p>
         </div>
       </section>
       <section className="wrap trust-row" aria-label="How a verdict is built">
         <article>
-          <strong>Data shown</strong>
-          <span>We show which data the verdict is based on.</span>
+          <strong>The math is on the page</strong>
+          <span>Price, comps, and the gap are calculated in code and shown.</span>
         </article>
         <article>
-          <strong>Facts vs estimates</strong>
-          <span>We separate facts from estimates.</span>
+          <strong>Gaps stay visible</strong>
+          <span>Missing history, mileage, or comps is labeled, not filled in.</span>
         </article>
         <article>
-          <strong>What to check</strong>
-          <span>We flag what still needs checking before you buy.</span>
+          <strong>Same analysis for agents</strong>
+          <span>A key on For agents spends the same report credit.</span>
         </article>
       </section>
     </>
