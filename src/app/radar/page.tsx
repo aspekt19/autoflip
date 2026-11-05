@@ -213,22 +213,16 @@ function RadarInner() {
     <div className="sub">
       <div className="wrap">
         <p className="kicker">{demo ? "Guided preview" : "Saved search"}</p>
-        <h1>Deal Radar</h1>
-        <p className="lead">
-          Personal watches follow the models you picked. Flip watches follow a budget in one ZIP.{" "}
-          <Link href="/pricing">Radar plans</Link> are separate from report credits. The shared demo includes both.
-        </p>
-        <p className="lead">
-          Save the car you want once. AutoFlip checks new listings on a schedule, and a full report runs only when you ask for it. Monitoring is included in your plan and doesn&apos;t use report credits.
-        </p>
+        <h1>Price alerts</h1>
+        <p className="lead">Save a vehicle search and AutoFlip will check for new matching dealer listings on a schedule. Ongoing alerts require a <Link href="/pricing">Radar plan</Link>; opening a full vehicle report separately costs 1 report credit.</p>
         {demo ? (
           <p className="hint">
             <Link href="/activity">Activity log</Link>
           </p>
         ) : null}
         <div className="hero-actions">
-          <button className="action" type="button" onClick={checkNow} disabled={checking}>
-            {checking ? "Checking…" : "Check now"}
+          <button className="action" type="button" onClick={checkNow} disabled={checking || !feedReady || (!demo && searches.length === 0)}>
+            {checking ? "Checking…" : !feedReady ? "Loading…" : !demo && searches.length === 0 ? "Save a search first" : "Check now"}
           </button>
           <button className="quiet" type="button" onClick={connectTelegram}>
             Connect Telegram
@@ -237,7 +231,13 @@ function RadarInner() {
         {watchNote ? <p className="warn">{watchNote}</p> : null}
         {telegramNote ? <p className="warn-box">{telegramNote}</p> : null}
         <h2>Saved searches</h2>
-        {searches.length === 0 ? <p>No saved search yet.</p> : null}
+        {searches.length === 0 ? (
+          <article className="warn-box">
+            <h3>Create your first saved search</h3>
+            <p>Choose a vehicle or local budget below. Once saved, AutoFlip can look for new matching dealer listings. A Radar plan is required for ongoing alerts.</p>
+            <p><Link href="/find">Start by finding a car</Link> · <Link href="/pricing">See Radar plans</Link></p>
+          </article>
+        ) : null}
         <ul className="refuse">
           {searches.map((search) => (
             <li key={search.id}>
@@ -281,7 +281,7 @@ function RadarInner() {
           </article>
         ) : null}
         <h2>Alerts</h2>
-        {alerts.length === 0 ? <p>No alerts yet. A scheduled check has not produced a new listing that passed the filter.</p> : null}
+        {alerts.length === 0 ? <p>No new matches yet. New qualifying dealer listings will appear here after a scheduled check.</p> : null}
         <div className="radar-list">
           {alerts.map((alert) => (
             <article className="radar-row" key={alert.id} id={`alert-${alert.id}`}>
@@ -435,7 +435,7 @@ function SaveSearchForm({ onSaved }: { onSaved: () => void }) {
 
   return (
     <form className="panel" onSubmit={submit}>
-      <h2>Save a search</h2>
+      <h2>Create a saved search</h2>
       <div className="field">
         <label htmlFor="search-name">Name</label>
         <input id="search-name" value={name} onChange={(event) => setName(event.target.value)} />

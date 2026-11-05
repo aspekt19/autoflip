@@ -38,6 +38,7 @@ type ListingCard = {
 
 type MatchGroup = {
   direction: SearchDirection;
+  searchedModels?: Array<{ make: string; model: string }>;
   listings: ListingCard[];
   note: string | null;
   coverage?: string;
@@ -78,7 +79,6 @@ function AssistantFlow({
   const [text, setText] = useState("");
   const [budget, setBudget] = useState("");
   const [budgetKnown, setBudgetKnown] = useState(true);
-  const [budgetScope, setBudgetScope] = useState<StructuredNeed["budgetScope"]>("unspecified");
   const [need, setNeed] = useState<StructuredNeed | null>(null);
   const [source, setSource] = useState<"model" | "form" | null>(null);
   const [checks, setChecks] = useState<DecisionProof[]>([]);
@@ -127,7 +127,6 @@ function AssistantFlow({
           mode,
           budgetUsd: budgetKnown && Number.isFinite(amount) ? amount : null,
           budgetKnown,
-          budgetScope,
           zip: zipDraft.trim() || need?.zip || null,
           repairAbility: need?.repairAbility,
           useCase: need?.useCase,
@@ -544,28 +543,15 @@ function AssistantFlow({
           }}
         >
           <div className="field">
-            <label htmlFor="budget">What&apos;s your budget?</label>
-            <input id="budget" value={budget} onChange={(event) => setBudget(event.target.value)} inputMode="decimal" disabled={!budgetKnown} placeholder="for example 12000" />
+            <label htmlFor="budget">{mode === "flip" ? "Cash available for the purchase and repairs" : "Maximum vehicle price (before taxes and fees)"}</label>
+            <input id="budget" value={budget} onChange={(event) => setBudget(event.target.value)} inputMode="decimal" disabled={!budgetKnown} placeholder="e.g. 18000" />
             <label className="pill">
               <input type="checkbox" checked={!budgetKnown} onChange={(event) => setBudgetKnown(!event.target.checked)} /> Not sure yet
             </label>
           </div>
-          <fieldset className="field">
-            <legend>Is that the car only, or all-in?</legend>
-            <div className="pills">
-              <label className="pill">
-                <input type="radio" name="scope" checked={budgetScope === "car"} onChange={() => setBudgetScope("car")} /> Car only
-              </label>
-              <label className="pill">
-                <input type="radio" name="scope" checked={budgetScope === "all_in"} onChange={() => setBudgetScope("all_in")} /> All-in
-              </label>
-              <label className="pill">
-                <input type="radio" name="scope" checked={budgetScope === "unspecified"} onChange={() => setBudgetScope("unspecified")} /> Not specified
-              </label>
-            </div>
-          </fieldset>
+          <p className="hint">{mode === "flip" ? "This is the cash available for the deal. Repair estimates are assumptions, not a quote." : "We use this as the vehicle asking-price limit. Taxes, title, registration and dealer fees are not included."}</p>
           <div className="field">
-            <label htmlFor="zip-draft">ZIP, if you know where you&apos;ll shop</label>
+            <label htmlFor="zip-draft">U.S. ZIP code near where you&apos;ll shop</label>
             <input id="zip-draft" value={zipDraft} onChange={(event) => setZipDraft(event.target.value)} inputMode="numeric" placeholder="ZIP" />
           </div>
           <div className="btn-row">
@@ -676,7 +662,7 @@ function AssistantFlow({
             <input id="zip-edit" value={need.zip ?? ""} onChange={(event) => setNeed({ ...need, zip: event.target.value || null })} />
           </div>
           <div className="field">
-            <label htmlFor="miles-edit">Mileage cap</label>
+            <label htmlFor="miles-edit">Maximum mileage (optional)</label>
             <input
               id="miles-edit"
               value={need.milesMax ?? ""}
@@ -690,7 +676,7 @@ function AssistantFlow({
           </div>
           {need.make ? <p className="hint">Make: {need.make}. Other makes are left out.</p> : null}
           <div className="field">
-            <label htmlFor="budget-edit">{need.mode === "flip" ? "Cash you can put in" : "Budget"}</label>
+            <label htmlFor="budget-edit">{need.mode === "flip" ? "Cash available for the purchase and repairs" : "Maximum vehicle price (before taxes and fees)"}</label>
             <input
               id="budget-edit"
               value={need.budgetUsd ?? ""}
@@ -704,6 +690,7 @@ function AssistantFlow({
               }}
             />
           </div>
+          {need.mode === "personal" ? <p className="hint">This limit applies to the vehicle asking price only; taxes, title and dealer fees are not estimated.</p> : null}
           <button className="quiet" type="button" onClick={() => setRefine((open) => !open)}>
             {refine ? "Hide refine" : "Refine"}
           </button>
@@ -750,7 +737,7 @@ function AssistantFlow({
               <p>{group.direction.why}</p>
               {group.coverage && group.coverageLevel ? <CoverageLine confidence={group.coverageLevel} sentence={group.coverage} /> : null}
               <p className="hint">
-                Cars in this group include {group.direction.models.map((item) => `${item.make} ${item.model}`).join(", ")}. Years {group.direction.yearMin}–{group.direction.yearMax}. {group.direction.yearBecause}
+                {group.searchedModels?.length ? `Models checked: ${group.searchedModels.map((item) => `${item.make} ${item.model}`).join(", ")}.` : "No live model search was run for this group; sample rows are not live matches."} Years {group.direction.yearMin}–{group.direction.yearMax}. {group.direction.yearBecause}
               </p>
               <button className="quiet" type="button" onClick={() => void watch(group.direction)} disabled={pending === group.direction.id}>
                 {need?.mode === "flip" ? "Watch this budget" : need?.budgetKnown ? "Watch these cars" : "Watch these cars (budget was not set)"}
@@ -836,8 +823,9 @@ function AssistantFlow({
               <input type="radio" name="check" checked={checkKind === "vin"} onChange={() => setCheckKind("vin")} /> By VIN
             </label>
           </div>
+          {checkKind === "link" ? <p className="hint">Paste a dealer listing link that contains the car&apos;s VIN. AutoFlip looks up the VIN in its listings data; it does not read or scrape the listing page itself.</p> : null}
           <div className="field">
-            <label htmlFor="lookup">{checkKind === "link" ? "Listing link" : "VIN"}</label>
+            <label htmlFor="lookup">{checkKind === "link" ? "Listing link" : "17-character VIN"}</label>
             <input id="lookup" value={lookup} onChange={(event) => setLookup(event.target.value)} placeholder={checkKind === "link" ? "https://" : "17-character VIN"} />
           </div>
           {checkKind === "vin" ? (
@@ -845,17 +833,17 @@ function AssistantFlow({
               <p className="hint">A VIN identifies the car. It does not include the asking price, mileage, or where it is.</p>
               <div className="field">
                 <label htmlFor="vin-price">Asking price</label>
-                <input id="vin-price" value={vinPrice} onChange={(event) => setVinPrice(event.target.value)} inputMode="decimal" />
+                <input id="vin-price" value={vinPrice} onChange={(event) => setVinPrice(event.target.value)} inputMode="decimal" placeholder="e.g. 18,773" />
               </div>
               <div className="field">
                 <label htmlFor="vin-miles">Mileage</label>
-                <input id="vin-miles" value={vinMiles} onChange={(event) => setVinMiles(event.target.value)} inputMode="numeric" />
+                <input id="vin-miles" value={vinMiles} onChange={(event) => setVinMiles(event.target.value)} inputMode="numeric" placeholder="e.g. 109,333" />
               </div>
             </>
           ) : null}
           <div className="field">
-            <label htmlFor="vin-zip">ZIP</label>
-            <input id="vin-zip" value={vinZip} onChange={(event) => setVinZip(event.target.value)} inputMode="numeric" />
+            <label htmlFor="vin-zip">{checkKind === "vin" ? "U.S. ZIP code where the car is located" : "U.S. ZIP code for distance (optional)"}</label>
+            <input id="vin-zip" value={vinZip} onChange={(event) => setVinZip(event.target.value)} inputMode="numeric" placeholder="e.g. 33101" />
           </div>
           <div className="btn-row">
             <button className="ghost" type="button" onClick={goBack}>
@@ -865,6 +853,7 @@ function AssistantFlow({
               {pending === "preview" ? "Checking the price…" : "Check the price"}
             </button>
           </div>
+          <p className="hint">The quick price check is free. A full report costs 1 report credit and adds the broader vehicle assessment, recalls, complaints, available history flags and comparable listings.</p>
           {freeCheck ? (
             <article className="warn-box">
               <h2>{freeCheck.title}</h2>
@@ -877,6 +866,7 @@ function AssistantFlow({
               </ul>
               <CoverageLine confidence={freeCheck.coverageLevel} sentence={freeCheck.coverage} />
               <PriceRatingHow />
+              <p className="hint">This quick result rates the asking price only. The full report adds broader safety and vehicle context; it costs 1 report credit.</p>
               <button className="action" type="button" onClick={() => void checkListing()} disabled={pending === "report"}>
                 {pending === "report" ? "Building report…" : "Full analysis — 1 credit"}
               </button>

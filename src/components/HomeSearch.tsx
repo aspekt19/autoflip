@@ -47,7 +47,7 @@ export function HomeSearch({ onModeChange }: { onModeChange?: (mode: Mode) => vo
           Find cars
         </button>
         <a className="quiet" href="/check">
-          Check by VIN
+          Check a car
         </a>
       </div>
       {note.trim().length > 0 && note.trim().length < 8 ? <p className="hint">Write a short note first, at least a few words.</p> : null}

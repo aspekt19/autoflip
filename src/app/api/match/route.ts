@@ -36,6 +36,7 @@ export async function POST(request: Request) {
     coverage: string;
     coverageLevel: "low" | "medium" | "high";
     note: string | null;
+    searchedModels: Array<{ make: string; model: string }>;
   }> = [];
   let sample = false;
   let message: string | null = null;
@@ -77,6 +78,7 @@ export async function POST(request: Request) {
       directionNote = result.message;
       await rememberComps(getKv(), { make: query.make, model: query.model, zip: parsed.need.zip }, result.listings).catch(() => undefined);
     }
+    const searchedModels = directionSample ? [] : queries;
     const ranked =
       parsed.need.mode === "flip"
         ? rankFlipCandidates(collected, new Date(), {
@@ -111,6 +113,7 @@ export async function POST(request: Request) {
       groups.push({
         direction,
         listings,
+        searchedModels,
         coverage,
         coverageLevel,
         note:
@@ -125,6 +128,7 @@ export async function POST(request: Request) {
     groups.push({
       direction,
       listings,
+      searchedModels,
       coverage,
       coverageLevel,
       note: listings.length === 0 ? noMatchMessage(parsed.need) : [directionNote, assumption].filter(Boolean).join(" "),

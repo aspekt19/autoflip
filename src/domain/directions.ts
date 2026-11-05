@@ -79,8 +79,6 @@ export function proposeDirections(
       },
     ];
   }
-  if (need.useCase === "unspecified" && need.mode === "personal") return [];
-
   const body = requestedBody(need);
   const built = directionsFor(need)
     .filter((item) => fitsBody(body, item.segment))
@@ -169,6 +167,14 @@ function directionsFor(need: StructuredNeed): Array<Pick<SearchDirection, "segme
         why: "AutoFlip guidance: a comfort note starts with midsize sedans. Ride quality is not measured here.",
         models: MIDSIZE,
       },
+    ];
+  }
+  if (need.useCase === "unspecified") {
+    return [
+      { segment: "Compact crossovers", why: "You have not chosen a main use yet. This is a broad starting point, not a personalized ranking or market study.", models: CROSSOVERS },
+      { segment: "Compact cars", why: "A second broad starting point. Compare the actual listings and running costs before deciding.", models: COMPACTS },
+      { segment: "Midsize sedans", why: "Another common used-car shape to consider when you have not narrowed the use case yet.", models: MIDSIZE },
+      { segment: "Midsize pickups", why: "A starting point only if a truck may fit your needs; towing capacity still needs to be checked on the exact vehicle.", models: TRUCKS },
     ];
   }
   if (need.mode === "flip") {

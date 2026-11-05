@@ -61,7 +61,7 @@ describe("editorial directions", () => {
     expect(directions.every((item) => item.guidance === "editorial")).toBe(true);
   });
 
-  it("asks before inventing a personal direction, and does not turn repairs into a risk path", () => {
+  it("offers broad starting points when a personal shopper is undecided, and does not turn repairs into a risk path", () => {
     const blank = validateNeed({
       mode: "personal",
       useCase: "unspecified",
@@ -77,7 +77,10 @@ describe("editorial directions", () => {
     });
     expect(blank.ok).toBe(true);
     if (!blank.ok) return;
-    expect(proposeDirections(blank.need)).toEqual([]);
+    const broad = proposeDirections(blank.need);
+    expect(broad.length).toBeGreaterThan(0);
+    expect(broad.length).toBeLessThanOrEqual(3);
+    expect(broad.map((item) => item.segment)).toContain("Compact crossovers");
     const flip = { ...blank.need, mode: "flip" as const, useCase: "family" as const };
     const fromRepairs = proposeDirections(flip).map((item) => item.segment);
     const fromUnknown = proposeDirections({ ...flip, repairAbility: "unknown" }).map((item) => item.segment);
