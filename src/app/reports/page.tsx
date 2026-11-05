@@ -3,15 +3,16 @@ import Link from "next/link";
 import { listUserReports } from "@/io/persist-report";
 import { getKv } from "@/io/kv";
 import { formatNumber, formatUsd, verdictLabel } from "@/domain/format";
-import { isDemoUser, userId } from "@/server/session";
+import { existingUserId, isDemoUser } from "@/server/session";
 
 export const dynamic = "force-dynamic";
 export const metadata: Metadata = { title: "My reports" };
 
 export default async function ReportsPage() {
-  const id = await userId();
-  const demo = isDemoUser(id);
-  const reports = await listUserReports(getKv(), id);
+  // Read the existing cookie without creating one: Server Components cannot set cookies.
+  const id = await existingUserId();
+  const demo = id ? isDemoUser(id) : false;
+  const reports = id ? await listUserReports(getKv(), id) : [];
 
   return (
     <div className="sub">
