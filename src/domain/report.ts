@@ -21,6 +21,8 @@ export type ReportInput = {
   subject: Listing;
   candidates: Listing[];
   recalls: RecallRecord[];
+  /** Optional for pure domain callers; production assembly passes the upstream lookup status. */
+  recallsAvailable?: boolean;
   complaintCount: number | null;
   fuel: FuelFact | null;
   vinDecode: VinDecode | null;
@@ -101,8 +103,11 @@ export function buildComputedReport(input: ReportInput): ComputedReport {
       : null;
 
   const parkIt = input.recalls.some((recall) => recall.parkIt || recall.parkOutSide);
-  if (input.recalls.length === 0) {
-    dataNotes.push("No NHTSA campaigns were returned for this year, make, and model. That is not proof there are none.");
+  const recallsAvailable = input.recallsAvailable ?? true;
+  if (!recallsAvailable) {
+    dataNotes.push("NHTSA's recall lookup was unavailable or returned an unusable response. No conclusion about recall campaigns can be drawn.");
+  } else if (input.recalls.length === 0) {
+    dataNotes.push("NHTSA returned no campaigns for this year, make, and model. That is not proof there are none, and it is not a VIN-specific repair check.");
   }
   if (input.complaintCount === null) {
     dataNotes.push("NHTSA complaint count was unavailable.");
@@ -227,6 +232,7 @@ export function buildComputedReport(input: ReportInput): ComputedReport {
     },
     history,
     recalls: input.recalls,
+    recallsAvailable,
     openParkIt: parkIt,
     complaintCount: input.complaintCount,
     fuel: input.fuel,
