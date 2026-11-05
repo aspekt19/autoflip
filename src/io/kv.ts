@@ -5,6 +5,8 @@ import { dataDir } from "./store";
 export interface Kv {
   get(key: string): Promise<string | null>;
   set(key: string, value: string): Promise<void>;
+  /** Set only when the key is absent. Used so a credit spend cannot run twice at once. */
+  setNx(key: string, value: string): Promise<boolean>;
   delete(key: string): Promise<void>;
 }
 
@@ -16,6 +18,11 @@ export class MemoryKv implements Kv {
   set(key: string, value: string): Promise<void> {
     this.map.set(key, value);
     return Promise.resolve();
+  }
+  setNx(key: string, value: string): Promise<boolean> {
+    if (this.map.has(key)) return Promise.resolve(false);
+    this.map.set(key, value);
+    return Promise.resolve(true);
   }
   delete(key: string): Promise<void> {
     this.map.delete(key);
@@ -49,6 +56,14 @@ export class FileKv implements Kv {
     const data = this.read();
     data[key] = value;
     this.write(data);
+  }
+
+  async setNx(key: string, value: string): Promise<boolean> {
+    const data = this.read();
+    if (key in data) return false;
+    data[key] = value;
+    this.write(data);
+    return true;
   }
 
   async delete(key: string): Promise<void> {
@@ -88,6 +103,11 @@ export class UpstashKv implements Kv {
 
   async set(key: string, value: string): Promise<void> {
     await this.command(["SET", key, value]);
+  }
+
+  async setNx(key: string, value: string): Promise<boolean> {
+    const result = await this.command(["SET", key, value, "NX", "PX", "4000"]);
+    return result === "OK";
   }
 
   async delete(key: string): Promise<void> {

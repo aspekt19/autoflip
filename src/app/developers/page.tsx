@@ -1,67 +1,100 @@
 import type { Metadata } from "next";
+import { AgentKeys } from "@/components/AgentKeys";
 
-export const metadata: Metadata = { title: "Developers" };
+export const metadata: Metadata = { title: "For agents" };
 
 export default function DevelopersPage() {
   return (
     <div className="sub">
       <div className="sheet-page prose">
-      <h1>Developer API</h1>
-      <p className="lead">
-        Other agents can buy the same verdict. The consumer site sells credits. This page is the only place that describes the agent payment rail.
-      </p>
+        <h1>For agents</h1>
+        <p className="lead">
+          An agent can run the same analysis a person buys with a credit. Create a key for this browser, then send it as <code>Authorization: Bearer</code>.
+        </p>
 
-      <section>
-        <h2>Deal Radar watches a saved search</h2>
-        <p>
-          <code>POST /api/radar</code> with <code>{`{ make, model, zip?, year?, mode? }`}</code>. No credit and no payment. The MCP tool is <code>deal_radar</code>.
-        </p>
-        <h2>Full report</h2>
-        <p>
-          People on the site spend 1 credit, bought with Stripe. Agents pay per call over x402. The HTTP endpoint is <code>POST /api/v1/report</code>. The MCP tool is <code>full_report</code>.
-        </p>
-        <p>
-          What you buy is AutoFlip’s verdict and the calculation. The response leaves out photos and third-party history-report links. Raw listing resale is not the product. The current data plan is an evaluation tier; get a written license before a public paid launch.
-        </p>
-      </section>
+        <section>
+          <h2>What each tool costs</h2>
+          <ul>
+            <li>
+              <code>deal_radar</code> is free. It scores listings already in one search. It does not spend a credit.
+            </li>
+            <li>
+              <code>full_report</code> and <code>POST /api/v1/report</code> cost 1 credit on the account that owns the key. That is the same credit the site spends on a full analysis.
+            </li>
+          </ul>
+          <p>A zero balance returns <code>insufficient_credits</code>, <code>buyCreditsUrl</code>, and does not run the analysis. Send the same JSON-RPC <code>id</code>, or the same <code>Idempotency-Key</code> on the HTTP call, to retry a paid call without a second charge.</p>
+        </section>
 
-      <section>
-        <h2>MCP</h2>
-        <p>
-          <code>POST /api/mcp</code> speaks JSON-RPC: <code>initialize</code>, <code>tools/list</code>, <code>tools/call</code>, <code>ping</code>. <code>GET /api/mcp</code> describes the server. There is no session. Send a new request each time.
-        </p>
-        <pre className="doc">{`curl -s $ORIGIN/api/mcp \\
+        <AgentKeys />
+
+        <section>
+          <h2>MCP</h2>
+          <p>
+            <code>POST /api/mcp</code> speaks JSON-RPC: <code>initialize</code>, <code>tools/list</code>, <code>tools/call</code>, and <code>ping</code>. <code>GET /api/mcp</code> describes the server. There is no session.
+          </p>
+          <h3>Claude Desktop</h3>
+          <pre className="doc">{`{
+  "mcpServers": {
+    "autoflip": {
+      "url": "https://YOUR_HOST/api/mcp",
+      "headers": { "Authorization": "Bearer af_YOUR_KEY" }
+    }
+  }
+}`}</pre>
+          <h3>Cursor</h3>
+          <pre className="doc">{`{
+  "mcpServers": {
+    "autoflip": {
+      "url": "https://YOUR_HOST/api/mcp",
+      "headers": { "Authorization": "Bearer af_YOUR_KEY" }
+    }
+  }
+}`}</pre>
+          <h3>curl</h3>
+          <pre className="doc">{`curl -s $ORIGIN/api/mcp \\
   -H 'content-type: application/json' \\
-  -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}'`}</pre>
-        <p>
-          <code>full_report</code> without a payment returns <code>payment_required</code> and the x402 <code>accepts</code> object, or <code>payments_not_configured</code> when the payee is empty. AutoFlip never pretends a payment succeeded.
-        </p>
-      </section>
+  -H 'authorization: Bearer af_YOUR_KEY' \\
+  -d '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"full_report","arguments":{"mode":"personal","vin":"VIN"}}}'`}</pre>
+        </section>
 
-      <section>
-        <h2>x402</h2>
-        <p>
-          The seller advertises <code>X402_SCHEME</code>, <code>X402_NETWORK</code>, <code>X402_ASSET</code>, <code>X402_PRICE_ATOMIC</code>, and <code>X402_PAY_TO</code>. AutoFlip asks <code>X402_FACILITATOR_URL</code> to <code>/verify</code> and <code>/settle</code>. Retry the call with the payment payload in <code>PAYMENT-SIGNATURE</code> or <code>X-PAYMENT</code>, or in the MCP argument <code>payment</code>.
-        </p>
-        <p>Leave <code>X402_PAY_TO</code> empty until you are ready. An empty payee returns 402 and does not call the facilitator.</p>
-      </section>
+        <section>
+          <h2>Example response</h2>
+          <p>This is the shape, not a live report. Numbers come from the analysis that actually ran. <code>proof</code> records which checks ran and which fields the code computed.</p>
+          <pre className="doc">{`{
+  "jsonrpc": "2.0",
+  "id": 1,
+  "result": {
+    "structuredContent": {
+      "verdict": "fair",
+      "fairValueUsd": 0,
+      "priceGap": 0,
+      "sample": true,
+      "proof": { "codeComputed": ["fairValueUsd", "priceGap", "score"] }
+    }
+  }
+}`}</pre>
+          <p>When the balance is zero the call returns HTTP 402:</p>
+          <pre className="doc">{`{
+  "error": "insufficient_credits",
+  "message": "This account has no report credits left. The analysis was not run.",
+  "buyCreditsUrl": "https://YOUR_HOST/credits",
+  "balance": 0
+}`}</pre>
+        </section>
 
-      <section>
-        <h2>Saved-search schedule</h2>
-        <p>
-          <code>GET /api/serv/selftest</code> uses the same <code>Authorization: Bearer $RADAR_CRON_SECRET</code> header and makes one short call per request shape. GitHub Actions calls <code>POST /api/radar/cron</code> every 3 hours with that header. One unique search is one listings call. Identical criteria are shared. The watcher stops at 650 calls a month so reports keep the rest of the 900 cap. A Check now button is limited to once per 30 minutes for everyone.
-        </p>
-        <p>
-          Persistent storage is Upstash Redis (free REST). Set <code>UPSTASH_REDIS_REST_URL</code> and <code>UPSTASH_REDIS_REST_TOKEN</code>. Without them on Vercel, saved searches are not kept. Locally they fall back to <code>.data/kv.json</code>.
-        </p>
-        <p>
-          The shared preview is <code>/demo?key=$DEMO_ACCESS_KEY</code>. <code>DEMO_CREDITS</code> is the balance restored once a day. Telegram uses <code>TELEGRAM_BOT_TOKEN</code>, <code>TELEGRAM_BOT_USERNAME</code>, and <code>TELEGRAM_WEBHOOK_SECRET</code> (header <code>X-Telegram-Bot-Api-Secret-Token</code>).
-        </p>
-        <h2>Writing checks</h2>
-        <p>
-          Set <code>SERV_API_KEY</code> to turn on the writing checks. Without it, reports keep the calculated summary. Paid tool results always include a <code>proof</code> object. The README lists which checks that object records.
-        </p>
-      </section>
+        <section>
+          <h2>Optional payment header</h2>
+          <p>
+            If no API key is sent, and <code>X402_PAY_TO</code>, <code>X402_NETWORK</code>, and <code>X402_ASSET</code> are set, <code>full_report</code> still accepts a payment header. An empty payee does not pretend a payment worked. The credit on the API key is the path to use.
+          </p>
+        </section>
+
+        <section>
+          <h2>Saved searches and storage</h2>
+          <p>
+            <code>GET /api/serv/selftest</code> and <code>POST /api/radar/cron</code> use <code>Authorization: Bearer $RADAR_CRON_SECRET</code>. That secret is not an agent key. Persistent storage is Upstash Redis. Set <code>UPSTASH_REDIS_REST_URL</code> and <code>UPSTASH_REDIS_REST_TOKEN</code>. Locally, keys and credits fall back to <code>.data/kv.json</code>.
+          </p>
+        </section>
       </div>
     </div>
   );

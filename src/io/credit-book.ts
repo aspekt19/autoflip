@@ -39,6 +39,10 @@ export async function creditSeen(kv: Kv, userId: string): Promise<boolean> {
   return Boolean((await read(kv)).initialized[userId]);
 }
 
+export async function creditEventSeen(kv: Kv, idempotencyKey: string): Promise<boolean> {
+  return Boolean((await read(kv)).events[idempotencyKey]);
+}
+
 export async function creditGrant(kv: Kv, userId: string, credits: number, idempotencyKey: string): Promise<number> {
   const ledger = await read(kv);
   ledger.initialized[userId] = true;
@@ -62,6 +66,20 @@ export async function creditSet(kv: Kv, userId: string, credits: number, idempot
 }
 
 export async function creditSpend(kv: Kv, userId: string, idempotencyKey: string): Promise<{ ok: boolean; balance: number }> {
+  const lock = `credits:lock:${userId}`;
+  let held = false;
+  for (let attempt = 0; attempt < 6 && !held; attempt += 1) {
+    held = await kv.setNx(lock, "1");
+  }
+  if (!held) return { ok: false, balance: await creditBalance(kv, userId) };
+  try {
+    return await creditSpendUnlocked(kv, userId, idempotencyKey);
+  } finally {
+    await kv.delete(lock);
+  }
+}
+
+async function creditSpendUnlocked(kv: Kv, userId: string, idempotencyKey: string): Promise<{ ok: boolean; balance: number }> {
   const ledger = await read(kv);
   ledger.initialized[userId] = true;
   if (ledger.events[idempotencyKey]) {
