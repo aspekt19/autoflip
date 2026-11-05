@@ -106,7 +106,7 @@ describe("VIN-specific recall wording", () => {
       parkIt: false,
       historyMissing: true,
     });
-    expect(questions.join(" ")).toMatch(/verify.*VIN/i);
+    expect(questions.join(" ")).toMatch(/run this VIN through NHTSA/i);
     expect(questions.join(" ")).not.toMatch(/open recall campaign was completed/i);
 
     const flags = buildFlags({
@@ -155,6 +155,45 @@ describe("history and mileage", () => {
     expect(perMileUsd).toBeCloseTo(19_000 * 0.005 / 1000, 8);
     expect(rows[0]?.adjustedPriceUsd).toBe(Math.round(20_000 - 10_000 * perMileUsd));
     expect(rows[1]?.adjustedPriceUsd).toBe(Math.round(18_000 - (-10_000) * perMileUsd));
+  });
+});
+
+describe("VIN identity validation", () => {
+  const peers = [1, 2, 3].map((index) =>
+    car({ vin: `1M8GDM9A${index}KP042788`.padEnd(17, "0").slice(0, 17), priceUsd: 20000, miles: 40000 }),
+  );
+
+  it("flags year, make, and model conflicts when NHTSA has a clean VIN decode", () => {
+    const report = buildComputedReport({
+      mode: "personal",
+      subject: car({ vin: "1M8GDM9AXKP042788", priceUsd: 20000, miles: 50000 }),
+      candidates: peers,
+      recalls: [],
+      complaintCount: null,
+      fuel: null,
+      vinDecode: { year: 2021, make: "Honda", model: "Accord", errorCode: "0" },
+      distanceToSearchZipMiles: null,
+      asOfYear: 2026,
+    });
+    const note = report.dataNotes.join(" ");
+    expect(note).toMatch(/year 2021 vs 2020/);
+    expect(note).toMatch(/make Honda vs Toyota/);
+    expect(note).toMatch(/model Accord vs Camry/);
+  });
+
+  it("does not flag an unclean VIN decode as a listing mismatch", () => {
+    const report = buildComputedReport({
+      mode: "personal",
+      subject: car({ vin: "1M8GDM9AXKP042788", priceUsd: 20000, miles: 50000 }),
+      candidates: peers,
+      recalls: [],
+      complaintCount: null,
+      fuel: null,
+      vinDecode: { year: 2021, make: "Honda", model: "Accord", errorCode: "1" },
+      distanceToSearchZipMiles: null,
+      asOfYear: 2026,
+    });
+    expect(report.dataNotes.join(" ")).not.toMatch(/listing identity differs/);
   });
 });
 
