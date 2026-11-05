@@ -1,6 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
 import {
-  requirementsFor,
   settlePayment,
   verifyPayment,
   type PaymentRequirements,
