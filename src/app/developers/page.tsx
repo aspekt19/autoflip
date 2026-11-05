@@ -85,7 +85,10 @@ export default function DevelopersPage() {
         <section>
           <h2>Optional payment header</h2>
           <p>
-            If no API key is sent, and <code>X402_PAY_TO</code>, <code>X402_NETWORK</code>, and <code>X402_ASSET</code> are set, <code>full_report</code> still accepts a payment header. An empty payee does not pretend a payment worked. The credit on the API key is the path to use.
+            Without an API key, <code>full_report</code> can also use x402 when <code>X402_PAY_TO</code>, <code>X402_NETWORK</code>, and <code>X402_ASSET</code> are configured. The default scheme is <code>gokite-aa</code>; the default facilitator is Pieverse. The payment is verified first, the report is built, and settlement is attempted only after the report succeeds. A failed VIN lookup or report build must not consume a payment.
+          </p>
+          <p>
+            This preview currently reports x402 as <code>configured: false</code> from <code>GET /api/mcp</code>, so the live payment rail is not active here. Check that endpoint's <code>payment.optionalHeader.configured</code> field before attempting payment. A successful transaction hash, not the presence of code or environment-variable names, is the evidence of a completed payment.
           </p>
         </section>
 
