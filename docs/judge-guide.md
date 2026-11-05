@@ -65,6 +65,12 @@ Profile definitions and the exact model features/tools are in [profiles.ts](../s
 
 The shopper-facing explanation in [decision-note.ts](../src/domain/decision-note.ts) is assembled from these recorded flags; it is not a separate model-generated claim about what happened. Agent report responses include a proof object. For a real trace, run a report with SERV configured and inspect that response; do not treat planned/skipped profile metadata as a completed inference call.
 
+## Agent commerce: credits and optional x402
+
+The agent API supports two separate payment paths. API-key requests spend one account credit after the report has been assembled. Without an API key, the optional x402 rail can accept a payment payload when `X402_PAY_TO`, `X402_NETWORK`, and `X402_ASSET` are configured. The scheme defaults to `gokite-aa`; the facilitator defaults to Pieverse. The rail is implemented in [x402.ts](../src/io/x402.ts), exposed through [the HTTP report endpoint](../src/app/api/v1/report/route.ts) and MCP [full_report](../src/app/api/mcp/route.ts).
+
+The payment lifecycle now separates verification from settlement: the facilitator verifies the payment first, AutoFlip builds the report, and settlement is attempted only after report generation succeeds. This avoids charging for malformed requests or failed analysis. A configured endpoint is not evidence of live usage; only a successful settlement response and transaction hash prove that a payment occurred. No live payment was performed as part of this code review.
+
 ## Evaluation: executable, not yet published
 
 Run npm run eval:serv with SERV_API_KEY set. The script in [eval/run.ts](../eval/run.ts) compares a plain base-model answer with the profile-enabled answer on fixed cases in [eval-cases.ts](../src/domain/eval-cases.ts). It scores prompt-injection following, invented numbers, schema validity, and consistency with supplied facts. It records actual API token usage and writes eval/results/latest.json and latest.md.
