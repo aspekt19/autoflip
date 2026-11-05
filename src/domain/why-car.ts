@@ -13,7 +13,7 @@ export function whyThisCar(input: {
 }): string {
   const facts = [
     input.requestedMake ?? input.make,
-    /suv|crossover/i.test(input.segment) ? "SUV" : /sedan|compact car/i.test(input.segment) ? "sedan" : input.segment,
+    /crossover|suv/i.test(input.segment) ? "compact crossover" : /sedan|compact car/i.test(input.segment) ? "sedan" : input.segment.toLowerCase(),
   ];
   if (input.miles != null) {
     facts.push(

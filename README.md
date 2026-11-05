@@ -4,7 +4,7 @@ Evaluation preview of a US used-car verdict. The home page starts from what the 
 
 Monitoring a saved search does not use report credits. A full analysis costs 1 credit. Anyone can open the labeled sample report at `/report/sample`. The shared preview (`/demo?key=`) still refills a small daily credit balance. Credits are sold with **Stripe test mode** only. Agents can buy the same verdict through MCP and an HTTP endpoint. The consumer pages do not describe that payment rail; the [developer page](src/app/developers/page.tsx) does.
 
-This build is an evaluation preview. The Auto.dev free plan is not a production license.
+This build is an evaluation preview. The Auto.dev free plan is not a production license. The homepage photo is a licensed stock image, not a car for sale. See [CREDITS.md](CREDITS.md).
 
 ## What works
 

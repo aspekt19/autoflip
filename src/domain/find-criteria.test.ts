@@ -61,7 +61,7 @@ describe("mileage cap from a note", () => {
         segment: "Compact crossovers",
         requestedMake: "Toyota",
       }),
-    ).toBe("2017 Toyota RAV4. Toyota, SUV, 42,100 mi (under your 50,000 cap), $17,500 (within $25,000).");
+    ).toBe("2017 Toyota RAV4. Toyota, compact crossover, 42,100 mi (under your 50,000 cap), $17,500 (within $25,000).");
   });
 });
 

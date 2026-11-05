@@ -172,12 +172,24 @@ nav a { text-decoration: none; font-weight: 500; }
   height: 100%;
   mask-image: radial-gradient(ellipse at center, transparent 0 46%, #000 78%);
 }
-.hero-home { padding: 72px 0 36px; text-align: center; overflow: hidden; }
+.hero-home { padding: 36px 0 28px; text-align: left; overflow: hidden; }
+.hero-split { display: grid; grid-template-columns: minmax(0, 1.05fr) minmax(280px, 0.95fr); gap: 36px; align-items: center; }
+.hero-home h1 { max-width: 16ch; margin-inline: 0; }
+.hero-home .lead { max-width: 42ch; margin-inline: 0; }
+.hero-photo { margin: 0; }
+.hero-photo img { width: 100%; height: auto; border-radius: 16px; aspect-ratio: 16 / 10; object-fit: cover; }
+.hero-photo figcaption { margin-top: 8px; color: var(--muted); font-size: 13px; }
+.hero-chat { display: grid; gap: 12px; margin-top: 18px; }
+.hero-chat textarea { width: 100%; min-height: 96px; border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; background: var(--paper); resize: vertical; }
+.sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; border: 0; }
+.listing-grid { display: grid; gap: 16px; margin: 16px 0 28px; }
+.listing-card { display: grid; grid-template-columns: 240px minmax(0, 1fr); gap: 16px; border: 1px solid var(--line); border-radius: 16px; background: var(--paper); overflow: hidden; }
+.listing-card img, .listing-card .photo-fallback { width: 100%; height: 100%; min-height: 160px; object-fit: cover; background: var(--blue-soft); }
+.listing-body { padding: 16px 16px 16px 0; }
+.listing-meta { margin: 0 0 8px; font-family: var(--sans); font-weight: 700; }
 .menu-btn { display: none; }
 .table-scroll { max-width: 100%; overflow-x: auto; }
 .hero-copy { position: relative; z-index: 1; }
-.hero-home h1 { max-width: 16ch; margin-inline: auto; }
-.hero-home .lead { max-width: 42ch; margin-inline: auto; }
 .choice-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -673,7 +685,9 @@ pre.doc {
 @media (max-width: 900px) {
   :root { --pad: 18px; }
   .hero-grid, .split, .pair, .facts-row, .prices, .radar-row, .choice-grid, .steps-3, .trust-row { grid-template-columns: 1fr; }
-  .hero-home { padding-top: 36px; }
+  .hero-home { padding-top: 24px; }
+  .hero-split, .listing-card { grid-template-columns: 1fr; }
+  .listing-body { padding: 0 16px 16px; }
   .hero-home .flow { display: none; }
   .choice-card, .steps-3 li, .compare-card { min-height: 0; }
   .coverage { flex-wrap: wrap; }

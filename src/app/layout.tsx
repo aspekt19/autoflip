@@ -23,7 +23,6 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <a className="skip" href="#main">
           Skip to content
         </a>
-        <p className="eval-line">Preview. Listing figures come from dealer listings or a labeled sample. This is not a production offer.</p>
         <Header />
         <main id="main">{children}</main>
         <p className="foot-note">
@@ -35,11 +34,12 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             <span className="brand-name">AutoFlip</span>
           </a>
           <p className="foot-links">
+            <a href="/find">Find</a>
+            <a href="/check">Check by VIN</a>
             <a href="/radar">Deal Radar</a>
-            <a href="/credits">Credits</a>
-            <a href="/developers">Developers</a>
+            <a href="/pricing">Pricing</a>
+            <a href="/developers">For agents</a>
           </p>
-          <p>Evaluation preview</p>
         </footer>
       </body>
     </html>
