@@ -1,4 +1,5 @@
 import { parseUsdInput } from "./budget";
+import { bodyStyleMatches } from "./body-style";
 import { MAINSTREAM_MAKES } from "./vehicle-names";
 
 export const USE_CASES = ["family", "commute", "haul", "first_car", "comfort", "unspecified"] as const;
@@ -203,21 +204,41 @@ export function canonicalMake(raw: string): string | null {
   return makeFromText(trimmed) ?? MAINSTREAM_MAKES.find((make) => make.toLowerCase() === trimmed.toLowerCase()) ?? null;
 }
 
+/** Body style the shopper named. A family note with no body word is not a body request. */
+export function bodyFromNote(text: string): "SUV" | "Sedan" | "Truck" | null {
+  const blob = text.toLowerCase();
+  if (/\b(suv|crossover|crossovers)\b/.test(blob)) return "SUV";
+  if (/\b(truck|pickup)\b/.test(blob)) return "Truck";
+  if (/\bsedan\b/.test(blob)) return "Sedan";
+  return null;
+}
+
 export function listingWithinNeed(
-  listing: { make: string; miles: number | null },
-  need: Pick<StructuredNeed, "make" | "milesMax">,
+  listing: { make: string; miles: number | null; bodyStyle?: string | null; style?: string | null },
+  need: Pick<StructuredNeed, "make" | "milesMax" | "note">,
 ): boolean {
   if (need.make && listing.make.trim().toLowerCase() !== need.make.trim().toLowerCase()) return false;
   if (need.milesMax != null && (listing.miles == null || listing.miles > need.milesMax)) return false;
+  const body = bodyFromNote(need.note);
+  if (body && !bodyStyleMatches(body, { bodyStyle: listing.bodyStyle ?? null, style: listing.style })) return false;
   return true;
 }
 
-export function noMatchMessage(need: Pick<StructuredNeed, "make" | "milesMax" | "budgetKnown" | "zip">): string {
-  const parts = [need.make ? `No ${need.make} cars` : "No cars"];
+export function noMatchMessage(need: Pick<StructuredNeed, "make" | "milesMax" | "budgetKnown" | "zip" | "note">): string {
+  const body = bodyFromNote(need.note);
+  const what = [need.make, body].filter(Boolean).join(" ");
+  const parts = [what ? `No ${what} listings` : "No cars"];
   if (need.milesMax) parts.push(`under ${need.milesMax.toLocaleString("en-US")} mi`);
   if (need.budgetKnown) parts.push("within budget");
   if (need.zip) parts.push(`near ${need.zip}`);
   return `${parts.join(" ")}. You can raise the mileage cap and search again.`;
+}
+
+/** Shown when the only rows on hand are the labeled sample and none match the body asked for. */
+export function sampleGapMessage(need: Pick<StructuredNeed, "make" | "note">): string {
+  const body = bodyFromNote(need.note);
+  const what = [need.make, body].filter(Boolean).join(" ") || "that request";
+  return `The labeled sample has no ${what} listings. Nothing on this page is a live match.`;
 }
 
 export type FollowUp = { id: "zip" | "use" | "repair" | "profit" | "cash"; prompt: string };

@@ -28,6 +28,8 @@ type ListingCard = {
   vdp: string | null;
   primaryImage: string | null;
   source: string;
+  bodyStyle?: string | null;
+  style?: string | null;
   overBudget?: boolean;
   badge?: PriceBadge;
   flipNote?: string | null;
@@ -739,6 +741,9 @@ function AssistantFlow({
           {!affordability ? <p className="hint">Budget was not set, so affordability was not assessed.</p> : null}
           {sample ? <p className="warn-box">Sample. These rows are the labeled fixture, not live matches for your note.</p> : null}
           {groups.length === 0 ? <p>No directions yet. Choose what the car is for, then search again.</p> : null}
+          {groups.length > 0 && groups.every((group) => group.listings.length === 0) && groups[0]?.note ? (
+            <p className="warn-box">{groups[0].note}</p>
+          ) : null}
           {groups.map((group) => (
             <section key={group.direction.id}>
               <h3>{group.direction.segment}</h3>
@@ -796,7 +801,8 @@ function AssistantFlow({
                         priceUsd: car.priceUsd,
                         budgetUsd: need?.budgetUsd ?? null,
                         overBudget: car.overBudget,
-                        segment: group.direction.segment,
+                        bodyStyle: car.bodyStyle,
+                        style: car.style,
                         requestedMake: need?.make ?? null,
                       })}
                     </p>
