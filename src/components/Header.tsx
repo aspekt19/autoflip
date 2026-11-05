@@ -40,6 +40,8 @@ export function Header() {
         <Link href="/check" onClick={() => setMenuOpen(false)}>Check a car</Link>
         <Link href="/radar" onClick={() => setMenuOpen(false)}>Price alerts</Link>
         <Link href="/reports" onClick={() => setMenuOpen(false)}>Reports</Link>
+        <Link href="/favorites" onClick={() => setMenuOpen(false)}>Saved cars</Link>
+        <Link href="/compare-cars" onClick={() => setMenuOpen(false)}>Compare cars</Link>
         <Link href="/pricing" onClick={() => setMenuOpen(false)}>Pricing</Link>
         <Link className="nav-go" href="/credits">
           {creditLabel}

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { FullReport } from "@/domain/types";
 import { MemoryKv } from "./kv";
-import { listUserReports, rememberUserReport } from "./persist-report";
+import { listFavoriteReports, listUserReports, rememberUserReport, setFavoriteReport } from "./persist-report";
 
 function report(id: string, vin: string, createdAt: string): FullReport {
   return {
@@ -58,5 +58,34 @@ describe("user report history", () => {
     await rememberUserReport(kv, "user-a", saved.computed.subject.vin, saved.id, saved);
 
     expect(await listUserReports(kv, "user-a")).toEqual([]);
+  });
+});
+
+
+describe("saved cars", () => {
+  it("allows a user to favorite only their own saved report", async () => {
+    const kv = new MemoryKv();
+    const saved = report("report-0003", "1HGCV1F30MA000001", "2026-11-05T11:00:00.000Z");
+    await kv.set(`report:${saved.id}`, JSON.stringify(saved));
+    await rememberUserReport(kv, "user-a", saved.computed.subject.vin, saved.id, saved);
+
+    const added = await setFavoriteReport(kv, "user-a", saved.id, true);
+    expect(added.ok).toBe(true);
+    expect(await listFavoriteReports(kv, "user-a")).toHaveLength(1);
+    expect(await listFavoriteReports(kv, "user-b")).toEqual([]);
+    expect(await setFavoriteReport(kv, "user-b", saved.id, true)).toEqual({ ok: false });
+  });
+
+  it("removes a favorite without deleting the report from history", async () => {
+    const kv = new MemoryKv();
+    const saved = report("report-0004", "2HGFC2F69MH000001", "2026-11-05T12:00:00.000Z");
+    await kv.set(`report:${saved.id}`, JSON.stringify(saved));
+    await rememberUserReport(kv, "user-a", saved.computed.subject.vin, saved.id, saved);
+    await setFavoriteReport(kv, "user-a", saved.id, true);
+
+    const removed = await setFavoriteReport(kv, "user-a", saved.id, false);
+    expect(removed.ok).toBe(true);
+    expect(await listFavoriteReports(kv, "user-a")).toEqual([]);
+    expect((await listUserReports(kv, "user-a")).map((item) => item.id)).toEqual([saved.id]);
   });
 });

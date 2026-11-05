@@ -5,6 +5,7 @@ import { formatNumber, formatPct, formatUsd, verdictLabel } from "@/domain/forma
 import type { DecisionScene } from "@/domain/decision-note";
 import type { FullReport } from "@/domain/types";
 import { DecisionNote } from "./DecisionNote";
+import { FavoriteButton } from "./FavoriteButton";
 
 export function ReportView({ report }: { report: FullReport }) {
   const { computed } = report;
@@ -33,6 +34,7 @@ export function ReportView({ report }: { report: FullReport }) {
         {car.city ? ` · ${car.city}, ${car.state ?? ""}` : ""}
         {car.dealer ? ` · ${car.dealer}` : ""}
       </p>
+      {!computed.sample ? <FavoriteButton reportId={report.id} /> : null}
       <nav className="report-toc" aria-label="Report sections">
         <a href="#report-summary">Verdict</a>
         <a href="#report-facts">Facts &amp; estimates</a>
@@ -51,6 +53,7 @@ export function ReportView({ report }: { report: FullReport }) {
           historyOnListing: computed.subject.accidentCount !== null && computed.subject.ownerCount !== null,
         }}
       />
+      <RiskSummary flags={computed.flags} openParkIt={computed.openParkIt} />
       <h2 id="report-summary">{computed.mode === "flip" ? "Does this deal fit?" : "Does this car fit?"}</h2>
       <p className="summary-line">{decision.line}</p>
       <p>{decision.detail}</p>
@@ -312,4 +315,29 @@ function reportScene(report: FullReport): DecisionScene {
   const purposes = (report.proof.servChecks ?? []).map((item) => item.purpose);
   if (purposes.includes("check_guard")) return "check";
   return "report";
+}
+
+
+function RiskSummary({ flags, openParkIt }: { flags: FullReport["computed"]["flags"]; openParkIt: boolean }) {
+  const stop = flags.filter((flag) => flag.level === "stop").length;
+  const caution = flags.filter((flag) => flag.level === "caution").length;
+  const notes = flags.filter((flag) => flag.level === "note").length;
+  return (
+    <section className={`risk-summary ${stop ? "risk-has-stop" : caution ? "risk-has-caution" : ""}`} aria-labelledby="risk-summary-title">
+      <h2 id="risk-summary-title">Risk &amp; warning summary</h2>
+      <div className="risk-counts" aria-label="Risk flag counts">
+        <span className="risk-count stop">{stop} stop</span>
+        <span className="risk-count caution">{caution} caution</span>
+        <span className="risk-count note">{notes} notes</span>
+      </div>
+      {openParkIt ? (
+        <p className="risk-primary">A park-it or park-outside campaign matched this model year, make and model. Do not drive until the exact VIN's recall status and completed repair are confirmed.</p>
+      ) : null}
+      {flags.length === 0 ? (
+        <p className="hint">No risk flags were returned from the available data. Missing records, undisclosed damage and mechanical issues may still exist.</p>
+      ) : (
+        <p className="hint">The detailed flags and their sources appear below. These are screening signals, not a physical inspection or a complete vehicle-history report.</p>
+      )}
+    </section>
+  );
 }

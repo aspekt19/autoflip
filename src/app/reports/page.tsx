@@ -1,8 +1,8 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { listUserReports } from "@/io/persist-report";
+import { ReportHistoryList } from "@/components/ReportHistoryList";
 import { getKv } from "@/io/kv";
-import { formatNumber, formatUsd, verdictLabel } from "@/domain/format";
 import { existingUserId, isDemoUser } from "@/server/session";
 
 export const dynamic = "force-dynamic";
@@ -32,30 +32,7 @@ export default async function ReportsPage() {
             <p><Link className="action" href="/check">Check a car</Link> <Link className="quiet" href="/find">Find a car</Link></p>
           </article>
         ) : (
-          <div className="report-history-list">
-            {reports.map((report) => (
-              <article className="report-history-card" key={report.id}>
-                <div className="report-history-copy">
-                  <p className="sheet-label">{report.mode === "flip" ? "For resale" : "For me"}{report.sample ? " · Sample" : ""}</p>
-                  <h2>{report.title}</h2>
-                  <p className="hint">
-                    {new Date(report.createdAt).toLocaleString("en-US", { dateStyle: "medium", timeStyle: "short" })}
-                    {" · VIN "}{report.vin}
-                  </p>
-                  <p className="support">
-                    {report.priceUsd === null ? "Price not listed" : formatUsd(report.priceUsd)}
-                    {" · "}
-                    {report.miles === null ? "Mileage not listed" : `${formatNumber(report.miles)} miles`}
-                    {report.city ? ` · ${report.city}, ${report.state ?? ""}` : ""}
-                  </p>
-                </div>
-                <div className="report-history-action">
-                  <span className={`verdict-level badge ${report.verdict}`}>{verdictLabel(report.verdict)}</span>
-                  <Link className="quiet" href={`/report/${report.id}`}>Open report</Link>
-                </div>
-              </article>
-            ))}
-          </div>
+          <ReportHistoryList reports={reports} />
         )}
         <p className="hint">Reports generated before report history was added may not be listed here. Their original report links still work while the saved report remains available.</p>
       </div>
