@@ -154,7 +154,7 @@ export async function assembleReport(input: AssembleInput, deps: AssembleDeps): 
         ok: false,
         status: 503,
         error: "serv_unavailable",
-        message: "The input check could not be completed, so this request was not run.",
+        message: "We couldn't finish reading that request. Try again in a moment.",
       };
     }
     const decision = interpretGuard(guard.text);
@@ -164,7 +164,7 @@ export async function assembleReport(input: AssembleInput, deps: AssembleDeps): 
         ok: false,
         status: 400,
         error: "rejected_input",
-        message: "That input was rejected by the input check.",
+        message: "We couldn't read that as a car request. Try describing the car, budget and ZIP.",
       };
     }
   }
@@ -458,6 +458,7 @@ export async function assembleRadar(
     distanceMiles?: number;
     mode: Mode;
     priceMax?: number;
+    milesMax?: number;
   },
   deps: AssembleDeps,
 ): Promise<
@@ -480,15 +481,6 @@ export async function assembleRadar(
     model: deps.servModel,
   });
   const proof = agentProof([guard.proof], scanFields);
-  if (deps.servKey && guard.ok && interpretGuard(guard.text) === "block") {
-    return {
-      ok: false,
-      status: 400,
-      error: "rejected_input",
-      message: "That input was rejected by the input check.",
-      proof,
-    };
-  }
   const flipOpen = input.mode === "flip" && !input.make.trim();
   if (!input.make.trim() && !flipOpen) {
     return { ok: false, status: 400, error: "make_required", message: "Choose a make.", proof };
@@ -515,7 +507,8 @@ export async function assembleRadar(
       ...years,
       zip: input.zip,
       distanceMiles: input.distanceMiles ?? (input.zip ? (flipOpen ? 50 : 100) : undefined),
-      priceRange: flipOpen && input.priceMax ? `1-${Math.round(input.priceMax * 1.05)}` : undefined,
+      priceRange: input.priceMax ? `1-${Math.round(input.priceMax * 1.05)}` : undefined,
+      milesRange: input.milesMax ? `0-${Math.round(input.milesMax)}` : undefined,
       limit: 20,
     },
     {

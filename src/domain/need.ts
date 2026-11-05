@@ -1,4 +1,5 @@
 import { parseUsdInput } from "./budget";
+import { MAINSTREAM_MAKES } from "./vehicle-names";
 
 export const USE_CASES = ["family", "commute", "haul", "first_car", "comfort", "unspecified"] as const;
 export type UseCase = (typeof USE_CASES)[number];
@@ -22,6 +23,10 @@ export type StructuredNeed = {
   zip: string | null;
   repairAbility: RepairAbility;
   targetProfitUsd: number | null;
+  /** Hard mileage cap taken from the note. Null means no cap. */
+  milesMax: number | null;
+  /** Make named in the note. Null means any make. */
+  make: string | null;
 };
 
 export type NeedIssue = { field: string; message: string };
@@ -41,6 +46,8 @@ export function emptyNeed(mode: "personal" | "flip" = "personal"): StructuredNee
     zip: null,
     repairAbility: "unknown",
     targetProfitUsd: null,
+    milesMax: null,
+    make: null,
   };
 }
 
@@ -81,6 +88,12 @@ export function validateNeed(input: unknown): { ok: true; need: StructuredNeed }
   else if (typeof raw.targetProfitUsd === "number" && Number.isFinite(raw.targetProfitUsd) && raw.targetProfitUsd >= 0 && raw.targetProfitUsd <= 50_000) {
     targetProfitUsd = Math.round(raw.targetProfitUsd);
   } else issues.push({ field: "targetProfitUsd", message: "Target profit has to be a dollar amount, or left blank." });
+  let milesMax: number | null = null;
+  if (raw.milesMax === null || raw.milesMax === undefined || raw.milesMax === "") milesMax = null;
+  else if (typeof raw.milesMax === "number" && Number.isFinite(raw.milesMax) && raw.milesMax >= 1_000 && raw.milesMax <= 400_000) {
+    milesMax = Math.round(raw.milesMax);
+  } else issues.push({ field: "milesMax", message: "Mileage cap has to be a mileage, or left blank." });
+  const make = typeof raw.make === "string" ? canonicalMake(raw.make) : null;
   if ("riskTolerance" in raw) issues.push({ field: "riskTolerance", message: "Repair ability is not a risk tolerance." });
   if (issues.length) return { ok: false, issues };
   const mode = raw.mode === "flip" ? "flip" : "personal";
@@ -99,6 +112,8 @@ export function validateNeed(input: unknown): { ok: true; need: StructuredNeed }
       zip,
       repairAbility,
       targetProfitUsd,
+      milesMax,
+      make,
     },
   };
 }
@@ -142,14 +157,67 @@ export function repairFromText(text: string): RepairAbility {
 
 export function explicitNeedFromText(text: string, mode: "personal" | "flip"): StructuredNeed {
   const budget = budgetFromText(text);
+  const note = text.trim().slice(0, 500);
   return {
     ...emptyNeed(mode),
     useCase: useCaseFromText(text),
-    note: text.trim().slice(0, 500),
+    note,
     budgetUsd: budget,
     budgetKnown: budget !== null,
     repairAbility: mode === "flip" ? repairFromText(text) : "unknown",
+    milesMax: milesFromText(note),
+    make: makeFromText(note),
   };
+}
+
+/** Mileage the shopper actually capped. "Low mileage" with no number is not a cap. */
+export function milesFromText(text: string): number | null {
+  const match = text.match(
+    /(?:up to|under|less than|no more than|max(?:imum)?|at most)\s+([0-9]{1,3}(?:,[0-9]{3})+|[0-9]+(?:\.[0-9]+)?)\s*(k)?\s*(miles|mi)?\b/i,
+  );
+  if (!match || match[0].includes("$")) return null;
+  if (!match[2] && !match[3]) return null;
+  let value = Number(match[1]!.replace(/,/g, ""));
+  if (match[2]) value *= 1000;
+  if (!Number.isFinite(value) || value < 1_000 || value > 400_000) return null;
+  return Math.round(value);
+}
+
+export function makeFromText(text: string): string | null {
+  const lower = text.toLowerCase();
+  let best: { make: string; index: number } | null = null;
+  for (const make of MAINSTREAM_MAKES) {
+    const index = lower.indexOf(make.toLowerCase());
+    if (index < 0) continue;
+    const before = index === 0 || !/[a-z0-9]/i.test(text[index - 1] ?? "");
+    const after = index + make.length >= text.length || !/[a-z0-9]/i.test(text[index + make.length] ?? "");
+    if (!before || !after) continue;
+    if (!best || index < best.index || (index === best.index && make.length > best.make.length)) best = { make, index };
+  }
+  return best?.make ?? null;
+}
+
+export function canonicalMake(raw: string): string | null {
+  const trimmed = raw.trim();
+  if (!trimmed) return null;
+  return makeFromText(trimmed) ?? MAINSTREAM_MAKES.find((make) => make.toLowerCase() === trimmed.toLowerCase()) ?? null;
+}
+
+export function listingWithinNeed(
+  listing: { make: string; miles: number | null },
+  need: Pick<StructuredNeed, "make" | "milesMax">,
+): boolean {
+  if (need.make && listing.make.trim().toLowerCase() !== need.make.trim().toLowerCase()) return false;
+  if (need.milesMax != null && (listing.miles == null || listing.miles > need.milesMax)) return false;
+  return true;
+}
+
+export function noMatchMessage(need: Pick<StructuredNeed, "make" | "milesMax" | "budgetKnown" | "zip">): string {
+  const parts = [need.make ? `No ${need.make} cars` : "No cars"];
+  if (need.milesMax) parts.push(`under ${need.milesMax.toLocaleString("en-US")} mi`);
+  if (need.budgetKnown) parts.push("within budget");
+  if (need.zip) parts.push(`near ${need.zip}`);
+  return `${parts.join(" ")}. You can raise the mileage cap and search again.`;
 }
 
 export type FollowUp = { id: "zip" | "use" | "repair" | "profit" | "cash"; prompt: string };
@@ -198,7 +266,7 @@ export function applyFollowUp(need: StructuredNeed, id: FollowUp["id"], value: s
 /** Form fields the shopper typed win over anything extracted from a paragraph. */
 export function overlayExplicit(
   extracted: StructuredNeed,
-  explicit: Partial<Pick<StructuredNeed, "mode" | "budgetUsd" | "budgetKnown" | "budgetScope" | "zip" | "repairAbility" | "useCase" | "targetProfitUsd">>,
+  explicit: Partial<Pick<StructuredNeed, "mode" | "budgetUsd" | "budgetKnown" | "budgetScope" | "zip" | "repairAbility" | "useCase" | "targetProfitUsd" | "milesMax" | "make">>,
 ): StructuredNeed {
   return {
     ...extracted,
@@ -210,6 +278,8 @@ export function overlayExplicit(
     repairAbility: explicit.repairAbility ?? extracted.repairAbility,
     useCase: explicit.useCase && explicit.useCase !== "unspecified" ? explicit.useCase : extracted.useCase,
     targetProfitUsd: explicit.targetProfitUsd === undefined ? extracted.targetProfitUsd : explicit.targetProfitUsd,
+    milesMax: explicit.milesMax === undefined ? extracted.milesMax : explicit.milesMax,
+    make: explicit.make === undefined ? extracted.make : explicit.make,
   };
 }
 
@@ -233,6 +303,12 @@ export function yearBandForBudget(budgetUsd: number | null, now = new Date()): {
       because: `With a $${budgetUsd.toLocaleString("en-US")} budget, the guidance table uses a mid-2010s band. The budget itself is a hard cap.`,
     };
   }
-  if (budgetUsd < 30_000) return { yearMin: 2015, yearMax: Math.min(2022, cap), because: "Under $30,000, the guidance table uses a newer band." };
+  if (budgetUsd < 30_000) {
+    return {
+      yearMin: 2015,
+      yearMax: Math.min(2022, cap),
+      because: `With a $${budgetUsd.toLocaleString("en-US")} budget, the guidance table uses a newer band. The budget itself is a hard cap.`,
+    };
+  }
   return { yearMin: 2018, yearMax: cap, because: "At $30,000 or more, the guidance table starts near the current model years." };
 }

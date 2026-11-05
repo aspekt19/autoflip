@@ -84,6 +84,8 @@ export function proposeDirections(
   const body = requestedBody(need);
   const built = directionsFor(need)
     .filter((item) => fitsBody(body, item.segment))
+    .map((item) => ({ ...item, models: modelsForMake(item.models, need.make) }))
+    .filter((item) => item.models.length > 0)
     .slice(0, MAX_DIRECTIONS)
     .map((item, index) => ({
     ...item,
@@ -96,6 +98,11 @@ export function proposeDirections(
     search: item.models[0]!,
   }));
   return built;
+}
+
+function modelsForMake(models: CandidateModel[], make: string | null): CandidateModel[] {
+  if (!make) return models;
+  return models.filter((item) => item.make.toLowerCase() === make.toLowerCase());
 }
 
 function requestedBody(need: StructuredNeed): "suv" | "sedan" | "truck" | null {

@@ -91,6 +91,8 @@ describe("flip questions", () => {
       zip: "33101",
       repairAbility: "unknown",
       targetProfitUsd: null,
+      milesMax: null,
+      make: null,
     });
     expect(questions.map((item) => item.id)).toEqual(["profit", "repair", "cash"]);
     expect(questions.some((item) => item.id === "use")).toBe(false);

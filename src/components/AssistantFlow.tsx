@@ -654,6 +654,20 @@ function AssistantFlow({ variant }: { variant: "find" | "check" }) {
             <input id="zip-edit" value={need.zip ?? ""} onChange={(event) => setNeed({ ...need, zip: event.target.value || null })} />
           </div>
           <div className="field">
+            <label htmlFor="miles-edit">Mileage cap</label>
+            <input
+              id="miles-edit"
+              value={need.milesMax ?? ""}
+              inputMode="numeric"
+              placeholder="No cap"
+              onChange={(event) => {
+                const amount = Number(event.target.value.replace(/,/g, ""));
+                setNeed({ ...need, milesMax: Number.isFinite(amount) && amount > 0 ? Math.round(amount) : null });
+              }}
+            />
+          </div>
+          {need.make ? <p className="hint">Make: {need.make}. Other makes are left out.</p> : null}
+          <div className="field">
             <label htmlFor="budget-edit">{need.mode === "flip" ? "Cash you can put in" : "Budget"}</label>
             <input
               id="budget-edit"
@@ -746,10 +760,13 @@ function AssistantFlow({ variant }: { variant: "find" | "check" }) {
                         year: car.year,
                         make: car.make,
                         model: car.model,
+                        miles: car.miles,
+                        milesMax: need?.milesMax ?? null,
                         priceUsd: car.priceUsd,
                         budgetUsd: need?.budgetUsd ?? null,
                         overBudget: car.overBudget,
                         segment: group.direction.segment,
+                        requestedMake: need?.make ?? null,
                       })}
                     </p>
                     <div>
