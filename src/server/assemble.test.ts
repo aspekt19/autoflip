@@ -12,6 +12,8 @@ describe("assemble", () => {
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     expect(result.report.computed.sample).toBe(true);
+    expect(result.report.computed.recallsAvailable).toBe(false);
+    expect(result.report.computed.dataNotes.join(" ")).toMatch(/recall lookup was unavailable/i);
     expect(result.report.computed.subject.priceUsd).toBe(34988);
     expect(result.report.proof.explanationSource).toBe("template");
     expect(result.report.proof.steps.some((step) => step.id === "serv_prompt_guard" && step.status === "skipped")).toBe(true);
