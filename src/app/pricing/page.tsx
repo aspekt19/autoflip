@@ -38,6 +38,7 @@ function PricingContent() {
         <p className="kicker">Preview pricing</p>
         <h1>Radar plans</h1>
         <p className="lead">Preview-only test subscriptions. Displayed monthly amounts are placeholders, and Stripe test mode does not charge real money. Radar plans cover ongoing saved-search alerts; report credits are separate.</p>
+        <p className="hint">To test a subscription, use Stripe card 4242 4242 4242 4242, any future expiry date and any CVC. No real payment is taken.</p>
         {params.get("status") === "success" ? <p className="warn-box">Stripe returned from a successful test checkout. Refresh Price alerts after a few seconds if the new plan is not available yet.</p> : null}
         {params.get("status") === "cancel" ? <p className="warn-box">Test checkout was canceled. No real payment was taken.</p> : null}
         <h2>For me</h2>

@@ -740,8 +740,9 @@ function AssistantFlow({
                 {group.searchedModels?.length ? `Models checked: ${group.searchedModels.map((item) => `${item.make} ${item.model}`).join(", ")}.` : "No live model search was run for this group; sample rows are not live matches."} Years {group.direction.yearMin}–{group.direction.yearMax}. {group.direction.yearBecause}
               </p>
               <button className="quiet" type="button" onClick={() => void watch(group.direction)} disabled={pending === group.direction.id}>
-                {need?.mode === "flip" ? "Watch this budget" : need?.budgetKnown ? "Watch these cars" : "Watch these cars (budget was not set)"}
+                {pending === group.direction.id ? "Saving alert…" : need?.mode === "flip" ? "Get alerts for this budget" : "Get new-listing alerts"}
               </button>
+              <p className="hint">The one-time search is free. Ongoing new-listing alerts require a separate monthly Radar plan.</p>
               {error && pending === null ? (
                 <p className="warn" role="alert">
                   {error} {/plan|watch/i.test(error) ? <a href="/pricing">See radar plans</a> : null}
