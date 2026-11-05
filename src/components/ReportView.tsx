@@ -244,6 +244,28 @@ export function ReportView({ report }: { report: FullReport }) {
                 : `${computed.recalls.length} NHTSA campaign${computed.recalls.length === 1 ? "" : "s"}.`}
           </li>
         </ul>
+        <h2>Verify this VIN with outside records</h2>
+        <p className="hint">AutoFlip does not have a complete title, theft, flood, or service-history database. Run the VIN through these independent sources before purchase.</p>
+        <ul className="refuse">
+          <li>
+            <a href={`https://www.nhtsa.gov/recalls?vin=${encodeURIComponent(car.vin)}`} target="_blank" rel="noreferrer">
+              NHTSA VIN recall lookup
+            </a>
+            {" — checks unrepaired recalls associated with this specific VIN."}
+          </li>
+          <li>
+            <a href="https://www.nicb.org/vincheck" target="_blank" rel="noreferrer">
+              NICB VINCheck (free)
+            </a>
+            {" — checks participating insurers’ reports of theft not recovered, salvage, and flood damage. Coverage is limited; a clean result is not a complete history report."}
+          </li>
+          <li>
+            <a href="https://vehiclehistory.bja.ojp.gov/nmvtis_vehiclehistory" target="_blank" rel="noreferrer">
+              DOJ NMVTIS-approved history providers
+            </a>
+            {" — offers paid reports with title-brand, odometer, and salvage information from approved providers."}
+          </li>
+        </ul>
         <h2>Complaints about this model year</h2>
         <p className="hint">Source: NHTSA complaints. This is a count for the model year, not this car.</p>
         <ul className="refuse">
