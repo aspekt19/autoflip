@@ -12,7 +12,7 @@
     "eval:serv": "tsx eval/run.ts"
   },
   "engines": {
-    "node": ">=20"
+    "node": "22.x"
   },
   "dependencies": {
     "gsap": "^3.15.1",
