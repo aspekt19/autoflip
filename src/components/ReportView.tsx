@@ -64,7 +64,9 @@ export function ReportView({ report }: { report: FullReport }) {
           <ul className="refuse">
             <li>Asking price and mileage come from the listing{computed.sample ? " fixture" : ""} or from what you typed for a VIN.</li>
             <li>
-              {computed.recalls.length} NHTSA recall campaign{computed.recalls.length === 1 ? "" : "s"} for this year, make, and model. Source: NHTSA. This is not a count of open repairs on this VIN.
+              {!computed.recallsAvailable
+                ? "NHTSA recall lookup was unavailable. No campaign count can be reported."
+                : `${computed.recalls.length} NHTSA recall campaign${computed.recalls.length === 1 ? "" : "s"} for this year, make, and model. This is not a count of open repairs on this VIN.`}
             </li>
             <li>
               {computed.complaintCount === null
@@ -235,9 +237,11 @@ export function ReportView({ report }: { report: FullReport }) {
         <p className="hint">Source: NHTSA. These campaigns match the year, make, and model. They are not a record of what was fixed on this VIN.</p>
         <ul className="refuse">
           <li>
-            {computed.recalls.length === 0
-              ? "NHTSA returned no campaigns for this year, make, and model."
-              : `${computed.recalls.length} NHTSA campaign${computed.recalls.length === 1 ? "" : "s"}.`}
+            {!computed.recallsAvailable
+              ? "NHTSA could not return usable recall data. Check this VIN directly with NHTSA and the dealer before purchase."
+              : computed.recalls.length === 0
+                ? "NHTSA returned no campaigns for this year, make, and model."
+                : `${computed.recalls.length} NHTSA campaign${computed.recalls.length === 1 ? "" : "s"}.`}
           </li>
         </ul>
         <h2>Complaints about this model year</h2>
