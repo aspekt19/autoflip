@@ -15,6 +15,7 @@ describe("subscription webhook mapping", () => {
       expect(sub.plans.personal.status).toBe("active");
       expect(sub.plans.personal.searchLimit).toBe(3);
       expect(sub.plans.flip.status).toBe("none");
+      expect(sub.plans.stripeCustomerId).toBeNull();
     }
     const credits = billingEffect(started, "checkout.session.completed", {
       mode: "payment",
@@ -22,6 +23,7 @@ describe("subscription webhook mapping", () => {
       metadata: { userId: "user-1", credits: "3" },
     });
     expect(credits.kind).toBe("credits");
+    expect(emptyPlans().stripeCustomerId).toBeNull();
   });
 
   it("marks a failed invoice past due and drops the plan when the subscription ends", () => {

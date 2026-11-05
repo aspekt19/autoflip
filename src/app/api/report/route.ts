@@ -48,6 +48,7 @@ export async function POST(request: Request) {
     if (existingId) {
       const existing = await readPersistedReport(existingId);
       if (existing) {
+        await rememberUserReport(getKv(), id, vinKey, existing.id, existing);
         return Response.json({ ...existing, balance: await balanceOf(id), alreadySaved: true });
       }
     }
@@ -93,7 +94,7 @@ export async function POST(request: Request) {
   }
   try {
     await persistReport(assembled.report);
-    if (vinKey) await rememberUserReport(getKv(), id, vinKey, assembled.report.id);
+    if (vinKey) await rememberUserReport(getKv(), id, vinKey, assembled.report.id, assembled.report);
   } catch {
     await grantCredit(id, 1, `refund:${assembled.report.id}`);
     await sendLinkedTelegram(id, REPORT_FAILED_TEXT);

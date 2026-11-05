@@ -39,8 +39,8 @@ export function Header() {
         <Link href="/find" onClick={() => setMenuOpen(false)}>Find a car</Link>
         <Link href="/check" onClick={() => setMenuOpen(false)}>Check a car</Link>
         <Link href="/radar" onClick={() => setMenuOpen(false)}>Price alerts</Link>
+        <Link href="/reports" onClick={() => setMenuOpen(false)}>Reports</Link>
         <Link href="/pricing" onClick={() => setMenuOpen(false)}>Pricing</Link>
-        <Link href="/developers" onClick={() => setMenuOpen(false)}>For AI agents</Link>
         <Link className="nav-go" href="/credits">
           {creditLabel}
         </Link>

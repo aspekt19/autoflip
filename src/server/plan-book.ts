@@ -7,12 +7,15 @@ export type PlanStatus = "active" | "past_due" | "canceled" | "none";
 export type StoredPlans = {
   personal: { status: PlanStatus; lookupKey: string | null; searchLimit: number };
   flip: { status: PlanStatus; lookupKey: string | null };
+  /** Stripe customer used by the test-mode billing portal. */
+  stripeCustomerId: string | null;
 };
 
 export function emptyPlans(): StoredPlans {
   return {
     personal: { status: "none", lookupKey: null, searchLimit: 0 },
     flip: { status: "none", lookupKey: null },
+    stripeCustomerId: null,
   };
 }
 
@@ -28,6 +31,7 @@ export async function readPlans(kv: Kv, userId: string): Promise<StoredPlans> {
     return {
       personal: { ...emptyPlans().personal, ...parsed.personal },
       flip: { ...emptyPlans().flip, ...parsed.flip },
+      stripeCustomerId: typeof parsed.stripeCustomerId === "string" ? parsed.stripeCustomerId : null,
     };
   } catch {
     return emptyPlans();
@@ -42,6 +46,7 @@ export function demoPlans(): StoredPlans {
   return {
     personal: { status: "active", lookupKey: "demo", searchLimit: 5 },
     flip: { status: "active", lookupKey: "demo" },
+    stripeCustomerId: null,
   };
 }
 

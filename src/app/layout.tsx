@@ -37,9 +37,10 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           <p className="foot-links">
             <a href="/find">Find</a>
             <a href="/check">Check by VIN</a>
-            <a href="/radar">Deal Radar</a>
+            <a href="/radar">Price alerts</a>
+            <a href="/reports">Reports</a>
             <a href="/pricing">Pricing</a>
-            <a href="/developers">For agents</a>
+            <a href="/developers">For AI agents</a>
           </p>
         </footer>
       </body>
