@@ -114,6 +114,16 @@ export type FlipMath = {
   timeToSellNote: string;
 };
 
+export type SourceCheckStatus = "available" | "partial" | "unavailable" | "not_checked" | "sample" | "not_connected";
+
+export type SourceCheck = {
+  source: string;
+  status: SourceCheckStatus;
+  detail: string;
+  /** When AutoFlip made the request. Null when data came from a fixture, is not connected, or provider freshness is not exposed. */
+  checkedAt: string | null;
+};
+
 export type ComputedReport = {
   mode: Mode;
   subject: Listing;
@@ -137,6 +147,8 @@ export type ComputedReport = {
   recalls: RecallRecord[];
   /** False when NHTSA did not return a usable recall result; an empty array alone is not enough. */
   recallsAvailable: boolean;
+  /** Per-source evidence. Optional so older saved reports remain readable. */
+  sourceChecks?: SourceCheck[];
   openParkIt: boolean;
   complaintCount: number | null;
   fuel: FuelFact | null;

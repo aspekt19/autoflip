@@ -5,6 +5,7 @@ import { sampleListings } from "@/io/sample";
 
 export function buildSampleReport(mode: Mode = "personal"): FullReport {
   const listings = sampleListings();
+  const createdAt = "2026-11-04T00:00:00.000Z";
   const subject = listings[0];
   if (!subject) throw new Error("sample fixture is empty");
   const computed = buildComputedReport({
@@ -17,11 +18,13 @@ export function buildSampleReport(mode: Mode = "personal"): FullReport {
     fuel: null,
     vinDecode: null,
     distanceToSearchZipMiles: null,
+    checkedAt: createdAt,
+    externalLookupsPerformed: false,
     sample: true,
   });
   return {
     id: "sample",
-    createdAt: "2026-11-04T00:00:00.000Z",
+    createdAt,
     explanation: templateExplanation(computed),
     computed,
     proof: {

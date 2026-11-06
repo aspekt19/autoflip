@@ -246,6 +246,35 @@ describe("synthetic deals", () => {
     expect(expensive.openParkIt).toBe(true);
   });
 
+
+  it("records source-level provenance without mistaking empty results for missing data", () => {
+    const report = buildComputedReport({
+      mode: "personal",
+      subject: car({ vin: "SOURCE00000000001", priceUsd: 20_000, miles: 50_000 }),
+      candidates: peers,
+      recalls: [],
+      recallsAvailable: true,
+      complaintCount: 0,
+      fuel: null,
+      vinDecode: { year: 2020, make: "TOYOTA", model: "Camry", errorCode: "0" },
+      distanceToSearchZipMiles: null,
+      distanceRequested: true,
+      checkedAt: "2026-11-06T08:00:00.000Z",
+      externalLookupsPerformed: true,
+      asOfYear: 2026,
+    });
+    const checks = report.sourceChecks ?? [];
+    const recall = checks.find((item) => item.source === "NHTSA recalls by model year");
+    const complaints = checks.find((item) => item.source === "NHTSA complaints");
+    const titleHistory = checks.find((item) => item.source === "NMVTIS title history");
+    expect(recall?.status).toBe("available");
+    expect(recall?.detail).toMatch(/0 model-year campaign/);
+    expect(recall?.checkedAt).toBe("2026-11-06T08:00:00.000Z");
+    expect(complaints?.status).toBe("available");
+    expect(complaints?.detail).toMatch(/0 complaints/);
+    expect(titleHistory?.status).toBe("not_connected");
+  });
+
   it("refuses a verdict when fewer than three comps exist", () => {
     const thin = buildComputedReport({
       mode: "personal",
