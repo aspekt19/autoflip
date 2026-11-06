@@ -47,7 +47,9 @@ function numericTokensInText(text: string): Set<string> {
   const cleaned = text
     .replace(/\b[A-HJ-NPR-Z0-9]{17}\b/gi, " ")
     .replace(/\b[A-Z]{1,4}-\d+\b/gi, " ");
-  const rangeSafe = cleaned.replace(/(\$[\d,]+)\s*-\s*(?=\$?\d)/g, "$1 to ");
+  // A dash between two numeric values is a range, not a negative sign.
+  // VINs and model codes are removed first so identifiers such as CX-5 remain untouched.
+  const rangeSafe = cleaned.replace(/(\d)\s*-\s*(?=\$?\d)/g, "$1 to ");
   return new Set((rangeSafe.match(/[-+]?\$?\d[\d,]*(?:\.\d+)?/g) ?? []).map((token) => token.replace(/[,$]/g, "")));
 }
 
