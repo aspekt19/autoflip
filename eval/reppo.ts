@@ -119,13 +119,22 @@ async function main() {
           response,
         });
       } catch (error) {
+        const message = error instanceof Error ? error.message : "Unknown Reppo API error";
         receipt.submissions.push({
           caseId: row.caseId,
           variant,
           evalId: null,
           response: null,
-          error: error instanceof Error ? error.message : "Unknown Reppo API error",
+          error: message,
         });
+        persist();
+        // A 404 indicates a route/deployment or API contract problem. Stop
+        // immediately so a broken endpoint cannot generate repeated requests.
+        if (/HTTP 404\\b/.test(message)) {
+          console.error("Reppo returned HTTP 404; stopping after this single diagnostic request.");
+          console.error(message);
+          return;
+        }
       }
       persist();
       console.log(`${receipt.submissions.length}/${receipt.requested} ${row.caseId} ${variant}`);
