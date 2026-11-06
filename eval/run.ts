@@ -85,11 +85,24 @@ async function main() {
       const scoreInput = { profile: profileId, facts: item.facts, expect: item.expect };
       rows.push({
         caseId: item.id,
+        profile: profileId,
         title: item.title,
         task: item.task,
         synthetic: item.synthetic,
-        plain: { text: plain.text, ...scoreOutput({ ...scoreInput, text: plain.text }) },
-        serv: { text: serv.ok ? serv.text : "", ...scoreOutput({ ...scoreInput, text: serv.ok ? serv.text : "" }) },
+        plain: {
+          text: plain.text,
+          status: plain.status,
+          latencyMs: plain.latencyMs,
+          ...scoreOutput({ ...scoreInput, text: plain.text }),
+        },
+        serv: {
+          text: serv.ok ? serv.text : "",
+          status: serv.ok ? serv.rawStatus : serv.status,
+          latencyMs: serv.proof.latencyMs,
+          model: serv.ok ? serv.model : serv.proof.modelReported,
+          responseId: serv.proof.openserv?.id ?? null,
+          ...scoreOutput({ ...scoreInput, text: serv.ok ? serv.text : "" }),
+        },
       });
     }
   }
@@ -124,11 +137,11 @@ async function main() {
     "",
     summary.note,
     "",
-    "| Case | Task | Synthetic | Standard failed | Checked failed |",
-    "| --- | --- | --- | --- | --- |",
+    "| Case | Profile | Task | Synthetic | Standard failed | Checked failed |",
+    "| --- | --- | --- | --- | --- | --- |",
   ];
   const lines = rows.map(
-    (row) => `| ${row.title} | ${row.task} | ${row.synthetic ? "yes" : "no"} | ${failed(row.plain) ? "yes" : "no"} | ${failed(row.serv) ? "yes" : "no"} |`,
+    (row) => `| ${row.title} | ${row.profile} | ${row.task} | ${row.synthetic ? "yes" : "no"} | ${failed(row.plain) ? "yes" : "no"} | ${failed(row.serv) ? "yes" : "no"} |`,
   );
   writeFileSync(path.join(dir, "latest.md"), [...header, ...lines, ""].join("\n"));
   console.log(summary.note);

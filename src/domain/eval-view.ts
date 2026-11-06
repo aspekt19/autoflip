@@ -2,11 +2,18 @@ import { publicAnswer, type EvalScore } from "./eval-score";
 
 export type SavedEvalRow = {
   caseId: string;
+  profile: string;
   title: string;
   task: string;
   synthetic: boolean;
-  plain: EvalScore & { text: string };
-  serv: EvalScore & { text: string };
+  plain: EvalScore & { text: string; status?: number; latencyMs?: number };
+  serv: EvalScore & {
+    text: string;
+    status?: number;
+    latencyMs?: number;
+    model?: string | null;
+    responseId?: string | null;
+  };
 };
 
 export type SavedEval = {
@@ -15,6 +22,7 @@ export type SavedEval = {
 };
 
 export type PublicExample = {
+  profile: string;
   title: string;
   task: string;
   synthetic: boolean;
@@ -112,6 +120,7 @@ export function comparisonExamples(saved: SavedEval | null): { trapFound: boolea
   return {
     trapFound: traps.length > 0,
     examples: chosen.slice(0, 3).map((row) => ({
+      profile: row.profile,
       title: row.title,
       task: row.task,
       synthetic: row.synthetic,

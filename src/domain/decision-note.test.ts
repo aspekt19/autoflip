@@ -51,4 +51,18 @@ describe("why we decided", () => {
     expect(quotedNumbersStayIn("Estimate about $1,200 from 5 cars.", JSON.stringify({ profitMidUsd: 1200, compCount: 5 }))).toBe(true);
     expect(quotedNumbersStayIn("Profit near $9,999.", JSON.stringify({ profitMidUsd: 1200 }))).toBe(false);
   });
+
+  it("uses exact numeric tokens instead of matching partial substrings", () => {
+    expect(quotedNumbersStayIn("The offer is $15,000.", JSON.stringify({ priceUsd: 15000 }))).toBe(true);
+    expect(quotedNumbersStayIn("The offer is $500.", JSON.stringify({ priceUsd: 15000 }))).toBe(false);
+  });
+
+  it("accepts numbers embedded in a supplied VIN and ZIP", () => {
+    expect(
+      quotedNumbersStayIn(
+        "2021 Camry, VIN 4T1K61AK0MU423359, ZIP 02108.",
+        JSON.stringify({ year: 2021, vin: "4T1K61AK0MU423359", zip: "02108" }),
+      ),
+    ).toBe(true);
+  });
 });

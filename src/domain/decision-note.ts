@@ -48,12 +48,38 @@ export function visibleProof(proof: DecisionProof): DecisionProof {
   };
 }
 
+function numericTokens(value: unknown): Set<string> {
+  const tokens = new Set<string>();
+  const add = (text: string) => {
+    for (const token of text.match(/\d[\d,]*(?:\.\d+)?/g) ?? []) {
+      tokens.add(token.replace(/,/g, ""));
+    }
+  };
+  const visit = (item: unknown): void => {
+    if (typeof item === "number" && Number.isFinite(item)) {
+      add(String(item));
+    } else if (typeof item === "string") {
+      add(item);
+    } else if (Array.isArray(item)) {
+      item.forEach(visit);
+    } else if (item && typeof item === "object") {
+      Object.values(item as Record<string, unknown>).forEach(visit);
+    }
+  };
+  visit(value);
+  return tokens;
+}
+
 export function quotedNumbersStayIn(text: string, allowed: string): boolean {
-  const numbers = text.match(/\d[\d,]*(?:\.\d+)?/g) ?? [];
-  return numbers.every((token) => {
-    const plain = token.replace(/,/g, "");
-    return allowed.includes(token) || allowed.includes(plain);
-  });
+  let facts: unknown = allowed;
+  try {
+    facts = JSON.parse(allowed) as unknown;
+  } catch {
+    // Preserve compatibility with callers that pass a plain text evidence string.
+  }
+  const available = numericTokens(facts);
+  const mentioned = text.match(/\d[\d,]*(?:\.\d+)?/g) ?? [];
+  return mentioned.every((token) => available.has(token.replace(/,/g, "")));
 }
 
 export function whyWeDecided(scene: DecisionScene, proofs: DecisionProof[]): string[] {
