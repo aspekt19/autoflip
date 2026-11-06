@@ -6,10 +6,16 @@ export function dealerQuestions(input: {
   vinIdentityMismatch?: boolean;
   parkIt: boolean;
   historyMissing: boolean;
+  titleBrandHit?: string | null;
 }): string[] {
   const questions: string[] = [];
   if (input.vinIdentityMismatch) {
     questions.push("The VIN decoder returned a different year, make, or model from the listing. Ask the seller to photograph the VIN plate and title, then correct the listing before paying or arranging an inspection.");
+  }
+  if (input.titleBrandHit) {
+    questions.push(
+      `Listing text mentions “${input.titleBrandHit}”. Ask for the current title, an NMVTIS-approved history report, and a written statement of the brand before any payment.`,
+    );
   }
   const accidents = input.listing.accidentCount;
   if (accidents === null) {
@@ -52,6 +58,12 @@ export function buildFlags(input: {
   priceGap: number | null;
   sample: boolean;
   removedAt: string | null;
+  /** Optional odometer anomaly message when miles vs age look inconsistent. */
+  odometerCaution?: string | null;
+  /** Title-brand keyword found on the listing (salvage, rebuilt, flood, …). */
+  titleBrandHit?: string | null;
+  /** Asking price far below fair value / comps — possible bait or undisclosed damage. */
+  suspiciouslyCheap?: boolean;
 }): Flag[] {
   const flags: Flag[] = [];
   if (input.sample) {
@@ -119,9 +131,36 @@ export function buildFlags(input: {
   }
   if (input.listing.accidentCount === null || input.listing.ownerCount === null) {
     flags.push({
-      level: "note",
+      level: "caution",
       source: "listing-history",
-      text: "Some history fields were missing. Missing is not the same as clean.",
+      text: "Accident or owner history was missing from the listing. Missing is not the same as clean — verify with a title/history report before you pay.",
+    });
+  }
+  if (input.titleBrandHit) {
+    flags.push({
+      level: "stop",
+      source: "title-brand",
+      text: `Listing text mentions “${input.titleBrandHit}”. Treat this as a title-brand risk until an NMVTIS-approved report and the physical title prove otherwise.`,
+    });
+  } else {
+    flags.push({
+      level: "caution",
+      source: "title-brand",
+      text: "Title brand, salvage, rebuilt, flood, and odometer brands are not checked inside AutoFlip. Run an NMVTIS-approved report and NICB VINCheck before purchase.",
+    });
+  }
+  if (input.odometerCaution) {
+    flags.push({
+      level: "caution",
+      source: "odometer",
+      text: input.odometerCaution,
+    });
+  }
+  if (input.suspiciouslyCheap) {
+    flags.push({
+      level: "caution",
+      source: "price-anomaly",
+      text: "The asking price is suspiciously low versus comparable listings. Confirm the VIN, title brand, and condition before treating the discount as real.",
     });
   }
   return flags;

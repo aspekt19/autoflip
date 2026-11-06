@@ -1012,6 +1012,45 @@ pre.doc {
   background: rgba(219, 4, 4, 0.14);
   font-weight: 700;
 }
+.risk-flag-list, .risk-missing-list {
+  list-style: none;
+  margin: 16px 0 0;
+  padding: 0;
+  display: grid;
+  gap: 10px;
+}
+.risk-flag {
+  display: grid;
+  gap: 4px;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.03);
+}
+.risk-flag.stop {
+  border-color: rgba(255, 59, 59, 0.55);
+  background: rgba(219, 4, 4, 0.12);
+}
+.risk-flag.caution {
+  border-color: rgba(255, 214, 10, 0.4);
+  background: rgba(255, 214, 10, 0.08);
+}
+.risk-flag-level {
+  font-family: var(--sans);
+  font-size: 11px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.risk-missing-title {
+  margin: 20px 0 0;
+  font-size: 18px;
+}
+.risk-missing-list li {
+  padding: 10px 12px;
+  border-left: 3px solid var(--line);
+  background: rgba(255, 255, 255, 0.03);
+}
 @media (max-width: 680px) {
   .compare-picker { align-items: stretch; flex-direction: column; }
   .compare-picker .action { width: 100%; }

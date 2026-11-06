@@ -16,7 +16,9 @@ export function ReportView({ report }: { report: FullReport }) {
     verdict: computed.verdict,
     fairValueUsd: computed.fairValueUsd,
     flip: computed.flip,
+    openParkIt: computed.openParkIt,
   });
+  const missingData = computed.dataNotes;
 
   return (
     <article>
@@ -36,6 +38,7 @@ export function ReportView({ report }: { report: FullReport }) {
       </p>
       {!computed.sample ? <FavoriteButton reportId={report.id} /> : null}
       <nav className="report-toc" aria-label="Report sections">
+        <a href="#report-risks">Risks</a>
         <a href="#report-summary">Verdict</a>
         <a href="#report-facts">Facts &amp; estimates</a>
         <a href="#report-comparables">Comparables</a>
@@ -54,7 +57,11 @@ export function ReportView({ report }: { report: FullReport }) {
           historyOnListing: computed.subject.accidentCount !== null && computed.subject.ownerCount !== null,
         }}
       />
-      <RiskSummary flags={computed.flags} openParkIt={computed.openParkIt} />
+      <RiskSummary
+        flags={computed.flags}
+        openParkIt={computed.openParkIt}
+        missingData={missingData}
+      />
       <h2 id="report-summary">{computed.mode === "flip" ? "Does this deal fit?" : "Does this car fit?"}</h2>
       <p className="summary-line">{decision.line}</p>
       <p>{decision.detail}</p>
@@ -89,13 +96,6 @@ export function ReportView({ report }: { report: FullReport }) {
                 Conservative margin {formatUsd(computed.flip.marginUsd)} and a midpoint margin of {formatUsd(midProfitUsd(computed.flip))} use example fee and reconditioning assumptions, not a quote for this car.
               </li>
             ) : null}
-          </ul>
-          <h3>Still unknown</h3>
-          {computed.dataNotes.length === 0 ? <p>Nothing else was flagged as missing.</p> : null}
-          <ul className="refuse">
-            {computed.dataNotes.map((note) => (
-              <li key={note}>{note}</li>
-            ))}
           </ul>
         </section>
       </div>
@@ -398,26 +398,61 @@ function reportScene(report: FullReport): DecisionScene {
 }
 
 
-function RiskSummary({ flags, openParkIt }: { flags: FullReport["computed"]["flags"]; openParkIt: boolean }) {
-  const stop = flags.filter((flag) => flag.level === "stop").length;
-  const caution = flags.filter((flag) => flag.level === "caution").length;
-  const notes = flags.filter((flag) => flag.level === "note").length;
+function RiskSummary({
+  flags,
+  openParkIt,
+  missingData,
+}: {
+  flags: FullReport["computed"]["flags"];
+  openParkIt: boolean;
+  missingData: string[];
+}) {
+  const stop = flags.filter((flag) => flag.level === "stop");
+  const caution = flags.filter((flag) => flag.level === "caution");
+  const notes = flags.filter((flag) => flag.level === "note");
+  const prominent = [...stop, ...caution];
   return (
-    <section className={`risk-summary ${stop ? "risk-has-stop" : caution ? "risk-has-caution" : ""}`} aria-labelledby="risk-summary-title">
-      <h2 id="risk-summary-title">Risk &amp; warning summary</h2>
+    <section
+      id="report-risks"
+      className={`risk-summary ${stop.length ? "risk-has-stop" : caution.length ? "risk-has-caution" : ""}`}
+      aria-labelledby="risk-summary-title"
+    >
+      <h2 id="risk-summary-title">Risks &amp; missing data</h2>
       <div className="risk-counts" aria-label="Risk flag counts">
-        <span className="risk-count stop">{stop} stop</span>
-        <span className="risk-count caution">{caution} caution</span>
-        <span className="risk-count note">{notes} notes</span>
+        <span className="risk-count stop">{stop.length} stop</span>
+        <span className="risk-count caution">{caution.length} caution</span>
+        <span className="risk-count note">{notes.length} notes</span>
+        <span className="risk-count note">{missingData.length} missing</span>
       </div>
       {openParkIt ? (
-        <p className="risk-primary">A park-it or park-outside campaign matched this model year, make and model. Do not drive until the exact VIN's recall status and completed repair are confirmed.</p>
+        <p className="risk-primary">A park-it or park-outside campaign matched this model year, make and model. Do not drive until the exact VIN&apos;s recall status and completed repair are confirmed.</p>
       ) : null}
-      {flags.length === 0 ? (
-        <p className="hint">No risk flags were returned from the available data. Missing records, undisclosed damage and mechanical issues may still exist.</p>
+      {prominent.length > 0 ? (
+        <ul className="risk-flag-list">
+          {prominent.map((flag) => (
+            <li key={`${flag.source}-${flag.text}`} className={`risk-flag ${flag.level}`}>
+              <span className="risk-flag-level">{flag.level}</span>
+              <span>{flag.text}</span>
+              <span className="hint">Source: {flag.source}</span>
+            </li>
+          ))}
+        </ul>
       ) : (
-        <p className="hint">The detailed flags and their sources appear below. These are screening signals, not a physical inspection or a complete vehicle-history report.</p>
+        <p className="hint">No stop or caution flags were returned from the available data. Missing records, undisclosed damage and mechanical issues may still exist.</p>
       )}
+      {missingData.length > 0 ? (
+        <>
+          <h3 className="risk-missing-title">Missing or unused data</h3>
+          <ul className="risk-missing-list">
+            {missingData.map((note) => (
+              <li key={note}>{note}</li>
+            ))}
+          </ul>
+        </>
+      ) : (
+        <p className="hint">No additional missing-data notes for this report.</p>
+      )}
+      <p className="hint">These are screening signals, not a physical inspection or a complete vehicle-history report.</p>
     </section>
   );
 }

@@ -214,7 +214,8 @@ export async function runRadarCycle(deps: CycleDeps): Promise<StoredRun> {
       }
       listings += job.listings.length;
       const criteria = job.group[0]!.criteria;
-      const eligible = job.listings.filter((listing) => hardReject(listing, criteria) === null);
+      const asOfYear = deps.now.getUTCFullYear();
+      const eligible = job.listings.filter((listing) => hardReject(listing, criteria, asOfYear) === null);
       const band = marketBand(eligible);
       for (const search of job.group) {
         if (isBroadFlip(search)) {
@@ -244,7 +245,7 @@ export async function runRadarCycle(deps: CycleDeps): Promise<StoredRun> {
           if (deps.servKey && !judged?.decisions) notes.push("Flip explanation unavailable. The estimates below are from the scan only.");
           for (const item of fresh) {
             const decision = judged?.decisions?.get(item.vin);
-            if (decision?.verdict === "skip") continue;
+            // Code owns the alert list. SERV may explain a skip preference, but it cannot suppress a ranked deal.
             const numbers = {
               priceUsd: item.listing.priceUsd ?? 0,
               medianUsd: item.resaleMidUsd ?? 0,
@@ -255,11 +256,14 @@ export async function runRadarCycle(deps: CycleDeps): Promise<StoredRun> {
               expectedMiles: null,
               roughMarginUsd: item.profitMidUsd,
             };
+            const baseWhy = flipAlertWhy(item);
             const why = decision?.note
-              ? `${flipAlertWhy(item)} ${decision.note}`
+              ? decision.verdict === "skip"
+                ? `${baseWhy} Review note (does not cancel this alert): ${decision.note}`
+                : `${baseWhy} ${decision.note}`
               : deps.servKey && !decision
-                ? `${flipAlertWhy(item)} The written check did not finish. These figures are from the scan.`
-                : flipAlertWhy(item);
+                ? `${baseWhy} The written check did not finish. These figures are from the scan.`
+                : baseWhy;
             const flipCoverage = {
               mode: "flip" as const,
               sample: item.listing.source === "sample",
