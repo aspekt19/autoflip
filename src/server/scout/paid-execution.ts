@@ -1,37 +1,50 @@
 /**
  * Server-trusted paid-execution gate for Scout.
  *
- * Fail closed unless ALL of:
- * - SCOUT_PAID_EXECUTION on
- * - AUTODEV_API_KEY present
- * - Explicit hard ceiling on provider calls
- * - Verified server-owned USD balance + hard cap leaving ≥$5 reserve
- *   (SCOUT_SERVER_VERIFIED_BALANCE_USD + SCOUT_SERVER_SPEND_HARD_CAP_USD set by
- *   operator after console verification — NOT client body attestation)
- * - Storage mode that can enforce quota across instances (Upstash), otherwise
- *   multi-instance spend cannot be guaranteed
+ * PRODUCTION: live Auto.dev/SERV is non-bypassably blocked. Env strings such as
+ * SCOUT_SERVER_VERIFIED_BALANCE_USD / SCOUT_SERVER_SPEND_HARD_CAP_USD are NOT a
+ * verified balance grant (do not env-enable away reserve). Flags + keys + Upstash
+ * alone also do not authorize spend.
  *
- * Env boolean alone is NOT a cost guarantee. Missing verified reserve = blocker.
+ * Extension: pass an explicit PaidSpendAuthority from a future verified account
+ * source. Unit tests may inject a test-only stub via authorizeLiveInventory's
+ * `testAuthority` argument — never via env / HTTP / client body.
+ *
+ * No "$5 guarantee" claim while the live path is deliberately disabled.
  */
 
 import { ASSUMPTIONS } from "@/domain/assumptions";
 import type { Kv } from "@/io/kv";
-import { storageMode } from "@/io/kv";
-import { reserveTotalCall } from "@/io/persistent-quota";
+import { isDistributedQuotaBackend, kvBackendOf, storageMode, type KvBackend } from "@/io/kv";
+import { releaseReservedTotalCall, reserveTotalCall } from "@/io/persistent-quota";
 import type { QuotaDecision } from "@/io/quota";
 
 export const MIN_RESERVE_USD = 5;
+
+/**
+ * Future / test spend authority. Never constructed from process.env.
+ * `test_stub` is only valid when passed as the `testAuthority` code argument.
+ */
+export type PaidSpendAuthority = {
+  kind: "test_stub" | "verified_account_source";
+  remainingProviderBudget: number;
+  authorizedSpendUsd: number;
+  /** Optional future fields from a real balance API — unused today. */
+  sourceNote?: string;
+};
 
 export type PaidExecutionConfig = {
   paidExecutionEnabled: boolean;
   hasAutodevKey: boolean;
   hasServKey: boolean;
   maxProviderCallsHardCeiling: number | null;
-  /** Operator-verified balance from console — server env only. */
-  verifiedBalanceUsd: number | null;
-  /** Operator-assigned hard USD cap for this paid window. */
-  spendHardCapUsd: number | null;
   storage: ReturnType<typeof storageMode>;
+  /**
+   * Env may still contain these strings — they are recorded for diagnostics only
+   * and MUST NOT authorize live spend.
+   */
+  ignoredEnvBalanceUsd: number | null;
+  ignoredEnvSpendHardCapUsd: number | null;
 };
 
 export function readPaidExecutionConfig(
@@ -51,9 +64,9 @@ export function readPaidExecutionConfig(
     hasServKey: Boolean(env.SERV_API_KEY?.trim()),
     maxProviderCallsHardCeiling:
       ceiling != null && Number.isFinite(ceiling) && ceiling >= 0 ? Math.floor(ceiling) : null,
-    verifiedBalanceUsd: balance != null && Number.isFinite(balance) ? balance : null,
-    spendHardCapUsd: spendCap != null && Number.isFinite(spendCap) ? spendCap : null,
     storage: storageMode(env),
+    ignoredEnvBalanceUsd: balance != null && Number.isFinite(balance) ? balance : null,
+    ignoredEnvSpendHardCapUsd: spendCap != null && Number.isFinite(spendCap) ? spendCap : null,
   };
 }
 
@@ -69,122 +82,131 @@ export type PaidGateResult =
         | "unverifiable_cap"
         | "verified_reserve_unavailable"
         | "insufficient_reserve"
-        | "quota_backend_not_distributed";
+        | "quota_backend_not_distributed"
+        | "env_attestation_rejected";
       message: string;
       mode: "replay_only";
     };
 
-function reserveOk(config: PaidExecutionConfig): PaidGateResult | null {
-  if (config.verifiedBalanceUsd == null || config.spendHardCapUsd == null) {
-    return {
-      ok: false,
-      error: "verified_reserve_unavailable",
-      mode: "replay_only",
-      message:
-        "Paid scout path blocked: server-verified balance and spend hard cap are not configured (SCOUT_SERVER_VERIFIED_BALANCE_USD + SCOUT_SERVER_SPEND_HARD_CAP_USD). Env boolean alone is not a cost guarantee. Parent must verify console balance and set these after confirming ≥$5 reserve.",
-    };
-  }
-  if (config.spendHardCapUsd <= 0) {
-    return {
-      ok: false,
-      error: "unverifiable_cap",
-      mode: "replay_only",
-      message: "SCOUT_SERVER_SPEND_HARD_CAP_USD must be > 0.",
-    };
-  }
-  const remaining = config.verifiedBalanceUsd - config.spendHardCapUsd;
-  if (remaining < MIN_RESERVE_USD) {
-    return {
-      ok: false,
-      error: "insufficient_reserve",
-      mode: "replay_only",
-      message: `Hard cap $${config.spendHardCapUsd} would leave $${remaining.toFixed(2)} on verified balance $${config.verifiedBalanceUsd} (< $${MIN_RESERVE_USD} reserve).`,
-    };
-  }
-  // Multi-instance Auto.dev spend requires a distributed quota backend.
-  if (config.storage !== "upstash") {
-    return {
-      ok: false,
-      error: "quota_backend_not_distributed",
-      mode: "replay_only",
-      message:
-        "Paid scout path blocked: storage mode cannot guarantee cross-instance provider quotas (need Upstash). Local Memory/File locks are not distributed proof.",
-    };
-  }
-  return null;
+export type AuthorizeLiveInput = {
+  config?: PaidExecutionConfig;
+  /** Actual Kv in hand — env storageMode alone is insufficient. */
+  kv?: Kv | null;
+  /**
+   * Test-only or future verified source. NEVER populated from env/HTTP.
+   * Production callers must omit this — live path stays blocked.
+   */
+  testAuthority?: PaidSpendAuthority | null;
+};
+
+function blocked(
+  error: Extract<PaidGateResult, { ok: false }>["error"],
+  message: string,
+): PaidGateResult {
+  return { ok: false, error, message, mode: "replay_only" };
 }
 
-/** Authorize live Auto.dev inventory/evidence. Fail closed without verified reserve + distributed quota. */
-export function authorizeLiveInventory(config: PaidExecutionConfig = readPaidExecutionConfig()): PaidGateResult {
+/**
+ * Authorize live Auto.dev inventory/evidence.
+ * Without an explicit non-env authority, always fail closed — even if flags, keys,
+ * fake env balances, and Upstash are all present.
+ */
+export function authorizeLiveInventory(input: AuthorizeLiveInput = {}): PaidGateResult {
+  const config = input.config ?? readPaidExecutionConfig();
+
   if (!config.paidExecutionEnabled) {
-    return {
-      ok: false,
-      error: "paid_execution_disabled",
-      mode: "replay_only",
-      message:
-        "SCOUT_PAID_EXECUTION is off. Live Auto.dev/SERV scout calls are disabled. Replay/fixture path only — never presented as live.",
-    };
+    return blocked(
+      "paid_execution_disabled",
+      "SCOUT_PAID_EXECUTION is off. Live Auto.dev/SERV scout calls are disabled. Replay/fixture path only — never presented as live.",
+    );
   }
   if (!config.hasAutodevKey) {
-    return {
-      ok: false,
-      error: "autodev_unconfigured",
-      mode: "replay_only",
-      message: "AUTODEV_API_KEY missing on server — live inventory unavailable.",
-    };
+    return blocked("autodev_unconfigured", "AUTODEV_API_KEY missing on server — live inventory unavailable.");
   }
   if (config.maxProviderCallsHardCeiling === null) {
-    return {
-      ok: false,
-      error: "unverifiable_cap",
-      mode: "replay_only",
-      message:
-        "SCOUT_MAX_PROVIDER_CALLS_HARD_CEILING must be set to a non-negative integer before live scout provider calls.",
-    };
+    return blocked(
+      "unverifiable_cap",
+      "SCOUT_MAX_PROVIDER_CALLS_HARD_CEILING must be set to a non-negative integer before live scout provider calls.",
+    );
   }
   if (config.maxProviderCallsHardCeiling <= 0) {
-    return {
-      ok: false,
-      error: "provider_ceiling_exhausted",
-      mode: "replay_only",
-      message: "Provider hard ceiling is 0 — no live calls permitted.",
-    };
+    return blocked("provider_ceiling_exhausted", "Provider hard ceiling is 0 — no live calls permitted.");
   }
-  const reserve = reserveOk(config);
-  if (reserve) return reserve;
+
+  // Env balance/cap strings are explicitly NOT a grant.
+  if (config.ignoredEnvBalanceUsd != null || config.ignoredEnvSpendHardCapUsd != null) {
+    // Still not a grant — continue to authority check; surface rejection if no authority.
+  }
+
+  const authority = input.testAuthority ?? null;
+  if (!authority) {
+    return blocked(
+      "verified_reserve_unavailable",
+      "Paid scout path blocked: no verified spend authority. SCOUT_SERVER_VERIFIED_BALANCE_USD / SCOUT_SERVER_SPEND_HARD_CAP_USD env strings are not a grant. Live Auto.dev remains non-bypassably disabled until a real verified balance source is wired.",
+    );
+  }
+
+  if (authority.kind !== "test_stub" && authority.kind !== "verified_account_source") {
+    return blocked("verified_reserve_unavailable", "Unknown spend authority kind — failing closed.");
+  }
+
+  if (authority.remainingProviderBudget <= 0 || authority.authorizedSpendUsd <= 0) {
+    return blocked("unverifiable_cap", "Spend authority has zero remaining budget.");
+  }
+
+  // Actual backend identity — Memory/File on serverless is not shared-store proof.
+  const backend: KvBackend | "missing" = input.kv ? kvBackendOf(input.kv) : "missing";
+  if (!input.kv || !isDistributedQuotaBackend(input.kv)) {
+    return blocked(
+      "quota_backend_not_distributed",
+      `Paid scout path blocked: Kv backend is ${backend} (need upstash). Env storageMode alone is not proof; Memory/File are per-process and reset on serverless cold start.`,
+    );
+  }
 
   return {
     ok: true,
     mode: "live_authorized",
     remainingProviderBudget: Math.min(
-      config.maxProviderCallsHardCeiling!,
+      config.maxProviderCallsHardCeiling,
+      authority.remainingProviderBudget,
       ASSUMPTIONS.autodevMonthlyStop,
     ),
-    authorizedSpendUsd: config.spendHardCapUsd!,
+    authorizedSpendUsd: authority.authorizedSpendUsd,
   };
 }
 
-export function authorizeLiveServPlanner(config: PaidExecutionConfig = readPaidExecutionConfig()): PaidGateResult {
-  const inv = authorizeLiveInventory(config);
+export function authorizeLiveServPlanner(input: AuthorizeLiveInput = {}): PaidGateResult {
+  const inv = authorizeLiveInventory(input);
   if (!inv.ok) return inv;
+  const config = input.config ?? readPaidExecutionConfig();
   if (!config.hasServKey) {
-    return {
-      ok: false,
-      error: "serv_unconfigured",
-      mode: "replay_only",
-      message: "SERV_API_KEY missing on server — live SERV planner unavailable.",
-    };
+    return blocked("serv_unconfigured", "SERV_API_KEY missing on server — live SERV planner unavailable.");
   }
   return inv;
+}
+
+/** Build a test-only stub authority. Must never be constructed from env in production code paths. */
+export function testPaidAuthorityStub(partial?: Partial<PaidSpendAuthority>): PaidSpendAuthority {
+  return {
+    kind: "test_stub",
+    remainingProviderBudget: partial?.remainingProviderBudget ?? 3,
+    authorizedSpendUsd: partial?.authorizedSpendUsd ?? 1,
+    sourceNote: partial?.sourceNote ?? "unit-test stub — not a console-verified balance",
+  };
 }
 
 export async function reserveAutodevCall(kv: Kv): Promise<QuotaDecision> {
   return reserveTotalCall(kv);
 }
 
+/** Confirmed cache-hit / no-network refund of a pre-dispatch reservation. */
+export async function refundAutodevReservation(kv: Kv): Promise<void> {
+  await releaseReservedTotalCall(kv);
+}
+
 /** Strip client-supplied spend/budget expansion fields (defense in depth). */
 export function stripClientSpendClaims<T extends Record<string, unknown>>(body: T): T {
-  const blocked = [
+  const blockedKeys = [
     "verifiedBalanceUsd",
     "hardCapUsd",
     "minReserveUsd",
@@ -198,21 +220,36 @@ export function stripClientSpendClaims<T extends Record<string, unknown>>(body: 
     "maxWallMs",
     "SCOUT_VERIFIED_BALANCE_USD",
     "SCOUT_SPEND_HARD_CAP_USD",
+    "SCOUT_SERVER_VERIFIED_BALANCE_USD",
+    "SCOUT_SERVER_SPEND_HARD_CAP_USD",
+    "testAuthority",
     "budgets",
   ];
   const out = { ...body };
-  for (const key of blocked) delete out[key];
+  for (const key of blockedKeys) delete out[key];
   return out;
 }
 
-/** Server-enforced scout budgets — clients cannot raise ceilings. */
-export function serverScoutBudgets(partial?: { maxCandidatesOut?: number }) {
+/** Server-enforced scout budgets — clients cannot raise ceilings. Live provider budget stays 0 until authority exists. */
+export function serverScoutBudgets(partial?: { maxCandidatesOut?: number; maxProviderCalls?: number }) {
   return {
     maxServCalls: 8,
     maxToolCalls: 40,
-    maxProviderCalls: 0,
+    maxProviderCalls: Math.max(0, partial?.maxProviderCalls ?? 0),
     maxCandidatesOut: Math.min(5, partial?.maxCandidatesOut ?? 5),
     maxWallMs: 120_000,
     maxConcurrent: 1,
   } as const;
 }
+
+/** Idempotency + abort design notes (Stage1 scaffolding). */
+export const SCOUT_REQUEST_SAFETY = {
+  idempotencyHeader: "Idempotency-Key",
+  idempotencyKeyPrefix: "scout:idem:",
+  /**
+   * Abort: propagate Request.signal into inventory fetch.
+   * Refunds: only for confirmed pre-dispatch or confirmed cache-hit (no HTTP left process).
+   * Ambiguous timeout/abort after dispatch started → do NOT refund monthly counter.
+   */
+  abortRefundPolicy: "conservative_no_refund_after_dispatch" as const,
+};

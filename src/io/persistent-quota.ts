@@ -18,28 +18,42 @@ async function readBlobMonth(kv: Kv, blobKey: string, month: string): Promise<nu
   if (!raw) return 0;
   try {
     const parsed = JSON.parse(raw) as Record<string, number>;
-    return typeof parsed?.[month] === "number" ? parsed[month] : 0;
+    return typeof parsed?.[month] === "number" && Number.isFinite(parsed[month]) ? parsed[month]! : 0;
   } catch {
     return 0;
   }
 }
 
 /**
- * Ensure the INCR counter reflects any legacy blob value before racing.
- * Uses setNx of the legacy value when the counter key is absent.
+ * Seed durable monthly INCR key from legacy blob when absent.
+ * MUST use durable SET NX (no PX). Credit-lock TTL setNx would expire and reset the cap.
  */
 async function ensureCounterSeeded(kv: Kv, counterKey: string, blobKey: string, month: string): Promise<void> {
   const existing = await kv.get(counterKey);
-  if (existing != null) return;
+  if (existing != null) {
+    // Fail closed on corrupt existing scalar before any INCR.
+    const n = Number(existing);
+    if (!Number.isFinite(n) || !Number.isInteger(n)) {
+      throw new Error(`Corrupt monthly counter ${counterKey}`);
+    }
+    return;
+  }
   const legacy = await readBlobMonth(kv, blobKey, month);
   if (legacy <= 0) return;
+  // Durable — no ttlMs. Do not call credit-lock setNx shape.
   await kv.setNx(counterKey, String(legacy));
 }
 
 async function readCounter(kv: Kv, counterKey: string, blobKey: string, month: string): Promise<number> {
   await ensureCounterSeeded(kv, counterKey, blobKey, month);
   const raw = await kv.get(counterKey);
-  if (raw != null && Number.isFinite(Number(raw))) return Number(raw);
+  if (raw != null) {
+    const n = Number(raw);
+    if (!Number.isFinite(n) || !Number.isInteger(n)) {
+      throw new Error(`Corrupt monthly counter ${counterKey}`);
+    }
+    return n;
+  }
   return readBlobMonth(kv, blobKey, month);
 }
 
@@ -52,61 +66,106 @@ export async function quotaSnapshot(kv: Kv, now = new Date()): Promise<{ month: 
   return { month, total, radar };
 }
 
+function failClosed(message: string): QuotaDecision {
+  return {
+    ok: false,
+    used: ASSUMPTIONS.autodevMonthlyStop,
+    limit: ASSUMPTIONS.autodevMonthlyStop,
+    message,
+  };
+}
+
 /**
  * Atomically reserve one listings provider call against the monthly hard stop.
- * Kv.incr is Redis INCR on Upstash (cross-instance). Memory/File serialize in-process only.
- * Over-limit: DECR rollback is allowed only because no provider HTTP has been dispatched yet.
- * Never DECR after an ambiguous timeout once a request may have left the process.
+ * Over-limit: DECR only because no provider HTTP has been dispatched yet.
+ * Never DECR after an ambiguous timeout / abort once a request may have left the process.
  */
 export async function reserveTotalCall(kv: Kv, now = new Date()): Promise<QuotaDecision> {
   const month = monthKey(now);
   const key = totalMonthKey(month);
-  await ensureCounterSeeded(kv, key, TOTAL_BLOB_KEY, month);
-
-  const next = await kv.incr(key);
-  if (next > ASSUMPTIONS.autodevMonthlyStop) {
-    await kv.decr(key);
-    return {
-      ok: false,
-      used: ASSUMPTIONS.autodevMonthlyStop,
-      limit: ASSUMPTIONS.autodevMonthlyStop,
-      message: "The monthly listings cap is reached, so this request did not look up listings.",
-    };
+  try {
+    await ensureCounterSeeded(kv, key, TOTAL_BLOB_KEY, month);
+    const next = await kv.incr(key);
+    if (!Number.isFinite(next) || !Number.isInteger(next)) {
+      return failClosed("Listings quota counter is corrupt — failing closed (no lookup).");
+    }
+    if (next > ASSUMPTIONS.autodevMonthlyStop) {
+      await kv.decr(key);
+      return {
+        ok: false,
+        used: ASSUMPTIONS.autodevMonthlyStop,
+        limit: ASSUMPTIONS.autodevMonthlyStop,
+        message: "The monthly listings cap is reached, so this request did not look up listings.",
+      };
+    }
+    return { ok: true, used: next, limit: ASSUMPTIONS.autodevMonthlyStop };
+  } catch (err) {
+    return failClosed(
+      err instanceof Error
+        ? `Listings quota unavailable (${err.message}) — failing closed (no lookup).`
+        : "Listings quota unavailable — failing closed (no lookup).",
+    );
   }
-  return { ok: true, used: next, limit: ASSUMPTIONS.autodevMonthlyStop };
+}
+
+/**
+ * Refund a reservation that never dispatched network (e.g. confirmed cache hit).
+ * Do NOT call after ambiguous timeout/abort once HTTP may have left the process.
+ */
+export async function releaseReservedTotalCall(kv: Kv, now = new Date()): Promise<void> {
+  const key = totalMonthKey(monthKey(now));
+  await kv.decr(key);
 }
 
 export async function reserveRadarCall(kv: Kv, now = new Date()): Promise<QuotaDecision> {
   const month = monthKey(now);
   const totalKey = totalMonthKey(month);
   const radarKey = radarMonthKey(month);
-  await Promise.all([
-    ensureCounterSeeded(kv, totalKey, TOTAL_BLOB_KEY, month),
-    ensureCounterSeeded(kv, radarKey, RADAR_BLOB_KEY, month),
-  ]);
+  try {
+    await Promise.all([
+      ensureCounterSeeded(kv, totalKey, TOTAL_BLOB_KEY, month),
+      ensureCounterSeeded(kv, radarKey, RADAR_BLOB_KEY, month),
+    ]);
 
-  const radarNext = await kv.incr(radarKey);
-  if (radarNext > ASSUMPTIONS.radarMonthlyBudget) {
-    await kv.decr(radarKey);
-    return {
-      ok: false,
-      used: ASSUMPTIONS.radarMonthlyBudget,
-      limit: ASSUMPTIONS.radarMonthlyBudget,
-      message:
-        "The saved-search budget for this month is used up, so this check did not look up listings. Full reports still have the remaining monthly calls.",
-    };
-  }
+    const radarNext = await kv.incr(radarKey);
+    if (!Number.isInteger(radarNext)) {
+      return failClosed("Radar quota counter is corrupt — failing closed (no lookup).");
+    }
+    if (radarNext > ASSUMPTIONS.radarMonthlyBudget) {
+      await kv.decr(radarKey);
+      return {
+        ok: false,
+        used: ASSUMPTIONS.radarMonthlyBudget,
+        limit: ASSUMPTIONS.radarMonthlyBudget,
+        message:
+          "The saved-search budget for this month is used up, so this check did not look up listings. Full reports still have the remaining monthly calls.",
+      };
+    }
 
-  const totalNext = await kv.incr(totalKey);
-  if (totalNext > ASSUMPTIONS.autodevMonthlyStop) {
-    await kv.decr(totalKey);
-    await kv.decr(radarKey);
-    return {
-      ok: false,
-      used: ASSUMPTIONS.autodevMonthlyStop,
-      limit: ASSUMPTIONS.autodevMonthlyStop,
-      message: "The monthly listings cap is reached, so this radar check did not look up listings.",
-    };
+    const totalNext = await kv.incr(totalKey);
+    if (!Number.isInteger(totalNext)) {
+      await kv.decr(radarKey);
+      return failClosed("Listings quota counter is corrupt — failing closed (no lookup).");
+    }
+    if (totalNext > ASSUMPTIONS.autodevMonthlyStop) {
+      await kv.decr(totalKey);
+      await kv.decr(radarKey);
+      return {
+        ok: false,
+        used: ASSUMPTIONS.autodevMonthlyStop,
+        limit: ASSUMPTIONS.autodevMonthlyStop,
+        message: "The monthly listings cap is reached, so this radar check did not look up listings.",
+      };
+    }
+    return { ok: true, used: totalNext, limit: ASSUMPTIONS.autodevMonthlyStop };
+  } catch (err) {
+    return failClosed(
+      err instanceof Error
+        ? `Radar quota unavailable (${err.message}) — failing closed (no lookup).`
+        : "Radar quota unavailable — failing closed (no lookup).",
+    );
   }
-  return { ok: true, used: totalNext, limit: ASSUMPTIONS.autodevMonthlyStop };
 }
+
+/** Exported for migration/seed tests. */
+export const __quotaKeys = { totalMonthKey, radarMonthKey, TOTAL_BLOB_KEY, RADAR_BLOB_KEY };

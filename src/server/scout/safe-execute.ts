@@ -14,10 +14,11 @@ import {
   readPaidExecutionConfig,
   serverScoutBudgets,
   stripClientSpendClaims,
+  type PaidSpendAuthority,
 } from "./paid-execution";
 import { blockedServPlanner, servScoutPlanner } from "./planner";
 import { resolveScoutInventory } from "./providers";
-import { saveScoutRun } from "./store";
+import { loadScoutIdempotent, saveScoutIdempotent, saveScoutRun } from "./store";
 
 export type SafeScoutRequest = {
   ownerId: string;
@@ -27,6 +28,8 @@ export type SafeScoutRequest = {
   mockScript?: Parameters<typeof mockServPlanner>[0];
   resume?: ScoutRunResult | null;
   channel: "api" | "openserv_sdk" | "eval" | "test";
+  /** Server-owned idempotency key (from Idempotency-Key header) — never client spend auth. */
+  idempotencyKey?: string | null;
 };
 
 export type SafeScoutDenial = {
@@ -41,12 +44,18 @@ export type SafeScoutOk = {
   inventoryMode: "replay" | "live";
   isFixture: boolean;
   paidBlockedReason: string | null;
+  idempotentReplay?: boolean;
 };
 
 export async function executeScoutSafely(input: {
   req: SafeScoutRequest;
   kv: Kv | null;
   env?: Record<string, string | undefined>;
+  signal?: AbortSignal | null;
+  /**
+   * Test-only paid authority. Production HTTP/SDK must omit — env cannot supply this.
+   */
+  testAuthority?: PaidSpendAuthority | null;
   autodevDeps?: {
     fetch: typeof fetch;
     apiKey: string;
@@ -75,10 +84,39 @@ export async function executeScoutSafely(input: {
     };
   }
 
+  if (input.signal?.aborted) {
+    return {
+      ok: false,
+      status: 499,
+      body: { error: "client_aborted", message: "Request aborted before scout dispatch." },
+    };
+  }
+
+  const idem = input.req.idempotencyKey?.trim() || null;
+  if (idem && input.kv) {
+    const prior = await loadScoutIdempotent(input.kv, input.req.ownerId, idem);
+    if (prior) {
+      return {
+        ok: true,
+        result: prior.result,
+        inventoryMode: prior.inventoryMode,
+        isFixture: prior.isFixture,
+        paidBlockedReason: prior.paidBlockedReason,
+        idempotentReplay: true,
+      };
+    }
+  }
+
   const mandate =
     input.req.mandate && typeof input.req.mandate === "object"
       ? stripClientSpendClaims(input.req.mandate as Record<string, unknown>)
       : input.req.mandate;
+
+  // Server-owned budgets only — clients cannot raise maxProviderCalls/wall/serv ceilings.
+  // Live provider budget stays 0 until a non-env authority exists AND is passed (tests only today).
+  const budgets = serverScoutBudgets({
+    maxProviderCalls: input.testAuthority ? Math.max(0, input.testAuthority.remainingProviderBudget) : 0,
+  });
 
   const preferLive = Boolean(input.req.preferLive);
   const autodev =
@@ -97,6 +135,10 @@ export async function executeScoutSafely(input: {
     autodev,
     preferLive: preferLive && Boolean(autodev),
     env,
+    maxProviderCalls: budgets.maxProviderCalls,
+    signal: input.signal,
+    // Never read testAuthority from env — only explicit code arg (unit tests).
+    testAuthority: input.testAuthority ?? null,
   });
 
   const plannerMode = input.req.planner ?? "offline_heuristic";
@@ -104,13 +146,16 @@ export async function executeScoutSafely(input: {
   let autonomyClaim: "serv_directed" | "none" = "none";
 
   if (plannerMode === "mock_script") {
-    // Control plumbing only — not hosted SERV efficacy.
     autonomyClaim = "none";
     planner = input.req.mockScript
       ? mockServPlanner(input.req.mockScript)
       : refusingPlanner("serv_unavailable");
   } else if (plannerMode === "serv") {
-    const paid = authorizeLiveServPlanner(readPaidExecutionConfig(env));
+    const paid = authorizeLiveServPlanner({
+      config: readPaidExecutionConfig(env),
+      kv: input.kv,
+      testAuthority: input.testAuthority ?? null,
+    });
     const allowFlag =
       env.SCOUT_ALLOW_SERV_PLANNER?.trim().toLowerCase() === "1" ||
       env.SCOUT_ALLOW_SERV_PLANNER?.trim().toLowerCase() === "true";
@@ -126,15 +171,13 @@ export async function executeScoutSafely(input: {
         apiKey: env.SERV_API_KEY!.trim(),
         baseUrl: env.SERV_BASE_URL,
         model: env.SERV_MODEL,
+        kv: input.kv,
+        testAuthority: input.testAuthority ?? null,
       });
     }
   } else {
-    // Deterministic offline VIN walk — autonomyClaim none (not SERV autonomy).
     planner = heuristicOfflinePlanner();
   }
-
-  // Server-owned budgets only — clients cannot raise maxProviderCalls/wall/serv ceilings.
-  const budgets = serverScoutBudgets();
 
   const result = await runScout({
     ownerId: input.req.ownerId,
@@ -154,11 +197,22 @@ export async function executeScoutSafely(input: {
 
   if (input.kv) await saveScoutRun(input.kv, result);
 
-  return {
+  const ok: SafeScoutOk = {
     ok: true,
     result,
     inventoryMode: inventory.mode,
     isFixture: inventory.isFixture,
     paidBlockedReason: inventory.paidBlockedReason,
   };
+
+  if (idem && input.kv) {
+    await saveScoutIdempotent(input.kv, input.req.ownerId, idem, {
+      result,
+      inventoryMode: inventory.mode,
+      isFixture: inventory.isFixture,
+      paidBlockedReason: inventory.paidBlockedReason,
+    });
+  }
+
+  return ok;
 }

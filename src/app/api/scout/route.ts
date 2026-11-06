@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { getKv } from "@/io/kv";
 import { authorizeScoutStart } from "@/server/scout/access";
 import { isScoutEnabled, scoutConfigMessage } from "@/server/scout/config";
-import { readPaidExecutionConfig } from "@/server/scout/paid-execution";
+import { readPaidExecutionConfig, SCOUT_REQUEST_SAFETY } from "@/server/scout/paid-execution";
 import { executeScoutRun, type StartScoutBody } from "@/server/scout/run";
 import { loadScoutRun, saveScoutMeta } from "@/server/scout/store";
 
@@ -54,11 +54,17 @@ export async function POST(req: Request) {
     }
   }
 
+  const idempotencyKey =
+    req.headers.get(SCOUT_REQUEST_SAFETY.idempotencyHeader) ??
+    req.headers.get("idempotency-key");
+
   const executed = await executeScoutRun({
     ownerId: access.userId,
     body,
     kv,
     resume,
+    signal: req.signal,
+    idempotencyKey,
   });
 
   if (!executed.ok) {
@@ -126,9 +132,12 @@ export async function GET() {
     },
     defaults: {
       inventory:
-        "replay fixture unless SCOUT_PAID_EXECUTION + AUTODEV_API_KEY + SCOUT_MAX_PROVIDER_CALLS_HARD_CEILING + verified reserve envs + Upstash",
-      planner: "offline_heuristic (scout_plan SERV only when SCOUT_ALLOW_SERV_PLANNER + paid path)",
-      clientSpendAttestation: "rejected — server verified reserve + quota only",
+        "replay fixture — live Auto.dev non-bypassably blocked (env balance/cap strings are not a grant; no verified spend authority wired)",
+      planner: "offline_heuristic (scout_plan SERV only when SCOUT_ALLOW_SERV_PLANNER + non-env paid authority)",
+      clientSpendAttestation: "rejected — env attestation is not authorization",
+      paidLivePath: "deliberately disabled — no $5 guarantee claim while blocked",
+      idempotency: SCOUT_REQUEST_SAFETY.idempotencyHeader,
+      abortRefundPolicy: SCOUT_REQUEST_SAFETY.abortRefundPolicy,
     },
   });
 }

@@ -1,6 +1,7 @@
 /**
  * Inventory providers for Scout — same InventoryAdapter contract for replay and live.
  * Production must never label fixture/replay rows as live Auto.dev results.
+ * Live path: zero server provider budget ⇒ zero network before any adapter dispatch.
  */
 import fixture from "../../../fixtures/autodev-camry.json";
 import {
@@ -16,7 +17,9 @@ import type { Kv } from "@/io/kv";
 import {
   authorizeLiveInventory,
   readPaidExecutionConfig,
+  refundAutodevReservation,
   reserveAutodevCall,
+  type PaidSpendAuthority,
 } from "./paid-execution";
 
 export type InventoryMode = "replay" | "live";
@@ -41,18 +44,28 @@ export function resolveReplayInventory(): ScoutInventoryResolution {
   };
 }
 
-/**
- * Live Auto.dev adapter using existing autodevSearch.
- * Refuses unless SCOUT_PAID_EXECUTION + key + hard ceiling are server-configured.
- * This function does not perform a network call until the returned adapter is invoked;
- * callers in this PR keep paidExecution off so the adapter is never exercised for spend.
- */
-export function resolveLiveInventory(input: {
+export type ResolveLiveInventoryInput = {
   kv: Kv;
   autodev: AutodevDeps;
   env?: Record<string, string | undefined>;
-}): ScoutInventoryResolution {
-  const gate = authorizeLiveInventory(readPaidExecutionConfig(input.env));
+  /** Server-owned remaining provider budget for this run (from serverScoutBudgets). */
+  maxProviderCalls: number;
+  /** Optional AbortSignal — ambiguous abort after dispatch must not refund. */
+  signal?: AbortSignal | null;
+  /** Test-only / future authority — never from env. */
+  testAuthority?: PaidSpendAuthority | null;
+};
+
+/**
+ * Live Auto.dev adapter. Refuses without verified non-env authority + Upstash Kv + budget > 0.
+ * Each make reserves exactly one slot before that make's fetch; cache-hit refunds via DECR.
+ */
+export function resolveLiveInventory(input: ResolveLiveInventoryInput): ScoutInventoryResolution {
+  const gate = authorizeLiveInventory({
+    config: readPaidExecutionConfig(input.env),
+    kv: input.kv,
+    testAuthority: input.testAuthority ?? null,
+  });
   if (!gate.ok) {
     return {
       mode: "replay",
@@ -68,10 +81,44 @@ export function resolveLiveInventory(input: {
     };
   }
 
-  const remaining = { left: gate.remainingProviderBudget };
+  if (input.maxProviderCalls <= 0) {
+    return {
+      mode: "replay",
+      adapter: async () => ({
+        ok: false,
+        error: "provider_unavailable",
+        message: "maxProviderCalls=0 — refusing live inventory before any provider HTTP.",
+        providerCallsUsed: 0,
+      }),
+      isFixture: false,
+      provenance: "live_blocked_zero_budget",
+      paidBlockedReason: "Server provider budget is 0 — no live Auto.dev dispatch.",
+    };
+  }
+
+  const remaining = {
+    left: Math.min(gate.remainingProviderBudget, input.maxProviderCalls),
+  };
 
   const adapter: InventoryAdapter = async (mandate: ScoutMandate) => {
-    // Search each preferred make (not just [0]); openToOtherMakes with empty prefs → one unscoped pull.
+    if (remaining.left <= 0) {
+      return {
+        ok: false,
+        error: "provider_unavailable",
+        message: "Scout provider budget exhausted before inventory.search — no HTTP dispatched.",
+        providerCallsUsed: 0,
+      };
+    }
+
+    if (input.signal?.aborted) {
+      return {
+        ok: false,
+        error: "provider_unavailable",
+        message: "Scout inventory aborted before dispatch — no reservation refund needed.",
+        providerCallsUsed: 0,
+      };
+    }
+
     const makes: Array<string | undefined> =
       mandate.preferredMakes.length > 0
         ? [...new Set(mandate.preferredMakes)]
@@ -95,8 +142,12 @@ export function resolveLiveInventory(input: {
 
     for (const make of makes) {
       if (remaining.left <= 0) break;
+      if (input.signal?.aborted) {
+        // Ambiguous if a prior make already dispatched — do not refund prior reservations.
+        break;
+      }
 
-      // Atomic worst-case: reserve one call before each make's fetch.
+      // Exact per-dispatch reserve BEFORE this make's network.
       const quota = await reserveAutodevCall(input.kv);
       if (!quota.ok) {
         if (byVin.size === 0) {
@@ -113,24 +164,39 @@ export function resolveLiveInventory(input: {
       lastUsed = quota.used;
       lastLimit = quota.limit;
 
-      const result = await autodevSearch(
-        {
-          make,
-          zip: mandate.zip ?? undefined,
-          distanceMiles: mandate.maxDistanceMiles ?? undefined,
-          used: true,
-          limit: 20,
-          sort: "price",
-        },
-        {
-          ...input.autodev,
-          source: "autodev",
-          // Outer reserve already counted; do not double-charge.
-          reserve: async () => ({ ok: true, used: quota.used, limit: quota.limit }),
-        },
-      );
+      let result: Awaited<ReturnType<typeof autodevSearch>>;
+      try {
+        result = await autodevSearch(
+          {
+            make,
+            zip: mandate.zip ?? undefined,
+            distanceMiles: mandate.maxDistanceMiles ?? undefined,
+            used: true,
+            limit: 20,
+            sort: "price",
+          },
+          {
+            ...input.autodev,
+            source: "autodev",
+            // Outer reserve already counted; do not double-charge.
+            reserve: async () => ({ ok: true, used: quota.used, limit: quota.limit }),
+          },
+        );
+      } catch {
+        // Ambiguous billed/timeout — reservation stands; no DECR.
+        if (byVin.size === 0) {
+          return {
+            ok: false,
+            error: "provider_unavailable",
+            message: "Listing lookup failed after reservation — not refunded (conservative).",
+            providerCallsUsed: providerCallsUsed + 1,
+          };
+        }
+        break;
+      }
 
       if (!result.ok) {
+        // Upstream error after reserve — conservative: do not refund (may have been billed).
         if (byVin.size === 0) {
           return {
             ok: false,
@@ -141,9 +207,16 @@ export function resolveLiveInventory(input: {
         }
         break;
       }
-      cachedFlags.push(result.cached);
-      if (!result.cached) providerCallsUsed += 1;
-      else remaining.left += 1; // cache hit — slot unused for network
+
+      const wasCached = result.cached;
+      cachedFlags.push(wasCached);
+      if (wasCached) {
+        // Confirmed no network — refund monthly counter AND local remaining.
+        await refundAutodevReservation(input.kv);
+        remaining.left += 1;
+      } else {
+        providerCallsUsed += 1;
+      }
       for (const listing of filterPool(result.listings, mandate)) {
         if (!byVin.has(listing.vin)) byVin.set(listing.vin, listing);
       }
@@ -177,24 +250,40 @@ export function resolveLiveInventory(input: {
   };
 }
 
-/**
- * Default resolution for HTTP/SDK: prefer live only when server-authorized;
- * otherwise replay with explicit fixture labeling. Never silently upgrades replay → live claim.
- */
-export function resolveScoutInventory(input: {
+export type ResolveScoutInventoryInput = {
   kv: Kv | null;
   autodev: AutodevDeps | null;
   preferLive: boolean;
   env?: Record<string, string | undefined>;
-}): ScoutInventoryResolution {
+  maxProviderCalls: number;
+  signal?: AbortSignal | null;
+  testAuthority?: PaidSpendAuthority | null;
+};
+
+/**
+ * Default resolution for HTTP/SDK: prefer live only when server-authorized;
+ * otherwise replay with explicit fixture labeling. Never silently upgrades replay → live claim.
+ */
+export function resolveScoutInventory(input: ResolveScoutInventoryInput): ScoutInventoryResolution {
   if (input.preferLive) {
     if (input.kv && input.autodev) {
-      const live = resolveLiveInventory({ kv: input.kv, autodev: input.autodev, env: input.env });
+      const live = resolveLiveInventory({
+        kv: input.kv,
+        autodev: input.autodev,
+        env: input.env,
+        maxProviderCalls: input.maxProviderCalls,
+        signal: input.signal,
+        testAuthority: input.testAuthority,
+      });
       if (live.mode === "live") return live;
       const replay = resolveReplayInventory();
       return { ...replay, paidBlockedReason: live.paidBlockedReason };
     }
-    const gate = authorizeLiveInventory(readPaidExecutionConfig(input.env));
+    const gate = authorizeLiveInventory({
+      config: readPaidExecutionConfig(input.env),
+      kv: input.kv,
+      testAuthority: input.testAuthority,
+    });
     const replay = resolveReplayInventory();
     return {
       ...replay,

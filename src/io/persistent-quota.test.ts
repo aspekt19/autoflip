@@ -1,7 +1,13 @@
 import { describe, expect, it } from "vitest";
 import { ASSUMPTIONS } from "@/domain/assumptions";
 import { MemoryKv } from "./kv";
-import { quotaSnapshot, reserveRadarCall, reserveTotalCall } from "./persistent-quota";
+import {
+  __quotaKeys,
+  quotaSnapshot,
+  releaseReservedTotalCall,
+  reserveRadarCall,
+  reserveTotalCall,
+} from "./persistent-quota";
 import { monthKey } from "./quota";
 
 describe("persistent quota", () => {
@@ -30,7 +36,7 @@ describe("persistent quota", () => {
     expect((await reserveRadarCall(kv, now)).ok).toBe(false);
   });
 
-  it("parallel reserveTotalCall does not lose updates (regression for GET/SET race)", async () => {
+  it("parallel reserveTotalCall does not lose updates (in-process only — not Upstash proof)", async () => {
     const kv = new MemoryKv();
     const now = new Date("2026-11-06T12:00:00Z");
     const parallel = 40;
@@ -41,14 +47,12 @@ describe("persistent quota", () => {
     expect(usedValues).toEqual(Array.from({ length: parallel }, (_, i) => i + 1));
     const snap = await quotaSnapshot(kv, now);
     expect(snap.total).toBe(parallel);
-    const raw = await kv.get(`quota:total:count:${monthKey(now)}`);
-    expect(Number(raw)).toBe(parallel);
+    expect(kv.backend).toBe("memory"); // honesty: this is not distributed proof
   });
 
   it("parallel reservations at the hard stop never exceed the monthly cap in the store", async () => {
     const kv = new MemoryKv();
     const now = new Date("2026-11-06T12:00:00Z");
-    // Fill to stop-5, then race 20 for the last slots.
     for (let i = 0; i < ASSUMPTIONS.autodevMonthlyStop - 5; i += 1) {
       expect((await reserveTotalCall(kv, now)).ok).toBe(true);
     }
@@ -58,5 +62,27 @@ describe("persistent quota", () => {
     expect(raced.filter((r) => !r.ok)).toHaveLength(15);
     const snap = await quotaSnapshot(kv, now);
     expect(snap.total).toBe(ASSUMPTIONS.autodevMonthlyStop);
+  });
+
+  it("corrupt counter fails closed (no NaN quota admit)", async () => {
+    const kv = new MemoryKv();
+    const now = new Date("2026-11-06T12:00:00Z");
+    await kv.set(__quotaKeys.totalMonthKey(monthKey(now)), "NaN-garbage");
+    const decision = await reserveTotalCall(kv, now);
+    expect(decision.ok).toBe(false);
+    if (!decision.ok) expect(decision.message).toMatch(/corrupt|failing closed/i);
+  });
+
+  it("legacy blob seed uses durable counter that releaseReservedTotalCall can DECR", async () => {
+    const kv = new MemoryKv();
+    const now = new Date("2026-11-06T12:00:00Z");
+    const month = monthKey(now);
+    await kv.set(__quotaKeys.TOTAL_BLOB_KEY, JSON.stringify({ [month]: 10 }));
+    const reserved = await reserveTotalCall(kv, now);
+    expect(reserved.ok).toBe(true);
+    if (reserved.ok) expect(reserved.used).toBe(11);
+    await releaseReservedTotalCall(kv, now);
+    const snap = await quotaSnapshot(kv, now);
+    expect(snap.total).toBe(10);
   });
 });

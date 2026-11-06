@@ -31,7 +31,7 @@ export function authorizeScoutSpend(_auth: ScoutSpendAuthorization | null | unde
     ok: false,
     error: "client_attestation_rejected",
     message:
-      "Client or env balance attestation is not accepted. Configure SCOUT_PAID_EXECUTION, AUTODEV_API_KEY, and SCOUT_MAX_PROVIDER_CALLS_HARD_CEILING on the server; quota is reserved atomically.",
+      "Client or env balance attestation is not accepted. Live Auto.dev stays non-bypassably blocked until a verified non-env spend authority exists.",
   };
 }
 
@@ -40,7 +40,7 @@ export function spendAuthFromEnv(_env: Record<string, string | undefined> = proc
   return null;
 }
 
-/** Server paid-execution status for diagnostics. */
+/** Server paid-execution status for diagnostics (never grants from env). */
 export function serverPaidExecutionStatus(env: Record<string, string | undefined> = process.env) {
-  return authorizeLiveInventory(readPaidExecutionConfig(env));
+  return authorizeLiveInventory({ config: readPaidExecutionConfig(env), kv: null });
 }

@@ -1,6 +1,11 @@
 import { refusingPlanner, type ScoutPlanner } from "@/domain/scout";
+import type { Kv } from "@/io/kv";
 import { runServ } from "@/server/serv";
-import { authorizeLiveServPlanner, readPaidExecutionConfig } from "./paid-execution";
+import {
+  authorizeLiveServPlanner,
+  readPaidExecutionConfig,
+  type PaidSpendAuthority,
+} from "./paid-execution";
 import { parseScoutPlanText } from "./plan-parse";
 
 /**
@@ -15,8 +20,14 @@ export function servScoutPlanner(deps: {
   model?: string;
   timeoutMs?: number;
   fetch?: typeof fetch;
+  kv?: Kv | null;
+  testAuthority?: PaidSpendAuthority | null;
 }): ScoutPlanner {
-  const paid = authorizeLiveServPlanner(readPaidExecutionConfig());
+  const paid = authorizeLiveServPlanner({
+    config: readPaidExecutionConfig(),
+    kv: deps.kv ?? null,
+    testAuthority: deps.testAuthority ?? null,
+  });
   if (!paid.ok) {
     return async () => ({
       ok: false,
