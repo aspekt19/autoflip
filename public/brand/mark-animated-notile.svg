@@ -1,13 +1,19 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" fill="none" role="img" aria-label="Lemonless">
+  <!--
+    Animation note: CSS transform on an element REPLACES the SVG transform attribute.
+    Keep positioning on an outer <g>; animate only an inner #lemon so the fruit stays
+    centered in the lens at first paint, during motion, and after settle.
+    Lemon opacity stays 1 for the whole timeline (no invisible phases).
+  -->
   <style>
     @keyframes drawRing {
       from { stroke-dashoffset: 110.58; }
       to { stroke-dashoffset: 0; }
     }
-    @keyframes popLemon {
-      0% { opacity: 0; transform: scale(0.6); filter: blur(2.5px); }
-      60% { opacity: 1; transform: scale(1.06); filter: blur(0); }
-      100% { opacity: 1; transform: scale(1); filter: blur(0); }
+    @keyframes focusLemon {
+      0% { transform: scale(0.9); filter: blur(1.1px); }
+      55% { transform: scale(1.05); filter: blur(0); }
+      100% { transform: scale(1); filter: blur(0); }
     }
     @keyframes settleHandle {
       from { opacity: 0; }
@@ -23,9 +29,9 @@
       animation: drawRing 0.75s cubic-bezier(.2,.7,.2,1) forwards;
     }
     #lemon {
-      transform-origin: 26.5px 26.0px;
-      transform-box: view-box;
-      animation: popLemon 0.55s 0.4s cubic-bezier(.2,.8,.2,1) both;
+      transform-origin: 0px 0px;
+      transform-box: fill-box;
+      animation: focusLemon 0.55s 0.28s cubic-bezier(.2,.8,.2,1) both;
     }
     #handle-group {
       animation: settleHandle 0.35s 0.65s ease-out both;
@@ -34,12 +40,18 @@
       animation: fadeGlint 0.4s 0.9s ease-out both;
     }
     @media (prefers-reduced-motion: reduce) {
-      #lens-ring, #lemon, #handle-group, #glint {
+      #lens-ring {
         animation: none !important;
-        opacity: 1;
         stroke-dashoffset: 0;
+      }
+      #lemon {
+        animation: none !important;
         filter: none;
         transform: none;
+      }
+      #handle-group, #glint {
+        animation: none !important;
+        opacity: 1;
       }
       #glint { opacity: 0.55; }
     }
@@ -71,23 +83,22 @@
   </defs>
   <circle cx="26.5" cy="26.0" r="14.9" fill="url(#glassGrad)"/>
   <g clip-path="url(#lensClip)">
-  <g id="lemon" transform="translate(26.5 26.0) rotate(-20) scale(0.82)">
-      <path d="M -22.4 0.0 C -21.8 -1.6 -21.0 -3.8 -19.2 -6.2 C -16.4 -10.2 -12.0 -12.8 -6.8 -13.6 C -2.0 -14.2 3.2 -13.6 7.8 -11.8 C 12.8 -9.8 16.8 -6.6 19.4 -3.0 C 20.8 -1.2 21.6 -0.2 22.0 0.4 C 22.4 1.0 22.2 1.8 21.4 2.6 C 19.2 6.2 15.4 10.0 10.4 12.2 C 5.6 14.2 0.2 14.4 -4.8 13.0 C -10.2 11.4 -15.0 8.0 -18.4 3.8 C -20.0 1.8 -21.4 0.6 -22.4 0.0 Z" fill="url(#lemonGrad)"/>
-      
-      <ellipse cx="-5.0" cy="-4.8" rx="9.0" ry="3.8" fill="#fff8c0" opacity="0.5"/>
-      <ellipse cx="-7.2" cy="-6.0" rx="3.4" ry="1.35" fill="#ffffff" opacity="0.4"/>
-      
-      <g fill="#F2B705" opacity="0.32">
-        <circle cx="-7" cy="-1.5" r="0.42"/>
-        <circle cx="-3" cy="4.0" r="0.38"/>
-        <circle cx="3.5" cy="-3.2" r="0.34"/>
-        <circle cx="9" cy="1.8" r="0.4"/>
-        <circle cx="0.5" cy="6.0" r="0.3"/>
-        <circle cx="-11" cy="2.2" r="0.36"/>
+    <g transform="translate(26.5 26.0) rotate(-20) scale(0.82)">
+      <g id="lemon">
+        <path d="M -22.4 0.0 C -21.8 -1.6 -21.0 -3.8 -19.2 -6.2 C -16.4 -10.2 -12.0 -12.8 -6.8 -13.6 C -2.0 -14.2 3.2 -13.6 7.8 -11.8 C 12.8 -9.8 16.8 -6.6 19.4 -3.0 C 20.8 -1.2 21.6 -0.2 22.0 0.4 C 22.4 1.0 22.2 1.8 21.4 2.6 C 19.2 6.2 15.4 10.0 10.4 12.2 C 5.6 14.2 0.2 14.4 -4.8 13.0 C -10.2 11.4 -15.0 8.0 -18.4 3.8 C -20.0 1.8 -21.4 0.6 -22.4 0.0 Z" fill="url(#lemonGrad)"/>
+        <ellipse cx="-5.0" cy="-4.8" rx="9.0" ry="3.8" fill="#fff8c0" opacity="0.5"/>
+        <ellipse cx="-7.2" cy="-6.0" rx="3.4" ry="1.35" fill="#ffffff" opacity="0.4"/>
+        <g fill="#F2B705" opacity="0.32">
+          <circle cx="-7" cy="-1.5" r="0.42"/>
+          <circle cx="-3" cy="4.0" r="0.38"/>
+          <circle cx="3.5" cy="-3.2" r="0.34"/>
+          <circle cx="9" cy="1.8" r="0.4"/>
+          <circle cx="0.5" cy="6.0" r="0.3"/>
+          <circle cx="-11" cy="2.2" r="0.36"/>
+        </g>
+        <path d="M-20.6 -5.8 C-21.5 -8.2 -19.8 -9.6 -18.0 -8.6 C-16.7 -7.8 -17.0 -6.0 -18.5 -5.4Z" fill="#8B6914"/>
       </g>
-      
-      <path d="M-20.6 -5.8 C-21.5 -8.2 -19.8 -9.6 -18.0 -8.6 C-16.7 -7.8 -17.0 -6.0 -18.5 -5.4Z" fill="#8B6914"/>
-  </g>
+    </g>
   </g>
   <circle id="lens-ring" cx="26.5" cy="26.0" r="17.6" fill="none" stroke="#f5f7f8" stroke-width="2.7"/>
   <circle cx="26.5" cy="26.0" r="16.12" fill="none" stroke="#000000" stroke-width="0.55" opacity="0.2"/>

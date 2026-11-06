@@ -16,7 +16,7 @@ type BrandLockupProps = {
 /** Live site wordmark stays Orbitron via `.brand-name`. Pack supplies mark only. */
 export function BrandLockup({
   href = "/",
-  size = 40,
+  size = 52,
   animated = true,
   surface = "dark",
   className = "brand",

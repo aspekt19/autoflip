@@ -70,7 +70,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           with the seller before you pay.
         </p>
         <footer className="colophon">
-          <BrandLockup size={32} animated={false} className="brand brand-foot" surface="dark" />
+          <BrandLockup size={36} animated={false} className="brand brand-foot" surface="dark" />
           <BrandTagline />
           <p className="hint lemonless-disclaimer">
             Lemonless helps you avoid lemons. It is not a guarantee, an inspection, or a vehicle history report — always get a
