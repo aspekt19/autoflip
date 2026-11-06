@@ -73,6 +73,16 @@ metrics closure from test counts (328/335 green ≠ closure). Schema **scout-met
 9. denominator: completed + refusal + timeout + abstain + parse; safetyCertified always false;
    exit0 = plumbingOk only
 
+## STAGE3-RESIDUE-FOLLOWON — PIN 32b4ac5 (scout-metrics/v3)
+
+Independent review of af5a921 found remaining observation gaps; v3 remediates without closure:
+1. capability required + capabilityGrounded independent contract (status-derived = incomplete)
+2. GHOST pending/rejected pool row ≠ success replace lifecycle (fake_replacement)
+3. inventoryIdentity.sourceEvidence / fixtureEvidence — unverifiable ≠ clean self-attestation
+4. traceComplete vs decisionEvidenceComplete (timeout/refusal/parse not decision-certified)
+5. action tool counts vs disposition counts exposed; disagreement flag (no Math.max hide)
+Keep 7-case denominator / settled wall / MOCK_OFFLINE not SERV efficacy.
+
 ## STAGE2C — PIN 6e8e655 (bounded mid-loop search; PRODUCT not efficacy)
 
 Real bounded search adjustment within mandate/server caps:
@@ -85,9 +95,20 @@ Real bounded search adjustment within mandate/server caps:
 - No fake autonomy claim; no paid Auto.dev / new expenses this unit
 - autonomyClaim=none; mocked equal-data eval ≠ SERV efficacy
 
-**Remain PRODUCT gaps (do not close / market as goal):** heuristic still can VIN-walk when
-search is not chosen; no Guard/advantage claim; Stage3 residue observation honesty is pinned
-separately from this product unit.
+## STAGE2C-FOLLOWON — PIN f0354af (product; separate from metrics v3)
+
+Independent review of 6e8e655 product gaps 1–7:
+1. explicit distanceMiles:null nationwide semantics (no ?? collapse)
+2. typed maxPriceUsd/maxMiles at query + ingestion; live URL model/price/miles/radius;
+   unknown geo ≠ out-of-range; asking-not-sold
+3. newlyAcquired briefs; flip-excluded → rejected lifecycle (not infinite pending)
+4. unsupported-gov-alone reject forbidden; other-fact reject/abstain still allowed
+5. per-search/per-candidate inventory origins; initial identity not overwritten
+6. failed mid-loop search → partial even with candidates
+7. provider budget exhausted → reject_no_provider_spend pre-dispatch (tool slot still consumed)
+
+**Remain (do not market closed):** heuristic VIN-walk when search not chosen; no Guard/advantage;
+347 green ≠ closure; mocked eval ≠ SERV efficacy.
 
 ## Ops
 
