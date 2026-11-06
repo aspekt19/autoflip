@@ -71,6 +71,12 @@ describe("why we decided", () => {
     expect(quotedNumbersStayIn("Expected gain is $300.", JSON.stringify({ profitMidUsd: -300 }))).toBe(false);
   });
 
+  it("treats a hyphen between currency amounts as a range separator", () => {
+    const facts = JSON.stringify({ profitLowUsd: 400, profitHighUsd: 1400, profitMidUsd: 900 });
+    expect(quotedNumbersStayIn("Estimated profit is $400-$1,400, with a $900 midpoint.", facts)).toBe(true);
+    expect(quotedNumbersStayIn("Estimated profit is $400 - $1,400, with a $900 midpoint.", facts)).toBe(true);
+  });
+
   it("does not treat VIN or model-code digits as standalone numeric evidence", () => {
     const facts = JSON.stringify({ vin: "4T1K61AK0MU423359", model: "CX-5", miles: 15000 });
     expect(quotedNumbersStayIn("VIN 4T1K61AK0MU423359, CX-5, 15,000 miles.", facts)).toBe(true);
