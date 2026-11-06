@@ -100,8 +100,8 @@ function schemaName(profile: string): "need_extract" | "flip_alert_judgment" | "
 function parseSchema(name: "need_extract" | "flip_alert_judgment" | "personal_alert_review", text: string): { verdict?: "alert" | "skip"; budgetUsd?: number | null } | null {
   if (name === "personal_alert_review") {
     const trimmed = text.trim();
-    if (!trimmed || /^[\\[{]/.test(trimmed)) return null;
-    const sentenceCount = (trimmed.match(/[.!?](?=\\s|$)/g) ?? []).length;
+    if (!trimmed || /^(?:\{|\[)/.test(trimmed)) return null;
+    const sentenceCount = (trimmed.match(/[.!?](?=\s|$)/g) ?? []).length;
     return sentenceCount <= 2 ? {} : null;
   }
   try {
