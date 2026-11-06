@@ -67,6 +67,11 @@ export async function executeScoutSafely(input: {
     cache?: TtlCache<unknown>;
     counter?: MemoryCounter;
   } | null;
+  /**
+   * Stubbed SERV transport for integration tests. Production omits (runServ default fetch).
+   * Never accepted from client JSON.
+   */
+  servFetch?: typeof fetch;
 }): Promise<SafeScoutOk | SafeScoutDenial> {
   const env = input.env ?? process.env;
 
@@ -253,6 +258,10 @@ export async function executeScoutSafely(input: {
         model: env.SERV_MODEL,
         kv: input.kv,
         testAuthority: input.testAuthority ?? null,
+        config: readPaidExecutionConfig(env),
+        env,
+        // Integration harness may stub SERV HTTP; production omits → real fetch.
+        fetch: input.servFetch,
       });
     }
   } else {

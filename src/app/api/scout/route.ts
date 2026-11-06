@@ -1,9 +1,13 @@
 import { NextResponse } from "next/server";
-import { getKv } from "@/io/kv";
+import { getKv, type Kv } from "@/io/kv";
 import { authorizeScoutStart } from "@/server/scout/access";
 import { isScoutEnabled, scoutConfigMessage } from "@/server/scout/config";
 import { readPaidExecutionConfig, SCOUT_REQUEST_SAFETY } from "@/server/scout/paid-execution";
-import { executeScoutRun, type StartScoutBody } from "@/server/scout/run";
+import {
+  executeScoutRun,
+  type ScoutRunHarness,
+  type StartScoutBody,
+} from "@/server/scout/run";
 import { loadScoutRun, saveScoutMeta } from "@/server/scout/store";
 
 export const runtime = "nodejs";
@@ -23,11 +27,22 @@ function originOf(req: Request): string {
   }
 }
 
-/** POST /api/scout — start or resume a bounded scout run. Default disabled. */
-export async function POST(req: Request) {
+/**
+ * Optional integration-test hooks. Production Next.js `POST` never receives these.
+ * Never accepted from request JSON.
+ */
+export type ScoutPostTestHooks = {
+  kv?: Kv;
+  env?: Record<string, string | undefined>;
+  harness?: ScoutRunHarness | null;
+};
+
+/** Shared start handler — HTTP entry and integration harness. */
+export async function postScoutStart(req: Request, hooks?: ScoutPostTestHooks) {
   const origin = originOf(req);
-  const kv = getKv();
-  const access = await authorizeScoutStart(kv, bearer(req), origin);
+  const env = hooks?.env ?? process.env;
+  const kv = hooks?.kv ?? getKv();
+  const access = await authorizeScoutStart(kv, bearer(req), origin, env);
   if (!access.ok) {
     return NextResponse.json(access.body, { status: access.status });
   }
@@ -58,6 +73,15 @@ export async function POST(req: Request) {
     req.headers.get(SCOUT_REQUEST_SAFETY.idempotencyHeader) ??
     req.headers.get("idempotency-key");
 
+  // Env from hooks must reach executeScoutSafely even when harness is omitted
+  // (fixture/offline API path). Production POST omits hooks entirely.
+  const harness =
+    hooks?.harness != null
+      ? { ...hooks.harness, env: hooks.harness.env ?? hooks.env }
+      : hooks?.env
+        ? { env: hooks.env }
+        : null;
+
   const executed = await executeScoutRun({
     ownerId: access.userId,
     body,
@@ -65,15 +89,17 @@ export async function POST(req: Request) {
     resume,
     signal: req.signal,
     idempotencyKey,
+    // Production POST: harness null → testAuthority null → live spend blocked.
+    harness,
   });
 
   if (!executed.ok) {
     return NextResponse.json(executed.body, { status: executed.status });
   }
 
-  const { result, inventoryMode, isFixture, paidBlockedReason } = executed;
+  const { result, inventoryMode, isFixture, paidBlockedReason, idempotentReplay } = executed;
   const status = scoutHttpStatus(result);
-  const paid = readPaidExecutionConfig();
+  const paid = readPaidExecutionConfig(env);
   const presentation = isFixture
     ? {
         kind: "fixture_replay" as const,
@@ -87,7 +113,7 @@ export async function POST(req: Request) {
 
   return NextResponse.json(
     {
-      enabled: isScoutEnabled(),
+      enabled: isScoutEnabled(env),
       note: scoutConfigMessage(true),
       inventoryMode,
       isFixture,
@@ -95,10 +121,16 @@ export async function POST(req: Request) {
       paidBlockedReason,
       presentation,
       partial: result.partial || result.state === "failed" || result.state === "abstained",
+      idempotentReplay: Boolean(idempotentReplay),
       result,
     },
     { status },
   );
+}
+
+/** POST /api/scout — start or resume a bounded scout run. Default disabled. */
+export async function POST(req: Request) {
+  return postScoutStart(req);
 }
 
 function scoutHttpStatus(result: import("@/domain/scout").ScoutRunResult): number {
@@ -138,6 +170,7 @@ export async function GET() {
       paidLivePath: "deliberately disabled — no $5 guarantee claim while blocked",
       idempotency: SCOUT_REQUEST_SAFETY.idempotencyHeader,
       abortRefundPolicy: SCOUT_REQUEST_SAFETY.abortRefundPolicy,
+      ui: "GET /scout behind SCOUT_UI_ENABLED (independent of SCOUT_ENABLED; not in primary header nav)",
     },
   });
 }

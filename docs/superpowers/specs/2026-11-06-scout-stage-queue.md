@@ -138,6 +138,33 @@ Independent review of 6e8e655 product gaps 1–7:
 **Remain (do not market closed):** heuristic VIN-walk when search not chosen; no Guard/advantage;
 347 green ≠ closure; mocked eval ≠ SERV efficacy.
 
+## STAGE-INTEGRATION — PIN TO_REPLACE (HTTP→facade→stubbed SERV/Auto.dev)
+
+Bounded offline integration (not live E2E, not SERV efficacy):
+- Routes: `GET /api/scout`, `POST /api/scout` (`postScoutStart`), persistence via
+  `GET /api/scout/:runId` store; UI page `GET /scout` behind `SCOUT_UI_ENABLED`
+- Path proven: HTTP entry → `executeScoutRun` → `executeScoutSafely` →
+  `servScoutPlanner` **real** `scout_plan` request serialization (stub remote) →
+  live inventory adapter with stub fetch → reject/replace/search → Kv persist /
+  Idempotency-Key replay → consumer JSON (`presentation`, `dispositionRationale`)
+- Mandates covered: flip multi-make local, personal nationwide empty/abstain,
+  fixture offline heuristic; production POST without harness cannot open live
+- Wiring fixes: `servScoutPlanner` honors caller `config`/`env`/`fetch` (no silent
+  process.env mismatch); hooks env reaches facade when harness omitted
+- Labels: OFFLINE; stubbed SERV ≠ live reasoning; testAuthority harness-only
+
+### Release-readiness blockers (precise; not closed by this pin)
+
+| Area | Status |
+|------|--------|
+| `SCOUT_ENABLED` / `SCOUT_UI_ENABLED` | Default **off**. UI ≠ API; UI alone does not enable POST. |
+| Header nav | `/scout` **not** in primary Header (internal/opt-in page only). Live branding (Orbitron wordmark PRs 55–58 on main) untouched by Scout CSS append in `globals.css`. |
+| Auth PR54 | Still **open** — durable Auth.js ownership not merged. Scout today uses `af_` API keys via `agentAccount`; no NextAuth session gate on `/api/scout`. Overlap files: `package.json` / `globals.css` (additive scout styles vs PR54 auth styles) — merge carefully, no brand overwrite intended. |
+| Live Auto.dev / SERV | Non-bypassably blocked without non-env `PaidSpendAuthority`. Env balance/cap strings are **not** a grant. No verified account spend source wired for production. |
+| `SCOUT_ALLOW_SERV_PLANNER` + paid + Upstash | Required for live planner; production HTTP never passes `testAuthority`. |
+| Hosted / runtime | Upstash distributed Kv required for paid path; Memory/File insufficient. No deploy/secrets/Graph/`Agent.process` in this unit. |
+| Efficacy | Integration + unit counts ≠ buyer-safety / SERV efficacy / production superiority. |
+
 ## Ops
 
 Console ~$24.16 visible — no max-cost/reserve verified. **NO paid calls this unit** (parent

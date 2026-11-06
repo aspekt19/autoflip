@@ -22,9 +22,15 @@ export function servScoutPlanner(deps: {
   fetch?: typeof fetch;
   kv?: Kv | null;
   testAuthority?: PaidSpendAuthority | null;
+  /**
+   * Caller-supplied paid config (from executeScoutSafely env). When omitted,
+   * falls back to process.env — tests must pass config so stubbed env is honored.
+   */
+  config?: ReturnType<typeof readPaidExecutionConfig>;
+  env?: Record<string, string | undefined>;
 }): ScoutPlanner {
   const paid = authorizeLiveServPlanner({
-    config: readPaidExecutionConfig(),
+    config: deps.config ?? readPaidExecutionConfig(deps.env),
     kv: deps.kv ?? null,
     testAuthority: deps.testAuthority ?? null,
   });
