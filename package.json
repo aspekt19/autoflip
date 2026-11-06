@@ -9,7 +9,8 @@
     "start": "next start",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "eval:serv": "tsx eval/run.ts"
+    "eval:serv": "tsx eval/run.ts",
+    "eval:trace": "tsx eval/trace.ts"
   },
   "engines": {
     "node": "22.x"
