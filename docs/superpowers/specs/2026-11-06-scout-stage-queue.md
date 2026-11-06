@@ -53,7 +53,7 @@ replay no-charge tool counts; empty replacement abstain; real recentOutcomes tra
 - Unknown or unsupported tool alone is **not** proof the car is bad — do not force replacement
   merely because a gov tool is unavailable
 
-## STAGE3 — PIN (honest eval metrics — schema scout-metrics/v1)
+## STAGE3 — PIN ce19f9f (honest eval metrics — schema scout-metrics/v1)
 
 Replace tautologies with observables: candidate claims / evidence provenance / hard gates /
 history-unknown / titles / actual reject·replace / tool outcomes / incomplete inventory /
