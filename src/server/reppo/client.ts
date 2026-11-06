@@ -51,10 +51,17 @@ async function requestJson(
   const body = await readJson(response);
   if (!response.ok) {
     const detail =
-      body && typeof body === "object" && "message" in body && typeof body.message === "string"
-        ? body.message.slice(0, 300)
-        : `HTTP ${response.status}`;
-    throw new Error(`Reppo Evaluation API request failed: ${detail}`);
+      typeof body === "string"
+        ? body.slice(0, 1_500)
+        : JSON.stringify(body)?.slice(0, 1_500) ?? "empty response body";
+    const requestId =
+      response.headers.get("x-request-id") ??
+      response.headers.get("cf-ray") ??
+      response.headers.get("x-correlation-id");
+    const contentType = response.headers.get("content-type") ?? "unknown";
+    throw new Error(
+      `Reppo Evaluation API request failed: HTTP ${response.status} ${response.statusText}; URL ${url}; content-type ${contentType}; request-id ${requestId ?? "unavailable"}; response ${detail}`,
+    );
   }
   return body;
 }
