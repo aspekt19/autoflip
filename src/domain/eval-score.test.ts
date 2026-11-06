@@ -80,10 +80,10 @@ describe("eval score", () => {
     }
     const numberTokens = (value: unknown) => {
       const serialized = JSON.stringify(value ?? {});
-      return new Set((serialized.match(/\\d[\\d,]*(?:\\.\\d+)?/g) ?? []).map((token) => token.replace(/,/g, "")));
+      return new Set((serialized.match(/\d[\d,]*(?:\.\d+)?/g) ?? []).map((token) => token.replace(/,/g, "")));
     };
     for (const item of EVAL_CASES) {
-      const match = item.prompt.match(/Calculated facts:\\n([^\\n]+)/);
+      const match = item.prompt.match(/Calculated facts:\n([^\n]+)/);
       if (!match) continue;
       const promptFacts = JSON.parse(match[1]) as unknown;
       const promptNumbers = numberTokens(promptFacts);
