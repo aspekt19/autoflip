@@ -97,7 +97,7 @@ async function main() {
       streamed: proof.streamed,
       jsonSchema: proof.jsonSchema,
       applicationTool: proof.applicationTool,
-      codeComputed: proof.codeComputed,
+      codeComputed: proof.codeComputed ?? [],
       fallbackUsed: proof.fallbackUsed,
     },
   };
