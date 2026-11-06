@@ -38,7 +38,7 @@ export function Header() {
       <nav id="primary-nav" aria-label="Primary" className={menuOpen ? "nav-open" : undefined}>
         <Link href="/find" onClick={() => setMenuOpen(false)}>Find a car</Link>
         <Link href="/check" onClick={() => setMenuOpen(false)}>Check a car</Link>
-        <Link href="/radar" onClick={() => setMenuOpen(false)}>Price alerts</Link>
+        <Link href="/radar" onClick={() => setMenuOpen(false)}>Deal Radar</Link>
         <Link href="/reports" onClick={() => setMenuOpen(false)}>Reports</Link>
         <Link href="/favorites" onClick={() => setMenuOpen(false)}>Saved cars</Link>
         <Link href="/compare-cars" onClick={() => setMenuOpen(false)}>Compare cars</Link>
