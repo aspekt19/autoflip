@@ -65,4 +65,15 @@ describe("why we decided", () => {
       ),
     ).toBe(true);
   });
+
+  it("preserves negative and positive signs in numeric evidence", () => {
+    expect(quotedNumbersStayIn("Expected loss is -$300.", JSON.stringify({ profitMidUsd: -300 }))).toBe(true);
+    expect(quotedNumbersStayIn("Expected gain is $300.", JSON.stringify({ profitMidUsd: -300 }))).toBe(false);
+  });
+
+  it("does not treat VIN or model-code digits as standalone numeric evidence", () => {
+    const facts = JSON.stringify({ vin: "4T1K61AK0MU423359", model: "CX-5", miles: 15000 });
+    expect(quotedNumbersStayIn("VIN 4T1K61AK0MU423359, CX-5, 15,000 miles.", facts)).toBe(true);
+    expect(quotedNumbersStayIn("VIN 4T1K61AK0MU423359, CX-5, 61 miles.", facts)).toBe(false);
+  });
 });

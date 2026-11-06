@@ -48,22 +48,36 @@ export function visibleProof(proof: DecisionProof): DecisionProof {
   };
 }
 
+const NUMBER_TOKEN = /[-+]?\$?\d[\d,]*(?:\.\d+)?/g;
+const VIN_TOKEN = /\b[A-HJ-NPR-Z0-9]{17}\b/gi;
+const MODEL_CODE = /\b[A-Z]{1,4}-\d+\b/gi;
+const NON_NUMERIC_STRING_KEYS = new Set(["vin", "make", "model", "trim", "engine", "fuel", "bodyStyle", "style"]);
+
+function normalizedNumbers(text: string): string[] {
+  const cleaned = text.replace(VIN_TOKEN, " ").replace(MODEL_CODE, " ");
+  return (cleaned.match(NUMBER_TOKEN) ?? []).map((token) => token.replace(/[,$]/g, ""));
+}
+
 function numericTokens(value: unknown): Set<string> {
   const tokens = new Set<string>();
   const add = (text: string) => {
-    for (const token of text.match(/\d[\d,]*(?:\.\d+)?/g) ?? []) {
-      tokens.add(token.replace(/,/g, ""));
+    for (const token of normalizedNumbers(text)) {
+      tokens.add(token);
+      const numeric = Number(token);
+      if (Number.isFinite(numeric)) tokens.add(String(numeric));
     }
   };
-  const visit = (item: unknown): void => {
+  const visit = (item: unknown, key?: string): void => {
     if (typeof item === "number" && Number.isFinite(item)) {
       add(String(item));
     } else if (typeof item === "string") {
-      add(item);
+      if (!key || !NON_NUMERIC_STRING_KEYS.has(key)) add(item);
     } else if (Array.isArray(item)) {
-      item.forEach(visit);
+      item.forEach((child) => visit(child));
     } else if (item && typeof item === "object") {
-      Object.values(item as Record<string, unknown>).forEach(visit);
+      for (const [childKey, child] of Object.entries(item as Record<string, unknown>)) {
+        visit(child, childKey);
+      }
     }
   };
   visit(value);
@@ -78,8 +92,7 @@ export function quotedNumbersStayIn(text: string, allowed: string): boolean {
     // Preserve compatibility with callers that pass a plain text evidence string.
   }
   const available = numericTokens(facts);
-  const mentioned = text.match(/\d[\d,]*(?:\.\d+)?/g) ?? [];
-  return mentioned.every((token) => available.has(token.replace(/,/g, "")));
+  return normalizedNumbers(text).every((token) => available.has(token) || available.has(String(Number(token))));
 }
 
 export function whyWeDecided(scene: DecisionScene, proofs: DecisionProof[]): string[] {
