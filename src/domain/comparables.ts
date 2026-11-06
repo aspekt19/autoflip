@@ -87,7 +87,10 @@ export function mileageAdjust(
         adjustedPriceUsd: roundDollars(adjusted),
         city: item.city,
         state: item.state,
-        distanceMiles: null,
+        distanceMiles: item.distanceMiles ?? null,
+        sourceUrl: item.vdp,
+        sourceLabel: item.source === "sample" ? "Labeled sample fixture" : "Auto.dev listing",
+        fetchedAt: null,
       };
     })
     .filter((row) => row.adjustedPriceUsd > 0);

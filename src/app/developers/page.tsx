@@ -28,33 +28,50 @@ export default function DevelopersPage() {
         <AgentKeys />
 
         <section>
+          <h2>Agent card</h2>
+          <p>
+            Machine-readable tool list: <a href="/.well-known/agent.json"><code>/.well-known/agent.json</code></a>.
+          </p>
+        </section>
+
+        <section>
           <h2>MCP</h2>
           <p>
             <code>POST /api/mcp</code> speaks JSON-RPC: <code>initialize</code>, <code>tools/list</code>, <code>tools/call</code>, and <code>ping</code>. <code>GET /api/mcp</code> describes the server. There is no session.
           </p>
-          <h3>Claude Desktop</h3>
-          <pre className="doc">{`{
-  "mcpServers": {
-    "autoflip": {
-      "url": "https://YOUR_HOST/api/mcp",
-      "headers": { "Authorization": "Bearer af_YOUR_KEY" }
-    }
-  }
-}`}</pre>
-          <h3>Cursor</h3>
-          <pre className="doc">{`{
-  "mcpServers": {
-    "autoflip": {
-      "url": "https://YOUR_HOST/api/mcp",
-      "headers": { "Authorization": "Bearer af_YOUR_KEY" }
-    }
-  }
-}`}</pre>
-          <h3>curl</h3>
-          <pre className="doc">{`curl -s $ORIGIN/api/mcp \\
+          <h3>List tools</h3>
+          <pre className="doc">{`curl -s https://autoflip-umber.vercel.app/api/mcp \\
   -H 'content-type: application/json' \\
   -H 'authorization: Bearer af_YOUR_KEY' \\
-  -d '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"full_report","arguments":{"mode":"personal","vin":"VIN"}}}'`}</pre>
+  -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}'`}</pre>
+          <h3>Free Deal Radar scan</h3>
+          <pre className="doc">{`curl -s https://autoflip-umber.vercel.app/api/mcp \\
+  -H 'content-type: application/json' \\
+  -H 'authorization: Bearer af_YOUR_KEY' \\
+  -d '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"deal_radar","arguments":{"make":"Toyota","model":"Camry","mode":"personal","zip":"78701"}}}'`}</pre>
+          <h3>Full report (1 credit)</h3>
+          <pre className="doc">{`curl -s https://autoflip-umber.vercel.app/api/mcp \\
+  -H 'content-type: application/json' \\
+  -H 'authorization: Bearer af_YOUR_KEY' \\
+  -d '{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"full_report","arguments":{"mode":"personal","vin":"VIN"}}}'`}</pre>
+          <h3>Claude Desktop / Cursor</h3>
+          <pre className="doc">{`{
+  "mcpServers": {
+    "autoflip": {
+      "url": "https://autoflip-umber.vercel.app/api/mcp",
+      "headers": { "Authorization": "Bearer af_YOUR_KEY" }
+    }
+  }
+}`}</pre>
+        </section>
+
+        <section>
+          <h2>HTTP report with an API key</h2>
+          <pre className="doc">{`curl -s https://autoflip-umber.vercel.app/api/v1/report \\
+  -H 'content-type: application/json' \\
+  -H 'authorization: Bearer af_YOUR_KEY' \\
+  -H 'idempotency-key: demo-1' \\
+  -d '{"mode":"personal","vin":"VIN","zip":"78701"}'`}</pre>
         </section>
 
         <section>

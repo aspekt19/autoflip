@@ -1,8 +1,10 @@
 # AutoFlip
 
-**Product:** AutoFlip turns a US used-car listing into an explainable **buy / negotiate / pass / needs inspection** decision with the arithmetic shown.
+**Product:** AutoFlip turns a US used-car listing into an explainable **buy / negotiate / pass / needs inspection** decision with the arithmetic shown — or **withholds** a verdict when evidence is insufficient.
 
-**SERV’s role:** OpenServ SERV Reasoning chooses that shopper action from TypeScript-computed facts; TypeScript owns every number and clamps hard safety rails SERV cannot override.
+**For judges:** The model never touches a number — and every report links to the Proof of AI that proves it.
+
+**SERV’s role:** OpenServ SERV Reasoning chooses that shopper action from TypeScript-computed facts; TypeScript owns every number, runs ordered gates first, and clamps hard safety rails SERV cannot override.
 
 ## For judges (SERV Hackathon Open Track)
 
@@ -26,6 +28,7 @@ flowchart LR
   subgraph ts [TypeScript owns numbers]
     Fetch[Listings + NHTSA + EPA]
     Facts[Fair value, gap, flags, flip math]
+    Gates[Ordered gates]
     Rails[Hard guardrails]
   end
   subgraph serv [SERV call profiles]
@@ -34,7 +37,9 @@ flowchart LR
     Explain[report_explain Shadow]
   end
   Proof[Proof of AI]
-  Fetch --> Facts --> Rails
+  Fetch --> Facts --> Gates
+  Gates -->|withhold| Proof
+  Gates --> Rails
   Facts --> Decide
   Rails --> Decide
   Decide -->|servChoice| Rails
@@ -45,11 +50,12 @@ flowchart LR
 ```
 
 1. **TS facts** — comps, mileage/history adjustments, fair value, price gap, recall/title/odometer flags (`src/domain/report.ts`).
-2. **Hard guardrails** — salvage/rebuilt title, park-it recall, VIN identity conflict, odometer mismatch, price far above market, critical missing data / thin comps (`src/domain/verdict-guardrails.ts`). Buy is forbidden where listed; some rails force `pass` or `needs_inspection`.
-3. **SERV decision** — `verdict_decide` returns `{ verdict, note }` with `verdict ∈ { buy, negotiate, pass, needs_inspection }` (`src/server/serv/profiles.ts`).
-4. **Clamp** — TypeScript applies rails, records override reasons, maps to internal `Verdict` (`src/domain/verdict-decide.ts`, wired in `src/server/assemble.ts`).
-5. **Explanation** — separate SERV prose, number-audited (`src/domain/audit.ts`). On SERV failure/timeout, the **labeled deterministic fallback** is used.
-6. **Proof of AI** — inputs hash, profile checks, `servChoice`, guardrail result, `finalAction` / `finalVerdict` in `proof.toolOutputs.verdictDecision`.
+2. **Ordered gates** — data sufficiency → VIN identity → title/recall/odometer → price vs comps → mandate fit (budget / target profit / repair skill). Insufficient evidence → **WITHHELD** with a concrete refusal reason; SERV is skipped (`src/domain/verdict-gates.ts`).
+3. **Hard guardrails** — built from those gates (`src/domain/verdict-guardrails.ts`). Buy is forbidden where listed; title/park-it force `pass`.
+4. **SERV decision** — only when gates allow; `verdict_decide` returns `{ verdict, note }` with `verdict ∈ { buy, negotiate, pass, needs_inspection }` (`src/server/serv/profiles.ts`).
+5. **Clamp** — TypeScript applies rails, records override reasons, maps to internal `Verdict` (`src/domain/verdict-decide.ts`, wired in `src/server/assemble.ts`).
+6. **Explanation** — separate SERV prose, number-audited (`src/domain/audit.ts`). On SERV failure/timeout, the **labeled deterministic fallback** is used.
+7. **Proof of AI** — inputs hash, profile checks, ordered gates, `servChoice`, guardrail result, `finalAction` / `finalVerdict` in `proof.toolOutputs.verdictDecision`. Every report UI links to that record under **How this was checked**.
 
 ### Task → SERV profile → why
 
@@ -143,7 +149,28 @@ Constants: `src/domain/assumptions.ts` (copied onto each report).
 
 ## Agent API
 
-`GET /api/mcp` · `POST /api/mcp` · `POST /api/v1/report`. Create a key on `/developers`. `full_report` spends 1 credit. Responses include `proof`.
+`GET /api/mcp` · `POST /api/mcp` · `POST /api/v1/report` · agent card at [`/.well-known/agent.json`](https://autoflip-umber.vercel.app/.well-known/agent.json). Create a key on [`/developers`](https://autoflip-umber.vercel.app/developers). `full_report` spends 1 credit. Responses include `proof`.
+
+```bash
+# List MCP tools
+curl -s https://autoflip-umber.vercel.app/api/mcp \
+  -H 'content-type: application/json' \
+  -H 'authorization: Bearer af_YOUR_KEY' \
+  -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}'
+
+# Free Deal Radar
+curl -s https://autoflip-umber.vercel.app/api/mcp \
+  -H 'content-type: application/json' \
+  -H 'authorization: Bearer af_YOUR_KEY' \
+  -d '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"deal_radar","arguments":{"make":"Toyota","model":"Camry","mode":"personal","zip":"78701"}}}'
+
+# Full report via API key (1 credit)
+curl -s https://autoflip-umber.vercel.app/api/v1/report \
+  -H 'content-type: application/json' \
+  -H 'authorization: Bearer af_YOUR_KEY' \
+  -H 'idempotency-key: demo-1' \
+  -d '{"mode":"personal","vin":"VIN","zip":"78701"}'
+```
 
 ## Deal Radar
 

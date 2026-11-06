@@ -1,6 +1,6 @@
-import { ASSUMPTIONS } from "./assumptions";
 import type { DecisionAction } from "./decision-action";
-import { DECISION_ACTIONS } from "./decision-action";
+import { DECISION_ACTIONS, SERV_DECISION_ACTIONS } from "./decision-action";
+import { runOrderedGates, type GateResult, type MandateInput, type OrderedGateRun } from "./verdict-gates";
 import type { ComputedReport } from "./types";
 
 export type GuardrailId =
@@ -10,14 +10,15 @@ export type GuardrailId =
   | "odometer_mismatch"
   | "price_far_above_market"
   | "critical_missing_data"
-  | "insufficient_comps";
+  | "insufficient_comps"
+  | "mandate_fit"
+  | "gates_withheld"
+  | "suspiciously_cheap";
 
 export type GuardrailConstraint = {
   id: GuardrailId;
   reason: string;
-  /** Actions SERV is forbidden from choosing. */
   forbid: DecisionAction[];
-  /** When set, the final action is forced to this value. */
   force?: DecisionAction;
 };
 
@@ -28,87 +29,76 @@ export type ClampResult = {
   overrideReasons: string[];
 };
 
-/** Hard rails derived only from code-computed report fields. SERV cannot loosen these. */
-export function buildGuardrails(report: ComputedReport): GuardrailConstraint[] {
-  const rails: GuardrailConstraint[] = [];
-
-  if (report.flags.some((flag) => flag.source === "vin-identity" && flag.level === "stop")) {
-    rails.push({
-      id: "vin_identity_mismatch",
-      reason: "NHTSA VIN decode conflicts with the listing identity. Buy and negotiate are forbidden until the VIN is verified.",
-      forbid: ["buy", "negotiate", "pass"],
-      force: "needs_inspection",
-    });
-  }
-
-  if (report.flags.some((flag) => flag.source === "title-brand" && flag.level === "stop")) {
-    rails.push({
-      id: "title_brand",
-      reason: "Listing text indicates a title brand (salvage, rebuilt, flood, or similar). Buy and negotiate are forbidden.",
-      forbid: ["buy", "negotiate"],
-      force: "pass",
-    });
-  }
-
-  if (report.openParkIt) {
-    rails.push({
-      id: "park_it_recall",
-      reason: "A park-it or park-outside campaign matched this model year. Buy and negotiate are forbidden until VIN repair status is confirmed.",
-      forbid: ["buy", "negotiate"],
-      force: "pass",
-    });
-  }
-
-  if (report.flags.some((flag) => flag.source === "odometer" && flag.level === "caution")) {
-    rails.push({
-      id: "odometer_mismatch",
-      reason: "Mileage looks inconsistent with vehicle age. Buy is forbidden until the odometer and title brands are verified.",
-      forbid: ["buy"],
-    });
-  }
-
-  if (report.priceGap !== null && report.priceGap > ASSUMPTIONS.overpricedGap) {
-    rails.push({
-      id: "price_far_above_market",
-      reason: `Asking price is more than ${Math.round(ASSUMPTIONS.overpricedGap * 100)}% above fair value. Buy is forbidden.`,
-      forbid: ["buy"],
-    });
-  }
-
-  const historyMissing = report.subject.accidentCount === null || report.subject.ownerCount === null;
-  const criticalMissing =
-    historyMissing ||
-    report.fairValueUsd === null ||
-    report.subject.priceUsd === null ||
-    report.subject.miles === null ||
-    report.recallsAvailable === false;
-
-  if (report.verdict === "insufficient_data" || report.comps.length < ASSUMPTIONS.minComps) {
-    rails.push({
-      id: "insufficient_comps",
-      reason: "There are not enough priced comparable listings to support a buy decision.",
-      forbid: ["buy", "negotiate", "pass"],
-      force: "needs_inspection",
-    });
-  } else if (criticalMissing) {
-    rails.push({
-      id: "critical_missing_data",
-      reason: "Critical listing or public-record fields are missing. Buy is forbidden until they are verified.",
-      forbid: ["buy"],
-    });
-  }
-
-  return rails;
-}
-
 const FORCE_RANK: Record<DecisionAction, number> = {
+  withheld: 4,
   needs_inspection: 3,
   pass: 2,
   negotiate: 1,
   buy: 0,
 };
 
-/** Most restrictive force wins (needs_inspection > pass > negotiate > buy). */
+function railIdForGate(gate: GateResult, report: ComputedReport): GuardrailId {
+  switch (gate.id) {
+    case "data_sufficiency":
+      if (report.comps.length < 3) return "insufficient_comps";
+      return "critical_missing_data";
+    case "identity_vin":
+      return "vin_identity_mismatch";
+    case "safety_red_flags":
+      if (report.flags.some((flag) => flag.source === "title-brand" && flag.level === "stop")) return "title_brand";
+      if (report.openParkIt) return "park_it_recall";
+      if (report.flags.some((flag) => flag.source === "odometer")) return "odometer_mismatch";
+      return "title_brand";
+    case "price_vs_comps":
+      if (report.flags.some((flag) => flag.source === "price-anomaly")) return "suspiciously_cheap";
+      return "price_far_above_market";
+    case "mandate_fit":
+      return "mandate_fit";
+  }
+}
+
+/** Build clamp constraints from the ordered gate run (single source of truth). */
+export function constraintsFromGates(run: OrderedGateRun, report?: ComputedReport): GuardrailConstraint[] {
+  if (run.withheld) {
+    const withholdGate = run.gates.find((gate) => gate.status === "withhold");
+    let id: GuardrailId = "gates_withheld";
+    if (withholdGate && report) id = railIdForGate(withholdGate, report);
+    else if (withholdGate?.id === "identity_vin") id = "vin_identity_mismatch";
+    else if (withholdGate?.id === "data_sufficiency") id = "insufficient_comps";
+    return [
+      {
+        id,
+        reason: run.withholdReason ?? "Evidence was insufficient. Verdict withheld.",
+        forbid: ["buy", "negotiate", "pass", "needs_inspection"],
+        force: "withheld",
+      },
+    ];
+  }
+
+  if (!report) {
+    return run.forbid.length > 0
+      ? [{ id: "mandate_fit", reason: "Ordered gates forbade one or more shopper actions.", forbid: run.forbid, force: run.forcePass ? "pass" : undefined }]
+      : [];
+  }
+
+  const rails: GuardrailConstraint[] = [];
+  for (const gate of run.gates) {
+    if (gate.status !== "forbid" || gate.forbid.length === 0) continue;
+    rails.push({
+      id: railIdForGate(gate, report),
+      reason: gate.reason,
+      forbid: gate.forbid,
+      force: gate.id === "safety_red_flags" && gate.forbid.includes("negotiate") ? "pass" : undefined,
+    });
+  }
+  return rails;
+}
+
+/** Prefer runOrderedGates + constraintsFromGates; kept for call sites that only have a report. */
+export function buildGuardrails(report: ComputedReport, mandate: MandateInput = {}): GuardrailConstraint[] {
+  return constraintsFromGates(runOrderedGates(report, mandate), report);
+}
+
 export function strongestForce(guardrails: GuardrailConstraint[]): DecisionAction | null {
   let best: DecisionAction | null = null;
   for (const rail of guardrails) {
@@ -122,14 +112,19 @@ export function allowedActions(guardrails: GuardrailConstraint[]): DecisionActio
   const forced = strongestForce(guardrails);
   if (forced) return [forced];
   const forbidden = new Set(guardrails.flatMap((rail) => rail.forbid));
-  const allowed = DECISION_ACTIONS.filter((action) => !forbidden.has(action));
+  const pool = DECISION_ACTIONS.filter((action) => action !== "withheld");
+  const allowed = pool.filter((action) => !forbidden.has(action));
   return allowed.length > 0 ? allowed : ["pass"];
 }
 
-/**
- * Clamp a SERV (or fallback) choice to the hard rails.
- * Prefer force rails; otherwise demote forbidden buys toward the safest allowed action.
- */
+/** Actions SERV may legally return given the current rails. */
+export function allowedServActions(guardrails: GuardrailConstraint[]): Array<Exclude<DecisionAction, "withheld">> {
+  const allowed = allowedActions(guardrails).filter((action): action is Exclude<DecisionAction, "withheld"> =>
+    SERV_DECISION_ACTIONS.includes(action as Exclude<DecisionAction, "withheld">),
+  );
+  return allowed.length > 0 ? allowed : ["pass"];
+}
+
 export function clampDecision(choice: DecisionAction, guardrails: GuardrailConstraint[]): ClampResult {
   const reasons: string[] = [];
   let action = choice;

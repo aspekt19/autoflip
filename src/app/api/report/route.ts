@@ -26,6 +26,8 @@ export async function POST(request: Request) {
     ? body.repairAbility
     : undefined;
   const targetProfitUsd = typeof body.targetProfitUsd === "number" ? body.targetProfitUsd : undefined;
+  const budgetUsd = typeof body.budgetUsd === "number" ? body.budgetUsd : undefined;
+  const budgetKnown = body.budgetKnown === true || typeof budgetUsd === "number";
   const zip = typeof body.zip === "string" ? body.zip : undefined;
   if (isVinOnlyLookup({ url, vin })) {
     const missing = vinDetailGaps({ askingPriceUsd, miles, zip });
@@ -78,6 +80,8 @@ export async function POST(request: Request) {
       miles,
       repairAbility,
       targetProfitUsd,
+      budgetUsd: budgetUsd ?? null,
+      budgetKnown,
     },
     { ...runtimeDeps(), servSurface: body.surface === "check" ? "check" : "report" },
   );

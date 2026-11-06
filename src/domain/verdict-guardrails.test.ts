@@ -131,7 +131,7 @@ describe("verdict guardrails with mocked SERV", () => {
     expect(decided.overrideReasons.join(" ")).toMatch(/price_far_above_market/);
   });
 
-  it("forces needs_inspection on VIN identity conflict even if SERV says buy", () => {
+  it("withholds the verdict on VIN identity conflict even if SERV says buy", () => {
     const report = reportFor(car({ vin: "1M8GDM9AXKP042788", priceUsd: 12_000, miles: 20_000 }), {
       vinDecode: { year: 2018, make: "Honda", model: "Accord", errorCode: "0" },
     });
@@ -141,11 +141,14 @@ describe("verdict guardrails with mocked SERV", () => {
       servOk: true,
       hasServKey: true,
     });
-    expect(decided.finalAction).toBe("needs_inspection");
-    expect(decided.finalVerdict).toBe("insufficient_data");
+    expect(decided.finalAction).toBe("withheld");
+    expect(decided.finalVerdict).toBe("withheld");
+    expect(decided.source).toBe("gates_withheld");
+    expect(decided.servChoice).toBeNull();
+    expect(decided.withholdReason).toMatch(/VIN/i);
   });
 
-  it("forces needs_inspection when comps are insufficient", () => {
+  it("withholds the verdict when comps are insufficient instead of guessing", () => {
     const report = reportFor(car({ vin: "THINCOMPS00000001", priceUsd: 18_000, miles: 40_000 }), {
       candidates: peers.slice(0, 1),
     });
@@ -155,7 +158,9 @@ describe("verdict guardrails with mocked SERV", () => {
       servOk: true,
       hasServKey: true,
     });
-    expect(decided.finalAction).toBe("needs_inspection");
+    expect(decided.finalAction).toBe("withheld");
+    expect(decided.source).toBe("gates_withheld");
+    expect(decided.withholdReason).toMatch(/comparables/i);
   });
 
   it("falls back to the labeled deterministic action when SERV fails", () => {

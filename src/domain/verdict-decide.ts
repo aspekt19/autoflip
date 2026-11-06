@@ -1,13 +1,24 @@
-import { actionFromVerdict, isDecisionAction, verdictFromAction, type DecisionAction } from "./decision-action";
 import {
-  allowedActions,
-  buildGuardrails,
+  actionFromVerdict,
+  isServDecisionAction,
+  verdictFromAction,
+  type DecisionAction,
+} from "./decision-action";
+import {
+  allowedServActions,
   clampDecision,
+  constraintsFromGates,
   type GuardrailConstraint,
 } from "./verdict-guardrails";
+import { runOrderedGates, type MandateInput, type OrderedGateRun } from "./verdict-gates";
 import type { ComputedReport, Verdict } from "./types";
 
-export type VerdictDecisionSource = "serv" | "deterministic_fallback" | "guardrail_clamp" | "no_serv_key";
+export type VerdictDecisionSource =
+  | "serv"
+  | "deterministic_fallback"
+  | "guardrail_clamp"
+  | "no_serv_key"
+  | "gates_withheld";
 
 export type VerdictDecisionRecord = {
   deterministicAction: DecisionAction;
@@ -21,16 +32,22 @@ export type VerdictDecisionRecord = {
   allowedActions: DecisionAction[];
   note: string | null;
   labeledFallback: boolean;
+  gateRun: OrderedGateRun;
+  withholdReason: string | null;
 };
 
 export type ServVerdictPayload = {
-  verdict: DecisionAction;
+  verdict: Exclude<DecisionAction, "withheld">;
   note: string;
 };
 
 /** Facts SERV may use to choose. Omits the final verdict so the model must decide. */
-export function verdictDecisionFacts(report: ComputedReport): Record<string, unknown> {
-  const guardrails = buildGuardrails(report);
+export function verdictDecisionFacts(
+  report: ComputedReport,
+  mandate: MandateInput = {},
+): Record<string, unknown> {
+  const gateRun = runOrderedGates(report, mandate);
+  const guardrails = constraintsFromGates(gateRun, report);
   return {
     mode: report.mode,
     sample: report.sample,
@@ -66,6 +83,18 @@ export function verdictDecisionFacts(report: ComputedReport): Record<string, unk
           timeToSellRisk: report.flip.timeToSellRisk,
         }
       : null,
+    mandate: {
+      budgetUsd: mandate.budgetUsd ?? null,
+      budgetKnown: mandate.budgetKnown === true,
+      targetProfitUsd: mandate.targetProfitUsd ?? null,
+      repairAbility: mandate.repairAbility ?? "unknown",
+    },
+    gates: gateRun.gates.map((gate) => ({
+      id: gate.id,
+      status: gate.status,
+      reason: gate.reason,
+      forbid: gate.forbid,
+    })),
     codeBaselineAction: actionFromVerdict(report.verdict),
     guardrails: guardrails.map((rail) => ({
       id: rail.id,
@@ -73,7 +102,9 @@ export function verdictDecisionFacts(report: ComputedReport): Record<string, unk
       forbid: rail.forbid,
       force: rail.force ?? null,
     })),
-    allowedActions: allowedActions(guardrails),
+    allowedActions: allowedServActions(guardrails),
+    withheld: gateRun.withheld,
+    withholdReason: gateRun.withholdReason,
   };
 }
 
@@ -83,7 +114,7 @@ export function parseServVerdict(text: string): ServVerdictPayload | null {
     if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return null;
     const keys = Object.keys(parsed);
     if (keys.length !== 2 || !("verdict" in parsed) || !("note" in parsed)) return null;
-    if (!isDecisionAction(parsed.verdict)) return null;
+    if (!isServDecisionAction(parsed.verdict)) return null;
     if (typeof parsed.note !== "string") return null;
     return { verdict: parsed.verdict, note: parsed.note };
   } catch {
@@ -91,23 +122,8 @@ export function parseServVerdict(text: string): ServVerdictPayload | null {
   }
 }
 
-function pickForcedAction(guardrails: GuardrailConstraint[]): DecisionAction | null {
-  const rank: Record<DecisionAction, number> = {
-    needs_inspection: 3,
-    pass: 2,
-    negotiate: 1,
-    buy: 0,
-  };
-  let best: DecisionAction | null = null;
-  for (const rail of guardrails) {
-    if (!rail.force) continue;
-    if (!best || rank[rail.force] > rank[best]) best = rail.force;
-  }
-  return best;
-}
-
 /**
- * Apply SERV's choice (or fall back to the code baseline) under hard guardrails.
+ * Apply ordered gates, then SERV's choice (or fall back) under hard clamps.
  * Numbers never come from SERV — only the action enum and an audited note.
  */
 export function resolveVerdictDecision(input: {
@@ -115,14 +131,34 @@ export function resolveVerdictDecision(input: {
   servText: string | null;
   servOk: boolean;
   hasServKey: boolean;
+  mandate?: MandateInput;
 }): VerdictDecisionRecord {
-  const guardrails = buildGuardrails(input.report);
+  const mandate = input.mandate ?? {};
+  const gateRun = runOrderedGates(input.report, mandate);
+  const guardrails = constraintsFromGates(gateRun, input.report);
+  const allowed = allowedServActions(guardrails);
   const deterministicAction = actionFromVerdict(input.report.verdict);
-  const allowed = allowedActions(guardrails);
-  const forced = pickForcedAction(guardrails);
+
+  if (gateRun.withheld) {
+    return {
+      deterministicAction,
+      deterministicVerdict: input.report.verdict,
+      servChoice: null,
+      finalAction: "withheld",
+      finalVerdict: "withheld",
+      source: "gates_withheld",
+      overrideReasons: [gateRun.withholdReason ?? "Verdict withheld by ordered gates."],
+      guardrails,
+      allowedActions: ["withheld"],
+      note: null,
+      labeledFallback: false,
+      gateRun,
+      withholdReason: gateRun.withholdReason,
+    };
+  }
 
   if (!input.hasServKey) {
-    const clamped = clampDecision(deterministicAction, guardrails);
+    const clamped = clampDecision(deterministicAction === "withheld" ? "pass" : deterministicAction, guardrails);
     return {
       deterministicAction,
       deterministicVerdict: input.report.verdict,
@@ -135,11 +171,13 @@ export function resolveVerdictDecision(input: {
       allowedActions: allowed,
       note: null,
       labeledFallback: true,
+      gateRun,
+      withholdReason: null,
     };
   }
 
   if (!input.servOk || !input.servText) {
-    const clamped = clampDecision(deterministicAction, guardrails);
+    const clamped = clampDecision(deterministicAction === "withheld" ? "pass" : deterministicAction, guardrails);
     return {
       deterministicAction,
       deterministicVerdict: input.report.verdict,
@@ -148,19 +186,21 @@ export function resolveVerdictDecision(input: {
       finalVerdict: verdictFromAction(clamped.finalAction, input.report.verdict),
       source: "deterministic_fallback",
       overrideReasons: [
-        "SERV verdict call failed or timed out; using the code baseline under the same guardrails.",
+        "AI review did not return a usable verdict in time; using the code baseline under the same gates.",
         ...clamped.overrideReasons,
       ],
       guardrails,
       allowedActions: allowed,
       note: null,
       labeledFallback: true,
+      gateRun,
+      withholdReason: null,
     };
   }
 
   const parsed = parseServVerdict(input.servText);
   if (!parsed) {
-    const clamped = clampDecision(deterministicAction, guardrails);
+    const clamped = clampDecision(deterministicAction === "withheld" ? "pass" : deterministicAction, guardrails);
     return {
       deterministicAction,
       deterministicVerdict: input.report.verdict,
@@ -169,19 +209,20 @@ export function resolveVerdictDecision(input: {
       finalVerdict: verdictFromAction(clamped.finalAction, input.report.verdict),
       source: "deterministic_fallback",
       overrideReasons: [
-        "SERV returned an unusable verdict payload; using the code baseline under the same guardrails.",
+        "AI review returned an unusable verdict payload; using the code baseline under the same gates.",
         ...clamped.overrideReasons,
       ],
       guardrails,
       allowedActions: allowed,
       note: null,
       labeledFallback: true,
+      gateRun,
+      withholdReason: null,
     };
   }
 
   const clamped = clampDecision(parsed.verdict, guardrails);
-  const source: VerdictDecisionRecord["source"] =
-    clamped.overridden || (forced && parsed.verdict !== forced) ? "guardrail_clamp" : "serv";
+  const source: VerdictDecisionRecord["source"] = clamped.overridden ? "guardrail_clamp" : "serv";
 
   return {
     deterministicAction,
@@ -195,5 +236,7 @@ export function resolveVerdictDecision(input: {
     allowedActions: allowed,
     note: parsed.note,
     labeledFallback: false,
+    gateRun,
+    withholdReason: null,
   };
 }

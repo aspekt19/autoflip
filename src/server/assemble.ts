@@ -37,6 +37,9 @@ export type AssembleInput = {
   miles?: number;
   repairAbility?: import("@/domain/need").RepairAbility;
   targetProfitUsd?: number | null;
+  /** Personal-mode budget from /find when the shopper stated one. */
+  budgetUsd?: number | null;
+  budgetKnown?: boolean;
 };
 
 export type AssembleDeps = {
@@ -227,12 +230,45 @@ export async function assembleReport(input: AssembleInput, deps: AssembleDeps): 
       "selectComparables, mileageAdjust, historyAdjustment, verdictFromPriceGap, flipMath, scoreFromGap, dealerQuestions",
   });
 
-  // SERV chooses the shopper action; TypeScript clamps hard rails and owns every number.
+  const mandate = {
+    budgetUsd: input.budgetUsd ?? null,
+    budgetKnown: input.budgetKnown === true,
+    targetProfitUsd: input.targetProfitUsd ?? null,
+    repairAbility: input.repairAbility ?? "unknown",
+  };
+  computed.mandate = mandate;
+  // Stamp comparable provenance for the report UI.
+  computed.comps = computed.comps.map((comp) => ({
+    ...comp,
+    sourceLabel: computed.sample ? "Labeled sample fixture" : "Auto.dev listing",
+    fetchedAt: checkedAt,
+  }));
+
+  // Ordered gates first. WITHHELD skips the SERV verdict call.
+  const previewDecision = resolveVerdictDecision({
+    report: computed,
+    servText: null,
+    servOk: false,
+    hasServKey: false,
+    mandate,
+  });
+  steps.push({
+    id: "ordered_gates",
+    status: previewDecision.gateRun.withheld ? "withheld" : "passed",
+    detail: previewDecision.gateRun.gates.map((gate) => `${gate.id}:${gate.status}`).join(", "),
+  });
+
   let verdictServText: string | null = null;
   let verdictServOk = false;
   let verdictServProof: ServProof | null = null;
-  if (deps.servKey) {
-    const decisionFacts = verdictDecisionFacts(computed);
+  if (previewDecision.gateRun.withheld) {
+    steps.push({
+      id: "serv_verdict_decide",
+      status: "skipped_withheld",
+      detail: previewDecision.withholdReason ?? "Verdict withheld by ordered gates.",
+    });
+  } else if (deps.servKey) {
+    const decisionFacts = verdictDecisionFacts(computed, mandate);
     const judged = await runServ(
       "verdict_decide",
       { user: JSON.stringify({ facts: decisionFacts, userLookup: screened.text }) },
@@ -255,13 +291,17 @@ export async function assembleReport(input: AssembleInput, deps: AssembleDeps): 
     steps.push({ id: "serv_verdict_decide", status: "skipped_no_key" });
   }
 
-  const decision = resolveVerdictDecision({
-    report: computed,
-    servText: verdictServText,
-    servOk: verdictServOk,
-    hasServKey: Boolean(deps.servKey),
-  });
+  const decision = previewDecision.gateRun.withheld
+    ? previewDecision
+    : resolveVerdictDecision({
+        report: computed,
+        servText: verdictServText,
+        servOk: verdictServOk,
+        hasServKey: Boolean(deps.servKey),
+        mandate,
+      });
   computed.verdict = decision.finalVerdict;
+  computed.score = decision.finalAction === "withheld" ? null : computed.score;
   computed.decision = {
     action: decision.finalAction,
     source: decision.source,
@@ -270,10 +310,20 @@ export async function assembleReport(input: AssembleInput, deps: AssembleDeps): 
     overrideReasons: decision.overrideReasons,
     labeledFallback: decision.labeledFallback,
     note: decision.note,
+    withholdReason: decision.withholdReason,
+    gates: decision.gateRun.gates.map((gate) => ({
+      id: gate.id,
+      status: gate.status,
+      reason: gate.reason,
+    })),
   };
   steps.push({
     id: "verdict_guardrails",
-    status: decision.overrideReasons.length > 0 ? "overrode" : "passed",
+    status: decision.gateRun.withheld
+      ? "withheld"
+      : decision.overrideReasons.length > 0
+        ? "overrode"
+        : "passed",
     detail:
       decision.overrideReasons.slice(0, 3).join(" | ") ||
       `final=${decision.finalAction}; source=${decision.source}`,
@@ -392,6 +442,12 @@ export async function assembleReport(input: AssembleInput, deps: AssembleDeps): 
         allowedActions: decision.allowedActions,
         labeledFallback: decision.labeledFallback,
         note: decision.note,
+        withholdReason: decision.withholdReason,
+        gates: decision.gateRun.gates.map((gate) => ({
+          id: gate.id,
+          status: gate.status,
+          reason: gate.reason,
+        })),
       },
     },
     explanationSource,

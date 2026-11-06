@@ -17,8 +17,15 @@ export function ReportView({ report }: { report: FullReport }) {
     fairValueUsd: computed.fairValueUsd,
     flip: computed.flip,
     openParkIt: computed.openParkIt,
+    withholdReason: computed.decision?.withholdReason,
   });
   const missingData = computed.dataNotes;
+  const nhtsaRecallCheck = computed.sourceChecks?.find((item) => item.source === "NHTSA recalls by model year");
+  const nhtsaComplaintCheck = computed.sourceChecks?.find((item) => item.source === "NHTSA complaints");
+  const formatCheckedAt = (iso: string | null | undefined) =>
+    iso
+      ? new Intl.DateTimeFormat("en-US", { dateStyle: "short", timeStyle: "short", timeZone: "UTC" }).format(new Date(iso))
+      : "Not recorded";
 
   return (
     <article>
@@ -40,28 +47,37 @@ export function ReportView({ report }: { report: FullReport }) {
       <nav className="report-toc" aria-label="Report sections">
         <a href="#report-risks">Risks</a>
         <a href="#report-summary">Verdict</a>
+        <a href="#report-checked">How checked</a>
         <a href="#report-facts">Facts &amp; estimates</a>
         <a href="#report-comparables">Comparables</a>
         <a href="#report-history">History &amp; recalls</a>
         <a href="#report-sources">Sources</a>
-        <a href="#report-method">Method</a>
+        <a href="#report-proof">Proof of AI</a>
         <a href="/reports">My reports</a>
       </nav>
       <p className={`verdict-level badge ${computed.verdict}`}>{verdictLabel(computed.verdict)}</p>
+      {computed.verdict === "withheld" ? (
+        <p className="risk-primary" role="alert">
+          {computed.decision?.withholdReason ??
+            "Verdict withheld: there is not enough verified evidence for a buy, negotiate, or pass decision."}
+        </p>
+      ) : null}
       {computed.decision ? (
         <div className="decision-provenance" aria-label="How this verdict was chosen">
           <p className="hint">
-            {computed.decision.source === "serv"
-              ? "SERV chose this action from the computed facts. TypeScript checked hard guardrails afterward."
-              : computed.decision.source === "guardrail_clamp"
-                ? "SERV proposed an action that TypeScript clamped under hard guardrails."
-                : computed.decision.source === "deterministic_fallback"
-                  ? "SERV did not return a usable verdict in time. This action is the labeled code fallback under the same guardrails."
-                  : "SERV was not configured for this report. This action is the labeled code baseline under hard guardrails."}
+            {computed.decision.source === "gates_withheld"
+              ? "Ordered checks found insufficient evidence. AutoFlip withheld a verdict instead of guessing."
+              : computed.decision.source === "serv"
+                ? "AI review chose this action from the computed facts. Code checked hard safety gates afterward."
+                : computed.decision.source === "guardrail_clamp"
+                  ? "AI review proposed an action that code clamped under hard safety gates."
+                  : computed.decision.source === "deterministic_fallback"
+                    ? "AI review did not finish in time. This action is the labeled code fallback under the same gates."
+                    : "AI review was not configured for this report. This action is the labeled code baseline under hard gates."}
           </p>
           {computed.decision.servChoice && computed.decision.servChoice !== computed.decision.action ? (
             <p className="hint">
-              SERV chose {computed.decision.servChoice}; final action is {computed.decision.action}.
+              AI review chose {computed.decision.servChoice}; final action is {computed.decision.action}.
             </p>
           ) : null}
           {computed.decision.overrideReasons.length > 0 ? (
@@ -90,7 +106,49 @@ export function ReportView({ report }: { report: FullReport }) {
       <h2 id="report-summary">{computed.mode === "flip" ? "Does this deal fit?" : "Does this car fit?"}</h2>
       <p className="summary-line">{decision.line}</p>
       <p>{decision.detail}</p>
-      <p>{fitHeadline(computed)}</p>
+      {computed.verdict !== "withheld" ? <p>{fitHeadline(computed)}</p> : null}
+
+      <section id="report-checked" className="how-checked" aria-labelledby="how-checked-title">
+        <h2 id="how-checked-title">How this was checked</h2>
+        <p className="hint">
+          Dollar amounts, percentages, and scores come from code. AI review may choose an action and write the explanation; it cannot invent a number.{" "}
+          <a href="#report-proof">Open this report&apos;s Proof of AI record</a>.
+        </p>
+        <ul className="refuse">
+          <li>
+            <b>From code:</b> fair value {computed.fairValueUsd === null ? "not computed" : formatUsd(computed.fairValueUsd)}, asking gap{" "}
+            {computed.priceGap === null ? "—" : formatPct(computed.priceGap)}, {computed.comps.length} comparables
+            {computed.score !== null ? `, price score ${computed.score}/100` : ""}.
+          </li>
+          <li>
+            <b>Ordered gates:</b>{" "}
+            {computed.decision?.gates?.length
+              ? computed.decision.gates.map((gate) => `${gate.id} (${gate.status})`).join(" → ")
+              : "not recorded on this saved report"}
+            .
+          </li>
+          <li>
+            <b>AI review:</b>{" "}
+            {(report.proof.servChecks ?? [])
+              .map((check) => {
+                const bits = [check.purpose.replaceAll("_", " ")];
+                if (check.promptGuard && check.promptGuard !== "not_exposed") bits.push(`input screen ${check.promptGuard}`);
+                if (check.shadowOutcome && check.shadowOutcome !== "not_exposed" && check.shadowOutcome !== "not_configured") {
+                  bits.push(`second pass ${check.shadowOutcome}`);
+                }
+                if (check.features?.length) bits.push(check.features.join(", "));
+                return bits.join(" · ");
+              })
+              .join("; ") || "no AI review steps recorded (template or offline report)"}
+            .
+          </li>
+          <li>
+            <b>Final action:</b> {computed.decision?.action ?? computed.verdict}
+            {computed.decision?.source ? ` (${computed.decision.source.replaceAll("_", " ")})` : ""}.
+          </li>
+        </ul>
+      </section>
+
       <div className="split" id="report-facts">
         <section>
           <h3>Facts</h3>
@@ -230,6 +288,7 @@ export function ReportView({ report }: { report: FullReport }) {
                 <th>Asking</th>
                 <th>At this mileage</th>
                 <th>Where</th>
+                <th>Source</th>
               </tr>
             </thead>
             <tbody>
@@ -243,6 +302,16 @@ export function ReportView({ report }: { report: FullReport }) {
                   <td>{formatUsd(comp.priceUsd)}</td>
                   <td>{formatUsd(comp.adjustedPriceUsd)}</td>
                   <td>{[comp.city, comp.state].filter(Boolean).join(", ") || "—"}</td>
+                  <td>
+                    {comp.sourceUrl ? (
+                      <a href={comp.sourceUrl} target="_blank" rel="noreferrer">
+                        {comp.sourceLabel ?? "Listing"}
+                      </a>
+                    ) : (
+                      (comp.sourceLabel ?? "Listing feed")
+                    )}
+                    <div className="hint">Fetched {formatCheckedAt(comp.fetchedAt)}</div>
+                  </td>
                 </tr>
               ))}
             </tbody>
@@ -260,7 +329,10 @@ export function ReportView({ report }: { report: FullReport }) {
           ))}
         </ul>
         <h2>Recall campaigns</h2>
-        <p className="hint">Source: NHTSA. These campaigns match the year, make, and model. They are not a record of what was fixed on this VIN.</p>
+        <p className="hint">
+          Source: NHTSA
+          {nhtsaRecallCheck?.checkedAt ? ` · fetched ${formatCheckedAt(nhtsaRecallCheck.checkedAt)} UTC` : ""}. These campaigns match the year, make, and model. They are not a record of what was fixed on this VIN.
+        </p>
         <ul className="refuse">
           <li>
             {!computed.recallsAvailable
@@ -293,7 +365,10 @@ export function ReportView({ report }: { report: FullReport }) {
           </li>
         </ul>
         <h2>Complaints about this model year</h2>
-        <p className="hint">Source: NHTSA complaints. This is a count for the model year, not this car.</p>
+        <p className="hint">
+          Source: NHTSA complaints
+          {nhtsaComplaintCheck?.checkedAt ? ` · fetched ${formatCheckedAt(nhtsaComplaintCheck.checkedAt)} UTC` : ""}. This is a count for the model year, not this car.
+        </p>
         <ul className="refuse">
           {computed.complaintCount === null ? (
             <li>Complaint count was unavailable.</li>
@@ -388,13 +463,31 @@ export function ReportView({ report }: { report: FullReport }) {
         )}
       </section>
 
+      <section className="ask" id="report-proof">
+        <h2>Proof of AI</h2>
+        <p className="hint">
+          This record shows which numbers came from code and which AI review steps ran for this report. AI review never writes a price, mileage, or score into the decision.
+        </p>
+        <DecisionNote scene={reportScene(report)} proofs={report.proof.servChecks ?? []} />
+        <ul className="refuse">
+          <li>Inputs hash: <span className="mono">{report.proof.inputsHash.slice(0, 16)}…</span></li>
+          <li>Explanation source: {report.proof.explanationSource}</li>
+          {(report.proof.steps ?? []).map((step) => (
+            <li key={`${step.id}-${step.status}`}>
+              {step.id.replaceAll("_", " ")}: {step.status}
+              {step.detail ? ` — ${step.detail}` : ""}
+            </li>
+          ))}
+        </ul>
+      </section>
+
       <section className="ask" id="report-method">
         <h2>How to read this</h2>
         <p className="hint">
           We show which data the verdict is based on. We separate facts from estimates. We flag what still needs checking before you buy.
         </p>
-        <DecisionNote scene={reportScene(report)} proofs={report.proof.servChecks ?? []} />
         <p className="btn-row">
+          <a className="quiet" href="#report-proof">Proof of AI for this report</a>
           <a className="quiet" href="/reports">My report history</a>
           <a className="quiet" href="/find">Find another car</a>
           <a className="quiet" href="/check">Check another listing</a>
