@@ -193,6 +193,7 @@ export async function assembleReport(input: AssembleInput, deps: AssembleDeps): 
   });
 
   const subject = overlayStatedFacts(resolved.subject, input);
+  const checkedAt = (deps.now ?? new Date()).toISOString();
   const computed = buildComputedReport({
     mode: input.mode,
     subject,
@@ -203,6 +204,9 @@ export async function assembleReport(input: AssembleInput, deps: AssembleDeps): 
     fuel,
     vinDecode,
     distanceToSearchZipMiles: distance,
+    checkedAt,
+    listingCached: resolved.cached,
+    distanceRequested: Boolean(input.zip && subject.zip),
     asOfYear: (deps.now ?? new Date()).getUTCFullYear(),
     sample: resolved.sample,
     repairAbility: input.repairAbility,
@@ -322,7 +326,7 @@ export async function assembleReport(input: AssembleInput, deps: AssembleDeps): 
 
   const report: FullReport = {
     id: randomUUID(),
-    createdAt: new Date().toISOString(),
+    createdAt: checkedAt,
     explanation,
     computed,
     proof,
