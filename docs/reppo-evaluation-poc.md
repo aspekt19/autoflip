@@ -29,9 +29,9 @@ Provider documentation: https://reppofoundation.org/evaluation-api
 
 `src/server/reppo/client.ts` contains a server-side-only transport wrapper for submit and retrieve. It accepts an API key as an explicit argument, never reads it in client code, enforces the documented payload size, and leaves the provider response untrusted/raw for a later schema-validation step.
 
-This is intentionally not imported by `assembleReport`, API routes, Radar, or the browser. No report is gated by Reppo. The isolated branch does not change production behaviour.
+This is intentionally not imported by `assembleReport`, API routes, Radar, or the browser. No report is gated by Reppo. The isolated branch does not change production behaviour.\n\n`eval/reppo.ts` reads a prior `eval:serv` artifact and submits up to five paired `report_explain` cases (plain baseline and SERV) as separate Reppo traces. It removes VIN-like fields and 17-character VIN strings before submission. It writes each response incrementally to `eval/results/reppo-latest.json`. After the settlement window, `eval/reppo-status.ts` fetches the current result for each returned `evalId`.
 
-## Proposed experiment
+## Running the experiment\n\n1. Run `npm run eval:serv` with the SERV key, or set `AUTOFLIP_EVAL_FILE` to a downloaded SERV evaluation artifact.\n2. Obtain a Reppo API key from the Reppo console / partner community lead and set it only in the server-side shell as `REPPO_API_KEY`. Do not paste it into chat or commit it.\n3. Run `npm run eval:reppo`. This submits up to 10 evaluations (five baseline + five SERV) with a 10-minute settlement window. The first 10 are within Reppo's published free allowance.\n4. Wait for the settlement window, then run `npm run eval:reppo:status` to retrieve each returned evaluation. Review score, decision, confidence, critiques, evidence basis, peer count, and any insufficient-evidence outcome.\n\nThe runner is intentionally opt-in: it does not execute in CI and does not make provider calls without `REPPO_API_KEY`.\n\n## Proposed experiment
 
 For a small, labeled sample of SERV `report_explain` outputs, submit a `trace` with:
 
