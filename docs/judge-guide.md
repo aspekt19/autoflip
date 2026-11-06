@@ -82,7 +82,7 @@ Run npm run eval:serv with SERV_API_KEY set. The script in [eval/run.ts](../eval
 - A full report costs one credit; Deal Radar search monitoring is free. The same report logic is exposed through MCP and a paid agent API.
 - Stripe is intentionally in test mode. This demonstrates checkout and credit mechanics, not live revenue or a production payment operation.
 - Auto.dev's free plan is an evaluation source, not a production license. No complete title-brand, theft, flood, or service-history database is connected.
-- Serverless JSON-file storage is ephemeral and is not suitable for public production accounts. Durable storage is a launch prerequisite.
+- The app uses the `Kv` adapter: Upstash Redis when `UPSTASH_REDIS_REST_URL` and `UPSTASH_REDIS_REST_TOKEN` are set, a local JSON file for local development, and an in-memory fallback on Vercel if Redis is not configured. The connected Vercel project currently has those Upstash variables in Preview and Production, so user state is persisted rather than written to `/tmp`. This does not make the product launch-ready: the user ID is an anonymous browser cookie (no sign-in or cross-device recovery), and backup/monitoring plus high-concurrency write hardening still need attention.
 - Asking-price comparables are not completed sale prices. Public recalls are not a VIN-specific repair confirmation.
 
 The CI quality gate runs typecheck, the unit suite and npm audit, and blocks critical/high dependency advisories. The current lockfile was refreshed to Vitest 5.1.0 and PostCSS 8.5.32; the lockfile refresh run reported zero advisories. These constraints are also documented in the main [README](../README.md); they are disclosed rather than hidden behind a polished demo.
