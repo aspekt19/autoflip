@@ -153,7 +153,7 @@ Bounded offline integration (not live E2E, not SERV efficacy):
   process.env mismatch); hooks env reaches facade when harness omitted
 - Labels: OFFLINE; stubbed SERV ≠ live reasoning; testAuthority harness-only
 
-## STAGE-INTEGRATION-BUILD — PIN TO_REPLACE (Next route export boundary)
+## STAGE-INTEGRATION-BUILD — PIN f820be9 (Next route export boundary)
 
 Independent review of 8a66dcd: `postScoutStart` exported from `app/api/scout/route.ts`
 broke `next build` / generated route types (invalid Route field). Bounded fix:
