@@ -92,6 +92,7 @@ describe("scout_plan transport contracts (offline)", () => {
         openToOtherMakes: false,
         zip: "72712",
         maxDistanceMiles: 100,
+        maxMiles: null,
         notes: null,
       },
       pool: [],
@@ -102,9 +103,11 @@ describe("scout_plan transport contracts (offline)", () => {
       recentOutcomes: [],
       evidenceContext: {
         evidenceBriefs: [],
+        newlyAcquiredVins: [],
         searchHistory: [],
         budgetsRemaining: { servCalls: 0, toolCalls: 0, providerCalls: 0 },
         recentOutcomes: [],
+        policy: { unsupportedGovAloneDoesNotProveCarBad: true },
       },
     });
     expect(out.ok).toBe(false);

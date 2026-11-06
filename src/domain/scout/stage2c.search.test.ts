@@ -31,6 +31,7 @@ const flipMandate = {
   openToOtherMakes: true,
   zip: "72712",
   maxDistanceMiles: 200,
+  maxMiles: null,
   notes: null,
 };
 
@@ -176,13 +177,18 @@ describe("Stage2C bounded mid-loop inventory.search", () => {
     expect(result.candidates.some((c) => c.vin.startsWith("1HGBH41JX"))).toBe(true);
     // Next action must change from search → select of a fresh acquired VIN (not blind initial Toyota walk only).
     expect(midLoop.acquiredVin?.startsWith("1HGBH41JX")).toBe(true);
+    // Fresh VIN must enter the pool; select may accept or honestly reject (e.g. flip-excluded).
+    expect(result.candidates.some((c) => c.vin === midLoop.acquiredVin)).toBe(true);
     expect(
-      result.provenance.some(
-        (p) =>
-          p.toolId === "listing.normalize" &&
-          typeof p.reason === "string" &&
-          p.reason.includes(midLoop.acquiredVin!),
-      ) || result.investigation.some((c) => c.vin === midLoop.acquiredVin),
+      result.toolOutcomes.some(
+        (o) =>
+          (o.toolId === "listing.normalize" || o.toolId === "gates.verify") &&
+          o.acquiredVin === midLoop.acquiredVin,
+      ) ||
+        result.investigation.some((c) => c.vin === midLoop.acquiredVin) ||
+        result.candidates.some(
+          (c) => c.vin === midLoop.acquiredVin && c.disposition === "rejected" && c.historyEvaluated,
+        ),
     ).toBe(true);
 
     const obs = observeScoutRun(result, {
@@ -236,7 +242,7 @@ describe("Stage2C bounded mid-loop inventory.search", () => {
       (o) => o.toolId === "inventory.search" && o.status === "rejected",
     );
     expect(rejected.length).toBeGreaterThanOrEqual(2);
-    expect(rejected.every((o) => /rejected_no_spend/i.test(o.summary))).toBe(true);
+    expect(rejected.every((o) => /reject_no_provider_spend|rejected_no_spend/i.test(o.summary))).toBe(true);
 
     const obs = observeScoutRun(result, {
       expect: { requireInventorySearch: true, expectedInventorySource: "replay", expectedFixture: true },

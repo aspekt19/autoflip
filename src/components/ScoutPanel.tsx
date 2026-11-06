@@ -60,6 +60,7 @@ export function ScoutPanel() {
             openToOtherMakes: false,
             zip: "72712",
             maxDistanceMiles: 500,
+            maxMiles: null,
             targetProfitUsd: mode === "flip" ? 500 : null,
             budgetUsd: mode === "personal" ? 25000 : null,
             budgetKnown: mode === "personal",

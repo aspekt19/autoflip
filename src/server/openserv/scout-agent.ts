@@ -29,6 +29,7 @@ const mandateSchema = z.object({
   openToOtherMakes: z.boolean().optional(),
   zip: z.string().nullable().optional(),
   maxDistanceMiles: z.number().nonnegative().nullable().optional(),
+  maxMiles: z.number().nonnegative().nullable().optional(),
   notes: z.string().nullable().optional(),
 });
 

@@ -25,6 +25,7 @@ describe("personal_fit evidence honesty (Stage2A)", () => {
       openToOtherMakes: false,
       zip: "72712",
       maxDistanceMiles: 500,
+      maxMiles: null,
       notes: null,
     });
     expect(peek.ok).toBe(true);
@@ -40,6 +41,7 @@ describe("personal_fit evidence honesty (Stage2A)", () => {
         openToOtherMakes: false,
         zip: "72712",
         maxDistanceMiles: 500,
+        maxMiles: null,
       },
       inventory,
       planner: mockServPlanner([

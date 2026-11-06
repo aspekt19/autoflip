@@ -16,6 +16,7 @@ const multiMakeMandate = {
   openToOtherMakes: false,
   zip: "72712",
   maxDistanceMiles: 100,
+  maxMiles: null,
   notes: null,
 };
 

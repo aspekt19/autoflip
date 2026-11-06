@@ -1,6 +1,7 @@
 /**
- * Stage2C — typed bounded inventory.search adjustments.
+ * Stage2C-followon — typed bounded inventory.search adjustments.
  * Must stay inside buyer mandate + server caps. Reject out-of-mandate without paid work.
+ * Explicit null distanceMiles means nationwide when the mandate allows it (not ??-collapsed).
  */
 import type { ScoutMandate } from "./types";
 
@@ -12,6 +13,8 @@ export const SCOUT_SEARCH_SERVER_CAPS = {
   maxModels: 6,
   maxDistanceMiles: 500,
   maxMidLoopSearchesPerRun: 2,
+  maxPriceUsd: 500_000,
+  maxMiles: 500_000,
 } as const;
 
 export type ScoutSearchParams = {
@@ -19,7 +22,12 @@ export type ScoutSearchParams = {
   makes: string[];
   models: string[];
   zip: string | null;
+  /** null = nationwide (only when mandate allows nationwide). */
   distanceMiles: number | null;
+  /** Hard asking-price ceiling at query + ingestion. null = no explicit search price cap. */
+  maxPriceUsd: number | null;
+  /** Hard odometer ceiling at query + ingestion. null = no explicit miles cap. */
+  maxMiles: number | null;
 };
 
 export type ScoutSearchValidation =
@@ -48,6 +56,22 @@ function asStringList(raw: unknown, max: number): string[] | null {
   return out;
 }
 
+function readOptionalNonNeg(
+  body: Record<string, unknown>,
+  keys: string[],
+): { present: boolean; value: number | null } | { error: string } {
+  for (const key of keys) {
+    if (!(key in body)) continue;
+    const raw = body[key];
+    if (raw === null) return { present: true, value: null };
+    if (typeof raw === "number" && Number.isFinite(raw) && raw >= 0) {
+      return { present: true, value: raw };
+    }
+    return { error: `${key} must be a non-negative number or null.` };
+  }
+  return { present: false, value: null };
+}
+
 /** Mandate defaults used for the initial inventory.search fingerprint. */
 export function mandateToSearchParams(mandate: ScoutMandate): ScoutSearchParams {
   return {
@@ -56,7 +80,17 @@ export function mandateToSearchParams(mandate: ScoutMandate): ScoutSearchParams 
     models: [],
     zip: mandate.zip,
     distanceMiles: mandate.maxDistanceMiles,
+    maxPriceUsd: mandatePriceCap(mandate),
+    maxMiles: mandate.maxMiles,
   };
+}
+
+/** Explicit buyer asking-price hard cap when budget is known. */
+export function mandatePriceCap(mandate: ScoutMandate): number | null {
+  if (!mandate.budgetKnown || mandate.budgetUsd == null) return null;
+  if (mandate.mode === "personal") return mandate.budgetUsd * 1.25;
+  // Flip: hard asking cap at budget (not 1.25×).
+  return mandate.budgetUsd;
 }
 
 export function fingerprintSearchParams(params: ScoutSearchParams): string {
@@ -68,12 +102,14 @@ export function fingerprintSearchParams(params: ScoutSearchParams): string {
     models,
     zip: params.zip,
     distanceMiles: params.distanceMiles,
+    maxPriceUsd: params.maxPriceUsd,
+    maxMiles: params.maxMiles,
   });
 }
 
 /**
  * Validate planner args for inventory.search against mandate + server caps.
- * Does not invent licensed history or sold comps — search geo/make only.
+ * Does not invent licensed history or sold comps — search geo/make/model/price/miles.
  */
 export function validateScoutSearchParams(
   raw: unknown,
@@ -104,7 +140,8 @@ export function validateScoutSearchParams(
   }
 
   // Default makes to mandate preferred when omitted.
-  const effectiveMakes = makes.length > 0 ? makes : [...mandate.preferredMakes].slice(0, SCOUT_SEARCH_SERVER_CAPS.maxMakes);
+  const effectiveMakes =
+    makes.length > 0 ? makes : [...mandate.preferredMakes].slice(0, SCOUT_SEARCH_SERVER_CAPS.maxMakes);
 
   if (!mandate.openToOtherMakes && mandate.preferredMakes.length > 0) {
     const allowed = new Set(mandate.preferredMakes.map(normMake));
@@ -147,11 +184,10 @@ export function validateScoutSearchParams(
     };
   }
 
+  // Explicit null must not be collapsed by ?? onto a sibling key (nationwide semantics).
   let distanceMiles: number | null;
-  if (body.distanceMiles === undefined && body.maxDistanceMiles === undefined) {
-    distanceMiles = mandate.maxDistanceMiles;
-  } else {
-    const rawDist = body.distanceMiles ?? body.maxDistanceMiles;
+  if ("distanceMiles" in body) {
+    const rawDist = body.distanceMiles;
     if (rawDist === null) {
       distanceMiles = null;
     } else if (typeof rawDist === "number" && Number.isFinite(rawDist) && rawDist >= 0) {
@@ -163,6 +199,21 @@ export function validateScoutSearchParams(
         message: "distanceMiles must be a non-negative number or null.",
       };
     }
+  } else if ("maxDistanceMiles" in body) {
+    const rawDist = body.maxDistanceMiles;
+    if (rawDist === null) {
+      distanceMiles = null;
+    } else if (typeof rawDist === "number" && Number.isFinite(rawDist) && rawDist >= 0) {
+      distanceMiles = rawDist;
+    } else {
+      return {
+        ok: false,
+        reason: "invalid",
+        message: "maxDistanceMiles must be a non-negative number or null.",
+      };
+    }
+  } else {
+    distanceMiles = mandate.maxDistanceMiles;
   }
 
   if (distanceMiles != null && distanceMiles > SCOUT_SEARCH_SERVER_CAPS.maxDistanceMiles) {
@@ -183,6 +234,14 @@ export function validateScoutSearchParams(
       message: `distanceMiles ${distanceMiles} exceeds mandate maxDistanceMiles ${mandate.maxDistanceMiles} — rejected without adapter call.`,
     };
   }
+  // Explicit nationwide (null) only when mandate already allows nationwide.
+  if (distanceMiles === null && mandate.maxDistanceMiles != null) {
+    return {
+      ok: false,
+      reason: "out_of_mandate",
+      message: `distanceMiles null (nationwide) expands past mandate maxDistanceMiles ${mandate.maxDistanceMiles} — rejected without adapter call.`,
+    };
+  }
   if (distanceMiles != null && !zip) {
     return {
       ok: false,
@@ -191,12 +250,77 @@ export function validateScoutSearchParams(
     };
   }
 
+  const priceRead = readOptionalNonNeg(body, ["maxPriceUsd", "priceMax", "maxPrice"]);
+  if ("error" in priceRead) {
+    return { ok: false, reason: "invalid", message: priceRead.error };
+  }
+  const milesRead = readOptionalNonNeg(body, ["maxMiles", "milesMax", "maxMileage"]);
+  if ("error" in milesRead) {
+    return { ok: false, reason: "invalid", message: milesRead.error };
+  }
+
+  const mandateCap = mandatePriceCap(mandate);
+  let maxPriceUsd: number | null = priceRead.present ? priceRead.value : mandateCap;
+  if (maxPriceUsd != null && maxPriceUsd > SCOUT_SEARCH_SERVER_CAPS.maxPriceUsd) {
+    return {
+      ok: false,
+      reason: "out_of_mandate",
+      message: `maxPriceUsd exceeds server cap ${SCOUT_SEARCH_SERVER_CAPS.maxPriceUsd}.`,
+    };
+  }
+  if (mandateCap != null && maxPriceUsd != null && maxPriceUsd > mandateCap) {
+    return {
+      ok: false,
+      reason: "out_of_mandate",
+      message: `maxPriceUsd ${maxPriceUsd} exceeds mandate price cap ${mandateCap} — rejected without adapter call.`,
+    };
+  }
+  if (mandateCap != null && maxPriceUsd === null && priceRead.present) {
+    return {
+      ok: false,
+      reason: "out_of_mandate",
+      message: "Cannot drop mandate price cap to null mid-loop — rejected without adapter call.",
+    };
+  }
+  // Always enforce known mandate price cap even when planner omitted it.
+  if (mandateCap != null && (maxPriceUsd == null || maxPriceUsd > mandateCap)) {
+    maxPriceUsd = mandateCap;
+  }
+
+  let maxMiles: number | null = milesRead.present ? milesRead.value : mandate.maxMiles;
+  if (maxMiles != null && maxMiles > SCOUT_SEARCH_SERVER_CAPS.maxMiles) {
+    return {
+      ok: false,
+      reason: "out_of_mandate",
+      message: `maxMiles exceeds server cap ${SCOUT_SEARCH_SERVER_CAPS.maxMiles}.`,
+    };
+  }
+  if (mandate.maxMiles != null && maxMiles != null && maxMiles > mandate.maxMiles) {
+    return {
+      ok: false,
+      reason: "out_of_mandate",
+      message: `maxMiles ${maxMiles} exceeds mandate maxMiles ${mandate.maxMiles} — rejected without adapter call.`,
+    };
+  }
+  if (mandate.maxMiles != null && maxMiles === null && milesRead.present) {
+    return {
+      ok: false,
+      reason: "out_of_mandate",
+      message: "Cannot drop mandate maxMiles to null mid-loop — rejected without adapter call.",
+    };
+  }
+  if (mandate.maxMiles != null && (maxMiles == null || maxMiles > mandate.maxMiles)) {
+    maxMiles = mandate.maxMiles;
+  }
+
   const params: ScoutSearchParams = {
     version: SCOUT_SEARCH_PARAMS_VERSION,
     makes: effectiveMakes,
     models,
     zip,
     distanceMiles,
+    maxPriceUsd,
+    maxMiles,
   };
   const fingerprint = fingerprintSearchParams(params);
   if (opts?.priorFingerprints) {
@@ -221,5 +345,22 @@ export function mandateWithSearch(mandate: ScoutMandate, search: ScoutSearchPara
     preferredMakes: search.makes.length ? search.makes : mandate.preferredMakes,
     zip: search.zip,
     maxDistanceMiles: search.distanceMiles,
+    maxMiles: search.maxMiles,
+    // Preserve budgetKnown/budgetUsd; search maxPriceUsd is enforced at filter/query separately.
   };
+}
+
+/** Build Auto.dev priceRange / milesRange query fragments (asking prices, not sold). */
+export function searchQueryRanges(search: ScoutSearchParams | null | undefined): {
+  priceRange?: string;
+  milesRange?: string;
+} {
+  const out: { priceRange?: string; milesRange?: string } = {};
+  if (search?.maxPriceUsd != null && search.maxPriceUsd > 0) {
+    out.priceRange = `1-${Math.round(search.maxPriceUsd)}`;
+  }
+  if (search?.maxMiles != null && search.maxMiles >= 0) {
+    out.milesRange = `0-${Math.round(search.maxMiles)}`;
+  }
+  return out;
 }

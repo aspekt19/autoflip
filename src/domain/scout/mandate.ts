@@ -96,6 +96,30 @@ export function validateScoutMandate(raw: unknown): MandateValidation {
     };
   }
 
+  // Explicit null must not be collapsed by ?? onto a sibling key.
+  let maxMiles: number | null | undefined;
+  if ("maxMiles" in body) {
+    maxMiles = asNonNegNumber(body.maxMiles);
+    if (maxMiles === undefined) {
+      return {
+        ok: false,
+        error: "mandate_invalid",
+        message: "maxMiles must be a non-negative number or null.",
+      };
+    }
+  } else if ("milesMax" in body) {
+    maxMiles = asNonNegNumber(body.milesMax);
+    if (maxMiles === undefined) {
+      return {
+        ok: false,
+        error: "mandate_invalid",
+        message: "maxMiles must be a non-negative number or null.",
+      };
+    }
+  } else {
+    maxMiles = null;
+  }
+
   const notes =
     body.notes === null || body.notes === undefined
       ? null
@@ -118,6 +142,7 @@ export function validateScoutMandate(raw: unknown): MandateValidation {
       openToOtherMakes,
       zip,
       maxDistanceMiles: maxDistanceMiles ?? null,
+      maxMiles: maxMiles ?? null,
       notes,
     },
   };

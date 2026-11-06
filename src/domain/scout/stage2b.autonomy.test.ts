@@ -29,6 +29,7 @@ const flipMandate = {
   openToOtherMakes: false,
   zip: "72712",
   maxDistanceMiles: 500,
+  maxMiles: null,
   notes: null,
 };
 
@@ -286,7 +287,10 @@ describe("Stage2B genuine autonomy (offline)", () => {
     });
     expect(
       result.toolOutcomes.some(
-        (o) => o.toolId === "inventory.search" && o.status === "rejected" && /rejected_no_spend/i.test(o.summary),
+        (o) =>
+          o.toolId === "inventory.search" &&
+          o.status === "rejected" &&
+          /reject_no_provider_spend|rejected_no_spend/i.test(o.summary),
       ),
     ).toBe(true);
     expect(["completed", "abstained"]).toContain(result.state);

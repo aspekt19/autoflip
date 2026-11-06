@@ -11,6 +11,7 @@ describe("validateScoutMandate", () => {
       openToOtherMakes: false,
       zip: "72712",
       maxDistanceMiles: 150,
+      maxMiles: null,
       notes: null,
     });
     expect(result.ok).toBe(true);
@@ -32,6 +33,7 @@ describe("validateScoutMandate", () => {
       mode: "flip",
       zip: null,
       maxDistanceMiles: 50,
+      maxMiles: null,
     });
     expect(result.ok).toBe(false);
   });

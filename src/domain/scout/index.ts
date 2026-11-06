@@ -7,6 +7,7 @@ export {
   unconfiguredInventoryAdapter,
   unavailableInventoryAdapter,
   filterPool,
+  listingGeoRelativeToSearch,
   REPLAY_CAMRY_PROVENANCE,
 } from "./inventory";
 export type { InventoryAdapter, InventoryAdapterOpts } from "./inventory";
@@ -40,12 +41,16 @@ export {
   validateScoutSearchParams,
   mandateToSearchParams,
   mandateWithSearch,
+  mandatePriceCap,
   fingerprintSearchParams,
+  searchQueryRanges,
 } from "./search-params";
 export type { ScoutSearchParams, ScoutSearchValidation } from "./search-params";
 export {
   buildCandidateEvidenceBrief,
   buildPlannerEvidenceContext,
+  isUnsupportedGovAloneRejectReason,
+  candidateHasIndependentRejectFacts,
 } from "./planner-context";
 export type {
   CandidateEvidenceBrief,

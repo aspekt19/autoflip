@@ -18,6 +18,7 @@ const mandate = {
   preferredMakes: ["Toyota"],
   zip: "72712",
   maxDistanceMiles: 200,
+  maxMiles: null,
 };
 
 const intent = { planner: "offline_heuristic", preferLive: false };

@@ -19,6 +19,7 @@ const baseMandate = {
   preferredMakes: ["Toyota"],
   zip: "72712",
   maxDistanceMiles: 200,
+  maxMiles: null,
 };
 
 function scoutReq(

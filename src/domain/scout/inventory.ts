@@ -1,6 +1,10 @@
 import { parseAutoDevListings } from "@/io/parsers";
 import type { Listing } from "@/domain/types";
-import { mandateWithSearch, type ScoutSearchParams } from "./search-params";
+import {
+  mandatePriceCap,
+  mandateWithSearch,
+  type ScoutSearchParams,
+} from "./search-params";
 import type { InventoryAdapterResult, ScoutMandate } from "./types";
 
 export type InventoryAdapterOpts = {
@@ -17,6 +21,29 @@ export type InventoryAdapter = (
 export const REPLAY_CAMRY_PROVENANCE =
   "fixtures/autodev-camry.json (Auto.dev vehicle listings payload; row createdAt e.g. 2026-09-16; offline replay — not a live call)";
 
+export type GeoFilterOutcome = "in_range" | "out_of_range" | "unknown_geo";
+
+/**
+ * Geo check: never fabricate distance from unequal ZIP strings.
+ * Unknown geo (no listing.distanceMiles) is not treated as out-of-range.
+ */
+export function listingGeoRelativeToSearch(
+  listing: Listing,
+  zip: string | null,
+  distanceMiles: number | null,
+): GeoFilterOutcome {
+  if (!zip || distanceMiles == null) return "in_range"; // nationwide / no radius constraint
+  if (typeof listing.distanceMiles === "number" && Number.isFinite(listing.distanceMiles)) {
+    return listing.distanceMiles <= distanceMiles ? "in_range" : "out_of_range";
+  }
+  // Do not invent distance from ZIP string inequality — unknown ≠ out-of-range.
+  return "unknown_geo";
+}
+
+/**
+ * Enforce buyer hard constraints at ingestion (asking price / miles / model / make / geo).
+ * Asking prices only — never sold comps. Unknown geo does not masquerade as a local match claim.
+ */
 export function filterPool(
   listings: Listing[],
   mandate: ScoutMandate,
@@ -25,6 +52,11 @@ export function filterPool(
   const makes = search?.makes?.length ? search.makes : mandate.preferredMakes;
   const models = search?.models ?? [];
   const openToOther = search?.makes?.length ? false : mandate.openToOtherMakes;
+  const priceCap =
+    search?.maxPriceUsd != null ? search.maxPriceUsd : mandatePriceCap(mandate);
+  const milesCap = search?.maxMiles != null ? search.maxMiles : mandate.maxMiles;
+  const zip = search ? search.zip : mandate.zip;
+  const radius = search ? search.distanceMiles : mandate.maxDistanceMiles;
 
   return listings.filter((listing) => {
     if (makes.length && !openToOther) {
@@ -35,17 +67,40 @@ export function filterPool(
       const ok = models.some((model) => model.toLowerCase() === listing.model.toLowerCase());
       if (!ok) return false;
     }
-    if (mandate.mode === "personal" && mandate.budgetKnown && mandate.budgetUsd != null) {
-      if (listing.priceUsd != null && listing.priceUsd > mandate.budgetUsd * 1.25) return false;
+    if (priceCap != null && listing.priceUsd != null && listing.priceUsd > priceCap) {
+      return false;
     }
+    if (milesCap != null && listing.miles != null && listing.miles > milesCap) {
+      return false;
+    }
+    const geo = listingGeoRelativeToSearch(listing, zip, radius);
+    if (geo === "out_of_range") return false;
+    // unknown_geo kept — caller must not claim local match without evidence.
     return true;
   });
+}
+
+function fixtureEvidenceFromListings(
+  listings: Listing[],
+  adapterDeclaredFixture: boolean,
+): { isFixture: boolean; fixtureEvidence: "adapter_declared" | "listing_source_sample" | "both" | "unverifiable" } {
+  const sampleRows = listings.length > 0 && listings.every((l) => l.source === "sample");
+  if (adapterDeclaredFixture && sampleRows) {
+    return { isFixture: true, fixtureEvidence: "both" };
+  }
+  if (adapterDeclaredFixture) {
+    return { isFixture: true, fixtureEvidence: "adapter_declared" };
+  }
+  if (sampleRows) {
+    return { isFixture: true, fixtureEvidence: "listing_source_sample" };
+  }
+  return { isFixture: false, fixtureEvidence: "unverifiable" };
 }
 
 /**
  * Replay adapter — uses only an in-memory Auto.dev-shaped JSON object.
  * Never invents rows. Empty after filter → inventory_empty.
- * Honors Stage2C search opts for make/model filter (geo preserved from mandate/search).
+ * Honors Stage2C search opts for make/model/price/miles/geo filter.
  */
 export function replayInventoryAdapter(raw: unknown, provenance: string): InventoryAdapter {
   return async (mandate, opts) => {
@@ -60,6 +115,7 @@ export function replayInventoryAdapter(raw: unknown, provenance: string): Invent
         error: "provider_unavailable",
         message: "Replay payload could not be parsed as Auto.dev listings.",
         providerCallsUsed: 0,
+        isFixture: true,
       };
     }
     const filtered = filterPool(listings, effective, opts?.search ?? null);
@@ -69,8 +125,10 @@ export function replayInventoryAdapter(raw: unknown, provenance: string): Invent
         error: "inventory_empty",
         message: "Replay inventory produced zero listings after mandate filter.",
         providerCallsUsed: 0,
+        isFixture: true,
       };
     }
+    const fx = fixtureEvidenceFromListings(filtered, true);
     return {
       ok: true,
       listings: filtered,
@@ -79,6 +137,7 @@ export function replayInventoryAdapter(raw: unknown, provenance: string): Invent
         ? `${provenance} | search=${JSON.stringify(opts.search)}`
         : provenance,
       providerCallsUsed: 0,
+      isFixture: fx.isFixture,
     };
   };
 }
@@ -108,6 +167,7 @@ export function keyedReplayInventoryAdapter(
         error: "inventory_empty",
         message: `No offline fixture keyed for make ${key || "(none)"}.`,
         providerCallsUsed: 0,
+        isFixture: true,
       };
     }
     return replayInventoryAdapter(raw, `${provenancePrefix}:${key || "default"}`)(mandate, opts);
@@ -121,6 +181,7 @@ export function unconfiguredInventoryAdapter(): InventoryAdapter {
     error: "inventory_unconfigured",
     message: "Live inventory is not configured for this scout run (maxProviderCalls=0 or missing key).",
     providerCallsUsed: 0,
+    isFixture: false,
   });
 }
 
@@ -130,5 +191,8 @@ export function unavailableInventoryAdapter(message: string): InventoryAdapter {
     error: "provider_unavailable",
     message,
     providerCallsUsed: 0,
+    isFixture: false,
   });
 }
+
+export { fixtureEvidenceFromListings };

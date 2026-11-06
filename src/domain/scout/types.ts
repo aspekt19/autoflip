@@ -14,7 +14,31 @@ export type ScoutMandate = {
   openToOtherMakes: boolean;
   zip: string | null;
   maxDistanceMiles: number | null;
+  /** Hard odometer ceiling (buyer constraint). null = no miles cap. */
+  maxMiles: number | null;
   notes: string | null;
+};
+
+/** Per-candidate inventory origin — mid-loop must not overwrite whole-pool identity. */
+export type ScoutInventoryOrigin = {
+  source: "replay" | "live";
+  provenance: string;
+  /**
+   * Independent fixture attestation (adapter-declared and/or listing.source=sample).
+   * Never derived solely from source==="replay".
+   */
+  isFixture: boolean;
+  /** How isFixture was evidenced — unverifiable when only self-attested. */
+  fixtureEvidence: "adapter_declared" | "listing_source_sample" | "both" | "unverifiable";
+  searchFingerprint: string | null;
+};
+
+export type ScoutInventoryIdentity = {
+  kind: "replay" | "live" | "none";
+  isFixture: boolean;
+  fixtureEvidence: ScoutInventoryOrigin["fixtureEvidence"] | "none";
+  /** Independent of kind self-copy — unverifiable when kind merely repeats inventorySource. */
+  sourceEvidence: "adapter_declared" | "listing_source" | "unverifiable" | "none";
 };
 
 export type ScoutToolId =
@@ -134,6 +158,8 @@ export type ScoutCandidate = {
   historyEvaluated: boolean;
   claimsSafeBuy: false;
   claimsVerifiedProfit: false;
+  /** Which search/adapter introduced this VIN — independent of run-level identity. */
+  inventoryOrigin?: ScoutInventoryOrigin | null;
 };
 
 export type ScoutPlanAction =
@@ -157,16 +183,29 @@ export type ScoutToolOutcomeStatus =
   /** Out-of-mandate / duplicate / cap — no adapter call, no paid work. */
   | "rejected";
 
+export type ScoutInventorySearchRecord = {
+  fingerprint: string;
+  source: "replay" | "live" | "none";
+  provenance: string | null;
+  isFixture: boolean;
+  status: ScoutToolOutcomeStatus;
+  freshVinCount: number;
+  providerCallsUsed: number;
+};
+
 /**
  * Structured adapter capability — never infer unsupported-vs-success from summary text.
- * `ok`/`status` must agree with capability (detector enforces).
+ * Required on recorded outcomes. Must be independently grounded (tool/adapter contract),
+ * not derived solely from status (detectors treat status-only derivation as incomplete).
  */
 export type ScoutToolCapability =
   | "supported_executed"
   | "unsupported"
   | "failed"
   | "empty"
-  | "idempotent_replay";
+  | "idempotent_replay"
+  /** Validation/budget reject before provider dispatch — no adapter execution. */
+  | "rejected_no_provider_spend";
 
 export type ScoutToolOutcome = {
   toolId: ScoutToolId;
@@ -174,10 +213,15 @@ export type ScoutToolOutcome = {
   ok: boolean;
   status: ScoutToolOutcomeStatus;
   /**
-   * Structured adapter capability. Runner always sets this; detectors treat
-   * capability/status/ok disagreement as unsupported_as_success (not summary text).
+   * Required structured adapter capability. Detectors treat missing capability
+   * or capability↔status/ok disagreement as incomplete / unsupported_as_success.
    */
-  capability?: ScoutToolCapability;
+  capability: ScoutToolCapability;
+  /**
+   * True when capability was independently declared by adapter/tool contract.
+   * False/absent when filled only by status→capability mapping (incomplete evidence).
+   */
+  capabilityGrounded?: boolean;
   summary: string;
   /** When replace/select acquires a different VIN, the executed candidate. */
   acquiredVin: string | null;
@@ -198,11 +242,10 @@ export type ScoutRunResult = {
   usage: ScoutBudgetUsage;
   inventorySource: "replay" | "live" | "none";
   inventoryProvenance: string | null;
-  /** Structured source identity — not provenance-string regex. */
-  inventoryIdentity: {
-    kind: "replay" | "live" | "none";
-    isFixture: boolean;
-  };
+  /** Structured source identity for the *initial* pool — mid-loop must not overwrite. */
+  inventoryIdentity: ScoutInventoryIdentity;
+  /** Append-only per-search identities (initial + mid-loop). */
+  inventorySearchLog?: ScoutInventorySearchRecord[];
   poolSize: number;
   candidates: ScoutCandidate[];
   investigation: ScoutCandidate[];
@@ -212,6 +255,10 @@ export type ScoutRunResult = {
   failReason: ScoutFailReason | null;
   message: string | null;
   autonomyClaim: "serv_directed" | "none";
+  /**
+   * True when coverage is incomplete (failed lookup, budget stop, etc.) even if
+   * some candidates exist / state completed.
+   */
   partial: boolean;
 };
 
@@ -222,10 +269,13 @@ export type InventoryAdapterResult =
       source: "replay" | "live";
       provenance: string;
       providerCallsUsed: number;
+      /** Independent fixture bit — not inferred from source string alone. */
+      isFixture: boolean;
     }
   | {
       ok: false;
       error: "inventory_empty" | "inventory_unconfigured" | "provider_unavailable";
       message: string;
       providerCallsUsed: number;
+      isFixture?: boolean;
     };

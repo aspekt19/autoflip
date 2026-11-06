@@ -23,6 +23,7 @@ const flipMandate = {
   openToOtherMakes: false,
   zip: "72712",
   maxDistanceMiles: 500,
+  maxMiles: null,
   notes: null,
 };
 
