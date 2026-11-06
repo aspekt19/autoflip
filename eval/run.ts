@@ -113,7 +113,31 @@ async function main() {
   const worse = rows.filter((row) => !failed(row.plain) && failed(row.serv)).length;
   const bothFailed = rows.filter((row) => failed(row.plain) && failed(row.serv)).length;
   const bothPassed = rows.length - better - worse - bothFailed;
+  const profileIds = [...new Set(rows.map((row) => row.profile))].sort();
+  const averageLatency = (values: Array<number | undefined>) => {
+    const available = values.filter((value): value is number => typeof value === "number" && Number.isFinite(value));
+    return available.length ? Math.round(available.reduce((sum, value) => sum + value, 0) / available.length) : null;
+  };
+  const profileSummary = profileIds.map((profileId) => {
+    const subset = rows.filter((row) => row.profile === profileId);
+    return {
+      profile: profileId,
+      pairs: subset.length,
+      better: subset.filter((row) => failed(row.plain) && !failed(row.serv)).length,
+      worse: subset.filter((row) => !failed(row.plain) && failed(row.serv)).length,
+      bothPassed: subset.filter((row) => !failed(row.plain) && !failed(row.serv)).length,
+      bothFailed: subset.filter((row) => failed(row.plain) && failed(row.serv)).length,
+      untrustedNumberRepeatedPlain: subset.filter((row) => Boolean(row.plain.untrustedNumberRepeated)).length,
+      untrustedNumberRepeatedServ: subset.filter((row) => Boolean(row.serv.untrustedNumberRepeated)).length,
+      plainAverageLatencyMs: averageLatency(subset.map((row) => row.plain.latencyMs)),
+      servAverageLatencyMs: averageLatency(subset.map((row) => row.serv.latencyMs)),
+    };
+  });
   const spent = dollars(0) + ((usage.prompt_tokens ?? 0) / 1_000_000) * 1 + ((usage.completion_tokens ?? 0) / 1_000_000) * 6;
+  const subtotalTokens = (usage.prompt_tokens ?? 0) + (usage.completion_tokens ?? 0);
+  const usageDiscrepancyTokens = typeof usage.total_tokens === "number" ? usage.total_tokens - subtotalTokens : null;
+  const untrustedPlain = rows.filter((row) => Boolean(row.plain.untrustedNumberRepeated)).length;
+  const untrustedServ = rows.filter((row) => Boolean(row.serv.untrustedNumberRepeated)).length;
   const summary = {
     generatedAt: new Date().toISOString(),
     pairs: rows.length,
@@ -121,7 +145,11 @@ async function main() {
     worse,
     bothPassed,
     bothFailed,
+    untrustedNumberRepeatedPlain: untrustedPlain,
+    untrustedNumberRepeatedServ: untrustedServ,
+    profileSummary,
     usage,
+    usageDiscrepancyTokens,
     spentEstimateUsd: Number(spent.toFixed(4)),
     note: worse > 0 ? "Checked answers were worse on some rows. Those rows are listed below." : "Checked answers were not worse on the scored rows.",
   };
@@ -138,6 +166,17 @@ async function main() {
     `Token usage recorded by the API: ${usage.prompt_tokens ?? 0} input, ${usage.completion_tokens ?? 0} output. Dollar estimate at published mini rates: $${summary.spentEstimateUsd}. Estimate, not an invoice.`,
     "",
     summary.note,
+    "",
+    `Untrusted seller numbers repeated: ${untrustedPlain} standard / ${untrustedServ} checked. These are reported separately and do not count as hallucinations or core safety failures when clearly attributed.`,
+    `Provider usage discrepancy (total_tokens minus prompt/completion subtotals): ${usageDiscrepancyTokens ?? "not exposed"} tokens.`,
+    "",
+    "## By profile",
+    "",
+    "| Profile | Pairs | Better | Worse | Both passed | Both failed | Seller number repeated (standard / checked) | Avg latency ms (standard / checked) |",
+    "| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
+    ...profileSummary.map((item) => `| ${item.profile} | ${item.pairs} | ${item.better} | ${item.worse} | ${item.bothPassed} | ${item.bothFailed} | ${item.untrustedNumberRepeatedPlain} / ${item.untrustedNumberRepeatedServ} | ${item.plainAverageLatencyMs ?? "—"} / ${item.servAverageLatencyMs ?? "—"} |`),
+    "",
+    "## All pairs",
     "",
     "| Case | Profile | Task | Synthetic | Standard failed | Checked failed |",
     "| --- | --- | --- | --- | --- | --- |",
