@@ -138,7 +138,7 @@ Independent review of 6e8e655 product gaps 1–7:
 **Remain (do not market closed):** heuristic VIN-walk when search not chosen; no Guard/advantage;
 347 green ≠ closure; mocked eval ≠ SERV efficacy.
 
-## STAGE-INTEGRATION — PIN TO_REPLACE (HTTP→facade→stubbed SERV/Auto.dev)
+## STAGE-INTEGRATION — PIN 8a66dcd (HTTP→facade→stubbed SERV/Auto.dev)
 
 Bounded offline integration (not live E2E, not SERV efficacy):
 - Routes: `GET /api/scout`, `POST /api/scout` (`postScoutStart`), persistence via
