@@ -79,7 +79,7 @@ jobs:
           github-token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Submit baseline and SERV evaluations to Reppo
-        if: inputs.mode == 'submit'
+        if: github.event_name == 'push' || inputs.mode == 'submit'
         env:
           REPPO_API_KEY: ${{ secrets.REPPO_API_KEY }}
         run: npm run eval:reppo
