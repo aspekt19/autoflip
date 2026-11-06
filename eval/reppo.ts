@@ -87,7 +87,7 @@ async function main() {
     const testCase = cases.get(row.caseId);
     if (!testCase) continue;
     for (const variant of ["baseline", "serv"] as const) {
-      const explanation = row[variant].text?.trim();
+      const explanation = (variant === "baseline" ? row.plain.text : row.serv.text)?.trim();
       if (!explanation) continue;
       const payload = [
         `AutoFlip report explanation — ${variant === "baseline" ? "plain-model baseline" : "SERV-assisted"}`,
