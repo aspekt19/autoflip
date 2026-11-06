@@ -3,7 +3,12 @@
 import gsap from "gsap";
 import { ScrollTrigger } from "gsap/ScrollTrigger";
 import { useEffect, useRef } from "react";
-import { FRAME_WINDOW_RADIUS, framesInWindow, nearestDecodedFrame } from "@/domain/film-frame-window";
+import {
+  decodeOrder,
+  frameIndexForProgress,
+  MAX_DECODE_WIDTH,
+  nearestDecodedFrame,
+} from "@/domain/film-frame-window";
 import type { Mode } from "@/domain/types";
 
 gsap.registerPlugin(ScrollTrigger);
@@ -18,7 +23,7 @@ type FrameFolder = "desktop-2560" | "mobile";
 
 /** Source frames are 16:9 (2560×1440 desktop, 1280×720 mobile). */
 const FRAME_ASPECT = 16 / 9;
-const MAX_BACKING_WIDTH = 2560;
+const DECODE_CONCURRENCY = 3;
 
 type CoverSize = {
   cssW: number;
@@ -30,6 +35,21 @@ type CoverSize = {
   resizeH: number;
 };
 
+export type FilmScrubDebug = {
+  getIndex: () => number;
+  getPainted: () => number;
+  getDecodedCount: () => number;
+  isFullyDecoded: () => boolean;
+  count: number;
+  waitUntilDecoded: (timeoutMs?: number) => Promise<boolean>;
+};
+
+declare global {
+  interface Window {
+    __filmScrubDebug?: FilmScrubDebug;
+  }
+}
+
 function phaseFor(progress: number): FilmPhase {
   if (progress < 0.14) return "open";
   return "detail";
@@ -39,14 +59,15 @@ function frameSrc(folder: FrameFolder, index: number) {
   return `/frames/${folder}/f${String(index + 1).padStart(3, "0")}.webp`;
 }
 
-function coverSizeFor(cssW: number, cssH: number): CoverSize | null {
+/** Cover size in device pixels; decoded bitmap width capped at MAX_DECODE_WIDTH (~450 MB for 48 frames). */
+export function coverSizeFor(cssW: number, cssH: number, devicePixelRatio = 1): CoverSize | null {
   if (cssW < 2 || cssH < 2) return null;
-  const dpr = Math.min(window.devicePixelRatio || 1, 2);
+  const dpr = Math.min(devicePixelRatio || 1, 2);
   let canvasW = Math.round(cssW * dpr);
   let canvasH = Math.round(cssH * dpr);
-  if (canvasW > MAX_BACKING_WIDTH) {
-    const scale = MAX_BACKING_WIDTH / canvasW;
-    canvasW = MAX_BACKING_WIDTH;
+  if (canvasW > MAX_DECODE_WIDTH) {
+    const scale = MAX_DECODE_WIDTH / canvasW;
+    canvasW = MAX_DECODE_WIDTH;
     canvasH = Math.round(canvasH * scale);
   }
   const canvasRatio = canvasW / canvasH;
@@ -58,6 +79,11 @@ function coverSizeFor(cssW: number, cssH: number): CoverSize | null {
   } else {
     resizeW = canvasW;
     resizeH = Math.round(canvasW / FRAME_ASPECT);
+  }
+  if (resizeW > MAX_DECODE_WIDTH) {
+    const scale = MAX_DECODE_WIDTH / resizeW;
+    resizeW = MAX_DECODE_WIDTH;
+    resizeH = Math.round(resizeH * scale);
   }
   return { cssW, cssH, dpr, canvasW, canvasH, resizeW, resizeH };
 }
@@ -73,15 +99,11 @@ function closeBitmap(value: ImageBitmap | HTMLImageElement | undefined) {
   }
 }
 
-async function decodeFrameBitmap(
-  url: string,
+async function decodeBlobToBitmap(
+  blob: Blob,
   resizeW: number,
   resizeH: number,
 ): Promise<ImageBitmap | HTMLImageElement> {
-  const response = await fetch(url);
-  if (!response.ok) throw new Error(`frame fetch failed: ${response.status}`);
-  const blob = await response.blob();
-
   if (typeof createImageBitmap === "function") {
     try {
       return await createImageBitmap(blob, {
@@ -121,33 +143,19 @@ function drawCover(
   const srcH = "naturalHeight" in source ? source.naturalHeight : source.height;
   if (!srcW || !srcH) return;
 
-  // Pre-resized ImageBitmaps already match cover size in device pixels — draw 1:1.
-  const preSized =
-    typeof ImageBitmap !== "undefined" &&
-    source instanceof ImageBitmap &&
-    Math.abs(srcW - size.resizeW) <= 1 &&
-    Math.abs(srcH - size.resizeH) <= 1;
-
-  let drawW: number;
-  let drawH: number;
-  if (preSized) {
-    drawW = srcW;
-    drawH = srcH;
-  } else {
-    const imageRatio = srcW / srcH;
-    const canvasRatio = size.canvasW / size.canvasH;
-    drawW = size.canvasW;
-    drawH = size.canvasH;
-    if (imageRatio > canvasRatio) drawW = size.canvasH * imageRatio;
-    else drawH = size.canvasW / imageRatio;
-  }
+  const imageRatio = srcW / srcH;
+  const canvasRatio = size.canvasW / size.canvasH;
+  let drawW = size.canvasW;
+  let drawH = size.canvasH;
+  if (imageRatio > canvasRatio) drawW = size.canvasH * imageRatio;
+  else drawH = size.canvasW / imageRatio;
 
   const x = (size.canvasW - drawW) / 2 + shift * size.canvasW * 0.35;
   const y = (size.canvasH - drawH) / 2;
   ctx.drawImage(source, x, y, drawW, drawH);
 }
 
-/** Scroll-scrubbed film. The poster paints first. Frames decode off-thread into a sliding window. */
+/** Scroll-scrubbed film. Poster paints first; all frames fetch once and stay decoded. */
 export function FilmScrub({ mode, onPhase }: { mode: Mode; onPhase: (phase: FilmPhase) => void }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const index = useRef(0);
@@ -156,10 +164,7 @@ export function FilmScrub({ mode, onPhase }: { mode: Mode; onPhase: (phase: Film
   const phaseRef = useRef<FilmPhase>("open");
   onPhaseRef.current = onPhase;
 
-  // Mode-shift tween reads these; the main effect owns the real decode store.
-  const paintBridge = useRef<{
-    schedulePaint: () => void;
-  } | null>(null);
+  const paintBridge = useRef<{ schedulePaint: () => void } | null>(null);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -169,22 +174,27 @@ export function FilmScrub({ mode, onPhase }: { mode: Mode; onPhase: (phase: Film
     const count = narrow ? MOBILE_FRAMES : DESKTOP_FRAMES;
     const folder: FrameFolder = narrow ? "mobile" : "desktop-2560";
 
+    const blobs: Array<Blob | undefined> = Array.from({ length: count });
     const bitmaps: Array<ImageBitmap | HTMLImageElement | undefined> = Array.from({ length: count });
     const inflight = new Map<number, Promise<void>>();
     let generation = 0;
-    let size = coverSizeFor(canvas.clientWidth || window.innerWidth, canvas.clientHeight || window.innerHeight);
+    let size = coverSizeFor(
+      canvas.clientWidth || window.innerWidth,
+      canvas.clientHeight || window.innerHeight,
+      window.devicePixelRatio || 1,
+    );
     let ctx = canvas.getContext("2d");
     let paintedFrame = -1;
     let paintedShift = Number.NaN;
     let raf = 0;
     let disposed = false;
+    let decodeDone: Promise<void> = Promise.resolve();
 
     const syncCanvasSize = () => {
       if (!size || !ctx) return;
       if (canvas.width !== size.canvasW || canvas.height !== size.canvasH) {
         canvas.width = size.canvasW;
         canvas.height = size.canvasH;
-        // Resetting canvas size drops context state; re-acquire once.
         ctx = canvas.getContext("2d");
       }
     };
@@ -221,71 +231,105 @@ export function FilmScrub({ mode, onPhase }: { mode: Mode; onPhase: (phase: Film
     };
     paintBridge.current = { schedulePaint };
 
-    const releaseOutsideWindow = (center: number) => {
-      const keep = new Set(framesInWindow(center, count, FRAME_WINDOW_RADIUS));
-      for (let frame = 0; frame < count; frame += 1) {
-        if (keep.has(frame)) continue;
-        if (bitmaps[frame]) {
-          closeBitmap(bitmaps[frame]);
-          bitmaps[frame] = undefined;
-        }
-        inflight.delete(frame);
-      }
+    const fetchAllBlobs = async () => {
+      await Promise.all(
+        Array.from({ length: count }, async (_, frame) => {
+          if (disposed) return;
+          const response = await fetch(frameSrc(folder, frame));
+          if (!response.ok) throw new Error(`frame fetch failed: ${response.status}`);
+          blobs[frame] = await response.blob();
+        }),
+      );
     };
 
-    const ensure = (frame: number) => {
-      if (disposed || frame < 0 || frame >= count || !size) return;
-      if (bitmaps[frame] || inflight.has(frame)) return;
-      const gen = generation;
+    const decodeOne = (frame: number, gen: number) => {
+      if (disposed || frame < 0 || frame >= count || !size) return Promise.resolve();
+      if (bitmaps[frame]) return Promise.resolve();
+      const existing = inflight.get(frame);
+      if (existing) return existing;
+      const blob = blobs[frame];
+      if (!blob) return Promise.resolve();
       const { resizeW, resizeH } = size;
-      const task = decodeFrameBitmap(frameSrc(folder, frame), resizeW, resizeH)
+      const task = decodeBlobToBitmap(blob, resizeW, resizeH)
         .then((bitmap) => {
           if (disposed || gen !== generation) {
             closeBitmap(bitmap);
             return;
           }
-          const keep = new Set(framesInWindow(index.current, count, FRAME_WINDOW_RADIUS));
-          if (!keep.has(frame)) {
-            closeBitmap(bitmap);
-            return;
-          }
           closeBitmap(bitmaps[frame]);
           bitmaps[frame] = bitmap;
-          if (nearestDecodedFrame(index.current, decodedSet()) === frame || frame === index.current) {
+          if (frame === index.current || nearestDecodedFrame(index.current, decodedSet()) === frame) {
             schedulePaint();
           }
         })
         .catch(() => {
-          /* leave slot empty; nearest decoded frame still paints */
+          /* leave slot empty; nearest decoded still paints */
         })
         .finally(() => {
           inflight.delete(frame);
         });
       inflight.set(frame, task);
+      return task;
     };
 
-    const ensureWindow = (center: number) => {
-      releaseOutsideWindow(center);
-      for (const frame of framesInWindow(center, count, FRAME_WINDOW_RADIUS)) ensure(frame);
+    const decodeAll = async (gen: number) => {
+      if (!size) return;
+      const order = decodeOrder(count);
+      let cursor = 0;
+      const worker = async () => {
+        while (!disposed && gen === generation && cursor < order.length) {
+          const frame = order[cursor];
+          cursor += 1;
+          await decodeOne(frame, gen);
+        }
+      };
+      await Promise.all(Array.from({ length: DECODE_CONCURRENCY }, () => worker()));
     };
 
-    syncCanvasSize();
-    // Progressive: every 4th in the opening window first, then fill the window.
-    ensure(0);
-    for (const frame of framesInWindow(0, count, FRAME_WINDOW_RADIUS)) {
-      if (frame % 4 === 0) ensure(frame);
-    }
-    const fillHandle = window.setTimeout(() => {
+    const boot = async () => {
+      syncCanvasSize();
+      try {
+        await fetchAllBlobs();
+      } catch {
+        return;
+      }
       if (disposed) return;
-      ensureWindow(index.current);
-    }, 400);
+      // Decode frame 0 immediately for first paint, then background-fill the rest.
+      await decodeOne(0, generation);
+      schedulePaint();
+      decodeDone = decodeAll(generation);
+      await decodeDone;
+    };
+
+    decodeDone = boot();
+
+    window.__filmScrubDebug = {
+      getIndex: () => index.current,
+      getPainted: () => paintedFrame,
+      getDecodedCount: () => bitmaps.filter(Boolean).length,
+      isFullyDecoded: () => bitmaps.every(Boolean),
+      count,
+      waitUntilDecoded: async (timeoutMs = 60_000) => {
+        const start = performance.now();
+        while (!disposed && !bitmaps.every(Boolean) && performance.now() - start < timeoutMs) {
+          await decodeDone.catch(() => undefined);
+          if (bitmaps.every(Boolean)) return true;
+          await new Promise((resolve) => window.setTimeout(resolve, 50));
+        }
+        return bitmaps.every(Boolean);
+      },
+    };
 
     let resizeTimer = 0;
     const onResize = () => {
       window.clearTimeout(resizeTimer);
       resizeTimer = window.setTimeout(() => {
         if (disposed) return;
-        const next = coverSizeFor(canvas.clientWidth || window.innerWidth, canvas.clientHeight || window.innerHeight);
+        const next = coverSizeFor(
+          canvas.clientWidth || window.innerWidth,
+          canvas.clientHeight || window.innerHeight,
+          window.devicePixelRatio || 1,
+        );
         if (!next) return;
         const same =
           size &&
@@ -307,7 +351,8 @@ export function FilmScrub({ mode, onPhase }: { mode: Mode; onPhase: (phase: Film
         paintedFrame = -1;
         paintedShift = Number.NaN;
         syncCanvasSize();
-        ensureWindow(index.current);
+        // Re-decode from cached blobs — never re-fetch.
+        decodeDone = decodeAll(generation);
         schedulePaint();
       }, 120);
     };
@@ -317,9 +362,9 @@ export function FilmScrub({ mode, onPhase }: { mode: Mode; onPhase: (phase: Film
       return () => {
         disposed = true;
         paintBridge.current = null;
+        delete window.__filmScrubDebug;
         window.removeEventListener("resize", onResize);
         window.clearTimeout(resizeTimer);
-        window.clearTimeout(fillHandle);
         if (raf) window.cancelAnimationFrame(raf);
         for (const bitmap of bitmaps) closeBitmap(bitmap);
       };
@@ -332,10 +377,9 @@ export function FilmScrub({ mode, onPhase }: { mode: Mode; onPhase: (phase: Film
         end: "bottom bottom",
         scrub: 0.6,
         onUpdate: (self) => {
-          const next = Math.min(count - 1, Math.round(self.progress * (count - 1)));
+          const next = frameIndexForProgress(self.progress, count);
           if (next !== index.current) {
             index.current = next;
-            ensureWindow(next);
             schedulePaint();
           }
           const phase = phaseFor(self.progress);
@@ -350,9 +394,9 @@ export function FilmScrub({ mode, onPhase }: { mode: Mode; onPhase: (phase: Film
     return () => {
       disposed = true;
       paintBridge.current = null;
+      delete window.__filmScrubDebug;
       window.removeEventListener("resize", onResize);
       window.clearTimeout(resizeTimer);
-      window.clearTimeout(fillHandle);
       if (raf) window.cancelAnimationFrame(raf);
       for (const bitmap of bitmaps) closeBitmap(bitmap);
       gsapCtx.revert();
