@@ -1,19 +1,19 @@
 import { getKv } from "@/io/kv";
 import { createApiKey, listApiKeys, revokeApiKey } from "@/server/api-keys";
-import { userId } from "@/server/session";
+import { ledgerOwnerId } from "@/server/session";
 
 export const dynamic = "force-dynamic";
 
 const ACTIVE_LIMIT = 5;
 
 export async function GET() {
-  const id = await userId();
+  const id = await ledgerOwnerId();
   const keys = await listApiKeys(getKv(), id);
   return Response.json({ keys: keys.map(publicKey) });
 }
 
 export async function POST(request: Request) {
-  const id = await userId();
+  const id = await ledgerOwnerId();
   const body = (await request.json().catch(() => null)) as { label?: unknown } | null;
   const label = typeof body?.label === "string" ? body.label : "Agent key";
   const existing = await listApiKeys(getKv(), id);
@@ -25,7 +25,7 @@ export async function POST(request: Request) {
 }
 
 export async function DELETE(request: Request) {
-  const id = await userId();
+  const id = await ledgerOwnerId();
   const body = (await request.json().catch(() => null)) as { id?: unknown } | null;
   const keyId = typeof body?.id === "string" ? body.id : "";
   const ok = await revokeApiKey(getKv(), id, keyId);

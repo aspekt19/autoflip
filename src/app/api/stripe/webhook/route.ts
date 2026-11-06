@@ -74,7 +74,15 @@ export async function POST(request: Request) {
     const session = event.data.object;
     const user = session.metadata?.userId;
     const credits = Number(session.metadata?.credits ?? "0");
-    if (user && Number.isInteger(credits) && credits > 0 && session.payment_status === "paid") {
+    // Grant only from signed webhook + paid status. Never trust client redirects or body user ids.
+    // Idempotency key stripe:{event.id} makes duplicates/replays a no-op.
+    if (
+      typeof user === "string" &&
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(user) &&
+      Number.isInteger(credits) &&
+      credits > 0 &&
+      session.payment_status === "paid"
+    ) {
       await grantCredit(user, credits, `stripe:${event.id}`);
     }
   }

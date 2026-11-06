@@ -1,5 +1,5 @@
 import { creditPack } from "@/domain/assumptions";
-import { userId } from "@/server/session";
+import { requirePaidAccess } from "@/server/session";
 import { stripeClient } from "@/server/stripe";
 
 export const dynamic = "force-dynamic";
@@ -16,18 +16,24 @@ export async function POST(request: Request) {
   const body = (await request.json().catch(() => null)) as { pack?: string; returnTo?: string } | null;
   const pack = creditPack(body?.pack ?? "");
   if (!pack) return Response.json({ error: "unknown_pack", message: "Choose a credit pack." }, { status: 400 });
+
+  const access = await requirePaidAccess();
+  if (!access.ok) return access.response;
+
   const stripe = stripeClient();
   if ("error" in stripe) {
     return Response.json({ error: "stripe_unconfigured", message: stripe.error }, { status: 503 });
   }
-  const id = await userId();
+  const id = access.id;
   const origin = originOf(request);
   const back = safeReturn(body?.returnTo);
   const session = await stripe.checkout.sessions.create({
     mode: "payment",
+    customer_email: access.email,
     success_url: `${origin}/credits?status=success${back ? `&return=${encodeURIComponent(back)}` : ""}`,
     cancel_url: `${origin}/credits?status=cancel${back ? `&return=${encodeURIComponent(back)}` : ""}`,
     adaptive_pricing: { enabled: false },
+    client_reference_id: id,
     metadata: { userId: id, credits: String(pack.credits), packId: pack.id },
     line_items: [
       {

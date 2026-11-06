@@ -2,12 +2,12 @@ import { randomBytes } from "node:crypto";
 import { getKv } from "@/io/kv";
 import { telegramDeepLink } from "@/io/telegram";
 import { saveTelegramCode } from "@/server/radar-store";
-import { userId } from "@/server/session";
+import { ledgerOwnerId } from "@/server/session";
 
 export const dynamic = "force-dynamic";
 
 export async function POST() {
-  const id = await userId();
+  const id = await ledgerOwnerId();
   const username = process.env.TELEGRAM_BOT_USERNAME?.trim();
   const token = process.env.TELEGRAM_BOT_TOKEN?.trim();
   if (!username || !token) {

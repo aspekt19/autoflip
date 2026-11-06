@@ -7,7 +7,7 @@ import { REPORT_FAILED_TEXT, reportReadyMessage } from "@/io/telegram";
 import { assembleReport } from "@/server/assemble";
 import { runtimeDeps } from "@/server/deps";
 import { parseMode } from "@/server/mcp";
-import { balanceOf, grantCredit, spendCredit, userId } from "@/server/session";
+import { balanceOf, grantCredit, spendCredit, ledgerOwnerId } from "@/server/session";
 import { sendLinkedTelegram } from "@/server/telegram-notify";
 import { originOf } from "@/server/secrets";
 
@@ -43,7 +43,7 @@ export async function POST(request: Request) {
     }
   }
 
-  const id = await userId();
+  const id = await ledgerOwnerId();
   const mode = parseMode(body.mode);
   const vinKey = extractVin(vin || url || "");
   if (vinKey) {

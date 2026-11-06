@@ -2,24 +2,31 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { getKv } from "@/io/kv";
 import { listFavoriteReports } from "@/io/persist-report";
-import { existingUserId, isDemoUser } from "@/server/session";
+import { existingLedgerOwnerId, isDemoUser, authenticatedSession } from "@/server/session";
 import { formatNumber, formatUsd, verdictLabel } from "@/domain/format";
 
 export const dynamic = "force-dynamic";
 export const metadata: Metadata = { title: "Saved cars" };
 
 export default async function FavoritesPage() {
-  const id = await existingUserId();
+  const id = await existingLedgerOwnerId();
+  const session = await authenticatedSession();
   const demo = id ? isDemoUser(id) : false;
   const favorites = id ? await listFavoriteReports(getKv(), id) : [];
 
   return (
     <div className="sub">
       <div className="sheet-page">
-        <p className="kicker">{demo ? "Shared demo" : "This browser"}</p>
+        <p className="kicker">{demo ? "Shared demo" : session ? "Your account" : "This browser"}</p>
         <h1>Saved cars</h1>
         <p className="lead">Cars you marked as favorites from a full report. Save a car to return to its report without running it again.</p>
-        {demo ? <p className="warn-box">Shared demo: saved cars may be visible to other demo visitors.</p> : <p className="hint">Saved cars are linked to this browser session.</p>}
+        {demo ? (
+          <p className="warn-box">Shared demo: saved cars may be visible to other demo visitors.</p>
+        ) : session ? (
+          <p className="hint">Saved cars stay with your signed-in account. <Link href="/account">Account</Link></p>
+        ) : (
+          <p className="hint">Saved cars are linked to this browser session. <Link href="/login?callbackUrl=/favorites">Sign in</Link> to keep them after clearing cookies.</p>
+        )}
         {favorites.length === 0 ? (
           <article className="warn-box">
             <h2>No saved cars yet</h2>
