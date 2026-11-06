@@ -13,19 +13,27 @@ export const MOBILE_FRAMES = 32;
 
 export type FilmPhase = "open" | "detail";
 
+type FrameFolder = "desktop-2560" | "desktop-4k" | "mobile";
+
 function phaseFor(progress: number): FilmPhase {
   if (progress < 0.14) return "open";
   return "detail";
 }
 
-function frameSrc(folder: "desktop" | "mobile", index: number) {
+function frameSrc(folder: FrameFolder, index: number) {
   return `/frames/${folder}/f${String(index + 1).padStart(3, "0")}.webp`;
+}
+
+/** Pick one desktop tier once. Prefer 2560; use 4K only when the CSS box × DPR needs it. */
+function desktopFolder(cssWidth: number): "desktop-2560" | "desktop-4k" {
+  const dpr = window.devicePixelRatio || 1;
+  return cssWidth * dpr >= 3000 ? "desktop-4k" : "desktop-2560";
 }
 
 function drawCover(canvas: HTMLCanvasElement, image: HTMLImageElement, shift: number) {
   const ctx = canvas.getContext("2d");
   if (!ctx || !image.naturalWidth) return;
-  const dpr = Math.min(window.devicePixelRatio || 1, 1.5);
+  const dpr = Math.min(window.devicePixelRatio || 1, 2);
   const width = canvas.clientWidth;
   const height = canvas.clientHeight;
   if (width < 2 || height < 2) return;
@@ -36,6 +44,8 @@ function drawCover(canvas: HTMLCanvasElement, image: HTMLImageElement, shift: nu
     canvas.height = nextH;
   }
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = "high";
   const imageRatio = image.naturalWidth / image.naturalHeight;
   const canvasRatio = width / height;
   let drawW = width;
@@ -63,7 +73,8 @@ export function FilmScrub({ mode, onPhase }: { mode: Mode; onPhase: (phase: Film
     const narrow = window.matchMedia("(max-width: 800px)").matches;
     const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
     const count = narrow ? MOBILE_FRAMES : DESKTOP_FRAMES;
-    const folder = narrow ? "mobile" : "desktop";
+    const cssWidth = canvas.clientWidth || window.innerWidth;
+    const folder: FrameFolder = narrow ? "mobile" : desktopFolder(cssWidth);
     images.current = Array.from({ length: count });
 
     const paint = (frame: number) => {
