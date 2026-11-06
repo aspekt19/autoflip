@@ -327,9 +327,10 @@ describe("fixture camry", () => {
     expect(auditExplanation(text, report).ok).toBe(true);
     expect(auditExplanation(`${text} A hidden fee of $999,999 applies.`, report)).toEqual({
       ok: false,
-      offenders: ["$999,999"],
+      offenders: ["$999,999", "invented_number"],
     });
     expect(auditExplanation("The other car 1HGCM82633A004352 is cheaper.", report).ok).toBe(false);
+    expect(auditExplanation("There are 99 open recalls and a score of 97 on this Camry.", report).ok).toBe(false);
   });
 
   it("widens past trim when fewer than three same-trim comps exist", () => {
