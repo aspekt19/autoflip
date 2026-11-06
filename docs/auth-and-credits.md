@@ -48,35 +48,33 @@
 
 Google callback URL: `{NEXT_PUBLIC_APP_URL}/api/auth/callback/google`
 
-## Live / preview configuration status (read-only inspection)
+## Live / preview configuration status (parent-verified inventory)
 
-Inspected without printing secret values:
+Project **autoflip** `prj_FoxThC1FNiYM7300EQthhAlOaDzQ` (team `moondancers-projects`). Names only — no secret values read.
 
 | Signal | Result |
 | --- | --- |
-| Live `GET /api/account` → `storage` | **`upstash`** (persistent KV already in production — reusable for auth) |
-| Live Stripe test checkout | Configured (anonymous checkout still live until this PR deploys) |
-| Vercel CLI / Vercel MCP in this agent | **Logged out / needsAuth** — cannot list or set project env NAMES |
-| GitHub Actions secrets/variables API | 403 for this integration |
-| `AUTH_*` / `EMAIL_*` / `AUTH_GOOGLE_*` in agent shell | **Not present** |
+| Upstash URL/TOKEN | **Present** on production + preview (among 29 env records / 17 keys) |
+| Auth/email env NAMES | **Absent:** `AUTH_SECRET`, `AUTH_GOOGLE_ID`/`SECRET`, `GOOGLE_CLIENT_ID`/`SECRET`, `EMAIL_SERVER`/`FROM`, `SMTP_*`, `RESEND_API_KEY`/`FROM`, `NEXTAUTH_SECRET`/`URL` |
+| Auth/email marketplace connectors | **None** in reachable project scope |
+| Live `storage` | **`upstash`** |
 
-Therefore: **Upstash is already provisioned for Lemonless production.** Google OAuth client credentials and SMTP sender for Lemonless **could not be confirmed** from sanctioned read-only tools in this environment. Creating a Google OAuth client and/or SMTP mailbox requires the account owner (identity / provider signup) — not something this agent can complete without Vercel write access and user OAuth consent.
+Absence of auth/email provider credentials is **confirmed for this Vercel project**. Parent coordinator handles external provider connection discovery. This agent does not claim VM env as representative of the project.
 
-### Safe agent steps already done
+UI rule: **do not expose inactive login choices as working** — Google/email controls render only when that provider’s env is configured; otherwise checkout stays locked and copy says so.
 
-- Security hardenings for claim/linking/test-mode/KV guard (this PR)
-- Fail-closed paid paths; no production auth deploy
+### Holding production auth deploy
 
-### Minimal remaining user setup (unavoidable)
+No production auth traffic until provider setup + live verification. Preview may follow after env is set by operators.
 
-1. **Vercel project env** (Dashboard → autoflip / Lemonless project → Environment Variables), preview first — **do not enable production auth traffic until review**:
-   - `AUTH_SECRET` — generate with `npx auth secret` or `openssl rand -base64 32`
-   - If Google sign-in desired: `AUTH_GOOGLE_ID`, `AUTH_GOOGLE_SECRET` from a Google Cloud OAuth **Web** client with redirect `{preview-or-prod-url}/api/auth/callback/google`
-   - If email sign-in desired: `EMAIL_SERVER`, `EMAIL_FROM` (real SMTP). **Do not set `AUTH_EMAIL_MODE=test` on production**
-2. Confirm existing `UPSTASH_REDIS_REST_URL` / `UPSTASH_REDIS_REST_TOKEN` remain set on preview+production (already evidenced on live).
-3. Optional: authenticate Vercel MCP / CLI for the agent so future runs can verify env **names** only.
+### Minimal remaining setup (unavoidable — parent/user)
 
-**Not claimed:** real Google OAuth or production email delivery end-to-end. Tests use KV stubs/mocks only.
+1. Add **preview** env: `AUTH_SECRET` + Google (`AUTH_GOOGLE_ID`/`AUTH_GOOGLE_SECRET` + callback) and/or SMTP (`EMAIL_SERVER`/`EMAIL_FROM`).
+2. Never set `AUTH_EMAIL_MODE=test` on production.
+3. Keep existing Upstash keys as-is.
+4. Live-verify sign-in on preview before any production auth deploy.
+
+**Not claimed:** real Google OAuth or production email delivery end-to-end.
 
 ## Non-destructive deployment / migration plan
 

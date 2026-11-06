@@ -11,6 +11,7 @@ type AccountBody = {
   emailVerified?: boolean;
   browserClaimable?: boolean;
   demo?: boolean;
+  auth?: { configured?: boolean };
 };
 
 export function AccountPanel() {
@@ -63,16 +64,21 @@ export function AccountPanel() {
   if (!body) return <p className="hint">Loading account…</p>;
 
   if (!body.authenticated) {
+    const authConfigured = Boolean(body.auth?.configured);
     return (
       <div>
         <p className="warn-box">
-          You are browsing without a durable account. Balance shown elsewhere may be browser-only until you sign in.
+          {authConfigured
+            ? "You are browsing without a durable account. Balance shown elsewhere may be browser-only until you sign in."
+            : "Account sign-in is not enabled on this deploy yet. Paid checkout stays locked; search stays free."}
         </p>
-        <p>
-          <Link className="action" href="/login?callbackUrl=/account">
-            Sign in
-          </Link>
-        </p>
+        {authConfigured ? (
+          <p>
+            <Link className="action" href="/login?callbackUrl=/account">
+              Sign in
+            </Link>
+          </p>
+        ) : null}
       </div>
     );
   }

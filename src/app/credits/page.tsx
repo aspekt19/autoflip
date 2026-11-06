@@ -72,11 +72,13 @@ function CreditsInner() {
         <p className="hint">You are using the shared demo account. Its credits and saved activity may be visible to other demo visitors.</p>
       ) : signedIn ? (
         <p className="hint">Credits are tied to your signed-in account and survive clearing cookies. <Link href="/account">Account</Link></p>
-      ) : (
+      ) : authOn ? (
         <p className="hint">
           Sign in before buying so credits stay with your account after cookies are cleared.{" "}
           <Link href="/login?callbackUrl=/credits">Sign in</Link>
         </p>
+      ) : (
+        <p className="hint">Account sign-in is not enabled on this deploy yet. Paid checkout stays locked; search stays free.</p>
       )}
       <p className="warn-box">
         Balance: <strong>{credits === null || credits === undefined ? "…" : credits}</strong>
@@ -102,8 +104,14 @@ function CreditsInner() {
             <h3>{pack.name}</h3>
             <p className="sum">${(pack.amountCents / 100).toFixed(0)}</p>
             <p className="hint">Test price</p>
-            <button className="action" type="button" onClick={() => buy(pack.id)} disabled={pending === pack.id || !authOn}>
-              {pending === pack.id ? "Starting…" : signedIn ? "Buy in test mode" : "Sign in to buy"}
+            <button className="action" type="button" onClick={() => buy(pack.id)} disabled={pending === pack.id || !authOn || !signedIn}>
+              {pending === pack.id
+                ? "Starting…"
+                : !authOn
+                  ? "Checkout locked"
+                  : signedIn
+                    ? "Buy in test mode"
+                    : "Sign in to buy"}
             </button>
           </article>
         ))}
