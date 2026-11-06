@@ -1,7 +1,7 @@
 {
   "harness": "eval/scout-baseline.ts",
   "schemaVersion": "scout-metrics/v2",
-  "generatedAt": "2026-11-06T22:13:31.534Z",
+  "generatedAt": "2026-11-06T22:17:24.891Z",
   "note": "Stage3 residue scout-metrics/v2. MOCK/OFFLINE plumbing only. Not SERV efficacy. safetyCertified always false.",
   "certification": {
     "safetyCertified": false,
@@ -55,7 +55,7 @@
         "labeling": "MOCK_OFFLINE_plumbing_NOT_serv_efficacy",
         "safetyCertified": false,
         "evidenceComplete": true,
-        "runId": "e6b06d72-21ce-48a3-81ab-3a1387dd5e18",
+        "runId": "f9c7bbd2-4963-41c0-954b-40f6fdf7b05b",
         "state": "completed",
         "failReason": null,
         "terminalKind": "completed",
@@ -180,6 +180,22 @@
           "inventorySearchAttempts": {
             "status": "observed",
             "value": 1
+          },
+          "midLoopInventorySearches": {
+            "status": "observed",
+            "value": 0
+          },
+          "midLoopSearchSuccessWithFreshVins": {
+            "status": "observed",
+            "value": 0
+          },
+          "midLoopSearchRejectedNoSpend": {
+            "status": "observed",
+            "value": 0
+          },
+          "midLoopFreshVinsAdded": {
+            "status": "observed",
+            "value": 0
           }
         },
         "actions": {
@@ -226,7 +242,7 @@
         "latency": {
           "wallMs": {
             "status": "observed",
-            "value": 2
+            "value": 3
           }
         },
         "baselineOverlap": {
@@ -261,7 +277,7 @@
         "labeling": "MOCK_OFFLINE_plumbing_NOT_serv_efficacy",
         "safetyCertified": false,
         "evidenceComplete": true,
-        "runId": "0fd96cf9-b394-421b-9dc0-f2ecc24106ad",
+        "runId": "d70a9e59-142b-45cc-979d-9103733fdf26",
         "state": "completed",
         "failReason": null,
         "terminalKind": "completed",
@@ -381,6 +397,22 @@
           "inventorySearchAttempts": {
             "status": "observed",
             "value": 1
+          },
+          "midLoopInventorySearches": {
+            "status": "observed",
+            "value": 0
+          },
+          "midLoopSearchSuccessWithFreshVins": {
+            "status": "observed",
+            "value": 0
+          },
+          "midLoopSearchRejectedNoSpend": {
+            "status": "observed",
+            "value": 0
+          },
+          "midLoopFreshVinsAdded": {
+            "status": "observed",
+            "value": 0
           }
         },
         "actions": {
@@ -427,7 +459,7 @@
         "latency": {
           "wallMs": {
             "status": "observed",
-            "value": 0
+            "value": 1
           }
         },
         "baselineOverlap": {
@@ -461,7 +493,7 @@
         "labeling": "MOCK_OFFLINE_plumbing_NOT_serv_efficacy",
         "safetyCertified": false,
         "evidenceComplete": true,
-        "runId": "a15aa743-0bc6-4acd-9f71-4199b6cf974b",
+        "runId": "4679497b-7521-45f3-93b5-50d9a6e28fd6",
         "state": "completed",
         "failReason": null,
         "terminalKind": "completed",
@@ -588,6 +620,22 @@
           "inventorySearchAttempts": {
             "status": "observed",
             "value": 1
+          },
+          "midLoopInventorySearches": {
+            "status": "observed",
+            "value": 0
+          },
+          "midLoopSearchSuccessWithFreshVins": {
+            "status": "observed",
+            "value": 0
+          },
+          "midLoopSearchRejectedNoSpend": {
+            "status": "observed",
+            "value": 0
+          },
+          "midLoopFreshVinsAdded": {
+            "status": "observed",
+            "value": 0
           }
         },
         "actions": {
@@ -634,7 +682,7 @@
         "latency": {
           "wallMs": {
             "status": "observed",
-            "value": 1
+            "value": 0
           }
         },
         "baselineOverlap": {
@@ -669,7 +717,7 @@
         "labeling": "MOCK_OFFLINE_plumbing_NOT_serv_efficacy",
         "safetyCertified": false,
         "evidenceComplete": true,
-        "runId": "6656a1d4-030b-4050-9ae3-e24c3a012d7f",
+        "runId": "21b32730-30c7-4f64-8356-a65dff7fc0ec",
         "state": "failed",
         "failReason": "serv_refused",
         "terminalKind": "failed_refusal",
@@ -779,6 +827,22 @@
           "inventorySearchAttempts": {
             "status": "observed",
             "value": 1
+          },
+          "midLoopInventorySearches": {
+            "status": "observed",
+            "value": 0
+          },
+          "midLoopSearchSuccessWithFreshVins": {
+            "status": "observed",
+            "value": 0
+          },
+          "midLoopSearchRejectedNoSpend": {
+            "status": "observed",
+            "value": 0
+          },
+          "midLoopFreshVinsAdded": {
+            "status": "observed",
+            "value": 0
           }
         },
         "actions": {
@@ -860,7 +924,7 @@
         "labeling": "MOCK_OFFLINE_plumbing_NOT_serv_efficacy",
         "safetyCertified": false,
         "evidenceComplete": true,
-        "runId": "5d4697b4-367f-49d7-93ea-420d7230535d",
+        "runId": "a976cba6-04c8-4300-8de6-2abc30ddeb4c",
         "state": "failed",
         "failReason": "serv_timeout",
         "terminalKind": "failed_timeout",
@@ -970,6 +1034,22 @@
           "inventorySearchAttempts": {
             "status": "observed",
             "value": 1
+          },
+          "midLoopInventorySearches": {
+            "status": "observed",
+            "value": 0
+          },
+          "midLoopSearchSuccessWithFreshVins": {
+            "status": "observed",
+            "value": 0
+          },
+          "midLoopSearchRejectedNoSpend": {
+            "status": "observed",
+            "value": 0
+          },
+          "midLoopFreshVinsAdded": {
+            "status": "observed",
+            "value": 0
           }
         },
         "actions": {
@@ -1051,7 +1131,7 @@
         "labeling": "MOCK_OFFLINE_plumbing_NOT_serv_efficacy",
         "safetyCertified": false,
         "evidenceComplete": true,
-        "runId": "dd2f0075-f144-4788-97c1-1b353baac853",
+        "runId": "efa5e628-7f65-4d9c-99f0-5090ec883b31",
         "state": "abstained",
         "failReason": null,
         "terminalKind": "abstained",
@@ -1161,6 +1241,22 @@
           "inventorySearchAttempts": {
             "status": "observed",
             "value": 1
+          },
+          "midLoopInventorySearches": {
+            "status": "observed",
+            "value": 0
+          },
+          "midLoopSearchSuccessWithFreshVins": {
+            "status": "observed",
+            "value": 0
+          },
+          "midLoopSearchRejectedNoSpend": {
+            "status": "observed",
+            "value": 0
+          },
+          "midLoopFreshVinsAdded": {
+            "status": "observed",
+            "value": 0
           }
         },
         "actions": {
@@ -1242,7 +1338,7 @@
         "labeling": "MOCK_OFFLINE_plumbing_NOT_serv_efficacy",
         "safetyCertified": false,
         "evidenceComplete": true,
-        "runId": "210035d7-129e-4804-adcc-2b039d1a29ce",
+        "runId": "70d1813d-d783-4e29-9e93-7cd2b7e97366",
         "state": "failed",
         "failReason": "serv_unavailable",
         "terminalKind": "failed_parse",
@@ -1352,6 +1448,22 @@
           "inventorySearchAttempts": {
             "status": "observed",
             "value": 1
+          },
+          "midLoopInventorySearches": {
+            "status": "observed",
+            "value": 0
+          },
+          "midLoopSearchSuccessWithFreshVins": {
+            "status": "observed",
+            "value": 0
+          },
+          "midLoopSearchRejectedNoSpend": {
+            "status": "observed",
+            "value": 0
+          },
+          "midLoopFreshVinsAdded": {
+            "status": "observed",
+            "value": 0
           }
         },
         "actions": {
