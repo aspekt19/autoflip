@@ -35,6 +35,8 @@ export type ReportInput = {
   checkedAt?: string;
   /** Whether the VIN and comparable lookups both came from Auto.dev's cache. */
   listingCached?: boolean;
+  /** Whether this request actually ran the external government/EPA lookups. */
+  externalLookupsPerformed?: boolean;
   /** Whether both ZIP locations were available to attempt the Census distance lookup. */
   distanceRequested?: boolean;
 };
@@ -61,11 +63,17 @@ function buildSourceChecks(args: {
   checkedAt: string;
 }): ComputedReport["sourceChecks"] {
   const { input, sample, checkedAt } = args;
-  const decodeStatus = !input.vinDecode
-    ? "unavailable"
-    : input.vinDecode.errorCode === "0"
-      ? "available"
-      : "partial";
+  const lookupsPerformed = input.externalLookupsPerformed === true;
+  const decodeStatus = !lookupsPerformed
+    ? "not_checked"
+    : !input.vinDecode
+      ? "unavailable"
+      : input.vinDecode.errorCode === "0"
+        ? "available"
+        : "partial";
+  const attempted = (status: "available" | "partial" | "unavailable") =>
+    lookupsPerformed ? status : "not_checked";
+  const notRun = "Not run for this report; no live provider request was made.";
   return [
     {
       source: "Auto.dev listings",
@@ -78,46 +86,62 @@ function buildSourceChecks(args: {
     {
       source: "NHTSA VIN decoder",
       status: decodeStatus,
-      detail: !input.vinDecode
-        ? "No usable decoder response was received."
-        : input.vinDecode.errorCode === "0"
-          ? "VIN decode returned without an NHTSA error."
-          : `Decoder returned warning/error code ${input.vinDecode.errorCode ?? "not supplied"}; treat the decoded fields as incomplete.`,
-      checkedAt,
+      detail: !lookupsPerformed
+        ? notRun
+        : !input.vinDecode
+          ? "No usable decoder response was received."
+          : input.vinDecode.errorCode === "0"
+            ? "VIN decode returned without an NHTSA error."
+            : `Decoder returned warning/error code ${input.vinDecode.errorCode ?? "not supplied"}; treat the decoded fields as incomplete.`,
+      checkedAt: lookupsPerformed ? checkedAt : null,
     },
     {
       source: "NHTSA recalls by model year",
-      status: input.recallsAvailable ? "available" : "unavailable",
-      detail: input.recallsAvailable
-        ? `${input.recalls.length} model-year campaign(s) returned. This is not a VIN-specific open-recall or repair-status result.`
-        : "No usable response; campaign status is unknown, not zero.",
-      checkedAt,
+      status: attempted(input.recallsAvailable ? "available" : "unavailable"),
+      detail: !lookupsPerformed
+        ? notRun
+        : input.recallsAvailable
+          ? `${input.recalls.length} model-year campaign(s) returned. This is not a VIN-specific open-recall or repair-status result.`
+          : "No usable response; campaign status is unknown, not zero.",
+      checkedAt: lookupsPerformed ? checkedAt : null,
     },
     {
       source: "NHTSA complaints",
-      status: input.complaintCount === null ? "unavailable" : "available",
-      detail: input.complaintCount === null
-        ? "Complaint count was not returned."
-        : `${input.complaintCount} complaints for this model year, make and model; not a failure rate or this car's history.`,
-      checkedAt,
+      status: attempted(input.complaintCount === null ? "unavailable" : "available"),
+      detail: !lookupsPerformed
+        ? notRun
+        : input.complaintCount === null
+          ? "Complaint count was not returned."
+          : `${input.complaintCount} complaints for this model year, make and model; not a failure rate or this car's history.`,
+      checkedAt: lookupsPerformed ? checkedAt : null,
     },
     {
       source: "FuelEconomy.gov",
-      status: input.fuel ? "available" : "unavailable",
-      detail: input.fuel
-        ? `EPA configuration match: ${input.fuel.match}; ${input.fuel.configsConsidered} configuration(s) considered.`
-        : "No usable EPA fuel-economy match was returned.",
-      checkedAt,
+      status: attempted(input.fuel ? "available" : "unavailable"),
+      detail: !lookupsPerformed
+        ? notRun
+        : input.fuel
+          ? `EPA configuration match: ${input.fuel.match}; ${input.fuel.configsConsidered} configuration(s) considered.`
+          : "No usable EPA fuel-economy match was returned.",
+      checkedAt: lookupsPerformed ? checkedAt : null,
     },
     {
       source: "U.S. Census geocoder",
-      status: input.distanceToSearchZipMiles !== null ? "available" : input.distanceRequested ? "unavailable" : "not_checked",
-      detail: input.distanceToSearchZipMiles !== null
-        ? `Distance calculated: about ${Math.round(input.distanceToSearchZipMiles)} miles from the search ZIP.`
-        : input.distanceRequested
-          ? "Both ZIP locations were supplied, but a distance could not be calculated."
-          : "Not requested because both a search ZIP and listing ZIP were not available.",
-      checkedAt: input.distanceRequested ? checkedAt : null,
+      status: !lookupsPerformed
+        ? "not_checked"
+        : input.distanceToSearchZipMiles !== null
+          ? "available"
+          : input.distanceRequested
+            ? "unavailable"
+            : "not_checked",
+      detail: !lookupsPerformed
+        ? notRun
+        : input.distanceToSearchZipMiles !== null
+          ? `Distance calculated: about ${Math.round(input.distanceToSearchZipMiles)} miles from the search ZIP.`
+          : input.distanceRequested
+            ? "Both ZIP locations were supplied, but a distance could not be calculated."
+            : "Not requested because both a search ZIP and listing ZIP were not available.",
+      checkedAt: lookupsPerformed && input.distanceRequested ? checkedAt : null,
     },
     {
       source: "CARFAX / AutoCheck",
@@ -139,7 +163,6 @@ function buildSourceChecks(args: {
     },
   ];
 }
-
 function assumptionSnapshot(): Record<string, number> {
   return {
     milesPerYear: ASSUMPTIONS.milesPerYear,
