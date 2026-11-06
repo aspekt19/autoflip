@@ -4,6 +4,9 @@ import { isScoutUiEnabled } from "@/server/scout/config";
 
 export const metadata: Metadata = { title: "Scout" };
 
+/** Runtime flag — must not bake SCOUT_UI_ENABLED at build time. */
+export const dynamic = "force-dynamic";
+
 export default function ScoutPage() {
   const enabled = isScoutUiEnabled();
 

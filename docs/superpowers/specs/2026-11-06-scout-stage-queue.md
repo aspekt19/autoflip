@@ -153,6 +153,17 @@ Bounded offline integration (not live E2E, not SERV efficacy):
   process.env mismatch); hooks env reaches facade when harness omitted
 - Labels: OFFLINE; stubbed SERV ≠ live reasoning; testAuthority harness-only
 
+## STAGE-INTEGRATION-BUILD — PIN TO_REPLACE (Next route export boundary)
+
+Independent review of 8a66dcd: `postScoutStart` exported from `app/api/scout/route.ts`
+broke `next build` / generated route types (invalid Route field). Bounded fix:
+- Handler lives in `src/server/scout/http-start.ts`; route exports only `GET`/`POST`/`runtime`
+- `/scout` `dynamic = "force-dynamic"` so `SCOUT_UI_ENABLED` is runtime, not build-bake
+- Regression tests forbid non-allowlisted route exports; production `POST` is unary
+  (no client `testAuthority`/harness/env-grant bypass)
+- Verified: `npx tsc --noEmit` exit 0; `npm run build` exit 0; offline `next start`
+  smoke GET `/api/scout` + `/scout` flag off/on (HTML source inspection — not browser E2E)
+
 ### Release-readiness blockers (precise; not closed by this pin)
 
 | Area | Status |

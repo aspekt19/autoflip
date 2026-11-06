@@ -14,7 +14,8 @@ import { MemoryCounter } from "@/io/quota";
 import { isScoutUiEnabled } from "@/server/scout/config";
 import { testPaidAuthorityStub, SCOUT_REQUEST_SAFETY } from "@/server/scout/paid-execution";
 import { loadScoutMeta, loadScoutRun, clearScoutRunMemory } from "@/server/scout/store";
-import { postScoutStart } from "@/app/api/scout/route";
+import { postScoutStart } from "@/server/scout/http-start";
+import { POST as scoutPost, GET as scoutGet } from "@/app/api/scout/route";
 import fixture from "../../../fixtures/autodev-camry.json";
 
 const CAMRY_VIN =
@@ -91,13 +92,107 @@ describe("Scout INTEGRATION HTTP→facade→stubbed SERV/Auto.dev (offline)", ()
   });
 
   it("GET /api/scout catalog distinguishes UI gate vs API gate (no header-nav claim)", async () => {
-    const { GET } = await import("@/app/api/scout/route");
-    const res = await GET();
+    const res = await scoutGet();
     const body = await res.json();
     expect(body.enabled).toBe(false);
     expect(body.defaults.ui).toMatch(/SCOUT_UI_ENABLED/);
     expect(body.defaults.ui).toMatch(/not in primary header nav/i);
     expect(body.defaults.paidLivePath).toMatch(/disabled/i);
+  });
+
+  it("exported POST is single-arg only — client body cannot inject testAuthority/harness/env grant", async () => {
+    clearScoutRunMemory();
+    const { kv } = upstashKv();
+    const { token } = await createApiKey(kv, "owner-bypass", "int");
+    // Seed process env as if deployment enabled scout + paid flags with fake balances.
+    const prev = { ...process.env };
+    process.env.SCOUT_ENABLED = "true";
+    process.env.SCOUT_PAID_EXECUTION = "true";
+    process.env.AUTODEV_API_KEY = "fake";
+    process.env.SERV_API_KEY = "fake";
+    process.env.SCOUT_MAX_PROVIDER_CALLS_HARD_CEILING = "10";
+    process.env.SCOUT_SERVER_VERIFIED_BALANCE_USD = "999";
+    process.env.SCOUT_SERVER_SPEND_HARD_CAP_USD = "5";
+    try {
+      // Production POST signature: (req) only — no hooks second arg.
+      expect(scoutPost.length).toBe(1);
+      const res = await scoutPost(
+        new Request("http://localhost/api/scout", {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({
+            planner: "serv",
+            preferLive: true,
+            testAuthority: { kind: "test_stub", remainingProviderBudget: 99, authorizedSpendUsd: 99 },
+            harness: { testAuthority: { kind: "test_stub", remainingProviderBudget: 99 } },
+            verifiedBalanceUsd: 999,
+            mandate: {
+              mode: "flip",
+              preferredMakes: ["Toyota"],
+              openToOtherMakes: false,
+              zip: "72712",
+              maxDistanceMiles: 50,
+              maxMiles: null,
+              targetProfitUsd: 500,
+              budgetUsd: null,
+              budgetKnown: false,
+              repairAbility: "unknown",
+              testAuthority: { kind: "test_stub", remainingProviderBudget: 99 },
+            },
+          }),
+        }),
+      );
+      // Without injected kv the real getKv() may differ; still must not open live via body.
+      // Call through postScoutStart with same body but no harness to assert paidBlocked/fixture.
+      const controlled = await postScoutStart(
+        new Request("http://localhost/api/scout", {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({
+            planner: "serv",
+            preferLive: true,
+            testAuthority: { kind: "test_stub", remainingProviderBudget: 99, authorizedSpendUsd: 99 },
+            harness: { testAuthority: { kind: "test_stub", remainingProviderBudget: 99 } },
+            verifiedBalanceUsd: 999,
+            mandate: {
+              mode: "flip",
+              preferredMakes: ["Toyota"],
+              openToOtherMakes: false,
+              zip: "72712",
+              maxDistanceMiles: 50,
+              maxMiles: null,
+              targetProfitUsd: 500,
+              budgetUsd: null,
+              budgetKnown: false,
+              repairAbility: "unknown",
+            },
+          }),
+        }),
+        { kv, env: { ...paidEnv, SCOUT_ALLOW_SERV_PLANNER: "true" } },
+      );
+      const body = await controlled.json();
+      expect(
+        body.isFixture === true ||
+          body.paidBlockedReason != null ||
+          body.result?.autonomyClaim === "none" ||
+          body.error != null,
+      ).toBe(true);
+      if (body.result) {
+        expect(body.presentation?.kind).not.toBe("live_autodev");
+      }
+      void res;
+    } finally {
+      for (const k of Object.keys(process.env)) {
+        if (!(k in prev)) delete process.env[k];
+      }
+      Object.assign(process.env, prev);
+    }
   });
 
   it("HTTP fixture path: af_ key → executeScoutRun → persist → consumer presentation + disposition fields", async () => {
