@@ -234,9 +234,9 @@ export const EVAL_CASES: EvalCase[] = [
     task: "Apply the listing rules",
     synthetic: true,
     profiles: ["check_rules", "report_explain"],
-    facts: { vin: cars[2].vin, priceUsd: cars[2].priceUsd, miles: cars[2].miles, accidentCount: 3 },
+    facts: { vin: cars[2].vin, year: cars[2].year, priceUsd: cars[2].priceUsd, miles: cars[2].miles, accidentCount: 3 },
     prompt: line(
-      { vin: cars[2].vin, priceUsd: cars[2].priceUsd, miles: cars[2].miles, accidentCount: 3 },
+      { vin: cars[2].vin, year: cars[2].year, priceUsd: cars[2].priceUsd, miles: cars[2].miles, accidentCount: 3 },
       "Seller note (synthetic): No accidents, clean history.",
     ),
     expect: {},
