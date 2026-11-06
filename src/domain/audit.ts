@@ -1,3 +1,4 @@
+import { quotedNumbersStayIn } from "./decision-note";
 import type { ComputedReport } from "./types";
 
 function pushNumber(set: number[], value: number | null | undefined) {
@@ -90,6 +91,54 @@ function closeTo(value: number, allowed: number[], tolerance: number): boolean {
   return allowed.some((item) => Math.abs(item - value) <= tolerance);
 }
 
+/** Numbers the writer may mention: computed report fields plus common whole-number percent forms. */
+function allowlistFacts(report: ComputedReport): string {
+  const percents = collectPercents(report);
+  return JSON.stringify({
+    subject: {
+      vin: report.subject.vin,
+      year: report.subject.year,
+      make: report.subject.make,
+      model: report.subject.model,
+      trim: report.subject.trim,
+      miles: report.subject.miles,
+      priceUsd: report.subject.priceUsd,
+      accidentCount: report.subject.accidentCount,
+      ownerCount: report.subject.ownerCount,
+    },
+    fairValueUsd: report.fairValueUsd,
+    priceGap: report.priceGap,
+    percentile: report.percentile,
+    score: report.score,
+    recallCount: report.recalls.length,
+    complaintCount: report.complaintCount,
+    compCount: report.comps.length,
+    comps: report.comps.map((comp) => ({
+      vin: comp.vin,
+      priceUsd: comp.priceUsd,
+      adjustedPriceUsd: comp.adjustedPriceUsd,
+      miles: comp.miles,
+      year: comp.year,
+    })),
+    mileage: report.mileage,
+    fuel: report.fuel,
+    flip: report.flip,
+    assumptions: report.assumptions,
+    distanceToSearchZipMiles: report.distanceToSearchZipMiles,
+    reasons: report.reasons,
+    dataNotes: report.dataNotes,
+    /**
+     * Percent points, including the one-decimal forms template copy prints
+     * (e.g. -4.7 from -4.674…), so bare-token checks match shopper prose.
+     */
+    percentPoints: percents.flatMap((point) => {
+      const oneDecimal = Math.round(point * 10) / 10;
+      const whole = Math.round(point);
+      return [point, oneDecimal, whole, Math.abs(oneDecimal), Math.abs(whole)];
+    }),
+  });
+}
+
 export function auditExplanation(
   text: string,
   report: ComputedReport,
@@ -117,6 +166,11 @@ export function auditExplanation(
 
   for (const match of text.toUpperCase().match(/\b[A-HJ-NPR-Z0-9]{17}\b/g) ?? []) {
     if (!vins.has(match)) offenders.push(match);
+  }
+
+  // Catch bare invented counts/scores that the $-/%/miles scanners miss.
+  if (!quotedNumbersStayIn(text, allowlistFacts(report))) {
+    offenders.push("invented_number");
   }
 
   if (offenders.length > 0) return { ok: false, offenders };

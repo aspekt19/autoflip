@@ -15,7 +15,6 @@ import {
   type SavedSearch,
   type WatchAlert,
 } from "@/domain/radar-watch";
-import { auditExplanation } from "@/domain/audit";
 import { topFlipCandidates, flipAlertWhy } from "@/domain/flip-rank";
 import { isBroadFlip, isPriceDrop, listingQueries, matchesWatchModels } from "@/domain/watch-queries";
 import { listingsSearchUrl } from "@/io/autodev";
@@ -28,7 +27,7 @@ import { coverageConfidence, coverageSentence } from "@/domain/coverage";
 import { quotedNumbersStayIn, visibleProof, type DecisionProof } from "@/domain/decision-note";
 import { interpretGuard, runServ, servBudget, type ProfileId, type ServProof } from "@/server/serv";
 import { alertMessage, type AlertCopy } from "@/io/telegram";
-import type { ComputedReport, Listing } from "@/domain/types";
+import type { Listing } from "@/domain/types";
 import { syncPresetSearches } from "@/domain/demo-presets";
 import { listSearches, upsertRun, saveAlerts, saveSearches, seenBook, storeSeenPrices, readListingCache, writeListingCache, telegramChat, telegramPaused, type StoredRun, listAlerts } from "./radar-store";
 
@@ -556,7 +555,7 @@ async function judgeFlipAlerts(
 
 function parseFlipJudgment(
   text: string,
-  facts: Array<{ vin: string }>,
+  facts: Array<{ vin: string } & Record<string, unknown>>,
 ): Map<string, { verdict: "alert" | "skip"; note: string }> | null {
   try {
     const parsed = JSON.parse(text) as { decisions?: Array<{ vin?: string; verdict?: string; note?: string }> };
@@ -568,8 +567,8 @@ function parseFlipJudgment(
       if (!decision.vin || !known.has(decision.vin)) continue;
       if (decision.verdict !== "alert" && decision.verdict !== "skip") continue;
       const note = typeof decision.note === "string" ? decision.note : "";
-      const numbers = note.match(/\d[\d,]*/g) ?? [];
-      const safe = numbers.every((token) => allowed.includes(token.replace(/,/g, "")));
+      // Exact token membership against the computed facts — not JSON substring matching.
+      const safe = !note.trim() || quotedNumbersStayIn(note, allowed);
       decisions.set(decision.vin, { verdict: decision.verdict, note: safe ? note : "" });
     }
     return decisions;
@@ -622,9 +621,10 @@ async function reviewWhy(
   proofs.push(result.proof);
   const checks = [...guards, visibleProof(result.proof)];
   if (!result.ok) return { why, source: result.error === "SERV did not respond." ? "timeout" : "template_after_error", checks };
-  const audit = auditExplanation(result.text, fakeReport(numbers, why));
+  // Only numbers from this alert's computed payload — never invent fee/recon constants.
+  const numbersOk = quotedNumbersStayIn(result.text, JSON.stringify({ alert: why, facts: numbers }));
   const failed = result.shadowOutcome === "exhausted" || result.shadowOutcome === "failed";
-  if (!audit.ok || failed) return { why, source: failed ? "shadow_rejected" : "audit_rejected", checks };
+  if (!numbersOk || failed) return { why, source: failed ? "shadow_rejected" : "audit_rejected", checks };
   return { why: result.text, source: result.shadowOutcome, checks };
 }
 
@@ -643,96 +643,6 @@ function withTimeout<T>(work: Promise<T>, ms: number): Promise<T> {
       },
     );
   });
-}
-
-function fakeReport(numbers: WatchAlert["numbers"], why: string): ComputedReport {
-  return {
-    mode: "personal",
-    subject: {
-      vin: "00000000000000000",
-      year: 2016,
-      make: "Toyota",
-      model: "RAV4",
-      trim: null,
-      miles: numbers.miles,
-      priceUsd: numbers.priceUsd,
-      city: null,
-      state: null,
-      zip: null,
-      dealer: null,
-      vdp: null,
-      primaryImage: null,
-      carfaxUrl: null,
-      used: true,
-      cpo: false,
-      accidentCount: null,
-      oneOwner: null,
-      ownerCount: null,
-      usageType: null,
-      fuel: null,
-      engine: null,
-      drivetrain: null,
-      bodyStyle: null,
-      latitude: null,
-      longitude: null,
-      removedAt: null,
-      source: "autodev",
-    },
-    verdict: "fair",
-    score: null,
-    reasons: [why],
-    flags: [],
-    questions: [],
-    comps: [],
-    compScope: "year_window",
-    percentile: null,
-    fairValueUsd: numbers.medianUsd,
-    priceGap: numbers.medianUsd ? (numbers.priceUsd - numbers.medianUsd) / numbers.medianUsd : null,
-    mileage: { expectedMiles: numbers.expectedMiles, subjectMiles: numbers.miles, medianCompMiles: null, perMileUsd: null },
-    history: { multiplier: 1, lines: [] },
-    recalls: [],
-    recallsAvailable: false,
-    openParkIt: false,
-    complaintCount: null,
-    fuel: null,
-    vinDecode: null,
-    distanceToSearchZipMiles: null,
-    flip: numbers.roughMarginUsd === null
-      ? null
-      : {
-          resaleLowUsd: numbers.lowUsd,
-          resaleMidUsd: numbers.medianUsd,
-          resaleHighUsd: numbers.highUsd,
-          titleFeeUsd: 350,
-          reconUsd: 600,
-          sellFriction: 0.03,
-          allInUsd: numbers.priceUsd,
-          conservativeProceedsUsd: numbers.medianUsd,
-          marginUsd: numbers.roughMarginUsd,
-          targetBuyUsd: 0,
-          timeToSellRisk: "medium",
-          timeToSellNote: "",
-        },
-    assumptions: {
-      milesPerYear: 12000,
-      flipTitleFeeUsd: 350,
-      flipReconBaseUsd: 600,
-      flipDesiredProfitUsd: 1500,
-      flipSellFriction: 0.03,
-      goodDealGap: -0.08,
-      fairGap: 0.06,
-      overpricedGap: 0.15,
-      accidentHaircutEach: 0.04,
-      accidentHaircutCap: 0.12,
-      fleetHaircut: 0.06,
-      multiOwnerHaircut: 0.03,
-      oneOwnerBonus: 0.015,
-      cpoBonusPersonal: 0.02,
-      mileageRatePerThousandMiles: 0.005,
-    },
-    dataNotes: [],
-    sample: false,
-  };
 }
 
 function makeAlert(
