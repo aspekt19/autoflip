@@ -19,7 +19,7 @@ import {
   rememberComps,
   type CompGeoScope,
 } from "@/io/comp-cache";
-import { getKv } from "@/io/kv";
+import { getKv, type Kv } from "@/io/kv";
 import { isServerlessRuntime, requireSharedQuotaForPaidDispatch } from "@/server/paid-dispatch-guard";
 import { complaintCountFor, decodeVin, fuelFor, geocodeZipCity, recallsFor, type GovDeps } from "@/io/gov";
 import {
@@ -56,8 +56,15 @@ export type AssembleDeps = {
   /** Which guard and explain profiles to use. Report, /check, and the agent API are separate profiles. */
   servSurface?: "report" | "check" | "agent";
   fetch?: typeof fetch;
-  autodev?: Pick<AutodevDeps, "cache" | "counter">;
+  /**
+   * Autodev deps. `reserve` must be the persistent shared monthly ledger (reserveTotalCall)
+   * in production — not only an in-memory counter. Cache hits skip reserve inside autodevSearch.
+   */
+  autodev?: Pick<AutodevDeps, "cache" | "counter" | "reserve" | "signal" | "timeoutMs">;
   now?: Date;
+  /** When set (e.g. /find), use this Kv for shared-store gate instead of process getKv(). */
+  kv?: Kv;
+  env?: Record<string, string | undefined>;
 };
 
 export type AssembleResult =
@@ -512,10 +519,10 @@ async function resolveSubject(
     };
   }
 
-  const kv = getKv();
+  const kv = deps.kv ?? getKv();
   const storeGate = requireSharedQuotaForPaidDispatch({
     kv,
-    serverless: isServerlessRuntime(process.env),
+    serverless: isServerlessRuntime(deps.env ?? process.env),
   });
   if (!storeGate.ok) {
     return {
@@ -523,7 +530,7 @@ async function resolveSubject(
       result: {
         ok: false,
         status: 503,
-        error: "listings_unconfigured",
+        error: "quota_backend_not_distributed",
         message: storeGate.message,
       },
     };
@@ -535,6 +542,9 @@ async function resolveSubject(
     counter: deps.autodev.counter,
     apiKey: deps.autodevKey,
     now: deps.now,
+    reserve: deps.autodev.reserve,
+    signal: deps.autodev.signal,
+    timeoutMs: deps.autodev.timeoutMs,
   });
   if (!byVin.ok) {
     const status = byVin.error === "demo_limit" ? 429 : byVin.status === 404 ? 404 : 502;
@@ -608,6 +618,9 @@ async function resolveSubject(
       counter: deps.autodev.counter,
       apiKey: deps.autodevKey,
       now: deps.now,
+      reserve: deps.autodev.reserve,
+      signal: deps.autodev.signal,
+      timeoutMs: deps.autodev.timeoutMs,
     },
   );
   if (!search.ok) {
@@ -690,15 +703,16 @@ export async function assembleRadar(
       proof,
     };
   }
+  const kv = deps.kv ?? getKv();
   const storeGate = requireSharedQuotaForPaidDispatch({
-    kv: getKv(),
-    serverless: isServerlessRuntime(process.env),
+    kv,
+    serverless: isServerlessRuntime(deps.env ?? process.env),
   });
   if (!storeGate.ok) {
     return {
       ok: false,
       status: 503,
-      error: "listings_unconfigured",
+      error: "quota_backend_not_distributed",
       message: storeGate.message,
       proof,
     };
@@ -722,6 +736,10 @@ export async function assembleRadar(
       counter: deps.autodev.counter,
       apiKey: deps.autodevKey,
       now: deps.now,
+      // Persistent shared monthly ledger — must not silently fall back to MemoryCounter alone.
+      reserve: deps.autodev.reserve,
+      signal: deps.autodev.signal,
+      timeoutMs: deps.autodev.timeoutMs,
     },
   );
   if (!search.ok) {

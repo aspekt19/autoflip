@@ -122,6 +122,12 @@ export async function executeScoutSafely(input: {
       ownerId: input.req.ownerId,
       clientKey: idem,
       mandate,
+      // Intent changes result meaning (live vs fixture; SERV vs heuristic) — bind the claim.
+      // Client spend fields stay stripped from mandate and are never part of this intent.
+      intent: {
+        planner: input.req.planner ?? "offline_heuristic",
+        preferLive: Boolean(input.req.preferLive),
+      },
       env,
     });
     if (claim.kind === "replay") {

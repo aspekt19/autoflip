@@ -18,6 +18,13 @@ describe("find empty reasons", () => {
     expect(unconfigured.nextStep).not.toMatch(/widen|raise the mileage/i);
     expect(statusForFindEmpty("listings_unconfigured")).toBe(503);
 
+    const store = findEmptyCopy("shared_store_required");
+    expect(store.headline).toMatch(/Shared listings store/i);
+    expect(store.nextStep).toMatch(/Upstash/i);
+    expect(store.nextStep).not.toMatch(/AUTODEV_API_KEY/i);
+    expect(statusForFindEmpty("shared_store_required")).toBe(503);
+    expect(emptyReasonFromProviderError("quota_backend_not_distributed")).toBe("shared_store_required");
+
     const timeout = findEmptyCopy("provider_timeout");
     expect(timeout.nextStep).toMatch(/Retry/i);
     expect(timeout.nextStep).toMatch(/not treat this as proof/i);

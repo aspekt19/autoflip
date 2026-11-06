@@ -40,7 +40,10 @@ type ListingCard = {
 
 type MatchGroup = {
   direction: SearchDirection;
+  /** Models actually dispatched — never budget-skipped. */
   searchedModels?: Array<{ make: string; model: string }>;
+  plannedModels?: Array<{ make: string; model: string }>;
+  skippedModels?: Array<{ make: string; model: string; reason?: string }>;
   listings: ListingCard[];
   note: string | null;
   coverage?: string;
@@ -920,7 +923,10 @@ function AssistantFlow({
               <p className="hint">
                 {group.searchedModels?.length
                   ? `Live models checked: ${group.searchedModels.map((item) => `${item.make} ${item.model}`).join(", ")}.`
-                  : "No live model search completed for this group."}{" "}
+                  : "No live model search completed for this group."}
+                {group.skippedModels?.length
+                  ? ` Skipped (provider budget): ${group.skippedModels.map((item) => `${item.make} ${item.model}`).join(", ")} — not checked.`
+                  : ""}{" "}
                 Years {group.direction.yearMin}–{group.direction.yearMax}. {group.direction.yearBecause}
               </p>
               <button className="quiet" type="button" onClick={() => void watch(group.direction)} disabled={pending === group.direction.id}>

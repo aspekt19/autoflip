@@ -5,6 +5,15 @@
  * Process-local Maps are NOT used for claims (that caused Memory last-write vs Kv first-wins).
  * Credit-lock TTL ≠ durable receipt — receipts and in_progress claims are durable (no PX).
  * Stuck in_progress after crash: return in_progress; do NOT re-execute expensive work.
+ *
+ * Hash binds stripped mandate + effective request intent (planner, preferLive).
+ * Client spend/budget fields stay stripped — they never authorize and must not fork the key.
+ * planner/preferLive change result meaning (replay vs live inventory; heuristic vs SERV) so
+ * they are included; silent replay across different intent is forbidden.
+ *
+ * Stage1B-recovery (queued): if complete receipt kv.set fails after run, claim can stick
+ * in_progress forever. Prefer recover completed run by claim-owned runId reference — never
+ * re-execute; uncertain claims stay non-executing + recovery_needed.
  */
 
 import { createHash } from "node:crypto";
@@ -44,9 +53,23 @@ function idemRecordKey(ownerId: string, clientKey: string): string {
   return `scout:idem:v2:${ownerId}:${clientKey}`;
 }
 
-/** Stable hash of stripped mandate — binds Idempotency-Key to body. */
-export function canonicalMandateHash(mandate: unknown): string {
-  const normalized = normalizeForHash(mandate);
+export type ScoutIdemIntent = {
+  /** Effective planner mode for this request (server-interpreted). */
+  planner?: string | null;
+  /** Effective preferLive for this request (server-interpreted). */
+  preferLive?: boolean;
+};
+
+/**
+ * Stable hash binding Idempotency-Key to mandate body + effective intent.
+ * Spend/budget client fields stripped. planner/preferLive included (result meaning).
+ */
+export function canonicalMandateHash(mandate: unknown, intent?: ScoutIdemIntent): string {
+  const normalized = {
+    mandate: normalizeForHash(mandate),
+    planner: intent?.planner?.trim() || "offline_heuristic",
+    preferLive: Boolean(intent?.preferLive),
+  };
   return createHash("sha256").update(JSON.stringify(normalized)).digest("hex");
 }
 
@@ -103,6 +126,8 @@ export async function claimScoutIdempotency(input: {
   ownerId: string;
   clientKey: string;
   mandate: unknown;
+  /** Effective planner/preferLive — must match for replay; excluded spend fields never go here. */
+  intent?: ScoutIdemIntent;
   env?: Record<string, string | undefined>;
 }): Promise<IdemClaimResult> {
   const serverless = isServerlessRuntime(input.env ?? process.env);
@@ -113,7 +138,7 @@ export async function claimScoutIdempotency(input: {
     };
   }
 
-  const mandateHash = canonicalMandateHash(input.mandate);
+  const mandateHash = canonicalMandateHash(input.mandate, input.intent);
   const recordKey = idemRecordKey(input.ownerId, input.clientKey);
 
   const existingRaw = await input.kv.get(recordKey);

@@ -116,7 +116,9 @@ export function proposeDirections(
         models: item.models.slice(0, 6),
         search: item.models[0]!,
       }));
-    if (!need.openToOtherMakes) return [named, ...extras].slice(0, MAX_DIRECTIONS);
+    // Closed mandate: strict named-model scope only — no editorial extras consuming budget.
+    if (!need.openToOtherMakes) return [named];
+    // Open: named models first, then editorial alternatives within MAX_DIRECTIONS.
     return [named, ...extras].slice(0, MAX_DIRECTIONS);
   }
 

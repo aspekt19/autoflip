@@ -11,12 +11,23 @@ export const FIND_EMPTY_REASONS = [
   "provider_failure",
   "provider_timeout",
   "listings_unconfigured",
+  "shared_store_required",
   "demo_limit",
   "invalid_need",
   "unknown",
 ] as const;
 
 export type FindEmptyReason = (typeof FIND_EMPTY_REASONS)[number];
+
+/** Per-query outcome for /find — budget_exhausted was never dispatched. */
+export type FindQueryOutcomeKind =
+  | "ok"
+  | "empty"
+  | "error"
+  | "timeout"
+  | "unsupported"
+  | "demo_limit"
+  | "budget_exhausted";
 
 export type FindEmptyCopy = {
   reason: FindEmptyReason;
@@ -28,6 +39,9 @@ export type FindEmptyCopy = {
 /** Map assembleRadar / match failures onto a consumer-safe empty reason. */
 export function emptyReasonFromProviderError(error: string | undefined | null): FindEmptyReason {
   if (error === "listings_unconfigured") return "listings_unconfigured";
+  if (error === "quota_backend_not_distributed" || error === "shared_store_required") {
+    return "shared_store_required";
+  }
   if (error === "demo_limit") return "demo_limit";
   if (error === "timeout" || error === "provider_timeout") return "provider_timeout";
   if (error === "listings_error" || error === "upstream" || error === "provider_failure") return "provider_failure";
@@ -36,6 +50,64 @@ export function emptyReasonFromProviderError(error: string | undefined | null): 
   }
   if (!error) return "unknown";
   return "provider_failure";
+}
+
+/**
+ * Zero visible cars: only claim empty_inventory when ≥1 provider response succeeded
+ * (ok or confirmed empty). All timeout / error / demo_limit / unsupported with zero
+ * successful responses must NOT look like a confirmed empty market.
+ */
+export function resolveFindEmptyFromOutcomes(
+  outcomes: Array<{ outcome: FindQueryOutcomeKind; message: string | null }>,
+  visibleCount: number,
+): { reason: FindEmptyReason; hardFail: boolean; observedMessage: string | null } | null {
+  if (visibleCount > 0) return null;
+  const attempted = outcomes.filter((o) => o.outcome !== "budget_exhausted");
+  if (attempted.length === 0) {
+    return { reason: "unknown", hardFail: false, observedMessage: null };
+  }
+  const providerSucceeded = attempted.filter((o) => o.outcome === "ok" || o.outcome === "empty");
+  if (providerSucceeded.length > 0) {
+    return {
+      reason: "empty_inventory",
+      hardFail: false,
+      observedMessage: providerSucceeded.find((o) => o.message)?.message ?? null,
+    };
+  }
+  // Zero successful provider responses — never empty_inventory.
+  if (attempted.every((o) => o.outcome === "timeout")) {
+    return {
+      reason: "provider_timeout",
+      hardFail: true,
+      observedMessage: attempted[0]?.message ?? null,
+    };
+  }
+  if (attempted.some((o) => o.outcome === "demo_limit")) {
+    const hit = attempted.find((o) => o.outcome === "demo_limit");
+    return { reason: "demo_limit", hardFail: true, observedMessage: hit?.message ?? null };
+  }
+  if (attempted.some((o) => o.outcome === "unsupported")) {
+    const hit = attempted.find((o) => o.outcome === "unsupported");
+    return {
+      reason: "listings_unconfigured",
+      hardFail: true,
+      observedMessage: hit?.message ?? null,
+    };
+  }
+  if (attempted.every((o) => o.outcome === "timeout" || o.outcome === "error")) {
+    const preferTimeout = attempted.filter((o) => o.outcome === "timeout").length >= attempted.length / 2;
+    const hit = attempted.find((o) => o.outcome === (preferTimeout ? "timeout" : "error"));
+    return {
+      reason: preferTimeout ? "provider_timeout" : "provider_failure",
+      hardFail: true,
+      observedMessage: hit?.message ?? null,
+    };
+  }
+  return {
+    reason: "provider_failure",
+    hardFail: true,
+    observedMessage: attempted[0]?.message ?? null,
+  };
 }
 
 export function findEmptyCopy(
@@ -94,6 +166,16 @@ export function findEmptyCopy(
           "This environment has no listings API key, so Lemonless cannot show dealer inventory. Sample fixtures are not shown as search results.",
         nextStep: "An operator needs to set AUTODEV_API_KEY for this deployment. Your filters are not the cause.",
       };
+    case "shared_store_required":
+      return {
+        reason,
+        headline: "Shared listings store required",
+        detail:
+          observedMessage?.trim() ||
+          "This serverless environment needs a persistent shared store (Upstash) for monthly listing quotas before any live Autodev lookup.",
+        nextStep:
+          "An operator needs to configure Upstash Redis for this deployment. This is not a missing Auto.dev key and not a filter problem.",
+      };
     case "demo_limit":
       return {
         reason,
@@ -126,6 +208,7 @@ export function findEmptyCopy(
 export function statusForFindEmpty(reason: FindEmptyReason): number {
   switch (reason) {
     case "listings_unconfigured":
+    case "shared_store_required":
       return 503;
     case "demo_limit":
       return 429;

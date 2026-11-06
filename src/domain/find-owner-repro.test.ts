@@ -65,6 +65,9 @@ describe("owner /find repro: Mazda + Toyota + open", () => {
     expect(need.preferredMakes).toEqual(["Mazda"]);
     expect(need.openToOtherMakes).toBe(false);
     const directions = proposeDirections({ ...need, zip: "68114" }, undefined, new Date("2026-11-06T00:00:00Z"));
+    // Closed mandate: named models only — no editorial crossover/Camry extras.
+    expect(directions).toHaveLength(1);
+    expect(directions[0]?.segment).toMatch(/named/i);
     expect(directions[0]?.models.every((item) => item.make === "Mazda")).toBe(true);
     expect(directions.flatMap((item) => item.models).some((item) => item.make === "Toyota")).toBe(false);
   });

@@ -8,8 +8,10 @@ import { proposeDirections, type SearchDirection } from "@/domain/directions";
 import {
   emptyReasonFromProviderError,
   findEmptyCopy,
+  resolveFindEmptyFromOutcomes,
   statusForFindEmpty,
   type FindEmptyReason,
+  type FindQueryOutcomeKind,
 } from "@/domain/find-empty";
 import { rankFlipCandidates } from "@/domain/flip-rank";
 import { listingWithinNeed, noMatchMessage, searchScopeLabel, validateNeed, type StructuredNeed } from "@/domain/need";
@@ -40,12 +42,20 @@ export type FindMatchGroup = {
   coverage: string;
   coverageLevel: "low" | "medium" | "high";
   note: string | null;
+  /** Full planned query list for this direction (may include budget-skipped). */
+  plannedModels: Array<{ make: string; model: string }>;
+  /**
+   * Models actually dispatched to the provider (ok/empty/error/timeout/…).
+   * Never includes budget_exhausted — UI "checked" must use this, not plannedModels.
+   */
   searchedModels: Array<{ make: string; model: string }>;
+  /** Planned but never dispatched because the server query ceiling was hit. */
+  skippedModels: Array<{ make: string; model: string; reason: "budget_exhausted" }>;
   providerWarning: string | null;
   queryOutcomes: Array<{
     make: string;
     model: string;
-    outcome: "ok" | "empty" | "error" | "timeout" | "unsupported" | "budget_exhausted";
+    outcome: FindQueryOutcomeKind;
     message: string | null;
   }>;
 };
@@ -151,10 +161,11 @@ export async function runFindMatch(
   }
 
   // Shared-store gate BEFORE any Autodev upstream on serverless.
+  // Truthful reason: missing shared store — NOT a missing Auto.dev key.
   const serverless = isServerlessRuntime(deps.env ?? process.env);
   const storeGate = requireSharedQuotaForPaidDispatch({ kv: deps.kv, serverless });
   if (!storeGate.ok) {
-    const empty = findEmptyCopy("listings_unconfigured", need, storeGate.message);
+    const empty = findEmptyCopy("shared_store_required", need, storeGate.message);
     return {
       ok: false,
       status: statusForFindEmpty(empty.reason),
@@ -178,7 +189,6 @@ export async function runFindMatch(
   let message: string | null = null;
   let partialFailureWarning: string | null = null;
   let providerQueriesUsed = 0;
-  let hardConfigFailure: { error: string; message: string } | null = null;
 
   for (const direction of directions) {
     const queries = queriesForDirection(direction);
@@ -197,7 +207,7 @@ export async function runFindMatch(
         });
         directionWarning = "Server provider query budget reached — remaining models were not searched.";
         partialFailureWarning = directionWarning;
-        break;
+        continue; // record remaining planned models as skipped, do not dispatch
       }
 
       providerQueriesUsed += 1;
@@ -222,12 +232,14 @@ export async function runFindMatch(
             ? "provider_timeout"
             : result.error,
         );
-        const outcome =
+        const outcome: FindQueryOutcomeKind =
           reason === "provider_timeout"
-            ? ("timeout" as const)
-            : reason === "listings_unconfigured"
-              ? ("unsupported" as const)
-              : ("error" as const);
+            ? "timeout"
+            : reason === "listings_unconfigured" || reason === "shared_store_required"
+              ? "unsupported"
+              : reason === "demo_limit"
+                ? "demo_limit"
+                : "error";
         queryOutcomes.push({
           make: query.make,
           model: query.model,
@@ -236,9 +248,6 @@ export async function runFindMatch(
         });
         directionWarning = findEmptyCopy(reason, need, result.message).detail;
         partialFailureWarning = directionWarning;
-        if (result.error === "listings_unconfigured" || result.error === "demo_limit") {
-          hardConfigFailure = { error: result.error, message: result.message };
-        }
         // Continue to next model / direction — do not abort the whole match.
         continue;
       }
@@ -322,10 +331,16 @@ export async function runFindMatch(
       historyOnListing: false,
     };
     const emptyNote = listings.length === 0 ? noMatchMessage(need) : null;
+    const attempted = queryOutcomes.filter((o) => o.outcome !== "budget_exhausted");
+    const skipped = queryOutcomes
+      .filter((o) => o.outcome === "budget_exhausted")
+      .map((o) => ({ make: o.make, model: o.model, reason: "budget_exhausted" as const }));
     groups.push({
       direction,
       listings,
-      searchedModels: queries,
+      plannedModels: queries,
+      searchedModels: attempted.map((o) => ({ make: o.make, model: o.model })),
+      skippedModels: skipped,
       coverage: coverageSentence(coverageInput),
       coverageLevel: coverageConfidence(coverageInput),
       note: [emptyNote, directionNote, assumption, directionWarning].filter(Boolean).join(" ") || null,
@@ -335,34 +350,41 @@ export async function runFindMatch(
   }
 
   const visible = groups.reduce((sum, group) => sum + group.listings.length, 0);
+  const allOutcomes = groups.flatMap((g) => g.queryOutcomes);
+  const resolved = resolveFindEmptyFromOutcomes(allOutcomes, visible);
 
-  // Only hard-fail the whole request when nothing usable returned AND a config/quota block hit.
-  if (visible === 0 && hardConfigFailure && providerQueriesUsed > 0) {
-    const allFailedConfig = groups.every((g) =>
-      g.queryOutcomes.every((o) => o.outcome === "unsupported" || o.outcome === "error" || o.outcome === "timeout"),
-    );
-    if (allFailedConfig && hardConfigFailure.error === "listings_unconfigured") {
-      const empty = findEmptyCopy("listings_unconfigured", need, hardConfigFailure.message);
-      return {
-        ok: false,
-        status: statusForFindEmpty(empty.reason),
-        body: {
-          error: hardConfigFailure.error,
-          emptyReason: empty.reason,
-          message: empty.detail,
-          headline: empty.headline,
-          nextStep: empty.nextStep,
-          scope: searchScopeLabel(need),
-        },
-      };
-    }
+  // Zero successful provider responses → hard-fail with truthful reason (never 200 empty_inventory).
+  if (resolved?.hardFail) {
+    const empty = findEmptyCopy(resolved.reason, need, resolved.observedMessage);
+    return {
+      ok: false,
+      status: statusForFindEmpty(empty.reason),
+      body: {
+        error: empty.reason,
+        emptyReason: empty.reason,
+        message: empty.detail,
+        headline: empty.headline,
+        nextStep: empty.nextStep,
+        scope: searchScopeLabel(need),
+        partialFailure: Boolean(partialFailureWarning),
+        directions: groups,
+        providerQueriesUsed,
+        geoScope,
+      },
+    };
   }
 
   let emptyReason: FindEmptyReason | null = null;
   let headline: string | null = null;
   let nextStep: string | null = null;
-  if (visible === 0) {
-    const empty = findEmptyCopy("empty_inventory", need, groups[0]?.note ?? null);
+  if (visible === 0 && resolved?.reason === "empty_inventory") {
+    const empty = findEmptyCopy("empty_inventory", need, resolved.observedMessage ?? groups[0]?.note ?? null);
+    emptyReason = empty.reason;
+    message = empty.detail;
+    headline = empty.headline;
+    nextStep = empty.nextStep;
+  } else if (visible === 0 && resolved) {
+    const empty = findEmptyCopy(resolved.reason, need, resolved.observedMessage);
     emptyReason = empty.reason;
     message = empty.detail;
     headline = empty.headline;

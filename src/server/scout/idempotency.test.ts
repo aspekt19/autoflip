@@ -53,6 +53,22 @@ describe("Stage1B claim-lock idempotency", () => {
     expect(a).toHaveLength(64);
   });
 
+  it("same mandate + different preferLive/planner intent must not silently share a claim hash", () => {
+    const mandate = { mode: "flip", preferredMakes: ["Toyota"], zip: "72712" };
+    const base = canonicalMandateHash(mandate, { planner: "offline_heuristic", preferLive: false });
+    const live = canonicalMandateHash(mandate, { planner: "offline_heuristic", preferLive: true });
+    const serv = canonicalMandateHash(mandate, { planner: "serv", preferLive: false });
+    expect(base).not.toBe(live);
+    expect(base).not.toBe(serv);
+    // Spend fields still must not fork the hash when intent is identical.
+    expect(
+      canonicalMandateHash(
+        { ...mandate, verifiedBalanceUsd: 1 },
+        { planner: "offline_heuristic", preferLive: false },
+      ),
+    ).toBe(base);
+  });
+
   it("overlapping same-owner same-key: only one execution; other in_progress or coherent replay", async () => {
     clearScoutRunMemory();
     const shared = new MemoryKv(); // simulates shared Upstash across "instances"
