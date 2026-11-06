@@ -137,6 +137,28 @@ export type ScoutPlanAction =
   | { type: "finalize"; reason: string; servStepId: string }
   | { type: "abstain"; reason: string; servStepId: string };
 
+/**
+ * Actual tool execution feedback for the planner (Stage2B).
+ * Unsupported/failed must never look like a successful evidence fetch or cache-success.
+ */
+export type ScoutToolOutcomeStatus =
+  | "success"
+  | "unsupported"
+  | "failed"
+  | "empty"
+  | "idempotent_replay";
+
+export type ScoutToolOutcome = {
+  toolId: ScoutToolId;
+  vin: string | null;
+  ok: boolean;
+  status: ScoutToolOutcomeStatus;
+  summary: string;
+  /** When replace/select acquires a different VIN, the executed candidate. */
+  acquiredVin: string | null;
+  servStepId: string | null;
+};
+
 export type ScoutRunResult = {
   runId: string;
   ownerId: string;

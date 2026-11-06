@@ -2,71 +2,67 @@
 
 writtenAt_utc: 2026-11-06
 constraints: no spend / secrets / deploy / merge / Graph / model change. No self-release approval.
-Stage1 PIN `d8187b8` independently confirmed — **not full release / not $5 proof**.
-Stage1B PIN `ad5f9f7` / `f0613230133e0cf3c42b16eb6c3903989` independently confirmed for listed safety subset.
-Stage2A PIN `680b59a` independently confirmed for listed subset — follow-on gaps expected at pin, not regressions.
 
-## STAGE1 — PIN d8187b8 (confirmed subset)
+## STAGE1 — PIN d8187b8 (confirmed)
 
-Confirmed: durable monthly seed, non-numeric reject, env balance cannot grant, 0-budget 0-fetch,
-cache monthly refund, per-make ceiling, HTTP/SDK no injected grant.
-Follow-on: `/find` shared-store fail-closed (`494e771`).
+Durable monthly seed, non-numeric reject, env-balance≠grant, 0-budget 0-fetch, cache DECR,
+per-make ceiling, no HTTP-injected grant. Follow-on: `/find` shared-store (`494e771`).
 
-## STAGE1B — PIN ad5f9f7 (confirmed subset)
+## STAGE1B — PIN ad5f9f7 (confirmed)
 
-Confirmed: durable NX claim before work / no TTL; separate facades overlap → one execution / 409 /
-replay; owners isolated / mandate conflict; serverless Memory block 0-fetch; mid-flight abort +
-timeout with reservation retained. Safety closure strong; 292 tests ≠ full availability closure.
+Durable NX claim before work / no TTL; overlap one execution / 409 / replay; owners isolated;
+mandate conflict; serverless Memory block; mid-flight abort+timeout reservation retained.
+Hash: stripped mandate + planner + preferLive (spend fields stripped).
 
-**Hash semantics (verified this turn):** claim binds stripped mandate + effective `planner` +
-`preferLive`. Client spend/budget fields stay stripped (never authorize, must not fork the key).
-Different preferLive/planner must not silently replay — result meaning changes (fixture vs live;
-heuristic vs SERV).
+## STAGE1B-RECOVERY — PIN 36a56b9 (confirmed landed)
 
-## STAGE1B-RECOVERY — THIS bounded run (minimal; before release)
+Bind applied then error → replay; no foreign leak; no re-run.
 
-Finish-receipt / ambiguous claim without re-exec:
-1. After durable `saveScoutRun`, **bind claim-owned runId** (+ inventory flags) onto in_progress.
-2. Then write completed receipt. If receipt `kv.set` fails, later claim **reconciles** from
-   durable run by runId (owner + mandateHash checked) — never re-executes provider/planner.
-3. Uncertain (no runId / missing run / owner mismatch) → explicit `recovery_needed` (409),
-   not false “working forever”, not free retry. **No TTL reclaim.**
+## STAGE1B-RECOVERY-FOLLOWON — queued AFTER Stage2B (before release)
 
-Next priority after this unit: **Stage2B** (real tool outcome / replace / replan) — not done.
+1. **Live overlap false-dead:** mid-run other facade sees `recovery_needed` “interrupted
+   before finish” though owner about to complete → return non-terminal `in_progress`/uncertain
+   honestly, not falsely dead. No heartbeat / No TTL reclaim.
+2. **`saveScoutRun` swallows Kv write** (`store.ts` ~26–33): SUCCESS ack without durable row →
+   second facade recovery_needed. Do not ack durable success unless row persisted;
+   truthful `persist_failure`/uncertain; no re-exec. Tests: sequential transient + active concurrency.
 
-## STAGE2A — PIN 680b59a (confirmed subset)
+## STAGE2A — PIN 680b59a (confirmed)
 
-Confirmed: core directions / first-failure-continue / geo cache v2 / session v2 /
-economics-unknown / memory-backend block. Gaps below were expected at pin.
+Directions / first-failure-continue / geo v2 / session v2 / economics-unknown / memory backend.
 
-## STAGE2A-FOLLOWON — THIS bounded run
+## STAGE2A-FOLLOWON — PIN 3a6f90b (confirmed; ledger closed)
 
-1. All Autodev fail/timeout/demo_limit ≠ `empty_inventory` 200; genuine empty only after ≥1
-   successful provider response; distinct HTTP/copy.
-2. Persistent `reserve` through `assembleRadar` → `autodevSearch`; incr before fetch; cache-hit
-   no re-charge; parallel instances share cap; `shared_store_required` truthful 503.
-3. planned / searched / skipped models; closed mandate = named only (no editorial Camry).
+304 tests/tsc/build; REAL shared monthly ledger (899→200+429, key 900, one stub fetch,
+memory counters 0); cache-hit no-charge; pure failure statuses; shared-store copy; strict named
+skip; preferLive hash. **Do not rewrite ledger.**
 
-## STAGE2B — queued NEXT (real autonomy — not completed by tests)
+## STAGE2A-FOLLOWON-RESIDUE — queued AFTER Stage2B (copy/UI; ledger stays)
 
-- Gov unsupported / `inventory.search` no-op cached-as-success
-- `replace` only relabels — real next-candidate load + planner feedback
-- Missing planner-context tool bodies/steps for dynamic replan
-- Typed next-action execution feedback
+Mixed zero-rows: successful EMPTY + TIMEOUT → 200 `empty_inventory` partialFailure but UI
+shows only “No listings…” + widen/loosen filters; timed-out models labeled “Live models checked”;
+queryOutcomes not rendered; matchMessage blocks non-exhaustive warning.
 
-## STAGE3 — queued
+Need: explicit PARTIAL/INCOMPLETE_SEARCH (unknown coverage for failed models); no confirmed-empty
+market / filters-first when failures present; attempted vs successfully checked; HTTP 200 OK if
+clearly partial. Tests: mixed empty+timeout and empty+quota headline/nextStep/models; no rows;
+partial nonempty unaffected.
+
+## STAGE2B — THIS bounded run (genuine autonomy — priority; do not interrupt)
+
+- Actual tool outcomes (gov/inventory.search unsupported ≠ cache-success)
+- Real replace acquisition of distinct candidate within budget
+- Planner receives tool feedback; can replan/reject/replace/stop under deterministic constraints
+- Offline full-loop tests: decisions change with evidence; honest fewer/none
+- scout_plan transport stays real; offline claim honest (`autonomyClaim=none`)
+- No invented title/history tools; unknown investigation allowed, no fake pass
+
+## STAGE3 — queued (honest metrics — not SERV quality from stubs)
 
 Eval tautologies (`claimsSafeBuy` always 0, `insufficientEvidenceInvestigated`,
 `realSourceAvailable` const, `rejectReplaceCovered`, mock≠efficacy).
 
-## Ops note (read-only)
+## Ops
 
-Console ~$24.16 visible — no max-cost/reserve control verified. **NO paid-calls permission
-change.** Main writer does not touch console keys/settings.
-
-## Retained
-
-- Real `scout_plan` HTTP markers/schema (not `Agent.process()`)
-- Client budget/spend strip; Stage1 durable quota / non-bypass paid scout
-- Unknown≠pass; unknown history still allows investigation
-- Consumer English; Orbitron / branding — no nav/design redo
+Console ~$24.16 visible — no max-cost/reserve verified. **NO paid calls this unit** (parent
+stream owns spend). No Graph/merge/deploy/secrets/model settings. Branding retained.

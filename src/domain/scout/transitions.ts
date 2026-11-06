@@ -8,7 +8,8 @@ const ALLOWED: Record<ScoutState, readonly ScoutState[]> = {
   tool_running: ["verifying", "selecting", "failed"],
   verifying: ["selecting", "rejecting", "replacing", "finalizing", "failed"],
   rejecting: ["selecting", "finalizing", "abstained", "failed"],
-  replacing: ["selecting", "failed"],
+  // verifying allowed: replace acquires+evaluates next candidate in the same budgeted call.
+  replacing: ["selecting", "verifying", "failed"],
   finalizing: ["completed", "abstained", "failed"],
   completed: [],
   abstained: [],

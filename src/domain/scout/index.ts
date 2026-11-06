@@ -16,6 +16,6 @@ export {
   heuristicOfflinePlanner,
   runScout,
 } from "./runner";
-export type { ScoutPlanner, RunScoutInput } from "./runner";
+export type { ScoutPlanner, ScoutPlannerInput, RunScoutInput } from "./runner";
 export { SCOUT_TOOL_IDS } from "./types";
 export type * from "./types";

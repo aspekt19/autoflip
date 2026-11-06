@@ -99,6 +99,7 @@ describe("scout_plan transport contracts (offline)", () => {
       investigated: [],
       rejected: [],
       step: 1,
+      recentOutcomes: [],
     });
     expect(out.ok).toBe(false);
     if (!out.ok) expect(out.error).toBe("serv_unavailable");

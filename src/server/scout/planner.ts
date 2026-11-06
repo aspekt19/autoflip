@@ -45,11 +45,15 @@ export function servScoutPlanner(deps: {
       investigatedVins: input.investigated.map((c) => c.vin),
       rejectedVins: input.rejected.map((c) => c.vin),
       step: input.step,
+      // Actual tool outcomes — replan/reject/replace/stop from these; never invent success.
+      recentOutcomes: input.recentOutcomes.slice(-8),
       evidenceHints: input.investigated.map((c) => ({
         vin: c.vin,
         historyStatus: c.historyStatus,
         disposition: c.disposition,
         askingUsd: c.listing.priceUsd,
+        withheld: c.withheld,
+        flipExcluded: c.flip?.excluded ?? false,
       })),
     });
 

@@ -29,17 +29,22 @@ import type {
   ScoutRunResult,
   ScoutState,
   ScoutToolId,
+  ScoutToolOutcome,
 } from "./types";
 import { SCOUT_TOOL_IDS } from "./types";
 
-export type ScoutPlanner = (input: {
+export type ScoutPlannerInput = {
   mandate: ScoutMandate;
   pool: Listing[];
   pendingVins: string[];
   investigated: ScoutCandidate[];
   rejected: ScoutCandidate[];
   step: number;
-}) => Promise<
+  /** Recent actual tool outcomes — planner must replan from these, not invent success. */
+  recentOutcomes: ScoutToolOutcome[];
+};
+
+export type ScoutPlanner = (input: ScoutPlannerInput) => Promise<
   | { ok: true; action: ScoutPlanAction }
   | { ok: false; error: "serv_refused" | "serv_timeout" | "serv_unavailable"; message: string }
 >;
@@ -62,7 +67,7 @@ export type RunScoutInput = {
   autonomyClaim?: "serv_directed" | "none";
 };
 
-type ToolCache = Map<string, unknown>;
+type ToolCache = Map<string, ScoutToolOutcome>;
 
 function stamp(
   provenance: ProvenanceStep[],
@@ -100,6 +105,97 @@ function emptyCandidate(listing: Listing): ScoutCandidate {
     historyStatus: "unknown",
     claimsSafeBuy: false,
     claimsVerifiedProfit: false,
+  };
+}
+
+/**
+ * Normalize + gate a candidate for investigation (select or replace-acquire).
+ * Deterministic constraints only — unknown history may allow investigate, never fake pass.
+ */
+function evaluateCandidateForInvestigation(input: {
+  vin: string;
+  cand: ScoutCandidate;
+  pool: Listing[];
+  mandate: ScoutMandate;
+  budgets: ScoutBudgets;
+  investigated: ScoutCandidate[];
+  pending: string[];
+  rejected: ScoutCandidate[];
+  now: Date;
+  provenance: ProvenanceStep[];
+  state: ScoutState;
+  toolId: ScoutToolId;
+  servStepId: string;
+  idem: string;
+}): { ok: boolean; summary: string } {
+  const cand = input.cand;
+  const vin = input.vin;
+  const listing = cand.listing;
+  cand.evidence = [...identityEvidence(listing), askingPriceEvidence(listing)];
+  const hist = historyEvidence(listing);
+  cand.evidence.push(...hist.facts);
+  cand.historyStatus = hist.historyStatus;
+  if (input.mandate.mode === "flip") {
+    cand.flip = flipEconomicsFor(listing, input.pool, input.mandate, input.now);
+    if (cand.flip?.assumption) cand.evidence.push(assumedCostEvidence(cand.flip.assumption));
+    else cand.evidence.push(assumedCostEvidence(null));
+  }
+  const gate = runScoutGates({
+    listing,
+    mandate: input.mandate,
+    flip: cand.flip,
+    historyStatus: cand.historyStatus,
+  });
+  cand.gates = gate.gates;
+  cand.withheld = gate.withheld;
+  cand.withholdReason = gate.withholdReason;
+  cand.claimsSafeBuy = false;
+  cand.claimsVerifiedProfit = false;
+
+  if (gate.allowInvestigate && input.investigated.length < input.budgets.maxCandidatesOut) {
+    if (input.mandate.mode === "flip" && cand.flip?.excluded) {
+      stamp(
+        input.provenance,
+        input.state,
+        `Evaluated ${vin}; flip excluded (${cand.flip.excludeReason}).`,
+        input.toolId,
+        input.servStepId,
+        input.idem,
+      );
+      return {
+        ok: true,
+        summary: `Acquired ${vin} but flip excluded (${cand.flip.excludeReason}) — left pending for planner reject/replace.`,
+      };
+    }
+    cand.disposition = "investigate";
+    if (!input.investigated.some((c) => c.vin === vin)) input.investigated.push(cand);
+    const pIdx = input.pending.indexOf(vin);
+    if (pIdx >= 0) input.pending.splice(pIdx, 1);
+    stamp(
+      input.provenance,
+      input.state,
+      `Accepted ${vin} as investigation candidate (not a verified buy).`,
+      input.toolId,
+      input.servStepId,
+      input.idem,
+    );
+    return {
+      ok: true,
+      summary: `Acquired and accepted ${vin} as investigation candidate (not a verified buy/profit).`,
+    };
+  }
+  if (!gate.allowInvestigate) {
+    cand.disposition = "rejected";
+    cand.rejectReason = gate.withholdReason ?? "Failed hard investigation gates.";
+    input.rejected.push(cand);
+    const pIdx = input.pending.indexOf(vin);
+    if (pIdx >= 0) input.pending.splice(pIdx, 1);
+    stamp(input.provenance, input.state, cand.rejectReason, "gates.verify", input.servStepId, input.idem);
+    return { ok: false, summary: `Acquired ${vin} but rejected: ${cand.rejectReason}` };
+  }
+  return {
+    ok: true,
+    summary: `Acquired ${vin}; investigation cap reached — left pending.`,
   };
 }
 
@@ -144,6 +240,7 @@ export async function runScout(input: RunScoutInput): Promise<ScoutRunResult> {
     ? { ...input.resume.usage }
     : freshUsage(wallClockMs());
   const toolCache: ToolCache = new Map();
+  const recentOutcomes: ScoutToolOutcome[] = [];
 
   let state: ScoutState = input.resume?.state ?? "created";
   let mandate: ScoutMandate | null = input.resume?.mandate ?? null;
@@ -154,6 +251,12 @@ export async function runScout(input: RunScoutInput): Promise<ScoutRunResult> {
   const pending: string[] = [];
   const investigated: ScoutCandidate[] = [];
   const rejected: ScoutCandidate[] = [];
+
+  const pushOutcome = (outcome: ScoutToolOutcome) => {
+    recentOutcomes.push(outcome);
+    // Keep a bounded window for planner context (not an unbounded log).
+    if (recentOutcomes.length > 12) recentOutcomes.splice(0, recentOutcomes.length - 12);
+  };
 
   if (input.resume) {
     for (const c of input.resume.candidates) candidates.set(c.vin, { ...c, listing: c.listing });
@@ -395,6 +498,7 @@ export async function runScout(input: RunScoutInput): Promise<ScoutRunResult> {
         investigated: [...investigated],
         rejected: [...rejected],
         step,
+        recentOutcomes: [...recentOutcomes],
       });
 
       if (!plan.ok) {
@@ -470,14 +574,55 @@ export async function runScout(input: RunScoutInput): Promise<ScoutRunResult> {
           const pIdx = pending.indexOf(action.vin);
           if (pIdx >= 0) pending.splice(pIdx, 1);
         }
-        // Relabel alone is not a replacement pull — planner must select_candidate next.
-        stamp(
+
+        // Real replacement acquisition: execute next distinct pending candidate within this budgeted call.
+        const nextVin = pending.find((vin) => vin !== action.vin) ?? null;
+        if (!nextVin || !candidates.has(nextVin) || !mandate) {
+          const outcome: ScoutToolOutcome = {
+            toolId: "candidate.replace",
+            vin: action.vin,
+            ok: false,
+            status: "empty",
+            summary: `${action.reason} — no distinct pending replacement candidate remains in pool.`,
+            acquiredVin: null,
+            servStepId: action.servStepId,
+          };
+          pushOutcome(outcome);
+          stamp(provenance, state, outcome.summary, "candidate.replace", action.servStepId);
+          assertTransition(state, "selecting");
+          state = "selecting";
+          continue;
+        }
+
+        const acquired = evaluateCandidateForInvestigation({
+          vin: nextVin,
+          cand: candidates.get(nextVin)!,
+          pool,
+          mandate,
+          budgets,
+          investigated,
+          pending,
+          rejected,
+          now,
           provenance,
           state,
-          `${action.reason} (replacement requires a following select_candidate; pending=${pending.length})`,
-          "candidate.replace",
-          action.servStepId,
-        );
+          toolId: "candidate.replace",
+          servStepId: action.servStepId,
+          idem: `replace-acquire:${action.vin}->${nextVin}`,
+        });
+        const outcome: ScoutToolOutcome = {
+          toolId: "candidate.replace",
+          vin: action.vin,
+          ok: acquired.ok,
+          status: acquired.ok ? "success" : "failed",
+          summary: acquired.summary,
+          acquiredVin: nextVin,
+          servStepId: action.servStepId,
+        };
+        pushOutcome(outcome);
+        stamp(provenance, state, outcome.summary, "candidate.replace", action.servStepId);
+        assertTransition(state, "verifying");
+        state = "verifying";
         continue;
       }
 
@@ -493,23 +638,26 @@ export async function runScout(input: RunScoutInput): Promise<ScoutRunResult> {
           action.type === "select_candidate"
             ? action.vin
             : action.vin ?? pending[0] ?? null;
-        if (!vin || !candidates.has(vin)) {
-          stamp(provenance, state, "Planner selected unknown VIN.", toolId, action.servStepId);
-          // Treat as rejectable planner mistake → continue if pending remains, else abstain path via next plan
-          continue;
-        }
 
         const idem =
           action.type === "run_tool"
-            ? `${toolId}:${vin}:${JSON.stringify(action.args ?? {})}`
-            : `select:${vin}`;
+            ? `${toolId}:${vin ?? "none"}:${JSON.stringify(action.args ?? {})}`
+            : `select:${vin ?? "none"}`;
 
         assertTransition(state, "tool_running");
         state = "tool_running";
 
-        if (toolCache.has(idem)) {
-          // Idempotent hit — do not double-count tool budget
-          stamp(provenance, state, "Idempotent tool replay.", toolId, action.servStepId, idem);
+        const cached = toolCache.get(idem);
+        if (cached) {
+          // Idempotent replay — do not double-count; surface prior outcome (not a fresh success).
+          const replay: ScoutToolOutcome = {
+            ...cached,
+            status: "idempotent_replay",
+            summary: `Idempotent replay of prior ${cached.status}: ${cached.summary}`,
+            servStepId: action.servStepId,
+          };
+          pushOutcome(replay);
+          stamp(provenance, state, replay.summary, toolId, action.servStepId, idem);
           assertTransition(state, "verifying");
           state = "verifying";
           continue;
@@ -521,19 +669,93 @@ export async function runScout(input: RunScoutInput): Promise<ScoutRunResult> {
           return fail(snapshot(), "budget_exhausted", tool.detail);
         }
 
+        // Mid-loop inventory.search is not a free cache-success / noop success.
+        if (toolId === "inventory.search") {
+          const outcome: ScoutToolOutcome = {
+            toolId,
+            vin: null,
+            ok: false,
+            status: "unsupported",
+            summary:
+              "inventory.search already ran for this scout loop — mid-loop re-search is unsupported (not a successful no-op).",
+            acquiredVin: null,
+            servStepId: action.servStepId,
+          };
+          pushOutcome(outcome);
+          toolCache.set(idem, outcome);
+          stamp(provenance, state, outcome.summary, toolId, action.servStepId, idem);
+          assertTransition(state, "verifying");
+          state = "verifying";
+          continue;
+        }
+
+        // No invented title/history tools — gov adapters are truthful unsupported offline.
+        if (toolId === "evidence.gov_recalls" || toolId === "evidence.gov_fuel") {
+          if (vin && candidates.has(vin)) {
+            candidates.get(vin)!.evidence.push({
+              key: toolId,
+              value: { status: "unsupported" },
+              kind: "unknown",
+              source: "gov",
+              note: "UNSUPPORTED: gov lookup not executed (no paid spend this path). Not a successful evidence fetch.",
+            });
+          }
+          const outcome: ScoutToolOutcome = {
+            toolId,
+            vin,
+            ok: false,
+            status: "unsupported",
+            summary: `${toolId} unsupported — not treated as successful evidence or cache-success.`,
+            acquiredVin: null,
+            servStepId: action.servStepId,
+          };
+          pushOutcome(outcome);
+          // Cache the unsupported outcome so retries are idempotent but never look like success.
+          toolCache.set(idem, outcome);
+          stamp(provenance, state, outcome.summary, toolId, action.servStepId, idem);
+          assertTransition(state, "verifying");
+          state = "verifying";
+          continue;
+        }
+
+        if (!vin || !candidates.has(vin) || !mandate) {
+          const outcome: ScoutToolOutcome = {
+            toolId,
+            vin,
+            ok: false,
+            status: "failed",
+            summary: "Planner selected unknown VIN or mandate missing — tool failed.",
+            acquiredVin: null,
+            servStepId: action.servStepId,
+          };
+          pushOutcome(outcome);
+          toolCache.set(idem, outcome);
+          stamp(provenance, state, outcome.summary, toolId, action.servStepId, idem);
+          assertTransition(state, "verifying");
+          state = "verifying";
+          continue;
+        }
+
         const cand = candidates.get(vin)!;
         const listing = cand.listing;
 
-        // Listing injection: treat as data only (already in pool object)
-        if (toolId === "listing.normalize" || action.type === "select_candidate") {
-          cand.evidence = [...identityEvidence(listing), askingPriceEvidence(listing)];
-          const hist = historyEvidence(listing);
-          cand.evidence.push(...hist.facts);
-          cand.historyStatus = hist.historyStatus;
-        }
-
         if (toolId === "evidence.asking_price") {
           cand.evidence.push(askingPriceEvidence(listing));
+          const outcome: ScoutToolOutcome = {
+            toolId,
+            vin,
+            ok: true,
+            status: "success",
+            summary: `Recorded asking price seller claim for ${vin}.`,
+            acquiredVin: null,
+            servStepId: action.servStepId,
+          };
+          pushOutcome(outcome);
+          toolCache.set(idem, outcome);
+          stamp(provenance, state, outcome.summary, toolId, action.servStepId, idem);
+          assertTransition(state, "verifying");
+          state = "verifying";
+          continue;
         }
 
         if (toolId === "evidence.comps_ask" || toolId === "economics.flip_estimate") {
@@ -541,6 +763,23 @@ export async function runScout(input: RunScoutInput): Promise<ScoutRunResult> {
           cand.flip = flip;
           if (flip?.assumption) cand.evidence.push(assumedCostEvidence(flip.assumption));
           else cand.evidence.push(assumedCostEvidence(null));
+          const outcome: ScoutToolOutcome = {
+            toolId,
+            vin,
+            ok: true,
+            status: "success",
+            summary: flip?.excluded
+              ? `Flip estimate excluded for ${vin}: ${flip.excludeReason}`
+              : `Flip/comps economics computed for ${vin} (asking comps, not sold prices).`,
+            acquiredVin: null,
+            servStepId: action.servStepId,
+          };
+          pushOutcome(outcome);
+          toolCache.set(idem, outcome);
+          stamp(provenance, state, outcome.summary, toolId, action.servStepId, idem);
+          assertTransition(state, "verifying");
+          state = "verifying";
+          continue;
         }
 
         if (toolId === "economics.personal_fit") {
@@ -548,94 +787,77 @@ export async function runScout(input: RunScoutInput): Promise<ScoutRunResult> {
           cand.evidence.push({
             key: "personal_budget_fit",
             value: fit.fitsBudget,
-            // Computed inference from mandate + asking claim — not an external verified fact.
             kind: fit.fitsBudget == null ? "unknown" : "assumed",
             source: "domain.budgetFit",
             note: `${fit.reason} (computed fit — not independently verified).`,
           });
-        }
-
-        if (toolId === "evidence.gov_recalls" || toolId === "evidence.gov_fuel") {
-          cand.evidence.push({
-            key: toolId,
-            value: { status: "unsupported" },
-            kind: "unknown",
-            source: "gov",
-            note: "UNSUPPORTED: gov lookup not executed (paid-off / no spend). Not a successful evidence fetch.",
-          });
-          stamp(
-            provenance,
-            state,
-            `${toolId} returned unsupported/unknown — not treated as successful evidence.`,
+          const outcome: ScoutToolOutcome = {
             toolId,
-            action.servStepId,
-            idem,
-          );
+            vin,
+            ok: true,
+            status: "success",
+            summary: `Personal fit assumed for ${vin}: ${fit.reason}`,
+            acquiredVin: null,
+            servStepId: action.servStepId,
+          };
+          pushOutcome(outcome);
+          toolCache.set(idem, outcome);
+          stamp(provenance, state, outcome.summary, toolId, action.servStepId, idem);
+          assertTransition(state, "verifying");
+          state = "verifying";
+          continue;
         }
 
         if (
           toolId === "gates.verify" ||
           toolId === "listing.normalize" ||
-          toolId === "economics.flip_estimate" ||
           action.type === "select_candidate"
         ) {
-          if (!cand.flip && mandate.mode === "flip") {
-            cand.flip = flipEconomicsFor(listing, pool, mandate, now);
-          }
-          if (!cand.evidence.length) {
-            cand.evidence = [...identityEvidence(listing), askingPriceEvidence(listing)];
-            const hist = historyEvidence(listing);
-            cand.evidence.push(...hist.facts);
-            cand.historyStatus = hist.historyStatus;
-          }
-          const gate = runScoutGates({
-            listing,
+          const acquired = evaluateCandidateForInvestigation({
+            vin,
+            cand,
+            pool,
             mandate,
-            flip: cand.flip,
-            historyStatus: cand.historyStatus,
+            budgets,
+            investigated,
+            pending,
+            rejected,
+            now,
+            provenance,
+            state,
+            toolId,
+            servStepId: action.servStepId,
+            idem,
           });
-          cand.gates = gate.gates;
-          cand.withheld = gate.withheld;
-          cand.withholdReason = gate.withholdReason;
-          cand.claimsSafeBuy = false;
-          cand.claimsVerifiedProfit = false;
-
-          if (gate.allowInvestigate && investigated.length < budgets.maxCandidatesOut) {
-            // Weak candidates: flip excluded → leave pending for reject/replace by planner
-            if (mandate.mode === "flip" && cand.flip?.excluded) {
-              stamp(
-                provenance,
-                state,
-                `Evaluated ${vin}; flip excluded (${cand.flip.excludeReason}).`,
-                toolId,
-                action.servStepId,
-                idem,
-              );
-            } else {
-              cand.disposition = "investigate";
-              if (!investigated.some((c) => c.vin === vin)) investigated.push(cand);
-              const pIdx = pending.indexOf(vin);
-              if (pIdx >= 0) pending.splice(pIdx, 1);
-              stamp(
-                provenance,
-                state,
-                `Accepted ${vin} as investigation candidate (not a verified buy).`,
-                toolId,
-                action.servStepId,
-                idem,
-              );
-            }
-          } else if (!gate.allowInvestigate) {
-            cand.disposition = "rejected";
-            cand.rejectReason = gate.withholdReason ?? "Failed hard investigation gates.";
-            rejected.push(cand);
-            const pIdx = pending.indexOf(vin);
-            if (pIdx >= 0) pending.splice(pIdx, 1);
-            stamp(provenance, state, cand.rejectReason, "gates.verify", action.servStepId, idem);
-          }
+          const outcome: ScoutToolOutcome = {
+            toolId,
+            vin,
+            ok: acquired.ok,
+            status: acquired.ok ? "success" : "failed",
+            summary: acquired.summary,
+            acquiredVin: vin,
+            servStepId: action.servStepId,
+          };
+          pushOutcome(outcome);
+          toolCache.set(idem, outcome);
+          assertTransition(state, "verifying");
+          state = "verifying";
+          continue;
         }
 
-        toolCache.set(idem, true);
+        // Allowlisted but not implemented as a real adapter here — truthful unsupported.
+        const unsupported: ScoutToolOutcome = {
+          toolId,
+          vin,
+          ok: false,
+          status: "unsupported",
+          summary: `${toolId} has no executable adapter on this path — unsupported (not success).`,
+          acquiredVin: null,
+          servStepId: action.servStepId,
+        };
+        pushOutcome(unsupported);
+        toolCache.set(idem, unsupported);
+        stamp(provenance, state, unsupported.summary, toolId, action.servStepId, idem);
         assertTransition(state, "verifying");
         state = "verifying";
         continue;
@@ -691,10 +913,49 @@ export function refusingPlanner(
 /**
  * Offline heuristic planner for demos when live SERV is not authorized.
  * Callers MUST set autonomyClaim: "none". Not an efficacy claim.
+ * Replans from actual tool outcomes (unsupported → skip/replace; empty replace → stop).
  */
 export function heuristicOfflinePlanner(): ScoutPlanner {
   const seen = new Set<string>();
-  return async ({ pendingVins, investigated, mandate }) => {
+  return async ({ pendingVins, investigated, mandate, recentOutcomes }) => {
+    const last = recentOutcomes[recentOutcomes.length - 1] ?? null;
+
+    // Unsupported/failure feedback changes next choice — do not pretend success.
+    if (last && (last.status === "unsupported" || last.status === "failed")) {
+      if (last.vin && pendingVins.includes(last.vin)) {
+        return {
+          ok: true,
+          action: {
+            type: "replace",
+            vin: last.vin,
+            reason: `Offline heuristic replaces after ${last.toolId} ${last.status}: ${last.summary}`,
+            servStepId: "offline-heuristic",
+          },
+        };
+      }
+      if (pendingVins.length === 0) {
+        return {
+          ok: true,
+          action: {
+            type: investigated.length ? "finalize" : "abstain",
+            reason: `Offline heuristic stops after ${last.status} with no pending left (autonomyClaim=none).`,
+            servStepId: "offline-heuristic",
+          },
+        };
+      }
+    }
+
+    if (last?.status === "empty" && last.toolId === "candidate.replace") {
+      return {
+        ok: true,
+        action: {
+          type: investigated.length ? "finalize" : "abstain",
+          reason: "Offline heuristic: replace found no distinct candidate — honest stop.",
+          servStepId: "offline-heuristic",
+        },
+      };
+    }
+
     if (investigated.length >= 5 || pendingVins.length === 0) {
       return {
         ok: true,
@@ -710,7 +971,7 @@ export function heuristicOfflinePlanner(): ScoutPlanner {
       return {
         ok: true,
         action: {
-          type: "finalize",
+          type: investigated.length ? "finalize" : "abstain",
           reason: "No unseen pending VINs.",
           servStepId: "offline-heuristic",
         },
