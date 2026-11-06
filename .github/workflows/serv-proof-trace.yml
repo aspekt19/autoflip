@@ -1,0 +1,85 @@
+name: SERV redacted proof trace
+
+on:
+  workflow_run:
+    workflows: ["SERV evaluation evidence"]
+    types: [completed]
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: serv-redacted-proof-trace
+  cancel-in-progress: false
+
+jobs:
+  trace:
+    if: github.event.workflow_run.head_branch == 'main' && github.event.workflow_run.event == 'workflow_dispatch' && github.event.workflow_run.conclusion != 'cancelled'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Check out main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Require SERV credentials
+        env:
+          SERV_API_KEY: ${{ secrets.SERV_API_KEY }}
+        run: |
+          if [ -z "$SERV_API_KEY" ]; then
+            echo "::error::Repository secret SERV_API_KEY is missing."
+            exit 1
+          fi
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run one real SERV inference and write a redacted trace
+        env:
+          SERV_API_KEY: ${{ secrets.SERV_API_KEY }}
+          SERV_BASE_URL: ${{ secrets.SERV_BASE_URL }}
+        run: npm run eval:trace
+
+      - name: Upload redacted trace artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: autoflip-serv-proof-trace-${{ github.event.workflow_run.id }}
+          path: |
+            eval/results/serv-proof-trace.json
+            eval/results/serv-proof-trace.md
+          if-no-files-found: error
+          retention-days: 90
+
+      - name: Open a reviewable PR with the redacted trace
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_RUN_ID: ${{ github.event.workflow_run.id }}
+        run: |
+          branch="evidence/serv-proof-trace-${SOURCE_RUN_ID}"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git checkout -b "$branch"
+          git add eval/results/serv-proof-trace.json eval/results/serv-proof-trace.md
+          git commit -m "Evidence: add redacted SERV proof trace"
+          git push origin "$branch"
+          cat > /tmp/pr-body.md <<'EOF'
+          ## What this publishes
+          - One real SERV inference execution against the fixed `flip-clear` AutoFlip evaluation fixture.
+          - A sanitized response identifier, requested/reported model, feature/tool metadata, status, latency, and token usage when exposed.
+          - The parsed `alert`/`skip` decision when the response matches the expected schema.
+
+          ## Privacy and scope
+          - This is a controlled evaluation fixture, not live customer traffic or a production vehicle report.
+          - Raw prompt, VIN, supplied facts, and free-form model text are deliberately omitted.
+          - Missing metadata is shown as unavailable; it is not inferred.
+          EOF
+          gh pr create --base main --head "$branch" --title "Evidence: publish redacted SERV Proof of AI trace" --body-file /tmp/pr-body.md
