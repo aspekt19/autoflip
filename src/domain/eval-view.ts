@@ -6,8 +6,14 @@ export type SavedEvalRow = {
   title: string;
   task: string;
   synthetic: boolean;
-  plain: EvalScore & { text: string };
-  serv: EvalScore & { text: string };
+  plain: EvalScore & { text: string; status?: number; latencyMs?: number };
+  serv: EvalScore & {
+    text: string;
+    status?: number;
+    latencyMs?: number;
+    model?: string | null;
+    responseId?: string | null;
+  };
 };
 
 export type SavedEval = {
