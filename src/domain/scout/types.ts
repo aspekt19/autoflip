@@ -173,6 +173,8 @@ export type ScoutRunResult = {
   candidates: ScoutCandidate[];
   investigation: ScoutCandidate[];
   provenance: ProvenanceStep[];
+  /** Full append-only tool outcome log (not truncated planner window). Stage3 metrics. */
+  toolOutcomes: ScoutToolOutcome[];
   failReason: ScoutFailReason | null;
   message: string | null;
   autonomyClaim: "serv_directed" | "none";

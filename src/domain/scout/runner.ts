@@ -241,6 +241,10 @@ export async function runScout(input: RunScoutInput): Promise<ScoutRunResult> {
     : freshUsage(wallClockMs());
   const toolCache: ToolCache = new Map();
   const recentOutcomes: ScoutToolOutcome[] = [];
+  /** Full outcome log for Stage3 observables (planner still uses truncated recentOutcomes). */
+  const toolOutcomes: ScoutToolOutcome[] = input.resume?.toolOutcomes
+    ? [...input.resume.toolOutcomes]
+    : [];
 
   let state: ScoutState = input.resume?.state ?? "created";
   let mandate: ScoutMandate | null = input.resume?.mandate ?? null;
@@ -253,6 +257,7 @@ export async function runScout(input: RunScoutInput): Promise<ScoutRunResult> {
   const rejected: ScoutCandidate[] = [];
 
   const pushOutcome = (outcome: ScoutToolOutcome) => {
+    toolOutcomes.push(outcome);
     recentOutcomes.push(outcome);
     // Keep a bounded window for planner context (not an unbounded log).
     if (recentOutcomes.length > 12) recentOutcomes.splice(0, recentOutcomes.length - 12);
@@ -281,6 +286,7 @@ export async function runScout(input: RunScoutInput): Promise<ScoutRunResult> {
     candidates: [...candidates.values()],
     investigation: investigated.filter((c) => c.disposition === "investigate"),
     provenance: [...provenance],
+    toolOutcomes: [...toolOutcomes],
     failReason: null,
     message: null,
     autonomyClaim,
@@ -315,6 +321,7 @@ export async function runScout(input: RunScoutInput): Promise<ScoutRunResult> {
         candidates: [],
         investigation: [],
         provenance,
+        toolOutcomes: [...toolOutcomes],
         failReason: "unauthorized",
         message: "Cannot resume another owner's scout run.",
         autonomyClaim: "none",
@@ -420,6 +427,15 @@ export async function runScout(input: RunScoutInput): Promise<ScoutRunResult> {
           : inv.error === "inventory_unconfigured"
             ? "inventory_unconfigured"
             : "provider_unavailable";
+      pushOutcome({
+        toolId: "inventory.search",
+        vin: null,
+        ok: false,
+        status: inv.error === "inventory_empty" ? "empty" : "failed",
+        summary: inv.message,
+        acquiredVin: null,
+        servStepId: null,
+      });
       if (inv.error === "inventory_empty") {
         assertTransition(state, "inventory_loaded");
         state = "inventory_loaded";
@@ -444,6 +460,15 @@ export async function runScout(input: RunScoutInput): Promise<ScoutRunResult> {
     }
     assertTransition(state, "inventory_loaded");
     state = "inventory_loaded";
+    pushOutcome({
+      toolId: "inventory.search",
+      vin: null,
+      ok: true,
+      status: pool.length === 0 ? "empty" : "success",
+      summary: `Inventory loaded: ${pool.length} listings (${inv.source}).`,
+      acquiredVin: null,
+      servStepId: null,
+    });
     stamp(
       provenance,
       state,

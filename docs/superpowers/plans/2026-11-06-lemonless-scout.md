@@ -54,7 +54,8 @@ npx tsx eval/scout-baseline.ts
 - Live Auto.dev adapter exists in `providers.ts` using `autodevSearch` + atomic `reserveTotalCall`; requires `SCOUT_PAID_EXECUTION` + key + `SCOUT_MAX_PROVIDER_CALLS_HARD_CEILING`. **Not exercised for spend in this worker.**
 - Replay uses the same `InventoryAdapter` / runner contracts; listing rows tagged `sample`; API returns `isFixture` + `presentation.kind=fixture_replay`.
 - Client balance attestation **rejected**; server paid-execution config only.
-- Eval: `npm run eval:scout` writes machine-readable metrics; mock planner labeled NOT SERV efficacy.
+- Eval: `npm run eval:scout` writes Stage3 `scout-metrics/v1` observables (+ perturbation
+  detectors); mock planner labeled NOT SERV efficacy; unknown when unobserved.
 - Minimal `/scout` UI behind `SCOUT_UI_ENABLED` (default off).
 
 ## Configurable measured options (folded from public docs; D≠runtime)

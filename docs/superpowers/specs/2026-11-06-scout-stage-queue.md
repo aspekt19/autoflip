@@ -53,12 +53,18 @@ replay no-charge tool counts; empty replacement abstain; real recentOutcomes tra
 - Unknown or unsupported tool alone is **not** proof the car is bad — do not force replacement
   merely because a gov tool is unavailable
 
-## STAGE3 — NEXT after this residue (honest metrics — not SERV quality from stubs)
+## STAGE3 — PIN (honest eval metrics — schema scout-metrics/v1)
 
-Eval tautologies (`claimsSafeBuy` always 0, `insufficientEvidenceInvestigated`,
-`realSourceAvailable` const, `rejectReplaceCovered`, mock≠efficacy).
+Replace tautologies with observables: candidate claims / evidence provenance / hard gates /
+history-unknown / titles / actual reject·replace / tool outcomes / incomplete inventory /
+actions + budget + latency. No observations → **unknown** (not 0-safety or perfect).
+Perturbation detectors: unsafe-unknown-claim, unsupported-as-success, fake-replacement,
+wrong-source, missing-needed-search. Matched baseline overlap labeled MOCK/OFFLINE plumbing
+— **not SERV efficacy**. Timeout/refusal/abstain stay in denominator. Residue `6dc1bed`
+review stays separate/active. Parent hosted SERV probe = 200/null/0 usage (no action quality);
+no Guard-blocked / advantage claim; **NO more paid calls**.
 
-## STAGE2C — queued AFTER residue + Stage3 (bounded; not a new framework)
+## STAGE2C — queued AFTER Stage3 (bounded; not a new framework)
 
 Real bounded search adjustment within mandate/server caps:
 - typed validated search params → fresh results / duplicates / source / geo

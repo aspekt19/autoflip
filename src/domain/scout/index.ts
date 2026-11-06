@@ -17,5 +17,18 @@ export {
   runScout,
 } from "./runner";
 export type { ScoutPlanner, ScoutPlannerInput, RunScoutInput } from "./runner";
+export {
+  SCOUT_METRICS_SCHEMA_VERSION,
+  observeScoutRun,
+  detectTracePerturbations,
+  summarizeEvalInvariants,
+} from "./metrics";
+export type {
+  ObservedCount,
+  ScoutObservables,
+  PerturbationKind,
+  PerturbationHit,
+  ScoutEvalInvariants,
+} from "./metrics";
 export { SCOUT_TOOL_IDS } from "./types";
 export type * from "./types";

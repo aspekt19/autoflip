@@ -1,13 +1,15 @@
 /**
- * Honest scout eval harness — machine-readable metrics on fixed recorded data.
+ * Stage3 honest scout eval harness — machine-readable observables on fixed recorded data.
  *
  * - Real-source replay: fixtures/autodev-camry.json only (cited provenance).
  * - Adversarial: fixtures/scout/adversarial-contradiction.json (NOT live evidence).
  * - Mock/script planners prove CONTROL PLUMBING only — never SERV efficacy.
- * - Baseline = deterministic flip rank on same pool/budget.
+ * - Baseline = deterministic flip rank on same pool/budget (matched-data overlap, not quality).
+ * - Timeout / refusal / abstain remain in the denominator.
+ * - No observations → unknown (not 0-safety or perfect coverage).
  *
  * Usage: npx tsx eval/scout-baseline.ts
- * Exit 0 always when harness completes; metrics carry pass/fail flags.
+ * Exit 1 when observed unsafe claims or integrity perturbations fire on clean cases.
  */
 import { writeFileSync } from "node:fs";
 import { resolve } from "node:path";
@@ -16,33 +18,33 @@ import adversarial from "../fixtures/scout/adversarial-contradiction.json";
 import { rankFlipCandidates } from "../src/domain/flip-rank";
 import {
   REPLAY_CAMRY_PROVENANCE,
+  detectTracePerturbations,
   mockServPlanner,
+  observeScoutRun,
+  refusingPlanner,
   replayInventoryAdapter,
   runScout,
+  summarizeEvalInvariants,
+  SCOUT_METRICS_SCHEMA_VERSION,
+  type ScoutObservables,
+  type PerturbationHit,
   type ScoutPlanAction,
   type ScoutRunResult,
 } from "../src/domain/scout";
 import { parseAutoDevListings } from "../src/io/parsers";
 
-type CaseMetrics = {
+type CaseReport = {
   id: string;
   mode: "flip" | "personal";
-  dataKind: "real_source_replay" | "synthetic_adversarial_NOT_live";
+  dataKind: "real_source_replay" | "synthetic_adversarial_NOT_live" | "control_refusal";
   provenance: string;
-  plannerKind: "mock_script_control_plumbing_NOT_serv_efficacy" | "offline_heuristic_NOT_serv";
+  plannerKind: "mock_script_control_plumbing_NOT_serv_efficacy" | "refusing_planner_NOT_serv";
   poolSize: number;
   baselineTopVins: string[];
-  scoutState: string;
-  scoutFailReason: string | null;
-  investigationCount: number;
-  investigationVins: string[];
-  rejectedCount: number;
-  replacedCount: number;
-  claimsSafeBuyCount: number;
-  claimsVerifiedProfitCount: number;
-  insufficientEvidenceInvestigated: number;
-  overlapWithBaseline: number;
-  scriptCoveredRejectReplace: boolean;
+  /** Explicit: matched-data overlap vs flip-rank baseline — plumbing, not SERV efficacy. */
+  matchedDataBaselineNote: "MOCK_OFFLINE_identical_replay_overlap_NOT_serv_efficacy";
+  observables: ScoutObservables;
+  perturbations: PerturbationHit[];
   notes: string[];
 };
 
@@ -71,52 +73,6 @@ function personalMandate() {
     zip: "72712",
     maxDistanceMiles: 500,
     notes: null,
-  };
-}
-
-function metricsFrom(
-  id: string,
-  mode: "flip" | "personal",
-  dataKind: CaseMetrics["dataKind"],
-  provenance: string,
-  plannerKind: CaseMetrics["plannerKind"],
-  pool: ReturnType<typeof parseAutoDevListings>,
-  baselineVins: string[],
-  scout: ScoutRunResult,
-  scriptCoveredRejectReplace: boolean,
-): CaseMetrics {
-  const insufficient = scout.investigation.filter((c) => {
-    const noPrice = c.listing.priceUsd == null;
-    const histUnknown = c.historyStatus === "unknown";
-    const flipThin = mode === "flip" && (!c.flip || c.flip.excluded || c.flip.compCount < 3);
-    return noPrice || (flipThin && mode === "flip") || (histUnknown && c.claimsSafeBuy);
-  });
-
-  return {
-    id,
-    mode,
-    dataKind,
-    provenance,
-    plannerKind,
-    poolSize: pool.length,
-    baselineTopVins: baselineVins,
-    scoutState: scout.state,
-    scoutFailReason: scout.failReason,
-    investigationCount: scout.investigation.length,
-    investigationVins: scout.investigation.map((c) => c.vin),
-    rejectedCount: scout.candidates.filter((c) => c.disposition === "rejected").length,
-    replacedCount: scout.candidates.filter((c) => c.disposition === "replaced").length,
-    claimsSafeBuyCount: scout.candidates.filter((c) => c.claimsSafeBuy).length,
-    claimsVerifiedProfitCount: scout.candidates.filter((c) => c.claimsVerifiedProfit).length,
-    insufficientEvidenceInvestigated: insufficient.length,
-    overlapWithBaseline: baselineVins.filter((v) =>
-      scout.investigation.some((c) => c.vin === v),
-    ).length,
-    scriptCoveredRejectReplace,
-    notes: [
-      "Mock/heuristic planners are NOT SERV efficacy evidence.",
-      dataKind === "synthetic_adversarial_NOT_live" ? "Adversarial fixture is NOT live evidence." : REPLAY_CAMRY_PROVENANCE,
-    ],
   };
 }
 
@@ -149,9 +105,10 @@ async function runCase(args: {
   mode: "flip" | "personal";
   raw: unknown;
   provenance: string;
-  dataKind: CaseMetrics["dataKind"];
+  dataKind: CaseReport["dataKind"];
   withRejectReplace: boolean;
-}): Promise<CaseMetrics> {
+  refuse?: boolean;
+}): Promise<CaseReport> {
   const mandate = args.mode === "flip" ? flipMandate() : personalMandate();
   const pool = parseAutoDevListings(args.raw, "sample");
   const now = new Date("2026-11-06T12:00:00Z");
@@ -181,32 +138,53 @@ async function runCase(args: {
         { type: "finalize" as const, reason: "eval:done", servStepId: "final" },
       ];
 
-  const scout = await runScout({
+  const scout: ScoutRunResult = await runScout({
     ownerId: `eval:${args.id}`,
     mandateRaw: mandate,
     inventory,
-    planner: mockServPlanner(script),
-    // Mock script = control plumbing only — never claim SERV-directed autonomy.
+    planner: args.refuse ? refusingPlanner("serv_refused") : mockServPlanner(script),
     autonomyClaim: "none",
     budgets: { maxProviderCalls: 0, maxCandidatesOut: 5, maxServCalls: 30, maxToolCalls: 80 },
     now,
   });
 
-  return metricsFrom(
-    args.id,
-    args.mode,
-    args.dataKind,
-    args.provenance,
-    "mock_script_control_plumbing_NOT_serv_efficacy",
-    pool,
-    baseline,
-    scout,
-    args.withRejectReplace,
-  );
+  const observables = observeScoutRun(scout, {
+    baselineTopVins: baseline,
+    nowMs: Date.now(),
+  });
+  const perturbations = detectTracePerturbations(scout, {
+    expectedInventorySource: "replay",
+  });
+
+  return {
+    id: args.id,
+    mode: args.mode,
+    dataKind: args.dataKind,
+    provenance: args.provenance,
+    plannerKind: args.refuse
+      ? "refusing_planner_NOT_serv"
+      : "mock_script_control_plumbing_NOT_serv_efficacy",
+    poolSize: pool.length,
+    baselineTopVins: baseline,
+    matchedDataBaselineNote: "MOCK_OFFLINE_identical_replay_overlap_NOT_serv_efficacy",
+    observables,
+    perturbations,
+    notes: [
+      "Mock/heuristic/refusing planners are NOT SERV efficacy evidence.",
+      dataKindNote(args.dataKind),
+      "Timeout/refusal/abstain remain in denominator; unknown ≠ 0-perfect.",
+    ],
+  };
+}
+
+function dataKindNote(kind: CaseReport["dataKind"]): string {
+  if (kind === "synthetic_adversarial_NOT_live") return "Adversarial fixture is NOT live evidence.";
+  if (kind === "control_refusal") return "Control refusal case — plumbing stop, not efficacy.";
+  return REPLAY_CAMRY_PROVENANCE;
 }
 
 async function main() {
-  const cases: CaseMetrics[] = [];
+  const cases: CaseReport[] = [];
 
   cases.push(
     await runCase({
@@ -241,21 +219,53 @@ async function main() {
     }),
   );
 
-  const invariants = {
-    noSafeBuyClaims: cases.every((c) => c.claimsSafeBuyCount === 0),
-    noVerifiedProfitClaims: cases.every((c) => c.claimsVerifiedProfitCount === 0),
-    rejectReplaceCovered: cases.filter((c) => c.scriptCoveredRejectReplace).every((c) => c.rejectedCount + c.replacedCount > 0 || c.scoutState === "abstained" || c.scoutState === "completed"),
-    realSourceAvailable: true,
-    realSourcePath: "fixtures/autodev-camry.json",
-    otherRealSourceSnapshots: "none — only autodev-camry.json exists in-repo; no invented provenance",
-    plannerEfficacyClaimed: false,
+  // Denominator preservation: refusal is a first-class case, not dropped.
+  cases.push(
+    await runCase({
+      id: "camry-flip-serv-refused",
+      mode: "flip",
+      raw: camry,
+      provenance: REPLAY_CAMRY_PROVENANCE,
+      dataKind: "control_refusal",
+      withRejectReplace: false,
+      refuse: true,
+    }),
+  );
+
+  const invariants = summarizeEvalInvariants(
+    cases.map((c) => ({ observables: c.observables, perturbations: c.perturbations })),
+  );
+
+  const beforeAfter = {
+    before_tautologies_removed: [
+      "claimsSafeBuyCount always 0 (type-forced literal false)",
+      "insufficientEvidenceInvestigated under-defined / often 0",
+      "realSourceAvailable: constant true",
+      "rejectReplaceCovered: completed|abstained counted as covered",
+      "completed ⇒ coverage / perfect when unobserved",
+    ],
+    after_observables: [
+      "candidates.unsafeSafeBuyClaims observed|unknown",
+      "candidates.historyUnknown / titleForbidOrWithhold",
+      "evidence.byKind + bySource provenance counts",
+      "gates.hardForbid|withhold|pass (unknown if none)",
+      "tools.byStatus + inventorySearchAttempts",
+      "actions.reject/replace + budget + latency.wallMs",
+      "inventory.incomplete + terminalKind incl. timeout/refusal/abstain",
+      "baselineOverlap matched-data only; labeling MOCK_OFFLINE",
+      "detectTracePerturbations integrity suite",
+    ],
   };
 
   const report = {
     harness: "eval/scout-baseline.ts",
+    schemaVersion: SCOUT_METRICS_SCHEMA_VERSION,
     generatedAt: new Date().toISOString(),
-    note: "Machine-readable offline metrics. Mock planners = control plumbing only. Not SERV efficacy.",
+    note: "Stage3 honest observables. MOCK/OFFLINE plumbing only. Not SERV efficacy. No Guard/advantage claim.",
+    beforeAfter,
     invariants,
+    realSourcePath: "fixtures/autodev-camry.json",
+    otherRealSourceSnapshots: "none — only autodev-camry.json exists in-repo; no invented provenance",
     cases,
   };
 
@@ -267,7 +277,11 @@ async function main() {
   }
   console.log(JSON.stringify(report, null, 2));
 
-  if (!invariants.noSafeBuyClaims || !invariants.noVerifiedProfitClaims) {
+  const integrityFail =
+    invariants.noObservedUnsafeSafeBuy === false ||
+    invariants.noObservedUnsafeVerifiedProfit === false ||
+    invariants.perturbationHitsTotal > 0;
+  if (integrityFail) {
     process.exitCode = 1;
   }
 }
