@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { assembleRadar, assembleReport } from "./assemble";
+import { buildSampleReport } from "./sample-report";
 
 describe("assemble", () => {
   it("builds a labeled sample report when no listings key is set", async () => {
@@ -19,6 +20,25 @@ describe("assemble", () => {
     expect(result.report.proof.steps.some((step) => step.id === "serv_prompt_guard" && step.status === "skipped")).toBe(true);
     expect(result.report.proof.inputsHash).toMatch(/^[a-f0-9]{64}$/);
     expect(result.report.explanation).not.toMatch(/\$999/);
+  });
+
+  it("does not present unrun provider lookups as failed checks on the static sample", () => {
+    const report = buildSampleReport("personal");
+    const checks = report.computed.sourceChecks ?? [];
+    expect(report.createdAt).toBe("2026-11-04T00:00:00.000Z");
+    expect(checks.find((item) => item.source === "Auto.dev listings")?.status).toBe("sample");
+    for (const source of [
+      "NHTSA VIN decoder",
+      "NHTSA recalls by model year",
+      "NHTSA complaints",
+      "FuelEconomy.gov",
+      "U.S. Census geocoder",
+    ]) {
+      const check = checks.find((item) => item.source === source);
+      expect(check?.status).toBe("not_checked");
+      expect(check?.checkedAt).toBeNull();
+    }
+    expect(checks.find((item) => item.source === "NMVTIS title history")?.status).toBe("not_connected");
   });
 
   it("does not pretend a Honda search returned Camrys without a label", async () => {
