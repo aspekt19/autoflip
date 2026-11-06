@@ -57,12 +57,13 @@ export function runScoutGates(input: {
     });
   }
 
-  // Safety: we do not have title brand text here; pass with explicit note.
+  // Title/brand not scanned — UNKNOWN, never PASS. Investigation allowed; buy forbidden.
   gates.push({
     id: "safety_red_flags",
-    status: "pass",
-    reason: "No title-brand scan in scout slice; title status remains unknown unless evidenced.",
-    forbid: [],
+    status: "forbid",
+    reason:
+      "Title/brand was not scanned in this scout slice — status UNKNOWN (not a safety pass). Buy forbidden until evidenced.",
+    forbid: ["buy"],
   });
 
   if (input.mandate.mode === "flip") {

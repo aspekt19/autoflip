@@ -10,6 +10,7 @@ import {
   type InventoryAdapter,
   type ScoutMandate,
 } from "@/domain/scout";
+import type { Listing } from "@/domain/types";
 import { autodevSearch, type AutodevDeps } from "@/io/autodev";
 import type { Kv } from "@/io/kv";
 import {
@@ -70,61 +71,91 @@ export function resolveLiveInventory(input: {
   const remaining = { left: gate.remainingProviderBudget };
 
   const adapter: InventoryAdapter = async (mandate: ScoutMandate) => {
-    if (remaining.left <= 0) {
+    // Search each preferred make (not just [0]); openToOtherMakes with empty prefs → one unscoped pull.
+    const makes: Array<string | undefined> =
+      mandate.preferredMakes.length > 0
+        ? [...new Set(mandate.preferredMakes)]
+        : mandate.openToOtherMakes
+          ? [undefined]
+          : [];
+    if (!makes.length) {
       return {
         ok: false,
-        error: "provider_unavailable",
-        message: "Scout provider hard ceiling exhausted before inventory.search.",
+        error: "inventory_empty",
+        message: "No preferred makes and openToOtherMakes=false — refused unscoped live pull.",
         providerCallsUsed: 0,
       };
     }
 
-    // Atomic worst-case: reserve one call before fetch.
-    const quota = await reserveAutodevCall(input.kv);
-    if (!quota.ok) {
-      return {
-        ok: false,
-        error: "provider_unavailable",
-        message: quota.message,
-        providerCallsUsed: 0,
-      };
+    const byVin = new Map<string, Listing>();
+    let providerCallsUsed = 0;
+    let lastUsed = 0;
+    let lastLimit = 0;
+    const cachedFlags: boolean[] = [];
+
+    for (const make of makes) {
+      if (remaining.left <= 0) break;
+
+      // Atomic worst-case: reserve one call before each make's fetch.
+      const quota = await reserveAutodevCall(input.kv);
+      if (!quota.ok) {
+        if (byVin.size === 0) {
+          return {
+            ok: false,
+            error: "provider_unavailable",
+            message: quota.message,
+            providerCallsUsed,
+          };
+        }
+        break;
+      }
+      remaining.left -= 1;
+      lastUsed = quota.used;
+      lastLimit = quota.limit;
+
+      const result = await autodevSearch(
+        {
+          make,
+          zip: mandate.zip ?? undefined,
+          distanceMiles: mandate.maxDistanceMiles ?? undefined,
+          used: true,
+          limit: 20,
+          sort: "price",
+        },
+        {
+          ...input.autodev,
+          source: "autodev",
+          // Outer reserve already counted; do not double-charge.
+          reserve: async () => ({ ok: true, used: quota.used, limit: quota.limit }),
+        },
+      );
+
+      if (!result.ok) {
+        if (byVin.size === 0) {
+          return {
+            ok: false,
+            error: "provider_unavailable",
+            message: result.message,
+            providerCallsUsed: providerCallsUsed + 1,
+          };
+        }
+        break;
+      }
+      cachedFlags.push(result.cached);
+      if (!result.cached) providerCallsUsed += 1;
+      else remaining.left += 1; // cache hit — slot unused for network
+      for (const listing of filterPool(result.listings, mandate)) {
+        if (!byVin.has(listing.vin)) byVin.set(listing.vin, listing);
+      }
     }
-    remaining.left -= 1;
 
-    const make = mandate.preferredMakes[0];
-    const result = await autodevSearch(
-      {
-        make: make ?? undefined,
-        zip: mandate.zip ?? undefined,
-        distanceMiles: mandate.maxDistanceMiles ?? undefined,
-        used: true,
-        limit: 20,
-        sort: "price",
-      },
-      {
-        ...input.autodev,
-        // Live rows must be tagged autodev; never sample/fixture.
-        source: "autodev",
-        reserve: async () => ({ ok: true, used: quota.used, limit: quota.limit }),
-      },
-    );
-
-    if (!result.ok) {
-      return {
-        ok: false,
-        error: result.error === "demo_limit" ? "provider_unavailable" : "provider_unavailable",
-        message: result.message,
-        providerCallsUsed: 1,
-      };
-    }
-
-    const filtered = filterPool(result.listings, mandate);
+    const filtered = [...byVin.values()];
     if (!filtered.length) {
       return {
         ok: false,
         error: "inventory_empty",
         message: "Live Auto.dev inventory produced zero listings after mandate filter.",
-        providerCallsUsed: 1,
+        providerCallsUsed,
       };
     }
 
@@ -132,8 +163,8 @@ export function resolveLiveInventory(input: {
       ok: true,
       listings: filtered,
       source: "live",
-      provenance: `live:api.auto.dev/listings (cached=${result.cached}; quota used ${result.quota.used}/${result.quota.limit})`,
-      providerCallsUsed: result.cached ? 0 : 1,
+      provenance: `live:api.auto.dev/listings makes=${makes.map((m) => m ?? "*").join(",")}; cached=${cachedFlags.join(",")}; quota used ${lastUsed}/${lastLimit}`,
+      providerCallsUsed,
     };
   };
 

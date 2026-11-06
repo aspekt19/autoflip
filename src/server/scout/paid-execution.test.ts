@@ -13,38 +13,71 @@ describe("paid execution server gate", () => {
     expect(gate.ok).toBe(false);
   });
 
-  it("requires hard ceiling even when paid flag and key present", () => {
-    const gate = authorizeLiveInventory({
-      paidExecutionEnabled: true,
-      hasAutodevKey: true,
-      hasServKey: true,
-      maxProviderCallsHardCeiling: null,
-    });
-    expect(gate.ok).toBe(false);
-    if (!gate.ok) expect(gate.error).toBe("unverifiable_cap");
-  });
-
-  it("authorizes only with flag + key + positive ceiling", () => {
+  it("fail-closes when flag+key+ceiling set but verified reserve missing", () => {
     const gate = authorizeLiveInventory({
       paidExecutionEnabled: true,
       hasAutodevKey: true,
       hasServKey: true,
       maxProviderCallsHardCeiling: 3,
+      verifiedBalanceUsd: null,
+      spendHardCapUsd: null,
+      storage: "upstash",
     });
-    expect(gate.ok).toBe(true);
-    if (gate.ok) expect(gate.remainingProviderBudget).toBeGreaterThan(0);
+    expect(gate.ok).toBe(false);
+    if (!gate.ok) expect(gate.error).toBe("verified_reserve_unavailable");
   });
 
-  it("strips client spend claims from bodies", () => {
+  it("fail-closes when reserve would breach $5", () => {
+    const gate = authorizeLiveInventory({
+      paidExecutionEnabled: true,
+      hasAutodevKey: true,
+      hasServKey: true,
+      maxProviderCallsHardCeiling: 3,
+      verifiedBalanceUsd: 6,
+      spendHardCapUsd: 2,
+      storage: "upstash",
+    });
+    expect(gate.ok).toBe(false);
+    if (!gate.ok) expect(gate.error).toBe("insufficient_reserve");
+  });
+
+  it("fail-closes without distributed quota backend even with verified reserve", () => {
+    const gate = authorizeLiveInventory({
+      paidExecutionEnabled: true,
+      hasAutodevKey: true,
+      hasServKey: true,
+      maxProviderCallsHardCeiling: 3,
+      verifiedBalanceUsd: 20,
+      spendHardCapUsd: 2,
+      storage: "file",
+    });
+    expect(gate.ok).toBe(false);
+    if (!gate.ok) expect(gate.error).toBe("quota_backend_not_distributed");
+  });
+
+  it("authorizes only with flag + key + ceiling + verified reserve + upstash", () => {
+    const gate = authorizeLiveInventory({
+      paidExecutionEnabled: true,
+      hasAutodevKey: true,
+      hasServKey: true,
+      maxProviderCallsHardCeiling: 3,
+      verifiedBalanceUsd: 20,
+      spendHardCapUsd: 2,
+      storage: "upstash",
+    });
+    expect(gate.ok).toBe(true);
+  });
+
+  it("strips client spend and budget expansion claims", () => {
     const cleaned = stripClientSpendClaims({
       mandate: { mode: "flip" },
       verifiedBalanceUsd: 99,
-      hardCapUsd: 1,
-      attestationId: "nope",
+      budgets: { maxProviderCalls: 999 },
+      maxProviderCalls: 50,
     });
     expect(cleaned.verifiedBalanceUsd).toBeUndefined();
-    expect(cleaned.hardCapUsd).toBeUndefined();
-    expect(cleaned.attestationId).toBeUndefined();
+    expect(cleaned.budgets).toBeUndefined();
+    expect(cleaned.maxProviderCalls).toBeUndefined();
     expect(cleaned.mandate).toEqual({ mode: "flip" });
   });
 });

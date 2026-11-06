@@ -68,12 +68,18 @@ export function ScoutPanel() {
           },
         }),
       });
-      const body = (await res.json()) as ScoutApiResponse;
-      if (!res.ok) {
-        setError(body.message ?? body.error ?? `Request failed (${res.status})`);
-        setResponse(body);
-      } else {
-        setResponse(body);
+      const body = (await res.json()) as ScoutApiResponse & {
+        partial?: boolean;
+        result?: ScoutApiResponse["result"];
+      };
+      setResponse(body);
+      if (!res.ok || body.partial || body.result?.state === "failed") {
+        setError(
+          body.message ??
+            body.result?.message ??
+            body.error ??
+            `Scout ended with HTTP ${res.status} / state ${body.result?.state ?? "unknown"}`,
+        );
       }
     } catch {
       setError("Network error talking to /api/scout.");

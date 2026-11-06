@@ -4,7 +4,7 @@ import { authorizeScoutStart } from "@/server/scout/access";
 import { isScoutEnabled, scoutConfigMessage } from "@/server/scout/config";
 import { readPaidExecutionConfig } from "@/server/scout/paid-execution";
 import { executeScoutRun, type StartScoutBody } from "@/server/scout/run";
-import { loadScoutRun } from "@/server/scout/store";
+import { loadScoutRun, saveScoutMeta } from "@/server/scout/store";
 
 export const runtime = "nodejs";
 
@@ -66,16 +66,18 @@ export async function POST(req: Request) {
   }
 
   const { result, inventoryMode, isFixture, paidBlockedReason } = executed;
-  const status =
-    result.state === "failed"
-      ? result.failReason === "unauthorized" || result.failReason === "scout_disabled"
-        ? 403
-        : result.failReason === "mandate_invalid"
-          ? 400
-          : 200
-      : 200;
-
+  const status = scoutHttpStatus(result);
   const paid = readPaidExecutionConfig();
+  const presentation = isFixture
+    ? {
+        kind: "fixture_replay" as const,
+        warning:
+          "These listings are from a checked-in Auto.dev snapshot for offline proof — not a live market pull.",
+      }
+    : { kind: "live_autodev" as const, warning: null };
+
+  // Persist presentation so GET /api/scout/:id does not lose fixture honesty.
+  await saveScoutMeta(kv, result.runId, { inventoryMode, isFixture, paidBlockedReason, presentation });
 
   return NextResponse.json(
     {
@@ -85,17 +87,31 @@ export async function POST(req: Request) {
       isFixture,
       paidExecutionEnabled: paid.paidExecutionEnabled,
       paidBlockedReason,
-      /** Explicit: fixture/replay must never be shown as live market data. */
-      presentation: isFixture
-        ? {
-            kind: "fixture_replay",
-            warning: "These listings are from a checked-in Auto.dev snapshot for offline proof — not a live market pull.",
-          }
-        : { kind: "live_autodev", warning: null },
+      presentation,
+      partial: result.partial || result.state === "failed" || result.state === "abstained",
       result,
     },
     { status },
   );
+}
+
+function scoutHttpStatus(result: import("@/domain/scout").ScoutRunResult): number {
+  if (result.state === "completed") return 200;
+  if (result.state === "abstained") return 200;
+  if (result.failReason === "unauthorized" || result.failReason === "scout_disabled") return 403;
+  if (result.failReason === "mandate_invalid") return 400;
+  if (
+    result.failReason === "serv_timeout" ||
+    result.failReason === "serv_refused" ||
+    result.failReason === "serv_unavailable" ||
+    result.failReason === "provider_unavailable" ||
+    result.failReason === "budget_exhausted" ||
+    result.failReason === "inventory_unconfigured"
+  ) {
+    return 503;
+  }
+  if (result.state === "failed") return 422;
+  return 200;
 }
 
 export async function GET() {
@@ -109,9 +125,10 @@ export async function GET() {
       read: "GET /api/scout/:runId",
     },
     defaults: {
-      inventory: "replay fixture unless SCOUT_PAID_EXECUTION + AUTODEV_API_KEY + SCOUT_MAX_PROVIDER_CALLS_HARD_CEILING",
-      planner: "offline_heuristic",
-      clientSpendAttestation: "rejected — server config/quota only",
+      inventory:
+        "replay fixture unless SCOUT_PAID_EXECUTION + AUTODEV_API_KEY + SCOUT_MAX_PROVIDER_CALLS_HARD_CEILING + verified reserve envs + Upstash",
+      planner: "offline_heuristic (scout_plan SERV only when SCOUT_ALLOW_SERV_PLANNER + paid path)",
+      clientSpendAttestation: "rejected — server verified reserve + quota only",
     },
   });
 }

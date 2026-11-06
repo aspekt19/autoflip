@@ -1,8 +1,9 @@
 /**
  * Single safety-checked entry for Scout runs (HTTP API + OpenServ SDK capabilities).
  * Capabilities must not bypass ownership, feature flags, or paid-execution gates.
+ * Do not route investigation through SDK Agent.process() (hardcoded gpt-4o, not SERV).
  */
-import type { ScoutBudgets, ScoutRunResult } from "@/domain/scout";
+import type { ScoutRunResult } from "@/domain/scout";
 import { heuristicOfflinePlanner, mockServPlanner, refusingPlanner, runScout } from "@/domain/scout";
 import { TtlCache } from "@/io/cache";
 import type { Kv } from "@/io/kv";
@@ -11,6 +12,7 @@ import { isScoutEnabled } from "./config";
 import {
   authorizeLiveServPlanner,
   readPaidExecutionConfig,
+  serverScoutBudgets,
   stripClientSpendClaims,
 } from "./paid-execution";
 import { blockedServPlanner, servScoutPlanner } from "./planner";
@@ -20,14 +22,10 @@ import { saveScoutRun } from "./store";
 export type SafeScoutRequest = {
   ownerId: string;
   mandate: unknown;
-  /** Client may request live; server still decides via paid-execution config. */
   preferLive?: boolean;
   planner?: "offline_heuristic" | "serv" | "mock_script";
-  /** Only for tests / eval — never from untrusted HTTP without flag. */
   mockScript?: Parameters<typeof mockServPlanner>[0];
-  budgets?: Partial<ScoutBudgets>;
   resume?: ScoutRunResult | null;
-  /** Caller channel — logged in provenance indirectly via message. */
   channel: "api" | "openserv_sdk" | "eval" | "test";
 };
 
@@ -49,7 +47,6 @@ export async function executeScoutSafely(input: {
   req: SafeScoutRequest;
   kv: Kv | null;
   env?: Record<string, string | undefined>;
-  /** Injected Autodev deps for live path; null keeps replay-only. */
   autodevDeps?: {
     fetch: typeof fetch;
     apiKey: string;
@@ -78,7 +75,6 @@ export async function executeScoutSafely(input: {
     };
   }
 
-  // Defense: drop client spend claims if mandate bag smuggled them.
   const mandate =
     input.req.mandate && typeof input.req.mandate === "object"
       ? stripClientSpendClaims(input.req.mandate as Record<string, unknown>)
@@ -108,21 +104,24 @@ export async function executeScoutSafely(input: {
   let autonomyClaim: "serv_directed" | "none" = "none";
 
   if (plannerMode === "mock_script") {
-    autonomyClaim = "serv_directed";
+    // Control plumbing only — not hosted SERV efficacy.
+    autonomyClaim = "none";
     planner = input.req.mockScript
       ? mockServPlanner(input.req.mockScript)
       : refusingPlanner("serv_unavailable");
   } else if (plannerMode === "serv") {
-    autonomyClaim = "serv_directed";
     const paid = authorizeLiveServPlanner(readPaidExecutionConfig(env));
     const allowFlag =
       env.SCOUT_ALLOW_SERV_PLANNER?.trim().toLowerCase() === "1" ||
       env.SCOUT_ALLOW_SERV_PLANNER?.trim().toLowerCase() === "true";
     if (!allowFlag) {
+      autonomyClaim = "none";
       planner = blockedServPlanner("SCOUT_ALLOW_SERV_PLANNER is not enabled.");
     } else if (!paid.ok) {
+      autonomyClaim = "none";
       planner = blockedServPlanner(paid.message);
     } else {
+      autonomyClaim = "serv_directed";
       planner = servScoutPlanner({
         apiKey: env.SERV_API_KEY!.trim(),
         baseUrl: env.SERV_BASE_URL,
@@ -130,24 +129,23 @@ export async function executeScoutSafely(input: {
       });
     }
   } else {
+    // Deterministic offline VIN walk — autonomyClaim none (not SERV autonomy).
     planner = heuristicOfflinePlanner();
   }
+
+  // Server-owned budgets only — clients cannot raise maxProviderCalls/wall/serv ceilings.
+  const budgets = serverScoutBudgets();
 
   const result = await runScout({
     ownerId: input.req.ownerId,
     mandateRaw: mandate,
-    budgets: {
-      ...input.req.budgets,
-      // Force 0 live provider calls unless inventory actually resolved to live AND paid gate passed.
-      maxProviderCalls: inventory.mode === "live" ? input.req.budgets?.maxProviderCalls ?? 0 : 0,
-    },
+    budgets: { ...budgets },
     inventory: inventory.adapter,
     planner,
     autonomyClaim,
     resume: input.req.resume ?? undefined,
   });
 
-  // Annotate honesty fields on the way out via message when fixture.
   if (inventory.isFixture && result.inventorySource === "replay") {
     result.message = [result.message, "INVENTORY_FIXTURE: replay rows are not live market data."]
       .filter(Boolean)

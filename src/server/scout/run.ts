@@ -1,4 +1,4 @@
-import type { ScoutBudgets, ScoutRunResult } from "@/domain/scout";
+import type { ScoutRunResult } from "@/domain/scout";
 import type { Kv } from "@/io/kv";
 import { executeScoutSafely, type SafeScoutRequest } from "./safe-execute";
 import { stripClientSpendClaims } from "./paid-execution";
@@ -6,9 +6,8 @@ import { stripClientSpendClaims } from "./paid-execution";
 export type StartScoutBody = {
   mandate: unknown;
   planner?: "offline_heuristic" | "serv";
-  budgets?: Partial<ScoutBudgets>;
   resumeRunId?: string;
-  /** Client may ask; server paid-execution config decides. Ignored spend claims stripped. */
+  /** Client may ask; server paid-execution config decides. Budget/spend fields stripped. */
   preferLive?: boolean;
 };
 
@@ -27,14 +26,13 @@ export async function executeScoutRun(input: {
     ownerId: input.ownerId,
     mandate: cleaned.mandate,
     planner: cleaned.planner ?? "offline_heuristic",
-    budgets: cleaned.budgets,
     preferLive: Boolean(cleaned.preferLive),
     resume: input.resume ?? null,
     channel: "api",
   };
 
-  // Live Autodev deps intentionally omitted unless SCOUT_PAID_EXECUTION is on AND key present.
-  // This PR keeps paid execution off — adapter code exists in providers.ts but is not exercised.
+  // Live Autodev deps only when paid flag on — authorizeLiveInventory still fail-closes
+  // without verified reserve + Upstash. This worker does not exercise paid spend.
   const autodevKey = process.env.AUTODEV_API_KEY?.trim();
   const paidOn =
     process.env.SCOUT_PAID_EXECUTION?.trim().toLowerCase() === "1" ||
@@ -43,9 +41,6 @@ export async function executeScoutRun(input: {
   return executeScoutSafely({
     req,
     kv: input.kv,
-    autodevDeps:
-      paidOn && autodevKey
-        ? { fetch, apiKey: autodevKey }
-        : null,
+    autodevDeps: paidOn && autodevKey ? { fetch, apiKey: autodevKey } : null,
   });
 }

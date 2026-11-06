@@ -1,14 +1,15 @@
 /**
  * OpenServ SDK adapter for Lemonless Scout.
- * Capabilities invoke shared executeScoutSafely — same ownership/flag/paid gates as HTTP.
- * Local ≠ remote deployment. No blockchain/x402/swarm.
+ * Capabilities invoke shared executeScoutSafely — same gates as HTTP.
+ * Do NOT use Agent.process() for investigation (hardcodes OpenAI gpt-4o; not SERV Reasoning).
+ * Local ≠ remote deployment. Graph banned. No blockchain/x402/swarm.
  */
 import { Agent } from "@openserv-labs/sdk";
 import { z } from "zod";
-import { validateScoutMandate, type ScoutRunResult } from "@/domain/scout";
+import { validateScoutMandate, SCOUT_TOOL_IDS, type ScoutRunResult } from "@/domain/scout";
 import { executeScoutSafely } from "@/server/scout/safe-execute";
+import { isScoutEnabled } from "@/server/scout/config";
 import { readPaidExecutionConfig } from "@/server/scout/paid-execution";
-import { SCOUT_TOOL_IDS } from "@/domain/scout";
 
 export const SCOUT_AGENT_SYSTEM_PROMPT = [
   "You are Lemonless Scout on OpenServ.",
@@ -40,16 +41,46 @@ export function scoutCapabilityNames(): ScoutCapabilityName[] {
   return ["scout_validate_mandate", "scout_run_bounded", "scout_describe_allowlist"];
 }
 
+/** Resolve owner from platform task/action context — never trust free-form ownerId alone for paid paths. */
+export function ownerFromActionContext(
+  action: unknown,
+  argsOwnerId: string | undefined,
+): { ok: true; ownerId: string; binding: "task" | "args_test_only" } | { ok: false; message: string } {
+  const ctx = action as {
+    task?: { id?: number; assigneeAgentId?: number };
+    workspace?: { id?: number };
+    me?: { id?: number };
+  };
+  const workspaceId = ctx.workspace?.id;
+  const taskId = ctx.task?.id;
+  const agentId = ctx.me?.id ?? ctx.task?.assigneeAgentId;
+  if (typeof workspaceId === "number" && typeof taskId === "number") {
+    return {
+      ok: true,
+      ownerId: `openserv:ws:${workspaceId}:task:${taskId}:agent:${agentId ?? "unknown"}`,
+      binding: "task",
+    };
+  }
+  // Local/unit runs without platform action: allow args owner only when SCOUT_ENABLED and clearly test-shaped.
+  if (argsOwnerId && (argsOwnerId.startsWith("test:") || argsOwnerId.startsWith("eval:"))) {
+    return { ok: true, ownerId: argsOwnerId, binding: "args_test_only" };
+  }
+  return {
+    ok: false,
+    message:
+      "Scout capability requires OpenServ task/workspace binding (or test:/eval: ownerId in offline tests). Untrusted ownerId args are rejected.",
+  };
+}
+
 export function buildLemonlessScoutAgent(options?: {
   apiKey?: string;
   port?: number;
-  /** Test/eval override — production uses process.env via safe-execute. */
   env?: Record<string, string | undefined>;
-  ownerIdForLocal?: string;
 }): Agent {
+  const env = options?.env ?? process.env;
   const agent = new Agent({
     systemPrompt: SCOUT_AGENT_SYSTEM_PROMPT,
-    apiKey: options?.apiKey ?? process.env.OPENSERV_API_KEY,
+    apiKey: options?.apiKey ?? env.OPENSERV_API_KEY,
     port: options?.port,
     onError: (error) => {
       console.error("[openserv-scout]", error.message);
@@ -70,19 +101,15 @@ export function buildLemonlessScoutAgent(options?: {
     description: "List canonical scout tool IDs, paid-execution posture, and hard rules.",
     inputSchema: z.object({}),
     async run() {
-      const paid = readPaidExecutionConfig(options?.env ?? process.env);
+      const paid = readPaidExecutionConfig(env);
       return JSON.stringify({
         tools: SCOUT_TOOL_IDS,
         maxCandidatesOut: 5,
+        scoutEnabled: isScoutEnabled(env),
         paidExecutionEnabled: paid.paidExecutionEnabled,
         clientSpendAttestation: "rejected",
-        remotePrerequisites: [
-          "OpenServ developer account",
-          "Registered agent + OPENSERV_API_KEY",
-          "Public HTTPS endpoint + agent.start() only on that host",
-          "SCOUT_ENABLED for HTTP; capabilities still cannot bypass paid-execution",
-        ],
-        notIncluded: ["blockchain", "x402", "reppo", "swarm"],
+        note: "Agent.process() is not used for investigation — SERV Reasoning HTTP only when paid path authorized.",
+        notIncluded: ["blockchain", "x402", "reppo", "swarm", "graph"],
       });
     },
   });
@@ -90,30 +117,38 @@ export function buildLemonlessScoutAgent(options?: {
   agent.addCapability({
     name: "scout_run_bounded",
     description:
-      "Run the bounded scout loop through shared safety-checked executeScoutSafely (same gates as HTTP). Default inventory is fixture replay; live Auto.dev requires server SCOUT_PAID_EXECUTION.",
+      "Run the bounded scout loop through shared safety-checked executeScoutSafely. Default inventory is fixture replay; live Auto.dev requires server paid-execution + verified reserve.",
     inputSchema: z.object({
-      ownerId: z.string().min(1),
+      ownerId: z.string().min(1).optional().describe("Only for offline test:/eval: owners; platform tasks bind identity from action context."),
       mandate: mandateSchema,
       preferLive: z.boolean().optional(),
     }),
     async run({ args, action }) {
-      const env = {
-        ...(options?.env ?? process.env),
-        // Capabilities used from local tests may set SCOUT_ENABLED; never invent paid on.
-        SCOUT_ENABLED: (options?.env ?? process.env).SCOUT_ENABLED ?? "true",
-      };
+      if (!isScoutEnabled(env)) {
+        return JSON.stringify({
+          ok: false,
+          error: "scout_disabled",
+          message: "SCOUT_ENABLED is off — capability refuses (no default-on bypass).",
+        });
+      }
 
+      const owner = ownerFromActionContext(action, args.ownerId);
+      if (!owner.ok) {
+        return JSON.stringify({ ok: false, error: "unauthorized", message: owner.message });
+      }
+
+      const preferLive = Boolean(args.preferLive);
       const executed = await executeScoutSafely({
         req: {
-          ownerId: args.ownerId,
+          ownerId: owner.ownerId,
           mandate: args.mandate,
-          preferLive: Boolean(args.preferLive),
+          preferLive,
           planner: "offline_heuristic",
           channel: "openserv_sdk",
-          budgets: { maxProviderCalls: 0, maxCandidatesOut: 5 },
         },
         kv: null,
         env,
+        // Never pass live Autodev deps from SDK callback without server paid path wiring.
         autodevDeps: null,
       });
 
@@ -125,9 +160,14 @@ export function buildLemonlessScoutAgent(options?: {
 
       return JSON.stringify({
         ok: true,
+        ownerBinding: owner.binding,
         inventoryMode: executed.inventoryMode,
         isFixture: executed.isFixture,
-        paidBlockedReason: executed.paidBlockedReason,
+        paidBlockedReason:
+          executed.paidBlockedReason ??
+          (preferLive
+            ? "Live inventory requested but Autodev deps were not wired for this SDK channel / paid path fail-closed."
+            : null),
         summary: summarizeRun(executed.result),
       });
     },
@@ -204,5 +244,6 @@ export const OPENSERV_REMOTE_PREREQUISITES = [
   "Create an OpenServ developer profile and register an agent.",
   "Set OPENSERV_API_KEY (separate from SERV_API_KEY).",
   "Deploy with public Agent Endpoint; call agent.start() only there.",
-  "Capabilities call executeScoutSafely — they cannot bypass SCOUT_PAID_EXECUTION.",
+  "Do not use Agent.process() for Lemonless investigation (not SERV Reasoning).",
+  "Capabilities call executeScoutSafely — they cannot bypass SCOUT_PAID_EXECUTION / verified reserve.",
 ] as const;

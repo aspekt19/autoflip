@@ -186,7 +186,8 @@ async function runCase(args: {
     mandateRaw: mandate,
     inventory,
     planner: mockServPlanner(script),
-    autonomyClaim: "serv_directed",
+    // Mock script = control plumbing only — never claim SERV-directed autonomy.
+    autonomyClaim: "none",
     budgets: { maxProviderCalls: 0, maxCandidatesOut: 5, maxServCalls: 30, maxToolCalls: 80 },
     now,
   });

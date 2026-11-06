@@ -8,10 +8,30 @@ export interface Kv {
   /** Set only when the key is absent. Used so a credit spend cannot run twice at once. */
   setNx(key: string, value: string): Promise<boolean>;
   delete(key: string): Promise<void>;
+  /**
+   * Atomically increment an integer key and return the new value.
+   * Upstash: Redis INCR (cross-instance). Memory/File: in-process serialization only —
+   * not a multi-instance guarantee.
+   */
+  incr(key: string): Promise<number>;
+  /** Atomically decrement; used only to roll back a reservation before provider dispatch. */
+  decr(key: string): Promise<number>;
 }
 
 export class MemoryKv implements Kv {
   private readonly map = new Map<string, string>();
+  /** Serialize incr/setNx mutations so parallel awaits cannot lose updates in-process. */
+  private tail: Promise<unknown> = Promise.resolve();
+
+  private enqueue<T>(fn: () => T | Promise<T>): Promise<T> {
+    const run = this.tail.then(fn, fn);
+    this.tail = run.then(
+      () => undefined,
+      () => undefined,
+    );
+    return run;
+  }
+
   get(key: string): Promise<string | null> {
     return Promise.resolve(this.map.get(key) ?? null);
   }
@@ -20,18 +40,50 @@ export class MemoryKv implements Kv {
     return Promise.resolve();
   }
   setNx(key: string, value: string): Promise<boolean> {
-    if (this.map.has(key)) return Promise.resolve(false);
-    this.map.set(key, value);
-    return Promise.resolve(true);
+    return this.enqueue(() => {
+      if (this.map.has(key)) return false;
+      this.map.set(key, value);
+      return true;
+    });
   }
   delete(key: string): Promise<void> {
     this.map.delete(key);
     return Promise.resolve();
   }
+  incr(key: string): Promise<number> {
+    return this.enqueue(() => {
+      const next = Number(this.map.get(key) ?? "0") + 1;
+      this.map.set(key, String(next));
+      return next;
+    });
+  }
+  decr(key: string): Promise<number> {
+    return this.enqueue(() => {
+      const next = Number(this.map.get(key) ?? "0") - 1;
+      this.map.set(key, String(next));
+      return next;
+    });
+  }
 }
 
 export class FileKv implements Kv {
   constructor(private readonly file: string) {}
+
+  /** Per-file chain — single process only; not cross-host. */
+  private static chains = new Map<string, Promise<unknown>>();
+
+  private enqueue<T>(fn: () => T | Promise<T>): Promise<T> {
+    const prev = FileKv.chains.get(this.file) ?? Promise.resolve();
+    const run = prev.then(fn, fn);
+    FileKv.chains.set(
+      this.file,
+      run.then(
+        () => undefined,
+        () => undefined,
+      ),
+    );
+    return run;
+  }
 
   private read(): Record<string, string> {
     try {
@@ -53,23 +105,49 @@ export class FileKv implements Kv {
   }
 
   async set(key: string, value: string): Promise<void> {
-    const data = this.read();
-    data[key] = value;
-    this.write(data);
+    await this.enqueue(() => {
+      const data = this.read();
+      data[key] = value;
+      this.write(data);
+    });
   }
 
   async setNx(key: string, value: string): Promise<boolean> {
-    const data = this.read();
-    if (key in data) return false;
-    data[key] = value;
-    this.write(data);
-    return true;
+    return this.enqueue(() => {
+      const data = this.read();
+      if (key in data) return false;
+      data[key] = value;
+      this.write(data);
+      return true;
+    });
   }
 
   async delete(key: string): Promise<void> {
-    const data = this.read();
-    delete data[key];
-    this.write(data);
+    await this.enqueue(() => {
+      const data = this.read();
+      delete data[key];
+      this.write(data);
+    });
+  }
+
+  async incr(key: string): Promise<number> {
+    return this.enqueue(() => {
+      const data = this.read();
+      const next = Number(data[key] ?? "0") + 1;
+      data[key] = String(next);
+      this.write(data);
+      return next;
+    });
+  }
+
+  async decr(key: string): Promise<number> {
+    return this.enqueue(() => {
+      const data = this.read();
+      const next = Number(data[key] ?? "0") - 1;
+      data[key] = String(next);
+      this.write(data);
+      return next;
+    });
   }
 }
 
@@ -112,6 +190,21 @@ export class UpstashKv implements Kv {
 
   async delete(key: string): Promise<void> {
     await this.command(["DEL", key]);
+  }
+
+  /** Cross-instance atomic increment via Redis INCR. */
+  async incr(key: string): Promise<number> {
+    const result = await this.command(["INCR", key]);
+    if (typeof result === "number" && Number.isFinite(result)) return result;
+    if (typeof result === "string" && Number.isFinite(Number(result))) return Number(result);
+    throw new Error("Upstash INCR returned a non-integer");
+  }
+
+  async decr(key: string): Promise<number> {
+    const result = await this.command(["DECR", key]);
+    if (typeof result === "number" && Number.isFinite(result)) return result;
+    if (typeof result === "string" && Number.isFinite(Number(result))) return Number(result);
+    throw new Error("Upstash DECR returned a non-integer");
   }
 }
 

@@ -17,9 +17,10 @@ export function identityEvidence(listing: Listing): EvidenceFact[] {
     {
       key: "vin",
       value: listing.vin,
-      kind: listing.vin ? "verified" : "unknown",
+      // Feed-present is not NHTSA/title verification.
+      kind: listing.vin ? "seller_claim" : "unknown",
       source: "listing.vin",
-      note: null,
+      note: listing.vin ? "VIN present on listing feed — not independently verified." : "VIN missing.",
     },
     {
       key: "year_make_model",
@@ -40,10 +41,11 @@ export function identityEvidence(listing: Listing): EvidenceFact[] {
 
 export function historyEvidence(listing: Listing): {
   facts: EvidenceFact[];
+  /** Seller-claim fields never upgrade to verified "known" history. */
   historyStatus: "known" | "unknown" | "partial";
 } {
   const facts: EvidenceFact[] = [];
-  let knownBits = 0;
+  let claimBits = 0;
   let unknownBits = 0;
 
   if (listing.accidentCount == null) {
@@ -56,13 +58,13 @@ export function historyEvidence(listing: Listing): {
       note: "Title/history accident count unavailable — not treated as pass.",
     });
   } else {
-    knownBits += 1;
+    claimBits += 1;
     facts.push({
       key: "accident_count",
       value: listing.accidentCount,
       kind: "seller_claim",
       source: "listing.accidentCount",
-      note: "Feed-reported; not a verified title report.",
+      note: "Feed-reported seller claim — not a verified title report.",
     });
   }
 
@@ -76,18 +78,19 @@ export function historyEvidence(listing: Listing): {
       note: "Owner history unavailable.",
     });
   } else {
-    knownBits += 1;
+    claimBits += 1;
     facts.push({
       key: "owner_history",
       value: { ownerCount: listing.ownerCount, oneOwner: listing.oneOwner },
       kind: "seller_claim",
       source: "listing.owner",
-      note: null,
+      note: "Feed-reported seller claim — not verified ownership history.",
     });
   }
 
+  // Seller claims never become historyStatus "known" (verified). At best "partial".
   const historyStatus =
-    unknownBits === 0 ? "known" : knownBits === 0 ? "unknown" : "partial";
+    unknownBits === 0 && claimBits > 0 ? "partial" : unknownBits > 0 && claimBits === 0 ? "unknown" : "partial";
   return { facts, historyStatus };
 }
 

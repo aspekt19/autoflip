@@ -81,6 +81,8 @@ describe("runScout offline replay", () => {
       inventory: replayInventoryAdapter(camryRaw, REPLAY_CAMRY_PROVENANCE),
       planner: refusingPlanner("serv_timeout"),
       budgets: { maxProviderCalls: 0 },
+      // Explicit plumbing claim — refusal must still STOP without silent heuristic takeover.
+      autonomyClaim: "serv_directed",
     });
     expect(result.state).toBe("failed");
     expect(result.failReason).toBe("serv_timeout");

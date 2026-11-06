@@ -55,8 +55,9 @@ export type RunScoutInput = {
   /** Resume from a prior checkpoint (same owner only). */
   resume?: ScoutRunResult;
   /**
-   * `serv_directed` = planner stands in for / is SERV (including mocks for plumbing).
-   * `none` = explicit non-SERV heuristic offline demo — never marketed as autonomous SERV.
+   * `serv_directed` = live/authorized SERV planner chose actions (HTTP scout_plan).
+   * `none` = offline heuristic, mock script, or denied SERV — never marketed as autonomous SERV.
+   * Default is `none` (fail-honest).
    */
   autonomyClaim?: "serv_directed" | "none";
 };
@@ -135,7 +136,7 @@ export async function runScout(input: RunScoutInput): Promise<ScoutRunResult> {
   /** Wall clock is always real time; `now` is only for listing-age / economics. */
   const wallClockMs = () => Date.now();
   const runId = input.runId ?? randomUUID();
-  const autonomyClaim = input.autonomyClaim ?? "serv_directed";
+  const autonomyClaim = input.autonomyClaim ?? "none";
   const provenance: ProvenanceStep[] = input.resume?.provenance
     ? [...input.resume.provenance]
     : [];
@@ -258,14 +259,56 @@ export async function runScout(input: RunScoutInput): Promise<ScoutRunResult> {
     return fail(snapshot(), "invariant_violation", "Mandate missing after validation.", false);
   }
 
-  // 2) Inventory
+  // 2) Inventory — reserve tool/provider capacity BEFORE dispatch (never spend then budget_exhausted).
   if (state === "mandate_validated") {
     const wall = checkWall(budgets, usage, wallClockMs());
     if (!wall.ok) {
       stamp(provenance, state, wall.detail);
       return fail(snapshot(), "budget_exhausted", wall.detail);
     }
+    const tool = reserveToolCall(budgets, usage);
+    if (!tool.ok) {
+      stamp(provenance, state, tool.detail, "inventory.search");
+      return fail(snapshot(), "budget_exhausted", tool.detail);
+    }
+    // Pre-reserve worst-case one provider slot only when server budget allows any.
+    const worstCaseProvider = budgets.maxProviderCalls > usage.providerCalls ? 1 : 0;
+    if (worstCaseProvider > 0) {
+      const pre = reserveProviderCalls(budgets, usage, worstCaseProvider);
+      if (!pre.ok) {
+        stamp(provenance, state, pre.detail, "inventory.search");
+        return fail(snapshot(), "budget_exhausted", pre.detail);
+      }
+    } else if (budgets.maxProviderCalls <= 0) {
+      stamp(
+        provenance,
+        state,
+        "maxProviderCalls=0 — inventory adapters must not perform paid provider HTTP.",
+        "inventory.search",
+      );
+    }
+
     const inv = await input.inventory(mandate);
+
+    if (inv.providerCallsUsed > 0 && budgets.maxProviderCalls <= 0) {
+      stamp(provenance, state, "Inventory spent provider calls under maxProviderCalls=0.", "inventory.search");
+      return fail(
+        snapshot(),
+        "invariant_violation",
+        "Inventory adapter spent provider calls while maxProviderCalls=0.",
+      );
+    }
+    if (inv.providerCallsUsed === 0 && worstCaseProvider === 1) {
+      // Cache hit / no network — refund pre-reserve (dispatch did not consume a slot).
+      usage.providerCalls = Math.max(0, usage.providerCalls - 1);
+    } else if (inv.providerCallsUsed > worstCaseProvider) {
+      const extra = reserveProviderCalls(budgets, usage, inv.providerCallsUsed - worstCaseProvider);
+      if (!extra.ok) {
+        stamp(provenance, state, extra.detail, "inventory.search");
+        return fail(snapshot(), "budget_exhausted", `${extra.detail} (already dispatched — partial).`, true);
+      }
+    }
+
     if (!inv.ok) {
       stamp(provenance, state, inv.message, "inventory.search");
       const reason: ScoutFailReason =
@@ -288,16 +331,6 @@ export async function runScout(input: RunScoutInput): Promise<ScoutRunResult> {
         };
       }
       return fail(snapshot(), reason, inv.message);
-    }
-    const provider = reserveProviderCalls(budgets, usage, inv.providerCallsUsed);
-    if (!provider.ok) {
-      stamp(provenance, state, provider.detail, "inventory.search");
-      return fail(snapshot(), "budget_exhausted", provider.detail);
-    }
-    const tool = reserveToolCall(budgets, usage);
-    if (!tool.ok) {
-      stamp(provenance, state, tool.detail, "inventory.search");
-      return fail(snapshot(), "budget_exhausted", tool.detail);
     }
     pool = inv.listings;
     inventorySource = inv.source;
@@ -434,8 +467,17 @@ export async function runScout(input: RunScoutInput): Promise<ScoutRunResult> {
           rejected.push(cand);
           const invIdx = investigated.findIndex((c) => c.vin === action.vin);
           if (invIdx >= 0) investigated.splice(invIdx, 1);
+          const pIdx = pending.indexOf(action.vin);
+          if (pIdx >= 0) pending.splice(pIdx, 1);
         }
-        stamp(provenance, state, action.reason, "candidate.replace", action.servStepId);
+        // Relabel alone is not a replacement pull — planner must select_candidate next.
+        stamp(
+          provenance,
+          state,
+          `${action.reason} (replacement requires a following select_candidate; pending=${pending.length})`,
+          "candidate.replace",
+          action.servStepId,
+        );
         continue;
       }
 
@@ -515,11 +557,19 @@ export async function runScout(input: RunScoutInput): Promise<ScoutRunResult> {
         if (toolId === "evidence.gov_recalls" || toolId === "evidence.gov_fuel") {
           cand.evidence.push({
             key: toolId,
-            value: null,
+            value: { status: "unsupported" },
             kind: "unknown",
             source: "gov",
-            note: "Gov lookup not executed in offline scout slice (no spend / no fabricated data).",
+            note: "UNSUPPORTED: gov lookup not executed (paid-off / no spend). Not a successful evidence fetch.",
           });
+          stamp(
+            provenance,
+            state,
+            `${toolId} returned unsupported/unknown — not treated as successful evidence.`,
+            toolId,
+            action.servStepId,
+            idem,
+          );
         }
 
         if (
