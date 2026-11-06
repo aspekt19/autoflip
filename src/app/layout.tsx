@@ -57,6 +57,10 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             <span className="brand-name">Lemonless</span>
           </a>
           <p className="foot-tagline">Buy smart. Stay lemonless.</p>
+          <p className="hint lemonless-disclaimer">
+            Lemonless helps you avoid lemons. It is not a guarantee, an inspection, or a vehicle history report — always get a
+            pre-purchase inspection.
+          </p>
           <p className="foot-links">
             <a href="/find">Find</a>
             <a href="/check">Check by VIN</a>
