@@ -19,7 +19,7 @@ Reppo is being evaluated only as an independent quality signal for the *written 
 - Auth: `Authorization: Bearer YOUR_API_KEY`
 - Types: `answer | plan | trace | artifact`
 - Payload: text, up to 50 KB; optional free-form context.
-- Settlement windows: 10, 15, or 30 minutes.
+- Settlement windows: 10, 15, or 30 minutes. This makes Reppo unsuitable as a synchronous gate in AutoFlip's interactive report request; this POC is an offline / asynchronous quality audit only.
 - Documented verdict fields include score (0–100), decision (Accept / Revise / Reject), confidence, dimension critiques, evidence basis, peer assessment count and contributor/assessment details.
 - Public launch pricing: 10 evaluations free, then introductory $0.01 per evaluation.
 
@@ -67,4 +67,4 @@ Integrate only if the test demonstrates all of the following:
 - false-positive revise/reject decisions on clean explanations remain acceptably low after manual review;
 - added latency and cost are acceptable for the product.
 
-Until those conditions are measured, Reppo remains an offline evaluation experiment, not a production dependency or customer-facing badge.
+Because the shortest documented settlement window is 10 minutes, Reppo must not sit on the shopper's critical path. Even if the experiment succeeds, the first product integration should be an asynchronous, sampled quality audit or an internal review queue—not a report-generation gate. Until those conditions are measured, Reppo remains an offline evaluation experiment, not a production dependency or customer-facing badge.
