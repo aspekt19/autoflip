@@ -124,7 +124,7 @@ a { color: inherit; }
   gap: 16px;
   width: min(1360px, calc(100% - 28px));
   margin: 14px auto 0;
-  min-height: 68px;
+  min-height: 74px;
   padding: 10px 12px 10px 16px;
   background: rgba(8, 8, 8, 0.94);
   color: var(--ink);
@@ -143,16 +143,16 @@ a { color: inherit; }
   transform: translateX(-50%);
   background: #050505;
 }
-.brand { display: inline-flex; align-items: center; gap: 12px; line-height: 1; text-decoration: none; color: var(--ink); }
+.brand { display: inline-flex; align-items: center; gap: 13px; line-height: 1; text-decoration: none; color: var(--ink); }
 .brand-mark,
-.brand img { height: 52px; width: 52px; display: block; flex-shrink: 0; }
+.brand img { height: 58px; width: 58px; display: block; flex-shrink: 0; }
 .brand-foot .brand-mark,
-.brand-foot img { height: 36px; width: 36px; }
+.brand-foot img { height: 40px; width: 40px; }
 /* Live site wordmark: Orbitron — do not replace with exploration fonts. */
 .brand-name {
   font-family: var(--display);
   font-weight: 700;
-  font-size: 17px;
+  font-size: 19px;
   letter-spacing: 0.14em;
   text-transform: uppercase;
   white-space: nowrap;
@@ -193,11 +193,13 @@ a { color: inherit; }
 .brand-inline-tagline { font-weight: 700; }
 /*
   Continuous header wordmark life: gentle float + brand-color traveling shimmer.
+  Slow ease-in-out + alternate = smooth forward then reverse (no hard loop jump).
   Scoped to .bar so footer/hero stay quiet. No rainbow — only #FFD60A / LESS red family.
+  Timings: shimmer 10s one-way (~20s round-trip); float 9s one-way (~18s round-trip).
 */
 @media (prefers-reduced-motion: no-preference) {
   .bar .brand-name {
-    animation: brand-wordmark-float 4.8s ease-in-out infinite;
+    animation: brand-wordmark-float 9s ease-in-out infinite alternate;
   }
   .bar .brand-less {
     animation: brand-less-slide 0.55s 0.85s cubic-bezier(0.2, 0.8, 0.2, 1) both;
@@ -220,7 +222,7 @@ a { color: inherit; }
         #ffd60a 72%,
         #f2b705 100%
       );
-      animation: brand-shimmer 3.6s ease-in-out infinite;
+      animation: brand-shimmer 10s ease-in-out infinite alternate;
     }
     .bar .brand-less {
       background-image: linear-gradient(
@@ -233,7 +235,7 @@ a { color: inherit; }
       );
       animation:
         brand-less-slide 0.55s 0.85s cubic-bezier(0.2, 0.8, 0.2, 1) both,
-        brand-shimmer 3.6s 1.35s ease-in-out infinite;
+        brand-shimmer 10s 1.35s ease-in-out infinite alternate;
     }
   }
 }
@@ -242,12 +244,12 @@ a { color: inherit; }
   to { opacity: 1; transform: none; }
 }
 @keyframes brand-wordmark-float {
-  0%, 100% { transform: translate3d(0, 0, 0); }
-  50% { transform: translate3d(0, -1.5px, 0); }
+  from { transform: translate3d(0, 0, 0); }
+  to { transform: translate3d(0, -1.5px, 0); }
 }
 @keyframes brand-shimmer {
-  0%, 100% { background-position: 100% 50%; }
-  50% { background-position: 0% 50%; }
+  from { background-position: 100% 50%; }
+  to { background-position: 0% 50%; }
 }
 @media (prefers-reduced-motion: reduce) {
   .bar .brand-name,
@@ -902,8 +904,8 @@ pre.doc {
 @keyframes enter { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: none; } }
 
 /* Compact header before labels would wrap: keep desktop type size, use a menu instead.
-   Threshold raised because the header lockup is larger after the logo size bump. */
-@media (max-width: 1280px) {
+   Threshold raised because the header lockup is larger after logo size bumps. */
+@media (max-width: 1340px) {
   .menu-btn { display: inline-flex; }
   nav a:not(.nav-go) { display: none; }
   nav {
@@ -948,8 +950,8 @@ pre.doc {
     width: calc(100% - 16px);
   }
   .brand-mark,
-  .brand img { height: 46px; width: 46px; }
-  .brand-name { font-size: 15px; }
+  .brand img { height: 50px; width: 50px; }
+  .brand-name { font-size: 16px; }
 }
 
 @media (max-width: 900px) {
