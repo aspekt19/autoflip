@@ -18,7 +18,11 @@ import {
 } from "./paid-execution";
 import { blockedServPlanner, servScoutPlanner } from "./planner";
 import { resolveScoutInventory } from "./providers";
-import { loadScoutIdempotent, saveScoutIdempotent, saveScoutRun } from "./store";
+import {
+  claimScoutIdempotency,
+  completeScoutIdempotency,
+} from "./idempotency";
+import { saveScoutRun } from "./store";
 
 export type SafeScoutRequest = {
   ownerId: string;
@@ -92,25 +96,82 @@ export async function executeScoutSafely(input: {
     };
   }
 
-  const idem = input.req.idempotencyKey?.trim() || null;
-  if (idem && input.kv) {
-    const prior = await loadScoutIdempotent(input.kv, input.req.ownerId, idem);
-    if (prior) {
-      return {
-        ok: true,
-        result: prior.result,
-        inventoryMode: prior.inventoryMode,
-        isFixture: prior.isFixture,
-        paidBlockedReason: prior.paidBlockedReason,
-        idempotentReplay: true,
-      };
-    }
-  }
-
   const mandate =
     input.req.mandate && typeof input.req.mandate === "object"
       ? stripClientSpendClaims(input.req.mandate as Record<string, unknown>)
       : input.req.mandate;
+
+  // Claim BEFORE any scout/provider work. Missing Idempotency-Key → new run (not labeled idempotent).
+  const idem = input.req.idempotencyKey?.trim() || null;
+  let idemRecordKey: string | null = null;
+  let mandateHash: string | null = null;
+  if (idem) {
+    if (!input.kv) {
+      return {
+        ok: false,
+        status: 503,
+        body: {
+          error: "idempotency_store_required",
+          message:
+            "Idempotency-Key requires a durable Kv claim store. Missing key is allowed for non-idempotent runs.",
+        },
+      };
+    }
+    const claim = await claimScoutIdempotency({
+      kv: input.kv,
+      ownerId: input.req.ownerId,
+      clientKey: idem,
+      mandate,
+      env,
+    });
+    if (claim.kind === "replay") {
+      return {
+        ok: true,
+        result: claim.receipt.result,
+        inventoryMode: claim.receipt.inventoryMode,
+        isFixture: claim.receipt.isFixture,
+        paidBlockedReason: claim.receipt.paidBlockedReason,
+        idempotentReplay: true,
+      };
+    }
+    if (claim.kind === "in_progress") {
+      return {
+        ok: false,
+        status: 409,
+        body: {
+          error: "idempotency_in_progress",
+          message:
+            "Same Idempotency-Key is already in progress. Do not retry expensive work as free — wait or reuse the durable receipt when completed.",
+          mandateHash: claim.mandateHash,
+        },
+      };
+    }
+    if (claim.kind === "conflict") {
+      return {
+        ok: false,
+        status: 409,
+        body: {
+          error: "idempotency_conflict",
+          message:
+            "Idempotency-Key was claimed with a different mandate body. Use a new key for a different request.",
+          existingHash: claim.existingHash,
+          requestedHash: claim.requestedHash,
+        },
+      };
+    }
+    if (claim.kind === "backend_required") {
+      return {
+        ok: false,
+        status: 503,
+        body: {
+          error: "idempotency_backend_required",
+          message: claim.message,
+        },
+      };
+    }
+    idemRecordKey = claim.recordKey;
+    mandateHash = claim.mandateHash;
+  }
 
   // Server-owned budgets only — clients cannot raise maxProviderCalls/wall/serv ceilings.
   // Live provider budget stays 0 until a non-env authority exists AND is passed (tests only today).
@@ -127,6 +188,7 @@ export async function executeScoutSafely(input: {
           cache: input.autodevDeps.cache ?? new TtlCache<unknown>(),
           counter: input.autodevDeps.counter ?? new MemoryCounter(),
           source: "autodev" as const,
+          signal: input.signal,
         }
       : null;
 
@@ -205,8 +267,11 @@ export async function executeScoutSafely(input: {
     paidBlockedReason: inventory.paidBlockedReason,
   };
 
-  if (idem && input.kv) {
-    await saveScoutIdempotent(input.kv, input.req.ownerId, idem, {
+  // Durable completed receipt — overwrites in_progress. Never TTL (≠ credit-lock).
+  if (idemRecordKey && mandateHash && input.kv) {
+    await completeScoutIdempotency(input.kv, idemRecordKey, {
+      ownerId: input.req.ownerId,
+      mandateHash,
       result,
       inventoryMode: inventory.mode,
       isFixture: inventory.isFixture,

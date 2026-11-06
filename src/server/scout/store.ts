@@ -13,25 +13,14 @@ export type ScoutRunMeta = {
   presentation: ScoutRunPresentation;
 };
 
-export type ScoutIdempotentPayload = {
-  result: ScoutRunResult;
-  inventoryMode: "replay" | "live";
-  isFixture: boolean;
-  paidBlockedReason: string | null;
-};
-
 const memory = new Map<string, ScoutRunResult>();
 const metaMemory = new Map<string, ScoutRunMeta>();
-const idemMemory = new Map<string, ScoutIdempotentPayload>();
 
 function key(runId: string): string {
   return `scout:run:${runId}`;
 }
 function metaKey(runId: string): string {
   return `scout:meta:${runId}`;
-}
-function idemKey(ownerId: string, idempotencyKey: string): string {
-  return `scout:idem:${ownerId}:${idempotencyKey}`;
 }
 
 export async function saveScoutRun(kv: Kv | null, run: ScoutRunResult): Promise<void> {
@@ -80,47 +69,13 @@ export async function loadScoutMeta(kv: Kv | null, runId: string): Promise<Scout
   }
 }
 
-export async function saveScoutIdempotent(
-  kv: Kv | null,
-  ownerId: string,
-  idempotencyKey: string,
-  payload: ScoutIdempotentPayload,
-): Promise<void> {
-  const k = idemKey(ownerId, idempotencyKey);
-  idemMemory.set(k, payload);
-  if (!kv) return;
-  try {
-    // Durable SET NX — first writer wins; concurrent posts reuse stored result.
-    const won = await kv.setNx(k, JSON.stringify(payload));
-    if (!won) {
-      /* another writer stored first — load path will return theirs */
-    }
-  } catch {
-    /* memory fallback */
-  }
-}
-
-export async function loadScoutIdempotent(
-  kv: Kv | null,
-  ownerId: string,
-  idempotencyKey: string,
-): Promise<ScoutIdempotentPayload | null> {
-  const k = idemKey(ownerId, idempotencyKey);
-  const hit = idemMemory.get(k);
-  if (hit) return hit;
-  if (!kv) return null;
-  try {
-    const raw = await kv.get(k);
-    if (!raw) return null;
-    return JSON.parse(raw) as ScoutIdempotentPayload;
-  } catch {
-    return null;
-  }
-}
+/**
+ * Idempotency claim/receipt lives in `./idempotency` on durable Kv only
+ * (no process-local Map — that caused Memory last-write vs Kv first-wins).
+ */
 
 /** Test helper */
 export function clearScoutRunMemory(): void {
   memory.clear();
   metaMemory.clear();
-  idemMemory.clear();
 }

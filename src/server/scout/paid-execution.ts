@@ -242,12 +242,13 @@ export function serverScoutBudgets(partial?: { maxCandidatesOut?: number; maxPro
   } as const;
 }
 
-/** Idempotency + abort design notes (Stage1 scaffolding). */
+/** Idempotency + abort (Stage1B — claim-before-work + combined AbortSignal). */
 export const SCOUT_REQUEST_SAFETY = {
   idempotencyHeader: "Idempotency-Key",
-  idempotencyKeyPrefix: "scout:idem:",
+  /** Durable claim/receipt prefix (owner + key). Credit-lock TTL ≠ this receipt. */
+  idempotencyKeyPrefix: "scout:idem:v2:",
   /**
-   * Abort: propagate Request.signal into inventory fetch.
+   * Abort: combine Request.signal + Autodev ownership timeout on the real fetch.
    * Refunds: only for confirmed pre-dispatch or confirmed cache-hit (no HTTP left process).
    * Ambiguous timeout/abort after dispatch started → do NOT refund monthly counter.
    */

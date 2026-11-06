@@ -180,6 +180,8 @@ export function resolveLiveInventory(input: ResolveLiveInventoryInput): ScoutInv
             source: "autodev",
             // Outer reserve already counted; do not double-charge.
             reserve: async () => ({ ok: true, used: quota.used, limit: quota.limit }),
+            // Mid-flight Request.signal + Autodev ownership timeout (combined inside fetch).
+            signal: input.signal,
           },
         );
       } catch {
