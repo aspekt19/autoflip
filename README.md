@@ -21,7 +21,7 @@ Judged mainly from this GitHub repo and a live demo. Consumer UI stays free of h
 | [Eval dashboard `/compare`](https://autoflip-umber.vercel.app/compare) | Standard vs SERV-checked (reads committed results only) |
 | [Agents / MCP](https://autoflip-umber.vercel.app/developers) | API key + MCP snippets |
 | [Verdict eval status](eval/results/verdict-latest.md) | Measured or **not yet run** — never fabricated |
-| [SERV eval results](eval/results/latest.md) | Last committed `eval:serv` run (when present) |
+| [SERV eval results](docs/eval/serv-run-1.md) | Measured run 1 summary + raw JSON (also `eval/results/latest.*` for `/compare`) |
 | [Proof of AI example](docs/examples/proof-of-ai-verdict.md) | Redacted verdict + guardrail proof shape |
 | [Judge guide](docs/judge-guide.md) | One-page architecture notes |
 
