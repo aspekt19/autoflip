@@ -100,7 +100,7 @@ Keep closed from prior: query params/known-cap filter, fresh briefs, per-candida
 origin, partial-on-failure, preadapter budget, nationwide mandate, no paid unlock.
 355 tests + plumbingOk ≠ SERV efficacy / production superiority.
 
-## STAGE3-RESIDUE-FOLLOWON-V5 — PIN TO_REPLACE (cite-bound rationale + grounded persist)
+## STAGE3-RESIDUE-FOLLOWON-V5 — PIN 18f7743 (cite-bound rationale + grounded persist)
 
 Independent review of 2c5d1cf rationale integrity holes; bounded correction (not closure):
 1. adverse_evidence must cite matching structured facts (citedEvidence) — incidental
