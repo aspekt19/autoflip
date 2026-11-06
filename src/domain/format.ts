@@ -35,15 +35,15 @@ export function formatPct(ratio: number, digits = 1): string {
 export function verdictLabel(verdict: string): string {
   switch (verdict) {
     case "good_deal":
-      return "Good deal";
+      return "Buy";
     case "fair":
-      return "Fair";
+      return "Negotiate";
     case "overpriced":
-      return "Overpriced";
+      return "Pass";
     case "walk_away":
-      return "Walk away";
+      return "Pass";
     case "insufficient_data":
-      return "Not enough data";
+      return "Needs inspection";
     default:
       return verdict;
   }

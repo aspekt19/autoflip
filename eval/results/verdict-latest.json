@@ -1,0 +1,23 @@
+{
+  "schema": "autoflip.verdict-eval.v1",
+  "status": "not_yet_run",
+  "generatedAt": "2026-11-06T13:44:21.845Z",
+  "reason": "SERV_API_KEY is not set in this environment. The harness and offline clamp unit tests exist; no live model scores were fabricated.",
+  "offlineClampCoverage": [
+    "title_brand",
+    "park_it_recall",
+    "odometer_mismatch",
+    "price_far_above_market",
+    "vin_identity_mismatch",
+    "insufficient_comps",
+    "deterministic_fallback"
+  ],
+  "unitTestFile": "src/domain/verdict-guardrails.test.ts",
+  "cases": [
+    "verdict-fair-negotiate",
+    "verdict-park-it-forbid-buy",
+    "verdict-title-brand-forbid-buy",
+    "verdict-insufficient-comps"
+  ],
+  "howToRun": "Export SERV_API_KEY and run npm run eval:verdict. Commit eval/results/verdict-latest.json only from a real run."
+}

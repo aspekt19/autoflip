@@ -10,6 +10,7 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "eval:serv": "tsx eval/run.ts",
+    "eval:verdict": "tsx eval/verdict-run.ts",
     "eval:trace": "tsx eval/trace.ts"
   },
   "engines": {

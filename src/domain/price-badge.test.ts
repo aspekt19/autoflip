@@ -66,7 +66,7 @@ describe("summary line", () => {
     expect(summaryLine({ mode: "personal", verdict: "good_deal", fairValueUsd: 10000, flip: null }).line).toBe("Buy");
     expect(summaryLine({ mode: "personal", verdict: "fair", fairValueUsd: 10400, flip: null }).line).toBe("Negotiate to $10,400");
     expect(summaryLine({ mode: "personal", verdict: "walk_away", fairValueUsd: 9000, flip: null }).line).toBe("Skip");
-    expect(summaryLine({ mode: "personal", verdict: "insufficient_data", fairValueUsd: null, flip: null }).line).toMatch(/Not enough/);
+    expect(summaryLine({ mode: "personal", verdict: "insufficient_data", fairValueUsd: null, flip: null }).line).toMatch(/Needs inspection/);
   });
 
   it("maps flip math onto a buy ceiling or a pass", () => {
