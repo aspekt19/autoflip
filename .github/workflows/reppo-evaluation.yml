@@ -1,0 +1,108 @@
+name: Reppo evaluation experiment
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "Submit new evaluations or fetch results for a previous submission"
+        required: true
+        type: choice
+        options:
+          - submit
+          - status
+        default: submit
+      reppo_run_id:
+        description: "GitHub Actions run ID from the earlier Reppo submission (status mode only)"
+        required: false
+        type: string
+
+permissions:
+  actions: read
+  contents: read
+
+concurrency:
+  group: reppo-evaluation-experiment
+  cancel-in-progress: false
+
+jobs:
+  evaluate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Restrict execution to the Reppo experiment branch
+        run: |
+          if [ "$GITHUB_REF" != "refs/heads/experiment/reppo-evaluation-poc" ]; then
+            echo "::error::Run this workflow only from experiment/reppo-evaluation-poc."
+            exit 1
+          fi
+
+      - name: Check out experiment branch
+        uses: actions/checkout@v4
+        with:
+          ref: experiment/reppo-evaluation-poc
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Require Reppo API key
+        env:
+          REPPO_API_KEY: ${{ secrets.REPPO_API_KEY }}
+        run: |
+          if [ -z "$REPPO_API_KEY" ]; then
+            echo "::error::Repository secret REPPO_API_KEY is missing."
+            exit 1
+          fi
+
+      - name: Download SERV evaluation evidence
+        if: inputs.mode == 'submit'
+        uses: actions/download-artifact@v4
+        with:
+          name: autoflip-serv-evaluation-5
+          path: eval/results
+          repository: ${{ github.repository }}
+          run-id: 42195292149
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Submit baseline and SERV evaluations to Reppo
+        if: inputs.mode == 'submit'
+        env:
+          REPPO_API_KEY: ${{ secrets.REPPO_API_KEY }}
+        run: npm run eval:reppo
+
+      - name: Download previous Reppo receipt
+        if: inputs.mode == 'status'
+        uses: actions/download-artifact@v4
+        with:
+          name: autoflip-reppo-receipt
+          path: eval/results
+          repository: ${{ github.repository }}
+          run-id: ${{ inputs.reppo_run_id }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Fetch settled Reppo evaluations
+        if: inputs.mode == 'status'
+        env:
+          REPPO_API_KEY: ${{ secrets.REPPO_API_KEY }}
+        run: npm run eval:reppo:status
+
+      - name: Upload Reppo receipt
+        uses: actions/upload-artifact@v4
+        with:
+          name: autoflip-reppo-receipt
+          path: eval/results/reppo-latest.json
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Write run summary
+        run: |
+          echo "## Reppo experiment" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Mode: ${{ inputs.mode }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Branch: experiment/reppo-evaluation-poc" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Output: download the autoflip-reppo-receipt artifact from this run." >> "$GITHUB_STEP_SUMMARY"
+          echo "- No customer reports are submitted; this is an offline fixture-based experiment." >> "$GITHUB_STEP_SUMMARY"
