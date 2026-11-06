@@ -46,7 +46,8 @@ export type Verdict =
   | "fair"
   | "overpriced"
   | "walk_away"
-  | "insufficient_data";
+  | "insufficient_data"
+  | "withheld";
 
 /** Shopper-facing action chosen by SERV under TS guardrails. See decision-action.ts. */
 export type { DecisionAction } from "./decision-action";
@@ -95,6 +96,12 @@ export type ComparableUsed = {
   city: string | null;
   state: string | null;
   distanceMiles: number | null;
+  /** Dealer listing URL when the feed included one. */
+  sourceUrl?: string | null;
+  /** Listing provider label shown to the shopper. */
+  sourceLabel?: string | null;
+  /** When AutoFlip fetched or loaded this row for the report. */
+  fetchedAt?: string | null;
 };
 
 export type HistoryAdjustment = {
@@ -167,12 +174,21 @@ export type ComputedReport = {
    */
   decision?: {
     action: import("./decision-action").DecisionAction;
-    source: "serv" | "deterministic_fallback" | "guardrail_clamp" | "no_serv_key";
+    source: "serv" | "deterministic_fallback" | "guardrail_clamp" | "no_serv_key" | "gates_withheld";
     servChoice: import("./decision-action").DecisionAction | null;
     deterministicAction: import("./decision-action").DecisionAction;
     overrideReasons: string[];
     labeledFallback: boolean;
     note: string | null;
+    withholdReason?: string | null;
+    gates?: Array<{ id: string; status: string; reason: string }>;
+  };
+  /** Shopper mandate used by ordered gates (budget / profit / repair). */
+  mandate?: {
+    budgetUsd: number | null;
+    budgetKnown: boolean;
+    targetProfitUsd: number | null;
+    repairAbility: "none" | "minor" | "major" | "unknown";
   };
 };
 

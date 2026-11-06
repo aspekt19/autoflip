@@ -1,0 +1,65 @@
+{
+  "name": "AutoFlip",
+  "description": "Turns a US used-car listing into an explainable buy / negotiate / pass / needs inspection decision. TypeScript owns every number; AI review may choose the shopper action only inside hard gates. Insufficient evidence yields a withheld verdict with a concrete reason.",
+  "url": "https://autoflip-umber.vercel.app",
+  "documentation": "https://autoflip-umber.vercel.app/developers",
+  "version": "0.1.0",
+  "authentication": {
+    "schemes": ["bearer"],
+    "header": "Authorization",
+    "format": "Bearer af_YOUR_KEY",
+    "createKeyUrl": "https://autoflip-umber.vercel.app/developers"
+  },
+  "endpoints": {
+    "mcp": "https://autoflip-umber.vercel.app/api/mcp",
+    "report": "https://autoflip-umber.vercel.app/api/v1/report",
+    "agentCard": "https://autoflip-umber.vercel.app/.well-known/agent.json"
+  },
+  "tools": [
+    {
+      "name": "deal_radar",
+      "transport": "mcp",
+      "cost": "free",
+      "description": "Scan current listings for one make and model. Returns deal scores from comparable asking prices in that result set. Does not spend a credit. Recalls and fuel are not included.",
+      "input": {
+        "make": "string (required)",
+        "model": "string (required)",
+        "zip": "string",
+        "year": "integer",
+        "distanceMiles": "integer",
+        "mode": "personal | flip"
+      }
+    },
+    {
+      "name": "full_report",
+      "transport": "mcp",
+      "cost": "1 credit",
+      "description": "Full AutoFlip analysis for one VIN or listing URL. Every response includes Proof of AI: which numbers came from code, which gates ran, and which AI review steps ran.",
+      "input": {
+        "mode": "personal | flip (required)",
+        "vin": "string",
+        "url": "string",
+        "zip": "string"
+      }
+    },
+    {
+      "name": "POST /api/v1/report",
+      "transport": "http",
+      "cost": "1 credit",
+      "description": "Same full report as MCP full_report over plain HTTP with an API key.",
+      "input": {
+        "mode": "personal | flip",
+        "vin": "string",
+        "url": "string",
+        "zip": "string",
+        "budgetUsd": "number (optional personal mandate)",
+        "targetProfitUsd": "number (optional flip mandate)",
+        "repairAbility": "none | minor | major | unknown"
+      }
+    }
+  ],
+  "proof": {
+    "everyPaidResponseIncludes": ["codeComputed fields", "ordered gates", "AI review checks", "finalAction"],
+    "consumerWording": "AI review"
+  }
+}

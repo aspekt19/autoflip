@@ -15,7 +15,16 @@ export function summaryLine(input: {
   flip: { targetBuyUsd: number; marginUsd: number } | null;
   /** Model-year park-it / park-outside campaign matched. Overrides price-only buy copy. */
   openParkIt?: boolean;
+  withholdReason?: string | null;
 }): SummaryLine {
+  if (input.verdict === "withheld") {
+    return {
+      line: "Verdict withheld",
+      detail:
+        input.withholdReason ??
+        "There is not enough verified evidence for a buy, negotiate, or pass decision.",
+    };
+  }
   if (input.openParkIt) {
     return {
       line: input.mode === "flip" ? "Pass" : "Skip",

@@ -614,7 +614,7 @@ textarea { min-height: 140px; }
 .badge.fair { background: var(--manila); color: var(--ink); }
 .badge.overpriced { background: var(--blue-soft); color: var(--ink); }
 .badge.walk_away { background: var(--ink); color: var(--canvas); }
-.badge.insufficient_data, .badge.not_scored { background: transparent; color: var(--muted); border: 1px solid var(--line); }
+.badge.insufficient_data, .badge.not_scored, .badge.withheld { background: transparent; color: var(--muted); border: 1px solid var(--line); }
 .price-badge { margin: 8px 0; font-family: var(--sans); font-size: 15px; font-weight: 500; }
 .price-badge strong { font-weight: 700; }
 .price-badge.good strong { color: #f3d36b; }

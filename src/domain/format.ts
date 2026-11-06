@@ -44,6 +44,8 @@ export function verdictLabel(verdict: string): string {
       return "Pass";
     case "insufficient_data":
       return "Needs inspection";
+    case "withheld":
+      return "Verdict withheld";
     default:
       return verdict;
   }

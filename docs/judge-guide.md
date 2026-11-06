@@ -25,17 +25,21 @@ Deterministic TypeScript engine
   - flip math and risk flags
           |
           v
+Ordered gates (data → VIN → safety → price → mandate)
+  - insufficient evidence → WITHHELD (SERV skipped)
+          |
+          v
 Typed ComputedReport + facts snapshot
           |
-          +----> SERV rules / explanation profiles
-          |        - may interpret and explain facts
+          +----> SERV verdict_decide + explanation
+          |        - chooses action inside gate clamps
           |        - may not author or replace numeric facts
           |
           v
 Number audit + deterministic fallback
           |
           v
-Shopper report + Proof of AI
+Shopper report + Proof of AI (“How this was checked”)
 ```
 
 The key boundary is visible in code: buildComputedReport() produces a ComputedReport in [src/domain/report.ts](../src/domain/report.ts), whose shape is declared in [src/domain/types.ts](../src/domain/types.ts). assembleReport() in [src/server/assemble.ts](../src/server/assemble.ts) serializes selected computed facts into SERV requests, checks the model's wording against those facts, and keeps the deterministic result if the explanation fails. The shared [runServ() gateway](../src/server/serv/run.ts) is the only inference transport. Its input facts are typed as read-only ServFacts, while the result exposes explanation text and proof metadata rather than a replacement ComputedReport. That keeps the model response outside the numeric decision object.
