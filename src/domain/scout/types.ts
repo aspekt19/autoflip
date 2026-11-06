@@ -153,7 +153,9 @@ export type ScoutToolOutcomeStatus =
   | "unsupported"
   | "failed"
   | "empty"
-  | "idempotent_replay";
+  | "idempotent_replay"
+  /** Out-of-mandate / duplicate / cap — no adapter call, no paid work. */
+  | "rejected";
 
 /**
  * Structured adapter capability — never infer unsupported-vs-success from summary text.
@@ -180,6 +182,10 @@ export type ScoutToolOutcome = {
   /** When replace/select acquires a different VIN, the executed candidate. */
   acquiredVin: string | null;
   servStepId: string | null;
+  /** Stage2C: fresh VINs added by a successful mid-loop inventory.search. */
+  freshVinCount?: number;
+  /** Stage2C: search fingerprint when inventory.search ran or was rejected. */
+  searchFingerprint?: string | null;
 };
 
 export type ScoutRunResult = {

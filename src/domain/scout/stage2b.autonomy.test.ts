@@ -251,7 +251,7 @@ describe("Stage2B genuine autonomy (offline)", () => {
     expect(result.investigation).toHaveLength(0);
   });
 
-  it("mid-loop inventory.search is unsupported — not a successful noop", async () => {
+  it("mid-loop inventory.search duplicate of initial is rejected_no_spend — not success noop", async () => {
     const inventory = replayInventoryAdapter(camryRaw, REPLAY_CAMRY_PROVENANCE);
     const peek = await inventory(flipMandate as never);
     if (!peek.ok) throw new Error("pool");
@@ -266,22 +266,29 @@ describe("Stage2B genuine autonomy (offline)", () => {
           type: "run_tool",
           toolId: "inventory.search",
           vin: null,
-          reason: "noop?",
+          reason: "duplicate of initial search",
           servStepId: "inv2",
+          args: {
+            makes: flipMandate.preferredMakes,
+            zip: flipMandate.zip,
+            distanceMiles: flipMandate.maxDistanceMiles,
+          },
         },
         {
           type: "select_candidate",
           vin,
-          reason: "continue after unsupported inventory",
+          reason: "continue after rejected duplicate inventory",
           servStepId: "s1",
         },
         { type: "finalize", reason: "done", servStepId: "f" },
       ]),
       budgets: { maxServCalls: 10, maxToolCalls: 20, maxProviderCalls: 0 },
     });
-    expect(result.provenance.some((p) => p.toolId === "inventory.search" && /unsupported/i.test(p.reason))).toBe(
-      true,
-    );
+    expect(
+      result.toolOutcomes.some(
+        (o) => o.toolId === "inventory.search" && o.status === "rejected" && /rejected_no_spend/i.test(o.summary),
+      ),
+    ).toBe(true);
     expect(["completed", "abstained"]).toContain(result.state);
   });
 

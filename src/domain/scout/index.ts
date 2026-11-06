@@ -3,12 +3,13 @@ export { validateScoutMandate } from "./mandate";
 export { canTransition, assertTransition, isTerminal } from "./transitions";
 export {
   replayInventoryAdapter,
+  keyedReplayInventoryAdapter,
   unconfiguredInventoryAdapter,
   unavailableInventoryAdapter,
   filterPool,
   REPLAY_CAMRY_PROVENANCE,
 } from "./inventory";
-export type { InventoryAdapter } from "./inventory";
+export type { InventoryAdapter, InventoryAdapterOpts } from "./inventory";
 export { runScoutGates } from "./gates";
 export {
   mockServPlanner,
@@ -33,5 +34,23 @@ export type {
   ScoutEvalInvariants,
   TraceExpectations,
 } from "./metrics";
+export {
+  SCOUT_SEARCH_PARAMS_VERSION,
+  SCOUT_SEARCH_SERVER_CAPS,
+  validateScoutSearchParams,
+  mandateToSearchParams,
+  mandateWithSearch,
+  fingerprintSearchParams,
+} from "./search-params";
+export type { ScoutSearchParams, ScoutSearchValidation } from "./search-params";
+export {
+  buildCandidateEvidenceBrief,
+  buildPlannerEvidenceContext,
+} from "./planner-context";
+export type {
+  CandidateEvidenceBrief,
+  EvidenceConfidence,
+  ScoutPlannerEvidenceContext,
+} from "./planner-context";
 export { SCOUT_TOOL_IDS } from "./types";
 export type * from "./types";

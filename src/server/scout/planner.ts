@@ -38,6 +38,7 @@ export function servScoutPlanner(deps: {
 
   return async (input) => {
     // Listing/tool state only in user message; policy stays in scout_plan system prompt.
+    // Stage2C: bounded facts/missingness/gates/confidence + search history (not VIN-walk only).
     const user = JSON.stringify({
       task: "lemonless_scout_plan",
       mandate: input.mandate,
@@ -45,15 +46,22 @@ export function servScoutPlanner(deps: {
       investigatedVins: input.investigated.map((c) => c.vin),
       rejectedVins: input.rejected.map((c) => c.vin),
       step: input.step,
-      // Actual tool outcomes — replan/reject/replace/stop from these; never invent success.
-      recentOutcomes: input.recentOutcomes.slice(-8),
-      evidenceHints: input.investigated.map((c) => ({
+      recentOutcomes: input.evidenceContext.recentOutcomes,
+      evidenceContext: {
+        evidenceBriefs: input.evidenceContext.evidenceBriefs,
+        searchHistory: input.evidenceContext.searchHistory,
+        budgetsRemaining: input.evidenceContext.budgetsRemaining,
+      },
+      // Legacy thin hints retained for older parsers — prefer evidenceContext.
+      evidenceHints: input.evidenceContext.evidenceBriefs.map((c) => ({
         vin: c.vin,
         historyStatus: c.historyStatus,
         disposition: c.disposition,
-        askingUsd: c.listing.priceUsd,
+        askingUsd: c.askingUsd,
         withheld: c.withheld,
-        flipExcluded: c.flip?.excluded ?? false,
+        confidence: c.confidence,
+        missingness: c.missingness,
+        unsupportedGovAloneNotBad: true,
       })),
     });
 

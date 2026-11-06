@@ -7,6 +7,7 @@ import fixture from "../../../fixtures/autodev-camry.json";
 import {
   REPLAY_CAMRY_PROVENANCE,
   filterPool,
+  mandateWithSearch,
   replayInventoryAdapter,
   type InventoryAdapter,
   type ScoutMandate,
@@ -100,7 +101,7 @@ export function resolveLiveInventory(input: ResolveLiveInventoryInput): ScoutInv
     left: Math.min(gate.remainingProviderBudget, input.maxProviderCalls),
   };
 
-  const adapter: InventoryAdapter = async (mandate: ScoutMandate) => {
+  const adapter: InventoryAdapter = async (mandate: ScoutMandate, opts) => {
     if (remaining.left <= 0) {
       return {
         ok: false,
@@ -119,10 +120,11 @@ export function resolveLiveInventory(input: ResolveLiveInventoryInput): ScoutInv
       };
     }
 
+    const effective = opts?.search ? mandateWithSearch(mandate, opts.search) : mandate;
     const makes: Array<string | undefined> =
-      mandate.preferredMakes.length > 0
-        ? [...new Set(mandate.preferredMakes)]
-        : mandate.openToOtherMakes
+      effective.preferredMakes.length > 0
+        ? [...new Set(effective.preferredMakes)]
+        : mandate.openToOtherMakes && !opts?.search
           ? [undefined]
           : [];
     if (!makes.length) {
@@ -169,8 +171,8 @@ export function resolveLiveInventory(input: ResolveLiveInventoryInput): ScoutInv
         result = await autodevSearch(
           {
             make,
-            zip: mandate.zip ?? undefined,
-            distanceMiles: mandate.maxDistanceMiles ?? undefined,
+            zip: effective.zip ?? undefined,
+            distanceMiles: effective.maxDistanceMiles ?? undefined,
             used: true,
             limit: 20,
             sort: "price",
@@ -219,7 +221,7 @@ export function resolveLiveInventory(input: ResolveLiveInventoryInput): ScoutInv
       } else {
         providerCallsUsed += 1;
       }
-      for (const listing of filterPool(result.listings, mandate)) {
+      for (const listing of filterPool(result.listings, effective, opts?.search ?? null)) {
         if (!byVin.has(listing.vin)) byVin.set(listing.vin, listing);
       }
     }

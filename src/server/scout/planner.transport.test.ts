@@ -100,6 +100,12 @@ describe("scout_plan transport contracts (offline)", () => {
       rejected: [],
       step: 1,
       recentOutcomes: [],
+      evidenceContext: {
+        evidenceBriefs: [],
+        searchHistory: [],
+        budgetsRemaining: { servCalls: 0, toolCalls: 0, providerCalls: 0 },
+        recentOutcomes: [],
+      },
     });
     expect(out.ok).toBe(false);
     if (!out.ok) expect(out.error).toBe("serv_unavailable");

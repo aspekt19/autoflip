@@ -19,6 +19,16 @@ import { runScoutGates } from "./gates";
 import { validateScoutMandate } from "./mandate";
 import { assertTransition, isTerminal } from "./transitions";
 import type { InventoryAdapter } from "./inventory";
+import {
+  buildPlannerEvidenceContext,
+  type ScoutPlannerEvidenceContext,
+} from "./planner-context";
+import {
+  fingerprintSearchParams,
+  mandateToSearchParams,
+  validateScoutSearchParams,
+  type ScoutSearchParams,
+} from "./search-params";
 import type {
   ProvenanceStep,
   ScoutBudgets,
@@ -39,6 +49,7 @@ function capabilityFromStatus(status: ScoutToolOutcome["status"]): ScoutToolCapa
   if (status === "unsupported") return "unsupported";
   if (status === "empty") return "empty";
   if (status === "idempotent_replay") return "idempotent_replay";
+  // rejected / failed — no successful adapter execution
   return "failed";
 }
 
@@ -51,6 +62,8 @@ export type ScoutPlannerInput = {
   step: number;
   /** Recent actual tool outcomes — planner must replan from these, not invent success. */
   recentOutcomes: ScoutToolOutcome[];
+  /** Stage2C: bounded facts/missingness/gates/confidence + search history. */
+  evidenceContext: ScoutPlannerEvidenceContext;
 };
 
 export type ScoutPlanner = (input: ScoutPlannerInput) => Promise<
@@ -261,6 +274,9 @@ export async function runScout(input: RunScoutInput): Promise<ScoutRunResult> {
   const toolOutcomes: ScoutToolOutcome[] = input.resume?.toolOutcomes
     ? [...input.resume.toolOutcomes]
     : [];
+  /** Stage2C: fingerprints of inventory searches already performed (incl. initial). */
+  const searchHistory: Array<{ fingerprint: string; params: ScoutSearchParams }> = [];
+  let midLoopSearchCount = 0;
 
   let state: ScoutState = input.resume?.state ?? "created";
   let mandate: ScoutMandate | null = input.resume?.mandate ?? null;
@@ -308,6 +324,10 @@ export async function runScout(input: RunScoutInput): Promise<ScoutRunResult> {
     // Keep a bounded window for planner context (not an unbounded log).
     if (recentOutcomes.length > 12) recentOutcomes.splice(0, recentOutcomes.length - 12);
     return full;
+  };
+
+  const recordSearch = (params: ScoutSearchParams, fingerprint: string) => {
+    searchHistory.push({ params, fingerprint });
   };
 
   if (input.resume) {
@@ -476,15 +496,22 @@ export async function runScout(input: RunScoutInput): Promise<ScoutRunResult> {
           : inv.error === "inventory_unconfigured"
             ? "inventory_unconfigured"
             : "provider_unavailable";
-      pushOutcome({
-        toolId: "inventory.search",
-        vin: null,
-        ok: false,
-        status: inv.error === "inventory_empty" ? "empty" : "failed",
-        summary: inv.message,
-        acquiredVin: null,
-        servStepId: null,
-      });
+      {
+        const initialParams = mandateToSearchParams(mandate);
+        const initialFp = fingerprintSearchParams(initialParams);
+        recordSearch(initialParams, initialFp);
+        pushOutcome({
+          toolId: "inventory.search",
+          vin: null,
+          ok: false,
+          status: inv.error === "inventory_empty" ? "empty" : "failed",
+          summary: inv.message,
+          acquiredVin: null,
+          servStepId: null,
+          freshVinCount: 0,
+          searchFingerprint: initialFp,
+        });
+      }
       if (inv.error === "inventory_empty") {
         assertTransition(state, "inventory_loaded");
         state = "inventory_loaded";
@@ -512,15 +539,22 @@ export async function runScout(input: RunScoutInput): Promise<ScoutRunResult> {
     }
     assertTransition(state, "inventory_loaded");
     state = "inventory_loaded";
-    pushOutcome({
-      toolId: "inventory.search",
-      vin: null,
-      ok: true,
-      status: pool.length === 0 ? "empty" : "success",
-      summary: `Inventory loaded: ${pool.length} listings (${inv.source}).`,
-      acquiredVin: null,
-      servStepId: null,
-    });
+    {
+      const initialParams = mandateToSearchParams(mandate);
+      const initialFp = fingerprintSearchParams(initialParams);
+      recordSearch(initialParams, initialFp);
+      pushOutcome({
+        toolId: "inventory.search",
+        vin: null,
+        ok: true,
+        status: pool.length === 0 ? "empty" : "success",
+        summary: `Inventory loaded: ${pool.length} listings (${inv.source}).`,
+        acquiredVin: null,
+        servStepId: null,
+        freshVinCount: pool.length,
+        searchFingerprint: initialFp,
+      });
+    }
     stamp(
       provenance,
       state,
@@ -568,6 +602,19 @@ export async function runScout(input: RunScoutInput): Promise<ScoutRunResult> {
         return fail(snapshot(), "budget_exhausted", servReserve.detail);
       }
 
+      const evidenceContext = buildPlannerEvidenceContext({
+        investigated: [...investigated],
+        pendingSample: pending
+          .slice(0, 3)
+          .map((vin) => candidates.get(vin))
+          .filter((c): c is ScoutCandidate => Boolean(c)),
+        searchHistory,
+        mandate,
+        budgets,
+        usage,
+        recentOutcomes,
+      });
+
       const plan = await input.planner({
         mandate,
         pool,
@@ -576,6 +623,7 @@ export async function runScout(input: RunScoutInput): Promise<ScoutRunResult> {
         rejected: [...rejected],
         step,
         recentOutcomes: [...recentOutcomes],
+        evidenceContext,
       });
 
       if (!plan.ok) {
@@ -746,20 +794,153 @@ export async function runScout(input: RunScoutInput): Promise<ScoutRunResult> {
           return fail(snapshot(), "budget_exhausted", tool.detail);
         }
 
-        // Mid-loop inventory.search is not a free cache-success / noop success.
+        // Stage2C: mid-loop inventory.search — validated bounded adjustment, real adapter when legitimate.
         if (toolId === "inventory.search") {
-          const outcome = {
-            toolId,
-            vin: null,
-            ok: false,
-            status: "unsupported",
-            summary:
-              "inventory.search already ran for this scout loop — mid-loop re-search is unsupported (not a successful no-op).",
-            acquiredVin: null,
-            servStepId: action.servStepId,
-          };
-          toolCache.set(idem, pushOutcome(outcome));
-          stamp(provenance, state, outcome.summary, toolId, action.servStepId, idem);
+          if (!mandate) {
+            toolCache.set(
+              idem,
+              pushOutcome({
+                toolId,
+                vin: null,
+                ok: false,
+                status: "failed",
+                summary: "inventory.search requires a validated mandate.",
+                acquiredVin: null,
+                servStepId: action.servStepId,
+              }),
+            );
+            stamp(provenance, state, "inventory.search requires a validated mandate.", toolId, action.servStepId, idem);
+            assertTransition(state, "verifying");
+            state = "verifying";
+            continue;
+          }
+
+          const args = action.type === "run_tool" ? action.args : undefined;
+          const validated = validateScoutSearchParams(args ?? {}, mandate, {
+            priorFingerprints: searchHistory.map((s) => s.fingerprint),
+            midLoopSearchCount,
+          });
+          if (!validated.ok) {
+            const summary = `rejected_no_spend (${validated.reason}): ${validated.message}`;
+            toolCache.set(
+              idem,
+              pushOutcome({
+                toolId,
+                vin: null,
+                ok: false,
+                status: "rejected",
+                capability: "failed",
+                summary,
+                acquiredVin: null,
+                servStepId: action.servStepId,
+                freshVinCount: 0,
+                searchFingerprint: null,
+              }),
+            );
+            stamp(provenance, state, summary, toolId, action.servStepId, idem);
+            assertTransition(state, "verifying");
+            state = "verifying";
+            continue;
+          }
+
+          const worstCaseProvider = budgets.maxProviderCalls > usage.providerCalls ? 1 : 0;
+          if (worstCaseProvider > 0) {
+            const pre = reserveProviderCalls(budgets, usage, worstCaseProvider);
+            if (!pre.ok) {
+              const summary = `rejected_no_spend (budget): ${pre.detail}`;
+              toolCache.set(
+                idem,
+                pushOutcome({
+                  toolId,
+                  vin: null,
+                  ok: false,
+                  status: "rejected",
+                  capability: "failed",
+                  summary,
+                  acquiredVin: null,
+                  servStepId: action.servStepId,
+                  freshVinCount: 0,
+                  searchFingerprint: validated.fingerprint,
+                }),
+              );
+              stamp(provenance, state, summary, toolId, action.servStepId, idem);
+              assertTransition(state, "verifying");
+              state = "verifying";
+              continue;
+            }
+          }
+
+          midLoopSearchCount += 1;
+          const inv = await input.inventory(mandate, { search: validated.params });
+
+          if (inv.providerCallsUsed === 0 && worstCaseProvider === 1) {
+            usage.providerCalls = Math.max(0, usage.providerCalls - 1);
+          } else if (inv.providerCallsUsed > worstCaseProvider) {
+            const extra = reserveProviderCalls(
+              budgets,
+              usage,
+              inv.providerCallsUsed - worstCaseProvider,
+            );
+            if (!extra.ok) {
+              stamp(provenance, state, extra.detail, toolId, action.servStepId, idem);
+            }
+          }
+
+          recordSearch(validated.params, validated.fingerprint);
+
+          if (!inv.ok) {
+            const summary = inv.message;
+            toolCache.set(
+              idem,
+              pushOutcome({
+                toolId,
+                vin: null,
+                ok: false,
+                status: inv.error === "inventory_empty" ? "empty" : "failed",
+                summary,
+                acquiredVin: null,
+                servStepId: action.servStepId,
+                freshVinCount: 0,
+                searchFingerprint: validated.fingerprint,
+              }),
+            );
+            stamp(provenance, state, summary, toolId, action.servStepId, idem);
+            assertTransition(state, "verifying");
+            state = "verifying";
+            continue;
+          }
+
+          inventorySource = inv.source;
+          inventoryProvenance = inv.provenance;
+          inventoryIdentity = { kind: inv.source, isFixture: inv.source === "replay" };
+          let fresh = 0;
+          for (const listing of inv.listings) {
+            if (candidates.has(listing.vin)) continue;
+            candidates.set(listing.vin, emptyCandidate(listing));
+            pending.push(listing.vin);
+            pool.push(listing);
+            fresh += 1;
+          }
+
+          const summary =
+            fresh > 0
+              ? `Mid-loop inventory.search added ${fresh} fresh VIN(s) (source=${inv.source}; duplicates skipped).`
+              : `Mid-loop inventory.search returned only duplicate VINs (source=${inv.source}).`;
+          toolCache.set(
+            idem,
+            pushOutcome({
+              toolId,
+              vin: null,
+              ok: true,
+              status: fresh > 0 ? "success" : "empty",
+              summary,
+              acquiredVin: fresh > 0 ? pending[pending.length - fresh] ?? null : null,
+              servStepId: action.servStepId,
+              freshVinCount: fresh,
+              searchFingerprint: validated.fingerprint,
+            }),
+          );
+          stamp(provenance, state, summary, toolId, action.servStepId, idem);
           assertTransition(state, "verifying");
           state = "verifying";
           continue;
@@ -983,45 +1164,135 @@ export function refusingPlanner(
 /**
  * Offline heuristic planner for demos when live SERV is not authorized.
  * Callers MUST set autonomyClaim: "none". Not an efficacy claim.
- * Replans from actual tool outcomes (unsupported → skip/replace; empty replace → stop).
+ * Stage2C: unsupported gov alone is NOT proof the car is bad — continue other checks /
+ * pending VINs, or bounded inventory.search when pending is empty. Not blind VIN-walk only.
  */
 export function heuristicOfflinePlanner(): ScoutPlanner {
   const seen = new Set<string>();
-  return async ({ pendingVins, investigated, mandate, recentOutcomes }) => {
+  let searchAttempted = false;
+  return async ({ pendingVins, investigated, mandate, recentOutcomes, evidenceContext }) => {
     const last = recentOutcomes[recentOutcomes.length - 1] ?? null;
 
-    // Unsupported/failure feedback changes next choice — do not pretend success.
-    if (last && (last.status === "unsupported" || last.status === "failed")) {
-      if (last.vin && pendingVins.includes(last.vin)) {
-        return {
-          ok: true,
-          action: {
-            type: "replace",
-            vin: last.vin,
-            reason: `Offline heuristic replaces after ${last.toolId} ${last.status}: ${last.summary}`,
-            servStepId: "offline-heuristic",
-          },
-        };
+    // Fresh VINs from mid-loop search → investigate those next (evidence-directed).
+    if (
+      last?.toolId === "inventory.search" &&
+      last.status === "success" &&
+      last.freshVinCount &&
+      last.freshVinCount > 0 &&
+      last.acquiredVin &&
+      pendingVins.includes(last.acquiredVin)
+    ) {
+      seen.add(last.acquiredVin);
+      return {
+        ok: true,
+        action: {
+          type: "select_candidate",
+          vin: last.acquiredVin,
+          reason: `Offline heuristic investigates fresh VIN from mid-loop search (autonomyClaim=none).`,
+          servStepId: "offline-heuristic",
+        },
+      };
+    }
+
+    // Unsupported gov alone ≠ car bad — keep investigating same VIN with other tools / next pending.
+    if (last && last.status === "unsupported" && last.toolId.startsWith("evidence.gov_")) {
+      const brief = evidenceContext.evidenceBriefs.find((b) => b.vin === last.vin);
+      const missingOther = (brief?.missingness ?? []).filter((m) => !m.startsWith("evidence.gov_"));
+      if (last.vin && pendingVins.includes(last.vin) && missingOther.length > 0) {
+        const nextTool = missingOther[0]!;
+        const toolId =
+          nextTool === "asking_price"
+            ? "evidence.asking_price"
+            : nextTool === "economics.flip_estimate"
+              ? "economics.flip_estimate"
+              : nextTool === "economics.personal_fit"
+                ? "economics.personal_fit"
+                : nextTool === "gates.verify"
+                  ? "gates.verify"
+                  : null;
+        if (toolId) {
+          return {
+            ok: true,
+            action: {
+              type: "run_tool",
+              toolId,
+              vin: last.vin,
+              reason: `Unsupported gov is not proof the car is bad — try ${toolId} next (autonomyClaim=none).`,
+              servStepId: "offline-heuristic",
+            },
+          };
+        }
       }
-      if (pendingVins.length === 0) {
-        return {
-          ok: true,
-          action: {
-            type: investigated.length ? "finalize" : "abstain",
-            reason: `Offline heuristic stops after ${last.status} with no pending left (autonomyClaim=none).`,
-            servStepId: "offline-heuristic",
-          },
-        };
-      }
+      // Fall through to next pending / search — do not force replace on gov unsupported alone.
+    }
+
+    // Hard tool failure (non-gov) still warrants moving on.
+    if (last && last.status === "failed" && last.vin && pendingVins.includes(last.vin)) {
+      return {
+        ok: true,
+        action: {
+          type: "replace",
+          vin: last.vin,
+          reason: `Offline heuristic replaces after ${last.toolId} failed: ${last.summary}`,
+          servStepId: "offline-heuristic",
+        },
+      };
     }
 
     if (last?.status === "empty" && last.toolId === "candidate.replace") {
+      if (!searchAttempted && evidenceContext.budgetsRemaining.toolCalls > 0) {
+        searchAttempted = true;
+        const model = investigated[0]?.listing.model;
+        return {
+          ok: true,
+          action: {
+            type: "run_tool",
+            toolId: "inventory.search",
+            vin: null,
+            reason: "Replace empty — try bounded mid-loop inventory.search before abstain.",
+            servStepId: "offline-heuristic",
+            args: {
+              makes: mandate.preferredMakes.slice(0, 2),
+              // Model filter changes fingerprint vs initial unscoped search (still in-mandate).
+              models: model ? [model] : [],
+              zip: mandate.zip,
+              distanceMiles: mandate.maxDistanceMiles,
+            },
+          },
+        };
+      }
       return {
         ok: true,
         action: {
           type: investigated.length ? "finalize" : "abstain",
           reason: "Offline heuristic: replace found no distinct candidate — honest stop.",
           servStepId: "offline-heuristic",
+        },
+      };
+    }
+
+    if (
+      pendingVins.length === 0 &&
+      !searchAttempted &&
+      evidenceContext.budgetsRemaining.toolCalls > 0 &&
+      investigated.length > 0
+    ) {
+      searchAttempted = true;
+      const model = investigated[0]?.listing.model;
+      return {
+        ok: true,
+        action: {
+          type: "run_tool",
+          toolId: "inventory.search",
+          vin: null,
+          reason: "No pending VINs — bounded inventory.search adjustment (autonomyClaim=none).",
+          servStepId: "offline-heuristic",
+          args: {
+            makes: mandate.preferredMakes.slice(0, 2),
+            models: model ? [model] : [],
+            zip: mandate.zip,
+            distanceMiles: mandate.maxDistanceMiles,
+          },
         },
       };
     }

@@ -90,6 +90,11 @@ export type ScoutObservables = {
     byStatus: ObservedMap<ScoutToolOutcomeStatus>;
     byToolId: ObservedMap<string>;
     inventorySearchAttempts: ObservedCount;
+    /** Stage2C: inventory.search after the initial load. */
+    midLoopInventorySearches: ObservedCount;
+    midLoopSearchSuccessWithFreshVins: ObservedCount;
+    midLoopSearchRejectedNoSpend: ObservedCount;
+    midLoopFreshVinsAdded: ObservedCount;
   };
   actions: {
     provenanceSteps: number;
@@ -394,6 +399,34 @@ export function observeScoutRun(
         outcomes.length === 0
           ? unknown("no tool outcomes — inventorySearchAttempts not scored as 0")
           : observed(searchCount),
+      midLoopInventorySearches:
+        outcomes.length === 0
+          ? unknown("no tool outcomes")
+          : observed(outcomes.filter((o, i) => o.toolId === "inventory.search" && i > 0).length),
+      midLoopSearchSuccessWithFreshVins:
+        outcomes.length === 0
+          ? unknown("no tool outcomes")
+          : observed(
+              outcomes.filter(
+                (o, i) =>
+                  o.toolId === "inventory.search" &&
+                  i > 0 &&
+                  o.status === "success" &&
+                  (o.freshVinCount ?? 0) > 0,
+              ).length,
+            ),
+      midLoopSearchRejectedNoSpend:
+        outcomes.length === 0
+          ? unknown("no tool outcomes")
+          : observed(outcomes.filter((o) => o.toolId === "inventory.search" && o.status === "rejected").length),
+      midLoopFreshVinsAdded:
+        outcomes.length === 0
+          ? unknown("no tool outcomes")
+          : observed(
+              outcomes
+                .filter((o, i) => o.toolId === "inventory.search" && i > 0)
+                .reduce((sum, o) => sum + (o.freshVinCount ?? 0), 0),
+            ),
     },
     actions: {
       provenanceSteps: result.provenance?.length ?? 0,
