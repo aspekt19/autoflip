@@ -12,6 +12,12 @@ export function midProfitUsd(flip: FlipMath): number {
 }
 
 export function fitHeadline(report: ComputedReport): string {
+  if (report.openParkIt) {
+    return "A park-it or park-outside campaign matched this model year. Safety verification comes before any price decision.";
+  }
+  if (report.flags.some((flag) => flag.source === "title-brand" && flag.level === "stop")) {
+    return "Listing text suggests a title brand (salvage, rebuilt, flood, or similar). Do not treat price alone as the decision.";
+  }
   if (report.mode === "flip") {
     if (!report.flip) return "This deal cannot be priced yet. There are not enough comparable listings.";
     if (report.verdict === "good_deal") return "At this asking price, the conservative resale math still clears the target margin.";

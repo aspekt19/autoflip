@@ -19,7 +19,8 @@ export function flipMath(input: {
   const high = percentileValue(input.adjustedCompPrices, 75);
   if (low === null || mid === null || high === null) return null;
 
-  const accidents = input.accidentCount ?? 0;
+  // Missing accident history is not treated as zero accidents for recon cost.
+  const accidents = input.accidentCount ?? 1;
   const skilled = input.repairAbility && input.repairAbility !== "unknown";
   const recon = skilled
     ? reconUsd({ miles: input.miles, accidentCount: accidents, repairAbility: input.repairAbility }).usd

@@ -182,7 +182,11 @@ export function tallyReason(counts: Map<string, number>, reason: string, amount 
   addCount(counts, reason, amount);
 }
 
-export function hardReject(listing: Listing, criteria: WatchCriteria): string | null {
+export function hardReject(
+  listing: Listing,
+  criteria: WatchCriteria,
+  asOfYear = new Date().getUTCFullYear(),
+): string | null {
   if (criteria.make && autoDevMake(listing.make).toLowerCase() !== autoDevMake(criteria.make).toLowerCase()) {
     return "make does not match";
   }
@@ -205,6 +209,9 @@ export function hardReject(listing: Listing, criteria: WatchCriteria): string | 
   }
   if (!bodyStyleMatches(criteria.bodyStyle, listing)) return "body style does not match";
   if (typeof listing.distanceMiles === "number" && listing.distanceMiles > criteria.radiusMiles) return "outside radius";
+  // Deal Radar is for used-car deals, not new inventory.
+  if (listing.used === false) return "new-car listing, not a used-car deal";
+  if (listing.year >= asOfYear) return "current or next model year, not a used-car deal";
   return null;
 }
 
@@ -238,7 +245,7 @@ export function prefilterListing(
   mode: Mode,
   asOfYear: number,
 ): PrefilterDecision {
-  const rejected = hardReject(listing, criteria);
+  const rejected = hardReject(listing, criteria, asOfYear);
   if (rejected) return { pass: false, reason: rejected };
   if (!band) return { pass: false, reason: "fewer than 3 priced rows, so there is no market band" };
 

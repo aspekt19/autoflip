@@ -12,7 +12,11 @@ export function historyAdjustment(listing: Listing, mode: Mode): HistoryAdjustme
   const accidents = listing.accidentCount;
 
   if (accidents === null) {
-    lines.push("Accident count was not in the listing feed.");
+    // Missing history is not a clean record. Apply a published unknown-history haircut.
+    multiplier *= 1 - ASSUMPTIONS.unknownHistoryHaircut;
+    lines.push(
+      `Accident count was not in the listing feed. Fair value is reduced by ${Math.round(ASSUMPTIONS.unknownHistoryHaircut * 100)}% because missing history is not treated as a clean record.`,
+    );
   } else if (accidents > 0) {
     const haircut = Math.min(ASSUMPTIONS.accidentHaircutCap, accidents * ASSUMPTIONS.accidentHaircutEach);
     multiplier *= 1 - haircut;

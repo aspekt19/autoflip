@@ -3,7 +3,9 @@ import { mileageAdjust, priceGap, rankAgainstAdjusted, selectComparables } from 
 import { flipMath } from "./flip";
 import { formatPct, formatUsd } from "./format";
 import { historyAdjustment } from "./history";
+import { expectedMiles, odometerCaution } from "./odometer";
 import { median, roundDollars } from "./stats";
+import { listingTitleBrandHit } from "./title-risk";
 import type {
   ComputedReport,
   FuelFact,
@@ -40,10 +42,6 @@ export type ReportInput = {
   /** Whether both ZIP locations were available to attempt the Census distance lookup. */
   distanceRequested?: boolean;
 };
-
-function expectedMiles(year: number, asOfYear: number): number {
-  return Math.max(0, asOfYear - year) * ASSUMPTIONS.milesPerYear;
-}
 
 function normalizedVehicleName(value: string): string {
   return value.toLowerCase().replace(/[^a-z0-9]/g, "");
@@ -170,6 +168,11 @@ function assumptionSnapshot(): Record<string, number> {
     minComps: ASSUMPTIONS.minComps,
     accidentHaircutEach: ASSUMPTIONS.accidentHaircutEach,
     accidentHaircutCap: ASSUMPTIONS.accidentHaircutCap,
+    unknownHistoryHaircut: ASSUMPTIONS.unknownHistoryHaircut,
+    odometerHighMultiple: ASSUMPTIONS.odometerHighMultiple,
+    odometerLowFraction: ASSUMPTIONS.odometerLowFraction,
+    suspiciousPriceRatio: ASSUMPTIONS.suspiciousPriceRatio,
+    suspiciousPriceFloorUsd: ASSUMPTIONS.suspiciousPriceFloorUsd,
     fleetHaircut: ASSUMPTIONS.fleetHaircut,
     multiOwnerHaircut: ASSUMPTIONS.multiOwnerHaircut,
     oneOwnerBonus: ASSUMPTIONS.oneOwnerBonus,
@@ -265,6 +268,17 @@ export function buildComputedReport(input: ReportInput): ComputedReport {
   }
   let verdict: Verdict = "insufficient_data";
   const reasons: string[] = [];
+  const titleBrandHit = listingTitleBrandHit(input.subject);
+  const odoCaution = odometerCaution({
+    year: input.subject.year,
+    miles: subjectMiles,
+    asOfYear,
+  });
+  const suspiciouslyCheap =
+    subjectPrice !== null &&
+    fairValueUsd !== null &&
+    (subjectPrice < ASSUMPTIONS.suspiciousPriceFloorUsd ||
+      subjectPrice < fairValueUsd * ASSUMPTIONS.suspiciousPriceRatio);
 
   if (!enough || gap === null || fairValueUsd === null || subjectPrice === null) {
     if (vinIdentityMismatch) {
@@ -278,6 +292,22 @@ export function buildComputedReport(input: ReportInput): ComputedReport {
     if ((input.subject.accidentCount ?? 0) >= 2 && gap > 0) {
       verdict = downgrade(verdict, 1);
       reasons.push("Two or more reported accidents moved the verdict one step worse.");
+    }
+    if (input.subject.accidentCount === null && verdict === "good_deal") {
+      verdict = downgrade(verdict, 1);
+      reasons.push("Accident history was missing, so a good-deal price verdict is capped at fair until history is verified.");
+    }
+    if (suspiciouslyCheap && (verdict === "good_deal" || verdict === "fair")) {
+      verdict = downgrade(verdict, 1);
+      reasons.push("The asking price is suspiciously low versus fair value, so the price verdict was moved one step worse until the discount is explained.");
+    }
+    if (odoCaution && (verdict === "good_deal" || verdict === "fair")) {
+      verdict = downgrade(verdict, 1);
+      reasons.push("Mileage looks inconsistent with vehicle age, so the price verdict was moved one step worse until the odometer is verified.");
+    }
+    if (titleBrandHit) {
+      verdict = "walk_away";
+      reasons.push(`Listing text mentions “${titleBrandHit}”. That is a conservative walk-away until an NMVTIS-approved title check clears it.`);
     }
     if (parkIt) {
       verdict = "walk_away";
@@ -319,6 +349,13 @@ export function buildComputedReport(input: ReportInput): ComputedReport {
       if (!vinIdentityMismatch) reasons.push("A resale range needs at least three mileage-adjusted comparables.");
     } else {
       verdict = flipVerdict(flip.marginUsd, parkIt);
+      if (titleBrandHit) {
+        verdict = "walk_away";
+        reasons.push(`Listing text mentions “${titleBrandHit}”. Flip margin is ignored until title brand is cleared.`);
+      } else if (suspiciouslyCheap && verdict === "good_deal") {
+        verdict = downgrade(verdict, 1);
+        reasons.push("The asking price is suspiciously low versus fair value, so a clear good-deal flip verdict was capped until the discount is explained.");
+      }
       reasons.push(
         `Conservative resale (25th percentile of mileage-adjusted asking prices, after a ${formatPct(flip.sellFriction)} sell friction) is ${formatUsd(flip.conservativeProceedsUsd)}. All-in cost is ${formatUsd(flip.allInUsd)}. Margin is ${formatUsd(flip.marginUsd)}.`,
       );
@@ -344,6 +381,9 @@ export function buildComputedReport(input: ReportInput): ComputedReport {
     priceGap: gap,
     sample,
     removedAt: input.subject.removedAt,
+    odometerCaution: odoCaution,
+    titleBrandHit,
+    suspiciouslyCheap,
   });
   const questions = dealerQuestions({
     listing: input.subject,
@@ -351,13 +391,18 @@ export function buildComputedReport(input: ReportInput): ComputedReport {
     vinIdentityMismatch,
     parkIt,
     historyMissing,
+    titleBrandHit,
   });
+
+  // Park-it and title-brand stops are not price scores; hide the price score so UI cannot look bullish.
+  const hardSafetyStop = parkIt || Boolean(titleBrandHit) || vinIdentityMismatch;
+  const score = hardSafetyStop ? null : scoreFromGap(gap);
 
   return {
     mode: input.mode,
     subject: input.subject,
     verdict,
-    score: scoreFromGap(gap),
+    score,
     reasons,
     flags,
     questions,

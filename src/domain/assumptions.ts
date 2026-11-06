@@ -11,6 +11,12 @@ export const ASSUMPTIONS = {
   yearWindowExpanded: 2,
   accidentHaircutEach: 0.04,
   accidentHaircutCap: 0.12,
+  /** Fair-value haircut when accident count is missing. Missing is not the same as clean. */
+  unknownHistoryHaircut: 0.05,
+  /** Miles vs age: above this multiple of expected miles is an odometer caution. */
+  odometerHighMultiple: 2.5,
+  /** Miles vs age: below this fraction of expected miles (and year ≥ 3 old) is an odometer caution. */
+  odometerLowFraction: 0.15,
   fleetHaircut: 0.06,
   multiOwnerHaircut: 0.03,
   multiOwnerAt: 3,

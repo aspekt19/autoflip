@@ -140,6 +140,28 @@ function estimateOne(listing: Listing, pool: Listing[], now: Date, options?: Fli
   const low = percentileValue(prices, 25)!;
   const mid = median(prices)!;
   const high = percentileValue(prices, 75)!;
+  if (asking < ASSUMPTIONS.suspiciousPriceFloorUsd || asking < mid * ASSUMPTIONS.suspiciousPriceRatio) {
+    return {
+      vin: listing.vin,
+      listing,
+      compCount: prices.length,
+      resaleLowUsd: roundDollars(low),
+      resaleMidUsd: roundDollars(mid),
+      resaleHighUsd: roundDollars(high),
+      costUsd: cost,
+      profitLowUsd: null,
+      profitMidUsd: null,
+      profitHighUsd: null,
+      confidence: "low",
+      speed: speed.label,
+      speedBasis: speed.basis,
+      excluded: true,
+      excludeReason: "price is suspiciously low next to the other rows",
+      score: Number.NEGATIVE_INFINITY,
+      clearsTarget: null,
+      assumption: priced.assumption,
+    };
+  }
   const resaleLowUsd = roundDollars(low);
   const resaleMidUsd = roundDollars(mid);
   const resaleHighUsd = roundDollars(high);

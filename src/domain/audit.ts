@@ -173,6 +173,13 @@ export function auditExplanation(
     offenders.push("invented_number");
   }
 
+  // SERV explains; it must not re-verdict a hard negative as a buy.
+  if (report.verdict === "walk_away" || report.verdict === "insufficient_data" || report.openParkIt) {
+    const buyish = /\b(buy(?:\s+it)?|purchase|good\s+deal|worth\s+buying)\b/i.test(text);
+    const negated = /\b(do\s+not\s+buy|don't\s+buy|not\s+a\s+buy|not\s+worth\s+buying|skip|pass|walk\s+away)\b/i.test(text);
+    if (buyish && !negated) offenders.push("buy_language_on_negative_verdict");
+  }
+
   if (offenders.length > 0) return { ok: false, offenders };
   return { ok: true };
 }
