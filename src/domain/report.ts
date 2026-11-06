@@ -31,6 +31,12 @@ export type ReportInput = {
   sample?: boolean;
   repairAbility?: import("./need").RepairAbility;
   targetProfitUsd?: number | null;
+  /** The time AutoFlip assembled this report, used for source request timestamps. */
+  checkedAt?: string;
+  /** Whether the VIN and comparable lookups both came from Auto.dev's cache. */
+  listingCached?: boolean;
+  /** Whether both ZIP locations were available to attempt the Census distance lookup. */
+  distanceRequested?: boolean;
 };
 
 function expectedMiles(year: number, asOfYear: number): number {
@@ -46,6 +52,92 @@ function vehicleNameMatches(decoded: string, listed: string): boolean {
   const b = normalizedVehicleName(listed);
   // NHTSA sometimes omits a marketed sub-model (for example, a hybrid label).
   return a === b || a.startsWith(b) || b.startsWith(a);
+}
+
+
+function buildSourceChecks(args: {
+  input: ReportInput;
+  sample: boolean;
+  checkedAt: string;
+}): ComputedReport["sourceChecks"] {
+  const { input, sample, checkedAt } = args;
+  const decodeStatus = !input.vinDecode
+    ? "unavailable"
+    : input.vinDecode.errorCode === "0"
+      ? "available"
+      : "partial";
+  return [
+    {
+      source: "Auto.dev listings",
+      status: sample ? "sample" : "available",
+      detail: sample
+        ? "Labeled sample fixture, not live listing data."
+        : "VIN listing and comparable listings. Provider update timestamps are not exposed; this app caches listing responses for up to 6 hours.",
+      checkedAt: sample || input.listingCached ? null : checkedAt,
+    },
+    {
+      source: "NHTSA VIN decoder",
+      status: decodeStatus,
+      detail: !input.vinDecode
+        ? "No usable decoder response was received."
+        : input.vinDecode.errorCode === "0"
+          ? "VIN decode returned without an NHTSA error."
+          : `Decoder returned warning/error code ${input.vinDecode.errorCode ?? "not supplied"}; treat the decoded fields as incomplete.`,
+      checkedAt,
+    },
+    {
+      source: "NHTSA recalls by model year",
+      status: input.recallsAvailable ? "available" : "unavailable",
+      detail: input.recallsAvailable
+        ? `${input.recalls.length} model-year campaign(s) returned. This is not a VIN-specific open-recall or repair-status result.`
+        : "No usable response; campaign status is unknown, not zero.",
+      checkedAt,
+    },
+    {
+      source: "NHTSA complaints",
+      status: input.complaintCount === null ? "unavailable" : "available",
+      detail: input.complaintCount === null
+        ? "Complaint count was not returned."
+        : `${input.complaintCount} complaints for this model year, make and model; not a failure rate or this car's history.`,
+      checkedAt,
+    },
+    {
+      source: "FuelEconomy.gov",
+      status: input.fuel ? "available" : "unavailable",
+      detail: input.fuel
+        ? `EPA configuration match: ${input.fuel.match}; ${input.fuel.configsConsidered} configuration(s) considered.`
+        : "No usable EPA fuel-economy match was returned.",
+      checkedAt,
+    },
+    {
+      source: "U.S. Census geocoder",
+      status: input.distanceToSearchZipMiles !== null ? "available" : input.distanceRequested ? "unavailable" : "not_checked",
+      detail: input.distanceToSearchZipMiles !== null
+        ? `Distance calculated: about ${Math.round(input.distanceToSearchZipMiles)} miles from the search ZIP.`
+        : input.distanceRequested
+          ? "Both ZIP locations were supplied, but a distance could not be calculated."
+          : "Not requested because both a search ZIP and listing ZIP were not available.",
+      checkedAt: input.distanceRequested ? checkedAt : null,
+    },
+    {
+      source: "CARFAX / AutoCheck",
+      status: "not_connected",
+      detail: "No licensed VIN history provider is connected. Listing history fields are incomplete and are not a vehicle-history report.",
+      checkedAt: null,
+    },
+    {
+      source: "NMVTIS title history",
+      status: "not_connected",
+      detail: "No NMVTIS-approved history provider is integrated; title brands, salvage and odometer checks must be run separately.",
+      checkedAt: null,
+    },
+    {
+      source: "NICB VINCheck",
+      status: "not_connected",
+      detail: "No NICB lookup is performed inside AutoFlip. The report links to the manual free check.",
+      checkedAt: null,
+    },
+  ];
 }
 
 function assumptionSnapshot(): Record<string, number> {
@@ -260,6 +352,11 @@ export function buildComputedReport(input: ReportInput): ComputedReport {
     history,
     recalls: input.recalls,
     recallsAvailable,
+    sourceChecks: buildSourceChecks({
+      input,
+      sample,
+      checkedAt: input.checkedAt ?? new Date().toISOString(),
+    }),
     openParkIt: parkIt,
     complaintCount: input.complaintCount,
     fuel: input.fuel,
