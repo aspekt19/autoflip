@@ -216,7 +216,7 @@ This environment had no `AUTODEV_API_KEY`, so the presets were not executed agai
 
 ### Call budget
 
-The existing hard stop remains 900 calls/month for every listings request. Radar checks stop at 650. The gap is left for full reports and one-time scans. Identical criteria across people share one call. The gap between checks stretches from 3 hours toward 24 so that `unique searches × checks per day × 30` stays near 650. GitHub Actions (`.github/workflows/radar-cron.yml`) calls `POST /api/radar/cron` every 3 hours. Vercel Hobby crons are daily, so they are not used. Repository secret: `RADAR_CRON_SECRET`. GitHub Actions requests a short-lived OIDC token (`id-token: write`) and calls the stable production domain; Vercel Trusted Sources validates the repository, main ref, workflow, and audience. No permanent cron URL secret is needed.
+The existing hard stop remains 900 calls/month for every listings request. Radar checks stop at 650. The gap is left for full reports and one-time scans. Identical criteria across people share one call. The gap between checks stretches from 3 hours toward 24 so that `unique searches × checks per day × 30` stays near 650. GitHub Actions (`.github/workflows/radar-cron.yml`) calls `POST /api/radar/cron` every 3 hours. Vercel Hobby crons are daily, so they are not used. Application auth still requires repository secret `RADAR_CRON_SECRET` (Bearer). GitHub Actions also requests a short-lived OIDC token (`id-token: write`) and calls the stable production domain; Vercel Trusted Sources validates the repository, main ref, workflow, and audience. OIDC replaces an old deploy-URL secret; it does not remove `RADAR_CRON_SECRET`.
 
 ### Storage
 

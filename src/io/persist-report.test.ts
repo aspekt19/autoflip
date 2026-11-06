@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { FullReport } from "@/domain/types";
 import { MemoryKv } from "./kv";
-import { listFavoriteReports, listUserReports, rememberUserReport, setFavoriteReport } from "./persist-report";
+import { listFavoriteReports, listUserReports, rememberUserReport, reportReusable, setFavoriteReport } from "./persist-report";
 
 function report(id: string, vin: string, createdAt: string): FullReport {
   return {
@@ -61,6 +61,17 @@ describe("user report history", () => {
   });
 });
 
+
+describe("report reuse", () => {
+  it("reuses only when mode and typed price/miles still match", () => {
+    const saved = report("report-0001", "4T1KZ1AK4MU060006", "2026-11-05T10:00:00.000Z");
+    expect(reportReusable(saved, { mode: "personal" })).toBe(true);
+    expect(reportReusable(saved, { mode: "flip" })).toBe(false);
+    expect(reportReusable(saved, { mode: "personal", askingPriceUsd: 18_000, miles: 42_000 })).toBe(true);
+    expect(reportReusable(saved, { mode: "personal", askingPriceUsd: 19_000 })).toBe(false);
+    expect(reportReusable(saved, { mode: "personal", miles: 50_000 })).toBe(false);
+  });
+});
 
 describe("saved cars", () => {
   it("allows a user to favorite only their own saved report", async () => {

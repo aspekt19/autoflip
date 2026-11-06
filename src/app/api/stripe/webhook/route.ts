@@ -6,6 +6,52 @@ import { grantCredit } from "@/server/session";
 
 export const dynamic = "force-dynamic";
 
+function metadataRecord(object: Record<string, unknown>): Record<string, unknown> | null {
+  const metadata = object.metadata;
+  if (!metadata || typeof metadata !== "object") return null;
+  return metadata as Record<string, unknown>;
+}
+
+function userIdFrom(object: Record<string, unknown>): string | null {
+  const metadata = metadataRecord(object);
+  return metadata && typeof metadata.userId === "string" ? metadata.userId : null;
+}
+
+/**
+ * Stripe invoice objects do not copy subscription_data.metadata.
+ * Pull userId/planId from the parent subscription so invoice.paid / invoice.payment_failed apply.
+ */
+async function billingObject(
+  stripe: Exclude<ReturnType<typeof stripeClient>, { error: string }>,
+  type: string,
+  object: Record<string, unknown>,
+): Promise<Record<string, unknown>> {
+  if (type !== "invoice.paid" && type !== "invoice.payment_failed") return object;
+  if (userIdFrom(object)) return object;
+
+  const subscriptionRef = object.subscription;
+  const subscriptionId =
+    typeof subscriptionRef === "string"
+      ? subscriptionRef
+      : subscriptionRef && typeof subscriptionRef === "object" && typeof (subscriptionRef as { id?: unknown }).id === "string"
+        ? (subscriptionRef as { id: string }).id
+        : null;
+  if (!subscriptionId) return object;
+
+  try {
+    const subscription = await stripe.subscriptions.retrieve(subscriptionId);
+    return {
+      ...object,
+      metadata: {
+        ...(metadataRecord(object) ?? {}),
+        ...subscription.metadata,
+      },
+    };
+  } catch {
+    return object;
+  }
+}
+
 export async function POST(request: Request) {
   const secret = stripeWebhookSecret();
   const stripe = stripeClient();
@@ -21,7 +67,8 @@ export async function POST(request: Request) {
   } catch {
     return Response.json({ error: "bad_signature" }, { status: 400 });
   }
-  const object = event.data.object as unknown as Record<string, unknown>;
+  const rawObject = event.data.object as unknown as Record<string, unknown>;
+  const object = await billingObject(stripe, event.type, rawObject);
   const effect = billingEffect(await plansForEvent(object), event.type, object);
   if (effect.kind === "credits" && event.type === "checkout.session.completed") {
     const session = event.data.object;
@@ -55,10 +102,7 @@ export async function POST(request: Request) {
 }
 
 async function plansForEvent(object: Record<string, unknown>) {
-  const metadata = object.metadata;
-  const userId = metadata && typeof metadata === "object" && typeof (metadata as { userId?: unknown }).userId === "string"
-    ? (metadata as { userId: string }).userId
-    : null;
+  const userId = userIdFrom(object);
   if (!userId) return emptyPlans();
   return readPlans(getKv(), userId);
 }

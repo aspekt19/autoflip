@@ -1,7 +1,7 @@
 import { fitHeadline } from "@/domain/fit";
 import { extractVin } from "@/domain/vin";
 import { isVinOnlyLookup, vinDetailGaps } from "@/domain/vin-report";
-import { findUserReport, persistReport, readPersistedReport, rememberUserReport } from "@/io/persist-report";
+import { findUserReport, persistReport, readPersistedReport, rememberUserReport, reportReusable } from "@/io/persist-report";
 import { getKv } from "@/io/kv";
 import { REPORT_FAILED_TEXT, reportReadyMessage } from "@/io/telegram";
 import { assembleReport } from "@/server/assemble";
@@ -42,12 +42,13 @@ export async function POST(request: Request) {
   }
 
   const id = await userId();
+  const mode = parseMode(body.mode);
   const vinKey = extractVin(vin || url || "");
   if (vinKey) {
-    const existingId = await findUserReport(getKv(), id, vinKey);
+    const existingId = await findUserReport(getKv(), id, vinKey, mode);
     if (existingId) {
       const existing = await readPersistedReport(existingId);
-      if (existing) {
+      if (existing && reportReusable(existing, { mode, askingPriceUsd, miles })) {
         await rememberUserReport(getKv(), id, vinKey, existing.id, existing);
         return Response.json({ ...existing, balance: await balanceOf(id), alreadySaved: true });
       }
@@ -66,7 +67,7 @@ export async function POST(request: Request) {
 
   const assembled = await assembleReport(
     {
-      mode: parseMode(body.mode),
+      mode,
       vin,
       url,
       make: typeof body.make === "string" ? body.make : undefined,

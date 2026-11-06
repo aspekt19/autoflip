@@ -33,6 +33,22 @@ export async function persistReport(report: FullReport): Promise<void> {
   if (storageMode() === "file") saveReport(report);
 }
 
+function vinLookupKey(userId: string, vin: string, mode?: Mode): string {
+  const base = `report-vin:${userId}:${vin.toUpperCase()}`;
+  return mode ? `${base}:${mode}` : base;
+}
+
+/** True when a saved report can be returned again without spending another credit. */
+export function reportReusable(
+  existing: FullReport,
+  input: { mode: Mode; askingPriceUsd?: number; miles?: number },
+): boolean {
+  if (existing.computed.mode !== input.mode) return false;
+  if (input.askingPriceUsd != null && existing.computed.subject.priceUsd !== input.askingPriceUsd) return false;
+  if (input.miles != null && existing.computed.subject.miles !== input.miles) return false;
+  return true;
+}
+
 export async function rememberUserReport(
   kv: Kv,
   userId: string,
@@ -40,7 +56,9 @@ export async function rememberUserReport(
   reportId: string,
   report?: FullReport,
 ): Promise<void> {
-  await kv.set(`report-vin:${userId}:${vin.toUpperCase()}`, reportId);
+  const mode = report?.computed.mode;
+  await kv.set(vinLookupKey(userId, vin), reportId);
+  if (mode) await kv.set(vinLookupKey(userId, vin, mode), reportId);
   if (!report) return;
 
   const raw = await kv.get(historyKey(userId));
@@ -97,8 +115,9 @@ export async function listUserReports(kv: Kv, userId: string): Promise<UserRepor
   return available.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
 }
 
-export async function findUserReport(kv: Kv, userId: string, vin: string): Promise<string | null> {
-  const id = await kv.get(`report-vin:${userId}:${vin.toUpperCase()}`);
+export async function findUserReport(kv: Kv, userId: string, vin: string, mode?: Mode): Promise<string | null> {
+  const keyed = mode ? await kv.get(vinLookupKey(userId, vin, mode)) : null;
+  const id = keyed ?? (await kv.get(vinLookupKey(userId, vin)));
   if (!id) return null;
   return (await kv.get(`report:${id}`)) ? id : null;
 }

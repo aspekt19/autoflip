@@ -83,16 +83,6 @@ export default function DevelopersPage() {
         </section>
 
         <section>
-          <h2>Optional payment header</h2>
-          <p>
-            Without an API key, <code>full_report</code> can also use x402 when <code>X402_PAY_TO</code>, <code>X402_NETWORK</code>, and <code>X402_ASSET</code> are configured. The default scheme is <code>gokite-aa</code>; the default facilitator is Pieverse. The payment is verified first, the report is built, and settlement is attempted only after the report succeeds. A failed VIN lookup or report build must not consume a payment.
-          </p>
-          <p>
-            This preview currently reports x402 as <code>configured: false</code> from <code>GET /api/mcp</code>, so the live payment rail is not active here. Check that endpoint's <code>payment.optionalHeader.configured</code> field before attempting payment. A successful transaction hash, not the presence of code or environment-variable names, is the evidence of a completed payment.
-          </p>
-        </section>
-
-        <section>
           <h2>Saved searches and storage</h2>
           <p>
             <code>GET /api/serv/selftest</code> and <code>POST /api/radar/cron</code> use <code>Authorization: Bearer $RADAR_CRON_SECRET</code>. That secret is not an agent key. Persistent storage is Upstash Redis. Set <code>UPSTASH_REDIS_REST_URL</code> and <code>UPSTASH_REDIS_REST_TOKEN</code>. Locally, keys and credits fall back to <code>.data/kv.json</code>.

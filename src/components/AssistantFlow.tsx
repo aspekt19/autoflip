@@ -766,8 +766,8 @@ function AssistantFlow({
                       {" · "}
                       {car.miles === null ? "Mileage not listed" : `${car.miles.toLocaleString("en-US")} mi`}
                       {car.city ? ` · ${car.city}${car.state ? `, ${car.state}` : ""}` : ""}
-                      {car.overBudget ? " · slightly over budget" : ""}
                     </p>
+                    {car.overBudget ? <p className="budget-flag">Slightly over budget</p> : null}
                     {car.source === "sample" ? <p className="hint">Sample listing, not a live match.</p> : null}
                     {car.badge ? <PriceBadgeView badge={car.badge} /> : null}
                     {car.flipNote ? <p className="hint">{car.flipNote}</p> : null}

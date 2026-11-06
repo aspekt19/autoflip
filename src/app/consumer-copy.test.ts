@@ -2,7 +2,7 @@ import { readdirSync, readFileSync, statSync } from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 
-const BANNED = /\b(hackathon|bounty|judges?|x402|kite|usdc|crypto|blockchain|web3|wallet)\b/i;
+const BANNED = /\b(hackathon|bounty|judges?|openserv|gpt-[\w.-]*|serv_[a-z0-9_]+|kronos|multipath|shadow[\s_-]?agent|x402|gokite|kite|usdc|crypto|blockchain|web3|wallet)\b/i;
 
 function filesUnder(dir: string): string[] {
   const found: string[] = [];
