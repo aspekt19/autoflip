@@ -63,7 +63,7 @@ Profile definitions and the exact model features/tools are in [profiles.ts](../s
 - prompt-guard result, Shadow Agent outcome and iteration cap;
 - whether a fallback was used and which numeric fields were computed by code.
 
-The shopper-facing explanation in [decision-note.ts](../src/domain/decision-note.ts) is assembled from these recorded flags; it is not a separate model-generated claim about what happened. Agent report responses include a proof object. For a real trace, run a report with SERV configured and inspect that response; do not treat planned/skipped profile metadata as a completed inference call.
+The shopper-facing explanation in [decision-note.ts](../src/domain/decision-note.ts) is assembled from these recorded flags; it is not a separate model-generated claim about what happened. Agent report responses include a proof object. After a manual evaluation workflow completes, [SERV redacted proof trace](../.github/workflows/serv-proof-trace.yml) makes one additional real inference call using the fixed `flip-clear` evaluation fixture and opens a PR with sanitized metadata. It is explicitly a controlled evaluation trace, not live customer traffic or a production vehicle report. It omits raw prompts, VINs, supplied facts, and free-form model output. Never treat planned/skipped profile metadata as a completed inference call.
 
 ## How AutoFlip fits the Open Track
 
