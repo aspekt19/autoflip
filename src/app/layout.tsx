@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { Big_Shoulders, Manrope, Orbitron } from "next/font/google";
+import { Big_Shoulders_Display, Manrope, Orbitron } from "next/font/google";
 import { Header } from "@/components/Header";
 import { PageFade } from "@/components/PageFade";
 import { SmoothScroll } from "@/components/SmoothScroll";
@@ -7,7 +7,14 @@ import "./globals.css";
 
 const sans = Manrope({ subsets: ["latin"], weight: ["400", "500", "600", "700"], variable: "--font-sans" });
 const display = Orbitron({ subsets: ["latin"], weight: ["500", "600", "700"], variable: "--font-display" });
-const wide = Big_Shoulders({ subsets: ["latin"], weight: ["700", "800"], variable: "--font-wide", adjustFontFallback: false });
+/** Display cut matches CSS fallback; the plain Big_Shoulders family flakes in some CI font fetches. */
+const wide = Big_Shoulders_Display({
+  subsets: ["latin"],
+  weight: ["700", "800"],
+  variable: "--font-wide",
+  adjustFontFallback: false,
+  display: "swap",
+});
 
 export const metadata: Metadata = {
   title: { default: "AutoFlip", template: "%s — AutoFlip" },
