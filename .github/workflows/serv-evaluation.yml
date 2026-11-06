@@ -11,7 +11,6 @@ on:
       - "src/domain/eval-view.ts"
       - "src/domain/decision-note.ts"
       - ".github/workflows/serv-evaluation.yml"
-      - ".github/workflows/serv-proof-trace.yml"
 
 permissions:
   contents: write
@@ -65,18 +64,20 @@ jobs:
           if-no-files-found: error
           retention-days: 90
 
-      - name: Publish measured results branch for review
-        env:
-          GITHUB_RUN_ID: ${{ github.run_id }}
+      - name: Refresh fixed evidence/serv-eval-latest branch
         run: |
-          branch="evidence/serv-eval-${GITHUB_RUN_ID}"
+          branch="evidence/serv-eval-latest"
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git checkout -b "$branch"
+          git checkout -B "$branch"
           git add eval/results/latest.json eval/results/latest.md
-          git commit -m "Evidence: publish measured SERV evaluation"
-          git push origin "$branch"
+          if git diff --cached --quiet; then
+            echo "No evaluation file changes to publish."
+          else
+            git commit -m "Evidence: refresh measured SERV evaluation"
+            git push --force-with-lease origin "$branch"
+          fi
           echo "## Evaluation evidence" >> "$GITHUB_STEP_SUMMARY"
-          echo "Measured JSON and Markdown were pushed to branch: $branch." >> "$GITHUB_STEP_SUMMARY"
-          echo "Open a review PR: https://github.com/${GITHUB_REPOSITORY}/pull/new/$branch" >> "$GITHUB_STEP_SUMMARY"
+          echo "Measured JSON and Markdown were force-updated on fixed branch: \`$branch\` (artifacts also uploaded)." >> "$GITHUB_STEP_SUMMARY"
+          echo "Open or refresh a review PR from that single branch. Unique per-run evidence branches are no longer created." >> "$GITHUB_STEP_SUMMARY"
           echo "The workflow does not deploy the application." >> "$GITHUB_STEP_SUMMARY"

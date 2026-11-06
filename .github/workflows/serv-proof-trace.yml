@@ -58,18 +58,20 @@ jobs:
           if-no-files-found: error
           retention-days: 90
 
-      - name: Publish redacted trace branch for review
-        env:
-          SOURCE_RUN_ID: ${{ github.event.workflow_run.id }}
+      - name: Refresh fixed evidence/serv-proof-trace-latest branch
         run: |
-          branch="evidence/serv-proof-trace-${SOURCE_RUN_ID}"
+          branch="evidence/serv-proof-trace-latest"
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git checkout -b "$branch"
+          git checkout -B "$branch"
           git add eval/results/serv-proof-trace.json eval/results/serv-proof-trace.md
-          git commit -m "Evidence: add redacted SERV proof trace"
-          git push origin "$branch"
+          if git diff --cached --quiet; then
+            echo "No proof-trace file changes to publish."
+          else
+            git commit -m "Evidence: refresh redacted SERV proof trace"
+            git push --force-with-lease origin "$branch"
+          fi
           echo "## Redacted SERV proof trace" >> "$GITHUB_STEP_SUMMARY"
-          echo "Trace artifact was pushed to branch: $branch." >> "$GITHUB_STEP_SUMMARY"
-          echo "Open a review PR: https://github.com/${GITHUB_REPOSITORY}/pull/new/$branch" >> "$GITHUB_STEP_SUMMARY"
+          echo "Trace artifact was force-updated on fixed branch: \`$branch\`." >> "$GITHUB_STEP_SUMMARY"
+          echo "Unique per-run proof-trace branches are no longer created." >> "$GITHUB_STEP_SUMMARY"
           echo "This trace omits raw prompts, VINs, facts, and free-form model output." >> "$GITHUB_STEP_SUMMARY"

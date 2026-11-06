@@ -48,4 +48,12 @@ describe("subscription webhook mapping", () => {
     expect(ended.plans.flip.status).toBe("none");
     expect(ended.disableMode).toBe("flip");
   });
+
+  it("ignores invoice events that still lack subscription metadata", () => {
+    const ignored = billingEffect(emptyPlans(), "invoice.payment_failed", {
+      subscription: "sub_123",
+      customer: "cus_123",
+    });
+    expect(ignored.kind).toBe("ignore");
+  });
 });

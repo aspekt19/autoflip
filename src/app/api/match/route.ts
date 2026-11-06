@@ -96,7 +96,13 @@ export async function POST(request: Request) {
         flipNote: byVin.get(item.vin)?.assumption ?? assumption,
         clearsTarget: byVin.get(item.vin)?.clearsTarget ?? null,
       }))
-      .sort((a, b) => (byVin.get(b.vin)?.score ?? 0) - (byVin.get(a.vin)?.score ?? 0))
+      .sort((a, b) => {
+        // In-budget cars first; slightly-over cars stay visible but after the within-budget set.
+        const aOver = a.overBudget ? 1 : 0;
+        const bOver = b.overBudget ? 1 : 0;
+        if (aOver !== bOver) return aOver - bOver;
+        return (byVin.get(b.vin)?.score ?? 0) - (byVin.get(a.vin)?.score ?? 0);
+      })
       .slice(0, 8);
     const coverageInput = {
       mode: parsed.need.mode,
