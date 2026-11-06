@@ -157,11 +157,12 @@ a { color: inherit; }
   text-transform: uppercase;
   white-space: nowrap;
 }
-.brand-lemon { color: #ffd60a; }
+.brand-lemon,
 .brand-less {
-  color: #ff3b3b;
   display: inline-block;
 }
+.brand-lemon { color: #ffd60a; }
+.brand-less { color: #ff3b3b; }
 .surface-light .brand-less,
 .surface-light .tagline-less { color: #db0404; }
 .surface-light .tagline-prefix { color: #555555; }
@@ -190,17 +191,79 @@ a { color: inherit; }
 }
 .brand-hero-title .tagline-prefix { color: var(--ink); }
 .brand-inline-tagline { font-weight: 700; }
+/*
+  Continuous header wordmark life: gentle float + brand-color traveling shimmer.
+  Scoped to .bar so footer/hero stay quiet. No rainbow — only #FFD60A / LESS red family.
+*/
 @media (prefers-reduced-motion: no-preference) {
-  .brand-less {
+  .bar .brand-name {
+    animation: brand-wordmark-float 4.8s ease-in-out infinite;
+  }
+  .bar .brand-less {
     animation: brand-less-slide 0.55s 0.85s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+  }
+  @supports ((-webkit-background-clip: text) or (background-clip: text)) {
+    .bar .brand-lemon,
+    .bar .brand-less {
+      background-size: 220% 100%;
+      -webkit-background-clip: text;
+      background-clip: text;
+      -webkit-text-fill-color: transparent;
+      color: transparent;
+    }
+    .bar .brand-lemon {
+      background-image: linear-gradient(
+        105deg,
+        #f2b705 0%,
+        #ffd60a 28%,
+        #fff1a3 50%,
+        #ffd60a 72%,
+        #f2b705 100%
+      );
+      animation: brand-shimmer 3.6s ease-in-out infinite;
+    }
+    .bar .brand-less {
+      background-image: linear-gradient(
+        105deg,
+        #e02020 0%,
+        #ff3b3b 28%,
+        #ff9a9a 50%,
+        #ff3b3b 72%,
+        #e02020 100%
+      );
+      animation:
+        brand-less-slide 0.55s 0.85s cubic-bezier(0.2, 0.8, 0.2, 1) both,
+        brand-shimmer 3.6s 1.35s ease-in-out infinite;
+    }
   }
 }
 @keyframes brand-less-slide {
   from { opacity: 0; transform: translateX(-0.28em); }
   to { opacity: 1; transform: none; }
 }
+@keyframes brand-wordmark-float {
+  0%, 100% { transform: translate3d(0, 0, 0); }
+  50% { transform: translate3d(0, -1.5px, 0); }
+}
+@keyframes brand-shimmer {
+  0%, 100% { background-position: 100% 50%; }
+  50% { background-position: 0% 50%; }
+}
 @media (prefers-reduced-motion: reduce) {
-  .brand-less { animation: none !important; }
+  .bar .brand-name,
+  .bar .brand-lemon,
+  .bar .brand-less,
+  .brand-less {
+    animation: none !important;
+  }
+  .bar .brand-lemon,
+  .bar .brand-less {
+    background: none !important;
+    -webkit-text-fill-color: unset;
+    color: inherit;
+  }
+  .bar .brand-lemon { color: #ffd60a; }
+  .bar .brand-less { color: #ff3b3b; }
 }
 .lemonless-disclaimer {
   margin: 8px 0 0;
