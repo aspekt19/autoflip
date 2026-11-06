@@ -33,7 +33,7 @@
   --manila: #2a1814;
   --sans: var(--font-sans), Manrope, "Avenir Next", sans-serif;
   --display: var(--font-display), Orbitron, sans-serif;
-  --wide: var(--font-wide), "Big Shoulders Display", Impact, sans-serif;
+  --wide: var(--font-wide), "Bebas Neue", Impact, sans-serif;
   --serif: var(--font-sans), Manrope, sans-serif;
   --mono: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
   --ease: cubic-bezier(0.16, 1, 0.3, 1);

@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { Big_Shoulders_Display, Manrope, Orbitron } from "next/font/google";
+import { Bebas_Neue, Manrope, Orbitron } from "next/font/google";
 import { Header } from "@/components/Header";
 import { PageFade } from "@/components/PageFade";
 import { SmoothScroll } from "@/components/SmoothScroll";
@@ -7,12 +7,11 @@ import "./globals.css";
 
 const sans = Manrope({ subsets: ["latin"], weight: ["400", "500", "600", "700"], variable: "--font-sans" });
 const display = Orbitron({ subsets: ["latin"], weight: ["500", "600", "700"], variable: "--font-display" });
-/** Display cut matches CSS fallback; the plain Big_Shoulders family flakes in some CI font fetches. */
-const wide = Big_Shoulders_Display({
+/** Condensed display for headings. Replaces Big_Shoulders, which flakes in CI Google Fonts fetches. */
+const wide = Bebas_Neue({
   subsets: ["latin"],
-  weight: ["700", "800"],
+  weight: "400",
   variable: "--font-wide",
-  adjustFontFallback: false,
   display: "swap",
 });
 
