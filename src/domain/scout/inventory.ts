@@ -31,7 +31,8 @@ export function replayInventoryAdapter(raw: unknown, provenance: string): Invent
   return async (mandate) => {
     let listings: Listing[];
     try {
-      listings = parseAutoDevListings(raw, "autodev");
+      // Mark as sample at listing-row level so production never confuses fixture rows with live Auto.dev.
+      listings = parseAutoDevListings(raw, "sample");
     } catch {
       return {
         ok: false,

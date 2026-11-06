@@ -1,0 +1,118 @@
+{
+  "harness": "eval/scout-baseline.ts",
+  "generatedAt": "2026-11-06T20:39:18.768Z",
+  "note": "Machine-readable offline metrics. Mock planners = control plumbing only. Not SERV efficacy.",
+  "invariants": {
+    "noSafeBuyClaims": true,
+    "noVerifiedProfitClaims": true,
+    "rejectReplaceCovered": true,
+    "realSourceAvailable": true,
+    "realSourcePath": "fixtures/autodev-camry.json",
+    "otherRealSourceSnapshots": "none — only autodev-camry.json exists in-repo; no invented provenance",
+    "plannerEfficacyClaimed": false
+  },
+  "cases": [
+    {
+      "id": "camry-flip-reject-replace",
+      "mode": "flip",
+      "dataKind": "real_source_replay",
+      "provenance": "fixtures/autodev-camry.json (Auto.dev vehicle listings payload; row createdAt e.g. 2026-09-16; offline replay — not a live call)",
+      "plannerKind": "mock_script_control_plumbing_NOT_serv_efficacy",
+      "poolSize": 5,
+      "baselineTopVins": [
+        "4T1K61AK4LU371927",
+        "4T1K61AK0MU423359",
+        "4T1K61AK4MU610393",
+        "4T1NZ1AK2LU042082",
+        "4T1KZ1AK4MU060006"
+      ],
+      "scoutState": "completed",
+      "scoutFailReason": null,
+      "investigationCount": 3,
+      "investigationVins": [
+        "4T1K61AK0MU423359",
+        "4T1K61AK4MU610393",
+        "4T1NZ1AK2LU042082"
+      ],
+      "rejectedCount": 0,
+      "replacedCount": 1,
+      "claimsSafeBuyCount": 0,
+      "claimsVerifiedProfitCount": 0,
+      "insufficientEvidenceInvestigated": 0,
+      "overlapWithBaseline": 3,
+      "scriptCoveredRejectReplace": true,
+      "notes": [
+        "Mock/heuristic planners are NOT SERV efficacy evidence.",
+        "fixtures/autodev-camry.json (Auto.dev vehicle listings payload; row createdAt e.g. 2026-09-16; offline replay — not a live call)"
+      ]
+    },
+    {
+      "id": "camry-personal-select",
+      "mode": "personal",
+      "dataKind": "real_source_replay",
+      "provenance": "fixtures/autodev-camry.json (Auto.dev vehicle listings payload; row createdAt e.g. 2026-09-16; offline replay — not a live call)",
+      "plannerKind": "mock_script_control_plumbing_NOT_serv_efficacy",
+      "poolSize": 5,
+      "baselineTopVins": [
+        "4T1K61AK4LU371927",
+        "4T1K61AK0MU423359",
+        "4T1K61AK4MU610393",
+        "4T1NZ1AK2LU042082",
+        "4T1KZ1AK4MU060006"
+      ],
+      "scoutState": "completed",
+      "scoutFailReason": null,
+      "investigationCount": 4,
+      "investigationVins": [
+        "4T1K61AK0MU423359",
+        "4T1K61AK4MU610393",
+        "4T1NZ1AK2LU042082",
+        "4T1K61AK4LU371927"
+      ],
+      "rejectedCount": 0,
+      "replacedCount": 0,
+      "claimsSafeBuyCount": 0,
+      "claimsVerifiedProfitCount": 0,
+      "insufficientEvidenceInvestigated": 0,
+      "overlapWithBaseline": 4,
+      "scriptCoveredRejectReplace": false,
+      "notes": [
+        "Mock/heuristic planners are NOT SERV efficacy evidence.",
+        "fixtures/autodev-camry.json (Auto.dev vehicle listings payload; row createdAt e.g. 2026-09-16; offline replay — not a live call)"
+      ]
+    },
+    {
+      "id": "adversarial-flip-reject-replace",
+      "mode": "flip",
+      "dataKind": "synthetic_adversarial_NOT_live",
+      "provenance": "fixtures/scout/adversarial-contradiction.json — NOT live evidence",
+      "plannerKind": "mock_script_control_plumbing_NOT_serv_efficacy",
+      "poolSize": 5,
+      "baselineTopVins": [
+        "SYNTHASKCCC000005",
+        "SYNTHASKBBB000004",
+        "SYNTHASKAAA000003",
+        "SYNTHTHNCMP000002"
+      ],
+      "scoutState": "completed",
+      "scoutFailReason": null,
+      "investigationCount": 3,
+      "investigationVins": [
+        "SYNTHTHNCMP000002",
+        "SYNTHASKAAA000003",
+        "SYNTHASKBBB000004"
+      ],
+      "rejectedCount": 0,
+      "replacedCount": 1,
+      "claimsSafeBuyCount": 0,
+      "claimsVerifiedProfitCount": 0,
+      "insufficientEvidenceInvestigated": 0,
+      "overlapWithBaseline": 3,
+      "scriptCoveredRejectReplace": true,
+      "notes": [
+        "Mock/heuristic planners are NOT SERV efficacy evidence.",
+        "Adversarial fixture is NOT live evidence."
+      ]
+    }
+  ]
+}

@@ -1,21 +1,16 @@
 import { refusingPlanner, type ScoutPlanner } from "@/domain/scout";
 import { runServ } from "@/server/serv";
+import { authorizeLiveServPlanner, readPaidExecutionConfig } from "./paid-execution";
 import { parseScoutPlanText } from "./plan-parse";
 import {
   SCOUT_PLAN_JSON_SCHEMA,
   resolveScoutServOptions,
   type ScoutServOptions,
 } from "./serv-options";
-import { authorizeScoutSpend, spendAuthFromEnv, type ScoutSpendAuthorization } from "./spend-gate";
 
 /**
- * Live SERV planner — only when explicitly allowed AND spend gate passes.
- * On refuse/timeout/unavailable/parse failure: returns error (caller must STOP;
- * no silent deterministic autonomy).
- *
- * Day-one docs: SERV selects tools/next actions; app handles deterministic work
- * (https://docs.openserv.ai/serv-reasoning/day-one). App tools coexist with
- * serv_prompt_guard markers (https://docs.openserv.ai/serv-reasoning/tools).
+ * Live SERV planner — only when server paid-execution + SERV key authorize it.
+ * On refuse/timeout/unavailable/parse failure: STOP (no silent deterministic autonomy).
  */
 export function servScoutPlanner(deps: {
   apiKey: string;
@@ -24,15 +19,14 @@ export function servScoutPlanner(deps: {
   timeoutMs?: number;
   fetch?: typeof fetch;
   options?: Partial<ScoutServOptions>;
-  spendAuth?: ScoutSpendAuthorization | null;
 }): ScoutPlanner {
   const options = resolveScoutServOptions(deps.options);
-  const spend = authorizeScoutSpend(deps.spendAuth ?? spendAuthFromEnv());
-  if (!spend.ok) {
+  const paid = authorizeLiveServPlanner(readPaidExecutionConfig());
+  if (!paid.ok) {
     return async () => ({
       ok: false,
       error: "serv_unavailable",
-      message: `Paid SERV planner blocked: ${spend.message}`,
+      message: `Paid SERV planner blocked: ${paid.message}`,
     });
   }
 
@@ -77,14 +71,10 @@ export function servScoutPlanner(deps: {
         multipath: options.multipath,
         reasoningEffort: options.reasoningEffort,
         contentFilterDefaultOn: options.contentFilterDefaultOn,
-        note: "Feature flags are configurable measured options; not all are proven improvements.",
       },
       jsonSchema: options.strictJsonSchema ? SCOUT_PLAN_JSON_SCHEMA : null,
-      authorizedSpendUsd: spend.authorizedSpendUsd,
     });
 
-    // Existing profiles already attach prompt_guard/shadow where configured.
-    // We reuse flip_judge as a structured judgment call without changing BASE_MODEL.
     let result: Awaited<ReturnType<typeof runServ>>;
     try {
       result = await runServ(
@@ -131,7 +121,6 @@ export function servScoutPlanner(deps: {
   };
 }
 
-/** Default production wiring until owner enables paid SERV planner + spend attestation. */
 export function blockedServPlanner(message?: string): ScoutPlanner {
   const base = refusingPlanner("serv_unavailable");
   if (!message) return base;

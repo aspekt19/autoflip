@@ -1,0 +1,85 @@
+{
+  "_label": "NOT live evidence — synthetic adversarial fixture for scout eval/unit tests only",
+  "_purpose": "Contradictory / insufficient rows: missing price, overpriced thin comps, priced peers",
+  "api": {
+    "name": "synthetic.not.live",
+    "description": "NOT live evidence"
+  },
+  "data": [
+    {
+      "vin": "SYNTHNAPRCX000001",
+      "createdAt": "2026-01-01 00:00:00",
+      "vehicle": {
+        "year": 2020,
+        "make": "Toyota",
+        "model": "Camry",
+        "trim": "LE"
+      },
+      "retailListing": {
+        "price": null,
+        "miles": 40000,
+        "used": true
+      }
+    },
+    {
+      "vin": "SYNTHTHNCMP000002",
+      "createdAt": "2026-01-01 00:00:00",
+      "vehicle": {
+        "year": 2019,
+        "make": "Toyota",
+        "model": "Camry",
+        "trim": "SE"
+      },
+      "retailListing": {
+        "price": 999999,
+        "miles": 55000,
+        "used": true
+      }
+    },
+    {
+      "vin": "SYNTHASKAAA000003",
+      "createdAt": "2026-01-01 00:00:00",
+      "vehicle": {
+        "year": 2021,
+        "make": "Toyota",
+        "model": "Camry",
+        "trim": "XSE"
+      },
+      "retailListing": {
+        "price": 22000,
+        "miles": 30000,
+        "used": true
+      }
+    },
+    {
+      "vin": "SYNTHASKBBB000004",
+      "createdAt": "2026-01-01 00:00:00",
+      "vehicle": {
+        "year": 2021,
+        "make": "Toyota",
+        "model": "Camry",
+        "trim": "SE"
+      },
+      "retailListing": {
+        "price": 21500,
+        "miles": 32000,
+        "used": true
+      }
+    },
+    {
+      "vin": "SYNTHASKCCC000005",
+      "createdAt": "2026-01-01 00:00:00",
+      "vehicle": {
+        "year": 2020,
+        "make": "Toyota",
+        "model": "Camry",
+        "trim": "LE"
+      },
+      "retailListing": {
+        "price": 19500,
+        "miles": 45000,
+        "used": true
+      }
+    }
+  ]
+}

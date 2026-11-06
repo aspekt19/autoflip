@@ -1,22 +1,15 @@
-import {
-  heuristicOfflinePlanner,
-  runScout,
-  type ScoutBudgets,
-  type ScoutRunResult,
-} from "@/domain/scout";
-import { runtimeDeps } from "@/server/deps";
-import { blockedServPlanner, servScoutPlanner } from "./planner";
-import { camryReplayInventory } from "./replay";
-import { authorizeScoutSpend, spendAuthFromEnv } from "./spend-gate";
-import { saveScoutRun } from "./store";
+import type { ScoutBudgets, ScoutRunResult } from "@/domain/scout";
 import type { Kv } from "@/io/kv";
+import { executeScoutSafely, type SafeScoutRequest } from "./safe-execute";
+import { stripClientSpendClaims } from "./paid-execution";
 
 export type StartScoutBody = {
   mandate: unknown;
-  /** `offline_heuristic` never claims SERV autonomy. `serv` requires allow flag + key + spend auth. */
   planner?: "offline_heuristic" | "serv";
   budgets?: Partial<ScoutBudgets>;
   resumeRunId?: string;
+  /** Client may ask; server paid-execution config decides. Ignored spend claims stripped. */
+  preferLive?: boolean;
 };
 
 export async function executeScoutRun(input: {
@@ -24,57 +17,35 @@ export async function executeScoutRun(input: {
   body: StartScoutBody;
   kv: Kv | null;
   resume?: ScoutRunResult | null;
-}): Promise<ScoutRunResult> {
-  const deps = runtimeDeps();
-  const plannerMode = input.body.planner ?? "offline_heuristic";
-  const allowServ =
-    process.env.SCOUT_ALLOW_SERV_PLANNER?.trim().toLowerCase() === "1" ||
-    process.env.SCOUT_ALLOW_SERV_PLANNER?.trim().toLowerCase() === "true";
+}): Promise<
+  | { ok: true; result: ScoutRunResult; inventoryMode: "replay" | "live"; isFixture: boolean; paidBlockedReason: string | null }
+  | { ok: false; status: number; body: Record<string, unknown> }
+> {
+  const cleaned = stripClientSpendClaims(input.body as unknown as Record<string, unknown>) as StartScoutBody;
 
-  let planner;
-  let autonomyClaim: "serv_directed" | "none";
-
-  if (plannerMode === "serv") {
-    autonomyClaim = "serv_directed";
-    const spend = authorizeScoutSpend(spendAuthFromEnv());
-    if (!allowServ) {
-      planner = blockedServPlanner(
-        "SCOUT_ALLOW_SERV_PLANNER is not enabled — offline/replay only.",
-      );
-    } else if (!spend.ok) {
-      planner = blockedServPlanner(`Paid SERV planner blocked: ${spend.message}`);
-    } else if (!deps.servKey) {
-      planner = blockedServPlanner("SERV_API_KEY missing — cannot run serv planner.");
-    } else {
-      planner = servScoutPlanner({
-        apiKey: deps.servKey,
-        baseUrl: deps.servBaseUrl,
-        model: deps.servModel,
-        spendAuth: spendAuthFromEnv(),
-      });
-    }
-  } else {
-    autonomyClaim = "none";
-    planner = heuristicOfflinePlanner();
-  }
-
-  // Live Auto.dev remains blocked via maxProviderCalls forced 0 + replay inventory.
-  const inventory = camryReplayInventory();
-
-  const result = await runScout({
+  const req: SafeScoutRequest = {
     ownerId: input.ownerId,
-    mandateRaw: input.body.mandate,
-    budgets: {
-      ...input.body.budgets,
-      // Force no provider spend in this slice even if client asks.
-      maxProviderCalls: 0,
-    },
-    inventory,
-    planner,
-    autonomyClaim,
-    resume: input.resume ?? undefined,
-  });
+    mandate: cleaned.mandate,
+    planner: cleaned.planner ?? "offline_heuristic",
+    budgets: cleaned.budgets,
+    preferLive: Boolean(cleaned.preferLive),
+    resume: input.resume ?? null,
+    channel: "api",
+  };
 
-  await saveScoutRun(input.kv, result);
-  return result;
+  // Live Autodev deps intentionally omitted unless SCOUT_PAID_EXECUTION is on AND key present.
+  // This PR keeps paid execution off — adapter code exists in providers.ts but is not exercised.
+  const autodevKey = process.env.AUTODEV_API_KEY?.trim();
+  const paidOn =
+    process.env.SCOUT_PAID_EXECUTION?.trim().toLowerCase() === "1" ||
+    process.env.SCOUT_PAID_EXECUTION?.trim().toLowerCase() === "true";
+
+  return executeScoutSafely({
+    req,
+    kv: input.kv,
+    autodevDeps:
+      paidOn && autodevKey
+        ? { fetch, apiKey: autodevKey }
+        : null,
+  });
 }

@@ -1,9 +1,10 @@
 import { NextResponse } from "next/server";
 import { getKv } from "@/io/kv";
 import { authorizeScoutStart } from "@/server/scout/access";
+import { isScoutEnabled, scoutConfigMessage } from "@/server/scout/config";
+import { readPaidExecutionConfig } from "@/server/scout/paid-execution";
 import { executeScoutRun, type StartScoutBody } from "@/server/scout/run";
 import { loadScoutRun } from "@/server/scout/store";
-import { isScoutEnabled, scoutConfigMessage } from "@/server/scout/config";
 
 export const runtime = "nodejs";
 
@@ -53,13 +54,18 @@ export async function POST(req: Request) {
     }
   }
 
-  const result = await executeScoutRun({
+  const executed = await executeScoutRun({
     ownerId: access.userId,
     body,
     kv,
     resume,
   });
 
+  if (!executed.ok) {
+    return NextResponse.json(executed.body, { status: executed.status });
+  }
+
+  const { result, inventoryMode, isFixture, paidBlockedReason } = executed;
   const status =
     result.state === "failed"
       ? result.failReason === "unauthorized" || result.failReason === "scout_disabled"
@@ -69,26 +75,43 @@ export async function POST(req: Request) {
           : 200
       : 200;
 
-  return NextResponse.json({
-    enabled: isScoutEnabled(),
-    note: scoutConfigMessage(true),
-    maxProviderCalls: 0,
-    result,
-  }, { status });
+  const paid = readPaidExecutionConfig();
+
+  return NextResponse.json(
+    {
+      enabled: isScoutEnabled(),
+      note: scoutConfigMessage(true),
+      inventoryMode,
+      isFixture,
+      paidExecutionEnabled: paid.paidExecutionEnabled,
+      paidBlockedReason,
+      /** Explicit: fixture/replay must never be shown as live market data. */
+      presentation: isFixture
+        ? {
+            kind: "fixture_replay",
+            warning: "These listings are from a checked-in Auto.dev snapshot for offline proof — not a live market pull.",
+          }
+        : { kind: "live_autodev", warning: null },
+      result,
+    },
+    { status },
+  );
 }
 
 export async function GET() {
+  const paid = readPaidExecutionConfig();
   return NextResponse.json({
     enabled: isScoutEnabled(),
     message: scoutConfigMessage(isScoutEnabled()),
+    paidExecutionEnabled: paid.paidExecutionEnabled,
     endpoints: {
       start: "POST /api/scout",
       read: "GET /api/scout/:runId",
     },
     defaults: {
-      maxProviderCalls: 0,
+      inventory: "replay fixture unless SCOUT_PAID_EXECUTION + AUTODEV_API_KEY + SCOUT_MAX_PROVIDER_CALLS_HARD_CEILING",
       planner: "offline_heuristic",
-      servPlanner: "requires SCOUT_ALLOW_SERV_PLANNER=1 and SERV_API_KEY — not enabled in this slice",
+      clientSpendAttestation: "rejected — server config/quota only",
     },
   });
 }

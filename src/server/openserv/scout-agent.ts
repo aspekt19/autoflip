@@ -1,24 +1,14 @@
 /**
  * OpenServ SDK adapter for Lemonless Scout.
- *
- * Local integration: builds an Agent with runnable capabilities that invoke the
- * shared scout tool surface (mandate validate, replay inventory, bounded run).
- * Remote deployment requires OPENSERV_API_KEY, agent registration, and a public
- * endpoint — not claimed operational here.
- *
- * Out of scope: blockchain, x402, Reppo, swarm badges.
+ * Capabilities invoke shared executeScoutSafely — same ownership/flag/paid gates as HTTP.
+ * Local ≠ remote deployment. No blockchain/x402/swarm.
  */
 import { Agent } from "@openserv-labs/sdk";
 import { z } from "zod";
-import {
-  REPLAY_CAMRY_PROVENANCE,
-  heuristicOfflinePlanner,
-  replayInventoryAdapter,
-  runScout,
-  validateScoutMandate,
-  type ScoutRunResult,
-} from "@/domain/scout";
-import fixture from "../../../fixtures/autodev-camry.json";
+import { validateScoutMandate, type ScoutRunResult } from "@/domain/scout";
+import { executeScoutSafely } from "@/server/scout/safe-execute";
+import { readPaidExecutionConfig } from "@/server/scout/paid-execution";
+import { SCOUT_TOOL_IDS } from "@/domain/scout";
 
 export const SCOUT_AGENT_SYSTEM_PROMPT = [
   "You are Lemonless Scout on OpenServ.",
@@ -43,20 +33,19 @@ const mandateSchema = z.object({
 
 export type ScoutCapabilityName =
   | "scout_validate_mandate"
-  | "scout_run_offline_replay"
+  | "scout_run_bounded"
   | "scout_describe_allowlist";
 
 export function scoutCapabilityNames(): ScoutCapabilityName[] {
-  return ["scout_validate_mandate", "scout_run_offline_replay", "scout_describe_allowlist"];
+  return ["scout_validate_mandate", "scout_run_bounded", "scout_describe_allowlist"];
 }
 
-/**
- * Build a local OpenServ Agent with Lemonless scout capabilities.
- * Does not call agent.start() — that is a remote-hosting concern.
- */
 export function buildLemonlessScoutAgent(options?: {
   apiKey?: string;
   port?: number;
+  /** Test/eval override — production uses process.env via safe-execute. */
+  env?: Record<string, string | undefined>;
+  ownerIdForLocal?: string;
 }): Agent {
   const agent = new Agent({
     systemPrompt: SCOUT_AGENT_SYSTEM_PROMPT,
@@ -72,40 +61,26 @@ export function buildLemonlessScoutAgent(options?: {
     description: "Validate a Lemonless personal/flip scout mandate without side effects.",
     inputSchema: mandateSchema,
     async run({ args }) {
-      const result = validateScoutMandate(args);
-      return JSON.stringify(result);
+      return JSON.stringify(validateScoutMandate(args));
     },
   });
 
   agent.addCapability({
     name: "scout_describe_allowlist",
-    description: "List canonical scout tool IDs and hard rules for this agent.",
+    description: "List canonical scout tool IDs, paid-execution posture, and hard rules.",
     inputSchema: z.object({}),
     async run() {
+      const paid = readPaidExecutionConfig(options?.env ?? process.env);
       return JSON.stringify({
-        tools: [
-          "inventory.search",
-          "listing.normalize",
-          "evidence.asking_price",
-          "evidence.comps_ask",
-          "evidence.gov_recalls",
-          "evidence.gov_fuel",
-          "economics.flip_estimate",
-          "economics.personal_fit",
-          "gates.verify",
-          "candidate.reject",
-          "candidate.replace",
-          "run.checkpoint",
-          "run.finalize",
-        ],
+        tools: SCOUT_TOOL_IDS,
         maxCandidatesOut: 5,
-        maxProviderCallsDefault: 0,
-        inventoryReplay: REPLAY_CAMRY_PROVENANCE,
+        paidExecutionEnabled: paid.paidExecutionEnabled,
+        clientSpendAttestation: "rejected",
         remotePrerequisites: [
           "OpenServ developer account",
           "Registered agent + OPENSERV_API_KEY",
-          "Public HTTPS endpoint pointing at this process after agent.start()",
-          "Accurate capabilities description on the platform",
+          "Public HTTPS endpoint + agent.start() only on that host",
+          "SCOUT_ENABLED for HTTP; capabilities still cannot bypass paid-execution",
         ],
         notIncluded: ["blockchain", "x402", "reppo", "swarm"],
       });
@@ -113,28 +88,48 @@ export function buildLemonlessScoutAgent(options?: {
   });
 
   agent.addCapability({
-    name: "scout_run_offline_replay",
+    name: "scout_run_bounded",
     description:
-      "Run the bounded scout loop against the checked-in Auto.dev Camry replay fixture. Uses offline heuristic planner (autonomyClaim=none). Does not spend Auto.dev or SERV credits.",
+      "Run the bounded scout loop through shared safety-checked executeScoutSafely (same gates as HTTP). Default inventory is fixture replay; live Auto.dev requires server SCOUT_PAID_EXECUTION.",
     inputSchema: z.object({
-      ownerId: z.string().min(1).describe("Ownership isolation key for the run"),
+      ownerId: z.string().min(1),
       mandate: mandateSchema,
+      preferLive: z.boolean().optional(),
     }),
     async run({ args, action }) {
-      const result = await runScout({
-        ownerId: args.ownerId,
-        mandateRaw: args.mandate,
-        inventory: replayInventoryAdapter(fixture, REPLAY_CAMRY_PROVENANCE),
-        planner: heuristicOfflinePlanner(),
-        autonomyClaim: "none",
-        budgets: { maxProviderCalls: 0, maxCandidatesOut: 5 },
+      const env = {
+        ...(options?.env ?? process.env),
+        // Capabilities used from local tests may set SCOUT_ENABLED; never invent paid on.
+        SCOUT_ENABLED: (options?.env ?? process.env).SCOUT_ENABLED ?? "true",
+      };
+
+      const executed = await executeScoutSafely({
+        req: {
+          ownerId: args.ownerId,
+          mandate: args.mandate,
+          preferLive: Boolean(args.preferLive),
+          planner: "offline_heuristic",
+          channel: "openserv_sdk",
+          budgets: { maxProviderCalls: 0, maxCandidatesOut: 5 },
+        },
+        kv: null,
+        env,
+        autodevDeps: null,
       });
 
-      // Task lifecycle hooks when platform action context is present.
-      // Local runs have no workspace — failures are ignored (local ≠ remote deployment).
-      await maybePublishScoutArtifact(agent, action, result);
+      if (!executed.ok) {
+        return JSON.stringify({ ok: false, ...executed.body });
+      }
 
-      return JSON.stringify(summarizeRun(result));
+      await maybePublishScoutArtifact(agent, action, executed.result);
+
+      return JSON.stringify({
+        ok: true,
+        inventoryMode: executed.inventoryMode,
+        isFixture: executed.isFixture,
+        paidBlockedReason: executed.paidBlockedReason,
+        summary: summarizeRun(executed.result),
+      });
     },
   });
 
@@ -147,10 +142,7 @@ async function maybePublishScoutArtifact(
   result: ScoutRunResult,
 ): Promise<void> {
   try {
-    const ctx = action as {
-      task?: { id?: number };
-      workspace?: { id?: number };
-    };
+    const ctx = action as { task?: { id?: number }; workspace?: { id?: number } };
     const taskId = ctx.task?.id;
     const workspaceId = ctx.workspace?.id;
     if (typeof taskId !== "number" || typeof workspaceId !== "number") return;
@@ -192,6 +184,7 @@ export function summarizeRun(result: ScoutRunResult) {
     autonomyClaim: result.autonomyClaim,
     failReason: result.failReason,
     message: result.message,
+    inventorySource: result.inventorySource,
     inventoryProvenance: result.inventoryProvenance,
     investigationCount: result.investigation.length,
     investigation: result.investigation.map((c) => ({
@@ -201,16 +194,15 @@ export function summarizeRun(result: ScoutRunResult) {
       claimsSafeBuy: c.claimsSafeBuy,
       claimsVerifiedProfit: c.claimsVerifiedProfit,
       disposition: c.disposition,
+      listingSource: c.listing.source,
     })),
     usage: result.usage,
   };
 }
 
-/** Documented remote prerequisites — not a runtime claim. */
 export const OPENSERV_REMOTE_PREREQUISITES = [
   "Create an OpenServ developer profile and register an agent.",
-  "Set OPENSERV_API_KEY (and optional OPENSERV_AUTH_TOKEN from provision()).",
-  "Deploy this process with a public Agent Endpoint; call agent.start() only in that host.",
-  "Describe capabilities accurately so workflow task matching can find scout_* tools.",
-  "Do not enable SCOUT_ALLOW_SERV_PLANNER or maxProviderCalls>0 without owner spend approval.",
+  "Set OPENSERV_API_KEY (separate from SERV_API_KEY).",
+  "Deploy with public Agent Endpoint; call agent.start() only there.",
+  "Capabilities call executeScoutSafely — they cannot bypass SCOUT_PAID_EXECUTION.",
 ] as const;
