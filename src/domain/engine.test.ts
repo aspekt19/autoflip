@@ -260,6 +260,7 @@ describe("synthetic deals", () => {
       distanceToSearchZipMiles: null,
       distanceRequested: true,
       checkedAt: "2026-11-06T08:00:00.000Z",
+      externalLookupsPerformed: true,
       asOfYear: 2026,
     });
     const checks = report.sourceChecks ?? [];
