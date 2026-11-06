@@ -94,20 +94,35 @@ function parseSchema(name: "need_extract" | "flip_alert_judgment", text: string)
   try {
     const parsed = JSON.parse(text) as Record<string, unknown>;
     if (name === "need_extract") {
-      const use = parsed.useCase;
-      const repair = parsed.repairAbility;
+      const required = [
+        "useCase", "mustHaves", "priorities", "budgetUsd", "zip",
+        "repairAbility", "targetProfitUsd", "milesMax", "make",
+      ];
+      const allowed = new Set(required);
+      if (Object.keys(parsed).length !== required.length || Object.keys(parsed).some((key) => !allowed.has(key))) return null;
+      if (required.some((key) => !(key in parsed))) return null;
       const uses = ["family", "commute", "haul", "first_car", "comfort", "unspecified"];
       const repairs = ["none", "minor", "major", "unknown"];
-      if (!uses.includes(String(use)) || !repairs.includes(String(repair))) return null;
-      if (!Array.isArray(parsed.mustHaves) || !Array.isArray(parsed.priorities)) return null;
-      if (!(parsed.budgetUsd === null || typeof parsed.budgetUsd === "number")) return null;
+      if (!uses.includes(String(parsed.useCase)) || !repairs.includes(String(parsed.repairAbility))) return null;
+      if (!Array.isArray(parsed.mustHaves) || !parsed.mustHaves.every((item) => typeof item === "string")) return null;
+      if (!Array.isArray(parsed.priorities) || !parsed.priorities.every((item) => typeof item === "string")) return null;
+      if (!(parsed.budgetUsd === null || (typeof parsed.budgetUsd === "number" && Number.isFinite(parsed.budgetUsd)))) return null;
       if (!(parsed.zip === null || typeof parsed.zip === "string")) return null;
-      if (!(parsed.targetProfitUsd === null || typeof parsed.targetProfitUsd === "number")) return null;
+      if (!(parsed.targetProfitUsd === null || (typeof parsed.targetProfitUsd === "number" && Number.isFinite(parsed.targetProfitUsd)))) return null;
+      if (!(parsed.milesMax === null || (typeof parsed.milesMax === "number" && Number.isFinite(parsed.milesMax)))) return null;
+      if (!(parsed.make === null || typeof parsed.make === "string")) return null;
       return { budgetUsd: parsed.budgetUsd as number | null };
     }
     if (!Array.isArray(parsed.decisions) || parsed.decisions.length === 0) return null;
-    const first = parsed.decisions[0] as { verdict?: unknown };
-    if (first.verdict !== "alert" && first.verdict !== "skip") return null;
+    for (const item of parsed.decisions) {
+      if (!item || typeof item !== "object" || Array.isArray(item)) return null;
+      const decision = item as Record<string, unknown>;
+      const keys = Object.keys(decision);
+      if (keys.length !== 3 || !["vin", "verdict", "note"].every((key) => key in decision)) return null;
+      if (typeof decision.vin !== "string" || typeof decision.note !== "string") return null;
+      if (decision.verdict !== "alert" && decision.verdict !== "skip") return null;
+    }
+    const first = parsed.decisions[0] as { verdict: "alert" | "skip" };
     return { verdict: first.verdict };
   } catch {
     return null;
