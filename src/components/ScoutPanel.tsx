@@ -31,12 +31,32 @@ type ScoutApiResponse = {
       claimsSafeBuy: boolean;
       claimsVerifiedProfit: boolean;
       disposition: string;
+      rejectReason?: string | null;
+      dispositionRationale?: {
+        kind: string;
+        groundedReason: string;
+        plannerReasonRaw: string;
+        assumptionsDisclosed: boolean;
+        citedEvidence: Array<{ kind: string; epistemic: string; detail: string }>;
+      } | null;
       constraintQualification?: {
         hardConstraintVerified: boolean;
         price: { status: string };
         miles: { status: string };
         geo: { status: string };
       } | null;
+    }>;
+    candidates?: Array<{
+      vin: string;
+      disposition: string;
+      rejectReason?: string | null;
+      dispositionRationale?: {
+        kind: string;
+        groundedReason: string;
+        plannerReasonRaw: string;
+        assumptionsDisclosed: boolean;
+      } | null;
+      listing: { year: number; make: string; model: string };
     }>;
     provenance: Array<{ state: string; reason: string; toolId: string | null }>;
   };
@@ -200,6 +220,42 @@ export function ScoutPanel() {
               ))}
             </ul>
           )}
+
+          {result.candidates &&
+          result.candidates.some(
+            (c) => c.disposition === "rejected" || c.disposition === "replaced",
+          ) ? (
+            <>
+              <h2>Disposition rationale (grounded)</h2>
+              <ul className="scout-list">
+                {result.candidates
+                  .filter((c) => c.disposition === "rejected" || c.disposition === "replaced")
+                  .map((c) => (
+                    <li key={`disp-${c.vin}`}>
+                      <strong>
+                        {c.listing.year} {c.listing.make} {c.listing.model}
+                      </strong>{" "}
+                      · {c.disposition} · VIN {c.vin}
+                      <br />
+                      Endorsed: {c.rejectReason ?? c.dispositionRationale?.groundedReason ?? "—"}
+                      {c.dispositionRationale ? (
+                        <>
+                          <br />
+                          Kind: {c.dispositionRationale.kind}
+                          {c.dispositionRationale.assumptionsDisclosed
+                            ? " · assumptions disclosed"
+                            : ""}
+                          <br />
+                          <span className="muted">
+                            Planner raw (audit only): {c.dispositionRationale.plannerReasonRaw}
+                          </span>
+                        </>
+                      ) : null}
+                    </li>
+                  ))}
+              </ul>
+            </>
+          ) : null}
 
           <h2>Progress</h2>
           <ol className="scout-list">

@@ -5,6 +5,7 @@
  */
 import type { ScoutCandidate, ScoutMandate, ScoutToolOutcome } from "./types";
 import type { ScoutSearchParams } from "./search-params";
+import { collectAdverseEvidence } from "./disposition-rationale";
 
 export type EvidenceConfidence = "low" | "medium" | "high" | "unknown";
 
@@ -41,6 +42,16 @@ export type CandidateEvidenceBrief = {
   /** Per-field constraint quals — unknown ≠ verified hard-constraint match. */
   constraintQualification: ScoutCandidate["constraintQualification"];
   hardConstraintVerified: boolean;
+  /**
+   * Citable adverse facts for reject/replace — planner must cite these via citedEvidence;
+   * incidental forbids do not unlock arbitrary reason text.
+   */
+  adverseEvidenceAvailable: Array<{
+    kind: string;
+    epistemic: string;
+    gateId?: string;
+    detail: string;
+  }>;
 };
 
 export type ScoutPlannerEvidenceContext = {
@@ -156,6 +167,12 @@ export function buildCandidateEvidenceBrief(
     inventoryOriginSource: c.inventoryOrigin?.source ?? "unknown",
     constraintQualification: c.constraintQualification ?? null,
     hardConstraintVerified: c.constraintQualification?.hardConstraintVerified === true,
+    adverseEvidenceAvailable: collectAdverseEvidence(c).map((a) => ({
+      kind: a.kind,
+      epistemic: a.epistemic,
+      ...(a.gateId ? { gateId: a.gateId } : {}),
+      detail: a.detail,
+    })),
   };
 }
 

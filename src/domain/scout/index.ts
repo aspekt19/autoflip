@@ -58,11 +58,20 @@ export type {
 export {
   collectAdverseEvidence,
   validateDispositionAction,
+  applyDispositionRationale,
+  buildUncertaintyGroundedReason,
   hasUnsupportedGovOutcome,
   candidateHasIndependentRejectFacts,
   isUnsupportedGovAloneRejectReason,
 } from "./disposition-rationale";
-export type { AdverseEvidenceKind, AdverseEvidenceFact, DispositionValidation } from "./disposition-rationale";
+export type {
+  AdverseEvidenceKind,
+  AdverseEvidenceFact,
+  AdverseEvidenceEpistemic,
+  CitedEvidenceRef,
+  DispositionRationaleRecord,
+  DispositionValidation,
+} from "./disposition-rationale";
 export { qualifyListingConstraints } from "./constraint-qualification";
 export { SCOUT_TOOL_IDS } from "./types";
 export type * from "./types";

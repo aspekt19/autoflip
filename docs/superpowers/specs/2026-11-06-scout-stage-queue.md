@@ -100,6 +100,17 @@ Keep closed from prior: query params/known-cap filter, fresh briefs, per-candida
 origin, partial-on-failure, preadapter budget, nationwide mandate, no paid unlock.
 355 tests + plumbingOk ≠ SERV efficacy / production superiority.
 
+## STAGE3-RESIDUE-FOLLOWON-V5 — PIN TO_REPLACE (cite-bound rationale + grounded persist)
+
+Independent review of 2c5d1cf rationale integrity holes; bounded correction (not closure):
+1. adverse_evidence must cite matching structured facts (citedEvidence) — incidental
+   economics_estimate / mandate forbid does not unlock arbitrary gov-bad reason text;
+   economics_estimate requires assumptionsDisclosed; endorsed groundedReason from cites
+2. uncertainty_progress replace persists dispositionRationale + grounded rejectReason
+   across candidate/provenance/tool summary/API/UI; plannerReasonRaw audit-only
+Retain planner action choice; no keyword-gate of reason text; no blanket ban of estimates.
+Prior closed items hold. 358 tests + plumbingOk ≠ SERV efficacy / production superiority.
+
 ## STAGE2C — PIN 6e8e655 (bounded mid-loop search; PRODUCT not efficacy)
 
 Real bounded search adjustment within mandate/server caps:

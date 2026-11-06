@@ -1,6 +1,8 @@
 /**
  * Structured reject/replace validation — unsupported gov alone is never car-bad proof.
  * Unknown-title / unknown-history default forbids are NOT independent adverse evidence.
+ * Adverse actions must cite matching evidence/gate/economics provenance — incidental
+ * forbids do not unlock arbitrary planner reason text.
  */
 import type { GateResult } from "@/domain/verdict-gates";
 import type { ScoutCandidate, ScoutToolOutcome } from "./types";
@@ -12,12 +14,33 @@ export type AdverseEvidenceKind =
   | "over_miles"
   | "flip_excluded"
   | "missing_asking_price"
-  | "hard_mandate_forbid";
+  /** Flip profit estimate from asking comps + assumed costs — not observed hard budget. */
+  | "economics_estimate";
+
+/** How the adverse fact was established — estimate paths require explicit disclosure. */
+export type AdverseEvidenceEpistemic = "observed_hard" | "estimate_assumptions";
 
 export type AdverseEvidenceFact = {
   kind: AdverseEvidenceKind;
+  epistemic: AdverseEvidenceEpistemic;
   gateId?: string;
   detail: string;
+};
+
+/** Planner citation — must match a collected adverse fact. */
+export type CitedEvidenceRef = {
+  kind: AdverseEvidenceKind;
+  gateId?: string;
+};
+
+export type DispositionRationaleRecord = {
+  kind: "adverse_evidence" | "uncertainty_progress";
+  /** Endorsed grounded reason — never raw unsupported-gov car-bad model text. */
+  groundedReason: string;
+  citedEvidence: AdverseEvidenceFact[];
+  /** Planner free-text retained for audit only — not the endorsed API reason. */
+  plannerReasonRaw: string;
+  assumptionsDisclosed: boolean;
 };
 
 export type DispositionValidation =
@@ -25,13 +48,19 @@ export type DispositionValidation =
       ok: true;
       mode: "adverse_evidence" | "uncertainty_progress";
       adverse: AdverseEvidenceFact[];
+      cited: AdverseEvidenceFact[];
+      groundedReason: string;
+      assumptionsDisclosed: boolean;
     }
   | {
       ok: false;
       code:
         | "unsupported_gov_alone_forbidden"
         | "reject_lacks_adverse_evidence"
-        | "replace_gov_alone_car_bad_forbidden";
+        | "reject_rationale_not_grounded"
+        | "replace_gov_alone_car_bad_forbidden"
+        | "replace_rationale_not_grounded"
+        | "economics_assumptions_not_disclosed";
       message: string;
       adverse: AdverseEvidenceFact[];
     };
@@ -41,6 +70,8 @@ const UNKNOWN_TITLE_RE =
 const BAD_TITLE_RE = /salvage|flood|lemon|rebuilt|junk|branded title|theft|totaled/i;
 const OVER_BUDGET_RE = /exceeds personal budget|over budget|price exceeds/i;
 const OVER_MILES_RE = /exceeds.*miles|over miles|mileage cap/i;
+const ECONOMICS_ESTIMATE_RE =
+  /estimated mid profit|estimate from asking comps|assumed costs|clears target/i;
 
 function isDefaultUnknownTitleForbid(g: GateResult): boolean {
   return g.id === "safety_red_flags" && g.status === "forbid" && UNKNOWN_TITLE_RE.test(g.reason);
@@ -61,6 +92,7 @@ export function collectAdverseEvidence(c: ScoutCandidate): AdverseEvidenceFact[]
   if (c.listing.priceUsd == null) {
     out.push({
       kind: "missing_asking_price",
+      epistemic: "observed_hard",
       detail: "Asking price missing — economics cannot be investigated honestly.",
     });
   }
@@ -68,6 +100,7 @@ export function collectAdverseEvidence(c: ScoutCandidate): AdverseEvidenceFact[]
   if (c.flip?.excluded) {
     out.push({
       kind: "flip_excluded",
+      epistemic: "observed_hard",
       detail: `Flip excluded: ${c.flip.excludeReason ?? "excluded"}`,
     });
   }
@@ -77,26 +110,47 @@ export function collectAdverseEvidence(c: ScoutCandidate): AdverseEvidenceFact[]
     if (isUnknownHistoryWithhold(g)) continue;
 
     if (g.id === "safety_red_flags" && g.status === "forbid") {
-      if (BAD_TITLE_RE.test(g.reason) || !UNKNOWN_TITLE_RE.test(g.reason)) {
-        out.push({ kind: "bad_title_brand", gateId: g.id, detail: g.reason });
+      if (BAD_TITLE_RE.test(g.reason)) {
+        out.push({
+          kind: "bad_title_brand",
+          epistemic: "observed_hard",
+          gateId: g.id,
+          detail: g.reason,
+        });
       }
+      // Other safety_red_flags forbids that are not bad-title and not default-unknown
+      // stay non-adverse unless verified evidence below records them.
       continue;
     }
 
     if (g.id === "mandate_fit" && g.status === "forbid") {
-      if (OVER_BUDGET_RE.test(g.reason) || /budget/i.test(g.reason)) {
-        out.push({ kind: "over_budget", gateId: g.id, detail: g.reason });
+      if (OVER_BUDGET_RE.test(g.reason) || (/budget/i.test(g.reason) && !ECONOMICS_ESTIMATE_RE.test(g.reason))) {
+        out.push({
+          kind: "over_budget",
+          epistemic: "observed_hard",
+          gateId: g.id,
+          detail: g.reason,
+        });
       } else if (OVER_MILES_RE.test(g.reason)) {
-        out.push({ kind: "over_miles", gateId: g.id, detail: g.reason });
-      } else {
-        out.push({ kind: "hard_mandate_forbid", gateId: g.id, detail: g.reason });
+        out.push({
+          kind: "over_miles",
+          epistemic: "observed_hard",
+          gateId: g.id,
+          detail: g.reason,
+        });
+      } else if (ECONOMICS_ESTIMATE_RE.test(g.reason) || /profit/i.test(g.reason)) {
+        out.push({
+          kind: "economics_estimate",
+          epistemic: "estimate_assumptions",
+          gateId: g.id,
+          detail: g.reason,
+        });
       }
+      // Unclassified mandate_fit forbid: do not treat as free adverse unlock.
       continue;
     }
 
-    if (g.status === "forbid") {
-      out.push({ kind: "hard_mandate_forbid", gateId: g.id, detail: g.reason });
-    }
+    // Do not treat every remaining gate forbid as adverse — that unlocked arbitrary text.
   }
 
   // Evidence facts may record verified bad title from a prior tool.
@@ -108,6 +162,7 @@ export function collectAdverseEvidence(c: ScoutCandidate): AdverseEvidenceFact[]
     ) {
       out.push({
         kind: "bad_title_brand",
+        epistemic: "observed_hard",
         detail: e.note ?? "Verified adverse title/brand evidence.",
       });
     }
@@ -128,10 +183,58 @@ export function hasUnsupportedGovOutcome(
   );
 }
 
+function resolveCitedFacts(
+  adverse: AdverseEvidenceFact[],
+  cited: CitedEvidenceRef[] | undefined,
+): { ok: true; matched: AdverseEvidenceFact[] } | { ok: false; message: string } {
+  if (!cited || cited.length === 0) {
+    return {
+      ok: false,
+      message:
+        "adverse_evidence requires citedEvidence refs matching structured adverse facts (gate/economics/title) — presence of any forbid does not unlock arbitrary reason text.",
+    };
+  }
+  const matched: AdverseEvidenceFact[] = [];
+  for (const ref of cited) {
+    const hit = adverse.find(
+      (a) =>
+        a.kind === ref.kind &&
+        (ref.gateId == null || ref.gateId === "" || a.gateId === ref.gateId),
+    );
+    if (!hit) {
+      return {
+        ok: false,
+        message: `citedEvidence ${ref.kind}${ref.gateId ? `@${ref.gateId}` : ""} does not match collected adverse facts.`,
+      };
+    }
+    if (!matched.includes(hit)) matched.push(hit);
+  }
+  return { ok: true, matched };
+}
+
+function buildGroundedAdverseReason(
+  cited: AdverseEvidenceFact[],
+  assumptionsDisclosed: boolean,
+): string {
+  const parts = cited.map((f) => `${f.kind}(${f.epistemic}): ${f.detail}`);
+  const base = `[adverse_evidence] ${parts.join(" | ")}`;
+  if (cited.some((f) => f.epistemic === "estimate_assumptions")) {
+    return assumptionsDisclosed
+      ? `${base} — assumptions disclosed (estimate, not verified hard fact).`
+      : base;
+  }
+  return base;
+}
+
+export function buildUncertaintyGroundedReason(): string {
+  return "[uncertainty_progress] Advancing without car-bad claim — unsupported/incomplete evidence is not proof the vehicle is bad.";
+}
+
 /**
  * Validate reject/replace against structured candidate evidence.
- * Reject requires adverse facts. Replace without adverse facts is uncertainty_progress
- * unless unsupported gov is being used as a car-bad conclusion (blocked).
+ * Reject/replace with adverse_evidence must cite matching facts; incidental forbids
+ * do not endorse unrelated planner text. uncertainty_progress uses a grounded reason
+ * (planner free-text is audit-only).
  */
 export function validateDispositionAction(input: {
   action: "reject" | "replace";
@@ -139,12 +242,15 @@ export function validateDispositionAction(input: {
   reason: string;
   candidate: ScoutCandidate | undefined;
   recentOutcomes: ScoutToolOutcome[];
-  /** Structured intent from planner — preferred over reason text. */
   rationaleKind?: "adverse_evidence" | "uncertainty_progress";
+  citedEvidence?: CitedEvidenceRef[];
+  /** Required when citing economics_estimate / estimate_assumptions facts. */
+  assumptionsDisclosed?: boolean;
 }): DispositionValidation {
   const adverse = input.candidate ? collectAdverseEvidence(input.candidate) : [];
   const govUnsupported = hasUnsupportedGovOutcome(input.vin, input.recentOutcomes);
   const kind = input.rationaleKind;
+  const assumptionsDisclosed = input.assumptionsDisclosed === true;
 
   if (input.action === "reject") {
     if (kind === "uncertainty_progress") {
@@ -155,58 +261,186 @@ export function validateDispositionAction(input: {
         adverse,
       };
     }
-    // After unsupported gov, reject requires explicit adverse_evidence rationale + real adverse facts.
-    // Prevents gov-only car-bad reject when unknown-title/default gates or incidental forbids exist.
+
+    // Reject always requires adverse_evidence mode + cited matching facts.
+    if (kind != null && kind !== "adverse_evidence") {
+      return {
+        ok: false,
+        code: "reject_lacks_adverse_evidence",
+        message: "Reject requires rationaleKind=adverse_evidence with citedEvidence.",
+        adverse,
+      };
+    }
+
     if (govUnsupported && kind !== "adverse_evidence") {
       return {
         ok: false,
         code: "unsupported_gov_alone_forbidden",
         message:
-          "Reject blocked after unsupported gov: set rationaleKind=adverse_evidence with structured adverse facts (unknown title/history and unsupported gov do not count).",
+          "Reject blocked after unsupported gov: set rationaleKind=adverse_evidence with citedEvidence matching structured adverse facts (unknown title/history and unsupported gov do not count).",
         adverse,
       };
     }
-    if (adverse.length > 0 && (kind === "adverse_evidence" || (!govUnsupported && kind == null))) {
-      return { ok: true, mode: "adverse_evidence", adverse };
+
+    if (adverse.length === 0) {
+      return {
+        ok: false,
+        code: govUnsupported ? "unsupported_gov_alone_forbidden" : "reject_lacks_adverse_evidence",
+        message:
+          "Reject blocked: no structured adverse evidence (unknown-title/history forbids and unsupported gov do not count).",
+        adverse,
+      };
     }
+
+    // After gov unsupported, or whenever rationaleKind is adverse_evidence, require cites.
+    // Also require cites when kind is omitted but adverse exists — bind reason to evidence.
+    if (kind === "adverse_evidence" || govUnsupported || kind == null) {
+      const resolved = resolveCitedFacts(adverse, input.citedEvidence);
+      if (!resolved.ok) {
+        return {
+          ok: false,
+          code: govUnsupported ? "unsupported_gov_alone_forbidden" : "reject_rationale_not_grounded",
+          message: resolved.message,
+          adverse,
+        };
+      }
+      if (
+        resolved.matched.some((f) => f.epistemic === "estimate_assumptions") &&
+        !assumptionsDisclosed
+      ) {
+        return {
+          ok: false,
+          code: "economics_assumptions_not_disclosed",
+          message:
+            "Economics estimate rejection requires assumptionsDisclosed=true (comps + assumed costs are not verified hard facts).",
+          adverse,
+        };
+      }
+      return {
+        ok: true,
+        mode: "adverse_evidence",
+        adverse,
+        cited: resolved.matched,
+        groundedReason: buildGroundedAdverseReason(resolved.matched, assumptionsDisclosed),
+        assumptionsDisclosed,
+      };
+    }
+
     return {
       ok: false,
-      code: govUnsupported ? "unsupported_gov_alone_forbidden" : "reject_lacks_adverse_evidence",
-      message:
-        "Reject blocked: no structured adverse evidence (unknown-title/history forbids and unsupported gov do not count).",
+      code: "reject_lacks_adverse_evidence",
+      message: "Reject blocked: set rationaleKind=adverse_evidence with citedEvidence.",
       adverse,
     };
   }
 
   // replace
   if (kind === "uncertainty_progress") {
-    return { ok: true, mode: "uncertainty_progress", adverse };
+    return {
+      ok: true,
+      mode: "uncertainty_progress",
+      adverse,
+      cited: [],
+      groundedReason: buildUncertaintyGroundedReason(),
+      assumptionsDisclosed: false,
+    };
   }
+
   if (govUnsupported && kind == null) {
     return {
       ok: false,
       code: "replace_gov_alone_car_bad_forbidden",
       message:
-        "Replace blocked: after unsupported gov, set rationaleKind=uncertainty_progress for honest try-next, or rationaleKind=adverse_evidence with real adverse facts.",
+        "Replace blocked: after unsupported gov, set rationaleKind=uncertainty_progress for honest try-next, or rationaleKind=adverse_evidence with citedEvidence.",
       adverse,
     };
   }
+
   if (kind === "adverse_evidence") {
-    if (adverse.length === 0) {
+    const resolved = resolveCitedFacts(adverse, input.citedEvidence);
+    if (!resolved.ok) {
       return {
         ok: false,
-        code: "replace_gov_alone_car_bad_forbidden",
-        message:
-          "Replace blocked: rationaleKind=adverse_evidence but no structured adverse facts (unknown title/gov unsupported do not count).",
+        code: "replace_rationale_not_grounded",
+        message: resolved.message,
         adverse,
       };
     }
-    return { ok: true, mode: "adverse_evidence", adverse };
+    if (
+      resolved.matched.some((f) => f.epistemic === "estimate_assumptions") &&
+      !assumptionsDisclosed
+    ) {
+      return {
+        ok: false,
+        code: "economics_assumptions_not_disclosed",
+        message:
+          "Economics estimate replacement requires assumptionsDisclosed=true (estimate, not verified hard fact).",
+        adverse,
+      };
+    }
+    return {
+      ok: true,
+      mode: "adverse_evidence",
+      adverse,
+      cited: resolved.matched,
+      groundedReason: buildGroundedAdverseReason(resolved.matched, assumptionsDisclosed),
+      assumptionsDisclosed,
+    };
   }
-  if (adverse.length > 0) {
-    return { ok: true, mode: "adverse_evidence", adverse };
+
+  // Omitted kind + no gov: if adverse exists without cites, do not auto-endorse as adverse —
+  // treat as uncertainty_progress (honest try-next) rather than laundering arbitrary text.
+  if (adverse.length > 0 && (input.citedEvidence?.length ?? 0) > 0) {
+    const resolved = resolveCitedFacts(adverse, input.citedEvidence);
+    if (resolved.ok) {
+      if (
+        resolved.matched.some((f) => f.epistemic === "estimate_assumptions") &&
+        !assumptionsDisclosed
+      ) {
+        return {
+          ok: false,
+          code: "economics_assumptions_not_disclosed",
+          message:
+            "Economics estimate replacement requires assumptionsDisclosed=true (estimate, not verified hard fact).",
+          adverse,
+        };
+      }
+      return {
+        ok: true,
+        mode: "adverse_evidence",
+        adverse,
+        cited: resolved.matched,
+        groundedReason: buildGroundedAdverseReason(resolved.matched, assumptionsDisclosed),
+        assumptionsDisclosed,
+      };
+    }
   }
-  return { ok: true, mode: "uncertainty_progress", adverse };
+
+  return {
+    ok: true,
+    mode: "uncertainty_progress",
+    adverse,
+    cited: [],
+    groundedReason: buildUncertaintyGroundedReason(),
+    assumptionsDisclosed: false,
+  };
+}
+
+export function applyDispositionRationale(
+  cand: ScoutCandidate,
+  validation: Extract<DispositionValidation, { ok: true }>,
+  plannerReasonRaw: string,
+): DispositionRationaleRecord {
+  const record: DispositionRationaleRecord = {
+    kind: validation.mode,
+    groundedReason: validation.groundedReason,
+    citedEvidence: validation.cited,
+    plannerReasonRaw,
+    assumptionsDisclosed: validation.assumptionsDisclosed,
+  };
+  cand.dispositionRationale = record;
+  cand.rejectReason = record.groundedReason;
+  return record;
 }
 
 /** @deprecated Prefer collectAdverseEvidence / validateDispositionAction. */
@@ -214,7 +448,7 @@ export function candidateHasIndependentRejectFacts(c: ScoutCandidate): boolean {
   return collectAdverseEvidence(c).length > 0;
 }
 
-/** @deprecated Prefer validateDispositionAction. */
+/** @deprecated Prefer validateDispositionAction — do not use reason regex for gating. */
 export function isUnsupportedGovAloneRejectReason(reason: string): boolean {
   const r = reason.toLowerCase();
   return /unsupported\s+gov|gov[_\s]?recall|gov[_\s]?fuel|gov lookup not executed|gov unsupported|car is bad/.test(

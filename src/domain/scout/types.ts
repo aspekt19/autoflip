@@ -176,7 +176,27 @@ export type ScoutCandidate = {
   gates: GateResult[];
   withheld: boolean;
   withholdReason: string | null;
+  /**
+   * Endorsed disposition reason — grounded from validated rationale, never raw
+   * unsupported-gov car-bad planner text.
+   */
   rejectReason: string | null;
+  /**
+   * Structured validated disposition rationale (kind + cited evidence + grounded reason).
+   * plannerReasonRaw is audit-only and must not be treated as the endorsed API reason.
+   */
+  dispositionRationale?: {
+    kind: DispositionRationaleKind;
+    groundedReason: string;
+    citedEvidence: Array<{
+      kind: string;
+      epistemic: string;
+      gateId?: string;
+      detail: string;
+    }>;
+    plannerReasonRaw: string;
+    assumptionsDisclosed: boolean;
+  } | null;
   /** Never claim verified safe buy/profit when history unknown. */
   historyStatus: "known" | "unknown" | "partial";
   /**
@@ -212,6 +232,10 @@ export type ScoutPlanAction =
       servStepId: string;
       /** Must be adverse_evidence; unknown-title defaults do not satisfy. */
       rationaleKind?: DispositionRationaleKind;
+      /** Must match collectAdverseEvidence facts — incidental forbids do not unlock arbitrary text. */
+      citedEvidence?: Array<{ kind: string; gateId?: string }>;
+      /** Required when citing economics_estimate (comps + assumed costs). */
+      assumptionsDisclosed?: boolean;
     }
   | {
       type: "replace";
@@ -219,11 +243,13 @@ export type ScoutPlanAction =
       reason: string;
       servStepId: string;
       /**
-       * adverse_evidence requires structured adverse facts.
+       * adverse_evidence requires cited structured adverse facts.
        * uncertainty_progress = try next / no car-bad claim (allowed even after unsupported gov).
        * Omitted + unsupported gov + no adverse ⇒ blocked (prevents gov-only car-bad laundering).
        */
       rationaleKind?: DispositionRationaleKind;
+      citedEvidence?: Array<{ kind: string; gateId?: string }>;
+      assumptionsDisclosed?: boolean;
     }
   | { type: "finalize"; reason: string; servStepId: string }
   | { type: "abstain"; reason: string; servStepId: string };

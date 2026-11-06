@@ -107,6 +107,33 @@ export const SCOUT_PLAN_JSON_SCHEMA = {
         type: ["object", "null"],
         additionalProperties: true,
       },
+      rationaleKind: {
+        type: ["string", "null"],
+        enum: [null, "adverse_evidence", "uncertainty_progress"],
+      },
+      citedEvidence: {
+        type: ["array", "null"],
+        items: {
+          type: "object",
+          additionalProperties: false,
+          required: ["kind", "gateId"],
+          properties: {
+            kind: {
+              type: "string",
+              enum: [
+                "bad_title_brand",
+                "over_budget",
+                "over_miles",
+                "flip_excluded",
+                "missing_asking_price",
+                "economics_estimate",
+              ],
+            },
+            gateId: { type: ["string", "null"] },
+          },
+        },
+      },
+      assumptionsDisclosed: { type: ["boolean", "null"] },
     },
   },
 } as const;

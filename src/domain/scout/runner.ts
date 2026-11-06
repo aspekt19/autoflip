@@ -20,7 +20,11 @@ import { validateScoutMandate } from "./mandate";
 import { assertTransition, isTerminal } from "./transitions";
 import type { InventoryAdapter } from "./inventory";
 import { qualifyListingConstraints } from "./constraint-qualification";
-import { validateDispositionAction } from "./disposition-rationale";
+import {
+  applyDispositionRationale,
+  validateDispositionAction,
+  type CitedEvidenceRef,
+} from "./disposition-rationale";
 import {
   buildPlannerEvidenceContext,
   type ScoutPlannerEvidenceContext,
@@ -214,6 +218,7 @@ function emptyCandidate(
     withheld: false,
     withholdReason: null,
     rejectReason: null,
+    dispositionRationale: null,
     historyStatus: "unknown",
     historyEvaluated: false,
     claimsSafeBuy: false,
@@ -845,6 +850,8 @@ export async function runScout(input: RunScoutInput): Promise<ScoutRunResult> {
           candidate: cand,
           recentOutcomes,
           rationaleKind: action.rationaleKind,
+          citedEvidence: action.citedEvidence as CitedEvidenceRef[] | undefined,
+          assumptionsDisclosed: action.assumptionsDisclosed,
         });
         if (!dispositionCheck.ok) {
           const tool = reserveToolCall(budgets, usage);
@@ -877,7 +884,7 @@ export async function runScout(input: RunScoutInput): Promise<ScoutRunResult> {
         state = "rejecting";
         if (cand) {
           cand.disposition = "rejected";
-          cand.rejectReason = action.reason;
+          applyDispositionRationale(cand, dispositionCheck, action.reason);
           rejected.push(cand);
           const idx = pending.indexOf(action.vin);
           if (idx >= 0) pending.splice(idx, 1);
@@ -891,11 +898,17 @@ export async function runScout(input: RunScoutInput): Promise<ScoutRunResult> {
           status: "success",
           capability: "supported_executed",
           capabilityGrounded: true,
-          summary: `[${dispositionCheck.mode}] ${action.reason}`,
+          summary: dispositionCheck.groundedReason,
           acquiredVin: null,
           servStepId: action.servStepId,
         });
-        stamp(provenance, state, action.reason, "candidate.reject", action.servStepId);
+        stamp(
+          provenance,
+          state,
+          dispositionCheck.groundedReason,
+          "candidate.reject",
+          action.servStepId,
+        );
         continue;
       }
 
@@ -908,6 +921,8 @@ export async function runScout(input: RunScoutInput): Promise<ScoutRunResult> {
           candidate: cand,
           recentOutcomes,
           rationaleKind: action.rationaleKind,
+          citedEvidence: action.citedEvidence as CitedEvidenceRef[] | undefined,
+          assumptionsDisclosed: action.assumptionsDisclosed,
         });
         if (!dispositionCheck.ok) {
           const tool = reserveToolCall(budgets, usage);
@@ -940,7 +955,7 @@ export async function runScout(input: RunScoutInput): Promise<ScoutRunResult> {
         state = "replacing";
         if (cand) {
           cand.disposition = "replaced";
-          cand.rejectReason = action.reason;
+          applyDispositionRationale(cand, dispositionCheck, action.reason);
           rejected.push(cand);
           const invIdx = investigated.findIndex((c) => c.vin === action.vin);
           if (invIdx >= 0) investigated.splice(invIdx, 1);
@@ -958,7 +973,7 @@ export async function runScout(input: RunScoutInput): Promise<ScoutRunResult> {
             status: "empty" as const,
             capability: "empty" as const,
             capabilityGrounded: true,
-            summary: `${action.reason} — no distinct pending replacement candidate remains in pool.`,
+            summary: `${dispositionCheck.groundedReason} — no distinct pending replacement candidate remains in pool.`,
             acquiredVin: null,
             servStepId: action.servStepId,
           };
@@ -994,7 +1009,7 @@ export async function runScout(input: RunScoutInput): Promise<ScoutRunResult> {
             | "supported_executed"
             | "failed",
           capabilityGrounded: true,
-          summary: acquired.summary,
+          summary: `${dispositionCheck.groundedReason} → ${acquired.summary}`,
           acquiredVin: nextVin,
           servStepId: action.servStepId,
         };

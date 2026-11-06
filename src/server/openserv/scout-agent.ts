@@ -236,7 +236,18 @@ export function summarizeRun(result: ScoutRunResult) {
       claimsVerifiedProfit: c.claimsVerifiedProfit,
       disposition: c.disposition,
       listingSource: c.listing.source,
+      rejectReason: c.rejectReason,
+      dispositionRationale: c.dispositionRationale ?? null,
     })),
+    /** Rejected/replaced dispositions with grounded rationale (not raw planner car-bad text). */
+    dispositions: result.candidates
+      .filter((c) => c.disposition === "rejected" || c.disposition === "replaced")
+      .map((c) => ({
+        vin: c.vin,
+        disposition: c.disposition,
+        rejectReason: c.rejectReason,
+        dispositionRationale: c.dispositionRationale ?? null,
+      })),
     usage: result.usage,
   };
 }
