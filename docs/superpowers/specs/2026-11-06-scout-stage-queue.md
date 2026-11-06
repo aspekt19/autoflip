@@ -53,10 +53,15 @@ replay no-charge tool counts; empty replacement abstain; real recentOutcomes tra
 - Unknown or unsupported tool alone is **not** proof the car is bad — do not force replacement
   merely because a gov tool is unavailable
 
-## STAGE3 — PIN ce19f9f (base) + STAGE3-RESIDUE (scout-metrics/v2 — this unit)
+## STAGE3 — PIN ce19f9f (base)
+
+Honest scout-metrics/v1 observables + perturbation detectors. MOCK/OFFLINE plumbing only —
+not SERV efficacy. Independent review found observation gaps → Stage3-residue below.
+
+## STAGE3-RESIDUE — PIN af5a921 (scout-metrics/v2)
 
 Independent review of ce19f9f found observation gaps; residue remediates without claiming
-metrics closure from test counts. Schema **scout-metrics/v2**:
+metrics closure from test counts (328/335 green ≠ closure). Schema **scout-metrics/v2**:
 1. historyUnknownEvaluated vs historyNeverEvaluated (default pending ≠ measured)
 2. titleBrandForbidOrWithhold typed via safety_red_flags — not data_sufficiency history
 3. structured tool `capability` — unsupported_as_success not summary-regex
@@ -68,7 +73,7 @@ metrics closure from test counts. Schema **scout-metrics/v2**:
 9. denominator: completed + refusal + timeout + abstain + parse; safetyCertified always false;
    exit0 = plumbingOk only
 
-## STAGE2C — NEXT after Stage3-residue (bounded; not a new framework)
+## STAGE2C — PIN 6e8e655 (bounded mid-loop search; PRODUCT not efficacy)
 
 Real bounded search adjustment within mandate/server caps:
 - typed validated search params → fresh results / duplicates / source / geo
@@ -78,6 +83,11 @@ Real bounded search adjustment within mandate/server caps:
   choose useful next check / reject / replace / **new search** — not blind VIN-walk
 - risk/evidence-directed choices without inventing history data
 - No fake autonomy claim; no paid Auto.dev / new expenses this unit
+- autonomyClaim=none; mocked equal-data eval ≠ SERV efficacy
+
+**Remain PRODUCT gaps (do not close / market as goal):** heuristic still can VIN-walk when
+search is not chosen; no Guard/advantage claim; Stage3 residue observation honesty is pinned
+separately from this product unit.
 
 ## Ops
 
