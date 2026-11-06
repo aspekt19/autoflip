@@ -65,6 +65,32 @@ Profile definitions and the exact model features/tools are in [profiles.ts](../s
 
 The shopper-facing explanation in [decision-note.ts](../src/domain/decision-note.ts) is assembled from these recorded flags; it is not a separate model-generated claim about what happened. Agent report responses include a proof object. For a real trace, run a report with SERV configured and inspect that response; do not treat planned/skipped profile metadata as a completed inference call.
 
+## How AutoFlip fits the Open Track
+
+The official [SERV Hackathon Edition 01 page](https://www.openserv.ai/hackathon) defined the Open Track broadly: an agent, workflow, or product that leverages SERV Reasoning. The page listed creativity, user-readiness, and revenue potential as the judging criteria. Robinhood Mainnet/MCP, Coinbase AgentKit, and IXS RWA Vaults were separate partner tracks. **Open Track did not require an onchain wallet, x402 payments, or a multi-agent swarm.**
+
+AutoFlip is best presented as a consumer decision product with an agent-facing interface—not as an autonomous onchain economy.
+
+| Criterion | What AutoFlip can demonstrate | Honest qualification |
+| --- | --- | --- |
+| Creativity | One workflow supports both personal purchase decisions and resale screening; the same calculated evidence is exposed to shoppers and agents. SERV screens untrusted text, extracts structured needs, interprets procedural rules, reviews Radar signals, and selects Flip alert/skip outcomes. | Used-car valuation is an established category. The differentiator is the bounded, evidence-linked workflow—not the claim that the category itself is new. |
+| User readiness | A working preview, labeled sample report, report-credit flow, Deal Radar, and agent API are implemented. | This remains an evaluation preview. Stripe is test mode; Auto.dev free-plan usage is evaluation-only; no licensed full title/service-history provider is connected; browser identity is anonymous. |
+| Revenue potential | One-credit full reports, paid Radar plans, and agent API access provide plausible monetization paths. An optional x402 payment path exists in code. | Test-mode checkout and an optional payment adapter are not proof of live revenue or a settled x402 transaction. Do not claim traction or live payments without receipts. |
+
+### Comparison with Edition 01 winners
+
+ASSAY was the Best Overall Build and Open Track winner. OpenServ describes it as auditing Robinhood Chain stock-token valuations against raw onchain data, with SERV deciding whether a finding matters to the agent's mandate. SERVPIT received an Open Track honorable mention: six wallet-owning agents reason about whether to enter, stake, or borrow. Those projects made their specific decisions and consequences unusually visible.
+
+AutoFlip is not equivalent to SERVPIT: it does not claim autonomous agents with independent wallets. It is closer to a bounded reasoning product: deterministic code owns vehicle facts and numeric decisions, while SERV handles guarded interpretation and selected structured judgments. The useful comparison is architectural, not a claim of equal autonomy or onchain scope.
+
+Payrun is a useful secondary reference for the separation of responsibilities—SERV reasons within deterministic policy limits and a separate execution layer acts—but it won the Coinbase AgentKit partner track, not the Open Track.
+
+### What would make the submission stronger
+
+1. Run the fixed `eval:serv` suite with the real SERV key, inspect the failures as well as the wins, and commit the resulting `latest.md` and `latest.json`. Until then, the comparison dashboard is intentionally empty and there is no measured claim that SERV beats the baseline.
+2. Show one real, redacted report/API proof trace that demonstrates which profile ran, what was actually returned by SERV, and which numeric fields remained code-computed. Do not substitute a planned profile or the static sample report for a live trace.
+3. In a short demo, make the `flip_judge` alert/skip decision and the input-guard / need-extraction path visible. Those are easier to recognize as reasoning work than a generic explanation paragraph.
+
 ## Agent commerce: credits and optional x402
 
 The agent API supports two separate payment paths. API-key requests spend one account credit after the report has been assembled. Without an API key, the optional x402 rail can accept a payment payload when `X402_PAY_TO`, `X402_NETWORK`, and `X402_ASSET` are configured. The scheme defaults to `gokite-aa`; the facilitator defaults to Pieverse. The rail is implemented in [x402.ts](../src/io/x402.ts), exposed through [the HTTP report endpoint](../src/app/api/v1/report/route.ts) and MCP [full_report](../src/app/api/mcp/route.ts).
