@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useState } from "react";
 import type { Mode } from "@/domain/types";
+import { BrandHeroTitle } from "./BrandLockup";
 import { FilmScrub, type FilmPhase } from "./FilmScrub";
 import { HomeSearch } from "./HomeSearch";
 
@@ -22,7 +23,7 @@ export function HomeStage() {
             <div className="film-copy">
               <div>
                 <p className="kicker">Used-car verdicts you can check.</p>
-                <h1>Buy smart. Stay lemonless.</h1>
+                <BrandHeroTitle />
                 <p className="lead">Find better cars. Detect hidden risks. Make smarter decisions.</p>
               </div>
               <div>

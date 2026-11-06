@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { Bebas_Neue, Manrope, Orbitron } from "next/font/google";
+import { BrandLockup, BrandTagline } from "@/components/BrandLockup";
 import { Header } from "@/components/Header";
 import { PageFade } from "@/components/PageFade";
 import { SmoothScroll } from "@/components/SmoothScroll";
@@ -17,20 +18,32 @@ const wide = Bebas_Neue({
 
 const TAGLINE = "Buy smart. Stay lemonless.";
 const CATEGORY = "Used-car verdicts you can check.";
+const SITE_URL = process.env.NEXT_PUBLIC_APP_URL || "https://autoflip-umber.vercel.app";
 
 export const metadata: Metadata = {
   title: { default: `Lemonless — ${TAGLINE}`, template: "%s — Lemonless" },
   description: `${TAGLINE} ${CATEGORY}`,
+  metadataBase: new URL(SITE_URL),
+  icons: {
+    icon: [
+      { url: "/favicon.svg", type: "image/svg+xml" },
+      { url: "/favicon-32.png", sizes: "32x32", type: "image/png" },
+      { url: "/favicon-16.png", sizes: "16x16", type: "image/png" },
+    ],
+    apple: [{ url: "/apple-touch-icon.png", sizes: "180x180" }],
+  },
   openGraph: {
     title: `Lemonless — ${TAGLINE}`,
     description: `${TAGLINE} ${CATEGORY}`,
     siteName: "Lemonless",
     type: "website",
+    images: [{ url: "/og-logo.png", width: 1200, height: 630, alt: "Lemonless" }],
   },
   twitter: {
     card: "summary_large_image",
     title: `Lemonless — ${TAGLINE}`,
     description: `${TAGLINE} ${CATEGORY}`,
+    images: ["/og-logo.png"],
   },
 };
 
@@ -47,16 +60,18 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           <PageFade>{children}</PageFade>
         </main>
         <p className="foot-note">
-          <strong>Buy smart. Stay lemonless.</strong> Lemonless prepares a price verdict from listing comps and public
-          government data. It is not a dealer, lender, inspector, or insurer. Recalls can be incomplete. Confirm the car,
-          the out-the-door price, and any open campaigns with the seller before you pay.
+          <strong className="brand-inline-tagline">
+            <span className="tagline-prefix">Buy smart. Stay </span>
+            <span className="tagline-lemon">lemon</span>
+            <span className="tagline-less">less.</span>
+          </strong>{" "}
+          Lemonless prepares a price verdict from listing comps and public government data. It is not a dealer, lender,
+          inspector, or insurer. Recalls can be incomplete. Confirm the car, the out-the-door price, and any open campaigns
+          with the seller before you pay.
         </p>
         <footer className="colophon">
-          <a className="brand brand-foot" href="/">
-            <img src="/logo.svg" alt="" width={32} height={32} />
-            <span className="brand-name">Lemonless</span>
-          </a>
-          <p className="foot-tagline">Buy smart. Stay lemonless.</p>
+          <BrandLockup size={40} animated={false} className="brand brand-foot" surface="dark" />
+          <BrandTagline />
           <p className="hint lemonless-disclaimer">
             Lemonless helps you avoid lemons. It is not a guarantee, an inspection, or a vehicle history report — always get a
             pre-purchase inspection.

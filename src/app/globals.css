@@ -116,15 +116,16 @@ a { color: inherit; }
   position: sticky;
   top: 14px;
   z-index: 40;
+  /* Containing block for absolute compact nav panel */
   display: flex;
   flex-wrap: nowrap;
   align-items: center;
   justify-content: space-between;
   gap: 16px;
-  width: min(1320px, calc(100% - 28px));
+  width: min(1360px, calc(100% - 28px));
   margin: 14px auto 0;
-  min-height: 58px;
-  padding: 8px 10px 8px 16px;
+  min-height: 74px;
+  padding: 10px 12px 10px 16px;
   background: rgba(8, 8, 8, 0.94);
   color: var(--ink);
   border: 1px solid rgba(255, 255, 255, 0.14);
@@ -142,22 +143,129 @@ a { color: inherit; }
   transform: translateX(-50%);
   background: #050505;
 }
-.brand { display: inline-flex; align-items: center; gap: 10px; line-height: 1; text-decoration: none; color: var(--ink); }
-.brand img { height: 40px; width: 40px; display: block; }
-.brand-foot img { height: 32px; width: 32px; }
+.brand { display: inline-flex; align-items: center; gap: 13px; line-height: 1; text-decoration: none; color: var(--ink); }
+.brand-mark,
+.brand img { height: 58px; width: 58px; display: block; flex-shrink: 0; }
+.brand-foot .brand-mark,
+.brand-foot img { height: 40px; width: 40px; }
+/* Live site wordmark: Orbitron — do not replace with exploration fonts. */
 .brand-name {
   font-family: var(--display);
   font-weight: 700;
-  font-size: 14px;
+  font-size: 19px;
   letter-spacing: 0.14em;
   text-transform: uppercase;
+  white-space: nowrap;
+}
+.brand-lemon,
+.brand-less {
+  display: inline-block;
+}
+.brand-lemon { color: #ffd60a; }
+.brand-less { color: #ff3b3b; }
+.surface-light .brand-less,
+.surface-light .tagline-less { color: #db0404; }
+.surface-light .tagline-prefix { color: #555555; }
+.surface-light .brand-lemon,
+.surface-light .tagline-lemon { color: #ffd60a; }
+.foot-tagline,
+.brand-inline-tagline,
+.brand-hero-title {
+  margin: 0;
 }
 .foot-tagline {
-  margin: 0;
   font-family: var(--sans);
   font-size: 14px;
   letter-spacing: 0.04em;
-  color: var(--muted);
+}
+.tagline-prefix { color: #b7b7b7; }
+.tagline-lemon { color: #ffd60a; }
+.tagline-less { color: #ff3b3b; }
+.brand-hero-title {
+  font-family: var(--wide);
+  font-weight: 800;
+  letter-spacing: -0.03em;
+  line-height: 0.92;
+  text-transform: uppercase;
+  font-size: clamp(42px, 7vw, 78px);
+}
+.brand-hero-title .tagline-prefix { color: var(--ink); }
+.brand-inline-tagline { font-weight: 700; }
+/*
+  Continuous header wordmark life: gentle float + brand-color traveling shimmer.
+  Slow ease-in-out + alternate = smooth forward then reverse (no hard loop jump).
+  Scoped to .bar so footer/hero stay quiet. No rainbow — only #FFD60A / LESS red family.
+  Timings: shimmer 10s one-way (~20s round-trip); float 9s one-way (~18s round-trip).
+*/
+@media (prefers-reduced-motion: no-preference) {
+  .bar .brand-name {
+    animation: brand-wordmark-float 9s ease-in-out infinite alternate;
+  }
+  .bar .brand-less {
+    animation: brand-less-slide 0.55s 0.85s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+  }
+  @supports ((-webkit-background-clip: text) or (background-clip: text)) {
+    .bar .brand-lemon,
+    .bar .brand-less {
+      background-size: 220% 100%;
+      -webkit-background-clip: text;
+      background-clip: text;
+      -webkit-text-fill-color: transparent;
+      color: transparent;
+    }
+    .bar .brand-lemon {
+      background-image: linear-gradient(
+        105deg,
+        #f2b705 0%,
+        #ffd60a 28%,
+        #fff1a3 50%,
+        #ffd60a 72%,
+        #f2b705 100%
+      );
+      animation: brand-shimmer 10s ease-in-out infinite alternate;
+    }
+    .bar .brand-less {
+      background-image: linear-gradient(
+        105deg,
+        #e02020 0%,
+        #ff3b3b 28%,
+        #ff9a9a 50%,
+        #ff3b3b 72%,
+        #e02020 100%
+      );
+      animation:
+        brand-less-slide 0.55s 0.85s cubic-bezier(0.2, 0.8, 0.2, 1) both,
+        brand-shimmer 10s 1.35s ease-in-out infinite alternate;
+    }
+  }
+}
+@keyframes brand-less-slide {
+  from { opacity: 0; transform: translateX(-0.28em); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes brand-wordmark-float {
+  from { transform: translate3d(0, 0, 0); }
+  to { transform: translate3d(0, -1.5px, 0); }
+}
+@keyframes brand-shimmer {
+  from { background-position: 100% 50%; }
+  to { background-position: 0% 50%; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .bar .brand-name,
+  .bar .brand-lemon,
+  .bar .brand-less,
+  .brand-less {
+    animation: none !important;
+  }
+  .bar .brand-lemon,
+  .bar .brand-less {
+    background: none !important;
+    -webkit-text-fill-color: unset;
+    color: inherit;
+  }
+  .bar .brand-lemon { color: #ffd60a; }
+  .bar .brand-less { color: #ff3b3b; }
 }
 .lemonless-disclaimer {
   margin: 8px 0 0;
@@ -795,8 +903,9 @@ pre.doc {
 @keyframes flow { to { stroke-dashoffset: -460; } }
 @keyframes enter { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: none; } }
 
-/* Compact header before labels would wrap: keep desktop type size, use a menu instead. */
-@media (max-width: 1199px) {
+/* Compact header before labels would wrap: keep desktop type size, use a menu instead.
+   Threshold raised because the header lockup is larger after logo size bumps. */
+@media (max-width: 1340px) {
   .menu-btn { display: inline-flex; }
   nav a:not(.nav-go) { display: none; }
   nav {
@@ -840,7 +949,9 @@ pre.doc {
     border-radius: 18px;
     width: calc(100% - 16px);
   }
-  .brand img { height: 34px; width: 34px; }
+  .brand-mark,
+  .brand img { height: 50px; width: 50px; }
+  .brand-name { font-size: 16px; }
 }
 
 @media (max-width: 900px) {
