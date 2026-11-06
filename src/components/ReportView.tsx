@@ -40,6 +40,7 @@ export function ReportView({ report }: { report: FullReport }) {
         <a href="#report-facts">Facts &amp; estimates</a>
         <a href="#report-comparables">Comparables</a>
         <a href="#report-history">History &amp; recalls</a>
+        <a href="#report-sources">Sources</a>
         <a href="#report-method">Method</a>
         <a href="/reports">My reports</a>
       </nav>
@@ -320,6 +321,48 @@ export function ReportView({ report }: { report: FullReport }) {
         ) : null}
       </section>
 
+
+      <section id="report-sources">
+        <h2>Sources &amp; data status</h2>
+        <p className="hint">
+          Report assembled {new Intl.DateTimeFormat("en-US", {
+            dateStyle: "medium",
+            timeStyle: "short",
+            timeZone: "UTC",
+          }).format(new Date(report.createdAt))} UTC. This is AutoFlip&apos;s request/report time, not the date a provider last updated its records. Auto.dev may return cached listings for up to 6 hours.
+        </p>
+        {computed.sourceChecks?.length ? (
+          <div className="table-scroll">
+            <table className="source-check-table">
+              <thead>
+                <tr>
+                  <th>Source</th>
+                  <th>Status</th>
+                  <th>What was returned</th>
+                  <th>Request time (UTC)</th>
+                </tr>
+              </thead>
+              <tbody>
+                {computed.sourceChecks.map((check) => (
+                  <tr key={check.source}>
+                    <td>{check.source}</td>
+                    <td><span className={`source-status ${check.status}`}>{sourceStatusLabel(check.status)}</span></td>
+                    <td>{check.detail}</td>
+                    <td>{check.checkedAt ? new Intl.DateTimeFormat("en-US", {
+                      dateStyle: "short",
+                      timeStyle: "short",
+                      timeZone: "UTC",
+                    }).format(new Date(check.checkedAt)) : "Not recorded"}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <p className="hint">This saved report predates per-source provenance. Its source limitations are listed in the facts and history sections.</p>
+        )}
+      </section>
+
       <section className="ask" id="report-method">
         <h2>How to read this</h2>
         <p className="hint">
@@ -335,6 +378,17 @@ export function ReportView({ report }: { report: FullReport }) {
       </section>
     </article>
   );
+}
+
+function sourceStatusLabel(status: import("@/domain/types").SourceCheckStatus): string {
+  switch (status) {
+    case "available": return "Available";
+    case "partial": return "Partial";
+    case "unavailable": return "Unavailable";
+    case "not_checked": return "Not checked";
+    case "sample": return "Sample";
+    case "not_connected": return "Not connected";
+  }
 }
 
 function reportScene(report: FullReport): DecisionScene {
