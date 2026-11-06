@@ -1,4 +1,7 @@
+"use client";
+
 import Link from "next/link";
+import { useEffect, useState } from "react";
 
 type BrandLockupProps = {
   href?: string;
@@ -19,9 +22,19 @@ export function BrandLockup({
   className = "brand",
   showWordmark = true,
 }: BrandLockupProps) {
+  const [reduceMotion, setReduceMotion] = useState(false);
+
+  useEffect(() => {
+    const mq = window.matchMedia("(prefers-reduced-motion: reduce)");
+    const sync = () => setReduceMotion(mq.matches);
+    sync();
+    mq.addEventListener("change", sync);
+    return () => mq.removeEventListener("change", sync);
+  }, []);
+
   const staticSrc = surface === "light" ? "/brand/mark-white.svg" : "/brand/mark-notile.svg";
-  const animatedSrc = surface === "light" ? "/brand/mark-white.svg" : "/brand/mark-animated-notile.svg";
-  const markSrc = animated && surface === "dark" ? animatedSrc : staticSrc;
+  const animatedSrc = "/brand/mark-animated-notile.svg";
+  const markSrc = animated && surface === "dark" && !reduceMotion ? animatedSrc : staticSrc;
   const classes = [className, surface === "light" ? "surface-light" : "surface-dark"].filter(Boolean).join(" ");
 
   const inner = (
