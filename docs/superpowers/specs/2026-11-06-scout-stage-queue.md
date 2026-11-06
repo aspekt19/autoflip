@@ -53,18 +53,22 @@ replay no-charge tool counts; empty replacement abstain; real recentOutcomes tra
 - Unknown or unsupported tool alone is **not** proof the car is bad — do not force replacement
   merely because a gov tool is unavailable
 
-## STAGE3 — PIN ce19f9f (honest eval metrics — schema scout-metrics/v1)
+## STAGE3 — PIN ce19f9f (base) + STAGE3-RESIDUE (scout-metrics/v2 — this unit)
 
-Replace tautologies with observables: candidate claims / evidence provenance / hard gates /
-history-unknown / titles / actual reject·replace / tool outcomes / incomplete inventory /
-actions + budget + latency. No observations → **unknown** (not 0-safety or perfect).
-Perturbation detectors: unsafe-unknown-claim, unsupported-as-success, fake-replacement,
-wrong-source, missing-needed-search. Matched baseline overlap labeled MOCK/OFFLINE plumbing
-— **not SERV efficacy**. Timeout/refusal/abstain stay in denominator. Residue `6dc1bed`
-review stays separate/active. Parent hosted SERV probe = 200/null/0 usage (no action quality);
-no Guard-blocked / advantage claim; **NO more paid calls**.
+Independent review of ce19f9f found observation gaps; residue remediates without claiming
+metrics closure from test counts. Schema **scout-metrics/v2**:
+1. historyUnknownEvaluated vs historyNeverEvaluated (default pending ≠ measured)
+2. titleBrandForbidOrWithhold typed via safety_red_flags — not data_sufficiency history
+3. structured tool `capability` — unsupported_as_success not summary-regex
+4. fake_replacement requires acquiredVin in pool/lifecycle
+5. structured inventoryIdentity (kind+isFixture) consistency
+6. requireInventorySearch default ON; empty maps/attempts → **unknown** not 0
+7. missing usage/budgets → unknown; wallMs = settled wallEndedAtMs − start
+8. typed select/reject/replace counts (not provenance substring)
+9. denominator: completed + refusal + timeout + abstain + parse; safetyCertified always false;
+   exit0 = plumbingOk only
 
-## STAGE2C — queued AFTER Stage3 (bounded; not a new framework)
+## STAGE2C — NEXT after Stage3-residue (bounded; not a new framework)
 
 Real bounded search adjustment within mandate/server caps:
 - typed validated search params → fresh results / duplicates / source / geo

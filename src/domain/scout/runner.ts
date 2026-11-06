@@ -29,9 +29,18 @@ import type {
   ScoutRunResult,
   ScoutState,
   ScoutToolId,
+  ScoutToolCapability,
   ScoutToolOutcome,
 } from "./types";
 import { SCOUT_TOOL_IDS } from "./types";
+
+function capabilityFromStatus(status: ScoutToolOutcome["status"]): ScoutToolCapability {
+  if (status === "success") return "supported_executed";
+  if (status === "unsupported") return "unsupported";
+  if (status === "empty") return "empty";
+  if (status === "idempotent_replay") return "idempotent_replay";
+  return "failed";
+}
 
 export type ScoutPlannerInput = {
   mandate: ScoutMandate;
@@ -103,6 +112,7 @@ function emptyCandidate(listing: Listing): ScoutCandidate {
     withholdReason: null,
     rejectReason: null,
     historyStatus: "unknown",
+    historyEvaluated: false,
     claimsSafeBuy: false,
     claimsVerifiedProfit: false,
   };
@@ -135,6 +145,7 @@ function evaluateCandidateForInvestigation(input: {
   const hist = historyEvidence(listing);
   cand.evidence.push(...hist.facts);
   cand.historyStatus = hist.historyStatus;
+  cand.historyEvaluated = true;
   if (input.mandate.mode === "flip") {
     cand.flip = flipEconomicsFor(listing, input.pool, input.mandate, input.now);
     if (cand.flip?.assumption) cand.evidence.push(assumedCostEvidence(cand.flip.assumption));
@@ -212,8 +223,13 @@ function fail(
       /* already failing from illegal path */
     }
   }
+  const usage = {
+    ...base.usage,
+    wallEndedAtMs: base.usage.wallEndedAtMs ?? Date.now(),
+  };
   return {
     ...base,
+    usage,
     state: "failed",
     failReason: reason,
     message,
@@ -251,16 +267,47 @@ export async function runScout(input: RunScoutInput): Promise<ScoutRunResult> {
   let pool: Listing[] = [];
   let inventorySource: ScoutRunResult["inventorySource"] = input.resume?.inventorySource ?? "none";
   let inventoryProvenance: string | null = input.resume?.inventoryProvenance ?? null;
+  let inventoryIdentity: ScoutRunResult["inventoryIdentity"] = input.resume?.inventoryIdentity ?? {
+    kind: "none",
+    isFixture: false,
+  };
   const candidates = new Map<string, ScoutCandidate>();
   const pending: string[] = [];
   const investigated: ScoutCandidate[] = [];
   const rejected: ScoutCandidate[] = [];
 
-  const pushOutcome = (outcome: ScoutToolOutcome) => {
-    toolOutcomes.push(outcome);
-    recentOutcomes.push(outcome);
+  const pushOutcome = (outcome: {
+    toolId: ScoutToolId | string;
+    vin: string | null;
+    ok: boolean;
+    status: ScoutToolOutcome["status"] | string;
+    capability?: ScoutToolCapability;
+    summary: string;
+    acquiredVin: string | null;
+    servStepId: string | null;
+    freshVinCount?: number;
+    searchFingerprint?: string | null;
+  }): ScoutToolOutcome => {
+    const status = outcome.status as ScoutToolOutcome["status"];
+    const full: ScoutToolOutcome = {
+      toolId: outcome.toolId as ScoutToolId,
+      vin: outcome.vin,
+      ok: outcome.ok,
+      status,
+      capability: outcome.capability ?? capabilityFromStatus(status),
+      summary: outcome.summary,
+      acquiredVin: outcome.acquiredVin,
+      servStepId: outcome.servStepId,
+      ...(outcome.freshVinCount != null ? { freshVinCount: outcome.freshVinCount } : {}),
+      ...(outcome.searchFingerprint !== undefined
+        ? { searchFingerprint: outcome.searchFingerprint }
+        : {}),
+    };
+    toolOutcomes.push(full);
+    recentOutcomes.push(full);
     // Keep a bounded window for planner context (not an unbounded log).
     if (recentOutcomes.length > 12) recentOutcomes.splice(0, recentOutcomes.length - 12);
+    return full;
   };
 
   if (input.resume) {
@@ -282,6 +329,7 @@ export async function runScout(input: RunScoutInput): Promise<ScoutRunResult> {
     usage: { ...usage },
     inventorySource,
     inventoryProvenance,
+    inventoryIdentity,
     poolSize: pool.length,
     candidates: [...candidates.values()],
     investigation: investigated.filter((c) => c.disposition === "investigate"),
@@ -317,6 +365,7 @@ export async function runScout(input: RunScoutInput): Promise<ScoutRunResult> {
         usage,
         inventorySource: "none",
         inventoryProvenance: null,
+        inventoryIdentity: { kind: "none", isFixture: false },
         poolSize: 0,
         candidates: [],
         investigation: [],
@@ -441,8 +490,10 @@ export async function runScout(input: RunScoutInput): Promise<ScoutRunResult> {
         state = "inventory_loaded";
         assertTransition(state, "abstained");
         state = "abstained";
+        const snap = snapshot();
         return {
-          ...snapshot(),
+          ...snap,
+          usage: { ...snap.usage, wallEndedAtMs: Date.now() },
           state: "abstained",
           message: inv.message,
           partial: false,
@@ -454,6 +505,7 @@ export async function runScout(input: RunScoutInput): Promise<ScoutRunResult> {
     pool = inv.listings;
     inventorySource = inv.source;
     inventoryProvenance = inv.provenance;
+    inventoryIdentity = { kind: inv.source, isFixture: inv.source === "replay" };
     for (const listing of pool) {
       candidates.set(listing.vin, emptyCandidate(listing));
       pending.push(listing.vin);
@@ -603,7 +655,7 @@ export async function runScout(input: RunScoutInput): Promise<ScoutRunResult> {
         // Real replacement acquisition: execute next distinct pending candidate within this budgeted call.
         const nextVin = pending.find((vin) => vin !== action.vin) ?? null;
         if (!nextVin || !candidates.has(nextVin) || !mandate) {
-          const outcome: ScoutToolOutcome = {
+          const outcome = {
             toolId: "candidate.replace",
             vin: action.vin,
             ok: false,
@@ -635,7 +687,7 @@ export async function runScout(input: RunScoutInput): Promise<ScoutRunResult> {
           servStepId: action.servStepId,
           idem: `replace-acquire:${action.vin}->${nextVin}`,
         });
-        const outcome: ScoutToolOutcome = {
+        const outcome = {
           toolId: "candidate.replace",
           vin: action.vin,
           ok: acquired.ok,
@@ -675,7 +727,7 @@ export async function runScout(input: RunScoutInput): Promise<ScoutRunResult> {
         const cached = toolCache.get(idem);
         if (cached) {
           // Idempotent replay — do not double-count; surface prior outcome (not a fresh success).
-          const replay: ScoutToolOutcome = {
+          const replay = {
             ...cached,
             status: "idempotent_replay",
             summary: `Idempotent replay of prior ${cached.status}: ${cached.summary}`,
@@ -696,7 +748,7 @@ export async function runScout(input: RunScoutInput): Promise<ScoutRunResult> {
 
         // Mid-loop inventory.search is not a free cache-success / noop success.
         if (toolId === "inventory.search") {
-          const outcome: ScoutToolOutcome = {
+          const outcome = {
             toolId,
             vin: null,
             ok: false,
@@ -706,8 +758,7 @@ export async function runScout(input: RunScoutInput): Promise<ScoutRunResult> {
             acquiredVin: null,
             servStepId: action.servStepId,
           };
-          pushOutcome(outcome);
-          toolCache.set(idem, outcome);
+          toolCache.set(idem, pushOutcome(outcome));
           stamp(provenance, state, outcome.summary, toolId, action.servStepId, idem);
           assertTransition(state, "verifying");
           state = "verifying";
@@ -725,7 +776,7 @@ export async function runScout(input: RunScoutInput): Promise<ScoutRunResult> {
               note: "UNSUPPORTED: gov lookup not executed (no paid spend this path). Not a successful evidence fetch.",
             });
           }
-          const outcome: ScoutToolOutcome = {
+          const outcome = {
             toolId,
             vin,
             ok: false,
@@ -734,9 +785,7 @@ export async function runScout(input: RunScoutInput): Promise<ScoutRunResult> {
             acquiredVin: null,
             servStepId: action.servStepId,
           };
-          pushOutcome(outcome);
-          // Cache the unsupported outcome so retries are idempotent but never look like success.
-          toolCache.set(idem, outcome);
+          toolCache.set(idem, pushOutcome(outcome));
           stamp(provenance, state, outcome.summary, toolId, action.servStepId, idem);
           assertTransition(state, "verifying");
           state = "verifying";
@@ -744,7 +793,7 @@ export async function runScout(input: RunScoutInput): Promise<ScoutRunResult> {
         }
 
         if (!vin || !candidates.has(vin) || !mandate) {
-          const outcome: ScoutToolOutcome = {
+          const outcome = {
             toolId,
             vin,
             ok: false,
@@ -753,8 +802,7 @@ export async function runScout(input: RunScoutInput): Promise<ScoutRunResult> {
             acquiredVin: null,
             servStepId: action.servStepId,
           };
-          pushOutcome(outcome);
-          toolCache.set(idem, outcome);
+          toolCache.set(idem, pushOutcome(outcome));
           stamp(provenance, state, outcome.summary, toolId, action.servStepId, idem);
           assertTransition(state, "verifying");
           state = "verifying";
@@ -766,7 +814,7 @@ export async function runScout(input: RunScoutInput): Promise<ScoutRunResult> {
 
         if (toolId === "evidence.asking_price") {
           cand.evidence.push(askingPriceEvidence(listing));
-          const outcome: ScoutToolOutcome = {
+          const outcome = {
             toolId,
             vin,
             ok: true,
@@ -775,8 +823,7 @@ export async function runScout(input: RunScoutInput): Promise<ScoutRunResult> {
             acquiredVin: null,
             servStepId: action.servStepId,
           };
-          pushOutcome(outcome);
-          toolCache.set(idem, outcome);
+          toolCache.set(idem, pushOutcome(outcome));
           stamp(provenance, state, outcome.summary, toolId, action.servStepId, idem);
           assertTransition(state, "verifying");
           state = "verifying";
@@ -788,7 +835,7 @@ export async function runScout(input: RunScoutInput): Promise<ScoutRunResult> {
           cand.flip = flip;
           if (flip?.assumption) cand.evidence.push(assumedCostEvidence(flip.assumption));
           else cand.evidence.push(assumedCostEvidence(null));
-          const outcome: ScoutToolOutcome = {
+          const outcome = {
             toolId,
             vin,
             ok: true,
@@ -799,8 +846,7 @@ export async function runScout(input: RunScoutInput): Promise<ScoutRunResult> {
             acquiredVin: null,
             servStepId: action.servStepId,
           };
-          pushOutcome(outcome);
-          toolCache.set(idem, outcome);
+          toolCache.set(idem, pushOutcome(outcome));
           stamp(provenance, state, outcome.summary, toolId, action.servStepId, idem);
           assertTransition(state, "verifying");
           state = "verifying";
@@ -816,7 +862,7 @@ export async function runScout(input: RunScoutInput): Promise<ScoutRunResult> {
             source: "domain.budgetFit",
             note: `${fit.reason} (computed fit — not independently verified).`,
           });
-          const outcome: ScoutToolOutcome = {
+          const outcome = {
             toolId,
             vin,
             ok: true,
@@ -825,8 +871,7 @@ export async function runScout(input: RunScoutInput): Promise<ScoutRunResult> {
             acquiredVin: null,
             servStepId: action.servStepId,
           };
-          pushOutcome(outcome);
-          toolCache.set(idem, outcome);
+          toolCache.set(idem, pushOutcome(outcome));
           stamp(provenance, state, outcome.summary, toolId, action.servStepId, idem);
           assertTransition(state, "verifying");
           state = "verifying";
@@ -854,7 +899,7 @@ export async function runScout(input: RunScoutInput): Promise<ScoutRunResult> {
             servStepId: action.servStepId,
             idem,
           });
-          const outcome: ScoutToolOutcome = {
+          const outcome = {
             toolId,
             vin,
             ok: acquired.ok,
@@ -863,15 +908,14 @@ export async function runScout(input: RunScoutInput): Promise<ScoutRunResult> {
             acquiredVin: vin,
             servStepId: action.servStepId,
           };
-          pushOutcome(outcome);
-          toolCache.set(idem, outcome);
+          toolCache.set(idem, pushOutcome(outcome));
           assertTransition(state, "verifying");
           state = "verifying";
           continue;
         }
 
         // Allowlisted but not implemented as a real adapter here — truthful unsupported.
-        const unsupported: ScoutToolOutcome = {
+        const unsupported = {
           toolId,
           vin,
           ok: false,
@@ -880,8 +924,7 @@ export async function runScout(input: RunScoutInput): Promise<ScoutRunResult> {
           acquiredVin: null,
           servStepId: action.servStepId,
         };
-        pushOutcome(unsupported);
-        toolCache.set(idem, unsupported);
+        toolCache.set(idem, pushOutcome(unsupported));
         stamp(provenance, state, unsupported.summary, toolId, action.servStepId, idem);
         assertTransition(state, "verifying");
         state = "verifying";
@@ -898,8 +941,10 @@ export async function runScout(input: RunScoutInput): Promise<ScoutRunResult> {
     return fail(snapshot(), "budget_exhausted", "Scout loop ceiling reached.");
   }
 
+  const finalSnap = snapshot();
   return {
-    ...snapshot(),
+    ...finalSnap,
+    usage: { ...finalSnap.usage, wallEndedAtMs: Date.now() },
     investigation: investigated
       .filter((c) => c.disposition === "investigate")
       .slice(0, budgets.maxCandidatesOut),
@@ -909,7 +954,7 @@ export async function runScout(input: RunScoutInput): Promise<ScoutRunResult> {
         ? "No evidence-backed investigation candidates under current mandate and budgets."
         : state === "completed"
           ? `Returning ${Math.min(investigated.length, budgets.maxCandidatesOut)} investigation candidate(s).`
-          : snapshot().message,
+          : finalSnap.message,
   };
 }
 

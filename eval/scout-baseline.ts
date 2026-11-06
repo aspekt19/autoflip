@@ -1,15 +1,10 @@
 /**
- * Stage3 honest scout eval harness — machine-readable observables on fixed recorded data.
+ * Stage3 residue harness — scout-metrics/v2 observables on fixed recorded data.
  *
- * - Real-source replay: fixtures/autodev-camry.json only (cited provenance).
- * - Adversarial: fixtures/scout/adversarial-contradiction.json (NOT live evidence).
- * - Mock/script planners prove CONTROL PLUMBING only — never SERV efficacy.
- * - Baseline = deterministic flip rank on same pool/budget (matched-data overlap, not quality).
- * - Timeout / refusal / abstain remain in the denominator.
- * - No observations → unknown (not 0-safety or perfect coverage).
+ * MOCK/OFFLINE plumbing only — never SERV efficacy / safety certification.
+ * Exit 0 = plumbing integrity only (clearly separated from evidenceComplete/safetyCertified).
  *
  * Usage: npx tsx eval/scout-baseline.ts
- * Exit 1 when observed unsafe claims or integrity perturbations fire on clean cases.
  */
 import { writeFileSync } from "node:fs";
 import { resolve } from "node:path";
@@ -30,18 +25,28 @@ import {
   type PerturbationHit,
   type ScoutPlanAction,
   type ScoutRunResult,
+  type ScoutPlanner,
 } from "../src/domain/scout";
 import { parseAutoDevListings } from "../src/io/parsers";
 
 type CaseReport = {
   id: string;
   mode: "flip" | "personal";
-  dataKind: "real_source_replay" | "synthetic_adversarial_NOT_live" | "control_refusal";
+  dataKind:
+    | "real_source_replay"
+    | "synthetic_adversarial_NOT_live"
+    | "control_refusal"
+    | "control_timeout"
+    | "control_abstain"
+    | "control_parse_fail";
   provenance: string;
-  plannerKind: "mock_script_control_plumbing_NOT_serv_efficacy" | "refusing_planner_NOT_serv";
+  plannerKind:
+    | "mock_script_control_plumbing_NOT_serv_efficacy"
+    | "refusing_planner_NOT_serv"
+    | "timeout_planner_NOT_serv"
+    | "parse_fail_planner_NOT_serv";
   poolSize: number;
   baselineTopVins: string[];
-  /** Explicit: matched-data overlap vs flip-rank baseline — plumbing, not SERV efficacy. */
   matchedDataBaselineNote: "MOCK_OFFLINE_identical_replay_overlap_NOT_serv_efficacy";
   observables: ScoutObservables;
   perturbations: PerturbationHit[];
@@ -100,6 +105,14 @@ function rejectReplaceScript(vins: string[]): ScoutPlanAction[] {
   ];
 }
 
+function parseFailPlanner(): ScoutPlanner {
+  return async () => ({
+    ok: false,
+    error: "serv_unavailable",
+    message: "SERV planner schema_mismatch: missing reason — parse failure control case.",
+  });
+}
+
 async function runCase(args: {
   id: string;
   mode: "flip" | "personal";
@@ -108,6 +121,9 @@ async function runCase(args: {
   dataKind: CaseReport["dataKind"];
   withRejectReplace: boolean;
   refuse?: boolean;
+  timeout?: boolean;
+  parseFail?: boolean;
+  forceAbstainScript?: boolean;
 }): Promise<CaseReport> {
   const mandate = args.mode === "flip" ? flipMandate() : personalMandate();
   const pool = parseAutoDevListings(args.raw, "sample");
@@ -124,46 +140,65 @@ async function runCase(args: {
   const peek = await inventory(mandate as never);
   const vins = peek.ok ? peek.listings.map((l) => l.vin) : [];
 
-  const script = args.withRejectReplace
-    ? rejectReplaceScript(vins)
-    : [
-        ...vins.slice(0, 5).map(
-          (vin): ScoutPlanAction => ({
-            type: "select_candidate",
-            vin,
-            reason: "eval:select",
-            servStepId: `s-${vin}`,
-          }),
-        ),
-        { type: "finalize" as const, reason: "eval:done", servStepId: "final" },
-      ];
+  const script = args.forceAbstainScript
+    ? [{ type: "abstain" as const, reason: "eval:explicit abstain control", servStepId: "abs" }]
+    : args.withRejectReplace
+      ? rejectReplaceScript(vins)
+      : [
+          ...vins.slice(0, 5).map(
+            (vin): ScoutPlanAction => ({
+              type: "select_candidate",
+              vin,
+              reason: "eval:select",
+              servStepId: `s-${vin}`,
+            }),
+          ),
+          { type: "finalize" as const, reason: "eval:done", servStepId: "final" },
+        ];
+
+  let planner: ScoutPlanner = mockServPlanner(script);
+  let plannerKind: CaseReport["plannerKind"] = "mock_script_control_plumbing_NOT_serv_efficacy";
+  if (args.refuse) {
+    planner = refusingPlanner("serv_refused");
+    plannerKind = "refusing_planner_NOT_serv";
+  } else if (args.timeout) {
+    planner = refusingPlanner("serv_timeout");
+    plannerKind = "timeout_planner_NOT_serv";
+  } else if (args.parseFail) {
+    planner = parseFailPlanner();
+    plannerKind = "parse_fail_planner_NOT_serv";
+  }
 
   const scout: ScoutRunResult = await runScout({
     ownerId: `eval:${args.id}`,
     mandateRaw: mandate,
     inventory,
-    planner: args.refuse ? refusingPlanner("serv_refused") : mockServPlanner(script),
+    planner,
     autonomyClaim: "none",
     budgets: { maxProviderCalls: 0, maxCandidatesOut: 5, maxServCalls: 30, maxToolCalls: 80 },
     now,
   });
 
+  const expect = {
+    requireInventorySearch: true,
+    requireToolOutcomes: true,
+    requireUsageBudgets: true,
+    expectedInventorySource: "replay" as const,
+    expectedFixture: true,
+  };
+
   const observables = observeScoutRun(scout, {
     baselineTopVins: baseline,
-    nowMs: Date.now(),
+    expect,
   });
-  const perturbations = detectTracePerturbations(scout, {
-    expectedInventorySource: "replay",
-  });
+  const perturbations = detectTracePerturbations(scout, expect);
 
   return {
     id: args.id,
     mode: args.mode,
     dataKind: args.dataKind,
     provenance: args.provenance,
-    plannerKind: args.refuse
-      ? "refusing_planner_NOT_serv"
-      : "mock_script_control_plumbing_NOT_serv_efficacy",
+    plannerKind,
     poolSize: pool.length,
     baselineTopVins: baseline,
     matchedDataBaselineNote: "MOCK_OFFLINE_identical_replay_overlap_NOT_serv_efficacy",
@@ -171,16 +206,10 @@ async function runCase(args: {
     perturbations,
     notes: [
       "Mock/heuristic/refusing planners are NOT SERV efficacy evidence.",
-      dataKindNote(args.dataKind),
-      "Timeout/refusal/abstain remain in denominator; unknown ≠ 0-perfect.",
+      "safetyCertified=false always; evidenceComplete is separate from plumbingOk.",
+      "Timeout/refusal/abstain/parse stay in denominator; unknown ≠ 0-perfect.",
     ],
   };
-}
-
-function dataKindNote(kind: CaseReport["dataKind"]): string {
-  if (kind === "synthetic_adversarial_NOT_live") return "Adversarial fixture is NOT live evidence.";
-  if (kind === "control_refusal") return "Control refusal case — plumbing stop, not efficacy.";
-  return REPLAY_CAMRY_PROVENANCE;
 }
 
 async function main() {
@@ -219,7 +248,6 @@ async function main() {
     }),
   );
 
-  // Denominator preservation: refusal is a first-class case, not dropped.
   cases.push(
     await runCase({
       id: "camry-flip-serv-refused",
@@ -232,37 +260,58 @@ async function main() {
     }),
   );
 
+  cases.push(
+    await runCase({
+      id: "camry-flip-serv-timeout",
+      mode: "flip",
+      raw: camry,
+      provenance: REPLAY_CAMRY_PROVENANCE,
+      dataKind: "control_timeout",
+      withRejectReplace: false,
+      timeout: true,
+    }),
+  );
+
+  cases.push(
+    await runCase({
+      id: "camry-flip-explicit-abstain",
+      mode: "flip",
+      raw: camry,
+      provenance: REPLAY_CAMRY_PROVENANCE,
+      dataKind: "control_abstain",
+      withRejectReplace: false,
+      forceAbstainScript: true,
+    }),
+  );
+
+  cases.push(
+    await runCase({
+      id: "camry-flip-parse-fail",
+      mode: "flip",
+      raw: camry,
+      provenance: REPLAY_CAMRY_PROVENANCE,
+      dataKind: "control_parse_fail",
+      withRejectReplace: false,
+      parseFail: true,
+    }),
+  );
+
   const invariants = summarizeEvalInvariants(
     cases.map((c) => ({ observables: c.observables, perturbations: c.perturbations })),
   );
-
-  const beforeAfter = {
-    before_tautologies_removed: [
-      "claimsSafeBuyCount always 0 (type-forced literal false)",
-      "insufficientEvidenceInvestigated under-defined / often 0",
-      "realSourceAvailable: constant true",
-      "rejectReplaceCovered: completed|abstained counted as covered",
-      "completed ⇒ coverage / perfect when unobserved",
-    ],
-    after_observables: [
-      "candidates.unsafeSafeBuyClaims observed|unknown",
-      "candidates.historyUnknown / titleForbidOrWithhold",
-      "evidence.byKind + bySource provenance counts",
-      "gates.hardForbid|withhold|pass (unknown if none)",
-      "tools.byStatus + inventorySearchAttempts",
-      "actions.reject/replace + budget + latency.wallMs",
-      "inventory.incomplete + terminalKind incl. timeout/refusal/abstain",
-      "baselineOverlap matched-data only; labeling MOCK_OFFLINE",
-      "detectTracePerturbations integrity suite",
-    ],
-  };
 
   const report = {
     harness: "eval/scout-baseline.ts",
     schemaVersion: SCOUT_METRICS_SCHEMA_VERSION,
     generatedAt: new Date().toISOString(),
-    note: "Stage3 honest observables. MOCK/OFFLINE plumbing only. Not SERV efficacy. No Guard/advantage claim.",
-    beforeAfter,
+    note: "Stage3 residue scout-metrics/v2. MOCK/OFFLINE plumbing only. Not SERV efficacy. safetyCertified always false.",
+    certification: {
+      safetyCertified: false as const,
+      servEfficacyClaimed: false as const,
+      plumbingOk: invariants.plumbingOk,
+      evidenceCompleteCases: invariants.evidenceCompleteCases,
+      note: "Exit 0 reflects plumbing integrity only — not evidence-complete or safety certification.",
+    },
     invariants,
     realSourcePath: "fixtures/autodev-camry.json",
     otherRealSourceSnapshots: "none — only autodev-camry.json exists in-repo; no invented provenance",
@@ -273,15 +322,13 @@ async function main() {
   try {
     writeFileSync(outPath, JSON.stringify(report, null, 2));
   } catch {
-    /* results dir may be gitignored; still print */
+    /* still print */
   }
   console.log(JSON.stringify(report, null, 2));
 
-  const integrityFail =
-    invariants.noObservedUnsafeSafeBuy === false ||
-    invariants.noObservedUnsafeVerifiedProfit === false ||
-    invariants.perturbationHitsTotal > 0;
-  if (integrityFail) {
+  // Plumbing exit: integrity perturbations / observed unsafe claims fail the process.
+  // evidenceComplete incomplete on control fail cases is expected — not an exit failure by itself.
+  if (!invariants.plumbingOk || invariants.noObservedUnsafeSafeBuy === false) {
     process.exitCode = 1;
   }
 }

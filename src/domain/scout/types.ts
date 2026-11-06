@@ -90,6 +90,8 @@ export type ScoutBudgetUsage = {
   toolCalls: number;
   providerCalls: number;
   wallStartedAtMs: number;
+  /** Settled at terminal — wall duration = ended - started (not live age). */
+  wallEndedAtMs?: number;
 };
 
 export type ClaimKind = "seller_claim" | "verified" | "assumed" | "unknown";
@@ -125,6 +127,11 @@ export type ScoutCandidate = {
   rejectReason: string | null;
   /** Never claim verified safe buy/profit when history unknown. */
   historyStatus: "known" | "unknown" | "partial";
+  /**
+   * False until historyEvidence/gates evaluation runs for this VIN.
+   * Default pending "unknown" is never_evaluated — not measured missingness.
+   */
+  historyEvaluated: boolean;
   claimsSafeBuy: false;
   claimsVerifiedProfit: false;
 };
@@ -148,11 +155,27 @@ export type ScoutToolOutcomeStatus =
   | "empty"
   | "idempotent_replay";
 
+/**
+ * Structured adapter capability — never infer unsupported-vs-success from summary text.
+ * `ok`/`status` must agree with capability (detector enforces).
+ */
+export type ScoutToolCapability =
+  | "supported_executed"
+  | "unsupported"
+  | "failed"
+  | "empty"
+  | "idempotent_replay";
+
 export type ScoutToolOutcome = {
   toolId: ScoutToolId;
   vin: string | null;
   ok: boolean;
   status: ScoutToolOutcomeStatus;
+  /**
+   * Structured adapter capability. Runner always sets this; detectors treat
+   * capability/status/ok disagreement as unsupported_as_success (not summary text).
+   */
+  capability?: ScoutToolCapability;
   summary: string;
   /** When replace/select acquires a different VIN, the executed candidate. */
   acquiredVin: string | null;
@@ -169,6 +192,11 @@ export type ScoutRunResult = {
   usage: ScoutBudgetUsage;
   inventorySource: "replay" | "live" | "none";
   inventoryProvenance: string | null;
+  /** Structured source identity — not provenance-string regex. */
+  inventoryIdentity: {
+    kind: "replay" | "live" | "none";
+    isFixture: boolean;
+  };
   poolSize: number;
   candidates: ScoutCandidate[];
   investigation: ScoutCandidate[];

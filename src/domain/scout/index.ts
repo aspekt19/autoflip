@@ -25,10 +25,13 @@ export {
 } from "./metrics";
 export type {
   ObservedCount,
+  ObservedMap,
+  ObservationCompleteness,
   ScoutObservables,
   PerturbationKind,
   PerturbationHit,
   ScoutEvalInvariants,
+  TraceExpectations,
 } from "./metrics";
 export { SCOUT_TOOL_IDS } from "./types";
 export type * from "./types";
