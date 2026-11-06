@@ -121,12 +121,13 @@ describe("SERV layer", () => {
     }
   });
 
-  it("uses every documented non-Graph feature on at least one profile", () => {
+  it("uses every documented feature on at least one profile (Graph excluded — hackathon ban)", () => {
     const used = new Set<string>();
     for (const id of Object.keys(PROFILES) as ProfileId[]) {
       for (const feature of featuresUsedBy(id)) used.add(feature);
     }
     expect([...used].sort()).toEqual([...DOCUMENTED_FEATURES].sort());
+    // OpenServ Graph product must not appear (t257/t258). Kronos/Multipath are not Graph.
     expect(used.has("graph")).toBe(false);
     const hints = new Set<string>();
     for (const id of Object.keys(PROFILES) as ProfileId[]) {

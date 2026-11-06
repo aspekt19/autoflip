@@ -1,7 +1,13 @@
 /**
  * One profile per SERV use. A new service is a new entry here.
  * Suffixes and tool defaults follow the SERV Reasoning docs.
- * Graph is the engine under every call. This registry does not configure it.
+ *
+ * HACKATHON CONSTRAINT (owner t257/t258): OpenServ Graph is FORBIDDEN in contest
+ * code, architecture, demos, and claims — directly or indirectly. This registry
+ * must not enable, configure, or imply Graph. Kronos/Multipath model suffixes are
+ * separate SERV Reasoning features, not the Graph product. Ordinary diagrams /
+ * Open Graph meta tags are unrelated.
+ *
  * The content filter stays on. serv_disable_content_filter is documented and unused,
  * because these prompts must not be quoted back to the shopper.
  */

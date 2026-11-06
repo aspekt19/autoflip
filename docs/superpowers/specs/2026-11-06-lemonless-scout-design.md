@@ -3,6 +3,8 @@
 **Date:** 2026-11-06  
 **Mandate ref:** owner t249 (2026-11-06 23:19 Europe/Istanbul) — full carte blanche for reversible technical choices; no spend / seller contact / new paid Auto.dev or SERV calls; no new accounts; model config unchanged; preserve branding and PR53 search work.
 
+**Hackathon ban (t257/t258):** OpenServ **Graph** is forbidden in contest code/architecture/demo/claims (direct or indirect). See `2026-11-06-openserv-graph-ban.md`. Ordinary mermaid diagrams and Next.js `openGraph` meta are not Graph. Lemonless purpose remains autonomous used-car search/selection (≤5 investigate candidates or abstain), not a report generator or tech showroom.
+
 ## 1. Problem
 
 Lemonless already computes honest economics, ordered gates, and SERV-assisted reports. It does **not** yet run a bounded **autonomous investigation loop** where SERV chooses which candidates and which allowed tools to run, then returns ≤5 evidence-backed **INVESTIGATION** candidates (or an honest abstain) with provenance.
