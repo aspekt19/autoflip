@@ -4,7 +4,7 @@ Evaluation preview of a US used-car verdict. The home page starts from what the 
 
 ## Judge in 60 seconds
 
-**AutoFlip turns a US used-car listing into an explainable buy / caution / walk-away decision.** TypeScript owns every price, comparison, risk flag, and flip estimate; OpenServ SERV Reasoning screens untrusted input and explains those already-computed facts. The model never writes a price or profit number back into the decision.
+**AutoFlip turns a US used-car listing into an explainable buy / caution / walk-away decision.** TypeScript owns every price, comparison, risk flag, and flip estimate; OpenServ SERV Reasoning screens untrusted input, structures shopping needs, interprets procedural rules, reviews deal signals, and explains computed facts. In Flip Radar, SERV can return a bounded `alert` or `skip` judgment from code-computed evidence. The model never writes a price or profit number back into the decision.
 
 - **Try the product:** [AutoFlip preview](https://autoflip-umber.vercel.app/) · [labeled sample report](https://autoflip-umber.vercel.app/report/sample) · [SERV evaluation dashboard — no live run published yet](https://autoflip-umber.vercel.app/compare)
 - **Trace the architecture:** [one-page judge guide](docs/judge-guide.md) · [competitor review and product gaps](docs/competitive-review.md) · [SERV profiles](src/server/serv/profiles.ts) · [single inference gateway](src/server/serv/run.ts) · [report assembly and deterministic calculation](src/server/assemble.ts) · [report types](src/domain/types.ts)
