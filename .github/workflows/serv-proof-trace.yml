@@ -64,12 +64,12 @@ jobs:
         run: |
           branch="evidence/serv-proof-trace-${SOURCE_RUN_ID}"
           git config user.name "github-actions[bot]"
-          git config user.email "41898282+aspekt19@users.noreply.github.com"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git checkout -b "$branch"
           git add eval/results/serv-proof-trace.json eval/results/serv-proof-trace.md
           git commit -m "Evidence: add redacted SERV proof trace"
           git push origin "$branch"
           echo "## Redacted SERV proof trace" >> "$GITHUB_STEP_SUMMARY"
-          echo "Trace artifact was pushed to `$branch`." >> "$GITHUB_STEP_SUMMARY"
+          echo "Trace artifact was pushed to branch: $branch." >> "$GITHUB_STEP_SUMMARY"
           echo "Open a review PR: https://github.com/${GITHUB_REPOSITORY}/pull/new/$branch" >> "$GITHUB_STEP_SUMMARY"
           echo "This trace omits raw prompts, VINs, facts, and free-form model output." >> "$GITHUB_STEP_SUMMARY"
