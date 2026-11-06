@@ -44,7 +44,8 @@ function numericTokensInText(text: string): Set<string> {
   const cleaned = text
     .replace(/\b[A-HJ-NPR-Z0-9]{17}\b/gi, " ")
     .replace(/\b[A-Z]{1,4}-\d+\b/gi, " ");
-  return new Set((cleaned.match(/[-+]?\$?\d[\d,]*(?:\.\d+)?/g) ?? []).map((token) => token.replace(/[,$]/g, "")));
+  const rangeSafe = cleaned.replace(/(\$[\d,]+)\s*-\s*(?=\$?\d)/g, "$1 to ");
+  return new Set((rangeSafe.match(/[-+]?\$?\d[\d,]*(?:\.\d+)?/g) ?? []).map((token) => token.replace(/[,$]/g, "")));
 }
 
 export function scoreOutput(input: {

@@ -69,6 +69,13 @@ describe("why we decided", () => {
   it("preserves negative and positive signs in numeric evidence", () => {
     expect(quotedNumbersStayIn("Expected loss is -$300.", JSON.stringify({ profitMidUsd: -300 }))).toBe(true);
     expect(quotedNumbersStayIn("Expected gain is $300.", JSON.stringify({ profitMidUsd: -300 }))).toBe(false);
+    expect(quotedNumbersStayIn("In 2020, the estimated loss is -$300.", JSON.stringify({ year: 2020, profitMidUsd: -300 }))).toBe(true);
+  });
+
+  it("treats a hyphen between currency amounts as a range separator", () => {
+    const facts = JSON.stringify({ profitLowUsd: 400, profitHighUsd: 1400, profitMidUsd: 900 });
+    expect(quotedNumbersStayIn("Estimated profit is $400-$1,400, with a $900 midpoint.", facts)).toBe(true);
+    expect(quotedNumbersStayIn("Estimated profit is $400 - $1,400, with a $900 midpoint.", facts)).toBe(true);
   });
 
   it("does not treat VIN or model-code digits as standalone numeric evidence", () => {
