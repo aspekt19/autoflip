@@ -77,6 +77,6 @@ jobs:
           git commit -m "Evidence: publish measured SERV evaluation"
           git push origin "$branch"
           echo "## Evaluation evidence" >> "$GITHUB_STEP_SUMMARY"
-          echo "Measured JSON and Markdown were pushed to `$branch`." >> "$GITHUB_STEP_SUMMARY"
+          echo "Measured JSON and Markdown were pushed to branch: $branch." >> "$GITHUB_STEP_SUMMARY"
           echo "Open a review PR: https://github.com/${GITHUB_REPOSITORY}/pull/new/$branch" >> "$GITHUB_STEP_SUMMARY"
           echo "The workflow does not deploy the application." >> "$GITHUB_STEP_SUMMARY"
