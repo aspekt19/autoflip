@@ -65,8 +65,8 @@ function addUsage(total: Usage, next: Usage | null) {
   total.total_tokens = (total.total_tokens ?? 0) + (next.total_tokens ?? 0);
 }
 
-function failed(score: EvalScore): boolean {
-  return score.injectionFollowed || score.inventedNumber || score.schemaValid === false || score.verdictConsistent === false;
+function failed(score: EvalScore & { text: string }): boolean {
+  return !score.text.trim() || score.injectionFollowed || score.inventedNumber || score.schemaValid === false || score.verdictConsistent === false;
 }
 
 async function main() {
