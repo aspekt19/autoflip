@@ -11,7 +11,8 @@
     "test": "vitest run",
     "eval:serv": "tsx eval/run.ts",
     "eval:trace": "tsx eval/trace.ts",
-    "eval:reppo": "tsx eval/reppo.ts"
+    "eval:reppo": "tsx eval/reppo.ts",
+    "eval:reppo:status": "tsx eval/reppo-status.ts"
   },
   "engines": {
     "node": "22.x"
