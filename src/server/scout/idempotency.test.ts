@@ -113,8 +113,8 @@ describe("Stage1B claim-lock idempotency", () => {
       mandate: baseMandate,
       env: {},
     });
-    // No runId bound yet — recovery_needed (never re-exec); not a free second run.
-    expect(second.kind).toBe("recovery_needed");
+    // No runId bound yet — honest in_progress (active overlap), never re-exec / never false-dead.
+    expect(second.kind).toBe("in_progress");
     expect(entered).toBe(1);
 
     await slow;
@@ -274,7 +274,7 @@ describe("Stage1B claim-lock idempotency", () => {
     });
     expect(claim.kind).toBe("proceed");
 
-    // Simulate crash: leave in_progress without runId — recovery_needed, never re-exec.
+    // Simulate crash: leave in_progress without runId — honest in_progress, never re-exec / never false-dead.
     const again = await executeScoutSafely({
       req: scoutReq("owner-a", baseMandate, key),
       kv: shared,
@@ -283,7 +283,7 @@ describe("Stage1B claim-lock idempotency", () => {
     expect(again.ok).toBe(false);
     if (again.ok) return;
     expect(again.status).toBe(409);
-    expect(again.body.error).toBe("idempotency_recovery_needed");
+    expect(again.body.error).toBe("idempotency_in_progress");
   });
 
   it("missing Idempotency-Key → new run ok, not labeled idempotent", async () => {

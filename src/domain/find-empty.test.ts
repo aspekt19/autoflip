@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 import { emptyNeed } from "./need";
-import { emptyReasonFromProviderError, findEmptyCopy, statusForFindEmpty } from "./find-empty";
+import {
+  emptyReasonFromProviderError,
+  findEmptyCopy,
+  resolveFindEmptyFromOutcomes,
+  statusForFindEmpty,
+} from "./find-empty";
 
 describe("find empty reasons", () => {
   it("maps provider errors without blaming the shopper's filters for config/quota/timeout", () => {
@@ -66,5 +71,44 @@ describe("find empty reasons", () => {
     const copy = findEmptyCopy("provider_failure", null, "The listing lookup returned an error.");
     expect(copy.detail).toBe("The listing lookup returned an error.");
     expect(copy.detail).not.toMatch(/nothing in your area/i);
+  });
+
+  it("incomplete_search is not empty-market advice", () => {
+    const copy = findEmptyCopy("incomplete_search", null, "Mazda CX-5 timed out.");
+    expect(copy.headline).toMatch(/Incomplete search/i);
+    expect(copy.detail).toMatch(/Mazda CX-5 timed out/i);
+    expect(copy.nextStep).toMatch(/Retry/i);
+    expect(copy.nextStep).not.toMatch(/loosen|wider radius|raise the mileage/i);
+    expect(statusForFindEmpty("incomplete_search")).toBe(200);
+  });
+
+  it("resolveFindEmpty: mixed empty+timeout/quota → incomplete_search, not empty_inventory", () => {
+    const mixedTimeout = resolveFindEmptyFromOutcomes(
+      [
+        { outcome: "empty", message: null },
+        { outcome: "timeout", message: "timed out" },
+      ],
+      0,
+    );
+    expect(mixedTimeout?.reason).toBe("incomplete_search");
+    expect(mixedTimeout?.hardFail).toBe(false);
+
+    const mixedQuota = resolveFindEmptyFromOutcomes(
+      [
+        { outcome: "empty", message: null },
+        { outcome: "demo_limit", message: "quota" },
+      ],
+      0,
+    );
+    expect(mixedQuota?.reason).toBe("incomplete_search");
+
+    const allEmpty = resolveFindEmptyFromOutcomes(
+      [
+        { outcome: "empty", message: null },
+        { outcome: "empty", message: null },
+      ],
+      0,
+    );
+    expect(allEmpty?.reason).toBe("empty_inventory");
   });
 });

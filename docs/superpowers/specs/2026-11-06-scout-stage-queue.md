@@ -18,14 +18,12 @@ Hash: stripped mandate + planner + preferLive (spend fields stripped).
 
 Bind applied then error → replay; no foreign leak; no re-run.
 
-## STAGE1B-RECOVERY-FOLLOWON — queued AFTER Stage2B (before release)
+## STAGE1B-RECOVERY-FOLLOWON — THIS residue (a) with Stage2A residue (b)
 
-1. **Live overlap false-dead:** mid-run other facade sees `recovery_needed` “interrupted
-   before finish” though owner about to complete → return non-terminal `in_progress`/uncertain
-   honestly, not falsely dead. No heartbeat / No TTL reclaim.
-2. **`saveScoutRun` swallows Kv write** (`store.ts` ~26–33): SUCCESS ack without durable row →
-   second facade recovery_needed. Do not ack durable success unless row persisted;
-   truthful `persist_failure`/uncertain; no re-exec. Tests: sequential transient + active concurrency.
+1. **Live overlap false-dead:** mid-run peer → non-terminal `in_progress` (not falsely dead
+   `recovery_needed`). No heartbeat / No TTL reclaim.
+2. **`saveScoutRun` durable ack:** fail → `idempotency_persist_failure` / no SUCCESS / claim
+   stays `in_progress` without runId; no re-exec.
 
 ## STAGE2A — PIN 680b59a (confirmed)
 
@@ -37,30 +35,39 @@ Directions / first-failure-continue / geo v2 / session v2 / economics-unknown / 
 memory counters 0); cache-hit no-charge; pure failure statuses; shared-store copy; strict named
 skip; preferLive hash. **Do not rewrite ledger.**
 
-## STAGE2A-FOLLOWON-RESIDUE — queued AFTER Stage2B (copy/UI; ledger stays)
+## STAGE2A-FOLLOWON-RESIDUE — THIS residue (b) with recovery-followon (a)
 
-Mixed zero-rows: successful EMPTY + TIMEOUT → 200 `empty_inventory` partialFailure but UI
-shows only “No listings…” + widen/loosen filters; timed-out models labeled “Live models checked”;
-queryOutcomes not rendered; matchMessage blocks non-exhaustive warning.
+Mixed zero-rows → `incomplete_search` (not empty-market / loosen-filter); searchedModels =
+successfully checked; failedModels = attempted-not-checked; UI labels both. Ledger untouched.
 
-Need: explicit PARTIAL/INCOMPLETE_SEARCH (unknown coverage for failed models); no confirmed-empty
-market / filters-first when failures present; attempted vs successfully checked; HTTP 200 OK if
-clearly partial. Tests: mixed empty+timeout and empty+quota headline/nextStep/models; no rows;
-partial nonempty unaffected.
+## STAGE2B — PIN dac59b3 (confirmed 317 tests; PRODUCT not release closure)
 
-## STAGE2B — THIS bounded run (genuine autonomy — priority; do not interrupt)
+Confirmed: adversarial missing-price rejected / overpriced replaced / distinct peer actually
+investigated; unknown history withholds; title forbid; claimsSafeBuy false; unsupported gov
+replay no-charge tool counts; empty replacement abstain; real recentOutcomes transport.
 
-- Actual tool outcomes (gov/inventory.search unsupported ≠ cache-success)
-- Real replace acquisition of distinct candidate within budget
-- Planner receives tool feedback; can replan/reject/replace/stop under deterministic constraints
-- Offline full-loop tests: decisions change with evidence; honest fewer/none
-- scout_plan transport stays real; offline claim honest (`autonomyClaim=none`)
-- No invented title/history tools; unknown investigation allowed, no fake pass
+**Remain PRODUCT gap — do not market 2B as full goal / autonomy:**
+- `inventory.search` (~672–689) cannot call adapter again / change make·zip·radius
+- heuristic (~969+) still VIN-walk except unsupported/failed/replace-empty
+- `recentOutcomes` status+summary ≠ enough evidence facts; evidenceHints limited/investigated
+- Unknown or unsupported tool alone is **not** proof the car is bad — do not force replacement
+  merely because a gov tool is unavailable
 
-## STAGE3 — queued (honest metrics — not SERV quality from stubs)
+## STAGE3 — NEXT after this residue (honest metrics — not SERV quality from stubs)
 
 Eval tautologies (`claimsSafeBuy` always 0, `insufficientEvidenceInvestigated`,
 `realSourceAvailable` const, `rejectReplaceCovered`, mock≠efficacy).
+
+## STAGE2C — queued AFTER residue + Stage3 (bounded; not a new framework)
+
+Real bounded search adjustment within mandate/server caps:
+- typed validated search params → fresh results / duplicates / source / geo
+- provider + fixture adapters with budget spies (prove actual adapter dispatch with stubs;
+  hosted SERV probe = parent only)
+- richer bounded facts / missingness / gates / confidence into SERV prompt so feedback can
+  choose useful next check / reject / replace / **new search** — not blind VIN-walk
+- risk/evidence-directed choices without inventing history data
+- No fake autonomy claim; no paid Auto.dev / new expenses this unit
 
 ## Ops
 

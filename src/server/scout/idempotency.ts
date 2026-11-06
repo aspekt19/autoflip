@@ -13,7 +13,9 @@
  * After run completes, bind claim-owned runId (+ inventory flags) onto the in_progress claim,
  * then write the completed receipt. If receipt write fails, a later claim loads the run by
  * runId (ownership-checked) and finishes the receipt — no provider/planner re-exec.
- * Uncertain claims (no runId, missing run, owner mismatch) → recovery_needed.
+ * No runId yet → honest in_progress (active overlap; not false-dead).
+ * Bound runId but missing durable run / owner mismatch / receipt write fail → recovery_needed.
+ * Never TTL reclaim / never re-exec expensive work.
  */
 
 import { createHash } from "node:crypto";
@@ -162,20 +164,21 @@ export async function reconcileScoutIdempotencyClaim(input: {
     };
   }
   if (!claim.runId) {
+    // Active overlap OR abandoned mid-claim — not proven dead. Honest non-terminal in_progress.
+    // No TTL/heartbeat: do not declare recovery_needed (falsely dead) while owner may still finish.
     return {
-      kind: "recovery_needed",
+      kind: "in_progress",
       mandateHash: input.mandateHash,
-      reason:
-        "Idempotency claim exists without a bound runId (interrupted before finish). Work will not be re-executed; recovery_needed.",
     };
   }
 
   const run = await loadDurableScoutRun(input.kv, claim.runId);
   if (!run) {
+    // Bound runId but no durable row — persist failed or lost; not re-executing.
     return {
       kind: "recovery_needed",
       mandateHash: input.mandateHash,
-      reason: `Claim references runId ${claim.runId} but no durable run row was found — uncertain; not re-executing.`,
+      reason: `Claim references runId ${claim.runId} but no durable run row was found — persist uncertain; not re-executing.`,
     };
   }
   if (run.ownerId !== input.ownerId) {

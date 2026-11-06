@@ -23,13 +23,31 @@ function metaKey(runId: string): string {
   return `scout:meta:${runId}`;
 }
 
-export async function saveScoutRun(kv: Kv | null, run: ScoutRunResult): Promise<void> {
+/**
+ * Persist scout run. When kv is present, durable write must succeed before callers
+ * ack idempotent success — do not swallow Kv errors (Stage1B-recovery-followon).
+ */
+export async function saveScoutRun(
+  kv: Kv | null,
+  run: ScoutRunResult,
+): Promise<{ ok: true } | { ok: false; message: string }> {
   memory.set(run.runId, run);
-  if (!kv) return;
+  if (!kv) return { ok: true };
   try {
     await kv.set(key(run.runId), JSON.stringify(run));
-  } catch {
-    /* memory fallback only */
+    const verify = await kv.get(key(run.runId));
+    if (!verify) {
+      return { ok: false, message: "Durable scout run write did not persist (read-back empty)." };
+    }
+    return { ok: true };
+  } catch (err) {
+    return {
+      ok: false,
+      message:
+        err instanceof Error
+          ? `Durable scout run write failed: ${err.message}`
+          : "Durable scout run write failed.",
+    };
   }
 }
 

@@ -40,8 +40,10 @@ type ListingCard = {
 
 type MatchGroup = {
   direction: SearchDirection;
-  /** Models actually dispatched — never budget-skipped. */
+  /** Models with successful provider response (ok/empty) — UI "checked". */
   searchedModels?: Array<{ make: string; model: string }>;
+  /** Dispatched but failed/timed out — attempted, not successfully checked. */
+  failedModels?: Array<{ make: string; model: string; outcome?: string }>;
   plannedModels?: Array<{ make: string; model: string }>;
   skippedModels?: Array<{ make: string; model: string; reason?: string }>;
   listings: ListingCard[];
@@ -923,7 +925,10 @@ function AssistantFlow({
               <p className="hint">
                 {group.searchedModels?.length
                   ? `Live models checked: ${group.searchedModels.map((item) => `${item.make} ${item.model}`).join(", ")}.`
-                  : "No live model search completed for this group."}
+                  : "No live model search completed successfully for this group."}
+                {group.failedModels?.length
+                  ? ` Attempted but not checked: ${group.failedModels.map((item) => `${item.make} ${item.model}${item.outcome ? ` (${item.outcome})` : ""}`).join(", ")}.`
+                  : ""}
                 {group.skippedModels?.length
                   ? ` Skipped (provider budget): ${group.skippedModels.map((item) => `${item.make} ${item.model}`).join(", ")} — not checked.`
                   : ""}{" "}

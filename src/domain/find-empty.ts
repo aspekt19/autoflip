@@ -8,6 +8,7 @@ import { noMatchMessage, searchScopeLabel } from "./need";
 export const FIND_EMPTY_REASONS = [
   "no_directions",
   "empty_inventory",
+  "incomplete_search",
   "provider_failure",
   "provider_timeout",
   "listings_unconfigured",
@@ -67,6 +68,23 @@ export function resolveFindEmptyFromOutcomes(
     return { reason: "unknown", hardFail: false, observedMessage: null };
   }
   const providerSucceeded = attempted.filter((o) => o.outcome === "ok" || o.outcome === "empty");
+  const providerFailed = attempted.filter(
+    (o) =>
+      o.outcome === "timeout" ||
+      o.outcome === "error" ||
+      o.outcome === "demo_limit" ||
+      o.outcome === "unsupported",
+  );
+  if (providerSucceeded.length > 0 && providerFailed.length > 0) {
+    // Partial coverage — not a confirmed empty market.
+    return {
+      reason: "incomplete_search",
+      hardFail: false,
+      observedMessage:
+        providerFailed.map((o) => o.message).find(Boolean) ??
+        "Some model searches failed or timed out; coverage is incomplete.",
+    };
+  }
   if (providerSucceeded.length > 0) {
     return {
       reason: "empty_inventory",
@@ -138,6 +156,16 @@ export function findEmptyCopy(
         nextStep: need?.zip && need.distanceMiles != null
           ? "Try a wider radius, switch to nationwide, raise the mileage cap, or loosen the make/model refine."
           : "Try raising the mileage or budget cap, or refine to a different model. This was a confirmed empty provider result, not a connection failure.",
+      };
+    case "incomplete_search":
+      return {
+        reason,
+        headline: "Incomplete search — coverage unknown for some models",
+        detail:
+          observedMessage?.trim() ||
+          "At least one model search succeeded empty, but other model searches timed out or failed. This is a partial result, not proof the market is empty.",
+        nextStep:
+          "Retry the search to finish the failed models. Failed lookups are not confirmed empty inventory — changing filters will not fill unknown coverage.",
       };
     case "provider_timeout":
       return {
@@ -218,6 +246,11 @@ export function statusForFindEmpty(reason: FindEmptyReason): number {
       return 502;
     case "invalid_need":
       return 400;
+    case "incomplete_search":
+    case "empty_inventory":
+    case "no_directions":
+    case "unknown":
+      return 200;
     default:
       return 200;
   }

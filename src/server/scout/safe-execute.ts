@@ -275,7 +275,29 @@ export async function executeScoutSafely(input: {
       .join(" ");
   }
 
-  if (input.kv) await saveScoutRun(input.kv, result);
+  const persisted = input.kv ? await saveScoutRun(input.kv, result) : { ok: true as const };
+  if (!persisted.ok) {
+    // Idempotent path: never ack durable success without a persisted run row.
+    // Leave claim in_progress without runId — peers see in_progress (not false-dead); no re-exec.
+    if (idemRecordKey) {
+      return {
+        ok: false,
+        status: 503,
+        body: {
+          error: "idempotency_persist_failure",
+          message: `${persisted.message} Scout work may have run, but durable receipt was not acknowledged. Do not retry as free; no extra tool calls.`,
+        },
+      };
+    }
+    return {
+      ok: false,
+      status: 503,
+      body: {
+        error: "persist_failure",
+        message: persisted.message,
+      },
+    };
+  }
 
   const ok: SafeScoutOk = {
     ok: true,
@@ -285,8 +307,8 @@ export async function executeScoutSafely(input: {
     paidBlockedReason: inventory.paidBlockedReason,
   };
 
-  // Bind claim-owned runId BEFORE completed receipt so a failed receipt write is recoverable
-  // without re-executing provider/planner work. Never TTL reclaim.
+  // Bind claim-owned runId only after durable run row exists, then write completed receipt.
+  // Never TTL reclaim. Receipt-write failure: next claim reconciles from runId.
   if (idemRecordKey && mandateHash && input.kv) {
     await bindScoutIdempotencyRun(input.kv, idemRecordKey, {
       ownerId: input.req.ownerId,
@@ -306,7 +328,7 @@ export async function executeScoutSafely(input: {
         paidBlockedReason: inventory.paidBlockedReason,
       });
     } catch {
-      // Run + bind are durable; next claim reconciles receipt. Do not fail the successful run.
+      // Run + bind are durable; next claim reconciles receipt.
     }
   }
 

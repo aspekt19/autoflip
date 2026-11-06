@@ -104,7 +104,7 @@ describe("Stage1B-recovery", () => {
     expect(done.result.runId).toBe(runId);
   });
 
-  it("claim applied then abandoned (no runId) → recovery_needed; never re-exec", async () => {
+  it("claim applied then abandoned (no runId) → in_progress (not false-dead); never re-exec", async () => {
     clearScoutRunMemory();
     const kv = new MemoryKv();
     const key = "claim-then-error";
@@ -118,7 +118,7 @@ describe("Stage1B-recovery", () => {
     });
     expect(claim.kind).toBe("proceed");
 
-    // Ambiguous response path: claim landed, no bind, no run.
+    // Active overlap / mid-claim — not proven dead. Honest non-terminal in_progress.
     const again = await claimScoutIdempotency({
       kv,
       ownerId: "owner-a",
@@ -127,7 +127,7 @@ describe("Stage1B-recovery", () => {
       intent,
       env: {},
     });
-    expect(again.kind).toBe("recovery_needed");
+    expect(again.kind).toBe("in_progress");
 
     const viaHandler = await executeScoutSafely({
       req: {
@@ -142,7 +142,7 @@ describe("Stage1B-recovery", () => {
     });
     expect(viaHandler.ok).toBe(false);
     if (viaHandler.ok) return;
-    expect(viaHandler.body.error).toBe("idempotency_recovery_needed");
+    expect(viaHandler.body.error).toBe("idempotency_in_progress");
   });
 
   it("foreign owner cannot reconcile or read another owner's bound run", async () => {
@@ -269,6 +269,76 @@ describe("Stage1B-recovery", () => {
     });
     expect(again.kind).toBe("recovery_needed");
     expect(again.kind === "recovery_needed" && again.reason).toMatch(/no durable run/i);
+  });
+
+  it("saveScoutRun Kv failure → no SUCCESS ack; claim stays in_progress; no re-exec / no TTL reclaim", async () => {
+    clearScoutRunMemory();
+    const durable = new MemoryKv();
+    const key = "persist-fail";
+    const failing = new (class implements Kv {
+      readonly backend = "memory" as const;
+      get(k: string) {
+        return durable.get(k);
+      }
+      async set(k: string, value: string) {
+        if (k.startsWith("scout:run:")) {
+          throw new Error("injected durable run write failure");
+        }
+        return durable.set(k, value);
+      }
+      setNx(k: string, v: string, o?: { ttlMs?: number }) {
+        return durable.setNx(k, v, o);
+      }
+      delete(k: string) {
+        return durable.delete(k);
+      }
+      incr(k: string) {
+        return durable.incr(k);
+      }
+      decr(k: string) {
+        return durable.decr(k);
+      }
+    })();
+
+    const first = await executeScoutSafely({
+      req: {
+        ownerId: "owner-a",
+        mandate,
+        channel: "test",
+        planner: "offline_heuristic",
+        idempotencyKey: key,
+      },
+      kv: failing,
+      env: { SCOUT_ENABLED: "true" },
+    });
+    expect(first.ok).toBe(false);
+    if (first.ok) return;
+    expect(first.status).toBe(503);
+    expect(first.body.error).toBe("idempotency_persist_failure");
+
+    // Claim remains in_progress without runId — peer sees active overlap, not false-dead recovery.
+    const raw = await durable.get(idemRecordKeyForTest("owner-a", key));
+    expect(raw).toBeTruthy();
+    const claim = JSON.parse(raw!) as { status: string; runId?: string };
+    expect(claim.status).toBe("in_progress");
+    expect(claim.runId).toBeUndefined();
+
+    clearScoutRunMemory();
+    const peer = await executeScoutSafely({
+      req: {
+        ownerId: "owner-a",
+        mandate,
+        channel: "test",
+        planner: "offline_heuristic",
+        idempotencyKey: key,
+      },
+      kv: failing,
+      env: { SCOUT_ENABLED: "true" },
+    });
+    expect(peer.ok).toBe(false);
+    if (peer.ok) return;
+    expect(peer.status).toBe(409);
+    expect(peer.body.error).toBe("idempotency_in_progress");
   });
 
   it("bind then complete success path still replays coherently", async () => {

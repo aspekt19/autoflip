@@ -45,10 +45,12 @@ export type FindMatchGroup = {
   /** Full planned query list for this direction (may include budget-skipped). */
   plannedModels: Array<{ make: string; model: string }>;
   /**
-   * Models actually dispatched to the provider (ok/empty/error/timeout/…).
-   * Never includes budget_exhausted — UI "checked" must use this, not plannedModels.
+   * Models with a successful provider response (ok or confirmed empty).
+   * UI "Live models checked" must use this — never timeouts/failures.
    */
   searchedModels: Array<{ make: string; model: string }>;
+  /** Dispatched but failed/timed out/unsupported — attempted, not successfully checked. */
+  failedModels: Array<{ make: string; model: string; outcome: FindQueryOutcomeKind }>;
   /** Planned but never dispatched because the server query ceiling was hit. */
   skippedModels: Array<{ make: string; model: string; reason: "budget_exhausted" }>;
   providerWarning: string | null;
@@ -331,18 +333,29 @@ export async function runFindMatch(
       historyOnListing: false,
     };
     const emptyNote = listings.length === 0 ? noMatchMessage(need) : null;
-    const attempted = queryOutcomes.filter((o) => o.outcome !== "budget_exhausted");
+    const succeeded = queryOutcomes.filter((o) => o.outcome === "ok" || o.outcome === "empty");
+    const failed = queryOutcomes.filter(
+      (o) =>
+        o.outcome === "timeout" ||
+        o.outcome === "error" ||
+        o.outcome === "demo_limit" ||
+        o.outcome === "unsupported",
+    );
     const skipped = queryOutcomes
       .filter((o) => o.outcome === "budget_exhausted")
       .map((o) => ({ make: o.make, model: o.model, reason: "budget_exhausted" as const }));
+    const coverageIncomplete = failed.length > 0;
     groups.push({
       direction,
       listings,
       plannedModels: queries,
-      searchedModels: attempted.map((o) => ({ make: o.make, model: o.model })),
+      searchedModels: succeeded.map((o) => ({ make: o.make, model: o.model })),
+      failedModels: failed.map((o) => ({ make: o.make, model: o.model, outcome: o.outcome })),
       skippedModels: skipped,
-      coverage: coverageSentence(coverageInput),
-      coverageLevel: coverageConfidence(coverageInput),
+      coverage: coverageIncomplete
+        ? `${coverageSentence(coverageInput)} Coverage incomplete: ${failed.map((f) => `${f.make} ${f.model} (${f.outcome})`).join(", ")} did not return a successful provider response.`
+        : coverageSentence(coverageInput),
+      coverageLevel: coverageIncomplete ? "low" : coverageConfidence(coverageInput),
       note: [emptyNote, directionNote, assumption, directionWarning].filter(Boolean).join(" ") || null,
       providerWarning: directionWarning,
       queryOutcomes,
@@ -377,7 +390,14 @@ export async function runFindMatch(
   let emptyReason: FindEmptyReason | null = null;
   let headline: string | null = null;
   let nextStep: string | null = null;
-  if (visible === 0 && resolved?.reason === "empty_inventory") {
+  if (visible === 0 && resolved?.reason === "incomplete_search") {
+    const empty = findEmptyCopy("incomplete_search", need, resolved.observedMessage);
+    emptyReason = empty.reason;
+    message = empty.detail;
+    headline = empty.headline;
+    nextStep = empty.nextStep;
+    partialFailureWarning = empty.detail;
+  } else if (visible === 0 && resolved?.reason === "empty_inventory") {
     const empty = findEmptyCopy("empty_inventory", need, resolved.observedMessage ?? groups[0]?.note ?? null);
     emptyReason = empty.reason;
     message = empty.detail;

@@ -150,7 +150,7 @@ describe("Stage2A-followon: empty ≠ all-failure", () => {
     expect(result.body.headline).toMatch(/No matching listings/i);
   });
 
-  it("mix success(empty)+failure → empty_inventory with partialFailure; not all-unavailable headline", async () => {
+  it("mix success(empty)+failure → incomplete_search; not empty-market / loosen-filter advice", async () => {
     let n = 0;
     const fetchImpl = vi.fn(async (url: RequestInfo | URL) => {
       if (!String(url).includes("api.auto.dev")) return servAllow();
@@ -173,10 +173,15 @@ describe("Stage2A-followon: empty ≠ all-failure", () => {
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     expect(result.status).toBe(200);
-    expect(result.body.emptyReason).toBe("empty_inventory");
+    expect(result.body.emptyReason).toBe("incomplete_search");
     expect(result.body.partialFailure).toBe(true);
-    expect(result.body.headline).toMatch(/No matching listings/i);
-    expect(result.body.headline).not.toMatch(/unavailable/i);
+    expect(result.body.headline).toMatch(/Incomplete search/i);
+    expect(result.body.headline).not.toMatch(/No matching listings/i);
+    expect(result.body.nextStep).toMatch(/Retry/i);
+    expect(result.body.nextStep).not.toMatch(/loosen|wider radius|raise the mileage/i);
+    const group = result.body.directions[0];
+    expect(group?.searchedModels).toEqual([{ make: "Toyota", model: "RAV4" }]);
+    expect(group?.failedModels?.some((m) => m.model === "CX-5")).toBe(true);
   });
 
   it("partial nonempty keeps 200 and does not claim empty_inventory", async () => {

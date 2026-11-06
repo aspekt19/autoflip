@@ -103,7 +103,11 @@ describe("runFindMatch Stage2A search semantics", () => {
     expect(result.body.providerQueriesUsed).toBeGreaterThanOrEqual(3);
     const named = result.body.directions.find((d) => d.direction.segment === "Models you named");
     expect(named).toBeTruthy();
-    expect(named!.searchedModels.length).toBeGreaterThanOrEqual(3);
+    // Attempted ≥3; searchedModels = successfully checked only (timeouts → failedModels).
+    expect(named!.plannedModels.length).toBeGreaterThanOrEqual(3);
+    expect(named!.failedModels.some((m) => m.outcome === "timeout" || m.outcome === "error")).toBe(true);
+    expect(named!.searchedModels.length).toBeGreaterThanOrEqual(2);
+    expect(named!.searchedModels.every((m) => !named!.failedModels.some((f) => f.model === m.model))).toBe(true);
     expect(named!.queryOutcomes[0]?.outcome).toMatch(/timeout|error/);
     expect(named!.queryOutcomes.slice(1).some((o) => o.outcome === "ok")).toBe(true);
     expect(named!.listings.length).toBeGreaterThan(0);
