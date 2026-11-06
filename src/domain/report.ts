@@ -33,7 +33,7 @@ export type ReportInput = {
   sample?: boolean;
   repairAbility?: import("./need").RepairAbility;
   targetProfitUsd?: number | null;
-  /** The time AutoFlip assembled this report, used for source request timestamps. */
+  /** The time Lemonless assembled this report, used for source request timestamps. */
   checkedAt?: string;
   /** Whether the VIN and comparable lookups both came from Auto.dev's cache. */
   listingCached?: boolean;
@@ -156,7 +156,7 @@ function buildSourceChecks(args: {
     {
       source: "NICB VINCheck",
       status: "not_connected",
-      detail: "No NICB lookup is performed inside AutoFlip. The report links to the manual free check.",
+      detail: "No NICB lookup is performed inside Lemonless. The report links to the manual free check.",
       checkedAt: null,
     },
   ];

@@ -57,7 +57,7 @@ describe("editorial directions", () => {
     expect(directions[0]?.models.length).toBeLessThanOrEqual(6);
     expect(directions[0]?.yearMin).toBe(2012);
     expect(directions[0]?.yearMax).toBe(2019);
-    expect(directions[0]?.why).toContain("AutoFlip guidance");
+    expect(directions[0]?.why).toContain("Lemonless guidance");
     expect(directions.every((item) => item.guidance === "editorial")).toBe(true);
   });
 

@@ -1,6 +1,6 @@
 {
-  "name": "AutoFlip",
-  "description": "Turns a US used-car listing into an explainable buy / negotiate / pass / needs inspection decision. TypeScript owns every number; AI review may choose the shopper action only inside hard gates. Insufficient evidence yields a withheld verdict with a concrete reason.",
+  "name": "Lemonless",
+  "description": "Buy smart. Stay lemonless. Used-car verdicts you can check. TypeScript owns every number; AI review may choose the shopper action only inside hard gates. Insufficient evidence yields a withheld verdict with a concrete reason.",
   "url": "https://autoflip-umber.vercel.app",
   "documentation": "https://autoflip-umber.vercel.app/developers",
   "version": "0.1.0",
@@ -34,7 +34,7 @@
       "name": "full_report",
       "transport": "mcp",
       "cost": "1 credit",
-      "description": "Full AutoFlip analysis for one VIN or listing URL. Every response includes Proof of AI: which numbers came from code, which gates ran, and which AI review steps ran.",
+      "description": "Full Lemonless analysis for one VIN or listing URL. Every response includes Proof of AI: which numbers came from code, which gates ran, and which AI review steps ran.",
       "input": {
         "mode": "personal | flip (required)",
         "vin": "string",

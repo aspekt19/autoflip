@@ -21,9 +21,9 @@ export function HomeStage() {
           <div className={`film-overlay phase-${phase}`}>
             <div className="film-copy">
               <div>
-                <p className="kicker">One car, two goals</p>
-                <h1>Describe the car you need</h1>
-                <p className="lead">Find options for your budget, for yourself or for resale. The first search is free; a full report on one car costs 1 credit. Ongoing price alerts are a separate optional plan.</p>
+                <p className="kicker">Used-car verdicts you can check.</p>
+                <h1>Buy smart. Stay lemonless.</h1>
+                <p className="lead">Find better cars. Detect hidden risks. Make smarter decisions.</p>
               </div>
               <div>
                 <HomeSearch onModeChange={setMode} />
@@ -74,18 +74,18 @@ export function HomeStage() {
           <span>. Report credits and Deal Radar plans are separate.</span>
         </p>
       </section>
-      <section className="story-after trust-row story-trust reveal" aria-label="How a verdict is built">
+      <section className="story-after trust-row story-trust reveal" aria-label="What Lemonless checks">
         <article>
-          <strong>The math is on the page</strong>
-          <span>Price, comps, and the gap are calculated in code and shown.</span>
+          <strong>Real numbers</strong>
+          <span>Prices, mileage and costs are calculated from real listings, never guessed.</span>
         </article>
         <article>
-          <strong>Gaps stay visible</strong>
-          <span>Missing history, mileage, or comps is labeled, not filled in.</span>
+          <strong>Hidden risks</strong>
+          <span>Title, recalls and odometer checks surface what the seller won&apos;t mention.</span>
         </article>
         <article>
-          <strong>Same analysis for agents</strong>
-          <span>A key on For agents spends the same report credit.</span>
+          <strong>Proof for every verdict</strong>
+          <span>Each report shows how it was checked and why.</span>
         </article>
       </section>
     </div>

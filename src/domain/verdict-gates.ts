@@ -106,7 +106,7 @@ function gateDataSufficiency(report: ComputedReport): GateResult {
     return {
       id: "data_sufficiency",
       status: "withhold",
-      reason: "The listing has no asking price, so AutoFlip withholds a buy/negotiate/pass verdict.",
+      reason: "The listing has no asking price, so Lemonless withholds a buy/negotiate/pass verdict.",
       forbid: ["buy", "negotiate", "pass", "needs_inspection"],
     };
   }

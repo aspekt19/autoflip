@@ -66,7 +66,7 @@ export function ReportView({ report }: { report: FullReport }) {
         <div className="decision-provenance" aria-label="How this verdict was chosen">
           <p className="hint">
             {computed.decision.source === "gates_withheld"
-              ? "Ordered checks found insufficient evidence. AutoFlip withheld a verdict instead of guessing."
+              ? "Ordered checks found insufficient evidence. Lemonless withheld a verdict instead of guessing."
               : computed.decision.source === "serv"
                 ? "AI review chose this action from the computed facts. Code checked hard safety gates afterward."
                 : computed.decision.source === "guardrail_clamp"
@@ -343,7 +343,7 @@ export function ReportView({ report }: { report: FullReport }) {
           </li>
         </ul>
         <h2>Verify this VIN with outside records</h2>
-        <p className="hint">AutoFlip does not have a complete title, theft, flood, or service-history database. Run the VIN through these independent sources before purchase.</p>
+        <p className="hint">Lemonless does not have a complete title, theft, flood, or service-history database. Run the VIN through these independent sources before purchase.</p>
         <ul className="refuse">
           <li>
             <a href={`https://www.nhtsa.gov/recalls?vin=${encodeURIComponent(car.vin)}`} target="_blank" rel="noreferrer">
@@ -429,7 +429,7 @@ export function ReportView({ report }: { report: FullReport }) {
             dateStyle: "medium",
             timeStyle: "short",
             timeZone: "UTC",
-          }).format(new Date(report.createdAt))} UTC. This is AutoFlip&apos;s request/report time, not the date a provider last updated its records. Auto.dev may return cached listings for up to 6 hours.
+          }).format(new Date(report.createdAt))} UTC. This is Lemonless&apos;s request/report time, not the date a provider last updated its records. Auto.dev may return cached listings for up to 6 hours.
         </p>
         {computed.sourceChecks?.length ? (
           <div className="table-scroll">

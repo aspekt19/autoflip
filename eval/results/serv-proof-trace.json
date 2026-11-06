@@ -1,7 +1,7 @@
 {
   "schema": "autoflip.serv-proof-trace.v1",
   "generatedAt": "2026-11-06T09:36:15.626Z",
-  "disclosure": "Real SERV inference execution against AutoFlip's fixed flip-clear evaluation fixture. This is not live customer traffic or a production vehicle report. Raw prompt, VIN, supplied facts, and free-form response text are intentionally omitted.",
+  "disclosure": "Real SERV inference execution against Lemonless's fixed flip-clear evaluation fixture. This is not live customer traffic or a production vehicle report. Raw prompt, VIN, supplied facts, and free-form response text are intentionally omitted.",
   "scenario": {
     "caseId": "flip-clear",
     "task": "Decide whether a resale estimate is clear enough to show",

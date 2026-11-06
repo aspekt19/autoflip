@@ -100,7 +100,7 @@ export type ComparableUsed = {
   sourceUrl?: string | null;
   /** Listing provider label shown to the shopper. */
   sourceLabel?: string | null;
-  /** When AutoFlip fetched or loaded this row for the report. */
+  /** When Lemonless fetched or loaded this row for the report. */
   fetchedAt?: string | null;
 };
 
@@ -130,7 +130,7 @@ export type SourceCheck = {
   source: string;
   status: SourceCheckStatus;
   detail: string;
-  /** When AutoFlip made the request. Null when data came from a fixture, is not connected, or provider freshness is not exposed. */
+  /** When Lemonless made the request. Null when data came from a fixture, is not connected, or provider freshness is not exposed. */
   checkedAt: string | null;
 };
 

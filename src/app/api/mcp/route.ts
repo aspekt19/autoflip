@@ -25,7 +25,7 @@ export const maxDuration = 60;
 export function GET() {
   const config = readX402Config();
   return Response.json({
-    name: "autoflip",
+    name: "lemonless",
     protocol: "2025-06-18",
     transport: "json-rpc over HTTP POST",
     tools: toolList(),

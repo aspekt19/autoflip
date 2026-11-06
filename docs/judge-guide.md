@@ -1,10 +1,10 @@
-# AutoFlip: judge guide
+# Lemonless: judge guide
 
 ## The product
 
-AutoFlip helps a US used-car shopper decide whether one listing is worth pursuing. It compares asking prices and mileage, applies disclosed history adjustments, checks public government data, and returns a verdict with its arithmetic. Deal Radar applies the same idea to saved searches; Flip mode estimates a resale range from comparable asking prices, not completed sales.
+Lemonless helps a US used-car shopper decide whether one listing is worth pursuing. It compares asking prices and mileage, applies disclosed history adjustments, checks public government data, and returns a verdict with its arithmetic. Deal Radar applies the same idea to saved searches; Flip mode estimates a resale range from comparable asking prices, not completed sales.
 
-Live product: [AutoFlip preview](https://autoflip-umber.vercel.app/). The sample report is explicitly labeled: [open sample](https://autoflip-umber.vercel.app/report/sample).
+Live product: [Lemonless preview](https://autoflip-umber.vercel.app/). The sample report is explicitly labeled: [open sample](https://autoflip-umber.vercel.app/report/sample).
 
 ## The architecture in one picture
 
@@ -69,13 +69,13 @@ Profile definitions and the exact model features/tools are in [profiles.ts](../s
 
 The shopper-facing explanation in [decision-note.ts](../src/domain/decision-note.ts) is assembled from these recorded flags; it is not a separate model-generated claim about what happened. Agent report responses include a proof object. After a successful evaluation workflow completes, [SERV redacted proof trace](../.github/workflows/serv-proof-trace.yml) makes one additional real inference call using the fixed `flip-clear` evaluation fixture, uploads the sanitized metadata, and pushes it to a separate `evidence/serv-proof-trace-…` branch. A maintainer opens the review PR from the workflow summary link because this repository blocks pull-request creation by the Actions token. This is a controlled evaluation trace, not live customer traffic or a production vehicle report. It omits raw prompts, VINs, supplied facts, and free-form model output. In the recorded trace, the Shadow Agent outcome is reported as `not_exposed` when the response does not expose it; configured tools alone are not proof that a tool call completed. Never treat planned/skipped profile metadata as a completed inference call.
 
-## How AutoFlip fits the Open Track
+## How Lemonless fits the Open Track
 
 The official [SERV Hackathon Edition 01 page](https://www.openserv.ai/hackathon) defined the Open Track broadly: an agent, workflow, or product that leverages SERV Reasoning. The page listed creativity, user-readiness, and revenue potential as the judging criteria. Robinhood Mainnet/MCP, Coinbase AgentKit, and IXS RWA Vaults were separate partner tracks. **Open Track did not require an onchain wallet, x402 payments, or a multi-agent swarm.**
 
-AutoFlip is best presented as a consumer decision product with an agent-facing interface—not as an autonomous onchain economy.
+Lemonless is best presented as a consumer decision product with an agent-facing interface—not as an autonomous onchain economy.
 
-| Criterion | What AutoFlip can demonstrate | Honest qualification |
+| Criterion | What Lemonless can demonstrate | Honest qualification |
 | --- | --- | --- |
 | Creativity | One workflow supports both personal purchase decisions and resale screening; the same calculated evidence is exposed to shoppers and agents. SERV screens untrusted text, extracts structured needs, interprets procedural rules, reviews Radar signals, and selects Flip alert/skip outcomes. | Used-car valuation is an established category. The differentiator is the bounded, evidence-linked workflow—not the claim that the category itself is new. |
 | User readiness | A working preview, labeled sample report, report-credit flow, Deal Radar, and agent API are implemented. | This remains an evaluation preview. Stripe is test mode; Auto.dev free-plan usage is evaluation-only; no licensed full title/service-history provider is connected; browser identity is anonymous. |
@@ -85,7 +85,7 @@ AutoFlip is best presented as a consumer decision product with an agent-facing i
 
 ASSAY was the Best Overall Build and Open Track winner. OpenServ describes it as auditing Robinhood Chain stock-token valuations against raw onchain data, with SERV deciding whether a finding matters to the agent's mandate. SERVPIT received an Open Track honorable mention: six wallet-owning agents reason about whether to enter, stake, or borrow. Those projects made their specific decisions and consequences unusually visible.
 
-AutoFlip is not equivalent to SERVPIT: it does not claim autonomous agents with independent wallets. Its strongest Open Track example is Flip Radar: TypeScript calculates profit estimates, comparable count, and risk signals; SERV first applies the feasibility rules and then returns a strict `alert` or `skip` judgment. This is closer to ASSAY's pattern of using SERV to decide whether a computed finding deserves attention than a generic text-generation wrapper. The scope is still narrower: AutoFlip does not execute trades or control wallets, and the numeric decision remains in code.
+Lemonless is not equivalent to SERVPIT: it does not claim autonomous agents with independent wallets. Its strongest Open Track example is Flip Radar: TypeScript calculates profit estimates, comparable count, and risk signals; SERV first applies the feasibility rules and then returns a strict `alert` or `skip` judgment. This is closer to ASSAY's pattern of using SERV to decide whether a computed finding deserves attention than a generic text-generation wrapper. The scope is still narrower: Lemonless does not execute trades or control wallets, and the numeric decision remains in code.
 
 Payrun is a useful secondary reference for the separation of responsibilities—SERV reasons within deterministic policy limits and a separate execution layer acts—but it won the Coinbase AgentKit partner track, not the Open Track.
 
@@ -99,7 +99,7 @@ Payrun is a useful secondary reference for the separation of responsibilities—
 
 The agent API supports two separate payment paths. API-key requests spend one account credit after the report has been assembled. Without an API key, the optional x402 rail can accept a payment payload when `X402_PAY_TO`, `X402_NETWORK`, and `X402_ASSET` are configured. The scheme defaults to `gokite-aa`; the facilitator defaults to Pieverse. The rail is implemented in [x402.ts](../src/io/x402.ts), exposed through [the HTTP report endpoint](../src/app/api/v1/report/route.ts) and MCP [full_report](../src/app/api/mcp/route.ts).
 
-The payment lifecycle now separates verification from settlement: the facilitator verifies the payment first, AutoFlip builds the report, and settlement is attempted only after report generation succeeds. This avoids charging for malformed requests or failed analysis. A configured endpoint is not evidence of live usage; only a successful settlement response and transaction hash prove that a payment occurred. No live payment was performed as part of this code review.
+The payment lifecycle now separates verification from settlement: the facilitator verifies the payment first, Lemonless builds the report, and settlement is attempted only after report generation succeeds. This avoids charging for malformed requests or failed analysis. A configured endpoint is not evidence of live usage; only a successful settlement response and transaction hash prove that a payment occurred. No live payment was performed as part of this code review.
 
 ## Evaluation: executable, not yet published
 

@@ -12,12 +12,12 @@ export default function PrivacyPage() {
         </p>
         <h1>Privacy</h1>
         <p className="lead">
-          AutoFlip is an evaluation preview. This page describes what the preview stores and what it does not do.
+          Lemonless is an evaluation preview. This page describes what the preview stores and what it does not do.
         </p>
 
-        <h2>What AutoFlip is</h2>
+        <h2>What Lemonless is</h2>
         <p>
-          AutoFlip prepares a price verdict from used-car listing data and public government records. It is not a dealer,
+          Lemonless prepares a price verdict from used-car listing data and public government records. It is not a dealer,
           lender, inspector, insurer, or production vehicle-history service. Stripe runs in test mode only on this preview.
         </p>
 
@@ -30,7 +30,7 @@ export default function PrivacyPage() {
             <strong>NHTSA</strong> — public recall, complaint, and VIN-decode lookups when those endpoints respond.
           </li>
           <li>
-            Figures on a report (fair value, price gap, flip estimates) are calculated in AutoFlip&apos;s own code from those inputs.
+            Figures on a report (fair value, price gap, flip estimates) are calculated in Lemonless&apos;s own code from those inputs.
           </li>
         </ul>
 

@@ -60,7 +60,7 @@ export function AgentKeys() {
   return (
     <section>
       <h2>Keys for this browser</h2>
-      <p>The key is shown once. AutoFlip stores only a hash. A revoked key stops working immediately. Five live keys is the limit.</p>
+      <p>The key is shown once. Lemonless stores only a hash. A revoked key stops working immediately. Five live keys is the limit.</p>
       <div className="key-create">
         <label>
           Label

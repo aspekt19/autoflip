@@ -10,7 +10,7 @@ const requirement: PaymentRequirements = {
   network: "kite-testnet",
   maxAmountRequired: "1000000",
   resource: "https://autoflip.example/api/v1/report",
-  description: "AutoFlip full vehicle report",
+  description: "Lemonless full vehicle report",
   mimeType: "application/json",
   payTo: "0x1111111111111111111111111111111111111111",
   maxTimeoutSeconds: 120,

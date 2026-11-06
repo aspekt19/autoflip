@@ -15,9 +15,23 @@ const wide = Bebas_Neue({
   display: "swap",
 });
 
+const TAGLINE = "Buy smart. Stay lemonless.";
+const CATEGORY = "Used-car verdicts you can check.";
+
 export const metadata: Metadata = {
-  title: { default: "AutoFlip", template: "%s — AutoFlip" },
-  description: "A clear verdict on a used car, from the listing and public records.",
+  title: { default: `Lemonless — ${TAGLINE}`, template: "%s — Lemonless" },
+  description: `${TAGLINE} ${CATEGORY}`,
+  openGraph: {
+    title: `Lemonless — ${TAGLINE}`,
+    description: `${TAGLINE} ${CATEGORY}`,
+    siteName: "Lemonless",
+    type: "website",
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: `Lemonless — ${TAGLINE}`,
+    description: `${TAGLINE} ${CATEGORY}`,
+  },
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
@@ -33,13 +47,16 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           <PageFade>{children}</PageFade>
         </main>
         <p className="foot-note">
-          AutoFlip prepares a price verdict from listing comps and public government data. It is not a dealer, lender, inspector, or insurer. Recalls can be incomplete. Confirm the car, the out-the-door price, and any open campaigns with the seller before you pay.
+          <strong>Buy smart. Stay lemonless.</strong> Lemonless prepares a price verdict from listing comps and public
+          government data. It is not a dealer, lender, inspector, or insurer. Recalls can be incomplete. Confirm the car,
+          the out-the-door price, and any open campaigns with the seller before you pay.
         </p>
         <footer className="colophon">
           <a className="brand brand-foot" href="/">
             <img src="/logo.svg" alt="" width={32} height={32} />
-            <span className="brand-name">AutoFlip</span>
+            <span className="brand-name">Lemonless</span>
           </a>
+          <p className="foot-tagline">Buy smart. Stay lemonless.</p>
           <p className="foot-links">
             <a href="/find">Find</a>
             <a href="/check">Check by VIN</a>

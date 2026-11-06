@@ -1,6 +1,6 @@
 # Redacted SERV Proof of AI trace
 
-Real SERV inference execution against AutoFlip's fixed flip-clear evaluation fixture. This is not live customer traffic or a production vehicle report. Raw prompt, VIN, supplied facts, and free-form response text are intentionally omitted.
+Real SERV inference execution against Lemonless's fixed flip-clear evaluation fixture. This is not live customer traffic or a production vehicle report. Raw prompt, VIN, supplied facts, and free-form response text are intentionally omitted.
 
 | Field | Recorded value |
 | --- | --- |

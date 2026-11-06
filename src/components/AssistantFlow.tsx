@@ -824,7 +824,7 @@ function AssistantFlow({
               <input type="radio" name="check" checked={checkKind === "vin"} onChange={() => setCheckKind("vin")} /> By VIN
             </label>
           </div>
-          {checkKind === "link" ? <p className="hint">Paste a dealer listing link that contains the car&apos;s VIN. AutoFlip looks up the VIN in its listings data; it does not read or scrape the listing page itself.</p> : null}
+          {checkKind === "link" ? <p className="hint">Paste a dealer listing link that contains the car&apos;s VIN. Lemonless looks up the VIN in its listings data; it does not read or scrape the listing page itself.</p> : null}
           <div className="field">
             <label htmlFor="lookup">{checkKind === "link" ? "Listing link" : "17-character VIN"}</label>
             <input id="lookup" value={lookup} onChange={(event) => setLookup(event.target.value)} placeholder={checkKind === "link" ? "https://" : "17-character VIN"} />

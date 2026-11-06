@@ -151,6 +151,13 @@ a { color: inherit; }
   letter-spacing: 0.14em;
   text-transform: uppercase;
 }
+.foot-tagline {
+  margin: 0;
+  font-family: var(--sans);
+  font-size: 14px;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+}
 nav { display: flex; align-items: center; gap: 18px; font-family: var(--sans); }
 nav a { text-decoration: none; font-weight: 600; font-size: 13px; letter-spacing: 0.08em; text-transform: uppercase; }
 nav a:hover { color: #fff; }

@@ -33,8 +33,8 @@ export default function ComparePage() {
         </div>
         <div className="wrap hero-copy">
           <p className="kicker">Comparison</p>
-          <h1>Standard AI vs AutoFlip</h1>
-          <p className="lead">The same listing, read two ways. AutoFlip keeps the writing tied to the figures it calculated.</p>
+          <h1>Standard AI vs Lemonless</h1>
+          <p className="lead">The same listing, read two ways. Lemonless keeps the writing tied to the figures it calculated.</p>
         </div>
       </section>
       <div className="compare-sheet">
@@ -49,7 +49,7 @@ export default function ComparePage() {
                 <p>No answer yet.</p>
               </article>
               <article className="compare-card">
-                <strong className="choice-title">AutoFlip</strong>
+                <strong className="choice-title">Lemonless</strong>
                 <p>No answer yet.</p>
               </article>
             </div>
@@ -73,7 +73,7 @@ export default function ComparePage() {
                   </ul>
                 </article>
                 <article className="compare-card">
-                  <strong className="choice-title">AutoFlip</strong>
+                  <strong className="choice-title">Lemonless</strong>
                   <p>{example.checked}</p>
                   <ul className="compare-marks">
                     {example.checkedMarks.map((mark) => (
@@ -96,7 +96,7 @@ export default function ComparePage() {
               <tr>
                 <th scope="col">Check</th>
                 <th scope="col">Standard AI</th>
-                <th scope="col">AutoFlip</th>
+                <th scope="col">Lemonless</th>
               </tr>
             </thead>
             <tbody>

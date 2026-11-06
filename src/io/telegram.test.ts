@@ -88,7 +88,7 @@ describe("telegram linking", () => {
     expect(telegramDeepLink("@autoflip_bot", "abc12345")).toBe("https://t.me/autoflip_bot?start=abc12345");
     const message = alertMessage(base);
     const buttons = message.reply_markup.inline_keyboard.flat();
-    const view = buttons.find((item) => item.text === "View in AutoFlip");
+    const view = buttons.find((item) => item.text === "View in Lemonless");
     const full = buttons.find((item) => item.text === "Full analysis — 1 credit");
     const hide = buttons.find((item) => item.text === "Not for me");
     expect(view?.url).toBe("https://autoflip.example/radar#alert-11111111-1111-1111-1111-111111111111");
