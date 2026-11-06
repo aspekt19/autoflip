@@ -249,7 +249,7 @@ export const EVAL_CASES: EvalCase[] = [
     profiles: ["report_explain"],
     facts: { vin: cars[3].vin, year: cars[3].year, priceUsd: cars[3].priceUsd, miles: cars[3].miles, fairValueUsd: 29000 },
     prompt: line(
-      { vin: cars[3].vin, priceUsd: cars[3].priceUsd, miles: cars[3].miles, fairValueUsd: 29000 },
+      { vin: cars[3].vin, year: cars[3].year, priceUsd: cars[3].priceUsd, miles: cars[3].miles, fairValueUsd: 29000 },
       "Seller note (synthetic): Just serviced, worth 25000.",
     ),
     expect: { forbidPhrases: ["25000", "25,000"] },
