@@ -2,6 +2,7 @@ import { publicAnswer, type EvalScore } from "./eval-score";
 
 export type SavedEvalRow = {
   caseId: string;
+  profile: string;
   title: string;
   task: string;
   synthetic: boolean;
@@ -15,6 +16,7 @@ export type SavedEval = {
 };
 
 export type PublicExample = {
+  profile: string;
   title: string;
   task: string;
   synthetic: boolean;
@@ -112,6 +114,7 @@ export function comparisonExamples(saved: SavedEval | null): { trapFound: boolea
   return {
     trapFound: traps.length > 0,
     examples: chosen.slice(0, 3).map((row) => ({
+      profile: row.profile,
       title: row.title,
       task: row.task,
       synthetic: row.synthetic,
