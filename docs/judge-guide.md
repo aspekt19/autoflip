@@ -103,6 +103,10 @@ Run npm run eval:serv with SERV_API_KEY set. The script in [eval/run.ts](../eval
 
 **Current evidence status:** the repository does not yet contain a generated result file. The evaluation runner is present, but we do not claim that SERV outperforms the baseline until the run is executed and its output reviewed and committed. Synthetic adversarial cases are labeled as synthetic by the test data.
 
+### Reproducible judge evidence workflow
+
+The repository includes a manual [GitHub Actions workflow](../.github/workflows/serv-evaluation.yml) named **SERV evaluation evidence**. Add the repository Actions secret `SERV_API_KEY`, then run it from **Actions → SERV evaluation evidence → Run workflow**. It executes the fixed comparison suite, uploads the raw JSON/Markdown artifact, and opens a reviewable PR containing the measured results. If the secret is absent, the workflow stops before making any model request. Review regressions as carefully as improvements; the workflow does not deploy the app.
+
 ## Product readiness and business model
 
 - A full report costs one credit; Deal Radar search monitoring is free. The same report logic is exposed through MCP and a paid agent API.
