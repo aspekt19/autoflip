@@ -130,7 +130,7 @@ async function main() {
         persist();
         // A 404 indicates a route/deployment or API contract problem. Stop
         // immediately so a broken endpoint cannot generate repeated requests.
-        if (/HTTP 404\\b/.test(message)) {
+        if (/HTTP 404\b/.test(message)) {
           console.error("Reppo returned HTTP 404; stopping after this single diagnostic request.");
           console.error(message);
           return;
