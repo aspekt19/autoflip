@@ -62,6 +62,7 @@ function flipMandate() {
     openToOtherMakes: false,
     zip: "72712",
     maxDistanceMiles: 500,
+    maxMiles: null,
     notes: null,
   };
 }
@@ -77,6 +78,7 @@ function personalMandate() {
     openToOtherMakes: false,
     zip: "72712",
     maxDistanceMiles: 500,
+    maxMiles: null,
     notes: null,
   };
 }
@@ -304,13 +306,15 @@ async function main() {
     harness: "eval/scout-baseline.ts",
     schemaVersion: SCOUT_METRICS_SCHEMA_VERSION,
     generatedAt: new Date().toISOString(),
-    note: "Stage3 residue scout-metrics/v2. MOCK/OFFLINE plumbing only. Not SERV efficacy. safetyCertified always false.",
+    note: "Stage3-residue-followon scout-metrics/v3. MOCK/OFFLINE plumbing only. Not SERV efficacy. safetyCertified always false.",
     certification: {
       safetyCertified: false as const,
       servEfficacyClaimed: false as const,
       plumbingOk: invariants.plumbingOk,
       evidenceCompleteCases: invariants.evidenceCompleteCases,
-      note: "Exit 0 reflects plumbing integrity only — not evidence-complete or safety certification.",
+      traceCompleteCases: invariants.traceCompleteCases,
+      decisionEvidenceCompleteCases: invariants.decisionEvidenceCompleteCases,
+      note: "Exit 0 reflects plumbing integrity only — not TRACE/decision evidence or safety certification.",
     },
     invariants,
     realSourcePath: "fixtures/autodev-camry.json",

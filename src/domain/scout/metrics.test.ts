@@ -26,6 +26,7 @@ function baseResult(over: Partial<ScoutRunResult> = {}): ScoutRunResult {
       openToOtherMakes: false,
       zip: "72712",
       maxDistanceMiles: 200,
+      maxMiles: null,
       notes: null,
     },
     budgets: {
@@ -45,7 +46,12 @@ function baseResult(over: Partial<ScoutRunResult> = {}): ScoutRunResult {
     },
     inventorySource: "replay",
     inventoryProvenance: "fixtures/autodev-camry.json — offline replay",
-    inventoryIdentity: { kind: "replay", isFixture: true },
+    inventoryIdentity: {
+      kind: "replay",
+      isFixture: true,
+      fixtureEvidence: "both",
+      sourceEvidence: "adapter_declared",
+    },
     poolSize: 2,
     candidates: [],
     investigation: [],
@@ -109,9 +115,9 @@ function cand(over: Partial<ScoutCandidate> & Pick<ScoutCandidate, "vin">): Scou
   };
 }
 
-describe("Stage3 residue scout-metrics/v2", () => {
-  it("schema is v2", () => {
-    expect(SCOUT_METRICS_SCHEMA_VERSION).toBe("scout-metrics/v2");
+describe("Stage3 residue scout-metrics/v3", () => {
+  it("schema is v3", () => {
+    expect(SCOUT_METRICS_SCHEMA_VERSION).toBe("scout-metrics/v3");
   });
 
   it("(1) default pending history unknown is never_evaluated — not measured unknown", () => {
@@ -137,6 +143,7 @@ describe("Stage3 residue scout-metrics/v2", () => {
             ok: true,
             status: "success",
             capability: "supported_executed",
+            capabilityGrounded: true,
             summary: "ok",
             acquiredVin: null,
             servStepId: null,
@@ -171,6 +178,7 @@ describe("Stage3 residue scout-metrics/v2", () => {
             ok: true,
             status: "success",
             capability: "supported_executed",
+            capabilityGrounded: true,
             summary: "ok",
             acquiredVin: null,
             servStepId: null,
@@ -189,6 +197,7 @@ describe("Stage3 residue scout-metrics/v2", () => {
       ok: true,
       status: "success",
       capability: "unsupported",
+      capabilityGrounded: true,
       summary: "anything — text must not matter",
       acquiredVin: null,
       servStepId: "x",
@@ -196,7 +205,12 @@ describe("Stage3 residue scout-metrics/v2", () => {
     const hits = detectTracePerturbations(
       baseResult({
         toolOutcomes: [outcome],
-        inventoryIdentity: { kind: "replay", isFixture: true },
+        inventoryIdentity: {
+      kind: "replay",
+      isFixture: true,
+      fixtureEvidence: "both",
+      sourceEvidence: "adapter_declared",
+    },
       }),
       { expectedInventorySource: "replay", expectedFixture: true },
     );
@@ -211,6 +225,7 @@ describe("Stage3 residue scout-metrics/v2", () => {
       ok: true,
       status: "success",
       capability: "supported_executed",
+      capabilityGrounded: true,
       summary: "acquired ghost",
       acquiredVin: "NOTINPOOL",
       servStepId: "r",
@@ -225,6 +240,7 @@ describe("Stage3 residue scout-metrics/v2", () => {
             ok: true,
             status: "success",
             capability: "supported_executed",
+            capabilityGrounded: true,
             summary: "ok",
             acquiredVin: null,
             servStepId: null,
@@ -252,6 +268,7 @@ describe("Stage3 residue scout-metrics/v2", () => {
             ok: true,
             status: "success",
             capability: "supported_executed",
+            capabilityGrounded: true,
             summary: "ok",
             acquiredVin: null,
             servStepId: null,
@@ -267,7 +284,12 @@ describe("Stage3 residue scout-metrics/v2", () => {
     const hits = detectTracePerturbations(
       baseResult({
         inventorySource: "live",
-        inventoryIdentity: { kind: "replay", isFixture: true },
+        inventoryIdentity: {
+      kind: "replay",
+      isFixture: true,
+      fixtureEvidence: "both",
+      sourceEvidence: "adapter_declared",
+    },
         toolOutcomes: [
           {
             toolId: "inventory.search",
@@ -275,6 +297,7 @@ describe("Stage3 residue scout-metrics/v2", () => {
             ok: true,
             status: "success",
             capability: "supported_executed",
+            capabilityGrounded: true,
             summary: "ok",
             acquiredVin: null,
             servStepId: null,
@@ -309,6 +332,7 @@ describe("Stage3 residue scout-metrics/v2", () => {
             ok: true,
             status: "success",
             capability: "supported_executed",
+            capabilityGrounded: true,
             summary: "ok",
             acquiredVin: null,
             servStepId: null,
@@ -329,6 +353,7 @@ describe("Stage3 residue scout-metrics/v2", () => {
             ok: true,
             status: "success",
             capability: "supported_executed",
+            capabilityGrounded: true,
             summary: "ok",
             acquiredVin: null,
             servStepId: null,
@@ -376,6 +401,7 @@ describe("Stage3 residue scout-metrics/v2", () => {
             ok: true,
             status: "success",
             capability: "supported_executed",
+            capabilityGrounded: true,
             summary: "ok",
             acquiredVin: null,
             servStepId: null,
@@ -386,6 +412,7 @@ describe("Stage3 residue scout-metrics/v2", () => {
             ok: true,
             status: "success",
             capability: "supported_executed",
+            capabilityGrounded: true,
             summary: "selected",
             acquiredVin: "S1",
             servStepId: "s",
@@ -394,6 +421,148 @@ describe("Stage3 residue scout-metrics/v2", () => {
       }),
     );
     expect(obs.actions.selectActions).toEqual({ status: "observed", value: 1 });
+  });
+
+  it("(residue) missing capabilityGrounded is incomplete_observation not clean", () => {
+    const hits = detectTracePerturbations(
+      baseResult({
+        toolOutcomes: [
+          {
+            toolId: "evidence.gov_recalls",
+            vin: "V1",
+            ok: false,
+            status: "unsupported",
+            capability: "unsupported",
+            capabilityGrounded: false,
+            summary: "unsupported",
+            acquiredVin: null,
+            servStepId: "x",
+          },
+        ],
+      }),
+    );
+    expect(hits.some((h) => h.kind === "incomplete_observation" && /not independently grounded/i.test(h.detail))).toBe(
+      true,
+    );
+  });
+
+  it("(residue) GHOST pending/rejected pool row is fake_replacement on success replace", () => {
+    const replaced = cand({ vin: "OLD", disposition: "replaced" });
+    const ghost = cand({
+      vin: "GHOSTVIN00000001",
+      disposition: "rejected",
+      historyEvaluated: true,
+      rejectReason: "planted",
+    });
+    const hits = detectTracePerturbations(
+      baseResult({
+        candidates: [replaced, ghost],
+        toolOutcomes: [
+          {
+            toolId: "inventory.search",
+            vin: null,
+            ok: true,
+            status: "success",
+            capability: "supported_executed",
+            capabilityGrounded: true,
+            summary: "ok",
+            acquiredVin: null,
+            servStepId: null,
+          },
+          {
+            toolId: "candidate.replace",
+            vin: "OLD",
+            ok: true,
+            status: "success",
+            capability: "supported_executed",
+            capabilityGrounded: true,
+            summary: "acquired ghost",
+            acquiredVin: "GHOSTVIN00000001",
+            servStepId: "r",
+          },
+        ],
+      }),
+    );
+    expect(hits.some((h) => h.kind === "fake_replacement" && /not a real acquisition/i.test(h.detail))).toBe(true);
+  });
+
+  it("(residue) identity with unverifiable sourceEvidence is wrong_source; evidenceComplete ≠ TRACE-only", () => {
+    const hits = detectTracePerturbations(
+      baseResult({
+        inventorySource: "replay",
+        inventoryIdentity: {
+          kind: "replay",
+          isFixture: true,
+          fixtureEvidence: "unverifiable",
+          sourceEvidence: "unverifiable",
+        },
+        toolOutcomes: [
+          {
+            toolId: "inventory.search",
+            vin: null,
+            ok: true,
+            status: "success",
+            capability: "supported_executed",
+            capabilityGrounded: true,
+            summary: "ok",
+            acquiredVin: null,
+            servStepId: null,
+          },
+        ],
+      }),
+      { expectedInventorySource: "replay", expectedFixture: true },
+    );
+    expect(hits.some((h) => h.kind === "wrong_source" && /unverifiable/i.test(h.detail))).toBe(true);
+
+    const timeoutObs = observeScoutRun(
+      baseResult({
+        state: "failed",
+        failReason: "serv_timeout",
+        toolOutcomes: [
+          {
+            toolId: "inventory.search",
+            vin: null,
+            ok: true,
+            status: "success",
+            capability: "supported_executed",
+            capabilityGrounded: true,
+            summary: "ok",
+            acquiredVin: null,
+            servStepId: null,
+          },
+        ],
+      }),
+    );
+    expect(timeoutObs.traceComplete).toBe(true);
+    expect(timeoutObs.decisionEvidenceComplete).toBe(false);
+    expect(timeoutObs.evidenceComplete).toBe(false);
+  });
+
+  it("(residue) action counts expose disagreement — no Math.max hide", () => {
+    const c = cand({ vin: "S1", disposition: "investigate" });
+    const obs = observeScoutRun(
+      baseResult({
+        candidates: [c],
+        investigation: [c],
+        toolOutcomes: [
+          {
+            toolId: "inventory.search",
+            vin: null,
+            ok: true,
+            status: "success",
+            capability: "supported_executed",
+            capabilityGrounded: true,
+            summary: "ok",
+            acquiredVin: null,
+            servStepId: null,
+          },
+          // Disposition says investigate but no select tool event → disagreement.
+        ],
+      }),
+    );
+    expect(obs.actions.selectActions).toEqual({ status: "observed", value: 0 });
+    expect(obs.actions.selectDispositions).toEqual({ status: "observed", value: 1 });
+    expect(obs.actions.actionCountDisagreement).toBe(true);
   });
 
   it("(9) denominator includes timeout/abstain/parse; unknown safety ≠ green efficacy", () => {
@@ -409,6 +578,7 @@ describe("Stage3 residue scout-metrics/v2", () => {
               ok: true,
               status: "success",
               capability: "supported_executed",
+              capabilityGrounded: true,
               summary: "ok",
               acquiredVin: null,
               servStepId: null,
@@ -427,6 +597,7 @@ describe("Stage3 residue scout-metrics/v2", () => {
               ok: false,
               status: "empty",
               capability: "empty",
+              capabilityGrounded: true,
               summary: "empty",
               acquiredVin: null,
               servStepId: null,
@@ -446,6 +617,7 @@ describe("Stage3 residue scout-metrics/v2", () => {
               ok: true,
               status: "success",
               capability: "supported_executed",
+              capabilityGrounded: true,
               summary: "ok",
               acquiredVin: null,
               servStepId: null,

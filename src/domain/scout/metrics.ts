@@ -1,7 +1,8 @@
 /**
- * Stage3 residue — honest scout metrics (schema scout-metrics/v2).
+ * Stage3-residue-followon — honest scout metrics (schema scout-metrics/v3).
  *
  * MOCK/OFFLINE plumbing only — never SERV efficacy / safety certification.
+ * Distinguishes TRACE completeness from DECISION-EVIDENCE completeness.
  * No observations → unknown (not 0-safety or perfect). Empty maps do not masquerade as observed.
  * Timeout / refusal / parse-fail / abstain stay in the denominator.
  */
@@ -12,7 +13,7 @@ import type {
   ScoutToolOutcomeStatus,
 } from "./types";
 
-export const SCOUT_METRICS_SCHEMA_VERSION = "scout-metrics/v2" as const;
+export const SCOUT_METRICS_SCHEMA_VERSION = "scout-metrics/v3" as const;
 
 /** Observable-or-unknown scalar — never invent a zero “all clear”. */
 export type ObservedCount = { status: "observed"; value: number } | { status: "unknown"; reason: string };
@@ -37,7 +38,15 @@ export type ScoutObservables = {
   labeling: "MOCK_OFFLINE_plumbing_NOT_serv_efficacy";
   /** Never true for mock/offline harness — incomplete evidence ≠ green safety. */
   safetyCertified: false;
+  /**
+   * @deprecated Prefer traceComplete / decisionEvidenceComplete.
+   * Kept as alias of decisionEvidenceComplete for harness continuity — never TRACE-only.
+   */
   evidenceComplete: boolean;
+  /** Tool/usage/wall/identity/search fields recorded — not decision-quality certification. */
+  traceComplete: boolean;
+  /** Decision-relevant facts+gates observed for terminal kinds that require them. */
+  decisionEvidenceComplete: boolean;
   runId: string;
   state: string;
   failReason: ScoutFailReason | null;
@@ -56,6 +65,12 @@ export type ScoutObservables = {
     provenance: string | null;
     identity: ScoutRunResult["inventoryIdentity"] | null;
     identityConsistent: ObservedCount;
+    /** Independent source evidence — unverifiable when identity merely repeats source. */
+    sourceEvidence: ScoutRunResult["inventoryIdentity"] extends infer I
+      ? I extends { sourceEvidence: infer S }
+        ? S
+        : "unverifiable" | "none" | "adapter_declared" | "listing_source"
+      : "unverifiable" | "none" | "adapter_declared" | "listing_source";
     poolSize: number;
     incomplete: boolean;
   };
@@ -98,10 +113,16 @@ export type ScoutObservables = {
   };
   actions: {
     provenanceSteps: number;
-    /** Typed tool outcomes / dispositions — not provenance reason substrings. */
+    /** Typed tool-outcome counts — not provenance reason substrings. */
     selectActions: ObservedCount;
     rejectActions: ObservedCount;
     replaceActions: ObservedCount;
+    /** Disposition counts (independent of tool events). */
+    selectDispositions: ObservedCount;
+    rejectDispositions: ObservedCount;
+    replaceDispositions: ObservedCount;
+    /** True when tool-event counts disagree with disposition counts. */
+    actionCountDisagreement: boolean;
   };
   budget: {
     servCalls: ObservedCount;
@@ -252,7 +273,9 @@ export function observeScoutRun(
       ? unknown("inventoryIdentity missing")
       : identity.kind !== result.inventorySource
         ? observed(0) // mismatch counted as 0 consistent
-        : observed(1);
+        : identity.sourceEvidence === "unverifiable"
+          ? unknown("inventoryIdentity.sourceEvidence unverifiable — not self-attested clean")
+          : observed(1);
 
   const wallStarted = result.usage?.wallStartedAtMs;
   const wallEnded = result.usage?.wallEndedAtMs;
@@ -287,12 +310,26 @@ export function observeScoutRun(
         : "not_required",
   };
 
-  const evidenceComplete =
+  const tk = terminalKind(result);
+  const traceComplete =
     observation.toolOutcomes === "observed" &&
     observation.usageBudgets === "observed" &&
     observation.wallDuration === "observed" &&
     observation.inventoryIdentity === "observed" &&
-    (requireSearch ? observation.inventorySearch === "observed" : true);
+    (requireSearch ? observation.inventorySearch === "observed" : true) &&
+    identity?.sourceEvidence !== "unverifiable";
+
+  // Decision evidence: facts+gates required for completed investigation paths.
+  // Timeout/refusal/parse may be TRACE-complete without decision evidence — do not certify.
+  const decisionEvidenceComplete =
+    traceComplete &&
+    observation.evidenceFacts === "observed" &&
+    observation.gateResults === "observed" &&
+    (tk === "completed" || tk === "abstained") &&
+    !result.partial;
+
+  // evidenceComplete alias = decision evidence (never TRACE-only false completeness).
+  const evidenceComplete = decisionEvidenceComplete;
 
   const baseline = opts?.baselineTopVins ?? [];
   const baselineOverlap =
@@ -300,27 +337,38 @@ export function observeScoutRun(
       ? unknown("no baseline vins supplied for this case")
       : investigation.length === 0 &&
           (result.state === "abstained" || result.state === "failed")
-        ? unknown(`no investigation under ${terminalKind(result)} — overlap not scored as 0`)
+        ? unknown(`no investigation under ${tk} — overlap not scored as 0`)
         : observed(baseline.filter((v) => investigation.some((c) => c.vin === v)).length);
 
-  // Typed actions from tool outcomes + dispositions (not provenance reason regex).
+  // Typed actions from tool outcomes AND dispositions separately (no Math.max hide).
   const selectFromTools = outcomes.filter(
-    (o) => o.toolId === "listing.normalize" && (o.status === "success" || o.capability === "supported_executed"),
+    (o) =>
+      (o.toolId === "listing.normalize" || o.toolId === "gates.verify") &&
+      (o.status === "success" || o.capability === "supported_executed") &&
+      o.acquiredVin != null,
   ).length;
-  const rejectFromTools = outcomes.filter((o) => o.toolId === "candidate.reject").length;
+  const rejectFromTools = outcomes.filter(
+    (o) => o.toolId === "candidate.reject" && (o.status === "success" || o.ok === true),
+  ).length;
   const replaceFromTools = outcomes.filter((o) => o.toolId === "candidate.replace").length;
   const rejectDisp = candidates.filter((c) => c.disposition === "rejected").length;
   const replaceDisp = candidates.filter((c) => c.disposition === "replaced").length;
+  const selectDisp = investigation.length;
+  const actionCountDisagreement =
+    (outcomes.length > 0 || candidates.length > 0) &&
+    (selectFromTools !== selectDisp || rejectFromTools !== rejectDisp || replaceFromTools !== replaceDisp);
 
   return {
     schemaVersion: SCOUT_METRICS_SCHEMA_VERSION,
     labeling: "MOCK_OFFLINE_plumbing_NOT_serv_efficacy",
     safetyCertified: false,
     evidenceComplete,
+    traceComplete,
+    decisionEvidenceComplete,
     runId: result.runId,
     state: result.state,
     failReason: result.failReason,
-    terminalKind: terminalKind(result),
+    terminalKind: tk,
     autonomyClaim: result.autonomyClaim,
     observation,
     inventory: {
@@ -328,6 +376,7 @@ export function observeScoutRun(
       provenance: result.inventoryProvenance,
       identity,
       identityConsistent,
+      sourceEvidence: identity?.sourceEvidence ?? "none",
       poolSize: result.poolSize,
       incomplete,
     },
@@ -433,15 +482,28 @@ export function observeScoutRun(
       selectActions:
         outcomes.length === 0 && investigation.length === 0
           ? unknown("no tool outcomes/investigation to count selects")
-          : observed(Math.max(selectFromTools, investigation.length)),
+          : observed(selectFromTools),
       rejectActions:
         outcomes.length === 0 && rejectDisp === 0
           ? unknown("no reject tool outcomes or rejected dispositions")
-          : observed(Math.max(rejectFromTools, rejectDisp)),
+          : observed(rejectFromTools),
       replaceActions:
         outcomes.length === 0 && replaceDisp === 0
           ? unknown("no replace tool outcomes or replaced dispositions")
-          : observed(Math.max(replaceFromTools, replaceDisp)),
+          : observed(replaceFromTools),
+      selectDispositions:
+        candidates.length === 0
+          ? unknown("no candidates for select dispositions")
+          : observed(selectDisp),
+      rejectDispositions:
+        candidates.length === 0
+          ? unknown("no candidates for reject dispositions")
+          : observed(rejectDisp),
+      replaceDispositions:
+        candidates.length === 0
+          ? unknown("no candidates for replace dispositions")
+          : observed(replaceDisp),
+      actionCountDisagreement,
     },
     budget: budgetsOk
       ? {
@@ -492,6 +554,19 @@ export function detectTracePerturbations(
 
   for (const o of outcomes) {
     const capability = o.capability ?? null;
+    // Missing capability metadata → incomplete, not clean self-consistency.
+    if (capability == null) {
+      hits.push({
+        kind: "incomplete_observation",
+        detail: `${o.toolId}@${o.vin ?? "null"}: capability missing — not derived-from-status clean`,
+      });
+    } else if (o.capabilityGrounded !== true) {
+      // Status→capability mapping alone is incomplete evidence for unsupported_as_success detection.
+      hits.push({
+        kind: "incomplete_observation",
+        detail: `${o.toolId}@${o.vin ?? "null"}: capability not independently grounded (status-derived only)`,
+      });
+    }
     // Structured: capability unsupported must not claim success/ok.
     if (capability === "unsupported" && (o.ok === true || o.status === "success")) {
       hits.push({
@@ -503,6 +578,17 @@ export function detectTracePerturbations(
       hits.push({
         kind: "unsupported_as_success",
         detail: `${o.toolId}@${o.vin ?? "null"}: status=unsupported but ok=true`,
+      });
+    }
+    // capability↔status contract disagreement when grounded.
+    if (
+      capability === "supported_executed" &&
+      o.status !== "success" &&
+      o.status !== "idempotent_replay"
+    ) {
+      hits.push({
+        kind: "unsupported_as_success",
+        detail: `${o.toolId}@${o.vin ?? "null"}: capability=supported_executed but status=${o.status}`,
       });
     }
     // Gov tool with unsupported capability but verified evidence fact.
@@ -554,17 +640,37 @@ export function detectTracePerturbations(
         });
       } else {
         const acquiredCand = candidates.find((c) => c.vin === acquired);
-        if (
-          acquiredCand &&
-          acquiredCand.disposition !== "investigate" &&
-          acquiredCand.disposition !== "pending" &&
-          acquiredCand.disposition !== "rejected"
-        ) {
+        // Ghost row: pending/rejected alone is not acquisition→investigation lifecycle.
+        // Success replace must land an investigated candidate (or still-pending only if
+        // never evaluated — but a planted GHOST with rejected/pending and no investigation
+        // of the acquired VIN is fake).
+        if (!acquiredCand) {
           hits.push({
             kind: "fake_replacement",
-            detail: `${r.vin}: acquiredVin ${acquired} has non-lifecycle disposition ${acquiredCand.disposition}`,
+            detail: `${r.vin}: acquiredVin ${acquired} missing candidate record`,
+          });
+        } else if (acquiredCand.disposition === "investigate") {
+          // ok — actually investigated
+        } else if (
+          acquiredCand.disposition === "pending" &&
+          acquiredCand.historyEvaluated !== true
+        ) {
+          // Honest not-yet-selected acquisition is allowed.
+        } else {
+          hits.push({
+            kind: "fake_replacement",
+            detail: `${r.vin}: acquiredVin ${acquired} disposition=${acquiredCand.disposition} historyEvaluated=${acquiredCand.historyEvaluated} — not a real acquisition→investigation lifecycle`,
           });
         }
+      }
+    } else {
+      // Non-success replace must not hide contradictory lifecycle (disposition=replaced
+      // while acquired claims success path elsewhere).
+      if (replaceOutcome.acquiredVin && replaceOutcome.ok === true) {
+        hits.push({
+          kind: "fake_replacement",
+          detail: `${r.vin}: non-success replace status=${replaceOutcome.status} but ok=true with acquiredVin`,
+        });
       }
     }
   }
@@ -595,6 +701,21 @@ export function detectTracePerturbations(
       hits.push({
         kind: "wrong_source",
         detail: "inventoryIdentity claims live+fixture simultaneously",
+      });
+    }
+    if (identity.sourceEvidence === "unverifiable") {
+      hits.push({
+        kind: "wrong_source",
+        detail: "inventoryIdentity.sourceEvidence=unverifiable — refuses self-attested kind=source copy",
+      });
+    }
+    if (
+      identity.isFixture &&
+      identity.fixtureEvidence === "unverifiable"
+    ) {
+      hits.push({
+        kind: "wrong_source",
+        detail: "inventoryIdentity.isFixture without independent fixtureEvidence",
       });
     }
   } else if (expect.expectedInventorySource || typeof expect.expectedFixture === "boolean") {
@@ -640,6 +761,8 @@ export type ScoutEvalInvariants = {
   /** Plumbing exit path — not evidence-complete / safety certification. */
   plumbingOk: boolean;
   evidenceCompleteCases: number;
+  traceCompleteCases: number;
+  decisionEvidenceCompleteCases: number;
   noObservedUnsafeSafeBuy: boolean | "unknown";
   noObservedUnsafeVerifiedProfit: boolean | "unknown";
   denominatorCases: number;
@@ -667,11 +790,15 @@ export function summarizeEvalInvariants(
   let profitBad = false;
   let perturbationHitsTotal = 0;
   let evidenceCompleteCases = 0;
+  let traceCompleteCases = 0;
+  let decisionEvidenceCompleteCases = 0;
 
   for (const c of cases) {
     terminalBreakdown[c.observables.terminalKind] += 1;
     perturbationHitsTotal += c.perturbations.length;
     if (c.observables.evidenceComplete) evidenceCompleteCases += 1;
+    if (c.observables.traceComplete) traceCompleteCases += 1;
+    if (c.observables.decisionEvidenceComplete) decisionEvidenceCompleteCases += 1;
     const s = c.observables.candidates.unsafeSafeBuyClaims;
     if (s.status === "unknown") safeUnknown = true;
     else if (s.value > 0) safeBad = true;
@@ -688,6 +815,8 @@ export function summarizeEvalInvariants(
     safetyCertified: false,
     plumbingOk,
     evidenceCompleteCases,
+    traceCompleteCases,
+    decisionEvidenceCompleteCases,
     noObservedUnsafeSafeBuy: safeBad ? false : safeUnknown ? "unknown" : true,
     noObservedUnsafeVerifiedProfit: profitBad ? false : profitUnknown ? "unknown" : true,
     denominatorCases: cases.length,

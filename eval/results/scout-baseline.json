@@ -1,21 +1,25 @@
 {
   "harness": "eval/scout-baseline.ts",
-  "schemaVersion": "scout-metrics/v2",
-  "generatedAt": "2026-11-06T22:17:24.891Z",
-  "note": "Stage3 residue scout-metrics/v2. MOCK/OFFLINE plumbing only. Not SERV efficacy. safetyCertified always false.",
+  "schemaVersion": "scout-metrics/v3",
+  "generatedAt": "2026-11-06T22:38:48.288Z",
+  "note": "Stage3-residue-followon scout-metrics/v3. MOCK/OFFLINE plumbing only. Not SERV efficacy. safetyCertified always false.",
   "certification": {
     "safetyCertified": false,
     "servEfficacyClaimed": false,
     "plumbingOk": true,
-    "evidenceCompleteCases": 7,
-    "note": "Exit 0 reflects plumbing integrity only — not evidence-complete or safety certification."
+    "evidenceCompleteCases": 3,
+    "traceCompleteCases": 7,
+    "decisionEvidenceCompleteCases": 3,
+    "note": "Exit 0 reflects plumbing integrity only — not TRACE/decision evidence or safety certification."
   },
   "invariants": {
-    "schemaVersion": "scout-metrics/v2",
+    "schemaVersion": "scout-metrics/v3",
     "labeling": "MOCK_OFFLINE_plumbing_NOT_serv_efficacy",
     "safetyCertified": false,
     "plumbingOk": true,
-    "evidenceCompleteCases": 7,
+    "evidenceCompleteCases": 3,
+    "traceCompleteCases": 7,
+    "decisionEvidenceCompleteCases": 3,
     "noObservedUnsafeSafeBuy": true,
     "noObservedUnsafeVerifiedProfit": true,
     "denominatorCases": 7,
@@ -51,11 +55,13 @@
       ],
       "matchedDataBaselineNote": "MOCK_OFFLINE_identical_replay_overlap_NOT_serv_efficacy",
       "observables": {
-        "schemaVersion": "scout-metrics/v2",
+        "schemaVersion": "scout-metrics/v3",
         "labeling": "MOCK_OFFLINE_plumbing_NOT_serv_efficacy",
         "safetyCertified": false,
         "evidenceComplete": true,
-        "runId": "f9c7bbd2-4963-41c0-954b-40f6fdf7b05b",
+        "traceComplete": true,
+        "decisionEvidenceComplete": true,
+        "runId": "a09f82e7-6bda-430b-8987-29f47ad63819",
         "state": "completed",
         "failReason": null,
         "terminalKind": "completed",
@@ -74,12 +80,15 @@
           "provenance": "fixtures/autodev-camry.json (Auto.dev vehicle listings payload; row createdAt e.g. 2026-09-16; offline replay — not a live call)",
           "identity": {
             "kind": "replay",
-            "isFixture": true
+            "isFixture": true,
+            "fixtureEvidence": "both",
+            "sourceEvidence": "listing_source"
           },
           "identityConsistent": {
             "status": "observed",
             "value": 1
           },
+          "sourceEvidence": "listing_source",
           "poolSize": 5,
           "incomplete": false
         },
@@ -159,12 +168,12 @@
         "tools": {
           "outcomesObserved": {
             "status": "observed",
-            "value": 8
+            "value": 9
           },
           "byStatus": {
             "status": "observed",
             "value": {
-              "success": 8
+              "success": 9
             }
           },
           "byToolId": {
@@ -174,6 +183,7 @@
               "listing.normalize": 4,
               "economics.flip_estimate": 1,
               "gates.verify": 1,
+              "candidate.reject": 1,
               "candidate.replace": 1
             }
           },
@@ -202,16 +212,29 @@
           "provenanceSteps": 15,
           "selectActions": {
             "status": "observed",
-            "value": 4
+            "value": 5
           },
           "rejectActions": {
             "status": "observed",
-            "value": 0
+            "value": 1
           },
           "replaceActions": {
             "status": "observed",
             "value": 1
-          }
+          },
+          "selectDispositions": {
+            "status": "observed",
+            "value": 3
+          },
+          "rejectDispositions": {
+            "status": "observed",
+            "value": 0
+          },
+          "replaceDispositions": {
+            "status": "observed",
+            "value": 1
+          },
+          "actionCountDisagreement": true
         },
         "budget": {
           "servCalls": {
@@ -273,11 +296,13 @@
       ],
       "matchedDataBaselineNote": "MOCK_OFFLINE_identical_replay_overlap_NOT_serv_efficacy",
       "observables": {
-        "schemaVersion": "scout-metrics/v2",
+        "schemaVersion": "scout-metrics/v3",
         "labeling": "MOCK_OFFLINE_plumbing_NOT_serv_efficacy",
         "safetyCertified": false,
         "evidenceComplete": true,
-        "runId": "d70a9e59-142b-45cc-979d-9103733fdf26",
+        "traceComplete": true,
+        "decisionEvidenceComplete": true,
+        "runId": "b9104e5b-3b04-4745-aa17-b039a81ebdd0",
         "state": "completed",
         "failReason": null,
         "terminalKind": "completed",
@@ -296,12 +321,15 @@
           "provenance": "fixtures/autodev-camry.json (Auto.dev vehicle listings payload; row createdAt e.g. 2026-09-16; offline replay — not a live call)",
           "identity": {
             "kind": "replay",
-            "isFixture": true
+            "isFixture": true,
+            "fixtureEvidence": "both",
+            "sourceEvidence": "listing_source"
           },
           "identityConsistent": {
             "status": "observed",
             "value": 1
           },
+          "sourceEvidence": "listing_source",
           "poolSize": 4,
           "incomplete": false
         },
@@ -428,7 +456,20 @@
           "replaceActions": {
             "status": "observed",
             "value": 0
-          }
+          },
+          "selectDispositions": {
+            "status": "observed",
+            "value": 4
+          },
+          "rejectDispositions": {
+            "status": "observed",
+            "value": 0
+          },
+          "replaceDispositions": {
+            "status": "observed",
+            "value": 0
+          },
+          "actionCountDisagreement": false
         },
         "budget": {
           "servCalls": {
@@ -459,7 +500,7 @@
         "latency": {
           "wallMs": {
             "status": "observed",
-            "value": 1
+            "value": 0
           }
         },
         "baselineOverlap": {
@@ -489,11 +530,13 @@
       ],
       "matchedDataBaselineNote": "MOCK_OFFLINE_identical_replay_overlap_NOT_serv_efficacy",
       "observables": {
-        "schemaVersion": "scout-metrics/v2",
+        "schemaVersion": "scout-metrics/v3",
         "labeling": "MOCK_OFFLINE_plumbing_NOT_serv_efficacy",
         "safetyCertified": false,
         "evidenceComplete": true,
-        "runId": "4679497b-7521-45f3-93b5-50d9a6e28fd6",
+        "traceComplete": true,
+        "decisionEvidenceComplete": true,
+        "runId": "eb5b72c7-11dc-46cd-bd8b-9da2a13ea78f",
         "state": "completed",
         "failReason": null,
         "terminalKind": "completed",
@@ -512,12 +555,15 @@
           "provenance": "fixtures/scout/adversarial-contradiction.json — NOT live evidence",
           "identity": {
             "kind": "replay",
-            "isFixture": true
+            "isFixture": true,
+            "fixtureEvidence": "both",
+            "sourceEvidence": "listing_source"
           },
           "identityConsistent": {
             "status": "observed",
             "value": 1
           },
+          "sourceEvidence": "listing_source",
           "poolSize": 5,
           "incomplete": false
         },
@@ -598,12 +644,12 @@
         "tools": {
           "outcomesObserved": {
             "status": "observed",
-            "value": 8
+            "value": 9
           },
           "byStatus": {
             "status": "observed",
             "value": {
-              "success": 6,
+              "success": 7,
               "failed": 2
             }
           },
@@ -614,6 +660,7 @@
               "listing.normalize": 4,
               "economics.flip_estimate": 1,
               "gates.verify": 1,
+              "candidate.reject": 1,
               "candidate.replace": 1
             }
           },
@@ -646,12 +693,25 @@
           },
           "rejectActions": {
             "status": "observed",
-            "value": 0
+            "value": 1
           },
           "replaceActions": {
             "status": "observed",
             "value": 1
-          }
+          },
+          "selectDispositions": {
+            "status": "observed",
+            "value": 3
+          },
+          "rejectDispositions": {
+            "status": "observed",
+            "value": 0
+          },
+          "replaceDispositions": {
+            "status": "observed",
+            "value": 1
+          },
+          "actionCountDisagreement": true
         },
         "budget": {
           "servCalls": {
@@ -713,11 +773,13 @@
       ],
       "matchedDataBaselineNote": "MOCK_OFFLINE_identical_replay_overlap_NOT_serv_efficacy",
       "observables": {
-        "schemaVersion": "scout-metrics/v2",
+        "schemaVersion": "scout-metrics/v3",
         "labeling": "MOCK_OFFLINE_plumbing_NOT_serv_efficacy",
         "safetyCertified": false,
-        "evidenceComplete": true,
-        "runId": "21b32730-30c7-4f64-8356-a65dff7fc0ec",
+        "evidenceComplete": false,
+        "traceComplete": true,
+        "decisionEvidenceComplete": false,
+        "runId": "95fb6943-8457-42c7-bf54-8f01c3738f40",
         "state": "failed",
         "failReason": "serv_refused",
         "terminalKind": "failed_refusal",
@@ -736,12 +798,15 @@
           "provenance": "fixtures/autodev-camry.json (Auto.dev vehicle listings payload; row createdAt e.g. 2026-09-16; offline replay — not a live call)",
           "identity": {
             "kind": "replay",
-            "isFixture": true
+            "isFixture": true,
+            "fixtureEvidence": "both",
+            "sourceEvidence": "listing_source"
           },
           "identityConsistent": {
             "status": "observed",
             "value": 1
           },
+          "sourceEvidence": "listing_source",
           "poolSize": 5,
           "incomplete": false
         },
@@ -858,7 +923,20 @@
           "replaceActions": {
             "status": "observed",
             "value": 0
-          }
+          },
+          "selectDispositions": {
+            "status": "observed",
+            "value": 0
+          },
+          "rejectDispositions": {
+            "status": "observed",
+            "value": 0
+          },
+          "replaceDispositions": {
+            "status": "observed",
+            "value": 0
+          },
+          "actionCountDisagreement": false
         },
         "budget": {
           "servCalls": {
@@ -920,11 +998,13 @@
       ],
       "matchedDataBaselineNote": "MOCK_OFFLINE_identical_replay_overlap_NOT_serv_efficacy",
       "observables": {
-        "schemaVersion": "scout-metrics/v2",
+        "schemaVersion": "scout-metrics/v3",
         "labeling": "MOCK_OFFLINE_plumbing_NOT_serv_efficacy",
         "safetyCertified": false,
-        "evidenceComplete": true,
-        "runId": "a976cba6-04c8-4300-8de6-2abc30ddeb4c",
+        "evidenceComplete": false,
+        "traceComplete": true,
+        "decisionEvidenceComplete": false,
+        "runId": "2493580c-7d59-4922-abc7-616a0911209f",
         "state": "failed",
         "failReason": "serv_timeout",
         "terminalKind": "failed_timeout",
@@ -943,12 +1023,15 @@
           "provenance": "fixtures/autodev-camry.json (Auto.dev vehicle listings payload; row createdAt e.g. 2026-09-16; offline replay — not a live call)",
           "identity": {
             "kind": "replay",
-            "isFixture": true
+            "isFixture": true,
+            "fixtureEvidence": "both",
+            "sourceEvidence": "listing_source"
           },
           "identityConsistent": {
             "status": "observed",
             "value": 1
           },
+          "sourceEvidence": "listing_source",
           "poolSize": 5,
           "incomplete": false
         },
@@ -1065,7 +1148,20 @@
           "replaceActions": {
             "status": "observed",
             "value": 0
-          }
+          },
+          "selectDispositions": {
+            "status": "observed",
+            "value": 0
+          },
+          "rejectDispositions": {
+            "status": "observed",
+            "value": 0
+          },
+          "replaceDispositions": {
+            "status": "observed",
+            "value": 0
+          },
+          "actionCountDisagreement": false
         },
         "budget": {
           "servCalls": {
@@ -1127,11 +1223,13 @@
       ],
       "matchedDataBaselineNote": "MOCK_OFFLINE_identical_replay_overlap_NOT_serv_efficacy",
       "observables": {
-        "schemaVersion": "scout-metrics/v2",
+        "schemaVersion": "scout-metrics/v3",
         "labeling": "MOCK_OFFLINE_plumbing_NOT_serv_efficacy",
         "safetyCertified": false,
-        "evidenceComplete": true,
-        "runId": "efa5e628-7f65-4d9c-99f0-5090ec883b31",
+        "evidenceComplete": false,
+        "traceComplete": true,
+        "decisionEvidenceComplete": false,
+        "runId": "43d8f561-8e92-434d-a31c-1db8b6c32a2f",
         "state": "abstained",
         "failReason": null,
         "terminalKind": "abstained",
@@ -1150,12 +1248,15 @@
           "provenance": "fixtures/autodev-camry.json (Auto.dev vehicle listings payload; row createdAt e.g. 2026-09-16; offline replay — not a live call)",
           "identity": {
             "kind": "replay",
-            "isFixture": true
+            "isFixture": true,
+            "fixtureEvidence": "both",
+            "sourceEvidence": "listing_source"
           },
           "identityConsistent": {
             "status": "observed",
             "value": 1
           },
+          "sourceEvidence": "listing_source",
           "poolSize": 5,
           "incomplete": false
         },
@@ -1272,7 +1373,20 @@
           "replaceActions": {
             "status": "observed",
             "value": 0
-          }
+          },
+          "selectDispositions": {
+            "status": "observed",
+            "value": 0
+          },
+          "rejectDispositions": {
+            "status": "observed",
+            "value": 0
+          },
+          "replaceDispositions": {
+            "status": "observed",
+            "value": 0
+          },
+          "actionCountDisagreement": false
         },
         "budget": {
           "servCalls": {
@@ -1334,11 +1448,13 @@
       ],
       "matchedDataBaselineNote": "MOCK_OFFLINE_identical_replay_overlap_NOT_serv_efficacy",
       "observables": {
-        "schemaVersion": "scout-metrics/v2",
+        "schemaVersion": "scout-metrics/v3",
         "labeling": "MOCK_OFFLINE_plumbing_NOT_serv_efficacy",
         "safetyCertified": false,
-        "evidenceComplete": true,
-        "runId": "70d1813d-d783-4e29-9e93-7cd2b7e97366",
+        "evidenceComplete": false,
+        "traceComplete": true,
+        "decisionEvidenceComplete": false,
+        "runId": "cad6b7e7-d938-4c45-8b13-9520f54ebba0",
         "state": "failed",
         "failReason": "serv_unavailable",
         "terminalKind": "failed_parse",
@@ -1357,12 +1473,15 @@
           "provenance": "fixtures/autodev-camry.json (Auto.dev vehicle listings payload; row createdAt e.g. 2026-09-16; offline replay — not a live call)",
           "identity": {
             "kind": "replay",
-            "isFixture": true
+            "isFixture": true,
+            "fixtureEvidence": "both",
+            "sourceEvidence": "listing_source"
           },
           "identityConsistent": {
             "status": "observed",
             "value": 1
           },
+          "sourceEvidence": "listing_source",
           "poolSize": 5,
           "incomplete": false
         },
@@ -1479,7 +1598,20 @@
           "replaceActions": {
             "status": "observed",
             "value": 0
-          }
+          },
+          "selectDispositions": {
+            "status": "observed",
+            "value": 0
+          },
+          "rejectDispositions": {
+            "status": "observed",
+            "value": 0
+          },
+          "replaceDispositions": {
+            "status": "observed",
+            "value": 0
+          },
+          "actionCountDisagreement": false
         },
         "budget": {
           "servCalls": {
