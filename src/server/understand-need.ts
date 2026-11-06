@@ -2,9 +2,11 @@ import {
   applyFollowUp,
   explicitNeedFromText,
   followUps,
-  makeFromText,
+  makesFromText,
   milesFromText,
+  openToOtherMakesFromText,
   overlayExplicit,
+  preferredModelsFromText,
   parseNeedJson,
   validateNeed,
   type FollowUp,
@@ -33,6 +35,7 @@ export async function understandNeed(
     budgetKnown?: boolean;
     budgetScope?: StructuredNeed["budgetScope"];
     zip?: string | null;
+    distanceMiles?: number | null;
     repairAbility?: StructuredNeed["repairAbility"];
     useCase?: StructuredNeed["useCase"];
     targetProfitUsd?: number | null;
@@ -51,6 +54,7 @@ export async function understandNeed(
     budgetKnown: body.budgetKnown,
     budgetScope: body.budgetScope,
     zip: body.zip,
+    distanceMiles: body.distanceMiles,
     repairAbility: body.repairAbility,
     useCase: body.useCase,
     targetProfitUsd: body.targetProfitUsd,
@@ -90,10 +94,16 @@ export async function understandNeed(
   }
 
   let need = overlayExplicit(extracted, explicit);
+  const preferredMakes = makesFromText(need.note);
+  const preferredModels = preferredModelsFromText(need.note);
+  const openToOtherMakes = preferredMakes.length === 0 || openToOtherMakesFromText(need.note);
   need = {
     ...need,
     milesMax: milesFromText(need.note) ?? need.milesMax,
-    make: makeFromText(need.note) ?? need.make,
+    preferredMakes: preferredMakes.length ? preferredMakes : need.preferredMakes,
+    preferredModels: preferredModels.length ? preferredModels : need.preferredModels,
+    openToOtherMakes,
+    make: (preferredMakes.length ? preferredMakes : need.preferredMakes)[0] ?? need.make,
   };
   if (body.followUp) need = applyFollowUp(need, body.followUp.id, body.followUp.value);
   const checked = validateNeed(need);

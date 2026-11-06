@@ -44,7 +44,9 @@ describe("mileage cap from a note", () => {
     });
     expect(need.ok).toBe(true);
     if (!need.ok) return;
-    expect(noMatchMessage(need.need)).toBe("No Toyota SUV listings under 50,000 mi within budget near 68114. You can raise the mileage cap and search again.");
+    expect(noMatchMessage(need.need)).toBe(
+      "No Toyota SUV listings under 50,000 mi within budget near 68114. Empty inventory for this search — not a parse failure. You can widen the radius or raise the mileage cap and search again.",
+    );
     expect(listingWithinNeed({ make: "Toyota", miles: 109_488, bodyStyle: "SUV" }, need.need)).toBe(false);
     expect(listingWithinNeed({ make: "Toyota", miles: 119_010, bodyStyle: "SUV" }, need.need)).toBe(false);
     expect(listingWithinNeed({ make: "Honda", miles: 42_100, bodyStyle: "SUV" }, need.need)).toBe(false);

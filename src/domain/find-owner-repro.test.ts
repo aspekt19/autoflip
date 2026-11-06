@@ -1,0 +1,150 @@
+import { describe, expect, it } from "vitest";
+import { listingsSearchUrl } from "@/io/autodev";
+import { proposeDirections } from "./directions";
+import {
+  SEARCH_RADII_MILES,
+  explicitNeedFromText,
+  followUps,
+  makesFromText,
+  noMatchMessage,
+  normalizeDistanceMiles,
+  openToOtherMakesFromText,
+  preferredModelsFromText,
+  searchScopeLabel,
+  validateNeed,
+} from "./need";
+
+const OWNER_NOTE =
+  "I'm looking for a reliable used SUV for around $20,000. Mostly for everyday driving, but I also take longer trips with my family. I'd prefer something comfortable, not too expensive to maintain, and ideally with AWD. I like the Mazda CX-5 and Toyota RAV4, but I'm open to other options. I don't want to buy a car with hidden problems.";
+
+describe("owner /find repro: Mazda + Toyota + open", () => {
+  it("keeps both preferred makes and named models from the owner note", () => {
+    expect(makesFromText(OWNER_NOTE)).toEqual(["Mazda", "Toyota"]);
+    expect(preferredModelsFromText(OWNER_NOTE)).toEqual([
+      { make: "Mazda", model: "CX-5" },
+      { make: "Toyota", model: "RAV4" },
+    ]);
+    expect(openToOtherMakesFromText(OWNER_NOTE)).toBe(true);
+
+    const need = explicitNeedFromText(OWNER_NOTE, "personal");
+    expect(need.useCase).toBe("family");
+    expect(need.budgetUsd).toBe(20_000);
+    expect(need.preferredMakes).toEqual(["Mazda", "Toyota"]);
+    expect(need.preferredModels).toEqual([
+      { make: "Mazda", model: "CX-5" },
+      { make: "Toyota", model: "RAV4" },
+    ]);
+    expect(need.openToOtherMakes).toBe(true);
+    expect(need.make).toBe("Mazda");
+  });
+
+  it("proposes directions instead of emptying the list on Mazda-first singular make", () => {
+    const need = validateNeed({
+      ...explicitNeedFromText(OWNER_NOTE, "personal"),
+      zip: "68114",
+      distanceMiles: 100,
+    });
+    expect(need.ok).toBe(true);
+    if (!need.ok) return;
+
+    const directions = proposeDirections(need.need, undefined, new Date("2026-11-06T00:00:00Z"));
+    expect(directions.length).toBeGreaterThan(0);
+    expect(directions[0]?.segment).toMatch(/named/i);
+    expect(directions[0]?.models).toEqual([
+      { make: "Mazda", model: "CX-5" },
+      { make: "Toyota", model: "RAV4" },
+    ]);
+    expect(directions[0]?.search).toEqual({ make: "Mazda", model: "CX-5" });
+    // Openness keeps editorial crossover alternatives after the named models.
+    expect(directions.some((item) => /crossover/i.test(item.segment))).toBe(true);
+  });
+
+  it("still restricts when the shopper is not open to other makes", () => {
+    const closed = "I want a Mazda CX-5 SUV for the family under $20,000. Not interested in other makes.";
+    const need = explicitNeedFromText(closed, "personal");
+    expect(need.preferredMakes).toEqual(["Mazda"]);
+    expect(need.openToOtherMakes).toBe(false);
+    const directions = proposeDirections({ ...need, zip: "68114" }, undefined, new Date("2026-11-06T00:00:00Z"));
+    expect(directions[0]?.models.every((item) => item.make === "Mazda")).toBe(true);
+    expect(directions.flatMap((item) => item.models).some((item) => item.make === "Toyota")).toBe(false);
+  });
+});
+
+describe("optional ZIP and searchable radius", () => {
+  it("treats missing ZIP as nationwide and does not force a ZIP follow-up for personal", () => {
+    const need = explicitNeedFromText(OWNER_NOTE, "personal");
+    expect(need.zip).toBeNull();
+    expect(need.distanceMiles).toBeNull();
+    expect(searchScopeLabel(need)).toBe("Nationwide (U.S.)");
+    expect(followUps(need).map((item) => item.id)).not.toContain("zip");
+
+    const url = listingsSearchUrl({ make: "Mazda", model: "CX-5", limit: 20 });
+    expect(url).not.toContain("zip=");
+    expect(url).not.toContain("distance=");
+  });
+
+  it("accepts each supported radius and nationwide when a ZIP is present", () => {
+    for (const miles of SEARCH_RADII_MILES) {
+      expect(normalizeDistanceMiles(miles)).toBe(miles);
+      const parsed = validateNeed({
+        ...explicitNeedFromText(OWNER_NOTE, "personal"),
+        zip: "68114",
+        distanceMiles: miles,
+      });
+      expect(parsed.ok).toBe(true);
+      if (!parsed.ok) continue;
+      expect(parsed.need.distanceMiles).toBe(miles);
+      expect(searchScopeLabel(parsed.need)).toBe(`Within ${miles} miles of 68114`);
+      const url = listingsSearchUrl({
+        make: "Toyota",
+        model: "RAV4",
+        zip: "68114",
+        distanceMiles: miles,
+      });
+      expect(url).toContain("zip=68114");
+      expect(url).toContain(`distance=${miles}`);
+    }
+
+    const nationwide = validateNeed({
+      ...explicitNeedFromText(OWNER_NOTE, "personal"),
+      zip: "68114",
+      distanceMiles: null,
+    });
+    expect(nationwide.ok).toBe(true);
+    if (!nationwide.ok) return;
+    expect(nationwide.need.distanceMiles).toBeNull();
+    expect(searchScopeLabel(nationwide.need)).toBe("Nationwide (U.S.)");
+    expect(normalizeDistanceMiles("nationwide")).toBeNull();
+    expect(normalizeDistanceMiles(75)).toBeNull();
+  });
+
+  it("drops a radius when ZIP is cleared (back/refine to nationwide)", () => {
+    const withRadius = validateNeed({
+      ...explicitNeedFromText(OWNER_NOTE, "personal"),
+      zip: "68114",
+      distanceMiles: 250,
+    });
+    expect(withRadius.ok).toBe(true);
+    if (!withRadius.ok) return;
+    const cleared = validateNeed({ ...withRadius.need, zip: null, distanceMiles: 250 });
+    expect(cleared.ok).toBe(true);
+    if (!cleared.ok) return;
+    expect(cleared.need.zip).toBeNull();
+    expect(cleared.need.distanceMiles).toBeNull();
+    expect(searchScopeLabel(cleared.need)).toBe("Nationwide (U.S.)");
+  });
+});
+
+describe("empty inventory vs failure messaging", () => {
+  it("labels empty inventory honestly and keeps provider failure distinct in match payloads", () => {
+    const parsed = validateNeed({
+      ...explicitNeedFromText(OWNER_NOTE, "personal"),
+      zip: "68114",
+      distanceMiles: 50,
+    });
+    expect(parsed.ok).toBe(true);
+    if (!parsed.ok) return;
+    expect(noMatchMessage(parsed.need)).toContain("Empty inventory for this search — not a parse failure");
+    expect(noMatchMessage(parsed.need)).toContain("within 50 miles of 68114");
+  });
+});

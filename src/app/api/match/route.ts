@@ -2,7 +2,7 @@ import { budgetFit } from "@/domain/budget";
 import { coverageConfidence, coverageSentence } from "@/domain/coverage";
 import { proposeDirections } from "@/domain/directions";
 import { rankFlipCandidates } from "@/domain/flip-rank";
-import { listingWithinNeed, noMatchMessage, sampleGapMessage, validateNeed } from "@/domain/need";
+import { listingWithinNeed, noMatchMessage, sampleGapMessage, searchScopeLabel, validateNeed } from "@/domain/need";
 import { priceBadge, type PriceBadge } from "@/domain/price-badge";
 import { reconUsd } from "@/domain/recon";
 import type { Listing } from "@/domain/types";
@@ -25,11 +25,15 @@ export async function POST(request: Request) {
     return Response.json({
       ok: true,
       sample: false,
+      emptyReason: "no_directions",
       message: "Pick what the car is for before Lemonless suggests directions.",
+      scope: searchScopeLabel(parsed.need),
       directions: [],
     });
   }
   const deps = runtimeDeps();
+  const radiusMiles = parsed.need.distanceMiles;
+  const searchZip = radiusMiles != null ? parsed.need.zip ?? undefined : undefined;
   const groups: Array<{
     direction: ReturnType<typeof proposeDirections>[number];
     listings: Array<Listing & { overBudget?: boolean; badge: PriceBadge; flipNote: string | null; clearsTarget: boolean | null }>;
@@ -55,10 +59,10 @@ export async function POST(request: Request) {
         {
           make: query.make,
           model: query.model,
-          zip: parsed.need.zip ?? undefined,
+          zip: searchZip,
           yearMin: direction.yearMin,
           yearMax: direction.yearMax,
-          distanceMiles: parsed.need.zip ? 100 : undefined,
+          distanceMiles: radiusMiles ?? undefined,
           mode: parsed.need.mode,
           milesMax: parsed.need.milesMax ?? undefined,
           priceMax: parsed.need.budgetKnown && parsed.need.budgetUsd ? parsed.need.budgetUsd : undefined,
@@ -66,7 +70,15 @@ export async function POST(request: Request) {
         deps,
       );
       if (!result.ok) {
-        return Response.json({ error: result.error, message: result.message }, { status: result.status });
+        return Response.json(
+          {
+            error: result.error,
+            message: result.message,
+            emptyReason: "provider_failure",
+            scope: searchScopeLabel(parsed.need),
+          },
+          { status: result.status },
+        );
       }
       if (result.sample) {
         directionSample = true;
@@ -108,7 +120,7 @@ export async function POST(request: Request) {
       mode: parsed.need.mode,
       sample: directionSample,
       dealerListingCount: listings.length,
-      radiusMiles: parsed.need.zip ? 100 : null,
+      radiusMiles: radiusMiles,
       historyOnListing: false,
     };
     const coverage = coverageSentence(coverageInput);
@@ -145,7 +157,9 @@ export async function POST(request: Request) {
   return Response.json({
     ok: true,
     sample: showedSample,
+    emptyReason: visible === 0 ? (sample ? "sample_gap" : "empty_inventory") : null,
     message: visible === 0 ? (sample ? sampleGapMessage(parsed.need) : noMatchMessage(parsed.need)) : message,
+    scope: searchScopeLabel(parsed.need),
     affordabilityAssessed: parsed.need.budgetKnown,
     directions: groups,
   });

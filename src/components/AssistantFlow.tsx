@@ -11,7 +11,7 @@ import type { DecisionProof } from "@/domain/decision-note";
 import type { SearchDirection } from "@/domain/directions";
 import { CoverageLine } from "./CoverageNote";
 import { DecisionNote } from "./DecisionNote";
-import { USE_CASES, type FollowUp, type StructuredNeed } from "@/domain/need";
+import { SEARCH_RADII_MILES, USE_CASES, searchScopeLabel, type FollowUp, type StructuredNeed } from "@/domain/need";
 import type { Mode } from "@/domain/types";
 import { MakeModelFields } from "./MakeModelFields";
 
@@ -89,6 +89,9 @@ function AssistantFlow({
   const [groups, setGroups] = useState<MatchGroup[]>([]);
   const [sample, setSample] = useState(false);
   const [affordability, setAffordability] = useState(true);
+  const [matchMessage, setMatchMessage] = useState<string | null>(null);
+  const [matchScope, setMatchScope] = useState<string | null>(null);
+  const [emptyReason, setEmptyReason] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState<string | null>(null);
   const [refine, setRefine] = useState(false);
@@ -187,6 +190,9 @@ function AssistantFlow({
         checks?: DecisionProof[];
         affordability?: boolean;
         sample?: boolean;
+        matchMessage?: string | null;
+        matchScope?: string | null;
+        emptyReason?: string | null;
       };
       if (!saved.need || !saved.stage || saved.stage === "need") return;
       setNeed(saved.need);
@@ -196,6 +202,9 @@ function AssistantFlow({
       setChecks(saved.checks ?? []);
       setAffordability(saved.affordability ?? true);
       setSample(Boolean(saved.sample));
+      setMatchMessage(saved.matchMessage ?? null);
+      setMatchScope(saved.matchScope ?? null);
+      setEmptyReason(saved.emptyReason ?? null);
       if (saved.need.budgetUsd) setBudget(String(saved.need.budgetUsd));
       if (saved.need.zip) setZipDraft(saved.need.zip);
     } catch {
@@ -210,7 +219,10 @@ function AssistantFlow({
 
   function rememberFlow() {
     try {
-      sessionStorage.setItem("af-flow", JSON.stringify({ need, stage, groups, source, checks, affordability, sample }));
+      sessionStorage.setItem(
+        "af-flow",
+        JSON.stringify({ need, stage, groups, source, checks, affordability, sample, matchMessage, matchScope, emptyReason }),
+      );
     } catch {
       /* the browser may block storage */
     }
@@ -245,10 +257,15 @@ function AssistantFlow({
   async function findCars() {
     if (!need) return;
     setError(null);
+    setMatchMessage(null);
+    setEmptyReason(null);
     setPending("match");
+    const controller = new AbortController();
+    const timer = window.setTimeout(() => controller.abort(), 45_000);
     try {
       const response = await fetch("/api/match", {
         method: "POST",
+        signal: controller.signal,
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           need,
@@ -264,16 +281,22 @@ function AssistantFlow({
         directions?: MatchGroup[];
         sample?: boolean;
         message?: string;
+        scope?: string;
+        emptyReason?: string | null;
         affordabilityAssessed?: boolean;
       };
       if (!response.ok) {
-        setError(body.message || "The search did not finish.");
+        setError(body.message || "The listing search failed. Nothing was fabricated.");
+        setEmptyReason(body.emptyReason ?? "provider_failure");
         return;
       }
       const nextGroups = body.directions ?? [];
       setGroups(nextGroups);
       setSample(Boolean(body.sample));
       setAffordability(body.affordabilityAssessed !== false);
+      setMatchMessage(body.message ?? null);
+      setMatchScope(body.scope ?? searchScopeLabel(need));
+      setEmptyReason(body.emptyReason ?? (nextGroups.length === 0 ? "no_directions" : null));
       setStage("results");
       try {
         sessionStorage.setItem(
@@ -286,14 +309,24 @@ function AssistantFlow({
             checks,
             affordability: body.affordabilityAssessed !== false,
             sample: Boolean(body.sample),
+            matchMessage: body.message ?? null,
+            matchScope: body.scope ?? searchScopeLabel(need),
+            emptyReason: body.emptyReason ?? null,
           }),
         );
       } catch {
         /* ignore */
       }
-    } catch {
-      setError("The search did not finish.");
+    } catch (err) {
+      if (err instanceof DOMException && err.name === "AbortError") {
+        setError("The search timed out before listings came back. Nothing was fabricated.");
+        setEmptyReason("timeout");
+      } else {
+        setError("The listing search failed. Nothing was fabricated.");
+        setEmptyReason("provider_failure");
+      }
     } finally {
+      window.clearTimeout(timer);
       setPending(null);
     }
   }
@@ -327,7 +360,7 @@ function AssistantFlow({
                   yearMax: direction.yearMax,
                   priceMax,
                   zip: need.zip,
-                  radiusMiles: 100,
+                  radiusMiles: need.distanceMiles ?? 100,
                 },
         }),
       });
@@ -551,8 +584,9 @@ function AssistantFlow({
           </div>
           <p className="hint">{mode === "flip" ? "This is the cash available for the deal. Repair estimates are assumptions, not a quote." : "We use this as the vehicle asking-price limit. Taxes, title, registration and dealer fees are not included."}</p>
           <div className="field">
-            <label htmlFor="zip-draft">U.S. ZIP code near where you&apos;ll shop</label>
-            <input id="zip-draft" value={zipDraft} onChange={(event) => setZipDraft(event.target.value)} inputMode="numeric" placeholder="ZIP" />
+            <label htmlFor="zip-draft">U.S. ZIP code near where you&apos;ll shop (optional)</label>
+            <input id="zip-draft" value={zipDraft} onChange={(event) => setZipDraft(event.target.value)} inputMode="numeric" placeholder="Leave blank for nationwide" />
+            <p className="hint">Blank ZIP searches nationwide across the U.S. Add a ZIP on confirm if you want a mileage radius.</p>
           </div>
           <div className="btn-row">
             <button className="ghost" type="button" onClick={goBack}>
@@ -658,9 +692,46 @@ function AssistantFlow({
           </div>
           )}
           <div className="field">
-            <label htmlFor="zip-edit">ZIP</label>
-            <input id="zip-edit" value={need.zip ?? ""} onChange={(event) => setNeed({ ...need, zip: event.target.value || null })} />
+            <label htmlFor="zip-edit">ZIP (optional)</label>
+            <input
+              id="zip-edit"
+              value={need.zip ?? ""}
+              onChange={(event) => {
+                const nextZip = event.target.value.trim() || null;
+                setNeed({
+                  ...need,
+                  zip: nextZip,
+                  distanceMiles: nextZip ? need.distanceMiles ?? 100 : null,
+                });
+              }}
+              placeholder="Leave blank for nationwide"
+            />
           </div>
+          {need.zip ? (
+            <div className="field">
+              <label htmlFor="radius-edit">Search radius</label>
+              <select
+                id="radius-edit"
+                value={need.distanceMiles ?? ""}
+                onChange={(event) => {
+                  const value = event.target.value;
+                  setNeed({
+                    ...need,
+                    distanceMiles: value === "" ? null : Number(value),
+                  });
+                }}
+              >
+                <option value="">Nationwide</option>
+                {SEARCH_RADII_MILES.map((miles) => (
+                  <option key={miles} value={miles}>
+                    {miles} miles
+                  </option>
+                ))}
+              </select>
+            </div>
+          ) : (
+            <p className="hint">No ZIP — searching nationwide across the U.S.</p>
+          )}
           <div className="field">
             <label htmlFor="miles-edit">Maximum mileage (optional)</label>
             <input
@@ -674,7 +745,19 @@ function AssistantFlow({
               }}
             />
           </div>
-          {need.make ? <p className="hint">Make: {need.make}. Other makes are left out.</p> : null}
+          {need.preferredMakes?.length ? (
+            <p className="hint">
+              {need.openToOtherMakes
+                ? `Preferred makes: ${need.preferredMakes.join(", ")}${
+                    need.preferredModels?.length
+                      ? ` (${need.preferredModels.map((item) => `${item.make} ${item.model}`).join(", ")})`
+                      : ""
+                  }. Other makes stay in the mix.`
+                : `Makes: ${need.preferredMakes.join(", ")}. Other makes are left out.`}
+            </p>
+          ) : need.make ? (
+            <p className="hint">Make: {need.make}. Other makes are left out.</p>
+          ) : null}
           <div className="field">
             <label htmlFor="budget-edit">{need.mode === "flip" ? "Cash available for the purchase and repairs" : "Maximum vehicle price (before taxes and fees)"}</label>
             <input
@@ -725,11 +808,20 @@ function AssistantFlow({
           <h2>Cars that fit</h2>
           <PriceRatingHow />
           <DecisionNote scene="find" proofs={checks} />
+          {need ? <p className="hint">Scope: {matchScope ?? searchScopeLabel(need)}</p> : null}
           {!affordability ? <p className="hint">Budget was not set, so affordability was not assessed.</p> : null}
           {sample ? <p className="warn-box">Sample. These rows are the labeled fixture, not live matches for your note.</p> : null}
-          {groups.length === 0 ? <p>No directions yet. Choose what the car is for, then search again.</p> : null}
-          {groups.length > 0 && groups.every((group) => group.listings.length === 0) && groups[0]?.note ? (
-            <p className="warn-box">{groups[0].note}</p>
+          {groups.length === 0 ? (
+            <p>
+              {emptyReason === "timeout" || emptyReason === "provider_failure"
+                ? error || "The listing search failed. Nothing was fabricated."
+                : matchMessage || "No directions yet. Choose what the car is for, then search again."}
+            </p>
+          ) : null}
+          {groups.length > 0 && groups.every((group) => group.listings.length === 0) ? (
+            <p className="warn-box">
+              {groups[0]?.note || matchMessage || "No matching listings in this scope. Empty inventory — not a parse failure."}
+            </p>
           ) : null}
           {groups.map((group) => (
             <section key={group.direction.id}>
@@ -791,7 +883,7 @@ function AssistantFlow({
                         overBudget: car.overBudget,
                         bodyStyle: car.bodyStyle,
                         style: car.style,
-                        requestedMake: need?.make ?? null,
+                        requestedMake: need?.preferredMakes?.length ? need.preferredMakes.join("/") : need?.make ?? null,
                       })}
                     </p>
                     <div>
