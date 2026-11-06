@@ -1,6 +1,15 @@
 name: Reppo evaluation experiment
 
 on:
+  push:
+    branches:
+      - experiment/reppo-evaluation-poc
+    paths:
+      - .github/workflows/reppo-evaluation.yml
+      - eval/reppo.ts
+      - eval/reppo-status.ts
+      - src/server/reppo/**
+      - package.json
   workflow_dispatch:
     inputs:
       mode:
@@ -27,7 +36,7 @@ concurrency:
 jobs:
   evaluate:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 25
     steps:
       - name: Restrict execution to the Reppo experiment branch
         run: |
@@ -60,7 +69,7 @@ jobs:
           fi
 
       - name: Download SERV evaluation evidence
-        if: inputs.mode == 'submit'
+        if: github.event_name == 'push' || inputs.mode == 'submit'
         uses: actions/download-artifact@v4
         with:
           name: autoflip-serv-evaluation-5
@@ -75,8 +84,18 @@ jobs:
           REPPO_API_KEY: ${{ secrets.REPPO_API_KEY }}
         run: npm run eval:reppo
 
+      - name: Wait for Reppo's 10-minute settlement window
+        if: github.event_name == 'push' || inputs.mode == 'submit'
+        run: sleep 620
+
+      - name: Fetch Reppo evaluation results
+        if: github.event_name == 'push' || inputs.mode == 'submit'
+        env:
+          REPPO_API_KEY: ${{ secrets.REPPO_API_KEY }}
+        run: npm run eval:reppo:status
+
       - name: Download previous Reppo receipt
-        if: inputs.mode == 'status'
+        if: github.event_name == 'workflow_dispatch' && inputs.mode == 'status'
         uses: actions/download-artifact@v4
         with:
           name: autoflip-reppo-receipt
@@ -102,7 +121,7 @@ jobs:
       - name: Write run summary
         run: |
           echo "## Reppo experiment" >> "$GITHUB_STEP_SUMMARY"
-          echo "- Mode: ${{ inputs.mode }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Mode: ${{ github.event_name == 'push' && 'submit + delayed status check' || inputs.mode }}" >> "$GITHUB_STEP_SUMMARY"
           echo "- Branch: experiment/reppo-evaluation-poc" >> "$GITHUB_STEP_SUMMARY"
           echo "- Output: download the autoflip-reppo-receipt artifact from this run." >> "$GITHUB_STEP_SUMMARY"
           echo "- No customer reports are submitted; this is an offline fixture-based experiment." >> "$GITHUB_STEP_SUMMARY"
