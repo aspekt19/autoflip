@@ -1,0 +1,56 @@
+{
+  "schema": "autoflip.serv-proof-trace.v1",
+  "generatedAt": "2026-11-06T08:06:09.435Z",
+  "disclosure": "Real SERV inference execution against AutoFlip's fixed flip-clear evaluation fixture. This is not live customer traffic or a production vehicle report. Raw prompt, VIN, supplied facts, and free-form response text are intentionally omitted.",
+  "scenario": {
+    "caseId": "flip-clear",
+    "task": "Decide whether a resale estimate is clear enough to show",
+    "fixture": "fixed evaluation fixture"
+  },
+  "result": {
+    "ok": true,
+    "httpStatus": 200,
+    "decision": "alert"
+  },
+  "response": {
+    "id": "chatcmpl-Eh9FTn54clqCdsaw5Iy1cCg8KYiqD",
+    "model": "gpt-5.4-mini-2026-03-17",
+    "finishReason": "stop",
+    "usage": {
+      "promptTokens": 532,
+      "completionTokens": 306,
+      "totalTokens": 838
+    }
+  },
+  "proof": {
+    "profile": "flip_judge",
+    "modelRequested": "gpt-5.4-mini-serv-multipath",
+    "modelReported": "gpt-5.4-mini-2026-03-17",
+    "endpoint": "chat",
+    "reasoningEffort": "medium",
+    "tools": [
+      "serv_prompt_guard",
+      "serv_shadow_agent"
+    ],
+    "features": [
+      "multipath"
+    ],
+    "promptGuardRecorded": "passed",
+    "shadowOutcome": "not_exposed",
+    "shadowMaxIterations": 2,
+    "latencyMs": 10358,
+    "contentFilter": "default_on",
+    "promptCache": "default",
+    "streamed": false,
+    "jsonSchema": "flip_alert_judgment",
+    "applicationTool": null,
+    "codeComputed": [
+      "profitLowUsd",
+      "profitMidUsd",
+      "profitHighUsd",
+      "compCount",
+      "speed"
+    ],
+    "fallbackUsed": false
+  }
+}
