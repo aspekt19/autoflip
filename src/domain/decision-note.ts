@@ -48,14 +48,14 @@ export function visibleProof(proof: DecisionProof): DecisionProof {
   };
 }
 
-const NUMBER_TOKEN = /[-+]?\d[\d,]*(?:\.\d+)?/g;
+const NUMBER_TOKEN = /[-+]?\$?\d[\d,]*(?:\.\d+)?/g;
 const VIN_TOKEN = /\b[A-HJ-NPR-Z0-9]{17}\b/gi;
 const MODEL_CODE = /\b[A-Z]{1,4}-\d+\b/gi;
 const NON_NUMERIC_STRING_KEYS = new Set(["vin", "make", "model", "trim", "engine", "fuel", "bodyStyle", "style"]);
 
 function normalizedNumbers(text: string): string[] {
   const cleaned = text.replace(VIN_TOKEN, " ").replace(MODEL_CODE, " ");
-  return (cleaned.match(NUMBER_TOKEN) ?? []).map((token) => token.replace(/,/g, ""));
+  return (cleaned.match(NUMBER_TOKEN) ?? []).map((token) => token.replace(/[,$]/g, ""));
 }
 
 function numericTokens(value: unknown): Set<string> {
