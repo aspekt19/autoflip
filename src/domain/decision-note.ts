@@ -55,7 +55,8 @@ const NON_NUMERIC_STRING_KEYS = new Set(["vin", "make", "model", "trim", "engine
 
 function normalizedNumbers(text: string): string[] {
   // A hyphen between two amounts is a range separator, not a negative sign.
-  const rangeSafe = text.replace(/(\$[\d,]+)\s*-\s*(?=\$?\d)/g, "$1 to ");
+  // A dash between two numeric values is a range, not a negative sign.
+  const rangeSafe = text.replace(/(\d)\s*-\s*(?=\$?\d)/g, "$1 to ");
   const cleaned = rangeSafe.replace(VIN_TOKEN, " ").replace(MODEL_CODE, " ");
   return (cleaned.match(NUMBER_TOKEN) ?? []).map((token) => token.replace(/[,$]/g, ""));
 }
