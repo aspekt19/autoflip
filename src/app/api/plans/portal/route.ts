@@ -1,6 +1,6 @@
 import { getKv } from "@/io/kv";
 import { readPlans } from "@/server/plan-book";
-import { userId } from "@/server/session";
+import { requirePaidAccess } from "@/server/session";
 import { stripeClient } from "@/server/stripe";
 
 export const dynamic = "force-dynamic";
@@ -14,15 +14,18 @@ function originOf(request: Request): string {
 }
 
 export async function POST(request: Request) {
+  const access = await requirePaidAccess();
+  if (!access.ok) return access.response;
+
   const stripe = stripeClient();
   if ("error" in stripe) return Response.json({ error: "stripe_unconfigured", message: stripe.error }, { status: 503 });
 
-  const id = await userId();
+  const id = access.id;
   const plans = await readPlans(getKv(), id);
   if (!plans.stripeCustomerId) {
     return Response.json({
       error: "customer_missing",
-      message: "Stripe has not linked a customer to this browser account yet. Refresh after a successful test subscription webhook.",
+      message: "Stripe has not linked a customer to this account yet. Refresh after a successful test subscription webhook.",
     }, { status: 409 });
   }
 

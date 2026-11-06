@@ -1314,6 +1314,28 @@ pre.doc {
 @media (max-width: 680px) {
   .compare-picker { align-items: stretch; flex-direction: column; }
   .compare-picker .action { width: 100%; }
+
+/* Auth surfaces — reuse existing sheet/action language; no new visual system. */
+.auth-panel { margin: 18px 0; }
+.auth-email {
+  display: grid;
+  gap: 10px;
+  max-width: 28rem;
+  margin: 18px 0;
+}
+.auth-email label {
+  font-family: var(--sans);
+  font-weight: 700;
+  font-size: 14px;
+}
+.auth-email input[type="email"] {
+  font: inherit;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  background: var(--canvas);
+  color: var(--ink);
+  border-radius: 0;
+}
 }
 
 /* Scout (minimal, default-OFF UI) */

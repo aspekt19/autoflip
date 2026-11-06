@@ -5,12 +5,12 @@ import { parseDistanceMiles } from "@/domain/need";
 import { getKv } from "@/io/kv";
 import { allowance } from "@/server/plan-book";
 import { listSearches, saveSearches } from "@/server/radar-store";
-import { isDemoUser, userId } from "@/server/session";
+import { isDemoUser, ledgerOwnerId } from "@/server/session";
 
 export const dynamic = "force-dynamic";
 
 export async function POST(request: Request) {
-  const id = await userId();
+  const id = await ledgerOwnerId();
   const body = (await request.json().catch(() => null)) as { name?: string; mode?: string; criteria?: WatchCriteria } | null;
   const criteria = body?.criteria;
   if (!criteria || !criteria.zip || !criteria.priceMax) {

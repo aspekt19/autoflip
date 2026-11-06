@@ -19,7 +19,7 @@ import {
   waitForFindAnalysisReceipt,
   type ReportAnalysisIdentity,
 } from "@/server/report-analysis-idempotency";
-import { balanceOf, compensateSpendCredit, spendCredit, userId } from "@/server/session";
+import { balanceOf, compensateSpendCredit, spendCredit, ledgerOwnerId } from "@/server/session";
 import { sendLinkedTelegram } from "@/server/telegram-notify";
 import { originOf } from "@/server/secrets";
 
@@ -78,7 +78,7 @@ export async function POST(request: Request) {
     );
   }
 
-  const id = await userId();
+  const id = await ledgerOwnerId();
   const mode = parseMode(body.mode);
   const vinKey = identity.vin;
   const claimingFind = claimsFindAnalysisHandoff({

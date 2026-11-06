@@ -13,6 +13,8 @@ export default function sitemap(): MetadataRoute.Sitemap {
     "/compare",
     "/pricing",
     "/credits",
+    "/account",
+    "/login",
     "/developers",
     "/report/sample",
     "/privacy",

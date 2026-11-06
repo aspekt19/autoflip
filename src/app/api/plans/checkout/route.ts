@@ -2,7 +2,7 @@ import { planById } from "@/domain/plans";
 import { DEMO_USER_ID } from "@/domain/radar-watch";
 import { getKv } from "@/io/kv";
 import { readPlans } from "@/server/plan-book";
-import { userId } from "@/server/session";
+import { requirePaidAccess } from "@/server/session";
 import { stripeClient } from "@/server/stripe";
 import { ensurePlanPrice } from "@/server/stripe-plans";
 
@@ -20,9 +20,13 @@ export async function POST(request: Request) {
   const body = (await request.json().catch(() => null)) as { planId?: string } | null;
   const plan = planById(body?.planId ?? "");
   if (!plan) return Response.json({ error: "unknown_plan", message: "Choose a radar plan." }, { status: 400 });
+
+  const access = await requirePaidAccess();
+  if (!access.ok) return access.response;
+
   const stripe = stripeClient();
   if ("error" in stripe) return Response.json({ error: "stripe_unconfigured", message: stripe.error }, { status: 503 });
-  const id = await userId();
+  const id = access.id;
   if (id === DEMO_USER_ID) {
     return Response.json({ error: "demo_included", message: "Both Radar modes are already included in the shared demo. No subscription is needed." }, { status: 409 });
   }
@@ -34,7 +38,7 @@ export async function POST(request: Request) {
   const origin = originOf(request);
   const price = await ensurePlanPrice(stripe, plan.id);
   const session = await stripe.checkout.sessions.create({
-    ...(current.stripeCustomerId ? { customer: current.stripeCustomerId } : {}),
+    ...(current.stripeCustomerId ? { customer: current.stripeCustomerId } : { customer_email: access.email }),
     mode: "subscription",
     success_url: `${origin}/pricing?status=success`,
     cancel_url: `${origin}/pricing?status=cancel`,
