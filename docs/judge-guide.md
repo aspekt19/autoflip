@@ -81,7 +81,7 @@ AutoFlip is best presented as a consumer decision product with an agent-facing i
 
 ASSAY was the Best Overall Build and Open Track winner. OpenServ describes it as auditing Robinhood Chain stock-token valuations against raw onchain data, with SERV deciding whether a finding matters to the agent's mandate. SERVPIT received an Open Track honorable mention: six wallet-owning agents reason about whether to enter, stake, or borrow. Those projects made their specific decisions and consequences unusually visible.
 
-AutoFlip is not equivalent to SERVPIT: it does not claim autonomous agents with independent wallets. It is closer to a bounded reasoning product: deterministic code owns vehicle facts and numeric decisions, while SERV handles guarded interpretation and selected structured judgments. The useful comparison is architectural, not a claim of equal autonomy or onchain scope.
+AutoFlip is not equivalent to SERVPIT: it does not claim autonomous agents with independent wallets. Its strongest Open Track example is Flip Radar: TypeScript calculates profit estimates, comparable count, and risk signals; SERV first applies the feasibility rules and then returns a strict `alert` or `skip` judgment. This is closer to ASSAY's pattern of using SERV to decide whether a computed finding deserves attention than a generic text-generation wrapper. The scope is still narrower: AutoFlip does not execute trades or control wallets, and the numeric decision remains in code.
 
 Payrun is a useful secondary reference for the separation of responsibilities—SERV reasons within deterministic policy limits and a separate execution layer acts—but it won the Coinbase AgentKit partner track, not the Open Track.
 
