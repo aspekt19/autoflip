@@ -8,6 +8,7 @@ import { priceBadge } from "@/domain/price-badge";
 import { buildComputedReport } from "@/domain/report";
 import { screenUserInput } from "@/domain/screen";
 import { templateExplanation } from "@/domain/template";
+import { resolveVerdictDecision, verdictDecisionFacts } from "@/domain/verdict-decide";
 import { extractVin } from "@/domain/vin";
 import type { FullReport, Listing, Mode, Proof, ProofStep } from "@/domain/types";
 import { autodevByVin, autodevSearch, type AutodevDeps } from "@/io/autodev";
@@ -226,14 +227,72 @@ export async function assembleReport(input: AssembleInput, deps: AssembleDeps): 
       "selectComparables, mileageAdjust, historyAdjustment, verdictFromPriceGap, flipMath, scoreFromGap, dealerQuestions",
   });
 
+  // SERV chooses the shopper action; TypeScript clamps hard rails and owns every number.
+  let verdictServText: string | null = null;
+  let verdictServOk = false;
+  let verdictServProof: ServProof | null = null;
+  if (deps.servKey) {
+    const decisionFacts = verdictDecisionFacts(computed);
+    const judged = await runServ(
+      "verdict_decide",
+      { user: JSON.stringify({ facts: decisionFacts, userLookup: screened.text }) },
+      {
+        fetch: fetchImpl,
+        apiKey: deps.servKey,
+        baseUrl: deps.servBaseUrl,
+        model,
+      },
+    );
+    verdictServProof = judged.proof;
+    verdictServOk = judged.ok;
+    verdictServText = judged.ok ? judged.text : null;
+    steps.push({
+      id: "serv_verdict_decide",
+      status: judged.ok ? "ok" : "fallback",
+      detail: judged.ok ? judged.shadowOutcome : judged.error,
+    });
+  } else {
+    steps.push({ id: "serv_verdict_decide", status: "skipped_no_key" });
+  }
+
+  const decision = resolveVerdictDecision({
+    report: computed,
+    servText: verdictServText,
+    servOk: verdictServOk,
+    hasServKey: Boolean(deps.servKey),
+  });
+  computed.verdict = decision.finalVerdict;
+  computed.decision = {
+    action: decision.finalAction,
+    source: decision.source,
+    servChoice: decision.servChoice,
+    deterministicAction: decision.deterministicAction,
+    overrideReasons: decision.overrideReasons,
+    labeledFallback: decision.labeledFallback,
+    note: decision.note,
+  };
+  steps.push({
+    id: "verdict_guardrails",
+    status: decision.overrideReasons.length > 0 ? "overrode" : "passed",
+    detail:
+      decision.overrideReasons.slice(0, 3).join(" | ") ||
+      `final=${decision.finalAction}; source=${decision.source}`,
+  });
+
   let explanation = templateExplanation(computed);
   let explanationSource: Proof["explanationSource"] = "template";
   let usedModel: string | null = null;
   const servChecks: ServProof[] = deps.servKey
-    ? guardProof
-      ? [guardProof]
-      : []
-    : [plannedProof(guardProfile), plannedProof("check_rules"), plannedProof(explainProfile)];
+    ? [
+        ...(guardProof ? [guardProof] : []),
+        ...(verdictServProof ? [verdictServProof] : []),
+      ]
+    : [
+        plannedProof(guardProfile),
+        plannedProof("verdict_decide"),
+        plannedProof("check_rules"),
+        plannedProof(explainProfile),
+      ];
   const shadow = {
     requested: false,
     hint: SHADOW_HINT,
@@ -303,6 +362,7 @@ export async function assembleReport(input: AssembleInput, deps: AssembleDeps): 
       compVins: computed.comps.map((comp) => comp.vin).sort(),
       fairValueUsd: computed.fairValueUsd,
       verdict: computed.verdict,
+      decisionAction: decision.finalAction,
     }),
     model: usedModel,
     promptVersion: EXPLAIN_PROMPT_VERSION,
@@ -319,6 +379,20 @@ export async function assembleReport(input: AssembleInput, deps: AssembleDeps): 
       openParkIt: computed.openParkIt,
       complaintCount: computed.complaintCount,
       fuel: computed.fuel,
+      verdictDecision: {
+        profile: "verdict_decide",
+        deterministicAction: decision.deterministicAction,
+        deterministicVerdict: decision.deterministicVerdict,
+        servChoice: decision.servChoice,
+        finalAction: decision.finalAction,
+        finalVerdict: decision.finalVerdict,
+        source: decision.source,
+        overrideReasons: decision.overrideReasons,
+        guardrailIds: decision.guardrails.map((rail) => rail.id),
+        allowedActions: decision.allowedActions,
+        labeledFallback: decision.labeledFallback,
+        note: decision.note,
+      },
     },
     explanationSource,
     servChecks,

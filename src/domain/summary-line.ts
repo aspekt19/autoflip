@@ -44,8 +44,8 @@ export function summaryLine(input: {
   }
   if (input.verdict === "insufficient_data" || input.fairValueUsd === null) {
     return {
-      line: "Not enough comparable listings to decide.",
-      detail: "A price decision needs at least three mileage-adjusted listings.",
+      line: "Needs inspection",
+      detail: "There is not enough verified listing or identity data for a buy or negotiate decision.",
     };
   }
   if (input.verdict === "good_deal") {

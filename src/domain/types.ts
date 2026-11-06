@@ -48,6 +48,9 @@ export type Verdict =
   | "walk_away"
   | "insufficient_data";
 
+/** Shopper-facing action chosen by SERV under TS guardrails. See decision-action.ts. */
+export type { DecisionAction } from "./decision-action";
+
 export type RecallRecord = {
   campaignNumber: string;
   component: string;
@@ -158,6 +161,19 @@ export type ComputedReport = {
   assumptions: Record<string, number>;
   dataNotes: string[];
   sample: boolean;
+  /**
+   * SERV-chosen shopper action after TS guardrail clamp.
+   * Optional so older saved reports remain readable.
+   */
+  decision?: {
+    action: import("./decision-action").DecisionAction;
+    source: "serv" | "deterministic_fallback" | "guardrail_clamp" | "no_serv_key";
+    servChoice: import("./decision-action").DecisionAction | null;
+    deterministicAction: import("./decision-action").DecisionAction;
+    overrideReasons: string[];
+    labeledFallback: boolean;
+    note: string | null;
+  };
 };
 
 export type ProofStep = {

@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { Big_Shoulders, Manrope, Orbitron } from "next/font/google";
+import { Bebas_Neue, Manrope, Orbitron } from "next/font/google";
 import { Header } from "@/components/Header";
 import { PageFade } from "@/components/PageFade";
 import { SmoothScroll } from "@/components/SmoothScroll";
@@ -7,7 +7,13 @@ import "./globals.css";
 
 const sans = Manrope({ subsets: ["latin"], weight: ["400", "500", "600", "700"], variable: "--font-sans" });
 const display = Orbitron({ subsets: ["latin"], weight: ["500", "600", "700"], variable: "--font-display" });
-const wide = Big_Shoulders({ subsets: ["latin"], weight: ["700", "800"], variable: "--font-wide", adjustFontFallback: false });
+/** Condensed display for headings. Replaces Big_Shoulders, which flakes in CI Google Fonts fetches. */
+const wide = Bebas_Neue({
+  subsets: ["latin"],
+  weight: "400",
+  variable: "--font-wide",
+  display: "swap",
+});
 
 export const metadata: Metadata = {
   title: { default: "AutoFlip", template: "%s — AutoFlip" },

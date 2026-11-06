@@ -98,9 +98,12 @@ describe("SERV layer", () => {
         "radar_guard",
         "personal_alert_review",
         "flip_judge",
+        "verdict_decide",
         "telegram_reply",
       ]),
     );
+    expect(PROFILES.verdict_decide.feature).toBe("multipath");
+    expect(PROFILES.verdict_decide.jsonSchema?.name).toBe("report_verdict_decision");
   });
 
   it("rejects chat function tools that still ask for reasoning effort", () => {

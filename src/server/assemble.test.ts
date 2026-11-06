@@ -18,6 +18,10 @@ describe("assemble", () => {
     expect(result.report.computed.subject.priceUsd).toBe(34988);
     expect(result.report.proof.explanationSource).toBe("template");
     expect(result.report.proof.steps.some((step) => step.id === "serv_prompt_guard" && step.status === "skipped")).toBe(true);
+    expect(result.report.proof.steps.some((step) => step.id === "serv_verdict_decide" && step.status === "skipped_no_key")).toBe(true);
+    expect(result.report.proof.steps.some((step) => step.id === "verdict_guardrails")).toBe(true);
+    expect(result.report.computed.decision?.labeledFallback).toBe(true);
+    expect(result.report.proof.toolOutputs).toHaveProperty("verdictDecision");
     expect(result.report.proof.inputsHash).toMatch(/^[a-f0-9]{64}$/);
     expect(result.report.explanation).not.toMatch(/\$999/);
   });

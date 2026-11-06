@@ -217,7 +217,7 @@ describe("eval score", () => {
     }
 
     const profiles = new Set(EVAL_CASES.flatMap((item) => item.profiles));
-    for (const id of ["need_guard", "need_extract", "check_guard", "check_rules", "report_explain", "personal_alert_review", "flip_feasibility", "flip_judge", "telegram_reply"]) {
+    for (const id of ["need_guard", "need_extract", "check_guard", "check_rules", "report_explain", "personal_alert_review", "flip_feasibility", "flip_judge", "verdict_decide", "telegram_reply"]) {
       expect(profiles.has(id)).toBe(true);
     }
   });

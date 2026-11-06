@@ -48,6 +48,31 @@ export function ReportView({ report }: { report: FullReport }) {
         <a href="/reports">My reports</a>
       </nav>
       <p className={`verdict-level badge ${computed.verdict}`}>{verdictLabel(computed.verdict)}</p>
+      {computed.decision ? (
+        <div className="decision-provenance" aria-label="How this verdict was chosen">
+          <p className="hint">
+            {computed.decision.source === "serv"
+              ? "SERV chose this action from the computed facts. TypeScript checked hard guardrails afterward."
+              : computed.decision.source === "guardrail_clamp"
+                ? "SERV proposed an action that TypeScript clamped under hard guardrails."
+                : computed.decision.source === "deterministic_fallback"
+                  ? "SERV did not return a usable verdict in time. This action is the labeled code fallback under the same guardrails."
+                  : "SERV was not configured for this report. This action is the labeled code baseline under hard guardrails."}
+          </p>
+          {computed.decision.servChoice && computed.decision.servChoice !== computed.decision.action ? (
+            <p className="hint">
+              SERV chose {computed.decision.servChoice}; final action is {computed.decision.action}.
+            </p>
+          ) : null}
+          {computed.decision.overrideReasons.length > 0 ? (
+            <ul className="refuse">
+              {computed.decision.overrideReasons.map((reason) => (
+                <li key={reason}>{reason}</li>
+              ))}
+            </ul>
+          ) : null}
+        </div>
+      ) : null}
       <CoverageNote
         input={{
           mode: computed.mode,
