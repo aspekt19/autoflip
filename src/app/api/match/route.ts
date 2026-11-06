@@ -1,8 +1,14 @@
 import { budgetFit } from "@/domain/budget";
 import { coverageConfidence, coverageSentence } from "@/domain/coverage";
 import { proposeDirections } from "@/domain/directions";
+import {
+  emptyReasonFromProviderError,
+  findEmptyCopy,
+  statusForFindEmpty,
+  type FindEmptyReason,
+} from "@/domain/find-empty";
 import { rankFlipCandidates } from "@/domain/flip-rank";
-import { listingWithinNeed, noMatchMessage, sampleGapMessage, searchScopeLabel, validateNeed } from "@/domain/need";
+import { listingWithinNeed, noMatchMessage, searchScopeLabel, validateNeed } from "@/domain/need";
 import { priceBadge, type PriceBadge } from "@/domain/price-badge";
 import { reconUsd } from "@/domain/recon";
 import type { Listing } from "@/domain/types";
@@ -18,15 +24,28 @@ export async function POST(request: Request) {
   const body = (await request.json().catch(() => null)) as { need?: unknown; refine?: { make?: string; model?: string; yearMin?: number; yearMax?: number } } | null;
   const parsed = validateNeed(body?.need);
   if (!parsed.ok) {
-    return Response.json({ error: "invalid_need", message: parsed.issues[0]?.message ?? "That need is not usable." }, { status: 400 });
+    const empty = findEmptyCopy("invalid_need", null, parsed.issues[0]?.message ?? "That need is not usable.");
+    return Response.json(
+      {
+        error: "invalid_need",
+        emptyReason: empty.reason,
+        message: empty.detail,
+        headline: empty.headline,
+        nextStep: empty.nextStep,
+      },
+      { status: statusForFindEmpty(empty.reason) },
+    );
   }
   const directions = proposeDirections(parsed.need, body?.refine);
   if (directions.length === 0) {
+    const empty = findEmptyCopy("no_directions", parsed.need);
     return Response.json({
       ok: true,
       sample: false,
-      emptyReason: "no_directions",
-      message: "Pick what the car is for before Lemonless suggests directions.",
+      emptyReason: empty.reason,
+      message: empty.detail,
+      headline: empty.headline,
+      nextStep: empty.nextStep,
       scope: searchScopeLabel(parsed.need),
       directions: [],
     });
@@ -41,10 +60,12 @@ export async function POST(request: Request) {
     coverageLevel: "low" | "medium" | "high";
     note: string | null;
     searchedModels: Array<{ make: string; model: string }>;
+    providerWarning: string | null;
   }> = [];
-  let sample = false;
   let message: string | null = null;
   let extraUsed = false;
+  let partialFailureWarning: string | null = null;
+
   for (const direction of directions) {
     const queries = [direction.search];
     if (!extraUsed && direction.models[1]) {
@@ -53,7 +74,7 @@ export async function POST(request: Request) {
     }
     const collected: Listing[] = [];
     let directionNote: string | null = null;
-    let directionSample = false;
+    let directionWarning: string | null = null;
     for (const query of queries) {
       const result = await assembleRadar(
         {
@@ -70,27 +91,52 @@ export async function POST(request: Request) {
         deps,
       );
       if (!result.ok) {
+        const reason = emptyReasonFromProviderError(
+          result.error === "listings_error" && /did not respond|timed? ?out/i.test(result.message)
+            ? "provider_timeout"
+            : result.error,
+        );
+        // Fail the whole match when the first live call cannot run. Do not replace with sample rows.
+        if (groups.length === 0 && collected.length === 0) {
+          const empty = findEmptyCopy(reason, parsed.need, result.message);
+          return Response.json(
+            {
+              error: result.error,
+              emptyReason: empty.reason,
+              message: empty.detail,
+              headline: empty.headline,
+              nextStep: empty.nextStep,
+              scope: searchScopeLabel(parsed.need),
+            },
+            { status: statusForFindEmpty(empty.reason) },
+          );
+        }
+        directionWarning = findEmptyCopy(reason, parsed.need, result.message).detail;
+        partialFailureWarning = directionWarning;
+        break;
+      }
+      if (result.sample || result.listings.some((item) => item.source === "sample")) {
+        const empty = findEmptyCopy(
+          "listings_unconfigured",
+          parsed.need,
+          "A sample fixture was returned where live inventory was required. Those rows were discarded.",
+        );
         return Response.json(
           {
-            error: result.error,
-            message: result.message,
-            emptyReason: "provider_failure",
+            error: "sample_rejected",
+            emptyReason: empty.reason,
+            message: empty.detail,
+            headline: empty.headline,
+            nextStep: empty.nextStep,
             scope: searchScopeLabel(parsed.need),
           },
-          { status: result.status },
+          { status: statusForFindEmpty(empty.reason) },
         );
-      }
-      if (result.sample) {
-        directionSample = true;
-        directionNote = result.message;
-        if (groups.length === 0 && collected.length === 0) collected.push(...result.listings.slice(0, 8));
-        break;
       }
       collected.push(...result.listings);
       directionNote = result.message;
       await rememberComps(getKv(), { make: query.make, model: query.model, zip: parsed.need.zip }, result.listings).catch(() => undefined);
     }
-    const searchedModels = directionSample ? [] : queries;
     const ranked =
       parsed.need.mode === "flip"
         ? rankFlipCandidates(collected, new Date(), {
@@ -109,7 +155,6 @@ export async function POST(request: Request) {
         clearsTarget: byVin.get(item.vin)?.clearsTarget ?? null,
       }))
       .sort((a, b) => {
-        // In-budget cars first; slightly-over cars stay visible but after the within-budget set.
         const aOver = a.overBudget ? 1 : 0;
         const bOver = b.overBudget ? 1 : 0;
         if (aOver !== bOver) return aOver - bOver;
@@ -118,49 +163,49 @@ export async function POST(request: Request) {
       .slice(0, 8);
     const coverageInput = {
       mode: parsed.need.mode,
-      sample: directionSample,
+      sample: false,
       dealerListingCount: listings.length,
       radiusMiles: radiusMiles,
       historyOnListing: false,
     };
     const coverage = coverageSentence(coverageInput);
     const coverageLevel = coverageConfidence(coverageInput);
-    if (directionSample) {
-      sample = true;
-      message = directionNote;
-      groups.push({
-        direction,
-        listings,
-        searchedModels,
-        coverage,
-        coverageLevel,
-        note:
-          listings.length === 0
-            ? sampleGapMessage(parsed.need)
-            : groups.length === 0
-              ? directionNote
-              : "The labeled sample is shown once. These other directions were not fetched.",
-      });
-      continue;
-    }
+    const emptyNote = listings.length === 0 ? noMatchMessage(parsed.need) : null;
     groups.push({
       direction,
       listings,
-      searchedModels,
+      searchedModels: queries,
       coverage,
       coverageLevel,
-      note: listings.length === 0 ? noMatchMessage(parsed.need) : [directionNote, assumption].filter(Boolean).join(" "),
+      note: [emptyNote, directionNote, assumption, directionWarning].filter(Boolean).join(" ") || null,
+      providerWarning: directionWarning,
     });
   }
+
   const visible = groups.reduce((sum, group) => sum + group.listings.length, 0);
-  const showedSample = groups.some((group) => group.listings.some((item) => item.source === "sample"));
+  let emptyReason: FindEmptyReason | null = null;
+  let headline: string | null = null;
+  let nextStep: string | null = null;
+  if (visible === 0) {
+    const empty = findEmptyCopy("empty_inventory", parsed.need, groups[0]?.note ?? null);
+    emptyReason = empty.reason;
+    message = empty.detail;
+    headline = empty.headline;
+    nextStep = empty.nextStep;
+  } else if (partialFailureWarning) {
+    message = `Some model searches failed. Showing only the live rows that returned. ${partialFailureWarning}`;
+  }
+
   return Response.json({
     ok: true,
-    sample: showedSample,
-    emptyReason: visible === 0 ? (sample ? "sample_gap" : "empty_inventory") : null,
-    message: visible === 0 ? (sample ? sampleGapMessage(parsed.need) : noMatchMessage(parsed.need)) : message,
+    sample: false,
+    emptyReason,
+    message,
+    headline,
+    nextStep,
     scope: searchScopeLabel(parsed.need),
     affordabilityAssessed: parsed.need.budgetKnown,
+    partialFailure: Boolean(partialFailureWarning),
     directions: groups,
   });
 }

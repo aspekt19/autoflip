@@ -11,6 +11,7 @@ import type { DecisionProof } from "@/domain/decision-note";
 import type { SearchDirection } from "@/domain/directions";
 import { CoverageLine } from "./CoverageNote";
 import { DecisionNote } from "./DecisionNote";
+import { findEmptyCopy, type FindEmptyReason } from "@/domain/find-empty";
 import { SEARCH_RADII_MILES, USE_CASES, searchScopeLabel, type FollowUp, type StructuredNeed } from "@/domain/need";
 import type { Mode } from "@/domain/types";
 import { MakeModelFields } from "./MakeModelFields";
@@ -43,6 +44,7 @@ type MatchGroup = {
   note: string | null;
   coverage?: string;
   coverageLevel?: "low" | "medium" | "high";
+  providerWarning?: string | null;
 };
 
 const USE_LABEL: Record<(typeof USE_CASES)[number], string> = {
@@ -90,8 +92,11 @@ function AssistantFlow({
   const [sample, setSample] = useState(false);
   const [affordability, setAffordability] = useState(true);
   const [matchMessage, setMatchMessage] = useState<string | null>(null);
+  const [matchHeadline, setMatchHeadline] = useState<string | null>(null);
+  const [matchNextStep, setMatchNextStep] = useState<string | null>(null);
   const [matchScope, setMatchScope] = useState<string | null>(null);
-  const [emptyReason, setEmptyReason] = useState<string | null>(null);
+  const [emptyReason, setEmptyReason] = useState<FindEmptyReason | null>(null);
+  const [partialFailure, setPartialFailure] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState<string | null>(null);
   const [refine, setRefine] = useState(false);
@@ -192,7 +197,10 @@ function AssistantFlow({
         sample?: boolean;
         matchMessage?: string | null;
         matchScope?: string | null;
-        emptyReason?: string | null;
+        emptyReason?: FindEmptyReason | null;
+        matchHeadline?: string | null;
+        matchNextStep?: string | null;
+        partialFailure?: boolean;
       };
       if (!saved.need || !saved.stage || saved.stage === "need") return;
       setNeed(saved.need);
@@ -201,10 +209,13 @@ function AssistantFlow({
       setSource(saved.source ?? "form");
       setChecks(saved.checks ?? []);
       setAffordability(saved.affordability ?? true);
-      setSample(Boolean(saved.sample));
+      setSample(false);
       setMatchMessage(saved.matchMessage ?? null);
+      setMatchHeadline(saved.matchHeadline ?? null);
+      setMatchNextStep(saved.matchNextStep ?? null);
       setMatchScope(saved.matchScope ?? null);
       setEmptyReason(saved.emptyReason ?? null);
+      setPartialFailure(Boolean(saved.partialFailure));
       if (saved.need.budgetUsd) setBudget(String(saved.need.budgetUsd));
       if (saved.need.zip) setZipDraft(saved.need.zip);
     } catch {
@@ -258,7 +269,10 @@ function AssistantFlow({
     if (!need) return;
     setError(null);
     setMatchMessage(null);
+    setMatchHeadline(null);
+    setMatchNextStep(null);
     setEmptyReason(null);
+    setPartialFailure(false);
     setPending("match");
     const controller = new AbortController();
     const timer = window.setTimeout(() => controller.abort(), 45_000);
@@ -281,21 +295,50 @@ function AssistantFlow({
         directions?: MatchGroup[];
         sample?: boolean;
         message?: string;
+        headline?: string;
+        nextStep?: string;
         scope?: string;
-        emptyReason?: string | null;
+        emptyReason?: FindEmptyReason | null;
+        partialFailure?: boolean;
         affordabilityAssessed?: boolean;
       };
       if (!response.ok) {
-        setError(body.message || "The listing search failed. Nothing was fabricated.");
-        setEmptyReason(body.emptyReason ?? "provider_failure");
+        const reason = body.emptyReason ?? "provider_failure";
+        const copy = findEmptyCopy(reason, need, body.message);
+        setError(copy.detail);
+        setMatchHeadline(body.headline ?? copy.headline);
+        setMatchNextStep(body.nextStep ?? copy.nextStep);
+        setMatchMessage(copy.detail);
+        setEmptyReason(reason);
+        setStage("results");
+        setGroups([]);
+        setSample(false);
         return;
       }
-      const nextGroups = body.directions ?? [];
+      // Consumer /find never accepts sample rows as live inventory.
+      const nextGroups = (body.directions ?? []).map((group) => ({
+        ...group,
+        listings: (group.listings ?? []).filter((car) => car.source !== "sample"),
+      }));
+      if (body.sample) {
+        const copy = findEmptyCopy("listings_unconfigured", need, "Sample fixtures were rejected for this consumer search.");
+        setGroups([]);
+        setSample(false);
+        setEmptyReason(copy.reason);
+        setMatchHeadline(copy.headline);
+        setMatchMessage(copy.detail);
+        setMatchNextStep(copy.nextStep);
+        setStage("results");
+        return;
+      }
       setGroups(nextGroups);
-      setSample(Boolean(body.sample));
+      setSample(false);
       setAffordability(body.affordabilityAssessed !== false);
       setMatchMessage(body.message ?? null);
+      setMatchHeadline(body.headline ?? null);
+      setMatchNextStep(body.nextStep ?? null);
       setMatchScope(body.scope ?? searchScopeLabel(need));
+      setPartialFailure(Boolean(body.partialFailure));
       setEmptyReason(body.emptyReason ?? (nextGroups.length === 0 ? "no_directions" : null));
       setStage("results");
       try {
@@ -308,23 +351,28 @@ function AssistantFlow({
             source,
             checks,
             affordability: body.affordabilityAssessed !== false,
-            sample: Boolean(body.sample),
+            sample: false,
             matchMessage: body.message ?? null,
+            matchHeadline: body.headline ?? null,
+            matchNextStep: body.nextStep ?? null,
             matchScope: body.scope ?? searchScopeLabel(need),
             emptyReason: body.emptyReason ?? null,
+            partialFailure: Boolean(body.partialFailure),
           }),
         );
       } catch {
         /* ignore */
       }
     } catch (err) {
-      if (err instanceof DOMException && err.name === "AbortError") {
-        setError("The search timed out before listings came back. Nothing was fabricated.");
-        setEmptyReason("timeout");
-      } else {
-        setError("The listing search failed. Nothing was fabricated.");
-        setEmptyReason("provider_failure");
-      }
+      const reason: FindEmptyReason = err instanceof DOMException && err.name === "AbortError" ? "provider_timeout" : "provider_failure";
+      const copy = findEmptyCopy(reason, need);
+      setError(copy.detail);
+      setMatchHeadline(copy.headline);
+      setMatchMessage(copy.detail);
+      setMatchNextStep(copy.nextStep);
+      setEmptyReason(reason);
+      setGroups([]);
+      setStage("results");
     } finally {
       window.clearTimeout(timer);
       setPending(null);
@@ -810,26 +858,32 @@ function AssistantFlow({
           <DecisionNote scene="find" proofs={checks} />
           {need ? <p className="hint">Scope: {matchScope ?? searchScopeLabel(need)}</p> : null}
           {!affordability ? <p className="hint">Budget was not set, so affordability was not assessed.</p> : null}
-          {sample ? <p className="warn-box">Sample. These rows are the labeled fixture, not live matches for your note.</p> : null}
-          {groups.length === 0 ? (
-            <p>
-              {emptyReason === "timeout" || emptyReason === "provider_failure"
-                ? error || "The listing search failed. Nothing was fabricated."
-                : matchMessage || "No directions yet. Choose what the car is for, then search again."}
+          {partialFailure ? (
+            <p className="warn-box" role="status">
+              {matchMessage || "Some listing sources failed. Results below are partial and are not an exhaustive market scan."}
             </p>
           ) : null}
-          {groups.length > 0 && groups.every((group) => group.listings.length === 0) ? (
-            <p className="warn-box">
-              {groups[0]?.note || matchMessage || "No matching listings in this scope. Empty inventory — not a parse failure."}
-            </p>
+          {groups.length === 0 || (groups.length > 0 && groups.every((group) => group.listings.length === 0)) ? (
+            <div className="warn-box" role="status">
+              <p>
+                <strong>{matchHeadline || findEmptyCopy(emptyReason ?? (groups.length === 0 ? "no_directions" : "empty_inventory"), need, matchMessage).headline}</strong>
+              </p>
+              <p>{matchMessage || error || findEmptyCopy(emptyReason ?? (groups.length === 0 ? "no_directions" : "empty_inventory"), need).detail}</p>
+              <p className="hint">{matchNextStep || findEmptyCopy(emptyReason ?? (groups.length === 0 ? "no_directions" : "empty_inventory"), need).nextStep}</p>
+            </div>
           ) : null}
           {groups.map((group) => (
             <section key={group.direction.id}>
               <h3>{group.direction.segment}</h3>
               <p>{group.direction.why}</p>
+              <p className="hint">Editorial guidance for where to look — not verified inventory by itself.</p>
               {group.coverage && group.coverageLevel ? <CoverageLine confidence={group.coverageLevel} sentence={group.coverage} /> : null}
+              {group.providerWarning ? <p className="warn-box">{group.providerWarning}</p> : null}
               <p className="hint">
-                {group.searchedModels?.length ? `Models checked: ${group.searchedModels.map((item) => `${item.make} ${item.model}`).join(", ")}.` : "No live model search was run for this group; sample rows are not live matches."} Years {group.direction.yearMin}–{group.direction.yearMax}. {group.direction.yearBecause}
+                {group.searchedModels?.length
+                  ? `Live models checked: ${group.searchedModels.map((item) => `${item.make} ${item.model}`).join(", ")}.`
+                  : "No live model search completed for this group."}{" "}
+                Years {group.direction.yearMin}–{group.direction.yearMax}. {group.direction.yearBecause}
               </p>
               <button className="quiet" type="button" onClick={() => void watch(group.direction)} disabled={pending === group.direction.id}>
                 {pending === group.direction.id ? "Saving alert…" : need?.mode === "flip" ? "Get alerts for this budget" : "Get new-listing alerts"}
@@ -860,7 +914,7 @@ function AssistantFlow({
                       {car.city ? ` · ${car.city}${car.state ? `, ${car.state}` : ""}` : ""}
                     </p>
                     {car.overBudget ? <p className="budget-flag">Slightly over budget</p> : null}
-                    {car.source === "sample" ? <p className="hint">Sample listing, not a live match.</p> : null}
+                    {car.source !== "autodev" ? <p className="hint">Source {car.source}: not treated as verified live inventory.</p> : null}
                     {car.badge ? <PriceBadgeView badge={car.badge} /> : null}
                     {car.flipNote ? <p className="hint">{car.flipNote}</p> : null}
                     {car.clearsTarget === false ? <p className="hint">Under the profit target, so it ranks lower.</p> : null}

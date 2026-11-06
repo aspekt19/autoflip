@@ -15,7 +15,6 @@ import { autodevByVin, autodevSearch, type AutodevDeps } from "@/io/autodev";
 import { readComps, rememberComps } from "@/io/comp-cache";
 import { getKv } from "@/io/kv";
 import { complaintCountFor, decodeVin, fuelFor, geocodeZipCity, recallsFor, type GovDeps } from "@/io/gov";
-import { sampleByVin, sampleListings } from "@/io/sample";
 import {
   EXPLAIN_PROMPT_VERSION,
   GUARD_PROMPT_VERSION,
@@ -485,20 +484,16 @@ async function resolveSubject(
   | { ok: false; result: AssembleResult }
 > {
   if (!deps.autodevKey || !deps.autodev) {
-    const subject = sampleByVin(vin);
-    if (!subject) {
-      return {
+    return {
+      ok: false,
+      result: {
         ok: false,
-        result: {
-          ok: false,
-          status: 404,
-          error: "not_in_sample",
-          message:
-            "That VIN is not in the labeled sample set, and no listings key is configured. The sample is five Toyota Camry listings.",
-        },
-      };
-    }
-    return { ok: true, subject, candidates: sampleListings(), sample: true, cached: false };
+        status: 503,
+        error: "listings_unconfigured",
+        message:
+          "Live dealer listings are not configured in this environment. Open the labeled sample report instead of treating fixtures as a live lookup.",
+      },
+    };
   }
 
   const byVin = await autodevByVin(vin, {
@@ -627,11 +622,11 @@ export async function assembleRadar(
   }
   if (!deps.autodevKey || !deps.autodev) {
     return {
-      ok: true,
-      listings: sampleListings(),
-      sample: true,
+      ok: false,
+      status: 503,
+      error: "listings_unconfigured",
       message:
-        "No listings key is configured. These five Toyota Camry rows are the labeled sample fixture. They are not the result of your search.",
+        "Live dealer listings are not configured in this environment. Lemonless will not show sample inventory as search results.",
       proof,
     };
   }

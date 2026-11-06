@@ -87,7 +87,7 @@ describe("MCP API key", () => {
       params: { name: "full_report", arguments: { mode: "personal", vin: "1HGCM82673A123456" } },
     });
     const body = (await response.json()) as { result: { structuredContent: { error: string } } };
-    expect(body.result.structuredContent.error).toBe("not_in_sample");
+    expect(body.result.structuredContent.error).toBe("listings_unconfigured");
     expect(await creditBalance(kv, "miss-user")).toBe(2);
   });
 
