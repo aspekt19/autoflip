@@ -105,7 +105,7 @@ describe("Stage1B claim-lock idempotency", () => {
       return claim;
     })();
 
-    await gate; // first has claimed
+    await gate; // first has claimed (no runId yet)
     const second = await claimScoutIdempotency({
       kv: shared,
       ownerId: "owner-a",
@@ -113,7 +113,8 @@ describe("Stage1B claim-lock idempotency", () => {
       mandate: baseMandate,
       env: {},
     });
-    expect(second.kind).toBe("in_progress");
+    // No runId bound yet — recovery_needed (never re-exec); not a free second run.
+    expect(second.kind).toBe("recovery_needed");
     expect(entered).toBe(1);
 
     await slow;
@@ -151,7 +152,7 @@ describe("Stage1B claim-lock idempotency", () => {
 
     const oks = [ra, rb].filter((r) => r.ok);
     const denials = [ra, rb].filter((r) => !r.ok);
-    // One completed execution; other may be in_progress (409) or coherent replay.
+    // One completed execution; other may be recovery_needed/in_progress (409) or coherent replay.
     expect(oks.length + denials.length).toBe(2);
     if (oks.length === 2) {
       expect(oks[0]!.ok && oks[1]!.ok).toBe(true);
@@ -164,9 +165,11 @@ describe("Stage1B claim-lock idempotency", () => {
       expect(denials).toHaveLength(1);
       if (!denials[0]!.ok) {
         expect(denials[0].status).toBe(409);
-        expect(denials[0].body.error).toBe("idempotency_in_progress");
+        expect(["idempotency_in_progress", "idempotency_recovery_needed"]).toContain(
+          denials[0].body.error,
+        );
       }
-      // Retry after winner finished → coherent same runId
+      // Retry after winner finished → coherent same runId (replay or reconcile)
       const retry = await executeScoutSafely({
         req: scoutReq("owner-a", mandate, key),
         kv: shared,
@@ -271,7 +274,7 @@ describe("Stage1B claim-lock idempotency", () => {
     });
     expect(claim.kind).toBe("proceed");
 
-    // Simulate crash: leave in_progress, never complete.
+    // Simulate crash: leave in_progress without runId — recovery_needed, never re-exec.
     const again = await executeScoutSafely({
       req: scoutReq("owner-a", baseMandate, key),
       kv: shared,
@@ -280,7 +283,7 @@ describe("Stage1B claim-lock idempotency", () => {
     expect(again.ok).toBe(false);
     if (again.ok) return;
     expect(again.status).toBe(409);
-    expect(again.body.error).toBe("idempotency_in_progress");
+    expect(again.body.error).toBe("idempotency_recovery_needed");
   });
 
   it("missing Idempotency-Key → new run ok, not labeled idempotent", async () => {

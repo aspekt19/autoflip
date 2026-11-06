@@ -4,16 +4,16 @@
  * Storage: durable SET NX on the actual Kv backend (Upstash in production).
  * Process-local Maps are NOT used for claims (that caused Memory last-write vs Kv first-wins).
  * Credit-lock TTL ≠ durable receipt — receipts and in_progress claims are durable (no PX).
- * Stuck in_progress after crash: return in_progress; do NOT re-execute expensive work.
+ * Never auto-reclaim / re-execute expensive work.
  *
  * Hash binds stripped mandate + effective request intent (planner, preferLive).
- * Client spend/budget fields stay stripped — they never authorize and must not fork the key.
- * planner/preferLive change result meaning (replay vs live inventory; heuristic vs SERV) so
- * they are included; silent replay across different intent is forbidden.
+ * Client spend/budget fields stay stripped.
  *
- * Stage1B-recovery (queued): if complete receipt kv.set fails after run, claim can stick
- * in_progress forever. Prefer recover completed run by claim-owned runId reference — never
- * re-execute; uncertain claims stay non-executing + recovery_needed.
+ * Stage1B-recovery (minimal):
+ * After run completes, bind claim-owned runId (+ inventory flags) onto the in_progress claim,
+ * then write the completed receipt. If receipt write fails, a later claim loads the run by
+ * runId (ownership-checked) and finishes the receipt — no provider/planner re-exec.
+ * Uncertain claims (no runId, missing run, owner mismatch) → recovery_needed.
  */
 
 import { createHash } from "node:crypto";
@@ -38,6 +38,11 @@ export type ScoutIdemClaim = {
   ownerId: string;
   mandateHash: string;
   claimedAt: string;
+  /** Bound after run completes + run row persisted — enables receipt reconcile without re-exec. */
+  runId?: string;
+  inventoryMode?: "replay" | "live";
+  isFixture?: boolean;
+  paidBlockedReason?: string | null;
 };
 
 export type ScoutIdemRecord = ScoutIdemReceipt | ScoutIdemClaim;
@@ -46,6 +51,11 @@ export type IdemClaimResult =
   | { kind: "proceed"; recordKey: string; mandateHash: string }
   | { kind: "replay"; receipt: ScoutIdemReceipt }
   | { kind: "in_progress"; mandateHash: string }
+  | {
+      kind: "recovery_needed";
+      mandateHash: string;
+      reason: string;
+    }
   | { kind: "conflict"; existingHash: string; requestedHash: string }
   | { kind: "backend_required"; message: string };
 
@@ -53,17 +63,15 @@ function idemRecordKey(ownerId: string, clientKey: string): string {
   return `scout:idem:v2:${ownerId}:${clientKey}`;
 }
 
+function runStorageKey(runId: string): string {
+  return `scout:run:${runId}`;
+}
+
 export type ScoutIdemIntent = {
-  /** Effective planner mode for this request (server-interpreted). */
   planner?: string | null;
-  /** Effective preferLive for this request (server-interpreted). */
   preferLive?: boolean;
 };
 
-/**
- * Stable hash binding Idempotency-Key to mandate body + effective intent.
- * Spend/budget client fields stripped. planner/preferLive included (result meaning).
- */
 export function canonicalMandateHash(mandate: unknown, intent?: ScoutIdemIntent): string {
   const normalized = {
     mandate: normalizeForHash(mandate),
@@ -73,7 +81,6 @@ export function canonicalMandateHash(mandate: unknown, intent?: ScoutIdemIntent)
   return createHash("sha256").update(JSON.stringify(normalized)).digest("hex");
 }
 
-/** Same client spend/budget keys as stripClientSpendClaims — must not bind the idempotency lock. */
 const HASH_STRIP_KEYS = new Set([
   "verifiedBalanceUsd",
   "hardCapUsd",
@@ -117,6 +124,124 @@ function parseRecord(raw: string): ScoutIdemRecord | null {
   }
 }
 
+/** Durable-only run load (no process Map) — required for restart / different facade reconcile. */
+export async function loadDurableScoutRun(kv: Kv, runId: string): Promise<ScoutRunResult | null> {
+  try {
+    const raw = await kv.get(runStorageKey(runId));
+    if (!raw) return null;
+    return JSON.parse(raw) as ScoutRunResult;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Try to finish a stuck in_progress claim from a claim-owned runId.
+ * Never re-executes provider/planner. Ownership + mandateHash must match.
+ */
+export async function reconcileScoutIdempotencyClaim(input: {
+  kv: Kv;
+  recordKey: string;
+  ownerId: string;
+  mandateHash: string;
+  claim: ScoutIdemClaim;
+}): Promise<IdemClaimResult> {
+  const { claim } = input;
+  if (claim.ownerId !== input.ownerId) {
+    return {
+      kind: "recovery_needed",
+      mandateHash: input.mandateHash,
+      reason: "Claim owner mismatch — refusing foreign exposure and refusing re-exec.",
+    };
+  }
+  if (claim.mandateHash !== input.mandateHash) {
+    return {
+      kind: "conflict",
+      existingHash: claim.mandateHash,
+      requestedHash: input.mandateHash,
+    };
+  }
+  if (!claim.runId) {
+    return {
+      kind: "recovery_needed",
+      mandateHash: input.mandateHash,
+      reason:
+        "Idempotency claim exists without a bound runId (interrupted before finish). Work will not be re-executed; recovery_needed.",
+    };
+  }
+
+  const run = await loadDurableScoutRun(input.kv, claim.runId);
+  if (!run) {
+    return {
+      kind: "recovery_needed",
+      mandateHash: input.mandateHash,
+      reason: `Claim references runId ${claim.runId} but no durable run row was found — uncertain; not re-executing.`,
+    };
+  }
+  if (run.ownerId !== input.ownerId) {
+    return {
+      kind: "recovery_needed",
+      mandateHash: input.mandateHash,
+      reason: "Durable run owner mismatch — refusing foreign exposure and refusing re-exec.",
+    };
+  }
+
+  const receipt: ScoutIdemReceipt = {
+    status: "completed",
+    ownerId: input.ownerId,
+    mandateHash: input.mandateHash,
+    result: run,
+    inventoryMode: claim.inventoryMode ?? (run.inventorySource === "live" ? "live" : "replay"),
+    isFixture: claim.isFixture ?? run.inventorySource === "replay",
+    paidBlockedReason: claim.paidBlockedReason ?? null,
+    completedAt: new Date().toISOString(),
+  };
+  try {
+    await input.kv.set(input.recordKey, JSON.stringify(receipt));
+  } catch {
+    return {
+      kind: "recovery_needed",
+      mandateHash: input.mandateHash,
+      reason: "Found durable run but could not write completed receipt — recovery_needed; not re-executing.",
+    };
+  }
+  return { kind: "replay", receipt };
+}
+
+async function resolveExistingRecord(
+  kv: Kv,
+  recordKey: string,
+  ownerId: string,
+  mandateHash: string,
+  existing: ScoutIdemRecord,
+): Promise<IdemClaimResult> {
+  if (existing.mandateHash !== mandateHash) {
+    return {
+      kind: "conflict",
+      existingHash: existing.mandateHash,
+      requestedHash: mandateHash,
+    };
+  }
+  if (existing.status === "completed") {
+    if (existing.ownerId !== ownerId) {
+      return {
+        kind: "recovery_needed",
+        mandateHash,
+        reason: "Completed receipt owner mismatch — refusing foreign exposure.",
+      };
+    }
+    return { kind: "replay", receipt: existing };
+  }
+  // in_progress — attempt claim-owned run reconcile; never re-exec.
+  return reconcileScoutIdempotencyClaim({
+    kv,
+    recordKey,
+    ownerId,
+    mandateHash,
+    claim: existing,
+  });
+}
+
 /**
  * Atomic claim before any scout/provider work.
  * Requires distributed Kv on serverless when an Idempotency-Key is present.
@@ -126,7 +251,6 @@ export async function claimScoutIdempotency(input: {
   ownerId: string;
   clientKey: string;
   mandate: unknown;
-  /** Effective planner/preferLive — must match for replay; excluded spend fields never go here. */
   intent?: ScoutIdemIntent;
   env?: Record<string, string | undefined>;
 }): Promise<IdemClaimResult> {
@@ -145,21 +269,13 @@ export async function claimScoutIdempotency(input: {
   if (existingRaw) {
     const existing = parseRecord(existingRaw);
     if (!existing) {
-      // Corrupt — fail closed, do not overwrite (may have dispatched).
-      return { kind: "in_progress", mandateHash: "corrupt" };
-    }
-    if (existing.mandateHash !== mandateHash) {
       return {
-        kind: "conflict",
-        existingHash: existing.mandateHash,
-        requestedHash: mandateHash,
+        kind: "recovery_needed",
+        mandateHash: "corrupt",
+        reason: "Corrupt idempotency record — fail closed; not re-executing.",
       };
     }
-    if (existing.status === "completed") {
-      return { kind: "replay", receipt: existing };
-    }
-    // Same body, still in progress — do not start a second execution.
-    return { kind: "in_progress", mandateHash };
+    return resolveExistingRecord(input.kv, recordKey, input.ownerId, mandateHash, existing);
   }
 
   const claim: ScoutIdemClaim = {
@@ -168,23 +284,54 @@ export async function claimScoutIdempotency(input: {
     mandateHash,
     claimedAt: new Date().toISOString(),
   };
-  // Durable SET NX — no PX (receipt/claim ≠ credit-lock TTL).
   const won = await input.kv.setNx(recordKey, JSON.stringify(claim));
   if (!won) {
     const raced = await input.kv.get(recordKey);
     const record = raced ? parseRecord(raced) : null;
-    if (!record) return { kind: "in_progress", mandateHash };
-    if (record.mandateHash !== mandateHash) {
+    if (!record) {
       return {
-        kind: "conflict",
-        existingHash: record.mandateHash,
-        requestedHash: mandateHash,
+        kind: "recovery_needed",
+        mandateHash,
+        reason: "Lost claim race and record unreadable — not re-executing.",
       };
     }
-    if (record.status === "completed") return { kind: "replay", receipt: record };
-    return { kind: "in_progress", mandateHash };
+    return resolveExistingRecord(input.kv, recordKey, input.ownerId, mandateHash, record);
   }
   return { kind: "proceed", recordKey, mandateHash };
+}
+
+/**
+ * Bind claim-owned runId after durable run persist, before completed receipt.
+ * Leaves status in_progress so a failed receipt write remains recoverable.
+ */
+export async function bindScoutIdempotencyRun(
+  kv: Kv,
+  recordKey: string,
+  bind: {
+    ownerId: string;
+    mandateHash: string;
+    runId: string;
+    inventoryMode: "replay" | "live";
+    isFixture: boolean;
+    paidBlockedReason: string | null;
+  },
+): Promise<void> {
+  const raw = await kv.get(recordKey);
+  const existing = raw ? parseRecord(raw) : null;
+  if (!existing || existing.status !== "in_progress") {
+    throw new Error("bindScoutIdempotencyRun: expected in_progress claim");
+  }
+  if (existing.ownerId !== bind.ownerId || existing.mandateHash !== bind.mandateHash) {
+    throw new Error("bindScoutIdempotencyRun: ownership/mandate mismatch");
+  }
+  const next: ScoutIdemClaim = {
+    ...existing,
+    runId: bind.runId,
+    inventoryMode: bind.inventoryMode,
+    isFixture: bind.isFixture,
+    paidBlockedReason: bind.paidBlockedReason,
+  };
+  await kv.set(recordKey, JSON.stringify(next));
 }
 
 /** Durable completed receipt — overwrites in_progress. Never TTL. */

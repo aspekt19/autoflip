@@ -23,22 +23,16 @@ timeout with reservation retained. Safety closure strong; 292 tests ≠ full ava
 Different preferLive/planner must not silently replay — result meaning changes (fixture vs live;
 heuristic vs SERV).
 
-## STAGE1B-RECOVERY — queued AFTER Stage2A-followon (before release; do not broaden safety forever)
+## STAGE1B-RECOVERY — THIS bounded run (minimal; before release)
 
-Partial finish-write gap: if final durable receipt `kv.set` throws after run completed, claim stays
-`in_progress` and callers 409 forever despite a completed run. Same if SET NX claim lands then
-response path errors mid-flight. **Deliberately no TTL / no auto-rerun** — correct spend safety.
+Finish-receipt / ambiguous claim without re-exec:
+1. After durable `saveScoutRun`, **bind claim-owned runId** (+ inventory flags) onto in_progress.
+2. Then write completed receipt. If receipt `kv.set` fails, later claim **reconciles** from
+   durable run by runId (owner + mandateHash checked) — never re-executes provider/planner.
+3. Uncertain (no runId / missing run / owner mismatch) → explicit `recovery_needed` (409),
+   not false “working forever”, not free retry. **No TTL reclaim.**
 
-Minimal design (investigate at recovery unit — not this turn):
-1. On claim proceed, record claim-owned `runId` (or bind after runId minted) on the durable claim
-   **before** returning the HTTP response when possible.
-2. Recovery path: owner-guarded load of completed run/receipt by that reference; rewrite durable
-   completed receipt **without re-executing** any scout/provider work.
-3. If run presence / ownership / mandate-hash is uncertain → keep non-executing status named
-   `recovery_needed` (not falsely “working forever”, not free retry).
-4. Observability: metric/log when complete-write fails after run; operator can finish receipt.
-
-Do **not** invent TTL reclaim that re-runs expensive work. Keep Stage2B/3 moving after follow-on.
+Next priority after this unit: **Stage2B** (real tool outcome / replace / replan) — not done.
 
 ## STAGE2A — PIN 680b59a (confirmed subset)
 

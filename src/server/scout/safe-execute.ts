@@ -19,6 +19,7 @@ import {
 import { blockedServPlanner, servScoutPlanner } from "./planner";
 import { resolveScoutInventory } from "./providers";
 import {
+  bindScoutIdempotencyRun,
   claimScoutIdempotency,
   completeScoutIdempotency,
 } from "./idempotency";
@@ -152,6 +153,17 @@ export async function executeScoutSafely(input: {
         },
       };
     }
+    if (claim.kind === "recovery_needed") {
+      return {
+        ok: false,
+        status: 409,
+        body: {
+          error: "idempotency_recovery_needed",
+          message: claim.reason,
+          mandateHash: claim.mandateHash,
+        },
+      };
+    }
     if (claim.kind === "conflict") {
       return {
         ok: false,
@@ -273,16 +285,29 @@ export async function executeScoutSafely(input: {
     paidBlockedReason: inventory.paidBlockedReason,
   };
 
-  // Durable completed receipt — overwrites in_progress. Never TTL (≠ credit-lock).
+  // Bind claim-owned runId BEFORE completed receipt so a failed receipt write is recoverable
+  // without re-executing provider/planner work. Never TTL reclaim.
   if (idemRecordKey && mandateHash && input.kv) {
-    await completeScoutIdempotency(input.kv, idemRecordKey, {
+    await bindScoutIdempotencyRun(input.kv, idemRecordKey, {
       ownerId: input.req.ownerId,
       mandateHash,
-      result,
+      runId: result.runId,
       inventoryMode: inventory.mode,
       isFixture: inventory.isFixture,
       paidBlockedReason: inventory.paidBlockedReason,
     });
+    try {
+      await completeScoutIdempotency(input.kv, idemRecordKey, {
+        ownerId: input.req.ownerId,
+        mandateHash,
+        result,
+        inventoryMode: inventory.mode,
+        isFixture: inventory.isFixture,
+        paidBlockedReason: inventory.paidBlockedReason,
+      });
+    } catch {
+      // Run + bind are durable; next claim reconciles receipt. Do not fail the successful run.
+    }
   }
 
   return ok;
