@@ -206,6 +206,7 @@ export async function assembleReport(input: AssembleInput, deps: AssembleDeps): 
     distanceToSearchZipMiles: distance,
     checkedAt,
     listingCached: resolved.cached,
+    externalLookupsPerformed: true,
     distanceRequested: Boolean(input.zip && subject.zip),
     asOfYear: (deps.now ?? new Date()).getUTCFullYear(),
     sample: resolved.sample,
