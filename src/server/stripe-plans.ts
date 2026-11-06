@@ -8,7 +8,7 @@ export async function ensurePlanPrice(stripe: Stripe, planId: PlanId): Promise<s
   const existing = await stripe.prices.list({ lookup_keys: [plan.lookupKey], active: true, limit: 1 });
   if (existing.data[0]) return existing.data[0].id;
   const product = await stripe.products.create({
-    name: `AutoFlip ${plan.name}`,
+    name: `Lemonless ${plan.name}`,
     metadata: { planId: plan.id },
   });
   const price = await stripe.prices.create({

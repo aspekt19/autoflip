@@ -119,7 +119,7 @@ function PricingContent() {
         ) : null}
 
         <h2>For me</h2>
-        <p className="hint">Choose how many saved vehicle searches you want AutoFlip to monitor.</p>
+        <p className="hint">Choose how many saved vehicle searches you want Lemonless to monitor.</p>
         <div className="choice-grid">
           {PLAN_CATALOG.filter((plan) => plan.mode === "personal").map((plan) => (
             <article className="choice-card" key={plan.id}>

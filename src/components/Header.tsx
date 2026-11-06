@@ -30,7 +30,7 @@ export function Header() {
     <header className="bar">
       <Link className="brand" href="/">
         <img src="/logo.svg" alt="" width={40} height={40} />
-        <span className="brand-name">AutoFlip</span>
+        <span className="brand-name">Lemonless</span>
       </Link>
       <button className="menu-btn" type="button" aria-expanded={menuOpen} aria-controls="primary-nav" onClick={() => setMenuOpen((open) => !open)}>
         Menu

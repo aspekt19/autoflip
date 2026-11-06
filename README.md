@@ -1,8 +1,12 @@
-# AutoFlip
+# Lemonless
 
-**Product:** AutoFlip turns a US used-car listing into an explainable **buy / negotiate / pass / needs inspection** decision with the arithmetic shown — or **withholds** a verdict when evidence is insufficient.
+**Tagline:** Buy smart. Stay lemonless.
+
+**Product:** Lemonless turns a US used-car listing into an explainable **buy / negotiate / pass / needs inspection** decision with the arithmetic shown — or **withholds** a verdict when evidence is insufficient.
 
 **For judges:** The model never touches a number — and every report links to the Proof of AI that proves it.
+
+**Legacy identifiers:** Env vars (`AUTOFLIP_*`), Redis/KV globals, cookie `af_uid`, Stripe lookup keys, schema versions (`autoflip.*.v1`), the GitHub repo name, and the Vercel host still use the legacy `autoflip` / `af_` prefix so existing config and stored data keep working. The Flip **mode** name is unchanged.
 
 **SERV’s role:** OpenServ SERV Reasoning chooses that shopper action from TypeScript-computed facts; TypeScript owns every number, runs ordered gates first, and clamps hard safety rails SERV cannot override.
 

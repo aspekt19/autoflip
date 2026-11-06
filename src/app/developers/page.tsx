@@ -57,7 +57,7 @@ export default function DevelopersPage() {
           <h3>Claude Desktop / Cursor</h3>
           <pre className="doc">{`{
   "mcpServers": {
-    "autoflip": {
+    "lemonless": {
       "url": "https://autoflip-umber.vercel.app/api/mcp",
       "headers": { "Authorization": "Bearer af_YOUR_KEY" }
     }

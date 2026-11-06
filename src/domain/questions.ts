@@ -146,7 +146,7 @@ export function buildFlags(input: {
     flags.push({
       level: "caution",
       source: "title-brand",
-      text: "Title brand, salvage, rebuilt, flood, and odometer brands are not checked inside AutoFlip. Run an NMVTIS-approved report and NICB VINCheck before purchase.",
+      text: "Title brand, salvage, rebuilt, flood, and odometer brands are not checked inside Lemonless. Run an NMVTIS-approved report and NICB VINCheck before purchase.",
     });
   }
   if (input.odometerCaution) {

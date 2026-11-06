@@ -35,7 +35,7 @@ export function parsePauseCallback(data: string): "pause" | "resume" | null {
 }
 
 export const CONNECT_HELP =
-  "AutoFlip can send Deal Radar alerts to this chat. On the site, open Deal Radar and choose Connect Telegram. That link lasts 15 minutes and works once. Commands: /searches, /pause, /resume, and /help. View in AutoFlip does not use a credit. Full analysis is 1 credit, and only after you confirm on the site. Not for me hides that listing only. Watching a saved search does not use a credit.";
+  "Lemonless can send Deal Radar alerts to this chat. On the site, open Deal Radar and choose Connect Telegram. That link lasts 15 minutes and works once. Commands: /searches, /pause, /resume, and /help. View in Lemonless does not use a credit. Full analysis is 1 credit, and only after you confirm on the site. Not for me hides that listing only. Watching a saved search does not use a credit.";
 
 export const CODE_EXPIRED =
   "That connect link expired. Open Deal Radar and choose Connect Telegram for a new one. Links last 15 minutes.";
@@ -44,10 +44,10 @@ export const CODE_USED =
   "That connect link was already used or is not valid. Open Deal Radar and choose Connect Telegram for a new one.";
 
 export const LINKED_TEXT =
-  "This chat is connected. Alerts for your saved searches will arrive here. View in AutoFlip does not use a credit. Full analysis is 1 credit, and only after you confirm on the site.";
+  "This chat is connected. Alerts for your saved searches will arrive here. View in Lemonless does not use a credit. Full analysis is 1 credit, and only after you confirm on the site.";
 
 export const PAUSED_TEXT =
-  "Telegram alerts are paused. Your saved searches are unchanged, and new matches still show in AutoFlip. Send /resume when you want Telegram alerts again.";
+  "Telegram alerts are paused. Your saved searches are unchanged, and new matches still show in Lemonless. Send /resume when you want Telegram alerts again.";
 
 export const RESUMED_TEXT = "Telegram alerts are on again. Send /pause to stop them without deleting your searches.";
 
@@ -141,7 +141,7 @@ export function alertKeyboard(origin: string, alertId: string): { inline_keyboar
   const root = origin.replace(/\/$/, "");
   return {
     inline_keyboard: [
-      [{ text: "View in AutoFlip", url: `${root}/radar#alert-${alertId}` }],
+      [{ text: "View in Lemonless", url: `${root}/radar#alert-${alertId}` }],
       [
         { text: "Full analysis — 1 credit", url: `${root}/radar?confirm=${alertId}` },
         { text: "Not for me", callback_data: `skip:${alertId}` },

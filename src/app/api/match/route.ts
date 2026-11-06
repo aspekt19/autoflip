@@ -25,7 +25,7 @@ export async function POST(request: Request) {
     return Response.json({
       ok: true,
       sample: false,
-      message: "Pick what the car is for before AutoFlip suggests directions.",
+      message: "Pick what the car is for before Lemonless suggests directions.",
       directions: [],
     });
   }

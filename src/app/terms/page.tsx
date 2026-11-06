@@ -12,12 +12,12 @@ export default function TermsPage() {
         </p>
         <h1>Terms</h1>
         <p className="lead">
-          AutoFlip is an evaluation preview. Use it as a decision aid, not as a purchase, financing, or insurance commitment.
+          Lemonless is an evaluation preview. Use it as a decision aid, not as a purchase, financing, or insurance commitment.
         </p>
 
         <h2>Service description</h2>
         <p>
-          AutoFlip turns a US used-car listing into an explainable buy / caution / walk-away reading. Listing comps come from
+          Lemonless turns a US used-car listing into an explainable buy / caution / walk-away reading. Listing comps come from
           Auto.dev. Recall and complaint context come from NHTSA when available. Code computes the numbers; model writing only
           explains those numbers. Stripe on this site is test mode only and does not collect live payment.
         </p>
@@ -38,13 +38,13 @@ export default function TermsPage() {
 
         <h2>Acceptable use</h2>
         <p>
-          Do not abuse the listings quota, attempt to bypass credit checks, or use the preview to misrepresent AutoFlip as a
+          Do not abuse the listings quota, attempt to bypass credit checks, or use the preview to misrepresent Lemonless as a
           licensed dealer, lender, or official vehicle-history bureau.
         </p>
 
         <h2>Privacy</h2>
         <p>
-          See the <Link href="/privacy">Privacy</Link> page for what this preview stores. AutoFlip does not sell personal data.
+          See the <Link href="/privacy">Privacy</Link> page for what this preview stores. Lemonless does not sell personal data.
         </p>
       </div>
     </div>

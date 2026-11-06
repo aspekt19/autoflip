@@ -53,7 +53,7 @@ const MIDSIZE: CandidateModel[] = [
 export const MAX_DIRECTIONS = 3;
 
 /**
- * AutoFlip's editorial starting points. Not prices, not sales data, not a ranking of the market.
+ * Lemonless's editorial starting points. Not prices, not sales data, not a ranking of the market.
  * At most three directions, and each direction is fetched once (its first model).
  */
 export function proposeDirections(
@@ -69,7 +69,7 @@ export function proposeDirections(
       {
         id: "refine",
         segment: "The model you named",
-        why: "AutoFlip guidance was skipped for the search itself because you named a make and model. The other ideas stay editorial, not market data.",
+        why: "Lemonless guidance was skipped for the search itself because you named a make and model. The other ideas stay editorial, not market data.",
         guidance: "editorial",
         yearMin,
         yearMax,
@@ -123,12 +123,12 @@ function directionsFor(need: StructuredNeed): Array<Pick<SearchDirection, "segme
     return [
       {
         segment: "Compact crossovers",
-        why: "AutoFlip guidance: a family note usually starts with high-volume compact crossovers, because they are common in US used inventory. This is not a sales ranking.",
+        why: "Lemonless guidance: a family note usually starts with high-volume compact crossovers, because they are common in US used inventory. This is not a sales ranking.",
         models: CROSSOVERS,
       },
       {
         segment: "Midsize sedans",
-        why: "AutoFlip guidance: a second family path is a midsize sedan when cargo matters less than a quieter, cheaper-to-run car.",
+        why: "Lemonless guidance: a second family path is a midsize sedan when cargo matters less than a quieter, cheaper-to-run car.",
         models: MIDSIZE,
       },
     ];
@@ -137,7 +137,7 @@ function directionsFor(need: StructuredNeed): Array<Pick<SearchDirection, "segme
     return [
       {
         segment: "Compact cars",
-        why: "AutoFlip guidance: city and commute notes start with compact cars. Fuel cost still has to come from the EPA figure on a specific car, not from this list.",
+        why: "Lemonless guidance: city and commute notes start with compact cars. Fuel cost still has to come from the EPA figure on a specific car, not from this list.",
         models: COMPACTS,
       },
     ];
@@ -146,7 +146,7 @@ function directionsFor(need: StructuredNeed): Array<Pick<SearchDirection, "segme
     return [
       {
         segment: "Midsize pickups",
-        why: "AutoFlip guidance: a haul or tow note starts with midsize pickups. Towing capacity is not in this table and has to be checked on the listing.",
+        why: "Lemonless guidance: a haul or tow note starts with midsize pickups. Towing capacity is not in this table and has to be checked on the listing.",
         models: TRUCKS,
       },
     ];
@@ -155,7 +155,7 @@ function directionsFor(need: StructuredNeed): Array<Pick<SearchDirection, "segme
     return [
       {
         segment: "Older compact cars",
-        why: "AutoFlip guidance: a first car or a budget under $12,000 starts with older compact cars that are common on used lots.",
+        why: "Lemonless guidance: a first car or a budget under $12,000 starts with older compact cars that are common on used lots.",
         models: COMPACTS,
       },
     ];
@@ -164,7 +164,7 @@ function directionsFor(need: StructuredNeed): Array<Pick<SearchDirection, "segme
     return [
       {
         segment: "Midsize sedans",
-        why: "AutoFlip guidance: a comfort note starts with midsize sedans. Ride quality is not measured here.",
+        why: "Lemonless guidance: a comfort note starts with midsize sedans. Ride quality is not measured here.",
         models: MIDSIZE,
       },
     ];
@@ -181,12 +181,12 @@ function directionsFor(need: StructuredNeed): Array<Pick<SearchDirection, "segme
     return [
       {
         segment: "High-volume compact cars",
-        why: "AutoFlip guidance: a resale search with no body preference starts with compact cars that dealers list often. This is not a profit forecast.",
+        why: "Lemonless guidance: a resale search with no body preference starts with compact cars that dealers list often. This is not a profit forecast.",
         models: COMPACTS.slice(0, 5),
       },
       {
         segment: "High-volume compact crossovers",
-        why: "AutoFlip guidance: the second resale path is compact crossovers, again because they are commonly listed, not because a sale is guaranteed.",
+        why: "Lemonless guidance: the second resale path is compact crossovers, again because they are commonly listed, not because a sale is guaranteed.",
         models: CROSSOVERS.slice(0, 5),
       },
     ];

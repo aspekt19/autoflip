@@ -29,7 +29,7 @@ export function toolList() {
     {
       name: "full_report",
       description:
-        "Full AutoFlip analysis for one VIN. Costs 1 credit on the account that owns the API key. Send Authorization: Bearer af_…. A zero balance returns insufficient_credits and a buy-credits link, and does not run the analysis. The same JSON-RPC id does not charge twice. A payment header is accepted only when that optional rail is configured. Every response includes proof: profiles that ran, tools, model suffixes, guard result, shadow outcome and iteration cap, latency, which fields were computed in code, and any id, model, finish_reason, usage, or reasoning output the inference response included.",
+        "Full Lemonless analysis for one VIN. Costs 1 credit on the account that owns the API key. Send Authorization: Bearer af_…. A zero balance returns insufficient_credits and a buy-credits link, and does not run the analysis. The same JSON-RPC id does not charge twice. A payment header is accepted only when that optional rail is configured. Every response includes proof: profiles that ran, tools, model suffixes, guard result, shadow outcome and iteration cap, latency, which fields were computed in code, and any id, model, finish_reason, usage, or reasoning output the inference response included.",
       inputSchema: {
         type: "object",
         properties: {
@@ -91,7 +91,7 @@ export function describeInitialize(id: unknown) {
   return rpcResult(id, {
     protocolVersion: PROTOCOL,
     capabilities: { tools: {} },
-    serverInfo: { name: "autoflip", version: "0.1.0" },
+    serverInfo: { name: "lemonless", version: "0.1.0" },
   });
 }
 

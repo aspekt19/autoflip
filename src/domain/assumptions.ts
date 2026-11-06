@@ -1,5 +1,5 @@
 /**
- * Model assumptions. These are AutoFlip rules, not market facts from a pricing vendor.
+ * Model assumptions. These are Lemonless rules, not market facts from a pricing vendor.
  * Every report prints the values it actually used.
  */
 export const ASSUMPTIONS = {

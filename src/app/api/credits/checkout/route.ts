@@ -35,7 +35,7 @@ export async function POST(request: Request) {
         price_data: {
           currency: "usd",
           unit_amount: pack.amountCents,
-          product_data: { name: `AutoFlip ${pack.name}` },
+          product_data: { name: `Lemonless ${pack.name}` },
         },
       },
     ],

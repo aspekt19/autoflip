@@ -29,7 +29,7 @@ export function ReportHistoryList({ reports }: { reports: UserReportSummary[] })
       <div className="compare-picker">
         <div>
           <strong>Compare reports side by side</strong>
-          <p className="hint">Select 2 or 3 cars. AutoFlip compares the saved report snapshots without spending another credit.</p>
+          <p className="hint">Select 2 or 3 cars. Lemonless compares the saved report snapshots without spending another credit.</p>
         </div>
         <button className="action" type="button" onClick={compare} disabled={selected.length < 2}>
           Compare selected ({selected.length}/3)

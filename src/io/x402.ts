@@ -31,7 +31,7 @@ export function readX402Config(env: Record<string, string | undefined> = process
     facilitatorUrl: (env.X402_FACILITATOR_URL?.trim() || "https://facilitator.pieverse.io").replace(/\/$/, ""),
     priceAtomic: env.X402_PRICE_ATOMIC?.trim() || "1000000",
     timeoutSeconds: Number(env.X402_TIMEOUT_SECONDS ?? 120) || 120,
-    description: env.X402_DESCRIPTION?.trim() || "AutoFlip full vehicle report",
+    description: env.X402_DESCRIPTION?.trim() || "Lemonless full vehicle report",
   };
 }
 
