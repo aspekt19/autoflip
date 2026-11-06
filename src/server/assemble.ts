@@ -12,8 +12,15 @@ import { resolveVerdictDecision, verdictDecisionFacts } from "@/domain/verdict-d
 import { extractVin } from "@/domain/vin";
 import type { FullReport, Listing, Mode, Proof, ProofStep } from "@/domain/types";
 import { autodevByVin, autodevSearch, type AutodevDeps } from "@/io/autodev";
-import { readComps, rememberComps } from "@/io/comp-cache";
+import {
+  geoScopeFromSearch,
+  geoScopeLabel,
+  readComps,
+  rememberComps,
+  type CompGeoScope,
+} from "@/io/comp-cache";
 import { getKv } from "@/io/kv";
+import { isServerlessRuntime, requireSharedQuotaForPaidDispatch } from "@/server/paid-dispatch-guard";
 import { complaintCountFor, decodeVin, fuelFor, geocodeZipCity, recallsFor, type GovDeps } from "@/io/gov";
 import {
   EXPLAIN_PROMPT_VERSION,
@@ -480,7 +487,16 @@ async function resolveSubject(
   deps: AssembleDeps,
   fetchImpl: typeof fetch,
 ): Promise<
-  | { ok: true; subject: Listing; candidates: Listing[]; sample: boolean; cached: boolean }
+  | {
+      ok: true;
+      subject: Listing;
+      candidates: Listing[];
+      sample: boolean;
+      cached: boolean;
+      geo: CompGeoScope;
+      geographicConfidence: "nationwide" | "local_zip";
+      compsProvenance: string;
+    }
   | { ok: false; result: AssembleResult }
 > {
   if (!deps.autodevKey || !deps.autodev) {
@@ -492,6 +508,23 @@ async function resolveSubject(
         error: "listings_unconfigured",
         message:
           "Live dealer listings are not configured in this environment. Open the labeled sample report instead of treating fixtures as a live lookup.",
+      },
+    };
+  }
+
+  const kv = getKv();
+  const storeGate = requireSharedQuotaForPaidDispatch({
+    kv,
+    serverless: isServerlessRuntime(process.env),
+  });
+  if (!storeGate.ok) {
+    return {
+      ok: false,
+      result: {
+        ok: false,
+        status: 503,
+        error: "listings_unconfigured",
+        message: storeGate.message,
       },
     };
   }
@@ -527,24 +560,46 @@ async function resolveSubject(
       },
     };
   }
-  const regionZip = input.zip || subject.zip;
-  const cachedListings = await readComps(getKv(), {
+
+  // Report comps: use shopper ZIP when provided (local); otherwise nationwide.
+  // Never read nationwide cached rows as local ZIP comps.
+  const reportZip = input.zip?.replace(/\D/g, "").slice(0, 5) || null;
+  const reportGeo: CompGeoScope = reportZip
+    ? { kind: "zip", zip: reportZip, distanceMiles: 500 }
+    : { kind: "nationwide" };
+
+  const cached = await readComps(kv, {
     make: subject.make,
     model: subject.model,
     year: subject.year,
-    zip: regionZip,
+    geo: reportGeo,
   }).catch(() => null);
-  if (cachedListings && cachedListings.length > 0) {
-    const candidates = cachedListings.some((item) => item.vin === subject.vin) ? cachedListings : [subject, ...cachedListings];
-    return { ok: true, subject, candidates, sample: false, cached: true };
+  if (cached && cached.listings.length > 0) {
+    const candidates = cached.listings.some((item) => item.vin === subject.vin)
+      ? cached.listings
+      : [subject, ...cached.listings];
+    return {
+      ok: true,
+      subject,
+      candidates,
+      sample: false,
+      cached: true,
+      geo: cached.geo,
+      geographicConfidence: cached.geographicConfidence,
+      compsProvenance: cached.provenanceNote,
+    };
   }
+
+  const searchZip = reportZip || undefined;
+  const searchDistance = reportZip ? 500 : undefined;
+  const searchGeo = geoScopeFromSearch({ searchZip, distanceMiles: searchDistance ?? null });
   const search = await autodevSearch(
     {
       make: subject.make,
       model: subject.model,
       year: input.year ?? subject.year,
-      zip: input.zip || subject.zip || undefined,
-      distanceMiles: input.zip || subject.zip ? 500 : undefined,
+      zip: searchZip,
+      distanceMiles: searchDistance,
       limit: 20,
     },
     {
@@ -569,13 +624,18 @@ async function resolveSubject(
   const candidates = search.listings.some((item) => item.vin === subject.vin)
     ? search.listings
     : [subject, ...search.listings];
-  await rememberComps(getKv(), { make: subject.make, model: subject.model, zip: regionZip }, candidates).catch(() => undefined);
+  await rememberComps(kv, { make: subject.make, model: subject.model, geo: searchGeo }, candidates).catch(
+    () => undefined,
+  );
   return {
     ok: true,
     subject,
     candidates,
     sample: false,
     cached: byVin.cached && search.cached,
+    geo: searchGeo,
+    geographicConfidence: searchGeo.kind === "nationwide" ? "nationwide" : "local_zip",
+    compsProvenance: `${geoScopeLabel(searchGeo)} — asking prices only, not closed sales.`,
   };
 }
 
@@ -627,6 +687,19 @@ export async function assembleRadar(
       error: "listings_unconfigured",
       message:
         "Live dealer listings are not configured in this environment. Lemonless will not show sample inventory as search results.",
+      proof,
+    };
+  }
+  const storeGate = requireSharedQuotaForPaidDispatch({
+    kv: getKv(),
+    serverless: isServerlessRuntime(process.env),
+  });
+  if (!storeGate.ok) {
+    return {
+      ok: false,
+      status: 503,
+      error: "listings_unconfigured",
+      message: storeGate.message,
       proof,
     };
   }

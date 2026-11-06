@@ -24,6 +24,7 @@ export type FlipEstimate = {
   excludeReason: string | null;
   score: number;
   clearsTarget: boolean | null;
+  /** Always labeled when costs are applied — never silent null for unknown repair. */
   assumption: string | null;
 };
 
@@ -58,13 +59,17 @@ function compsFor(subject: Listing, pool: Listing[]): Listing[] {
   });
 }
 
-function exampleCost(miles: number | null, repairAbility?: RepairAbility): { usd: number; assumption: string | null } {
-  if (!repairAbility || repairAbility === "unknown") {
-    const highMile = (miles ?? 0) >= ASSUMPTIONS.flipHighMileThreshold ? ASSUMPTIONS.flipReconHighMileUsd : 0;
-    return { usd: ASSUMPTIONS.flipTitleFeeUsd + ASSUMPTIONS.flipReconBaseUsd + highMile, assumption: null };
-  }
-  const recon = reconUsd({ miles, accidentCount: 0, repairAbility });
-  return { usd: ASSUMPTIONS.flipTitleFeeUsd + recon.usd, assumption: recon.because };
+function exampleCost(miles: number | null, repairAbility?: RepairAbility): { usd: number; assumption: string } {
+  const skill = repairAbility ?? "unknown";
+  const recon = reconUsd({ miles, accidentCount: 0, repairAbility: skill });
+  const title = ASSUMPTIONS.flipTitleFeeUsd;
+  const titleLine = `Title/fee assumption: $${title.toLocaleString("en-US")} (example, not a quote).`;
+  const soldDisclaimer =
+    "Resale band uses comparable asking-price median/percentiles in this scan — not closed sales or a resale guarantee.";
+  return {
+    usd: title + recon.usd,
+    assumption: `${titleLine} ${recon.because} ${soldDisclaimer}`,
+  };
 }
 
 function profit(resale: number, asking: number, cost: number): number {

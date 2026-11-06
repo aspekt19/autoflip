@@ -56,6 +56,10 @@ describe("runScoutGates honesty", () => {
     const safety = out.gates.find((g) => g.id === "safety_red_flags");
     expect(safety?.status).toBe("forbid");
     expect(safety?.status).not.toBe("pass");
+    const hist = out.gates.filter((g) => g.id === "data_sufficiency" && g.reason.includes("History status"));
+    expect(hist.some((g) => g.status === "withhold")).toBe(true);
+    expect(hist.every((g) => g.status !== "pass")).toBe(true);
+    expect(out.allowInvestigate).toBe(true);
     expect(out.claimsSafeBuy).toBe(false);
     expect(out.claimsVerifiedProfit).toBe(false);
   });

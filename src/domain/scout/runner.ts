@@ -548,9 +548,10 @@ export async function runScout(input: RunScoutInput): Promise<ScoutRunResult> {
           cand.evidence.push({
             key: "personal_budget_fit",
             value: fit.fitsBudget,
-            kind: fit.fitsBudget == null ? "unknown" : "verified",
+            // Computed inference from mandate + asking claim — not an external verified fact.
+            kind: fit.fitsBudget == null ? "unknown" : "assumed",
             source: "domain.budgetFit",
-            note: fit.reason,
+            note: `${fit.reason} (computed fit — not independently verified).`,
           });
         }
 

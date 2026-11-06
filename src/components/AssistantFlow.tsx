@@ -11,6 +11,7 @@ import type { DecisionProof } from "@/domain/decision-note";
 import type { SearchDirection } from "@/domain/directions";
 import { CoverageLine } from "./CoverageNote";
 import { DecisionNote } from "./DecisionNote";
+import { decideAfFlowRestore } from "@/domain/af-flow-session";
 import { findEmptyCopy, type FindEmptyReason } from "@/domain/find-empty";
 import { SEARCH_RADII_MILES, USE_CASES, searchScopeLabel, type FollowUp, type StructuredNeed } from "@/domain/need";
 import type { Mode } from "@/domain/types";
@@ -188,6 +189,7 @@ function AssistantFlow({
       const raw = sessionStorage.getItem("af-flow");
       if (!raw) return;
       const saved = JSON.parse(raw) as {
+        v?: number;
         need?: StructuredNeed;
         stage?: "need" | "budget" | "follow" | "confirm" | "results";
         groups?: MatchGroup[];
@@ -203,14 +205,36 @@ function AssistantFlow({
         partialFailure?: boolean;
       };
       if (!saved.need || !saved.stage || saved.stage === "need") return;
+
+      const decision = decideAfFlowRestore(saved);
+      const groups = saved.groups ?? [];
+      if (decision.action === "drop_results") {
+        sessionStorage.removeItem("af-flow");
+        setNeed(saved.need);
+        setStage("confirm");
+        setGroups([]);
+        setSample(false);
+        setMatchMessage(decision.reason);
+        if (saved.need.budgetUsd) setBudget(String(saved.need.budgetUsd));
+        if (saved.need.zip) setZipDraft(saved.need.zip);
+        return;
+      }
+
       setNeed(saved.need);
       setStage(saved.stage);
-      setGroups(saved.groups ?? []);
+      setGroups(groups);
       setSource(saved.source ?? "form");
       setChecks(saved.checks ?? []);
       setAffordability(saved.affordability ?? true);
-      setSample(false);
-      setMatchMessage(saved.matchMessage ?? null);
+      setSample(decision.sample);
+      if (decision.warnUnknownSource) {
+        setMatchMessage(
+          saved.matchMessage ??
+            "Some restored listings have an unrecognized source — not treated as confirmed live Autodev inventory.",
+        );
+      } else {
+        setMatchMessage(saved.matchMessage ?? null);
+      }
       setMatchHeadline(saved.matchHeadline ?? null);
       setMatchNextStep(saved.matchNextStep ?? null);
       setMatchScope(saved.matchScope ?? null);
@@ -232,7 +256,19 @@ function AssistantFlow({
     try {
       sessionStorage.setItem(
         "af-flow",
-        JSON.stringify({ need, stage, groups, source, checks, affordability, sample, matchMessage, matchScope, emptyReason }),
+        JSON.stringify({
+          v: 2,
+          need,
+          stage,
+          groups,
+          source,
+          checks,
+          affordability,
+          sample,
+          matchMessage,
+          matchScope,
+          emptyReason,
+        }),
       );
     } catch {
       /* the browser may block storage */
@@ -345,13 +381,15 @@ function AssistantFlow({
         sessionStorage.setItem(
           "af-flow",
           JSON.stringify({
+            v: 2,
             need,
             stage: "results",
             groups: nextGroups,
             source,
             checks,
             affordability: body.affordabilityAssessed !== false,
-            sample: false,
+            // Honest flag — never write sample:false over fixture rows.
+            sample: Boolean(body.sample),
             matchMessage: body.message ?? null,
             matchHeadline: body.headline ?? null,
             matchNextStep: body.nextStep ?? null,

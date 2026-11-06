@@ -135,12 +135,12 @@ export function runScoutGates(input: {
     });
   }
 
-  // History note gate — never overrides to pass a safe-buy claim.
+  // Unknown/partial history is NOT a PASS — investigate allowed; buy claim forbidden.
   if (input.historyStatus !== "known") {
     gates.push({
       id: "data_sufficiency",
-      status: "pass",
-      reason: `History status ${input.historyStatus}: investigation allowed; verified safe buy/profit forbidden.`,
+      status: "withhold",
+      reason: `History status ${input.historyStatus}: not independently verified. Investigation allowed; verified safe buy/profit forbidden. Seller accident/owner fields remain seller claims.`,
       forbid: ["buy"],
     });
   }
