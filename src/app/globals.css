@@ -116,6 +116,7 @@ a { color: inherit; }
   position: sticky;
   top: 14px;
   z-index: 40;
+  /* Containing block for absolute compact nav panel */
   display: flex;
   flex-wrap: nowrap;
   align-items: center;
@@ -143,21 +144,63 @@ a { color: inherit; }
   background: #050505;
 }
 .brand { display: inline-flex; align-items: center; gap: 10px; line-height: 1; text-decoration: none; color: var(--ink); }
-.brand img { height: 40px; width: 40px; display: block; }
+.brand-mark,
+.brand img { height: 40px; width: 40px; display: block; flex-shrink: 0; }
+.brand-foot .brand-mark,
 .brand-foot img { height: 32px; width: 32px; }
+/* Live site wordmark: Orbitron — do not replace with exploration fonts. */
 .brand-name {
   font-family: var(--display);
   font-weight: 700;
   font-size: 14px;
   letter-spacing: 0.14em;
   text-transform: uppercase;
+  white-space: nowrap;
+}
+.brand-lemon { color: #ffd60a; }
+.brand-less {
+  color: #ff3b3b;
+  display: inline-block;
+}
+.surface-light .brand-less,
+.surface-light .tagline-less { color: #db0404; }
+.surface-light .tagline-prefix { color: #555555; }
+.surface-light .brand-lemon,
+.surface-light .tagline-lemon { color: #ffd60a; }
+.foot-tagline,
+.brand-inline-tagline,
+.brand-hero-title {
+  margin: 0;
 }
 .foot-tagline {
-  margin: 0;
   font-family: var(--sans);
   font-size: 14px;
   letter-spacing: 0.04em;
-  color: var(--muted);
+}
+.tagline-prefix { color: #b7b7b7; }
+.tagline-lemon { color: #ffd60a; }
+.tagline-less { color: #ff3b3b; }
+.brand-hero-title {
+  font-family: var(--wide);
+  font-weight: 800;
+  letter-spacing: -0.03em;
+  line-height: 0.92;
+  text-transform: uppercase;
+  font-size: clamp(42px, 7vw, 78px);
+}
+.brand-hero-title .tagline-prefix { color: var(--ink); }
+.brand-inline-tagline { font-weight: 700; }
+@media (prefers-reduced-motion: no-preference) {
+  .brand-less {
+    animation: brand-less-slide 0.55s 0.85s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+  }
+}
+@keyframes brand-less-slide {
+  from { opacity: 0; transform: translateX(-0.28em); }
+  to { opacity: 1; transform: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .brand-less { animation: none !important; }
 }
 .lemonless-disclaimer {
   margin: 8px 0 0;

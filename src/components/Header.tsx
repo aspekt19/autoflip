@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useId, useRef, useState } from "react";
+import { BrandLockup } from "./BrandLockup";
 
 const NAV_LINKS = [
   { href: "/find", label: "Find a car" },
@@ -68,16 +69,8 @@ export function Header() {
 
   return (
     <header className="bar">
-      <Link className="brand" href="/">
-        <img src="/logo.svg" alt="" width={40} height={40} />
-        <span className="brand-name">Lemonless</span>
-      </Link>
-      <nav
-        id={navId}
-        ref={navRef}
-        aria-label="Primary"
-        className={menuOpen ? "nav-open" : undefined}
-      >
+      <BrandLockup size={40} animated className="brand" surface="dark" />
+      <nav id={navId} ref={navRef} aria-label="Primary" className={menuOpen ? "nav-open" : undefined}>
         {NAV_LINKS.map((item) => (
           <Link key={item.href} href={item.href} onClick={() => setMenuOpen(false)}>
             {item.label}
