@@ -7,12 +7,13 @@ import {
 import { runtimeDeps } from "@/server/deps";
 import { blockedServPlanner, servScoutPlanner } from "./planner";
 import { camryReplayInventory } from "./replay";
+import { authorizeScoutSpend, spendAuthFromEnv } from "./spend-gate";
 import { saveScoutRun } from "./store";
 import type { Kv } from "@/io/kv";
 
 export type StartScoutBody = {
   mandate: unknown;
-  /** `offline_heuristic` never claims SERV autonomy. `serv` requires allow flag + key. */
+  /** `offline_heuristic` never claims SERV autonomy. `serv` requires allow flag + key + spend auth. */
   planner?: "offline_heuristic" | "serv";
   budgets?: Partial<ScoutBudgets>;
   resumeRunId?: string;
@@ -35,13 +36,21 @@ export async function executeScoutRun(input: {
 
   if (plannerMode === "serv") {
     autonomyClaim = "serv_directed";
-    if (!allowServ || !deps.servKey) {
-      planner = blockedServPlanner();
+    const spend = authorizeScoutSpend(spendAuthFromEnv());
+    if (!allowServ) {
+      planner = blockedServPlanner(
+        "SCOUT_ALLOW_SERV_PLANNER is not enabled — offline/replay only.",
+      );
+    } else if (!spend.ok) {
+      planner = blockedServPlanner(`Paid SERV planner blocked: ${spend.message}`);
+    } else if (!deps.servKey) {
+      planner = blockedServPlanner("SERV_API_KEY missing — cannot run serv planner.");
     } else {
       planner = servScoutPlanner({
         apiKey: deps.servKey,
         baseUrl: deps.servBaseUrl,
         model: deps.servModel,
+        spendAuth: spendAuthFromEnv(),
       });
     }
   } else {
@@ -49,7 +58,7 @@ export async function executeScoutRun(input: {
     planner = heuristicOfflinePlanner();
   }
 
-  // Live Auto.dev remains blocked via maxProviderCalls default 0 + replay inventory.
+  // Live Auto.dev remains blocked via maxProviderCalls forced 0 + replay inventory.
   const inventory = camryReplayInventory();
 
   const result = await runScout({

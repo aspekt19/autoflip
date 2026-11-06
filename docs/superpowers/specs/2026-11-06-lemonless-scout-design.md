@@ -137,7 +137,22 @@ Abstain when zero investigation-worthy candidates remain after honest evaluation
 
 **Prerequisites for remote OpenServ agent hosting:** developer account, agent registration, `OPENSERV_API_KEY`, public endpoint, accurate capabilities description. Documented; not pretended operational in this PR.
 
-**Spend policy (t249 + follow-up):** existing OpenServ credits may later be used with ≥$5 retained, but **this worker must not spend** until parent assigns an exact bounded paid test after balance/pricing/safe-reserve accounting are verified.
+**Spend policy (t249 + follow-up):** existing OpenServ credits may later be used with ≥$5 retained, but **this worker must not spend** until parent assigns an exact bounded paid test after balance/pricing/safe-reserve accounting are verified. Exact estimated-ceiling formula is **not** established in public docs; do not invent tokens×rate enforcement. Platform `generate()` may bill a **different** credit pool than SERV Reasoning — keep auth worlds separate. No wallet/`provision()` / platform paid generate from this worker.
+
+### 4.8 Documented safety/output options (configurable; measure before enabling)
+
+Working source material from public docs research (validated against official pages; **not** code/runtime proof; researcher tags **D≠R**). Do not treat docs as diagnosis of PR52 failures.
+
+| Option | Doc link | Default in scout | Notes |
+|--------|----------|------------------|-------|
+| Day-one split: SERV selects next action/tools; app does deterministic work | https://docs.openserv.ai/serv-reasoning/day-one | Core architecture | Arithmetic/rules stay in TS tools |
+| App function tools + `serv_prompt_guard` markers coexist | https://docs.openserv.ai/serv-reasoning/tools | `promptGuard: true` | Markers stripped server-side |
+| Default content filter | same + content-filter tutorial | **always on** | Never send `serv_disable_content_filter` casually; filter refusals ≠ proven PR52 root cause |
+| `serv_shadow_agent` | https://docs.openserv.ai/serv-reasoning/tutorials/shadow-agent | **off** until measured | Non-stream; extra cost × iterations |
+| Strict `response_format` JSON schema | https://docs.openserv.ai/serv-reasoning/tutorials/structured-outputs | schema ready; **app-side validate + refusal handling required** | Implemented in `plan-parse.ts` |
+| Kronos / Multipath / prompt cache / effort | kronos, multipath, prompt-caching, reasoning-effort tutorials | **off / low / default** | Possible useful primitives — choose on measured need, not all defaults |
+
+Code: `src/server/scout/serv-options.ts`, `plan-parse.ts`, `spend-gate.ts`.
 
 ## 5. Inventory honesty
 

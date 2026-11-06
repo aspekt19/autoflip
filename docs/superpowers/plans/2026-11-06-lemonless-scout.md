@@ -48,10 +48,23 @@ npm run build
 npx tsx eval/scout-baseline.ts
 ```
 
+## Configurable measured options (folded from public docs; D≠runtime)
+
+Implemented as flags in `src/server/scout/serv-options.ts` (defaults conservative):
+
+1. `promptGuard` on; content filter forced on.
+2. `shadowAgent` off by default (cost); enable only after parent-bounded eval.
+3. `strictJsonSchema` + `parseScoutPlanText` refusal/invalid/schema kinds.
+4. `kronos` / `multipath` / cache opt-out / effort — available flags, not enabled as improvements without measure.
+5. `spend-gate.ts` blocks paid SERV until `SCOUT_VERIFIED_BALANCE_USD` + `SCOUT_SPEND_HARD_CAP_USD` + attestation leave ≥$5 — **does not** invent a tokens×rate ceiling.
+
+Research notes attached to the agent are **working source material** only. Do not reuse researcher `fetchedAt` timestamps as this worker’s metadata. Prefer source links + implemented SDK/code interfaces over “D” tags as verification.
+
 ## Follow-ups (not this PR)
 
-- Parent-assigned **bounded** paid SERV planner test only after balance/pricing/≥$5 reserve accounting verified (this worker must not spend yet). Keep `serv_prompt_guard` + content filter + scout-hinted `serv_shadow_agent`.
-- Distinguish spend: SERV Reasoning console/credits ≠ marketplace SDK hosting.
+- Parent-assigned **bounded** paid SERV planner test only after verified balance + conservative hard cap (this worker must not spend yet). No wallet/provision/platform `generate()` bypass.
+- Optional measured A/B: shadow on, multipath on policy prompts, effort medium — one variable at a time.
+- Distinguish spend: SERV Reasoning console/credits ≠ platform agent hosting credits.
 - Owner-approved Auto.dev `maxProviderCalls` > 0.
 - Remote OpenServ agent deploy + workspace wiring.
 - UI for scout investigation list.

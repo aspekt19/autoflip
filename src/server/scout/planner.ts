@@ -1,10 +1,21 @@
 import { refusingPlanner, type ScoutPlanner } from "@/domain/scout";
 import { runServ } from "@/server/serv";
+import { parseScoutPlanText } from "./plan-parse";
+import {
+  SCOUT_PLAN_JSON_SCHEMA,
+  resolveScoutServOptions,
+  type ScoutServOptions,
+} from "./serv-options";
+import { authorizeScoutSpend, spendAuthFromEnv, type ScoutSpendAuthorization } from "./spend-gate";
 
 /**
- * Live SERV planner — only when explicitly allowed.
- * On refuse/timeout/unavailable: returns error (caller must STOP; no silent deterministic autonomy).
- * Parsing failures → serv_unavailable, not a hidden heuristic.
+ * Live SERV planner — only when explicitly allowed AND spend gate passes.
+ * On refuse/timeout/unavailable/parse failure: returns error (caller must STOP;
+ * no silent deterministic autonomy).
+ *
+ * Day-one docs: SERV selects tools/next actions; app handles deterministic work
+ * (https://docs.openserv.ai/serv-reasoning/day-one). App tools coexist with
+ * serv_prompt_guard markers (https://docs.openserv.ai/serv-reasoning/tools).
  */
 export function servScoutPlanner(deps: {
   apiKey: string;
@@ -12,12 +23,24 @@ export function servScoutPlanner(deps: {
   model?: string;
   timeoutMs?: number;
   fetch?: typeof fetch;
+  options?: Partial<ScoutServOptions>;
+  spendAuth?: ScoutSpendAuthorization | null;
 }): ScoutPlanner {
+  const options = resolveScoutServOptions(deps.options);
+  const spend = authorizeScoutSpend(deps.spendAuth ?? spendAuthFromEnv());
+  if (!spend.ok) {
+    return async () => ({
+      ok: false,
+      error: "serv_unavailable",
+      message: `Paid SERV planner blocked: ${spend.message}`,
+    });
+  }
+
   return async (input) => {
     const user = JSON.stringify({
       task: "lemonless_scout_plan",
       instruction:
-        "Choose exactly one next action from the allowlist. Prefer evidence-backed investigation. Do not invent sold prices or verified history. Return JSON only.",
+        "Choose exactly one next action from the allowlist. Prefer evidence-backed investigation. Do not invent sold prices or verified history. Return JSON only matching the schema.",
       allowlist: [
         "select_candidate",
         "run_tool",
@@ -46,8 +69,22 @@ export function servScoutPlanner(deps: {
       investigatedVins: input.investigated.map((c) => c.vin),
       rejectedVins: input.rejected.map((c) => c.vin),
       step: input.step,
+      featuresRequested: {
+        promptGuard: options.promptGuard,
+        shadowAgent: options.shadowAgent,
+        strictJsonSchema: options.strictJsonSchema,
+        kronos: options.kronos,
+        multipath: options.multipath,
+        reasoningEffort: options.reasoningEffort,
+        contentFilterDefaultOn: options.contentFilterDefaultOn,
+        note: "Feature flags are configurable measured options; not all are proven improvements.",
+      },
+      jsonSchema: options.strictJsonSchema ? SCOUT_PLAN_JSON_SCHEMA : null,
+      authorizedSpendUsd: spend.authorizedSpendUsd,
     });
 
+    // Existing profiles already attach prompt_guard/shadow where configured.
+    // We reuse flip_judge as a structured judgment call without changing BASE_MODEL.
     let result: Awaited<ReturnType<typeof runServ>>;
     try {
       result = await runServ(
@@ -80,52 +117,27 @@ export function servScoutPlanner(deps: {
       return { ok: false, error: "serv_unavailable", message: result.error };
     }
 
-    const parsed = parsePlanJson(result.text);
-    if (!parsed) {
+    const parsed = parseScoutPlanText(result.text);
+    if (!parsed.ok) {
+      const error =
+        parsed.kind === "refusal" ? ("serv_refused" as const) : ("serv_unavailable" as const);
       return {
         ok: false,
-        error: "serv_unavailable",
-        message: "SERV returned unparseable plan JSON — stopping (no silent heuristic fallback).",
+        error,
+        message: `SERV planner ${parsed.kind}: ${parsed.message} — stopping (no silent heuristic fallback).`,
       };
     }
-    return { ok: true, action: parsed };
+    return { ok: true, action: parsed.action };
   };
 }
 
-function parsePlanJson(text: string): import("@/domain/scout").ScoutPlanAction | null {
-  const start = text.indexOf("{");
-  const end = text.lastIndexOf("}");
-  if (start < 0 || end <= start) return null;
-  try {
-    const raw = JSON.parse(text.slice(start, end + 1)) as Record<string, unknown>;
-    const type = raw.type;
-    const reason = typeof raw.reason === "string" ? raw.reason : "SERV plan step";
-    const servStepId = typeof raw.servStepId === "string" ? raw.servStepId : "serv-plan";
-    if (type === "finalize" || type === "abstain") {
-      return { type, reason, servStepId };
-    }
-    if (type === "reject" || type === "replace" || type === "select_candidate") {
-      if (typeof raw.vin !== "string") return null;
-      return { type, vin: raw.vin, reason, servStepId };
-    }
-    if (type === "run_tool") {
-      if (typeof raw.toolId !== "string") return null;
-      return {
-        type,
-        toolId: raw.toolId as import("@/domain/scout").ScoutToolId,
-        vin: typeof raw.vin === "string" ? raw.vin : null,
-        reason,
-        servStepId,
-        args: typeof raw.args === "object" && raw.args ? (raw.args as Record<string, unknown>) : undefined,
-      };
-    }
-    return null;
-  } catch {
-    return null;
-  }
-}
-
-/** Default production wiring until owner enables paid SERV planner. */
-export function blockedServPlanner(): ScoutPlanner {
-  return refusingPlanner("serv_unavailable");
+/** Default production wiring until owner enables paid SERV planner + spend attestation. */
+export function blockedServPlanner(message?: string): ScoutPlanner {
+  const base = refusingPlanner("serv_unavailable");
+  if (!message) return base;
+  return async () => ({
+    ok: false,
+    error: "serv_unavailable",
+    message,
+  });
 }
