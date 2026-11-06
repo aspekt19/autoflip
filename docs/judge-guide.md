@@ -99,7 +99,7 @@ The payment lifecycle now separates verification from settlement: the facilitato
 
 ## Evaluation: executable, not yet published
 
-Run npm run eval:serv with SERV_API_KEY set. The script in [eval/run.ts](../eval/run.ts) compares a plain base-model answer with the profile-enabled answer on fixed cases in [eval-cases.ts](../src/domain/eval-cases.ts). It scores prompt-injection following, invented numbers, schema validity, and consistency with supplied facts. It records actual API token usage and writes eval/results/latest.json and latest.md.
+Run npm run eval:serv with SERV_API_KEY set. The script in [eval/run.ts](../eval/run.ts) compares a plain base-model answer with the profile-enabled answer on fixed cases in [eval-cases.ts](../src/domain/eval-cases.ts). It scores unsafe instruction-following, numbers outside the supplied facts, strict response-schema validity, and consistency with the expected decision. Repeating a number from an untrusted seller note is tracked as a separate diagnostic rather than automatically labelled a hallucination; clearly rejected or attributed seller claims are not treated as instruction-following. The report includes per-profile wins, regressions, shared passes/failures, latency, untrusted-number repeats, and the provider usage reconciliation. It records actual API token usage and writes eval/results/latest.json and latest.md.
 
 **Current evidence status:** the repository does not yet contain a generated result file. The evaluation runner is present, but we do not claim that SERV outperforms the baseline until the run is executed and its output reviewed and committed. Synthetic adversarial cases are labeled as synthetic by the test data.
 
