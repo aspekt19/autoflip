@@ -15,7 +15,18 @@
 - Canonical ledger owner = Auth.js `user.id` (UUID) when signed in; anonymous cookie remains for search and legacy browser credits.
 - **Checkout / billing portal require** a verified signed-in session. Missing auth config → **503 fail-closed** (does not pretend auth works).
 - **Migration**: `POST /api/account/claim` with `mode=browser` (must still hold `af_uid`) or `mode=purchase` (Stripe paid session + receipt email matches verified account email). Never grants from typed email alone.
-- Google↔email linking uses Auth.js + Google `email_verified` proof — not bare email string matching from the client.
+- **No dangerous email auto-linking** (`allowDangerousEmailAccountLinking: false`). Email magic-link recovers via Auth.js email lookup; Google does not merge into an existing email user solely because addresses match.
+- **`AUTH_EMAIL_MODE=test` is unavailable in production** (hard refuse even if set).
+- **Hosted money/auth paths require Upstash**; file/memory fallback is refused on Vercel/production for checkout, claim, auth routes, and Stripe webhooks.
+
+### Claim security (hardened)
+
+| Attack | Mitigation |
+| --- | --- |
+| Attacker posts arbitrary UUID as `fromUserId` | Route ignores body ids; browser claim uses **httpOnly `af_uid` cookie only**; body `fromUserId`/`userId` → 400 |
+| Guess uninitialized UUID | Claim requires ledger `initialized` (`creditSeen`) |
+| Concurrent browser claims | Distributed lock + durable claim record before transfer |
+| Stripe receipt replay / concurrent accounts | Atomic `auth:purchase-claim:{sessionId}`; second account → `purchase_already_claimed` |
 
 ## Integration touches (PR53 isolation)
 
@@ -37,15 +48,35 @@
 
 Google callback URL: `{NEXT_PUBLIC_APP_URL}/api/auth/callback/google`
 
-## Live setup still required (not done in this PR)
+## Live / preview configuration status (read-only inspection)
 
-1. Generate `AUTH_SECRET` (`npx auth secret`).
-2. Create Google Cloud OAuth client; set redirect URI; set `AUTH_GOOGLE_*`.
-3. Configure SMTP (`EMAIL_SERVER`, `EMAIL_FROM`) for real magic links — or keep `AUTH_EMAIL_MODE=test` only in non-prod.
-4. Ensure Upstash is set on Vercel so auth users + ledger survive deploys.
-5. Stripe test webhook forwarding unchanged; live Stripe keys remain refused.
+Inspected without printing secret values:
 
-**Not claimed:** real Google OAuth or production email delivery end-to-end. Those need the credentials above. Unit/integration tests use KV stubs and mocks only.
+| Signal | Result |
+| --- | --- |
+| Live `GET /api/account` → `storage` | **`upstash`** (persistent KV already in production — reusable for auth) |
+| Live Stripe test checkout | Configured (anonymous checkout still live until this PR deploys) |
+| Vercel CLI / Vercel MCP in this agent | **Logged out / needsAuth** — cannot list or set project env NAMES |
+| GitHub Actions secrets/variables API | 403 for this integration |
+| `AUTH_*` / `EMAIL_*` / `AUTH_GOOGLE_*` in agent shell | **Not present** |
+
+Therefore: **Upstash is already provisioned for Lemonless production.** Google OAuth client credentials and SMTP sender for Lemonless **could not be confirmed** from sanctioned read-only tools in this environment. Creating a Google OAuth client and/or SMTP mailbox requires the account owner (identity / provider signup) — not something this agent can complete without Vercel write access and user OAuth consent.
+
+### Safe agent steps already done
+
+- Security hardenings for claim/linking/test-mode/KV guard (this PR)
+- Fail-closed paid paths; no production auth deploy
+
+### Minimal remaining user setup (unavoidable)
+
+1. **Vercel project env** (Dashboard → autoflip / Lemonless project → Environment Variables), preview first — **do not enable production auth traffic until review**:
+   - `AUTH_SECRET` — generate with `npx auth secret` or `openssl rand -base64 32`
+   - If Google sign-in desired: `AUTH_GOOGLE_ID`, `AUTH_GOOGLE_SECRET` from a Google Cloud OAuth **Web** client with redirect `{preview-or-prod-url}/api/auth/callback/google`
+   - If email sign-in desired: `EMAIL_SERVER`, `EMAIL_FROM` (real SMTP). **Do not set `AUTH_EMAIL_MODE=test` on production**
+2. Confirm existing `UPSTASH_REDIS_REST_URL` / `UPSTASH_REDIS_REST_TOKEN` remain set on preview+production (already evidenced on live).
+3. Optional: authenticate Vercel MCP / CLI for the agent so future runs can verify env **names** only.
+
+**Not claimed:** real Google OAuth or production email delivery end-to-end. Tests use KV stubs/mocks only.
 
 ## Non-destructive deployment / migration plan
 

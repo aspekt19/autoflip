@@ -4,6 +4,7 @@ import { getKv } from "@/io/kv";
 import { DEMO_USER_ID } from "@/domain/radar-watch";
 import { ensureDemoAccount } from "./radar-store";
 import { authIsConfigured } from "@/auth/config";
+import { requireMoneyAuthStore } from "@/io/kv-guard";
 
 const COOKIE = "af_uid";
 const ID_RE = /^(?:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|demo-shared)$/i;
@@ -146,6 +147,9 @@ export async function existingLedgerOwnerId(): Promise<string | null> {
 export async function requirePaidAccess(): Promise<
   { ok: true; id: string; email: string } | { ok: false; response: Response }
 > {
+  const store = requireMoneyAuthStore();
+  if (!store.ok) return store;
+
   if (!authIsConfigured()) {
     return {
       ok: false,

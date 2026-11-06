@@ -1,6 +1,6 @@
 import nodemailer from "nodemailer";
 import type { Kv } from "@/io/kv";
-import { emailUsesTestInbox } from "./config";
+import { emailUsesTestInbox, isProductionRuntime } from "./config";
 
 export type OutboundMagicLink = {
   to: string;
@@ -30,8 +30,7 @@ export async function clearTestInbox(kv: Kv, email: string): Promise<void> {
 }
 
 /**
- * Deliver a magic link. In AUTH_EMAIL_MODE=test (or NODE_ENV=test), stores the
- * link in KV for automation — never sends external mail in that mode.
+ * Deliver a magic link. Test inbox is local/CI only — hard-refused in production.
  */
 export async function sendMagicLinkEmail(opts: {
   kv: Kv;
@@ -40,6 +39,10 @@ export async function sendMagicLinkEmail(opts: {
   env?: NodeJS.ProcessEnv;
 }): Promise<void> {
   const env = opts.env ?? process.env;
+  if (isProductionRuntime(env) && (env.AUTH_EMAIL_MODE?.trim() === "test" || emailUsesTestInbox(env))) {
+    throw new Error("email_test_mode_forbidden_in_production");
+  }
+
   const from = env.EMAIL_FROM?.trim() || "noreply@localhost";
   const subject = "Sign in to Lemonless";
   const payload: OutboundMagicLink = {
