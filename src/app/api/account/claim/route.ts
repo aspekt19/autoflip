@@ -1,4 +1,5 @@
 import { getKv } from "@/io/kv";
+import { requireMoneyAuthStore } from "@/io/kv-guard";
 import { claimBrowserOwnership, claimPurchaseOwnership } from "@/auth/migrate";
 import { requirePaidAccess, existingUserId, isLedgerUserId } from "@/server/session";
 import { stripeClient } from "@/server/stripe";
@@ -7,30 +8,51 @@ export const dynamic = "force-dynamic";
 
 /**
  * Migrate anonymous browser credits/reports onto the signed-in account.
- * Body: { mode: "browser" } — requires the anonymous af_uid cookie still present.
+ * Body: { mode: "browser" } — ownership proven only by httpOnly af_uid cookie (never body UUID).
  * Body: { mode: "purchase", checkoutSessionId } — Stripe paid session + matching verified email.
  */
 export async function POST(request: Request) {
+  const store = requireMoneyAuthStore();
+  if (!store.ok) return store.response;
+
   const access = await requirePaidAccess();
   if (!access.ok) return access.response;
 
   const body = (await request.json().catch(() => null)) as
-    | { mode?: string; checkoutSessionId?: string }
+    | {
+        mode?: string;
+        checkoutSessionId?: string;
+        fromUserId?: unknown;
+        userId?: unknown;
+        anonymousUserId?: unknown;
+      }
     | null;
   const mode = body?.mode;
   const kv = getKv();
 
+  // Reject attacker-supplied ledger ids. Ownership comes from cookie or Stripe metadata only.
+  if (body && (body.fromUserId != null || body.userId != null || body.anonymousUserId != null)) {
+    return Response.json(
+      {
+        error: "untrusted_owner_id",
+        message: "Do not send account ids. Browser claims use the signed-in session plus the af_uid cookie only.",
+      },
+      { status: 400 },
+    );
+  }
+
   if (mode === "browser") {
     const anon = await existingUserId();
-    if (!anon || !isLedgerUserId(anon)) {
+    if (!anon || !isLedgerUserId(anon) || anon === access.id) {
       return Response.json(
-        { error: "no_browser_account", message: "No anonymous browser account cookie to claim." },
+        { error: "no_browser_account", message: "No distinct anonymous browser account cookie to claim." },
         { status: 400 },
       );
     }
     const result = await claimBrowserOwnership(kv, { fromUserId: anon, toUserId: access.id });
     if (!result.ok) {
-      return Response.json({ error: result.error, message: result.message }, { status: 409 });
+      const status = result.error === "claim_in_progress" ? 409 : 409;
+      return Response.json({ error: result.error, message: result.message }, { status });
     }
     return Response.json(result);
   }

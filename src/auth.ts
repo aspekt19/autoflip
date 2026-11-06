@@ -3,12 +3,14 @@ import Google from "next-auth/providers/google";
 import Nodemailer from "next-auth/providers/nodemailer";
 import type { Provider } from "next-auth/providers";
 import { getKv } from "@/io/kv";
+import { moneyAuthStorageOk } from "@/io/kv-guard";
 import {
   authIsConfigured,
   authSecretConfigured,
   emailAuthConfigured,
   emailUsesTestInbox,
   googleAuthConfigured,
+  isProductionRuntime,
   safeAuthCallbackUrl,
 } from "@/auth/config";
 import { KvAdapter } from "@/auth/kv-adapter";
@@ -20,9 +22,10 @@ function buildProviders(): Provider[] {
   if (googleAuthConfigured()) {
     providers.push(
       Google({
-        // Official Auth.js option: link only when this IdP asserts the same email.
-        // Still gated in signIn by Google's email_verified — never by typed email alone.
-        allowDangerousEmailAccountLinking: true,
+        // Never auto-merge distinct provider accounts solely because emails match.
+        // Email magic-link recovers via getUserByEmail; Google links only when the
+        // same Google account already exists, or via an explicit signed-in link flow later.
+        allowDangerousEmailAccountLinking: false,
         authorization: {
           params: {
             prompt: "select_account",
@@ -42,17 +45,16 @@ function buildProviders(): Provider[] {
         from: process.env.EMAIL_FROM || "noreply@localhost",
         maxAge: 60 * 15, // 15 minutes — one-use expiring tokens
         async sendVerificationRequest({ identifier, url }) {
+          if (isProductionRuntime() && process.env.AUTH_EMAIL_MODE?.trim() === "test") {
+            throw new Error("email_test_mode_forbidden_in_production");
+          }
+          if (!moneyAuthStorageOk()) {
+            throw new Error("money_store_unconfigured");
+          }
           const kv = getKv();
-          const ip = "signin";
-          const limited = await consumeRateLimit(kv, emailSignInRateKey(identifier, ip), 5, 15 * 60_000);
+          const limited = await consumeRateLimit(kv, emailSignInRateKey(identifier, "signin"), 5, 15 * 60_000);
           if (!limited.ok) {
             throw new Error("email_rate_limited");
-          }
-          // In SMTP mode Auth.js still generates the token; we only deliver.
-          // Test mode writes to KV inbox instead of sending external mail.
-          if (emailUsesTestInbox() && !process.env.EMAIL_SERVER?.trim()) {
-            await sendMagicLinkEmail({ kv, to: identifier, url });
-            return;
           }
           await sendMagicLinkEmail({ kv, to: identifier, url });
         },
@@ -97,20 +99,19 @@ const nextAuth = NextAuth({
     async session({ session, user }) {
       if (session.user) {
         session.user.id = user.id;
-        // Surface verification so paid routes can deny unverified email sessions.
         (session.user as { emailVerified?: Date | null }).emailVerified = user.emailVerified;
       }
       return session;
     },
     async signIn({ user, account, profile }) {
       if (!authIsConfigured()) return false;
-      // Google: require IdP-asserted verified email (not a client-supplied address).
+      if (!moneyAuthStorageOk()) return false;
       if (account?.provider === "google") {
         const verified = Boolean((profile as { email_verified?: boolean } | undefined)?.email_verified);
         return Boolean(user.email) && verified;
       }
-      // Email magic-link: Auth.js only completes after one-use token consumption.
       if (account?.provider === "email") {
+        if (isProductionRuntime() && emailUsesTestInbox()) return false;
         return Boolean(user.email);
       }
       return false;
@@ -118,7 +119,6 @@ const nextAuth = NextAuth({
   },
   events: {
     async signIn({ user, account, profile }) {
-      // Stamp emailVerified when Google asserts it so paid routes can fail closed on unverified sessions.
       if (account?.provider === "google" && user.id) {
         const verified = Boolean((profile as { email_verified?: boolean } | undefined)?.email_verified);
         if (verified) {
@@ -145,6 +145,13 @@ export function assertAuthRuntimeReady(): { ok: true } | { ok: false; error: str
       ok: false,
       error: "auth_unconfigured",
       message: "Sign-in is not configured (no Google or email provider credentials).",
+    };
+  }
+  if (!moneyAuthStorageOk()) {
+    return {
+      ok: false,
+      error: "money_store_unconfigured",
+      message: "Persistent Upstash KV is required for authentication on this host.",
     };
   }
   return { ok: true };

@@ -1,4 +1,5 @@
 import { getKv } from "@/io/kv";
+import { requireMoneyAuthStore } from "@/io/kv-guard";
 import { billingEffect, emptyPlans, readPlans, writePlans } from "@/server/plan-book";
 import { listSearches, saveSearches } from "@/server/radar-store";
 import { stripeClient, stripeWebhookSecret } from "@/server/stripe";
@@ -53,6 +54,8 @@ async function billingObject(
 }
 
 export async function POST(request: Request) {
+  const store = requireMoneyAuthStore();
+  if (!store.ok) return store.response;
   const secret = stripeWebhookSecret();
   const stripe = stripeClient();
   if (!secret || "error" in stripe) {
