@@ -28,6 +28,11 @@ export default function TermsPage() {
           that a specific car was repaired. Sample reports are labeled samples. You remain responsible for confirming the car,
           the out-the-door price, and any open campaigns with the seller before you pay.
         </p>
+        <p>
+          Lemonless helps you avoid lemons. It is not a guarantee, an inspection, or a vehicle history report — always get a
+          pre-purchase inspection. The product name and tagline are aspirational; they do not promise that any car is free of
+          defects or that a purchase will be risk-free.
+        </p>
 
         <h2>Credits and plans</h2>
         <p>

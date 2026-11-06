@@ -56,6 +56,10 @@ export function ReportView({ report }: { report: FullReport }) {
         <a href="/reports">My reports</a>
       </nav>
       <p className={`verdict-level badge ${computed.verdict}`}>{verdictLabel(computed.verdict)}</p>
+      <p className="hint lemonless-disclaimer">
+        Lemonless helps you avoid lemons. It is not a guarantee, an inspection, or a vehicle history report — always get a
+        pre-purchase inspection.
+      </p>
       {computed.verdict === "withheld" ? (
         <p className="risk-primary" role="alert">
           {computed.decision?.withholdReason ??

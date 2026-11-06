@@ -186,7 +186,7 @@ function directionsFor(need: StructuredNeed): Array<Pick<SearchDirection, "segme
       },
       {
         segment: "High-volume compact crossovers",
-        why: "Lemonless guidance: the second resale path is compact crossovers, again because they are commonly listed, not because a sale is guaranteed.",
+        why: "Lemonless guidance: the second resale path is compact crossovers, again because they are commonly listed, not because a sale is assured.",
         models: CROSSOVERS.slice(0, 5),
       },
     ];
