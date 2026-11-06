@@ -69,7 +69,7 @@ export function Header() {
 
   return (
     <header className="bar">
-      <BrandLockup size={40} animated className="brand" surface="dark" />
+      <BrandLockup size={52} animated className="brand" surface="dark" />
       <nav id={navId} ref={navRef} aria-label="Primary" className={menuOpen ? "nav-open" : undefined}>
         {NAV_LINKS.map((item) => (
           <Link key={item.href} href={item.href} onClick={() => setMenuOpen(false)}>

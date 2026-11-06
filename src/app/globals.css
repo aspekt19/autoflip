@@ -122,10 +122,10 @@ a { color: inherit; }
   align-items: center;
   justify-content: space-between;
   gap: 16px;
-  width: min(1320px, calc(100% - 28px));
+  width: min(1360px, calc(100% - 28px));
   margin: 14px auto 0;
-  min-height: 58px;
-  padding: 8px 10px 8px 16px;
+  min-height: 68px;
+  padding: 10px 12px 10px 16px;
   background: rgba(8, 8, 8, 0.94);
   color: var(--ink);
   border: 1px solid rgba(255, 255, 255, 0.14);
@@ -143,16 +143,16 @@ a { color: inherit; }
   transform: translateX(-50%);
   background: #050505;
 }
-.brand { display: inline-flex; align-items: center; gap: 10px; line-height: 1; text-decoration: none; color: var(--ink); }
+.brand { display: inline-flex; align-items: center; gap: 12px; line-height: 1; text-decoration: none; color: var(--ink); }
 .brand-mark,
-.brand img { height: 40px; width: 40px; display: block; flex-shrink: 0; }
+.brand img { height: 52px; width: 52px; display: block; flex-shrink: 0; }
 .brand-foot .brand-mark,
-.brand-foot img { height: 32px; width: 32px; }
+.brand-foot img { height: 36px; width: 36px; }
 /* Live site wordmark: Orbitron — do not replace with exploration fonts. */
 .brand-name {
   font-family: var(--display);
   font-weight: 700;
-  font-size: 14px;
+  font-size: 17px;
   letter-spacing: 0.14em;
   text-transform: uppercase;
   white-space: nowrap;
@@ -838,8 +838,9 @@ pre.doc {
 @keyframes flow { to { stroke-dashoffset: -460; } }
 @keyframes enter { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: none; } }
 
-/* Compact header before labels would wrap: keep desktop type size, use a menu instead. */
-@media (max-width: 1199px) {
+/* Compact header before labels would wrap: keep desktop type size, use a menu instead.
+   Threshold raised because the header lockup is larger after the logo size bump. */
+@media (max-width: 1280px) {
   .menu-btn { display: inline-flex; }
   nav a:not(.nav-go) { display: none; }
   nav {
@@ -883,7 +884,9 @@ pre.doc {
     border-radius: 18px;
     width: calc(100% - 16px);
   }
-  .brand img { height: 34px; width: 34px; }
+  .brand-mark,
+  .brand img { height: 46px; width: 46px; }
+  .brand-name { font-size: 15px; }
 }
 
 @media (max-width: 900px) {
