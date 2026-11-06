@@ -1,27 +1,24 @@
 name: Reppo evaluation experiment
 
+# Manual only. Push must never submit. Live submit requires an explicit typed confirmation
+# because the previously configured endpoint returned HTML 404.
 on:
-  push:
-    branches:
-      - experiment/reppo-evaluation-poc
-    paths:
-      - .github/workflows/reppo-evaluation.yml
-      - eval/reppo.ts
-      - eval/reppo-status.ts
-      - src/server/reppo/**
-      - package.json
   workflow_dispatch:
     inputs:
       mode:
-        description: "Submit new evaluations or fetch results for a previous submission"
+        description: "status = fetch a prior receipt; submit = live Reppo API (blocked unless confirmed)"
         required: true
         type: choice
         options:
-          - submit
           - status
-        default: submit
+          - submit
+        default: status
       reppo_run_id:
-        description: "GitHub Actions run ID from the earlier Reppo submission (status mode only)"
+        description: "GitHub Actions run ID from an earlier Reppo receipt (status mode)"
+        required: false
+        type: string
+      confirm_live_submit:
+        description: "Type SUBMIT_LIVE_REPPO to allow mode=submit. Leave empty for status."
         required: false
         type: string
 
@@ -45,6 +42,15 @@ jobs:
             echo "::error::Run this workflow only from experiment/reppo-evaluation-poc."
             exit 1
           fi
+
+      - name: Block accidental live submit
+        if: inputs.mode == 'submit'
+        run: |
+          if [ "${{ inputs.confirm_live_submit }}" != "SUBMIT_LIVE_REPPO" ]; then
+            echo "::error::Live Reppo submit is disabled. Re-run with mode=status, or set confirm_live_submit=SUBMIT_LIVE_REPPO only after the endpoint is confirmed. Do not invent endpoints."
+            exit 1
+          fi
+          echo "::warning::Live submit confirmation accepted. This still requires a working Reppo API; do not invent endpoints."
 
       - name: Check out experiment branch
         uses: actions/checkout@v4
@@ -70,7 +76,7 @@ jobs:
           fi
 
       - name: Download SERV evaluation evidence
-        if: github.event_name == 'push' || inputs.mode == 'submit'
+        if: inputs.mode == 'submit' && inputs.confirm_live_submit == 'SUBMIT_LIVE_REPPO'
         uses: actions/download-artifact@v4
         with:
           name: autoflip-serv-evaluation-5
@@ -80,23 +86,24 @@ jobs:
           github-token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Submit baseline and SERV evaluations to Reppo
-        if: github.event_name == 'push' || inputs.mode == 'submit'
+        if: inputs.mode == 'submit' && inputs.confirm_live_submit == 'SUBMIT_LIVE_REPPO'
         env:
           REPPO_API_KEY: ${{ secrets.REPPO_API_KEY }}
+          REPPO_ALLOW_LIVE_SUBMIT: SUBMIT_LIVE_REPPO
         run: npm run eval:reppo
 
       - name: Wait for Reppo's 10-minute settlement window
-        if: github.event_name == 'push' || inputs.mode == 'submit'
+        if: inputs.mode == 'submit' && inputs.confirm_live_submit == 'SUBMIT_LIVE_REPPO'
         run: sleep 620
 
-      - name: Fetch Reppo evaluation results
-        if: github.event_name == 'push' || inputs.mode == 'submit'
+      - name: Fetch Reppo evaluation results after submit
+        if: inputs.mode == 'submit' && inputs.confirm_live_submit == 'SUBMIT_LIVE_REPPO'
         env:
           REPPO_API_KEY: ${{ secrets.REPPO_API_KEY }}
         run: npm run eval:reppo:status
 
       - name: Download previous Reppo receipt
-        if: github.event_name == 'workflow_dispatch' && inputs.mode == 'status'
+        if: inputs.mode == 'status'
         uses: actions/download-artifact@v4
         with:
           name: autoflip-reppo-receipt
@@ -112,6 +119,7 @@ jobs:
         run: npm run eval:reppo:status
 
       - name: Upload Reppo receipt
+        if: inputs.mode == 'submit' && inputs.confirm_live_submit == 'SUBMIT_LIVE_REPPO'
         uses: actions/upload-artifact@v4
         with:
           name: autoflip-reppo-receipt
@@ -122,7 +130,8 @@ jobs:
       - name: Write run summary
         run: |
           echo "## Reppo experiment" >> "$GITHUB_STEP_SUMMARY"
-          echo "- Mode: ${{ github.event_name == 'push' && 'submit + delayed status check' || inputs.mode }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Mode: ${{ inputs.mode }}" >> "$GITHUB_STEP_SUMMARY"
           echo "- Branch: experiment/reppo-evaluation-poc" >> "$GITHUB_STEP_SUMMARY"
-          echo "- Output: download the autoflip-reppo-receipt artifact from this run." >> "$GITHUB_STEP_SUMMARY"
+          echo "- Push trigger removed; workflow_dispatch only." >> "$GITHUB_STEP_SUMMARY"
+          echo "- Live submit requires confirm_live_submit=SUBMIT_LIVE_REPPO." >> "$GITHUB_STEP_SUMMARY"
           echo "- No customer reports are submitted; this is an offline fixture-based experiment." >> "$GITHUB_STEP_SUMMARY"

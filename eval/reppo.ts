@@ -17,6 +17,14 @@ if (!apiKey) {
   process.exit(1);
 }
 
+// Hard stop until a working Reppo endpoint is confirmed. Do not invent URLs.
+if (process.env.REPPO_ALLOW_LIVE_SUBMIT?.trim() !== "SUBMIT_LIVE_REPPO") {
+  console.error(
+    "Live Reppo submit is disabled. Set REPPO_ALLOW_LIVE_SUBMIT=SUBMIT_LIVE_REPPO only after the endpoint is confirmed. No Reppo request was made.",
+  );
+  process.exit(1);
+}
+
 type EvalRow = {
   caseId: string;
   profile: string;
