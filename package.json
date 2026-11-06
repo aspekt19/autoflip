@@ -10,7 +10,8 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "eval:serv": "tsx eval/run.ts",
-    "eval:trace": "tsx eval/trace.ts"
+    "eval:trace": "tsx eval/trace.ts",
+    "eval:reppo": "tsx eval/reppo.ts"
   },
   "engines": {
     "node": "22.x"
