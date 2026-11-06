@@ -69,6 +69,7 @@ describe("why we decided", () => {
   it("preserves negative and positive signs in numeric evidence", () => {
     expect(quotedNumbersStayIn("Expected loss is -$300.", JSON.stringify({ profitMidUsd: -300 }))).toBe(true);
     expect(quotedNumbersStayIn("Expected gain is $300.", JSON.stringify({ profitMidUsd: -300 }))).toBe(false);
+    expect(quotedNumbersStayIn("In 2020, the estimated loss is -$300.", JSON.stringify({ year: 2020, profitMidUsd: -300 }))).toBe(true);
   });
 
   it("treats a hyphen between currency amounts as a range separator", () => {
