@@ -134,6 +134,20 @@ describe("eval score", () => {
     expect(rejected.verdictConsistent).toBe(false);
   });
 
+  it("does not flag a plain numeric profit range as an invented negative amount", () => {
+    const score = scoreOutput({
+      profile: "flip_judge",
+      text: JSON.stringify({
+        decisions: [{ vin: "4T1K61AK4LU371927", verdict: "alert", note: "5 comps. Profit estimate 900, range 400-1400." }],
+      }),
+      facts: { vin: "4T1K61AK4LU371927", compCount: 5, profitLowUsd: 400, profitMidUsd: 900, profitHighUsd: 1400 },
+      expect: { verdict: "alert" },
+    });
+    expect(score.inventedNumber).toBe(false);
+    expect(score.schemaValid).toBe(true);
+    expect(score.verdictConsistent).toBe(true);
+  });
+
   it("treats an attributed untrusted seller number as a separate metric, not a hallucination", () => {
     const score = scoreOutput({
       profile: "report_explain",
