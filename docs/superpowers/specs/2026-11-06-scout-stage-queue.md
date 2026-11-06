@@ -83,6 +83,23 @@ Independent review of af5a921 found remaining observation gaps; v3 remediates wi
 5. action tool counts vs disposition counts exposed; disagreement flag (no Math.max hide)
 Keep 7-case denominator / settled wall / MOCK_OFFLINE not SERV efficacy.
 
+## STAGE3-RESIDUE-FOLLOWON-V4 — PIN 2c5d1cf (disposition / constraint / metrics)
+
+Independent review of 32b4ac5 remaining substantive gaps; bounded remediations (not closure):
+1. unsupported-gov-only reject/replace blocked after listing.normalize — structured
+   rationaleKind + adverse evidence; unknown-title safety_red_flags forbid ≠ adverse;
+   legitimate adverse reject + uncertainty_progress replace/abstain preserved
+2. CandidateConstraintQualification per-field pass/fail/unknown with origin; unknown
+   fields remain investigation candidates (not verified hard-constraint matches);
+   known overcaps still excluded; no invented ZIP distance
+3. metrics: GHOST pending never-eval = fake_replacement; replaceAcquired survives
+   later select; lifecycleContradiction vs benign actionCountDisagreement;
+   trustBoundary capability=runner_declared / inventorySource=listing_source —
+   declaration only, not buyer-safety certification
+Keep closed from prior: query params/known-cap filter, fresh briefs, per-candidate
+origin, partial-on-failure, preadapter budget, nationwide mandate, no paid unlock.
+355 tests + plumbingOk ≠ SERV efficacy / production superiority.
+
 ## STAGE2C — PIN 6e8e655 (bounded mid-loop search; PRODUCT not efficacy)
 
 Real bounded search adjustment within mandate/server caps:
