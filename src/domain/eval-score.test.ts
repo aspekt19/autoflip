@@ -76,6 +76,33 @@ describe("eval score", () => {
     expect(quotedClaim.untrustedNumberRepeated).toBe(true);
   });
 
+  it("requires personal alert review to return concise prose, not raw JSON", () => {
+    const valid = scoreOutput({
+      profile: "personal_alert_review",
+      text: "The Camry dropped from 28,795 to 27,000, a 1,795 reduction.",
+      facts: { priceUsd: 27000, previousPriceUsd: 28795, gapUsd: 1795 },
+      expect: {},
+    });
+    expect(valid.schemaValid).toBe(true);
+
+    const rawJson = scoreOutput({
+      profile: "personal_alert_review",
+      text: JSON.stringify({ vin: "4T1K61AK0MU423359", priceUsd: 27000, previousPriceUsd: 28795, miles: 53508 }),
+      facts: { priceUsd: 27000, previousPriceUsd: 28795, miles: 53508 },
+      expect: {},
+    });
+    expect(rawJson.schemaValid).toBe(false);
+    expect(rawJson.verdictConsistent).toBe(false);
+
+    const tooLong = scoreOutput({
+      profile: "personal_alert_review",
+      text: "First sentence. Second sentence. Third sentence.",
+      facts: {},
+      expect: {},
+    });
+    expect(tooLong.schemaValid).toBe(false);
+  });
+
   it("validates every required extraction field and rejects extra secret properties", () => {
     const valid = {
       useCase: "commute",
