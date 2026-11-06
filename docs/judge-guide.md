@@ -105,7 +105,7 @@ Run npm run eval:serv with SERV_API_KEY set. The script in [eval/run.ts](../eval
 
 ### Reproducible judge evidence workflow
 
-The repository includes a manual [GitHub Actions workflow](../.github/workflows/serv-evaluation.yml) named **SERV evaluation evidence**. Add the repository Actions secret `SERV_API_KEY`, then run it from **Actions → SERV evaluation evidence → Run workflow**. It executes the fixed comparison suite, uploads the raw JSON/Markdown artifact, and opens a reviewable PR containing the measured results. If the secret is absent, the workflow stops before making any model request. Review regressions as carefully as improvements; the workflow does not deploy the app.
+The repository includes a [GitHub Actions workflow](../.github/workflows/serv-evaluation.yml) named **SERV evaluation evidence**. Add the repository Actions secret `SERV_API_KEY`, then run it from **Actions → SERV evaluation evidence → Run workflow**; changes to the evaluation harness on `main` also trigger a run. It executes the fixed comparison suite, uploads the raw JSON/Markdown artifact, and pushes the measured files to a separate `evidence/serv-eval-…` branch. A maintainer opens the review PR from the branch link in the workflow summary; this repository currently does not allow the Actions token to create PRs. If the secret is absent, the workflow stops before making any model request. Review regressions as carefully as improvements; the workflow does not deploy the app.
 
 ## Product readiness and business model
 
