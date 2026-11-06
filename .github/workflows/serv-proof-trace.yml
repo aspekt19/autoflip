@@ -15,7 +15,7 @@ concurrency:
 
 jobs:
   trace:
-    if: github.event.workflow_run.event == 'workflow_dispatch' && github.event.workflow_run.conclusion != 'cancelled'
+    if: github.event.workflow_run.head_branch == 'main' && github.event.workflow_run.event == 'workflow_dispatch' && github.event.workflow_run.conclusion != 'cancelled'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
