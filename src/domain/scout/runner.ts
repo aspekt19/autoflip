@@ -19,10 +19,10 @@ import { runScoutGates } from "./gates";
 import { validateScoutMandate } from "./mandate";
 import { assertTransition, isTerminal } from "./transitions";
 import type { InventoryAdapter } from "./inventory";
+import { qualifyListingConstraints } from "./constraint-qualification";
+import { validateDispositionAction } from "./disposition-rationale";
 import {
   buildPlannerEvidenceContext,
-  candidateHasIndependentRejectFacts,
-  isUnsupportedGovAloneRejectReason,
   type ScoutPlannerEvidenceContext,
 } from "./planner-context";
 import {
@@ -186,7 +186,24 @@ function isToolId(id: string): id is ScoutToolId {
   return (SCOUT_TOOL_IDS as readonly string[]).includes(id);
 }
 
-function emptyCandidate(listing: Listing): ScoutCandidate {
+function emptyCandidate(
+  listing: Listing,
+  opts?: {
+    mandate?: ScoutMandate;
+    search?: ScoutSearchParams | null;
+    searchFingerprint?: string | null;
+    inventoryOrigin?: ScoutCandidate["inventoryOrigin"];
+  },
+): ScoutCandidate {
+  const qualification =
+    opts?.mandate != null
+      ? qualifyListingConstraints({
+          listing,
+          mandate: opts.mandate,
+          search: opts.search ?? null,
+          searchFingerprint: opts.searchFingerprint ?? null,
+        })
+      : null;
   return {
     vin: listing.vin,
     listing,
@@ -201,6 +218,8 @@ function emptyCandidate(listing: Listing): ScoutCandidate {
     historyEvaluated: false,
     claimsSafeBuy: false,
     claimsVerifiedProfit: false,
+    inventoryOrigin: opts?.inventoryOrigin ?? null,
+    constraintQualification: qualification,
   };
 }
 
@@ -248,6 +267,13 @@ function evaluateCandidateForInvestigation(input: {
   cand.withholdReason = gate.withholdReason;
   cand.claimsSafeBuy = false;
   cand.claimsVerifiedProfit = false;
+  if (!cand.acquiredBy) {
+    cand.acquiredBy = { toolId: input.toolId, servStepId: input.servStepId };
+  }
+  if (input.toolId === "candidate.replace") {
+    cand.replaceAcquired = true;
+    cand.acquiredBy = { toolId: "candidate.replace", servStepId: input.servStepId };
+  }
 
   if (gate.allowInvestigate && input.investigated.length < input.budgets.maxCandidatesOut) {
     if (input.mandate.mode === "flip" && cand.flip?.excluded) {
@@ -659,13 +685,17 @@ export async function runScout(input: RunScoutInput): Promise<ScoutRunResult> {
       const initialParams = mandateToSearchParams(mandate);
       const initialFp = fingerprintSearchParams(initialParams);
       for (const listing of pool) {
-        const cand = emptyCandidate(listing);
-        cand.inventoryOrigin = originForSearch({
-          source: inv.source,
-          provenance: inv.provenance,
-          isFixtureDeclared: inv.isFixture === true,
-          listing,
-          fingerprint: initialFp,
+        const cand = emptyCandidate(listing, {
+          mandate,
+          search: initialParams,
+          searchFingerprint: initialFp,
+          inventoryOrigin: originForSearch({
+            source: inv.source,
+            provenance: inv.provenance,
+            isFixtureDeclared: inv.isFixture === true,
+            listing,
+            fingerprint: initialFp,
+          }),
         });
         candidates.set(listing.vin, cand);
         pending.push(listing.vin);
@@ -808,12 +838,15 @@ export async function runScout(input: RunScoutInput): Promise<ScoutRunResult> {
 
       if (action.type === "reject") {
         const cand = candidates.get(action.vin);
-        // Enforce: unsupported gov alone is not a bad-car conclusion.
-        if (
-          cand &&
-          isUnsupportedGovAloneRejectReason(action.reason) &&
-          !candidateHasIndependentRejectFacts(cand)
-        ) {
+        const dispositionCheck = validateDispositionAction({
+          action: "reject",
+          vin: action.vin,
+          reason: action.reason,
+          candidate: cand,
+          recentOutcomes,
+          rationaleKind: action.rationaleKind,
+        });
+        if (!dispositionCheck.ok) {
           const tool = reserveToolCall(budgets, usage);
           if (!tool.ok) {
             stamp(provenance, state, tool.detail, "candidate.reject", action.servStepId);
@@ -826,19 +859,13 @@ export async function runScout(input: RunScoutInput): Promise<ScoutRunResult> {
             status: "rejected",
             capability: "rejected_no_provider_spend",
             capabilityGrounded: true,
-            summary: `reject_unsupported_gov_alone_forbidden: ${action.reason}`,
+            summary: `${dispositionCheck.code}: ${dispositionCheck.message}`,
             acquiredVin: null,
             servStepId: action.servStepId,
           });
           assertTransition(state, "rejecting");
           state = "rejecting";
-          stamp(
-            provenance,
-            state,
-            `Rejected planner reject — unsupported gov alone is not proof the car is bad.`,
-            "candidate.reject",
-            action.servStepId,
-          );
+          stamp(provenance, state, dispositionCheck.message, "candidate.reject", action.servStepId);
           continue;
         }
         const tool = reserveToolCall(budgets, usage);
@@ -864,7 +891,7 @@ export async function runScout(input: RunScoutInput): Promise<ScoutRunResult> {
           status: "success",
           capability: "supported_executed",
           capabilityGrounded: true,
-          summary: action.reason,
+          summary: `[${dispositionCheck.mode}] ${action.reason}`,
           acquiredVin: null,
           servStepId: action.servStepId,
         });
@@ -873,6 +900,37 @@ export async function runScout(input: RunScoutInput): Promise<ScoutRunResult> {
       }
 
       if (action.type === "replace") {
+        const cand = candidates.get(action.vin);
+        const dispositionCheck = validateDispositionAction({
+          action: "replace",
+          vin: action.vin,
+          reason: action.reason,
+          candidate: cand,
+          recentOutcomes,
+          rationaleKind: action.rationaleKind,
+        });
+        if (!dispositionCheck.ok) {
+          const tool = reserveToolCall(budgets, usage);
+          if (!tool.ok) {
+            stamp(provenance, state, tool.detail, "candidate.replace", action.servStepId);
+            return fail(snapshot(), "budget_exhausted", tool.detail);
+          }
+          pushOutcome({
+            toolId: "candidate.replace",
+            vin: action.vin,
+            ok: false,
+            status: "rejected",
+            capability: "rejected_no_provider_spend",
+            capabilityGrounded: true,
+            summary: `${dispositionCheck.code}: ${dispositionCheck.message}`,
+            acquiredVin: null,
+            servStepId: action.servStepId,
+          });
+          assertTransition(state, "replacing");
+          state = "replacing";
+          stamp(provenance, state, dispositionCheck.message, "candidate.replace", action.servStepId);
+          continue;
+        }
         const tool = reserveToolCall(budgets, usage);
         if (!tool.ok) {
           stamp(provenance, state, tool.detail, "candidate.replace", action.servStepId);
@@ -880,7 +938,6 @@ export async function runScout(input: RunScoutInput): Promise<ScoutRunResult> {
         }
         assertTransition(state, "replacing");
         state = "replacing";
-        const cand = candidates.get(action.vin);
         if (cand) {
           cand.disposition = "replaced";
           cand.rejectReason = action.reason;
@@ -1161,13 +1218,17 @@ export async function runScout(input: RunScoutInput): Promise<ScoutRunResult> {
           const freshVins: string[] = [];
           for (const listing of inv.listings) {
             if (candidates.has(listing.vin)) continue;
-            const cand = emptyCandidate(listing);
-            cand.inventoryOrigin = originForSearch({
-              source: inv.source,
-              provenance: inv.provenance,
-              isFixtureDeclared: inv.isFixture === true,
-              listing,
-              fingerprint: validated.fingerprint,
+            const cand = emptyCandidate(listing, {
+              mandate,
+              search: validated.params,
+              searchFingerprint: validated.fingerprint,
+              inventoryOrigin: originForSearch({
+                source: inv.source,
+                provenance: inv.provenance,
+                isFixtureDeclared: inv.isFixture === true,
+                listing,
+                fingerprint: validated.fingerprint,
+              }),
             });
             candidates.set(listing.vin, cand);
             pending.push(listing.vin);

@@ -139,6 +139,34 @@ export type ProvenanceStep = {
 
 export type CandidateDisposition = "investigate" | "rejected" | "replaced" | "pending";
 
+/** Per-field hard-constraint qualification (unknown ≠ verified match). */
+export type ConstraintFieldStatus = "pass" | "fail" | "unknown" | "not_applicable";
+
+export type ConstraintFieldQualification = {
+  status: ConstraintFieldStatus;
+  cap: number | null;
+  observed: number | null;
+  note: string;
+};
+
+export type CandidateConstraintQualification = {
+  price: ConstraintFieldQualification;
+  miles: ConstraintFieldQualification;
+  geo: ConstraintFieldQualification & {
+    observedDistanceMiles: number | null;
+    searchZip: string | null;
+  };
+  model: {
+    status: ConstraintFieldStatus;
+    required: string[];
+    observed: string;
+    note: string;
+  };
+  /** True only when every applicable hard constraint is pass — unknowns make this false. */
+  hardConstraintVerified: boolean;
+  searchFingerprint: string | null;
+};
+
 export type ScoutCandidate = {
   vin: string;
   listing: Listing;
@@ -160,13 +188,43 @@ export type ScoutCandidate = {
   claimsVerifiedProfit: false;
   /** Which search/adapter introduced this VIN — independent of run-level identity. */
   inventoryOrigin?: ScoutInventoryOrigin | null;
+  /** Per-field constraint qualification at ingestion — unknown retained but not verified. */
+  constraintQualification?: CandidateConstraintQualification | null;
+  /**
+   * First evaluation acquisition (select/normalize/gates). Not overwritten later.
+   * Cross-checks fabricated pool membership.
+   */
+  acquiredBy?: { toolId: ScoutToolId; servStepId: string | null } | null;
+  /** Set when candidate.replace evaluate path acquired this VIN — survives later selects. */
+  replaceAcquired?: boolean;
 };
+
+/** Structured disposition intent — not inferred from reason regex alone. */
+export type DispositionRationaleKind = "adverse_evidence" | "uncertainty_progress";
 
 export type ScoutPlanAction =
   | { type: "select_candidate"; vin: string; reason: string; servStepId: string }
   | { type: "run_tool"; toolId: ScoutToolId; vin: string | null; reason: string; servStepId: string; args?: Record<string, unknown> }
-  | { type: "reject"; vin: string; reason: string; servStepId: string }
-  | { type: "replace"; vin: string; reason: string; servStepId: string }
+  | {
+      type: "reject";
+      vin: string;
+      reason: string;
+      servStepId: string;
+      /** Must be adverse_evidence; unknown-title defaults do not satisfy. */
+      rationaleKind?: DispositionRationaleKind;
+    }
+  | {
+      type: "replace";
+      vin: string;
+      reason: string;
+      servStepId: string;
+      /**
+       * adverse_evidence requires structured adverse facts.
+       * uncertainty_progress = try next / no car-bad claim (allowed even after unsupported gov).
+       * Omitted + unsupported gov + no adverse ⇒ blocked (prevents gov-only car-bad laundering).
+       */
+      rationaleKind?: DispositionRationaleKind;
+    }
   | { type: "finalize"; reason: string; servStepId: string }
   | { type: "abstain"; reason: string; servStepId: string };
 

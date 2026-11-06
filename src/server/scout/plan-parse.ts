@@ -68,7 +68,17 @@ export function parseScoutPlanText(text: string): PlanParseResult {
     if (typeof raw.vin !== "string" || !raw.vin) {
       return { ok: false, kind: "schema_mismatch", message: `${type} requires vin.` };
     }
-    return { ok: true, action: { type, vin: raw.vin, reason, servStepId } };
+    const rationaleKind =
+      raw.rationaleKind === "adverse_evidence" || raw.rationaleKind === "uncertainty_progress"
+        ? raw.rationaleKind
+        : undefined;
+    if (type === "select_candidate") {
+      return { ok: true, action: { type, vin: raw.vin, reason, servStepId } };
+    }
+    return {
+      ok: true,
+      action: { type, vin: raw.vin, reason, servStepId, ...(rationaleKind ? { rationaleKind } : {}) },
+    };
   }
   if (type === "run_tool") {
     if (!isToolId(raw.toolId)) {

@@ -19,11 +19,24 @@ type ScoutApiResponse = {
     inventoryProvenance: string | null;
     investigation: Array<{
       vin: string;
-      listing: { year: number; make: string; model: string; priceUsd: number | null; source: string };
+      listing: {
+        year: number;
+        make: string;
+        model: string;
+        priceUsd: number | null;
+        miles: number | null;
+        source: string;
+      };
       historyStatus: string;
       claimsSafeBuy: boolean;
       claimsVerifiedProfit: boolean;
       disposition: string;
+      constraintQualification?: {
+        hardConstraintVerified: boolean;
+        price: { status: string };
+        miles: { status: string };
+        geo: { status: string };
+      } | null;
     }>;
     provenance: Array<{ state: string; reason: string; toolId: string | null }>;
   };
@@ -163,8 +176,23 @@ export function ScoutPanel() {
                   · VIN {c.vin}
                   <br />
                   Asking (seller claim): {c.listing.priceUsd == null ? "unknown" : `$${c.listing.priceUsd}`}
+                  {" · "}
+                  Miles: {c.listing.miles == null ? "unknown" : c.listing.miles}
                   <br />
                   History: {c.historyStatus} · listing source: {c.listing.source}
+                  <br />
+                  Hard-constraint verified:{" "}
+                  {c.constraintQualification
+                    ? String(c.constraintQualification.hardConstraintVerified)
+                    : "unknown"}
+                  {c.constraintQualification ? (
+                    <>
+                      {" "}
+                      (price {c.constraintQualification.price.status}, miles{" "}
+                      {c.constraintQualification.miles.status}, geo{" "}
+                      {c.constraintQualification.geo.status})
+                    </>
+                  ) : null}
                   <br />
                   Claims verified safe buy: {String(c.claimsSafeBuy)} · Claims verified profit:{" "}
                   {String(c.claimsVerifiedProfit)}

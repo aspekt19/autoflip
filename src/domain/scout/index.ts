@@ -49,13 +49,20 @@ export type { ScoutSearchParams, ScoutSearchValidation } from "./search-params";
 export {
   buildCandidateEvidenceBrief,
   buildPlannerEvidenceContext,
-  isUnsupportedGovAloneRejectReason,
-  candidateHasIndependentRejectFacts,
 } from "./planner-context";
 export type {
   CandidateEvidenceBrief,
   EvidenceConfidence,
   ScoutPlannerEvidenceContext,
 } from "./planner-context";
+export {
+  collectAdverseEvidence,
+  validateDispositionAction,
+  hasUnsupportedGovOutcome,
+  candidateHasIndependentRejectFacts,
+  isUnsupportedGovAloneRejectReason,
+} from "./disposition-rationale";
+export type { AdverseEvidenceKind, AdverseEvidenceFact, DispositionValidation } from "./disposition-rationale";
+export { qualifyListingConstraints } from "./constraint-qualification";
 export { SCOUT_TOOL_IDS } from "./types";
 export type * from "./types";

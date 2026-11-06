@@ -38,6 +38,9 @@ export type CandidateEvidenceBrief = {
   /** True only when this brief was pulled in because of a fresh mid-loop acquisition. */
   newlyAcquired: boolean;
   inventoryOriginSource: "replay" | "live" | "unknown";
+  /** Per-field constraint quals — unknown ≠ verified hard-constraint match. */
+  constraintQualification: ScoutCandidate["constraintQualification"];
+  hardConstraintVerified: boolean;
 };
 
 export type ScoutPlannerEvidenceContext = {
@@ -151,6 +154,8 @@ export function buildCandidateEvidenceBrief(
     govToolStatus: govStatusFor(c, opts?.recentOutcomes ?? []),
     newlyAcquired: Boolean(opts?.newlyAcquired),
     inventoryOriginSource: c.inventoryOrigin?.source ?? "unknown",
+    constraintQualification: c.constraintQualification ?? null,
+    hardConstraintVerified: c.constraintQualification?.hardConstraintVerified === true,
   };
 }
 
@@ -216,29 +221,3 @@ export function buildPlannerEvidenceContext(input: {
   };
 }
 
-/** Reject reasons that cite only unsupported gov without other independent facts. */
-export function isUnsupportedGovAloneRejectReason(reason: string): boolean {
-  const r = reason.toLowerCase();
-  const mentionsGovUnsupported =
-    /unsupported\s+gov|gov[_\s]?recall|gov[_\s]?fuel|gov lookup not executed|gov unsupported/.test(r);
-  if (!mentionsGovUnsupported) return false;
-  // If reason also cites independent hard facts, allow.
-  if (
-    /overpriced|price|accident|title|salvage|flood|brand|budget|miles|mileage|gate|forbid|history known/.test(
-      r,
-    )
-  ) {
-    return false;
-  }
-  return true;
-}
-
-export function candidateHasIndependentRejectFacts(c: ScoutCandidate): boolean {
-  if (c.gates.some((g) => g.status === "forbid")) return true;
-  if (c.flip?.excluded) return true;
-  if (c.listing.priceUsd == null) return true;
-  if (c.withheld && c.withholdReason && !isUnsupportedGovAloneRejectReason(c.withholdReason)) {
-    return true;
-  }
-  return false;
-}

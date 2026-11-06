@@ -446,17 +446,114 @@ describe("Stage3 residue scout-metrics/v3", () => {
     );
   });
 
-  it("(residue) GHOST pending/rejected pool row is fake_replacement on success replace", () => {
+  it("(residue) GHOST pending never-evaluated pool row is fake_replacement on success replace", () => {
     const replaced = cand({ vin: "OLD", disposition: "replaced" });
-    const ghost = cand({
+    const ghostPending = cand({
       vin: "GHOSTVIN00000001",
+      disposition: "pending",
+      historyEvaluated: false,
+    });
+    const ghostRejected = cand({
+      vin: "GHOSTVIN00000002",
       disposition: "rejected",
       historyEvaluated: true,
       rejectReason: "planted",
     });
+    const mk = (ghostVin: string, ghost: ScoutCandidate) =>
+      detectTracePerturbations(
+        baseResult({
+          candidates: [replaced, ghost],
+          toolOutcomes: [
+            {
+              toolId: "inventory.search",
+              vin: null,
+              ok: true,
+              status: "success",
+              capability: "supported_executed",
+              capabilityGrounded: true,
+              summary: "ok",
+              acquiredVin: null,
+              servStepId: null,
+            },
+            {
+              toolId: "candidate.replace",
+              vin: "OLD",
+              ok: true,
+              status: "success",
+              capability: "supported_executed",
+              capabilityGrounded: true,
+              summary: "acquired ghost",
+              acquiredVin: ghostVin,
+              servStepId: "r",
+            },
+          ],
+        }),
+      );
+    expect(
+      mk("GHOSTVIN00000001", ghostPending).some(
+        (h) => h.kind === "fake_replacement" && /without replace acquisition event/i.test(h.detail),
+      ),
+    ).toBe(true);
+    // Planted rejected+evaluated without acquiredBy=candidate.replace is still fake.
+    expect(
+      mk("GHOSTVIN00000002", ghostRejected).some(
+        (h) => h.kind === "fake_replacement" && /without replace acquisition event/i.test(h.detail),
+      ),
+    ).toBe(true);
+  });
+
+  it("(residue) actionCountDisagreement alone does not fail plumbing; lifecycle contradiction does", () => {
+    const c = cand({ vin: "S1", disposition: "investigate", historyEvaluated: true });
+    const obs = observeScoutRun(
+      baseResult({
+        candidates: [c],
+        investigation: [c],
+        toolOutcomes: [
+          {
+            toolId: "inventory.search",
+            vin: null,
+            ok: true,
+            status: "success",
+            capability: "supported_executed",
+            capabilityGrounded: true,
+            summary: "ok",
+            acquiredVin: null,
+            servStepId: null,
+          },
+          {
+            toolId: "listing.normalize",
+            vin: "S1",
+            ok: true,
+            status: "success",
+            capability: "supported_executed",
+            capabilityGrounded: true,
+            summary: "selected",
+            acquiredVin: "S1",
+            servStepId: "s",
+          },
+          // Extra select event vs 1 investigation — disagreement without contradiction.
+          {
+            toolId: "listing.normalize",
+            vin: "S1",
+            ok: true,
+            status: "success",
+            capability: "supported_executed",
+            capabilityGrounded: true,
+            summary: "selected again",
+            acquiredVin: "S1",
+            servStepId: "s2",
+          },
+        ],
+      }),
+    );
+    expect(obs.actions.actionCountDisagreement).toBe(true);
+    expect(obs.actions.lifecycleContradiction).toBe(false);
+    expect(obs.trustBoundary.capability).toBe("runner_declared");
+    expect(obs.trustBoundary.note).toMatch(/not independent buyer-safety/i);
+
     const hits = detectTracePerturbations(
       baseResult({
-        candidates: [replaced, ghost],
+        candidates: [cand({ vin: "R1", disposition: "replaced" })],
         toolOutcomes: [
           {
             toolId: "inventory.search",
@@ -471,19 +568,19 @@ describe("Stage3 residue scout-metrics/v3", () => {
           },
           {
             toolId: "candidate.replace",
-            vin: "OLD",
-            ok: true,
-            status: "success",
-            capability: "supported_executed",
+            vin: "R1",
+            ok: false,
+            status: "rejected",
+            capability: "rejected_no_provider_spend",
             capabilityGrounded: true,
-            summary: "acquired ghost",
-            acquiredVin: "GHOSTVIN00000001",
+            summary: "blocked",
+            acquiredVin: null,
             servStepId: "r",
           },
         ],
       }),
     );
-    expect(hits.some((h) => h.kind === "fake_replacement" && /not a real acquisition/i.test(h.detail))).toBe(true);
+    expect(hits.some((h) => h.kind === "lifecycle_contradiction")).toBe(true);
   });
 
   it("(residue) identity with unverifiable sourceEvidence is wrong_source; evidenceComplete ≠ TRACE-only", () => {

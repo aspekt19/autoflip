@@ -113,6 +113,10 @@ export type ScoutObservables = {
   };
   actions: {
     provenanceSteps: number;
+    /**
+     * Provenance steps unknown when provenance log missing — not scored as 0.
+     */
+    provenanceObserved: ObservedCount;
     /** Typed tool-outcome counts — not provenance reason substrings. */
     selectActions: ObservedCount;
     rejectActions: ObservedCount;
@@ -121,8 +125,29 @@ export type ScoutObservables = {
     selectDispositions: ObservedCount;
     rejectDispositions: ObservedCount;
     replaceDispositions: ObservedCount;
-    /** True when tool-event counts disagree with disposition counts. */
+    /**
+     * Tool vs terminal disposition counts differ — often valid lifecycle
+     * (select then flip-exclude/reject). NOT a plumbing failure by itself.
+     */
     actionCountDisagreement: boolean;
+    /** Success replace outcomes that recorded an acquiredVin. */
+    successfulReplaceAcquisitions: ObservedCount;
+    /** Those acquisitions whose acquired candidate was actually evaluated. */
+    evaluatedReplaceAcquisitions: ObservedCount;
+    /** Impossible disposition↔outcome contradictions (fails plumbingOk via detector). */
+    lifecycleContradiction: boolean;
+  };
+  /**
+   * Trust labels — runner/adapter declarations are not independent buyer-safety proof.
+   */
+  trustBoundary: {
+    capability: "runner_declared" | "mixed" | "missing";
+    inventorySource: ScoutRunResult["inventoryIdentity"] extends infer I
+      ? I extends { sourceEvidence: infer S }
+        ? S
+        : "none"
+      : "none";
+    note: string;
   };
   budget: {
     servCalls: ObservedCount;
@@ -145,7 +170,9 @@ export type PerturbationKind =
   | "fake_replacement"
   | "wrong_source"
   | "missing_needed_search"
-  | "incomplete_observation";
+  | "incomplete_observation"
+  /** Impossible disposition↔outcome accounting — fails plumbingOk. */
+  | "lifecycle_contradiction";
 
 export type PerturbationHit = {
   kind: PerturbationKind;
@@ -358,6 +385,51 @@ export function observeScoutRun(
     (outcomes.length > 0 || candidates.length > 0) &&
     (selectFromTools !== selectDisp || rejectFromTools !== rejectDisp || replaceFromTools !== replaceDisp);
 
+  const successReplaceAcq = outcomes.filter(
+    (o) =>
+      o.toolId === "candidate.replace" &&
+      (o.status === "success" || o.capability === "supported_executed") &&
+      o.acquiredVin,
+  );
+  const evaluatedReplaceAcq = successReplaceAcq.filter((o) => {
+    const ac = candidates.find((c) => c.vin === o.acquiredVin);
+    return ac != null && ac.historyEvaluated === true && ac.replaceAcquired === true;
+  });
+
+  // Impossible contradictions (not mere count disagreement).
+  let lifecycleContradiction = false;
+  for (const c of candidates) {
+    if (c.disposition === "replaced") {
+      const ro = [...outcomes]
+        .reverse()
+        .find((o) => o.toolId === "candidate.replace" && o.vin === c.vin);
+      if (
+        ro &&
+        ro.status !== "success" &&
+        ro.capability !== "supported_executed" &&
+        ro.ok !== true
+      ) {
+        // Non-success replace outcome with disposition=replaced may still be valid if
+        // empty acquisition after marking replaced — only contradict when ok=false AND
+        // status rejected (blocked) while disposition stayed replaced.
+        if (ro.status === "rejected" || (ro.ok === false && ro.status === "failed")) {
+          lifecycleContradiction = true;
+        }
+      }
+      if (!ro && outcomes.length > 0) lifecycleContradiction = true;
+    }
+  }
+
+  const groundedOutcomes = outcomes.filter((o) => o.capabilityGrounded === true);
+  const capabilityTrust: ScoutObservables["trustBoundary"]["capability"] =
+    outcomes.length === 0
+      ? "missing"
+      : groundedOutcomes.length === outcomes.length
+        ? "runner_declared"
+        : groundedOutcomes.length === 0
+          ? "missing"
+          : "mixed";
+
   return {
     schemaVersion: SCOUT_METRICS_SCHEMA_VERSION,
     labeling: "MOCK_OFFLINE_plumbing_NOT_serv_efficacy",
@@ -479,6 +551,10 @@ export function observeScoutRun(
     },
     actions: {
       provenanceSteps: result.provenance?.length ?? 0,
+      provenanceObserved:
+        result.provenance == null
+          ? unknown("provenance log missing — not scored as 0")
+          : observed(result.provenance.length),
       selectActions:
         outcomes.length === 0 && investigation.length === 0
           ? unknown("no tool outcomes/investigation to count selects")
@@ -504,6 +580,20 @@ export function observeScoutRun(
           ? unknown("no candidates for replace dispositions")
           : observed(replaceDisp),
       actionCountDisagreement,
+      successfulReplaceAcquisitions:
+        outcomes.length === 0
+          ? unknown("no tool outcomes")
+          : observed(successReplaceAcq.length),
+      evaluatedReplaceAcquisitions:
+        outcomes.length === 0
+          ? unknown("no tool outcomes")
+          : observed(evaluatedReplaceAcq.length),
+      lifecycleContradiction,
+    },
+    trustBoundary: {
+      capability: capabilityTrust,
+      inventorySource: identity?.sourceEvidence ?? "none",
+      note: "capabilityGrounded/adapter sourceEvidence are trust declarations — not independent buyer-safety certification.",
     },
     budget: budgetsOk
       ? {
@@ -640,38 +730,57 @@ export function detectTracePerturbations(
         });
       } else {
         const acquiredCand = candidates.find((c) => c.vin === acquired);
-        // Ghost row: pending/rejected alone is not acquisition→investigation lifecycle.
-        // Success replace must land an investigated candidate (or still-pending only if
-        // never evaluated — but a planted GHOST with rejected/pending and no investigation
-        // of the acquired VIN is fake).
+        // Success replace must cross-check acquisition event — not fabricated pool membership.
+        // pending never-evaluated GHOST, or evaluated without acquiredBy=candidate.replace, is fake.
         if (!acquiredCand) {
           hits.push({
             kind: "fake_replacement",
             detail: `${r.vin}: acquiredVin ${acquired} missing candidate record`,
           });
-        } else if (acquiredCand.disposition === "investigate") {
-          // ok — actually investigated
-        } else if (
-          acquiredCand.disposition === "pending" &&
-          acquiredCand.historyEvaluated !== true
-        ) {
-          // Honest not-yet-selected acquisition is allowed.
+        } else if (acquiredCand.replaceAcquired === true && acquiredCand.historyEvaluated === true) {
+          // ok — replace path actually evaluated this VIN (flag survives later selects)
         } else {
           hits.push({
             kind: "fake_replacement",
-            detail: `${r.vin}: acquiredVin ${acquired} disposition=${acquiredCand.disposition} historyEvaluated=${acquiredCand.historyEvaluated} — not a real acquisition→investigation lifecycle`,
+            detail: `${r.vin}: acquiredVin ${acquired} disposition=${acquiredCand.disposition} historyEvaluated=${acquiredCand.historyEvaluated} replaceAcquired=${acquiredCand.replaceAcquired === true} — pool membership without replace acquisition event`,
           });
         }
       }
     } else {
-      // Non-success replace must not hide contradictory lifecycle (disposition=replaced
-      // while acquired claims success path elsewhere).
+      // Non-success replace with disposition=replaced is lifecycle contradiction
+      // when the outcome did not successfully acquire (unless empty after mark — still
+      // replaced is OK for empty). Rejected/blocked replace must not leave disposition=replaced.
+      if (replaceOutcome.status === "rejected" || replaceOutcome.status === "failed") {
+        hits.push({
+          kind: "lifecycle_contradiction",
+          detail: `${r.vin}: disposition=replaced but replace outcome status=${replaceOutcome.status}`,
+        });
+      }
       if (replaceOutcome.acquiredVin && replaceOutcome.ok === true) {
         hits.push({
           kind: "fake_replacement",
           detail: `${r.vin}: non-success replace status=${replaceOutcome.status} but ok=true with acquiredVin`,
         });
       }
+    }
+  }
+
+  // disposition=investigate without any successful select/normalize/gates acquisition event
+  for (const c of candidates) {
+    if (c.disposition !== "investigate") continue;
+    const acquired = outcomes.some(
+      (o) =>
+        (o.toolId === "listing.normalize" ||
+          o.toolId === "gates.verify" ||
+          o.toolId === "candidate.replace") &&
+        o.acquiredVin === c.vin &&
+        (o.status === "success" || o.capability === "supported_executed"),
+    );
+    if (outcomes.length > 0 && !acquired) {
+      hits.push({
+        kind: "lifecycle_contradiction",
+        detail: `${c.vin}: disposition=investigate without successful acquisition tool outcome`,
+      });
     }
   }
 
@@ -748,6 +857,14 @@ export function detectTracePerturbations(
     hits.push({
       kind: "incomplete_observation",
       detail: "usage/budgets missing — counts must be unknown not zero",
+    });
+  }
+
+  // Provenance missing while outcomes claim steps — incomplete, not 0.
+  if (result.provenance == null && outcomes.length > 0) {
+    hits.push({
+      kind: "incomplete_observation",
+      detail: "provenance log missing while toolOutcomes present — not scored as 0 steps",
     });
   }
 

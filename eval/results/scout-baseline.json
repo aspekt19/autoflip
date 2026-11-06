@@ -1,7 +1,7 @@
 {
   "harness": "eval/scout-baseline.ts",
   "schemaVersion": "scout-metrics/v3",
-  "generatedAt": "2026-11-06T22:38:48.288Z",
+  "generatedAt": "2026-11-06T22:51:14.535Z",
   "note": "Stage3-residue-followon scout-metrics/v3. MOCK/OFFLINE plumbing only. Not SERV efficacy. safetyCertified always false.",
   "certification": {
     "safetyCertified": false,
@@ -61,7 +61,7 @@
         "evidenceComplete": true,
         "traceComplete": true,
         "decisionEvidenceComplete": true,
-        "runId": "a09f82e7-6bda-430b-8987-29f47ad63819",
+        "runId": "027de482-d86d-40da-acde-085607710b80",
         "state": "completed",
         "failReason": null,
         "terminalKind": "completed",
@@ -210,6 +210,10 @@
         },
         "actions": {
           "provenanceSteps": 15,
+          "provenanceObserved": {
+            "status": "observed",
+            "value": 15
+          },
           "selectActions": {
             "status": "observed",
             "value": 5
@@ -234,7 +238,21 @@
             "status": "observed",
             "value": 1
           },
-          "actionCountDisagreement": true
+          "actionCountDisagreement": true,
+          "successfulReplaceAcquisitions": {
+            "status": "observed",
+            "value": 1
+          },
+          "evaluatedReplaceAcquisitions": {
+            "status": "observed",
+            "value": 1
+          },
+          "lifecycleContradiction": false
+        },
+        "trustBoundary": {
+          "capability": "runner_declared",
+          "inventorySource": "listing_source",
+          "note": "capabilityGrounded/adapter sourceEvidence are trust declarations — not independent buyer-safety certification."
         },
         "budget": {
           "servCalls": {
@@ -302,7 +320,7 @@
         "evidenceComplete": true,
         "traceComplete": true,
         "decisionEvidenceComplete": true,
-        "runId": "b9104e5b-3b04-4745-aa17-b039a81ebdd0",
+        "runId": "278f1d06-d78d-4436-9ff2-54c697d68f0c",
         "state": "completed",
         "failReason": null,
         "terminalKind": "completed",
@@ -445,6 +463,10 @@
         },
         "actions": {
           "provenanceSteps": 10,
+          "provenanceObserved": {
+            "status": "observed",
+            "value": 10
+          },
           "selectActions": {
             "status": "observed",
             "value": 4
@@ -469,7 +491,21 @@
             "status": "observed",
             "value": 0
           },
-          "actionCountDisagreement": false
+          "actionCountDisagreement": false,
+          "successfulReplaceAcquisitions": {
+            "status": "observed",
+            "value": 0
+          },
+          "evaluatedReplaceAcquisitions": {
+            "status": "observed",
+            "value": 0
+          },
+          "lifecycleContradiction": false
+        },
+        "trustBoundary": {
+          "capability": "runner_declared",
+          "inventorySource": "listing_source",
+          "note": "capabilityGrounded/adapter sourceEvidence are trust declarations — not independent buyer-safety certification."
         },
         "budget": {
           "servCalls": {
@@ -500,7 +536,7 @@
         "latency": {
           "wallMs": {
             "status": "observed",
-            "value": 0
+            "value": 2
           }
         },
         "baselineOverlap": {
@@ -536,7 +572,7 @@
         "evidenceComplete": true,
         "traceComplete": true,
         "decisionEvidenceComplete": true,
-        "runId": "eb5b72c7-11dc-46cd-bd8b-9da2a13ea78f",
+        "runId": "5392deb4-c417-4eab-af37-a0093ae9cd41",
         "state": "completed",
         "failReason": null,
         "terminalKind": "completed",
@@ -687,6 +723,10 @@
         },
         "actions": {
           "provenanceSteps": 15,
+          "provenanceObserved": {
+            "status": "observed",
+            "value": 15
+          },
           "selectActions": {
             "status": "observed",
             "value": 3
@@ -711,7 +751,21 @@
             "status": "observed",
             "value": 1
           },
-          "actionCountDisagreement": true
+          "actionCountDisagreement": true,
+          "successfulReplaceAcquisitions": {
+            "status": "observed",
+            "value": 1
+          },
+          "evaluatedReplaceAcquisitions": {
+            "status": "observed",
+            "value": 1
+          },
+          "lifecycleContradiction": false
+        },
+        "trustBoundary": {
+          "capability": "runner_declared",
+          "inventorySource": "listing_source",
+          "note": "capabilityGrounded/adapter sourceEvidence are trust declarations — not independent buyer-safety certification."
         },
         "budget": {
           "servCalls": {
@@ -742,7 +796,7 @@
         "latency": {
           "wallMs": {
             "status": "observed",
-            "value": 0
+            "value": 1
           }
         },
         "baselineOverlap": {
@@ -779,7 +833,7 @@
         "evidenceComplete": false,
         "traceComplete": true,
         "decisionEvidenceComplete": false,
-        "runId": "95fb6943-8457-42c7-bf54-8f01c3738f40",
+        "runId": "41ff7f92-7381-4c6a-aa53-8262c2d7912e",
         "state": "failed",
         "failReason": "serv_refused",
         "terminalKind": "failed_refusal",
@@ -912,6 +966,10 @@
         },
         "actions": {
           "provenanceSteps": 5,
+          "provenanceObserved": {
+            "status": "observed",
+            "value": 5
+          },
           "selectActions": {
             "status": "observed",
             "value": 0
@@ -936,7 +994,21 @@
             "status": "observed",
             "value": 0
           },
-          "actionCountDisagreement": false
+          "actionCountDisagreement": false,
+          "successfulReplaceAcquisitions": {
+            "status": "observed",
+            "value": 0
+          },
+          "evaluatedReplaceAcquisitions": {
+            "status": "observed",
+            "value": 0
+          },
+          "lifecycleContradiction": false
+        },
+        "trustBoundary": {
+          "capability": "runner_declared",
+          "inventorySource": "listing_source",
+          "note": "capabilityGrounded/adapter sourceEvidence are trust declarations — not independent buyer-safety certification."
         },
         "budget": {
           "servCalls": {
@@ -1004,7 +1076,7 @@
         "evidenceComplete": false,
         "traceComplete": true,
         "decisionEvidenceComplete": false,
-        "runId": "2493580c-7d59-4922-abc7-616a0911209f",
+        "runId": "c9e85f2e-4131-45ee-9c33-ea66d5be953f",
         "state": "failed",
         "failReason": "serv_timeout",
         "terminalKind": "failed_timeout",
@@ -1137,6 +1209,10 @@
         },
         "actions": {
           "provenanceSteps": 5,
+          "provenanceObserved": {
+            "status": "observed",
+            "value": 5
+          },
           "selectActions": {
             "status": "observed",
             "value": 0
@@ -1161,7 +1237,21 @@
             "status": "observed",
             "value": 0
           },
-          "actionCountDisagreement": false
+          "actionCountDisagreement": false,
+          "successfulReplaceAcquisitions": {
+            "status": "observed",
+            "value": 0
+          },
+          "evaluatedReplaceAcquisitions": {
+            "status": "observed",
+            "value": 0
+          },
+          "lifecycleContradiction": false
+        },
+        "trustBoundary": {
+          "capability": "runner_declared",
+          "inventorySource": "listing_source",
+          "note": "capabilityGrounded/adapter sourceEvidence are trust declarations — not independent buyer-safety certification."
         },
         "budget": {
           "servCalls": {
@@ -1229,7 +1319,7 @@
         "evidenceComplete": false,
         "traceComplete": true,
         "decisionEvidenceComplete": false,
-        "runId": "43d8f561-8e92-434d-a31c-1db8b6c32a2f",
+        "runId": "a65cae02-5511-4a08-8df9-dc69b4b11548",
         "state": "abstained",
         "failReason": null,
         "terminalKind": "abstained",
@@ -1362,6 +1452,10 @@
         },
         "actions": {
           "provenanceSteps": 6,
+          "provenanceObserved": {
+            "status": "observed",
+            "value": 6
+          },
           "selectActions": {
             "status": "observed",
             "value": 0
@@ -1386,7 +1480,21 @@
             "status": "observed",
             "value": 0
           },
-          "actionCountDisagreement": false
+          "actionCountDisagreement": false,
+          "successfulReplaceAcquisitions": {
+            "status": "observed",
+            "value": 0
+          },
+          "evaluatedReplaceAcquisitions": {
+            "status": "observed",
+            "value": 0
+          },
+          "lifecycleContradiction": false
+        },
+        "trustBoundary": {
+          "capability": "runner_declared",
+          "inventorySource": "listing_source",
+          "note": "capabilityGrounded/adapter sourceEvidence are trust declarations — not independent buyer-safety certification."
         },
         "budget": {
           "servCalls": {
@@ -1454,7 +1562,7 @@
         "evidenceComplete": false,
         "traceComplete": true,
         "decisionEvidenceComplete": false,
-        "runId": "cad6b7e7-d938-4c45-8b13-9520f54ebba0",
+        "runId": "9c139c52-60ec-4294-9575-59ca7bdf89bd",
         "state": "failed",
         "failReason": "serv_unavailable",
         "terminalKind": "failed_parse",
@@ -1587,6 +1695,10 @@
         },
         "actions": {
           "provenanceSteps": 5,
+          "provenanceObserved": {
+            "status": "observed",
+            "value": 5
+          },
           "selectActions": {
             "status": "observed",
             "value": 0
@@ -1611,7 +1723,21 @@
             "status": "observed",
             "value": 0
           },
-          "actionCountDisagreement": false
+          "actionCountDisagreement": false,
+          "successfulReplaceAcquisitions": {
+            "status": "observed",
+            "value": 0
+          },
+          "evaluatedReplaceAcquisitions": {
+            "status": "observed",
+            "value": 0
+          },
+          "lifecycleContradiction": false
+        },
+        "trustBoundary": {
+          "capability": "runner_declared",
+          "inventorySource": "listing_source",
+          "note": "capabilityGrounded/adapter sourceEvidence are trust declarations — not independent buyer-safety certification."
         },
         "budget": {
           "servCalls": {

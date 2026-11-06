@@ -321,7 +321,9 @@ describe("Stage2C-followon product gaps", () => {
     expect(blocked.candidates.find((c) => c.vin === vin)?.disposition).not.toBe("rejected");
     expect(
       blocked.toolOutcomes.some((o) =>
-        o.toolId === "candidate.reject" && /reject_unsupported_gov_alone_forbidden/i.test(o.summary),
+        o.toolId === "candidate.reject" &&
+        o.status === "rejected" &&
+        /unsupported_gov_alone_forbidden|reject_lacks_adverse/i.test(o.summary),
       ),
     ).toBe(true);
 
@@ -338,17 +340,23 @@ describe("Stage2C-followon product gaps", () => {
           servStepId: "g1",
         },
         {
-          type: "reject",
+          type: "replace",
           vin,
-          reason: "overpriced vs asking comps after gates",
+          reason: "honest try-next after gov — not a car-bad claim",
           servStepId: "r1",
+          rationaleKind: "uncertainty_progress",
         },
         { type: "finalize", reason: "done", servStepId: "f" },
       ]),
       autonomyClaim: "none",
       budgets: { maxServCalls: 20, maxToolCalls: 40, maxProviderCalls: 0 },
     });
-    expect(allowed.candidates.find((c) => c.vin === vin)?.disposition).toBe("rejected");
+    // Uncertainty replace is allowed; candidate may be replaced or still pending if empty pool.
+    expect(
+      allowed.toolOutcomes.some(
+        (o) => o.toolId === "candidate.replace" && o.status !== "rejected",
+      ),
+    ).toBe(true);
   });
 
   it("(5) mid-loop success does not overwrite initial inventoryIdentity; per-candidate origins differ", async () => {
