@@ -73,8 +73,8 @@ export type ScoutPlannerEvidenceContext = {
 
 const EXPECTED_KEYS = [
   "asking_price",
+  // Free NHTSA families only — FuelEconomy intentionally omitted (rights hold).
   "evidence.gov_recalls",
-  "evidence.gov_fuel",
   "evidence.gov_vpic",
   "evidence.gov_safety",
   "economics.flip_estimate",

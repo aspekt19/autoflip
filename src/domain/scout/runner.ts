@@ -171,8 +171,8 @@ export type RunScoutInput = {
   /** Resume from a prior checkpoint (same owner only). */
   resume?: ScoutRunResult;
   /**
-   * Free public NHTSA/FuelEconomy/vPIC port. Default = live free adapter.
-   * Tests may inject `unsupportedFreeGovPort()` for offline unsupported paths.
+   * Free public NHTSA port (vPIC / recalls+complaints / SafetyRatings). Default = live free adapter.
+   * FuelEconomy is not part of this port (rights hold). Tests may inject `unsupportedFreeGovPort()`.
    */
   gov?: ScoutFreeGovPort;
   /**
@@ -1315,7 +1315,38 @@ export async function runScout(input: RunScoutInput): Promise<ScoutRunResult> {
           continue;
         }
 
-        // Free public NHTSA / FuelEconomy / vPIC — never invent title/NMVTIS.
+        // FuelEconomy.gov — excluded from Scout free decision inputs (ORNL commercial-rights hold).
+        // Keep tool id for schema compatibility; always honest unsupported (never call FuelEconomy).
+        if (toolId === "evidence.gov_fuel") {
+          if (vin && candidates.has(vin)) {
+            candidates.get(vin)!.evidence.push({
+              key: toolId,
+              value: { status: "unsupported", reason: "fueleconomy_rights_hold" },
+              kind: "unknown",
+              source: "gov",
+              note: "UNSUPPORTED: FuelEconomy.gov excluded from Scout free evidence (commercial reuse rights unclear). Not a successful evidence fetch. Title/NMVTIS remain unknown.",
+            });
+          }
+          const outcome = {
+            toolId,
+            vin,
+            ok: false,
+            status: "unsupported" as const,
+            capability: "unsupported" as const,
+            capabilityGrounded: true,
+            summary:
+              "evidence.gov_fuel unsupported — FuelEconomy excluded from free Scout surface (rights hold); not treated as successful evidence.",
+            acquiredVin: null,
+            servStepId: action.servStepId,
+          };
+          toolCache.set(idem, pushOutcome(outcome));
+          stamp(provenance, state, outcome.summary, toolId, action.servStepId, idem);
+          assertTransition(state, "verifying");
+          state = "verifying";
+          continue;
+        }
+
+        // Free public NHTSA only (vPIC / recalls+complaints / SafetyRatings) — never invent title/NMVTIS.
         if (isFreeGovToolId(toolId)) {
           if (!vin || !candidates.has(vin)) {
             const outcome = {
@@ -1682,7 +1713,6 @@ export function heuristicOfflinePlanner(): ScoutPlanner {
         const missingGov = (brief?.missingness ?? []).find((m) => m.startsWith("evidence.gov_"));
         if (
           missingGov === "evidence.gov_recalls" ||
-          missingGov === "evidence.gov_fuel" ||
           missingGov === "evidence.gov_vpic" ||
           missingGov === "evidence.gov_safety"
         ) {

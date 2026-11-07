@@ -47,6 +47,7 @@ export type ScoutToolId =
   | "evidence.asking_price"
   | "evidence.comps_ask"
   | "evidence.gov_recalls"
+  /** Schema-compatible stub — FuelEconomy excluded from free Scout surface (rights hold); always unsupported. */
   | "evidence.gov_fuel"
   | "evidence.gov_vpic"
   | "evidence.gov_safety"

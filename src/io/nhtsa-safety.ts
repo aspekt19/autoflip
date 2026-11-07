@@ -1,16 +1,26 @@
 /**
  * NHTSA Safety Ratings — free public API (make/model/year → VehicleId → ratings).
  * Scope is configuration-level crash ratings, NEVER VIN-specific title/NMVTIS/repair status.
+ * "Not Rated" and RolloverPossibility: 0 with Not Rated must NOT be treated as risk-zero / clean pass.
  */
 import type { GovDeps } from "./gov";
+
+export type NhtsaRatingStatus = "rated" | "not_rated";
 
 export type NhtsaSafetyVariant = {
   vehicleId: number;
   description: string;
+  /** Star string when rated; null when Not Rated / missing — never coerce Not Rated to "0". */
   overallRating: string | null;
   frontRating: string | null;
   sideRating: string | null;
   rolloverRating: string | null;
+  /**
+   * Raw RolloverPossibility from NHTSA. When ratings are Not Rated, 0 / 0.0 is a sentinel —
+   * do NOT interpret as 0% rollover risk.
+   */
+  rolloverPossibility: number | null;
+  ratingStatus: NhtsaRatingStatus;
   complaintsCount: number | null;
   recallsCount: number | null;
 };
@@ -43,9 +53,12 @@ function asRecord(value: unknown): Record<string, unknown> | null {
 }
 
 function str(value: unknown): string | null {
-  if (typeof value !== "string") return null;
-  const t = value.trim();
-  return t.length ? t : null;
+  if (typeof value === "string") {
+    const t = value.trim();
+    return t.length ? t : null;
+  }
+  if (typeof value === "number" && Number.isFinite(value)) return String(value);
+  return null;
 }
 
 function num(value: unknown): number | null {
@@ -54,9 +67,16 @@ function num(value: unknown): number | null {
   return null;
 }
 
+function isNotRated(raw: string | null): boolean {
+  return !raw || /^not rated$/i.test(raw);
+}
+
+/**
+ * Parse a star rating field. Returns null for Not Rated / missing — never "0" from Not Rated.
+ */
 function ratingField(row: Record<string, unknown>, key: string): string | null {
   const raw = str(row[key]);
-  if (!raw || /^not rated$/i.test(raw)) return null;
+  if (isNotRated(raw)) return null;
   return raw;
 }
 
@@ -95,16 +115,32 @@ export async function safetyRatingsFor(
     const first = Array.isArray(detailRows) ? asRecord(detailRows[0]) : null;
     if (!first) continue;
     if (!detailUrl) detailUrl = url;
+
+    const overallRaw = str(first.OverallRating);
+    const overallRating = ratingField(first, "OverallRating");
+    const frontRating = ratingField(first, "OverallFrontCrashRating");
+    const sideRating = ratingField(first, "OverallSideCrashRating");
+    const rolloverRating = ratingField(first, "RolloverRating");
+    const rolloverPossibility = num(first.RolloverPossibility);
+    const ratingStatus: NhtsaRatingStatus =
+      isNotRated(overallRaw) && frontRating == null && sideRating == null && rolloverRating == null
+        ? "not_rated"
+        : overallRating == null && frontRating == null && sideRating == null && rolloverRating == null
+          ? "not_rated"
+          : "rated";
+
     variants.push({
       vehicleId,
       description:
         str(first.VehicleDescription) ??
         str(row?.VehicleDescription) ??
         `${year} ${make} ${model}`,
-      overallRating: ratingField(first, "OverallRating"),
-      frontRating: ratingField(first, "OverallFrontCrashRating"),
-      sideRating: ratingField(first, "OverallSideCrashRating"),
-      rolloverRating: ratingField(first, "RolloverRating"),
+      overallRating,
+      frontRating,
+      sideRating,
+      rolloverRating,
+      rolloverPossibility,
+      ratingStatus,
       complaintsCount: num(first.ComplaintsCount),
       recallsCount: num(first.RecallsCount),
     });

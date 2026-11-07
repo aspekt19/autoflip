@@ -1,13 +1,14 @@
 /**
- * Free public vehicle-data port for Scout — NHTSA / FuelEconomy / vPIC only.
- * Title / NMVTIS / total-loss remain unknown (future paid replaceable boundary).
- * Never fabricates clean title. Never claims VIN-specific unrepaired recall status.
+ * Free public NHTSA decision-input port for Scout.
+ * Four families only: vPIC DecodeVinValues, recallsByVehicle, complaintsByVehicle, NCAP SafetyRatings.
+ * FuelEconomy.gov is intentionally excluded (commercial reuse rights unclear — ORNL disclaimer).
+ * Title / NMVTIS / total-loss remain unknown_not_connected. Never fabricates clean title.
+ * Never claims VIN-specific unrepaired/open recall status from make/model/year campaigns.
  */
 import { TtlCache } from "@/io/cache";
 import {
   complaintsFor,
   decodeVin,
-  fuelFor,
   recallsFor,
   type GovDeps,
 } from "@/io/gov";
@@ -16,14 +17,14 @@ import type { Listing } from "@/domain/types";
 import type { EvidenceFact, ScoutToolId } from "./types";
 
 export const FREE_GOV_TIMEOUT_MS = 12_000;
-/** Bounded cache for free public endpoints (same order as listing cache). */
+/** Bounded cache for free public endpoints (demo engineering policy, not provider TTL). */
 export const FREE_GOV_CACHE_TTL_MS = 6 * 60 * 60 * 1000;
 export const FREE_GOV_RATE_NOTE =
-  "Free public NHTSA/FuelEconomy/vPIC — no API key; polite sequential calls; 12s timeout; 6h process cache.";
+  "Free public NHTSA vPIC/recalls/complaints/SafetyRatings only — no API key; polite sequential calls; 12s timeout; 6h process cache. FuelEconomy excluded (rights hold).";
 
+/** Scout free decision-input tools — FuelEconomy is not in this set. */
 export type FreeGovToolId =
   | "evidence.gov_recalls"
-  | "evidence.gov_fuel"
   | "evidence.gov_vpic"
   | "evidence.gov_safety";
 
@@ -53,7 +54,6 @@ export type ScoutFreeGovPort = {
 export function isFreeGovToolId(id: string): id is FreeGovToolId {
   return (
     id === "evidence.gov_recalls" ||
-    id === "evidence.gov_fuel" ||
     id === "evidence.gov_vpic" ||
     id === "evidence.gov_safety"
   );
@@ -151,8 +151,6 @@ export function createLiveFreeGovPort(opts?: {
       try {
         if (toolId === "evidence.gov_recalls") {
           packet = await runRecalls(listing, deps, fetchedAt);
-        } else if (toolId === "evidence.gov_fuel") {
-          packet = await runFuel(listing, deps, fetchedAt);
         } else if (toolId === "evidence.gov_vpic") {
           packet = await runVpic(listing, deps, fetchedAt);
         } else {
@@ -172,7 +170,7 @@ export function createLiveFreeGovPort(opts?: {
           facts: [
             {
               key: toolId,
-              value: { status: "error" },
+              value: { status: "error", titleNmvtis: "unknown_not_connected" },
               kind: "unknown",
               source: "gov",
               note: "Free gov lookup failed — unavailable (not a clean-title claim).",
@@ -201,7 +199,7 @@ async function runRecalls(listing: Listing, deps: GovDeps, fetchedAt: string): P
   });
   const url = `https://api.nhtsa.gov/recalls/recallsByVehicle?${params.toString()}`;
   const scope =
-    "nhtsa_recalls+complaints_by_make_model_year — campaigns for the vehicle configuration; NOT VIN-specific unrepaired/open status; NOT title/NMVTIS";
+    "nhtsa_recalls+complaints_by_make_model_year — campaigns/allegations for the vehicle configuration; NOT VIN-specific unrepaired/open status; NOT title/NMVTIS; zero campaigns ≠ VIN clear";
   const [recalls, complaints] = await Promise.all([
     recallsFor(listing.make, listing.model, listing.year, deps),
     complaintsFor(listing.make, listing.model, listing.year, deps),
@@ -226,9 +224,14 @@ async function runRecalls(listing: Listing, deps: GovDeps, fetchedAt: string): P
           fetchedAt,
           cached: false,
           timeoutMs: FREE_GOV_TIMEOUT_MS,
-          value: { recallsAvailable: false, complaintsAvailable: false },
+          value: {
+            recallsAvailable: false,
+            complaintsAvailable: false,
+            titleNmvtis: "unknown_not_connected",
+            vinOpenRecalls: null,
+          },
           kind: "unknown",
-          note: "NHTSA recalls/complaints unavailable — not a successful empty result; title/NMVTIS remain unknown.",
+          note: "NHTSA recalls/complaints unavailable — not a successful empty result; title/NMVTIS remain unknown; never sets vinOpenRecalls=false.",
         }),
       ],
       summary: "NHTSA recalls/complaints unavailable (not empty-no-record).",
@@ -263,15 +266,19 @@ async function runRecalls(listing: Listing, deps: GovDeps, fetchedAt: string): P
         complaintsAvailable: complaints.available,
         complaintCount: complaints.available ? complaints.count : null,
         complaintsUrl: complaints.url,
+        complaintsNote:
+          "Model-level owner allegations — not verified defects or VIN crash/damage history; never match partial complaint VINs as proof.",
         titleNmvtis: "unknown_not_connected",
+        /** Never invent VIN-open status from make/model/year campaigns. */
+        vinOpenRecalls: null,
       },
       kind: "verified",
       source: "gov",
       note: empty
-        ? "NHTSA returned zero make/model/year campaigns (available empty). Not VIN unrepaired status. Title/NMVTIS unknown."
+        ? "NHTSA returned zero make/model/year campaigns (available empty). Not VIN unrepaired status; never vinOpenRecalls=false. Title/NMVTIS unknown."
         : parkIt
-          ? "NHTSA make/model/year campaigns include park-it/park-outside flags — configuration-level, not VIN repair proof. Title/NMVTIS unknown."
-          : "NHTSA make/model/year campaigns recorded. Not VIN-specific unrepaired status. Title/NMVTIS unknown.",
+          ? "NHTSA make/model/year campaigns include park-it/park-outside flags — configuration-level applicability only, not VIN repair proof. Title/NMVTIS unknown."
+          : "NHTSA make/model/year campaigns recorded. Not VIN-specific unrepaired/open status. Title/NMVTIS unknown.",
     },
   ];
   if (parkIt) {
@@ -280,7 +287,7 @@ async function runRecalls(listing: Listing, deps: GovDeps, fetchedAt: string): P
       value: { parkIt: true, scope },
       kind: "verified",
       source: "gov",
-      note: "NHTSA park-it/park-outside campaign flag present for make/model/year — adverse safety signal for investigation; not a title brand.",
+      note: "NHTSA park-it/park-outside campaign flag present for make/model/year — adverse safety signal for investigation; not a title brand; not VIN unrepaired proof.",
     });
   }
 
@@ -293,10 +300,10 @@ async function runRecalls(listing: Listing, deps: GovDeps, fetchedAt: string): P
     url,
     timeoutMs: FREE_GOV_TIMEOUT_MS,
     rateNote: FREE_GOV_RATE_NOTE,
-    limitsNote: "Max 8 campaign summaries retained for planner briefs.",
+    limitsNote: "Max 8 campaign summaries retained for planner briefs. Complaints are allegations, not VIN events.",
     facts,
     summary: empty
-      ? `NHTSA recalls empty for ${listing.year} ${listing.make} ${listing.model} (available).`
+      ? `NHTSA recalls empty for ${listing.year} ${listing.make} ${listing.model} (available; not VIN-clear).`
       : `NHTSA recalls ${recalls.records.length} campaign(s); complaints=${complaints.available ? complaints.count : "unavailable"}; parkIt=${parkIt}.`,
     outcomeOk: true,
     outcomeStatus: empty ? "empty" : "success",
@@ -304,70 +311,50 @@ async function runRecalls(listing: Listing, deps: GovDeps, fetchedAt: string): P
   };
 }
 
-async function runFuel(listing: Listing, deps: GovDeps, fetchedAt: string): Promise<FreeGovEvidencePacket> {
-  const params = new URLSearchParams({
-    year: String(listing.year),
-    make: listing.make,
-    model: listing.model,
-  });
-  const url = `https://www.fueleconomy.gov/ws/rest/vehicle/menu/options?${params.toString()}`;
-  const scope = "fueleconomy.gov menu/options by year/make/model — EPA config estimate, not VIN-specific";
-  const fuel = await fuelFor(listing.year, listing.make, listing.model, listing.engine, deps);
-  if (!fuel) {
+/**
+ * HTTP 200 is NOT VIN confirmation — inspect ErrorCode/ErrorText.
+ * Incomplete / non-zero ErrorCode → unavailable/error; never invent verified decode identity.
+ */
+async function runVpic(listing: Listing, deps: GovDeps, fetchedAt: string): Promise<FreeGovEvidencePacket> {
+  const url = `https://vpic.nhtsa.dot.gov/api/vehicles/DecodeVinValues/${encodeURIComponent(listing.vin)}?format=json`;
+  const scope =
+    "nhtsa_vpic_DecodeVinValues — VIN decode specs only when ErrorCode=0; not title/NMVTIS/total-loss/history; HTTP 200 alone is not success";
+
+  const vinOk = /^[A-HJ-NPR-Z0-9]{17}$/i.test(listing.vin.trim());
+  if (!vinOk) {
     return {
-      toolId: "evidence.gov_fuel",
-      status: "unavailable",
+      toolId: "evidence.gov_vpic",
+      status: "error",
       cached: false,
       fetchedAt,
       scope,
       url,
       timeoutMs: FREE_GOV_TIMEOUT_MS,
       rateNote: FREE_GOV_RATE_NOTE,
-      limitsNote: "Menu miss or upstream failure — unavailable (not a fabricated MPG).",
+      limitsNote: "Listing VIN must be 17 characters before treating decode as exact identity.",
       facts: [
         {
-          key: "evidence.gov_fuel",
-          value: { status: "unavailable", scope, url, fetchedAt },
+          key: "evidence.gov_vpic",
+          value: {
+            status: "invalid_input",
+            scope,
+            url,
+            fetchedAt,
+            vinLength: listing.vin.trim().length,
+            titleNmvtis: "unknown_not_connected",
+          },
           kind: "unknown",
           source: "gov",
-          note: "FuelEconomy.gov lookup unavailable — MPG unknown.",
+          note: "VIN is not 17 characters — vPIC partial decode is not accepted as listing identity. Title/NMVTIS unknown.",
         },
       ],
-      summary: "FuelEconomy.gov unavailable for this year/make/model.",
+      summary: "vPIC skipped — VIN not 17 characters (incomplete input).",
       outcomeOk: false,
       outcomeStatus: "failed",
       outcomeCapability: "failed",
     };
   }
-  return {
-    toolId: "evidence.gov_fuel",
-    status: "ok",
-    cached: false,
-    fetchedAt,
-    scope,
-    url,
-    timeoutMs: FREE_GOV_TIMEOUT_MS,
-    rateNote: FREE_GOV_RATE_NOTE,
-    limitsNote: "Up to 6 EPA configs considered.",
-    facts: [
-      {
-        key: "evidence.gov_fuel",
-        value: { ...fuel, scope, url, fetchedAt, cached: false, timeoutMs: FREE_GOV_TIMEOUT_MS },
-        kind: "verified",
-        source: "gov",
-        note: `EPA fuel fact (${fuel.match}) — estimate for configuration, not VIN odometer proof.`,
-      },
-    ],
-    summary: `FuelEconomy.gov ${fuel.match}: combMpg=${fuel.combMpg ?? "n/a"} configs=${fuel.configsConsidered}.`,
-    outcomeOk: true,
-    outcomeStatus: "success",
-    outcomeCapability: "supported_executed",
-  };
-}
 
-async function runVpic(listing: Listing, deps: GovDeps, fetchedAt: string): Promise<FreeGovEvidencePacket> {
-  const url = `https://vpic.nhtsa.dot.gov/api/vehicles/DecodeVinValues/${encodeURIComponent(listing.vin)}?format=json`;
-  const scope = "nhtsa_vpic_DecodeVinValues — VIN decode specs only; not title/NMVTIS/total-loss/history";
   const decoded = await decodeVin(listing.vin, deps);
   if (!decoded) {
     return {
@@ -395,18 +382,57 @@ async function runVpic(listing: Listing, deps: GovDeps, fetchedAt: string): Prom
       outcomeCapability: "failed",
     };
   }
-  const errorCode = decoded.errorCode ?? "";
-  const empty = errorCode !== "" && errorCode !== "0";
+
+  const errorCode = (decoded.errorCode ?? "").trim();
+  const errorText = decoded.errorText ?? null;
+  // ErrorCode "0" is the only accepted exact-decode success. Any other code (incl. "6 Incomplete VIN") is not identity.
+  const decodeOk = errorCode === "0";
+  if (!decodeOk) {
+    return {
+      toolId: "evidence.gov_vpic",
+      status: "error",
+      cached: false,
+      fetchedAt,
+      scope,
+      url,
+      timeoutMs: FREE_GOV_TIMEOUT_MS,
+      rateNote: FREE_GOV_RATE_NOTE,
+      limitsNote: "Non-zero ErrorCode — do not invent make/model/year identity from partial decode fields.",
+      facts: [
+        {
+          key: "evidence.gov_vpic",
+          value: {
+            status: "error",
+            errorCode: errorCode || null,
+            errorText,
+            scope,
+            url,
+            fetchedAt,
+            titleNmvtis: "unknown_not_connected",
+            // Explicitly omit decoded make/model/year — incomplete decode must not become listing identity.
+          },
+          kind: "unknown",
+          source: "gov",
+          note: `vPIC ErrorCode=${errorCode || "missing"} (${errorText ?? "no ErrorText"}) — HTTP success is not VIN confirmation; decode facts not accepted. Title/NMVTIS unknown.`,
+        },
+      ],
+      summary: `vPIC decode rejected (ErrorCode=${errorCode || "missing"}; not exact identity).`,
+      outcomeOk: false,
+      outcomeStatus: "failed",
+      outcomeCapability: "failed",
+    };
+  }
+
   return {
     toolId: "evidence.gov_vpic",
-    status: empty ? "empty" : "ok",
+    status: "ok",
     cached: false,
     fetchedAt,
     scope,
     url,
     timeoutMs: FREE_GOV_TIMEOUT_MS,
     rateNote: FREE_GOV_RATE_NOTE,
-    limitsNote: "Specs only — never invents title brands or accident history.",
+    limitsNote: "Specs only when ErrorCode=0 — never invents title brands or accident history.",
     facts: [
       {
         key: "evidence.gov_vpic",
@@ -414,31 +440,28 @@ async function runVpic(listing: Listing, deps: GovDeps, fetchedAt: string): Prom
           year: decoded.year,
           make: decoded.make,
           model: decoded.model,
-          errorCode: decoded.errorCode,
+          errorCode: "0",
+          errorText,
           scope,
           url,
           fetchedAt,
           titleNmvtis: "unknown_not_connected",
         },
-        kind: empty ? "unknown" : "verified",
+        kind: "verified",
         source: "gov",
-        note: empty
-          ? `vPIC returned errorCode=${errorCode} — decode incomplete; title/NMVTIS unknown.`
-          : "vPIC VIN decode specs recorded. Title/NMVTIS/total-loss remain unknown_not_connected.",
+        note: "vPIC VIN decode specs recorded (ErrorCode=0). Title/NMVTIS/total-loss remain unknown_not_connected. Missing equipment fields mean NHTSA lacks data, not feature absent.",
       },
     ],
-    summary: empty
-      ? `vPIC decode incomplete (errorCode=${errorCode}).`
-      : `vPIC decode ${decoded.year ?? "?"} ${decoded.make ?? "?"} ${decoded.model ?? "?"}.`,
-    outcomeOk: !empty,
-    outcomeStatus: empty ? "empty" : "success",
-    outcomeCapability: empty ? "empty" : "supported_executed",
+    summary: `vPIC decode ${decoded.year ?? "?"} ${decoded.make ?? "?"} ${decoded.model ?? "?"} (ErrorCode=0).`,
+    outcomeOk: true,
+    outcomeStatus: "success",
+    outcomeCapability: "supported_executed",
   };
 }
 
 async function runSafety(listing: Listing, deps: GovDeps, fetchedAt: string): Promise<FreeGovEvidencePacket> {
   const scope =
-    "nhtsa_safety_ratings_by_make_model_year — configuration crash ratings; not VIN-specific; not title/NMVTIS";
+    "nhtsa_safety_ratings_by_make_model_year — configuration crash ratings; not VIN-specific; Not Rated ≠ 0 stars/pass; RolloverPossibility 0 with Not Rated ≠ 0% risk; not title/NMVTIS";
   const lookup = await safetyRatingsFor(listing.make, listing.model, listing.year, deps);
   if (!lookup.available) {
     return {
@@ -454,10 +477,10 @@ async function runSafety(listing: Listing, deps: GovDeps, fetchedAt: string): Pr
       facts: [
         {
           key: "evidence.gov_safety",
-          value: { status: "unavailable", scope, url: lookup.indexUrl, fetchedAt },
+          value: { status: "unavailable", scope, url: lookup.indexUrl, fetchedAt, titleNmvtis: "unknown_not_connected" },
           kind: "unknown",
           source: "gov",
-          note: "NHTSA safety ratings unavailable for this make/model/year.",
+          note: "NHTSA safety ratings unavailable for this make/model/year — unknown, not a clean pass.",
         },
       ],
       summary: "NHTSA safety ratings unavailable.",
@@ -480,18 +503,32 @@ async function runSafety(listing: Listing, deps: GovDeps, fetchedAt: string): Pr
       facts: [
         {
           key: "evidence.gov_safety",
-          value: { status: "empty", scope, url: lookup.indexUrl, fetchedAt, variantCount: 0 },
+          value: {
+            status: "empty",
+            scope,
+            url: lookup.indexUrl,
+            fetchedAt,
+            variantCount: 0,
+            titleNmvtis: "unknown_not_connected",
+          },
           kind: "verified",
           source: "gov",
-          note: "NHTSA safety ratings index empty for make/model/year (available).",
+          note: "NHTSA safety ratings index empty for make/model/year (available). Empty ≠ risk-zero pass.",
         },
       ],
-      summary: "NHTSA safety ratings empty (available).",
+      summary: "NHTSA safety ratings empty (available; not a pass).",
       outcomeOk: true,
       outcomeStatus: "empty",
       outcomeCapability: "empty",
     };
   }
+
+  const anyNotRated = lookup.variants.some((v) => v.ratingStatus === "not_rated");
+  const anyRated = lookup.variants.some((v) => v.ratingStatus === "rated");
+  const ratingAggregate: "rated" | "not_rated" | "mixed" = anyRated && anyNotRated ? "mixed" : anyRated ? "rated" : "not_rated";
+  // Facts are verified as "what NHTSA returned" — but not_rated must stay unknown for risk, never a clean pass.
+  const factKind: EvidenceFact["kind"] = ratingAggregate === "not_rated" ? "unknown" : "verified";
+
   return {
     toolId: "evidence.gov_safety",
     status: "ok",
@@ -501,24 +538,37 @@ async function runSafety(listing: Listing, deps: GovDeps, fetchedAt: string): Pr
     url: lookup.detailUrl ?? lookup.indexUrl,
     timeoutMs: FREE_GOV_TIMEOUT_MS,
     rateNote: FREE_GOV_RATE_NOTE,
-    limitsNote: "Up to 3 VehicleId detail rows fetched.",
+    limitsNote: "Up to 3 VehicleId detail rows. Not Rated and RolloverPossibility:0 sentinel must not be treated as risk-zero.",
     facts: [
       {
         key: "evidence.gov_safety",
         value: {
           status: "ok",
+          ratingAggregate,
           scope,
           url: lookup.detailUrl ?? lookup.indexUrl,
           indexUrl: lookup.indexUrl,
           fetchedAt,
           variants: lookup.variants,
+          titleNmvtis: "unknown_not_connected",
+          warnings: [
+            "Not Rated is unknown — never 0 stars or a clean safety pass.",
+            "RolloverPossibility 0.0 accompanying Not Rated is a sentinel, not 0% rollover risk.",
+            "Configuration ratings are not VIN condition, repair, or title evidence.",
+          ],
         },
-        kind: "verified",
+        kind: factKind,
         source: "gov",
-        note: "NHTSA configuration safety ratings recorded — not VIN-specific crash history; title/NMVTIS unknown.",
+        note:
+          ratingAggregate === "not_rated"
+            ? "NHTSA SafetyRatings returned Not Rated variant(s) — unknown, not risk-zero. Title/NMVTIS unknown."
+            : "NHTSA configuration safety ratings recorded — not VIN-specific crash history; Not Rated fields remain unknown. Title/NMVTIS unknown.",
       },
     ],
-    summary: `NHTSA safety ratings: ${lookup.variants.length} variant(s); overall=${lookup.variants[0]?.overallRating ?? "n/a"}.`,
+    summary:
+      ratingAggregate === "not_rated"
+        ? `NHTSA safety ratings: ${lookup.variants.length} variant(s); ratingAggregate=not_rated (unknown, not pass).`
+        : `NHTSA safety ratings: ${lookup.variants.length} variant(s); ratingAggregate=${ratingAggregate}; overall=${lookup.variants[0]?.overallRating ?? "Not Rated"}.`,
     outcomeOk: true,
     outcomeStatus: "success",
     outcomeCapability: "supported_executed",
