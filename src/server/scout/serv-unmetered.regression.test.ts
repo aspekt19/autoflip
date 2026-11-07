@@ -1,6 +1,7 @@
 /**
  * Owner t284/t286: cancel artificial SERV call-count usage caps for owner-authorized
- * existing credits. Autodev stays metered. Auth + ledger + technical anti-loop remain.
+ * existing credits. Autodev stays metered. Auth + ledger + wall/tool/token/repeated-action remain.
+ * Fixed maxServCalls:8 must NOT silently apply under serv.maxCalls=null.
  */
 import { describe, expect, it, vi } from "vitest";
 import { UpstashKv } from "@/io/kv";
@@ -14,9 +15,11 @@ import { resolveOwnerSpendAuthority } from "./owner-authority";
 import {
   authorizeLiveServPlanner,
   readPaidExecutionConfig,
+  serverScoutBudgets,
   testPaidAuthorityStub,
 } from "./paid-execution";
 import { ownerMaxProviderCallsPerRun } from "./owner-access";
+import { freezeBudgets, reserveServCall, freshUsage } from "@/domain/scout/budgets";
 
 function upstashKv(store: Map<string, string> = new Map()) {
   const fetchImpl = vi.fn(async (_url: RequestInfo | URL, init?: RequestInit) => {
@@ -205,6 +208,32 @@ describe("owner-authorized unmetered SERV call-count (t284/t286)", () => {
     expect(ownerMaxProviderCallsPerRun({})).toBeNull();
     expect(ownerMaxProviderCallsPerRun({ SCOUT_OWNER_MAX_PROVIDER_CALLS_PER_RUN: "5" })).toBe(5);
     expect(ownerMaxProviderCallsPerRun({ SCOUT_OWNER_MAX_PROVIDER_CALLS_PER_RUN: "0" })).toBeNull();
+  });
+
+  it("serverScoutBudgets: unmetered → maxServCalls null (not 8 / not Infinity / not 9999)", () => {
+    const metered = serverScoutBudgets({ maxProviderCalls: 0 });
+    expect(metered.maxServCalls).toBe(8);
+    expect(metered.maxToolCalls).toBe(40);
+    expect(metered.maxWallMs).toBe(120_000);
+
+    const unmetered = serverScoutBudgets({
+      maxProviderCalls: 0,
+      unmeteredServCallCount: true,
+    });
+    expect(unmetered.maxServCalls).toBeNull();
+    expect(unmetered.maxServCalls).not.toBe(8);
+    expect(Number.isFinite(unmetered.maxServCalls as number)).toBe(false);
+    // Still real safeguards — not "none"
+    expect(unmetered.maxToolCalls).toBe(40);
+    expect(unmetered.maxWallMs).toBe(120_000);
+    expect(unmetered.maxConcurrent).toBe(1);
+
+    const frozen = freezeBudgets({ ...unmetered });
+    const usage = freshUsage();
+    for (let i = 0; i < 12; i++) {
+      expect(reserveServCall(frozen, usage).ok).toBe(true);
+    }
+    expect(usage.servCalls).toBe(12);
   });
 
   it("hard ceiling=3 still applies to Autodev metered path (Free protect)", async () => {

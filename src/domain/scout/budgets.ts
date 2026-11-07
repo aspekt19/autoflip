@@ -10,6 +10,9 @@ export const DEFAULT_SCOUT_BUDGETS: ScoutBudgets = {
   maxConcurrent: 1,
 };
 
+/** Consecutive identical planner actions before no-progress stop (not a usage call-count). */
+export const REPEATED_IDENTICAL_ACTION_LIMIT = 3;
+
 export function freezeBudgets(partial?: Partial<ScoutBudgets>): ScoutBudgets {
   const merged: ScoutBudgets = {
     ...DEFAULT_SCOUT_BUDGETS,
@@ -17,7 +20,8 @@ export function freezeBudgets(partial?: Partial<ScoutBudgets>): ScoutBudgets {
   };
   for (const key of Object.keys(merged) as (keyof ScoutBudgets)[]) {
     const value = merged[key];
-    if (!Number.isFinite(value) || value < 0) {
+    if (key === "maxServCalls" && value === null) continue;
+    if (!Number.isFinite(value) || (value as number) < 0) {
       throw new Error(`Invalid scout budget ${key}`);
     }
   }
@@ -47,8 +51,13 @@ export function checkWall(budgets: ScoutBudgets, usage: ScoutBudgetUsage, nowMs 
   return { ok: true };
 }
 
+/**
+ * Reserve one SERV planner step.
+ * When maxServCalls is null (owner unmetered), never refuse for call-count — still
+ * increments usage for ledger/observability.
+ */
 export function reserveServCall(budgets: ScoutBudgets, usage: ScoutBudgetUsage): BudgetCheck {
-  if (usage.servCalls >= budgets.maxServCalls) {
+  if (budgets.maxServCalls !== null && usage.servCalls >= budgets.maxServCalls) {
     return { ok: false, reason: "budget_exhausted", detail: "SERV call budget exhausted." };
   }
   usage.servCalls += 1;

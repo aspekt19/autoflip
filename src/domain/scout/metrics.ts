@@ -228,7 +228,7 @@ function hasUsageBudgets(result: ScoutRunResult): boolean {
       typeof u.providerCalls === "number" &&
       typeof u.wallStartedAtMs === "number" &&
       b &&
-      typeof b.maxServCalls === "number" &&
+      (typeof b.maxServCalls === "number" || b.maxServCalls === null) &&
       typeof b.maxToolCalls === "number" &&
       typeof b.maxProviderCalls === "number",
   );
@@ -600,7 +600,10 @@ export function observeScoutRun(
           servCalls: observed(result.usage.servCalls),
           toolCalls: observed(result.usage.toolCalls),
           providerCalls: observed(result.usage.providerCalls),
-          maxServCalls: observed(result.budgets.maxServCalls),
+          maxServCalls:
+            result.budgets.maxServCalls === null
+              ? unknown("unmetered_no_call_count_cap")
+              : observed(result.budgets.maxServCalls),
           maxToolCalls: observed(result.budgets.maxToolCalls),
           maxProviderCalls: observed(result.budgets.maxProviderCalls),
         }

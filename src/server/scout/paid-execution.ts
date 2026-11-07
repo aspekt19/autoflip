@@ -35,8 +35,10 @@ export type PaidSpendAuthority = {
    */
   remainingProviderBudget: number;
   /**
-   * Owner-authorized unmetered SERV call-count (t284/t286). Distinct from technical
-   * per-run anti-loop / wall / token bounds. Never invents public unlimited access.
+   * Owner-authorized unmetered SERV call-count (t284/t286). When true, server
+   * budgets set maxServCalls=null (no call-count termination). Wall clock, tool
+   * caps, token/size bounds, and repeated-action detection still apply.
+   * Never invents public unlimited access.
    */
   unmeteredCallCount?: boolean;
   /**
@@ -314,10 +316,20 @@ export function stripClientSpendClaims<T extends Record<string, unknown>>(body: 
   return out;
 }
 
-/** Server-enforced scout budgets — clients cannot raise ceilings. Live provider budget stays 0 until authority exists. */
-export function serverScoutBudgets(partial?: { maxCandidatesOut?: number; maxProviderCalls?: number }) {
+/**
+ * Server-enforced scout budgets — clients cannot raise ceilings.
+ * Live provider budget stays 0 until authority exists.
+ * `unmeteredServCallCount: true` (owner grant serv.maxCalls=null) → maxServCalls null
+ * (no fixed SERV call-count termination). Do not substitute Infinity/9999.
+ */
+export function serverScoutBudgets(partial?: {
+  maxCandidatesOut?: number;
+  maxProviderCalls?: number;
+  /** Owner-authorized unmetered SERV only — sets maxServCalls to null. */
+  unmeteredServCallCount?: boolean;
+}) {
   return {
-    maxServCalls: 8,
+    maxServCalls: partial?.unmeteredServCallCount === true ? null : 8,
     maxToolCalls: 40,
     maxProviderCalls: Math.max(0, partial?.maxProviderCalls ?? 0),
     maxCandidatesOut: Math.min(5, partial?.maxCandidatesOut ?? 5),

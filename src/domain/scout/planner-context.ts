@@ -71,7 +71,8 @@ export type ScoutPlannerEvidenceContext = {
   newlyAcquiredVins: string[];
   searchHistory: Array<{ fingerprint: string; params: ScoutSearchParams }>;
   budgetsRemaining: {
-    servCalls: number;
+    /** null = owner unmetered SERV — no remaining call-count. */
+    servCalls: number | null;
     toolCalls: number;
     providerCalls: number;
   };
@@ -219,7 +220,7 @@ export function buildPlannerEvidenceContext(input: {
   newlyAcquiredPending?: ScoutCandidate[];
   searchHistory: Array<{ fingerprint: string; params: ScoutSearchParams }>;
   mandate: ScoutMandate;
-  budgets: { maxServCalls: number; maxToolCalls: number; maxProviderCalls: number };
+  budgets: { maxServCalls: number | null; maxToolCalls: number; maxProviderCalls: number };
   usage: { servCalls: number; toolCalls: number; providerCalls: number };
   recentOutcomes: ScoutToolOutcome[];
 }): ScoutPlannerEvidenceContext {
@@ -248,7 +249,10 @@ export function buildPlannerEvidenceContext(input: {
     newlyAcquiredVins: [...newlySet],
     searchHistory: input.searchHistory.slice(-6),
     budgetsRemaining: {
-      servCalls: Math.max(0, input.budgets.maxServCalls - input.usage.servCalls),
+      servCalls:
+        input.budgets.maxServCalls === null
+          ? null
+          : Math.max(0, input.budgets.maxServCalls - input.usage.servCalls),
       toolCalls: Math.max(0, input.budgets.maxToolCalls - input.usage.toolCalls),
       providerCalls: Math.max(0, input.budgets.maxProviderCalls - input.usage.providerCalls),
     },
