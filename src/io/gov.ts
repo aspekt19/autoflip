@@ -51,16 +51,46 @@ export async function recallsFor(make: string, model: string, year: number, deps
   return { records: parseRecalls(payload), available: true };
 }
 
+export type ComplaintsLookup = {
+  count: number | null;
+  /** True only when NHTSA returned a well-formed payload (count may be 0). */
+  available: boolean;
+  url: string;
+};
+
 export async function complaintCountFor(
   make: string,
   model: string,
   year: number,
   deps: GovDeps,
 ): Promise<number | null> {
+  const lookup = await complaintsFor(make, model, year, deps);
+  return lookup.available ? lookup.count : null;
+}
+
+export async function complaintsFor(
+  make: string,
+  model: string,
+  year: number,
+  deps: GovDeps,
+): Promise<ComplaintsLookup> {
   const params = new URLSearchParams({ make, model, modelYear: String(year) });
-  const payload = await getJson(`https://api.nhtsa.gov/complaints/complaintsByVehicle?${params.toString()}`, deps);
-  if (!payload) return null;
-  return parseComplaintCount(payload);
+  const url = `https://api.nhtsa.gov/complaints/complaintsByVehicle?${params.toString()}`;
+  const payload = await getJson(url, deps);
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
+    return { count: null, available: false, url };
+  }
+  const count = parseComplaintCount(payload);
+  // Well-formed object with parseable count (including 0) ⇒ available.
+  if (count === null) {
+    const record = payload as Record<string, unknown>;
+    const results = record.results ?? record.Results;
+    if (!Array.isArray(results) && record.count == null && record.Count == null) {
+      return { count: null, available: false, url };
+    }
+    return { count: Array.isArray(results) ? results.length : 0, available: true, url };
+  }
+  return { count, available: true, url };
 }
 
 export async function fuelFor(

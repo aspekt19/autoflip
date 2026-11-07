@@ -29,6 +29,7 @@ const CITED_KINDS = new Set([
   "flip_excluded",
   "missing_asking_price",
   "economics_estimate",
+  "nhtsa_park_it",
 ]);
 
 function parseCitedEvidence(

@@ -78,5 +78,19 @@ export {
   isUsableAskingPriceUsd,
   askingPriceUsabilityNote,
 } from "./asking-price";
+export {
+  createLiveFreeGovPort,
+  unsupportedFreeGovPort,
+  isFreeGovToolId,
+  FREE_GOV_TIMEOUT_MS,
+  FREE_GOV_CACHE_TTL_MS,
+  FREE_GOV_RATE_NOTE,
+} from "./free-gov";
+export type {
+  ScoutFreeGovPort,
+  FreeGovToolId,
+  FreeGovEvidencePacket,
+  FreeGovLookupStatus,
+} from "./free-gov";
 export { SCOUT_TOOL_IDS } from "./types";
 export type * from "./types";
