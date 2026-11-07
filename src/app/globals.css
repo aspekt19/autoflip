@@ -1265,3 +1265,63 @@ pre.doc {
   .compare-picker { align-items: stretch; flex-direction: column; }
   .compare-picker .action { width: 100%; }
 }
+
+/* Scout (minimal, default-OFF UI) */
+.scout-panel {
+  margin-top: 1.5rem;
+  display: grid;
+  gap: 1.25rem;
+}
+.scout-controls {
+  display: grid;
+  gap: 0.75rem;
+  max-width: 28rem;
+}
+.scout-controls label {
+  display: grid;
+  gap: 0.35rem;
+  font-family: var(--sans);
+  font-size: 0.85rem;
+}
+.scout-controls input,
+.scout-controls select {
+  font: inherit;
+  padding: 0.55rem 0.7rem;
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.04);
+  color: inherit;
+  border-radius: 2px;
+}
+.scout-controls label.scout-check {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+  grid-template-columns: none;
+}
+.scout-controls label.scout-check input[type="checkbox"] {
+  width: auto;
+  margin-top: 0.2rem;
+  padding: 0;
+}
+.scout-status {
+  font-family: var(--sans);
+  font-size: 0.95rem;
+}
+.scout-status-error {
+  color: #ff8e8e;
+}
+.scout-status-warn {
+  color: #ffd67a;
+}
+.scout-list {
+  display: grid;
+  gap: 0.75rem;
+  padding-left: 1.1rem;
+}
+.scout-list li {
+  line-height: 1.45;
+}
+.muted {
+  opacity: 0.75;
+  font-size: 0.9rem;
+}

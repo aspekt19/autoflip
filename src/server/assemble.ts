@@ -12,10 +12,16 @@ import { resolveVerdictDecision, verdictDecisionFacts } from "@/domain/verdict-d
 import { extractVin } from "@/domain/vin";
 import type { FullReport, Listing, Mode, Proof, ProofStep } from "@/domain/types";
 import { autodevByVin, autodevSearch, type AutodevDeps } from "@/io/autodev";
-import { readComps, rememberComps } from "@/io/comp-cache";
-import { getKv } from "@/io/kv";
+import {
+  geoScopeFromSearch,
+  geoScopeLabel,
+  readComps,
+  rememberComps,
+  type CompGeoScope,
+} from "@/io/comp-cache";
+import { getKv, type Kv } from "@/io/kv";
+import { isServerlessRuntime, requireSharedQuotaForPaidDispatch } from "@/server/paid-dispatch-guard";
 import { complaintCountFor, decodeVin, fuelFor, geocodeZipCity, recallsFor, type GovDeps } from "@/io/gov";
-import { sampleByVin, sampleListings } from "@/io/sample";
 import {
   EXPLAIN_PROMPT_VERSION,
   GUARD_PROMPT_VERSION,
@@ -50,8 +56,15 @@ export type AssembleDeps = {
   /** Which guard and explain profiles to use. Report, /check, and the agent API are separate profiles. */
   servSurface?: "report" | "check" | "agent";
   fetch?: typeof fetch;
-  autodev?: Pick<AutodevDeps, "cache" | "counter">;
+  /**
+   * Autodev deps. `reserve` must be the persistent shared monthly ledger (reserveTotalCall)
+   * in production — not only an in-memory counter. Cache hits skip reserve inside autodevSearch.
+   */
+  autodev?: Pick<AutodevDeps, "cache" | "counter" | "reserve" | "signal" | "timeoutMs">;
   now?: Date;
+  /** When set (e.g. /find), use this Kv for shared-store gate instead of process getKv(). */
+  kv?: Kv;
+  env?: Record<string, string | undefined>;
 };
 
 export type AssembleResult =
@@ -481,24 +494,46 @@ async function resolveSubject(
   deps: AssembleDeps,
   fetchImpl: typeof fetch,
 ): Promise<
-  | { ok: true; subject: Listing; candidates: Listing[]; sample: boolean; cached: boolean }
+  | {
+      ok: true;
+      subject: Listing;
+      candidates: Listing[];
+      sample: boolean;
+      cached: boolean;
+      geo: CompGeoScope;
+      geographicConfidence: "nationwide" | "local_zip";
+      compsProvenance: string;
+    }
   | { ok: false; result: AssembleResult }
 > {
   if (!deps.autodevKey || !deps.autodev) {
-    const subject = sampleByVin(vin);
-    if (!subject) {
-      return {
+    return {
+      ok: false,
+      result: {
         ok: false,
-        result: {
-          ok: false,
-          status: 404,
-          error: "not_in_sample",
-          message:
-            "That VIN is not in the labeled sample set, and no listings key is configured. The sample is five Toyota Camry listings.",
-        },
-      };
-    }
-    return { ok: true, subject, candidates: sampleListings(), sample: true, cached: false };
+        status: 503,
+        error: "listings_unconfigured",
+        message:
+          "Live dealer listings are not configured in this environment. Open the labeled sample report instead of treating fixtures as a live lookup.",
+      },
+    };
+  }
+
+  const kv = deps.kv ?? getKv();
+  const storeGate = requireSharedQuotaForPaidDispatch({
+    kv,
+    serverless: isServerlessRuntime(deps.env ?? process.env),
+  });
+  if (!storeGate.ok) {
+    return {
+      ok: false,
+      result: {
+        ok: false,
+        status: 503,
+        error: "quota_backend_not_distributed",
+        message: storeGate.message,
+      },
+    };
   }
 
   const byVin = await autodevByVin(vin, {
@@ -507,6 +542,9 @@ async function resolveSubject(
     counter: deps.autodev.counter,
     apiKey: deps.autodevKey,
     now: deps.now,
+    reserve: deps.autodev.reserve,
+    signal: deps.autodev.signal,
+    timeoutMs: deps.autodev.timeoutMs,
   });
   if (!byVin.ok) {
     const status = byVin.error === "demo_limit" ? 429 : byVin.status === 404 ? 404 : 502;
@@ -532,24 +570,46 @@ async function resolveSubject(
       },
     };
   }
-  const regionZip = input.zip || subject.zip;
-  const cachedListings = await readComps(getKv(), {
+
+  // Report comps: use shopper ZIP when provided (local); otherwise nationwide.
+  // Never read nationwide cached rows as local ZIP comps.
+  const reportZip = input.zip?.replace(/\D/g, "").slice(0, 5) || null;
+  const reportGeo: CompGeoScope = reportZip
+    ? { kind: "zip", zip: reportZip, distanceMiles: 500 }
+    : { kind: "nationwide" };
+
+  const cached = await readComps(kv, {
     make: subject.make,
     model: subject.model,
     year: subject.year,
-    zip: regionZip,
+    geo: reportGeo,
   }).catch(() => null);
-  if (cachedListings && cachedListings.length > 0) {
-    const candidates = cachedListings.some((item) => item.vin === subject.vin) ? cachedListings : [subject, ...cachedListings];
-    return { ok: true, subject, candidates, sample: false, cached: true };
+  if (cached && cached.listings.length > 0) {
+    const candidates = cached.listings.some((item) => item.vin === subject.vin)
+      ? cached.listings
+      : [subject, ...cached.listings];
+    return {
+      ok: true,
+      subject,
+      candidates,
+      sample: false,
+      cached: true,
+      geo: cached.geo,
+      geographicConfidence: cached.geographicConfidence,
+      compsProvenance: cached.provenanceNote,
+    };
   }
+
+  const searchZip = reportZip || undefined;
+  const searchDistance = reportZip ? 500 : undefined;
+  const searchGeo = geoScopeFromSearch({ searchZip, distanceMiles: searchDistance ?? null });
   const search = await autodevSearch(
     {
       make: subject.make,
       model: subject.model,
       year: input.year ?? subject.year,
-      zip: input.zip || subject.zip || undefined,
-      distanceMiles: input.zip || subject.zip ? 500 : undefined,
+      zip: searchZip,
+      distanceMiles: searchDistance,
       limit: 20,
     },
     {
@@ -558,6 +618,9 @@ async function resolveSubject(
       counter: deps.autodev.counter,
       apiKey: deps.autodevKey,
       now: deps.now,
+      reserve: deps.autodev.reserve,
+      signal: deps.autodev.signal,
+      timeoutMs: deps.autodev.timeoutMs,
     },
   );
   if (!search.ok) {
@@ -574,13 +637,18 @@ async function resolveSubject(
   const candidates = search.listings.some((item) => item.vin === subject.vin)
     ? search.listings
     : [subject, ...search.listings];
-  await rememberComps(getKv(), { make: subject.make, model: subject.model, zip: regionZip }, candidates).catch(() => undefined);
+  await rememberComps(kv, { make: subject.make, model: subject.model, geo: searchGeo }, candidates).catch(
+    () => undefined,
+  );
   return {
     ok: true,
     subject,
     candidates,
     sample: false,
     cached: byVin.cached && search.cached,
+    geo: searchGeo,
+    geographicConfidence: searchGeo.kind === "nationwide" ? "nationwide" : "local_zip",
+    compsProvenance: `${geoScopeLabel(searchGeo)} — asking prices only, not closed sales.`,
   };
 }
 
@@ -627,11 +695,25 @@ export async function assembleRadar(
   }
   if (!deps.autodevKey || !deps.autodev) {
     return {
-      ok: true,
-      listings: sampleListings(),
-      sample: true,
+      ok: false,
+      status: 503,
+      error: "listings_unconfigured",
       message:
-        "No listings key is configured. These five Toyota Camry rows are the labeled sample fixture. They are not the result of your search.",
+        "Live dealer listings are not configured in this environment. Lemonless will not show sample inventory as search results.",
+      proof,
+    };
+  }
+  const kv = deps.kv ?? getKv();
+  const storeGate = requireSharedQuotaForPaidDispatch({
+    kv,
+    serverless: isServerlessRuntime(deps.env ?? process.env),
+  });
+  if (!storeGate.ok) {
+    return {
+      ok: false,
+      status: 503,
+      error: "quota_backend_not_distributed",
+      message: storeGate.message,
       proof,
     };
   }
@@ -654,6 +736,10 @@ export async function assembleRadar(
       counter: deps.autodev.counter,
       apiKey: deps.autodevKey,
       now: deps.now,
+      // Persistent shared monthly ledger — must not silently fall back to MemoryCounter alone.
+      reserve: deps.autodev.reserve,
+      signal: deps.autodev.signal,
+      timeoutMs: deps.autodev.timeoutMs,
     },
   );
   if (!search.ok) {

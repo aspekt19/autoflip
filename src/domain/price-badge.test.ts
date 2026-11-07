@@ -89,10 +89,14 @@ describe("flip questions", () => {
       mustHaves: [],
       priorities: [],
       zip: "33101",
+      distanceMiles: null,
       repairAbility: "unknown",
       targetProfitUsd: null,
       milesMax: null,
       make: null,
+      preferredMakes: [],
+      preferredModels: [],
+      openToOtherMakes: true,
     });
     expect(questions.map((item) => item.id)).toEqual(["profit", "repair", "cash"]);
     expect(questions.some((item) => item.id === "use")).toBe(false);

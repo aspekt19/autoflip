@@ -4,6 +4,7 @@ import { monthKey, reserveCall, type MonthlyCounter, type QuotaDecision } from "
 import { ASSUMPTIONS } from "@/domain/assumptions";
 import type { Listing, ListingSource } from "@/domain/types";
 import type { ListingQuery } from "./marketcheck";
+import { combineAbortSignals } from "./abort-signal";
 
 export type AutodevDeps = {
   fetch: typeof fetch;
@@ -15,6 +16,13 @@ export type AutodevDeps = {
   /** When set, this replaces the sync counter. Used for the persistent monthly cap. */
   reserve?: () => Promise<QuotaDecision>;
   bypassCache?: boolean;
+  /**
+   * Caller mid-flight AbortSignal (e.g. Request.signal). Combined with ownership timeout.
+   * Ambiguous abort after dispatch must not refund the monthly reservation.
+   */
+  signal?: AbortSignal | null;
+  /** Ownership timeout ms (default 12_000). Tests may lower. */
+  timeoutMs?: number;
 };
 
 export type AutodevResult =
@@ -61,14 +69,16 @@ async function cachedGet(url: string, deps: AutodevDeps): Promise<AutodevResult>
 
   let response: Response;
   try {
+    const signal = combineAbortSignals(deps.signal, deps.timeoutMs ?? 12_000);
     response = await deps.fetch(url, {
       headers: {
         Authorization: `Bearer ${deps.apiKey}`,
         Accept: "application/json",
       },
-      signal: AbortSignal.timeout(12_000),
+      signal,
     });
   } catch {
+    // Ambiguous cancel/timeout after reservation — do not refund here.
     return {
       ok: false,
       error: "upstream",

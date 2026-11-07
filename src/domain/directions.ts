@@ -1,4 +1,4 @@
-import type { StructuredNeed } from "./need";
+import type { PreferredModel, StructuredNeed } from "./need";
 import { yearBandForBudget } from "./need";
 
 export type CandidateModel = { make: string; model: string };
@@ -17,6 +17,7 @@ export type SearchDirection = {
 };
 
 const CROSSOVERS: CandidateModel[] = [
+  { make: "Mazda", model: "CX-5" },
   { make: "Toyota", model: "RAV4" },
   { make: "Honda", model: "CR-V" },
   { make: "Hyundai", model: "Tucson" },
@@ -79,28 +80,131 @@ export function proposeDirections(
       },
     ];
   }
+
+  const preferred = need.preferredModels ?? [];
+  if (preferred.length > 0) {
+    const named: SearchDirection = {
+      id: `${need.useCase}-named`,
+      segment: "Models you named",
+      why: need.openToOtherMakes
+        ? "You named these models and said you are open to others. Lemonless searches them first, then keeps editorial alternatives in the mix."
+        : "You named these models. Lemonless searches them first. Other makes are left out unless you open the search.",
+      guidance: "editorial",
+      yearMin,
+      yearMax,
+      yearBecause: band.because,
+      models: preferred.slice(0, 6),
+      search: preferred[0]!,
+    };
+    const body = requestedBody(need);
+    const extras = directionsFor(need)
+      .filter((item) => fitsBody(body, item.segment))
+      .map((item) => ({
+        ...item,
+        models: arrangeModels(item.models, need, { injectPreferred: false }),
+      }))
+      .filter((item) => item.models.length > 0)
+      .filter((item) => !sameModelSet(item.models, preferred))
+      .slice(0, Math.max(0, MAX_DIRECTIONS - 1))
+      .map((item, index) => ({
+        ...item,
+        id: `${need.useCase}-${index + 1}`,
+        guidance: "editorial" as const,
+        yearMin,
+        yearMax,
+        yearBecause: band.because,
+        models: item.models.slice(0, 6),
+        search: item.models[0]!,
+      }));
+    // Closed mandate: strict named-model scope only — no editorial extras consuming budget.
+    if (!need.openToOtherMakes) return [named];
+    // Open: named models first, then editorial alternatives within MAX_DIRECTIONS.
+    return [named, ...extras].slice(0, MAX_DIRECTIONS);
+  }
+
   const body = requestedBody(need);
   const built = directionsFor(need)
     .filter((item) => fitsBody(body, item.segment))
-    .map((item) => ({ ...item, models: modelsForMake(item.models, need.make) }))
+    .map((item) => ({
+      ...item,
+      models: arrangeModels(item.models, need, { injectPreferred: true }),
+    }))
     .filter((item) => item.models.length > 0)
     .slice(0, MAX_DIRECTIONS)
     .map((item, index) => ({
-    ...item,
-    id: `${need.useCase}-${index + 1}`,
-    guidance: "editorial" as const,
-    yearMin,
-    yearMax,
-    yearBecause: band.because,
-    models: item.models.slice(0, 6),
-    search: item.models[0]!,
-  }));
-  return built;
+      ...item,
+      id: `${need.useCase}-${index + 1}`,
+      guidance: "editorial" as const,
+      yearMin,
+      yearMax,
+      yearBecause: band.because,
+      models: item.models.slice(0, 6),
+      search: item.models[0]!,
+    }));
+
+  if (built.length > 0) return built;
+
+  // Last resort: preferred makes with no catalog hit still get a searchable direction.
+  const makes = need.preferredMakes?.length ? need.preferredMakes : need.make ? [need.make] : [];
+  if (makes.length) {
+    const models = makes.map((make) => ({ make, model: fallbackModelForMake(make, body) })).filter((item) => item.model);
+    if (models.length) {
+      return [
+        {
+          id: `${need.useCase}-preferred`,
+          segment: "Makes you named",
+          why: need.openToOtherMakes
+            ? "Lemonless could not match an editorial segment, so it searches the makes you named first."
+            : "Lemonless could not match an editorial segment, so it searches only the makes you named.",
+          guidance: "editorial",
+          yearMin,
+          yearMax,
+          yearBecause: band.because,
+          models,
+          search: models[0]!,
+        },
+      ];
+    }
+  }
+  return [];
 }
 
-function modelsForMake(models: CandidateModel[], make: string | null): CandidateModel[] {
-  if (!make) return models;
-  return models.filter((item) => item.make.toLowerCase() === make.toLowerCase());
+function arrangeModels(
+  models: CandidateModel[],
+  need: StructuredNeed,
+  opts: { injectPreferred: boolean },
+): CandidateModel[] {
+  const preferred = need.preferredModels ?? [];
+  let list = [...models];
+  if (opts.injectPreferred) {
+    for (const item of [...preferred].reverse()) {
+      list = [item, ...list.filter((entry) => !sameModel(entry, item))];
+    }
+  }
+  const makes = need.preferredMakes?.length ? need.preferredMakes : need.make ? [need.make] : [];
+  if (makes.length && need.openToOtherMakes === false) {
+    list = list.filter((item) => makes.some((make) => make.toLowerCase() === item.make.toLowerCase()));
+  } else if (makes.length && need.openToOtherMakes) {
+    // Preferred makes first, then the rest of the editorial list.
+    const preferredFirst = list.filter((item) => makes.some((make) => make.toLowerCase() === item.make.toLowerCase()));
+    const rest = list.filter((item) => !makes.some((make) => make.toLowerCase() === item.make.toLowerCase()));
+    list = [...preferredFirst, ...rest];
+  }
+  return list;
+}
+
+function sameModel(a: CandidateModel, b: PreferredModel): boolean {
+  return a.make.toLowerCase() === b.make.toLowerCase() && a.model.toLowerCase() === b.model.toLowerCase();
+}
+
+function sameModelSet(a: CandidateModel[], b: PreferredModel[]): boolean {
+  if (a.length !== b.length) return false;
+  return a.every((item, index) => sameModel(item, b[index]!));
+}
+
+function fallbackModelForMake(make: string, body: ReturnType<typeof requestedBody>): string {
+  const pool = body === "truck" ? TRUCKS : body === "sedan" ? MIDSIZE : body === "suv" ? CROSSOVERS : [...CROSSOVERS, ...COMPACTS, ...MIDSIZE];
+  return pool.find((item) => item.make.toLowerCase() === make.toLowerCase())?.model ?? "";
 }
 
 function requestedBody(need: StructuredNeed): "suv" | "sedan" | "truck" | null {

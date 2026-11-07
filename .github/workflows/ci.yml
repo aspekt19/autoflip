@@ -21,13 +21,37 @@ jobs:
           cache: npm
       - name: Install dependencies
         run: npm ci
-      - name: Audit dependency tree
+      - name: Audit production dependency tree (strict)
         run: |
-          npm audit --json > npm-audit.json || true
-          node -e 'const a=require("./npm-audit.json"); for (const [name,v] of Object.entries(a.vulnerabilities ?? {})) { const via=v.via.map(x => typeof x === "string" ? x : `${x.title} [${x.url}]`).join("; "); console.log(`${name}: ${v.severity}; direct=${v.isDirect}; range=${v.range}; fix=${JSON.stringify(v.fixAvailable)}; ${via}`); } const totals=a.metadata?.vulnerabilities ?? {}; console.log("Totals:", JSON.stringify(totals)); if ((totals.critical ?? 0) > 0 || (totals.high ?? 0) > 0) process.exit(1);'
+          echo "::group::npm ls --omit=dev (deployable tree)"
+          # npm ls exits non-zero for unmet optionals/extraneous; listing is informational.
+          npm ls --omit=dev --all || true
+          echo "::endgroup::"
+          echo "::group::Assert experimental SDK absent from production deps"
+          for pkg in @openserv-labs/sdk openai zod; do
+            if npm ls --omit=dev "$pkg" >/dev/null 2>&1; then
+              echo "ERROR: $pkg is present in the production dependency tree"
+              npm ls --omit=dev "$pkg"
+              exit 1
+            fi
+            echo "OK: $pkg not in production tree"
+          done
+          echo "::endgroup::"
+          npm audit --omit=dev --audit-level=high
+      - name: Report full dependency audit (incl. dev / experimental SDK — informational)
+        run: |
+          echo "Full-tree audit (includes devDependencies such as experimental @openserv-labs/sdk)."
+          echo "This step does NOT gate merge; production gate is audit --omit=dev above."
+          npm audit --json > npm-audit-full.json || true
+          node -e 'const a=require("./npm-audit-full.json"); const t=a.metadata?.vulnerabilities??{}; console.log("Full-tree vulnerability totals:", JSON.stringify(t)); for (const [name,v] of Object.entries(a.vulnerabilities??{})) { const via=(v.via||[]).map(x=>typeof x==="string"?x:`${x.title} [${x.url}]`).join("; "); console.log(`${name}: ${v.severity}; direct=${v.isDirect}; range=${v.range}; ${via}`); }'
+          npm audit || true
       - name: Check types
         run: npm run typecheck
+      - name: Production source import boundary (fail-closed, Node)
+        run: node scripts/assert-openserv-source-boundary.mjs
       - name: Run unit tests
         run: npm test
       - name: Production build
         run: npm run build
+      - name: Assert .next/server does not embed OpenServ SDK (fail-closed, Node)
+        run: node scripts/assert-no-openserv-in-next-server.mjs

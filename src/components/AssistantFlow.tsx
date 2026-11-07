@@ -11,7 +11,9 @@ import type { DecisionProof } from "@/domain/decision-note";
 import type { SearchDirection } from "@/domain/directions";
 import { CoverageLine } from "./CoverageNote";
 import { DecisionNote } from "./DecisionNote";
-import { USE_CASES, type FollowUp, type StructuredNeed } from "@/domain/need";
+import { decideAfFlowRestore } from "@/domain/af-flow-session";
+import { findEmptyCopy, type FindEmptyReason } from "@/domain/find-empty";
+import { SEARCH_RADII_MILES, USE_CASES, searchScopeLabel, type FollowUp, type StructuredNeed } from "@/domain/need";
 import type { Mode } from "@/domain/types";
 import { MakeModelFields } from "./MakeModelFields";
 
@@ -38,11 +40,17 @@ type ListingCard = {
 
 type MatchGroup = {
   direction: SearchDirection;
+  /** Models with successful provider response (ok/empty) — UI "checked". */
   searchedModels?: Array<{ make: string; model: string }>;
+  /** Dispatched but failed/timed out — attempted, not successfully checked. */
+  failedModels?: Array<{ make: string; model: string; outcome?: string }>;
+  plannedModels?: Array<{ make: string; model: string }>;
+  skippedModels?: Array<{ make: string; model: string; reason?: string }>;
   listings: ListingCard[];
   note: string | null;
   coverage?: string;
   coverageLevel?: "low" | "medium" | "high";
+  providerWarning?: string | null;
 };
 
 const USE_LABEL: Record<(typeof USE_CASES)[number], string> = {
@@ -89,6 +97,12 @@ function AssistantFlow({
   const [groups, setGroups] = useState<MatchGroup[]>([]);
   const [sample, setSample] = useState(false);
   const [affordability, setAffordability] = useState(true);
+  const [matchMessage, setMatchMessage] = useState<string | null>(null);
+  const [matchHeadline, setMatchHeadline] = useState<string | null>(null);
+  const [matchNextStep, setMatchNextStep] = useState<string | null>(null);
+  const [matchScope, setMatchScope] = useState<string | null>(null);
+  const [emptyReason, setEmptyReason] = useState<FindEmptyReason | null>(null);
+  const [partialFailure, setPartialFailure] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState<string | null>(null);
   const [refine, setRefine] = useState(false);
@@ -180,6 +194,7 @@ function AssistantFlow({
       const raw = sessionStorage.getItem("af-flow");
       if (!raw) return;
       const saved = JSON.parse(raw) as {
+        v?: number;
         need?: StructuredNeed;
         stage?: "need" | "budget" | "follow" | "confirm" | "results";
         groups?: MatchGroup[];
@@ -187,15 +202,49 @@ function AssistantFlow({
         checks?: DecisionProof[];
         affordability?: boolean;
         sample?: boolean;
+        matchMessage?: string | null;
+        matchScope?: string | null;
+        emptyReason?: FindEmptyReason | null;
+        matchHeadline?: string | null;
+        matchNextStep?: string | null;
+        partialFailure?: boolean;
       };
       if (!saved.need || !saved.stage || saved.stage === "need") return;
+
+      const decision = decideAfFlowRestore(saved);
+      const groups = saved.groups ?? [];
+      if (decision.action === "drop_results") {
+        sessionStorage.removeItem("af-flow");
+        setNeed(saved.need);
+        setStage("confirm");
+        setGroups([]);
+        setSample(false);
+        setMatchMessage(decision.reason);
+        if (saved.need.budgetUsd) setBudget(String(saved.need.budgetUsd));
+        if (saved.need.zip) setZipDraft(saved.need.zip);
+        return;
+      }
+
       setNeed(saved.need);
       setStage(saved.stage);
-      setGroups(saved.groups ?? []);
+      setGroups(groups);
       setSource(saved.source ?? "form");
       setChecks(saved.checks ?? []);
       setAffordability(saved.affordability ?? true);
-      setSample(Boolean(saved.sample));
+      setSample(decision.sample);
+      if (decision.warnUnknownSource) {
+        setMatchMessage(
+          saved.matchMessage ??
+            "Some restored listings have an unrecognized source — not treated as confirmed live Autodev inventory.",
+        );
+      } else {
+        setMatchMessage(saved.matchMessage ?? null);
+      }
+      setMatchHeadline(saved.matchHeadline ?? null);
+      setMatchNextStep(saved.matchNextStep ?? null);
+      setMatchScope(saved.matchScope ?? null);
+      setEmptyReason(saved.emptyReason ?? null);
+      setPartialFailure(Boolean(saved.partialFailure));
       if (saved.need.budgetUsd) setBudget(String(saved.need.budgetUsd));
       if (saved.need.zip) setZipDraft(saved.need.zip);
     } catch {
@@ -210,7 +259,22 @@ function AssistantFlow({
 
   function rememberFlow() {
     try {
-      sessionStorage.setItem("af-flow", JSON.stringify({ need, stage, groups, source, checks, affordability, sample }));
+      sessionStorage.setItem(
+        "af-flow",
+        JSON.stringify({
+          v: 2,
+          need,
+          stage,
+          groups,
+          source,
+          checks,
+          affordability,
+          sample,
+          matchMessage,
+          matchScope,
+          emptyReason,
+        }),
+      );
     } catch {
       /* the browser may block storage */
     }
@@ -245,10 +309,18 @@ function AssistantFlow({
   async function findCars() {
     if (!need) return;
     setError(null);
+    setMatchMessage(null);
+    setMatchHeadline(null);
+    setMatchNextStep(null);
+    setEmptyReason(null);
+    setPartialFailure(false);
     setPending("match");
+    const controller = new AbortController();
+    const timer = window.setTimeout(() => controller.abort(), 45_000);
     try {
       const response = await fetch("/api/match", {
         method: "POST",
+        signal: controller.signal,
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           need,
@@ -264,36 +336,88 @@ function AssistantFlow({
         directions?: MatchGroup[];
         sample?: boolean;
         message?: string;
+        headline?: string;
+        nextStep?: string;
+        scope?: string;
+        emptyReason?: FindEmptyReason | null;
+        partialFailure?: boolean;
         affordabilityAssessed?: boolean;
       };
       if (!response.ok) {
-        setError(body.message || "The search did not finish.");
+        const reason = body.emptyReason ?? "provider_failure";
+        const copy = findEmptyCopy(reason, need, body.message);
+        setError(copy.detail);
+        setMatchHeadline(body.headline ?? copy.headline);
+        setMatchNextStep(body.nextStep ?? copy.nextStep);
+        setMatchMessage(copy.detail);
+        setEmptyReason(reason);
+        setStage("results");
+        setGroups([]);
+        setSample(false);
         return;
       }
-      const nextGroups = body.directions ?? [];
+      // Consumer /find never accepts sample rows as live inventory.
+      const nextGroups = (body.directions ?? []).map((group) => ({
+        ...group,
+        listings: (group.listings ?? []).filter((car) => car.source !== "sample"),
+      }));
+      if (body.sample) {
+        const copy = findEmptyCopy("listings_unconfigured", need, "Sample fixtures were rejected for this consumer search.");
+        setGroups([]);
+        setSample(false);
+        setEmptyReason(copy.reason);
+        setMatchHeadline(copy.headline);
+        setMatchMessage(copy.detail);
+        setMatchNextStep(copy.nextStep);
+        setStage("results");
+        return;
+      }
       setGroups(nextGroups);
-      setSample(Boolean(body.sample));
+      setSample(false);
       setAffordability(body.affordabilityAssessed !== false);
+      setMatchMessage(body.message ?? null);
+      setMatchHeadline(body.headline ?? null);
+      setMatchNextStep(body.nextStep ?? null);
+      setMatchScope(body.scope ?? searchScopeLabel(need));
+      setPartialFailure(Boolean(body.partialFailure));
+      setEmptyReason(body.emptyReason ?? (nextGroups.length === 0 ? "no_directions" : null));
       setStage("results");
       try {
         sessionStorage.setItem(
           "af-flow",
           JSON.stringify({
+            v: 2,
             need,
             stage: "results",
             groups: nextGroups,
             source,
             checks,
             affordability: body.affordabilityAssessed !== false,
+            // Honest flag — never write sample:false over fixture rows.
             sample: Boolean(body.sample),
+            matchMessage: body.message ?? null,
+            matchHeadline: body.headline ?? null,
+            matchNextStep: body.nextStep ?? null,
+            matchScope: body.scope ?? searchScopeLabel(need),
+            emptyReason: body.emptyReason ?? null,
+            partialFailure: Boolean(body.partialFailure),
           }),
         );
       } catch {
         /* ignore */
       }
-    } catch {
-      setError("The search did not finish.");
+    } catch (err) {
+      const reason: FindEmptyReason = err instanceof DOMException && err.name === "AbortError" ? "provider_timeout" : "provider_failure";
+      const copy = findEmptyCopy(reason, need);
+      setError(copy.detail);
+      setMatchHeadline(copy.headline);
+      setMatchMessage(copy.detail);
+      setMatchNextStep(copy.nextStep);
+      setEmptyReason(reason);
+      setGroups([]);
+      setStage("results");
     } finally {
+      window.clearTimeout(timer);
       setPending(null);
     }
   }
@@ -327,7 +451,7 @@ function AssistantFlow({
                   yearMax: direction.yearMax,
                   priceMax,
                   zip: need.zip,
-                  radiusMiles: 100,
+                  radiusMiles: need.distanceMiles ?? 100,
                 },
         }),
       });
@@ -551,8 +675,9 @@ function AssistantFlow({
           </div>
           <p className="hint">{mode === "flip" ? "This is the cash available for the deal. Repair estimates are assumptions, not a quote." : "We use this as the vehicle asking-price limit. Taxes, title, registration and dealer fees are not included."}</p>
           <div className="field">
-            <label htmlFor="zip-draft">U.S. ZIP code near where you&apos;ll shop</label>
-            <input id="zip-draft" value={zipDraft} onChange={(event) => setZipDraft(event.target.value)} inputMode="numeric" placeholder="ZIP" />
+            <label htmlFor="zip-draft">U.S. ZIP code near where you&apos;ll shop (optional)</label>
+            <input id="zip-draft" value={zipDraft} onChange={(event) => setZipDraft(event.target.value)} inputMode="numeric" placeholder="Leave blank for nationwide" />
+            <p className="hint">Blank ZIP searches nationwide across the U.S. Add a ZIP on confirm if you want a mileage radius.</p>
           </div>
           <div className="btn-row">
             <button className="ghost" type="button" onClick={goBack}>
@@ -658,9 +783,46 @@ function AssistantFlow({
           </div>
           )}
           <div className="field">
-            <label htmlFor="zip-edit">ZIP</label>
-            <input id="zip-edit" value={need.zip ?? ""} onChange={(event) => setNeed({ ...need, zip: event.target.value || null })} />
+            <label htmlFor="zip-edit">ZIP (optional)</label>
+            <input
+              id="zip-edit"
+              value={need.zip ?? ""}
+              onChange={(event) => {
+                const nextZip = event.target.value.trim() || null;
+                setNeed({
+                  ...need,
+                  zip: nextZip,
+                  distanceMiles: nextZip ? need.distanceMiles ?? 100 : null,
+                });
+              }}
+              placeholder="Leave blank for nationwide"
+            />
           </div>
+          {need.zip ? (
+            <div className="field">
+              <label htmlFor="radius-edit">Search radius</label>
+              <select
+                id="radius-edit"
+                value={need.distanceMiles ?? ""}
+                onChange={(event) => {
+                  const value = event.target.value;
+                  setNeed({
+                    ...need,
+                    distanceMiles: value === "" ? null : Number(value),
+                  });
+                }}
+              >
+                <option value="">Nationwide</option>
+                {SEARCH_RADII_MILES.map((miles) => (
+                  <option key={miles} value={miles}>
+                    {miles} miles
+                  </option>
+                ))}
+              </select>
+            </div>
+          ) : (
+            <p className="hint">No ZIP — searching nationwide across the U.S.</p>
+          )}
           <div className="field">
             <label htmlFor="miles-edit">Maximum mileage (optional)</label>
             <input
@@ -674,7 +836,19 @@ function AssistantFlow({
               }}
             />
           </div>
-          {need.make ? <p className="hint">Make: {need.make}. Other makes are left out.</p> : null}
+          {need.preferredMakes?.length ? (
+            <p className="hint">
+              {need.openToOtherMakes
+                ? `Preferred makes: ${need.preferredMakes.join(", ")}${
+                    need.preferredModels?.length
+                      ? ` (${need.preferredModels.map((item) => `${item.make} ${item.model}`).join(", ")})`
+                      : ""
+                  }. Other makes stay in the mix.`
+                : `Makes: ${need.preferredMakes.join(", ")}. Other makes are left out.`}
+            </p>
+          ) : need.make ? (
+            <p className="hint">Make: {need.make}. Other makes are left out.</p>
+          ) : null}
           <div className="field">
             <label htmlFor="budget-edit">{need.mode === "flip" ? "Cash available for the purchase and repairs" : "Maximum vehicle price (before taxes and fees)"}</label>
             <input
@@ -725,19 +899,40 @@ function AssistantFlow({
           <h2>Cars that fit</h2>
           <PriceRatingHow />
           <DecisionNote scene="find" proofs={checks} />
+          {need ? <p className="hint">Scope: {matchScope ?? searchScopeLabel(need)}</p> : null}
           {!affordability ? <p className="hint">Budget was not set, so affordability was not assessed.</p> : null}
-          {sample ? <p className="warn-box">Sample. These rows are the labeled fixture, not live matches for your note.</p> : null}
-          {groups.length === 0 ? <p>No directions yet. Choose what the car is for, then search again.</p> : null}
-          {groups.length > 0 && groups.every((group) => group.listings.length === 0) && groups[0]?.note ? (
-            <p className="warn-box">{groups[0].note}</p>
+          {partialFailure ? (
+            <p className="warn-box" role="status">
+              {matchMessage || "Some listing sources failed. Results below are partial and are not an exhaustive market scan."}
+            </p>
+          ) : null}
+          {groups.length === 0 || (groups.length > 0 && groups.every((group) => group.listings.length === 0)) ? (
+            <div className="warn-box" role="status">
+              <p>
+                <strong>{matchHeadline || findEmptyCopy(emptyReason ?? (groups.length === 0 ? "no_directions" : "empty_inventory"), need, matchMessage).headline}</strong>
+              </p>
+              <p>{matchMessage || error || findEmptyCopy(emptyReason ?? (groups.length === 0 ? "no_directions" : "empty_inventory"), need).detail}</p>
+              <p className="hint">{matchNextStep || findEmptyCopy(emptyReason ?? (groups.length === 0 ? "no_directions" : "empty_inventory"), need).nextStep}</p>
+            </div>
           ) : null}
           {groups.map((group) => (
             <section key={group.direction.id}>
               <h3>{group.direction.segment}</h3>
               <p>{group.direction.why}</p>
+              <p className="hint">Editorial guidance for where to look — not verified inventory by itself.</p>
               {group.coverage && group.coverageLevel ? <CoverageLine confidence={group.coverageLevel} sentence={group.coverage} /> : null}
+              {group.providerWarning ? <p className="warn-box">{group.providerWarning}</p> : null}
               <p className="hint">
-                {group.searchedModels?.length ? `Models checked: ${group.searchedModels.map((item) => `${item.make} ${item.model}`).join(", ")}.` : "No live model search was run for this group; sample rows are not live matches."} Years {group.direction.yearMin}–{group.direction.yearMax}. {group.direction.yearBecause}
+                {group.searchedModels?.length
+                  ? `Live models checked: ${group.searchedModels.map((item) => `${item.make} ${item.model}`).join(", ")}.`
+                  : "No live model search completed successfully for this group."}
+                {group.failedModels?.length
+                  ? ` Attempted but not checked: ${group.failedModels.map((item) => `${item.make} ${item.model}${item.outcome ? ` (${item.outcome})` : ""}`).join(", ")}.`
+                  : ""}
+                {group.skippedModels?.length
+                  ? ` Skipped (provider budget): ${group.skippedModels.map((item) => `${item.make} ${item.model}`).join(", ")} — not checked.`
+                  : ""}{" "}
+                Years {group.direction.yearMin}–{group.direction.yearMax}. {group.direction.yearBecause}
               </p>
               <button className="quiet" type="button" onClick={() => void watch(group.direction)} disabled={pending === group.direction.id}>
                 {pending === group.direction.id ? "Saving alert…" : need?.mode === "flip" ? "Get alerts for this budget" : "Get new-listing alerts"}
@@ -768,7 +963,7 @@ function AssistantFlow({
                       {car.city ? ` · ${car.city}${car.state ? `, ${car.state}` : ""}` : ""}
                     </p>
                     {car.overBudget ? <p className="budget-flag">Slightly over budget</p> : null}
-                    {car.source === "sample" ? <p className="hint">Sample listing, not a live match.</p> : null}
+                    {car.source !== "autodev" ? <p className="hint">Source {car.source}: not treated as verified live inventory.</p> : null}
                     {car.badge ? <PriceBadgeView badge={car.badge} /> : null}
                     {car.flipNote ? <p className="hint">{car.flipNote}</p> : null}
                     {car.clearsTarget === false ? <p className="hint">Under the profit target, so it ranks lower.</p> : null}
@@ -791,7 +986,7 @@ function AssistantFlow({
                         overBudget: car.overBudget,
                         bodyStyle: car.bodyStyle,
                         style: car.style,
-                        requestedMake: need?.make ?? null,
+                        requestedMake: need?.preferredMakes?.length ? need.preferredMakes.join("/") : need?.make ?? null,
                       })}
                     </p>
                     <div>

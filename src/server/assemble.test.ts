@@ -1,35 +1,28 @@
 import { describe, expect, it } from "vitest";
+import { TtlCache } from "@/io/cache";
+import { MemoryCounter } from "@/io/quota";
 import { assembleRadar, assembleReport } from "./assemble";
 import { buildSampleReport } from "./sample-report";
 
 describe("assemble", () => {
-  it("builds a labeled sample report when no listings key is set", async () => {
+  it("refuses a live report lookup when no listings key is set instead of serving fixtures as real", async () => {
     const result = await assembleReport(
       { mode: "personal", vin: "4T1KZ1AK4MU060006" },
       {
         fetch: async () => new Response("no", { status: 503 }),
       },
     );
-    expect(result.ok).toBe(true);
-    if (!result.ok) return;
-    expect(result.report.computed.sample).toBe(true);
-    expect(result.report.computed.recallsAvailable).toBe(false);
-    expect(result.report.computed.dataNotes.join(" ")).toMatch(/recall lookup was unavailable/i);
-    expect(result.report.computed.subject.priceUsd).toBe(34988);
-    expect(result.report.proof.explanationSource).toBe("template");
-    expect(result.report.proof.steps.some((step) => step.id === "serv_prompt_guard" && step.status === "skipped")).toBe(true);
-    expect(result.report.proof.steps.some((step) => step.id === "serv_verdict_decide" && step.status === "skipped_no_key")).toBe(true);
-    expect(result.report.proof.steps.some((step) => step.id === "verdict_guardrails")).toBe(true);
-    expect(result.report.computed.decision?.labeledFallback).toBe(true);
-    expect(result.report.proof.toolOutputs).toHaveProperty("verdictDecision");
-    expect(result.report.proof.inputsHash).toMatch(/^[a-f0-9]{64}$/);
-    expect(result.report.explanation).not.toMatch(/\$999/);
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.error).toBe("listings_unconfigured");
+    expect(result.message).toMatch(/not configured|sample report/i);
   });
 
-  it("does not present unrun provider lookups as failed checks on the static sample", () => {
+  it("keeps the explicit labeled sample report path separate from live lookups", () => {
     const report = buildSampleReport("personal");
     const checks = report.computed.sourceChecks ?? [];
     expect(report.createdAt).toBe("2026-11-04T00:00:00.000Z");
+    expect(report.computed.sample).toBe(true);
     expect(checks.find((item) => item.source === "Auto.dev listings")?.status).toBe("sample");
     for (const source of [
       "NHTSA VIN decoder",
@@ -45,16 +38,16 @@ describe("assemble", () => {
     expect(checks.find((item) => item.source === "NMVTIS title history")?.status).toBe("not_connected");
   });
 
-  it("does not pretend a Honda search returned Camrys without a label", async () => {
+  it("does not return Camry fixtures for a Honda consumer search without a listings key", async () => {
     const result = await assembleRadar(
       { make: "Honda", model: "Civic", mode: "personal" },
       { fetch: async () => new Response("no", { status: 503 }) },
     );
-    expect(result.ok).toBe(true);
-    if (!result.ok) return;
-    expect(result.sample).toBe(true);
-    expect(result.message).toMatch(/not the result of your search/i);
-    expect(result.listings.every((item) => item.make === "Toyota" && item.source === "sample")).toBe(true);
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.error).toBe("listings_unconfigured");
+    expect(result.status).toBe(503);
+    expect(result.message).toMatch(/will not show sample inventory/i);
   });
 
   it("rejects an instruction override before any report", async () => {
@@ -65,5 +58,23 @@ describe("assemble", () => {
     expect(result.ok).toBe(false);
     if (result.ok) return;
     expect(result.error).toBe("rejected_input");
+  });
+
+  it("propagates upstream listings failures instead of swapping in sample rows", async () => {
+    const result = await assembleRadar(
+      { make: "Toyota", model: "RAV4", mode: "personal", zip: "68114", distanceMiles: 100 },
+      {
+        autodevKey: "test-key",
+        autodev: {
+          cache: new TtlCache(),
+          counter: new MemoryCounter(),
+        },
+        fetch: async () => new Response("upstream down", { status: 502 }),
+      },
+    );
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.error).toBe("listings_error");
+    expect(result.status).toBe(502);
   });
 });

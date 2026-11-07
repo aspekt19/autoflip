@@ -1,7 +1,13 @@
 /**
  * One profile per SERV use. A new service is a new entry here.
  * Suffixes and tool defaults follow the SERV Reasoning docs.
- * Graph is the engine under every call. This registry does not configure it.
+ *
+ * HACKATHON CONSTRAINT (owner t257/t258): OpenServ Graph is FORBIDDEN in contest
+ * code, architecture, demos, and claims — directly or indirectly. This registry
+ * must not enable, configure, or imply Graph. Kronos/Multipath model suffixes are
+ * separate SERV Reasoning features, not the Graph product. Ordinary diagrams /
+ * Open Graph meta tags are unrelated.
+ *
  * The content filter stays on. serv_disable_content_filter is documented and unused,
  * because these prompts must not be quoted back to the shopper.
  */
@@ -392,6 +398,76 @@ export const PROFILES = {
       },
     },
     codeComputed: ["fairValueUsd", "priceGap", "compCount", "openParkIt", "score", "allowedActions"],
+  },
+  /**
+   * Scout next-action planner. Policy lives in the system prompt (cacheable).
+   * Listing/tool state is supplied only in the user message.
+   * Default: prompt_guard on, content filter on, no shadow/multipath/kronos until measured.
+   * Never use SDK Agent.process() for this path — that hardcodes OpenAI gpt-4o, not SERV Reasoning.
+   */
+  scout_plan: {
+    id: "scout_plan",
+    purpose: "Choose the next allowlisted scout action (select/tool/reject/replace/finalize/abstain).",
+    reason: "Stable buyer-investigation policy in system; pending VINs and evidence summaries in user. Software settles tools and hard gates. Guard is a real tools[] marker; shadow/multipath stay off until ablations.",
+    feature: "none",
+    tools: ["prompt_guard"],
+    timeoutMs: 45_000,
+    fallback: "serv_unavailable",
+    system: [
+      "You are Lemonless Scout's next-action planner for used-car investigation (self-buy or resale).",
+      "Choose exactly one next action from the JSON schema. Prefer evidence-backed investigation.",
+      "Asking prices are seller claims. Never invent sold prices, title clearance, licensed history, or verified profit.",
+      "Unknown history may allow investigation but forbids claiming a verified safe buy or profit.",
+      "Unsupported gov tools alone are NOT proof a car is bad — do not reject/replace merely because a gov lookup is unavailable.",
+      "You may run_tool inventory.search with args {makes,models,zip,distanceMiles,maxPriceUsd,maxMiles} strictly inside the buyer mandate for a bounded new search; duplicates/out-of-mandate are rejected without provider spend (tool slot still consumed).",
+      "Explicit distanceMiles:null means nationwide only when the mandate allows nationwide — never invent a radius.",
+      "Use evidenceContext (facts/missingness/gates/confidence/newlyAcquiredVins) and recentOutcomes to choose the next useful check, reject/replace, adjust search, or abstain — not a blind VIN walk.",
+      "Abstain when evidence is insufficient. Do not calculate economics — code tools own math.",
+      "Do not name or invoke serv_* application tools; markers are server-controlled.",
+    ].join(" "),
+    reasoningEffort: "low",
+    promptCache: "default",
+    contentFilter: "default_on",
+    stream: false,
+    endpoint: "chat",
+    jsonSchema: {
+      name: "lemonless_scout_plan_action",
+      schema: {
+        type: "object",
+        additionalProperties: false,
+        required: ["type", "reason", "servStepId"],
+        properties: {
+          type: {
+            type: "string",
+            enum: ["select_candidate", "run_tool", "reject", "replace", "finalize", "abstain"],
+          },
+          reason: { type: "string" },
+          servStepId: { type: "string" },
+          vin: { type: ["string", "null"] },
+          toolId: {
+            type: ["string", "null"],
+            enum: [
+              null,
+              "inventory.search",
+              "listing.normalize",
+              "evidence.asking_price",
+              "evidence.comps_ask",
+              "evidence.gov_recalls",
+              "evidence.gov_fuel",
+              "economics.flip_estimate",
+              "economics.personal_fit",
+              "gates.verify",
+              "candidate.reject",
+              "candidate.replace",
+              "run.checkpoint",
+              "run.finalize",
+            ],
+          },
+          args: { type: ["object", "null"] },
+        },
+      },
+    },
+    codeComputed: ["pendingVins", "investigatedVins", "rejectedVins", "mandate"],
   },
   telegram_reply: {
     id: "telegram_reply",

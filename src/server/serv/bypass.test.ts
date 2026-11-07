@@ -98,10 +98,14 @@ describe("SERV layer", () => {
         "radar_guard",
         "personal_alert_review",
         "flip_judge",
+        "scout_plan",
         "verdict_decide",
         "telegram_reply",
       ]),
     );
+    expect(PROFILES.scout_plan.jsonSchema?.name).toBe("lemonless_scout_plan_action");
+    expect(PROFILES.scout_plan.feature).toBe("none");
+    expect(toolNames(requestFor("scout_plan", "{}").tools)).toEqual(["serv_prompt_guard"]);
     expect(PROFILES.verdict_decide.feature).toBe("multipath");
     expect(PROFILES.verdict_decide.jsonSchema?.name).toBe("report_verdict_decision");
   });
@@ -121,12 +125,13 @@ describe("SERV layer", () => {
     }
   });
 
-  it("uses every documented non-Graph feature on at least one profile", () => {
+  it("uses every documented feature on at least one profile (Graph excluded — hackathon ban)", () => {
     const used = new Set<string>();
     for (const id of Object.keys(PROFILES) as ProfileId[]) {
       for (const feature of featuresUsedBy(id)) used.add(feature);
     }
     expect([...used].sort()).toEqual([...DOCUMENTED_FEATURES].sort());
+    // OpenServ Graph product must not appear (t257/t258). Kronos/Multipath are not Graph.
     expect(used.has("graph")).toBe(false);
     const hints = new Set<string>();
     for (const id of Object.keys(PROFILES) as ProfileId[]) {

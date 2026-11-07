@@ -9,9 +9,14 @@
     "start": "next start",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
+    "audit:prod": "npm audit --omit=dev --audit-level=high",
+    "audit:full-report": "npm audit --audit-level=high",
+    "boundary:source": "node scripts/assert-openserv-source-boundary.mjs",
+    "boundary:next": "node scripts/assert-no-openserv-in-next-server.mjs",
     "eval:serv": "tsx eval/run.ts",
     "eval:verdict": "tsx eval/verdict-run.ts",
     "eval:trace": "tsx eval/trace.ts",
+    "eval:scout": "tsx eval/scout-baseline.ts",
     "test:hero-scrub": "node scripts/hero-scrub-scroll.mjs"
   },
   "engines": {
@@ -26,6 +31,7 @@
     "stripe": "^18.5.0"
   },
   "devDependencies": {
+    "@openserv-labs/sdk": "^2.4.1",
     "@types/node": "^22.18.8",
     "@types/react": "^19.1.15",
     "@types/react-dom": "^19.1.9",

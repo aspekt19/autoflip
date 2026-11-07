@@ -1,0 +1,1789 @@
+{
+  "harness": "eval/scout-baseline.ts",
+  "schemaVersion": "scout-metrics/v3",
+  "generatedAt": "2026-11-06T23:01:25.519Z",
+  "note": "Stage3-residue-followon scout-metrics/v3. MOCK/OFFLINE plumbing only. Not SERV efficacy. safetyCertified always false.",
+  "certification": {
+    "safetyCertified": false,
+    "servEfficacyClaimed": false,
+    "plumbingOk": true,
+    "evidenceCompleteCases": 3,
+    "traceCompleteCases": 7,
+    "decisionEvidenceCompleteCases": 3,
+    "note": "Exit 0 reflects plumbing integrity only — not TRACE/decision evidence or safety certification."
+  },
+  "invariants": {
+    "schemaVersion": "scout-metrics/v3",
+    "labeling": "MOCK_OFFLINE_plumbing_NOT_serv_efficacy",
+    "safetyCertified": false,
+    "plumbingOk": true,
+    "evidenceCompleteCases": 3,
+    "traceCompleteCases": 7,
+    "decisionEvidenceCompleteCases": 3,
+    "noObservedUnsafeSafeBuy": true,
+    "noObservedUnsafeVerifiedProfit": true,
+    "denominatorCases": 7,
+    "terminalBreakdown": {
+      "completed": 3,
+      "abstained": 1,
+      "failed_timeout": 1,
+      "failed_refusal": 1,
+      "failed_parse": 1,
+      "failed_other": 0,
+      "non_terminal": 0
+    },
+    "perturbationHitsTotal": 0,
+    "plannerEfficacyClaimed": false,
+    "servEfficacyClaimed": false
+  },
+  "realSourcePath": "fixtures/autodev-camry.json",
+  "otherRealSourceSnapshots": "none — only autodev-camry.json exists in-repo; no invented provenance",
+  "cases": [
+    {
+      "id": "camry-flip-reject-replace",
+      "mode": "flip",
+      "dataKind": "real_source_replay",
+      "provenance": "fixtures/autodev-camry.json (Auto.dev vehicle listings payload; row createdAt e.g. 2026-09-16; offline replay — not a live call)",
+      "plannerKind": "mock_script_control_plumbing_NOT_serv_efficacy",
+      "poolSize": 5,
+      "baselineTopVins": [
+        "4T1K61AK4LU371927",
+        "4T1K61AK0MU423359",
+        "4T1K61AK4MU610393",
+        "4T1NZ1AK2LU042082",
+        "4T1KZ1AK4MU060006"
+      ],
+      "matchedDataBaselineNote": "MOCK_OFFLINE_identical_replay_overlap_NOT_serv_efficacy",
+      "observables": {
+        "schemaVersion": "scout-metrics/v3",
+        "labeling": "MOCK_OFFLINE_plumbing_NOT_serv_efficacy",
+        "safetyCertified": false,
+        "evidenceComplete": true,
+        "traceComplete": true,
+        "decisionEvidenceComplete": true,
+        "runId": "5ef4f3af-be32-4216-9870-4dd1c95848e9",
+        "state": "completed",
+        "failReason": null,
+        "terminalKind": "completed",
+        "autonomyClaim": "none",
+        "observation": {
+          "toolOutcomes": "observed",
+          "evidenceFacts": "observed",
+          "gateResults": "observed",
+          "usageBudgets": "observed",
+          "wallDuration": "observed",
+          "inventoryIdentity": "observed",
+          "inventorySearch": "observed"
+        },
+        "inventory": {
+          "source": "replay",
+          "provenance": "fixtures/autodev-camry.json (Auto.dev vehicle listings payload; row createdAt e.g. 2026-09-16; offline replay — not a live call)",
+          "identity": {
+            "kind": "replay",
+            "isFixture": true,
+            "fixtureEvidence": "both",
+            "sourceEvidence": "listing_source"
+          },
+          "identityConsistent": {
+            "status": "observed",
+            "value": 1
+          },
+          "sourceEvidence": "listing_source",
+          "poolSize": 5,
+          "incomplete": false
+        },
+        "candidates": {
+          "poolPending": 1,
+          "investigation": 3,
+          "rejected": 0,
+          "replaced": 1,
+          "unsafeSafeBuyClaims": {
+            "status": "observed",
+            "value": 0
+          },
+          "unsafeVerifiedProfitClaims": {
+            "status": "observed",
+            "value": 0
+          },
+          "historyUnknownEvaluated": {
+            "status": "observed",
+            "value": 0
+          },
+          "historyNeverEvaluated": {
+            "status": "observed",
+            "value": 1
+          },
+          "titleBrandForbidOrWithhold": {
+            "status": "observed",
+            "value": 4
+          },
+          "historyDataWithhold": {
+            "status": "observed",
+            "value": 4
+          }
+        },
+        "evidence": {
+          "factsObserved": {
+            "status": "observed",
+            "value": 28
+          },
+          "byKind": {
+            "status": "observed",
+            "value": {
+              "seller_claim": 24,
+              "assumed": 4
+            }
+          },
+          "bySource": {
+            "status": "observed",
+            "value": {
+              "listing.vin": 4,
+              "listing.vehicle": 4,
+              "listing.miles": 4,
+              "fixture.asking": 4,
+              "listing.accidentCount": 4,
+              "listing.owner": 4,
+              "domain.assumptions": 4
+            }
+          }
+        },
+        "gates": {
+          "resultsObserved": {
+            "status": "observed",
+            "value": 24
+          },
+          "hardForbid": {
+            "status": "observed",
+            "value": 8
+          },
+          "withhold": {
+            "status": "observed",
+            "value": 4
+          },
+          "pass": {
+            "status": "observed",
+            "value": 12
+          }
+        },
+        "tools": {
+          "outcomesObserved": {
+            "status": "observed",
+            "value": 9
+          },
+          "byStatus": {
+            "status": "observed",
+            "value": {
+              "success": 8,
+              "rejected": 1
+            }
+          },
+          "byToolId": {
+            "status": "observed",
+            "value": {
+              "inventory.search": 1,
+              "listing.normalize": 4,
+              "economics.flip_estimate": 1,
+              "gates.verify": 1,
+              "candidate.reject": 1,
+              "candidate.replace": 1
+            }
+          },
+          "inventorySearchAttempts": {
+            "status": "observed",
+            "value": 1
+          },
+          "midLoopInventorySearches": {
+            "status": "observed",
+            "value": 0
+          },
+          "midLoopSearchSuccessWithFreshVins": {
+            "status": "observed",
+            "value": 0
+          },
+          "midLoopSearchRejectedNoSpend": {
+            "status": "observed",
+            "value": 0
+          },
+          "midLoopFreshVinsAdded": {
+            "status": "observed",
+            "value": 0
+          }
+        },
+        "actions": {
+          "provenanceSteps": 15,
+          "provenanceObserved": {
+            "status": "observed",
+            "value": 15
+          },
+          "selectActions": {
+            "status": "observed",
+            "value": 5
+          },
+          "rejectActions": {
+            "status": "observed",
+            "value": 0
+          },
+          "replaceActions": {
+            "status": "observed",
+            "value": 1
+          },
+          "selectDispositions": {
+            "status": "observed",
+            "value": 3
+          },
+          "rejectDispositions": {
+            "status": "observed",
+            "value": 0
+          },
+          "replaceDispositions": {
+            "status": "observed",
+            "value": 1
+          },
+          "actionCountDisagreement": true,
+          "successfulReplaceAcquisitions": {
+            "status": "observed",
+            "value": 1
+          },
+          "evaluatedReplaceAcquisitions": {
+            "status": "observed",
+            "value": 1
+          },
+          "lifecycleContradiction": false
+        },
+        "trustBoundary": {
+          "capability": "runner_declared",
+          "inventorySource": "listing_source",
+          "note": "capabilityGrounded/adapter sourceEvidence are trust declarations — not independent buyer-safety certification."
+        },
+        "budget": {
+          "servCalls": {
+            "status": "observed",
+            "value": 9
+          },
+          "toolCalls": {
+            "status": "observed",
+            "value": 9
+          },
+          "providerCalls": {
+            "status": "observed",
+            "value": 0
+          },
+          "maxServCalls": {
+            "status": "observed",
+            "value": 30
+          },
+          "maxToolCalls": {
+            "status": "observed",
+            "value": 80
+          },
+          "maxProviderCalls": {
+            "status": "observed",
+            "value": 0
+          }
+        },
+        "latency": {
+          "wallMs": {
+            "status": "observed",
+            "value": 4
+          }
+        },
+        "baselineOverlap": {
+          "status": "observed",
+          "value": 3
+        }
+      },
+      "perturbations": [],
+      "notes": [
+        "Mock/heuristic/refusing planners are NOT SERV efficacy evidence.",
+        "safetyCertified=false always; evidenceComplete is separate from plumbingOk.",
+        "Timeout/refusal/abstain/parse stay in denominator; unknown ≠ 0-perfect."
+      ]
+    },
+    {
+      "id": "camry-personal-select",
+      "mode": "personal",
+      "dataKind": "real_source_replay",
+      "provenance": "fixtures/autodev-camry.json (Auto.dev vehicle listings payload; row createdAt e.g. 2026-09-16; offline replay — not a live call)",
+      "plannerKind": "mock_script_control_plumbing_NOT_serv_efficacy",
+      "poolSize": 5,
+      "baselineTopVins": [
+        "4T1K61AK4LU371927",
+        "4T1K61AK0MU423359",
+        "4T1K61AK4MU610393",
+        "4T1NZ1AK2LU042082",
+        "4T1KZ1AK4MU060006"
+      ],
+      "matchedDataBaselineNote": "MOCK_OFFLINE_identical_replay_overlap_NOT_serv_efficacy",
+      "observables": {
+        "schemaVersion": "scout-metrics/v3",
+        "labeling": "MOCK_OFFLINE_plumbing_NOT_serv_efficacy",
+        "safetyCertified": false,
+        "evidenceComplete": true,
+        "traceComplete": true,
+        "decisionEvidenceComplete": true,
+        "runId": "428afd62-28b7-40a8-8e99-ab4d3fee45a3",
+        "state": "completed",
+        "failReason": null,
+        "terminalKind": "completed",
+        "autonomyClaim": "none",
+        "observation": {
+          "toolOutcomes": "observed",
+          "evidenceFacts": "observed",
+          "gateResults": "observed",
+          "usageBudgets": "observed",
+          "wallDuration": "observed",
+          "inventoryIdentity": "observed",
+          "inventorySearch": "observed"
+        },
+        "inventory": {
+          "source": "replay",
+          "provenance": "fixtures/autodev-camry.json (Auto.dev vehicle listings payload; row createdAt e.g. 2026-09-16; offline replay — not a live call)",
+          "identity": {
+            "kind": "replay",
+            "isFixture": true,
+            "fixtureEvidence": "both",
+            "sourceEvidence": "listing_source"
+          },
+          "identityConsistent": {
+            "status": "observed",
+            "value": 1
+          },
+          "sourceEvidence": "listing_source",
+          "poolSize": 4,
+          "incomplete": false
+        },
+        "candidates": {
+          "poolPending": 0,
+          "investigation": 4,
+          "rejected": 0,
+          "replaced": 0,
+          "unsafeSafeBuyClaims": {
+            "status": "observed",
+            "value": 0
+          },
+          "unsafeVerifiedProfitClaims": {
+            "status": "observed",
+            "value": 0
+          },
+          "historyUnknownEvaluated": {
+            "status": "observed",
+            "value": 0
+          },
+          "historyNeverEvaluated": {
+            "status": "observed",
+            "value": 0
+          },
+          "titleBrandForbidOrWithhold": {
+            "status": "observed",
+            "value": 4
+          },
+          "historyDataWithhold": {
+            "status": "observed",
+            "value": 4
+          }
+        },
+        "evidence": {
+          "factsObserved": {
+            "status": "observed",
+            "value": 24
+          },
+          "byKind": {
+            "status": "observed",
+            "value": {
+              "seller_claim": 24
+            }
+          },
+          "bySource": {
+            "status": "observed",
+            "value": {
+              "listing.vin": 4,
+              "listing.vehicle": 4,
+              "listing.miles": 4,
+              "fixture.asking": 4,
+              "listing.accidentCount": 4,
+              "listing.owner": 4
+            }
+          }
+        },
+        "gates": {
+          "resultsObserved": {
+            "status": "observed",
+            "value": 24
+          },
+          "hardForbid": {
+            "status": "observed",
+            "value": 8
+          },
+          "withhold": {
+            "status": "observed",
+            "value": 4
+          },
+          "pass": {
+            "status": "observed",
+            "value": 12
+          }
+        },
+        "tools": {
+          "outcomesObserved": {
+            "status": "observed",
+            "value": 5
+          },
+          "byStatus": {
+            "status": "observed",
+            "value": {
+              "success": 5
+            }
+          },
+          "byToolId": {
+            "status": "observed",
+            "value": {
+              "inventory.search": 1,
+              "listing.normalize": 4
+            }
+          },
+          "inventorySearchAttempts": {
+            "status": "observed",
+            "value": 1
+          },
+          "midLoopInventorySearches": {
+            "status": "observed",
+            "value": 0
+          },
+          "midLoopSearchSuccessWithFreshVins": {
+            "status": "observed",
+            "value": 0
+          },
+          "midLoopSearchRejectedNoSpend": {
+            "status": "observed",
+            "value": 0
+          },
+          "midLoopFreshVinsAdded": {
+            "status": "observed",
+            "value": 0
+          }
+        },
+        "actions": {
+          "provenanceSteps": 10,
+          "provenanceObserved": {
+            "status": "observed",
+            "value": 10
+          },
+          "selectActions": {
+            "status": "observed",
+            "value": 4
+          },
+          "rejectActions": {
+            "status": "observed",
+            "value": 0
+          },
+          "replaceActions": {
+            "status": "observed",
+            "value": 0
+          },
+          "selectDispositions": {
+            "status": "observed",
+            "value": 4
+          },
+          "rejectDispositions": {
+            "status": "observed",
+            "value": 0
+          },
+          "replaceDispositions": {
+            "status": "observed",
+            "value": 0
+          },
+          "actionCountDisagreement": false,
+          "successfulReplaceAcquisitions": {
+            "status": "observed",
+            "value": 0
+          },
+          "evaluatedReplaceAcquisitions": {
+            "status": "observed",
+            "value": 0
+          },
+          "lifecycleContradiction": false
+        },
+        "trustBoundary": {
+          "capability": "runner_declared",
+          "inventorySource": "listing_source",
+          "note": "capabilityGrounded/adapter sourceEvidence are trust declarations — not independent buyer-safety certification."
+        },
+        "budget": {
+          "servCalls": {
+            "status": "observed",
+            "value": 5
+          },
+          "toolCalls": {
+            "status": "observed",
+            "value": 5
+          },
+          "providerCalls": {
+            "status": "observed",
+            "value": 0
+          },
+          "maxServCalls": {
+            "status": "observed",
+            "value": 30
+          },
+          "maxToolCalls": {
+            "status": "observed",
+            "value": 80
+          },
+          "maxProviderCalls": {
+            "status": "observed",
+            "value": 0
+          }
+        },
+        "latency": {
+          "wallMs": {
+            "status": "observed",
+            "value": 1
+          }
+        },
+        "baselineOverlap": {
+          "status": "observed",
+          "value": 4
+        }
+      },
+      "perturbations": [],
+      "notes": [
+        "Mock/heuristic/refusing planners are NOT SERV efficacy evidence.",
+        "safetyCertified=false always; evidenceComplete is separate from plumbingOk.",
+        "Timeout/refusal/abstain/parse stay in denominator; unknown ≠ 0-perfect."
+      ]
+    },
+    {
+      "id": "adversarial-flip-reject-replace",
+      "mode": "flip",
+      "dataKind": "synthetic_adversarial_NOT_live",
+      "provenance": "fixtures/scout/adversarial-contradiction.json — NOT live evidence",
+      "plannerKind": "mock_script_control_plumbing_NOT_serv_efficacy",
+      "poolSize": 5,
+      "baselineTopVins": [
+        "SYNTHASKCCC000005",
+        "SYNTHASKBBB000004",
+        "SYNTHASKAAA000003",
+        "SYNTHTHNCMP000002"
+      ],
+      "matchedDataBaselineNote": "MOCK_OFFLINE_identical_replay_overlap_NOT_serv_efficacy",
+      "observables": {
+        "schemaVersion": "scout-metrics/v3",
+        "labeling": "MOCK_OFFLINE_plumbing_NOT_serv_efficacy",
+        "safetyCertified": false,
+        "evidenceComplete": true,
+        "traceComplete": true,
+        "decisionEvidenceComplete": true,
+        "runId": "fddeae5c-525f-4663-9709-7328134442c4",
+        "state": "completed",
+        "failReason": null,
+        "terminalKind": "completed",
+        "autonomyClaim": "none",
+        "observation": {
+          "toolOutcomes": "observed",
+          "evidenceFacts": "observed",
+          "gateResults": "observed",
+          "usageBudgets": "observed",
+          "wallDuration": "observed",
+          "inventoryIdentity": "observed",
+          "inventorySearch": "observed"
+        },
+        "inventory": {
+          "source": "replay",
+          "provenance": "fixtures/scout/adversarial-contradiction.json — NOT live evidence",
+          "identity": {
+            "kind": "replay",
+            "isFixture": true,
+            "fixtureEvidence": "both",
+            "sourceEvidence": "listing_source"
+          },
+          "identityConsistent": {
+            "status": "observed",
+            "value": 1
+          },
+          "sourceEvidence": "listing_source",
+          "poolSize": 5,
+          "incomplete": false
+        },
+        "candidates": {
+          "poolPending": 1,
+          "investigation": 3,
+          "rejected": 0,
+          "replaced": 1,
+          "unsafeSafeBuyClaims": {
+            "status": "observed",
+            "value": 0
+          },
+          "unsafeVerifiedProfitClaims": {
+            "status": "observed",
+            "value": 0
+          },
+          "historyUnknownEvaluated": {
+            "status": "observed",
+            "value": 4
+          },
+          "historyNeverEvaluated": {
+            "status": "observed",
+            "value": 1
+          },
+          "titleBrandForbidOrWithhold": {
+            "status": "observed",
+            "value": 4
+          },
+          "historyDataWithhold": {
+            "status": "observed",
+            "value": 4
+          }
+        },
+        "evidence": {
+          "factsObserved": {
+            "status": "observed",
+            "value": 28
+          },
+          "byKind": {
+            "status": "observed",
+            "value": {
+              "seller_claim": 16,
+              "unknown": 8,
+              "assumed": 4
+            }
+          },
+          "bySource": {
+            "status": "observed",
+            "value": {
+              "listing.vin": 4,
+              "listing.vehicle": 4,
+              "listing.miles": 4,
+              "fixture.asking": 4,
+              "listing.accidentCount": 4,
+              "listing.owner": 4,
+              "domain.assumptions": 4
+            }
+          }
+        },
+        "gates": {
+          "resultsObserved": {
+            "status": "observed",
+            "value": 24
+          },
+          "hardForbid": {
+            "status": "observed",
+            "value": 7
+          },
+          "withhold": {
+            "status": "observed",
+            "value": 6
+          },
+          "pass": {
+            "status": "observed",
+            "value": 11
+          }
+        },
+        "tools": {
+          "outcomesObserved": {
+            "status": "observed",
+            "value": 9
+          },
+          "byStatus": {
+            "status": "observed",
+            "value": {
+              "success": 6,
+              "failed": 2,
+              "rejected": 1
+            }
+          },
+          "byToolId": {
+            "status": "observed",
+            "value": {
+              "inventory.search": 1,
+              "listing.normalize": 4,
+              "economics.flip_estimate": 1,
+              "gates.verify": 1,
+              "candidate.reject": 1,
+              "candidate.replace": 1
+            }
+          },
+          "inventorySearchAttempts": {
+            "status": "observed",
+            "value": 1
+          },
+          "midLoopInventorySearches": {
+            "status": "observed",
+            "value": 0
+          },
+          "midLoopSearchSuccessWithFreshVins": {
+            "status": "observed",
+            "value": 0
+          },
+          "midLoopSearchRejectedNoSpend": {
+            "status": "observed",
+            "value": 0
+          },
+          "midLoopFreshVinsAdded": {
+            "status": "observed",
+            "value": 0
+          }
+        },
+        "actions": {
+          "provenanceSteps": 15,
+          "provenanceObserved": {
+            "status": "observed",
+            "value": 15
+          },
+          "selectActions": {
+            "status": "observed",
+            "value": 3
+          },
+          "rejectActions": {
+            "status": "observed",
+            "value": 0
+          },
+          "replaceActions": {
+            "status": "observed",
+            "value": 1
+          },
+          "selectDispositions": {
+            "status": "observed",
+            "value": 3
+          },
+          "rejectDispositions": {
+            "status": "observed",
+            "value": 0
+          },
+          "replaceDispositions": {
+            "status": "observed",
+            "value": 1
+          },
+          "actionCountDisagreement": false,
+          "successfulReplaceAcquisitions": {
+            "status": "observed",
+            "value": 1
+          },
+          "evaluatedReplaceAcquisitions": {
+            "status": "observed",
+            "value": 1
+          },
+          "lifecycleContradiction": false
+        },
+        "trustBoundary": {
+          "capability": "runner_declared",
+          "inventorySource": "listing_source",
+          "note": "capabilityGrounded/adapter sourceEvidence are trust declarations — not independent buyer-safety certification."
+        },
+        "budget": {
+          "servCalls": {
+            "status": "observed",
+            "value": 9
+          },
+          "toolCalls": {
+            "status": "observed",
+            "value": 9
+          },
+          "providerCalls": {
+            "status": "observed",
+            "value": 0
+          },
+          "maxServCalls": {
+            "status": "observed",
+            "value": 30
+          },
+          "maxToolCalls": {
+            "status": "observed",
+            "value": 80
+          },
+          "maxProviderCalls": {
+            "status": "observed",
+            "value": 0
+          }
+        },
+        "latency": {
+          "wallMs": {
+            "status": "observed",
+            "value": 0
+          }
+        },
+        "baselineOverlap": {
+          "status": "observed",
+          "value": 3
+        }
+      },
+      "perturbations": [],
+      "notes": [
+        "Mock/heuristic/refusing planners are NOT SERV efficacy evidence.",
+        "safetyCertified=false always; evidenceComplete is separate from plumbingOk.",
+        "Timeout/refusal/abstain/parse stay in denominator; unknown ≠ 0-perfect."
+      ]
+    },
+    {
+      "id": "camry-flip-serv-refused",
+      "mode": "flip",
+      "dataKind": "control_refusal",
+      "provenance": "fixtures/autodev-camry.json (Auto.dev vehicle listings payload; row createdAt e.g. 2026-09-16; offline replay — not a live call)",
+      "plannerKind": "refusing_planner_NOT_serv",
+      "poolSize": 5,
+      "baselineTopVins": [
+        "4T1K61AK4LU371927",
+        "4T1K61AK0MU423359",
+        "4T1K61AK4MU610393",
+        "4T1NZ1AK2LU042082",
+        "4T1KZ1AK4MU060006"
+      ],
+      "matchedDataBaselineNote": "MOCK_OFFLINE_identical_replay_overlap_NOT_serv_efficacy",
+      "observables": {
+        "schemaVersion": "scout-metrics/v3",
+        "labeling": "MOCK_OFFLINE_plumbing_NOT_serv_efficacy",
+        "safetyCertified": false,
+        "evidenceComplete": false,
+        "traceComplete": true,
+        "decisionEvidenceComplete": false,
+        "runId": "8b92aa79-f0a4-4eba-873f-e7ae8b221f80",
+        "state": "failed",
+        "failReason": "serv_refused",
+        "terminalKind": "failed_refusal",
+        "autonomyClaim": "none",
+        "observation": {
+          "toolOutcomes": "observed",
+          "evidenceFacts": "missing",
+          "gateResults": "missing",
+          "usageBudgets": "observed",
+          "wallDuration": "observed",
+          "inventoryIdentity": "observed",
+          "inventorySearch": "observed"
+        },
+        "inventory": {
+          "source": "replay",
+          "provenance": "fixtures/autodev-camry.json (Auto.dev vehicle listings payload; row createdAt e.g. 2026-09-16; offline replay — not a live call)",
+          "identity": {
+            "kind": "replay",
+            "isFixture": true,
+            "fixtureEvidence": "both",
+            "sourceEvidence": "listing_source"
+          },
+          "identityConsistent": {
+            "status": "observed",
+            "value": 1
+          },
+          "sourceEvidence": "listing_source",
+          "poolSize": 5,
+          "incomplete": false
+        },
+        "candidates": {
+          "poolPending": 5,
+          "investigation": 0,
+          "rejected": 0,
+          "replaced": 0,
+          "unsafeSafeBuyClaims": {
+            "status": "observed",
+            "value": 0
+          },
+          "unsafeVerifiedProfitClaims": {
+            "status": "observed",
+            "value": 0
+          },
+          "historyUnknownEvaluated": {
+            "status": "unknown",
+            "reason": "no history-evaluated candidates — default pending unknown is not measured"
+          },
+          "historyNeverEvaluated": {
+            "status": "observed",
+            "value": 5
+          },
+          "titleBrandForbidOrWithhold": {
+            "status": "unknown",
+            "reason": "no evaluated gates for title-brand attribution"
+          },
+          "historyDataWithhold": {
+            "status": "unknown",
+            "reason": "no evaluated gates for history data withhold"
+          }
+        },
+        "evidence": {
+          "factsObserved": {
+            "status": "unknown",
+            "reason": "no evidence facts recorded"
+          },
+          "byKind": {
+            "status": "unknown",
+            "reason": "no evidence facts — empty byKind is not observed"
+          },
+          "bySource": {
+            "status": "unknown",
+            "reason": "no evidence facts — empty bySource is not observed"
+          }
+        },
+        "gates": {
+          "resultsObserved": {
+            "status": "unknown",
+            "reason": "no gate results recorded"
+          },
+          "hardForbid": {
+            "status": "unknown",
+            "reason": "no gates"
+          },
+          "withhold": {
+            "status": "unknown",
+            "reason": "no gates"
+          },
+          "pass": {
+            "status": "unknown",
+            "reason": "no gates"
+          }
+        },
+        "tools": {
+          "outcomesObserved": {
+            "status": "observed",
+            "value": 1
+          },
+          "byStatus": {
+            "status": "observed",
+            "value": {
+              "success": 1
+            }
+          },
+          "byToolId": {
+            "status": "observed",
+            "value": {
+              "inventory.search": 1
+            }
+          },
+          "inventorySearchAttempts": {
+            "status": "observed",
+            "value": 1
+          },
+          "midLoopInventorySearches": {
+            "status": "observed",
+            "value": 0
+          },
+          "midLoopSearchSuccessWithFreshVins": {
+            "status": "observed",
+            "value": 0
+          },
+          "midLoopSearchRejectedNoSpend": {
+            "status": "observed",
+            "value": 0
+          },
+          "midLoopFreshVinsAdded": {
+            "status": "observed",
+            "value": 0
+          }
+        },
+        "actions": {
+          "provenanceSteps": 5,
+          "provenanceObserved": {
+            "status": "observed",
+            "value": 5
+          },
+          "selectActions": {
+            "status": "observed",
+            "value": 0
+          },
+          "rejectActions": {
+            "status": "observed",
+            "value": 0
+          },
+          "replaceActions": {
+            "status": "observed",
+            "value": 0
+          },
+          "selectDispositions": {
+            "status": "observed",
+            "value": 0
+          },
+          "rejectDispositions": {
+            "status": "observed",
+            "value": 0
+          },
+          "replaceDispositions": {
+            "status": "observed",
+            "value": 0
+          },
+          "actionCountDisagreement": false,
+          "successfulReplaceAcquisitions": {
+            "status": "observed",
+            "value": 0
+          },
+          "evaluatedReplaceAcquisitions": {
+            "status": "observed",
+            "value": 0
+          },
+          "lifecycleContradiction": false
+        },
+        "trustBoundary": {
+          "capability": "runner_declared",
+          "inventorySource": "listing_source",
+          "note": "capabilityGrounded/adapter sourceEvidence are trust declarations — not independent buyer-safety certification."
+        },
+        "budget": {
+          "servCalls": {
+            "status": "observed",
+            "value": 1
+          },
+          "toolCalls": {
+            "status": "observed",
+            "value": 1
+          },
+          "providerCalls": {
+            "status": "observed",
+            "value": 0
+          },
+          "maxServCalls": {
+            "status": "observed",
+            "value": 30
+          },
+          "maxToolCalls": {
+            "status": "observed",
+            "value": 80
+          },
+          "maxProviderCalls": {
+            "status": "observed",
+            "value": 0
+          }
+        },
+        "latency": {
+          "wallMs": {
+            "status": "observed",
+            "value": 0
+          }
+        },
+        "baselineOverlap": {
+          "status": "unknown",
+          "reason": "no investigation under failed_refusal — overlap not scored as 0"
+        }
+      },
+      "perturbations": [],
+      "notes": [
+        "Mock/heuristic/refusing planners are NOT SERV efficacy evidence.",
+        "safetyCertified=false always; evidenceComplete is separate from plumbingOk.",
+        "Timeout/refusal/abstain/parse stay in denominator; unknown ≠ 0-perfect."
+      ]
+    },
+    {
+      "id": "camry-flip-serv-timeout",
+      "mode": "flip",
+      "dataKind": "control_timeout",
+      "provenance": "fixtures/autodev-camry.json (Auto.dev vehicle listings payload; row createdAt e.g. 2026-09-16; offline replay — not a live call)",
+      "plannerKind": "timeout_planner_NOT_serv",
+      "poolSize": 5,
+      "baselineTopVins": [
+        "4T1K61AK4LU371927",
+        "4T1K61AK0MU423359",
+        "4T1K61AK4MU610393",
+        "4T1NZ1AK2LU042082",
+        "4T1KZ1AK4MU060006"
+      ],
+      "matchedDataBaselineNote": "MOCK_OFFLINE_identical_replay_overlap_NOT_serv_efficacy",
+      "observables": {
+        "schemaVersion": "scout-metrics/v3",
+        "labeling": "MOCK_OFFLINE_plumbing_NOT_serv_efficacy",
+        "safetyCertified": false,
+        "evidenceComplete": false,
+        "traceComplete": true,
+        "decisionEvidenceComplete": false,
+        "runId": "214ac30c-1282-4bae-b1cd-c0c7b81e7ad7",
+        "state": "failed",
+        "failReason": "serv_timeout",
+        "terminalKind": "failed_timeout",
+        "autonomyClaim": "none",
+        "observation": {
+          "toolOutcomes": "observed",
+          "evidenceFacts": "missing",
+          "gateResults": "missing",
+          "usageBudgets": "observed",
+          "wallDuration": "observed",
+          "inventoryIdentity": "observed",
+          "inventorySearch": "observed"
+        },
+        "inventory": {
+          "source": "replay",
+          "provenance": "fixtures/autodev-camry.json (Auto.dev vehicle listings payload; row createdAt e.g. 2026-09-16; offline replay — not a live call)",
+          "identity": {
+            "kind": "replay",
+            "isFixture": true,
+            "fixtureEvidence": "both",
+            "sourceEvidence": "listing_source"
+          },
+          "identityConsistent": {
+            "status": "observed",
+            "value": 1
+          },
+          "sourceEvidence": "listing_source",
+          "poolSize": 5,
+          "incomplete": false
+        },
+        "candidates": {
+          "poolPending": 5,
+          "investigation": 0,
+          "rejected": 0,
+          "replaced": 0,
+          "unsafeSafeBuyClaims": {
+            "status": "observed",
+            "value": 0
+          },
+          "unsafeVerifiedProfitClaims": {
+            "status": "observed",
+            "value": 0
+          },
+          "historyUnknownEvaluated": {
+            "status": "unknown",
+            "reason": "no history-evaluated candidates — default pending unknown is not measured"
+          },
+          "historyNeverEvaluated": {
+            "status": "observed",
+            "value": 5
+          },
+          "titleBrandForbidOrWithhold": {
+            "status": "unknown",
+            "reason": "no evaluated gates for title-brand attribution"
+          },
+          "historyDataWithhold": {
+            "status": "unknown",
+            "reason": "no evaluated gates for history data withhold"
+          }
+        },
+        "evidence": {
+          "factsObserved": {
+            "status": "unknown",
+            "reason": "no evidence facts recorded"
+          },
+          "byKind": {
+            "status": "unknown",
+            "reason": "no evidence facts — empty byKind is not observed"
+          },
+          "bySource": {
+            "status": "unknown",
+            "reason": "no evidence facts — empty bySource is not observed"
+          }
+        },
+        "gates": {
+          "resultsObserved": {
+            "status": "unknown",
+            "reason": "no gate results recorded"
+          },
+          "hardForbid": {
+            "status": "unknown",
+            "reason": "no gates"
+          },
+          "withhold": {
+            "status": "unknown",
+            "reason": "no gates"
+          },
+          "pass": {
+            "status": "unknown",
+            "reason": "no gates"
+          }
+        },
+        "tools": {
+          "outcomesObserved": {
+            "status": "observed",
+            "value": 1
+          },
+          "byStatus": {
+            "status": "observed",
+            "value": {
+              "success": 1
+            }
+          },
+          "byToolId": {
+            "status": "observed",
+            "value": {
+              "inventory.search": 1
+            }
+          },
+          "inventorySearchAttempts": {
+            "status": "observed",
+            "value": 1
+          },
+          "midLoopInventorySearches": {
+            "status": "observed",
+            "value": 0
+          },
+          "midLoopSearchSuccessWithFreshVins": {
+            "status": "observed",
+            "value": 0
+          },
+          "midLoopSearchRejectedNoSpend": {
+            "status": "observed",
+            "value": 0
+          },
+          "midLoopFreshVinsAdded": {
+            "status": "observed",
+            "value": 0
+          }
+        },
+        "actions": {
+          "provenanceSteps": 5,
+          "provenanceObserved": {
+            "status": "observed",
+            "value": 5
+          },
+          "selectActions": {
+            "status": "observed",
+            "value": 0
+          },
+          "rejectActions": {
+            "status": "observed",
+            "value": 0
+          },
+          "replaceActions": {
+            "status": "observed",
+            "value": 0
+          },
+          "selectDispositions": {
+            "status": "observed",
+            "value": 0
+          },
+          "rejectDispositions": {
+            "status": "observed",
+            "value": 0
+          },
+          "replaceDispositions": {
+            "status": "observed",
+            "value": 0
+          },
+          "actionCountDisagreement": false,
+          "successfulReplaceAcquisitions": {
+            "status": "observed",
+            "value": 0
+          },
+          "evaluatedReplaceAcquisitions": {
+            "status": "observed",
+            "value": 0
+          },
+          "lifecycleContradiction": false
+        },
+        "trustBoundary": {
+          "capability": "runner_declared",
+          "inventorySource": "listing_source",
+          "note": "capabilityGrounded/adapter sourceEvidence are trust declarations — not independent buyer-safety certification."
+        },
+        "budget": {
+          "servCalls": {
+            "status": "observed",
+            "value": 1
+          },
+          "toolCalls": {
+            "status": "observed",
+            "value": 1
+          },
+          "providerCalls": {
+            "status": "observed",
+            "value": 0
+          },
+          "maxServCalls": {
+            "status": "observed",
+            "value": 30
+          },
+          "maxToolCalls": {
+            "status": "observed",
+            "value": 80
+          },
+          "maxProviderCalls": {
+            "status": "observed",
+            "value": 0
+          }
+        },
+        "latency": {
+          "wallMs": {
+            "status": "observed",
+            "value": 0
+          }
+        },
+        "baselineOverlap": {
+          "status": "unknown",
+          "reason": "no investigation under failed_timeout — overlap not scored as 0"
+        }
+      },
+      "perturbations": [],
+      "notes": [
+        "Mock/heuristic/refusing planners are NOT SERV efficacy evidence.",
+        "safetyCertified=false always; evidenceComplete is separate from plumbingOk.",
+        "Timeout/refusal/abstain/parse stay in denominator; unknown ≠ 0-perfect."
+      ]
+    },
+    {
+      "id": "camry-flip-explicit-abstain",
+      "mode": "flip",
+      "dataKind": "control_abstain",
+      "provenance": "fixtures/autodev-camry.json (Auto.dev vehicle listings payload; row createdAt e.g. 2026-09-16; offline replay — not a live call)",
+      "plannerKind": "mock_script_control_plumbing_NOT_serv_efficacy",
+      "poolSize": 5,
+      "baselineTopVins": [
+        "4T1K61AK4LU371927",
+        "4T1K61AK0MU423359",
+        "4T1K61AK4MU610393",
+        "4T1NZ1AK2LU042082",
+        "4T1KZ1AK4MU060006"
+      ],
+      "matchedDataBaselineNote": "MOCK_OFFLINE_identical_replay_overlap_NOT_serv_efficacy",
+      "observables": {
+        "schemaVersion": "scout-metrics/v3",
+        "labeling": "MOCK_OFFLINE_plumbing_NOT_serv_efficacy",
+        "safetyCertified": false,
+        "evidenceComplete": false,
+        "traceComplete": true,
+        "decisionEvidenceComplete": false,
+        "runId": "33777b3c-30e5-4d08-884b-bb301dec0999",
+        "state": "abstained",
+        "failReason": null,
+        "terminalKind": "abstained",
+        "autonomyClaim": "none",
+        "observation": {
+          "toolOutcomes": "observed",
+          "evidenceFacts": "missing",
+          "gateResults": "missing",
+          "usageBudgets": "observed",
+          "wallDuration": "observed",
+          "inventoryIdentity": "observed",
+          "inventorySearch": "observed"
+        },
+        "inventory": {
+          "source": "replay",
+          "provenance": "fixtures/autodev-camry.json (Auto.dev vehicle listings payload; row createdAt e.g. 2026-09-16; offline replay — not a live call)",
+          "identity": {
+            "kind": "replay",
+            "isFixture": true,
+            "fixtureEvidence": "both",
+            "sourceEvidence": "listing_source"
+          },
+          "identityConsistent": {
+            "status": "observed",
+            "value": 1
+          },
+          "sourceEvidence": "listing_source",
+          "poolSize": 5,
+          "incomplete": false
+        },
+        "candidates": {
+          "poolPending": 5,
+          "investigation": 0,
+          "rejected": 0,
+          "replaced": 0,
+          "unsafeSafeBuyClaims": {
+            "status": "observed",
+            "value": 0
+          },
+          "unsafeVerifiedProfitClaims": {
+            "status": "observed",
+            "value": 0
+          },
+          "historyUnknownEvaluated": {
+            "status": "unknown",
+            "reason": "no history-evaluated candidates — default pending unknown is not measured"
+          },
+          "historyNeverEvaluated": {
+            "status": "observed",
+            "value": 5
+          },
+          "titleBrandForbidOrWithhold": {
+            "status": "unknown",
+            "reason": "no evaluated gates for title-brand attribution"
+          },
+          "historyDataWithhold": {
+            "status": "unknown",
+            "reason": "no evaluated gates for history data withhold"
+          }
+        },
+        "evidence": {
+          "factsObserved": {
+            "status": "unknown",
+            "reason": "no evidence facts recorded"
+          },
+          "byKind": {
+            "status": "unknown",
+            "reason": "no evidence facts — empty byKind is not observed"
+          },
+          "bySource": {
+            "status": "unknown",
+            "reason": "no evidence facts — empty bySource is not observed"
+          }
+        },
+        "gates": {
+          "resultsObserved": {
+            "status": "unknown",
+            "reason": "no gate results recorded"
+          },
+          "hardForbid": {
+            "status": "unknown",
+            "reason": "no gates"
+          },
+          "withhold": {
+            "status": "unknown",
+            "reason": "no gates"
+          },
+          "pass": {
+            "status": "unknown",
+            "reason": "no gates"
+          }
+        },
+        "tools": {
+          "outcomesObserved": {
+            "status": "observed",
+            "value": 1
+          },
+          "byStatus": {
+            "status": "observed",
+            "value": {
+              "success": 1
+            }
+          },
+          "byToolId": {
+            "status": "observed",
+            "value": {
+              "inventory.search": 1
+            }
+          },
+          "inventorySearchAttempts": {
+            "status": "observed",
+            "value": 1
+          },
+          "midLoopInventorySearches": {
+            "status": "observed",
+            "value": 0
+          },
+          "midLoopSearchSuccessWithFreshVins": {
+            "status": "observed",
+            "value": 0
+          },
+          "midLoopSearchRejectedNoSpend": {
+            "status": "observed",
+            "value": 0
+          },
+          "midLoopFreshVinsAdded": {
+            "status": "observed",
+            "value": 0
+          }
+        },
+        "actions": {
+          "provenanceSteps": 6,
+          "provenanceObserved": {
+            "status": "observed",
+            "value": 6
+          },
+          "selectActions": {
+            "status": "observed",
+            "value": 0
+          },
+          "rejectActions": {
+            "status": "observed",
+            "value": 0
+          },
+          "replaceActions": {
+            "status": "observed",
+            "value": 0
+          },
+          "selectDispositions": {
+            "status": "observed",
+            "value": 0
+          },
+          "rejectDispositions": {
+            "status": "observed",
+            "value": 0
+          },
+          "replaceDispositions": {
+            "status": "observed",
+            "value": 0
+          },
+          "actionCountDisagreement": false,
+          "successfulReplaceAcquisitions": {
+            "status": "observed",
+            "value": 0
+          },
+          "evaluatedReplaceAcquisitions": {
+            "status": "observed",
+            "value": 0
+          },
+          "lifecycleContradiction": false
+        },
+        "trustBoundary": {
+          "capability": "runner_declared",
+          "inventorySource": "listing_source",
+          "note": "capabilityGrounded/adapter sourceEvidence are trust declarations — not independent buyer-safety certification."
+        },
+        "budget": {
+          "servCalls": {
+            "status": "observed",
+            "value": 1
+          },
+          "toolCalls": {
+            "status": "observed",
+            "value": 1
+          },
+          "providerCalls": {
+            "status": "observed",
+            "value": 0
+          },
+          "maxServCalls": {
+            "status": "observed",
+            "value": 30
+          },
+          "maxToolCalls": {
+            "status": "observed",
+            "value": 80
+          },
+          "maxProviderCalls": {
+            "status": "observed",
+            "value": 0
+          }
+        },
+        "latency": {
+          "wallMs": {
+            "status": "observed",
+            "value": 0
+          }
+        },
+        "baselineOverlap": {
+          "status": "unknown",
+          "reason": "no investigation under abstained — overlap not scored as 0"
+        }
+      },
+      "perturbations": [],
+      "notes": [
+        "Mock/heuristic/refusing planners are NOT SERV efficacy evidence.",
+        "safetyCertified=false always; evidenceComplete is separate from plumbingOk.",
+        "Timeout/refusal/abstain/parse stay in denominator; unknown ≠ 0-perfect."
+      ]
+    },
+    {
+      "id": "camry-flip-parse-fail",
+      "mode": "flip",
+      "dataKind": "control_parse_fail",
+      "provenance": "fixtures/autodev-camry.json (Auto.dev vehicle listings payload; row createdAt e.g. 2026-09-16; offline replay — not a live call)",
+      "plannerKind": "parse_fail_planner_NOT_serv",
+      "poolSize": 5,
+      "baselineTopVins": [
+        "4T1K61AK4LU371927",
+        "4T1K61AK0MU423359",
+        "4T1K61AK4MU610393",
+        "4T1NZ1AK2LU042082",
+        "4T1KZ1AK4MU060006"
+      ],
+      "matchedDataBaselineNote": "MOCK_OFFLINE_identical_replay_overlap_NOT_serv_efficacy",
+      "observables": {
+        "schemaVersion": "scout-metrics/v3",
+        "labeling": "MOCK_OFFLINE_plumbing_NOT_serv_efficacy",
+        "safetyCertified": false,
+        "evidenceComplete": false,
+        "traceComplete": true,
+        "decisionEvidenceComplete": false,
+        "runId": "08078a89-5589-43c2-8511-739d63d46b3c",
+        "state": "failed",
+        "failReason": "serv_unavailable",
+        "terminalKind": "failed_parse",
+        "autonomyClaim": "none",
+        "observation": {
+          "toolOutcomes": "observed",
+          "evidenceFacts": "missing",
+          "gateResults": "missing",
+          "usageBudgets": "observed",
+          "wallDuration": "observed",
+          "inventoryIdentity": "observed",
+          "inventorySearch": "observed"
+        },
+        "inventory": {
+          "source": "replay",
+          "provenance": "fixtures/autodev-camry.json (Auto.dev vehicle listings payload; row createdAt e.g. 2026-09-16; offline replay — not a live call)",
+          "identity": {
+            "kind": "replay",
+            "isFixture": true,
+            "fixtureEvidence": "both",
+            "sourceEvidence": "listing_source"
+          },
+          "identityConsistent": {
+            "status": "observed",
+            "value": 1
+          },
+          "sourceEvidence": "listing_source",
+          "poolSize": 5,
+          "incomplete": false
+        },
+        "candidates": {
+          "poolPending": 5,
+          "investigation": 0,
+          "rejected": 0,
+          "replaced": 0,
+          "unsafeSafeBuyClaims": {
+            "status": "observed",
+            "value": 0
+          },
+          "unsafeVerifiedProfitClaims": {
+            "status": "observed",
+            "value": 0
+          },
+          "historyUnknownEvaluated": {
+            "status": "unknown",
+            "reason": "no history-evaluated candidates — default pending unknown is not measured"
+          },
+          "historyNeverEvaluated": {
+            "status": "observed",
+            "value": 5
+          },
+          "titleBrandForbidOrWithhold": {
+            "status": "unknown",
+            "reason": "no evaluated gates for title-brand attribution"
+          },
+          "historyDataWithhold": {
+            "status": "unknown",
+            "reason": "no evaluated gates for history data withhold"
+          }
+        },
+        "evidence": {
+          "factsObserved": {
+            "status": "unknown",
+            "reason": "no evidence facts recorded"
+          },
+          "byKind": {
+            "status": "unknown",
+            "reason": "no evidence facts — empty byKind is not observed"
+          },
+          "bySource": {
+            "status": "unknown",
+            "reason": "no evidence facts — empty bySource is not observed"
+          }
+        },
+        "gates": {
+          "resultsObserved": {
+            "status": "unknown",
+            "reason": "no gate results recorded"
+          },
+          "hardForbid": {
+            "status": "unknown",
+            "reason": "no gates"
+          },
+          "withhold": {
+            "status": "unknown",
+            "reason": "no gates"
+          },
+          "pass": {
+            "status": "unknown",
+            "reason": "no gates"
+          }
+        },
+        "tools": {
+          "outcomesObserved": {
+            "status": "observed",
+            "value": 1
+          },
+          "byStatus": {
+            "status": "observed",
+            "value": {
+              "success": 1
+            }
+          },
+          "byToolId": {
+            "status": "observed",
+            "value": {
+              "inventory.search": 1
+            }
+          },
+          "inventorySearchAttempts": {
+            "status": "observed",
+            "value": 1
+          },
+          "midLoopInventorySearches": {
+            "status": "observed",
+            "value": 0
+          },
+          "midLoopSearchSuccessWithFreshVins": {
+            "status": "observed",
+            "value": 0
+          },
+          "midLoopSearchRejectedNoSpend": {
+            "status": "observed",
+            "value": 0
+          },
+          "midLoopFreshVinsAdded": {
+            "status": "observed",
+            "value": 0
+          }
+        },
+        "actions": {
+          "provenanceSteps": 5,
+          "provenanceObserved": {
+            "status": "observed",
+            "value": 5
+          },
+          "selectActions": {
+            "status": "observed",
+            "value": 0
+          },
+          "rejectActions": {
+            "status": "observed",
+            "value": 0
+          },
+          "replaceActions": {
+            "status": "observed",
+            "value": 0
+          },
+          "selectDispositions": {
+            "status": "observed",
+            "value": 0
+          },
+          "rejectDispositions": {
+            "status": "observed",
+            "value": 0
+          },
+          "replaceDispositions": {
+            "status": "observed",
+            "value": 0
+          },
+          "actionCountDisagreement": false,
+          "successfulReplaceAcquisitions": {
+            "status": "observed",
+            "value": 0
+          },
+          "evaluatedReplaceAcquisitions": {
+            "status": "observed",
+            "value": 0
+          },
+          "lifecycleContradiction": false
+        },
+        "trustBoundary": {
+          "capability": "runner_declared",
+          "inventorySource": "listing_source",
+          "note": "capabilityGrounded/adapter sourceEvidence are trust declarations — not independent buyer-safety certification."
+        },
+        "budget": {
+          "servCalls": {
+            "status": "observed",
+            "value": 1
+          },
+          "toolCalls": {
+            "status": "observed",
+            "value": 1
+          },
+          "providerCalls": {
+            "status": "observed",
+            "value": 0
+          },
+          "maxServCalls": {
+            "status": "observed",
+            "value": 30
+          },
+          "maxToolCalls": {
+            "status": "observed",
+            "value": 80
+          },
+          "maxProviderCalls": {
+            "status": "observed",
+            "value": 0
+          }
+        },
+        "latency": {
+          "wallMs": {
+            "status": "observed",
+            "value": 0
+          }
+        },
+        "baselineOverlap": {
+          "status": "unknown",
+          "reason": "no investigation under failed_parse — overlap not scored as 0"
+        }
+      },
+      "perturbations": [],
+      "notes": [
+        "Mock/heuristic/refusing planners are NOT SERV efficacy evidence.",
+        "safetyCertified=false always; evidenceComplete is separate from plumbingOk.",
+        "Timeout/refusal/abstain/parse stay in denominator; unknown ≠ 0-perfect."
+      ]
+    }
+  ]
+}

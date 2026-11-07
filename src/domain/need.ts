@@ -1,6 +1,6 @@
 import { parseUsdInput } from "./budget";
 import { bodyStyleMatches } from "./body-style";
-import { MAINSTREAM_MAKES } from "./vehicle-names";
+import { FALLBACK_MODELS, MAINSTREAM_MAKES } from "./vehicle-names";
 
 export const USE_CASES = ["family", "commute", "haul", "first_car", "comfort", "unspecified"] as const;
 export type UseCase = (typeof USE_CASES)[number];
@@ -10,6 +10,12 @@ export type RepairAbility = (typeof REPAIR_ABILITIES)[number];
 
 export const BUDGET_SCOPES = ["car", "all_in", "unspecified"] as const;
 export type BudgetScope = (typeof BUDGET_SCOPES)[number];
+
+/** Radius choices when a ZIP is set. Null distance means nationwide. */
+export const SEARCH_RADII_MILES = [50, 100, 250, 500] as const;
+export type SearchRadiusMiles = (typeof SEARCH_RADII_MILES)[number];
+
+export type PreferredModel = { make: string; model: string };
 
 /** What the shopper said. Repair ability is not a risk tolerance. */
 export type StructuredNeed = {
@@ -22,12 +28,26 @@ export type StructuredNeed = {
   mustHaves: string[];
   priorities: string[];
   zip: string | null;
+  /**
+   * Search radius in miles when zip is set.
+   * Null means nationwide (ZIP is optional context only, not a hard filter).
+   */
+  distanceMiles: number | null;
   repairAbility: RepairAbility;
   targetProfitUsd: number | null;
   /** Hard mileage cap taken from the note. Null means no cap. */
   milesMax: number | null;
-  /** Make named in the note. Null means any make. */
+  /**
+   * First preferred make, kept for older callers.
+   * Prefer `preferredMakes` when deciding what to keep or drop.
+   */
   make: string | null;
+  /** Makes named in the note, in mention order. Empty means any make. */
+  preferredMakes: string[];
+  /** Specific models named in the note (for example CX-5, RAV4). */
+  preferredModels: PreferredModel[];
+  /** When true, preferred makes/models stay first but other makes stay in the mix. */
+  openToOtherMakes: boolean;
 };
 
 export type NeedIssue = { field: string; message: string };
@@ -45,11 +65,32 @@ export function emptyNeed(mode: "personal" | "flip" = "personal"): StructuredNee
     mustHaves: [],
     priorities: [],
     zip: null,
+    distanceMiles: null,
     repairAbility: "unknown",
     targetProfitUsd: null,
     milesMax: null,
     make: null,
+    preferredMakes: [],
+    preferredModels: [],
+    openToOtherMakes: true,
   };
+}
+
+export function normalizeDistanceMiles(value: unknown): number | null {
+  if (value === null || value === undefined || value === "" || value === "nationwide") return null;
+  if (typeof value === "number" && SEARCH_RADII_MILES.includes(value as SearchRadiusMiles)) return value;
+  if (typeof value === "string" && /^\d+$/.test(value.trim())) {
+    const amount = Number(value.trim());
+    if (SEARCH_RADII_MILES.includes(amount as SearchRadiusMiles)) return amount;
+  }
+  return null;
+}
+
+export function searchScopeLabel(need: Pick<StructuredNeed, "zip" | "distanceMiles">): string {
+  if (need.zip && need.distanceMiles != null) {
+    return `Within ${need.distanceMiles} miles of ${need.zip}`;
+  }
+  return "Nationwide (U.S.)";
 }
 
 export function validateNeed(input: unknown): { ok: true; need: StructuredNeed } | { ok: false; issues: NeedIssue[] } {
@@ -94,11 +135,28 @@ export function validateNeed(input: unknown): { ok: true; need: StructuredNeed }
   else if (typeof raw.milesMax === "number" && Number.isFinite(raw.milesMax) && raw.milesMax >= 1_000 && raw.milesMax <= 400_000) {
     milesMax = Math.round(raw.milesMax);
   } else issues.push({ field: "milesMax", message: "Mileage cap has to be a mileage, or left blank." });
-  const make = typeof raw.make === "string" ? canonicalMake(raw.make) : null;
+  let distanceMiles: number | null = null;
+  if (raw.distanceMiles === null || raw.distanceMiles === undefined || raw.distanceMiles === "" || raw.distanceMiles === "nationwide") {
+    distanceMiles = null;
+  } else if (typeof raw.distanceMiles === "number" && SEARCH_RADII_MILES.includes(raw.distanceMiles as SearchRadiusMiles)) {
+    distanceMiles = raw.distanceMiles;
+  } else {
+    issues.push({ field: "distanceMiles", message: "Distance has to be 50, 100, 250, 500, or nationwide." });
+  }
+  if (distanceMiles != null && !zip) {
+    // Radius without ZIP cannot be applied — treat as nationwide instead of failing old clients.
+    distanceMiles = null;
+  }
+  const preferredMakes = preferredMakesFromRaw(raw);
+  const preferredModels = preferredModelsFromRaw(raw);
+  const openToOtherMakes =
+    typeof raw.openToOtherMakes === "boolean" ? raw.openToOtherMakes : preferredMakes.length === 0;
+  const make = preferredMakes[0] ?? (typeof raw.make === "string" ? canonicalMake(raw.make) : null);
   if ("riskTolerance" in raw) issues.push({ field: "riskTolerance", message: "Repair ability is not a risk tolerance." });
   if (issues.length) return { ok: false, issues };
   const mode = raw.mode === "flip" ? "flip" : "personal";
   const useCase = USE_CASES.includes(raw.useCase as UseCase) ? (raw.useCase as UseCase) : "unspecified";
+  const makes = preferredMakes.length ? preferredMakes : make ? [make] : [];
   return {
     ok: true,
     need: {
@@ -111,12 +169,60 @@ export function validateNeed(input: unknown): { ok: true; need: StructuredNeed }
       mustHaves,
       priorities,
       zip,
+      distanceMiles,
       repairAbility,
       targetProfitUsd,
       milesMax,
-      make,
+      make: makes[0] ?? null,
+      preferredMakes: makes,
+      preferredModels,
+      openToOtherMakes: makes.length === 0 ? true : openToOtherMakes,
     },
   };
+}
+
+function preferredMakesFromRaw(raw: Record<string, unknown>): string[] {
+  if (Array.isArray(raw.preferredMakes)) {
+    return uniqueMakes(
+      raw.preferredMakes
+        .filter((item): item is string => typeof item === "string")
+        .map((item) => canonicalMake(item))
+        .filter((item): item is string => Boolean(item)),
+    );
+  }
+  if (typeof raw.make === "string") {
+    const one = canonicalMake(raw.make);
+    return one ? [one] : [];
+  }
+  return [];
+}
+
+function preferredModelsFromRaw(raw: Record<string, unknown>): PreferredModel[] {
+  if (!Array.isArray(raw.preferredModels)) return [];
+  const out: PreferredModel[] = [];
+  for (const item of raw.preferredModels) {
+    if (!item || typeof item !== "object" || Array.isArray(item)) continue;
+    const row = item as Record<string, unknown>;
+    const make = typeof row.make === "string" ? canonicalMake(row.make) : null;
+    const model = typeof row.model === "string" ? row.model.trim().slice(0, 40) : "";
+    if (!make || !model) continue;
+    if (out.some((entry) => entry.make === make && entry.model.toLowerCase() === model.toLowerCase())) continue;
+    out.push({ make, model });
+    if (out.length >= 6) break;
+  }
+  return out;
+}
+
+function uniqueMakes(makes: string[]): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const make of makes) {
+    const key = make.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(make);
+  }
+  return out.slice(0, 6);
 }
 
 function stringList(value: unknown): string[] {
@@ -159,6 +265,9 @@ export function repairFromText(text: string): RepairAbility {
 export function explicitNeedFromText(text: string, mode: "personal" | "flip"): StructuredNeed {
   const budget = budgetFromText(text);
   const note = text.trim().slice(0, 500);
+  const preferredMakes = makesFromText(note);
+  const preferredModels = preferredModelsFromText(note);
+  const openToOtherMakes = preferredMakes.length === 0 || openToOtherMakesFromText(note);
   return {
     ...emptyNeed(mode),
     useCase: useCaseFromText(text),
@@ -167,7 +276,11 @@ export function explicitNeedFromText(text: string, mode: "personal" | "flip"): S
     budgetKnown: budget !== null,
     repairAbility: mode === "flip" ? repairFromText(text) : "unknown",
     milesMax: milesFromText(note),
-    make: makeFromText(note),
+    make: preferredMakes[0] ?? null,
+    preferredMakes,
+    preferredModels,
+    openToOtherMakes,
+    distanceMiles: null,
   };
 }
 
@@ -185,17 +298,105 @@ export function milesFromText(text: string): number | null {
 }
 
 export function makeFromText(text: string): string | null {
+  return makesFromText(text)[0] ?? null;
+}
+
+/** Every mainstream make named in the note, in mention order. */
+export function makesFromText(text: string): string[] {
   const lower = text.toLowerCase();
-  let best: { make: string; index: number } | null = null;
+  const hits: Array<{ make: string; index: number }> = [];
   for (const make of MAINSTREAM_MAKES) {
-    const index = lower.indexOf(make.toLowerCase());
-    if (index < 0) continue;
-    const before = index === 0 || !/[a-z0-9]/i.test(text[index - 1] ?? "");
-    const after = index + make.length >= text.length || !/[a-z0-9]/i.test(text[index + make.length] ?? "");
-    if (!before || !after) continue;
-    if (!best || index < best.index || (index === best.index && make.length > best.make.length)) best = { make, index };
+    const needle = make.toLowerCase();
+    let from = 0;
+    while (from < lower.length) {
+      const index = lower.indexOf(needle, from);
+      if (index < 0) break;
+      const before = index === 0 || !/[a-z0-9]/i.test(text[index - 1] ?? "");
+      const after = index + make.length >= text.length || !/[a-z0-9]/i.test(text[index + make.length] ?? "");
+      if (before && after) {
+        hits.push({ make, index });
+        break;
+      }
+      from = index + needle.length;
+    }
   }
-  return best?.make ?? null;
+  hits.sort((a, b) => a.index - b.index || b.make.length - a.make.length);
+  return uniqueMakes(hits.map((hit) => hit.make));
+}
+
+export function openToOtherMakesFromText(text: string): boolean {
+  return /\bopen to (?:other|others|any|anything)\b|\bother options\b|\bany (?:make|brand)\b|\bno (?:strong )?(?:make |brand )?preference\b/i.test(
+    text,
+  );
+}
+
+/** Models the shopper actually named (CX-5, RAV4, …). */
+export function preferredModelsFromText(text: string): PreferredModel[] {
+  const lower = text.toLowerCase();
+  const catalog = modelCatalog();
+  const hits: Array<PreferredModel & { index: number; length: number }> = [];
+  for (const entry of catalog) {
+    for (const pattern of modelPatterns(entry.model)) {
+      let from = 0;
+      while (from < lower.length) {
+        const index = lower.indexOf(pattern, from);
+        if (index < 0) break;
+        const before = index === 0 || !/[a-z0-9]/i.test(lower[index - 1] ?? "");
+        const after = index + pattern.length >= lower.length || !/[a-z0-9]/i.test(lower[index + pattern.length] ?? "");
+        if (before && after) {
+          hits.push({ ...entry, index, length: pattern.length });
+          break;
+        }
+        from = index + pattern.length;
+      }
+    }
+  }
+  hits.sort((a, b) => a.index - b.index || b.length - a.length);
+  const out: PreferredModel[] = [];
+  for (const hit of hits) {
+    if (out.some((item) => item.make === hit.make && item.model.toLowerCase() === hit.model.toLowerCase())) continue;
+    out.push({ make: hit.make, model: hit.model });
+    if (out.length >= 6) break;
+  }
+  return out;
+}
+
+function modelCatalog(): PreferredModel[] {
+  const fromFallback = Object.entries(FALLBACK_MODELS).flatMap(([make, models]) =>
+    models.map((model) => ({ make, model })),
+  );
+  const mazda: PreferredModel[] = [
+    { make: "Mazda", model: "CX-5" },
+    { make: "Mazda", model: "CX-50" },
+    { make: "Mazda", model: "CX-30" },
+    { make: "Mazda", model: "CX-9" },
+    { make: "Mazda", model: "Mazda3" },
+  ];
+  const extras: PreferredModel[] = [
+    { make: "Honda", model: "CR-V" },
+    { make: "Honda", model: "HR-V" },
+    { make: "Toyota", model: "RAV4" },
+    { make: "Subaru", model: "Forester" },
+    { make: "Subaru", model: "Outback" },
+    { make: "Hyundai", model: "Tucson" },
+    { make: "Kia", model: "Sportage" },
+    { make: "Chevrolet", model: "Equinox" },
+  ];
+  const seen = new Set<string>();
+  const out: PreferredModel[] = [];
+  for (const item of [...mazda, ...extras, ...fromFallback]) {
+    const key = `${item.make.toLowerCase()}|${item.model.toLowerCase()}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(item);
+  }
+  return out;
+}
+
+function modelPatterns(model: string): string[] {
+  const lower = model.toLowerCase();
+  const compact = lower.replace(/[\s-]/g, "");
+  return [...new Set([lower, compact, lower.replace(/\s+/g, "-")])].sort((a, b) => b.length - a.length);
 }
 
 export function canonicalMake(raw: string): string | null {
@@ -215,29 +416,41 @@ export function bodyFromNote(text: string): "SUV" | "Sedan" | "Truck" | null {
 
 export function listingWithinNeed(
   listing: { make: string; miles: number | null; bodyStyle?: string | null; style?: string | null },
-  need: Pick<StructuredNeed, "make" | "milesMax" | "note">,
+  need: Pick<StructuredNeed, "make" | "preferredMakes" | "openToOtherMakes" | "milesMax" | "note">,
 ): boolean {
-  if (need.make && listing.make.trim().toLowerCase() !== need.make.trim().toLowerCase()) return false;
+  const makes = need.preferredMakes?.length ? need.preferredMakes : need.make ? [need.make] : [];
+  const open = need.openToOtherMakes ?? makes.length === 0;
+  if (makes.length && !open) {
+    const listingMake = listing.make.trim().toLowerCase();
+    if (!makes.some((make) => make.trim().toLowerCase() === listingMake)) return false;
+  }
   if (need.milesMax != null && (listing.miles == null || listing.miles > need.milesMax)) return false;
   const body = bodyFromNote(need.note);
   if (body && !bodyStyleMatches(body, { bodyStyle: listing.bodyStyle ?? null, style: listing.style })) return false;
   return true;
 }
 
-export function noMatchMessage(need: Pick<StructuredNeed, "make" | "milesMax" | "budgetKnown" | "zip" | "note">): string {
+export function noMatchMessage(
+  need: Pick<StructuredNeed, "make" | "preferredMakes" | "milesMax" | "budgetKnown" | "zip" | "distanceMiles" | "note">,
+): string {
   const body = bodyFromNote(need.note);
-  const what = [need.make, body].filter(Boolean).join(" ");
+  const makes = need.preferredMakes?.length ? need.preferredMakes : need.make ? [need.make] : [];
+  const makeLabel = makes.length ? makes.join("/") : null;
+  const what = [makeLabel, body].filter(Boolean).join(" ");
   const parts = [what ? `No ${what} listings` : "No cars"];
   if (need.milesMax) parts.push(`under ${need.milesMax.toLocaleString("en-US")} mi`);
   if (need.budgetKnown) parts.push("within budget");
-  if (need.zip) parts.push(`near ${need.zip}`);
-  return `${parts.join(" ")}. You can raise the mileage cap and search again.`;
+  if (need.zip && need.distanceMiles != null) parts.push(`within ${need.distanceMiles} miles of ${need.zip}`);
+  else if (need.zip) parts.push(`near ${need.zip}`);
+  return `${parts.join(" ")}. Empty inventory for this search — not a parse failure. You can widen the radius or raise the mileage cap and search again.`;
 }
 
 /** Shown when the only rows on hand are the labeled sample and none match the body asked for. */
-export function sampleGapMessage(need: Pick<StructuredNeed, "make" | "note">): string {
+export function sampleGapMessage(need: Pick<StructuredNeed, "make" | "preferredMakes" | "note">): string {
   const body = bodyFromNote(need.note);
-  const what = [need.make, body].filter(Boolean).join(" ") || "that request";
+  const makes = need.preferredMakes?.length ? need.preferredMakes : need.make ? [need.make] : [];
+  const makeLabel = makes.length ? makes.join("/") : null;
+  const what = [makeLabel, body].filter(Boolean).join(" ") || "that request";
   return `The labeled sample has no ${what} listings. Nothing on this page is a live match.`;
 }
 
@@ -256,14 +469,12 @@ export function followUps(need: StructuredNeed): FollowUp[] {
       questions.push({ id: "cash", prompt: "How much cash can you put into the car?" });
     }
     if (!need.zip && questions.length < 3) {
-      questions.push({ id: "zip", prompt: "What ZIP should we shop around?" });
+      questions.push({ id: "zip", prompt: "What ZIP should we shop around? Leave blank for nationwide." });
     }
     return questions.slice(0, 3);
   }
   const questions: FollowUp[] = [];
-  if (!need.zip) {
-    questions.push({ id: "zip", prompt: "What ZIP should we shop around?" });
-  }
+  // ZIP is optional for personal find — blank means nationwide. Do not block confirm on it.
   if (need.useCase === "unspecified") {
     questions.push({ id: "use", prompt: "What will you use the car for most?" });
   }
@@ -287,20 +498,59 @@ export function applyFollowUp(need: StructuredNeed, id: FollowUp["id"], value: s
 /** Form fields the shopper typed win over anything extracted from a paragraph. */
 export function overlayExplicit(
   extracted: StructuredNeed,
-  explicit: Partial<Pick<StructuredNeed, "mode" | "budgetUsd" | "budgetKnown" | "budgetScope" | "zip" | "repairAbility" | "useCase" | "targetProfitUsd" | "milesMax" | "make">>,
+  explicit: Partial<
+    Pick<
+      StructuredNeed,
+      | "mode"
+      | "budgetUsd"
+      | "budgetKnown"
+      | "budgetScope"
+      | "zip"
+      | "distanceMiles"
+      | "repairAbility"
+      | "useCase"
+      | "targetProfitUsd"
+      | "milesMax"
+      | "make"
+      | "preferredMakes"
+      | "preferredModels"
+      | "openToOtherMakes"
+    >
+  >,
 ): StructuredNeed {
+  const preferredMakes =
+    explicit.preferredMakes !== undefined
+      ? uniqueMakes(explicit.preferredMakes)
+      : explicit.make !== undefined
+        ? explicit.make
+          ? [explicit.make]
+          : []
+        : extracted.preferredMakes;
+  const make = preferredMakes[0] ?? null;
+  const zip = explicit.zip === undefined ? extracted.zip : explicit.zip;
+  let distanceMiles = explicit.distanceMiles === undefined ? extracted.distanceMiles : explicit.distanceMiles;
+  if (!zip) distanceMiles = null;
   return {
     ...extracted,
     mode: explicit.mode ?? extracted.mode,
     budgetUsd: explicit.budgetKnown === false ? null : explicit.budgetUsd ?? extracted.budgetUsd,
     budgetKnown: explicit.budgetKnown ?? extracted.budgetKnown,
     budgetScope: explicit.budgetScope ?? extracted.budgetScope,
-    zip: explicit.zip === undefined ? extracted.zip : explicit.zip,
+    zip,
+    distanceMiles,
     repairAbility: explicit.repairAbility ?? extracted.repairAbility,
     useCase: explicit.useCase && explicit.useCase !== "unspecified" ? explicit.useCase : extracted.useCase,
     targetProfitUsd: explicit.targetProfitUsd === undefined ? extracted.targetProfitUsd : explicit.targetProfitUsd,
     milesMax: explicit.milesMax === undefined ? extracted.milesMax : explicit.milesMax,
-    make: explicit.make === undefined ? extracted.make : explicit.make,
+    make,
+    preferredMakes,
+    preferredModels: explicit.preferredModels ?? extracted.preferredModels,
+    openToOtherMakes:
+      preferredMakes.length === 0
+        ? true
+        : explicit.openToOtherMakes !== undefined
+          ? explicit.openToOtherMakes
+          : extracted.openToOtherMakes,
   };
 }
 

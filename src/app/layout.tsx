@@ -55,6 +55,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <a className="skip" href="#main">
           Skip to content
         </a>
+        {/* Scout nav: Header fetches /api/scout capabilities at runtime — do not bake SCOUT_UI_ENABLED here. */}
         <Header />
         <main id="main">
           <PageFade>{children}</PageFade>

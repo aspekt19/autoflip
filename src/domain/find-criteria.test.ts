@@ -44,7 +44,9 @@ describe("mileage cap from a note", () => {
     });
     expect(need.ok).toBe(true);
     if (!need.ok) return;
-    expect(noMatchMessage(need.need)).toBe("No Toyota SUV listings under 50,000 mi within budget near 68114. You can raise the mileage cap and search again.");
+    expect(noMatchMessage(need.need)).toBe(
+      "No Toyota SUV listings under 50,000 mi within budget near 68114. Empty inventory for this search — not a parse failure. You can widen the radius or raise the mileage cap and search again.",
+    );
     expect(listingWithinNeed({ make: "Toyota", miles: 109_488, bodyStyle: "SUV" }, need.need)).toBe(false);
     expect(listingWithinNeed({ make: "Toyota", miles: 119_010, bodyStyle: "SUV" }, need.need)).toBe(false);
     expect(listingWithinNeed({ make: "Honda", miles: 42_100, bodyStyle: "SUV" }, need.need)).toBe(false);
@@ -98,7 +100,7 @@ describe("the owner's note is not rejected", () => {
     expect(result.need.make).toBe("Toyota");
   });
 
-  it("does not block a Toyota RAV4 search when the guard says BLOCK", async () => {
+  it("does not treat a SERV BLOCK as the reason a listings search fails when the key is missing", async () => {
     const result = await assembleRadar(
       { make: "Toyota", model: "RAV4", zip: "68114", yearMin: 2015, yearMax: 2022, mode: "personal", milesMax: 50_000 },
       {
@@ -106,8 +108,9 @@ describe("the owner's note is not rejected", () => {
         fetch: async () => Response.json({ choices: [{ message: { content: "BLOCK" } }] }),
       },
     );
-    expect(result.ok).toBe(true);
-    if (!result.ok) return;
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.error).toBe("listings_unconfigured");
     expect(result.message ?? "").not.toMatch(/input check/i);
   });
 });
