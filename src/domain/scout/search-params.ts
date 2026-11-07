@@ -3,6 +3,7 @@
  * Must stay inside buyer mandate + server caps. Reject out-of-mandate without paid work.
  * Explicit null distanceMiles means nationwide when the mandate allows it (not ??-collapsed).
  */
+import { MAX_DISTANCE_MILES } from "@/domain/need";
 import type { ScoutMandate } from "./types";
 
 export const SCOUT_SEARCH_PARAMS_VERSION = "scout-search-params/v1" as const;
@@ -11,7 +12,8 @@ export const SCOUT_SEARCH_PARAMS_VERSION = "scout-search-params/v1" as const;
 export const SCOUT_SEARCH_SERVER_CAPS = {
   maxMakes: 4,
   maxModels: 6,
-  maxDistanceMiles: 500,
+  /** Align with shared seller-distance technical ceiling so custom radii are not mid-loop blocked. */
+  maxDistanceMiles: MAX_DISTANCE_MILES,
   maxMidLoopSearchesPerRun: 2,
   maxPriceUsd: 500_000,
   maxMiles: 500_000,

@@ -118,7 +118,9 @@ describe("optional ZIP and searchable radius", () => {
     expect(nationwide.need.distanceMiles).toBeNull();
     expect(searchScopeLabel(nationwide.need)).toBe("Nationwide (U.S.)");
     expect(normalizeDistanceMiles("nationwide")).toBeNull();
-    expect(normalizeDistanceMiles(75)).toBeNull();
+    // Custom positive radii are honored — not snapped away to nationwide/null.
+    expect(normalizeDistanceMiles(75)).toBe(75);
+    expect(normalizeDistanceMiles(137)).toBe(137);
   });
 
   it("drops a radius when ZIP is cleared (back/refine to nationwide)", () => {

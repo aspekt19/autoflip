@@ -1,6 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { parseDistanceMiles } from "@/domain/need";
+import { ZipRadiusFields } from "./ZipRadiusFields";
 
 type OwnerCaps = {
   allowlisted: boolean;
@@ -95,8 +97,7 @@ export function ScoutPanel() {
   const [mode, setMode] = useState<"flip" | "personal">("flip");
   const [makes, setMakes] = useState("Toyota");
   const [zip, setZip] = useState("72712");
-  const [nationwide, setNationwide] = useState(false);
-  const [maxDistanceMiles, setMaxDistanceMiles] = useState("500");
+  const [maxDistanceMiles, setMaxDistanceMiles] = useState<number | null>(500);
   const [maxMiles, setMaxMiles] = useState("");
   const [targetProfitUsd, setTargetProfitUsd] = useState("500");
   const [budgetUsd, setBudgetUsd] = useState("25000");
@@ -199,7 +200,18 @@ export function ScoutPanel() {
       return;
     }
 
-    const dist = nationwide ? null : Number(maxDistanceMiles);
+    const nationwide = maxDistanceMiles == null;
+    if (!nationwide) {
+      const parsed = parseDistanceMiles(maxDistanceMiles);
+      if (!parsed.ok || parsed.miles == null) {
+        setError(parsed.ok ? "Enter a positive seller-distance radius, or choose Nationwide." : parsed.message);
+        return;
+      }
+      if (!zip.trim()) {
+        setError("A ZIP is required when a seller-distance radius is set.");
+        return;
+      }
+    }
     const milesCap = maxMiles.trim() === "" ? null : Number(maxMiles);
     const profit = mode === "flip" ? Number(targetProfitUsd) : null;
     const budget = mode === "personal" ? Number(budgetUsd) : null;
@@ -221,7 +233,7 @@ export function ScoutPanel() {
             preferredMakes,
             openToOtherMakes: mode === "personal",
             zip: nationwide ? null : zip.trim() || null,
-            maxDistanceMiles: nationwide ? null : Number.isFinite(dist) ? dist : 500,
+            maxDistanceMiles: nationwide ? null : maxDistanceMiles,
             maxMiles: milesCap != null && Number.isFinite(milesCap) ? milesCap : null,
             targetProfitUsd: profit != null && Number.isFinite(profit) ? profit : null,
             budgetUsd: budget != null && Number.isFinite(budget) ? budget : null,
@@ -310,36 +322,18 @@ export function ScoutPanel() {
             disabled={busy || !sessionOk}
           />
         </label>
-        <label>
-          ZIP
-          <input
-            type="text"
-            value={zip}
-            onChange={(e) => setZip(e.target.value)}
-            placeholder="72712"
-            disabled={busy || !sessionOk || nationwide}
-          />
-        </label>
-        <label className="scout-check">
-          <input
-            type="checkbox"
-            checked={nationwide}
-            onChange={(e) => setNationwide(e.target.checked)}
-            disabled={busy || !sessionOk}
-          />
-          Nationwide (no ZIP / distance)
-        </label>
-        {!nationwide ? (
-          <label>
-            Max distance (miles)
-            <input
-              type="number"
-              value={maxDistanceMiles}
-              onChange={(e) => setMaxDistanceMiles(e.target.value)}
-              disabled={busy || !sessionOk}
-            />
-          </label>
-        ) : null}
+        <ZipRadiusFields
+          idPrefix="scout"
+          zip={zip}
+          distanceMiles={maxDistanceMiles}
+          disabled={busy || !sessionOk}
+          nationwideClearsZip
+          onZipChange={setZip}
+          onDistanceChange={(miles) => {
+            setMaxDistanceMiles(miles);
+            if (miles == null) setZip("");
+          }}
+        />
         <label>
           Max miles (optional)
           <input

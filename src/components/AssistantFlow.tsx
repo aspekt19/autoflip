@@ -13,9 +13,10 @@ import { CoverageLine } from "./CoverageNote";
 import { DecisionNote } from "./DecisionNote";
 import { decideAfFlowRestore } from "@/domain/af-flow-session";
 import { findEmptyCopy, type FindEmptyReason } from "@/domain/find-empty";
-import { SEARCH_RADII_MILES, USE_CASES, searchScopeLabel, type FollowUp, type StructuredNeed } from "@/domain/need";
+import { USE_CASES, searchScopeLabel, type FollowUp, type StructuredNeed } from "@/domain/need";
 import type { Mode } from "@/domain/types";
 import { MakeModelFields } from "./MakeModelFields";
+import { ZipRadiusFields } from "./ZipRadiusFields";
 
 type ListingCard = {
   vin: string;
@@ -782,47 +783,26 @@ function AssistantFlow({
             </select>
           </div>
           )}
-          <div className="field">
-            <label htmlFor="zip-edit">ZIP (optional)</label>
-            <input
-              id="zip-edit"
-              value={need.zip ?? ""}
-              onChange={(event) => {
-                const nextZip = event.target.value.trim() || null;
-                setNeed({
-                  ...need,
-                  zip: nextZip,
-                  distanceMiles: nextZip ? need.distanceMiles ?? 100 : null,
-                });
-              }}
-              placeholder="Leave blank for nationwide"
-            />
-          </div>
-          {need.zip ? (
-            <div className="field">
-              <label htmlFor="radius-edit">Search radius</label>
-              <select
-                id="radius-edit"
-                value={need.distanceMiles ?? ""}
-                onChange={(event) => {
-                  const value = event.target.value;
-                  setNeed({
-                    ...need,
-                    distanceMiles: value === "" ? null : Number(value),
-                  });
-                }}
-              >
-                <option value="">Nationwide</option>
-                {SEARCH_RADII_MILES.map((miles) => (
-                  <option key={miles} value={miles}>
-                    {miles} miles
-                  </option>
-                ))}
-              </select>
-            </div>
-          ) : (
-            <p className="hint">No ZIP — searching nationwide across the U.S.</p>
-          )}
+          <ZipRadiusFields
+            idPrefix="find-confirm"
+            zip={need.zip ?? ""}
+            distanceMiles={need.distanceMiles}
+            onZipChange={(nextZip) => {
+              const trimmed = nextZip.trim() || null;
+              setNeed({
+                ...need,
+                zip: trimmed,
+                // Clearing ZIP drops the radius (nationwide). Adding ZIP keeps or defaults radius.
+                distanceMiles: trimmed ? need.distanceMiles ?? 100 : null,
+              });
+            }}
+            onDistanceChange={(miles) => {
+              setNeed({ ...need, distanceMiles: miles });
+            }}
+          />
+          <p className="hint" aria-live="polite">
+            Scope: {searchScopeLabel(need)}
+          </p>
           <div className="field">
             <label htmlFor="miles-edit">Maximum mileage (optional)</label>
             <input
