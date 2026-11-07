@@ -1,5 +1,5 @@
 {
-  "schemaVersion": "serv-scout-model-compare/v3",
+  "schemaVersion": "serv-scout-model-compare/v4",
   "mode": "dry_run",
   "harness": "eval/serv-scout-model-compare.ts",
   "ledgerPath": "fixtures/scout/pr63-placeholder-ledger.json",
@@ -25,7 +25,9 @@
     "silentEmptyRetry": false,
     "silentTimeoutRetry": false,
     "productionPlannerRetriesUnchanged": true,
-    "noArbitraryServRunQuota": true
+    "noArbitraryServRunQuota": true,
+    "sequentialTwoDecisionMaxHttpTotal": 2,
+    "sequentialTwoDecisionDefaultHttp": 0
   },
   "catalog": [
     {
@@ -159,6 +161,130 @@
     }
   ],
   "rows": [],
+  "sequentialTwoDecisionOffline": {
+    "schemaVersion": "scout-sequential-two-decision/v1",
+    "mode": "dry_run_offline_fixture",
+    "maxHttpAttemptsTotal": 2,
+    "httpAttemptsTotal": 0,
+    "transportPolicy": "experiment_single_attempt",
+    "timeoutMsPerAttempt": 45000,
+    "outputTokenBound": 4096,
+    "decision1PinsUnchanged": true,
+    "stoppedBeforeDecision2": false,
+    "disclaimers": [
+      "Experimental sequential TWO-decision harness — separate from production defaults.",
+      "Decision-2 offline_replay is NOT live tool-result / full-cycle Scout.",
+      "Not a rescore of any prior saved Sonnet row (raw action/citedEvidence from 83929cd unretained).",
+      "Default zero HTTP; parent sole live coordinator."
+    ],
+    "decisions": [
+      {
+        "decisionIndex": 1,
+        "stateKind": "ledger_prepared",
+        "provenanceNote": "Decision-1 on ledger_prepared (same sanitized PR63 step as 70844ae pins).",
+        "stepId": "after_inventory_before_reject",
+        "schemaValid": true,
+        "score": {
+          "schemaValid": true,
+          "parseKind": null,
+          "actionType": "reject",
+          "actionFingerprint": "reject:4TAWM72N3WZ162673:adverse_evidence",
+          "dispositionOk": true,
+          "dispositionCode": "adverse_evidence",
+          "grounded": true,
+          "recoveryClass": "grounded_reject_unusable_ask",
+          "antiLoopSafe": true,
+          "claimsVehicleDefectFromPlaceholder": false,
+          "summary": "reject → grounded_reject_unusable_ask; grounded=true; antiLoopSafe=true"
+        },
+        "retainedAction": {
+          "type": "reject",
+          "reason": "placeholder ask cannot unlock investigation",
+          "servStepId": "exec:step-1",
+          "secretsRedacted": false,
+          "vin": "4TAWM72N3WZ162673",
+          "rationaleKind": "adverse_evidence",
+          "citedEvidence": [
+            {
+              "kind": "missing_asking_price",
+              "gateId": "price"
+            }
+          ],
+          "assumptionsDisclosed": false
+        },
+        "httpAttempts": 0,
+        "transportPolicy": "offline_fixture",
+        "stopReason": "applied",
+        "applyNote": "Local reject applied via production validation/reducer. Decision-2 on offline_replay permitted.",
+        "responseSource": "offline_fixture"
+      },
+      {
+        "decisionIndex": 2,
+        "stateKind": "offline_replay_after_local_apply",
+        "provenanceNote": "OFFLINE_REPLAY after local-only disposition apply — NOT a live tool result, NOT a full Scout cycle, NOT a rescore of prior Sonnet artifacts.",
+        "stepId": "after_inventory_before_reject__offline_replay",
+        "schemaValid": true,
+        "score": {
+          "schemaValid": true,
+          "parseKind": null,
+          "actionType": "abstain",
+          "actionFingerprint": "abstain",
+          "dispositionOk": true,
+          "dispositionCode": null,
+          "grounded": true,
+          "recoveryClass": "honest_abstain",
+          "antiLoopSafe": true,
+          "claimsVehicleDefectFromPlaceholder": false,
+          "summary": "abstain → honest_abstain; grounded=true; antiLoopSafe=true"
+        },
+        "retainedAction": {
+          "type": "abstain",
+          "reason": "offline fixture Decision-2 after local reject — NOT a live model response",
+          "servStepId": "exec:step-2",
+          "secretsRedacted": false
+        },
+        "httpAttempts": 0,
+        "transportPolicy": "offline_fixture",
+        "stopReason": null,
+        "applyNote": null,
+        "responseSource": "offline_fixture"
+      }
+    ],
+    "apply": {
+      "stopReason": "applied",
+      "continueToDecision2": true,
+      "dispositionOk": true,
+      "dispositionCode": "adverse_evidence",
+      "actionFingerprint": "reject:4TAWM72N3WZ162673:adverse_evidence",
+      "note": "Local reject applied via production validation/reducer. Decision-2 on offline_replay permitted.",
+      "appliedLocallyOnly": true,
+      "pendingCountAfter": 19,
+      "rejectedCountAfter": 1,
+      "lastOutcomeOk": true,
+      "lastOutcomeToolId": "candidate.reject"
+    },
+    "offlineReplay": {
+      "stateKind": "offline_replay_after_local_apply",
+      "provenanceNote": "OFFLINE_REPLAY after local-only disposition apply — NOT a live tool result, NOT a full Scout cycle, NOT a rescore of prior Sonnet artifacts.",
+      "stepId": "after_inventory_before_reject__offline_replay",
+      "inputDiff": {
+        "pendingRemoved": [
+          "4TAWM72N3WZ162673"
+        ],
+        "pendingCountBefore": 20,
+        "pendingCountAfter": 19,
+        "rejectedCountAfter": 1,
+        "recentOutcomesAdded": 1,
+        "lastOutcomeToolId": "candidate.reject",
+        "lastOutcomeOk": true
+      },
+      "pendingCount": 19,
+      "rejectedCount": 1,
+      "recentOutcomesCount": 2,
+      "priorIdenticalStreak": 0
+    }
+  },
+  "sequentialLiveOptIn": false,
   "cost": "unknown",
   "notes": [
     "Sanitized evidence only — no network/repository reads or paid reruns by the Cursor worker.",
@@ -175,6 +301,8 @@
     "Live path uses experiment_single_attempt: one HTTP per step; empty/timeout/HTTP errors/refusals recorded, not silently repeated.",
     "Production runServ empty/timeout recovery is unchanged outside this harness.",
     "Schema mismatch rows include sanitized field presence (reason/servStepId/type) without storing raw response text.",
-    "json_schema profiles extract content/parsed/refusal only — tool_call args and reasoning drafts are not planner text (enables production empty-text recovery). Offline synthetic draft-as-JSON hazard — not proven live Luna RCA (raw body unretained)."
+    "json_schema profiles extract content/parsed/refusal only — tool_call args and reasoning drafts are not planner text (enables production empty-text recovery). Offline synthetic draft-as-JSON hazard — not proven live Luna RCA (raw body unretained).",
+    "Experimental sequential TWO-decision: retainAction + local disposition apply + offline_replay Decision-2. NOT live tool-result / full-cycle. Raw 83929cd action unretained — cannot rescore old Sonnet.",
+    "Parse-ok rows may include retainedAction (bounded complete structured decision, secrets redacted); sanitizePlannerParseEcho never embeds string values."
   ]
 }

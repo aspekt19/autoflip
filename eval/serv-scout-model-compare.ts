@@ -47,17 +47,28 @@
  *   SCOUT_COMPARE_ALLOW_PAID     must be "1" to enable live SERV calls
  *   SCOUT_COMPARE_ALLOW_UNLISTED must be "1" to accept non-catalog model IDs
  *   SCOUT_COMPARE_DRY_RUN        "1" forces dry-run even if key present
+ *   SCOUT_COMPARE_SEQUENTIAL     "1" enables parent live ≤2-decision sequential probe
+ *                                (default dry-run still exercises offline sequential fixture)
  *   SCOUT_COMPARE_OUT            optional output basename under eval/results/
+ *
+ * Sequential TWO-decision (experimental; separate from production defaults):
+ *   Decision-1 on after_inventory_before_reject → local apply (production disposition
+ *   validation/reducer, no network) → Decision-2 on offline_replay_after_local_apply.
+ *   Max 2 experiment_single_attempt HTTP total; timeout 45s; tokens 4096; no silent retries.
+ *   Decision-2 is NOT live tool-result / full-cycle. Default zero HTTP.
  */
 import { mkdirSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import {
   loadPlaceholderLedger,
+  offlineFixtureGroundedReject,
   prepareCompareStep,
+  runOfflineSequentialTwoDecision,
   scoreHistoricalLedgerActions,
   scoreScoutPlanAction,
   PR63_PLACEHOLDER_LEDGER_PATH,
   type ActionScore,
+  type SequentialTwoDecisionResult,
 } from "../src/domain/scout/serv-model-compare";
 import { buildScoutPlanUserMessage } from "../src/server/scout/plan-user-message";
 import {
@@ -412,6 +423,30 @@ async function main() {
     console.log(servCompareCatalogNote());
   }
 
+  const outputTokenBound = resolveServOutputTokenBound(process.env);
+  const sequentialOutputTokens = outputTokenBound.ok
+    ? outputTokenBound.tokens
+    : SERV_OUTPUT_TOKEN_DEFAULT;
+
+  // Experimental sequential TWO-decision offline fixture (always; zero HTTP by default).
+  // Parent live sequential (≤2 HTTP) requires SCOUT_COMPARE_SEQUENTIAL=1 + paid gates.
+  const sequentialOffline: SequentialTwoDecisionResult = runOfflineSequentialTwoDecision({
+    ledger,
+    decision1Action: offlineFixtureGroundedReject(ledger.firstVin),
+    decision1SchemaValid: true,
+    decision2Action: {
+      type: "abstain",
+      reason: "offline fixture Decision-2 after local reject — NOT a live model response",
+      servStepId: "exec:step-2",
+    },
+    decision2SchemaValid: true,
+    timeoutMsPerAttempt: scoutProfile.timeoutMs,
+    outputTokenBound: sequentialOutputTokens,
+  });
+  console.log(
+    `Sequential offline fixture: http=${sequentialOffline.httpAttemptsTotal} d1=${sequentialOffline.decisions[0]?.stopReason} d2state=${sequentialOffline.decisions[1]?.stateKind ?? "stopped"} (NOT live tools / full-cycle)`,
+  );
+
   const offlineBeforeAfter = {
     before:
       "On de5eb0c, missing_asking_price@price reject was deny→deny→identical fingerprint no-progress stop; pool was 20 placeholder asks under price=1-20000 + sort=price.",
@@ -434,7 +469,6 @@ async function main() {
     "GPT-5.4 cold first-step timeout (45007ms=scout_plan.timeoutMs) is a separate observed class; do not blind-raise timeout — one-variable parent probe if it persists after this head.",
   ];
 
-  const outputTokenBound = resolveServOutputTokenBound(process.env);
   const transportBounds = {
     policy: "experiment_single_attempt" as const,
     /** scout_plan has no applicationTool → one upstream HTTP per requested step. */
@@ -449,10 +483,13 @@ async function main() {
     silentTimeoutRetry: false,
     productionPlannerRetriesUnchanged: true,
     noArbitraryServRunQuota: true,
+    /** Sequential TWO-decision probe: ≤2 HTTP total across decisions (parent-controlled). */
+    sequentialTwoDecisionMaxHttpTotal: 2,
+    sequentialTwoDecisionDefaultHttp: 0,
   };
 
   const report = {
-    schemaVersion: "serv-scout-model-compare/v3",
+    schemaVersion: "serv-scout-model-compare/v4",
     mode: live ? "live_sequential" : "dry_run",
     harness: "eval/serv-scout-model-compare.ts",
     ledgerPath: PR63_PLACEHOLDER_LEDGER_PATH,
@@ -475,6 +512,49 @@ async function main() {
     stepUserMessages,
     historicalScores,
     rows,
+    /** Offline sequential TWO-decision fixture (zero HTTP). Decision-2 = offline_replay ≠ live tools. */
+    sequentialTwoDecisionOffline: {
+      schemaVersion: sequentialOffline.schemaVersion,
+      mode: sequentialOffline.mode,
+      maxHttpAttemptsTotal: sequentialOffline.maxHttpAttemptsTotal,
+      httpAttemptsTotal: sequentialOffline.httpAttemptsTotal,
+      transportPolicy: sequentialOffline.transportPolicy,
+      timeoutMsPerAttempt: sequentialOffline.timeoutMsPerAttempt,
+      outputTokenBound: sequentialOffline.outputTokenBound,
+      decision1PinsUnchanged: sequentialOffline.decision1PinsUnchanged,
+      stoppedBeforeDecision2: sequentialOffline.stoppedBeforeDecision2,
+      disclaimers: sequentialOffline.disclaimers,
+      decisions: sequentialOffline.decisions,
+      apply: sequentialOffline.apply
+        ? {
+            stopReason: sequentialOffline.apply.stopReason,
+            continueToDecision2: sequentialOffline.apply.continueToDecision2,
+            dispositionOk: sequentialOffline.apply.dispositionOk,
+            dispositionCode: sequentialOffline.apply.dispositionCode,
+            actionFingerprint: sequentialOffline.apply.actionFingerprint,
+            note: sequentialOffline.apply.note,
+            appliedLocallyOnly: sequentialOffline.apply.appliedLocallyOnly,
+            pendingCountAfter: sequentialOffline.apply.state.pendingVins.length,
+            rejectedCountAfter: sequentialOffline.apply.state.rejected.length,
+            lastOutcomeOk: sequentialOffline.apply.outcome?.ok ?? null,
+            lastOutcomeToolId: sequentialOffline.apply.outcome?.toolId ?? null,
+          }
+        : null,
+      offlineReplay: sequentialOffline.offlineReplay
+        ? {
+            stateKind: sequentialOffline.offlineReplay.stateKind,
+            provenanceNote: sequentialOffline.offlineReplay.provenanceNote,
+            stepId: sequentialOffline.offlineReplay.stepId,
+            inputDiff: sequentialOffline.offlineReplay.inputDiff,
+            pendingCount: sequentialOffline.offlineReplay.plannerInput.pendingVins.length,
+            rejectedCount: sequentialOffline.offlineReplay.plannerInput.rejected.length,
+            recentOutcomesCount:
+              sequentialOffline.offlineReplay.plannerInput.recentOutcomes.length,
+            priorIdenticalStreak: sequentialOffline.offlineReplay.priorIdenticalStreak,
+          }
+        : null,
+    },
+    sequentialLiveOptIn: process.env.SCOUT_COMPARE_SEQUENTIAL === "1",
     cost: "unknown" as const,
     notes: [
       ...ledger.notes,
@@ -488,6 +568,8 @@ async function main() {
       "Production runServ empty/timeout recovery is unchanged outside this harness.",
       "Schema mismatch rows include sanitized field presence (reason/servStepId/type) without storing raw response text.",
       "json_schema profiles extract content/parsed/refusal only — tool_call args and reasoning drafts are not planner text (enables production empty-text recovery). Offline synthetic draft-as-JSON hazard — not proven live Luna RCA (raw body unretained).",
+      "Experimental sequential TWO-decision: retainAction + local disposition apply + offline_replay Decision-2. NOT live tool-result / full-cycle. Raw 83929cd action unretained — cannot rescore old Sonnet.",
+      "Parse-ok rows may include retainedAction (bounded complete structured decision, secrets redacted); sanitizePlannerParseEcho never embeds string values.",
     ],
   };
 
