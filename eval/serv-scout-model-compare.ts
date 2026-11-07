@@ -66,6 +66,7 @@ import {
   type SanitizedPlannerParseEcho,
 } from "../src/server/scout/plan-parse";
 import { normalizeCompareUsage } from "../src/server/scout/plan-parse-diagnostics";
+import { sanitizePlannerDiagnostic } from "../src/server/scout/planner";
 import {
   listServCompareModels,
   resolveServCompareModelIds,
@@ -110,6 +111,12 @@ type ModelStepRow = {
    * Never stores reason/VIN/prose values — enough to separate null/empty/wrong-shape.
    */
   sanitizedPlannerEcho: SanitizedPlannerParseEcho | null;
+  /**
+   * On ServResult failure: bounded redacted upstream (type/code/message via
+   * servErrorSummary → sanitizePlannerDiagnostic). Never secrets or raw planner user data.
+   * Historically omitted — Sonnet HTTP 400 rows only had opaque "SERV returned an error."
+   */
+  sanitizedUpstream: string | null;
 };
 
 function usageFromProof(proof: unknown): Usage | null {
@@ -240,7 +247,7 @@ function markdownReport(report: Record<string, unknown>): string {
   } else {
     for (const r of rows) {
       lines.push(
-        `- **${r.modelId}** @ \`${r.stepId}\`: schemaValid=${r.schemaValid}; recovery=${r.score.recoveryClass}; grounded=${r.score.grounded}; antiLoopSafe=${r.score.antiLoopSafe}; latencyMs=${r.latencyMs ?? "n/a"}; httpAttempts=${r.httpAttempts ?? "n/a"}; tokens=${r.tokens?.total_tokens ?? "n/a"}; cost=unknown; unlistedOptIn=${r.unlistedOptIn}${r.error ? `; error=${r.error}` : ""}`,
+        `- **${r.modelId}** @ \`${r.stepId}\`: schemaValid=${r.schemaValid}; recovery=${r.score.recoveryClass}; grounded=${r.score.grounded}; antiLoopSafe=${r.score.antiLoopSafe}; latencyMs=${r.latencyMs ?? "n/a"}; httpAttempts=${r.httpAttempts ?? "n/a"}; tokens=${r.tokens?.total_tokens ?? "n/a"}; cost=unknown; unlistedOptIn=${r.unlistedOptIn}${r.error ? `; error=${r.error}` : ""}${r.sanitizedUpstream ? `; upstream=${r.sanitizedUpstream}` : ""}`,
       );
     }
   }
@@ -314,6 +321,7 @@ async function main() {
         let finishReason: string | null = null;
         let responseShape: string | null = null;
         let sanitizedPlannerEcho: SanitizedPlannerParseEcho | null = null;
+        let sanitizedUpstream: string | null = null;
         let schemaValid = false;
         let score: ActionScore;
 
@@ -342,6 +350,14 @@ async function main() {
           if (!result.ok) {
             rawStatus = result.status;
             error = result.error;
+            // Transport already redacts via servErrorSummary on result.upstream; keep it
+            // (production planner does). Opaque result.error alone is not actionable.
+            sanitizedUpstream =
+              typeof result.upstream === "string" && result.upstream.trim()
+                ? sanitizePlannerDiagnostic(result.upstream, result.status)
+                : result.status > 0
+                  ? `SERV HTTP ${result.status}`
+                  : null;
             // Failure ServResult has no planner text; responseShape + upstream id still recorded.
             score = scoreScoutPlanAction({
               action: null,
@@ -398,6 +414,7 @@ async function main() {
           finishReason,
           responseShape,
           sanitizedPlannerEcho,
+          sanitizedUpstream,
         });
         console.log(
           `${model.id} @ ${prepared.stepId}: schemaValid=${schemaValid} recovery=${score.recoveryClass} latencyMs=${latencyMs} httpAttempts=${httpAttempts} cost=unknown`,
@@ -426,6 +443,7 @@ async function main() {
     "Whether Auto.dev returns usable asks after 500-N on a given minute is unproven here.",
     "Experiment transport disables silent empty/timeout re-POSTs only; production planner recovery retries stay as designed.",
     "Parse failures now record sanitizedPlannerEcho (keys/types/lengths only) + upstreamResponseId/finishReason/responseShape when present — never raw planner JSON.",
+    "HTTP/transport failures also record sanitizedUpstream (servErrorSummary → sanitizePlannerDiagnostic) — never secrets or raw planner user payloads; responseShape alone is insufficient for 400 contract diagnosis.",
     "All-zero usage on a HTTP 200 refusal is unknown cost — not free. Parent Mini/Luna counts are not efficacy winners.",
   ];
 
@@ -482,6 +500,7 @@ async function main() {
       "Live path uses experiment_single_attempt: one HTTP per step; empty/timeout/HTTP errors/refusals recorded, not silently repeated.",
       "Production runServ empty/timeout recovery is unchanged outside this harness.",
       "Schema mismatch rows include sanitized field presence (reason/servStepId/type) without storing raw response text.",
+      "serv_error rows include sanitizedUpstream when ServResult.upstream is present (bounded redacted type/code/message).",
     ],
   };
 

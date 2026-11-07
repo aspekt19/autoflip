@@ -93,26 +93,27 @@
     "Whether Auto.dev returns usable asks after 500-N on a given minute is unproven here.",
     "Experiment transport disables silent empty/timeout re-POSTs only; production planner recovery retries stay as designed.",
     "Parse failures now record sanitizedPlannerEcho (keys/types/lengths only) + upstreamResponseId/finishReason/responseShape when present — never raw planner JSON.",
+    "HTTP/transport failures also record sanitizedUpstream (servErrorSummary → sanitizePlannerDiagnostic) — never secrets or raw planner user payloads; responseShape alone is insufficient for 400 contract diagnosis.",
     "All-zero usage on a HTTP 200 refusal is unknown cost — not free. Parent Mini/Luna counts are not efficacy winners."
   ],
   "stepUserMessages": [
     {
       "stepId": "after_inventory_before_reject",
-      "userMessageBytes": 8101,
+      "userMessageBytes": 8533,
       "pendingCount": 20,
       "usableAsks": 0,
       "allUnusable": true
     },
     {
       "stepId": "after_one_denied_reject",
-      "userMessageBytes": 8421,
+      "userMessageBytes": 8853,
       "pendingCount": 20,
       "usableAsks": 0,
       "allUnusable": true
     },
     {
       "stepId": "after_two_denied_rejects",
-      "userMessageBytes": 8741,
+      "userMessageBytes": 9173,
       "pendingCount": 20,
       "usableAsks": 0,
       "allUnusable": true
@@ -172,6 +173,7 @@
     "Not a claim that any model beats another until parent runs live rows.",
     "Live path uses experiment_single_attempt: one HTTP per step; empty/timeout/HTTP errors/refusals recorded, not silently repeated.",
     "Production runServ empty/timeout recovery is unchanged outside this harness.",
-    "Schema mismatch rows include sanitized field presence (reason/servStepId/type) without storing raw response text."
+    "Schema mismatch rows include sanitized field presence (reason/servStepId/type) without storing raw response text.",
+    "serv_error rows include sanitizedUpstream when ServResult.upstream is present (bounded redacted type/code/message)."
   ]
 }
