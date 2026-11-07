@@ -13,8 +13,10 @@ export type PlanParseResult =
 export {
   sanitizePlannerParseEcho,
   reasonServStepIdMismatchMessage,
+  normalizeCompareUsage,
   type SanitizedPlannerParseEcho,
   type FieldPresence,
+  type CompareUsage,
 } from "./plan-parse-diagnostics";
 
 const REFUSAL_MARKERS = [

@@ -8,6 +8,7 @@ import {
   parseScoutPlanText,
   sanitizePlannerParseEcho,
 } from "./plan-parse";
+import { normalizeCompareUsage } from "./plan-parse-diagnostics";
 
 describe("scout plan parse diagnostics (offline fixtures)", () => {
   it("distinguishes wrong-shape / null / empty / missing under the same historical prefix", () => {
@@ -132,5 +133,48 @@ describe("scout plan parse diagnostics (offline fixtures)", () => {
     );
     expect(parsed.ok).toBe(true);
     if (parsed.ok) expect(parsed.action.type).toBe("abstain");
+  });
+
+  it("classifies Mini-style refusal prose (no JSON) without storing the prose", () => {
+    // Parent Mini compare (Nov 8 Istanbul): step after_one_denied_reject → parseKind refusal.
+    // Raw text absent from saved rows — fixture uses allowlisted marker phrasing only.
+    const refusal = "I cannot assist with that request.";
+    const parsed = parseScoutPlanText(refusal);
+    expect(parsed.ok).toBe(false);
+    if (!parsed.ok) {
+      expect(parsed.kind).toBe("refusal");
+      expect(parsed.message).toBe("SERV planner response looks like a refusal (not schema JSON).");
+    }
+    const echo = sanitizePlannerParseEcho(refusal);
+    expect(echo.looksLikeJsonObject).toBe(false);
+    expect(echo.looksLikeRefusalProse).toBe(true);
+    expect(echo.textBytes).toBe(Buffer.byteLength(refusal, "utf8"));
+    expect(JSON.stringify(echo)).not.toContain("cannot assist");
+  });
+
+  it("messageText refusal field surfaces as refusal-class parse (transport→parser)", () => {
+    const text = messageText({
+      choices: [
+        {
+          message: {
+            content: null,
+            refusal: "I can't assist with that.",
+          },
+        },
+      ],
+    });
+    expect(text.toLowerCase()).toContain("can't assist");
+    const parsed = parseScoutPlanText(text);
+    expect(parsed.ok).toBe(false);
+    if (!parsed.ok) expect(parsed.kind).toBe("refusal");
+  });
+
+  it("treats all-zero token usage as unknown (not free) — Mini refusal accounting", () => {
+    expect(normalizeCompareUsage({ prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 })).toBeNull();
+    expect(normalizeCompareUsage({ prompt_tokens: 3461, completion_tokens: 201, total_tokens: 3662 })).toEqual({
+      prompt_tokens: 3461,
+      completion_tokens: 201,
+      total_tokens: 3662,
+    });
   });
 });

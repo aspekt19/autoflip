@@ -11,6 +11,8 @@ export type FieldPresence = "missing" | "null" | "empty_string" | "non_string" |
 export type SanitizedPlannerParseEcho = {
   textBytes: number;
   looksLikeJsonObject: boolean;
+  /** True when prose matches refusal markers and contains no `{` (Mini step-2 class). */
+  looksLikeRefusalProse: boolean;
   topLevelKeys: string[];
   fieldPresence: {
     type: FieldPresence;
@@ -21,6 +23,15 @@ export type SanitizedPlannerParseEcho = {
   fieldTypes: Record<string, string>;
   stringLengths: Partial<Record<"type" | "reason" | "servStepId" | "vin" | "toolId", number>>;
 };
+
+const REFUSAL_PROBE = [
+  "i can't share that",
+  "i cannot share that",
+  "i'm not able to",
+  "i am not able to",
+  "cannot assist with that",
+  "can't assist with that",
+];
 
 function fieldPresence(value: unknown): FieldPresence {
   if (value === undefined) return "missing";
@@ -42,9 +53,12 @@ function jsonTypeLabel(value: unknown): string {
  */
 export function sanitizePlannerParseEcho(text: string): SanitizedPlannerParseEcho {
   const trimmed = text.trim();
+  const lower = trimmed.toLowerCase();
   const echo: SanitizedPlannerParseEcho = {
     textBytes: Buffer.byteLength(trimmed, "utf8"),
     looksLikeJsonObject: false,
+    looksLikeRefusalProse:
+      Boolean(trimmed) && !trimmed.includes("{") && REFUSAL_PROBE.some((m) => lower.includes(m)),
     topLevelKeys: [],
     fieldPresence: {
       type: "missing",
@@ -91,4 +105,33 @@ export function reasonServStepIdMismatchMessage(raw: Record<string, unknown>): s
   const type = fieldPresence(raw.type);
   const keys = Object.keys(raw).sort().join(",");
   return `Missing reason or servStepId (reason=${reason}, servStepId=${servStepId}, type=${type}, keys=${keys || "none"}).`;
+}
+
+export type CompareUsage = {
+  prompt_tokens?: number;
+  completion_tokens?: number;
+  total_tokens?: number;
+};
+
+/**
+ * Compare harness usage accounting. All-zero usage (seen on Mini refusal HTTP 200)
+ * is unknown — not proof of a free call.
+ */
+export function normalizeCompareUsage(usage: CompareUsage | null | undefined): CompareUsage | null {
+  if (!usage || typeof usage !== "object") return null;
+  const prompt = typeof usage.prompt_tokens === "number" ? usage.prompt_tokens : undefined;
+  const completion = typeof usage.completion_tokens === "number" ? usage.completion_tokens : undefined;
+  const total = typeof usage.total_tokens === "number" ? usage.total_tokens : undefined;
+  if (
+    (prompt === undefined || prompt === 0) &&
+    (completion === undefined || completion === 0) &&
+    (total === undefined || total === 0)
+  ) {
+    return null;
+  }
+  return {
+    prompt_tokens: prompt,
+    completion_tokens: completion,
+    total_tokens: total,
+  };
 }

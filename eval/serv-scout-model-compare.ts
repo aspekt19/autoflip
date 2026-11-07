@@ -65,6 +65,7 @@ import {
   sanitizePlannerParseEcho,
   type SanitizedPlannerParseEcho,
 } from "../src/server/scout/plan-parse";
+import { normalizeCompareUsage } from "../src/server/scout/plan-parse-diagnostics";
 import {
   listServCompareModels,
   resolveServCompareModelIds,
@@ -114,13 +115,7 @@ type ModelStepRow = {
 function usageFromProof(proof: unknown): Usage | null {
   if (!proof || typeof proof !== "object") return null;
   const openserv = (proof as { openserv?: { usage?: Usage } }).openserv;
-  const u = openserv?.usage;
-  if (!u || typeof u !== "object") return null;
-  return {
-    prompt_tokens: u.prompt_tokens,
-    completion_tokens: u.completion_tokens,
-    total_tokens: u.total_tokens,
-  };
+  return normalizeCompareUsage(openserv?.usage ?? null);
 }
 
 function openservMeta(proof: unknown): { id: string | null; finishReason: string | null } {
@@ -431,6 +426,7 @@ async function main() {
     "Whether Auto.dev returns usable asks after 500-N on a given minute is unproven here.",
     "Experiment transport disables silent empty/timeout re-POSTs only; production planner recovery retries stay as designed.",
     "Parse failures now record sanitizedPlannerEcho (keys/types/lengths only) + upstreamResponseId/finishReason/responseShape when present — never raw planner JSON.",
+    "All-zero usage on a HTTP 200 refusal is unknown cost — not free. Parent Mini/Luna counts are not efficacy winners.",
   ];
 
   const outputTokenBound = resolveServOutputTokenBound(process.env);
