@@ -164,6 +164,23 @@ broke `next build` / generated route types (invalid Route field). Bounded fix:
 - Verified: `npx tsc --noEmit` exit 0; `npm run build` exit 0; offline `next start`
   smoke GET `/api/scout` + `/scout` flag off/on (HTML source inspection — not browser E2E)
 
+## STAGE-BROWSER-E2E — PIN b454869 (compiled local next start clickthrough)
+
+Real Chromium render/clickthrough of compiled PR59 (not HTML-substring / helper-only;
+not box checkout; not deploy). Tip builds on `f820be9` / docs `95695de`.
+- UX honesty: client `af_` validation; partial as warn; surface run id; selecting stamp
+  uses offline/non-SERV wording when `autonomyClaim=none`
+- Flows: `/scout` UI off gate; UI on desktop+mobile; empty-key validation; offline
+  fixture run → constraints (`hardConstraintVerified=false`, geo unknown) / provenance /
+  no efficacy claims; progress offline stamp; console clean; network localhost-only
+- Persist: `GET /api/scout/:runId` refresh works; UI has **no** resume/replay control
+  (run id display only)
+- Gates: `tsc` 0; `next build` 0; vitest offline scout suite 18 pass
+- Artifacts: `/opt/cursor/artifacts/scout-desktop-results-b454869.png`,
+  `scout-mobile-results-b454869.png`, `scout-desktop-ui-off.png`,
+  `scout-browser-clickthrough.mp4`, `scout-qa-report.md`
+- Labels: OFFLINE; no paid SERV/Auto.dev; no production flag enable; no Graph/merge/deploy
+
 ### Release-readiness blockers (precise; not closed by this pin)
 
 | Area | Status |
