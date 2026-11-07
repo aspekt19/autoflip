@@ -29,8 +29,10 @@ export {
   scoreHistoricalLedgerActions,
   retainScoutPlanAction,
   applyLocalCompareAction,
+  canLocallyApplyDisposition,
   prepareOfflineReplayAfterLocalApply,
   runOfflineSequentialTwoDecision,
+  runSequentialTwoDecision,
   offlineFixtureGroundedReject,
   PR63_PLACEHOLDER_LEDGER_PATH,
   OFFLINE_REPLAY_PROVENANCE_NOTE,
@@ -50,6 +52,7 @@ export type {
   OfflineReplayPrepared,
   SequentialDecisionRow,
   SequentialTwoDecisionResult,
+  SequentialServCaller,
 } from "./serv-model-compare";
 export {
   SCOUT_METRICS_SCHEMA_VERSION,

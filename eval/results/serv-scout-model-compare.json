@@ -171,11 +171,13 @@
     "outputTokenBound": 4096,
     "decision1PinsUnchanged": true,
     "stoppedBeforeDecision2": false,
+    "sequentialOrchestrationExecuted": true,
     "disclaimers": [
       "Experimental sequential TWO-decision harness — separate from production defaults.",
       "Decision-2 offline_replay is NOT live tool-result / full-cycle Scout.",
       "Not a rescore of any prior saved Sonnet row (raw action/citedEvidence from 83929cd unretained).",
-      "Default zero HTTP; parent sole live coordinator."
+      "Default zero HTTP; parent sole live coordinator.",
+      "Ungrounded/denied Decision-1 stops before Decision-2; already-processed VIN fails closed."
     ],
     "decisions": [
       {
@@ -284,7 +286,9 @@
       "priorIdenticalStreak": 0
     }
   },
-  "sequentialLiveOptIn": false,
+  "sequentialTwoDecisionLive": null,
+  "sequentialLiveOptIn": true,
+  "sequentialLiveExecuted": false,
   "cost": "unknown",
   "notes": [
     "Sanitized evidence only — no network/repository reads or paid reruns by the Cursor worker.",
@@ -302,7 +306,7 @@
     "Production runServ empty/timeout recovery is unchanged outside this harness.",
     "Schema mismatch rows include sanitized field presence (reason/servStepId/type) without storing raw response text.",
     "json_schema profiles extract content/parsed/refusal only — tool_call args and reasoning drafts are not planner text (enables production empty-text recovery). Offline synthetic draft-as-JSON hazard — not proven live Luna RCA (raw body unretained).",
-    "Experimental sequential TWO-decision: retainAction + local disposition apply + offline_replay Decision-2. NOT live tool-result / full-cycle. Raw 83929cd action unretained — cannot rescore old Sonnet.",
-    "Parse-ok rows may include retainedAction (bounded complete structured decision, secrets redacted); sanitizePlannerParseEcho never embeds string values."
+    "Experimental sequential TWO-decision: SCOUT_COMPARE_SEQUENTIAL=1 runs real D1→local apply→D2 orchestration (≤2 HTTP). Ungrounded/denied stops before D2; already-processed VIN fails closed. NOT live tool-result / full-cycle. Raw 83929cd action unretained.",
+    "Parse-ok compare rows include retainedAction when retention succeeds (bounded complete structured decision, secrets redacted); null otherwise. sanitizePlannerParseEcho never embeds string values."
   ]
 }

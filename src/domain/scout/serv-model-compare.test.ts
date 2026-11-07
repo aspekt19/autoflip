@@ -279,7 +279,7 @@ describe("SERV model compare harness (offline / no paid calls)", () => {
       },
     });
     expect(ungrounded.stopReason).toBe("applied_denied");
-    expect(ungrounded.continueToDecision2).toBe(true);
+    expect(ungrounded.continueToDecision2).toBe(false);
     expect(ungrounded.dispositionOk).toBe(false);
     expect(ungrounded.state.pendingVins).toContain(ledger.firstVin);
     expect(ungrounded.state.recentOutcomes.at(-1)!.ok).toBe(false);
@@ -361,6 +361,64 @@ describe("SERV model compare harness (offline / no paid calls)", () => {
     expect(terminal.decisions).toHaveLength(1);
     expect(terminal.apply?.stopReason).toBe("terminal_abstain");
     expect(terminal.httpAttemptsTotal).toBe(0);
+  });
+
+  it("already-processed VIN cannot reapply; no duplicate rejected[]; success clears streak but transition still blocks", () => {
+    const ledger = loadPlaceholderLedger();
+    const first = prepareCompareStep(ledger, ledger.compareSteps[0]!);
+    const action = offlineFixtureGroundedReject(ledger.firstVin);
+
+    const once = applyLocalCompareAction({ prepared: first, action });
+    expect(once.stopReason).toBe("applied");
+    expect(once.continueToDecision2).toBe(true);
+    expect(once.state.priorIdenticalStreak).toBe(0); // success clears streak
+    expect(once.state.rejected.filter((c) => c.vin === ledger.firstVin)).toHaveLength(1);
+    expect(once.state.pendingVins).not.toContain(ledger.firstVin);
+    expect(once.state.candidatesByVin[ledger.firstVin]!.disposition).toBe("rejected");
+
+    // Reviewer repro: 4× reapply after success never stopped — must fail closed now.
+    let state = once.state;
+    for (let i = 0; i < 4; i++) {
+      const again = applyLocalCompareAction({
+        prepared: first,
+        action,
+        fromState: state,
+      });
+      expect(again.stopReason).toBe("invalid_transition");
+      expect(again.continueToDecision2).toBe(false);
+      expect(again.dispositionCode).toBe("already_processed");
+      expect(again.state.rejected.filter((c) => c.vin === ledger.firstVin)).toHaveLength(1);
+      expect(again.state.pendingVins).not.toContain(ledger.firstVin);
+      state = again.state;
+    }
+  });
+
+  it("ungrounded Decision-1 stops sequential harness before Decision-2", () => {
+    const ledger = loadPlaceholderLedger();
+    const seq = runOfflineSequentialTwoDecision({
+      ledger,
+      decision1Action: {
+        type: "reject",
+        vin: ledger.firstVin,
+        reason: "car is bad because vibes",
+        servStepId: "exec:step-1",
+        rationaleKind: "adverse_evidence",
+        citedEvidence: [{ kind: "bad_title_brand", gateId: "title" }],
+      },
+      decision1SchemaValid: true,
+      decision2Action: {
+        type: "abstain",
+        reason: "should not be invoked",
+        servStepId: "exec:step-2",
+      },
+      decision2SchemaValid: true,
+    });
+    expect(seq.stoppedBeforeDecision2).toBe(true);
+    expect(seq.decisions).toHaveLength(1);
+    expect(seq.apply?.stopReason).toBe("applied_denied");
+    expect(seq.apply?.continueToDecision2).toBe(false);
+    expect(seq.httpAttemptsTotal).toBe(0);
+    expect(seq.sequentialOrchestrationExecuted).toBe(true);
   });
 
   it("Decision-1 system/schema/user pins unchanged vs 70844ae; Decision-2 user bytes differ after apply", () => {

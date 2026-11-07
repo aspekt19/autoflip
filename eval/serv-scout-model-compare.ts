@@ -63,11 +63,13 @@ import {
   loadPlaceholderLedger,
   offlineFixtureGroundedReject,
   prepareCompareStep,
+  retainScoutPlanAction,
   runOfflineSequentialTwoDecision,
   scoreHistoricalLedgerActions,
   scoreScoutPlanAction,
   PR63_PLACEHOLDER_LEDGER_PATH,
   type ActionScore,
+  type RetainedScoutPlanAction,
   type SequentialTwoDecisionResult,
 } from "../src/domain/scout/serv-model-compare";
 import { buildScoutPlanUserMessage } from "../src/server/scout/plan-user-message";
@@ -77,6 +79,7 @@ import {
   type SanitizedPlannerParseEcho,
 } from "../src/server/scout/plan-parse";
 import { normalizeCompareUsage } from "../src/server/scout/plan-parse-diagnostics";
+import { runSequentialCompareProbe } from "../src/server/scout/sequential-compare-probe";
 import {
   listServCompareModels,
   resolveServCompareModelIds,
@@ -121,6 +124,11 @@ type ModelStepRow = {
    * Never stores reason/VIN/prose values — enough to separate null/empty/wrong-shape.
    */
   sanitizedPlannerEcho: SanitizedPlannerParseEcho | null;
+  /**
+   * Present on parse-ok rows when retention succeeds (bounded complete action;
+   * secrets redacted). Null on parse-fail / retention refuse — never overclaimed.
+   */
+  retainedAction: RetainedScoutPlanAction | null;
 };
 
 function usageFromProof(proof: unknown): Usage | null {
@@ -139,6 +147,50 @@ function openservMeta(proof: unknown): { id: string | null; finishReason: string
       typeof openserv.finish_reason === "string" && openserv.finish_reason.trim()
         ? openserv.finish_reason.trim()
         : null,
+  };
+}
+
+function summarizeSequential(seq: SequentialTwoDecisionResult) {
+  return {
+    schemaVersion: seq.schemaVersion,
+    mode: seq.mode,
+    maxHttpAttemptsTotal: seq.maxHttpAttemptsTotal,
+    httpAttemptsTotal: seq.httpAttemptsTotal,
+    transportPolicy: seq.transportPolicy,
+    timeoutMsPerAttempt: seq.timeoutMsPerAttempt,
+    outputTokenBound: seq.outputTokenBound,
+    decision1PinsUnchanged: seq.decision1PinsUnchanged,
+    stoppedBeforeDecision2: seq.stoppedBeforeDecision2,
+    sequentialOrchestrationExecuted: seq.sequentialOrchestrationExecuted,
+    disclaimers: seq.disclaimers,
+    decisions: seq.decisions,
+    apply: seq.apply
+      ? {
+          stopReason: seq.apply.stopReason,
+          continueToDecision2: seq.apply.continueToDecision2,
+          dispositionOk: seq.apply.dispositionOk,
+          dispositionCode: seq.apply.dispositionCode,
+          actionFingerprint: seq.apply.actionFingerprint,
+          note: seq.apply.note,
+          appliedLocallyOnly: seq.apply.appliedLocallyOnly,
+          pendingCountAfter: seq.apply.state.pendingVins.length,
+          rejectedCountAfter: seq.apply.state.rejected.length,
+          lastOutcomeOk: seq.apply.outcome?.ok ?? null,
+          lastOutcomeToolId: seq.apply.outcome?.toolId ?? null,
+        }
+      : null,
+    offlineReplay: seq.offlineReplay
+      ? {
+          stateKind: seq.offlineReplay.stateKind,
+          provenanceNote: seq.offlineReplay.provenanceNote,
+          stepId: seq.offlineReplay.stepId,
+          inputDiff: seq.offlineReplay.inputDiff,
+          pendingCount: seq.offlineReplay.plannerInput.pendingVins.length,
+          rejectedCount: seq.offlineReplay.plannerInput.rejected.length,
+          recentOutcomesCount: seq.offlineReplay.plannerInput.recentOutcomes.length,
+          priorIdenticalStreak: seq.offlineReplay.priorIdenticalStreak,
+        }
+      : null,
   };
 }
 
@@ -327,6 +379,7 @@ async function main() {
         let sanitizedPlannerEcho: SanitizedPlannerParseEcho | null = null;
         let schemaValid = false;
         let score: ActionScore;
+        let retainedAction: RetainedScoutPlanAction | null = null;
 
         try {
           // Isolated experiment transport: one upstream attempt per step; empty/timeout
@@ -377,7 +430,11 @@ async function main() {
               priorDeniedRejectFingerprint: prepared.priorDeniedRejectFingerprint,
               priorIdenticalStreak: prepared.priorIdenticalStreak,
             });
-            if (!parsed.ok) error = `${parsed.kind}: ${parsed.message}`;
+            if (parsed.ok) {
+              retainedAction = retainScoutPlanAction(parsed.action);
+            } else {
+              error = `${parsed.kind}: ${parsed.message}`;
+            }
           }
         } catch (err) {
           latencyMs = Date.now() - started;
@@ -412,6 +469,7 @@ async function main() {
           finishReason,
           responseShape,
           sanitizedPlannerEcho,
+          retainedAction,
         });
         console.log(
           `${model.id} @ ${prepared.stepId}: schemaValid=${schemaValid} recovery=${score.recoveryClass} latencyMs=${latencyMs} httpAttempts=${httpAttempts} cost=unknown`,
@@ -428,8 +486,11 @@ async function main() {
     ? outputTokenBound.tokens
     : SERV_OUTPUT_TOKEN_DEFAULT;
 
-  // Experimental sequential TWO-decision offline fixture (always; zero HTTP by default).
-  // Parent live sequential (≤2 HTTP) requires SCOUT_COMPARE_SEQUENTIAL=1 + paid gates.
+  // Experimental sequential TWO-decision:
+  // - Always run offline fixture (zero HTTP) for harness regression.
+  // - When SCOUT_COMPARE_SEQUENTIAL=1 + paid live gates: also run real D1→apply→D2
+  //   orchestration via runSequentialCompareProbe (≤2 experiment_single_attempt).
+  const sequentialOptIn = process.env.SCOUT_COMPARE_SEQUENTIAL === "1";
   const sequentialOffline: SequentialTwoDecisionResult = runOfflineSequentialTwoDecision({
     ledger,
     decision1Action: offlineFixtureGroundedReject(ledger.firstVin),
@@ -444,8 +505,35 @@ async function main() {
     outputTokenBound: sequentialOutputTokens,
   });
   console.log(
-    `Sequential offline fixture: http=${sequentialOffline.httpAttemptsTotal} d1=${sequentialOffline.decisions[0]?.stopReason} d2state=${sequentialOffline.decisions[1]?.stateKind ?? "stopped"} (NOT live tools / full-cycle)`,
+    `Sequential offline fixture: http=${sequentialOffline.httpAttemptsTotal} d1=${sequentialOffline.decisions[0]?.stopReason} d2state=${sequentialOffline.decisions[1]?.stateKind ?? "stopped"} orchestration=${sequentialOffline.sequentialOrchestrationExecuted} (NOT live tools / full-cycle)`,
   );
+
+  let sequentialLive: SequentialTwoDecisionResult | null = null;
+  if (sequentialOptIn && live) {
+    const probeModel = modelRes.models[0];
+    if (!probeModel) {
+      console.error("SCOUT_COMPARE_SEQUENTIAL=1 but no resolved models — refusing live probe.");
+      process.exit(1);
+    }
+    console.log(
+      `Sequential LIVE probe (opt-in): model=${probeModel.id} maxHttp=2 timeoutMs=${scoutProfile.timeoutMs} tokens=${sequentialOutputTokens}`,
+    );
+    sequentialLive = await runSequentialCompareProbe({
+      ledger,
+      model: probeModel.id,
+      apiKey: key,
+      baseUrl: process.env.SERV_BASE_URL,
+      timeoutMsPerAttempt: scoutProfile.timeoutMs,
+      outputTokenBound: sequentialOutputTokens,
+    });
+    console.log(
+      `Sequential LIVE done: http=${sequentialLive.httpAttemptsTotal}/${sequentialLive.maxHttpAttemptsTotal} d1=${sequentialLive.decisions[0]?.stopReason} d2=${sequentialLive.decisions[1]?.stateKind ?? "stopped"} stoppedBeforeD2=${sequentialLive.stoppedBeforeDecision2}`,
+    );
+  } else if (sequentialOptIn && !live) {
+    console.log(
+      "SCOUT_COMPARE_SEQUENTIAL=1 set but live gates not open (need SERV_API_KEY + SCOUT_COMPARE_ALLOW_PAID=1); offline fixture only — no report-only fake live.",
+    );
+  }
 
   const offlineBeforeAfter = {
     before:
@@ -513,48 +601,14 @@ async function main() {
     historicalScores,
     rows,
     /** Offline sequential TWO-decision fixture (zero HTTP). Decision-2 = offline_replay ≠ live tools. */
-    sequentialTwoDecisionOffline: {
-      schemaVersion: sequentialOffline.schemaVersion,
-      mode: sequentialOffline.mode,
-      maxHttpAttemptsTotal: sequentialOffline.maxHttpAttemptsTotal,
-      httpAttemptsTotal: sequentialOffline.httpAttemptsTotal,
-      transportPolicy: sequentialOffline.transportPolicy,
-      timeoutMsPerAttempt: sequentialOffline.timeoutMsPerAttempt,
-      outputTokenBound: sequentialOffline.outputTokenBound,
-      decision1PinsUnchanged: sequentialOffline.decision1PinsUnchanged,
-      stoppedBeforeDecision2: sequentialOffline.stoppedBeforeDecision2,
-      disclaimers: sequentialOffline.disclaimers,
-      decisions: sequentialOffline.decisions,
-      apply: sequentialOffline.apply
-        ? {
-            stopReason: sequentialOffline.apply.stopReason,
-            continueToDecision2: sequentialOffline.apply.continueToDecision2,
-            dispositionOk: sequentialOffline.apply.dispositionOk,
-            dispositionCode: sequentialOffline.apply.dispositionCode,
-            actionFingerprint: sequentialOffline.apply.actionFingerprint,
-            note: sequentialOffline.apply.note,
-            appliedLocallyOnly: sequentialOffline.apply.appliedLocallyOnly,
-            pendingCountAfter: sequentialOffline.apply.state.pendingVins.length,
-            rejectedCountAfter: sequentialOffline.apply.state.rejected.length,
-            lastOutcomeOk: sequentialOffline.apply.outcome?.ok ?? null,
-            lastOutcomeToolId: sequentialOffline.apply.outcome?.toolId ?? null,
-          }
-        : null,
-      offlineReplay: sequentialOffline.offlineReplay
-        ? {
-            stateKind: sequentialOffline.offlineReplay.stateKind,
-            provenanceNote: sequentialOffline.offlineReplay.provenanceNote,
-            stepId: sequentialOffline.offlineReplay.stepId,
-            inputDiff: sequentialOffline.offlineReplay.inputDiff,
-            pendingCount: sequentialOffline.offlineReplay.plannerInput.pendingVins.length,
-            rejectedCount: sequentialOffline.offlineReplay.plannerInput.rejected.length,
-            recentOutcomesCount:
-              sequentialOffline.offlineReplay.plannerInput.recentOutcomes.length,
-            priorIdenticalStreak: sequentialOffline.offlineReplay.priorIdenticalStreak,
-          }
-        : null,
-    },
-    sequentialLiveOptIn: process.env.SCOUT_COMPARE_SEQUENTIAL === "1",
+    sequentialTwoDecisionOffline: summarizeSequential(sequentialOffline),
+    /**
+     * Live sequential probe when SCOUT_COMPARE_SEQUENTIAL=1 + paid gates.
+     * Null when opt-in unset or live gates closed — never a report-only flag without execution.
+     */
+    sequentialTwoDecisionLive: sequentialLive ? summarizeSequential(sequentialLive) : null,
+    sequentialLiveOptIn: sequentialOptIn,
+    sequentialLiveExecuted: Boolean(sequentialLive?.sequentialOrchestrationExecuted),
     cost: "unknown" as const,
     notes: [
       ...ledger.notes,
@@ -568,8 +622,8 @@ async function main() {
       "Production runServ empty/timeout recovery is unchanged outside this harness.",
       "Schema mismatch rows include sanitized field presence (reason/servStepId/type) without storing raw response text.",
       "json_schema profiles extract content/parsed/refusal only — tool_call args and reasoning drafts are not planner text (enables production empty-text recovery). Offline synthetic draft-as-JSON hazard — not proven live Luna RCA (raw body unretained).",
-      "Experimental sequential TWO-decision: retainAction + local disposition apply + offline_replay Decision-2. NOT live tool-result / full-cycle. Raw 83929cd action unretained — cannot rescore old Sonnet.",
-      "Parse-ok rows may include retainedAction (bounded complete structured decision, secrets redacted); sanitizePlannerParseEcho never embeds string values.",
+      "Experimental sequential TWO-decision: SCOUT_COMPARE_SEQUENTIAL=1 runs real D1→local apply→D2 orchestration (≤2 HTTP). Ungrounded/denied stops before D2; already-processed VIN fails closed. NOT live tool-result / full-cycle. Raw 83929cd action unretained.",
+      "Parse-ok compare rows include retainedAction when retention succeeds (bounded complete structured decision, secrets redacted); null otherwise. sanitizePlannerParseEcho never embeds string values.",
     ],
   };
 
