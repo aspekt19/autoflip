@@ -164,7 +164,7 @@ broke `next build` / generated route types (invalid Route field). Bounded fix:
 - Verified: `npx tsc --noEmit` exit 0; `npm run build` exit 0; offline `next start`
   smoke GET `/api/scout` + `/scout` flag off/on (HTML source inspection — not browser E2E)
 
-## STAGE-FOUR-BLOCKERS — PIN (pending SHA) SERV reserve / USD fail-closed / session revoke / runtime nav
+## STAGE-FOUR-BLOCKERS — PIN a6ad1a6 SERV reserve / USD fail-closed / session revoke / runtime nav
 
 Independent review of ec253d2 left four concrete blockers. Offline fixes (no deploy/spend):
 
