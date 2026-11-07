@@ -1,12 +1,27 @@
 /**
- * Parent-runnable controlled SAME-input SERV-model comparison (owner t292).
+ * Parent-runnable controlled SAME-input SERV-model comparison (owner t292/t294/t295).
  *
  * Rebuilds planner inputs from the sanitized PR63 placeholder ledger and, when
- * parent authorizes paid SERV, runs sequential scout_plan calls per model ID
- * from the in-repo catalog — strict JSON schema, scored for validity /
- * groundedness / recovery / latency / tokens / costunknown.
+ * parent authorizes paid SERV, runs sequential scout_plan calls per model ID —
+ * strict JSON schema, scored for validity / groundedness / recovery / latency /
+ * tokens / costunknown.
  *
- * This worker must not run paid calls. Defaults to dry-run (no network).
+ * ## Not a demonstrated product fix via model swap
+ * This harness enables parent comparison only. A model-only swap is **NOT** the
+ * demonstrated fix for the PR63 placeholder-price / reject-grounding deadlock.
+ * Production `BASE_MODEL` / `SERV_MODEL` default is unchanged.
+ *
+ * ## Network / spend gates (confirm)
+ * Default = zero network (dry-run). Live SERV requires both:
+ *   SERV_API_KEY + SCOUT_COMPARE_ALLOW_PAID=1
+ * (SCOUT_COMPARE_DRY_RUN=1 forces dry-run even if a key is present.)
+ *
+ * ## Console vs in-repo catalog
+ * OpenServ console Available-models (owner screenshots) lists broader IDs and
+ * $/M rates (e.g. gpt-6-luna). In-repo catalog stays narrow. Parent may pass
+ * explicit IDs after console/contract validation with
+ * SCOUT_COMPARE_ALLOW_UNLISTED=1. Fail-closed for garbage. Do not force cheapest;
+ * budget-conscious ≠ cheapest-at-expense-of-quality.
  *
  * Usage (parent):
  *   # Offline harness validation (no key, no spend):
@@ -17,13 +32,19 @@
  *     SERV_COMPARE_MODELS=gpt-5.4-mini,gpt-5.4-mini-2026-03-17 \\
  *     npm run eval:scout-model-compare
  *
+ *   # Parent-validated console ID not in in-repo catalog:
+ *   SERV_API_KEY=… SCOUT_COMPARE_ALLOW_PAID=1 SCOUT_COMPARE_ALLOW_UNLISTED=1 \\
+ *     SERV_COMPARE_MODELS=gpt-6-luna \\
+ *     npm run eval:scout-model-compare
+ *
  * Env (never print secret values):
- *   SERV_API_KEY              required for live mode
- *   SERV_BASE_URL             optional (default inference-api.openserv.ai/v1)
- *   SERV_COMPARE_MODELS      CSV of in-repo catalog IDs (default: all catalog)
- *   SCOUT_COMPARE_ALLOW_PAID  must be "1" to enable live SERV calls
- *   SCOUT_COMPARE_DRY_RUN     "1" forces dry-run even if key present
- *   SCOUT_COMPARE_OUT         optional output basename under eval/results/
+ *   SERV_API_KEY                 required for live mode
+ *   SERV_BASE_URL                optional (default inference-api.openserv.ai/v1)
+ *   SERV_COMPARE_MODELS         CSV (default: in-repo catalog)
+ *   SCOUT_COMPARE_ALLOW_PAID     must be "1" to enable live SERV calls
+ *   SCOUT_COMPARE_ALLOW_UNLISTED must be "1" to accept non-catalog model IDs
+ *   SCOUT_COMPARE_DRY_RUN        "1" forces dry-run even if key present
+ *   SCOUT_COMPARE_OUT            optional output basename under eval/results/
  */
 import { mkdirSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
@@ -64,6 +85,7 @@ type ModelStepRow = {
   rawStatus: number | null;
   reportedModel: string | null;
   error: string | null;
+  unlistedOptIn: boolean;
 };
 
 function usageFromProof(proof: unknown): Usage | null {
@@ -83,9 +105,49 @@ function markdownReport(report: Record<string, unknown>): string {
   lines.push("# SERV scout model compare (PR63 placeholder ledger)");
   lines.push("");
   lines.push(`- Mode: \`${String(report.mode)}\``);
+  lines.push(`- Harness head (when committed): see git SHA on PR branch`);
   lines.push(`- Ledger: \`${PR63_PLACEHOLDER_LEDGER_PATH}\``);
   lines.push(`- Deployed SHA under test (ledger): \`${String(report.ledgerDeployedSha)}\``);
-  lines.push(`- Cost: **unknown** (not reconciled; labeled costunknown)`);
+  lines.push(`- Production default model: \`${String(report.productionDefaultModel)}\` (unchanged: ${String(report.productionDefaultUnchanged)})`);
+  lines.push(`- Cost: **unknown** (console $/M is not reconciled run cost; labeled costunknown)`);
+  lines.push("");
+  lines.push("## Critical disclaimers (t294/t295)");
+  lines.push("");
+  lines.push("- **Model-only swap is NOT the demonstrated product fix** for the placeholder-price reject deadlock. Code fixes (query floor, cite grounding, filter) are separate; this harness only compares planner behavior on the same offline ledger input.");
+  lines.push("- **Budget-conscious ≠ cheapest.** Do not pick the lowest console $/M at the expense of grounded recovery / anti-loop quality.");
+  lines.push("- **Console ≠ in-repo catalog.** Console Available-models is broader (e.g. `gpt-6-luna`); unlisted IDs need parent validation + `SCOUT_COMPARE_ALLOW_UNLISTED=1`.");
+  lines.push("- **Zero-network default.** Live requires `SERV_API_KEY` + `SCOUT_COMPARE_ALLOW_PAID=1`.");
+  lines.push("");
+  lines.push("## Evidence taxonomy (observed vs hypotheses vs unrecorded)");
+  lines.push("");
+  const tax = report.evidenceTaxonomy as
+    | { observed?: string[]; hypotheses?: string[]; unrecorded_historical?: string[] }
+    | undefined;
+  if (tax) {
+    lines.push("### Observed");
+    for (const o of tax.observed ?? []) lines.push(`- ${o}`);
+    lines.push("");
+    lines.push("### Hypotheses (not proven as sole root cause)");
+    for (const h of tax.hypotheses ?? []) lines.push(`- ${h}`);
+    lines.push("");
+    lines.push("### Unrecorded historical details");
+    for (const u of tax.unrecorded_historical ?? []) lines.push(`- ${u}`);
+  } else {
+    lines.push("_See ledger `evidenceTaxonomy`._");
+  }
+  lines.push("");
+  lines.push("## Offline before / after (reproduction)");
+  lines.push("");
+  const ba = report.offlineBeforeAfter as {
+    before?: string;
+    afterCodeFix?: string;
+    modelCompareRole?: string;
+  };
+  if (ba) {
+    lines.push(`- **Before (de5eb0c live / offline replay):** ${ba.before ?? ""}`);
+    lines.push(`- **After code fix (this branch, offline):** ${ba.afterCodeFix ?? ""}`);
+    lines.push(`- **Model compare role:** ${ba.modelCompareRole ?? ""}`);
+  }
   lines.push("");
   lines.push("## Catalog mechanism");
   lines.push("");
@@ -107,6 +169,10 @@ function markdownReport(report: Record<string, unknown>): string {
     );
   }
   lines.push("");
+  lines.push(
+    "Note: `observedOk=false` is the **historical live** denial on de5eb0c; `grounded=true` under current code reflects the cite-grounding fix on the same citation shape — not a claim the live run was grounded.",
+  );
+  lines.push("");
   lines.push("## Model × step rows");
   lines.push("");
   const rows = report.rows as ModelStepRow[];
@@ -115,20 +181,23 @@ function markdownReport(report: Record<string, unknown>): string {
   } else {
     for (const r of rows) {
       lines.push(
-        `- **${r.modelId}** @ \`${r.stepId}\`: schemaValid=${r.schemaValid}; recovery=${r.score.recoveryClass}; grounded=${r.score.grounded}; antiLoopSafe=${r.score.antiLoopSafe}; latencyMs=${r.latencyMs ?? "n/a"}; tokens=${r.tokens?.total_tokens ?? "n/a"}; cost=unknown${r.error ? `; error=${r.error}` : ""}`,
+        `- **${r.modelId}** @ \`${r.stepId}\`: schemaValid=${r.schemaValid}; recovery=${r.score.recoveryClass}; grounded=${r.score.grounded}; antiLoopSafe=${r.score.antiLoopSafe}; latencyMs=${r.latencyMs ?? "n/a"}; tokens=${r.tokens?.total_tokens ?? "n/a"}; cost=unknown; unlistedOptIn=${r.unlistedOptIn}${r.error ? `; error=${r.error}` : ""}`,
       );
     }
   }
   lines.push("");
-  lines.push(
-    "Not a production default-model swap. Parent chooses and executes sequential live comparisons.",
-  );
+  lines.push("## Remaining limits");
+  lines.push("");
+  for (const lim of (report.remainingLimits as string[]) ?? []) {
+    lines.push(`- ${lim}`);
+  }
   return lines.join("\n");
 }
 
 async function main() {
   const dryForced = process.env.SCOUT_COMPARE_DRY_RUN === "1";
   const allowPaid = process.env.SCOUT_COMPARE_ALLOW_PAID === "1";
+  const allowUnlisted = process.env.SCOUT_COMPARE_ALLOW_UNLISTED === "1";
   const key = process.env.SERV_API_KEY?.trim() ?? "";
   const live = !dryForced && allowPaid && Boolean(key);
 
@@ -144,7 +213,9 @@ async function main() {
     );
   }
 
-  const modelRes = resolveServCompareModelIds(process.env.SERV_COMPARE_MODELS);
+  const modelRes = resolveServCompareModelIds(process.env.SERV_COMPARE_MODELS, {
+    allowUnlisted,
+  });
   if (!modelRes.ok) {
     console.error(modelRes.message);
     process.exit(1);
@@ -168,7 +239,7 @@ async function main() {
   if (live) {
     console.log(servCompareCatalogNote());
     console.log(
-      `Live sequential compare: ${modelRes.models.length} model(s) × ${preparedSteps.length} step(s). Cost unknown until central reconciliation.`,
+      `Live sequential compare: ${modelRes.models.length} model(s) × ${preparedSteps.length} step(s). Cost unknown until central reconciliation. Model-only swap is NOT the demonstrated product fix.`,
     );
     for (const model of modelRes.models) {
       for (const prepared of preparedSteps) {
@@ -247,6 +318,7 @@ async function main() {
           rawStatus,
           reportedModel,
           error,
+          unlistedOptIn: model.unlistedOptIn,
         });
         console.log(
           `${model.id} @ ${prepared.stepId}: schemaValid=${schemaValid} recovery=${score.recoveryClass} latencyMs=${latencyMs} cost=unknown`,
@@ -258,8 +330,25 @@ async function main() {
     console.log(servCompareCatalogNote());
   }
 
+  const offlineBeforeAfter = {
+    before:
+      "On de5eb0c, missing_asking_price@price reject was deny→deny→identical fingerprint no-progress stop; pool was 20 placeholder asks under price=1-20000 + sort=price.",
+    afterCodeFix:
+      "Offline regression: same citation grounds; query floor 500-N; placeholders filtered under priced search; abstain/search recovery paths score cleanly. See placeholder-price-recovery.regression.test.ts.",
+    modelCompareRole:
+      "Optional parent sequential SERV compares on SAME offline ledger inputs — not proof that changing BASE_MODEL alone fixes production.",
+  };
+
+  const remainingLimits = [
+    "Not live-tested by Cursor; parent is sole live coordinator.",
+    "Cost remains unknown until central reconciliation (console $/M ≠ receipt).",
+    "Unlisted console IDs are not availability/schema guarantees even with ALLOW_UNLISTED.",
+    "Full raw step-3 planner payloads were unrecorded in the sanitized handoff.",
+    "Whether Auto.dev returns usable asks after 500-N on a given minute is unproven here.",
+  ];
+
   const report = {
-    schemaVersion: "serv-scout-model-compare/v1",
+    schemaVersion: "serv-scout-model-compare/v2",
     mode: live ? "live_sequential" : "dry_run",
     harness: "eval/serv-scout-model-compare.ts",
     ledgerPath: PR63_PLACEHOLDER_LEDGER_PATH,
@@ -268,9 +357,16 @@ async function main() {
     ledgerRunId: ledger.runId,
     productionDefaultModel: BASE_MODEL,
     productionDefaultUnchanged: true,
+    modelOnlySwapIsNotDemonstratedFix: true,
+    budgetConsciousIsNotCheapest: true,
+    zeroNetworkDefault: true,
+    allowUnlistedOptIn: allowUnlisted,
     strictJsonSchema: Boolean(scoutProfile.jsonSchema),
     catalog: listServCompareModels(),
     modelsSelected: modelRes.models,
+    evidenceTaxonomy: ledger.evidenceTaxonomy ?? null,
+    offlineBeforeAfter,
+    remainingLimits,
     stepUserMessages,
     historicalScores,
     rows,
@@ -279,6 +375,9 @@ async function main() {
       ...ledger.notes,
       "Parent sole live coordinator — Cursor worker must not set SCOUT_COMPARE_ALLOW_PAID.",
       "Repeated-action / evidence guards are scored, not weakened.",
+      "Model-only swap is NOT the demonstrated product fix.",
+      "Budget-conscious ≠ cheapest-at-expense-of-quality.",
+      "Console Available-models broader than in-repo catalog; ALLOW_UNLISTED is parent opt-in only.",
       "Not a claim that any model beats another until parent runs live rows.",
     ],
   };

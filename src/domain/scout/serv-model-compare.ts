@@ -38,6 +38,12 @@ export type PlaceholderLedger = {
   deployedSha: string;
   runId: string;
   notes: string[];
+  /** t294: keep observed / hypotheses / unrecorded distinct in final evidence. */
+  evidenceTaxonomy?: {
+    observed: string[];
+    hypotheses: string[];
+    unrecorded_historical: string[];
+  };
   mandate: ScoutMandate;
   budgets: {
     maxServCalls: number | null;
