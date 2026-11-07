@@ -47,18 +47,11 @@ jobs:
           npm audit || true
       - name: Check types
         run: npm run typecheck
+      - name: Production source import boundary (fail-closed, Node)
+        run: node scripts/assert-openserv-source-boundary.mjs
       - name: Run unit tests
         run: npm test
       - name: Production build
         run: npm run build
-      - name: Assert .next/server does not embed OpenServ SDK
-        run: |
-          if ! [ -d .next/server ]; then
-            echo "ERROR: .next/server missing after build"
-            exit 1
-          fi
-          if rg -l --hidden -g '!*.map' '@openserv-labs/sdk|openserv-labs/sdk|node_modules/@openserv' .next/server; then
-            echo "ERROR: OpenServ SDK string found under .next/server"
-            exit 1
-          fi
-          echo "OK: no OpenServ SDK reachability markers under .next/server"
+      - name: Assert .next/server does not embed OpenServ SDK (fail-closed, Node)
+        run: node scripts/assert-no-openserv-in-next-server.mjs

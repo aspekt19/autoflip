@@ -164,14 +164,15 @@ broke `next build` / generated route types (invalid Route field). Bounded fix:
 - Verified: `npx tsc --noEmit` exit 0; `npm run build` exit 0; offline `next start`
   smoke GET `/api/scout` + `/scout` flag off/on (HTML source inspection — not browser E2E)
 
-## STAGE-SDK-ISOLATION — PIN 1ab9c46 (corrective after rejected e07b941 allowlist)
+## STAGE-SDK-ISOLATION — PIN 1ab9c46 (+ gate-hardening follow-on)
 
-Independent review rejected CI package-name allowlist. Corrective approach:
-- `@openserv-labs/sdk` moved to **devDependencies** (scaffold only imported by its test; not
-  production routes; `.next/server` must not embed it)
-- CI gate: `npm audit --omit=dev --audit-level=high` + assert SDK/openai/zod absent from prod tree
-- Full-tree audit reported separately (informational; includes experimental SDK) — not a waiver
-- Production import-boundary regression under `src/server/openserv/production-boundary.test.ts`
+Independent review rejected CI package-name allowlist; accepted 1ab9c46 isolation.
+Gate-hardening (fail-closed, no rg, full src scan + dynamic import/require + negative cases):
+- Portable Node scanners in `scripts/openserv-boundary.mjs` (CI must not print OK on incomplete/failed scan)
+- Source boundary: all `src/**` except tests + explicit allowlist `src/server/openserv/scout-agent.ts`
+- `.next/server` reachability via Node walk (no ripgrep dependency)
+- CI: `npm audit --omit=dev --audit-level=high` + SDK/openai/zod absent from prod tree
+- Full-tree audit reported separately (informational) — not a waiver
 - Genuine production Scout planner remains SERV HTTP (`runServ` / `scout_plan`), not SDK Agent
 
 ## STAGE-FOUR-BLOCKERS — PIN a6ad1a6 SERV reserve / USD fail-closed / session revoke / runtime nav
