@@ -83,3 +83,4 @@ _No live model rows (dry-run)._
 - Full raw step-3 planner payloads were unrecorded in the sanitized handoff.
 - Whether Auto.dev returns usable asks after 500-N on a given minute is unproven here.
 - Experiment transport disables silent empty/timeout re-POSTs only; production planner recovery retries stay as designed.
+- Parse failures now record sanitizedPlannerEcho (keys/types/lengths only) + upstreamResponseId/finishReason/responseShape when present — never raw planner JSON.
