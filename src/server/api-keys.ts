@@ -55,6 +55,65 @@ function publicRecord(stored: StoredKey): ApiKeyRecord {
   };
 }
 
+/** Non-secret binding metadata for operator grants — never includes the af_ token. */
+export type ApiKeyBinding = {
+  userId: string;
+  apiKeyHash: string;
+  keyId: string;
+  keyPrefix: string;
+  label: string;
+  createdAt: string;
+  revokedAt: string | null;
+};
+
+export function bindingFromStored(stored: {
+  userId: string;
+  hash: string;
+  id: string;
+  prefix: string;
+  label: string;
+  createdAt: string;
+  revokedAt: string | null;
+}): ApiKeyBinding {
+  return {
+    userId: stored.userId,
+    apiKeyHash: stored.hash,
+    keyId: stored.id,
+    keyPrefix: stored.prefix,
+    label: stored.label,
+    createdAt: stored.createdAt,
+    revokedAt: stored.revokedAt,
+  };
+}
+
+/**
+ * Load stored key by SHA-256 hash (for grant issuance verification).
+ * Returns null when missing or revoked.
+ */
+export async function resolveActiveApiKeyByHash(
+  kv: Kv,
+  apiKeyHash: string,
+): Promise<{ userId: string; hash: string; id: string; prefix: string; label: string; createdAt: string } | null> {
+  if (!apiKeyHash || apiKeyHash.length < 32) return null;
+  const raw = await kv.get(tokenKey(apiKeyHash.toLowerCase()));
+  if (!raw) return null;
+  try {
+    const stored = JSON.parse(raw) as StoredKey;
+    if (!stored.userId || stored.revokedAt || !stored.hash) return null;
+    if (stored.hash.toLowerCase() !== apiKeyHash.toLowerCase()) return null;
+    return {
+      userId: stored.userId,
+      hash: stored.hash,
+      id: stored.id,
+      prefix: stored.prefix,
+      label: stored.label,
+      createdAt: stored.createdAt,
+    };
+  } catch {
+    return null;
+  }
+}
+
 async function readIndex(kv: Kv, userId: string): Promise<StoredKey[]> {
   const raw = await kv.get(indexKey(userId));
   if (!raw) return [];
@@ -66,7 +125,11 @@ async function readIndex(kv: Kv, userId: string): Promise<StoredKey[]> {
   }
 }
 
-export async function createApiKey(kv: Kv, userId: string, label: string): Promise<{ token: string; record: ApiKeyRecord }> {
+export async function createApiKey(
+  kv: Kv,
+  userId: string,
+  label: string,
+): Promise<{ token: string; record: ApiKeyRecord; binding: ApiKeyBinding }> {
   const token = `af_${randomBytes(24).toString("base64url")}`;
   const stored: StoredKey = {
     id: randomUUID(),
@@ -81,11 +144,16 @@ export async function createApiKey(kv: Kv, userId: string, label: string): Promi
   const list = await readIndex(kv, userId);
   list.push(stored);
   await kv.set(indexKey(userId), JSON.stringify(list));
-  return { token, record: publicRecord(stored) };
+  return { token, record: publicRecord(stored), binding: bindingFromStored(stored) };
 }
 
 export async function listApiKeys(kv: Kv, userId: string): Promise<ApiKeyRecord[]> {
   return (await readIndex(kv, userId)).map(publicRecord);
+}
+
+/** Live + revoked keys with non-secret binding fields for the owning browser. */
+export async function listApiKeyBindings(kv: Kv, userId: string): Promise<ApiKeyBinding[]> {
+  return (await readIndex(kv, userId)).map(bindingFromStored);
 }
 
 export async function revokeApiKey(kv: Kv, userId: string, id: string): Promise<boolean> {

@@ -5,11 +5,13 @@ import { servScoutPlanner } from "./planner";
 
 describe("scout_plan transport contracts (offline)", () => {
   it("requestFor(scout_plan) puts guard in tools[] and schema in response_format — not user-text theater", () => {
-    const req = requestFor("scout_plan", JSON.stringify({ pendingVins: ["X"] }));
+    const req = requestFor("scout_plan", JSON.stringify({ pendingVins: ["X"] }), undefined, {});
     expect(req.endpoint).toBe("chat");
     expect(req.stream).toBe(false);
     expect(req.model).toBe("gpt-5.4-mini"); // no multipath/kronos suffix by default
     expect(req.model).not.toMatch(/serv-multipath|serv-kronos/);
+    expect(req).toMatchObject({ max_completion_tokens: 4096 });
+    expect("max_output_tokens" in req).toBe(false);
 
     const toolNames = (req.tools ?? []).map((t) =>
       t.function?.name ?? t.name ?? "",
@@ -72,6 +74,8 @@ describe("scout_plan transport contracts (offline)", () => {
     expect(body.tools.some((t) => (t.function?.name ?? t.name) === "serv_prompt_guard")).toBe(true);
     expect(body.response_format?.json_schema?.name).toBe("lemonless_scout_plan_action");
     expect(body.messages[0]?.role).toBe("system");
+    expect((bodies[0] as { max_completion_tokens?: number }).max_completion_tokens).toBe(4096);
+    expect(JSON.stringify(bodies[0])).toContain('"max_completion_tokens":4096');
     if (result.ok) {
       const parsed = parseScoutPlanText(result.text);
       expect(parsed.ok).toBe(true);

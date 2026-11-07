@@ -764,6 +764,9 @@ textarea { min-height: 140px; }
 .key-list { list-style: none; padding: 0; margin: 16px 0; display: grid; gap: 8px; }
 .key-list li { display: flex; justify-content: space-between; gap: 12px; align-items: center; border: 1px solid var(--line); padding: 10px 12px; }
 .key-list .quiet { width: auto; min-height: 40px; }
+.binding-section { margin: 20px 0; }
+.binding-card pre.doc { margin: 0 0 10px; max-height: 220px; overflow: auto; }
+.binding-card .quiet { width: auto; min-height: 40px; }
 .mono, .meta dd, code { font-family: var(--mono); }
 .verdict-level { font-family: var(--sans); font-weight: 700; letter-spacing: -0.04em; line-height: 0.95; font-size: clamp(44px, 6vw, 72px); margin: 8px 0 0; }
 .badge {

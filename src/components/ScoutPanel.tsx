@@ -257,7 +257,10 @@ export function ScoutPanel() {
           <>
             <p className="muted">
               Sign in with a grant-bound API key once. Keys minted only from an unsigned browser
-              cookie do not inherit owner privileges.
+              cookie do not inherit owner privileges. Need a grant? On{" "}
+              <a href="/developers">/developers</a>, copy the Scout binding card (
+              <code>ownerUserId</code> + <code>apiKeyHash</code> only — never the <code>af_</code>{" "}
+              token) and send it to your operator through a channel they trust.
             </p>
             <label>
               Grant-bound API key (af_…) — used only to open a signed session
