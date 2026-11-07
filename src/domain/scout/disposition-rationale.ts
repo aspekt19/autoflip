@@ -5,7 +5,7 @@
  * forbids do not unlock arbitrary planner reason text.
  */
 import type { GateResult } from "@/domain/verdict-gates";
-import { isUsableAskingPriceUsd } from "./asking-price";
+import { assessListingAskingPrice, isListingAskingPriceUsable } from "./asking-price";
 import type { ScoutCandidate, ScoutToolOutcome } from "./types";
 
 /** Real adverse evidence kinds — excludes default unknown-title / unknown-history forbids. */
@@ -92,18 +92,21 @@ function isUnknownHistoryWithhold(g: GateResult): boolean {
 export function collectAdverseEvidence(c: ScoutCandidate): AdverseEvidenceFact[] {
   const out: AdverseEvidenceFact[] = [];
 
-  if (c.listing.priceUsd == null || !isUsableAskingPriceUsd(c.listing.priceUsd, c.listing.year)) {
+  if (c.listing.priceUsd == null || !isListingAskingPriceUsable(c.listing)) {
+    const a = assessListingAskingPrice(c.listing);
     out.push({
       kind: "missing_asking_price",
       epistemic: "observed_hard",
       // Align with constraintQualification.price — planners often cite gateId "price".
-      // Pipeline disposition only: unusable/suspicious ask ≠ vehicle-defect / car-bad proof.
+      // Pipeline disposition only: unusable/suspicious/fee ask ≠ vehicle-defect / car-bad proof.
       // Do not presume payment/downpayment without proof.
       gateId: "price",
       detail:
         c.listing.priceUsd == null
           ? "Asking price missing — economics cannot be investigated honestly."
-          : `Asking price ${c.listing.priceUsd} lacks genuine purchase-price evidence (placeholder/suspicious/unverified) — treated as missing/unusable for shortlist (not invented upward; not vehicle-defect proof).`,
+          : a.status === "known_non_purchase"
+            ? `Asking ${c.listing.priceUsd} is known non-purchase (${a.kind}; ${a.provenance}) — not purchase-price evidence for shortlist (not invented upward; not vehicle-defect proof).`
+            : `Asking price ${c.listing.priceUsd} lacks genuine purchase-price evidence (${a.status}; kind=${a.kind}; ambiguity=${a.ambiguity}) — treated as missing/unusable for shortlist (not invented upward; not vehicle-defect proof).`,
     });
   }
 

@@ -44,7 +44,7 @@ import {
   unsupportedFreeGovPort,
   type ScoutFreeGovPort,
 } from "./free-gov";
-import { isUsableAskingPriceUsd } from "./asking-price";
+import { isListingAskingPriceUsable } from "./asking-price";
 import {
   buildScoutRunDiagnostics,
   type ScoutTerminationCause,
@@ -139,12 +139,12 @@ export function sanitizeScoutPlanAction(input: {
 
   if (action.type === "run_tool" && isFreeGovToolId(action.toolId) && action.vin) {
     const cand = byVin.get(action.vin);
-    if (cand && !isUsableAskingPriceUsd(cand.listing.priceUsd, cand.listing.year)) {
+    if (cand && !isListingAskingPriceUsable(cand.listing)) {
       action = {
         type: "reject",
         vin: cand.vin,
         reason:
-          "Free-gov cannot unlock investigation without genuine purchase-price evidence — reject placeholder/suspicious/unknown ask (missing_asking_price; not vehicle defect).",
+          "Free-gov cannot unlock investigation without genuine purchase-price evidence — reject placeholder/suspicious/fee/unknown ask (missing_asking_price; not vehicle defect).",
         servStepId: action.servStepId,
         rationaleKind: "adverse_evidence",
         citedEvidence: [{ kind: "missing_asking_price", gateId: "price" }],

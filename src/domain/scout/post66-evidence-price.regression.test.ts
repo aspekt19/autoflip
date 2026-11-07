@@ -1,6 +1,7 @@
 /**
  * Offline regression mapped from post-PR66 live acceptance audit
- * (run 83bfd2fe… on d048b375 / post66-live-acceptance-audit_feb3.md).
+ * (run 83bfd2fe… on d048b375 / post66-live-acceptance-audit_feb3.md)
+ * plus seller-page validation (post66-seller-price-evidence_eb54.md).
  *
  * Isolated fixtures only — no network / inference / inventory / credentials.
  *
@@ -10,6 +11,9 @@
  * 2. Feed asks $501 / $525 / $549 cleared the $500 floor and qualified as
  *    price.pass — not genuine purchase-price evidence; payment interpretation
  *    unproven; claimsSafeBuy correctly false but shortlist not useful.
+ * 3. Tundra VIN 5TFPC5DB3RX063497 feed $525 is an explicit dealer closing FEE
+ *    on the matched seller page — kind/provenance must block qualification
+ *    even when magnitude clears year-aware floors (not a floor-bump alone).
  */
 import { describe, expect, it, vi } from "vitest";
 import type { Listing } from "@/domain/types";
@@ -17,9 +21,11 @@ import {
   MIN_SEARCH_ASKING_PRICE_USD,
   MIN_USABLE_ASKING_PRICE_USD,
   assessAskingPrice,
+  assessListingAskingPrice,
   collectAdverseEvidence,
   createLiveFreeGovPort,
   filterPool,
+  isListingAskingPriceUsable,
   isUsableAskingPriceUsd,
   mandateToSearchParams,
   mergeListingBaseEvidence,
@@ -89,6 +95,10 @@ function listing(
     removedAt: null,
     createdAt: null,
     source: "autodev",
+    askingPriceKind: over.askingPriceKind,
+    askingPriceProvenance: over.askingPriceProvenance,
+    askingPriceLabel: over.askingPriceLabel,
+    askingPriceSellerPageAccess: over.askingPriceSellerPageAccess,
   };
 }
 
@@ -102,9 +112,16 @@ describe("post66 evidence retention + asking-price qualification (mapped live ev
 
   it("audit feed asks $501/$525/$549 are suspicious_unverified — not shortlist-usable; not vehicle defect", () => {
     for (const row of AUDIT_ROWS) {
-      const a = assessAskingPrice(row.priceUsd, row.year);
+      const a = assessAskingPrice(row.priceUsd, {
+        year: row.year,
+        priceKind: "unknown",
+        provenance: "feed_only",
+      });
       expect(a.status).toBe("suspicious_unverified");
       expect(a.usableForShortlist).toBe(false);
+      expect(a.kind).toBe("unknown");
+      expect(a.provenance).toBe("feed_only");
+      expect(a.ambiguity === "fee_vs_purchase" || a.ambiguity === "source_unverified").toBe(true);
       expect(isUsableAskingPriceUsd(row.priceUsd, row.year)).toBe(false);
       expect(a.note).toMatch(/not genuine purchase-price evidence/i);
       // May mention payment/downpayment only as unproven — never as a positive claim.
@@ -148,6 +165,103 @@ describe("post66 evidence retention + asking-price qualification (mapped live ev
       expect(adverse.some((x) => x.kind === "missing_asking_price")).toBe(true);
       expect(adverse.every((x) => x.kind !== "bad_title_brand")).toBe(true);
     }
+  });
+
+  it("Tundra 5TFPC5DB3RX063497: seller-page Closing Fee cannot qualify (even above year-aware floor)", () => {
+    // Mapped from post66-seller-price-evidence_eb54.md — "$525+ Closing Fee".
+    const tundraFee = listing({
+      vin: "5TFPC5DB3RX063497",
+      year: 2024,
+      model: "Tundra",
+      priceUsd: 525,
+      miles: 41_200,
+      askingPriceKind: "dealer_fee",
+      askingPriceProvenance: "seller_page_labeled",
+      askingPriceLabel: "Closing Fee",
+      askingPriceSellerPageAccess: "obtained",
+    });
+    const a = assessListingAskingPrice(tundraFee);
+    expect(a.status).toBe("known_non_purchase");
+    expect(a.kind).toBe("dealer_fee");
+    expect(a.provenance).toBe("seller_page_labeled");
+    expect(a.ambiguity).toBe("fee_vs_purchase");
+    expect(a.usableForShortlist).toBe(false);
+    expect(isListingAskingPriceUsable(tundraFee)).toBe(false);
+    expect(a.note).toMatch(/dealer fee|Closing Fee/i);
+    expect(a.note).toMatch(/not a verified vehicle purchase price/i);
+    expect(a.note).not.toMatch(/\bis a (monthly )?payment\b/i);
+
+    // Critical: fee kind blocks even when magnitude would clear year-aware floors.
+    const feeAboveFloor = listing({
+      vin: "5TFPC5DB3RX063497",
+      year: 2024,
+      model: "Tundra",
+      priceUsd: 18_000,
+      askingPriceKind: "dealer_fee",
+      askingPriceProvenance: "seller_page_labeled",
+      askingPriceLabel: "Closing Fee",
+      askingPriceSellerPageAccess: "obtained",
+    });
+    expect(assessListingAskingPrice(feeAboveFloor).status).toBe("known_non_purchase");
+    expect(isListingAskingPriceUsable(feeAboveFloor)).toBe(false);
+    expect(
+      qualifyListingConstraints({
+        listing: feeAboveFloor,
+        mandate: personalMandate,
+        search: mandateToSearchParams(personalMandate),
+      }).price.status,
+    ).toBe("unknown");
+    expect(
+      runScoutGates({
+        listing: feeAboveFloor,
+        mandate: personalMandate,
+        flip: null,
+        historyStatus: "unknown",
+      }).allowInvestigate,
+    ).toBe(false);
+
+    const ev = askingPriceEvidence(tundraFee);
+    expect(ev.kind).toBe("unknown");
+    expect(ev.value).toMatchObject({
+      kind: "dealer_fee",
+      provenance: "seller_page_labeled",
+      ambiguity: "fee_vs_purchase",
+      usableForShortlist: false,
+      label: "Closing Fee",
+    });
+  });
+
+  it("RAV4 seller-page access unavailable ⇒ unknown (not unavailable listing); Tacoma source-unverified", () => {
+    const rav4 = listing({
+      vin: "2T3C1RFV5SC305320",
+      year: 2025,
+      model: "RAV4",
+      priceUsd: 549,
+      askingPriceKind: "unknown",
+      askingPriceProvenance: "feed_only",
+      askingPriceSellerPageAccess: "unavailable",
+    });
+    const a = assessListingAskingPrice(rav4);
+    expect(a.usableForShortlist).toBe(false);
+    expect(a.ambiguity).toBe("access_unknown");
+    expect(a.note).toMatch(/unknown/i);
+    // Access unknown must not be narrated as proof the listing is gone.
+    expect(a.note).not.toMatch(/\blisting (gone|removed)\b/i);
+    expect(a.note).toMatch(/unavailable listing|access_unknown|source unknown/i);
+
+    const tacoma = listing({
+      vin: "3TMCZ5ANXLM360761",
+      year: 2020,
+      model: "Tacoma",
+      priceUsd: 501,
+      askingPriceKind: "unknown",
+      askingPriceProvenance: "feed_only",
+      askingPriceSellerPageAccess: "obtained",
+    });
+    const t = assessListingAskingPrice(tacoma);
+    expect(t.usableForShortlist).toBe(false);
+    expect(t.note).not.toMatch(/\bis a (monthly )?payment\b/i);
+    expect(t.ambiguity === "fee_vs_purchase" || t.ambiguity === "source_unverified").toBe(true);
   });
 
   it("filterPool drops audit micro-asks so inventory does not promote them into shortlist", () => {

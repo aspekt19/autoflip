@@ -1,10 +1,10 @@
 import type { Listing } from "@/domain/types";
-import { assessAskingPrice } from "./asking-price";
+import { assessListingAskingPrice } from "./asking-price";
 import type { EvidenceFact } from "./types";
 
 /** Asking price is always a seller claim until independently verified (we never claim sold prices). */
 export function askingPriceEvidence(listing: Listing): EvidenceFact {
-  const assessment = assessAskingPrice(listing.priceUsd, listing.year);
+  const assessment = assessListingAskingPrice(listing);
   return {
     key: "asking_price_usd",
     value: {
@@ -12,15 +12,17 @@ export function askingPriceEvidence(listing: Listing): EvidenceFact {
       assessment: assessment.status,
       usableForShortlist: assessment.usableForShortlist,
       credibleFloorUsd: assessment.credibleFloorUsd,
+      kind: assessment.kind,
+      provenance: assessment.provenance,
+      ambiguity: assessment.ambiguity,
+      label: listing.askingPriceLabel ?? null,
     },
     kind: assessment.usableForShortlist ? "seller_claim" : "unknown",
     source: listing.source === "autodev" ? "autodev.retailListing.price" : "fixture.asking",
     note:
       listing.priceUsd == null
         ? "Asking price missing on listing."
-        : assessment.usableForShortlist
-          ? assessment.note
-          : assessment.note,
+        : assessment.note,
   };
 }
 

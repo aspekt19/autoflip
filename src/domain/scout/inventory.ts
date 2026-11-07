@@ -1,6 +1,6 @@
 import { parseAutoDevListings } from "@/io/parsers";
 import type { Listing } from "@/domain/types";
-import { isUsableAskingPriceUsd } from "./asking-price";
+import { isListingAskingPriceUsable } from "./asking-price";
 import {
   mandatePriceCap,
   mandateWithSearch,
@@ -78,7 +78,7 @@ export function filterPool(
       priceCap != null &&
       listing.priceUsd != null &&
       listing.priceUsd > 0 &&
-      !isUsableAskingPriceUsd(listing.priceUsd, listing.year)
+      !isListingAskingPriceUsable(listing)
     ) {
       return false;
     }

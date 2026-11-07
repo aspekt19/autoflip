@@ -3,7 +3,7 @@
  * sanitization (schema_mismatch / usage / redaction). No secrets, VINs, URLs,
  * or raw planner prose. Counts + enums only.
  */
-import { assessAskingPrice } from "./asking-price";
+import { assessListingAskingPrice } from "./asking-price";
 import { isFreeGovToolId } from "./free-gov";
 import type { ScoutCandidate, ScoutRunResult, ScoutToolOutcome } from "./types";
 
@@ -119,7 +119,7 @@ export function buildScoutRunDiagnostics(input: {
   let poolUsable = 0;
   let poolUnusable = 0;
   for (const c of input.candidates) {
-    const a = assessAskingPrice(c.listing.priceUsd, c.listing.year);
+    const a = assessListingAskingPrice(c.listing);
     byStatus[a.status] = (byStatus[a.status] ?? 0) + 1;
     if (a.usableForShortlist) poolUsable += 1;
     else poolUnusable += 1;

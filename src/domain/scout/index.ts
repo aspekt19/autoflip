@@ -93,12 +93,22 @@ export {
   MIN_USABLE_ASKING_PRICE_USD,
   MIN_SEARCH_ASKING_PRICE_USD,
   isUsableAskingPriceUsd,
+  isListingAskingPriceUsable,
   askingPriceUsabilityNote,
   assessAskingPrice,
+  assessListingAskingPrice,
+  listingAskingPriceOpts,
   minCrediblePurchasePriceUsd,
   searchAskingPriceFloorUsd,
 } from "./asking-price";
-export type { AskingPriceAssessment, AskingPriceStatus } from "./asking-price";
+export type {
+  AskingPriceAssessment,
+  AskingPriceStatus,
+  AskingPriceKind,
+  AskingPriceProvenance,
+  AskingPriceAmbiguity,
+  AskingPriceAssessOpts,
+} from "./asking-price";
 export { buildScoutRunDiagnostics } from "./run-diagnostics";
 export type { ScoutRunDiagnostics, ScoutTerminationCause } from "./run-diagnostics";
 export { mergeListingBaseEvidence, LISTING_BASE_EVIDENCE_KEYS } from "./evidence";

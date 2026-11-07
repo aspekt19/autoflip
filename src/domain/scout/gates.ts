@@ -1,7 +1,7 @@
 import type { FlipEstimate } from "@/domain/flip-rank";
 import type { GateResult } from "@/domain/verdict-gates";
 import type { Listing } from "@/domain/types";
-import { isUsableAskingPriceUsd } from "./asking-price";
+import { isListingAskingPriceUsable } from "./asking-price";
 import type { ScoutMandate } from "./types";
 
 /**
@@ -26,17 +26,14 @@ export function runScoutGates(input: {
 }): ScoutGateSummary {
   const gates: GateResult[] = [];
 
-  if (
-    input.listing.priceUsd == null ||
-    !isUsableAskingPriceUsd(input.listing.priceUsd, input.listing.year)
-  ) {
+  if (input.listing.priceUsd == null || !isListingAskingPriceUsable(input.listing)) {
     gates.push({
       id: "data_sufficiency",
       status: "withhold",
       reason:
         input.listing.priceUsd == null
           ? "No asking price — cannot investigate economics honestly."
-          : `Asking price ${input.listing.priceUsd} is not genuine purchase-price evidence (placeholder/suspicious/unverified) — cannot investigate economics honestly; not vehicle-defect proof; price not invented upward.`,
+          : `Asking price ${input.listing.priceUsd} is not genuine purchase-price evidence (placeholder/suspicious/fee/unverified) — cannot investigate economics honestly; not vehicle-defect proof; price not invented upward.`,
       forbid: ["buy", "negotiate", "pass"],
     });
   } else {
@@ -100,7 +97,7 @@ export function runScoutGates(input: {
 
   if (input.mandate.mode === "personal" && input.mandate.budgetKnown && input.mandate.budgetUsd != null) {
     if (
-      isUsableAskingPriceUsd(input.listing.priceUsd, input.listing.year) &&
+      isListingAskingPriceUsable(input.listing) &&
       input.listing.priceUsd! > input.mandate.budgetUsd * 1.05
     ) {
       gates.push({
@@ -109,7 +106,7 @@ export function runScoutGates(input: {
         reason: "Asking price exceeds personal budget by more than 5%.",
         forbid: ["buy", "negotiate"],
       });
-    } else if (!isUsableAskingPriceUsd(input.listing.priceUsd, input.listing.year)) {
+    } else if (!isListingAskingPriceUsable(input.listing)) {
       gates.push({
         id: "mandate_fit",
         status: "withhold",
@@ -165,7 +162,7 @@ export function runScoutGates(input: {
 
   const withheld = gates.some((g) => g.status === "withhold");
   const withholdReason = gates.find((g) => g.status === "withhold")?.reason ?? null;
-  const usablePrice = isUsableAskingPriceUsd(input.listing.priceUsd, input.listing.year);
+  const usablePrice = isListingAskingPriceUsable(input.listing);
   const hardForbidInvestigate = gates.some(
     (g) =>
       g.status === "withhold" &&
