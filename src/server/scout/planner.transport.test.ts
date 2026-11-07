@@ -111,7 +111,16 @@ describe("scout_plan transport contracts (offline)", () => {
         searchHistory: [],
         budgetsRemaining: { servCalls: 0, toolCalls: 0, providerCalls: 0 },
         recentOutcomes: [],
-        policy: { unsupportedGovAloneDoesNotProveCarBad: true },
+        pendingAskSummary: {
+          pendingCount: 0,
+          usableAskingPriceCount: 0,
+          unusableAskingPriceCount: 0,
+          allPendingAskingPricesUnusable: false,
+        },
+        policy: {
+          unsupportedGovAloneDoesNotProveCarBad: true,
+          placeholderAskIsNotVehicleDefect: true,
+        },
       },
     });
     expect(out.ok).toBe(false);

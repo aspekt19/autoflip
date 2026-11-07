@@ -65,6 +65,8 @@ export function servScoutPlanner(deps: {
         evidenceBriefs: input.evidenceContext.evidenceBriefs,
         searchHistory: input.evidenceContext.searchHistory,
         budgetsRemaining: input.evidenceContext.budgetsRemaining,
+        pendingAskSummary: input.evidenceContext.pendingAskSummary,
+        policy: input.evidenceContext.policy,
       },
       // Legacy thin hints retained for older parsers — prefer evidenceContext.
       evidenceHints: input.evidenceContext.evidenceBriefs.map((c) => ({
@@ -78,6 +80,7 @@ export function servScoutPlanner(deps: {
         confidence: c.confidence,
         missingness: c.missingness,
         unsupportedGovAloneNotBad: true,
+        placeholderAskIsNotVehicleDefect: true,
       })),
     });
 

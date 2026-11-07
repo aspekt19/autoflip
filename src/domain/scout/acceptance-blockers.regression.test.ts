@@ -66,7 +66,7 @@ describe("acceptance blockers regression (run 2bf5c59e…)", () => {
     expect(mandatePriceCap(personalMandate)).toBe(20_000);
     const params = mandateToSearchParams(personalMandate);
     expect(params.maxPriceUsd).toBe(20_000);
-    expect(searchQueryRanges(params)).toEqual({ priceRange: "1-20000" });
+    expect(searchQueryRanges(params)).toEqual({ priceRange: "500-20000" });
     const fp = JSON.parse(fingerprintSearchParams(params)) as { maxPriceUsd: number };
     expect(fp.maxPriceUsd).toBe(20_000);
     expect(fp.maxPriceUsd).not.toBe(25_000);

@@ -96,6 +96,9 @@ export function collectAdverseEvidence(c: ScoutCandidate): AdverseEvidenceFact[]
     out.push({
       kind: "missing_asking_price",
       epistemic: "observed_hard",
+      // Align with constraintQualification.price — planners often cite gateId "price".
+      // Pipeline disposition only: unusable ask ≠ vehicle-defect / car-bad proof.
+      gateId: "price",
       detail:
         c.listing.priceUsd == null
           ? "Asking price missing — economics cannot be investigated honestly."
@@ -218,11 +221,16 @@ function resolveCitedFacts(
   }
   const matched: AdverseEvidenceFact[] = [];
   for (const ref of cited) {
-    const hit = adverse.find(
-      (a) =>
-        a.kind === ref.kind &&
-        (ref.gateId == null || ref.gateId === "" || a.gateId === ref.gateId),
-    );
+    // Kind must match. GateId is required only when BOTH sides declare one —
+    // planners often invent a field name (e.g. price) when the fact omitted gateId;
+    // that must not deny an otherwise grounded missing_asking_price cite.
+    const hit = adverse.find((a) => {
+      if (a.kind !== ref.kind) return false;
+      const refGate = ref.gateId == null || ref.gateId === "" ? null : ref.gateId;
+      const factGate = a.gateId == null || a.gateId === "" ? null : a.gateId;
+      if (refGate == null || factGate == null) return true;
+      return refGate === factGate;
+    });
     if (!hit) {
       return {
         ok: false,

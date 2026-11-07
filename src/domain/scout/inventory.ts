@@ -1,5 +1,6 @@
 import { parseAutoDevListings } from "@/io/parsers";
 import type { Listing } from "@/domain/types";
+import { isUsableAskingPriceUsd } from "./asking-price";
 import {
   mandatePriceCap,
   mandateWithSearch,
@@ -68,6 +69,16 @@ export function filterPool(
       if (!ok) return false;
     }
     if (priceCap != null && listing.priceUsd != null && listing.priceUsd > priceCap) {
+      return false;
+    }
+    // Positive placeholder asks ($1–$59) are not usable retail — drop under priced search.
+    // Null ask stays (unknown ≠ invented); do not invent a corrected USD.
+    if (
+      priceCap != null &&
+      listing.priceUsd != null &&
+      listing.priceUsd > 0 &&
+      !isUsableAskingPriceUsd(listing.priceUsd)
+    ) {
       return false;
     }
     if (milesCap != null && listing.miles != null && listing.miles > milesCap) {
