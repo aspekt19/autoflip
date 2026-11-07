@@ -12,6 +12,8 @@
  *
  * Defaults are conservative. Kronos/multipath/cache/effort are opt-in measured options —
  * enable only when eval shows need. Never casually disable the default content filter.
+ *
+ * Live HTTP bodies use `PROFILES.scout_plan` — keep SCOUT_PLAN_JSON_SCHEMA aligned.
  */
 
 export type ScoutServEffort = "none" | "low" | "medium" | "high";
@@ -75,7 +77,17 @@ export const SCOUT_PLAN_JSON_SCHEMA = {
   schema: {
     type: "object",
     additionalProperties: false,
-    required: ["type", "reason", "servStepId"],
+    required: [
+      "type",
+      "reason",
+      "servStepId",
+      "vin",
+      "toolId",
+      "args",
+      "rationaleKind",
+      "citedEvidence",
+      "assumptionsDisclosed",
+    ],
     properties: {
       type: {
         type: "string",
@@ -105,7 +117,35 @@ export const SCOUT_PLAN_JSON_SCHEMA = {
       },
       args: {
         type: ["object", "null"],
-        additionalProperties: true,
+        additionalProperties: false,
+        required: [
+          "makes",
+          "models",
+          "preferredMakes",
+          "zip",
+          "distanceMiles",
+          "maxDistanceMiles",
+          "maxPriceUsd",
+          "priceMax",
+          "maxPrice",
+          "maxMiles",
+          "milesMax",
+          "maxMileage",
+        ],
+        properties: {
+          makes: { type: ["array", "null"], items: { type: "string" } },
+          models: { type: ["array", "null"], items: { type: "string" } },
+          preferredMakes: { type: ["array", "null"], items: { type: "string" } },
+          zip: { type: ["string", "null"] },
+          distanceMiles: { type: ["number", "null"] },
+          maxDistanceMiles: { type: ["number", "null"] },
+          maxPriceUsd: { type: ["number", "null"] },
+          priceMax: { type: ["number", "null"] },
+          maxPrice: { type: ["number", "null"] },
+          maxMiles: { type: ["number", "null"] },
+          milesMax: { type: ["number", "null"] },
+          maxMileage: { type: ["number", "null"] },
+        },
       },
       rationaleKind: {
         type: ["string", "null"],

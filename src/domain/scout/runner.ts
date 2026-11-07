@@ -145,7 +145,13 @@ export type ScoutPlannerInput = {
 
 export type ScoutPlanner = (input: ScoutPlannerInput) => Promise<
   | { ok: true; action: ScoutPlanAction }
-  | { ok: false; error: "serv_refused" | "serv_timeout" | "serv_unavailable"; message: string }
+  | {
+      ok: false;
+      error: "serv_refused" | "serv_timeout" | "serv_unavailable";
+      message: string;
+      /** Sanitized upstream diagnostic (schema/status); never secrets or raw bodies. */
+      diagnostic?: string | null;
+    }
 >;
 
 export type RunScoutInput = {
@@ -338,6 +344,7 @@ function fail(
   reason: ScoutFailReason,
   message: string,
   partial = true,
+  diagnostic?: string | null,
 ): ScoutRunResult {
   if (!isTerminal(base.state)) {
     try {
@@ -356,6 +363,7 @@ function fail(
     state: "failed",
     failReason: reason,
     message,
+    diagnostic: diagnostic ?? base.diagnostic ?? null,
     partial,
     autonomyClaim: base.autonomyClaim,
   };
@@ -486,6 +494,7 @@ export async function runScout(input: RunScoutInput): Promise<ScoutRunResult> {
     toolOutcomes: [...toolOutcomes],
     failReason: null,
     message: null,
+    diagnostic: null,
     autonomyClaim,
     partial: coveragePartial,
   });
@@ -815,8 +824,9 @@ export async function runScout(input: RunScoutInput): Promise<ScoutRunResult> {
       });
 
       if (!plan.ok) {
-        stamp(provenance, state, plan.message);
-        return fail(snapshot(), plan.error, plan.message, true);
+        const diag = plan.diagnostic?.trim() || null;
+        stamp(provenance, state, diag ? `${plan.message} [${diag}]` : plan.message);
+        return fail(snapshot(), plan.error, plan.message, true, diag);
       }
 
       const action = plan.action;

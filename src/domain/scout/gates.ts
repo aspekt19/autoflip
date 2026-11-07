@@ -1,6 +1,7 @@
 import type { FlipEstimate } from "@/domain/flip-rank";
 import type { GateResult } from "@/domain/verdict-gates";
 import type { Listing } from "@/domain/types";
+import { isUsableAskingPriceUsd } from "./asking-price";
 import type { ScoutMandate } from "./types";
 
 /**
@@ -25,11 +26,14 @@ export function runScoutGates(input: {
 }): ScoutGateSummary {
   const gates: GateResult[] = [];
 
-  if (input.listing.priceUsd == null) {
+  if (input.listing.priceUsd == null || !isUsableAskingPriceUsd(input.listing.priceUsd)) {
     gates.push({
       id: "data_sufficiency",
       status: "withhold",
-      reason: "No asking price — cannot investigate economics honestly.",
+      reason:
+        input.listing.priceUsd == null
+          ? "No asking price — cannot investigate economics honestly."
+          : `Asking price ${input.listing.priceUsd} is not a usable retail ask (placeholder/too low) — cannot investigate economics honestly; price not invented upward.`,
       forbid: ["buy", "negotiate", "pass"],
     });
   } else {
@@ -92,12 +96,22 @@ export function runScoutGates(input: {
   }
 
   if (input.mandate.mode === "personal" && input.mandate.budgetKnown && input.mandate.budgetUsd != null) {
-    if (input.listing.priceUsd != null && input.listing.priceUsd > input.mandate.budgetUsd * 1.05) {
+    if (
+      isUsableAskingPriceUsd(input.listing.priceUsd) &&
+      input.listing.priceUsd! > input.mandate.budgetUsd * 1.05
+    ) {
       gates.push({
         id: "mandate_fit",
         status: "forbid",
         reason: "Asking price exceeds personal budget by more than 5%.",
         forbid: ["buy", "negotiate"],
+      });
+    } else if (!isUsableAskingPriceUsd(input.listing.priceUsd)) {
+      gates.push({
+        id: "mandate_fit",
+        status: "withhold",
+        reason: "Usable asking price missing — mandate fit not verified (unknown ≠ pass).",
+        forbid: ["buy", "negotiate", "pass"],
       });
     } else {
       gates.push({
@@ -147,15 +161,20 @@ export function runScoutGates(input: {
 
   const withheld = gates.some((g) => g.status === "withhold");
   const withholdReason = gates.find((g) => g.status === "withhold")?.reason ?? null;
+  const usablePrice = isUsableAskingPriceUsd(input.listing.priceUsd);
   const hardForbidInvestigate = gates.some(
-    (g) => g.status === "withhold" && g.id === "data_sufficiency" && input.listing.priceUsd == null,
+    (g) =>
+      g.status === "withhold" &&
+      g.id === "data_sufficiency" &&
+      !usablePrice,
   );
 
   return {
     gates,
     withheld,
     withholdReason,
-    allowInvestigate: !hardForbidInvestigate && input.listing.vin.length > 0 && input.listing.priceUsd != null,
+    // Usable asking price required — placeholder $1–$59 must not unlock shortlist.
+    allowInvestigate: !hardForbidInvestigate && input.listing.vin.length > 0 && usablePrice,
     claimsSafeBuy: false,
     claimsVerifiedProfit: false,
   };

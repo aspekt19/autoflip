@@ -122,20 +122,27 @@ export function servScoutPlanner(deps: {
 
     if (!result.ok) {
       const err = result.error.toLowerCase();
+      const diagnostic =
+        typeof result.upstream === "string" && result.upstream.trim()
+          ? sanitizePlannerDiagnostic(result.upstream, result.status)
+          : result.status > 0
+            ? `SERV HTTP ${result.status}`
+            : null;
       if (result.status === 429 || err.includes("grant") || err.includes("call cap")) {
         return {
           ok: false,
           error: "serv_unavailable",
           message: result.error,
+          diagnostic,
         };
       }
       if (err.includes("timeout")) {
-        return { ok: false, error: "serv_timeout", message: result.error };
+        return { ok: false, error: "serv_timeout", message: result.error, diagnostic };
       }
       if (err.includes("refus") || result.status === 400) {
-        return { ok: false, error: "serv_refused", message: result.error };
+        return { ok: false, error: "serv_refused", message: result.error, diagnostic };
       }
-      return { ok: false, error: "serv_unavailable", message: result.error };
+      return { ok: false, error: "serv_unavailable", message: result.error, diagnostic };
     }
 
     const parsed = parseScoutPlanText(result.text);
@@ -152,12 +159,25 @@ export function servScoutPlanner(deps: {
   };
 }
 
+/** Strip secrets and keep actionable schema/status hints for operators. */
+export function sanitizePlannerDiagnostic(upstream: string, status: number): string {
+  const cleaned = upstream
+    .replace(/Bearer\s+\S+/gi, "Bearer [redacted]")
+    .replace(/\bsk-[A-Za-z0-9_-]+\b/g, "[redacted]")
+    .replace(/\baf_[A-Za-z0-9_-]+\b/g, "[redacted]")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 400);
+  const prefix = status > 0 ? `SERV HTTP ${status}` : "SERV";
+  return cleaned ? `${prefix}: ${cleaned}` : prefix;
+}
+
 export function blockedServPlanner(message?: string): ScoutPlanner {
   const base = refusingPlanner("serv_unavailable");
   if (!message) return base;
   return async () => ({
     ok: false,
-    error: "serv_unavailable",
+    error: "serv_unavailable" as const,
     message,
   });
 }

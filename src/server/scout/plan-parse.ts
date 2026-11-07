@@ -121,6 +121,16 @@ export function parseScoutPlanText(text: string): PlanParseResult {
     if (!isToolId(raw.toolId)) {
       return { ok: false, kind: "schema_mismatch", message: "run_tool requires allowlisted toolId." };
     }
+    let args: Record<string, unknown> | undefined;
+    if (raw.args && typeof raw.args === "object" && !Array.isArray(raw.args)) {
+      // Strict schema emits every key (null unions). Drop null/undefined so
+      // validateScoutSearchParams can apply mandate defaults for omitted fields.
+      const cleaned: Record<string, unknown> = {};
+      for (const [key, value] of Object.entries(raw.args as Record<string, unknown>)) {
+        if (value !== null && value !== undefined) cleaned[key] = value;
+      }
+      if (Object.keys(cleaned).length > 0) args = cleaned;
+    }
     return {
       ok: true,
       action: {
@@ -129,10 +139,7 @@ export function parseScoutPlanText(text: string): PlanParseResult {
         vin: typeof raw.vin === "string" ? raw.vin : null,
         reason,
         servStepId,
-        args:
-          raw.args && typeof raw.args === "object" && !Array.isArray(raw.args)
-            ? (raw.args as Record<string, unknown>)
-            : undefined,
+        ...(args ? { args } : {}),
       },
     };
   }

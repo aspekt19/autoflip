@@ -435,7 +435,18 @@ export const PROFILES = {
       schema: {
         type: "object",
         additionalProperties: false,
-        required: ["type", "reason", "servStepId"],
+        // Strict subset: every property must be required; optionality via null unions.
+        required: [
+          "type",
+          "reason",
+          "servStepId",
+          "vin",
+          "toolId",
+          "args",
+          "rationaleKind",
+          "citedEvidence",
+          "assumptionsDisclosed",
+        ],
         properties: {
           type: {
             type: "string",
@@ -463,7 +474,70 @@ export const PROFILES = {
               "run.finalize",
             ],
           },
-          args: { type: ["object", "null"] },
+          /**
+           * Allowlisted inventory.search / tool args only — open maps are rejected by
+           * strict structured outputs (`additionalProperties` must be false).
+           * App-side validateScoutSearchParams still enforces mandate bounds.
+           */
+          args: {
+            type: ["object", "null"],
+            additionalProperties: false,
+            required: [
+              "makes",
+              "models",
+              "preferredMakes",
+              "zip",
+              "distanceMiles",
+              "maxDistanceMiles",
+              "maxPriceUsd",
+              "priceMax",
+              "maxPrice",
+              "maxMiles",
+              "milesMax",
+              "maxMileage",
+            ],
+            properties: {
+              makes: { type: ["array", "null"], items: { type: "string" } },
+              models: { type: ["array", "null"], items: { type: "string" } },
+              preferredMakes: { type: ["array", "null"], items: { type: "string" } },
+              zip: { type: ["string", "null"] },
+              distanceMiles: { type: ["number", "null"] },
+              maxDistanceMiles: { type: ["number", "null"] },
+              maxPriceUsd: { type: ["number", "null"] },
+              priceMax: { type: ["number", "null"] },
+              maxPrice: { type: ["number", "null"] },
+              maxMiles: { type: ["number", "null"] },
+              milesMax: { type: ["number", "null"] },
+              maxMileage: { type: ["number", "null"] },
+            },
+          },
+          rationaleKind: {
+            type: ["string", "null"],
+            enum: [null, "adverse_evidence", "uncertainty_progress"],
+          },
+          citedEvidence: {
+            type: ["array", "null"],
+            items: {
+              type: "object",
+              additionalProperties: false,
+              required: ["kind", "gateId"],
+              properties: {
+                kind: {
+                  type: "string",
+                  enum: [
+                    "bad_title_brand",
+                    "over_budget",
+                    "over_miles",
+                    "flip_excluded",
+                    "missing_asking_price",
+                    "economics_estimate",
+                  ],
+                },
+                gateId: { type: ["string", "null"] },
+              },
+            },
+          },
+          assumptionsDisclosed: { type: ["boolean", "null"] },
         },
       },
     },

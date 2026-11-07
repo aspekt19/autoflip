@@ -155,11 +155,7 @@ export function resolveLiveInventory(input: ResolveLiveInventoryInput): ScoutInv
         zip: effective.zip,
         distanceMiles: effective.maxDistanceMiles,
         maxPriceUsd:
-          effective.budgetKnown && effective.budgetUsd != null
-            ? effective.mode === "personal"
-              ? effective.budgetUsd * 1.25
-              : effective.budgetUsd
-            : null,
+          effective.budgetKnown && effective.budgetUsd != null ? effective.budgetUsd : null,
         maxMiles: effective.maxMiles,
       },
     );

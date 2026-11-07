@@ -338,6 +338,11 @@ export type ScoutRunResult = {
   toolOutcomes: ScoutToolOutcome[];
   failReason: ScoutFailReason | null;
   message: string | null;
+  /**
+   * Sanitized actionable upstream/provider diagnostic (no secrets, no raw bodies).
+   * Complements `message` when SERV/HTTP refuses — safe for GET/POST parity.
+   */
+  diagnostic?: string | null;
   autonomyClaim: "serv_directed" | "none";
   /**
    * True when coverage is incomplete (failed lookup, budget stop, etc.) even if
