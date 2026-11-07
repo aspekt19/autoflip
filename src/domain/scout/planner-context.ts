@@ -6,6 +6,7 @@
 import type { ScoutCandidate, ScoutMandate, ScoutToolOutcome } from "./types";
 import type { ScoutSearchParams } from "./search-params";
 import { collectAdverseEvidence } from "./disposition-rationale";
+import { isUsableAskingPriceUsd } from "./asking-price";
 
 export type EvidenceConfidence = "low" | "medium" | "high" | "unknown";
 
@@ -25,6 +26,16 @@ export type CandidateEvidenceBrief = {
   claimsSafeBuy: false;
   claimsVerifiedProfit: false;
   askingUsd: number | null;
+  /**
+   * False when ask is missing or below usable retail floor (placeholder $1–$59).
+   * Unknown/unusable ≠ pass and must not unlock investigation shortlist.
+   */
+  askingPriceUsable: boolean;
+  /**
+   * Free NHTSA probes cannot unlock allowInvestigate without a usable asking price.
+   * When false, prefer reject (missing_asking_price), search, or abstain — not invent unlock.
+   */
+  freeGovCanUnlockInvestigate: boolean;
   miles: number | null;
   make: string;
   model: string;
@@ -142,6 +153,7 @@ export function buildCandidateEvidenceBrief(
     return !presentKeys.has(k);
   });
 
+  const askingPriceUsable = isUsableAskingPriceUsd(c.listing.priceUsd);
   return {
     vin: c.vin,
     disposition: c.disposition,
@@ -152,6 +164,8 @@ export function buildCandidateEvidenceBrief(
     claimsSafeBuy: false,
     claimsVerifiedProfit: false,
     askingUsd: c.listing.priceUsd,
+    askingPriceUsable,
+    freeGovCanUnlockInvestigate: askingPriceUsable,
     miles: c.listing.miles,
     make: c.listing.make,
     model: c.listing.model,

@@ -4,6 +4,9 @@
  * NOT a verified dollar balance. NOT inventable from allowlist + monthly snapshot.
  * Production live/SERV requires a grant bound to a specific af_ key hash so
  * unsigned af_uid cookie forgery + /api/agents/keys mint cannot inherit privileges.
+ *
+ * Owner usage policy (t284/t286): SERV may be granted with maxCalls=null (unmetered
+ * call-count). Ledger INCR still runs. Autodev stays metered (Free + monthly protect).
  */
 
 import type { Kv } from "@/io/kv";
@@ -13,8 +16,12 @@ import { monthKey } from "@/io/quota";
 export type ScoutGrantProvider = "serv" | "autodev";
 
 export type ScoutProviderBudget = {
-  /** Hard call cap for this provider under this grant (atomic INCR). */
-  maxCalls: number;
+  /**
+   * Call-count cap for this provider under this grant (atomic INCR).
+   * `null` = owner-authorized unmetered call-count (SERV only) — ledger still increments;
+   * never refuse for cap. Autodev must stay a finite >= 1 integer.
+   */
+  maxCalls: number | null;
   /**
    * Dollar ceiling. Unsupported today: there is no defensible per-call price table
    * or balance ledger. Non-null values are REJECTED at save (fail closed).
@@ -55,6 +62,10 @@ export function isGrantExpired(grant: ScoutOwnerGrant, now = new Date()): boolea
   return !Number.isFinite(t) || t <= now.getTime();
 }
 
+export function isUnmeteredProviderBudget(budget: ScoutProviderBudget): boolean {
+  return budget.maxCalls === null;
+}
+
 export async function saveOwnerGrant(
   kv: Kv,
   grant: ScoutOwnerGrant,
@@ -71,8 +82,20 @@ export async function saveOwnerGrant(
   for (const p of ["serv", "autodev"] as const) {
     const b = grant.providers[p];
     if (!b) continue;
-    if (!Number.isFinite(b.maxCalls) || b.maxCalls < 1) {
-      return { ok: false, message: `Grant ${p}.maxCalls must be >= 1.` };
+    if (b.maxCalls === null) {
+      if (p !== "serv") {
+        return {
+          ok: false,
+          message:
+            `Grant ${p}.maxCalls=null (unmetered) is only allowed for SERV. ` +
+            `Autodev stays metered (Free tier + monthly stop).`,
+        };
+      }
+    } else if (!Number.isFinite(b.maxCalls) || b.maxCalls < 1) {
+      return {
+        ok: false,
+        message: `Grant ${p}.maxCalls must be >= 1, or null for unmetered SERV.`,
+      };
     }
     if (b.maxSpendUsd != null) {
       return {
@@ -149,7 +172,8 @@ export async function readGrantUsed(
 
 /**
  * Atomic per-grant provider call reservation (INCR). Not a snapshot.
- * Over-limit DECR before any provider HTTP.
+ * Metered: over-limit DECR before any provider HTTP.
+ * Unmetered SERV (maxCalls=null): INCR ledger only — never refuse for cap.
  */
 export async function reserveGrantProviderCall(
   kv: Kv,
@@ -157,7 +181,7 @@ export async function reserveGrantProviderCall(
   provider: ScoutGrantProvider,
   now = new Date(),
 ): Promise<
-  | { ok: true; used: number; limit: number }
+  | { ok: true; used: number; limit: number | null; unmetered: boolean }
   | { ok: false; error: "provider_not_granted" | "grant_exhausted" | "quota_corrupt"; message: string }
 > {
   const budget = grant.providers[provider];
@@ -174,6 +198,9 @@ export async function reserveGrantProviderCall(
     if (!Number.isFinite(next) || !Number.isInteger(next)) {
       return { ok: false, error: "quota_corrupt", message: "Grant usage counter corrupt — failing closed." };
     }
+    if (budget.maxCalls === null) {
+      return { ok: true, used: next, limit: null, unmetered: true };
+    }
     if (next > budget.maxCalls) {
       await kv.decr(key);
       return {
@@ -182,7 +209,7 @@ export async function reserveGrantProviderCall(
         message: `Owner grant ${provider} call cap reached (${budget.maxCalls}).`,
       };
     }
-    return { ok: true, used: next, limit: budget.maxCalls };
+    return { ok: true, used: next, limit: budget.maxCalls, unmetered: false };
   } catch (err) {
     return {
       ok: false,
@@ -202,12 +229,17 @@ export async function releaseGrantProviderCall(
   await kv.decr(usedKey(grantId, provider, monthKey(now)));
 }
 
+/**
+ * Remaining metered calls, or null when the provider budget is unmetered.
+ * Callers must not treat null as 0.
+ */
 export function remainingGrantCalls(
   grant: ScoutOwnerGrant,
   provider: ScoutGrantProvider,
   used: number,
-): number {
+): number | null {
   const budget = grant.providers[provider];
   if (!budget) return 0;
+  if (budget.maxCalls === null) return null;
   return Math.max(0, budget.maxCalls - used);
 }

@@ -41,6 +41,7 @@ import {
   unsupportedFreeGovPort,
   type ScoutFreeGovPort,
 } from "./free-gov";
+import { isUsableAskingPriceUsd } from "./asking-price";
 import type {
   ProvenanceStep,
   ScoutBudgets,
@@ -58,6 +59,40 @@ import type {
   ScoutToolOutcome,
 } from "./types";
 import { SCOUT_TOOL_IDS } from "./types";
+
+/**
+ * Independently correct soft-guard (not a SERV call-cap workaround):
+ * free-gov cannot unlock investigation shortlist without a usable asking price.
+ * Remap to grounded reject (missing_asking_price). Does not invent success or
+ * change legitimate free-gov on usable-priced candidates.
+ */
+export function sanitizeScoutPlanAction(input: {
+  action: ScoutPlanAction;
+  candidates: Map<string, ScoutCandidate> | Iterable<ScoutCandidate>;
+}): ScoutPlanAction {
+  const { action } = input;
+  if (action.type !== "run_tool" || !isFreeGovToolId(action.toolId) || !action.vin) {
+    return action;
+  }
+  const byVin = new Map<string, ScoutCandidate>();
+  if (input.candidates instanceof Map) {
+    for (const [vin, c] of input.candidates) byVin.set(vin, c);
+  } else {
+    for (const c of input.candidates) byVin.set(c.vin, c);
+  }
+  const cand = byVin.get(action.vin);
+  if (!cand || isUsableAskingPriceUsd(cand.listing.priceUsd)) return action;
+  return {
+    type: "reject",
+    vin: cand.vin,
+    reason:
+      "Free-gov cannot unlock investigation without a usable asking price — reject placeholder/unknown ask (missing_asking_price).",
+    servStepId: action.servStepId,
+    rationaleKind: "adverse_evidence",
+    citedEvidence: [{ kind: "missing_asking_price" }],
+    assumptionsDisclosed: false,
+  };
+}
 
 /** Status→capability fallback only — capabilityGrounded stays false (incomplete for detectors). */
 function capabilityFromStatus(status: ScoutToolOutcome["status"]): ScoutToolCapability {
@@ -840,7 +875,19 @@ export async function runScout(input: RunScoutInput): Promise<ScoutRunResult> {
         return fail(snapshot(), plan.error, plan.message, true, diag);
       }
 
-      const action = plan.action;
+      const action = sanitizeScoutPlanAction({
+        action: plan.action,
+        candidates,
+      });
+      if (action !== plan.action) {
+        stamp(
+          provenance,
+          state,
+          `Planner action sanitized: ${plan.action.type}/${"toolId" in plan.action ? plan.action.toolId : "—"} → ${action.type} (${action.reason})`,
+          null,
+          action.servStepId,
+        );
+      }
 
       if (action.type === "abstain") {
         assertTransition(state, "finalizing");
@@ -1706,7 +1753,11 @@ export function heuristicOfflinePlanner(): ScoutPlanner {
       const probeVin =
         pendingVins.find((vin) => {
           const brief = evidenceContext.evidenceBriefs.find((b) => b.vin === vin);
-          return brief?.govToolStatus === "not_attempted";
+          return (
+            brief?.govToolStatus === "not_attempted" &&
+            brief.askingPriceUsable === true &&
+            brief.freeGovCanUnlockInvestigate === true
+          );
         }) ?? null;
       if (probeVin) {
         const brief = evidenceContext.evidenceBriefs.find((b) => b.vin === probeVin);

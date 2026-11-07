@@ -58,12 +58,17 @@ export function isServPlannerFlagOn(
   return flagOn(env.SCOUT_ALLOW_SERV_PLANNER);
 }
 
-/** Optional per-run call cap for owner live path (default 3). Not an env balance grant. */
+/**
+ * Optional Autodev-oriented per-run helper. Unset = no artificial default (t284 cancelled
+ * the old default-3). Not a SERV usage policy and not an env balance grant.
+ * Returns null when unset/invalid so callers do not invent a cap of 3.
+ */
 export function ownerMaxProviderCallsPerRun(
   env: Record<string, string | undefined> = process.env,
-): number {
+): number | null {
   const raw = env.SCOUT_OWNER_MAX_PROVIDER_CALLS_PER_RUN?.trim();
-  const n = raw ? Number(raw) : 3;
-  if (!Number.isFinite(n) || n < 1) return 3;
-  return Math.min(20, Math.floor(n));
+  if (!raw) return null;
+  const n = Number(raw);
+  if (!Number.isFinite(n) || n < 1) return null;
+  return Math.floor(n);
 }

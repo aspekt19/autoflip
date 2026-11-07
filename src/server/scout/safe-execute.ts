@@ -254,12 +254,13 @@ export async function executeScoutSafely(input: {
   try {
     void spendAuthority;
     // Server-owned budgets only — clients cannot raise ceilings.
+    // Autodev maxProviderCalls comes only from Autodev authority (never SERV remaining /
+    // unmetered SERV — that incorrectly opened listing spend or re-imposed call caps).
+    // maxServCalls stays the technical per-run anti-loop default (not owner usage policy).
     const budgets = serverScoutBudgets({
       maxProviderCalls: inventoryAuthority
         ? Math.max(0, inventoryAuthority.remainingProviderBudget)
-        : servAuthority
-          ? Math.max(0, servAuthority.remainingProviderBudget)
-          : 0,
+        : 0,
     });
 
     const autodev =
