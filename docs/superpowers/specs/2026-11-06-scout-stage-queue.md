@@ -164,7 +164,7 @@ broke `next build` / generated route types (invalid Route field). Bounded fix:
 - Verified: `npx tsc --noEmit` exit 0; `npm run build` exit 0; offline `next start`
   smoke GET `/api/scout` + `/scout` flag off/on (HTML source inspection — not browser E2E)
 
-## STAGE-SDK-ISOLATION — pending SHA (corrective after rejected e07b941 allowlist)
+## STAGE-SDK-ISOLATION — PIN 1ab9c46 (corrective after rejected e07b941 allowlist)
 
 Independent review rejected CI package-name allowlist. Corrective approach:
 - `@openserv-labs/sdk` moved to **devDependencies** (scaffold only imported by its test; not
