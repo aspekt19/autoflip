@@ -77,7 +77,8 @@ describe("scout plan parse diagnostics (offline fixtures)", () => {
   });
 
   it("documents legacy messageText→parse hazard; structured mode refuses tool_call args", () => {
-    // Pre-fix: legacy extraction surfaced args JSON → same Luna mismatch family.
+    // Synthetic draft-as-JSON hazard (offline only — not proven live Luna RCA).
+    // Pre-fix: legacy extraction surfaced args JSON → schema_mismatch family.
     // Post-fix: structured mode (json_schema profiles) returns empty instead.
     const payload = {
       choices: [

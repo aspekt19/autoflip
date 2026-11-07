@@ -23,9 +23,11 @@ describe("scout_plan strict JSON schema subset (offline)", () => {
     expect(Array.isArray(props.args.required) && (props.args.required as string[]).includes("maxPriceUsd")).toBe(
       true,
     );
-    // Non-empty reason/servStepId via official structured-outputs `pattern` (not minLength).
-    expect(props.reason.pattern).toBe(".*\\S.*");
-    expect(props.servStepId.pattern).toBe(".*\\S.*");
+    // Request schema stays plain string — nonempty is runtime (plan-parse), not pattern.
+    expect(props.reason).toEqual({ type: "string" });
+    expect(props.servStepId).toEqual({ type: "string" });
+    expect(props.reason.pattern).toBeUndefined();
+    expect(props.servStepId.pattern).toBeUndefined();
   });
 
   it("serv-options twin matches live profile and is also strict-clean", () => {

@@ -458,10 +458,11 @@ export const PROFILES = {
             type: "string",
             enum: ["select_candidate", "run_tool", "reject", "replace", "finalize", "abstain"],
           },
-          // Official structured-outputs string `pattern` (not minLength): reject empty /
-          // whitespace-only reason/servStepId at the provider when the schema is honored.
-          reason: { type: "string", pattern: ".*\\S.*" },
-          servStepId: { type: "string", pattern: ".*\\S.*" },
+          // Non-empty reason/servStepId enforced at parse time (plan-parse trim/guards),
+          // not via request-schema `pattern` (provider compatibility unproven; avoid schema
+          // surface churn until a live contract fault requires it).
+          reason: { type: "string" },
+          servStepId: { type: "string" },
           vin: { type: ["string", "null"] },
           toolId: {
             type: ["string", "null"],

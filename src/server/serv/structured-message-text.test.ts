@@ -1,13 +1,14 @@
 /**
  * Offline regressions for scout_plan structured-output extraction (t301).
  *
- * Before fix: messageText fell through to tool_call args / reasoning-draft JSON when
- * content was empty. That non-empty wrong text made runServ report ok:true, so
- * production empty-text recovery never ran, and parseScoutPlanText failed with the
- * Luna-era prefix "Missing reason or servStepId".
+ * Synthetic draft-as-JSON hazard (offline fixtures — not proven live Luna RCA; raw Luna
+ * bodies were not retained): messageText fell through to tool_call args / reasoning-draft
+ * JSON when content was empty. That non-empty wrong text made runServ report ok:true, so
+ * production empty-text recovery never ran, and parseScoutPlanText failed with
+ * "Missing reason or servStepId".
  *
  * After fix: jsonSchema profiles use structured extraction (content/parsed/refusal only).
- * No paid calls.
+ * No paid calls. No request-schema pattern on reason/servStepId.
  */
 import { describe, expect, it } from "vitest";
 import { parseScoutPlanText } from "@/server/scout/plan-parse";
@@ -73,7 +74,7 @@ const VALID_ABSTAIN_CONTENT = {
 };
 
 describe("structured messageText (json_schema contract)", () => {
-  it("legacy mode still surfaces tool args (pre-fix Luna-class mismatch family)", () => {
+  it("legacy mode still surfaces tool args (synthetic draft-as-JSON mismatch family)", () => {
     const legacy = messageText(TOOL_ARGS_ONLY, "legacy");
     expect(legacy).toContain("Toyota");
     const parsed = parseScoutPlanText(legacy);
@@ -164,7 +165,7 @@ describe("scout_plan runServ uses structured extraction (offline)", () => {
     }
   });
 
-  it("reasoning-draft-only 200 is empty under experiment (no Luna-prefix false positive)", async () => {
+  it("reasoning-draft-only 200 is empty under experiment (no draft-as-JSON false positive)", async () => {
     const result = await runServ(
       "scout_plan",
       { user: "{}" },

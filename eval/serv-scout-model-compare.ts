@@ -484,8 +484,7 @@ async function main() {
       "Live path uses experiment_single_attempt: one HTTP per step; empty/timeout/HTTP errors/refusals recorded, not silently repeated.",
       "Production runServ empty/timeout recovery is unchanged outside this harness.",
       "Schema mismatch rows include sanitized field presence (reason/servStepId/type) without storing raw response text.",
-      "json_schema profiles extract content/parsed/refusal only — tool_call args and reasoning drafts are not planner text (enables production empty-text recovery).",
-      "scout_plan reason/servStepId use official structured-outputs pattern .*\\S.* so empty/whitespace strings are not schema-valid when the provider honors the schema.",
+      "json_schema profiles extract content/parsed/refusal only — tool_call args and reasoning drafts are not planner text (enables production empty-text recovery). Offline synthetic draft-as-JSON hazard — not proven live Luna RCA (raw body unretained).",
     ],
   };
 

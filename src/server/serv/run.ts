@@ -241,9 +241,11 @@ function toolArgumentText(calls: unknown): string {
  * How to extract shopper/planner text from an upstream payload.
  * - `legacy`: content → parsed → tool_call args → refusal → reasoning JSON (historical).
  * - `structured`: OpenAI/SERV json_schema contract only — content / parsed / refusal.
- *   Never promote tool_call arguments or reasoning-trace drafts into planner text
- *   (that path produced Luna-era "Missing reason or servStepId" false positives and
- *   skipped production empty-text recovery because the wrong text was non-empty).
+ *   Never promote tool_call arguments or reasoning-trace drafts into planner text.
+ *   Offline fixtures show a synthetic draft-as-JSON hazard: non-empty wrong text makes
+ *   runServ report success, skips production empty-text recovery, and parseScoutPlanText
+ *   fails with "Missing reason or servStepId". Raw live Luna bodies were not retained —
+ *   this is not a proven live Luna RCA.
  */
 export type MessageTextMode = "legacy" | "structured";
 
