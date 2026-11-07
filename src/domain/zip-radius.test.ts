@@ -9,8 +9,10 @@ import {
   MAX_DISTANCE_MILES,
   SEARCH_RADII_MILES,
   explicitNeedFromText,
+  homeFindEntryParams,
   normalizeDistanceMiles,
   parseDistanceMiles,
+  parseFindEntryParams,
   searchScopeLabel,
   validateNeed,
 } from "./need";
@@ -138,15 +140,47 @@ describe("ZIP + seller-distance radius normalization", () => {
 });
 
 describe("home / radar URL seller-distance propagation", () => {
-  it("includes selected radius on find and radar scan URLs", () => {
-    const home = new URLSearchParams({
+  it("homepage entry carries note+mode only — ZIP/radius connect in /find, not on the hero", () => {
+    const home = homeFindEntryParams("Reliable SUV under 20000", "personal");
+    expect(home.get("note")).toBe("Reliable SUV under 20000");
+    expect(home.get("mode")).toBe("personal");
+    expect(home.has("zip")).toBe(false);
+    expect(home.has("distanceMiles")).toBe(false);
+
+    const fromHome = parseFindEntryParams({
+      note: home.get("note") ?? undefined,
+      mode: home.get("mode") ?? undefined,
+    });
+    expect(fromHome.zip).toBeUndefined();
+    // Absent geo ≠ invented Nationwide (null); find flow collects ZIP/radius before inventory.
+    expect(fromHome.distanceMiles).toBeUndefined();
+  });
+
+  it("preserves deep-link ZIP + custom radius on /find without silent nationwide widening", () => {
+    const deep = parseFindEntryParams({
       note: "Reliable SUV under 20000",
       mode: "personal",
       zip: "72712",
       distanceMiles: "137",
     });
-    expect(home.get("distanceMiles")).toBe("137");
-    expect(home.get("zip")).toBe("72712");
+    expect(deep.zip).toBe("72712");
+    expect(deep.distanceMiles).toBe(137);
+
+    const nationwide = parseFindEntryParams({
+      note: "Reliable SUV under 20000",
+      mode: "personal",
+      distanceMiles: "nationwide",
+    });
+    expect(nationwide.distanceMiles).toBeNull();
+    expect(nationwide.zip).toBeUndefined();
+
+    const orphanRadius = parseFindEntryParams({
+      note: "Reliable SUV under 20000",
+      mode: "flip",
+      distanceMiles: "150",
+    });
+    expect(orphanRadius.zip).toBeUndefined();
+    expect(orphanRadius.distanceMiles).toBeUndefined();
 
     const scan = new URLSearchParams({
       mode: "personal",
@@ -157,14 +191,6 @@ describe("home / radar URL seller-distance propagation", () => {
     });
     expect(scan.get("distanceMiles")).toBe("150");
     expect(scan.has("distanceMiles")).toBe(true);
-
-    const nationwideHome = new URLSearchParams({
-      note: "Reliable SUV under 20000",
-      mode: "personal",
-      distanceMiles: "nationwide",
-    });
-    expect(parseDistanceMiles(nationwideHome.get("distanceMiles")).ok).toBe(true);
-    expect(parseDistanceMiles(nationwideHome.get("distanceMiles"))).toEqual({ ok: true, miles: null });
   });
 
   it("rejects radar watch nationwide / missing radius without defaulting to 50", () => {

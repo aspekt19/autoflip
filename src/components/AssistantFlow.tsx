@@ -346,6 +346,11 @@ function AssistantFlow({
 
   async function findCars() {
     if (!need) return;
+    // Geography must be coherent before inventory: radius requires ZIP; Nationwide is explicit null.
+    if (need.distanceMiles != null && !need.zip) {
+      setError("Add a ZIP for a seller-distance radius, or choose Nationwide.");
+      return;
+    }
     setError(null);
     setMatchMessage(null);
     setMatchHeadline(null);
@@ -712,6 +717,7 @@ function AssistantFlow({
             </label>
           </div>
           <p className="hint">{mode === "flip" ? "This is the cash available for the deal. Repair estimates are assumptions, not a quote." : "We use this as the vehicle asking-price limit. Taxes, title, registration and dealer fees are not included."}</p>
+          {/* Geo connects here in-process (not on the homepage) before inventory. Nationwide only when chosen. */}
           <ZipRadiusFields
             idPrefix="find-budget"
             zip={zipDraft}
