@@ -164,7 +164,7 @@ broke `next build` / generated route types (invalid Route field). Bounded fix:
 - Verified: `npx tsc --noEmit` exit 0; `npm run build` exit 0; offline `next start`
   smoke GET `/api/scout` + `/scout` flag off/on (HTML source inspection — not browser E2E)
 
-## STAGE-OWNER-AUTH — PIN (pending) grant-bound session; unsigned af_uid closed
+## STAGE-OWNER-AUTH — PIN ec253d2 grant-bound session; unsigned af_uid closed
 
 Independent review of b388076: unsigned `af_uid` + `/api/agents/keys` mint could
 impersonate allowlisted UUID. Fixed at root — not label edits.
