@@ -164,7 +164,7 @@ broke `next build` / generated route types (invalid Route field). Bounded fix:
 - Verified: `npx tsc --noEmit` exit 0; `npm run build` exit 0; offline `next start`
   smoke GET `/api/scout` + `/scout` flag off/on (HTML source inspection — not browser E2E)
 
-## STAGE-OWNER-LIVE — PIN (pending tip) owner allowlist + Upstash authority
+## STAGE-OWNER-LIVE — PIN b388076 owner allowlist + Upstash authority
 
 Reversible repository work so owner can eventually test **production** with an arbitrary
 mandate (not curated demo). Offline browser E2E at b454869 remains complete for fixture only.
