@@ -18,8 +18,12 @@ export {
 export { assertStrictJsonSchemaSubset } from "./strict-json-schema";
 export {
   experimentServDeps,
+  messageText,
   requestFor,
+  responseShape,
   runServ,
+  servErrorSummary,
+  type MessageTextMode,
   type ServDeps,
   type ServResult,
   type ServTransportPolicy,

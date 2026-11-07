@@ -93,8 +93,9 @@ export const SCOUT_PLAN_JSON_SCHEMA = {
         type: "string",
         enum: ["select_candidate", "run_tool", "reject", "replace", "finalize", "abstain"],
       },
-      reason: { type: "string" },
-      servStepId: { type: "string" },
+      // Keep twin of PROFILES.scout_plan — non-empty via official `pattern` (structured outputs).
+      reason: { type: "string", pattern: ".*\\S.*" },
+      servStepId: { type: "string", pattern: ".*\\S.*" },
       vin: { type: ["string", "null"] },
       toolId: {
         type: ["string", "null"],

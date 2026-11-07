@@ -76,10 +76,10 @@ describe("scout plan parse diagnostics (offline fixtures)", () => {
     expect(blob).not.toContain("step-secret");
   });
 
-  it("documents messageText→parse hazard: tool_call args without reason/servStepId", () => {
-    // Hypothesis only: if a model emits tool_calls instead of json_schema content,
-    // messageText may surface args JSON that fails with the same mismatch family.
-    const text = messageText({
+  it("documents legacy messageText→parse hazard; structured mode refuses tool_call args", () => {
+    // Pre-fix: legacy extraction surfaced args JSON → same Luna mismatch family.
+    // Post-fix: structured mode (json_schema profiles) returns empty instead.
+    const payload = {
       choices: [
         {
           message: {
@@ -100,9 +100,10 @@ describe("scout plan parse diagnostics (offline fixtures)", () => {
           },
         },
       ],
-    });
-    expect(text).toContain("Toyota");
-    const parsed = parseScoutPlanText(text);
+    };
+    const legacy = messageText(payload, "legacy");
+    expect(legacy).toContain("Toyota");
+    const parsed = parseScoutPlanText(legacy);
     expect(parsed.ok).toBe(false);
     if (!parsed.ok) {
       expect(parsed.kind).toBe("schema_mismatch");
@@ -110,11 +111,12 @@ describe("scout plan parse diagnostics (offline fixtures)", () => {
       expect(parsed.message).toContain("reason=missing");
       expect(parsed.message).toContain("keys=");
     }
-    const echo = sanitizePlannerParseEcho(text);
+    const echo = sanitizePlannerParseEcho(legacy);
     expect(echo.topLevelKeys).toEqual(
       expect.arrayContaining(["distanceMiles", "makes", "models", "zip"]),
     );
     expect(JSON.stringify(echo)).not.toContain("Toyota");
+    expect(messageText(payload, "structured")).toBe("");
   });
 
   it("still accepts a grounded abstain with non-empty reason + servStepId", () => {

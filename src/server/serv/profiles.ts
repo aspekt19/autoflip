@@ -458,8 +458,10 @@ export const PROFILES = {
             type: "string",
             enum: ["select_candidate", "run_tool", "reject", "replace", "finalize", "abstain"],
           },
-          reason: { type: "string" },
-          servStepId: { type: "string" },
+          // Official structured-outputs string `pattern` (not minLength): reject empty /
+          // whitespace-only reason/servStepId at the provider when the schema is honored.
+          reason: { type: "string", pattern: ".*\\S.*" },
+          servStepId: { type: "string", pattern: ".*\\S.*" },
           vin: { type: ["string", "null"] },
           toolId: {
             type: ["string", "null"],

@@ -11,12 +11,21 @@ describe("scout_plan strict JSON schema subset (offline)", () => {
     const issues = assertStrictJsonSchemaSubset(schema);
     expect(issues).toEqual([]);
 
-    const args = (schema as { properties: { args: Record<string, unknown> } }).properties.args;
-    expect(args.additionalProperties).toBe(false);
-    expect(args.type).toEqual(["object", "null"]);
-    expect(Array.isArray(args.required) && (args.required as string[]).includes("maxPriceUsd")).toBe(
+    const props = (schema as {
+      properties: {
+        args: Record<string, unknown>;
+        reason: { type?: string; pattern?: string };
+        servStepId: { type?: string; pattern?: string };
+      };
+    }).properties;
+    expect(props.args.additionalProperties).toBe(false);
+    expect(props.args.type).toEqual(["object", "null"]);
+    expect(Array.isArray(props.args.required) && (props.args.required as string[]).includes("maxPriceUsd")).toBe(
       true,
     );
+    // Non-empty reason/servStepId via official structured-outputs `pattern` (not minLength).
+    expect(props.reason.pattern).toBe(".*\\S.*");
+    expect(props.servStepId.pattern).toBe(".*\\S.*");
   });
 
   it("serv-options twin matches live profile and is also strict-clean", () => {
