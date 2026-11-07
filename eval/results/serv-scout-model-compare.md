@@ -1,7 +1,7 @@
 # SERV scout model compare (PR63 placeholder ledger)
 
 - Mode: `dry_run`
-- Source head: `242327d0beca819140f37033f1cc5a32d06965f8` · tree: `6c0d7c0455dc829e1e183e288cf195d4b1286ccf` · BASE_MODEL: `gpt-5.4-mini`
+- Source head: `5289850a38dd6f32574390932e00f9e8e168bdc8` · tree: `a1c9245eca3fec82258f1fba81d60bfa5b51e997` · BASE_MODEL: `gpt-5.4-mini`
 - Schema fingerprint (scout_plan json_schema sha256): `967e525271bed13ac42a4573aba9510a60c8623cb537bf316ec3902803846ea2`
 - Ledger: `fixtures/scout/pr63-placeholder-ledger.json`
 - Deployed SHA under test (ledger): `de5eb0c0dab6d394765ff5916abf6346dc139841`

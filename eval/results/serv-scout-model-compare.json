@@ -3,8 +3,8 @@
   "mode": "dry_run",
   "harness": "eval/serv-scout-model-compare.ts",
   "source": {
-    "head": "242327d0beca819140f37033f1cc5a32d06965f8",
-    "tree": "6c0d7c0455dc829e1e183e288cf195d4b1286ccf",
+    "head": "5289850a38dd6f32574390932e00f9e8e168bdc8",
+    "tree": "a1c9245eca3fec82258f1fba81d60bfa5b51e997",
     "baseModel": "gpt-5.4-mini"
   },
   "schemaFingerprint": "967e525271bed13ac42a4573aba9510a60c8623cb537bf316ec3902803846ea2",
