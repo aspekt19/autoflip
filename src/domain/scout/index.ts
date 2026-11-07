@@ -18,8 +18,23 @@ export {
   heuristicOfflinePlanner,
   runScout,
   sanitizeScoutPlanAction,
+  planActionFingerprint,
 } from "./runner";
 export type { ScoutPlanner, ScoutPlannerInput, RunScoutInput } from "./runner";
+export {
+  loadPlaceholderLedger,
+  buildPlaceholderCandidates,
+  prepareCompareStep,
+  scoreScoutPlanAction,
+  scoreHistoricalLedgerActions,
+  PR63_PLACEHOLDER_LEDGER_PATH,
+} from "./serv-model-compare";
+export type {
+  PlaceholderLedger,
+  RecoveryClass,
+  ActionScore,
+  CompareStepPrepared,
+} from "./serv-model-compare";
 export {
   SCOUT_METRICS_SCHEMA_VERSION,
   observeScoutRun,

@@ -1,3 +1,4 @@
+import { MAX_DISTANCE_MILES, parseDistanceMiles } from "@/domain/need";
 import type { ScoutMandate, ScoutMode } from "./types";
 
 export type MandateValidation =
@@ -80,19 +81,32 @@ export function validateScoutMandate(raw: unknown): MandateValidation {
     return { ok: false, error: "mandate_invalid", message: "zip must be a 5-digit US ZIP or null." };
   }
 
-  const maxDistanceMiles = asNonNegNumber(body.maxDistanceMiles);
-  if (maxDistanceMiles === undefined && body.maxDistanceMiles !== undefined) {
-    return {
-      ok: false,
-      error: "mandate_invalid",
-      message: "maxDistanceMiles must be a non-negative number or null.",
-    };
+  let maxDistanceMiles: number | null | undefined;
+  if (body.maxDistanceMiles === undefined) {
+    maxDistanceMiles = undefined;
+  } else {
+    const parsed = parseDistanceMiles(body.maxDistanceMiles);
+    if (!parsed.ok) {
+      return {
+        ok: false,
+        error: "mandate_invalid",
+        message: `maxDistanceMiles: ${parsed.message}`,
+      };
+    }
+    maxDistanceMiles = parsed.miles;
   }
   if (maxDistanceMiles != null && !zip) {
     return {
       ok: false,
       error: "mandate_invalid",
       message: "maxDistanceMiles requires a zip.",
+    };
+  }
+  if (maxDistanceMiles != null && maxDistanceMiles > MAX_DISTANCE_MILES) {
+    return {
+      ok: false,
+      error: "mandate_invalid",
+      message: `maxDistanceMiles must be at most ${MAX_DISTANCE_MILES} or null (nationwide).`,
     };
   }
 

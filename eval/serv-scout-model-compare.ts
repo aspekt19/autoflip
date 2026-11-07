@@ -1,0 +1,462 @@
+/**
+ * Parent-runnable controlled SAME-input SERV-model comparison (owner t292/t294/t295/t296).
+ *
+ * Rebuilds planner inputs from the sanitized PR63 placeholder ledger and, when
+ * parent authorizes paid SERV, runs sequential scout_plan calls per model ID —
+ * strict JSON schema, scored for validity / groundedness / recovery / latency /
+ * tokens / costunknown.
+ *
+ * Live transport uses `experiment_single_attempt` (one HTTP per step; empty/timeout
+ * recorded, not silently re-POSTed). Production planner recovery retries are unchanged.
+ *
+ * ## Not a demonstrated product fix via model swap
+ * This harness enables parent comparison only. A model-only swap is **NOT** the
+ * demonstrated fix for the PR63 placeholder-price / reject-grounding deadlock.
+ * Production `BASE_MODEL` / `SERV_MODEL` default is unchanged.
+ *
+ * ## Network / spend gates (confirm)
+ * Default = zero network (dry-run). Live SERV requires both:
+ *   SERV_API_KEY + SCOUT_COMPARE_ALLOW_PAID=1
+ * (SCOUT_COMPARE_DRY_RUN=1 forces dry-run even if a key is present.)
+ *
+ * ## Console vs in-repo catalog
+ * OpenServ console Available-models (owner screenshots) lists broader IDs and
+ * $/M rates (e.g. gpt-6-luna). In-repo catalog stays narrow. Parent may pass
+ * explicit IDs after console/contract validation with
+ * SCOUT_COMPARE_ALLOW_UNLISTED=1. Fail-closed for garbage. Do not force cheapest;
+ * budget-conscious ≠ cheapest-at-expense-of-quality.
+ *
+ * Usage (parent):
+ *   # Offline harness validation (no key, no spend):
+ *   npm run eval:scout-model-compare
+ *
+ *   # Live sequential compare (parent only — spends SERV):
+ *   SERV_API_KEY=… SCOUT_COMPARE_ALLOW_PAID=1 \\
+ *     SERV_COMPARE_MODELS=gpt-5.4-mini,gpt-5.4-mini-2026-03-17 \\
+ *     npm run eval:scout-model-compare
+ *
+ *   # Parent-validated console ID not in in-repo catalog:
+ *   SERV_API_KEY=… SCOUT_COMPARE_ALLOW_PAID=1 SCOUT_COMPARE_ALLOW_UNLISTED=1 \\
+ *     SERV_COMPARE_MODELS=gpt-6-luna \\
+ *     npm run eval:scout-model-compare
+ *
+ * Env (never print secret values):
+ *   SERV_API_KEY                 required for live mode
+ *   SERV_BASE_URL                optional (default inference-api.openserv.ai/v1)
+ *   SERV_COMPARE_MODELS         CSV (default: in-repo catalog)
+ *   SCOUT_COMPARE_ALLOW_PAID     must be "1" to enable live SERV calls
+ *   SCOUT_COMPARE_ALLOW_UNLISTED must be "1" to accept non-catalog model IDs
+ *   SCOUT_COMPARE_DRY_RUN        "1" forces dry-run even if key present
+ *   SCOUT_COMPARE_OUT            optional output basename under eval/results/
+ */
+import { mkdirSync, writeFileSync } from "node:fs";
+import { resolve } from "node:path";
+import {
+  loadPlaceholderLedger,
+  prepareCompareStep,
+  scoreHistoricalLedgerActions,
+  scoreScoutPlanAction,
+  PR63_PLACEHOLDER_LEDGER_PATH,
+  type ActionScore,
+} from "../src/domain/scout/serv-model-compare";
+import { buildScoutPlanUserMessage } from "../src/server/scout/plan-user-message";
+import { parseScoutPlanText } from "../src/server/scout/plan-parse";
+import {
+  listServCompareModels,
+  resolveServCompareModelIds,
+  servCompareCatalogNote,
+  experimentServDeps,
+  runServ,
+  BASE_MODEL,
+  SERV_OUTPUT_TOKEN_DEFAULT,
+  resolveServOutputTokenBound,
+} from "../src/server/serv";
+import { profile } from "../src/server/serv/profiles";
+
+type Usage = {
+  prompt_tokens?: number;
+  completion_tokens?: number;
+  total_tokens?: number;
+};
+
+type ModelStepRow = {
+  modelId: string;
+  effectiveModel: string;
+  stepId: string;
+  schemaValid: boolean;
+  score: ActionScore;
+  latencyMs: number | null;
+  tokens: Usage | null;
+  cost: "unknown";
+  rawStatus: number | null;
+  reportedModel: string | null;
+  error: string | null;
+  unlistedOptIn: boolean;
+  /** Upstream SERV HTTP dispatches for this step (experiment: expect 1). */
+  httpAttempts: number | null;
+  transportPolicy: "experiment_single_attempt" | null;
+};
+
+function usageFromProof(proof: unknown): Usage | null {
+  if (!proof || typeof proof !== "object") return null;
+  const openserv = (proof as { openserv?: { usage?: Usage } }).openserv;
+  const u = openserv?.usage;
+  if (!u || typeof u !== "object") return null;
+  return {
+    prompt_tokens: u.prompt_tokens,
+    completion_tokens: u.completion_tokens,
+    total_tokens: u.total_tokens,
+  };
+}
+
+function markdownReport(report: Record<string, unknown>): string {
+  const lines: string[] = [];
+  lines.push("# SERV scout model compare (PR63 placeholder ledger)");
+  lines.push("");
+  lines.push(`- Mode: \`${String(report.mode)}\``);
+  lines.push(`- Harness head (when committed): see git SHA on PR branch`);
+  lines.push(`- Ledger: \`${PR63_PLACEHOLDER_LEDGER_PATH}\``);
+  lines.push(`- Deployed SHA under test (ledger): \`${String(report.ledgerDeployedSha)}\``);
+  lines.push(`- Production default model: \`${String(report.productionDefaultModel)}\` (unchanged: ${String(report.productionDefaultUnchanged)})`);
+  lines.push(`- Cost: **unknown** (console $/M is not reconciled run cost; labeled costunknown)`);
+  lines.push("");
+  lines.push("## Experiment transport bounds (t296)");
+  lines.push("");
+  const tb = report.transportBounds as
+    | {
+        policy?: string;
+        maxHttpAttemptsPerStep?: number;
+        timeoutMsPerAttempt?: number;
+        wallMsPerModelNominal?: number;
+        outputTokenBound?: number | null;
+        silentEmptyRetry?: boolean;
+        silentTimeoutRetry?: boolean;
+        productionPlannerRetriesUnchanged?: boolean;
+        noArbitraryServRunQuota?: boolean;
+      }
+    | undefined;
+  if (tb) {
+    lines.push(`- Policy: \`${tb.policy}\` (eval/compare only — production \`runServ\` empty/timeout recovery unchanged)`);
+    lines.push(
+      `- Max upstream HTTP per requested scout_plan step: **${tb.maxHttpAttemptsPerStep}** (no silent empty/timeout re-POST; every attempt counted)`,
+    );
+    lines.push(`- Timeout per attempt: \`${tb.timeoutMsPerAttempt}ms\` (nominal wall/model = steps × timeout = \`${tb.wallMsPerModelNominal}ms\`)`);
+    lines.push(`- Output token bound: \`${tb.outputTokenBound ?? "invalid"}\` (default ${SERV_OUTPUT_TOKEN_DEFAULT}; fail-closed on garbage)`);
+    lines.push(`- Silent empty retry: \`${tb.silentEmptyRetry}\`; silent timeout retry: \`${tb.silentTimeoutRetry}\``);
+    lines.push(`- No arbitrary SERV run quota introduced: \`${tb.noArbitraryServRunQuota}\``);
+    lines.push(`- Errors / empty / HTTP failures / refusals are **recorded**, not silently repeated`);
+  }
+  lines.push("");
+  lines.push("## Critical disclaimers (t294/t295)");
+  lines.push("");
+  lines.push("- **Model-only swap is NOT the demonstrated product fix** for the placeholder-price reject deadlock. Code fixes (query floor, cite grounding, filter) are separate; this harness only compares planner behavior on the same offline ledger input.");
+  lines.push("- **Budget-conscious ≠ cheapest.** Do not pick the lowest console $/M at the expense of grounded recovery / anti-loop quality.");
+  lines.push("- **Console ≠ in-repo catalog.** Console Available-models is broader (e.g. `gpt-6-luna`); unlisted IDs need parent validation + `SCOUT_COMPARE_ALLOW_UNLISTED=1`.");
+  lines.push("- **Zero-network default.** Live requires `SERV_API_KEY` + `SCOUT_COMPARE_ALLOW_PAID=1`.");
+  lines.push("- **One attempt per step** on the live compare path via `experiment_single_attempt` — not the production planner retry policy.");
+  lines.push("");
+  lines.push("## Evidence taxonomy (observed vs hypotheses vs unrecorded)");
+  lines.push("");
+  const tax = report.evidenceTaxonomy as
+    | { observed?: string[]; hypotheses?: string[]; unrecorded_historical?: string[] }
+    | undefined;
+  if (tax) {
+    lines.push("### Observed");
+    for (const o of tax.observed ?? []) lines.push(`- ${o}`);
+    lines.push("");
+    lines.push("### Hypotheses (not proven as sole root cause)");
+    for (const h of tax.hypotheses ?? []) lines.push(`- ${h}`);
+    lines.push("");
+    lines.push("### Unrecorded historical details");
+    for (const u of tax.unrecorded_historical ?? []) lines.push(`- ${u}`);
+  } else {
+    lines.push("_See ledger `evidenceTaxonomy`._");
+  }
+  lines.push("");
+  lines.push("## Offline before / after (reproduction)");
+  lines.push("");
+  const ba = report.offlineBeforeAfter as {
+    before?: string;
+    afterCodeFix?: string;
+    modelCompareRole?: string;
+  };
+  if (ba) {
+    lines.push(`- **Before (de5eb0c live / offline replay):** ${ba.before ?? ""}`);
+    lines.push(`- **After code fix (this branch, offline):** ${ba.afterCodeFix ?? ""}`);
+    lines.push(`- **Model compare role:** ${ba.modelCompareRole ?? ""}`);
+  }
+  lines.push("");
+  lines.push("## Catalog mechanism");
+  lines.push("");
+  lines.push("```");
+  lines.push(servCompareCatalogNote());
+  lines.push("```");
+  lines.push("");
+  lines.push("## Historical labeled actions (offline)");
+  lines.push("");
+  const hist = report.historicalScores as Array<{
+    stepId: string;
+    label: string;
+    observedOutcomeOk: boolean;
+    score: ActionScore;
+  }>;
+  for (const h of hist) {
+    lines.push(
+      `- ${h.stepId} (${h.label}): observedOk=${h.observedOutcomeOk}; recovery=${h.score.recoveryClass}; grounded=${h.score.grounded}; antiLoopSafe=${h.score.antiLoopSafe}`,
+    );
+  }
+  lines.push("");
+  lines.push(
+    "Note: `observedOk=false` is the **historical live** denial on de5eb0c; `grounded=true` under current code reflects the cite-grounding fix on the same citation shape — not a claim the live run was grounded.",
+  );
+  lines.push("");
+  lines.push("## Model × step rows");
+  lines.push("");
+  const rows = report.rows as ModelStepRow[];
+  if (!rows.length) {
+    lines.push("_No live model rows (dry-run)._");
+  } else {
+    for (const r of rows) {
+      lines.push(
+        `- **${r.modelId}** @ \`${r.stepId}\`: schemaValid=${r.schemaValid}; recovery=${r.score.recoveryClass}; grounded=${r.score.grounded}; antiLoopSafe=${r.score.antiLoopSafe}; latencyMs=${r.latencyMs ?? "n/a"}; httpAttempts=${r.httpAttempts ?? "n/a"}; tokens=${r.tokens?.total_tokens ?? "n/a"}; cost=unknown; unlistedOptIn=${r.unlistedOptIn}${r.error ? `; error=${r.error}` : ""}`,
+      );
+    }
+  }
+  lines.push("");
+  lines.push("## Remaining limits");
+  lines.push("");
+  for (const lim of (report.remainingLimits as string[]) ?? []) {
+    lines.push(`- ${lim}`);
+  }
+  return lines.join("\n");
+}
+
+async function main() {
+  const dryForced = process.env.SCOUT_COMPARE_DRY_RUN === "1";
+  const allowPaid = process.env.SCOUT_COMPARE_ALLOW_PAID === "1";
+  const allowUnlisted = process.env.SCOUT_COMPARE_ALLOW_UNLISTED === "1";
+  const key = process.env.SERV_API_KEY?.trim() ?? "";
+  const live = !dryForced && allowPaid && Boolean(key);
+
+  if (!dryForced && allowPaid && !key) {
+    console.error(
+      "SCOUT_COMPARE_ALLOW_PAID=1 but SERV_API_KEY is missing. Refusing to call SERV. Export the key or omit ALLOW_PAID for dry-run.",
+    );
+    process.exit(1);
+  }
+  if (!dryForced && key && !allowPaid) {
+    console.error(
+      "SERV_API_KEY is set but SCOUT_COMPARE_ALLOW_PAID is not 1. Defaulting to dry-run (no spend). Set SCOUT_COMPARE_ALLOW_PAID=1 to run live sequential compares.",
+    );
+  }
+
+  const modelRes = resolveServCompareModelIds(process.env.SERV_COMPARE_MODELS, {
+    allowUnlisted,
+  });
+  if (!modelRes.ok) {
+    console.error(modelRes.message);
+    process.exit(1);
+  }
+
+  const ledger = loadPlaceholderLedger();
+  const historicalScores = scoreHistoricalLedgerActions(ledger);
+  const preparedSteps = ledger.compareSteps.map((s) => prepareCompareStep(ledger, s));
+
+  const stepUserMessages = preparedSteps.map((p) => ({
+    stepId: p.stepId,
+    userMessageBytes: Buffer.byteLength(buildScoutPlanUserMessage(p.plannerInput), "utf8"),
+    pendingCount: p.plannerInput.pendingVins.length,
+    usableAsks: p.plannerInput.evidenceContext.pendingAskSummary.usableAskingPriceCount,
+    allUnusable: p.plannerInput.evidenceContext.pendingAskSummary.allPendingAskingPricesUnusable,
+  }));
+
+  const scoutProfile = profile("scout_plan");
+  const rows: ModelStepRow[] = [];
+
+  if (live) {
+    console.log(servCompareCatalogNote());
+    console.log(
+      `Live sequential compare: ${modelRes.models.length} model(s) × ${preparedSteps.length} step(s). Cost unknown until central reconciliation. Model-only swap is NOT the demonstrated product fix.`,
+    );
+    for (const model of modelRes.models) {
+      for (const prepared of preparedSteps) {
+        const user = buildScoutPlanUserMessage(prepared.plannerInput);
+        const started = Date.now();
+        let latencyMs: number | null = null;
+        let tokens: Usage | null = null;
+        let rawStatus: number | null = null;
+        let reportedModel: string | null = null;
+        let error: string | null = null;
+        let httpAttempts: number | null = null;
+        let schemaValid = false;
+        let score: ActionScore;
+
+        try {
+          // Isolated experiment transport: one upstream attempt per step; empty/timeout
+          // are recorded (not silently re-POSTed). Production runServ recovery unchanged.
+          const result = await runServ(
+            "scout_plan",
+            { user },
+            experimentServDeps({
+              apiKey: key,
+              baseUrl: process.env.SERV_BASE_URL,
+              model: model.id,
+              timeoutMs: scoutProfile.timeoutMs,
+            }),
+          );
+          latencyMs = Date.now() - started;
+          tokens = usageFromProof(result.proof);
+          reportedModel = result.proof.modelReported || null;
+          httpAttempts = result.httpAttempts;
+
+          if (!result.ok) {
+            rawStatus = result.status;
+            error = result.error;
+            score = scoreScoutPlanAction({
+              action: null,
+              schemaValid: false,
+              parseKind: "serv_error",
+              candidatesByVin: prepared.candidatesByVin,
+              recentOutcomes: prepared.plannerInput.recentOutcomes,
+              priorDeniedRejectFingerprint: prepared.priorDeniedRejectFingerprint,
+            });
+          } else {
+            rawStatus = result.rawStatus;
+            const parsed = parseScoutPlanText(result.text);
+            schemaValid = parsed.ok;
+            score = scoreScoutPlanAction({
+              action: parsed.ok ? parsed.action : null,
+              schemaValid: parsed.ok,
+              parseKind: parsed.ok ? null : parsed.kind,
+              candidatesByVin: prepared.candidatesByVin,
+              recentOutcomes: prepared.plannerInput.recentOutcomes,
+              priorDeniedRejectFingerprint: prepared.priorDeniedRejectFingerprint,
+            });
+            if (!parsed.ok) error = `${parsed.kind}: ${parsed.message}`;
+          }
+        } catch (err) {
+          latencyMs = Date.now() - started;
+          error = err instanceof Error ? err.message : "unknown_throw";
+          score = scoreScoutPlanAction({
+            action: null,
+            schemaValid: false,
+            parseKind: "throw",
+            candidatesByVin: prepared.candidatesByVin,
+            recentOutcomes: prepared.plannerInput.recentOutcomes,
+            priorDeniedRejectFingerprint: prepared.priorDeniedRejectFingerprint,
+          });
+        }
+
+        rows.push({
+          modelId: model.id,
+          effectiveModel: model.effectiveForScoutPlan,
+          stepId: prepared.stepId,
+          schemaValid,
+          score,
+          latencyMs,
+          tokens,
+          cost: "unknown",
+          rawStatus,
+          reportedModel,
+          error,
+          unlistedOptIn: model.unlistedOptIn,
+          httpAttempts,
+          transportPolicy: "experiment_single_attempt",
+        });
+        console.log(
+          `${model.id} @ ${prepared.stepId}: schemaValid=${schemaValid} recovery=${score.recoveryClass} latencyMs=${latencyMs} httpAttempts=${httpAttempts} cost=unknown`,
+        );
+      }
+    }
+  } else {
+    console.log("Dry-run: no SERV/Auto.dev calls. Historical ledger scores + catalog only.");
+    console.log(servCompareCatalogNote());
+  }
+
+  const offlineBeforeAfter = {
+    before:
+      "On de5eb0c, missing_asking_price@price reject was deny→deny→identical fingerprint no-progress stop; pool was 20 placeholder asks under price=1-20000 + sort=price.",
+    afterCodeFix:
+      "Offline regression: same citation grounds; query floor 500-N; placeholders filtered under priced search; abstain/search recovery paths score cleanly. See placeholder-price-recovery.regression.test.ts.",
+    modelCompareRole:
+      "Optional parent sequential SERV compares on SAME offline ledger inputs — not proof that changing BASE_MODEL alone fixes production.",
+  };
+
+  const remainingLimits = [
+    "Not live-tested by Cursor; parent is sole live coordinator.",
+    "Cost remains unknown until central reconciliation (console $/M ≠ receipt).",
+    "Unlisted console IDs are not availability/schema guarantees even with ALLOW_UNLISTED.",
+    "Full raw step-3 planner payloads were unrecorded in the sanitized handoff.",
+    "Whether Auto.dev returns usable asks after 500-N on a given minute is unproven here.",
+    "Experiment transport disables silent empty/timeout re-POSTs only; production planner recovery retries stay as designed.",
+  ];
+
+  const outputTokenBound = resolveServOutputTokenBound(process.env);
+  const transportBounds = {
+    policy: "experiment_single_attempt" as const,
+    /** scout_plan has no applicationTool → one upstream HTTP per requested step. */
+    maxHttpAttemptsPerStep: 1,
+    timeoutMsPerAttempt: scoutProfile.timeoutMs,
+    wallMsPerModelNominal: scoutProfile.timeoutMs * preparedSteps.length,
+    outputTokenBound: outputTokenBound.ok ? outputTokenBound.tokens : null,
+    outputTokenBoundSource: outputTokenBound.ok ? outputTokenBound.source : "invalid",
+    outputTokenDefault: SERV_OUTPUT_TOKEN_DEFAULT,
+    cost: "unknown" as const,
+    silentEmptyRetry: false,
+    silentTimeoutRetry: false,
+    productionPlannerRetriesUnchanged: true,
+    noArbitraryServRunQuota: true,
+  };
+
+  const report = {
+    schemaVersion: "serv-scout-model-compare/v3",
+    mode: live ? "live_sequential" : "dry_run",
+    harness: "eval/serv-scout-model-compare.ts",
+    ledgerPath: PR63_PLACEHOLDER_LEDGER_PATH,
+    ledgerLabel: ledger.label,
+    ledgerDeployedSha: ledger.deployedSha,
+    ledgerRunId: ledger.runId,
+    productionDefaultModel: BASE_MODEL,
+    productionDefaultUnchanged: true,
+    modelOnlySwapIsNotDemonstratedFix: true,
+    budgetConsciousIsNotCheapest: true,
+    zeroNetworkDefault: true,
+    allowUnlistedOptIn: allowUnlisted,
+    strictJsonSchema: Boolean(scoutProfile.jsonSchema),
+    transportBounds,
+    catalog: listServCompareModels(),
+    modelsSelected: modelRes.models,
+    evidenceTaxonomy: ledger.evidenceTaxonomy ?? null,
+    offlineBeforeAfter,
+    remainingLimits,
+    stepUserMessages,
+    historicalScores,
+    rows,
+    cost: "unknown" as const,
+    notes: [
+      ...ledger.notes,
+      "Parent sole live coordinator — Cursor worker must not set SCOUT_COMPARE_ALLOW_PAID.",
+      "Repeated-action / evidence guards are scored, not weakened.",
+      "Model-only swap is NOT the demonstrated product fix.",
+      "Budget-conscious ≠ cheapest-at-expense-of-quality.",
+      "Console Available-models broader than in-repo catalog; ALLOW_UNLISTED is parent opt-in only.",
+      "Not a claim that any model beats another until parent runs live rows.",
+      "Live path uses experiment_single_attempt: one HTTP per step; empty/timeout/HTTP errors/refusals recorded, not silently repeated.",
+      "Production runServ empty/timeout recovery is unchanged outside this harness.",
+    ],
+  };
+
+  const outName = process.env.SCOUT_COMPARE_OUT?.trim() || "serv-scout-model-compare";
+  const outJson = resolve(process.cwd(), "eval/results", `${outName}.json`);
+  const outMd = resolve(process.cwd(), "eval/results", `${outName}.md`);
+  mkdirSync(resolve(process.cwd(), "eval/results"), { recursive: true });
+  writeFileSync(outJson, `${JSON.stringify(report, null, 2)}\n`);
+  writeFileSync(outMd, `${markdownReport(report)}\n`);
+  console.log(`Wrote ${outJson}`);
+  console.log(`Wrote ${outMd}`);
+}
+
+main().catch((err) => {
+  console.error(err);
+  process.exit(1);
+});

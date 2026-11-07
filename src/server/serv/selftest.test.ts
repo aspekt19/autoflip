@@ -65,6 +65,8 @@ describe("SERV self-test", () => {
           fallbackUsed: true,
           openserv: null,
         },
+        httpAttempts: 0,
+        transportPolicy: "production",
       };
     };
     const checks = await runSelftestChecks({ apiKey: "test-key" }, run);
@@ -114,8 +116,28 @@ describe("SERV self-test", () => {
         fallbackUsed: n === 1,
         openserv: null,
       };
-      if (n === 1) return { ok: false, error: "SERV returned an empty explanation.", status: 200, fallback: "explanation unavailable", upstream: null, proof };
-      return { ok: true, text: "ok", model: "gpt-5.4-mini", shadowOutcome: "not_used", rawStatus: 200, proof };
+      if (n === 1) {
+        return {
+          ok: false,
+          error: "SERV returned an empty explanation.",
+          status: 200,
+          fallback: "explanation unavailable",
+          upstream: null,
+          proof,
+          httpAttempts: 1,
+          transportPolicy: "production",
+        };
+      }
+      return {
+        ok: true,
+        text: "ok",
+        model: "gpt-5.4-mini",
+        shadowOutcome: "not_used",
+        rawStatus: 200,
+        proof,
+        httpAttempts: 1,
+        transportPolicy: "production",
+      };
     };
     const checks = await runSelftestChecks({ apiKey: "test-key", repeat: 3 }, run);
     expect(checks).toHaveLength(distinctSelftestProfiles().length);

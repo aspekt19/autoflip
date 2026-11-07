@@ -8,6 +8,7 @@ import {
 } from "./paid-execution";
 import { loadOwnerGrant, reserveGrantProviderCall } from "./owner-grant";
 import { parseScoutPlanText } from "./plan-parse";
+import { buildScoutPlanUserMessage } from "./plan-user-message";
 
 /**
  * Live SERV planner via dedicated `scout_plan` profile (not flip_judge).
@@ -53,33 +54,8 @@ export function servScoutPlanner(deps: {
   return async (input) => {
     // Listing/tool state only in user message; policy stays in scout_plan system prompt.
     // Stage2C: bounded facts/missingness/gates/confidence + search history (not VIN-walk only).
-    const user = JSON.stringify({
-      task: "lemonless_scout_plan",
-      mandate: input.mandate,
-      pendingVins: input.pendingVins.slice(0, 40),
-      investigatedVins: input.investigated.map((c) => c.vin),
-      rejectedVins: input.rejected.map((c) => c.vin),
-      step: input.step,
-      recentOutcomes: input.evidenceContext.recentOutcomes,
-      evidenceContext: {
-        evidenceBriefs: input.evidenceContext.evidenceBriefs,
-        searchHistory: input.evidenceContext.searchHistory,
-        budgetsRemaining: input.evidenceContext.budgetsRemaining,
-      },
-      // Legacy thin hints retained for older parsers — prefer evidenceContext.
-      evidenceHints: input.evidenceContext.evidenceBriefs.map((c) => ({
-        vin: c.vin,
-        historyStatus: c.historyStatus,
-        disposition: c.disposition,
-        askingUsd: c.askingUsd,
-        askingPriceUsable: c.askingPriceUsable,
-        freeGovCanUnlockInvestigate: c.freeGovCanUnlockInvestigate,
-        withheld: c.withheld,
-        confidence: c.confidence,
-        missingness: c.missingness,
-        unsupportedGovAloneNotBad: true,
-      })),
-    });
+    // Shared serializer with eval/serv-scout-model-compare (SAME-input).
+    const user = buildScoutPlanUserMessage(input);
 
     const beforeHttp =
       grantId && deps.kv

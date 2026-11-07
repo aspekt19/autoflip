@@ -14,6 +14,14 @@ export async function POST(request: Request) {
       budgetKnown: typeof body.budgetKnown === "boolean" ? body.budgetKnown : undefined,
       budgetScope: body.budgetScope === "car" || body.budgetScope === "all_in" ? body.budgetScope : "unspecified",
       zip: typeof body.zip === "string" ? body.zip : null,
+      distanceMiles:
+        body.distanceMiles === null
+          ? null
+          : typeof body.distanceMiles === "number"
+            ? body.distanceMiles
+            : body.distanceMiles === "nationwide"
+              ? null
+              : undefined,
       repairAbility: isRepair(body.repairAbility) ? body.repairAbility : undefined,
       useCase: isUse(body.useCase) ? body.useCase : undefined,
       targetProfitUsd: typeof body.targetProfitUsd === "number" ? body.targetProfitUsd : undefined,
