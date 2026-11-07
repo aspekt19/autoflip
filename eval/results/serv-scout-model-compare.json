@@ -91,7 +91,9 @@
     "Unlisted console IDs are not availability/schema guarantees even with ALLOW_UNLISTED.",
     "Full raw step-3 planner payloads were unrecorded in the sanitized handoff.",
     "Whether Auto.dev returns usable asks after 500-N on a given minute is unproven here.",
-    "Experiment transport disables silent empty/timeout re-POSTs only; production planner recovery retries stay as designed."
+    "Experiment transport disables silent empty/timeout re-POSTs only; production planner recovery retries stay as designed.",
+    "Parse failures now record sanitizedPlannerEcho (keys/types/lengths only) + upstreamResponseId/finishReason/responseShape when present — never raw planner JSON.",
+    "All-zero usage on a HTTP 200 refusal is unknown cost — not free. Parent Mini/Luna counts are not efficacy winners."
   ],
   "stepUserMessages": [
     {
@@ -169,6 +171,7 @@
     "Console Available-models broader than in-repo catalog; ALLOW_UNLISTED is parent opt-in only.",
     "Not a claim that any model beats another until parent runs live rows.",
     "Live path uses experiment_single_attempt: one HTTP per step; empty/timeout/HTTP errors/refusals recorded, not silently repeated.",
-    "Production runServ empty/timeout recovery is unchanged outside this harness."
+    "Production runServ empty/timeout recovery is unchanged outside this harness.",
+    "Schema mismatch rows include sanitized field presence (reason/servStepId/type) without storing raw response text."
   ]
 }

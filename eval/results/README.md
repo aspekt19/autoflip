@@ -14,6 +14,9 @@ Measured evaluation outputs live here after a real `npm run eval:serv` / `npm ru
   - Optional `SERV_COMPARE_MODELS`; unlisted console IDs need `SCOUT_COMPARE_ALLOW_UNLISTED=1`
     after parent console/contract validation (fail-closed otherwise; no blind allowlist expand).
   - Captures validity, groundedness, recovery, latency, tokens, **costunknown**.
+  - Parse/transport failures also record **sanitized** diagnostics only:
+    `sanitizedPlannerEcho` (keys/types/lengths — never raw planner JSON),
+    `upstreamResponseId` / `finishReason` when present on proof, and `responseShape`.
   - Live path uses **`experiment_single_attempt`**: one upstream HTTP per scout_plan step;
     empty/timeout/HTTP errors/refusals are recorded (not silently re-POSTed). Production
     `runServ` empty/timeout recovery is unchanged outside this harness. No arbitrary SERV

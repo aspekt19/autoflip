@@ -1,5 +1,6 @@
 import type { ScoutPlanAction, ScoutToolId } from "@/domain/scout";
 import { SCOUT_TOOL_IDS } from "@/domain/scout";
+import { reasonServStepIdMismatchMessage } from "./plan-parse-diagnostics";
 
 export type PlanParseResult =
   | { ok: true; action: ScoutPlanAction }
@@ -8,6 +9,15 @@ export type PlanParseResult =
       kind: "refusal" | "invalid_json" | "schema_mismatch" | "truncated";
       message: string;
     };
+
+export {
+  sanitizePlannerParseEcho,
+  reasonServStepIdMismatchMessage,
+  normalizeCompareUsage,
+  type SanitizedPlannerParseEcho,
+  type FieldPresence,
+  type CompareUsage,
+} from "./plan-parse-diagnostics";
 
 const REFUSAL_MARKERS = [
   "i can't share that",
@@ -82,10 +92,16 @@ export function parseScoutPlanText(text: string): PlanParseResult {
   }
 
   const type = raw.type;
-  const reason = typeof raw.reason === "string" ? raw.reason : null;
-  const servStepId = typeof raw.servStepId === "string" ? raw.servStepId : null;
+  const reason = typeof raw.reason === "string" ? raw.reason.trim() : null;
+  const servStepId = typeof raw.servStepId === "string" ? raw.servStepId.trim() : null;
   if (!reason || !servStepId) {
-    return { ok: false, kind: "schema_mismatch", message: "Missing reason or servStepId." };
+    // Keep stable prefix for metrics regexes; append field presence so compare
+    // rows can tell null / empty / missing / wrong-shape apart without raw text.
+    return {
+      ok: false,
+      kind: "schema_mismatch",
+      message: reasonServStepIdMismatchMessage(raw),
+    };
   }
 
   if (type === "finalize" || type === "abstain") {

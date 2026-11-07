@@ -60,7 +60,12 @@ import {
   type ActionScore,
 } from "../src/domain/scout/serv-model-compare";
 import { buildScoutPlanUserMessage } from "../src/server/scout/plan-user-message";
-import { parseScoutPlanText } from "../src/server/scout/plan-parse";
+import {
+  parseScoutPlanText,
+  sanitizePlannerParseEcho,
+  type SanitizedPlannerParseEcho,
+} from "../src/server/scout/plan-parse";
+import { normalizeCompareUsage } from "../src/server/scout/plan-parse-diagnostics";
 import {
   listServCompareModels,
   resolveServCompareModelIds,
@@ -95,17 +100,34 @@ type ModelStepRow = {
   /** Upstream SERV HTTP dispatches for this step (experiment: expect 1). */
   httpAttempts: number | null;
   transportPolicy: "experiment_single_attempt" | null;
+  /** Upstream response id when present (not reconstructed). */
+  upstreamResponseId: string | null;
+  finishReason: string | null;
+  /** Keys/lengths only from SERV payload — never string values. */
+  responseShape: string | null;
+  /**
+   * On parse failure (or always when text present): redacted key/type/length echo.
+   * Never stores reason/VIN/prose values — enough to separate null/empty/wrong-shape.
+   */
+  sanitizedPlannerEcho: SanitizedPlannerParseEcho | null;
 };
 
 function usageFromProof(proof: unknown): Usage | null {
   if (!proof || typeof proof !== "object") return null;
   const openserv = (proof as { openserv?: { usage?: Usage } }).openserv;
-  const u = openserv?.usage;
-  if (!u || typeof u !== "object") return null;
+  return normalizeCompareUsage(openserv?.usage ?? null);
+}
+
+function openservMeta(proof: unknown): { id: string | null; finishReason: string | null } {
+  if (!proof || typeof proof !== "object") return { id: null, finishReason: null };
+  const openserv = (proof as { openserv?: { id?: unknown; finish_reason?: unknown } }).openserv;
+  if (!openserv || typeof openserv !== "object") return { id: null, finishReason: null };
   return {
-    prompt_tokens: u.prompt_tokens,
-    completion_tokens: u.completion_tokens,
-    total_tokens: u.total_tokens,
+    id: typeof openserv.id === "string" && openserv.id.trim() ? openserv.id.trim() : null,
+    finishReason:
+      typeof openserv.finish_reason === "string" && openserv.finish_reason.trim()
+        ? openserv.finish_reason.trim()
+        : null,
   };
 }
 
@@ -288,6 +310,10 @@ async function main() {
         let reportedModel: string | null = null;
         let error: string | null = null;
         let httpAttempts: number | null = null;
+        let upstreamResponseId: string | null = null;
+        let finishReason: string | null = null;
+        let responseShape: string | null = null;
+        let sanitizedPlannerEcho: SanitizedPlannerParseEcho | null = null;
         let schemaValid = false;
         let score: ActionScore;
 
@@ -308,10 +334,15 @@ async function main() {
           tokens = usageFromProof(result.proof);
           reportedModel = result.proof.modelReported || null;
           httpAttempts = result.httpAttempts;
+          responseShape = result.responseShape;
+          const meta = openservMeta(result.proof);
+          upstreamResponseId = meta.id;
+          finishReason = meta.finishReason;
 
           if (!result.ok) {
             rawStatus = result.status;
             error = result.error;
+            // Failure ServResult has no planner text; responseShape + upstream id still recorded.
             score = scoreScoutPlanAction({
               action: null,
               schemaValid: false,
@@ -322,6 +353,7 @@ async function main() {
             });
           } else {
             rawStatus = result.rawStatus;
+            sanitizedPlannerEcho = sanitizePlannerParseEcho(result.text);
             const parsed = parseScoutPlanText(result.text);
             schemaValid = parsed.ok;
             score = scoreScoutPlanAction({
@@ -362,6 +394,10 @@ async function main() {
           unlistedOptIn: model.unlistedOptIn,
           httpAttempts,
           transportPolicy: "experiment_single_attempt",
+          upstreamResponseId,
+          finishReason,
+          responseShape,
+          sanitizedPlannerEcho,
         });
         console.log(
           `${model.id} @ ${prepared.stepId}: schemaValid=${schemaValid} recovery=${score.recoveryClass} latencyMs=${latencyMs} httpAttempts=${httpAttempts} cost=unknown`,
@@ -389,6 +425,8 @@ async function main() {
     "Full raw step-3 planner payloads were unrecorded in the sanitized handoff.",
     "Whether Auto.dev returns usable asks after 500-N on a given minute is unproven here.",
     "Experiment transport disables silent empty/timeout re-POSTs only; production planner recovery retries stay as designed.",
+    "Parse failures now record sanitizedPlannerEcho (keys/types/lengths only) + upstreamResponseId/finishReason/responseShape when present — never raw planner JSON.",
+    "All-zero usage on a HTTP 200 refusal is unknown cost — not free. Parent Mini/Luna counts are not efficacy winners.",
   ];
 
   const outputTokenBound = resolveServOutputTokenBound(process.env);
@@ -443,6 +481,7 @@ async function main() {
       "Not a claim that any model beats another until parent runs live rows.",
       "Live path uses experiment_single_attempt: one HTTP per step; empty/timeout/HTTP errors/refusals recorded, not silently repeated.",
       "Production runServ empty/timeout recovery is unchanged outside this harness.",
+      "Schema mismatch rows include sanitized field presence (reason/servStepId/type) without storing raw response text.",
     ],
   };
 
