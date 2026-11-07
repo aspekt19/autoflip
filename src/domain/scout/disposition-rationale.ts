@@ -16,7 +16,9 @@ export type AdverseEvidenceKind =
   | "flip_excluded"
   | "missing_asking_price"
   /** Flip profit estimate from asking comps + assumed costs — not observed hard budget. */
-  | "economics_estimate";
+  | "economics_estimate"
+  /** NHTSA park-it/park-outside make/model/year campaign — not VIN unrepaired or title brand. */
+  | "nhtsa_park_it";
 
 /** How the adverse fact was established — estimate paths require explicit disclosure. */
 export type AdverseEvidenceEpistemic = "observed_hard" | "estimate_assumptions";
@@ -170,6 +172,16 @@ export function collectAdverseEvidence(c: ScoutCandidate): AdverseEvidenceFact[]
         detail: e.note ?? "Verified adverse title/brand evidence.",
       });
     }
+    if (e.key === "nhtsa_park_it" && e.kind === "verified") {
+      out.push({
+        kind: "nhtsa_park_it",
+        epistemic: "observed_hard",
+        gateId: "nhtsa_park_it",
+        detail:
+          e.note ??
+          "NHTSA park-it/park-outside campaign for make/model/year — not VIN unrepaired proof; title/NMVTIS unknown.",
+      });
+    }
   }
 
   return out;
@@ -182,8 +194,14 @@ export function hasUnsupportedGovOutcome(
   return outcomes.some(
     (o) =>
       o.vin === vin &&
-      (o.toolId === "evidence.gov_recalls" || o.toolId === "evidence.gov_fuel") &&
-      (o.capability === "unsupported" || o.status === "unsupported"),
+      (o.toolId === "evidence.gov_recalls" ||
+        o.toolId === "evidence.gov_fuel" ||
+        o.toolId === "evidence.gov_vpic" ||
+        o.toolId === "evidence.gov_safety") &&
+      (o.capability === "unsupported" ||
+        o.status === "unsupported" ||
+        o.capability === "failed" ||
+        o.status === "failed"),
   );
 }
 

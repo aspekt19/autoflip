@@ -143,6 +143,7 @@ export function parseVinDecode(payload: unknown): VinDecode | null {
     make: str(row.Make),
     model: str(row.Model),
     errorCode: str(row.ErrorCode),
+    errorText: str(row.ErrorText) ?? str(row.AdditionalErrorText),
   };
 }
 

@@ -35,6 +35,12 @@ import {
   validateScoutSearchParams,
   type ScoutSearchParams,
 } from "./search-params";
+import {
+  createLiveFreeGovPort,
+  isFreeGovToolId,
+  unsupportedFreeGovPort,
+  type ScoutFreeGovPort,
+} from "./free-gov";
 import type {
   ProvenanceStep,
   ScoutBudgets,
@@ -164,6 +170,11 @@ export type RunScoutInput = {
   runId?: string;
   /** Resume from a prior checkpoint (same owner only). */
   resume?: ScoutRunResult;
+  /**
+   * Free public NHTSA port (vPIC / recalls+complaints / SafetyRatings). Default = live free adapter.
+   * FuelEconomy is not part of this port (rights hold). Tests may inject `unsupportedFreeGovPort()`.
+   */
+  gov?: ScoutFreeGovPort;
   /**
    * `serv_directed` = live/authorized SERV planner chose actions (HTTP scout_plan).
    * `none` = offline heuristic, mock script, or denied SERV — never marketed as autonomous SERV.
@@ -1304,15 +1315,16 @@ export async function runScout(input: RunScoutInput): Promise<ScoutRunResult> {
           continue;
         }
 
-        // No invented title/history tools — gov adapters are truthful unsupported offline.
-        if (toolId === "evidence.gov_recalls" || toolId === "evidence.gov_fuel") {
+        // FuelEconomy.gov — excluded from Scout free decision inputs (ORNL commercial-rights hold).
+        // Keep tool id for schema compatibility; always honest unsupported (never call FuelEconomy).
+        if (toolId === "evidence.gov_fuel") {
           if (vin && candidates.has(vin)) {
             candidates.get(vin)!.evidence.push({
               key: toolId,
-              value: { status: "unsupported" },
+              value: { status: "unsupported", reason: "fueleconomy_rights_hold" },
               kind: "unknown",
               source: "gov",
-              note: "UNSUPPORTED: gov lookup not executed (no paid spend this path). Not a successful evidence fetch.",
+              note: "UNSUPPORTED: FuelEconomy.gov excluded from Scout free evidence (commercial reuse rights unclear). Not a successful evidence fetch. Title/NMVTIS remain unknown.",
             });
           }
           const outcome = {
@@ -1322,7 +1334,69 @@ export async function runScout(input: RunScoutInput): Promise<ScoutRunResult> {
             status: "unsupported" as const,
             capability: "unsupported" as const,
             capabilityGrounded: true,
-            summary: `${toolId} unsupported — not treated as successful evidence or cache-success.`,
+            summary:
+              "evidence.gov_fuel unsupported — FuelEconomy excluded from free Scout surface (rights hold); not treated as successful evidence.",
+            acquiredVin: null,
+            servStepId: action.servStepId,
+          };
+          toolCache.set(idem, pushOutcome(outcome));
+          stamp(provenance, state, outcome.summary, toolId, action.servStepId, idem);
+          assertTransition(state, "verifying");
+          state = "verifying";
+          continue;
+        }
+
+        // Free public NHTSA only (vPIC / recalls+complaints / SafetyRatings) — never invent title/NMVTIS.
+        if (isFreeGovToolId(toolId)) {
+          if (!vin || !candidates.has(vin)) {
+            const outcome = {
+              toolId,
+              vin,
+              ok: false,
+              status: "failed" as const,
+              capability: "failed" as const,
+              capabilityGrounded: true,
+              summary: `${toolId} requires a known VIN candidate.`,
+              acquiredVin: null,
+              servStepId: action.servStepId,
+            };
+            toolCache.set(idem, pushOutcome(outcome));
+            stamp(provenance, state, outcome.summary, toolId, action.servStepId, idem);
+            assertTransition(state, "verifying");
+            state = "verifying";
+            continue;
+          }
+          // Vitest stays offline/unsupported by default; set SCOUT_FREE_GOV_LIVE=1 for free public smoke.
+          const govPort =
+            input.gov ??
+            (process.env.VITEST && process.env.SCOUT_FREE_GOV_LIVE !== "1"
+              ? unsupportedFreeGovPort()
+              : createLiveFreeGovPort());
+          const packet = await govPort.run(toolId, candidates.get(vin)!.listing);
+          const candGov = candidates.get(vin)!;
+          candGov.evidence.push(...packet.facts);
+          // Park-it is recorded as evidence (nhtsa_park_it) for SERV adverse citations —
+          // configuration-level only; never upgrades title/NMVTIS from unknown.
+          if (packet.facts.some((f) => f.key === "nhtsa_park_it")) {
+            candGov.gates = [
+              ...candGov.gates.filter((g) => !(g.id === "safety_red_flags" && /park-it/i.test(g.reason))),
+              {
+                id: "safety_red_flags",
+                status: "forbid",
+                reason:
+                  "NHTSA make/model/year park-it/park-outside campaign flag — configuration-level; not VIN unrepaired proof; title/NMVTIS unknown.",
+                forbid: ["buy"],
+              },
+            ];
+          }
+          const outcome = {
+            toolId,
+            vin,
+            ok: packet.outcomeOk,
+            status: packet.outcomeStatus,
+            capability: packet.outcomeCapability,
+            capabilityGrounded: true,
+            summary: packet.summary,
             acquiredVin: null,
             servStepId: action.servStepId,
           };
@@ -1543,10 +1617,19 @@ export function refusingPlanner(
  * Callers MUST set autonomyClaim: "none". Not an efficacy claim.
  * Stage2C: unsupported gov alone is NOT proof the car is bad — continue other checks /
  * pending VINs, or bounded inventory.search when pending is empty. Not blind VIN-walk only.
+ *
+ * Free-gov budget guard: probe at most one free-gov tool for the whole offline run, never
+ * re-probe already-attempted gov tools, and never chain gov→gov after unsupported/failed.
+ * Live SERV may call all four free-gov tools; this heuristic must finish under server
+ * maxServCalls (fixture HTTP path) without artificial budget raises.
  */
 export function heuristicOfflinePlanner(): ScoutPlanner {
   const seen = new Set<string>();
   let searchAttempted = false;
+  /** Offline heuristic free-gov probe cap (run-wide). */
+  let freeGovProbesUsed = 0;
+  const MAX_FREE_GOV_PROBES = 1;
+
   return async ({ pendingVins, investigated, mandate, recentOutcomes, evidenceContext }) => {
     const last = recentOutcomes[recentOutcomes.length - 1] ?? null;
 
@@ -1571,8 +1654,13 @@ export function heuristicOfflinePlanner(): ScoutPlanner {
       };
     }
 
-    // Unsupported gov alone ≠ car bad — keep investigating same VIN with other tools / next pending.
-    if (last && last.status === "unsupported" && last.toolId.startsWith("evidence.gov_")) {
+    // Gov unavailable/failed/unsupported alone ≠ car bad — try one non-gov check, then move on.
+    // Never chain additional free-gov tools here (avoids burning tool/SERV budget across the pool).
+    if (
+      last &&
+      last.toolId.startsWith("evidence.gov_") &&
+      (last.status === "unsupported" || last.status === "failed")
+    ) {
       const brief = evidenceContext.evidenceBriefs.find((b) => b.vin === last.vin);
       const missingOther = (brief?.missingness ?? []).filter((m) => !m.startsWith("evidence.gov_"));
       if (last.vin && pendingVins.includes(last.vin) && missingOther.length > 0) {
@@ -1594,13 +1682,53 @@ export function heuristicOfflinePlanner(): ScoutPlanner {
               type: "run_tool",
               toolId,
               vin: last.vin,
-              reason: `Unsupported gov is not proof the car is bad — try ${toolId} next (autonomyClaim=none).`,
+              reason: `Gov ${last.status} is not proof the car is bad — try ${toolId} next (autonomyClaim=none).`,
               servStepId: "offline-heuristic",
             },
           };
         }
       }
-      // Fall through to next pending / search — do not force replace on gov unsupported alone.
+      // Fall through to next pending / search — do not force replace on gov failure alone.
+    }
+
+    // At most one free-gov probe for the offline heuristic run; skip already-attempted.
+    // Count injected/external gov outcomes too (test wrappers) so we never re-burn the pool.
+    // Leave headroom so select/finalize still fit under server maxServCalls.
+    const govAlreadyAttempted =
+      freeGovProbesUsed >= MAX_FREE_GOV_PROBES ||
+      recentOutcomes.some((o) => o.toolId.startsWith("evidence.gov_")) ||
+      evidenceContext.evidenceBriefs.some((b) => b.govToolStatus !== "not_attempted");
+    if (
+      !govAlreadyAttempted &&
+      evidenceContext.budgetsRemaining.servCalls >= 3 &&
+      evidenceContext.budgetsRemaining.toolCalls > 0
+    ) {
+      const probeVin =
+        pendingVins.find((vin) => {
+          const brief = evidenceContext.evidenceBriefs.find((b) => b.vin === vin);
+          return brief?.govToolStatus === "not_attempted";
+        }) ?? null;
+      if (probeVin) {
+        const brief = evidenceContext.evidenceBriefs.find((b) => b.vin === probeVin);
+        const missingGov = (brief?.missingness ?? []).find((m) => m.startsWith("evidence.gov_"));
+        if (
+          missingGov === "evidence.gov_recalls" ||
+          missingGov === "evidence.gov_vpic" ||
+          missingGov === "evidence.gov_safety"
+        ) {
+          freeGovProbesUsed += 1;
+          return {
+            ok: true,
+            action: {
+              type: "run_tool",
+              toolId: missingGov,
+              vin: probeVin,
+              reason: `Offline heuristic runs one free ${missingGov} as decision input (autonomyClaim=none; capped).`,
+              servStepId: "offline-heuristic",
+            },
+          };
+        }
+      }
     }
 
     // Hard tool failure (non-gov) still warrants moving on.

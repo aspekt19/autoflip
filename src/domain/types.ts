@@ -77,7 +77,10 @@ export type VinDecode = {
   year: number | null;
   make: string | null;
   model: string | null;
+  /** vPIC ErrorCode — HTTP 200 alone is not success; inspect this field. */
   errorCode: string | null;
+  /** vPIC ErrorText when present (e.g. "6 - Incomplete VIN"). */
+  errorText?: string | null;
 };
 
 export type Flag = {
