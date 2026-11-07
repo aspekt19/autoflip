@@ -52,6 +52,7 @@ type ScoutApiResponse = {
       claimsSafeBuy: boolean;
       claimsVerifiedProfit: boolean;
       disposition: string;
+      evidence: Array<{ key: string; kind: string }>;
       rejectReason?: string | null;
       dispositionRationale?: {
         kind: string;
@@ -80,6 +81,15 @@ type ScoutApiResponse = {
       listing: { year: number; make: string; model: string };
     }>;
     provenance: Array<{ state: string; reason: string; toolId: string | null }>;
+    runDiagnostics?: {
+      terminationCause: string;
+      evidenceRetention: {
+        investigationCount: number;
+        investigationWithGovEvidence: number;
+        govToolOutcomeSuccesses: number;
+      };
+      askingPrice: { poolUsableForShortlist: number; poolUnusable: number };
+    } | null;
   };
 };
 
@@ -480,10 +490,33 @@ export function ScoutPanel() {
                   <br />
                   Claims verified safe buy: {String(c.claimsSafeBuy)} · Claims verified profit:{" "}
                   {String(c.claimsVerifiedProfit)}
+                  <br />
+                  Evidence:{" "}
+                  {c.evidence.length === 0
+                    ? "none"
+                    : c.evidence.map((e) => `${e.key}(${e.kind})`).join(", ")}
                 </li>
               ))}
             </ul>
           )}
+
+          {result.runDiagnostics ? (
+            <>
+              <h2>Run diagnostics</h2>
+              <p className="muted" role="status">
+                Termination: {result.runDiagnostics.terminationCause}
+                {" · "}
+                Gov outcomes ok: {result.runDiagnostics.evidenceRetention.govToolOutcomeSuccesses}
+                {" · "}
+                Investigation with gov evidence:{" "}
+                {result.runDiagnostics.evidenceRetention.investigationWithGovEvidence}/
+                {result.runDiagnostics.evidenceRetention.investigationCount}
+                {" · "}
+                Ask usable/unusable: {result.runDiagnostics.askingPrice.poolUsableForShortlist}/
+                {result.runDiagnostics.askingPrice.poolUnusable}
+              </p>
+            </>
+          ) : null}
 
           {result.candidates &&
           result.candidates.some(

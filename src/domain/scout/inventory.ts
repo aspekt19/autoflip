@@ -71,13 +71,14 @@ export function filterPool(
     if (priceCap != null && listing.priceUsd != null && listing.priceUsd > priceCap) {
       return false;
     }
-    // Positive placeholder asks ($1–$59) are not usable retail — drop under priced search.
-    // Null ask stays (unknown ≠ invented); do not invent a corrected USD.
+    // Placeholder / suspicious feed asks are not genuine purchase-price evidence —
+    // drop under priced search. Null ask stays (unknown ≠ invented); do not invent USD.
+    // Suspicious ≠ vehicle defect; payment/downpayment interpretation is unproven.
     if (
       priceCap != null &&
       listing.priceUsd != null &&
       listing.priceUsd > 0 &&
-      !isUsableAskingPriceUsd(listing.priceUsd)
+      !isUsableAskingPriceUsd(listing.priceUsd, listing.year)
     ) {
       return false;
     }

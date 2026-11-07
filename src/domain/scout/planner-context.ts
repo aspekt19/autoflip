@@ -165,7 +165,7 @@ export function buildCandidateEvidenceBrief(
     return !presentKeys.has(k);
   });
 
-  const askingPriceUsable = isUsableAskingPriceUsd(c.listing.priceUsd);
+  const askingPriceUsable = isUsableAskingPriceUsd(c.listing.priceUsd, c.listing.year);
   return {
     vin: c.vin,
     disposition: c.disposition,
@@ -264,7 +264,7 @@ export function buildPlannerEvidenceContext(input: {
   let usableAskingPriceCount = 0;
   let unusableAskingPriceCount = 0;
   for (const c of pendingForAsk) {
-    if (isUsableAskingPriceUsd(c.listing.priceUsd)) usableAskingPriceCount += 1;
+    if (isUsableAskingPriceUsd(c.listing.priceUsd, c.listing.year)) usableAskingPriceCount += 1;
     else unusableAskingPriceCount += 1;
   }
   const pendingCount = pendingForAsk.length;

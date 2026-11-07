@@ -350,7 +350,9 @@ export function scoreScoutPlanAction(input: {
     dispositionOk = true;
   } else if (sanitized.type === "select_candidate") {
     const cand = input.candidatesByVin[sanitized.vin];
-    const usable = cand ? isUsableAskingPriceUsd(cand.listing.priceUsd) : false;
+    const usable = cand
+      ? isUsableAskingPriceUsd(cand.listing.priceUsd, cand.listing.year)
+      : false;
     grounded = usable;
     dispositionOk = usable;
     dispositionCode = usable ? null : "unusable_ask_select";
@@ -373,7 +375,9 @@ export function scoreScoutPlanAction(input: {
   ) {
     const cand = sanitized.vin ? input.candidatesByVin[sanitized.vin] : undefined;
     recoveryClass =
-      cand && !isUsableAskingPriceUsd(cand.listing.priceUsd) ? "free_gov_on_unusable" : "other";
+      cand && !isUsableAskingPriceUsd(cand.listing.priceUsd, cand.listing.year)
+        ? "free_gov_on_unusable"
+        : "other";
   } else if (sanitized.type === "replace" && sanitized.rationaleKind === "uncertainty_progress") {
     recoveryClass = "replace_uncertainty";
   } else if (sanitized.type === "reject") {

@@ -15,6 +15,7 @@ import {
   assumedCostEvidence,
   historyEvidence,
   identityEvidence,
+  mergeListingBaseEvidence,
 } from "./evidence";
 import { runScoutGates } from "./gates";
 import { validateScoutMandate } from "./mandate";
@@ -44,6 +45,10 @@ import {
   type ScoutFreeGovPort,
 } from "./free-gov";
 import { isUsableAskingPriceUsd } from "./asking-price";
+import {
+  buildScoutRunDiagnostics,
+  type ScoutTerminationCause,
+} from "./run-diagnostics";
 import type {
   ProvenanceStep,
   ScoutBudgets,
@@ -134,12 +139,12 @@ export function sanitizeScoutPlanAction(input: {
 
   if (action.type === "run_tool" && isFreeGovToolId(action.toolId) && action.vin) {
     const cand = byVin.get(action.vin);
-    if (cand && !isUsableAskingPriceUsd(cand.listing.priceUsd)) {
+    if (cand && !isUsableAskingPriceUsd(cand.listing.priceUsd, cand.listing.year)) {
       action = {
         type: "reject",
         vin: cand.vin,
         reason:
-          "Free-gov cannot unlock investigation without a usable asking price — reject placeholder/unknown ask (missing_asking_price).",
+          "Free-gov cannot unlock investigation without genuine purchase-price evidence — reject placeholder/suspicious/unknown ask (missing_asking_price; not vehicle defect).",
         servStepId: action.servStepId,
         rationaleKind: "adverse_evidence",
         citedEvidence: [{ kind: "missing_asking_price", gateId: "price" }],
@@ -374,16 +379,20 @@ function evaluateCandidateForInvestigation(input: {
   const cand = input.cand;
   const vin = input.vin;
   const listing = cand.listing;
-  cand.evidence = [...identityEvidence(listing), askingPriceEvidence(listing)];
   const hist = historyEvidence(listing);
-  cand.evidence.push(...hist.facts);
+  const listingFacts = [...identityEvidence(listing), askingPriceEvidence(listing), ...hist.facts];
   cand.historyStatus = hist.historyStatus;
   cand.historyEvaluated = true;
   if (input.mandate.mode === "flip") {
     cand.flip = flipEconomicsFor(listing, input.pool, input.mandate, input.now);
-    if (cand.flip?.assumption) cand.evidence.push(assumedCostEvidence(cand.flip.assumption));
-    else cand.evidence.push(assumedCostEvidence(null));
+    listingFacts.push(
+      cand.flip?.assumption
+        ? assumedCostEvidence(cand.flip.assumption)
+        : assumedCostEvidence(null),
+    );
   }
+  // Preserve successful gov/tool facts — do not wipe evidence collected before gates.verify.
+  cand.evidence = mergeListingBaseEvidence(cand.evidence, listingFacts);
   const gate = runScoutGates({
     listing,
     mandate: input.mandate,
@@ -391,6 +400,19 @@ function evaluateCandidateForInvestigation(input: {
     historyStatus: cand.historyStatus,
   });
   cand.gates = gate.gates;
+  // Re-apply park-it forbid recorded from free-gov evidence (gates.verify must not drop it).
+  if (cand.evidence.some((e) => e.key === "nhtsa_park_it" && e.kind === "verified")) {
+    cand.gates = [
+      ...cand.gates.filter((g) => !(g.id === "safety_red_flags" && /park-it/i.test(g.reason))),
+      {
+        id: "safety_red_flags",
+        status: "forbid",
+        reason:
+          "NHTSA make/model/year park-it/park-outside campaign flag — configuration-level; not VIN unrepaired proof; title/NMVTIS unknown.",
+        forbid: ["buy"],
+      },
+    ];
+  }
   cand.withheld = gate.withheld;
   cand.withholdReason = gate.withholdReason;
   cand.claimsSafeBuy = false;
@@ -474,7 +496,7 @@ function fail(
     ...base.usage,
     wallEndedAtMs: base.usage.wallEndedAtMs ?? Date.now(),
   };
-  return {
+  const failed: ScoutRunResult = {
     ...base,
     usage,
     state: "failed",
@@ -484,6 +506,16 @@ function fail(
     partial,
     autonomyClaim: base.autonomyClaim,
   };
+  failed.runDiagnostics = buildScoutRunDiagnostics({
+    candidates: failed.candidates,
+    investigation: failed.investigation,
+    toolOutcomes: failed.toolOutcomes,
+    state: failed.state,
+    failReason: failed.failReason,
+    provenance: failed.provenance,
+    message: failed.message,
+  });
+  return failed;
 }
 
 /**
@@ -592,29 +624,50 @@ export async function runScout(input: RunScoutInput): Promise<ScoutRunResult> {
     }
   }
 
-  const snapshot = (): ScoutRunResult => ({
-    runId,
-    ownerId: input.ownerId,
-    state,
-    mode: mandate?.mode ?? "flip",
-    mandate: mandate!,
-    budgets,
-    usage: { ...usage },
-    inventorySource,
-    inventoryProvenance,
-    inventoryIdentity,
-    inventorySearchLog: [...inventorySearchLog],
-    poolSize: pool.length,
-    candidates: [...candidates.values()],
-    investigation: investigated.filter((c) => c.disposition === "investigate"),
-    provenance: [...provenance],
-    toolOutcomes: [...toolOutcomes],
-    failReason: null,
-    message: null,
-    diagnostic: null,
-    autonomyClaim,
-    partial: coveragePartial,
-  });
+  let terminationCauseOverride: ScoutTerminationCause | undefined;
+
+  const snapshot = (opts?: {
+    failReason?: ScoutFailReason | null;
+    message?: string | null;
+    diagnostic?: string | null;
+  }): ScoutRunResult => {
+    const investigation = investigated.filter((c) => c.disposition === "investigate");
+    const candList = [...candidates.values()];
+    const base: ScoutRunResult = {
+      runId,
+      ownerId: input.ownerId,
+      state,
+      mode: mandate?.mode ?? "flip",
+      mandate: mandate!,
+      budgets,
+      usage: { ...usage },
+      inventorySource,
+      inventoryProvenance,
+      inventoryIdentity,
+      inventorySearchLog: [...inventorySearchLog],
+      poolSize: pool.length,
+      candidates: candList,
+      investigation,
+      provenance: [...provenance],
+      toolOutcomes: [...toolOutcomes],
+      failReason: opts?.failReason ?? null,
+      message: opts?.message ?? null,
+      diagnostic: opts?.diagnostic ?? null,
+      autonomyClaim,
+      partial: coveragePartial,
+    };
+    base.runDiagnostics = buildScoutRunDiagnostics({
+      candidates: candList,
+      investigation,
+      toolOutcomes,
+      state: base.state,
+      failReason: base.failReason,
+      provenance: base.provenance,
+      message: base.message,
+      terminationCause: terminationCauseOverride,
+    });
+    return base;
+  };
 
   // Ownership isolation on resume
   if (input.resume && input.resume.ownerId !== input.ownerId) {
@@ -902,6 +955,7 @@ export async function runScout(input: RunScoutInput): Promise<ScoutRunResult> {
       stamp(provenance, state, "Candidate cap reached; finalizing.");
       assertTransition(state, "completed");
       state = "completed";
+      terminationCauseOverride = "candidate_cap";
       stamp(provenance, state, "Completed with investigation candidates.", "run.finalize");
       break;
     }
@@ -991,6 +1045,7 @@ export async function runScout(input: RunScoutInput): Promise<ScoutRunResult> {
         stamp(provenance, state, action.reason, null, action.servStepId);
         assertTransition(state, "abstained");
         state = "abstained";
+        terminationCauseOverride = "planner_abstain";
         stamp(provenance, state, "Honest abstain.", "run.finalize", action.servStepId);
         break;
       }
@@ -1002,10 +1057,12 @@ export async function runScout(input: RunScoutInput): Promise<ScoutRunResult> {
         if (investigated.length === 0) {
           assertTransition(state, "abstained");
           state = "abstained";
+          terminationCauseOverride = "planner_abstain";
           stamp(provenance, state, "Finalize with zero investigation candidates → abstain.");
         } else {
           assertTransition(state, "completed");
           state = "completed";
+          terminationCauseOverride = "planner_finalize";
           stamp(provenance, state, `Finalized ${investigated.length} investigation candidate(s).`);
         }
         break;
@@ -1714,22 +1771,34 @@ export async function runScout(input: RunScoutInput): Promise<ScoutRunResult> {
     return fail(snapshot(), "budget_exhausted", "Scout loop ceiling reached.");
   }
 
-  const finalSnap = snapshot();
+  const message =
+    state === "abstained"
+      ? "No evidence-backed investigation candidates under current mandate and budgets."
+      : state === "completed"
+        ? coveragePartial
+          ? `Returning ${Math.min(investigated.length, budgets.maxCandidatesOut)} investigation candidate(s) with incomplete inventory coverage.`
+          : `Returning ${Math.min(investigated.length, budgets.maxCandidatesOut)} investigation candidate(s).`
+        : null;
+  const finalSnap = snapshot({ message });
+  const investigation = investigated
+    .filter((c) => c.disposition === "investigate")
+    .slice(0, budgets.maxCandidatesOut);
   return {
     ...finalSnap,
     usage: { ...finalSnap.usage, wallEndedAtMs: Date.now() },
-    investigation: investigated
-      .filter((c) => c.disposition === "investigate")
-      .slice(0, budgets.maxCandidatesOut),
+    investigation,
     partial: state === "failed" || coveragePartial,
-    message:
-      state === "abstained"
-        ? "No evidence-backed investigation candidates under current mandate and budgets."
-        : state === "completed"
-          ? coveragePartial
-            ? `Returning ${Math.min(investigated.length, budgets.maxCandidatesOut)} investigation candidate(s) with incomplete inventory coverage.`
-            : `Returning ${Math.min(investigated.length, budgets.maxCandidatesOut)} investigation candidate(s).`
-          : finalSnap.message,
+    message,
+    runDiagnostics: buildScoutRunDiagnostics({
+      candidates: finalSnap.candidates,
+      investigation,
+      toolOutcomes: finalSnap.toolOutcomes,
+      state: finalSnap.state,
+      failReason: finalSnap.failReason,
+      provenance: finalSnap.provenance,
+      message,
+      terminationCause: terminationCauseOverride,
+    }),
   };
 }
 

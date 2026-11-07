@@ -92,17 +92,18 @@ function isUnknownHistoryWithhold(g: GateResult): boolean {
 export function collectAdverseEvidence(c: ScoutCandidate): AdverseEvidenceFact[] {
   const out: AdverseEvidenceFact[] = [];
 
-  if (c.listing.priceUsd == null || !isUsableAskingPriceUsd(c.listing.priceUsd)) {
+  if (c.listing.priceUsd == null || !isUsableAskingPriceUsd(c.listing.priceUsd, c.listing.year)) {
     out.push({
       kind: "missing_asking_price",
       epistemic: "observed_hard",
       // Align with constraintQualification.price — planners often cite gateId "price".
-      // Pipeline disposition only: unusable ask ≠ vehicle-defect / car-bad proof.
+      // Pipeline disposition only: unusable/suspicious ask ≠ vehicle-defect / car-bad proof.
+      // Do not presume payment/downpayment without proof.
       gateId: "price",
       detail:
         c.listing.priceUsd == null
           ? "Asking price missing — economics cannot be investigated honestly."
-          : `Asking price ${c.listing.priceUsd} is below usable retail floor — treated as missing/unusable (not invented upward).`,
+          : `Asking price ${c.listing.priceUsd} lacks genuine purchase-price evidence (placeholder/suspicious/unverified) — treated as missing/unusable for shortlist (not invented upward; not vehicle-defect proof).`,
     });
   }
 
