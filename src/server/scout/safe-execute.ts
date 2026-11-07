@@ -254,12 +254,17 @@ export async function executeScoutSafely(input: {
   try {
     void spendAuthority;
     // Server-owned budgets only — clients cannot raise ceilings.
+    // Clamp maxServCalls to SERV grant remaining so planner budgetsRemaining matches
+    // real owner-grant spend (avoids showing 8 when grant only has 3).
     const budgets = serverScoutBudgets({
       maxProviderCalls: inventoryAuthority
         ? Math.max(0, inventoryAuthority.remainingProviderBudget)
         : servAuthority
           ? Math.max(0, servAuthority.remainingProviderBudget)
           : 0,
+      maxServCalls: servAuthority
+        ? Math.max(0, servAuthority.remainingProviderBudget)
+        : undefined,
     });
 
     const autodev =

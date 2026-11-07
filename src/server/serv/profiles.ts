@@ -427,6 +427,8 @@ export const PROFILES = {
       "You may run_tool inventory.search with args {makes,models,zip,distanceMiles,maxPriceUsd,maxMiles} strictly inside the buyer mandate for a bounded new search; duplicates/out-of-mandate are rejected without provider spend (tool slot still consumed).",
       "Explicit distanceMiles:null means nationwide only when the mandate allows nationwide — never invent a radius.",
       "Use evidenceContext (facts/missingness/gates/confidence/newlyAcquiredVins) and recentOutcomes to choose the next useful check, reject/replace, adjust search, or abstain — not a blind VIN walk.",
+      "askingPriceUsable=false / freeGovCanUnlockInvestigate=false means placeholder or missing ask ($1–$59 floors as unknown) — free-gov cannot unlock investigation shortlist. Prefer reject with citedEvidence missing_asking_price, inventory.search for usable asks, or abstain/finalize. Never burn the last SERV call on free-gov that cannot unlock or be acted on.",
+      "When budgetsRemaining.servCalls is 0 after this step, choose finalize or abstain (or a grounded reject/replace) — not another free-gov probe.",
       "Abstain when evidence is insufficient. Do not calculate economics — code tools own math.",
       "Do not name or invoke serv_* application tools; markers are server-controlled.",
     ].join(" "),

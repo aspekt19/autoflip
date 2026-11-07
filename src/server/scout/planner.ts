@@ -72,6 +72,8 @@ export function servScoutPlanner(deps: {
         historyStatus: c.historyStatus,
         disposition: c.disposition,
         askingUsd: c.askingUsd,
+        askingPriceUsable: c.askingPriceUsable,
+        freeGovCanUnlockInvestigate: c.freeGovCanUnlockInvestigate,
         withheld: c.withheld,
         confidence: c.confidence,
         missingness: c.missingness,

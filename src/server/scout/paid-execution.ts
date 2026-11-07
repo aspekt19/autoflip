@@ -309,9 +309,22 @@ export function stripClientSpendClaims<T extends Record<string, unknown>>(body: 
 }
 
 /** Server-enforced scout budgets — clients cannot raise ceilings. Live provider budget stays 0 until authority exists. */
-export function serverScoutBudgets(partial?: { maxCandidatesOut?: number; maxProviderCalls?: number }) {
+export function serverScoutBudgets(partial?: {
+  maxCandidatesOut?: number;
+  maxProviderCalls?: number;
+  /**
+   * Optional SERV call ceiling (e.g. owner-grant remaining). Never raised above the
+   * server default of 8 — only clamped downward so planner budgets match real spend.
+   */
+  maxServCalls?: number;
+}) {
+  const defaultServ = 8;
+  const clampedServ =
+    partial?.maxServCalls != null && Number.isFinite(partial.maxServCalls)
+      ? Math.max(0, Math.min(defaultServ, Math.floor(partial.maxServCalls)))
+      : defaultServ;
   return {
-    maxServCalls: 8,
+    maxServCalls: clampedServ,
     maxToolCalls: 40,
     maxProviderCalls: Math.max(0, partial?.maxProviderCalls ?? 0),
     maxCandidatesOut: Math.min(5, partial?.maxCandidatesOut ?? 5),

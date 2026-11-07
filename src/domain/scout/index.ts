@@ -17,6 +17,8 @@ export {
   refusingPlanner,
   heuristicOfflinePlanner,
   runScout,
+  sanitizeScoutPlanAction,
+  allAskingPricesUnusable,
 } from "./runner";
 export type { ScoutPlanner, ScoutPlannerInput, RunScoutInput } from "./runner";
 export {

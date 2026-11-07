@@ -152,9 +152,11 @@ describe("blocker (1): SERV grant maxCalls reserved before every HTTP", () => {
     expect(servHttp).toBe(1);
     expect(await readGrantUsed(kv, grant.id, "serv")).toBe(1);
     // Honest stop — not a silent second finalize under exhausted grant.
+    // maxServCalls is clamped to grant remaining (1), so the second loop hits
+    // run budget_exhausted before another grant reserve (still fail-closed).
     expect(executed.result.state).toBe("failed");
-    expect(executed.result.failReason).toBe("serv_unavailable");
-    expect(executed.result.message ?? "").toMatch(/grant|call cap|exhausted/i);
+    expect(["serv_unavailable", "budget_exhausted"]).toContain(executed.result.failReason);
+    expect(executed.result.message ?? "").toMatch(/grant|call cap|exhausted|budget/i);
   });
 
   it("ambiguous SERV failure after reserve retains usage (no quiet refund)", async () => {

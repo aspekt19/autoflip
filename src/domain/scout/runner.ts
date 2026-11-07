@@ -41,6 +41,7 @@ import {
   unsupportedFreeGovPort,
   type ScoutFreeGovPort,
 } from "./free-gov";
+import { isUsableAskingPriceUsd } from "./asking-price";
 import type {
   ProvenanceStep,
   ScoutBudgets,
@@ -58,6 +59,69 @@ import type {
   ScoutToolOutcome,
 } from "./types";
 import { SCOUT_TOOL_IDS } from "./types";
+
+/**
+ * Soft-guard planner actions so SERV call budget is not burned on free-gov that
+ * cannot unlock shortlist (unusable ask) or cannot be acted on (last call).
+ * Does not invent success — remaps to grounded reject / honest finalize|abstain.
+ */
+export function sanitizeScoutPlanAction(input: {
+  action: ScoutPlanAction;
+  candidates: Map<string, ScoutCandidate> | Iterable<ScoutCandidate>;
+  investigatedCount: number;
+  /** budgetsRemaining.servCalls AFTER reserveServCall for this step (0 = last call). */
+  servCallsRemainingAfterReserve: number;
+}): ScoutPlanAction {
+  const { action, investigatedCount, servCallsRemainingAfterReserve } = input;
+  const byVin = new Map<string, ScoutCandidate>();
+  if (input.candidates instanceof Map) {
+    for (const [vin, c] of input.candidates) byVin.set(vin, c);
+  } else {
+    for (const c of input.candidates) byVin.set(c.vin, c);
+  }
+
+  if (action.type === "run_tool" && isFreeGovToolId(action.toolId)) {
+    const vin = action.vin;
+    const cand = vin ? byVin.get(vin) : undefined;
+
+    if (cand && !isUsableAskingPriceUsd(cand.listing.priceUsd)) {
+      return {
+        type: "reject",
+        vin: cand.vin,
+        reason:
+          "Free-gov cannot unlock investigation without a usable asking price — reject placeholder/unknown ask (missing_asking_price).",
+        servStepId: action.servStepId,
+        rationaleKind: "adverse_evidence",
+        citedEvidence: [{ kind: "missing_asking_price" }],
+        assumptionsDisclosed: false,
+      };
+    }
+
+    // Last SERV slot: a free-gov probe cannot be followed by select/finalize under cap.
+    if (servCallsRemainingAfterReserve <= 0) {
+      return {
+        type: investigatedCount > 0 ? "finalize" : "abstain",
+        reason:
+          "Near SERV call cap — finalize/abstain instead of free-gov probe that cannot be acted on within remaining budget.",
+        servStepId: action.servStepId,
+      };
+    }
+  }
+
+  return action;
+}
+
+/** True when every listed VIN has a missing/placeholder ask (no usable retail price). */
+export function allAskingPricesUnusable(
+  candidates: Map<string, ScoutCandidate>,
+  vins: string[],
+): boolean {
+  if (vins.length === 0) return false;
+  return vins.every((vin) => {
+    const c = candidates.get(vin);
+    return c != null && !isUsableAskingPriceUsd(c.listing.priceUsd);
+  });
+}
 
 /** Status→capability fallback only — capabilityGrounded stays false (incomplete for detectors). */
 function capabilityFromStatus(status: ScoutToolOutcome["status"]): ScoutToolCapability {
@@ -801,6 +865,34 @@ export async function runScout(input: RunScoutInput): Promise<ScoutRunResult> {
       const servReserve = reserveServCall(budgets, usage);
       if (!servReserve.ok) {
         stamp(provenance, state, servReserve.detail);
+        // Honest no-options when the whole pending pool is unusable placeholders —
+        // do not surface opaque budget failure as if selection were still open.
+        if (
+          investigated.length === 0 &&
+          allAskingPricesUnusable(candidates, pending.length ? pending : [...candidates.keys()])
+        ) {
+          assertTransition(state, "finalizing");
+          state = "finalizing";
+          stamp(
+            provenance,
+            state,
+            `${servReserve.detail} — all pending asks unusable/placeholder; honest no-options abstain.`,
+          );
+          assertTransition(state, "abstained");
+          state = "abstained";
+          coveragePartial = true;
+          const snap = snapshot();
+          return {
+            ...snap,
+            usage: { ...snap.usage, wallEndedAtMs: Date.now() },
+            state: "abstained",
+            failReason: null,
+            message:
+              "No usable asking prices in the bounded pool (placeholders treated as unknown) — honest no-options under SERV call budget.",
+            partial: true,
+            diagnostic: servReserve.detail,
+          };
+        }
         return fail(snapshot(), "budget_exhausted", servReserve.detail);
       }
 
@@ -837,10 +929,54 @@ export async function runScout(input: RunScoutInput): Promise<ScoutRunResult> {
       if (!plan.ok) {
         const diag = plan.diagnostic?.trim() || null;
         stamp(provenance, state, diag ? `${plan.message} [${diag}]` : plan.message);
+        const exhausted =
+          plan.error === "serv_unavailable" &&
+          /grant|call cap|exhausted|unavailable/i.test(`${plan.message} ${diag ?? ""}`);
+        if (
+          exhausted &&
+          investigated.length === 0 &&
+          allAskingPricesUnusable(candidates, pending.length ? pending : [...candidates.keys()])
+        ) {
+          assertTransition(state, "finalizing");
+          state = "finalizing";
+          stamp(
+            provenance,
+            state,
+            `${plan.message} — all pending asks unusable/placeholder; honest no-options abstain.`,
+          );
+          assertTransition(state, "abstained");
+          state = "abstained";
+          coveragePartial = true;
+          const snap = snapshot();
+          return {
+            ...snap,
+            usage: { ...snap.usage, wallEndedAtMs: Date.now() },
+            state: "abstained",
+            failReason: null,
+            message:
+              "No usable asking prices in the bounded pool (placeholders treated as unknown) — honest no-options after SERV call cap.",
+            partial: true,
+            diagnostic: diag,
+          };
+        }
         return fail(snapshot(), plan.error, plan.message, true, diag);
       }
 
-      const action = plan.action;
+      const action = sanitizeScoutPlanAction({
+        action: plan.action,
+        candidates,
+        investigatedCount: investigated.length,
+        servCallsRemainingAfterReserve: evidenceContext.budgetsRemaining.servCalls,
+      });
+      if (action !== plan.action) {
+        stamp(
+          provenance,
+          state,
+          `Planner action sanitized: ${plan.action.type}/${"toolId" in plan.action ? plan.action.toolId : "—"} → ${action.type} (${action.reason})`,
+          null,
+          action.servStepId,
+        );
+      }
 
       if (action.type === "abstain") {
         assertTransition(state, "finalizing");
@@ -1694,6 +1830,7 @@ export function heuristicOfflinePlanner(): ScoutPlanner {
     // At most one free-gov probe for the offline heuristic run; skip already-attempted.
     // Count injected/external gov outcomes too (test wrappers) so we never re-burn the pool.
     // Leave headroom so select/finalize still fit under server maxServCalls.
+    // Never probe free-gov on unusable asking prices — cannot unlock shortlist.
     const govAlreadyAttempted =
       freeGovProbesUsed >= MAX_FREE_GOV_PROBES ||
       recentOutcomes.some((o) => o.toolId.startsWith("evidence.gov_")) ||
@@ -1706,7 +1843,11 @@ export function heuristicOfflinePlanner(): ScoutPlanner {
       const probeVin =
         pendingVins.find((vin) => {
           const brief = evidenceContext.evidenceBriefs.find((b) => b.vin === vin);
-          return brief?.govToolStatus === "not_attempted";
+          return (
+            brief?.govToolStatus === "not_attempted" &&
+            brief.askingPriceUsable === true &&
+            brief.freeGovCanUnlockInvestigate === true
+          );
         }) ?? null;
       if (probeVin) {
         const brief = evidenceContext.evidenceBriefs.find((b) => b.vin === probeVin);
