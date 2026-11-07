@@ -15,7 +15,7 @@ export {
   resolveServOutputTokenBound,
   withServOutputTokenBound,
 } from "./output-tokens";
-export { assertStrictJsonSchemaSubset } from "./strict-json-schema";
+export { assertEnumTypeReconciled, assertStrictJsonSchemaSubset } from "./strict-json-schema";
 export {
   experimentServDeps,
   messageText,

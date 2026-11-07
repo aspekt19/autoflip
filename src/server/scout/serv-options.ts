@@ -97,25 +97,30 @@ export const SCOUT_PLAN_JSON_SCHEMA = {
       reason: { type: "string" },
       servStepId: { type: "string" },
       vin: { type: ["string", "null"] },
+      // Twin of PROFILES.scout_plan — nullable enum via anyOf (Anthropic enum/type subset).
       toolId: {
-        type: ["string", "null"],
-        enum: [
-          null,
-          "inventory.search",
-          "listing.normalize",
-          "evidence.asking_price",
-          "evidence.comps_ask",
-          "evidence.gov_recalls",
-          "evidence.gov_fuel",
-          "evidence.gov_vpic",
-          "evidence.gov_safety",
-          "economics.flip_estimate",
-          "economics.personal_fit",
-          "gates.verify",
-          "candidate.reject",
-          "candidate.replace",
-          "run.checkpoint",
-          "run.finalize",
+        anyOf: [
+          {
+            type: "string",
+            enum: [
+              "inventory.search",
+              "listing.normalize",
+              "evidence.asking_price",
+              "evidence.comps_ask",
+              "evidence.gov_recalls",
+              "evidence.gov_fuel",
+              "evidence.gov_vpic",
+              "evidence.gov_safety",
+              "economics.flip_estimate",
+              "economics.personal_fit",
+              "gates.verify",
+              "candidate.reject",
+              "candidate.replace",
+              "run.checkpoint",
+              "run.finalize",
+            ],
+          },
+          { type: "null" },
         ],
       },
       args: {
@@ -151,8 +156,13 @@ export const SCOUT_PLAN_JSON_SCHEMA = {
         },
       },
       rationaleKind: {
-        type: ["string", "null"],
-        enum: [null, "adverse_evidence", "uncertainty_progress"],
+        anyOf: [
+          {
+            type: "string",
+            enum: ["adverse_evidence", "uncertainty_progress"],
+          },
+          { type: "null" },
+        ],
       },
       citedEvidence: {
         type: ["array", "null"],
