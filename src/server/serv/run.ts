@@ -8,12 +8,27 @@ import {
 /** JSON-shaped, read-only facts computed by the application before any model call. */
 export type ServFacts = Readonly<Record<string, unknown>>;
 
+/**
+ * Transport retry policy.
+ * - `production` (default): empty-text re-POST + personal_alert_review timeout retry stay as designed.
+ * - `experiment_single_attempt`: eval/compare only — no silent empty/timeout re-POSTs.
+ *   Every upstream HTTP is counted once; errors/empty/refusals are recorded and returned.
+ *   Intentional applicationTool chat finalize (tool → prose) is still one protocol phase pair,
+ *   not a silent retry; scout_plan has no applicationTool so compare steps are one HTTP each.
+ */
+export type ServTransportPolicy = "production" | "experiment_single_attempt";
+
 export type ServDeps = {
   fetch?: typeof fetch;
   apiKey?: string;
   baseUrl?: string;
   model?: string;
   timeoutMs?: number;
+  /**
+   * Default `production`. Model-compare / offline eval must pass `experiment_single_attempt`
+   * so production recovery retries are not weakened globally.
+   */
+  transportPolicy?: ServTransportPolicy;
   /**
    * Called immediately before each outbound SERV HTTP (including retries/finalize rounds).
    * Use for atomic grant reservation. Fail closed without dispatching when not ok.
@@ -23,8 +38,32 @@ export type ServDeps = {
 };
 
 export type ServResult =
-  | { ok: true; text: string; model: string; shadowOutcome: string; rawStatus: number; proof: ServProof }
-  | { ok: false; error: string; status: number; proof: ServProof; fallback: string; upstream?: string | null };
+  | {
+      ok: true;
+      text: string;
+      model: string;
+      shadowOutcome: string;
+      rawStatus: number;
+      proof: ServProof;
+      /** Count of upstream SERV HTTP dispatches performed for this runServ call. */
+      httpAttempts: number;
+      transportPolicy: ServTransportPolicy;
+    }
+  | {
+      ok: false;
+      error: string;
+      status: number;
+      proof: ServProof;
+      fallback: string;
+      upstream?: string | null;
+      httpAttempts: number;
+      transportPolicy: ServTransportPolicy;
+    };
+
+/** Eval/compare helper — never use from production planner paths. */
+export function experimentServDeps(deps: ServDeps = {}): ServDeps {
+  return { ...deps, transportPolicy: "experiment_single_attempt" };
+}
 
 type Tool = {
   type: "function";
@@ -363,7 +402,10 @@ export async function runServ(
 ): Promise<ServResult> {
   const entry = profile(id);
   const timeoutMs = deps.timeoutMs ?? entry.timeoutMs;
+  const transportPolicy: ServTransportPolicy = deps.transportPolicy ?? "production";
+  const experiment = transportPolicy === "experiment_single_attempt";
   const started = Date.now();
+  let httpAttempts = 0;
   const base = (deps.baseUrl || "https://inference-api.openserv.ai/v1").replace(/\/$/, "");
   const model = deps.model || BASE_MODEL;
   const env = deps.env ?? process.env;
@@ -397,6 +439,8 @@ export async function runServ(
       proof,
       fallback: entry.fallback,
       upstream: "output_token_bound_invalid",
+      httpAttempts: 0,
+      transportPolicy,
     };
   }
   const applyTokenBound = <T extends Record<string, unknown>>(body: T) =>
@@ -427,7 +471,16 @@ export async function runServ(
         promptCache: entry.promptCache,
       }),
     );
-    return { ok: false, error: message, status: 0, proof, fallback: entry.fallback, upstream: "output_token_bound_invalid" };
+    return {
+      ok: false,
+      error: message,
+      status: 0,
+      proof,
+      fallback: entry.fallback,
+      upstream: "output_token_bound_invalid",
+      httpAttempts: 0,
+      transportPolicy,
+    };
   }
   const proofMeta = {
     streamed: entry.stream,
@@ -456,11 +509,22 @@ export async function runServ(
       }),
     );
     proof.promptGuard = entry.tools.includes("prompt_guard") ? "not_configured" : proof.promptGuard;
-    return { ok: false, error: "SERV is not configured.", status: 0, proof, fallback: entry.fallback };
+    return {
+      ok: false,
+      error: "SERV is not configured.",
+      status: 0,
+      proof,
+      fallback: entry.fallback,
+      httpAttempts: 0,
+      transportPolicy,
+    };
   }
 
-  const rounds = entry.applicationTool && entry.endpoint === "chat" ? 2 : 1;
-  const deadline = started + timeoutMs * rounds;
+  // Protocol rounds (tool → finalize) are not silent retries. Experiment disables only
+  // empty-text / timeout re-POSTs so each requested compare step stays one attempt for
+  // profiles without applicationTool (including scout_plan).
+  const protocolRounds = entry.applicationTool && entry.endpoint === "chat" ? 2 : 1;
+  const deadline = started + timeoutMs * protocolRounds;
   const postOnce = async (body: unknown, stream: boolean, capMs: number) => {
     const budget = Math.min(deadline - Date.now(), capMs);
     if (budget < 500) throw new DOMException("The operation was aborted.", "TimeoutError");
@@ -472,6 +536,7 @@ export async function runServ(
         throw err;
       }
     }
+    httpAttempts += 1;
     const path = entry.endpoint === "responses" ? "/responses" : "/chat/completions";
     const response = await (deps.fetch ?? fetch)(`${base}${path}`, {
       method: "POST",
@@ -492,7 +557,8 @@ export async function runServ(
   };
   const post = async (body: unknown, stream: boolean) => {
     const remain = deadline - Date.now();
-    if (id !== "personal_alert_review") return postOnce(body, stream, remain);
+    // Production-only: personal_alert_review splits the deadline and retries once on timeout.
+    if (experiment || id !== "personal_alert_review") return postOnce(body, stream, remain);
     const firstWait = Math.min(8_000, Math.floor(timeoutMs / 2));
     try {
       return await postOnce(body, stream, firstWait);
@@ -504,7 +570,13 @@ export async function runServ(
 
   const postProse = async (body: unknown, stream: boolean) => {
     let turn = await post(body, stream);
-    if (turn.response.ok && !turn.text.trim() && deadline - Date.now() > 1_000) {
+    // Production-only: one silent re-POST when the first success returns empty text.
+    if (
+      !experiment &&
+      turn.response.ok &&
+      !turn.text.trim() &&
+      deadline - Date.now() > 1_000
+    ) {
       turn = await post(body, stream);
     }
     return turn;
@@ -559,7 +631,16 @@ export async function runServ(
             ...proofMeta,
           }),
         );
-        return { ok: false, error: "SERV returned an error.", status: turn.response.status, proof, fallback: entry.fallback, upstream: servErrorSummary(turn.payload) || null };
+        return {
+          ok: false,
+          error: "SERV returned an error.",
+          status: turn.response.status,
+          proof,
+          fallback: entry.fallback,
+          upstream: servErrorSummary(turn.payload) || null,
+          httpAttempts,
+          transportPolicy,
+        };
       }
       const call = toolCall(turn.payload);
       const matched = call?.name === entry.applicationTool ? call : null;
@@ -607,9 +688,20 @@ export async function runServ(
         proof,
         fallback: entry.fallback,
         upstream: turn.response.ok ? turn.shape || null : servErrorSummary(turn.payload) || null,
+        httpAttempts,
+        transportPolicy,
       };
     }
-    return { ok: true, text: turn.text, model: proof.modelReported, shadowOutcome: proof.shadowOutcome, rawStatus: turn.response.status, proof };
+    return {
+      ok: true,
+      text: turn.text,
+      model: proof.modelReported,
+      shadowOutcome: proof.shadowOutcome,
+      rawStatus: turn.response.status,
+      proof,
+      httpAttempts,
+      transportPolicy,
+    };
   } catch (error) {
     if (error instanceof Error && error.name === "ServBudgetError") {
       const proof = recordServProof(
@@ -633,6 +725,8 @@ export async function runServ(
         proof,
         fallback: entry.fallback,
         upstream: "grant_exhausted",
+        httpAttempts,
+        transportPolicy,
       };
     }
     const proof = recordServProof(
@@ -649,6 +743,15 @@ export async function runServ(
         ...proofMeta,
       }),
     );
-    return { ok: false, error: "SERV did not respond.", status: 0, proof, fallback: entry.fallback, upstream: null };
+    return {
+      ok: false,
+      error: "SERV did not respond.",
+      status: 0,
+      proof,
+      fallback: entry.fallback,
+      upstream: null,
+      httpAttempts,
+      transportPolicy,
+    };
   }
 }

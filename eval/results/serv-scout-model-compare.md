@@ -7,12 +7,23 @@
 - Production default model: `gpt-5.4-mini` (unchanged: true)
 - Cost: **unknown** (console $/M is not reconciled run cost; labeled costunknown)
 
+## Experiment transport bounds (t296)
+
+- Policy: `experiment_single_attempt` (eval/compare only — production `runServ` empty/timeout recovery unchanged)
+- Max upstream HTTP per requested scout_plan step: **1** (no silent empty/timeout re-POST; every attempt counted)
+- Timeout per attempt: `45000ms` (nominal wall/model = steps × timeout = `135000ms`)
+- Output token bound: `4096` (default 4096; fail-closed on garbage)
+- Silent empty retry: `false`; silent timeout retry: `false`
+- No arbitrary SERV run quota introduced: `true`
+- Errors / empty / HTTP failures / refusals are **recorded**, not silently repeated
+
 ## Critical disclaimers (t294/t295)
 
 - **Model-only swap is NOT the demonstrated product fix** for the placeholder-price reject deadlock. Code fixes (query floor, cite grounding, filter) are separate; this harness only compares planner behavior on the same offline ledger input.
 - **Budget-conscious ≠ cheapest.** Do not pick the lowest console $/M at the expense of grounded recovery / anti-loop quality.
 - **Console ≠ in-repo catalog.** Console Available-models is broader (e.g. `gpt-6-luna`); unlisted IDs need parent validation + `SCOUT_COMPARE_ALLOW_UNLISTED=1`.
 - **Zero-network default.** Live requires `SERV_API_KEY` + `SCOUT_COMPARE_ALLOW_PAID=1`.
+- **One attempt per step** on the live compare path via `experiment_single_attempt` — not the production planner retry policy.
 
 ## Evidence taxonomy (observed vs hypotheses vs unrecorded)
 
@@ -71,3 +82,4 @@ _No live model rows (dry-run)._
 - Unlisted console IDs are not availability/schema guarantees even with ALLOW_UNLISTED.
 - Full raw step-3 planner payloads were unrecorded in the sanitized handoff.
 - Whether Auto.dev returns usable asks after 500-N on a given minute is unproven here.
+- Experiment transport disables silent empty/timeout re-POSTs only; production planner recovery retries stay as designed.

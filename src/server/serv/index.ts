@@ -16,4 +16,11 @@ export {
   withServOutputTokenBound,
 } from "./output-tokens";
 export { assertStrictJsonSchemaSubset } from "./strict-json-schema";
-export { requestFor, runServ, type ServDeps, type ServResult } from "./run";
+export {
+  experimentServDeps,
+  requestFor,
+  runServ,
+  type ServDeps,
+  type ServResult,
+  type ServTransportPolicy,
+} from "./run";

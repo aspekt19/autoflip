@@ -1,10 +1,13 @@
 /**
- * Parent-runnable controlled SAME-input SERV-model comparison (owner t292/t294/t295).
+ * Parent-runnable controlled SAME-input SERV-model comparison (owner t292/t294/t295/t296).
  *
  * Rebuilds planner inputs from the sanitized PR63 placeholder ledger and, when
  * parent authorizes paid SERV, runs sequential scout_plan calls per model ID —
  * strict JSON schema, scored for validity / groundedness / recovery / latency /
  * tokens / costunknown.
+ *
+ * Live transport uses `experiment_single_attempt` (one HTTP per step; empty/timeout
+ * recorded, not silently re-POSTed). Production planner recovery retries are unchanged.
  *
  * ## Not a demonstrated product fix via model swap
  * This harness enables parent comparison only. A model-only swap is **NOT** the
@@ -62,8 +65,11 @@ import {
   listServCompareModels,
   resolveServCompareModelIds,
   servCompareCatalogNote,
+  experimentServDeps,
   runServ,
   BASE_MODEL,
+  SERV_OUTPUT_TOKEN_DEFAULT,
+  resolveServOutputTokenBound,
 } from "../src/server/serv";
 import { profile } from "../src/server/serv/profiles";
 
@@ -86,6 +92,9 @@ type ModelStepRow = {
   reportedModel: string | null;
   error: string | null;
   unlistedOptIn: boolean;
+  /** Upstream SERV HTTP dispatches for this step (experiment: expect 1). */
+  httpAttempts: number | null;
+  transportPolicy: "experiment_single_attempt" | null;
 };
 
 function usageFromProof(proof: unknown): Usage | null {
@@ -111,12 +120,40 @@ function markdownReport(report: Record<string, unknown>): string {
   lines.push(`- Production default model: \`${String(report.productionDefaultModel)}\` (unchanged: ${String(report.productionDefaultUnchanged)})`);
   lines.push(`- Cost: **unknown** (console $/M is not reconciled run cost; labeled costunknown)`);
   lines.push("");
+  lines.push("## Experiment transport bounds (t296)");
+  lines.push("");
+  const tb = report.transportBounds as
+    | {
+        policy?: string;
+        maxHttpAttemptsPerStep?: number;
+        timeoutMsPerAttempt?: number;
+        wallMsPerModelNominal?: number;
+        outputTokenBound?: number | null;
+        silentEmptyRetry?: boolean;
+        silentTimeoutRetry?: boolean;
+        productionPlannerRetriesUnchanged?: boolean;
+        noArbitraryServRunQuota?: boolean;
+      }
+    | undefined;
+  if (tb) {
+    lines.push(`- Policy: \`${tb.policy}\` (eval/compare only — production \`runServ\` empty/timeout recovery unchanged)`);
+    lines.push(
+      `- Max upstream HTTP per requested scout_plan step: **${tb.maxHttpAttemptsPerStep}** (no silent empty/timeout re-POST; every attempt counted)`,
+    );
+    lines.push(`- Timeout per attempt: \`${tb.timeoutMsPerAttempt}ms\` (nominal wall/model = steps × timeout = \`${tb.wallMsPerModelNominal}ms\`)`);
+    lines.push(`- Output token bound: \`${tb.outputTokenBound ?? "invalid"}\` (default ${SERV_OUTPUT_TOKEN_DEFAULT}; fail-closed on garbage)`);
+    lines.push(`- Silent empty retry: \`${tb.silentEmptyRetry}\`; silent timeout retry: \`${tb.silentTimeoutRetry}\``);
+    lines.push(`- No arbitrary SERV run quota introduced: \`${tb.noArbitraryServRunQuota}\``);
+    lines.push(`- Errors / empty / HTTP failures / refusals are **recorded**, not silently repeated`);
+  }
+  lines.push("");
   lines.push("## Critical disclaimers (t294/t295)");
   lines.push("");
   lines.push("- **Model-only swap is NOT the demonstrated product fix** for the placeholder-price reject deadlock. Code fixes (query floor, cite grounding, filter) are separate; this harness only compares planner behavior on the same offline ledger input.");
   lines.push("- **Budget-conscious ≠ cheapest.** Do not pick the lowest console $/M at the expense of grounded recovery / anti-loop quality.");
   lines.push("- **Console ≠ in-repo catalog.** Console Available-models is broader (e.g. `gpt-6-luna`); unlisted IDs need parent validation + `SCOUT_COMPARE_ALLOW_UNLISTED=1`.");
   lines.push("- **Zero-network default.** Live requires `SERV_API_KEY` + `SCOUT_COMPARE_ALLOW_PAID=1`.");
+  lines.push("- **One attempt per step** on the live compare path via `experiment_single_attempt` — not the production planner retry policy.");
   lines.push("");
   lines.push("## Evidence taxonomy (observed vs hypotheses vs unrecorded)");
   lines.push("");
@@ -181,7 +218,7 @@ function markdownReport(report: Record<string, unknown>): string {
   } else {
     for (const r of rows) {
       lines.push(
-        `- **${r.modelId}** @ \`${r.stepId}\`: schemaValid=${r.schemaValid}; recovery=${r.score.recoveryClass}; grounded=${r.score.grounded}; antiLoopSafe=${r.score.antiLoopSafe}; latencyMs=${r.latencyMs ?? "n/a"}; tokens=${r.tokens?.total_tokens ?? "n/a"}; cost=unknown; unlistedOptIn=${r.unlistedOptIn}${r.error ? `; error=${r.error}` : ""}`,
+        `- **${r.modelId}** @ \`${r.stepId}\`: schemaValid=${r.schemaValid}; recovery=${r.score.recoveryClass}; grounded=${r.score.grounded}; antiLoopSafe=${r.score.antiLoopSafe}; latencyMs=${r.latencyMs ?? "n/a"}; httpAttempts=${r.httpAttempts ?? "n/a"}; tokens=${r.tokens?.total_tokens ?? "n/a"}; cost=unknown; unlistedOptIn=${r.unlistedOptIn}${r.error ? `; error=${r.error}` : ""}`,
       );
     }
   }
@@ -250,23 +287,27 @@ async function main() {
         let rawStatus: number | null = null;
         let reportedModel: string | null = null;
         let error: string | null = null;
+        let httpAttempts: number | null = null;
         let schemaValid = false;
         let score: ActionScore;
 
         try {
+          // Isolated experiment transport: one upstream attempt per step; empty/timeout
+          // are recorded (not silently re-POSTed). Production runServ recovery unchanged.
           const result = await runServ(
             "scout_plan",
             { user },
-            {
+            experimentServDeps({
               apiKey: key,
               baseUrl: process.env.SERV_BASE_URL,
               model: model.id,
               timeoutMs: scoutProfile.timeoutMs,
-            },
+            }),
           );
           latencyMs = Date.now() - started;
           tokens = usageFromProof(result.proof);
           reportedModel = result.proof.modelReported || null;
+          httpAttempts = result.httpAttempts;
 
           if (!result.ok) {
             rawStatus = result.status;
@@ -319,9 +360,11 @@ async function main() {
           reportedModel,
           error,
           unlistedOptIn: model.unlistedOptIn,
+          httpAttempts,
+          transportPolicy: "experiment_single_attempt",
         });
         console.log(
-          `${model.id} @ ${prepared.stepId}: schemaValid=${schemaValid} recovery=${score.recoveryClass} latencyMs=${latencyMs} cost=unknown`,
+          `${model.id} @ ${prepared.stepId}: schemaValid=${schemaValid} recovery=${score.recoveryClass} latencyMs=${latencyMs} httpAttempts=${httpAttempts} cost=unknown`,
         );
       }
     }
@@ -345,10 +388,28 @@ async function main() {
     "Unlisted console IDs are not availability/schema guarantees even with ALLOW_UNLISTED.",
     "Full raw step-3 planner payloads were unrecorded in the sanitized handoff.",
     "Whether Auto.dev returns usable asks after 500-N on a given minute is unproven here.",
+    "Experiment transport disables silent empty/timeout re-POSTs only; production planner recovery retries stay as designed.",
   ];
 
+  const outputTokenBound = resolveServOutputTokenBound(process.env);
+  const transportBounds = {
+    policy: "experiment_single_attempt" as const,
+    /** scout_plan has no applicationTool → one upstream HTTP per requested step. */
+    maxHttpAttemptsPerStep: 1,
+    timeoutMsPerAttempt: scoutProfile.timeoutMs,
+    wallMsPerModelNominal: scoutProfile.timeoutMs * preparedSteps.length,
+    outputTokenBound: outputTokenBound.ok ? outputTokenBound.tokens : null,
+    outputTokenBoundSource: outputTokenBound.ok ? outputTokenBound.source : "invalid",
+    outputTokenDefault: SERV_OUTPUT_TOKEN_DEFAULT,
+    cost: "unknown" as const,
+    silentEmptyRetry: false,
+    silentTimeoutRetry: false,
+    productionPlannerRetriesUnchanged: true,
+    noArbitraryServRunQuota: true,
+  };
+
   const report = {
-    schemaVersion: "serv-scout-model-compare/v2",
+    schemaVersion: "serv-scout-model-compare/v3",
     mode: live ? "live_sequential" : "dry_run",
     harness: "eval/serv-scout-model-compare.ts",
     ledgerPath: PR63_PLACEHOLDER_LEDGER_PATH,
@@ -362,6 +423,7 @@ async function main() {
     zeroNetworkDefault: true,
     allowUnlistedOptIn: allowUnlisted,
     strictJsonSchema: Boolean(scoutProfile.jsonSchema),
+    transportBounds,
     catalog: listServCompareModels(),
     modelsSelected: modelRes.models,
     evidenceTaxonomy: ledger.evidenceTaxonomy ?? null,
@@ -379,6 +441,8 @@ async function main() {
       "Budget-conscious ≠ cheapest-at-expense-of-quality.",
       "Console Available-models broader than in-repo catalog; ALLOW_UNLISTED is parent opt-in only.",
       "Not a claim that any model beats another until parent runs live rows.",
+      "Live path uses experiment_single_attempt: one HTTP per step; empty/timeout/HTTP errors/refusals recorded, not silently repeated.",
+      "Production runServ empty/timeout recovery is unchanged outside this harness.",
     ],
   };
 

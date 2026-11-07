@@ -1,5 +1,5 @@
 {
-  "schemaVersion": "serv-scout-model-compare/v2",
+  "schemaVersion": "serv-scout-model-compare/v3",
   "mode": "dry_run",
   "harness": "eval/serv-scout-model-compare.ts",
   "ledgerPath": "fixtures/scout/pr63-placeholder-ledger.json",
@@ -13,6 +13,20 @@
   "zeroNetworkDefault": true,
   "allowUnlistedOptIn": false,
   "strictJsonSchema": true,
+  "transportBounds": {
+    "policy": "experiment_single_attempt",
+    "maxHttpAttemptsPerStep": 1,
+    "timeoutMsPerAttempt": 45000,
+    "wallMsPerModelNominal": 135000,
+    "outputTokenBound": 4096,
+    "outputTokenBoundSource": "default",
+    "outputTokenDefault": 4096,
+    "cost": "unknown",
+    "silentEmptyRetry": false,
+    "silentTimeoutRetry": false,
+    "productionPlannerRetriesUnchanged": true,
+    "noArbitraryServRunQuota": true
+  },
   "catalog": [
     {
       "id": "gpt-5.4-mini",
@@ -76,7 +90,8 @@
     "Cost remains unknown until central reconciliation (console $/M ≠ receipt).",
     "Unlisted console IDs are not availability/schema guarantees even with ALLOW_UNLISTED.",
     "Full raw step-3 planner payloads were unrecorded in the sanitized handoff.",
-    "Whether Auto.dev returns usable asks after 500-N on a given minute is unproven here."
+    "Whether Auto.dev returns usable asks after 500-N on a given minute is unproven here.",
+    "Experiment transport disables silent empty/timeout re-POSTs only; production planner recovery retries stay as designed."
   ],
   "stepUserMessages": [
     {
@@ -152,6 +167,8 @@
     "Model-only swap is NOT the demonstrated product fix.",
     "Budget-conscious ≠ cheapest-at-expense-of-quality.",
     "Console Available-models broader than in-repo catalog; ALLOW_UNLISTED is parent opt-in only.",
-    "Not a claim that any model beats another until parent runs live rows."
+    "Not a claim that any model beats another until parent runs live rows.",
+    "Live path uses experiment_single_attempt: one HTTP per step; empty/timeout/HTTP errors/refusals recorded, not silently repeated.",
+    "Production runServ empty/timeout recovery is unchanged outside this harness."
   ]
 }

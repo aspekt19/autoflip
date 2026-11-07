@@ -14,6 +14,10 @@ Measured evaluation outputs live here after a real `npm run eval:serv` / `npm ru
   - Optional `SERV_COMPARE_MODELS`; unlisted console IDs need `SCOUT_COMPARE_ALLOW_UNLISTED=1`
     after parent console/contract validation (fail-closed otherwise; no blind allowlist expand).
   - Captures validity, groundedness, recovery, latency, tokens, **costunknown**.
+  - Live path uses **`experiment_single_attempt`**: one upstream HTTP per scout_plan step;
+    empty/timeout/HTTP errors/refusals are recorded (not silently re-POSTed). Production
+    `runServ` empty/timeout recovery is unchanged outside this harness. No arbitrary SERV
+    run quota — honest timeout (45s) + output-token (default 4096) bounds only.
   - **Model-only swap is NOT the demonstrated product fix**; production `BASE_MODEL` unchanged.
   - **Budget-conscious ≠ cheapest.** Console Available-models (e.g. `gpt-6-luna` + $/M rates)
     is broader than the in-repo catalog — document discrepancy; do not hardcode availability.
