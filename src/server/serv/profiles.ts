@@ -445,7 +445,6 @@ export const PROFILES = {
         required: [
           "type",
           "reason",
-          "servStepId",
           "vin",
           "toolId",
           "args",
@@ -458,11 +457,11 @@ export const PROFILES = {
             type: "string",
             enum: ["select_candidate", "run_tool", "reject", "replace", "finalize", "abstain"],
           },
-          // Non-empty reason/servStepId enforced at parse time (plan-parse trim/guards),
-          // not via request-schema `pattern` (provider compatibility unproven; avoid schema
-          // surface churn until a live contract fault requires it).
+          // Non-empty reason enforced at parse time (plan-parse trim/guards), not via
+          // request-schema `pattern` (provider compatibility unproven).
+          // servStepId is execution-owned correlation metadata — omitted from the model
+          // schema so planners do not invent bookkeeping ids (Sonnet empty_string class).
           reason: { type: "string" },
-          servStepId: { type: "string" },
           vin: { type: ["string", "null"] },
           // Nullable enum via anyOf — Anthropic rejects type:["string","null"] + enum
           // containing null ("Enum value None does not match declared type ...").

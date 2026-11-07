@@ -8,7 +8,7 @@
  * "Missing reason or servStepId".
  *
  * After fix: jsonSchema profiles use structured extraction (content/parsed/refusal only).
- * No paid calls. No request-schema pattern on reason/servStepId.
+ * No paid calls. servStepId is execution-owned (not in request schema).
  */
 import { describe, expect, it } from "vitest";
 import { parseScoutPlanText } from "@/server/scout/plan-parse";

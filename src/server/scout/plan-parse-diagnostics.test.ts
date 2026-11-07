@@ -40,6 +40,7 @@ describe("scout plan parse diagnostics (offline fixtures)", () => {
     expect(empty.ok).toBe(false);
     if (!empty.ok) {
       expect(empty.message).toContain("reason=empty_string");
+      // Empty model servStepId alone is no longer a decision failure; reason empty is.
       expect(empty.message).toContain("servStepId=empty_string");
     }
 
@@ -51,6 +52,51 @@ describe("scout plan parse diagnostics (offline fixtures)", () => {
       expect(nested.message).toContain("reason=missing");
       expect(nested.message).toContain("keys=action");
     }
+  });
+
+  it("Sonnet empty_string servStepId class: reason+type valid → execution binds correlation id", () => {
+    // Parent PR71 schemafix probe (625bd8d): HTTP 200, reason present, servStepId "".
+    // Correlation is execution-owned — must not reject a grounded decision for bookkeeping.
+    const parsed = parseScoutPlanText(
+      JSON.stringify({
+        type: "abstain",
+        reason:
+          "All 20 pending asks are unusable (placeholder/fee/suspicious) — no genuine purchase-price evidence; free-gov cannot unlock investigation.",
+        servStepId: "",
+        vin: null,
+        toolId: null,
+        args: null,
+        rationaleKind: null,
+        citedEvidence: null,
+        assumptionsDisclosed: null,
+      }),
+      { executionServStepId: "exec:step-1" },
+    );
+    expect(parsed.ok).toBe(true);
+    if (parsed.ok) {
+      expect(parsed.action.type).toBe("abstain");
+      expect(parsed.action.servStepId).toBe("exec:step-1");
+      expect(parsed.action.reason.length).toBeGreaterThan(0);
+    }
+  });
+
+  it("ignores model-emitted servStepId — execution ownership is authoritative", () => {
+    const parsed = parseScoutPlanText(
+      JSON.stringify({
+        type: "finalize",
+        reason: "investigation complete",
+        servStepId: "model-invented-a1",
+        vin: null,
+        toolId: null,
+        args: null,
+        rationaleKind: null,
+        citedEvidence: null,
+        assumptionsDisclosed: null,
+      }),
+      { executionServStepId: "exec:step-7" },
+    );
+    expect(parsed.ok).toBe(true);
+    if (parsed.ok) expect(parsed.action.servStepId).toBe("exec:step-7");
   });
 
   it("sanitizePlannerParseEcho never embeds string values", () => {
@@ -120,12 +166,11 @@ describe("scout plan parse diagnostics (offline fixtures)", () => {
     expect(messageText(payload, "structured")).toBe("");
   });
 
-  it("still accepts a grounded abstain with non-empty reason + servStepId", () => {
+  it("still accepts a grounded abstain with non-empty reason (servStepId execution-bound)", () => {
     const parsed = parseScoutPlanText(
       JSON.stringify({
         type: "abstain",
         reason: "no verified options with usable asking prices",
-        servStepId: "a1",
         vin: null,
         toolId: null,
         args: null,
@@ -133,9 +178,13 @@ describe("scout plan parse diagnostics (offline fixtures)", () => {
         citedEvidence: null,
         assumptionsDisclosed: null,
       }),
+      { executionServStepId: "exec:step-3" },
     );
     expect(parsed.ok).toBe(true);
-    if (parsed.ok) expect(parsed.action.type).toBe("abstain");
+    if (parsed.ok) {
+      expect(parsed.action.type).toBe("abstain");
+      expect(parsed.action.servStepId).toBe("exec:step-3");
+    }
   });
 
   it("classifies Mini-style refusal prose (no JSON) without storing the prose", () => {

@@ -60,11 +60,47 @@ function parseCitedEvidence(
 }
 
 /**
+ * Execution-owned correlation id for provenance / acquiredBy / outcome stamps.
+ *
+ * Not a model decision: action fingerprint + tool idempotency keys do not use it,
+ * and request schema no longer asks the model to invent one (Sonnet PR71 empty_string
+ * class). Prefer `exec:step-${n}` from the runner loop when binding live plans.
+ */
+export function allocateExecutionServStepId(step?: number): string {
+  if (typeof step === "number" && Number.isFinite(step) && step >= 0) {
+    return `exec:step-${Math.trunc(step)}`;
+  }
+  allocateExecutionServStepIdSeq += 1;
+  return `exec:auto-${allocateExecutionServStepIdSeq}`;
+}
+
+let allocateExecutionServStepIdSeq = 0;
+
+/** Test-only — reset auto counter for deterministic offline fixtures. */
+export function resetExecutionServStepIdSeqForTests(): void {
+  allocateExecutionServStepIdSeq = 0;
+}
+
+export type ParseScoutPlanOptions = {
+  /**
+   * Correlation id stamped by execution. Model-emitted `servStepId` is ignored
+   * when present (legacy / stray fields) — ownership stays with the runtime.
+   */
+  executionServStepId?: string;
+};
+
+/**
  * App-side planner validation. Strict response_format still needs this
  * (docs: structured-outputs — validate + handle refusals/truncation separately).
  * Not a diagnosis of historical PR52 failures.
+ *
+ * Decision fields (model-owned): type, reason, vin, toolId, args, rationale*, cited*.
+ * Correlation (execution-owned): servStepId — bound here, never required from the model.
  */
-export function parseScoutPlanText(text: string): PlanParseResult {
+export function parseScoutPlanText(
+  text: string,
+  opts?: ParseScoutPlanOptions,
+): PlanParseResult {
   const trimmed = text.trim();
   if (!trimmed) {
     return { ok: false, kind: "truncated", message: "Empty SERV planner response." };
@@ -93,16 +129,19 @@ export function parseScoutPlanText(text: string): PlanParseResult {
 
   const type = raw.type;
   const reason = typeof raw.reason === "string" ? raw.reason.trim() : null;
-  const servStepId = typeof raw.servStepId === "string" ? raw.servStepId.trim() : null;
-  if (!reason || !servStepId) {
+  if (!reason) {
     // Keep stable prefix for metrics regexes; append field presence so compare
     // rows can tell null / empty / missing / wrong-shape apart without raw text.
+    // servStepId presence in the echo is forensic only — not a decision failure.
     return {
       ok: false,
       kind: "schema_mismatch",
       message: reasonServStepIdMismatchMessage(raw),
     };
   }
+
+  const bound = opts?.executionServStepId?.trim();
+  const servStepId = bound || allocateExecutionServStepId();
 
   if (type === "finalize" || type === "abstain") {
     return { ok: true, action: { type, reason, servStepId } };

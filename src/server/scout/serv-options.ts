@@ -80,7 +80,6 @@ export const SCOUT_PLAN_JSON_SCHEMA = {
     required: [
       "type",
       "reason",
-      "servStepId",
       "vin",
       "toolId",
       "args",
@@ -93,9 +92,9 @@ export const SCOUT_PLAN_JSON_SCHEMA = {
         type: "string",
         enum: ["select_candidate", "run_tool", "reject", "replace", "finalize", "abstain"],
       },
-      // Twin of PROFILES.scout_plan — non-empty enforced at parse time, not schema pattern.
+      // Twin of PROFILES.scout_plan — non-empty reason at parse time, not schema pattern.
+      // servStepId is execution-owned (not a model decision field).
       reason: { type: "string" },
-      servStepId: { type: "string" },
       vin: { type: ["string", "null"] },
       // Twin of PROFILES.scout_plan — nullable enum via anyOf (Anthropic enum/type subset).
       toolId: {

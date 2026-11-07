@@ -17,25 +17,29 @@ describe("scout_plan strict JSON schema subset (offline)", () => {
     const issues = assertStrictJsonSchemaSubset(schema);
     expect(issues).toEqual([]);
 
-    const props = (schema as {
+    const root = schema as {
       properties: {
         args: Record<string, unknown>;
         reason: { type?: string; pattern?: string };
-        servStepId: { type?: string; pattern?: string };
+        servStepId?: unknown;
         toolId: Record<string, unknown>;
         rationaleKind: Record<string, unknown>;
       };
-    }).properties;
+      required: string[];
+    };
+    const props = root.properties;
     expect(props.args.additionalProperties).toBe(false);
     expect(props.args.type).toEqual(["object", "null"]);
     expect(Array.isArray(props.args.required) && (props.args.required as string[]).includes("maxPriceUsd")).toBe(
       true,
     );
-    // Request schema stays plain string — nonempty is runtime (plan-parse), not pattern.
+    // Request schema: nonempty reason is runtime (plan-parse), not pattern.
+    // servStepId is execution-owned — not a model schema field.
     expect(props.reason).toEqual({ type: "string" });
-    expect(props.servStepId).toEqual({ type: "string" });
     expect(props.reason.pattern).toBeUndefined();
-    expect(props.servStepId.pattern).toBeUndefined();
+    expect(props.servStepId).toBeUndefined();
+    expect(root.required).not.toContain("servStepId");
+    expect(root.required).toContain("reason");
   });
 
   it("serv-options twin matches live profile and is also strict-clean", () => {
@@ -57,6 +61,8 @@ describe("scout_plan strict JSON schema subset (offline)", () => {
     const serialized = JSON.stringify(req);
     expect(serialized).toContain('"additionalProperties":false');
     expect(serialized).toContain('"name":"lemonless_scout_plan_action"');
+    // Execution-owned correlation must not appear in model request schema.
+    expect(serialized).not.toContain('"servStepId"');
     // Regression of production 400: object args without additionalProperties:false.
     expect(serialized).not.toMatch(
       /"args":\{"type":\["object","null"\]\}/,
