@@ -6,7 +6,7 @@
 import type { ScoutCandidate, ScoutMandate, ScoutToolOutcome } from "./types";
 import type { ScoutSearchParams } from "./search-params";
 import { collectAdverseEvidence } from "./disposition-rationale";
-import { isUsableAskingPriceUsd } from "./asking-price";
+import { isListingAskingPriceUsable } from "./asking-price";
 
 export type EvidenceConfidence = "low" | "medium" | "high" | "unknown";
 
@@ -165,7 +165,7 @@ export function buildCandidateEvidenceBrief(
     return !presentKeys.has(k);
   });
 
-  const askingPriceUsable = isUsableAskingPriceUsd(c.listing.priceUsd);
+  const askingPriceUsable = isListingAskingPriceUsable(c.listing);
   return {
     vin: c.vin,
     disposition: c.disposition,
@@ -264,7 +264,7 @@ export function buildPlannerEvidenceContext(input: {
   let usableAskingPriceCount = 0;
   let unusableAskingPriceCount = 0;
   for (const c of pendingForAsk) {
-    if (isUsableAskingPriceUsd(c.listing.priceUsd)) usableAskingPriceCount += 1;
+    if (isListingAskingPriceUsable(c.listing)) usableAskingPriceCount += 1;
     else unusableAskingPriceCount += 1;
   }
   const pendingCount = pendingForAsk.length;

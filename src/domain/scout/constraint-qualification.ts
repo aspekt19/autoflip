@@ -4,7 +4,11 @@
  * Never invent ZIP distance from unequal ZIP strings.
  */
 import type { Listing } from "@/domain/types";
-import { askingPriceUsabilityNote, isUsableAskingPriceUsd } from "./asking-price";
+import {
+  askingPriceUsabilityNote,
+  isListingAskingPriceUsable,
+  listingAskingPriceOpts,
+} from "./asking-price";
 import { listingGeoRelativeToSearch } from "./inventory";
 import { mandatePriceCap, type ScoutSearchParams } from "./search-params";
 import type {
@@ -47,18 +51,23 @@ export function qualifyListingConstraints(input: {
     price = field("not_applicable", null, input.listing.priceUsd, "No asking-price hard cap on this search.");
   } else if (input.listing.priceUsd == null) {
     price = field("unknown", priceCap, null, "Asking price unknown — not a verified under-cap match.");
-  } else if (!isUsableAskingPriceUsd(input.listing.priceUsd)) {
+  } else if (!isListingAskingPriceUsable(input.listing)) {
     price = field(
       "unknown",
       priceCap,
       input.listing.priceUsd,
-      askingPriceUsabilityNote(input.listing.priceUsd) ??
-        "Asking price not usable as retail — not a verified under-cap match.",
+      askingPriceUsabilityNote(input.listing.priceUsd, listingAskingPriceOpts(input.listing)) ??
+        "Asking price not usable as genuine purchase-price evidence — not a verified under-cap match.",
     );
   } else if (input.listing.priceUsd > priceCap) {
     price = field("fail", priceCap, input.listing.priceUsd, "Asking price exceeds hard cap.");
   } else {
-    price = field("pass", priceCap, input.listing.priceUsd, "Asking price within hard cap.");
+    price = field(
+      "pass",
+      priceCap,
+      input.listing.priceUsd,
+      "Asking price within hard cap and meets year-aware credible purchase magnitude (still seller claim).",
+    );
   }
 
   let miles: ConstraintFieldQualification;

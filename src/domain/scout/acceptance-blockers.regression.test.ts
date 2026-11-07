@@ -66,7 +66,7 @@ describe("acceptance blockers regression (run 2bf5c59e…)", () => {
     expect(mandatePriceCap(personalMandate)).toBe(20_000);
     const params = mandateToSearchParams(personalMandate);
     expect(params.maxPriceUsd).toBe(20_000);
-    expect(searchQueryRanges(params)).toEqual({ priceRange: "500-20000" });
+    expect(searchQueryRanges(params)).toEqual({ priceRange: "3000-20000" });
     const fp = JSON.parse(fingerprintSearchParams(params)) as { maxPriceUsd: number };
     expect(fp.maxPriceUsd).toBe(20_000);
     expect(fp.maxPriceUsd).not.toBe(25_000);
@@ -75,7 +75,7 @@ describe("acceptance blockers regression (run 2bf5c59e…)", () => {
   it("placeholder asking prices 1–59 are not usable and do not qualify as pass", () => {
     expect(MIN_USABLE_ASKING_PRICE_USD).toBe(500);
     for (const price of [1, 10, 59]) {
-      expect(isUsableAskingPriceUsd(price)).toBe(false);
+      expect(isUsableAskingPriceUsd(price, 2020)).toBe(false);
       const search = mandateToSearchParams(personalMandate);
       const q = qualifyListingConstraints({
         listing: listing({ vin: "4T1B11HK5JU000001", priceUsd: price }),

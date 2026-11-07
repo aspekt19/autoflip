@@ -1,6 +1,7 @@
 import type { FlipEstimate } from "@/domain/flip-rank";
 import type { GateResult } from "@/domain/verdict-gates";
 import type { Listing, Mode } from "@/domain/types";
+import type { ScoutRunDiagnostics } from "./run-diagnostics";
 
 export type ScoutMode = Mode;
 
@@ -353,8 +354,14 @@ export type ScoutRunResult = {
   /**
    * Sanitized actionable upstream/provider diagnostic (no secrets, no raw bodies).
    * Complements `message` when SERV/HTTP refuses — safe for GET/POST parity.
+   * Aligns with PR #68 planner-parse redaction style (no raw bodies / secrets).
    */
   diagnostic?: string | null;
+  /**
+   * Structured termination / evidence-retention / asking-price counts.
+   * No VINs, URLs, tokens, or planner prose — safe for GET/POST parity.
+   */
+  runDiagnostics?: ScoutRunDiagnostics | null;
   autonomyClaim: "serv_directed" | "none";
   /**
    * True when coverage is incomplete (failed lookup, budget stop, etc.) even if

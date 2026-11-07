@@ -1,15 +1,54 @@
 import type { Listing } from "@/domain/types";
+import { assessListingAskingPrice } from "./asking-price";
 import type { EvidenceFact } from "./types";
 
 /** Asking price is always a seller claim until independently verified (we never claim sold prices). */
 export function askingPriceEvidence(listing: Listing): EvidenceFact {
+  const assessment = assessListingAskingPrice(listing);
   return {
     key: "asking_price_usd",
-    value: listing.priceUsd,
-    kind: "seller_claim",
+    value: {
+      priceUsd: listing.priceUsd,
+      assessment: assessment.status,
+      usableForShortlist: assessment.usableForShortlist,
+      credibleFloorUsd: assessment.credibleFloorUsd,
+      kind: assessment.kind,
+      provenance: assessment.provenance,
+      ambiguity: assessment.ambiguity,
+      label: listing.askingPriceLabel ?? null,
+    },
+    kind: assessment.usableForShortlist ? "seller_claim" : "unknown",
     source: listing.source === "autodev" ? "autodev.retailListing.price" : "fixture.asking",
-    note: listing.priceUsd == null ? "Asking price missing on listing." : null,
+    note:
+      listing.priceUsd == null
+        ? "Asking price missing on listing."
+        : assessment.note,
   };
+}
+
+/** Listing-feed base keys rewritten on gates.verify / select — tool facts must be preserved. */
+export const LISTING_BASE_EVIDENCE_KEYS = new Set([
+  "vin",
+  "year_make_model",
+  "odometer_miles",
+  "asking_price_usd",
+  "accident_count",
+  "owner_history",
+  "recon_cost_assumption",
+  "personal_budget_fit",
+]);
+
+/**
+ * Rebuild listing-base evidence without wiping successful tool/gov facts.
+ * Causal fix for post-PR66: gov toolOutcomes succeeded but investigation evidence
+ * only retained six seller/history fields after gates.verify reset.
+ */
+export function mergeListingBaseEvidence(
+  existing: EvidenceFact[],
+  listingFacts: EvidenceFact[],
+): EvidenceFact[] {
+  const preserved = existing.filter((e) => !LISTING_BASE_EVIDENCE_KEYS.has(e.key));
+  return [...listingFacts, ...preserved];
 }
 
 export function identityEvidence(listing: Listing): EvidenceFact[] {
