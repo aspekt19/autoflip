@@ -48,6 +48,8 @@ export type ScoutToolId =
   | "evidence.comps_ask"
   | "evidence.gov_recalls"
   | "evidence.gov_fuel"
+  | "evidence.gov_vpic"
+  | "evidence.gov_safety"
   | "economics.flip_estimate"
   | "economics.personal_fit"
   | "gates.verify"
@@ -63,6 +65,8 @@ export const SCOUT_TOOL_IDS: readonly ScoutToolId[] = [
   "evidence.comps_ask",
   "evidence.gov_recalls",
   "evidence.gov_fuel",
+  "evidence.gov_vpic",
+  "evidence.gov_safety",
   "economics.flip_estimate",
   "economics.personal_fit",
   "gates.verify",

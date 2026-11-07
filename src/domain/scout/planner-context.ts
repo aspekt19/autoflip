@@ -75,6 +75,8 @@ const EXPECTED_KEYS = [
   "asking_price",
   "evidence.gov_recalls",
   "evidence.gov_fuel",
+  "evidence.gov_vpic",
+  "evidence.gov_safety",
   "economics.flip_estimate",
   "economics.personal_fit",
   "gates.verify",
@@ -100,7 +102,10 @@ function govStatusFor(
   const govOutcomes = outcomes.filter(
     (o) =>
       o.vin === c.vin &&
-      (o.toolId === "evidence.gov_recalls" || o.toolId === "evidence.gov_fuel"),
+      (o.toolId === "evidence.gov_recalls" ||
+        o.toolId === "evidence.gov_fuel" ||
+        o.toolId === "evidence.gov_vpic" ||
+        o.toolId === "evidence.gov_safety"),
   );
   if (govOutcomes.some((o) => o.capability === "supported_executed" || o.status === "success")) {
     return "supported_executed";

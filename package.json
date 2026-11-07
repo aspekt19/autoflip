@@ -17,7 +17,8 @@
     "eval:verdict": "tsx eval/verdict-run.ts",
     "eval:trace": "tsx eval/trace.ts",
     "eval:scout": "tsx eval/scout-baseline.ts",
-    "test:hero-scrub": "node scripts/hero-scrub-scroll.mjs"
+    "test:hero-scrub": "node scripts/hero-scrub-scroll.mjs",
+    "smoke:free-gov": "node scripts/free-gov-smoke.mjs"
   },
   "engines": {
     "node": "22.x"

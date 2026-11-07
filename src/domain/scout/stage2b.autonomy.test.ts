@@ -302,6 +302,7 @@ describe("Stage2B genuine autonomy (offline)", () => {
     if (!peek.ok) throw new Error("pool");
     // Drive heuristic: first force gov unsupported via thin wrapper
     let injected = false;
+    const heuristic = heuristicOfflinePlanner();
     const wrapped: ScoutPlanner = async (input) => {
       if (!injected && input.pendingVins[0]) {
         injected = true;
@@ -316,7 +317,7 @@ describe("Stage2B genuine autonomy (offline)", () => {
           },
         };
       }
-      return heuristicOfflinePlanner()(input);
+      return heuristic(input);
     };
     const result = await runScout({
       ownerId: "owner-test",
