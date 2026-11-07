@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { NextResponse } from "next/server";
 import { getKv, isDistributedQuotaBackend } from "@/io/kv";
+import { resolveActiveApiKeyByHash } from "@/server/api-keys";
 import {
   saveOwnerGrant,
   type ScoutOwnerGrant,
@@ -13,6 +14,10 @@ export const runtime = "nodejs";
  * POST /api/scout/owner-grant — operator-only grant creation.
  * Requires header X-Scout-Grant-Admin: SCOUT_OWNER_GRANT_ADMIN_TOKEN.
  * Never accepts env balance strings as authority.
+ *
+ * Independently verifies that apiKeyHash maps to a live af_ key whose stored
+ * userId equals ownerUserId. Operator trust is out-of-band: confirm the person
+ * sharing the binding card owns that browser account before granting.
  */
 export async function POST(req: Request) {
   const expected = process.env.SCOUT_OWNER_GRANT_ADMIN_TOKEN?.trim();
@@ -64,6 +69,28 @@ export async function POST(req: Request) {
     );
   }
 
+  const ownerUserId = body.ownerUserId.trim();
+  const apiKeyHash = body.apiKeyHash.trim().toLowerCase();
+  const active = await resolveActiveApiKeyByHash(kv, apiKeyHash);
+  if (!active) {
+    return NextResponse.json(
+      {
+        error: "key_inactive",
+        message: "apiKeyHash does not match a live (non-revoked) af_ key. Refuse grant.",
+      },
+      { status: 400 },
+    );
+  }
+  if (active.userId !== ownerUserId) {
+    return NextResponse.json(
+      {
+        error: "owner_mismatch",
+        message: "ownerUserId does not match the account that owns this apiKeyHash.",
+      },
+      { status: 400 },
+    );
+  }
+
   const providers: ScoutOwnerGrant["providers"] = {};
   for (const name of ["serv", "autodev"] as const) {
     const raw = body.providers?.[name];
@@ -79,14 +106,14 @@ export async function POST(req: Request) {
   const grant: ScoutOwnerGrant = {
     version: 1,
     id: randomUUID(),
-    ownerUserId: body.ownerUserId.trim(),
-    apiKeyHash: body.apiKeyHash.trim().toLowerCase(),
+    ownerUserId,
+    apiKeyHash,
     providers,
     expiresAt: body.expiresAt ?? null,
     provenance:
       typeof body.provenance === "string" && body.provenance.trim()
         ? body.provenance.trim()
-        : "admin_token:SCOUT_OWNER_GRANT_ADMIN_TOKEN — call-count-only grant (maxSpendUsd unsupported)",
+        : "admin_token:SCOUT_OWNER_GRANT_ADMIN_TOKEN — call-count-only grant (maxSpendUsd unsupported); active key binding verified at issuance",
     createdAt: new Date().toISOString(),
   };
 
@@ -101,9 +128,14 @@ export async function POST(req: Request) {
       id: grant.id,
       ownerUserId: grant.ownerUserId,
       apiKeyHashPrefix: grant.apiKeyHash.slice(0, 12),
+      keyPrefix: active.prefix,
+      keyId: active.id,
       providers: grant.providers,
       expiresAt: grant.expiresAt,
       provenance: grant.provenance,
+      bindingVerified: true,
     },
+    operatorTrust:
+      "Confirm out-of-band that the person who shared this binding card owns the browser account (userId) before granting. Hash is not the af_ token; never ask for af_ in chat.",
   });
 }

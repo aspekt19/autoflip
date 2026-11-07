@@ -28,6 +28,17 @@ export default function DevelopersPage() {
         <AgentKeys />
 
         <section>
+          <h2>Scout grants (owner → operator)</h2>
+          <p>
+            Live Scout spend is not created by minting a key. After you create a key above, copy the
+            binding card (<code>ownerUserId</code> + <code>apiKeyHash</code>) and send it to your
+            operator through a channel they trust to confirm it is you. Never paste the{" "}
+            <code>af_</code> token into chat. The operator issues a call-count grant; then you open a
+            signed session on <a href="/scout">/scout</a> with the key that stays in this browser.
+          </p>
+        </section>
+
+        <section>
           <h2>Agent card</h2>
           <p>
             Machine-readable tool list: <a href="/.well-known/agent.json"><code>/.well-known/agent.json</code></a>.

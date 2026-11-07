@@ -1,16 +1,30 @@
 import { describe, expect, it } from "vitest";
 import { MemoryKv } from "@/io/kv";
 import { creditBalance, creditGrant } from "@/io/credit-book";
-import { createApiKey, resolveApiKey, revokeApiKey, spendReportCredit } from "./api-keys";
+import {
+  createApiKey,
+  hashApiKeyToken,
+  resolveActiveApiKeyByHash,
+  resolveApiKey,
+  revokeApiKey,
+  spendReportCredit,
+} from "./api-keys";
 
 describe("agent API keys", () => {
   it("accepts a new key, rejects it after revoke, and never stores the raw token", async () => {
     const kv = new MemoryKv();
-    const { token, record } = await createApiKey(kv, "user-1", "Cursor");
+    const { token, record, binding } = await createApiKey(kv, "user-1", "Cursor");
     expect(token.startsWith("af_")).toBe(true);
+    expect(binding.apiKeyHash).toBe(hashApiKeyToken(token));
+    expect(binding.userId).toBe("user-1");
+    expect(await resolveActiveApiKeyByHash(kv, binding.apiKeyHash)).toMatchObject({
+      userId: "user-1",
+      id: record.id,
+    });
     expect(await resolveApiKey(kv, token)).toBe("user-1");
     expect(await revokeApiKey(kv, "user-1", record.id)).toBe(true);
     expect(await resolveApiKey(kv, token)).toBeNull();
+    expect(await resolveActiveApiKeyByHash(kv, binding.apiKeyHash)).toBeNull();
     const dumped = JSON.stringify(await kv.get(`apikeys:user-1`));
     expect(dumped).not.toContain(token);
   });

@@ -1,5 +1,9 @@
 import { BASE_MODEL, modelFor, profile, type ProfileId, type ServProfile } from "./profiles";
 import { buildServProof, recordServProof, type ServProof } from "./proof";
+import {
+  resolveServOutputTokenBound,
+  withServOutputTokenBound,
+} from "./output-tokens";
 
 /** JSON-shaped, read-only facts computed by the application before any model call. */
 export type ServFacts = Readonly<Record<string, unknown>>;
@@ -80,41 +84,58 @@ function toolsFor(entry: ServProfile, includeShadow: boolean): Tool[] {
   return tools;
 }
 
-export function requestFor(id: ProfileId, user: string, model = BASE_MODEL) {
+export function requestFor(
+  id: ProfileId,
+  user: string,
+  model = BASE_MODEL,
+  env: Record<string, string | undefined> = process.env,
+) {
   const entry = profile(id);
   const tools = toolsFor(entry, true);
   const chosen = modelFor(id, model);
+  const bound = resolveServOutputTokenBound(env);
+  if (!bound.ok) {
+    throw new Error(bound.message);
+  }
   if (entry.endpoint === "responses") {
-    return {
-      endpoint: "responses" as const,
+    return withServOutputTokenBound(
+      "responses",
+      {
+        endpoint: "responses" as const,
+        model: chosen,
+        stream: entry.stream,
+        reasoning_effort: entry.reasoningEffort,
+        reasoning: { effort: entry.reasoningEffort, summary: "auto" as const },
+        instructions: entry.system,
+        input: user,
+        tools,
+      },
+      bound.tokens,
+    );
+  }
+  return withServOutputTokenBound(
+    "chat",
+    {
+      endpoint: "chat" as const,
       model: chosen,
       stream: entry.stream,
       reasoning_effort: entry.reasoningEffort,
-      reasoning: { effort: entry.reasoningEffort, summary: "auto" as const },
-      instructions: entry.system,
-      input: user,
+      messages: [
+        { role: "system" as const, content: entry.system },
+        { role: "user" as const, content: user },
+      ],
       tools,
-    };
-  }
-  return {
-    endpoint: "chat" as const,
-    model: chosen,
-    stream: entry.stream,
-    reasoning_effort: entry.reasoningEffort,
-    messages: [
-      { role: "system" as const, content: entry.system },
-      { role: "user" as const, content: user },
-    ],
-    tools,
-    ...(entry.jsonSchema
-      ? {
-          response_format: {
-            type: "json_schema" as const,
-            json_schema: { name: entry.jsonSchema.name, strict: true, schema: entry.jsonSchema.schema },
-          },
-        }
-      : {}),
-  };
+      ...(entry.jsonSchema
+        ? {
+            response_format: {
+              type: "json_schema" as const,
+              json_schema: { name: entry.jsonSchema.name, strict: true, schema: entry.jsonSchema.schema },
+            },
+          }
+        : {}),
+    },
+    bound.tokens,
+  );
 }
 
 function visibleText(value: unknown): string[] {
@@ -338,14 +359,76 @@ async function readChatStream(response: Response): Promise<{ text: string; paylo
 export async function runServ(
   id: ProfileId,
   input: { user: string; facts?: ServFacts },
-  deps: ServDeps = {},
+  deps: ServDeps & { env?: Record<string, string | undefined> } = {},
 ): Promise<ServResult> {
   const entry = profile(id);
   const timeoutMs = deps.timeoutMs ?? entry.timeoutMs;
   const started = Date.now();
   const base = (deps.baseUrl || "https://inference-api.openserv.ai/v1").replace(/\/$/, "");
   const model = deps.model || BASE_MODEL;
-  const inspected = requestFor(id, input.user, model);
+  const env = deps.env ?? process.env;
+  const tokenBound = resolveServOutputTokenBound(env);
+  if (!tokenBound.ok) {
+    const proof = recordServProof(
+      buildServProof({
+        purpose: id,
+        body: { error: "serv_output_token_bound_invalid" },
+        payload: null,
+        headers: new Headers(),
+        status: 0,
+        ok: false,
+        text: "",
+        latencyMs: 0,
+        fallbackUsed: true,
+        streamed: entry.stream,
+        endpoint: entry.endpoint,
+        reasoningEffort: entry.reasoningEffort,
+        applicationTool: entry.applicationTool ?? null,
+        jsonSchema: entry.jsonSchema?.name ?? null,
+        codeComputed: [...entry.codeComputed],
+        contentFilter: entry.contentFilter,
+        promptCache: entry.promptCache,
+      }),
+    );
+    return {
+      ok: false,
+      error: tokenBound.message,
+      status: 0,
+      proof,
+      fallback: entry.fallback,
+      upstream: "output_token_bound_invalid",
+    };
+  }
+  const applyTokenBound = <T extends Record<string, unknown>>(body: T) =>
+    withServOutputTokenBound(entry.endpoint, body, tokenBound.tokens);
+  let inspected: ReturnType<typeof requestFor>;
+  try {
+    inspected = requestFor(id, input.user, model, env);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "SERV output token bound invalid.";
+    const proof = recordServProof(
+      buildServProof({
+        purpose: id,
+        body: { error: "serv_output_token_bound_invalid" },
+        payload: null,
+        headers: new Headers(),
+        status: 0,
+        ok: false,
+        text: "",
+        latencyMs: 0,
+        fallbackUsed: true,
+        streamed: entry.stream,
+        endpoint: entry.endpoint,
+        reasoningEffort: entry.reasoningEffort,
+        applicationTool: entry.applicationTool ?? null,
+        jsonSchema: entry.jsonSchema?.name ?? null,
+        codeComputed: [...entry.codeComputed],
+        contentFilter: entry.contentFilter,
+        promptCache: entry.promptCache,
+      }),
+    );
+    return { ok: false, error: message, status: 0, proof, fallback: entry.fallback, upstream: "output_token_bound_invalid" };
+  }
   const proofMeta = {
     streamed: entry.stream,
     endpoint: entry.endpoint,
@@ -431,7 +514,7 @@ export async function runServ(
     const factsText = JSON.stringify(input.facts ?? {});
     const userText = entry.applicationTool ? `${input.user}\n\nCalculated facts, the only numbers you may use:\n${factsText}` : input.user;
     const firstTools = toolsFor(entry, !entry.applicationTool);
-    const firstBody =
+    const firstBody = applyTokenBound(
       entry.endpoint === "responses"
         ? {
             model: inspected.model,
@@ -455,7 +538,8 @@ export async function runServ(
               ? { response_format: { type: "json_schema", json_schema: { name: entry.jsonSchema.name, strict: true, schema: entry.jsonSchema.schema } } }
               : {}),
             ...(entry.applicationTool ? { tool_choice: { type: "function", function: { name: entry.applicationTool } } } : {}),
-          };
+          },
+    );
 
     let turn = entry.applicationTool ? await post(firstBody, false) : await postProse(firstBody, entry.stream);
     let recordedBody: unknown = firstBody;
@@ -480,7 +564,7 @@ export async function runServ(
       const call = toolCall(turn.payload);
       const matched = call?.name === entry.applicationTool ? call : null;
       const followTools = toolsFor({ ...entry, applicationTool: undefined }, true);
-      const followBody = {
+      const followBody = applyTokenBound({
         model: inspected.model,
         stream: false,
         reasoning_effort: entry.reasoningEffort,
@@ -496,7 +580,7 @@ export async function runServ(
               { role: "user", content: userText },
             ],
         tools: followTools,
-      };
+      });
       turn = await postProse(followBody, false);
       recordedBody = { ...followBody, tools: toolsFor(entry, true) };
     }
