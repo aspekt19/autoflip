@@ -93,26 +93,28 @@
     "Whether Auto.dev returns usable asks after 500-N on a given minute is unproven here.",
     "Experiment transport disables silent empty/timeout re-POSTs only; production planner recovery retries stay as designed.",
     "Parse failures now record sanitizedPlannerEcho (keys/types/lengths only) + upstreamResponseId/finishReason/responseShape when present — never raw planner JSON.",
-    "All-zero usage on a HTTP 200 refusal is unknown cost — not free. Parent Mini/Luna counts are not efficacy winners."
+    "All-zero usage on a HTTP 200 refusal is unknown cost — not free. Parent Mini/Luna counts are not efficacy winners.",
+    "Structured extraction fix is offline-proven; live 2/3→reliability must be re-measured by parent (repeated cycles, all attempts, latency, costunknown) — no unmeasured 100% claim.",
+    "GPT-5.4 cold first-step timeout (45007ms=scout_plan.timeoutMs) is a separate observed class; do not blind-raise timeout — one-variable parent probe if it persists after this head."
   ],
   "stepUserMessages": [
     {
       "stepId": "after_inventory_before_reject",
-      "userMessageBytes": 8101,
+      "userMessageBytes": 8533,
       "pendingCount": 20,
       "usableAsks": 0,
       "allUnusable": true
     },
     {
       "stepId": "after_one_denied_reject",
-      "userMessageBytes": 8421,
+      "userMessageBytes": 8853,
       "pendingCount": 20,
       "usableAsks": 0,
       "allUnusable": true
     },
     {
       "stepId": "after_two_denied_rejects",
-      "userMessageBytes": 8741,
+      "userMessageBytes": 9173,
       "pendingCount": 20,
       "usableAsks": 0,
       "allUnusable": true
@@ -132,9 +134,9 @@
         "dispositionCode": "adverse_evidence",
         "grounded": true,
         "recoveryClass": "grounded_reject_unusable_ask",
-        "antiLoopSafe": false,
+        "antiLoopSafe": true,
         "claimsVehicleDefectFromPlaceholder": false,
-        "summary": "reject → grounded_reject_unusable_ask; grounded=true; antiLoopSafe=false"
+        "summary": "reject → grounded_reject_unusable_ask; grounded=true; antiLoopSafe=true"
       }
     },
     {
@@ -150,9 +152,9 @@
         "dispositionCode": "adverse_evidence",
         "grounded": true,
         "recoveryClass": "grounded_reject_unusable_ask",
-        "antiLoopSafe": false,
+        "antiLoopSafe": true,
         "claimsVehicleDefectFromPlaceholder": false,
-        "summary": "reject → grounded_reject_unusable_ask; grounded=true; antiLoopSafe=false"
+        "summary": "reject → grounded_reject_unusable_ask; grounded=true; antiLoopSafe=true"
       }
     }
   ],
@@ -172,6 +174,7 @@
     "Not a claim that any model beats another until parent runs live rows.",
     "Live path uses experiment_single_attempt: one HTTP per step; empty/timeout/HTTP errors/refusals recorded, not silently repeated.",
     "Production runServ empty/timeout recovery is unchanged outside this harness.",
-    "Schema mismatch rows include sanitized field presence (reason/servStepId/type) without storing raw response text."
+    "Schema mismatch rows include sanitized field presence (reason/servStepId/type) without storing raw response text.",
+    "json_schema profiles extract content/parsed/refusal only — tool_call args and reasoning drafts are not planner text (enables production empty-text recovery). Offline synthetic draft-as-JSON hazard — not proven live Luna RCA (raw body unretained)."
   ]
 }

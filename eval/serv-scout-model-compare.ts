@@ -350,6 +350,7 @@ async function main() {
               candidatesByVin: prepared.candidatesByVin,
               recentOutcomes: prepared.plannerInput.recentOutcomes,
               priorDeniedRejectFingerprint: prepared.priorDeniedRejectFingerprint,
+              priorIdenticalStreak: prepared.priorIdenticalStreak,
             });
           } else {
             rawStatus = result.rawStatus;
@@ -363,6 +364,7 @@ async function main() {
               candidatesByVin: prepared.candidatesByVin,
               recentOutcomes: prepared.plannerInput.recentOutcomes,
               priorDeniedRejectFingerprint: prepared.priorDeniedRejectFingerprint,
+              priorIdenticalStreak: prepared.priorIdenticalStreak,
             });
             if (!parsed.ok) error = `${parsed.kind}: ${parsed.message}`;
           }
@@ -376,6 +378,7 @@ async function main() {
             candidatesByVin: prepared.candidatesByVin,
             recentOutcomes: prepared.plannerInput.recentOutcomes,
             priorDeniedRejectFingerprint: prepared.priorDeniedRejectFingerprint,
+            priorIdenticalStreak: prepared.priorIdenticalStreak,
           });
         }
 

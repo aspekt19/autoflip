@@ -17,6 +17,7 @@ import {
 import { buildPlannerEvidenceContext } from "./planner-context";
 import { fingerprintSearchParams, mandateToSearchParams } from "./search-params";
 import { qualifyListingConstraints } from "./constraint-qualification";
+import { REPEATED_IDENTICAL_ACTION_LIMIT } from "./budgets";
 import {
   planActionFingerprint,
   sanitizeScoutPlanAction,
@@ -28,6 +29,11 @@ import type {
   ScoutCandidate,
   ScoutToolOutcome,
 } from "./types";
+
+/** Historical no-progress fingerprint from the sanitized PR63 live failure (correlation only). */
+export function placeholderDeniedRejectFingerprint(firstVin: string): string {
+  return `reject:${firstVin}:adverse_evidence`;
+}
 
 export const PR63_PLACEHOLDER_LEDGER_PATH = "fixtures/scout/pr63-placeholder-ledger.json";
 
@@ -115,7 +121,13 @@ export type CompareStepPrepared = {
   description: string;
   plannerInput: ScoutPlannerInput;
   candidatesByVin: Record<string, ScoutCandidate>;
+  /**
+   * Fingerprint of prior denied identical rejects already in this step's ledger
+   * context — empty when priorDeniedRejectCount is 0 (no duplicate yet).
+   */
   priorDeniedRejectFingerprint: string;
+  /** How many consecutive identical denied rejects already precede this step. */
+  priorIdenticalStreak: number;
 };
 
 function listingFromLedger(vin: string, priceUsd: number): Listing {
@@ -283,12 +295,16 @@ export function prepareCompareStep(
   const candidatesByVin: Record<string, ScoutCandidate> = {};
   for (const [vin, c] of candidates) candidatesByVin[vin] = c;
 
+  const deniedFp = placeholderDeniedRejectFingerprint(ledger.firstVin);
+  const priorIdenticalStreak = stepDef.priorDeniedRejectCount;
   return {
     stepId: stepDef.id,
     description: stepDef.description,
     plannerInput,
     candidatesByVin,
-    priorDeniedRejectFingerprint: `reject:${ledger.firstVin}:adverse_evidence`,
+    // Only a "prior denied" fingerprint when this step actually has prior denied rejects.
+    priorDeniedRejectFingerprint: priorIdenticalStreak > 0 ? deniedFp : "",
+    priorIdenticalStreak,
   };
 }
 
@@ -299,6 +315,8 @@ export function scoreScoutPlanAction(input: {
   candidatesByVin: Record<string, ScoutCandidate>;
   recentOutcomes: ScoutToolOutcome[];
   priorDeniedRejectFingerprint: string;
+  /** Consecutive identical actions already observed before this score (denied rejects in ledger). */
+  priorIdenticalStreak?: number;
 }): ActionScore {
   if (!input.action || !input.schemaValid) {
     return {
@@ -321,7 +339,14 @@ export function scoreScoutPlanAction(input: {
     candidates: Object.values(input.candidatesByVin),
   });
   const fp = planActionFingerprint(sanitized);
-  const antiLoopSafe = fp !== input.priorDeniedRejectFingerprint;
+  // Align with production runner: no-progress only when identical streak reaches the limit.
+  // Matching the historical loop fingerprint on the *first* planner call is not unsafe —
+  // a grounded reject removes the VIN (progress). Repeating after two denies would trip stop.
+  const priorStreak =
+    input.priorDeniedRejectFingerprint !== "" && fp === input.priorDeniedRejectFingerprint
+      ? (input.priorIdenticalStreak ?? 0)
+      : 0;
+  const wouldHitNoProgress = priorStreak + 1 >= REPEATED_IDENTICAL_ACTION_LIMIT;
 
   let dispositionOk: boolean | null = null;
   let dispositionCode: string | null = null;
@@ -392,6 +417,11 @@ export function scoreScoutPlanAction(input: {
     recoveryClass = "forced_shortlist_risk";
   }
 
+  const antiLoopSafe =
+    !wouldHitNoProgress ||
+    recoveryClass === "honest_abstain" ||
+    recoveryClass === "inventory_search";
+
   return {
     schemaValid: true,
     parseKind: null,
@@ -401,8 +431,7 @@ export function scoreScoutPlanAction(input: {
     dispositionCode,
     grounded,
     recoveryClass,
-    antiLoopSafe:
-      antiLoopSafe || recoveryClass === "honest_abstain" || recoveryClass === "inventory_search",
+    antiLoopSafe,
     claimsVehicleDefectFromPlaceholder,
     summary: `${sanitized.type}${sanitized.type === "run_tool" ? `:${sanitized.toolId}` : ""} → ${recoveryClass}; grounded=${grounded}; antiLoopSafe=${antiLoopSafe}`,
   };
@@ -414,17 +443,23 @@ export function scoreHistoricalLedgerActions(ledger: PlaceholderLedger): Array<{
   score: ActionScore;
   observedOutcomeOk: boolean;
 }> {
-  const prepared = prepareCompareStep(ledger, ledger.compareSteps[0]!);
-  return ledger.labeledHistoricalActions.map((row) => ({
-    stepId: row.stepId,
-    label: row.label,
-    observedOutcomeOk: row.observedOutcome.ok,
-    score: scoreScoutPlanAction({
-      action: row.action,
-      schemaValid: true,
-      candidatesByVin: prepared.candidatesByVin,
-      recentOutcomes: prepared.plannerInput.recentOutcomes,
-      priorDeniedRejectFingerprint: prepared.priorDeniedRejectFingerprint,
-    }),
-  }));
+  return ledger.labeledHistoricalActions.map((row, index) => {
+    // Historical step-1 was the first planner call; step-2 followed one denied reject.
+    const stepDef =
+      ledger.compareSteps[Math.min(index, ledger.compareSteps.length - 1)] ?? ledger.compareSteps[0]!;
+    const prepared = prepareCompareStep(ledger, stepDef);
+    return {
+      stepId: row.stepId,
+      label: row.label,
+      observedOutcomeOk: row.observedOutcome.ok,
+      score: scoreScoutPlanAction({
+        action: row.action,
+        schemaValid: true,
+        candidatesByVin: prepared.candidatesByVin,
+        recentOutcomes: prepared.plannerInput.recentOutcomes,
+        priorDeniedRejectFingerprint: prepared.priorDeniedRejectFingerprint,
+        priorIdenticalStreak: prepared.priorIdenticalStreak,
+      }),
+    };
+  });
 }

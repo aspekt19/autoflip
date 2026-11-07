@@ -66,8 +66,8 @@ Model-only swap is NOT the demonstrated fix for the PR63 placeholder-price rejec
 
 ## Historical labeled actions (offline)
 
-- step-1 (live_denied_reject_missing_asking_price_at_price): observedOk=false; recovery=grounded_reject_unusable_ask; grounded=true; antiLoopSafe=false
-- step-2 (live_denied_reject_repeat): observedOk=false; recovery=grounded_reject_unusable_ask; grounded=true; antiLoopSafe=false
+- step-1 (live_denied_reject_missing_asking_price_at_price): observedOk=false; recovery=grounded_reject_unusable_ask; grounded=true; antiLoopSafe=true
+- step-2 (live_denied_reject_repeat): observedOk=false; recovery=grounded_reject_unusable_ask; grounded=true; antiLoopSafe=true
 
 Note: `observedOk=false` is the **historical live** denial on de5eb0c; `grounded=true` under current code reflects the cite-grounding fix on the same citation shape — not a claim the live run was grounded.
 
@@ -85,3 +85,5 @@ _No live model rows (dry-run)._
 - Experiment transport disables silent empty/timeout re-POSTs only; production planner recovery retries stay as designed.
 - Parse failures now record sanitizedPlannerEcho (keys/types/lengths only) + upstreamResponseId/finishReason/responseShape when present — never raw planner JSON.
 - All-zero usage on a HTTP 200 refusal is unknown cost — not free. Parent Mini/Luna counts are not efficacy winners.
+- Structured extraction fix is offline-proven; live 2/3→reliability must be re-measured by parent (repeated cycles, all attempts, latency, costunknown) — no unmeasured 100% claim.
+- GPT-5.4 cold first-step timeout (45007ms=scout_plan.timeoutMs) is a separate observed class; do not blind-raise timeout — one-variable parent probe if it persists after this head.

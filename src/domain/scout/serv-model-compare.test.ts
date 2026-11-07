@@ -52,6 +52,7 @@ describe("SERV model compare harness (offline / no paid calls)", () => {
       candidatesByVin: prepared.candidatesByVin,
       recentOutcomes: prepared.plannerInput.recentOutcomes,
       priorDeniedRejectFingerprint: prepared.priorDeniedRejectFingerprint,
+      priorIdenticalStreak: prepared.priorIdenticalStreak,
     });
     expect(abstain.recoveryClass).toBe("honest_abstain");
     expect(abstain.antiLoopSafe).toBe(true);
@@ -70,6 +71,7 @@ describe("SERV model compare harness (offline / no paid calls)", () => {
       candidatesByVin: prepared.candidatesByVin,
       recentOutcomes: prepared.plannerInput.recentOutcomes,
       priorDeniedRejectFingerprint: prepared.priorDeniedRejectFingerprint,
+      priorIdenticalStreak: prepared.priorIdenticalStreak,
     });
     expect(search.recoveryClass).toBe("inventory_search");
     expect(search.antiLoopSafe).toBe(true);
@@ -98,8 +100,80 @@ describe("SERV model compare harness (offline / no paid calls)", () => {
       candidatesByVin: prepared.candidatesByVin,
       recentOutcomes: prepared.plannerInput.recentOutcomes,
       priorDeniedRejectFingerprint: prepared.priorDeniedRejectFingerprint,
+      priorIdenticalStreak: prepared.priorIdenticalStreak,
     });
     expect(score.grounded).toBe(true);
     expect(score.recoveryClass).toBe("grounded_reject_unusable_ask");
+  });
+
+  it("first grounded reject on after_inventory_before_reject is anti-loop safe (no prior duplicate)", () => {
+    const ledger = loadPlaceholderLedger();
+    const first = prepareCompareStep(ledger, ledger.compareSteps[0]!);
+    expect(first.priorIdenticalStreak).toBe(0);
+    expect(first.priorDeniedRejectFingerprint).toBe("");
+    expect(
+      first.plannerInput.recentOutcomes.filter((o) => o.toolId === "candidate.reject"),
+    ).toHaveLength(0);
+
+    const score = scoreScoutPlanAction({
+      action: {
+        type: "reject",
+        vin: ledger.firstVin,
+        reason: "placeholder ask cannot unlock investigation",
+        servStepId: "exec:step-1",
+        rationaleKind: "adverse_evidence",
+        citedEvidence: [{ kind: "missing_asking_price", gateId: "price" }],
+      },
+      schemaValid: true,
+      candidatesByVin: first.candidatesByVin,
+      recentOutcomes: first.plannerInput.recentOutcomes,
+      priorDeniedRejectFingerprint: first.priorDeniedRejectFingerprint,
+      priorIdenticalStreak: first.priorIdenticalStreak,
+    });
+    expect(score.grounded).toBe(true);
+    expect(score.recoveryClass).toBe("grounded_reject_unusable_ask");
+    expect(score.actionFingerprint).toBe(`reject:${ledger.firstVin}:adverse_evidence`);
+    // Production no-progress needs 3 identical fingerprints; streak would become 1.
+    expect(score.antiLoopSafe).toBe(true);
+  });
+
+  it("same reject fingerprint is unsafe only when it would trip the no-progress streak limit", () => {
+    const ledger = loadPlaceholderLedger();
+    const action = {
+      type: "reject" as const,
+      vin: ledger.firstVin,
+      reason: "placeholder ask cannot unlock investigation",
+      servStepId: "exec:step-n",
+      rationaleKind: "adverse_evidence" as const,
+      citedEvidence: [{ kind: "missing_asking_price" as const, gateId: "price" }],
+    };
+
+    const afterOne = prepareCompareStep(ledger, ledger.compareSteps[1]!);
+    expect(afterOne.priorIdenticalStreak).toBe(1);
+    const scoreAfterOne = scoreScoutPlanAction({
+      action,
+      schemaValid: true,
+      candidatesByVin: afterOne.candidatesByVin,
+      recentOutcomes: afterOne.plannerInput.recentOutcomes,
+      priorDeniedRejectFingerprint: afterOne.priorDeniedRejectFingerprint,
+      priorIdenticalStreak: afterOne.priorIdenticalStreak,
+    });
+    // Streak would become 2 (< 3) — still allowed; grounded reject removes VIN (progress).
+    expect(scoreAfterOne.antiLoopSafe).toBe(true);
+    expect(scoreAfterOne.grounded).toBe(true);
+
+    const afterTwo = prepareCompareStep(ledger, ledger.compareSteps[2]!);
+    expect(afterTwo.priorIdenticalStreak).toBe(2);
+    const scoreAfterTwo = scoreScoutPlanAction({
+      action,
+      schemaValid: true,
+      candidatesByVin: afterTwo.candidatesByVin,
+      recentOutcomes: afterTwo.plannerInput.recentOutcomes,
+      priorDeniedRejectFingerprint: afterTwo.priorDeniedRejectFingerprint,
+      priorIdenticalStreak: afterTwo.priorIdenticalStreak,
+    });
+    // Streak would become 3 → production no-progress stop before disposition.
+    expect(scoreAfterTwo.antiLoopSafe).toBe(false);
+    expect(scoreAfterTwo.grounded).toBe(true);
   });
 });
