@@ -7,6 +7,7 @@ type ScoutApiResponse = {
   message?: string;
   inventoryMode?: string;
   isFixture?: boolean;
+  partial?: boolean;
   paidBlockedReason?: string | null;
   presentation?: { kind: string; warning: string | null };
   result?: {
@@ -74,15 +75,23 @@ export function ScoutPanel() {
   const [error, setError] = useState<string | null>(null);
 
   async function onRun() {
-    setBusy(true);
     setError(null);
     setResponse(null);
+    if (!apiKey.trim()) {
+      setError("Enter an af_ API key from /developers before running Scout.");
+      return;
+    }
+    if (!apiKey.trim().startsWith("af_")) {
+      setError("Scout only accepts Lemonless af_ API keys.");
+      return;
+    }
+    setBusy(true);
     try {
       const res = await fetch("/api/scout", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          ...(apiKey.trim() ? { Authorization: `Bearer ${apiKey.trim()}` } : {}),
+          Authorization: `Bearer ${apiKey.trim()}`,
         },
         body: JSON.stringify({
           planner: "offline_heuristic",
@@ -107,7 +116,8 @@ export function ScoutPanel() {
         result?: ScoutApiResponse["result"];
       };
       setResponse(body);
-      if (!res.ok || body.partial || body.result?.state === "failed") {
+      // Honest partial coverage is not a hard failure — only HTTP/fail states are.
+      if (!res.ok || body.result?.state === "failed") {
         setError(
           body.message ??
             body.result?.message ??
@@ -168,6 +178,12 @@ export function ScoutPanel() {
         </p>
       ) : null}
 
+      {response?.partial && result && result.state !== "failed" ? (
+        <p className="scout-status scout-status-warn" role="status">
+          Partial coverage — some inventory or checks were incomplete. Not a verified full market pull.
+        </p>
+      ) : null}
+
       {result ? (
         <div className="scout-result">
           <p className="scout-status">
@@ -177,6 +193,8 @@ export function ScoutPanel() {
             Source: {result.inventorySource}
             {" · "}
             Autonomy claim: {result.autonomyClaim}
+            {" · "}
+            Run id: <code>{result.runId}</code>
           </p>
           {result.message ? <p className="lead">{result.message}</p> : null}
           {result.inventoryProvenance ? (

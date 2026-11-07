@@ -739,7 +739,13 @@ export async function runScout(input: RunScoutInput): Promise<ScoutRunResult> {
     );
     assertTransition(state, "selecting");
     state = "selecting";
-    stamp(provenance, state, "Entering SERV-directed selection.");
+    stamp(
+      provenance,
+      state,
+      autonomyClaim === "serv_directed"
+        ? "Entering SERV-directed selection."
+        : "Entering planner selection (offline / non-SERV; autonomyClaim=none).",
+    );
   }
 
   // Resume mid-loop: rebuild pool from candidates
