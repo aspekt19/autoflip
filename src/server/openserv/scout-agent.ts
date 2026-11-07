@@ -1,6 +1,11 @@
 /**
- * OpenServ SDK adapter for Lemonless Scout.
- * Capabilities invoke shared executeScoutSafely — same gates as HTTP.
+ * EXPERIMENTAL / UNMOUNTED OpenServ SDK scaffold for Lemonless Scout.
+ *
+ * Not production integration. Not imported by any Next.js route or SERV HTTP planner.
+ * `@openserv-labs/sdk` lives in package.json **devDependencies** only (test/typecheck).
+ * Production Autodev/SERV spend uses HTTP serializers under `src/server/serv` + `src/server/scout/planner`.
+ *
+ * Capabilities invoke shared executeScoutSafely — same gates as HTTP when this scaffold is exercised in tests.
  * Do NOT use Agent.process() for investigation (hardcodes OpenAI gpt-4o; not SERV Reasoning).
  * Local ≠ remote deployment. Graph banned. No blockchain/x402/swarm.
  */
