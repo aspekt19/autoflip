@@ -102,6 +102,7 @@ describe("owner_grant authority (no invented balance)", () => {
     expect(serv.authority.kind).toBe("owner_grant");
     expect(serv.authority.authorizedSpendUsd).toBeNull();
     expect(serv.authority.sourceNote).toMatch(/owner_grant:grant-1/);
+    expect(serv.authority.sourceNote).toMatch(/call_count_only/);
     expect(serv.authority.sourceNote).not.toMatch(/MIN_RESERVE|verified_balance|999/);
 
     const autodev = await resolveOwnerSpendAuthority({

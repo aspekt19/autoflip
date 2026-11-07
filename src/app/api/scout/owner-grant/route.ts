@@ -86,7 +86,7 @@ export async function POST(req: Request) {
     provenance:
       typeof body.provenance === "string" && body.provenance.trim()
         ? body.provenance.trim()
-        : "admin_token:SCOUT_OWNER_GRANT_ADMIN_TOKEN — explicit bounded grant (not verified dollar balance)",
+        : "admin_token:SCOUT_OWNER_GRANT_ADMIN_TOKEN — call-count-only grant (maxSpendUsd unsupported)",
     createdAt: new Date().toISOString(),
   };
 

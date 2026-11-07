@@ -1,11 +1,11 @@
 import { NextResponse } from "next/server";
 import { getKv } from "@/io/kv";
-import { resolveApiKeyRecord } from "@/server/api-keys";
+import { isApiKeyHashActive, resolveApiKeyRecord } from "@/server/api-keys";
 import { scoutCapabilities } from "@/server/scout/capabilities";
-import { isScoutEnabled, scoutConfigMessage } from "@/server/scout/config";
+import { scoutConfigMessage } from "@/server/scout/config";
 import { postScoutStart } from "@/server/scout/http-start";
 import { readPaidExecutionConfig, SCOUT_REQUEST_SAFETY } from "@/server/scout/paid-execution";
-import { loadOwnerGrant } from "@/server/scout/owner-grant";
+import { isGrantExpired, loadOwnerGrant } from "@/server/scout/owner-grant";
 import { readScoutSignedSession } from "@/server/scout/signed-session";
 
 export const runtime = "nodejs";
@@ -44,7 +44,12 @@ export async function GET(req: Request) {
     }
   } else if (session) {
     const grant = await loadOwnerGrant(kv, session.grantId);
-    if (grant && grant.ownerUserId === session.userId) {
+    if (
+      grant &&
+      grant.ownerUserId === session.userId &&
+      !isGrantExpired(grant) &&
+      (await isApiKeyHashActive(kv, grant.apiKeyHash))
+    ) {
       ownerId = session.userId;
       apiKeyHash = grant.apiKeyHash;
       grantId = grant.id;

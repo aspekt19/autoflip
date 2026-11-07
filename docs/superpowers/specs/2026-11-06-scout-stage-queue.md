@@ -164,6 +164,17 @@ broke `next build` / generated route types (invalid Route field). Bounded fix:
 - Verified: `npx tsc --noEmit` exit 0; `npm run build` exit 0; offline `next start`
   smoke GET `/api/scout` + `/scout` flag off/on (HTML source inspection — not browser E2E)
 
+## STAGE-FOUR-BLOCKERS — PIN (pending SHA) SERV reserve / USD fail-closed / session revoke / runtime nav
+
+Independent review of ec253d2 left four concrete blockers. Offline fixes (no deploy/spend):
+
+1. SERV `maxCalls` reserved in `runServ.beforeHttp` before every HTTP; ambiguous retain; exhaustion honest
+2. `maxSpendUsd != null` rejected at grant save (call-count-only only; no decorative dollar claim)
+3. Signed session re-checks `isApiKeyHashActive` (revokedAt) on start + capabilities/result path
+4. Header fetches `/api/scout` `capabilities.uiEnabled` at runtime (layout does not bake the flag)
+
+Regression: `src/server/scout/four-blockers.regression.test.ts`. Suite/build/tsc green offline.
+
 ## STAGE-OWNER-AUTH — PIN ec253d2 grant-bound session; unsigned af_uid closed
 
 Independent review of b388076: unsigned `af_uid` + `/api/agents/keys` mint could
@@ -174,11 +185,16 @@ impersonate allowlisted UUID. Fixed at root — not label edits.
 - Unsigned `af_uid` **never** authorizes Scout / live spend
 - Explicit Kv `owner_grant` bound to `apiKeyHash` (admin token create); freshly minted
   keys for forged UUIDs do **not** inherit privileges
-- No invented `authorizedSpendUsd: MIN_RESERVE_USD` — USD only if grant sets `maxSpendUsd`;
-  otherwise call-count-only with honest provenance
+- No invented `authorizedSpendUsd: MIN_RESERVE_USD`. Dollar-cap grants (`maxSpendUsd != null`)
+  are **rejected** (fail closed) — no defensible price table yet. Call-count-only only
+  (`maxSpendUsd: null`); never claim an enforced dollar guarantee
+- SERV grant `maxCalls` reserved **before every** SERV HTTP (incl. finalize/replan/retry);
+  ambiguous failures retain reservation; exhaustion → honest fail/abstain
+- Signed `af_scout_sid` re-validates underlying af_ key active (revokedAt) on start + result access
 - SERV vs Autodev grants independent; Autodev monthly INCR + per-grant INCR are reserves
   (snapshot remaining is not a reserve)
-- `preferLive` fail-closed (`live_blocked`); Scout in primary nav **only when** `SCOUT_UI_ENABLED`
+- `preferLive` fail-closed (`live_blocked`); Scout nav discovers `SCOUT_UI_ENABLED` at **runtime**
+  via `/api/scout` capabilities (Header), so build-off/start-on does not hide Scout
 
 **Env NAMES:** `SCOUT_ENABLED`, `SCOUT_UI_ENABLED`, `SCOUT_PAID_EXECUTION`,
 `SCOUT_MAX_PROVIDER_CALLS_HARD_CEILING`, `SCOUT_OWNER_USER_IDS` (optional secondary),

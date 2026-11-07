@@ -10,6 +10,12 @@ export type ServDeps = {
   baseUrl?: string;
   model?: string;
   timeoutMs?: number;
+  /**
+   * Called immediately before each outbound SERV HTTP (including retries/finalize rounds).
+   * Use for atomic grant reservation. Fail closed without dispatching when not ok.
+   * Ambiguous failures after dispatch must NOT refund in the caller.
+   */
+  beforeHttp?: () => Promise<{ ok: true } | { ok: false; message: string }>;
 };
 
 export type ServResult =
@@ -375,6 +381,14 @@ export async function runServ(
   const postOnce = async (body: unknown, stream: boolean, capMs: number) => {
     const budget = Math.min(deadline - Date.now(), capMs);
     if (budget < 500) throw new DOMException("The operation was aborted.", "TimeoutError");
+    if (deps.beforeHttp) {
+      const gate = await deps.beforeHttp();
+      if (!gate.ok) {
+        const err = new Error(gate.message);
+        err.name = "ServBudgetError";
+        throw err;
+      }
+    }
     const path = entry.endpoint === "responses" ? "/responses" : "/chat/completions";
     const response = await (deps.fetch ?? fetch)(`${base}${path}`, {
       method: "POST",
@@ -512,7 +526,31 @@ export async function runServ(
       };
     }
     return { ok: true, text: turn.text, model: proof.modelReported, shadowOutcome: proof.shadowOutcome, rawStatus: turn.response.status, proof };
-  } catch {
+  } catch (error) {
+    if (error instanceof Error && error.name === "ServBudgetError") {
+      const proof = recordServProof(
+        buildServProof({
+          purpose: id,
+          body: inspected,
+          payload: null,
+          headers: new Headers(),
+          status: 429,
+          ok: false,
+          text: "",
+          latencyMs: Date.now() - started,
+          fallbackUsed: true,
+          ...proofMeta,
+        }),
+      );
+      return {
+        ok: false,
+        error: error.message || "SERV grant call budget exhausted.",
+        status: 429,
+        proof,
+        fallback: entry.fallback,
+        upstream: "grant_exhausted",
+      };
+    }
     const proof = recordServProof(
       buildServProof({
         purpose: id,

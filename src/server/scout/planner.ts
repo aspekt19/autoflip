@@ -6,6 +6,7 @@ import {
   readPaidExecutionConfig,
   type PaidSpendAuthority,
 } from "./paid-execution";
+import { loadOwnerGrant, reserveGrantProviderCall } from "./owner-grant";
 import { parseScoutPlanText } from "./plan-parse";
 
 /**
@@ -13,6 +14,10 @@ import { parseScoutPlanText } from "./plan-parse";
  * Actual request knobs come from profiles/requestFor (tools[] markers, model id,
  * response_format). Do not put serv_prompt_guard / shadow / multipath as user-text theater.
  * Do not use @openserv-labs/sdk Agent.process() — that hardcodes OpenAI gpt-4o, not SERV Reasoning.
+ *
+ * Owner-grant SERV: every outbound HTTP (including finalize/replan/retry rounds inside
+ * runServ) atomically reserves one grant call BEFORE dispatch. Ambiguous failures after
+ * dispatch retain the reservation (no refund). Exhaustion fails closed as serv_unavailable.
  */
 export function servScoutPlanner(deps: {
   apiKey: string;
@@ -41,6 +46,9 @@ export function servScoutPlanner(deps: {
       message: `Paid SERV planner blocked: ${paid.message}`,
     });
   }
+
+  const grantId =
+    deps.testAuthority?.kind === "owner_grant" ? deps.testAuthority.grantId ?? null : null;
 
   return async (input) => {
     // Listing/tool state only in user message; policy stays in scout_plan system prompt.
@@ -71,6 +79,24 @@ export function servScoutPlanner(deps: {
       })),
     });
 
+    const beforeHttp =
+      grantId && deps.kv
+        ? async () => {
+            const grant = await loadOwnerGrant(deps.kv!, grantId);
+            if (!grant) {
+              return {
+                ok: false as const,
+                message: "Owner grant missing at SERV reserve time — failing closed.",
+              };
+            }
+            const reserved = await reserveGrantProviderCall(deps.kv!, grant, "serv");
+            if (!reserved.ok) {
+              return { ok: false as const, message: reserved.message };
+            }
+            return { ok: true as const };
+          }
+        : undefined;
+
     let result: Awaited<ReturnType<typeof runServ>>;
     try {
       result = await runServ(
@@ -82,9 +108,11 @@ export function servScoutPlanner(deps: {
           model: deps.model,
           timeoutMs: deps.timeoutMs ?? 45_000,
           fetch: deps.fetch,
+          beforeHttp,
         },
       );
     } catch {
+      // Ambiguous — if beforeHttp already reserved, reservation stands (no refund here).
       return {
         ok: false,
         error: "serv_unavailable",
@@ -94,6 +122,13 @@ export function servScoutPlanner(deps: {
 
     if (!result.ok) {
       const err = result.error.toLowerCase();
+      if (result.status === 429 || err.includes("grant") || err.includes("call cap")) {
+        return {
+          ok: false,
+          error: "serv_unavailable",
+          message: result.error,
+        };
+      }
       if (err.includes("timeout")) {
         return { ok: false, error: "serv_timeout", message: result.error };
       }

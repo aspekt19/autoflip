@@ -15,7 +15,11 @@ export type ScoutGrantProvider = "serv" | "autodev";
 export type ScoutProviderBudget = {
   /** Hard call cap for this provider under this grant (atomic INCR). */
   maxCalls: number;
-  /** Optional explicit USD ceiling — only when operator set it; never invented. */
+  /**
+   * Dollar ceiling. Unsupported today: there is no defensible per-call price table
+   * or balance ledger. Non-null values are REJECTED at save (fail closed).
+   * Call-count-only grants use null and must not claim a dollar guarantee.
+   */
   maxSpendUsd: number | null;
   note: string;
 };
@@ -70,8 +74,14 @@ export async function saveOwnerGrant(
     if (!Number.isFinite(b.maxCalls) || b.maxCalls < 1) {
       return { ok: false, message: `Grant ${p}.maxCalls must be >= 1.` };
     }
-    if (b.maxSpendUsd != null && !(Number.isFinite(b.maxSpendUsd) && b.maxSpendUsd > 0)) {
-      return { ok: false, message: `Grant ${p}.maxSpendUsd must be positive or null.` };
+    if (b.maxSpendUsd != null) {
+      return {
+        ok: false,
+        message:
+          `Grant ${p}.maxSpendUsd is unsupported: no genuine dollar accounting or defensible ` +
+          `worst-case provider prices exist. Use call-count-only grants (maxSpendUsd: null). ` +
+          `Do not invent rates or claim an enforced dollar cap.`,
+      };
     }
   }
   await kv.set(grantKey(grant.id), JSON.stringify(grant));

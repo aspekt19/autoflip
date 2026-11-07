@@ -4,7 +4,6 @@ import { BrandLockup, BrandTagline } from "@/components/BrandLockup";
 import { Header } from "@/components/Header";
 import { PageFade } from "@/components/PageFade";
 import { SmoothScroll } from "@/components/SmoothScroll";
-import { isScoutUiEnabled } from "@/server/scout/config";
 import "./globals.css";
 
 const sans = Manrope({ subsets: ["latin"], weight: ["400", "500", "600", "700"], variable: "--font-sans" });
@@ -56,7 +55,8 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <a className="skip" href="#main">
           Skip to content
         </a>
-        <Header scoutNavEnabled={isScoutUiEnabled()} />
+        {/* Scout nav: Header fetches /api/scout capabilities at runtime — do not bake SCOUT_UI_ENABLED here. */}
+        <Header />
         <main id="main">
           <PageFade>{children}</PageFade>
         </main>

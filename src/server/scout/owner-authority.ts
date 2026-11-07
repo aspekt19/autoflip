@@ -3,7 +3,7 @@
  *
  * Does NOT invent authorizedSpendUsd / verified balance from allowlist + monthly snapshot.
  * Call-count budgets come from grant.providers.*.maxCalls with atomic reserve elsewhere.
- * USD only when the grant explicitly sets maxSpendUsd.
+ * Dollar-cap grants (maxSpendUsd != null) are unsupported — fail closed; no invented rates.
  */
 
 import { ASSUMPTIONS } from "@/domain/assumptions";
@@ -109,6 +109,16 @@ export async function resolveOwnerSpendAuthority(input: {
     };
   }
 
+  // Fail closed: decorative dollar caps are not enforcement.
+  if (budget.maxSpendUsd != null) {
+    return {
+      ok: false,
+      reason:
+        `Grant ${grant.id} sets ${input.provider}.maxSpendUsd but dollar accounting is unsupported ` +
+        `(no defensible price table). Re-issue as call-count-only (maxSpendUsd: null).`,
+    };
+  }
+
   const used = await readGrantUsed(input.kv, grant.id, input.provider);
   let remaining = remainingGrantCalls(grant, input.provider, used);
   if (remaining <= 0) {
@@ -138,15 +148,12 @@ export async function resolveOwnerSpendAuthority(input: {
     return { ok: false, reason: "Effective remaining provider budget is 0." };
   }
 
-  // USD only when the operator explicitly set maxSpendUsd on the grant — never MIN_RESERVE_USD fiction.
-  const authorizedSpendUsd =
-    budget.maxSpendUsd != null && budget.maxSpendUsd > 0 ? budget.maxSpendUsd : null;
-
   const authority: PaidSpendAuthority = {
     kind: "owner_grant",
     remainingProviderBudget: remaining,
-    authorizedSpendUsd,
-    sourceNote: `owner_grant:${grant.id} provider=${input.provider} provenance=${grant.provenance}`,
+    // Call-count-only: never invent a dollar balance or claim USD enforcement.
+    authorizedSpendUsd: null,
+    sourceNote: `owner_grant:${grant.id} provider=${input.provider} call_count_only provenance=${grant.provenance}`,
     grantId: grant.id,
     providers: Object.keys(grant.providers) as Array<"serv" | "autodev">,
   };

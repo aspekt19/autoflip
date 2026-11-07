@@ -112,6 +112,22 @@ export async function resolveApiKey(kv: Kv, token: string): Promise<string | nul
   }
 }
 
+/**
+ * Whether the underlying af_ key for a SHA-256 hash is still active (not revoked/missing).
+ * Used so a signed Scout session dies when the bound key is revoked.
+ */
+export async function isApiKeyHashActive(kv: Kv, apiKeyHash: string): Promise<boolean> {
+  if (!apiKeyHash || apiKeyHash.length < 32) return false;
+  const raw = await kv.get(tokenKey(apiKeyHash.toLowerCase()));
+  if (!raw) return false;
+  try {
+    const stored = JSON.parse(raw) as StoredKey;
+    return Boolean(stored.userId && stored.hash && !stored.revokedAt);
+  } catch {
+    return false;
+  }
+}
+
 export async function spendReportCredit(
   kv: Kv,
   userId: string,

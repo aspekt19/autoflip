@@ -15,14 +15,22 @@ const BASE_NAV_LINKS = [
   { href: "/pricing", label: "Pricing" },
 ] as const;
 
+/**
+ * Primary nav. Scout link visibility follows runtime SCOUT_UI_ENABLED via
+ * GET /api/scout capabilities — never a build-time bake of the flag (static
+ * home must not omit Scout when the deploy later enables the UI).
+ */
 export function Header({ scoutNavEnabled = false }: { scoutNavEnabled?: boolean }) {
   const pathname = usePathname();
   const [credits, setCredits] = useState<number | null>(null);
+  /** null = not yet known; prefer runtime capabilities over build-time prop. */
+  const [scoutUiRuntime, setScoutUiRuntime] = useState<boolean | null>(null);
   const [menuOpen, setMenuOpen] = useState(false);
   const menuBtnRef = useRef<HTMLButtonElement>(null);
   const navRef = useRef<HTMLElement>(null);
   const navId = useId();
-  const navLinks = scoutNavEnabled
+  const showScout = scoutUiRuntime ?? scoutNavEnabled;
+  const navLinks = showScout
     ? [...BASE_NAV_LINKS.slice(0, 3), { href: "/scout", label: "Scout" }, ...BASE_NAV_LINKS.slice(3)]
     : [...BASE_NAV_LINKS];
 
@@ -40,6 +48,21 @@ export function Header({ scoutNavEnabled = false }: { scoutNavEnabled?: boolean 
       cancelled = true;
     };
   }, [pathname]);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch("/api/scout")
+      .then((response) => response.json())
+      .then((body: { capabilities?: { uiEnabled?: boolean } }) => {
+        if (!cancelled) setScoutUiRuntime(Boolean(body.capabilities?.uiEnabled));
+      })
+      .catch(() => {
+        // Leave null so build-time prop remains a last-resort hint; never invent true.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     setMenuOpen(false);

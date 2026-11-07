@@ -1,12 +1,12 @@
 import type { Kv } from "@/io/kv";
 import { creditsRequiredBody, invalidKeyBody } from "@/server/agent-access";
-import { resolveApiKeyRecord } from "@/server/api-keys";
+import { isApiKeyHashActive, resolveApiKeyRecord } from "@/server/api-keys";
 import { isScoutEnabled, scoutConfigMessage } from "./config";
 import {
   isScoutOwnerAllowlistConfigured,
   ownerMayStartScout,
 } from "./owner-access";
-import { loadOwnerGrant } from "./owner-grant";
+import { isGrantExpired, loadOwnerGrant } from "./owner-grant";
 import type { ScoutSignedSession } from "./signed-session";
 
 export type ScoutAccessOk = {
@@ -111,6 +111,29 @@ async function resolveScoutIdentity(
         body: {
           error: "scout_session_invalid",
           message: "Scout session grant is missing or mismatched. Sign in again with a grant-bound key.",
+        },
+      };
+    }
+    if (isGrantExpired(grant)) {
+      return {
+        ok: false,
+        status: 401,
+        body: {
+          error: "scout_session_grant_expired",
+          message: "Scout session grant has expired. Sign in again with a grant-bound key.",
+        },
+      };
+    }
+    // Signed cookie must die when the underlying af_ key is revoked (or missing).
+    const keyActive = await isApiKeyHashActive(kv, grant.apiKeyHash);
+    if (!keyActive) {
+      return {
+        ok: false,
+        status: 401,
+        body: {
+          error: "scout_session_key_revoked",
+          message:
+            "The API key bound to this Scout session was revoked or is missing. Sign in again with a live grant-bound key.",
         },
       };
     }

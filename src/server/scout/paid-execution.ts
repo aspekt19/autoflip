@@ -31,8 +31,8 @@ export type PaidSpendAuthority = {
   kind: "test_stub" | "owner_grant";
   remainingProviderBudget: number;
   /**
-   * Explicit USD ceiling from the grant when set; null = call-count-only
-   * (do not invent a dollar balance).
+   * Always null for current owner_grant path (call-count-only).
+   * Non-null dollar caps are rejected at grant save — do not invent a balance.
    */
   authorizedSpendUsd: number | null;
   sourceNote?: string;
