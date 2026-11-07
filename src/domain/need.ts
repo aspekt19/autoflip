@@ -19,8 +19,10 @@ export const SEARCH_RADII_MILES = [25, 50, 100, 150, 250, 500] as const;
 export type SearchRadiusMiles = (typeof SEARCH_RADII_MILES)[number];
 
 /**
- * Technical ceiling for a numeric seller-distance radius.
- * Not a product preset — Nationwide uses null. Reject above this; never silently snap.
+ * App-side validation ceiling for a numeric seller-distance radius.
+ * Not a product preset and not a documented Auto.dev / provider hard limit — Nationwide
+ * uses null (omit `distance`) for unbounded seller geography. Reject above this; never
+ * silently snap, and do not claim “arbitrary unlimited” for custom miles.
  */
 export const MAX_DISTANCE_MILES = 3000;
 
@@ -187,8 +189,11 @@ export function validateNeed(input: unknown): { ok: true; need: StructuredNeed }
     distanceMiles = distanceParsed.miles;
   }
   if (distanceMiles != null && !zip) {
-    // Radius without ZIP cannot be applied — treat as nationwide instead of failing old clients.
-    distanceMiles = null;
+    // Do not silently widen to nationwide — radius requires an explicit ZIP (or choose Nationwide).
+    issues.push({
+      field: "zip",
+      message: "Add a ZIP for a seller-distance radius, or choose Nationwide.",
+    });
   }
   const preferredMakes = preferredMakesFromRaw(raw);
   const preferredModels = preferredModelsFromRaw(raw);
@@ -571,8 +576,9 @@ export function overlayExplicit(
         : extracted.preferredMakes;
   const make = preferredMakes[0] ?? null;
   const zip = explicit.zip === undefined ? extracted.zip : explicit.zip;
-  let distanceMiles = explicit.distanceMiles === undefined ? extracted.distanceMiles : explicit.distanceMiles;
-  if (!zip) distanceMiles = null;
+  // Do not silently drop a selected radius when ZIP is blank — validateNeed rejects that pair.
+  // Callers that mean Nationwide must pass distanceMiles: null (and may omit ZIP).
+  const distanceMiles = explicit.distanceMiles === undefined ? extracted.distanceMiles : explicit.distanceMiles;
   return {
     ...extracted,
     mode: explicit.mode ?? extracted.mode,

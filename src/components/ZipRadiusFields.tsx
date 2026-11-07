@@ -30,6 +30,11 @@ export type ZipRadiusFieldsProps = {
   nationwideClearsZip?: boolean;
   /** When true, ZIP is required whenever a radius is set. */
   zipRequiredWithRadius?: boolean;
+  /**
+   * When false, Nationwide is not offered (e.g. Deal Radar watches require a numeric radius).
+   * Default true.
+   */
+  allowNationwide?: boolean;
 };
 
 /**
@@ -45,6 +50,7 @@ export function ZipRadiusFields({
   idPrefix,
   nationwideClearsZip = false,
   zipRequiredWithRadius = true,
+  allowNationwide = true,
 }: ZipRadiusFieldsProps) {
   const autoId = useId();
   const prefix = idPrefix ?? autoId;
@@ -53,7 +59,9 @@ export function ZipRadiusFields({
   const customId = `${prefix}-custom-radius`;
 
   const initialMode = modeFromMiles(distanceMiles);
-  const [mode, setMode] = useState<RadiusMode>(initialMode);
+  const [mode, setMode] = useState<RadiusMode>(
+    !allowNationwide && initialMode === "nationwide" ? "preset" : initialMode,
+  );
   const [customDraft, setCustomDraft] = useState(
     initialMode === "custom" && distanceMiles != null ? String(distanceMiles) : "",
   );
@@ -62,15 +70,26 @@ export function ZipRadiusFields({
   // Keep local mode in sync when parent resets (e.g. refine / clear).
   useEffect(() => {
     const next = modeFromMiles(distanceMiles);
+    if (!allowNationwide && next === "nationwide") {
+      // Radar-style: numeric radius required — nudge to default preset without inventing miles into parent.
+      setMode("preset");
+      setCustomDraft("");
+      setCustomError(null);
+      return;
+    }
     setMode(next);
     if (next === "custom" && distanceMiles != null) setCustomDraft(String(distanceMiles));
     if (next === "nationwide") {
       setCustomDraft("");
       setCustomError(null);
     }
-  }, [distanceMiles]);
+  }, [distanceMiles, allowNationwide]);
 
   function selectNationwide() {
+    if (!allowNationwide) {
+      setCustomError("Deal Radar watches need a seller-distance radius (not nationwide).");
+      return;
+    }
     setMode("nationwide");
     setCustomError(null);
     setCustomDraft("");
@@ -108,7 +127,11 @@ export function ZipRadiusFields({
   }
 
   const radiusSelectValue =
-    mode === "nationwide" ? "nationwide" : mode === "custom" ? "custom" : String(distanceMiles ?? "");
+    mode === "nationwide"
+      ? "nationwide"
+      : mode === "custom"
+        ? "custom"
+        : String(distanceMiles ?? (allowNationwide ? "" : "50"));
 
   return (
     <div className="zip-radius-fields">
@@ -161,7 +184,7 @@ export function ZipRadiusFields({
           }}
           aria-describedby={`${prefix}-radius-hint`}
         >
-          <option value="nationwide">Nationwide</option>
+          {allowNationwide ? <option value="nationwide">Nationwide</option> : null}
           {SEARCH_RADII_MILES.map((miles) => (
             <option key={miles} value={miles}>
               {miles} miles
@@ -171,7 +194,7 @@ export function ZipRadiusFields({
         </select>
         {mode === "custom" ? (
           <label className="block" htmlFor={customId} style={{ marginTop: 8 }}>
-            Custom miles (any positive radius up to {MAX_DISTANCE_MILES.toLocaleString("en-US")})
+            Custom miles (app ceiling {MAX_DISTANCE_MILES.toLocaleString("en-US")} mi; choose Nationwide for unbounded)
             <input
               id={customId}
               type="text"
@@ -192,6 +215,9 @@ export function ZipRadiusFields({
         ) : null}
         <p id={`${prefix}-radius-hint`} className="hint">
           {SELLER_DISTANCE_HINT}
+          {!allowNationwide
+            ? " Nationwide watches are not supported here — pick a positive seller-distance radius."
+            : ` Custom miles are capped at ${MAX_DISTANCE_MILES.toLocaleString("en-US")} by app validation (not a documented provider hard limit); Nationwide omits distance for unbounded search.`}
         </p>
       </div>
     </div>

@@ -115,6 +115,68 @@ describe("ZIP + seller-distance radius normalization", () => {
     expect(normalizeDistanceMiles(137)).not.toBe(100);
     expect(normalizeDistanceMiles(137)).not.toBe(150);
   });
+
+  it("rejects radius-without-ZIP instead of silently widening to nationwide", () => {
+    const orphan = validateNeed(baseNeed({ zip: null, distanceMiles: 150 }));
+    expect(orphan.ok).toBe(false);
+    if (orphan.ok) return;
+    expect(orphan.issues.some((issue) => /ZIP|Nationwide/i.test(issue.message))).toBe(true);
+
+    const nationwide = validateNeed(baseNeed({ zip: null, distanceMiles: null }));
+    expect(nationwide.ok).toBe(true);
+    if (!nationwide.ok) return;
+    expect(nationwide.need.distanceMiles).toBeNull();
+  });
+
+  it("documents MAX_DISTANCE_MILES as an app validation ceiling (Nationwide for unbounded)", () => {
+    expect(MAX_DISTANCE_MILES).toBe(3000);
+    expect(parseDistanceMiles(MAX_DISTANCE_MILES).ok).toBe(true);
+    expect(parseDistanceMiles(MAX_DISTANCE_MILES + 1).ok).toBe(false);
+    // Nationwide remains the unbounded path — not a claim of arbitrary unlimited custom miles.
+    expect(parseDistanceMiles("nationwide")).toEqual({ ok: true, miles: null });
+  });
+});
+
+describe("home / radar URL seller-distance propagation", () => {
+  it("includes selected radius on find and radar scan URLs", () => {
+    const home = new URLSearchParams({
+      note: "Reliable SUV under 20000",
+      mode: "personal",
+      zip: "72712",
+      distanceMiles: "137",
+    });
+    expect(home.get("distanceMiles")).toBe("137");
+    expect(home.get("zip")).toBe("72712");
+
+    const scan = new URLSearchParams({
+      mode: "personal",
+      zip: "90210",
+      priceMax: "18000",
+      make: "Toyota",
+      distanceMiles: "150",
+    });
+    expect(scan.get("distanceMiles")).toBe("150");
+    expect(scan.has("distanceMiles")).toBe(true);
+
+    const nationwideHome = new URLSearchParams({
+      note: "Reliable SUV under 20000",
+      mode: "personal",
+      distanceMiles: "nationwide",
+    });
+    expect(parseDistanceMiles(nationwideHome.get("distanceMiles")).ok).toBe(true);
+    expect(parseDistanceMiles(nationwideHome.get("distanceMiles"))).toEqual({ ok: true, miles: null });
+  });
+
+  it("rejects radar watch nationwide / missing radius without defaulting to 50", () => {
+    // Mirrors /api/radar/searches: never Number(radiusMiles || 50).
+    for (const raw of [null, undefined, "", "nationwide", 0, -5]) {
+      const parsed = parseDistanceMiles(raw as never);
+      const accepted = parsed.ok && parsed.miles != null;
+      expect(accepted).toBe(false);
+    }
+    const custom = parseDistanceMiles(137);
+    expect(custom).toEqual({ ok: true, miles: 137 });
+  });
 });
 
 describe("Scout mandate + search params honor custom radius", () => {

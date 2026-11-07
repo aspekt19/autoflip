@@ -65,8 +65,27 @@ const USE_LABEL: Record<(typeof USE_CASES)[number], string> = {
 
 const FIND_STEPS = ["Need", "Budget", "Confirm", "Results"] as const;
 
-export function FindFlow({ initialNote, initialMode }: { initialNote?: string; initialMode?: "personal" | "flip" }) {
-  return <AssistantFlow variant="find" initialNote={initialNote} initialMode={initialMode} />;
+export function FindFlow({
+  initialNote,
+  initialMode,
+  initialZip,
+  initialDistanceMiles,
+}: {
+  initialNote?: string;
+  initialMode?: "personal" | "flip";
+  initialZip?: string;
+  /** Null = nationwide. Undefined = not provided by the entry URL. */
+  initialDistanceMiles?: number | null;
+}) {
+  return (
+    <AssistantFlow
+      variant="find"
+      initialNote={initialNote}
+      initialMode={initialMode}
+      initialZip={initialZip}
+      initialDistanceMiles={initialDistanceMiles}
+    />
+  );
 }
 
 export function CheckFlow() {
@@ -77,10 +96,14 @@ function AssistantFlow({
   variant,
   initialNote,
   initialMode,
+  initialZip,
+  initialDistanceMiles,
 }: {
   variant: "find" | "check";
   initialNote?: string;
   initialMode?: "personal" | "flip";
+  initialZip?: string;
+  initialDistanceMiles?: number | null;
 }) {
   const router = useRouter();
   const path = variant === "find" ? "choose" : "check";
@@ -94,7 +117,10 @@ function AssistantFlow({
   const [questions, setQuestions] = useState<FollowUp[]>([]);
   const [answers, setAnswers] = useState<Record<string, string>>({});
   const [stage, setStage] = useState<"need" | "budget" | "follow" | "confirm" | "results">("need");
-  const [zipDraft, setZipDraft] = useState("");
+  const [zipDraft, setZipDraft] = useState(initialZip ?? "");
+  const [distanceDraft, setDistanceDraft] = useState<number | null>(
+    initialDistanceMiles === undefined ? null : initialDistanceMiles,
+  );
   const [groups, setGroups] = useState<MatchGroup[]>([]);
   const [sample, setSample] = useState(false);
   const [affordability, setAffordability] = useState(true);
@@ -128,6 +154,11 @@ function AssistantFlow({
 
   async function understand(followUp?: { id: FollowUp["id"]; value: string }) {
     setError(null);
+    const zipForNeed = zipDraft.trim() || need?.zip || null;
+    if (distanceDraft != null && !zipForNeed) {
+      setError("Add a ZIP for a seller-distance radius, or choose Nationwide.");
+      return;
+    }
     setPending("need");
     const controller = new AbortController();
     const timer = window.setTimeout(() => controller.abort(), 20_000);
@@ -142,7 +173,9 @@ function AssistantFlow({
           mode,
           budgetUsd: budgetKnown && Number.isFinite(amount) ? amount : null,
           budgetKnown,
-          zip: zipDraft.trim() || need?.zip || null,
+          zip: zipForNeed,
+          // Always send the user-selected radius (null = Nationwide). Never drop it silently.
+          distanceMiles: distanceDraft,
           repairAbility: need?.repairAbility,
           useCase: need?.useCase,
           targetProfitUsd: need?.targetProfitUsd,
@@ -161,6 +194,8 @@ function AssistantFlow({
         return;
       }
       setNeed(body.need);
+      setZipDraft(body.need.zip ?? "");
+      setDistanceDraft(body.need.distanceMiles);
       setSource(body.source ?? "form");
       setChecks(body.checks ?? []);
       const next = body.followUps ?? [];
@@ -184,10 +219,12 @@ function AssistantFlow({
     booted.current = true;
     setText(initialNote);
     setMode(initialMode === "flip" ? "flip" : "personal");
+    if (initialZip) setZipDraft(initialZip);
+    if (initialDistanceMiles !== undefined) setDistanceDraft(initialDistanceMiles);
     const amount = budgetFromText(initialNote);
     if (amount) setBudget(String(amount));
     setStage("budget");
-  }, [initialMode, initialNote, variant]);
+  }, [initialDistanceMiles, initialMode, initialNote, initialZip, variant]);
 
   useEffect(() => {
     if (variant !== "find" || initialNote?.trim()) return;
@@ -675,11 +712,17 @@ function AssistantFlow({
             </label>
           </div>
           <p className="hint">{mode === "flip" ? "This is the cash available for the deal. Repair estimates are assumptions, not a quote." : "We use this as the vehicle asking-price limit. Taxes, title, registration and dealer fees are not included."}</p>
-          <div className="field">
-            <label htmlFor="zip-draft">U.S. ZIP code near where you&apos;ll shop (optional)</label>
-            <input id="zip-draft" value={zipDraft} onChange={(event) => setZipDraft(event.target.value)} inputMode="numeric" placeholder="Leave blank for nationwide" />
-            <p className="hint">Blank ZIP searches nationwide across the U.S. Add a ZIP on confirm if you want a mileage radius.</p>
-          </div>
+          <ZipRadiusFields
+            idPrefix="find-budget"
+            zip={zipDraft}
+            distanceMiles={distanceDraft}
+            onZipChange={(next) => {
+              setZipDraft(next);
+              if (!next.trim()) setDistanceDraft(null);
+              else if (distanceDraft == null) setDistanceDraft(100);
+            }}
+            onDistanceChange={setDistanceDraft}
+          />
           <div className="btn-row">
             <button className="ghost" type="button" onClick={goBack}>
               Back
@@ -792,12 +835,15 @@ function AssistantFlow({
               setNeed({
                 ...need,
                 zip: trimmed,
-                // Clearing ZIP drops the radius (nationwide). Adding ZIP keeps or defaults radius.
+                // Clearing ZIP also clears radius (explicit Nationwide). Adding ZIP keeps or defaults radius.
                 distanceMiles: trimmed ? need.distanceMiles ?? 100 : null,
               });
+              setZipDraft(nextZip);
+              setDistanceDraft(trimmed ? need.distanceMiles ?? 100 : null);
             }}
             onDistanceChange={(miles) => {
               setNeed({ ...need, distanceMiles: miles });
+              setDistanceDraft(miles);
             }}
           />
           <p className="hint" aria-live="polite">

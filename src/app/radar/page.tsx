@@ -43,6 +43,8 @@ function RadarInner() {
   const yearMax = params.get("yearMax") ?? params.get("year") ?? "";
   const mode = (params.get("mode") === "flip" ? "flip" : "personal") as Mode;
   const priceMax = params.get("priceMax") ?? "";
+  const distanceParam = parseDistanceMiles(params.get("distanceMiles") ?? params.get("radiusMiles"));
+  const distanceMiles = distanceParam.ok && distanceParam.miles != null ? distanceParam.miles : undefined;
   const [rows, setRows] = useState<Row[] | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [sample, setSample] = useState(false);
@@ -116,6 +118,7 @@ function RadarInner() {
         make: make || undefined,
         model: model || undefined,
         zip: zip || undefined,
+        distanceMiles,
         priceMax: priceMax ? Number(priceMax) : undefined,
         yearMin: yearMin ? Number(yearMin) : undefined,
         yearMax: yearMax ? Number(yearMax) : undefined,
@@ -140,7 +143,7 @@ function RadarInner() {
     return () => {
       cancelled = true;
     };
-  }, [feedReady, demo, make, model, zip, yearMin, yearMax, mode, priceMax, flipReady]);
+  }, [feedReady, demo, make, model, zip, yearMin, yearMax, mode, priceMax, flipReady, distanceMiles]);
 
   async function openReport(vin: string, reportMode: Mode = mode) {
     setBusyVin(vin);
@@ -488,6 +491,7 @@ function SaveSearchForm({ onSaved }: { onSaved: () => void }) {
         distanceMiles={distanceMiles}
         onZipChange={setZip}
         onDistanceChange={setDistanceMiles}
+        allowNationwide={false}
       />
       <div className="btn-row">
         <button className="action" type="submit" disabled={pending}>
@@ -506,7 +510,21 @@ function SaveSearchForm({ onSaved }: { onSaved: () => void }) {
               setError("Add a ZIP and a maximum price.");
               return;
             }
-            const next = new URLSearchParams({ mode: searchMode, zip: zip.trim(), priceMax: String(budget) });
+            const radiusParsed = parseDistanceMiles(distanceMiles);
+            if (!radiusParsed.ok || radiusParsed.miles == null) {
+              setError(
+                radiusParsed.ok
+                  ? "Deal Radar scans need a seller-distance radius (not nationwide)."
+                  : radiusParsed.message,
+              );
+              return;
+            }
+            const next = new URLSearchParams({
+              mode: searchMode,
+              zip: zip.trim(),
+              priceMax: String(budget),
+              distanceMiles: String(radiusParsed.miles),
+            });
             if (make) next.set("make", make);
             if (model) next.set("model", model);
             if (yearMin) next.set("yearMin", yearMin);
