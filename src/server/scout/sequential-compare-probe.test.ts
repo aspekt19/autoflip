@@ -88,6 +88,13 @@ describe("runSequentialCompareProbe (live entrypoint, mock HTTP)", () => {
     );
     expect(result.decisions[0]!.httpAttempts).toBe(1);
     expect(result.decisions[0]!.transportPolicy).toBe("experiment_single_attempt");
+    expect(result.decisions[0]!.rawStatus).toBe(200);
+    expect(result.decisions[0]!.latencyMs).toBeTypeOf("number");
+    expect(result.decisions[0]!.tokens?.total_tokens).toBe(30);
+    expect(result.decisions[0]!.upstreamResponseId).toBe("chatcmpl-mock-sequential");
+    expect(result.decisions[0]!.finishReason).toBe("stop");
+    expect(result.decisions[0]!.cost).toBe("unknown");
+    expect(result.decisions[0]!.error).toBeNull();
     expect(result.apply?.stopReason).toBe("applied");
     expect(result.apply?.continueToDecision2).toBe(true);
     expect(result.offlineReplay?.stateKind).toBe("offline_replay_after_local_apply");

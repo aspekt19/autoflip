@@ -48,14 +48,19 @@
  *   SCOUT_COMPARE_ALLOW_UNLISTED must be "1" to accept non-catalog model IDs
  *   SCOUT_COMPARE_DRY_RUN        "1" forces dry-run even if key present
  *   SCOUT_COMPARE_SEQUENTIAL     "1" enables parent live ≤2-decision sequential probe
+ *                                XOR with normal compare: when set + paid live gates,
+ *                                ONLY sequential runs (no normal model×steps rows).
  *                                (default dry-run still exercises offline sequential fixture)
+ *   SCOUT_COMPARE_SOURCE_PIN     optional JSON object attested into report.sourcePin
+ *                                (absent/invalid → null; never invent head/tree)
  *   SCOUT_COMPARE_OUT            optional output basename under eval/results/
  *
  * Sequential TWO-decision (experimental; separate from production defaults):
  *   Decision-1 on after_inventory_before_reject → local apply (production disposition
  *   validation/reducer, no network) → Decision-2 on offline_replay_after_local_apply.
- *   Max 2 experiment_single_attempt HTTP total; timeout 45s; tokens 4096; no silent retries.
- *   Decision-2 is NOT live tool-result / full-cycle. Default zero HTTP.
+ *   Max 2 experiment_single_attempt HTTP total across the FULL CLI invocation when
+ *   sequential opt-in is set (normal compare is skipped). Timeout 45s; tokens 4096;
+ *   no silent retries. Decision-2 is NOT live tool-result / full-cycle. Default zero HTTP.
  */
 import { mkdirSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
@@ -80,6 +85,11 @@ import {
 } from "../src/server/scout/plan-parse";
 import { normalizeCompareUsage } from "../src/server/scout/plan-parse-diagnostics";
 import { runSequentialCompareProbe } from "../src/server/scout/sequential-compare-probe";
+import {
+  executeCompareCliPaidPath,
+  resolveCompareCliDispatch,
+  resolveCompareSourcePin,
+} from "../src/server/scout/compare-cli-dispatch";
 import {
   listServCompareModels,
   resolveServCompareModelIds,
@@ -199,6 +209,18 @@ function markdownReport(report: Record<string, unknown>): string {
   lines.push("# SERV scout model compare (PR63 placeholder ledger)");
   lines.push("");
   lines.push(`- Mode: \`${String(report.mode)}\``);
+  lines.push(`- Dispatch path: \`${String(report.dispatchPath ?? "unknown")}\``);
+  lines.push(
+    `- HTTP attempts (full invocation): \`${String(report.httpAttemptsTotal ?? "unknown")}\`; cost=unknown`,
+  );
+  const sourcePin = report.sourcePin as Record<string, unknown> | null | undefined;
+  if (sourcePin && typeof sourcePin === "object") {
+    lines.push(
+      `- Source pin: head=\`${String(sourcePin.head ?? "unknown")}\` tree=\`${String(sourcePin.tree ?? "unknown")}\``,
+    );
+  } else {
+    lines.push("- Source pin: `null` (SCOUT_COMPARE_SOURCE_PIN absent/invalid — not invented)");
+  }
   lines.push(`- Harness head (when committed): see git SHA on PR branch`);
   lines.push(`- Ledger: \`${PR63_PLACEHOLDER_LEDGER_PATH}\``);
   lines.push(`- Deployed SHA under test (ledger): \`${String(report.ledgerDeployedSha)}\``);
@@ -299,7 +321,11 @@ function markdownReport(report: Record<string, unknown>): string {
   lines.push("");
   const rows = report.rows as ModelStepRow[];
   if (!rows.length) {
-    lines.push("_No live model rows (dry-run)._");
+    lines.push(
+      report.dispatchPath === "sequential_two_decision"
+        ? "_No normal compare rows (sequential XOR — sequentialTwoDecisionLive only)._"
+        : "_No live model rows (dry-run)._",
+    );
   } else {
     for (const r of rows) {
       lines.push(
@@ -357,140 +383,16 @@ async function main() {
 
   const scoutProfile = profile("scout_plan");
   const rows: ModelStepRow[] = [];
-
-  if (live) {
-    console.log(servCompareCatalogNote());
-    console.log(
-      `Live sequential compare: ${modelRes.models.length} model(s) × ${preparedSteps.length} step(s). Cost unknown until central reconciliation. Model-only swap is NOT the demonstrated product fix.`,
-    );
-    for (const model of modelRes.models) {
-      for (const prepared of preparedSteps) {
-        const user = buildScoutPlanUserMessage(prepared.plannerInput);
-        const started = Date.now();
-        let latencyMs: number | null = null;
-        let tokens: Usage | null = null;
-        let rawStatus: number | null = null;
-        let reportedModel: string | null = null;
-        let error: string | null = null;
-        let httpAttempts: number | null = null;
-        let upstreamResponseId: string | null = null;
-        let finishReason: string | null = null;
-        let responseShape: string | null = null;
-        let sanitizedPlannerEcho: SanitizedPlannerParseEcho | null = null;
-        let schemaValid = false;
-        let score: ActionScore;
-        let retainedAction: RetainedScoutPlanAction | null = null;
-
-        try {
-          // Isolated experiment transport: one upstream attempt per step; empty/timeout
-          // are recorded (not silently re-POSTed). Production runServ recovery unchanged.
-          const result = await runServ(
-            "scout_plan",
-            { user },
-            experimentServDeps({
-              apiKey: key,
-              baseUrl: process.env.SERV_BASE_URL,
-              model: model.id,
-              timeoutMs: scoutProfile.timeoutMs,
-            }),
-          );
-          latencyMs = Date.now() - started;
-          tokens = usageFromProof(result.proof);
-          reportedModel = result.proof.modelReported || null;
-          httpAttempts = result.httpAttempts;
-          responseShape = result.responseShape;
-          const meta = openservMeta(result.proof);
-          upstreamResponseId = meta.id;
-          finishReason = meta.finishReason;
-
-          if (!result.ok) {
-            rawStatus = result.status;
-            error = result.error;
-            // Failure ServResult has no planner text; responseShape + upstream id still recorded.
-            score = scoreScoutPlanAction({
-              action: null,
-              schemaValid: false,
-              parseKind: "serv_error",
-              candidatesByVin: prepared.candidatesByVin,
-              recentOutcomes: prepared.plannerInput.recentOutcomes,
-              priorDeniedRejectFingerprint: prepared.priorDeniedRejectFingerprint,
-              priorIdenticalStreak: prepared.priorIdenticalStreak,
-            });
-          } else {
-            rawStatus = result.rawStatus;
-            sanitizedPlannerEcho = sanitizePlannerParseEcho(result.text);
-            const parsed = parseScoutPlanText(result.text);
-            schemaValid = parsed.ok;
-            score = scoreScoutPlanAction({
-              action: parsed.ok ? parsed.action : null,
-              schemaValid: parsed.ok,
-              parseKind: parsed.ok ? null : parsed.kind,
-              candidatesByVin: prepared.candidatesByVin,
-              recentOutcomes: prepared.plannerInput.recentOutcomes,
-              priorDeniedRejectFingerprint: prepared.priorDeniedRejectFingerprint,
-              priorIdenticalStreak: prepared.priorIdenticalStreak,
-            });
-            if (parsed.ok) {
-              retainedAction = retainScoutPlanAction(parsed.action);
-            } else {
-              error = `${parsed.kind}: ${parsed.message}`;
-            }
-          }
-        } catch (err) {
-          latencyMs = Date.now() - started;
-          error = err instanceof Error ? err.message : "unknown_throw";
-          score = scoreScoutPlanAction({
-            action: null,
-            schemaValid: false,
-            parseKind: "throw",
-            candidatesByVin: prepared.candidatesByVin,
-            recentOutcomes: prepared.plannerInput.recentOutcomes,
-            priorDeniedRejectFingerprint: prepared.priorDeniedRejectFingerprint,
-            priorIdenticalStreak: prepared.priorIdenticalStreak,
-          });
-        }
-
-        rows.push({
-          modelId: model.id,
-          effectiveModel: model.effectiveForScoutPlan,
-          stepId: prepared.stepId,
-          schemaValid,
-          score,
-          latencyMs,
-          tokens,
-          cost: "unknown",
-          rawStatus,
-          reportedModel,
-          error,
-          unlistedOptIn: model.unlistedOptIn,
-          httpAttempts,
-          transportPolicy: "experiment_single_attempt",
-          upstreamResponseId,
-          finishReason,
-          responseShape,
-          sanitizedPlannerEcho,
-          retainedAction,
-        });
-        console.log(
-          `${model.id} @ ${prepared.stepId}: schemaValid=${schemaValid} recovery=${score.recoveryClass} latencyMs=${latencyMs} httpAttempts=${httpAttempts} cost=unknown`,
-        );
-      }
-    }
-  } else {
-    console.log("Dry-run: no SERV/Auto.dev calls. Historical ledger scores + catalog only.");
-    console.log(servCompareCatalogNote());
-  }
+  const sequentialOptIn = process.env.SCOUT_COMPARE_SEQUENTIAL === "1";
+  const sourcePin = resolveCompareSourcePin(process.env);
+  const dispatch = resolveCompareCliDispatch({ live, sequentialOptIn });
 
   const outputTokenBound = resolveServOutputTokenBound(process.env);
   const sequentialOutputTokens = outputTokenBound.ok
     ? outputTokenBound.tokens
     : SERV_OUTPUT_TOKEN_DEFAULT;
 
-  // Experimental sequential TWO-decision:
-  // - Always run offline fixture (zero HTTP) for harness regression.
-  // - When SCOUT_COMPARE_SEQUENTIAL=1 + paid live gates: also run real D1→apply→D2
-  //   orchestration via runSequentialCompareProbe (≤2 experiment_single_attempt).
-  const sequentialOptIn = process.env.SCOUT_COMPARE_SEQUENTIAL === "1";
+  // Experimental sequential TWO-decision offline fixture (always zero HTTP).
   const sequentialOffline: SequentialTwoDecisionResult = runOfflineSequentialTwoDecision({
     ledger,
     decision1Action: offlineFixtureGroundedReject(ledger.firstVin),
@@ -508,32 +410,178 @@ async function main() {
     `Sequential offline fixture: http=${sequentialOffline.httpAttemptsTotal} d1=${sequentialOffline.decisions[0]?.stopReason} d2state=${sequentialOffline.decisions[1]?.stateKind ?? "stopped"} orchestration=${sequentialOffline.sequentialOrchestrationExecuted} (NOT live tools / full-cycle)`,
   );
 
-  let sequentialLive: SequentialTwoDecisionResult | null = null;
-  if (sequentialOptIn && live) {
-    const probeModel = modelRes.models[0];
-    if (!probeModel) {
-      console.error("SCOUT_COMPARE_SEQUENTIAL=1 but no resolved models — refusing live probe.");
-      process.exit(1);
+  /**
+   * XOR paid dispatch (fix for 66b151e 5-HTTP breach):
+   * - sequential_two_decision → ONLY sequential probe (≤2 HTTP total; no normal rows)
+   * - normal_compare → ONLY model×steps loop
+   * - dry_run → neither
+   */
+  console.log(
+    `CLI dispatch: path=${dispatch.path} normal=${dispatch.runNormalCompare} sequentialLive=${dispatch.runSequentialLive} maxHttpTotal=${dispatch.maxHttpAttemptsTotal ?? "n/a"} sourcePin=${sourcePin ? "present" : "null"}`,
+  );
+
+  const paidPath = await executeCompareCliPaidPath({
+    dispatch,
+    runNormalCompare: async () => {
+      console.log(servCompareCatalogNote());
+      console.log(
+        `Live normal compare: ${modelRes.models.length} model(s) × ${preparedSteps.length} step(s). Cost unknown until central reconciliation. Model-only swap is NOT the demonstrated product fix.`,
+      );
+      let httpAttemptsSum = 0;
+      for (const model of modelRes.models) {
+        for (const prepared of preparedSteps) {
+          const user = buildScoutPlanUserMessage(prepared.plannerInput);
+          const started = Date.now();
+          let latencyMs: number | null = null;
+          let tokens: Usage | null = null;
+          let rawStatus: number | null = null;
+          let reportedModel: string | null = null;
+          let error: string | null = null;
+          let httpAttempts: number | null = null;
+          let upstreamResponseId: string | null = null;
+          let finishReason: string | null = null;
+          let responseShape: string | null = null;
+          let sanitizedPlannerEcho: SanitizedPlannerParseEcho | null = null;
+          let schemaValid = false;
+          let score: ActionScore;
+          let retainedAction: RetainedScoutPlanAction | null = null;
+
+          try {
+            // Isolated experiment transport: one upstream attempt per step; empty/timeout
+            // are recorded (not silently re-POSTed). Production runServ recovery unchanged.
+            const result = await runServ(
+              "scout_plan",
+              { user },
+              experimentServDeps({
+                apiKey: key,
+                baseUrl: process.env.SERV_BASE_URL,
+                model: model.id,
+                timeoutMs: scoutProfile.timeoutMs,
+              }),
+            );
+            latencyMs = Date.now() - started;
+            tokens = usageFromProof(result.proof);
+            reportedModel = result.proof.modelReported || null;
+            httpAttempts = result.httpAttempts;
+            httpAttemptsSum += Math.max(0, result.httpAttempts);
+            responseShape = result.responseShape;
+            const meta = openservMeta(result.proof);
+            upstreamResponseId = meta.id;
+            finishReason = meta.finishReason;
+
+            if (!result.ok) {
+              rawStatus = result.status;
+              error = result.error;
+              score = scoreScoutPlanAction({
+                action: null,
+                schemaValid: false,
+                parseKind: "serv_error",
+                candidatesByVin: prepared.candidatesByVin,
+                recentOutcomes: prepared.plannerInput.recentOutcomes,
+                priorDeniedRejectFingerprint: prepared.priorDeniedRejectFingerprint,
+                priorIdenticalStreak: prepared.priorIdenticalStreak,
+              });
+            } else {
+              rawStatus = result.rawStatus;
+              sanitizedPlannerEcho = sanitizePlannerParseEcho(result.text);
+              const parsed = parseScoutPlanText(result.text);
+              schemaValid = parsed.ok;
+              score = scoreScoutPlanAction({
+                action: parsed.ok ? parsed.action : null,
+                schemaValid: parsed.ok,
+                parseKind: parsed.ok ? null : parsed.kind,
+                candidatesByVin: prepared.candidatesByVin,
+                recentOutcomes: prepared.plannerInput.recentOutcomes,
+                priorDeniedRejectFingerprint: prepared.priorDeniedRejectFingerprint,
+                priorIdenticalStreak: prepared.priorIdenticalStreak,
+              });
+              if (parsed.ok) {
+                retainedAction = retainScoutPlanAction(parsed.action);
+              } else {
+                error = `${parsed.kind}: ${parsed.message}`;
+              }
+            }
+          } catch (err) {
+            latencyMs = Date.now() - started;
+            error = err instanceof Error ? err.message : "unknown_throw";
+            score = scoreScoutPlanAction({
+              action: null,
+              schemaValid: false,
+              parseKind: "throw",
+              candidatesByVin: prepared.candidatesByVin,
+              recentOutcomes: prepared.plannerInput.recentOutcomes,
+              priorDeniedRejectFingerprint: prepared.priorDeniedRejectFingerprint,
+              priorIdenticalStreak: prepared.priorIdenticalStreak,
+            });
+          }
+
+          rows.push({
+            modelId: model.id,
+            effectiveModel: model.effectiveForScoutPlan,
+            stepId: prepared.stepId,
+            schemaValid,
+            score,
+            latencyMs,
+            tokens,
+            cost: "unknown",
+            rawStatus,
+            reportedModel,
+            error,
+            unlistedOptIn: model.unlistedOptIn,
+            httpAttempts,
+            transportPolicy: "experiment_single_attempt",
+            upstreamResponseId,
+            finishReason,
+            responseShape,
+            sanitizedPlannerEcho,
+            retainedAction,
+          });
+          console.log(
+            `${model.id} @ ${prepared.stepId}: schemaValid=${schemaValid} recovery=${score.recoveryClass} latencyMs=${latencyMs} httpAttempts=${httpAttempts} cost=unknown`,
+          );
+        }
+      }
+      return { httpAttempts: httpAttemptsSum };
+    },
+    runSequentialLive: async () => {
+      const probeModel = modelRes.models[0];
+      if (!probeModel) {
+        throw new Error(
+          "SCOUT_COMPARE_SEQUENTIAL=1 but no resolved models — refusing live probe.",
+        );
+      }
+      console.log(servCompareCatalogNote());
+      console.log(
+        `Sequential LIVE probe ONLY (XOR — normal compare skipped): model=${probeModel.id} maxHttpTotal=2 timeoutMs=${scoutProfile.timeoutMs} tokens=${sequentialOutputTokens}`,
+      );
+      const sequentialLive = await runSequentialCompareProbe({
+        ledger,
+        model: probeModel.id,
+        apiKey: key,
+        baseUrl: process.env.SERV_BASE_URL,
+        timeoutMsPerAttempt: scoutProfile.timeoutMs,
+        outputTokenBound: sequentialOutputTokens,
+      });
+      console.log(
+        `Sequential LIVE done: http=${sequentialLive.httpAttemptsTotal}/${sequentialLive.maxHttpAttemptsTotal} d1=${sequentialLive.decisions[0]?.stopReason} d2=${sequentialLive.decisions[1]?.stateKind ?? "stopped"} stoppedBeforeD2=${sequentialLive.stoppedBeforeDecision2}`,
+      );
+      return sequentialLive;
+    },
+  });
+
+  const sequentialLive = paidPath.sequentialLive;
+  if (dispatch.path === "dry_run") {
+    console.log("Dry-run: no SERV/Auto.dev calls. Historical ledger scores + catalog only.");
+    console.log(servCompareCatalogNote());
+    if (sequentialOptIn) {
+      console.log(
+        "SCOUT_COMPARE_SEQUENTIAL=1 set but live gates not open (need SERV_API_KEY + SCOUT_COMPARE_ALLOW_PAID=1); offline fixture only — no report-only fake live.",
+      );
     }
-    console.log(
-      `Sequential LIVE probe (opt-in): model=${probeModel.id} maxHttp=2 timeoutMs=${scoutProfile.timeoutMs} tokens=${sequentialOutputTokens}`,
-    );
-    sequentialLive = await runSequentialCompareProbe({
-      ledger,
-      model: probeModel.id,
-      apiKey: key,
-      baseUrl: process.env.SERV_BASE_URL,
-      timeoutMsPerAttempt: scoutProfile.timeoutMs,
-      outputTokenBound: sequentialOutputTokens,
-    });
-    console.log(
-      `Sequential LIVE done: http=${sequentialLive.httpAttemptsTotal}/${sequentialLive.maxHttpAttemptsTotal} d1=${sequentialLive.decisions[0]?.stopReason} d2=${sequentialLive.decisions[1]?.stateKind ?? "stopped"} stoppedBeforeD2=${sequentialLive.stoppedBeforeDecision2}`,
-    );
-  } else if (sequentialOptIn && !live) {
-    console.log(
-      "SCOUT_COMPARE_SEQUENTIAL=1 set but live gates not open (need SERV_API_KEY + SCOUT_COMPARE_ALLOW_PAID=1); offline fixture only — no report-only fake live.",
-    );
   }
+  console.log(
+    `CLI paid path complete: dispatch=${dispatch.path} httpAttemptsTotal=${paidPath.httpAttemptsTotal} normalHttp=${paidPath.normalHttpAttempts} sequentialHttp=${paidPath.sequentialHttpAttempts} cost=unknown`,
+  );
 
   const offlineBeforeAfter = {
     before:
@@ -555,6 +603,7 @@ async function main() {
     "All-zero usage on a HTTP 200 refusal is unknown cost — not free. Parent Mini/Luna counts are not efficacy winners.",
     "Structured extraction fix is offline-proven; live 2/3→reliability must be re-measured by parent (repeated cycles, all attempts, latency, costunknown) — no unmeasured 100% claim.",
     "GPT-5.4 cold first-step timeout (45007ms=scout_plan.timeoutMs) is a separate observed class; do not blind-raise timeout — one-variable parent probe if it persists after this head.",
+    "66b151e launch breached ≤2: normal 3 rows + sequential 2 = 5 HTTP. XOR dispatch now skips normal compare when SCOUT_COMPARE_SEQUENTIAL=1. No paid-readiness claim; launcher HOLD preserved.",
   ];
 
   const transportBounds = {
@@ -576,9 +625,27 @@ async function main() {
     sequentialTwoDecisionDefaultHttp: 0,
   };
 
+  const reportMode =
+    dispatch.path === "sequential_two_decision"
+      ? "live_sequential_two_decision"
+      : dispatch.path === "normal_compare"
+        ? "live_compare"
+        : "dry_run";
+
   const report = {
-    schemaVersion: "serv-scout-model-compare/v4",
-    mode: live ? "live_sequential" : "dry_run",
+    schemaVersion: "serv-scout-model-compare/v5",
+    mode: reportMode,
+    /** Exclusive paid path — normal_compare XOR sequential_two_decision XOR dry_run. */
+    dispatchPath: dispatch.path,
+    /** Total upstream HTTP across the full CLI invocation (not subsection-only). */
+    httpAttemptsTotal: paidPath.httpAttemptsTotal,
+    normalHttpAttempts: paidPath.normalHttpAttempts,
+    sequentialHttpAttempts: paidPath.sequentialHttpAttempts,
+    /**
+     * Parent-supplied attestation via SCOUT_COMPARE_SOURCE_PIN JSON.
+     * null when absent/invalid — never invented from ambient git.
+     */
+    sourcePin,
     harness: "eval/serv-scout-model-compare.ts",
     ledgerPath: PR63_PLACEHOLDER_LEDGER_PATH,
     ledgerLabel: ledger.label,
@@ -603,8 +670,8 @@ async function main() {
     /** Offline sequential TWO-decision fixture (zero HTTP). Decision-2 = offline_replay ≠ live tools. */
     sequentialTwoDecisionOffline: summarizeSequential(sequentialOffline),
     /**
-     * Live sequential probe when SCOUT_COMPARE_SEQUENTIAL=1 + paid gates.
-     * Null when opt-in unset or live gates closed — never a report-only flag without execution.
+     * Live sequential probe when dispatchPath=sequential_two_decision.
+     * Null when opt-in unset, live gates closed, or XOR selected normal_compare.
      */
     sequentialTwoDecisionLive: sequentialLive ? summarizeSequential(sequentialLive) : null,
     sequentialLiveOptIn: sequentialOptIn,
@@ -622,8 +689,10 @@ async function main() {
       "Production runServ empty/timeout recovery is unchanged outside this harness.",
       "Schema mismatch rows include sanitized field presence (reason/servStepId/type) without storing raw response text.",
       "json_schema profiles extract content/parsed/refusal only — tool_call args and reasoning drafts are not planner text (enables production empty-text recovery). Offline synthetic draft-as-JSON hazard — not proven live Luna RCA (raw body unretained).",
-      "Experimental sequential TWO-decision: SCOUT_COMPARE_SEQUENTIAL=1 runs real D1→local apply→D2 orchestration (≤2 HTTP). Ungrounded/denied stops before D2; already-processed VIN fails closed. NOT live tool-result / full-cycle. Raw 83929cd action unretained.",
+      "Experimental sequential TWO-decision XOR: SCOUT_COMPARE_SEQUENTIAL=1 + paid gates runs ONLY D1→local apply→D2 (≤2 HTTP across full CLI invocation; normal model×steps compare is skipped). Ungrounded/denied stops before D2; already-processed VIN fails closed. NOT live tool-result / full-cycle. Raw 83929cd action unretained.",
+      "Sequential decision rows include rawStatus/latencyMs/tokens/upstreamResponseId/finishReason/responseShape when known; cost always unknown. sourcePin echoes SCOUT_COMPARE_SOURCE_PIN or null.",
       "Parse-ok compare rows include retainedAction when retention succeeds (bounded complete structured decision, secrets redacted); null otherwise. sanitizePlannerParseEcho never embeds string values.",
+      "STOP: no paid-readiness claim from this harness alone — independent review + spend reconciliation required after any live launch.",
     ],
   };
 

@@ -1,6 +1,11 @@
 {
-  "schemaVersion": "serv-scout-model-compare/v4",
+  "schemaVersion": "serv-scout-model-compare/v5",
   "mode": "dry_run",
+  "dispatchPath": "dry_run",
+  "httpAttemptsTotal": 0,
+  "normalHttpAttempts": 0,
+  "sequentialHttpAttempts": 0,
+  "sourcePin": null,
   "harness": "eval/serv-scout-model-compare.ts",
   "ledgerPath": "fixtures/scout/pr63-placeholder-ledger.json",
   "ledgerLabel": "offline_sanitized_NOT_live_rerun",
@@ -97,7 +102,8 @@
     "Parse failures now record sanitizedPlannerEcho (keys/types/lengths only) + upstreamResponseId/finishReason/responseShape when present — never raw planner JSON.",
     "All-zero usage on a HTTP 200 refusal is unknown cost — not free. Parent Mini/Luna counts are not efficacy winners.",
     "Structured extraction fix is offline-proven; live 2/3→reliability must be re-measured by parent (repeated cycles, all attempts, latency, costunknown) — no unmeasured 100% claim.",
-    "GPT-5.4 cold first-step timeout (45007ms=scout_plan.timeoutMs) is a separate observed class; do not blind-raise timeout — one-variable parent probe if it persists after this head."
+    "GPT-5.4 cold first-step timeout (45007ms=scout_plan.timeoutMs) is a separate observed class; do not blind-raise timeout — one-variable parent probe if it persists after this head.",
+    "66b151e launch breached ≤2: normal 3 rows + sequential 2 = 5 HTTP. XOR dispatch now skips normal compare when SCOUT_COMPARE_SEQUENTIAL=1. No paid-readiness claim; launcher HOLD preserved."
   ],
   "stepUserMessages": [
     {
@@ -218,7 +224,15 @@
         "transportPolicy": "offline_fixture",
         "stopReason": "applied",
         "applyNote": "Local reject applied via production validation/reducer. Decision-2 on offline_replay permitted.",
-        "responseSource": "offline_fixture"
+        "responseSource": "offline_fixture",
+        "rawStatus": null,
+        "latencyMs": null,
+        "tokens": null,
+        "cost": "unknown",
+        "upstreamResponseId": null,
+        "finishReason": null,
+        "responseShape": null,
+        "error": null
       },
       {
         "decisionIndex": 2,
@@ -249,7 +263,15 @@
         "transportPolicy": "offline_fixture",
         "stopReason": null,
         "applyNote": null,
-        "responseSource": "offline_fixture"
+        "responseSource": "offline_fixture",
+        "rawStatus": null,
+        "latencyMs": null,
+        "tokens": null,
+        "cost": "unknown",
+        "upstreamResponseId": null,
+        "finishReason": null,
+        "responseShape": null,
+        "error": null
       }
     ],
     "apply": {
@@ -306,7 +328,9 @@
     "Production runServ empty/timeout recovery is unchanged outside this harness.",
     "Schema mismatch rows include sanitized field presence (reason/servStepId/type) without storing raw response text.",
     "json_schema profiles extract content/parsed/refusal only — tool_call args and reasoning drafts are not planner text (enables production empty-text recovery). Offline synthetic draft-as-JSON hazard — not proven live Luna RCA (raw body unretained).",
-    "Experimental sequential TWO-decision: SCOUT_COMPARE_SEQUENTIAL=1 runs real D1→local apply→D2 orchestration (≤2 HTTP). Ungrounded/denied stops before D2; already-processed VIN fails closed. NOT live tool-result / full-cycle. Raw 83929cd action unretained.",
-    "Parse-ok compare rows include retainedAction when retention succeeds (bounded complete structured decision, secrets redacted); null otherwise. sanitizePlannerParseEcho never embeds string values."
+    "Experimental sequential TWO-decision XOR: SCOUT_COMPARE_SEQUENTIAL=1 + paid gates runs ONLY D1→local apply→D2 (≤2 HTTP across full CLI invocation; normal model×steps compare is skipped). Ungrounded/denied stops before D2; already-processed VIN fails closed. NOT live tool-result / full-cycle. Raw 83929cd action unretained.",
+    "Sequential decision rows include rawStatus/latencyMs/tokens/upstreamResponseId/finishReason/responseShape when known; cost always unknown. sourcePin echoes SCOUT_COMPARE_SOURCE_PIN or null.",
+    "Parse-ok compare rows include retainedAction when retention succeeds (bounded complete structured decision, secrets redacted); null otherwise. sanitizePlannerParseEcho never embeds string values.",
+    "STOP: no paid-readiness claim from this harness alone — independent review + spend reconciliation required after any live launch."
   ]
 }

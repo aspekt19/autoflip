@@ -50,6 +50,7 @@ export type {
   LocalCompareState,
   LocalApplyResult,
   OfflineReplayPrepared,
+  SequentialAttemptUsage,
   SequentialDecisionRow,
   SequentialTwoDecisionResult,
   SequentialServCaller,

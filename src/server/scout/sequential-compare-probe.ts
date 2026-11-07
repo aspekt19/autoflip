@@ -9,10 +9,12 @@ import {
   loadPlaceholderLedger,
   runSequentialTwoDecision,
   type PlaceholderLedger,
+  type SequentialAttemptUsage,
   type SequentialTwoDecisionResult,
 } from "@/domain/scout/serv-model-compare";
 import { buildScoutPlanUserMessage } from "./plan-user-message";
 import { parseScoutPlanText } from "./plan-parse";
+import { normalizeCompareUsage } from "./plan-parse-diagnostics";
 import {
   experimentServDeps,
   runServ,
@@ -33,6 +35,28 @@ export type SequentialCompareProbeOpts = {
   /** Extra ServDeps (transportPolicy forced to experiment_single_attempt). */
   servDeps?: Omit<ServDeps, "transportPolicy">;
 };
+
+function usageFromProof(proof: unknown): SequentialAttemptUsage | null {
+  if (!proof || typeof proof !== "object") return null;
+  const openserv = (proof as { openserv?: { usage?: unknown } }).openserv;
+  return normalizeCompareUsage(openserv?.usage ?? null);
+}
+
+function openservMeta(proof: unknown): {
+  id: string | null;
+  finishReason: string | null;
+} {
+  if (!proof || typeof proof !== "object") return { id: null, finishReason: null };
+  const openserv = (proof as { openserv?: { id?: unknown; finish_reason?: unknown } }).openserv;
+  if (!openserv || typeof openserv !== "object") return { id: null, finishReason: null };
+  return {
+    id: typeof openserv.id === "string" && openserv.id.trim() ? openserv.id.trim() : null,
+    finishReason:
+      typeof openserv.finish_reason === "string" && openserv.finish_reason.trim()
+        ? openserv.finish_reason.trim()
+        : null,
+  };
+}
 
 /**
  * Actual Decision-1 → local apply → Decision-2 orchestration via experiment_single_attempt.
@@ -62,7 +86,11 @@ export async function runSequentialCompareProbe(
     buildUserMessage: buildScoutPlanUserMessage,
     parsePlanText: parseScoutPlanText,
     servCaller: async ({ userMessage }) => {
+      const started = Date.now();
       const result = await runServ("scout_plan", { user: userMessage }, deps);
+      const latencyMs = Date.now() - started;
+      const tokens = usageFromProof(result.proof);
+      const meta = openservMeta(result.proof);
       if (!result.ok) {
         return {
           httpAttempts: result.httpAttempts,
@@ -71,6 +99,10 @@ export async function runSequentialCompareProbe(
           error: result.error,
           rawStatus: result.status,
           responseShape: result.responseShape,
+          latencyMs,
+          tokens,
+          upstreamResponseId: meta.id,
+          finishReason: meta.finishReason,
         };
       }
       return {
@@ -80,6 +112,10 @@ export async function runSequentialCompareProbe(
         error: null,
         rawStatus: result.rawStatus,
         responseShape: result.responseShape,
+        latencyMs,
+        tokens,
+        upstreamResponseId: meta.id,
+        finishReason: meta.finishReason,
       };
     },
   });

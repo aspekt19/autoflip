@@ -1,6 +1,9 @@
 # SERV scout model compare (PR63 placeholder ledger)
 
 - Mode: `dry_run`
+- Dispatch path: `dry_run`
+- HTTP attempts (full invocation): `0`; cost=unknown
+- Source pin: `null` (SCOUT_COMPARE_SOURCE_PIN absent/invalid — not invented)
 - Harness head (when committed): see git SHA on PR branch
 - Ledger: `fixtures/scout/pr63-placeholder-ledger.json`
 - Deployed SHA under test (ledger): `de5eb0c0dab6d394765ff5916abf6346dc139841`
@@ -87,3 +90,4 @@ _No live model rows (dry-run)._
 - All-zero usage on a HTTP 200 refusal is unknown cost — not free. Parent Mini/Luna counts are not efficacy winners.
 - Structured extraction fix is offline-proven; live 2/3→reliability must be re-measured by parent (repeated cycles, all attempts, latency, costunknown) — no unmeasured 100% claim.
 - GPT-5.4 cold first-step timeout (45007ms=scout_plan.timeoutMs) is a separate observed class; do not blind-raise timeout — one-variable parent probe if it persists after this head.
+- 66b151e launch breached ≤2: normal 3 rows + sequential 2 = 5 HTTP. XOR dispatch now skips normal compare when SCOUT_COMPARE_SEQUENTIAL=1. No paid-readiness claim; launcher HOLD preserved.

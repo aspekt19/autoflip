@@ -1001,6 +1001,13 @@ export function prepareOfflineReplayAfterLocalApply(input: {
   };
 }
 
+/** Bounded per-attempt usage (honest nulls; cost always unknown here). */
+export type SequentialAttemptUsage = {
+  prompt_tokens?: number;
+  completion_tokens?: number;
+  total_tokens?: number;
+};
+
 export type SequentialDecisionRow = {
   decisionIndex: 1 | 2;
   stateKind: CompareStateKind;
@@ -1015,6 +1022,20 @@ export type SequentialDecisionRow = {
   applyNote: string | null;
   /** Model / fixture responses are labeled — not live tools when offline. */
   responseSource: "offline_fixture" | "model_http" | "none";
+  /** HTTP status when a model attempt ran; null for offline / not invoked. */
+  rawStatus: number | null;
+  /** Wall latency for the attempt; null when unknown / offline / not invoked. */
+  latencyMs: number | null;
+  /** Normalized usage when present; null when unknown (never invent). */
+  tokens: SequentialAttemptUsage | null;
+  /** Always unknown until central reconciliation. */
+  cost: "unknown";
+  /** Upstream response id when present (not reconstructed). */
+  upstreamResponseId: string | null;
+  finishReason: string | null;
+  /** Keys/lengths only — never string values. */
+  responseShape: string | null;
+  error: string | null;
 };
 
 export type SequentialTwoDecisionResult = {
@@ -1048,7 +1069,34 @@ export type SequentialServCaller = (input: {
   error: string | null;
   rawStatus: number | null;
   responseShape: string | null;
+  latencyMs: number | null;
+  tokens: SequentialAttemptUsage | null;
+  upstreamResponseId: string | null;
+  finishReason: string | null;
 }>;
+
+function emptyAttemptTelemetry(): Pick<
+  SequentialDecisionRow,
+  | "rawStatus"
+  | "latencyMs"
+  | "tokens"
+  | "cost"
+  | "upstreamResponseId"
+  | "finishReason"
+  | "responseShape"
+  | "error"
+> {
+  return {
+    rawStatus: null,
+    latencyMs: null,
+    tokens: null,
+    cost: "unknown",
+    upstreamResponseId: null,
+    finishReason: null,
+    responseShape: null,
+    error: null,
+  };
+}
 
 /** Fixture grounded reject used only for offline dry-run path (not a prior Sonnet body). */
 export function offlineFixtureGroundedReject(vin: string, servStepId = "exec:step-1"): ScoutPlanAction {
@@ -1118,6 +1166,7 @@ export async function runSequentialTwoDecision(input: {
   let d1ResponseSource: SequentialDecisionRow["responseSource"] = live
     ? "model_http"
     : "offline_fixture";
+  let d1Telemetry = emptyAttemptTelemetry();
 
   if (input.servCaller) {
     if (httpAttemptsTotal >= maxHttp) {
@@ -1133,9 +1182,20 @@ export async function runSequentialTwoDecision(input: {
     const capped1 = Math.min(Math.max(0, attempt1.httpAttempts), 1);
     httpAttemptsTotal += capped1;
     d1Http = capped1;
+    d1Telemetry = {
+      rawStatus: attempt1.rawStatus,
+      latencyMs: attempt1.latencyMs,
+      tokens: attempt1.tokens,
+      cost: "unknown",
+      upstreamResponseId: attempt1.upstreamResponseId,
+      finishReason: attempt1.finishReason,
+      responseShape: attempt1.responseShape,
+      error: attempt1.ok ? null : attempt1.error,
+    };
     if (!attempt1.ok || !attempt1.text) {
       d1Valid = false;
       d1ParseKind = attempt1.error ?? "serv_error";
+      if (!d1Telemetry.error) d1Telemetry = { ...d1Telemetry, error: d1ParseKind };
     } else {
       const parsed = input.parsePlanText(attempt1.text);
       if (parsed.ok) {
@@ -1143,6 +1203,10 @@ export async function runSequentialTwoDecision(input: {
         d1Valid = true;
       } else {
         d1ParseKind = parsed.kind;
+        d1Telemetry = {
+          ...d1Telemetry,
+          error: `${parsed.kind}: ${parsed.message}`,
+        };
       }
     }
   } else {
@@ -1176,6 +1240,7 @@ export async function runSequentialTwoDecision(input: {
       stopReason: null,
       applyNote: null,
       responseSource: d1ResponseSource,
+      ...d1Telemetry,
     },
   ];
 
@@ -1237,11 +1302,13 @@ export async function runSequentialTwoDecision(input: {
   let d2Http: number | null = 0;
   let d2ParseKind: string | null = "not_invoked";
   let d2ResponseSource: SequentialDecisionRow["responseSource"] = "none";
+  let d2Telemetry = emptyAttemptTelemetry();
 
   if (input.servCaller) {
     if (httpAttemptsTotal >= maxHttp) {
       // Bound exhausted — record not_invoked rather than a third HTTP.
       d2ParseKind = "http_budget_exhausted";
+      d2Telemetry = { ...d2Telemetry, error: "http_budget_exhausted" };
     } else {
       const user2 = input.buildUserMessage(offlineReplay.plannerInput);
       const attempt2 = await input.servCaller({
@@ -1254,9 +1321,20 @@ export async function runSequentialTwoDecision(input: {
       httpAttemptsTotal += capped2;
       d2Http = capped2;
       d2ResponseSource = "model_http";
+      d2Telemetry = {
+        rawStatus: attempt2.rawStatus,
+        latencyMs: attempt2.latencyMs,
+        tokens: attempt2.tokens,
+        cost: "unknown",
+        upstreamResponseId: attempt2.upstreamResponseId,
+        finishReason: attempt2.finishReason,
+        responseShape: attempt2.responseShape,
+        error: attempt2.ok ? null : attempt2.error,
+      };
       if (!attempt2.ok || !attempt2.text) {
         d2Valid = false;
         d2ParseKind = attempt2.error ?? "serv_error";
+        if (!d2Telemetry.error) d2Telemetry = { ...d2Telemetry, error: d2ParseKind };
       } else {
         const parsed = input.parsePlanText(attempt2.text);
         if (parsed.ok) {
@@ -1265,6 +1343,10 @@ export async function runSequentialTwoDecision(input: {
           d2ParseKind = null;
         } else {
           d2ParseKind = parsed.kind;
+          d2Telemetry = {
+            ...d2Telemetry,
+            error: `${parsed.kind}: ${parsed.message}`,
+          };
         }
       }
     }
@@ -1299,6 +1381,7 @@ export async function runSequentialTwoDecision(input: {
     stopReason: d2Action ? null : d2ParseKind === "not_invoked" ? "not_invoked" : "parse_fail",
     applyNote: null,
     responseSource: d2ResponseSource,
+    ...d2Telemetry,
   });
 
   if (httpAttemptsTotal > maxHttp) {
@@ -1373,6 +1456,7 @@ export function runOfflineSequentialTwoDecision(input: {
       stopReason: null,
       applyNote: null,
       responseSource: "offline_fixture",
+      ...emptyAttemptTelemetry(),
     },
   ];
 
@@ -1453,6 +1537,7 @@ export function runOfflineSequentialTwoDecision(input: {
     stopReason: d2Action ? null : "not_invoked",
     applyNote: null,
     responseSource: d2Action ? "offline_fixture" : "none",
+    ...emptyAttemptTelemetry(),
   });
 
   return {
