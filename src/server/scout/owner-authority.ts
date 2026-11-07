@@ -1,57 +1,68 @@
 /**
- * Persistent server spend authority for owner-only Scout live path.
+ * Resolve spend authority from an explicit Kv owner grant bound to an af_ key hash.
  *
- * NOT constructed from SCOUT_SERVER_VERIFIED_BALANCE_USD / client attestation.
- * Authority = allowlisted ownerId + SCOUT_PAID_EXECUTION + hard ceiling +
- * Upstash-backed monthly Autodev remaining (ASSUMPTIONS.autodevMonthlyStop − used).
- *
- * Production HTTP never accepts body/harness testAuthority; this is the only
- * non-test path that may return kind: "verified_account_source".
+ * Does NOT invent authorizedSpendUsd / verified balance from allowlist + monthly snapshot.
+ * Call-count budgets come from grant.providers.*.maxCalls with atomic reserve elsewhere.
+ * USD only when the grant explicitly sets maxSpendUsd.
  */
 
 import { ASSUMPTIONS } from "@/domain/assumptions";
 import type { Kv } from "@/io/kv";
 import { isDistributedQuotaBackend } from "@/io/kv";
 import { quotaSnapshot } from "@/io/persistent-quota";
+import { isScoutOwnerAllowlistConfigured, isScoutOwnerAllowlisted } from "./owner-access";
 import {
-  isScoutOwnerAllowlisted,
-  ownerMaxProviderCallsPerRun,
-} from "./owner-access";
-import {
-  MIN_RESERVE_USD,
-  readPaidExecutionConfig,
-  type PaidSpendAuthority,
-} from "./paid-execution";
+  findActiveGrantsForKey,
+  readGrantUsed,
+  remainingGrantCalls,
+  type ScoutGrantProvider,
+  type ScoutOwnerGrant,
+} from "./owner-grant";
+import { readPaidExecutionConfig, type PaidSpendAuthority } from "./paid-execution";
 
 export type OwnerAuthorityResolution =
-  | { ok: true; authority: PaidSpendAuthority }
+  | {
+      ok: true;
+      authority: PaidSpendAuthority;
+      grant: ScoutOwnerGrant;
+      provider: ScoutGrantProvider;
+    }
   | { ok: false; reason: string };
 
-/**
- * Resolve verified_account_source for an allowlisted owner.
- * Returns null/fail when any gate is missing — caller keeps live path closed.
- */
 export async function resolveOwnerSpendAuthority(input: {
   kv: Kv | null;
   ownerId: string;
+  /** SHA-256 of the presenting af_ key — required for production grants. */
+  apiKeyHash: string | null;
+  /** Which provider budget to authorize. */
+  provider: ScoutGrantProvider;
   env?: Record<string, string | undefined>;
+  /** Optional grant id from signed session. */
+  grantId?: string | null;
 }): Promise<OwnerAuthorityResolution> {
   const env = input.env ?? process.env;
 
   if (!input.ownerId?.trim()) {
-    return { ok: false, reason: "ownerId required for verified account authority." };
+    return { ok: false, reason: "ownerId required for owner grant authority." };
   }
-  if (!isScoutOwnerAllowlisted(input.ownerId, env)) {
+  if (!input.apiKeyHash) {
     return {
       ok: false,
       reason:
-        "Owner not on SCOUT_OWNER_USER_IDS allowlist — verified spend authority unavailable (env balance strings are not a grant).",
+        "Owner grant authority requires the presenting af_ key hash. Unsigned af_uid cookies cannot open live spend.",
     };
   }
   if (!input.kv || !isDistributedQuotaBackend(input.kv)) {
     return {
       ok: false,
-      reason: "Verified spend authority requires Upstash Kv (Memory/File are not persistent multi-instance).",
+      reason: "Owner grants require Upstash Kv (Memory/File are not persistent multi-instance).",
+    };
+  }
+
+  if (isScoutOwnerAllowlistConfigured(env) && !isScoutOwnerAllowlisted(input.ownerId, env)) {
+    return {
+      ok: false,
+      reason: "Owner not on SCOUT_OWNER_USER_IDS (optional secondary gate).",
     };
   }
 
@@ -59,55 +70,86 @@ export async function resolveOwnerSpendAuthority(input: {
   if (!config.paidExecutionEnabled) {
     return { ok: false, reason: "SCOUT_PAID_EXECUTION is off." };
   }
-  if (!config.hasAutodevKey) {
-    return { ok: false, reason: "AUTODEV_API_KEY missing — live inventory authority unavailable." };
+  if (input.provider === "autodev" && !config.hasAutodevKey) {
+    return { ok: false, reason: "AUTODEV_API_KEY missing — Autodev grant cannot be exercised." };
+  }
+  if (input.provider === "serv" && !config.hasServKey) {
+    return { ok: false, reason: "SERV_API_KEY missing — SERV grant cannot be exercised." };
   }
   if (config.maxProviderCallsHardCeiling == null || config.maxProviderCallsHardCeiling <= 0) {
     return {
       ok: false,
-      reason: "SCOUT_MAX_PROVIDER_CALLS_HARD_CEILING must be a positive integer for owner live authority.",
+      reason: "SCOUT_MAX_PROVIDER_CALLS_HARD_CEILING must be a positive integer.",
     };
   }
 
-  let monthlyUsed = 0;
-  try {
-    const snap = await quotaSnapshot(input.kv);
-    monthlyUsed = snap.total;
-  } catch (err) {
+  const grants = await findActiveGrantsForKey(input.kv, input.ownerId, input.apiKeyHash);
+  if (!grants.length) {
     return {
       ok: false,
       reason:
-        err instanceof Error
-          ? `Monthly quota snapshot failed (${err.message}) — failing closed.`
-          : "Monthly quota snapshot failed — failing closed.",
+        "No active owner grant bound to this af_ key. Minting a key via unsigned af_uid does not create privileges. Create a Kv grant with apiKeyHash via SCOUT_OWNER_GRANT_ADMIN_TOKEN.",
     };
   }
 
-  const monthlyRemaining = Math.max(0, ASSUMPTIONS.autodevMonthlyStop - monthlyUsed);
-  if (monthlyRemaining <= 0) {
+  let grant = grants[0]!;
+  if (input.grantId) {
+    const match = grants.find((g) => g.id === input.grantId);
+    if (!match) {
+      return { ok: false, reason: "Signed session grantId is not bound to this key." };
+    }
+    grant = match;
+  }
+
+  const budget = grant.providers[input.provider];
+  if (!budget) {
     return {
       ok: false,
-      reason: "Monthly Autodev hard stop reached — no remaining provider budget for owner authority.",
+      reason: `Grant ${grant.id} does not authorize provider ${input.provider} (explicit grant required; no invented balance).`,
     };
   }
 
-  const perRun = ownerMaxProviderCallsPerRun(env);
-  const remainingProviderBudget = Math.min(
-    config.maxProviderCallsHardCeiling,
-    monthlyRemaining,
-    perRun,
-  );
-  if (remainingProviderBudget <= 0) {
-    return { ok: false, reason: "Computed owner provider budget is 0." };
+  const used = await readGrantUsed(input.kv, grant.id, input.provider);
+  let remaining = remainingGrantCalls(grant, input.provider, used);
+  if (remaining <= 0) {
+    return { ok: false, reason: `Grant ${input.provider} call budget exhausted.` };
   }
 
+  // Global Autodev monthly hard stop remains an additional ceiling (not a grant mint).
+  if (input.provider === "autodev") {
+    try {
+      const snap = await quotaSnapshot(input.kv);
+      const monthlyRemaining = Math.max(0, ASSUMPTIONS.autodevMonthlyStop - snap.total);
+      remaining = Math.min(remaining, monthlyRemaining, config.maxProviderCallsHardCeiling);
+    } catch (err) {
+      return {
+        ok: false,
+        reason:
+          err instanceof Error
+            ? `Monthly Autodev quota snapshot failed (${err.message}).`
+            : "Monthly Autodev quota snapshot failed.",
+      };
+    }
+  } else {
+    remaining = Math.min(remaining, config.maxProviderCallsHardCeiling);
+  }
+
+  if (remaining <= 0) {
+    return { ok: false, reason: "Effective remaining provider budget is 0." };
+  }
+
+  // USD only when the operator explicitly set maxSpendUsd on the grant — never MIN_RESERVE_USD fiction.
+  const authorizedSpendUsd =
+    budget.maxSpendUsd != null && budget.maxSpendUsd > 0 ? budget.maxSpendUsd : null;
+
   const authority: PaidSpendAuthority = {
-    kind: "verified_account_source",
-    remainingProviderBudget,
-    // Symbolic positive reserve — actual Autodev spend is gated by per-call Upstash reserve.
-    // Not derived from SCOUT_SERVER_VERIFIED_BALANCE_USD.
-    authorizedSpendUsd: MIN_RESERVE_USD,
-    sourceNote: `owner_allowlist+upstash_monthly remaining=${monthlyRemaining} perRun=${perRun}`,
+    kind: "owner_grant",
+    remainingProviderBudget: remaining,
+    authorizedSpendUsd,
+    sourceNote: `owner_grant:${grant.id} provider=${input.provider} provenance=${grant.provenance}`,
+    grantId: grant.id,
+    providers: Object.keys(grant.providers) as Array<"serv" | "autodev">,
   };
-  return { ok: true, authority };
+
+  return { ok: true, authority, grant, provider: input.provider };
 }

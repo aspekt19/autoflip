@@ -1,7 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
-import { ASSUMPTIONS } from "@/domain/assumptions";
-import { MemoryKv, UpstashKv } from "@/io/kv";
-import { monthKey } from "@/io/quota";
+import { UpstashKv } from "@/io/kv";
+import { saveOwnerGrant, type ScoutOwnerGrant } from "./owner-grant";
 import { resolveOwnerSpendAuthority } from "./owner-authority";
 import { authorizeLiveInventory, readPaidExecutionConfig } from "./paid-execution";
 
@@ -26,7 +25,7 @@ function upstashKv(store: Map<string, string> = new Map()) {
     }
     return Response.json({ result: null });
   });
-  return new UpstashKv("https://upstash.test", "tok", fetchImpl as typeof fetch);
+  return { kv: new UpstashKv("https://upstash.test", "tok", fetchImpl as typeof fetch), store };
 }
 
 const paidEnv = {
@@ -35,21 +34,24 @@ const paidEnv = {
   SERV_API_KEY: "serv",
   SCOUT_MAX_PROVIDER_CALLS_HARD_CEILING: "5",
   SCOUT_OWNER_USER_IDS: "owner-a",
-  SCOUT_OWNER_MAX_PROVIDER_CALLS_PER_RUN: "3",
   SCOUT_SERVER_VERIFIED_BALANCE_USD: "999",
   UPSTASH_REDIS_REST_URL: "https://upstash.test",
   UPSTASH_REDIS_REST_TOKEN: "tok",
 };
 
-describe("owner verified_account_source authority", () => {
-  it("env balance alone never authorizes without allowlist", async () => {
-    const kv = upstashKv();
+describe("owner_grant authority (no invented balance)", () => {
+  it("allowlist + env balance alone never authorizes without key-bound grant", async () => {
+    const { kv } = upstashKv();
     const resolved = await resolveOwnerSpendAuthority({
       kv,
-      ownerId: "stranger",
+      ownerId: "owner-a",
+      apiKeyHash: "a".repeat(64),
+      provider: "autodev",
       env: paidEnv,
     });
     expect(resolved.ok).toBe(false);
+    if (!resolved.ok) expect(resolved.reason).toMatch(/grant|apiKeyHash|bound/i);
+
     const gate = authorizeLiveInventory({
       config: readPaidExecutionConfig(paidEnv),
       kv,
@@ -58,48 +60,68 @@ describe("owner verified_account_source authority", () => {
     expect(gate.ok).toBe(false);
   });
 
-  it("allowlisted owner + Upstash monthly remaining builds verified_account_source", async () => {
-    const kv = upstashKv();
+  it("unsigned path without apiKeyHash is rejected", async () => {
+    const { kv } = upstashKv();
     const resolved = await resolveOwnerSpendAuthority({
       kv,
       ownerId: "owner-a",
-      env: paidEnv,
-    });
-    expect(resolved.ok).toBe(true);
-    if (!resolved.ok) return;
-    expect(resolved.authority.kind).toBe("verified_account_source");
-    expect(resolved.authority.remainingProviderBudget).toBe(3);
-    expect(resolved.authority.sourceNote).toMatch(/owner_allowlist\+upstash_monthly/);
-    expect(resolved.authority.sourceNote).not.toMatch(/SCOUT_SERVER_VERIFIED_BALANCE/);
-
-    const gate = authorizeLiveInventory({
-      config: readPaidExecutionConfig(paidEnv),
-      kv,
-      testAuthority: resolved.authority,
-    });
-    expect(gate.ok).toBe(true);
-  });
-
-  it("Memory Kv cannot mint owner authority", async () => {
-    const resolved = await resolveOwnerSpendAuthority({
-      kv: new MemoryKv(),
-      ownerId: "owner-a",
+      apiKeyHash: null,
+      provider: "serv",
       env: paidEnv,
     });
     expect(resolved.ok).toBe(false);
-    if (!resolved.ok) expect(resolved.reason).toMatch(/Upstash/i);
+    if (!resolved.ok) expect(resolved.reason).toMatch(/key hash|unsigned/i);
   });
 
-  it("monthly hard stop exhausted → no authority", async () => {
-    const store = new Map<string, string>();
-    store.set(`quota:total:count:${monthKey()}`, String(ASSUMPTIONS.autodevMonthlyStop));
-    const kv = upstashKv(store);
-    const resolved = await resolveOwnerSpendAuthority({
+  it("key-bound grant builds owner_grant without inventing USD", async () => {
+    const { kv } = upstashKv();
+    const hash = "b".repeat(64);
+    const grant: ScoutOwnerGrant = {
+      version: 1,
+      id: "grant-1",
+      ownerUserId: "owner-a",
+      apiKeyHash: hash,
+      providers: {
+        serv: { maxCalls: 4, maxSpendUsd: null, note: "controlled SERV series" },
+      },
+      expiresAt: null,
+      provenance: "test:explicit_serv_grant",
+      createdAt: new Date().toISOString(),
+    };
+    expect((await saveOwnerGrant(kv, grant)).ok).toBe(true);
+
+    const serv = await resolveOwnerSpendAuthority({
       kv,
       ownerId: "owner-a",
+      apiKeyHash: hash,
+      provider: "serv",
       env: paidEnv,
     });
-    expect(resolved.ok).toBe(false);
-    if (!resolved.ok) expect(resolved.reason).toMatch(/hard stop|remaining/i);
+    expect(serv.ok).toBe(true);
+    if (!serv.ok) return;
+    expect(serv.authority.kind).toBe("owner_grant");
+    expect(serv.authority.authorizedSpendUsd).toBeNull();
+    expect(serv.authority.sourceNote).toMatch(/owner_grant:grant-1/);
+    expect(serv.authority.sourceNote).not.toMatch(/MIN_RESERVE|verified_balance|999/);
+
+    const autodev = await resolveOwnerSpendAuthority({
+      kv,
+      ownerId: "owner-a",
+      apiKeyHash: hash,
+      provider: "autodev",
+      env: paidEnv,
+    });
+    expect(autodev.ok).toBe(false);
+    if (!autodev.ok) expect(autodev.reason).toMatch(/does not authorize provider autodev/i);
+
+    // Different minted key hash cannot use the grant
+    const other = await resolveOwnerSpendAuthority({
+      kv,
+      ownerId: "owner-a",
+      apiKeyHash: "c".repeat(64),
+      provider: "serv",
+      env: paidEnv,
+    });
+    expect(other.ok).toBe(false);
   });
 });

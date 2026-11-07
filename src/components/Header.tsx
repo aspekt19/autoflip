@@ -5,7 +5,7 @@ import { usePathname } from "next/navigation";
 import { useEffect, useId, useRef, useState } from "react";
 import { BrandLockup } from "./BrandLockup";
 
-const NAV_LINKS = [
+const BASE_NAV_LINKS = [
   { href: "/find", label: "Find a car" },
   { href: "/check", label: "Check a car" },
   { href: "/radar", label: "Deal Radar" },
@@ -15,13 +15,16 @@ const NAV_LINKS = [
   { href: "/pricing", label: "Pricing" },
 ] as const;
 
-export function Header() {
+export function Header({ scoutNavEnabled = false }: { scoutNavEnabled?: boolean }) {
   const pathname = usePathname();
   const [credits, setCredits] = useState<number | null>(null);
   const [menuOpen, setMenuOpen] = useState(false);
   const menuBtnRef = useRef<HTMLButtonElement>(null);
   const navRef = useRef<HTMLElement>(null);
   const navId = useId();
+  const navLinks = scoutNavEnabled
+    ? [...BASE_NAV_LINKS.slice(0, 3), { href: "/scout", label: "Scout" }, ...BASE_NAV_LINKS.slice(3)]
+    : [...BASE_NAV_LINKS];
 
   useEffect(() => {
     let cancelled = false;
@@ -71,7 +74,7 @@ export function Header() {
     <header className="bar">
       <BrandLockup size={58} animated className="brand" surface="dark" />
       <nav id={navId} ref={navRef} aria-label="Primary" className={menuOpen ? "nav-open" : undefined}>
-        {NAV_LINKS.map((item) => (
+        {navLinks.map((item) => (
           <Link key={item.href} href={item.href} onClick={() => setMenuOpen(false)}>
             {item.label}
           </Link>

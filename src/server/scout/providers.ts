@@ -24,6 +24,7 @@ import {
   reserveAutodevCall,
   type PaidSpendAuthority,
 } from "./paid-execution";
+import { loadOwnerGrant, releaseGrantProviderCall, reserveGrantProviderCall } from "./owner-grant";
 
 export type InventoryMode = "replay" | "live";
 
@@ -173,6 +174,7 @@ export function resolveLiveInventory(input: ResolveLiveInventoryInput): ScoutInv
         }
 
         // Exact per-dispatch reserve BEFORE this make/model's network.
+        // Global monthly INCR + (when owner_grant) per-grant Autodev INCR — snapshot is not a reserve.
         const quota = await reserveAutodevCall(input.kv);
         if (!quota.ok) {
           if (byVin.size === 0) {
@@ -185,6 +187,36 @@ export function resolveLiveInventory(input: ResolveLiveInventoryInput): ScoutInv
             };
           }
           break;
+        }
+        let grantReserved = false;
+        const grantId = input.testAuthority?.kind === "owner_grant" ? input.testAuthority.grantId : null;
+        if (grantId) {
+          const grant = await loadOwnerGrant(input.kv, grantId);
+          if (!grant) {
+            await refundAutodevReservation(input.kv);
+            return {
+              ok: false,
+              error: "provider_unavailable",
+              message: "Owner grant missing at reserve time — failing closed.",
+              providerCallsUsed,
+              isFixture: false,
+            };
+          }
+          const gReserve = await reserveGrantProviderCall(input.kv, grant, "autodev");
+          if (!gReserve.ok) {
+            await refundAutodevReservation(input.kv);
+            if (byVin.size === 0) {
+              return {
+                ok: false,
+                error: "provider_unavailable",
+                message: gReserve.message,
+                providerCallsUsed,
+                isFixture: false,
+              };
+            }
+            break;
+          }
+          grantReserved = true;
         }
         remaining.left -= 1;
         lastUsed = quota.used;
@@ -246,8 +278,11 @@ export function resolveLiveInventory(input: ResolveLiveInventoryInput): ScoutInv
         const wasCached = result.cached;
         cachedFlags.push(wasCached);
         if (wasCached) {
-          // Confirmed no network — refund monthly counter AND local remaining.
+          // Confirmed no network — refund monthly counter, grant counter, AND local remaining.
           await refundAutodevReservation(input.kv);
+          if (grantReserved && grantId) {
+            await releaseGrantProviderCall(input.kv, grantId, "autodev");
+          }
           remaining.left += 1;
         } else {
           providerCallsUsed += 1;

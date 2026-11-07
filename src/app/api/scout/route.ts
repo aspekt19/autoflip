@@ -1,18 +1,15 @@
 import { NextResponse } from "next/server";
 import { getKv } from "@/io/kv";
-import { agentAccount } from "@/server/agent-access";
+import { resolveApiKeyRecord } from "@/server/api-keys";
 import { scoutCapabilities } from "@/server/scout/capabilities";
 import { isScoutEnabled, scoutConfigMessage } from "@/server/scout/config";
 import { postScoutStart } from "@/server/scout/http-start";
 import { readPaidExecutionConfig, SCOUT_REQUEST_SAFETY } from "@/server/scout/paid-execution";
+import { loadOwnerGrant } from "@/server/scout/owner-grant";
+import { readScoutSignedSession } from "@/server/scout/signed-session";
 
 export const runtime = "nodejs";
 
-/**
- * POST /api/scout — start or resume a bounded scout run. Default disabled.
- * Production entry: no second-arg hooks, no client testAuthority/env grant.
- * Injection lives in `@/server/scout/http-start` (not a Route export).
- */
 export async function POST(req: Request) {
   return postScoutStart(req);
 }
@@ -26,18 +23,42 @@ function bearer(req: Request): string | null {
 
 /**
  * GET /api/scout — capability snapshot (env NAMES / booleans only).
- * Optional Authorization: Bearer af_… adds owner-scoped canPreferLive / canUseServPlanner.
+ * Bearer af_ or signed Scout session adds owner-scoped capabilities.
+ * Unsigned af_uid is ignored.
  */
 export async function GET(req: Request) {
   const kv = getKv();
   const token = bearer(req);
+  const session = await readScoutSignedSession();
+
   let ownerId: string | null = null;
+  let apiKeyHash: string | null = null;
+  let grantId: string | null = null;
+  let sessionAuthenticated = false;
+
   if (token) {
-    const account = await agentAccount(kv, token);
-    if (account && account !== "invalid") ownerId = account;
+    const record = await resolveApiKeyRecord(kv, token);
+    if (record) {
+      ownerId = record.userId;
+      apiKeyHash = record.hash;
+    }
+  } else if (session) {
+    const grant = await loadOwnerGrant(kv, session.grantId);
+    if (grant && grant.ownerUserId === session.userId) {
+      ownerId = session.userId;
+      apiKeyHash = grant.apiKeyHash;
+      grantId = grant.id;
+      sessionAuthenticated = true;
+    }
   }
 
-  const caps = await scoutCapabilities({ kv, ownerId });
+  const caps = await scoutCapabilities({
+    kv,
+    ownerId,
+    apiKeyHash,
+    grantId,
+    sessionAuthenticated,
+  });
   const paid = readPaidExecutionConfig();
 
   return NextResponse.json({
@@ -48,23 +69,25 @@ export async function GET(req: Request) {
     endpoints: {
       start: "POST /api/scout",
       read: "GET /api/scout/:runId",
+      session: "POST /api/scout/session",
+      ownerGrant: "POST /api/scout/owner-grant (admin token)",
     },
     defaults: {
       inventory: caps.owner?.canPreferLive
-        ? "owner live path available when preferLive=true (no fixture fallback)"
-        : "replay fixture default — live requires owner allowlist + Upstash authority (env balance strings are not a grant)",
+        ? "owner Autodev grant available when preferLive=true (no fixture fallback)"
+        : "replay default — live requires Kv owner_grant bound to apiKeyHash (unsigned af_uid is not auth)",
       planner: caps.owner?.canUseServPlanner
-        ? "serv planner available when planner=serv"
-        : "offline_heuristic default (scout_plan SERV only when SCOUT_ALLOW_SERV_PLANNER + owner authority)",
+        ? "serv planner available when planner=serv (SERV grant; independent of Autodev)"
+        : "offline_heuristic default",
       clientSpendAttestation: "rejected — env attestation is not authorization",
       paidLivePath: caps.owner?.canPreferLive
-        ? "owner verified_account_source via allowlist + monthly Upstash remaining"
-        : "deliberately disabled until SCOUT_OWNER_USER_IDS + paid flags + Upstash — no $5 guarantee claim while blocked",
+        ? "owner_grant + atomic grant INCR + monthly Autodev INCR"
+        : "deliberately disabled until explicit owner_grant — no invented $ balance",
       idempotency: SCOUT_REQUEST_SAFETY.idempotencyHeader,
       abortRefundPolicy: SCOUT_REQUEST_SAFETY.abortRefundPolicy,
-      ui: "GET /scout behind SCOUT_UI_ENABLED (independent of SCOUT_ENABLED; not in primary header nav)",
+      ui: "GET /scout behind SCOUT_UI_ENABLED; linked in primary nav when UI enabled",
       authNote:
-        "PR54 Auth.js optional — existing af_ API keys from /developers suffice for owner-only Scout",
+        "Signed af_scout_sid session or Bearer af_ bound to owner_grant. Unsigned af_uid / public key minting cannot inherit owner privileges.",
     },
   });
 }

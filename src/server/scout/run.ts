@@ -34,6 +34,8 @@ export type ScoutRunHarness = {
 
 export async function executeScoutRun(input: {
   ownerId: string;
+  apiKeyHash?: string | null;
+  grantId?: string | null;
   body: StartScoutBody;
   kv: Kv | null;
   resume?: ScoutRunResult | null;
@@ -41,7 +43,7 @@ export async function executeScoutRun(input: {
   idempotencyKey?: string | null;
   /**
    * Integration/tests only. Production `POST /api/scout` never supplies harness.
-   * Live spend opens only via owner allowlist + Upstash authority (or test stub).
+   * Live spend opens only via owner_grant bound to apiKeyHash (or test stub).
    */
   harness?: ScoutRunHarness | null;
 }): Promise<
@@ -61,6 +63,8 @@ export async function executeScoutRun(input: {
 
   const req: SafeScoutRequest = {
     ownerId: input.ownerId,
+    apiKeyHash: input.apiKeyHash ?? null,
+    grantId: input.grantId ?? null,
     mandate: cleaned.mandate,
     planner: cleaned.planner ?? "offline_heuristic",
     preferLive: Boolean(cleaned.preferLive),

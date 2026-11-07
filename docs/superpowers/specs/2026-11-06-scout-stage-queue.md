@@ -164,33 +164,35 @@ broke `next build` / generated route types (invalid Route field). Bounded fix:
 - Verified: `npx tsc --noEmit` exit 0; `npm run build` exit 0; offline `next start`
   smoke GET `/api/scout` + `/scout` flag off/on (HTML source inspection — not browser E2E)
 
-## STAGE-OWNER-LIVE — PIN b388076 owner allowlist + Upstash authority
+## STAGE-OWNER-AUTH — PIN (pending) grant-bound session; unsigned af_uid closed
 
-Reversible repository work so owner can eventually test **production** with an arbitrary
-mandate (not curated demo). Offline browser E2E at b454869 remains complete for fixture only.
+Independent review of b388076: unsigned `af_uid` + `/api/agents/keys` mint could
+impersonate allowlisted UUID. Fixed at root — not label edits.
 
-**Implemented (this pin):**
-- `SCOUT_OWNER_USER_IDS` allowlist (af_ userIds) — PR54 Auth.js **not** required; existing keys suffice
-- Persistent `verified_account_source` from allowlist + Upstash monthly Autodev remaining +
-  `SCOUT_MAX_PROVIDER_CALLS_HARD_CEILING` (+ optional `SCOUT_OWNER_MAX_PROVIDER_CALLS_PER_RUN`)
-  — **never** from `SCOUT_SERVER_VERIFIED_BALANCE_USD` / client attestation
-- `preferLive=true` fail-closed: no Camry fixture substituted as live (`presentation.kind=live_blocked`)
-- Distributed per-owner concurrency lock (`scout:run-lock:{userId}`)
-- GET `/api/scout` capabilities (+ optional Bearer for `canPreferLive` / `canUseServPlanner`)
-- `/scout` UI: arbitrary makes/ZIP/distance/budget + prefer-live/SERV only when capabilities allow
-- Defaults remain OFF; Scout still not in primary header nav
+**Security / authority:**
+- Scout auth = HMAC `af_scout_sid` (from grant-bound af_ key) OR Bearer af_
+- Unsigned `af_uid` **never** authorizes Scout / live spend
+- Explicit Kv `owner_grant` bound to `apiKeyHash` (admin token create); freshly minted
+  keys for forged UUIDs do **not** inherit privileges
+- No invented `authorizedSpendUsd: MIN_RESERVE_USD` — USD only if grant sets `maxSpendUsd`;
+  otherwise call-count-only with honest provenance
+- SERV vs Autodev grants independent; Autodev monthly INCR + per-grant INCR are reserves
+  (snapshot remaining is not a reserve)
+- `preferLive` fail-closed (`live_blocked`); Scout in primary nav **only when** `SCOUT_UI_ENABLED`
 
-**Env NAMES only (values set in host — not by this agent):**
-`SCOUT_ENABLED`, `SCOUT_UI_ENABLED`, `SCOUT_PAID_EXECUTION`,
-`SCOUT_MAX_PROVIDER_CALLS_HARD_CEILING`, `SCOUT_OWNER_USER_IDS`,
-`SCOUT_OWNER_MAX_PROVIDER_CALLS_PER_RUN`, `SCOUT_ALLOW_SERV_PLANNER`,
+**Env NAMES:** `SCOUT_ENABLED`, `SCOUT_UI_ENABLED`, `SCOUT_PAID_EXECUTION`,
+`SCOUT_MAX_PROVIDER_CALLS_HARD_CEILING`, `SCOUT_OWNER_USER_IDS` (optional secondary),
+`SCOUT_SESSION_SECRET`, `SCOUT_OWNER_GRANT_ADMIN_TOKEN`, `SCOUT_ALLOW_SERV_PLANNER`,
 `AUTODEV_API_KEY`, `SERV_API_KEY`, `UPSTASH_REDIS_REST_URL`, `UPSTASH_REDIS_REST_TOKEN`
+(+ optional `AUTH_SECRET` as session secret fallback)
 
-**Still impossible without external configuration / spend authorization:**
-- Real Auto.dev listings (no Auto.dev spend authorized in cloud runs; key+authority on host)
-- Live SERV planner series (credits exist centrally; sequential series not spent here)
-- Production flag enable / deploy / merge / Graph / Agent.process
-- PR54 Auth.js (optional; orthogonal package.json/globals.css overlap only)
+**Still blocked without host setup / spend auth:** Autodev spend, production flag enable,
+merge/deploy/Graph. SERV small series needs explicit SERV grant + flags — not spent here.
+
+## STAGE-OWNER-LIVE — PIN b388076 (superseded for auth — see STAGE-OWNER-AUTH)
+
+Prior allowlist+monthly-snapshot authority was insufficient (review). Prefer-live
+fail-closed + arbitrary mandate UI retained; privilege model replaced above.
 
 ## STAGE-BROWSER-E2E — PIN b454869 (compiled local next start clickthrough)
 

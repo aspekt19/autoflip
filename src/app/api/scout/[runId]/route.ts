@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { getKv } from "@/io/kv";
 import { authorizeScoutRead } from "@/server/scout/access";
 import { isScoutEnabled } from "@/server/scout/config";
+import { readScoutSignedSession } from "@/server/scout/signed-session";
 import { loadScoutMeta, loadScoutRun } from "@/server/scout/store";
 
 export const runtime = "nodejs";
@@ -21,7 +22,11 @@ export async function GET(req: Request, ctx: { params: Promise<{ runId: string }
     return NextResponse.json({ error: "run_not_found" }, { status: 404 });
   }
 
-  const access = await authorizeScoutRead(kv, bearer(req), run.ownerId);
+  const access = await authorizeScoutRead(
+    kv,
+    { bearerToken: bearer(req), signedSession: await readScoutSignedSession() },
+    run.ownerId,
+  );
   if (!access.ok) {
     return NextResponse.json(access.body, { status: access.status });
   }

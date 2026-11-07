@@ -1,14 +1,21 @@
 import type { Kv } from "@/io/kv";
-import { agentAccount, creditsRequiredBody, invalidKeyBody } from "@/server/agent-access";
+import { creditsRequiredBody, invalidKeyBody } from "@/server/agent-access";
+import { resolveApiKeyRecord } from "@/server/api-keys";
 import { isScoutEnabled, scoutConfigMessage } from "./config";
 import {
   isScoutOwnerAllowlistConfigured,
   ownerMayStartScout,
 } from "./owner-access";
+import { loadOwnerGrant } from "./owner-grant";
+import type { ScoutSignedSession } from "./signed-session";
 
 export type ScoutAccessOk = {
   ok: true;
   userId: string;
+  /** Present when caller used a Bearer af_ key (or session bound to one). */
+  apiKeyHash: string | null;
+  grantId: string | null;
+  authMethod: "api_key" | "signed_session";
 };
 
 export type ScoutAccessDenied = {
@@ -32,14 +39,119 @@ function rateLimit(userId: string, nowMs = Date.now()): boolean {
   return true;
 }
 
+export type ScoutAuthInput = {
+  bearerToken: string | null;
+  /** Verified HMAC session — never an unsigned af_uid cookie. */
+  signedSession?: ScoutSignedSession | null;
+};
+
+async function resolveScoutIdentity(
+  kv: Kv,
+  auth: ScoutAuthInput,
+  env: Record<string, string | undefined>,
+  origin: string,
+  opts: { rateLimit: boolean },
+): Promise<ScoutAccessOk | ScoutAccessDenied> {
+  const bearer = auth.bearerToken?.trim() || null;
+  const session = auth.signedSession ?? null;
+
+  if (bearer) {
+    const record = await resolveApiKeyRecord(kv, bearer);
+    if (!record) {
+      return { ok: false, status: 401, body: invalidKeyBody() };
+    }
+    if (!ownerMayStartScout(record.userId, env)) {
+      return {
+        ok: false,
+        status: 403,
+        body: {
+          error: "owner_not_allowlisted",
+          message: isScoutOwnerAllowlistConfigured(env)
+            ? "Scout is restricted to SCOUT_OWNER_USER_IDS. This API key’s account is not on the allowlist."
+            : "Scout owner allowlist rejected this account.",
+        },
+      };
+    }
+    if (opts.rateLimit && !rateLimit(record.userId)) {
+      return {
+        ok: false,
+        status: 429,
+        body: {
+          error: "rate_limited",
+          message: "Too many scout starts for this key. Retry after one minute.",
+        },
+      };
+    }
+    void creditsRequiredBody;
+    return {
+      ok: true,
+      userId: record.userId,
+      apiKeyHash: record.hash,
+      grantId: null,
+      authMethod: "api_key",
+    };
+  }
+
+  if (session) {
+    if (!ownerMayStartScout(session.userId, env)) {
+      return {
+        ok: false,
+        status: 403,
+        body: {
+          error: "owner_not_allowlisted",
+          message: "Signed Scout session user is not on SCOUT_OWNER_USER_IDS.",
+        },
+      };
+    }
+    const grant = await loadOwnerGrant(kv, session.grantId);
+    if (!grant || grant.ownerUserId !== session.userId) {
+      return {
+        ok: false,
+        status: 401,
+        body: {
+          error: "scout_session_invalid",
+          message: "Scout session grant is missing or mismatched. Sign in again with a grant-bound key.",
+        },
+      };
+    }
+    if (opts.rateLimit && !rateLimit(session.userId)) {
+      return {
+        ok: false,
+        status: 429,
+        body: {
+          error: "rate_limited",
+          message: "Too many scout starts for this account. Retry after one minute.",
+        },
+      };
+    }
+    return {
+      ok: true,
+      userId: session.userId,
+      apiKeyHash: grant.apiKeyHash,
+      grantId: grant.id,
+      authMethod: "signed_session",
+    };
+  }
+
+  return {
+    ok: false,
+    status: 401,
+    body: {
+      error: "scout_auth_required",
+      message:
+        "Scout requires a signed Scout session (browser) or Authorization: Bearer af_… (API). Unsigned af_uid cookies are not accepted.",
+      sessionUrl: `${origin}/api/scout/session`,
+    },
+  };
+}
+
 /**
- * Gate scout execution. PR54 Auth.js is optional — existing af_ keys suffice.
- * Unauthenticated callers never reach paid inventory even if SCOUT_ENABLED=true.
- * When SCOUT_OWNER_USER_IDS is set, only listed userIds may start (owner-only surface).
+ * Gate scout execution.
+ * Unsigned af_uid alone never authorizes Scout starts or live spend.
  */
 export async function authorizeScoutStart(
   kv: Kv,
-  bearerToken: string | null,
+  auth: ScoutAuthInput | string | null,
   origin: string,
   env: Record<string, string | undefined> = process.env,
 ): Promise<ScoutAccessOk | ScoutAccessDenied> {
@@ -54,80 +166,39 @@ export async function authorizeScoutStart(
     };
   }
 
-  if (!bearerToken) {
-    return {
-      ok: false,
-      status: 401,
-      body: {
-        error: "api_key_required",
-        message: "Scout requires Authorization: Bearer af_… from /developers. Unauthenticated scout execution is forbidden.",
-        buyCreditsUrl: `${origin}/credits`,
-      },
-    };
-  }
+  // Back-compat for tests that still pass a bare bearer string.
+  const normalized: ScoutAuthInput =
+    typeof auth === "string" || auth == null
+      ? { bearerToken: auth, signedSession: null }
+      : auth;
 
-  const account = await agentAccount(kv, bearerToken);
-  if (account === "invalid") {
-    return { ok: false, status: 401, body: invalidKeyBody() };
-  }
-  if (!account) {
-    return {
-      ok: false,
-      status: 401,
-      body: {
-        error: "api_key_required",
-        message: "Scout only accepts Lemonless af_ API keys.",
-      },
-    };
-  }
-
-  if (!ownerMayStartScout(account, env)) {
-    return {
-      ok: false,
-      status: 403,
-      body: {
-        error: "owner_not_allowlisted",
-        message: isScoutOwnerAllowlistConfigured(env)
-          ? "Scout is restricted to SCOUT_OWNER_USER_IDS. This API key’s account is not on the allowlist."
-          : "Scout owner allowlist rejected this account.",
-      },
-    };
-  }
-
-  if (!rateLimit(account)) {
-    return {
-      ok: false,
-      status: 429,
-      body: {
-        error: "rate_limited",
-        message: "Too many scout starts for this key. Retry after one minute.",
-      },
-    };
-  }
-
-  // Report-credit debit for scout is not wired; live Autodev uses Upstash monthly reserve.
-  void creditsRequiredBody;
-  return { ok: true, userId: account };
+  return resolveScoutIdentity(kv, normalized, env, origin, { rateLimit: true });
 }
 
 export async function authorizeScoutRead(
   kv: Kv,
-  bearerToken: string | null,
+  auth: ScoutAuthInput | string | null,
   ownerId: string,
 ): Promise<ScoutAccessOk | ScoutAccessDenied> {
-  if (!bearerToken) {
-    return { ok: false, status: 401, body: { error: "api_key_required", message: "API key required." } };
-  }
-  const account = await agentAccount(kv, bearerToken);
-  if (account === "invalid" || !account) {
-    return { ok: false, status: 401, body: invalidKeyBody() };
-  }
-  if (account !== ownerId) {
+  const normalized: ScoutAuthInput =
+    typeof auth === "string" || auth == null
+      ? { bearerToken: auth, signedSession: null }
+      : auth;
+
+  const identity = await resolveScoutIdentity(
+    kv,
+    normalized,
+    { SCOUT_ENABLED: "true", ...process.env },
+    "http://localhost",
+    { rateLimit: false },
+  );
+  if (!identity.ok) return identity;
+  if (identity.userId !== ownerId) {
     return {
       ok: false,
       status: 403,
       body: { error: "unauthorized", message: "This scout run belongs to another account." },
     };
   }
-  return { ok: true, userId: account };
+  return identity;
 }

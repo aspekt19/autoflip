@@ -30,7 +30,8 @@ describe("scout access", () => {
     expect(result.ok).toBe(false);
     if (!result.ok) {
       expect(result.status).toBe(401);
-      expect(result.body.error).toBe("api_key_required");
+      // Unsigned af_uid is not accepted — require signed session or Bearer af_.
+      expect(result.body.error).toBe("scout_auth_required");
     }
   });
 });

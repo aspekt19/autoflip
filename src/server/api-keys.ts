@@ -12,8 +12,29 @@ export type ApiKeyRecord = {
 
 type StoredKey = ApiKeyRecord & { userId: string; hash: string };
 
-function hashToken(token: string): string {
+export function hashApiKeyToken(token: string): string {
   return createHash("sha256").update(token).digest("hex");
+}
+
+function hashToken(token: string): string {
+  return hashApiKeyToken(token);
+}
+
+/** Resolve full stored key row (hash + userId) for grant binding checks. */
+export async function resolveApiKeyRecord(
+  kv: Kv,
+  token: string,
+): Promise<{ userId: string; hash: string; id: string } | null> {
+  if (!token.startsWith("af_")) return null;
+  const raw = await kv.get(tokenKey(hashToken(token)));
+  if (!raw) return null;
+  try {
+    const stored = JSON.parse(raw) as StoredKey;
+    if (!stored.userId || stored.revokedAt || !stored.hash) return null;
+    return { userId: stored.userId, hash: stored.hash, id: stored.id };
+  } catch {
+    return null;
+  }
 }
 
 function tokenKey(hash: string): string {

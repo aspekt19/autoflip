@@ -29,6 +29,9 @@ import { saveScoutRun } from "./store";
 
 export type SafeScoutRequest = {
   ownerId: string;
+  /** SHA-256 of presenting af_ key (or grant-bound hash from signed session). */
+  apiKeyHash?: string | null;
+  grantId?: string | null;
   mandate: unknown;
   preferLive?: boolean;
   planner?: "offline_heuristic" | "serv" | "mock_script";
@@ -198,17 +201,38 @@ export async function executeScoutSafely(input: {
     mandateHash = claim.mandateHash;
   }
 
-  // Spend authority: test harness injection OR owner allowlist + Upstash monthly remaining.
-  // Never from env balance strings / client body.
-  let spendAuthority: PaidSpendAuthority | null = input.testAuthority ?? null;
-  if (!spendAuthority) {
-    const resolved = await resolveOwnerSpendAuthority({
-      kv: input.kv,
-      ownerId: input.req.ownerId,
-      env,
-    });
-    if (resolved.ok) spendAuthority = resolved.authority;
+  // Spend authority: test harness OR explicit Kv owner_grant bound to apiKeyHash.
+  // Never from env balance / unsigned af_uid / allowlist alone.
+  // Autodev inventory and SERV planner resolve separately (SERV-only grants allowed).
+  let inventoryAuthority: PaidSpendAuthority | null = input.testAuthority ?? null;
+  let servAuthority: PaidSpendAuthority | null = input.testAuthority ?? null;
+  const preferLive = Boolean(input.req.preferLive);
+  const plannerModeEarly = input.req.planner ?? "offline_heuristic";
+  if (!input.testAuthority && input.req.apiKeyHash) {
+    if (preferLive) {
+      const resolved = await resolveOwnerSpendAuthority({
+        kv: input.kv,
+        ownerId: input.req.ownerId,
+        apiKeyHash: input.req.apiKeyHash,
+        grantId: input.req.grantId,
+        provider: "autodev",
+        env,
+      });
+      if (resolved.ok) inventoryAuthority = resolved.authority;
+    }
+    if (plannerModeEarly === "serv") {
+      const resolved = await resolveOwnerSpendAuthority({
+        kv: input.kv,
+        ownerId: input.req.ownerId,
+        apiKeyHash: input.req.apiKeyHash,
+        grantId: input.req.grantId,
+        provider: "serv",
+        env,
+      });
+      if (resolved.ok) servAuthority = resolved.authority;
+    }
   }
+  const spendAuthority = inventoryAuthority ?? servAuthority;
 
   const lockToken =
     input.req.idempotencyKey?.trim() ||
@@ -228,14 +252,16 @@ export async function executeScoutSafely(input: {
   }
 
   try {
+    void spendAuthority;
     // Server-owned budgets only — clients cannot raise ceilings.
     const budgets = serverScoutBudgets({
-      maxProviderCalls: spendAuthority
-        ? Math.max(0, spendAuthority.remainingProviderBudget)
-        : 0,
+      maxProviderCalls: inventoryAuthority
+        ? Math.max(0, inventoryAuthority.remainingProviderBudget)
+        : servAuthority
+          ? Math.max(0, servAuthority.remainingProviderBudget)
+          : 0,
     });
 
-    const preferLive = Boolean(input.req.preferLive);
     const autodev =
       preferLive && input.autodevDeps?.apiKey
         ? {
@@ -256,10 +282,10 @@ export async function executeScoutSafely(input: {
       env,
       maxProviderCalls: budgets.maxProviderCalls,
       signal: input.signal,
-      testAuthority: spendAuthority,
+      testAuthority: inventoryAuthority,
     });
 
-    const plannerMode = input.req.planner ?? "offline_heuristic";
+    const plannerMode = plannerModeEarly;
     let planner;
     let autonomyClaim: "serv_directed" | "none" = "none";
 
@@ -272,7 +298,7 @@ export async function executeScoutSafely(input: {
       const paid = authorizeLiveServPlanner({
         config: readPaidExecutionConfig(env),
         kv: input.kv,
-        testAuthority: spendAuthority,
+        testAuthority: servAuthority,
       });
       const allowFlag =
         env.SCOUT_ALLOW_SERV_PLANNER?.trim().toLowerCase() === "1" ||
@@ -290,7 +316,7 @@ export async function executeScoutSafely(input: {
           baseUrl: env.SERV_BASE_URL,
           model: env.SERV_MODEL,
           kv: input.kv,
-          testAuthority: spendAuthority,
+          testAuthority: servAuthority,
           config: readPaidExecutionConfig(env),
           env,
           fetch: input.servFetch,

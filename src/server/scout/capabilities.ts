@@ -1,6 +1,6 @@
 /**
  * Public / owner-scoped Scout capability snapshot for UI and ops.
- * Never includes secrets or balance numbers that could be mistaken for grants.
+ * Never includes secrets or invented dollar balances.
  */
 
 import type { Kv } from "@/io/kv";
@@ -23,16 +23,12 @@ export type ScoutCapabilities = {
   servPlannerFlag: boolean;
   storage: ReturnType<typeof storageMode>;
   distributedKv: boolean;
-  /** Server has Autodev key configured (boolean only). */
   autodevKeyConfigured: boolean;
   servKeyConfigured: boolean;
   hardCeilingSet: boolean;
-  /**
-   * Mechanism description — not a grant. Env balance strings remain non-authorizing.
-   */
+  sessionAuthenticated: boolean;
   spendAuthorityMechanism: string;
   clientSpendAttestation: "rejected";
-  /** Present when caller supplied a resolved ownerId (authenticated capability). */
   owner?: {
     userId: string;
     allowlisted: boolean;
@@ -47,6 +43,9 @@ export async function scoutCapabilities(input: {
   kv?: Kv | null;
   env?: Record<string, string | undefined>;
   ownerId?: string | null;
+  apiKeyHash?: string | null;
+  grantId?: string | null;
+  sessionAuthenticated?: boolean;
 }): Promise<ScoutCapabilities> {
   const env = input.env ?? process.env;
   const paid = readPaidExecutionConfig(env);
@@ -65,29 +64,49 @@ export async function scoutCapabilities(input: {
     servKeyConfigured: paid.hasServKey,
     hardCeilingSet:
       paid.maxProviderCallsHardCeiling != null && paid.maxProviderCallsHardCeiling > 0,
+    sessionAuthenticated: Boolean(input.sessionAuthenticated),
     spendAuthorityMechanism:
-      "SCOUT_OWNER_USER_IDS allowlist + Upstash monthly Autodev remaining + SCOUT_MAX_PROVIDER_CALLS_HARD_CEILING (SCOUT_SERVER_VERIFIED_BALANCE_USD is not a grant)",
+      "Kv owner_grant bound to af_ key hash + atomic per-provider INCR (SCOUT_SERVER_VERIFIED_BALANCE_USD / unsigned af_uid / allowlist-alone are not grants)",
     clientSpendAttestation: "rejected",
   };
 
-  if (!input.ownerId) return base;
+  if (!input.ownerId || !input.apiKeyHash) return base;
 
-  const allowlisted = isScoutOwnerAllowlisted(input.ownerId, env);
-  const resolved = await resolveOwnerSpendAuthority({
+  const allowlisted = isScoutOwnerAllowlistConfigured(env)
+    ? isScoutOwnerAllowlisted(input.ownerId, env)
+    : true;
+
+  const autodev = await resolveOwnerSpendAuthority({
     kv,
     ownerId: input.ownerId,
+    apiKeyHash: input.apiKeyHash,
+    grantId: input.grantId,
+    provider: "autodev",
     env,
   });
-  const authorityReady = resolved.ok;
+  const serv = await resolveOwnerSpendAuthority({
+    kv,
+    ownerId: input.ownerId,
+    apiKeyHash: input.apiKeyHash,
+    grantId: input.grantId,
+    provider: "serv",
+    env,
+  });
+
   const canPreferLive =
     base.enabled &&
     allowlisted &&
-    authorityReady &&
+    autodev.ok &&
     base.autodevKeyConfigured &&
     base.hardCeilingSet &&
     distributedKv;
   const canUseServPlanner =
-    canPreferLive && base.servPlannerFlag && base.servKeyConfigured;
+    base.enabled &&
+    allowlisted &&
+    serv.ok &&
+    base.servPlannerFlag &&
+    base.servKeyConfigured &&
+    distributedKv;
 
   return {
     ...base,
@@ -96,8 +115,12 @@ export async function scoutCapabilities(input: {
       allowlisted,
       canPreferLive,
       canUseServPlanner,
-      authorityReady,
-      authorityBlockReason: resolved.ok ? null : resolved.reason,
+      authorityReady: autodev.ok || serv.ok,
+      authorityBlockReason: autodev.ok
+        ? serv.ok
+          ? null
+          : serv.reason
+        : autodev.reason,
     },
   };
 }

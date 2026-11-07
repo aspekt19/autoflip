@@ -34,7 +34,7 @@ describe("paid execution server gate (Stage1)", () => {
     expect(gate.ok).toBe(false);
     if (!gate.ok) {
       expect(gate.error).toBe("verified_reserve_unavailable");
-      expect(gate.message).toMatch(/not a grant|non-bypassably|no verified spend authority/i);
+      expect(gate.message).toMatch(/not a grant|owner_grant|unsigned af_uid|apiKeyHash/i);
       // Must not claim a reserve/spend guarantee while deliberately disabled.
       expect(gate.message).not.toMatch(/guarantee|authorizedSpend|live_authorized/i);
     }

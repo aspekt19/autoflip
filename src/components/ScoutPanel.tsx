@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 
 type OwnerCaps = {
   allowlisted: boolean;
@@ -14,6 +14,7 @@ type ScoutCapabilities = {
   enabled: boolean;
   ownerAllowlistConfigured: boolean;
   servPlannerFlag: boolean;
+  sessionAuthenticated?: boolean;
   owner?: OwnerCaps;
 };
 
@@ -79,13 +80,17 @@ type ScoutApiResponse = {
   };
 };
 
+function newIdempotencyKey(): string {
+  return `scout-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 12)}`;
+}
+
 /**
- * Minimal Scout UI — progress / partial / source / unknown / refusal.
- * Owner can enter an arbitrary mandate. Live/SERV only when server capabilities allow.
- * Does not claim title history or verified profit. Behind SCOUT_UI_ENABLED.
+ * Primary-site Scout UI — session cookie auth (HMAC), arbitrary mandate.
+ * Live/SERV only when server capabilities allow. Prefer-live fails closed.
  */
 export function ScoutPanel() {
-  const [apiKey, setApiKey] = useState("");
+  const [bootstrapKey, setBootstrapKey] = useState("");
+  const [sessionOk, setSessionOk] = useState(false);
   const [mode, setMode] = useState<"flip" | "personal">("flip");
   const [makes, setMakes] = useState("Toyota");
   const [zip, setZip] = useState("72712");
@@ -100,27 +105,24 @@ export function ScoutPanel() {
   const [busy, setBusy] = useState(false);
   const [response, setResponse] = useState<ScoutApiResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [sessionMsg, setSessionMsg] = useState<string | null>(null);
+
+  const refreshCaps = useCallback(async () => {
+    try {
+      const res = await fetch("/api/scout", { credentials: "include" });
+      const body = (await res.json()) as ScoutApiResponse & {
+        capabilities?: ScoutCapabilities & { sessionAuthenticated?: boolean };
+      };
+      setCaps(body.capabilities ?? null);
+      setSessionOk(Boolean(body.capabilities?.sessionAuthenticated || body.capabilities?.owner));
+    } catch {
+      setCaps(null);
+    }
+  }, []);
 
   useEffect(() => {
-    let cancelled = false;
-    async function loadCaps() {
-      try {
-        const headers: HeadersInit = {};
-        if (apiKey.trim().startsWith("af_")) {
-          headers.Authorization = `Bearer ${apiKey.trim()}`;
-        }
-        const res = await fetch("/api/scout", { headers });
-        const body = (await res.json()) as ScoutApiResponse;
-        if (!cancelled) setCaps(body.capabilities ?? null);
-      } catch {
-        if (!cancelled) setCaps(null);
-      }
-    }
-    void loadCaps();
-    return () => {
-      cancelled = true;
-    };
-  }, [apiKey]);
+    void refreshCaps();
+  }, [refreshCaps]);
 
   const canPreferLive = Boolean(caps?.owner?.canPreferLive);
   const canUseServ = Boolean(caps?.owner?.canUseServPlanner);
@@ -130,15 +132,50 @@ export function ScoutPanel() {
     if (!canUseServ && planner === "serv") setPlanner("offline_heuristic");
   }, [canPreferLive, canUseServ, preferLive, planner]);
 
+  async function onStartSession() {
+    setSessionMsg(null);
+    setError(null);
+    if (!bootstrapKey.trim().startsWith("af_")) {
+      setSessionMsg("Paste a grant-bound af_ key once to open a signed Scout session.");
+      return;
+    }
+    setBusy(true);
+    try {
+      const res = await fetch("/api/scout/session", {
+        method: "POST",
+        credentials: "include",
+        headers: { Authorization: `Bearer ${bootstrapKey.trim()}` },
+      });
+      const body = (await res.json()) as { error?: string; message?: string; ok?: boolean };
+      if (!res.ok) {
+        setSessionMsg(body.message ?? body.error ?? "Could not open Scout session.");
+        setSessionOk(false);
+        return;
+      }
+      setBootstrapKey("");
+      setSessionOk(true);
+      setSessionMsg("Signed Scout session active. You can run without pasting the key again.");
+      await refreshCaps();
+    } catch {
+      setSessionMsg("Network error opening Scout session.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function onClearSession() {
+    await fetch("/api/scout/session", { method: "DELETE", credentials: "include" });
+    setSessionOk(false);
+    setCaps(null);
+    setSessionMsg("Scout session cleared.");
+    await refreshCaps();
+  }
+
   async function onRun() {
     setError(null);
     setResponse(null);
-    if (!apiKey.trim()) {
-      setError("Enter an af_ API key from /developers before running Scout.");
-      return;
-    }
-    if (!apiKey.trim().startsWith("af_")) {
-      setError("Scout only accepts Lemonless af_ API keys.");
+    if (!sessionOk) {
+      setError("Open a signed Scout session first (grant-bound key). Unsigned browser cookies are not enough.");
       return;
     }
     const preferredMakes = makes
@@ -152,12 +189,12 @@ export function ScoutPanel() {
     if (preferLive && !canPreferLive) {
       setError(
         caps?.owner?.authorityBlockReason ??
-          "Live inventory is not authorized for this key on this deployment.",
+          "Live inventory is not authorized for this session.",
       );
       return;
     }
     if (planner === "serv" && !canUseServ) {
-      setError("SERV planner is not enabled for this key on this deployment.");
+      setError("SERV planner is not enabled for this session.");
       return;
     }
 
@@ -168,19 +205,15 @@ export function ScoutPanel() {
 
     setBusy(true);
     try {
-      const idem =
-        typeof crypto !== "undefined" && "randomUUID" in crypto
-          ? crypto.randomUUID()
-          : `scout-${Date.now()}`;
       const res = await fetch("/api/scout", {
         method: "POST",
+        credentials: "include",
         headers: {
           "Content-Type": "application/json",
-          Authorization: `Bearer ${apiKey.trim()}`,
-          "Idempotency-Key": idem,
+          "Idempotency-Key": newIdempotencyKey(),
         },
         body: JSON.stringify({
-          planner: preferLive && canUseServ ? planner : "offline_heuristic",
+          planner: preferLive && canUseServ ? planner : planner === "serv" && canUseServ ? "serv" : "offline_heuristic",
           preferLive: preferLive && canPreferLive,
           mandate: {
             mode,
@@ -197,10 +230,7 @@ export function ScoutPanel() {
           },
         }),
       });
-      const body = (await res.json()) as ScoutApiResponse & {
-        partial?: boolean;
-        result?: ScoutApiResponse["result"];
-      };
+      const body = (await res.json()) as ScoutApiResponse;
       setResponse(body);
       if (!res.ok || body.result?.state === "failed") {
         setError(
@@ -218,14 +248,50 @@ export function ScoutPanel() {
   }
 
   const result = response?.result;
-  const runLabel = preferLive && canPreferLive ? "Run scout (live)" : "Run scout (replay)";
+  const runLabel = preferLive && canPreferLive ? "Run scout (live)" : "Run scout";
 
   return (
     <div className="scout-panel">
       <div className="scout-controls">
+        {!sessionOk ? (
+          <>
+            <p className="muted">
+              Sign in with a grant-bound API key once. Keys minted only from an unsigned browser
+              cookie do not inherit owner privileges.
+            </p>
+            <label>
+              Grant-bound API key (af_…) — used only to open a signed session
+              <input
+                type="password"
+                autoComplete="off"
+                value={bootstrapKey}
+                onChange={(e) => setBootstrapKey(e.target.value)}
+                placeholder="af_…"
+                disabled={busy}
+              />
+            </label>
+            <button type="button" className="btn" onClick={onStartSession} disabled={busy}>
+              {busy ? "Opening…" : "Open Scout session"}
+            </button>
+          </>
+        ) : (
+          <p className="scout-status">
+            Signed session active.{" "}
+            <button type="button" className="btn" onClick={onClearSession} disabled={busy}>
+              Sign out
+            </button>
+          </p>
+        )}
+
+        {sessionMsg ? (
+          <p className="scout-status scout-status-warn" role="status">
+            {sessionMsg}
+          </p>
+        ) : null}
+
         <label>
           Mode
-          <select value={mode} onChange={(e) => setMode(e.target.value as "flip" | "personal")} disabled={busy}>
+          <select value={mode} onChange={(e) => setMode(e.target.value as "flip" | "personal")} disabled={busy || !sessionOk}>
             <option value="flip">Flip (investigation)</option>
             <option value="personal">Personal (investigation)</option>
           </select>
@@ -237,7 +303,7 @@ export function ScoutPanel() {
             value={makes}
             onChange={(e) => setMakes(e.target.value)}
             placeholder="Toyota, Honda"
-            disabled={busy}
+            disabled={busy || !sessionOk}
           />
         </label>
         <label>
@@ -247,7 +313,7 @@ export function ScoutPanel() {
             value={zip}
             onChange={(e) => setZip(e.target.value)}
             placeholder="72712"
-            disabled={busy || nationwide}
+            disabled={busy || !sessionOk || nationwide}
           />
         </label>
         <label className="scout-check">
@@ -255,7 +321,7 @@ export function ScoutPanel() {
             type="checkbox"
             checked={nationwide}
             onChange={(e) => setNationwide(e.target.checked)}
-            disabled={busy}
+            disabled={busy || !sessionOk}
           />
           Nationwide (no ZIP / distance)
         </label>
@@ -266,7 +332,7 @@ export function ScoutPanel() {
               type="number"
               value={maxDistanceMiles}
               onChange={(e) => setMaxDistanceMiles(e.target.value)}
-              disabled={busy}
+              disabled={busy || !sessionOk}
             />
           </label>
         ) : null}
@@ -277,7 +343,7 @@ export function ScoutPanel() {
             value={maxMiles}
             onChange={(e) => setMaxMiles(e.target.value)}
             placeholder="Leave blank if unknown"
-            disabled={busy}
+            disabled={busy || !sessionOk}
           />
         </label>
         {mode === "flip" ? (
@@ -287,7 +353,7 @@ export function ScoutPanel() {
               type="number"
               value={targetProfitUsd}
               onChange={(e) => setTargetProfitUsd(e.target.value)}
-              disabled={busy}
+              disabled={busy || !sessionOk}
             />
           </label>
         ) : (
@@ -297,32 +363,21 @@ export function ScoutPanel() {
               type="number"
               value={budgetUsd}
               onChange={(e) => setBudgetUsd(e.target.value)}
-              disabled={busy}
+              disabled={busy || !sessionOk}
             />
           </label>
         )}
-        <label>
-          API key (af_…)
-          <input
-            type="password"
-            autoComplete="off"
-            value={apiKey}
-            onChange={(e) => setApiKey(e.target.value)}
-            placeholder="Required when SCOUT_ENABLED"
-            disabled={busy}
-          />
-        </label>
         <label className="scout-check">
           <input
             type="checkbox"
             checked={preferLive && canPreferLive}
             onChange={(e) => setPreferLive(e.target.checked)}
-            disabled={busy || !canPreferLive}
+            disabled={busy || !sessionOk || !canPreferLive}
           />
           Prefer live inventory
           {!canPreferLive
-            ? " (server-authorized owners only — no fixture fallback when checked)"
-            : " (fail closed if blocked; never labels fixture as live)"}
+            ? " (requires Autodev owner grant — fails closed; never substitutes fixture as live)"
+            : " (fail closed if blocked)"}
         </label>
         {canUseServ ? (
           <label>
@@ -330,14 +385,14 @@ export function ScoutPanel() {
             <select
               value={planner}
               onChange={(e) => setPlanner(e.target.value as "offline_heuristic" | "serv")}
-              disabled={busy || !preferLive}
+              disabled={busy || !sessionOk}
             >
               <option value="offline_heuristic">Offline heuristic</option>
               <option value="serv">SERV (bounded search/check/replan)</option>
             </select>
           </label>
         ) : null}
-        <button type="button" className="btn" onClick={onRun} disabled={busy}>
+        <button type="button" className="btn" onClick={onRun} disabled={busy || !sessionOk}>
           {busy ? "Running…" : runLabel}
         </button>
       </div>

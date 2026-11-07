@@ -32,11 +32,12 @@ export default function ScoutPage() {
         ) : (
           <>
             <div className="onboarding-note">
-              <strong>Your mandate · offline by default</strong>
+              <strong>Signed session · your mandate</strong>
               <p>
-                Enter your own makes, ZIP, distance, and budget. Replay uses a checked-in Auto.dev
-                snapshot unless the server authorizes live for an allowlisted owner. Prefer-live never
-                substitutes fixture rows as a live market pull — it fails closed when blocked.
+                Open a Scout session with a grant-bound API key (once). Enter your own makes, ZIP,
+                distance, and budget. Live Autodev requires an explicit owner grant — prefer-live
+                fails closed and never substitutes fixture rows as live. Unsigned browser cookies
+                cannot inherit owner privileges.
               </p>
             </div>
             <ScoutPanel />

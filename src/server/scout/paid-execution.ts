@@ -3,14 +3,14 @@
  *
  * PRODUCTION: live Auto.dev/SERV is non-bypassably blocked. Env strings such as
  * SCOUT_SERVER_VERIFIED_BALANCE_USD / SCOUT_SERVER_SPEND_HARD_CAP_USD are NOT a
- * verified balance grant (do not env-enable away reserve). Flags + keys + Upstash
+ * verified balance grant. Allowlist alone is NOT a grant. Flags + keys + Upstash
  * alone also do not authorize spend.
  *
- * Extension: pass an explicit PaidSpendAuthority from a future verified account
- * source. Unit tests may inject a test-only stub via authorizeLiveInventory's
- * `testAuthority` argument — never via env / HTTP / client body.
+ * Production authority: explicit Kv owner_grant bound to af_ key hash.
+ * Unit tests may inject test_stub via authorizeLiveInventory's `testAuthority`
+ * — never via env / HTTP / client body / unsigned af_uid.
  *
- * No "$5 guarantee" claim while the live path is deliberately disabled.
+ * No invented "$5 verified balance" / guarantee claim.
  */
 
 import { ASSUMPTIONS } from "@/domain/assumptions";
@@ -19,18 +19,25 @@ import { isDistributedQuotaBackend, kvBackendOf, storageMode, type KvBackend } f
 import { releaseReservedTotalCall, reserveTotalCall } from "@/io/persistent-quota";
 import type { QuotaDecision } from "@/io/quota";
 
+/** @deprecated Do not use as invented verified balance — kept for spend-gate diagnostics only. */
 export const MIN_RESERVE_USD = 5;
 
 /**
- * Future / test spend authority. Never constructed from process.env.
- * `test_stub` is only valid when passed as the `testAuthority` code argument.
+ * Spend authority. Never constructed from process.env balance strings.
+ * `test_stub` — unit/integration harness only.
+ * `owner_grant` — durable Kv grant bound to apiKeyHash (honest provenance).
  */
 export type PaidSpendAuthority = {
-  kind: "test_stub" | "verified_account_source";
+  kind: "test_stub" | "owner_grant";
   remainingProviderBudget: number;
-  authorizedSpendUsd: number;
-  /** Optional future fields from a real balance API — unused today. */
+  /**
+   * Explicit USD ceiling from the grant when set; null = call-count-only
+   * (do not invent a dollar balance).
+   */
+  authorizedSpendUsd: number | null;
   sourceNote?: string;
+  grantId?: string;
+  providers?: Array<"serv" | "autodev">;
 };
 
 export type PaidExecutionConfig = {
@@ -71,7 +78,12 @@ export function readPaidExecutionConfig(
 }
 
 export type PaidGateResult =
-  | { ok: true; mode: "live_authorized"; remainingProviderBudget: number; authorizedSpendUsd: number }
+  | {
+      ok: true;
+      mode: "live_authorized";
+      remainingProviderBudget: number;
+      authorizedSpendUsd: number | null;
+    }
   | {
       ok: false;
       error:
@@ -83,7 +95,8 @@ export type PaidGateResult =
         | "verified_reserve_unavailable"
         | "insufficient_reserve"
         | "quota_backend_not_distributed"
-        | "env_attestation_rejected";
+        | "env_attestation_rejected"
+        | "provider_not_granted";
       message: string;
       mode: "replay_only";
     };
@@ -142,16 +155,27 @@ export function authorizeLiveInventory(input: AuthorizeLiveInput = {}): PaidGate
   if (!authority) {
     return blocked(
       "verified_reserve_unavailable",
-      "Paid scout path blocked: no verified spend authority. SCOUT_SERVER_VERIFIED_BALANCE_USD / SCOUT_SERVER_SPEND_HARD_CAP_USD env strings are not a grant. Live Auto.dev remains non-bypassably disabled until a real verified balance source is wired.",
+      "Paid scout path blocked: no owner_grant / test authority. SCOUT_SERVER_VERIFIED_BALANCE_USD, allowlist alone, and unsigned af_uid are not grants. Create a Kv grant bound to apiKeyHash.",
     );
   }
 
-  if (authority.kind !== "test_stub" && authority.kind !== "verified_account_source") {
+  if (authority.kind !== "test_stub" && authority.kind !== "owner_grant") {
     return blocked("verified_reserve_unavailable", "Unknown spend authority kind — failing closed.");
   }
 
-  if (authority.remainingProviderBudget <= 0 || authority.authorizedSpendUsd <= 0) {
-    return blocked("unverifiable_cap", "Spend authority has zero remaining budget.");
+  if (authority.kind === "owner_grant" && authority.providers && !authority.providers.includes("autodev")) {
+    return blocked(
+      "provider_not_granted",
+      "Owner grant does not authorize Autodev. Explicit Autodev permission required (SERV-only grants cannot open listing spend).",
+    );
+  }
+
+  if (authority.remainingProviderBudget <= 0) {
+    return blocked("unverifiable_cap", "Spend authority has zero remaining call budget.");
+  }
+  // USD ceiling optional — null means call-count-only. Never require invented dollars.
+  if (authority.authorizedSpendUsd != null && authority.authorizedSpendUsd <= 0) {
+    return blocked("unverifiable_cap", "Spend authority explicit USD ceiling is zero.");
   }
 
   // Actual backend identity — Memory/File on serverless is not shared-store proof.
@@ -175,14 +199,62 @@ export function authorizeLiveInventory(input: AuthorizeLiveInput = {}): PaidGate
   };
 }
 
+/**
+ * SERV planner gate — independent of Autodev inventory authority.
+ * Owner may hold a SERV-only grant without Autodev spend permission.
+ */
 export function authorizeLiveServPlanner(input: AuthorizeLiveInput = {}): PaidGateResult {
-  const inv = authorizeLiveInventory(input);
-  if (!inv.ok) return inv;
   const config = input.config ?? readPaidExecutionConfig();
+  if (!config.paidExecutionEnabled) {
+    return blocked(
+      "paid_execution_disabled",
+      "SCOUT_PAID_EXECUTION is off. Live SERV planner disabled.",
+    );
+  }
   if (!config.hasServKey) {
     return blocked("serv_unconfigured", "SERV_API_KEY missing on server — live SERV planner unavailable.");
   }
-  return inv;
+  if (config.maxProviderCallsHardCeiling === null || config.maxProviderCallsHardCeiling <= 0) {
+    return blocked(
+      "unverifiable_cap",
+      "SCOUT_MAX_PROVIDER_CALLS_HARD_CEILING must be set before live SERV planner calls.",
+    );
+  }
+  const authority = input.testAuthority ?? null;
+  if (!authority) {
+    return blocked(
+      "verified_reserve_unavailable",
+      "SERV planner blocked: no owner_grant / test authority for SERV.",
+    );
+  }
+  if (authority.kind !== "test_stub" && authority.kind !== "owner_grant") {
+    return blocked("verified_reserve_unavailable", "Unknown spend authority kind — failing closed.");
+  }
+  if (authority.kind === "owner_grant" && authority.providers && !authority.providers.includes("serv")) {
+    return blocked(
+      "provider_not_granted",
+      "Owner grant does not authorize SERV. Explicit SERV permission required.",
+    );
+  }
+  if (authority.remainingProviderBudget <= 0) {
+    return blocked("unverifiable_cap", "SERV spend authority has zero remaining call budget.");
+  }
+  const backend: KvBackend | "missing" = input.kv ? kvBackendOf(input.kv) : "missing";
+  if (!input.kv || !isDistributedQuotaBackend(input.kv)) {
+    return blocked(
+      "quota_backend_not_distributed",
+      `SERV planner blocked: Kv backend is ${backend} (need upstash).`,
+    );
+  }
+  return {
+    ok: true,
+    mode: "live_authorized",
+    remainingProviderBudget: Math.min(
+      config.maxProviderCallsHardCeiling,
+      authority.remainingProviderBudget,
+    ),
+    authorizedSpendUsd: authority.authorizedSpendUsd,
+  };
 }
 
 /** Build a test-only stub authority. Must never be constructed from env in production code paths. */
@@ -192,6 +264,7 @@ export function testPaidAuthorityStub(partial?: Partial<PaidSpendAuthority>): Pa
     remainingProviderBudget: partial?.remainingProviderBudget ?? 3,
     authorizedSpendUsd: partial?.authorizedSpendUsd ?? 1,
     sourceNote: partial?.sourceNote ?? "unit-test stub — not a console-verified balance",
+    providers: partial?.providers ?? ["autodev", "serv"],
   };
 }
 
@@ -226,7 +299,9 @@ export function stripClientSpendClaims<T extends Record<string, unknown>>(body: 
     "budgets",
     "ownerAuthority",
     "verified_account_source",
+    "owner_grant",
     "remainingProviderBudget",
+    "grantId",
   ];
   const out = { ...body };
   for (const key of blockedKeys) delete out[key];

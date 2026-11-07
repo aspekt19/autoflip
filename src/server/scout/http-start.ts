@@ -13,6 +13,7 @@ import {
   type ScoutRunHarness,
   type StartScoutBody,
 } from "@/server/scout/run";
+import { readScoutSignedSession } from "@/server/scout/signed-session";
 import { loadScoutRun, saveScoutMeta } from "@/server/scout/store";
 
 function bearer(req: Request): string | null {
@@ -64,7 +65,14 @@ export async function postScoutStart(req: Request, hooks?: ScoutPostTestHooks) {
   const origin = originOf(req);
   const env = hooks?.env ?? process.env;
   const kv = hooks?.kv ?? getKv();
-  const access = await authorizeScoutStart(kv, bearer(req), origin, env);
+  // Production: signed Scout session OR Bearer af_. Never unsigned af_uid alone.
+  const signedSession = hooks ? null : await readScoutSignedSession(env);
+  const access = await authorizeScoutStart(
+    kv,
+    { bearerToken: bearer(req), signedSession },
+    origin,
+    env,
+  );
   if (!access.ok) {
     return NextResponse.json(access.body, { status: access.status });
   }
@@ -106,12 +114,14 @@ export async function postScoutStart(req: Request, hooks?: ScoutPostTestHooks) {
 
   const executed = await executeScoutRun({
     ownerId: access.userId,
+    apiKeyHash: access.apiKeyHash,
+    grantId: access.grantId,
     body,
     kv,
     resume,
     signal: req.signal,
     idempotencyKey,
-    // Production POST: harness null → testAuthority null → live spend blocked.
+    // Production POST: harness null → testAuthority null; owner_grant resolved inside.
     harness,
   });
 

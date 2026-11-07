@@ -85,7 +85,7 @@ describe("OpenServ scout agent adapter (local)", () => {
     expect(executed.result.investigation.every((c) => c.claimsSafeBuy === false)).toBe(true);
   });
 
-  it("preferLive cannot bypass paid-execution — stays fixture with explicit reason", async () => {
+  it("preferLive cannot bypass paid-execution — fail-closed, never fixture-as-live", async () => {
     const executed = await executeScoutSafely({
       req: {
         ownerId: "test:sdk-owner",
@@ -102,13 +102,14 @@ describe("OpenServ scout agent adapter (local)", () => {
       },
       kv: null,
       env: { SCOUT_ENABLED: "true", SCOUT_PAID_EXECUTION: "false" },
-      autodevDeps: { fetch, apiKey: "fake-key-must-not-be-used" },
+      autodevDeps: { fetch, apiKey: "fake-key-must-be-unused" },
     });
     expect(executed.ok).toBe(true);
     if (!executed.ok) return;
-    expect(executed.inventoryMode).toBe("replay");
-    expect(executed.isFixture).toBe(true);
-    expect(executed.paidBlockedReason).toMatch(/SCOUT_PAID_EXECUTION|verified|blocked/i);
+    // Honest fail-closed: not Camry fixture posing as the live answer.
+    expect(executed.isFixture).toBe(false);
+    expect(executed.paidBlockedReason).toMatch(/SCOUT_PAID_EXECUTION|grant|authority|blocked/i);
+    expect(executed.inventoryMode).not.toBe("live");
   });
 
   it("invokes capability run callback end-to-end when enabled", async () => {

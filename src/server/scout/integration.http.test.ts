@@ -96,9 +96,9 @@ describe("Scout INTEGRATION HTTP→facade→stubbed SERV/Auto.dev (offline)", ()
     const body = await res.json();
     expect(body.enabled).toBe(false);
     expect(body.defaults.ui).toMatch(/SCOUT_UI_ENABLED/);
-    expect(body.defaults.ui).toMatch(/not in primary header nav/i);
+    expect(body.defaults.ui).toMatch(/primary nav when UI enabled/i);
     expect(body.defaults.paidLivePath).toMatch(/disabled/i);
-    expect(body.capabilities?.spendAuthorityMechanism).toMatch(/SCOUT_OWNER_USER_IDS/);
+    expect(body.capabilities?.spendAuthorityMechanism).toMatch(/owner_grant|apiKeyHash/i);
   });
 
   it("exported POST is single-arg only — client body cannot inject testAuthority/harness/env grant", async () => {
