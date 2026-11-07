@@ -9,14 +9,14 @@ import {
   NEAR_FLOOR_SELLER_CLAIM_USD,
 } from "./post66-acceptance-diagnostics";
 
-const BASIC_EVIDENCE = [
+const BASIC_EVIDENCE: string[] = [
   "vin",
   "year_make_model",
   "odometer_miles",
   "asking_price_usd",
   "accident_count",
   "owner_history",
-] as const;
+];
 
 /** Minimal sanitized mirror of observed post66 holes (not a live replay). */
 function post66LikeSnapshot() {
