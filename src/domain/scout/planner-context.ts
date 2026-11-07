@@ -6,6 +6,7 @@
 import type { ScoutCandidate, ScoutMandate, ScoutToolOutcome } from "./types";
 import type { ScoutSearchParams } from "./search-params";
 import { collectAdverseEvidence } from "./disposition-rationale";
+import { isUsableAskingPriceUsd } from "./asking-price";
 
 export type EvidenceConfidence = "low" | "medium" | "high" | "unknown";
 
@@ -25,6 +26,16 @@ export type CandidateEvidenceBrief = {
   claimsSafeBuy: false;
   claimsVerifiedProfit: false;
   askingUsd: number | null;
+  /**
+   * False when ask is missing or below usable retail floor (placeholder $1–$59).
+   * Unknown/unusable ≠ pass and must not unlock investigation shortlist.
+   */
+  askingPriceUsable: boolean;
+  /**
+   * Free NHTSA probes cannot unlock allowInvestigate without a usable asking price.
+   * When false, prefer reject (missing_asking_price), search, or abstain — not invent unlock.
+   */
+  freeGovCanUnlockInvestigate: boolean;
   miles: number | null;
   make: string;
   model: string;
@@ -60,7 +71,8 @@ export type ScoutPlannerEvidenceContext = {
   newlyAcquiredVins: string[];
   searchHistory: Array<{ fingerprint: string; params: ScoutSearchParams }>;
   budgetsRemaining: {
-    servCalls: number;
+    /** null = owner unmetered SERV — no remaining call-count. */
+    servCalls: number | null;
     toolCalls: number;
     providerCalls: number;
   };
@@ -142,6 +154,7 @@ export function buildCandidateEvidenceBrief(
     return !presentKeys.has(k);
   });
 
+  const askingPriceUsable = isUsableAskingPriceUsd(c.listing.priceUsd);
   return {
     vin: c.vin,
     disposition: c.disposition,
@@ -152,6 +165,8 @@ export function buildCandidateEvidenceBrief(
     claimsSafeBuy: false,
     claimsVerifiedProfit: false,
     askingUsd: c.listing.priceUsd,
+    askingPriceUsable,
+    freeGovCanUnlockInvestigate: askingPriceUsable,
     miles: c.listing.miles,
     make: c.listing.make,
     model: c.listing.model,
@@ -205,7 +220,7 @@ export function buildPlannerEvidenceContext(input: {
   newlyAcquiredPending?: ScoutCandidate[];
   searchHistory: Array<{ fingerprint: string; params: ScoutSearchParams }>;
   mandate: ScoutMandate;
-  budgets: { maxServCalls: number; maxToolCalls: number; maxProviderCalls: number };
+  budgets: { maxServCalls: number | null; maxToolCalls: number; maxProviderCalls: number };
   usage: { servCalls: number; toolCalls: number; providerCalls: number };
   recentOutcomes: ScoutToolOutcome[];
 }): ScoutPlannerEvidenceContext {
@@ -234,7 +249,10 @@ export function buildPlannerEvidenceContext(input: {
     newlyAcquiredVins: [...newlySet],
     searchHistory: input.searchHistory.slice(-6),
     budgetsRemaining: {
-      servCalls: Math.max(0, input.budgets.maxServCalls - input.usage.servCalls),
+      servCalls:
+        input.budgets.maxServCalls === null
+          ? null
+          : Math.max(0, input.budgets.maxServCalls - input.usage.servCalls),
       toolCalls: Math.max(0, input.budgets.maxToolCalls - input.usage.toolCalls),
       providerCalls: Math.max(0, input.budgets.maxProviderCalls - input.usage.providerCalls),
     },

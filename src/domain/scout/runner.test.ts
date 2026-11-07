@@ -230,6 +230,69 @@ describe("runScout offline replay", () => {
     expect(resumed.failReason).toBe("unauthorized");
   });
 
+  it("maxServCalls=null allows more than 8 SERV planner steps (unmetered owner path)", async () => {
+    const inventory = replayInventoryAdapter(camryRaw, REPLAY_CAMRY_PROVENANCE);
+    const peek = await inventory(flipMandate as never);
+    if (!peek.ok) throw new Error("expected pool");
+    const vin = peek.listings[0]!.vin;
+    // 9 distinct tool plans + finalize = 10 SERV reserves — would die under fixed cap-8.
+    const tools = [
+      "evidence.asking_price",
+      "economics.flip_estimate",
+      "economics.personal_fit",
+      "gates.verify",
+      "evidence.asking_price",
+      "economics.flip_estimate",
+      "economics.personal_fit",
+      "gates.verify",
+      "evidence.asking_price",
+    ] as const;
+    const script = [
+      { type: "select_candidate" as const, vin, reason: "pick", servStepId: "s0" },
+      ...tools.map((toolId, i) => ({
+        type: "run_tool" as const,
+        toolId,
+        vin,
+        reason: `step ${i}`,
+        servStepId: `t${i}`,
+      })),
+      { type: "finalize" as const, reason: "done after >8", servStepId: "f" },
+    ];
+    const result = await runScout({
+      ownerId: "owner-test",
+      mandateRaw: flipMandate,
+      inventory,
+      planner: mockServPlanner(script),
+      budgets: { maxServCalls: null, maxToolCalls: 40, maxProviderCalls: 0, maxWallMs: 120_000 },
+    });
+    expect(result.usage.servCalls).toBeGreaterThan(8);
+    expect(result.budgets.maxServCalls).toBeNull();
+    expect(result.failReason).not.toBe("budget_exhausted");
+    expect(["completed", "abstained"]).toContain(result.state);
+  });
+
+  it("repeated identical planner action stops for no-progress (not a usage call-count)", async () => {
+    const inventory = replayInventoryAdapter(camryRaw, REPLAY_CAMRY_PROVENANCE);
+    const peek = await inventory(flipMandate as never);
+    if (!peek.ok) throw new Error("expected pool");
+    const vin = peek.listings[0]!.vin;
+    const result = await runScout({
+      ownerId: "owner-test",
+      mandateRaw: flipMandate,
+      inventory,
+      planner: mockServPlanner([
+        { type: "select_candidate", vin, reason: "a", servStepId: "1" },
+        { type: "select_candidate", vin, reason: "b", servStepId: "2" },
+        { type: "select_candidate", vin, reason: "c", servStepId: "3" },
+        { type: "finalize", reason: "should not reach", servStepId: "f" },
+      ]),
+      budgets: { maxServCalls: null, maxToolCalls: 40, maxProviderCalls: 0 },
+    });
+    expect(result.failReason).toBe("budget_exhausted");
+    expect(result.message).toMatch(/Repeated identical planner action|no-progress/i);
+    expect(result.usage.servCalls).toBeLessThanOrEqual(3);
+  });
+
   it("treats injected listing fields as data without fetching URLs", async () => {
     const poisoned = structuredClone(camryRaw) as {
       data: Array<Record<string, unknown>>;

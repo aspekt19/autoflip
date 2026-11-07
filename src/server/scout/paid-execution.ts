@@ -29,7 +29,18 @@ export const MIN_RESERVE_USD = 5;
  */
 export type PaidSpendAuthority = {
   kind: "test_stub" | "owner_grant";
+  /**
+   * Remaining metered call-count. Ignored for capping when `unmeteredCallCount` is true
+   * (owner-authorized SERV usage policy — ledger only).
+   */
   remainingProviderBudget: number;
+  /**
+   * Owner-authorized unmetered SERV call-count (t284/t286). When true, server
+   * budgets set maxServCalls=null (no call-count termination). Wall clock, tool
+   * caps, token/size bounds, and repeated-action detection still apply.
+   * Never invents public unlimited access.
+   */
+  unmeteredCallCount?: boolean;
   /**
    * Always null for current owner_grant path (call-count-only).
    * Non-null dollar caps are rejected at grant save — do not invent a balance.
@@ -202,6 +213,9 @@ export function authorizeLiveInventory(input: AuthorizeLiveInput = {}): PaidGate
 /**
  * SERV planner gate — independent of Autodev inventory authority.
  * Owner may hold a SERV-only grant without Autodev spend permission.
+ *
+ * SCOUT_MAX_PROVIDER_CALLS_HARD_CEILING is an Autodev protect — it must NOT
+ * invent a SERV usage policy (t284/t286 cancelled artificial SERV call caps).
  */
 export function authorizeLiveServPlanner(input: AuthorizeLiveInput = {}): PaidGateResult {
   const config = input.config ?? readPaidExecutionConfig();
@@ -213,12 +227,6 @@ export function authorizeLiveServPlanner(input: AuthorizeLiveInput = {}): PaidGa
   }
   if (!config.hasServKey) {
     return blocked("serv_unconfigured", "SERV_API_KEY missing on server — live SERV planner unavailable.");
-  }
-  if (config.maxProviderCallsHardCeiling === null || config.maxProviderCallsHardCeiling <= 0) {
-    return blocked(
-      "unverifiable_cap",
-      "SCOUT_MAX_PROVIDER_CALLS_HARD_CEILING must be set before live SERV planner calls.",
-    );
   }
   const authority = input.testAuthority ?? null;
   if (!authority) {
@@ -236,7 +244,8 @@ export function authorizeLiveServPlanner(input: AuthorizeLiveInput = {}): PaidGa
       "Owner grant does not authorize SERV. Explicit SERV permission required.",
     );
   }
-  if (authority.remainingProviderBudget <= 0) {
+  const unmetered = authority.unmeteredCallCount === true;
+  if (!unmetered && authority.remainingProviderBudget <= 0) {
     return blocked("unverifiable_cap", "SERV spend authority has zero remaining call budget.");
   }
   const backend: KvBackend | "missing" = input.kv ? kvBackendOf(input.kv) : "missing";
@@ -249,10 +258,8 @@ export function authorizeLiveServPlanner(input: AuthorizeLiveInput = {}): PaidGa
   return {
     ok: true,
     mode: "live_authorized",
-    remainingProviderBudget: Math.min(
-      config.maxProviderCallsHardCeiling,
-      authority.remainingProviderBudget,
-    ),
+    // Do not clamp SERV by Autodev hard ceiling — that was the artificial 3-cap path.
+    remainingProviderBudget: unmetered ? 0 : authority.remainingProviderBudget,
     authorizedSpendUsd: authority.authorizedSpendUsd,
   };
 }
@@ -261,7 +268,8 @@ export function authorizeLiveServPlanner(input: AuthorizeLiveInput = {}): PaidGa
 export function testPaidAuthorityStub(partial?: Partial<PaidSpendAuthority>): PaidSpendAuthority {
   return {
     kind: "test_stub",
-    remainingProviderBudget: partial?.remainingProviderBudget ?? 3,
+    remainingProviderBudget: partial?.remainingProviderBudget ?? 8,
+    unmeteredCallCount: partial?.unmeteredCallCount,
     authorizedSpendUsd: partial?.authorizedSpendUsd ?? 1,
     sourceNote: partial?.sourceNote ?? "unit-test stub — not a console-verified balance",
     providers: partial?.providers ?? ["autodev", "serv"],
@@ -308,10 +316,20 @@ export function stripClientSpendClaims<T extends Record<string, unknown>>(body: 
   return out;
 }
 
-/** Server-enforced scout budgets — clients cannot raise ceilings. Live provider budget stays 0 until authority exists. */
-export function serverScoutBudgets(partial?: { maxCandidatesOut?: number; maxProviderCalls?: number }) {
+/**
+ * Server-enforced scout budgets — clients cannot raise ceilings.
+ * Live provider budget stays 0 until authority exists.
+ * `unmeteredServCallCount: true` (owner grant serv.maxCalls=null) → maxServCalls null
+ * (no fixed SERV call-count termination). Do not substitute Infinity/9999.
+ */
+export function serverScoutBudgets(partial?: {
+  maxCandidatesOut?: number;
+  maxProviderCalls?: number;
+  /** Owner-authorized unmetered SERV only — sets maxServCalls to null. */
+  unmeteredServCallCount?: boolean;
+}) {
   return {
-    maxServCalls: 8,
+    maxServCalls: partial?.unmeteredServCallCount === true ? null : 8,
     maxToolCalls: 40,
     maxProviderCalls: Math.max(0, partial?.maxProviderCalls ?? 0),
     maxCandidatesOut: Math.min(5, partial?.maxCandidatesOut ?? 5),

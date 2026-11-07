@@ -95,11 +95,25 @@ export async function POST(req: Request) {
   for (const name of ["serv", "autodev"] as const) {
     const raw = body.providers?.[name];
     if (!raw) continue;
+    // SERV may set maxCalls:null for owner-authorized unmetered call-count (ledger only).
+    // Autodev rejects null at saveOwnerGrant.
+    const maxCallsRaw = raw.maxCalls;
+    const maxCalls =
+      maxCallsRaw === null || maxCallsRaw === undefined
+        ? maxCallsRaw === null
+          ? null
+          : Number.NaN
+        : Number(maxCallsRaw);
     providers[name] = {
-      maxCalls: Number(raw.maxCalls),
+      maxCalls,
       maxSpendUsd:
         raw.maxSpendUsd == null || raw.maxSpendUsd === undefined ? null : Number(raw.maxSpendUsd),
-      note: typeof raw.note === "string" ? raw.note : `explicit ${name} grant`,
+      note:
+        typeof raw.note === "string"
+          ? raw.note
+          : maxCalls === null
+            ? `explicit ${name} unmetered call-count (ledger only)`
+            : `explicit ${name} grant`,
     };
   }
 

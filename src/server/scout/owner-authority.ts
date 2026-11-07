@@ -76,10 +76,15 @@ export async function resolveOwnerSpendAuthority(input: {
   if (input.provider === "serv" && !config.hasServKey) {
     return { ok: false, reason: "SERV_API_KEY missing — SERV grant cannot be exercised." };
   }
-  if (config.maxProviderCallsHardCeiling == null || config.maxProviderCallsHardCeiling <= 0) {
+  // Autodev Free protect requires an explicit hard ceiling. SERV usage policy is
+  // grant-owned (including unmetered) — do not invent a SERV cap from this env.
+  if (
+    input.provider === "autodev" &&
+    (config.maxProviderCallsHardCeiling == null || config.maxProviderCallsHardCeiling <= 0)
+  ) {
     return {
       ok: false,
-      reason: "SCOUT_MAX_PROVIDER_CALLS_HARD_CEILING must be a positive integer.",
+      reason: "SCOUT_MAX_PROVIDER_CALLS_HARD_CEILING must be a positive integer for Autodev.",
     };
   }
 
@@ -120,17 +125,42 @@ export async function resolveOwnerSpendAuthority(input: {
   }
 
   const used = await readGrantUsed(input.kv, grant.id, input.provider);
-  let remaining = remainingGrantCalls(grant, input.provider, used);
+  const remainingOrUnmetered = remainingGrantCalls(grant, input.provider, used);
+  const unmetered = remainingOrUnmetered === null;
+
+  // SERV unmetered (maxCalls=null): owner usage policy — ledger only; do not apply
+  // SCOUT_MAX_PROVIDER_CALLS_HARD_CEILING (Autodev protect) as a SERV call cap (t284/t286).
+  if (input.provider === "serv" && unmetered) {
+    const authority: PaidSpendAuthority = {
+      kind: "owner_grant",
+      remainingProviderBudget: 0,
+      unmeteredCallCount: true,
+      authorizedSpendUsd: null,
+      sourceNote: `owner_grant:${grant.id} provider=serv unmetered_call_count ledger_only provenance=${grant.provenance}`,
+      grantId: grant.id,
+      providers: Object.keys(grant.providers) as Array<"serv" | "autodev">,
+    };
+    return { ok: true, authority, grant, provider: input.provider };
+  }
+
+  let remaining = remainingOrUnmetered ?? 0;
   if (remaining <= 0) {
     return { ok: false, reason: `Grant ${input.provider} call budget exhausted.` };
   }
 
-  // Global Autodev monthly hard stop remains an additional ceiling (not a grant mint).
+  // Global Autodev monthly hard stop + hard ceiling remain Autodev protects (not a SERV mint).
   if (input.provider === "autodev") {
+    const hardCeiling = config.maxProviderCallsHardCeiling;
+    if (hardCeiling == null || hardCeiling <= 0) {
+      return {
+        ok: false,
+        reason: "SCOUT_MAX_PROVIDER_CALLS_HARD_CEILING must be a positive integer for Autodev.",
+      };
+    }
     try {
       const snap = await quotaSnapshot(input.kv);
       const monthlyRemaining = Math.max(0, ASSUMPTIONS.autodevMonthlyStop - snap.total);
-      remaining = Math.min(remaining, monthlyRemaining, config.maxProviderCallsHardCeiling);
+      remaining = Math.min(remaining, monthlyRemaining, hardCeiling);
     } catch (err) {
       return {
         ok: false,
@@ -140,9 +170,8 @@ export async function resolveOwnerSpendAuthority(input: {
             : "Monthly Autodev quota snapshot failed.",
       };
     }
-  } else {
-    remaining = Math.min(remaining, config.maxProviderCallsHardCeiling);
   }
+  // Metered SERV: grant maxCalls alone is the usage policy — do not re-clamp by Autodev ceiling.
 
   if (remaining <= 0) {
     return { ok: false, reason: "Effective remaining provider budget is 0." };
@@ -151,6 +180,7 @@ export async function resolveOwnerSpendAuthority(input: {
   const authority: PaidSpendAuthority = {
     kind: "owner_grant",
     remainingProviderBudget: remaining,
+    unmeteredCallCount: false,
     // Call-count-only: never invent a dollar balance or claim USD enforcement.
     authorizedSpendUsd: null,
     sourceNote: `owner_grant:${grant.id} provider=${input.provider} call_count_only provenance=${grant.provenance}`,

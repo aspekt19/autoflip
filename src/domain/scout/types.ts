@@ -105,7 +105,14 @@ export type ScoutFailReason =
   | "mandate_invalid";
 
 export type ScoutBudgets = {
-  maxServCalls: number;
+  /**
+   * Per-run SERV planner call-count ceiling.
+   * `null` = owner-authorized unmetered (grant serv.maxCalls=null) — no call-count
+   * termination; wall / tool / token / repeated-action safeguards still apply.
+   * Finite number (default 8) remains for offline / metered / non-owner paths.
+   * Not an "anti-loop" euphemism for a usage cap.
+   */
+  maxServCalls: number | null;
   maxToolCalls: number;
   /** Live Auto.dev / paid provider calls. Default 0 — no spend in this slice. */
   maxProviderCalls: number;

@@ -4,6 +4,7 @@ import {
   checkWall,
   freezeBudgets,
   freshUsage,
+  REPEATED_IDENTICAL_ACTION_LIMIT,
   reserveProviderCalls,
   reserveServCall,
   reserveToolCall,
@@ -41,6 +42,7 @@ import {
   unsupportedFreeGovPort,
   type ScoutFreeGovPort,
 } from "./free-gov";
+import { isUsableAskingPriceUsd } from "./asking-price";
 import type {
   ProvenanceStep,
   ScoutBudgets,
@@ -58,6 +60,67 @@ import type {
   ScoutToolOutcome,
 } from "./types";
 import { SCOUT_TOOL_IDS } from "./types";
+
+/** Fingerprint for repeated-identical-action / no-progress detection (not a usage cap). */
+export function planActionFingerprint(action: ScoutPlanAction): string {
+  switch (action.type) {
+    case "select_candidate":
+      return `select:${action.vin}`;
+    case "run_tool":
+      return `tool:${action.toolId}:${action.vin ?? ""}:${stableArgsKey(action.args)}`;
+    case "reject":
+      return `reject:${action.vin}:${action.rationaleKind ?? ""}`;
+    case "replace":
+      return `replace:${action.vin}:${action.rationaleKind ?? ""}`;
+    case "finalize":
+      return "finalize";
+    case "abstain":
+      return "abstain";
+  }
+}
+
+function stableArgsKey(args: Record<string, unknown> | undefined): string {
+  if (!args) return "";
+  try {
+    return JSON.stringify(args, Object.keys(args).sort());
+  } catch {
+    return "[unserializable]";
+  }
+}
+
+/**
+ * Independently correct soft-guard (not a SERV call-cap workaround):
+ * free-gov cannot unlock investigation shortlist without a usable asking price.
+ * Remap to grounded reject (missing_asking_price). Does not invent success or
+ * change legitimate free-gov on usable-priced candidates.
+ */
+export function sanitizeScoutPlanAction(input: {
+  action: ScoutPlanAction;
+  candidates: Map<string, ScoutCandidate> | Iterable<ScoutCandidate>;
+}): ScoutPlanAction {
+  const { action } = input;
+  if (action.type !== "run_tool" || !isFreeGovToolId(action.toolId) || !action.vin) {
+    return action;
+  }
+  const byVin = new Map<string, ScoutCandidate>();
+  if (input.candidates instanceof Map) {
+    for (const [vin, c] of input.candidates) byVin.set(vin, c);
+  } else {
+    for (const c of input.candidates) byVin.set(c.vin, c);
+  }
+  const cand = byVin.get(action.vin);
+  if (!cand || isUsableAskingPriceUsd(cand.listing.priceUsd)) return action;
+  return {
+    type: "reject",
+    vin: cand.vin,
+    reason:
+      "Free-gov cannot unlock investigation without a usable asking price — reject placeholder/unknown ask (missing_asking_price).",
+    servStepId: action.servStepId,
+    rationaleKind: "adverse_evidence",
+    citedEvidence: [{ kind: "missing_asking_price" }],
+    assumptionsDisclosed: false,
+  };
+}
 
 /** Status→capability fallback only — capabilityGrounded stays false (incomplete for detectors). */
 function capabilityFromStatus(status: ScoutToolOutcome["status"]): ScoutToolCapability {
@@ -774,7 +837,15 @@ export async function runScout(input: RunScoutInput): Promise<ScoutRunResult> {
   }
 
   let step = 0;
-  while (!isTerminal(state) && step < budgets.maxToolCalls + budgets.maxServCalls + 5) {
+  /** Metered path only — unmetered (maxServCalls=null) uses wall / tool / repeated-action. */
+  const meteredStepCeiling =
+    budgets.maxServCalls === null
+      ? null
+      : budgets.maxToolCalls + budgets.maxServCalls + 5;
+  let lastActionFingerprint: string | null = null;
+  let identicalActionStreak = 0;
+
+  while (!isTerminal(state) && (meteredStepCeiling === null || step < meteredStepCeiling)) {
     step += 1;
     const wall = checkWall(budgets, usage, wallClockMs());
     if (!wall.ok) {
@@ -840,7 +911,33 @@ export async function runScout(input: RunScoutInput): Promise<ScoutRunResult> {
         return fail(snapshot(), plan.error, plan.message, true, diag);
       }
 
-      const action = plan.action;
+      const action = sanitizeScoutPlanAction({
+        action: plan.action,
+        candidates,
+      });
+      if (action !== plan.action) {
+        stamp(
+          provenance,
+          state,
+          `Planner action sanitized: ${plan.action.type}/${"toolId" in plan.action ? plan.action.toolId : "—"} → ${action.type} (${action.reason})`,
+          null,
+          action.servStepId,
+        );
+      }
+
+      // Repeated identical planner action → no-progress stop (safeguard, not a usage call-count).
+      const actionFp = planActionFingerprint(action);
+      if (actionFp === lastActionFingerprint) {
+        identicalActionStreak += 1;
+      } else {
+        lastActionFingerprint = actionFp;
+        identicalActionStreak = 1;
+      }
+      if (identicalActionStreak >= REPEATED_IDENTICAL_ACTION_LIMIT) {
+        const detail = `Repeated identical planner action (${actionFp}) ${identicalActionStreak} times — no-progress stop.`;
+        stamp(provenance, state, detail, null, action.servStepId);
+        return fail(snapshot(), "budget_exhausted", detail);
+      }
 
       if (action.type === "abstain") {
         assertTransition(state, "finalizing");
@@ -1621,7 +1718,7 @@ export function refusingPlanner(
  * Free-gov budget guard: probe at most one free-gov tool for the whole offline run, never
  * re-probe already-attempted gov tools, and never chain gov→gov after unsupported/failed.
  * Live SERV may call all four free-gov tools; this heuristic must finish under server
- * maxServCalls (fixture HTTP path) without artificial budget raises.
+ * budgets (fixture HTTP path) without artificial budget raises.
  */
 export function heuristicOfflinePlanner(): ScoutPlanner {
   const seen = new Set<string>();
@@ -1693,20 +1790,26 @@ export function heuristicOfflinePlanner(): ScoutPlanner {
 
     // At most one free-gov probe for the offline heuristic run; skip already-attempted.
     // Count injected/external gov outcomes too (test wrappers) so we never re-burn the pool.
-    // Leave headroom so select/finalize still fit under server maxServCalls.
+    // Leave headroom so select/finalize still fit under finite maxServCalls when present.
+    const servRemaining = evidenceContext.budgetsRemaining.servCalls;
+    const servHeadroomOk = servRemaining === null || servRemaining >= 3;
     const govAlreadyAttempted =
       freeGovProbesUsed >= MAX_FREE_GOV_PROBES ||
       recentOutcomes.some((o) => o.toolId.startsWith("evidence.gov_")) ||
       evidenceContext.evidenceBriefs.some((b) => b.govToolStatus !== "not_attempted");
     if (
       !govAlreadyAttempted &&
-      evidenceContext.budgetsRemaining.servCalls >= 3 &&
+      servHeadroomOk &&
       evidenceContext.budgetsRemaining.toolCalls > 0
     ) {
       const probeVin =
         pendingVins.find((vin) => {
           const brief = evidenceContext.evidenceBriefs.find((b) => b.vin === vin);
-          return brief?.govToolStatus === "not_attempted";
+          return (
+            brief?.govToolStatus === "not_attempted" &&
+            brief.askingPriceUsable === true &&
+            brief.freeGovCanUnlockInvestigate === true
+          );
         }) ?? null;
       if (probeVin) {
         const brief = evidenceContext.evidenceBriefs.find((b) => b.vin === probeVin);

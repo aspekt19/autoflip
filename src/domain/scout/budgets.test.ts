@@ -27,4 +27,19 @@ describe("scout budgets", () => {
     expect(reserveToolCall(budgets, usage).ok).toBe(true);
     expect(reserveToolCall(budgets, usage).ok).toBe(false);
   });
+
+  it("maxServCalls=null never refuses for call-count; still increments usage", () => {
+    const budgets = freezeBudgets({ maxServCalls: null, maxToolCalls: 40, maxProviderCalls: 0 });
+    const usage = freshUsage();
+    for (let i = 1; i <= 20; i++) {
+      const reserved = reserveServCall(budgets, usage);
+      expect(reserved.ok).toBe(true);
+      expect(usage.servCalls).toBe(i);
+    }
+  });
+
+  it("rejects Infinity / NaN maxServCalls (no fake caps)", () => {
+    expect(() => freezeBudgets({ maxServCalls: Number.POSITIVE_INFINITY })).toThrow(/maxServCalls/);
+    expect(() => freezeBudgets({ maxServCalls: Number.NaN })).toThrow(/maxServCalls/);
+  });
 });
