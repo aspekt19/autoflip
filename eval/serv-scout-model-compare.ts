@@ -49,8 +49,10 @@
  *   SCOUT_COMPARE_DRY_RUN        "1" forces dry-run even if key present
  *   SCOUT_COMPARE_OUT            optional output basename under eval/results/
  */
+import { execFileSync } from "node:child_process";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
+import { sha256Canonical } from "../src/domain/hash";
 import {
   loadPlaceholderLedger,
   prepareCompareStep,
@@ -78,6 +80,49 @@ import {
   resolveServOutputTokenBound,
 } from "../src/server/serv";
 import { profile } from "../src/server/serv/profiles";
+
+/** Best-effort git rev-parse. Never throws. */
+function tryGitRevParse(arg: string): string | null {
+  try {
+    const out = execFileSync("git", ["rev-parse", arg], {
+      cwd: process.cwd(),
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"],
+    }).trim();
+    return out || null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Pinned source identity for compare diagnostics (independent review).
+ * head/tree from git (or SCOUT_COMPARE_SOURCE_HEAD/TREE); BASE_MODEL from profiles.
+ */
+export function resolveCompareSourcePins(): {
+  head: string | null;
+  tree: string | null;
+  baseModel: string;
+} {
+  return {
+    head: process.env.SCOUT_COMPARE_SOURCE_HEAD?.trim() || tryGitRevParse("HEAD"),
+    tree: process.env.SCOUT_COMPARE_SOURCE_TREE?.trim() || tryGitRevParse("HEAD^{tree}"),
+    baseModel: BASE_MODEL,
+  };
+}
+
+/**
+ * Exact fingerprint of the scout_plan response_format json_schema payload
+ * (name + strict + schema). Hash only — never embeds request bodies or secrets.
+ */
+export function scoutPlanSchemaFingerprint(): string {
+  const entry = profile("scout_plan");
+  return sha256Canonical({
+    name: entry.jsonSchema?.name ?? null,
+    strict: true,
+    schema: entry.jsonSchema?.schema ?? null,
+  });
+}
 
 type Usage = {
   prompt_tokens?: number;
@@ -140,14 +185,21 @@ function openservMeta(proof: unknown): { id: string | null; finishReason: string
 
 function markdownReport(report: Record<string, unknown>): string {
   const lines: string[] = [];
+  const source = report.source as
+    | { head?: string | null; tree?: string | null; baseModel?: string }
+    | undefined;
   lines.push("# SERV scout model compare (PR63 placeholder ledger)");
   lines.push("");
   lines.push(`- Mode: \`${String(report.mode)}\``);
-  lines.push(`- Harness head (when committed): see git SHA on PR branch`);
+  lines.push(
+    `- Source head: \`${source?.head ?? "unknown"}\` · tree: \`${source?.tree ?? "unknown"}\` · BASE_MODEL: \`${source?.baseModel ?? report.productionDefaultModel}\``,
+  );
+  lines.push(`- Schema fingerprint (scout_plan json_schema sha256): \`${String(report.schemaFingerprint)}\``);
   lines.push(`- Ledger: \`${PR63_PLACEHOLDER_LEDGER_PATH}\``);
   lines.push(`- Deployed SHA under test (ledger): \`${String(report.ledgerDeployedSha)}\``);
   lines.push(`- Production default model: \`${String(report.productionDefaultModel)}\` (unchanged: ${String(report.productionDefaultUnchanged)})`);
   lines.push(`- Cost: **unknown** (console $/M is not reconciled run cost; labeled costunknown)`);
+  lines.push(`- Redaction: sanitizedUpstream / sanitizedPlannerEcho only — **no** raw secrets or request bodies`);
   lines.push("");
   lines.push("## Experiment transport bounds (t296)");
   lines.push("");
@@ -445,6 +497,7 @@ async function main() {
     "Parse failures now record sanitizedPlannerEcho (keys/types/lengths only) + upstreamResponseId/finishReason/responseShape when present — never raw planner JSON.",
     "HTTP/transport failures also record sanitizedUpstream (servErrorSummary → sanitizePlannerDiagnostic) — never secrets or raw planner user payloads; responseShape alone is insufficient for 400 contract diagnosis.",
     "All-zero usage on a HTTP 200 refusal is unknown cost — not free. Parent Mini/Luna counts are not efficacy winners.",
+    "Compare reports pin source.head/tree/BASE_MODEL + schemaFingerprint; never raw secrets or request bodies.",
   ];
 
   const outputTokenBound = resolveServOutputTokenBound(process.env);
@@ -464,10 +517,15 @@ async function main() {
     noArbitraryServRunQuota: true,
   };
 
+  const source = resolveCompareSourcePins();
+  const schemaFingerprint = scoutPlanSchemaFingerprint();
+
   const report = {
     schemaVersion: "serv-scout-model-compare/v3",
     mode: live ? "live_sequential" : "dry_run",
     harness: "eval/serv-scout-model-compare.ts",
+    source,
+    schemaFingerprint,
     ledgerPath: PR63_PLACEHOLDER_LEDGER_PATH,
     ledgerLabel: ledger.label,
     ledgerDeployedSha: ledger.deployedSha,
@@ -501,6 +559,8 @@ async function main() {
       "Production runServ empty/timeout recovery is unchanged outside this harness.",
       "Schema mismatch rows include sanitized field presence (reason/servStepId/type) without storing raw response text.",
       "serv_error rows include sanitizedUpstream when ServResult.upstream is present (bounded redacted type/code/message).",
+      "Report pins source.head/tree/BASE_MODEL + schemaFingerprint; never raw secrets or request bodies.",
+      "Draft-as-JSON output hazard is offline/synthetic (PR #71) — not proven live Luna RCA; Sonnet 400 is a separate request-contract class.",
     ],
   };
 

@@ -1,11 +1,13 @@
 # SERV scout model compare (PR63 placeholder ledger)
 
 - Mode: `dry_run`
-- Harness head (when committed): see git SHA on PR branch
+- Source head: `242327d0beca819140f37033f1cc5a32d06965f8` · tree: `6c0d7c0455dc829e1e183e288cf195d4b1286ccf` · BASE_MODEL: `gpt-5.4-mini`
+- Schema fingerprint (scout_plan json_schema sha256): `967e525271bed13ac42a4573aba9510a60c8623cb537bf316ec3902803846ea2`
 - Ledger: `fixtures/scout/pr63-placeholder-ledger.json`
 - Deployed SHA under test (ledger): `de5eb0c0dab6d394765ff5916abf6346dc139841`
 - Production default model: `gpt-5.4-mini` (unchanged: true)
 - Cost: **unknown** (console $/M is not reconciled run cost; labeled costunknown)
+- Redaction: sanitizedUpstream / sanitizedPlannerEcho only — **no** raw secrets or request bodies
 
 ## Experiment transport bounds (t296)
 
@@ -86,3 +88,4 @@ _No live model rows (dry-run)._
 - Parse failures now record sanitizedPlannerEcho (keys/types/lengths only) + upstreamResponseId/finishReason/responseShape when present — never raw planner JSON.
 - HTTP/transport failures also record sanitizedUpstream (servErrorSummary → sanitizePlannerDiagnostic) — never secrets or raw planner user payloads; responseShape alone is insufficient for 400 contract diagnosis.
 - All-zero usage on a HTTP 200 refusal is unknown cost — not free. Parent Mini/Luna counts are not efficacy winners.
+- Compare reports pin source.head/tree/BASE_MODEL + schemaFingerprint; never raw secrets or request bodies.

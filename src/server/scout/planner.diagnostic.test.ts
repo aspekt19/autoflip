@@ -1,4 +1,6 @@
 import { describe, expect, it } from "vitest";
+import { sha256Canonical } from "@/domain/hash";
+import { BASE_MODEL, profile } from "@/server/serv/profiles";
 import { sanitizePlannerDiagnostic } from "./planner";
 import { servErrorSummary } from "@/server/serv/run";
 
@@ -36,5 +38,23 @@ describe("sanitizePlannerDiagnostic", () => {
     expect(diag).toContain(type);
     expect(diag).toContain(code);
     expect(diag).not.toContain("sk-live");
+  });
+
+  it("scout_plan schema fingerprint is stable sha256 over name/strict/schema (no pattern surface)", () => {
+    const entry = profile("scout_plan");
+    const props = entry.jsonSchema?.schema?.properties as
+      | { reason?: { pattern?: string }; servStepId?: { pattern?: string } }
+      | undefined;
+    expect(props?.reason?.pattern).toBeUndefined();
+    expect(props?.servStepId?.pattern).toBeUndefined();
+    const fingerprint = sha256Canonical({
+      name: entry.jsonSchema?.name ?? null,
+      strict: true,
+      schema: entry.jsonSchema?.schema ?? null,
+    });
+    expect(fingerprint).toMatch(/^[a-f0-9]{64}$/);
+    expect(BASE_MODEL).toBe("gpt-5.4-mini");
+    // Fingerprint must not embed secrets/request bodies — hash of schema object only.
+    expect(fingerprint).not.toMatch(/sk-|Bearer|SERV_API/);
   });
 });

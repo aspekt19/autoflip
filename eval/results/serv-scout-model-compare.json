@@ -2,6 +2,12 @@
   "schemaVersion": "serv-scout-model-compare/v3",
   "mode": "dry_run",
   "harness": "eval/serv-scout-model-compare.ts",
+  "source": {
+    "head": "242327d0beca819140f37033f1cc5a32d06965f8",
+    "tree": "6c0d7c0455dc829e1e183e288cf195d4b1286ccf",
+    "baseModel": "gpt-5.4-mini"
+  },
+  "schemaFingerprint": "967e525271bed13ac42a4573aba9510a60c8623cb537bf316ec3902803846ea2",
   "ledgerPath": "fixtures/scout/pr63-placeholder-ledger.json",
   "ledgerLabel": "offline_sanitized_NOT_live_rerun",
   "ledgerDeployedSha": "de5eb0c0dab6d394765ff5916abf6346dc139841",
@@ -94,7 +100,8 @@
     "Experiment transport disables silent empty/timeout re-POSTs only; production planner recovery retries stay as designed.",
     "Parse failures now record sanitizedPlannerEcho (keys/types/lengths only) + upstreamResponseId/finishReason/responseShape when present — never raw planner JSON.",
     "HTTP/transport failures also record sanitizedUpstream (servErrorSummary → sanitizePlannerDiagnostic) — never secrets or raw planner user payloads; responseShape alone is insufficient for 400 contract diagnosis.",
-    "All-zero usage on a HTTP 200 refusal is unknown cost — not free. Parent Mini/Luna counts are not efficacy winners."
+    "All-zero usage on a HTTP 200 refusal is unknown cost — not free. Parent Mini/Luna counts are not efficacy winners.",
+    "Compare reports pin source.head/tree/BASE_MODEL + schemaFingerprint; never raw secrets or request bodies."
   ],
   "stepUserMessages": [
     {
@@ -174,6 +181,8 @@
     "Live path uses experiment_single_attempt: one HTTP per step; empty/timeout/HTTP errors/refusals recorded, not silently repeated.",
     "Production runServ empty/timeout recovery is unchanged outside this harness.",
     "Schema mismatch rows include sanitized field presence (reason/servStepId/type) without storing raw response text.",
-    "serv_error rows include sanitizedUpstream when ServResult.upstream is present (bounded redacted type/code/message)."
+    "serv_error rows include sanitizedUpstream when ServResult.upstream is present (bounded redacted type/code/message).",
+    "Report pins source.head/tree/BASE_MODEL + schemaFingerprint; never raw secrets or request bodies.",
+    "Draft-as-JSON output hazard is offline/synthetic (PR #71) — not proven live Luna RCA; Sonnet 400 is a separate request-contract class."
   ]
 }
