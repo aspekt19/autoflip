@@ -67,6 +67,7 @@ describe("SERV self-test", () => {
         },
         httpAttempts: 0,
         transportPolicy: "production",
+        responseShape: null,
       };
     };
     const checks = await runSelftestChecks({ apiKey: "test-key" }, run);
@@ -126,6 +127,7 @@ describe("SERV self-test", () => {
           proof,
           httpAttempts: 1,
           transportPolicy: "production",
+          responseShape: null,
         };
       }
       return {
@@ -137,6 +139,7 @@ describe("SERV self-test", () => {
         proof,
         httpAttempts: 1,
         transportPolicy: "production",
+        responseShape: null,
       };
     };
     const checks = await runSelftestChecks({ apiKey: "test-key", repeat: 3 }, run);

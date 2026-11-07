@@ -131,7 +131,9 @@ describe("placeholder-price recovery (PR63 live ff52a261 ledger replay)", () => 
     const params = mandateToSearchParams(personalMandate);
     expect(params.maxPriceUsd).toBe(20_000);
     const ranges = searchQueryRanges(params);
-    expect(ranges.priceRange).toBe(`${MIN_USABLE_ASKING_PRICE_USD}-20000`);
+    // Search floor is the credible search min when budget allows — not the $500 placeholder band alone.
+    expect(ranges.priceRange).toBe(`3000-20000`);
+    expect(MIN_USABLE_ASKING_PRICE_USD).toBe(500);
     expect(ranges.priceRange).not.toMatch(/^1-/);
   });
 

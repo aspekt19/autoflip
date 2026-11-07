@@ -37,6 +37,21 @@ export type Listing = {
   /** When the listing was first seen by the provider, if that field was present. */
   createdAt?: string | null;
   source: ListingSource;
+  /**
+   * What priceUsd represents when known (purchase ask vs dealer fee vs unknown).
+   * Auto.dev feed alone never invents this — leave unset/unknown. Seller-page
+   * labeled closing/doc fees must not qualify as purchase-price evidence.
+   */
+  askingPriceKind?: "purchase_ask" | "dealer_fee" | "unknown" | null;
+  /** Provenance of the figure / label — feed_only until seller-page labeled. */
+  askingPriceProvenance?: "feed_only" | "seller_page_labeled" | "missing" | null;
+  /** Seller-page label when known (e.g. "Closing Fee"). */
+  askingPriceLabel?: string | null;
+  /**
+   * Seller-page access outcome when a public check ran offline/mapped.
+   * unavailable ≠ proof listing gone; not_attempted is the live default.
+   */
+  askingPriceSellerPageAccess?: "obtained" | "unavailable" | "not_attempted" | null;
 };
 
 export type Mode = "personal" | "flip";

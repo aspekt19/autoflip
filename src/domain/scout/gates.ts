@@ -1,7 +1,7 @@
 import type { FlipEstimate } from "@/domain/flip-rank";
 import type { GateResult } from "@/domain/verdict-gates";
 import type { Listing } from "@/domain/types";
-import { isUsableAskingPriceUsd } from "./asking-price";
+import { isListingAskingPriceUsable } from "./asking-price";
 import type { ScoutMandate } from "./types";
 
 /**
@@ -26,21 +26,21 @@ export function runScoutGates(input: {
 }): ScoutGateSummary {
   const gates: GateResult[] = [];
 
-  if (input.listing.priceUsd == null || !isUsableAskingPriceUsd(input.listing.priceUsd)) {
+  if (input.listing.priceUsd == null || !isListingAskingPriceUsable(input.listing)) {
     gates.push({
       id: "data_sufficiency",
       status: "withhold",
       reason:
         input.listing.priceUsd == null
           ? "No asking price — cannot investigate economics honestly."
-          : `Asking price ${input.listing.priceUsd} is not a usable retail ask (placeholder/too low) — cannot investigate economics honestly; price not invented upward.`,
+          : `Asking price ${input.listing.priceUsd} is not genuine purchase-price evidence (placeholder/suspicious/fee/unverified) — cannot investigate economics honestly; not vehicle-defect proof; price not invented upward.`,
       forbid: ["buy", "negotiate", "pass"],
     });
   } else {
     gates.push({
       id: "data_sufficiency",
       status: "pass",
-      reason: "Asking price present (seller claim).",
+      reason: "Usable seller-claim asking price present (not verified sold/all-in).",
       forbid: [],
     });
   }
@@ -97,7 +97,7 @@ export function runScoutGates(input: {
 
   if (input.mandate.mode === "personal" && input.mandate.budgetKnown && input.mandate.budgetUsd != null) {
     if (
-      isUsableAskingPriceUsd(input.listing.priceUsd) &&
+      isListingAskingPriceUsable(input.listing) &&
       input.listing.priceUsd! > input.mandate.budgetUsd * 1.05
     ) {
       gates.push({
@@ -106,11 +106,12 @@ export function runScoutGates(input: {
         reason: "Asking price exceeds personal budget by more than 5%.",
         forbid: ["buy", "negotiate"],
       });
-    } else if (!isUsableAskingPriceUsd(input.listing.priceUsd)) {
+    } else if (!isListingAskingPriceUsable(input.listing)) {
       gates.push({
         id: "mandate_fit",
         status: "withhold",
-        reason: "Usable asking price missing — mandate fit not verified (unknown ≠ pass).",
+        reason:
+          "Genuine purchase-price evidence missing — mandate fit not verified (unknown ≠ pass; not vehicle defect).",
         forbid: ["buy", "negotiate", "pass"],
       });
     } else {
@@ -161,7 +162,7 @@ export function runScoutGates(input: {
 
   const withheld = gates.some((g) => g.status === "withhold");
   const withholdReason = gates.find((g) => g.status === "withhold")?.reason ?? null;
-  const usablePrice = isUsableAskingPriceUsd(input.listing.priceUsd);
+  const usablePrice = isListingAskingPriceUsable(input.listing);
   const hardForbidInvestigate = gates.some(
     (g) =>
       g.status === "withhold" &&
@@ -173,7 +174,7 @@ export function runScoutGates(input: {
     gates,
     withheld,
     withholdReason,
-    // Usable asking price required — placeholder $1–$59 must not unlock shortlist.
+    // Genuine purchase-price evidence required — placeholder/suspicious feed asks must not unlock shortlist.
     allowInvestigate: !hardForbidInvestigate && input.listing.vin.length > 0 && usablePrice,
     claimsSafeBuy: false,
     claimsVerifiedProfit: false,

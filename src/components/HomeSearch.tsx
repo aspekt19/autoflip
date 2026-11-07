@@ -2,16 +2,18 @@
 
 import { useRouter } from "next/navigation";
 import { useState, type FormEvent } from "react";
+import { homeFindEntryParams } from "@/domain/need";
 import type { Mode } from "@/domain/types";
-import { ZipRadiusFields } from "./ZipRadiusFields";
 
+/**
+ * Homepage task entry: intent + mode only.
+ * ZIP and seller-distance radius are collected later in /find (budget → confirm)
+ * before geographically constrained inventory runs — not on the hero.
+ */
 export function HomeSearch({ onModeChange }: { onModeChange?: (mode: Mode) => void }) {
   const router = useRouter();
   const [note, setNote] = useState("");
   const [mode, setMode] = useState<Mode>("personal");
-  const [zip, setZip] = useState("");
-  const [distanceMiles, setDistanceMiles] = useState<number | null>(null);
-  const [geoError, setGeoError] = useState<string | null>(null);
 
   function choose(next: Mode) {
     setMode(next);
@@ -22,24 +24,9 @@ export function HomeSearch({ onModeChange }: { onModeChange?: (mode: Mode) => vo
     event.preventDefault();
     const text = note.trim();
     if (text.length < 8) return;
-    setGeoError(null);
-    const trimmedZip = zip.trim();
-    if (distanceMiles != null && !trimmedZip) {
-      setGeoError("Add a ZIP for a seller-distance radius, or choose Nationwide.");
-      return;
-    }
-    if (trimmedZip && !/^\d{5}$/.test(trimmedZip)) {
-      setGeoError("ZIP needs to be 5 digits, or left blank for Nationwide.");
-      return;
-    }
-    const params = new URLSearchParams({ note: text, mode });
-    if (trimmedZip) params.set("zip", trimmedZip);
-    if (distanceMiles == null) {
-      params.set("distanceMiles", "nationwide");
-    } else {
-      params.set("distanceMiles", String(distanceMiles));
-    }
-    router.push(`/find?${params.toString()}`);
+    // Route to the find flow only — no paid search, no invented Nationwide params.
+    // Geo (ZIP + radius) is attached in-process on /find when the shopper sets it.
+    router.push(`/find?${homeFindEntryParams(text, mode).toString()}`);
   }
 
   return (
@@ -62,18 +49,6 @@ export function HomeSearch({ onModeChange }: { onModeChange?: (mode: Mode) => vo
         onChange={(event) => setNote(event.target.value)}
         placeholder="Describe the car you need. A reliable SUV under $20,000 near Dallas…"
       />
-      <ZipRadiusFields
-        idPrefix="home"
-        zip={zip}
-        distanceMiles={distanceMiles}
-        onZipChange={setZip}
-        onDistanceChange={setDistanceMiles}
-      />
-      {geoError ? (
-        <p className="warn" role="alert">
-          {geoError}
-        </p>
-      ) : null}
       <div className="btn-row">
         <button className="action" type="submit" disabled={note.trim().length < 8}>
           Find cars

@@ -59,7 +59,7 @@ export function HomeStage() {
         <ol className="steps-3 story-steps">
           <li>
             <strong>01 Say which goal</strong>
-            <span>For me, or for resale. A note, a budget, and a ZIP. Resale also asks what profit you want and what repairs you can do.</span>
+            <span>For me, or for resale. A short note starts the search. Budget, ZIP, and seller distance come next in the flow. Resale also asks what profit you want and what repairs you can do.</span>
           </li>
           <li>
             <strong>02 Read the listing</strong>

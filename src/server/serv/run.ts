@@ -48,6 +48,8 @@ export type ServResult =
       /** Count of upstream SERV HTTP dispatches performed for this runServ call. */
       httpAttempts: number;
       transportPolicy: ServTransportPolicy;
+      /** Keys/lengths only — never string values (safe for compare artifacts). */
+      responseShape: string | null;
     }
   | {
       ok: false;
@@ -58,6 +60,7 @@ export type ServResult =
       upstream?: string | null;
       httpAttempts: number;
       transportPolicy: ServTransportPolicy;
+      responseShape: string | null;
     };
 
 /** Eval/compare helper — never use from production planner paths. */
@@ -441,6 +444,7 @@ export async function runServ(
       upstream: "output_token_bound_invalid",
       httpAttempts: 0,
       transportPolicy,
+      responseShape: null,
     };
   }
   const applyTokenBound = <T extends Record<string, unknown>>(body: T) =>
@@ -480,6 +484,7 @@ export async function runServ(
       upstream: "output_token_bound_invalid",
       httpAttempts: 0,
       transportPolicy,
+      responseShape: null,
     };
   }
   const proofMeta = {
@@ -517,6 +522,7 @@ export async function runServ(
       fallback: entry.fallback,
       httpAttempts: 0,
       transportPolicy,
+      responseShape: null,
     };
   }
 
@@ -640,6 +646,7 @@ export async function runServ(
           upstream: servErrorSummary(turn.payload) || null,
           httpAttempts,
           transportPolicy,
+          responseShape: turn.shape || null,
         };
       }
       const call = toolCall(turn.payload);
@@ -690,6 +697,7 @@ export async function runServ(
         upstream: turn.response.ok ? turn.shape || null : servErrorSummary(turn.payload) || null,
         httpAttempts,
         transportPolicy,
+        responseShape: turn.shape || null,
       };
     }
     return {
@@ -701,6 +709,7 @@ export async function runServ(
       proof,
       httpAttempts,
       transportPolicy,
+      responseShape: turn.shape || null,
     };
   } catch (error) {
     if (error instanceof Error && error.name === "ServBudgetError") {
@@ -727,6 +736,7 @@ export async function runServ(
         upstream: "grant_exhausted",
         httpAttempts,
         transportPolicy,
+        responseShape: null,
       };
     }
     const proof = recordServProof(
@@ -752,6 +762,7 @@ export async function runServ(
       upstream: null,
       httpAttempts,
       transportPolicy,
+      responseShape: null,
     };
   }
 }

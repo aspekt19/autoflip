@@ -139,6 +139,49 @@ export function searchScopeLabel(need: Pick<StructuredNeed, "zip" | "distanceMil
   return "Nationwide (U.S.)";
 }
 
+/**
+ * Homepage → /find entry query. Intent + mode only.
+ * Do not invent zip/distanceMiles here — geo attaches in the find flow before inventory.
+ * Callers that already have ZIP/radius in a deep link still pass them via parseFindEntryParams.
+ */
+export function homeFindEntryParams(note: string, mode: "personal" | "flip"): URLSearchParams {
+  return new URLSearchParams({ note: note.trim(), mode });
+}
+
+/**
+ * Parse /find entry query. Preserves explicit zip + distanceMiles from URLs;
+ * does not invent Nationwide when those keys are absent (undefined, not null).
+ * Radius without ZIP is dropped rather than silently nationwide-widened.
+ */
+export function parseFindEntryParams(params: {
+  note?: string;
+  mode?: string;
+  zip?: string;
+  distanceMiles?: string;
+}): {
+  note?: string;
+  mode: "personal" | "flip";
+  zip?: string;
+  /** Null = explicit Nationwide. Undefined = not provided by the entry URL. */
+  distanceMiles?: number | null;
+} {
+  const zip =
+    typeof params.zip === "string" && ZIP.test(params.zip.trim()) ? params.zip.trim() : undefined;
+  const distanceRaw = params.distanceMiles;
+  const distanceProvided = distanceRaw !== undefined && distanceRaw !== "";
+  const distanceParsed = distanceProvided ? parseDistanceMiles(distanceRaw) : null;
+  const distanceMiles = distanceParsed?.ok ? distanceParsed.miles : undefined;
+  // Radius without ZIP cannot be applied — leave both unset rather than silently nationwide-widening.
+  const initialZip = distanceMiles != null && !zip ? undefined : zip;
+  const initialDistanceMiles = distanceMiles != null && !zip ? undefined : distanceMiles;
+  return {
+    note: typeof params.note === "string" ? params.note : undefined,
+    mode: params.mode === "flip" ? "flip" : "personal",
+    zip: initialZip,
+    distanceMiles: initialDistanceMiles,
+  };
+}
+
 export function validateNeed(input: unknown): { ok: true; need: StructuredNeed } | { ok: false; issues: NeedIssue[] } {
   if (!input || typeof input !== "object" || Array.isArray(input)) {
     return { ok: false, issues: [{ field: "need", message: "The need has to be an object." }] };
