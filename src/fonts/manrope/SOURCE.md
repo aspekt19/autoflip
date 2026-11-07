@@ -4,7 +4,7 @@
 
 `next/font/google` Manrope fetch/parse fails in CI (null CSS). These files are
 self-hosted via `next/font/local` in `src/app/layout.tsx`. Orbitron and
-Bebas Neue remain Google-fetched.
+Bebas Neue are also vendored under `src/fonts/` for the same CI reason.
 
 ## Exact files in this directory
 

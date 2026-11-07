@@ -1,5 +1,4 @@
 import type { Metadata } from "next";
-import { Bebas_Neue, Orbitron } from "next/font/google";
 import localFont from "next/font/local";
 import { BrandLockup, BrandTagline } from "@/components/BrandLockup";
 import { Header } from "@/components/Header";
@@ -18,11 +17,19 @@ const sans = localFont({
   variable: "--font-sans",
   display: "swap",
 });
-const display = Orbitron({ subsets: ["latin"], weight: ["500", "600", "700"], variable: "--font-display" });
-/** Condensed display for headings. Replaces Big_Shoulders, which flakes in CI Google Fonts fetches. */
-const wide = Bebas_Neue({
-  subsets: ["latin"],
-  weight: "400",
+/** Self-hosted Orbitron — next/font/google Orbitron fetch also flakes in CI. */
+const display = localFont({
+  src: [
+    { path: "../fonts/orbitron/orbitron-latin-500-normal.woff2", weight: "500", style: "normal" },
+    { path: "../fonts/orbitron/orbitron-latin-600-normal.woff2", weight: "600", style: "normal" },
+    { path: "../fonts/orbitron/orbitron-latin-700-normal.woff2", weight: "700", style: "normal" },
+  ],
+  variable: "--font-display",
+  display: "swap",
+});
+/** Condensed display for headings. Self-hosted after Google Fonts CI flakes. */
+const wide = localFont({
+  src: [{ path: "../fonts/bebas-neue/bebas-neue-latin-400-normal.woff2", weight: "400", style: "normal" }],
   variable: "--font-wide",
   display: "swap",
 });
