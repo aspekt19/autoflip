@@ -15,9 +15,10 @@ const camryRaw = JSON.parse(
 describe("personal_fit evidence honesty (Stage2A)", () => {
   it("labels personal_budget_fit as assumed — not verified external fact", async () => {
     const inventory = replayInventoryAdapter(camryRaw, REPLAY_CAMRY_PROVENANCE);
+    // Fixture Camrys ask ~28–35k — hard cap is exact budgetUsd (no 1.25× inflate).
     const peek = await inventory({
       mode: "personal",
-      budgetUsd: 25_000,
+      budgetUsd: 40_000,
       budgetKnown: true,
       targetProfitUsd: null,
       repairAbility: "unknown",
@@ -35,7 +36,7 @@ describe("personal_fit evidence honesty (Stage2A)", () => {
       ownerId: "test:personal-fit",
       mandateRaw: {
         mode: "personal",
-        budgetUsd: 25_000,
+        budgetUsd: 40_000,
         budgetKnown: true,
         preferredMakes: ["Toyota"],
         openToOtherMakes: false,

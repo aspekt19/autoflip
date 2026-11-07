@@ -85,11 +85,14 @@ export function mandateToSearchParams(mandate: ScoutMandate): ScoutSearchParams 
   };
 }
 
-/** Explicit buyer asking-price hard cap when budget is known. */
+/**
+ * Explicit buyer asking-price hard cap when budget is known.
+ * Personal and flip both use the stated budgetUsd — do not inflate to 1.25×
+ * for search/qualification (that produced maxPriceUsd=25000 for a $20k mandate).
+ * Soft ±5% buy-forbid envelope stays in gates, not the hard search cap.
+ */
 export function mandatePriceCap(mandate: ScoutMandate): number | null {
   if (!mandate.budgetKnown || mandate.budgetUsd == null) return null;
-  if (mandate.mode === "personal") return mandate.budgetUsd * 1.25;
-  // Flip: hard asking cap at budget (not 1.25×).
   return mandate.budgetUsd;
 }
 

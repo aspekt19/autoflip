@@ -32,6 +32,7 @@ type ScoutApiResponse = {
     state: string;
     failReason: string | null;
     message: string | null;
+    diagnostic?: string | null;
     autonomyClaim: string;
     inventorySource: string;
     inventoryProvenance: string | null;
@@ -443,6 +444,11 @@ export function ScoutPanel() {
             Run id: <code>{result.runId}</code>
           </p>
           {result.message ? <p className="lead">{result.message}</p> : null}
+          {result.diagnostic ? (
+            <p className="muted" role="status">
+              Diagnostic: {result.diagnostic}
+            </p>
+          ) : null}
           {result.inventoryProvenance ? (
             <p className="muted">Provenance: {result.inventoryProvenance}</p>
           ) : null}

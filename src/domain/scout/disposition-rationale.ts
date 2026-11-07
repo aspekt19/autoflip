@@ -5,6 +5,7 @@
  * forbids do not unlock arbitrary planner reason text.
  */
 import type { GateResult } from "@/domain/verdict-gates";
+import { isUsableAskingPriceUsd } from "./asking-price";
 import type { ScoutCandidate, ScoutToolOutcome } from "./types";
 
 /** Real adverse evidence kinds — excludes default unknown-title / unknown-history forbids. */
@@ -89,11 +90,14 @@ function isUnknownHistoryWithhold(g: GateResult): boolean {
 export function collectAdverseEvidence(c: ScoutCandidate): AdverseEvidenceFact[] {
   const out: AdverseEvidenceFact[] = [];
 
-  if (c.listing.priceUsd == null) {
+  if (c.listing.priceUsd == null || !isUsableAskingPriceUsd(c.listing.priceUsd)) {
     out.push({
       kind: "missing_asking_price",
       epistemic: "observed_hard",
-      detail: "Asking price missing — economics cannot be investigated honestly.",
+      detail:
+        c.listing.priceUsd == null
+          ? "Asking price missing — economics cannot be investigated honestly."
+          : `Asking price ${c.listing.priceUsd} is below usable retail floor — treated as missing/unusable (not invented upward).`,
     });
   }
 
