@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type { WatchCriteria, WatchModel } from "@/domain/radar-watch";
 import { watchModels } from "@/domain/watch-queries";
-import { autoDevMake, autoDevModel } from "@/domain/vehicle-names";
+import { parseDistanceMiles } from "@/domain/need";
 import { getKv } from "@/io/kv";
 import { allowance } from "@/server/plan-book";
 import { listSearches, saveSearches } from "@/server/radar-store";
@@ -15,6 +15,18 @@ export async function POST(request: Request) {
   const criteria = body?.criteria;
   if (!criteria || !criteria.zip || !criteria.priceMax) {
     return Response.json({ error: "invalid", message: "A saved search needs a ZIP and a maximum price." }, { status: 400 });
+  }
+  const radiusParsed = parseDistanceMiles(criteria.radiusMiles);
+  if (!radiusParsed.ok || radiusParsed.miles == null) {
+    return Response.json(
+      {
+        error: "invalid_radius",
+        message: radiusParsed.ok
+          ? "Deal Radar watches need a seller-distance radius (not nationwide)."
+          : radiusParsed.message,
+      },
+      { status: 400 },
+    );
   }
   const mode = body?.mode === "flip" ? "flip" : "personal";
   const kv = getKv();
@@ -39,7 +51,7 @@ export async function POST(request: Request) {
     ownerId: id,
     name: (body?.name || "Saved search").slice(0, 80),
     mode,
-    criteria: normalizeCriteria(criteria, mode),
+    criteria: normalizeCriteria(criteria, mode, radiusParsed.miles),
     createdAt: new Date().toISOString(),
     enabled: true,
     preset: false,
@@ -49,12 +61,12 @@ export async function POST(request: Request) {
   return Response.json({ ok: true, demo: isDemoUser(id) });
 }
 
-function normalizeCriteria(criteria: WatchCriteria, mode: "personal" | "flip"): WatchCriteria {
+function normalizeCriteria(criteria: WatchCriteria, mode: "personal" | "flip", radiusMiles: number): WatchCriteria {
   if (mode === "flip") {
     return {
       priceMax: Number(criteria.priceMax),
       zip: String(criteria.zip),
-      radiusMiles: Number(criteria.radiusMiles || 50),
+      radiusMiles,
       repairAbility: criteria.repairAbility ?? "unknown",
       minProfitUsd: typeof criteria.minProfitUsd === "number" ? criteria.minProfitUsd : undefined,
     };
@@ -68,7 +80,7 @@ function normalizeCriteria(criteria: WatchCriteria, mode: "personal" | "flip"): 
     yearMax: criteria.yearMax,
     priceMax: Number(criteria.priceMax),
     zip: String(criteria.zip),
-    radiusMiles: Number(criteria.radiusMiles || 50),
+    radiusMiles,
     milesMax: criteria.milesMax,
   };
 }

@@ -11,11 +11,26 @@ export type RepairAbility = (typeof REPAIR_ABILITIES)[number];
 export const BUDGET_SCOPES = ["car", "all_in", "unspecified"] as const;
 export type BudgetScope = (typeof BUDGET_SCOPES)[number];
 
-/** Radius choices when a ZIP is set. Null distance means nationwide. */
-export const SEARCH_RADII_MILES = [50, 100, 250, 500] as const;
+/**
+ * Seller-distance radius presets (miles from search ZIP).
+ * Null distance means nationwide. Custom positive miles are also allowed — presets are UX shortcuts, not a hard enum.
+ */
+export const SEARCH_RADII_MILES = [25, 50, 100, 150, 250, 500] as const;
 export type SearchRadiusMiles = (typeof SEARCH_RADII_MILES)[number];
 
+/**
+ * App-side validation ceiling for a numeric seller-distance radius.
+ * Not a product preset and not a documented Auto.dev / provider hard limit — Nationwide
+ * uses null (omit `distance`) for unbounded seller geography. Reject above this; never
+ * silently snap, and do not claim “arbitrary unlimited” for custom miles.
+ */
+export const MAX_DISTANCE_MILES = 3000;
+
 export type PreferredModel = { make: string; model: string };
+
+export type DistanceMilesParse =
+  | { ok: true; miles: number | null }
+  | { ok: false; message: string };
 
 /** What the shopper said. Repair ability is not a risk tolerance. */
 export type StructuredNeed = {
@@ -76,14 +91,45 @@ export function emptyNeed(mode: "personal" | "flip" = "personal"): StructuredNee
   };
 }
 
-export function normalizeDistanceMiles(value: unknown): number | null {
-  if (value === null || value === undefined || value === "" || value === "nationwide") return null;
-  if (typeof value === "number" && SEARCH_RADII_MILES.includes(value as SearchRadiusMiles)) return value;
-  if (typeof value === "string" && /^\d+$/.test(value.trim())) {
-    const amount = Number(value.trim());
-    if (SEARCH_RADII_MILES.includes(amount as SearchRadiusMiles)) return amount;
+/**
+ * Parse seller-distance miles. Null = nationwide.
+ * Honors any positive finite radius up to MAX_DISTANCE_MILES — does not snap to presets.
+ */
+export function parseDistanceMiles(value: unknown): DistanceMilesParse {
+  if (value === null || value === undefined || value === "" || value === "nationwide") {
+    return { ok: true, miles: null };
   }
-  return null;
+  if (typeof value === "number") {
+    if (!Number.isFinite(value)) {
+      return { ok: false, message: "Distance has to be a positive number of miles, or nationwide." };
+    }
+    const miles = Math.round(value);
+    if (miles <= 0) {
+      return { ok: false, message: "Distance has to be a positive number of miles, or nationwide." };
+    }
+    if (miles > MAX_DISTANCE_MILES) {
+      return {
+        ok: false,
+        message: `Distance has to be at most ${MAX_DISTANCE_MILES} miles, or choose nationwide.`,
+      };
+    }
+    return { ok: true, miles };
+  }
+  if (typeof value === "string") {
+    const trimmed = value.trim().toLowerCase();
+    if (!trimmed || trimmed === "nationwide") return { ok: true, miles: null };
+    if (!/^\d+(\.\d+)?$/.test(trimmed)) {
+      return { ok: false, message: "Distance has to be a positive number of miles, or nationwide." };
+    }
+    return parseDistanceMiles(Number(trimmed));
+  }
+  return { ok: false, message: "Distance has to be a positive number of miles, or nationwide." };
+}
+
+/** Nationwide / empty → null. Valid custom or preset → miles. Invalid → null (prefer parseDistanceMiles when rejecting). */
+export function normalizeDistanceMiles(value: unknown): number | null {
+  const parsed = parseDistanceMiles(value);
+  return parsed.ok ? parsed.miles : null;
 }
 
 export function searchScopeLabel(need: Pick<StructuredNeed, "zip" | "distanceMiles">): string {
@@ -136,16 +182,18 @@ export function validateNeed(input: unknown): { ok: true; need: StructuredNeed }
     milesMax = Math.round(raw.milesMax);
   } else issues.push({ field: "milesMax", message: "Mileage cap has to be a mileage, or left blank." });
   let distanceMiles: number | null = null;
-  if (raw.distanceMiles === null || raw.distanceMiles === undefined || raw.distanceMiles === "" || raw.distanceMiles === "nationwide") {
-    distanceMiles = null;
-  } else if (typeof raw.distanceMiles === "number" && SEARCH_RADII_MILES.includes(raw.distanceMiles as SearchRadiusMiles)) {
-    distanceMiles = raw.distanceMiles;
+  const distanceParsed = parseDistanceMiles(raw.distanceMiles);
+  if (!distanceParsed.ok) {
+    issues.push({ field: "distanceMiles", message: distanceParsed.message });
   } else {
-    issues.push({ field: "distanceMiles", message: "Distance has to be 50, 100, 250, 500, or nationwide." });
+    distanceMiles = distanceParsed.miles;
   }
   if (distanceMiles != null && !zip) {
-    // Radius without ZIP cannot be applied — treat as nationwide instead of failing old clients.
-    distanceMiles = null;
+    // Do not silently widen to nationwide — radius requires an explicit ZIP (or choose Nationwide).
+    issues.push({
+      field: "zip",
+      message: "Add a ZIP for a seller-distance radius, or choose Nationwide.",
+    });
   }
   const preferredMakes = preferredMakesFromRaw(raw);
   const preferredModels = preferredModelsFromRaw(raw);
@@ -528,8 +576,9 @@ export function overlayExplicit(
         : extracted.preferredMakes;
   const make = preferredMakes[0] ?? null;
   const zip = explicit.zip === undefined ? extracted.zip : explicit.zip;
-  let distanceMiles = explicit.distanceMiles === undefined ? extracted.distanceMiles : explicit.distanceMiles;
-  if (!zip) distanceMiles = null;
+  // Do not silently drop a selected radius when ZIP is blank — validateNeed rejects that pair.
+  // Callers that mean Nationwide must pass distanceMiles: null (and may omit ZIP).
+  const distanceMiles = explicit.distanceMiles === undefined ? extracted.distanceMiles : explicit.distanceMiles;
   return {
     ...extracted,
     mode: explicit.mode ?? extracted.mode,

@@ -118,10 +118,12 @@ describe("optional ZIP and searchable radius", () => {
     expect(nationwide.need.distanceMiles).toBeNull();
     expect(searchScopeLabel(nationwide.need)).toBe("Nationwide (U.S.)");
     expect(normalizeDistanceMiles("nationwide")).toBeNull();
-    expect(normalizeDistanceMiles(75)).toBeNull();
+    // Custom positive radii are honored — not snapped away to nationwide/null.
+    expect(normalizeDistanceMiles(75)).toBe(75);
+    expect(normalizeDistanceMiles(137)).toBe(137);
   });
 
-  it("drops a radius when ZIP is cleared (back/refine to nationwide)", () => {
+  it("rejects radius without ZIP instead of silently widening to nationwide", () => {
     const withRadius = validateNeed({
       ...explicitNeedFromText(OWNER_NOTE, "personal"),
       zip: "68114",
@@ -129,12 +131,18 @@ describe("optional ZIP and searchable radius", () => {
     });
     expect(withRadius.ok).toBe(true);
     if (!withRadius.ok) return;
-    const cleared = validateNeed({ ...withRadius.need, zip: null, distanceMiles: 250 });
-    expect(cleared.ok).toBe(true);
-    if (!cleared.ok) return;
-    expect(cleared.need.zip).toBeNull();
-    expect(cleared.need.distanceMiles).toBeNull();
-    expect(searchScopeLabel(cleared.need)).toBe("Nationwide (U.S.)");
+    const clearedZipKeepsRadius = validateNeed({ ...withRadius.need, zip: null, distanceMiles: 250 });
+    expect(clearedZipKeepsRadius.ok).toBe(false);
+    if (clearedZipKeepsRadius.ok) return;
+    expect(clearedZipKeepsRadius.issues.some((issue) => issue.field === "zip")).toBe(true);
+
+    // Explicit Nationwide: clear both ZIP and radius together.
+    const nationwide = validateNeed({ ...withRadius.need, zip: null, distanceMiles: null });
+    expect(nationwide.ok).toBe(true);
+    if (!nationwide.ok) return;
+    expect(nationwide.need.zip).toBeNull();
+    expect(nationwide.need.distanceMiles).toBeNull();
+    expect(searchScopeLabel(nationwide.need)).toBe("Nationwide (U.S.)");
   });
 });
 

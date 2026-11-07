@@ -9,7 +9,9 @@ import type { PriceBadge } from "@/domain/price-badge";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useState, type FormEvent } from "react";
 import { MakeModelFields } from "@/components/MakeModelFields";
+import { ZipRadiusFields } from "@/components/ZipRadiusFields";
 import { parseUsdInput } from "@/domain/budget";
+import { parseDistanceMiles } from "@/domain/need";
 import { formatNumber, formatUsd, verdictLabel } from "@/domain/format";
 import type { Mode } from "@/domain/types";
 
@@ -41,6 +43,8 @@ function RadarInner() {
   const yearMax = params.get("yearMax") ?? params.get("year") ?? "";
   const mode = (params.get("mode") === "flip" ? "flip" : "personal") as Mode;
   const priceMax = params.get("priceMax") ?? "";
+  const distanceParam = parseDistanceMiles(params.get("distanceMiles") ?? params.get("radiusMiles"));
+  const distanceMiles = distanceParam.ok && distanceParam.miles != null ? distanceParam.miles : undefined;
   const [rows, setRows] = useState<Row[] | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [sample, setSample] = useState(false);
@@ -114,6 +118,7 @@ function RadarInner() {
         make: make || undefined,
         model: model || undefined,
         zip: zip || undefined,
+        distanceMiles,
         priceMax: priceMax ? Number(priceMax) : undefined,
         yearMin: yearMin ? Number(yearMin) : undefined,
         yearMax: yearMax ? Number(yearMax) : undefined,
@@ -138,7 +143,7 @@ function RadarInner() {
     return () => {
       cancelled = true;
     };
-  }, [feedReady, demo, make, model, zip, yearMin, yearMax, mode, priceMax, flipReady]);
+  }, [feedReady, demo, make, model, zip, yearMin, yearMax, mode, priceMax, flipReady, distanceMiles]);
 
   async function openReport(vin: string, reportMode: Mode = mode) {
     setBusyVin(vin);
@@ -384,7 +389,7 @@ function SaveSearchForm({ onSaved }: { onSaved: () => void }) {
   const [yearMax, setYearMax] = useState("");
   const [priceMax, setPriceMax] = useState("18000");
   const [zip, setZip] = useState("");
-  const [radius, setRadius] = useState("50");
+  const [distanceMiles, setDistanceMiles] = useState<number | null>(50);
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
 
@@ -398,6 +403,15 @@ function SaveSearchForm({ onSaved }: { onSaved: () => void }) {
     }
     if (!zip.trim() || budget === null) {
       setError("Add a ZIP and a maximum price.");
+      return;
+    }
+    const radiusParsed = parseDistanceMiles(distanceMiles);
+    if (!radiusParsed.ok || radiusParsed.miles == null) {
+      setError(
+        radiusParsed.ok
+          ? "Deal Radar watches need a seller-distance radius (not nationwide)."
+          : radiusParsed.message,
+      );
       return;
     }
     setPending(true);
@@ -415,7 +429,7 @@ function SaveSearchForm({ onSaved }: { onSaved: () => void }) {
             yearMax: yearMax ? Number(yearMax) : undefined,
             priceMax: budget,
             zip: zip.trim(),
-            radiusMiles: Number(radius) || 50,
+            radiusMiles: radiusParsed.miles,
             minProfitUsd: searchMode === "flip" ? 1500 : undefined,
           },
         }),
@@ -467,20 +481,18 @@ function SaveSearchForm({ onSaved }: { onSaved: () => void }) {
           onYearMax={setYearMax}
         />
       )}
-      <div className="pair">
-        <div className="field">
-          <label htmlFor="search-price">Maximum price</label>
-          <input id="search-price" inputMode="numeric" value={priceMax} onChange={(event) => setPriceMax(event.target.value)} />
-        </div>
-        <div className="field">
-          <label htmlFor="search-zip">ZIP</label>
-          <input id="search-zip" inputMode="numeric" autoComplete="postal-code" value={zip} onChange={(event) => setZip(event.target.value)} />
-        </div>
-      </div>
       <div className="field">
-        <label htmlFor="search-radius">Radius in miles</label>
-        <input id="search-radius" inputMode="numeric" value={radius} onChange={(event) => setRadius(event.target.value)} />
+        <label htmlFor="search-price">Maximum price</label>
+        <input id="search-price" inputMode="numeric" value={priceMax} onChange={(event) => setPriceMax(event.target.value)} />
       </div>
+      <ZipRadiusFields
+        idPrefix="radar-save"
+        zip={zip}
+        distanceMiles={distanceMiles}
+        onZipChange={setZip}
+        onDistanceChange={setDistanceMiles}
+        allowNationwide={false}
+      />
       <div className="btn-row">
         <button className="action" type="submit" disabled={pending}>
           {pending ? "Saving…" : "Save search"}
@@ -498,7 +510,21 @@ function SaveSearchForm({ onSaved }: { onSaved: () => void }) {
               setError("Add a ZIP and a maximum price.");
               return;
             }
-            const next = new URLSearchParams({ mode: searchMode, zip: zip.trim(), priceMax: String(budget) });
+            const radiusParsed = parseDistanceMiles(distanceMiles);
+            if (!radiusParsed.ok || radiusParsed.miles == null) {
+              setError(
+                radiusParsed.ok
+                  ? "Deal Radar scans need a seller-distance radius (not nationwide)."
+                  : radiusParsed.message,
+              );
+              return;
+            }
+            const next = new URLSearchParams({
+              mode: searchMode,
+              zip: zip.trim(),
+              priceMax: String(budget),
+              distanceMiles: String(radiusParsed.miles),
+            });
             if (make) next.set("make", make);
             if (model) next.set("model", model);
             if (yearMin) next.set("yearMin", yearMin);
