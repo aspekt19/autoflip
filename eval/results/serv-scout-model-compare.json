@@ -1,0 +1,112 @@
+{
+  "schemaVersion": "serv-scout-model-compare/v1",
+  "mode": "dry_run",
+  "harness": "eval/serv-scout-model-compare.ts",
+  "ledgerPath": "fixtures/scout/pr63-placeholder-ledger.json",
+  "ledgerLabel": "offline_sanitized_NOT_live_rerun",
+  "ledgerDeployedSha": "de5eb0c0dab6d394765ff5916abf6346dc139841",
+  "ledgerRunId": "ff52a261-7ac0-4bd1-8433-36532eea2a54",
+  "productionDefaultModel": "gpt-5.4-mini",
+  "productionDefaultUnchanged": true,
+  "strictJsonSchema": true,
+  "catalog": [
+    {
+      "id": "gpt-5.4-mini",
+      "kind": "base",
+      "source": "src/server/serv/profiles.ts BASE_MODEL + README SERV_MODEL default",
+      "effectiveForScoutPlan": "gpt-5.4-mini"
+    },
+    {
+      "id": "gpt-5.4-mini-2026-03-17",
+      "kind": "dated_alias",
+      "source": "eval/results/latest.json + eval/results/serv-proof-trace.json reported model",
+      "effectiveForScoutPlan": "gpt-5.4-mini-2026-03-17"
+    }
+  ],
+  "modelsSelected": [
+    {
+      "id": "gpt-5.4-mini",
+      "kind": "base",
+      "source": "src/server/serv/profiles.ts BASE_MODEL + README SERV_MODEL default",
+      "effectiveForScoutPlan": "gpt-5.4-mini"
+    },
+    {
+      "id": "gpt-5.4-mini-2026-03-17",
+      "kind": "dated_alias",
+      "source": "eval/results/latest.json + eval/results/serv-proof-trace.json reported model",
+      "effectiveForScoutPlan": "gpt-5.4-mini-2026-03-17"
+    }
+  ],
+  "stepUserMessages": [
+    {
+      "stepId": "after_inventory_before_reject",
+      "userMessageBytes": 8101,
+      "pendingCount": 20,
+      "usableAsks": 0,
+      "allUnusable": true
+    },
+    {
+      "stepId": "after_one_denied_reject",
+      "userMessageBytes": 8421,
+      "pendingCount": 20,
+      "usableAsks": 0,
+      "allUnusable": true
+    },
+    {
+      "stepId": "after_two_denied_rejects",
+      "userMessageBytes": 8741,
+      "pendingCount": 20,
+      "usableAsks": 0,
+      "allUnusable": true
+    }
+  ],
+  "historicalScores": [
+    {
+      "stepId": "step-1",
+      "label": "live_denied_reject_missing_asking_price_at_price",
+      "observedOutcomeOk": false,
+      "score": {
+        "schemaValid": true,
+        "parseKind": null,
+        "actionType": "reject",
+        "actionFingerprint": "reject:4TAWM72N3WZ162673:adverse_evidence",
+        "dispositionOk": true,
+        "dispositionCode": "adverse_evidence",
+        "grounded": true,
+        "recoveryClass": "grounded_reject_unusable_ask",
+        "antiLoopSafe": false,
+        "claimsVehicleDefectFromPlaceholder": false,
+        "summary": "reject → grounded_reject_unusable_ask; grounded=true; antiLoopSafe=false"
+      }
+    },
+    {
+      "stepId": "step-2",
+      "label": "live_denied_reject_repeat",
+      "observedOutcomeOk": false,
+      "score": {
+        "schemaValid": true,
+        "parseKind": null,
+        "actionType": "reject",
+        "actionFingerprint": "reject:4TAWM72N3WZ162673:adverse_evidence",
+        "dispositionOk": true,
+        "dispositionCode": "adverse_evidence",
+        "grounded": true,
+        "recoveryClass": "grounded_reject_unusable_ask",
+        "antiLoopSafe": false,
+        "claimsVehicleDefectFromPlaceholder": false,
+        "summary": "reject → grounded_reject_unusable_ask; grounded=true; antiLoopSafe=false"
+      }
+    }
+  ],
+  "rows": [],
+  "cost": "unknown",
+  "notes": [
+    "Sanitized evidence only — no network/repository reads or paid reruns by the Cursor worker.",
+    "nullSERV / maxServCalls=null: failure was repeated identical planner action (no-progress), not a three-call SERV quota.",
+    "All observed asks $1–$59 placeholders; price query was 1-20000 + sort=price.",
+    "Rejected citation missing_asking_price@price was denied as reject_rationale_not_grounded (pre-fix on de5eb0c).",
+    "Parent sole live coordinator — Cursor worker must not set SCOUT_COMPARE_ALLOW_PAID.",
+    "Repeated-action / evidence guards are scored, not weakened.",
+    "Not a claim that any model beats another until parent runs live rows."
+  ]
+}
