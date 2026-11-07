@@ -122,13 +122,22 @@ export async function postScoutStart(req: Request, hooks?: ScoutPostTestHooks) {
   const { result, inventoryMode, isFixture, paidBlockedReason, idempotentReplay } = executed;
   const status = scoutHttpStatus(result);
   const paid = readPaidExecutionConfig(env);
-  const presentation = isFixture
-    ? {
-        kind: "fixture_replay" as const,
-        warning:
-          "These listings are from a checked-in Auto.dev snapshot for offline proof — not a live market pull.",
-      }
-    : { kind: "live_autodev" as const, warning: null };
+  // Never label blocked/failed preferLive as live_autodev just because isFixture=false.
+  const presentation =
+    inventoryMode === "live" && !isFixture
+      ? { kind: "live_autodev" as const, warning: null }
+      : isFixture
+        ? {
+            kind: "fixture_replay" as const,
+            warning:
+              "These listings are from a checked-in Auto.dev snapshot for offline proof — not a live market pull.",
+          }
+        : {
+            kind: "live_blocked" as const,
+            warning:
+              paidBlockedReason ??
+              "Live inventory was requested but not authorized — no fixture was substituted as live.",
+          };
 
   // Persist presentation so GET /api/scout/:id does not lose fixture honesty.
   await saveScoutMeta(kv, result.runId, { inventoryMode, isFixture, paidBlockedReason, presentation });

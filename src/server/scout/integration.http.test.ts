@@ -92,12 +92,13 @@ describe("Scout INTEGRATION HTTP→facade→stubbed SERV/Auto.dev (offline)", ()
   });
 
   it("GET /api/scout catalog distinguishes UI gate vs API gate (no header-nav claim)", async () => {
-    const res = await scoutGet();
+    const res = await scoutGet(new Request("http://localhost/api/scout"));
     const body = await res.json();
     expect(body.enabled).toBe(false);
     expect(body.defaults.ui).toMatch(/SCOUT_UI_ENABLED/);
     expect(body.defaults.ui).toMatch(/not in primary header nav/i);
     expect(body.defaults.paidLivePath).toMatch(/disabled/i);
+    expect(body.capabilities?.spendAuthorityMechanism).toMatch(/SCOUT_OWNER_USER_IDS/);
   });
 
   it("exported POST is single-arg only — client body cannot inject testAuthority/harness/env grant", async () => {
@@ -177,13 +178,15 @@ describe("Scout INTEGRATION HTTP→facade→stubbed SERV/Auto.dev (offline)", ()
         { kv, env: { ...paidEnv, SCOUT_ALLOW_SERV_PLANNER: "true" } },
       );
       const body = await controlled.json();
+      // Body-injected testAuthority must not open live; no fixture posing as live either.
       expect(
-        body.isFixture === true ||
-          body.paidBlockedReason != null ||
+        body.paidBlockedReason != null ||
           body.result?.autonomyClaim === "none" ||
+          body.result?.state === "failed" ||
           body.error != null,
       ).toBe(true);
       if (body.result) {
+        expect(body.isFixture).not.toBe(true);
         expect(body.presentation?.kind).not.toBe("live_autodev");
       }
       void res;
@@ -580,13 +583,16 @@ describe("Scout INTEGRATION HTTP→facade→stubbed SERV/Auto.dev (offline)", ()
       { kv: kv2, env: paidEnv /* no harness */ },
     );
     const blockedBody = await blocked.json();
-    // Without harness testAuthority: either fixture replay fallback or blocked serv — never silent live spend.
+    // Without harness/owner authority: fail closed — never fixture posing as live answer.
     if (blockedBody.result) {
+      expect(blockedBody.isFixture).toBe(false);
       expect(
-        blockedBody.isFixture === true ||
-          blockedBody.paidBlockedReason != null ||
-          blockedBody.result.autonomyClaim === "none",
+        blockedBody.paidBlockedReason != null ||
+          blockedBody.result.autonomyClaim === "none" ||
+          blockedBody.result.state === "failed" ||
+          blockedBody.result.state === "abstained",
       ).toBe(true);
+      expect(blockedBody.presentation?.kind).not.toBe("live_autodev");
     }
   });
 

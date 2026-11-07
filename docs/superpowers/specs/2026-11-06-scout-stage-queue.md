@@ -164,6 +164,34 @@ broke `next build` / generated route types (invalid Route field). Bounded fix:
 - Verified: `npx tsc --noEmit` exit 0; `npm run build` exit 0; offline `next start`
   smoke GET `/api/scout` + `/scout` flag off/on (HTML source inspection — not browser E2E)
 
+## STAGE-OWNER-LIVE — PIN (pending tip) owner allowlist + Upstash authority
+
+Reversible repository work so owner can eventually test **production** with an arbitrary
+mandate (not curated demo). Offline browser E2E at b454869 remains complete for fixture only.
+
+**Implemented (this pin):**
+- `SCOUT_OWNER_USER_IDS` allowlist (af_ userIds) — PR54 Auth.js **not** required; existing keys suffice
+- Persistent `verified_account_source` from allowlist + Upstash monthly Autodev remaining +
+  `SCOUT_MAX_PROVIDER_CALLS_HARD_CEILING` (+ optional `SCOUT_OWNER_MAX_PROVIDER_CALLS_PER_RUN`)
+  — **never** from `SCOUT_SERVER_VERIFIED_BALANCE_USD` / client attestation
+- `preferLive=true` fail-closed: no Camry fixture substituted as live (`presentation.kind=live_blocked`)
+- Distributed per-owner concurrency lock (`scout:run-lock:{userId}`)
+- GET `/api/scout` capabilities (+ optional Bearer for `canPreferLive` / `canUseServPlanner`)
+- `/scout` UI: arbitrary makes/ZIP/distance/budget + prefer-live/SERV only when capabilities allow
+- Defaults remain OFF; Scout still not in primary header nav
+
+**Env NAMES only (values set in host — not by this agent):**
+`SCOUT_ENABLED`, `SCOUT_UI_ENABLED`, `SCOUT_PAID_EXECUTION`,
+`SCOUT_MAX_PROVIDER_CALLS_HARD_CEILING`, `SCOUT_OWNER_USER_IDS`,
+`SCOUT_OWNER_MAX_PROVIDER_CALLS_PER_RUN`, `SCOUT_ALLOW_SERV_PLANNER`,
+`AUTODEV_API_KEY`, `SERV_API_KEY`, `UPSTASH_REDIS_REST_URL`, `UPSTASH_REDIS_REST_TOKEN`
+
+**Still impossible without external configuration / spend authorization:**
+- Real Auto.dev listings (no Auto.dev spend authorized in cloud runs; key+authority on host)
+- Live SERV planner series (credits exist centrally; sequential series not spent here)
+- Production flag enable / deploy / merge / Graph / Agent.process
+- PR54 Auth.js (optional; orthogonal package.json/globals.css overlap only)
+
 ## STAGE-BROWSER-E2E — PIN b454869 (compiled local next start clickthrough)
 
 Real Chromium render/clickthrough of compiled PR59 (not HTML-substring / helper-only;

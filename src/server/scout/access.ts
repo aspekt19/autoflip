@@ -1,6 +1,10 @@
 import type { Kv } from "@/io/kv";
 import { agentAccount, creditsRequiredBody, invalidKeyBody } from "@/server/agent-access";
 import { isScoutEnabled, scoutConfigMessage } from "./config";
+import {
+  isScoutOwnerAllowlistConfigured,
+  ownerMayStartScout,
+} from "./owner-access";
 
 export type ScoutAccessOk = {
   ok: true;
@@ -29,8 +33,9 @@ function rateLimit(userId: string, nowMs = Date.now()): boolean {
 }
 
 /**
- * Gate scout execution. PR54-style auth is not assumed live beyond existing af_ keys.
+ * Gate scout execution. PR54 Auth.js is optional — existing af_ keys suffice.
  * Unauthenticated callers never reach paid inventory even if SCOUT_ENABLED=true.
+ * When SCOUT_OWNER_USER_IDS is set, only listed userIds may start (owner-only surface).
  */
 export async function authorizeScoutStart(
   kv: Kv,
@@ -76,6 +81,19 @@ export async function authorizeScoutStart(
     };
   }
 
+  if (!ownerMayStartScout(account, env)) {
+    return {
+      ok: false,
+      status: 403,
+      body: {
+        error: "owner_not_allowlisted",
+        message: isScoutOwnerAllowlistConfigured(env)
+          ? "Scout is restricted to SCOUT_OWNER_USER_IDS. This API key’s account is not on the allowlist."
+          : "Scout owner allowlist rejected this account.",
+      },
+    };
+  }
+
   if (!rateLimit(account)) {
     return {
       ok: false,
@@ -87,8 +105,7 @@ export async function authorizeScoutStart(
     };
   }
 
-  // Credit gate: when live provider calls are enabled later, require balance.
-  // With maxProviderCalls=0, still require a valid key so the surface cannot burn credits anonymously.
+  // Report-credit debit for scout is not wired; live Autodev uses Upstash monthly reserve.
   void creditsRequiredBody;
   return { ok: true, userId: account };
 }

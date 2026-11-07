@@ -224,6 +224,9 @@ export function stripClientSpendClaims<T extends Record<string, unknown>>(body: 
     "SCOUT_SERVER_SPEND_HARD_CAP_USD",
     "testAuthority",
     "budgets",
+    "ownerAuthority",
+    "verified_account_source",
+    "remainingProviderBudget",
   ];
   const out = { ...body };
   for (const key of blockedKeys) delete out[key];

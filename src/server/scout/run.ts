@@ -40,8 +40,8 @@ export async function executeScoutRun(input: {
   signal?: AbortSignal | null;
   idempotencyKey?: string | null;
   /**
-   * Integration/tests only. Production `POST /api/scout` never supplies this —
-   * live spend stays blocked without a verified non-env authority.
+   * Integration/tests only. Production `POST /api/scout` never supplies harness.
+   * Live spend opens only via owner allowlist + Upstash authority (or test stub).
    */
   harness?: ScoutRunHarness | null;
 }): Promise<
@@ -75,6 +75,7 @@ export async function executeScoutRun(input: {
     env.SCOUT_PAID_EXECUTION?.trim().toLowerCase() === "1" ||
     env.SCOUT_PAID_EXECUTION?.trim().toLowerCase() === "true";
 
+  // Production Autodev deps when paid flag + key present; authority still required separately.
   const productionAutodev =
     paidOn && autodevKey ? { fetch, apiKey: autodevKey } : null;
 
@@ -83,7 +84,7 @@ export async function executeScoutRun(input: {
     kv: input.kv,
     signal: input.signal,
     env,
-    // Production: harness null → testAuthority null (env fake balances cannot open spend).
+    // Production: harness null → testAuthority null; owner authority resolved inside safely.
     testAuthority: harness?.testAuthority ?? null,
     autodevDeps: harness?.autodevDeps !== undefined ? harness.autodevDeps : productionAutodev,
     servFetch: harness?.servFetch,

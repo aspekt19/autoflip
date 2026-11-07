@@ -32,10 +32,11 @@ export default function ScoutPage() {
         ) : (
           <>
             <div className="onboarding-note">
-              <strong>Offline / replay by default</strong>
+              <strong>Your mandate · offline by default</strong>
               <p>
-                Runs use the checked-in Auto.dev Camry snapshot unless live execution is explicitly
-                server-authorized. Fixture rows are never presented as a live market pull.
+                Enter your own makes, ZIP, distance, and budget. Replay uses a checked-in Auto.dev
+                snapshot unless the server authorizes live for an allowlisted owner. Prefer-live never
+                substitutes fixture rows as a live market pull — it fails closed when blocked.
               </p>
             </div>
             <ScoutPanel />

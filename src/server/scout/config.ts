@@ -15,7 +15,15 @@ export function isScoutUiEnabled(env: Record<string, string | undefined> = proce
 
 export function scoutConfigMessage(enabled: boolean): string {
   if (enabled) {
-    return "Scout is enabled for this deployment. Live provider calls still require SCOUT_PAID_EXECUTION + server key + hard ceiling.";
+    return "Scout is enabled for this deployment. Live Auto.dev still requires SCOUT_PAID_EXECUTION + server key + hard ceiling + owner allowlist + Upstash monthly remaining (env balance strings are not a grant).";
   }
   return "Scout is disabled (SCOUT_ENABLED default off). No scout run was started.";
 }
+
+export {
+  isScoutOwnerAllowlistConfigured,
+  isScoutOwnerAllowlisted,
+  isServPlannerFlagOn,
+  ownerMayStartScout,
+  parseScoutOwnerAllowlist,
+} from "./owner-access";

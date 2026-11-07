@@ -2,7 +2,7 @@ import type { Kv } from "@/io/kv";
 import type { ScoutRunResult } from "@/domain/scout";
 
 export type ScoutRunPresentation = {
-  kind: "fixture_replay" | "live_autodev";
+  kind: "fixture_replay" | "live_autodev" | "live_blocked";
   warning: string | null;
 };
 

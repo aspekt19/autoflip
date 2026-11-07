@@ -310,13 +310,15 @@ export type ResolveScoutInventoryInput = {
 };
 
 /**
- * Default resolution for HTTP/SDK: prefer live only when server-authorized;
- * otherwise replay with explicit fixture labeling. Never silently upgrades replay → live claim.
+ * Default resolution for HTTP/SDK: prefer live only when server-authorized.
+ * preferLive=false → explicit fixture/replay.
+ * preferLive=true + blocked → fail closed (failing adapter, isFixture=false).
+ * Never substitutes Camry fixture when the client asked for live.
  */
 export function resolveScoutInventory(input: ResolveScoutInventoryInput): ScoutInventoryResolution {
   if (input.preferLive) {
     if (input.kv && input.autodev) {
-      const live = resolveLiveInventory({
+      return resolveLiveInventory({
         kv: input.kv,
         autodev: input.autodev,
         env: input.env,
@@ -324,18 +326,24 @@ export function resolveScoutInventory(input: ResolveScoutInventoryInput): ScoutI
         signal: input.signal,
         testAuthority: input.testAuthority,
       });
-      if (live.mode === "live") return live;
-      const replay = resolveReplayInventory();
-      return { ...replay, paidBlockedReason: live.paidBlockedReason };
     }
     const gate = authorizeLiveInventory({
       config: readPaidExecutionConfig(input.env),
       kv: input.kv,
       testAuthority: input.testAuthority,
     });
-    const replay = resolveReplayInventory();
     return {
-      ...replay,
+      mode: "replay",
+      adapter: async () => ({
+        ok: false,
+        error: "inventory_unconfigured",
+        message: gate.ok
+          ? "Live inventory requested but server Autodev deps/KV were not wired for this channel."
+          : gate.message,
+        providerCallsUsed: 0,
+      }),
+      isFixture: false,
+      provenance: "live_blocked",
       paidBlockedReason: gate.ok
         ? "Live inventory requested but server Autodev deps/KV were not wired for this channel."
         : gate.message,

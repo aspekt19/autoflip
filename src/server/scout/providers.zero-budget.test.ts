@@ -76,9 +76,10 @@ describe("Stage1 zero-budget / live adapter fetch spy", () => {
         UPSTASH_REDIS_REST_TOKEN: "y",
       },
     });
-    expect(resolved.mode).toBe("replay");
+    expect(resolved.isFixture).toBe(false);
     expect(resolved.paidBlockedReason).toMatch(/not a grant|authority|blocked/i);
-    await resolved.adapter(multiMakeMandate);
+    const blocked = await resolved.adapter(multiMakeMandate);
+    expect(blocked.ok).toBe(false);
     expect(fetchSpy).not.toHaveBeenCalled();
   });
 
@@ -101,13 +102,15 @@ describe("Stage1 zero-budget / live adapter fetch spy", () => {
         SCOUT_SERVER_VERIFIED_BALANCE_USD: "100",
         SCOUT_SERVER_SPEND_HARD_CAP_USD: "1",
       },
-      // Production omits testAuthority
+      // Production omits testAuthority — owner authority also needs allowlist+Upstash
       testAuthority: null,
       autodevDeps: { fetch: fetchSpy as typeof fetch, apiKey: "fake" },
     });
     expect(executed.ok).toBe(true);
     if (!executed.ok) return;
-    expect(executed.inventoryMode).toBe("replay");
+    // preferLive blocked → fail closed, never Camry fixture posing as live
+    expect(executed.isFixture).toBe(false);
+    expect(executed.paidBlockedReason).toMatch(/authority|grant|blocked|Upstash|allowlist/i);
     expect(fetchSpy).not.toHaveBeenCalled();
   });
 

@@ -28,12 +28,23 @@ export async function GET(req: Request, ctx: { params: Promise<{ runId: string }
 
   const meta = await loadScoutMeta(kv, runId);
   const isFixture = meta?.isFixture ?? run.inventorySource === "replay";
-  const presentation = meta?.presentation ?? {
-    kind: isFixture ? ("fixture_replay" as const) : ("live_autodev" as const),
-    warning: isFixture
-      ? "These listings are from a checked-in Auto.dev snapshot for offline proof — not a live market pull."
-      : null,
-  };
+  const inventoryMode = meta?.inventoryMode ?? (run.inventorySource === "live" ? "live" : "replay");
+  const presentation =
+    meta?.presentation ??
+    (inventoryMode === "live" && !isFixture
+      ? { kind: "live_autodev" as const, warning: null }
+      : isFixture
+        ? {
+            kind: "fixture_replay" as const,
+            warning:
+              "These listings are from a checked-in Auto.dev snapshot for offline proof — not a live market pull.",
+          }
+        : {
+            kind: "live_blocked" as const,
+            warning:
+              meta?.paidBlockedReason ??
+              "Live inventory was requested but not authorized — no fixture was substituted as live.",
+          });
 
   return NextResponse.json({
     enabled: isScoutEnabled(),

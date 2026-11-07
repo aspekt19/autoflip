@@ -1,6 +1,21 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
+
+type OwnerCaps = {
+  allowlisted: boolean;
+  canPreferLive: boolean;
+  canUseServPlanner: boolean;
+  authorityReady: boolean;
+  authorityBlockReason: string | null;
+};
+
+type ScoutCapabilities = {
+  enabled: boolean;
+  ownerAllowlistConfigured: boolean;
+  servPlannerFlag: boolean;
+  owner?: OwnerCaps;
+};
 
 type ScoutApiResponse = {
   error?: string;
@@ -10,6 +25,7 @@ type ScoutApiResponse = {
   partial?: boolean;
   paidBlockedReason?: string | null;
   presentation?: { kind: string; warning: string | null };
+  capabilities?: ScoutCapabilities;
   result?: {
     runId: string;
     state: string;
@@ -65,14 +81,54 @@ type ScoutApiResponse = {
 
 /**
  * Minimal Scout UI — progress / partial / source / unknown / refusal.
+ * Owner can enter an arbitrary mandate. Live/SERV only when server capabilities allow.
  * Does not claim title history or verified profit. Behind SCOUT_UI_ENABLED.
  */
 export function ScoutPanel() {
   const [apiKey, setApiKey] = useState("");
   const [mode, setMode] = useState<"flip" | "personal">("flip");
+  const [makes, setMakes] = useState("Toyota");
+  const [zip, setZip] = useState("72712");
+  const [nationwide, setNationwide] = useState(false);
+  const [maxDistanceMiles, setMaxDistanceMiles] = useState("500");
+  const [maxMiles, setMaxMiles] = useState("");
+  const [targetProfitUsd, setTargetProfitUsd] = useState("500");
+  const [budgetUsd, setBudgetUsd] = useState("25000");
+  const [preferLive, setPreferLive] = useState(false);
+  const [planner, setPlanner] = useState<"offline_heuristic" | "serv">("offline_heuristic");
+  const [caps, setCaps] = useState<ScoutCapabilities | null>(null);
   const [busy, setBusy] = useState(false);
   const [response, setResponse] = useState<ScoutApiResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function loadCaps() {
+      try {
+        const headers: HeadersInit = {};
+        if (apiKey.trim().startsWith("af_")) {
+          headers.Authorization = `Bearer ${apiKey.trim()}`;
+        }
+        const res = await fetch("/api/scout", { headers });
+        const body = (await res.json()) as ScoutApiResponse;
+        if (!cancelled) setCaps(body.capabilities ?? null);
+      } catch {
+        if (!cancelled) setCaps(null);
+      }
+    }
+    void loadCaps();
+    return () => {
+      cancelled = true;
+    };
+  }, [apiKey]);
+
+  const canPreferLive = Boolean(caps?.owner?.canPreferLive);
+  const canUseServ = Boolean(caps?.owner?.canUseServPlanner);
+
+  useEffect(() => {
+    if (!canPreferLive && preferLive) setPreferLive(false);
+    if (!canUseServ && planner === "serv") setPlanner("offline_heuristic");
+  }, [canPreferLive, canUseServ, preferLive, planner]);
 
   async function onRun() {
     setError(null);
@@ -85,27 +141,57 @@ export function ScoutPanel() {
       setError("Scout only accepts Lemonless af_ API keys.");
       return;
     }
+    const preferredMakes = makes
+      .split(/[,]+/)
+      .map((s) => s.trim())
+      .filter(Boolean);
+    if (!preferredMakes.length) {
+      setError("Enter at least one preferred make.");
+      return;
+    }
+    if (preferLive && !canPreferLive) {
+      setError(
+        caps?.owner?.authorityBlockReason ??
+          "Live inventory is not authorized for this key on this deployment.",
+      );
+      return;
+    }
+    if (planner === "serv" && !canUseServ) {
+      setError("SERV planner is not enabled for this key on this deployment.");
+      return;
+    }
+
+    const dist = nationwide ? null : Number(maxDistanceMiles);
+    const milesCap = maxMiles.trim() === "" ? null : Number(maxMiles);
+    const profit = mode === "flip" ? Number(targetProfitUsd) : null;
+    const budget = mode === "personal" ? Number(budgetUsd) : null;
+
     setBusy(true);
     try {
+      const idem =
+        typeof crypto !== "undefined" && "randomUUID" in crypto
+          ? crypto.randomUUID()
+          : `scout-${Date.now()}`;
       const res = await fetch("/api/scout", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
           Authorization: `Bearer ${apiKey.trim()}`,
+          "Idempotency-Key": idem,
         },
         body: JSON.stringify({
-          planner: "offline_heuristic",
-          preferLive: false,
+          planner: preferLive && canUseServ ? planner : "offline_heuristic",
+          preferLive: preferLive && canPreferLive,
           mandate: {
             mode,
-            preferredMakes: ["Toyota"],
-            openToOtherMakes: false,
-            zip: "72712",
-            maxDistanceMiles: 500,
-            maxMiles: null,
-            targetProfitUsd: mode === "flip" ? 500 : null,
-            budgetUsd: mode === "personal" ? 25000 : null,
-            budgetKnown: mode === "personal",
+            preferredMakes,
+            openToOtherMakes: mode === "personal",
+            zip: nationwide ? null : zip.trim() || null,
+            maxDistanceMiles: nationwide ? null : Number.isFinite(dist) ? dist : 500,
+            maxMiles: milesCap != null && Number.isFinite(milesCap) ? milesCap : null,
+            targetProfitUsd: profit != null && Number.isFinite(profit) ? profit : null,
+            budgetUsd: budget != null && Number.isFinite(budget) ? budget : null,
+            budgetKnown: mode === "personal" && budget != null && Number.isFinite(budget),
             repairAbility: "unknown",
             notes: null,
           },
@@ -116,7 +202,6 @@ export function ScoutPanel() {
         result?: ScoutApiResponse["result"];
       };
       setResponse(body);
-      // Honest partial coverage is not a hard failure — only HTTP/fail states are.
       if (!res.ok || body.result?.state === "failed") {
         setError(
           body.message ??
@@ -133,6 +218,7 @@ export function ScoutPanel() {
   }
 
   const result = response?.result;
+  const runLabel = preferLive && canPreferLive ? "Run scout (live)" : "Run scout (replay)";
 
   return (
     <div className="scout-panel">
@@ -145,6 +231,77 @@ export function ScoutPanel() {
           </select>
         </label>
         <label>
+          Preferred makes (comma-separated)
+          <input
+            type="text"
+            value={makes}
+            onChange={(e) => setMakes(e.target.value)}
+            placeholder="Toyota, Honda"
+            disabled={busy}
+          />
+        </label>
+        <label>
+          ZIP
+          <input
+            type="text"
+            value={zip}
+            onChange={(e) => setZip(e.target.value)}
+            placeholder="72712"
+            disabled={busy || nationwide}
+          />
+        </label>
+        <label className="scout-check">
+          <input
+            type="checkbox"
+            checked={nationwide}
+            onChange={(e) => setNationwide(e.target.checked)}
+            disabled={busy}
+          />
+          Nationwide (no ZIP / distance)
+        </label>
+        {!nationwide ? (
+          <label>
+            Max distance (miles)
+            <input
+              type="number"
+              value={maxDistanceMiles}
+              onChange={(e) => setMaxDistanceMiles(e.target.value)}
+              disabled={busy}
+            />
+          </label>
+        ) : null}
+        <label>
+          Max miles (optional)
+          <input
+            type="number"
+            value={maxMiles}
+            onChange={(e) => setMaxMiles(e.target.value)}
+            placeholder="Leave blank if unknown"
+            disabled={busy}
+          />
+        </label>
+        {mode === "flip" ? (
+          <label>
+            Target profit USD (investigation only — not verified)
+            <input
+              type="number"
+              value={targetProfitUsd}
+              onChange={(e) => setTargetProfitUsd(e.target.value)}
+              disabled={busy}
+            />
+          </label>
+        ) : (
+          <label>
+            Budget USD
+            <input
+              type="number"
+              value={budgetUsd}
+              onChange={(e) => setBudgetUsd(e.target.value)}
+              disabled={busy}
+            />
+          </label>
+        )}
+        <label>
           API key (af_…)
           <input
             type="password"
@@ -155,10 +312,41 @@ export function ScoutPanel() {
             disabled={busy}
           />
         </label>
+        <label className="scout-check">
+          <input
+            type="checkbox"
+            checked={preferLive && canPreferLive}
+            onChange={(e) => setPreferLive(e.target.checked)}
+            disabled={busy || !canPreferLive}
+          />
+          Prefer live inventory
+          {!canPreferLive
+            ? " (server-authorized owners only — no fixture fallback when checked)"
+            : " (fail closed if blocked; never labels fixture as live)"}
+        </label>
+        {canUseServ ? (
+          <label>
+            Planner
+            <select
+              value={planner}
+              onChange={(e) => setPlanner(e.target.value as "offline_heuristic" | "serv")}
+              disabled={busy || !preferLive}
+            >
+              <option value="offline_heuristic">Offline heuristic</option>
+              <option value="serv">SERV (bounded search/check/replan)</option>
+            </select>
+          </label>
+        ) : null}
         <button type="button" className="btn" onClick={onRun} disabled={busy}>
-          {busy ? "Running…" : "Run scout (replay)"}
+          {busy ? "Running…" : runLabel}
         </button>
       </div>
+
+      {caps?.owner?.authorityBlockReason && preferLive ? (
+        <p className="scout-status scout-status-warn" role="status">
+          Live path: {caps.owner.authorityBlockReason}
+        </p>
+      ) : null}
 
       {error ? (
         <p className="scout-status scout-status-error" role="status">

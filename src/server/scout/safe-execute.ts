@@ -9,6 +9,7 @@ import { TtlCache } from "@/io/cache";
 import type { Kv } from "@/io/kv";
 import { MemoryCounter } from "@/io/quota";
 import { isScoutEnabled } from "./config";
+import { acquireScoutOwnerLock, releaseScoutOwnerLock } from "./concurrency";
 import {
   authorizeLiveServPlanner,
   readPaidExecutionConfig,
@@ -16,6 +17,7 @@ import {
   stripClientSpendClaims,
   type PaidSpendAuthority,
 } from "./paid-execution";
+import { resolveOwnerSpendAuthority } from "./owner-authority";
 import { blockedServPlanner, servScoutPlanner } from "./planner";
 import { resolveScoutInventory } from "./providers";
 import {
@@ -196,150 +198,181 @@ export async function executeScoutSafely(input: {
     mandateHash = claim.mandateHash;
   }
 
-  // Server-owned budgets only — clients cannot raise maxProviderCalls/wall/serv ceilings.
-  // Live provider budget stays 0 until a non-env authority exists AND is passed (tests only today).
-  const budgets = serverScoutBudgets({
-    maxProviderCalls: input.testAuthority ? Math.max(0, input.testAuthority.remainingProviderBudget) : 0,
-  });
-
-  const preferLive = Boolean(input.req.preferLive);
-  const autodev =
-    preferLive && input.autodevDeps?.apiKey
-      ? {
-          fetch: input.autodevDeps.fetch,
-          apiKey: input.autodevDeps.apiKey,
-          cache: input.autodevDeps.cache ?? new TtlCache<unknown>(),
-          counter: input.autodevDeps.counter ?? new MemoryCounter(),
-          source: "autodev" as const,
-          signal: input.signal,
-        }
-      : null;
-
-  const inventory = resolveScoutInventory({
-    kv: input.kv,
-    autodev,
-    preferLive: preferLive && Boolean(autodev),
-    env,
-    maxProviderCalls: budgets.maxProviderCalls,
-    signal: input.signal,
-    // Never read testAuthority from env — only explicit code arg (unit tests).
-    testAuthority: input.testAuthority ?? null,
-  });
-
-  const plannerMode = input.req.planner ?? "offline_heuristic";
-  let planner;
-  let autonomyClaim: "serv_directed" | "none" = "none";
-
-  if (plannerMode === "mock_script") {
-    autonomyClaim = "none";
-    planner = input.req.mockScript
-      ? mockServPlanner(input.req.mockScript)
-      : refusingPlanner("serv_unavailable");
-  } else if (plannerMode === "serv") {
-    const paid = authorizeLiveServPlanner({
-      config: readPaidExecutionConfig(env),
+  // Spend authority: test harness injection OR owner allowlist + Upstash monthly remaining.
+  // Never from env balance strings / client body.
+  let spendAuthority: PaidSpendAuthority | null = input.testAuthority ?? null;
+  if (!spendAuthority) {
+    const resolved = await resolveOwnerSpendAuthority({
       kv: input.kv,
-      testAuthority: input.testAuthority ?? null,
+      ownerId: input.req.ownerId,
+      env,
     });
-    const allowFlag =
-      env.SCOUT_ALLOW_SERV_PLANNER?.trim().toLowerCase() === "1" ||
-      env.SCOUT_ALLOW_SERV_PLANNER?.trim().toLowerCase() === "true";
-    if (!allowFlag) {
-      autonomyClaim = "none";
-      planner = blockedServPlanner("SCOUT_ALLOW_SERV_PLANNER is not enabled.");
-    } else if (!paid.ok) {
-      autonomyClaim = "none";
-      planner = blockedServPlanner(paid.message);
-    } else {
-      autonomyClaim = "serv_directed";
-      planner = servScoutPlanner({
-        apiKey: env.SERV_API_KEY!.trim(),
-        baseUrl: env.SERV_BASE_URL,
-        model: env.SERV_MODEL,
-        kv: input.kv,
-        testAuthority: input.testAuthority ?? null,
-        config: readPaidExecutionConfig(env),
-        env,
-        // Integration harness may stub SERV HTTP; production omits → real fetch.
-        fetch: input.servFetch,
-      });
+    if (resolved.ok) spendAuthority = resolved.authority;
+  }
+
+  const lockToken =
+    input.req.idempotencyKey?.trim() ||
+    `lock-${input.req.ownerId}-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+  // Distributed lock only when Kv is present (production/Upstash). kv:null test/eval skips.
+  let lockHeld = false;
+  if (input.kv) {
+    const lock = await acquireScoutOwnerLock(input.kv, input.req.ownerId, lockToken);
+    if (!lock.ok) {
+      return {
+        ok: false,
+        status: lock.error === "lock_busy" ? 429 : 503,
+        body: { error: lock.error, message: lock.message },
+      };
     }
-  } else {
-    planner = heuristicOfflinePlanner();
+    lockHeld = true;
   }
 
-  const result = await runScout({
-    ownerId: input.req.ownerId,
-    mandateRaw: mandate,
-    budgets: { ...budgets },
-    inventory: inventory.adapter,
-    planner,
-    autonomyClaim,
-    resume: input.req.resume ?? undefined,
-  });
+  try {
+    // Server-owned budgets only — clients cannot raise ceilings.
+    const budgets = serverScoutBudgets({
+      maxProviderCalls: spendAuthority
+        ? Math.max(0, spendAuthority.remainingProviderBudget)
+        : 0,
+    });
 
-  if (inventory.isFixture && result.inventorySource === "replay") {
-    result.message = [result.message, "INVENTORY_FIXTURE: replay rows are not live market data."]
-      .filter(Boolean)
-      .join(" ");
-  }
+    const preferLive = Boolean(input.req.preferLive);
+    const autodev =
+      preferLive && input.autodevDeps?.apiKey
+        ? {
+            fetch: input.autodevDeps.fetch,
+            apiKey: input.autodevDeps.apiKey,
+            cache: input.autodevDeps.cache ?? new TtlCache<unknown>(),
+            counter: input.autodevDeps.counter ?? new MemoryCounter(),
+            source: "autodev" as const,
+            signal: input.signal,
+          }
+        : null;
 
-  const persisted = input.kv ? await saveScoutRun(input.kv, result) : { ok: true as const };
-  if (!persisted.ok) {
-    // Idempotent path: never ack durable success without a persisted run row.
-    // Leave claim in_progress without runId — peers see in_progress (not false-dead); no re-exec.
-    if (idemRecordKey) {
+    const inventory = resolveScoutInventory({
+      kv: input.kv,
+      autodev,
+      // Keep preferLive even without autodev wired — fail closed, never silent fixture.
+      preferLive,
+      env,
+      maxProviderCalls: budgets.maxProviderCalls,
+      signal: input.signal,
+      testAuthority: spendAuthority,
+    });
+
+    const plannerMode = input.req.planner ?? "offline_heuristic";
+    let planner;
+    let autonomyClaim: "serv_directed" | "none" = "none";
+
+    if (plannerMode === "mock_script") {
+      autonomyClaim = "none";
+      planner = input.req.mockScript
+        ? mockServPlanner(input.req.mockScript)
+        : refusingPlanner("serv_unavailable");
+    } else if (plannerMode === "serv") {
+      const paid = authorizeLiveServPlanner({
+        config: readPaidExecutionConfig(env),
+        kv: input.kv,
+        testAuthority: spendAuthority,
+      });
+      const allowFlag =
+        env.SCOUT_ALLOW_SERV_PLANNER?.trim().toLowerCase() === "1" ||
+        env.SCOUT_ALLOW_SERV_PLANNER?.trim().toLowerCase() === "true";
+      if (!allowFlag) {
+        autonomyClaim = "none";
+        planner = blockedServPlanner("SCOUT_ALLOW_SERV_PLANNER is not enabled.");
+      } else if (!paid.ok) {
+        autonomyClaim = "none";
+        planner = blockedServPlanner(paid.message);
+      } else {
+        autonomyClaim = "serv_directed";
+        planner = servScoutPlanner({
+          apiKey: env.SERV_API_KEY!.trim(),
+          baseUrl: env.SERV_BASE_URL,
+          model: env.SERV_MODEL,
+          kv: input.kv,
+          testAuthority: spendAuthority,
+          config: readPaidExecutionConfig(env),
+          env,
+          fetch: input.servFetch,
+        });
+      }
+    } else {
+      planner = heuristicOfflinePlanner();
+    }
+
+    const result = await runScout({
+      ownerId: input.req.ownerId,
+      mandateRaw: mandate,
+      budgets: { ...budgets },
+      inventory: inventory.adapter,
+      planner,
+      autonomyClaim,
+      resume: input.req.resume ?? undefined,
+    });
+
+    if (inventory.isFixture && result.inventorySource === "replay") {
+      result.message = [result.message, "INVENTORY_FIXTURE: replay rows are not live market data."]
+        .filter(Boolean)
+        .join(" ");
+    }
+
+    const persisted = input.kv ? await saveScoutRun(input.kv, result) : { ok: true as const };
+    if (!persisted.ok) {
+      if (idemRecordKey) {
+        return {
+          ok: false,
+          status: 503,
+          body: {
+            error: "idempotency_persist_failure",
+            message: `${persisted.message} Scout work may have run, but durable receipt was not acknowledged. Do not retry as free; no extra tool calls.`,
+          },
+        };
+      }
       return {
         ok: false,
         status: 503,
         body: {
-          error: "idempotency_persist_failure",
-          message: `${persisted.message} Scout work may have run, but durable receipt was not acknowledged. Do not retry as free; no extra tool calls.`,
+          error: "persist_failure",
+          message: persisted.message,
         },
       };
     }
-    return {
-      ok: false,
-      status: 503,
-      body: {
-        error: "persist_failure",
-        message: persisted.message,
-      },
-    };
-  }
 
-  const ok: SafeScoutOk = {
-    ok: true,
-    result,
-    inventoryMode: inventory.mode,
-    isFixture: inventory.isFixture,
-    paidBlockedReason: inventory.paidBlockedReason,
-  };
-
-  // Bind claim-owned runId only after durable run row exists, then write completed receipt.
-  // Never TTL reclaim. Receipt-write failure: next claim reconciles from runId.
-  if (idemRecordKey && mandateHash && input.kv) {
-    await bindScoutIdempotencyRun(input.kv, idemRecordKey, {
-      ownerId: input.req.ownerId,
-      mandateHash,
-      runId: result.runId,
+    const ok: SafeScoutOk = {
+      ok: true,
+      result,
       inventoryMode: inventory.mode,
       isFixture: inventory.isFixture,
       paidBlockedReason: inventory.paidBlockedReason,
-    });
-    try {
-      await completeScoutIdempotency(input.kv, idemRecordKey, {
+    };
+
+    if (idemRecordKey && mandateHash && input.kv) {
+      await bindScoutIdempotencyRun(input.kv, idemRecordKey, {
         ownerId: input.req.ownerId,
         mandateHash,
-        result,
+        runId: result.runId,
         inventoryMode: inventory.mode,
         isFixture: inventory.isFixture,
         paidBlockedReason: inventory.paidBlockedReason,
       });
-    } catch {
-      // Run + bind are durable; next claim reconciles receipt.
+      try {
+        await completeScoutIdempotency(input.kv, idemRecordKey, {
+          ownerId: input.req.ownerId,
+          mandateHash,
+          result,
+          inventoryMode: inventory.mode,
+          isFixture: inventory.isFixture,
+          paidBlockedReason: inventory.paidBlockedReason,
+        });
+      } catch {
+        // Run + bind are durable; next claim reconciles receipt.
+      }
+    }
+
+    return ok;
+  } finally {
+    if (lockHeld) {
+      await releaseScoutOwnerLock(input.kv, input.req.ownerId, lockToken);
     }
   }
-
-  return ok;
 }
