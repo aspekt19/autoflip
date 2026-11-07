@@ -4,6 +4,7 @@
  * Explicit null distanceMiles means nationwide when the mandate allows it (not ??-collapsed).
  */
 import { MAX_DISTANCE_MILES } from "@/domain/need";
+import { MIN_USABLE_ASKING_PRICE_USD } from "./asking-price";
 import type { ScoutMandate } from "./types";
 
 export const SCOUT_SEARCH_PARAMS_VERSION = "scout-search-params/v1" as const;
@@ -362,7 +363,13 @@ export function searchQueryRanges(search: ScoutSearchParams | null | undefined):
 } {
   const out: { priceRange?: string; milesRange?: string } = {};
   if (search?.maxPriceUsd != null && search.maxPriceUsd > 0) {
-    out.priceRange = `1-${Math.round(search.maxPriceUsd)}`;
+    const max = Math.round(search.maxPriceUsd);
+    // Auto.dev sort=price + price=1-N fills the limit with $1–$59 placeholders.
+    // When the budget can include a usable retail ask, start at the usable floor.
+    // Budgets below the floor still query 1-max (do not invent a higher ceiling).
+    const min =
+      max >= MIN_USABLE_ASKING_PRICE_USD ? MIN_USABLE_ASKING_PRICE_USD : 1;
+    out.priceRange = `${min}-${max}`;
   }
   if (search?.maxMiles != null && search.maxMiles >= 0) {
     out.milesRange = `0-${Math.round(search.maxMiles)}`;

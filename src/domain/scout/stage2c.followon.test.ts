@@ -132,7 +132,7 @@ describe("Stage2C-followon product gaps", () => {
     expect(listingGeoRelativeToSearch(rows[3]!, "90210", 80)).toBe("unknown_geo");
     expect(listingGeoRelativeToSearch(rows[2]!, "90210", 80)).toBe("out_of_range");
     expect(searchQueryRanges(search)).toEqual({
-      priceRange: "1-20000",
+      priceRange: "500-20000",
       milesRange: "0-80000",
     });
   });
@@ -183,7 +183,7 @@ describe("Stage2C-followon product gaps", () => {
         maxPriceUsd: 20_000,
         maxMiles: 80_000,
       });
-      expect(q.priceRange).toBe("1-20000");
+      expect(q.priceRange).toBe("500-20000");
       expect(q.milesRange).toBe("0-80000");
       return;
     }
@@ -201,7 +201,7 @@ describe("Stage2C-followon product gaps", () => {
     expect(urls.length).toBeGreaterThan(0);
     const u = urls[0]!;
     expect(u).toMatch(/vehicle\.model=Civic/);
-    expect(u).toMatch(/retailListing\.price=1-20000/);
+    expect(u).toMatch(/retailListing\.price=500-20000/);
     expect(u).toMatch(/retailListing\.miles=0-80000/);
     expect(u).toMatch(/distance=80/);
     expect(u).toMatch(/vehicle\.make=Honda/);

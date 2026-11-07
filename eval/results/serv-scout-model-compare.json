@@ -1,0 +1,157 @@
+{
+  "schemaVersion": "serv-scout-model-compare/v2",
+  "mode": "dry_run",
+  "harness": "eval/serv-scout-model-compare.ts",
+  "ledgerPath": "fixtures/scout/pr63-placeholder-ledger.json",
+  "ledgerLabel": "offline_sanitized_NOT_live_rerun",
+  "ledgerDeployedSha": "de5eb0c0dab6d394765ff5916abf6346dc139841",
+  "ledgerRunId": "ff52a261-7ac0-4bd1-8433-36532eea2a54",
+  "productionDefaultModel": "gpt-5.4-mini",
+  "productionDefaultUnchanged": true,
+  "modelOnlySwapIsNotDemonstratedFix": true,
+  "budgetConsciousIsNotCheapest": true,
+  "zeroNetworkDefault": true,
+  "allowUnlistedOptIn": false,
+  "strictJsonSchema": true,
+  "catalog": [
+    {
+      "id": "gpt-5.4-mini",
+      "kind": "base",
+      "source": "src/server/serv/profiles.ts BASE_MODEL + README SERV_MODEL default",
+      "effectiveForScoutPlan": "gpt-5.4-mini",
+      "unlistedOptIn": false
+    },
+    {
+      "id": "gpt-5.4-mini-2026-03-17",
+      "kind": "dated_alias",
+      "source": "eval/results/latest.json + eval/results/serv-proof-trace.json reported model",
+      "effectiveForScoutPlan": "gpt-5.4-mini-2026-03-17",
+      "unlistedOptIn": false
+    }
+  ],
+  "modelsSelected": [
+    {
+      "id": "gpt-5.4-mini",
+      "kind": "base",
+      "source": "src/server/serv/profiles.ts BASE_MODEL + README SERV_MODEL default",
+      "effectiveForScoutPlan": "gpt-5.4-mini",
+      "unlistedOptIn": false
+    },
+    {
+      "id": "gpt-5.4-mini-2026-03-17",
+      "kind": "dated_alias",
+      "source": "eval/results/latest.json + eval/results/serv-proof-trace.json reported model",
+      "effectiveForScoutPlan": "gpt-5.4-mini-2026-03-17",
+      "unlistedOptIn": false
+    }
+  ],
+  "evidenceTaxonomy": {
+    "observed": [
+      "Run ff52a261 on deployed de5eb0c: state failed, failReason budget_exhausted with message Repeated identical planner action (reject:4TAWM72N3WZ162673:adverse_evidence) 3 times.",
+      "maxServCalls=null (unmetered SERV call-count); stop was no-progress protection, not a three-call SERV quota.",
+      "inventory.search success: 20 live listings; provenance price=1-20000,distance=nationwide; sort=price in live adapter.",
+      "All 20 observedPrices in [$1,$59]; firstCandidate price qualification unknown below usable retail floor ($500).",
+      "Two candidate.reject outcomes ok=false with reject_rationale_not_grounded for citedEvidence missing_asking_price@price.",
+      "No government tool outcomes; investigation empty; all candidates remained pending; persistent GET equaled POST result."
+    ],
+    "hypotheses": [
+      "price=1-N + sort=price fills Auto.dev limit:20 with cheapest placeholder asks (supported by query construction + observed ladder; not a claim Auto.dev lacks usable Toyota asks under $20k).",
+      "Planner invented gateId price from constraintQualification.price field name while adverse fact omitted gateId (pre-fix matching required exact gateId when cited).",
+      "With fixed grounding + usable price floor, planner can reject/search/abstain instead of no-progress — model-only swap is NOT the demonstrated product fix."
+    ],
+    "unrecorded_historical": [
+      "Full raw SERV planner response/action objects and complete citedEvidence arrays for every step (esp. step-3) were not stored in the sanitized 07/08/09 files.",
+      "Exact Auto.dev JSON row fields beyond mapped retail.price/record.price for the 20 VINs were not retained in the handoff.",
+      "Independent HTTP/billing reconciliation of SERV/Auto.dev spend (cost remains unknown).",
+      "Whether a mid-loop inventory.search with floor 500 would have returned usable asks on that exact minute (not live-retested by Cursor)."
+    ]
+  },
+  "offlineBeforeAfter": {
+    "before": "On de5eb0c, missing_asking_price@price reject was deny→deny→identical fingerprint no-progress stop; pool was 20 placeholder asks under price=1-20000 + sort=price.",
+    "afterCodeFix": "Offline regression: same citation grounds; query floor 500-N; placeholders filtered under priced search; abstain/search recovery paths score cleanly. See placeholder-price-recovery.regression.test.ts.",
+    "modelCompareRole": "Optional parent sequential SERV compares on SAME offline ledger inputs — not proof that changing BASE_MODEL alone fixes production."
+  },
+  "remainingLimits": [
+    "Not live-tested by Cursor; parent is sole live coordinator.",
+    "Cost remains unknown until central reconciliation (console $/M ≠ receipt).",
+    "Unlisted console IDs are not availability/schema guarantees even with ALLOW_UNLISTED.",
+    "Full raw step-3 planner payloads were unrecorded in the sanitized handoff.",
+    "Whether Auto.dev returns usable asks after 500-N on a given minute is unproven here."
+  ],
+  "stepUserMessages": [
+    {
+      "stepId": "after_inventory_before_reject",
+      "userMessageBytes": 8101,
+      "pendingCount": 20,
+      "usableAsks": 0,
+      "allUnusable": true
+    },
+    {
+      "stepId": "after_one_denied_reject",
+      "userMessageBytes": 8421,
+      "pendingCount": 20,
+      "usableAsks": 0,
+      "allUnusable": true
+    },
+    {
+      "stepId": "after_two_denied_rejects",
+      "userMessageBytes": 8741,
+      "pendingCount": 20,
+      "usableAsks": 0,
+      "allUnusable": true
+    }
+  ],
+  "historicalScores": [
+    {
+      "stepId": "step-1",
+      "label": "live_denied_reject_missing_asking_price_at_price",
+      "observedOutcomeOk": false,
+      "score": {
+        "schemaValid": true,
+        "parseKind": null,
+        "actionType": "reject",
+        "actionFingerprint": "reject:4TAWM72N3WZ162673:adverse_evidence",
+        "dispositionOk": true,
+        "dispositionCode": "adverse_evidence",
+        "grounded": true,
+        "recoveryClass": "grounded_reject_unusable_ask",
+        "antiLoopSafe": false,
+        "claimsVehicleDefectFromPlaceholder": false,
+        "summary": "reject → grounded_reject_unusable_ask; grounded=true; antiLoopSafe=false"
+      }
+    },
+    {
+      "stepId": "step-2",
+      "label": "live_denied_reject_repeat",
+      "observedOutcomeOk": false,
+      "score": {
+        "schemaValid": true,
+        "parseKind": null,
+        "actionType": "reject",
+        "actionFingerprint": "reject:4TAWM72N3WZ162673:adverse_evidence",
+        "dispositionOk": true,
+        "dispositionCode": "adverse_evidence",
+        "grounded": true,
+        "recoveryClass": "grounded_reject_unusable_ask",
+        "antiLoopSafe": false,
+        "claimsVehicleDefectFromPlaceholder": false,
+        "summary": "reject → grounded_reject_unusable_ask; grounded=true; antiLoopSafe=false"
+      }
+    }
+  ],
+  "rows": [],
+  "cost": "unknown",
+  "notes": [
+    "Sanitized evidence only — no network/repository reads or paid reruns by the Cursor worker.",
+    "nullSERV / maxServCalls=null: failure was repeated identical planner action (no-progress), not a three-call SERV quota.",
+    "All observed asks $1–$59 placeholders; price query was 1-20000 + sort=price.",
+    "Rejected citation missing_asking_price@price was denied as reject_rationale_not_grounded (pre-fix on de5eb0c).",
+    "See evidenceTaxonomy: observed vs hypotheses vs unrecorded_historical (t294).",
+    "Parent sole live coordinator — Cursor worker must not set SCOUT_COMPARE_ALLOW_PAID.",
+    "Repeated-action / evidence guards are scored, not weakened.",
+    "Model-only swap is NOT the demonstrated product fix.",
+    "Budget-conscious ≠ cheapest-at-expense-of-quality.",
+    "Console Available-models broader than in-repo catalog; ALLOW_UNLISTED is parent opt-in only.",
+    "Not a claim that any model beats another until parent runs live rows."
+  ]
+}

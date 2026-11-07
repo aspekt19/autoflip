@@ -23,6 +23,7 @@ import type { InventoryAdapter } from "./inventory";
 import { qualifyListingConstraints } from "./constraint-qualification";
 import {
   applyDispositionRationale,
+  collectAdverseEvidence,
   validateDispositionAction,
   type CitedEvidenceRef,
 } from "./disposition-rationale";
@@ -88,38 +89,80 @@ function stableArgsKey(args: Record<string, unknown> | undefined): string {
   }
 }
 
+function candidatesByVin(
+  candidates: Map<string, ScoutCandidate> | Iterable<ScoutCandidate>,
+): Map<string, ScoutCandidate> {
+  if (candidates instanceof Map) return candidates;
+  const byVin = new Map<string, ScoutCandidate>();
+  for (const c of candidates) byVin.set(c.vin, c);
+  return byVin;
+}
+
+/**
+ * Align planner citedEvidence gateIds with collected adverse facts when kind matches.
+ * Does not invent new kinds or weaken unmatched cites.
+ */
+function sanitizeCitedEvidenceRefs(
+  cited: CitedEvidenceRef[] | undefined,
+  cand: ScoutCandidate | undefined,
+): CitedEvidenceRef[] | undefined {
+  if (!cited?.length || !cand) return cited;
+  const facts = collectAdverseEvidence(cand);
+  return cited.map((ref) => {
+    const byKind = facts.find((a) => a.kind === ref.kind);
+    if (!byKind) return ref;
+    return {
+      kind: byKind.kind as CitedEvidenceRef["kind"],
+      ...(byKind.gateId ? { gateId: byKind.gateId } : {}),
+    };
+  });
+}
+
 /**
  * Independently correct soft-guard (not a SERV call-cap workaround):
  * free-gov cannot unlock investigation shortlist without a usable asking price.
  * Remap to grounded reject (missing_asking_price). Does not invent success or
  * change legitimate free-gov on usable-priced candidates.
+ * Also normalizes reject/replace citedEvidence gateIds to collected facts.
  */
 export function sanitizeScoutPlanAction(input: {
   action: ScoutPlanAction;
   candidates: Map<string, ScoutCandidate> | Iterable<ScoutCandidate>;
 }): ScoutPlanAction {
-  const { action } = input;
-  if (action.type !== "run_tool" || !isFreeGovToolId(action.toolId) || !action.vin) {
-    return action;
+  const byVin = candidatesByVin(input.candidates);
+  let action = input.action;
+
+  if (action.type === "run_tool" && isFreeGovToolId(action.toolId) && action.vin) {
+    const cand = byVin.get(action.vin);
+    if (cand && !isUsableAskingPriceUsd(cand.listing.priceUsd)) {
+      action = {
+        type: "reject",
+        vin: cand.vin,
+        reason:
+          "Free-gov cannot unlock investigation without a usable asking price — reject placeholder/unknown ask (missing_asking_price).",
+        servStepId: action.servStepId,
+        rationaleKind: "adverse_evidence",
+        citedEvidence: [{ kind: "missing_asking_price", gateId: "price" }],
+        assumptionsDisclosed: false,
+      };
+    }
   }
-  const byVin = new Map<string, ScoutCandidate>();
-  if (input.candidates instanceof Map) {
-    for (const [vin, c] of input.candidates) byVin.set(vin, c);
-  } else {
-    for (const c of input.candidates) byVin.set(c.vin, c);
+
+  if (
+    (action.type === "reject" || action.type === "replace") &&
+    action.citedEvidence?.length &&
+    action.vin
+  ) {
+    const cleaned = sanitizeCitedEvidenceRefs(
+      action.citedEvidence as CitedEvidenceRef[],
+      byVin.get(action.vin),
+    );
+    if (cleaned) {
+      action = { ...action, citedEvidence: cleaned };
+    }
   }
-  const cand = byVin.get(action.vin);
-  if (!cand || isUsableAskingPriceUsd(cand.listing.priceUsd)) return action;
-  return {
-    type: "reject",
-    vin: cand.vin,
-    reason:
-      "Free-gov cannot unlock investigation without a usable asking price — reject placeholder/unknown ask (missing_asking_price).",
-    servStepId: action.servStepId,
-    rationaleKind: "adverse_evidence",
-    citedEvidence: [{ kind: "missing_asking_price" }],
-    assumptionsDisclosed: false,
-  };
+
+  return action;
 }
 
 /** Status→capability fallback only — capabilityGrounded stays false (incomplete for detectors). */
@@ -885,6 +928,9 @@ export async function runScout(input: RunScoutInput): Promise<ScoutRunResult> {
         pendingSample: pending
           .filter((vin) => !lastFreshVins.includes(vin))
           .slice(0, 3)
+          .map((vin) => candidates.get(vin))
+          .filter((c): c is ScoutCandidate => Boolean(c)),
+        allPending: pending
           .map((vin) => candidates.get(vin))
           .filter((c): c is ScoutCandidate => Boolean(c)),
         searchHistory,

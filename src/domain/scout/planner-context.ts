@@ -77,9 +77,20 @@ export type ScoutPlannerEvidenceContext = {
     providerCalls: number;
   };
   recentOutcomes: ScoutToolOutcome[];
+  /**
+   * Pending-pool asking-price usability — placeholder pool ≠ provider failure.
+   * When allPendingAskingPricesUnusable, prefer search (if provider budget) or abstain.
+   */
+  pendingAskSummary: {
+    pendingCount: number;
+    usableAskingPriceCount: number;
+    unusableAskingPriceCount: number;
+    allPendingAskingPricesUnusable: boolean;
+  };
   /** Run-level policy — not per-candidate constant true. */
   policy: {
     unsupportedGovAloneDoesNotProveCarBad: true;
+    placeholderAskIsNotVehicleDefect: true;
   };
 };
 
@@ -218,6 +229,8 @@ export function buildPlannerEvidenceContext(input: {
   pendingSample?: ScoutCandidate[];
   /** Prefer these pending VINs (fresh mid-loop acquisitions) in the brief. */
   newlyAcquiredPending?: ScoutCandidate[];
+  /** Full pending set for ask-usability summary (not only the brief sample). */
+  allPending?: ScoutCandidate[];
   searchHistory: Array<{ fingerprint: string; params: ScoutSearchParams }>;
   mandate: ScoutMandate;
   budgets: { maxServCalls: number | null; maxToolCalls: number; maxProviderCalls: number };
@@ -244,6 +257,18 @@ export function buildPlannerEvidenceContext(input: {
   // Fresh acquisitions first so they are not crowded out by investigated + first-3 pending.
   const briefs = [...freshBriefs, ...investigatedBriefs, ...pendingBriefs].slice(0, 12);
 
+  const pendingForAsk = input.allPending ?? [
+    ...(input.newlyAcquiredPending ?? []),
+    ...(input.pendingSample ?? []),
+  ];
+  let usableAskingPriceCount = 0;
+  let unusableAskingPriceCount = 0;
+  for (const c of pendingForAsk) {
+    if (isUsableAskingPriceUsd(c.listing.priceUsd)) usableAskingPriceCount += 1;
+    else unusableAskingPriceCount += 1;
+  }
+  const pendingCount = pendingForAsk.length;
+
   return {
     evidenceBriefs: briefs,
     newlyAcquiredVins: [...newlySet],
@@ -257,7 +282,16 @@ export function buildPlannerEvidenceContext(input: {
       providerCalls: Math.max(0, input.budgets.maxProviderCalls - input.usage.providerCalls),
     },
     recentOutcomes: input.recentOutcomes.slice(-8),
-    policy: { unsupportedGovAloneDoesNotProveCarBad: true },
+    pendingAskSummary: {
+      pendingCount,
+      usableAskingPriceCount,
+      unusableAskingPriceCount,
+      allPendingAskingPricesUnusable: pendingCount > 0 && usableAskingPriceCount === 0,
+    },
+    policy: {
+      unsupportedGovAloneDoesNotProveCarBad: true,
+      placeholderAskIsNotVehicleDefect: true,
+    },
   };
 }
 
