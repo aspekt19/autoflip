@@ -42,8 +42,11 @@ Also: loop unit tests, why-car CR-V slash test, orchestrator keyless → `no_ser
 | --- | --- |
 | Branch | `cursor/find-nextcheck-keyed-runtime-ecfd` |
 | Base | `8640995bc45716906fcbc3c01d8facdc698c80b3` |
-| Tip | `2050cb920f6e9a4821a0f23022a2da8381611ad2` / tree `8216b5a774f99652e7c9bcef7884b31d5ff20764` |
-| CI | _(fill after green)_ |
+| Tip | `8629b4bfd4e84a33c72c214800e6f3b98448ea0c` / tree `b6f0ead841b554a59239b9273e052c63a0c2fcfd` |
+| Implement | `2050cb920f6e9a4821a0f23022a2da8381611ad2` / tree `8216b5a774f99652e7c9bcef7884b31d5ff20764` |
+| CI | Pending PR open — workflow is `pull_request` only; local **737** tests green. Parent ManagePullRequest to start CI. |
+| PR create | Agent `gh` 403 — body artifact for parent ManagePullRequest |
+
 
 ### Remaining
 
