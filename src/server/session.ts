@@ -1,5 +1,5 @@
 import { cookies } from "next/headers";
-import { creditBalance, creditGrant, creditSeen, creditSpend } from "@/io/credit-book";
+import { creditBalance, creditCompensateSpend, creditGrant, creditSeen, creditSpend } from "@/io/credit-book";
 import { getKv } from "@/io/kv";
 import { DEMO_USER_ID } from "@/domain/radar-watch";
 import { ensureDemoAccount } from "./radar-store";
@@ -59,6 +59,11 @@ export async function spendCredit(id: string, idempotencyKey: string) {
 
 export async function grantCredit(id: string, credits: number, idempotencyKey: string) {
   return creditGrant(getKv(), id, credits, idempotencyKey);
+}
+
+/** Reverse a spend so retry can debit again — see creditCompensateSpend. */
+export async function compensateSpendCredit(id: string, spendKey: string) {
+  return creditCompensateSpend(getKv(), id, spendKey);
 }
 
 export function isDemoUser(id: string): boolean {

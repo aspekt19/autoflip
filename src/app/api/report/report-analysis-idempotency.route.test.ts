@@ -4,7 +4,13 @@
  * Barriers prove old UUID spend double-debit class, then fixed one-debit/one-report.
  */
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { creditBalance, creditGrant, creditSpend } from "@/io/credit-book";
+import {
+  creditBalance,
+  creditCompensateSpend,
+  creditEventSeen,
+  creditGrant,
+  creditSpend,
+} from "@/io/credit-book";
 import { MemoryKv } from "@/io/kv";
 import {
   findUserReport,
@@ -20,18 +26,30 @@ import {
 import {
   findAnalysisSpendKey,
   legacyReportUuidSpendKey,
+  reportAnalysisRecordKey,
 } from "@/server/report-analysis-idempotency";
 
-const kvHolder: { kv: MemoryKv } = { kv: new MemoryKv() };
 const uid = vi.fn(async () => "11111111-1111-4111-8111-111111111111");
 const assemble = vi.fn();
 const telegram = vi.fn();
+
+const persistSeams = vi.hoisted(() => ({
+  realRemember: null as null | RememberFn,
+  persistImpl: vi.fn(),
+  rememberImpl: vi.fn(),
+}));
+const persistImpl = persistSeams.persistImpl;
+const rememberImpl = persistSeams.rememberImpl;
+
+type RememberFn = typeof rememberUserReport;
+const kvHolder: { kv: MemoryKv } = { kv: new MemoryKv() };
 
 vi.mock("@/server/session", () => ({
   userId: () => uid(),
   balanceOf: (id: string) => creditBalance(kvHolder.kv, id),
   spendCredit: (id: string, key: string) => creditSpend(kvHolder.kv, id, key),
   grantCredit: (id: string, n: number, key: string) => creditGrant(kvHolder.kv, id, n, key),
+  compensateSpendCredit: (id: string, key: string) => creditCompensateSpend(kvHolder.kv, id, key),
 }));
 
 vi.mock("@/server/assemble", () => ({
@@ -52,10 +70,25 @@ vi.mock("@/io/kv", async (importOriginal) => {
 
 vi.mock("@/io/persist-report", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/io/persist-report")>();
+  persistSeams.realRemember = actual.rememberUserReport;
+  persistSeams.persistImpl.mockImplementation(async (report: { id: string }) => {
+    await kvHolder.kv.set(`report:${report.id}`, JSON.stringify(report));
+  });
+  persistSeams.rememberImpl.mockImplementation(
+    async (
+      kv: Parameters<RememberFn>[0],
+      userId: string,
+      vin: string,
+      reportId: string,
+      report?: Parameters<RememberFn>[4],
+    ) => {
+      if (!persistSeams.realRemember) throw new Error("realRemember not bound");
+      return persistSeams.realRemember(kv, userId, vin, reportId, report);
+    },
+  );
   return {
     ...actual,
-    // Delegate to real implementations against shared test Kv via getKv mock.
-    persistReport: (report: Parameters<typeof persistReport>[0]) => actual.persistReport(report),
+    persistReport: (report: Parameters<typeof persistReport>[0]) => persistSeams.persistImpl(report),
     findUserReport: (
       kv: Parameters<typeof findUserReport>[0],
       userId: string,
@@ -63,13 +96,8 @@ vi.mock("@/io/persist-report", async (importOriginal) => {
       mode?: Parameters<typeof findUserReport>[3],
     ) => actual.findUserReport(kv, userId, vin, mode),
     readPersistedReport: (id: string) => actual.readPersistedReport(id),
-    rememberUserReport: (
-      kv: Parameters<typeof rememberUserReport>[0],
-      userId: string,
-      vin: string,
-      reportId: string,
-      report?: Parameters<typeof rememberUserReport>[4],
-    ) => actual.rememberUserReport(kv, userId, vin, reportId, report),
+    rememberUserReport: ((kv, userId, vin, reportId, report) =>
+      persistSeams.rememberImpl(kv, userId, vin, reportId, report)) as RememberFn,
     reportReusable: (
       existing: Parameters<typeof reportReusable>[0],
       input: Parameters<typeof reportReusable>[1],
@@ -171,6 +199,16 @@ describe("POST /api/report analysis idempotency (shared Kv concurrent)", () => {
     kvHolder.kv = new MemoryKv();
     assemble.mockReset();
     telegram.mockReset();
+    persistImpl.mockReset();
+    rememberImpl.mockReset();
+    // Default: durable write via shared test Kv (getKv is mocked to kvHolder.kv).
+    persistImpl.mockImplementation(async (report) => {
+      await kvHolder.kv.set(`report:${report.id}`, JSON.stringify(report));
+    });
+    rememberImpl.mockImplementation((kv, userId, vin, reportId, report) => {
+      if (!persistSeams.realRemember) throw new Error("realRemember not bound");
+      return persistSeams.realRemember(kv, userId, vin, reportId, report);
+    });
     uid.mockResolvedValue(USER);
     await creditGrant(kvHolder.kv, USER, 3, `seed:${USER}:${Date.now()}`);
   });
@@ -340,5 +378,87 @@ describe("POST /api/report analysis idempotency (shared Kv concurrent)", () => {
       expect(body.id).toBe("report-b");
       expect(await creditBalance(kvHolder.kv, USER)).toBe(1);
     }
+  });
+
+  it("persist throw after spend: compensate + retry debits exactly once (no FREE_REPORT)", async () => {
+    const token = await mintToken();
+    const spendKey = findAnalysisSpendKey({ userId: USER, findContextToken: token });
+    assemble
+      .mockResolvedValueOnce(okReport("report-persist-fail"))
+      .mockResolvedValueOnce(okReport("report-persist-ok"));
+
+    persistImpl.mockImplementationOnce(async () => {
+      throw new Error("persist_boom");
+    });
+
+    const failed = await POST(req(findBody(token)));
+    expect(failed.status).toBe(500);
+    expect((await failed.json()).error).toBe("save_failed");
+    expect(await creditBalance(kvHolder.kv, USER)).toBe(3); // credit restored
+    expect(await creditEventSeen(kvHolder.kv, spendKey)).toBe(false);
+    expect(await kvHolder.kv.get(reportAnalysisRecordKey({ userId: USER, findContextToken: token }))).toBeNull();
+
+    const ok = await POST(req(findBody(token)));
+    expect(ok.status).toBe(200);
+    const body = await ok.json();
+    expect(body.id).toBe("report-persist-ok");
+    expect(body.alreadySaved).not.toBe(true);
+    expect(await creditBalance(kvHolder.kv, USER)).toBe(2); // exactly one net debit
+    expect(await creditEventSeen(kvHolder.kv, spendKey)).toBe(true);
+  });
+
+  it("complete throw after report persisted: keeps debit, returns saved report, retry replays", async () => {
+    const token = await mintToken();
+    const spendKey = findAnalysisSpendKey({ userId: USER, findContextToken: token });
+    assemble.mockResolvedValue(okReport("report-complete-fail"));
+
+    // Persist lands; remember throws before completeFindAnalysis — catch must not compensate.
+    rememberImpl.mockImplementationOnce(async () => {
+      throw new Error("remember_boom");
+    });
+
+    const first = await POST(req(findBody(token)));
+    expect(first.status).toBe(200);
+    const firstBody = await first.json();
+    expect(firstBody.id).toBe("report-complete-fail");
+    expect(await creditBalance(kvHolder.kv, USER)).toBe(2); // spend kept — report durable
+    expect(await creditEventSeen(kvHolder.kv, spendKey)).toBe(true);
+    expect(await readPersistedReport("report-complete-fail")).toBeTruthy();
+
+    const retry = await POST(req(findBody(token)));
+    expect(retry.status).toBe(200);
+    const retryBody = await retry.json();
+    expect(retryBody.id).toBe("report-complete-fail");
+    expect(await creditBalance(kvHolder.kv, USER)).toBe(2); // no second debit
+  });
+
+  it("concurrent compensate after persist-fail cannot mint free reports or double-credit", async () => {
+    const token = await mintToken();
+    const spendKey = findAnalysisSpendKey({ userId: USER, findContextToken: token });
+    assemble.mockResolvedValue(okReport("report-race-persist"));
+
+    let persistAttempts = 0;
+    persistImpl.mockImplementation(async (report) => {
+      persistAttempts += 1;
+      if (persistAttempts === 1) throw new Error("persist_boom");
+      await kvHolder.kv.set(`report:${report.id}`, JSON.stringify(report));
+    });
+
+    const failed = await POST(req(findBody(token)));
+    expect(failed.status).toBe(500);
+    expect(await creditBalance(kvHolder.kv, USER)).toBe(3);
+
+    // Repeated / concurrent compensates against the cleared spend are no-ops.
+    const [c1, c2, c3] = await Promise.all([
+      creditCompensateSpend(kvHolder.kv, USER, spendKey),
+      creditCompensateSpend(kvHolder.kv, USER, spendKey),
+      creditCompensateSpend(kvHolder.kv, USER, spendKey),
+    ]);
+    expect([c1, c2, c3].every((c) => !c.compensated)).toBe(true);
+    expect(await creditBalance(kvHolder.kv, USER)).toBe(3);
+
+    const ok = await POST(req(findBody(token)));
+    expect(ok.status).toBe(200);
+    expect(await creditBalance(kvHolder.kv, USER)).toBe(2);
   });
 });

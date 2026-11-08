@@ -28,6 +28,8 @@ vi.mock("@/server/session", () => ({
   balanceOf: () => balance(),
   spendCredit: (id: string, key: string) => spend(id, key),
   grantCredit: (id: string, n: number, key: string) => grant(id, n, key),
+  // Handoff suite mocks spend/grant; compensate is unused on the happy/refusal paths under test.
+  compensateSpendCredit: async () => ({ ok: true, balance: 0, compensated: false }),
 }));
 
 vi.mock("@/server/assemble", () => ({

@@ -9,15 +9,30 @@
  * Different users / tokens never share a claim or spend key.
  *
  * Lifetime: claim is in_progress only while assemble/commit runs (released on
- * clean failure so retry can proceed without debit). Completed receipt is durable
- * (no TTL) and points at the report id for stable replay. Find-context TTL (2h)
- * is unchanged for trust verification; alreadySaved still resumes after expiry.
+ * clean failure so retry can proceed). Completed receipt is durable (no TTL)
+ * and points at the report id for stable replay. Find-context TTL (2h) is
+ * unchanged for trust verification; alreadySaved still resumes after expiry.
+ *
+ * Fence: each in_progress claim carries a claimId. release/complete only mutate
+ * when that fence still matches — a stale holder must not release a successor
+ * or overwrite a completed receipt. Shared Kv has no compare-and-delete primitive,
+ * so fence checks are get-then-act (best-effort; residual TOCTOU on Upstash).
+ *
+ * Crash / no-lease: claims have no TTL. A winner that dies mid-flight leaves
+ * in_progress. After FIND_ANALYSIS_CLAIM_STALE_MS, same-token reclaim is allowed
+ * only after compensating any dangling spend for that analysis key, then a
+ * fenced delete of the stale claimId. Fresh crashes under the stale window stay
+ * fail-closed (409 in_progress) — we do not NX/PX + unconditional delete.
  *
  * Storage: existing credits/comps Kv via SET NX — same multi-instance backend as
  * the credit ledger. No process-local lock; no new service/secret. Strength equals
  * that shared Kv (Upstash in production).
  */
+import { creditCompensateSpend, creditEventSeen } from "@/io/credit-book";
 import type { Kv } from "@/io/kv";
+
+/** maxDuration (60s) + buffer before same-token stale reclaim may run. */
+export const FIND_ANALYSIS_CLAIM_STALE_MS = 90_000;
 
 export type ReportAnalysisIdentity = {
   userId: string;
@@ -30,6 +45,8 @@ export type ReportAnalysisClaim = {
   userId: string;
   findContextToken: string;
   claimedAt: string;
+  /** Ownership fence — release/complete must present the same id. */
+  claimId: string;
 };
 
 export type ReportAnalysisReceipt = {
@@ -43,7 +60,7 @@ export type ReportAnalysisReceipt = {
 export type ReportAnalysisRecord = ReportAnalysisClaim | ReportAnalysisReceipt;
 
 export type ReportAnalysisClaimResult =
-  | { kind: "proceed"; recordKey: string }
+  | { kind: "proceed"; recordKey: string; claimId: string }
   | { kind: "replay"; receipt: ReportAnalysisReceipt }
   | { kind: "in_progress" }
   | { kind: "conflict"; reason: string };
@@ -67,16 +84,57 @@ export function reportAnalysisRecordKey(identity: ReportAnalysisIdentity): strin
 function parseRecord(raw: string): ReportAnalysisRecord | null {
   try {
     const parsed = JSON.parse(raw) as ReportAnalysisRecord;
-    if (parsed?.status === "completed" || parsed?.status === "in_progress") return parsed;
+    if (parsed?.status === "completed") return parsed;
+    if (parsed?.status === "in_progress") {
+      // claimId required for fenced ownership; corrupt/legacy without fence → conflict upstream.
+      if (typeof (parsed as ReportAnalysisClaim).claimId !== "string" || !(parsed as ReportAnalysisClaim).claimId) {
+        return null;
+      }
+      return parsed;
+    }
     return null;
   } catch {
     return null;
   }
 }
 
+function isStaleClaim(claim: ReportAnalysisClaim, nowMs: number): boolean {
+  const claimedAtMs = Date.parse(claim.claimedAt);
+  if (!Number.isFinite(claimedAtMs)) return true;
+  return nowMs - claimedAtMs >= FIND_ANALYSIS_CLAIM_STALE_MS;
+}
+
+/**
+ * Bounded same-token recovery for a crashed winner past the stale window.
+ * Compensates a dangling analysis spend (if any), then fenced-deletes that claimId.
+ * Returns true when the record key is clear for a fresh SET NX.
+ */
+export async function reclaimStaleFindAnalysisIfSafe(
+  kv: Kv,
+  identity: ReportAnalysisIdentity,
+  opts?: { nowMs?: number },
+): Promise<boolean> {
+  const recordKey = reportAnalysisRecordKey(identity);
+  const raw = await kv.get(recordKey);
+  if (!raw) return true;
+  const record = parseRecord(raw);
+  if (!record) return false;
+  if (record.status === "completed") return false;
+  if (record.userId !== identity.userId) return false;
+  const nowMs = opts?.nowMs ?? Date.now();
+  if (!isStaleClaim(record, nowMs)) return false;
+
+  const spendKey = findAnalysisSpendKey(identity);
+  if (await creditEventSeen(kv, spendKey)) {
+    await creditCompensateSpend(kv, identity.userId, spendKey);
+  }
+  return releaseFindAnalysis(kv, identity, record.claimId);
+}
+
 /**
  * Claim BEFORE assemble/spend for a find-context analysis request.
  * Winner proceeds; peer sees in_progress or completed replay.
+ * Stale in_progress (past FIND_ANALYSIS_CLAIM_STALE_MS) may be reclaimed once.
  */
 export async function claimFindAnalysis(
   kv: Kv,
@@ -94,14 +152,18 @@ export async function claimFindAnalysis(
     if (!existing) return { kind: "conflict", reason: "corrupt_record" };
     if (existing.userId !== identity.userId) return { kind: "conflict", reason: "wrong_user" };
     if (existing.status === "completed") return { kind: "replay", receipt: existing };
-    return { kind: "in_progress" };
+    const reclaimed = await reclaimStaleFindAnalysisIfSafe(kv, identity);
+    if (!reclaimed) return { kind: "in_progress" };
+    // Fall through to SET NX after stale reclaim.
   }
 
+  const claimId = crypto.randomUUID();
   const claim: ReportAnalysisClaim = {
     status: "in_progress",
     userId: identity.userId,
     findContextToken: token,
     claimedAt: new Date().toISOString(),
+    claimId,
   };
   const won = await kv.setNx(recordKey, JSON.stringify(claim));
   if (!won) {
@@ -112,16 +174,30 @@ export async function claimFindAnalysis(
     if (record.status === "completed") return { kind: "replay", receipt: record };
     return { kind: "in_progress" };
   }
-  return { kind: "proceed", recordKey };
+  return { kind: "proceed", recordKey, claimId };
 }
 
-/** Durable completed receipt — overwrites in_progress. Never TTL. */
+/**
+ * Durable completed receipt — overwrites in_progress only when claimId fence matches.
+ * Never overwrites an existing completed receipt or a successor's claim.
+ */
 export async function completeFindAnalysis(
   kv: Kv,
   identity: ReportAnalysisIdentity,
   reportId: string,
-): Promise<void> {
+  claimId: string,
+): Promise<{ ok: true } | { ok: false; reason: string }> {
   const recordKey = reportAnalysisRecordKey(identity);
+  const raw = await kv.get(recordKey);
+  if (!raw) return { ok: false, reason: "missing_claim" };
+  const record = parseRecord(raw);
+  if (!record) return { ok: false, reason: "corrupt_record" };
+  if (record.userId !== identity.userId) return { ok: false, reason: "wrong_user" };
+  if (record.status === "completed") {
+    return record.reportId === reportId ? { ok: true } : { ok: false, reason: "already_completed_other" };
+  }
+  if (record.claimId !== claimId) return { ok: false, reason: "fence_mismatch" };
+
   const receipt: ReportAnalysisReceipt = {
     status: "completed",
     userId: identity.userId,
@@ -129,21 +205,49 @@ export async function completeFindAnalysis(
     reportId,
     completedAt: new Date().toISOString(),
   };
+  // Re-check fence immediately before write (best-effort; no atomic CAS on Kv).
+  const again = await kv.get(recordKey);
+  const againRecord = again ? parseRecord(again) : null;
+  if (
+    !againRecord ||
+    againRecord.status !== "in_progress" ||
+    againRecord.claimId !== claimId ||
+    againRecord.userId !== identity.userId
+  ) {
+    return { ok: false, reason: "fence_lost" };
+  }
   await kv.set(recordKey, JSON.stringify(receipt));
+  return { ok: true };
 }
 
 /**
- * Release in_progress after a clean failure (assemble/charge refuse/spend fail)
- * so the same token can retry without being stuck. Does not delete completed.
+ * Release in_progress after a clean failure so the same token can retry.
+ * Only deletes when claimId fence still matches — will not clear a successor.
  */
-export async function releaseFindAnalysis(kv: Kv, identity: ReportAnalysisIdentity): Promise<void> {
+export async function releaseFindAnalysis(
+  kv: Kv,
+  identity: ReportAnalysisIdentity,
+  claimId: string,
+): Promise<boolean> {
   const recordKey = reportAnalysisRecordKey(identity);
   const raw = await kv.get(recordKey);
-  if (!raw) return;
+  if (!raw) return true;
   const record = parseRecord(raw);
-  if (record?.status === "in_progress") {
-    await kv.delete(recordKey);
+  if (!record) return false;
+  if (record.status !== "in_progress") return false;
+  if (record.claimId !== claimId) return false;
+  // Best-effort fence: re-read then delete only if still this claimId.
+  const again = await kv.get(recordKey);
+  const againRecord = again ? parseRecord(again) : null;
+  if (
+    !againRecord ||
+    againRecord.status !== "in_progress" ||
+    againRecord.claimId !== claimId
+  ) {
+    return false;
   }
+  await kv.delete(recordKey);
+  return true;
 }
 
 /**

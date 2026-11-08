@@ -3,13 +3,21 @@
  * Proves legacy report:uuid spend keys double-debit; analysis keys do not.
  */
 import { describe, expect, it } from "vitest";
-import { creditBalance, creditGrant, creditSpend } from "@/io/credit-book";
+import {
+  creditBalance,
+  creditCompensateSpend,
+  creditEventSeen,
+  creditGrant,
+  creditSpend,
+} from "@/io/credit-book";
 import { MemoryKv } from "@/io/kv";
 import {
+  FIND_ANALYSIS_CLAIM_STALE_MS,
   claimFindAnalysis,
   completeFindAnalysis,
   findAnalysisSpendKey,
   legacyReportUuidSpendKey,
+  reclaimStaleFindAnalysisIfSafe,
   releaseFindAnalysis,
   reportAnalysisRecordKey,
   waitForFindAnalysisReceipt,
@@ -86,9 +94,10 @@ describe("claimFindAnalysis (shared Kv multi-instance)", () => {
     const slow = (async () => {
       const claim = await claimFindAnalysis(shared, identity);
       expect(claim.kind).toBe("proceed");
+      if (claim.kind !== "proceed") return claim;
       gateResolve();
       await new Promise((r) => setTimeout(r, 40));
-      await completeFindAnalysis(shared, identity, "report-winner");
+      await completeFindAnalysis(shared, identity, "report-winner", claim.claimId);
       return claim;
     })();
 
@@ -136,11 +145,73 @@ describe("claimFindAnalysis (shared Kv multi-instance)", () => {
 
     const first = await claimFindAnalysis(shared, identity);
     expect(first.kind).toBe("proceed");
-    await releaseFindAnalysis(shared, identity);
+    if (first.kind !== "proceed") return;
+    await releaseFindAnalysis(shared, identity, first.claimId);
 
     const retry = await claimFindAnalysis(shared, identity);
     expect(retry.kind).toBe("proceed");
     expect(await shared.get(reportAnalysisRecordKey(identity))).toBeTruthy();
+  });
+
+  it("fenced release/complete refuse stale holder after successor claim", async () => {
+    const shared = new MemoryKv();
+    const identity = { userId: "user-a", findContextToken: "tok-fence" };
+
+    const first = await claimFindAnalysis(shared, identity);
+    expect(first.kind).toBe("proceed");
+    if (first.kind !== "proceed") return;
+    await releaseFindAnalysis(shared, identity, first.claimId);
+
+    const second = await claimFindAnalysis(shared, identity);
+    expect(second.kind).toBe("proceed");
+    if (second.kind !== "proceed") return;
+
+    // Stale holder must not release successor or commit late.
+    expect(await releaseFindAnalysis(shared, identity, first.claimId)).toBe(false);
+    expect((await completeFindAnalysis(shared, identity, "late-report", first.claimId)).ok).toBe(false);
+
+    expect((await completeFindAnalysis(shared, identity, "report-successor", second.claimId)).ok).toBe(true);
+    const replay = await claimFindAnalysis(shared, identity);
+    expect(replay.kind).toBe("replay");
+    if (replay.kind === "replay") expect(replay.receipt.reportId).toBe("report-successor");
+  });
+
+  it("stale reclaim compensates dangling spend then allows fresh claim", async () => {
+    const shared = new MemoryKv();
+    const identity = { userId: "user-a", findContextToken: "tok-stale" };
+    await creditGrant(shared, "user-a", 2, "seed-stale");
+
+    const first = await claimFindAnalysis(shared, identity);
+    expect(first.kind).toBe("proceed");
+    if (first.kind !== "proceed") return;
+    const spendKey = findAnalysisSpendKey(identity);
+    expect((await creditSpend(shared, "user-a", spendKey)).ok).toBe(true);
+    expect(await creditBalance(shared, "user-a")).toBe(1);
+
+    // Force claimedAt into the past beyond the stale window.
+    const raw = await shared.get(reportAnalysisRecordKey(identity));
+    expect(raw).toBeTruthy();
+    const claim = JSON.parse(raw!) as { claimedAt: string; claimId: string; status: string };
+    claim.claimedAt = new Date(Date.now() - FIND_ANALYSIS_CLAIM_STALE_MS - 1_000).toISOString();
+    await shared.set(reportAnalysisRecordKey(identity), JSON.stringify(claim));
+
+    expect(await reclaimStaleFindAnalysisIfSafe(shared, identity)).toBe(true);
+    expect(await creditEventSeen(shared, spendKey)).toBe(false);
+    expect(await creditBalance(shared, "user-a")).toBe(2);
+    expect(await shared.get(reportAnalysisRecordKey(identity))).toBeNull();
+
+    const retry = await claimFindAnalysis(shared, identity);
+    expect(retry.kind).toBe("proceed");
+  });
+
+  it("fresh in_progress stays fail-closed (no reclaim inside stale window)", async () => {
+    const shared = new MemoryKv();
+    const identity = { userId: "user-a", findContextToken: "tok-fresh-stale" };
+    const first = await claimFindAnalysis(shared, identity);
+    expect(first.kind).toBe("proceed");
+    expect(await reclaimStaleFindAnalysisIfSafe(shared, identity)).toBe(false);
+    const peer = await claimFindAnalysis(shared, identity);
+    expect(peer.kind).toBe("in_progress");
   });
 
   it("waitForFindAnalysisReceipt resolves when peer completes", async () => {
@@ -149,8 +220,9 @@ describe("claimFindAnalysis (shared Kv multi-instance)", () => {
 
     const winner = claimFindAnalysis(shared, identity).then(async (claim) => {
       expect(claim.kind).toBe("proceed");
+      if (claim.kind !== "proceed") return;
       await new Promise((r) => setTimeout(r, 30));
-      await completeFindAnalysis(shared, identity, "report-wait");
+      await completeFindAnalysis(shared, identity, "report-wait", claim.claimId);
     });
 
     // Ensure winner claimed first.
@@ -163,5 +235,44 @@ describe("claimFindAnalysis (shared Kv multi-instance)", () => {
     });
     await winner;
     expect(receipt?.reportId).toBe("report-wait");
+  });
+});
+
+describe("creditCompensateSpend (FREE_REPORT class)", () => {
+  it("OLD grant(refund:key) leaves spend event → retry spend is free", async () => {
+    const kv = new MemoryKv();
+    await creditGrant(kv, "u", 2, "seed");
+    const spendKey = "report:analysis:findctx:u:tok";
+    expect((await creditSpend(kv, "u", spendKey)).ok).toBe(true);
+    expect(await creditBalance(kv, "u")).toBe(1);
+    await creditGrant(kv, "u", 1, `refund:${spendKey}`);
+    expect(await creditBalance(kv, "u")).toBe(2);
+    // Regression: spend key still marked → ok without debit.
+    expect((await creditSpend(kv, "u", spendKey)).ok).toBe(true);
+    expect(await creditBalance(kv, "u")).toBe(2);
+  });
+
+  it("FIXED compensate clears spend event; retry debits; repeated compensate is safe", async () => {
+    const kv = new MemoryKv();
+    await creditGrant(kv, "u", 2, "seed");
+    const spendKey = "report:analysis:findctx:u:tok";
+    expect((await creditSpend(kv, "u", spendKey)).ok).toBe(true);
+    expect(await creditBalance(kv, "u")).toBe(1);
+
+    const first = await creditCompensateSpend(kv, "u", spendKey);
+    expect(first.compensated).toBe(true);
+    expect(first.balance).toBe(2);
+    const second = await creditCompensateSpend(kv, "u", spendKey);
+    expect(second.compensated).toBe(false);
+    expect(second.balance).toBe(2);
+
+    const [a, b] = await Promise.all([
+      creditCompensateSpend(kv, "u", spendKey),
+      creditCompensateSpend(kv, "u", spendKey),
+    ]);
+    expect(a.compensated || b.compensated).toBe(false);
+
+    expect((await creditSpend(kv, "u", spendKey)).ok).toBe(true);
+    expect(await creditBalance(kv, "u")).toBe(1);
   });
 });
