@@ -10,10 +10,10 @@
 | Branch | `cursor/t315-clarify-owncost-ecfd-1033` |
 | Base | `main` @ `0aeed3b3fc7611be47eab0eff6b737a9abf869bd` (PR76 published) |
 | **Implement tip** | `e5df318a5faeb1eb462def0ac23636d40f87f920` / tree `7e80af2e66590cd2c4c0b0dac3d8eb32a2f1be09` |
-| **Branch tip at authoring** | `543e77aeb9a6d176149dc8c425070d08a74dcb08` / tree `92f5b3b8633874a11b8238e430bcfad8e2133877` |
-| **CI** | `test` IN_PROGRESS on Actions (parent reconciles final) |
+| **Branch tip** | `da15f6339b13a92a9dbcd0dfa3152e424d0aa08d` / tree `a3459a12fcd8d95ad9949dc1ad26158d45f781c5` |
+| **CI** | **pass** `test` 2m4s — https://github.com/aspekt19/autoflip/actions/runs/42507217091 (on tip `da15f63`) |
 
-> After this docs commit lands, `git rev-parse origin/cursor/t315-clarify-owncost-ecfd-1033` is the live branch tip. **Ready review head = implement tip above.**
+> Live tip may advance by one docs commit after this file; **ready review = implement tip**. Parent applies this body (gh 403).
 
 ### Parent evidence folded (not re-run here)
 
