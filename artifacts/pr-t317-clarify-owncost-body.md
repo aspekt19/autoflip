@@ -8,8 +8,9 @@
 | --- | --- |
 | PR | https://github.com/aspekt19/autoflip/pull/77 |
 | Branch | `cursor/t315-clarify-owncost-ecfd-1033` |
-| **Head** | `26695fd8d0413781a1c2ecd4df0ee1d8568689c6` |
-| **Tree** | `eb682424b95a41fd301751c07f3680b325b483da` |
+| **Head** | `6e8115c6e0703bd362ddd2f64aa1087b3cc321d7` |
+| **Tree** | `56236865dca7462123d9f058859a93f8a4313f6d` |
+| Code tip (implement) | `26695fd8d0413781a1c2ecd4df0ee1d8568689c6` / tree `eb682424b95a41fd301751c07f3680b325b483da` |
 | Base | `cursor/find-nav-provenance-ecfd-1033` @ `aa1e9010d041105717b19a2a1e36c9ace7f946a8` (**frozen**) |
 
 ### Coherent feature state (vertical slice)
