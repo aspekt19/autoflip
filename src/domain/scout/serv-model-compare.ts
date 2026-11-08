@@ -20,6 +20,10 @@ import { fingerprintSearchParams, mandateToSearchParams } from "./search-params"
 import { qualifyListingConstraints } from "./constraint-qualification";
 import { REPEATED_IDENTICAL_ACTION_LIMIT } from "./budgets";
 import {
+  executeRecordedInventorySearch,
+  type RecordedInventoryReceipt,
+} from "./recorded-inventory-execute";
+import {
   planActionFingerprint,
   sanitizeScoutPlanAction,
   type ScoutPlannerInput,
@@ -708,6 +712,7 @@ export type LocalApplyResult = {
   /**
    * True only after a successful local disposition that leaves a non-terminal
    * offline_replay state (grounded reject/replace). Denied / terminal / invalid → false.
+   * Also true after recorded inventory.search receipt apply (immutable tool result).
    */
   continueToDecision2: boolean;
   state: LocalCompareState;
@@ -716,8 +721,18 @@ export type LocalApplyResult = {
   outcome: ScoutToolOutcome | null;
   actionFingerprint: string | null;
   note: string;
-  /** Explicit: never a live tool / network dispatch. */
+  /**
+   * True when no live Autodev/network adapter was called.
+   * Recorded inventory.search receipts still set this true (fixture/recorded only).
+   */
   appliedLocallyOnly: true;
+  /** Set when inventory.search was executed via recorded receipt. */
+  recordedInventory?: {
+    fingerprint: string;
+    matchedSuggestion: boolean;
+    freshVinCount: number;
+    provenance: string;
+  };
 };
 
 /**
@@ -787,17 +802,33 @@ function cloneState(state: LocalCompareState): LocalCompareState {
   return structuredClone(state);
 }
 
+export type ApplyLocalCompareToolOpts = {
+  /**
+   * When set, allowlisted inventory.search is executed against recorded receipts
+   * (immutable) instead of stopping at requires_external_tool.
+   */
+  enableRecordedInventoryExecute?: boolean;
+  /** Optional parent/test receipt resolver — recorded only, no invent. */
+  inventoryReceiptResolver?: (validated: {
+    fingerprint: string;
+    params: ReturnType<typeof mandateToSearchParams>;
+    matchedSuggestion: boolean;
+  }) => RecordedInventoryReceipt | null;
+};
+
 /**
  * Local-only apply using production `validateDispositionAction` + disposition reducers.
  * Allowlist: reject / replace (disposition only, no acquisition invent) / abstain / finalize.
- * `run_tool` / select_candidate / unknown → stopBeforeExternalTool; zero invented tool success.
- * No network, adapters, or provider spend.
+ * inventory.search: when enableRecordedInventoryExecute, apply immutable recorded receipt
+ * and continue to Decision-2. Other run_tool / select_candidate → requires_external_tool.
+ * No live Autodev by default; no invented cars.
  */
 export function applyLocalCompareAction(input: {
   prepared: CompareStepPrepared;
   action: ScoutPlanAction;
   /** When set, start from a prior local-apply state instead of prepared. */
   fromState?: LocalCompareState;
+  tools?: ApplyLocalCompareToolOpts;
 }): LocalApplyResult {
   const state = input.fromState ? cloneState(input.fromState) : cloneCompareState(input.prepared);
   const sanitized = sanitizeScoutPlanAction({
@@ -826,6 +857,81 @@ export function applyLocalCompareAction(input: {
       outcome: null,
       actionFingerprint: fp,
       note: `Repeated identical planner action (${fp}) would hit production no-progress limit (${REPEATED_IDENTICAL_ACTION_LIMIT}).`,
+      appliedLocallyOnly: true,
+    };
+  }
+
+  if (sanitized.type === "run_tool" && sanitized.toolId === "inventory.search") {
+    if (input.tools?.enableRecordedInventoryExecute) {
+      const continuation = input.prepared.plannerInput.evidenceContext.searchContinuation;
+      const priorFingerprints =
+        input.prepared.plannerInput.evidenceContext.searchHistory.map((s) => s.fingerprint);
+      const midLoop = Math.max(0, priorFingerprints.length - 1);
+      const executed = executeRecordedInventorySearch({
+        action: sanitized,
+        mandate: input.prepared.plannerInput.mandate,
+        searchContinuation: continuation,
+        priorFingerprints,
+        midLoopSearchesUsed: midLoop,
+        existingPendingVins: state.pendingVins,
+        recordedCandidatesByVin: state.candidatesByVin,
+        receiptResolver: input.tools.inventoryReceiptResolver,
+      });
+      if (executed.ok) {
+        const next = cloneState(state);
+        next.usage.servCalls += 1;
+        next.usage.toolCalls += 1;
+        next.usage.providerCalls += executed.receipt.providerCallsUsed;
+        next.lastActionFingerprint = fp;
+        next.priorIdenticalStreak = 0;
+        next.recentOutcomes = [...next.recentOutcomes, executed.outcome];
+        // Enqueue only recorded fresh VINs (already in candidatesByVin pool).
+        for (const vin of executed.receipt.freshVins) {
+          if (!next.pendingVins.includes(vin) && next.candidatesByVin[vin]) {
+            next.pendingVins = [...next.pendingVins, vin];
+          }
+        }
+        return {
+          stopReason: "applied",
+          continueToDecision2: true,
+          state: next,
+          dispositionOk: true,
+          dispositionCode: executed.matchedSuggestion
+            ? "recorded_suggestion_search"
+            : "recorded_validated_search",
+          outcome: executed.outcome,
+          actionFingerprint: fp,
+          note: executed.note,
+          appliedLocallyOnly: true,
+          recordedInventory: {
+            fingerprint: executed.receipt.fingerprint,
+            matchedSuggestion: executed.matchedSuggestion,
+            freshVinCount: executed.receipt.freshVins.length,
+            provenance: executed.receipt.provenance,
+          },
+        };
+      }
+      return {
+        stopReason: "requires_external_tool",
+        continueToDecision2: false,
+        state,
+        dispositionOk: false,
+        dispositionCode: executed.reason,
+        outcome: null,
+        actionFingerprint: fp,
+        note: `inventory.search not applied: ${executed.message}`,
+        appliedLocallyOnly: true,
+      };
+    }
+    return {
+      stopReason: "requires_external_tool",
+      continueToDecision2: false,
+      state,
+      dispositionOk: null,
+      dispositionCode: null,
+      outcome: null,
+      actionFingerprint: fp,
+      note: "Action run_tool:inventory.search requires recorded-execute opt-in or live adapter — stopBeforeExternalTool; no invented success.",
       appliedLocallyOnly: true,
     };
   }
@@ -1061,14 +1167,52 @@ export function prepareOfflineReplayAfterLocalApply(input: {
   const usage = {
     servCalls: ledger.usageAtSelectEntry.servCalls + Math.max(0, st.usage.servCalls),
     toolCalls: ledger.usageAtSelectEntry.toolCalls + Math.max(0, st.usage.toolCalls),
-    providerCalls: ledger.usageAtSelectEntry.providerCalls,
+    providerCalls:
+      ledger.usageAtSelectEntry.providerCalls + Math.max(0, st.usage.providerCalls),
   };
+  // Preserve Decision-1 search history; append recorded inventory.search when executed.
+  const searchHistory = [
+    ...decision1.plannerInput.evidenceContext.searchHistory,
+  ];
+  if (applyResult.recordedInventory) {
+    const lastOutcome = st.recentOutcomes.at(-1);
+    const fp = applyResult.recordedInventory.fingerprint;
+    if (!searchHistory.some((s) => s.fingerprint === fp)) {
+      // Params reconstructed from fingerprint JSON when possible; else mandate baseline + note.
+      let params = search;
+      try {
+        const raw = JSON.parse(fp) as {
+          makes?: string[];
+          models?: string[];
+          zip?: string | null;
+          distanceMiles?: number | null;
+          maxPriceUsd?: number | null;
+          maxMiles?: number | null;
+        };
+        params = {
+          version: "scout-search-params/v1",
+          makes: raw.makes ?? search.makes,
+          models: raw.models ?? [],
+          zip: raw.zip ?? search.zip,
+          distanceMiles: raw.distanceMiles ?? search.distanceMiles,
+          maxPriceUsd: raw.maxPriceUsd ?? search.maxPriceUsd,
+          maxMiles: raw.maxMiles ?? search.maxMiles,
+        };
+      } catch {
+        /* keep mandate search */
+      }
+      searchHistory.push({ fingerprint: fp, params });
+    }
+    void lastOutcome;
+  } else if (searchHistory.length === 0) {
+    searchHistory.push({ fingerprint: fingerprintSearchParams(search), params: search });
+  }
   const evidenceContext = buildPlannerEvidenceContext({
     investigated: st.investigated,
     newlyAcquiredPending: [],
     pendingSample: allPending.slice(0, 3),
     allPending,
-    searchHistory: [{ fingerprint: fingerprintSearchParams(search), params: search }],
+    searchHistory,
     mandate: ledger.mandate,
     budgets: {
       maxServCalls: ledger.budgets.maxServCalls,
@@ -1250,6 +1394,12 @@ export async function runSequentialTwoDecision(input: {
   decision2SchemaValid?: boolean;
   timeoutMsPerAttempt?: number;
   outputTokenBound?: number;
+  /**
+   * When true (default), inventory.search matching allowlisted suggestions is
+   * executed via immutable recorded receipts so Decision-2 sees tool evidence.
+   * Set false only for legacy stop-before-external-tool ablation.
+   */
+  enableRecordedInventoryExecute?: boolean;
   /** Builds scout_plan user JSON for a prepared step (injected to avoid domain→server cycle). */
   buildUserMessage: (plannerInput: ScoutPlannerInput) => string;
   /** Parses scout_plan model text (injected). */
@@ -1379,9 +1529,11 @@ export async function runSequentialTwoDecision(input: {
     };
   }
 
+  const enableRecordedInventoryExecute = input.enableRecordedInventoryExecute !== false;
   const apply = applyLocalCompareAction({
     prepared: decision1,
     action: d1Action,
+    tools: { enableRecordedInventoryExecute },
   });
   decisions[0]!.stopReason = apply.stopReason;
   decisions[0]!.applyNote = apply.note;
@@ -1598,6 +1750,7 @@ export function runOfflineSequentialTwoDecision(input: {
   const apply = applyLocalCompareAction({
     prepared: decision1,
     action: input.decision1Action,
+    tools: { enableRecordedInventoryExecute: true },
   });
   decisions[0]!.stopReason = apply.stopReason;
   decisions[0]!.applyNote = apply.note;

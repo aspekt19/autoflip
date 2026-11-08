@@ -6,8 +6,8 @@
 ## Shortlist (exact console IDs — order matters)
 
 1. `claude-sonnet-5.5` (Claude Sonnet 5.5) role=baseline — in=$2.40 out=$12.00 (display only)
-2. `gpt-6.1-sol` (GPT-6.1 Sol) role=next — in=$2.40 out=$12.00 (display only)
-3. `claude-opus-5.5` (Claude Opus 5.5) role=next_if_needed — in=$4.80 out=$24.00 (display only)
+2. `gpt-5.6-sol` (GPT-5.6 Sol) role=next — in=$5.25 out=$25.00 (display only)
+3. `claude-fable-5` (Claude Fable 5) role=next_if_needed — in=$13.00 out=$65.00 (display only)
 
 Do **not** run all 31 Available models. Names/tier ≠ ability proof.
 
@@ -15,30 +15,39 @@ Do **not** run all 31 Available models. Names/tier ≠ ability proof.
 
 ```bash
 npm run eval:flip-t318-decision-pack
-SERV_COMPARE_MODELS=claude-sonnet-5.5,gpt-6.1-sol,claude-opus-5.5 npm run eval:scout-model-compare
+SERV_COMPARE_MODELS=claude-sonnet-5.5,gpt-5.6-sol,claude-fable-5 npm run eval:scout-model-compare
 ```
 
 ## 1) Sequential TWO-decision XOR per shortlist ID (≤2 HTTP each; Flip sole spend)
 
 Run **one model at a time** in flipOrder. XOR: SCOUT_COMPARE_SEQUENTIAL=1 skips normal compare.
+D1 inventory.search matching suggestions is **executed** (recorded immutable receipt) → Decision-2 sees tool evidence.
 
 ```bash
 # Baseline — Claude Sonnet 5.5
 SERV_API_KEY=… SCOUT_COMPARE_ALLOW_PAID=1 SCOUT_COMPARE_SEQUENTIAL=1 \
   SERV_COMPARE_MODELS=claude-sonnet-5.5 \
-  SCOUT_COMPARE_SOURCE_PIN='{"head":"<IMPLEMENT_TIP>","tree":"<IMPLEMENT_TREE>","pr":77,"pack":"artifacts/flip-t318-decision-pack"}' \
+  SCOUT_COMPARE_SOURCE_PIN='{"head":"<IMPLEMENT_TIP>","tree":"<IMPLEMENT_TREE>","pr":78,"pack":"artifacts/flip-t318-decision-pack"}' \
   npm run eval:scout-model-compare
 
-# Next — GPT-6.1 Sol (only if baseline incomplete / Flip decides)
+# Next — GPT-5.6 Sol
 SERV_API_KEY=… SCOUT_COMPARE_ALLOW_PAID=1 SCOUT_COMPARE_SEQUENTIAL=1 \
-  SERV_COMPARE_MODELS=gpt-6.1-sol \
-  SCOUT_COMPARE_SOURCE_PIN='{"head":"<IMPLEMENT_TIP>","tree":"<IMPLEMENT_TREE>","pr":77,"pack":"artifacts/flip-t318-decision-pack"}' \
+  SERV_COMPARE_MODELS=gpt-5.6-sol \
+  SCOUT_COMPARE_SOURCE_PIN='{"head":"<IMPLEMENT_TIP>","tree":"<IMPLEMENT_TREE>","pr":78,"pack":"artifacts/flip-t318-decision-pack"}' \
   npm run eval:scout-model-compare
 
-# Next if needed — Claude Opus 5.5
+# Ablation (no prefilled suggestions) — discriminatory multistep
 SERV_API_KEY=… SCOUT_COMPARE_ALLOW_PAID=1 SCOUT_COMPARE_SEQUENTIAL=1 \
-  SERV_COMPARE_MODELS=claude-opus-5.5 \
-  SCOUT_COMPARE_SOURCE_PIN='{"head":"<IMPLEMENT_TIP>","tree":"<IMPLEMENT_TREE>","pr":77,"pack":"artifacts/flip-t318-decision-pack"}' \
+  SCOUT_COMPARE_HIDE_SUGGESTIONS=1 \
+  SERV_COMPARE_MODELS=claude-sonnet-5.5 \
+  SCOUT_COMPARE_SOURCE_PIN='{"head":"<IMPLEMENT_TIP>","tree":"<IMPLEMENT_TREE>","pr":78,"ablation":"hide_suggestions"}' \
+  npm run eval:scout-model-compare
+
+# Fable only when Flip needs a third discriminatory model (not price-alone)
+SERV_API_KEY=… SCOUT_COMPARE_ALLOW_PAID=1 SCOUT_COMPARE_SEQUENTIAL=1 \
+  SCOUT_COMPARE_HIDE_SUGGESTIONS=1 \
+  SERV_COMPARE_MODELS=claude-fable-5 \
+  SCOUT_COMPARE_SOURCE_PIN='{"head":"<IMPLEMENT_TIP>","tree":"<IMPLEMENT_TREE>","pr":78,"ablation":"hide_suggestions"}' \
   npm run eval:scout-model-compare
 ```
 

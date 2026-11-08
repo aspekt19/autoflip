@@ -123,12 +123,15 @@ export function applyFindNextCheck(
   }
 
   if (id === "widen_or_nationwide") {
+    const alreadyNationwide = need.distanceMiles == null;
     const next = { ...need, distanceMiles: null as number | null };
     return {
       need: next,
       refine,
-      note: "Switched seller distance to Nationwide (ZIP kept as optional context). Re-run inventory.",
-      research: true,
+      note: alreadyNationwide
+        ? "Already Nationwide — no geography change; will not invent a wider search."
+        : "Switched seller distance to Nationwide (ZIP kept as optional context). Re-run inventory.",
+      research: !alreadyNationwide,
     };
   }
 

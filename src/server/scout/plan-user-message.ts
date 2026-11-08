@@ -4,7 +4,29 @@
  */
 import type { ScoutPlannerInput } from "@/domain/scout";
 
-export function buildScoutPlanUserPayload(input: ScoutPlannerInput): Record<string, unknown> {
+export type ScoutPlanUserMessageOpts = {
+  /**
+   * Ablation: omit ready-made searchContinuation.suggestions so models must
+   * choose useful checking/replanning without echoing a prefilled query.
+   * Budgets / canReviseSearch / honesty remain. Parent sets
+   * SCOUT_COMPARE_HIDE_SUGGESTIONS=1 for Flip ablation runs.
+   */
+  hideSearchSuggestions?: boolean;
+};
+
+export function buildScoutPlanUserPayload(
+  input: ScoutPlannerInput,
+  opts: ScoutPlanUserMessageOpts = {},
+): Record<string, unknown> {
+  const continuation = input.evidenceContext.searchContinuation;
+  const searchContinuation = opts.hideSearchSuggestions
+    ? {
+        ...continuation,
+        suggestions: [] as typeof continuation.suggestions,
+        honesty: `${continuation.honesty} ABLATION: ready-made suggestions withheld — choose a useful grounded reject or in-mandate inventory.search yourself; code will execute recorded receipts when valid.`,
+      }
+    : continuation;
+
   return {
     task: "lemonless_scout_plan",
     mandate: input.mandate,
@@ -18,7 +40,7 @@ export function buildScoutPlanUserPayload(input: ScoutPlannerInput): Record<stri
       searchHistory: input.evidenceContext.searchHistory,
       budgetsRemaining: input.evidenceContext.budgetsRemaining,
       pendingAskSummary: input.evidenceContext.pendingAskSummary,
-      searchContinuation: input.evidenceContext.searchContinuation,
+      searchContinuation,
       policy: input.evidenceContext.policy,
     },
     // Legacy thin hints retained for older parsers — prefer evidenceContext.
@@ -38,6 +60,9 @@ export function buildScoutPlanUserPayload(input: ScoutPlannerInput): Record<stri
   };
 }
 
-export function buildScoutPlanUserMessage(input: ScoutPlannerInput): string {
-  return JSON.stringify(buildScoutPlanUserPayload(input));
+export function buildScoutPlanUserMessage(
+  input: ScoutPlannerInput,
+  opts: ScoutPlanUserMessageOpts = {},
+): string {
+  return JSON.stringify(buildScoutPlanUserPayload(input, opts));
 }

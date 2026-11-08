@@ -1,12 +1,15 @@
 /**
- * Flip t318 decision shortlist — exact console catalog IDs only.
+ * Flip decision shortlist — exact console catalog IDs (t319 corrected).
  *
  * Source CSV: uploads/all-models-20261108_c8cc.csv
  * Source readme: uploads/all-models-20261108-readme_80ae.txt
- * Captured: Sunday Nov 8, 2026 (console Available models; 31 rows).
  *
  * Display prices are transcription only — NOT capability/quality claims.
+ * Overview marketing cards are hypotheses — NOT measured ability.
  * Names/tier ≠ ability proof. No 31-model blind paid matrix.
+ *
+ * Order: Sonnet 5.5 → gpt-5.6-sol → claude-fable-5.
+ * gpt-6.1-sol / claude-opus-5.5 are NOT automatic next.
  */
 
 export type FlipDecisionShortlistEntry = {
@@ -23,12 +26,9 @@ export type FlipDecisionShortlistEntry = {
   /** Parent run order — 1 = baseline, then next, then if-needed. */
   flipOrder: 1 | 2 | 3;
   flipRole: "baseline" | "next" | "next_if_needed";
+  overviewHypothesis: string | null;
 };
 
-/**
- * Parent DECISION shortlist (exact CSV model_id values).
- * Order: Sonnet 5.5 → gpt-6.1-sol → claude-opus-5.5.
- */
 export const SERV_FLIP_DECISION_SHORTLIST: readonly FlipDecisionShortlistEntry[] = [
   {
     modelId: "claude-sonnet-5.5",
@@ -42,34 +42,40 @@ export const SERV_FLIP_DECISION_SHORTLIST: readonly FlipDecisionShortlistEntry[]
     capabilityIndicators: "Not separately shown",
     flipOrder: 1,
     flipRole: "baseline",
+    overviewHypothesis: null,
   },
   {
-    modelId: "gpt-6.1-sol",
-    displayName: "GPT-6.1 Sol",
+    modelId: "gpt-5.6-sol",
+    displayName: "GPT-5.6 Sol",
     providerLogoAlt: "OpenAI",
     contextWindow: "1M",
-    inputPerMDisplay: "$2.40",
-    cachedPerMDisplay: "$0.120",
-    outputPerMDisplay: "$12.00",
+    inputPerMDisplay: "$5.25",
+    cachedPerMDisplay: "$0.500",
+    outputPerMDisplay: "$25.00",
     listedAvailability: "Listed under Available models",
     capabilityIndicators: "Not separately shown",
     flipOrder: 2,
     flipRole: "next",
+    overviewHypothesis: "reasoning/complex long-horizon (marketing — unmeasured)",
   },
   {
-    modelId: "claude-opus-5.5",
-    displayName: "Claude Opus 5.5",
+    modelId: "claude-fable-5",
+    displayName: "Claude Fable 5",
     providerLogoAlt: "Anthropic",
     contextWindow: "1M",
-    inputPerMDisplay: "$4.80",
-    cachedPerMDisplay: "$0.240",
-    outputPerMDisplay: "$24.00",
+    inputPerMDisplay: "$13.00",
+    cachedPerMDisplay: "$1.30",
+    outputPerMDisplay: "$65.00",
     listedAvailability: "Listed under Available models",
     capabilityIndicators: "Not separately shown",
     flipOrder: 3,
     flipRole: "next_if_needed",
+    overviewHypothesis: "coding/agentic (marketing — unmeasured)",
   },
 ] as const;
+
+/** Formerly automatic-next IDs — remain in catalog for Flip but are not the default order. */
+export const SERV_FLIP_SUPERSEDED_AUTOMATIC_NEXT = ["gpt-6.1-sol", "claude-opus-5.5"] as const;
 
 export const SERV_FLIP_DECISION_SHORTLIST_IDS = SERV_FLIP_DECISION_SHORTLIST.map(
   (e) => e.modelId,
@@ -81,13 +87,13 @@ export function isFlipDecisionShortlistId(id: string): boolean {
 
 export function flipDecisionShortlistNote(): string {
   return [
-    "Flip t318 decision shortlist (console CSV exact IDs; display prices ≠ capability):",
+    "Flip t319 decision shortlist (console CSV exact IDs; display prices ≠ capability; Overview = hypothesis):",
     ...SERV_FLIP_DECISION_SHORTLIST.map(
       (e) =>
-        `  ${e.flipOrder}. ${e.modelId} (${e.displayName}) [${e.providerLogoAlt}] context=${e.contextWindow} in=${e.inputPerMDisplay} cached=${e.cachedPerMDisplay} out=${e.outputPerMDisplay} — role=${e.flipRole}`,
+        `  ${e.flipOrder}. ${e.modelId} (${e.displayName}) [${e.providerLogoAlt}] context=${e.contextWindow} in=${e.inputPerMDisplay} cached=${e.cachedPerMDisplay} out=${e.outputPerMDisplay} — role=${e.flipRole}${e.overviewHypothesis ? ` hypothesis=${e.overviewHypothesis}` : ""}`,
     ),
+    `Superseded as automatic next (still console-listed): ${SERV_FLIP_SUPERSEDED_AUTOMATIC_NEXT.join(", ")}`,
     "Do NOT run all 31 Available models. Names/tier ≠ ability proof.",
-    "Currency caveat: UI $ /M display preserved; not independently currency-verified.",
-    "No model was enabled/subscribed/run by the catalog capture agent.",
+    "Gemini: no blind retry until content_null_refusal_field diagnostic confirmed.",
   ].join("\n");
 }

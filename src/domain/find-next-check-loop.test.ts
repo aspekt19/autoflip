@@ -1,0 +1,97 @@
+import { describe, expect, it } from "vitest";
+import {
+  countRemainingAutomaticChecks,
+  decideFindNextCheckLoop,
+  fingerprintListings,
+  fingerprintNeed,
+} from "./find-next-check-loop";
+
+const base = {
+  keyed: true,
+  autonomousServ: true,
+  chosenId: "clarify_year_band",
+  research: true,
+  rematchOk: true as boolean | null,
+  needBeforeFp: "a",
+  needAfterFp: "b",
+  listingsBeforeFp: "L0",
+  listingsAfterFp: "L1",
+  shortlistCount: 1,
+  remainingActionableCount: 2,
+};
+
+describe("decideFindNextCheckLoop", () => {
+  it("continues when evidence/need changed and research checks remain", () => {
+    const d = decideFindNextCheckLoop(base);
+    expect(d.continue).toBe(true);
+    expect(d.reason).toBe("evidence_changed_replan");
+  });
+
+  it("stops keyless / non-autonomous", () => {
+    expect(decideFindNextCheckLoop({ ...base, keyed: false }).reason).toBe("no_keyed_autonomy");
+    expect(decideFindNextCheckLoop({ ...base, autonomousServ: false }).continue).toBe(false);
+  });
+
+  it("stops on provider failure", () => {
+    expect(
+      decideFindNextCheckLoop({ ...base, rematchOk: false }).reason,
+    ).toBe("provider_failure");
+  });
+
+  it("stops on clarification / user action", () => {
+    expect(decideFindNextCheckLoop({ ...base, chosenId: "set_budget" }).reason).toBe(
+      "needs_clarification",
+    );
+    expect(decideFindNextCheckLoop({ ...base, chosenId: "run_full_analysis" }).reason).toBe(
+      "user_action_required",
+    );
+  });
+
+  it("loop-guards unchanged state (no hidden quota)", () => {
+    const d = decideFindNextCheckLoop({
+      ...base,
+      needAfterFp: "a",
+      listingsAfterFp: "L0",
+    });
+    expect(d.continue).toBe(false);
+    expect(d.reason).toBe("unchanged_state");
+  });
+
+  it("grounded stop when shortlist and no remaining automatic checks", () => {
+    const d = decideFindNextCheckLoop({
+      ...base,
+      remainingActionableCount: 0,
+      shortlistCount: 2,
+    });
+    expect(d.reason).toBe("grounded_stop");
+  });
+});
+
+describe("fingerprints + remaining counts", () => {
+  it("fingerprints are stable for identical need/listings", () => {
+    const need = {
+      yearMin: 2015,
+      yearMax: null,
+      milesMax: null,
+      budgetKnown: false,
+      budgetUsd: null,
+      distanceMiles: 50,
+      zip: "68114",
+      conditionPriority: "unspecified" as const,
+      mode: "personal" as const,
+    };
+    expect(fingerprintNeed(need)).toBe(fingerprintNeed({ ...need }));
+    expect(fingerprintListings([{ make: "A", model: "B", year: 2018, priceUsd: 1, miles: 2 }])).toBe(
+      fingerprintListings([{ make: "A", model: "B", year: 2018, priceUsd: 1, miles: 2 }]),
+    );
+  });
+
+  it("excludes clarify/user-action from remaining automatic counts", () => {
+    expect(
+      countRemainingAutomaticChecks(
+        ["set_budget", "widen_or_nationwide", "run_full_analysis", "clarify_year_band"],
+        ["clarify_year_band"],
+      ),
+    ).toBe(1);
+  });
+});

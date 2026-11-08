@@ -34,6 +34,13 @@ export type SequentialCompareProbeOpts = {
   outputTokenBound?: number;
   /** Extra ServDeps (transportPolicy forced to experiment_single_attempt). */
   servDeps?: Omit<ServDeps, "transportPolicy">;
+  /**
+   * Ablation: hide searchContinuation.suggestions in user payload.
+   * Default: env SCOUT_COMPARE_HIDE_SUGGESTIONS=1.
+   */
+  hideSearchSuggestions?: boolean;
+  /** Default true — execute inventory.search via recorded receipts into D2. */
+  enableRecordedInventoryExecute?: boolean;
 };
 
 function usageFromProof(proof: unknown): SequentialAttemptUsage | null {
@@ -80,11 +87,16 @@ export async function runSequentialCompareProbe(
     ...(opts.fetch ? { fetch: opts.fetch } : {}),
   });
 
+  const hideSearchSuggestions =
+    opts.hideSearchSuggestions ?? process.env.SCOUT_COMPARE_HIDE_SUGGESTIONS === "1";
+
   return runSequentialTwoDecision({
     ledger,
     timeoutMsPerAttempt,
     outputTokenBound,
-    buildUserMessage: buildScoutPlanUserMessage,
+    enableRecordedInventoryExecute: opts.enableRecordedInventoryExecute !== false,
+    buildUserMessage: (plannerInput) =>
+      buildScoutPlanUserMessage(plannerInput, { hideSearchSuggestions }),
     parsePlanText: parseScoutPlanText,
     servCaller: async ({ userMessage }) => {
       const started = Date.now();

@@ -26,6 +26,11 @@ import {
   observedModelSnapshots,
 } from "@/domain/find-model-observe";
 import { proposeFindNextChecks } from "@/domain/find-next-checks";
+import {
+  rematchRefineFromReplan,
+  shouldAutoContinueFindNextCheck,
+  shouldAutoStartFindNextCheck,
+} from "@/domain/find-next-check-ui";
 import { buildGroundedShortlist } from "@/domain/find-path";
 import { USE_CASES, searchScopeLabel, softPrefGapsFromText, type FollowUp, type StructuredNeed } from "@/domain/need";
 import type { Mode } from "@/domain/types";
@@ -169,6 +174,14 @@ function AssistantFlow({
     coverage: string;
     coverageLevel: "low" | "medium" | "high";
   } | null>(null);
+  /** Owner-bound search context from /api/match — required for next-check. */
+  const [searchContextToken, setSearchContextToken] = useState<string | null>(null);
+  const [servNextCheckEnabled, setServNextCheckEnabled] = useState(false);
+  /** Find next-check live path — ids already applied this session (loop guard). */
+  const [appliedNextChecks, setAppliedNextChecks] = useState<string[]>([]);
+  const [nextCheckNote, setNextCheckNote] = useState<string | null>(null);
+  /** Auto-start next-check once per searchContextToken when SERV keyed. */
+  const autoNextCheckTokenRef = useRef<string | null>(null);
 
   async function understand(followUp?: { id: FollowUp["id"]; value: string }) {
     setError(null);
@@ -410,6 +423,214 @@ function AssistantFlow({
     setStage("confirm");
   }
 
+  /**
+   * Live Find next-check via owner-bound searchContextToken.
+   * Server loads need/listings, claims keyed SERV, applies, rematches with NEW need.
+   * Client yearMin/yearMax UI state is never sent as rematch authority.
+   */
+  async function applyLiveNextCheck(opts?: { token?: string; auto?: boolean }) {
+    if (variant !== "find") return;
+    const token = opts?.token ?? searchContextToken;
+    if (!token) {
+      if (!opts?.auto) setError("Search context missing — run Find again before next check.");
+      return;
+    }
+    setError(null);
+    setNextCheckNote(null);
+    setPending("next-check");
+    let continueToken: string | null = null;
+    try {
+      const response = await fetch("/api/find/next-check", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ searchContextToken: token }),
+      });
+      const body = (await response.json()) as {
+        ok?: boolean;
+        message?: string;
+        chosenId?: string;
+        source?: string;
+        autonomousServ?: boolean;
+        research?: boolean;
+        servNote?: string | null;
+        needAfter?: StructuredNeed;
+        appliedCheckIds?: string[];
+        searchContextToken?: string;
+        replan?: { need: StructuredNeed; refine: { yearMin?: number; yearMax?: number; make?: string; model?: string }; note: string };
+        rematch?: {
+          ok?: boolean;
+          status?: number;
+          body?: {
+            directions?: MatchGroup[];
+            sample?: boolean;
+            message?: string;
+            headline?: string;
+            nextStep?: string;
+            scope?: string;
+            emptyReason?: FindEmptyReason | null;
+            partialFailure?: boolean;
+            affordabilityAssessed?: boolean;
+            searchContextToken?: string | null;
+            servNextCheckEnabled?: boolean;
+          };
+        } | null;
+        loop?: { continue?: boolean; reason?: string; detail?: string };
+        honesty?: string;
+      };
+      if (!response.ok || !body.ok || !body.replan?.need) {
+        setError(body.message || "Next check could not be applied.");
+        return;
+      }
+      // Always adopt NEW need from server apply — never stale same-tick UI years.
+      const nextNeed = body.needAfter ?? body.replan.need;
+      setNeed(nextNeed);
+      if (body.replan.refine.yearMin != null) setYearMin(String(body.replan.refine.yearMin));
+      else if (nextNeed.yearMin != null) setYearMin(String(nextNeed.yearMin));
+      if (body.replan.refine.yearMax != null) setYearMax(String(body.replan.refine.yearMax));
+      else if (nextNeed.yearMax != null) setYearMax(String(nextNeed.yearMax));
+      if (Array.isArray(body.appliedCheckIds)) setAppliedNextChecks(body.appliedCheckIds);
+      else if (body.chosenId) setAppliedNextChecks((prev) => [...prev, body.chosenId!]);
+      const nextTok =
+        typeof body.searchContextToken === "string" ? body.searchContextToken : token;
+      if (typeof body.searchContextToken === "string") setSearchContextToken(body.searchContextToken);
+      setNextCheckNote(
+        [
+          body.autonomousServ ? "SERV chose" : "Code fallback (not autonomous SERV)",
+          body.chosenId,
+          "—",
+          body.replan.note,
+          body.servNote ? `(${body.servNote})` : "",
+          body.loop?.reason ? `[${body.loop.reason}]` : "",
+        ]
+          .filter(Boolean)
+          .join(" "),
+      );
+      if (
+        shouldAutoContinueFindNextCheck({
+          servNextCheckEnabled: servNextCheckEnabled || Boolean(opts?.auto),
+          autonomousServ: Boolean(body.autonomousServ),
+          searchContextToken: nextTok,
+          loop: body.loop
+            ? { continue: Boolean(body.loop.continue), reason: body.loop.reason ?? "" }
+            : null,
+        })
+      ) {
+        continueToken = nextTok;
+      }
+
+      // Prefer server rematch (NEW need). Fallback client rematch uses replan only — never yearMin UI state.
+      if (body.research && body.rematch?.body) {
+        const matchBody = body.rematch.body;
+        if (!body.rematch.ok) {
+          const reason = matchBody.emptyReason ?? "provider_failure";
+          const copy = findEmptyCopy(reason, nextNeed, matchBody.message);
+          setError(copy.detail);
+          setMatchHeadline(matchBody.headline ?? copy.headline);
+          setMatchNextStep(matchBody.nextStep ?? copy.nextStep);
+          setMatchMessage(copy.detail);
+          setEmptyReason(reason);
+          setGroups([]);
+          return;
+        }
+        const nextGroups = (matchBody.directions ?? []).map((group) => ({
+          ...group,
+          listings: (group.listings ?? []).filter((car) => car.source !== "sample"),
+        }));
+        setGroups(nextGroups);
+        setSample(Boolean(matchBody.sample));
+        setAffordability(matchBody.affordabilityAssessed !== false);
+        setMatchScope(matchBody.scope ?? null);
+        setMatchHeadline(matchBody.headline ?? null);
+        setMatchNextStep(matchBody.nextStep ?? null);
+        setMatchMessage(matchBody.message ?? null);
+        setEmptyReason(matchBody.emptyReason ?? null);
+        setPartialFailure(Boolean(matchBody.partialFailure));
+        if (typeof matchBody.searchContextToken === "string") {
+          setSearchContextToken(matchBody.searchContextToken);
+        }
+        if (typeof matchBody.servNextCheckEnabled === "boolean") {
+          setServNextCheckEnabled(matchBody.servNextCheckEnabled);
+        }
+        setStage("results");
+      } else if (body.research) {
+        // Server did not rematch — client rematch with NEW need/refine only (stale-year fix).
+        setPending("match");
+        const controller = new AbortController();
+        const timer = window.setTimeout(() => controller.abort(), 45_000);
+        try {
+          const matchResponse = await fetch("/api/match", {
+            method: "POST",
+            signal: controller.signal,
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              need: nextNeed,
+              refine: rematchRefineFromReplan({
+                replanRefine: body.replan.refine,
+                needAfter: nextNeed,
+                uiYearMin: yearMin,
+                uiYearMax: yearMax,
+              }),
+            }),
+          });
+          const matchBody = (await matchResponse.json()) as {
+            directions?: MatchGroup[];
+            sample?: boolean;
+            message?: string;
+            headline?: string;
+            nextStep?: string;
+            scope?: string;
+            emptyReason?: FindEmptyReason | null;
+            partialFailure?: boolean;
+            affordabilityAssessed?: boolean;
+            searchContextToken?: string | null;
+            servNextCheckEnabled?: boolean;
+          };
+          if (!matchResponse.ok) {
+            const reason = matchBody.emptyReason ?? "provider_failure";
+            const copy = findEmptyCopy(reason, nextNeed, matchBody.message);
+            setError(copy.detail);
+            setMatchHeadline(matchBody.headline ?? copy.headline);
+            setMatchNextStep(matchBody.nextStep ?? copy.nextStep);
+            setMatchMessage(copy.detail);
+            setEmptyReason(reason);
+            setGroups([]);
+            return;
+          }
+          const nextGroups = (matchBody.directions ?? []).map((group) => ({
+            ...group,
+            listings: (group.listings ?? []).filter((car) => car.source !== "sample"),
+          }));
+          setGroups(nextGroups);
+          setSample(Boolean(matchBody.sample));
+          setAffordability(matchBody.affordabilityAssessed !== false);
+          setMatchScope(matchBody.scope ?? null);
+          setMatchHeadline(matchBody.headline ?? null);
+          setMatchNextStep(matchBody.nextStep ?? null);
+          setMatchMessage(matchBody.message ?? null);
+          setEmptyReason(matchBody.emptyReason ?? null);
+          setPartialFailure(Boolean(matchBody.partialFailure));
+          if (typeof matchBody.searchContextToken === "string") {
+            setSearchContextToken(matchBody.searchContextToken);
+          }
+          if (typeof matchBody.servNextCheckEnabled === "boolean") {
+            setServNextCheckEnabled(matchBody.servNextCheckEnabled);
+          }
+          setStage("results");
+        } finally {
+          window.clearTimeout(timer);
+        }
+      }
+    } catch {
+      setError("Next check failed — try again.");
+    } finally {
+      setPending(null);
+    }
+    // Continue loop after pending clears — evidence→replan until server stop reason.
+    if (continueToken) {
+      void applyLiveNextCheck({ token: continueToken, auto: true });
+    }
+  }
+
   async function findCars() {
     if (!need) return;
     // Geography must be coherent before inventory: radius requires ZIP; Nationwide is explicit null.
@@ -426,6 +647,8 @@ function AssistantFlow({
     setPending("match");
     const controller = new AbortController();
     const timer = window.setTimeout(() => controller.abort(), 45_000);
+    /** Fired after finally so we do not clear next-check pending. */
+    let autoNextToken: string | null = null;
     try {
       const response = await fetch("/api/match", {
         method: "POST",
@@ -451,6 +674,8 @@ function AssistantFlow({
         emptyReason?: FindEmptyReason | null;
         partialFailure?: boolean;
         affordabilityAssessed?: boolean;
+        searchContextToken?: string | null;
+        servNextCheckEnabled?: boolean;
       };
       if (!response.ok) {
         const reason = body.emptyReason ?? "provider_failure";
@@ -491,6 +716,13 @@ function AssistantFlow({
       setPartialFailure(Boolean(body.partialFailure));
       setEmptyReason(body.emptyReason ?? (nextGroups.length === 0 ? "no_directions" : null));
       setStage("results");
+      const nextToken =
+        typeof body.searchContextToken === "string" && body.searchContextToken.trim()
+          ? body.searchContextToken.trim()
+          : null;
+      setSearchContextToken(nextToken);
+      setServNextCheckEnabled(Boolean(body.servNextCheckEnabled && nextToken));
+      setAppliedNextChecks([]);
       try {
         sessionStorage.setItem(
           "af-flow",
@@ -510,10 +742,22 @@ function AssistantFlow({
             matchScope: body.scope ?? searchScopeLabel(need),
             emptyReason: body.emptyReason ?? null,
             partialFailure: Boolean(body.partialFailure),
+            searchContextToken: nextToken,
+            servNextCheckEnabled: Boolean(body.servNextCheckEnabled && nextToken),
           }),
         );
       } catch {
         /* ignore */
+      }
+      // Ordinary NL→Find auto-starts next-check when SERV keyed — not a manual-only path.
+      const auto = shouldAutoStartFindNextCheck({
+        servNextCheckEnabled: Boolean(body.servNextCheckEnabled),
+        searchContextToken: nextToken,
+        alreadyAutoStartedForToken: autoNextCheckTokenRef.current,
+      });
+      if (auto) {
+        autoNextCheckTokenRef.current = auto;
+        autoNextToken = auto;
       }
     } catch (err) {
       const reason: FindEmptyReason = err instanceof DOMException && err.name === "AbortError" ? "provider_timeout" : "provider_failure";
@@ -528,6 +772,9 @@ function AssistantFlow({
     } finally {
       window.clearTimeout(timer);
       setPending(null);
+    }
+    if (autoNextToken) {
+      void applyLiveNextCheck({ token: autoNextToken, auto: true });
     }
   }
 
@@ -1143,7 +1390,11 @@ function AssistantFlow({
                   <div className="hint" role="note">
                     {checks.length > 0 ? (
                       <>
-                        <p>Suggested next checks (code allowlist — not a SERV live call; no invented costs):</p>
+                        <p>
+                          {servNextCheckEnabled
+                            ? "When SERV is configured, next-check continues automatically after search as evidence updates (apply → rematch → replan) until grounded stop, clarification, failure, or unchanged-state. Manual retry:"
+                            : "Suggested next checks (code allowlist). SERV is not configured — deterministic fallback only (not autonomous SERV). Manual apply:"}
+                        </p>
                         <ul>
                           {checks.map((item) => (
                             <li key={item.id}>
@@ -1151,6 +1402,21 @@ function AssistantFlow({
                             </li>
                           ))}
                         </ul>
+                        <p>
+                          <button
+                            type="button"
+                            className="secondary"
+                            disabled={pending !== null || !searchContextToken}
+                            onClick={() => void applyLiveNextCheck()}
+                          >
+                            {pending === "next-check"
+                              ? "Choosing next check…"
+                              : servNextCheckEnabled
+                                ? "Retry next check (SERV + rematch)"
+                                : "Apply next check (deterministic)"}
+                          </button>
+                        </p>
+                        {nextCheckNote ? <p className="hint">{nextCheckNote}</p> : null}
                       </>
                     ) : null}
                     {shortlist.length > 0 ? (
