@@ -42,7 +42,7 @@ Also: loop unit tests, why-car CR-V slash test, orchestrator keyless → `no_ser
 | --- | --- |
 | Branch | `cursor/find-nextcheck-keyed-runtime-ecfd` |
 | Base | `8640995bc45716906fcbc3c01d8facdc698c80b3` |
-| Tip | _(fill after push)_ |
+| Tip | `2050cb920f6e9a4821a0f23022a2da8381611ad2` / tree `8216b5a774f99652e7c9bcef7884b31d5ff20764` |
 | CI | _(fill after green)_ |
 
 ### Remaining
