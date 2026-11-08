@@ -8,6 +8,7 @@ import {
   validateScoutSearchParams,
 } from "./search-params";
 import {
+  clampScoutPlanWithSearchContinuation,
   midLoopSearchesUsedFromHistory,
   proposeRevisedSearches,
 } from "./search-revision";
@@ -20,6 +21,32 @@ import {
 import type { ScoutMandate } from "./types";
 
 describe("search revision while provider budget remains (t317)", () => {
+  it("clamp converts premature abstain to revised inventory.search (live+offline slice)", () => {
+    const ledger = loadPlaceholderLedger();
+    const step = prepareCompareStep(ledger, ledger.compareSteps[0]!);
+    const cont = step.plannerInput.evidenceContext.searchContinuation;
+    expect(cont.canReviseSearch).toBe(true);
+
+    const clamped = clampScoutPlanWithSearchContinuation({
+      action: {
+        type: "abstain",
+        reason: "Search already used once — cannot continue",
+        servStepId: "exec:1",
+      },
+      searchContinuation: cont,
+      allPendingAskingPricesUnusable: true,
+      providerCallsRemaining: step.plannerInput.evidenceContext.budgetsRemaining.providerCalls,
+      toolCallsRemaining: step.plannerInput.evidenceContext.budgetsRemaining.toolCalls,
+    });
+    expect(clamped.clamped).toBe(true);
+    expect(clamped.clampReason).toBe("premature_abstain_to_revised_search");
+    expect(clamped.action.type).toBe("run_tool");
+    if (clamped.action.type !== "run_tool") return;
+    expect(clamped.action.toolId).toBe("inventory.search");
+    expect(clamped.action.servStepId).toBe("exec:1");
+    expect(clamped.action.args).toEqual(cont.suggestions[0]!.args);
+  });
+
   it("PR63 shape: providerUsed=1 maxProvider=3 → can revise; abstain-for-search-once is premature", () => {
     const ledger = loadPlaceholderLedger();
     expect(ledger.budgets.maxProviderCalls).toBe(3);

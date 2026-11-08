@@ -8,13 +8,14 @@
  */
 
 import {
+  SCOUT_SEARCH_PARAMS_VERSION,
   SCOUT_SEARCH_SERVER_CAPS,
   fingerprintSearchParams,
   mandateToSearchParams,
   validateScoutSearchParams,
   type ScoutSearchParams,
 } from "./search-params";
-import type { ScoutMandate } from "./types";
+import type { ScoutMandate, ScoutPlanAction } from "./types";
 
 export type SearchRevisionArgs = {
   makes: string[];
@@ -218,4 +219,87 @@ export function proposeRevisedSearches(input: {
 /** Mid-loop search count from history: first successful search is initial; rest are mid-loop. */
 export function midLoopSearchesUsedFromHistory(searchHistoryLength: number): number {
   return Math.max(0, searchHistoryLength - 1);
+}
+
+export type ScoutPlanSearchClampResult = {
+  action: ScoutPlanAction;
+  clamped: boolean;
+  clampReason: null | "premature_abstain_to_revised_search" | "duplicate_search_to_revised_search";
+  honesty: string;
+};
+
+/**
+ * Code-owned vertical slice: when provider/mid-loop budget remains and a legal
+ * revision exists, do not accept premature abstain (or duplicate search) as terminal.
+ * Live SERV and offline heuristic both go through this clamp.
+ */
+export function clampScoutPlanWithSearchContinuation(input: {
+  action: ScoutPlanAction;
+  searchContinuation: SearchContinuation;
+  allPendingAskingPricesUnusable: boolean;
+  providerCallsRemaining: number;
+  toolCallsRemaining: number;
+}): ScoutPlanSearchClampResult {
+  const cont = input.searchContinuation;
+  const can =
+    cont.canReviseSearch === true &&
+    cont.suggestions.length > 0 &&
+    input.providerCallsRemaining > 0 &&
+    input.toolCallsRemaining > 0;
+
+  const pass = (action: ScoutPlanAction): ScoutPlanSearchClampResult => ({
+    action,
+    clamped: false,
+    clampReason: null,
+    honesty: cont.honesty,
+  });
+
+  if (!can) return pass(input.action);
+
+  const suggestion = cont.suggestions[0]!;
+  const revised = (reasonPrefix: string, clampReason: ScoutPlanSearchClampResult["clampReason"]): ScoutPlanSearchClampResult => ({
+    action: {
+      type: "run_tool",
+      toolId: "inventory.search",
+      vin: null,
+      reason: `${reasonPrefix}${suggestion.why}`,
+      servStepId: input.action.servStepId,
+      args: suggestion.args as Record<string, unknown>,
+    },
+    clamped: true,
+    clampReason,
+    honesty: cont.honesty,
+  });
+
+  if (
+    input.action.type === "abstain" &&
+    (input.allPendingAskingPricesUnusable || cont.falseTerminalIfAbstainForPriorSearchOnly)
+  ) {
+    return revised(
+      `Code clamp: provider budget remains (${input.providerCallsRemaining}) — `,
+      "premature_abstain_to_revised_search",
+    );
+  }
+
+  if (input.action.type === "run_tool" && input.action.toolId === "inventory.search") {
+    const args = (input.action.args ?? {}) as Partial<SearchRevisionArgs>;
+    const candidate: ScoutSearchParams = {
+      version: SCOUT_SEARCH_PARAMS_VERSION,
+      makes: Array.isArray(args.makes) ? args.makes.filter((m): m is string => typeof m === "string") : [],
+      models: Array.isArray(args.models) ? args.models.filter((m): m is string => typeof m === "string") : [],
+      zip: typeof args.zip === "string" ? args.zip : null,
+      distanceMiles: typeof args.distanceMiles === "number" ? args.distanceMiles : null,
+      maxPriceUsd: typeof args.maxPriceUsd === "number" ? args.maxPriceUsd : null,
+      maxMiles: typeof args.maxMiles === "number" ? args.maxMiles : null,
+    };
+    const fp = fingerprintSearchParams(candidate);
+    if (cont.priorFingerprints.includes(fp)) {
+      return revised(
+        `Code clamp: duplicate search fingerprint — `,
+        "duplicate_search_to_revised_search",
+      );
+    }
+  }
+
+  return pass(input.action);
 }

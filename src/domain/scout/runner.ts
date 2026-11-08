@@ -38,6 +38,7 @@ import {
   validateScoutSearchParams,
   type ScoutSearchParams,
 } from "./search-params";
+import { clampScoutPlanWithSearchContinuation } from "./search-revision";
 import {
   createLiveFreeGovPort,
   isFreeGovToolId,
@@ -1851,23 +1852,26 @@ export function heuristicOfflinePlanner(): ScoutPlanner {
       evidenceContext.budgetsRemaining.toolCalls > 0;
 
     // Placeholder / all-unusable pool with provider budget left → revised search (not false terminal).
-    if (
-      canRevise &&
-      evidenceContext.pendingAskSummary.allPendingAskingPricesUnusable &&
-      pendingVins.length > 0
-    ) {
-      const suggestion = continuation.suggestions[0]!;
-      return {
-        ok: true,
+    // Shared clamp with live servScoutPlanner so product path cannot diverge.
+    if (continuation && pendingVins.length > 0) {
+      const clamped = clampScoutPlanWithSearchContinuation({
         action: {
-          type: "run_tool",
-          toolId: "inventory.search",
-          vin: null,
-          reason: `Provider budget remains (${evidenceContext.budgetsRemaining.providerCalls}) after prior search — ${suggestion.why}`,
+          type: "abstain",
+          reason: "Offline heuristic probe for premature-abstain clamp",
           servStepId: "offline-heuristic",
-          args: suggestion.args,
         },
-      };
+        searchContinuation: continuation,
+        allPendingAskingPricesUnusable:
+          evidenceContext.pendingAskSummary.allPendingAskingPricesUnusable,
+        providerCallsRemaining: evidenceContext.budgetsRemaining.providerCalls,
+        toolCallsRemaining: evidenceContext.budgetsRemaining.toolCalls,
+      });
+      if (
+        clamped.clamped &&
+        evidenceContext.pendingAskSummary.allPendingAskingPricesUnusable
+      ) {
+        return { ok: true, action: clamped.action };
+      }
     }
 
     // Fresh VINs from mid-loop search → investigate those next (evidence-directed).

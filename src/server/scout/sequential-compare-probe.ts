@@ -14,7 +14,7 @@ import {
 } from "@/domain/scout/serv-model-compare";
 import { buildScoutPlanUserMessage } from "./plan-user-message";
 import { parseScoutPlanText } from "./plan-parse";
-import { normalizeCompareUsage } from "./plan-parse-diagnostics";
+import { normalizeCompareUsageLoose } from "./plan-parse-diagnostics";
 import {
   experimentServDeps,
   runServ,
@@ -39,7 +39,8 @@ export type SequentialCompareProbeOpts = {
 function usageFromProof(proof: unknown): SequentialAttemptUsage | null {
   if (!proof || typeof proof !== "object") return null;
   const openserv = (proof as { openserv?: { usage?: unknown } }).openserv;
-  return normalizeCompareUsage(openserv?.usage ?? null);
+  // Loose normalize covers Gemini camelCase / alias shapes (parent telemetry gap).
+  return normalizeCompareUsageLoose(openserv?.usage ?? null);
 }
 
 function openservMeta(proof: unknown): {

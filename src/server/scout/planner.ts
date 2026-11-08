@@ -7,6 +7,7 @@ import {
   type PaidSpendAuthority,
 } from "./paid-execution";
 import { loadOwnerGrant, reserveGrantProviderCall } from "./owner-grant";
+import { clampScoutPlanWithSearchContinuation } from "@/domain/scout/search-revision";
 import { allocateExecutionServStepId, parseScoutPlanText } from "./plan-parse";
 import { buildScoutPlanUserMessage } from "./plan-user-message";
 
@@ -100,12 +101,17 @@ export function servScoutPlanner(deps: {
 
     if (!result.ok) {
       const err = result.error.toLowerCase();
-      const diagnostic =
+      const diagBits = [
         typeof result.upstream === "string" && result.upstream.trim()
           ? sanitizePlannerDiagnostic(result.upstream, result.status)
           : result.status > 0
             ? `SERV HTTP ${result.status}`
-            : null;
+            : null,
+        result.failureDiag
+          ? `category=${result.failureDiag.category};reason=${result.failureDiag.reasonCode};refusalBytes=${result.failureDiag.fields.refusalFieldBytes ?? "n"};usage=${result.failureDiag.usage ? "present" : "null"}`
+          : null,
+      ].filter(Boolean);
+      const diagnostic = diagBits.length ? diagBits.join(" | ") : null;
       if (result.status === 429 || err.includes("grant") || err.includes("call cap")) {
         return {
           ok: false,
@@ -117,7 +123,12 @@ export function servScoutPlanner(deps: {
       if (err.includes("timeout")) {
         return { ok: false, error: "serv_timeout", message: result.error, diagnostic };
       }
-      if (err.includes("refus") || result.status === 400) {
+      if (
+        err.includes("refus") ||
+        result.status === 400 ||
+        result.failureDiag?.category === "content_null_refusal_field" ||
+        result.failureDiag?.category === "refusal_prose"
+      ) {
         return { ok: false, error: "serv_refused", message: result.error, diagnostic };
       }
       return { ok: false, error: "serv_unavailable", message: result.error, diagnostic };
@@ -136,7 +147,17 @@ export function servScoutPlanner(deps: {
         message: `SERV planner ${parsed.kind}: ${parsed.message} — stopping (no silent heuristic fallback).`,
       };
     }
-    return { ok: true, action: parsed.action };
+
+    // Vertical slice: premature abstain / duplicate search → revised inventory.search.
+    const clamped = clampScoutPlanWithSearchContinuation({
+      action: parsed.action,
+      searchContinuation: input.evidenceContext.searchContinuation,
+      allPendingAskingPricesUnusable:
+        input.evidenceContext.pendingAskSummary.allPendingAskingPricesUnusable,
+      providerCallsRemaining: input.evidenceContext.budgetsRemaining.providerCalls,
+      toolCallsRemaining: input.evidenceContext.budgetsRemaining.toolCalls,
+    });
+    return { ok: true, action: clamped.action };
   };
 }
 

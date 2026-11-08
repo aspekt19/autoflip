@@ -68,6 +68,7 @@ export const SERV_COMPARE_FAIR_SLATE = [
       "Works on /v1/chat/completions and /v1/messages; scout_plan uses chat.",
       "Historically failed on nullable enum `type:['string','null']+enum` — fixed via anyOf[string-enum|null] on toolId/rationaleKind (product A–C; already on this lineage).",
       "HTTP 200 alone ≠ grounded decision — score schemaValid/grounded/recovery/antiLoop/refusals.",
+      "Parent SAME-input used claude-sonnet-5.5 (allowlisted via SERV_PROFILE_MODEL_SCOUT_PLAN) — production BASE_MODEL stays Mini until review.",
     ],
   },
   {
@@ -80,6 +81,7 @@ export const SERV_COMPARE_FAIR_SLATE = [
       "Gemini is NOT available on /v1/messages or /v1/responses — must use /v1/chat/completions (scout_plan endpoint=chat ✓).",
       "google-genai SDK generateContent is unsupported — OpenAI-shape chat only.",
       "Score refusals/timeouts/empty/parse-fail honestly; cost remains unknown until billing reconciliation.",
+      "Parent Gemini 3.1 Pro Preview: content-null + refusal field; classify content_null_refusal_field + usage aliases — never assert format vs safety RCA; no blind rerun.",
     ],
   },
 ] as const;
