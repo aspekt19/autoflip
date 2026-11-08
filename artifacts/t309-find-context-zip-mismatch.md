@@ -7,7 +7,7 @@
 | Production main (PR74) | `06f8bad3d03402662fd821f8617aff3c5b51c891` | `ca6f9baad8ea3010d9a59a075a6e5f8294ca311d` |
 | Prior PR75 ACCEPT head | `f2d25f3f5c03d6b3a9fe0f4fc8c191b6c212dd01` | `58b2c55805feb44f03f0663d54c61a3038aafa72` |
 | PR75 remote before this commit | same as ACCEPT — **no drift** | |
-| New PR75 head (t309) | filled after push in this file's CI section |
+| New PR75 head (t309) | `ae312a5d32d999dc243e601e1627b699777a3fc9` | `5eaa496087eb7c10f30db9535de6588482afabb1` |
 
 **Prior ACCEPT of `f2d25f3` is ACCEPT of old head only — re-review required for t309.**
 
