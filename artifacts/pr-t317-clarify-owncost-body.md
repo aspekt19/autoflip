@@ -1,6 +1,6 @@
 ## Summary
 
-**t317 CORE on PR #77** — fold parent Mini / Sonnet 5.5 / Gemini 3.1 Pro Preview SAME-input evidence into a coherent product vertical slice (not a residual list). **No hosted SERV/provider calls in this agent.** Production `BASE_MODEL` remains Mini until compatibility + independent review + parent representative cycle.
+**t317/t318 CORE on PR #77** — Flip decides models; CORE vertical slice continues. Frozen Flip SAME-input decision/tool replay pack for shortlist **Sonnet 5.5 → gpt-6.1-sol → Opus 5.5** (exact console CSV IDs). **No hosted SERV/provider calls in this agent.** Production `BASE_MODEL` remains Mini.
 
 ### Reviewable tip
 
@@ -9,42 +9,51 @@
 | PR | https://github.com/aspekt19/autoflip/pull/77 |
 | Branch | `cursor/t315-clarify-owncost-ecfd-1033` |
 | Base | `main` @ `0aeed3b3fc7611be47eab0eff6b737a9abf869bd` (PR76 published) |
-| **Implement tip** | `e5df318a5faeb1eb462def0ac23636d40f87f920` / tree `7e80af2e66590cd2c4c0b0dac3d8eb32a2f1be09` |
-| **Branch tip** | `da15f6339b13a92a9dbcd0dfa3152e424d0aa08d` / tree `a3459a12fcd8d95ad9949dc1ad26158d45f781c5` |
-| **CI** | **pass** `test` 2m4s — https://github.com/aspekt19/autoflip/actions/runs/42507217091 (on tip `da15f63`) |
+| **Implement tip** | `b45a428ab0ecbefe52ecea252c58f93cc9cadb84` / tree `796e510345c1efd45115bda85391b4ac0aa03736` |
+| **Branch tip** | *(docs tip after push — ready review = implement tip)* |
+| **CI** | pending after push — parent reconciles |
 
-> Live tip may advance by one docs commit after this file; **ready review = implement tip**. Parent applies this body (gh 403).
+### Flip t318 shortlist (exact console `model_id`)
 
-### Parent evidence folded (not re-run here)
+| Order | ID | Display | Context | In/M | Out/M | Role |
+| --- | --- | --- | --- | --- | --- | --- |
+| 1 | `claude-sonnet-5.5` | Claude Sonnet 5.5 | 1M | $2.40 | $12.00 | baseline |
+| 2 | `gpt-6.1-sol` | GPT-6.1 Sol | 1M | $2.40 | $12.00 | next |
+| 3 | `claude-opus-5.5` | Claude Opus 5.5 | 1M | $4.80 | $24.00 | next_if_needed |
 
-| Model | Outcome | Notes |
-| --- | --- | --- |
-| **Mini** | 1× HTTP200 grounded abstain ~5.675s / 3887 tokens | False terminal: “search already used once” while `providerUsed=1` / `maxProviderCalls=3` |
-| **Sonnet 5.5** | 2× HTTP200 grounded D1 reject placeholder (`missing_asking_price`, not defect) + D2 abstain (no replacement) ~7.6s+14.8s / 15839 tokens | Valid path; missing revised search under remaining budget |
-| **Gemini 3.1 Pro Preview** | 1× HTTP200 content null / refusal ~19 chars / finish stop ~4.5s | Schema false / parse failure / no action; usage shape present but **tokens null** telemetry gap. Refusal reason **NOT known** — do **not** assert format-failure or safety-cause RCA |
+Source: `uploads/all-models-20261108_c8cc.csv` + readme (31 Available models). Display prices ≠ capability. **No 31-model blind paid matrix.**
 
-Console reconcile pending (23.38→23.37 Mini → 23.31 Sonnet). Reviewed PR71 `e7a2e2d` pack matches pin; does **not** prove production/autonomy.
+### Pack (parent Flip sequential SERV)
+
+- **Path:** `artifacts/flip-t318-decision-pack/`
+- **Freeze:** `npm run eval:flip-t318-decision-pack` (zero network)
+- **Commands:** `artifacts/flip-t318-decision-pack/COMMANDS.md`
+- **Pins:** PR63 ledger `fixtures/scout/pr63-placeholder-ledger.json`; D1 user sha `20d455db…`; system sha `83c90726…`; `canReviseSearch=true`
+- **Live (Flip only, ≤2 HTTP / model, XOR sequential):**
+  ```bash
+  SERV_API_KEY=… SCOUT_COMPARE_ALLOW_PAID=1 SCOUT_COMPARE_SEQUENTIAL=1 \
+    SERV_COMPARE_MODELS=claude-sonnet-5.5 \
+    SCOUT_COMPARE_SOURCE_PIN='{"head":"b45a428ab0ecbefe52ecea252c58f93cc9cadb84","tree":"796e510345c1efd45115bda85391b4ac0aa03736","pr":77,"pack":"artifacts/flip-t318-decision-pack"}' \
+    npm run eval:scout-model-compare
+  ```
+  Then `gpt-6.1-sol`, then `claude-opus-5.5` if needed — one at a time.
 
 ### CORE product (this tip)
 
 | Change | Detail |
 | --- | --- |
-| **Reversible per-profile model** | `SERV_PROFILE_MODEL_SCOUT_PLAN=claude-sonnet-5.5` (allowlisted) beats global `SERV_MODEL`; unset → Mini. Production `BASE_MODEL` unchanged. Fail-closed on unlisted unless `SERV_PROFILE_MODEL_ALLOW_UNLISTED=1` / experiment harness. |
-| **Gemini diagnostics** | `content_null_refusal_field` + reasonCode + refusal **bytes only** + usage via camelCase/alias coerce; never raw refusal; strict guards not weakened; no blind Gemini rerun. |
-| **searchContinuation clamp** | Live `servScoutPlanner` + offline heuristic share `clampScoutPlanWithSearchContinuation`: premature abstain / duplicate search → revised in-mandate `inventory.search` when budget remains. |
-| Find vertical slice (prior) | clarifications / own-cost / shortlist / next-checks retained |
+| Flip shortlist allowlisted | Console IDs resolve without `ALLOW_UNLISTED`; profile candidates include same IDs |
+| `scoreFlipCycleProgress` | FAIL `premature_stop_after_single_reject`; PASS `progress_grounded_reject_then_revise` |
+| Prior t317 | Sonnet profile override; Gemini `content_null_refusal_field` + usage; searchContinuation clamp |
+| Gemini prerequisite | Diagnostic before any blind Gemini retry; no format/safety RCA claim |
 
-Does **not** invent prices/makes; duplicate fingerprints still rejected; credit/fail-closed/numeric guards preserved.
+### Parent evidence folded (not re-run)
+
+Mini false-terminal abstain; Sonnet D1 grounded reject + D2 abstain (no replacement); Gemini content-null/refusal ~19 chars / tokens null. Console reconcile pending.
 
 ### Offline evidence
-- `npm run typecheck` + `npm test` → **695** passed
-- Scenario: PR63 placeholder ledger → clamp abstain → `inventory.search` suggestion
-
-### Flip-only remaining (parent)
-- Fresh head CI / pin check
-- Independent review → publish
-- Actual representative SERV cycle (parent; Flip sole spend)
-- Console balance reconcile
+- `npm run typecheck` + `npm test` → **700** passed
+- Pack freeze + shortlist resolve OK
 
 ### Not claimed
-Full-cycle Scout success; model winner; invented usable inventory; format vs safety RCA for Gemini; production flipped to Sonnet.
+Full-cycle Scout success; model winner; invented usable inventory; capability from price/tier; production flipped off Mini; PR71 as proof.
