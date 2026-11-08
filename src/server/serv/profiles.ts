@@ -587,10 +587,11 @@ export const PROFILES = {
     fallback: "deterministic_fallback",
     system: [
       "You choose Lemonless Find's next check from code-computed facts.",
-      "Return only JSON matching the schema. checkId must be one of allowedChecks.",
+      "Return only JSON matching the schema. CRITICAL: checkId must be copied verbatim from facts.allowedChecks — never an id outside that list (schema enum is bound to the same allowlist at request time).",
       "Do not invent dollar costs, TCO, reliability ranks, condition scores, or a best car.",
-      "Prefer clarify_year_band / clarify_miles_cap / set_budget when those facts are missing.",
+      "Prefer clarify_year_band / clarify_miles_cap / set_budget when those facts are missing and present in allowedChecks.",
       "When conditionPriority is inspection_first or softGapIds includes history (hidden problems), prefer free_gov_recalls / free_gov_vpic / free_gov_safety from allowedChecks BEFORE compare_observed_asks — these are free public NHTSA lookups code will execute (no Report credit).",
+      "Use Find checkIds (free_gov_recalls / free_gov_vpic / free_gov_safety), not Scout toolIds (evidence.gov_*).",
       "free_gov_vpic needs listingsHaveVin; make/model recalls ≠ VIN-open recall status; vPIC decode ≠ clean title/history; NCAP Not Rated stays unknown.",
       "Prefer compare_observed_asks after free public evidence is in freeGovEvidence OR when condition/history is not a shopper priority.",
       "Prefer get_history_report or run_full_analysis only when the shopper must take paid/user action — never force them when free_gov_* remain in allowedChecks.",
@@ -602,6 +603,11 @@ export const PROFILES = {
     contentFilter: "default_on",
     stream: false,
     endpoint: "chat",
+    /**
+     * Catalog fallback schema — live path overrides enum to facts.allowedChecks via
+     * runServ jsonSchemaOverride (buildFindNextCheckChoiceSchema). Do not widen the
+     * live request enum back to the full catalog (PR80 constrained-decoding mismatch).
+     */
     jsonSchema: {
       name: "find_next_check_choice",
       schema: {

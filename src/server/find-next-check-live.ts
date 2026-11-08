@@ -16,8 +16,13 @@ import {
   type ObservedListingRow,
 } from "@/domain/find-model-observe";
 import {
+  buildFindNextCheckChoiceSchema,
+  clampFindNextCheckChoice,
+  parseFindNextCheckChoice,
+  type FindNextCheckClampDiag,
+} from "@/domain/find-next-check-choice";
+import {
   allowedFindNextCheckIds,
-  clampFindNextCheckId,
   proposeFindNextChecks,
   type FindNextCheck,
   type FindNextCheckId,
@@ -64,6 +69,8 @@ export type FindNextCheckLiveOk = {
   research: boolean;
   proofs: DecisionProof[];
   failureDiag: ServResponseFailureDiag | null;
+  /** Bounded clamp diagnostics — raw denied id + allowlist (no secrets / no prose dump). */
+  clampDiag: FindNextCheckClampDiag | null;
   honesty: string;
 };
 
@@ -73,23 +80,6 @@ export type FindNextCheckLiveErr = {
   error: string;
   message: string;
 };
-
-function parseCheckChoice(text: string): { checkId: string; note: string } | null {
-  const trimmed = text.trim();
-  const start = trimmed.indexOf("{");
-  const end = trimmed.lastIndexOf("}");
-  if (start < 0 || end <= start) return null;
-  try {
-    const raw = JSON.parse(trimmed.slice(start, end + 1)) as { checkId?: unknown; note?: unknown };
-    if (typeof raw.checkId !== "string" || !raw.checkId.trim()) return null;
-    return {
-      checkId: raw.checkId.trim(),
-      note: typeof raw.note === "string" ? raw.note.trim().slice(0, 280) : "",
-    };
-  } catch {
-    return null;
-  }
-}
 
 function sanitizeServNote(note: string, factsBlob: string): string {
   // Only keep notes that do not invent dollar amounts absent from facts.
@@ -118,6 +108,16 @@ export async function runFindNextCheckLive(
       toolIds: string[];
       statuses: string[];
       summaries: string[];
+      cards?: Array<{
+        make: string;
+        model: string;
+        year: number;
+        status: string;
+        summary: string;
+        scope: string;
+        factNotes: string[];
+        honesty: string;
+      }>;
     } | null;
   },
   deps: FindNextCheckLiveDeps = {},
@@ -194,6 +194,11 @@ export async function runFindNextCheckLive(
   let chosenId: FindNextCheckId = preferred.id;
   let servNote: string | null = null;
   let failureDiag: ServResponseFailureDiag | null = null;
+  let clampDiag: FindNextCheckClampDiag | null = null;
+
+  // Request schema enum = live allowlist only (not the full catalog) so constrained
+  // decoding cannot emit schema-valid / allowlist-invalid ids (PR80 Scenario2).
+  const choiceSchema = buildFindNextCheckChoiceSchema(allowedIds);
 
   const key = deps.servKey?.trim() || null;
   if (key) {
@@ -206,6 +211,7 @@ export async function runFindNextCheckLive(
         model: deps.servModel ?? undefined,
         fetch: deps.fetchImpl,
         env: deps.env,
+        jsonSchemaOverride: choiceSchema,
       },
     );
     proofs.push(result.proof);
@@ -239,7 +245,7 @@ export async function runFindNextCheckLive(
       // Profile fallback: deterministic allowlist — not silent invent.
       source = "deterministic_fallback";
     } else {
-      const parsed = parseCheckChoice(result.text);
+      const parsed = parseFindNextCheckChoice(result.text);
       if (!parsed) {
         failureDiag = classifyServPlannerFailure({
           httpOk: true,
@@ -249,16 +255,17 @@ export async function runFindNextCheckLive(
         });
         source = "deterministic_fallback";
       } else {
-        const clamped = clampFindNextCheckId(parsed.checkId, allowedIds);
-        if (!clamped) {
-          // Unknown id → clamp to preferred deterministic; do not invent.
+        clampDiag = clampFindNextCheckChoice(parsed.checkId, allowedIds);
+        if (!clampDiag.clamped) {
+          // Unknown / off-allowlist id → preferred deterministic; surface denied id (bounded).
           source = "deterministic_fallback";
           servNote = null;
+          const denied = clampDiag.deniedCheckId ?? "<unknown>";
+          const allow = clampDiag.allowlistIds.join(",");
           failureDiag = {
             category: "schema_mismatch",
             reasonCode: "check_id_not_in_allowlist",
-            honesty:
-              "SERV returned a checkId outside the code allowlist — deterministic preferred applied. No invent.",
+            honesty: `SERV checkId denied=${denied} allowlist=[${allow}] alias=${clampDiag.aliasApplied ?? "none"} — deterministic preferred applied. No invent.`,
             fields: {
               contentIsNull: false,
               contentEmpty: false,
@@ -271,7 +278,7 @@ export async function runFindNextCheckLive(
             usage: null,
           };
         } else {
-          chosenId = clamped;
+          chosenId = clampDiag.clamped;
           servNote = sanitizeServNote(parsed.note, factsBlob) || null;
           source = "serv";
         }
@@ -295,6 +302,7 @@ export async function runFindNextCheckLive(
     research: replan.research,
     proofs,
     failureDiag,
+    clampDiag,
     honesty:
       source === "serv"
         ? "SERV chose an allowlisted checkId. Apply/replan is code-owned. Rematch uses NEW need — no invented listings, TCO, or history."

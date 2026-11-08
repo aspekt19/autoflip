@@ -68,6 +68,25 @@ describe("decideFindNextCheckLoop", () => {
     expect(d.reason).toBe("evidence_changed_replan");
   });
 
+  it("free-gov evidence after deterministic fallback still continues keyed SERV", () => {
+    const d = decideFindNextCheckLoop({
+      ...base,
+      autonomousServ: false,
+      chosenId: "free_gov_recalls",
+      research: false,
+      rematchOk: null,
+      freeGovBeforeFp: "[]",
+      freeGovAfterFp: '[{"checkId":"free_gov_recalls"}]',
+      remainingActionableCount: 3,
+      needBeforeFp: "same",
+      needAfterFp: "same",
+      listingsBeforeFp: "same",
+      listingsAfterFp: "same",
+    });
+    expect(d.continue).toBe(true);
+    expect(d.reason).toBe("evidence_changed_replan");
+  });
+
   it("loop-guards unchanged state (no hidden quota)", () => {
     const d = decideFindNextCheckLoop({
       ...base,

@@ -41,6 +41,11 @@ export type ServDeps = {
    * Ambiguous failures after dispatch must NOT refund in the caller.
    */
   beforeHttp?: () => Promise<{ ok: true } | { ok: false; message: string }>;
+  /**
+   * Optional per-call JSON schema override (e.g. find_next_check enum = live allowlist).
+   * When set, replaces profile.jsonSchema for response_format only — profile name may differ.
+   */
+  jsonSchemaOverride?: { name: string; schema: Record<string, unknown> } | null;
 };
 
 export type ServResult =
@@ -563,12 +568,13 @@ export async function runServ(
       responseShape: null,
     };
   }
+  const effectiveJsonSchema = deps.jsonSchemaOverride ?? entry.jsonSchema ?? null;
   const proofMeta = {
     streamed: entry.stream,
     endpoint: entry.endpoint,
     reasoningEffort: entry.reasoningEffort,
     applicationTool: entry.applicationTool ?? null,
-    jsonSchema: entry.jsonSchema?.name ?? null,
+    jsonSchema: effectiveJsonSchema?.name ?? null,
     codeComputed: [...entry.codeComputed],
     contentFilter: entry.contentFilter,
     promptCache: entry.promptCache,
@@ -632,7 +638,7 @@ export async function runServ(
     }
     const payload: unknown = await response.json().catch(() => null);
     // json_schema profiles: only content/parsed/refusal — never tool args / reasoning drafts.
-    const text = messageText(payload, entry.jsonSchema ? "structured" : "legacy");
+    const text = messageText(payload, effectiveJsonSchema ? "structured" : "legacy");
     const shape = responseShape(payload);
     if (!response.ok) logServError(id, response.status, payload);
     else if (!text) console.error(`[serv] ${id} HTTP ${response.status} empty ${shape}`);
@@ -689,8 +695,17 @@ export async function runServ(
               { role: "user", content: userText },
             ],
             tools: firstTools,
-            ...(entry.jsonSchema
-              ? { response_format: { type: "json_schema", json_schema: { name: entry.jsonSchema.name, strict: true, schema: entry.jsonSchema.schema } } }
+            ...(effectiveJsonSchema
+              ? {
+                  response_format: {
+                    type: "json_schema",
+                    json_schema: {
+                      name: effectiveJsonSchema.name,
+                      strict: true,
+                      schema: effectiveJsonSchema.schema,
+                    },
+                  },
+                }
               : {}),
             ...(entry.applicationTool ? { tool_choice: { type: "function", function: { name: entry.applicationTool } } } : {}),
           },
@@ -752,9 +767,9 @@ export async function runServ(
 
     // Structured json_schema: content null + refusal field is a transport failure class
     // (parent Gemini evidence). Do not promote refusal string into planner text / invent RCA.
-    const messageFields = entry.jsonSchema ? inspectServMessageFields(turn.payload) : null;
+    const messageFields = effectiveJsonSchema ? inspectServMessageFields(turn.payload) : null;
     const structuredRefusalOnly =
-      Boolean(entry.jsonSchema) &&
+      Boolean(effectiveJsonSchema) &&
       turn.response.ok &&
       messageFields != null &&
       messageFields.refusalFieldPresent &&

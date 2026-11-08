@@ -109,6 +109,7 @@ export type FindNextCheckOrchestratorOk = {
   shortlist: FindNextCheckLiveOk["shortlist"];
   proofs: DecisionProof[];
   failureDiag: FindNextCheckLiveOk["failureDiag"];
+  clampDiag: FindNextCheckLiveOk["clampDiag"];
   keyedAutonomyDiag: KeyedAutonomyDiag;
   honesty: string;
   /** Rematch payload when research — always built from NEW need after apply. */
@@ -132,6 +133,7 @@ export function buildKeyedAutonomyDiag(input: {
   autonomousServ: boolean;
   source: "serv" | "deterministic_fallback";
   failureDiag: FindNextCheckLiveOk["failureDiag"];
+  clampDiag?: FindNextCheckLiveOk["clampDiag"];
 }): KeyedAutonomyDiag {
   const failureCategory = input.failureDiag?.category ?? null;
   const failureReasonCode = input.failureDiag?.reasonCode ?? null;
@@ -143,10 +145,14 @@ export function buildKeyedAutonomyDiag(input: {
     configHint =
       "Set SERV_API_KEY on the Vercel deployment that serves /api/match and /api/find/next-check (same project env). Without it, Find uses deterministic allowlist only.";
   } else if (!input.autonomousServ) {
+    const denied = input.clampDiag?.deniedCheckId;
+    const allow = input.clampDiag?.allowlistIds?.join(",") ?? "";
     configHint =
       failureCategory === "http_error" || failureReasonCode?.includes("timeout")
         ? "SERV find_next_check timed out or HTTP-failed under profile timeout — check OpenServ latency for gpt-5.4-mini; failureDiag has category/reasonCode only (no secrets)."
-        : "SERV find_next_check did not return an allowlisted checkId (parse/clamp/refusal). Inspect failureDiag.category/reasonCode; confirm SERV_API_KEY + SERV_BASE_URL on this deployment. Do not treat as missing-key.";
+        : denied
+          ? `SERV returned checkId outside allowlist: denied=${denied} allowlist=[${allow}]. Live request schema enum is bound to allowlist; inspect clampDiag. Do not treat as missing-key.`
+          : "SERV find_next_check did not return an allowlisted checkId (parse/clamp/refusal). Inspect failureDiag + clampDiag; confirm SERV_API_KEY + SERV_BASE_URL on this deployment. Do not treat as missing-key.";
   }
   return {
     keyed: input.keyed,
@@ -185,6 +191,14 @@ function publicResultPayload(ok: FindNextCheckOrchestratorOk): string {
           reasonCode: ok.failureDiag.reasonCode,
           refusalFieldBytes: ok.failureDiag.fields.refusalFieldBytes,
           usagePresent: Boolean(ok.failureDiag.usage),
+        }
+      : null,
+    clampDiag: ok.clampDiag
+      ? {
+          deniedCheckId: ok.clampDiag.deniedCheckId,
+          allowlistIds: ok.clampDiag.allowlistIds,
+          aliasApplied: ok.clampDiag.aliasApplied,
+          reasonCode: ok.clampDiag.reasonCode,
         }
       : null,
     keyedAutonomyDiag: ok.keyedAutonomyDiag,
@@ -376,6 +390,7 @@ export async function runFindNextCheckOrchestrator(
       autonomousServ,
       source: live.source,
       failureDiag: live.failureDiag,
+      clampDiag: live.clampDiag,
     });
 
     const loop = decideFindNextCheckLoop({
@@ -409,6 +424,7 @@ export async function runFindNextCheckOrchestrator(
       shortlist: shortlistAfter,
       proofs: live.proofs,
       failureDiag: live.failureDiag,
+      clampDiag: live.clampDiag,
       keyedAutonomyDiag,
       honesty:
         live.source === "serv"

@@ -33,6 +33,10 @@ import {
 } from "@/domain/find-next-check-ui";
 import { buildGroundedShortlist } from "@/domain/find-path";
 import {
+  formatFreeGovReceiptsForUi,
+  type FreeGovReceiptUiRow,
+} from "@/domain/find-free-gov-format";
+import {
   applyFollowUp,
   followUps,
   USE_CASES,
@@ -188,6 +192,8 @@ function AssistantFlow({
   /** Find next-check live path — ids already applied this session (loop guard). */
   const [appliedNextChecks, setAppliedNextChecks] = useState<string[]>([]);
   const [nextCheckNote, setNextCheckNote] = useState<string | null>(null);
+  /** Per-card free NHTSA receipt lines (server-owned; not status-only). */
+  const [freeGovEvidenceLines, setFreeGovEvidenceLines] = useState<string[]>([]);
   /** Auto-start next-check once per searchContextToken when SERV keyed. */
   const autoNextCheckTokenRef = useRef<string | null>(null);
 
@@ -577,6 +583,19 @@ function AssistantFlow({
         typeof (body as { freeEvidenceNote?: string | null }).freeEvidenceNote === "string"
           ? (body as { freeEvidenceNote?: string }).freeEvidenceNote
           : null;
+      const clamp = (body as {
+        clampDiag?: {
+          deniedCheckId?: string | null;
+          allowlistIds?: string[];
+          aliasApplied?: string | null;
+        } | null;
+      }).clampDiag;
+      const receipts = Array.isArray((body as { freeGovReceipts?: FreeGovReceiptUiRow[] }).freeGovReceipts)
+        ? ((body as { freeGovReceipts?: FreeGovReceiptUiRow[] }).freeGovReceipts as FreeGovReceiptUiRow[])
+        : [];
+      if (receipts.length > 0) {
+        setFreeGovEvidenceLines(formatFreeGovReceiptsForUi(receipts));
+      }
       setNextCheckNote(
         [
           body.autonomousServ ? "SERV chose" : "Code fallback (not autonomous SERV)",
@@ -587,6 +606,10 @@ function AssistantFlow({
           freeNote ? `(${freeNote})` : "",
           body.loop?.reason ? `[${body.loop.reason}]` : "",
           failCat ? `diag=${failCat}${failCode ? `/${failCode}` : ""}` : "",
+          clamp?.deniedCheckId
+            ? `denied=${clamp.deniedCheckId} allowlist=[${(clamp.allowlistIds ?? []).join(",")}]`
+            : "",
+          clamp?.aliasApplied ? `alias=${clamp.aliasApplied}` : "",
           keyedDiag?.configHint ? `hint=${keyedDiag.configHint}` : "",
         ]
           .filter(Boolean)
@@ -1522,6 +1545,19 @@ function AssistantFlow({
                           </button>
                         </p>
                         {nextCheckNote ? <p className="hint">{nextCheckNote}</p> : null}
+                        {freeGovEvidenceLines.length > 0 ? (
+                          <div className="hint" role="note">
+                            <p>
+                              Free public NHTSA evidence (server receipts — make/model/year scope; not VIN-open
+                              status; not NMVTIS/title; no Report credit):
+                            </p>
+                            <ul>
+                              {freeGovEvidenceLines.map((line) => (
+                                <li key={line.slice(0, 80)}>{line}</li>
+                              ))}
+                            </ul>
+                          </div>
+                        ) : null}
                       </>
                     ) : null}
                     {shortlist.length > 0 ? (

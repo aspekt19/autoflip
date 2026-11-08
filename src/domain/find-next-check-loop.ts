@@ -116,7 +116,21 @@ export function decideFindNextCheckLoop(input: {
         "SERV_API_KEY missing on this runtime — deterministic allowlist only; not autonomous SERV continuation.",
     };
   }
+  const freeGovChangedEarly =
+    (input.freeGovBeforeFp ?? "") !== (input.freeGovAfterFp ?? "") &&
+    Boolean(input.freeGovAfterFp);
+
   if (!input.autonomousServ) {
+    // Fallback still executed free-gov and stored receipts — continue so the next
+    // keyed SERV step can decide on real evidence (PR80: stop left receipts unused).
+    if (freeGovChangedEarly && input.remainingActionableCount > 0) {
+      return {
+        continue: true,
+        reason: "evidence_changed_replan",
+        detail:
+          "Deterministic fallback ran free public vehicle checks; receipts changed — continue keyed SERV next-check on new evidence (no Report credit).",
+      };
+    }
     return {
       continue: false,
       reason: "serv_deterministic_fallback",
