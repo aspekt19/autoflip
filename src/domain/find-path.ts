@@ -43,6 +43,11 @@ export type FindReplan = {
   note: string;
   /** Whether another inventory search is warranted after this check. */
   research: boolean;
+  /**
+   * When true, orchestrator runs allowlisted free public NHTSA tools
+   * (vPIC / recalls / NCAP) against returned cards — no Report credit.
+   */
+  freeEvidence?: boolean;
 };
 
 export type GroundedShortlistEntry = {
@@ -73,6 +78,9 @@ export function applyFindNextCheck(
     "clarify_year_band",
     "clarify_miles_cap",
     "set_budget",
+    "free_gov_recalls",
+    "free_gov_vpic",
+    "free_gov_safety",
     "compare_observed_asks",
     "run_full_analysis",
     "get_history_report",
@@ -132,6 +140,22 @@ export function applyFindNextCheck(
         ? "Already Nationwide — no geography change; will not invent a wider search."
         : "Switched seller distance to Nationwide (ZIP kept as optional context). Re-run inventory.",
       research: !alreadyNationwide,
+    };
+  }
+
+  if (id === "free_gov_recalls" || id === "free_gov_vpic" || id === "free_gov_safety") {
+    const label =
+      id === "free_gov_recalls"
+        ? "free NHTSA recalls+complaints (make/model/year — not VIN-open status)"
+        : id === "free_gov_vpic"
+          ? "free vPIC VIN decode (ErrorCode=0 required; decode ≠ clean history)"
+          : "free NCAP SafetyRatings (Not Rated stays unknown)";
+    return {
+      need,
+      refine,
+      note: `Run ${label} on returned cards — no Report credit; missing VIN/history stays unknown.`,
+      research: false,
+      freeEvidence: true,
     };
   }
 

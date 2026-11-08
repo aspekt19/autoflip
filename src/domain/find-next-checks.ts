@@ -1,15 +1,23 @@
 /**
  * Bounded next-check choices for Find.
- * Code owns the allowlist; any future SERV profile may only pick from these ids.
+ * Code owns the allowlist; SERV may only pick from these ids.
  * No invented costs, reliability ranks, or "best car" picks.
+ *
+ * Free public NHTSA checks (vPIC / recalls / NCAP) are allowlisted for autonomous
+ * ordinary Find when condition/hidden-risk matters — before median settle.
+ * Paid NMVTIS / Report credit stay user-action (`get_history_report` / `run_full_analysis`).
  */
 
 import type { SoftPrefGap, StructuredNeed } from "./need";
+import { FIND_FREE_GOV_CHECK_IDS, isFindFreeGovCheckId } from "./find-free-gov";
 
 export const FIND_NEXT_CHECK_IDS = [
   "clarify_year_band",
   "clarify_miles_cap",
   "set_budget",
+  "free_gov_recalls",
+  "free_gov_vpic",
+  "free_gov_safety",
   "compare_observed_asks",
   "run_full_analysis",
   "get_history_report",
@@ -44,10 +52,22 @@ export type FindNextCheckInput = {
   /** Distinct make/model buckets in those cards. */
   observedModelCount: number;
   emptyInventory: boolean;
+  /** Already-applied check ids this search context (skip duplicates). */
+  appliedCheckIds?: readonly string[];
+  /** True when at least one returned card exposes a VIN for vPIC. */
+  listingsHaveVin?: boolean;
 };
 
 function hasGap(gaps: SoftPrefGap[], id: SoftPrefGap["id"]): boolean {
   return gaps.some((g) => g.id === id);
+}
+
+/** Condition / hidden-risk intent — free vehicle checks are useful before median settle. */
+export function wantsFreeVehicleEvidence(
+  need: FindNextCheckInput["need"],
+  softGaps: SoftPrefGap[],
+): boolean {
+  return need.conditionPriority === "inspection_first" || hasGap(softGaps, "history");
 }
 
 /**
@@ -56,6 +76,7 @@ function hasGap(gaps: SoftPrefGap[], id: SoftPrefGap["id"]): boolean {
  */
 export function proposeFindNextChecks(input: FindNextCheckInput): FindNextCheck[] {
   const out: FindNextCheck[] = [];
+  const applied = new Set((input.appliedCheckIds ?? []).filter((id) => typeof id === "string"));
 
   if (!input.need.budgetKnown || input.need.budgetUsd == null) {
     out.push({
@@ -81,6 +102,31 @@ export function proposeFindNextChecks(input: FindNextCheckInput): FindNextCheck[
     });
   }
 
+  const freeWanted = wantsFreeVehicleEvidence(input.need, input.softGaps);
+  if (freeWanted && input.observedListingCount > 0) {
+    if (!applied.has("free_gov_recalls")) {
+      out.push({
+        id: "free_gov_recalls",
+        why: "Run free public NHTSA recalls + complaints for make/model/year on returned cards — not VIN-open status, not clean history.",
+        evidence: "condition_or_hidden_risk",
+      });
+    }
+    if (input.listingsHaveVin && !applied.has("free_gov_vpic")) {
+      out.push({
+        id: "free_gov_vpic",
+        why: "Decode VIN via free public vPIC when a VIN is on the card — ErrorCode=0 required; decode ≠ clean title/history.",
+        evidence: "vin_present_condition_risk",
+      });
+    }
+    if (!applied.has("free_gov_safety")) {
+      out.push({
+        id: "free_gov_safety",
+        why: "Fetch free public NCAP SafetyRatings for make/model/year — Not Rated stays unknown.",
+        evidence: "condition_or_hidden_risk",
+      });
+    }
+  }
+
   if (input.observedModelCount >= 2) {
     out.push({
       id: "compare_observed_asks",
@@ -97,6 +143,7 @@ export function proposeFindNextChecks(input: FindNextCheckInput): FindNextCheck[
     });
   }
 
+  // Paid/history user-action — available but not preferred over free autonomous checks.
   if (
     hasGap(input.softGaps, "history") ||
     input.need.conditionPriority === "inspection_first" ||
@@ -104,7 +151,7 @@ export function proposeFindNextChecks(input: FindNextCheckInput): FindNextCheck[
   ) {
     out.push({
       id: "get_history_report",
-      why: "Condition and accident history are unknown on Find cards. Get an NMVTIS-approved history report (and an inspection) before purchase — Lemonless does not invent clean history.",
+      why: "Condition and accident history remain unknown after free public checks. NMVTIS-approved history + inspection before purchase — Lemonless does not invent clean history.",
       evidence:
         input.need.conditionPriority === "inspection_first"
           ? "condition_priority"
@@ -124,12 +171,14 @@ export function proposeFindNextChecks(input: FindNextCheckInput): FindNextCheck[
     });
   }
 
-  // Stable priority order; dedupe by id; cap at 4.
+  // Stable priority order; dedupe by id; drop already-applied.
+  // Cap 6 so free_gov_* can precede compare without starving history/analysis choices.
   const order = FIND_NEXT_CHECK_IDS;
   const ranked = order
     .map((id) => out.find((item) => item.id === id))
-    .filter((item): item is FindNextCheck => Boolean(item));
-  return ranked.slice(0, 4);
+    .filter((item): item is FindNextCheck => Boolean(item))
+    .filter((item) => !applied.has(item.id));
+  return ranked.slice(0, 6);
 }
 
 /** Clamp a SERV (or any) choice to the code allowlist. Unknown ids drop. */
@@ -140,3 +189,9 @@ export function clampFindNextCheckId(id: string, allowed: readonly FindNextCheck
 export function allowedFindNextCheckIds(checks: FindNextCheck[]): FindNextCheckId[] {
   return checks.map((c) => c.id);
 }
+
+export function isAutomaticFreeGovCheckId(id: string): boolean {
+  return isFindFreeGovCheckId(id);
+}
+
+export { FIND_FREE_GOV_CHECK_IDS };

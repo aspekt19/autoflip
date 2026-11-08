@@ -31,7 +31,12 @@ describe("find vertical slice (offline)", () => {
     expect(slice.softGaps.map((g) => g.id)).toEqual(
       expect.arrayContaining(["age", "fuel_or_running_cost", "history"]),
     );
+    expect(slice.nextChecks.some((c) => c.id === "free_gov_recalls")).toBe(true);
     expect(slice.nextChecks.some((c) => c.id === "compare_observed_asks")).toBe(true);
+    const freeIdx = slice.nextChecks.findIndex((c) => c.id.startsWith("free_gov_"));
+    const compareIdx = slice.nextChecks.findIndex((c) => c.id === "compare_observed_asks");
+    expect(freeIdx).toBeGreaterThanOrEqual(0);
+    expect(freeIdx).toBeLessThan(compareIdx);
     expect(slice.nextChecks.some((c) => c.id === "get_history_report")).toBe(true);
     expect(slice.compare.length).toBeGreaterThanOrEqual(3);
     expect(slice.compare.every((r) => r.condition.status === "unknown_needs_inspection")).toBe(true);

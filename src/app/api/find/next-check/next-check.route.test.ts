@@ -282,6 +282,76 @@ describe("POST /api/find/next-check (HTTP)", () => {
     expect(body.error).toBe("search_context_invalid");
   });
 
+  it("condition/hidden-risk: free_gov_recalls executes receipts → evidence_changed_replan (no manual Apply)", async () => {
+    await seed(
+      "tok-free",
+      {
+        yearMin: 2015,
+        zip: "68114",
+        distanceMiles: 50,
+        budgetKnown: true,
+        budgetUsd: 20000,
+        conditionPriority: "inspection_first",
+        note: "SUV under 20k — don't want hidden problems",
+      },
+      [
+        {
+          vin: "JM3KE4DY5H0123456",
+          make: "Mazda",
+          model: "CX-5",
+          year: 2017,
+          priceUsd: 14950,
+          miles: 60000,
+        },
+        {
+          vin: "JTMRFREV0F0654321",
+          make: "Toyota",
+          model: "RAV4",
+          year: 2015,
+          priceUsd: 16700,
+          miles: 74000,
+        },
+      ],
+    );
+    fetchImpl.mockResolvedValueOnce(servChoice("free_gov_recalls"));
+    // Orchestrator uses live free-gov by default — stub global fetch for NHTSA too after SERV.
+    fetchImpl.mockImplementation(async (url: RequestInfo | URL) => {
+      const u = String(url);
+      if (u.includes("serv.test") || u.includes("/chat")) {
+        return servChoice("free_gov_recalls");
+      }
+      // Labeled offline mock — NOT live NHTSA proof.
+      if (u.includes("recallsByVehicle") || u.includes("complaints")) {
+        return new Response(JSON.stringify({ results: [] }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+      return new Response("{}", { status: 200, headers: { "Content-Type": "application/json" } });
+    });
+    // Reset and sequence: first call SERV, subsequent free-gov.
+    fetchImpl.mockReset();
+    fetchImpl
+      .mockResolvedValueOnce(servChoice("free_gov_recalls"))
+      .mockResolvedValue(
+        new Response(JSON.stringify({ Count: 0, results: [] }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }),
+      );
+
+    const res = await POST(req({ searchContextToken: "tok-free" }));
+    const body = await res.json();
+    expect(res.status).toBe(200);
+    expect(body.ok).toBe(true);
+    expect(body.chosenId).toBe("free_gov_recalls");
+    expect(body.freeGovReceipts?.length).toBeGreaterThan(0);
+    expect(body.freeEvidenceNote).toMatch(/No Report credit|free/i);
+    expect(body.loop.continue).toBe(true);
+    expect(body.loop.reason).toBe("evidence_changed_replan");
+    expect(JSON.stringify(body)).not.toMatch(/sk-|SERV_API_KEY=\w+/);
+  });
+
   it("provider rematch failure stops loop", async () => {
     await seed("tok-fail", { yearMin: null, zip: "68114", distanceMiles: 50 }, []);
     fetchImpl.mockResolvedValueOnce(servChoice("widen_or_nationwide"));

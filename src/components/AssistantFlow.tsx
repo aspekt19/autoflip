@@ -512,6 +512,10 @@ function AssistantFlow({
         keyedDiag?.failureReasonCode ??
         (body as { failureDiag?: { reasonCode?: string } | null }).failureDiag?.reasonCode ??
         null;
+      const freeNote =
+        typeof (body as { freeEvidenceNote?: string | null }).freeEvidenceNote === "string"
+          ? (body as { freeEvidenceNote?: string }).freeEvidenceNote
+          : null;
       setNextCheckNote(
         [
           body.autonomousServ ? "SERV chose" : "Code fallback (not autonomous SERV)",
@@ -519,6 +523,7 @@ function AssistantFlow({
           "—",
           body.replan.note,
           body.servNote ? `(${body.servNote})` : "",
+          freeNote ? `(${freeNote})` : "",
           body.loop?.reason ? `[${body.loop.reason}]` : "",
           failCat ? `diag=${failCat}${failCode ? `/${failCode}` : ""}` : "",
           keyedDiag?.configHint ? `hint=${keyedDiag.configHint}` : "",
