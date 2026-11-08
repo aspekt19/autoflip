@@ -252,6 +252,79 @@ describe("runFindMatch Stage2A search semantics", () => {
     expect(urls.some((u) => u.includes("distance=100"))).toBe(true);
   });
 
+  it("does not repeat the same VIN under Models you named and Compact crossovers", async () => {
+    const mazdaVin = VIN.mazda;
+    const fetchImpl = vi.fn(async (url: RequestInfo | URL) => {
+      const href = String(url);
+      if (!href.includes("api.auto.dev")) return servAllow();
+      // Both CX-5 and CR-V (editorial alternative) return overlapping Mazda rows for CX-5 query;
+      // CR-V returns a Honda. Named direction queries CX-5 then RAV4.
+      if (href.includes("CX-5") || href.includes("CX%2D5") || href.includes("CX-5".replace("-", "%2D"))) {
+        return autodevOk([
+          listingRow(mazdaVin, "Mazda", "CX-5", 14_699),
+          listingRow("JM3KFBAY5K0000011", "Mazda", "CX-5", 15_200),
+        ]);
+      }
+      if (href.includes("RAV4")) {
+        return autodevOk([]); // empty RAV4 — honest availability gap, not invented
+      }
+      if (href.includes("CR-V") || href.includes("CR%2DV")) {
+        // Provider mistakenly echoes the same Mazda VIN — must not reappear under Compact crossovers.
+        return autodevOk([
+          listingRow(mazdaVin, "Mazda", "CX-5", 14_699),
+          listingRow(VIN.honda, "Honda", "CR-V", 16_500),
+        ]);
+      }
+      return autodevOk([]);
+    });
+
+    const result = await runFindMatch(
+      {
+        need: {
+          mode: "personal",
+          useCase: "family",
+          note: "reliable used SUV around $20,000 family Mazda CX-5 and Toyota RAV4 open to other options",
+          budgetUsd: 20_000,
+          budgetKnown: true,
+          preferredModels: [
+            { make: "Mazda", model: "CX-5" },
+            { make: "Toyota", model: "RAV4" },
+          ],
+          preferredModelsSource: "user_note",
+          preferredMakes: ["Mazda", "Toyota"],
+          openToOtherMakes: true,
+          zip: "68114",
+          distanceMiles: 50,
+          milesMax: null,
+        },
+      },
+      {
+        autodevKey: "test-key",
+        servKey: "serv",
+        fetch: fetchImpl as typeof fetch,
+        autodev: {
+          cache: new TtlCache<unknown>(),
+          counter: new MemoryCounter(),
+        },
+        kv: new MemoryKv(),
+        env: {},
+        maxProviderQueries: 6,
+      },
+    );
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const named = result.body.directions.find((d) => d.direction.segment === "Models you named");
+    const crossover = result.body.directions.find((d) => /crossover/i.test(d.direction.segment));
+    expect(named).toBeTruthy();
+    expect(crossover).toBeTruthy();
+    expect(crossover!.direction.search.model).not.toBe("CX-5");
+    expect(crossover!.direction.search.model).not.toBe("RAV4");
+    const namedVins = new Set(named!.listings.map((l) => l.vin));
+    expect(namedVins.has(mazdaVin)).toBe(true);
+    expect(crossover!.listings.some((l) => l.vin === mazdaVin)).toBe(false);
+    expect(crossover!.listings.some((l) => l.vin === VIN.honda)).toBe(true);
+  });
+
   it("fail-closes on serverless Memory before Autodev (shared-store)", async () => {
     const fetchSpy = vi.fn(async () => servAllow());
     const result = await runFindMatch(

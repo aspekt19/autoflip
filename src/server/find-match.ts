@@ -232,6 +232,8 @@ export async function runFindMatch(
   let message: string | null = null;
   let partialFailureWarning: string | null = null;
   let providerQueriesUsed = 0;
+  /** Cross-direction VIN dedupe — same listing must not repeat under a second segment. */
+  const seenVins = new Set<string>();
 
   for (const direction of directions) {
     const queries = queriesForDirection(direction);
@@ -370,7 +372,18 @@ export async function runFindMatch(
         if (aOver !== bOver) return aOver - bOver;
         return (byVin.get(b.vin)?.score ?? 0) - (byVin.get(a.vin)?.score ?? 0);
       })
+      .filter((item) => {
+        // Drop VINs already shown under an earlier direction; only claim shown rows.
+        const vin = (item.vin || "").trim().toUpperCase();
+        if (!vin) return true;
+        if (seenVins.has(vin)) return false;
+        return true;
+      })
       .slice(0, 8);
+    for (const item of listings) {
+      const vin = (item.vin || "").trim().toUpperCase();
+      if (vin) seenVins.add(vin);
+    }
     const coverageInput = {
       mode: need.mode,
       sample: false,

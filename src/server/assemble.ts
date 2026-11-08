@@ -42,6 +42,12 @@ export type AssembleInput = {
   /** Typed by the shopper when the lookup is a VIN, which has no asking price of its own. */
   askingPriceUsd?: number;
   miles?: number;
+  /**
+   * Where ask/miles overlays came from. Trusted /find handoff uses `find_feed`
+   * so report provenance must not claim the shopper typed feed facts.
+   * Default `typed` preserves manual Check-a-car / VIN-only wording.
+   */
+  factSource?: "typed" | "find_feed";
   repairAbility?: import("@/domain/need").RepairAbility;
   targetProfitUsd?: number | null;
   /** Personal-mode budget from /find when the shopper stated one. */
@@ -250,11 +256,20 @@ export async function assembleReport(input: AssembleInput, deps: AssembleDeps): 
   if (overlaid.purchaseAskNote) {
     computed.dataNotes.push(overlaid.purchaseAskNote);
   }
+  const fromFindFeed = input.factSource === "find_feed";
   if (overlaid.statedAskApplied) {
-    computed.dataNotes.push("Asking price was typed in for this VIN. It did not come from a listing feed.");
+    computed.dataNotes.push(
+      fromFindFeed
+        ? "Asking price came from the seller listing feed selected on Find — not a verified sold or out-the-door price."
+        : "Asking price was typed in for this VIN. It did not come from a listing feed.",
+    );
   }
   if (typeof input.miles === "number") {
-    computed.dataNotes.push("Mileage was typed in for this VIN. It did not come from a listing feed.");
+    computed.dataNotes.push(
+      fromFindFeed
+        ? "Mileage came from the seller listing feed selected on Find."
+        : "Mileage was typed in for this VIN. It did not come from a listing feed.",
+    );
   }
   steps.push({
     id: "deterministic_tools",

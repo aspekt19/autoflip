@@ -11,6 +11,7 @@ import {
   openToOtherMakesFromText,
   preferredModelsFromText,
   searchScopeLabel,
+  softPrefGapsFromText,
   validateNeed,
 } from "./need";
 
@@ -57,6 +58,12 @@ describe("owner /find repro: Mazda + Toyota + open", () => {
     expect(directions[0]?.search).toEqual({ make: "Mazda", model: "CX-5" });
     // Openness keeps editorial crossover alternatives after the named models.
     expect(directions.some((item) => /crossover/i.test(item.segment))).toBe(true);
+    // Editorial crossover must search a non-named model (not re-query CX-5/RAV4).
+    const crossover = directions.find((item) => /crossover/i.test(item.segment));
+    expect(crossover).toBeTruthy();
+    expect(crossover!.search).not.toEqual({ make: "Mazda", model: "CX-5" });
+    expect(crossover!.search).not.toEqual({ make: "Toyota", model: "RAV4" });
+    expect(["CR-V", "Tucson", "Forester", "Equinox", "Sportage"]).toContain(crossover!.search.model);
   });
 
   it("still restricts when the shopper is not open to other makes", () => {
@@ -157,5 +164,16 @@ describe("empty inventory vs failure messaging", () => {
     if (!parsed.ok) return;
     expect(noMatchMessage(parsed.need)).toContain("Empty inventory for this search — not a parse failure");
     expect(noMatchMessage(parsed.need)).toContain("within 50 miles of 68114");
+  });
+});
+
+describe("soft preference capability gaps (t310)", () => {
+  it("names AWD, history, and running-cost gaps without inventing filters", () => {
+    const gaps = softPrefGapsFromText(OWNER_NOTE);
+    expect(gaps.map((g) => g.id).sort()).toEqual(["awd", "fuel_or_running_cost", "history"]);
+    expect(gaps.every((g) => /does not|not a vehicle-history|unavailable/i.test(g.honesty))).toBe(true);
+    // Soft prefs are honesty lines — not forced follow-up questionnaire fields.
+    const need = explicitNeedFromText(OWNER_NOTE, "personal");
+    expect(followUps(need).map((q) => q.id)).not.toContain("awd");
   });
 });

@@ -20,7 +20,7 @@ import {
 import { isReportHardRefusal, reportRefusalUserMessage } from "@/domain/report-refusal-ui";
 import { findEmptyCopy, type FindEmptyReason } from "@/domain/find-empty";
 import type { FindListingPriceView } from "@/domain/find-listing-price";
-import { USE_CASES, searchScopeLabel, type FollowUp, type StructuredNeed } from "@/domain/need";
+import { USE_CASES, searchScopeLabel, softPrefGapsFromText, type FollowUp, type StructuredNeed } from "@/domain/need";
 import type { Mode } from "@/domain/types";
 import { isValidVin } from "@/domain/vin";
 import { MakeModelFields } from "./MakeModelFields";
@@ -970,6 +970,11 @@ function AssistantFlow({
           ) : need.make ? (
             <p className="hint">Make: {need.make}. Other makes are left out.</p>
           ) : null}
+          {softPrefGapsFromText(need.note).map((gap) => (
+            <p className="hint" key={gap.id}>
+              Noted preference: {gap.mentioned}. {gap.honesty}
+            </p>
+          ))}
           <div className="field">
             <label htmlFor="budget-edit">{need.mode === "flip" ? "Cash available for the purchase and repairs" : "Maximum vehicle price (before taxes and fees)"}</label>
             <input
@@ -1021,6 +1026,13 @@ function AssistantFlow({
           <PriceRatingHow />
           <DecisionNote scene="find" proofs={checks} />
           {need ? <p className="hint">Scope: {matchScope ?? searchScopeLabel(need)}</p> : null}
+          {need
+            ? softPrefGapsFromText(need.note).map((gap) => (
+                <p className="hint" key={`results-${gap.id}`}>
+                  {gap.honesty}
+                </p>
+              ))
+            : null}
           {!affordability ? <p className="hint">Budget was not set, so affordability was not assessed.</p> : null}
           {partialFailure ? (
             <p className="warn-box" role="status">

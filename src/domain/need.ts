@@ -562,6 +562,50 @@ export function sampleGapMessage(need: Pick<StructuredNeed, "make" | "preferredM
 
 export type FollowUp = { id: "zip" | "use" | "repair" | "profit" | "cash"; prompt: string };
 
+/**
+ * Soft preferences the note named that Find cannot honestly filter or verify yet.
+ * Surface as capability gaps — do not invent AWD/history/fuel filters or follow-ups
+ * that pretend we can enforce them at search time.
+ */
+export type SoftPrefGap = {
+  id: "awd" | "history" | "fuel_or_running_cost";
+  mentioned: string;
+  honesty: string;
+};
+
+export function softPrefGapsFromText(text: string): SoftPrefGap[] {
+  const t = text.toLowerCase();
+  const gaps: SoftPrefGap[] = [];
+  if (/\b(awd|4wd|all[\s-]?wheel|four[\s-]?wheel)\b/i.test(t)) {
+    gaps.push({
+      id: "awd",
+      mentioned: "AWD / four-wheel drive",
+      honesty:
+        "Find does not filter drivetrain in listing search. Confirm AWD on each dealer listing or in a full report — it is not enforced here.",
+    });
+  }
+  if (
+    /\b(hidden problems?|vehicle history|accident history|clean (?:carfax|title)|no accidents?)\b/i.test(t) ||
+    /\bdon'?t want to buy a car with hidden\b/i.test(t)
+  ) {
+    gaps.push({
+      id: "history",
+      mentioned: "hidden problems / vehicle history",
+      honesty:
+        "Find listings are not a vehicle-history check. Title brands, accidents, and odometer brands need a full report plus an NMVTIS-approved history report before purchase.",
+    });
+  }
+  if (/\b(fuel economy|mpg|cheap(?:er)? to (?:run|maintain)|not too expensive to maintain|running costs?)\b/i.test(t)) {
+    gaps.push({
+      id: "fuel_or_running_cost",
+      mentioned: "running cost / fuel economy",
+      honesty:
+        "Find does not rank ownership cost or MPG. EPA fuel economy appears only when a full report gets a usable FuelEconomy.gov match — otherwise it stays unavailable.",
+    });
+  }
+  return gaps;
+}
+
 export function followUps(need: StructuredNeed): FollowUp[] {
   if (need.mode === "flip") {
     const questions: FollowUp[] = [];
