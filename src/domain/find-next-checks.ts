@@ -9,7 +9,12 @@
  */
 
 import type { SoftPrefGap, StructuredNeed } from "./need";
-import { FIND_FREE_GOV_CHECK_IDS, isFindFreeGovCheckId } from "./find-free-gov";
+import {
+  FIND_FREE_GOV_CHECK_IDS,
+  freeGovCheckStillHasUnchecked,
+  isFindFreeGovCheckId,
+  type FreeGovToolCoverage,
+} from "./find-free-gov";
 
 export const FIND_NEXT_CHECK_IDS = [
   "clarify_year_band",
@@ -54,10 +59,15 @@ export type FindNextCheckInput = {
   /** Distinct make/model buckets in those cards. */
   observedModelCount: number;
   emptyInventory: boolean;
-  /** Already-applied check ids this search context (skip duplicates). */
+  /** Already-applied check ids this search context (skip duplicates — except free_gov while MMY progress remains). */
   appliedCheckIds?: readonly string[];
   /** True when at least one returned card exposes a VIN for vPIC. */
   listingsHaveVin?: boolean;
+  /**
+   * Per-tool free-gov MMY coverage. When unchecked remain for a tool, that free_gov_*
+   * stays on the allowlist even if previously applied (progress-aware continuation).
+   */
+  freeGovCoverage?: FreeGovToolCoverage | null;
 };
 
 function hasGap(gaps: SoftPrefGap[], id: SoftPrefGap["id"]): boolean {
@@ -114,26 +124,42 @@ export function proposeFindNextChecks(input: FindNextCheckInput): FindNextCheck[
   }
 
   const freeWanted = wantsFreeVehicleEvidence(input.need, input.softGaps);
+  const coverage = input.freeGovCoverage ?? null;
+  const recallsOpen = !coverage || freeGovCheckStillHasUnchecked(coverage, "free_gov_recalls");
+  const safetyOpen = !coverage || freeGovCheckStillHasUnchecked(coverage, "free_gov_safety");
+  const vpicOpen =
+    Boolean(input.listingsHaveVin) &&
+    (!coverage || freeGovCheckStillHasUnchecked(coverage, "free_gov_vpic"));
   if (freeWanted && input.observedListingCount > 0) {
-    if (!applied.has("free_gov_recalls")) {
+    // Keep free_gov_* allowlisted while unchecked MMYs remain — do not permanently burn after one batch.
+    if (recallsOpen) {
+      const progress = coverage
+        ? ` (${coverage.recalls.checked}/${coverage.recalls.eligible} MMY checked; ${coverage.recalls.unchecked} unchecked)`
+        : "";
       out.push({
         id: "free_gov_recalls",
-        why: "Run free public NHTSA recalls + complaints for make/model/year on returned cards — not VIN-open status, not clean history.",
-        evidence: "condition_or_hidden_risk",
+        why: `Run free public NHTSA recalls + complaints for unchecked make/model/year cards${progress} — not VIN-open status, not clean history.`,
+        evidence: coverage && coverage.recalls.checked > 0 ? "free_gov_mmy_progress" : "condition_or_hidden_risk",
       });
     }
-    if (input.listingsHaveVin && !applied.has("free_gov_vpic")) {
+    if (vpicOpen) {
+      const progress = coverage
+        ? ` (${coverage.vpic.checked}/${coverage.vpic.eligible} VIN-eligible checked; ${coverage.vpic.unchecked} unchecked)`
+        : "";
       out.push({
         id: "free_gov_vpic",
-        why: "Decode VIN via free public vPIC when a VIN is on the card — ErrorCode=0 required; decode ≠ clean title/history.",
-        evidence: "vin_present_condition_risk",
+        why: `Decode VIN via free public vPIC for unchecked VIN cards${progress} — ErrorCode=0 required; decode ≠ clean title/history.`,
+        evidence: coverage && coverage.vpic.checked > 0 ? "free_gov_mmy_progress" : "vin_present_condition_risk",
       });
     }
-    if (!applied.has("free_gov_safety")) {
+    if (safetyOpen) {
+      const progress = coverage
+        ? ` (${coverage.safety.checked}/${coverage.safety.eligible} MMY checked; ${coverage.safety.unchecked} unchecked)`
+        : "";
       out.push({
         id: "free_gov_safety",
-        why: "Fetch free public NCAP SafetyRatings for make/model/year — Not Rated stays unknown.",
-        evidence: "condition_or_hidden_risk",
+        why: `Fetch free public NCAP SafetyRatings for unchecked make/model/year cards${progress} — Not Rated stays unknown.`,
+        evidence: coverage && coverage.safety.checked > 0 ? "free_gov_mmy_progress" : "condition_or_hidden_risk",
       });
     }
   }
@@ -188,7 +214,11 @@ export function proposeFindNextChecks(input: FindNextCheckInput): FindNextCheck[
   const ranked = order
     .map((id) => out.find((item) => item.id === id))
     .filter((item): item is FindNextCheck => Boolean(item))
-    .filter((item) => !applied.has(item.id));
+    .filter((item) => {
+      // Free-gov may remain while MMY coverage incomplete — do not drop solely because applied once.
+      if (isFindFreeGovCheckId(item.id)) return true;
+      return !applied.has(item.id);
+    });
   return ranked.slice(0, 6);
 }
 

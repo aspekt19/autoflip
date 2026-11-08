@@ -132,6 +132,7 @@ export async function POST(request: Request) {
     freeGovReceipts: result.freeGovReceipts,
     freeEvidenceNote: result.freeEvidenceNote,
     riskCoverage: result.riskCoverage,
+    freeGovCoverage: result.freeGovCoverage,
     rematch: result.rematch,
     loop: result.loop,
     honesty: result.honesty,

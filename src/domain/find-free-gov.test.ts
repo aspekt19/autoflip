@@ -59,6 +59,7 @@ describe("find free-gov execute (offline / labeled NOT live)", () => {
     });
     expect(result!.receipts).toEqual([]);
     expect(result!.note).toMatch(/no VIN/i);
-    expect(result!.evidenceChanged).toBe(true);
+    // No eligible MMYs — do not fake evidence progress / loop spin.
+    expect(result!.evidenceChanged).toBe(false);
   });
 });

@@ -6,6 +6,7 @@
  * must not continue as autonomous SERV.
  */
 
+import { isFindFreeGovCheckId } from "./find-free-gov";
 import type { FindNextCheckId } from "./find-next-checks";
 import type { StructuredNeed } from "./need";
 import type { ObservedListingRow } from "./find-model-observe";
@@ -159,7 +160,10 @@ export function decideFindNextCheckLoop(input: {
     return {
       continue: false,
       reason: "user_action_required",
-      detail: "Full analysis / history requires explicit user action (credit or external report).",
+      detail:
+        input.remainingActionableCount > 0
+          ? "Full analysis / history requires explicit user action (credit or external report). Free public checks may still remain on the allowlist for a later continue if the shopper declines paid history — partial MMY coverage is not fleet clearance."
+          : "Full analysis / history requires explicit user action (credit or external report).",
     };
   }
 
@@ -237,7 +241,10 @@ export function countRemainingAutomaticChecks(
   appliedIds: readonly string[],
 ): number {
   const applied = new Set(appliedIds);
-  return allowedIds.filter(
-    (id) => !applied.has(id) && !CLARIFY_STOP.has(id) && !USER_ACTION_STOP.has(id),
-  ).length;
+  return allowedIds.filter((id) => {
+    if (CLARIFY_STOP.has(id) || USER_ACTION_STOP.has(id)) return false;
+    // Free-gov stays actionable when still on allowlist (unchecked MMY progress).
+    if (isFindFreeGovCheckId(id)) return true;
+    return !applied.has(id);
+  }).length;
 }

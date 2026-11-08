@@ -6,6 +6,8 @@
 import type { ObservedListingRow } from "./find-model-observe";
 import type { FindNextCheckId } from "./find-next-checks";
 import {
+  listingMmyKeys,
+  mmyListingKey,
   riskFactsFromPacket,
   type FreeGovRiskFacts,
 } from "./find-risk-evidence";
@@ -122,27 +124,131 @@ function toListingStub(row: ObservedListingRow & { vin?: string | null }): Listi
   };
 }
 
-/** Pick up to 3 distinct make/model/year cards; prefer VIN-bearing for vPIC. */
+
+/** Bounded free-gov batch size — finite progress per apply; continues across loops. */
+export const FIND_FREE_GOV_BATCH_MAX = 3;
+
+export type FreeGovToolCoverageSlice = {
+  checked: number;
+  unchecked: number;
+  /** MMYs eligible for this tool (vPIC requires VIN). */
+  eligible: number;
+};
+
+export type FreeGovToolCoverage = {
+  listingMmyCount: number;
+  recalls: FreeGovToolCoverageSlice;
+  safety: FreeGovToolCoverageSlice;
+  vpic: FreeGovToolCoverageSlice;
+  anyUnchecked: boolean;
+  note: string;
+};
+
+/** MMY keys already receipted for a specific free-gov check (any status — attempt counts). */
+export function checkedMmyKeysForCheck(
+  receipts: readonly FindFreeGovReceipt[],
+  checkId: FindFreeGovCheckId,
+): Set<string> {
+  const keys = new Set<string>();
+  for (const r of receipts) {
+    if (r.checkId !== checkId) continue;
+    keys.add(mmyListingKey(r.make, r.model, r.year));
+  }
+  return keys;
+}
+
+function listingRowsWithVin(
+  listings: readonly (ObservedListingRow & { vin?: string | null })[],
+): (ObservedListingRow & { vin?: string | null })[] {
+  return listings.filter((l) => typeof l.vin === "string" && l.vin.trim().length >= 11);
+}
+
+/** Per-tool coverage vs listing MMY inventory — drives allowlist continuation. */
+export function freeGovToolCoverage(
+  listings: readonly (ObservedListingRow & { vin?: string | null })[],
+  receipts: readonly FindFreeGovReceipt[],
+): FreeGovToolCoverage {
+  const allKeys = listingMmyKeys(listings);
+  const vinKeys = listingMmyKeys(listingRowsWithVin(listings));
+  const recallsChecked = checkedMmyKeysForCheck(receipts, "free_gov_recalls");
+  const safetyChecked = checkedMmyKeysForCheck(receipts, "free_gov_safety");
+  const vpicChecked = checkedMmyKeysForCheck(receipts, "free_gov_vpic");
+  const recalls = {
+    checked: [...recallsChecked].filter((k) => allKeys.has(k)).length,
+    unchecked: Math.max(0, allKeys.size - [...recallsChecked].filter((k) => allKeys.has(k)).length),
+    eligible: allKeys.size,
+  };
+  const safety = {
+    checked: [...safetyChecked].filter((k) => allKeys.has(k)).length,
+    unchecked: Math.max(0, allKeys.size - [...safetyChecked].filter((k) => allKeys.has(k)).length),
+    eligible: allKeys.size,
+  };
+  const vpicCheckedIn = [...vpicChecked].filter((k) => vinKeys.has(k)).length;
+  const vpic = {
+    checked: vpicCheckedIn,
+    unchecked: Math.max(0, vinKeys.size - vpicCheckedIn),
+    eligible: vinKeys.size,
+  };
+  const anyUnchecked = recalls.unchecked > 0 || safety.unchecked > 0 || vpic.unchecked > 0;
+  const note =
+    allKeys.size === 0
+      ? "No listing MMY keys for free public coverage."
+      : anyUnchecked
+        ? `Free NHTSA progress — recalls ${recalls.checked}/${recalls.eligible} MMY, safety ${safety.checked}/${safety.eligible}, vpic ${vpic.checked}/${vpic.eligible} VIN-eligible. Unchecked remain — not fleet-cleared; not VIN history.`
+        : `Free NHTSA sample exhausted eligible MMYs (recalls ${recalls.checked}, safety ${safety.checked}, vpic ${vpic.checked}). Still MMY-scope only — not VIN unrepaired/title clearance.`;
+  return {
+    listingMmyCount: allKeys.size,
+    recalls,
+    safety,
+    vpic,
+    anyUnchecked,
+    note,
+  };
+}
+
+export function freeGovCheckStillHasUnchecked(
+  coverage: FreeGovToolCoverage,
+  checkId: FindFreeGovCheckId,
+): boolean {
+  if (checkId === "free_gov_recalls") return coverage.recalls.unchecked > 0;
+  if (checkId === "free_gov_safety") return coverage.safety.unchecked > 0;
+  return coverage.vpic.unchecked > 0 && coverage.vpic.eligible > 0;
+}
+
+/**
+ * Pick up to FIND_FREE_GOV_BATCH_MAX distinct MMY cards for one free-gov tool.
+ * Prefers unchecked MMYs for this checkId (prior receipts) — never forever repeats the first 3.
+ * Attempted MMYs (ok/empty/error/unavailable) are skipped so errors do not spin.
+ */
 export function selectFindFreeGovCandidates(
   listings: readonly (ObservedListingRow & { vin?: string | null })[],
   checkId: FindFreeGovCheckId,
-  max = 3,
+  max = FIND_FREE_GOV_BATCH_MAX,
+  priorReceipts: readonly FindFreeGovReceipt[] = [],
 ): Listing[] {
   const withVin = listings.filter((l) => typeof l.vin === "string" && l.vin.trim().length >= 11);
   const pool = checkId === "free_gov_vpic" ? withVin : listings;
+  const already = checkedMmyKeysForCheck(priorReceipts, checkId);
   const seen = new Set<string>();
-  const out: Listing[] = [];
+  const unchecked: Listing[] = [];
+  const fallback: Listing[] = [];
   for (const row of pool) {
-    const key = `${row.make}|${row.model}|${row.year}`.toLowerCase();
+    const key = mmyListingKey(row.make, row.model, row.year);
     if (seen.has(key)) continue;
     const stub = toListingStub(row);
     if (!stub) continue;
     if (checkId === "free_gov_vpic" && stub.vin.startsWith("UNKNOWN-")) continue;
     seen.add(key);
-    out.push(stub);
-    if (out.length >= max) break;
+    if (already.has(key)) {
+      // Already attempted for this tool — do not re-select (no spin / no fake new evidence).
+      continue;
+    }
+    unchecked.push(stub);
+    if (unchecked.length >= max) break;
   }
-  return out;
+  // Only unchecked MMYs — empty means coverage complete for this tool on current inventory.
+  void fallback;
+  return unchecked.slice(0, max);
 }
 
 function packetToReceipt(
@@ -197,6 +303,8 @@ export type ExecuteFindFreeGovResult = {
 export async function executeFindFreeGovCheck(input: {
   checkId: FindNextCheckId | string;
   listings: readonly (ObservedListingRow & { vin?: string | null })[];
+  /** Prior receipts — next batch prefers unchecked MMYs for this checkId. */
+  priorReceipts?: readonly FindFreeGovReceipt[];
   gov?: ScoutFreeGovPort;
 }): Promise<ExecuteFindFreeGovResult | null> {
   if (!isFindFreeGovCheckId(input.checkId)) return null;
@@ -204,17 +312,23 @@ export async function executeFindFreeGovCheck(input: {
   const toolId = findFreeGovToolIdForCheck(checkId);
   if (!isFreeGovToolId(toolId)) return null;
 
-  const candidates = selectFindFreeGovCandidates(input.listings, checkId);
+  const prior = input.priorReceipts ?? [];
+  const coverage = freeGovToolCoverage(input.listings, prior);
+  const candidates = selectFindFreeGovCandidates(input.listings, checkId, FIND_FREE_GOV_BATCH_MAX, prior);
   if (candidates.length === 0) {
+    const covered = !freeGovCheckStillHasUnchecked(coverage, checkId);
     return {
       checkId,
       toolId,
       receipts: [],
-      evidenceChanged: true,
+      // No new MMYs — do not fake evidence progress / loop spin.
+      evidenceChanged: false,
       note:
-        checkId === "free_gov_vpic"
+        checkId === "free_gov_vpic" && coverage.vpic.eligible === 0
           ? "free_gov_vpic skipped — no VIN on returned cards; VIN decode stays unknown (not a clean-history claim)."
-          : `${checkId} skipped — no listing identity for free public lookup.`,
+          : covered
+            ? `${checkId} coverage complete for current listing MMYs (${coverage.note}). Not VIN/title clearance.`
+            : `${checkId} skipped — no listing identity for free public lookup.`,
     };
   }
 
@@ -231,12 +345,13 @@ export async function executeFindFreeGovCheck(input: {
     .map((r) => `${r.year} ${r.make} ${r.model}: ${r.status} — ${r.summary.slice(0, 120)}`)
     .slice(0, 3)
     .join(" | ");
+  const after = freeGovToolCoverage(input.listings, [...prior, ...receipts]);
   return {
     checkId,
     toolId,
     receipts,
     evidenceChanged: true,
-    note: `Free ${toolId} on ${receipts.length} card(s): ${okish} ok/empty, ${failed} unavailable/error. ${perCard}. ${receipts[0]?.honesty ?? ""} No Report credit. Not NMVTIS/title clearance.`,
+    note: `Free ${toolId} batch ${receipts.length} unchecked MMY(s): ${okish} ok/empty, ${failed} unavailable/error. ${perCard}. Progress: ${after.note} ${receipts[0]?.honesty ?? ""} No Report credit. Not NMVTIS/title clearance.`,
   };
 }
 
