@@ -1,4 +1,4 @@
-import { prechargeAnalysisGate } from "@/domain/find-analysis-handoff";
+import { isTrustedFindAnalysisContext, prechargeAnalysisGate } from "@/domain/find-analysis-handoff";
 import { fitHeadline } from "@/domain/fit";
 import { isVinOnlyLookup, vinDetailGaps } from "@/domain/vin-report";
 import { findUserReport, persistReport, readPersistedReport, rememberUserReport, reportReusable } from "@/io/persist-report";
@@ -29,26 +29,42 @@ export async function POST(request: Request) {
   const budgetUsd = typeof body.budgetUsd === "number" ? body.budgetUsd : undefined;
   const budgetKnown = body.budgetKnown === true || typeof budgetUsd === "number";
   const zip = typeof body.zip === "string" ? body.zip : undefined;
-  const surface = body.surface === "check" || body.surface === "find" ? body.surface : "report";
   const cta = typeof body.cta === "string" ? body.cta : null;
+  const selectedVin = typeof body.selectedVin === "string" ? body.selectedVin : undefined;
+  const selectedVdp = typeof body.selectedVdp === "string" ? body.selectedVdp : null;
 
   // Identity must be resolvable BEFORE any credit gate — never charge then ask for a URL.
   const identity = prechargeAnalysisGate({ url, vin });
   if (!identity.ok) {
+    const surfaceHint = body.surface === "check" || body.surface === "find" ? body.surface : "report";
     return Response.json(
       {
         error: identity.error,
         message: identity.message,
         cta,
-        surface,
+        surface: surfaceHint,
       },
       { status: 400 },
     );
   }
 
-  // Manual VIN entry still needs typed ask/miles/ZIP. A /find card already selected a
-  // discovered listing — re-fetch by VIN; do not demand the shopper re-type feed fields.
-  if (surface !== "find" && isVinOnlyLookup({ url, vin })) {
+  // Do not trust client `surface:"find"` alone — require found-listing context.
+  const trustedFind = isTrustedFindAnalysisContext({
+    surface: typeof body.surface === "string" ? body.surface : null,
+    cta,
+    vin: identity.vin,
+    url,
+    selectedVin,
+    selectedVdp,
+    miles,
+    zip,
+  });
+  const surface = trustedFind ? "find" : body.surface === "check" ? "check" : "report";
+
+  // Manual VIN entry still needs typed ask/miles/ZIP. Trusted /find handoff already
+  // selected a discovered listing — re-fetch by VIN; do not demand re-typed feed fields.
+  // Counterfeit surface:find + VIN-only falls through here and must not skip the gate.
+  if (!trustedFind && isVinOnlyLookup({ url, vin: vin ?? identity.vin })) {
     const missing = vinDetailGaps({ askingPriceUsd, miles, zip });
     if (missing.length > 0) {
       return Response.json(

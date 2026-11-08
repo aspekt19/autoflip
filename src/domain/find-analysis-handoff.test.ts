@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  isTrustedFindAnalysisContext,
   prechargeAnalysisGate,
   resolveManualCheckHandoff,
   resolveSelectedListingHandoff,
@@ -115,5 +116,64 @@ describe("precharge analysis gate", () => {
     expect(gate.ok).toBe(false);
     if (gate.ok) return;
     expect(gate.error).toBe("vin_required");
+  });
+});
+
+describe("trusted find analysis context (server-side)", () => {
+  it("accepts selected-card VIN+VDP+find CTA without re-typing ask", () => {
+    expect(
+      isTrustedFindAnalysisContext({
+        surface: "find",
+        cta: "find_card_full_analysis",
+        vin: RAV4.vin,
+        url: RAV4.vdp,
+        selectedVin: RAV4.vin,
+        selectedVdp: RAV4.vdp,
+        zip: "68114",
+        miles: 21_001,
+      }),
+    ).toBe(true);
+  });
+
+  it("accepts no-VDP card when miles+ZIP were already found", () => {
+    expect(
+      isTrustedFindAnalysisContext({
+        surface: "find",
+        cta: "find_card_full_analysis",
+        vin: RAV4.vin,
+        selectedVin: RAV4.vin,
+        miles: 21_001,
+        zip: "68114",
+      }),
+    ).toBe(true);
+  });
+
+  it("rejects counterfeit surface:find + VIN-only without found-listing facts", () => {
+    expect(
+      isTrustedFindAnalysisContext({
+        surface: "find",
+        vin: RAV4.vin,
+      }),
+    ).toBe(false);
+    expect(
+      isTrustedFindAnalysisContext({
+        surface: "find",
+        cta: "find_card_full_analysis",
+        vin: RAV4.vin,
+        selectedVin: RAV4.vin,
+      }),
+    ).toBe(false);
+  });
+
+  it("rejects mismatched selectedVin even with find CTA", () => {
+    expect(
+      isTrustedFindAnalysisContext({
+        surface: "find",
+        cta: "find_card_full_analysis",
+        vin: RAV4.vin,
+        selectedVin: "1HGCM82633A004352",
+        url: RAV4.vdp,
+      }),
+    ).toBe(false);
   });
 });

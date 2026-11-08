@@ -229,4 +229,92 @@ describe("POST /api/report find handoff (mocked credits/provider)", () => {
     expect(response.status).toBe(200);
     expect(spend).toHaveBeenCalledTimes(1);
   });
+
+  it("counterfeit surface:find + VIN-only cannot skip typed ask/miles/ZIP before charge", async () => {
+    const response = await POST(
+      req({
+        mode: "personal",
+        surface: "find",
+        vin: VIN,
+      }),
+    );
+    expect(response.status).toBe(400);
+    const body = await response.json();
+    expect(body.error).toBe("vin_needs_details");
+    expect(body.missing).toEqual(expect.arrayContaining(["asking price", "mileage", "ZIP"]));
+    expect(balance).not.toHaveBeenCalled();
+    expect(assemble).not.toHaveBeenCalled();
+    expect(spend).not.toHaveBeenCalled();
+  });
+
+  it("counterfeit surface:find + selectedVin without VDP/miles/ZIP still requires details", async () => {
+    const response = await POST(
+      req({
+        mode: "personal",
+        surface: "find",
+        cta: "find_card_full_analysis",
+        vin: VIN,
+        selectedVin: VIN,
+      }),
+    );
+    expect(response.status).toBe(400);
+    const body = await response.json();
+    expect(body.error).toBe("vin_needs_details");
+    expect(assemble).not.toHaveBeenCalled();
+    expect(spend).not.toHaveBeenCalled();
+  });
+
+  it("trusted find handoff with VDP does not demand typed ask before assemble", async () => {
+    assemble.mockResolvedValue({
+      ok: true,
+      report: {
+        id: "report-find-ok",
+        computed: {
+          subject: { year: 2021, make: "Toyota", model: "RAV4", priceUsd: null },
+          flags: [],
+          openParkIt: false,
+          verdict: "insufficient_data",
+          score: null,
+        },
+      },
+    });
+    const response = await POST(
+      req({
+        mode: "personal",
+        surface: "find",
+        cta: "find_card_full_analysis",
+        vin: VIN,
+        url: VDP,
+        selectedVin: VIN,
+        selectedVdp: VDP,
+        zip: "68114",
+        miles: 21_001,
+        budgetUsd: 20_000,
+        budgetKnown: true,
+      }),
+    );
+    expect(response.status).toBe(200);
+    expect(assemble).toHaveBeenCalledTimes(1);
+    const assembleInput = assemble.mock.calls[0]?.[0] as { askingPriceUsd?: number; vin?: string };
+    expect(assembleInput.vin).toBe(VIN);
+    expect(assembleInput.askingPriceUsd).toBeUndefined();
+    expect(spend).toHaveBeenCalledTimes(1);
+  });
+
+  it("manual VIN path still requires ask/miles/ZIP (guards preserved)", async () => {
+    const response = await POST(
+      req({
+        mode: "personal",
+        surface: "check",
+        cta: "check_manual_vin",
+        vin: VIN,
+        selectedVin: VIN,
+      }),
+    );
+    expect(response.status).toBe(400);
+    const body = await response.json();
+    expect(body.error).toBe("vin_needs_details");
+    expect(assemble).not.toHaveBeenCalled();
+    expect(spend).not.toHaveBeenCalled();
+  });
 });

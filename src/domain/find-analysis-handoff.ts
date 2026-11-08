@@ -245,3 +245,37 @@ export function prechargeAnalysisGate(input: { url?: string; vin?: string }): {
   }
   return { ok: true, vin };
 }
+
+/**
+ * Server-side proof that this is a real /find selected-listing handoff — not a
+ * client spoof of `surface:"find"` to skip typed ask/miles/ZIP on a bare VIN.
+ *
+ * Requires matching selectedVin + find CTA, plus either a listing VDP URL or
+ * already-found miles+ZIP from the card/need (so Autodev can re-fetch ask).
+ */
+export function isTrustedFindAnalysisContext(input: {
+  surface?: string | null;
+  cta?: string | null;
+  vin: string;
+  url?: string | null;
+  selectedVin?: string | null;
+  selectedVdp?: string | null;
+  miles?: number | null;
+  zip?: string | null;
+}): boolean {
+  if (input.surface !== "find") return false;
+  const selected = (input.selectedVin || "").trim().toUpperCase();
+  const vin = input.vin.trim().toUpperCase();
+  if (!selected || !vin || selected !== vin) return false;
+  if (input.cta !== "find_card_full_analysis" && input.cta !== "find_pending_retry") return false;
+
+  const vdp = httpVdp(input.selectedVdp) || httpVdp(input.url ?? null);
+  if (vdp) return true;
+
+  // No VDP on the card: still trusted when find already resolved miles + ZIP.
+  // Bare VIN-only claims without those facts fall through to manual gates.
+  const milesOk =
+    typeof input.miles === "number" && Number.isFinite(input.miles) && input.miles >= 0;
+  const zipOk = Boolean(input.zip && /^\d{5}$/.test(input.zip.trim()));
+  return milesOk && zipOk;
+}

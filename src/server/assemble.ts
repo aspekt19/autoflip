@@ -6,6 +6,7 @@ import { sha256Canonical } from "@/domain/hash";
 import { coverageConfidence, coverageSentence } from "@/domain/coverage";
 import { priceBadge } from "@/domain/price-badge";
 import { buildComputedReport } from "@/domain/report";
+import { resolvePurchaseAskForEconomics } from "@/domain/report-purchase-ask";
 import { screenUserInput } from "@/domain/screen";
 import { templateExplanation } from "@/domain/template";
 import { resolveVerdictDecision, verdictDecisionFacts } from "@/domain/verdict-decide";
@@ -71,11 +72,26 @@ export type AssembleResult =
   | { ok: true; report: FullReport }
   | { ok: false; status: number; error: string; message: string };
 
-function overlayStatedFacts(subject: Listing, input: AssembleInput): Listing {
-  const next = { ...subject };
-  if (typeof input.askingPriceUsd === "number" && input.askingPriceUsd > 0) next.priceUsd = input.askingPriceUsd;
-  if (typeof input.miles === "number" && input.miles >= 0) next.miles = input.miles;
-  return next;
+function overlayStatedFacts(subject: Listing, input: AssembleInput): {
+  listing: Listing;
+  purchaseAskNote: string | null;
+  statedAskApplied: boolean;
+} {
+  const milesOverlay =
+    typeof input.miles === "number" && input.miles >= 0 ? { miles: input.miles } : {};
+  const statedAsk =
+    typeof input.askingPriceUsd === "number" && input.askingPriceUsd > 0
+      ? input.askingPriceUsd
+      : undefined;
+  const resolved = resolvePurchaseAskForEconomics(
+    { ...subject, ...milesOverlay },
+    statedAsk !== undefined ? { statedAskingPriceUsd: statedAsk } : undefined,
+  );
+  return {
+    listing: resolved.listing,
+    purchaseAskNote: resolved.dataNote,
+    statedAskApplied: statedAsk !== undefined && resolved.usableForEconomics,
+  };
 }
 
 function factsOf(report: FullReport["computed"]) {
@@ -209,7 +225,8 @@ export async function assembleReport(input: AssembleInput, deps: AssembleDeps): 
     detail: "NHTSA vPIC, NHTSA recalls, NHTSA complaints, fueleconomy.gov, US Census geocoder",
   });
 
-  const subject = overlayStatedFacts(resolved.subject, input);
+  const overlaid = overlayStatedFacts(resolved.subject, input);
+  const subject = overlaid.listing;
   const checkedAt = (deps.now ?? new Date()).toISOString();
   const computed = buildComputedReport({
     mode: input.mode,
@@ -230,7 +247,10 @@ export async function assembleReport(input: AssembleInput, deps: AssembleDeps): 
     repairAbility: input.repairAbility,
     targetProfitUsd: input.targetProfitUsd,
   });
-  if (typeof input.askingPriceUsd === "number") {
+  if (overlaid.purchaseAskNote) {
+    computed.dataNotes.push(overlaid.purchaseAskNote);
+  }
+  if (overlaid.statedAskApplied) {
     computed.dataNotes.push("Asking price was typed in for this VIN. It did not come from a listing feed.");
   }
   if (typeof input.miles === "number") {
@@ -771,7 +791,7 @@ export async function previewListing(input: AssembleInput, deps: AssembleDeps) {
   }
   const resolved = await resolveSubject(vin, input, deps, deps.fetch ?? fetch);
   if (!resolved.ok) return resolved.result;
-  const subject = overlayStatedFacts(resolved.subject, input);
+  const subject = overlayStatedFacts(resolved.subject, input).listing;
   const recallLookup = await recallsFor(subject.make, subject.model, subject.year, { fetch: deps.fetch ?? fetch });
   const badge = priceBadge(subject, resolved.candidates);
   const campaignCount = recallLookup.records.length;

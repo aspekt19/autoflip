@@ -4,6 +4,7 @@ import { flipMath } from "./flip";
 import { formatPct, formatUsd } from "./format";
 import { historyAdjustment } from "./history";
 import { expectedMiles, odometerCaution } from "./odometer";
+import { listingUsableForPurchaseEconomics } from "./report-purchase-ask";
 import { median, roundDollars } from "./stats";
 import { listingTitleBrandHit } from "./title-risk";
 import type {
@@ -219,7 +220,9 @@ export function buildComputedReport(input: ReportInput): ComputedReport {
 
   const priced = selection.comps.filter(
     (item): item is Listing & { priceUsd: number; miles: number } =>
-      item.priceUsd !== null && item.miles !== null,
+      item.priceUsd !== null &&
+      item.miles !== null &&
+      listingUsableForPurchaseEconomics(item),
   );
 
   const subjectMiles = input.subject.miles;
