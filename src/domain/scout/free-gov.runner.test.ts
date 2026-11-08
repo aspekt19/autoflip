@@ -85,12 +85,14 @@ describe("free gov as SERV decision inputs (mocked HTTP)", () => {
 
     const cand = result.candidates.find((c) => c.vin === vin);
     expect(cand).toBeTruthy();
-    expect(cand!.evidence.some((e) => e.key === "nhtsa_park_it")).toBe(true);
+    // parkOutside alone → nhtsa_park_outside fact; NOT nhtsa_park_it / do-not-drive reject unlock.
+    expect(cand!.evidence.some((e) => e.key === "nhtsa_park_outside")).toBe(true);
+    expect(cand!.evidence.some((e) => e.key === "nhtsa_park_it")).toBe(false);
     expect(cand!.evidence.some((e) => e.key === "evidence.gov_recalls" && e.kind === "verified")).toBe(
       true,
     );
     const adverse = collectAdverseEvidence(cand!);
-    expect(adverse.some((a) => a.kind === "nhtsa_park_it")).toBe(true);
+    expect(adverse.some((a) => a.kind === "nhtsa_park_it")).toBe(false);
     expect(result.toolOutcomes.some((o) => o.toolId === "evidence.gov_recalls" && o.ok)).toBe(true);
     // Title/NMVTIS never invented clean.
     expect(JSON.stringify(cand!.evidence)).toMatch(/unknown_not_connected/);

@@ -479,8 +479,9 @@ describe("SERV model compare harness (offline / no paid calls)", () => {
       "20d455dbac92aa060414866e042cf680aafa2075c8fbca789ef7f0f09b83afb8",
     );
     const scout = profile("scout_plan");
+    // Refreshed after OWNER 334 CORE: parkIt ≠ parkOutside wording in scout_plan system.
     expect(createHash("sha256").update(scout.system).digest("hex")).toBe(
-      "83c90726a0dc9985468fd69d17f2e192823a4f2a0a273caf553bc5e18d7d936a",
+      "9637221049f22da7983a36006d31bc28d0f86da154913bb6109f0f2097cedc6a",
     );
     // JSON schema unchanged (product A–C / Sonnet anyOf still 8dbcbc…).
     expect(

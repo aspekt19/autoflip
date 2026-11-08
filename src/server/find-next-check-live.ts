@@ -115,8 +115,11 @@ export async function runFindNextCheckLive(
         status: string;
         summary: string;
         scope: string;
+        sourceUrl?: string | null;
+        toolId?: string;
         factNotes: string[];
         honesty: string;
+        riskFacts?: Record<string, unknown> | null;
       }>;
     } | null;
   },

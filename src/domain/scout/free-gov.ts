@@ -241,8 +241,17 @@ async function runRecalls(listing: Listing, deps: GovDeps, fetchedAt: string): P
     };
   }
 
-  const parkIt = recalls.records.some((r) => r.parkIt || r.parkOutSide);
+  // parkIt vs parkOutside are DIFFERENT NHTSA semantics — never OR into one do-not-drive flag.
+  const parkIt = recalls.records.some((r) => r.parkIt);
+  const parkOutside = recalls.records.some((r) => r.parkOutSide);
   const empty = recalls.available && recalls.records.length === 0;
+  const flagNote = parkIt
+    ? "NHTSA make/model/year campaigns include parkIt=true — configuration-level do-not-drive signal for investigation; not VIN repair proof. parkOutside is tracked separately. Title/NMVTIS unknown."
+    : parkOutside
+      ? "NHTSA make/model/year campaigns include parkOutside=true (outdoor parking guidance) — NOT a parkIt/do-not-drive claim by itself; not VIN repair proof. Title/NMVTIS unknown."
+      : empty
+        ? "NHTSA returned zero make/model/year campaigns (available empty). Not VIN unrepaired status; never vinOpenRecalls=false. Title/NMVTIS unknown."
+        : "NHTSA make/model/year campaigns recorded. Not VIN-specific unrepaired/open status. Title/NMVTIS unknown.";
   const facts: EvidenceFact[] = [
     {
       key: "evidence.gov_recalls",
@@ -256,6 +265,7 @@ async function runRecalls(listing: Listing, deps: GovDeps, fetchedAt: string): P
         recallCount: recalls.available ? recalls.records.length : null,
         recallsAvailable: recalls.available,
         parkIt,
+        parkOutside,
         campaigns: recalls.records.slice(0, 8).map((r) => ({
           campaignNumber: r.campaignNumber,
           component: r.component,
@@ -274,20 +284,25 @@ async function runRecalls(listing: Listing, deps: GovDeps, fetchedAt: string): P
       },
       kind: "verified",
       source: "gov",
-      note: empty
-        ? "NHTSA returned zero make/model/year campaigns (available empty). Not VIN unrepaired status; never vinOpenRecalls=false. Title/NMVTIS unknown."
-        : parkIt
-          ? "NHTSA make/model/year campaigns include park-it/park-outside flags — configuration-level applicability only, not VIN repair proof. Title/NMVTIS unknown."
-          : "NHTSA make/model/year campaigns recorded. Not VIN-specific unrepaired/open status. Title/NMVTIS unknown.",
+      note: flagNote,
     },
   ];
   if (parkIt) {
     facts.push({
       key: "nhtsa_park_it",
-      value: { parkIt: true, scope },
+      value: { parkIt: true, parkOutside, scope },
       kind: "verified",
       source: "gov",
-      note: "NHTSA park-it/park-outside campaign flag present for make/model/year — adverse safety signal for investigation; not a title brand; not VIN unrepaired proof.",
+      note: "NHTSA parkIt campaign flag present for make/model/year — adverse safety signal for investigation; not a title brand; not VIN unrepaired proof. Distinct from parkOutside.",
+    });
+  }
+  if (parkOutside) {
+    facts.push({
+      key: "nhtsa_park_outside",
+      value: { parkOutside: true, parkIt, scope },
+      kind: "verified",
+      source: "gov",
+      note: "NHTSA parkOutside campaign flag present for make/model/year — outdoor parking guidance only; NOT do-not-drive from this flag alone; not VIN unrepaired proof.",
     });
   }
 
@@ -300,11 +315,11 @@ async function runRecalls(listing: Listing, deps: GovDeps, fetchedAt: string): P
     url,
     timeoutMs: FREE_GOV_TIMEOUT_MS,
     rateNote: FREE_GOV_RATE_NOTE,
-    limitsNote: "Max 8 campaign summaries retained for planner briefs. Complaints are allegations, not VIN events.",
+    limitsNote: "Max 8 campaign summaries retained for planner briefs. Complaints are allegations, not VIN events. parkIt ≠ parkOutside.",
     facts,
     summary: empty
       ? `NHTSA recalls empty for ${listing.year} ${listing.make} ${listing.model} (available; not VIN-clear).`
-      : `NHTSA recalls ${recalls.records.length} campaign(s); complaints=${complaints.available ? complaints.count : "unavailable"}; parkIt=${parkIt}.`,
+      : `NHTSA recalls ${recalls.records.length} campaign(s); complaints=${complaints.available ? complaints.count : "unavailable"}; parkIt=${parkIt}; parkOutside=${parkOutside}.`,
     outcomeOk: true,
     outcomeStatus: empty ? "empty" : "success",
     outcomeCapability: empty ? "empty" : "supported_executed",

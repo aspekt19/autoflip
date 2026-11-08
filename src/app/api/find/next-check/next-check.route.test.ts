@@ -346,6 +346,21 @@ describe("POST /api/find/next-check (HTTP)", () => {
     expect(body.ok).toBe(true);
     expect(body.chosenId).toBe("free_gov_recalls");
     expect(body.freeGovReceipts?.length).toBeGreaterThan(0);
+    expect(body.freeGovReceipts[0].riskFacts).toBeTruthy();
+    expect(body.freeGovReceipts[0].sourceUrl).toMatch(/nhtsa\.gov|recallsByVehicle/i);
+    expect(
+      typeof body.freeGovReceipts[0].riskFacts.parkIt === "boolean" ||
+        body.freeGovReceipts[0].riskFacts.parkIt === null,
+    ).toBe(true);
+    expect(
+      typeof body.freeGovReceipts[0].riskFacts.parkOutside === "boolean" ||
+        body.freeGovReceipts[0].riskFacts.parkOutside === null,
+    ).toBe(true);
+    expect(body.riskCoverage?.listingCardCount).toBeGreaterThan(0);
+    expect(body.riskCoverage?.note).toMatch(/make\/model\/year|MMY|VIN|sample/i);
+    expect(
+      body.shortlist?.every((s: { outstandingChecks?: string[] }) => Array.isArray(s.outstandingChecks)),
+    ).toBe(true);
     expect(body.freeEvidenceNote).toMatch(/No Report credit|free/i);
     expect(body.loop.continue).toBe(true);
     expect(body.loop.reason).toBe("evidence_changed_replan");
