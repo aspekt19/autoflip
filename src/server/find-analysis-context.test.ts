@@ -183,4 +183,71 @@ describe("find analysis context (server-stored)", () => {
     expect(claimsFindAnalysisHandoff({ findContextToken: "abc" })).toBe(true);
     expect(claimsFindAnalysisHandoff({ surface: "check", cta: "check_manual_url" })).toBe(false);
   });
+
+  it("mint prefers find-session needZip over dealer retail.zip", () => {
+    const record = mintFindAnalysisContextRecord(
+      "user-a",
+      {
+        vin: VIN,
+        year: 2021,
+        make: "Toyota",
+        model: "RAV4",
+        miles: 21_001,
+        priceUsd: 18_900,
+        vdp: VDP,
+        zip: "68107",
+        priceView: { usableForBudget: true },
+      },
+      "68114",
+    );
+    expect(record.zip).toBe("68114");
+  });
+
+  /**
+   * t309 — Gateway Mazda CX-5 Touring (public listing facts from production incident).
+   * Autodev retail.zip is the dealer ZIP; /find handoff claims the search ZIP (need.zip).
+   * Bound context must use the find-session ZIP so verify matches the card CTA payload.
+   */
+  it("t309 Gateway Mazda: dealer retail.zip ≠ search ZIP still verifies when handoff claims need.zip", async () => {
+    const kv = new MemoryKv();
+    const GATEWAY_VIN = "JM3KE4CY7G0753111";
+    const GATEWAY_VDP =
+      "https://www.gatewayautosalesomaha.com/inventory/used-2016-mazda-cx-5-touring-sport-utility-4d-jm3ke4cy7g0753111-in-omaha-ne";
+    const SEARCH_ZIP = "68114";
+    const DEALER_ZIP = "68107"; // Omaha dealer feed ZIP ≠ shopper search ZIP
+
+    const record = mintFindAnalysisContextRecord(
+      "user-a",
+      {
+        vin: GATEWAY_VIN,
+        year: 2016,
+        make: "Mazda",
+        model: "CX-5",
+        miles: 94_057,
+        priceUsd: 15_995,
+        vdp: GATEWAY_VDP,
+        zip: DEALER_ZIP,
+        priceView: { usableForBudget: true },
+      },
+      SEARCH_ZIP,
+    );
+    await storeFindAnalysisContext(kv, record);
+
+    // Exact claim shape from resolveSelectedListingHandoff (need.zip preferred).
+    const verified = await verifyFindAnalysisContext(kv, {
+      userId: "user-a",
+      token: record.token,
+      vin: GATEWAY_VIN,
+      claimedVdp: GATEWAY_VDP,
+      claimedMiles: 94_057,
+      claimedZip: SEARCH_ZIP,
+    });
+    expect(verified.ok).toBe(true);
+    if (!verified.ok) return;
+    expect(verified.record.zip).toBe(SEARCH_ZIP);
+    expect(verified.record.vin).toBe(GATEWAY_VIN);
+    expect(verified.record.vdp).toBe(GATEWAY_VDP);
+    expect(verified.record.askingPriceUsd).toBe(15_995);
+    expect(verified.record.miles).toBe(94_057);
+  });
 });

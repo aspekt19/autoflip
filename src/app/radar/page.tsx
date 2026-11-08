@@ -7,12 +7,13 @@ import { DecisionNote } from "@/components/DecisionNote";
 import { PriceBadgeView, PriceRatingHow } from "@/components/PriceBadge";
 import type { PriceBadge } from "@/domain/price-badge";
 import { useRouter, useSearchParams } from "next/navigation";
-import { Suspense, useEffect, useState, type FormEvent } from "react";
+import { Suspense, useEffect, useRef, useState, type FormEvent } from "react";
 import { MakeModelFields } from "@/components/MakeModelFields";
 import { ZipRadiusFields } from "@/components/ZipRadiusFields";
 import { parseUsdInput } from "@/domain/budget";
 import { parseDistanceMiles } from "@/domain/need";
 import { formatNumber, formatUsd, verdictLabel } from "@/domain/format";
+import { buildRadarReportPayload } from "@/domain/radar-report-handoff";
 import type { Mode } from "@/domain/types";
 
 type Row = {
@@ -52,7 +53,7 @@ function RadarInner() {
   const [busyVin, setBusyVin] = useState<string | null>(null);
   const [demo, setDemo] = useState(false);
   const [searches, setSearches] = useState<Array<{ id: string; name: string; mode: string; criteria: { priceMax: number; zip: string; radiusMiles: number; make?: string; model?: string }; preset: boolean }>>([]);
-  const [alerts, setAlerts] = useState<Array<{ id: string; vin: string; why: string; createdAt: string; mode: string; priceUsd: number; year: number; make: string; model: string; checks?: DecisionProof[]; coverage?: string; coverageLevel?: "low" | "medium" | "high"; badge?: PriceBadge }>>([]);
+  const [alerts, setAlerts] = useState<Array<{ id: string; vin: string; why: string; createdAt: string; mode: string; priceUsd: number; miles: number | null; year: number; make: string; model: string; checks?: DecisionProof[]; coverage?: string; coverageLevel?: "low" | "medium" | "high"; badge?: PriceBadge }>>([]);
   const [watchNote, setWatchNote] = useState<string | null>(null);
   const [checking, setChecking] = useState(false);
   const [telegramNote, setTelegramNote] = useState<string | null>(null);
@@ -80,6 +81,30 @@ function RadarInner() {
       })
       .catch(() => setCredits(null));
   }, []);
+
+  // Resume Radar full-report after credit purchase (mirrors Find af-pending-analysis).
+  const radarResume = useRef(false);
+  useEffect(() => {
+    if (radarResume.current || credits === null || credits < 1) return;
+    try {
+      const raw = sessionStorage.getItem("af-radar-pending");
+      if (!raw) return;
+      const saved = JSON.parse(raw) as {
+        mode?: Mode;
+        vin?: string;
+        askingPriceUsd?: number;
+        miles?: number;
+      };
+      if (!saved?.vin) return;
+      radarResume.current = true;
+      void openReport(
+        { vin: saved.vin, priceUsd: saved.askingPriceUsd ?? null, miles: saved.miles ?? null },
+        saved.mode === "flip" ? "flip" : "personal",
+      );
+    } catch {
+      /* ignore corrupt pending payload */
+    }
+  }, [credits]);
 
   useEffect(() => {
     if (!feedReady) return;
@@ -145,28 +170,47 @@ function RadarInner() {
     };
   }, [feedReady, demo, make, model, zip, yearMin, yearMax, mode, priceMax, flipReady, distanceMiles]);
 
-  async function openReport(vin: string, reportMode: Mode = mode) {
-    setBusyVin(vin);
+  type ReportTarget = {
+    vin: string;
+    priceUsd?: number | null;
+    miles?: number | null;
+  };
+
+  async function openReport(target: ReportTarget, reportMode: Mode = mode) {
+    setBusyVin(target.vin);
     setError(null);
+    const payload = buildRadarReportPayload({
+      vin: target.vin,
+      mode: reportMode,
+      zip: zip || null,
+      year: yearMin && yearMin === yearMax ? Number(yearMin) : undefined,
+      priceUsd: target.priceUsd,
+      miles: target.miles,
+    });
     try {
       const response = await fetch("/api/report", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          mode: reportMode,
-          vin,
-          zip: zip || undefined,
-          year: yearMin && yearMin === yearMax ? Number(yearMin) : undefined,
-        }),
+        body: JSON.stringify(payload),
       });
       const body = (await response.json()) as { id?: string; message?: string; error?: string };
       if (response.status === 403 && body.error === "credits_required") {
-        router.push("/credits?need=1");
+        try {
+          sessionStorage.setItem("af-radar-pending", JSON.stringify(payload));
+        } catch {
+          /* ignore */
+        }
+        router.push("/credits?need=1&return=%2Fradar");
         return;
       }
       if (!response.ok || !body.id) {
         setError(body.message || "The report could not be built.");
         return;
+      }
+      try {
+        sessionStorage.removeItem("af-radar-pending");
+      } catch {
+        /* ignore */
       }
       router.push(`/report/${body.id}`);
     } catch {
@@ -277,7 +321,12 @@ function RadarInner() {
               <button
                 className="action"
                 type="button"
-                onClick={() => openReport(confirmAlert.vin, confirmAlert.mode === "flip" ? "flip" : "personal")}
+                onClick={() =>
+                  openReport(
+                    { vin: confirmAlert.vin, priceUsd: confirmAlert.priceUsd, miles: confirmAlert.miles },
+                    confirmAlert.mode === "flip" ? "flip" : "personal",
+                  )
+                }
                 disabled={busyVin === confirmAlert.vin}
               >
                 {busyVin === confirmAlert.vin ? "Working…" : "Confirm — 1 credit"}
@@ -310,7 +359,17 @@ function RadarInner() {
                 <p className="hint">{new Date(alert.createdAt).toLocaleString("en-US", { timeZone: "UTC" })} UTC · {alert.vin}</p>
               </div>
               <div className="row-actions">
-                <button className="action" type="button" onClick={() => openReport(alert.vin, alert.mode === "flip" ? "flip" : "personal")} disabled={busyVin === alert.vin}>
+                <button
+                  className="action"
+                  type="button"
+                  onClick={() =>
+                    openReport(
+                      { vin: alert.vin, priceUsd: alert.priceUsd, miles: alert.miles },
+                      alert.mode === "flip" ? "flip" : "personal",
+                    )
+                  }
+                  disabled={busyVin === alert.vin}
+                >
                   {busyVin === alert.vin ? "Working…" : "Analyze — 1 credit"}
                 </button>
                 <button className="quiet" type="button" onClick={() => skipAlert(alert.id)}>
@@ -362,7 +421,12 @@ function RadarInner() {
                 <p className="mono">{row.vin}</p>
               </div>
               <div className="row-actions">
-                <button className="action" type="button" onClick={() => openReport(row.vin)} disabled={busyVin === row.vin}>
+                <button
+                  className="action"
+                  type="button"
+                  onClick={() => openReport({ vin: row.vin, priceUsd: row.priceUsd, miles: row.miles })}
+                  disabled={busyVin === row.vin}
+                >
                   {busyVin === row.vin ? "Working…" : "Full report · 1 credit"}
                 </button>
               </div>

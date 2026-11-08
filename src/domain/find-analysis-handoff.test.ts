@@ -43,6 +43,33 @@ describe("selected-listing full-analysis handoff", () => {
     expect(result.payload.askingPriceUsd).toBeUndefined();
   });
 
+  it("t309 Gateway Mazda handoff claims search ZIP even when card carries dealer zip", () => {
+    const result = resolveSelectedListingHandoff(
+      {
+        vin: "JM3KE4CY7G0753111",
+        year: 2016,
+        make: "Mazda",
+        model: "CX-5",
+        trim: "Touring",
+        miles: 94_057,
+        priceUsd: 15_995,
+        vdp: "https://www.gatewayautosalesomaha.com/inventory/used-2016-mazda-cx-5-touring-sport-utility-4d-jm3ke4cy7g0753111-in-omaha-ne",
+        zip: "68107",
+        source: "autodev",
+        analysisContextToken: "gateway-mazda-token",
+      },
+      { mode: "personal", zip: "68114", repairAbility: "unknown", targetProfitUsd: null },
+      "find_card_full_analysis",
+    );
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.payload.zip).toBe("68114");
+    expect(result.payload.vin).toBe("JM3KE4CY7G0753111");
+    expect(result.payload.miles).toBe(94_057);
+    expect(result.payload.findContextToken).toBe("gateway-mazda-token");
+    expect(result.payload.askingPriceUsd).toBe(15_995);
+  });
+
   it("fails closed when the card lacks a server analysis token", () => {
     const result = resolveSelectedListingHandoff({ ...RAV4, analysisContextToken: null }, NEED);
     expect(result.ok).toBe(false);
@@ -111,6 +138,21 @@ describe("manual URL / VIN check path", () => {
     expect(result.ok).toBe(false);
     if (result.ok) return;
     expect(result.error).toBe("missing_identity");
+  });
+
+  it("rejects an invalid 17-character VIN before submit (check digit)", () => {
+    const result = resolveManualCheckHandoff({
+      mode: "personal",
+      kind: "vin",
+      lookup: "4T1KZ1AK5MU060006",
+      askingPriceUsd: 18_000,
+      miles: 40_000,
+      zip: "68114",
+    });
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.error).toBe("invalid_vin");
+    expect(result.message).toMatch(/valid 17-character VIN/i);
   });
 });
 

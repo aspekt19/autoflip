@@ -82,7 +82,11 @@ export function mintFindAnalysisContextRecord(
       typeof listing.miles === "number" && Number.isFinite(listing.miles) && listing.miles >= 0
         ? listing.miles
         : null,
-    zip: normalizeZip(listing.zip) ?? normalizeZip(needZip),
+    // Bind the find-session search ZIP when present. Autodev retail.zip is the
+    // dealer location and often differs from the shopper's search ZIP; the card
+    // CTA claims need.zip (see resolveSelectedListingHandoff). Preferring dealer
+    // ZIP here falsely tripped tampered_facts on legit Full analysis (t309).
+    zip: normalizeZip(needZip) ?? normalizeZip(listing.zip),
     askingPriceUsd:
       usableAsk && typeof listing.priceUsd === "number" && listing.priceUsd > 0
         ? listing.priceUsd

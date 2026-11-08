@@ -89,18 +89,29 @@ a { color: inherit; }
   html { scroll-behavior: auto; }
 }
 
+/* Skip link: body overflow-x:hidden clips absolute top:-N; sticky .bar shares z-index 40 and paints over it.
+   Use fixed + translate so keyboard focus is visible above the header. */
 .skip {
-  position: absolute;
+  position: fixed;
   left: 12px;
-  top: -48px;
-  z-index: 40;
+  top: 12px;
+  z-index: 100;
+  transform: translateY(-160%);
   background: var(--ink);
   color: var(--canvas);
   padding: 8px 12px;
   font-family: var(--sans);
   font-weight: 700;
+  text-decoration: none;
+  border-radius: 8px;
+  transition: transform 0.15s ease;
 }
-.skip:focus { top: 12px; }
+.skip:focus,
+.skip:focus-visible {
+  transform: translateY(0);
+  outline: 3px solid var(--blue);
+  outline-offset: 3px;
+}
 
 .eval-line {
   margin: 0;
@@ -951,6 +962,8 @@ pre.doc {
     top: 8px;
     border-radius: 18px;
     width: calc(100% - 16px);
+    margin-left: auto;
+    margin-right: auto;
   }
   .brand-mark,
   .brand img { height: 50px; width: 50px; }
@@ -1067,6 +1080,8 @@ pre.doc {
     left: 12px;
     right: 12px;
     width: auto;
+    max-width: none;
+    box-sizing: border-box;
     display: flex;
     flex-direction: column;
     justify-content: space-between;
@@ -1077,12 +1092,44 @@ pre.doc {
   }
   .film-copy > div {
     pointer-events: auto;
+    min-width: 0;
+    max-width: 100%;
+    box-sizing: border-box;
     background: linear-gradient(180deg, rgba(5, 5, 5, 0.72), rgba(5, 5, 5, 0.42));
     border: 1px solid rgba(255, 255, 255, 0.1);
     border-radius: 16px;
     padding: 12px;
   }
+  .film-copy h1,
+  .film-copy .brand-hero-title {
+    max-width: 100%;
+    overflow-wrap: anywhere;
+  }
   .story-after { width: calc(100% - 32px); padding: 48px 0; }
+}
+
+/* Narrow phones: keep hero copy full-bleed within padding — avoid left-biased squeeze from wide min tracks. */
+@media (max-width: 420px) {
+  :root { --pad: 14px; }
+  .film-copy {
+    left: 10px;
+    right: 10px;
+    top: 76px;
+  }
+  .film-copy > div { padding: 10px; }
+  .film-copy h1,
+  .film-copy .brand-hero-title {
+    font-size: clamp(22px, 8vw, 32px);
+  }
+  .film-copy .lead { font-size: 12px; }
+  .bar {
+    width: calc(100% - 12px);
+    margin-left: auto;
+    margin-right: auto;
+    gap: 8px;
+    padding-left: 10px;
+    padding-right: 10px;
+  }
 }
 @media (prefers-reduced-motion: reduce) {
   .page-in, .marquee-track, .reveal, .listing-card { animation: none; }
