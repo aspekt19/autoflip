@@ -9,8 +9,9 @@
 | PR | https://github.com/aspekt19/autoflip/pull/77 |
 | Branch | `cursor/t315-clarify-owncost-ecfd-1033` |
 | Base | `main` @ `0aeed3b3fc7611be47eab0eff6b737a9abf869bd` (PR76 published) |
-| **Head** |  |
-| **Tree** |  |
+| **Head** | `e3984fd77e2be9ac76562678082c5780e0c3435f` |
+| **Tree** | `2f2145a6138e4f434654392dcee4b82361c632d0` |
+| Implement tip (same as head if no further docs) | `e3984fd77e2be9ac76562678082c5780e0c3435f` |
 
 ### Parent evidence folded (not re-run)
 
