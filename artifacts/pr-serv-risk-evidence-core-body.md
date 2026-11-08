@@ -19,10 +19,10 @@ OWNER 334 CORE gap: free-gov packets were collapsing to summary/note strings, so
 | --- | --- |
 | Branch | `cursor/serv-risk-evidence-core-b667` |
 | Base | `origin/main` @ `17bc81839595c627de7ffead5c1ac5b28176d7af` |
-| Tip | `c31689a2906e7d9fb88ee18c1f3200b4d97e3c85` |
-| Tree | `e664737dfac27b93ec126ceb0507d8c0eddcaa2b` |
+| Tip | `a431adcc3a2972ab9965d26de04a8e269d24134a` |
+| Tree | `ff9c3711555580e28c06213cf640d73fb0bb2aaf` |
 | Implement | `4353efae20219acaa1f93c02a0d4e9fbf000de56` |
-| CI | pending after PR open |
+| CI | pending — open PR from branch (gh create blocked for integration) |
 
 ### Tests
 
@@ -40,6 +40,10 @@ OWNER 334 CORE gap: free-gov packets were collapsing to summary/note strings, so
 - UI still client-mirrors receipts for shortlist; server shortlist is authoritative on next-check response.
 - Paid history still user-action — no autocharge (intentional).
 - Live Scenario2 re-eval after merge/publication (parent).
+
+### Open PR
+
+https://github.com/aspekt19/autoflip/compare/main...cursor/serv-risk-evidence-core-b667?expand=1
 
 ### Coord
 
