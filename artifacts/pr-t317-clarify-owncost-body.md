@@ -10,7 +10,7 @@
 | Branch | `cursor/t315-clarify-owncost-ecfd-1033` |
 | Base | `main` @ `0aeed3b3fc7611be47eab0eff6b737a9abf869bd` (PR76 published) |
 | **Implement tip** | `e5df318a5faeb1eb462def0ac23636d40f87f920` / tree `7e80af2e66590cd2c4c0b0dac3d8eb32a2f1be09` |
-| **Branch tip** | (docs tip after this body commit — see latest HEAD) |
+| **Branch tip** |  / tree  |
 
 ### Parent evidence folded (not re-run here)
 
