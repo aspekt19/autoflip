@@ -12,10 +12,10 @@ Base = main `ba6e127`. Branch `cursor/find-nextcheck-live-apply-ecfd-1033` / PR 
 | --- | --- |
 | Branch | `cursor/find-nextcheck-live-apply-ecfd-1033` |
 | Base | `ba6e127d399afa8b64126dcf35da73fdd8f81158` |
-| Tip | `5766a59d4a35d6edf78f0f2dbfb63f7e01d01ae6` / tree `2f4b8682d26608a81dda16c36ae7004040bab480` |
+| Tip | `e41905cb55337ea09b12c08e3806addb23aa3f2e` / tree `8f7dbaa0fcafe6e27097b3f863aa651711c6e39d` (docs body pin) |
 | Implement | `6eedde6c695e29978b66d91f08b58d4cec10d557` / tree `522608d89e1e788be1e6cce0c0585a80d518a6ff` |
+| CI tip | `5766a59d4a35d6edf78f0f2dbfb63f7e01d01ae6` — **`42512354414` SUCCESS** (736 tests) |
 | Prior tip | `bc00abac64c0d6f561587296cbb261edb75750af` |
-| CI | **`42512354414` SUCCESS** on tip `5766a59` (736 tests local; CI green) |
 
 ### Accepted preserved
 
