@@ -55,6 +55,8 @@ Scoped product fixes from t307 phase1 + t308 visual/cost audits on published mai
 | Prior ACCEPT head (superseded) | `f2d25f3f5c03d6b3a9fe0f4fc8c191b6c212dd01` / tree `58b2c55805feb44f03f0663d54c61a3038aafa72` |
 | Head (t309 fix) | `ae312a5d32d999dc243e601e1627b699777a3fc9` |
 | Head tree (t309 fix) | `5eaa496087eb7c10f30db9535de6588482afabb1` |
+| Branch tip (docs pin) | `54641cdd31f07253c1c385453c6e2e3eace2124c` / tree `ecc8cb52c3f7622c644729a6568e895507fa2fe7` |
+| CI | tip run **success** https://github.com/aspekt19/autoflip/actions/runs/42496021335 ; fix run **success** https://github.com/aspekt19/autoflip/actions/runs/42496012797 |
 | Tests | vitest report/find suite green incl. Gateway Mazda t309 cases; typecheck |
 | Audits | `artifacts/t307-phase1-audit.md`, `artifacts/t308-credit-cost-map.md`, `artifacts/t308-test-credit-path.md`, `artifacts/t309-find-context-zip-mismatch.md` |
 
