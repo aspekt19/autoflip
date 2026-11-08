@@ -20,6 +20,10 @@ import {
 import { isReportHardRefusal, reportRefusalUserMessage } from "@/domain/report-refusal-ui";
 import { findEmptyCopy, type FindEmptyReason } from "@/domain/find-empty";
 import type { FindListingPriceView } from "@/domain/find-listing-price";
+import {
+  formatObservedModelSnapshot,
+  observedModelSnapshots,
+} from "@/domain/find-model-observe";
 import { USE_CASES, searchScopeLabel, softPrefGapsFromText, type FollowUp, type StructuredNeed } from "@/domain/need";
 import type { Mode } from "@/domain/types";
 import { isValidVin } from "@/domain/vin";
@@ -1070,6 +1074,32 @@ function AssistantFlow({
                   : ""}{" "}
                 Years {group.direction.yearMin}–{group.direction.yearMax}. {group.direction.yearBecause}
               </p>
+              {group.listings.length > 0
+                ? (() => {
+                    const snaps = observedModelSnapshots(
+                      group.listings.map((car) => ({
+                        make: car.make,
+                        model: car.model,
+                        year: car.year,
+                        priceUsd: car.priceView?.usableForBudget ? car.priceUsd : null,
+                        miles: car.miles,
+                      })),
+                    );
+                    if (snaps.length < 2) return null;
+                    return (
+                      <div className="hint" role="note">
+                        <p>
+                          Observed across models in these cards (not a TCO or reliability ranking — {snaps[0]!.honesty}):
+                        </p>
+                        <ul>
+                          {snaps.map((snap) => (
+                            <li key={`${snap.make}-${snap.model}`}>{formatObservedModelSnapshot(snap)}</li>
+                          ))}
+                        </ul>
+                      </div>
+                    );
+                  })()
+                : null}
               <button className="quiet" type="button" onClick={() => void watch(group.direction)} disabled={pending === group.direction.id}>
                 {pending === group.direction.id ? "Saving alert…" : need?.mode === "flip" ? "Get alerts for this budget" : "Get new-listing alerts"}
               </button>

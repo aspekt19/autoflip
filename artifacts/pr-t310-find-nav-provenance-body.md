@@ -1,40 +1,44 @@
 ## Summary
 
-Scoped root-cause fixes for t310 scenario1 + scenario2 findings after PR75 consumer cycles. **HOLD — no merge/deploy until parent independent review + owner ACCEPT.**
+**t307 / t310 / t313 / t314 workstream** — strengthen the consumer NL Find path after PR75. **HOLD — no merge/deploy until parent independent review + owner ACCEPT.**
 
-Base published main: `e6eb269…`. No live provider / SERV / credit / secret / env / Graph / new-service changes in this PR.
+Base: published `main` @ `e6eb269…`. No live provider / SERV / credit / secret / env / Graph / new paid services / PR71.
 
-### Scenario 1 (prior) + homepage
-1. **Homepage Find cars** — client `router.push` after `preventDefault` could leave the hero unchanged. **Fix:** native `GET /find` (`note` + `mode`).
-2. **CX-5 monopoly + duplicate sections** — editorial Compact crossovers re-searched named CX-5. **Fix:** demote already-named models for editorial search; cross-direction VIN dedupe. Empty RAV4 = availability, not invented.
-3. **Provenance** — trusted find ask/miles labeled “typed in”. **Fix:** `factSource: "find_feed"` truthful seller-feed notes. PR74/75 trust/credit guards unchanged.
-4. **Soft prefs honesty** — AWD / history / running-cost gaps surfaced as honesty lines (no fabricated filters).
+Owner intent (t314): such and similar scenarios must work — coherent path, not two-phrase overfit.
 
-### Scenario 2 (new)
-1. **Named prefs as hard exclusions** — “looking at CR-V, Tucson, Sportage” became `openToOtherMakes=false` (“Other makes are left out”) because openness required explicit “open to” phrasing. **Cause:** preferences defaulted closed. **Fix:** `preferOpenToOtherMakes` — named makes are preferences unless explicit closed language (`not interested in other makes`, `only a Honda`, …). Confirm UI then keeps other makes in the mix.
-2. **All 8 CR-V / no Tucson/Sportage** — CSV shows 8 Honda CR-V only. With closed mandate, named direction still *planned* all three models; absence of Tucson/Sportage in results is consistent with empty/filtered provider returns within ZIP50 / $15k (not inventable). After open-preference fix, editorial alternatives also search non-named crossovers. **No quotas / no invented Tucson/Sportage rows.**
-3. **Number audit / shadow agent** (`fallback_template — number audit failed`; `invented_number, buy_language_on_negative_verdict`) — **Guard kept.** Audit correctly blocks unsafe published prose; template explanation is shown instead. False-positive hardenings only:
-   - allow restating mandate budget (`$15,000`) in allowlist / money collect
-   - scrub cautionary “before you buy / before purchase” so needs_inspection advisories are not treated as buy recommendations
-   - affirmative “good deal — buy it” on insufficient_data still fails (true positive)
-   - Proof of AI UX clarifies blocked model text was **not published**
-4. **TCO / model comparison / fuel annual cost / reliability-age ranking** — **explicit residuals.** Product does not yet ground TCO or side-by-side model ownership-cost comparison; fuel stays unavailable without FuelEconomy.gov match. Soft-pref honesty mentions these gaps. **Do not claim t310 NL acceptance passed.**
+### Product path addressed
+
+| Stage | Implemented in this PR | Still residual |
+| --- | --- | --- |
+| NL intent → prefs | Named models default to **preferences** (open) unless explicit closed language; paraphrase + negation tests | SERV replan / bounded tool choices beyond need extract |
+| Model/candidate generation | Named group searches **all** named models; editorial extras demote already-named search targets | Deeper body/use inference beyond editorial tables |
+| Inventory across models | **Round-robin diversify** so first-named model cannot fill the 8-card window; cross-direction VIN dedupe; confirmed-empty vs coverage-failure copy | Live Tucson/Sportage empty in a given ZIP/budget remains availability |
+| Comparison / ownership cost | **Observed-from-search** median ask/miles/year per model on results (sourced cards only) | Grounded TCO, EPA always-on fuel, model reliability ranking |
+| Condition / history / clarifications | Soft-pref honesty (AWD optional, age unknown, history/condition, running cost); Proof-of-AI audit UX | Progressive structured follow-ups beyond use/budget/geo; VIN history product |
+| Homepage entry | Native `GET /find` submit | — |
+| Provenance Find→report | `factSource: "find_feed"` truthful labels | — |
+| Number audit | **Guard retained**; FP harden (mandate budget; cautionary before-purchase); blocked prose not published | Full SERV explain quality (not claimed fixed) |
+
+### Scenario evidence (production already ran — not re-run here)
+
+- S1: CX-5 domination + duplicate sections + seller-feed vs typed-in
+- S2: hard exclusion UI; 8× CR-V; report `e6aadbfa…`; audit `invented_number, buy_language_on_negative_verdict` → template fallback (**protection kept**)
+
+### Offline evidence
+
+- `npm run typecheck` pass (fixes prior CI `listingCached` type error)
+- `npm test` — **642** passed / **110** files (includes paraphrase/negation/soft-vs-strict, diversify, observed snapshots, audit FP)
+
+### Not claimed / do not declare t310–t314 done
+
+- Invented inventory or equal model quotas
+- Full grounded TCO / always-available fuel / reliability scores
+- Removal of number-audit or “unsafe model text was safe to publish”
+- Live browser / provider / credit re-verification
+- Merge, deploy, env/model/Graph/PR71
 
 ## Test plan
 
-- [x] `npm test` — 627 passed / 108 files
-- [ ] Parent opens PR → GitHub CI (workflows on `pull_request`)
-- [ ] Independent review; **HOLD merge** until ACCEPT
-- [ ] No live Find/report/credit re-run in this agent
-
-## Pins
-
-- Branch: `cursor/find-nav-provenance-ecfd-1033`
-- Base: `main` @ `e6eb269ec725ed500a77549f420a8b5a9086a727`
-
-## Not claimed
-
-- Invented Tucson/Sportage/RAV4 inventory or equal model quotas
-- Grounded TCO / model-vs-model ownership cost / always-available fuel
-- Removal of number-audit protection or “unsafe SERV text was safe”
-- Live browser re-verification; merge; deploy; env/model/Graph/PR71
+- [x] Local typecheck + full vitest
+- [ ] GitHub CI green on this head after push
+- [ ] Parent independent review; **HOLD merge** until ACCEPT

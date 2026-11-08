@@ -252,6 +252,70 @@ describe("runFindMatch Stage2A search semantics", () => {
     expect(urls.some((u) => u.includes("distance=100"))).toBe(true);
   });
 
+  it("diversifies named-model results so CR-V inventory cannot hide Tucson/Sportage rows", async () => {
+    let crv = 0;
+    const fetchImpl = vi.fn(async (url: RequestInfo | URL) => {
+      const href = String(url);
+      if (!href.includes("api.auto.dev")) return servAllow();
+      if (href.includes("CR-V") || href.includes("CR%2DV") || href.includes("CR-V")) {
+        crv += 1;
+        return autodevOk(
+          Array.from({ length: 8 }, (_, i) =>
+            listingRow(`5J6RM4H75K${String(i).padStart(7, "0")}`, "Honda", "CR-V", 12_000 + i * 100),
+          ),
+        );
+      }
+      if (href.includes("Tucson")) {
+        return autodevOk([listingRow("KM8J3CA4XJU000101", "Hyundai", "Tucson", 13_500)]);
+      }
+      if (href.includes("Sportage")) {
+        return autodevOk([listingRow("KNDPMCAC5L7000202", "Kia", "Sportage", 12_800)]);
+      }
+      return autodevOk([]);
+    });
+
+    const result = await runFindMatch(
+      {
+        need: {
+          mode: "personal",
+          useCase: "family",
+          note: "family car around 15000 looking at Honda CR-V Hyundai Tucson Kia Sportage",
+          budgetUsd: 15_000,
+          budgetKnown: true,
+          preferredModels: [
+            { make: "Honda", model: "CR-V" },
+            { make: "Hyundai", model: "Tucson" },
+            { make: "Kia", model: "Sportage" },
+          ],
+          preferredModelsSource: "user_note",
+          preferredMakes: ["Honda", "Hyundai", "Kia"],
+          openToOtherMakes: true,
+          zip: "68114",
+          distanceMiles: 50,
+          milesMax: null,
+        },
+      },
+      {
+        autodevKey: "test-key",
+        servKey: "serv",
+        fetch: fetchImpl as typeof fetch,
+        autodev: { cache: new TtlCache<unknown>(), counter: new MemoryCounter() },
+        kv: new MemoryKv(),
+        env: {},
+        maxProviderQueries: 6,
+      },
+    );
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const named = result.body.directions.find((d) => d.direction.segment === "Models you named");
+    expect(named).toBeTruthy();
+    const models = new Set(named!.listings.map((l) => l.model));
+    expect(models.has("CR-V")).toBe(true);
+    expect(models.has("Tucson")).toBe(true);
+    expect(models.has("Sportage")).toBe(true);
+    expect(crv).toBeGreaterThanOrEqual(1);
+  });
+
   it("does not repeat the same VIN under Models you named and Compact crossovers", async () => {
     const mazdaVin = VIN.mazda;
     const fetchImpl = vi.fn(async (url: RequestInfo | URL) => {

@@ -440,17 +440,33 @@ export function openToOtherMakesFromText(text: string): boolean {
   );
 }
 
+const MAINSTREAM_ONLY =
+  "honda|toyota|mazda|hyundai|kia|subaru|ford|chevrolet|chevy|nissan|volkswagen|vw|bmw|mercedes|lexus|acura|jeep|gmc|ram|dodge|chrysler|buick|cadillac|volvo|audi|mitsubishi|mini|tesla";
+
 /** Explicit closed mandate — only then treat named makes as hard exclusions. */
 export function closedToOtherMakesFromText(text: string): boolean {
-  return (
+  const hardClose =
     /\bnot interested in other (?:makes?|brands?|options?|models?)\b/i.test(text) ||
-    /\b(?:only|just)\s+(?:a\s+)?(?:honda|toyota|mazda|hyundai|kia|subaru|ford|chevrolet|chevy|nissan|volkswagen|vw|bmw|mercedes|lexus|acura|jeep|gmc|ram|dodge|chrysler|buick|cadillac|volvo|audi|mitsubishi|mini|tesla)\b/i.test(
-      text,
-    ) ||
+    /\bnothing else\b/i.test(text) ||
+    /\bexclude other (?:makes?|brands?|options?)\b/i.test(text) ||
+    /\bdon'?t show (?:me )?any(?:thing)? else\b/i.test(text) ||
     /\bno other (?:makes?|brands?|options?)\b/i.test(text) ||
-    /\bmust be (?:a\s+)?(?:honda|toyota|mazda|hyundai|kia)\b/i.test(text) ||
-    /\b(?:stick|limit|restrict)(?:ed|ing)?\s+to\s+(?:these\s+)?(?:makes?|brands?|models?)\b/i.test(text)
+    new RegExp(String.raw`\bmust be (?:a\s+)?(?:${MAINSTREAM_ONLY})\b`, "i").test(text) ||
+    /\b(?:stick|limit|restrict)(?:ed|ing)?\s+to\s+(?:these\s+)?(?:makes?|brands?|models?)\b/i.test(text) ||
+    /\bsolely (?:interested in|looking for)\b/i.test(text) ||
+    // "only/just a Honda" — but not soft "I've only been looking at…"
+    (new RegExp(String.raw`\b(?:only|just)\s+(?:a\s+)?(?:${MAINSTREAM_ONLY})\b`, "i").test(text) &&
+      !/\bonly been looking\b/i.test(text));
+
+  if (!hardClose) return false;
+
+  // Soft browsing alone never closes; a hard clause elsewhere in the note still can.
+  const softBrowse = /\bbeen looking at\b|\blooking at\b|\bconsidering\b|\bcomparing\b|\bbetween\b|\bonly been looking\b/i.test(
+    text,
   );
+  if (!softBrowse) return true;
+  // Soft browse + hard close language in the same note → closed.
+  return hardClose;
 }
 
 /**
@@ -597,7 +613,7 @@ export type FollowUp = { id: "zip" | "use" | "repair" | "profit" | "cash"; promp
  * that pretend we can enforce them at search time.
  */
 export type SoftPrefGap = {
-  id: "awd" | "history" | "fuel_or_running_cost";
+  id: "awd" | "history" | "fuel_or_running_cost" | "age";
   mentioned: string;
   honesty: string;
 };
@@ -605,6 +621,7 @@ export type SoftPrefGap = {
 export function softPrefGapsFromText(text: string): SoftPrefGap[] {
   const t = text.toLowerCase();
   const gaps: SoftPrefGap[] = [];
+  // Optional AWD ("ideally", "preferably") is still a soft gap — never a silent hard filter.
   if (/\b(awd|4wd|all[\s-]?wheel|four[\s-]?wheel)\b/i.test(t)) {
     gaps.push({
       id: "awd",
@@ -622,7 +639,7 @@ export function softPrefGapsFromText(text: string): SoftPrefGap[] {
       id: "history",
       mentioned: "condition / vehicle history",
       honesty:
-        "Find listings are not a vehicle-history or condition check. Title brands, accidents, and odometer brands need a full report plus an NMVTIS-approved history report before purchase.",
+        "Find listings are not a vehicle-history or condition check. Missing history is not a clean history. Title brands, accidents, and odometer brands need a full report plus an NMVTIS-approved history report before purchase.",
     });
   }
   if (
@@ -635,6 +652,14 @@ export function softPrefGapsFromText(text: string): SoftPrefGap[] {
       mentioned: "running cost / fuel economy",
       honesty:
         "Find does not rank ownership cost or MPG, and there is no grounded TCO or model-to-model cost comparison yet. EPA fuel economy appears only when a full report gets a usable FuelEconomy.gov match — otherwise it stays unavailable.",
+    });
+  }
+  if (/\b(not too old|newer|recent(?:er)?|not ancient)\b/i.test(t) && !/\b(19|20)\d{2}\b/.test(t) && !/\bunder\s+\d+\s+years?\b/i.test(t)) {
+    gaps.push({
+      id: "age",
+      mentioned: "age / not too old",
+      honesty:
+        "No hard model-year cutoff was stated. Find uses a budget-based year band for search — set an explicit year range on Confirm if you have one.",
     });
   }
   return gaps;
