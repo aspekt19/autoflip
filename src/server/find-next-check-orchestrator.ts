@@ -10,6 +10,12 @@
  */
 import type { DecisionProof } from "@/domain/decision-note";
 import {
+  executeFindFreeGovCheck,
+  fingerprintFreeGovReceipts,
+  freeGovReceiptsBrief,
+  type FindFreeGovReceipt,
+} from "@/domain/find-free-gov";
+import {
   countRemainingAutomaticChecks,
   decideFindNextCheckLoop,
   fingerprintListings,
@@ -19,6 +25,7 @@ import {
 import { buildGroundedShortlist, type FindSearchRefine } from "@/domain/find-path";
 import { proposeFindNextChecks } from "@/domain/find-next-checks";
 import { softPrefGapsFromText, type StructuredNeed } from "@/domain/need";
+import type { ScoutFreeGovPort } from "@/domain/scout/free-gov";
 import type { Kv } from "@/io/kv";
 import {
   appliedFingerprint,
@@ -66,6 +73,8 @@ export type FindNextCheckOrchestratorDeps = FindNextCheckLiveDeps & {
   userId: string;
   /** Injected rematch — production wires runFindMatch. */
   runMatch?: MatchRunner;
+  /** Injected free-gov port — offline tests use mock/unsupported; live uses createLiveFreeGovPort. */
+  freeGovPort?: ScoutFreeGovPort;
 };
 
 /** Public, secret-free diagnostics when autonomy did not engage. */
@@ -110,6 +119,9 @@ export type FindNextCheckOrchestratorOk = {
   } | null;
   needAfter: StructuredNeed;
   appliedCheckIds: string[];
+  /** Free public NHTSA receipts after this step (server-owned; may be empty). */
+  freeGovReceipts: FindFreeGovReceipt[];
+  freeEvidenceNote: string | null;
   /** Ordinary UI auto-continues when continue=true (no hidden step quota). */
   loop: FindNextCheckLoopDisposition;
 };
@@ -180,6 +192,8 @@ function publicResultPayload(ok: FindNextCheckOrchestratorOk): string {
     rematch: ok.rematch,
     needAfter: ok.needAfter,
     appliedCheckIds: ok.appliedCheckIds,
+    freeGovReceipts: ok.freeGovReceipts,
+    freeEvidenceNote: ok.freeEvidenceNote,
     loop: ok.loop,
     proofs: ok.proofs,
   });
@@ -247,12 +261,14 @@ export async function runFindNextCheckOrchestrator(
   }
 
   try {
+    const priorReceipts = ctx.freeGovReceipts ?? [];
     const live = await runFindNextCheckLive(
       {
         need: ctx.need,
         listings: ctx.listings,
         refine: ctx.refine,
         appliedCheckIds: ctx.appliedCheckIds,
+        freeGovBrief: freeGovReceiptsBrief(priorReceipts),
       },
       {
         servKey: deps.servKey,
@@ -282,6 +298,8 @@ export async function runFindNextCheckOrchestrator(
     let listingsAfter = ctx.listings;
     let refineAfter = live.replan.refine;
     let rematchOk: boolean | null = null;
+    let freeGovReceipts = priorReceipts;
+    let freeEvidenceNote: string | null = null;
 
     if (live.research && deps.runMatch) {
       // CRITICAL: rematch uses NEW need from apply — never pre-apply / stale UI years.
@@ -305,22 +323,45 @@ export async function runFindNextCheckOrchestrator(
       rematchOk = null;
     }
 
+    // Free public NHTSA tools — autonomous, no Report credit, reuses Scout free-gov port.
+    if (live.replan.freeEvidence) {
+      const executed = await executeFindFreeGovCheck({
+        checkId: live.chosenId,
+        listings: listingsAfter,
+        gov: deps.freeGovPort,
+      });
+      if (executed) {
+        freeGovReceipts = [...priorReceipts, ...executed.receipts];
+        freeEvidenceNote = executed.note;
+        live.replan = {
+          ...live.replan,
+          note: `${live.replan.note} ${executed.note}`.trim(),
+        };
+      }
+    }
+
     const updated: FindSearchContextRecord = await updateFindSearchContext(deps.kv, ctx, {
       need: live.replan.need,
       refine: refineAfter,
       listings: listingsAfter,
       appliedCheckIds: appliedNext,
+      freeGovReceipts,
     });
 
-    // Shortlist + remaining checks from POST-apply / POST-rematch evidence.
+    // Shortlist + remaining checks from POST-apply / POST-rematch / free-gov evidence.
     const shortlistAfter = buildGroundedShortlist(updated.need, updated.listings);
     const softGaps = softPrefGapsFromText(updated.need.note);
+    const listingsHaveVin = updated.listings.some(
+      (l) => typeof l.vin === "string" && l.vin.trim().length >= 11,
+    );
     const remainingProposed = proposeFindNextChecks({
       need: updated.need,
       softGaps,
       observedListingCount: updated.listings.length,
       observedModelCount: new Set(updated.listings.map((l) => `${l.make}|${l.model}`)).size,
       emptyInventory: updated.listings.length === 0,
+      appliedCheckIds: appliedNext,
+      listingsHaveVin,
     });
     const remainingActionableCount = countRemainingAutomaticChecks(
       remainingProposed.map((c) => c.id),
@@ -347,6 +388,8 @@ export async function runFindNextCheckOrchestrator(
       needAfterFp: fingerprintNeed(updated.need),
       listingsBeforeFp: fingerprintListings(ctx.listings),
       listingsAfterFp: fingerprintListings(updated.listings),
+      freeGovBeforeFp: fingerprintFreeGovReceipts(priorReceipts),
+      freeGovAfterFp: fingerprintFreeGovReceipts(freeGovReceipts),
       shortlistCount: shortlistAfter.length,
       remainingActionableCount,
     });
@@ -369,11 +412,13 @@ export async function runFindNextCheckOrchestrator(
       keyedAutonomyDiag,
       honesty:
         live.source === "serv"
-          ? live.honesty
-          : `${live.honesty} Source=deterministic_fallback — not autonomous SERV.${keyedAutonomyDiag.configHint ? ` ${keyedAutonomyDiag.configHint}` : ""}`,
+          ? `${live.honesty}${freeEvidenceNote ? ` ${freeEvidenceNote}` : ""}`
+          : `${live.honesty} Source=deterministic_fallback — not autonomous SERV.${keyedAutonomyDiag.configHint ? ` ${keyedAutonomyDiag.configHint}` : ""}${freeEvidenceNote ? ` ${freeEvidenceNote}` : ""}`,
       rematch,
       needAfter: live.replan.need,
       appliedCheckIds: appliedNext,
+      freeGovReceipts,
+      freeEvidenceNote,
       loop,
     };
 

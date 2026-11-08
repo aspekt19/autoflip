@@ -8,6 +8,7 @@
  *
  * No invented TCO/history. No report-credit debit. TTL mirrors find analysis ctx.
  */
+import type { FindFreeGovReceipt } from "@/domain/find-free-gov";
 import type { ObservedListingRow } from "@/domain/find-model-observe";
 import type { FindSearchRefine } from "@/domain/find-path";
 import type { StructuredNeed } from "@/domain/need";
@@ -27,6 +28,8 @@ export type FindSearchContextRecord = {
   refine: FindSearchRefine;
   listings: FindSearchListingFact[];
   appliedCheckIds: string[];
+  /** Immutable free public NHTSA receipts (server-owned). */
+  freeGovReceipts: FindFreeGovReceipt[];
   /** True when SERV_API_KEY was present at mint — UI may auto-start next-check. */
   servNextCheckEnabled: boolean;
   iat: number;
@@ -63,6 +66,7 @@ export function mintFindSearchContextRecord(input: {
       vin: row.vin ?? null,
     })),
     appliedCheckIds: [],
+    freeGovReceipts: [],
     servNextCheckEnabled: Boolean(input.servNextCheckEnabled),
     iat,
     exp: iat + FIND_SEARCH_CONTEXT_TTL_SEC,
@@ -110,6 +114,12 @@ export async function loadFindSearchContext(
   if (record?.v !== 1 || typeof record.token !== "string" || !record.need) {
     return { ok: false, reason: "malformed", message: "Corrupt search context." };
   }
+  if (!Array.isArray(record.freeGovReceipts)) {
+    record.freeGovReceipts = [];
+  }
+  if (!Array.isArray(record.appliedCheckIds)) {
+    record.appliedCheckIds = [];
+  }
   if (record.userId !== input.userId) {
     return { ok: false, reason: "wrong_user", message: "Search context belongs to another session." };
   }
@@ -133,6 +143,7 @@ export async function updateFindSearchContext(
     refine?: FindSearchRefine;
     listings?: FindSearchListingFact[];
     appliedCheckIds?: string[];
+    freeGovReceipts?: FindFreeGovReceipt[];
   },
 ): Promise<FindSearchContextRecord> {
   const next: FindSearchContextRecord = {
@@ -141,9 +152,46 @@ export async function updateFindSearchContext(
     refine: patch.refine ?? record.refine,
     listings: patch.listings ?? record.listings,
     appliedCheckIds: patch.appliedCheckIds ?? record.appliedCheckIds,
+    freeGovReceipts: patch.freeGovReceipts ?? record.freeGovReceipts ?? [],
   };
   await storeFindSearchContext(kv, next);
   return next;
+}
+
+/**
+ * Same-REAL input export for Flip/parent comparison within TTL.
+ * Sanitized: no credentials, no session secrets; listings already shopper-visible.
+ */
+export function exportFindSearchContextSanitized(record: FindSearchContextRecord): {
+  schemaVersion: "find-search-context-export/v1";
+  tokenFingerprint: string;
+  need: StructuredNeed;
+  refine: FindSearchRefine;
+  listingCount: number;
+  listings: FindSearchListingFact[];
+  appliedCheckIds: string[];
+  freeGovReceipts: FindFreeGovReceipt[];
+  servNextCheckEnabled: boolean;
+  iat: number;
+  exp: number;
+  honesty: string;
+} {
+  const tokenFingerprint = record.token.slice(0, 8);
+  return {
+    schemaVersion: "find-search-context-export/v1",
+    tokenFingerprint,
+    need: record.need,
+    refine: record.refine,
+    listingCount: record.listings.length,
+    listings: record.listings,
+    appliedCheckIds: record.appliedCheckIds,
+    freeGovReceipts: record.freeGovReceipts ?? [],
+    servNextCheckEnabled: record.servNextCheckEnabled,
+    iat: record.iat,
+    exp: record.exp,
+    honesty:
+      "Sanitized Find search context export — no API keys. Free-gov receipts are public NHTSA lookups; not NMVTIS/title clearance. Fixtures ≠ live proof.",
+  };
 }
 
 export function listingsFromMatchDirections(

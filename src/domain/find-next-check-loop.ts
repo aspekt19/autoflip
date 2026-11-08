@@ -101,6 +101,9 @@ export function decideFindNextCheckLoop(input: {
   needAfterFp: string;
   listingsBeforeFp: string;
   listingsAfterFp: string;
+  /** Free-gov receipt fingerprint — evidence change continues even if need/listings unchanged. */
+  freeGovBeforeFp?: string;
+  freeGovAfterFp?: string;
   shortlistCount: number;
   /** Allowlisted ids still proposed and not yet applied. */
   remainingActionableCount: number;
@@ -148,21 +151,36 @@ export function decideFindNextCheckLoop(input: {
 
   const needChanged = input.needBeforeFp !== input.needAfterFp;
   const listingsChanged = input.listingsBeforeFp !== input.listingsAfterFp;
-  const contextChanged = needChanged || listingsChanged;
+  const freeGovChanged =
+    (input.freeGovBeforeFp ?? "") !== (input.freeGovAfterFp ?? "") &&
+    Boolean(input.freeGovAfterFp);
+  const contextChanged = needChanged || listingsChanged || freeGovChanged;
+
+  // Free public evidence just landed — continue SERV with new facts (no rematch required).
+  if (freeGovChanged && input.remainingActionableCount > 0) {
+    return {
+      continue: true,
+      reason: "evidence_changed_replan",
+      detail:
+        "Free public vehicle evidence receipts changed — continue SERV next-check automatically (no Report credit).",
+    };
+  }
 
   if (!contextChanged) {
     return {
       continue: false,
       reason: "unchanged_state",
-      detail: "Need and listings unchanged after apply/rematch — loop guard stop.",
+      detail: "Need, listings, and free-gov evidence unchanged after apply/rematch — loop guard stop.",
     };
   }
 
   // Compare-only presentation with grounded cards and no further research → stop.
+  // Do not take this stop when free-gov evidence just changed (handled above).
   if (
     input.chosenId === ("compare_observed_asks" satisfies FindNextCheckId) &&
     input.shortlistCount > 0 &&
-    !input.research
+    !input.research &&
+    !freeGovChanged
   ) {
     return {
       continue: false,

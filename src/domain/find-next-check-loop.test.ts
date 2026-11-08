@@ -50,6 +50,24 @@ describe("decideFindNextCheckLoop", () => {
     );
   });
 
+  it("free-gov evidence fingerprint change continues without rematch", () => {
+    const d = decideFindNextCheckLoop({
+      ...base,
+      chosenId: "free_gov_recalls",
+      research: false,
+      rematchOk: null,
+      freeGovBeforeFp: "[]",
+      freeGovAfterFp: '[{"checkId":"free_gov_recalls"}]',
+      remainingActionableCount: 2,
+      needBeforeFp: "same",
+      needAfterFp: "same",
+      listingsBeforeFp: "same",
+      listingsAfterFp: "same",
+    });
+    expect(d.continue).toBe(true);
+    expect(d.reason).toBe("evidence_changed_replan");
+  });
+
   it("loop-guards unchanged state (no hidden quota)", () => {
     const d = decideFindNextCheckLoop({
       ...base,

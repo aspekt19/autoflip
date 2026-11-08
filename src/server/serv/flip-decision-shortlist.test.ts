@@ -44,6 +44,10 @@ describe("Flip decision shortlist (t321 Fable excluded)", () => {
     expect(findProfile.ok).toBe(true);
     if (!findProfile.ok) return;
     expect(findProfile.baseId).toBe("gpt-5.6-sol");
+    const fableBlocked = resolveProfileBaseModel("find_next_check", {
+      env: { SERV_PROFILE_MODEL_FIND_NEXT_CHECK: "claude-fable-5" },
+    });
+    expect(fableBlocked.ok).toBe(false);
   });
 
   it("listServFlipDecisionShortlist matches shortlist length", () => {

@@ -37,6 +37,7 @@ describe("t315 progressive clarification", () => {
 
     const afterAge = applyFollowUp(need, "age", "2015");
     expect(afterAge.yearMin).toBe(2015);
+    expect(afterAge.yearBandResolved).toBe(true);
     const afterCondition = applyFollowUp(afterAge, "condition", "inspection_first");
     expect(afterCondition.conditionPriority).toBe("inspection_first");
 
@@ -51,6 +52,41 @@ describe("t315 progressive clarification", () => {
     // After clarifications, age/condition follow-ups drop.
     expect(followUps(afterCondition).map((q) => q.id)).not.toContain("age");
     expect(followUps(afterCondition).map((q) => q.id)).not.toContain("condition");
+  });
+
+  it("No year floor (any) resolves age without forcing a year — Continue must not deadlock", () => {
+    const need = explicitNeedFromText(SCENARIO2, "personal");
+    expect(followUps(need).map((q) => q.id)).toEqual(expect.arrayContaining(["age", "condition"]));
+
+    const afterAny = applyFollowUp(need, "age", "any");
+    expect(afterAny.yearMin).toBeNull();
+    expect(afterAny.yearMax).toBeNull();
+    expect(afterAny.yearBandResolved).toBe(true);
+    // Explicit no-floor ≠ unanswered — age prompt must clear.
+    expect(followUps(afterAny).map((q) => q.id)).not.toContain("age");
+
+    const afterBoth = applyFollowUp(afterAny, "condition", "inspection_first");
+    expect(afterBoth.conditionPriority).toBe("inspection_first");
+    expect(followUps(afterBoth)).toEqual([]);
+
+    // Budget editorial band still applies when floors stay null (no invented year).
+    const directions = proposeDirections(
+      { ...afterBoth, zip: "68114", distanceMiles: 50, budgetUsd: 15_000, budgetKnown: true },
+      undefined,
+      new Date("2026-11-08T00:00:00Z"),
+    );
+    expect(directions[0]?.yearMin).toBe(2012);
+    expect(directions[0]?.yearBecause).not.toMatch(/clarification/i);
+
+    // Next-check must not re-offer clarify_year_band that would force 2015.
+    const checks = proposeFindNextChecks({
+      need: afterBoth,
+      softGaps: softPrefGapsFromText(afterBoth.note),
+      observedListingCount: 3,
+      observedModelCount: 3,
+      emptyInventory: false,
+    });
+    expect(checks.every((c) => c.id !== "clarify_year_band")).toBe(true);
   });
 
   for (const note of PARAPHRASES) {

@@ -112,6 +112,13 @@ export async function runFindNextCheckLive(
     fuelsByModelKey?: Record<string, FuelFact | null>;
     /** Already-applied check ids this session — avoid identical re-apply loops. */
     appliedCheckIds?: string[];
+    /** Prior free public NHTSA receipts (planner facts — immutable). */
+    freeGovBrief?: {
+      count: number;
+      toolIds: string[];
+      statuses: string[];
+      summaries: string[];
+    } | null;
   },
   deps: FindNextCheckLiveDeps = {},
 ): Promise<FindNextCheckLiveOk | FindNextCheckLiveErr> {
@@ -129,12 +136,19 @@ export async function runFindNextCheckLive(
   const listings = Array.isArray(body.listings) ? body.listings : [];
   const softGaps: SoftPrefGap[] = softPrefGapsFromText(need.note);
   const compare = compareObservedModels(listings, body.fuelsByModelKey ?? {});
+  const listingsHaveVin = listings.some(
+    (l) => typeof (l as { vin?: string | null }).vin === "string" &&
+      String((l as { vin?: string | null }).vin).trim().length >= 11,
+  );
+  const appliedCheckIds = (body.appliedCheckIds ?? []).filter((id) => typeof id === "string");
   const allowedChecks = proposeFindNextChecks({
     need,
     softGaps,
     observedListingCount: listings.length,
     observedModelCount: compare.length,
     emptyInventory: listings.length === 0,
+    appliedCheckIds,
+    listingsHaveVin,
   });
   const allowedIds = allowedFindNextCheckIds(allowedChecks);
   if (allowedIds.length === 0) {
@@ -146,8 +160,7 @@ export async function runFindNextCheckLive(
     };
   }
 
-  const applied = new Set((body.appliedCheckIds ?? []).filter((id) => typeof id === "string"));
-  const preferred = allowedChecks.find((c) => !applied.has(c.id)) ?? allowedChecks[0]!;
+  const preferred = allowedChecks[0]!;
 
   const facts = {
     allowedChecks: allowedIds,
@@ -162,6 +175,11 @@ export async function runFindNextCheckLive(
     conditionPriority: need.conditionPriority,
     distanceMiles: need.distanceMiles,
     zipPresent: Boolean(need.zip),
+    listingsHaveVin,
+    appliedCheckIds,
+    freeGovEvidence: body.freeGovBrief ?? { count: 0, toolIds: [], statuses: [], summaries: [] },
+    freeGovHonesty:
+      "Free NHTSA only (recalls/complaints make/model/year, vPIC DecodeVinValues, NCAP SafetyRatings). Not NMVTIS/title. FuelEconomy unsupported on free Find surface. Missing VIN/history stays unknown.",
   };
   const factsBlob = JSON.stringify(facts);
   const user = JSON.stringify({

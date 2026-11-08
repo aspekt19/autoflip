@@ -209,6 +209,96 @@ describe("runFindNextCheckOrchestrator", () => {
     expect(fetchImpl).not.toHaveBeenCalled();
   });
 
+  it("free_gov_recalls: mock port receipts → evidence_changed_replan (NOT live NHTSA)", async () => {
+    const kv = new MemoryKv();
+    await storeFindSearchContext(
+      kv,
+      mintFindSearchContextRecord({
+        userId: "u1",
+        need: {
+          ...baseNeed,
+          conditionPriority: "inspection_first",
+          note: "SUV under 20k — don't want hidden problems",
+        },
+        listings: [
+          {
+            make: "Mazda",
+            model: "CX-5",
+            year: 2017,
+            priceUsd: 14950,
+            miles: 60000,
+            vin: "JM3KE4DY5H0123456",
+          },
+          {
+            make: "Toyota",
+            model: "RAV4",
+            year: 2015,
+            priceUsd: 16700,
+            miles: 74000,
+            vin: "JTMRFREV0F0654321",
+          },
+        ],
+        servNextCheckEnabled: true,
+        token: "tok-freegov",
+      }),
+    );
+    const fetchImpl = vi.fn(async () =>
+      jsonResponse({
+        choices: [
+          {
+            message: {
+              content: JSON.stringify({
+                checkId: "free_gov_recalls",
+                note: "check free recalls first",
+              }),
+            },
+          },
+        ],
+      }),
+    );
+    const result = await runFindNextCheckOrchestrator(
+      { searchContextToken: "tok-freegov" },
+      {
+        kv,
+        userId: "u1",
+        servKey: "k",
+        fetchImpl: fetchImpl as unknown as typeof fetch,
+        env: {},
+        freeGovPort: {
+          async run(toolId, listing) {
+            return {
+              toolId,
+              status: "empty" as const,
+              cached: false,
+              fetchedAt: new Date().toISOString(),
+              scope: "offline_mock_NOT_live_nhtsa",
+              url: null,
+              timeoutMs: 1,
+              rateNote: "offline mock — NOT live proof",
+              limitsNote: "Test double; make/model ≠ VIN-open recall status.",
+              facts: [],
+              summary: `Mock empty recalls for ${listing.make} ${listing.model} ${listing.year}`,
+              outcomeOk: true,
+              outcomeStatus: "empty" as const,
+              outcomeCapability: "empty" as const,
+            };
+          },
+        },
+      },
+    );
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.chosenId).toBe("free_gov_recalls");
+    expect(result.freeGovReceipts.length).toBeGreaterThan(0);
+    expect(result.freeEvidenceNote).toMatch(/No Report credit/i);
+    expect(result.loop.continue).toBe(true);
+    expect(result.loop.reason).toBe("evidence_changed_replan");
+    const stored = await loadFindSearchContext(kv, { userId: "u1", token: "tok-freegov" });
+    expect(stored.ok).toBe(true);
+    if (!stored.ok) return;
+    expect(stored.record.freeGovReceipts?.length).toBeGreaterThan(0);
+  });
+
   it("subsequent next-check facts include rematch listings (evidence → planner)", async () => {
     const kv = new MemoryKv();
     await storeFindSearchContext(
