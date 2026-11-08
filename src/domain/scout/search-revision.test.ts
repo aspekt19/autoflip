@@ -15,12 +15,66 @@ import {
 import {
   buildPlaceholderCandidates,
   loadPlaceholderLedger,
+  offlineFixtureGroundedReject,
   prepareCompareStep,
+  scoreFlipCycleProgress,
   scoreScoutPlanAction,
 } from "./serv-model-compare";
 import type { ScoutMandate } from "./types";
 
 describe("search revision while provider budget remains (t317)", () => {
+  it("Flip cycle: reject then abstain with budget = premature_stop; reject then revise = progress", () => {
+    const ledger = loadPlaceholderLedger();
+    const step = prepareCompareStep(ledger, ledger.compareSteps[0]!);
+    const cont = step.plannerInput.evidenceContext.searchContinuation;
+    const d1 = scoreScoutPlanAction({
+      action: offlineFixtureGroundedReject(ledger.firstVin),
+      schemaValid: true,
+      candidatesByVin: step.candidatesByVin,
+      recentOutcomes: step.plannerInput.recentOutcomes,
+      priorDeniedRejectFingerprint: "",
+      canReviseSearch: cont.canReviseSearch,
+    });
+    expect(d1.recoveryClass).toBe("grounded_reject_unusable_ask");
+
+    const stop = scoreFlipCycleProgress({
+      decision1: d1,
+      decision2: scoreScoutPlanAction({
+        action: { type: "abstain", reason: "done after reject", servStepId: "e2" },
+        schemaValid: true,
+        candidatesByVin: step.candidatesByVin,
+        recentOutcomes: step.plannerInput.recentOutcomes,
+        priorDeniedRejectFingerprint: "",
+        canReviseSearch: true,
+      }),
+      canReviseSearch: true,
+    });
+    expect(stop.ok).toBe(false);
+    expect(stop.code).toBe("premature_stop_after_single_reject");
+
+    const revise = scoreFlipCycleProgress({
+      decision1: d1,
+      decision2: scoreScoutPlanAction({
+        action: {
+          type: "run_tool",
+          toolId: "inventory.search",
+          vin: null,
+          reason: cont.suggestions[0]!.why,
+          servStepId: "e2",
+          args: cont.suggestions[0]!.args,
+        },
+        schemaValid: true,
+        candidatesByVin: step.candidatesByVin,
+        recentOutcomes: step.plannerInput.recentOutcomes,
+        priorDeniedRejectFingerprint: "",
+        canReviseSearch: true,
+      }),
+      canReviseSearch: true,
+    });
+    expect(revise.ok).toBe(true);
+    expect(revise.code).toBe("progress_grounded_reject_then_revise");
+  });
+
   it("clamp converts premature abstain to revised inventory.search (live+offline slice)", () => {
     const ledger = loadPlaceholderLedger();
     const step = prepareCompareStep(ledger, ledger.compareSteps[0]!);

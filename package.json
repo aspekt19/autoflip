@@ -19,6 +19,7 @@
     "eval:scout": "tsx eval/scout-baseline.ts",
     "eval:scout-model-compare": "tsx eval/serv-scout-model-compare.ts",
     "eval:serv-compare-preflight": "tsx eval/serv-compare-preflight.ts",
+    "eval:flip-t318-decision-pack": "tsx eval/flip-t318-decision-pack.ts",
     "test:hero-scrub": "node scripts/hero-scrub-scroll.mjs",
     "smoke:free-gov": "node scripts/free-gov-smoke.mjs"
   },

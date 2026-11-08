@@ -27,12 +27,32 @@ export const SERV_PROFILE_MODEL_CANDIDATES: Partial<Record<ProfileId, readonly s
     "gpt-5.4-mini",
     "claude-sonnet-5.5",
     "claude-sonnet-4.6",
+    "gpt-6.1-sol",
+    "claude-opus-5.5",
     "gemini-2.5-flash",
     "gemini-3.1-pro-preview",
   ],
-  find_next_check: ["gpt-5.4-mini", "claude-sonnet-5.5", "claude-sonnet-4.6"],
-  need_extract: ["gpt-5.4-mini", "claude-sonnet-5.5", "claude-sonnet-4.6"],
-  verdict_decide: ["gpt-5.4-mini", "claude-sonnet-5.5", "claude-sonnet-4.6"],
+  find_next_check: [
+    "gpt-5.4-mini",
+    "claude-sonnet-5.5",
+    "claude-sonnet-4.6",
+    "gpt-6.1-sol",
+    "claude-opus-5.5",
+  ],
+  need_extract: [
+    "gpt-5.4-mini",
+    "claude-sonnet-5.5",
+    "claude-sonnet-4.6",
+    "gpt-6.1-sol",
+    "claude-opus-5.5",
+  ],
+  verdict_decide: [
+    "gpt-5.4-mini",
+    "claude-sonnet-5.5",
+    "claude-sonnet-4.6",
+    "gpt-6.1-sol",
+    "claude-opus-5.5",
+  ],
 };
 
 export type ProfileModelSource = "caller_requested" | "profile_env" | "base_default";

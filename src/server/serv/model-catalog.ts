@@ -30,6 +30,11 @@
  */
 
 import { BASE_MODEL, modelFor, type ProfileId } from "./profiles";
+import {
+  SERV_FLIP_DECISION_SHORTLIST,
+  flipDecisionShortlistNote,
+  isFlipDecisionShortlistId,
+} from "./flip-decision-shortlist";
 
 /** Base model strings evidenced in-repo (no feature suffix). */
 export const SERV_COMPARE_BASE_MODEL_IDS = [
@@ -90,7 +95,12 @@ export type ServFairSlateEntry = (typeof SERV_COMPARE_FAIR_SLATE)[number];
 
 export type ServCompareModelEntry = {
   id: string;
-  kind: "base" | "dated_alias" | "docs_fair_slate" | "parent_supplied_unlisted";
+  kind:
+    | "base"
+    | "dated_alias"
+    | "docs_fair_slate"
+    | "flip_decision_shortlist"
+    | "parent_supplied_unlisted";
   source: string;
   /** What scout_plan would actually send after modelFor(). */
   effectiveForScoutPlan: string;
@@ -99,6 +109,31 @@ export type ServCompareModelEntry = {
   provider?: "openai" | "anthropic" | "google" | "unknown";
   protocolNotes?: readonly string[];
 };
+
+/** Flip t318 console-CSV shortlist — allowlisted without UNLISTED when explicitly requested. */
+export function listServFlipDecisionShortlist(
+  profileId: ProfileId = "scout_plan",
+): ServCompareModelEntry[] {
+  return SERV_FLIP_DECISION_SHORTLIST.map((entry) => ({
+    id: entry.modelId,
+    kind: "flip_decision_shortlist" as const,
+    source:
+      "Flip t318 decision shortlist — exact model_id from console Available-models CSV (2026-11-08); display prices ≠ capability",
+    effectiveForScoutPlan: modelFor(profileId, entry.modelId),
+    unlistedOptIn: false,
+    provider:
+      entry.providerLogoAlt === "Anthropic"
+        ? ("anthropic" as const)
+        : entry.providerLogoAlt === "OpenAI"
+          ? ("openai" as const)
+          : ("unknown" as const),
+    protocolNotes: [
+      `flipOrder=${entry.flipOrder} role=${entry.flipRole}`,
+      `console display: context=${entry.contextWindow} in=${entry.inputPerMDisplay} cached=${entry.cachedPerMDisplay} out=${entry.outputPerMDisplay}`,
+      "Names/tier ≠ ability proof. Sequential SAME-input only — no 31-model blind paid matrix.",
+    ],
+  }));
+}
 
 /** Loose shape check — not a claim the ID exists on console or passes schema. */
 export function isPlausibleServModelId(id: string): boolean {
@@ -148,7 +183,9 @@ export function resolveServCompareModelIds(
   const fairSlate = opts?.fairSlate === true;
   const catalog = listServCompareModels(profileId);
   const fair = listServFairSlateModels(profileId);
+  const flip = listServFlipDecisionShortlist(profileId);
   const fairById = new Map(fair.map((m) => [m.id, m]));
+  const flipById = new Map(flip.map((m) => [m.id, m]));
   const trimmed = (raw ?? "").trim();
   if (!trimmed) {
     return { ok: true, models: fairSlate ? fair : catalog };
@@ -176,10 +213,23 @@ export function resolveServCompareModelIds(
       out.push(fairHit);
       continue;
     }
+    const flipHit = flipById.get(id);
+    if (flipHit) {
+      // Flip t318 console-CSV shortlist — allow without UNLISTED when explicitly listed.
+      out.push(flipHit);
+      continue;
+    }
+    // Defensive: keep isFlipDecisionShortlistId import live for catalog consumers / tests.
+    if (isFlipDecisionShortlistId(id) && !allowUnlisted) {
+      return {
+        ok: false,
+        message: `Flip shortlist id ${id} missing from listServFlipDecisionShortlist — catalog drift.`,
+      };
+    }
     if (!allowUnlisted) {
       return {
         ok: false,
-        message: `Unsupported SERV_COMPARE_MODELS (not in in-repo catalog or docs fair slate): ${id}. Allowed in-repo: ${[...catalog.map((m) => m.id)].join(", ")}. Docs fair slate: ${fair.map((m) => m.id).join(", ")} (set SCOUT_COMPARE_FAIR_SLATE=1 or list them in SERV_COMPARE_MODELS). Other console IDs need SCOUT_COMPARE_ALLOW_UNLISTED=1 after Flip validation.`,
+        message: `Unsupported SERV_COMPARE_MODELS (not in in-repo catalog, docs fair slate, or Flip shortlist): ${id}. Allowed in-repo: ${[...catalog.map((m) => m.id)].join(", ")}. Docs fair slate: ${fair.map((m) => m.id).join(", ")}. Flip shortlist: ${flip.map((m) => m.id).join(", ")}. Other console IDs need SCOUT_COMPARE_ALLOW_UNLISTED=1 after Flip validation.`,
       };
     }
     if (!isPlausibleServModelId(id)) {
@@ -212,11 +262,13 @@ export function servCompareCatalogNote(): string {
       (m) =>
         `  - ${m.id} [${m.provider}] (${m.source}); scout_plan effective=${m.effectiveForScoutPlan}`,
     ),
+    flipDecisionShortlistNote(),
     "Console vs catalog: OpenServ console Available-models table may be broader (e.g. gpt-6-luna). Those IDs are NOT auto-allowlisted — no scrape, no cheapest-forced pick.",
-    "Unlisted IDs outside fair slate: SERV_COMPARE_MODELS=… + SCOUT_COMPARE_ALLOW_UNLISTED=1 after Flip console/contract validation.",
+    "Unlisted IDs outside fair slate / Flip shortlist: SERV_COMPARE_MODELS=… + SCOUT_COMPARE_ALLOW_UNLISTED=1 after Flip console/contract validation.",
     "Budget-conscious ≠ cheapest-at-expense-of-quality — compare recovery/groundedness/refusals/latency, not rate-table shopping.",
     "Model-only swap is NOT the demonstrated fix for the PR63 placeholder-price reject deadlock.",
     "Protocol: Gemini → chat only; Anthropic nullable enums → anyOf (already on lineage); Mini cold-timeout class separate.",
+    "Gemini content_null_refusal_field diagnostic prerequisite before any blind Gemini retry.",
   ].join("\n");
 }
 
@@ -269,6 +321,22 @@ export function servCompareProtocolIssues(): Array<{
       summary: "SCOUT_COMPARE_SEQUENTIAL=1 must XOR with normal compare (≤2 HTTP total).",
       evidence:
         "66b151e breach was 5 HTTP (3 normal + 2 sequential). compare-cli-dispatch XOR — composition bug was harness integration, not model.",
+    },
+    {
+      id: "gemini_refusal_field_diag",
+      class: "model_behavior",
+      summary:
+        "Gemini 3.1 Pro Preview parent evidence: HTTP 200 content-null + ~19-char refusal field; tokens null telemetry gap.",
+      evidence:
+        "classifyServPlannerFailure → content_null_refusal_field + usage alias coerce. Refusal cause NOT known — never assert format vs safety RCA. Prerequisite before any blind Gemini retry.",
+    },
+    {
+      id: "cycle_not_one_reject_stop",
+      class: "model_behavior",
+      summary:
+        "Product criteria: new search / next checks / replan when bad prices — not one grounded reject then terminal stop while budget remains.",
+      evidence:
+        "searchContinuation.canReviseSearch + clampScoutPlanWithSearchContinuation; scoreFlipCycleProgress flags premature_stop_after_single_reject.",
     },
   ];
 }

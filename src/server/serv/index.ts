@@ -21,6 +21,7 @@ export {
   SERV_COMPARE_FAIR_SLATE,
   listServCompareModels,
   listServFairSlateModels,
+  listServFlipDecisionShortlist,
   resolveServCompareModelIds,
   servCompareCatalogNote,
   servCompareProtocolIssues,
@@ -28,6 +29,13 @@ export {
   type ServCompareModelEntry,
   type ServFairSlateEntry,
 } from "./model-catalog";
+export {
+  SERV_FLIP_DECISION_SHORTLIST,
+  SERV_FLIP_DECISION_SHORTLIST_IDS,
+  flipDecisionShortlistNote,
+  isFlipDecisionShortlistId,
+  type FlipDecisionShortlistEntry,
+} from "./flip-decision-shortlist";
 export { agentProof, buildServProof, interpretGuard, openservReportFrom, plannedProof, recentServProofs, recordServProof, shadowOutcomeFrom, type AgentProof, type ServProof } from "./proof";
 export {
   SERV_OUTPUT_TOKEN_DEFAULT,

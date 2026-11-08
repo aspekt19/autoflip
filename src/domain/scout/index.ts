@@ -26,6 +26,7 @@ export {
   buildPlaceholderCandidates,
   prepareCompareStep,
   scoreScoutPlanAction,
+  scoreFlipCycleProgress,
   scoreHistoricalLedgerActions,
   runSequentialTwoDecision,
   runOfflineSequentialTwoDecision,
@@ -37,6 +38,7 @@ export type {
   ActionScore,
   CompareStepPrepared,
   SequentialTwoDecisionResult,
+  FlipCycleProgressVerdict,
 } from "./serv-model-compare";
 export {
   SCOUT_METRICS_SCHEMA_VERSION,

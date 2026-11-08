@@ -119,6 +119,99 @@ export type ActionScore = {
   summary: string;
 };
 
+/**
+ * Flip t318 cycle-progress contract (product criteria — not catalogs-as-results).
+ * Require: new search / next checks / replan when bad prices; source-faithful facts;
+ * unknown history+cost honesty — NOT one reject then terminal stop while budget remains.
+ */
+export type FlipCycleProgressVerdict = {
+  ok: boolean;
+  code:
+    | "progress_revised_search"
+    | "progress_grounded_reject_then_revise"
+    | "progress_next_check"
+    | "premature_stop_after_single_reject"
+    | "premature_abstain_with_budget"
+    | "insufficient_decisions"
+    | "other";
+  honesty: string;
+  requiredBehaviors: string[];
+};
+
+export function scoreFlipCycleProgress(input: {
+  decision1: ActionScore;
+  decision2: ActionScore | null;
+  canReviseSearch: boolean;
+}): FlipCycleProgressVerdict {
+  const requiredBehaviors = [
+    "When pending asks are unusable and provider budget remains: revised in-mandate inventory.search OR grounded reject of next unusable ask — not terminal stop after a single reject.",
+    "Source-faithful facts only — never invent sold prices, title clearance, licensed history, or verified profit.",
+    "Unknown history + ownership cost must stay unknown when evidence is missing (no invented numbers).",
+    "searchContinuation.canReviseSearch=true forbids false “search already used once” terminals.",
+  ];
+  const honesty =
+    "Cycle progress is scored from schemaValid/grounded/recoveryClass only — not rate-table tier or model display name.";
+
+  if (!input.decision1.schemaValid) {
+    return { ok: false, code: "other", honesty, requiredBehaviors };
+  }
+
+  if (input.decision1.recoveryClass === "revised_inventory_search") {
+    return { ok: true, code: "progress_revised_search", honesty, requiredBehaviors };
+  }
+  if (input.decision1.recoveryClass === "replace_uncertainty") {
+    return { ok: true, code: "progress_next_check", honesty, requiredBehaviors };
+  }
+
+  if (input.decision1.recoveryClass === "premature_abstain_with_budget") {
+    return {
+      ok: false,
+      code: "premature_abstain_with_budget",
+      honesty,
+      requiredBehaviors,
+    };
+  }
+
+  if (
+    input.decision1.recoveryClass === "grounded_reject_unusable_ask" &&
+    input.canReviseSearch
+  ) {
+    if (!input.decision2) {
+      return {
+        ok: false,
+        code: "insufficient_decisions",
+        honesty,
+        requiredBehaviors,
+      };
+    }
+    if (
+      input.decision2.recoveryClass === "revised_inventory_search" ||
+      input.decision2.recoveryClass === "grounded_reject_unusable_ask" ||
+      input.decision2.recoveryClass === "replace_uncertainty"
+    ) {
+      return {
+        ok: true,
+        code: "progress_grounded_reject_then_revise",
+        honesty,
+        requiredBehaviors,
+      };
+    }
+    if (
+      input.decision2.recoveryClass === "premature_abstain_with_budget" ||
+      input.decision2.recoveryClass === "honest_abstain"
+    ) {
+      return {
+        ok: false,
+        code: "premature_stop_after_single_reject",
+        honesty,
+        requiredBehaviors,
+      };
+    }
+  }
+
+  return { ok: false, code: "other", honesty, requiredBehaviors };
+}
+
 export type CompareStepPrepared = {
   stepId: string;
   description: string;

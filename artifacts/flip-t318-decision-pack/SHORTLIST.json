@@ -1,0 +1,66 @@
+{
+  "sourceCsv": "uploads/all-models-20261108_c8cc.csv (agent workspace capture)",
+  "sourceReadme": "uploads/all-models-20261108-readme_80ae.txt",
+  "capturedNote": "OpenServ console Available models; 31 rows; Nov 8 2026. Display prices ≠ capability.",
+  "entries": [
+    {
+      "modelId": "claude-sonnet-5.5",
+      "displayName": "Claude Sonnet 5.5",
+      "providerLogoAlt": "Anthropic",
+      "contextWindow": "1M",
+      "inputPerMDisplay": "$2.40",
+      "cachedPerMDisplay": "$0.240",
+      "outputPerMDisplay": "$12.00",
+      "listedAvailability": "Listed under Available models",
+      "capabilityIndicators": "Not separately shown",
+      "flipOrder": 1,
+      "flipRole": "baseline"
+    },
+    {
+      "modelId": "gpt-6.1-sol",
+      "displayName": "GPT-6.1 Sol",
+      "providerLogoAlt": "OpenAI",
+      "contextWindow": "1M",
+      "inputPerMDisplay": "$2.40",
+      "cachedPerMDisplay": "$0.120",
+      "outputPerMDisplay": "$12.00",
+      "listedAvailability": "Listed under Available models",
+      "capabilityIndicators": "Not separately shown",
+      "flipOrder": 2,
+      "flipRole": "next"
+    },
+    {
+      "modelId": "claude-opus-5.5",
+      "displayName": "Claude Opus 5.5",
+      "providerLogoAlt": "Anthropic",
+      "contextWindow": "1M",
+      "inputPerMDisplay": "$4.80",
+      "cachedPerMDisplay": "$0.240",
+      "outputPerMDisplay": "$24.00",
+      "listedAvailability": "Listed under Available models",
+      "capabilityIndicators": "Not separately shown",
+      "flipOrder": 3,
+      "flipRole": "next_if_needed"
+    }
+  ],
+  "resolvedEffective": [
+    {
+      "id": "claude-sonnet-5.5",
+      "effectiveForScoutPlan": "claude-sonnet-5.5",
+      "kind": "flip_decision_shortlist",
+      "provider": "anthropic"
+    },
+    {
+      "id": "gpt-6.1-sol",
+      "effectiveForScoutPlan": "gpt-6.1-sol",
+      "kind": "flip_decision_shortlist",
+      "provider": "openai"
+    },
+    {
+      "id": "claude-opus-5.5",
+      "effectiveForScoutPlan": "claude-opus-5.5",
+      "kind": "flip_decision_shortlist",
+      "provider": "anthropic"
+    }
+  ]
+}
