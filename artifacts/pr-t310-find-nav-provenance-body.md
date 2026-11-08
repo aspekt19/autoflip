@@ -2,7 +2,20 @@
 
 **t307 / t310 / t313 / t314 workstream** — strengthen the consumer NL Find path after PR75. **HOLD — no merge/deploy until parent independent review + owner ACCEPT.**
 
-Base: published `main` @ `e6eb269…`. No live provider / SERV / credit / secret / env / Graph / new paid services / PR71.
+### Exact pins (reconciled 2026-11-08)
+
+| Pin | Value |
+| --- | --- |
+| PR | https://github.com/aspekt19/autoflip/pull/76 |
+| Branch | `cursor/find-nav-provenance-ecfd-1033` |
+| **Remote head** | `c88bc4a66f1a8de1f1e1a6d11d0dc023de40ee89` |
+| **Remote tree** | `ad61b6c0464f45fc065d4962fb8277c4f6ceed28` |
+| Base | `main` @ `e6eb269ec725ed500a77549f420a8b5a9086a727` |
+| Prior failed CI SHA (superseded) | `1c8262693d1323c512afd01fbdbf308d9a86d0b5` / tree `8591320ee8febd66604e8b3ec53dfe9c5f2b74fe` — typecheck `listingCached` on audit FP test; **fixed on c88bc4a** |
+
+Parent pin-check that still showed `1c826269` was stale — GitHub ref + PR `headRefOid` both resolve to **`c88bc4a`**.
+
+Base published main: `e6eb269…`. No live provider / SERV / credit / secret / env / Graph / new paid services / PR71.
 
 Owner intent (t314): such and similar scenarios must work — coherent path, not two-phrase overfit.
 
@@ -19,15 +32,10 @@ Owner intent (t314): such and similar scenarios must work — coherent path, not
 | Provenance Find→report | `factSource: "find_feed"` truthful labels | — |
 | Number audit | **Guard retained**; FP harden (mandate budget; cautionary before-purchase); blocked prose not published | Full SERV explain quality (not claimed fixed) |
 
-### Scenario evidence (production already ran — not re-run here)
-
-- S1: CX-5 domination + duplicate sections + seller-feed vs typed-in
-- S2: hard exclusion UI; 8× CR-V; report `e6aadbfa…`; audit `invented_number, buy_language_on_negative_verdict` → template fallback (**protection kept**)
-
 ### Offline evidence
 
-- `npm run typecheck` pass (fixes prior CI `listingCached` type error)
-- `npm test` — **642** passed / **110** files (includes paraphrase/negation/soft-vs-strict, diversify, observed snapshots, audit FP)
+- `npm run typecheck` pass (fixes prior CI `listingCached` type error on `1c826269`)
+- `npm test` — **642** passed / **110** files
 
 ### Not claimed / do not declare t310–t314 done
 
@@ -39,6 +47,6 @@ Owner intent (t314): such and similar scenarios must work — coherent path, not
 
 ## Test plan
 
-- [x] Local typecheck + full vitest
-- [ ] GitHub CI green on this head after push
+- [x] Local typecheck + full vitest on `c88bc4a`
+- [ ] GitHub CI green on **`c88bc4a`** (run after push; prior failure was on superseded `1c826269`)
 - [ ] Parent independent review; **HOLD merge** until ACCEPT
