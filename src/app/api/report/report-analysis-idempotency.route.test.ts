@@ -461,4 +461,112 @@ describe("POST /api/report analysis idempotency (shared Kv concurrent)", () => {
     expect(ok.status).toBe(200);
     expect(await creditBalance(kvHolder.kv, USER)).toBe(2);
   });
+
+  it(
+    "HOLD5: aged persisted orphan cannot be refunded into a free report via claim aging",
+    async () => {
+      // Crash window: spend + durable report:{id} persisted; claim never completed /
+      // VIN index never written. Former 90s stale reclaim compensated without checking
+      // report:{id} → FREE_ORPHAN. With reclaim removed, peer sees analysis_in_progress
+      // and debit stays charged. Peer waitForFindAnalysisReceipt defaults to ~8s.
+      const token = await mintToken();
+      const spendKey = findAnalysisSpendKey({ userId: USER, findContextToken: token });
+      const reportId = "report-aged-orphan";
+      const identity = { userId: USER, findContextToken: token };
+      const recordKey = reportAnalysisRecordKey(identity);
+
+      expect((await creditSpend(kvHolder.kv, USER, spendKey)).ok).toBe(true);
+      expect(await creditBalance(kvHolder.kv, USER)).toBe(2);
+      await kvHolder.kv.set(
+        `report:${reportId}`,
+        JSON.stringify({
+          id: reportId,
+          createdAt: new Date().toISOString(),
+          explanation: "ok",
+          proof: {},
+          computed: okReport(reportId).report.computed,
+        }),
+      );
+      await kvHolder.kv.set(
+        recordKey,
+        JSON.stringify({
+          status: "in_progress",
+          userId: USER,
+          findContextToken: token,
+          claimedAt: new Date(Date.now() - 90_000 - 5_000).toISOString(),
+          claimId: "stale-holder-claim",
+        }),
+      );
+
+      const peer = await POST(req(findBody(token)));
+      expect(peer.status).toBe(409);
+      const peerBody = await peer.json();
+      expect(peerBody.error).toBe("analysis_in_progress");
+      expect(peerBody.charge).toBe(false);
+      expect(await creditBalance(kvHolder.kv, USER)).toBe(2);
+      expect(await creditEventSeen(kvHolder.kv, spendKey)).toBe(true);
+      expect(await readPersistedReport(reportId)).toBeTruthy();
+      expect(assemble).not.toHaveBeenCalled();
+    },
+    20_000,
+  );
+
+  it(
+    "HOLD5: slow over-90s holder spend is not reversed while still in_progress",
+    async () => {
+      // Gate after spend (on persist) so debit exists while claim ages past former 90s.
+      const token = await mintToken();
+      const spendKey = findAnalysisSpendKey({ userId: USER, findContextToken: token });
+      let releasePersist!: () => void;
+      const persistGate = new Promise<void>((r) => {
+        releasePersist = r;
+      });
+      let persistEntered = 0;
+
+      assemble.mockResolvedValue(okReport("report-slow-holder"));
+      persistImpl.mockImplementation(async (report) => {
+        persistEntered += 1;
+        await persistGate;
+        await kvHolder.kv.set(`report:${report.id}`, JSON.stringify(report));
+      });
+
+      const slow = POST(req(findBody(token)));
+      for (let i = 0; i < 100 && persistEntered < 1; i += 1) {
+        await new Promise((r) => setTimeout(r, 10));
+      }
+      expect(persistEntered).toBe(1);
+      expect(await creditEventSeen(kvHolder.kv, spendKey)).toBe(true);
+      expect(await creditBalance(kvHolder.kv, USER)).toBe(2);
+
+      const recordKey = reportAnalysisRecordKey({ userId: USER, findContextToken: token });
+      const raw = await kvHolder.kv.get(recordKey);
+      expect(raw).toBeTruthy();
+      const claim = JSON.parse(raw!) as {
+        claimedAt: string;
+        claimId: string;
+        status: string;
+        userId: string;
+        findContextToken: string;
+      };
+      claim.claimedAt = new Date(Date.now() - 90_000 - 1_000).toISOString();
+      await kvHolder.kv.set(recordKey, JSON.stringify(claim));
+
+      // Peer waits for receipt (~8s) then fail-closes — must not reverse spend.
+      const peer = await POST(req(findBody(token)));
+      expect(peer.status).toBe(409);
+      expect((await peer.json()).error).toBe("analysis_in_progress");
+      expect(await creditBalance(kvHolder.kv, USER)).toBe(2);
+      expect(await creditEventSeen(kvHolder.kv, spendKey)).toBe(true);
+      expect(await kvHolder.kv.get(recordKey)).toBeTruthy();
+
+      releasePersist();
+      const winner = await slow;
+      expect(winner.status).toBe(200);
+      expect((await winner.json()).id).toBe("report-slow-holder");
+      expect(await creditBalance(kvHolder.kv, USER)).toBe(2); // exactly one debit kept
+      expect(await creditEventSeen(kvHolder.kv, spendKey)).toBe(true);
+      expect(assemble).toHaveBeenCalledTimes(1);
+    },
+    25_000,
+  );
 });

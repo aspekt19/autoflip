@@ -12,16 +12,17 @@ import {
 } from "@/io/credit-book";
 import { MemoryKv } from "@/io/kv";
 import {
-  FIND_ANALYSIS_CLAIM_STALE_MS,
   claimFindAnalysis,
   completeFindAnalysis,
   findAnalysisSpendKey,
   legacyReportUuidSpendKey,
-  reclaimStaleFindAnalysisIfSafe,
   releaseFindAnalysis,
   reportAnalysisRecordKey,
   waitForFindAnalysisReceipt,
 } from "./report-analysis-idempotency";
+
+/** Former stale window (90s) — aging past this must NOT auto-compensate or reclaim. */
+const FORMER_STALE_MS = 90_000;
 
 describe("report analysis spend keys (credit safety)", () => {
   it("OLD: distinct report:uuid spend keys double-debit under parallel first submits", async () => {
@@ -176,10 +177,14 @@ describe("claimFindAnalysis (shared Kv multi-instance)", () => {
     if (replay.kind === "replay") expect(replay.receipt.reportId).toBe("report-successor");
   });
 
-  it("stale reclaim compensates dangling spend then allows fresh claim", async () => {
+  it("HOLD5: aged persisted-orphan spend is NOT refunded/free-report by claim aging", async () => {
+    // Crash after persist before VIN index/complete: durable report:{id} exists,
+    // claim still in_progress, spend event set. Aging past the former 90s stale
+    // window must NOT reverse the debit (FREE_ORPHAN) or clear the claim for a
+    // free re-analysis. Fail-closed: peers stay in_progress; debit stays paid.
     const shared = new MemoryKv();
-    const identity = { userId: "user-a", findContextToken: "tok-stale" };
-    await creditGrant(shared, "user-a", 2, "seed-stale");
+    const identity = { userId: "user-a", findContextToken: "tok-orphan-age" };
+    await creditGrant(shared, "user-a", 2, "seed-orphan");
 
     const first = await claimFindAnalysis(shared, identity);
     expect(first.kind).toBe("proceed");
@@ -188,30 +193,73 @@ describe("claimFindAnalysis (shared Kv multi-instance)", () => {
     expect((await creditSpend(shared, "user-a", spendKey)).ok).toBe(true);
     expect(await creditBalance(shared, "user-a")).toBe(1);
 
-    // Force claimedAt into the past beyond the stale window.
+    // Durable paid artifact exists (persist landed) while claim is still in_progress.
+    const reportId = "report-orphan-paid";
+    await shared.set(`report:${reportId}`, JSON.stringify({ id: reportId, paid: true }));
+
     const raw = await shared.get(reportAnalysisRecordKey(identity));
     expect(raw).toBeTruthy();
     const claim = JSON.parse(raw!) as { claimedAt: string; claimId: string; status: string };
-    claim.claimedAt = new Date(Date.now() - FIND_ANALYSIS_CLAIM_STALE_MS - 1_000).toISOString();
+    claim.claimedAt = new Date(Date.now() - FORMER_STALE_MS - 1_000).toISOString();
     await shared.set(reportAnalysisRecordKey(identity), JSON.stringify(claim));
 
-    expect(await reclaimStaleFindAnalysisIfSafe(shared, identity)).toBe(true);
-    expect(await creditEventSeen(shared, spendKey)).toBe(false);
-    expect(await creditBalance(shared, "user-a")).toBe(2);
-    expect(await shared.get(reportAnalysisRecordKey(identity))).toBeNull();
-
-    const retry = await claimFindAnalysis(shared, identity);
-    expect(retry.kind).toBe("proceed");
+    const peer = await claimFindAnalysis(shared, identity);
+    expect(peer.kind).toBe("in_progress");
+    expect(await creditEventSeen(shared, spendKey)).toBe(true);
+    expect(await creditBalance(shared, "user-a")).toBe(1);
+    expect(await shared.get(`report:${reportId}`)).toBeTruthy();
+    expect(await shared.get(reportAnalysisRecordKey(identity))).toBeTruthy();
   });
 
-  it("fresh in_progress stays fail-closed (no reclaim inside stale window)", async () => {
+  it("HOLD5: slow over-90s valid holder cannot have spend reversed by peer claim", async () => {
+    // Slow holder past former stale window, then completes — peer must not
+    // reclaim/compensate while holder is still working; spend stays charged.
+    const shared = new MemoryKv();
+    const identity = { userId: "user-a", findContextToken: "tok-slow-holder" };
+    await creditGrant(shared, "user-a", 2, "seed-slow");
+
+    const first = await claimFindAnalysis(shared, identity);
+    expect(first.kind).toBe("proceed");
+    if (first.kind !== "proceed") return;
+    const spendKey = findAnalysisSpendKey(identity);
+    expect((await creditSpend(shared, "user-a", spendKey)).ok).toBe(true);
+
+    const raw = await shared.get(reportAnalysisRecordKey(identity));
+    const claim = JSON.parse(raw!) as { claimedAt: string; claimId: string; status: string };
+    claim.claimedAt = new Date(Date.now() - FORMER_STALE_MS - 5_000).toISOString();
+    await shared.set(reportAnalysisRecordKey(identity), JSON.stringify(claim));
+
+    const peer = await claimFindAnalysis(shared, identity);
+    expect(peer.kind).toBe("in_progress");
+    expect(await creditEventSeen(shared, spendKey)).toBe(true);
+    expect(await creditBalance(shared, "user-a")).toBe(1);
+
+    // Late holder complete still works with original claimId fence.
+    expect((await completeFindAnalysis(shared, identity, "report-slow", first.claimId)).ok).toBe(true);
+    expect(await creditBalance(shared, "user-a")).toBe(1);
+    const replay = await claimFindAnalysis(shared, identity);
+    expect(replay.kind).toBe("replay");
+    if (replay.kind === "replay") expect(replay.receipt.reportId).toBe("report-slow");
+  });
+
+  it("aged in_progress stays fail-closed (no automatic reclaim at any age)", async () => {
     const shared = new MemoryKv();
     const identity = { userId: "user-a", findContextToken: "tok-fresh-stale" };
     const first = await claimFindAnalysis(shared, identity);
     expect(first.kind).toBe("proceed");
-    expect(await reclaimStaleFindAnalysisIfSafe(shared, identity)).toBe(false);
+    if (first.kind !== "proceed") return;
+
+    const raw = await shared.get(reportAnalysisRecordKey(identity));
+    const claim = JSON.parse(raw!) as { claimedAt: string; claimId: string; status: string };
+    claim.claimedAt = new Date(Date.now() - FORMER_STALE_MS - 1_000).toISOString();
+    await shared.set(reportAnalysisRecordKey(identity), JSON.stringify(claim));
+
     const peer = await claimFindAnalysis(shared, identity);
     expect(peer.kind).toBe("in_progress");
+    // Intentional release by holder still allows clean retry.
+    expect(await releaseFindAnalysis(shared, identity, first.claimId)).toBe(true);
+    const retry = await claimFindAnalysis(shared, identity);
+    expect(retry.kind).toBe("proceed");
   });
 
   it("waitForFindAnalysisReceipt resolves when peer completes", async () => {

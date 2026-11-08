@@ -17,22 +17,26 @@
  * when that fence still matches — a stale holder must not release a successor
  * or overwrite a completed receipt. Shared Kv has no compare-and-delete primitive,
  * so fence checks are get-then-act (best-effort; residual TOCTOU on Upstash).
+ * This fence is for intentional holder release/complete only — not a true CAS.
  *
- * Crash / no-lease: claims have no TTL. A winner that dies mid-flight leaves
- * in_progress. After FIND_ANALYSIS_CLAIM_STALE_MS, same-token reclaim is allowed
- * only after compensating any dangling spend for that analysis key, then a
- * fenced delete of the stale claimId. Fresh crashes under the stale window stay
- * fail-closed (409 in_progress) — we do not NX/PX + unconditional delete.
+ * Crash / no automatic reclaim: claims have no TTL and no stale auto-compensate.
+ * A winner that dies mid-flight leaves in_progress; peers keep seeing
+ * analysis_in_progress (fail-closed) until the holder releases/completes or a
+ * durable completed receipt exists for replay. Automatic stale reclaim that
+ * compensated spend without checking durable report:{id} corrupted paid
+ * artifacts (FREE_ORPHAN) — removed rather than "safer" reclaim without
+ * multi-key atomicity.
+ *
+ * Failure classes (holder path):
+ * - Persist miss → creditCompensateSpend + fenced release (retry may debit once).
+ * - Persist landed → never compensate; complete/remember throw → keep debit and
+ *   return/replay the saved report.
  *
  * Storage: existing credits/comps Kv via SET NX — same multi-instance backend as
  * the credit ledger. No process-local lock; no new service/secret. Strength equals
  * that shared Kv (Upstash in production).
  */
-import { creditCompensateSpend, creditEventSeen } from "@/io/credit-book";
 import type { Kv } from "@/io/kv";
-
-/** maxDuration (60s) + buffer before same-token stale reclaim may run. */
-export const FIND_ANALYSIS_CLAIM_STALE_MS = 90_000;
 
 export type ReportAnalysisIdentity = {
   userId: string;
@@ -98,43 +102,10 @@ function parseRecord(raw: string): ReportAnalysisRecord | null {
   }
 }
 
-function isStaleClaim(claim: ReportAnalysisClaim, nowMs: number): boolean {
-  const claimedAtMs = Date.parse(claim.claimedAt);
-  if (!Number.isFinite(claimedAtMs)) return true;
-  return nowMs - claimedAtMs >= FIND_ANALYSIS_CLAIM_STALE_MS;
-}
-
-/**
- * Bounded same-token recovery for a crashed winner past the stale window.
- * Compensates a dangling analysis spend (if any), then fenced-deletes that claimId.
- * Returns true when the record key is clear for a fresh SET NX.
- */
-export async function reclaimStaleFindAnalysisIfSafe(
-  kv: Kv,
-  identity: ReportAnalysisIdentity,
-  opts?: { nowMs?: number },
-): Promise<boolean> {
-  const recordKey = reportAnalysisRecordKey(identity);
-  const raw = await kv.get(recordKey);
-  if (!raw) return true;
-  const record = parseRecord(raw);
-  if (!record) return false;
-  if (record.status === "completed") return false;
-  if (record.userId !== identity.userId) return false;
-  const nowMs = opts?.nowMs ?? Date.now();
-  if (!isStaleClaim(record, nowMs)) return false;
-
-  const spendKey = findAnalysisSpendKey(identity);
-  if (await creditEventSeen(kv, spendKey)) {
-    await creditCompensateSpend(kv, identity.userId, spendKey);
-  }
-  return releaseFindAnalysis(kv, identity, record.claimId);
-}
-
 /**
  * Claim BEFORE assemble/spend for a find-context analysis request.
  * Winner proceeds; peer sees in_progress or completed replay.
- * Stale in_progress (past FIND_ANALYSIS_CLAIM_STALE_MS) may be reclaimed once.
+ * Stale in_progress is fail-closed (no automatic reclaim/compensate).
  */
 export async function claimFindAnalysis(
   kv: Kv,
@@ -152,9 +123,9 @@ export async function claimFindAnalysis(
     if (!existing) return { kind: "conflict", reason: "corrupt_record" };
     if (existing.userId !== identity.userId) return { kind: "conflict", reason: "wrong_user" };
     if (existing.status === "completed") return { kind: "replay", receipt: existing };
-    const reclaimed = await reclaimStaleFindAnalysisIfSafe(kv, identity);
-    if (!reclaimed) return { kind: "in_progress" };
-    // Fall through to SET NX after stale reclaim.
+    // Fail-closed: same-token peers keep seeing in_progress until holder release/complete
+    // or a durable completed receipt exists. No age-based reclaim (credit integrity).
+    return { kind: "in_progress" };
   }
 
   const claimId = crypto.randomUUID();
