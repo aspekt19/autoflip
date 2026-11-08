@@ -92,15 +92,32 @@ describe("decideFindNextCheckLoop", () => {
       ...base,
       needAfterFp: "a",
       listingsAfterFp: "L0",
+      remainingFreeGovCount: 0,
     });
     expect(d.continue).toBe(false);
     expect(d.reason).toBe("unchanged_state");
+  });
+
+  it("compare/no-op continues when free_gov remain (Scenario2 free-terminal)", () => {
+    const d = decideFindNextCheckLoop({
+      ...base,
+      chosenId: "compare_observed_asks",
+      research: false,
+      rematchOk: null,
+      needAfterFp: "a",
+      listingsAfterFp: "L0",
+      remainingFreeGovCount: 1,
+      remainingActionableCount: 2,
+    });
+    expect(d.continue).toBe(true);
+    expect(d.reason).toBe("remaining_free_checks");
   });
 
   it("grounded stop when shortlist and no remaining automatic checks", () => {
     const d = decideFindNextCheckLoop({
       ...base,
       remainingActionableCount: 0,
+      remainingFreeGovCount: 0,
       shortlistCount: 2,
     });
     expect(d.reason).toBe("grounded_stop");

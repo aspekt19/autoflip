@@ -14,7 +14,13 @@ export type FreeGovRiskFacts = {
   parkIt: boolean | null;
   /** True only when parkOutSide=true — separate from parkIt; not do-not-drive alone. */
   parkOutside: boolean | null;
+  /** Retained campaign IDs (may be capped); never silently imply this is the full set. */
   campaignNumbers: string[];
+  /**
+   * Full NHTSA recallCount when known (from packet). May exceed campaignNumbers.length
+   * when planner briefs cap campaign objects — UI/SERV must label shown vs reported.
+   */
+  campaignCountReported: number | null;
   complaintCount: number | null;
   recallsAvailable: boolean | null;
   complaintsAvailable: boolean | null;
@@ -77,6 +83,7 @@ export function riskFactsFromPacket(
     parkIt: null,
     parkOutside: null,
     campaignNumbers: [],
+    campaignCountReported: null,
     complaintCount: null,
     recallsAvailable: null,
     complaintsAvailable: null,
@@ -135,6 +142,14 @@ export function riskFactsFromPacket(
       : typeof value?.complaintCount === "string" && /^\d+$/.test(value.complaintCount)
         ? Number(value.complaintCount)
         : null;
+  const campaignCountReported =
+    typeof value?.recallCount === "number"
+      ? value.recallCount
+      : typeof value?.recallCount === "string" && /^\d+$/.test(value.recallCount)
+        ? Number(value.recallCount)
+        : campaignNumbers.length > 0
+          ? campaignNumbers.length
+          : null;
 
   if (packet.status === "unavailable" || packet.status === "error") {
     return {
@@ -144,14 +159,23 @@ export function riskFactsFromPacket(
       recallsAvailable: false,
       complaintsAvailable: complaintsAvailable === true ? true : false,
       complaintCount,
+      campaignCountReported,
     };
   }
 
+  const retainedIds = campaignNumbers.slice(0, 8);
   return {
     ...base,
     parkIt,
     parkOutside,
-    campaignNumbers: campaignNumbers.slice(0, 8),
+    campaignNumbers: retainedIds,
+    // Prefer provider recallCount; never under-report vs retained IDs.
+    campaignCountReported:
+      campaignCountReported != null
+        ? Math.max(campaignCountReported, retainedIds.length)
+        : retainedIds.length > 0
+          ? retainedIds.length
+          : null,
     complaintCount,
     recallsAvailable,
     complaintsAvailable,

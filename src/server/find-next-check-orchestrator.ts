@@ -14,6 +14,7 @@ import {
   fingerprintFreeGovReceipts,
   freeGovReceiptsBrief,
   freeGovToolCoverage,
+  isFindFreeGovCheckId,
   type FindFreeGovReceipt,
 } from "@/domain/find-free-gov";
 import {
@@ -407,6 +408,9 @@ export async function runFindNextCheckOrchestrator(
       remainingProposed.map((c) => c.id),
       appliedNext,
     );
+    const remainingFreeGovCount = remainingProposed.filter((c) =>
+      isFindFreeGovCheckId(c.id),
+    ).length;
 
     const autonomousServ = live.source === "serv";
     const mintSaidKeyed = Boolean(ctx.servNextCheckEnabled);
@@ -433,6 +437,7 @@ export async function runFindNextCheckOrchestrator(
       freeGovAfterFp: fingerprintFreeGovReceipts(freeGovReceipts),
       shortlistCount: shortlistAfter.length,
       remainingActionableCount,
+      remainingFreeGovCount,
     });
 
     const payload: FindNextCheckOrchestratorOk = {
