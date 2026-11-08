@@ -10,8 +10,10 @@
 | Branch | `cursor/t315-clarify-owncost-ecfd-1033` |
 | Base | `main` @ `0aeed3b3fc7611be47eab0eff6b737a9abf869bd` (PR76 published) |
 | **Implement tip** | `e5df318a5faeb1eb462def0ac23636d40f87f920` / tree `7e80af2e66590cd2c4c0b0dac3d8eb32a2f1be09` |
-| **Branch tip** | `f9ba9652b650a4eabe8c25a0ef5246e2bef6ffbd` / tree `24e333e5b8fcdcbf874190ba0c85cdcf3c473864` |
-| **CI** | no checks reported yet on tip `f9ba965` (parent reconciles) |
+| **Branch tip at authoring** | `543e77aeb9a6d176149dc8c425070d08a74dcb08` / tree `92f5b3b8633874a11b8238e430bcfad8e2133877` |
+| **CI** | `test` IN_PROGRESS on Actions (parent reconciles final) |
+
+> After this docs commit lands, `git rev-parse origin/cursor/t315-clarify-owncost-ecfd-1033` is the live branch tip. **Ready review head = implement tip above.**
 
 ### Parent evidence folded (not re-run here)
 
