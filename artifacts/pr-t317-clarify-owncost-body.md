@@ -10,8 +10,8 @@
 | Branch | `cursor/t315-clarify-owncost-ecfd-1033` |
 | Base | `main` @ `0aeed3b3fc7611be47eab0eff6b737a9abf869bd` (PR76 published) |
 | **Implement tip** | `e5df318a5faeb1eb462def0ac23636d40f87f920` / tree `7e80af2e66590cd2c4c0b0dac3d8eb32a2f1be09` |
-| **Branch tip** | `5d705aea377708907a3921013367e114c1b6c168` / tree `1ae2c097923543e4884dc609e1cda6533d84b5a6` |
-| **CI** | pending after push — parent reconciles |
+| **Branch tip** | docs tip on branch (push HEAD); ready review = implement `e5df318a5faeb1eb462def0ac23636d40f87f920` / tree `7e80af2e66590cd2c4c0b0dac3d8eb32a2f1be09` |
+| **CI** | pending after push — parent reconciles gh checks on tip |
 
 ### Parent evidence folded (not re-run here)
 
