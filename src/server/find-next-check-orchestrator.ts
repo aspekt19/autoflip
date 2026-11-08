@@ -9,8 +9,16 @@
  * autonomousServ=false (must not masquerade as SERV autonomy).
  */
 import type { DecisionProof } from "@/domain/decision-note";
-import type { FindSearchRefine } from "@/domain/find-path";
-import type { StructuredNeed } from "@/domain/need";
+import {
+  countRemainingAutomaticChecks,
+  decideFindNextCheckLoop,
+  fingerprintListings,
+  fingerprintNeed,
+  type FindNextCheckLoopDisposition,
+} from "@/domain/find-next-check-loop";
+import { buildGroundedShortlist, type FindSearchRefine } from "@/domain/find-path";
+import { proposeFindNextChecks } from "@/domain/find-next-checks";
+import { softPrefGapsFromText, type StructuredNeed } from "@/domain/need";
 import type { Kv } from "@/io/kv";
 import {
   appliedFingerprint,
@@ -85,6 +93,8 @@ export type FindNextCheckOrchestratorOk = {
   } | null;
   needAfter: StructuredNeed;
   appliedCheckIds: string[];
+  /** Ordinary UI auto-continues when continue=true (no hidden step quota). */
+  loop: FindNextCheckLoopDisposition;
 };
 
 export type FindNextCheckOrchestratorErr = {
@@ -120,6 +130,7 @@ function publicResultPayload(ok: FindNextCheckOrchestratorOk): string {
     rematch: ok.rematch,
     needAfter: ok.needAfter,
     appliedCheckIds: ok.appliedCheckIds,
+    loop: ok.loop,
     proofs: ok.proofs,
   });
 }
@@ -220,6 +231,7 @@ export async function runFindNextCheckOrchestrator(
     let rematch: FindNextCheckOrchestratorOk["rematch"] = null;
     let listingsAfter = ctx.listings;
     let refineAfter = live.replan.refine;
+    let rematchOk: boolean | null = null;
 
     if (live.research && deps.runMatch) {
       // CRITICAL: rematch uses NEW need from apply — never pre-apply / stale UI years.
@@ -232,6 +244,7 @@ export async function runFindNextCheckOrchestrator(
         status: matchResult.status,
         body: matchResult.body,
       };
+      rematchOk = rematch.ok;
       if (rematch.ok && Array.isArray(matchResult.body.directions)) {
         listingsAfter = listingsFromMatchDirections(
           matchResult.body.directions as Parameters<typeof listingsFromMatchDirections>[0],
@@ -239,6 +252,7 @@ export async function runFindNextCheckOrchestrator(
       }
     } else if (live.research && !deps.runMatch) {
       rematch = null; // client must rematch with returned needAfter only
+      rematchOk = null;
     }
 
     const updated: FindSearchContextRecord = await updateFindSearchContext(deps.kv, ctx, {
@@ -246,6 +260,35 @@ export async function runFindNextCheckOrchestrator(
       refine: refineAfter,
       listings: listingsAfter,
       appliedCheckIds: appliedNext,
+    });
+
+    // Shortlist + remaining checks from POST-apply / POST-rematch evidence.
+    const shortlistAfter = buildGroundedShortlist(updated.need, updated.listings);
+    const softGaps = softPrefGapsFromText(updated.need.note);
+    const remainingProposed = proposeFindNextChecks({
+      need: updated.need,
+      softGaps,
+      observedListingCount: updated.listings.length,
+      observedModelCount: new Set(updated.listings.map((l) => `${l.make}|${l.model}`)).size,
+      emptyInventory: updated.listings.length === 0,
+    });
+    const remainingActionableCount = countRemainingAutomaticChecks(
+      remainingProposed.map((c) => c.id),
+      appliedNext,
+    );
+
+    const loop = decideFindNextCheckLoop({
+      keyed,
+      autonomousServ: live.source === "serv",
+      chosenId: live.chosenId,
+      research: live.research,
+      rematchOk,
+      needBeforeFp: fingerprintNeed(ctx.need),
+      needAfterFp: fingerprintNeed(updated.need),
+      listingsBeforeFp: fingerprintListings(ctx.listings),
+      listingsAfterFp: fingerprintListings(updated.listings),
+      shortlistCount: shortlistAfter.length,
+      remainingActionableCount,
     });
 
     const payload: FindNextCheckOrchestratorOk = {
@@ -260,7 +303,7 @@ export async function runFindNextCheckOrchestrator(
       research: live.research,
       allowedChecks: live.allowedChecks,
       compare: live.compare,
-      shortlist: live.shortlist,
+      shortlist: shortlistAfter,
       proofs: live.proofs,
       failureDiag: live.failureDiag,
       honesty:
@@ -270,6 +313,7 @@ export async function runFindNextCheckOrchestrator(
       rematch,
       needAfter: live.replan.need,
       appliedCheckIds: appliedNext,
+      loop,
     };
 
     if (claimId) {

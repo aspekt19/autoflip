@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { rematchRefineFromReplan, shouldAutoStartFindNextCheck } from "./find-next-check-ui";
+import {
+  rematchRefineFromReplan,
+  shouldAutoContinueFindNextCheck,
+  shouldAutoStartFindNextCheck,
+} from "./find-next-check-ui";
 
 describe("shouldAutoStartFindNextCheck", () => {
   it("auto-starts once per token when SERV keyed", () => {
@@ -27,6 +31,35 @@ describe("shouldAutoStartFindNextCheck", () => {
         alreadyAutoStartedForToken: null,
       }),
     ).toBeNull();
+  });
+});
+
+describe("shouldAutoContinueFindNextCheck", () => {
+  it("continues only when server loop.continue + autonomous SERV", () => {
+    expect(
+      shouldAutoContinueFindNextCheck({
+        servNextCheckEnabled: true,
+        autonomousServ: true,
+        searchContextToken: "t",
+        loop: { continue: true, reason: "evidence_changed_replan" },
+      }),
+    ).toBe(true);
+    expect(
+      shouldAutoContinueFindNextCheck({
+        servNextCheckEnabled: true,
+        autonomousServ: true,
+        searchContextToken: "t",
+        loop: { continue: false, reason: "grounded_stop" },
+      }),
+    ).toBe(false);
+    expect(
+      shouldAutoContinueFindNextCheck({
+        servNextCheckEnabled: true,
+        autonomousServ: false,
+        searchContextToken: "t",
+        loop: { continue: true, reason: "evidence_changed_replan" },
+      }),
+    ).toBe(false);
   });
 });
 

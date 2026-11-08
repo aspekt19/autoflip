@@ -26,7 +26,11 @@ import {
   observedModelSnapshots,
 } from "@/domain/find-model-observe";
 import { proposeFindNextChecks } from "@/domain/find-next-checks";
-import { rematchRefineFromReplan, shouldAutoStartFindNextCheck } from "@/domain/find-next-check-ui";
+import {
+  rematchRefineFromReplan,
+  shouldAutoContinueFindNextCheck,
+  shouldAutoStartFindNextCheck,
+} from "@/domain/find-next-check-ui";
 import { buildGroundedShortlist } from "@/domain/find-path";
 import { USE_CASES, searchScopeLabel, softPrefGapsFromText, type FollowUp, type StructuredNeed } from "@/domain/need";
 import type { Mode } from "@/domain/types";
@@ -434,6 +438,7 @@ function AssistantFlow({
     setError(null);
     setNextCheckNote(null);
     setPending("next-check");
+    let continueToken: string | null = null;
     try {
       const response = await fetch("/api/find/next-check", {
         method: "POST",
@@ -469,6 +474,7 @@ function AssistantFlow({
             servNextCheckEnabled?: boolean;
           };
         } | null;
+        loop?: { continue?: boolean; reason?: string; detail?: string };
         honesty?: string;
       };
       if (!response.ok || !body.ok || !body.replan?.need) {
@@ -484,6 +490,8 @@ function AssistantFlow({
       else if (nextNeed.yearMax != null) setYearMax(String(nextNeed.yearMax));
       if (Array.isArray(body.appliedCheckIds)) setAppliedNextChecks(body.appliedCheckIds);
       else if (body.chosenId) setAppliedNextChecks((prev) => [...prev, body.chosenId!]);
+      const nextTok =
+        typeof body.searchContextToken === "string" ? body.searchContextToken : token;
       if (typeof body.searchContextToken === "string") setSearchContextToken(body.searchContextToken);
       setNextCheckNote(
         [
@@ -492,10 +500,23 @@ function AssistantFlow({
           "—",
           body.replan.note,
           body.servNote ? `(${body.servNote})` : "",
+          body.loop?.reason ? `[${body.loop.reason}]` : "",
         ]
           .filter(Boolean)
           .join(" "),
       );
+      if (
+        shouldAutoContinueFindNextCheck({
+          servNextCheckEnabled: servNextCheckEnabled || Boolean(opts?.auto),
+          autonomousServ: Boolean(body.autonomousServ),
+          searchContextToken: nextTok,
+          loop: body.loop
+            ? { continue: Boolean(body.loop.continue), reason: body.loop.reason ?? "" }
+            : null,
+        })
+      ) {
+        continueToken = nextTok;
+      }
 
       // Prefer server rematch (NEW need). Fallback client rematch uses replan only — never yearMin UI state.
       if (body.research && body.rematch?.body) {
@@ -603,6 +624,10 @@ function AssistantFlow({
       setError("Next check failed — try again.");
     } finally {
       setPending(null);
+    }
+    // Continue loop after pending clears — evidence→replan until server stop reason.
+    if (continueToken) {
+      void applyLiveNextCheck({ token: continueToken, auto: true });
     }
   }
 
@@ -1367,7 +1392,7 @@ function AssistantFlow({
                       <>
                         <p>
                           {servNextCheckEnabled
-                            ? "Next check runs automatically after search when SERV is configured (allowlist → apply → rematch with the updated need). Manual retry available if needed:"
+                            ? "When SERV is configured, next-check continues automatically after search as evidence updates (apply → rematch → replan) until grounded stop, clarification, failure, or unchanged-state. Manual retry:"
                             : "Suggested next checks (code allowlist). SERV is not configured — deterministic fallback only (not autonomous SERV). Manual apply:"}
                         </p>
                         <ul>

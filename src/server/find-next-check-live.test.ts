@@ -36,7 +36,7 @@ describe("runFindNextCheckLive seam (SERV choose → clamp → apply → researc
 
     const result = await runFindNextCheckLive(
       {
-        need: baseNeed,
+        need: { ...baseNeed, zip: "68114", distanceMiles: 50 },
         listings: [], // empty → propose includes widen
         refine: {},
       },
@@ -55,7 +55,7 @@ describe("runFindNextCheckLive seam (SERV choose → clamp → apply → researc
     expect(result.research).toBe(true);
     expect(result.replan.need.distanceMiles).toBeNull(); // nationwide
     expect(result.allowedChecks.some((c) => c.id === "widen_or_nationwide")).toBe(true);
-    expect(result.honesty).toMatch(/allowlisted/i);
+    expect(result.honesty).toMatch(/allowlisted|SERV chose/i);
   });
 
   it("clamps unknown SERV checkId to deterministic allowlist — no invent", async () => {

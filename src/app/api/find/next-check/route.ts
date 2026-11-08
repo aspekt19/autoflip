@@ -130,6 +130,7 @@ export async function POST(request: Request) {
     needAfter: result.needAfter,
     appliedCheckIds: result.appliedCheckIds,
     rematch: result.rematch,
+    loop: result.loop,
     honesty: result.honesty,
     failureDiag: result.failureDiag
       ? {

@@ -15,6 +15,21 @@ export function shouldAutoStartFindNextCheck(opts: {
 }
 
 /**
+ * After a step, continue automatically when server loop says so (evidence→replan).
+ * No hidden step quota — server stop reasons are authoritative.
+ */
+export function shouldAutoContinueFindNextCheck(opts: {
+  servNextCheckEnabled: boolean;
+  autonomousServ: boolean;
+  searchContextToken: string | null | undefined;
+  loop: { continue: boolean; reason: string } | null | undefined;
+}): boolean {
+  const token = typeof opts.searchContextToken === "string" ? opts.searchContextToken.trim() : "";
+  if (!opts.servNextCheckEnabled || !opts.autonomousServ || !token) return false;
+  return Boolean(opts.loop?.continue);
+}
+
+/**
  * Rematch refine must come from server replan / NEW need — never same-tick UI year fields.
  */
 export function rematchRefineFromReplan(input: {
