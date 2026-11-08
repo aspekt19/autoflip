@@ -7,7 +7,7 @@ import {
   type PaidSpendAuthority,
 } from "./paid-execution";
 import { loadOwnerGrant, reserveGrantProviderCall } from "./owner-grant";
-import { parseScoutPlanText } from "./plan-parse";
+import { allocateExecutionServStepId, parseScoutPlanText } from "./plan-parse";
 import { buildScoutPlanUserMessage } from "./plan-user-message";
 
 /**
@@ -123,7 +123,10 @@ export function servScoutPlanner(deps: {
       return { ok: false, error: "serv_unavailable", message: result.error, diagnostic };
     }
 
-    const parsed = parseScoutPlanText(result.text);
+    // servStepId is execution-owned correlation (runner step), not a model decision.
+    const parsed = parseScoutPlanText(result.text, {
+      executionServStepId: allocateExecutionServStepId(input.step),
+    });
     if (!parsed.ok) {
       const error =
         parsed.kind === "refusal" ? ("serv_refused" as const) : ("serv_unavailable" as const);

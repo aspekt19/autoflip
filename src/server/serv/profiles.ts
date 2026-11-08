@@ -445,7 +445,6 @@ export const PROFILES = {
         required: [
           "type",
           "reason",
-          "servStepId",
           "vin",
           "toolId",
           "args",
@@ -458,28 +457,37 @@ export const PROFILES = {
             type: "string",
             enum: ["select_candidate", "run_tool", "reject", "replace", "finalize", "abstain"],
           },
+          // Non-empty reason enforced at parse time (plan-parse trim/guards), not via
+          // request-schema `pattern` (provider compatibility unproven).
+          // servStepId is execution-owned correlation metadata — omitted from the model
+          // schema so planners do not invent bookkeeping ids (Sonnet empty_string class).
           reason: { type: "string" },
-          servStepId: { type: "string" },
           vin: { type: ["string", "null"] },
+          // Nullable enum via anyOf — Anthropic rejects type:["string","null"] + enum
+          // containing null ("Enum value None does not match declared type ...").
           toolId: {
-            type: ["string", "null"],
-            enum: [
-              null,
-              "inventory.search",
-              "listing.normalize",
-              "evidence.asking_price",
-              "evidence.comps_ask",
-              "evidence.gov_recalls",
-              "evidence.gov_fuel",
-              "evidence.gov_vpic",
-              "evidence.gov_safety",
-              "economics.flip_estimate",
-              "economics.personal_fit",
-              "gates.verify",
-              "candidate.reject",
-              "candidate.replace",
-              "run.checkpoint",
-              "run.finalize",
+            anyOf: [
+              {
+                type: "string",
+                enum: [
+                  "inventory.search",
+                  "listing.normalize",
+                  "evidence.asking_price",
+                  "evidence.comps_ask",
+                  "evidence.gov_recalls",
+                  "evidence.gov_fuel",
+                  "evidence.gov_vpic",
+                  "evidence.gov_safety",
+                  "economics.flip_estimate",
+                  "economics.personal_fit",
+                  "gates.verify",
+                  "candidate.reject",
+                  "candidate.replace",
+                  "run.checkpoint",
+                  "run.finalize",
+                ],
+              },
+              { type: "null" },
             ],
           },
           /**
@@ -520,8 +528,13 @@ export const PROFILES = {
             },
           },
           rationaleKind: {
-            type: ["string", "null"],
-            enum: [null, "adverse_evidence", "uncertainty_progress"],
+            anyOf: [
+              {
+                type: "string",
+                enum: ["adverse_evidence", "uncertainty_progress"],
+              },
+              { type: "null" },
+            ],
           },
           citedEvidence: {
             type: ["array", "null"],

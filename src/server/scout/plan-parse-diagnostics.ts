@@ -98,7 +98,11 @@ export function sanitizePlannerParseEcho(text: string): SanitizedPlannerParseEch
   return echo;
 }
 
-/** Precise mismatch detail for reason/servStepId — avoids collapsing distinct shapes. */
+/**
+ * Precise mismatch detail when model-owned `reason` is absent/empty.
+ * Prefix kept for metrics regexes. `servStepId=…` remains forensic echo only —
+ * correlation is execution-owned and no longer a parse failure mode.
+ */
 export function reasonServStepIdMismatchMessage(raw: Record<string, unknown>): string {
   const reason = fieldPresence(raw.reason);
   const servStepId = fieldPresence(raw.servStepId);

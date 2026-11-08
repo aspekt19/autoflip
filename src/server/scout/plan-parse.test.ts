@@ -1,17 +1,18 @@
 import { describe, expect, it } from "vitest";
-import { parseScoutPlanText } from "./plan-parse";
+import { allocateExecutionServStepId, parseScoutPlanText } from "./plan-parse";
 
 describe("parseScoutPlanText", () => {
-  it("accepts a valid select_candidate action", () => {
+  it("accepts a valid select_candidate action and binds execution servStepId", () => {
     const result = parseScoutPlanText(
       JSON.stringify({
         type: "select_candidate",
         vin: "4T1KZ1AK4MU060006",
         reason: "promising ask vs comps",
-        servStepId: "s1",
       }),
+      { executionServStepId: allocateExecutionServStepId(1) },
     );
     expect(result.ok).toBe(true);
+    if (result.ok) expect(result.action.servStepId).toBe("exec:step-1");
   });
 
   it("classifies refusal without JSON separately from schema mismatch", () => {
@@ -27,7 +28,6 @@ describe("parseScoutPlanText", () => {
         toolId: "http.fetch_arbitrary",
         vin: "X",
         reason: "no",
-        servStepId: "s",
       }),
     );
     expect(result.ok).toBe(false);
@@ -38,5 +38,16 @@ describe("parseScoutPlanText", () => {
     const result = parseScoutPlanText("{not-json");
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.kind).toBe("invalid_json");
+  });
+
+  it("rejects empty reason even when model emits a servStepId", () => {
+    const result = parseScoutPlanText(
+      JSON.stringify({ type: "abstain", reason: "  ", servStepId: "model-a1" }),
+    );
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.kind).toBe("schema_mismatch");
+      expect(result.message).toMatch(/^Missing reason or servStepId/);
+    }
   });
 });

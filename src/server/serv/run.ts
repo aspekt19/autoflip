@@ -237,7 +237,19 @@ function toolArgumentText(calls: unknown): string {
   return "";
 }
 
-function fromMessage(message: unknown): string {
+/**
+ * How to extract shopper/planner text from an upstream payload.
+ * - `legacy`: content → parsed → tool_call args → refusal → reasoning JSON (historical).
+ * - `structured`: OpenAI/SERV json_schema contract only — content / parsed / refusal.
+ *   Never promote tool_call arguments or reasoning-trace drafts into planner text.
+ *   Offline fixtures show a synthetic draft-as-JSON hazard: non-empty wrong text makes
+ *   runServ report success, skips production empty-text recovery, and parseScoutPlanText
+ *   fails with "Missing reason or servStepId". Raw live Luna bodies were not retained —
+ *   this is not a proven live Luna RCA.
+ */
+export type MessageTextMode = "legacy" | "structured";
+
+function fromMessage(message: unknown, mode: MessageTextMode = "legacy"): string {
   if (!message || typeof message !== "object") return "";
   const record = message as {
     content?: unknown;
@@ -252,6 +264,10 @@ function fromMessage(message: unknown): string {
   if (record.content && typeof record.content === "object" && !Array.isArray(record.content)) return JSON.stringify(record.content);
   if (typeof record.parsed === "string" && record.parsed.trim()) return record.parsed.trim();
   if (record.parsed && typeof record.parsed === "object") return JSON.stringify(record.parsed);
+  if (mode === "structured") {
+    if (typeof record.refusal === "string" && record.refusal.trim()) return record.refusal.trim();
+    return "";
+  }
   const args = toolArgumentText(record.tool_calls);
   if (args) return args;
   if (typeof record.refusal === "string" && record.refusal.trim()) return record.refusal.trim();
@@ -270,8 +286,12 @@ function fromMessage(message: unknown): string {
   return jsonObject(reasoningParts.join("\n"));
 }
 
-/** Shopper-facing text. A reasoning trace is used only when it contains the JSON object. */
-export function messageText(payload: unknown): string {
+/**
+ * Extract visible response text.
+ * Default `legacy` keeps historical flip/report scraping.
+ * Pass `structured` for json_schema profiles (scout_plan / flip_judge / verdict).
+ */
+export function messageText(payload: unknown, mode: MessageTextMode = "legacy"): string {
   if (!payload || typeof payload !== "object") return "";
   const record = payload as { output_text?: unknown; output?: unknown; choices?: unknown };
   if (typeof record.output_text === "string" && record.output_text.trim()) return record.output_text.trim();
@@ -280,13 +300,17 @@ export function messageText(payload: unknown): string {
     for (const item of record.output) {
       if (!item || typeof item !== "object") continue;
       const row = item as { type?: unknown; text?: unknown; content?: unknown; name?: unknown; arguments?: unknown };
-      if (row.type === "function_call" && typeof row.name === "string" && !row.name.startsWith("serv_")) {
-        const args = typeof row.arguments === "string" ? row.arguments : row.arguments && typeof row.arguments === "object" ? JSON.stringify(row.arguments) : "";
-        if (args.trim()) chunks.push(args);
-      }
-      if (row.type === "reasoning") {
-        const buried = typeof row.text === "string" ? jsonObject(row.text) : "";
-        if (buried) chunks.push(buried);
+      if (mode === "legacy") {
+        if (row.type === "function_call" && typeof row.name === "string" && !row.name.startsWith("serv_")) {
+          const args = typeof row.arguments === "string" ? row.arguments : row.arguments && typeof row.arguments === "object" ? JSON.stringify(row.arguments) : "";
+          if (args.trim()) chunks.push(args);
+        }
+        if (row.type === "reasoning") {
+          const buried = typeof row.text === "string" ? jsonObject(row.text) : "";
+          if (buried) chunks.push(buried);
+          continue;
+        }
+      } else if (row.type === "reasoning" || row.type === "function_call") {
         continue;
       }
       if ((row.type === "output_text" || row.type === "text") && typeof row.text === "string") chunks.push(row.text);
@@ -300,7 +324,7 @@ export function messageText(payload: unknown): string {
     if (!choice || typeof choice !== "object") continue;
     const row = choice as { text?: unknown; message?: unknown };
     if (typeof row.text === "string" && row.text.trim()) return row.text.trim();
-    const text = fromMessage(row.message);
+    const text = fromMessage(row.message, mode);
     if (text) return text;
   }
   return "";
@@ -555,7 +579,8 @@ export async function runServ(
       return { response, payload: streamed.payload, text: streamed.text, shape: responseShape(streamed.payload) };
     }
     const payload: unknown = await response.json().catch(() => null);
-    const text = messageText(payload);
+    // json_schema profiles: only content/parsed/refusal — never tool args / reasoning drafts.
+    const text = messageText(payload, entry.jsonSchema ? "structured" : "legacy");
     const shape = responseShape(payload);
     if (!response.ok) logServError(id, response.status, payload);
     else if (!text) console.error(`[serv] ${id} HTTP ${response.status} empty ${shape}`);
