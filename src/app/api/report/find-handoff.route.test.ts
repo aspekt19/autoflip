@@ -501,4 +501,120 @@ describe("POST /api/report find handoff (mocked credits/provider)", () => {
     expect(assemble).not.toHaveBeenCalled();
     expect(spend).not.toHaveBeenCalled();
   });
+
+  /**
+   * t309 — production PR74 incident: 2016 Mazda CX-5 Touring Gateway Omaha.
+   * Dealer retail.zip ≠ search ZIP 68114; Full analysis claimed need.zip and was
+   * refused find_context_invalid / 0 charge. Must succeed with checks intact.
+   */
+  it("t309 Gateway Mazda CX-5: dealer zip ≠ search zip Full analysis charges once", async () => {
+    const GATEWAY_VIN = "JM3KE4CY7G0753111";
+    const GATEWAY_VDP =
+      "https://www.gatewayautosalesomaha.com/inventory/used-2016-mazda-cx-5-touring-sport-utility-4d-jm3ke4cy7g0753111-in-omaha-ne";
+    const SEARCH_ZIP = "68114";
+    const DEALER_ZIP = "68107";
+
+    const record = mintFindAnalysisContextRecord(
+      "user-test",
+      {
+        vin: GATEWAY_VIN,
+        year: 2016,
+        make: "Mazda",
+        model: "CX-5",
+        miles: 94_057,
+        priceUsd: 15_995,
+        vdp: GATEWAY_VDP,
+        zip: DEALER_ZIP,
+        priceView: { usableForBudget: true },
+      },
+      SEARCH_ZIP,
+    );
+    await storeFindAnalysisContext(kvHolder.kv, record);
+    assemble.mockResolvedValue(
+      okReport({
+        id: "report-gateway-mazda",
+        priceUsd: 15_995,
+        miles: 94_057,
+        verdict: "good_deal",
+      }),
+    );
+
+    const response = await POST(
+      req({
+        mode: "personal",
+        surface: "find",
+        cta: "find_card_full_analysis",
+        vin: GATEWAY_VIN,
+        url: GATEWAY_VDP,
+        selectedVin: GATEWAY_VIN,
+        selectedVdp: GATEWAY_VDP,
+        findContextToken: record.token,
+        zip: SEARCH_ZIP,
+        miles: 94_057,
+        askingPriceUsd: 15_995,
+      }),
+    );
+    expect(response.status).toBe(200);
+    const body = await response.json();
+    expect(body.id).toBe("report-gateway-mazda");
+    expect(assemble).toHaveBeenCalledTimes(1);
+    const assembleInput = assemble.mock.calls[0]?.[0] as {
+      vin?: string;
+      url?: string;
+      miles?: number;
+      zip?: string;
+      askingPriceUsd?: number;
+    };
+    expect(assembleInput.vin).toBe(GATEWAY_VIN);
+    expect(assembleInput.url).toBe(GATEWAY_VDP);
+    expect(assembleInput.miles).toBe(94_057);
+    expect(assembleInput.zip).toBe(SEARCH_ZIP);
+    expect(assembleInput.askingPriceUsd).toBe(15_995);
+    expect(spend).toHaveBeenCalledTimes(1);
+    expect(spend.mock.calls[0]?.[1]).toBe(`report:analysis:findctx:user-test:${record.token}`);
+  });
+
+  it("t309 still refuses forged ZIP against find-session binding", async () => {
+    const GATEWAY_VIN = "JM3KE4CY7G0753111";
+    const GATEWAY_VDP =
+      "https://www.gatewayautosalesomaha.com/inventory/used-2016-mazda-cx-5-touring-sport-utility-4d-jm3ke4cy7g0753111-in-omaha-ne";
+    const record = mintFindAnalysisContextRecord(
+      "user-test",
+      {
+        vin: GATEWAY_VIN,
+        year: 2016,
+        make: "Mazda",
+        model: "CX-5",
+        miles: 94_057,
+        priceUsd: 15_995,
+        vdp: GATEWAY_VDP,
+        zip: "68107",
+        priceView: { usableForBudget: true },
+      },
+      "68114",
+    );
+    await storeFindAnalysisContext(kvHolder.kv, record);
+
+    const response = await POST(
+      req({
+        mode: "personal",
+        surface: "find",
+        cta: "find_card_full_analysis",
+        vin: GATEWAY_VIN,
+        url: GATEWAY_VDP,
+        selectedVin: GATEWAY_VIN,
+        selectedVdp: GATEWAY_VDP,
+        findContextToken: record.token,
+        zip: "00000",
+        miles: 94_057,
+      }),
+    );
+    expect(response.status).toBe(400);
+    const body = await response.json();
+    expect(body.error).toBe("find_context_invalid");
+    expect(body.reason).toBe("tampered_facts");
+    expect(body.charge).toBe(false);
+    expect(assemble).not.toHaveBeenCalled();
+    expect(spend).not.toHaveBeenCalled();
+  });
 });
