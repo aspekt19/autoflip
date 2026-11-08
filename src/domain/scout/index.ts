@@ -27,6 +27,8 @@ export {
   prepareCompareStep,
   scoreScoutPlanAction,
   scoreHistoricalLedgerActions,
+  runSequentialTwoDecision,
+  runOfflineSequentialTwoDecision,
   PR63_PLACEHOLDER_LEDGER_PATH,
 } from "./serv-model-compare";
 export type {
@@ -34,6 +36,7 @@ export type {
   RecoveryClass,
   ActionScore,
   CompareStepPrepared,
+  SequentialTwoDecisionResult,
 } from "./serv-model-compare";
 export {
   SCOUT_METRICS_SCHEMA_VERSION,

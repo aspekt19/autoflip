@@ -1,6 +1,11 @@
 {
-  "schemaVersion": "serv-scout-model-compare/v3",
+  "schemaVersion": "serv-scout-model-compare/v5",
   "mode": "dry_run",
+  "dispatchPath": "dry_run",
+  "httpAttemptsTotal": 0,
+  "normalHttpAttempts": 0,
+  "sequentialHttpAttempts": 0,
+  "sourcePin": null,
   "harness": "eval/serv-scout-model-compare.ts",
   "ledgerPath": "fixtures/scout/pr63-placeholder-ledger.json",
   "ledgerLabel": "offline_sanitized_NOT_live_rerun",
@@ -25,7 +30,9 @@
     "silentEmptyRetry": false,
     "silentTimeoutRetry": false,
     "productionPlannerRetriesUnchanged": true,
-    "noArbitraryServRunQuota": true
+    "noArbitraryServRunQuota": true,
+    "sequentialTwoDecisionMaxHttpTotal": 2,
+    "sequentialTwoDecisionDefaultHttp": 0
   },
   "catalog": [
     {
@@ -33,30 +40,56 @@
       "kind": "base",
       "source": "src/server/serv/profiles.ts BASE_MODEL + README SERV_MODEL default",
       "effectiveForScoutPlan": "gpt-5.4-mini",
-      "unlistedOptIn": false
+      "unlistedOptIn": false,
+      "provider": "openai"
     },
     {
       "id": "gpt-5.4-mini-2026-03-17",
       "kind": "dated_alias",
       "source": "eval/results/latest.json + eval/results/serv-proof-trace.json reported model",
       "effectiveForScoutPlan": "gpt-5.4-mini-2026-03-17",
-      "unlistedOptIn": false
+      "unlistedOptIn": false,
+      "provider": "openai"
     }
   ],
   "modelsSelected": [
     {
       "id": "gpt-5.4-mini",
-      "kind": "base",
-      "source": "src/server/serv/profiles.ts BASE_MODEL + README SERV_MODEL default",
+      "kind": "docs_fair_slate",
+      "source": "docs fair slate (https://docs.openserv.ai/serv-reasoning/models) — Flip must confirm console enablement before paid run",
       "effectiveForScoutPlan": "gpt-5.4-mini",
-      "unlistedOptIn": false
+      "unlistedOptIn": false,
+      "provider": "openai",
+      "protocolNotes": [
+        "Production BASE_MODEL — unchanged by this harness.",
+        "Known class: cold first-step ~45s timeout under scout_plan.timeoutMs (do not blind-raise)."
+      ]
     },
     {
-      "id": "gpt-5.4-mini-2026-03-17",
-      "kind": "dated_alias",
-      "source": "eval/results/latest.json + eval/results/serv-proof-trace.json reported model",
-      "effectiveForScoutPlan": "gpt-5.4-mini-2026-03-17",
-      "unlistedOptIn": false
+      "id": "claude-sonnet-4.6",
+      "kind": "docs_fair_slate",
+      "source": "docs fair slate (https://docs.openserv.ai/serv-reasoning/models) — Flip must confirm console enablement before paid run",
+      "effectiveForScoutPlan": "claude-sonnet-4.6",
+      "unlistedOptIn": false,
+      "provider": "anthropic",
+      "protocolNotes": [
+        "Works on /v1/chat/completions and /v1/messages; scout_plan uses chat.",
+        "Historically failed on nullable enum `type:['string','null']+enum` — fixed via anyOf[string-enum|null] on toolId/rationaleKind (product A–C; already on this lineage).",
+        "HTTP 200 alone ≠ grounded decision — score schemaValid/grounded/recovery/antiLoop/refusals."
+      ]
+    },
+    {
+      "id": "gemini-2.5-flash",
+      "kind": "docs_fair_slate",
+      "source": "docs fair slate (https://docs.openserv.ai/serv-reasoning/models) — Flip must confirm console enablement before paid run",
+      "effectiveForScoutPlan": "gemini-2.5-flash",
+      "unlistedOptIn": false,
+      "provider": "google",
+      "protocolNotes": [
+        "Gemini is NOT available on /v1/messages or /v1/responses — must use /v1/chat/completions (scout_plan endpoint=chat ✓).",
+        "google-genai SDK generateContent is unsupported — OpenAI-shape chat only.",
+        "Score refusals/timeouts/empty/parse-fail honestly; cost remains unknown until billing reconciliation."
+      ]
     }
   ],
   "evidenceTaxonomy": {
@@ -93,26 +126,29 @@
     "Whether Auto.dev returns usable asks after 500-N on a given minute is unproven here.",
     "Experiment transport disables silent empty/timeout re-POSTs only; production planner recovery retries stay as designed.",
     "Parse failures now record sanitizedPlannerEcho (keys/types/lengths only) + upstreamResponseId/finishReason/responseShape when present — never raw planner JSON.",
-    "All-zero usage on a HTTP 200 refusal is unknown cost — not free. Parent Mini/Luna counts are not efficacy winners."
+    "All-zero usage on a HTTP 200 refusal is unknown cost — not free. Parent Mini/Luna counts are not efficacy winners.",
+    "Structured extraction fix is offline-proven; live 2/3→reliability must be re-measured by parent (repeated cycles, all attempts, latency, costunknown) — no unmeasured 100% claim.",
+    "GPT-5.4 cold first-step timeout (45007ms=scout_plan.timeoutMs) is a separate observed class; do not blind-raise timeout — one-variable parent probe if it persists after this head.",
+    "66b151e launch breached ≤2: normal 3 rows + sequential 2 = 5 HTTP. XOR dispatch now skips normal compare when SCOUT_COMPARE_SEQUENTIAL=1. No paid-readiness claim; launcher HOLD preserved."
   ],
   "stepUserMessages": [
     {
       "stepId": "after_inventory_before_reject",
-      "userMessageBytes": 8101,
+      "userMessageBytes": 8533,
       "pendingCount": 20,
       "usableAsks": 0,
       "allUnusable": true
     },
     {
       "stepId": "after_one_denied_reject",
-      "userMessageBytes": 8421,
+      "userMessageBytes": 8853,
       "pendingCount": 20,
       "usableAsks": 0,
       "allUnusable": true
     },
     {
       "stepId": "after_two_denied_rejects",
-      "userMessageBytes": 8741,
+      "userMessageBytes": 9173,
       "pendingCount": 20,
       "usableAsks": 0,
       "allUnusable": true
@@ -132,9 +168,9 @@
         "dispositionCode": "adverse_evidence",
         "grounded": true,
         "recoveryClass": "grounded_reject_unusable_ask",
-        "antiLoopSafe": false,
+        "antiLoopSafe": true,
         "claimsVehicleDefectFromPlaceholder": false,
-        "summary": "reject → grounded_reject_unusable_ask; grounded=true; antiLoopSafe=false"
+        "summary": "reject → grounded_reject_unusable_ask; grounded=true; antiLoopSafe=true"
       }
     },
     {
@@ -150,13 +186,157 @@
         "dispositionCode": "adverse_evidence",
         "grounded": true,
         "recoveryClass": "grounded_reject_unusable_ask",
-        "antiLoopSafe": false,
+        "antiLoopSafe": true,
         "claimsVehicleDefectFromPlaceholder": false,
-        "summary": "reject → grounded_reject_unusable_ask; grounded=true; antiLoopSafe=false"
+        "summary": "reject → grounded_reject_unusable_ask; grounded=true; antiLoopSafe=true"
       }
     }
   ],
   "rows": [],
+  "sequentialTwoDecisionOffline": {
+    "schemaVersion": "scout-sequential-two-decision/v1",
+    "mode": "dry_run_offline_fixture",
+    "maxHttpAttemptsTotal": 2,
+    "httpAttemptsTotal": 0,
+    "transportPolicy": "experiment_single_attempt",
+    "timeoutMsPerAttempt": 45000,
+    "outputTokenBound": 4096,
+    "decision1PinsUnchanged": true,
+    "stoppedBeforeDecision2": false,
+    "sequentialOrchestrationExecuted": true,
+    "disclaimers": [
+      "Experimental sequential TWO-decision harness — separate from production defaults.",
+      "Decision-2 offline_replay is NOT live tool-result / full-cycle Scout.",
+      "Not a rescore of any prior saved Sonnet row (raw action/citedEvidence from 83929cd unretained).",
+      "Default zero HTTP; parent sole live coordinator.",
+      "Ungrounded/denied Decision-1 stops before Decision-2; already-processed VIN fails closed."
+    ],
+    "decisions": [
+      {
+        "decisionIndex": 1,
+        "stateKind": "ledger_prepared",
+        "provenanceNote": "Decision-1 on ledger_prepared (same sanitized PR63 step as 70844ae pins).",
+        "stepId": "after_inventory_before_reject",
+        "schemaValid": true,
+        "score": {
+          "schemaValid": true,
+          "parseKind": null,
+          "actionType": "reject",
+          "actionFingerprint": "reject:4TAWM72N3WZ162673:adverse_evidence",
+          "dispositionOk": true,
+          "dispositionCode": "adverse_evidence",
+          "grounded": true,
+          "recoveryClass": "grounded_reject_unusable_ask",
+          "antiLoopSafe": true,
+          "claimsVehicleDefectFromPlaceholder": false,
+          "summary": "reject → grounded_reject_unusable_ask; grounded=true; antiLoopSafe=true"
+        },
+        "retainedAction": {
+          "type": "reject",
+          "reason": "placeholder ask cannot unlock investigation",
+          "servStepId": "exec:step-1",
+          "secretsRedacted": false,
+          "vin": "4TAWM72N3WZ162673",
+          "rationaleKind": "adverse_evidence",
+          "citedEvidence": [
+            {
+              "kind": "missing_asking_price",
+              "gateId": "price"
+            }
+          ],
+          "assumptionsDisclosed": false
+        },
+        "httpAttempts": 0,
+        "transportPolicy": "offline_fixture",
+        "stopReason": "applied",
+        "applyNote": "Local reject applied via production validation/reducer. Decision-2 on offline_replay permitted.",
+        "responseSource": "offline_fixture",
+        "rawStatus": null,
+        "latencyMs": null,
+        "tokens": null,
+        "cost": "unknown",
+        "upstreamResponseId": null,
+        "finishReason": null,
+        "responseShape": null,
+        "error": null
+      },
+      {
+        "decisionIndex": 2,
+        "stateKind": "offline_replay_after_local_apply",
+        "provenanceNote": "OFFLINE_REPLAY after local-only disposition apply — NOT a live tool result, NOT a full Scout cycle, NOT a rescore of prior Sonnet artifacts.",
+        "stepId": "after_inventory_before_reject__offline_replay",
+        "schemaValid": true,
+        "score": {
+          "schemaValid": true,
+          "parseKind": null,
+          "actionType": "abstain",
+          "actionFingerprint": "abstain",
+          "dispositionOk": true,
+          "dispositionCode": null,
+          "grounded": true,
+          "recoveryClass": "honest_abstain",
+          "antiLoopSafe": true,
+          "claimsVehicleDefectFromPlaceholder": false,
+          "summary": "abstain → honest_abstain; grounded=true; antiLoopSafe=true"
+        },
+        "retainedAction": {
+          "type": "abstain",
+          "reason": "offline fixture Decision-2 after local reject — NOT a live model response",
+          "servStepId": "exec:step-2",
+          "secretsRedacted": false
+        },
+        "httpAttempts": 0,
+        "transportPolicy": "offline_fixture",
+        "stopReason": null,
+        "applyNote": null,
+        "responseSource": "offline_fixture",
+        "rawStatus": null,
+        "latencyMs": null,
+        "tokens": null,
+        "cost": "unknown",
+        "upstreamResponseId": null,
+        "finishReason": null,
+        "responseShape": null,
+        "error": null
+      }
+    ],
+    "apply": {
+      "stopReason": "applied",
+      "continueToDecision2": true,
+      "dispositionOk": true,
+      "dispositionCode": "adverse_evidence",
+      "actionFingerprint": "reject:4TAWM72N3WZ162673:adverse_evidence",
+      "note": "Local reject applied via production validation/reducer. Decision-2 on offline_replay permitted.",
+      "appliedLocallyOnly": true,
+      "pendingCountAfter": 19,
+      "rejectedCountAfter": 1,
+      "lastOutcomeOk": true,
+      "lastOutcomeToolId": "candidate.reject"
+    },
+    "offlineReplay": {
+      "stateKind": "offline_replay_after_local_apply",
+      "provenanceNote": "OFFLINE_REPLAY after local-only disposition apply — NOT a live tool result, NOT a full Scout cycle, NOT a rescore of prior Sonnet artifacts.",
+      "stepId": "after_inventory_before_reject__offline_replay",
+      "inputDiff": {
+        "pendingRemoved": [
+          "4TAWM72N3WZ162673"
+        ],
+        "pendingCountBefore": 20,
+        "pendingCountAfter": 19,
+        "rejectedCountAfter": 1,
+        "recentOutcomesAdded": 1,
+        "lastOutcomeToolId": "candidate.reject",
+        "lastOutcomeOk": true
+      },
+      "pendingCount": 19,
+      "rejectedCount": 1,
+      "recentOutcomesCount": 2,
+      "priorIdenticalStreak": 0
+    }
+  },
+  "sequentialTwoDecisionLive": null,
+  "sequentialLiveOptIn": false,
+  "sequentialLiveExecuted": false,
   "cost": "unknown",
   "notes": [
     "Sanitized evidence only — no network/repository reads or paid reruns by the Cursor worker.",
@@ -172,6 +352,11 @@
     "Not a claim that any model beats another until parent runs live rows.",
     "Live path uses experiment_single_attempt: one HTTP per step; empty/timeout/HTTP errors/refusals recorded, not silently repeated.",
     "Production runServ empty/timeout recovery is unchanged outside this harness.",
-    "Schema mismatch rows include sanitized field presence (reason/servStepId/type) without storing raw response text."
+    "Schema mismatch rows include sanitized field presence (reason/servStepId/type) without storing raw response text.",
+    "json_schema profiles extract content/parsed/refusal only — tool_call args and reasoning drafts are not planner text (enables production empty-text recovery). Offline synthetic draft-as-JSON hazard — not proven live Luna RCA (raw body unretained).",
+    "Experimental sequential TWO-decision XOR: SCOUT_COMPARE_SEQUENTIAL=1 + paid gates runs ONLY D1→local apply→D2 (≤2 HTTP across full CLI invocation; normal model×steps compare is skipped). Ungrounded/denied stops before D2; already-processed VIN fails closed. NOT live tool-result / full-cycle. Raw 83929cd action unretained.",
+    "Sequential decision rows include rawStatus/latencyMs/tokens/upstreamResponseId/finishReason/responseShape when known; cost always unknown. sourcePin echoes SCOUT_COMPARE_SOURCE_PIN or null.",
+    "Parse-ok compare rows include retainedAction when retention succeeds (bounded complete structured decision, secrets redacted); null otherwise. sanitizePlannerParseEcho never embeds string values.",
+    "STOP: no paid-readiness claim from this harness alone — independent review + spend reconciliation required after any live launch."
   ]
 }

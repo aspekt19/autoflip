@@ -13,6 +13,10 @@ Measured evaluation outputs live here after a real `npm run eval:serv` / `npm ru
   - **Zero-network default** (dry-run). Live: `SERV_API_KEY` + `SCOUT_COMPARE_ALLOW_PAID=1`.
   - Optional `SERV_COMPARE_MODELS`; unlisted console IDs need `SCOUT_COMPARE_ALLOW_UNLISTED=1`
     after parent console/contract validation (fail-closed otherwise; no blind allowlist expand).
+  - **Fair slate (t317):** `SCOUT_COMPARE_FAIR_SLATE=1` → docs IDs
+    `gpt-5.4-mini`, `claude-sonnet-4.6`, `gemini-2.5-flash` (Flip confirms console enablement).
+  - **Sequential XOR:** `SCOUT_COMPARE_SEQUENTIAL=1` + paid gates → ≤2 HTTP D1→apply→D2 only
+    (normal compare skipped — see `compare-cli-dispatch.ts`).
   - Captures validity, groundedness, recovery, latency, tokens, **costunknown**.
   - Parse/transport failures also record **sanitized** diagnostics only:
     `sanitizedPlannerEcho` (keys/types/lengths — never raw planner JSON),
@@ -25,6 +29,8 @@ Measured evaluation outputs live here after a real `npm run eval:serv` / `npm ru
   - **Budget-conscious ≠ cheapest.** Console Available-models (e.g. `gpt-6-luna` + $/M rates)
     is broader than the in-repo catalog — document discrepancy; do not hardcode availability.
   - Artifact markdown includes observed vs hypotheses vs unrecorded + offline before/after handoff.
+- `serv-compare-preflight.md` — offline Flip instructions + protocol issues
+  (`npm run eval:serv-compare-preflight`; zero network).
 
 Do not invent rows. Commit only files produced by a real SERV API run (for SERV artifacts) or
 by `eval:scout` / dry-run `eval:scout-model-compare` for offline scout artifacts. The GitHub Actions workflows upload artifacts

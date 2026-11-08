@@ -26,6 +26,7 @@ import {
   observedModelSnapshots,
 } from "@/domain/find-model-observe";
 import { proposeFindNextChecks } from "@/domain/find-next-checks";
+import { buildGroundedShortlist } from "@/domain/find-path";
 import { USE_CASES, searchScopeLabel, softPrefGapsFromText, type FollowUp, type StructuredNeed } from "@/domain/need";
 import type { Mode } from "@/domain/types";
 import { isValidVin } from "@/domain/vin";
@@ -1130,17 +1131,43 @@ function AssistantFlow({
                   observedModelCount: snaps.length,
                   emptyInventory: empty,
                 });
-                if (checks.length === 0) return null;
+                const shortlist = buildGroundedShortlist(need, allListings.map((car) => ({
+                  make: car.make,
+                  model: car.model,
+                  year: car.year,
+                  priceUsd: car.priceView?.usableForBudget ? car.priceUsd : null,
+                  miles: car.miles,
+                })));
+                if (checks.length === 0 && shortlist.length === 0) return null;
                 return (
                   <div className="hint" role="note">
-                    <p>Suggested next checks (code allowlist — not a SERV live call; no invented costs):</p>
-                    <ul>
-                      {checks.map((item) => (
-                        <li key={item.id}>
-                          <strong>{item.id}</strong>: {item.why}
-                        </li>
-                      ))}
-                    </ul>
+                    {checks.length > 0 ? (
+                      <>
+                        <p>Suggested next checks (code allowlist — not a SERV live call; no invented costs):</p>
+                        <ul>
+                          {checks.map((item) => (
+                            <li key={item.id}>
+                              <strong>{item.id}</strong>: {item.why}
+                            </li>
+                          ))}
+                        </ul>
+                      </>
+                    ) : null}
+                    {shortlist.length > 0 ? (
+                      <>
+                        <p>
+                          Grounded shortlist from returned cards only (not a “best car” rank — condition unknown; fuel
+                          unavailable without EPA match):
+                        </p>
+                        <ul>
+                          {shortlist.map((row) => (
+                            <li key={`${row.make}-${row.model}`}>
+                              {row.make} {row.model}: {row.why}. Unknowns: {row.unknowns.join("; ")}.
+                            </li>
+                          ))}
+                        </ul>
+                      </>
+                    ) : null}
                   </div>
                 );
               })()

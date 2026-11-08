@@ -1,6 +1,9 @@
 # SERV scout model compare (PR63 placeholder ledger)
 
 - Mode: `dry_run`
+- Dispatch path: `dry_run`
+- HTTP attempts (full invocation): `0`; cost=unknown
+- Source pin: `null` (SCOUT_COMPARE_SOURCE_PIN absent/invalid — not invented)
 - Harness head (when committed): see git SHA on PR branch
 - Ledger: `fixtures/scout/pr63-placeholder-ledger.json`
 - Deployed SHA under test (ledger): `de5eb0c0dab6d394765ff5916abf6346dc139841`
@@ -58,16 +61,21 @@
 In-repo catalog (default; production BASE_MODEL unchanged):
   - gpt-5.4-mini (src/server/serv/profiles.ts BASE_MODEL + README SERV_MODEL default); scout_plan effective=gpt-5.4-mini
   - gpt-5.4-mini-2026-03-17 (eval/results/latest.json + eval/results/serv-proof-trace.json reported model); scout_plan effective=gpt-5.4-mini-2026-03-17
-Console vs catalog: OpenServ console Available-models table is broader (e.g. gpt-6-luna and other tiers with $/M rates). Those IDs are NOT auto-allowlisted here — no scrape, no hardcoded availability/schema claim, no cheapest-forced pick.
-Unlisted IDs: SERV_COMPARE_MODELS=… + SCOUT_COMPARE_ALLOW_UNLISTED=1 after parent console/contract validation (fail-closed otherwise).
-Budget-conscious ≠ cheapest-at-expense-of-quality — compare recovery/groundedness, not rate-table shopping.
+Docs fair slate (SCOUT_COMPARE_FAIR_SLATE=1 or explicit SERV_COMPARE_MODELS):
+  - gpt-5.4-mini [openai] (docs fair slate (https://docs.openserv.ai/serv-reasoning/models) — Flip must confirm console enablement before paid run); scout_plan effective=gpt-5.4-mini
+  - claude-sonnet-4.6 [anthropic] (docs fair slate (https://docs.openserv.ai/serv-reasoning/models) — Flip must confirm console enablement before paid run); scout_plan effective=claude-sonnet-4.6
+  - gemini-2.5-flash [google] (docs fair slate (https://docs.openserv.ai/serv-reasoning/models) — Flip must confirm console enablement before paid run); scout_plan effective=gemini-2.5-flash
+Console vs catalog: OpenServ console Available-models table may be broader (e.g. gpt-6-luna). Those IDs are NOT auto-allowlisted — no scrape, no cheapest-forced pick.
+Unlisted IDs outside fair slate: SERV_COMPARE_MODELS=… + SCOUT_COMPARE_ALLOW_UNLISTED=1 after Flip console/contract validation.
+Budget-conscious ≠ cheapest-at-expense-of-quality — compare recovery/groundedness/refusals/latency, not rate-table shopping.
 Model-only swap is NOT the demonstrated fix for the PR63 placeholder-price reject deadlock.
+Protocol: Gemini → chat only; Anthropic nullable enums → anyOf (already on lineage); Mini cold-timeout class separate.
 ```
 
 ## Historical labeled actions (offline)
 
-- step-1 (live_denied_reject_missing_asking_price_at_price): observedOk=false; recovery=grounded_reject_unusable_ask; grounded=true; antiLoopSafe=false
-- step-2 (live_denied_reject_repeat): observedOk=false; recovery=grounded_reject_unusable_ask; grounded=true; antiLoopSafe=false
+- step-1 (live_denied_reject_missing_asking_price_at_price): observedOk=false; recovery=grounded_reject_unusable_ask; grounded=true; antiLoopSafe=true
+- step-2 (live_denied_reject_repeat): observedOk=false; recovery=grounded_reject_unusable_ask; grounded=true; antiLoopSafe=true
 
 Note: `observedOk=false` is the **historical live** denial on de5eb0c; `grounded=true` under current code reflects the cite-grounding fix on the same citation shape — not a claim the live run was grounded.
 
@@ -85,3 +93,6 @@ _No live model rows (dry-run)._
 - Experiment transport disables silent empty/timeout re-POSTs only; production planner recovery retries stay as designed.
 - Parse failures now record sanitizedPlannerEcho (keys/types/lengths only) + upstreamResponseId/finishReason/responseShape when present — never raw planner JSON.
 - All-zero usage on a HTTP 200 refusal is unknown cost — not free. Parent Mini/Luna counts are not efficacy winners.
+- Structured extraction fix is offline-proven; live 2/3→reliability must be re-measured by parent (repeated cycles, all attempts, latency, costunknown) — no unmeasured 100% claim.
+- GPT-5.4 cold first-step timeout (45007ms=scout_plan.timeoutMs) is a separate observed class; do not blind-raise timeout — one-variable parent probe if it persists after this head.
+- 66b151e launch breached ≤2: normal 3 rows + sequential 2 = 5 HTTP. XOR dispatch now skips normal compare when SCOUT_COMPARE_SEQUENTIAL=1. No paid-readiness claim; launcher HOLD preserved.
