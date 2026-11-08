@@ -1,6 +1,6 @@
 ## Summary
 
-**t317 on PR #77** — fold parent Mini/Sonnet compare evidence into product: false “search already used once / cannot continue” terminal when provider budget remains; code-owned revised search / evidence next-check. **No live SERV calls. No PR71 merge. No harness re-run of Mini/Sonnet/Gemini.**
+**t317 CORE on PR #77** — fold parent Mini / Sonnet 5.5 / Gemini 3.1 Pro Preview SAME-input evidence into a coherent product vertical slice (not a residual list). **No hosted SERV/provider calls in this agent.** Production `BASE_MODEL` remains Mini until compatibility + independent review + parent representative cycle.
 
 ### Reviewable tip
 
@@ -9,35 +9,39 @@
 | PR | https://github.com/aspekt19/autoflip/pull/77 |
 | Branch | `cursor/t315-clarify-owncost-ecfd-1033` |
 | Base | `main` @ `0aeed3b3fc7611be47eab0eff6b737a9abf869bd` (PR76 published) |
-| **Branch tip** | `c2034ae253823bce86381de17438f842d3586e3b` / tree `54a09d895ac52a2736b0b3ae1bc667a7150974e2` |
-| **Implement tip** | `e3984fd77e2be9ac76562678082c5780e0c3435f` / tree `2f2145a6138e4f434654392dcee4b82361c632d0` |
+| **Implement tip** | `e5df318a5faeb1eb462def0ac23636d40f87f920` / tree `7e80af2e66590cd2c4c0b0dac3d8eb32a2f1be09` |
+| **Branch tip** | (docs tip after this body commit — see latest HEAD) |
 
-### Parent evidence folded (not re-run)
+### Parent evidence folded (not re-run here)
 
-- **Mini:** HTTP200 ~5.7s — grounded abstain citing search already used once (**false terminal**: ledger `providerUsed=1` / `maxProviderCalls=3` → **2 searches still available**).
-- **Sonnet 5.5:** D1 grounded reject first placeholder VIN `missing_asking_price@price` (not vehicle defect); D2 offline-replay honest abstain — still **no replacement search** while budget remained.
-- XOR / bounds / pins valid; **no model winner**; Gemini NEXT by parent only.
+| Model | Outcome | Notes |
+| --- | --- | --- |
+| **Mini** | 1× HTTP200 grounded abstain ~5.675s / 3887 tokens | False terminal: “search already used once” while `providerUsed=1` / `maxProviderCalls=3` |
+| **Sonnet 5.5** | 2× HTTP200 grounded D1 reject placeholder (`missing_asking_price`, not defect) + D2 abstain (no replacement) ~7.6s+14.8s / 15839 tokens | Valid path; missing revised search under remaining budget |
+| **Gemini 3.1 Pro Preview** | 1× HTTP200 content null / refusal ~19 chars / finish stop ~4.5s | Schema false / parse failure / no action; usage shape present but **tokens null** telemetry gap. Refusal reason **NOT known** — do **not** assert format-failure or safety-cause RCA |
 
-### Product fix (this PR)
+Console reconcile pending (23.38→23.37 Mini → 23.31 Sonnet). Reviewed PR71 `e7a2e2d` pack matches pin; does **not** prove production/autonomy.
+
+### CORE product (this tip)
 
 | Change | Detail |
 | --- | --- |
-| `searchContinuation` in planner evidence | Code-owned: `providerCallsRemaining`, mid-loop slots, `canReviseSearch`, in-mandate non-duplicate `suggestions` from **observed** pending models |
-| scout_plan system prompt | Removes “search once → abstain”; prior search ≠ hard stop while budget remains |
-| Offline heuristic | After all-unusable pool / grounded reject: revised `inventory.search` when `canReviseSearch` — not false terminal |
-| Scoring | `premature_abstain_with_budget` vs `revised_inventory_search` (offline) |
-| Find vertical slice (prior) | clarifications / own-cost / shortlist retained |
+| **Reversible per-profile model** | `SERV_PROFILE_MODEL_SCOUT_PLAN=claude-sonnet-5.5` (allowlisted) beats global `SERV_MODEL`; unset → Mini. Production `BASE_MODEL` unchanged. Fail-closed on unlisted unless `SERV_PROFILE_MODEL_ALLOW_UNLISTED=1` / experiment harness. |
+| **Gemini diagnostics** | `content_null_refusal_field` + reasonCode + refusal **bytes only** + usage via camelCase/alias coerce; never raw refusal; strict guards not weakened; no blind Gemini rerun. |
+| **searchContinuation clamp** | Live `servScoutPlanner` + offline heuristic share `clampScoutPlanWithSearchContinuation`: premature abstain / duplicate search → revised in-mandate `inventory.search` when budget remains. |
+| Find vertical slice (prior) | clarifications / own-cost / shortlist / next-checks retained |
 
-Does **not** invent prices/makes; duplicate fingerprints still rejected; credit/fail-closed guards preserved.
+Does **not** invent prices/makes; duplicate fingerprints still rejected; credit/fail-closed/numeric guards preserved.
 
 ### Offline evidence
-- `npm run typecheck` + `npm test` → **685** passed
-- Scenario: PR63 placeholder ledger (`maxProviderCalls=3`, `providerCalls=1`) → `canReviseSearch=true`
+- `npm run typecheck` + `npm test` → **695** passed
+- Scenario: PR63 placeholder ledger → clamp abstain → `inventory.search` suggestion
 
-### Flip-only remaining
-- Gemini live compare (parent after balances)
-- Any paid Mini/Sonnet re-measure after this tip
-- Independent review / merge of PR77
+### Flip-only remaining (parent)
+- Fresh head CI / pin check
+- Independent review → publish
+- Actual representative SERV cycle (parent; Flip sole spend)
+- Console balance reconcile
 
 ### Not claimed
-Full-cycle Scout success; model winner; invented usable inventory; harness catalogs as results.
+Full-cycle Scout success; model winner; invented usable inventory; format vs safety RCA for Gemini; production flipped to Sonnet.
