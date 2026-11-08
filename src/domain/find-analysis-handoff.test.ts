@@ -112,6 +112,21 @@ describe("manual URL / VIN check path", () => {
     if (result.ok) return;
     expect(result.error).toBe("missing_identity");
   });
+
+  it("rejects an invalid 17-character VIN before submit (check digit)", () => {
+    const result = resolveManualCheckHandoff({
+      mode: "personal",
+      kind: "vin",
+      lookup: "4T1KZ1AK5MU060006",
+      askingPriceUsd: 18_000,
+      miles: 40_000,
+      zip: "68114",
+    });
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.error).toBe("invalid_vin");
+    expect(result.message).toMatch(/valid 17-character VIN/i);
+  });
 });
 
 describe("precharge analysis gate", () => {

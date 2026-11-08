@@ -22,6 +22,7 @@ import { findEmptyCopy, type FindEmptyReason } from "@/domain/find-empty";
 import type { FindListingPriceView } from "@/domain/find-listing-price";
 import { USE_CASES, searchScopeLabel, type FollowUp, type StructuredNeed } from "@/domain/need";
 import type { Mode } from "@/domain/types";
+import { isValidVin } from "@/domain/vin";
 import { MakeModelFields } from "./MakeModelFields";
 import { ZipRadiusFields } from "./ZipRadiusFields";
 
@@ -322,6 +323,33 @@ function AssistantFlow({
     }
   }, [variant, stage, need]);
 
+  // After credit purchase from /check, restore the form (Find already restores via af-pending-analysis).
+  const checkRestored = useRef(false);
+  useEffect(() => {
+    if (variant !== "check" || checkRestored.current) return;
+    try {
+      const raw = sessionStorage.getItem("af-check");
+      if (!raw) return;
+      const saved = JSON.parse(raw) as {
+        mode?: Mode;
+        checkKind?: "link" | "vin";
+        lookup?: string;
+        vinPrice?: string;
+        vinMiles?: string;
+        vinZip?: string;
+      };
+      checkRestored.current = true;
+      if (saved.mode === "flip" || saved.mode === "personal") setMode(saved.mode);
+      if (saved.checkKind === "link" || saved.checkKind === "vin") setCheckKind(saved.checkKind);
+      if (typeof saved.lookup === "string") setLookup(saved.lookup);
+      if (typeof saved.vinPrice === "string") setVinPrice(saved.vinPrice);
+      if (typeof saved.vinMiles === "string") setVinMiles(saved.vinMiles);
+      if (typeof saved.vinZip === "string") setVinZip(saved.vinZip);
+    } catch {
+      /* ignore corrupt check payload */
+    }
+  }, [variant]);
+
   function rememberFlow() {
     try {
       sessionStorage.setItem(
@@ -493,8 +521,9 @@ function AssistantFlow({
   }
 
   async function watch(direction: SearchDirection) {
-    if (!need?.zip) {
-      setError("Add a ZIP on the confirmation step before saving a watch.");
+    // Watches require explicit ZIP + seller-distance radius — never invent 50/100 after Nationwide.
+    if (!need?.zip?.trim() || need.distanceMiles == null) {
+      setError("Saved searches need a ZIP and a seller-distance radius. Choose a radius (Nationwide watches are not supported).");
       return;
     }
     setPending(direction.id);
@@ -511,7 +540,7 @@ function AssistantFlow({
               ? {
                   priceMax,
                   zip: need.zip,
-                  radiusMiles: 50,
+                  radiusMiles: need.distanceMiles,
                   repairAbility: need.repairAbility,
                   minProfitUsd: need.targetProfitUsd ?? undefined,
                 }
@@ -521,7 +550,7 @@ function AssistantFlow({
                   yearMax: direction.yearMax,
                   priceMax,
                   zip: need.zip,
-                  radiusMiles: need.distanceMiles ?? 100,
+                  radiusMiles: need.distanceMiles,
                 },
         }),
       });
@@ -618,6 +647,10 @@ function AssistantFlow({
       setError(checkKind === "vin" ? "Enter a 17-character VIN." : "Paste a listing link.");
       return;
     }
+    if (checkKind === "vin" && !isValidVin(lookup.trim())) {
+      setError("Enter a valid 17-character VIN.");
+      return;
+    }
     const price = checkKind === "vin" ? parseUsdInput(vinPrice) : null;
     const miles = checkKind === "vin" ? parseCountInput(vinMiles) : null;
     if (checkKind === "vin" && (price === null || miles === null || !vinZip.trim())) {
@@ -688,6 +721,11 @@ function AssistantFlow({
       if (!response.ok || !body.id) {
         setError(body.message || "The report could not be built.");
         return;
+      }
+      try {
+        sessionStorage.removeItem("af-check");
+      } catch {
+        /* ignore */
       }
       router.push(`/report/${body.id}`);
     } catch {
@@ -773,8 +811,8 @@ function AssistantFlow({
             distanceMiles={distanceDraft}
             onZipChange={(next) => {
               setZipDraft(next);
+              // Clearing ZIP clears radius (Nationwide). Adding ZIP must not invent a radius.
               if (!next.trim()) setDistanceDraft(null);
-              else if (distanceDraft == null) setDistanceDraft(100);
             }}
             onDistanceChange={setDistanceDraft}
           />
@@ -890,11 +928,11 @@ function AssistantFlow({
               setNeed({
                 ...need,
                 zip: trimmed,
-                // Clearing ZIP also clears radius (explicit Nationwide). Adding ZIP keeps or defaults radius.
-                distanceMiles: trimmed ? need.distanceMiles ?? 100 : null,
+                // Clearing ZIP clears radius. Adding ZIP keeps Nationwide (null) until the shopper picks miles.
+                distanceMiles: trimmed ? need.distanceMiles : null,
               });
               setZipDraft(nextZip);
-              setDistanceDraft(trimmed ? need.distanceMiles ?? 100 : null);
+              setDistanceDraft(trimmed ? need.distanceMiles : null);
             }}
             onDistanceChange={(miles) => {
               setNeed({ ...need, distanceMiles: miles });
@@ -905,17 +943,19 @@ function AssistantFlow({
             Scope: {searchScopeLabel(need)}
           </p>
           <div className="field">
-            <label htmlFor="miles-edit">Maximum mileage (optional)</label>
+            <label htmlFor="miles-edit">Maximum mileage in miles (optional)</label>
             <input
               id="miles-edit"
               value={need.milesMax ?? ""}
               inputMode="numeric"
-              placeholder="No cap"
+              placeholder="e.g. 80,000 miles"
+              aria-describedby="miles-edit-hint"
               onChange={(event) => {
                 const amount = Number(event.target.value.replace(/,/g, ""));
                 setNeed({ ...need, milesMax: Number.isFinite(amount) && amount > 0 ? Math.round(amount) : null });
               }}
             />
+            <p id="miles-edit-hint" className="hint">Units are miles (odometer), not kilometers.</p>
           </div>
           {need.preferredMakes?.length ? (
             <p className="hint">
@@ -1124,8 +1164,8 @@ function AssistantFlow({
                 <input id="vin-price" value={vinPrice} onChange={(event) => setVinPrice(event.target.value)} inputMode="decimal" placeholder="e.g. 18,773" />
               </div>
               <div className="field">
-                <label htmlFor="vin-miles">Mileage</label>
-                <input id="vin-miles" value={vinMiles} onChange={(event) => setVinMiles(event.target.value)} inputMode="numeric" placeholder="e.g. 109,333" />
+                <label htmlFor="vin-miles">Mileage (miles)</label>
+                <input id="vin-miles" value={vinMiles} onChange={(event) => setVinMiles(event.target.value)} inputMode="numeric" placeholder="e.g. 109,333 miles" />
               </div>
             </>
           ) : null}
@@ -1137,10 +1177,22 @@ function AssistantFlow({
             <button className="ghost" type="button" onClick={goBack}>
               Back
             </button>
-            <button className="action" type="submit" disabled={pending === "preview"}>
+            <button
+              className="action"
+              type="submit"
+              disabled={
+                pending === "preview" ||
+                (checkKind === "vin" && Boolean(lookup.trim()) && !isValidVin(lookup.trim()))
+              }
+            >
               {pending === "preview" ? "Checking the price…" : "Check the price"}
             </button>
           </div>
+          {checkKind === "vin" && lookup.trim() && !isValidVin(lookup.trim()) ? (
+            <p className="warn" role="alert">
+              Enter a valid 17-character VIN before checking the price.
+            </p>
+          ) : null}
           <p className="hint">The quick price check is free. A full report costs 1 report credit and adds the broader vehicle assessment, recalls, complaints, available history flags and comparable listings.</p>
           {freeCheck ? (
             <article className="warn-box">
