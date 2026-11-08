@@ -1,27 +1,31 @@
 /**
  * POST /api/find/next-check
  *
- * Authenticated Find session (cookie userId). Calls SERV find_next_check when
- * SERV_API_KEY is configured; always clamps to code allowlist and applies in code.
- * When research=true, client must rematch via /api/match (real inventory search).
+ * Body: { searchContextToken } — opaque owner-bound token from /api/match.
+ * Client need/listings/appliedCheckIds are NOT trusted.
+ *
+ * When SERV keyed: claim fence → find_next_check → apply → rematch with NEW need.
+ * When keyless: deterministic allowlist only (autonomousServ=false).
+ * No report-credit debit.
  */
+import { getKv } from "@/io/kv";
 import { runtimeDeps } from "@/server/deps";
-import { runFindNextCheckLive } from "@/server/find-next-check-live";
+import { rememberFindAnalysisContexts } from "@/server/find-analysis-context";
+import { runFindMatch } from "@/server/find-match";
+import { runFindNextCheckOrchestrator } from "@/server/find-next-check-orchestrator";
 import { userId } from "@/server/session";
 
 export const dynamic = "force-dynamic";
-export const maxDuration = 30;
+export const maxDuration = 60;
 
 export async function POST(request: Request) {
-  // Bind session (creates cookie if needed) — same auth surface as /api/match.
-  await userId();
-
+  const id = await userId();
   const body = (await request.json().catch(() => null)) as {
+    searchContextToken?: unknown;
+    // Rejected as authority — not used.
     need?: unknown;
     listings?: unknown;
-    refine?: unknown;
     appliedCheckIds?: unknown;
-    fuelsByModelKey?: unknown;
   } | null;
 
   if (!body || typeof body !== "object") {
@@ -31,33 +35,75 @@ export async function POST(request: Request) {
     );
   }
 
+  const token =
+    typeof body.searchContextToken === "string" ? body.searchContextToken.trim() : "";
+  if (!token) {
+    return Response.json(
+      {
+        ok: false,
+        error: "search_context_required",
+        message:
+          "searchContextToken required. Run Find again — client need/listings are not authoritative.",
+      },
+      { status: 400 },
+    );
+  }
+
   const deps = runtimeDeps();
-  const result = await runFindNextCheckLive(
+  const kv = getKv();
+
+  const result = await runFindNextCheckOrchestrator(
+    { searchContextToken: token },
     {
-      need: body.need,
-      listings: Array.isArray(body.listings) ? (body.listings as never) : [],
-      refine:
-        body.refine && typeof body.refine === "object"
-          ? (body.refine as {
-              yearMin?: number;
-              yearMax?: number;
-              make?: string;
-              model?: string;
-            })
-          : {},
-      appliedCheckIds: Array.isArray(body.appliedCheckIds)
-        ? body.appliedCheckIds.filter((id): id is string => typeof id === "string")
-        : [],
-      fuelsByModelKey:
-        body.fuelsByModelKey && typeof body.fuelsByModelKey === "object"
-          ? (body.fuelsByModelKey as Record<string, null>)
-          : {},
-    },
-    {
+      kv,
+      userId: id,
       servKey: deps.servKey,
       servModel: deps.servModel,
       servBaseUrl: deps.servBaseUrl,
       env: process.env,
+      runMatch: async (matchBody) => {
+        const match = await runFindMatch(matchBody, {
+          ...deps,
+          kv,
+          env: process.env,
+        });
+        // Mint analysis tokens for rematch cards (same as /api/match).
+        if (match.ok && match.body.ok && Array.isArray(match.body.directions)) {
+          const listings = match.body.directions.flatMap((g) => g.listings ?? []);
+          const tokens = await rememberFindAnalysisContexts(
+            kv,
+            id,
+            listings as Parameters<typeof rememberFindAnalysisContexts>[2],
+            matchBody.need.zip,
+          );
+          for (const group of match.body.directions) {
+            for (const listing of group.listings ?? []) {
+              const t = tokens.get(String((listing as { vin?: string }).vin ?? "")
+                .trim()
+                .toUpperCase());
+              if (t) {
+                (listing as { analysisContextToken?: string }).analysisContextToken = t;
+              }
+            }
+          }
+        }
+        return {
+          ok: match.ok,
+          status: match.status,
+          body: match.body as {
+            ok?: boolean;
+            directions?: Array<{ listings?: unknown[] }>;
+            message?: string | null;
+            headline?: string | null;
+            nextStep?: string | null;
+            scope?: string | null;
+            emptyReason?: string | null;
+            partialFailure?: boolean;
+            affordabilityAssessed?: boolean;
+            sample?: boolean;
+          },
+        };
+      },
     },
   );
 
@@ -70,14 +116,20 @@ export async function POST(request: Request) {
 
   return Response.json({
     ok: true,
+    searchContextToken: result.searchContextToken,
     source: result.source,
-    allowedChecks: result.allowedChecks,
+    autonomousServ: result.autonomousServ,
+    replay: result.replay,
     chosenId: result.chosenId,
     servNote: result.servNote,
     replan: result.replan,
+    research: result.research,
+    allowedChecks: result.allowedChecks,
     compare: result.compare,
     shortlist: result.shortlist,
-    research: result.research,
+    needAfter: result.needAfter,
+    appliedCheckIds: result.appliedCheckIds,
+    rematch: result.rematch,
     honesty: result.honesty,
     failureDiag: result.failureDiag
       ? {
@@ -87,7 +139,6 @@ export async function POST(request: Request) {
           usagePresent: Boolean(result.failureDiag.usage),
         }
       : null,
-    // Proofs are DecisionProof shapes — no secrets.
     proofs: result.proofs,
   });
 }

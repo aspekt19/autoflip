@@ -241,6 +241,8 @@ export async function runFindNextCheckLive(
     proofs,
     failureDiag,
     honesty:
-      "SERV may only pick an allowlisted checkId. Apply/replan is code-owned. Rematch uses /api/match — no invented listings, TCO, or history. Clarification defaults are editable starting points.",
+      source === "serv"
+        ? "SERV chose an allowlisted checkId. Apply/replan is code-owned. Rematch uses NEW need — no invented listings, TCO, or history."
+        : "deterministic_fallback (not autonomous SERV): code allowlist apply only. Keyed SERV path required for autonomous next-check.",
   };
 }

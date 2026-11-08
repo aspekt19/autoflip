@@ -1,37 +1,43 @@
 ## Summary
 
-Follow-up after PR #77 merge (`ba6e127`): **live Find next-check SERV/API apply + rematch**, plus first-class allowlist for **`gpt-5.6-sol`** / **`claude-fable-5`**. Base = new main. **No self-merge. No hosted calls in this agent.**
+**NARROW ACCEPT follow-up (NOT RELEASE READY — do not merge/deploy as release).**  
+Ordinary Find next-check path: owned search context → keyed SERV allowlist choose → apply → rematch with **NEW need** → grounded shortlist. Auto-starts after search when SERV keyed.
 
-### Pins
+Base = main `ba6e127` (PR77). Branch `cursor/find-nextcheck-live-apply-ecfd-1033` / PR #78.
+
+### Pins (update after push)
 
 | Pin | Value |
 | --- | --- |
 | Branch | `cursor/find-nextcheck-live-apply-ecfd-1033` |
-| Base | `main` @ `ba6e127d399afa8b64126dcf35da73fdd8f81158` (PR77 merge) |
-| **Implement feat** | `2b607c837f872c95b43a3600a54f9a61210f4e9d` / tree `be7e4067489a4cd68c57af68299fa2c63e69f50e` |
-| **Branch tip** | `8deed4b8041b52f30862a2b9f2352230fc8dbf3b` / tree `c83830db3f3b27436e10af5a1f882e70d6e1ef9d` |
+| Base | `ba6e127d399afa8b64126dcf35da73fdd8f81158` |
+| Prior NARROW ACCEPT tip | `dbf705e19cd0cb01c97f0b22aa157d9f01e7bd49` |
+| Prior CI | `42509335775` SUCCESS (704) |
 
-### Gap closed (honest)
+### Gap closed in this iteration
 
-**Before (PR77):** `proposeFindNextChecks` + `applyFindNextCheck` were code/UI suggestions + offline slice only — **no live `find_next_check` SERV/API apply**.
+1. **Auto-start:** after `/api/match`, when `servNextCheckEnabled`, UI calls next-check once per `searchContextToken` (not manual-button-only).
+2. **Claims:** user-owned SET NX fence + spend log; concurrent same-action → one SERV HTTP; replay receipts.
+3. **Server authority:** `searchContextToken` from match; client need/listings/appliedCheckIds not trusted.
+4. **Stale year fix:** rematch uses NEW need/refine from apply (server rematch preferred; client helper ignores UI year drafts).
+5. **Keyless:** `autonomousServ=false` / `deterministic_fallback` — does not masquerade.
+6. **No report-credit debit** for ordinary next-check/search.
+7. First-class `gpt-5.6-sol` / `claude-fable-5` retained.
 
-**This PR:** authenticated `POST /api/find/next-check` → SERV `find_next_check` (when keyed) → clamp to allowlist → `applyFindNextCheck` → if `research`, client rematches via `/api/match` (real inventory). UI button on Find results. Seam tests with mock SERV HTTP (choose / clamp / refuse / no-key fallback).
+### Tests (scope)
 
-### Still not claimed / residual honesty
+- `find-next-check-claim.test.ts` — concurrent/replay/fingerprint/spend log
+- `find-next-check-orchestrator.test.ts` — owned token, NEW need rematch, concurrent one HTTP, keyless label, evidence→planner
+- `find-next-check-ui.test.ts` — auto-start gate + stale year ignore
+- Prior seam + shortlist allowlist tests
 
-- Seam tests mock SERV HTTP; they do **not** substitute a Flip-hosted live spend cycle.
-- Full autonomous Scout loop (multi-turn need→search→next-check→apply→rematch→replan without human) still needs Flip sequential hosted validation.
-- No invented TCO/history/best-car; production `BASE_MODEL` remains Mini until Flip cycle.
+### Remaining gaps (honest — re-review)
 
-### Shortlist (first-class, no ALLOW_UNLISTED)
-1. `claude-sonnet-5.5` baseline  
-2. `gpt-5.6-sol` next  
-3. `claude-fable-5` if warranted  
+- Not full Scout autonomy / multi-turn Flip-hosted live cycle proof.
+- Model pack / PR63 ledger = controlled scenario, not representative full-cycle.
+- Production `BASE_MODEL` still Mini until Flip sequential spend.
+- No self-merge; no hosted calls from this agent.
 
-### Offline evidence
-`npm run typecheck` + `npm test` → **704** passed
+### Flip CLI artifact
 
-### Open PR
-`gh` createPullRequest denied for this integration — open manually:  
-https://github.com/aspekt19/autoflip/pull/new/cursor/find-nextcheck-live-apply-ecfd-1033  
-Body: this file.
+Rebuild under `/opt/cursor/artifacts/flip-pr78-decision-cli-<tip7>.tar.gz` after tip advances (bundled `compare-harness.mjs`, Node 22+, dry-run/live).
