@@ -9,6 +9,16 @@ import { REPORT_FAILED_TEXT, reportReadyMessage } from "@/io/telegram";
 import { assembleReport } from "@/server/assemble";
 import { runtimeDeps } from "@/server/deps";
 import { parseMode } from "@/server/mcp";
+import {
+  claimFindAnalysis,
+  clearOrphanFindAnalysisReceipt,
+  completeFindAnalysis,
+  findAnalysisSpendKey,
+  legacyReportUuidSpendKey,
+  releaseFindAnalysis,
+  waitForFindAnalysisReceipt,
+  type ReportAnalysisIdentity,
+} from "@/server/report-analysis-idempotency";
 import { balanceOf, grantCredit, spendCredit, userId } from "@/server/session";
 import { sendLinkedTelegram } from "@/server/telegram-notify";
 import { originOf } from "@/server/secrets";
@@ -167,6 +177,99 @@ export async function POST(request: Request) {
     );
   }
 
+  // Selected-listing analysis identity: one findContextToken → at most one charged report.
+  // Claim BEFORE assemble so parallel first submits cannot each mint a UUID and double-spend.
+  const analysisIdentity: ReportAnalysisIdentity | null =
+    trustedFind && findContextToken?.trim()
+      ? { userId: id, findContextToken: findContextToken.trim() }
+      : null;
+  if (analysisIdentity) {
+    let claim = await claimFindAnalysis(getKv(), analysisIdentity);
+    if (claim.kind === "replay") {
+      const existing = await readPersistedReport(claim.receipt.reportId);
+      if (existing) {
+        if (vinKey) await rememberUserReport(getKv(), id, vinKey, existing.id, existing);
+        return Response.json({
+          ...existing,
+          balance: await balanceOf(id),
+          alreadySaved: true,
+          cta,
+          surface,
+        });
+      }
+      // Completed receipt without durable report — clear orphan and reclaim once.
+      await clearOrphanFindAnalysisReceipt(getKv(), analysisIdentity);
+      claim = await claimFindAnalysis(getKv(), analysisIdentity);
+      if (claim.kind === "replay") {
+        const again = await readPersistedReport(claim.receipt.reportId);
+        if (again) {
+          if (vinKey) await rememberUserReport(getKv(), id, vinKey, again.id, again);
+          return Response.json({
+            ...again,
+            balance: await balanceOf(id),
+            alreadySaved: true,
+            cta,
+            surface,
+          });
+        }
+        return Response.json(
+          {
+            error: "analysis_conflict",
+            reason: "orphan_receipt",
+            message:
+              "That find analysis receipt is inconsistent. Run Find again and choose the same car. No credit was charged.",
+            charge: false,
+            cta,
+            surface,
+          },
+          { status: 409 },
+        );
+      }
+    }
+    if (claim.kind === "in_progress") {
+      const receipt = await waitForFindAnalysisReceipt(getKv(), analysisIdentity);
+      if (receipt) {
+        const existing = await readPersistedReport(receipt.reportId);
+        if (existing) {
+          if (vinKey) await rememberUserReport(getKv(), id, vinKey, existing.id, existing);
+          return Response.json({
+            ...existing,
+            balance: await balanceOf(id),
+            alreadySaved: true,
+            cta,
+            surface,
+          });
+        }
+      }
+      return Response.json(
+        {
+          error: "analysis_in_progress",
+          message:
+            "That full analysis is already running for this listing. Wait a moment and retry — you will not be charged twice.",
+          charge: false,
+          cta,
+          surface,
+        },
+        { status: 409 },
+      );
+    }
+    if (claim.kind === "conflict") {
+      return Response.json(
+        {
+          error: "analysis_conflict",
+          reason: claim.reason,
+          message:
+            "That find analysis request could not be claimed safely. Run Find again and choose the same car. No credit was charged.",
+          charge: false,
+          cta,
+          surface,
+        },
+        { status: 409 },
+      );
+    }
+    // claim.kind === "proceed" — exclusive assemble/commit for this token.
+  }
+
   const assembled = await assembleReport(
     {
       mode,
@@ -186,6 +289,7 @@ export async function POST(request: Request) {
     { ...runtimeDeps(), servSurface: surface === "check" ? "check" : "report" },
   );
   if (!assembled.ok) {
+    if (analysisIdentity) await releaseFindAnalysis(getKv(), analysisIdentity);
     await sendLinkedTelegram(id, REPORT_FAILED_TEXT);
     return Response.json({ error: assembled.error, message: assembled.message }, { status: assembled.status });
   }
@@ -193,6 +297,7 @@ export async function POST(request: Request) {
   // Incident-class unusable ask / missing critical input → clear refusal, 0 debit.
   const chargeDecision = decideReportCharge(assembled.report.computed);
   if (!chargeDecision.charge) {
+    if (analysisIdentity) await releaseFindAnalysis(getKv(), analysisIdentity);
     return Response.json(
       {
         error: chargeDecision.error,
@@ -208,8 +313,13 @@ export async function POST(request: Request) {
     );
   }
 
-  const spent = await spendCredit(id, `report:${assembled.report.id}`);
+  // Find path: analysis-scoped spend key (not report UUID). Manual path keeps UUID key.
+  const spendKey = analysisIdentity
+    ? findAnalysisSpendKey(analysisIdentity)
+    : legacyReportUuidSpendKey(assembled.report.id);
+  const spent = await spendCredit(id, spendKey);
   if (!spent.ok) {
+    if (analysisIdentity) await releaseFindAnalysis(getKv(), analysisIdentity);
     return Response.json(
       { error: "credits_required", balance: spent.balance, message: "A full report costs 1 credit." },
       { status: 403 },
@@ -218,8 +328,10 @@ export async function POST(request: Request) {
   try {
     await persistReport(assembled.report);
     if (vinKey) await rememberUserReport(getKv(), id, vinKey, assembled.report.id, assembled.report);
+    if (analysisIdentity) await completeFindAnalysis(getKv(), analysisIdentity, assembled.report.id);
   } catch {
-    await grantCredit(id, 1, `refund:${assembled.report.id}`);
+    await grantCredit(id, 1, `refund:${spendKey}`);
+    if (analysisIdentity) await releaseFindAnalysis(getKv(), analysisIdentity);
     await sendLinkedTelegram(id, REPORT_FAILED_TEXT);
     return Response.json({ error: "save_failed", message: "The report did not finish. No credit was used." }, { status: 500 });
   }

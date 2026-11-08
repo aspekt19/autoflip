@@ -273,7 +273,7 @@ describe("POST /api/report find handoff (mocked credits/provider)", () => {
     expect(assembleInput.miles).toBe(21_001);
     expect(assembleInput.zip).toBe("68114");
     expect(spend).toHaveBeenCalledTimes(1);
-    expect(spend.mock.calls[0]?.[1]).toBe("report:report-1");
+    expect(spend.mock.calls[0]?.[1]).toBe(`report:analysis:findctx:user-test:${token}`);
   });
 
   it("legit multi-card: each token binds its own VDP (cross-token rejected)", async () => {
