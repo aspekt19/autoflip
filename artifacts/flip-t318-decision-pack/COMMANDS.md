@@ -7,7 +7,6 @@
 
 1. `claude-sonnet-5.5` (Claude Sonnet 5.5) role=baseline — in=$2.40 out=$12.00 (display only)
 2. `gpt-5.6-sol` (GPT-5.6 Sol) role=next — in=$5.25 out=$25.00 (display only)
-3. `claude-fable-5` (Claude Fable 5) role=next_if_needed — in=$13.00 out=$65.00 (display only)
 
 Do **not** run all 31 Available models. Names/tier ≠ ability proof.
 
@@ -15,7 +14,7 @@ Do **not** run all 31 Available models. Names/tier ≠ ability proof.
 
 ```bash
 npm run eval:flip-t318-decision-pack
-SERV_COMPARE_MODELS=claude-sonnet-5.5,gpt-5.6-sol,claude-fable-5 npm run eval:scout-model-compare
+SERV_COMPARE_MODELS=claude-sonnet-5.5,gpt-5.6-sol npm run eval:scout-model-compare
 ```
 
 ## 1) Sequential TWO-decision XOR per shortlist ID (≤2 HTTP each; Flip sole spend)
@@ -43,12 +42,7 @@ SERV_API_KEY=… SCOUT_COMPARE_ALLOW_PAID=1 SCOUT_COMPARE_SEQUENTIAL=1 \
   SCOUT_COMPARE_SOURCE_PIN='{"head":"<IMPLEMENT_TIP>","tree":"<IMPLEMENT_TREE>","pr":78,"ablation":"hide_suggestions"}' \
   npm run eval:scout-model-compare
 
-# Fable only when Flip needs a third discriminatory model (not price-alone)
-SERV_API_KEY=… SCOUT_COMPARE_ALLOW_PAID=1 SCOUT_COMPARE_SEQUENTIAL=1 \
-  SCOUT_COMPARE_HIDE_SUGGESTIONS=1 \
-  SERV_COMPARE_MODELS=claude-fable-5 \
-  SCOUT_COMPARE_SOURCE_PIN='{"head":"<IMPLEMENT_TIP>","tree":"<IMPLEMENT_TREE>","pr":78,"ablation":"hide_suggestions"}' \
-  npm run eval:scout-model-compare
+# claude-fable-5 EXCLUDED from paid Flip / production selection (owner t321)
 ```
 
 ## Call accounting / failure contract

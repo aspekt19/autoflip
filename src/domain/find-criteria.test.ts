@@ -72,6 +72,20 @@ describe("mileage cap from a note", () => {
         requestedMake: "Toyota",
       }),
     ).toBe("2017 Toyota RAV4. Toyota, SUV, 42,100 mi (under your 50,000 cap), $17,500 (within $25,000).");
+    // Owner t321: CR-V card must not show joined preferredMakes (Mazda/Toyota) as make label.
+    const crv = whyThisCar({
+      year: 2015,
+      make: "Honda",
+      model: "CR-V",
+      miles: 75_542,
+      priceUsd: 14_950,
+      budgetUsd: 20_000,
+      bodyStyle: "4dr SUV",
+      requestedMake: "Mazda/Toyota",
+    });
+    expect(crv).toContain("2015 Honda CR-V");
+    expect(crv).toContain("Honda");
+    expect(crv).not.toMatch(/Mazda\/Toyota/);
     const camry = whyThisCar({
       year: 2021,
       make: "Toyota",

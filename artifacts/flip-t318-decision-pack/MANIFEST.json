@@ -1,12 +1,11 @@
 {
   "packId": "flip-t318-decision-pack",
-  "generatedAt": "2026-11-08T18:54:07.849Z",
+  "generatedAt": "2026-11-08T19:29:13.907Z",
   "network": "zero",
   "productionBaseModel": "gpt-5.4-mini",
   "shortlistIds": [
     "claude-sonnet-5.5",
-    "gpt-5.6-sol",
-    "claude-fable-5"
+    "gpt-5.6-sol"
   ],
   "files": [
     "SHORTLIST.json",
@@ -53,10 +52,9 @@
     "sequentialMaxHttp": 2,
     "sequentialPath": "sequential_two_decision"
   },
-  "catalogNote": "Flip t319 decision shortlist (console CSV exact IDs; display prices ≠ capability; Overview = hypothesis):\n  1. claude-sonnet-5.5 (Claude Sonnet 5.5) [Anthropic] context=1M in=$2.40 cached=$0.240 out=$12.00 — role=baseline\n  2. gpt-5.6-sol (GPT-5.6 Sol) [OpenAI] context=1M in=$5.25 cached=$0.500 out=$25.00 — role=next hypothesis=reasoning/complex long-horizon (marketing — unmeasured)\n  3. claude-fable-5 (Claude Fable 5) [Anthropic] context=1M in=$13.00 cached=$1.30 out=$65.00 — role=next_if_needed hypothesis=coding/agentic (marketing — unmeasured)\nSuperseded as automatic next (still console-listed): gpt-6.1-sol, claude-opus-5.5\nDo NOT run all 31 Available models. Names/tier ≠ ability proof.\nGemini: no blind retry until content_null_refusal_field diagnostic confirmed.",
+  "catalogNote": "Flip decision shortlist (console CSV exact IDs; display prices ≠ capability; Overview = hypothesis):\n  1. claude-sonnet-5.5 (Claude Sonnet 5.5) [Anthropic] context=1M in=$2.40 cached=$0.240 out=$12.00 — role=baseline\n  2. gpt-5.6-sol (GPT-5.6 Sol) [OpenAI] context=1M in=$5.25 cached=$0.500 out=$25.00 — role=next hypothesis=reasoning/complex long-horizon (marketing — unmeasured)\nEXCLUDED from paid Flip / production selection (owner t321): claude-fable-5\nSuperseded as automatic next (still console-listed): gpt-6.1-sol, claude-opus-5.5\nDo NOT run all 31 Available models. Names/tier ≠ ability proof.\nGemini: no blind retry until content_null_refusal_field diagnostic confirmed.",
   "flipResolved": [
     "claude-sonnet-5.5",
-    "gpt-5.6-sol",
-    "claude-fable-5"
+    "gpt-5.6-sol"
   ]
 }

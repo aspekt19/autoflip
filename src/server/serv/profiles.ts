@@ -577,7 +577,13 @@ export const PROFILES = {
     reason: "Next-step advice is a branching policy. Software owns the allowlist and clamps unknown ids.",
     feature: "none",
     tools: ["prompt_guard"],
-    timeoutMs: 8_000,
+    /**
+     * 8s was too tight for GPT-5.4 Mini on the ordinary Find→next-check path
+     * (owner t321: keyed Mini spend still fell to deterministic_fallback /
+     * misleading no_keyed_autonomy). Align with other chat decision profiles —
+     * not a blind scout_plan 45s raise.
+     */
+    timeoutMs: 25_000,
     fallback: "deterministic_fallback",
     system: [
       "You choose Lemonless Find's next check from code-computed facts.",

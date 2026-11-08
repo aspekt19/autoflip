@@ -28,7 +28,10 @@ describe("decideFindNextCheckLoop", () => {
   });
 
   it("stops keyless / non-autonomous", () => {
-    expect(decideFindNextCheckLoop({ ...base, keyed: false }).reason).toBe("no_keyed_autonomy");
+    expect(decideFindNextCheckLoop({ ...base, keyed: false }).reason).toBe("no_serv_key");
+    expect(decideFindNextCheckLoop({ ...base, autonomousServ: false }).reason).toBe(
+      "serv_deterministic_fallback",
+    );
     expect(decideFindNextCheckLoop({ ...base, autonomousServ: false }).continue).toBe(false);
   });
 

@@ -221,8 +221,57 @@ describe("POST /api/find/next-check (HTTP)", () => {
     if (!result.ok) return;
     expect(result.autonomousServ).toBe(false);
     expect(result.loop.continue).toBe(false);
-    expect(result.loop.reason).toBe("no_keyed_autonomy");
+    expect(result.loop.reason).toBe("no_serv_key");
+    expect(result.keyedAutonomyDiag.keyed).toBe(false);
+    expect(result.keyedAutonomyDiag.configHint).toMatch(/SERV_API_KEY/i);
     expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  it("keyed + SERV timeout/abort → serv_deterministic_fallback (NOT no_keyed_autonomy)", async () => {
+    // Observed production class: Mini spend present but UI showed no_keyed_autonomy
+    // because keyed+fallback was conflated with missing key.
+    await seed(
+      "tok-timeout",
+      { yearMin: 2015, zip: "68114", distanceMiles: 50, milesMax: null, budgetKnown: true, budgetUsd: 20000 },
+      [
+        {
+          vin: "JT2BF28K0X0123456",
+          make: "Mazda",
+          model: "CX-5",
+          year: 2017,
+          priceUsd: 14950,
+          miles: 60000,
+        },
+        {
+          vin: "JT2BF28K0X0654321",
+          make: "Toyota",
+          model: "RAV4",
+          year: 2015,
+          priceUsd: 16700,
+          miles: 74000,
+        },
+      ],
+    );
+    fetchImpl.mockImplementationOnce(async () => {
+      const err = new Error("The operation was aborted due to timeout");
+      err.name = "TimeoutError";
+      throw err;
+    });
+    const res = await POST(req({ searchContextToken: "tok-timeout" }));
+    const body = await res.json();
+    expect(res.status).toBe(200);
+    expect(body.ok).toBe(true);
+    expect(body.autonomousServ).toBe(false);
+    expect(body.source).toBe("deterministic_fallback");
+    expect(body.loop.continue).toBe(false);
+    expect(body.loop.reason).toBe("serv_deterministic_fallback");
+    expect(body.loop.reason).not.toBe("no_keyed_autonomy");
+    expect(body.loop.reason).not.toBe("no_serv_key");
+    expect(body.keyedAutonomyDiag.keyed).toBe(true);
+    expect(body.keyedAutonomyDiag.autonomousServ).toBe(false);
+    expect(body.keyedAutonomyDiag.failureReasonCode).toMatch(/timeout|network|http/i);
+    expect(body.keyedAutonomyDiag.configHint).toMatch(/find_next_check|timeout|failureDiag/i);
+    expect(JSON.stringify(body)).not.toMatch(/sk-|SERV_API_KEY=\w+/);
   });
 
   it("unknown context / error safe", async () => {

@@ -2,22 +2,20 @@ import { describe, expect, it } from "vitest";
 import {
   SERV_FLIP_DECISION_SHORTLIST,
   SERV_FLIP_DECISION_SHORTLIST_IDS,
+  SERV_FLIP_EXCLUDED_FROM_PAID,
   SERV_FLIP_SUPERSEDED_AUTOMATIC_NEXT,
   isFlipDecisionShortlistId,
 } from "./flip-decision-shortlist";
 import { resolveServCompareModelIds, listServFlipDecisionShortlist } from "./model-catalog";
 import { resolveProfileBaseModel } from "./profile-models";
 
-describe("Flip t319 decision shortlist (corrected console CSV IDs)", () => {
-  it("uses Sonnet → gpt-5.6-sol → claude-fable-5 (not gpt-6.1-sol/opus automatic)", () => {
-    expect(SERV_FLIP_DECISION_SHORTLIST_IDS).toEqual([
-      "claude-sonnet-5.5",
-      "gpt-5.6-sol",
-      "claude-fable-5",
-    ]);
-    expect(SERV_FLIP_DECISION_SHORTLIST.map((e) => e.flipOrder)).toEqual([1, 2, 3]);
+describe("Flip decision shortlist (t321 Fable excluded)", () => {
+  it("uses Sonnet → gpt-5.6-sol only (Fable excluded from paid)", () => {
+    expect(SERV_FLIP_DECISION_SHORTLIST_IDS).toEqual(["claude-sonnet-5.5", "gpt-5.6-sol"]);
+    expect(SERV_FLIP_DECISION_SHORTLIST.map((e) => e.flipOrder)).toEqual([1, 2]);
     expect(SERV_FLIP_DECISION_SHORTLIST[1]!.inputPerMDisplay).toBe("$5.25");
-    expect(SERV_FLIP_DECISION_SHORTLIST[2]!.outputPerMDisplay).toBe("$65.00");
+    expect([...SERV_FLIP_EXCLUDED_FROM_PAID]).toEqual(["claude-fable-5"]);
+    expect(isFlipDecisionShortlistId("claude-fable-5")).toBe(false);
     expect([...SERV_FLIP_SUPERSEDED_AUTOMATIC_NEXT]).toEqual(["gpt-6.1-sol", "claude-opus-5.5"]);
   });
 
@@ -29,8 +27,8 @@ describe("Flip t319 decision shortlist (corrected console CSV IDs)", () => {
     expect(r.models.every((m) => m.kind === "flip_decision_shortlist")).toBe(true);
   });
 
-  it("profile override accepts gpt-5.6-sol and claude-fable-5 first-class", () => {
-    for (const id of ["gpt-5.6-sol", "claude-fable-5", "claude-sonnet-5.5"] as const) {
+  it("profile override accepts gpt-5.6-sol and sonnet first-class; Fable not shortlist", () => {
+    for (const id of ["gpt-5.6-sol", "claude-sonnet-5.5"] as const) {
       expect(isFlipDecisionShortlistId(id)).toBe(true);
       const r = resolveProfileBaseModel("scout_plan", {
         env: { SERV_PROFILE_MODEL_SCOUT_PLAN: id },
@@ -49,6 +47,6 @@ describe("Flip t319 decision shortlist (corrected console CSV IDs)", () => {
   });
 
   it("listServFlipDecisionShortlist matches shortlist length", () => {
-    expect(listServFlipDecisionShortlist()).toHaveLength(3);
+    expect(listServFlipDecisionShortlist()).toHaveLength(2);
   });
 });

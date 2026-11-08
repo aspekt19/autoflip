@@ -204,6 +204,8 @@ describe("runFindNextCheckOrchestrator", () => {
     expect(result.autonomousServ).toBe(false);
     expect(result.source).toBe("deterministic_fallback");
     expect(result.honesty).toMatch(/not autonomous SERV/i);
+    expect(result.loop.reason).toBe("no_serv_key");
+    expect(result.keyedAutonomyDiag.keyed).toBe(false);
     expect(fetchImpl).not.toHaveBeenCalled();
   });
 
