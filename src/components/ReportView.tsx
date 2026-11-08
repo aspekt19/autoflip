@@ -483,6 +483,11 @@ export function ReportView({ report }: { report: FullReport }) {
             </li>
           ))}
         </ul>
+        {report.proof.steps?.some((step) => step.id === "number_audit" && step.status === "failed") ? (
+          <p className="hint">
+            The number audit blocked model prose that did not stay inside computed facts (or used buy language on a negative / needs-inspection verdict). That text was not published — the template explanation is shown instead. This is a protection, not a successful AI write.
+          </p>
+        ) : null}
       </section>
 
       <section className="ask" id="report-method">

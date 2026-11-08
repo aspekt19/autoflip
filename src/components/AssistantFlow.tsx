@@ -20,7 +20,11 @@ import {
 import { isReportHardRefusal, reportRefusalUserMessage } from "@/domain/report-refusal-ui";
 import { findEmptyCopy, type FindEmptyReason } from "@/domain/find-empty";
 import type { FindListingPriceView } from "@/domain/find-listing-price";
-import { USE_CASES, searchScopeLabel, type FollowUp, type StructuredNeed } from "@/domain/need";
+import {
+  formatObservedModelSnapshot,
+  observedModelSnapshots,
+} from "@/domain/find-model-observe";
+import { USE_CASES, searchScopeLabel, softPrefGapsFromText, type FollowUp, type StructuredNeed } from "@/domain/need";
 import type { Mode } from "@/domain/types";
 import { isValidVin } from "@/domain/vin";
 import { MakeModelFields } from "./MakeModelFields";
@@ -970,6 +974,11 @@ function AssistantFlow({
           ) : need.make ? (
             <p className="hint">Make: {need.make}. Other makes are left out.</p>
           ) : null}
+          {softPrefGapsFromText(need.note).map((gap) => (
+            <p className="hint" key={gap.id}>
+              Noted preference: {gap.mentioned}. {gap.honesty}
+            </p>
+          ))}
           <div className="field">
             <label htmlFor="budget-edit">{need.mode === "flip" ? "Cash available for the purchase and repairs" : "Maximum vehicle price (before taxes and fees)"}</label>
             <input
@@ -1021,6 +1030,13 @@ function AssistantFlow({
           <PriceRatingHow />
           <DecisionNote scene="find" proofs={checks} />
           {need ? <p className="hint">Scope: {matchScope ?? searchScopeLabel(need)}</p> : null}
+          {need
+            ? softPrefGapsFromText(need.note).map((gap) => (
+                <p className="hint" key={`results-${gap.id}`}>
+                  {gap.honesty}
+                </p>
+              ))
+            : null}
           {!affordability ? <p className="hint">Budget was not set, so affordability was not assessed.</p> : null}
           {partialFailure ? (
             <p className="warn-box" role="status">
@@ -1058,6 +1074,32 @@ function AssistantFlow({
                   : ""}{" "}
                 Years {group.direction.yearMin}–{group.direction.yearMax}. {group.direction.yearBecause}
               </p>
+              {group.listings.length > 0
+                ? (() => {
+                    const snaps = observedModelSnapshots(
+                      group.listings.map((car) => ({
+                        make: car.make,
+                        model: car.model,
+                        year: car.year,
+                        priceUsd: car.priceView?.usableForBudget ? car.priceUsd : null,
+                        miles: car.miles,
+                      })),
+                    );
+                    if (snaps.length < 2) return null;
+                    return (
+                      <div className="hint" role="note">
+                        <p>
+                          Observed across models in these cards (not a TCO or reliability ranking — {snaps[0]!.honesty}):
+                        </p>
+                        <ul>
+                          {snaps.map((snap) => (
+                            <li key={`${snap.make}-${snap.model}`}>{formatObservedModelSnapshot(snap)}</li>
+                          ))}
+                        </ul>
+                      </div>
+                    );
+                  })()
+                : null}
               <button className="quiet" type="button" onClick={() => void watch(group.direction)} disabled={pending === group.direction.id}>
                 {pending === group.direction.id ? "Saving alert…" : need?.mode === "flip" ? "Get alerts for this budget" : "Get new-listing alerts"}
               </button>

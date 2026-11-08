@@ -299,6 +299,8 @@ export async function POST(request: Request) {
       year: typeof body.year === "number" ? body.year : undefined,
       askingPriceUsd,
       miles,
+      // Trusted find context carries seller-feed ask/miles — do not label them "typed in".
+      factSource: trustedFind ? "find_feed" : "typed",
       repairAbility,
       targetProfitUsd,
       budgetUsd: budgetUsd ?? null,

@@ -25,11 +25,14 @@ describe("mileage cap from a note", () => {
     expect(need.make).toBe("Toyota");
     expect(need.milesMax).toBe(50_000);
     expect(need.useCase).toBe("family");
+    expect(need.openToOtherMakes).toBe(true); // named make is a preference, not a silent hard exclusion
     expect(makeFromText("a Honda or a Toyota")).toBe("Honda");
     const directions = proposeDirections({ ...need, budgetUsd: 25_000, budgetKnown: true, zip: "68114" }, undefined, new Date("2026-11-05T00:00:00Z"));
     expect(directions[0]?.segment).toMatch(/crossover/i);
-    expect(directions[0]?.models.every((item) => item.make === "Toyota")).toBe(true);
     expect(directions[0]?.search).toEqual({ make: "Toyota", model: "RAV4" });
+    expect(directions[0]?.models[0]).toEqual({ make: "Toyota", model: "RAV4" });
+    // Open preference keeps editorial alternatives after Toyota.
+    expect(directions[0]?.models.some((item) => item.make !== "Toyota")).toBe(true);
     expect(directions[0]?.yearBecause).toContain("$25,000");
     expect(directions[0]?.yearBecause).not.toContain("$30,000");
     expect(yearBandForBudget(25_000, new Date("2026-11-05T00:00:00Z")).because).toContain("$25,000");
@@ -49,7 +52,8 @@ describe("mileage cap from a note", () => {
     );
     expect(listingWithinNeed({ make: "Toyota", miles: 109_488, bodyStyle: "SUV" }, need.need)).toBe(false);
     expect(listingWithinNeed({ make: "Toyota", miles: 119_010, bodyStyle: "SUV" }, need.need)).toBe(false);
-    expect(listingWithinNeed({ make: "Honda", miles: 42_100, bodyStyle: "SUV" }, need.need)).toBe(false);
+    // Preference (not hard-closed): other makes remain eligible for listingWithinNeed.
+    expect(listingWithinNeed({ make: "Honda", miles: 42_100, bodyStyle: "SUV" }, need.need)).toBe(true);
     expect(listingWithinNeed({ make: "Toyota", miles: 42_100, bodyStyle: "SUV" }, need.need)).toBe(true);
     expect(listingWithinNeed({ make: "Toyota", miles: 42_100, bodyStyle: "Car", style: "Sedan" }, need.need)).toBe(false);
     expect(sampleListings().filter((car) => listingWithinNeed(car, need.need))).toHaveLength(0);
@@ -82,6 +86,19 @@ describe("mileage cap from a note", () => {
     });
     expect(camry).toContain("Sedan");
     expect(camry).not.toMatch(/suv|crossover/i);
+
+    // Explicit closed mandate still hard-filters other makes.
+    const closed = validateNeed({
+      ...explicitNeedFromText("I want only a Toyota RAV4 SUV under $25,000. Not interested in other makes.", "personal"),
+      budgetUsd: 25_000,
+      budgetKnown: true,
+      zip: "68114",
+      milesMax: 50_000,
+    });
+    expect(closed.ok).toBe(true);
+    if (!closed.ok) return;
+    expect(closed.need.openToOtherMakes).toBe(false);
+    expect(listingWithinNeed({ make: "Honda", miles: 42_100, bodyStyle: "SUV" }, closed.need)).toBe(false);
   });
 });
 

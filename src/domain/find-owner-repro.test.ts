@@ -3,19 +3,25 @@ import { listingsSearchUrl } from "@/io/autodev";
 import { proposeDirections } from "./directions";
 import {
   SEARCH_RADII_MILES,
+  closedToOtherMakesFromText,
   explicitNeedFromText,
   followUps,
   makesFromText,
   noMatchMessage,
   normalizeDistanceMiles,
   openToOtherMakesFromText,
+  preferOpenToOtherMakes,
   preferredModelsFromText,
   searchScopeLabel,
+  softPrefGapsFromText,
   validateNeed,
 } from "./need";
 
 const OWNER_NOTE =
   "I'm looking for a reliable used SUV for around $20,000. Mostly for everyday driving, but I also take longer trips with my family. I'd prefer something comfortable, not too expensive to maintain, and ideally with AWD. I like the Mazda CX-5 and Toyota RAV4, but I'm open to other options. I don't want to buy a car with hidden problems.";
+
+const SCENARIO2_NOTE =
+  "I need a decent family car for around $15,000. Mostly city driving, but I want to be able to take it on weekend trips too. Something reliable, not too old, and reasonably cheap to run. I've been looking at the Honda CR-V, Hyundai Tucson and Kia Sportage. Not sure which one is the better deal. I'd rather pay a little more for a car in good condition than end up with expensive repairs.";
 
 describe("owner /find repro: Mazda + Toyota + open", () => {
   it("keeps both preferred makes and named models from the owner note", () => {
@@ -57,6 +63,12 @@ describe("owner /find repro: Mazda + Toyota + open", () => {
     expect(directions[0]?.search).toEqual({ make: "Mazda", model: "CX-5" });
     // Openness keeps editorial crossover alternatives after the named models.
     expect(directions.some((item) => /crossover/i.test(item.segment))).toBe(true);
+    // Editorial crossover must search a non-named model (not re-query CX-5/RAV4).
+    const crossover = directions.find((item) => /crossover/i.test(item.segment));
+    expect(crossover).toBeTruthy();
+    expect(crossover!.search).not.toEqual({ make: "Mazda", model: "CX-5" });
+    expect(crossover!.search).not.toEqual({ make: "Toyota", model: "RAV4" });
+    expect(["CR-V", "Tucson", "Forester", "Equinox", "Sportage"]).toContain(crossover!.search.model);
   });
 
   it("still restricts when the shopper is not open to other makes", () => {
@@ -157,5 +169,57 @@ describe("empty inventory vs failure messaging", () => {
     if (!parsed.ok) return;
     expect(noMatchMessage(parsed.need)).toContain("Empty inventory for this search — not a parse failure");
     expect(noMatchMessage(parsed.need)).toContain("within 50 miles of 68114");
+  });
+});
+
+describe("soft preference capability gaps (t310)", () => {
+  it("names AWD, history, and running-cost gaps without inventing filters", () => {
+    const gaps = softPrefGapsFromText(OWNER_NOTE);
+    expect(gaps.map((g) => g.id).sort()).toEqual(["awd", "fuel_or_running_cost", "history"]);
+    expect(gaps.every((g) => /does not|not a vehicle-history|unavailable/i.test(g.honesty))).toBe(true);
+    // Soft prefs are honesty lines — not forced follow-up questionnaire fields.
+    const need = explicitNeedFromText(OWNER_NOTE, "personal");
+    expect(followUps(need).map((q) => q.id)).not.toContain("awd");
+  });
+});
+
+describe("t310 scenario2: named prefs are preferences, not silent hard exclusions", () => {
+  it("keeps CR-V/Tucson/Sportage as open preferences without 'open to other' phrasing", () => {
+    expect(makesFromText(SCENARIO2_NOTE)).toEqual(["Honda", "Hyundai", "Kia"]);
+    expect(preferredModelsFromText(SCENARIO2_NOTE)).toEqual([
+      { make: "Honda", model: "CR-V" },
+      { make: "Hyundai", model: "Tucson" },
+      { make: "Kia", model: "Sportage" },
+    ]);
+    expect(openToOtherMakesFromText(SCENARIO2_NOTE)).toBe(false);
+    expect(closedToOtherMakesFromText(SCENARIO2_NOTE)).toBe(false);
+    expect(preferOpenToOtherMakes(SCENARIO2_NOTE, ["Honda", "Hyundai", "Kia"])).toBe(true);
+
+    const need = explicitNeedFromText(SCENARIO2_NOTE, "personal");
+    expect(need.budgetUsd).toBe(15_000);
+    expect(need.openToOtherMakes).toBe(true);
+    expect(need.preferredModels).toHaveLength(3);
+
+    const directions = proposeDirections(
+      { ...need, zip: "68114", distanceMiles: 50 },
+      undefined,
+      new Date("2026-11-08T00:00:00Z"),
+    );
+    expect(directions[0]?.segment).toMatch(/named/i);
+    expect(directions[0]?.models.map((m) => m.model).sort()).toEqual(["CR-V", "Sportage", "Tucson"]);
+    // Open preferences keep an editorial alternative — not hard-closed to the three names.
+    expect(directions.some((d) => /crossover/i.test(d.segment))).toBe(true);
+    const crossover = directions.find((d) => /crossover/i.test(d.segment));
+    expect(crossover?.search.model).not.toBe("CR-V");
+  });
+
+  it("still hard-closes when the shopper explicitly excludes other makes", () => {
+    const closed =
+      "I want only a Honda CR-V family SUV under $15,000. Not interested in other makes.";
+    expect(closedToOtherMakesFromText(closed)).toBe(true);
+    const need = explicitNeedFromText(closed, "personal");
+    expect(need.openToOtherMakes).toBe(false);
+    const directions = proposeDirections({ ...need, zip: "68114" }, undefined, new Date("2026-11-08T00:00:00Z"));
+    expect(directions).toHaveLength(1);
   });
 });

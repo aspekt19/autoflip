@@ -4,7 +4,7 @@ import {
   followUps,
   makesFromText,
   milesFromText,
-  openToOtherMakesFromText,
+  preferOpenToOtherMakes,
   overlayExplicit,
   preferredModelsFromText,
   parseNeedJson,
@@ -96,7 +96,7 @@ export async function understandNeed(
   let need = overlayExplicit(extracted, explicit);
   const preferredMakes = makesFromText(need.note);
   const preferredModels = preferredModelsFromText(need.note);
-  const openToOtherMakes = preferredMakes.length === 0 || openToOtherMakesFromText(need.note);
+  const openToOtherMakes = preferOpenToOtherMakes(need.note, preferredMakes.length ? preferredMakes : need.preferredMakes);
   // Text-extracted models are user-named. SERV-only suggestions keep service provenance —
   // never label them “Models you named”.
   const fromNote = preferredModels.length > 0;

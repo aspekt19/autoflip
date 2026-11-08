@@ -94,7 +94,7 @@ const explainSystem = [
 const rulesSystem = [
   "Apply the listing and VIN check rules to the supplied facts. Do not calculate a price, a mileage, or a profit.",
   "Separate facts that came from a listing or a public record from estimates.",
-  "If the shopper typed the asking price, mileage, or ZIP, say that those were typed in.",
+  "If dataNotes say asking price or mileage came from a Find listing feed, say that. Only say typed in when dataNotes say those were typed in.",
   "Do not treat repair ability as a risk tolerance.",
   "Do not say a recall was repaired.",
   "Name what still needs checking before a purchase.",

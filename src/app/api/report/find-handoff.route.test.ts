@@ -269,11 +269,18 @@ describe("POST /api/report find handoff (mocked credits/provider)", () => {
     );
     expect(response.status).toBe(200);
     expect(assemble).toHaveBeenCalledTimes(1);
-    const assembleInput = assemble.mock.calls[0]?.[0] as { vin?: string; url?: string; miles?: number; zip?: string };
+    const assembleInput = assemble.mock.calls[0]?.[0] as {
+      vin?: string;
+      url?: string;
+      miles?: number;
+      zip?: string;
+      factSource?: string;
+    };
     expect(assembleInput.vin).toBe(VIN);
     expect(assembleInput.url).toBe(VDP);
     expect(assembleInput.miles).toBe(21_001);
     expect(assembleInput.zip).toBe("68114");
+    expect(assembleInput.factSource).toBe("find_feed");
     expect(spend).toHaveBeenCalledTimes(1);
     expect(spend.mock.calls[0]?.[1]).toBe(`report:analysis:findctx:user-test:${token}`);
   });
@@ -564,12 +571,14 @@ describe("POST /api/report find handoff (mocked credits/provider)", () => {
       miles?: number;
       zip?: string;
       askingPriceUsd?: number;
+      factSource?: string;
     };
     expect(assembleInput.vin).toBe(GATEWAY_VIN);
     expect(assembleInput.url).toBe(GATEWAY_VDP);
     expect(assembleInput.miles).toBe(94_057);
     expect(assembleInput.zip).toBe(SEARCH_ZIP);
     expect(assembleInput.askingPriceUsd).toBe(15_995);
+    expect(assembleInput.factSource).toBe("find_feed");
     expect(spend).toHaveBeenCalledTimes(1);
     expect(spend.mock.calls[0]?.[1]).toBe(`report:analysis:findctx:user-test:${record.token}`);
   });

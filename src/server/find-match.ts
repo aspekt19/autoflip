@@ -13,6 +13,7 @@ import {
   type FindQueryOutcomeKind,
 } from "@/domain/find-empty";
 import { admitFindListingForBudget, assessFindListingPrice, type FindListingPriceView } from "@/domain/find-listing-price";
+import { diversifyListingsByModel } from "@/domain/find-model-observe";
 import { rankFlipCandidates } from "@/domain/flip-rank";
 import { listingWithinNeed, noMatchMessage, searchScopeLabel, validateNeed, type StructuredNeed } from "@/domain/need";
 import { priceBadge, type PriceBadge } from "@/domain/price-badge";
@@ -232,6 +233,8 @@ export async function runFindMatch(
   let message: string | null = null;
   let partialFailureWarning: string | null = null;
   let providerQueriesUsed = 0;
+  /** Cross-direction VIN dedupe — same listing must not repeat under a second segment. */
+  const seenVins = new Set<string>();
 
   for (const direction of directions) {
     const queries = queriesForDirection(direction);
@@ -352,7 +355,7 @@ export async function runFindMatch(
     const assumption =
       need.mode === "flip" ? reconUsd({ miles: null, repairAbility: need.repairAbility }).because : null;
     const narrowed = collected.filter((item) => listingWithinNeed(item, need));
-    const listings = withinBudget(narrowed, need.budgetUsd, need.budgetKnown)
+    const rankedReady = withinBudget(narrowed, need.budgetUsd, need.budgetKnown)
       .map((item) => {
         const priceView = item.priceView ?? assessFindListingPrice(item);
         return {
@@ -370,7 +373,20 @@ export async function runFindMatch(
         if (aOver !== bOver) return aOver - bOver;
         return (byVin.get(b.vin)?.score ?? 0) - (byVin.get(a.vin)?.score ?? 0);
       })
-      .slice(0, 8);
+      .filter((item) => {
+        // Drop VINs already shown under an earlier direction; only claim shown rows.
+        const vin = (item.vin || "").trim().toUpperCase();
+        if (!vin) return true;
+        if (seenVins.has(vin)) return false;
+        return true;
+      });
+    // Named multi-model searches: do not let the first-queried model fill all 8 slots
+    // when other named models also returned inventory (t310 CR-V-only window).
+    const listings = diversifyListingsByModel(rankedReady, 8);
+    for (const item of listings) {
+      const vin = (item.vin || "").trim().toUpperCase();
+      if (vin) seenVins.add(vin);
+    }
     const coverageInput = {
       mode: need.mode,
       sample: false,
@@ -380,6 +396,7 @@ export async function runFindMatch(
     };
     const emptyNote = listings.length === 0 ? noMatchMessage(need) : null;
     const succeeded = queryOutcomes.filter((o) => o.outcome === "ok" || o.outcome === "empty");
+    const confirmedEmpty = queryOutcomes.filter((o) => o.outcome === "empty");
     const failed = queryOutcomes.filter(
       (o) =>
         o.outcome === "timeout" ||
@@ -393,10 +410,16 @@ export async function runFindMatch(
     const coverageIncomplete = failed.length > 0;
     const coverageBase = coverageSentence(coverageInput);
     const coverageExtra = coverageIncomplete
-      ? `Coverage incomplete: ${failed.map((f) => `${f.make} ${f.model} (${f.outcome})`).join(", ")} did not return a successful provider response.`
+      ? `Coverage incomplete: ${failed.map((f) => `${f.make} ${f.model} (${f.outcome})`).join(", ")} did not return a successful provider response — not the same as confirmed empty inventory.`
       : null;
+    const emptyModelsNote =
+      confirmedEmpty.length > 0
+        ? `Confirmed empty this scope (provider returned no rows): ${confirmedEmpty
+            .map((o) => `${o.make} ${o.model}`)
+            .join(", ")}.`
+        : null;
     // Keep provider failure out of `note` when it is already in providerWarning / top message.
-    const noteParts = dedupeWarningMessages([emptyNote, directionNote, assumption]);
+    const noteParts = dedupeWarningMessages([emptyNote, emptyModelsNote, directionNote, assumption]);
     groups.push({
       direction,
       listings,

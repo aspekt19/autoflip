@@ -102,14 +102,30 @@ export function proposeDirections(
       search: preferred[0]!,
     };
     const body = requestedBody(need);
+    const namedKeys = new Set(preferred.map((item) => modelKey(item)));
     const extras = directionsFor(need)
       .filter((item) => fitsBody(body, item.segment))
       .map((item) => ({
         ...item,
-        models: arrangeModels(item.models, need, { injectPreferred: false }),
+        // Editorial alternatives after named models must not re-prioritize the same
+        // preferred make/model as the primary search — that duplicated CX-5 cards under
+        // both "Models you named" and "Compact crossovers" (t310).
+        models: arrangeModels(item.models, need, { injectPreferred: false, demotePreferred: true }),
       }))
       .filter((item) => item.models.length > 0)
       .filter((item) => !sameModelSet(item.models, preferred))
+      .map((item) => {
+        const alternative = item.models.find((model) => !namedKeys.has(modelKey(model)));
+        // Skip a segment whose only remaining models were already covered by the named direction.
+        if (!alternative) return null;
+        const models = item.models.slice(0, 6);
+        return {
+          ...item,
+          models,
+          search: alternative,
+        };
+      })
+      .filter((item): item is NonNullable<typeof item> => item != null)
       .slice(0, Math.max(0, MAX_DIRECTIONS - 1))
       .map((item, index) => ({
         ...item,
@@ -118,8 +134,6 @@ export function proposeDirections(
         yearMin,
         yearMax,
         yearBecause: band.because,
-        models: item.models.slice(0, 6),
-        search: item.models[0]!,
       }));
     // Closed mandate: strict named-model scope only — no editorial extras consuming budget.
     if (!need.openToOtherMakes) return [named];
@@ -177,7 +191,7 @@ export function proposeDirections(
 function arrangeModels(
   models: CandidateModel[],
   need: StructuredNeed,
-  opts: { injectPreferred: boolean },
+  opts: { injectPreferred: boolean; demotePreferred?: boolean },
 ): CandidateModel[] {
   const preferred = need.preferredModels ?? [];
   let list = [...models];
@@ -189,13 +203,23 @@ function arrangeModels(
   const makes = need.preferredMakes?.length ? need.preferredMakes : need.make ? [need.make] : [];
   if (makes.length && need.openToOtherMakes === false) {
     list = list.filter((item) => makes.some((make) => make.toLowerCase() === item.make.toLowerCase()));
-  } else if (makes.length && need.openToOtherMakes) {
+  } else if (makes.length && need.openToOtherMakes && !opts.demotePreferred) {
     // Preferred makes first, then the rest of the editorial list.
     const preferredFirst = list.filter((item) => makes.some((make) => make.toLowerCase() === item.make.toLowerCase()));
     const rest = list.filter((item) => !makes.some((make) => make.toLowerCase() === item.make.toLowerCase()));
     list = [...preferredFirst, ...rest];
+  } else if (opts.demotePreferred && preferred.length) {
+    // Named models already searched elsewhere — put true alternatives first.
+    const namedKeys = new Set(preferred.map((item) => modelKey(item)));
+    const alternatives = list.filter((item) => !namedKeys.has(modelKey(item)));
+    const overlap = list.filter((item) => namedKeys.has(modelKey(item)));
+    list = [...alternatives, ...overlap];
   }
   return list;
+}
+
+function modelKey(item: { make: string; model: string }): string {
+  return `${item.make.toLowerCase()}\0${item.model.toLowerCase()}`;
 }
 
 function sameModel(a: CandidateModel, b: PreferredModel): boolean {
