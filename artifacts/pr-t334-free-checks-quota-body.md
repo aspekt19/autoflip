@@ -10,8 +10,8 @@ Auth.js durable ownership ported from open **PR54** onto `origin/main` @ `17bc81
 |------|--------|
 | Base | `origin/main` @ `17bc81839595c627de7ffead5c1ac5b28176d7af` (PR #81 / `17bc818`) |
 | Branch | `cursor/t334-free-checks-quota-ecfd` |
-| Tip | `ef48a651cc1f7daed0138744a2c91888a5df0c35` |
-| Tree | `56cc3d1fe4b03eab4f38096f318431d0cf591fb8` |
+| Tip |  |
+| Tree |  |
 | Typecheck / tests | `npm run typecheck` + `npm test` — **796 passed** |
 | Default Mini / Fable / SERV models | **unchanged** (no model/env publication) |
 
