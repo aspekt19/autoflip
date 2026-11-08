@@ -45,7 +45,6 @@ describe("proposeFindNextChecks", () => {
     const checks = proposeFindNextChecks({
       need: {
         ...emptyNeed("personal"),
-        note,
         budgetUsd: 20_000,
         budgetKnown: true,
         conditionPriority: "inspection_first",
@@ -73,7 +72,6 @@ describe("proposeFindNextChecks", () => {
     const checks = proposeFindNextChecks({
       need: {
         ...emptyNeed("personal"),
-        note: "Toyota Camry under 15k near 68114",
         budgetUsd: 15_000,
         budgetKnown: true,
         conditionPriority: "unspecified",
