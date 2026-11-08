@@ -53,6 +53,21 @@ export type StructuredNeed = {
   /** Hard mileage cap taken from the note. Null means no cap. */
   milesMax: number | null;
   /**
+   * Explicit model-year floor from clarification or Confirm refine.
+   * Null means use the budget-based editorial year band only.
+   */
+  yearMin: number | null;
+  /**
+   * Explicit model-year ceiling from clarification or Confirm refine.
+   * Null means use the budget-based editorial year band only.
+   */
+  yearMax: number | null;
+  /**
+   * When the shopper says condition/history matters more than squeezing price.
+   * Triggers inspection/history next-checks — never a fictitious condition score.
+   */
+  conditionPriority: "unspecified" | "inspection_first" | "price_ok";
+  /**
    * First preferred make, kept for older callers.
    * Prefer `preferredMakes` when deciding what to keep or drop.
    */
@@ -90,6 +105,9 @@ export function emptyNeed(mode: "personal" | "flip" = "personal"): StructuredNee
     repairAbility: "unknown",
     targetProfitUsd: null,
     milesMax: null,
+    yearMin: null,
+    yearMax: null,
+    conditionPriority: "unspecified",
     make: null,
     preferredMakes: [],
     preferredModels: [],
@@ -231,6 +249,24 @@ export function validateNeed(input: unknown): { ok: true; need: StructuredNeed }
   else if (typeof raw.milesMax === "number" && Number.isFinite(raw.milesMax) && raw.milesMax >= 1_000 && raw.milesMax <= 400_000) {
     milesMax = Math.round(raw.milesMax);
   } else issues.push({ field: "milesMax", message: "Mileage cap has to be a mileage, or left blank." });
+  const yearNow = new Date().getUTCFullYear() + 1;
+  let yearMin: number | null = null;
+  if (raw.yearMin === null || raw.yearMin === undefined || raw.yearMin === "") yearMin = null;
+  else if (typeof raw.yearMin === "number" && Number.isFinite(raw.yearMin) && raw.yearMin >= 1980 && raw.yearMin <= yearNow) {
+    yearMin = Math.round(raw.yearMin);
+  } else issues.push({ field: "yearMin", message: "Year floor has to be a model year, or left blank." });
+  let yearMax: number | null = null;
+  if (raw.yearMax === null || raw.yearMax === undefined || raw.yearMax === "") yearMax = null;
+  else if (typeof raw.yearMax === "number" && Number.isFinite(raw.yearMax) && raw.yearMax >= 1980 && raw.yearMax <= yearNow) {
+    yearMax = Math.round(raw.yearMax);
+  } else issues.push({ field: "yearMax", message: "Year ceiling has to be a model year, or left blank." });
+  if (yearMin != null && yearMax != null && yearMin > yearMax) {
+    issues.push({ field: "yearMin", message: "Year floor cannot be after the year ceiling." });
+  }
+  const conditionPriority =
+    raw.conditionPriority === "inspection_first" || raw.conditionPriority === "price_ok"
+      ? raw.conditionPriority
+      : "unspecified";
   let distanceMiles: number | null = null;
   const distanceParsed = parseDistanceMiles(raw.distanceMiles);
   if (!distanceParsed.ok) {
@@ -277,6 +313,9 @@ export function validateNeed(input: unknown): { ok: true; need: StructuredNeed }
       repairAbility,
       targetProfitUsd,
       milesMax,
+      yearMin,
+      yearMax,
+      conditionPriority,
       make: makes[0] ?? null,
       preferredMakes: makes,
       preferredModels,
@@ -605,15 +644,19 @@ export function sampleGapMessage(need: Pick<StructuredNeed, "make" | "preferredM
   return `The labeled sample has no ${what} listings. Nothing on this page is a live match.`;
 }
 
-export type FollowUp = { id: "zip" | "use" | "repair" | "profit" | "cash"; prompt: string };
+export type FollowUp = {
+  id: "zip" | "use" | "repair" | "profit" | "cash" | "age" | "miles" | "condition";
+  prompt: string;
+};
 
 /**
  * Soft preferences the note named that Find cannot honestly filter or verify yet.
- * Surface as capability gaps — do not invent AWD/history/fuel filters or follow-ups
- * that pretend we can enforce them at search time.
+ * Surface as capability gaps — do not invent AWD/history/fuel filters.
+ * Progressive clarifications may ask age / miles / condition when those gaps are
+ * material and actionable (year band, odometer cap, inspection priority).
  */
 export type SoftPrefGap = {
-  id: "awd" | "history" | "fuel_or_running_cost" | "age";
+  id: "awd" | "history" | "fuel_or_running_cost" | "age" | "miles";
   mentioned: string;
   honesty: string;
 };
@@ -633,17 +676,19 @@ export function softPrefGapsFromText(text: string): SoftPrefGap[] {
   if (
     /\b(hidden problems?|vehicle history|accident history|clean (?:carfax|title)|no accidents?)\b/i.test(t) ||
     /\bdon'?t want to buy a car with hidden\b/i.test(t) ||
-    /\bgood condition\b/i.test(t)
+    /\bgood condition\b/i.test(t) ||
+    /\b(condition matters|condition over|condition first|rather pay .{0,40}condition)\b/i.test(t) ||
+    /\bhistory checks?\b/i.test(t)
   ) {
     gaps.push({
       id: "history",
       mentioned: "condition / vehicle history",
       honesty:
-        "Find listings are not a vehicle-history or condition check. Missing history is not a clean history. Title brands, accidents, and odometer brands need a full report plus an NMVTIS-approved history report before purchase.",
+        "Find listings are not a vehicle-history or condition check. Missing history is not a clean history — there is no condition score here. Title brands, accidents, and odometer brands need a full report plus an NMVTIS-approved history report before purchase.",
     });
   }
   if (
-    /\b(fuel economy|mpg|cheap(?:er)? to (?:run|maintain)|not too expensive to maintain|reasonably cheap to run|running costs?)\b/i.test(
+    /\b(fuel economy|fuel costs?|mpg|cheap(?:er)? to (?:run|maintain|operate)|not too expensive to maintain|reasonably cheap to run|running costs?|ownership cost|total cost of ownership|tco)\b/i.test(
       t,
     )
   ) {
@@ -651,7 +696,7 @@ export function softPrefGapsFromText(text: string): SoftPrefGap[] {
       id: "fuel_or_running_cost",
       mentioned: "running cost / fuel economy",
       honesty:
-        "Find does not rank ownership cost or MPG, and there is no grounded TCO or model-to-model cost comparison yet. EPA fuel economy appears only when a full report gets a usable FuelEconomy.gov match — otherwise it stays unavailable.",
+        "Find does not invent TCO or rank MPG across cards. When a full analysis gets a usable FuelEconomy.gov match, annual fuel cost is shown from that source (or from MPG plus your stated $/gal and miles/year). Otherwise ownership fuel cost stays unavailable.",
     });
   }
   if (/\b(not too old|newer|recent(?:er)?|not ancient)\b/i.test(t) && !/\b(19|20)\d{2}\b/.test(t) && !/\bunder\s+\d+\s+years?\b/i.test(t)) {
@@ -659,7 +704,18 @@ export function softPrefGapsFromText(text: string): SoftPrefGap[] {
       id: "age",
       mentioned: "age / not too old",
       honesty:
-        "No hard model-year cutoff was stated. Find uses a budget-based year band for search — set an explicit year range on Confirm if you have one.",
+        "No hard model-year cutoff was stated. Answer the year-band clarification or set an explicit year range on Confirm — otherwise Find uses only the budget-based editorial band.",
+    });
+  }
+  if (
+    /\b(low miles|low mileage|not too many miles|lower miles)\b/i.test(t) &&
+    milesFromText(text) == null
+  ) {
+    gaps.push({
+      id: "miles",
+      mentioned: "low miles (no number)",
+      honesty:
+        "“Low miles” without a number is not an odometer cap. Set a maximum mileage on Confirm or in clarification if you have one.",
     });
   }
   return gaps;
@@ -687,7 +743,27 @@ export function followUps(need: StructuredNeed): FollowUp[] {
   if (need.useCase === "unspecified") {
     questions.push({ id: "use", prompt: "What will you use the car for most?" });
   }
-  return questions.slice(0, 2);
+  const gaps = softPrefGapsFromText(need.note);
+  // Progressive clarifications for material missing facts we can act on — not AWD (unenforced).
+  if (gaps.some((g) => g.id === "age") && need.yearMin == null && need.yearMax == null) {
+    questions.push({
+      id: "age",
+      prompt: "You said “not too old” without a year. What is the oldest model year you will consider?",
+    });
+  }
+  if (gaps.some((g) => g.id === "miles") && need.milesMax == null) {
+    questions.push({
+      id: "miles",
+      prompt: "You mentioned low miles without a number. What maximum odometer (miles) will you accept? Leave blank on Confirm if any.",
+    });
+  }
+  if (gaps.some((g) => g.id === "history") && need.conditionPriority === "unspecified") {
+    questions.push({
+      id: "condition",
+      prompt: "Condition and history are unknown on Find cards. Should we prioritize inspection and a history report before chasing the lowest ask?",
+    });
+  }
+  return questions.slice(0, 3);
 }
 
 export function applyFollowUp(need: StructuredNeed, id: FollowUp["id"], value: string): StructuredNeed {
@@ -700,6 +776,24 @@ export function applyFollowUp(need: StructuredNeed, id: FollowUp["id"], value: s
       if (id === "cash") return { ...need, budgetUsd: amount, budgetKnown: true };
       return { ...need, targetProfitUsd: amount };
     }
+  }
+  if (id === "age") {
+    const year = Number(value.trim());
+    const cap = new Date().getUTCFullYear() + 1;
+    if (Number.isFinite(year) && year >= 1980 && year <= cap) {
+      return { ...need, yearMin: Math.round(year) };
+    }
+    if (/^any$/i.test(value.trim())) return { ...need, yearMin: null, yearMax: null };
+  }
+  if (id === "miles") {
+    const amount = Number(value.replace(/,/g, "").trim());
+    if (Number.isFinite(amount) && amount >= 1_000 && amount <= 400_000) {
+      return { ...need, milesMax: Math.round(amount) };
+    }
+  }
+  if (id === "condition") {
+    if (value === "inspection_first") return { ...need, conditionPriority: "inspection_first" };
+    if (value === "price_ok") return { ...need, conditionPriority: "price_ok" };
   }
   return need;
 }
@@ -720,6 +814,9 @@ export function overlayExplicit(
       | "useCase"
       | "targetProfitUsd"
       | "milesMax"
+      | "yearMin"
+      | "yearMax"
+      | "conditionPriority"
       | "make"
       | "preferredMakes"
       | "preferredModels"
@@ -758,6 +855,9 @@ export function overlayExplicit(
     useCase: explicit.useCase && explicit.useCase !== "unspecified" ? explicit.useCase : extracted.useCase,
     targetProfitUsd: explicit.targetProfitUsd === undefined ? extracted.targetProfitUsd : explicit.targetProfitUsd,
     milesMax: explicit.milesMax === undefined ? extracted.milesMax : explicit.milesMax,
+    yearMin: explicit.yearMin === undefined ? extracted.yearMin : explicit.yearMin,
+    yearMax: explicit.yearMax === undefined ? extracted.yearMax : explicit.yearMax,
+    conditionPriority: explicit.conditionPriority ?? extracted.conditionPriority,
     make,
     preferredMakes,
     preferredModels,

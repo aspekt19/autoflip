@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  compareObservedModels,
   diversifyListingsByModel,
   formatObservedModelSnapshot,
   observedModelSnapshots,
@@ -37,5 +38,15 @@ describe("observedModelSnapshots", () => {
     expect(snaps[1]?.model).toBe("Tucson");
     expect(formatObservedModelSnapshot(snaps[0]!)).toMatch(/Honda CR-V/);
     expect(snaps.every((s) => /this search only/i.test(s.honesty))).toBe(true);
+  });
+
+  it("compare rows keep condition unknown and fuel unavailable without FuelFact", () => {
+    const rows = compareObservedModels([
+      { make: "Honda", model: "CR-V", year: 2014, priceUsd: 10_689, miles: 91_903 },
+      { make: "Hyundai", model: "Tucson", year: 2016, priceUsd: 12_000, miles: 80_000 },
+    ]);
+    expect(rows).toHaveLength(2);
+    expect(rows.every((r) => r.condition.status === "unknown_needs_inspection")).toBe(true);
+    expect(rows.every((r) => r.ownershipFuel.status === "unavailable")).toBe(true);
   });
 });

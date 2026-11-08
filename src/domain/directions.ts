@@ -63,8 +63,13 @@ export function proposeDirections(
   now = new Date(),
 ): SearchDirection[] {
   const band = yearBandForBudget(need.budgetUsd, now);
-  const yearMin = refine?.yearMin ?? band.yearMin;
-  const yearMax = refine?.yearMax ?? band.yearMax;
+  // Prefer Confirm refine, then clarified need year bounds, then budget editorial band.
+  const yearMin = refine?.yearMin ?? need.yearMin ?? band.yearMin;
+  const yearMax = refine?.yearMax ?? need.yearMax ?? band.yearMax;
+  const yearFromClarify = refine?.yearMin != null || refine?.yearMax != null || need.yearMin != null || need.yearMax != null;
+  const yearBecause = yearFromClarify
+    ? `Model years ${yearMin}–${yearMax} come from your year clarification or Confirm refine — not only the budget default band.`
+    : band.because;
   if (refine?.make && refine.model) {
     return [
       {
@@ -74,7 +79,7 @@ export function proposeDirections(
         guidance: "editorial",
         yearMin,
         yearMax,
-        yearBecause: band.because,
+        yearBecause,
         models: [{ make: refine.make, model: refine.model }],
         search: { make: refine.make, model: refine.model },
       },
@@ -97,7 +102,7 @@ export function proposeDirections(
       guidance: "editorial",
       yearMin,
       yearMax,
-      yearBecause: band.because,
+      yearBecause,
       models: preferred.slice(0, 6),
       search: preferred[0]!,
     };
@@ -133,7 +138,7 @@ export function proposeDirections(
         guidance: "editorial" as const,
         yearMin,
         yearMax,
-        yearBecause: band.because,
+        yearBecause,
       }));
     // Closed mandate: strict named-model scope only — no editorial extras consuming budget.
     if (!need.openToOtherMakes) return [named];
@@ -156,7 +161,7 @@ export function proposeDirections(
       guidance: "editorial" as const,
       yearMin,
       yearMax,
-      yearBecause: band.because,
+      yearBecause,
       models: item.models.slice(0, 6),
       search: item.models[0]!,
     }));
@@ -178,7 +183,7 @@ export function proposeDirections(
           guidance: "editorial",
           yearMin,
           yearMax,
-          yearBecause: band.because,
+          yearBecause,
           models,
           search: models[0]!,
         },

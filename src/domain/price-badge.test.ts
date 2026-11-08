@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { priceBadge } from "./price-badge";
 import { reconUsd } from "./recon";
 import { summaryLine } from "./summary-line";
-import { followUps } from "./need";
+import { emptyNeed, followUps } from "./need";
 import { flipMath } from "./flip";
 import type { Listing } from "./types";
 
@@ -80,24 +80,13 @@ describe("summary line", () => {
 describe("flip questions", () => {
   it("asks profit, repair skill, and cash instead of a use case", () => {
     const questions = followUps({
-      mode: "flip",
-      useCase: "unspecified",
+      ...emptyNeed("flip"),
       note: "flip",
-      budgetUsd: null,
-      budgetKnown: false,
-      budgetScope: "unspecified",
-      mustHaves: [],
-      priorities: [],
       zip: "33101",
-      distanceMiles: null,
       repairAbility: "unknown",
       targetProfitUsd: null,
-      milesMax: null,
-      make: null,
-      preferredMakes: [],
-      preferredModels: [],
-      preferredModelsSource: "none",
-      openToOtherMakes: true,
+      budgetKnown: false,
+      budgetUsd: null,
     });
     expect(questions.map((item) => item.id)).toEqual(["profit", "repair", "cash"]);
     expect(questions.some((item) => item.id === "use")).toBe(false);

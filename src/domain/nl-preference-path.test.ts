@@ -75,7 +75,7 @@ describe("NL preference path — soft prefs and budget tradeoffs", () => {
     expect(need.openToOtherMakes).toBe(true);
     const gaps = softPrefGapsFromText(note);
     expect(gaps.map((g) => g.id).sort()).toEqual(["age", "awd", "fuel_or_running_cost", "history"]);
-    expect(gaps.every((g) => /does not|not a|no hard|unavailable|missing history/i.test(g.honesty))).toBe(true);
+    expect(gaps.every((g) => /does not|not a|no hard|unavailable|missing history|no condition score|will not invent|FuelEconomy/i.test(g.honesty))).toBe(true);
   });
 
   it("extracts mixed named models without first-name exclusivity", () => {
