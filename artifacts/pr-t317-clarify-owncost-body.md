@@ -8,9 +8,8 @@
 | --- | --- |
 | PR | https://github.com/aspekt19/autoflip/pull/77 |
 | Branch | `cursor/t315-clarify-owncost-ecfd-1033` |
-| **Head** | `6e8115c6e0703bd362ddd2f64aa1087b3cc321d7` |
-| **Tree** | `56236865dca7462123d9f058859a93f8a4313f6d` |
-| Code tip (implement) | `26695fd8d0413781a1c2ecd4df0ee1d8568689c6` / tree `eb682424b95a41fd301751c07f3680b325b483da` |
+| **Implement tip** | `26695fd8d0413781a1c2ecd4df0ee1d8568689c6` / tree `eb682424b95a41fd301751c07f3680b325b483da` |
+| Branch tip | `origin/cursor/t315-clarify-owncost-ecfd-1033` (docs pins may trail by 1–2 commits) |
 | Base | `cursor/find-nav-provenance-ecfd-1033` @ `aa1e9010d041105717b19a2a1e36c9ace7f946a8` (**frozen**) |
 
 ### Coherent feature state (vertical slice)
@@ -50,11 +49,13 @@ SERV_API_KEY=… SCOUT_COMPARE_ALLOW_PAID=1 SCOUT_COMPARE_FAIR_SLATE=1 \
 # Sequential XOR ≤2 HTTP (never stacks on normal)
 SERV_API_KEY=… SCOUT_COMPARE_ALLOW_PAID=1 SCOUT_COMPARE_SEQUENTIAL=1 \
   SERV_COMPARE_MODELS=gpt-5.4-mini \
-  SCOUT_COMPARE_SOURCE_PIN='{"head":"<HEAD>","tree":"<TREE>","base":"cursor/find-nav-provenance-ecfd-1033"}' \
+  SCOUT_COMPARE_SOURCE_PIN='{"head":"26695fd8d0413781a1c2ecd4df0ee1d8568689c6","tree":"eb682424b95a41fd301751c07f3680b325b483da","base":"cursor/find-nav-provenance-ecfd-1033"}' \
   npm run eval:scout-model-compare
 ```
 
 Scoring: schemaValid / grounded / recoveryClass / antiLoopSafe / defect-from-placeholder + rawStatus / latencyMs / tokens / refusals / timeouts; **cost=unknown**.
+
+Artifact: `eval/results/serv-compare-preflight.md`
 
 ### Protocol issues (integration vs model)
 
@@ -67,8 +68,6 @@ Scoring: schemaValid / grounded / recoveryClass / antiLoopSafe / defect-from-pla
 | `gpt54_cold_timeout` | unknown_until_live | Record timeout row; do not blind-raise |
 | `grounding_vs_http200` | model_behavior | Score recovery, not HTTP 200 alone |
 
-Artifact: `eval/results/serv-compare-preflight.md`
-
 ### Offline evidence
 - `npm run typecheck` + `npm test` → **681** passed
 - `npm run eval:serv-compare-preflight` → dry-run OK, 0 HTTP
@@ -78,6 +77,7 @@ Artifact: `eval/results/serv-compare-preflight.md`
 - Live fair compare + sequential probe = Flip only
 - PR76 merge owned by child `bc-7832d685` — untouched
 - No invented TCO/history/best-car; BASE_MODEL unchanged
+- ManagePullRequest / `gh pr comment` denied — parent updates PR #77 from this artifact
 
 ## Test plan
 - [x] typecheck + vitest 681
