@@ -13,15 +13,16 @@ OWNER 334 CORE gap: free-gov packets were collapsing to summary/note strings, so
 5. **Receipt merge + structured fingerprint** so cached duplicates cannot fake evidence-changed loops.
 6. **SERV find_next_check** profile prefers useful next action when `riskFacts.parkIt=true` (vPIC / history / widen) over median settle.
 
-### Pins (fill after push / CI)
+### Pins
 
 | Pin | Value |
 | --- | --- |
 | Branch | `cursor/serv-risk-evidence-core-b667` |
-| Base | `origin/main` @ `17bc818…` |
-| Tip | _(after push)_ |
-| Tree | _(after push)_ |
-| CI | _(after push)_ |
+| Base | `origin/main` @ `17bc81839595c627de7ffead5c1ac5b28176d7af` |
+| Tip | `c31689a2906e7d9fb88ee18c1f3200b4d97e3c85` |
+| Tree | `e664737dfac27b93ec126ceb0507d8c0eddcaa2b` |
+| Implement | `4353efae20219acaa1f93c02a0d4e9fbf000de56` |
+| CI | pending after PR open |
 
 ### Tests
 
