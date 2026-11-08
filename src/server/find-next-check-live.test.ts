@@ -87,6 +87,59 @@ describe("runFindNextCheckLive seam (SERV choose → clamp → apply → researc
     expect(result.source).toBe("deterministic_fallback");
     expect(result.chosenId).not.toBe("invent_best_car" as never);
     expect(result.allowedChecks.map((c) => c.id)).not.toContain("invent_best_car");
+    expect(result.failureDiag?.reasonCode).toBe("check_id_not_in_allowlist");
+    expect(result.clampDiag?.deniedCheckId).toBe("invent_best_car");
+    expect(result.clampDiag?.allowlistIds.length).toBeGreaterThan(0);
+    expect(result.honesty).not.toMatch(/sk-/);
+  });
+
+  it("request schema enum equals live allowlist; Scout alias maps to free_gov_recalls", async () => {
+    const bodies: string[] = [];
+    const fetchImpl = vi.fn(async (_url: string, init?: RequestInit) => {
+      bodies.push(String(init?.body ?? ""));
+      return jsonResponse({
+        choices: [
+          {
+            message: {
+              content: JSON.stringify({
+                checkId: "evidence.gov_recalls",
+                note: "run free recalls",
+              }),
+            },
+          },
+        ],
+      });
+    });
+    const need = {
+      ...baseNeed,
+      conditionPriority: "inspection_first" as const,
+      note: "SUV under 20k — don't want hidden problems",
+      yearBandResolved: true,
+    };
+    const result = await runFindNextCheckLive(
+      {
+        need,
+        listings: [
+          { make: "Honda", model: "CR-V", year: 2014, priceUsd: 10689, miles: 91903 },
+          { make: "Hyundai", model: "Tucson", year: 2016, priceUsd: 12000, miles: 80000 },
+          { make: "Kia", model: "Sportage", year: 2015, priceUsd: 11200, miles: 85000 },
+        ],
+      },
+      {
+        servKey: "test-key",
+        fetchImpl: fetchImpl as unknown as typeof fetch,
+        env: {},
+      },
+    );
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const schemaEnum = JSON.parse(bodies[0]!).response_format.json_schema.schema.properties.checkId
+      .enum as string[];
+    expect(schemaEnum).toEqual(result.allowedChecks.map((c) => c.id));
+    expect(schemaEnum).not.toEqual(expect.arrayContaining(["clarify_year_band"])); // year resolved
+    expect(result.source).toBe("serv");
+    expect(result.chosenId).toBe("free_gov_recalls");
+    expect(result.clampDiag?.aliasApplied).toMatch(/evidence\.gov_recalls/);
   });
 
   it("without SERV key uses deterministic fallback (no network)", async () => {

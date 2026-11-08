@@ -142,6 +142,14 @@ export async function POST(request: Request) {
           usagePresent: Boolean(result.failureDiag.usage),
         }
       : null,
+    clampDiag: result.clampDiag
+      ? {
+          deniedCheckId: result.clampDiag.deniedCheckId,
+          allowlistIds: result.clampDiag.allowlistIds,
+          aliasApplied: result.clampDiag.aliasApplied,
+          reasonCode: result.clampDiag.reasonCode,
+        }
+      : null,
     keyedAutonomyDiag: result.keyedAutonomyDiag,
     proofs: result.proofs,
   });

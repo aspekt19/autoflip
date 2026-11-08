@@ -207,12 +207,16 @@ export async function executeFindFreeGovCheck(input: {
 
   const okish = receipts.filter((r) => r.status === "ok" || r.status === "empty").length;
   const failed = receipts.length - okish;
+  const perCard = receipts
+    .map((r) => `${r.year} ${r.make} ${r.model}: ${r.status} — ${r.summary.slice(0, 120)}`)
+    .slice(0, 3)
+    .join(" | ");
   return {
     checkId,
     toolId,
     receipts,
     evidenceChanged: true,
-    note: `Free ${toolId} on ${receipts.length} card(s): ${okish} ok/empty, ${failed} unavailable/error. ${receipts[0]?.honesty ?? ""} No Report credit. Not NMVTIS/title clearance.`,
+    note: `Free ${toolId} on ${receipts.length} card(s): ${okish} ok/empty, ${failed} unavailable/error. ${perCard}. ${receipts[0]?.honesty ?? ""} No Report credit. Not NMVTIS/title clearance.`,
   };
 }
 
@@ -222,11 +226,32 @@ export function freeGovReceiptsBrief(receipts: readonly FindFreeGovReceipt[]): {
   toolIds: string[];
   statuses: string[];
   summaries: string[];
+  cards: Array<{
+    make: string;
+    model: string;
+    year: number;
+    status: string;
+    summary: string;
+    scope: string;
+    factNotes: string[];
+    honesty: string;
+  }>;
 } {
   return {
     count: receipts.length,
     toolIds: [...new Set(receipts.map((r) => r.toolId))],
     statuses: receipts.map((r) => r.status),
     summaries: receipts.map((r) => r.summary.slice(0, 160)).slice(0, 8),
+    cards: receipts.slice(0, 6).map((r) => ({
+      make: r.make,
+      model: r.model,
+      year: r.year,
+      status: r.status,
+      summary: r.summary.slice(0, 220),
+      scope: r.scope.slice(0, 120),
+      factNotes: r.factNotes.slice(0, 4),
+      honesty: r.honesty.slice(0, 200),
+    })),
   };
 }
+
