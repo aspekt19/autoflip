@@ -10,8 +10,8 @@
 | Branch | `cursor/t315-clarify-owncost-ecfd-1033` |
 | Base | `main` @ `0aeed3b3fc7611be47eab0eff6b737a9abf869bd` (PR76 published) |
 | **Implement tip** | `b45a428ab0ecbefe52ecea252c58f93cc9cadb84` / tree `796e510345c1efd45115bda85391b4ac0aa03736` |
-| **Branch tip** | *(docs tip after push — ready review = implement tip)* |
-| **CI** | pending after push — parent reconciles |
+| **Branch tip** | `e8e3900cefaf6e667016c5c4d5614ea34b5c6d85` / tree `0805fa798aa2ced1884812e4021166b63ac1c954` |
+| **CI** | **pass** `test` 2m12s — https://github.com/aspekt19/autoflip/actions/runs/42507846072 (tip `e8e3900`) |
 
 ### Flip t318 shortlist (exact console `model_id`)
 
