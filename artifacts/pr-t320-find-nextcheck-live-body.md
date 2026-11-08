@@ -8,7 +8,8 @@ Follow-up after PR #77 merge (`ba6e127`): **live Find next-check SERV/API apply 
 | --- | --- |
 | Branch | `cursor/find-nextcheck-live-apply-ecfd-1033` |
 | Base | `main` @ `ba6e127d399afa8b64126dcf35da73fdd8f81158` (PR77 merge) |
-| **Implement tip** | `f06162361e7a258458fe87780f2b6a7ba7d0b8f2` / tree `b5c96379b743136c0de21e569e38cbe412f7d46b` |
+| **Implement feat** | `2b607c837f872c95b43a3600a54f9a61210f4e9d` / tree `be7e4067489a4cd68c57af68299fa2c63e69f50e` |
+| **Branch tip** | see latest push on branch (docs pins after feat) |
 
 ### Gap closed (honest)
 
