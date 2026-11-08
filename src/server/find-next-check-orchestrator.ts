@@ -68,6 +68,22 @@ export type FindNextCheckOrchestratorDeps = FindNextCheckLiveDeps & {
   runMatch?: MatchRunner;
 };
 
+/** Public, secret-free diagnostics when autonomy did not engage. */
+export type KeyedAutonomyDiag = {
+  keyed: boolean;
+  /** What /api/match minted into search context (may differ if env drifted). */
+  mintSaidKeyed: boolean;
+  autonomousServ: boolean;
+  source: "serv" | "deterministic_fallback";
+  failureCategory: string | null;
+  failureReasonCode: string | null;
+  /**
+   * Actionable deploy hint — never includes key material or raw model text.
+   * Parent configures Vercel; this only names which check to perform.
+   */
+  configHint: string | null;
+};
+
 export type FindNextCheckOrchestratorOk = {
   ok: true;
   searchContextToken: string;
@@ -84,6 +100,7 @@ export type FindNextCheckOrchestratorOk = {
   shortlist: FindNextCheckLiveOk["shortlist"];
   proofs: DecisionProof[];
   failureDiag: FindNextCheckLiveOk["failureDiag"];
+  keyedAutonomyDiag: KeyedAutonomyDiag;
   honesty: string;
   /** Rematch payload when research — always built from NEW need after apply. */
   rematch: {
@@ -96,6 +113,39 @@ export type FindNextCheckOrchestratorOk = {
   /** Ordinary UI auto-continues when continue=true (no hidden step quota). */
   loop: FindNextCheckLoopDisposition;
 };
+
+export function buildKeyedAutonomyDiag(input: {
+  keyed: boolean;
+  mintSaidKeyed: boolean;
+  autonomousServ: boolean;
+  source: "serv" | "deterministic_fallback";
+  failureDiag: FindNextCheckLiveOk["failureDiag"];
+}): KeyedAutonomyDiag {
+  const failureCategory = input.failureDiag?.category ?? null;
+  const failureReasonCode = input.failureDiag?.reasonCode ?? null;
+  let configHint: string | null = null;
+  if (!input.keyed && input.mintSaidKeyed) {
+    configHint =
+      "ENV_DRIFT: search context minted with SERV keyed, but SERV_API_KEY is missing on /api/find/next-check runtime — set the same SERV_API_KEY on this Vercel deployment/function (value never logged).";
+  } else if (!input.keyed) {
+    configHint =
+      "Set SERV_API_KEY on the Vercel deployment that serves /api/match and /api/find/next-check (same project env). Without it, Find uses deterministic allowlist only.";
+  } else if (!input.autonomousServ) {
+    configHint =
+      failureCategory === "http_error" || failureReasonCode?.includes("timeout")
+        ? "SERV find_next_check timed out or HTTP-failed under profile timeout — check OpenServ latency for gpt-5.4-mini; failureDiag has category/reasonCode only (no secrets)."
+        : "SERV find_next_check did not return an allowlisted checkId (parse/clamp/refusal). Inspect failureDiag.category/reasonCode; confirm SERV_API_KEY + SERV_BASE_URL on this deployment. Do not treat as missing-key.";
+  }
+  return {
+    keyed: input.keyed,
+    mintSaidKeyed: input.mintSaidKeyed,
+    autonomousServ: input.autonomousServ,
+    source: input.source,
+    failureCategory,
+    failureReasonCode,
+    configHint,
+  };
+}
 
 export type FindNextCheckOrchestratorErr = {
   ok: false;
@@ -117,7 +167,6 @@ function publicResultPayload(ok: FindNextCheckOrchestratorOk): string {
     research: ok.research,
     allowedChecks: ok.allowedChecks,
     compare: ok.compare,
-    shortlist: ok.shortlist,
     failureDiag: ok.failureDiag
       ? {
           category: ok.failureDiag.category,
@@ -126,6 +175,7 @@ function publicResultPayload(ok: FindNextCheckOrchestratorOk): string {
           usagePresent: Boolean(ok.failureDiag.usage),
         }
       : null,
+    keyedAutonomyDiag: ok.keyedAutonomyDiag,
     honesty: ok.honesty,
     rematch: ok.rematch,
     needAfter: ok.needAfter,
@@ -277,9 +327,19 @@ export async function runFindNextCheckOrchestrator(
       appliedNext,
     );
 
+    const autonomousServ = live.source === "serv";
+    const mintSaidKeyed = Boolean(ctx.servNextCheckEnabled);
+    const keyedAutonomyDiag = buildKeyedAutonomyDiag({
+      keyed,
+      mintSaidKeyed,
+      autonomousServ,
+      source: live.source,
+      failureDiag: live.failureDiag,
+    });
+
     const loop = decideFindNextCheckLoop({
       keyed,
-      autonomousServ: live.source === "serv",
+      autonomousServ,
       chosenId: live.chosenId,
       research: live.research,
       rematchOk,
@@ -295,7 +355,7 @@ export async function runFindNextCheckOrchestrator(
       ok: true,
       searchContextToken: updated.token,
       source: live.source,
-      autonomousServ: live.source === "serv",
+      autonomousServ,
       replay,
       chosenId: live.chosenId,
       servNote: live.servNote,
@@ -306,10 +366,11 @@ export async function runFindNextCheckOrchestrator(
       shortlist: shortlistAfter,
       proofs: live.proofs,
       failureDiag: live.failureDiag,
+      keyedAutonomyDiag,
       honesty:
         live.source === "serv"
           ? live.honesty
-          : `${live.honesty} Source=deterministic_fallback — not autonomous SERV.`,
+          : `${live.honesty} Source=deterministic_fallback — not autonomous SERV.${keyedAutonomyDiag.configHint ? ` ${keyedAutonomyDiag.configHint}` : ""}`,
       rematch,
       needAfter: live.replan.need,
       appliedCheckIds: appliedNext,

@@ -493,6 +493,25 @@ function AssistantFlow({
       const nextTok =
         typeof body.searchContextToken === "string" ? body.searchContextToken : token;
       if (typeof body.searchContextToken === "string") setSearchContextToken(body.searchContextToken);
+      const keyedDiag = (body as {
+        keyedAutonomyDiag?: {
+          keyed?: boolean;
+          mintSaidKeyed?: boolean | null;
+          source?: string;
+          failureCategory?: string | null;
+          failureReasonCode?: string | null;
+          configHint?: string | null;
+        };
+        failureDiag?: { category?: string; reasonCode?: string } | null;
+      }).keyedAutonomyDiag;
+      const failCat =
+        keyedDiag?.failureCategory ??
+        (body as { failureDiag?: { category?: string } | null }).failureDiag?.category ??
+        null;
+      const failCode =
+        keyedDiag?.failureReasonCode ??
+        (body as { failureDiag?: { reasonCode?: string } | null }).failureDiag?.reasonCode ??
+        null;
       setNextCheckNote(
         [
           body.autonomousServ ? "SERV chose" : "Code fallback (not autonomous SERV)",
@@ -501,6 +520,8 @@ function AssistantFlow({
           body.replan.note,
           body.servNote ? `(${body.servNote})` : "",
           body.loop?.reason ? `[${body.loop.reason}]` : "",
+          failCat ? `diag=${failCat}${failCode ? `/${failCode}` : ""}` : "",
+          keyedDiag?.configHint ? `hint=${keyedDiag.configHint}` : "",
         ]
           .filter(Boolean)
           .join(" "),
@@ -1561,7 +1582,8 @@ function AssistantFlow({
                         overBudget: car.overBudget,
                         bodyStyle: car.bodyStyle,
                         style: car.style,
-                        requestedMake: need?.preferredMakes?.length ? need.preferredMakes.join("/") : need?.make ?? null,
+                        // Listing make only — never join preferredMakes onto another make's card.
+                        requestedMake: car.make,
                       })}
                     </p>
                     <div>

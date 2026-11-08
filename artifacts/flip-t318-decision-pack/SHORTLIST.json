@@ -30,20 +30,6 @@
       "flipOrder": 2,
       "flipRole": "next",
       "overviewHypothesis": "reasoning/complex long-horizon (marketing — unmeasured)"
-    },
-    {
-      "modelId": "claude-fable-5",
-      "displayName": "Claude Fable 5",
-      "providerLogoAlt": "Anthropic",
-      "contextWindow": "1M",
-      "inputPerMDisplay": "$13.00",
-      "cachedPerMDisplay": "$1.30",
-      "outputPerMDisplay": "$65.00",
-      "listedAvailability": "Listed under Available models",
-      "capabilityIndicators": "Not separately shown",
-      "flipOrder": 3,
-      "flipRole": "next_if_needed",
-      "overviewHypothesis": "coding/agentic (marketing — unmeasured)"
     }
   ],
   "resolvedEffective": [
@@ -58,12 +44,6 @@
       "effectiveForScoutPlan": "gpt-5.6-sol",
       "kind": "flip_decision_shortlist",
       "provider": "openai"
-    },
-    {
-      "id": "claude-fable-5",
-      "effectiveForScoutPlan": "claude-fable-5",
-      "kind": "flip_decision_shortlist",
-      "provider": "anthropic"
     }
   ]
 }

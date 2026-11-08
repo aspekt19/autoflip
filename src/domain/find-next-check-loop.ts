@@ -17,7 +17,18 @@ export type FindNextCheckLoopReason =
   | "grounded_stop"
   | "unchanged_state"
   | "provider_failure"
+  /** SERV_API_KEY missing on this runtime — not autonomous SERV. */
+  | "no_serv_key"
+  /**
+   * @deprecated Prefer no_serv_key. Kept so older clients/tests recognizing
+   * no_keyed_autonomy still match keyless stops. New code emits no_serv_key.
+   */
   | "no_keyed_autonomy"
+  /**
+   * SERV_API_KEY present but find_next_check failed closed to deterministic
+   * allowlist (timeout / parse / clamp / HTTP). Not a missing-key condition.
+   */
+  | "serv_deterministic_fallback"
   | "no_remaining_research_checks";
 
 export type FindNextCheckLoopDisposition = {
@@ -94,11 +105,20 @@ export function decideFindNextCheckLoop(input: {
   /** Allowlisted ids still proposed and not yet applied. */
   remainingActionableCount: number;
 }): FindNextCheckLoopDisposition {
-  if (!input.keyed || !input.autonomousServ) {
+  if (!input.keyed) {
     return {
       continue: false,
-      reason: "no_keyed_autonomy",
-      detail: "Deterministic/keyless fallback is not autonomous SERV continuation.",
+      reason: "no_serv_key",
+      detail:
+        "SERV_API_KEY missing on this runtime — deterministic allowlist only; not autonomous SERV continuation.",
+    };
+  }
+  if (!input.autonomousServ) {
+    return {
+      continue: false,
+      reason: "serv_deterministic_fallback",
+      detail:
+        "SERV key present but find_next_check did not yield an allowlisted choice (timeout/parse/clamp/HTTP) — code fallback applied; not autonomous SERV continuation. Inspect failureDiag category/reasonCode (no secrets).",
     };
   }
 

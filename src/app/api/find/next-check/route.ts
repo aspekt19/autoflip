@@ -140,6 +140,7 @@ export async function POST(request: Request) {
           usagePresent: Boolean(result.failureDiag.usage),
         }
       : null,
+    keyedAutonomyDiag: result.keyedAutonomyDiag,
     proofs: result.proofs,
   });
 }

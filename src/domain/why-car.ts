@@ -22,7 +22,15 @@ export function whyThisCar(input: {
   requestedMake?: string | null;
 }): string {
   const body = listingBodyLabel(input.bodyStyle, input.style);
-  const facts = [input.requestedMake ?? input.make, ...(body ? [body] : [])];
+  // Listing make is the identity provenance — never splice shopper preferredMakes
+  // (e.g. "Mazda/Toyota") onto a Honda CR-V card.
+  const makeFact =
+    input.requestedMake &&
+    !input.requestedMake.includes("/") &&
+    input.requestedMake.trim().toLowerCase() === input.make.trim().toLowerCase()
+      ? input.requestedMake.trim()
+      : input.make;
+  const facts = [makeFact, ...(body ? [body] : [])];
   if (input.miles != null) {
     facts.push(
       input.milesMax != null

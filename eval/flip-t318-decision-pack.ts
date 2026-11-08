@@ -255,12 +255,7 @@ SERV_API_KEY=… SCOUT_COMPARE_ALLOW_PAID=1 SCOUT_COMPARE_SEQUENTIAL=1 \\
   SCOUT_COMPARE_SOURCE_PIN='{"head":"<IMPLEMENT_TIP>","tree":"<IMPLEMENT_TREE>","pr":78,"ablation":"hide_suggestions"}' \\
   npm run eval:scout-model-compare
 
-# Fable only when Flip needs a third discriminatory model (not price-alone)
-SERV_API_KEY=… SCOUT_COMPARE_ALLOW_PAID=1 SCOUT_COMPARE_SEQUENTIAL=1 \\
-  SCOUT_COMPARE_HIDE_SUGGESTIONS=1 \\
-  SERV_COMPARE_MODELS=claude-fable-5 \\
-  SCOUT_COMPARE_SOURCE_PIN='{"head":"<IMPLEMENT_TIP>","tree":"<IMPLEMENT_TREE>","pr":78,"ablation":"hide_suggestions"}' \\
-  npm run eval:scout-model-compare
+# claude-fable-5 EXCLUDED from paid Flip / production selection (owner t321)
 \`\`\`
 
 ## Call accounting / failure contract
@@ -328,7 +323,7 @@ Frozen offline SAME-input pack for parent Flip sequential SERV on PR #77.
 
 See \`COMMANDS.md\` for Flip-only paid sequential runs. This freeze is zero-network.
 
-**PR78 execute path:** D1 \`inventory.search\` matching suggestions applies immutable recorded receipts → Decision-2 (not \`requires_external_tool\` echo-stop). Ablation: \`SCOUT_COMPARE_HIDE_SUGGESTIONS=1\`. Retain Fable for discriminatory multistep only.
+**PR78 execute path:** D1 \`inventory.search\` matching suggestions applies immutable recorded receipts → Decision-2 (not \`requires_external_tool\` echo-stop). Ablation: \`SCOUT_COMPARE_HIDE_SUGGESTIONS=1\`. **Fable excluded** from paid Flip / production selection (owner t321).
 
 Production \`BASE_MODEL\` remains \`${BASE_MODEL}\` until independent review + Flip cycle.
 `;

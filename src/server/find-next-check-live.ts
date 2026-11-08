@@ -192,11 +192,32 @@ export async function runFindNextCheckLive(
     );
     proofs.push(result.proof);
     if (!result.ok) {
-      failureDiag = result.failureDiag ?? classifyServPlannerFailure({
-        httpOk: false,
-        status: result.status,
-        text: "",
-      });
+      failureDiag =
+        result.failureDiag ??
+        classifyServPlannerFailure({
+          httpOk: false,
+          status: result.status,
+          text: "",
+        });
+      // status 0 = abort/timeout/network before HTTP — call it out (no secrets).
+      if (!result.failureDiag && result.status === 0) {
+        failureDiag = {
+          category: "http_error",
+          reasonCode: "serv_timeout_or_network",
+          honesty:
+            "SERV find_next_check did not complete before profile timeout / network abort. Deterministic allowlist applied.",
+          fields: {
+            contentIsNull: true,
+            contentEmpty: true,
+            contentBytes: 0,
+            refusalFieldPresent: false,
+            refusalFieldBytes: null,
+            finishReason: null,
+            hasUsageObject: false,
+          },
+          usage: null,
+        };
+      }
       // Profile fallback: deterministic allowlist — not silent invent.
       source = "deterministic_fallback";
     } else {
@@ -215,6 +236,22 @@ export async function runFindNextCheckLive(
           // Unknown id → clamp to preferred deterministic; do not invent.
           source = "deterministic_fallback";
           servNote = null;
+          failureDiag = {
+            category: "schema_mismatch",
+            reasonCode: "check_id_not_in_allowlist",
+            honesty:
+              "SERV returned a checkId outside the code allowlist — deterministic preferred applied. No invent.",
+            fields: {
+              contentIsNull: false,
+              contentEmpty: false,
+              contentBytes: result.text.length,
+              refusalFieldPresent: false,
+              refusalFieldBytes: null,
+              finishReason: null,
+              hasUsageObject: false,
+            },
+            usage: null,
+          };
         } else {
           chosenId = clamped;
           servNote = sanitizeServNote(parsed.note, factsBlob) || null;

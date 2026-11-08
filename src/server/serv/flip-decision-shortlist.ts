@@ -1,5 +1,5 @@
 /**
- * Flip decision shortlist — exact console catalog IDs (t319 corrected).
+ * Flip decision shortlist — exact console catalog IDs (t319 corrected; t321 Fable excluded).
  *
  * Source CSV: uploads/all-models-20261108_c8cc.csv
  * Source readme: uploads/all-models-20261108-readme_80ae.txt
@@ -8,7 +8,8 @@
  * Overview marketing cards are hypotheses — NOT measured ability.
  * Names/tier ≠ ability proof. No 31-model blind paid matrix.
  *
- * Order: Sonnet 5.5 → gpt-5.6-sol → claude-fable-5.
+ * Order: Sonnet 5.5 → gpt-5.6-sol.
+ * claude-fable-5 EXCLUDED from paid Flip / production selection (owner t321).
  * gpt-6.1-sol / claude-opus-5.5 are NOT automatic next.
  */
 
@@ -23,9 +24,9 @@ export type FlipDecisionShortlistEntry = {
   outputPerMDisplay: string;
   listedAvailability: string;
   capabilityIndicators: string;
-  /** Parent run order — 1 = baseline, then next, then if-needed. */
-  flipOrder: 1 | 2 | 3;
-  flipRole: "baseline" | "next" | "next_if_needed";
+  /** Parent run order — 1 = baseline, then next. */
+  flipOrder: 1 | 2;
+  flipRole: "baseline" | "next";
   overviewHypothesis: string | null;
 };
 
@@ -58,21 +59,10 @@ export const SERV_FLIP_DECISION_SHORTLIST: readonly FlipDecisionShortlistEntry[]
     flipRole: "next",
     overviewHypothesis: "reasoning/complex long-horizon (marketing — unmeasured)",
   },
-  {
-    modelId: "claude-fable-5",
-    displayName: "Claude Fable 5",
-    providerLogoAlt: "Anthropic",
-    contextWindow: "1M",
-    inputPerMDisplay: "$13.00",
-    cachedPerMDisplay: "$1.30",
-    outputPerMDisplay: "$65.00",
-    listedAvailability: "Listed under Available models",
-    capabilityIndicators: "Not separately shown",
-    flipOrder: 3,
-    flipRole: "next_if_needed",
-    overviewHypothesis: "coding/agentic (marketing — unmeasured)",
-  },
 ] as const;
+
+/** Owner t321: do not spend Fable on Flip paid tests or production selection. */
+export const SERV_FLIP_EXCLUDED_FROM_PAID = ["claude-fable-5"] as const;
 
 /** Formerly automatic-next IDs — remain in catalog for Flip but are not the default order. */
 export const SERV_FLIP_SUPERSEDED_AUTOMATIC_NEXT = ["gpt-6.1-sol", "claude-opus-5.5"] as const;
@@ -87,11 +77,12 @@ export function isFlipDecisionShortlistId(id: string): boolean {
 
 export function flipDecisionShortlistNote(): string {
   return [
-    "Flip t319 decision shortlist (console CSV exact IDs; display prices ≠ capability; Overview = hypothesis):",
+    "Flip decision shortlist (console CSV exact IDs; display prices ≠ capability; Overview = hypothesis):",
     ...SERV_FLIP_DECISION_SHORTLIST.map(
       (e) =>
         `  ${e.flipOrder}. ${e.modelId} (${e.displayName}) [${e.providerLogoAlt}] context=${e.contextWindow} in=${e.inputPerMDisplay} cached=${e.cachedPerMDisplay} out=${e.outputPerMDisplay} — role=${e.flipRole}${e.overviewHypothesis ? ` hypothesis=${e.overviewHypothesis}` : ""}`,
     ),
+    `EXCLUDED from paid Flip / production selection (owner t321): ${SERV_FLIP_EXCLUDED_FROM_PAID.join(", ")}`,
     `Superseded as automatic next (still console-listed): ${SERV_FLIP_SUPERSEDED_AUTOMATIC_NEXT.join(", ")}`,
     "Do NOT run all 31 Available models. Names/tier ≠ ability proof.",
     "Gemini: no blind retry until content_null_refusal_field diagnostic confirmed.",
