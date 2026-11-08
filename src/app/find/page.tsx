@@ -22,7 +22,7 @@ export default async function FindPage({
           <ol>
             <li>Describe the car and your budget.</li>
             <li>Add a U.S. ZIP and seller-distance radius when you want nearby listings — or choose Nationwide.</li>
-            <li>Review matching dealer listings. The search is free. Open a full report for any car you want to investigate further (1 report credit).</li>
+            <li>Review matching dealer listings. Find search costs 1 report credit. Open a full report for any car you want to investigate further (another 1 report credit).</li>
           </ol>
           <p>Deal Radar is a separate optional monthly plan.</p>
         </div>

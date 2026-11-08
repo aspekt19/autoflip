@@ -171,4 +171,48 @@ describe("stripe webhook credit grants", () => {
     );
     expect(await creditBalance(kv, USER)).toBe(0);
   });
+
+  it("refuses livemode events (no credit grant) even when signature and metadata look paid", async () => {
+    vi.doMock("@/server/stripe", () => ({
+      stripeClient: () => ({
+        webhooks: { constructEvent: (raw: string) => JSON.parse(raw) },
+        subscriptions: { retrieve: async () => ({ metadata: {} }) },
+      }),
+      stripeWebhookSecret: () => secret,
+    }));
+    vi.doMock("@/server/session", async () => {
+      const creditBook = await import("@/io/credit-book");
+      return {
+        grantCredit: (userId: string, credits: number, key: string) =>
+          creditBook.creditGrant(kv, userId, credits, key),
+      };
+    });
+    vi.doMock("@/io/kv-guard", () => ({
+      requireMoneyAuthStore: () => ({ ok: true }),
+    }));
+
+    const { POST } = await import("@/app/api/stripe/webhook/route");
+    const live = {
+      id: "evt_live_1",
+      type: "checkout.session.completed",
+      livemode: true,
+      data: {
+        object: {
+          metadata: { userId: USER, credits: "10" },
+          payment_status: "paid",
+        },
+      },
+    };
+    const res = await POST(
+      new Request("http://localhost/api/stripe/webhook", {
+        method: "POST",
+        headers: { "stripe-signature": "x" },
+        body: JSON.stringify(live),
+      }),
+    );
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { error?: string };
+    expect(body.error).toBe("livemode_refused");
+    expect(await creditBalance(kv, USER)).toBe(0);
+  });
 });

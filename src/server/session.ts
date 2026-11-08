@@ -139,14 +139,12 @@ export async function existingLedgerOwnerId(): Promise<string | null> {
   return existingUserId();
 }
 
-/**
- * Paid checkout / portal gate. Fails closed when auth is missing or session unverified.
- * Email magic-link users always have emailVerified set by Auth.js on first verify.
- * Google users must present a verified email on the session user record.
- */
-export async function requirePaidAccess(): Promise<
-  { ok: true; id: string; email: string } | { ok: false; response: Response }
-> {
+type VerifiedAccessOk = { ok: true; id: string; email: string };
+type VerifiedAccessErr = { ok: false; response: Response };
+
+async function requireVerifiedSignedIn(
+  purpose: "checkout" | "vehicle_check",
+): Promise<VerifiedAccessOk | VerifiedAccessErr> {
   const store = requireMoneyAuthStore();
   if (!store.ok) return store;
 
@@ -156,7 +154,10 @@ export async function requirePaidAccess(): Promise<
       response: Response.json(
         {
           error: "auth_unconfigured",
-          message: "Sign-in is required before checkout, but authentication is not configured on this deploy.",
+          message:
+            purpose === "vehicle_check"
+              ? "Sign-in is required before vehicle checks, but authentication is not configured on this deploy."
+              : "Sign-in is required before checkout, but authentication is not configured on this deploy.",
         },
         { status: 503 },
       ),
@@ -169,7 +170,10 @@ export async function requirePaidAccess(): Promise<
       response: Response.json(
         {
           error: "auth_required",
-          message: "Sign in with Google or email before buying credits or a Radar plan.",
+          message:
+            purpose === "vehicle_check"
+              ? "Sign in with Google or email before checking a VIN or listing URL."
+              : "Sign in with Google or email before buying credits or a Radar plan.",
         },
         { status: 401 },
       ),
@@ -179,7 +183,13 @@ export async function requirePaidAccess(): Promise<
     return {
       ok: false,
       response: Response.json(
-        { error: "email_required", message: "Your account needs a verified email before checkout." },
+        {
+          error: "email_required",
+          message:
+            purpose === "vehicle_check"
+              ? "Your account needs a verified email before vehicle checks."
+              : "Your account needs a verified email before checkout.",
+        },
         { status: 403 },
       ),
     };
@@ -193,7 +203,10 @@ export async function requirePaidAccess(): Promise<
       response: Response.json(
         {
           error: "email_unverified",
-          message: "Verify your email before checkout. Unverified sessions cannot purchase.",
+          message:
+            purpose === "vehicle_check"
+              ? "Verify your email before vehicle checks. Unverified sessions cannot use the free monthly allotment or paid checks."
+              : "Verify your email before checkout. Unverified sessions cannot purchase.",
         },
         { status: 403 },
       ),
@@ -201,4 +214,21 @@ export async function requirePaidAccess(): Promise<
   }
   await ensureAccount(session.id);
   return { ok: true, id: session.id, email: session.email };
+}
+
+/**
+ * Paid checkout / portal gate. Fails closed when auth is missing or session unverified.
+ * Email magic-link users always have emailVerified set by Auth.js on first verify.
+ * Google users must present a verified email on the session user record.
+ */
+export async function requirePaidAccess(): Promise<VerifiedAccessOk | VerifiedAccessErr> {
+  return requireVerifiedSignedIn("checkout");
+}
+
+/**
+ * Vehicle checks (VIN or own listing URL) require a verified Auth.js account.
+ * Anonymous af_uid cookies are not a substitute — prevents quota reset via cookie clear.
+ */
+export async function requireVerifiedAccountForChecks(): Promise<VerifiedAccessOk | VerifiedAccessErr> {
+  return requireVerifiedSignedIn("vehicle_check");
 }

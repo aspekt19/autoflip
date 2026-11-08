@@ -46,10 +46,16 @@ const kvHolder: { kv: MemoryKv } = { kv: new MemoryKv() };
 
 vi.mock("@/server/session", () => ({
   userId: () => uid(),
+  ledgerOwnerId: () => uid(),
   balanceOf: (id: string) => creditBalance(kvHolder.kv, id),
   spendCredit: (id: string, key: string) => creditSpend(kvHolder.kv, id, key),
   grantCredit: (id: string, n: number, key: string) => creditGrant(kvHolder.kv, id, n, key),
   compensateSpendCredit: (id: string, key: string) => creditCompensateSpend(kvHolder.kv, id, key),
+  requireVerifiedAccountForChecks: async () => ({
+    ok: true as const,
+    id: "user-a",
+    email: "a@example.com",
+  }),
 }));
 
 vi.mock("@/server/assemble", () => ({

@@ -674,6 +674,8 @@ function AssistantFlow({
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
               need: nextNeed,
+              // Owned continuation — next-check rematch is not a second Find purchase.
+              searchContextToken: searchContextToken || undefined,
               refine: rematchRefineFromReplan({
                 replanRefine: body.replan.refine,
                 needAfter: nextNeed,
@@ -694,7 +696,13 @@ function AssistantFlow({
             affordabilityAssessed?: boolean;
             searchContextToken?: string | null;
             servNextCheckEnabled?: boolean;
+            error?: string;
           };
+          if (matchResponse.status === 403 && matchBody.error === "credits_required") {
+            rememberFlow();
+            router.push("/credits?need=1&return=%2Ffind");
+            return;
+          }
           if (!matchResponse.ok) {
             const reason = matchBody.emptyReason ?? "provider_failure";
             const copy = findEmptyCopy(reason, nextNeed, matchBody.message);
@@ -760,12 +768,14 @@ function AssistantFlow({
     /** Fired after finally so we do not clear next-check pending. */
     let autoNextToken: string | null = null;
     try {
+      const searchIdempotencyKey = `find-${Date.now()}-${Math.random().toString(36).slice(2, 12)}`;
       const response = await fetch("/api/match", {
         method: "POST",
         signal: controller.signal,
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           need,
+          searchIdempotencyKey,
           refine: {
             make: make.trim() || undefined,
             model: model.trim() || undefined,
@@ -786,7 +796,13 @@ function AssistantFlow({
         affordabilityAssessed?: boolean;
         searchContextToken?: string | null;
         servNextCheckEnabled?: boolean;
+        error?: string;
       };
+      if (response.status === 403 && body.error === "credits_required") {
+        rememberFlow();
+        router.push("/credits?need=1&return=%2Ffind");
+        return;
+      }
       if (!response.ok) {
         const reason = body.emptyReason ?? "provider_failure";
         const copy = findEmptyCopy(reason, need, body.message);
@@ -1033,7 +1049,23 @@ function AssistantFlow({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(checkPayload()),
       });
-      const body = (await response.json()) as { title?: string; badge?: PriceBadge; reasons?: string[]; coverage?: string; coverageLevel?: "low" | "medium" | "high"; sample?: boolean; message?: string };
+      const body = (await response.json()) as {
+        title?: string;
+        badge?: PriceBadge;
+        reasons?: string[];
+        coverage?: string;
+        coverageLevel?: "low" | "medium" | "high";
+        sample?: boolean;
+        message?: string;
+        error?: string;
+      };
+      if (response.status === 401 || response.status === 403) {
+        if (body.error === "auth_required" || body.error === "auth_unconfigured" || body.error === "email_unverified") {
+          sessionStorage.setItem("af-check", JSON.stringify({ mode, checkKind, lookup, vinPrice, vinMiles, vinZip }));
+          router.push(`/login?callbackUrl=${encodeURIComponent("/check")}`);
+          return;
+        }
+      }
       if (!response.ok || !body.badge || !body.title) {
         setError(body.message || "The price check did not finish.");
         return;
@@ -1081,6 +1113,11 @@ function AssistantFlow({
         body: JSON.stringify(handoff.payload),
       });
       const body = (await response.json()) as { id?: string; message?: string; error?: string };
+      if (response.status === 401 || (response.status === 403 && (body.error === "auth_required" || body.error === "auth_unconfigured" || body.error === "email_unverified" || body.error === "email_required"))) {
+        sessionStorage.setItem("af-check", JSON.stringify({ mode, checkKind, lookup, vinPrice, vinMiles, vinZip }));
+        router.push(`/login?callbackUrl=${encodeURIComponent("/check")}`);
+        return;
+      }
       if (response.status === 403 && body.error === "credits_required") {
         sessionStorage.setItem("af-check", JSON.stringify({ mode, checkKind, lookup, vinPrice, vinMiles, vinZip }));
         router.push("/credits?need=1&return=%2Fcheck");
@@ -1645,7 +1682,7 @@ function AssistantFlow({
               <button className="quiet" type="button" onClick={() => void watch(group.direction)} disabled={pending === group.direction.id}>
                 {pending === group.direction.id ? "Saving alert…" : need?.mode === "flip" ? "Get alerts for this budget" : "Get new-listing alerts"}
               </button>
-              <p className="hint">The one-time search is free. Ongoing new-listing alerts require a separate monthly Radar plan.</p>
+              <p className="hint">This Find search used 1 report credit. Ongoing new-listing alerts require a separate monthly Radar plan.</p>
               {error && pending === null ? (
                 <p className="warn" role="alert">
                   {error} {/plan|watch/i.test(error) ? <a href="/pricing">See radar plans</a> : null}
@@ -1778,7 +1815,7 @@ function AssistantFlow({
               Enter a valid 17-character VIN before checking the price.
             </p>
           ) : null}
-          <p className="hint">The quick price check is free. A full report costs 1 report credit and adds the broader vehicle assessment, recalls, complaints, available history flags and comparable listings.</p>
+          <p className="hint">Sign in required. Each verified account gets 3 free full vehicle checks per UTC month (VIN or your listing URL); after that, a full report costs 1 report credit. Price preview does not use a free check or a credit. Resets at 00:00 UTC on the 1st.</p>
           {freeCheck ? (
             <article className="warn-box">
               <h2>{freeCheck.title}</h2>

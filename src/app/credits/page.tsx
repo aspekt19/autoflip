@@ -66,7 +66,7 @@ function CreditsInner() {
       <div className="sheet-page">
       <p className="kicker">Test checkout</p>
       <h1>Credits</h1>
-      <p className="lead">A full vehicle report costs 1 report credit. Ongoing saved-search alerts require a separate Radar plan. All preview prices are in U.S. dollars.</p>
+      <p className="lead">Find search costs 1 report credit. A full vehicle report costs 1 report credit. Verified accounts get 3 free VIN/listing checks per UTC month. Ongoing saved-search alerts require a separate Radar plan. All preview prices are in U.S. dollars.</p>
       <p className="hint">This is Stripe test mode: test-card checkouts do not take real money. Use 4242 4242 4242 4242, any future expiry date and any CVC.</p>
       {demo ? (
         <p className="hint">You are using the shared demo account. Its credits and saved activity may be visible to other demo visitors.</p>
@@ -78,14 +78,14 @@ function CreditsInner() {
           <Link href="/login?callbackUrl=/credits">Sign in</Link>
         </p>
       ) : (
-        <p className="hint">Account sign-in is not enabled on this deploy yet. Paid checkout stays locked; search stays free.</p>
+        <p className="hint">Account sign-in is not enabled on this deploy yet. Paid checkout and free monthly vehicle checks stay locked until auth providers are configured.</p>
       )}
       <p className="warn-box">
         Balance: <strong>{credits === null || credits === undefined ? "…" : credits}</strong>
         {stripeOn === false ? " Stripe test keys are not configured, so checkout cannot start." : null}
         {authOn === false ? " Sign-in is not configured, so paid checkout stays locked." : null}
       </p>
-      {need ? <p className="warn">A full report needs 1 credit.</p> : null}
+      {need ? <p className="warn">Find search and full reports each need 1 credit (after any free monthly vehicle checks are used).</p> : null}
       {status === "success" ? (
         <p className="warn-box">
           Payment returned from checkout. If the balance has not moved, the payment notice has not arrived yet.

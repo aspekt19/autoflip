@@ -25,11 +25,17 @@ const kvHolder: { kv: MemoryKv } = { kv: new MemoryKv() };
 
 vi.mock("@/server/session", () => ({
   userId: () => uid(),
+  ledgerOwnerId: () => uid(),
   balanceOf: () => balance(),
   spendCredit: (id: string, key: string) => spend(id, key),
   grantCredit: (id: string, n: number, key: string) => grant(id, n, key),
   // Handoff suite mocks spend/grant; compensate is unused on the happy/refusal paths under test.
   compensateSpendCredit: async () => ({ ok: true, balance: 0, compensated: false }),
+  requireVerifiedAccountForChecks: async () => ({
+    ok: true as const,
+    id: "user-test",
+    email: "user@example.com",
+  }),
 }));
 
 vi.mock("@/server/assemble", () => ({
@@ -460,7 +466,7 @@ describe("POST /api/report find handoff (mocked credits/provider)", () => {
     expect(spend).not.toHaveBeenCalled();
   });
 
-  it("manual URL path still works when the link embeds a VIN (unsigned path unchanged)", async () => {
+  it("manual URL path uses free monthly check when allotment remains (no credit debit)", async () => {
     assemble.mockResolvedValue(okReport({ id: "report-2" }));
     const response = await POST(
       req({
@@ -473,7 +479,10 @@ describe("POST /api/report find handoff (mocked credits/provider)", () => {
       }),
     );
     expect(response.status).toBe(200);
-    expect(spend).toHaveBeenCalledTimes(1);
+    const body = (await response.json()) as { freeCheck?: boolean; charged?: boolean };
+    expect(body.freeCheck).toBe(true);
+    expect(body.charged).toBe(false);
+    expect(spend).not.toHaveBeenCalled();
   });
 
   it("counterfeit surface:find + VIN-only without token cannot skip details / does not charge", async () => {

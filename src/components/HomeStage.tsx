@@ -63,7 +63,7 @@ export function HomeStage() {
           </li>
           <li>
             <strong>02 Read the listing</strong>
-            <span>Photo, price, miles, and a free Good, Fair, or High price badge. Save the search if you want alerts. Alerts are a plan, not a report credit.</span>
+            <span>Photo, price, miles, and a Good, Fair, or High price badge. Find search costs 1 report credit. Save the search if you want alerts — alerts are a Radar plan, not a report credit.</span>
           </li>
           <li>
             <strong>03 Open the full analysis</strong>
