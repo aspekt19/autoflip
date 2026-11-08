@@ -21,9 +21,12 @@ import { isReportHardRefusal, reportRefusalUserMessage } from "@/domain/report-r
 import { findEmptyCopy, type FindEmptyReason } from "@/domain/find-empty";
 import type { FindListingPriceView } from "@/domain/find-listing-price";
 import {
-  formatObservedModelSnapshot,
+  compareObservedModels,
+  formatModelCompareRow,
   observedModelSnapshots,
 } from "@/domain/find-model-observe";
+import { proposeFindNextChecks } from "@/domain/find-next-checks";
+import { buildGroundedShortlist } from "@/domain/find-path";
 import { USE_CASES, searchScopeLabel, softPrefGapsFromText, type FollowUp, type StructuredNeed } from "@/domain/need";
 import type { Mode } from "@/domain/types";
 import { isValidVin } from "@/domain/vin";
@@ -211,6 +214,8 @@ function AssistantFlow({
       setNeed(body.need);
       setZipDraft(body.need.zip ?? "");
       setDistanceDraft(body.need.distanceMiles);
+      if (body.need.yearMin != null) setYearMin(String(body.need.yearMin));
+      if (body.need.yearMax != null) setYearMax(String(body.need.yearMax));
       setSource(body.source ?? "form");
       setChecks(body.checks ?? []);
       const next = body.followUps ?? [];
@@ -399,6 +404,8 @@ function AssistantFlow({
       current = body.need;
     }
     setNeed(current);
+    if (current.yearMin != null) setYearMin(String(current.yearMin));
+    if (current.yearMax != null) setYearMax(String(current.yearMax));
     setQuestions([]);
     setStage("confirm");
   }
@@ -429,8 +436,8 @@ function AssistantFlow({
           refine: {
             make: make.trim() || undefined,
             model: model.trim() || undefined,
-            yearMin: yearMin ? Number(yearMin) : undefined,
-            yearMax: yearMax ? Number(yearMax) : undefined,
+            yearMin: yearMin ? Number(yearMin) : need.yearMin ?? undefined,
+            yearMax: yearMax ? Number(yearMax) : need.yearMax ?? undefined,
           },
         }),
       });
@@ -838,7 +845,7 @@ function AssistantFlow({
             void answerFollowUps();
           }}
         >
-          <p className="hint">{need?.mode === "flip" ? "These answers change the reconditioning assumption and the profit target. They are not a quote." : "A couple of questions. Nothing else."}</p>
+          <p className="hint">{need?.mode === "flip" ? "These answers change the reconditioning assumption and the profit target. They are not a quote." : "A few clarifications for facts Find can act on — not a condition score or invented TCO."}</p>
           {questions.map((question) => (
             <div className="field" key={question.id}>
               <label htmlFor={question.id}>{question.prompt}</label>
@@ -871,6 +878,47 @@ function AssistantFlow({
                   <option value="none">None</option>
                   <option value="minor">Basic</option>
                   <option value="major">Can do mechanical work</option>
+                </select>
+              ) : null}
+              {question.id === "age" ? (
+                <select id={question.id} value={answers.age ?? ""} onChange={(event) => setAnswers({ ...answers, age: event.target.value })}>
+                  <option value="">Choose</option>
+                  <option value="2018">2018 or newer</option>
+                  <option value="2015">2015 or newer</option>
+                  <option value="2012">2012 or newer</option>
+                  <option value="2010">2010 or newer</option>
+                  <option value="any">No year floor — use budget band</option>
+                </select>
+              ) : null}
+              {question.id === "miles" ? (
+                <div className="pills">
+                  {[
+                    ["60000", "60,000 mi"],
+                    ["80000", "80,000 mi"],
+                    ["100000", "100,000 mi"],
+                    ["any", "No cap"],
+                  ].map(([value, label]) => (
+                    <label className="pill" key={value}>
+                      <input
+                        type="radio"
+                        name="miles"
+                        checked={answers.miles === value}
+                        onChange={() => setAnswers({ ...answers, miles: value })}
+                      />{" "}
+                      {label}
+                    </label>
+                  ))}
+                </div>
+              ) : null}
+              {question.id === "condition" ? (
+                <select
+                  id={question.id}
+                  value={answers.condition ?? ""}
+                  onChange={(event) => setAnswers({ ...answers, condition: event.target.value })}
+                >
+                  <option value="">Choose</option>
+                  <option value="inspection_first">Yes — prioritize inspection and a history report</option>
+                  <option value="price_ok">Price can lead for now; I still know history is unchecked</option>
                 </select>
               ) : null}
               {question.id === "zip" || question.id === "cash" ? (
@@ -961,6 +1009,31 @@ function AssistantFlow({
             />
             <p id="miles-edit-hint" className="hint">Units are miles (odometer), not kilometers.</p>
           </div>
+          <div className="field">
+            <label htmlFor="year-min-edit">Oldest model year (optional)</label>
+            <input
+              id="year-min-edit"
+              value={need.yearMin ?? ""}
+              inputMode="numeric"
+              placeholder="e.g. 2015"
+              onChange={(event) => {
+                const year = Number(event.target.value);
+                const next = Number.isFinite(year) && year >= 1980 ? Math.round(year) : null;
+                setNeed({ ...need, yearMin: next });
+                setYearMin(next ? String(next) : "");
+              }}
+            />
+            <p className="hint">
+              {need.yearMin != null
+                ? `Search will use ${need.yearMin}${need.yearMax != null ? `–${need.yearMax}` : "+"} from your clarification or this field.`
+                : "Leave blank to use the budget-based editorial year band only."}
+            </p>
+          </div>
+          {need.conditionPriority === "inspection_first" ? (
+            <p className="hint">
+              You prioritized condition: Find still cannot score condition. Next steps favor full analysis and an NMVTIS-approved history report — not a fictitious cleanliness score.
+            </p>
+          ) : null}
           {need.preferredMakes?.length ? (
             <p className="hint">
               {need.openToOtherMakes
@@ -1037,6 +1110,68 @@ function AssistantFlow({
                 </p>
               ))
             : null}
+          {need
+            ? (() => {
+                const allListings = groups.flatMap((g) => g.listings);
+                const snaps = observedModelSnapshots(
+                  allListings.map((car) => ({
+                    make: car.make,
+                    model: car.model,
+                    year: car.year,
+                    priceUsd: car.priceView?.usableForBudget ? car.priceUsd : null,
+                    miles: car.miles,
+                  })),
+                );
+                const empty =
+                  groups.length === 0 || groups.every((group) => group.listings.length === 0);
+                const checks = proposeFindNextChecks({
+                  need,
+                  softGaps: softPrefGapsFromText(need.note),
+                  observedListingCount: allListings.length,
+                  observedModelCount: snaps.length,
+                  emptyInventory: empty,
+                });
+                const shortlist = buildGroundedShortlist(need, allListings.map((car) => ({
+                  make: car.make,
+                  model: car.model,
+                  year: car.year,
+                  priceUsd: car.priceView?.usableForBudget ? car.priceUsd : null,
+                  miles: car.miles,
+                })));
+                if (checks.length === 0 && shortlist.length === 0) return null;
+                return (
+                  <div className="hint" role="note">
+                    {checks.length > 0 ? (
+                      <>
+                        <p>Suggested next checks (code allowlist — not a SERV live call; no invented costs):</p>
+                        <ul>
+                          {checks.map((item) => (
+                            <li key={item.id}>
+                              <strong>{item.id}</strong>: {item.why}
+                            </li>
+                          ))}
+                        </ul>
+                      </>
+                    ) : null}
+                    {shortlist.length > 0 ? (
+                      <>
+                        <p>
+                          Grounded shortlist from returned cards only (not a “best car” rank — condition unknown; fuel
+                          unavailable without EPA match):
+                        </p>
+                        <ul>
+                          {shortlist.map((row) => (
+                            <li key={`${row.make}-${row.model}`}>
+                              {row.make} {row.model}: {row.why}. Unknowns: {row.unknowns.join("; ")}.
+                            </li>
+                          ))}
+                        </ul>
+                      </>
+                    ) : null}
+                  </div>
+                );
+              })()
+            : null}
           {!affordability ? <p className="hint">Budget was not set, so affordability was not assessed.</p> : null}
           {partialFailure ? (
             <p className="warn-box" role="status">
@@ -1076,24 +1211,24 @@ function AssistantFlow({
               </p>
               {group.listings.length > 0
                 ? (() => {
-                    const snaps = observedModelSnapshots(
-                      group.listings.map((car) => ({
-                        make: car.make,
-                        model: car.model,
-                        year: car.year,
-                        priceUsd: car.priceView?.usableForBudget ? car.priceUsd : null,
-                        miles: car.miles,
-                      })),
-                    );
-                    if (snaps.length < 2) return null;
+                    const rows = group.listings.map((car) => ({
+                      make: car.make,
+                      model: car.model,
+                      year: car.year,
+                      priceUsd: car.priceView?.usableForBudget ? car.priceUsd : null,
+                      miles: car.miles,
+                    }));
+                    const compared = compareObservedModels(rows);
+                    if (compared.length === 0) return null;
                     return (
                       <div className="hint" role="note">
                         <p>
-                          Observed across models in these cards (not a TCO or reliability ranking — {snaps[0]!.honesty}):
+                          Observed model comparison from these cards only (not a TCO, reliability, or “best car” rank —{" "}
+                          {compared[0]!.honesty}):
                         </p>
                         <ul>
-                          {snaps.map((snap) => (
-                            <li key={`${snap.make}-${snap.model}`}>{formatObservedModelSnapshot(snap)}</li>
+                          {compared.map((row) => (
+                            <li key={`${row.make}-${row.model}`}>{formatModelCompareRow(row)}</li>
                           ))}
                         </ul>
                       </div>

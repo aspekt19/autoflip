@@ -112,9 +112,12 @@ describe("experiment_single_attempt transport (compare / eval only)", () => {
     );
     expect(calls).toBe(1);
     expect(result.httpAttempts).toBe(1);
-    // Refusal string is surfaced as text by messageText — still one attempt, recorded.
-    expect(result.ok).toBe(true);
-    if (result.ok) expect(result.text).toBe(refusal);
+    // t317: structured content-null + refusal field fails closed (no prose leak, no silent repeat).
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.failureDiag?.category).toBe("content_null_refusal_field");
+    expect(result.error).toMatch(/refusal field/i);
+    expect(JSON.stringify(result)).not.toContain(refusal);
   });
 
   it("does not timeout-retry under experiment even for personal_alert_review", async () => {

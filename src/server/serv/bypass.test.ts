@@ -100,8 +100,13 @@ describe("SERV layer", () => {
         "flip_judge",
         "scout_plan",
         "verdict_decide",
+        "find_next_check",
         "telegram_reply",
       ]),
+    );
+    expect(PROFILES.find_next_check.jsonSchema?.name).toBe("find_next_check_choice");
+    expect(PROFILES.find_next_check.codeComputed).toEqual(
+      expect.arrayContaining(["allowedChecks"]),
     );
     expect(PROFILES.scout_plan.jsonSchema?.name).toBe("lemonless_scout_plan_action");
     expect(PROFILES.scout_plan.feature).toBe("none");

@@ -1,9 +1,15 @@
 import { BASE_MODEL, modelFor, profile, type ProfileId, type ServProfile } from "./profiles";
+import { resolveProfileBaseModel } from "./profile-models";
 import { buildServProof, recordServProof, type ServProof } from "./proof";
 import {
   resolveServOutputTokenBound,
   withServOutputTokenBound,
 } from "./output-tokens";
+import {
+  classifyServPlannerFailure,
+  inspectServMessageFields,
+  type ServResponseFailureDiag,
+} from "./response-failure";
 
 /** JSON-shaped, read-only facts computed by the application before any model call. */
 export type ServFacts = Readonly<Record<string, unknown>>;
@@ -48,6 +54,8 @@ export type ServResult =
       /** Count of upstream SERV HTTP dispatches performed for this runServ call. */
       httpAttempts: number;
       transportPolicy: ServTransportPolicy;
+      /** Present when structured content was empty/refusal-shaped despite HTTP 200. */
+      failureDiag?: ServResponseFailureDiag | null;
       /** Keys/lengths only — never string values (safe for compare artifacts). */
       responseShape: string | null;
     }
@@ -61,6 +69,8 @@ export type ServResult =
       httpAttempts: number;
       transportPolicy: ServTransportPolicy;
       responseShape: string | null;
+      /** Safe refusal/usage category — never raw model text. */
+      failureDiag?: ServResponseFailureDiag | null;
     };
 
 /** Eval/compare helper — never use from production planner paths. */
@@ -434,8 +444,50 @@ export async function runServ(
   const started = Date.now();
   let httpAttempts = 0;
   const base = (deps.baseUrl || "https://inference-api.openserv.ai/v1").replace(/\/$/, "");
-  const model = deps.model || BASE_MODEL;
   const env = deps.env ?? process.env;
+  const resolvedModel = resolveProfileBaseModel(id, {
+    requested: deps.model ?? null,
+    env,
+    // Compare/eval injects mock model ids; production stays allowlisted fail-closed.
+    allowUnlisted: transportPolicy === "experiment_single_attempt",
+  });
+  if (!resolvedModel.ok) {
+    const proof = recordServProof(
+      buildServProof({
+        purpose: id,
+        body: { error: "serv_profile_model_invalid" },
+        payload: null,
+        headers: new Headers(),
+        status: 0,
+        ok: false,
+        text: "",
+        latencyMs: 0,
+        fallbackUsed: true,
+        streamed: entry.stream,
+        endpoint: entry.endpoint,
+        reasoningEffort: entry.reasoningEffort,
+        applicationTool: entry.applicationTool ?? null,
+        jsonSchema: entry.jsonSchema?.name ?? null,
+        codeComputed: [...entry.codeComputed],
+        contentFilter: entry.contentFilter,
+        promptCache: entry.promptCache,
+      }),
+    );
+    return {
+      ok: false,
+      error: resolvedModel.message,
+      status: 0,
+      proof,
+      fallback: entry.fallback,
+      upstream: "profile_model_invalid",
+      httpAttempts: 0,
+      transportPolicy,
+      responseShape: null,
+      failureDiag: null,
+    };
+  }
+  // requestFor applies modelFor feature suffixes; pass base id only.
+  const model = resolvedModel.baseId;
   const tokenBound = resolveServOutputTokenBound(env);
   if (!tokenBound.ok) {
     const proof = recordServProof(
@@ -698,6 +750,17 @@ export async function runServ(
       recordedBody = { ...followBody, tools: toolsFor(entry, true) };
     }
 
+    // Structured json_schema: content null + refusal field is a transport failure class
+    // (parent Gemini evidence). Do not promote refusal string into planner text / invent RCA.
+    const messageFields = entry.jsonSchema ? inspectServMessageFields(turn.payload) : null;
+    const structuredRefusalOnly =
+      Boolean(entry.jsonSchema) &&
+      turn.response.ok &&
+      messageFields != null &&
+      messageFields.refusalFieldPresent &&
+      (messageFields.contentIsNull || messageFields.contentEmpty);
+
+    const effectiveText = structuredRefusalOnly ? "" : turn.text;
     const proof = recordServProof(
       buildServProof({
         purpose: id,
@@ -705,17 +768,30 @@ export async function runServ(
         payload: turn.payload,
         headers: turn.response.headers,
         status: turn.response.status,
-        ok: turn.response.ok && Boolean(turn.text),
-        text: turn.text,
+        ok: turn.response.ok && Boolean(effectiveText),
+        // Never persist refusal field prose in proof text.
+        text: effectiveText,
         latencyMs: Date.now() - started,
-        fallbackUsed: !turn.response.ok || !turn.text,
+        fallbackUsed: !turn.response.ok || !effectiveText,
         ...proofMeta,
       }),
     );
-    if (!turn.response.ok || !turn.text) {
+
+    if (!turn.response.ok || !effectiveText) {
+      const failureDiag = classifyServPlannerFailure({
+        payload: turn.payload,
+        httpOk: turn.response.ok,
+        status: turn.response.status,
+        text: effectiveText,
+        parseKind: null,
+      });
       return {
         ok: false,
-        error: turn.response.ok ? "SERV returned an empty explanation." : "SERV returned an error.",
+        error: turn.response.ok
+          ? structuredRefusalOnly
+            ? `SERV structured refusal field (${failureDiag.reasonCode}).`
+            : "SERV returned an empty explanation."
+          : "SERV returned an error.",
         status: turn.response.status,
         proof,
         fallback: entry.fallback,
@@ -723,11 +799,12 @@ export async function runServ(
         httpAttempts,
         transportPolicy,
         responseShape: turn.shape || null,
+        failureDiag,
       };
     }
     return {
       ok: true,
-      text: turn.text,
+      text: effectiveText,
       model: proof.modelReported,
       shadowOutcome: proof.shadowOutcome,
       rawStatus: turn.response.status,
@@ -735,6 +812,7 @@ export async function runServ(
       httpAttempts,
       transportPolicy,
       responseShape: turn.shape || null,
+      failureDiag: null,
     };
   } catch (error) {
     if (error instanceof Error && error.name === "ServBudgetError") {

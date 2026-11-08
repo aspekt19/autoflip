@@ -2,10 +2,13 @@ import { describe, expect, it } from "vitest";
 import { BASE_MODEL } from "./profiles";
 import {
   SERV_COMPARE_BASE_MODEL_IDS,
+  SERV_COMPARE_FAIR_SLATE,
   isPlausibleServModelId,
   listServCompareModels,
+  listServFairSlateModels,
   resolveServCompareModelIds,
   servCompareCatalogNote,
+  servCompareProtocolIssues,
 } from "./model-catalog";
 
 describe("SERV compare model catalog (in-repo evidence only)", () => {
@@ -21,11 +24,31 @@ describe("SERV compare model catalog (in-repo evidence only)", () => {
     expect(servCompareCatalogNote()).toMatch(/gpt-6-luna|Console vs catalog/i);
   });
 
+  it("docs fair slate pins exact Mini / Sonnet / Gemini IDs without live calls", () => {
+    expect(SERV_COMPARE_FAIR_SLATE.map((m) => m.id)).toEqual([
+      "gpt-5.4-mini",
+      "claude-sonnet-4.6",
+      "gemini-2.5-flash",
+    ]);
+    const fair = listServFairSlateModels();
+    expect(fair.map((m) => m.provider)).toEqual(["openai", "anthropic", "google"]);
+    const viaFlag = resolveServCompareModelIds("", { fairSlate: true });
+    expect(viaFlag.ok).toBe(true);
+    if (viaFlag.ok) expect(viaFlag.models.map((m) => m.id)).toEqual(SERV_COMPARE_FAIR_SLATE.map((m) => m.id));
+    // Explicit fair IDs allowed without ALLOW_UNLISTED.
+    const explicit = resolveServCompareModelIds("gpt-5.4-mini,claude-sonnet-4.6,gemini-2.5-flash");
+    expect(explicit.ok).toBe(true);
+    expect(servCompareProtocolIssues().some((i) => i.id === "gemini_endpoint" && i.class === "integration")).toBe(
+      true,
+    );
+    expect(servCompareProtocolIssues().some((i) => i.id === "anthropic_nullable_enum")).toBe(true);
+  });
+
   it("rejects unknown model ids fail-closed without ALLOW_UNLISTED", () => {
     const bad = resolveServCompareModelIds("gpt-6-luna");
     expect(bad.ok).toBe(false);
     if (!bad.ok) {
-      expect(bad.message).toMatch(/Unsupported|ALLOW_UNLISTED/i);
+      expect(bad.message).toMatch(/Unsupported|ALLOW_UNLISTED|fair slate/i);
       expect(bad.message).not.toMatch(/blindly expand/i);
     }
     const worse = resolveServCompareModelIds("gpt-4o,not-a-model");

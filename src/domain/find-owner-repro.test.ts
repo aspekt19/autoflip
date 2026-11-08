@@ -176,10 +176,11 @@ describe("soft preference capability gaps (t310)", () => {
   it("names AWD, history, and running-cost gaps without inventing filters", () => {
     const gaps = softPrefGapsFromText(OWNER_NOTE);
     expect(gaps.map((g) => g.id).sort()).toEqual(["awd", "fuel_or_running_cost", "history"]);
-    expect(gaps.every((g) => /does not|not a vehicle-history|unavailable/i.test(g.honesty))).toBe(true);
-    // Soft prefs are honesty lines — not forced follow-up questionnaire fields.
+    expect(gaps.every((g) => /does not|not a|unavailable|missing history|no condition score/i.test(g.honesty))).toBe(true);
+    // AWD stays honesty-only (unenforced). History becomes a condition clarification (t315).
     const need = explicitNeedFromText(OWNER_NOTE, "personal");
     expect(followUps(need).map((q) => q.id)).not.toContain("awd");
+    expect(followUps(need).map((q) => q.id)).toContain("condition");
   });
 });
 

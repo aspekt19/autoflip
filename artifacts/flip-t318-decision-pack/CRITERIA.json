@@ -1,0 +1,41 @@
+{
+  "productCompatible": true,
+  "require": [
+    "Same ledger input / checks / source pins / call-accounting across shortlist IDs",
+    "FAIL / timeout / refusal recorded with usage sanitization (no raw refusal prose)",
+    "Current production-compatible scout_plan adapters/profiles (experiment_single_attempt for live compare)",
+    "Grounded evidence from PR63 placeholder ledger — not fake catalogs-as-results",
+    "No PR71-as-only-proof / no PR71 blanket merge",
+    "Gemini content_null_refusal_field diagnostic prerequisite before any blind Gemini retry",
+    "Cycle: new search + checks + replan when bad prices; source-faithful; unknown history+cost — not one reject then stop"
+  ],
+  "scoreFlipCycleProgress": {
+    "badCycleExample": {
+      "ok": false,
+      "code": "premature_stop_after_single_reject",
+      "honesty": "Cycle progress is scored from schemaValid/grounded/recoveryClass only — not rate-table tier or model display name.",
+      "requiredBehaviors": [
+        "When pending asks are unusable and provider budget remains: revised in-mandate inventory.search OR grounded reject of next unusable ask — not terminal stop after a single reject.",
+        "Source-faithful facts only — never invent sold prices, title clearance, licensed history, or verified profit.",
+        "Unknown history + ownership cost must stay unknown when evidence is missing (no invented numbers).",
+        "searchContinuation.canReviseSearch=true forbids false “search already used once” terminals."
+      ]
+    },
+    "goodCycleExample": {
+      "ok": true,
+      "code": "progress_grounded_reject_then_revise",
+      "honesty": "Cycle progress is scored from schemaValid/grounded/recoveryClass only — not rate-table tier or model display name.",
+      "requiredBehaviors": [
+        "When pending asks are unusable and provider budget remains: revised in-mandate inventory.search OR grounded reject of next unusable ask — not terminal stop after a single reject.",
+        "Source-faithful facts only — never invent sold prices, title clearance, licensed history, or verified profit.",
+        "Unknown history + ownership cost must stay unknown when evidence is missing (no invented numbers).",
+        "searchContinuation.canReviseSearch=true forbids false “search already used once” terminals."
+      ]
+    }
+  },
+  "transportSanitization": [
+    "classifyServPlannerFailure → category/reasonCode/refusalBytes/usage only",
+    "normalizeCompareUsageLoose for Gemini camelCase usage aliases",
+    "cost always unknown until billing reconcile"
+  ]
+}

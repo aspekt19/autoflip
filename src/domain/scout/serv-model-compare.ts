@@ -10,6 +10,7 @@ import { resolve } from "node:path";
 import type { Listing } from "@/domain/types";
 import { isListingAskingPriceUsable } from "./asking-price";
 import {
+  applyDispositionRationale,
   collectAdverseEvidence,
   validateDispositionAction,
   type CitedEvidenceRef,
@@ -17,6 +18,7 @@ import {
 import { buildPlannerEvidenceContext } from "./planner-context";
 import { fingerprintSearchParams, mandateToSearchParams } from "./search-params";
 import { qualifyListingConstraints } from "./constraint-qualification";
+import { REPEATED_IDENTICAL_ACTION_LIMIT } from "./budgets";
 import {
   planActionFingerprint,
   sanitizeScoutPlanAction,
@@ -28,6 +30,11 @@ import type {
   ScoutCandidate,
   ScoutToolOutcome,
 } from "./types";
+
+/** Historical no-progress fingerprint from the sanitized PR63 live failure (correlation only). */
+export function placeholderDeniedRejectFingerprint(firstVin: string): string {
+  return `reject:${firstVin}:adverse_evidence`;
+}
 
 export const PR63_PLACEHOLDER_LEDGER_PATH = "fixtures/scout/pr63-placeholder-ledger.json";
 
@@ -89,7 +96,9 @@ export type PlaceholderLedger = {
 export type RecoveryClass =
   | "grounded_reject_unusable_ask"
   | "inventory_search"
+  | "revised_inventory_search"
   | "honest_abstain"
+  | "premature_abstain_with_budget"
   | "replace_uncertainty"
   | "repeat_ungrounded_reject"
   | "free_gov_on_unusable"
@@ -110,12 +119,111 @@ export type ActionScore = {
   summary: string;
 };
 
+/**
+ * Flip t318 cycle-progress contract (product criteria — not catalogs-as-results).
+ * Require: new search / next checks / replan when bad prices; source-faithful facts;
+ * unknown history+cost honesty — NOT one reject then terminal stop while budget remains.
+ */
+export type FlipCycleProgressVerdict = {
+  ok: boolean;
+  code:
+    | "progress_revised_search"
+    | "progress_grounded_reject_then_revise"
+    | "progress_next_check"
+    | "premature_stop_after_single_reject"
+    | "premature_abstain_with_budget"
+    | "insufficient_decisions"
+    | "other";
+  honesty: string;
+  requiredBehaviors: string[];
+};
+
+export function scoreFlipCycleProgress(input: {
+  decision1: ActionScore;
+  decision2: ActionScore | null;
+  canReviseSearch: boolean;
+}): FlipCycleProgressVerdict {
+  const requiredBehaviors = [
+    "When pending asks are unusable and provider budget remains: revised in-mandate inventory.search OR grounded reject of next unusable ask — not terminal stop after a single reject.",
+    "Source-faithful facts only — never invent sold prices, title clearance, licensed history, or verified profit.",
+    "Unknown history + ownership cost must stay unknown when evidence is missing (no invented numbers).",
+    "searchContinuation.canReviseSearch=true forbids false “search already used once” terminals.",
+  ];
+  const honesty =
+    "Cycle progress is scored from schemaValid/grounded/recoveryClass only — not rate-table tier or model display name.";
+
+  if (!input.decision1.schemaValid) {
+    return { ok: false, code: "other", honesty, requiredBehaviors };
+  }
+
+  if (input.decision1.recoveryClass === "revised_inventory_search") {
+    return { ok: true, code: "progress_revised_search", honesty, requiredBehaviors };
+  }
+  if (input.decision1.recoveryClass === "replace_uncertainty") {
+    return { ok: true, code: "progress_next_check", honesty, requiredBehaviors };
+  }
+
+  if (input.decision1.recoveryClass === "premature_abstain_with_budget") {
+    return {
+      ok: false,
+      code: "premature_abstain_with_budget",
+      honesty,
+      requiredBehaviors,
+    };
+  }
+
+  if (
+    input.decision1.recoveryClass === "grounded_reject_unusable_ask" &&
+    input.canReviseSearch
+  ) {
+    if (!input.decision2) {
+      return {
+        ok: false,
+        code: "insufficient_decisions",
+        honesty,
+        requiredBehaviors,
+      };
+    }
+    if (
+      input.decision2.recoveryClass === "revised_inventory_search" ||
+      input.decision2.recoveryClass === "grounded_reject_unusable_ask" ||
+      input.decision2.recoveryClass === "replace_uncertainty"
+    ) {
+      return {
+        ok: true,
+        code: "progress_grounded_reject_then_revise",
+        honesty,
+        requiredBehaviors,
+      };
+    }
+    if (
+      input.decision2.recoveryClass === "premature_abstain_with_budget" ||
+      input.decision2.recoveryClass === "honest_abstain"
+    ) {
+      return {
+        ok: false,
+        code: "premature_stop_after_single_reject",
+        honesty,
+        requiredBehaviors,
+      };
+    }
+  }
+
+  return { ok: false, code: "other", honesty, requiredBehaviors };
+}
+
 export type CompareStepPrepared = {
   stepId: string;
   description: string;
   plannerInput: ScoutPlannerInput;
   candidatesByVin: Record<string, ScoutCandidate>;
+  /**
+   * Fingerprint of prior denied identical rejects already in this step's ledger
+   * context — empty when priorDeniedRejectCount is 0 (no duplicate yet).
+   */
   priorDeniedRejectFingerprint: string;
+  /** How many consecutive identical denied rejects already precede this step. */
+  priorIdenticalStreak: number;
 };
 
 function listingFromLedger(vin: string, priceUsd: number): Listing {
@@ -283,12 +391,16 @@ export function prepareCompareStep(
   const candidatesByVin: Record<string, ScoutCandidate> = {};
   for (const [vin, c] of candidates) candidatesByVin[vin] = c;
 
+  const deniedFp = placeholderDeniedRejectFingerprint(ledger.firstVin);
+  const priorIdenticalStreak = stepDef.priorDeniedRejectCount;
   return {
     stepId: stepDef.id,
     description: stepDef.description,
     plannerInput,
     candidatesByVin,
-    priorDeniedRejectFingerprint: `reject:${ledger.firstVin}:adverse_evidence`,
+    // Only a "prior denied" fingerprint when this step actually has prior denied rejects.
+    priorDeniedRejectFingerprint: priorIdenticalStreak > 0 ? deniedFp : "",
+    priorIdenticalStreak,
   };
 }
 
@@ -299,6 +411,13 @@ export function scoreScoutPlanAction(input: {
   candidatesByVin: Record<string, ScoutCandidate>;
   recentOutcomes: ScoutToolOutcome[];
   priorDeniedRejectFingerprint: string;
+  /** Consecutive identical actions already observed before this score (denied rejects in ledger). */
+  priorIdenticalStreak?: number;
+  /**
+   * When true, abstain solely because "search already used" is premature —
+   * provider/mid-loop budget still allows a revised search.
+   */
+  canReviseSearch?: boolean;
 }): ActionScore {
   if (!input.action || !input.schemaValid) {
     return {
@@ -321,7 +440,14 @@ export function scoreScoutPlanAction(input: {
     candidates: Object.values(input.candidatesByVin),
   });
   const fp = planActionFingerprint(sanitized);
-  const antiLoopSafe = fp !== input.priorDeniedRejectFingerprint;
+  // Align with production runner: no-progress only when identical streak reaches the limit.
+  // Matching the historical loop fingerprint on the *first* planner call is not unsafe —
+  // a grounded reject removes the VIN (progress). Repeating after two denies would trip stop.
+  const priorStreak =
+    input.priorDeniedRejectFingerprint !== "" && fp === input.priorDeniedRejectFingerprint
+      ? (input.priorIdenticalStreak ?? 0)
+      : 0;
+  const wouldHitNoProgress = priorStreak + 1 >= REPEATED_IDENTICAL_ACTION_LIMIT;
 
   let dispositionOk: boolean | null = null;
   let dispositionCode: string | null = null;
@@ -363,9 +489,18 @@ export function scoreScoutPlanAction(input: {
 
   let recoveryClass: RecoveryClass = "other";
   if (sanitized.type === "abstain") {
-    recoveryClass = "honest_abstain";
+    const citesSearchOnce =
+      /search already|already (ran|used) (once|search)|cannot continue|no (more )?search/i.test(
+        sanitized.reason,
+      );
+    recoveryClass =
+      input.canReviseSearch && citesSearchOnce
+        ? "premature_abstain_with_budget"
+        : input.canReviseSearch
+          ? "premature_abstain_with_budget"
+          : "honest_abstain";
   } else if (sanitized.type === "run_tool" && sanitized.toolId === "inventory.search") {
-    recoveryClass = "inventory_search";
+    recoveryClass = input.canReviseSearch ? "revised_inventory_search" : "inventory_search";
   } else if (
     sanitized.type === "run_tool" &&
     typeof sanitized.toolId === "string" &&
@@ -392,6 +527,17 @@ export function scoreScoutPlanAction(input: {
     recoveryClass = "forced_shortlist_risk";
   }
 
+  const antiLoopSafe =
+    !wouldHitNoProgress ||
+    recoveryClass === "honest_abstain" ||
+    recoveryClass === "inventory_search" ||
+    recoveryClass === "revised_inventory_search";
+
+  // Premature abstain with budget left is schema-ok but not a successful recovery.
+  if (recoveryClass === "premature_abstain_with_budget") {
+    grounded = false;
+  }
+
   return {
     schemaValid: true,
     parseKind: null,
@@ -401,8 +547,7 @@ export function scoreScoutPlanAction(input: {
     dispositionCode,
     grounded,
     recoveryClass,
-    antiLoopSafe:
-      antiLoopSafe || recoveryClass === "honest_abstain" || recoveryClass === "inventory_search",
+    antiLoopSafe,
     claimsVehicleDefectFromPlaceholder,
     summary: `${sanitized.type}${sanitized.type === "run_tool" ? `:${sanitized.toolId}` : ""} → ${recoveryClass}; grounded=${grounded}; antiLoopSafe=${antiLoopSafe}`,
   };
@@ -414,17 +559,1116 @@ export function scoreHistoricalLedgerActions(ledger: PlaceholderLedger): Array<{
   score: ActionScore;
   observedOutcomeOk: boolean;
 }> {
-  const prepared = prepareCompareStep(ledger, ledger.compareSteps[0]!);
-  return ledger.labeledHistoricalActions.map((row) => ({
-    stepId: row.stepId,
-    label: row.label,
-    observedOutcomeOk: row.observedOutcome.ok,
-    score: scoreScoutPlanAction({
-      action: row.action,
-      schemaValid: true,
-      candidatesByVin: prepared.candidatesByVin,
-      recentOutcomes: prepared.plannerInput.recentOutcomes,
-      priorDeniedRejectFingerprint: prepared.priorDeniedRejectFingerprint,
-    }),
-  }));
+  return ledger.labeledHistoricalActions.map((row, index) => {
+    // Historical step-1 was the first planner call; step-2 followed one denied reject.
+    const stepDef =
+      ledger.compareSteps[Math.min(index, ledger.compareSteps.length - 1)] ?? ledger.compareSteps[0]!;
+    const prepared = prepareCompareStep(ledger, stepDef);
+    return {
+      stepId: row.stepId,
+      label: row.label,
+      observedOutcomeOk: row.observedOutcome.ok,
+      score: scoreScoutPlanAction({
+        action: row.action,
+        schemaValid: true,
+        candidatesByVin: prepared.candidatesByVin,
+        recentOutcomes: prepared.plannerInput.recentOutcomes,
+        priorDeniedRejectFingerprint: prepared.priorDeniedRejectFingerprint,
+        priorIdenticalStreak: prepared.priorIdenticalStreak,
+      }),
+    };
+  });
+}
+
+// ─── Experimental sequential TWO-decision harness (PR71 diagnostic; not production) ───
+
+/** Provenance label — Decision-2 after local apply is never live tool-result / full-cycle. */
+export type CompareStateKind = "ledger_prepared" | "offline_replay_after_local_apply";
+
+export const OFFLINE_REPLAY_PROVENANCE_NOTE =
+  "OFFLINE_REPLAY after local-only disposition apply — NOT a live tool result, NOT a full Scout cycle, NOT a rescore of prior Sonnet artifacts.";
+
+/** Hard bound on retained reason prose (chars). Exceeding → refuse retention (no silent clip). */
+export const RETAINED_ACTION_REASON_MAX_CHARS = 2_000;
+/** Max citedEvidence rows retained (complete entries; refuse if more). */
+export const RETAINED_ACTION_CITED_MAX = 16;
+
+const SECRET_SUBSTRING_RE =
+  /\b(sk-[A-Za-z0-9_-]{8,}|af_[A-Za-z0-9_-]{8,}|Bearer\s+\S+|api[_-]?key\s*[:=]\s*\S+)/i;
+
+export type RetainedScoutPlanAction = {
+  type: ScoutPlanAction["type"];
+  reason: string;
+  servStepId: string;
+  vin?: string;
+  toolId?: string | null;
+  rationaleKind?: string;
+  citedEvidence?: Array<{ kind: string; gateId?: string }>;
+  assumptionsDisclosed?: boolean;
+  /** Args keys only — never raw arg string values (secret-safety). */
+  argsKeys?: string[];
+  secretsRedacted: boolean;
+};
+
+/**
+ * Bounded complete structured decision for audit rows when parse ok.
+ * Secrets redacted; refuses (null) on silent-truncation risk or unredactable secrets in reason.
+ * Does not embed into sanitizePlannerParseEcho (that contract stays keys/types/lengths only).
+ */
+export function retainScoutPlanAction(
+  action: ScoutPlanAction | null | undefined,
+): RetainedScoutPlanAction | null {
+  if (!action || typeof action.reason !== "string") return null;
+  if (action.reason.length > RETAINED_ACTION_REASON_MAX_CHARS) return null;
+
+  let secretsRedacted = false;
+  const redact = (s: string): string | null => {
+    if (!SECRET_SUBSTRING_RE.test(s)) return s;
+    secretsRedacted = true;
+    const out = s
+      .replace(/Bearer\s+\S+/gi, "Bearer [redacted]")
+      .replace(/\bsk-[A-Za-z0-9_-]+\b/g, "[redacted]")
+      .replace(/\baf_[A-Za-z0-9_-]+\b/g, "[redacted]")
+      .replace(/api[_-]?key\s*[:=]\s*\S+/gi, "api_key=[redacted]");
+    // Still looks secret-bearing → refuse retention rather than persist.
+    if (SECRET_SUBSTRING_RE.test(out)) return null;
+    return out;
+  };
+
+  const reason = redact(action.reason);
+  if (reason == null) return null;
+
+  const cited =
+    "citedEvidence" in action && Array.isArray(action.citedEvidence)
+      ? action.citedEvidence
+      : undefined;
+  if (cited && cited.length > RETAINED_ACTION_CITED_MAX) return null;
+
+  const retained: RetainedScoutPlanAction = {
+    type: action.type,
+    reason,
+    servStepId: action.servStepId,
+    secretsRedacted,
+  };
+  if ("vin" in action && typeof action.vin === "string") retained.vin = action.vin;
+  if (action.type === "run_tool") {
+    retained.toolId = action.toolId;
+    if (action.args && typeof action.args === "object") {
+      retained.argsKeys = Object.keys(action.args).sort().slice(0, 24);
+    }
+  }
+  if (
+    (action.type === "reject" || action.type === "replace") &&
+    action.rationaleKind
+  ) {
+    retained.rationaleKind = action.rationaleKind;
+  }
+  if (cited?.length) {
+    retained.citedEvidence = cited.map((c) => ({
+      kind: c.kind,
+      ...(typeof c.gateId === "string" && c.gateId ? { gateId: c.gateId } : {}),
+    }));
+  }
+  if (
+    (action.type === "reject" || action.type === "replace") &&
+    action.assumptionsDisclosed !== undefined
+  ) {
+    retained.assumptionsDisclosed = action.assumptionsDisclosed === true;
+  }
+  return retained;
+}
+
+export type LocalApplyStopReason =
+  | "applied"
+  | "applied_denied"
+  | "terminal_abstain"
+  | "terminal_finalize"
+  | "requires_external_tool"
+  | "no_progress_streak"
+  | "invalid_transition"
+  | "invariant_failure";
+
+/** Mutable ledger slice for offline local apply — cloned from prepared compare step. */
+export type LocalCompareState = {
+  candidatesByVin: Record<string, ScoutCandidate>;
+  pendingVins: string[];
+  investigated: ScoutCandidate[];
+  rejected: ScoutCandidate[];
+  recentOutcomes: ScoutToolOutcome[];
+  priorDeniedRejectFingerprint: string;
+  priorIdenticalStreak: number;
+  step: number;
+  usage: { servCalls: number; toolCalls: number; providerCalls: number };
+  /** Last applied action fingerprint (for streak accounting aligned with production). */
+  lastActionFingerprint: string;
+};
+
+export type LocalApplyResult = {
+  stopReason: LocalApplyStopReason;
+  /**
+   * True only after a successful local disposition that leaves a non-terminal
+   * offline_replay state (grounded reject/replace). Denied / terminal / invalid → false.
+   */
+  continueToDecision2: boolean;
+  state: LocalCompareState;
+  dispositionOk: boolean | null;
+  dispositionCode: string | null;
+  outcome: ScoutToolOutcome | null;
+  actionFingerprint: string | null;
+  note: string;
+  /** Explicit: never a live tool / network dispatch. */
+  appliedLocallyOnly: true;
+};
+
+/**
+ * Local harness transition guard (not a new production runner behavior).
+ * Reject/replace may only target a VIN still pending with disposition pending|investigate.
+ * Already rejected/replaced (or absent from pending) → fail closed; no duplicate rejected[].
+ */
+export function canLocallyApplyDisposition(input: {
+  state: LocalCompareState;
+  vin: string;
+}): { ok: true } | { ok: false; code: "already_processed" | "not_pending"; message: string } {
+  const cand = input.state.candidatesByVin[input.vin];
+  const inPending = input.state.pendingVins.includes(input.vin);
+  if (cand && (cand.disposition === "rejected" || cand.disposition === "replaced")) {
+    return {
+      ok: false,
+      code: "already_processed",
+      message: `VIN ${input.vin} already disposition=${cand.disposition}; cannot reapply (fail closed).`,
+    };
+  }
+  if (!inPending) {
+    return {
+      ok: false,
+      code: "not_pending",
+      message: `VIN ${input.vin} is not pending; cannot apply reject/replace (fail closed).`,
+    };
+  }
+  if (cand && cand.disposition !== "pending" && cand.disposition !== "investigate") {
+    return {
+      ok: false,
+      code: "already_processed",
+      message: `VIN ${input.vin} disposition=${cand.disposition} is not locally appliable; fail closed.`,
+    };
+  }
+  return { ok: true };
+}
+
+function cloneCompareState(
+  prepared: CompareStepPrepared,
+  usage?: { servCalls: number; toolCalls: number; providerCalls: number },
+): LocalCompareState {
+  const candidatesByVin: Record<string, ScoutCandidate> = structuredClone(prepared.candidatesByVin);
+  const pendingVins = [...prepared.plannerInput.pendingVins];
+  const investigated = structuredClone(prepared.plannerInput.investigated);
+  const rejected = structuredClone(prepared.plannerInput.rejected);
+  const deniedOnly = prepared.priorIdenticalStreak;
+  return {
+    candidatesByVin,
+    pendingVins,
+    investigated,
+    rejected,
+    recentOutcomes: structuredClone(prepared.plannerInput.recentOutcomes),
+    priorDeniedRejectFingerprint: prepared.priorDeniedRejectFingerprint,
+    priorIdenticalStreak: prepared.priorIdenticalStreak,
+    step: prepared.plannerInput.step,
+    usage: usage ?? {
+      // Match prepareCompareStep usage shape: select-entry + denied rejects already in ledger.
+      servCalls: deniedOnly,
+      toolCalls: deniedOnly,
+      providerCalls: 0,
+    },
+    lastActionFingerprint: prepared.priorDeniedRejectFingerprint,
+  };
+}
+
+function cloneState(state: LocalCompareState): LocalCompareState {
+  return structuredClone(state);
+}
+
+/**
+ * Local-only apply using production `validateDispositionAction` + disposition reducers.
+ * Allowlist: reject / replace (disposition only, no acquisition invent) / abstain / finalize.
+ * `run_tool` / select_candidate / unknown → stopBeforeExternalTool; zero invented tool success.
+ * No network, adapters, or provider spend.
+ */
+export function applyLocalCompareAction(input: {
+  prepared: CompareStepPrepared;
+  action: ScoutPlanAction;
+  /** When set, start from a prior local-apply state instead of prepared. */
+  fromState?: LocalCompareState;
+}): LocalApplyResult {
+  const state = input.fromState ? cloneState(input.fromState) : cloneCompareState(input.prepared);
+  const sanitized = sanitizeScoutPlanAction({
+    action: input.action,
+    candidates: Object.values(state.candidatesByVin),
+  });
+  const fp = planActionFingerprint(sanitized);
+
+  // Align with production runner: no-progress before disposition mutation.
+  let streak = 1;
+  if (state.lastActionFingerprint && fp === state.lastActionFingerprint) {
+    streak = state.priorIdenticalStreak + 1;
+  } else if (
+    state.priorDeniedRejectFingerprint &&
+    fp === state.priorDeniedRejectFingerprint
+  ) {
+    streak = state.priorIdenticalStreak + 1;
+  }
+  if (streak >= REPEATED_IDENTICAL_ACTION_LIMIT) {
+    return {
+      stopReason: "no_progress_streak",
+      continueToDecision2: false,
+      state,
+      dispositionOk: null,
+      dispositionCode: null,
+      outcome: null,
+      actionFingerprint: fp,
+      note: `Repeated identical planner action (${fp}) would hit production no-progress limit (${REPEATED_IDENTICAL_ACTION_LIMIT}).`,
+      appliedLocallyOnly: true,
+    };
+  }
+
+  if (sanitized.type === "run_tool" || sanitized.type === "select_candidate") {
+    return {
+      stopReason: "requires_external_tool",
+      continueToDecision2: false,
+      state,
+      dispositionOk: null,
+      dispositionCode: null,
+      outcome: null,
+      actionFingerprint: fp,
+      note: `Action ${sanitized.type}${sanitized.type === "run_tool" ? `:${sanitized.toolId}` : ""} requires external tool/network — stopBeforeExternalTool; no invented success.`,
+      appliedLocallyOnly: true,
+    };
+  }
+
+  if (sanitized.type === "abstain") {
+    const next = cloneState(state);
+    next.lastActionFingerprint = fp;
+    next.priorIdenticalStreak = streak;
+    next.usage.servCalls += 1;
+    return {
+      stopReason: "terminal_abstain",
+      continueToDecision2: false,
+      state: next,
+      dispositionOk: true,
+      dispositionCode: null,
+      outcome: null,
+      actionFingerprint: fp,
+      note: "Terminal abstain — no Decision-2 (not a full-cycle Scout).",
+      appliedLocallyOnly: true,
+    };
+  }
+
+  if (sanitized.type === "finalize") {
+    const next = cloneState(state);
+    next.lastActionFingerprint = fp;
+    next.priorIdenticalStreak = streak;
+    next.usage.servCalls += 1;
+    return {
+      stopReason: "terminal_finalize",
+      continueToDecision2: false,
+      state: next,
+      dispositionOk: true,
+      dispositionCode: null,
+      outcome: null,
+      actionFingerprint: fp,
+      note: "Terminal finalize — no Decision-2 (not a full-cycle Scout).",
+      appliedLocallyOnly: true,
+    };
+  }
+
+  if (sanitized.type !== "reject" && sanitized.type !== "replace") {
+    return {
+      stopReason: "invariant_failure",
+      continueToDecision2: false,
+      state,
+      dispositionOk: null,
+      dispositionCode: null,
+      outcome: null,
+      actionFingerprint: fp,
+      note: `Unsupported local action type.`,
+      appliedLocallyOnly: true,
+    };
+  }
+
+  // Fail closed before disposition mutation when VIN is already processed / not pending.
+  // Mirrors production pending-list semantics without inventing new production runner paths.
+  const transition = canLocallyApplyDisposition({ state, vin: sanitized.vin });
+  if (!transition.ok) {
+    return {
+      stopReason: "invalid_transition",
+      continueToDecision2: false,
+      state,
+      dispositionOk: false,
+      dispositionCode: transition.code,
+      outcome: null,
+      actionFingerprint: fp,
+      note: transition.message,
+      appliedLocallyOnly: true,
+    };
+  }
+
+  const cand = state.candidatesByVin[sanitized.vin];
+  const dispositionCheck = validateDispositionAction({
+    action: sanitized.type,
+    vin: sanitized.vin,
+    reason: sanitized.reason,
+    candidate: cand,
+    recentOutcomes: state.recentOutcomes,
+    rationaleKind: sanitized.rationaleKind,
+    citedEvidence: sanitized.citedEvidence as CitedEvidenceRef[] | undefined,
+    assumptionsDisclosed: sanitized.assumptionsDisclosed,
+  });
+
+  const next = cloneState(state);
+  next.usage.servCalls += 1;
+  next.usage.toolCalls += 1;
+  next.lastActionFingerprint = fp;
+
+  const toolId = sanitized.type === "reject" ? "candidate.reject" : "candidate.replace";
+
+  if (!dispositionCheck.ok) {
+    const outcome: ScoutToolOutcome = {
+      toolId,
+      vin: sanitized.vin,
+      ok: false,
+      status: "rejected",
+      capability: "rejected_no_provider_spend",
+      capabilityGrounded: true,
+      summary: `${dispositionCheck.code}: ${dispositionCheck.message}`,
+      acquiredVin: null,
+      servStepId: sanitized.servStepId,
+    };
+    next.recentOutcomes = [...next.recentOutcomes, outcome];
+    // Denied identical reject advances the prior-denied streak (production fingerprint path).
+    if (fp === next.priorDeniedRejectFingerprint || next.priorDeniedRejectFingerprint === "") {
+      next.priorDeniedRejectFingerprint = fp;
+      next.priorIdenticalStreak = streak;
+    } else {
+      next.priorDeniedRejectFingerprint = fp;
+      next.priorIdenticalStreak = 1;
+    }
+    return {
+      stopReason: "applied_denied",
+      // Ungrounded / denied disposition does NOT continue to Decision-2.
+      continueToDecision2: false,
+      state: next,
+      dispositionOk: false,
+      dispositionCode: dispositionCheck.code,
+      outcome,
+      actionFingerprint: fp,
+      note: `Denied ${sanitized.type} recorded locally; VIN remains pending; stop before Decision-2 (ungrounded/denied is not offline_replay progress).`,
+      appliedLocallyOnly: true,
+    };
+  }
+
+  // Successful local disposition — production reducer shape without network/acquisition invent.
+  if (!cand) {
+    return {
+      stopReason: "invariant_failure",
+      continueToDecision2: false,
+      state,
+      dispositionOk: null,
+      dispositionCode: null,
+      outcome: null,
+      actionFingerprint: fp,
+      note: `Missing candidate for ${sanitized.vin}.`,
+      appliedLocallyOnly: true,
+    };
+  }
+
+  const working = next.candidatesByVin[sanitized.vin]!;
+  if (sanitized.type === "reject") {
+    working.disposition = "rejected";
+  } else {
+    // replace: local disposition only — do NOT invent next-VIN acquisition / investigation success.
+    working.disposition = "replaced";
+  }
+  applyDispositionRationale(working, dispositionCheck, sanitized.reason);
+  // Idempotent append — never duplicate an already-rejected VIN row.
+  if (!next.rejected.some((c) => c.vin === sanitized.vin)) {
+    next.rejected = [...next.rejected, working];
+  }
+  next.pendingVins = next.pendingVins.filter((v) => v !== sanitized.vin);
+  next.investigated = next.investigated.filter((c) => c.vin !== sanitized.vin);
+
+  const outcome: ScoutToolOutcome = {
+    toolId,
+    vin: sanitized.vin,
+    ok: true,
+    status: "success",
+    capability: "supported_executed",
+    capabilityGrounded: true,
+    summary:
+      sanitized.type === "replace"
+        ? `${dispositionCheck.groundedReason} — local disposition only (no replacement acquisition invented).`
+        : dispositionCheck.groundedReason,
+    acquiredVin: null,
+    servStepId: sanitized.servStepId,
+  };
+  next.recentOutcomes = [...next.recentOutcomes, outcome];
+  // Successful reject removes VIN (progress) — denied streak for this fingerprint clears.
+  next.priorDeniedRejectFingerprint = "";
+  next.priorIdenticalStreak = 0;
+
+  return {
+    stopReason: "applied",
+    continueToDecision2: sanitized.type === "reject" || sanitized.type === "replace",
+    state: next,
+    dispositionOk: true,
+    dispositionCode: dispositionCheck.mode,
+    outcome,
+    actionFingerprint: fp,
+    note:
+      sanitized.type === "replace"
+        ? "Local replace disposition applied (no external acquisition). Decision-2 on offline_replay permitted."
+        : "Local reject applied via production validation/reducer. Decision-2 on offline_replay permitted.",
+    appliedLocallyOnly: true,
+  };
+}
+
+export type OfflineReplayPrepared = CompareStepPrepared & {
+  stateKind: "offline_replay_after_local_apply";
+  provenanceNote: string;
+  /** Explicit input diff vs Decision-1 ledger_prepared (pending / rejected / recentOutcomes). */
+  inputDiff: {
+    pendingRemoved: string[];
+    pendingCountBefore: number;
+    pendingCountAfter: number;
+    rejectedCountAfter: number;
+    recentOutcomesAdded: number;
+    lastOutcomeToolId: string | null;
+    lastOutcomeOk: boolean | null;
+  };
+};
+
+/**
+ * Rebuild planner input after local apply. Labels offline_replay — never live_tool_result.
+ * Reuses production `buildPlannerEvidenceContext` (no invented inventory/tool success).
+ */
+export function prepareOfflineReplayAfterLocalApply(input: {
+  ledger: PlaceholderLedger;
+  decision1: CompareStepPrepared;
+  applyResult: LocalApplyResult;
+}): OfflineReplayPrepared {
+  const { ledger, decision1, applyResult } = input;
+  const st = applyResult.state;
+  const search = mandateToSearchParams(ledger.mandate);
+  const allPending = st.pendingVins.map((vin) => st.candidatesByVin[vin]!).filter(Boolean);
+  const usage = {
+    servCalls: ledger.usageAtSelectEntry.servCalls + Math.max(0, st.usage.servCalls),
+    toolCalls: ledger.usageAtSelectEntry.toolCalls + Math.max(0, st.usage.toolCalls),
+    providerCalls: ledger.usageAtSelectEntry.providerCalls,
+  };
+  const evidenceContext = buildPlannerEvidenceContext({
+    investigated: st.investigated,
+    newlyAcquiredPending: [],
+    pendingSample: allPending.slice(0, 3),
+    allPending,
+    searchHistory: [{ fingerprint: fingerprintSearchParams(search), params: search }],
+    mandate: ledger.mandate,
+    budgets: {
+      maxServCalls: ledger.budgets.maxServCalls,
+      maxToolCalls: ledger.budgets.maxToolCalls,
+      maxProviderCalls: ledger.budgets.maxProviderCalls,
+    },
+    usage,
+    recentOutcomes: st.recentOutcomes,
+  });
+
+  const pendingBefore = new Set(decision1.plannerInput.pendingVins);
+  const pendingRemoved = [...pendingBefore].filter((v) => !st.pendingVins.includes(v));
+  const last = st.recentOutcomes[st.recentOutcomes.length - 1] ?? null;
+
+  return {
+    stepId: `${decision1.stepId}__offline_replay`,
+    description: `Offline replay after local apply (${applyResult.stopReason}) — ${OFFLINE_REPLAY_PROVENANCE_NOTE}`,
+    plannerInput: {
+      mandate: ledger.mandate,
+      pool: decision1.plannerInput.pool,
+      pendingVins: [...st.pendingVins],
+      investigated: st.investigated,
+      rejected: st.rejected,
+      step: decision1.plannerInput.step + 1,
+      recentOutcomes: st.recentOutcomes,
+      evidenceContext,
+    },
+    candidatesByVin: st.candidatesByVin,
+    priorDeniedRejectFingerprint: st.priorDeniedRejectFingerprint,
+    priorIdenticalStreak: st.priorIdenticalStreak,
+    stateKind: "offline_replay_after_local_apply",
+    provenanceNote: OFFLINE_REPLAY_PROVENANCE_NOTE,
+    inputDiff: {
+      pendingRemoved,
+      pendingCountBefore: decision1.plannerInput.pendingVins.length,
+      pendingCountAfter: st.pendingVins.length,
+      rejectedCountAfter: st.rejected.length,
+      recentOutcomesAdded: Math.max(
+        0,
+        st.recentOutcomes.length - decision1.plannerInput.recentOutcomes.length,
+      ),
+      lastOutcomeToolId: last?.toolId ?? null,
+      lastOutcomeOk: last ? last.ok : null,
+    },
+  };
+}
+
+/** Bounded per-attempt usage (honest nulls; cost always unknown here). */
+export type SequentialAttemptUsage = {
+  prompt_tokens?: number;
+  completion_tokens?: number;
+  total_tokens?: number;
+};
+
+export type SequentialDecisionRow = {
+  decisionIndex: 1 | 2;
+  stateKind: CompareStateKind;
+  provenanceNote: string;
+  stepId: string;
+  schemaValid: boolean;
+  score: ActionScore;
+  retainedAction: RetainedScoutPlanAction | null;
+  httpAttempts: number | null;
+  transportPolicy: "experiment_single_attempt" | "offline_fixture" | null;
+  stopReason: LocalApplyStopReason | "parse_fail" | "not_invoked" | null;
+  applyNote: string | null;
+  /** Model / fixture responses are labeled — not live tools when offline. */
+  responseSource: "offline_fixture" | "model_http" | "none";
+  /** HTTP status when a model attempt ran; null for offline / not invoked. */
+  rawStatus: number | null;
+  /** Wall latency for the attempt; null when unknown / offline / not invoked. */
+  latencyMs: number | null;
+  /** Normalized usage when present; null when unknown (never invent). */
+  tokens: SequentialAttemptUsage | null;
+  /** Always unknown until central reconciliation. */
+  cost: "unknown";
+  /** Upstream response id when present (not reconstructed). */
+  upstreamResponseId: string | null;
+  finishReason: string | null;
+  /** Keys/lengths only — never string values. */
+  responseShape: string | null;
+  error: string | null;
+};
+
+export type SequentialTwoDecisionResult = {
+  schemaVersion: "scout-sequential-two-decision/v1";
+  mode: "dry_run_offline_fixture" | "live_parent";
+  maxHttpAttemptsTotal: 2;
+  httpAttemptsTotal: number;
+  transportPolicy: "experiment_single_attempt";
+  timeoutMsPerAttempt: number;
+  outputTokenBound: number;
+  decision1PinsUnchanged: true;
+  decisions: SequentialDecisionRow[];
+  apply: LocalApplyResult | null;
+  offlineReplay: OfflineReplayPrepared | null;
+  stoppedBeforeDecision2: boolean;
+  /** True when SCOUT_COMPARE_SEQUENTIAL orchestration actually ran (not report-only). */
+  sequentialOrchestrationExecuted: boolean;
+  disclaimers: string[];
+};
+
+/** Injected Decision-1/2 SERV attempt (live parent or mock HTTP tests). */
+export type SequentialServCaller = (input: {
+  decisionIndex: 1 | 2;
+  userMessage: string;
+  stepId: string;
+  stateKind: CompareStateKind;
+}) => Promise<{
+  httpAttempts: number;
+  text: string | null;
+  ok: boolean;
+  error: string | null;
+  rawStatus: number | null;
+  responseShape: string | null;
+  latencyMs: number | null;
+  tokens: SequentialAttemptUsage | null;
+  upstreamResponseId: string | null;
+  finishReason: string | null;
+}>;
+
+function emptyAttemptTelemetry(): Pick<
+  SequentialDecisionRow,
+  | "rawStatus"
+  | "latencyMs"
+  | "tokens"
+  | "cost"
+  | "upstreamResponseId"
+  | "finishReason"
+  | "responseShape"
+  | "error"
+> {
+  return {
+    rawStatus: null,
+    latencyMs: null,
+    tokens: null,
+    cost: "unknown",
+    upstreamResponseId: null,
+    finishReason: null,
+    responseShape: null,
+    error: null,
+  };
+}
+
+/** Fixture grounded reject used only for offline dry-run path (not a prior Sonnet body). */
+export function offlineFixtureGroundedReject(vin: string, servStepId = "exec:step-1"): ScoutPlanAction {
+  return {
+    type: "reject",
+    vin,
+    reason: "placeholder ask cannot unlock investigation",
+    servStepId,
+    rationaleKind: "adverse_evidence",
+    citedEvidence: [{ kind: "missing_asking_price", gateId: "price" }],
+    assumptionsDisclosed: false,
+  };
+}
+
+const SEQUENTIAL_DISCLAIMERS = [
+  "Experimental sequential TWO-decision harness — separate from production defaults.",
+  "Decision-2 offline_replay is NOT live tool-result / full-cycle Scout.",
+  "Not a rescore of any prior saved Sonnet row (raw action/citedEvidence from 83929cd unretained).",
+  "Default zero HTTP; parent sole live coordinator.",
+  "Ungrounded/denied Decision-1 stops before Decision-2; already-processed VIN fails closed.",
+] as const;
+
+/**
+ * Actual Decision-1 → local apply → Decision-2 orchestration (opt-in live or offline fixture).
+ * When `servCaller` is provided, each decision is one experiment_single_attempt (≤2 HTTP total).
+ * Without caller, uses fixture actions (zero HTTP). Does not invent tool success.
+ */
+export async function runSequentialTwoDecision(input: {
+  ledger?: PlaceholderLedger;
+  /** Injected live/mock SERV caller — when set, mode is live_parent and HTTP is counted. */
+  servCaller?: SequentialServCaller;
+  /** Offline fixtures when servCaller is absent (or Decision-2 fixture after live D1 stop). */
+  decision1Action?: ScoutPlanAction | null;
+  decision1SchemaValid?: boolean;
+  decision2Action?: ScoutPlanAction | null;
+  decision2SchemaValid?: boolean;
+  timeoutMsPerAttempt?: number;
+  outputTokenBound?: number;
+  /** Builds scout_plan user JSON for a prepared step (injected to avoid domain→server cycle). */
+  buildUserMessage: (plannerInput: ScoutPlannerInput) => string;
+  /** Parses scout_plan model text (injected). */
+  parsePlanText: (text: string) =>
+    | { ok: true; action: ScoutPlanAction }
+    | { ok: false; kind: string; message: string };
+}): Promise<SequentialTwoDecisionResult> {
+  const ledger = input.ledger ?? loadPlaceholderLedger();
+  const stepDef =
+    ledger.compareSteps.find((s) => s.id === "after_inventory_before_reject") ??
+    ledger.compareSteps[0]!;
+  const decision1 = prepareCompareStep(ledger, stepDef);
+  const timeoutMsPerAttempt = input.timeoutMsPerAttempt ?? 45_000;
+  const outputTokenBound = input.outputTokenBound ?? 4096;
+  const live = Boolean(input.servCaller);
+  const mode: SequentialTwoDecisionResult["mode"] = live
+    ? "live_parent"
+    : "dry_run_offline_fixture";
+  const disclaimers = [...SEQUENTIAL_DISCLAIMERS];
+
+  let httpAttemptsTotal = 0;
+  const maxHttp = 2 as const;
+
+  // ── Decision-1 ──────────────────────────────────────────────────────────
+  let d1Action: ScoutPlanAction | null = null;
+  let d1Valid = false;
+  let d1Http: number | null = live ? 0 : 0;
+  let d1ParseKind: string | null = null;
+  let d1ResponseSource: SequentialDecisionRow["responseSource"] = live
+    ? "model_http"
+    : "offline_fixture";
+  let d1Telemetry = emptyAttemptTelemetry();
+
+  if (input.servCaller) {
+    if (httpAttemptsTotal >= maxHttp) {
+      throw new Error("sequential probe invariant: no HTTP budget before Decision-1");
+    }
+    const user1 = input.buildUserMessage(decision1.plannerInput);
+    const attempt1 = await input.servCaller({
+      decisionIndex: 1,
+      userMessage: user1,
+      stepId: decision1.stepId,
+      stateKind: "ledger_prepared",
+    });
+    const capped1 = Math.min(Math.max(0, attempt1.httpAttempts), 1);
+    httpAttemptsTotal += capped1;
+    d1Http = capped1;
+    d1Telemetry = {
+      rawStatus: attempt1.rawStatus,
+      latencyMs: attempt1.latencyMs,
+      tokens: attempt1.tokens,
+      cost: "unknown",
+      upstreamResponseId: attempt1.upstreamResponseId,
+      finishReason: attempt1.finishReason,
+      responseShape: attempt1.responseShape,
+      error: attempt1.ok ? null : attempt1.error,
+    };
+    if (!attempt1.ok || !attempt1.text) {
+      d1Valid = false;
+      d1ParseKind = attempt1.error ?? "serv_error";
+      if (!d1Telemetry.error) d1Telemetry = { ...d1Telemetry, error: d1ParseKind };
+    } else {
+      const parsed = input.parsePlanText(attempt1.text);
+      if (parsed.ok) {
+        d1Action = parsed.action;
+        d1Valid = true;
+      } else {
+        d1ParseKind = parsed.kind;
+        d1Telemetry = {
+          ...d1Telemetry,
+          error: `${parsed.kind}: ${parsed.message}`,
+        };
+      }
+    }
+  } else {
+    d1Action = input.decision1Action ?? null;
+    d1Valid = Boolean(input.decision1SchemaValid && d1Action);
+    if (!d1Valid) d1ParseKind = d1Action ? "invalid" : "not_invoked";
+    d1ResponseSource = "offline_fixture";
+  }
+
+  const d1Score = scoreScoutPlanAction({
+    action: d1Valid ? d1Action : null,
+    schemaValid: d1Valid,
+    parseKind: d1Valid ? null : d1ParseKind,
+    candidatesByVin: decision1.candidatesByVin,
+    recentOutcomes: decision1.plannerInput.recentOutcomes,
+    priorDeniedRejectFingerprint: decision1.priorDeniedRejectFingerprint,
+    priorIdenticalStreak: decision1.priorIdenticalStreak,
+  });
+
+  const decisions: SequentialDecisionRow[] = [
+    {
+      decisionIndex: 1,
+      stateKind: "ledger_prepared",
+      provenanceNote: "Decision-1 on ledger_prepared (same sanitized PR63 step as 70844ae pins).",
+      stepId: decision1.stepId,
+      schemaValid: d1Valid,
+      score: d1Score,
+      retainedAction: d1Valid ? retainScoutPlanAction(d1Action) : null,
+      httpAttempts: d1Http,
+      transportPolicy: live ? "experiment_single_attempt" : "offline_fixture",
+      stopReason: null,
+      applyNote: null,
+      responseSource: d1ResponseSource,
+      ...d1Telemetry,
+    },
+  ];
+
+  if (!d1Valid || !d1Action) {
+    decisions[0]!.stopReason = "parse_fail";
+    return {
+      schemaVersion: "scout-sequential-two-decision/v1",
+      mode,
+      maxHttpAttemptsTotal: maxHttp,
+      httpAttemptsTotal,
+      transportPolicy: "experiment_single_attempt",
+      timeoutMsPerAttempt,
+      outputTokenBound,
+      decision1PinsUnchanged: true,
+      decisions,
+      apply: null,
+      offlineReplay: null,
+      stoppedBeforeDecision2: true,
+      sequentialOrchestrationExecuted: true,
+      disclaimers,
+    };
+  }
+
+  const apply = applyLocalCompareAction({
+    prepared: decision1,
+    action: d1Action,
+  });
+  decisions[0]!.stopReason = apply.stopReason;
+  decisions[0]!.applyNote = apply.note;
+
+  if (!apply.continueToDecision2) {
+    return {
+      schemaVersion: "scout-sequential-two-decision/v1",
+      mode,
+      maxHttpAttemptsTotal: maxHttp,
+      httpAttemptsTotal,
+      transportPolicy: "experiment_single_attempt",
+      timeoutMsPerAttempt,
+      outputTokenBound,
+      decision1PinsUnchanged: true,
+      decisions,
+      apply,
+      offlineReplay: null,
+      stoppedBeforeDecision2: true,
+      sequentialOrchestrationExecuted: true,
+      disclaimers,
+    };
+  }
+
+  const offlineReplay = prepareOfflineReplayAfterLocalApply({
+    ledger,
+    decision1,
+    applyResult: apply,
+  });
+
+  // ── Decision-2 (offline_replay after successful local apply) ─────────────
+  let d2Action: ScoutPlanAction | null = null;
+  let d2Valid = false;
+  let d2Http: number | null = 0;
+  let d2ParseKind: string | null = "not_invoked";
+  let d2ResponseSource: SequentialDecisionRow["responseSource"] = "none";
+  let d2Telemetry = emptyAttemptTelemetry();
+
+  if (input.servCaller) {
+    if (httpAttemptsTotal >= maxHttp) {
+      // Bound exhausted — record not_invoked rather than a third HTTP.
+      d2ParseKind = "http_budget_exhausted";
+      d2Telemetry = { ...d2Telemetry, error: "http_budget_exhausted" };
+    } else {
+      const user2 = input.buildUserMessage(offlineReplay.plannerInput);
+      const attempt2 = await input.servCaller({
+        decisionIndex: 2,
+        userMessage: user2,
+        stepId: offlineReplay.stepId,
+        stateKind: "offline_replay_after_local_apply",
+      });
+      const capped2 = Math.min(Math.max(0, attempt2.httpAttempts), 1);
+      httpAttemptsTotal += capped2;
+      d2Http = capped2;
+      d2ResponseSource = "model_http";
+      d2Telemetry = {
+        rawStatus: attempt2.rawStatus,
+        latencyMs: attempt2.latencyMs,
+        tokens: attempt2.tokens,
+        cost: "unknown",
+        upstreamResponseId: attempt2.upstreamResponseId,
+        finishReason: attempt2.finishReason,
+        responseShape: attempt2.responseShape,
+        error: attempt2.ok ? null : attempt2.error,
+      };
+      if (!attempt2.ok || !attempt2.text) {
+        d2Valid = false;
+        d2ParseKind = attempt2.error ?? "serv_error";
+        if (!d2Telemetry.error) d2Telemetry = { ...d2Telemetry, error: d2ParseKind };
+      } else {
+        const parsed = input.parsePlanText(attempt2.text);
+        if (parsed.ok) {
+          d2Action = parsed.action;
+          d2Valid = true;
+          d2ParseKind = null;
+        } else {
+          d2ParseKind = parsed.kind;
+          d2Telemetry = {
+            ...d2Telemetry,
+            error: `${parsed.kind}: ${parsed.message}`,
+          };
+        }
+      }
+    }
+  } else {
+    d2Action = input.decision2Action ?? null;
+    d2Valid = input.decision2SchemaValid ?? Boolean(d2Action);
+    d2ParseKind = d2Valid ? null : d2Action ? "invalid" : "not_invoked";
+    d2ResponseSource = d2Action ? "offline_fixture" : "none";
+    d2Http = 0;
+  }
+
+  const d2Score = scoreScoutPlanAction({
+    action: d2Valid ? d2Action : null,
+    schemaValid: d2Valid,
+    parseKind: d2Valid ? null : d2ParseKind,
+    candidatesByVin: offlineReplay.candidatesByVin,
+    recentOutcomes: offlineReplay.plannerInput.recentOutcomes,
+    priorDeniedRejectFingerprint: offlineReplay.priorDeniedRejectFingerprint,
+    priorIdenticalStreak: offlineReplay.priorIdenticalStreak,
+  });
+
+  decisions.push({
+    decisionIndex: 2,
+    stateKind: "offline_replay_after_local_apply",
+    provenanceNote: OFFLINE_REPLAY_PROVENANCE_NOTE,
+    stepId: offlineReplay.stepId,
+    schemaValid: d2Valid,
+    score: d2Score,
+    retainedAction: d2Valid ? retainScoutPlanAction(d2Action) : null,
+    httpAttempts: d2Http,
+    transportPolicy: live ? "experiment_single_attempt" : "offline_fixture",
+    stopReason: d2Action ? null : d2ParseKind === "not_invoked" ? "not_invoked" : "parse_fail",
+    applyNote: null,
+    responseSource: d2ResponseSource,
+    ...d2Telemetry,
+  });
+
+  if (httpAttemptsTotal > maxHttp) {
+    throw new Error(
+      `sequential probe exceeded max HTTP (${httpAttemptsTotal} > ${maxHttp}) — fail closed`,
+    );
+  }
+
+  return {
+    schemaVersion: "scout-sequential-two-decision/v1",
+    mode,
+    maxHttpAttemptsTotal: maxHttp,
+    httpAttemptsTotal,
+    transportPolicy: "experiment_single_attempt",
+    timeoutMsPerAttempt,
+    outputTokenBound,
+    decision1PinsUnchanged: true,
+    decisions,
+    apply,
+    offlineReplay,
+    stoppedBeforeDecision2: false,
+    sequentialOrchestrationExecuted: true,
+    disclaimers,
+  };
+}
+
+/**
+ * Offline sequential path (zero HTTP): fixture Decision-1 → local apply → fixture Decision-2.
+ * Prefer {@link runSequentialTwoDecision} with `servCaller` for live/mock HTTP orchestration.
+ */
+export function runOfflineSequentialTwoDecision(input: {
+  ledger?: PlaceholderLedger;
+  decision1Action: ScoutPlanAction | null;
+  decision1SchemaValid: boolean;
+  decision2Action?: ScoutPlanAction | null;
+  decision2SchemaValid?: boolean;
+  timeoutMsPerAttempt?: number;
+  outputTokenBound?: number;
+}): SequentialTwoDecisionResult {
+  const ledger = input.ledger ?? loadPlaceholderLedger();
+  const stepDef =
+    ledger.compareSteps.find((s) => s.id === "after_inventory_before_reject") ??
+    ledger.compareSteps[0]!;
+  const decision1 = prepareCompareStep(ledger, stepDef);
+  const timeoutMsPerAttempt = input.timeoutMsPerAttempt ?? 45_000;
+  const outputTokenBound = input.outputTokenBound ?? 4096;
+  const disclaimers = [...SEQUENTIAL_DISCLAIMERS];
+
+  const d1Score = scoreScoutPlanAction({
+    action: input.decision1SchemaValid ? input.decision1Action : null,
+    schemaValid: input.decision1SchemaValid,
+    parseKind: input.decision1SchemaValid ? null : "invalid",
+    candidatesByVin: decision1.candidatesByVin,
+    recentOutcomes: decision1.plannerInput.recentOutcomes,
+    priorDeniedRejectFingerprint: decision1.priorDeniedRejectFingerprint,
+    priorIdenticalStreak: decision1.priorIdenticalStreak,
+  });
+
+  const decisions: SequentialDecisionRow[] = [
+    {
+      decisionIndex: 1,
+      stateKind: "ledger_prepared",
+      provenanceNote: "Decision-1 on ledger_prepared (same sanitized PR63 step as 70844ae pins).",
+      stepId: decision1.stepId,
+      schemaValid: input.decision1SchemaValid,
+      score: d1Score,
+      retainedAction: input.decision1SchemaValid
+        ? retainScoutPlanAction(input.decision1Action)
+        : null,
+      httpAttempts: 0,
+      transportPolicy: "offline_fixture",
+      stopReason: null,
+      applyNote: null,
+      responseSource: "offline_fixture",
+      ...emptyAttemptTelemetry(),
+    },
+  ];
+
+  if (!input.decision1SchemaValid || !input.decision1Action) {
+    decisions[0]!.stopReason = "parse_fail";
+    return {
+      schemaVersion: "scout-sequential-two-decision/v1",
+      mode: "dry_run_offline_fixture",
+      maxHttpAttemptsTotal: 2,
+      httpAttemptsTotal: 0,
+      transportPolicy: "experiment_single_attempt",
+      timeoutMsPerAttempt,
+      outputTokenBound,
+      decision1PinsUnchanged: true,
+      decisions,
+      apply: null,
+      offlineReplay: null,
+      stoppedBeforeDecision2: true,
+      sequentialOrchestrationExecuted: true,
+      disclaimers,
+    };
+  }
+
+  const apply = applyLocalCompareAction({
+    prepared: decision1,
+    action: input.decision1Action,
+  });
+  decisions[0]!.stopReason = apply.stopReason;
+  decisions[0]!.applyNote = apply.note;
+
+  if (!apply.continueToDecision2) {
+    return {
+      schemaVersion: "scout-sequential-two-decision/v1",
+      mode: "dry_run_offline_fixture",
+      maxHttpAttemptsTotal: 2,
+      httpAttemptsTotal: 0,
+      transportPolicy: "experiment_single_attempt",
+      timeoutMsPerAttempt,
+      outputTokenBound,
+      decision1PinsUnchanged: true,
+      decisions,
+      apply,
+      offlineReplay: null,
+      stoppedBeforeDecision2: true,
+      sequentialOrchestrationExecuted: true,
+      disclaimers,
+    };
+  }
+
+  const offlineReplay = prepareOfflineReplayAfterLocalApply({
+    ledger,
+    decision1,
+    applyResult: apply,
+  });
+
+  const d2Action = input.decision2Action ?? null;
+  const d2Valid = input.decision2SchemaValid ?? Boolean(d2Action);
+  const d2Score = scoreScoutPlanAction({
+    action: d2Valid ? d2Action : null,
+    schemaValid: d2Valid,
+    parseKind: d2Valid ? null : d2Action ? "invalid" : "not_invoked",
+    candidatesByVin: offlineReplay.candidatesByVin,
+    recentOutcomes: offlineReplay.plannerInput.recentOutcomes,
+    priorDeniedRejectFingerprint: offlineReplay.priorDeniedRejectFingerprint,
+    priorIdenticalStreak: offlineReplay.priorIdenticalStreak,
+  });
+
+  decisions.push({
+    decisionIndex: 2,
+    stateKind: "offline_replay_after_local_apply",
+    provenanceNote: OFFLINE_REPLAY_PROVENANCE_NOTE,
+    stepId: offlineReplay.stepId,
+    schemaValid: d2Valid,
+    score: d2Score,
+    retainedAction: d2Valid ? retainScoutPlanAction(d2Action) : null,
+    httpAttempts: 0,
+    transportPolicy: "offline_fixture",
+    stopReason: d2Action ? null : "not_invoked",
+    applyNote: null,
+    responseSource: d2Action ? "offline_fixture" : "none",
+    ...emptyAttemptTelemetry(),
+  });
+
+  return {
+    schemaVersion: "scout-sequential-two-decision/v1",
+    mode: "dry_run_offline_fixture",
+    maxHttpAttemptsTotal: 2,
+    httpAttemptsTotal: 0,
+    transportPolicy: "experiment_single_attempt",
+    timeoutMsPerAttempt,
+    outputTokenBound,
+    decision1PinsUnchanged: true,
+    decisions,
+    apply,
+    offlineReplay,
+    stoppedBeforeDecision2: false,
+    sequentialOrchestrationExecuted: true,
+    disclaimers,
+  };
 }

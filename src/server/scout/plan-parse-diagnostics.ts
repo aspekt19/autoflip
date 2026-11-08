@@ -120,6 +120,8 @@ export type CompareUsage = {
 /**
  * Compare harness usage accounting. All-zero usage (seen on Mini refusal HTTP 200)
  * is unknown — not proof of a free call.
+ * Accepts already-coerced CompareUsage; callers with raw Gemini/OpenAI aliases should
+ * coerce via coerceUsageRecord / extractUsageFromPayload first.
  */
 export function normalizeCompareUsage(usage: CompareUsage | null | undefined): CompareUsage | null {
   if (!usage || typeof usage !== "object") return null;
@@ -138,4 +140,44 @@ export function normalizeCompareUsage(usage: CompareUsage | null | undefined): C
     completion_tokens: completion,
     total_tokens: total,
   };
+}
+
+/**
+ * Normalize raw usage objects that may use Gemini camelCase or nested shapes.
+ * Avoids the parent telemetry gap: usage present in body but tokens null.
+ */
+export function normalizeCompareUsageLoose(usage: unknown): CompareUsage | null {
+  if (!usage || typeof usage !== "object") return null;
+  const r = usage as Record<string, unknown>;
+  const coerced: CompareUsage = {
+    prompt_tokens:
+      typeof r.prompt_tokens === "number"
+        ? r.prompt_tokens
+        : typeof r.promptTokens === "number"
+          ? r.promptTokens
+          : typeof r.promptTokenCount === "number"
+            ? r.promptTokenCount
+            : typeof r.input_tokens === "number"
+              ? r.input_tokens
+              : undefined,
+    completion_tokens:
+      typeof r.completion_tokens === "number"
+        ? r.completion_tokens
+        : typeof r.completionTokens === "number"
+          ? r.completionTokens
+          : typeof r.candidatesTokenCount === "number"
+            ? r.candidatesTokenCount
+            : typeof r.output_tokens === "number"
+              ? r.output_tokens
+              : undefined,
+    total_tokens:
+      typeof r.total_tokens === "number"
+        ? r.total_tokens
+        : typeof r.totalTokens === "number"
+          ? r.totalTokens
+          : typeof r.totalTokenCount === "number"
+            ? r.totalTokenCount
+            : undefined,
+  };
+  return normalizeCompareUsage(coerced);
 }

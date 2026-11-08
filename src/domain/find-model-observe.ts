@@ -3,6 +3,14 @@
  * Uses only returned listing facts — never invents TCO, reliability, or market ranks.
  */
 
+import type { FuelFact } from "./types";
+import {
+  estimateOwnershipFuelCost,
+  formatOwnershipFuelEstimate,
+  type OwnershipFuelAssumptions,
+  type OwnershipFuelEstimate,
+} from "./ownership-cost";
+
 export type ObservedListingRow = {
   make: string;
   model: string;
@@ -22,6 +30,17 @@ export type ObservedModelSnapshot = {
   /** Median miles among rows with finite miles — null when none. */
   medianMiles: number | null;
   honesty: string;
+};
+
+/** Condition on Find cards is always unknown — never a score. */
+export type ConditionEvidence = {
+  status: "unknown_needs_inspection";
+  honesty: string;
+};
+
+export type ModelCompareRow = ObservedModelSnapshot & {
+  condition: ConditionEvidence;
+  ownershipFuel: OwnershipFuelEstimate;
 };
 
 function median(values: number[]): number | null {
@@ -114,4 +133,34 @@ export function formatObservedModelSnapshot(snap: ObservedModelSnapshot): string
   const miles =
     snap.medianMiles == null ? "miles unknown" : `median ${snap.medianMiles.toLocaleString("en-US")} mi`;
   return `${snap.make} ${snap.model}: ${snap.count} card${snap.count === 1 ? "" : "s"}, ${snap.yearMin}–${snap.yearMax}, ${ask}, ${miles}.`;
+}
+
+const CONDITION_UNKNOWN: ConditionEvidence = {
+  status: "unknown_needs_inspection",
+  honesty:
+    "Condition and accident history are unknown on Find cards — not a clean history and not a condition score. Full analysis + NMVTIS-approved history before purchase.",
+};
+
+/**
+ * Grounded model comparison from observed cards (+ optional EPA fuel facts).
+ * Without a FuelFact, ownership fuel stays unavailable — never invented.
+ */
+export function compareObservedModels(
+  listings: ObservedListingRow[],
+  fuelsByModelKey: Record<string, FuelFact | null> = {},
+  assumptions: OwnershipFuelAssumptions | null = null,
+): ModelCompareRow[] {
+  return observedModelSnapshots(listings).map((snap) => {
+    const key = `${snap.make}\0${snap.model}`.toLowerCase();
+    const fuel = fuelsByModelKey[key] ?? null;
+    return {
+      ...snap,
+      condition: CONDITION_UNKNOWN,
+      ownershipFuel: estimateOwnershipFuelCost(fuel, assumptions),
+    };
+  });
+}
+
+export function formatModelCompareRow(row: ModelCompareRow): string {
+  return `${formatObservedModelSnapshot(row)} Condition: unknown (needs inspection/history). Fuel: ${formatOwnershipFuelEstimate(row.ownershipFuel)}`;
 }

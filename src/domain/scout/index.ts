@@ -26,7 +26,10 @@ export {
   buildPlaceholderCandidates,
   prepareCompareStep,
   scoreScoutPlanAction,
+  scoreFlipCycleProgress,
   scoreHistoricalLedgerActions,
+  runSequentialTwoDecision,
+  runOfflineSequentialTwoDecision,
   PR63_PLACEHOLDER_LEDGER_PATH,
 } from "./serv-model-compare";
 export type {
@@ -34,6 +37,8 @@ export type {
   RecoveryClass,
   ActionScore,
   CompareStepPrepared,
+  SequentialTwoDecisionResult,
+  FlipCycleProgressVerdict,
 } from "./serv-model-compare";
 export {
   SCOUT_METRICS_SCHEMA_VERSION,
@@ -71,6 +76,14 @@ export type {
   EvidenceConfidence,
   ScoutPlannerEvidenceContext,
 } from "./planner-context";
+export {
+  proposeRevisedSearches,
+  midLoopSearchesUsedFromHistory,
+} from "./search-revision";
+export type {
+  SearchContinuation,
+  SearchRevisionSuggestion,
+} from "./search-revision";
 export {
   collectAdverseEvidence,
   validateDispositionAction,
