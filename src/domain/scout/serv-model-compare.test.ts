@@ -16,6 +16,7 @@ import {
   retainScoutPlanAction,
   RETAINED_ACTION_REASON_MAX_CHARS,
   runOfflineSequentialTwoDecision,
+  runSequentialTwoDecision,
   scoreHistoricalLedgerActions,
   scoreScoutPlanAction,
   OFFLINE_REPLAY_PROVENANCE_NOTE,
@@ -391,6 +392,48 @@ describe("SERV model compare harness (offline / no paid calls)", () => {
       expect(again.state.pendingVins).not.toContain(ledger.firstVin);
       state = again.state;
     }
+  });
+
+  it("D1 inventory.search suggestion → recorded receipt → Decision-2 sees tool evidence", async () => {
+    const ledger = loadPlaceholderLedger();
+    const prepared = prepareCompareStep(ledger, ledger.compareSteps[0]!);
+    const suggestion =
+      prepared.plannerInput.evidenceContext.searchContinuation.suggestions[0]!;
+    const d1Action = {
+      type: "run_tool" as const,
+      toolId: "inventory.search" as const,
+      vin: null,
+      reason: suggestion.why,
+      servStepId: "exec:1",
+      args: suggestion.args,
+    };
+    const seq = await runSequentialTwoDecision({
+      ledger,
+      decision1Action: d1Action,
+      decision1SchemaValid: true,
+      decision2Action: {
+        type: "reject",
+        vin: ledger.firstVin,
+        reason: "missing usable ask after recorded search receipt",
+        servStepId: "exec:2",
+        rationaleKind: "adverse_evidence",
+        citedEvidence: [{ kind: "missing_asking_price", gateId: "price" }],
+      },
+      decision2SchemaValid: true,
+      enableRecordedInventoryExecute: true,
+      buildUserMessage: (input) => JSON.stringify({ pending: input.pendingVins.length }),
+      parsePlanText: () => ({ ok: false, kind: "unused", message: "offline" }),
+    });
+    expect(seq.stoppedBeforeDecision2).toBe(false);
+    expect(seq.apply?.stopReason).toBe("applied");
+    expect(seq.apply?.recordedInventory?.matchedSuggestion).toBe(true);
+    expect(seq.apply?.outcome?.toolId).toBe("inventory.search");
+    expect(seq.offlineReplay?.inputDiff.lastOutcomeToolId).toBe("inventory.search");
+    expect(seq.decisions).toHaveLength(2);
+    // D2 planner input must include the immutable inventory.search receipt.
+    expect(
+      seq.offlineReplay?.plannerInput.recentOutcomes.some((o) => o.toolId === "inventory.search"),
+    ).toBe(true);
   });
 
   it("ungrounded Decision-1 stops sequential harness before Decision-2", () => {

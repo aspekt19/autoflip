@@ -233,6 +233,7 @@ SERV_COMPARE_MODELS=${idsCsv} npm run eval:scout-model-compare
 ## 1) Sequential TWO-decision XOR per shortlist ID (≤2 HTTP each; Flip sole spend)
 
 Run **one model at a time** in flipOrder. XOR: SCOUT_COMPARE_SEQUENTIAL=1 skips normal compare.
+D1 inventory.search matching suggestions is **executed** (recorded immutable receipt) → Decision-2 sees tool evidence.
 
 \`\`\`bash
 # Baseline — Claude Sonnet 5.5
@@ -241,16 +242,24 @@ SERV_API_KEY=… SCOUT_COMPARE_ALLOW_PAID=1 SCOUT_COMPARE_SEQUENTIAL=1 \\
   SCOUT_COMPARE_SOURCE_PIN='{"head":"<IMPLEMENT_TIP>","tree":"<IMPLEMENT_TREE>","pr":78,"pack":"artifacts/flip-t318-decision-pack"}' \\
   npm run eval:scout-model-compare
 
-# Next — GPT-5.6 Sol (first-class allowlisted; Flip decides)
+# Next — GPT-5.6 Sol
 SERV_API_KEY=… SCOUT_COMPARE_ALLOW_PAID=1 SCOUT_COMPARE_SEQUENTIAL=1 \\
   SERV_COMPARE_MODELS=gpt-5.6-sol \\
   SCOUT_COMPARE_SOURCE_PIN='{"head":"<IMPLEMENT_TIP>","tree":"<IMPLEMENT_TREE>","pr":78,"pack":"artifacts/flip-t318-decision-pack"}' \\
   npm run eval:scout-model-compare
 
-# Next if warranted — Claude Fable 5
+# Ablation (no prefilled suggestions) — discriminatory multistep
 SERV_API_KEY=… SCOUT_COMPARE_ALLOW_PAID=1 SCOUT_COMPARE_SEQUENTIAL=1 \\
+  SCOUT_COMPARE_HIDE_SUGGESTIONS=1 \\
+  SERV_COMPARE_MODELS=claude-sonnet-5.5 \\
+  SCOUT_COMPARE_SOURCE_PIN='{"head":"<IMPLEMENT_TIP>","tree":"<IMPLEMENT_TREE>","pr":78,"ablation":"hide_suggestions"}' \\
+  npm run eval:scout-model-compare
+
+# Fable only when Flip needs a third discriminatory model (not price-alone)
+SERV_API_KEY=… SCOUT_COMPARE_ALLOW_PAID=1 SCOUT_COMPARE_SEQUENTIAL=1 \\
+  SCOUT_COMPARE_HIDE_SUGGESTIONS=1 \\
   SERV_COMPARE_MODELS=claude-fable-5 \\
-  SCOUT_COMPARE_SOURCE_PIN='{"head":"<IMPLEMENT_TIP>","tree":"<IMPLEMENT_TREE>","pr":78,"pack":"artifacts/flip-t318-decision-pack"}' \\
+  SCOUT_COMPARE_SOURCE_PIN='{"head":"<IMPLEMENT_TIP>","tree":"<IMPLEMENT_TREE>","pr":78,"ablation":"hide_suggestions"}' \\
   npm run eval:scout-model-compare
 \`\`\`
 
@@ -318,6 +327,8 @@ Frozen offline SAME-input pack for parent Flip sequential SERV on PR #77.
 - **Cycle PASS example:** \`${goodCycle.code}\`
 
 See \`COMMANDS.md\` for Flip-only paid sequential runs. This freeze is zero-network.
+
+**PR78 execute path:** D1 \`inventory.search\` matching suggestions applies immutable recorded receipts → Decision-2 (not \`requires_external_tool\` echo-stop). Ablation: \`SCOUT_COMPARE_HIDE_SUGGESTIONS=1\`. Retain Fable for discriminatory multistep only.
 
 Production \`BASE_MODEL\` remains \`${BASE_MODEL}\` until independent review + Flip cycle.
 `;

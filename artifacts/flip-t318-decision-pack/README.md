@@ -12,4 +12,6 @@ Frozen offline SAME-input pack for parent Flip sequential SERV on PR #77.
 
 See `COMMANDS.md` for Flip-only paid sequential runs. This freeze is zero-network.
 
+**PR78 execute path:** D1 `inventory.search` matching suggestions applies immutable recorded receipts → Decision-2 (not `requires_external_tool` echo-stop). Ablation: `SCOUT_COMPARE_HIDE_SUGGESTIONS=1`. Retain Fable for discriminatory multistep only.
+
 Production `BASE_MODEL` remains `gpt-5.4-mini` until independent review + Flip cycle.
