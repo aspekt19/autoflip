@@ -12,12 +12,21 @@ import {
   type ModelCompareRow,
   type ObservedListingRow,
 } from "./find-model-observe";
+import type { FindFreeGovReceipt } from "./find-free-gov";
 import {
   clampFindNextCheckId,
   proposeFindNextChecks,
   type FindNextCheck,
   type FindNextCheckId,
 } from "./find-next-checks";
+import {
+  indexRiskFactsByMmy,
+  listingMmyKeys,
+  riskCoverageHonesty,
+  riskStatusForModelFamily,
+  type RiskCoverageHonesty,
+  type ShortlistRiskStatus,
+} from "./find-risk-evidence";
 import {
   applyFollowUp,
   explicitNeedFromText,
@@ -57,12 +66,25 @@ export type GroundedShortlistEntry = {
   yearMax: number;
   medianAskUsd: number | null;
   medianMiles: number | null;
-  conditionStatus: "unknown_needs_inspection";
+  /**
+   * Risk-aware condition status from free-gov MMY facts when present.
+   * Never auto-buy; parkOutside alone is not do-not-drive; complaints ≠ reject.
+   */
+  conditionStatus: ShortlistRiskStatus;
   ownershipFuelStatus: ModelCompareRow["ownershipFuel"]["status"];
-  /** Why this row is on the shortlist — only known card facts + shopper constraints. */
+  /** Why this row is on the shortlist — only known card facts + shopper constraints + risk. */
   why: string;
   /** Explicit unknowns — never filled with invented scores. */
   unknowns: string[];
+  /** Allowlisted next checks still useful for this row’s risk (free or user-paid). */
+  outstandingChecks: string[];
+  /** Campaign refs retained when present (MMY scope). */
+  campaignRefs: string[];
+};
+
+export type GroundedShortlistResult = {
+  entries: GroundedShortlistEntry[];
+  coverage: RiskCoverageHonesty;
 };
 
 /**
@@ -214,15 +236,29 @@ export function applyFindNextCheck(
 }
 
 /**
- * Grounded shortlist from observed cards only.
+ * Grounded shortlist from observed cards only (+ optional free-gov risk facts).
  * Keeps rows that do not violate known hard constraints; never ranks “best.”
+ * Does not drop rows solely for parkOutside or complaints; parkIt stays conditional investigate.
  */
 export function buildGroundedShortlist(
   need: StructuredNeed,
   listings: ObservedListingRow[],
   fuelsByModelKey: Record<string, FuelFact | null> = {},
+  freeGovReceipts: readonly FindFreeGovReceipt[] = [],
 ): GroundedShortlistEntry[] {
+  return buildGroundedShortlistWithRisk(need, listings, fuelsByModelKey, freeGovReceipts).entries;
+}
+
+export function buildGroundedShortlistWithRisk(
+  need: StructuredNeed,
+  listings: ObservedListingRow[],
+  fuelsByModelKey: Record<string, FuelFact | null> = {},
+  freeGovReceipts: readonly FindFreeGovReceipt[] = [],
+): GroundedShortlistResult {
   const compared = compareObservedModels(listings, fuelsByModelKey);
+  const byMmy = indexRiskFactsByMmy(freeGovReceipts);
+  const listingKeys = listingMmyKeys(listings);
+  const coverage = riskCoverageHonesty(listings, freeGovReceipts);
   const out: GroundedShortlistEntry[] = [];
   for (const row of compared) {
     if (need.yearMin != null && row.yearMax < need.yearMin) continue;
@@ -236,14 +272,25 @@ export function buildGroundedShortlist(
     ) {
       continue;
     }
+    const risk = riskStatusForModelFamily(
+      row.make,
+      row.model,
+      row.yearMin,
+      row.yearMax,
+      byMmy,
+      listingKeys,
+    );
     const unknowns: string[] = [
-      "condition/history unknown on Find cards",
+      ...risk.unknowns,
       row.ownershipFuel.status === "unavailable"
         ? "ownership fuel unavailable without FuelEconomy.gov match (+ explicit $/gal assumptions if only MPG)"
         : "ownership fuel is EPA/assumption-sourced — still not full TCO",
     ];
     if (row.medianAskUsd == null) unknowns.push("median ask unknown");
     if (row.medianMiles == null) unknowns.push("median miles unknown");
+    if (coverage.uncheckedMmyCount > 0 && freeGovReceipts.length > 0) {
+      unknowns.push(coverage.note);
+    }
     const whyParts = [
       `${row.count} observed card${row.count === 1 ? "" : "s"}`,
       `years ${row.yearMin}–${row.yearMax}`,
@@ -253,6 +300,10 @@ export function buildGroundedShortlist(
     if (need.conditionPriority === "inspection_first") {
       whyParts.push("condition prioritized — history/inspection still required");
     }
+    for (const bit of risk.whyBits) whyParts.push(bit);
+    const campaignRefs = [
+      ...new Set(risk.facts.flatMap((f) => f.campaignNumbers)),
+    ].slice(0, 8);
     out.push({
       make: row.make,
       model: row.model,
@@ -260,13 +311,15 @@ export function buildGroundedShortlist(
       yearMax: row.yearMax,
       medianAskUsd: row.medianAskUsd,
       medianMiles: row.medianMiles,
-      conditionStatus: "unknown_needs_inspection",
+      conditionStatus: risk.status,
       ownershipFuelStatus: row.ownershipFuel.status,
       why: whyParts.join("; "),
-      unknowns,
+      unknowns: [...new Set(unknowns)],
+      outstandingChecks: risk.outstandingChecks,
+      campaignRefs,
     });
   }
-  return out;
+  return { entries: out, coverage };
 }
 
 export type FindVerticalSliceResult = {

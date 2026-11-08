@@ -118,7 +118,53 @@ describe("free gov port (offline mocked)", () => {
     const packet = await createLiveFreeGovPort({ fetch: fetchImpl }).run("evidence.gov_recalls", listing);
     expect(packet.status).toBe("ok");
     expect(packet.facts.some((f) => f.key === "nhtsa_park_it" && f.kind === "verified")).toBe(true);
+    expect(packet.facts.some((f) => f.key === "nhtsa_park_outside")).toBe(false);
     expect(packet.summary).toMatch(/parkIt=true/);
+    expect(packet.summary).toMatch(/parkOutside=false/);
+  });
+
+  it("recalls: parkOutside-only does NOT emit nhtsa_park_it", async () => {
+    const fetchImpl = vi.fn(async (url: RequestInfo | URL) => {
+      const u = String(url);
+      if (u.includes("recallsByVehicle")) {
+        return new Response(
+          JSON.stringify({
+            results: [
+              {
+                NHTSACampaignNumber: "99V001",
+                Component: "ENGINE",
+                Summary: "Park outside",
+                Consequence: "Fire",
+                Remedy: "Inspect",
+                parkIt: false,
+                parkOutSide: true,
+              },
+            ],
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        );
+      }
+      if (u.includes("complaintsByVehicle")) {
+        return new Response(JSON.stringify({ count: 0, results: [] }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+      return new Response("nope", { status: 500 });
+    }) as unknown as typeof fetch;
+
+    const packet = await createLiveFreeGovPort({ fetch: fetchImpl }).run("evidence.gov_recalls", listing);
+    expect(packet.status).toBe("ok");
+    const primary = packet.facts.find((f) => f.key === "evidence.gov_recalls")?.value as {
+      parkIt?: boolean;
+      parkOutside?: boolean;
+    };
+    expect(primary.parkIt).toBe(false);
+    expect(primary.parkOutside).toBe(true);
+    expect(packet.facts.some((f) => f.key === "nhtsa_park_outside")).toBe(true);
+    expect(packet.facts.some((f) => f.key === "nhtsa_park_it")).toBe(false);
+    expect(packet.summary).toMatch(/parkIt=false/);
+    expect(packet.summary).toMatch(/parkOutside=true/);
   });
 
   it("upstream failure is unavailable (not empty-no-record)", async () => {

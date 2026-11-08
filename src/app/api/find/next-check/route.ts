@@ -131,6 +131,7 @@ export async function POST(request: Request) {
     appliedCheckIds: result.appliedCheckIds,
     freeGovReceipts: result.freeGovReceipts,
     freeEvidenceNote: result.freeEvidenceNote,
+    riskCoverage: result.riskCoverage,
     rematch: result.rematch,
     loop: result.loop,
     honesty: result.honesty,
