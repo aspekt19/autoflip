@@ -8,9 +8,10 @@
 
 | Pin | Value |
 | --- | --- |
-| Follow-up branch | `cursor/t315-clarify-owncost-ecfd-1033` |
-| Stack base (PR76) | `cursor/find-nav-provenance-ecfd-1033` @ `aa1e9010d041105717b19a2a1e36c9ace7f946a8` |
+| Follow-up branch | `cursor/t315-clarify-owncost-ecfd-1033` @ `736a6c23d3c413023e4a4b8bdc22ec528b55ec54` |
+| Stack base (PR76) | `cursor/find-nav-provenance-ecfd-1033` @ `aa1e9010d041105717b19a2a1e36c9ace7f946a8` (**frozen** — no further pushes) |
 | PR76 code tip (unchanged) | `c88bc4a66f1a8de1f1e1a6d11d0dc023de40ee89` / docs tip `aa1e901` |
+| Open PR | Parent: `gh pr create --base cursor/find-nav-provenance-ecfd-1033 --head cursor/t315-clarify-owncost-ecfd-1033` (agent `gh` create denied) |
 
 ### Scope implemented
 
