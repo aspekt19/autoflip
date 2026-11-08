@@ -2,7 +2,6 @@
  * Consumer /find match orchestration — testable without the Next route shell.
  * Server-owned provider query budget; first query error does not abort remaining directions.
  */
-import { budgetFit } from "@/domain/budget";
 import { coverageConfidence, coverageSentence } from "@/domain/coverage";
 import { proposeDirections, type SearchDirection } from "@/domain/directions";
 import {
@@ -13,6 +12,7 @@ import {
   type FindEmptyReason,
   type FindQueryOutcomeKind,
 } from "@/domain/find-empty";
+import { admitFindListingForBudget, assessFindListingPrice, type FindListingPriceView } from "@/domain/find-listing-price";
 import { rankFlipCandidates } from "@/domain/flip-rank";
 import { listingWithinNeed, noMatchMessage, searchScopeLabel, validateNeed, type StructuredNeed } from "@/domain/need";
 import { priceBadge, type PriceBadge } from "@/domain/price-badge";
@@ -36,9 +36,17 @@ export type FindMatchDeps = AssembleDeps & {
   maxProviderQueries?: number;
 };
 
+export type FindMatchListing = Listing & {
+  overBudget?: boolean;
+  badge: PriceBadge;
+  flipNote: string | null;
+  clearsTarget: boolean | null;
+  priceView: FindListingPriceView;
+};
+
 export type FindMatchGroup = {
   direction: SearchDirection;
-  listings: Array<Listing & { overBudget?: boolean; badge: PriceBadge; flipNote: string | null; clearsTarget: boolean | null }>;
+  listings: FindMatchListing[];
   coverage: string;
   coverageLevel: "low" | "medium" | "high";
   note: string | null;
@@ -88,8 +96,12 @@ export type FindMatchResult =
     };
 
 function queriesForDirection(direction: SearchDirection): Array<{ make: string; model: string }> {
-  // Named preferred models: search each supported named model (within remaining budget).
-  if (direction.id.endsWith("-named") || direction.segment === "Models you named") {
+  // Named / suggested preferred models: search each supported model (within remaining budget).
+  if (
+    direction.id.endsWith("-named") ||
+    direction.segment === "Models you named" ||
+    direction.segment === "Suggested models"
+  ) {
     const seen = new Set<string>();
     const out: Array<{ make: string; model: string }> = [];
     for (const m of direction.models) {
@@ -108,14 +120,43 @@ function withinBudget(
   listings: Listing[],
   budgetUsd: number | null,
   known: boolean,
-): Array<Listing & { overBudget?: boolean }> {
-  if (!known || budgetUsd == null) return listings;
+): Array<Listing & { overBudget?: boolean; priceView: FindListingPriceView }> {
   return listings.flatMap((item) => {
-    if (item.priceUsd == null) return [];
-    const fit = budgetFit(item.priceUsd, budgetUsd);
-    if (fit === "over") return [];
-    return [{ ...item, overBudget: fit === "slight" }];
+    const admission = admitFindListingForBudget(item, budgetUsd, known);
+    if (!admission.admit) return [];
+    return [{ ...item, overBudget: admission.overBudget, priceView: admission.price }];
   });
+}
+
+/** Deduplicate shopper-facing warning strings without dropping distinct failures. */
+export function dedupeWarningMessages(messages: Array<string | null | undefined>): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const raw of messages) {
+    const text = (raw ?? "").trim();
+    if (!text) continue;
+    const key = text.toLowerCase().replace(/\s+/g, " ");
+    if (seen.has(key)) continue;
+    // Drop a shorter warning that is already contained in a longer one.
+    let contained = false;
+    for (const existing of out) {
+      if (existing.toLowerCase().includes(key)) {
+        contained = true;
+        break;
+      }
+    }
+    if (contained) continue;
+    // Replace longer entries that the new text supersedes.
+    for (let i = out.length - 1; i >= 0; i -= 1) {
+      if (key.includes(out[i]!.toLowerCase()) && key !== out[i]!.toLowerCase()) {
+        seen.delete(out[i]!.toLowerCase().replace(/\s+/g, " "));
+        out.splice(i, 1);
+      }
+    }
+    seen.add(key);
+    out.push(text);
+  }
+  return out;
 }
 
 export async function runFindMatch(
@@ -312,12 +353,17 @@ export async function runFindMatch(
       need.mode === "flip" ? reconUsd({ miles: null, repairAbility: need.repairAbility }).because : null;
     const narrowed = collected.filter((item) => listingWithinNeed(item, need));
     const listings = withinBudget(narrowed, need.budgetUsd, need.budgetKnown)
-      .map((item) => ({
-        ...item,
-        badge: priceBadge(item, collected),
-        flipNote: byVin.get(item.vin)?.assumption ?? assumption,
-        clearsTarget: byVin.get(item.vin)?.clearsTarget ?? null,
-      }))
+      .map((item) => {
+        const priceView = item.priceView ?? assessFindListingPrice(item);
+        return {
+          ...item,
+          priceView,
+          // Untrusted asks must not get a fake “good/fair” rating from the fee figure.
+          badge: priceView.usableForBudget ? priceBadge(item, collected) : priceBadge({ ...item, priceUsd: null }, collected),
+          flipNote: byVin.get(item.vin)?.assumption ?? assumption,
+          clearsTarget: byVin.get(item.vin)?.clearsTarget ?? null,
+        };
+      })
       .sort((a, b) => {
         const aOver = a.overBudget ? 1 : 0;
         const bOver = b.overBudget ? 1 : 0;
@@ -345,6 +391,12 @@ export async function runFindMatch(
       .filter((o) => o.outcome === "budget_exhausted")
       .map((o) => ({ make: o.make, model: o.model, reason: "budget_exhausted" as const }));
     const coverageIncomplete = failed.length > 0;
+    const coverageBase = coverageSentence(coverageInput);
+    const coverageExtra = coverageIncomplete
+      ? `Coverage incomplete: ${failed.map((f) => `${f.make} ${f.model} (${f.outcome})`).join(", ")} did not return a successful provider response.`
+      : null;
+    // Keep provider failure out of `note` when it is already in providerWarning / top message.
+    const noteParts = dedupeWarningMessages([emptyNote, directionNote, assumption]);
     groups.push({
       direction,
       listings,
@@ -352,11 +404,9 @@ export async function runFindMatch(
       searchedModels: succeeded.map((o) => ({ make: o.make, model: o.model })),
       failedModels: failed.map((o) => ({ make: o.make, model: o.model, outcome: o.outcome })),
       skippedModels: skipped,
-      coverage: coverageIncomplete
-        ? `${coverageSentence(coverageInput)} Coverage incomplete: ${failed.map((f) => `${f.make} ${f.model} (${f.outcome})`).join(", ")} did not return a successful provider response.`
-        : coverageSentence(coverageInput),
+      coverage: coverageExtra ? `${coverageBase} ${coverageExtra}` : coverageBase,
       coverageLevel: coverageIncomplete ? "low" : coverageConfidence(coverageInput),
-      note: [emptyNote, directionNote, assumption, directionWarning].filter(Boolean).join(" ") || null,
+      note: noteParts.join(" ") || null,
       providerWarning: directionWarning,
       queryOutcomes,
     });
@@ -410,7 +460,11 @@ export async function runFindMatch(
     headline = empty.headline;
     nextStep = empty.nextStep;
   } else if (partialFailureWarning) {
-    message = `Some model searches failed. Showing only the live rows that returned. ${partialFailureWarning}`;
+    const parts = dedupeWarningMessages([
+      "Some model searches failed. Showing only the live rows that returned.",
+      partialFailureWarning,
+    ]);
+    message = parts.join(" ");
   }
 
   return {

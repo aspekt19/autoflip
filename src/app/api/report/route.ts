@@ -1,5 +1,7 @@
+import { claimsFindAnalysisHandoff, verifyFindAnalysisContext } from "@/server/find-analysis-context";
+import { prechargeAnalysisGate } from "@/domain/find-analysis-handoff";
+import { decideReportCharge } from "@/domain/report-chargeability";
 import { fitHeadline } from "@/domain/fit";
-import { extractVin } from "@/domain/vin";
 import { isVinOnlyLookup, vinDetailGaps } from "@/domain/vin-report";
 import { findUserReport, persistReport, readPersistedReport, rememberUserReport, reportReusable } from "@/io/persist-report";
 import { getKv } from "@/io/kv";
@@ -7,7 +9,17 @@ import { REPORT_FAILED_TEXT, reportReadyMessage } from "@/io/telegram";
 import { assembleReport } from "@/server/assemble";
 import { runtimeDeps } from "@/server/deps";
 import { parseMode } from "@/server/mcp";
-import { balanceOf, grantCredit, spendCredit, userId } from "@/server/session";
+import {
+  claimFindAnalysis,
+  clearOrphanFindAnalysisReceipt,
+  completeFindAnalysis,
+  findAnalysisSpendKey,
+  legacyReportUuidSpendKey,
+  releaseFindAnalysis,
+  waitForFindAnalysisReceipt,
+  type ReportAnalysisIdentity,
+} from "@/server/report-analysis-idempotency";
+import { balanceOf, compensateSpendCredit, spendCredit, userId } from "@/server/session";
 import { sendLinkedTelegram } from "@/server/telegram-notify";
 import { originOf } from "@/server/secrets";
 
@@ -20,16 +32,123 @@ export async function POST(request: Request) {
   if (!body) return Response.json({ error: "invalid_json", message: "Send JSON." }, { status: 400 });
   const url = typeof body.url === "string" ? body.url : undefined;
   const vin = typeof body.vin === "string" ? body.vin : undefined;
-  const askingPriceUsd = typeof body.askingPriceUsd === "number" ? body.askingPriceUsd : undefined;
-  const miles = typeof body.miles === "number" ? body.miles : undefined;
+  let askingPriceUsd = typeof body.askingPriceUsd === "number" ? body.askingPriceUsd : undefined;
+  let miles = typeof body.miles === "number" ? body.miles : undefined;
   const repairAbility = body.repairAbility === "none" || body.repairAbility === "minor" || body.repairAbility === "major" || body.repairAbility === "unknown"
     ? body.repairAbility
     : undefined;
   const targetProfitUsd = typeof body.targetProfitUsd === "number" ? body.targetProfitUsd : undefined;
   const budgetUsd = typeof body.budgetUsd === "number" ? body.budgetUsd : undefined;
   const budgetKnown = body.budgetKnown === true || typeof budgetUsd === "number";
-  const zip = typeof body.zip === "string" ? body.zip : undefined;
-  if (isVinOnlyLookup({ url, vin })) {
+  let zip = typeof body.zip === "string" ? body.zip : undefined;
+  const cta = typeof body.cta === "string" ? body.cta : null;
+  const selectedVin = typeof body.selectedVin === "string" ? body.selectedVin : undefined;
+  const selectedVdp = typeof body.selectedVdp === "string" ? body.selectedVdp : null;
+  const findContextToken = typeof body.findContextToken === "string" ? body.findContextToken : undefined;
+
+  // Identity must be resolvable BEFORE any credit gate — never charge then ask for a URL.
+  const identity = prechargeAnalysisGate({ url, vin });
+  if (!identity.ok) {
+    const surfaceHint = body.surface === "check" || body.surface === "find" ? body.surface : "report";
+    return Response.json(
+      {
+        error: identity.error,
+        message: identity.message,
+        cta,
+        surface: surfaceHint,
+      },
+      { status: 400 },
+    );
+  }
+
+  // Client-selected VIN must match resolved identity when both are present.
+  if (selectedVin && selectedVin.trim().toUpperCase() !== identity.vin) {
+    return Response.json(
+      {
+        error: "find_context_invalid",
+        reason: "vin_mismatch",
+        message:
+          "That find result is no longer trusted for full analysis. Run Find again and choose the same car, or paste a listing URL on Check a car. No credit was charged.",
+        cta,
+        surface: "find",
+        charge: false,
+        outcome: "refused_invalid_find_context",
+      },
+      { status: 400 },
+    );
+  }
+
+  const id = await userId();
+  const mode = parseMode(body.mode);
+  const vinKey = identity.vin;
+  const claimingFind = claimsFindAnalysisHandoff({
+    surface: typeof body.surface === "string" ? body.surface : null,
+    cta,
+    findContextToken,
+  });
+  const surfaceHint = claimingFind ? "find" : body.surface === "check" ? "check" : "report";
+
+  // Idempotent resume for an already-saved report — same car, 0 additional debit.
+  // Checked before find-context so back/refresh still works after token expiry.
+  if (vinKey) {
+    const existingId = await findUserReport(getKv(), id, vinKey, mode);
+    if (existingId) {
+      const existing = await readPersistedReport(existingId);
+      if (existing && reportReusable(existing, { mode, askingPriceUsd, miles })) {
+        await rememberUserReport(getKv(), id, vinKey, existing.id, existing);
+        return Response.json({
+          ...existing,
+          balance: await balanceOf(id),
+          alreadySaved: true,
+          cta,
+          surface: surfaceHint,
+        });
+      }
+    }
+  }
+
+  // Server-origin find trust — verified BEFORE balance / assemble / spend.
+  // Client surface/cta/VDP heuristics alone never grant trust.
+  let trustedFind = false;
+  let resolvedUrl = url;
+  if (claimingFind) {
+    const verified = await verifyFindAnalysisContext(getKv(), {
+      userId: id,
+      token: findContextToken,
+      vin: identity.vin,
+      claimedVdp: selectedVdp ?? url ?? null,
+      claimedMiles: miles ?? null,
+      claimedZip: zip ?? null,
+    });
+    if (!verified.ok) {
+      return Response.json(
+        {
+          error: verified.error,
+          reason: verified.reason,
+          message: verified.message,
+          cta,
+          surface: "find",
+          charge: false,
+          outcome: "refused_invalid_find_context",
+        },
+        { status: 400 },
+      );
+    }
+    trustedFind = true;
+    // Prefer server-stored facts — do not trust client overlays for ask/miles/ZIP/VDP.
+    const ctx = verified.record;
+    resolvedUrl = ctx.vdp ?? url;
+    if (ctx.miles != null) miles = ctx.miles;
+    if (ctx.zip) zip = ctx.zip;
+    if (ctx.askingPriceUsd != null) askingPriceUsd = ctx.askingPriceUsd;
+    else askingPriceUsd = undefined;
+  }
+
+  const surface = trustedFind ? "find" : body.surface === "check" ? "check" : "report";
+
+  // Manual VIN entry still needs typed ask/miles/ZIP. Trusted /find handoff already
+  // selected a discovered listing — re-fetch by VIN; do not demand re-typed feed fields.
+  if (!trustedFind && isVinOnlyLookup({ url: resolvedUrl, vin: vin ?? identity.vin })) {
     const missing = vinDetailGaps({ askingPriceUsd, miles, zip });
     if (missing.length > 0) {
       return Response.json(
@@ -37,41 +156,143 @@ export async function POST(request: Request) {
           error: "vin_needs_details",
           missing,
           message: `A VIN has no asking price of its own. Add ${missing.join(", ")} before the report.`,
+          cta,
+          surface,
         },
         { status: 400 },
       );
     }
   }
 
-  const id = await userId();
-  const mode = parseMode(body.mode);
-  const vinKey = extractVin(vin || url || "");
-  if (vinKey) {
-    const existingId = await findUserReport(getKv(), id, vinKey, mode);
-    if (existingId) {
-      const existing = await readPersistedReport(existingId);
-      if (existing && reportReusable(existing, { mode, askingPriceUsd, miles })) {
-        await rememberUserReport(getKv(), id, vinKey, existing.id, existing);
-        return Response.json({ ...existing, balance: await balanceOf(id), alreadySaved: true });
-      }
-    }
-  }
   if ((await balanceOf(id)) < 1) {
     return Response.json(
       {
         error: "credits_required",
         balance: 0,
         message: "A full report costs 1 credit.",
+        cta,
+        surface,
       },
       { status: 403 },
     );
   }
 
+  // Selected-listing analysis identity: one findContextToken → at most one charged report.
+  // Claim BEFORE assemble so parallel first submits cannot each mint a UUID and double-spend.
+  const analysisIdentity: ReportAnalysisIdentity | null =
+    trustedFind && findContextToken?.trim()
+      ? { userId: id, findContextToken: findContextToken.trim() }
+      : null;
+  /** Fence for this request's in_progress claim — required for release/complete. */
+  let heldClaimId: string | null = null;
+  if (analysisIdentity) {
+    let claim = await claimFindAnalysis(getKv(), analysisIdentity);
+    if (claim.kind === "replay") {
+      const existing = await readPersistedReport(claim.receipt.reportId);
+      if (existing) {
+        if (vinKey) await rememberUserReport(getKv(), id, vinKey, existing.id, existing);
+        return Response.json({
+          ...existing,
+          balance: await balanceOf(id),
+          alreadySaved: true,
+          cta,
+          surface,
+        });
+      }
+      // Completed receipt without durable report — clear orphan and reclaim once.
+      await clearOrphanFindAnalysisReceipt(getKv(), analysisIdentity);
+      claim = await claimFindAnalysis(getKv(), analysisIdentity);
+      if (claim.kind === "replay") {
+        const again = await readPersistedReport(claim.receipt.reportId);
+        if (again) {
+          if (vinKey) await rememberUserReport(getKv(), id, vinKey, again.id, again);
+          return Response.json({
+            ...again,
+            balance: await balanceOf(id),
+            alreadySaved: true,
+            cta,
+            surface,
+          });
+        }
+        return Response.json(
+          {
+            error: "analysis_conflict",
+            reason: "orphan_receipt",
+            message:
+              "That find analysis receipt is inconsistent. Run Find again and choose the same car. No credit was charged.",
+            charge: false,
+            cta,
+            surface,
+          },
+          { status: 409 },
+        );
+      }
+      // Fall through — reclaimed claim may be proceed / in_progress / conflict.
+    }
+    if (claim.kind === "in_progress") {
+      const receipt = await waitForFindAnalysisReceipt(getKv(), analysisIdentity);
+      if (receipt) {
+        const existing = await readPersistedReport(receipt.reportId);
+        if (existing) {
+          if (vinKey) await rememberUserReport(getKv(), id, vinKey, existing.id, existing);
+          return Response.json({
+            ...existing,
+            balance: await balanceOf(id),
+            alreadySaved: true,
+            cta,
+            surface,
+          });
+        }
+      }
+      return Response.json(
+        {
+          error: "analysis_in_progress",
+          message:
+            "That full analysis is already running for this listing. Wait a moment and retry — you will not be charged twice.",
+          charge: false,
+          cta,
+          surface,
+        },
+        { status: 409 },
+      );
+    }
+    if (claim.kind === "conflict") {
+      return Response.json(
+        {
+          error: "analysis_conflict",
+          reason: claim.reason,
+          message:
+            "That find analysis request could not be claimed safely. Run Find again and choose the same car. No credit was charged.",
+          charge: false,
+          cta,
+          surface,
+        },
+        { status: 409 },
+      );
+    }
+    if (claim.kind !== "proceed") {
+      return Response.json(
+        {
+          error: "analysis_conflict",
+          reason: "unexpected_claim_state",
+          message:
+            "That find analysis request could not be claimed safely. Run Find again and choose the same car. No credit was charged.",
+          charge: false,
+          cta,
+          surface,
+        },
+        { status: 409 },
+      );
+    }
+    // Exclusive assemble/commit for this token — fence required for release/complete.
+    heldClaimId = claim.claimId;
+  }
+
   const assembled = await assembleReport(
     {
       mode,
-      vin,
-      url,
+      vin: vin ?? vinKey,
+      url: resolvedUrl,
       make: typeof body.make === "string" ? body.make : undefined,
       model: typeof body.model === "string" ? body.model : undefined,
       zip,
@@ -83,15 +304,40 @@ export async function POST(request: Request) {
       budgetUsd: budgetUsd ?? null,
       budgetKnown,
     },
-    { ...runtimeDeps(), servSurface: body.surface === "check" ? "check" : "report" },
+    { ...runtimeDeps(), servSurface: surface === "check" ? "check" : "report" },
   );
   if (!assembled.ok) {
+    if (analysisIdentity && heldClaimId) await releaseFindAnalysis(getKv(), analysisIdentity, heldClaimId);
     await sendLinkedTelegram(id, REPORT_FAILED_TEXT);
     return Response.json({ error: assembled.error, message: assembled.message }, { status: assembled.status });
   }
 
-  const spent = await spendCredit(id, `report:${assembled.report.id}`);
+  // Incident-class unusable ask / missing critical input → clear refusal, 0 debit.
+  const chargeDecision = decideReportCharge(assembled.report.computed);
+  if (!chargeDecision.charge) {
+    if (analysisIdentity && heldClaimId) await releaseFindAnalysis(getKv(), analysisIdentity, heldClaimId);
+    return Response.json(
+      {
+        error: chargeDecision.error,
+        outcome: chargeDecision.outcome,
+        message: chargeDecision.message,
+        charge: false,
+        cta,
+        surface,
+        // Provenance only — not a completed paid report.
+        observedNotes: assembled.report.computed.dataNotes.slice(0, 4),
+      },
+      { status: 422 },
+    );
+  }
+
+  // Find path: analysis-scoped spend key (not report UUID). Manual path keeps UUID key.
+  const spendKey = analysisIdentity
+    ? findAnalysisSpendKey(analysisIdentity)
+    : legacyReportUuidSpendKey(assembled.report.id);
+  const spent = await spendCredit(id, spendKey);
   if (!spent.ok) {
+    if (analysisIdentity && heldClaimId) await releaseFindAnalysis(getKv(), analysisIdentity, heldClaimId);
     return Response.json(
       { error: "credits_required", balance: spent.balance, message: "A full report costs 1 credit." },
       { status: 403 },
@@ -100,8 +346,36 @@ export async function POST(request: Request) {
   try {
     await persistReport(assembled.report);
     if (vinKey) await rememberUserReport(getKv(), id, vinKey, assembled.report.id, assembled.report);
+    if (analysisIdentity && heldClaimId) {
+      const completed = await completeFindAnalysis(
+        getKv(),
+        analysisIdentity,
+        assembled.report.id,
+        heldClaimId,
+      );
+      if (!completed.ok) throw new Error(`complete_failed:${completed.reason}`);
+    }
   } catch {
-    await grantCredit(id, 1, `refund:${assembled.report.id}`);
+    // Durable report already saved → finish receipt / return it. Do NOT compensate
+    // (would open FREE_REPORT) and do NOT drop a successful paid artifact.
+    const saved = await readPersistedReport(assembled.report.id);
+    if (saved) {
+      if (analysisIdentity && heldClaimId) {
+        await completeFindAnalysis(getKv(), analysisIdentity, saved.id, heldClaimId);
+      }
+      const carSaved = saved.computed.subject;
+      const readySaved = reportReadyMessage({
+        car: `${carSaved.year} ${carSaved.make} ${carSaved.model}`,
+        recommendation: fitHeadline(saved.computed),
+        origin: originOf(request),
+        reportId: saved.id,
+      });
+      await sendLinkedTelegram(id, readySaved.text, readySaved.reply_markup.inline_keyboard[0]?.[0]);
+      return Response.json({ ...saved, balance: spent.balance });
+    }
+    // Persist never landed — compensate spend (clears spend event) + fenced release.
+    await compensateSpendCredit(id, spendKey);
+    if (analysisIdentity && heldClaimId) await releaseFindAnalysis(getKv(), analysisIdentity, heldClaimId);
     await sendLinkedTelegram(id, REPORT_FAILED_TEXT);
     return Response.json({ error: "save_failed", message: "The report did not finish. No credit was used." }, { status: 500 });
   }

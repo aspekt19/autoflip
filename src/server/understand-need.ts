@@ -97,11 +97,16 @@ export async function understandNeed(
   const preferredMakes = makesFromText(need.note);
   const preferredModels = preferredModelsFromText(need.note);
   const openToOtherMakes = preferredMakes.length === 0 || openToOtherMakesFromText(need.note);
+  // Text-extracted models are user-named. SERV-only suggestions keep service provenance —
+  // never label them “Models you named”.
+  const fromNote = preferredModels.length > 0;
+  const fromService = !fromNote && (need.preferredModels?.length ?? 0) > 0;
   need = {
     ...need,
     milesMax: milesFromText(need.note) ?? need.milesMax,
     preferredMakes: preferredMakes.length ? preferredMakes : need.preferredMakes,
-    preferredModels: preferredModels.length ? preferredModels : need.preferredModels,
+    preferredModels: fromNote ? preferredModels : need.preferredModels,
+    preferredModelsSource: fromNote ? "user_note" : fromService ? "service" : "none",
     openToOtherMakes,
     make: (preferredMakes.length ? preferredMakes : need.preferredMakes)[0] ?? need.make,
   };

@@ -2,6 +2,7 @@ import { ASSUMPTIONS } from "./assumptions";
 import { mileageAdjust, priceGap, selectComparables } from "./comparables";
 import { historyAdjustment } from "./history";
 import { formatUsd } from "./format";
+import { listingUsableForPurchaseEconomics } from "./report-purchase-ask";
 import { median, roundDollars } from "./stats";
 import type { Listing } from "./types";
 import { verdictFromPriceGap } from "./verdict";
@@ -27,10 +28,13 @@ export function priceBadge(subject: Listing, pool: Listing[]): PriceBadge {
     fairValueUsd: null,
   };
   if (subject.priceUsd === null || subject.miles === null) return unknown;
+  // Fee/placeholder/suspicious feed figures are not purchase-ask economics.
+  if (!listingUsableForPurchaseEconomics(subject)) return unknown;
   const selection = selectComparables(subject, pool);
   if (selection.scope === "insufficient") return unknown;
   const priced = selection.comps.filter(
-    (item): item is Listing & { priceUsd: number; miles: number } => item.priceUsd !== null && item.miles !== null,
+    (item): item is Listing & { priceUsd: number; miles: number } =>
+      item.priceUsd !== null && item.miles !== null && listingUsableForPurchaseEconomics(item),
   );
   if (priced.length < ASSUMPTIONS.minComps) return unknown;
   const adjusted = mileageAdjust(subject.miles, priced);

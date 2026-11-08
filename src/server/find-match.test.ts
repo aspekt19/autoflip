@@ -73,6 +73,7 @@ describe("runFindMatch Stage2A search semantics", () => {
         { make: "Mazda", model: "CX-5" },
         { make: "Honda", model: "CR-V" },
       ],
+      preferredModelsSource: "user_note",
       preferredMakes: ["Toyota", "Mazda", "Honda"],
       openToOtherMakes: false,
       zip: "72712",

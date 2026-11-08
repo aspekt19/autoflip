@@ -51,6 +51,11 @@ export function normalizeAutoDevListing(raw: unknown, source: ListingSource): Li
     latitude = num(record.location[1]);
   }
 
+  // Pass-through of feed positives — never invent a purchase ask or rescale fees.
+  // Kind stays unknown until a seller-page label is mapped; /find assesses usability separately.
+  const priceUsd = positivePrice(retail.price) ?? positivePrice(record.price);
+  const vdp = str(retail.vdp) ?? str(retail.vdpUrl) ?? str(retail.vdpURL) ?? str(record.vdp);
+
   return {
     vin,
     year,
@@ -58,12 +63,12 @@ export function normalizeAutoDevListing(raw: unknown, source: ListingSource): Li
     model,
     trim: str(vehicle.trim),
     miles: num(retail.miles) ?? num(retail.mileage) ?? num(record.miles) ?? num(record.mileage),
-    priceUsd: positivePrice(retail.price) ?? positivePrice(record.price),
+    priceUsd,
     city: str(retail.city),
     state: str(retail.state),
     zip: str(retail.zip),
     dealer: str(retail.dealer),
-    vdp: str(retail.vdp),
+    vdp,
     primaryImage: str(retail.primaryImage),
     carfaxUrl: str(retail.carfaxUrl),
     used: bool(retail.used),
@@ -83,6 +88,10 @@ export function normalizeAutoDevListing(raw: unknown, source: ListingSource): Li
     removedAt: str(record.removedAt),
     createdAt: str(record.createdAt),
     source,
+    askingPriceKind: "unknown",
+    askingPriceProvenance: priceUsd != null ? "feed_only" : "missing",
+    askingPriceLabel: null,
+    askingPriceSellerPageAccess: "not_attempted",
   };
 }
 

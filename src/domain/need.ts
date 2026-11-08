@@ -61,6 +61,12 @@ export type StructuredNeed = {
   preferredMakes: string[];
   /** Specific models named in the note (for example CX-5, RAV4). */
   preferredModels: PreferredModel[];
+  /**
+   * Where preferredModels came from.
+   * `user_note` — shopper typed the models. `service` — extractor suggested them.
+   * `none` — empty. UI must not say “Models you named” for `service`.
+   */
+  preferredModelsSource: "user_note" | "service" | "none";
   /** When true, preferred makes/models stay first but other makes stay in the mix. */
   openToOtherMakes: boolean;
 };
@@ -87,6 +93,7 @@ export function emptyNeed(mode: "personal" | "flip" = "personal"): StructuredNee
     make: null,
     preferredMakes: [],
     preferredModels: [],
+    preferredModelsSource: "none",
     openToOtherMakes: true,
   };
 }
@@ -243,6 +250,12 @@ export function validateNeed(input: unknown): { ok: true; need: StructuredNeed }
   const openToOtherMakes =
     typeof raw.openToOtherMakes === "boolean" ? raw.openToOtherMakes : preferredMakes.length === 0;
   const make = preferredMakes[0] ?? (typeof raw.make === "string" ? canonicalMake(raw.make) : null);
+  const preferredModelsSource =
+    raw.preferredModelsSource === "user_note" || raw.preferredModelsSource === "service" || raw.preferredModelsSource === "none"
+      ? raw.preferredModelsSource
+      : preferredModels.length
+        ? "user_note"
+        : "none";
   if ("riskTolerance" in raw) issues.push({ field: "riskTolerance", message: "Repair ability is not a risk tolerance." });
   if (issues.length) return { ok: false, issues };
   const mode = raw.mode === "flip" ? "flip" : "personal";
@@ -267,6 +280,7 @@ export function validateNeed(input: unknown): { ok: true; need: StructuredNeed }
       make: makes[0] ?? null,
       preferredMakes: makes,
       preferredModels,
+      preferredModelsSource: preferredModels.length ? preferredModelsSource : "none",
       openToOtherMakes: makes.length === 0 ? true : openToOtherMakes,
     },
   };
@@ -370,6 +384,7 @@ export function explicitNeedFromText(text: string, mode: "personal" | "flip"): S
     make: preferredMakes[0] ?? null,
     preferredMakes,
     preferredModels,
+    preferredModelsSource: preferredModels.length ? "user_note" : "none",
     openToOtherMakes,
     distanceMiles: null,
   };
@@ -605,6 +620,7 @@ export function overlayExplicit(
       | "make"
       | "preferredMakes"
       | "preferredModels"
+      | "preferredModelsSource"
       | "openToOtherMakes"
     >
   >,
@@ -622,6 +638,11 @@ export function overlayExplicit(
   // Do not silently drop a selected radius when ZIP is blank — validateNeed rejects that pair.
   // Callers that mean Nationwide must pass distanceMiles: null (and may omit ZIP).
   const distanceMiles = explicit.distanceMiles === undefined ? extracted.distanceMiles : explicit.distanceMiles;
+  const preferredModels = explicit.preferredModels ?? extracted.preferredModels;
+  const preferredModelsSource =
+    preferredModels.length === 0
+      ? "none"
+      : explicit.preferredModelsSource ?? extracted.preferredModelsSource ?? "user_note";
   return {
     ...extracted,
     mode: explicit.mode ?? extracted.mode,
@@ -636,7 +657,8 @@ export function overlayExplicit(
     milesMax: explicit.milesMax === undefined ? extracted.milesMax : explicit.milesMax,
     make,
     preferredMakes,
-    preferredModels: explicit.preferredModels ?? extracted.preferredModels,
+    preferredModels,
+    preferredModelsSource,
     openToOtherMakes:
       preferredMakes.length === 0
         ? true

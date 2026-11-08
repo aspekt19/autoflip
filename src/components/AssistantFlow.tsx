@@ -12,7 +12,14 @@ import type { SearchDirection } from "@/domain/directions";
 import { CoverageLine } from "./CoverageNote";
 import { DecisionNote } from "./DecisionNote";
 import { decideAfFlowRestore } from "@/domain/af-flow-session";
+import {
+  resolveManualCheckHandoff,
+  resolveSelectedListingHandoff,
+  type FindAnalysisPayload,
+} from "@/domain/find-analysis-handoff";
+import { isReportHardRefusal, reportRefusalUserMessage } from "@/domain/report-refusal-ui";
 import { findEmptyCopy, type FindEmptyReason } from "@/domain/find-empty";
+import type { FindListingPriceView } from "@/domain/find-listing-price";
 import { USE_CASES, searchScopeLabel, type FollowUp, type StructuredNeed } from "@/domain/need";
 import type { Mode } from "@/domain/types";
 import { MakeModelFields } from "./MakeModelFields";
@@ -37,6 +44,9 @@ type ListingCard = {
   badge?: PriceBadge;
   flipNote?: string | null;
   clearsTarget?: boolean | null;
+  priceView?: FindListingPriceView;
+  /** Opaque server-minted token from /api/match — required for trusted full analysis. */
+  analysisContextToken?: string | null;
 };
 
 type MatchGroup = {
@@ -295,6 +305,23 @@ function AssistantFlow({
     document.getElementById("find-results")?.scrollIntoView({ block: "start" });
   }, [stage]);
 
+  // After credit purchase, resume the exact selected listing — do not ask for a URL we already hold.
+  const pendingRetry = useRef(false);
+  useEffect(() => {
+    if (variant !== "find" || stage !== "results" || !need || pendingRetry.current) return;
+    try {
+      const raw = sessionStorage.getItem("af-pending-analysis");
+      if (!raw) return;
+      const payload = JSON.parse(raw) as FindAnalysisPayload;
+      if (!payload?.selectedVin || payload.surface !== "find") return;
+      pendingRetry.current = true;
+      const resumed: FindAnalysisPayload = { ...payload, cta: "find_pending_retry" };
+      void submitAnalysis(resumed);
+    } catch {
+      /* ignore corrupt pending payload */
+    }
+  }, [variant, stage, need]);
+
   function rememberFlow() {
     try {
       sessionStorage.setItem(
@@ -511,38 +538,45 @@ function AssistantFlow({
     }
   }
 
-  async function analyze(car: ListingCard) {
-    if (!need) return;
-    setPending(car.vin);
+  async function submitAnalysis(payload: FindAnalysisPayload) {
+    setPending(payload.selectedVin);
     try {
-      const listingLink = car.vdp && /^https?:\/\//i.test(car.vdp);
       const response = await fetch("/api/report", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(
-          listingLink
-            ? { mode: need.mode, url: car.vdp, zip: need.zip ?? undefined, surface: "check", repairAbility: need.repairAbility, targetProfitUsd: need.targetProfitUsd }
-            : {
-                mode: need.mode,
-                surface: "check",
-                vin: car.vin,
-                askingPriceUsd: car.priceUsd ?? undefined,
-                miles: car.miles ?? undefined,
-                zip: need.zip ?? undefined,
-                repairAbility: need.repairAbility,
-                targetProfitUsd: need.targetProfitUsd,
-              },
-        ),
+        body: JSON.stringify(payload),
       });
-      const body = (await response.json()) as { id?: string; message?: string; error?: string };
+      const body = (await response.json()) as {
+        id?: string;
+        message?: string;
+        error?: string;
+        alreadySaved?: boolean;
+        charge?: boolean;
+        outcome?: string;
+      };
       if (response.status === 403 && body.error === "credits_required") {
         rememberFlow();
+        try {
+          sessionStorage.setItem("af-pending-analysis", JSON.stringify(payload));
+        } catch {
+          /* ignore */
+        }
         router.push("/credits?need=1&return=%2Ffind");
+        return;
+      }
+      // Hard refusal (unusable ask / invalid find context) — clear reason, no fake completion.
+      if (isReportHardRefusal({ status: response.status, error: body.error })) {
+        setError(reportRefusalUserMessage({ message: body.message, error: body.error }));
         return;
       }
       if (!response.ok || !body.id) {
         setError(body.message || "The report could not be built.");
         return;
+      }
+      try {
+        sessionStorage.removeItem("af-pending-analysis");
+      } catch {
+        /* ignore */
       }
       router.push(`/report/${body.id}`);
     } catch {
@@ -550,6 +584,24 @@ function AssistantFlow({
     } finally {
       setPending(null);
     }
+  }
+
+  async function analyze(car: ListingCard) {
+    if (!need) return;
+    setError(null);
+    const handoff = resolveSelectedListingHandoff(
+      {
+        ...car,
+        analysisContextToken: car.analysisContextToken,
+      },
+      need,
+      "find_card_full_analysis",
+    );
+    if (!handoff.ok) {
+      setError(handoff.message);
+      return;
+    }
+    await submitAnalysis(handoff.payload);
   }
 
   function checkPayload() {
@@ -602,14 +654,22 @@ function AssistantFlow({
 
   async function checkListing() {
     setError(null);
-    if (!lookup.trim()) {
-      setError(checkKind === "vin" ? "Enter a 17-character VIN." : "Paste a listing link.");
-      return;
-    }
     const price = checkKind === "vin" ? parseUsdInput(vinPrice) : null;
     const miles = checkKind === "vin" ? parseCountInput(vinMiles) : null;
     if (checkKind === "vin" && (price === null || miles === null || !vinZip.trim())) {
       setError(price === null ? "Enter the asking price, like $18,773." : miles === null ? "Enter the mileage, like 109,333." : "Enter a ZIP.");
+      return;
+    }
+    const handoff = resolveManualCheckHandoff({
+      mode,
+      kind: checkKind,
+      lookup,
+      askingPriceUsd: price,
+      miles,
+      zip: vinZip.trim() || null,
+    });
+    if (!handoff.ok) {
+      setError(handoff.message);
       return;
     }
     setPending("report");
@@ -617,18 +677,7 @@ function AssistantFlow({
       const response = await fetch("/api/report", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(
-          checkKind === "link"
-            ? { mode, surface: "check", url: lookup.trim(), zip: vinZip.trim() || undefined }
-            : {
-                mode,
-                surface: "check",
-                vin: lookup.trim(),
-                askingPriceUsd: price,
-                miles,
-                zip: vinZip.trim(),
-              },
-        ),
+        body: JSON.stringify(handoff.payload),
       });
       const body = (await response.json()) as { id?: string; message?: string; error?: string };
       if (response.status === 403 && body.error === "credits_required") {
@@ -953,7 +1002,10 @@ function AssistantFlow({
               <p>{group.direction.why}</p>
               <p className="hint">Editorial guidance for where to look — not verified inventory by itself.</p>
               {group.coverage && group.coverageLevel ? <CoverageLine confidence={group.coverageLevel} sentence={group.coverage} /> : null}
-              {group.providerWarning ? <p className="warn-box">{group.providerWarning}</p> : null}
+              {group.providerWarning &&
+              !(matchMessage && matchMessage.toLowerCase().includes(group.providerWarning.toLowerCase())) ? (
+                <p className="warn-box">{group.providerWarning}</p>
+              ) : null}
               <p className="hint">
                 {group.searchedModels?.length
                   ? `Live models checked: ${group.searchedModels.map((item) => `${item.make} ${item.model}`).join(", ")}.`
@@ -975,7 +1027,13 @@ function AssistantFlow({
                   {error} {/plan|watch/i.test(error) ? <a href="/pricing">See radar plans</a> : null}
                 </p>
               ) : null}
-              {group.note ? <p className="hint">{group.note}</p> : null}
+              {group.note &&
+              !(
+                (matchMessage && matchMessage.toLowerCase().includes(group.note.toLowerCase())) ||
+                (group.providerWarning && group.note.toLowerCase().includes(group.providerWarning.toLowerCase()))
+              ) ? (
+                <p className="hint">{group.note}</p>
+              ) : null}
               <div className="listing-grid">
                 {group.listings.map((car) => (
                   <article className="listing-card" key={car.vin}>
@@ -989,11 +1047,13 @@ function AssistantFlow({
                       {car.year} {car.make} {car.model} {car.trim ?? ""}
                     </h3>
                     <p className="listing-meta">
-                      {car.priceUsd === null ? "Price not listed" : `$${car.priceUsd.toLocaleString("en-US")}`}
+                      {car.priceView?.displayPrimary ??
+                        (car.priceUsd === null ? "Price not listed" : `$${car.priceUsd.toLocaleString("en-US")}`)}
                       {" · "}
                       {car.miles === null ? "Mileage not listed" : `${car.miles.toLocaleString("en-US")} mi`}
                       {car.city ? ` · ${car.city}${car.state ? `, ${car.state}` : ""}` : ""}
                     </p>
+                    {car.priceView?.displayDetail ? <p className="hint">{car.priceView.displayDetail}</p> : null}
                     {car.overBudget ? <p className="budget-flag">Slightly over budget</p> : null}
                     {car.source !== "autodev" ? <p className="hint">Source {car.source}: not treated as verified live inventory.</p> : null}
                     {car.badge ? <PriceBadgeView badge={car.badge} /> : null}
@@ -1013,7 +1073,7 @@ function AssistantFlow({
                         model: car.model,
                         miles: car.miles,
                         milesMax: need?.milesMax ?? null,
-                        priceUsd: car.priceUsd,
+                        priceUsd: car.priceView?.usableForBudget ? car.priceUsd : null,
                         budgetUsd: need?.budgetUsd ?? null,
                         overBudget: car.overBudget,
                         bodyStyle: car.bodyStyle,

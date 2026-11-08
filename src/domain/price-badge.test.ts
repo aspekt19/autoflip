@@ -96,6 +96,7 @@ describe("flip questions", () => {
       make: null,
       preferredMakes: [],
       preferredModels: [],
+      preferredModelsSource: "none",
       openToOtherMakes: true,
     });
     expect(questions.map((item) => item.id)).toEqual(["profit", "repair", "cash"]);
