@@ -34,6 +34,7 @@ import {
 import { buildGroundedShortlist } from "@/domain/find-path";
 import {
   formatFreeGovReceiptsForUi,
+  uiRowsToRiskReceipts,
   type FreeGovReceiptUiRow,
 } from "@/domain/find-free-gov-format";
 import {
@@ -194,6 +195,11 @@ function AssistantFlow({
   const [nextCheckNote, setNextCheckNote] = useState<string | null>(null);
   /** Per-card free NHTSA receipt lines (server-owned; not status-only). */
   const [freeGovEvidenceLines, setFreeGovEvidenceLines] = useState<string[]>([]);
+  /** Structured free-gov receipts for risk-aware grounded shortlist (client mirror of server). */
+  const [freeGovReceiptsForShortlist, setFreeGovReceiptsForShortlist] = useState<
+    FreeGovReceiptUiRow[]
+  >([]);
+  const [riskCoverageNote, setRiskCoverageNote] = useState<string | null>(null);
   /** Auto-start next-check once per searchContextToken when SERV keyed. */
   const autoNextCheckTokenRef = useRef<string | null>(null);
 
@@ -594,7 +600,12 @@ function AssistantFlow({
         ? ((body as { freeGovReceipts?: FreeGovReceiptUiRow[] }).freeGovReceipts as FreeGovReceiptUiRow[])
         : [];
       if (receipts.length > 0) {
+        setFreeGovReceiptsForShortlist(receipts);
         setFreeGovEvidenceLines(formatFreeGovReceiptsForUi(receipts));
+      }
+      const coverage = (body as { riskCoverage?: { note?: string } | null }).riskCoverage;
+      if (coverage && typeof coverage.note === "string" && coverage.note.trim()) {
+        setRiskCoverageNote(coverage.note);
       }
       setNextCheckNote(
         [
@@ -1506,13 +1517,19 @@ function AssistantFlow({
                   observedModelCount: snaps.length,
                   emptyInventory: empty,
                 });
-                const shortlist = buildGroundedShortlist(need, allListings.map((car) => ({
+                const listingRows = allListings.map((car) => ({
                   make: car.make,
                   model: car.model,
                   year: car.year,
                   priceUsd: car.priceView?.usableForBudget ? car.priceUsd : null,
                   miles: car.miles,
-                })));
+                }));
+                const shortlist = buildGroundedShortlist(
+                  need,
+                  listingRows,
+                  {},
+                  uiRowsToRiskReceipts(freeGovReceiptsForShortlist),
+                );
                 if (checks.length === 0 && shortlist.length === 0) return null;
                 return (
                   <div className="hint" role="note">
@@ -1556,6 +1573,7 @@ function AssistantFlow({
                                 <li key={line.slice(0, 80)}>{line}</li>
                               ))}
                             </ul>
+                            {riskCoverageNote ? <p className="hint">{riskCoverageNote}</p> : null}
                           </div>
                         ) : null}
                       </>
@@ -1563,13 +1581,21 @@ function AssistantFlow({
                     {shortlist.length > 0 ? (
                       <>
                         <p>
-                          Grounded shortlist from returned cards only (not a “best car” rank — condition unknown; fuel
-                          unavailable without EPA match):
+                          Grounded shortlist from returned cards only (not a “best car” rank — risk from free NHTSA
+                          when present; fuel unavailable without EPA match; no auto-buy):
                         </p>
                         <ul>
                           {shortlist.map((row) => (
                             <li key={`${row.make}-${row.model}`}>
-                              {row.make} {row.model}: {row.why}. Unknowns: {row.unknowns.join("; ")}.
+                              {row.make} {row.model} [{row.conditionStatus}]: {row.why}. Unknowns:{" "}
+                              {row.unknowns.join("; ")}
+                              {row.outstandingChecks.length > 0
+                                ? `. Outstanding: ${row.outstandingChecks.join(", ")}`
+                                : ""}
+                              {row.campaignRefs.length > 0
+                                ? `. Campaigns: ${row.campaignRefs.join(", ")}`
+                                : ""}
+                              .
                             </li>
                           ))}
                         </ul>

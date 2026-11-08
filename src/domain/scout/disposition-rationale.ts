@@ -17,7 +17,7 @@ export type AdverseEvidenceKind =
   | "missing_asking_price"
   /** Flip profit estimate from asking comps + assumed costs — not observed hard budget. */
   | "economics_estimate"
-  /** NHTSA park-it/park-outside make/model/year campaign — not VIN unrepaired or title brand. */
+  /** NHTSA parkIt make/model/year campaign — not VIN unrepaired or title brand. parkOutside is separate (not this kind). */
   | "nhtsa_park_it";
 
 /** How the adverse fact was established — estimate paths require explicit disclosure. */
@@ -186,9 +186,10 @@ export function collectAdverseEvidence(c: ScoutCandidate): AdverseEvidenceFact[]
         gateId: "nhtsa_park_it",
         detail:
           e.note ??
-          "NHTSA park-it/park-outside campaign for make/model/year — not VIN unrepaired proof; title/NMVTIS unknown.",
+          "NHTSA parkIt campaign for make/model/year — not VIN unrepaired proof; title/NMVTIS unknown. Distinct from parkOutside.",
       });
     }
+    // parkOutside alone is NOT adverse reject/do-not-drive evidence — surfaced on Find shortlist only.
   }
 
   return out;

@@ -22,8 +22,12 @@ import {
   fingerprintNeed,
   type FindNextCheckLoopDisposition,
 } from "@/domain/find-next-check-loop";
-import { buildGroundedShortlist, type FindSearchRefine } from "@/domain/find-path";
+import { buildGroundedShortlistWithRisk, type FindSearchRefine } from "@/domain/find-path";
 import { proposeFindNextChecks } from "@/domain/find-next-checks";
+import {
+  mergeFreeGovReceiptsByMmy,
+  riskCoverageHonesty,
+} from "@/domain/find-risk-evidence";
 import { softPrefGapsFromText, type StructuredNeed } from "@/domain/need";
 import type { ScoutFreeGovPort } from "@/domain/scout/free-gov";
 import type { Kv } from "@/io/kv";
@@ -123,6 +127,8 @@ export type FindNextCheckOrchestratorOk = {
   /** Free public NHTSA receipts after this step (server-owned; may be empty). */
   freeGovReceipts: FindFreeGovReceipt[];
   freeEvidenceNote: string | null;
+  /** Honest MMY sample coverage vs full listing inventory (never claims fleet-wide clearance). */
+  riskCoverage: ReturnType<typeof riskCoverageHonesty>;
   /** Ordinary UI auto-continues when continue=true (no hidden step quota). */
   loop: FindNextCheckLoopDisposition;
 };
@@ -208,6 +214,7 @@ function publicResultPayload(ok: FindNextCheckOrchestratorOk): string {
     appliedCheckIds: ok.appliedCheckIds,
     freeGovReceipts: ok.freeGovReceipts,
     freeEvidenceNote: ok.freeEvidenceNote,
+    riskCoverage: ok.riskCoverage,
     loop: ok.loop,
     proofs: ok.proofs,
   });
@@ -345,7 +352,8 @@ export async function runFindNextCheckOrchestrator(
         gov: deps.freeGovPort,
       });
       if (executed) {
-        freeGovReceipts = [...priorReceipts, ...executed.receipts];
+        // Dedup by checkId+MMY so cached re-runs cannot append duplicate receipts / fake cycles.
+        freeGovReceipts = mergeFreeGovReceiptsByMmy(priorReceipts, executed.receipts);
         freeEvidenceNote = executed.note;
         live.replan = {
           ...live.replan,
@@ -363,7 +371,14 @@ export async function runFindNextCheckOrchestrator(
     });
 
     // Shortlist + remaining checks from POST-apply / POST-rematch / free-gov evidence.
-    const shortlistAfter = buildGroundedShortlist(updated.need, updated.listings);
+    const shortlistPack = buildGroundedShortlistWithRisk(
+      updated.need,
+      updated.listings,
+      {},
+      freeGovReceipts,
+    );
+    const shortlistAfter = shortlistPack.entries;
+    const riskCoverage = shortlistPack.coverage;
     const softGaps = softPrefGapsFromText(updated.need.note);
     const listingsHaveVin = updated.listings.some(
       (l) => typeof l.vin === "string" && l.vin.trim().length >= 11,
@@ -435,6 +450,7 @@ export async function runFindNextCheckOrchestrator(
       appliedCheckIds: appliedNext,
       freeGovReceipts,
       freeEvidenceNote,
+      riskCoverage,
       loop,
     };
 

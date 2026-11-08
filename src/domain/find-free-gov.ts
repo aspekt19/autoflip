@@ -6,6 +6,10 @@
 import type { ObservedListingRow } from "./find-model-observe";
 import type { FindNextCheckId } from "./find-next-checks";
 import {
+  riskFactsFromPacket,
+  type FreeGovRiskFacts,
+} from "./find-risk-evidence";
+import {
   createLiveFreeGovPort,
   isFreeGovToolId,
   type FreeGovEvidencePacket,
@@ -46,11 +50,20 @@ export type FindFreeGovReceipt = {
   year: number;
   fetchedAt: string;
   cached: boolean;
+  /** Source URL when the free public endpoint was called (planner + UI provenance). */
+  sourceUrl: string | null;
   /** Short planner-facing notes — never raw HTTP bodies. */
   factNotes: string[];
+  /** Structured risk facts — not summary-only; drives grounded shortlist risk. */
+  riskFacts: FreeGovRiskFacts | null;
   honesty: string;
 };
 
+/**
+ * Stable fingerprint for loop guards.
+ * Uses structured risk fields — ignores cached summary suffixes so duplicate
+ * cache hits cannot fake an evidence-changed cycle.
+ */
 export function fingerprintFreeGovReceipts(receipts: readonly FindFreeGovReceipt[]): string {
   const rows = receipts.map((r) => ({
     checkId: r.checkId,
@@ -60,7 +73,11 @@ export function fingerprintFreeGovReceipts(receipts: readonly FindFreeGovReceipt
     make: r.make,
     model: r.model,
     year: r.year,
-    summary: r.summary.slice(0, 160),
+    parkIt: r.riskFacts?.parkIt ?? null,
+    parkOutside: r.riskFacts?.parkOutside ?? null,
+    campaigns: r.riskFacts?.campaignNumbers?.slice(0, 8) ?? [],
+    complaints: r.riskFacts?.complaintCount ?? null,
+    sourceUrl: r.sourceUrl ?? r.riskFacts?.sourceUrl ?? null,
   }));
   rows.sort((a, b) =>
     `${a.checkId}|${a.vin}|${a.make}|${a.model}|${a.year}`.localeCompare(
@@ -138,11 +155,12 @@ function packetToReceipt(
     .map((f) => (typeof f.note === "string" ? f.note.slice(0, 220) : ""))
     .filter(Boolean)
     .slice(0, 6);
+  const riskFacts = riskFactsFromPacket(packet, listing);
   return {
     checkId,
     toolId: packet.toolId,
     status: packet.status,
-    summary: packet.summary.slice(0, 400),
+    summary: packet.summary.replace(/\s*\(cached\)\s*$/i, "").slice(0, 400),
     scope: packet.scope.slice(0, 200),
     limitsNote: packet.limitsNote.slice(0, 280),
     vin: realVin,
@@ -151,12 +169,14 @@ function packetToReceipt(
     year: listing.year,
     fetchedAt: packet.fetchedAt,
     cached: packet.cached,
+    sourceUrl: packet.url,
     factNotes,
+    riskFacts,
     honesty:
       checkId === "free_gov_vpic"
         ? "vPIC decode ≠ clean VIN history; ErrorCode must be inspected; missing VIN stays unknown."
         : checkId === "free_gov_recalls"
-          ? "Make/model/year recalls/complaints ≠ VIN-specific unrepaired/open recall status."
+          ? "Make/model/year recalls/complaints ≠ VIN-specific unrepaired/open recall status. parkIt ≠ parkOutside."
           : "NCAP SafetyRatings are make/model/year class ratings — Not Rated stays unknown, never 0-star invent.",
   };
 }
@@ -220,7 +240,7 @@ export async function executeFindFreeGovCheck(input: {
   };
 }
 
-/** Planner-facing brief from stored receipts (facts already code-owned). */
+/** Planner-facing brief from stored receipts (structured risk — not summary-only). */
 export function freeGovReceiptsBrief(receipts: readonly FindFreeGovReceipt[]): {
   count: number;
   toolIds: string[];
@@ -233,8 +253,11 @@ export function freeGovReceiptsBrief(receipts: readonly FindFreeGovReceipt[]): {
     status: string;
     summary: string;
     scope: string;
+    sourceUrl: string | null;
+    toolId: string;
     factNotes: string[];
     honesty: string;
+    riskFacts: FreeGovRiskFacts | null;
   }>;
 } {
   return {
@@ -249,8 +272,16 @@ export function freeGovReceiptsBrief(receipts: readonly FindFreeGovReceipt[]): {
       status: r.status,
       summary: r.summary.slice(0, 220),
       scope: r.scope.slice(0, 120),
+      sourceUrl: r.sourceUrl,
+      toolId: r.toolId,
       factNotes: r.factNotes.slice(0, 4),
       honesty: r.honesty.slice(0, 200),
+      riskFacts: r.riskFacts
+        ? {
+            ...r.riskFacts,
+            campaignNumbers: r.riskFacts.campaignNumbers.slice(0, 8),
+          }
+        : null,
     })),
   };
 }
