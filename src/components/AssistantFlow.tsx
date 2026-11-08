@@ -601,11 +601,19 @@ function AssistantFlow({
         : [];
       if (receipts.length > 0) {
         setFreeGovReceiptsForShortlist(receipts);
+        // Full store inspectable — no silent 6-row drop of MMY claims.
         setFreeGovEvidenceLines(formatFreeGovReceiptsForUi(receipts));
       }
       const coverage = (body as { riskCoverage?: { note?: string } | null }).riskCoverage;
-      if (coverage && typeof coverage.note === "string" && coverage.note.trim()) {
-        setRiskCoverageNote(coverage.note);
+      const toolCov = (
+        body as { freeGovCoverage?: { note?: string; anyUnchecked?: boolean } | null }
+      ).freeGovCoverage;
+      const coverageBits = [
+        coverage && typeof coverage.note === "string" ? coverage.note.trim() : "",
+        toolCov && typeof toolCov.note === "string" ? toolCov.note.trim() : "",
+      ].filter(Boolean);
+      if (coverageBits.length > 0) {
+        setRiskCoverageNote(coverageBits.join(" "));
       }
       setNextCheckNote(
         [

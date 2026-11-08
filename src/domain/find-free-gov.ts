@@ -78,6 +78,7 @@ export function fingerprintFreeGovReceipts(receipts: readonly FindFreeGovReceipt
     parkIt: r.riskFacts?.parkIt ?? null,
     parkOutside: r.riskFacts?.parkOutside ?? null,
     campaigns: r.riskFacts?.campaignNumbers?.slice(0, 8) ?? [],
+    campaignCountReported: r.riskFacts?.campaignCountReported ?? null,
     complaints: r.riskFacts?.complaintCount ?? null,
     sourceUrl: r.sourceUrl ?? r.riskFacts?.sourceUrl ?? null,
   }));
@@ -355,12 +356,33 @@ export async function executeFindFreeGovCheck(input: {
   };
 }
 
+/** Compact card preview size for SERV briefs — full allCoverage always retained. */
+export const FREE_GOV_BRIEF_CARD_PREVIEW = 6;
+
 /** Planner-facing brief from stored receipts (structured risk — not summary-only). */
 export function freeGovReceiptsBrief(receipts: readonly FindFreeGovReceipt[]): {
   count: number;
+  cardsShown: number;
+  cardsTruncated: boolean;
+  truncationNote: string | null;
   toolIds: string[];
   statuses: string[];
   summaries: string[];
+  /** Every receipt key — inspectable even when cards preview is truncated. */
+  allCoverage: Array<{
+    checkId: string;
+    toolId: string;
+    status: string;
+    make: string;
+    model: string;
+    year: number;
+    sourceUrl: string | null;
+    parkIt: boolean | null;
+    parkOutside: boolean | null;
+    campaignIdsShown: number;
+    campaignCountReported: number | null;
+    complaintCount: number | null;
+  }>;
   cards: Array<{
     make: string;
     model: string;
@@ -375,12 +397,33 @@ export function freeGovReceiptsBrief(receipts: readonly FindFreeGovReceipt[]): {
     riskFacts: FreeGovRiskFacts | null;
   }>;
 } {
+  const preview = FREE_GOV_BRIEF_CARD_PREVIEW;
+  const truncated = receipts.length > preview;
   return {
     count: receipts.length,
+    cardsShown: Math.min(preview, receipts.length),
+    cardsTruncated: truncated,
+    truncationNote: truncated
+      ? `SERV brief cards show ${preview} of ${receipts.length} receipts — allCoverage retains every MMY claim (source/status/tool); not silent clearance of hidden rows.`
+      : null,
     toolIds: [...new Set(receipts.map((r) => r.toolId))],
     statuses: receipts.map((r) => r.status),
-    summaries: receipts.map((r) => r.summary.slice(0, 160)).slice(0, 8),
-    cards: receipts.slice(0, 6).map((r) => ({
+    summaries: receipts.map((r) => r.summary.slice(0, 160)),
+    allCoverage: receipts.map((r) => ({
+      checkId: r.checkId,
+      toolId: r.toolId,
+      status: r.status,
+      make: r.make,
+      model: r.model,
+      year: r.year,
+      sourceUrl: r.sourceUrl,
+      parkIt: r.riskFacts?.parkIt ?? null,
+      parkOutside: r.riskFacts?.parkOutside ?? null,
+      campaignIdsShown: r.riskFacts?.campaignNumbers.length ?? 0,
+      campaignCountReported: r.riskFacts?.campaignCountReported ?? null,
+      complaintCount: r.riskFacts?.complaintCount ?? null,
+    })),
+    cards: receipts.slice(0, preview).map((r) => ({
       make: r.make,
       model: r.model,
       year: r.year,
@@ -395,6 +438,15 @@ export function freeGovReceiptsBrief(receipts: readonly FindFreeGovReceipt[]): {
         ? {
             ...r.riskFacts,
             campaignNumbers: r.riskFacts.campaignNumbers.slice(0, 8),
+            campaignCountReported:
+              r.riskFacts.campaignCountReported != null
+                ? Math.max(
+                    r.riskFacts.campaignCountReported,
+                    r.riskFacts.campaignNumbers.length,
+                  )
+                : r.riskFacts.campaignNumbers.length > 0
+                  ? r.riskFacts.campaignNumbers.length
+                  : null,
           }
         : null,
     })),

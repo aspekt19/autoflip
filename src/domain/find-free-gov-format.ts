@@ -17,26 +17,59 @@ export type FreeGovReceiptUiRow = {
     parkIt?: boolean | null;
     parkOutside?: boolean | null;
     campaignNumbers?: string[];
+    /** Full provider campaign count when known — may exceed listed IDs. */
+    campaignCountReported?: number | null;
     complaintCount?: number | null;
   } | null;
 };
 
-/** User-visible lines for ordinary Find — structured flags + source URL, not status-only. */
-export function formatFreeGovReceiptsForUi(receipts: readonly FreeGovReceiptUiRow[]): string[] {
-  return receipts.slice(0, 6).map((r) => {
-    const vinBit = r.vin ? ` VIN…${r.vin.slice(-4)}` : " (no VIN)";
-    const rf = r.riskFacts;
-    const flagBits: string[] = [];
-    if (rf && typeof rf.parkIt === "boolean") flagBits.push(`parkIt=${rf.parkIt}`);
-    if (rf && typeof rf.parkOutside === "boolean") flagBits.push(`parkOutside=${rf.parkOutside}`);
-    if (rf?.campaignNumbers && rf.campaignNumbers.length > 0) {
-      flagBits.push(`campaigns=${rf.campaignNumbers.slice(0, 4).join(",")}`);
+/** Historical silent UI preview cap — kept for honesty labels / tests only. */
+export const FREE_GOV_UI_DETAIL_PREVIEW = 6;
+
+/** Format one receipt line — every MMY claim inspectable with source/scope/status. */
+export function formatFreeGovReceiptLine(r: FreeGovReceiptUiRow): string {
+  const vinBit = r.vin ? ` VIN…${r.vin.slice(-4)}` : " (no VIN)";
+  const rf = r.riskFacts;
+  const flagBits: string[] = [];
+  if (rf && typeof rf.parkIt === "boolean") flagBits.push(`parkIt=${rf.parkIt}`);
+  if (rf && typeof rf.parkOutside === "boolean") flagBits.push(`parkOutside=${rf.parkOutside}`);
+  const ids = rf?.campaignNumbers ?? [];
+  if (ids.length > 0 || (typeof rf?.campaignCountReported === "number" && rf.campaignCountReported > 0)) {
+    const reported =
+      typeof rf?.campaignCountReported === "number"
+        ? Math.max(rf.campaignCountReported, ids.length)
+        : ids.length;
+    if (reported > ids.length) {
+      flagBits.push(
+        `campaignIds=${ids.join(",") || "(none retained)"} (shown ${ids.length} of ${reported})`,
+      );
+    } else {
+      flagBits.push(`campaignIds=${ids.join(",")}`);
     }
-    if (typeof rf?.complaintCount === "number") flagBits.push(`complaints=${rf.complaintCount}`);
-    const flags = flagBits.length > 0 ? ` [${flagBits.join("; ")}]` : "";
-    const src = r.sourceUrl ? ` src=${r.sourceUrl.slice(0, 120)}` : "";
-    return `${r.year} ${r.make} ${r.model}${vinBit}: ${r.status} — ${r.summary.slice(0, 160)}${flags} [${r.toolId}]${src}`;
-  });
+  }
+  if (typeof rf?.complaintCount === "number") flagBits.push(`complaints=${rf.complaintCount}`);
+  const flags = flagBits.length > 0 ? ` [${flagBits.join("; ")}]` : "";
+  const src = r.sourceUrl ? ` src=${r.sourceUrl.slice(0, 120)}` : "";
+  return `${r.year} ${r.make} ${r.model}${vinBit}: ${r.status} — ${r.summary.slice(0, 160)}${flags} [${r.toolId}]${src}`;
+}
+
+/**
+ * User-visible lines for ordinary Find — every receipt individually inspectable.
+ * No silent drop of MMY claims. Optional preview footer when callers pass previewOnly.
+ */
+export function formatFreeGovReceiptsForUi(
+  receipts: readonly FreeGovReceiptUiRow[],
+  opts?: { previewMax?: number },
+): string[] {
+  const previewMax = opts?.previewMax;
+  if (previewMax != null && previewMax >= 0 && receipts.length > previewMax) {
+    const shown = receipts.slice(0, previewMax).map(formatFreeGovReceiptLine);
+    shown.push(
+      `… showing ${previewMax} of ${receipts.length} free-gov receipts (expand/full store retained — not silent clearance of hidden MMYs).`,
+    );
+    return shown;
+  }
+  return receipts.map(formatFreeGovReceiptLine);
 }
 
 /** Map UI/API receipt rows into FindFreeGovReceipt shape for shortlist risk (no invent). */
@@ -58,6 +91,13 @@ export function uiRowsToRiskReceipts(
       r.status === "ok" || r.status === "empty" || r.status === "unavailable" || r.status === "error"
         ? r.status
         : "unavailable";
+    const campaignNumbers = r.riskFacts?.campaignNumbers ?? [];
+    const campaignCountReported =
+      typeof r.riskFacts?.campaignCountReported === "number"
+        ? Math.max(r.riskFacts.campaignCountReported, campaignNumbers.length)
+        : campaignNumbers.length > 0
+          ? campaignNumbers.length
+          : null;
     return {
       checkId,
       toolId,
@@ -77,7 +117,8 @@ export function uiRowsToRiskReceipts(
         ? {
             parkIt: r.riskFacts.parkIt ?? null,
             parkOutside: r.riskFacts.parkOutside ?? null,
-            campaignNumbers: r.riskFacts.campaignNumbers ?? [],
+            campaignNumbers,
+            campaignCountReported,
             complaintCount: r.riskFacts.complaintCount ?? null,
             recallsAvailable: null,
             complaintsAvailable: null,
