@@ -253,12 +253,18 @@ export function buildComputedReport(input: ReportInput): ComputedReport {
         )
       : null;
 
-  const parkIt = input.recalls.some((recall) => recall.parkIt || recall.parkOutSide);
+  // parkIt ≠ parkOutside: only parkIt drives openParkIt / hardSafetyStop / walk-away.
+  const parkIt = input.recalls.some((recall) => recall.parkIt);
+  const parkOutside = input.recalls.some((recall) => recall.parkOutSide);
   const recallsAvailable = input.recallsAvailable;
   if (!recallsAvailable) {
-    dataNotes.push("NHTSA's recall lookup was unavailable or returned an unusable response. No conclusion about recall campaigns can be drawn.");
+    dataNotes.push("NHTSA's recall lookup was unavailable or returned an unusable response. No conclusion about recall campaigns can be drawn — unknown is not cleared.");
   } else if (input.recalls.length === 0) {
-    dataNotes.push("NHTSA returned no campaigns for this year, make, and model. That is not proof there are none, and it is not a VIN-specific repair check.");
+    dataNotes.push("NHTSA returned no campaigns for this year, make, and model. That is not proof there are none, and it is not a VIN-specific repair check or VIN-cleared result.");
+  } else if (!parkIt && !parkOutside) {
+    dataNotes.push("Returned model-year campaigns have no parkIt or parkOutside flags. That is not VIN-cleared and not proof this vehicle is unaffected.");
+  } else if (!parkIt && parkOutside) {
+    dataNotes.push("A model-year parkOutside campaign was returned (outdoor parking guidance). That is not a parkIt / do-not-drive claim by itself, and it is not VIN applicability or repair-status proof.");
   }
   if (input.complaintCount === null) {
     dataNotes.push("NHTSA complaint count was unavailable.");
@@ -314,7 +320,9 @@ export function buildComputedReport(input: ReportInput): ComputedReport {
     }
     if (parkIt) {
       verdict = "walk_away";
-      reasons.push("A model-year park-it or park-outside campaign is a conservative safety override. Confirm that it applies to this VIN and whether it has been repaired before driving.");
+      reasons.push("A model-year parkIt campaign is a conservative do-not-drive override until VIN applicability and repair status are verified. Model/campaign coverage alone does not prove this VIN is affected or still unrepaired.");
+    } else if (parkOutside) {
+      reasons.push("A model-year parkOutside campaign (outdoor parking guidance) was returned. That is not a parkIt / do-not-drive stop by itself — verify VIN applicability before treating it as cleared or as a hard stop.");
     }
     reasons.push(
       `Asking ${formatUsd(subjectPrice)} versus a mileage-and-history fair value of ${formatUsd(fairValueUsd)} (${formatPct(Math.abs(gap))} ${gap >= 0 ? "above" : "below"}).`,
@@ -369,7 +377,11 @@ export function buildComputedReport(input: ReportInput): ComputedReport {
         `Buy target for a ${formatUsd(input.targetProfitUsd ?? ASSUMPTIONS.flipDesiredProfitUsd)} margin at the midpoint is ${formatUsd(flip.targetBuyUsd)}, before any negotiation you still have to win.`,
       );
       reasons.push(`Time-to-sell risk is ${flip.timeToSellRisk}. ${flip.timeToSellNote}`);
-      if (parkIt) reasons.push("A model-year park-it or park-outside campaign makes this a conservative walk-away until VIN applicability and repair status are verified.");
+      if (parkIt) {
+        reasons.push("A model-year parkIt campaign makes this a conservative walk-away until VIN applicability and repair status are verified. Not VIN unrepaired proof from MMY coverage alone.");
+      } else if (parkOutside) {
+        reasons.push("A model-year parkOutside campaign was returned (outdoor parking guidance). It does not alone force a parkIt walk-away; confirm VIN applicability.");
+      }
     }
   }
 
@@ -380,6 +392,7 @@ export function buildComputedReport(input: ReportInput): ComputedReport {
     recallsAvailable,
     vinIdentityMismatch,
     parkIt,
+    parkOutside,
     complaintCount: input.complaintCount,
     priceGap: gap,
     sample,
@@ -393,11 +406,12 @@ export function buildComputedReport(input: ReportInput): ComputedReport {
     recalls: input.recalls,
     vinIdentityMismatch,
     parkIt,
+    parkOutside,
     historyMissing,
     titleBrandHit,
   });
 
-  // Park-it and title-brand stops are not price scores; hide the price score so UI cannot look bullish.
+  // parkIt (not parkOutside) and title-brand stops are not price scores; hide the price score so UI cannot look bullish.
   const hardSafetyStop = parkIt || Boolean(titleBrandHit) || vinIdentityMismatch;
   const score = hardSafetyStop ? null : scoreFromGap(gap);
 
@@ -429,6 +443,7 @@ export function buildComputedReport(input: ReportInput): ComputedReport {
       checkedAt: input.checkedAt ?? new Date().toISOString(),
     }),
     openParkIt: parkIt,
+    openParkOutside: parkOutside,
     complaintCount: input.complaintCount,
     fuel: input.fuel,
     vinDecode: input.vinDecode,

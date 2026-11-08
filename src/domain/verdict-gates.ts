@@ -164,7 +164,7 @@ function gateSafety(report: ComputedReport): GateResult {
     return {
       id: "safety_red_flags",
       status: "forbid",
-      reason: "A park-it or park-outside campaign matched this model year. Buy and negotiate are forbidden.",
+      reason: "A parkIt campaign matched this model year. Buy and negotiate are forbidden until VIN applicability and repair status are verified. parkOutside alone does not trigger this gate.",
       forbid: ["buy", "negotiate"],
     };
   }
