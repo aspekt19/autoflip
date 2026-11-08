@@ -13,6 +13,7 @@ import {
   executeFindFreeGovCheck,
   fingerprintFreeGovReceipts,
   freeGovReceiptsBrief,
+  freeGovToolCoverage,
   type FindFreeGovReceipt,
 } from "@/domain/find-free-gov";
 import {
@@ -129,6 +130,8 @@ export type FindNextCheckOrchestratorOk = {
   freeEvidenceNote: string | null;
   /** Honest MMY sample coverage vs full listing inventory (never claims fleet-wide clearance). */
   riskCoverage: ReturnType<typeof riskCoverageHonesty>;
+  /** Per-tool free MMY progress — allowlist continuation signal. */
+  freeGovCoverage: ReturnType<typeof freeGovToolCoverage>;
   /** Ordinary UI auto-continues when continue=true (no hidden step quota). */
   loop: FindNextCheckLoopDisposition;
 };
@@ -215,6 +218,7 @@ function publicResultPayload(ok: FindNextCheckOrchestratorOk): string {
     freeGovReceipts: ok.freeGovReceipts,
     freeEvidenceNote: ok.freeEvidenceNote,
     riskCoverage: ok.riskCoverage,
+    freeGovCoverage: ok.freeGovCoverage,
     loop: ok.loop,
     proofs: ok.proofs,
   });
@@ -283,6 +287,7 @@ export async function runFindNextCheckOrchestrator(
 
   try {
     const priorReceipts = ctx.freeGovReceipts ?? [];
+    const priorCoverage = freeGovToolCoverage(ctx.listings, priorReceipts);
     const live = await runFindNextCheckLive(
       {
         need: ctx.need,
@@ -290,6 +295,7 @@ export async function runFindNextCheckOrchestrator(
         refine: ctx.refine,
         appliedCheckIds: ctx.appliedCheckIds,
         freeGovBrief: freeGovReceiptsBrief(priorReceipts),
+        freeGovCoverage: priorCoverage,
       },
       {
         servKey: deps.servKey,
@@ -349,11 +355,14 @@ export async function runFindNextCheckOrchestrator(
       const executed = await executeFindFreeGovCheck({
         checkId: live.chosenId,
         listings: listingsAfter,
+        priorReceipts,
         gov: deps.freeGovPort,
       });
       if (executed) {
         // Dedup by checkId+MMY so cached re-runs cannot append duplicate receipts / fake cycles.
-        freeGovReceipts = mergeFreeGovReceiptsByMmy(priorReceipts, executed.receipts);
+        if (executed.receipts.length > 0) {
+          freeGovReceipts = mergeFreeGovReceiptsByMmy(priorReceipts, executed.receipts);
+        }
         freeEvidenceNote = executed.note;
         live.replan = {
           ...live.replan,
@@ -383,6 +392,7 @@ export async function runFindNextCheckOrchestrator(
     const listingsHaveVin = updated.listings.some(
       (l) => typeof l.vin === "string" && l.vin.trim().length >= 11,
     );
+    const coverageAfter = freeGovToolCoverage(updated.listings, freeGovReceipts);
     const remainingProposed = proposeFindNextChecks({
       need: updated.need,
       softGaps,
@@ -391,6 +401,7 @@ export async function runFindNextCheckOrchestrator(
       emptyInventory: updated.listings.length === 0,
       appliedCheckIds: appliedNext,
       listingsHaveVin,
+      freeGovCoverage: coverageAfter,
     });
     const remainingActionableCount = countRemainingAutomaticChecks(
       remainingProposed.map((c) => c.id),
@@ -451,6 +462,7 @@ export async function runFindNextCheckOrchestrator(
       freeGovReceipts,
       freeEvidenceNote,
       riskCoverage,
+      freeGovCoverage: coverageAfter,
       loop,
     };
 

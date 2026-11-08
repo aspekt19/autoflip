@@ -264,10 +264,11 @@ export function riskStatusForModelFamily(
     return {
       status: byMmy.size > 0 ? "unchecked_mmy" : "unknown_needs_inspection",
       facts,
-      outstandingChecks: byMmy.size > 0 ? [] : ["free_gov_recalls"],
+      // Unchecked MMY is a valid free path even when other models already have sample evidence.
+      outstandingChecks: ["free_gov_recalls", "free_gov_safety"],
       whyBits:
         byMmy.size > 0
-          ? ["this make/model year span was not in the free-gov MMY sample"]
+          ? ["this make/model year span was not in the free-gov MMY sample — free checks still available"]
           : [],
       unknowns: [
         "condition/history unknown on Find cards",
@@ -325,6 +326,7 @@ export function riskStatusForModelFamily(
     unknowns.push(
       `${uncheckedInSpan} listing year(s) in this model family unchecked by free-gov sample (checked ${checkedInSpan})`,
     );
+    outstandingChecks.push("free_gov_recalls");
   }
 
   unknowns.push("condition/history unknown on Find cards");
