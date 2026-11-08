@@ -31,6 +31,9 @@ function collectMoney(report: ComputedReport): number[] {
     pushNumber(values, report.flip.marginUsd);
     pushNumber(values, report.flip.targetBuyUsd);
   }
+  // Shopper mandate figures SERV may honestly restate (budget / profit target).
+  pushNumber(values, report.mandate?.budgetUsd ?? null);
+  pushNumber(values, report.mandate?.targetProfitUsd ?? null);
   for (const comp of report.comps) {
     pushNumber(values, comp.priceUsd);
     pushNumber(values, comp.adjustedPriceUsd);
@@ -127,6 +130,8 @@ function allowlistFacts(report: ComputedReport): string {
     distanceToSearchZipMiles: report.distanceToSearchZipMiles,
     reasons: report.reasons,
     dataNotes: report.dataNotes,
+    mandate: report.mandate ?? null,
+    decisionAction: report.decision?.action ?? null,
     /**
      * Percent points, including the one-decimal forms template copy prints
      * (e.g. -4.7 from -4.674…), so bare-token checks match shopper prose.
@@ -174,9 +179,19 @@ export function auditExplanation(
   }
 
   // SERV explains; it must not re-verdict a hard negative as a buy.
+  // needs_inspection maps to insufficient_data — keep the guard, but do not treat
+  // cautionary "before you buy / before purchase" as an affirmative buy recommendation.
   if (report.verdict === "walk_away" || report.verdict === "insufficient_data" || report.openParkIt) {
-    const buyish = /\b(buy(?:\s+it)?|purchase|good\s+deal|worth\s+buying)\b/i.test(text);
-    const negated = /\b(do\s+not\s+buy|don't\s+buy|not\s+a\s+buy|not\s+worth\s+buying|skip|pass|walk\s+away)\b/i.test(text);
+    const scrubbed = text
+      .replace(/\bbefore\s+(?:you\s+|any\s+)?(?:buy(?:ing)?|purchase)\b/gi, " ")
+      .replace(/\buntil\s+(?:you\s+)?(?:buy(?:ing)?|purchase)\b/gi, " ")
+      .replace(/\b(do\s+not|don't|never)\s+buy(?:\s+it)?\b/gi, " ")
+      .replace(/\bnot\s+(?:a\s+)?(?:buy|worth\s+buying)\b/gi, " ");
+    const buyish = /\b(buy(?:\s+it)?|purchase|good\s+deal|worth\s+buying)\b/i.test(scrubbed);
+    const negated =
+      /\b(do\s+not\s+buy|don't\s+buy|not\s+a\s+buy|not\s+worth\s+buying|skip|pass|walk\s+away|needs?\s+inspection)\b/i.test(
+        text,
+      );
     if (buyish && !negated) offenders.push("buy_language_on_negative_verdict");
   }
 

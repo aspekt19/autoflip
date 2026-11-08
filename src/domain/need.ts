@@ -372,7 +372,7 @@ export function explicitNeedFromText(text: string, mode: "personal" | "flip"): S
   const note = text.trim().slice(0, 500);
   const preferredMakes = makesFromText(note);
   const preferredModels = preferredModelsFromText(note);
-  const openToOtherMakes = preferredMakes.length === 0 || openToOtherMakesFromText(note);
+  const openToOtherMakes = preferOpenToOtherMakes(note, preferredMakes);
   return {
     ...emptyNeed(mode),
     useCase: useCaseFromText(text),
@@ -430,10 +430,39 @@ export function makesFromText(text: string): string[] {
   return uniqueMakes(hits.map((hit) => hit.make));
 }
 
+/**
+ * Explicit openness. Named models without this phrase are still preferences
+ * (see preferOpenToOtherMakes) — not silent hard exclusions.
+ */
 export function openToOtherMakesFromText(text: string): boolean {
   return /\bopen to (?:other|others|any|anything)\b|\bother options\b|\bany (?:make|brand)\b|\bno (?:strong )?(?:make |brand )?preference\b/i.test(
     text,
   );
+}
+
+/** Explicit closed mandate — only then treat named makes as hard exclusions. */
+export function closedToOtherMakesFromText(text: string): boolean {
+  return (
+    /\bnot interested in other (?:makes?|brands?|options?|models?)\b/i.test(text) ||
+    /\b(?:only|just)\s+(?:a\s+)?(?:honda|toyota|mazda|hyundai|kia|subaru|ford|chevrolet|chevy|nissan|volkswagen|vw|bmw|mercedes|lexus|acura|jeep|gmc|ram|dodge|chrysler|buick|cadillac|volvo|audi|mitsubishi|mini|tesla)\b/i.test(
+      text,
+    ) ||
+    /\bno other (?:makes?|brands?|options?)\b/i.test(text) ||
+    /\bmust be (?:a\s+)?(?:honda|toyota|mazda|hyundai|kia)\b/i.test(text) ||
+    /\b(?:stick|limit|restrict)(?:ed|ing)?\s+to\s+(?:these\s+)?(?:makes?|brands?|models?)\b/i.test(text)
+  );
+}
+
+/**
+ * Named makes/models are preferences by default.
+ * Closed only when the note explicitly excludes other makes.
+ * (t310 scenario2: "looking at CR-V, Tucson, Sportage" must not silently drop other makes.)
+ */
+export function preferOpenToOtherMakes(note: string, preferredMakes: string[]): boolean {
+  if (preferredMakes.length === 0) return true;
+  if (closedToOtherMakesFromText(note)) return false;
+  if (openToOtherMakesFromText(note)) return true;
+  return true;
 }
 
 /** Models the shopper actually named (CX-5, RAV4, …). */
@@ -586,21 +615,26 @@ export function softPrefGapsFromText(text: string): SoftPrefGap[] {
   }
   if (
     /\b(hidden problems?|vehicle history|accident history|clean (?:carfax|title)|no accidents?)\b/i.test(t) ||
-    /\bdon'?t want to buy a car with hidden\b/i.test(t)
+    /\bdon'?t want to buy a car with hidden\b/i.test(t) ||
+    /\bgood condition\b/i.test(t)
   ) {
     gaps.push({
       id: "history",
-      mentioned: "hidden problems / vehicle history",
+      mentioned: "condition / vehicle history",
       honesty:
-        "Find listings are not a vehicle-history check. Title brands, accidents, and odometer brands need a full report plus an NMVTIS-approved history report before purchase.",
+        "Find listings are not a vehicle-history or condition check. Title brands, accidents, and odometer brands need a full report plus an NMVTIS-approved history report before purchase.",
     });
   }
-  if (/\b(fuel economy|mpg|cheap(?:er)? to (?:run|maintain)|not too expensive to maintain|running costs?)\b/i.test(t)) {
+  if (
+    /\b(fuel economy|mpg|cheap(?:er)? to (?:run|maintain)|not too expensive to maintain|reasonably cheap to run|running costs?)\b/i.test(
+      t,
+    )
+  ) {
     gaps.push({
       id: "fuel_or_running_cost",
       mentioned: "running cost / fuel economy",
       honesty:
-        "Find does not rank ownership cost or MPG. EPA fuel economy appears only when a full report gets a usable FuelEconomy.gov match — otherwise it stays unavailable.",
+        "Find does not rank ownership cost or MPG, and there is no grounded TCO or model-to-model cost comparison yet. EPA fuel economy appears only when a full report gets a usable FuelEconomy.gov match — otherwise it stays unavailable.",
     });
   }
   return gaps;
