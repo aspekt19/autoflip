@@ -130,9 +130,12 @@ describe("find risk evidence (structured shapes)", () => {
     expect(facts.vinOpenRecalls).toBeNull();
 
     const need = {
-      ...explicitNeedFromText("SUV under 20k, prefer good condition", "personal"),
+      ...explicitNeedFromText("SUV around fifteen thousand, prefer good condition", "personal"),
       budgetKnown: true,
       budgetUsd: 20_000,
+      milesMax: null,
+      milesCapResolved: true,
+      yearMin: null,
       conditionPriority: "inspection_first" as const,
     };
     const listings = [
@@ -144,15 +147,18 @@ describe("find risk evidence (structured shapes)", () => {
     expect(short).toHaveLength(1);
     expect(short[0]!.conditionStatus).toBe("mmy_park_outside_flag");
     expect(short[0]!.why).toMatch(/parkOutside/i);
-    expect(short[0]!.why).not.toMatch(/do-not-drive|parkIt campaign/i);
+    expect(short[0]!.why).toMatch(/not a do-not-drive\/parkIt claim/i);
+    expect(short[0]!.conditionStatus).not.toBe("mmy_park_it_investigate");
     expect(short[0]!.unknowns.some((u) => /parkOutside ≠ parkIt/i.test(u))).toBe(true);
   });
 
   it("unknown / no VIN / unchecked MMY stays unknown — not cleared", () => {
     const need = {
-      ...explicitNeedFromText("family SUV under 15k, avoid hidden problems", "personal"),
+      ...explicitNeedFromText("family SUV around fifteen thousand, avoid hidden problems", "personal"),
       budgetKnown: true,
       budgetUsd: 15_000,
+      milesMax: null,
+      milesCapResolved: true,
       yearMin: 2014,
     };
     const listings = [
@@ -173,9 +179,11 @@ describe("find risk evidence (structured shapes)", () => {
 
   it("complaints-only does not reject / drop shortlist", () => {
     const need = {
-      ...explicitNeedFromText("crossover around 15k", "personal"),
+      ...explicitNeedFromText("crossover around fifteen thousand", "personal"),
       budgetKnown: true,
       budgetUsd: 16_000,
+      milesMax: null,
+      milesCapResolved: true,
     };
     const listings = [
       { make: "Honda", model: "CR-V", year: 2015, priceUsd: 11_500, miles: 88_000 },
@@ -196,14 +204,17 @@ describe("find risk evidence (structured shapes)", () => {
     expect(short).toHaveLength(1);
     expect(short[0]!.conditionStatus).toBe("mmy_complaints_only");
     expect(short[0]!.why).toMatch(/allegations|complaints/i);
-    expect(short[0]!.why).not.toMatch(/reject|walk.?away|do-not-drive/i);
+    expect(short[0]!.why).not.toMatch(/walk.?away|do-not-drive/i);
+    expect(short[0]!.why).toMatch(/not a reject by itself/i);
   });
 
   it("parkIt escalates to conditional investigate with outstanding checks (not auto-buy)", () => {
     const need = {
-      ...explicitNeedFromText("SUV under 20k, condition first", "personal"),
+      ...explicitNeedFromText("SUV around twenty thousand, condition first", "personal"),
       budgetKnown: true,
       budgetUsd: 20_000,
+      milesMax: null,
+      milesCapResolved: true,
       conditionPriority: "inspection_first" as const,
     };
     const short = buildGroundedShortlist(
