@@ -4,8 +4,8 @@
 
 | Surface | Cost |
 | --- | --- |
-| **Find / search** (`POST /api/match`) | **Always 1 report credit** for a new Show-cars search. Owned next-check rematches (`searchContextToken`) do **not** debit again. |
-| **Vehicle CHECK** (VIN or shopper-own listing URL → full report) | **3 free / verified account / UTC calendar month**, then **1 report credit** each. |
+| **Find / search** (`POST /api/match`) | **Verified Auth.js account required** + **1 report credit** for a new Show-cars search. Anonymous `af_uid` cannot debit. Owned next-check rematches (`searchContextToken`) do **not** debit again. |
+| **Vehicle CHECK** (VIN or shopper-own listing URL → full report) | **3 free / verified account / UTC calendar month**, then **1 report credit** each. Free key is **VIN-scoped** (not mode): personal↔flip on the same VIN burns **one** free slot; a second analysis after commit uses credits (`already_completed`). |
 | **Price preview** (`POST /api/check`) | Requires verified sign-in; **does not** spend a credit or burn a free check. |
 | **Find → full analysis** | Always **1 report credit** (existing claim / idempotency fences). Not a free check. |
 | **Find next-check / free-gov rematches** | **Not** user checks; **no** free-check burn; **no** SERV decision-count cap. |
@@ -16,8 +16,8 @@ Canonical credit packs remain in `CREDIT_PACKS` (`src/domain/assumptions.ts`) �
 ## Auth.js (ported from PR54 — not blind-merged)
 
 - **Auth.js (`next-auth` v5)** with Google OAuth + passwordless email (Nodemailer), database sessions via a **KV adapter** on the existing Upstash/file store (no new paid DB).
-- Canonical ledger owner = Auth.js `user.id` (UUID) when signed in; anonymous cookie remains for Find credit spend / legacy browser credits.
-- **Checkout / billing portal / vehicle checks require** a verified signed-in session. Missing auth config → **503 fail-closed**.
+- Canonical ledger owner = Auth.js `user.id` (UUID) when signed in. Anonymous `af_uid` is **not** a Find or check spend path (legacy cookie balances migrate via claim only).
+- **Checkout / billing portal / vehicle checks / billable Find require** a verified signed-in session. Missing auth config → **503 fail-closed**.
 - **Migration**: `POST /api/account/claim` with `mode=browser` (httpOnly `af_uid` only) or `mode=purchase` (Stripe paid session + receipt email matches verified account email).
 - **`AUTH_EMAIL_MODE=test` is unavailable in production** (hard refuse even if set).
 - **Hosted money/auth paths require Upstash**; file/memory fallback is refused on Vercel/production.
@@ -27,6 +27,8 @@ Canonical credit packs remain in `CREDIT_PACKS` (`src/domain/assumptions.ts`) �
 | Attack | Mitigation |
 | --- | --- |
 | Cookie clear to reset free checks | Free-check keys are Auth.js account ids only; anonymous UUID cannot open checks |
+| Anon cookie Find debit / id spoof | `requireVerifiedAccountForFind` fail-closed; rematch tokens owned by verified account only |
+| Dual free burn personal↔flip same VIN | Free idempotency key omits mode; committed VIN → `already_completed` → paid |
 | Arbitrary UUID claim | Browser claim uses **httpOnly `af_uid` only**; body ids → 400 |
 | Concurrent free-check races | Per-user-month lock + reserve/commit/release lifecycle |
 | Failed report double-burn | Release reservation on assemble/422/persist failure; commit only after durable save |

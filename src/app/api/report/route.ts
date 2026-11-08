@@ -190,7 +190,10 @@ export async function POST(request: Request) {
   let usedFreeCheck = false;
   if (vehicleCheckSurface && !trustedFind) {
     const month = freeCheckMonthKey();
-    freeCheckKey = `free-check:report:${id}:${month}:${vinKey}:${mode}`;
+    // VIN-scoped (not mode-scoped): personal↔flip on the same VIN must not burn
+    // two free slots. A completed free check for this VIN falls through to credits
+    // for a genuine second analysis (already_completed) without another free burn.
+    freeCheckKey = `free-check:report:${id}:${month}:${vinKey}`;
     const reserved = await reserveFreeCheck(getKv(), id, freeCheckKey);
     if (reserved.ok) {
       usedFreeCheck = true;
@@ -207,7 +210,7 @@ export async function POST(request: Request) {
         { status: 503 },
       );
     }
-    // exhausted → fall through to paid credits
+    // exhausted | already_completed → fall through to paid credits (no second free slot)
   }
 
   if (!usedFreeCheck && (await balanceOf(id)) < 1) {

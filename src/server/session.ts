@@ -142,56 +142,67 @@ export async function existingLedgerOwnerId(): Promise<string | null> {
 type VerifiedAccessOk = { ok: true; id: string; email: string };
 type VerifiedAccessErr = { ok: false; response: Response };
 
+type VerifiedPurpose = "checkout" | "vehicle_check" | "find_search";
+
+function unverifiedMessages(purpose: VerifiedPurpose): {
+  unconfigured: string;
+  authRequired: string;
+  emailRequired: string;
+  emailUnverified: string;
+} {
+  if (purpose === "vehicle_check") {
+    return {
+      unconfigured:
+        "Sign-in is required before vehicle checks, but authentication is not configured on this deploy.",
+      authRequired: "Sign in with Google or email before checking a VIN or listing URL.",
+      emailRequired: "Your account needs a verified email before vehicle checks.",
+      emailUnverified:
+        "Verify your email before vehicle checks. Unverified sessions cannot use the free monthly allotment or paid checks.",
+    };
+  }
+  if (purpose === "find_search") {
+    return {
+      unconfigured:
+        "Sign-in is required before Find search, but authentication is not configured on this deploy.",
+      authRequired: "Sign in with Google or email before searching dealer listings. Find costs 1 report credit.",
+      emailRequired: "Your account needs a verified email before Find search.",
+      emailUnverified:
+        "Verify your email before Find search. Anonymous browser cookies cannot spend Find credits.",
+    };
+  }
+  return {
+    unconfigured:
+      "Sign-in is required before checkout, but authentication is not configured on this deploy.",
+    authRequired: "Sign in with Google or email before buying credits or a Radar plan.",
+    emailRequired: "Your account needs a verified email before checkout.",
+    emailUnverified: "Verify your email before checkout. Unverified sessions cannot purchase.",
+  };
+}
+
 async function requireVerifiedSignedIn(
-  purpose: "checkout" | "vehicle_check",
+  purpose: VerifiedPurpose,
 ): Promise<VerifiedAccessOk | VerifiedAccessErr> {
   const store = requireMoneyAuthStore();
   if (!store.ok) return store;
+  const copy = unverifiedMessages(purpose);
 
   if (!authIsConfigured()) {
     return {
       ok: false,
-      response: Response.json(
-        {
-          error: "auth_unconfigured",
-          message:
-            purpose === "vehicle_check"
-              ? "Sign-in is required before vehicle checks, but authentication is not configured on this deploy."
-              : "Sign-in is required before checkout, but authentication is not configured on this deploy.",
-        },
-        { status: 503 },
-      ),
+      response: Response.json({ error: "auth_unconfigured", message: copy.unconfigured }, { status: 503 }),
     };
   }
   const session = await authenticatedSession();
   if (!session) {
     return {
       ok: false,
-      response: Response.json(
-        {
-          error: "auth_required",
-          message:
-            purpose === "vehicle_check"
-              ? "Sign in with Google or email before checking a VIN or listing URL."
-              : "Sign in with Google or email before buying credits or a Radar plan.",
-        },
-        { status: 401 },
-      ),
+      response: Response.json({ error: "auth_required", message: copy.authRequired }, { status: 401 }),
     };
   }
   if (!session.email) {
     return {
       ok: false,
-      response: Response.json(
-        {
-          error: "email_required",
-          message:
-            purpose === "vehicle_check"
-              ? "Your account needs a verified email before vehicle checks."
-              : "Your account needs a verified email before checkout.",
-        },
-        { status: 403 },
-      ),
+      response: Response.json({ error: "email_required", message: copy.emailRequired }, { status: 403 }),
     };
   }
   // Deny sessions that never completed email verification (defense in depth).
@@ -200,16 +211,7 @@ async function requireVerifiedSignedIn(
   if (!session.emailVerified) {
     return {
       ok: false,
-      response: Response.json(
-        {
-          error: "email_unverified",
-          message:
-            purpose === "vehicle_check"
-              ? "Verify your email before vehicle checks. Unverified sessions cannot use the free monthly allotment or paid checks."
-              : "Verify your email before checkout. Unverified sessions cannot purchase.",
-        },
-        { status: 403 },
-      ),
+      response: Response.json({ error: "email_unverified", message: copy.emailUnverified }, { status: 403 }),
     };
   }
   await ensureAccount(session.id);
@@ -231,4 +233,12 @@ export async function requirePaidAccess(): Promise<VerifiedAccessOk | VerifiedAc
  */
 export async function requireVerifiedAccountForChecks(): Promise<VerifiedAccessOk | VerifiedAccessErr> {
   return requireVerifiedSignedIn("vehicle_check");
+}
+
+/**
+ * Billable Find / search requires the same verified Auth.js account as vehicle checks.
+ * Anonymous af_uid cannot debit legacy cookie balances or spoof Find ownership.
+ */
+export async function requireVerifiedAccountForFind(): Promise<VerifiedAccessOk | VerifiedAccessErr> {
+  return requireVerifiedSignedIn("find_search");
 }

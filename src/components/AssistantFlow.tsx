@@ -698,6 +698,18 @@ function AssistantFlow({
             servNextCheckEnabled?: boolean;
             error?: string;
           };
+          if (
+            matchResponse.status === 401 ||
+            (matchResponse.status === 403 &&
+              (matchBody.error === "auth_required" ||
+                matchBody.error === "auth_unconfigured" ||
+                matchBody.error === "email_unverified" ||
+                matchBody.error === "email_required"))
+          ) {
+            rememberFlow();
+            router.push(`/login?callbackUrl=${encodeURIComponent("/find")}`);
+            return;
+          }
           if (matchResponse.status === 403 && matchBody.error === "credits_required") {
             rememberFlow();
             router.push("/credits?need=1&return=%2Ffind");
@@ -798,6 +810,18 @@ function AssistantFlow({
         servNextCheckEnabled?: boolean;
         error?: string;
       };
+      if (
+        response.status === 401 ||
+        (response.status === 403 &&
+          (body.error === "auth_required" ||
+            body.error === "auth_unconfigured" ||
+            body.error === "email_unverified" ||
+            body.error === "email_required"))
+      ) {
+        rememberFlow();
+        router.push(`/login?callbackUrl=${encodeURIComponent("/find")}`);
+        return;
+      }
       if (response.status === 403 && body.error === "credits_required") {
         rememberFlow();
         router.push("/credits?need=1&return=%2Ffind");

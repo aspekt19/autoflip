@@ -93,11 +93,19 @@ function reservedOrCommittedCount(record: MonthRecord): number {
 
 export type FreeCheckReserveResult =
   | { ok: true; kind: "free"; replay: boolean; view: FreeCheckQuotaView }
-  | { ok: false; reason: "exhausted" | "lock_busy"; view: FreeCheckQuotaView };
+  | {
+      ok: false;
+      reason: "exhausted" | "lock_busy" | "already_completed";
+      view: FreeCheckQuotaView;
+    };
 
 /**
  * Reserve one free monthly check slot for a verified account.
- * Idempotent: repeating the same idempotencyKey returns the prior reservation/commit.
+ *
+ * Idempotent while `reserved` (retry after technical failure).
+ * Once `committed`, the same key returns `already_completed` so a second
+ * mode/analysis for the same VIN does not burn another free slot and falls
+ * through to paid credits (genuine fresh-check cost).
  */
 export async function reserveFreeCheck(
   kv: Kv,
@@ -109,7 +117,14 @@ export async function reserveFreeCheck(
   const result = await withUserMonthLock(kv, userId, month, async () => {
     const record = await read(kv, userId, month);
     const existing = record.events[idempotencyKey];
-    if (existing) {
+    if (existing?.status === "committed") {
+      return {
+        ok: false as const,
+        reason: "already_completed" as const,
+        view: freeCheckQuotaView(record.used, now),
+      };
+    }
+    if (existing?.status === "reserved") {
       return {
         ok: true as const,
         kind: "free" as const,

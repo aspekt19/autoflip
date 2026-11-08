@@ -15,27 +15,31 @@ import {
   releaseFindSearchCredit,
   reserveFindSearchCredit,
 } from "@/server/find-search-credit";
-import { ledgerOwnerId } from "@/server/session";
+import { requireVerifiedAccountForFind } from "@/server/session";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 
 /**
  * Find / search — always paid (1 internal credit) for a new Show-cars search.
- * Owned next-check rematches reuse searchContextToken and do not debit again
- * (internal rematches are not separate user checks / not a second Find purchase).
+ * Requires the same verified Auth.js account as vehicle checks — anonymous
+ * af_uid cookies cannot debit legacy balances or mint Find ownership.
+ * Owned next-check rematches reuse searchContextToken and do not debit again.
  * Free monthly vehicle-check allotment never applies here.
  */
 export async function POST(request: Request) {
+  const access = await requireVerifiedAccountForFind();
+  if (!access.ok) return access.response;
+  const id = access.id;
+
   const body = (await request.json().catch(() => null)) as {
     need?: unknown;
     refine?: { make?: string; model?: string; yearMin?: number; yearMax?: number };
     searchIdempotencyKey?: string;
-    /** When set and owned, rematch continues a paid search without a second debit. */
+    /** When set and owned by this verified account, rematch continues without a second debit. */
     searchContextToken?: string;
   } | null;
 
-  const id = await ledgerOwnerId();
   const kv = getKv();
 
   let continuation = false;

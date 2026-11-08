@@ -224,4 +224,46 @@ describe("free check quota on /api/report (check surface)", () => {
     const body = (await denied.json()) as { error?: string };
     expect(body.error).toBe("credits_required");
   });
+
+  it("same VIN personal then flip burns one free slot then requires credit (no second free)", async () => {
+    await creditGrant(kvHolder.kv, ACCOUNT, 1, "seed-mode-switch");
+    assemble.mockResolvedValue(okReport("r-personal"));
+    const personal = await POST(
+      req({
+        surface: "check",
+        mode: "personal",
+        vin: VIN,
+        askingPriceUsd: 12000,
+        miles: 40000,
+        zip: "33101",
+      }),
+    );
+    expect(personal.status).toBe(200);
+    const personalBody = (await personal.json()) as { freeCheck?: boolean; charged?: boolean };
+    expect(personalBody.freeCheck).toBe(true);
+    expect(personalBody.charged).toBe(false);
+    expect((await readFreeCheckQuota(kvHolder.kv, ACCOUNT)).used).toBe(1);
+
+    // Distinct report id so persist path is a fresh analysis (mode switch).
+    assemble.mockResolvedValue(okReport("r-flip"));
+    const flip = await POST(
+      req({
+        surface: "check",
+        mode: "flip",
+        vin: VIN,
+        askingPriceUsd: 12000,
+        miles: 40000,
+        zip: "33101",
+        repairAbility: "minor",
+        targetProfitUsd: 1500,
+      }),
+    );
+    expect(flip.status).toBe(200);
+    const flipBody = (await flip.json()) as { freeCheck?: boolean; charged?: boolean; balance?: number };
+    expect(flipBody.freeCheck).toBe(false);
+    expect(flipBody.charged).toBe(true);
+    // Still only one free slot for this VIN — second analysis paid with credit.
+    expect((await readFreeCheckQuota(kvHolder.kv, ACCOUNT)).used).toBe(1);
+    expect(flipBody.balance).toBe(0);
+  });
 });

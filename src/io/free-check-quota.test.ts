@@ -32,7 +32,7 @@ describe("free vehicle-check monthly quota", () => {
     expect(view.resetsAt).toBe("2026-12-01T00:00:00.000Z");
   });
 
-  it("is idempotent on reserve/commit and releases failed reservations", async () => {
+  it("is idempotent on reserve while open, releases failures, and blocks re-free after commit", async () => {
     const kv = new MemoryKv();
     const now = new Date("2026-11-09T12:00:00.000Z");
     const a = await reserveFreeCheck(kv, USER, "same", now);
@@ -50,6 +50,12 @@ describe("free vehicle-check monthly quota", () => {
     await commitFreeCheck(kv, USER, "other", now);
     const noUndo = await releaseFreeCheck(kv, USER, "other", now);
     expect(noUndo.released).toBe(false);
+    expect((await readFreeCheckQuota(kv, USER, now)).used).toBe(1);
+
+    // Same key after commit → already_completed (fall through to paid; no second free burn).
+    const reFree = await reserveFreeCheck(kv, USER, "other", now);
+    expect(reFree.ok).toBe(false);
+    if (!reFree.ok) expect(reFree.reason).toBe("already_completed");
     expect((await readFreeCheckQuota(kv, USER, now)).used).toBe(1);
   });
 
