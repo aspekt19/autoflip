@@ -2,7 +2,9 @@
 
 Ordinary NL Find can now autonomously run **allowlisted free public NHTSA vehicle checks** (reuse Scout free-gov: recalls/complaints, vPIC, NCAP safety) when condition / hidden-risk matters — **before** settling on `compare_observed_asks` → `[unchanged_state]`.
 
-Server owns receipts on search context → evidence fingerprint change → auto-continue next SERV (no manual Apply). No Report credit. No NMVTIS/Auto.dev new spend. Missing VIN/history stays unknown; make/model recalls ≠ VIN-open status; vPIC ≠ clean history.
+Also fixes Scenario2 Budget wizard **Continue silent no-op** when shopper chooses **No year floor — use budget band** (`any`): null floors are no longer treated as unanswered.
+
+Server owns free-gov receipts on search context → evidence fingerprint change → auto-continue next SERV (no manual Apply). No Report credit. No NMVTIS/Auto.dev new spend. Missing VIN/history stays unknown; make/model recalls ≠ VIN-open status; vPIC ≠ clean history.
 
 ## Pins
 
@@ -15,7 +17,11 @@ Server owns receipts on search context → evidence fingerprint change → auto-
 | Sonnet/GPT | first-class via `SERV_PROFILE_MODEL_FIND_NEXT_CHECK` |
 | FuelEconomy free | still unsupported (Scout rights hold) |
 
-## Root architecture
+## Root cause — Continue no-op (Scenario2)
+
+`followUps()` treated `yearMin == null && yearMax == null` as **unanswered** even after the shopper picked **No year floor** (`value=any`). `applyFollowUp("age","any")` left null floors with no resolution flag → age prompt could not clear; sequential `/api/need` follow-up posts also dropped prior resolutions. Fix: `yearBandResolved` / `milesCapResolved` distinguish explicit no-floor/no-cap from unanswered; Continue applies answers locally first, syncs once with preserved fields, surfaces errors next to the wizard (no forced arbitrary year).
+
+## Root architecture (free-gov)
 
 ```
 NL Find → /api/match (mint searchContextToken + listings)
@@ -28,32 +34,27 @@ NL Find → /api/match (mint searchContextToken + listings)
        → UI auto-continues → next SERV with freeGovEvidence facts
 ```
 
-Preserve: owned context/claims/idempotence/provider-failure stop/no loop on unchanged/no artificial step quota/report-credit separation. Preferred models soft + geographic constraints untouched.
-
-Sanitized same-REAL export: `exportFindSearchContextSanitized` includes `freeGovReceipts` (no credentials/PII). Comparison plumbing did not delay free-tool integration.
+Preserve: owned context/claims/idempotence/provider-failure stop/no loop on unchanged/no artificial step quota/report-credit separation. Soft preferred models + geo untouched. Sanitized same-REAL export includes `freeGovReceipts`.
 
 ## Tests (offline — NOT live NHTSA/SERV proof)
 
-- `find-next-checks`: hidden problems → free_gov before compare; price-only path skips free
-- `find-free-gov`: candidate select + mock execute honesty bounds
-- `find-next-check-loop`: freeGov fingerprint → continue
-- `find-path` vertical slice: free before compare; history still proposed
-- orchestrator + route: free_gov_recalls receipts → `evidence_changed_replan` (mock port / fetch labeled offline)
-- flip shortlist: Fable blocked on `find_next_check` profile resolve
+- Scenario2: `any` → yearBandResolved, age prompt clears, no forced year, no `clarify_year_band` re-offer
+- `find-next-checks`: hidden problems → free_gov before compare; price-only skips free
+- `find-free-gov` / loop / path / orchestrator / route free_gov receipts → `evidence_changed_replan`
+- Fable blocked on `find_next_check` profile resolve
 
 ## CI
 
-Parent opens PR → `pull_request` workflows. Agent made **no hosted/provider/credit calls**.
+Parent opens/updates PR #80 → `pull_request` workflows. Agent made **no hosted/provider/credit calls**.
 
 ## Remaining gaps (GAP ≠ completed goal)
 
-- Parent Scenario2 browser defects (in progress) — forward when ready
+- Parent Scenario2 browser retest after publish (this Continue fix + free-gov)
 - Independent review before merge; do not raise ACCEPT as completion
 - Live NHTSA + keyed SERV next-check on ordinary Find still parent sole live caller
 - FuelEconomy remains unavailable on free surface
 - Paid NMVTIS / Report history still user-action only (correct)
-- Comparison harness remains sanitized export only — no fixture-echo claimed live
 
 ## Honesty
 
-Offline mocks are **NOT live proof**. Free gov ≠ title clearance. No invented cars/history/prices.
+Offline mocks are **NOT live proof**. Free gov ≠ title clearance. No invented cars/history/prices. No forced year for explicit no-floor.

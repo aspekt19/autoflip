@@ -1,11 +1,24 @@
 import { understandNeed } from "@/server/understand-need";
-import type { StructuredNeed } from "@/domain/need";
+import type { FollowUp, StructuredNeed } from "@/domain/need";
 
 export const dynamic = "force-dynamic";
+
+const FOLLOW_UP_IDS: ReadonlySet<FollowUp["id"]> = new Set([
+  "zip",
+  "use",
+  "repair",
+  "profit",
+  "cash",
+  "age",
+  "miles",
+  "condition",
+]);
 
 export async function POST(request: Request) {
   const body = (await request.json().catch(() => null)) as Record<string, unknown> | null;
   if (!body) return Response.json({ error: "invalid_json", message: "Send JSON." }, { status: 400 });
+  const followRaw = body.followUp && typeof body.followUp === "object" ? (body.followUp as { id?: unknown; value?: unknown }) : null;
+  const followId = followRaw && typeof followRaw.id === "string" ? followRaw.id : "";
   const result = await understandNeed(
     {
       text: typeof body.text === "string" ? body.text : "",
@@ -25,12 +38,23 @@ export async function POST(request: Request) {
       repairAbility: isRepair(body.repairAbility) ? body.repairAbility : undefined,
       useCase: isUse(body.useCase) ? body.useCase : undefined,
       targetProfitUsd: typeof body.targetProfitUsd === "number" ? body.targetProfitUsd : undefined,
+      yearMin:
+        body.yearMin === null ? null : typeof body.yearMin === "number" ? body.yearMin : undefined,
+      yearMax:
+        body.yearMax === null ? null : typeof body.yearMax === "number" ? body.yearMax : undefined,
+      yearBandResolved: typeof body.yearBandResolved === "boolean" ? body.yearBandResolved : undefined,
+      milesMax:
+        body.milesMax === null ? null : typeof body.milesMax === "number" ? body.milesMax : undefined,
+      milesCapResolved: typeof body.milesCapResolved === "boolean" ? body.milesCapResolved : undefined,
+      conditionPriority:
+        body.conditionPriority === "inspection_first" ||
+        body.conditionPriority === "price_ok" ||
+        body.conditionPriority === "unspecified"
+          ? body.conditionPriority
+          : undefined,
       followUp:
-        body.followUp && typeof body.followUp === "object"
-          ? {
-              id: (body.followUp as { id?: StructuredNeed["useCase"] }).id as "zip" | "use" | "repair" | "profit",
-              value: String((body.followUp as { value?: unknown }).value ?? ""),
-            }
+        followRaw && FOLLOW_UP_IDS.has(followId as FollowUp["id"])
+          ? { id: followId as FollowUp["id"], value: String(followRaw.value ?? "") }
           : undefined,
     },
     {

@@ -39,6 +39,12 @@ export async function understandNeed(
     repairAbility?: StructuredNeed["repairAbility"];
     useCase?: StructuredNeed["useCase"];
     targetProfitUsd?: number | null;
+    yearMin?: number | null;
+    yearMax?: number | null;
+    yearBandResolved?: boolean;
+    milesMax?: number | null;
+    milesCapResolved?: boolean;
+    conditionPriority?: StructuredNeed["conditionPriority"];
     followUp?: { id: FollowUp["id"]; value: string };
   },
   deps: UnderstandDeps,
@@ -58,6 +64,13 @@ export async function understandNeed(
     repairAbility: body.repairAbility,
     useCase: body.useCase,
     targetProfitUsd: body.targetProfitUsd,
+    // Preserve prior clarification resolutions across sequential /api/need follow-up posts.
+    yearMin: body.yearMin,
+    yearMax: body.yearMax,
+    yearBandResolved: body.yearBandResolved,
+    milesMax: body.milesMax,
+    milesCapResolved: body.milesCapResolved,
+    conditionPriority: body.conditionPriority,
   };
 
   let source: "model" | "form" = "form";

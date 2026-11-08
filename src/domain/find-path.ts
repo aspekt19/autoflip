@@ -96,7 +96,19 @@ export function applyFindNextCheck(
   }
 
   if (id === "clarify_year_band") {
-    const next = need.yearMin == null ? { ...need, yearMin: 2015 } : need;
+    // Shopper already chose no floor (budget band) — never force an arbitrary year.
+    if (need.yearBandResolved && need.yearMin == null) {
+      return {
+        need,
+        refine,
+        note: "Year floor left open — using the budget editorial band only (no forced model year).",
+        research: false,
+      };
+    }
+    const next =
+      need.yearMin == null
+        ? { ...need, yearMin: 2015, yearBandResolved: true }
+        : { ...need, yearBandResolved: true };
     return {
       need: next,
       refine: { ...refine, yearMin: next.yearMin ?? refine.yearMin },
@@ -109,7 +121,18 @@ export function applyFindNextCheck(
   }
 
   if (id === "clarify_miles_cap") {
-    const next = need.milesMax == null ? { ...need, milesMax: 100_000 } : need;
+    if (need.milesCapResolved && need.milesMax == null) {
+      return {
+        need,
+        refine,
+        note: "Mileage left uncapped by shopper choice — no forced odometer ceiling.",
+        research: false,
+      };
+    }
+    const next =
+      need.milesMax == null
+        ? { ...need, milesMax: 100_000, milesCapResolved: true }
+        : { ...need, milesCapResolved: true };
     return {
       need: next,
       refine,

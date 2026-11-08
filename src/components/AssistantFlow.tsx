@@ -32,7 +32,15 @@ import {
   shouldAutoStartFindNextCheck,
 } from "@/domain/find-next-check-ui";
 import { buildGroundedShortlist } from "@/domain/find-path";
-import { USE_CASES, searchScopeLabel, softPrefGapsFromText, type FollowUp, type StructuredNeed } from "@/domain/need";
+import {
+  applyFollowUp,
+  followUps,
+  USE_CASES,
+  searchScopeLabel,
+  softPrefGapsFromText,
+  type FollowUp,
+  type StructuredNeed,
+} from "@/domain/need";
 import type { Mode } from "@/domain/types";
 import { isValidVin } from "@/domain/vin";
 import { MakeModelFields } from "./MakeModelFields";
@@ -397,6 +405,8 @@ function AssistantFlow({
 
   async function answerFollowUps() {
     if (!need) return;
+    setError(null);
+    // Apply every answer locally first so null/no-floor ("any") resolves before any network hop.
     let current = need;
     for (const question of questions) {
       const value = answers[question.id]?.trim();
@@ -404,23 +414,74 @@ function AssistantFlow({
         setError("Answer the question, or go back and add it to your note.");
         return;
       }
+      current = applyFollowUp(current, question.id, value);
+    }
+    // Unanswered soft prompts must not deadlock Continue; explicit no-floor must clear age.
+    const stillOpen = followUps(current);
+    if (stillOpen.length > 0) {
+      setError("Answer every clarification, or go back and add it to your note.");
+      setQuestions(stillOpen);
+      return;
+    }
+    setPending("need");
+    try {
+      // One sync round-trip carrying prior resolutions (yearBandResolved / condition / miles).
       const response = await fetch("/api/need", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ...current, text, followUp: { id: question.id, value } }),
+        body: JSON.stringify({
+          text,
+          mode: current.mode,
+          budgetUsd: current.budgetUsd,
+          budgetKnown: current.budgetKnown,
+          budgetScope: current.budgetScope,
+          zip: current.zip,
+          distanceMiles: current.distanceMiles,
+          repairAbility: current.repairAbility,
+          useCase: current.useCase,
+          targetProfitUsd: current.targetProfitUsd,
+          yearMin: current.yearMin,
+          yearMax: current.yearMax,
+          yearBandResolved: current.yearBandResolved,
+          milesMax: current.milesMax,
+          milesCapResolved: current.milesCapResolved,
+          conditionPriority: current.conditionPriority,
+        }),
       });
       const body = (await response.json()) as { need?: StructuredNeed; followUps?: FollowUp[]; message?: string };
       if (!response.ok || !body.need) {
         setError(body.message || "That answer could not be saved.");
         return;
       }
-      current = body.need;
+      // Re-apply local resolutions in case extract/overlay dropped null floors.
+      current = {
+        ...body.need,
+        yearMin: current.yearMin,
+        yearMax: current.yearMax,
+        yearBandResolved: current.yearBandResolved || body.need.yearBandResolved,
+        milesMax: current.milesMax,
+        milesCapResolved: current.milesCapResolved || body.need.milesCapResolved,
+        conditionPriority:
+          current.conditionPriority !== "unspecified"
+            ? current.conditionPriority
+            : body.need.conditionPriority,
+      };
+      if (followUps(current).length > 0) {
+        setNeed(current);
+        setQuestions(followUps(current));
+        setError("Answer every clarification, or go back and add it to your note.");
+        return;
+      }
+      setNeed(current);
+      if (current.yearMin != null) setYearMin(String(current.yearMin));
+      if (current.yearMax != null) setYearMax(String(current.yearMax));
+      setQuestions([]);
+      setStage("confirm");
+    } catch {
+      setError("The request did not finish.");
+    } finally {
+      setPending(null);
     }
-    setNeed(current);
-    if (current.yearMin != null) setYearMin(String(current.yearMin));
-    if (current.yearMax != null) setYearMax(String(current.yearMax));
-    setQuestions([]);
-    setStage("confirm");
   }
 
   /**
@@ -1199,12 +1260,17 @@ function AssistantFlow({
               ) : null}
             </div>
           ))}
+          {error ? (
+            <p className="warn" role="alert">
+              {error}
+            </p>
+          ) : null}
           <div className="btn-row">
             <button className="ghost" type="button" onClick={goBack}>
               Back
             </button>
-            <button className="action" type="submit">
-              Continue
+            <button className="action" type="submit" disabled={pending === "need"}>
+              {pending === "need" ? "Saving…" : "Continue"}
             </button>
           </div>
         </form>
@@ -1277,7 +1343,13 @@ function AssistantFlow({
               aria-describedby="miles-edit-hint"
               onChange={(event) => {
                 const amount = Number(event.target.value.replace(/,/g, ""));
-                setNeed({ ...need, milesMax: Number.isFinite(amount) && amount > 0 ? Math.round(amount) : null });
+                const next = Number.isFinite(amount) && amount > 0 ? Math.round(amount) : null;
+                setNeed({
+                  ...need,
+                  milesMax: next,
+                  // Blank on Confirm = explicit uncapped when shopper clears a prior cap.
+                  milesCapResolved: true,
+                });
               }}
             />
             <p id="miles-edit-hint" className="hint">Units are miles (odometer), not kilometers.</p>
@@ -1292,14 +1364,21 @@ function AssistantFlow({
               onChange={(event) => {
                 const year = Number(event.target.value);
                 const next = Number.isFinite(year) && year >= 1980 ? Math.round(year) : null;
-                setNeed({ ...need, yearMin: next });
+                setNeed({
+                  ...need,
+                  yearMin: next,
+                  // Blank keeps budget band; still counts as resolved so wizard does not re-ask.
+                  yearBandResolved: true,
+                });
                 setYearMin(next ? String(next) : "");
               }}
             />
             <p className="hint">
               {need.yearMin != null
                 ? `Search will use ${need.yearMin}${need.yearMax != null ? `–${need.yearMax}` : "+"} from your clarification or this field.`
-                : "Leave blank to use the budget-based editorial year band only."}
+                : need.yearBandResolved
+                  ? "No year floor — search uses the budget-based editorial year band only."
+                  : "Leave blank to use the budget-based editorial year band only."}
             </p>
           </div>
           {need.conditionPriority === "inspection_first" ? (

@@ -45,6 +45,8 @@ export type FindNextCheckInput = {
     | "distanceMiles"
     | "zip"
     | "mode"
+    | "yearBandResolved"
+    | "milesCapResolved"
   >;
   softGaps: SoftPrefGap[];
   /** Cards currently shown across groups. */
@@ -86,7 +88,12 @@ export function proposeFindNextChecks(input: FindNextCheckInput): FindNextCheck[
     });
   }
 
-  if (hasGap(input.softGaps, "age") && input.need.yearMin == null && input.need.yearMax == null) {
+  if (
+    hasGap(input.softGaps, "age") &&
+    !input.need.yearBandResolved &&
+    input.need.yearMin == null &&
+    input.need.yearMax == null
+  ) {
     out.push({
       id: "clarify_year_band",
       why: "You mentioned age without a model-year cutoff — pick a year band so search is not only the budget default.",
@@ -94,7 +101,11 @@ export function proposeFindNextChecks(input: FindNextCheckInput): FindNextCheck[
     });
   }
 
-  if (input.need.milesMax == null && (hasGap(input.softGaps, "miles") || input.emptyInventory)) {
+  if (
+    input.need.milesMax == null &&
+    !input.need.milesCapResolved &&
+    (hasGap(input.softGaps, "miles") || input.emptyInventory)
+  ) {
     out.push({
       id: "clarify_miles_cap",
       why: "No odometer cap is set. Add a maximum mileage if that matters, or leave blank to keep all odometers.",

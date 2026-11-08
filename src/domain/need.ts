@@ -63,6 +63,17 @@ export type StructuredNeed = {
    */
   yearMax: number | null;
   /**
+   * Soft “not too old” clarification resolution.
+   * Distinguishes unanswered (null floors + unresolved) from explicit “no year floor —
+   * use budget band” (null floors + resolved). Never invent a year to clear the prompt.
+   */
+  yearBandResolved: boolean;
+  /**
+   * Soft “low miles” clarification resolution.
+   * True after an explicit miles cap or explicit “no cap” — null milesMax alone is unanswered.
+   */
+  milesCapResolved: boolean;
+  /**
    * When the shopper says condition/history matters more than squeezing price.
    * Triggers inspection/history next-checks — never a fictitious condition score.
    */
@@ -107,6 +118,8 @@ export function emptyNeed(mode: "personal" | "flip" = "personal"): StructuredNee
     milesMax: null,
     yearMin: null,
     yearMax: null,
+    yearBandResolved: false,
+    milesCapResolved: false,
     conditionPriority: "unspecified",
     make: null,
     preferredMakes: [],
@@ -263,6 +276,10 @@ export function validateNeed(input: unknown): { ok: true; need: StructuredNeed }
   if (yearMin != null && yearMax != null && yearMin > yearMax) {
     issues.push({ field: "yearMin", message: "Year floor cannot be after the year ceiling." });
   }
+  // Explicit floors imply the age clarification was resolved; raw flag still honored for no-floor.
+  const yearBandResolved =
+    yearMin != null || yearMax != null || raw.yearBandResolved === true;
+  const milesCapResolved = milesMax != null || raw.milesCapResolved === true;
   const conditionPriority =
     raw.conditionPriority === "inspection_first" || raw.conditionPriority === "price_ok"
       ? raw.conditionPriority
@@ -315,6 +332,8 @@ export function validateNeed(input: unknown): { ok: true; need: StructuredNeed }
       milesMax,
       yearMin,
       yearMax,
+      yearBandResolved,
+      milesCapResolved,
       conditionPriority,
       make: makes[0] ?? null,
       preferredMakes: makes,
@@ -745,13 +764,18 @@ export function followUps(need: StructuredNeed): FollowUp[] {
   }
   const gaps = softPrefGapsFromText(need.note);
   // Progressive clarifications for material missing facts we can act on — not AWD (unenforced).
-  if (gaps.some((g) => g.id === "age") && need.yearMin == null && need.yearMax == null) {
+  if (
+    gaps.some((g) => g.id === "age") &&
+    !need.yearBandResolved &&
+    need.yearMin == null &&
+    need.yearMax == null
+  ) {
     questions.push({
       id: "age",
       prompt: "You said “not too old” without a year. What is the oldest model year you will consider?",
     });
   }
-  if (gaps.some((g) => g.id === "miles") && need.milesMax == null) {
+  if (gaps.some((g) => g.id === "miles") && !need.milesCapResolved && need.milesMax == null) {
     questions.push({
       id: "miles",
       prompt: "You mentioned low miles without a number. What maximum odometer (miles) will you accept? Leave blank on Confirm if any.",
@@ -781,14 +805,21 @@ export function applyFollowUp(need: StructuredNeed, id: FollowUp["id"], value: s
     const year = Number(value.trim());
     const cap = new Date().getUTCFullYear() + 1;
     if (Number.isFinite(year) && year >= 1980 && year <= cap) {
-      return { ...need, yearMin: Math.round(year) };
+      return { ...need, yearMin: Math.round(year), yearBandResolved: true };
     }
-    if (/^any$/i.test(value.trim())) return { ...need, yearMin: null, yearMax: null };
+    // Explicit no floor — keep null years but mark resolved so Continue is not a silent deadlock.
+    if (/^any$/i.test(value.trim())) {
+      return { ...need, yearMin: null, yearMax: null, yearBandResolved: true };
+    }
   }
   if (id === "miles") {
-    const amount = Number(value.replace(/,/g, "").trim());
+    const raw = value.replace(/,/g, "").trim();
+    if (/^any$/i.test(raw)) {
+      return { ...need, milesMax: null, milesCapResolved: true };
+    }
+    const amount = Number(raw);
     if (Number.isFinite(amount) && amount >= 1_000 && amount <= 400_000) {
-      return { ...need, milesMax: Math.round(amount) };
+      return { ...need, milesMax: Math.round(amount), milesCapResolved: true };
     }
   }
   if (id === "condition") {
@@ -814,8 +845,10 @@ export function overlayExplicit(
       | "useCase"
       | "targetProfitUsd"
       | "milesMax"
+      | "milesCapResolved"
       | "yearMin"
       | "yearMax"
+      | "yearBandResolved"
       | "conditionPriority"
       | "make"
       | "preferredMakes"
@@ -855,8 +888,20 @@ export function overlayExplicit(
     useCase: explicit.useCase && explicit.useCase !== "unspecified" ? explicit.useCase : extracted.useCase,
     targetProfitUsd: explicit.targetProfitUsd === undefined ? extracted.targetProfitUsd : explicit.targetProfitUsd,
     milesMax: explicit.milesMax === undefined ? extracted.milesMax : explicit.milesMax,
+    milesCapResolved:
+      explicit.milesCapResolved === true ||
+      (explicit.milesMax !== undefined && explicit.milesMax != null) ||
+      extracted.milesCapResolved ||
+      extracted.milesMax != null,
     yearMin: explicit.yearMin === undefined ? extracted.yearMin : explicit.yearMin,
     yearMax: explicit.yearMax === undefined ? extracted.yearMax : explicit.yearMax,
+    yearBandResolved:
+      explicit.yearBandResolved === true ||
+      (explicit.yearMin !== undefined && explicit.yearMin != null) ||
+      (explicit.yearMax !== undefined && explicit.yearMax != null) ||
+      extracted.yearBandResolved ||
+      extracted.yearMin != null ||
+      extracted.yearMax != null,
     conditionPriority: explicit.conditionPriority ?? extracted.conditionPriority,
     make,
     preferredMakes,
