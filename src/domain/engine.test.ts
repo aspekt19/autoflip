@@ -118,8 +118,8 @@ describe("VIN-specific recall wording", () => {
       sample: false,
       removedAt: null,
     });
-    expect(flags.find((flag) => flag.source === "nhtsa-recalls")?.text).toMatch(/model-level warning/i);
-    expect(flags.find((flag) => flag.source === "nhtsa-recalls")?.text).toMatch(/not confirmation that the campaign applies to this VIN/i);
+    expect(flags.find((flag) => flag.source === "nhtsa-recalls")?.text).toMatch(/model-level coverage/i);
+    expect(flags.find((flag) => flag.source === "nhtsa-recalls")?.text).toMatch(/not confirmation that this VIN is affected/i);
   });
 });
 

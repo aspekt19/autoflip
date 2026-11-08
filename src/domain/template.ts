@@ -31,9 +31,13 @@ export function templateExplanation(report: ComputedReport): string {
 
   const recalls =
     report.recalls.length === 0
-      ? "NHTSA returned no campaigns for this year, make, and model."
+      ? "NHTSA returned no campaigns for this year, make, and model. That is not VIN-cleared."
       : `NHTSA returned ${report.recalls.length} campaign${report.recalls.length === 1 ? "" : "s"} for this year, make, and model. ${
-          report.openParkIt ? "At least one is park-it or park-outside." : "None is marked park-it or park-outside."
+          report.openParkIt
+            ? "At least one has parkIt=true (do-not-drive until VIN applicability and repair status are verified)."
+            : report.openParkOutside
+              ? "At least one has parkOutside=true (outdoor parking guidance) — not a parkIt / do-not-drive claim by itself."
+              : "None is marked parkIt or parkOutside; that is not VIN-cleared."
         }`;
 
   const mode =

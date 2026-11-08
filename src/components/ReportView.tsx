@@ -105,6 +105,7 @@ export function ReportView({ report }: { report: FullReport }) {
       <RiskSummary
         flags={computed.flags}
         openParkIt={computed.openParkIt}
+        openParkOutside={Boolean(computed.openParkOutside)}
         missingData={missingData}
       />
       <h2 id="report-summary">{computed.mode === "flip" ? "Does this deal fit?" : "Does this car fit?"}</h2>
@@ -391,7 +392,8 @@ export function ReportView({ report }: { report: FullReport }) {
               <tr>
                 <th>Campaign</th>
                 <th>Component</th>
-                <th>Park outside</th>
+                <th>parkIt</th>
+                <th>parkOutside</th>
               </tr>
             </thead>
             <tbody>
@@ -402,7 +404,8 @@ export function ReportView({ report }: { report: FullReport }) {
                     {recall.component}
                     <div className="hint">{recall.summary}</div>
                   </td>
-                  <td>{recall.parkIt || recall.parkOutSide ? "Yes" : "No"}</td>
+                  <td>{recall.parkIt ? "Yes" : "No"}</td>
+                  <td>{recall.parkOutSide ? "Yes" : "No"}</td>
                 </tr>
               ))}
             </tbody>
@@ -528,10 +531,12 @@ function reportScene(report: FullReport): DecisionScene {
 function RiskSummary({
   flags,
   openParkIt,
+  openParkOutside,
   missingData,
 }: {
   flags: FullReport["computed"]["flags"];
   openParkIt: boolean;
+  openParkOutside: boolean;
   missingData: string[];
 }) {
   const stop = flags.filter((flag) => flag.level === "stop");
@@ -552,7 +557,9 @@ function RiskSummary({
         <span className="risk-count note">{missingData.length} missing</span>
       </div>
       {openParkIt ? (
-        <p className="risk-primary">A park-it or park-outside campaign matched this model year, make and model. Do not drive until the exact VIN&apos;s recall status and completed repair are confirmed.</p>
+        <p className="risk-primary">A parkIt campaign matched this model year, make and model. Do not drive until the exact VIN&apos;s recall status and completed repair are confirmed — model coverage is not VIN unrepaired proof.</p>
+      ) : openParkOutside ? (
+        <p className="risk-primary">A parkOutside campaign (outdoor parking guidance) matched this model year, make and model. That is not a parkIt / do-not-drive stop by itself — verify VIN applicability.</p>
       ) : null}
       {prominent.length > 0 ? (
         <ul className="risk-flag-list">

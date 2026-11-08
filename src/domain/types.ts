@@ -177,7 +177,18 @@ export type ComputedReport = {
   recallsAvailable: boolean;
   /** Per-source evidence. Optional so older saved reports remain readable. */
   sourceChecks?: SourceCheck[];
+  /**
+   * True only when an NHTSA model-year campaign has parkIt=true.
+   * Distinct from parkOutside — never set from parkOutSide alone.
+   * Model/campaign coverage only; not VIN-affected or unrepaired proof.
+   */
   openParkIt: boolean;
+  /**
+   * True when an NHTSA model-year campaign has parkOutSide=true.
+   * Outdoor-parking guidance — not a do-not-drive / hardSafetyStop by itself.
+   * Optional so older saved reports remain readable.
+   */
+  openParkOutside?: boolean;
   complaintCount: number | null;
   fuel: FuelFact | null;
   vinDecode: VinDecode | null;

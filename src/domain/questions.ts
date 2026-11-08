@@ -4,7 +4,10 @@ export function dealerQuestions(input: {
   listing: Listing;
   recalls: RecallRecord[];
   vinIdentityMismatch?: boolean;
+  /** True only for NHTSA parkIt=true campaigns — not parkOutside. */
   parkIt: boolean;
+  /** True for parkOutSide campaigns; distinct from parkIt / do-not-drive. */
+  parkOutside?: boolean;
   historyMissing: boolean;
   titleBrandHit?: string | null;
 }): string[] {
@@ -24,9 +27,11 @@ export function dealerQuestions(input: {
     questions.push("Ask for the repair invoices and whether any airbags deployed.");
   }
   if (input.parkIt) {
-    questions.push("NHTSA lists a park-it or park-outside campaign for this model year, make, and model. Ask the dealer to verify whether it applies to this VIN and provide the repair order before driving; the model-level result alone does not confirm this vehicle is affected.");
+    questions.push("NHTSA lists a parkIt campaign for this model year, make, and model. Ask the dealer to verify whether it applies to this VIN and provide the repair order before driving; model-level coverage alone does not confirm this VIN is affected or still unrepaired.");
+  } else if (input.parkOutside) {
+    questions.push("NHTSA lists a parkOutside campaign (outdoor parking guidance) for this model year, make, and model. That is not a parkIt / do-not-drive claim by itself — ask the dealer to check VIN applicability and any completed remedy.");
   } else if (input.recalls.length > 0) {
-    questions.push("Ask the dealer to run this VIN through NHTSA, identify which model-year campaigns apply to this vehicle, and provide repair orders for any applicable campaign already completed.");
+    questions.push("Ask the dealer to run this VIN through NHTSA, identify which model-year campaigns apply to this vehicle, and provide repair orders for any applicable campaign already completed. Absence of parkIt/parkOutside flags is not VIN-cleared.");
   } else {
     questions.push("Ask the dealer to run this VIN through NHTSA’s recall lookup before you pay. A model-year search is not a VIN-specific repair-status check.");
   }
@@ -53,7 +58,10 @@ export function buildFlags(input: {
   recalls: RecallRecord[];
   recallsAvailable?: boolean;
   vinIdentityMismatch?: boolean;
+  /** True only for NHTSA parkIt=true — never OR'd from parkOutside. */
   parkIt: boolean;
+  /** Distinct outdoor-parking flag; caution only, not a do-not-drive stop. */
+  parkOutside?: boolean;
   complaintCount: number | null;
   priceGap: number | null;
   sample: boolean;
@@ -91,14 +99,20 @@ export function buildFlags(input: {
     flags.push({
       level: "note",
       source: "nhtsa-recalls",
-      text: "NHTSA recall data was unavailable. No conclusion about model-year campaigns or this VIN's recall status can be drawn.",
+      text: "NHTSA recall data was unavailable. No conclusion about model-year campaigns or this VIN's recall status can be drawn — unknown is not cleared.",
     });
   }
   if (input.parkIt) {
     flags.push({
       level: "stop",
       source: "nhtsa-recalls",
-      text: "NHTSA lists a park-it or park-outside campaign for this year, make, and model. This is a model-level warning, not confirmation that the campaign applies to this VIN. Do not drive until the dealer or NHTSA verifies VIN applicability and repair status.",
+      text: "NHTSA lists a parkIt campaign for this year, make, and model. This is model-level coverage, not confirmation that this VIN is affected or still unrepaired. Do not drive until the dealer or NHTSA verifies VIN applicability and repair status.",
+    });
+  } else if (input.parkOutside) {
+    flags.push({
+      level: "caution",
+      source: "nhtsa-recalls",
+      text: "NHTSA lists a parkOutside campaign (outdoor parking guidance) for this year, make, and model. That is not a parkIt / do-not-drive stop by itself — verify VIN applicability; model coverage is not VIN-cleared.",
     });
   }
   if ((input.listing.accidentCount ?? 0) > 0) {
@@ -122,11 +136,11 @@ export function buildFlags(input: {
       text: "The asking price sits above the mileage-and-history adjusted comparable value.",
     });
   }
-  if (input.complaintCount !== null && input.complaintCount >= 100) {
+  if (input.complaintCount !== null && input.complaintCount > 0) {
     flags.push({
       level: "note",
       source: "nhtsa-complaints",
-      text: `NHTSA returned ${input.complaintCount} complaints for this year, make, and model. That count is not a failure rate.`,
+      text: `NHTSA returned ${input.complaintCount} complaint${input.complaintCount === 1 ? "" : "s"} for this year, make, and model. Complaints are owner allegations — not verified defects, crash proof, or this VIN's history.`,
     });
   }
   if (input.listing.accidentCount === null || input.listing.ownerCount === null) {

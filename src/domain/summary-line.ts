@@ -13,7 +13,7 @@ export function summaryLine(input: {
   verdict: Verdict;
   fairValueUsd: number | null;
   flip: { targetBuyUsd: number; marginUsd: number } | null;
-  /** Model-year park-it / park-outside campaign matched. Overrides price-only buy copy. */
+  /** Model-year parkIt=true only — never set from parkOutside alone. Overrides price-only buy copy. */
   openParkIt?: boolean;
   withholdReason?: string | null;
 }): SummaryLine {
@@ -29,7 +29,7 @@ export function summaryLine(input: {
     return {
       line: input.mode === "flip" ? "Pass" : "Skip",
       detail:
-        "A park-it or park-outside campaign matched this model year. Confirm VIN applicability and completed repair before any buy decision.",
+        "A parkIt campaign matched this model year. Confirm VIN applicability and completed repair before any buy decision — model coverage is not VIN unrepaired proof.",
     };
   }
   if (input.mode === "flip") {

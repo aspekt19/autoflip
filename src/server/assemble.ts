@@ -810,13 +810,20 @@ export async function previewListing(input: AssembleInput, deps: AssembleDeps) {
   const recallLookup = await recallsFor(subject.make, subject.model, subject.year, { fetch: deps.fetch ?? fetch });
   const badge = priceBadge(subject, resolved.candidates);
   const campaignCount = recallLookup.records.length;
-  const park = recallLookup.records.some((item) => item.parkIt || item.parkOutSide);
+  // parkIt ≠ parkOutside: only parkIt is a do-not-drive signal; parkOutside is outdoor parking guidance.
+  const parkIt = recallLookup.records.some((item) => item.parkIt);
+  const parkOutside = recallLookup.records.some((item) => item.parkOutSide);
+  const parkNote = parkIt
+    ? " At least one campaign has parkIt=true — verify VIN applicability and repair status before driving (model coverage is not VIN unrepaired proof)."
+    : parkOutside
+      ? " At least one campaign has parkOutside=true (outdoor parking guidance) — not a parkIt / do-not-drive claim by itself; verify VIN applicability."
+      : " Verify VIN applicability and repair status with the dealer; absence of parkIt/parkOutside flags is not VIN-cleared.";
   const reasons = [
     badge.deltaLabel ?? badge.label,
     !recallLookup.available
-      ? "NHTSA recall lookup was unavailable. Check this VIN directly with NHTSA and the dealer."
+      ? "NHTSA recall lookup was unavailable. Unknown is not cleared — check this VIN directly with NHTSA and the dealer."
       : campaignCount > 0
-        ? `${campaignCount} model-year recall campaign${campaignCount === 1 ? "" : "s"} returned by NHTSA.${park ? " At least one campaign carries a park-it or park-outside warning; verify VIN applicability and repair status before driving." : " Verify VIN applicability and repair status with the dealer."}`
+        ? `${campaignCount} model-year recall campaign${campaignCount === 1 ? "" : "s"} returned by NHTSA.${parkNote}`
         : "NHTSA returned no campaigns for this model year, make and model. This does not confirm the VIN has no open recall.",
   ];
   const coverageInput = {
