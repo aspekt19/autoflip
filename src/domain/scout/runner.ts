@@ -1837,13 +1837,38 @@ export function refusingPlanner(
  */
 export function heuristicOfflinePlanner(): ScoutPlanner {
   const seen = new Set<string>();
-  let searchAttempted = false;
   /** Offline heuristic free-gov probe cap (run-wide). */
   let freeGovProbesUsed = 0;
   const MAX_FREE_GOV_PROBES = 1;
 
   return async ({ pendingVins, investigated, mandate, recentOutcomes, evidenceContext }) => {
     const last = recentOutcomes[recentOutcomes.length - 1] ?? null;
+    const continuation = evidenceContext.searchContinuation;
+    const canRevise =
+      continuation?.canReviseSearch === true &&
+      (continuation.suggestions?.length ?? 0) > 0 &&
+      evidenceContext.budgetsRemaining.providerCalls > 0 &&
+      evidenceContext.budgetsRemaining.toolCalls > 0;
+
+    // Placeholder / all-unusable pool with provider budget left → revised search (not false terminal).
+    if (
+      canRevise &&
+      evidenceContext.pendingAskSummary.allPendingAskingPricesUnusable &&
+      pendingVins.length > 0
+    ) {
+      const suggestion = continuation.suggestions[0]!;
+      return {
+        ok: true,
+        action: {
+          type: "run_tool",
+          toolId: "inventory.search",
+          vin: null,
+          reason: `Provider budget remains (${evidenceContext.budgetsRemaining.providerCalls}) after prior search — ${suggestion.why}`,
+          servStepId: "offline-heuristic",
+          args: suggestion.args,
+        },
+      };
+    }
 
     // Fresh VINs from mid-loop search → investigate those next (evidence-directed).
     if (
@@ -1962,9 +1987,48 @@ export function heuristicOfflinePlanner(): ScoutPlanner {
       };
     }
 
+    // After grounded reject of unusable ask: if pool still all-unusable and budget remains,
+    // revise search — do not claim cannot continue because search already ran.
+    if (
+      canRevise &&
+      last?.toolId === "candidate.reject" &&
+      last.ok &&
+      evidenceContext.pendingAskSummary.allPendingAskingPricesUnusable
+    ) {
+      const suggestion = continuation.suggestions[0]!;
+      return {
+        ok: true,
+        action: {
+          type: "run_tool",
+          toolId: "inventory.search",
+          vin: null,
+          reason: `After grounded reject of unusable ask, provider budget remains — ${suggestion.why}`,
+          servStepId: "offline-heuristic",
+          args: suggestion.args,
+        },
+      };
+    }
+
     if (last?.status === "empty" && last.toolId === "candidate.replace") {
-      if (!searchAttempted && evidenceContext.budgetsRemaining.toolCalls > 0) {
-        searchAttempted = true;
+      if (canRevise) {
+        const suggestion = continuation.suggestions[0]!;
+        return {
+          ok: true,
+          action: {
+            type: "run_tool",
+            toolId: "inventory.search",
+            vin: null,
+            reason: `Replace empty — revised mid-loop inventory.search while provider budget remains: ${suggestion.why}`,
+            servStepId: "offline-heuristic",
+            args: suggestion.args,
+          },
+        };
+      }
+      if (
+        evidenceContext.budgetsRemaining.toolCalls > 0 &&
+        evidenceContext.budgetsRemaining.providerCalls > 0 &&
+        evidenceContext.searchHistory.length === 0
+      ) {
         const model = investigated[0]?.listing.model;
         return {
           ok: true,
@@ -1972,11 +2036,10 @@ export function heuristicOfflinePlanner(): ScoutPlanner {
             type: "run_tool",
             toolId: "inventory.search",
             vin: null,
-            reason: "Replace empty — try bounded mid-loop inventory.search before abstain.",
+            reason: "Replace empty — first bounded inventory.search before abstain.",
             servStepId: "offline-heuristic",
             args: {
               makes: mandate.preferredMakes.slice(0, 2),
-              // Model filter changes fingerprint vs initial unscoped search (still in-mandate).
               models: model ? [model] : [],
               zip: mandate.zip,
               distanceMiles: mandate.maxDistanceMiles,
@@ -1988,7 +2051,7 @@ export function heuristicOfflinePlanner(): ScoutPlanner {
         ok: true,
         action: {
           type: investigated.length ? "finalize" : "abstain",
-          reason: "Offline heuristic: replace found no distinct candidate — honest stop.",
+          reason: "Offline heuristic: replace found no distinct candidate and no legal search revision — honest stop.",
           servStepId: "offline-heuristic",
         },
       };
@@ -1996,28 +2059,45 @@ export function heuristicOfflinePlanner(): ScoutPlanner {
 
     if (
       pendingVins.length === 0 &&
-      !searchAttempted &&
       evidenceContext.budgetsRemaining.toolCalls > 0 &&
       investigated.length > 0
     ) {
-      searchAttempted = true;
-      const model = investigated[0]?.listing.model;
-      return {
-        ok: true,
-        action: {
-          type: "run_tool",
-          toolId: "inventory.search",
-          vin: null,
-          reason: "No pending VINs — bounded inventory.search adjustment (autonomyClaim=none).",
-          servStepId: "offline-heuristic",
-          args: {
-            makes: mandate.preferredMakes.slice(0, 2),
-            models: model ? [model] : [],
-            zip: mandate.zip,
-            distanceMiles: mandate.maxDistanceMiles,
+      if (canRevise) {
+        const suggestion = continuation.suggestions[0]!;
+        return {
+          ok: true,
+          action: {
+            type: "run_tool",
+            toolId: "inventory.search",
+            vin: null,
+            reason: `No pending VINs — revised inventory.search while provider budget remains: ${suggestion.why}`,
+            servStepId: "offline-heuristic",
+            args: suggestion.args,
           },
-        },
-      };
+        };
+      }
+      if (
+        evidenceContext.budgetsRemaining.providerCalls > 0 &&
+        evidenceContext.searchHistory.length === 0
+      ) {
+        const model = investigated[0]?.listing.model;
+        return {
+          ok: true,
+          action: {
+            type: "run_tool",
+            toolId: "inventory.search",
+            vin: null,
+            reason: "No pending VINs — first bounded inventory.search adjustment (autonomyClaim=none).",
+            servStepId: "offline-heuristic",
+            args: {
+              makes: mandate.preferredMakes.slice(0, 2),
+              models: model ? [model] : [],
+              zip: mandate.zip,
+              distanceMiles: mandate.maxDistanceMiles,
+            },
+          },
+        };
+      }
     }
 
     if (investigated.length >= 5 || pendingVins.length === 0) {

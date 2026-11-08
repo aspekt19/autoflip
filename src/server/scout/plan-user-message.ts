@@ -18,6 +18,7 @@ export function buildScoutPlanUserPayload(input: ScoutPlannerInput): Record<stri
       searchHistory: input.evidenceContext.searchHistory,
       budgetsRemaining: input.evidenceContext.budgetsRemaining,
       pendingAskSummary: input.evidenceContext.pendingAskSummary,
+      searchContinuation: input.evidenceContext.searchContinuation,
       policy: input.evidenceContext.policy,
     },
     // Legacy thin hints retained for older parsers — prefer evidenceContext.

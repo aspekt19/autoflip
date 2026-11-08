@@ -96,7 +96,9 @@ export type PlaceholderLedger = {
 export type RecoveryClass =
   | "grounded_reject_unusable_ask"
   | "inventory_search"
+  | "revised_inventory_search"
   | "honest_abstain"
+  | "premature_abstain_with_budget"
   | "replace_uncertainty"
   | "repeat_ungrounded_reject"
   | "free_gov_on_unusable"
@@ -318,6 +320,11 @@ export function scoreScoutPlanAction(input: {
   priorDeniedRejectFingerprint: string;
   /** Consecutive identical actions already observed before this score (denied rejects in ledger). */
   priorIdenticalStreak?: number;
+  /**
+   * When true, abstain solely because "search already used" is premature —
+   * provider/mid-loop budget still allows a revised search.
+   */
+  canReviseSearch?: boolean;
 }): ActionScore {
   if (!input.action || !input.schemaValid) {
     return {
@@ -389,9 +396,18 @@ export function scoreScoutPlanAction(input: {
 
   let recoveryClass: RecoveryClass = "other";
   if (sanitized.type === "abstain") {
-    recoveryClass = "honest_abstain";
+    const citesSearchOnce =
+      /search already|already (ran|used) (once|search)|cannot continue|no (more )?search/i.test(
+        sanitized.reason,
+      );
+    recoveryClass =
+      input.canReviseSearch && citesSearchOnce
+        ? "premature_abstain_with_budget"
+        : input.canReviseSearch
+          ? "premature_abstain_with_budget"
+          : "honest_abstain";
   } else if (sanitized.type === "run_tool" && sanitized.toolId === "inventory.search") {
-    recoveryClass = "inventory_search";
+    recoveryClass = input.canReviseSearch ? "revised_inventory_search" : "inventory_search";
   } else if (
     sanitized.type === "run_tool" &&
     typeof sanitized.toolId === "string" &&
@@ -421,7 +437,13 @@ export function scoreScoutPlanAction(input: {
   const antiLoopSafe =
     !wouldHitNoProgress ||
     recoveryClass === "honest_abstain" ||
-    recoveryClass === "inventory_search";
+    recoveryClass === "inventory_search" ||
+    recoveryClass === "revised_inventory_search";
+
+  // Premature abstain with budget left is schema-ok but not a successful recovery.
+  if (recoveryClass === "premature_abstain_with_budget") {
+    grounded = false;
+  }
 
   return {
     schemaValid: true,

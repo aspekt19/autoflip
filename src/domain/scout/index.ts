@@ -75,6 +75,14 @@ export type {
   ScoutPlannerEvidenceContext,
 } from "./planner-context";
 export {
+  proposeRevisedSearches,
+  midLoopSearchesUsedFromHistory,
+} from "./search-revision";
+export type {
+  SearchContinuation,
+  SearchRevisionSuggestion,
+} from "./search-revision";
+export {
   collectAdverseEvidence,
   validateDispositionAction,
   applyDispositionRationale,

@@ -117,9 +117,22 @@ describe("scout_plan transport contracts (offline)", () => {
           unusableAskingPriceCount: 0,
           allPendingAskingPricesUnusable: false,
         },
+        searchContinuation: {
+          providerCallsRemaining: 0,
+          midLoopSearchesUsed: 0,
+          midLoopSearchesCap: 2,
+          midLoopSearchesRemaining: 2,
+          canReviseSearch: false,
+          priorFingerprints: [],
+          suggestions: [],
+          falseTerminalIfAbstainForPriorSearchOnly: false,
+          terminalReason: "provider_budget_exhausted",
+          honesty: "test stub",
+        },
         policy: {
           unsupportedGovAloneDoesNotProveCarBad: true,
           placeholderAskIsNotVehicleDefect: true,
+          priorSearchIsNotHardStopWhileProviderBudgetRemains: true,
         },
       },
     });

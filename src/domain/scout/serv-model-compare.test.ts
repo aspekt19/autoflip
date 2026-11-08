@@ -421,21 +421,25 @@ describe("SERV model compare harness (offline / no paid calls)", () => {
     expect(seq.sequentialOrchestrationExecuted).toBe(true);
   });
 
-  it("Decision-1 system/schema/user pins unchanged vs 70844ae; Decision-2 user bytes differ after apply", () => {
+  it("Decision-1 schema pin stable; user/system pins refresh for t317 searchContinuation (not 70844ae)", () => {
     const ledger = loadPlaceholderLedger();
     const first = prepareCompareStep(
       ledger,
       ledger.compareSteps.find((s) => s.id === "after_inventory_before_reject")!,
     );
+    // t317: evidenceContext.searchContinuation + corrected "search once ≠ hard stop" system text.
+    expect(first.plannerInput.evidenceContext.searchContinuation.canReviseSearch).toBe(true);
+    expect(first.plannerInput.evidenceContext.budgetsRemaining.providerCalls).toBe(2);
     const user1 = buildScoutPlanUserMessage(first.plannerInput);
-    expect(Buffer.byteLength(user1, "utf8")).toBe(8533);
+    expect(Buffer.byteLength(user1, "utf8")).toBe(9823);
     expect(createHash("sha256").update(user1).digest("hex")).toBe(
-      "998083beee1f575ac076a3b6ea2638789ec5cfaec3f18c7f786f12d026954246",
+      "20d455dbac92aa060414866e042cf680aafa2075c8fbca789ef7f0f09b83afb8",
     );
     const scout = profile("scout_plan");
     expect(createHash("sha256").update(scout.system).digest("hex")).toBe(
-      "55ad9c0012154ce003eb64319cf3e147f7a350a95754e9d3e8d7d28090632e61",
+      "83c90726a0dc9985468fd69d17f2e192823a4f2a0a273caf553bc5e18d7d936a",
     );
+    // JSON schema unchanged (product A–C / Sonnet anyOf still 8dbcbc…).
     expect(
       createHash("sha256").update(JSON.stringify(scout.jsonSchema?.schema ?? null)).digest("hex"),
     ).toBe("8dbcbc35378520e738935bdabb49af353ae32b9834aa8258436e7e7eb47ccbe6");

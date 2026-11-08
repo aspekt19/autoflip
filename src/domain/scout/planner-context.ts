@@ -7,6 +7,11 @@ import type { ScoutCandidate, ScoutMandate, ScoutToolOutcome } from "./types";
 import type { ScoutSearchParams } from "./search-params";
 import { collectAdverseEvidence } from "./disposition-rationale";
 import { isListingAskingPriceUsable } from "./asking-price";
+import {
+  midLoopSearchesUsedFromHistory,
+  proposeRevisedSearches,
+  type SearchContinuation,
+} from "./search-revision";
 
 export type EvidenceConfidence = "low" | "medium" | "high" | "unknown";
 
@@ -79,7 +84,8 @@ export type ScoutPlannerEvidenceContext = {
   recentOutcomes: ScoutToolOutcome[];
   /**
    * Pending-pool asking-price usability — placeholder pool ≠ provider failure.
-   * When allPendingAskingPricesUnusable, prefer search (if provider budget) or abstain.
+   * When allPendingAskingPricesUnusable, prefer revised search (if provider budget)
+   * or grounded reject next — not terminal abstain solely because search ran once.
    */
   pendingAskSummary: {
     pendingCount: number;
@@ -87,10 +93,15 @@ export type ScoutPlannerEvidenceContext = {
     unusableAskingPriceCount: number;
     allPendingAskingPricesUnusable: boolean;
   };
+  /**
+   * Code-owned search continuation — prior search ≠ hard stop while budget remains.
+   */
+  searchContinuation: SearchContinuation;
   /** Run-level policy — not per-candidate constant true. */
   policy: {
     unsupportedGovAloneDoesNotProveCarBad: true;
     placeholderAskIsNotVehicleDefect: true;
+    priorSearchIsNotHardStopWhileProviderBudgetRemains: true;
   };
 };
 
@@ -268,6 +279,20 @@ export function buildPlannerEvidenceContext(input: {
     else unusableAskingPriceCount += 1;
   }
   const pendingCount = pendingForAsk.length;
+  const providerCallsRemaining = Math.max(
+    0,
+    input.budgets.maxProviderCalls - input.usage.providerCalls,
+  );
+  const searchContinuation = proposeRevisedSearches({
+    mandate: input.mandate,
+    searchHistory: input.searchHistory,
+    pendingListings: pendingForAsk.map((c) => ({
+      make: c.listing.make,
+      model: c.listing.model,
+    })),
+    midLoopSearchesUsed: midLoopSearchesUsedFromHistory(input.searchHistory.length),
+    providerCallsRemaining,
+  });
 
   return {
     evidenceBriefs: briefs,
@@ -279,7 +304,7 @@ export function buildPlannerEvidenceContext(input: {
           ? null
           : Math.max(0, input.budgets.maxServCalls - input.usage.servCalls),
       toolCalls: Math.max(0, input.budgets.maxToolCalls - input.usage.toolCalls),
-      providerCalls: Math.max(0, input.budgets.maxProviderCalls - input.usage.providerCalls),
+      providerCalls: providerCallsRemaining,
     },
     recentOutcomes: input.recentOutcomes.slice(-8),
     pendingAskSummary: {
@@ -288,9 +313,11 @@ export function buildPlannerEvidenceContext(input: {
       unusableAskingPriceCount,
       allPendingAskingPricesUnusable: pendingCount > 0 && usableAskingPriceCount === 0,
     },
+    searchContinuation,
     policy: {
       unsupportedGovAloneDoesNotProveCarBad: true,
       placeholderAskIsNotVehicleDefect: true,
+      priorSearchIsNotHardStopWhileProviderBudgetRemains: true,
     },
   };
 }
