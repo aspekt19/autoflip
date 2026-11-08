@@ -190,6 +190,7 @@ describe("CTA handoff from find card", () => {
         priceUsd: 587,
         vdp: "https://www.joemachenstoyota.com/auto/used-2021-toyota-rav4-limited/126661218/",
         source: "autodev",
+        analysisContextToken: "find-ctx-token-from-match",
       },
       { mode: "personal", zip: "68114" },
       "find_card_full_analysis",
@@ -199,5 +200,6 @@ describe("CTA handoff from find card", () => {
     expect(handoff.payload.cta).toBe("find_card_full_analysis");
     expect(handoff.payload.vin).toBe(RAV4_VIN);
     expect(handoff.payload.url).toContain("joemachenstoyota.com");
+    expect(handoff.payload.findContextToken).toBe("find-ctx-token-from-match");
   });
 });

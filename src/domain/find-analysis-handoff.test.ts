@@ -16,6 +16,7 @@ const RAV4 = {
   priceUsd: 587,
   vdp: "https://www.joemachenstoyota.com/auto/used-2021-toyota-rav4-limited/126661218/",
   source: "autodev",
+  analysisContextToken: "server-minted-token-abc",
 };
 
 const NEED = {
@@ -26,7 +27,7 @@ const NEED = {
 };
 
 describe("selected-listing full-analysis handoff", () => {
-  it("preserves VIN + VDP from the find card without requiring VIN-in-URL", () => {
+  it("preserves VIN + VDP + server token from the find card without requiring VIN-in-URL", () => {
     const result = resolveSelectedListingHandoff(RAV4, NEED, "find_card_full_analysis");
     expect(result.ok).toBe(true);
     if (!result.ok) return;
@@ -35,18 +36,27 @@ describe("selected-listing full-analysis handoff", () => {
     expect(result.payload.vin).toBe(RAV4.vin);
     expect(result.payload.url).toBe(RAV4.vdp);
     expect(result.payload.selectedVin).toBe(RAV4.vin);
+    expect(result.payload.findContextToken).toBe("server-minted-token-abc");
     expect(result.payload.zip).toBe("68114");
     expect(result.payload.miles).toBe(21_001);
     // Fee-like feed figure must not be promoted as a typed asking price.
     expect(result.payload.askingPriceUsd).toBeUndefined();
   });
 
-  it("still works when the dealer VDP is missing but VIN is present", () => {
+  it("fails closed when the card lacks a server analysis token", () => {
+    const result = resolveSelectedListingHandoff({ ...RAV4, analysisContextToken: null }, NEED);
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.message).toMatch(/server analysis token/i);
+  });
+
+  it("still works when the dealer VDP is missing but VIN + token are present", () => {
     const result = resolveSelectedListingHandoff({ ...RAV4, vdp: null }, NEED);
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     expect(result.payload.vin).toBe(RAV4.vin);
     expect(result.payload.url).toBeUndefined();
+    expect(result.payload.findContextToken).toBe("server-minted-token-abc");
   });
 
   it("fails closed before charge when identity is missing", () => {
@@ -89,6 +99,7 @@ describe("manual URL / VIN check path", () => {
     expect(result.payload.cta).toBe("check_manual_url");
     expect(result.payload.vin).toBe(RAV4.vin);
     expect(result.payload.url).toBe(url);
+    expect(result.payload.findContextToken).toBeUndefined();
   });
 
   it("rejects a URL without a VIN before any charge", () => {
@@ -119,8 +130,36 @@ describe("precharge analysis gate", () => {
   });
 });
 
-describe("trusted find analysis context (server-side)", () => {
-  it("accepts selected-card VIN+VDP+find CTA without re-typing ask", () => {
+describe("client heuristics are NOT a trust boundary", () => {
+  it("forged evil VDP + matching selectedVin + CTA must NOT grant trust", () => {
+    expect(
+      isTrustedFindAnalysisContext({
+        surface: "find",
+        cta: "find_card_full_analysis",
+        vin: RAV4.vin,
+        url: "https://evil.example/vdp",
+        selectedVin: RAV4.vin,
+        selectedVdp: "https://evil.example/vdp",
+        zip: "68114",
+        miles: 21_001,
+      }),
+    ).toBe(false);
+  });
+
+  it("zip 00000 + miles heuristics must NOT grant trust", () => {
+    expect(
+      isTrustedFindAnalysisContext({
+        surface: "find",
+        cta: "find_card_full_analysis",
+        vin: RAV4.vin,
+        selectedVin: RAV4.vin,
+        miles: 21_001,
+        zip: "00000",
+      }),
+    ).toBe(false);
+  });
+
+  it("even a well-formed client payload without server verification is untrusted", () => {
     expect(
       isTrustedFindAnalysisContext({
         surface: "find",
@@ -131,48 +170,6 @@ describe("trusted find analysis context (server-side)", () => {
         selectedVdp: RAV4.vdp,
         zip: "68114",
         miles: 21_001,
-      }),
-    ).toBe(true);
-  });
-
-  it("accepts no-VDP card when miles+ZIP were already found", () => {
-    expect(
-      isTrustedFindAnalysisContext({
-        surface: "find",
-        cta: "find_card_full_analysis",
-        vin: RAV4.vin,
-        selectedVin: RAV4.vin,
-        miles: 21_001,
-        zip: "68114",
-      }),
-    ).toBe(true);
-  });
-
-  it("rejects counterfeit surface:find + VIN-only without found-listing facts", () => {
-    expect(
-      isTrustedFindAnalysisContext({
-        surface: "find",
-        vin: RAV4.vin,
-      }),
-    ).toBe(false);
-    expect(
-      isTrustedFindAnalysisContext({
-        surface: "find",
-        cta: "find_card_full_analysis",
-        vin: RAV4.vin,
-        selectedVin: RAV4.vin,
-      }),
-    ).toBe(false);
-  });
-
-  it("rejects mismatched selectedVin even with find CTA", () => {
-    expect(
-      isTrustedFindAnalysisContext({
-        surface: "find",
-        cta: "find_card_full_analysis",
-        vin: RAV4.vin,
-        selectedVin: "1HGCM82633A004352",
-        url: RAV4.vdp,
       }),
     ).toBe(false);
   });

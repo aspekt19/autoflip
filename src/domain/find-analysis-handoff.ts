@@ -28,6 +28,8 @@ export type SelectedListingCard = {
   vdp: string | null;
   zip?: string | null;
   source?: string;
+  /** Opaque token minted by /api/match — required for trusted full analysis. */
+  analysisContextToken?: string | null;
 };
 
 export type FindAnalysisNeedContext = {
@@ -54,6 +56,11 @@ export type FindAnalysisPayload = {
   /** Non-secret listing id retained for idempotent retry / UI restore. */
   selectedVin: string;
   selectedVdp: string | null;
+  /**
+   * Opaque server-minted token from /api/match. Required for trusted /find handoff.
+   * Not a credential — bound server-side to owner + VIN + VDP + facts + expiry.
+   */
+  findContextToken?: string;
 };
 
 export type FindAnalysisHandoffResult =
@@ -126,6 +133,16 @@ function buildPayload(input: {
   // Never promote a fee/placeholder feed figure as a shopper-stated asking price.
   const askingPriceUsd = askingPriceSafeToState(car.priceUsd, car.year) ? car.priceUsd! : undefined;
 
+  const token = (car.analysisContextToken || "").trim();
+  if (!token) {
+    return {
+      ok: false,
+      error: "missing_identity",
+      message:
+        "This find result is missing a server analysis token. Run Find again and choose the same car — do not paste a forged listing URL.",
+    };
+  }
+
   const payload: FindAnalysisPayload = {
     mode: need.mode,
     surface: "find",
@@ -133,6 +150,7 @@ function buildPayload(input: {
     vin,
     selectedVin: vin,
     selectedVdp: vdp,
+    findContextToken: token,
     year: car.year,
     make: car.make,
     model: car.model,
@@ -247,13 +265,11 @@ export function prechargeAnalysisGate(input: { url?: string; vin?: string }): {
 }
 
 /**
- * Server-side proof that this is a real /find selected-listing handoff — not a
- * client spoof of `surface:"find"` to skip typed ask/miles/ZIP on a bare VIN.
- *
- * Requires matching selectedVin + find CTA, plus either a listing VDP URL or
- * already-found miles+ZIP from the card/need (so Autodev can re-fetch ask).
+ * @deprecated Client/heuristic trust is not a server trust boundary.
+ * Use `verifyFindAnalysisContext` (Kv-backed opaque token) on the report route.
+ * Kept only so unit tests document why surface/cta/VDP heuristics are insufficient.
  */
-export function isTrustedFindAnalysisContext(input: {
+export function isTrustedFindAnalysisContext(_input: {
   surface?: string | null;
   cta?: string | null;
   vin: string;
@@ -262,20 +278,8 @@ export function isTrustedFindAnalysisContext(input: {
   selectedVdp?: string | null;
   miles?: number | null;
   zip?: string | null;
+  findContextToken?: string | null;
 }): boolean {
-  if (input.surface !== "find") return false;
-  const selected = (input.selectedVin || "").trim().toUpperCase();
-  const vin = input.vin.trim().toUpperCase();
-  if (!selected || !vin || selected !== vin) return false;
-  if (input.cta !== "find_card_full_analysis" && input.cta !== "find_pending_retry") return false;
-
-  const vdp = httpVdp(input.selectedVdp) || httpVdp(input.url ?? null);
-  if (vdp) return true;
-
-  // No VDP on the card: still trusted when find already resolved miles + ZIP.
-  // Bare VIN-only claims without those facts fall through to manual gates.
-  const milesOk =
-    typeof input.miles === "number" && Number.isFinite(input.miles) && input.miles >= 0;
-  const zipOk = Boolean(input.zip && /^\d{5}$/.test(input.zip.trim()));
-  return milesOk && zipOk;
+  // Heuristics alone never grant trust — even with matching VIN/VDP/CTA/miles/ZIP.
+  return false;
 }

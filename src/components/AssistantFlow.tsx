@@ -17,6 +17,7 @@ import {
   resolveSelectedListingHandoff,
   type FindAnalysisPayload,
 } from "@/domain/find-analysis-handoff";
+import { isReportHardRefusal, reportRefusalUserMessage } from "@/domain/report-refusal-ui";
 import { findEmptyCopy, type FindEmptyReason } from "@/domain/find-empty";
 import type { FindListingPriceView } from "@/domain/find-listing-price";
 import { USE_CASES, searchScopeLabel, type FollowUp, type StructuredNeed } from "@/domain/need";
@@ -44,6 +45,8 @@ type ListingCard = {
   flipNote?: string | null;
   clearsTarget?: boolean | null;
   priceView?: FindListingPriceView;
+  /** Opaque server-minted token from /api/match — required for trusted full analysis. */
+  analysisContextToken?: string | null;
 };
 
 type MatchGroup = {
@@ -543,7 +546,14 @@ function AssistantFlow({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
       });
-      const body = (await response.json()) as { id?: string; message?: string; error?: string; alreadySaved?: boolean };
+      const body = (await response.json()) as {
+        id?: string;
+        message?: string;
+        error?: string;
+        alreadySaved?: boolean;
+        charge?: boolean;
+        outcome?: string;
+      };
       if (response.status === 403 && body.error === "credits_required") {
         rememberFlow();
         try {
@@ -552,6 +562,11 @@ function AssistantFlow({
           /* ignore */
         }
         router.push("/credits?need=1&return=%2Ffind");
+        return;
+      }
+      // Hard refusal (unusable ask / invalid find context) — clear reason, no fake completion.
+      if (isReportHardRefusal({ status: response.status, error: body.error })) {
+        setError(reportRefusalUserMessage({ message: body.message, error: body.error }));
         return;
       }
       if (!response.ok || !body.id) {
@@ -574,7 +589,14 @@ function AssistantFlow({
   async function analyze(car: ListingCard) {
     if (!need) return;
     setError(null);
-    const handoff = resolveSelectedListingHandoff(car, need, "find_card_full_analysis");
+    const handoff = resolveSelectedListingHandoff(
+      {
+        ...car,
+        analysisContextToken: car.analysisContextToken,
+      },
+      need,
+      "find_card_full_analysis",
+    );
     if (!handoff.ok) {
       setError(handoff.message);
       return;

@@ -8,6 +8,7 @@ import { TtlCache } from "@/io/cache";
 import { MemoryKv } from "@/io/kv";
 import { MemoryCounter } from "@/io/quota";
 import { assembleReport, previewListing } from "./assemble";
+import { decideReportCharge } from "@/domain/report-chargeability";
 import { runOrderedGates } from "@/domain/verdict-gates";
 
 const RAV4_VIN = "2T3N1RFV6MC246998";
@@ -120,6 +121,14 @@ describe("assembleReport Autodev fee re-fetch (selected listing handoff)", () =>
     const dataGate = gates.gates.find((g) => g.id === "data_sufficiency");
     expect(dataGate?.status).toBe("withhold");
     expect(dataGate?.forbid).toEqual(expect.arrayContaining(["buy", "negotiate", "pass"]));
+
+    // HOLD2: fee-refetch withheld report is not chargeable — route must 0-debit.
+    const charge = decideReportCharge(computed);
+    expect(charge.charge).toBe(false);
+    if (!charge.charge) {
+      expect(charge.error).toBe("unusable_purchase_ask");
+      expect(charge.message).toMatch(/No credit was charged/i);
+    }
   });
 
   it("preview badge also refuses fee figure as a rated purchase ask", async () => {
