@@ -12,6 +12,8 @@ Server owns free-gov receipts on search context → evidence fingerprint change 
 |------|--------|
 | Base | `origin/main` @ `73e9f229` (PR #79) |
 | Branch | `cursor/find-free-vehicle-checks-ecfd` |
+| Tip | `b0a2e0eda86728b62ce3e4d6d37e75b507df3f93` / tree `6b804480ddd365949bb3efdbb3efb8285a15aa34` |
+| CI cause/fix | `tsc` TS2353: excess `note` on `FindNextCheckInput.need` Pick — dropped in fixtures |
 | Default Mini | unchanged (`gpt-5.4-mini`) |
 | Fable | **EXCLUDED** from `find_next_check` profile candidates |
 | Sonnet/GPT | first-class via `SERV_PROFILE_MODEL_FIND_NEXT_CHECK` |
