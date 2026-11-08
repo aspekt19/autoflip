@@ -14,33 +14,36 @@
       "listedAvailability": "Listed under Available models",
       "capabilityIndicators": "Not separately shown",
       "flipOrder": 1,
-      "flipRole": "baseline"
+      "flipRole": "baseline",
+      "overviewHypothesis": null
     },
     {
-      "modelId": "gpt-6.1-sol",
-      "displayName": "GPT-6.1 Sol",
+      "modelId": "gpt-5.6-sol",
+      "displayName": "GPT-5.6 Sol",
       "providerLogoAlt": "OpenAI",
       "contextWindow": "1M",
-      "inputPerMDisplay": "$2.40",
-      "cachedPerMDisplay": "$0.120",
-      "outputPerMDisplay": "$12.00",
+      "inputPerMDisplay": "$5.25",
+      "cachedPerMDisplay": "$0.500",
+      "outputPerMDisplay": "$25.00",
       "listedAvailability": "Listed under Available models",
       "capabilityIndicators": "Not separately shown",
       "flipOrder": 2,
-      "flipRole": "next"
+      "flipRole": "next",
+      "overviewHypothesis": "reasoning/complex long-horizon (marketing — unmeasured)"
     },
     {
-      "modelId": "claude-opus-5.5",
-      "displayName": "Claude Opus 5.5",
+      "modelId": "claude-fable-5",
+      "displayName": "Claude Fable 5",
       "providerLogoAlt": "Anthropic",
       "contextWindow": "1M",
-      "inputPerMDisplay": "$4.80",
-      "cachedPerMDisplay": "$0.240",
-      "outputPerMDisplay": "$24.00",
+      "inputPerMDisplay": "$13.00",
+      "cachedPerMDisplay": "$1.30",
+      "outputPerMDisplay": "$65.00",
       "listedAvailability": "Listed under Available models",
       "capabilityIndicators": "Not separately shown",
       "flipOrder": 3,
-      "flipRole": "next_if_needed"
+      "flipRole": "next_if_needed",
+      "overviewHypothesis": "coding/agentic (marketing — unmeasured)"
     }
   ],
   "resolvedEffective": [
@@ -51,14 +54,14 @@
       "provider": "anthropic"
     },
     {
-      "id": "gpt-6.1-sol",
-      "effectiveForScoutPlan": "gpt-6.1-sol",
+      "id": "gpt-5.6-sol",
+      "effectiveForScoutPlan": "gpt-5.6-sol",
       "kind": "flip_decision_shortlist",
       "provider": "openai"
     },
     {
-      "id": "claude-opus-5.5",
-      "effectiveForScoutPlan": "claude-opus-5.5",
+      "id": "claude-fable-5",
+      "effectiveForScoutPlan": "claude-fable-5",
       "kind": "flip_decision_shortlist",
       "provider": "anthropic"
     }

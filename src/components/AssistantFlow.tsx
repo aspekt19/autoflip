@@ -169,6 +169,9 @@ function AssistantFlow({
     coverage: string;
     coverageLevel: "low" | "medium" | "high";
   } | null>(null);
+  /** Find next-check live path — ids already applied this session (loop guard). */
+  const [appliedNextChecks, setAppliedNextChecks] = useState<string[]>([]);
+  const [nextCheckNote, setNextCheckNote] = useState<string | null>(null);
 
   async function understand(followUp?: { id: FollowUp["id"]; value: string }) {
     setError(null);
@@ -408,6 +411,136 @@ function AssistantFlow({
     if (current.yearMax != null) setYearMax(String(current.yearMax));
     setQuestions([]);
     setStage("confirm");
+  }
+
+  /**
+   * Live Find next-check: SERV (when keyed) chooses from code allowlist → apply in code →
+   * rematch via /api/match when research=true. No invented listings/TCO.
+   */
+  async function applyLiveNextCheck() {
+    if (!need || variant !== "find") return;
+    setError(null);
+    setNextCheckNote(null);
+    setPending("next-check");
+    try {
+      const listings = groups.flatMap((g) => g.listings).map((car) => ({
+        make: car.make,
+        model: car.model,
+        year: car.year,
+        priceUsd: car.priceView?.usableForBudget ? car.priceUsd : null,
+        miles: car.miles,
+      }));
+      const response = await fetch("/api/find/next-check", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          need,
+          listings,
+          refine: {
+            make: make.trim() || undefined,
+            model: model.trim() || undefined,
+            yearMin: yearMin ? Number(yearMin) : need.yearMin ?? undefined,
+            yearMax: yearMax ? Number(yearMax) : need.yearMax ?? undefined,
+          },
+          appliedCheckIds: appliedNextChecks,
+        }),
+      });
+      const body = (await response.json()) as {
+        ok?: boolean;
+        message?: string;
+        chosenId?: string;
+        source?: string;
+        research?: boolean;
+        servNote?: string | null;
+        replan?: { need: StructuredNeed; refine: { yearMin?: number; yearMax?: number; make?: string; model?: string }; note: string };
+        honesty?: string;
+      };
+      if (!response.ok || !body.ok || !body.replan?.need) {
+        setError(body.message || "Next check could not be applied.");
+        return;
+      }
+      setNeed(body.replan.need);
+      if (body.replan.refine.yearMin != null) setYearMin(String(body.replan.refine.yearMin));
+      if (body.replan.refine.yearMax != null) setYearMax(String(body.replan.refine.yearMax));
+      if (body.chosenId) setAppliedNextChecks((prev) => [...prev, body.chosenId!]);
+      setNextCheckNote(
+        [
+          body.source === "serv" ? "SERV chose" : "Code fallback chose",
+          body.chosenId,
+          "—",
+          body.replan.note,
+          body.servNote ? `(${body.servNote})` : "",
+        ]
+          .filter(Boolean)
+          .join(" "),
+      );
+      if (body.research) {
+        // Real rematch with applied need — findCars reads need from state; set then call after tick.
+        // Use returned need directly to avoid stale closure.
+        const nextNeed = body.replan.need;
+        setPending("match");
+        const controller = new AbortController();
+        const timer = window.setTimeout(() => controller.abort(), 45_000);
+        try {
+          const matchResponse = await fetch("/api/match", {
+            method: "POST",
+            signal: controller.signal,
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              need: nextNeed,
+              refine: {
+                make: make.trim() || body.replan.refine.make || undefined,
+                model: model.trim() || body.replan.refine.model || undefined,
+                yearMin: yearMin ? Number(yearMin) : body.replan.refine.yearMin ?? nextNeed.yearMin ?? undefined,
+                yearMax: yearMax ? Number(yearMax) : body.replan.refine.yearMax ?? nextNeed.yearMax ?? undefined,
+              },
+            }),
+          });
+          const matchBody = (await matchResponse.json()) as {
+            directions?: MatchGroup[];
+            sample?: boolean;
+            message?: string;
+            headline?: string;
+            nextStep?: string;
+            scope?: string;
+            emptyReason?: FindEmptyReason | null;
+            partialFailure?: boolean;
+            affordabilityAssessed?: boolean;
+          };
+          if (!matchResponse.ok) {
+            const reason = matchBody.emptyReason ?? "provider_failure";
+            const copy = findEmptyCopy(reason, nextNeed, matchBody.message);
+            setError(copy.detail);
+            setMatchHeadline(matchBody.headline ?? copy.headline);
+            setMatchNextStep(matchBody.nextStep ?? copy.nextStep);
+            setMatchMessage(copy.detail);
+            setEmptyReason(reason);
+            setGroups([]);
+            return;
+          }
+          const nextGroups = (matchBody.directions ?? []).map((group) => ({
+            ...group,
+            listings: (group.listings ?? []).filter((car) => car.source !== "sample"),
+          }));
+          setGroups(nextGroups);
+          setSample(Boolean(matchBody.sample));
+          setAffordability(matchBody.affordabilityAssessed !== false);
+          setMatchScope(matchBody.scope ?? null);
+          setMatchHeadline(matchBody.headline ?? null);
+          setMatchNextStep(matchBody.nextStep ?? null);
+          setMatchMessage(matchBody.message ?? null);
+          setEmptyReason(matchBody.emptyReason ?? null);
+          setPartialFailure(Boolean(matchBody.partialFailure));
+          setStage("results");
+        } finally {
+          window.clearTimeout(timer);
+        }
+      }
+    } catch {
+      setError("Next check failed — try again.");
+    } finally {
+      setPending(null);
+    }
   }
 
   async function findCars() {
@@ -1143,7 +1276,11 @@ function AssistantFlow({
                   <div className="hint" role="note">
                     {checks.length > 0 ? (
                       <>
-                        <p>Suggested next checks (code allowlist — not a SERV live call; no invented costs):</p>
+                        <p>
+                          Suggested next checks (code allowlist). Apply runs SERV{" "}
+                          <code>find_next_check</code> when configured, clamps to this list, then rematches if needed —
+                          no invented costs:
+                        </p>
                         <ul>
                           {checks.map((item) => (
                             <li key={item.id}>
@@ -1151,6 +1288,17 @@ function AssistantFlow({
                             </li>
                           ))}
                         </ul>
+                        <p>
+                          <button
+                            type="button"
+                            className="secondary"
+                            disabled={pending !== null}
+                            onClick={() => void applyLiveNextCheck()}
+                          >
+                            {pending === "next-check" ? "Choosing next check…" : "Apply next check (SERV + rematch)"}
+                          </button>
+                        </p>
+                        {nextCheckNote ? <p className="hint">{nextCheckNote}</p> : null}
                       </>
                     ) : null}
                     {shortlist.length > 0 ? (

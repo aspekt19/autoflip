@@ -238,19 +238,19 @@ Run **one model at a time** in flipOrder. XOR: SCOUT_COMPARE_SEQUENTIAL=1 skips 
 # Baseline — Claude Sonnet 5.5
 SERV_API_KEY=… SCOUT_COMPARE_ALLOW_PAID=1 SCOUT_COMPARE_SEQUENTIAL=1 \\
   SERV_COMPARE_MODELS=claude-sonnet-5.5 \\
-  SCOUT_COMPARE_SOURCE_PIN='{"head":"<IMPLEMENT_TIP>","tree":"<IMPLEMENT_TREE>","pr":77,"pack":"artifacts/flip-t318-decision-pack"}' \\
+  SCOUT_COMPARE_SOURCE_PIN='{"head":"<IMPLEMENT_TIP>","tree":"<IMPLEMENT_TREE>","pr":78,"pack":"artifacts/flip-t318-decision-pack"}' \\
   npm run eval:scout-model-compare
 
-# Next — GPT-6.1 Sol (only if baseline incomplete / Flip decides)
+# Next — GPT-5.6 Sol (first-class allowlisted; Flip decides)
 SERV_API_KEY=… SCOUT_COMPARE_ALLOW_PAID=1 SCOUT_COMPARE_SEQUENTIAL=1 \\
-  SERV_COMPARE_MODELS=gpt-6.1-sol \\
-  SCOUT_COMPARE_SOURCE_PIN='{"head":"<IMPLEMENT_TIP>","tree":"<IMPLEMENT_TREE>","pr":77,"pack":"artifacts/flip-t318-decision-pack"}' \\
+  SERV_COMPARE_MODELS=gpt-5.6-sol \\
+  SCOUT_COMPARE_SOURCE_PIN='{"head":"<IMPLEMENT_TIP>","tree":"<IMPLEMENT_TREE>","pr":78,"pack":"artifacts/flip-t318-decision-pack"}' \\
   npm run eval:scout-model-compare
 
-# Next if needed — Claude Opus 5.5
+# Next if warranted — Claude Fable 5
 SERV_API_KEY=… SCOUT_COMPARE_ALLOW_PAID=1 SCOUT_COMPARE_SEQUENTIAL=1 \\
-  SERV_COMPARE_MODELS=claude-opus-5.5 \\
-  SCOUT_COMPARE_SOURCE_PIN='{"head":"<IMPLEMENT_TIP>","tree":"<IMPLEMENT_TREE>","pr":77,"pack":"artifacts/flip-t318-decision-pack"}' \\
+  SERV_COMPARE_MODELS=claude-fable-5 \\
+  SCOUT_COMPARE_SOURCE_PIN='{"head":"<IMPLEMENT_TIP>","tree":"<IMPLEMENT_TREE>","pr":78,"pack":"artifacts/flip-t318-decision-pack"}' \\
   npm run eval:scout-model-compare
 \`\`\`
 

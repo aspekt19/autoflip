@@ -568,8 +568,8 @@ export const PROFILES = {
   },
   /**
    * Find next-check chooser. Code computes allowedChecks from proposeFindNextChecks;
-   * SERV may only pick an id in that allowlist. Not wired to live calls in t315 —
-   * UI always shows the deterministic code list; this profile documents the bound.
+   * SERV may only pick an id in that allowlist. Live path: POST /api/find/next-check
+   * → runFindNextCheckLive → clamp → applyFindNextCheck → optional /api/match rematch.
    */
   find_next_check: {
     id: "find_next_check",
