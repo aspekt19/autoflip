@@ -11,6 +11,7 @@ Base = main `ba6e127` (PR77). Branch `cursor/find-nextcheck-live-apply-ecfd-1033
 | --- | --- |
 | Branch | `cursor/find-nextcheck-live-apply-ecfd-1033` |
 | Base | `ba6e127d399afa8b64126dcf35da73fdd8f81158` |
+| **Tip** | `10e3832d241dc6d322fb2adc51e4438425d245de` / tree `433237e8d637ce8793535aa7463cb8084d19c86e` |
 | Prior tip | `1be6bd90b4f3deaea556f1206058480636bb7cdf` |
 
 ### Accepted (unchanged)
