@@ -83,12 +83,17 @@ export function proposeDirections(
 
   const preferred = need.preferredModels ?? [];
   if (preferred.length > 0) {
+    const userNamed = need.preferredModelsSource !== "service";
     const named: SearchDirection = {
       id: `${need.useCase}-named`,
-      segment: "Models you named",
-      why: need.openToOtherMakes
-        ? "You named these models and said you are open to others. Lemonless searches them first, then keeps editorial alternatives in the mix."
-        : "You named these models. Lemonless searches them first. Other makes are left out unless you open the search.",
+      segment: userNamed ? "Models you named" : "Suggested models",
+      why: userNamed
+        ? need.openToOtherMakes
+          ? "You named these models and said you are open to others. Lemonless searches them first, then keeps editorial alternatives in the mix."
+          : "You named these models. Lemonless searches them first. Other makes are left out unless you open the search."
+        : need.openToOtherMakes
+          ? "Lemonless suggested these models from your note. They were not typed as an exact make/model list. Editorial alternatives stay in the mix."
+          : "Lemonless suggested these models from your note. They were not typed as an exact make/model list.",
       guidance: "editorial",
       yearMin,
       yearMax,

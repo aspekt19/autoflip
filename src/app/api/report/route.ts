@@ -1,5 +1,5 @@
+import { prechargeAnalysisGate } from "@/domain/find-analysis-handoff";
 import { fitHeadline } from "@/domain/fit";
-import { extractVin } from "@/domain/vin";
 import { isVinOnlyLookup, vinDetailGaps } from "@/domain/vin-report";
 import { findUserReport, persistReport, readPersistedReport, rememberUserReport, reportReusable } from "@/io/persist-report";
 import { getKv } from "@/io/kv";
@@ -29,7 +29,26 @@ export async function POST(request: Request) {
   const budgetUsd = typeof body.budgetUsd === "number" ? body.budgetUsd : undefined;
   const budgetKnown = body.budgetKnown === true || typeof budgetUsd === "number";
   const zip = typeof body.zip === "string" ? body.zip : undefined;
-  if (isVinOnlyLookup({ url, vin })) {
+  const surface = body.surface === "check" || body.surface === "find" ? body.surface : "report";
+  const cta = typeof body.cta === "string" ? body.cta : null;
+
+  // Identity must be resolvable BEFORE any credit gate — never charge then ask for a URL.
+  const identity = prechargeAnalysisGate({ url, vin });
+  if (!identity.ok) {
+    return Response.json(
+      {
+        error: identity.error,
+        message: identity.message,
+        cta,
+        surface,
+      },
+      { status: 400 },
+    );
+  }
+
+  // Manual VIN entry still needs typed ask/miles/ZIP. A /find card already selected a
+  // discovered listing — re-fetch by VIN; do not demand the shopper re-type feed fields.
+  if (surface !== "find" && isVinOnlyLookup({ url, vin })) {
     const missing = vinDetailGaps({ askingPriceUsd, miles, zip });
     if (missing.length > 0) {
       return Response.json(
@@ -37,6 +56,8 @@ export async function POST(request: Request) {
           error: "vin_needs_details",
           missing,
           message: `A VIN has no asking price of its own. Add ${missing.join(", ")} before the report.`,
+          cta,
+          surface,
         },
         { status: 400 },
       );
@@ -45,14 +66,14 @@ export async function POST(request: Request) {
 
   const id = await userId();
   const mode = parseMode(body.mode);
-  const vinKey = extractVin(vin || url || "");
+  const vinKey = identity.vin;
   if (vinKey) {
     const existingId = await findUserReport(getKv(), id, vinKey, mode);
     if (existingId) {
       const existing = await readPersistedReport(existingId);
       if (existing && reportReusable(existing, { mode, askingPriceUsd, miles })) {
         await rememberUserReport(getKv(), id, vinKey, existing.id, existing);
-        return Response.json({ ...existing, balance: await balanceOf(id), alreadySaved: true });
+        return Response.json({ ...existing, balance: await balanceOf(id), alreadySaved: true, cta, surface });
       }
     }
   }
@@ -62,6 +83,8 @@ export async function POST(request: Request) {
         error: "credits_required",
         balance: 0,
         message: "A full report costs 1 credit.",
+        cta,
+        surface,
       },
       { status: 403 },
     );
@@ -70,7 +93,7 @@ export async function POST(request: Request) {
   const assembled = await assembleReport(
     {
       mode,
-      vin,
+      vin: vin ?? vinKey,
       url,
       make: typeof body.make === "string" ? body.make : undefined,
       model: typeof body.model === "string" ? body.model : undefined,
@@ -83,7 +106,7 @@ export async function POST(request: Request) {
       budgetUsd: budgetUsd ?? null,
       budgetKnown,
     },
-    { ...runtimeDeps(), servSurface: body.surface === "check" ? "check" : "report" },
+    { ...runtimeDeps(), servSurface: surface === "check" ? "check" : "report" },
   );
   if (!assembled.ok) {
     await sendLinkedTelegram(id, REPORT_FAILED_TEXT);
