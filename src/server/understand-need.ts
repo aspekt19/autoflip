@@ -9,6 +9,7 @@ import {
   overlayExplicit,
   preferredModelsFromText,
   parseNeedJson,
+  supplementNeedFromNote,
   validateNeed,
   type FollowUp,
   type StructuredNeed,
@@ -130,6 +131,7 @@ export async function understandNeed(
       ? { budgetUsd: noteBudget, budgetKnown: true }
       : {}),
   };
+  need = supplementNeedFromNote(need, screened.text);
   if (body.followUp) need = applyFollowUp(need, body.followUp.id, body.followUp.value);
   const checked = validateNeed(need);
   if (!checked.ok) return { ok: false, status: 400, error: "invalid_need", message: checked.issues[0]?.message ?? "That need is not usable." };
