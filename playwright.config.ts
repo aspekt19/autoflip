@@ -11,12 +11,13 @@ export default defineConfig({
   workers: 1,
   reporter: [["list"]],
   timeout: 90_000,
+  expect: { timeout: 20_000 },
   use: {
     baseURL,
     trace: "on-first-retry",
     screenshot: "off",
+    ...devices["Desktop Chrome"],
   },
-  projects: [{ name: "chromium", use: { ...devices["Desktop Chrome"] } }],
   webServer: {
     command: `npx next dev -p ${PORT} -H 127.0.0.1`,
     url: baseURL,

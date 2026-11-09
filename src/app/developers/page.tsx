@@ -1,9 +1,14 @@
 import type { Metadata } from "next";
 import { AgentKeys } from "@/components/AgentKeys";
+import { resolveProductFlags } from "@/domain/product-flags";
 
 export const metadata: Metadata = { title: "For agents" };
 
+/** Scout link follows the runtime flag. Do not bake SCOUT_UI_ENABLED. */
+export const dynamic = "force-dynamic";
+
 export default function DevelopersPage() {
+  const scout = resolveProductFlags().scout;
   return (
     <div className="sub">
       <div className="sheet-page site-frame prose">
@@ -25,7 +30,7 @@ export default function DevelopersPage() {
           <p>A zero balance returns <code>insufficient_credits</code>, <code>buyCreditsUrl</code>, and does not run the analysis. Send the same JSON-RPC <code>id</code>, or the same <code>Idempotency-Key</code> on the HTTP call, to retry a paid call without a second charge.</p>
         </section>
 
-        <AgentKeys />
+        <AgentKeys scoutEnabled={scout} />
 
         <section>
           <h2>Scout grants (owner → operator)</h2>
@@ -33,8 +38,15 @@ export default function DevelopersPage() {
             Live Scout spend is not created by minting a key. After you create a key above, copy the
             binding card (<code>ownerUserId</code> + <code>apiKeyHash</code>) and send it to your
             operator through a channel they trust to confirm it is you. Never paste the{" "}
-            <code>af_</code> token into chat. The operator issues a call-count grant; then you open a
-            signed session on <a href="/scout">/scout</a> with the key that stays in this browser.
+            <code>af_</code> token into chat. The operator issues a call-count grant.
+            {scout ? (
+              <>
+                {" "}
+                Then you open a signed session on <a href="/scout">/scout</a> with the key that stays in this browser.
+              </>
+            ) : (
+              <> Scout is not available in this preview, so this page does not link to it.</>
+            )}
           </p>
         </section>
 

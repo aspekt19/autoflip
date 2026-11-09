@@ -5,6 +5,8 @@ import type { PriceBadge } from "@/domain/price-badge";
 import { whyThisCar } from "@/domain/why-car";
 import { PriceBadgeView, PriceRatingHow } from "./PriceBadge";
 import { budgetFromText, budgetWorkingCopy } from "@/domain/need";
+import { findStageAfterNote, needFromFindEntry, noteMarksFrom, type NoteMarks } from "@/domain/find-intake-stage";
+import { FOLLOW_HINT } from "@/domain/intake-copy";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
@@ -91,9 +93,9 @@ import { PurchaseReadinessNote } from "./PurchaseReadinessNote";
 import { buyerListingHref, matchBuyerListing } from "@/domain/find-listing-link";
 import { mmyListingKey } from "@/domain/find-risk-evidence";
 import {
-  AGE_GAP_NO_FLOOR,
   ageGapBuyerHonesty,
   applyFollowUp,
+  explicitNeedFromText,
   followUps,
   USE_CASES,
   searchScopeLabel,
@@ -105,6 +107,14 @@ import type { Mode } from "@/domain/types";
 import { isValidVin } from "@/domain/vin";
 import { MakeModelFields } from "./MakeModelFields";
 import { ZipRadiusFields } from "./ZipRadiusFields";
+import {
+  CONDITION_HINT,
+  MilesDraftField,
+  NoteFactChips,
+  PriceDraftField,
+  YearFloorField,
+  FromNote,
+} from "./FindIntakeFields";
 
 type ListingCard = {
   vin: string;
@@ -209,19 +219,30 @@ function AssistantFlow({
 }) {
   const router = useRouter();
   const path = variant === "find" ? "choose" : "check";
-  const [mode, setMode] = useState<Mode>("personal");
-  const [text, setText] = useState("");
-  const [budget, setBudget] = useState("");
+  const entryNeed =
+    variant === "find" && initialNote?.trim()
+      ? needFromFindEntry({
+          note: initialNote,
+          mode: initialMode,
+          zip: initialZip,
+          distanceMiles: initialDistanceMiles,
+        })
+      : null;
+  const entryStage = entryNeed ? findStageAfterNote(entryNeed) : "need";
+  const [mode, setMode] = useState<Mode>(entryNeed?.mode ?? (initialMode === "flip" ? "flip" : "personal"));
+  const [text, setText] = useState(initialNote?.trim() ?? "");
+  const [budget, setBudget] = useState(entryNeed?.budgetUsd != null ? entryNeed.budgetUsd.toLocaleString("en-US") : "");
   const [budgetKnown, setBudgetKnown] = useState(true);
-  const [need, setNeed] = useState<StructuredNeed | null>(null);
-  const [source, setSource] = useState<"model" | "form" | null>(null);
+  const [need, setNeed] = useState<StructuredNeed | null>(entryNeed);
+  const [noteMarks, setNoteMarks] = useState<NoteMarks | null>(entryNeed ? noteMarksFrom(entryNeed) : null);
+  const [source, setSource] = useState<"model" | "form" | null>(entryNeed ? "form" : null);
   const [checks, setChecks] = useState<DecisionProof[]>([]);
-  const [questions, setQuestions] = useState<FollowUp[]>([]);
+  const [questions, setQuestions] = useState<FollowUp[]>(entryNeed && entryStage === "follow" ? followUps(entryNeed) : []);
   const [answers, setAnswers] = useState<Record<string, string>>({});
-  const [stage, setStage] = useState<"need" | "budget" | "follow" | "confirm" | "results">("need");
-  const [zipDraft, setZipDraft] = useState(initialZip ?? "");
+  const [stage, setStage] = useState<"need" | "budget" | "follow" | "confirm" | "results">(entryStage);
+  const [zipDraft, setZipDraft] = useState(entryNeed?.zip ?? initialZip ?? "");
   const [distanceDraft, setDistanceDraft] = useState<number | null>(
-    initialDistanceMiles === undefined ? null : initialDistanceMiles,
+    entryNeed ? entryNeed.distanceMiles : initialDistanceMiles === undefined ? null : initialDistanceMiles,
   );
   const [groups, setGroups] = useState<MatchGroup[]>([]);
   const [sample, setSample] = useState(false);
@@ -237,14 +258,14 @@ function AssistantFlow({
   const [refine, setRefine] = useState(false);
   const [make, setMake] = useState("");
   const [model, setModel] = useState("");
-  const [yearMin, setYearMin] = useState("");
-  const [yearMax, setYearMax] = useState("");
+  const [yearMin, setYearMin] = useState(entryNeed?.yearMin != null ? String(entryNeed.yearMin) : "");
+  const [yearMax, setYearMax] = useState(entryNeed?.yearMax != null ? String(entryNeed.yearMax) : "");
+  const [dealRadarUi, setDealRadarUi] = useState(false);
   const [checkKind, setCheckKind] = useState<"link" | "vin">("link");
   const [lookup, setLookup] = useState("");
   const [vinPrice, setVinPrice] = useState("");
   const [vinMiles, setVinMiles] = useState("");
   const [vinZip, setVinZip] = useState("");
-  const booted = useRef(false);
   const [checkAllowance, setCheckAllowance] = useState<"loading" | "signed-out" | "missing" | string>(
     "loading",
   );
@@ -295,6 +316,22 @@ function AssistantFlow({
   const findIdempotencyKey = useRef<string | null>(null);
   /** Auto-continues fired for the current search token — hard-bounded in shouldAutoContinue. */
   const autoContinueCountRef = useRef(0);
+
+  useEffect(() => {
+    if (variant !== "find") return;
+    let cancelled = false;
+    fetch("/api/product-flags")
+      .then((response) => response.json())
+      .then((body: { flags?: { dealRadar?: boolean } }) => {
+        if (!cancelled) setDealRadarUi(body.flags?.dealRadar === true);
+      })
+      .catch(() => {
+        if (!cancelled) setDealRadarUi(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [variant]);
 
   useEffect(() => {
     if (variant !== "check") return;
@@ -375,18 +412,6 @@ function AssistantFlow({
       setPending(null);
     }
   }
-
-  useEffect(() => {
-    if (booted.current || variant !== "find" || !initialNote?.trim()) return;
-    booted.current = true;
-    setText(initialNote);
-    setMode(initialMode === "flip" ? "flip" : "personal");
-    if (initialZip) setZipDraft(initialZip);
-    if (initialDistanceMiles !== undefined) setDistanceDraft(initialDistanceMiles);
-    const amount = budgetFromText(initialNote);
-    if (amount) setBudget(String(amount));
-    setStage("budget");
-  }, [initialDistanceMiles, initialMode, initialNote, initialZip, variant]);
 
   useEffect(() => {
     if (variant !== "find" || initialNote?.trim()) return;
@@ -1281,6 +1306,7 @@ function AssistantFlow({
   }
 
   async function watch(direction: SearchDirection) {
+    if (!dealRadarUi) return;
     // Watches require explicit ZIP + seller-distance radius — never invent 50/100 after Nationwide.
     if (!need?.zip?.trim() || need.distanceMiles == null) {
       setError("Saved searches need a ZIP and a seller-distance radius. Choose a radius (Nationwide watches are not supported).");
@@ -1545,7 +1571,27 @@ function AssistantFlow({
         <form
           onSubmit={(event) => {
             event.preventDefault();
-            setStage("budget");
+            const parsed = explicitNeedFromText(text, mode);
+            const withGeo = {
+              ...parsed,
+              zip: zipDraft.trim() || parsed.zip,
+              distanceMiles: zipDraft.trim() ? distanceDraft : parsed.zip ? parsed.distanceMiles : null,
+            };
+            if (withGeo.distanceMiles != null && !withGeo.zip) {
+              setError("Add a ZIP for a seller-distance radius, or choose Nationwide.");
+              return;
+            }
+            setNeed(withGeo);
+            setNoteMarks(noteMarksFrom(withGeo));
+            setSource("form");
+            if (withGeo.budgetUsd != null) setBudget(withGeo.budgetUsd.toLocaleString("en-US"));
+            setBudgetKnown(true);
+            if (withGeo.zip) setZipDraft(withGeo.zip);
+            if (withGeo.yearMin != null) setYearMin(String(withGeo.yearMin));
+            if (withGeo.yearMax != null) setYearMax(String(withGeo.yearMax));
+            const nextStage = findStageAfterNote(withGeo);
+            if (nextStage === "follow") setQuestions(followUps(withGeo));
+            setStage(nextStage);
           }}
         >
           <ModePills mode={mode} onMode={setMode} />
@@ -1580,8 +1626,14 @@ function AssistantFlow({
           <div className="field">
             <label htmlFor="budget">{mode === "flip" ? "Cash available for the purchase and repairs" : "Maximum vehicle price (before taxes and fees)"}</label>
             <input id="budget" value={budget} onChange={(event) => setBudget(event.target.value)} inputMode="decimal" disabled={!budgetKnown} placeholder="e.g. 18000" />
-            <label className="pill">
-              <input type="checkbox" checked={!budgetKnown} onChange={(event) => setBudgetKnown(!event.target.checked)} /> Not sure yet
+            <label className="check-line" htmlFor="budget-unknown">
+              <input
+                id="budget-unknown"
+                type="checkbox"
+                checked={!budgetKnown}
+                onChange={(event) => setBudgetKnown(!event.target.checked)}
+              />
+              Not sure yet
             </label>
           </div>
           {!budgetKnown && budgetFromText(text) != null ? (
@@ -1624,7 +1676,7 @@ function AssistantFlow({
             void answerFollowUps();
           }}
         >
-          <p className="hint">{need?.mode === "flip" ? "These answers change the reconditioning assumption and the profit target. They are not a quote." : "A few clarifications for facts Find can act on — not a condition score or a made-up ownership cost."}</p>
+          <p className="hint">{need?.mode === "flip" ? "These answers change the reconditioning assumption and the profit target. They are not a quote." : FOLLOW_HINT}</p>
           {questions.map((question) => (
             <div className="field" key={question.id}>
               <label htmlFor={question.id}>{question.prompt}</label>
@@ -1738,6 +1790,7 @@ function AssistantFlow({
             <label htmlFor="note">Your note</label>
             <textarea id="note" rows={3} value={need.note} onChange={(event) => setNeed({ ...need, note: event.target.value })} />
           </div>
+          <NoteFactChips need={need} onChange={setNeed} />
           {need.mode === "flip" ? (
             <p className="hint">
               Profit target {need.targetProfitUsd === null ? "not set" : `$${need.targetProfitUsd.toLocaleString("en-US")}`}. Repair skill{" "}
@@ -1745,7 +1798,9 @@ function AssistantFlow({
             </p>
           ) : (
           <div className="field">
-            <label htmlFor="use-edit">Use</label>
+            <label htmlFor="use-edit">
+              Use <FromNote show={Boolean(noteMarks?.use)} />
+            </label>
             <select id="use-edit" value={need.useCase} onChange={(event) => setNeed({ ...need, useCase: event.target.value as StructuredNeed["useCase"] })}>
               {USE_CASES.map((item) => (
                 <option key={item} value={item}>
@@ -1758,6 +1813,7 @@ function AssistantFlow({
           <ZipRadiusFields
             idPrefix="find-confirm"
             zip={need.zip ?? ""}
+            zipMark={noteMarks?.zip ? "from your note" : null}
             distanceMiles={need.distanceMiles}
             onZipChange={(nextZip) => {
               const trimmed = nextZip.trim() || null;
@@ -1778,59 +1834,24 @@ function AssistantFlow({
           <p className="hint" aria-live="polite">
             Scope: {searchScopeLabel(need)}
           </p>
-          <div className="field">
-            <label htmlFor="miles-edit">Maximum mileage in miles (optional)</label>
-            <input
-              id="miles-edit"
-              value={need.milesMax ?? ""}
-              inputMode="numeric"
-              placeholder="e.g. 80,000 miles"
-              aria-describedby="miles-edit-hint"
-              onChange={(event) => {
-                const amount = Number(event.target.value.replace(/,/g, ""));
-                const next = Number.isFinite(amount) && amount > 0 ? Math.round(amount) : null;
-                setNeed({
-                  ...need,
-                  milesMax: next,
-                  // Blank on Confirm = explicit uncapped when shopper clears a prior cap.
-                  milesCapResolved: true,
-                });
-              }}
-            />
-            <p id="miles-edit-hint" className="hint">Units are miles (odometer), not kilometers.</p>
-          </div>
-          <div className="field">
-            <label htmlFor="year-min-edit">Oldest model year (optional)</label>
-            <input
-              id="year-min-edit"
-              value={need.yearMin ?? ""}
-              inputMode="numeric"
-              placeholder="e.g. 2015"
-              onChange={(event) => {
-                const year = Number(event.target.value);
-                const next = Number.isFinite(year) && year >= 1980 ? Math.round(year) : null;
-                setNeed({
-                  ...need,
-                  yearMin: next,
-                  // Blank keeps budget band; still counts as resolved so wizard does not re-ask.
-                  yearBandResolved: true,
-                });
-                setYearMin(next ? String(next) : "");
-              }}
-            />
-            <p className="hint">
-              {need.yearMin != null
-                ? `Search will use ${need.yearMin}${need.yearMax != null ? `–${need.yearMax}` : "+"} from your clarification or this field.`
-                : need.yearBandResolved
-                  ? AGE_GAP_NO_FLOOR
-                  : "Leave this blank to use the years that fit your budget."}
-            </p>
-          </div>
-          {need.conditionPriority === "inspection_first" ? (
-            <p className="hint">
-              You prioritized condition: Find still cannot score condition. Next steps favor full analysis and an NMVTIS-approved history report — not a fictitious cleanliness score.
-            </p>
-          ) : null}
+          <MilesDraftField
+            milesMax={need.milesMax}
+            marked={Boolean(noteMarks?.miles)}
+            onCommit={(next) => setNeed({ ...need, milesMax: next.milesMax, milesCapResolved: next.milesCapResolved })}
+          />
+          <YearFloorField
+            yearMin={need.yearMin}
+            yearBandResolved={need.yearBandResolved}
+            marked={Boolean(noteMarks?.year)}
+            onCommit={(next) => {
+              setNeed({ ...need, yearMin: next.yearMin, yearBandResolved: next.yearBandResolved });
+              setYearMin(next.yearMin != null ? String(next.yearMin) : "");
+              if (noteMarks?.year && next.yearMin !== need.yearMin) {
+                setNoteMarks({ ...noteMarks, year: false });
+              }
+            }}
+          />
+          {need.conditionPriority === "inspection_first" ? <p className="hint">{CONDITION_HINT}</p> : null}
           {need.preferredMakes?.length ? (
             <p className="hint">
               {need.openToOtherMakes
@@ -1844,26 +1865,20 @@ function AssistantFlow({
           ) : need.make ? (
             <p className="hint">Make: {need.make}. Other makes are left out.</p>
           ) : null}
-          {softPrefGapsFromText(need.note).map((gap) => (
-            <p className="hint" key={gap.id}>
-              Noted preference: {gap.mentioned}. {gap.id === "age" ? ageGapBuyerHonesty(need) : gap.honesty}
-            </p>
-          ))}
-          <div className="field">
-            <label htmlFor="budget-edit">{need.mode === "flip" ? "Cash available for the purchase and repairs" : "Maximum vehicle price (before taxes and fees)"}</label>
-            <input
-              id="budget-edit"
-              value={need.budgetUsd ?? ""}
-              onChange={(event) => {
-                const amount = Number(event.target.value);
-                setNeed({
-                  ...need,
-                  budgetUsd: Number.isFinite(amount) && amount > 0 ? amount : null,
-                  budgetKnown: Number.isFinite(amount) && amount > 0,
-                });
-              }}
-            />
-          </div>
+          <PriceDraftField
+            id="budget-edit"
+            label={need.mode === "flip" ? "Cash available for the purchase and repairs" : "Maximum vehicle price (before taxes and fees)"}
+            budgetUsd={need.budgetUsd}
+            marked={Boolean(noteMarks?.budget)}
+            onCommit={(next) => {
+              setNeed({ ...need, budgetUsd: next.budgetUsd, budgetKnown: next.budgetKnown });
+              setBudget(next.budgetUsd != null ? next.budgetUsd.toLocaleString("en-US") : "");
+              setBudgetKnown(next.budgetKnown);
+              if (noteMarks?.budget && next.budgetUsd !== need.budgetUsd) {
+                setNoteMarks({ ...noteMarks, budget: false });
+              }
+            }}
+          />
           {need.mode === "personal" ? <p className="hint">This limit applies to the vehicle asking price only; taxes, title and dealer fees are not estimated.</p> : null}
           <button className="quiet" type="button" onClick={() => setRefine((open) => !open)}>
             {refine ? "Hide refine" : "Refine"}
@@ -2369,7 +2384,7 @@ function AssistantFlow({
           ) : null}
           {error && pending === null && groups.some((group) => group.listings.length > 0) ? (
             <p className="warn" role="alert">
-              {error} {/plan|watch/i.test(error) ? <a href="/pricing">See radar plans</a> : null}
+              {error} {dealRadarUi && /plan|watch/i.test(error) ? <a href="/pricing">See radar plans</a> : null}
             </p>
           ) : null}
           {groups.map((group) => (
@@ -2424,9 +2439,11 @@ function AssistantFlow({
                     );
                   })()
                 : null}
-              <button className="quiet" type="button" onClick={() => void watch(group.direction)} disabled={pending === group.direction.id}>
-                {pending === group.direction.id ? "Saving alert…" : need?.mode === "flip" ? "Get alerts for this budget" : "Get new-listing alerts"}
-              </button>
+              {dealRadarUi ? (
+                <button className="quiet" type="button" onClick={() => void watch(group.direction)} disabled={pending === group.direction.id}>
+                  {pending === group.direction.id ? "Saving alert…" : need?.mode === "flip" ? "Get alerts for this budget" : "Get new-listing alerts"}
+                </button>
+              ) : null}
               <p className="hint">{FIND_RESULTS_BILLING_HINT}</p>
               {group.note &&
               !(

@@ -1,5 +1,6 @@
 import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
+import { resolveProductFlags } from "@/domain/product-flags";
 import { DEMO_USER_ID } from "@/domain/radar-watch";
 import { getKv } from "@/io/kv";
 import { ensureDemoAccount } from "@/server/radar-store";
@@ -17,5 +18,7 @@ export async function GET(request: Request) {
   const jar = await cookies();
   jar.set("af_uid", DEMO_USER_ID, cookieOptions());
   await ensureDemoAccount(getKv(), new Date());
-  return NextResponse.redirect(new URL("/radar", request.url));
+  const flags = resolveProductFlags();
+  const dest = flags.dealRadar ? "/radar" : flags.resaleEvaluate ? "/resale" : "/";
+  return NextResponse.redirect(new URL(dest, request.url));
 }
