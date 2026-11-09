@@ -3,9 +3,11 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useId, useRef, useState } from "react";
+import { headerAuthConfiguredProp, headerBalancePresentation } from "@/domain/account-load";
 import { CREDIT_BALANCE_EVENT } from "@/domain/credit-balance-event";
 import { BrandLockup } from "./BrandLockup";
 import { headerAuthControl } from "./header-auth";
+import { useAccountLoad } from "./use-account-load";
 
 const BASE_NAV_LINKS = [
   { href: "/find", label: "Find a car" },
@@ -24,11 +26,9 @@ const BASE_NAV_LINKS = [
  */
 export function Header({ scoutNavEnabled = false }: { scoutNavEnabled?: boolean }) {
   const pathname = usePathname();
-  const [credits, setCredits] = useState<number | null>(null);
-  const [signedIn, setSignedIn] = useState(false);
-  const [accountEmail, setAccountEmail] = useState<string | null>(null);
-  /** undefined until /api/account answers; false means providers are off. */
-  const [authConfigured, setAuthConfigured] = useState<boolean | undefined>(undefined);
+  const accountLoad = useAccountLoad(pathname);
+  /** Purchase events can move the count before the next /api/account response. */
+  const [liveCredits, setLiveCredits] = useState<number | null>(null);
   /** null = not yet known; prefer runtime capabilities over build-time prop. */
   const [scoutUiRuntime, setScoutUiRuntime] = useState<boolean | null>(null);
   const [menuOpen, setMenuOpen] = useState(false);
@@ -43,30 +43,15 @@ export function Header({ scoutNavEnabled = false }: { scoutNavEnabled?: boolean 
   useEffect(() => {
     function onBalance(event: Event) {
       const detail = (event as CustomEvent<number>).detail;
-      if (typeof detail === "number" && Number.isFinite(detail)) setCredits(detail);
+      if (typeof detail === "number" && Number.isFinite(detail)) setLiveCredits(detail);
     }
     window.addEventListener(CREDIT_BALANCE_EVENT, onBalance);
     return () => window.removeEventListener(CREDIT_BALANCE_EVENT, onBalance);
   }, []);
 
   useEffect(() => {
-    let cancelled = false;
-    fetch("/api/account")
-      .then((response) => response.json())
-      .then((body: { credits?: number; authenticated?: boolean; email?: string | null; auth?: { configured?: boolean } }) => {
-        if (cancelled) return;
-        if (typeof body.credits === "number") setCredits(body.credits);
-        setSignedIn(Boolean(body.authenticated));
-        setAccountEmail(typeof body.email === "string" ? body.email : null);
-        setAuthConfigured(Boolean(body.auth?.configured));
-      })
-      .catch(() => {
-        if (!cancelled) setCredits(null);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [pathname]);
+    setLiveCredits(null);
+  }, [accountLoad.body]);
 
   useEffect(() => {
     let cancelled = false;
@@ -110,12 +95,20 @@ export function Header({ scoutNavEnabled = false }: { scoutNavEnabled?: boolean 
     };
   }, [menuOpen]);
 
-  const creditLabel = credits === null ? "Report credits" : `${credits} report credit${credits === 1 ? "" : "s"}`;
+  const accountCredits =
+    accountLoad.phase === "loaded" && typeof accountLoad.body?.credits === "number" ? accountLoad.body.credits : null;
+  const balance = headerBalancePresentation({
+    phase: accountLoad.phase,
+    credits: accountLoad.phase === "loaded" ? (liveCredits ?? accountCredits) : null,
+  });
+  const signedIn = accountLoad.phase === "loaded" && accountLoad.body?.authenticated === true;
+  const accountEmail =
+    accountLoad.phase === "loaded" && typeof accountLoad.body?.email === "string" ? accountLoad.body.email : null;
   const account = headerAuthControl({
     authenticated: signedIn,
     email: accountEmail,
     pathname,
-    authConfigured,
+    authConfigured: headerAuthConfiguredProp(accountLoad.phase, accountLoad.body),
   });
 
   return (
@@ -127,10 +120,22 @@ export function Header({ scoutNavEnabled = false }: { scoutNavEnabled?: boolean 
             {item.label}
           </Link>
         ))}
-        <Link className="nav-go" href="/credits" onClick={() => setMenuOpen(false)}>
-          <span className="nav-go-full">{creditLabel}</span>
-          <span className="nav-go-short">{credits === null ? "Credits" : `${credits} credits`}</span>
-        </Link>
+        {balance.kind === "failed" ? (
+          <button className="nav-go" type="button" onClick={() => accountLoad.retry()}>
+            <span className="nav-go-full">{balance.full}</span>
+            <span className="nav-go-short">{balance.short}</span>
+          </button>
+        ) : balance.kind === "loading" ? (
+          <span className="nav-go" aria-busy="true">
+            <span className="nav-go-full">{balance.full}</span>
+            <span className="nav-go-short">{balance.short}</span>
+          </span>
+        ) : (
+          <Link className="nav-go" href="/credits" onClick={() => setMenuOpen(false)}>
+            <span className="nav-go-full">{balance.full}</span>
+            <span className="nav-go-short">{balance.short}</span>
+          </Link>
+        )}
       </nav>
       <Link className="nav-auth" href={account.href}>
         {account.initial ? (
