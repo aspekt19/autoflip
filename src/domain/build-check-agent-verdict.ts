@@ -1,8 +1,7 @@
 /**
- * Honest agentVerdict for /check results.
- * Check uses code + public records for the screening verdict; it does not run
- * verdict_decide. The trail records what was looked at and says plainly when
- * no agent decision step ran.
+ * Code-only agentVerdict for /check when SERV is not configured or gates withhold.
+ * Live Check with a SERV key uses runShopperVerdictServ (verdict_decide +
+ * verdict_challenge) instead — never invent agent choice steps here.
  */
 
 import { emptyAgentVerdict, type AgentVerdict, type AgentTrailStep } from "./agent-verdict-schema";
