@@ -91,16 +91,32 @@ describe("home account line", () => {
   });
 });
 
-describe("login unavailable state", () => {
-  it("uses plain Sign-in is not available yet copy and hides email unless the form is enabled", () => {
+describe("login unavailable state and email gating", () => {
+  it("uses plain Sign-in is not available yet copy and hides email unless Firebase config is on", () => {
     const page = read("src/app/login/page.tsx");
     expect(page).toMatch(/Sign-in is not available yet/);
-    expect(page).not.toMatch(/AUTH_SECRET|AUTH_GOOGLE_|EMAIL_SERVER|EMAIL_FROM/);
+    expect(page).not.toMatch(/AUTH_SECRET|AUTH_GOOGLE_|EMAIL_SERVER|EMAIL_FROM|AUTH_EMAIL_MODE/);
     expect(page).toMatch(/email=\{auth\.email\}/);
+    expect(page).toMatch(/firebase=\{firebase\}/);
     const form = read("src/components/LoginForm.tsx");
     expect(form).toMatch(/Continue with Google/);
     expect(form).toMatch(/Email me a sign-in link/);
-    expect(form).toMatch(/\{email \?/);
-    expect(form).toMatch(/\{google \?/);
+    expect(form).toMatch(/sendSignInLinkToEmail/);
+    expect(form).toMatch(/handleCodeInApp:\s*true/);
+    expect(form).toMatch(/EMAIL_LINK_FINISH_PATH/);
+    expect(form).toMatch(/EMAIL_LINK_STORAGE_KEY/);
+    expect(form).toMatch(/Check your inbox \(and spam\) for a sign-in link/);
+    expect(form).toMatch(/showEmail/);
+    const finish = read("src/app/login/finish/page.tsx");
+    expect(finish).toMatch(/Sign-in is not available yet/);
+    const finishClient = read("src/components/EmailLinkFinish.tsx");
+    expect(finishClient).toMatch(/isSignInWithEmailLink/);
+    expect(finishClient).toMatch(/signInWithEmailLink/);
+    expect(finishClient).toMatch(/signInWithEmailLinkToken/);
+    expect(finishClient).toMatch(/EMAIL_LINK_STORAGE_KEY/);
+    const auth = read("src/auth.ts");
+    expect(auth).toMatch(/strategy:\s*"jwt"/);
+    expect(auth).toMatch(/id:\s*"email-link"/);
+    expect(auth).not.toMatch(/nodemailer|EMAIL_SERVER|AUTH_EMAIL_MODE/);
   });
 });

@@ -1,6 +1,6 @@
 import NextAuth from "next-auth";
+import Credentials from "next-auth/providers/credentials";
 import Google from "next-auth/providers/google";
-import Nodemailer from "next-auth/providers/nodemailer";
 import type { Provider } from "next-auth/providers";
 import { getKv } from "@/io/kv";
 import { moneyAuthStorageOk } from "@/io/kv-guard";
@@ -8,24 +8,23 @@ import {
   authIsConfigured,
   authSecretConfigured,
   emailAuthConfigured,
-  emailUsesTestInbox,
+  firebasePublicConfig,
   googleAuthConfigured,
-  isProductionRuntime,
   safeAuthCallbackUrl,
 } from "@/auth/config";
+import { verifyFirebaseIdToken } from "@/auth/firebase-id-token";
 import { KvAdapter } from "@/auth/kv-adapter";
-import { sendMagicLinkEmail } from "@/auth/email-transport";
 import { consumeRateLimit, emailSignInRateKey } from "@/auth/rate-limit";
+import { ensureVerifiedEmailAccount } from "@/auth/verified-email-account";
 
 function buildProviders(): Provider[] {
   const providers: Provider[] = [];
   if (googleAuthConfigured()) {
     providers.push(
       Google({
-        // Never auto-merge distinct provider accounts solely because emails match.
-        // Email magic-link recovers via getUserByEmail; Google links only when the
-        // same Google account already exists, or via an explicit signed-in link flow later.
-        allowDangerousEmailAccountLinking: false,
+        // Same verified email as an email-link account joins that Lemonless user.
+        // signIn() below rejects Google unless the provider says email_verified.
+        allowDangerousEmailAccountLinking: true,
         authorization: {
           params: {
             prompt: "select_account",
@@ -38,25 +37,41 @@ function buildProviders(): Provider[] {
   }
   if (emailAuthConfigured()) {
     providers.push(
-      Nodemailer({
-        id: "email",
+      Credentials({
+        id: "email-link",
         name: "Email",
-        server: process.env.EMAIL_SERVER || "smtp://127.0.0.1:1",
-        from: process.env.EMAIL_FROM || "noreply@localhost",
-        maxAge: 60 * 15, // 15 minutes — one-use expiring tokens
-        async sendVerificationRequest({ identifier, url }) {
-          if (isProductionRuntime() && process.env.AUTH_EMAIL_MODE?.trim() === "test") {
-            throw new Error("email_test_mode_forbidden_in_production");
-          }
-          if (!moneyAuthStorageOk()) {
-            throw new Error("money_store_unconfigured");
+        credentials: {
+          idToken: { label: "ID token", type: "text" },
+        },
+        authorize: async (credentials) => {
+          const idToken = typeof credentials?.idToken === "string" ? credentials.idToken.trim() : "";
+          const projectId = firebasePublicConfig()?.projectId;
+          if (!idToken || !projectId || !moneyAuthStorageOk()) return null;
+          let email: string;
+          try {
+            email = (await verifyFirebaseIdToken(idToken, { projectId })).email;
+          } catch {
+            return null;
           }
           const kv = getKv();
-          const limited = await consumeRateLimit(kv, emailSignInRateKey(identifier, "signin"), 5, 15 * 60_000);
-          if (!limited.ok) {
-            throw new Error("email_rate_limited");
-          }
-          await sendMagicLinkEmail({ kv, to: identifier, url });
+          const limited = await consumeRateLimit(kv, emailSignInRateKey(email, "finish"), 10, 15 * 60_000);
+          if (!limited.ok) return null;
+          const account = await ensureVerifiedEmailAccount(email, kv);
+          if (!account?.emailVerified) return null;
+          const adapter = KvAdapter(kv);
+          await adapter.linkAccount?.({
+            userId: account.id,
+            type: "email",
+            provider: "email-link",
+            providerAccountId: account.email,
+          });
+          return {
+            id: account.id,
+            email: account.email,
+            name: account.name,
+            image: account.image,
+            emailVerified: account.emailVerified,
+          };
         },
       }),
     );
@@ -68,14 +83,13 @@ const nextAuth = NextAuth({
   trustHost: true,
   secret: process.env.AUTH_SECRET,
   adapter: KvAdapter(getKv()),
+  // Credentials cannot use database sessions. Users still live in the KV adapter.
   session: {
-    strategy: "database",
+    strategy: "jwt",
     maxAge: 60 * 60 * 24 * 30,
-    updateAge: 60 * 60 * 24,
   },
   pages: {
     signIn: "/login",
-    verifyRequest: "/login?verify=1",
     error: "/login",
   },
   providers: buildProviders(),
@@ -96,10 +110,35 @@ const nextAuth = NextAuth({
       }
       return baseUrl;
     },
-    async session({ session, user }) {
+    async jwt({ token, user, account, profile }) {
+      if (user?.id) token.id = user.id;
+      if (typeof user?.email === "string") token.email = user.email.toLowerCase();
+      if (user?.emailVerified) token.emailVerified = new Date(user.emailVerified).toISOString();
+
+      if (account?.provider === "google") {
+        const verified = Boolean((profile as { email_verified?: boolean } | undefined)?.email_verified);
+        if (verified) {
+          const stamp = new Date();
+          token.emailVerified = stamp.toISOString();
+          const id = typeof token.id === "string" ? token.id : user?.id;
+          if (id) {
+            try {
+              await KvAdapter(getKv()).updateUser?.({ id, emailVerified: stamp });
+            } catch {
+              /* Session still carries the verified stamp for this sign-in. */
+            }
+          }
+        }
+      }
+      return token;
+    },
+    async session({ session, token }) {
       if (session.user) {
-        session.user.id = user.id;
-        (session.user as { emailVerified?: Date | null }).emailVerified = user.emailVerified;
+        const id = typeof token.id === "string" ? token.id : typeof token.sub === "string" ? token.sub : "";
+        session.user.id = id;
+        if (typeof token.email === "string") session.user.email = token.email;
+        session.user.emailVerified =
+          typeof token.emailVerified === "string" && token.emailVerified ? new Date(token.emailVerified) : null;
       }
       return session;
     },
@@ -110,22 +149,10 @@ const nextAuth = NextAuth({
         const verified = Boolean((profile as { email_verified?: boolean } | undefined)?.email_verified);
         return Boolean(user.email) && verified;
       }
-      if (account?.provider === "email") {
-        if (isProductionRuntime() && emailUsesTestInbox()) return false;
-        return Boolean(user.email);
+      if (account?.provider === "email-link") {
+        return Boolean(user.email) && Boolean(user.emailVerified);
       }
       return false;
-    },
-  },
-  events: {
-    async signIn({ user, account, profile }) {
-      if (account?.provider === "google" && user.id) {
-        const verified = Boolean((profile as { email_verified?: boolean } | undefined)?.email_verified);
-        if (verified) {
-          const adapter = KvAdapter(getKv());
-          await adapter.updateUser?.({ id: user.id, emailVerified: new Date() });
-        }
-      }
     },
   },
 });

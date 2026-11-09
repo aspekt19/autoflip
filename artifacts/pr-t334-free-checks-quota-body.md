@@ -39,8 +39,8 @@ Auth.js (Google / email) → verified account id
 | Upstash | Present |
 | `AUTH_SECRET` | **Absent** — required |
 | `AUTH_GOOGLE_ID` / `AUTH_GOOGLE_SECRET` | **Absent** (optional if email used) |
-| `EMAIL_SERVER` / `EMAIL_FROM` | **Absent** (optional if Google used) |
-| `AUTH_EMAIL_MODE=test` on production | **Forbidden** |
+| `NEXT_PUBLIC_FIREBASE_API_KEY` / `AUTH_DOMAIN` / `PROJECT_ID` / `APP_ID` | **Absent** — set all four for email link, or skip email |
+| SMTP / `EMAIL_SERVER` / `AUTH_EMAIL_MODE` | **Removed** — do not set |
 
 Until configured: login CTAs stay inactive; checkout + vehicle checks fail closed. Cloud agent did **not** invent secrets, write env, send mail, or buy services.
 

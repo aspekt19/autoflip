@@ -15,11 +15,11 @@ Canonical credit packs remain in `CREDIT_PACKS` (`src/domain/assumptions.ts`) �
 
 ## Auth.js (ported from PR54 — not blind-merged)
 
-- **Auth.js (`next-auth` v5)** with Google OAuth + passwordless email (Nodemailer), database sessions via a **KV adapter** on the existing Upstash/file store (no new paid DB).
-- Canonical ledger owner = Auth.js `user.id` (UUID) when signed in. Anonymous `af_uid` is **not** a Find or check spend path (legacy cookie balances migrate via claim only).
+- **Auth.js (`next-auth` v5)** with Google OAuth + Firebase email-link (passwordless). Sessions are **JWT** (required for the Credentials provider). Users still live in the **KV adapter** (no new database, no Firebase Admin service account).
+- Canonical ledger owner = Auth.js `user.id` (UUID) for the **lowercased verified email**. Google and email-link for that address share one id, so credits and the free-check quota stay together. Anonymous `af_uid` is **not** a Find or check spend path (legacy cookie balances migrate via claim only).
 - **Checkout / billing portal / vehicle checks / billable Find require** a verified signed-in session. Missing auth config → **503 fail-closed**.
 - **Migration**: `POST /api/account/claim` with `mode=browser` (httpOnly `af_uid` only) or `mode=purchase` (Stripe paid session + receipt email matches verified account email).
-- **`AUTH_EMAIL_MODE=test` is unavailable in production** (hard refuse even if set).
+- **Email option** appears only when `NEXT_PUBLIC_FIREBASE_API_KEY`, `NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN`, `NEXT_PUBLIC_FIREBASE_PROJECT_ID`, and `NEXT_PUBLIC_FIREBASE_APP_ID` are all set. Firebase sends the link. ID tokens are checked with `jose` against Google's securetoken JWKS (`email_verified` must be true).
 - **Hosted money/auth paths require Upstash**; file/memory fallback is refused on Vercel/production.
 
 ### Claim / quota security
@@ -34,7 +34,7 @@ Canonical credit packs remain in `CREDIT_PACKS` (`src/domain/assumptions.ts`) �
 | Failed report double-burn | Release reservation on assemble/422/persist failure; commit only after durable save |
 | Stripe receipt replay | Idempotency `stripe:{event.id}`; purchase claim one-shot |
 | Livemode grant on test deploy | Webhook refuses `livemode: true`; Stripe client refuses non-`sk_test_` keys |
-| Dangerous email auto-link | `allowDangerousEmailAccountLinking: false` |
+| Unverified email takeover | Google sign-in rejected unless `email_verified`. Email-link rejected unless the Firebase ID token has `email_verified: true`. Verified addresses then share one user id. |
 
 ## Environment names (no secret values)
 
@@ -42,8 +42,10 @@ Canonical credit packs remain in `CREDIT_PACKS` (`src/domain/assumptions.ts`) �
 | --- | --- |
 | `AUTH_SECRET` | Auth.js signing secret (**required**) |
 | `AUTH_GOOGLE_ID` / `AUTH_GOOGLE_SECRET` | Google OAuth |
-| `EMAIL_SERVER` / `EMAIL_FROM` | SMTP magic links |
-| `AUTH_EMAIL_MODE=test` | Stub inbox in KV — **local/CI only** |
+| `NEXT_PUBLIC_FIREBASE_API_KEY` | Public Firebase web API key (email link) |
+| `NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN` | Public Firebase auth domain |
+| `NEXT_PUBLIC_FIREBASE_PROJECT_ID` | Public Firebase project id (token `aud` / `iss`) |
+| `NEXT_PUBLIC_FIREBASE_APP_ID` | Public Firebase app id |
 | Existing | `STRIPE_*` (test), `UPSTASH_REDIS_REST_*`, `NEXT_PUBLIC_APP_URL` |
 
 Google callback URL: `{NEXT_PUBLIC_APP_URL}/api/auth/callback/google`
@@ -57,9 +59,9 @@ Confirmed gaps from PR54 inventory (project **autoflip** `prj_FoxThC1FNiYM7300EQ
 | Upstash URL/TOKEN | Present (prod + preview) |
 | `AUTH_SECRET` | **Absent** — parent must add |
 | `AUTH_GOOGLE_ID` / `AUTH_GOOGLE_SECRET` | **Absent** — parent must add (or skip Google) |
-| `EMAIL_SERVER` / `EMAIL_FROM` | **Absent** — parent must add (or skip email) |
-| Auth/email marketplace connectors | None in reachable scope |
-| Never set `AUTH_EMAIL_MODE=test` on production | Required |
+| `NEXT_PUBLIC_FIREBASE_*` (four public web values) | **Absent** — parent must add for email link (or skip email) |
+| Firebase Admin service account | **Not used** |
+| SMTP / `EMAIL_SERVER` / `AUTH_EMAIL_MODE` | **Removed** — do not set |
 
 Until at least one real provider + `AUTH_SECRET` are present:
 
@@ -69,9 +71,9 @@ Until at least one real provider + `AUTH_SECRET` are present:
 
 ### Minimal remaining setup (parent/operator)
 
-1. Preview env: `AUTH_SECRET` + Google and/or SMTP.
+1. Preview env: `AUTH_SECRET` + Google and/or the four `NEXT_PUBLIC_FIREBASE_*` values.
 2. Register Google callback URL.
-3. Never `AUTH_EMAIL_MODE=test` on production.
+3. Firebase authorized domains must include the preview host. The email link returns to `{origin}/login/finish`.
 4. Live-verify sign-in on preview before any production auth deploy.
 5. Keep Upstash; do not wipe `credits:ledger`, `auth:*`, or `free-check:*` keys.
 

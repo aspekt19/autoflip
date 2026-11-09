@@ -67,10 +67,11 @@ export function KvAdapter(kv: Kv): Adapter {
   return {
     async createUser(data) {
       const id = crypto.randomUUID();
+      const email = data.email.trim().toLowerCase();
       const user: AdapterUser = {
         id,
         name: data.name ?? null,
-        email: data.email,
+        email,
         emailVerified: data.emailVerified ?? null,
         image: data.image ?? null,
       };
@@ -102,10 +103,11 @@ export function KvAdapter(kv: Kv): Adapter {
       const existing = parseJson<AdapterUser & { emailVerified?: string | Date | null }>(await kv.get(userKey(data.id)));
       if (!existing) throw new Error("auth_user_missing");
       const priorEmail = existing.email;
+      const nextEmail = (data.email ?? existing.email).trim().toLowerCase();
       const next: AdapterUser = reviveUser({
         ...existing,
         ...data,
-        email: data.email ?? existing.email,
+        email: nextEmail,
         emailVerified:
           data.emailVerified === undefined
             ? existing.emailVerified

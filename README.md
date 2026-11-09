@@ -141,7 +141,7 @@ Stripe test card: `4242 4242 4242 4242`. Forward webhooks to `POST /api/stripe/w
 | `UPSTASH_REDIS_REST_URL` / `UPSTASH_REDIS_REST_TOKEN` | Durable KV on Vercel |
 | `AUTH_SECRET` | Auth.js secret (required for sign-in) |
 | `AUTH_GOOGLE_ID` / `AUTH_GOOGLE_SECRET` | Google OAuth |
-| `EMAIL_SERVER` / `EMAIL_FROM` | Passwordless email (or `AUTH_EMAIL_MODE=test` for stubs) |
+| `NEXT_PUBLIC_FIREBASE_API_KEY` / `NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN` / `NEXT_PUBLIC_FIREBASE_PROJECT_ID` / `NEXT_PUBLIC_FIREBASE_APP_ID` | Passwordless email link (Firebase sends it). All four required or the email option stays hidden. |
 
 Do not commit `.env.local`.
 

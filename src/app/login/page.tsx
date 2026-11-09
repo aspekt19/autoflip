@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import { Suspense } from "react";
-import { authStatusPayload } from "@/auth/config";
+import { authStatusPayload, firebasePublicConfig } from "@/auth/config";
 import { LoginForm } from "@/components/LoginForm";
 
 export const dynamic = "force-dynamic";
@@ -19,6 +19,7 @@ function leadFor(auth: ReturnType<typeof authStatusPayload>): string {
 
 export default function LoginPage() {
   const auth = authStatusPayload();
+  const firebase = firebasePublicConfig();
   return (
     <div className="sub">
       <div className="sheet-page">
@@ -32,7 +33,7 @@ export default function LoginPage() {
           </p>
         ) : (
           <Suspense fallback={<p className="hint">Loading sign-in…</p>}>
-            <LoginForm google={auth.google} email={auth.email} />
+            <LoginForm google={auth.google} email={auth.email} firebase={firebase} />
           </Suspense>
         )}
         <p className="hint">You can look around without an account. Vehicle checks, Find search, and buying credits need a verified account once sign-in is on.</p>

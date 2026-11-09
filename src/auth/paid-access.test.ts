@@ -13,7 +13,10 @@ describe("requirePaidAccess", () => {
     delete process.env.AUTH_SECRET;
     delete process.env.AUTH_GOOGLE_ID;
     delete process.env.AUTH_GOOGLE_SECRET;
-    delete process.env.AUTH_EMAIL_MODE;
+    delete process.env.NEXT_PUBLIC_FIREBASE_API_KEY;
+    delete process.env.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN;
+    delete process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID;
+    delete process.env.NEXT_PUBLIC_FIREBASE_APP_ID;
   });
 
   it("fails closed when auth is not configured", async () => {
@@ -28,7 +31,8 @@ describe("requirePaidAccess", () => {
 
   it("denies missing session when auth is configured", async () => {
     process.env.AUTH_SECRET = "test-secret-at-least-32-chars-long!!";
-    process.env.AUTH_EMAIL_MODE = "test";
+    process.env.AUTH_GOOGLE_ID = "id";
+    process.env.AUTH_GOOGLE_SECRET = "secret";
     vi.doMock("@/auth", () => ({
       auth: async () => null,
     }));
@@ -41,7 +45,8 @@ describe("requirePaidAccess", () => {
 
   it("denies unverified email sessions", async () => {
     process.env.AUTH_SECRET = "test-secret-at-least-32-chars-long!!";
-    process.env.AUTH_EMAIL_MODE = "test";
+    process.env.AUTH_GOOGLE_ID = "id";
+    process.env.AUTH_GOOGLE_SECRET = "secret";
     vi.doMock("@/auth", () => ({
       auth: async () => ({
         user: {
@@ -62,7 +67,8 @@ describe("requirePaidAccess", () => {
 
   it("allows verified sessions", async () => {
     process.env.AUTH_SECRET = "test-secret-at-least-32-chars-long!!";
-    process.env.AUTH_EMAIL_MODE = "test";
+    process.env.AUTH_GOOGLE_ID = "id";
+    process.env.AUTH_GOOGLE_SECRET = "secret";
     const kv = new MemoryKv();
     vi.doMock("@/io/kv", () => ({
       getKv: () => kv,

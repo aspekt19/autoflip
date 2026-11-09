@@ -1,34 +1,69 @@
 "use client";
 
+import { useState, useTransition, type FormEvent } from "react";
 import { useSearchParams } from "next/navigation";
-import { useState, useTransition } from "react";
-import { signInWithEmail, signInWithGoogle } from "@/auth/actions";
+import { sendSignInLinkToEmail } from "firebase/auth";
+import type { FirebasePublicConfig } from "@/auth/config";
+import { EMAIL_LINK_FINISH_PATH, EMAIL_LINK_STORAGE_KEY } from "@/auth/email-link";
+import { firebaseAuth } from "@/auth/firebase-browser";
+import { signInWithGoogle } from "@/auth/actions";
 
 function safeCallback(value: string | null): string {
   if (!value || !value.startsWith("/") || value.startsWith("//") || value.includes("://")) return "/account";
   return value.slice(0, 200);
 }
 
-export function LoginForm({ google, email }: { google: boolean; email: boolean }) {
+export function LoginForm({
+  google,
+  email,
+  firebase,
+}: {
+  google: boolean;
+  email: boolean;
+  firebase: FirebasePublicConfig | null;
+}) {
   const params = useSearchParams();
   const callbackUrl = safeCallback(params.get("callbackUrl"));
-  const verify = params.get("verify") === "1";
   const error = params.get("error");
   const [pending, startTransition] = useTransition();
-  const [message, setMessage] = useState<string | null>(
-    verify ? "Check your email for a one-time sign-in link. It expires and can be used once." : null,
-  );
+  const [sending, setSending] = useState(false);
+  const [message, setMessage] = useState<string | null>(null);
+  const showEmail = email && firebase !== null;
+
+  async function sendEmailLink(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!firebase) return;
+    const address = String(new FormData(event.currentTarget).get("email") ?? "").trim();
+    if (!address.includes("@")) {
+      setMessage("Enter a valid email address.");
+      return;
+    }
+    setSending(true);
+    setMessage(null);
+    try {
+      await sendSignInLinkToEmail(firebaseAuth(firebase), address, {
+        url: `${window.location.origin}${EMAIL_LINK_FINISH_PATH}`,
+        handleCodeInApp: true,
+      });
+      window.localStorage.setItem(EMAIL_LINK_STORAGE_KEY, address);
+      setMessage("Check your inbox (and spam) for a sign-in link.");
+    } catch {
+      setMessage("Could not send the sign-in link. Try again in a few minutes.");
+    } finally {
+      setSending(false);
+    }
+  }
 
   return (
     <div className="auth-panel">
-      {error ? <p className="warn">Sign-in failed ({error}). Try again, or use the other method.</p> : null}
-      {message ? <p className="warn-box">{message}</p> : null}
+      {error ? <p className="warn" role="alert">Sign-in did not finish. Try again.</p> : null}
+      {message ? <p className="warn-box" role="status">{message}</p> : null}
       {google ? (
         <p>
           <button
             className="action"
             type="button"
-            disabled={pending}
+            disabled={pending || sending}
             onClick={() => {
               setMessage(null);
               startTransition(async () => {
@@ -41,30 +76,16 @@ export function LoginForm({ google, email }: { google: boolean; email: boolean }
           </button>
         </p>
       ) : null}
-      {email ? (
-        <form
-          className="auth-email"
-          action={async (formData) => {
-            setMessage(null);
-            const result = await signInWithEmail(formData);
-            if (result && "error" in result) {
-              if (result.error === "email_rate_limited") setMessage("Too many email attempts. Try again later.");
-              else if (result.error === "invalid_email") setMessage("Enter a valid email address.");
-              else setMessage("Could not send the sign-in link.");
-              return;
-            }
-            setMessage("Check your email for a one-time sign-in link. It expires and can be used once.");
-          }}
-        >
-          <input type="hidden" name="callbackUrl" value={callbackUrl} />
+      {showEmail ? (
+        <form className="auth-email" onSubmit={(event) => void sendEmailLink(event)}>
           <label htmlFor="email">Email</label>
           <input id="email" name="email" type="email" autoComplete="email" required placeholder="you@example.com" />
-          <button className="quiet" type="submit" disabled={pending}>
-            Email me a sign-in link
+          <button className="quiet" type="submit" disabled={pending || sending}>
+            {sending ? "Sending…" : "Email me a sign-in link"}
           </button>
         </form>
       ) : null}
-      {!google && !email ? <p className="warn">No sign-in providers are enabled.</p> : null}
+      {!google && !showEmail ? <p className="warn">No sign-in providers are enabled.</p> : null}
     </div>
   );
 }
