@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useState } from "react";
 import type { Mode } from "@/domain/types";
+import { HOME_ACCOUNT_LINE } from "./account-cta-copy";
 import { BrandHeroTitle } from "./BrandLockup";
 import { FilmScrub, type FilmPhase } from "./FilmScrub";
 import { HomeSearch } from "./HomeSearch";
@@ -32,6 +33,7 @@ export function HomeStage() {
                   <Link href="/report/sample">See a sample report</Link>
                   <span> (labeled sample, no credit)</span>
                 </p>
+                <p className="account-note">{HOME_ACCOUNT_LINE}</p>
               </div>
             </div>
             <p className="sale-caption">Not a car for sale</p>

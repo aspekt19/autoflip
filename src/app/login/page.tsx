@@ -7,16 +7,14 @@ export const dynamic = "force-dynamic";
 export const metadata: Metadata = { title: "Sign in" };
 
 function leadFor(auth: ReturnType<typeof authStatusPayload>): string {
-  if (!auth.configured) {
-    return "Account sign-in is not enabled on this deploy yet. Search stays available; paid checkout stays locked.";
-  }
+  if (!auth.configured) return "Sign-in is not available yet.";
   if (auth.google && auth.email) {
-    return "Sign in with Google or a one-time email link so purchased credits and reports survive clearing cookies.";
+    return "Sign in with Google or a one-time email link. A free account keeps your credits and reports after cookies are cleared.";
   }
   if (auth.google) {
-    return "Sign in with Google so purchased credits and reports survive clearing cookies.";
+    return "Sign in with Google. A free account keeps your credits and reports after cookies are cleared.";
   }
-  return "Sign in with a one-time email link so purchased credits and reports survive clearing cookies.";
+  return "Sign in with a one-time email link. A free account keeps your credits and reports after cookies are cleared.";
 }
 
 export default function LoginPage() {
@@ -29,16 +27,15 @@ export default function LoginPage() {
         <p className="lead">{leadFor(auth)}</p>
         {!auth.configured ? (
           <p className="warn-box">
-            Sign-in providers are not configured on this project. Paid checkout stays locked until an operator sets{" "}
-            <code>AUTH_SECRET</code> and a live provider (<code>AUTH_GOOGLE_ID</code> / <code>AUTH_GOOGLE_SECRET</code>{" "}
-            and/or <code>EMAIL_SERVER</code> / <code>EMAIL_FROM</code>). Inactive login methods are not offered.
+            Sign-in is not available yet. You can still look around the site. Vehicle checks, Find search, and buying
+            credits stay locked until sign-in is turned on.
           </p>
         ) : (
           <Suspense fallback={<p className="hint">Loading sign-in…</p>}>
             <LoginForm google={auth.google} email={auth.email} />
           </Suspense>
         )}
-        <p className="hint">Search and browsing stay available without signing in. Checkout requires a verified account once sign-in is enabled.</p>
+        <p className="hint">You can look around without an account. Vehicle checks, Find search, and buying credits need a verified account once sign-in is on.</p>
       </div>
     </div>
   );

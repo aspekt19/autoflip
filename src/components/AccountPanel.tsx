@@ -69,16 +69,14 @@ export function AccountPanel() {
       <div>
         <p className="warn-box">
           {authConfigured
-            ? "You are browsing without a durable account. Balance shown elsewhere may be browser-only until you sign in."
-            : "Account sign-in is not enabled on this deploy yet. Paid checkout stays locked; search stays free."}
+            ? "You are browsing without an account. Sign in so checks and purchases stay with you after cookies are cleared."
+            : "Sign-in is not available yet. Vehicle checks, Find search, and buying credits stay locked."}
         </p>
-        {authConfigured ? (
-          <p>
-            <Link className="action" href="/login?callbackUrl=/account">
-              Sign in
-            </Link>
-          </p>
-        ) : null}
+        <p>
+          <Link className="action" href="/login?callbackUrl=/account">
+            Sign in
+          </Link>
+        </p>
       </div>
     );
   }
