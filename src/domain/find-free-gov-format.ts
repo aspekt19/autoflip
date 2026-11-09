@@ -76,8 +76,11 @@ export function formatFreeGovReceiptsForUi(
 }
 
 /** Machine-only JSON for hidden data attributes / agent channel. */
-export function formatFreeGovReceiptsForAgents(receipts: readonly FreeGovReceiptUiRow[]): string {
-  return machineReceiptsPayload(uiRowsToRiskReceipts(receipts));
+export function formatFreeGovReceiptsForAgents(
+  receipts: readonly FreeGovReceiptUiRow[],
+  baseline?: import("./find-baseline").FindBaselineDelta | null,
+): string {
+  return machineReceiptsPayload(uiRowsToRiskReceipts(receipts), { baseline: baseline ?? null });
 }
 
 export function buyerSourceLinesForUi(receipts: readonly FreeGovReceiptUiRow[]): Array<{

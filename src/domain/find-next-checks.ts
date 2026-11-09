@@ -24,6 +24,7 @@ export const FIND_NEXT_CHECK_IDS = [
   "free_gov_vpic",
   "free_gov_safety",
   "free_gov_fuel",
+  "free_car_consistency",
   "compare_observed_asks",
   "run_full_analysis",
   "get_history_report",
@@ -69,6 +70,11 @@ export type FindNextCheckInput = {
    * stays on the allowlist even if previously applied (progress-aware continuation).
    */
   freeGovCoverage?: FreeGovToolCoverage | null;
+  /**
+   * When true, keep the per-car consistency check even if it already ran
+   * (some top cars are still unchecked). When false, drop it. Omit to drop after one apply.
+   */
+  consistencyStillOpen?: boolean;
 };
 
 function hasGap(gaps: SoftPrefGap[], id: SoftPrefGap["id"]): boolean {
@@ -185,6 +191,14 @@ export function proposeFindNextChecks(input: FindNextCheckInput): FindNextCheck[
     });
   }
 
+  if (input.observedListingCount > 0 && input.consistencyStillOpen !== false) {
+    out.push({
+      id: "free_car_consistency",
+      why: "Compare each car's listing with its VIN decode and with what the listing says about accidents, owners, rental use, and days listed. This can change which car is picked.",
+      evidence: "per_car_listing_fields",
+    });
+  }
+
   if (input.observedModelCount >= 2) {
     out.push({
       id: "compare_observed_asks",
@@ -230,7 +244,7 @@ export function proposeFindNextChecks(input: FindNextCheckInput): FindNextCheck[
   }
 
   // Stable priority order; dedupe by id; drop already-applied.
-  // Cap 8 so free_gov_* (incl. fuel) can precede compare without starving history/analysis choices.
+  // Cap 9 so the per-car consistency check fits without dropping history or analysis.
   const order = FIND_NEXT_CHECK_IDS;
   const ranked = order
     .map((id) => out.find((item) => item.id === id))
@@ -238,9 +252,14 @@ export function proposeFindNextChecks(input: FindNextCheckInput): FindNextCheck[
     .filter((item) => {
       // Free-gov may remain while year/make/model coverage incomplete — do not drop solely because applied once.
       if (isFindFreeGovCheckId(item.id)) return true;
+      if (item.id === "free_car_consistency") {
+        if (input.consistencyStillOpen === true) return true;
+        if (input.consistencyStillOpen === false) return false;
+        return !applied.has(item.id);
+      }
       return !applied.has(item.id);
     });
-  return ranked.slice(0, 8);
+  return ranked.slice(0, 9);
 }
 
 /** Clamp a SERV (or any) choice to the code allowlist. Unknown ids drop. */

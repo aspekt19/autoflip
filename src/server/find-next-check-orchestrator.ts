@@ -11,6 +11,13 @@
 import type { DecisionProof } from "@/domain/decision-note";
 import { selectBestDealOnEvidence } from "@/domain/find-best-deal";
 import {
+  executeCarConsistency,
+  mergeCarConsistency,
+  type CarConsistencyReceipt,
+} from "@/domain/find-car-consistency";
+import { top5Ranks, type FindDecisionLogEntry } from "@/domain/find-decision-log";
+import type { FindBaselineDelta } from "@/domain/find-baseline";
+import {
   executeFindFreeGovCheck,
   fingerprintFreeGovReceipts,
   freeGovReceiptsBrief,
@@ -28,6 +35,10 @@ import {
 } from "@/domain/find-next-check-loop";
 import { buildGroundedShortlistWithRisk, type FindSearchRefine } from "@/domain/find-path";
 import { proposeFindNextChecks } from "@/domain/find-next-checks";
+import {
+  clampFindNextCheckTargetKeys,
+  resolveConsistencyTargetKeys,
+} from "@/domain/find-next-check-choice";
 import {
   mergeFreeGovReceiptsByMmy,
   riskCoverageHonesty,
@@ -151,6 +162,14 @@ export type FindNextCheckOrchestratorOk = {
   servPaidCalls: number;
   /** Why SERV ran or was skipped this hop (bounded drain accounting). */
   servInvokeReason: string;
+  /** Append-only hop log. Buyer UI must format it; do not render raw fields. */
+  decisionLog: FindDecisionLogEntry[];
+  /** Cheapest-in-budget and lowest-miles-in-budget on this same list. */
+  baseline: FindBaselineDelta;
+  /** Per-car consistency receipts after this hop. */
+  carChecks: CarConsistencyReceipt[];
+  /** Cars this hop's per-car check actually ran on (empty when not per-car). */
+  targetKeys: string[];
 };
 
 export function buildKeyedAutonomyDiag(input: {
@@ -241,7 +260,40 @@ function publicResultPayload(ok: FindNextCheckOrchestratorOk): string {
     bestDeal: ok.bestDeal,
     servPaidCalls: ok.servPaidCalls,
     servInvokeReason: ok.servInvokeReason,
+    decisionLog: ok.decisionLog,
+    baseline: ok.baseline,
+    carChecks: ok.carChecks,
+    targetKeys: ok.targetKeys,
   });
+}
+
+function rankFindOnSamePool(input: {
+  need: FindSearchContextRecord["need"];
+  listings: FindSearchContextRecord["listings"];
+  receipts: FindSearchContextRecord["freeGovReceipts"];
+  carChecks: readonly CarConsistencyReceipt[];
+  compsPool: FindSearchContextRecord["listings"];
+}) {
+  return selectBestDealOnEvidence({
+    need: input.need,
+    listings: input.listings,
+    receipts: input.receipts,
+    carChecks: input.carChecks,
+    marketPool: marketPoolFromListingFacts(input.compsPool),
+  });
+}
+
+function carCheckFingerprint(checks: readonly CarConsistencyReceipt[]): string {
+  return JSON.stringify(
+    checks
+      .map((row) => ({
+        key: row.key,
+        excluded: row.identityMismatch,
+        penalty: row.conditionPenalty,
+        questions: row.sellerQuestions.length,
+      }))
+      .sort((a, b) => a.key.localeCompare(b.key)),
+  );
 }
 
 export async function runFindNextCheckOrchestrator(
@@ -312,7 +364,18 @@ export async function runFindNextCheckOrchestrator(
     const listingsHaveVinPrior = ctx.listings.some(
       (l) => typeof l.vin === "string" && l.vin.trim().length >= 11,
     );
-    const priorProposed = proposeFindNextChecks({
+    const priorCarChecks = ctx.carChecks ?? [];
+    const priorPool = ctx.compsPool ?? ctx.listings;
+    const priorBestDeal = rankFindOnSamePool({
+      need: ctx.need,
+      listings: ctx.listings,
+      receipts: priorReceipts,
+      carChecks: priorCarChecks,
+      compsPool: priorPool,
+    });
+    const checkedCarKeys = new Set(priorCarChecks.map((row) => row.key));
+    const consistencyStillOpen = priorBestDeal.ranked.some((car) => !checkedCarKeys.has(car.key));
+    const priorProposedOpen = proposeFindNextChecks({
       need: ctx.need,
       softGaps: softGapsPrior,
       observedListingCount: ctx.listings.length,
@@ -321,14 +384,10 @@ export async function runFindNextCheckOrchestrator(
       appliedCheckIds: ctx.appliedCheckIds,
       listingsHaveVin: listingsHaveVinPrior,
       freeGovCoverage: priorCoverage,
+      consistencyStillOpen,
     });
-    const priorAllowedIds = priorProposed.map((c) => c.id);
+    const priorAllowedIds = priorProposedOpen.map((c) => c.id);
     const priorFreeGovCount = priorAllowedIds.filter((id) => isFindFreeGovCheckId(id)).length;
-    const priorBestDeal = selectBestDealOnEvidence({
-      need: ctx.need,
-      listings: ctx.listings,
-      receipts: priorReceipts,
-    });
     const shortlistFp = fingerprintBestDealShortlist(priorBestDeal.ranked);
     const paidSoFar = ctx.servPaidCalls ?? 0;
     const servDecision = shouldInvokeServForFindNextCheck({
@@ -338,6 +397,7 @@ export async function runFindNextCheckOrchestrator(
       shortlistFp,
       lastServShortlistFp: ctx.lastServShortlistFp ?? null,
       neverCalledServ: paidSoFar === 0,
+      consistencyOpen: consistencyStillOpen && priorAllowedIds.includes("free_car_consistency"),
     });
     const live = await runFindNextCheckLive(
       {
@@ -347,6 +407,15 @@ export async function runFindNextCheckOrchestrator(
         appliedCheckIds: ctx.appliedCheckIds,
         freeGovBrief: freeGovReceiptsBrief(priorReceipts),
         freeGovCoverage: priorCoverage,
+        consistencyStillOpen,
+        top5: priorBestDeal.ranked.slice(0, 5).map((car, index, rows) => ({
+          key: car.key,
+          rank: index + 1,
+          label: `${car.year} ${car.make} ${car.model}`,
+          score: car.score,
+          gapToAhead: index === 0 ? 0 : Math.round((rows[index - 1]!.score - car.score) * 10) / 10,
+          unknowns: car.unknowns.slice(0, 4),
+        })),
       },
       {
         servKey: deps.servKey,
@@ -384,6 +453,17 @@ export async function runFindNextCheckOrchestrator(
     let rematchOk: boolean | null = null;
     let freeGovReceipts = priorReceipts;
     let freeEvidenceNote: string | null = null;
+    let carChecks = priorCarChecks;
+    const top5Keys = priorBestDeal.ranked.slice(0, 5).map((car) => car.key);
+    const consistencyTargets =
+      live.chosenId === "free_car_consistency"
+        ? resolveConsistencyTargetKeys(live.targetKeys, top5Keys, checkedCarKeys)
+        : [];
+    // Explicit VIN-decode targets only. An empty list keeps the normal unchecked batch
+    // so a null target list cannot pin decode to three cars and stall the rest.
+    const vpicTargets =
+      live.chosenId === "free_gov_vpic" ? clampFindNextCheckTargetKeys(live.targetKeys, top5Keys) : [];
+    const targetKeys = live.chosenId === "free_car_consistency" ? consistencyTargets : vpicTargets;
 
     if (live.research && deps.runMatch) {
       // CRITICAL: rematch uses NEW need from apply — never pre-apply / stale UI years.
@@ -421,6 +501,7 @@ export async function runFindNextCheckOrchestrator(
         priorReceipts,
         gov: deps.freeGovPort,
         shopperNote: live.replan.need.note,
+        targetKeys: live.chosenId === "free_gov_vpic" && vpicTargets.length > 0 ? vpicTargets : undefined,
       });
       if (executed) {
         // Dedup by checkId+year/make/model so cached re-runs cannot append duplicate receipts / fake cycles.
@@ -435,6 +516,18 @@ export async function runFindNextCheckOrchestrator(
       }
     }
 
+    const newCarChecks =
+      live.chosenId === "free_car_consistency"
+        ? executeCarConsistency({
+            listings: listingsAfter,
+            targetKeys: consistencyTargets,
+            vpicReceipts: freeGovReceipts,
+          })
+        : [];
+    if (newCarChecks.length > 0) {
+      carChecks = mergeCarConsistency(priorCarChecks, newCarChecks);
+    }
+
     const nextPaidCalls = nextPaidCallsPreview;
     const updated: FindSearchContextRecord = await updateFindSearchContext(deps.kv, ctx, {
       need: live.replan.need,
@@ -446,6 +539,7 @@ export async function runFindNextCheckOrchestrator(
       servPaidCalls: nextPaidCalls,
       lastServShortlistFp:
         servHttpAttempts > 0 ? shortlistFp : (ctx.lastServShortlistFp ?? null),
+      carChecks,
     });
 
     const fuelsByModelKey = fuelsByModelKeyFromReceipts(freeGovReceipts);
@@ -458,11 +552,12 @@ export async function runFindNextCheckOrchestrator(
     );
     // Prefer full provider comps pool (pre-diversify) so same-model peers are not limited
     // to the 24 shown cards — badge and score share resolveMarketComps on this pool.
-    const bestDeal = selectBestDealOnEvidence({
+    const bestDeal = rankFindOnSamePool({
       need: updated.need,
       listings: updated.listings,
       receipts: freeGovReceipts,
-      marketPool: marketPoolFromListingFacts(updated.compsPool ?? updated.listings),
+      carChecks,
+      compsPool: updated.compsPool ?? updated.listings,
     });
     const shortlistAfter = shortlistPack.entries;
     const riskCoverage = shortlistPack.coverage;
@@ -471,6 +566,8 @@ export async function runFindNextCheckOrchestrator(
       (l) => typeof l.vin === "string" && l.vin.trim().length >= 11,
     );
     const coverageAfter = freeGovToolCoverage(updated.listings, freeGovReceipts);
+    const checkedAfter = new Set(carChecks.map((row) => row.key));
+    const consistencyStillOpenAfter = bestDeal.ranked.some((car) => !checkedAfter.has(car.key));
     const remainingProposed = proposeFindNextChecks({
       need: updated.need,
       softGaps,
@@ -480,6 +577,7 @@ export async function runFindNextCheckOrchestrator(
       appliedCheckIds: appliedNext,
       listingsHaveVin,
       freeGovCoverage: coverageAfter,
+      consistencyStillOpen: consistencyStillOpenAfter,
     });
     const remainingActionableCount = countRemainingAutomaticChecks(
       remainingProposed.map((c) => c.id),
@@ -488,6 +586,46 @@ export async function runFindNextCheckOrchestrator(
     const remainingFreeGovCount = remainingProposed.filter((c) =>
       isFindFreeGovCheckId(c.id),
     ).length;
+
+    const evidenceAdded: string[] = [];
+    for (const receipt of freeGovReceipts) {
+      if (!priorReceipts.includes(receipt) && receipt.evidenceFacts?.[0]?.plain) {
+        evidenceAdded.push(receipt.evidenceFacts[0].plain);
+      }
+    }
+    for (const check of newCarChecks) {
+      for (const fact of check.fields) {
+        if (fact.state === "issue_found" || fact.field === "days_listed") evidenceAdded.push(fact.plain);
+      }
+      if (check.excludedReason) evidenceAdded.push(check.excludedReason);
+    }
+    const loggedTargets =
+      targetKeys.length > 0
+        ? targetKeys
+        : newCarChecks.map((row) => row.key);
+    const decisionEntry: FindDecisionLogEntry = {
+      hop: (ctx.decisionLog?.length ?? 0) + 1,
+      decidedBy: live.source === "serv" ? "SERV" : "code",
+      invokeReason: servDecision.reason,
+      action: live.chosenId,
+      targetCars: loggedTargets.slice(0, 3),
+      evidenceAdded: evidenceAdded.slice(0, 4),
+      top5Before: top5Ranks(priorBestDeal.ranked),
+      top5After: top5Ranks(bestDeal.ranked),
+      pickBefore: priorBestDeal.pick?.key ?? null,
+      pickAfter: bestDeal.pick?.key ?? null,
+    };
+    const decisionLog = [...(ctx.decisionLog ?? []), decisionEntry].slice(-24);
+    updated.decisionLog = decisionLog;
+    const consistencyFp =
+      live.chosenId === "free_car_consistency"
+        ? fingerprintBestDealShortlist(bestDeal.ranked)
+        : undefined;
+    if (consistencyFp) updated.lastServShortlistFp = consistencyFp;
+    await updateFindSearchContext(deps.kv, updated, {
+      decisionLog,
+      ...(consistencyFp ? { lastServShortlistFp: consistencyFp } : {}),
+    });
 
     const autonomousServ = live.source === "serv";
     const mintSaidKeyed = Boolean(ctx.servNextCheckEnabled);
@@ -510,8 +648,17 @@ export async function runFindNextCheckOrchestrator(
       needAfterFp: fingerprintNeed(updated.need),
       listingsBeforeFp: fingerprintListings(ctx.listings),
       listingsAfterFp: fingerprintListings(updated.listings),
-      freeGovBeforeFp: fingerprintFreeGovReceipts(priorReceipts),
-      freeGovAfterFp: fingerprintFreeGovReceipts(freeGovReceipts),
+      // Count per-car check progress when SERV chose it, or when this hop is the
+      // intentional free consistency drain. A SERV timeout/fallback must not look
+      // like new evidence and keep the paid loop going.
+      freeGovBeforeFp:
+        live.source === "serv" || servDecision.reason === "consistency_deterministic_drain"
+          ? `${fingerprintFreeGovReceipts(priorReceipts)}|${carCheckFingerprint(priorCarChecks)}`
+          : fingerprintFreeGovReceipts(priorReceipts),
+      freeGovAfterFp:
+        live.source === "serv" || servDecision.reason === "consistency_deterministic_drain"
+          ? `${fingerprintFreeGovReceipts(freeGovReceipts)}|${carCheckFingerprint(carChecks)}`
+          : fingerprintFreeGovReceipts(freeGovReceipts),
       shortlistCount: shortlistAfter.length,
       remainingActionableCount,
       remainingFreeGovCount,
@@ -549,6 +696,10 @@ export async function runFindNextCheckOrchestrator(
       loop,
       servPaidCalls: nextPaidCalls,
       servInvokeReason: servDecision.reason,
+      decisionLog,
+      baseline: bestDeal.baseline,
+      carChecks,
+      targetKeys,
     };
 
     if (claimId) {

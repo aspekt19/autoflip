@@ -29,7 +29,7 @@ describe("proposeFindNextChecks", () => {
       emptyInventory: false,
     });
     expect(checks.length).toBeGreaterThan(0);
-    expect(checks.length).toBeLessThanOrEqual(8);
+    expect(checks.length).toBeLessThanOrEqual(9);
     expect(checks.every((c) => (FIND_NEXT_CHECK_IDS as readonly string[]).includes(c.id))).toBe(true);
     expect(checks.some((c) => c.id === "clarify_year_band")).toBe(true);
     expect(checks.every((c) => !/best car|invented reliability|full TCO ranking/i.test(c.why))).toBe(true);

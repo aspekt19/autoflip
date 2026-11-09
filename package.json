@@ -13,6 +13,7 @@
     "audit:full-report": "npm audit --audit-level=high",
     "boundary:source": "node scripts/assert-openserv-source-boundary.mjs",
     "boundary:next": "node scripts/assert-no-openserv-in-next-server.mjs",
+    "eval:find-baseline": "tsx eval/find-baseline.ts",
     "eval:serv": "tsx eval/run.ts",
     "eval:verdict": "tsx eval/verdict-run.ts",
     "eval:trace": "tsx eval/trace.ts",

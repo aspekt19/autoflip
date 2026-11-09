@@ -28,6 +28,7 @@ export type FindServInvokeDecision = {
     | "paid_cap_reached"
     | "free_gov_deterministic_drain"
     | "free_gov_batch_no_decision_change"
+    | "consistency_deterministic_drain"
     | "no_decision_change";
 };
 
@@ -58,6 +59,11 @@ export function shouldInvokeServForFindNextCheck(input: {
   shortlistFp: string;
   lastServShortlistFp: string | null;
   neverCalledServ: boolean;
+  /**
+   * Top cars still lack the free per-car consistency check.
+   * Drain those in code. Do not spend another paid call per batch of target keys.
+   */
+  consistencyOpen?: boolean;
 }): FindServInvokeDecision {
   if (input.paidCallsSoFar >= FIND_SERV_PAID_CALLS_PER_FIND_MAX) {
     return { invoke: false, reason: "paid_cap_reached" };
@@ -83,6 +89,10 @@ export function shouldInvokeServForFindNextCheck(input: {
           ? "free_gov_deterministic_drain"
           : "free_gov_batch_no_decision_change",
     };
+  }
+
+  if (input.consistencyOpen) {
+    return { invoke: false, reason: "consistency_deterministic_drain" };
   }
 
   if (input.nonFreeChoiceCount > 0) {

@@ -138,6 +138,10 @@ export async function POST(request: Request) {
     loop: result.loop,
     servPaidCalls: result.servPaidCalls,
     servInvokeReason: result.servInvokeReason,
+    decisionLog: result.decisionLog,
+    baseline: result.baseline,
+    carChecks: result.carChecks,
+    targetKeys: result.targetKeys,
     honesty: result.honesty,
     failureDiag: result.failureDiag
       ? {

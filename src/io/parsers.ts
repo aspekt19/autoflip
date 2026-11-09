@@ -147,12 +147,24 @@ export function parseVinDecode(payload: unknown): VinDecode | null {
   if (!Array.isArray(results) || results.length === 0) return null;
   const row = asRecord(results[0]);
   if (!row) return null;
+  const displacement = num(row.DisplacementL);
+  const cylinders = num(row.EngineCylinders);
+  const engineModel = str(row.EngineModel);
+  const engineBits = [
+    displacement != null ? `${displacement}L` : null,
+    cylinders != null ? `${cylinders} cyl` : null,
+    engineModel,
+  ].filter(Boolean);
   return {
     year: num(row.ModelYear),
     make: str(row.Make),
     model: str(row.Model),
     errorCode: str(row.ErrorCode),
     errorText: str(row.ErrorText) ?? str(row.AdditionalErrorText),
+    trim: str(row.Trim) ?? str(row.Series),
+    driveType: str(row.DriveType),
+    engine: engineBits.length > 0 ? engineBits.join(" ") : null,
+    fuel: str(row.FuelTypePrimary),
   };
 }
 

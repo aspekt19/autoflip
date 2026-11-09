@@ -100,12 +100,30 @@ export function clampFindNextCheckChoice(
 /**
  * Strict JSON schema for find_next_check — enum MUST be the live allowlist subset,
  * not the full FIND_NEXT_CHECK_IDS catalog (avoids constrained-decoding off-allowlist picks).
+ * targetKeys is required and nullable. When top-5 keys exist, items are that enum (max 3).
  */
-export function buildFindNextCheckChoiceSchema(allowedIds: readonly FindNextCheckId[]): {
+export function buildFindNextCheckChoiceSchema(
+  allowedIds: readonly FindNextCheckId[],
+  targetKeyEnum: readonly string[] = [],
+): {
   name: string;
   schema: Record<string, unknown>;
 } {
   const ids = allowedIds.length > 0 ? [...allowedIds] : [...FIND_NEXT_CHECK_IDS];
+  const keys = [...new Set(targetKeyEnum.map((key) => key.trim()).filter(Boolean))].slice(0, 5);
+  const targetKeys =
+    keys.length === 0
+      ? { type: "null" }
+      : {
+          anyOf: [
+            { type: "null" },
+            {
+              type: "array",
+              maxItems: 3,
+              items: { type: "string", enum: keys },
+            },
+          ],
+        };
   return {
     name: "find_next_check_choice",
     schema: {
@@ -116,26 +134,76 @@ export function buildFindNextCheckChoiceSchema(allowedIds: readonly FindNextChec
           type: "string",
           enum: ids,
           description:
-            "Must be copied verbatim from facts.allowedChecks. Do not invent ids outside that list.",
+            "Must be copied verbatim from facts.allowedChecks. Choose the check most likely to change which car is picked.",
         },
         note: { type: "string" },
+        targetKeys,
       },
-      required: ["checkId", "note"],
+      required: ["checkId", "note", "targetKeys"],
     },
   };
 }
 
-export function parseFindNextCheckChoice(text: string): { checkId: string; note: string } | null {
+/** Keep only keys in the current top 5, at most 3. Unknown keys drop. */
+export function clampFindNextCheckTargetKeys(
+  raw: readonly string[] | null | undefined,
+  allowedKeys: readonly string[],
+): string[] {
+  const allowed = new Set(allowedKeys.slice(0, 5));
+  const out: string[] = [];
+  for (const key of raw ?? []) {
+    if (typeof key !== "string") continue;
+    const trimmed = key.trim();
+    if (!trimmed || !allowed.has(trimmed) || out.includes(trimmed)) continue;
+    out.push(trimmed);
+    if (out.length >= 3) break;
+  }
+  return out;
+}
+
+/**
+ * Cars for one free_car_consistency hop.
+ * Explicit keys must be in the current top 5 and at most 3.
+ * Already-checked keys are skipped. If every requested key was already checked,
+ * the hop moves to unchecked top-5 cars so a repeated target list cannot spin.
+ */
+export function resolveConsistencyTargetKeys(
+  requested: readonly string[] | null | undefined,
+  topKeys: readonly string[],
+  alreadyChecked: ReadonlySet<string>,
+): string[] {
+  const allowed = topKeys.slice(0, 5);
+  const clamped = clampFindNextCheckTargetKeys(requested, allowed);
+  const fresh = clamped.filter((key) => !alreadyChecked.has(key));
+  if (fresh.length > 0) return fresh;
+  return allowed.filter((key) => !alreadyChecked.has(key)).slice(0, 3);
+}
+
+export function parseFindNextCheckChoice(
+  text: string,
+): { checkId: string; note: string; targetKeys: string[] | null } | null {
   const trimmed = text.trim();
   const start = trimmed.indexOf("{");
   const end = trimmed.lastIndexOf("}");
   if (start < 0 || end <= start) return null;
   try {
-    const raw = JSON.parse(trimmed.slice(start, end + 1)) as { checkId?: unknown; note?: unknown };
+    const raw = JSON.parse(trimmed.slice(start, end + 1)) as {
+      checkId?: unknown;
+      note?: unknown;
+      targetKeys?: unknown;
+    };
     if (typeof raw.checkId !== "string" || !raw.checkId.trim()) return null;
+    let targetKeys: string[] | null = null;
+    if (Array.isArray(raw.targetKeys)) {
+      targetKeys = raw.targetKeys
+        .filter((key): key is string => typeof key === "string" && key.trim().length > 0)
+        .map((key) => key.trim())
+        .slice(0, 3);
+    }
     return {
       checkId: raw.checkId.trim(),
       note: typeof raw.note === "string" ? raw.note.trim().slice(0, 280) : "",
+      targetKeys,
     };
   } catch {
     return null;
