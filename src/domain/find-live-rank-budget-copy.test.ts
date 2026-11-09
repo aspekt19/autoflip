@@ -8,13 +8,16 @@ import {
   selectBestDealOnEvidence,
   type BestDealListing,
 } from "./find-best-deal";
+import { buildCarConsistencyReceipt, type VpicSpecs } from "./find-car-consistency";
 import {
   formatBuyerBestDeal,
   formatBuyerLoopStep,
   formatBuyerNextCheckWhy,
   findForbiddenTechArtifacts,
+  sellerQuestionsForBuyer,
   summarizeFuelCheckOutcome,
 } from "./find-buyer-copy";
+import { buildFindFuelAssumptions } from "./find-fuel-match";
 import {
   budgetFromText,
   budgetIsApproximateFromNote,
@@ -129,6 +132,114 @@ describe("live shortlist ranking under condition-first + ~$15k", () => {
     expect(buyer.factorLines.length).toBeGreaterThan(result.ranked.length);
     expect(buyer.why.length).toBeGreaterThan(40);
     expect(findForbiddenTechArtifacts(buyer.why)).toEqual([]);
+  });
+
+  it("prefers a named compact SUV over a low-mile sedan and does not treat unverified low miles as a plus", () => {
+    const note = LIVE_NOTE;
+    const need = {
+      ...explicitNeedFromText(note, "personal"),
+      budgetKnown: true,
+      budgetUsd: 15_000,
+      conditionPriority: "inspection_first" as const,
+    };
+    const camry: BestDealListing = {
+      make: "Toyota",
+      model: "Camry",
+      year: 2017,
+      priceUsd: 14_500,
+      miles: 23_700,
+      vin: "CAM-2017",
+      trim: "LE",
+      bodyStyle: "Sedan",
+    };
+    const crv: BestDealListing = {
+      make: "Honda",
+      model: "CR-V",
+      year: 2017,
+      priceUsd: 14_400,
+      miles: 78_000,
+      vin: "CRV-2016",
+      trim: "EX",
+      bodyStyle: "SUV",
+    };
+    const tucson: BestDealListing = {
+      make: "Hyundai",
+      model: "Tucson",
+      year: 2017,
+      priceUsd: 14_800,
+      miles: 88_000,
+      vin: "TUC-2017",
+      trim: "SE",
+      bodyStyle: "SUV",
+    };
+    const sportage: BestDealListing = {
+      make: "Kia",
+      model: "Sportage",
+      year: 2015,
+      priceUsd: 13_200,
+      miles: 90_000,
+      vin: "SP-2015",
+      trim: "LX",
+      bodyStyle: "SUV",
+      accidentCount: 1,
+    };
+    const specs = (row: BestDealListing, trim: string): VpicSpecs => ({
+      year: row.year,
+      make: row.make,
+      model: row.model,
+      trim,
+      drivetrain: "FWD",
+      engine: "2.4L 4 cyl",
+      fuel: "Gasoline",
+    });
+    const checks = [
+      buildCarConsistencyReceipt(camry, specs(camry, "LE")),
+      buildCarConsistencyReceipt(crv, specs(crv, "EX")),
+      buildCarConsistencyReceipt(tucson, specs(tucson, "SE")),
+      buildCarConsistencyReceipt(sportage, specs(sportage, "EX"), new Date("2026-11-09T12:00:00Z")),
+    ];
+    const result = selectBestDealOnEvidence({
+      need,
+      listings: [camry, crv, tucson, sportage],
+      carChecks: checks,
+      nowYear: 2026,
+    });
+    const pick = result.pick;
+    expect(pick).toBeTruthy();
+    expect(`${pick!.year} ${pick!.make} ${pick!.model}`).not.toBe("2017 Toyota Camry");
+    expect(["CR-V", "Tucson", "Sportage"]).toContain(pick!.model);
+    const named = result.ranked.filter((row) =>
+      need.preferredModels.some(
+        (item) => item.make === row.make && item.model === row.model,
+      ),
+    );
+    expect(named.length).toBeGreaterThan(0);
+    if (!need.preferredModels.some((item) => item.make === pick!.make && item.model === pick!.model)) {
+      expect(result.why).toMatch(/you named/i);
+      expect(result.why).toMatch(/CR-V|Tucson|Sportage/);
+    }
+    const camryRow = result.ranked.find((row) => row.vin === "CAM-2017")!;
+    const miles = camryRow.factors.find((factor) => factor.id === "miles_per_year_vs_peers")!;
+    expect(miles.detail).toMatch(/unusually low/i);
+    expect(miles.detail).toMatch(/miles per year/i);
+    expect(miles.detail).not.toMatch(/mileage pace/i);
+    expect(miles.points).toBeLessThanOrEqual(0);
+    expect(camryRow.sellerQuestions.join(" ")).toMatch(/odometer|service records/i);
+    const sportageRow = result.ranked.find((row) => row.vin === "SP-2015")!;
+    expect(result.ranked.findIndex((row) => row.key === sportageRow.key)).toBeGreaterThan(1);
+    const condition = sportageRow.factors.find((factor) => factor.id === "condition_priority")!;
+    expect(condition.detail).toMatch(/lower score for condition risk/i);
+    expect(condition.detail).toMatch(/accident/i);
+    expect(condition.detail).toMatch(/trim/i);
+    expect(condition.detail).not.toMatch(/Condition penalty/i);
+    const buyer = formatBuyerBestDeal(result);
+    const questions = sellerQuestionsForBuyer(result);
+    expect(questions.length).toBeGreaterThan(0);
+    expect(questions[0]).toMatch(new RegExp(`${pick!.year} ${pick!.make} ${pick!.model}`));
+    expect(buyer.why).not.toMatch(/harmonic|Condition penalty|Mileage pace/i);
+    expect(buyer.factorLines.join("\n")).not.toMatch(/harmonic|Condition penalty|Mileage pace/i);
+    expect(buildFindFuelAssumptions({ note, usdPerGallon: 3.5 }).label).toMatch(/estimated from EPA fuel economy/i);
+    expect(buildFindFuelAssumptions({ note, usdPerGallon: 3.5 }).label).not.toMatch(/harmonic/i);
   });
 });
 

@@ -251,6 +251,6 @@ describe("selectBestDealOnEvidence (deterministic)", () => {
     });
     // Ranked scores must respond to the labeled miles/year assumption.
     expect(at12k.ranked.map((r) => r.score)).not.toEqual(at18k.ranked.map((r) => r.score));
-    expect(at12k.sensitivity.some((s) => /15,000 miles\/year/i.test(s.label))).toBe(true);
+    expect(at12k.sensitivity.some((s) => /15,000 miles per year/i.test(s.label))).toBe(true);
   });
 });

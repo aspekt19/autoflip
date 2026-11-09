@@ -349,6 +349,100 @@ function showTrimToken(token: string): string {
   return token.charAt(0).toUpperCase() + token.slice(1);
 }
 
+/**
+ * Stock numbers, hashes, and UUID pieces are not trim names.
+ * A token counts when it is hex (or all digits) and long enough to be an id.
+ * Letter-only trim words (EX, LX, TRD, XSE) stay.
+ */
+export function isOpaqueListingIdToken(token: string): boolean {
+  if (!token) return true;
+  if (/^\d+$/.test(token)) return true;
+  if (/^[0-9a-f]{8,}$/i.test(token)) return true;
+  return /^[0-9a-f]+$/i.test(token) && /\d/.test(token) && /[a-f]/i.test(token) && token.length >= 4;
+}
+
+/** Trim words a dealer title can actually name. Anything else in a slug is not a trim. */
+const KNOWN_TRIM_WORDS = new Set([
+  "sport",
+  "touring",
+  "trd",
+  "xse",
+  "xle",
+  "limited",
+  "ex",
+  "lx",
+  "se",
+  "sel",
+  "eco",
+  "sx",
+  "sxl",
+  "xlt",
+  "le",
+  "gt",
+  "platinum",
+  "lariat",
+  "premium",
+  "base",
+  "hybrid",
+  "nightshade",
+  "adventure",
+  "signature",
+  "preferred",
+  "carbon",
+  "ultimate",
+  "convenience",
+  "essential",
+  "sv",
+  "sl",
+  "sr",
+  "xl",
+  "raptor",
+  "denali",
+  "latitude",
+  "altitude",
+  "rubicon",
+  "sahara",
+  "trailhawk",
+  "overland",
+  "summit",
+  "rebel",
+  "calligraphy",
+  "prestige",
+  "titanium",
+  "sxt",
+  "st",
+  "si",
+]);
+
+const KNOWN_TRIM_PHRASES: string[][] = [
+  ["grand", "touring"],
+  ["king", "ranch"],
+  ["sport", "touring"],
+  ["n", "line"],
+  ["ex", "l"],
+  ["sx", "turbo"],
+];
+
+function knownTrimPhrase(tokens: string[]): string | null {
+  const kept: string[] = [];
+  let index = 0;
+  while (index < tokens.length) {
+    const phrase = KNOWN_TRIM_PHRASES.find((parts) =>
+      parts.every((part, offset) => tokens[index + offset] === part),
+    );
+    if (phrase) {
+      kept.push(...phrase);
+      index += phrase.length;
+      continue;
+    }
+    const token = tokens[index]!;
+    if (KNOWN_TRIM_WORDS.has(token)) kept.push(token);
+    index += 1;
+  }
+  if (kept.length === 0) return null;
+  return kept.map(showTrimToken).join(" ");
+}
+
 /** Drop a contiguous token run whose letters equal the compact model name (rav+4, cr+v, f+150). */
 function dropCompactSpans(tokens: string[], compactTarget: string): string[] {
   if (!compactTarget) return tokens;
@@ -380,30 +474,12 @@ function dropCompactSpans(tokens: string[], compactTarget: string): string[] {
  * Card trim often comes from the listing feed's vehicle description (a VIN decode).
  * The dealer page title is a separate source and is not used to rename the card.
  */
-export function trimPhraseFromListingUrl(
-  url: string | null | undefined,
+function trimTokensFromTitleText(
+  text: string,
   car: { year?: number | null; make?: string | null; model?: string | null },
 ): string | null {
-  const href = buyerListingHref(url);
-  if (!href) return null;
-  let pathname = "";
-  try {
-    pathname = decodeURIComponent(new URL(href).pathname);
-  } catch {
-    return null;
-  }
-  const segments = pathname.split("/").filter(Boolean);
-  if (segments.length === 0) return null;
   const modelCompact = compactName(car.model ?? "");
-  const yearText = car.year != null ? String(car.year) : "";
-  let slug = segments[segments.length - 1] ?? "";
-  for (const segment of segments) {
-    const compact = compactName(segment);
-    if ((modelCompact && compact.includes(modelCompact)) || (yearText && segment.includes(yearText))) {
-      slug = segment;
-    }
-  }
-  let head = slug.replace(/[-_]+/g, " ");
+  let head = text.replace(/[-_]+/g, " ");
   head = head.replace(/\bsport\s+utility\b/gi, " ");
   head = head.split(/\bfor sale\b/i)[0] ?? head;
   const inParts = head.split(/\bin\b/i);
@@ -423,12 +499,46 @@ export function trimPhraseFromListingUrl(
       if (/^\d+l$/.test(token) || /^\d+t$/.test(token)) return false;
       if (/^[a-z]\d{3,}$/.test(token) || /^\d{3,}[a-z]$/.test(token)) return false;
       if (/^[a-hj-npr-z0-9]{11,17}$/i.test(token)) return false;
+      if (isOpaqueListingIdToken(token)) return false;
       if (STATE_CODES.has(token)) return false;
       return true;
     });
-  const tokens = dropCompactSpans(kept, compactName(car.model ?? "")).filter((token) => !/^\d+$/.test(token));
-  if (tokens.length === 0) return null;
-  return tokens.map(showTrimToken).join(" ");
+  const tokens = dropCompactSpans(kept, modelCompact).filter((token) => !isOpaqueListingIdToken(token));
+  return knownTrimPhrase(tokens);
+}
+
+/**
+ * Trim words in a dealer listing URL, or in a separate listing title when the
+ * path is only an id. Opaque ids are never returned.
+ */
+export function trimPhraseFromListingUrl(
+  url: string | null | undefined,
+  car: { year?: number | null; make?: string | null; model?: string | null },
+  listingTitle?: string | null,
+): string | null {
+  const fromTitle = listingTitle ? trimTokensFromTitleText(listingTitle, car) : null;
+  const href = buyerListingHref(url);
+  if (!href) return fromTitle;
+  let pathname = "";
+  try {
+    pathname = decodeURIComponent(new URL(href).pathname);
+  } catch {
+    return fromTitle;
+  }
+  const segments = pathname.split("/").filter(Boolean);
+  if (segments.length === 0) return fromTitle;
+  const modelCompact = compactName(car.model ?? "");
+  const yearText = car.year != null ? String(car.year) : "";
+  const readable = segments.filter((segment) => !segment.split(/[-_]+/).every((part) => isOpaqueListingIdToken(norm(part).replace(/\s/g, "")) || isOpaqueListingIdToken(part.toLowerCase())));
+  let slug = readable[readable.length - 1] ?? "";
+  for (const segment of readable) {
+    const compact = compactName(segment);
+    if ((modelCompact && compact.includes(modelCompact)) || (yearText && segment.includes(yearText))) {
+      slug = segment;
+    }
+  }
+  const fromSlug = slug ? trimTokensFromTitleText(slug, car) : null;
+  return fromSlug ?? fromTitle;
 }
 
 export type TrimSourceDisagreement = {
@@ -451,10 +561,12 @@ export function trimSourceDisagreement(input: {
   displayedTrim: string | null | undefined;
   listingUrl: string | null | undefined;
   decodedTrim?: string | null;
+  /** Human listing title, used when the URL path is only an id. */
+  listingTitle?: string | null;
 }): TrimSourceDisagreement | null {
   const displayed = (input.displayedTrim ?? "").replace(/\s+/g, " ").trim();
   if (!displayed) return null;
-  const listingTitleTrim = trimPhraseFromListingUrl(input.listingUrl, input);
+  const listingTitleTrim = trimPhraseFromListingUrl(input.listingUrl, input, input.listingTitle);
   if (!listingTitleTrim) return null;
   if (trimsMatch(displayed, listingTitleTrim) !== false) return null;
   const title = `${input.year} ${input.make} ${input.model}`;

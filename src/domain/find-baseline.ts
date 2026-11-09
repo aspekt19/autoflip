@@ -196,12 +196,13 @@ function whyNotCheapest(
       ? `${cheaperLeftOut} The cheapest car still in the running is the one we picked: the ${nameOf(pick)}.`
       : `The cheapest car in budget is the same car we picked: the ${nameOf(pick)}.`;
   }
-  const pickMiles = pick.factors.find((row) => row.id === "miles_per_year_vs_peers")?.detail ?? "";
-  const cheapMiles = cheapest.factors.find((row) => row.id === "miles_per_year_vs_peers")?.detail ?? "";
+  const tidy = (text: string) => text.replace(/\.+$/, "").trim();
+  const pickMiles = tidy(pick.factors.find((row) => row.id === "miles_per_year_vs_peers")?.detail ?? "");
+  const cheapMiles = tidy(cheapest.factors.find((row) => row.id === "miles_per_year_vs_peers")?.detail ?? "");
   const flags = cheapest.sellerQuestions[0] ?? null;
   const flagBit = flags ? ` ${flags}` : "";
   const subject = cheaperLeftOut ? "the cheapest car still in the running" : "the cheapest in budget";
-  return `${leftOut}We did not pick ${subject} (${nameOf(cheapest)}) because the ${pick.year} ${pick.make} ${pick.model} is the stronger deal on the checks we could score.${pickMiles && cheapMiles ? ` Mileage pace: pick ${pickMiles}; cheapest ${cheapMiles}.` : ""}${flagBit}`;
+  return `${leftOut}We did not pick ${subject} (${nameOf(cheapest)}) because the ${pick.year} ${pick.make} ${pick.model} is the stronger deal on the checks we could score.${pickMiles && cheapMiles ? ` Miles per year: pick ${pickMiles}; cheapest ${cheapMiles}.` : ""}${flagBit}`;
 }
 
 export type FindBaselineBuyer = {
