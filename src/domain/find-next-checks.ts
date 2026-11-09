@@ -209,7 +209,7 @@ export function proposeFindNextChecks(input: FindNextCheckInput): FindNextCheck[
   ) {
     out.push({
       id: "get_history_report",
-      why: "Condition and accident history remain unknown after free public checks. NMVTIS-approved history + inspection before purchase — Lemonless does not invent clean history.",
+      why: "Condition and accident history remain unknown after free public checks. Get an NMVTIS-approved vehicle history report and a pre-purchase inspection before you buy — Lemonless does not invent clean history.",
       evidence:
         input.need.conditionPriority === "inspection_first"
           ? "condition_priority"

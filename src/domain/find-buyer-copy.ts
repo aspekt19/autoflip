@@ -152,12 +152,39 @@ export function formatBuyerReceiptLine(r: FindFreeGovReceipt): string {
   return `${title}: Public vehicle check recorded. Source: ${src.label}.${when}`;
 }
 
+export type FuelCheckOutcomeSummary = {
+  attempted: number;
+  matched: number;
+  noMatch: number;
+  unavailable: number;
+};
+
+export function summarizeFuelCheckOutcome(
+  receipts: readonly FindFreeGovReceipt[],
+): FuelCheckOutcomeSummary {
+  let attempted = 0;
+  let matched = 0;
+  let noMatch = 0;
+  let unavailable = 0;
+  for (const r of receipts) {
+    if (r.checkId !== "free_gov_fuel") continue;
+    attempted += 1;
+    const match = r.fuelEvidence?.match;
+    if (match === "exact" || match === "ambiguous") matched += 1;
+    else if (match === "unavailable" || r.status === "error" || r.status === "unavailable") unavailable += 1;
+    else noMatch += 1;
+  }
+  return { attempted, matched, noMatch, unavailable };
+}
+
 export function formatBuyerLoopStep(input: {
   chosenId: string;
   listingCount?: number;
   modelCount?: number;
   freeEvidenceNote?: string | null;
   loopReason?: FindNextCheckLoopReason | string | null;
+  /** Actual free_gov_fuel receipt outcomes — required for honest fuel checklist copy. */
+  fuelOutcome?: FuelCheckOutcomeSummary | null;
 }): string {
   const id = input.chosenId as FindNextCheckId | string;
   const n = input.listingCount;
@@ -169,8 +196,19 @@ export function formatBuyerLoopStep(input: {
       return `We checked government crash-test ratings for year/make/model on${cars}.`;
     case "free_gov_vpic":
       return `We decoded available VINs with the government VIN decoder (specs only).`;
-    case "free_gov_fuel":
-      return `We checked fuel costs using FuelEconomy.gov for${cars}.`;
+    case "free_gov_fuel": {
+      const o = input.fuelOutcome;
+      if (!o || o.attempted <= 0) {
+        return "FuelEconomy.gov fuel-cost check did not record a usable result for this step.";
+      }
+      const parts = [
+        `We ran FuelEconomy.gov fuel-cost checks for ${o.attempted} year/make/model group${o.attempted === 1 ? "" : "s"}`,
+      ];
+      if (o.matched > 0) parts.push(`${o.matched} matched`);
+      if (o.noMatch > 0) parts.push(`${o.noMatch} had no model match`);
+      if (o.unavailable > 0) parts.push(`${o.unavailable} unavailable (timeout or error)`);
+      return `${parts[0]} — ${parts.slice(1).join(", ") || "no matches"}.`;
+    }
     case "compare_observed_asks":
       return typeof n === "number"
         ? `We compared asking prices across the ${n} cars found.`
@@ -223,16 +261,24 @@ export function formatBuyerLoopStatus(reason: FindNextCheckLoopReason | string |
 
 export function formatBuyerNextCheckWhy(id: FindNextCheckId | string, technicalWhy: string): string {
   // Prefer rewriting known ids; strip technical tokens from fallback.
+  if (id === "get_history_report") {
+    return "Get an NMVTIS-approved vehicle history report and a pre-purchase inspection before you buy — free public checks do not cover accidents or title brands.";
+  }
   const plain = formatBuyerLoopStep({ chosenId: id });
   if (id.startsWith("free_gov_") || id === "compare_observed_asks") return plain;
-  // Soft scrub of technicalWhy
+  // Soft scrub of technicalWhy — never turn "NMVTIS-approved" into "official title history-approved".
   return technicalWhy
     .replace(/\bMMY\b/g, "year/make/model")
     .replace(/\bvPIC\b/g, "VIN decoder")
     .replace(/\bNHTSA\b/g, "government")
     .replace(/\bfree_gov_\w+/g, "free public check")
     .replace(/\bErrorCode=0\b/g, "a successful decode")
-    .replace(/\bNMVTIS\b/g, "official title history");
+    .replace(
+      /\bNMVTIS-approved history\s*\+\s*inspection before purchase\b/gi,
+      "an NMVTIS-approved vehicle history report and a pre-purchase inspection before you buy",
+    )
+    .replace(/\bNMVTIS-approved\b/g, "NMVTIS-approved")
+    .replace(/\bNMVTIS\b/g, "NMVTIS (official title history)");
 }
 
 export function formatBuyerBestDeal(result: BestDealResult): {
@@ -240,6 +286,8 @@ export function formatBuyerBestDeal(result: BestDealResult): {
   why: string;
   stillUnknown: string[];
   rankedLines: string[];
+  /** Plain-English per-factor breakdown for every ranked car. */
+  factorLines: string[];
   sensitivityLines: string[];
   honesty: string;
 } {
@@ -251,16 +299,27 @@ export function formatBuyerBestDeal(result: BestDealResult): {
     const fuel = c.fuelSummary ? ` · ${c.fuelSummary}` : "";
     const ask = c.priceUsd != null ? `$${c.priceUsd.toLocaleString("en-US")}` : "price n/a";
     const miles = c.miles != null ? `${c.miles.toLocaleString("en-US")} mi` : "miles n/a";
-    return `${i + 1}. ${c.year} ${c.make} ${c.model} — ${ask} · ${miles}${fuel}`;
+    return `${i + 1}. ${c.year} ${c.make} ${c.model} — ${ask} · ${miles}${fuel} · score ${c.score}`;
   });
-  const sensitivityLines = result.sensitivity
-    .filter((s) => s.pickChanges)
-    .map((s) => `${s.label}: the top pick would change.`);
+  const factorLines = result.ranked.flatMap((c, i) => {
+    const head = `${i + 1}. ${c.year} ${c.make} ${c.model} (score ${c.score}):`;
+    const bits = c.factors
+      .slice()
+      .sort((a, b) => Math.abs(b.points) - Math.abs(a.points))
+      .map((f) => `${f.label}: ${f.detail} (${f.points >= 0 ? "+" : ""}${f.points})`);
+    return [head, ...bits.map((b) => `  — ${b}`)];
+  });
+  const sensitivityLines = result.sensitivity.map((s) =>
+    s.pickChanges
+      ? `${s.label}: the top pick would change.`
+      : `${s.label}: the top pick would stay the same.`,
+  );
   return {
     headline,
     why: result.why,
     stillUnknown: result.stillUnknown,
     rankedLines,
+    factorLines,
     sensitivityLines,
     honesty: result.honesty,
   };

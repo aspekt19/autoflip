@@ -48,6 +48,8 @@ describe("price badge", () => {
     expect(low.label).toBe("Good price");
     expect(low.deltaUsd).toBeLessThan(0);
     expect(low.deltaLabel).toMatch(/below market/);
+    expect(low.deltaLabel).toMatch(/n=\d+/);
+    expect(low.sampleSize).toBeGreaterThanOrEqual(3);
     const high = priceBadge(car({ vin: "HIGH", priceUsd: 15000, miles: 80000 }), comps);
     expect(high.label).toBe("High price");
     expect(high.deltaLabel).toMatch(/above market/);

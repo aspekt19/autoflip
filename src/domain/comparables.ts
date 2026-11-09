@@ -23,14 +23,29 @@ function withPriceAndMiles(listing: Listing): listing is Listing & { priceUsd: n
   );
 }
 
+/** Prefer comps whose mileage is within this fraction of the subject (when enough remain). */
+const MILEAGE_SIMILAR_FRAC = 0.45;
+
+function preferSimilarMileage(
+  subjectMiles: number,
+  comps: Array<Listing & { priceUsd: number; miles: number }>,
+): Array<Listing & { priceUsd: number; miles: number }> {
+  const similar = comps.filter((item) => {
+    const denom = Math.max(subjectMiles, item.miles, 1);
+    return Math.abs(item.miles - subjectMiles) / denom <= MILEAGE_SIMILAR_FRAC;
+  });
+  return similar.length >= ASSUMPTIONS.minComps ? similar : comps;
+}
+
 export function selectComparables(subject: Listing, pool: Listing[]): CompSelection {
   const notes: string[] = [];
-  const base = pool.filter((item) => {
-    if (item.vin === subject.vin) return false;
-    if (!sameName(item.make, subject.make) || !sameName(item.model, subject.model)) return false;
-    if (!withPriceAndMiles(item)) return false;
-    return true;
-  });
+  const base = pool.filter(
+    (item): item is Listing & { priceUsd: number; miles: number } => {
+      if (item.vin === subject.vin) return false;
+      if (!sameName(item.make, subject.make) || !sameName(item.model, subject.model)) return false;
+      return withPriceAndMiles(item);
+    },
+  );
 
   const inWindow = (years: number) =>
     base.filter((item) => Math.abs(item.year - subject.year) <= years);
@@ -40,30 +55,39 @@ export function selectComparables(subject: Listing, pool: Listing[]): CompSelect
     ? near.filter((item) => item.trim && sameName(item.trim, subject.trim!))
     : [];
 
-  if (sameTrim.length >= ASSUMPTIONS.minComps) {
-    notes.push(`Compared with ${sameTrim.length} ${subject.trim} listings within ${ASSUMPTIONS.yearWindow} model year.`);
-    return { comps: sameTrim, scope: "same_trim", notes };
+  if (sameTrim.length >= ASSUMPTIONS.minComps && subject.miles != null) {
+    const comps = preferSimilarMileage(subject.miles, sameTrim);
+    notes.push(
+      `Compared with ${comps.length} same-model ${subject.trim} listings within ±${ASSUMPTIONS.yearWindow} model year${comps.length < sameTrim.length ? ", preferring similar mileage" : ""}.`,
+    );
+    return { comps, scope: "same_trim", notes };
   }
 
-  if (near.length >= ASSUMPTIONS.minComps) {
+  if (near.length >= ASSUMPTIONS.minComps && subject.miles != null) {
+    const comps = preferSimilarMileage(subject.miles, near);
     if (subject.trim) {
       notes.push(
-        `Only ${sameTrim.length} same-trim listing${sameTrim.length === 1 ? "" : "s"} in range, so the comparison uses every ${subject.make} ${subject.model} within ${ASSUMPTIONS.yearWindow} model year.`,
+        `Only ${sameTrim.length} same-trim listing${sameTrim.length === 1 ? "" : "s"} in range, so the comparison uses ${comps.length} ${subject.make} ${subject.model} cards within ±${ASSUMPTIONS.yearWindow} model year (same model; similar mileage when available).`,
+      );
+    } else {
+      notes.push(
+        `Compared with ${comps.length} same-model ${subject.make} ${subject.model} listings within ±${ASSUMPTIONS.yearWindow} model year${comps.length < near.length ? ", preferring similar mileage" : ""}.`,
       );
     }
-    return { comps: near, scope: "year_window", notes };
+    return { comps, scope: "year_window", notes };
   }
 
   const wide = inWindow(ASSUMPTIONS.yearWindowExpanded);
-  if (wide.length >= ASSUMPTIONS.minComps) {
+  if (wide.length >= ASSUMPTIONS.minComps && subject.miles != null) {
+    const comps = preferSimilarMileage(subject.miles, wide);
     notes.push(
-      `Fewer than ${ASSUMPTIONS.minComps} listings within ${ASSUMPTIONS.yearWindow} model year, so the window was widened to ${ASSUMPTIONS.yearWindowExpanded} years.`,
+      `Fewer than ${ASSUMPTIONS.minComps} listings within ±${ASSUMPTIONS.yearWindow} model year, so the window was widened to ±${ASSUMPTIONS.yearWindowExpanded} years (${comps.length} same-model comps; similar mileage when available).`,
     );
-    return { comps: wide, scope: "expanded_year", notes };
+    return { comps, scope: "expanded_year", notes };
   }
 
   notes.push(
-    `Only ${wide.length} priced listing${wide.length === 1 ? "" : "s"} with mileage within ${ASSUMPTIONS.yearWindowExpanded} model years. A price verdict needs at least ${ASSUMPTIONS.minComps}.`,
+    `Only ${wide.length} priced listing${wide.length === 1 ? "" : "s"} with mileage within ±${ASSUMPTIONS.yearWindowExpanded} model years of the same make/model. A price verdict needs at least ${ASSUMPTIONS.minComps}.`,
   );
   return { comps: wide, scope: "insufficient", notes };
 }

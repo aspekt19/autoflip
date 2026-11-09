@@ -599,8 +599,15 @@ export function fuelFactFromFindEvidence(evidence: FindFuelEvidence | null | und
 }
 
 export function formatFindFuelEvidenceShort(evidence: FindFuelEvidence): string {
-  if (evidence.match === "unavailable" || evidence.match === "no_match") {
-    return "Fuel cost unavailable";
+  if (evidence.match === "unavailable") {
+    return evidence.reason
+      ? `Fuel cost unavailable — ${evidence.reason}`
+      : "Fuel cost unavailable — FuelEconomy.gov did not respond";
+  }
+  if (evidence.match === "no_match") {
+    return evidence.reason
+      ? `Fuel cost unavailable — ${evidence.reason}`
+      : "Fuel cost unavailable — no FuelEconomy.gov match for this year/make/model";
   }
   const assumptionsBit = ` Assumptions: ${evidence.assumptions.label}.`;
   if (

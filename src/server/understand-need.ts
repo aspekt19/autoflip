@@ -1,5 +1,6 @@
 import {
   applyFollowUp,
+  budgetFromText,
   explicitNeedFromText,
   followUps,
   makesFromText,
@@ -114,6 +115,9 @@ export async function understandNeed(
   // never label them “Models you named”.
   const fromNote = preferredModels.length > 0;
   const fromService = !fromNote && (need.preferredModels?.length ?? 0) > 0;
+  // SERV extract can drop a note budget; re-assert dollars the shopper actually wrote
+  // when form/SERV left budget unknown. Never override a different hard max the form set.
+  const noteBudget = budgetFromText(screened.text);
   need = {
     ...need,
     milesMax: milesFromText(need.note) ?? need.milesMax,
@@ -122,6 +126,9 @@ export async function understandNeed(
     preferredModelsSource: fromNote ? "user_note" : fromService ? "service" : "none",
     openToOtherMakes,
     make: (preferredMakes.length ? preferredMakes : need.preferredMakes)[0] ?? need.make,
+    ...(noteBudget != null && (!need.budgetKnown || need.budgetUsd == null)
+      ? { budgetUsd: noteBudget, budgetKnown: true }
+      : {}),
   };
   if (body.followUp) need = applyFollowUp(need, body.followUp.id, body.followUp.value);
   const checked = validateNeed(need);

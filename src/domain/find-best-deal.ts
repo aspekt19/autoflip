@@ -9,7 +9,11 @@ import type { FindFuelEvidence } from "./find-fuel-match";
 import type { FindFreeGovReceipt } from "./find-free-gov";
 import type { ObservedListingRow } from "./find-model-observe";
 import { mmyListingKey } from "./find-risk-evidence";
-import type { StructuredNeed } from "./need";
+import {
+  BUDGET_AROUND_TOLERANCE_FRAC,
+  budgetIsApproximateFromNote,
+  type StructuredNeed,
+} from "./need";
 
 export type BestDealFactorId =
   | "price_vs_model_asks"
@@ -62,17 +66,30 @@ export type BestDealResult = {
   honesty: string;
 };
 
-const WEIGHTS = {
-  price: 28,
-  milesPerYear: 16,
-  age: 10,
-  fuel: 14,
-  recalls: 10,
-  ncap: 8,
-  namedModel: 8,
-  budget: 6,
-  condition: 10,
+/**
+ * Explicit scoring weights (higher total = better deal on current evidence).
+ *
+ * Under condition-first / “reliable, not too old” notes, age + absolute mileage
+ * + budget-fit are amplified so a cheap very-high-mile older car cannot beat a
+ * nearer-budget, lower-wear named model on price alone.
+ *
+ * Documented for tests — do not silently retune without updating the live
+ * regression fixture in find-best-deal.test.ts.
+ */
+export const BEST_DEAL_WEIGHTS = {
+  price: 22,
+  milesPerYear: 14,
+  /** Absolute wear / age under condition-first preferences (also mild otherwise). */
+  ageAndWear: 18,
+  fuel: 12,
+  recalls: 8,
+  ncap: 6,
+  namedModel: 10,
+  budget: 14,
+  condition: 12,
 } as const;
+
+const WEIGHTS = BEST_DEAL_WEIGHTS;
 
 /** Tie epsilon — scores within this are treated as tied. */
 export const BEST_DEAL_TIE_EPSILON = 2.5;
@@ -80,6 +97,9 @@ export const BEST_DEAL_TIE_EPSILON = 2.5;
 export const BEST_DEAL_MIN_PRICED = 2;
 /** Same-model sample below this is labeled thin. */
 export const BEST_DEAL_THIN_MODEL_SAMPLE = 3;
+/** Absolute miles above this under condition-first draw a strong wear penalty. */
+export const BEST_DEAL_HIGH_MILES_SOFT = 120_000;
+export const BEST_DEAL_HIGH_MILES_HARD = 160_000;
 
 function median(values: number[]): number | null {
   if (values.length === 0) return null;
@@ -181,6 +201,19 @@ function modelKey(make: string, model: string): string {
   return `${make}\0${model}`.toLowerCase();
 }
 
+/** Note cues that amplify wear/age even when the form left condition unspecified. */
+export function prefersConditionFromNote(note: string | null | undefined): boolean {
+  if (!note) return false;
+  return /\bgood condition\b|\bexpensive repairs\b|\bhidden problems\b|\breliable\b|\binspection\b|\bhistory report\b/i.test(
+    note,
+  );
+}
+
+export function prefersNotTooOldFromNote(note: string | null | undefined): boolean {
+  if (!note) return false;
+  return /\bnot too old\b|\bnewer\b|\brecent model\b|\breliable\b/i.test(note);
+}
+
 function scoreOne(
   row: BestDealListing,
   ctx: {
@@ -239,6 +272,9 @@ function scoreOne(
   const ageYears = Math.max(0.5, ctx.nowYear - row.year);
   const mpy = row.miles != null ? row.miles / ageYears : null;
   const assumedPace = ctx.milesPerYearAssumption;
+  const conditionFirst =
+    ctx.need.conditionPriority === "inspection_first" || prefersConditionFromNote(ctx.need.note);
+  const notTooOld = prefersNotTooOldFromNote(ctx.need.note) || conditionFirst;
   if (mpy != null) {
     const peerMed = ctx.peerMilesPerYear.length > 0 ? median(ctx.peerMilesPerYear) : null;
     const peerPts =
@@ -278,26 +314,46 @@ function scoreOne(
     });
   }
 
-  // Age (mild — newer better) + miles vs expected under labeled assumption
+  // Age + absolute wear. Condition-first / “not too old” amplify penalties for old + high-mile cars.
   {
     const expected = expectedMiles(row.year, ctx.nowYear, ctx.milesPerYearAssumption);
-    const ageScore = clamp((8 - Math.min(ageYears, 12)) / 8, 0, 1) * WEIGHTS.age * 0.65;
+    const ageCap = notTooOld ? 10 : 12;
+    const ageScore =
+      clamp((ageCap - Math.min(ageYears, ageCap + 4)) / ageCap, -0.5, 1) *
+      WEIGHTS.ageAndWear *
+      (notTooOld ? 0.55 : 0.45);
     let vsExpected = 0;
     if (row.miles != null && expected > 0) {
-      vsExpected = clamp(((expected - row.miles) / expected) * WEIGHTS.age * 0.35, -WEIGHTS.age * 0.4, WEIGHTS.age * 0.4);
+      vsExpected = clamp(
+        ((expected - row.miles) / expected) * WEIGHTS.ageAndWear * (notTooOld ? 0.35 : 0.25),
+        -WEIGHTS.ageAndWear * 0.55,
+        WEIGHTS.ageAndWear * 0.35,
+      );
     }
-    const agePoints = ageScore + vsExpected;
+    let absoluteWear = 0;
+    if (row.miles != null && conditionFirst) {
+      if (row.miles >= BEST_DEAL_HIGH_MILES_HARD) {
+        absoluteWear = -WEIGHTS.ageAndWear * 0.55;
+      } else if (row.miles >= BEST_DEAL_HIGH_MILES_SOFT) {
+        absoluteWear = -WEIGHTS.ageAndWear * 0.3;
+      }
+    }
+    const agePoints = ageScore + vsExpected + absoluteWear;
     score += agePoints;
+    const wearBit =
+      row.miles != null && conditionFirst && row.miles >= BEST_DEAL_HIGH_MILES_SOFT
+        ? `; very high odometer (${row.miles.toLocaleString("en-US")} mi) weighed down under condition-first`
+        : "";
     factors.push({
       id: "age",
-      label: "Model year / miles vs expected pace",
+      label: "Model year / wear vs expected pace",
       points: round1(agePoints),
       detail: `${row.year} (~${Math.round(ageYears)} year${Math.round(ageYears) === 1 ? "" : "s"} old)${
         row.miles != null
           ? `; ${row.miles.toLocaleString("en-US")} mi vs ~${Math.round(expected).toLocaleString("en-US")} mi expected at ${assumedPace.toLocaleString("en-US")} mi/yr`
           : ""
-      }`,
-      source: "Listing model year + labeled miles/year assumption",
+      }${wearBit}`,
+      source: "Listing model year + labeled miles/year assumption + your condition/age preference",
     });
   }
 
@@ -329,7 +385,7 @@ function scoreOne(
       id: "estimated_fuel_cost",
       label: "Estimated annual fuel cost",
       points: 0,
-      detail: "Not scored — no FuelEconomy.gov match yet",
+      detail: "Not scored — no FuelEconomy.gov match for this year/make/model (or check not run)",
       source: "FuelEconomy.gov",
     });
   }
@@ -406,23 +462,39 @@ function scoreOne(
     });
   }
 
-  // Budget fit
+  // Budget fit — "around $X" soft tolerance; overages beyond soft band are heavily penalized
   if (ctx.need.budgetKnown && ctx.need.budgetUsd != null && row.priceUsd != null) {
-    const over = row.priceUsd - ctx.need.budgetUsd;
-    const points =
-      over <= 0
-        ? WEIGHTS.budget
-        : clamp(1 - over / Math.max(ctx.need.budgetUsd, 1), -1, 0) * WEIGHTS.budget;
+    const budget = ctx.need.budgetUsd;
+    const approx = budgetIsApproximateFromNote(ctx.need.note);
+    const softTol = approx ? Math.round(budget * BUDGET_AROUND_TOLERANCE_FRAC) : 0;
+    const over = row.priceUsd - budget;
+    const overSoft = row.priceUsd - (budget + softTol);
+    let points: number;
+    let detail: string;
+    if (over <= 0) {
+      points = WEIGHTS.budget;
+      detail = approx
+        ? `Within your ~$${budget.toLocaleString("en-US")} note budget`
+        : `Within your $${budget.toLocaleString("en-US")} budget`;
+    } else if (approx && overSoft <= 0) {
+      points = WEIGHTS.budget * 0.35;
+      detail = `$${over.toLocaleString("en-US")} over ~$${budget.toLocaleString("en-US")}, still inside ±$${softTol.toLocaleString("en-US")} soft tolerance from your note`;
+    } else {
+      // Any dollars past soft tolerance must score negative (old 1-over/budget clamped mild overages to 0).
+      const denom = Math.max(budget, 1);
+      const severity = approx ? overSoft / denom : over / denom;
+      points = -clamp(severity, 0, 1.25) * WEIGHTS.budget;
+      detail = approx
+        ? `$${over.toLocaleString("en-US")} over your ~$${budget.toLocaleString("en-US")} note budget (beyond ±$${softTol.toLocaleString("en-US")} soft tolerance)`
+        : `$${over.toLocaleString("en-US")} over your $${budget.toLocaleString("en-US")} budget`;
+    }
     score += points;
     factors.push({
       id: "budget_fit",
       label: "Budget fit",
       points: round1(points),
-      detail:
-        over <= 0
-          ? `Within your $${ctx.need.budgetUsd.toLocaleString("en-US")} budget`
-          : `$${over.toLocaleString("en-US")} over your $${ctx.need.budgetUsd.toLocaleString("en-US")} budget`,
-      source: "Your stated budget",
+      detail,
+      source: "Your stated budget (note or hard max)",
     });
   } else {
     factors.push({
@@ -434,10 +506,20 @@ function scoreOne(
     });
   }
 
-  // Condition priority — parkIt investigate penalty; never invent clean history
-  if (ctx.need.conditionPriority === "inspection_first") {
+  // Condition priority — parkIt investigate penalty + wear signal; never invent clean history
+  if (conditionFirst) {
     const parkIt = ctx.risk.parkItByMmy.get(mmy) === true;
-    const points = parkIt ? -WEIGHTS.condition : WEIGHTS.condition * 0.25;
+    let points = parkIt ? -WEIGHTS.condition : WEIGHTS.condition * 0.2;
+    // Prefer paying a bit more for lower wear when condition-first (explicit shopper ask).
+    if (!parkIt && row.miles != null) {
+      if (row.miles < BEST_DEAL_HIGH_MILES_SOFT && ageYears <= 8) {
+        points += WEIGHTS.condition * 0.35;
+      } else if (row.miles >= BEST_DEAL_HIGH_MILES_HARD || ageYears >= 11) {
+        points -= WEIGHTS.condition * 0.55;
+      } else if (row.miles >= BEST_DEAL_HIGH_MILES_SOFT || ageYears >= 9) {
+        points -= WEIGHTS.condition * 0.3;
+      }
+    }
     score += points;
     factors.push({
       id: "condition_priority",
@@ -445,7 +527,9 @@ function scoreOne(
       points: round1(points),
       detail: parkIt
         ? "Year/make/model has a park-it recall campaign flag — investigate before buying (not VIN proof)"
-        : "You prioritized condition over squeezing price — history/inspection still required; no clean-history claim",
+        : row.miles != null && row.miles >= BEST_DEAL_HIGH_MILES_SOFT
+          ? "You said you'd rather pay more for good condition than expensive repairs — this high-mileage/older card is weighed down (history + inspection still required; no clean-history claim)"
+          : "You prioritized condition over squeezing price — history/inspection still required; no clean-history claim",
       source: "Your preference + NHTSA year/make/model flags when present",
     });
   } else {
@@ -610,6 +694,22 @@ export function selectBestDealOnEvidence(input: {
     fuelByMmy,
     risk,
   });
+  const altBudgetLoose =
+    input.need.budgetKnown && input.need.budgetUsd != null
+      ? rankAll(
+          input.listings,
+          {
+            ...input.need,
+            note: `${input.need.note ?? ""} around $${input.need.budgetUsd}`,
+          },
+          {
+            nowYear,
+            milesPerYearAssumption,
+            fuelByMmy,
+            risk,
+          },
+        )
+      : null;
   const sensitivity: BestDealSensitivity[] = [
     {
       label: "If fuel cost mattered much less",
@@ -622,13 +722,28 @@ export function selectBestDealOnEvidence(input: {
       pickChanges: Boolean(altMiles[0] && altMiles[0].key !== first.key),
     },
   ];
+  if (altBudgetLoose) {
+    sensitivity.push({
+      label: "If budget soft tolerance were treated as ~10% around your note budget",
+      pickKey: altBudgetLoose[0]?.key ?? null,
+      pickChanges: Boolean(altBudgetLoose[0] && altBudgetLoose[0].key !== first.key),
+    });
+  }
+
+  const tieBreakHelp =
+    "A free FuelEconomy.gov match, crash rating, or recall check on unchecked year/make/model cards — or a paid NMVTIS-approved history + pre-purchase inspection — could break the tie.";
 
   if (tied) {
+    const gapBits = [
+      `Top cars are too close on current evidence (${first.year} ${first.make} ${first.model} score ${first.score} vs ${second!.year} ${second!.make} ${second!.model} score ${second!.score}).`,
+      "No single confident pick.",
+      `What would break the tie: a clearer gap on miles/year wear, staying inside budget, or matching a model you named. ${tieBreakHelp}`,
+    ];
     return {
       ranked: top,
       pick: null,
       confidence: "no_confident_pick",
-      why: `Top cars are too close on current evidence (${first.year} ${first.make} ${first.model} score ${first.score} vs ${second!.year} ${second!.make} ${second!.model} score ${second!.score}). No single confident pick.`,
+      why: gapBits.join(" "),
       stillUnknown,
       sensitivity,
       assumptionsNote,
@@ -639,14 +754,14 @@ export function selectBestDealOnEvidence(input: {
   const whyParts = first.factors
     .filter((f) => f.points !== 0)
     .sort((a, b) => Math.abs(b.points) - Math.abs(a.points))
-    .slice(0, 4)
-    .map((f) => f.detail);
+    .slice(0, 5)
+    .map((f) => `${f.label}: ${f.detail} (${f.points >= 0 ? "+" : ""}${f.points})`);
 
   return {
     ranked: top,
     pick: first,
     confidence: "confident",
-    why: `Best deal on current evidence: ${first.year} ${first.make} ${first.model}${first.priceUsd != null ? ` at $${first.priceUsd.toLocaleString("en-US")}` : ""}. ${whyParts.join(" · ")}`,
+    why: `Best deal on current evidence: ${first.year} ${first.make} ${first.model}${first.priceUsd != null ? ` at $${first.priceUsd.toLocaleString("en-US")}` : ""} (score ${first.score}). ${whyParts.join(" · ")}`,
     stillUnknown: [...new Set([...stillUnknown, ...first.unknowns])],
     sensitivity,
     assumptionsNote,
