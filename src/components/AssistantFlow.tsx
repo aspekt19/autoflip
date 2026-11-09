@@ -186,9 +186,8 @@ export function FindFlow({
   );
 }
 
-export function CheckFlow() {
-  return <AssistantFlow variant="check" />;
-}
+/** @deprecated Import from `@/components/CheckFlow` — kept for any residual imports. */
+export { CheckFlow } from "@/components/CheckFlow";
 
 /** One automatic resume per token per page load — a refresh must not stack paid checks. */
 const resumedFindTokens = new Set<string>();

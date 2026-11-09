@@ -9,6 +9,7 @@
     "start": "next start",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
+    "test:e2e": "playwright test",
     "audit:prod": "npm audit --omit=dev --audit-level=high",
     "audit:full-report": "npm audit --audit-level=high",
     "boundary:source": "node scripts/assert-openserv-source-boundary.mjs",
@@ -40,6 +41,7 @@
   },
   "devDependencies": {
     "@openserv-labs/sdk": "^2.4.1",
+    "@playwright/test": "^1.56.1",
     "@types/node": "^22.18.8",
     "@types/react": "^19.1.15",
     "@types/react-dom": "^19.1.9",

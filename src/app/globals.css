@@ -819,6 +819,20 @@ button:disabled, .action:disabled, .quiet:disabled, .ghost:disabled {
 .find-col-side {
   min-width: 0;
 }
+.sign-in-gate {
+  max-width: 42rem;
+  padding: 1.25rem 0 2rem;
+}
+.check-result {
+  margin-top: 1.5rem;
+}
+.check-result h3 {
+  margin-top: 1.25rem;
+}
+.check-flow .pills {
+  flex-wrap: wrap;
+}
+
 .flow-page :where(input, textarea, select),
 .sheet-page :where(input, textarea, select) {
   max-width: 80ch;

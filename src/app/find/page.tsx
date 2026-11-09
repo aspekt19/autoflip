@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { FindFlow } from "@/components/AssistantFlow";
+import { SignInGate } from "@/components/SignInGate";
 import { FIND_PAGE_BILLING_STEP } from "@/domain/find-buyer-copy";
 import { parseFindEntryParams } from "@/domain/need";
 
@@ -27,12 +28,14 @@ export default async function FindPage({
           </ol>
           <p>Deal Radar is a separate optional monthly plan.</p>
         </div>
-        <FindFlow
-          initialNote={entry.note}
-          initialMode={entry.mode}
-          initialZip={entry.zip}
-          initialDistanceMiles={entry.distanceMiles}
-        />
+        <SignInGate callbackPath="/find">
+          <FindFlow
+            initialNote={entry.note}
+            initialMode={entry.mode}
+            initialZip={entry.zip}
+            initialDistanceMiles={entry.distanceMiles}
+          />
+        </SignInGate>
       </div>
     </div>
   );

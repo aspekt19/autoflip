@@ -223,3 +223,18 @@ export async function readFreeCheckQuota(
   const record = await read(kv, userId, month);
   return freeCheckQuotaView(record.used, now);
 }
+
+/** Slots still open, counting in-flight reservations as well as completed checks. */
+export async function freeCheckSlotsRemaining(
+  kv: Kv,
+  userId: string,
+  now = new Date(),
+): Promise<{ remaining: number; view: FreeCheckQuotaView }> {
+  const month = freeCheckMonthKey(now);
+  const record = await read(kv, userId, month);
+  const held = reservedOrCommittedCount(record);
+  return {
+    remaining: Math.max(0, FREE_VEHICLE_CHECKS_PER_MONTH - held),
+    view: freeCheckQuotaView(record.used, now),
+  };
+}
