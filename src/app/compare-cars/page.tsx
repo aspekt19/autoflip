@@ -40,7 +40,7 @@ export default async function CompareCarsPage({ searchParams }: { searchParams: 
 
   return (
     <div className="sub">
-      <div className="sheet-page">
+      <div className="sheet-page site-frame">
         <p className="kicker">Side-by-side report comparison</p>
         <h1>Compare cars</h1>
         <p className="lead">Compare the saved report snapshots for 2 or 3 vehicles. This uses existing reports and does not spend another credit.</p>

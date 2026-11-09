@@ -775,8 +775,10 @@ describe("Scenario2 defect 8 — price comps coverage + fairness on live shortli
     expect(pickFactor.detail).toContain(`based on ${resolved.sampleSize}`);
 
     const buyer = formatBuyerBestDeal(result);
-    expect(buyer.headline).toMatch(/settled/);
+    expect(buyer.headline).toMatch(/Best choice on current data/);
     expect(buyer.headline).not.toMatch(/provisional on price/);
+    expect(result.evidenceSettled).toBe(true);
+    expect(result.priceProvisional).toBe(false);
     for (const line of buyer.factorLines) {
       expect(assertBuyerSafeText(line).ok).toBe(true);
     }
@@ -1036,8 +1038,10 @@ describe("Scenario2 defect 8 — price comps coverage + fairness on live shortli
       expect(price.detail).not.toMatch(/capped under condition-first|percentile|documented rates|fitted|≈|\bcomps\b/i);
     }
     const buyer = formatBuyerBestDeal(result);
-    expect(buyer.headline).toMatch(/settled/);
+    expect(buyer.headline).toMatch(/Best choice on current data/);
     expect(buyer.headline).not.toMatch(/provisional on price/);
+    expect(result.evidenceSettled).toBe(true);
+    expect(result.priceProvisional).toBe(false);
     for (const line of [...buyer.factorLines, buyer.why, ...buyer.stillUnknown]) {
       expect(assertBuyerSafeText(line).ok).toBe(true);
     }

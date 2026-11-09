@@ -20,8 +20,8 @@ export function HomeStage() {
             <img className="film-poster" src="/frames/poster.jpg" alt="" width={1920} height={1080} />
             <FilmScrub mode={mode} onPhase={setPhase} />
           </div>
-          <div className={`film-overlay phase-${phase}`}>
-            <div className="film-copy">
+            <div className={`film-overlay phase-${phase}`}>
+            <div className="film-copy site-frame">
               <div>
                 <p className="kicker">Used-car verdicts you can check.</p>
                 <BrandHeroTitle />
@@ -56,7 +56,7 @@ export function HomeStage() {
           <span>For agents</span>
         </div>
       </div>
-      <section className="story-after reveal">
+      <section className="story-after site-frame reveal">
         <p className="kicker">How it works</p>
         <ol className="steps-3 story-steps">
           <li>
@@ -77,7 +77,7 @@ export function HomeStage() {
           <span>. Report credits and Deal Radar plans are separate.</span>
         </p>
       </section>
-      <section className="story-after trust-row story-trust reveal" aria-label="What Lemonless checks">
+      <section className="story-after site-frame trust-row story-trust reveal" aria-label="What Lemonless checks">
         <article>
           <strong>Real numbers</strong>
           <span>Prices, mileage and costs are calculated from real listings, never guessed.</span>

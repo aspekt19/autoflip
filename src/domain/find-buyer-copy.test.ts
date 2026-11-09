@@ -592,7 +592,18 @@ describe("public-check copy stays plain and honest", () => {
       modelCount: 17,
     });
     expect(running).toMatch(/Public safety records: checking 17 models/);
+    expect(running).toMatch(/best choice may change/i);
     expect(running).not.toMatch(/\d+\/\d+|VIN decode/);
+
+    const stillGoing = publicCheckStatusLine({
+      servEnabled: true,
+      anyUnchecked: false,
+      checksHaveRun: true,
+      running: false,
+      loopOpen: true,
+    });
+    expect(stillGoing).toMatch(/still going to run/i);
+    expect(stillGoing).not.toMatch(/caught up/i);
   });
 
   it("coverage progress does not say checks are running when it only describes what is left", () => {

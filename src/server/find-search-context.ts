@@ -32,6 +32,9 @@ export type FindSearchListingFact = ObservedListingRow & {
   oneOwner?: boolean | null;
   usageType?: string | null;
   createdAt?: string | null;
+  city?: string | null;
+  state?: string | null;
+  dealer?: string | null;
 };
 
 export type FindSearchContextRecord = {
@@ -69,6 +72,11 @@ export type FindSearchContextRecord = {
    * A later next-check returns that result and does not spend another paid call.
    */
   loopSettled?: boolean;
+  /**
+   * True after the one paid close-call tie-break for this Find.
+   * Stops a second tie-break from spending another SERV call.
+   */
+  tieBreakSpent?: boolean;
   iat: number;
   exp: number;
 };
@@ -116,6 +124,9 @@ function sanitizeListingFacts(rows: FindSearchListingFact[]): FindSearchListingF
       ...(oneOwner !== undefined ? { oneOwner } : {}),
       ...(text(row.usageType) !== undefined ? { usageType: text(row.usageType) } : {}),
       ...(text(row.createdAt) !== undefined ? { createdAt: text(row.createdAt) } : {}),
+      ...(text(row.city) !== undefined ? { city: text(row.city) } : {}),
+      ...(text(row.state) !== undefined ? { state: text(row.state) } : {}),
+      ...(text(row.dealer) !== undefined ? { dealer: text(row.dealer) } : {}),
     };
   });
 }
@@ -158,6 +169,7 @@ export function mintFindSearchContextRecord(input: {
     carChecks: [],
     servRetargetPending: false,
     loopSettled: false,
+    tieBreakSpent: false,
     iat,
     exp: iat + FIND_SEARCH_CONTEXT_TTL_SEC,
   };
@@ -243,6 +255,7 @@ export async function updateFindSearchContext(
     carChecks?: CarConsistencyReceipt[];
     servRetargetPending?: boolean;
     loopSettled?: boolean;
+    tieBreakSpent?: boolean;
   },
 ): Promise<FindSearchContextRecord> {
   const next: FindSearchContextRecord = {
@@ -269,6 +282,8 @@ export async function updateFindSearchContext(
         : (record.servRetargetPending ?? false),
     loopSettled:
       patch.loopSettled !== undefined ? patch.loopSettled : (record.loopSettled ?? false),
+    tieBreakSpent:
+      patch.tieBreakSpent !== undefined ? patch.tieBreakSpent : (record.tieBreakSpent ?? false),
   };
   await storeFindSearchContext(kv, next);
   return next;
@@ -328,6 +343,9 @@ export function listingsFromMatchDirections(
     oneOwner?: boolean | null;
     usageType?: string | null;
     createdAt?: string | null;
+    city?: string | null;
+    state?: string | null;
+    dealer?: string | null;
     priceView?: { usableForBudget?: boolean } | null;
   }> }>,
 ): FindSearchListingFact[] {
@@ -354,6 +372,9 @@ export function listingsFromMatchDirections(
         ...(row.oneOwner !== undefined ? { oneOwner: row.oneOwner } : {}),
         ...(row.usageType !== undefined ? { usageType: row.usageType } : {}),
         ...(row.createdAt !== undefined ? { createdAt: row.createdAt } : {}),
+        ...(row.city !== undefined ? { city: row.city } : {}),
+        ...(row.state !== undefined ? { state: row.state } : {}),
+        ...(row.dealer !== undefined ? { dealer: row.dealer } : {}),
       });
     }
   }
@@ -379,6 +400,9 @@ export function listingFactsFromCompsPool(
     oneOwner?: boolean | null;
     usageType?: string | null;
     createdAt?: string | null;
+    city?: string | null;
+    state?: string | null;
+    dealer?: string | null;
   }>,
 ): FindSearchListingFact[] {
   return sanitizeListingFacts(
@@ -399,6 +423,9 @@ export function listingFactsFromCompsPool(
       ...(row.oneOwner !== undefined ? { oneOwner: row.oneOwner } : {}),
       ...(row.usageType !== undefined ? { usageType: row.usageType } : {}),
       ...(row.createdAt !== undefined ? { createdAt: row.createdAt } : {}),
+      ...(row.city !== undefined ? { city: row.city } : {}),
+      ...(row.state !== undefined ? { state: row.state } : {}),
+      ...(row.dealer !== undefined ? { dealer: row.dealer } : {}),
     })),
   );
 }
@@ -431,10 +458,10 @@ export function marketPoolFromListingFacts(
       trim,
       priceUsd: row.priceUsd,
       miles: row.miles,
-      city: null,
-      state: null,
+      city: row.city ?? null,
+      state: row.state ?? null,
       zip: null,
-      dealer: null,
+      dealer: row.dealer ?? null,
       vdp: null,
       primaryImage: null,
       carfaxUrl: null,

@@ -6,7 +6,7 @@ export const metadata: Metadata = { title: "Privacy" };
 export default function PrivacyPage() {
   return (
     <div className="sub">
-      <div className="sheet-page prose">
+      <div className="sheet-page site-frame prose">
         <p>
           <Link href="/">Back to the start</Link>
         </p>

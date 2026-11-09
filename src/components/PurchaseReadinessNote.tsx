@@ -4,7 +4,7 @@ import { SimilarCarsList } from "./SimilarCarsList";
 /** Shared buyer copy for a Find pick and a paid report. */
 export function PurchaseReadinessNote({ view }: { view: PurchaseReadiness }) {
   return (
-    <div>
+    <div className="purchase-readiness">
       <p>{view.otd.headline}</p>
       {view.otd.lines.map((line, index) => (
         <p key={`${index}-${line.slice(0, 24)}`}>{line}</p>

@@ -211,7 +211,7 @@ const pickChanges = [before.pick?.key !== afterRecall.pick?.key, afterRecall.pic
 const baseline = after.baseline;
 const pickLabel = baseline.pick
   ? `${baseline.pick.year} ${baseline.pick.make} ${baseline.pick.model}`
-  : "no confident pick";
+  : "no usable car";
 const cheapLabel = baseline.cheapest
   ? `${baseline.cheapest.year} ${baseline.cheapest.make} ${baseline.cheapest.model} $${baseline.cheapest.priceUsd}`
   : "none";

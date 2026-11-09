@@ -3,7 +3,7 @@ import Link from "next/link";
 export default function NotFound() {
   return (
     <div className="sub">
-      <div className="sheet-page">
+      <div className="sheet-page site-frame">
         <p className="kicker">404</p>
         <h1>That page is not on Lemonless</h1>
         <p className="lead">The link may be mistyped, or the report is not stored on this server.</p>

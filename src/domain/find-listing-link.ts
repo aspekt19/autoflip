@@ -3,6 +3,49 @@
  * A fragment such as "#-7662…" is an on-page anchor, not a dealer page.
  */
 
+export type ListingMatchRow = {
+  vin?: string | null;
+  key?: string | null;
+  year: number;
+  make: string;
+  model: string;
+  priceUsd?: number | null;
+  miles?: number | null;
+  trim?: string | null;
+};
+
+/**
+ * The listing card for a ranked car.
+ * A VIN match wins. Without a VIN, use year/make/model/price/miles/trim only when
+ * exactly one card matches. Two identical public rows do not borrow each other's link.
+ */
+export function matchBuyerListing<T extends ListingMatchRow>(
+  row: ListingMatchRow,
+  listings: readonly T[],
+): T | null {
+  const vin = (row.vin ?? "").trim().toUpperCase();
+  if (vin) {
+    return listings.find((item) => (item.vin ?? "").trim().toUpperCase() === vin) ?? null;
+  }
+  const key = (row.key ?? "").trim().toUpperCase();
+  if (key && !key.includes("|")) {
+    const byKey = listings.find((item) => (item.vin ?? "").trim().toUpperCase() === key);
+    if (byKey) return byKey;
+  }
+  const rowTrim = (row.trim ?? "").trim().toLowerCase();
+  const loose = listings.filter((item) => {
+    if (item.year !== row.year) return false;
+    if (item.make.toLowerCase() !== row.make.toLowerCase()) return false;
+    if (item.model.toLowerCase() !== row.model.toLowerCase()) return false;
+    if ((item.priceUsd ?? null) !== (row.priceUsd ?? null)) return false;
+    if ((item.miles ?? null) !== (row.miles ?? null)) return false;
+    const itemTrim = (item.trim ?? "").trim().toLowerCase();
+    if (rowTrim && itemTrim && rowTrim !== itemTrim) return false;
+    return true;
+  });
+  return loose.length === 1 ? loose[0]! : null;
+}
+
 /** Absolute http(s) listing URL, or null when the feed did not provide one. */
 export function buyerListingHref(vdp: string | null | undefined): string | null {
   if (typeof vdp !== "string") return null;
