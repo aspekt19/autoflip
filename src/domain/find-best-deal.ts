@@ -5,6 +5,7 @@
  * Uses only returned real listings + free-gov receipts. Never claims VIN-specific recall
  * clearance, clean history, or that Lemonless is error-free / better than others.
  */
+import { ASSUMPTIONS } from "./assumptions";
 import type { FindFuelEvidence } from "./find-fuel-match";
 import type { FindFreeGovReceipt } from "./find-free-gov";
 import { checkedMmyKeysForCheck, freeGovToolCoverage } from "./find-free-gov";
@@ -76,6 +77,12 @@ export type BestDealResult = {
   settlementNote: string;
   /** Factors held out of ranking until every shortlist MMY has that check (or none do). */
   fairnessHeldOut: BestDealFactorId[];
+  /**
+   * True when asking-price comparison was zeroed for fairness (uneven same-model
+   * comps across the ranked set) or was unavailable for every car. Does not block
+   * evidenceSettled — price comps are not a free-gov check.
+   */
+  priceProvisional: boolean;
 };
 
 /**
@@ -312,6 +319,7 @@ function marketPriceContext(
   pct01: number | null;
   source: string;
   scopeLabel: string;
+  methodNote: string | null;
 } | null {
   const stub = listingStubForComps(row);
   // When a market pool is provided (same pool the card badge uses), never invent a
@@ -325,6 +333,7 @@ function marketPriceContext(
         pct01: resolved.pct01,
         source: resolved.source,
         scopeLabel: resolved.scopeLabel,
+        methodNote: resolved.methodNote,
       };
     }
     return null;
@@ -339,10 +348,52 @@ function marketPriceContext(
       pct01: percentileRank01(row.priceUsd, sameModelPrices),
       source: "Returned listings in this search only",
       scopeLabel: "same-model",
+      methodNote: null,
     };
   }
   return null;
 }
+
+/** Whether this listing can resolve a usable same-model market comps set. */
+export function listingHasMarketPriceComps(
+  row: BestDealListing,
+  marketPool: readonly Listing[] | undefined,
+  sameModelPrices: number[],
+): boolean {
+  return marketPriceContext(row, marketPool, sameModelPrices) != null;
+}
+
+/**
+ * Mirror fuel/recall/NCAP fairness for asking-price comps: if some ranked cars
+ * can score price and others cannot, score none (neutral) so one dense model
+ * cannot farm a large price bonus while thin peers sit at +0.
+ *
+ * Unlike free-gov hold-outs, this does not block evidenceSettled.
+ */
+export function priceCompsUnevenAcrossListings(
+  listings: readonly BestDealListing[],
+  marketPool: readonly Listing[] | undefined,
+): boolean {
+  const byModel = new Map<string, number[]>();
+  for (const row of listings) {
+    if (row.priceUsd == null) continue;
+    const k = modelKey(row.make, row.model);
+    if (!byModel.has(k)) byModel.set(k, []);
+    byModel.get(k)!.push(row.priceUsd);
+  }
+  let withComps = 0;
+  let withoutComps = 0;
+  for (const row of listings) {
+    if (row.priceUsd == null) continue;
+    const sameModelPrices = byModel.get(modelKey(row.make, row.model)) ?? [];
+    if (listingHasMarketPriceComps(row, marketPool, sameModelPrices)) withComps += 1;
+    else withoutComps += 1;
+  }
+  return withComps > 0 && withoutComps > 0;
+}
+
+export const PRICE_FAIRNESS_NEUTRAL_DETAIL =
+  "Not scored for fairness — not every shortlist car has usable same-model comps from this search, so asking-price comparison is treated as neutral (+0) for everyone. Pick is provisional on price.";
 
 function scoreOne(
   row: BestDealListing,
@@ -369,6 +420,8 @@ function scoreOne(
     recallAttemptedKeys?: ReadonlySet<string>;
     /** When true, never emit provisional “not on file yet / check not run” wording. */
     evidenceSettled?: boolean;
+    /** When true, zero price points for every car (uneven comps coverage). */
+    priceFairnessNeutral?: boolean;
   },
 ): BestDealCandidate {
   const factors: BestDealFactorBreakdown[] = [];
@@ -386,8 +439,17 @@ function scoreOne(
 
   // Price vs same-model observed asks (aligned with card badge when marketPool provided)
   const market = marketPriceContext(row, ctx.marketPool, ctx.sameModelPrices);
-  if (row.priceUsd != null && market) {
-    const { med, sampleSize, pct01, source, scopeLabel } = market;
+  if (ctx.priceFairnessNeutral) {
+    unknowns.push("Asking-price comparison held neutral — uneven same-model comps across shortlist peers");
+    factors.push({
+      id: "price_vs_model_asks",
+      label: "Asking price vs same model in this search",
+      points: 0,
+      detail: PRICE_FAIRNESS_NEUTRAL_DETAIL,
+      source: "Returned listings in this search only",
+    });
+  } else if (row.priceUsd != null && market) {
+    const { med, sampleSize, pct01, source, scopeLabel, methodNote } = market;
     const relRaw = med > 0 ? (med - row.priceUsd) / med : 0;
     let rel = relRaw;
     let caution = "";
@@ -408,7 +470,10 @@ function scoreOne(
     const points = clamp(rel * WEIGHTS.price * 2, -WEIGHTS.price, WEIGHTS.price);
     score += points;
     const scopeLabelTyped =
-      scopeLabel === "same-trim" || scopeLabel === "same-model (widened year)" || scopeLabel === "same-model"
+      scopeLabel === "same-trim" ||
+      scopeLabel === "same-model (widened year)" ||
+      scopeLabel === "same-model (wider year ±3, year+miles adjusted)" ||
+      scopeLabel === "same-model"
         ? scopeLabel
         : "same-model";
     factors.push({
@@ -422,6 +487,7 @@ function scoreOne(
         scopeLabel: scopeLabelTyped,
         pct01,
         thinBelow: BEST_DEAL_THIN_MODEL_SAMPLE,
+        methodNote,
       })}${caution}`,
       source,
     });
@@ -873,6 +939,7 @@ function rankAll(
     ncapAttemptedKeys?: ReadonlySet<string>;
     recallAttemptedKeys?: ReadonlySet<string>;
     evidenceSettled?: boolean;
+    priceFairnessNeutral?: boolean;
   },
 ): BestDealCandidate[] {
   const byModel = new Map<string, number[]>();
@@ -905,6 +972,7 @@ function rankAll(
       ncapAttemptedKeys: opts.ncapAttemptedKeys,
       recallAttemptedKeys: opts.recallAttemptedKeys,
       evidenceSettled: opts.evidenceSettled,
+      priceFairnessNeutral: opts.priceFairnessNeutral,
     }),
   );
   scored.sort((a, b) => {
@@ -966,6 +1034,8 @@ export function selectBestDealOnEvidence(input: {
   const recallAttemptedKeys = checkedMmyKeysForCheck(receipts, "free_gov_recalls");
 
   const priced = input.listings.filter((l) => l.priceUsd != null);
+  // Price fairness: never let one car farm a comps bonus while peers sit at +0.
+  const priceFairnessNeutral = priceCompsUnevenAcrossListings(input.listings, input.marketPool);
   const rankOpts = {
     nowYear,
     milesPerYearAssumption,
@@ -977,9 +1047,17 @@ export function selectBestDealOnEvidence(input: {
     ncapAttemptedKeys,
     recallAttemptedKeys,
     evidenceSettled,
+    priceFairnessNeutral,
   };
   const ranked = rankAll(input.listings, input.need, rankOpts);
   const top = ranked.slice(0, shortlistMax);
+
+  // Provisional on price when fairness neutralized uneven comps, or when no ranked
+  // car got a rated Ask-vs-median line (truly thin comps). Points may be 0 at median.
+  const anyPriceRated = top.some((c) =>
+    c.factors.some((f) => f.id === "price_vs_model_asks" && /^Ask \$/.test(f.detail)),
+  );
+  const priceProvisional = priceFairnessNeutral || !anyPriceRated;
 
   const stillUnknown = [
     "Condition, accident history, and title brands stay unknown until a history report + inspection",
@@ -991,8 +1069,17 @@ export function selectBestDealOnEvidence(input: {
   }
   const fairnessNote = plainFairnessHeldOutNote(fairnessHeldOut);
   if (fairnessNote) stillUnknown.push(fairnessNote);
+  if (priceFairnessNeutral) {
+    stillUnknown.push(
+      "Asking-price comparison is provisional — treated as neutral until every shortlist car has usable same-model comps from this search",
+    );
+  } else if (priceProvisional) {
+    stillUnknown.push(
+      "Asking-price comparison is provisional — not enough same-model comps from this search to rate price for the shortlist",
+    );
+  }
 
-  const assumptionsNote = `Scoring uses only cars returned in this search, free public year/make/model safety/recall signals when checked for every shortlist peer (otherwise held out for fairness), and FuelEconomy.gov estimates when matched. Default mileage pace assumption for age context: ${milesPerYearAssumption.toLocaleString("en-US")} mi/yr. Under condition-first, price-below-market bonus is capped at ${Math.round(BEST_DEAL_PRICE_BELOW_CAP_FRAC * 100)}% under median.`;
+  const assumptionsNote = `Scoring uses only cars returned in this search (including provider listings beyond the cards shown when available), free public year/make/model safety/recall signals when checked for every shortlist peer (otherwise held out for fairness), and FuelEconomy.gov estimates when matched. Same-model asking-price comps use up to ±${ASSUMPTIONS.yearWindowWide} model years with a disclosed year+mileage adjustment when the nearer window is thin. Default mileage pace assumption for age context: ${milesPerYearAssumption.toLocaleString("en-US")} mi/yr. Under condition-first, price-below-market bonus is capped at ${Math.round(BEST_DEAL_PRICE_BELOW_CAP_FRAC * 100)}% under median.`;
 
   const honesty =
     "Best deal on current evidence only — not a guarantee, not VIN history clearance, and not a claim that Lemonless is error-free or better than other tools. Always inspect and verify before buying.";
@@ -1010,6 +1097,7 @@ export function selectBestDealOnEvidence(input: {
       evidenceSettled,
       settlementNote,
       fairnessHeldOut,
+      priceProvisional: true,
     };
   }
 
@@ -1067,7 +1155,8 @@ export function selectBestDealOnEvidence(input: {
       "No single confident pick.",
       `What would break the tie: a clearer gap on miles/year wear, staying inside budget, or matching a model you named. ${tieBreakHelp}`,
       settlementNote,
-    ];
+      priceProvisional ? "Asking-price comparison remains provisional." : null,
+    ].filter(Boolean);
     return {
       ranked: top,
       pick: null,
@@ -1080,6 +1169,7 @@ export function selectBestDealOnEvidence(input: {
       evidenceSettled,
       settlementNote,
       fairnessHeldOut,
+      priceProvisional,
     };
   }
 
@@ -1089,7 +1179,11 @@ export function selectBestDealOnEvidence(input: {
     .slice(0, 5)
     .map((f) => `${f.label}: ${f.detail} (${f.points >= 0 ? "+" : ""}${f.points})`);
 
-  const settlePrefix = evidenceSettled ? "Best deal on settled evidence" : "Provisional best deal (may change as checks complete)";
+  const settlePrefix = evidenceSettled
+    ? priceProvisional
+      ? "Best deal on settled evidence (provisional on price)"
+      : "Best deal on settled evidence"
+    : "Provisional best deal (may change as checks complete)";
 
   return {
     ranked: top,
@@ -1103,5 +1197,6 @@ export function selectBestDealOnEvidence(input: {
     evidenceSettled,
     settlementNote,
     fairnessHeldOut,
+    priceProvisional,
   };
 }

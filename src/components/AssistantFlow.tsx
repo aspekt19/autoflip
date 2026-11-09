@@ -1792,7 +1792,13 @@ function AssistantFlow({
                             <li key={`${row.make}-${row.model}`}>
                               {row.make} {row.model}: {row.why}. Still unknown: {row.unknowns.join("; ")}
                               {row.campaignRefs.length > 0
-                                ? `. Recall campaigns on file: ${row.campaignRefs.join(", ")}`
+                                ? `. ${row.campaignRefs
+                                    .map((id) =>
+                                      /nhtsa recall campaign/i.test(id)
+                                        ? id
+                                        : `NHTSA recall campaign ${id}`,
+                                    )
+                                    .join("; ")}`
                                 : ""}
                               .
                             </li>
