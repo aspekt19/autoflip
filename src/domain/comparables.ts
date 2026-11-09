@@ -44,13 +44,27 @@ function preferSimilarMileage(
   return similar.length >= ASSUMPTIONS.minComps ? similar : comps;
 }
 
+function normalizeVin(vin: string | null | undefined): string {
+  return typeof vin === "string" ? vin.trim().toUpperCase() : "";
+}
+
 export function selectComparables(subject: Listing, pool: Listing[]): CompSelection {
   const notes: string[] = [];
+  const subjectVin = normalizeVin(subject.vin);
+  const seenVins = new Set<string>();
   const base = pool.filter(
     (item): item is Listing & { priceUsd: number; miles: number } => {
-      if (item.vin === subject.vin) return false;
+      const itemVin = normalizeVin(item.vin);
+      // Never let the subject score against itself (case/whitespace-insensitive).
+      if (subjectVin && itemVin && itemVin === subjectVin) return false;
       if (!sameName(item.make, subject.make) || !sameName(item.model, subject.model)) return false;
-      return withPriceAndMiles(item);
+      if (!withPriceAndMiles(item)) return false;
+      // One listing per VIN — duplicate provider rows must not inflate n= / median.
+      if (itemVin) {
+        if (seenVins.has(itemVin)) return false;
+        seenVins.add(itemVin);
+      }
+      return true;
     },
   );
 
@@ -120,15 +134,25 @@ export function selectComparables(subject: Listing, pool: Listing[]): CompSelect
   return { comps: wider, scope: "insufficient", notes };
 }
 
+/** Max |year slope| as a fraction of median ask per model year before rejecting the fit. */
+const FIT_MAX_YEAR_FRAC = 0.12;
+/** Max |miles slope| as a fraction of median ask per 1k miles before rejecting the fit. */
+const FIT_MAX_MILES_PER_1K_FRAC = 0.015;
+/** Fitted year+miles needs enough rows; smaller samples use documented rates. */
+const FIT_MIN_COMPS = 5;
+/** Cap how far a single adjusted ask may move vs the raw ask (stops absurd extrapolation). */
+const ADJUST_MAX_MOVE_FRAC = 0.28;
+
 /**
  * Fit price ~ year + miles on comps (ordinary least squares). Returns null when
- * the design matrix is singular or year/miles have no usable variance.
+ * the sample is too small, the design matrix is singular, year/miles lack usable
+ * variance, or slopes exceed documented sanity caps (outlier-fragile fits).
  */
 function fitPriceYearMiles(
   comps: Array<{ year: number; miles: number; priceUsd: number }>,
 ): { intercept: number; yearCoef: number; milesCoef: number } | null {
   const n = comps.length;
-  if (n < 3) return null;
+  if (n < FIT_MIN_COMPS) return null;
   let sumY = 0;
   let sumX1 = 0;
   let sumX2 = 0;
@@ -175,11 +199,18 @@ function fitPriceYearMiles(
   const b = inv01 * sumY + inv11 * sumX1Y + inv12 * sumX2Y;
   const c = inv02 * sumY + inv12 * sumX1Y + inv22 * sumX2Y;
   if (![a, b, c].every((v) => Number.isFinite(v))) return null;
-  // Reject nonsense slopes (e.g. negative year coef beyond 40%/yr of median ask).
+  // Reject nonsense / outlier-driven slopes (documented fallback is 5%/yr + 0.5%/1k mi).
   const ref = median(comps.map((x) => x.priceUsd)) ?? 0;
-  if (ref > 0 && Math.abs(b) > ref * 0.4) return null;
-  if (ref > 0 && Math.abs(c) > (ref * 0.05) / 1000) return null; // >5%/1k mi
+  if (ref > 0 && Math.abs(b) > ref * FIT_MAX_YEAR_FRAC) return null;
+  if (ref > 0 && Math.abs(c) > (ref * FIT_MAX_MILES_PER_1K_FRAC) / 1000) return null;
   return { intercept: a, yearCoef: b, milesCoef: c };
+}
+
+function clampAdjustedAsk(rawAsk: number, adjusted: number): number {
+  if (!(rawAsk > 0) || !Number.isFinite(adjusted)) return adjusted;
+  const lo = rawAsk * (1 - ADJUST_MAX_MOVE_FRAC);
+  const hi = rawAsk * (1 + ADJUST_MAX_MOVE_FRAC);
+  return Math.max(lo, Math.min(hi, adjusted));
 }
 
 export type CompAdjustResult = {
@@ -209,7 +240,7 @@ export function adjustCompsToSubject(
     const rows = comps
       .map((item) => {
         const deltaMiles = subject.miles - item.miles;
-        const adjusted = item.priceUsd - deltaMiles * perMileUsd;
+        const adjusted = clampAdjustedAsk(item.priceUsd, item.priceUsd - deltaMiles * perMileUsd);
         return {
           vin: item.vin,
           year: item.year,
@@ -246,10 +277,11 @@ export function adjustCompsToSubject(
     rows = comps
       .map((item) => {
         // Move each comp’s ask onto the subject’s year+miles using the fitted surface.
-        const adjusted =
+        const raw =
           item.priceUsd +
           fit.yearCoef * (subject.year - item.year) +
           mileBit * (subject.miles - item.miles);
+        const adjusted = clampAdjustedAsk(item.priceUsd, raw);
         return {
           vin: item.vin,
           year: item.year,
@@ -266,7 +298,7 @@ export function adjustCompsToSubject(
         };
       })
       .filter((row) => row.adjustedPriceUsd > 0);
-    methodNote = `Year+mileage adjusted with a fitted price≈year+miles line on these ${comps.length} same-model comps (~$${Math.round(Math.abs(perYearUsd)).toLocaleString("en-US")}/model year; ~$${Math.round(Math.abs(mileBit) * 10_000).toLocaleString("en-US")}/10k mi).`;
+    methodNote = `Year+mileage adjusted with a fitted price≈year+miles line on these ${comps.length} same-model comps (~$${Math.round(Math.abs(perYearUsd)).toLocaleString("en-US")}/model year; ~$${Math.round(Math.abs(mileBit) * 10_000).toLocaleString("en-US")}/10k mi; each ask moved at most ${Math.round(ADJUST_MAX_MOVE_FRAC * 100)}%).`;
   } else {
     perYearUsd = reference * ASSUMPTIONS.yearRatePerYear;
     rows = comps
@@ -274,7 +306,8 @@ export function adjustCompsToSubject(
         const deltaMiles = subject.miles - item.miles;
         const deltaYears = subject.year - item.year;
         // Older comps are cheaper → add perYearUsd * (subject − comp year) to bring them up.
-        const adjusted = item.priceUsd - deltaMiles * perMileUsd + deltaYears * perYearUsd;
+        const raw = item.priceUsd - deltaMiles * perMileUsd + deltaYears * perYearUsd;
+        const adjusted = clampAdjustedAsk(item.priceUsd, raw);
         return {
           vin: item.vin,
           year: item.year,
@@ -291,7 +324,7 @@ export function adjustCompsToSubject(
         };
       })
       .filter((row) => row.adjustedPriceUsd > 0);
-    methodNote = `Year+mileage adjusted with documented rates (${Math.round(ASSUMPTIONS.yearRatePerYear * 100)}% of median ask per model year; $${roundDollars(perMileUsd * 1000).toLocaleString("en-US")}/10k mi) — comps lacked a stable fitted slope.`;
+    methodNote = `Year+mileage adjusted with documented rates (${Math.round(ASSUMPTIONS.yearRatePerYear * 100)}% of median ask per model year; $${roundDollars(perMileUsd * 1000).toLocaleString("en-US")}/10k mi; each ask moved at most ${Math.round(ADJUST_MAX_MOVE_FRAC * 100)}%) — comps lacked a stable fitted slope.`;
   }
 
   return { rows, perMileUsd, perYearUsd, referencePriceUsd: reference, methodNote };

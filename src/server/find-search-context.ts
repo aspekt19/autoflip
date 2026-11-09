@@ -301,12 +301,15 @@ export function marketPoolFromListingFacts(
   rows: readonly FindSearchListingFact[],
 ): import("@/domain/types").Listing[] {
   const out: import("@/domain/types").Listing[] = [];
+  const seenVins = new Set<string>();
   for (const row of rows) {
     if (row.priceUsd == null || row.miles == null) continue;
     const vin =
       typeof row.vin === "string" && row.vin.trim() && !row.vin.startsWith("UNKNOWN-")
         ? row.vin.trim().toUpperCase()
         : `FIND-${row.year}-${row.make}-${row.model}-${row.priceUsd}-${row.miles}`;
+    if (seenVins.has(vin)) continue;
+    seenVins.add(vin);
     const trim =
       typeof row.trim === "string" && row.trim.trim()
         ? row.trim.trim()

@@ -364,9 +364,13 @@ export function listingHasMarketPriceComps(
 }
 
 /**
- * Mirror fuel/recall/NCAP fairness for asking-price comps: if some ranked cars
- * can score price and others cannot, score none (neutral) so one dense model
- * cannot farm a large price bonus while thin peers sit at +0.
+ * Material incomplete price-comps coverage across the priced shortlist.
+ *
+ * Prefer scoring every car that has an adequate (possibly year+miles-adjusted)
+ * comparison. Neutralize everyone only when the remaining gap is material —
+ * enough unscored peers that a dense-model price bonus would dominate ranking.
+ * A single thin peer among a mostly covered shortlist must not switch price
+ * scoring off for the whole Find (that would gut the best-deal tool).
  *
  * Unlike free-gov hold-outs, this does not block evidenceSettled.
  */
@@ -389,11 +393,16 @@ export function priceCompsUnevenAcrossListings(
     if (listingHasMarketPriceComps(row, marketPool, sameModelPrices)) withComps += 1;
     else withoutComps += 1;
   }
-  return withComps > 0 && withoutComps > 0;
+  if (!(withComps > 0 && withoutComps > 0)) return false;
+  const total = withComps + withoutComps;
+  const coverage = withComps / total;
+  // Material gap: ≥2 priced cars lack comps, or coverage drops below 80%.
+  // Example: 4/5 covered → score the four; 1/5 or 3/5 covered → neutralize.
+  return withoutComps >= 2 || coverage < 0.8;
 }
 
 export const PRICE_FAIRNESS_NEUTRAL_DETAIL =
-  "Not scored for fairness — not every shortlist car has usable same-model comps from this search, so asking-price comparison is treated as neutral (+0) for everyone. Pick is provisional on price.";
+  "Not scored for fairness — too many shortlist cars still lack usable same-model comps from this search, so asking-price comparison is treated as neutral (+0) for everyone. Pick is provisional on price.";
 
 function scoreOne(
   row: BestDealListing,
@@ -1034,7 +1043,7 @@ export function selectBestDealOnEvidence(input: {
   const recallAttemptedKeys = checkedMmyKeysForCheck(receipts, "free_gov_recalls");
 
   const priced = input.listings.filter((l) => l.priceUsd != null);
-  // Price fairness: never let one car farm a comps bonus while peers sit at +0.
+  // Price fairness: neutralize only on a material comps gap (see priceCompsUnevenAcrossListings).
   const priceFairnessNeutral = priceCompsUnevenAcrossListings(input.listings, input.marketPool);
   const rankOpts = {
     nowYear,
@@ -1071,7 +1080,7 @@ export function selectBestDealOnEvidence(input: {
   if (fairnessNote) stillUnknown.push(fairnessNote);
   if (priceFairnessNeutral) {
     stillUnknown.push(
-      "Asking-price comparison is provisional — treated as neutral until every shortlist car has usable same-model comps from this search",
+      "Asking-price comparison is provisional — treated as neutral because too many shortlist cars still lack usable same-model comps from this search",
     );
   } else if (priceProvisional) {
     stillUnknown.push(

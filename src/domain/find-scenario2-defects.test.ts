@@ -7,10 +7,12 @@ import { describe, expect, it } from "vitest";
 import { coverageNote } from "./coverage";
 import {
   fuelIndexFromReceipts,
+  priceCompsUnevenAcrossListings,
   riskIndexFromReceipts,
   selectBestDealOnEvidence,
   type BestDealListing,
 } from "./find-best-deal";
+import { adjustCompsToSubject, selectComparables } from "./comparables";
 import {
   assertBuyerSafeText,
   customMilesBuyerHint,
@@ -776,5 +778,170 @@ describe("Scenario2 defect 8 — price comps coverage + fairness on live shortli
     // No CX-5-only +9.5 edge.
     const cx = result.ranked.find((r) => r.vin === "CX-2014")!;
     expect(cx.factors.find((f) => f.id === "price_vs_model_asks")!.points).toBe(0);
+  });
+
+  it("lone thin peer does NOT neutralize price for the rest of the shortlist", () => {
+    // Realistic shape after full-pool + ±3: 4/5 resolve, one rare model stays thin.
+    const almostFull = fullProviderCompsPool().filter(
+      (l) => !(l.make === "Honda" && l.model === "CR-V" && l.vin !== "CR-2012"),
+    );
+    // Leave CR-V with only the subject (+ maybe one peer far outside window) → insufficient.
+    const crvPeers = almostFull.filter((l) => l.make === "Honda" && l.model === "CR-V");
+    expect(crvPeers.length).toBeLessThan(3);
+
+    expect(priceCompsUnevenAcrossListings(shortlistExact, almostFull)).toBe(false);
+
+    const result = selectBestDealOnEvidence({
+      need: {
+        budgetKnown: true,
+        budgetUsd: 15_000,
+        preferredModels: [
+          { make: "Honda", model: "CR-V" },
+          { make: "Hyundai", model: "Tucson" },
+          { make: "Kia", model: "Sportage" },
+        ],
+        conditionPriority: "inspection_first",
+        note: LIVE_NOTE,
+      },
+      listings: shortlistExact,
+      marketPool: almostFull,
+      receipts: fullCoverageReceipts(shortlistExact),
+      nowYear: 2026,
+    });
+    expect(result.priceProvisional).toBe(false);
+    const scored = result.ranked.filter((r) =>
+      /^Ask \$/.test(r.factors.find((f) => f.id === "price_vs_model_asks")!.detail),
+    );
+    expect(scored.length).toBeGreaterThanOrEqual(4);
+    const crv = result.ranked.find((r) => r.vin === "CR-2012")!;
+    expect(crv.factors.find((f) => f.id === "price_vs_model_asks")!.detail).toMatch(/Not scored/);
+  });
+
+  it("subject VIN case mismatch cannot count the car as its own comp", () => {
+    const subject = asListing(shortlistExact[0]!);
+    const pool = [
+      { ...subject, vin: subject.vin.toLowerCase() },
+      ...fullProviderCompsPool().filter((l) => l.vin !== subject.vin),
+    ];
+    const selected = selectComparables(subject, pool);
+    expect(selected.comps.every((c) => c.vin.toUpperCase() !== subject.vin.toUpperCase())).toBe(
+      true,
+    );
+    const resolved = resolveMarketComps(subject, pool);
+    expect(resolved.ok).toBe(true);
+  });
+
+  it("year+miles fit rejects absurd slopes and caps per-comp move; method discloses sample", () => {
+    const subject = { year: 2016, miles: 80_000 };
+    // One extreme outlier would pull raw OLS into nonsense without caps/fallback.
+    const comps = [
+      asListing({
+        make: "Kia",
+        model: "Sportage",
+        year: 2014,
+        priceUsd: 11_000,
+        miles: 100_000,
+        vin: "FIT-1",
+      }),
+      asListing({
+        make: "Kia",
+        model: "Sportage",
+        year: 2015,
+        priceUsd: 12_500,
+        miles: 90_000,
+        vin: "FIT-2",
+      }),
+      asListing({
+        make: "Kia",
+        model: "Sportage",
+        year: 2016,
+        priceUsd: 13_500,
+        miles: 85_000,
+        vin: "FIT-3",
+      }),
+      asListing({
+        make: "Kia",
+        model: "Sportage",
+        year: 2017,
+        priceUsd: 55_000, // outlier dealer typo / wrong trim
+        miles: 40_000,
+        vin: "FIT-OUTLIER",
+      }),
+      asListing({
+        make: "Kia",
+        model: "Sportage",
+        year: 2018,
+        priceUsd: 15_800,
+        miles: 60_000,
+        vin: "FIT-5",
+      }),
+    ].map((l) => ({ ...l, priceUsd: l.priceUsd!, miles: l.miles! }));
+    const adjusted = adjustCompsToSubject(subject, comps, { adjustYear: true });
+    expect(adjusted.methodNote).toMatch(/documented rates|fitted price/i);
+    expect(adjusted.methodNote).toMatch(/10k mi|model year/i);
+    for (const row of adjusted.rows) {
+      const move = Math.abs(row.adjustedPriceUsd - row.priceUsd) / row.priceUsd;
+      expect(move).toBeLessThanOrEqual(0.281);
+    }
+  });
+
+  it("live fixture ranking is acceptable for a condition-first ~$15k buyer", () => {
+    const pool = fullProviderCompsPool();
+    const result = selectBestDealOnEvidence({
+      need: {
+        budgetKnown: true,
+        budgetUsd: 15_000,
+        preferredModels: [
+          { make: "Honda", model: "CR-V" },
+          { make: "Hyundai", model: "Tucson" },
+          { make: "Kia", model: "Sportage" },
+        ],
+        conditionPriority: "inspection_first",
+        note: LIVE_NOTE,
+      },
+      listings: shortlistExact,
+      marketPool: pool,
+      receipts: fullCoverageReceipts(shortlistExact),
+      nowYear: 2026,
+    });
+    expect(result.evidenceSettled).toBe(true);
+    expect(result.priceProvisional).toBe(false);
+    expect(result.pick).not.toBeNull();
+    const pick = result.pick!;
+    expect(pick.priceUsd).toBeLessThanOrEqual(15_000);
+    // Prefer a named family SUV under budget with sane wear — not the 118k-mi 2012 CR-V.
+    // Observed: 2016 Sportage $14,795 / 62k mi wins on condition-first wear despite a mild
+    // above-median price penalty (−1.2); 2017 Sportage $11,998 is cheaper but higher miles.
+    expect(["SP-2016", "SP-2017", "CX-2014", "CAM-2017"]).toContain(pick.vin);
+    expect(pick.vin).not.toBe("CR-2012");
+    // Above-median 2016 Sportage must not keep a free pass — price factor ≤ 0.
+    const sportage2016 = result.ranked.find((r) => r.vin === "SP-2016")!;
+    const spPrice = sportage2016.factors.find((f) => f.id === "price_vs_model_asks")!;
+    expect(spPrice.detail).toMatch(/^Ask \$/);
+    expect(spPrice.points).toBeLessThanOrEqual(0);
+    // Badge n= matches factor n= for the pick.
+    const pickListing = shortlistExact.find((r) => r.vin === pick.vin)!;
+    const badge = priceBadge(asListing(pickListing), pool);
+    const resolved = resolveMarketComps(asListing(pickListing), pool);
+    expect(resolved.ok).toBe(true);
+    if (resolved.ok) {
+      expect(badge.sampleSize).toBe(resolved.sampleSize);
+      expect(badge.fairValueUsd).toBe(resolved.fairValueUsd);
+      const pickPrice = pick.factors.find((f) => f.id === "price_vs_model_asks")!;
+      expect(pickPrice.detail).toContain(`n=${resolved.sampleSize}`);
+    }
+    // Bargain cap / deep-discount caution still present when applicable.
+    for (const row of result.ranked) {
+      const price = row.factors.find((f) => f.id === "price_vs_model_asks")!;
+      if (/extreme discount|capped under condition-first|deep discount with high mileage/i.test(price.detail)) {
+        expect(price.points).toBeLessThan(22);
+      }
+    }
+    const buyer = formatBuyerBestDeal(result);
+    expect(buyer.headline).toMatch(/settled/);
+    expect(buyer.headline).not.toMatch(/provisional on price/);
+    for (const line of [...buyer.factorLines, buyer.why, ...buyer.stillUnknown]) {
+      expect(assertBuyerSafeText(line).ok).toBe(true);
+    }
   });
 });
