@@ -19,7 +19,6 @@ import { mmyListingKey } from "./find-risk-evidence";
 import { formatMarketAskDetail, listingFeedHistoryNotes, resolveMarketComps } from "./market-comps";
 import {
   BUDGET_AROUND_TOLERANCE_FRAC,
-  bodyFromNote,
   budgetIsApproximateFromNote,
   type StructuredNeed,
 } from "./need";
@@ -219,6 +218,19 @@ export type BestDealListing = ObservedListingRow & {
 
 /** Unverified odometer: under this share of the peer median miles per year. */
 export const LOW_MILEAGE_VS_PEER_RATIO = 0.35;
+/**
+ * Current and previous model years are too new for an annualized-mile red flag.
+ * A delivery-mile car divided by the half-year age floor looks "low" without being one.
+ */
+export const LOW_MILEAGE_MIN_AGE_YEARS = 2;
+/** Other cars, old enough to compare, required before a low odometer is treated as unverified. */
+export const LOW_MILEAGE_MIN_OTHER_PEERS = 3;
+
+export type PeerMileageSample = {
+  key: string;
+  year: number;
+  milesPerYear: number;
+};
 
 export type BestDealFuelIndex = Map<string, FindFuelEvidence>;
 
@@ -451,7 +463,10 @@ function scoreOne(
     >;
     sameModelPrices: number[];
     peerMilesPerYear: number[];
+    peerMileageSamples: readonly PeerMileageSample[];
     nowYear: number;
+    /** VIN body class from vPIC, keyed by listing key. Dealer body text is not a source. */
+    bodyClassByKey?: ReadonlyMap<string, string>;
     milesPerYearAssumption: number;
     fuelByMmy: BestDealFuelIndex;
     risk: BestDealRiskIndex;
@@ -612,7 +627,7 @@ function scoreOne(
   const extraSellerQuestions: string[] = [];
   if (mpy != null) {
     const peerMed = ctx.peerMilesPerYear.length > 0 ? median(ctx.peerMilesPerYear) : null;
-    lowMileageUnverified = peerMed != null && peerMed > 0 && mpy < peerMed * LOW_MILEAGE_VS_PEER_RATIO;
+    lowMileageUnverified = unverifiedLowMileage(row, mpy, ctx.nowYear, ctx.peerMileageSamples, peerMed);
     let peerPts =
       peerMed != null && peerMed > 0
         ? clamp(((peerMed - mpy) / peerMed) * WEIGHTS.milesPerYear * 1.1, -WEIGHTS.milesPerYear, WEIGHTS.milesPerYear)
@@ -868,26 +883,34 @@ function scoreOne(
     }
   }
 
-  // Named model preference, plus body type when the named models share one.
-  const named = (ctx.need.preferredModels ?? []).some(
-    (p) => p.make.toLowerCase() === row.make.toLowerCase() && p.model.toLowerCase() === row.model.toLowerCase(),
-  );
+  // Named model preference, plus body type when every named model shares one known body.
+  const named = carIsNamed(row, ctx.need);
   const wantedBody = preferredBodyFamily(ctx.need);
-  const observedBody = listingBodyFamily(row);
+  const observedBody = observedBodyFamily(row, ctx.bodyClassByKey?.get(listingKey(row)));
   {
     let points = named ? WEIGHTS.namedModel : 0;
     if (wantedBody && observedBody && wantedBody !== observedBody) points -= 8;
     else if (wantedBody && observedBody && wantedBody === observedBody && !named) points += 4;
     score += points;
+    const namedCount = ctx.need.preferredModels?.length ?? 0;
     const bodyBit =
       wantedBody && observedBody && wantedBody !== observedBody
-        ? ` This is a ${plainBody(observedBody)}, and the models you named are ${plainBody(wantedBody)}s.`
+        ? ` This is a ${plainBody(observedBody)}, and ${
+            namedCount > 0
+              ? `the models you named are ${plainBody(wantedBody)}s`
+              : `you asked for ${wantedBody === "suv" ? "an" : "a"} ${plainBody(wantedBody)}`
+          }.`
         : "";
+    const namedBit = named
+      ? `You named ${row.make} ${row.model}`
+      : namedCount === 0
+        ? "You did not name a model"
+        : "Not one of the models you named";
     factors.push({
       id: "named_model_preference",
       label: "Matches a model you named",
       points: round1(points),
-      detail: `${named ? `You named ${row.make} ${row.model}` : "Not one of the models you named"}${bodyBit}`,
+      detail: `${namedBit}${bodyBit}`,
       source: "Your search note",
     });
   }
@@ -1039,23 +1062,90 @@ function plainBody(family: BodyFamily): string {
   return "sedan";
 }
 
-function listingBodyFamily(row: BestDealListing): BodyFamily | null {
-  return bodyFamily(row.bodyStyle) ?? bodyFamily(row.style) ?? modelBodyFamily(row.model);
+/**
+ * Body used for the mismatch penalty.
+ * vPIC BodyClass wins when the decode published one. Otherwise a known model name.
+ * Dealer bodyStyle / style text is not used: a feed often says "Car" for an SUV.
+ * A published class we cannot read stays unknown, and unknown is not a penalty.
+ */
+function observedBodyFamily(
+  row: { model: string },
+  decodedBodyClass: string | null | undefined,
+): BodyFamily | null {
+  const published = decodedBodyClass?.trim();
+  if (published) return bodyFamily(published);
+  return modelBodyFamily(row.model);
+}
+
+/** One body the note names. "SUV or sedan", or a family note with no body word, is not a body request. */
+function noteBodyFamily(note: string | null | undefined): BodyFamily | null {
+  const text = (note ?? "").toLowerCase();
+  const hits: BodyFamily[] = [];
+  if (/\b(suv|crossover|crossovers)\b/.test(text)) hits.push("suv");
+  if (/\b(truck|pickup|pickups)\b/.test(text)) hits.push("truck");
+  if (/\bsedan\b/.test(text)) hits.push("car");
+  return hits.length === 1 ? hits[0]! : null;
 }
 
 function preferredBodyFamily(
   need: { note?: string | null; preferredModels?: readonly { make: string; model: string }[] },
 ): BodyFamily | null {
-  const fromNote = bodyFromNote(need.note ?? "");
-  if (fromNote === "SUV") return "suv";
-  if (fromNote === "Truck") return "truck";
-  if (fromNote === "Sedan") return "car";
-  const families = (need.preferredModels ?? [])
-    .map((item) => modelBodyFamily(item.model))
-    .filter((item): item is "suv" | "truck" | "car" => item != null);
-  if (families.length === 0) return null;
+  const fromNote = noteBodyFamily(need.note);
+  const models = need.preferredModels ?? [];
+  if (models.length === 0) return fromNote;
+  const families = models.map((item) => modelBodyFamily(item.model));
+  // One unmapped name means we cannot tell whether the named models share a body.
+  if (families.some((item) => item == null)) return fromNote;
   const unique = new Set(families);
-  return unique.size === 1 ? families[0]! : null;
+  if (unique.size !== 1) return null;
+  const shared = families[0]!;
+  if (fromNote && fromNote !== shared) return null;
+  return shared;
+}
+
+function bodyClassIndex(
+  listings: readonly BestDealListing[],
+  receipts: readonly { checkId?: string; status?: string; vin?: string | null; vpicSpecs?: { bodyClass?: string | null } | null }[],
+  checks: readonly CarConsistencyReceipt[],
+): Map<string, string> {
+  const byVin = new Map<string, string>();
+  for (const receipt of receipts) {
+    if (receipt.checkId !== "free_gov_vpic" || receipt.status !== "ok" || !receipt.vin) continue;
+    const body = receipt.vpicSpecs?.bodyClass?.trim();
+    if (body) byVin.set(receipt.vin.trim().toUpperCase(), body);
+  }
+  for (const check of checks) {
+    const body = check.bodyClass?.trim();
+    const vin = check.vin?.trim().toUpperCase();
+    if (body && vin) byVin.set(vin, body);
+  }
+  const byKey = new Map<string, string>();
+  for (const row of listings) {
+    const vin = typeof row.vin === "string" ? row.vin.trim().toUpperCase() : "";
+    const fromVin = vin ? byVin.get(vin) : undefined;
+    if (fromVin) byKey.set(listingKey(row), fromVin);
+  }
+  for (const check of checks) {
+    const body = check.bodyClass?.trim();
+    if (body) byKey.set(check.key, body);
+  }
+  return byKey;
+}
+
+function unverifiedLowMileage(
+  row: BestDealListing,
+  milesPerYear: number,
+  nowYear: number,
+  samples: readonly PeerMileageSample[],
+  peerMedian: number | null,
+): boolean {
+  if (nowYear - row.year < LOW_MILEAGE_MIN_AGE_YEARS) return false;
+  const key = listingKey(row);
+  const others = samples.filter(
+    (sample) => sample.key !== key && nowYear - sample.year >= LOW_MILEAGE_MIN_AGE_YEARS,
+  );
+  if (others.length < LOW_MILEAGE_MIN_OTHER_PEERS) return false;
+  return peerMedian != null && peerMedian > 0 && milesPerYear < peerMedian * LOW_MILEAGE_VS_PEER_RATIO;
 }
 
 function conditionRiskBits(check: CarConsistencyReceipt | null): string[] {
@@ -1102,6 +1192,7 @@ function whyPickOverNamedModels(
   pick: BestDealCandidate,
   ranked: readonly BestDealCandidate[],
   need: { note?: string | null; preferredModels?: readonly { make: string; model: string }[] },
+  bodyClassByKey?: ReadonlyMap<string, string>,
 ): string {
   const preferred = need.preferredModels ?? [];
   if (preferred.length === 0 || carIsNamed(pick, need)) return "";
@@ -1110,7 +1201,7 @@ function whyPickOverNamedModels(
   const names = [...new Set(preferred.map((item) => `${item.make} ${item.model}`))];
   const list = names.length <= 2 ? names.join(" and ") : `${names.slice(0, -1).join(", ")}, and ${names[names.length - 1]}`;
   const wanted = preferredBodyFamily(need);
-  const observed = modelBodyFamily(pick.model);
+  const observed = observedBodyFamily({ model: pick.model }, bodyClassByKey?.get(pick.key));
   const bodyBit =
     wanted && observed && wanted !== observed
       ? `The ${pick.year} ${pick.make} ${pick.model} is a ${plainBody(observed)}, not one of the ${plainBody(wanted)}s you named (${list}). `
@@ -1229,10 +1320,12 @@ function rankAll(
     priceFairnessNeutral?: boolean;
     carChecks?: ReadonlyMap<string, CarConsistencyReceipt>;
     recallStateByMmy?: ReadonlyMap<string, EvidenceState>;
+    bodyClassByKey?: ReadonlyMap<string, string>;
   },
 ): BestDealCandidate[] {
   const byModel = new Map<string, number[]>();
   const peerMpy: number[] = [];
+  const peerMileageSamples: PeerMileageSample[] = [];
   for (const row of listings) {
     if (row.priceUsd != null) {
       const k = modelKey(row.make, row.model);
@@ -1241,7 +1334,9 @@ function rankAll(
     }
     if (row.miles != null) {
       const ageYears = Math.max(0.5, opts.nowYear - row.year);
-      peerMpy.push(row.miles / ageYears);
+      const milesPerYear = row.miles / ageYears;
+      peerMpy.push(milesPerYear);
+      peerMileageSamples.push({ key: listingKey(row), year: row.year, milesPerYear });
     }
   }
 
@@ -1250,6 +1345,7 @@ function rankAll(
       need,
       sameModelPrices: byModel.get(modelKey(row.make, row.model)) ?? [],
       peerMilesPerYear: peerMpy,
+      peerMileageSamples,
       nowYear: opts.nowYear,
       milesPerYearAssumption: opts.milesPerYearAssumption,
       fuelByMmy: opts.fuelByMmy,
@@ -1264,6 +1360,7 @@ function rankAll(
       priceFairnessNeutral: opts.priceFairnessNeutral,
       carCheck: opts.carChecks?.get(listingKey(row)) ?? null,
       recallState: opts.recallStateByMmy?.get(mmyListingKey(row.make, row.model, row.year)) ?? "not_checked",
+      bodyClassByKey: opts.bodyClassByKey,
     }),
   );
   scored.sort((a, b) => {
@@ -1327,6 +1424,7 @@ export function selectBestDealOnEvidence(input: {
   const ncapAttemptedKeys = checkedMmyKeysForCheck(receipts, "free_gov_safety");
   const recallAttemptedKeys = checkedMmyKeysForCheck(receipts, "free_gov_recalls");
   const carCheckMap = new Map((input.carChecks ?? []).map((row) => [row.key, row]));
+  const bodyClassByKey = bodyClassIndex(input.listings, receipts, input.carChecks ?? []);
   const recallStateByMmy = new Map<string, EvidenceState>();
   for (const receipt of receipts) {
     if (receipt.checkId !== "free_gov_recalls") continue;
@@ -1350,6 +1448,7 @@ export function selectBestDealOnEvidence(input: {
     priceFairnessNeutral,
     carChecks: carCheckMap,
     recallStateByMmy,
+    bodyClassByKey,
   };
   const rankedAll = rankAll(input.listings, input.need, rankOpts);
   const ranked = rankedAll.slice(0, shortlistMax);
@@ -1512,7 +1611,7 @@ export function selectBestDealOnEvidence(input: {
       : "Best deal on settled evidence"
     : "Provisional best deal (may change as checks complete)";
 
-  const namedWhy = whyPickOverNamedModels(first, rankedAll, input.need);
+  const namedWhy = whyPickOverNamedModels(first, rankedAll, input.need, bodyClassByKey);
 
   return {
     ranked: top,

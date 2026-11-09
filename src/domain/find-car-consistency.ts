@@ -31,6 +31,8 @@ export type VpicSpecs = {
   drivetrain: string | null;
   engine: string | null;
   fuel: string | null;
+  /** NHTSA BodyClass. Absent on older decodes. */
+  bodyClass?: string | null;
 };
 
 export type CarConsistencyReceipt = {
@@ -46,6 +48,8 @@ export type CarConsistencyReceipt = {
   conditionPenalty: number;
   sellerQuestions: string[];
   daysListed: number | null;
+  /** vPIC BodyClass for this VIN, when the decode published one. */
+  bodyClass?: string | null;
 };
 
 const FLEET_RE = /fleet|rental|commercial|taxi|livery/i;
@@ -423,6 +427,9 @@ const KNOWN_TRIM_PHRASES: string[][] = [
   ["sx", "turbo"],
 ];
 
+/** Words such as "king" are cab noise alone, but they still count inside a known trim phrase. */
+const KNOWN_TRIM_PHRASE_TOKENS = new Set(KNOWN_TRIM_PHRASES.flat());
+
 function knownTrimPhrase(tokens: string[]): string | null {
   const kept: string[] = [];
   let index = 0;
@@ -493,7 +500,7 @@ function trimTokensFromTitleText(
   const kept = norm(head)
     .split(" ")
     .filter((token) => {
-      if (!token || URL_TRIM_NOISE.has(token)) return false;
+      if (!token || (URL_TRIM_NOISE.has(token) && !KNOWN_TRIM_PHRASE_TOKENS.has(token))) return false;
       if (makeTokens.has(token)) return false;
       if (/^(19|20)\d{2}$/.test(token) || /^\d{5}$/.test(token)) return false;
       if (/^\d+l$/.test(token) || /^\d+t$/.test(token)) return false;
@@ -875,6 +882,7 @@ export function buildCarConsistencyReceipt(
     conditionPenalty: penalty,
     sellerQuestions,
     daysListed: days,
+    bodyClass: specs?.bodyClass?.trim() || null,
   };
 }
 

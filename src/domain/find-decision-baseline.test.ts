@@ -327,12 +327,10 @@ describe("A1 decision log", () => {
       pickAfter: "c",
     };
     const view = presentDecisionLogForBuyer([base, shuffled, aiQuiet, joined], labels);
-    const rankStep = `${view.lines[1]} ${view.hiddenSteps.join(" ")}`;
     expect(view.lines[1]).toMatch(/the pick is now the 2016 Hyundai Tucson/i);
-    expect(view.lines[1]!.length).toBeLessThan(280);
-    expect(rankStep).toMatch(/Hyundai Tucson moved from #3 to #1/);
-    expect(rankStep).toMatch(/Kia Sportage moved from #1 to #2/);
-    expect(rankStep).toMatch(/Honda CR-V moved from #2 to #3/);
+    expect(view.lines[1]).toMatch(/Hyundai Tucson moved from #3 to #1/);
+    expect(view.lines[1]).toMatch(/Kia Sportage moved from #1 to #2/);
+    expect(view.lines[1]).toMatch(/Honda CR-V moved from #2 to #3/);
     expect(view.lines[1]).not.toMatch(/stayed the same/);
     expect(view.lines[2]).toMatch(/AI chose/);
     expect(view.lines[2]).not.toMatch(/built-in checklist/);
@@ -393,17 +391,22 @@ describe("A1 decision log", () => {
       labels,
     );
     expect(view.lines).toHaveLength(2);
-    for (const line of view.lines) {
-      expect(line.length).toBeLessThan(280);
-      const facts = line.split(/;|(?<=\.)\s+/).filter((part) => /moved|pick is now|accident|trim|days/i.test(part));
-      expect(facts.length).toBeLessThanOrEqual(2);
-    }
     expect(view.lines[0]).toMatch(/AI chose/);
     expect(view.lines[0]).toMatch(/pick is now the 2016 Honda CR-V/);
+    expect(view.lines[0]).toMatch(/Toyota Camry moved from #1 to #3/);
+    expect(view.lines[0]).toMatch(/Honda CR-V moved from #2 to #1/);
+    expect(view.lines[0]).toMatch(/Hyundai Tucson moved from #3 to #2/);
     expect(view.lines[1]).toMatch(/built-in checklist/);
     expect(view.lines[1]).toMatch(/pick is now the 2017 Hyundai Tucson/);
-    expect(view.hiddenSteps.join(" ")).toMatch(/Camry|Sportage|CX-5/);
+    expect(view.lines[1]).toMatch(/Toyota Camry moved from #1 to #4/);
+    expect(view.lines[1]).toMatch(/Hyundai Tucson moved from #3 to #1/);
+    expect(view.lines[1]).toMatch(/Kia Sportage moved from #4 to #3/);
+    expect(view.lines[1]).not.toMatch(/Honda CR-V moved/);
+    for (const line of view.lines) {
+      expect(line).not.toMatch(/accident reported|does not match the VIN|days on the market/i);
+    }
     expect(view.hiddenSteps.join(" ")).toMatch(/accident|trim|days on the market/i);
+    expect(view.hiddenSteps.join(" ")).toMatch(/moved from/);
   });
 });
 

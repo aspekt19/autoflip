@@ -132,8 +132,8 @@ export type BuyerDecisionLogView = {
 
 /**
  * Consecutive free-check hops that did not move the ranking become one line.
- * Rank changes and AI-chosen steps stay written out. The folded steps are the
- * "show all" list — buyers should not have to read dozens of identical lines.
+ * Rank changes and AI-chosen steps stay in the open list. Every rank move in
+ * those steps stays visible. Folded lines are the longer evidence text.
  */
 function shortenFact(line: string): string {
   const sentence = line.split(/(?<=\.)\s+/)[0] ?? line;
@@ -143,7 +143,10 @@ function shortenFact(line: string): string {
   return `${cut}.`;
 }
 
-/** The one or two facts worth showing; the rest stay on the full line. */
+/**
+ * Every rank move stays in the open line. When the order did not change, keep
+ * at most two shortened evidence sentences. Longer evidence stays on the full line.
+ */
 function importantDecisionFacts(
   entry: FindDecisionLogEntry,
   labels: readonly DecisionCarLabel[],
@@ -168,15 +171,14 @@ function importantDecisionFacts(
     if (!after.has(key)) moves.push({ weight: 2, text: `${name(key)} left the top group (was #${rank})` });
   }
   moves.sort((a, b) => b.weight - a.weight);
-  const facts = moves.map((row) => row.text);
-  if (facts.length < 2) {
-    for (const line of entry.evidenceAdded) {
-      const short = shortenFact(line);
-      if (short) facts.push(short.replace(/\.$/, ""));
-      if (facts.length >= 2) break;
-    }
+  if (moves.length > 0) return moves.map((row) => row.text);
+  const facts: string[] = [];
+  for (const line of entry.evidenceAdded) {
+    const short = shortenFact(line);
+    if (short) facts.push(short.replace(/\.$/, ""));
+    if (facts.length >= 2) break;
   }
-  return facts.slice(0, 2);
+  return facts;
 }
 
 export function presentDecisionLogForBuyer(

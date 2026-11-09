@@ -79,6 +79,8 @@ export type FindFreeGovReceipt = {
     drivetrain: string | null;
     engine: string | null;
     fuel: string | null;
+    /** NHTSA BodyClass when the decode published one. */
+    bodyClass?: string | null;
   } | null;
   /** Four-state facts for this receipt. Derived when missing on older rows. */
   evidenceFacts?: import("./find-evidence-state").EvidenceFact[];
@@ -365,6 +367,7 @@ function vpicSpecsFromPacket(packet: FreeGovEvidencePacket): FindFreeGovReceipt[
     drivetrain: text("driveType") ?? text("drivetrain"),
     engine: text("engine"),
     fuel: text("fuel"),
+    bodyClass: text("bodyClass"),
   };
 }
 

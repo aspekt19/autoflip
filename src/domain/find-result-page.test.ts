@@ -313,6 +313,21 @@ describe("trim sources", () => {
     });
     expect(readable?.listingTitleTrim).toBe("Sport");
     expect(readable?.note).toMatch(/dealer listing link title says Sport/);
+    const kingRanch = trimSourceDisagreement({
+      year: 2018,
+      make: "Ford",
+      model: "F-150",
+      displayedTrim: "Lariat",
+      listingUrl: "https://dealer.example/inventory/used-2018-ford-f-150-king-ranch-4x4",
+    });
+    expect(kingRanch?.listingTitleTrim).toBe("King Ranch");
+    expect(
+      trimPhraseFromListingUrl("https://dealer.example/inventory/used-2016-hyundai-tucson-eco", {
+        year: 2016,
+        make: "Hyundai",
+        model: "Tucson",
+      }),
+    ).toBe("ECO");
     expect(readable?.note).not.toMatch(/20ab54a8|25e77866|85a9|49ec|88d0|B1f1af71/i);
     expect(readable?.sellerQuestion).not.toMatch(/20ab54a8|25e77866|B1f1af71/i);
   });
