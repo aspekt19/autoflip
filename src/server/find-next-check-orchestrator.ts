@@ -295,6 +295,7 @@ function carCheckFingerprint(checks: readonly CarConsistencyReceipt[]): string {
         excluded: row.identityMismatch,
         penalty: row.conditionPenalty,
         questions: row.sellerQuestions.length,
+        body: row.bodyClass ?? null,
       }))
       .sort((a, b) => a.key.localeCompare(b.key)),
   );

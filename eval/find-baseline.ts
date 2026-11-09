@@ -9,7 +9,7 @@ import { readFileSync, mkdirSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { selectBestDealOnEvidence } from "../src/domain/find-best-deal";
 import { executeCarConsistency, trimsMatch, type VpicSpecs } from "../src/domain/find-car-consistency";
-import { formatDecisionLogForBuyer, top5Ranks, type FindDecisionLogEntry } from "../src/domain/find-decision-log";
+import { presentDecisionLogForBuyer, top5Ranks, type FindDecisionLogEntry } from "../src/domain/find-decision-log";
 import { recallEvidenceState } from "../src/domain/find-evidence-state";
 import type { FindFreeGovReceipt } from "../src/domain/find-free-gov";
 import { explicitNeedFromText } from "../src/domain/need";
@@ -202,7 +202,7 @@ const log: FindDecisionLogEntry[] = [
     pickAfter: after.pick?.key ?? null,
   },
 ];
-const plainLog = formatDecisionLogForBuyer(log, names, 8);
+const plainLog = presentDecisionLogForBuyer(log, names);
 const flagCount = carChecks.reduce(
   (sum, row) => sum + row.sellerQuestions.length + (row.identityMismatch ? 1 : 0),
   0,
@@ -304,7 +304,10 @@ const text = [
   "",
   "## How Lemonless decided",
   "",
-  ...plainLog.map((line) => `- ${line}`),
+  ...plainLog.lines.map((line) => `- ${line}`),
+  ...(plainLog.hiddenSteps.length > 0
+    ? ["", "Show all steps:", ...plainLog.hiddenSteps.map((line) => `- ${line}`)]
+    : []),
   "",
   "## Purchase readiness",
   "",

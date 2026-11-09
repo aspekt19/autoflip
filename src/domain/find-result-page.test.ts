@@ -276,6 +276,61 @@ describe("trim sources", () => {
     expect(real?.listingTitleTrim).toBe("LX");
     expect(real?.note).not.toMatch(/\.{2,}/);
   });
+
+  it("ignores UUID paths, hash ids, and CarMax numeric ids", () => {
+    const opaque = [
+      "https://dealer.example/inventory/25e77866-85a9-49ec-88d0-b1f1af71ac18",
+      "https://dealer.example/vdp/20ab54a8",
+      "https://dealer.example/vehicle/B1f1af71ac184254c5b11b04549a4693",
+      "https://www.carmax.com/car/21234567",
+    ];
+    for (const url of opaque) {
+      expect(trimPhraseFromListingUrl(url, { year: 2015, make: "Kia", model: "Sportage" }), url).toBeNull();
+      const gap = trimSourceDisagreement({
+        year: 2015,
+        make: "Kia",
+        model: "Sportage",
+        displayedTrim: "LX",
+        listingUrl: url,
+        decodedTrim: "LX",
+      });
+      expect(gap, url).toBeNull();
+    }
+    expect(
+      trimPhraseFromListingUrl(
+        "https://www.carmax.com/car/2016-kia-sportage-lx/21234567",
+        { year: 2016, make: "Kia", model: "Sportage" },
+      ),
+    ).toBe("LX");
+    const readable = trimSourceDisagreement({
+      year: 2016,
+      make: "Hyundai",
+      model: "Tucson",
+      displayedTrim: "Eco",
+      listingUrl: "https://dealer.example/vdp/20ab54a8/Used-2016-Hyundai-Tucson-AWD-4dr-Sport",
+      decodedTrim: "Eco",
+      listingTitle: "Used 2016 Hyundai Tucson Sport",
+    });
+    expect(readable?.listingTitleTrim).toBe("Sport");
+    expect(readable?.note).toMatch(/dealer listing link title says Sport/);
+    const kingRanch = trimSourceDisagreement({
+      year: 2018,
+      make: "Ford",
+      model: "F-150",
+      displayedTrim: "Lariat",
+      listingUrl: "https://dealer.example/inventory/used-2018-ford-f-150-king-ranch-4x4",
+    });
+    expect(kingRanch?.listingTitleTrim).toBe("King Ranch");
+    expect(
+      trimPhraseFromListingUrl("https://dealer.example/inventory/used-2016-hyundai-tucson-eco", {
+        year: 2016,
+        make: "Hyundai",
+        model: "Tucson",
+      }),
+    ).toBe("ECO");
+    expect(readable?.note).not.toMatch(/20ab54a8|25e77866|85a9|49ec|88d0|B1f1af71/i);
+    expect(readable?.sellerQuestion).not.toMatch(/20ab54a8|25e77866|B1f1af71/i);
+  });
 });
 
 describe("seller questions stay on the shortlist", () => {

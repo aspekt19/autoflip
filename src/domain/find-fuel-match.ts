@@ -140,7 +140,7 @@ export function buildFindFuelAssumptions(input: {
     : FIND_FUEL_FALLBACK_USD_PER_GAL;
   const priceSource = input.priceSource ?? "labeled_fallback";
   const priceKey = input.priceKey ?? (priceSource === "labeled_fallback" ? "regular_fallback" : null);
-  const mixBit = `${milesPerYear.toLocaleString("en-US")} mi/yr, ${Math.round(cityShare * 100)}% city / ${Math.round((1 - cityShare) * 100)}% highway (harmonic EPA-style blend)${cityHeavy ? " (mostly city from your note)" : ""}`;
+  const mixBit = `${milesPerYear.toLocaleString("en-US")} miles per year, ${Math.round(cityShare * 100)}% city / ${Math.round((1 - cityShare) * 100)}% highway, estimated from EPA fuel economy${cityHeavy ? " (mostly city from your note)" : ""}`;
   const label =
     priceSource === "fueleconomy.gov/fuelprices"
       ? `${mixBit}, fuel price from FuelEconomy.gov published ${priceKey ?? "regular"} ($${usdPerGallon.toFixed(2)}/gal)`
@@ -364,10 +364,10 @@ function summarizeVehicles(
         ? "Electricity match found but FuelEconomy.gov did not publish an annual electricity cost — dollars not invented from MPGe."
         : null,
     honesty: ambiguous
-      ? `Ambiguous FuelEconomy.gov match (${vehicles.length} configs). Annual fuel shown as a range using labeled assumptions (${assumptions.label}). Not a full ownership cost; not VIN-specific.`
+      ? `Several versions of this model match on FuelEconomy.gov (${vehicles.length}). Annual fuel is a range, estimated from EPA fuel economy. Not a full ownership cost, and not specific to this VIN.`
       : electric && annualLow == null
-        ? `FuelEconomy.gov electricity match found, but published annual electricity cost is missing — Lemonless will not invent MPGe × $/gal. (${assumptions.label})`
-        : `FuelEconomy.gov match using labeled assumptions (${assumptions.label}). Not a full ownership cost; not VIN-specific.`,
+        ? `FuelEconomy.gov electricity match found, but the published annual electricity cost is missing — Lemonless will not invent a dollar figure from MPGe. (${assumptions.label})`
+        : `Fuel cost estimated from EPA fuel economy. Not a full ownership cost, and not specific to this VIN.`,
   };
 }
 

@@ -497,6 +497,7 @@ async function runVpic(listing: Listing, deps: GovDeps, fetchedAt: string): Prom
           driveType: decoded.driveType ?? null,
           engine: decoded.engine ?? null,
           fuel: decoded.fuel ?? null,
+          bodyClass: decoded.bodyClass ?? null,
           errorCode: "0",
           errorText,
           scope,

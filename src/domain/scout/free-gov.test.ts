@@ -213,7 +213,7 @@ describe("free gov port (offline mocked)", () => {
       if (String(url).includes("DecodeVinValues")) {
         return new Response(
           JSON.stringify({
-            Results: [{ ModelYear: "2020", Make: "TOYOTA", Model: "CAMRY", ErrorCode: "0", ErrorText: "0 - VIN decoded clean." }],
+            Results: [{ ModelYear: "2020", Make: "TOYOTA", Model: "CAMRY", BodyClass: "Sedan/Saloon", ErrorCode: "0", ErrorText: "0 - VIN decoded clean." }],
           }),
           { status: 200, headers: { "Content-Type": "application/json" } },
         );
@@ -232,6 +232,7 @@ describe("free gov port (offline mocked)", () => {
       titleNmvtis: "unknown_not_connected",
       errorCode: "0",
       make: "TOYOTA",
+      bodyClass: "Sedan/Saloon",
     });
   });
 

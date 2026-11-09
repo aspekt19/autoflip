@@ -284,7 +284,7 @@ describe("live 24-card coverage settle + fair scoring", () => {
       for (const id of held) {
         const f = row.factors.find((x) => x.id === id);
         expect(f?.points).toBe(0);
-        expect(f?.detail).toMatch(/Held out|fair coverage/i);
+        expect(f?.detail).toMatch(/not used in the ranking yet/i);
       }
     }
     // Owner rule: raw factor ids / reason tags must never reach buyer-visible copy.

@@ -132,9 +132,55 @@ export type BuyerDecisionLogView = {
 
 /**
  * Consecutive free-check hops that did not move the ranking become one line.
- * Rank changes and AI-chosen steps stay written out. The folded steps are the
- * "show all" list — buyers should not have to read dozens of identical lines.
+ * Rank changes and AI-chosen steps stay in the open list. Every rank move in
+ * those steps stays visible. Folded lines are the longer evidence text.
  */
+function shortenFact(line: string): string {
+  const sentence = line.split(/(?<=\.)\s+/)[0] ?? line;
+  const clean = sentence.replace(/\s+/g, " ").trim();
+  if (clean.length <= 110) return clean.endsWith(".") ? clean : `${clean}.`;
+  const cut = clean.slice(0, 107).replace(/\s+\S*$/, "");
+  return `${cut}.`;
+}
+
+/**
+ * Every rank move stays in the open line. When the order did not change, keep
+ * at most two shortened evidence sentences. Longer evidence stays on the full line.
+ */
+function importantDecisionFacts(
+  entry: FindDecisionLogEntry,
+  labels: readonly DecisionCarLabel[],
+): string[] {
+  const byKey = new Map(labels.map((row) => [row.key, row]));
+  const name = (key: string) => carName(byKey.get(key));
+  const before = new Map(entry.top5Before.map((row) => [row.key, row.rank]));
+  const after = new Map(entry.top5After.map((row) => [row.key, row.rank]));
+  const moves: Array<{ text: string; weight: number }> = [];
+  if (entry.pickBefore !== entry.pickAfter) {
+    moves.push({
+      weight: 100,
+      text: entry.pickAfter ? `the pick is now the ${name(entry.pickAfter)}` : "there is no confident pick now",
+    });
+  }
+  for (const [key, rank] of after) {
+    const prev = before.get(key);
+    if (prev == null) moves.push({ weight: 3, text: `${name(key)} joined the top group at #${rank}` });
+    else if (prev !== rank) moves.push({ weight: Math.abs(prev - rank), text: `${name(key)} moved from #${prev} to #${rank}` });
+  }
+  for (const [key, rank] of before) {
+    if (!after.has(key)) moves.push({ weight: 2, text: `${name(key)} left the top group (was #${rank})` });
+  }
+  moves.sort((a, b) => b.weight - a.weight);
+  if (moves.length > 0) return moves.map((row) => row.text);
+  const facts: string[] = [];
+  for (const line of entry.evidenceAdded) {
+    const short = shortenFact(line);
+    if (short) facts.push(short.replace(/\.$/, ""));
+    if (facts.length >= 2) break;
+  }
+  return facts;
+}
+
 export function presentDecisionLogForBuyer(
   log: readonly FindDecisionLogEntry[],
   labels: readonly DecisionCarLabel[],
@@ -165,7 +211,20 @@ export function presentDecisionLogForBuyer(
     const free = FREE_LOG_ACTIONS.has(entry.action);
     if (important || !free) {
       flush();
-      lines.push(full);
+      const facts = importantDecisionFacts(entry, labels);
+      const byKey = new Map(labels.map((row) => [row.key, row]));
+      const name = (key: string) => carName(byKey.get(key));
+      const who = entry.decidedBy === "SERV" ? "AI chose" : "built-in checklist";
+      const targets = [...new Set(entry.targetCars.map((key) => name(key)))].slice(0, 2);
+      const action = ACTION_PLAIN[entry.action] ?? "Updated the search checks";
+      const onCars = targets.length > 0 ? ` on ${joinCars(targets)}` : "";
+      const factText = facts
+        .map((fact, index) => (index === 0 ? fact.charAt(0).toUpperCase() + fact.slice(1) : fact))
+        .join("; ");
+      const factBit = facts.length > 0 ? ` ${factText}.` : " The order of the top cars stayed the same.";
+      const short = `${action}${onCars} (${who}).${factBit}`.replace(/\s+/g, " ").replace(/\.{2,}/g, ".").trim();
+      lines.push(short);
+      if (short !== full) hiddenSteps.push(full);
       continue;
     }
     const who = "built-in checklist";

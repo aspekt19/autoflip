@@ -6,6 +6,7 @@
  * clearance, clean history, or that Lemonless is error-free / better than others.
  */
 import { ASSUMPTIONS } from "./assumptions";
+import { bodyFamily, modelBodyFamily } from "./body-style";
 import type { CarConsistencyReceipt } from "./find-car-consistency";
 import { bestDealCarKey } from "./find-car-consistency";
 import { computeFindBaseline, type FindBaselineDelta } from "./find-baseline";
@@ -117,7 +118,11 @@ export const BEST_DEAL_WEIGHTS = {
   fuel: 12,
   recalls: 8,
   ncap: 6,
-  namedModel: 10,
+  /**
+   * Strong enough that a named model with comparable price, miles, and condition
+   * beats an unnamed alternative. A clearly worse named car can still lose.
+   */
+  namedModel: 16,
   budget: 14,
   condition: 12,
 } as const;
@@ -152,7 +157,7 @@ export const BEST_DEAL_COVERAGE_FAIR_FACTORS: readonly BestDealFactorId[] = [
 /** Buyer-facing labels for coverage-gated factors — never expose raw factor ids in UI. */
 export const BEST_DEAL_FACTOR_PLAIN_LABELS: Record<BestDealFactorId, string> = {
   price_vs_model_asks: "asking price vs same model",
-  miles_per_year_vs_peers: "mileage pace vs peers",
+  miles_per_year_vs_peers: "miles per year",
   age: "model year / wear",
   estimated_fuel_cost: "estimated fuel cost",
   mmy_recall_campaigns: "recall campaigns",
@@ -168,11 +173,11 @@ export function plainFairnessHeldOutNote(heldOut: readonly BestDealFactorId[]): 
   if (heldOut.length === 0) return null;
   const labels = heldOut.map((id) => BEST_DEAL_FACTOR_PLAIN_LABELS[id] ?? "public check");
   if (labels.length === 1) {
-    return `Fair coverage: ${labels[0]} held out of ranking until every model in this shortlist has that check`;
+    return `We are not using ${labels[0]} in the ranking yet, because not every model in this list has that check`;
   }
   const head = labels.slice(0, -1).join(", ");
   const tail = labels[labels.length - 1]!;
-  return `Fair coverage: ${head}, and ${tail} held out of ranking until every model in this shortlist has those checks`;
+  return `We are not using ${head}, or ${tail} in the ranking yet, because not every model in this list has those checks`;
 }
 
 function median(values: number[]): number | null {
@@ -207,6 +212,24 @@ export type BestDealListing = ObservedListingRow & {
   oneOwner?: boolean | null;
   usageType?: string | null;
   createdAt?: string | null;
+  bodyStyle?: string | null;
+  style?: string | null;
+};
+
+/** Unverified odometer: under this share of the peer median miles per year. */
+export const LOW_MILEAGE_VS_PEER_RATIO = 0.35;
+/**
+ * Current and previous model years are too new for an annualized-mile red flag.
+ * A delivery-mile car divided by the half-year age floor looks "low" without being one.
+ */
+export const LOW_MILEAGE_MIN_AGE_YEARS = 2;
+/** Other cars, old enough to compare, required before a low odometer is treated as unverified. */
+export const LOW_MILEAGE_MIN_OTHER_PEERS = 3;
+
+export type PeerMileageSample = {
+  key: string;
+  year: number;
+  milesPerYear: number;
 };
 
 export type BestDealFuelIndex = Map<string, FindFuelEvidence>;
@@ -440,7 +463,10 @@ function scoreOne(
     >;
     sameModelPrices: number[];
     peerMilesPerYear: number[];
+    peerMileageSamples: readonly PeerMileageSample[];
     nowYear: number;
+    /** VIN body class from vPIC, keyed by listing key. Dealer body text is not a source. */
+    bodyClassByKey?: ReadonlyMap<string, string>;
     milesPerYearAssumption: number;
     fuelByMmy: BestDealFuelIndex;
     risk: BestDealRiskIndex;
@@ -592,19 +618,22 @@ function scoreOne(
     });
   }
 
-  // Miles per year vs peers (and vs labeled assumption when peers are thin/missing)
+  // Miles per year vs peers (and vs the stated miles-per-year assumption when peers are thin/missing)
   const ageYears = Math.max(0.5, ctx.nowYear - row.year);
   const mpy = row.miles != null ? row.miles / ageYears : null;
   const assumedPace = ctx.milesPerYearAssumption;
   const notTooOld = prefersNotTooOldFromNote(ctx.need.note) || conditionFirst;
+  let lowMileageUnverified = false;
+  const extraSellerQuestions: string[] = [];
   if (mpy != null) {
     const peerMed = ctx.peerMilesPerYear.length > 0 ? median(ctx.peerMilesPerYear) : null;
-    const peerPts =
+    lowMileageUnverified = unverifiedLowMileage(row, mpy, ctx.nowYear, ctx.peerMileageSamples, peerMed);
+    let peerPts =
       peerMed != null && peerMed > 0
         ? clamp(((peerMed - mpy) / peerMed) * WEIGHTS.milesPerYear * 1.1, -WEIGHTS.milesPerYear, WEIGHTS.milesPerYear)
         : 0;
-    // Always include a real term vs the labeled miles/year assumption so sensitivity can change picks.
-    const assumePts =
+    // Always include a real term vs the miles/year assumption so sensitivity can change picks.
+    let assumePts =
       assumedPace > 0
         ? clamp(
             ((assumedPace - mpy) / assumedPace) * WEIGHTS.milesPerYear * 0.45,
@@ -612,24 +641,35 @@ function scoreOne(
             WEIGHTS.milesPerYear * 0.5,
           )
         : 0;
+    if (lowMileageUnverified) {
+      // Unverified low miles are a question, not a bargain.
+      peerPts = Math.min(peerPts, 0);
+      assumePts = Math.min(assumePts, 0);
+      extraSellerQuestions.push(
+        `Ask the seller to confirm the odometer reading and service records on the ${row.year} ${row.make} ${row.model} — the miles are unusually low for the car's age.`,
+      );
+    }
     const points = peerPts + assumePts;
     score += points;
     const peerBit =
       peerMed != null
-        ? `vs peer median ~${Math.round(peerMed).toLocaleString("en-US")} mi/yr`
-        : "no peer median yet";
+        ? `versus about ${Math.round(peerMed).toLocaleString("en-US")} miles per year for similar cars in this search`
+        : "no similar cars to compare yet";
+    const lowBit = lowMileageUnverified
+      ? " That is unusually low, so it is not counted as a plus until the seller confirms the odometer reading and service records."
+      : "";
     factors.push({
       id: "miles_per_year_vs_peers",
-      label: "Mileage pace vs peers / labeled assumption",
+      label: "Miles per year",
       points: round1(points),
-      detail: `~${Math.round(mpy).toLocaleString("en-US")} mi/yr ${peerBit}; labeled assumption ${assumedPace.toLocaleString("en-US")} mi/yr`,
-      source: "Returned listings + labeled miles/year assumption",
+      detail: `${Math.round(mpy).toLocaleString("en-US")} miles per year, ${peerBit}. Assumed ${assumedPace.toLocaleString("en-US")} miles per year.${lowBit}`,
+      source: "Returned listings and the miles-per-year assumption",
     });
   } else {
-    unknowns.push("Mileage pace not comparable (missing miles)");
+    unknowns.push("Miles per year not comparable (missing miles)");
     factors.push({
       id: "miles_per_year_vs_peers",
-      label: "Mileage pace vs peers / labeled assumption",
+      label: "Miles per year",
       points: 0,
       detail: "Not scored — miles missing",
       source: "Returned listings in this search only",
@@ -651,6 +691,7 @@ function scoreOne(
         -WEIGHTS.ageAndWear * 0.55,
         WEIGHTS.ageAndWear * 0.35,
       );
+      if (lowMileageUnverified && vsExpected > 0) vsExpected = 0;
     }
     let absoluteWear = 0;
     if (row.miles != null && conditionFirst) {
@@ -668,11 +709,11 @@ function scoreOne(
         : "";
     factors.push({
       id: "age",
-      label: "Model year / wear vs expected pace",
+      label: "Model year and wear",
       points: round1(agePoints),
       detail: `${row.year} (~${Math.round(ageYears)} year${Math.round(ageYears) === 1 ? "" : "s"} old)${
         row.miles != null
-          ? `; ${row.miles.toLocaleString("en-US")} mi vs ~${Math.round(expected).toLocaleString("en-US")} mi expected at ${assumedPace.toLocaleString("en-US")} mi/yr`
+          ? `; ${row.miles.toLocaleString("en-US")} mi vs ~${Math.round(expected).toLocaleString("en-US")} mi expected at ${assumedPace.toLocaleString("en-US")} miles per year`
           : ""
       }${wearBit}`,
       source: "Listing model year + labeled miles/year assumption + your condition/age preference",
@@ -688,7 +729,7 @@ function scoreOne(
       label: "Estimated annual fuel cost",
       points: 0,
       detail:
-        "Held out of ranking until every shortlist year/make/model has a fuel check (fair coverage) — value may still show on the card",
+        "Not used in the ranking yet — not every model in this list has a fuel check. The number may still show on the card",
       source: "FuelEconomy.gov",
     });
   } else if (fuel && fuel.annualFuelUsdLow != null) {
@@ -741,7 +782,7 @@ function scoreOne(
       label: "Year/make/model recall campaigns on record",
       points: 0,
       detail:
-        "Held out of ranking until every shortlist year/make/model has a recall check (fair coverage)",
+        "Not used in the ranking yet — not every model in this list has a recall check",
       source: "NHTSA recalls",
     });
   } else if (ctx.recallState === "could_not_check") {
@@ -796,7 +837,7 @@ function scoreOne(
       label: "NHTSA crash-test rating (class)",
       points: 0,
       detail:
-        "Held out of ranking until every shortlist year/make/model has a crash-rating check (fair coverage)",
+        "Not used in the ranking yet — not every model in this list has a crash-rating check",
       source: "NHTSA NCAP",
     });
   } else if (ctx.risk.ncapOverallByMmy.has(mmy)) {
@@ -842,18 +883,34 @@ function scoreOne(
     }
   }
 
-  // Named model preference
-  const named = (ctx.need.preferredModels ?? []).some(
-    (p) => p.make.toLowerCase() === row.make.toLowerCase() && p.model.toLowerCase() === row.model.toLowerCase(),
-  );
+  // Named model preference, plus body type when every named model shares one known body.
+  const named = carIsNamed(row, ctx.need);
+  const wantedBody = preferredBodyFamily(ctx.need);
+  const observedBody = observedBodyFamily(row, ctx.bodyClassByKey?.get(listingKey(row)));
   {
-    const points = named ? WEIGHTS.namedModel : 0;
+    let points = named ? WEIGHTS.namedModel : 0;
+    if (wantedBody && observedBody && wantedBody !== observedBody) points -= 8;
+    else if (wantedBody && observedBody && wantedBody === observedBody && !named) points += 4;
     score += points;
+    const namedCount = ctx.need.preferredModels?.length ?? 0;
+    const bodyBit =
+      wantedBody && observedBody && wantedBody !== observedBody
+        ? ` This is a ${plainBody(observedBody)}, and ${
+            namedCount > 0
+              ? `the models you named are ${plainBody(wantedBody)}s`
+              : `you asked for ${wantedBody === "suv" ? "an" : "a"} ${plainBody(wantedBody)}`
+          }.`
+        : "";
+    const namedBit = named
+      ? `You named ${row.make} ${row.model}`
+      : namedCount === 0
+        ? "You did not name a model"
+        : "Not one of the models you named";
     factors.push({
       id: "named_model_preference",
       label: "Matches a model you named",
       points: round1(points),
-      detail: named ? `You named ${row.make} ${row.model}` : "Not one of the models you named",
+      detail: `${namedBit}${bodyBit}`,
       source: "Your search note",
     });
   }
@@ -926,7 +983,8 @@ function scoreOne(
     const parkIt = ctx.risk.parkItByMmy.get(mmy) === true;
     let points = parkIt ? -WEIGHTS.condition : WEIGHTS.condition * 0.2;
     // Prefer paying a bit more for lower wear when condition-first (explicit shopper ask).
-    if (!parkIt && row.miles != null) {
+    // Unverified unusually low miles do not earn that bonus.
+    if (!parkIt && row.miles != null && !lowMileageUnverified) {
       if (row.miles < BEST_DEAL_HIGH_MILES_SOFT && ageYears <= 8) {
         points += WEIGHTS.condition * 0.35;
       } else if (row.miles >= BEST_DEAL_HIGH_MILES_HARD || ageYears >= 11) {
@@ -934,8 +992,14 @@ function scoreOne(
       } else if (row.miles >= BEST_DEAL_HIGH_MILES_SOFT || ageYears >= 9) {
         points -= WEIGHTS.condition * 0.3;
       }
+    } else if (!parkIt && row.miles != null) {
+      if (row.miles >= BEST_DEAL_HIGH_MILES_HARD || ageYears >= 11) {
+        points -= WEIGHTS.condition * 0.55;
+      } else if (row.miles >= BEST_DEAL_HIGH_MILES_SOFT || ageYears >= 9) {
+        points -= WEIGHTS.condition * 0.3;
+      }
     }
-    points -= consistencyPenalty;
+    points -= conditionRiskDeduction(ctx.carCheck ?? null, consistencyPenalty, true);
     score += points;
     factors.push({
       id: "condition_priority",
@@ -943,25 +1007,23 @@ function scoreOne(
       points: round1(points),
       detail: `${
         parkIt
-          ? "Year/make/model has a park-it recall campaign flag — investigate before buying (not VIN proof)"
+          ? "This year and model has a recall that says to park the car until it is fixed — look into that before buying (not proof about this exact car)"
           : row.miles != null && row.miles >= BEST_DEAL_HIGH_MILES_SOFT
-            ? "You said you'd rather pay more for good condition than expensive repairs — this high-mileage/older card is weighed down (history + inspection still required; no clean-history claim)"
-            : "You prioritized condition over squeezing price — history/inspection still required; no clean-history claim"
-      }${consistencyPenalty > 0 ? ` Condition penalty ${consistencyPenalty} for a listing/VIN mismatch, rental or fleet use, or a reported accident.` : ""}`,
-      source: "Your preference + NHTSA year/make/model flags when present + listing/VIN consistency when checked",
+            ? "You said you'd rather pay more for good condition than expensive repairs — this high-mileage or older car is scored lower (history and inspection still required)"
+            : "You said you'd rather pay more for good condition — history and inspection are still required"
+      }${conditionRiskSentence(ctx.carCheck ?? null)}`,
+      source: "Your preference, government recall flags when present, and the listing compared with the VIN when checked",
     });
   } else {
-    const points = -consistencyPenalty;
+    const applied = conditionRiskDeduction(ctx.carCheck ?? null, consistencyPenalty, false);
+    const points = -applied;
     score += points;
     factors.push({
       id: "condition_priority",
       label: "Condition-first preference",
       points: round1(points),
-      detail:
-        consistencyPenalty > 0
-          ? `Condition penalty ${consistencyPenalty} for a listing/VIN mismatch, rental or fleet use, or a reported accident. History and inspection are still required.`
-          : "Condition-first preference not set",
-      source: "Listing/VIN consistency when checked",
+      detail: conditionRiskSentence(ctx.carCheck ?? null).trim() || "Condition preference not set",
+      source: "Listing compared with the VIN when checked",
     });
   }
 
@@ -987,8 +1049,198 @@ function scoreOne(
     fuelSummary,
     excludedFromPick: Boolean(ctx.carCheck?.identityMismatch),
     excludedReason: ctx.carCheck?.excludedReason ?? null,
-    sellerQuestions: ctx.carCheck?.sellerQuestions ?? [],
+    sellerQuestions: [...new Set([...(ctx.carCheck?.sellerQuestions ?? []), ...extraSellerQuestions])],
   };
+}
+
+type BodyFamily = "suv" | "car" | "truck" | "van";
+
+function plainBody(family: BodyFamily): string {
+  if (family === "suv") return "SUV";
+  if (family === "truck") return "truck";
+  if (family === "van") return "van";
+  return "sedan";
+}
+
+/**
+ * Body used for the mismatch penalty.
+ * vPIC BodyClass wins when the decode published one. Otherwise a known model name.
+ * Dealer bodyStyle / style text is not used: a feed often says "Car" for an SUV.
+ * A published class we cannot read stays unknown, and unknown is not a penalty.
+ */
+function observedBodyFamily(
+  row: { model: string },
+  decodedBodyClass: string | null | undefined,
+): BodyFamily | null {
+  const published = decodedBodyClass?.trim();
+  if (published) return bodyFamily(published);
+  return modelBodyFamily(row.model);
+}
+
+/** One body the note names. "SUV or sedan", or a family note with no body word, is not a body request. */
+function noteBodyFamily(note: string | null | undefined): BodyFamily | null {
+  const text = (note ?? "").toLowerCase();
+  const hits: BodyFamily[] = [];
+  if (/\b(suv|crossover|crossovers)\b/.test(text)) hits.push("suv");
+  if (/\b(truck|pickup|pickups)\b/.test(text)) hits.push("truck");
+  if (/\bsedan\b/.test(text)) hits.push("car");
+  return hits.length === 1 ? hits[0]! : null;
+}
+
+function preferredBodyFamily(
+  need: { note?: string | null; preferredModels?: readonly { make: string; model: string }[] },
+): BodyFamily | null {
+  const fromNote = noteBodyFamily(need.note);
+  const models = need.preferredModels ?? [];
+  if (models.length === 0) return fromNote;
+  const families = models.map((item) => modelBodyFamily(item.model));
+  // One unmapped name means we cannot tell whether the named models share a body.
+  if (families.some((item) => item == null)) return fromNote;
+  const unique = new Set(families);
+  if (unique.size !== 1) return null;
+  const shared = families[0]!;
+  if (fromNote && fromNote !== shared) return null;
+  return shared;
+}
+
+function bodyClassIndex(
+  listings: readonly BestDealListing[],
+  receipts: readonly { checkId?: string; status?: string; vin?: string | null; vpicSpecs?: { bodyClass?: string | null } | null }[],
+  checks: readonly CarConsistencyReceipt[],
+): Map<string, string> {
+  const byVin = new Map<string, string>();
+  for (const receipt of receipts) {
+    if (receipt.checkId !== "free_gov_vpic" || receipt.status !== "ok" || !receipt.vin) continue;
+    const body = receipt.vpicSpecs?.bodyClass?.trim();
+    if (body) byVin.set(receipt.vin.trim().toUpperCase(), body);
+  }
+  for (const check of checks) {
+    const body = check.bodyClass?.trim();
+    const vin = check.vin?.trim().toUpperCase();
+    if (body && vin) byVin.set(vin, body);
+  }
+  const byKey = new Map<string, string>();
+  for (const row of listings) {
+    const vin = typeof row.vin === "string" ? row.vin.trim().toUpperCase() : "";
+    const fromVin = vin ? byVin.get(vin) : undefined;
+    if (fromVin) byKey.set(listingKey(row), fromVin);
+  }
+  for (const check of checks) {
+    const body = check.bodyClass?.trim();
+    if (body) byKey.set(check.key, body);
+  }
+  return byKey;
+}
+
+function unverifiedLowMileage(
+  row: BestDealListing,
+  milesPerYear: number,
+  nowYear: number,
+  samples: readonly PeerMileageSample[],
+  peerMedian: number | null,
+): boolean {
+  if (nowYear - row.year < LOW_MILEAGE_MIN_AGE_YEARS) return false;
+  const key = listingKey(row);
+  const others = samples.filter(
+    (sample) => sample.key !== key && nowYear - sample.year >= LOW_MILEAGE_MIN_AGE_YEARS,
+  );
+  if (others.length < LOW_MILEAGE_MIN_OTHER_PEERS) return false;
+  return peerMedian != null && peerMedian > 0 && milesPerYear < peerMedian * LOW_MILEAGE_VS_PEER_RATIO;
+}
+
+function conditionRiskBits(check: CarConsistencyReceipt | null): string[] {
+  if (!check) return [];
+  const bits: string[] = [];
+  for (const fact of check.fields) {
+    if (fact.state !== "issue_found") continue;
+    if (fact.field === "accidents") bits.push("the listing reports an accident");
+    if (fact.field === "trim") bits.push("the listing trim does not match the VIN");
+    if (fact.field === "drivetrain") bits.push("the listing drivetrain does not match the VIN");
+    if (fact.field === "engine") bits.push("the listing engine does not match the VIN");
+    if (fact.field === "usage") bits.push("the listing says this was a rental or fleet car");
+  }
+  return bits;
+}
+
+function joinPlain(bits: string[]): string {
+  if (bits.length <= 1) return bits[0] ?? "";
+  if (bits.length === 2) return `${bits[0]} and ${bits[1]}`;
+  return `${bits.slice(0, -1).join(", ")}, and ${bits[bits.length - 1]}`;
+}
+
+function conditionRiskSentence(check: CarConsistencyReceipt | null): string {
+  const bits = conditionRiskBits(check);
+  if (bits.length === 0) return "";
+  return ` Lower score for condition risk: ${joinPlain(bits)}.`;
+}
+
+/**
+ * Under a good-condition note, a reported accident plus a VIN mismatch is a
+ * large deduction — not a 10-point footnote that can leave the car near the top.
+ */
+function carIsNamed(
+  car: { make: string; model: string },
+  need: { preferredModels?: readonly { make: string; model: string }[] },
+): boolean {
+  return (need.preferredModels ?? []).some(
+    (item) => item.make.toLowerCase() === car.make.toLowerCase() && item.model.toLowerCase() === car.model.toLowerCase(),
+  );
+}
+
+/** Plain reason when the pick is not a model the shopper named. */
+function whyPickOverNamedModels(
+  pick: BestDealCandidate,
+  ranked: readonly BestDealCandidate[],
+  need: { note?: string | null; preferredModels?: readonly { make: string; model: string }[] },
+  bodyClassByKey?: ReadonlyMap<string, string>,
+): string {
+  const preferred = need.preferredModels ?? [];
+  if (preferred.length === 0 || carIsNamed(pick, need)) return "";
+  const named = ranked.filter((car) => !car.excludedFromPick && carIsNamed(car, need));
+  const bestNamed = named[0];
+  const names = [...new Set(preferred.map((item) => `${item.make} ${item.model}`))];
+  const list = names.length <= 2 ? names.join(" and ") : `${names.slice(0, -1).join(", ")}, and ${names[names.length - 1]}`;
+  const wanted = preferredBodyFamily(need);
+  const observed = observedBodyFamily({ model: pick.model }, bodyClassByKey?.get(pick.key));
+  const bodyBit =
+    wanted && observed && wanted !== observed
+      ? `The ${pick.year} ${pick.make} ${pick.model} is a ${plainBody(observed)}, not one of the ${plainBody(wanted)}s you named (${list}). `
+      : `The ${pick.year} ${pick.make} ${pick.model} is not one of the models you named (${list}). `;
+  if (!bestNamed) return bodyBit;
+  const reasons: string[] = [];
+  if (pick.miles != null && bestNamed.miles != null && bestNamed.miles - pick.miles >= 40_000) {
+    reasons.push(
+      `the ${bestNamed.year} ${bestNamed.make} ${bestNamed.model} has much higher mileage (${bestNamed.miles.toLocaleString("en-US")} miles)`,
+    );
+  }
+  if (pick.priceUsd != null && bestNamed.priceUsd != null && bestNamed.priceUsd - pick.priceUsd >= 1_500) {
+    reasons.push(
+      `the asking price is $${(bestNamed.priceUsd - pick.priceUsd).toLocaleString("en-US")} lower`,
+    );
+  }
+  const namedRisk = bestNamed.factors.find((factor) => factor.id === "condition_priority")?.detail ?? "";
+  if (/lower score for condition risk/i.test(namedRisk)) {
+    reasons.push(
+      `the ${bestNamed.year} ${bestNamed.make} ${bestNamed.model} has a condition risk on the listing`,
+    );
+  }
+  if (reasons.length === 0) {
+    reasons.push("the other checks we could score still favored it");
+  }
+  return `${bodyBit}We picked it over the ${bestNamed.year} ${bestNamed.make} ${bestNamed.model} you named because ${reasons.join(" and ")}. `;
+}
+
+function conditionRiskDeduction(
+  check: CarConsistencyReceipt | null,
+  consistencyPenalty: number,
+  conditionFirst: boolean,
+): number {
+  const bits = conditionRiskBits(check);
+  let applied = Math.min(consistencyPenalty, WEIGHTS.condition);
+  if (!conditionFirst) return applied;
+  if (bits.some((bit) => /accident/i.test(bit))) applied += 6;
+  if (bits.some((bit) => /trim|drivetrain|engine/i.test(bit))) applied += 4;
+  return Math.min(applied, WEIGHTS.condition + 10);
 }
 
 function round1(n: number): number {
@@ -1068,10 +1320,12 @@ function rankAll(
     priceFairnessNeutral?: boolean;
     carChecks?: ReadonlyMap<string, CarConsistencyReceipt>;
     recallStateByMmy?: ReadonlyMap<string, EvidenceState>;
+    bodyClassByKey?: ReadonlyMap<string, string>;
   },
 ): BestDealCandidate[] {
   const byModel = new Map<string, number[]>();
   const peerMpy: number[] = [];
+  const peerMileageSamples: PeerMileageSample[] = [];
   for (const row of listings) {
     if (row.priceUsd != null) {
       const k = modelKey(row.make, row.model);
@@ -1080,7 +1334,9 @@ function rankAll(
     }
     if (row.miles != null) {
       const ageYears = Math.max(0.5, opts.nowYear - row.year);
-      peerMpy.push(row.miles / ageYears);
+      const milesPerYear = row.miles / ageYears;
+      peerMpy.push(milesPerYear);
+      peerMileageSamples.push({ key: listingKey(row), year: row.year, milesPerYear });
     }
   }
 
@@ -1089,6 +1345,7 @@ function rankAll(
       need,
       sameModelPrices: byModel.get(modelKey(row.make, row.model)) ?? [],
       peerMilesPerYear: peerMpy,
+      peerMileageSamples,
       nowYear: opts.nowYear,
       milesPerYearAssumption: opts.milesPerYearAssumption,
       fuelByMmy: opts.fuelByMmy,
@@ -1103,6 +1360,7 @@ function rankAll(
       priceFairnessNeutral: opts.priceFairnessNeutral,
       carCheck: opts.carChecks?.get(listingKey(row)) ?? null,
       recallState: opts.recallStateByMmy?.get(mmyListingKey(row.make, row.model, row.year)) ?? "not_checked",
+      bodyClassByKey: opts.bodyClassByKey,
     }),
   );
   scored.sort((a, b) => {
@@ -1160,12 +1418,13 @@ export function selectBestDealOnEvidence(input: {
     ? "Public safety records are finished for this shortlist — the pick is settled on current evidence (still not a vehicle history report)."
     : coverage.anyUnchecked
       ? `The pick may change as checks complete. ${plainPublicCheckProgress(coverage)}`
-      : `Public safety records were checked for every model here, but ranking is still provisional while ${plainFairnessHeldOutNote(fairnessHeldOut)?.replace(/^Fair coverage:\s*/i, "") ?? "some public factors stay held out for fairness"}.`;
+      : `Public safety records were checked for every model here, but the ranking can still change. ${plainFairnessHeldOutNote(fairnessHeldOut) ?? "Some checks are not in the ranking yet so one car is not favored for having more data."}`;
 
   const fuelAttemptedKeys = checkedMmyKeysForCheck(receipts, "free_gov_fuel");
   const ncapAttemptedKeys = checkedMmyKeysForCheck(receipts, "free_gov_safety");
   const recallAttemptedKeys = checkedMmyKeysForCheck(receipts, "free_gov_recalls");
   const carCheckMap = new Map((input.carChecks ?? []).map((row) => [row.key, row]));
+  const bodyClassByKey = bodyClassIndex(input.listings, receipts, input.carChecks ?? []);
   const recallStateByMmy = new Map<string, EvidenceState>();
   for (const receipt of receipts) {
     if (receipt.checkId !== "free_gov_recalls") continue;
@@ -1189,6 +1448,7 @@ export function selectBestDealOnEvidence(input: {
     priceFairnessNeutral,
     carChecks: carCheckMap,
     recallStateByMmy,
+    bodyClassByKey,
   };
   const rankedAll = rankAll(input.listings, input.need, rankOpts);
   const ranked = rankedAll.slice(0, shortlistMax);
@@ -1206,7 +1466,7 @@ export function selectBestDealOnEvidence(input: {
   const stillUnknown = [
     "Condition, accident history, and title brands stay unknown until a history report + inspection",
     "VIN-level open/closed recall status is not verified here",
-    "Fuel estimates use labeled assumptions and may be a range when several configs match",
+    "Fuel estimates come from EPA fuel economy and may be a range when several versions of the car match",
   ];
   if (!evidenceSettled) {
     stillUnknown.unshift("Free public year/make/model checks are still running — ranking may change");
@@ -1223,7 +1483,7 @@ export function selectBestDealOnEvidence(input: {
     );
   }
 
-  const assumptionsNote = `Scoring uses only cars returned in this search (including provider listings beyond the cards shown when available), free public year/make/model safety/recall signals when checked for every shortlist peer (otherwise held out for fairness), and FuelEconomy.gov estimates when matched. Same-model asking-price peers use nearby model years with year and mileage adjustments when the nearer window is thin. Default mileage pace assumption for age context: ${milesPerYearAssumption.toLocaleString("en-US")} mi/yr. When you prioritize condition, an ask that looks unusually low only gets partial credit until inspected.`;
+  const assumptionsNote = `Scoring uses only cars returned in this search (including provider listings beyond the cards shown when available), free public year/make/model safety and recall records when checked for every model here (otherwise held out so one car is not favored for having more data), and fuel estimates from EPA fuel economy when a match is found. Same-model asking-price peers use nearby model years with year and mileage adjustments when the nearer window is thin. Assumed miles per year for age context: ${milesPerYearAssumption.toLocaleString("en-US")}. When you prioritize condition, an ask that looks unusually low only gets partial credit until inspected.`;
 
   const honesty =
     "Best deal on current evidence only — not a guarantee, not VIN history clearance, and not a claim that Lemonless is error-free or better than other tools. Always inspect and verify before buying.";
@@ -1297,7 +1557,7 @@ export function selectBestDealOnEvidence(input: {
       pickChanges: Boolean(altFuelMuted[0] && altFuelMuted[0].key !== first.key),
     },
     {
-      label: "If we assume ~15,000 miles/year for age/pace context",
+      label: "If we assume ~15,000 miles per year for age context",
       pickKey: altMiles[0]?.key ?? null,
       pickChanges: Boolean(altMiles[0] && altMiles[0].key !== first.key),
     },
@@ -1342,8 +1602,8 @@ export function selectBestDealOnEvidence(input: {
   const whyParts = first.factors
     .filter((f) => f.points !== 0)
     .sort((a, b) => Math.abs(b.points) - Math.abs(a.points))
-    .slice(0, 5)
-    .map((f) => `${f.label}: ${f.detail} (${f.points >= 0 ? "+" : ""}${f.points})`);
+    .slice(0, 4)
+    .map((f) => `${f.label}: ${f.detail}`);
 
   const settlePrefix = evidenceSettled
     ? priceProvisional
@@ -1351,11 +1611,13 @@ export function selectBestDealOnEvidence(input: {
       : "Best deal on settled evidence"
     : "Provisional best deal (may change as checks complete)";
 
+  const namedWhy = whyPickOverNamedModels(first, rankedAll, input.need, bodyClassByKey);
+
   return {
     ranked: top,
     pick: first,
     confidence: "confident",
-    why: `${settlePrefix}: ${first.year} ${first.make} ${first.model}${first.priceUsd != null ? ` at $${first.priceUsd.toLocaleString("en-US")}` : ""} (score ${first.score}). ${whyParts.join(" · ")} ${settlementNote}`,
+    why: `${settlePrefix}: ${first.year} ${first.make} ${first.model}${first.priceUsd != null ? ` at $${first.priceUsd.toLocaleString("en-US")}` : ""}. ${namedWhy}${whyParts.join(" ")} ${settlementNote}`.replace(/\s+/g, " ").trim(),
     stillUnknown: [...new Set([...stillUnknown, ...first.unknowns])],
     sensitivity,
     assumptionsNote,

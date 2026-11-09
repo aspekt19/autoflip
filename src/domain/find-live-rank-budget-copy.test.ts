@@ -8,13 +8,16 @@ import {
   selectBestDealOnEvidence,
   type BestDealListing,
 } from "./find-best-deal";
+import { buildCarConsistencyReceipt, type VpicSpecs } from "./find-car-consistency";
 import {
   formatBuyerBestDeal,
   formatBuyerLoopStep,
   formatBuyerNextCheckWhy,
   findForbiddenTechArtifacts,
+  sellerQuestionsForBuyer,
   summarizeFuelCheckOutcome,
 } from "./find-buyer-copy";
+import { buildFindFuelAssumptions } from "./find-fuel-match";
 import {
   budgetFromText,
   budgetIsApproximateFromNote,
@@ -129,6 +132,494 @@ describe("live shortlist ranking under condition-first + ~$15k", () => {
     expect(buyer.factorLines.length).toBeGreaterThan(result.ranked.length);
     expect(buyer.why.length).toBeGreaterThan(40);
     expect(findForbiddenTechArtifacts(buyer.why)).toEqual([]);
+  });
+
+  it("prefers a named compact SUV over a low-mile sedan and does not treat unverified low miles as a plus", () => {
+    const note = LIVE_NOTE;
+    const need = {
+      ...explicitNeedFromText(note, "personal"),
+      budgetKnown: true,
+      budgetUsd: 15_000,
+      conditionPriority: "inspection_first" as const,
+    };
+    const camry: BestDealListing = {
+      make: "Toyota",
+      model: "Camry",
+      year: 2017,
+      priceUsd: 14_500,
+      miles: 23_700,
+      vin: "CAM-2017",
+      trim: "LE",
+      bodyStyle: "Sedan",
+    };
+    const crv: BestDealListing = {
+      make: "Honda",
+      model: "CR-V",
+      year: 2017,
+      priceUsd: 14_400,
+      miles: 78_000,
+      vin: "CRV-2016",
+      trim: "EX",
+      bodyStyle: "SUV",
+    };
+    const tucson: BestDealListing = {
+      make: "Hyundai",
+      model: "Tucson",
+      year: 2017,
+      priceUsd: 14_800,
+      miles: 88_000,
+      vin: "TUC-2017",
+      trim: "SE",
+      bodyStyle: "SUV",
+    };
+    const sportage: BestDealListing = {
+      make: "Kia",
+      model: "Sportage",
+      year: 2015,
+      priceUsd: 13_200,
+      miles: 90_000,
+      vin: "SP-2015",
+      trim: "LX",
+      bodyStyle: "SUV",
+      accidentCount: 1,
+    };
+    const specs = (row: BestDealListing, trim: string): VpicSpecs => ({
+      year: row.year,
+      make: row.make,
+      model: row.model,
+      trim,
+      drivetrain: "FWD",
+      engine: "2.4L 4 cyl",
+      fuel: "Gasoline",
+    });
+    const checks = [
+      buildCarConsistencyReceipt(camry, specs(camry, "LE")),
+      buildCarConsistencyReceipt(crv, specs(crv, "EX")),
+      buildCarConsistencyReceipt(tucson, specs(tucson, "SE")),
+      buildCarConsistencyReceipt(sportage, specs(sportage, "EX"), new Date("2026-11-09T12:00:00Z")),
+    ];
+    const result = selectBestDealOnEvidence({
+      need,
+      listings: [camry, crv, tucson, sportage],
+      carChecks: checks,
+      nowYear: 2026,
+    });
+    const pick = result.pick;
+    expect(pick).toBeTruthy();
+    expect(`${pick!.year} ${pick!.make} ${pick!.model}`).not.toBe("2017 Toyota Camry");
+    expect(["CR-V", "Tucson", "Sportage"]).toContain(pick!.model);
+    const named = result.ranked.filter((row) =>
+      need.preferredModels.some(
+        (item) => item.make === row.make && item.model === row.model,
+      ),
+    );
+    expect(named.length).toBeGreaterThan(0);
+    if (!need.preferredModels.some((item) => item.make === pick!.make && item.model === pick!.model)) {
+      expect(result.why).toMatch(/you named/i);
+      expect(result.why).toMatch(/CR-V|Tucson|Sportage/);
+    }
+    const camryRow = result.ranked.find((row) => row.vin === "CAM-2017")!;
+    const miles = camryRow.factors.find((factor) => factor.id === "miles_per_year_vs_peers")!;
+    expect(miles.detail).toMatch(/unusually low/i);
+    expect(miles.detail).toMatch(/miles per year/i);
+    expect(miles.detail).not.toMatch(/mileage pace/i);
+    expect(miles.points).toBeLessThanOrEqual(0);
+    expect(camryRow.sellerQuestions.join(" ")).toMatch(/odometer|service records/i);
+    const sportageRow = result.ranked.find((row) => row.vin === "SP-2015")!;
+    expect(result.ranked.findIndex((row) => row.key === sportageRow.key)).toBeGreaterThan(1);
+    const condition = sportageRow.factors.find((factor) => factor.id === "condition_priority")!;
+    expect(condition.detail).toMatch(/lower score for condition risk/i);
+    expect(condition.detail).toMatch(/accident/i);
+    expect(condition.detail).toMatch(/trim/i);
+    expect(condition.detail).not.toMatch(/Condition penalty/i);
+    const buyer = formatBuyerBestDeal(result);
+    const questions = sellerQuestionsForBuyer(result);
+    expect(questions.length).toBeGreaterThan(0);
+    expect(questions[0]).toMatch(new RegExp(`${pick!.year} ${pick!.make} ${pick!.model}`));
+    expect(buyer.why).not.toMatch(/harmonic|Condition penalty|Mileage pace/i);
+    expect(buyer.factorLines.join("\n")).not.toMatch(/harmonic|Condition penalty|Mileage pace/i);
+    expect(buildFindFuelAssumptions({ note, usdPerGallon: 3.5 }).label).toMatch(/estimated from EPA fuel economy/i);
+    expect(buildFindFuelAssumptions({ note, usdPerGallon: 3.5 }).label).not.toMatch(/harmonic/i);
+  });
+});
+
+describe("ranking stays principled outside the live shortlist", () => {
+  const namedSuvs = [
+    { make: "Honda", model: "CR-V" },
+    { make: "Hyundai", model: "Tucson" },
+    { make: "Kia", model: "Sportage" },
+  ];
+
+  function factor(result: ReturnType<typeof selectBestDealOnEvidence>, vin: string) {
+    const row = result.allRanked.find((car) => car.vin === vin);
+    expect(row).toBeTruthy();
+    const named = row!.factors.find((item) => item.id === "named_model_preference");
+    expect(named).toBeTruthy();
+    return named!;
+  }
+
+  it("does not apply a body penalty when no models are named or the named models do not share a body", () => {
+    const note = "Family car for weekend trips. Prefer good condition.";
+    const camry: BestDealListing = {
+      make: "Toyota",
+      model: "Camry",
+      year: 2016,
+      priceUsd: 14_000,
+      miles: 80_000,
+      vin: "CAM",
+      bodyStyle: "Sedan",
+    };
+    const crv: BestDealListing = {
+      make: "Honda",
+      model: "CR-V",
+      year: 2016,
+      priceUsd: 14_200,
+      miles: 82_000,
+      vin: "CRV",
+      bodyStyle: "Car",
+    };
+    const none = selectBestDealOnEvidence({
+      need: {
+        ...explicitNeedFromText(note, "personal"),
+        budgetKnown: true,
+        budgetUsd: 15_000,
+        conditionPriority: "inspection_first",
+        preferredModels: [],
+      },
+      listings: [camry, crv],
+      nowYear: 2026,
+    });
+    expect(factor(none, "CAM").points).toBe(0);
+    expect(factor(none, "CRV").points).toBe(0);
+    expect(factor(none, "CAM").detail).not.toMatch(/sedan|SUV/i);
+    expect(factor(none, "CRV").detail).not.toMatch(/sedan|SUV/i);
+
+    const mixed = selectBestDealOnEvidence({
+      need: {
+        ...explicitNeedFromText(`${note} I've been looking at the Toyota Camry and the Honda CR-V.`, "personal"),
+        budgetKnown: true,
+        budgetUsd: 15_000,
+        conditionPriority: "inspection_first",
+        preferredModels: [
+          { make: "Toyota", model: "Camry" },
+          { make: "Honda", model: "CR-V" },
+        ],
+      },
+      listings: [
+        camry,
+        crv,
+        { make: "Hyundai", model: "Tucson", year: 2016, priceUsd: 14_100, miles: 81_000, vin: "TUC", bodyStyle: "SUV" },
+      ],
+      nowYear: 2026,
+    });
+    expect(factor(mixed, "TUC").points).toBe(0);
+    expect(factor(mixed, "TUC").detail).not.toMatch(/this is a/i);
+    expect(factor(mixed, "CAM").points).toBe(BEST_DEAL_WEIGHTS.namedModel);
+    expect(factor(mixed, "CRV").points).toBe(BEST_DEAL_WEIGHTS.namedModel);
+
+    const conflict = selectBestDealOnEvidence({
+      need: {
+        ...explicitNeedFromText("I want a sedan. I've been looking at the Honda CR-V.", "personal"),
+        budgetKnown: true,
+        budgetUsd: 15_000,
+        conditionPriority: "inspection_first",
+        preferredModels: [{ make: "Honda", model: "CR-V" }],
+      },
+      listings: [camry, crv],
+      nowYear: 2026,
+    });
+    expect(factor(conflict, "CAM").points).toBe(0);
+    expect(factor(conflict, "CAM").detail).not.toMatch(/this is a/i);
+    expect(factor(conflict, "CRV").points).toBe(BEST_DEAL_WEIGHTS.namedModel);
+
+    const sedanNote = selectBestDealOnEvidence({
+      need: {
+        ...explicitNeedFromText("I want a sedan for weekend trips.", "personal"),
+        budgetKnown: true,
+        budgetUsd: 15_000,
+        conditionPriority: "inspection_first",
+        preferredModels: [],
+      },
+      listings: [camry, crv],
+      nowYear: 2026,
+    });
+    expect(factor(sedanNote, "CRV").points).toBe(-8);
+    expect(factor(sedanNote, "CRV").detail).toMatch(/you asked for a sedan/i);
+    expect(factor(sedanNote, "CAM").points).toBe(4);
+  });
+
+  it("uses vPIC body class or the known model map, and does not trust dealer body text", () => {
+    const need = {
+      ...explicitNeedFromText(LIVE_NOTE, "personal"),
+      budgetKnown: true,
+      budgetUsd: 15_000,
+      conditionPriority: "inspection_first" as const,
+      preferredModels: namedSuvs,
+    };
+    const camry: BestDealListing = {
+      make: "Toyota",
+      model: "Camry",
+      year: 2016,
+      priceUsd: 14_000,
+      miles: 90_000,
+      vin: "CAM",
+      bodyStyle: "SUV",
+      style: "Sport Utility",
+    };
+    const avalon: BestDealListing = {
+      make: "Toyota",
+      model: "Avalon",
+      year: 2016,
+      priceUsd: 14_100,
+      miles: 90_000,
+      vin: "AVA",
+      bodyStyle: "Sedan",
+    };
+    const unknown = selectBestDealOnEvidence({
+      need,
+      listings: [camry, avalon, { make: "Honda", model: "CR-V", year: 2016, priceUsd: 14_200, miles: 90_000, vin: "CRV" }],
+      nowYear: 2026,
+    });
+    expect(factor(unknown, "CAM").points).toBe(-8);
+    expect(factor(unknown, "CAM").detail).toMatch(/sedan/i);
+    expect(factor(unknown, "AVA").points).toBe(0);
+    expect(factor(unknown, "AVA").detail).not.toMatch(/this is a/i);
+
+    const decoded = selectBestDealOnEvidence({
+      need,
+      listings: [avalon, { make: "Honda", model: "CR-V", year: 2016, priceUsd: 14_200, miles: 90_000, vin: "CRV", bodyStyle: "Car" }],
+      receipts: [
+        {
+          checkId: "free_gov_vpic",
+          toolId: "evidence.gov_vpic",
+          status: "ok",
+          summary: "decoded",
+          scope: "test",
+          limitsNote: "",
+          vin: "AVA",
+          make: "Toyota",
+          model: "Avalon",
+          year: 2016,
+          fetchedAt: "2026-11-09T00:00:00Z",
+          cached: false,
+          sourceUrl: null,
+          factNotes: [],
+          riskFacts: null,
+          fuelEvidence: null,
+          honesty: "test",
+          vpicSpecs: {
+            year: 2016,
+            make: "Toyota",
+            model: "Avalon",
+            trim: null,
+            drivetrain: null,
+            engine: null,
+            fuel: null,
+            bodyClass: "Sedan/Saloon",
+          },
+        },
+      ],
+      nowYear: 2026,
+    });
+    expect(factor(decoded, "AVA").points).toBe(-8);
+    expect(factor(decoded, "AVA").detail).toMatch(/sedan/i);
+    expect(factor(decoded, "CRV").detail).not.toMatch(/this is a sedan/i);
+
+    const unread = selectBestDealOnEvidence({
+      need,
+      listings: [camry],
+      carChecks: [
+        buildCarConsistencyReceipt(camry, {
+          year: 2016,
+          make: "Toyota",
+          model: "Camry",
+          trim: null,
+          drivetrain: null,
+          engine: null,
+          fuel: null,
+          bodyClass: "Wagon",
+        }),
+      ],
+      nowYear: 2026,
+    });
+    expect(factor(unread, "CAM").points).toBe(0);
+    expect(factor(unread, "CAM").detail).not.toMatch(/this is a/i);
+  });
+
+  it("lets a clearly better car win when it is not a model you named, and says why", () => {
+    const need = {
+      ...explicitNeedFromText(LIVE_NOTE, "personal"),
+      budgetKnown: true,
+      budgetUsd: 15_000,
+      conditionPriority: "inspection_first" as const,
+      preferredModels: namedSuvs,
+    };
+    const camry: BestDealListing = {
+      make: "Toyota",
+      model: "Camry",
+      year: 2017,
+      priceUsd: 11_200,
+      miles: 78_000,
+      vin: "CAM",
+      trim: "LE",
+      bodyStyle: "Sedan",
+    };
+    const sportage: BestDealListing = {
+      make: "Kia",
+      model: "Sportage",
+      year: 2015,
+      priceUsd: 14_900,
+      miles: 158_000,
+      vin: "SP",
+      trim: "LX",
+      bodyStyle: "SUV",
+      accidentCount: 1,
+    };
+    const checks = [
+      buildCarConsistencyReceipt(camry, {
+        year: 2017,
+        make: "Toyota",
+        model: "Camry",
+        trim: "LE",
+        drivetrain: "FWD",
+        engine: "2.5L 4 cyl",
+        fuel: "Gasoline",
+      }),
+      buildCarConsistencyReceipt(sportage, {
+        year: 2015,
+        make: "Kia",
+        model: "Sportage",
+        trim: "EX",
+        drivetrain: "FWD",
+        engine: "2.4L 4 cyl",
+        fuel: "Gasoline",
+      }),
+    ];
+    const result = selectBestDealOnEvidence({
+      need,
+      listings: [camry, sportage],
+      carChecks: checks,
+      nowYear: 2026,
+    });
+    expect(result.pick?.vin).toBe("CAM");
+    expect(result.why).toMatch(/not one of the models you named/i);
+    expect(result.why).toMatch(/sedan/i);
+    expect(result.why).toMatch(/Sportage/);
+    expect(result.why).toMatch(/condition risk|higher mileage|asking price/i);
+    expect(result.why).not.toMatch(/harmonic|mileage pace|condition penalty/i);
+  });
+
+  it("does not treat low miles on a very new car, or in a tiny peer set, as unverified", () => {
+    const need = {
+      budgetKnown: true,
+      budgetUsd: 25_000,
+      preferredModels: [] as { make: string; model: string }[],
+      conditionPriority: "inspection_first" as const,
+      note: "Prefer good condition.",
+    };
+    const fresh: BestDealListing = {
+      make: "Toyota",
+      model: "Camry",
+      year: 2026,
+      priceUsd: 24_000,
+      miles: 1_500,
+      vin: "NEW",
+    };
+    const peers: BestDealListing[] = [
+      { make: "Honda", model: "Civic", year: 2016, priceUsd: 12_000, miles: 110_000, vin: "P1" },
+      { make: "Honda", model: "Civic", year: 2016, priceUsd: 12_200, miles: 120_000, vin: "P2" },
+      { make: "Honda", model: "Accord", year: 2016, priceUsd: 13_000, miles: 100_000, vin: "P3" },
+      { make: "Toyota", model: "Corolla", year: 2015, priceUsd: 11_000, miles: 130_000, vin: "P4" },
+    ];
+    const withNew = selectBestDealOnEvidence({
+      need,
+      listings: [fresh, ...peers],
+      nowYear: 2026,
+    });
+    const freshMiles = withNew.allRanked.find((row) => row.vin === "NEW")!.factors.find((item) => item.id === "miles_per_year_vs_peers")!;
+    expect(freshMiles.detail).not.toMatch(/unusually low/i);
+    expect(freshMiles.points).toBeGreaterThan(0);
+    expect(withNew.allRanked.find((row) => row.vin === "NEW")!.sellerQuestions.join(" ")).not.toMatch(/odometer/i);
+
+    const tinyLow: BestDealListing = {
+      make: "Toyota",
+      model: "Camry",
+      year: 2014,
+      priceUsd: 12_000,
+      miles: 18_000,
+      vin: "LOW",
+    };
+    const tinyOther: BestDealListing = {
+      make: "Honda",
+      model: "Accord",
+      year: 2014,
+      priceUsd: 11_000,
+      miles: 140_000,
+      vin: "HIGH",
+    };
+    const tiny = selectBestDealOnEvidence({
+      need,
+      listings: [tinyLow, tinyOther],
+      nowYear: 2026,
+    });
+    const tinyMiles = tiny.allRanked.find((row) => row.vin === "LOW")!.factors.find((item) => item.id === "miles_per_year_vs_peers")!;
+    expect(tinyMiles.detail).not.toMatch(/unusually low/i);
+    expect(tinyMiles.points).toBeGreaterThan(0);
+  });
+
+  it("deducts for listing-stated condition risks and not for missing or zero accident fields", () => {
+    const need = {
+      ...explicitNeedFromText(LIVE_NOTE, "personal"),
+      budgetKnown: true,
+      budgetUsd: 15_000,
+      conditionPriority: "inspection_first" as const,
+      preferredModels: namedSuvs,
+    };
+    const base = {
+      make: "Honda",
+      model: "CR-V",
+      year: 2016,
+      priceUsd: 14_000,
+      miles: 80_000,
+      drivetrain: "FWD",
+      engine: "2.4L",
+      fuel: "Gasoline",
+    };
+    const missing: BestDealListing = { ...base, vin: "MISS", trim: null, accidentCount: null, ownerCount: null, usageType: null };
+    const claimedNone: BestDealListing = { ...base, vin: "ZERO", trim: "EX", accidentCount: 0, priceUsd: 14_050 };
+    const stated: BestDealListing = { ...base, vin: "HIT", trim: "LX", accidentCount: 1, priceUsd: 13_900 };
+    const matched = {
+      year: 2016,
+      make: "Honda",
+      model: "CR-V",
+      trim: "EX",
+      drivetrain: "FWD",
+      engine: "2.4L 4 cyl",
+      fuel: "Gasoline",
+    };
+    const checks = [
+      buildCarConsistencyReceipt(missing, matched),
+      buildCarConsistencyReceipt(claimedNone, matched),
+      buildCarConsistencyReceipt(stated, matched),
+    ];
+    expect(checks.find((row) => row.vin === "MISS")!.conditionPenalty).toBe(0);
+    expect(checks.find((row) => row.vin === "ZERO")!.conditionPenalty).toBe(0);
+    expect(checks.find((row) => row.vin === "HIT")!.conditionPenalty).toBeGreaterThan(0);
+    const result = selectBestDealOnEvidence({
+      need,
+      listings: [missing, claimedNone, stated],
+      carChecks: checks,
+      nowYear: 2026,
+    });
+    const points = (vin: string) =>
+      result.allRanked.find((row) => row.vin === vin)!.factors.find((item) => item.id === "condition_priority")!;
+    expect(points("MISS").detail).not.toMatch(/lower score for condition risk/i);
+    expect(points("ZERO").detail).not.toMatch(/lower score for condition risk/i);
+    expect(points("MISS").points).toBe(points("ZERO").points);
+    expect(points("HIT").detail).toMatch(/lower score for condition risk/i);
+    expect(points("HIT").detail).toMatch(/accident/i);
+    expect(points("HIT").detail).toMatch(/trim/i);
+    expect(points("HIT").points).toBeLessThan(points("ZERO").points);
   });
 });
 

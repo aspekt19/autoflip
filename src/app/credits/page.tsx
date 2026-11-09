@@ -3,37 +3,26 @@
 import { safeAuthCallbackUrl } from "@/auth/config";
 import { creditsNeedNotice } from "@/domain/find-buyer-copy";
 import { buyerFacingFailure } from "@/domain/buyer-facing-error";
+import { canStartCreditCheckout, creditsPackButton, creditsPageModel } from "@/domain/account-load";
 import { CREDIT_PACKS } from "@/domain/assumptions";
+import { useAccountLoad } from "@/components/use-account-load";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
-import { Suspense, useEffect, useState } from "react";
-
-type AccountSnap = {
-  credits?: number;
-  stripeConfigured?: boolean;
-  demo?: boolean;
-  authenticated?: boolean;
-  emailVerified?: boolean;
-  auth?: { configured?: boolean };
-};
+import { Suspense, useState } from "react";
 
 function CreditsInner() {
   const params = useSearchParams();
   const need = params.get("need") === "1";
   const status = params.get("status");
   const back = safeAuthCallbackUrl(params.get("return"));
-  const [snap, setSnap] = useState<AccountSnap | null>(null);
+  const account = useAccountLoad();
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState<string | null>(null);
-
-  useEffect(() => {
-    fetch("/api/account")
-      .then((response) => response.json())
-      .then((body: AccountSnap) => setSnap(body))
-      .catch(() => setError("Could not load the credit balance."));
-  }, []);
+  const snap = account.phase === "loaded" ? account.body : null;
+  const model = creditsPageModel({ phase: account.phase, snap });
 
   async function buy(pack: string) {
+    if (!canStartCreditCheckout({ phase: account.phase, snap })) return;
     setPending(pack);
     setError(null);
     try {
@@ -59,12 +48,6 @@ function CreditsInner() {
     }
   }
 
-  const credits = snap?.credits;
-  const stripeOn = snap?.stripeConfigured ?? null;
-  const demo = Boolean(snap?.demo);
-  const signedIn = Boolean(snap?.authenticated);
-  const authOn = Boolean(snap?.auth?.configured);
-
   return (
     <div className="sub">
       <div className="sheet-page">
@@ -72,23 +55,34 @@ function CreditsInner() {
       <h1>Credits</h1>
       <p className="lead">A full vehicle report costs 1 report credit. Verified accounts get 3 free VIN or your own listing URL checks per UTC month. Find is a credit-priced search when billing is enabled. Ongoing saved-search alerts require a separate Radar plan. All preview prices are in U.S. dollars.</p>
       <p className="hint">This is Stripe test mode: test-card checkouts do not take real money. Use 4242 4242 4242 4242, any future expiry date and any CVC.</p>
-      {demo ? (
+      {model.hint.kind === "loading" ? (
+        <p className="hint" aria-busy="true">{model.hint.text}</p>
+      ) : model.hint.kind === "failed" ? (
+        <p className="warn-box">
+          {model.hint.text}{" "}
+          <button className="quiet" type="button" onClick={() => account.retry()}>
+            {model.hint.retryLabel}
+          </button>
+        </p>
+      ) : model.hint.kind === "demo" ? (
         <p className="hint">You are using the shared demo account. Its credits and saved activity may be visible to other demo visitors.</p>
-      ) : signedIn ? (
+      ) : model.hint.kind === "signed-in" ? (
         <p className="hint">Credits are tied to your signed-in account and survive clearing cookies. <Link href="/account">Account</Link></p>
-      ) : authOn ? (
+      ) : model.hint.kind === "sign-in" ? (
         <p className="hint">
-          Sign in before buying so credits stay with your account after cookies are cleared.{" "}
+          {model.hint.text}{" "}
           <Link href="/login?callbackUrl=/credits">Sign in</Link>
         </p>
       ) : (
-        <p className="hint">Sign-in is not available yet. Paid checkout and free monthly vehicle checks stay locked until sign-in is turned on.</p>
+        <p className="hint">{model.hint.text}</p>
       )}
-      <p className="warn-box">
-        Balance: <strong>{credits === null || credits === undefined ? "…" : credits}</strong>
-        {stripeOn === false ? " Stripe test keys are not configured, so checkout cannot start." : null}
-        {authOn === false ? " Sign-in is not configured, so paid checkout stays locked." : null}
-      </p>
+      {model.showBalance ? (
+        <p className="warn-box">
+          Balance: <strong>{model.balanceValue}</strong>
+          {model.stripeOffNote ? ` ${model.stripeOffNote}` : null}
+          {model.authOffNote ? ` ${model.authOffNote}` : null}
+        </p>
+      ) : null}
       {need ? <p className="warn">{creditsNeedNotice(back)}</p> : null}
       {status === "success" ? (
         <p className="warn-box">
@@ -103,22 +97,23 @@ function CreditsInner() {
       ) : null}
       {status === "cancel" ? <p className="warn-box">Checkout was canceled. No credit was added.</p> : null}
       <div className="prices">
-        {CREDIT_PACKS.map((pack) => (
-          <article className="pack" key={pack.id}>
-            <h3>{pack.name}</h3>
-            <p className="sum">${(pack.amountCents / 100).toFixed(0)}</p>
-            <p className="hint">Test price</p>
-            <button className="action" type="button" onClick={() => buy(pack.id)} disabled={pending === pack.id || !authOn || !signedIn}>
-              {pending === pack.id
-                ? "Starting…"
-                : !authOn
-                  ? "Checkout locked"
-                  : signedIn
-                    ? "Buy in test mode"
-                    : "Sign in to buy"}
-            </button>
-          </article>
-        ))}
+        {CREDIT_PACKS.map((pack) => {
+          const button = creditsPackButton({
+            phase: account.phase,
+            snap,
+            pendingThis: pending === pack.id,
+          });
+          return (
+            <article className="pack" key={pack.id}>
+              <h3>{pack.name}</h3>
+              <p className="sum">${(pack.amountCents / 100).toFixed(0)}</p>
+              <p className="hint">Test price</p>
+              <button className="action" type="button" onClick={() => buy(pack.id)} disabled={button.disabled}>
+                {button.label}
+              </button>
+            </article>
+          );
+        })}
       </div>
       {error ? <p className="warn">{error}</p> : null}
       <p className="hint">These are test prices and test transactions only. No live payment is processed. Success redirects never grant credits — only the signed Stripe webhook does.</p>

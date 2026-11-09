@@ -108,6 +108,8 @@ export type VinDecode = {
   driveType?: string | null;
   engine?: string | null;
   fuel?: string | null;
+  /** NHTSA BodyClass. Missing means the decode did not publish one. */
+  bodyClass?: string | null;
 };
 
 export type Flag = {

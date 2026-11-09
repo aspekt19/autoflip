@@ -1,38 +1,26 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState, useTransition } from "react";
+import { useState, useTransition } from "react";
 import { signOutAction } from "@/auth/actions";
+import {
+  ACCOUNT_LOAD_FAILED_LABEL,
+  ACCOUNT_LOADING_LABEL,
+  ACCOUNT_RETRY_LABEL,
+  accountAuthConfigured,
+  accountSignedOutMessage,
+  type AccountSnapshot,
+} from "@/domain/account-load";
 import { buyerFacingFailure } from "@/domain/buyer-facing-error";
 import { freeChecksRemainingFromAccount } from "@/domain/free-check-quota";
-
-type AccountBody = {
-  credits?: number;
-  authenticated?: boolean;
-  email?: string | null;
-  emailVerified?: boolean;
-  browserClaimable?: boolean;
-  demo?: boolean;
-  auth?: { configured?: boolean };
-  freeChecks?: { remaining?: number; limit?: number; resetsLabel?: string } | null;
-};
+import { useAccountLoad } from "./use-account-load";
 
 export function AccountPanel() {
-  const [body, setBody] = useState<AccountBody | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const account = useAccountLoad();
+  const body: AccountSnapshot | null = account.phase === "loaded" ? account.body : null;
   const [claimMsg, setClaimMsg] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
   const [signingOut, startSignOut] = useTransition();
-
-  async function refresh() {
-    const response = await fetch("/api/account");
-    const json = (await response.json()) as AccountBody;
-    setBody(json);
-  }
-
-  useEffect(() => {
-    refresh().catch(() => setError("Could not load account."));
-  }, []);
 
   async function claimBrowser() {
     setPending(true);
@@ -55,7 +43,7 @@ export function AccountPanel() {
       setClaimMsg(
         `Moved ${json.movedCredits ?? 0} credit(s) and ${json.movedReports ?? 0} report(s) onto this account.`,
       );
-      await refresh();
+      await account.reload();
     } catch {
       setClaimMsg("Claim failed.");
     } finally {
@@ -63,20 +51,25 @@ export function AccountPanel() {
     }
   }
 
-  if (error) return <p className="warn">{error}</p>;
-  if (!body) return <p className="hint">Loading account…</p>;
+  if (account.phase === "failed") {
+    return (
+      <p className="warn">
+        {ACCOUNT_LOAD_FAILED_LABEL}{" "}
+        <button className="quiet" type="button" onClick={() => account.retry()}>
+          {ACCOUNT_RETRY_LABEL}
+        </button>
+      </p>
+    );
+  }
+  if (account.phase === "loading" || !body) return <p className="hint" aria-busy="true">{ACCOUNT_LOADING_LABEL}</p>;
 
   const freeCheckLine = freeChecksRemainingFromAccount(body);
 
-  if (!body.authenticated) {
-    const authConfigured = Boolean(body.auth?.configured);
+  if (body.authenticated !== true) {
+    const signedOut = accountSignedOutMessage(accountAuthConfigured(body));
     return (
       <div>
-        <p className="warn-box">
-          {authConfigured
-            ? "You are browsing without an account. Sign in so checks and purchases stay with you after cookies are cleared."
-            : "Sign-in is not available yet. Vehicle checks, Find search, and buying credits stay locked."}
-        </p>
+        <p className="warn-box">{signedOut.text}</p>
         <p>
           <Link className="action" href="/login?callbackUrl=/account">
             Sign in

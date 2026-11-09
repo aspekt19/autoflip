@@ -68,7 +68,8 @@ describe("header auth button", () => {
     expect(header).toMatch(/className="nav-auth"/);
     expect(header).toMatch(/nav-go-short/);
     expect(header).not.toMatch(/\/api\/auth\/signin/);
-    expect(header).toMatch(/fetch\(["']\/api\/account["']\)/);
+    expect(header).toMatch(/useAccountLoad/);
+    expect(read("src/components/use-account-load.ts")).toMatch(/fetch\(["']\/api\/account["']/);
     const account = read("src/components/AccountPanel.tsx");
     expect(account).toMatch(/Sign out/);
     expect(account).toMatch(/signOutAction/);

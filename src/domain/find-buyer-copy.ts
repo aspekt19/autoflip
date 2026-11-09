@@ -792,7 +792,7 @@ export function formatBuyerNextCheckWhy(
 /** Hide a numeric zero when the factor was not actually scored. A real scored zero still shows. */
 export function buyerFactorBit(factor: { label: string; detail: string; points: number }): string {
   const unscored =
-    /not scored|couldn't confirm|could not confirm|not a clean|held out of ranking|still pending|have not been checked|has not been compared|listing reports \d+ accident/i.test(
+    /not scored|couldn't confirm|could not confirm|not a clean|held out of ranking|not used in the ranking yet|still pending|have not been checked|has not been compared|listing reports \d+ accident/i.test(
       factor.detail,
     );
   if (unscored) return `${factor.label}: ${factor.detail}`;
@@ -898,6 +898,11 @@ export function sellerQuestionsForBuyer(
         `Ask the seller for accident records on the ${title} — the listing says accidents were reported.`,
       );
     }
+    if (result.pick && car.key === result.pick.key && carLines.length === 0) {
+      carLines.push(
+        `Ask the seller for service records and accident history on the ${title} — a vehicle history report has not been checked.`,
+      );
+    }
     if (
       (car.excludedFromPick || /does not match/i.test(car.excludedReason ?? "")) &&
       car.excludedReason
@@ -978,7 +983,7 @@ export function formatBuyerBestDeal(result: BestDealResult): {
       .slice()
       .filter((f) => {
         if (!result.evidenceSettled) return true;
-        return !/Held out of ranking|not on file yet|check not run|still pending/i.test(f.detail);
+        return !/Held out of ranking|not used in the ranking yet|not on file yet|check not run|still pending/i.test(f.detail);
       })
       .sort((a, b) => Math.abs(b.points) - Math.abs(a.points));
     const bits = factors.map((f) => buyerFactorBit(f));
@@ -1001,7 +1006,7 @@ export function formatBuyerBestDeal(result: BestDealResult): {
           .replace(/\bmmy_recall_campaigns\b/g, "recall campaigns")
           .replace(/\bmmy_ncap_rating\b/g, "crash-test ratings")
           .replace(/\bprice_vs_model_asks\b/g, "asking price vs same model")
-          .replace(/\bmiles_per_year_vs_peers\b/g, "mileage pace vs peers")
+          .replace(/\bmiles_per_year_vs_peers\b/g, "miles per year")
           .replace(/\bnamed_model_preference\b/g, "named model match")
           .replace(/\bcondition_priority\b/g, "condition-first preference")
           .replace(/\bbudget_fit\b/g, "budget fit")
