@@ -19,6 +19,7 @@ import {
   type FindNextCheck,
   type FindNextCheckId,
 } from "./find-next-checks";
+import { formatOfficialRecallNumber } from "./find-buyer-copy";
 import {
   indexRiskFactsByMmy,
   listingMmyKeys,
@@ -312,9 +313,7 @@ export function buildGroundedShortlistWithRisk(
     const campaignRefs = [
       ...new Set(
         risk.facts.flatMap((f) =>
-          f.campaignNumbers.map((id) =>
-            /nhtsa recall campaign/i.test(id) ? id : `NHTSA recall campaign ${id}`,
-          ),
+          f.campaignNumbers.map((id) => formatOfficialRecallNumber(id)),
         ),
       ),
     ].slice(0, 8);

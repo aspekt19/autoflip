@@ -1,17 +1,72 @@
+import { readFileSync } from "node:fs";
+import path from "node:path";
 import { describe, expect, it } from "vitest";
+import { selectComparables } from "./comparables";
 import {
   assertBuyerSafeText,
   findForbiddenTechArtifacts,
   formatBuyerLoopStatus,
   formatBuyerLoopStep,
+  formatBuyerNextCheckWhy,
+  formatBuyerProofLine,
   formatBuyerReceiptLine,
+  formatBuyerServCheckSummary,
+  formatOfficialRecallNumber,
   machineReceiptsPayload,
+  plainBuyerPhrase,
+  plainCompScope,
+  plainDecisionAction,
+  plainDecisionSource,
+  plainFlagSource,
 } from "./find-buyer-copy";
+import type { Listing } from "./types";
 import type { FindFreeGovReceipt } from "./find-free-gov";
 import { buildFindFuelAssumptions } from "./find-fuel-match";
 import { formatFreeGovReceiptsForUi } from "./find-free-gov-format";
 import { buildGroundedShortlist } from "./find-path";
 import { explicitNeedFromText } from "./need";
+import { buildComputedReport } from "./report";
+import { summaryLine } from "./summary-line";
+import { fitHeadline } from "./fit";
+import { templateExplanation } from "./template";
+import { runOrderedGates } from "./verdict-gates";
+import { clampDecision, constraintsFromGates } from "./verdict-guardrails";
+import { flipAlertWhy, topFlipCandidates } from "./flip-rank";
+import { prefilterListing, marketBand } from "./radar-watch";
+import type { RecallRecord } from "./types";
+
+function noteCar(vin: string, year: number, priceUsd: number, trim: string): Listing {
+  return {
+    vin,
+    year,
+    make: "Kia",
+    model: "Sportage",
+    trim,
+    miles: 60_000,
+    priceUsd,
+    city: null,
+    state: null,
+    zip: null,
+    dealer: null,
+    vdp: null,
+    primaryImage: null,
+    carfaxUrl: null,
+    used: true,
+    cpo: false,
+    accidentCount: null,
+    oneOwner: null,
+    ownerCount: null,
+    usageType: null,
+    fuel: null,
+    engine: null,
+    drivetrain: null,
+    bodyStyle: null,
+    latitude: null,
+    longitude: null,
+    removedAt: null,
+    source: "sample",
+  };
+}
 
 function recallReceipt(): FindFreeGovReceipt {
   return {
@@ -159,6 +214,69 @@ describe("buyer-safe Find copy", () => {
     expect(payload.receipts[0].sourceUrl).toMatch(/DecodeVinValues|format=json|api\.nhtsa/);
   });
 
+  it("keeps the landing explainer free of listing jargon", () => {
+    const layout = readFileSync(path.join(process.cwd(), "src/app/layout.tsx"), "utf8");
+    const match = layout.match(/Lemonless prepares a price verdict[\s\S]*?before you pay\./);
+    expect(match).toBeTruthy();
+    const line = match![0].replace(/\s+/g, " ");
+    expect(findForbiddenTechArtifacts(line)).toEqual([]);
+    expect(line).toMatch(/similar listings of the same model and public government data/);
+    expect(line).not.toMatch(/listings nearby/i);
+    expect(
+      findForbiddenTechArtifacts(
+        "Lemonless prepares a price verdict from listing comps and public government data.",
+      ),
+    ).toEqual(expect.arrayContaining([expect.stringMatching(/comps/i)]));
+    expect(findForbiddenTechArtifacts("25th percentile")).toEqual(
+      expect.arrayContaining([expect.stringMatching(/percentile/i)]),
+    );
+    expect(findForbiddenTechArtifacts("fitted price")).toEqual(
+      expect.arrayContaining([expect.stringMatching(/fitted/i)]),
+    );
+    expect(findForbiddenTechArtifacts("price≈year")).toEqual(expect.arrayContaining([expect.stringMatching(/≈/)]));
+    expect(findForbiddenTechArtifacts("one comp left")).toEqual(
+      expect.arrayContaining([expect.stringMatching(/comp\s/i)]),
+    );
+
+    const terms = readFileSync(path.join(process.cwd(), "src/app/terms/page.tsx"), "utf8");
+    const termsLine = terms.match(/Similar listings of the\s+same model[\s\S]*?Auto\.dev\./)?.[0]?.replace(/\s+/g, " ");
+    expect(termsLine).toBeTruthy();
+    expect(findForbiddenTechArtifacts(termsLine!)).toEqual([]);
+    expect(terms).not.toMatch(/\bcomps\b/);
+    expect(terms).not.toMatch(/listings nearby/i);
+
+    const home = readFileSync(path.join(process.cwd(), "src/components/HomeStage.tsx"), "utf8");
+    expect(home).not.toMatch(/free Good, Fair, or High/i);
+    expect(home).toMatch(/credit-priced search when billing is enabled/i);
+    expect(home).not.toMatch(/Title, recalls and odometer checks/i);
+    const homeText = [...home.matchAll(/>([^<{]+)</g)].map((match) => match[1]!.replace(/\s+/g, " ").trim()).filter(Boolean);
+    expect(homeText.length).toBeGreaterThan(3);
+    for (const line of homeText) expect(findForbiddenTechArtifacts(line), line).toEqual([]);
+
+    const reportView = readFileSync(path.join(process.cwd(), "src/components/ReportView.tsx"), "utf8");
+    expect(reportView).toMatch(/formatBuyerProofLine/);
+    expect(reportView).toMatch(/formatBuyerServCheckSummary/);
+    expect(reportView).toMatch(/plainCompScope/);
+    expect(reportView).not.toMatch(/>\s*Comparables\s*</);
+
+    expect(findForbiddenTechArtifacts(plainBuyerPhrase("price_vs_comps (pass)"))).toEqual([]);
+    expect(plainBuyerPhrase("insufficient_comps: buy forbidden")).toMatch(/not enough similar listings/);
+    expect(formatOfficialRecallNumber("12V501000")).toBe(
+      "Official recall number 12V501000 — look this up on NHTSA",
+    );
+    const labeled = formatOfficialRecallNumber("12V501000");
+    expect(formatOfficialRecallNumber(labeled)).toBe(labeled);
+    expect(findForbiddenTechArtifacts(labeled)).toEqual([]);
+
+    const subject = noteCar("SUBJ0000000000001", 2016, 14000, "EX");
+    const peers = [12000, 13000, 15000, 16000].map((price, index) =>
+      noteCar(`PEER000000000000${index}`, 2016, price, "LX"),
+    );
+    for (const note of selectComparables(subject, [subject, ...peers]).notes) {
+      expect(findForbiddenTechArtifacts(note)).toEqual([]);
+    }
+  });
+
   it("detects forbidden technical artifacts", () => {
     const dirty =
       "SERV chose compare_observed_asks — [unchanged_state] src=https://vpic.nhtsa.dot.gov/api/vehicles/DecodeVinValues/X?format=json MMY vPIC parkIt";
@@ -203,8 +321,158 @@ describe("buyer-safe Find copy", () => {
     );
     expect(short.length).toBeGreaterThan(0);
     for (const row of short) {
-      const rendered = `${row.make} ${row.model}: ${row.why}. Still unknown: ${row.unknowns.join("; ")}`;
+      const rendered = `${row.make} ${row.model}: ${row.why}. Still unknown: ${row.unknowns.join("; ")}${
+        row.campaignRefs.length > 0
+          ? `. ${row.campaignRefs.map((id) => formatOfficialRecallNumber(id)).join("; ")}`
+          : ""
+      }.`;
       expect(findForbiddenTechArtifacts(rendered)).toEqual([]);
+      if (row.campaignRefs.length > 0) {
+        expect(rendered).toMatch(/Official recall number \S+ — look this up on NHTSA/);
+      }
     }
+  });
+
+  it("rendered report, check, and radar lines stay plain", () => {
+    const subject = noteCar("SUBJ0000000000001", 2018, 14000, "LE");
+    const peers = [12000, 13000, 15000, 16000].map((price, index) =>
+      noteCar(`PEER000000000000${index}`, 2018, price, "LE"),
+    );
+    const recall = (campaignNumber: string, parkIt: boolean, parkOutSide: boolean): RecallRecord => ({
+      campaignNumber,
+      component: "Airbags",
+      summary: "May deploy.",
+      consequence: "Injury.",
+      remedy: "Replace.",
+      parkIt,
+      parkOutSide,
+    });
+    const cases = [
+      [recall("12V501000", true, false)],
+      [recall("24V111", false, true)],
+      [recall("24V010", false, false)],
+    ];
+    for (const recalls of cases) {
+      for (const mode of ["personal", "flip"] as const) {
+        const computed = buildComputedReport({
+          mode,
+          subject,
+          candidates: [subject, ...peers],
+          recalls,
+          recallsAvailable: true,
+          complaintCount: 2,
+          fuel: null,
+          vinDecode: null,
+          distanceToSearchZipMiles: null,
+          asOfYear: 2026,
+        });
+        const decision = summaryLine({
+          mode: computed.mode,
+          verdict: computed.verdict,
+          fairValueUsd: computed.fairValueUsd,
+          flip: computed.flip,
+          openParkIt: computed.openParkIt,
+          withholdReason: null,
+        });
+        const gates = runOrderedGates(computed);
+        const clamped = clampDecision("buy", constraintsFromGates(gates, computed));
+        const lines = [
+          decision.line,
+          decision.detail,
+          fitHeadline(computed),
+          templateExplanation(computed),
+          plainCompScope(computed.compScope),
+          `${computed.comps.length} similar listings`,
+          "Similar listings",
+          "Official recall number",
+          "The numbers below are official recall numbers you can look up on NHTSA.",
+          ...computed.reasons,
+          ...computed.dataNotes,
+          ...computed.questions,
+          ...computed.flags.map((flag) => `${flag.text} Source: ${plainFlagSource(flag.source)}`),
+          ...computed.recalls.map((item) => item.campaignNumber),
+          ...gates.gates.map((gate) => `${plainBuyerPhrase(gate.id)} (${gate.status}) ${plainBuyerPhrase(gate.reason)}`),
+          ...clamped.overrideReasons.map((reason) => plainBuyerPhrase(reason)),
+          plainDecisionAction("needs_inspection"),
+          plainDecisionSource("guardrail_clamp"),
+          plainDecisionSource("no_serv_key"),
+        ];
+        for (const line of lines) {
+          expect(findForbiddenTechArtifacts(line), line).toEqual([]);
+        }
+        if (computed.recalls.length > 0) {
+          expect(lines.join(" ")).toMatch(/12V501000|24V111|24V010/);
+        }
+      }
+    }
+
+    const proofLines = [
+      formatBuyerProofLine({
+        id: "serv_prompt_guard",
+        status: "skipped",
+        detail: "SERV_API_KEY is not set. The local screen still ran. The written summary is the template.",
+      }),
+      formatBuyerProofLine({
+        id: "government_data",
+        status: "ran",
+        detail: "NHTSA vPIC, NHTSA recalls, NHTSA complaints, fueleconomy.gov, US Census geocoder",
+      }),
+      formatBuyerProofLine({
+        id: "deterministic_tools",
+        status: "ran",
+        detail: "selectComparables, mileageAdjust, historyAdjustment, verdictFromPriceGap, flipMath, scoreFromGap, dealerQuestions",
+      }),
+      formatBuyerProofLine({
+        id: "ordered_gates",
+        status: "passed",
+        detail: "price_vs_comps:pass, data_sufficiency:withhold, safety_red_flags:forbid",
+      }),
+      formatBuyerProofLine({
+        id: "verdict_guardrails",
+        status: "passed",
+        detail: "final=needs_inspection; source=no_serv_key",
+      }),
+      formatBuyerProofLine({
+        id: "serv_shadow_agent",
+        status: "skipped",
+        detail: "autoflip.explain.v1",
+      }),
+      formatBuyerServCheckSummary({
+        purpose: "report_guard",
+        promptGuard: "allow",
+        shadowOutcome: "not_exposed",
+      }),
+      formatBuyerNextCheckWhy(
+        "run_full_analysis",
+        "Full analysis is per-VIN (1 credit) — pulls EPA fuel when matched. Not a free Find-card invent.",
+      ),
+    ];
+    for (const line of proofLines) {
+      expect(findForbiddenTechArtifacts(line), line).toEqual([]);
+    }
+    expect(proofLines.join(" ")).not.toMatch(/SERV_API_KEY|vPIC|selectComparables|price_vs_comps|no_serv_key|Find-card invent/i);
+    expect(proofLines.join(" ")).toMatch(/Official|automatic review is not configured|NHTSA VIN decoder|1 report credit/i);
+
+    const ranked = topFlipCandidates(
+      [12000, 13000, 15000, 16000].map((price, index) => noteCar(`FLIP000000000000${index}`, 2018, price, "LE")),
+      new Date("2026-11-09T00:00:00Z"),
+      4,
+    );
+    expect(ranked.length).toBeGreaterThan(0);
+    expect(findForbiddenTechArtifacts(flipAlertWhy(ranked[0]!))).toEqual([]);
+
+    const pool = [12000, 13000, 15000, 16000].map((price, index) =>
+      noteCar(`RADAR00000000000${index}`, 2018, price, "LE"),
+    );
+    const band = marketBand(pool);
+    expect(band).toBeTruthy();
+    const radar = prefilterListing(
+      { ...pool[0]!, priceUsd: 9000 },
+      { priceMax: 20000, zip: "68114", radiusMiles: 50, make: "Kia", model: "Sportage" },
+      band,
+      "flip",
+      2026,
+    );
+    if (radar.pass && radar.why) expect(findForbiddenTechArtifacts(radar.why)).toEqual([]);
   });
 });

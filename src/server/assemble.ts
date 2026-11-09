@@ -814,10 +814,10 @@ export async function previewListing(input: AssembleInput, deps: AssembleDeps) {
   const parkIt = recallLookup.records.some((item) => item.parkIt);
   const parkOutside = recallLookup.records.some((item) => item.parkOutSide);
   const parkNote = parkIt
-    ? " At least one campaign has parkIt=true — verify VIN applicability and repair status before driving (model coverage is not VIN unrepaired proof)."
+    ? " At least one is a park-it (do not drive) campaign — verify VIN applicability and repair status before driving (model coverage is not VIN unrepaired proof)."
     : parkOutside
-      ? " At least one campaign has parkOutside=true (outdoor parking guidance) — not a parkIt / do-not-drive claim by itself; verify VIN applicability."
-      : " Verify VIN applicability and repair status with the dealer; absence of parkIt/parkOutside flags is not VIN-cleared.";
+      ? " At least one includes outdoor-parking guidance — not a do-not-drive park-it claim by itself; verify VIN applicability."
+      : " Verify VIN applicability and repair status with the dealer; absence of a do-not-drive or outdoor-parking flag is not VIN-cleared.";
   const reasons = [
     badge.deltaLabel ?? badge.label,
     !recallLookup.available

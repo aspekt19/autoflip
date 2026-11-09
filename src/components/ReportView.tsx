@@ -1,3 +1,14 @@
+import {
+  formatBuyerProofLine,
+  formatBuyerServCheckSummary,
+  plainBuyerPhrase,
+  plainCompScope,
+  plainDecisionAction,
+  plainDecisionSource,
+  plainExplanationSource,
+  plainFlagSource,
+  plainGateStatus,
+} from "@/domain/find-buyer-copy";
 import { CoverageNote } from "./CoverageNote";
 import { fitHeadline, midProfitUsd, walkAwayAskingUsd } from "@/domain/fit";
 import { summaryLine } from "@/domain/summary-line";
@@ -49,7 +60,7 @@ export function ReportView({ report }: { report: FullReport }) {
         <a href="#report-summary">Verdict</a>
         <a href="#report-checked">How checked</a>
         <a href="#report-facts">Facts &amp; estimates</a>
-        <a href="#report-comparables">Comparables</a>
+        <a href="#report-comparables">Similar listings</a>
         <a href="#report-history">History &amp; recalls</a>
         <a href="#report-sources">Sources</a>
         <a href="#report-proof">Proof of AI</a>
@@ -62,8 +73,10 @@ export function ReportView({ report }: { report: FullReport }) {
       </p>
       {computed.verdict === "withheld" ? (
         <p className="risk-primary" role="alert">
-          {computed.decision?.withholdReason ??
-            "Verdict withheld: there is not enough verified evidence for a buy, negotiate, or pass decision."}
+          {plainBuyerPhrase(
+            computed.decision?.withholdReason ??
+              "Verdict withheld: there is not enough verified evidence for a buy, negotiate, or pass decision.",
+          )}
         </p>
       ) : null}
       {computed.decision ? (
@@ -81,13 +94,13 @@ export function ReportView({ report }: { report: FullReport }) {
           </p>
           {computed.decision.servChoice && computed.decision.servChoice !== computed.decision.action ? (
             <p className="hint">
-              AI review chose {computed.decision.servChoice}; final action is {computed.decision.action}.
+              AI review chose {plainDecisionAction(computed.decision.servChoice)}; final action is {plainDecisionAction(computed.decision.action)}.
             </p>
           ) : null}
           {computed.decision.overrideReasons.length > 0 ? (
             <ul className="refuse">
               {computed.decision.overrideReasons.map((reason) => (
-                <li key={reason}>{reason}</li>
+                <li key={reason}>{plainBuyerPhrase(reason)}</li>
               ))}
             </ul>
           ) : null}
@@ -122,34 +135,25 @@ export function ReportView({ report }: { report: FullReport }) {
         <ul className="refuse">
           <li>
             <b>From code:</b> fair value {computed.fairValueUsd === null ? "not computed" : formatUsd(computed.fairValueUsd)}, asking gap{" "}
-            {computed.priceGap === null ? "—" : formatPct(computed.priceGap)}, {computed.comps.length} comparables
+            {computed.priceGap === null ? "—" : formatPct(computed.priceGap)}, {computed.comps.length} similar listings
             {computed.score !== null ? `, price score ${computed.score}/100` : ""}.
           </li>
           <li>
             <b>Ordered gates:</b>{" "}
             {computed.decision?.gates?.length
-              ? computed.decision.gates.map((gate) => `${gate.id} (${gate.status})`).join(" → ")
+              ? computed.decision.gates.map((gate) => `${plainBuyerPhrase(gate.id)} (${plainGateStatus(gate.status)})`).join(" → ")
               : "not recorded on this saved report"}
             .
           </li>
           <li>
             <b>AI review:</b>{" "}
-            {(report.proof.servChecks ?? [])
-              .map((check) => {
-                const bits = [check.purpose.replaceAll("_", " ")];
-                if (check.promptGuard && check.promptGuard !== "not_exposed") bits.push(`input screen ${check.promptGuard}`);
-                if (check.shadowOutcome && check.shadowOutcome !== "not_exposed" && check.shadowOutcome !== "not_configured") {
-                  bits.push(`second pass ${check.shadowOutcome}`);
-                }
-                if (check.features?.length) bits.push(check.features.join(", "));
-                return bits.join(" · ");
-              })
-              .join("; ") || "no AI review steps recorded (template or offline report)"}
+            {(report.proof.servChecks ?? []).map((check) => formatBuyerServCheckSummary(check)).join("; ") ||
+              "no AI review steps recorded (template or offline report)"}
             .
           </li>
           <li>
-            <b>Final action:</b> {computed.decision?.action ?? computed.verdict}
-            {computed.decision?.source ? ` (${computed.decision.source.replaceAll("_", " ")})` : ""}.
+            <b>Final action:</b> {plainDecisionAction(computed.decision?.action ?? computed.verdict)}
+            {computed.decision?.source ? ` (${plainDecisionSource(computed.decision.source)})` : ""}.
           </li>
         </ul>
       </section>
@@ -199,7 +203,7 @@ export function ReportView({ report }: { report: FullReport }) {
         </article>
         <article>
           <b>{computed.comps.length}</b>
-          <span>Comparables</span>
+          <span>Similar listings</span>
         </article>
         <article>
           <b>
@@ -273,7 +277,7 @@ export function ReportView({ report }: { report: FullReport }) {
           <ul className="refuse">
             <li>Example title and fee assumption: {formatUsd(computed.flip.titleFeeUsd)}.</li>
             <li>Example reconditioning reserve: {formatUsd(computed.flip.reconUsd)}. Not an inspection.</li>
-            <li>Sell-friction example: {Math.round(computed.flip.sellFriction * 100)}% off the comparable asking price.</li>
+            <li>Sell-friction example: {Math.round(computed.flip.sellFriction * 100)}% off the similar-listing asking price.</li>
             <li>If you sell near the low end, profit is {formatUsd(computed.flip.marginUsd)}. Near the midpoint of asking prices, it is {formatUsd(midProfitUsd(computed.flip))}.</li>
           </ul>
           <p>{computed.flip.timeToSellNote}</p>
@@ -281,9 +285,9 @@ export function ReportView({ report }: { report: FullReport }) {
       ) : null}
 
       <section id="report-comparables">
-        <h2>Comparables</h2>
-        <p className="hint">Scope: {computed.compScope.replaceAll("_", " ")}. Prices are adjusted to this car’s mileage.</p>
-        {computed.comps.length === 0 ? <p>No comparables qualified.</p> : null}
+        <h2>Similar listings</h2>
+        <p className="hint">Scope: {plainCompScope(computed.compScope)}. Prices are adjusted to this car’s mileage.</p>
+        {computed.comps.length === 0 ? <p>No similar listings qualified.</p> : null}
         {computed.comps.length > 0 ? (
           <div className="table-scroll"><table>
             <thead>
@@ -336,7 +340,7 @@ export function ReportView({ report }: { report: FullReport }) {
         <h2>Recall campaigns</h2>
         <p className="hint">
           Source: NHTSA
-          {nhtsaRecallCheck?.checkedAt ? ` · fetched ${formatCheckedAt(nhtsaRecallCheck.checkedAt)} UTC` : ""}. These campaigns match the year, make, and model. They are not a record of what was fixed on this VIN.
+          {nhtsaRecallCheck?.checkedAt ? ` · fetched ${formatCheckedAt(nhtsaRecallCheck.checkedAt)} UTC` : ""}. The numbers below are official recall numbers you can look up on NHTSA. They match the year, make, and model. They are not a record of what was fixed on this VIN.
         </p>
         <ul className="refuse">
           <li>
@@ -390,7 +394,7 @@ export function ReportView({ report }: { report: FullReport }) {
           <div className="table-scroll"><table>
             <thead>
               <tr>
-                <th>Campaign</th>
+                <th>Official recall number</th>
                 <th>Component</th>
                 <th>Park-it (do not drive)</th>
                 <th>Outdoor parking guidance</th>
@@ -478,12 +482,9 @@ export function ReportView({ report }: { report: FullReport }) {
         <DecisionNote scene={reportScene(report)} proofs={report.proof.servChecks ?? []} />
         <ul className="refuse">
           <li>Inputs hash: <span className="mono">{report.proof.inputsHash.slice(0, 16)}…</span></li>
-          <li>Explanation source: {report.proof.explanationSource}</li>
+          <li>Explanation source: {plainExplanationSource(report.proof.explanationSource)}</li>
           {(report.proof.steps ?? []).map((step) => (
-            <li key={`${step.id}-${step.status}`}>
-              {step.id.replaceAll("_", " ")}: {step.status}
-              {step.detail ? ` — ${step.detail}` : ""}
-            </li>
+            <li key={`${step.id}-${step.status}`}>{formatBuyerProofLine(step)}</li>
           ))}
         </ul>
         {report.proof.steps?.some((step) => step.id === "number_audit" && step.status === "failed") ? (
@@ -567,7 +568,7 @@ function RiskSummary({
             <li key={`${flag.source}-${flag.text}`} className={`risk-flag ${flag.level}`}>
               <span className="risk-flag-level">{flag.level}</span>
               <span>{flag.text}</span>
-              <span className="hint">Source: {flag.source}</span>
+              <span className="hint">Source: {plainFlagSource(flag.source)}</span>
             </li>
           ))}
         </ul>

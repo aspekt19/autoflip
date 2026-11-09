@@ -241,7 +241,7 @@ describe("find risk evidence (structured shapes)", () => {
     expect(short[0]!.outstandingChecks).toEqual(
       expect.arrayContaining(["get_history_report"]),
     );
-    expect(short[0]!.campaignRefs).toContain("NHTSA recall campaign 18V123");
+    expect(short[0]!.campaignRefs).toContain("Official recall number 18V123 — look this up on NHTSA");
     expect(short[0]!.why).toMatch(/investigate VIN|not auto-buy/i);
   });
 

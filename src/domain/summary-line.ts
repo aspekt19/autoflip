@@ -29,7 +29,7 @@ export function summaryLine(input: {
     return {
       line: input.mode === "flip" ? "Pass" : "Skip",
       detail:
-        "A parkIt campaign matched this model year. Confirm VIN applicability and completed repair before any buy decision — model coverage is not VIN unrepaired proof.",
+        "A park-it (do not drive) campaign matched this model year. Confirm VIN applicability and completed repair before any buy decision — model coverage is not VIN unrepaired proof.",
     };
   }
   if (input.mode === "flip") {

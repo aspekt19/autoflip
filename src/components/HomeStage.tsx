@@ -63,7 +63,7 @@ export function HomeStage() {
           </li>
           <li>
             <strong>02 Read the listing</strong>
-            <span>Photo, price, miles, and a free Good, Fair, or High price badge. Save the search if you want alerts. Alerts are a plan, not a report credit.</span>
+            <span>Photo, price, miles, and a Good, Fair, or High price badge. Find is a credit-priced search when billing is enabled. Save the search if you want alerts. Alerts are a plan, not a report credit.</span>
           </li>
           <li>
             <strong>03 Open the full analysis</strong>
@@ -82,7 +82,7 @@ export function HomeStage() {
         </article>
         <article>
           <strong>Hidden risks</strong>
-          <span>Title, recalls and odometer checks surface what the seller won&apos;t mention.</span>
+          <span>Recall campaigns and complaint counts come from NHTSA when available. Title brands and odometer brands are not checked here.</span>
         </article>
         <article>
           <strong>Proof for every verdict</strong>

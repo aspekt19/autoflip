@@ -262,9 +262,9 @@ export function buildComputedReport(input: ReportInput): ComputedReport {
   } else if (input.recalls.length === 0) {
     dataNotes.push("NHTSA returned no campaigns for this year, make, and model. That is not proof there are none, and it is not a VIN-specific repair check or VIN-cleared result.");
   } else if (!parkIt && !parkOutside) {
-    dataNotes.push("Returned model-year campaigns have no parkIt or parkOutside flags. That is not VIN-cleared and not proof this vehicle is unaffected.");
+    dataNotes.push("Returned model-year campaigns have no do-not-drive park-it flag and no outdoor-parking guidance flag. That is not VIN-cleared and not proof this vehicle is unaffected.");
   } else if (!parkIt && parkOutside) {
-    dataNotes.push("A model-year parkOutside campaign was returned (outdoor parking guidance). That is not a parkIt / do-not-drive claim by itself, and it is not VIN applicability or repair-status proof.");
+    dataNotes.push("A model-year outdoor-parking guidance campaign was returned. That is not a do-not-drive park-it claim by itself, and it is not VIN applicability or repair-status proof.");
   }
   if (input.complaintCount === null) {
     dataNotes.push("NHTSA complaint count was unavailable.");
@@ -320,9 +320,9 @@ export function buildComputedReport(input: ReportInput): ComputedReport {
     }
     if (parkIt) {
       verdict = "walk_away";
-      reasons.push("A model-year parkIt campaign is a conservative do-not-drive override until VIN applicability and repair status are verified. Model/campaign coverage alone does not prove this VIN is affected or still unrepaired.");
+      reasons.push("A model-year park-it (do not drive) campaign is a conservative do-not-drive override until VIN applicability and repair status are verified. Model and campaign coverage alone does not prove this VIN is affected or still unrepaired.");
     } else if (parkOutside) {
-      reasons.push("A model-year parkOutside campaign (outdoor parking guidance) was returned. That is not a parkIt / do-not-drive stop by itself — verify VIN applicability before treating it as cleared or as a hard stop.");
+      reasons.push("A model-year outdoor-parking guidance campaign was returned. That is not a do-not-drive park-it stop by itself — verify VIN applicability before treating it as cleared or as a hard stop.");
     }
     reasons.push(
       `Asking ${formatUsd(subjectPrice)} versus a mileage-and-history fair value of ${formatUsd(fairValueUsd)} (${formatPct(Math.abs(gap))} ${gap >= 0 ? "above" : "below"}).`,
@@ -368,7 +368,7 @@ export function buildComputedReport(input: ReportInput): ComputedReport {
         reasons.push("The asking price is suspiciously low versus fair value, so a clear good-deal flip verdict was capped until the discount is explained.");
       }
       reasons.push(
-        `Conservative resale (25th percentile of mileage-adjusted asking prices, after a ${formatPct(flip.sellFriction)} sell friction) is ${formatUsd(flip.conservativeProceedsUsd)}. All-in cost is ${formatUsd(flip.allInUsd)}. Margin is ${formatUsd(flip.marginUsd)}.`,
+        `Conservative resale (a lower mileage-adjusted asking price from this set — about the bottom quarter, after a ${formatPct(flip.sellFriction)} sell friction) is ${formatUsd(flip.conservativeProceedsUsd)}. All-in cost is ${formatUsd(flip.allInUsd)}. Margin is ${formatUsd(flip.marginUsd)}.`,
       );
       reasons.push(
         `Resale range from current comparable asking prices: ${formatUsd(flip.resaleLowUsd)} to ${formatUsd(flip.resaleHighUsd)}. These are asking prices, not closed sales.`,
@@ -378,9 +378,9 @@ export function buildComputedReport(input: ReportInput): ComputedReport {
       );
       reasons.push(`Time-to-sell risk is ${flip.timeToSellRisk}. ${flip.timeToSellNote}`);
       if (parkIt) {
-        reasons.push("A model-year parkIt campaign makes this a conservative walk-away until VIN applicability and repair status are verified. Not VIN unrepaired proof from MMY coverage alone.");
+        reasons.push("A model-year park-it (do not drive) campaign makes this a conservative walk-away until VIN applicability and repair status are verified. Year, make, and model coverage alone is not VIN unrepaired proof.");
       } else if (parkOutside) {
-        reasons.push("A model-year parkOutside campaign was returned (outdoor parking guidance). It does not alone force a parkIt walk-away; confirm VIN applicability.");
+        reasons.push("A model-year outdoor-parking guidance campaign was returned. It does not alone force a do-not-drive walk-away; confirm VIN applicability.");
       }
     }
   }

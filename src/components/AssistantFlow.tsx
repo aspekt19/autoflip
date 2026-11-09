@@ -38,6 +38,7 @@ import {
   formatBuyerLoopStatus,
   formatBuyerLoopStep,
   formatBuyerNextCheckWhy,
+  formatOfficialRecallNumber,
   summarizeFuelCheckOutcome,
 } from "@/domain/find-buyer-copy";
 import type { BestDealResult } from "@/domain/find-best-deal";
@@ -1792,13 +1793,7 @@ function AssistantFlow({
                             <li key={`${row.make}-${row.model}`}>
                               {row.make} {row.model}: {row.why}. Still unknown: {row.unknowns.join("; ")}
                               {row.campaignRefs.length > 0
-                                ? `. ${row.campaignRefs
-                                    .map((id) =>
-                                      /nhtsa recall campaign/i.test(id)
-                                        ? id
-                                        : `NHTSA recall campaign ${id}`,
-                                    )
-                                    .join("; ")}`
+                                ? `. ${row.campaignRefs.map((id) => formatOfficialRecallNumber(id)).join("; ")}`
                                 : ""}
                               .
                             </li>

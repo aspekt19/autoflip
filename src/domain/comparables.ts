@@ -94,11 +94,11 @@ export function selectComparables(subject: Listing, pool: Listing[]): CompSelect
             ? "Only 1 same-trim listing in range"
             : `Only ${sameTrim.length} same-trim listings in range`;
       notes.push(
-        `${trimBit}, so this rating uses ${comps.length} same-model ${subject.make} ${subject.model} comps within ±${ASSUMPTIONS.yearWindow} model year (similar mileage when available).`,
+        `${trimBit}, so this rating uses ${comps.length} similar ${subject.make} ${subject.model} listings within ±${ASSUMPTIONS.yearWindow} model year (similar mileage when available).`,
       );
     } else {
       notes.push(
-        `Compared with ${comps.length} same-model ${subject.make} ${subject.model} comps within ±${ASSUMPTIONS.yearWindow} model year${comps.length < near.length ? ", preferring similar mileage" : ""}.`,
+        `Compared with ${comps.length} similar ${subject.make} ${subject.model} listings within ±${ASSUMPTIONS.yearWindow} model year${comps.length < near.length ? ", preferring similar mileage" : ""}.`,
       );
     }
     return { comps, scope: "year_window", notes };
@@ -108,7 +108,7 @@ export function selectComparables(subject: Listing, pool: Listing[]): CompSelect
   if (wide.length >= ASSUMPTIONS.minComps && subject.miles != null) {
     const comps = preferSimilarMileage(subject.miles, wide);
     notes.push(
-      `Fewer than ${ASSUMPTIONS.minComps} listings within ±${ASSUMPTIONS.yearWindow} model year, so the window was widened to ±${ASSUMPTIONS.yearWindowExpanded} years (${comps.length} same-model comps; similar mileage when available; year+mileage adjusted).`,
+      `Fewer than ${ASSUMPTIONS.minComps} listings within ±${ASSUMPTIONS.yearWindow} model year, so the window was widened to ±${ASSUMPTIONS.yearWindowExpanded} years (${comps.length} similar listings; similar mileage when available; year and mileage adjusted).`,
     );
     return { comps, scope: "expanded_year", notes };
   }
@@ -117,7 +117,7 @@ export function selectComparables(subject: Listing, pool: Listing[]): CompSelect
   if (wider.length >= ASSUMPTIONS.minComps && subject.miles != null) {
     const comps = preferSimilarMileage(subject.miles, wider);
     notes.push(
-      `Fewer than ${ASSUMPTIONS.minComps} listings within ±${ASSUMPTIONS.yearWindowExpanded} model years, so the window was widened to ±${ASSUMPTIONS.yearWindowWide} years (${comps.length} same-model comps from this search; prices adjusted to this car’s year and mileage with a disclosed year+miles method).`,
+      `Fewer than ${ASSUMPTIONS.minComps} listings within ±${ASSUMPTIONS.yearWindowExpanded} model years, so the window was widened to ±${ASSUMPTIONS.yearWindowWide} years (${comps.length} similar listings from this search; prices adjusted to this car’s year and mileage).`,
     );
     return { comps, scope: "wide_year", notes };
   }
