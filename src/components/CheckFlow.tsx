@@ -194,8 +194,43 @@ function CheckFlowForm() {
     }
 
     setPending(true);
-    void refreshAllowance();
     try {
+      // Gate quota before the listing fetch so exhausted accounts redirect immediately.
+      try {
+        const accountRes = await fetch("/api/account", { cache: "no-store" });
+        const account = (await accountRes.json()) as {
+          authenticated?: boolean;
+          credits?: number;
+          freeChecks?: { remaining?: number; limit?: number; resetsLabel?: string } | null;
+        };
+        if (account.authenticated) {
+          const remaining =
+            typeof account.freeChecks?.remaining === "number" ? account.freeChecks.remaining : null;
+          const credits = typeof account.credits === "number" ? account.credits : 0;
+          if (
+            remaining != null &&
+            account.freeChecks?.limit &&
+            account.freeChecks.resetsLabel &&
+            typeof account.freeChecks.resetsLabel === "string"
+          ) {
+            setAllowance(
+              formatFreeChecksRemaining({
+                remaining,
+                limit: account.freeChecks.limit,
+                resetsLabel: account.freeChecks.resetsLabel,
+              }),
+            );
+          }
+          if (remaining === 0 && credits < 1) {
+            stash();
+            router.push("/credits?need=1&return=%2Fcheck");
+            return;
+          }
+        }
+      } catch {
+        /* server still gates; continue */
+      }
+
       const payload =
         kind === "link"
           ? { kind: "link", url: url.trim(), optionalZip: optionalZip.trim() || undefined }

@@ -1085,6 +1085,15 @@ function AssistantFlow({
       setError("Add a ZIP for a seller-distance radius, or choose Nationwide.");
       return;
     }
+    // Never silently search Nationwide when the note named a place or ZIP.
+    if (need.distanceMiles == null && (need.zip || need.locationPhrase || noteMarks?.location || noteMarks?.zip)) {
+      setError(
+        need.zip
+          ? `Your note included ZIP ${need.zip}. Pick a seller-distance radius — we will not search Nationwide without that.`
+          : `Your note mentioned ${need.locationPhrase ?? "a place"}. Add a U.S. ZIP and radius — we will not search Nationwide without that.`,
+      );
+      return;
+    }
     if (findSubmitLock.current) return;
     findSubmitLock.current = true;
     setError(null);

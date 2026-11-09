@@ -172,7 +172,7 @@ test("listing-link flow with dealer JSON-LD fixture (mocked API, no paid calls)"
   const urlBox = page.getByRole("textbox", { name: "Listing link" });
   await expect(urlBox).toBeVisible();
   await expect(page.getByText("Who is this for")).toHaveCount(0);
-  await expect(page.getByText(/Free checks this month: 3 of 3 left/i)).toBeVisible();
+  await expect(page.getByText(/3 of 3 free checks left/i)).toBeVisible();
   await urlBox.fill("https://dealer.example/inventory/camry-2021");
   await page.getByRole("button", { name: "Check this car" }).click();
   await expect(page.getByRole("heading", { name: "2021 Toyota Camry" })).toBeVisible();
@@ -180,7 +180,7 @@ test("listing-link flow with dealer JSON-LD fixture (mocked API, no paid calls)"
   await expect(page.getByText(/\(JSON-LD\)/).first()).toBeVisible();
   await expect(page.getByText(/Walk-away/i).first()).toBeVisible();
   await expect(page.getByText(/Compared with 1 similar/i)).toBeVisible();
-  await expect(page.getByText(/Free checks this month: 2 of 3 left/i)).toBeVisible();
+  await expect(page.getByText(/2 of 3 free checks left/i)).toBeVisible();
   await page.screenshot({ path: join(SCREEN_DIR, "check-listing-dealer.png"), fullPage: true });
 });
 

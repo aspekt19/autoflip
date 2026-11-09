@@ -32,17 +32,17 @@ describe("free-check-quota domain", () => {
     const now = new Date("2026-11-09T15:30:00.000Z");
     const twoLeft = freeCheckQuotaView(1, now);
     expect(formatFreeChecksRemaining(twoLeft)).toBe(
-      "Free checks this month: 2 of 3 left (resets 1 December 2026 (00:00 UTC))",
+      "2 of 3 free checks left (resets 1 December 2026 (00:00 UTC))",
     );
     expect(formatFreeChecksRemaining(freeCheckQuotaView(0, now))).toBe(
-      "Free checks this month: 3 of 3 left (resets 1 December 2026 (00:00 UTC))",
+      "3 of 3 free checks left (resets 1 December 2026 (00:00 UTC))",
     );
     expect(formatFreeChecksRemaining(freeCheckQuotaView(3, now))).toBe(
-      "Free checks this month: 0 of 3 left (resets 1 December 2026 (00:00 UTC))",
+      "0 of 3 free checks left (resets 1 December 2026 (00:00 UTC))",
     );
     const yearEnd = new Date("2026-12-31T23:00:00.000Z");
     expect(formatFreeChecksRemaining(freeCheckQuotaView(2, yearEnd))).toBe(
-      "Free checks this month: 1 of 3 left (resets 1 January 2027 (00:00 UTC))",
+      "1 of 3 free checks left (resets 1 January 2027 (00:00 UTC))",
     );
     expect(assertBuyerSafeText(formatFreeChecksRemaining(twoLeft)).ok).toBe(true);
     expect(formatFreeChecksSignInPrompt()).toBe(
@@ -56,7 +56,7 @@ describe("free-check-quota domain", () => {
       authenticated: true,
       freeChecks: { remaining: 2, limit: 3, resetsLabel: "1 December 2026 (00:00 UTC)" },
     });
-    expect(line).toBe("Free checks this month: 2 of 3 left (resets 1 December 2026 (00:00 UTC))");
+    expect(line).toBe("2 of 3 free checks left (resets 1 December 2026 (00:00 UTC))");
     expect(freeChecksRemainingFromAccount({ authenticated: false, freeChecks: null })).toBe("signed-out");
     expect(freeChecksRemainingFromAccount({ authenticated: true, freeChecks: null })).toBe("missing");
     expect(freeChecksRemainingFromAccount({ authenticated: true, freeChecks: { remaining: 2 } })).toBe("missing");

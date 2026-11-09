@@ -2,6 +2,8 @@ import { parseUsdInput } from "./budget";
 
 /** Same ceiling as MAX_DISTANCE_MILES in need.ts. Kept local to avoid an import cycle. */
 const NOTE_RADIUS_MAX = 3000;
+/** When the note names a ZIP but not a radius, search locally — never silent Nationwide. */
+export const NOTE_DEFAULT_RADIUS_WHEN_ZIP = 100;
 
 /**
  * Deterministic read of a Find note.
@@ -28,7 +30,11 @@ export type NoteIntake = {
   zip: string | null;
   /** City or place named in the note. Not a guessed ZIP. */
   locationPhrase: string | null;
-  /** Seller-distance radius when the note says “within N miles” and a ZIP is present. */
+  /**
+   * Seller-distance radius. When the note names a ZIP, this is the explicit
+   * “within N miles” value or {@link NOTE_DEFAULT_RADIUS_WHEN_ZIP} — never null
+   * (Nationwide) just because the shopper omitted a radius.
+   */
   distanceMiles: number | null;
   mustHaves: string[];
   priorities: string[];
@@ -412,7 +418,8 @@ export function intakeFromNote(text: string, now = new Date()): NoteIntake {
     milesMax,
     zip,
     locationPhrase,
-    distanceMiles: zip ? radius : null,
+    // ZIP in the note → local radius (explicit or default). City-only stays null until ZIP.
+    distanceMiles: zip ? (radius ?? NOTE_DEFAULT_RADIUS_WHEN_ZIP) : null,
     mustHaves,
     priorities,
   };

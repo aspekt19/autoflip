@@ -122,7 +122,7 @@ export function creditsNeedNotice(returnTo: string | null | undefined): string {
     return "Find costs 1 report credit each time a search is delivered. The 3 free checks each UTC month are only for Check a car (listing link or VIN) — they do not pay for Find.";
   }
   if (back.startsWith("/check")) {
-    return "A listing link or VIN uses one of 3 free checks per verified account each UTC month. After those are used, a check costs 1 report credit.";
+    return "You've used your 3 free checks this month — 1 credit per check.";
   }
   return "Find costs 1 report credit per delivered search. A listing link or VIN uses one of 3 free checks per verified account each UTC month; after that a check costs 1 credit.";
 }
