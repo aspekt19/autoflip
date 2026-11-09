@@ -5,6 +5,7 @@
 
 import type { FindBaselineDelta } from "./find-baseline";
 import { formatBaselineForBuyer } from "./find-baseline";
+import { buyerCarLabels, type CarLabelInput } from "./find-car-label";
 import { trimSourceDisagreement } from "./find-car-consistency";
 import { recallEvidenceState, recallFactPlain } from "./find-evidence-state";
 import type { FindFreeGovReceipt } from "./find-free-gov";
@@ -746,7 +747,11 @@ export function formatBuyerLoopStatus(reason: FindNextCheckLoopReason | string |
     case "no_keyed_autonomy":
       return "Automatic advisor checks are not configured on this deployment.";
     case "serv_deterministic_fallback":
-      return "Using the built-in checklist for now.";
+      return "Using the standard check for now.";
+    case "close_call_tie_break":
+      return "The top cars are very close — one more check will try to separate them.";
+    case "close_call_unresolved":
+      return "Checks finished — no clear winner yet.";
     case "no_remaining_research_checks":
       return "No further automatic research steps on this search.";
     default:
@@ -858,52 +863,95 @@ function hintForCar(
  * Seller questions for the pick, then the other shortlisted cars.
  * Cars outside that group are left out. At most five questions, and each one names its car.
  */
+function labelInputFor(car: BestDealCandidate): CarLabelInput {
+  return {
+    key: car.key,
+    year: car.year,
+    make: car.make,
+    model: car.model,
+    trim: car.trim,
+    priceUsd: car.priceUsd,
+    miles: car.miles,
+    city: car.city,
+    state: car.state,
+    dealer: car.dealer,
+  };
+}
+
 export function sellerQuestionsForBuyer(
   result: {
     ranked: readonly BestDealCandidate[];
     pick?: BestDealCandidate | null;
+    allRanked?: readonly BestDealCandidate[];
+    baseline?: { cheapest?: { key: string } | null; lowestMiles?: { key: string } | null } | null;
   },
   hints: readonly SellerQuestionListingHint[] = [],
 ): string[] {
+  const pool = result.allRanked ?? result.ranked;
+  const first = result.pick ?? result.ranked[0] ?? null;
   const ordered: BestDealCandidate[] = [];
-  if (result.pick) ordered.push(result.pick);
+  if (first) ordered.push(first);
+  const alternativeKeys = [result.baseline?.cheapest?.key, result.baseline?.lowestMiles?.key].filter(
+    (key): key is string => Boolean(key),
+  );
+  for (const key of alternativeKeys) {
+    const car = pool.find((row) => row.key === key);
+    if (!car || ordered.some((row) => row.key === car.key)) continue;
+    if (!car.sellerQuestions.some((question) => /odometer/i.test(question))) continue;
+    ordered.push(car);
+  }
   for (const car of result.ranked) {
     if (ordered.some((row) => row.key === car.key)) continue;
     ordered.push(car);
   }
+  const labels = buyerCarLabels([...pool, ...ordered].map(labelInputFor));
   const lines: string[] = [];
   for (const car of ordered) {
     if (lines.length >= SELLER_QUESTION_LIMIT) break;
     const title = `${car.year} ${car.make} ${car.model}`;
+    const shown = labels.get(car.key) ?? title;
     const hint = hintForCar(car, hints);
     const trim = trimSourceDisagreement({
       year: car.year,
       make: car.make,
       model: car.model,
-      displayedTrim: hint?.trim,
+      displayedTrim: hint?.trim ?? car.trim,
       listingUrl: hint?.vdp,
       decodedTrim: hint?.decodedTrim,
     });
+    const onlyOdometer =
+      first != null &&
+      car.key !== first.key &&
+      alternativeKeys.includes(car.key) &&
+      !result.ranked.some((row) => row.key === car.key);
     const carLines: string[] = [];
-    if (trim) carLines.push(trim.sellerQuestion);
+    if (!onlyOdometer && trim) carLines.push(trim.sellerQuestion);
     for (const question of car.sellerQuestions) {
       const clean = question.replace(/\s+/g, " ").trim();
-      if (clean) carLines.push(clean);
+      if (!clean) continue;
+      if (onlyOdometer && !/odometer/i.test(clean)) continue;
+      carLines.push(clean);
     }
     const accidentOnCard = car.factors.some(
       (factor) => factor.id === "listing_feed_flags" && /accident/i.test(factor.detail),
     );
-    if (accidentOnCard && !car.sellerQuestions.some((question) => /accident/i.test(question))) {
+    if (
+      !onlyOdometer &&
+      accidentOnCard &&
+      !car.sellerQuestions.some((question) => /accident/i.test(question))
+    ) {
       carLines.push(
-        `Ask the seller for accident records on the ${title} — the listing says accidents were reported.`,
+        `Ask the seller for accident records on the ${shown} — the listing says accidents were reported.`,
       );
     }
-    if (result.pick && car.key === result.pick.key && carLines.length === 0) {
+    const isFocus = first != null && car.key === first.key;
+    if (isFocus && carLines.length === 0) {
       carLines.push(
-        `Ask the seller for service records and accident history on the ${title} — a vehicle history report has not been checked.`,
+        `Ask the seller for service records and accident history on the ${shown} — a vehicle history report has not been checked.`,
       );
     }
     if (
+      !onlyOdometer &&
       (car.excludedFromPick || /does not match/i.test(car.excludedReason ?? "")) &&
       car.excludedReason
     ) {
@@ -911,9 +959,7 @@ export function sellerQuestionsForBuyer(
     }
     for (const line of carLines) {
       if (lines.length >= SELLER_QUESTION_LIMIT) break;
-      const named = new RegExp(title.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "i").test(line)
-        ? line
-        : `For the ${title}: ${line}`;
+      const named = line.includes(title) ? line.replaceAll(title, shown) : line.includes(shown) ? line : `For the ${shown}: ${line}`;
       if (!lines.includes(named)) lines.push(named);
     }
   }
@@ -934,6 +980,13 @@ export function topPicksInRankOrder<T extends { key: string }>(
   return { rows, pickKeyRank: index === -1 ? null : index + 1 };
 }
 
+/** Heading for the ranked list. After checks finish, drop "in the current order". */
+export function topCarsHeading(input: { hasPick: boolean; evidenceSettled: boolean }): string {
+  if (input.hasPick) return "Top picks";
+  if (input.evidenceSettled) return "Top cars";
+  return "Top cars in the current order";
+}
+
 /** One ranked row for the Top picks list. The link is separate so a missing URL is not a fake anchor. */
 export function formatTopPickLine(input: {
   year: number;
@@ -941,10 +994,13 @@ export function formatTopPickLine(input: {
   model: string;
   priceUsd: number | null;
   miles: number | null;
+  /** Distinguishing label when two cars share a year, make, and model. */
+  name?: string | null;
 }): string {
   const price = input.priceUsd != null ? `$${input.priceUsd.toLocaleString("en-US")}` : "Price not listed";
   const miles = input.miles != null ? `${input.miles.toLocaleString("en-US")} mi` : "Mileage not listed";
-  return `${input.year} ${input.make} ${input.model} — ${price} · ${miles}`;
+  const title = input.name?.trim() || `${input.year} ${input.make} ${input.model}`;
+  return `${title} — ${price} · ${miles}`;
 }
 
 export function formatBuyerBestDeal(result: BestDealResult): {
@@ -960,24 +1016,28 @@ export function formatBuyerBestDeal(result: BestDealResult): {
   honesty: string;
   settlementNote: string;
   evidenceSettled: boolean;
+  closeCall: BestDealResult["closeCall"];
 } {
   const settleTag = result.evidenceSettled
     ? result.priceProvisional
       ? "settled; provisional on price"
       : "settled"
     : "provisional — may change as checks complete";
+  const labels = buyerCarLabels(result.ranked.map(labelInputFor));
   const headline =
     result.confidence === "confident" && result.pick
-      ? `Best deal (${settleTag}): ${result.pick.year} ${result.pick.make} ${result.pick.model}${result.pick.priceUsd != null ? ` · $${result.pick.priceUsd.toLocaleString("en-US")}` : ""}`
+      ? `Best deal (${settleTag}): ${labels.get(result.pick.key) ?? `${result.pick.year} ${result.pick.make} ${result.pick.model}`}${result.pick.priceUsd != null ? ` · $${result.pick.priceUsd.toLocaleString("en-US")}` : ""}`
       : "No confident best-deal pick on current evidence";
   const rankedLines = result.ranked.map((c, i) => {
     const fuel = c.fuelSummary ? ` · ${c.fuelSummary}` : "";
     const ask = c.priceUsd != null ? `$${c.priceUsd.toLocaleString("en-US")}` : "price n/a";
     const miles = c.miles != null ? `${c.miles.toLocaleString("en-US")} mi` : "miles n/a";
-    return `${i + 1}. ${c.year} ${c.make} ${c.model} — ${ask} · ${miles}${fuel} · score ${c.score}`;
+    const name = labels.get(c.key) ?? `${c.year} ${c.make} ${c.model}`;
+    return `${i + 1}. ${name} — ${ask} · ${miles}${fuel}`;
   });
   const factorLines = result.ranked.flatMap((c, i) => {
-    const head = `${i + 1}. ${c.year} ${c.make} ${c.model} (score ${c.score}):`;
+    const name = labels.get(c.key) ?? `${c.year} ${c.make} ${c.model}`;
+    const head = `${i + 1}. ${name}:`;
     // Settled breakdown replaces provisional lines — never keep “Held out” / “not on file yet”.
     const factors = c.factors
       .slice()
@@ -1020,6 +1080,7 @@ export function formatBuyerBestDeal(result: BestDealResult): {
     honesty: result.honesty,
     settlementNote: result.settlementNote,
     evidenceSettled: result.evidenceSettled,
+    closeCall: result.closeCall ?? null,
   };
 }
 

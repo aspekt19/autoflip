@@ -29,7 +29,9 @@ export type FindServInvokeDecision = {
     | "free_gov_deterministic_drain"
     | "free_gov_batch_no_decision_change"
     | "consistency_deterministic_drain"
-    | "no_decision_change";
+    | "no_decision_change"
+    | "close_call_free_per_car"
+    | "close_call_tie_break";
 };
 
 /** Stable fingerprint of the ranked shortlist used to detect decision-changing evidence. */

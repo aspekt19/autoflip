@@ -128,7 +128,8 @@ describe("live shortlist ranking under condition-first + ~$15k", () => {
     expect(top.score - cx5_2019.score).toBeGreaterThan(BEST_DEAL_TIE_EPSILON);
 
     const buyer = formatBuyerBestDeal(result);
-    expect(buyer.rankedLines.every((l) => /score/.test(l))).toBe(true);
+    expect(buyer.rankedLines.join("\n")).not.toMatch(/\bscore\b/i);
+    expect(buyer.factorLines.join("\n")).not.toMatch(/\(score /);
     expect(buyer.factorLines.length).toBeGreaterThan(result.ranked.length);
     expect(buyer.why.length).toBeGreaterThan(40);
     expect(findForbiddenTechArtifacts(buyer.why)).toEqual([]);

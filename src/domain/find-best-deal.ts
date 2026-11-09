@@ -9,7 +9,9 @@ import { ASSUMPTIONS } from "./assumptions";
 import { bodyFamily, modelBodyFamily } from "./body-style";
 import type { CarConsistencyReceipt } from "./find-car-consistency";
 import { bestDealCarKey } from "./find-car-consistency";
+import { buyerCarLabels } from "./find-car-label";
 import { computeFindBaseline, type FindBaselineDelta } from "./find-baseline";
+import { closeCallCars, closeCallLeadReason, whatWouldDecideCloseCall } from "./find-close-call";
 import { confirmedRecallCount, recallEvidenceState, type EvidenceState } from "./find-evidence-state";
 import type { FindFuelEvidence } from "./find-fuel-match";
 import type { FindFreeGovReceipt } from "./find-free-gov";
@@ -63,6 +65,20 @@ export type BestDealCandidate = {
   excludedFromPick: boolean;
   excludedReason: string | null;
   sellerQuestions: string[];
+  trim?: string | null;
+  city?: string | null;
+  state?: string | null;
+  dealer?: string | null;
+};
+
+/** Shown when the top cars are too close for a confident pick. Not a winner. */
+export type BestDealCloseCall = {
+  leaningKey: string;
+  leaningLabel: string;
+  /** One concrete reason the leaning car is ahead. No internal score. */
+  leadReason: string;
+  /** One to three specific actions that could decide it. */
+  wouldDecide: string[];
 };
 
 export type BestDealSensitivity = {
@@ -98,6 +114,8 @@ export type BestDealResult = {
   allRanked: BestDealCandidate[];
   /** Cheapest-in-budget and lowest-miles-in-budget on this same list. */
   baseline: FindBaselineDelta;
+  /** Set when the top cars are within the close-call margin. Pick stays null. */
+  closeCall: BestDealCloseCall | null;
 };
 
 /**
@@ -214,6 +232,9 @@ export type BestDealListing = ObservedListingRow & {
   createdAt?: string | null;
   bodyStyle?: string | null;
   style?: string | null;
+  city?: string | null;
+  state?: string | null;
+  dealer?: string | null;
 };
 
 /** Unverified odometer: under this share of the peer median miles per year. */
@@ -1050,6 +1071,10 @@ function scoreOne(
     excludedFromPick: Boolean(ctx.carCheck?.identityMismatch),
     excludedReason: ctx.carCheck?.excludedReason ?? null,
     sellerQuestions: [...new Set([...(ctx.carCheck?.sellerQuestions ?? []), ...extraSellerQuestions])],
+    trim: row.trim ?? null,
+    city: row.city ?? null,
+    state: row.state ?? null,
+    dealer: row.dealer ?? null,
   };
 }
 
@@ -1414,11 +1439,14 @@ export function selectBestDealOnEvidence(input: {
   // never claim "settled" while ranking still suppresses partial factors.
   const evidenceSettled = !coverage.anyUnchecked && fairnessHeldOut.length === 0;
   const heldOutSet = new Set(fairnessHeldOut);
-  const settlementNote = evidenceSettled
-    ? "Public safety records are finished for this shortlist — the pick is settled on current evidence (still not a vehicle history report)."
-    : coverage.anyUnchecked
-      ? `The pick may change as checks complete. ${plainPublicCheckProgress(coverage)}`
-      : `Public safety records were checked for every model here, but the ranking can still change. ${plainFairnessHeldOutNote(fairnessHeldOut) ?? "Some checks are not in the ranking yet so one car is not favored for having more data."}`;
+  const settlementFor = (hasPick: boolean) => {
+    if (!evidenceSettled) {
+      return coverage.anyUnchecked
+        ? `The pick may change as checks complete. ${plainPublicCheckProgress(coverage)}`
+        : `Public safety records were checked for every model here, but the ranking can still change. ${plainFairnessHeldOutNote(fairnessHeldOut) ?? "Some checks are not in the ranking yet so one car is not favored for having more data."}`;
+    }
+    return hasPick ? "Pick settled." : "Checks finished — no clear winner yet.";
+  };
 
   const fuelAttemptedKeys = checkedMmyKeysForCheck(receipts, "free_gov_fuel");
   const ncapAttemptedKeys = checkedMmyKeysForCheck(receipts, "free_gov_safety");
@@ -1452,9 +1480,16 @@ export function selectBestDealOnEvidence(input: {
   };
   const rankedAll = rankAll(input.listings, input.need, rankOpts);
   const ranked = rankedAll.slice(0, shortlistMax);
+  const leader = rankedAll.find((car) => !car.excludedFromPick) ?? rankedAll[0] ?? null;
   const baselineFor = (pick: BestDealCandidate | null) =>
-    computeFindBaseline({ need: input.need, cars: rankedAll, pick });
+    computeFindBaseline({
+      need: input.need,
+      cars: rankedAll,
+      pick,
+      leading: pick ? null : leader,
+    });
   const top = ranked;
+  const labelOfCars = buyerCarLabels(rankedAll);
 
   // Provisional on price when fairness neutralized uneven comps, or when no ranked
   // car got a rated Ask-vs-median line (truly thin comps). Points may be 0 at median.
@@ -1499,16 +1534,18 @@ export function selectBestDealOnEvidence(input: {
       assumptionsNote,
       honesty,
       evidenceSettled,
-      settlementNote,
+      settlementNote: settlementFor(false),
       fairnessHeldOut,
       priceProvisional: true,
       allRanked: rankedAll,
       baseline: baselineFor(null),
+      closeCall: null,
     };
   }
 
   const first = top[0]!;
   if (first.excludedFromPick) {
+    const blockedNote = settlementFor(false);
     return {
       ranked: top,
       pick: null,
@@ -1519,16 +1556,14 @@ export function selectBestDealOnEvidence(input: {
       assumptionsNote,
       honesty,
       evidenceSettled,
-      settlementNote,
+      settlementNote: blockedNote,
       fairnessHeldOut,
       priceProvisional,
       allRanked: rankedAll,
       baseline: baselineFor(null),
+      closeCall: null,
     };
   }
-  const second = top.find((car, index) => index > 0 && !car.excludedFromPick);
-  const tied =
-    second != null && Math.abs(first.score - second.score) <= BEST_DEAL_TIE_EPSILON;
 
   // Sensitivity: fuel weight down; city-heavy already in fuel evidence — re-rank with fuel muted
   const altFuelMuted = rankAll(input.listings, input.need, {
@@ -1570,32 +1605,50 @@ export function selectBestDealOnEvidence(input: {
     });
   }
 
-  const tieBreakHelp =
-    "A free FuelEconomy.gov match, crash rating, or recall check on unchecked year/make/model cards — or a paid NMVTIS-approved history + pre-purchase inspection — could break the tie.";
+  const nameOf = (car: BestDealCandidate) =>
+    labelOfCars.get(car.key) ?? `${car.year} ${car.make} ${car.model}`;
+  const closeCars = closeCallCars(top, BEST_DEAL_TIE_EPSILON);
 
-  if (tied) {
-    const gapBits = [
-      `Top cars are too close on current evidence (${first.year} ${first.make} ${first.model} score ${first.score} vs ${second!.year} ${second!.make} ${second!.model} score ${second!.score}).`,
-      "No single confident pick.",
-      `What would break the tie: a clearer gap on miles/year wear, staying inside budget, or matching a model you named. ${tieBreakHelp}`,
-      settlementNote,
+  if (closeCars.length >= 2) {
+    const leaning = closeCars[0]!;
+    const other = closeCars[1]!;
+    const openNote = settlementFor(false);
+    const leadReason = closeCallLeadReason(leaning, other, nameOf);
+    const wouldDecide = whatWouldDecideCloseCall(closeCars, nameOf);
+    const closeCall: BestDealCloseCall = {
+      leaningKey: leaning.key,
+      leaningLabel: nameOf(leaning),
+      leadReason,
+      wouldDecide,
+    };
+    const why = [
+      "The top cars are very close, so this is not a confident pick.",
+      `Leaning: ${closeCall.leaningLabel}.`,
+      leadReason,
+      `What would decide it: ${wouldDecide.join(" ")}`,
+      openNote,
       priceProvisional ? "Asking-price comparison remains provisional." : null,
-    ].filter(Boolean);
+    ]
+      .filter(Boolean)
+      .join(" ")
+      .replace(/\s+/g, " ")
+      .trim();
     return {
       ranked: top,
       pick: null,
       confidence: "no_confident_pick",
-      why: gapBits.join(" "),
+      why,
       stillUnknown,
       sensitivity,
       assumptionsNote,
       honesty,
       evidenceSettled,
-      settlementNote,
+      settlementNote: openNote,
       fairnessHeldOut,
       priceProvisional,
       allRanked: rankedAll,
       baseline: baselineFor(null),
+      closeCall,
     };
   }
 
@@ -1612,21 +1665,23 @@ export function selectBestDealOnEvidence(input: {
     : "Provisional best deal (may change as checks complete)";
 
   const namedWhy = whyPickOverNamedModels(first, rankedAll, input.need, bodyClassByKey);
+  const pickedNote = settlementFor(true);
 
   return {
     ranked: top,
     pick: first,
     confidence: "confident",
-    why: `${settlePrefix}: ${first.year} ${first.make} ${first.model}${first.priceUsd != null ? ` at $${first.priceUsd.toLocaleString("en-US")}` : ""}. ${namedWhy}${whyParts.join(" ")} ${settlementNote}`.replace(/\s+/g, " ").trim(),
+    why: `${settlePrefix}: ${nameOf(first)}${first.priceUsd != null ? ` at $${first.priceUsd.toLocaleString("en-US")}` : ""}. ${namedWhy}${whyParts.join(" ")} ${pickedNote}`.replace(/\s+/g, " ").trim(),
     stillUnknown: [...new Set([...stillUnknown, ...first.unknowns])],
     sensitivity,
     assumptionsNote,
     honesty,
     evidenceSettled,
-    settlementNote,
+    settlementNote: pickedNote,
     fairnessHeldOut,
     priceProvisional,
     allRanked: rankedAll,
     baseline: baselineFor(first),
+    closeCall: null,
   };
 }

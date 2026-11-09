@@ -4,6 +4,8 @@
  * Buyer lines are plain English — no check ids, reason tags, or URLs.
  */
 
+import { buyerCarLabels } from "./find-car-label";
+
 export type FindDecisionRank = {
   key: string;
   rank: number;
@@ -30,6 +32,12 @@ export type DecisionCarLabel = {
   year: number;
   make: string;
   model: string;
+  trim?: string | null;
+  priceUsd?: number | null;
+  city?: string | null;
+  state?: string | null;
+  dealer?: string | null;
+  miles?: number | null;
 };
 
 const ACTION_PLAIN: Record<string, string> = {
@@ -47,9 +55,12 @@ const ACTION_PLAIN: Record<string, string> = {
   get_history_report: "A paid history report is the next step if you want accidents and title brands",
 };
 
-function carName(label: DecisionCarLabel | undefined): string {
-  if (!label) return "one of the cars";
-  return `${label.year} ${label.make} ${label.model}`;
+function whoPhrase(decidedBy: FindDecisionLogEntry["decidedBy"]): string {
+  return decidedBy === "SERV" ? "Lemonless AI chose" : "standard check";
+}
+
+function namesFor(labels: readonly DecisionCarLabel[]): Map<string, string> {
+  return buyerCarLabels(labels);
 }
 
 function joinCars(names: string[]): string {
@@ -63,9 +74,9 @@ export function formatDecisionLogLine(
   entry: FindDecisionLogEntry,
   labels: readonly DecisionCarLabel[],
 ): string {
-  const byKey = new Map(labels.map((row) => [row.key, row]));
-  const name = (key: string) => carName(byKey.get(key));
-  const who = entry.decidedBy === "SERV" ? "AI chose" : "built-in checklist";
+  const names = namesFor(labels);
+  const name = (key: string) => names.get(key) ?? "one of the cars";
+  const who = whoPhrase(entry.decidedBy);
   const targets = entry.targetCars.map((key) => name(key));
   const uniqueTargets = [...new Set(targets)].slice(0, 3);
   const action = ACTION_PLAIN[entry.action] ?? "Updated the search checks";
@@ -151,8 +162,8 @@ function importantDecisionFacts(
   entry: FindDecisionLogEntry,
   labels: readonly DecisionCarLabel[],
 ): string[] {
-  const byKey = new Map(labels.map((row) => [row.key, row]));
-  const name = (key: string) => carName(byKey.get(key));
+  const names = namesFor(labels);
+  const name = (key: string) => names.get(key) ?? "one of the cars";
   const before = new Map(entry.top5Before.map((row) => [row.key, row.rank]));
   const after = new Map(entry.top5After.map((row) => [row.key, row.rank]));
   const moves: Array<{ text: string; weight: number }> = [];
@@ -212,9 +223,9 @@ export function presentDecisionLogForBuyer(
     if (important || !free) {
       flush();
       const facts = importantDecisionFacts(entry, labels);
-      const byKey = new Map(labels.map((row) => [row.key, row]));
-      const name = (key: string) => carName(byKey.get(key));
-      const who = entry.decidedBy === "SERV" ? "AI chose" : "built-in checklist";
+      const names = namesFor(labels);
+      const name = (key: string) => names.get(key) ?? "one of the cars";
+      const who = whoPhrase(entry.decidedBy);
       const targets = [...new Set(entry.targetCars.map((key) => name(key)))].slice(0, 2);
       const action = ACTION_PLAIN[entry.action] ?? "Updated the search checks";
       const onCars = targets.length > 0 ? ` on ${joinCars(targets)}` : "";
@@ -227,7 +238,7 @@ export function presentDecisionLogForBuyer(
       if (short !== full) hiddenSteps.push(full);
       continue;
     }
-    const who = "built-in checklist";
+    const who = "standard check";
     if (group && group.action === entry.action && group.who === who) {
       group.full.push(full);
     } else {

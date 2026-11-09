@@ -53,11 +53,13 @@ import {
   formatRecallCheckSummary,
   formatTopPickLine,
   sellerQuestionsForBuyer,
+  topCarsHeading,
   topPicksInRankOrder,
   summarizeFuelCheckOutcome,
   summarizeRecallCheckOutcome,
 } from "@/domain/find-buyer-copy";
 import type { BestDealResult } from "@/domain/find-best-deal";
+import { buyerCarLabels } from "@/domain/find-car-label";
 import { formatBaselineForBuyer, type FindBaselineDelta } from "@/domain/find-baseline";
 import {
   presentDecisionLogForBuyer,
@@ -102,6 +104,7 @@ type ListingCard = {
   miles: number | null;
   city: string | null;
   state: string | null;
+  dealer?: string | null;
   vdp: string | null;
   primaryImage: string | null;
   source: string;
@@ -738,6 +741,12 @@ function AssistantFlow({
             year: car.year,
             make: car.make,
             model: car.model,
+            trim: car.trim ?? null,
+            priceUsd: car.priceUsd,
+            miles: car.miles,
+            city: car.city ?? null,
+            state: car.state ?? null,
+            dealer: car.dealer ?? null,
           })),
         ];
         setDecisionView({ entries: serverLog, labels });
@@ -1897,7 +1906,19 @@ function AssistantFlow({
                   uiRowsToRiskReceipts(freeGovReceiptsForShortlist),
                 );
                 const dealCopy = bestDeal ? formatBuyerBestDeal(bestDeal) : null;
-                const decisionPresented = presentDecisionLogForBuyer(decisionView.entries, decisionView.labels);
+                const decisionLabels = decisionView.labels.map((label) => {
+                  const card = allListings.find(
+                    (item) => item.vin && label.key && item.vin.toUpperCase() === label.key.toUpperCase(),
+                  );
+                  return {
+                    ...label,
+                    trim: label.trim ?? card?.trim ?? null,
+                    city: label.city ?? card?.city ?? null,
+                    state: label.state ?? card?.state ?? null,
+                    dealer: label.dealer ?? card?.dealer ?? null,
+                  };
+                });
+                const decisionPresented = presentDecisionLogForBuyer(decisionView.entries, decisionLabels);
                 const recallSummary = summarizeRecallCheckOutcome(
                   uiRowsToRiskReceipts(freeGovReceiptsForShortlist),
                 );
@@ -1930,33 +1951,58 @@ function AssistantFlow({
                   <div className="hint" role="note">
                     {bestDeal && bestDeal.ranked.length > 0 ? (
                       <div>
-                        <p>{bestDeal.pick ? "Top picks" : "Top cars in the current order"}</p>
-                        <ol className="top-picks">
-                          {topPicksInRankOrder(bestDeal.ranked, bestDeal.pick?.key ?? null).rows.map((row) => {
-                            const card =
-                              allListings.find(
-                                (item) =>
-                                  item.vin &&
-                                  row.vin &&
-                                  item.vin.toUpperCase() === row.vin.toUpperCase(),
-                              ) ??
-                              allListings.find(
-                                (item) =>
-                                  item.year === row.year &&
-                                  item.make.toLowerCase() === row.make.toLowerCase() &&
-                                  item.model.toLowerCase() === row.model.toLowerCase() &&
-                                  item.priceUsd === row.priceUsd &&
-                                  item.miles === row.miles,
-                              );
-                            const href = buyerListingHref(card?.vdp);
-                            return (
-                              <li key={row.key}>
-                                {formatTopPickLine(row)}
-                                {" · "}
-                                {href ? <a href={href}>Dealer listing</a> : "Listing link unavailable"}
-                              </li>
-                            );
+                        <p>
+                          {topCarsHeading({
+                            hasPick: Boolean(bestDeal.pick),
+                            evidenceSettled: bestDeal.evidenceSettled,
                           })}
+                        </p>
+                        <ol className="top-picks">
+                          {(() => {
+                            const rows = topPicksInRankOrder(bestDeal.ranked, bestDeal.pick?.key ?? null).rows;
+                            const cards = rows.map((row) => ({
+                              row,
+                              card:
+                                allListings.find(
+                                  (item) =>
+                                    item.vin &&
+                                    row.vin &&
+                                    item.vin.toUpperCase() === row.vin.toUpperCase(),
+                                ) ??
+                                allListings.find(
+                                  (item) =>
+                                    item.year === row.year &&
+                                    item.make.toLowerCase() === row.make.toLowerCase() &&
+                                    item.model.toLowerCase() === row.model.toLowerCase() &&
+                                    item.priceUsd === row.priceUsd &&
+                                    item.miles === row.miles,
+                                ),
+                            }));
+                            const names = buyerCarLabels(
+                              cards.map(({ row, card }) => ({
+                                key: row.key,
+                                year: row.year,
+                                make: row.make,
+                                model: row.model,
+                                trim: row.trim ?? card?.trim ?? null,
+                                priceUsd: row.priceUsd,
+                                miles: row.miles,
+                                city: row.city ?? card?.city ?? null,
+                                state: row.state ?? card?.state ?? null,
+                                dealer: row.dealer ?? card?.dealer ?? null,
+                              })),
+                            );
+                            return cards.map(({ row, card }) => {
+                              const href = buyerListingHref(card?.vdp);
+                              return (
+                                <li key={row.key}>
+                                  {formatTopPickLine({ ...row, name: names.get(row.key) })}
+                                  {" · "}
+                                  {href ? <a href={href}>Dealer listing</a> : "Listing link unavailable"}
+                                </li>
+                              );
+                            });
+                          })()}
                         </ol>
                       </div>
                     ) : null}
@@ -2026,7 +2072,9 @@ function AssistantFlow({
                     {nextCheckNote ? <p className="hint">{nextCheckNote}</p> : null}
                     {pending === "next-check" ? <p className="hint">Checking public safety records…</p> : null}
                     {pending !== "next-check" && !freeGovAnyUnchecked && bestDeal?.evidenceSettled ? (
-                      <p className="hint">Checks settled — ranking below is on completed free public coverage.</p>
+                      <p className="hint">
+                        {bestDeal.pick ? "Pick settled." : "Checks finished — no clear winner yet."}
+                      </p>
                     ) : null}
                     {freeGovEvidenceLines.length > 0 ? (
                       <div className="hint" role="note">
@@ -2068,7 +2116,23 @@ function AssistantFlow({
                           <strong>{dealCopy.headline}</strong>
                         </p>
                         {dealCopy.settlementNote ? <p className="hint">{dealCopy.settlementNote}</p> : null}
-                        <p>{dealCopy.why}</p>
+                        {dealCopy.closeCall ? (
+                          <>
+                            <p>The top cars are very close, so this is not a confident pick.</p>
+                            <p>
+                              <strong>Leaning: {dealCopy.closeCall.leaningLabel}</strong>
+                            </p>
+                            <p>{dealCopy.closeCall.leadReason}</p>
+                            <p>What would decide it</p>
+                            <ul>
+                              {dealCopy.closeCall.wouldDecide.map((line) => (
+                                <li key={line}>{line}</li>
+                              ))}
+                            </ul>
+                          </>
+                        ) : (
+                          <p>{dealCopy.why}</p>
+                        )}
                         {dealCopy.rankedLines.length > 0 ? (
                           <>
                             <p>Ranked on current evidence:</p>

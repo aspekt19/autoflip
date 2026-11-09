@@ -373,7 +373,9 @@ describe("live 24-card coverage settle + fair scoring", () => {
     if (result.confidence === "confident") {
       expect(result.pick).not.toBeNull();
     } else {
-      expect(result.why).toMatch(/too close|No single confident pick/i);
+      expect(result.why).toMatch(/very close|no confident pick|too close|No single confident pick/i);
+      expect(result.why).not.toMatch(/\bscore\s+\d/);
+      expect(result.settlementNote).not.toMatch(/pick is settled/i);
     }
   });
 

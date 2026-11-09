@@ -9,7 +9,8 @@
  * autonomousServ=false (must not masquerade as SERV autonomy).
  */
 import type { DecisionProof } from "@/domain/decision-note";
-import { selectBestDealOnEvidence } from "@/domain/find-best-deal";
+import { BEST_DEAL_TIE_EPSILON, selectBestDealOnEvidence } from "@/domain/find-best-deal";
+import { closeCallCars, planCloseCallAfterHop, planCloseCallHop } from "@/domain/find-close-call";
 import {
   executeCarConsistency,
   mergeCarConsistency,
@@ -45,6 +46,7 @@ import {
   riskCoverageHonesty,
 } from "@/domain/find-risk-evidence";
 import {
+  FIND_SERV_PAID_CALLS_PER_FIND_MAX,
   countNonFreeAllowlistChoices,
   fingerprintBestDealShortlist,
   shouldInvokeServForFindNextCheck,
@@ -499,16 +501,33 @@ export async function runFindNextCheckOrchestrator(
     const shortlistFp = fingerprintBestDealShortlist(priorBestDeal.ranked);
     const paidSoFar = ctx.servPaidCalls ?? 0;
     const retargetPending = ctx.servRetargetPending === true;
-    const servDecision = shouldInvokeServForFindNextCheck({
+    const priorClose = closeCallCars(priorBestDeal.ranked, BEST_DEAL_TIE_EPSILON);
+    const tiedMissing = priorClose.filter((car) => !checkedCarKeys.has(car.key)).map((car) => car.key);
+    const closePlan = planCloseCallHop({
+      closeKeys: priorClose.map((car) => car.key),
+      missingFreeKeys: tiedMissing,
+      freeGovOpen: priorFreeGovCount > 0,
+      consistencyOpen: consistencyStillOpen,
+      tieBreakSpent: ctx.tieBreakSpent === true,
       paidCallsSoFar: paidSoFar,
-      remainingFreeGovCount: priorFreeGovCount,
-      nonFreeChoiceCount: countNonFreeAllowlistChoices(priorAllowedIds),
-      shortlistFp,
-      lastServShortlistFp: ctx.lastServShortlistFp ?? null,
-      neverCalledServ: paidSoFar === 0,
-      consistencyOpen: consistencyStillOpen && priorAllowedIds.includes("free_car_consistency"),
-      offerServRetarget: retargetPending,
+      paidCap: FIND_SERV_PAID_CALLS_PER_FIND_MAX,
+      keyed,
     });
+    const servDecision =
+      closePlan.kind === "free_per_car"
+        ? { invoke: false as const, reason: "close_call_free_per_car" as const }
+        : closePlan.kind === "tie_break"
+          ? { invoke: true as const, reason: "close_call_tie_break" as const }
+          : shouldInvokeServForFindNextCheck({
+              paidCallsSoFar: paidSoFar,
+              remainingFreeGovCount: priorFreeGovCount,
+              nonFreeChoiceCount: countNonFreeAllowlistChoices(priorAllowedIds),
+              shortlistFp,
+              lastServShortlistFp: ctx.lastServShortlistFp ?? null,
+              neverCalledServ: paidSoFar === 0,
+              consistencyOpen: consistencyStillOpen && priorAllowedIds.includes("free_car_consistency"),
+              offerServRetarget: retargetPending,
+            });
     let servHttpAttempts = 0;
     let skipPaidSlot = false;
     if (keyed && servDecision.invoke && claimId) {
@@ -533,6 +552,7 @@ export async function runFindNextCheckOrchestrator(
           gapToAhead: index === 0 ? 0 : Math.round((rows[index - 1]!.score - car.score) * 10) / 10,
           unknowns: car.unknowns.slice(0, 4),
         })),
+        tieBreakKeys: closePlan.kind === "tie_break" ? closePlan.targets : undefined,
       },
       {
         servKey: deps.servKey,
@@ -570,8 +590,16 @@ export async function runFindNextCheckOrchestrator(
     let executedId = live.chosenId;
     let executedTargets = live.targetKeys;
     let replan = live.replan;
-    const servChoseExecuted = live.source === "serv";
-    const overrodeUserAction = freeWorkOpen && isUserActionFindCheck(live.chosenId);
+    if (closePlan.kind === "free_per_car") {
+      executedId = "free_car_consistency";
+      executedTargets = [...closePlan.targets];
+      replan = applyFindNextCheck(ctx.need, "free_car_consistency", ctx.refine);
+    } else if (closePlan.kind === "tie_break" && executedTargets.length === 0) {
+      executedTargets = [...closePlan.targets];
+    }
+    const servChoseExecuted = live.source === "serv" && closePlan.kind !== "free_per_car";
+    const overrodeUserAction =
+      closePlan.kind !== "free_per_car" && freeWorkOpen && isUserActionFindCheck(live.chosenId);
     if (overrodeUserAction) {
       const nextFree = priorProposedOpen.find(
         (check) => isFindFreeGovCheckId(check.id) || check.id === "free_car_consistency",
@@ -700,6 +728,7 @@ export async function runFindNextCheckOrchestrator(
         servHttpAttempts > 0 ? shortlistFp : (ctx.lastServShortlistFp ?? null),
       carChecks,
       servRetargetPending: nextRetarget,
+      tieBreakSpent: ctx.tieBreakSpent === true || closePlan.kind === "tie_break",
     });
 
     const fuelsByModelKey = fuelsByModelKeyFromReceipts(freeGovReceipts);
@@ -786,6 +815,19 @@ export async function runFindNextCheckOrchestrator(
       ...(consistencyFp ? { lastServShortlistFp: consistencyFp } : {}),
     });
 
+    const tieBreakSpentNext = ctx.tieBreakSpent === true || closePlan.kind === "tie_break";
+    const afterClose = closeCallCars(bestDeal.ranked, BEST_DEAL_TIE_EPSILON);
+    const afterMissing = afterClose.filter((car) => !checkedAfter.has(car.key));
+    const afterClosePlan = planCloseCallAfterHop({
+      closeCount: afterClose.length,
+      missingFree: afterMissing.length,
+      freeGovOpen: remainingFreeGovCount > 0,
+      consistencyOpen: consistencyStillOpenAfter,
+      tieBreakSpent: tieBreakSpentNext,
+      paidCalls: nextPaidCalls,
+      paidCap: FIND_SERV_PAID_CALLS_PER_FIND_MAX,
+      keyed,
+    });
     const autonomousServ = live.source === "serv";
     const mintSaidKeyed = Boolean(ctx.servNextCheckEnabled);
     const keyedAutonomyDiag = buildKeyedAutonomyDiag({
@@ -811,17 +853,26 @@ export async function runFindNextCheckOrchestrator(
       // intentional free consistency drain. A SERV timeout/fallback must not look
       // like new evidence and keep the paid loop going.
       freeGovBeforeFp:
-        live.source === "serv" || servDecision.reason === "consistency_deterministic_drain"
+        live.source === "serv" ||
+        servDecision.reason === "consistency_deterministic_drain" ||
+        servDecision.reason === "close_call_free_per_car" ||
+        servDecision.reason === "close_call_tie_break"
           ? `${fingerprintFreeGovReceipts(priorReceipts)}|${carCheckFingerprint(priorCarChecks)}`
           : fingerprintFreeGovReceipts(priorReceipts),
       freeGovAfterFp:
-        live.source === "serv" || servDecision.reason === "consistency_deterministic_drain"
+        live.source === "serv" ||
+        servDecision.reason === "consistency_deterministic_drain" ||
+        servDecision.reason === "close_call_free_per_car" ||
+        servDecision.reason === "close_call_tie_break"
           ? `${fingerprintFreeGovReceipts(freeGovReceipts)}|${carCheckFingerprint(carChecks)}`
           : fingerprintFreeGovReceipts(freeGovReceipts),
       shortlistCount: shortlistAfter.length,
       remainingActionableCount,
       remainingFreeGovCount,
       consistencyStillOpen: consistencyStillOpenAfter,
+      closeCallNeedsFreePerCar: afterClosePlan.continueFree,
+      closeCallNeedsTieBreak: afterClosePlan.continueTieBreak,
+      closeCallStop: afterClosePlan.stopUnresolved,
     });
     const loopSettled = !loop.continue && remainingFreeGovCount === 0 && !consistencyStillOpenAfter;
     if (loopSettled !== (updated.loopSettled === true)) {

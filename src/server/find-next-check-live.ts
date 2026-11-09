@@ -151,6 +151,11 @@ export async function runFindNextCheckLive(
       unknowns: string[];
     }>;
     consistencyStillOpen?: boolean;
+    /**
+     * When set, the choice schema only allows these keys.
+     * Used for one close-call tie-break among the tied cars.
+     */
+    tieBreakKeys?: string[];
   },
   deps: FindNextCheckLiveDeps = {},
 ): Promise<FindNextCheckLiveOk | FindNextCheckLiveErr> {
@@ -214,6 +219,12 @@ export async function runFindNextCheckLive(
     freeGovEvidence: body.freeGovBrief ?? { count: 0, toolIds: [], statuses: [], summaries: [] },
     freeGovCoverage: body.freeGovCoverage ?? null,
     top5: body.top5 ?? [],
+    tieBreak: body.tieBreakKeys && body.tieBreakKeys.length > 0
+      ? {
+          keys: body.tieBreakKeys,
+          note: "These cars are too close to name a confident pick. Choose the one allowlisted check most likely to separate them. targetKeys must be copied from these keys.",
+        }
+      : null,
     freeGovHonesty:
       "Free public government inputs only: recalls/complaints (year/make/model), VIN decode, NCAP safety ratings, FuelEconomy.gov fuel estimates (ambiguous configs = labeled range), plus a per-car compare of the listing with that VIN decode and with listing-says accidents, owners, rental use, and days listed. Not NMVTIS/title. Empty or failed lookups are not a clean zero. Best-deal scores are computed in code. Choose the check most likely to change the pick using top5 gaps and unknowns.",
   };
@@ -237,7 +248,9 @@ export async function runFindNextCheckLive(
   // Request schema enum = live allowlist only (not the full catalog) so constrained
   // decoding cannot emit schema-valid / allowlist-invalid ids (PR80 Scenario2).
   const top5Keys = (body.top5 ?? []).map((row) => row.key);
-  const choiceSchema = buildFindNextCheckChoiceSchema(allowedIds, top5Keys);
+  const tieBreakKeys = [...new Set((body.tieBreakKeys ?? []).map((key) => key.trim()).filter(Boolean))].slice(0, 5);
+  const schemaKeys = tieBreakKeys.length > 0 ? tieBreakKeys : top5Keys;
+  const choiceSchema = buildFindNextCheckChoiceSchema(allowedIds, schemaKeys);
 
   const key = deps.servKey?.trim() || null;
   if (key && deps.skipServ) {
@@ -324,7 +337,7 @@ export async function runFindNextCheckLive(
           };
         } else {
           chosenId = clampDiag.clamped;
-          targetKeys = clampFindNextCheckTargetKeys(parsed.targetKeys, top5Keys);
+          targetKeys = clampFindNextCheckTargetKeys(parsed.targetKeys, schemaKeys);
           servNote = sanitizeServNote(parsed.note, factsBlob) || null;
           source = "serv";
         }

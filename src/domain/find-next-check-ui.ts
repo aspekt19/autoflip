@@ -37,7 +37,11 @@ export function shouldAutoStartFindNextCheck(opts: {
  * fell back to deterministic (`autonomousServ: false`). Requiring autonomous SERV
  * here was the live regression: server said continue, UI froze on partial coverage.
  */
-const FREE_GOV_CONTINUE_REASONS = new Set(["evidence_changed_replan", "remaining_free_checks"]);
+const FREE_GOV_CONTINUE_REASONS = new Set([
+  "evidence_changed_replan",
+  "remaining_free_checks",
+  "close_call_tie_break",
+]);
 
 /**
  * Hard ceiling on client auto-continues per search token.
