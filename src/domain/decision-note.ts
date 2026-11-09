@@ -135,7 +135,9 @@ export function whyWeDecided(scene: DecisionScene, proofs: DecisionProof[]): str
   } else if (scene === "flip") {
     paragraphs.push("A car stays on the short list only when the calculated estimate is clear enough to show. A thin estimate is left off.");
   } else if (scene === "find") {
-    paragraphs.push("You can edit the reading before the search runs. A blank budget stays blank.");
+    paragraphs.push(
+      "You can edit the reading before the search runs. A price in your note is the budget, and words like \"around\" keep a small cushion above that price. With no price in the note and an empty budget field, the budget stays unset.",
+    );
   } else {
     paragraphs.push("The verdict follows the calculated price gap. The writing does not replace it.");
   }

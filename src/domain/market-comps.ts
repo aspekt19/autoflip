@@ -54,7 +54,7 @@ function scopeLabelFromSelection(
 }
 
 /**
- * Plain peer noun for “n=K …” badges/details — no leading count, never “comps”.
+ * Plain peer noun for sample-size phrases — no leading count, never “comps”.
  * Example: "similar Sportage LX listings" / "similar CR-V listings from nearby years".
  */
 export function buyerScopePhrase(
@@ -70,6 +70,12 @@ export function buyerScopePhrase(
     return `similar ${model} listings from nearby years`;
   }
   return `similar ${model} listings`;
+}
+
+/** Buyer sample-size clause. Example: "based on 3 similar CR-V LX listings". */
+export function buyerSampleBasis(sampleSize: number, peers: string): string {
+  const n = Number.isFinite(sampleSize) ? Math.max(0, Math.floor(sampleSize)) : 0;
+  return `based on ${n} ${peers}`;
 }
 
 export function buyerMethodNoteForScope(input: {
@@ -208,7 +214,7 @@ export function resolveMarketComps(subject: Listing, pool: readonly Listing[]): 
   };
 }
 
-/** Plain factor/pick detail — one n=, one market reference, buyer-safe method. */
+/** Plain factor/pick detail — one sample size, one market reference, buyer-safe method. */
 export function formatMarketAskDetail(input: {
   askUsd: number;
   fairValueUsd: number;
@@ -222,11 +228,12 @@ export function formatMarketAskDetail(input: {
 }): string {
   const thinBelow = input.thinBelow ?? ASSUMPTIONS.minComps;
   const peers = buyerScopePhrase(input.scopeLabel, input.subject);
+  const basis = buyerSampleBasis(input.sampleSize, peers);
   const thin =
     input.sampleSize < thinBelow ? ` (thin sample: only ${input.sampleSize} similar listings)` : "";
   const widened =
     input.scopeLabel.includes("widened") || input.scopeLabel.includes("wider");
   // Peers already say “from nearby years”; only add the year/mileage adjustment tag here.
   const methodBit = widened ? " · adjusted for year and mileage" : "";
-  return `Ask $${input.askUsd.toLocaleString("en-US")} vs market $${Math.round(input.fairValueUsd).toLocaleString("en-US")} (n=${input.sampleSize} ${peers})${thin}${methodBit}`;
+  return `Ask $${input.askUsd.toLocaleString("en-US")} vs market $${Math.round(input.fairValueUsd).toLocaleString("en-US")}, ${basis}${thin}${methodBit}`;
 }

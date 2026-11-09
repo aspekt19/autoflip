@@ -86,7 +86,7 @@ export function estimateOwnershipFuelCost(
       reason: "no_fuel_fact",
       combMpg: null,
       honesty:
-        "Ownership fuel cost is unavailable — no FuelEconomy.gov match for this year/make/model (or the check has not run yet). Find cards do not invent TCO or MPG rankings.",
+        "Ownership fuel cost is unavailable — no FuelEconomy.gov match for this year/make/model (or the check has not run yet). Find cards do not invent a full ownership cost or an MPG ranking.",
     };
   }
 
@@ -153,7 +153,7 @@ export function estimateOwnershipFuelCost(
         milesPerYear: Math.round(assumptions.milesPerYear),
         usdPerGallon: assumptions.usdPerGallon,
       },
-      honesty: `Combined ${mpg} MPG from FuelEconomy.gov, converted with your stated assumptions (${assumptions.milesPerYear.toLocaleString("en-US")} mi/yr × $${assumptions.usdPerGallon}/gal). Not a full TCO.`,
+      honesty: `Combined ${mpg} MPG from FuelEconomy.gov, converted with your stated assumptions (${assumptions.milesPerYear.toLocaleString("en-US")} miles/year × $${assumptions.usdPerGallon} per gallon). Not a full ownership cost.`,
     };
   }
 
@@ -162,7 +162,7 @@ export function estimateOwnershipFuelCost(
       status: "unavailable",
       reason: "mpg_needs_assumptions",
       combMpg: mpg,
-      honesty: `Combined ${mpg} MPG is known from FuelEconomy.gov, but annual fuel dollars stay unavailable until you supply miles/year and $/gal — Lemonless will not invent those.`,
+      honesty: `Combined ${mpg} MPG is known from FuelEconomy.gov, but annual fuel dollars stay unavailable until you supply yearly miles and a price per gallon — Lemonless will not invent those.`,
     };
   }
 

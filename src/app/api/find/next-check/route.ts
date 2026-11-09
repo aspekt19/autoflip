@@ -12,14 +12,16 @@ import { getKv } from "@/io/kv";
 import { runtimeDeps } from "@/server/deps";
 import { rememberFindAnalysisContexts } from "@/server/find-analysis-context";
 import { runFindMatch } from "@/server/find-match";
+import { findContextOwnerId } from "@/server/find-context-owner";
 import { runFindNextCheckOrchestrator } from "@/server/find-next-check-orchestrator";
-import { userId } from "@/server/session";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 
 export async function POST(request: Request) {
-  const id = await userId();
+  // Same owner /api/match stored under. The af_uid cookie is not that id once
+  // the shopper is signed in (see findContextOwnerId).
+  const id = await findContextOwnerId();
   const body = (await request.json().catch(() => null)) as {
     searchContextToken?: unknown;
     // Rejected as authority — not used.

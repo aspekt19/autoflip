@@ -737,7 +737,7 @@ export function softPrefGapsFromText(text: string): SoftPrefGap[] {
       id: "fuel_or_running_cost",
       mentioned: "running cost / fuel economy",
       honesty:
-        "Find can estimate annual fuel cost from free public FuelEconomy.gov when year/make/model matches (ambiguous configs stay a labeled range). That is not a full TCO — insurance, maintenance, and repairs stay out of scope.",
+        "Find can estimate annual fuel cost from free public FuelEconomy.gov when year/make/model matches (ambiguous configs stay a labeled range). That is not a full ownership cost — insurance, maintenance, and repairs stay out of scope.",
     });
   }
   if (/\b(not too old|newer|recent(?:er)?|not ancient)\b/i.test(t) && !/\b(19|20)\d{2}\b/.test(t) && !/\bunder\s+\d+\s+years?\b/i.test(t)) {

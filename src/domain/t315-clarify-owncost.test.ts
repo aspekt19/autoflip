@@ -111,7 +111,8 @@ describe("t315 grounded compare + ownership fuel", () => {
     expect(rows.every((r) => r.ownershipFuel.status === "unavailable")).toBe(true);
     expect(formatModelCompareRow(rows[0]!)).toMatch(/Condition: unknown/);
     expect(formatModelCompareRow(rows[0]!)).not.toMatch(/best car|rank #1/i);
-    expect(formatModelCompareRow(rows[0]!)).toMatch(/do not invent TCO/i);
+    expect(formatModelCompareRow(rows[0]!)).toMatch(/do not invent a full ownership cost/i);
+    expect(formatModelCompareRow(rows[0]!)).not.toMatch(/\bTCO\b/);
   });
 
   it("attaches EPA annual when a FuelFact is supplied — still not a full TCO", () => {

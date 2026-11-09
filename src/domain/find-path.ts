@@ -227,7 +227,7 @@ export function applyFindNextCheck(
     return {
       need,
       refine,
-      note: "Compare observed median ask/miles/year and fuel estimates across returned models — condition stays unknown; fuel uses FuelEconomy.gov when matched.",
+      note: "Compare the asking prices, mileage, and years on these cards, plus fuel estimates. Condition is still unknown. Fuel comes from FuelEconomy.gov when a match is found.",
       research: false,
     };
   }
@@ -302,11 +302,11 @@ export function buildGroundedShortlistWithRisk(
     const unknowns: string[] = [
       ...risk.unknowns,
       row.ownershipFuel.status === "unavailable"
-        ? "ownership fuel unavailable without FuelEconomy.gov match (+ explicit $/gal assumptions if only MPG)"
-        : "ownership fuel is EPA/assumption-sourced — still not full TCO",
+        ? "Fuel cost for this model is not in yet. It needs a FuelEconomy.gov match, and miles-per-gallon alone is not turned into a dollar estimate."
+        : "Fuel cost here is a FuelEconomy.gov estimate, not a full ownership cost. Insurance, maintenance, and repairs are separate.",
     ];
-    if (row.medianAskUsd == null) unknowns.push("median ask unknown");
-    if (row.medianMiles == null) unknowns.push("median miles unknown");
+    if (row.medianAskUsd == null) unknowns.push("typical asking price on these cards is unknown");
+    if (row.medianMiles == null) unknowns.push("typical mileage on these cards is unknown");
     if (coverage.uncheckedMmyCount > 0 && freeGovReceipts.length > 0) {
       unknowns.push(coverage.note);
     }
@@ -314,8 +314,8 @@ export function buildGroundedShortlistWithRisk(
       `${row.count} observed card${row.count === 1 ? "" : "s"}`,
       `years ${row.yearMin}–${row.yearMax}`,
     ];
-    if (row.medianAskUsd != null) whyParts.push(`median ask $${row.medianAskUsd.toLocaleString("en-US")}`);
-    if (row.medianMiles != null) whyParts.push(`median ${row.medianMiles.toLocaleString("en-US")} mi`);
+    if (row.medianAskUsd != null) whyParts.push(`typical asking price $${row.medianAskUsd.toLocaleString("en-US")}`);
+    if (row.medianMiles != null) whyParts.push(`typical mileage ${row.medianMiles.toLocaleString("en-US")} mi`);
     if (need.conditionPriority === "inspection_first") {
       whyParts.push("condition prioritized — history/inspection still required");
     }

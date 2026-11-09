@@ -1,6 +1,7 @@
 "use client";
 
 import { safeAuthCallbackUrl } from "@/auth/config";
+import { creditsNeedNotice } from "@/domain/find-buyer-copy";
 import { buyerFacingFailure } from "@/domain/buyer-facing-error";
 import { CREDIT_PACKS } from "@/domain/assumptions";
 import Link from "next/link";
@@ -88,7 +89,7 @@ function CreditsInner() {
         {stripeOn === false ? " Stripe test keys are not configured, so checkout cannot start." : null}
         {authOn === false ? " Sign-in is not configured, so paid checkout stays locked." : null}
       </p>
-      {need ? <p className="warn">Find is a credit-priced search when billing is enabled. A full report costs 1 credit after this month’s free vehicle checks are used.</p> : null}
+      {need ? <p className="warn">{creditsNeedNotice(back)}</p> : null}
       {status === "success" ? (
         <p className="warn-box">
           Payment returned from checkout. If the balance has not moved, the payment notice has not arrived yet.

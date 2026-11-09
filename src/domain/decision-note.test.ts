@@ -47,6 +47,17 @@ describe("why we decided", () => {
     expect(text).not.toMatch(banned);
   });
 
+  it("does not claim a blank budget stays blank when a note can name the price", () => {
+    const text = whyWeDecided("find", [
+      proof({ purpose: "find_guard", tools: ["serv_prompt_guard"], promptGuard: "allow" }),
+    ]).join(" ");
+    expect(text).not.toMatch(/blank budget stays blank/i);
+    expect(text).toMatch(/price in your note is the budget/i);
+    expect(text).toMatch(/around/i);
+    expect(text).toMatch(/budget stays unset/i);
+    expect(text).not.toMatch(banned);
+  });
+
   it("rejects a sentence that introduces a number the facts do not contain", () => {
     expect(quotedNumbersStayIn("Estimate about $1,200 from 5 cars.", JSON.stringify({ profitMidUsd: 1200, compCount: 5 }))).toBe(true);
     expect(quotedNumbersStayIn("Profit near $9,999.", JSON.stringify({ profitMidUsd: 1200 }))).toBe(false);

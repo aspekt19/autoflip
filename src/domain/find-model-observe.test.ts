@@ -37,7 +37,10 @@ describe("observedModelSnapshots", () => {
     expect(snaps[0]?.medianAskUsd).toBe(11_095);
     expect(snaps[1]?.model).toBe("Tucson");
     expect(formatObservedModelSnapshot(snaps[0]!)).toMatch(/Honda CR-V/);
-    expect(snaps.every((s) => /this search only/i.test(s.honesty))).toBe(true);
+    expect(formatObservedModelSnapshot(snaps[0]!)).toMatch(/typical asking price/);
+    expect(formatObservedModelSnapshot(snaps[0]!)).not.toMatch(/median ask/);
+    expect(snaps.every((s) => /these cards only/i.test(s.honesty))).toBe(true);
+    expect(snaps.every((s) => !/TCO|Observed from this search only/i.test(s.honesty))).toBe(true);
   });
 
   it("compare rows keep condition unknown and fuel unavailable without FuelFact", () => {
