@@ -43,6 +43,18 @@ export const BUYER_FORBIDDEN_TECH_PATTERNS: RegExp[] = [
   /\bFIND_NEXT_CHECK/,
   /\bkeyedAutonomyDiag\b/,
   /\bclampDiag\b/,
+  // Best-deal factor ids / machine keys — buyer UI must use plain labels only.
+  /\bestimated_fuel_cost\b/,
+  /\bmmy_recall_campaigns\b/,
+  /\bmmy_ncap_rating\b/,
+  /\bprice_vs_model_asks\b/,
+  /\bmiles_per_year_vs_peers\b/,
+  /\bnamed_model_preference\b/,
+  /\bcondition_priority\b/,
+  /\bbudget_fit\b/,
+  /\bfairnessHeldOut\b/,
+  /\bevidenceSettled\b/,
+  /\bevidence\.gov_(?:recalls|vpic|safety|fuel)\b/,
 ];
 
 export function findForbiddenTechArtifacts(text: string): string[] {
@@ -185,6 +197,8 @@ export function formatBuyerLoopStep(input: {
   loopReason?: FindNextCheckLoopReason | string | null;
   /** Actual free_gov_fuel receipt outcomes — required for honest fuel checklist copy. */
   fuelOutcome?: FuelCheckOutcomeSummary | null;
+  /** True while fuel MMYs remain unchecked — checklist stays progressive, not “failed”. */
+  fuelPending?: boolean;
 }): string {
   const id = input.chosenId as FindNextCheckId | string;
   const n = input.listingCount;
@@ -199,15 +213,28 @@ export function formatBuyerLoopStep(input: {
     case "free_gov_fuel": {
       const o = input.fuelOutcome;
       if (!o || o.attempted <= 0) {
-        return "FuelEconomy.gov fuel-cost check did not record a usable result for this step.";
+        return input.fuelPending
+          ? "FuelEconomy.gov fuel-cost checks are still queued for remaining year/make/model groups."
+          : "FuelEconomy.gov fuel-cost check has not run yet for this search.";
       }
-      const parts = [
-        `We ran FuelEconomy.gov fuel-cost checks for ${o.attempted} year/make/model group${o.attempted === 1 ? "" : "s"}`,
-      ];
-      if (o.matched > 0) parts.push(`${o.matched} matched`);
-      if (o.noMatch > 0) parts.push(`${o.noMatch} had no model match`);
-      if (o.unavailable > 0) parts.push(`${o.unavailable} unavailable (timeout or error)`);
-      return `${parts[0]} — ${parts.slice(1).join(", ") || "no matches"}.`;
+      const parts: string[] = [];
+      if (o.matched > 0) {
+        parts.push(
+          `Fuel costs found for ${o.matched} of ${o.attempted} model${o.attempted === 1 ? "" : "s"}`,
+        );
+      } else {
+        parts.push(`Fuel costs checked for ${o.attempted} model${o.attempted === 1 ? "" : "s"} (none matched yet)`);
+      }
+      if (o.noMatch > 0) {
+        parts.push(
+          `${o.noMatch} not available because FuelEconomy.gov had no matching year/make/model menu`,
+        );
+      }
+      if (o.unavailable > 0) {
+        parts.push(`${o.unavailable} unavailable (timeout or error)`);
+      }
+      if (input.fuelPending) parts.push("more groups still unchecked");
+      return `${parts.join("; ")}.`;
     }
     case "compare_observed_asks":
       return typeof n === "number"
@@ -259,12 +286,20 @@ export function formatBuyerLoopStatus(reason: FindNextCheckLoopReason | string |
   }
 }
 
-export function formatBuyerNextCheckWhy(id: FindNextCheckId | string, technicalWhy: string): string {
+export function formatBuyerNextCheckWhy(
+  id: FindNextCheckId | string,
+  technicalWhy: string,
+  opts?: { fuelOutcome?: FuelCheckOutcomeSummary | null; fuelPending?: boolean },
+): string {
   // Prefer rewriting known ids; strip technical tokens from fallback.
   if (id === "get_history_report") {
     return "Get an NMVTIS-approved vehicle history report and a pre-purchase inspection before you buy — free public checks do not cover accidents or title brands.";
   }
-  const plain = formatBuyerLoopStep({ chosenId: id });
+  const plain = formatBuyerLoopStep({
+    chosenId: id,
+    fuelOutcome: opts?.fuelOutcome,
+    fuelPending: opts?.fuelPending,
+  });
   if (id.startsWith("free_gov_") || id === "compare_observed_asks") return plain;
   // Soft scrub of technicalWhy — never turn "NMVTIS-approved" into "official title history-approved".
   return technicalWhy
@@ -290,10 +325,13 @@ export function formatBuyerBestDeal(result: BestDealResult): {
   factorLines: string[];
   sensitivityLines: string[];
   honesty: string;
+  settlementNote: string;
+  evidenceSettled: boolean;
 } {
+  const settleTag = result.evidenceSettled ? "settled" : "provisional — may change as checks complete";
   const headline =
     result.confidence === "confident" && result.pick
-      ? `Best deal on current evidence: ${result.pick.year} ${result.pick.make} ${result.pick.model}${result.pick.priceUsd != null ? ` · $${result.pick.priceUsd.toLocaleString("en-US")}` : ""}`
+      ? `Best deal (${settleTag}): ${result.pick.year} ${result.pick.make} ${result.pick.model}${result.pick.priceUsd != null ? ` · $${result.pick.priceUsd.toLocaleString("en-US")}` : ""}`
       : "No confident best-deal pick on current evidence";
   const rankedLines = result.ranked.map((c, i) => {
     const fuel = c.fuelSummary ? ` · ${c.fuelSummary}` : "";
@@ -317,11 +355,24 @@ export function formatBuyerBestDeal(result: BestDealResult): {
   return {
     headline,
     why: result.why,
-    stillUnknown: result.stillUnknown,
+    stillUnknown: result.stillUnknown.map((line) => {
+      // Belt-and-suspenders: never surface raw factor ids if a caller built stillUnknown ad hoc.
+      return line
+        .replace(/\bestimated_fuel_cost\b/g, "estimated fuel cost")
+        .replace(/\bmmy_recall_campaigns\b/g, "recall campaigns")
+        .replace(/\bmmy_ncap_rating\b/g, "crash-test ratings")
+        .replace(/\bprice_vs_model_asks\b/g, "asking price vs same model")
+        .replace(/\bmiles_per_year_vs_peers\b/g, "mileage pace vs peers")
+        .replace(/\bnamed_model_preference\b/g, "named model match")
+        .replace(/\bcondition_priority\b/g, "condition-first preference")
+        .replace(/\bbudget_fit\b/g, "budget fit");
+    }),
     rankedLines,
     factorLines,
     sensitivityLines,
     honesty: result.honesty,
+    settlementNote: result.settlementNote,
+    evidenceSettled: result.evidenceSettled,
   };
 }
 

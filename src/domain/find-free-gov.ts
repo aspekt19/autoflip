@@ -359,6 +359,14 @@ export async function executeFindFreeGovCheck(input: {
   const candidates = selectFindFreeGovCandidates(input.listings, checkId, FIND_FREE_GOV_BATCH_MAX, prior);
   if (candidates.length === 0) {
     const covered = !freeGovCheckStillHasUnchecked(coverage, checkId);
+    const plainTool =
+      checkId === "free_gov_recalls"
+        ? "Recall"
+        : checkId === "free_gov_safety"
+          ? "Crash-rating"
+          : checkId === "free_gov_fuel"
+            ? "FuelEconomy.gov"
+            : "VIN decode";
     return {
       checkId,
       toolId,
@@ -369,8 +377,8 @@ export async function executeFindFreeGovCheck(input: {
         checkId === "free_gov_vpic" && coverage.vpic.eligible === 0
           ? "VIN decode skipped — no VIN on returned cards; VIN decode stays unknown (not a clean-history claim)."
           : covered
-            ? `${checkId} coverage complete for current listing year/make/model rows. Not VIN/title clearance.`
-            : `${checkId} skipped — no listing identity for free public lookup.`,
+            ? `${plainTool} coverage complete for current listing year/make/model rows. Not VIN/title clearance.`
+            : `${plainTool} skipped — no listing identity for free public lookup.`,
     };
   }
 
@@ -388,17 +396,35 @@ export async function executeFindFreeGovCheck(input: {
 
   const okish = receipts.filter((r) => r.status === "ok" || r.status === "empty").length;
   const failed = receipts.length - okish;
+  const scrubMachineIds = (text: string) =>
+    text
+      .replace(/\bfree_gov_(?:recalls|vpic|safety|fuel)\b/g, "free public check")
+      .replace(/\bevidence\.gov_(?:recalls|vpic|safety|fuel)\b/g, "government data");
   const perCard = receipts
-    .map((r) => `${r.year} ${r.make} ${r.model}: ${r.status} — ${r.summary.slice(0, 120)}`)
+    .map(
+      (r) =>
+        `${r.year} ${r.make} ${r.model}: ${r.status} — ${scrubMachineIds(r.summary).slice(0, 120)}`,
+    )
     .slice(0, 3)
     .join(" | ");
   const after = freeGovToolCoverage(input.listings, [...prior, ...receipts]);
+  const plainTool =
+    checkId === "free_gov_recalls"
+      ? "recall"
+      : checkId === "free_gov_safety"
+        ? "crash-rating"
+        : checkId === "free_gov_fuel"
+          ? "FuelEconomy.gov"
+          : "VIN decode";
   return {
     checkId,
     toolId,
     receipts,
     evidenceChanged: true,
-    note: `Free public ${toolId} batch ${receipts.length} unchecked year/make/model: ${okish} ok/empty, ${failed} unavailable/error. ${perCard}. Progress: ${after.note} ${receipts[0]?.honesty ?? ""} No Report credit. Not NMVTIS/title clearance.`,
+    // Plain English only — never raw checkId / toolId (owner rule for any surface that may echo notes).
+    note: scrubMachineIds(
+      `Free public ${plainTool} batch ${receipts.length} unchecked year/make/model: ${okish} ok/empty, ${failed} unavailable/error. ${perCard}. Progress: ${after.note} ${receipts[0]?.honesty ?? ""} No Report credit. Not NMVTIS/title clearance.`,
+    ),
   };
 }
 

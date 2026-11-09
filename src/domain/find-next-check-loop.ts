@@ -130,6 +130,18 @@ export function decideFindNextCheckLoop(input: {
     Boolean(input.freeGovAfterFp);
 
   if (!input.autonomousServ) {
+    // Free MMY batches must keep draining under deterministic fallback — otherwise
+    // coverage freezes mid-fleet (e.g. recalls 6/14, safety/fuel 3/14) while the UI
+    // still says "Checking public records…". Partial sample ≠ settled pick.
+    if (remainingFreeGov > 0) {
+      return {
+        continue: true,
+        reason: freeGovChangedEarly ? "evidence_changed_replan" : "remaining_free_checks",
+        detail: freeGovChangedEarly
+          ? "Deterministic fallback ran free public vehicle checks; receipts changed and unchecked year/make/model remain — continue free batches (no Report credit)."
+          : `${remainingFreeGov} free public vehicle check(s) still actionable for unchecked MMY after deterministic fallback — continue automatically (no Report credit).`,
+      };
+    }
     // Fallback still executed free-gov and stored receipts — continue so the next
     // keyed SERV step can decide on real evidence (PR80: stop left receipts unused).
     if (freeGovChangedEarly && input.remainingActionableCount > 0) {

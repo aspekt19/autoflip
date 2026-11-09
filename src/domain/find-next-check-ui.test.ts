@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  FIND_NEXT_CHECK_AUTO_CONTINUE_MAX,
   rematchRefineFromReplan,
   shouldAutoContinueFindNextCheck,
   shouldAutoStartFindNextCheck,
@@ -35,7 +36,7 @@ describe("shouldAutoStartFindNextCheck", () => {
 });
 
 describe("shouldAutoContinueFindNextCheck", () => {
-  it("continues only when server loop.continue + autonomous SERV", () => {
+  it("continues free-gov reasons even when a step fell back to deterministic", () => {
     expect(
       shouldAutoContinueFindNextCheck({
         servNextCheckEnabled: true,
@@ -52,12 +53,53 @@ describe("shouldAutoContinueFindNextCheck", () => {
         loop: { continue: false, reason: "grounded_stop" },
       }),
     ).toBe(false);
+    // Live regression: server continue + deterministic fallback must NOT freeze coverage.
     expect(
       shouldAutoContinueFindNextCheck({
         servNextCheckEnabled: true,
         autonomousServ: false,
         searchContextToken: "t",
         loop: { continue: true, reason: "evidence_changed_replan" },
+      }),
+    ).toBe(true);
+    expect(
+      shouldAutoContinueFindNextCheck({
+        servNextCheckEnabled: true,
+        autonomousServ: false,
+        searchContextToken: "t",
+        loop: { continue: true, reason: "remaining_free_checks" },
+      }),
+    ).toBe(true);
+  });
+
+  it("still requires autonomous SERV for non-free-gov continue reasons", () => {
+    expect(
+      shouldAutoContinueFindNextCheck({
+        servNextCheckEnabled: true,
+        autonomousServ: false,
+        searchContextToken: "t",
+        loop: { continue: true, reason: "some_other_reason" },
+      }),
+    ).toBe(false);
+  });
+
+  it("hard-bounds auto-continues so a stuck disposition cannot spin forever", () => {
+    expect(
+      shouldAutoContinueFindNextCheck({
+        servNextCheckEnabled: true,
+        autonomousServ: false,
+        searchContextToken: "t",
+        autoContinueCount: FIND_NEXT_CHECK_AUTO_CONTINUE_MAX - 1,
+        loop: { continue: true, reason: "remaining_free_checks" },
+      }),
+    ).toBe(true);
+    expect(
+      shouldAutoContinueFindNextCheck({
+        servNextCheckEnabled: true,
+        autonomousServ: false,
+        searchContextToken: "t",
+        autoContinueCount: FIND_NEXT_CHECK_AUTO_CONTINUE_MAX,
+        loop: { continue: true, reason: "remaining_free_checks" },
       }),
     ).toBe(false);
   });

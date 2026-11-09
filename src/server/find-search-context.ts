@@ -18,6 +18,8 @@ export const FIND_SEARCH_CONTEXT_TTL_SEC = 60 * 60 * 2; // 2h
 
 export type FindSearchListingFact = ObservedListingRow & {
   vin?: string | null;
+  /** When present, best-deal market comps can share same-trim scope with card badges. */
+  trim?: string | null;
 };
 
 export type FindSearchContextRecord = {
@@ -202,6 +204,7 @@ export function listingsFromMatchDirections(
     priceUsd?: number | null;
     miles?: number | null;
     vin?: string;
+    trim?: string | null;
     priceView?: { usableForBudget?: boolean } | null;
   }> }>,
 ): FindSearchListingFact[] {
@@ -209,6 +212,8 @@ export function listingsFromMatchDirections(
   for (const group of directions) {
     for (const row of group.listings ?? []) {
       const usable = row.priceView?.usableForBudget !== false;
+      const trim =
+        typeof row.trim === "string" && row.trim.trim() ? row.trim.trim() : row.trim === null ? null : undefined;
       out.push({
         make: row.make,
         model: row.model,
@@ -216,6 +221,7 @@ export function listingsFromMatchDirections(
         priceUsd: usable && typeof row.priceUsd === "number" ? row.priceUsd : null,
         miles: typeof row.miles === "number" ? row.miles : null,
         vin: row.vin ?? null,
+        ...(trim !== undefined ? { trim } : {}),
       });
     }
   }

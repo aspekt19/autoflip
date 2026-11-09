@@ -10,7 +10,9 @@ describe("coverage note", () => {
       radiusMiles: 150,
       historyOnListing: false,
     });
-    expect(note).toBe("Based on 34 dealer listings within 150 miles; no vehicle history checked.");
+    expect(note).toBe(
+      "Based on 34 dealer listings in this search direction within 150 miles; no vehicle history checked.",
+    );
   });
 
   it("says low confidence for a thin or sample set and does not invent a radius", () => {

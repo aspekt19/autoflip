@@ -138,10 +138,12 @@ describe("selectBestDealOnEvidence (deterministic)", () => {
   it("is deterministic across runs", () => {
     const receipts = [
       receiptFuel("Honda", "CR-V", 2016, fuelEv({ annualFuelUsdLow: 1500, annualFuelUsdHigh: 1500 })),
+      receiptFuel("Honda", "CR-V", 2015, fuelEv({ annualFuelUsdLow: 1550, annualFuelUsdHigh: 1550 })),
       receiptFuel("Hyundai", "Tucson", 2017, fuelEv({ annualFuelUsdLow: 1700, annualFuelUsdHigh: 1700 })),
       receiptFuel("Kia", "Sportage", 2016, fuelEv({ annualFuelUsdLow: 1800, annualFuelUsdHigh: 1800 })),
       receiptFuel("Mazda", "CX-5", 2016, fuelEv({ annualFuelUsdLow: 1600, annualFuelUsdHigh: 1600 })),
       receiptRecalls("Honda", "CR-V", 2016, 1),
+      receiptRecalls("Honda", "CR-V", 2015, 2),
       receiptRecalls("Hyundai", "Tucson", 2017, 2),
       receiptRecalls("Kia", "Sportage", 2016, 4),
       receiptRecalls("Mazda", "CX-5", 2016, 1),

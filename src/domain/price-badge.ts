@@ -71,15 +71,22 @@ export function priceBadge(subject: Listing, pool: Listing[]): PriceBadge {
   if (gap === null || fair <= 0) return unknown;
   const verdict = verdictFromPriceGap(gap);
   const deltaUsd = roundDollars(subject.priceUsd - fair);
+  // One comparable set + one n= across deltaLabel and sampleNote (no trim-n vs model-n clash).
+  const scopeWord =
+    selection.scope === "same_trim"
+      ? "same-trim"
+      : selection.scope === "expanded_year"
+        ? "same-model (widened year)"
+        : "same-model";
   const sampleNote =
     selection.notes[0] ??
-    `Compared with ${priced.length} same-model listings (similar year/mileage when available).`;
+    `Compared with ${priced.length} ${scopeWord} comps (similar year/mileage when available).`;
   const deltaLabel =
     deltaUsd === 0
-      ? `At the market price (n=${priced.length})`
+      ? `At the market price (n=${priced.length} ${scopeWord} comps)`
       : deltaUsd < 0
-        ? `${formatUsd(Math.abs(deltaUsd))} below market (n=${priced.length} same-model comps)`
-        : `${formatUsd(deltaUsd)} above market (n=${priced.length} same-model comps)`;
+        ? `${formatUsd(Math.abs(deltaUsd))} below market (n=${priced.length} ${scopeWord} comps)`
+        : `${formatUsd(deltaUsd)} above market (n=${priced.length} ${scopeWord} comps)`;
   const base = {
     deltaUsd,
     deltaLabel,

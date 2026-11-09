@@ -66,12 +66,18 @@ export function selectComparables(subject: Listing, pool: Listing[]): CompSelect
   if (near.length >= ASSUMPTIONS.minComps && subject.miles != null) {
     const comps = preferSimilarMileage(subject.miles, near);
     if (subject.trim) {
+      const trimBit =
+        sameTrim.length === 0
+          ? "No same-trim listings in range"
+          : sameTrim.length === 1
+            ? "Only 1 same-trim listing in range"
+            : `Only ${sameTrim.length} same-trim listings in range`;
       notes.push(
-        `Only ${sameTrim.length} same-trim listing${sameTrim.length === 1 ? "" : "s"} in range, so the comparison uses ${comps.length} ${subject.make} ${subject.model} cards within ±${ASSUMPTIONS.yearWindow} model year (same model; similar mileage when available).`,
+        `${trimBit}, so this rating uses ${comps.length} same-model ${subject.make} ${subject.model} comps within ±${ASSUMPTIONS.yearWindow} model year (similar mileage when available).`,
       );
     } else {
       notes.push(
-        `Compared with ${comps.length} same-model ${subject.make} ${subject.model} listings within ±${ASSUMPTIONS.yearWindow} model year${comps.length < near.length ? ", preferring similar mileage" : ""}.`,
+        `Compared with ${comps.length} same-model ${subject.make} ${subject.model} comps within ±${ASSUMPTIONS.yearWindow} model year${comps.length < near.length ? ", preferring similar mileage" : ""}.`,
       );
     }
     return { comps, scope: "year_window", notes };
@@ -86,8 +92,14 @@ export function selectComparables(subject: Listing, pool: Listing[]): CompSelect
     return { comps, scope: "expanded_year", notes };
   }
 
+  const zeroBit =
+    wide.length === 0
+      ? "No priced same-model listings with mileage"
+      : wide.length === 1
+        ? "Only 1 priced same-model listing with mileage"
+        : `Only ${wide.length} priced same-model listings with mileage`;
   notes.push(
-    `Only ${wide.length} priced listing${wide.length === 1 ? "" : "s"} with mileage within ±${ASSUMPTIONS.yearWindowExpanded} model years of the same make/model. A price verdict needs at least ${ASSUMPTIONS.minComps}.`,
+    `${zeroBit} within ±${ASSUMPTIONS.yearWindowExpanded} model years. A price verdict needs at least ${ASSUMPTIONS.minComps}.`,
   );
   return { comps: wide, scope: "insufficient", notes };
 }
