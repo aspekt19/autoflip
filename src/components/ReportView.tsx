@@ -392,8 +392,8 @@ export function ReportView({ report }: { report: FullReport }) {
               <tr>
                 <th>Campaign</th>
                 <th>Component</th>
-                <th>parkIt</th>
-                <th>parkOutside</th>
+                <th>Park-it (do not drive)</th>
+                <th>Outdoor parking guidance</th>
               </tr>
             </thead>
             <tbody>
@@ -557,9 +557,9 @@ function RiskSummary({
         <span className="risk-count note">{missingData.length} missing</span>
       </div>
       {openParkIt ? (
-        <p className="risk-primary">A parkIt campaign matched this model year, make and model. Do not drive until the exact VIN&apos;s recall status and completed repair are confirmed — model coverage is not VIN unrepaired proof.</p>
+        <p className="risk-primary">A park-it campaign matched this model year, make and model. Do not drive until the exact VIN&apos;s recall status and completed repair are confirmed — model coverage is not VIN unrepaired proof.</p>
       ) : openParkOutside ? (
-        <p className="risk-primary">A parkOutside campaign (outdoor parking guidance) matched this model year, make and model. That is not a parkIt / do-not-drive stop by itself — verify VIN applicability.</p>
+        <p className="risk-primary">An outdoor-parking guidance campaign matched this model year, make and model. That is not a park-it / do-not-drive stop by itself — verify VIN applicability.</p>
       ) : null}
       {prominent.length > 0 ? (
         <ul className="risk-flag-list">

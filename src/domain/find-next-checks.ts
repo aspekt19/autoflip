@@ -1,10 +1,10 @@
 /**
  * Bounded next-check choices for Find.
  * Code owns the allowlist; SERV may only pick from these ids.
- * No invented costs, reliability ranks, or "best car" picks.
+ * No invented reliability ranks. Best-deal scores are computed in code from evidence.
  *
- * Free public NHTSA checks (vPIC / recalls / NCAP) are allowlisted for autonomous
- * ordinary Find when condition/hidden-risk matters — before median settle.
+ * Free public checks (NHTSA recalls/vPIC/NCAP + FuelEconomy.gov) are allowlisted for
+ * autonomous ordinary Find when condition/hidden-risk or fuel cost matters — before median settle.
  * Paid NMVTIS / Report credit stay user-action (`get_history_report` / `run_full_analysis`).
  */
 
@@ -23,6 +23,7 @@ export const FIND_NEXT_CHECK_IDS = [
   "free_gov_recalls",
   "free_gov_vpic",
   "free_gov_safety",
+  "free_gov_fuel",
   "compare_observed_asks",
   "run_full_analysis",
   "get_history_report",
@@ -124,21 +125,24 @@ export function proposeFindNextChecks(input: FindNextCheckInput): FindNextCheck[
   }
 
   const freeWanted = wantsFreeVehicleEvidence(input.need, input.softGaps);
+  const fuelWanted = freeWanted || hasGap(input.softGaps, "fuel_or_running_cost");
   const coverage = input.freeGovCoverage ?? null;
   const recallsOpen = !coverage || freeGovCheckStillHasUnchecked(coverage, "free_gov_recalls");
   const safetyOpen = !coverage || freeGovCheckStillHasUnchecked(coverage, "free_gov_safety");
+  const fuelOpen =
+    !coverage || !coverage.fuel || freeGovCheckStillHasUnchecked(coverage, "free_gov_fuel");
   const vpicOpen =
     Boolean(input.listingsHaveVin) &&
     (!coverage || freeGovCheckStillHasUnchecked(coverage, "free_gov_vpic"));
   if (freeWanted && input.observedListingCount > 0) {
-    // Keep free_gov_* allowlisted while unchecked MMYs remain — do not permanently burn after one batch.
+    // Keep free_gov_* allowlisted while unchecked year/make/model rows remain — do not permanently burn after one batch.
     if (recallsOpen) {
       const progress = coverage
-        ? ` (${coverage.recalls.checked}/${coverage.recalls.eligible} MMY checked; ${coverage.recalls.unchecked} unchecked)`
+        ? ` (${coverage.recalls.checked}/${coverage.recalls.eligible} year/make/model checked; ${coverage.recalls.unchecked} unchecked)`
         : "";
       out.push({
         id: "free_gov_recalls",
-        why: `Run free public NHTSA recalls + complaints for unchecked make/model/year cards${progress} — not VIN-open status, not clean history.`,
+        why: `Check free public government recalls + complaints for unchecked year/make/model cards${progress} — not VIN-open status, not clean history.`,
         evidence: coverage && coverage.recalls.checked > 0 ? "free_gov_mmy_progress" : "condition_or_hidden_risk",
       });
     }
@@ -148,26 +152,43 @@ export function proposeFindNextChecks(input: FindNextCheckInput): FindNextCheck[
         : "";
       out.push({
         id: "free_gov_vpic",
-        why: `Decode VIN via free public vPIC for unchecked VIN cards${progress} — ErrorCode=0 required; decode ≠ clean title/history.`,
+        why: `Decode VIN via the free public government VIN decoder for unchecked VIN cards${progress} — successful decode required; decode ≠ clean title/history.`,
         evidence: coverage && coverage.vpic.checked > 0 ? "free_gov_mmy_progress" : "vin_present_condition_risk",
       });
     }
     if (safetyOpen) {
       const progress = coverage
-        ? ` (${coverage.safety.checked}/${coverage.safety.eligible} MMY checked; ${coverage.safety.unchecked} unchecked)`
+        ? ` (${coverage.safety.checked}/${coverage.safety.eligible} year/make/model checked; ${coverage.safety.unchecked} unchecked)`
         : "";
       out.push({
         id: "free_gov_safety",
-        why: `Fetch free public NCAP SafetyRatings for unchecked make/model/year cards${progress} — Not Rated stays unknown.`,
+        why: `Fetch free public government crash-test ratings for unchecked year/make/model cards${progress} — Not Rated stays unknown.`,
         evidence: coverage && coverage.safety.checked > 0 ? "free_gov_mmy_progress" : "condition_or_hidden_risk",
       });
     }
   }
 
+  if (fuelWanted && input.observedListingCount > 0 && fuelOpen) {
+    const fuelSlice = coverage?.fuel;
+    const progress = fuelSlice
+      ? ` (${fuelSlice.checked}/${fuelSlice.eligible} year/make/model checked; ${fuelSlice.unchecked} unchecked)`
+      : "";
+    out.push({
+      id: "free_gov_fuel",
+      why: `Estimate annual fuel cost from free public FuelEconomy.gov for unchecked year/make/model cards${progress} — ambiguous configs stay a labeled range; not full ownership cost.`,
+      evidence:
+        fuelSlice && fuelSlice.checked > 0
+          ? "free_gov_mmy_progress"
+          : hasGap(input.softGaps, "fuel_or_running_cost")
+            ? "soft_pref_fuel"
+            : "condition_or_hidden_risk",
+    });
+  }
+
   if (input.observedModelCount >= 2) {
     out.push({
       id: "compare_observed_asks",
-      why: "Compare median ask, miles, and year bands across the models in these cards — observed facts only.",
+      why: "Compare median ask, miles, year bands, and fuel estimates across the models in these cards — observed facts only.",
       evidence: `observed_models_${input.observedModelCount}`,
     });
   }
@@ -175,7 +196,7 @@ export function proposeFindNextChecks(input: FindNextCheckInput): FindNextCheck[
   if (input.observedListingCount > 0) {
     out.push({
       id: "run_full_analysis",
-      why: "Full analysis pulls EPA fuel when matched, recalls, and scorecard math for one VIN — 1 credit. Find cards alone are not that report.",
+      why: "Full analysis pulls deeper scorecard math for one VIN — 1 credit. Find cards alone are not that report.",
       evidence: "listings_present",
     });
   }
@@ -209,17 +230,17 @@ export function proposeFindNextChecks(input: FindNextCheckInput): FindNextCheck[
   }
 
   // Stable priority order; dedupe by id; drop already-applied.
-  // Cap 6 so free_gov_* can precede compare without starving history/analysis choices.
+  // Cap 8 so free_gov_* (incl. fuel) can precede compare without starving history/analysis choices.
   const order = FIND_NEXT_CHECK_IDS;
   const ranked = order
     .map((id) => out.find((item) => item.id === id))
     .filter((item): item is FindNextCheck => Boolean(item))
     .filter((item) => {
-      // Free-gov may remain while MMY coverage incomplete — do not drop solely because applied once.
+      // Free-gov may remain while year/make/model coverage incomplete — do not drop solely because applied once.
       if (isFindFreeGovCheckId(item.id)) return true;
       return !applied.has(item.id);
     });
-  return ranked.slice(0, 6);
+  return ranked.slice(0, 8);
 }
 
 /** Clamp a SERV (or any) choice to the code allowlist. Unknown ids drop. */

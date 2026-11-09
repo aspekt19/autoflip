@@ -9,11 +9,13 @@
  * autonomousServ=false (must not masquerade as SERV autonomy).
  */
 import type { DecisionProof } from "@/domain/decision-note";
+import { selectBestDealOnEvidence } from "@/domain/find-best-deal";
 import {
   executeFindFreeGovCheck,
   fingerprintFreeGovReceipts,
   freeGovReceiptsBrief,
   freeGovToolCoverage,
+  fuelsByModelKeyFromReceipts,
   isFindFreeGovCheckId,
   type FindFreeGovReceipt,
 } from "@/domain/find-free-gov";
@@ -126,13 +128,15 @@ export type FindNextCheckOrchestratorOk = {
   } | null;
   needAfter: StructuredNeed;
   appliedCheckIds: string[];
-  /** Free public NHTSA receipts after this step (server-owned; may be empty). */
+  /** Free public government receipts after this step (server-owned; may be empty). */
   freeGovReceipts: FindFreeGovReceipt[];
   freeEvidenceNote: string | null;
-  /** Honest MMY sample coverage vs full listing inventory (never claims fleet-wide clearance). */
+  /** Honest year/make/model sample coverage vs full listing inventory (never claims fleet-wide clearance). */
   riskCoverage: ReturnType<typeof riskCoverageHonesty>;
-  /** Per-tool free MMY progress — allowlist continuation signal. */
+  /** Per-tool free year/make/model progress — allowlist continuation signal. */
   freeGovCoverage: ReturnType<typeof freeGovToolCoverage>;
+  /** Deterministic best-deal ranking from code (not SERV-invented scores). */
+  bestDeal: ReturnType<typeof selectBestDealOnEvidence>;
   /** Ordinary UI auto-continues when continue=true (no hidden step quota). */
   loop: FindNextCheckLoopDisposition;
 };
@@ -222,6 +226,7 @@ function publicResultPayload(ok: FindNextCheckOrchestratorOk): string {
     freeGovCoverage: ok.freeGovCoverage,
     loop: ok.loop,
     proofs: ok.proofs,
+    bestDeal: ok.bestDeal,
   });
 }
 
@@ -351,16 +356,17 @@ export async function runFindNextCheckOrchestrator(
       rematchOk = null;
     }
 
-    // Free public NHTSA tools — autonomous, no Report credit, reuses Scout free-gov port.
+    // Free public government tools — autonomous, no Report credit, reuses Scout free-gov port.
     if (live.replan.freeEvidence) {
       const executed = await executeFindFreeGovCheck({
         checkId: live.chosenId,
         listings: listingsAfter,
         priorReceipts,
         gov: deps.freeGovPort,
+        shopperNote: live.replan.need.note,
       });
       if (executed) {
-        // Dedup by checkId+MMY so cached re-runs cannot append duplicate receipts / fake cycles.
+        // Dedup by checkId+year/make/model so cached re-runs cannot append duplicate receipts / fake cycles.
         if (executed.receipts.length > 0) {
           freeGovReceipts = mergeFreeGovReceiptsByMmy(priorReceipts, executed.receipts);
         }
@@ -380,13 +386,19 @@ export async function runFindNextCheckOrchestrator(
       freeGovReceipts,
     });
 
+    const fuelsByModelKey = fuelsByModelKeyFromReceipts(freeGovReceipts);
     // Shortlist + remaining checks from POST-apply / POST-rematch / free-gov evidence.
     const shortlistPack = buildGroundedShortlistWithRisk(
       updated.need,
       updated.listings,
-      {},
+      fuelsByModelKey,
       freeGovReceipts,
     );
+    const bestDeal = selectBestDealOnEvidence({
+      need: updated.need,
+      listings: updated.listings,
+      receipts: freeGovReceipts,
+    });
     const shortlistAfter = shortlistPack.entries;
     const riskCoverage = shortlistPack.coverage;
     const softGaps = softPrefGapsFromText(updated.need.note);
@@ -468,6 +480,7 @@ export async function runFindNextCheckOrchestrator(
       freeEvidenceNote,
       riskCoverage,
       freeGovCoverage: coverageAfter,
+      bestDeal,
       loop,
     };
 

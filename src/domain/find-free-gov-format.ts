@@ -1,7 +1,15 @@
 /**
  * Client-safe free-gov receipt formatting (no Scout/io imports).
+ * Buyer-visible lines are plain English; raw API URLs stay in the machine channel.
  */
+import {
+  assertBuyerSafeText,
+  buyerSourceForReceipt,
+  formatBuyerReceiptLine,
+  machineReceiptsPayload,
+} from "./find-buyer-copy";
 import type { FindFreeGovReceipt } from "./find-free-gov";
+import type { FindFuelEvidence } from "./find-fuel-match";
 
 export type FreeGovReceiptUiRow = {
   checkId?: string;
@@ -13,6 +21,7 @@ export type FreeGovReceiptUiRow = {
   model: string;
   year: number;
   sourceUrl?: string | null;
+  fetchedAt?: string | null;
   riskFacts?: {
     parkIt?: boolean | null;
     parkOutside?: boolean | null;
@@ -21,55 +30,71 @@ export type FreeGovReceiptUiRow = {
     campaignCountReported?: number | null;
     complaintCount?: number | null;
   } | null;
+  fuelEvidence?: FindFuelEvidence | null;
 };
 
 /** Historical silent UI preview cap — kept for honesty labels / tests only. */
 export const FREE_GOV_UI_DETAIL_PREVIEW = 6;
 
-/** Format one receipt line — every MMY claim inspectable with source/scope/status. */
+/** @deprecated Prefer formatBuyerReceiptLine — kept for machine/agent diagnostics. */
 export function formatFreeGovReceiptLine(r: FreeGovReceiptUiRow): string {
-  const vinBit = r.vin ? ` VIN…${r.vin.slice(-4)}` : " (no VIN)";
-  const rf = r.riskFacts;
-  const flagBits: string[] = [];
-  if (rf && typeof rf.parkIt === "boolean") flagBits.push(`parkIt=${rf.parkIt}`);
-  if (rf && typeof rf.parkOutside === "boolean") flagBits.push(`parkOutside=${rf.parkOutside}`);
-  const ids = rf?.campaignNumbers ?? [];
-  if (ids.length > 0 || (typeof rf?.campaignCountReported === "number" && rf.campaignCountReported > 0)) {
-    const reported =
-      typeof rf?.campaignCountReported === "number"
-        ? Math.max(rf.campaignCountReported, ids.length)
-        : ids.length;
-    if (reported > ids.length) {
-      flagBits.push(
-        `campaignIds=${ids.join(",") || "(none retained)"} (shown ${ids.length} of ${reported})`,
-      );
-    } else {
-      flagBits.push(`campaignIds=${ids.join(",")}`);
-    }
-  }
-  if (typeof rf?.complaintCount === "number") flagBits.push(`complaints=${rf.complaintCount}`);
-  const flags = flagBits.length > 0 ? ` [${flagBits.join("; ")}]` : "";
-  const src = r.sourceUrl ? ` src=${r.sourceUrl.slice(0, 120)}` : "";
-  return `${r.year} ${r.make} ${r.model}${vinBit}: ${r.status} — ${r.summary.slice(0, 160)}${flags} [${r.toolId}]${src}`;
+  return formatBuyerReceiptLine(uiRowsToRiskReceipts([r])[0]!);
 }
 
 /**
- * User-visible lines for ordinary Find — every receipt individually inspectable.
- * No silent drop of MMY claims. Optional preview footer when callers pass previewOnly.
+ * User-visible lines for ordinary Find — plain language, every receipt inspectable.
+ * No raw API URLs, checkIds, or reason tags.
  */
 export function formatFreeGovReceiptsForUi(
   receipts: readonly FreeGovReceiptUiRow[],
   opts?: { previewMax?: number },
 ): string[] {
+  const mapped = uiRowsToRiskReceipts(receipts);
   const previewMax = opts?.previewMax;
-  if (previewMax != null && previewMax >= 0 && receipts.length > previewMax) {
-    const shown = receipts.slice(0, previewMax).map(formatFreeGovReceiptLine);
-    shown.push(
-      `… showing ${previewMax} of ${receipts.length} free-gov receipts (expand/full store retained — not silent clearance of hidden MMYs).`,
-    );
-    return shown;
+  const lines =
+    previewMax != null && previewMax >= 0 && mapped.length > previewMax
+      ? [
+          ...mapped.slice(0, previewMax).map(formatBuyerReceiptLine),
+          `… showing ${previewMax} of ${mapped.length} public checks (full details kept for review — not silent clearance).`,
+        ]
+      : mapped.map(formatBuyerReceiptLine);
+  return lines.map((line) => {
+    const check = assertBuyerSafeText(line);
+    if (check.ok) return line;
+    // Soft scrub rather than crash the UI — strip offending substrings.
+    let scrubbed = line;
+    for (const hit of check.hits) {
+      scrubbed = scrubbed.split(hit).join("").replace(/\s{2,}/g, " ").trim();
+    }
+    scrubbed = scrubbed
+      .replace(/\bMMY\b/g, "year/make/model")
+      .replace(/\bvPIC\b/g, "VIN decoder")
+      .replace(/\bparkIt\b/g, "park-it")
+      .replace(/\bparkOutside\b/g, "outdoor-parking guidance");
+    return scrubbed || "Public vehicle check recorded.";
+  });
+}
+
+/** Machine-only JSON for hidden data attributes / agent channel. */
+export function formatFreeGovReceiptsForAgents(receipts: readonly FreeGovReceiptUiRow[]): string {
+  return machineReceiptsPayload(uiRowsToRiskReceipts(receipts));
+}
+
+export function buyerSourceLinesForUi(receipts: readonly FreeGovReceiptUiRow[]): Array<{
+  label: string;
+  href: string | null;
+  checkedAt: string | null;
+}> {
+  const seen = new Set<string>();
+  const out: Array<{ label: string; href: string | null; checkedAt: string | null }> = [];
+  for (const r of uiRowsToRiskReceipts(receipts)) {
+    const src = buyerSourceForReceipt(r);
+    const key = `${src.label}|${src.href ?? ""}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(src);
   }
-  return receipts.map(formatFreeGovReceiptLine);
+  return out;
 }
 
 /** Map UI/API receipt rows into FindFreeGovReceipt shape for shortlist risk (no invent). */
@@ -78,15 +103,31 @@ export function uiRowsToRiskReceipts(
 ): FindFreeGovReceipt[] {
   return rows.map((r) => {
     const checkId =
-      r.checkId === "free_gov_vpic" || r.checkId === "free_gov_safety" || r.checkId === "free_gov_recalls"
+      r.checkId === "free_gov_vpic" ||
+      r.checkId === "free_gov_safety" ||
+      r.checkId === "free_gov_recalls" ||
+      r.checkId === "free_gov_fuel"
         ? r.checkId
-        : "free_gov_recalls";
+        : r.toolId === "evidence.gov_fuel"
+          ? "free_gov_fuel"
+          : r.toolId === "evidence.gov_vpic"
+            ? "free_gov_vpic"
+            : r.toolId === "evidence.gov_safety"
+              ? "free_gov_safety"
+              : "free_gov_recalls";
     const toolId =
       r.toolId === "evidence.gov_vpic" ||
       r.toolId === "evidence.gov_safety" ||
-      r.toolId === "evidence.gov_recalls"
+      r.toolId === "evidence.gov_recalls" ||
+      r.toolId === "evidence.gov_fuel"
         ? r.toolId
-        : "evidence.gov_recalls";
+        : checkId === "free_gov_fuel"
+          ? "evidence.gov_fuel"
+          : checkId === "free_gov_vpic"
+            ? "evidence.gov_vpic"
+            : checkId === "free_gov_safety"
+              ? "evidence.gov_safety"
+              : "evidence.gov_recalls";
     const status =
       r.status === "ok" || r.status === "empty" || r.status === "unavailable" || r.status === "error"
         ? r.status
@@ -109,7 +150,7 @@ export function uiRowsToRiskReceipts(
       make: r.make,
       model: r.model,
       year: r.year,
-      fetchedAt: "",
+      fetchedAt: r.fetchedAt ?? "",
       cached: false,
       sourceUrl: r.sourceUrl ?? null,
       factNotes: [],
@@ -133,6 +174,7 @@ export function uiRowsToRiskReceipts(
             cached: false,
           }
         : null,
+      fuelEvidence: r.fuelEvidence ?? null,
       honesty: "",
     };
   });

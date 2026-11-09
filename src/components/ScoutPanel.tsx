@@ -206,7 +206,7 @@ export function ScoutPanel() {
       return;
     }
     if (planner === "serv" && !canUseServ) {
-      setError("SERV planner is not enabled for this session.");
+      setError("Advisor planner is not enabled for this session.");
       return;
     }
 
@@ -396,7 +396,7 @@ export function ScoutPanel() {
               disabled={busy || !sessionOk}
             >
               <option value="offline_heuristic">Offline heuristic</option>
-              <option value="serv">SERV (bounded search/check/replan)</option>
+              <option value="serv">Advisor (bounded search/check/replan)</option>
             </select>
           </label>
         ) : null}

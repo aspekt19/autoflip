@@ -715,7 +715,7 @@ export function softPrefGapsFromText(text: string): SoftPrefGap[] {
       id: "fuel_or_running_cost",
       mentioned: "running cost / fuel economy",
       honesty:
-        "Find does not invent TCO or rank MPG across cards. When a full analysis gets a usable FuelEconomy.gov match, annual fuel cost is shown from that source (or from MPG plus your stated $/gal and miles/year). Otherwise ownership fuel cost stays unavailable.",
+        "Find can estimate annual fuel cost from free public FuelEconomy.gov when year/make/model matches (ambiguous configs stay a labeled range). That is not a full TCO — insurance, maintenance, and repairs stay out of scope.",
     });
   }
   if (/\b(not too old|newer|recent(?:er)?|not ancient)\b/i.test(t) && !/\b(19|20)\d{2}\b/.test(t) && !/\bunder\s+\d+\s+years?\b/i.test(t)) {

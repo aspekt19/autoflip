@@ -113,7 +113,8 @@ function receipt(
     sourceUrl: `https://api.nhtsa.gov/recalls/recallsByVehicle?make=${make}&model=${model}&modelYear=${year}`,
     factNotes: [],
     riskFacts: opts?.riskFacts ?? null,
-    honesty: "MMY ≠ VIN",
+    fuelEvidence: null,
+    honesty: "year/make/model ≠ VIN",
   };
 }
 
@@ -157,8 +158,9 @@ describe("honest receipt inspectability (14 MMY / no silent 6-cap)", () => {
     expect(FREE_GOV_UI_DETAIL_PREVIEW).toBe(6);
     const all = formatFreeGovReceiptsForUi(rows);
     expect(all).toHaveLength(14);
-    expect(all.every((line) => line.includes("src=https://api.nhtsa.gov"))).toBe(true);
-    expect(all.every((line) => /status|ok —|ok —/.test(line) || line.includes(": ok —"))).toBe(true);
+    // Buyer-visible lines: human source label, never raw API URLs / format=json.
+    expect(all.every((line) => /NHTSA recalls \(U\.S\. government\)/.test(line))).toBe(true);
+    expect(all.every((line) => !/api\.nhtsa\.gov|format=json|src=https?:\/\//i.test(line))).toBe(true);
 
     const preview = formatFreeGovReceiptsForUi(rows, { previewMax: FREE_GOV_UI_DETAIL_PREVIEW });
     expect(preview).toHaveLength(FREE_GOV_UI_DETAIL_PREVIEW + 1);
@@ -166,7 +168,7 @@ describe("honest receipt inspectability (14 MMY / no silent 6-cap)", () => {
     expect(preview[preview.length - 1]).toMatch(/not silent clearance/i);
   });
 
-  it("labels campaign IDs when reported count exceeds retained IDs (no silent 5→4)", () => {
+  it("labels campaign counts honestly for buyers when several campaigns are on file", () => {
     // Mimic Scenario2: summary/count says 5; only 4 IDs retained in riskFacts.
     const facts = riskFactsFromPacket(
       recallPacket({
@@ -201,9 +203,9 @@ describe("honest receipt inspectability (14 MMY / no silent 6-cap)", () => {
         },
       },
     ])[0]!;
-    expect(line).toMatch(/shown 4 of 5/);
-    expect(line).toContain("16V644000");
-    expect(line).not.toMatch(/campaigns=16V644000,16V203000,16V054000,16E002000(?!\s*\()/);
+    expect(line).toMatch(/5 recall campaign/);
+    expect(line).toMatch(/NHTSA recalls \(U\.S\. government\)/);
+    expect(line).not.toMatch(/api\.nhtsa\.gov|format=json/i);
   });
 
   it("SERV brief keeps allCoverage for 14 while cards preview is capped + labeled", () => {
@@ -392,6 +394,7 @@ describe("free-terminal policy — compare/no-op must not finish while free safe
         recalls: { checked: 14, unchecked: 0, eligible: 14 },
         safety: { checked: 0, unchecked: 14, eligible: 14 },
         vpic: { checked: 0, unchecked: 0, eligible: 0 },
+        fuel: { checked: 14, unchecked: 0, eligible: 14 },
         anyUnchecked: true,
         note: "recalls complete; safety open",
       },
@@ -449,9 +452,9 @@ describe("parkOutside ≠ parkIt regressions", () => {
         },
       },
     ])[0]!;
-    expect(line).toContain("parkIt=false");
-    expect(line).toContain("parkOutside=true");
-    expect(line).toContain("20V543000");
+    expect(line).toMatch(/outdoor-parking guidance/i);
+    expect(line).not.toMatch(/park-it campaign flag for this year\/make\/model\./i);
+    expect(line).not.toMatch(/api\.nhtsa\.gov|format=json|parkIt=false|parkOutside=true/i);
     const brief = freeGovReceiptsBrief([
       receipt(2018, "Hyundai", "Tucson", { riskFacts: facts }),
     ]);
