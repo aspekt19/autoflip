@@ -258,6 +258,7 @@ function AssistantFlow({
   const [model, setModel] = useState("");
   const [yearMin, setYearMin] = useState(entryNeed?.yearMin != null ? String(entryNeed.yearMin) : "");
   const [yearMax, setYearMax] = useState(entryNeed?.yearMax != null ? String(entryNeed.yearMax) : "");
+  const [dealRadarUi, setDealRadarUi] = useState(false);
   const [checkKind, setCheckKind] = useState<"link" | "vin">("link");
   const [lookup, setLookup] = useState("");
   const [vinPrice, setVinPrice] = useState("");
@@ -313,6 +314,22 @@ function AssistantFlow({
   const findIdempotencyKey = useRef<string | null>(null);
   /** Auto-continues fired for the current search token — hard-bounded in shouldAutoContinue. */
   const autoContinueCountRef = useRef(0);
+
+  useEffect(() => {
+    if (variant !== "find") return;
+    let cancelled = false;
+    fetch("/api/product-flags")
+      .then((response) => response.json())
+      .then((body: { flags?: { dealRadar?: boolean } }) => {
+        if (!cancelled) setDealRadarUi(body.flags?.dealRadar === true);
+      })
+      .catch(() => {
+        if (!cancelled) setDealRadarUi(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [variant]);
 
   useEffect(() => {
     if (variant !== "check") return;
@@ -1287,6 +1304,7 @@ function AssistantFlow({
   }
 
   async function watch(direction: SearchDirection) {
+    if (!dealRadarUi) return;
     // Watches require explicit ZIP + seller-distance radius — never invent 50/100 after Nationwide.
     if (!need?.zip?.trim() || need.distanceMiles == null) {
       setError("Saved searches need a ZIP and a seller-distance radius. Choose a radius (Nationwide watches are not supported).");
@@ -2355,7 +2373,7 @@ function AssistantFlow({
           ) : null}
           {error && pending === null && groups.some((group) => group.listings.length > 0) ? (
             <p className="warn" role="alert">
-              {error} {/plan|watch/i.test(error) ? <a href="/pricing">See radar plans</a> : null}
+              {error} {dealRadarUi && /plan|watch/i.test(error) ? <a href="/pricing">See radar plans</a> : null}
             </p>
           ) : null}
           {groups.map((group) => (
@@ -2410,9 +2428,11 @@ function AssistantFlow({
                     );
                   })()
                 : null}
-              <button className="quiet" type="button" onClick={() => void watch(group.direction)} disabled={pending === group.direction.id}>
-                {pending === group.direction.id ? "Saving alert…" : need?.mode === "flip" ? "Get alerts for this budget" : "Get new-listing alerts"}
-              </button>
+              {dealRadarUi ? (
+                <button className="quiet" type="button" onClick={() => void watch(group.direction)} disabled={pending === group.direction.id}>
+                  {pending === group.direction.id ? "Saving alert…" : need?.mode === "flip" ? "Get alerts for this budget" : "Get new-listing alerts"}
+                </button>
+              ) : null}
               <p className="hint">{FIND_RESULTS_BILLING_HINT}</p>
               {group.note &&
               !(
