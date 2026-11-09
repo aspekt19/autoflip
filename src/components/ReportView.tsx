@@ -16,6 +16,7 @@ import { formatNumber, formatPct, formatUsd, verdictLabel } from "@/domain/forma
 import type { DecisionScene } from "@/domain/decision-note";
 import type { FullReport } from "@/domain/types";
 import { DecisionNote } from "./DecisionNote";
+import { resolveProductFlags } from "@/domain/product-flags";
 import { FavoriteButton } from "./FavoriteButton";
 import { PurchaseReadinessNote } from "./PurchaseReadinessNote";
 import { SimilarCarsList } from "./SimilarCarsList";
@@ -497,7 +498,7 @@ export function ReportView({ report }: { report: FullReport }) {
           <a className="quiet" href="/reports">My report history</a>
           <a className="quiet" href="/find">Find another car</a>
           <a className="quiet" href="/check">Check another listing</a>
-          <a className="ghost" href="/radar">Deal Radar</a>
+          {resolveProductFlags().dealRadar ? <a className="ghost" href="/radar">Deal Radar</a> : null}
         </p>
       </section>
     </article>

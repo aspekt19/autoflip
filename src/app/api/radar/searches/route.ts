@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { productFlagsUnavailableMessage, resolveProductFlags } from "@/domain/product-flags";
 import type { WatchCriteria, WatchModel } from "@/domain/radar-watch";
 import { watchModels } from "@/domain/watch-queries";
 import { parseDistanceMiles } from "@/domain/need";
@@ -10,6 +11,12 @@ import { isDemoUser, ledgerOwnerId } from "@/server/session";
 export const dynamic = "force-dynamic";
 
 export async function POST(request: Request) {
+  if (!resolveProductFlags().dealRadar) {
+    return Response.json(
+      { error: "radar_unavailable", message: productFlagsUnavailableMessage("dealRadar") },
+      { status: 404 },
+    );
+  }
   const id = await ledgerOwnerId();
   const body = (await request.json().catch(() => null)) as { name?: string; mode?: string; criteria?: WatchCriteria } | null;
   const criteria = body?.criteria;

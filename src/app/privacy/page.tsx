@@ -45,8 +45,8 @@ export default function PrivacyPage() {
             configured persistent store (Upstash Redis on the connected Vercel project).
           </li>
           <li>
-            Optional Telegram linking stores a chat link you create. Stripe test checkout stores the customer and
-            subscription identifiers needed to manage a test-mode plan.
+            When Telegram linking is enabled for a preview, connecting a chat stores a link you create. Stripe test
+            checkout stores the customer and subscription identifiers needed to manage a test-mode plan.
           </li>
         </ul>
 
