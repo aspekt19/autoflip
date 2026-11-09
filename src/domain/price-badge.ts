@@ -19,7 +19,7 @@ export type PriceBadge = {
 };
 
 export const PRICE_RATING_HOW =
-  "We compare the asking price with other dealer listings of the same make and model, preferring similar model years and mileage, then adjust for odometer. Fewer than 3 usable listings is not rated. The badge always shows the sample size.";
+  "We compare the asking price with other dealer listings of the same make and model from this search (including listings beyond the cards shown when the provider returned more), preferring similar model years and mileage, then adjust for odometer — and for year when the window widens to ±2 or ±3 model years. Fewer than 3 usable listings is not rated. The badge always shows the sample size and method.";
 
 export function priceBadge(subject: Listing, pool: Listing[]): PriceBadge {
   const unknown: PriceBadge = {

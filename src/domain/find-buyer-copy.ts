@@ -376,7 +376,11 @@ export function formatBuyerBestDeal(result: BestDealResult): {
   settlementNote: string;
   evidenceSettled: boolean;
 } {
-  const settleTag = result.evidenceSettled ? "settled" : "provisional — may change as checks complete";
+  const settleTag = result.evidenceSettled
+    ? result.priceProvisional
+      ? "settled; provisional on price"
+      : "settled"
+    : "provisional — may change as checks complete";
   const headline =
     result.confidence === "confident" && result.pick
       ? `Best deal (${settleTag}): ${result.pick.year} ${result.pick.make} ${result.pick.model}${result.pick.priceUsd != null ? ` · $${result.pick.priceUsd.toLocaleString("en-US")}` : ""}`

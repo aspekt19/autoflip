@@ -29,6 +29,11 @@ export type FindSearchContextRecord = {
   need: StructuredNeed;
   refine: FindSearchRefine;
   listings: FindSearchListingFact[];
+  /**
+   * Full provider-returned listings for market comps (may exceed shown `listings`).
+   * When absent (older contexts), callers fall back to `listings`.
+   */
+  compsPool?: FindSearchListingFact[];
   appliedCheckIds: string[];
   /** Immutable free public NHTSA receipts (server-owned). */
   freeGovReceipts: FindFreeGovReceipt[];
@@ -42,6 +47,26 @@ export type FindSearchContextRecord = {
   exp: number;
 };
 
+function sanitizeListingFacts(rows: FindSearchListingFact[]): FindSearchListingFact[] {
+  return rows.map((row) => {
+    const trim =
+      typeof row.trim === "string" && row.trim.trim()
+        ? row.trim.trim()
+        : row.trim === null
+          ? null
+          : undefined;
+    return {
+      make: row.make,
+      model: row.model,
+      year: row.year,
+      priceUsd: row.priceUsd ?? null,
+      miles: row.miles ?? null,
+      vin: row.vin ?? null,
+      ...(trim !== undefined ? { trim } : {}),
+    };
+  });
+}
+
 function contextKey(userId: string, token: string): string {
   return `findsearch:v1:${userId}:${token}`;
 }
@@ -51,36 +76,24 @@ export function mintFindSearchContextRecord(input: {
   need: StructuredNeed;
   refine?: FindSearchRefine;
   listings: FindSearchListingFact[];
+  /** Optional full provider pool for market comps (defaults to listings). */
+  compsPool?: FindSearchListingFact[];
   servNextCheckEnabled: boolean;
   nowMs?: number;
   token?: string;
 }): FindSearchContextRecord {
   const nowMs = input.nowMs ?? Date.now();
   const iat = Math.floor(nowMs / 1000);
+  const listings = sanitizeListingFacts(input.listings);
+  const compsPool = sanitizeListingFacts(input.compsPool ?? input.listings);
   return {
     v: 1,
     token: input.token ?? crypto.randomUUID().replace(/-/g, ""),
     userId: input.userId,
     need: input.need,
     refine: input.refine ?? {},
-    listings: input.listings.map((row) => {
-      const trim =
-        typeof row.trim === "string" && row.trim.trim()
-          ? row.trim.trim()
-          : row.trim === null
-            ? null
-            : undefined;
-      return {
-        make: row.make,
-        model: row.model,
-        year: row.year,
-        priceUsd: row.priceUsd ?? null,
-        miles: row.miles ?? null,
-        vin: row.vin ?? null,
-        // Preserve trim so best-deal market comps share same-trim scope with card badges.
-        ...(trim !== undefined ? { trim } : {}),
-      };
-    }),
+    listings,
+    compsPool,
     appliedCheckIds: [],
     freeGovReceipts: [],
     servNextCheckEnabled: Boolean(input.servNextCheckEnabled),
@@ -162,6 +175,7 @@ export async function updateFindSearchContext(
     need?: StructuredNeed;
     refine?: FindSearchRefine;
     listings?: FindSearchListingFact[];
+    compsPool?: FindSearchListingFact[];
     appliedCheckIds?: string[];
     freeGovReceipts?: FindFreeGovReceipt[];
     servPaidCalls?: number;
@@ -173,6 +187,10 @@ export async function updateFindSearchContext(
     need: patch.need ?? record.need,
     refine: patch.refine ?? record.refine,
     listings: patch.listings ?? record.listings,
+    compsPool:
+      patch.compsPool !== undefined
+        ? sanitizeListingFacts(patch.compsPool)
+        : (record.compsPool ?? record.listings),
     appliedCheckIds: patch.appliedCheckIds ?? record.appliedCheckIds,
     freeGovReceipts: patch.freeGovReceipts ?? record.freeGovReceipts ?? [],
     servPaidCalls: patch.servPaidCalls ?? record.servPaidCalls ?? 0,
@@ -249,6 +267,86 @@ export function listingsFromMatchDirections(
         ...(trim !== undefined ? { trim } : {}),
       });
     }
+  }
+  return out;
+}
+
+/** Map a match compsPool (full provider returns) into search-context listing facts. */
+export function listingFactsFromCompsPool(
+  pool: Array<{
+    make: string;
+    model: string;
+    year: number;
+    priceUsd?: number | null;
+    miles?: number | null;
+    vin?: string | null;
+    trim?: string | null;
+  }>,
+): FindSearchListingFact[] {
+  return sanitizeListingFacts(
+    pool.map((row) => ({
+      make: row.make,
+      model: row.model,
+      year: row.year,
+      priceUsd: typeof row.priceUsd === "number" ? row.priceUsd : null,
+      miles: typeof row.miles === "number" ? row.miles : null,
+      vin: row.vin ?? null,
+      trim: typeof row.trim === "string" && row.trim.trim() ? row.trim.trim() : row.trim ?? null,
+    })),
+  );
+}
+
+/** Build Listing stubs for resolveMarketComps / selectBestDealOnEvidence.marketPool. */
+export function marketPoolFromListingFacts(
+  rows: readonly FindSearchListingFact[],
+): import("@/domain/types").Listing[] {
+  const out: import("@/domain/types").Listing[] = [];
+  const seenVins = new Set<string>();
+  for (const row of rows) {
+    if (row.priceUsd == null || row.miles == null) continue;
+    const vin =
+      typeof row.vin === "string" && row.vin.trim() && !row.vin.startsWith("UNKNOWN-")
+        ? row.vin.trim().toUpperCase()
+        : `FIND-${row.year}-${row.make}-${row.model}-${row.priceUsd}-${row.miles}`;
+    if (seenVins.has(vin)) continue;
+    seenVins.add(vin);
+    const trim =
+      typeof row.trim === "string" && row.trim.trim()
+        ? row.trim.trim()
+        : row.trim === null
+          ? null
+          : null;
+    out.push({
+      vin,
+      year: row.year,
+      make: row.make,
+      model: row.model,
+      trim,
+      priceUsd: row.priceUsd,
+      miles: row.miles,
+      city: null,
+      state: null,
+      zip: null,
+      dealer: null,
+      vdp: null,
+      primaryImage: null,
+      carfaxUrl: null,
+      used: true,
+      cpo: false,
+      accidentCount: null,
+      oneOwner: null,
+      ownerCount: null,
+      usageType: null,
+      fuel: null,
+      engine: null,
+      drivetrain: null,
+      bodyStyle: null,
+      latitude: null,
+      longitude: null,
+      removedAt: null,
+      createdAt: null,
+      source: "autodev",
+    });
   }
   return out;
 }

@@ -310,7 +310,13 @@ export function buildGroundedShortlistWithRisk(
     }
     for (const bit of risk.whyBits) whyParts.push(bit);
     const campaignRefs = [
-      ...new Set(risk.facts.flatMap((f) => f.campaignNumbers)),
+      ...new Set(
+        risk.facts.flatMap((f) =>
+          f.campaignNumbers.map((id) =>
+            /nhtsa recall campaign/i.test(id) ? id : `NHTSA recall campaign ${id}`,
+          ),
+        ),
+      ),
     ].slice(0, 8);
     out.push({
       make: row.make,

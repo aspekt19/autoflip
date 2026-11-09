@@ -87,6 +87,12 @@ export type FindMatchResult =
         partialFailure: boolean;
         geoScope: CompGeoScope;
         directions: FindMatchGroup[];
+        /**
+         * Full provider-returned listings for this search (pre–diversify-to-8),
+         * used for market comps / badges so same-model peers are not limited to
+         * the 24 shown cards. Shown cards remain in `directions`.
+         */
+        compsPool: Listing[];
         providerQueriesUsed: number;
       };
     }
@@ -199,6 +205,7 @@ export async function runFindMatch(
         partialFailure: false,
         geoScope: geoScopeFromSearch({ searchZip: need.zip, distanceMiles: need.distanceMiles }),
         directions: [],
+        compsPool: [],
         providerQueriesUsed: 0,
       },
     };
@@ -235,6 +242,12 @@ export async function runFindMatch(
   let providerQueriesUsed = 0;
   /** Cross-direction VIN dedupe — same listing must not repeat under a second segment. */
   const seenVins = new Set<string>();
+  /**
+   * Pre-diversify pool for market comps/badges — every priced listing the provider
+   * returned that still fits the need/budget, not only the 8-per-group shown cards.
+   */
+  const compsPoolAcc: Listing[] = [];
+  const compsPoolVins = new Set<string>();
 
   for (const direction of directions) {
     const queries = queriesForDirection(direction);
@@ -380,6 +393,44 @@ export async function runFindMatch(
         if (seenVins.has(vin)) return false;
         return true;
       });
+    // Keep full provider returns for comps before diversify shrinks the shown page.
+    for (const item of rankedReady) {
+      const vin = (item.vin || "").trim().toUpperCase();
+      if (vin && compsPoolVins.has(vin)) continue;
+      if (vin) compsPoolVins.add(vin);
+      compsPoolAcc.push({
+        vin: item.vin,
+        year: item.year,
+        make: item.make,
+        model: item.model,
+        trim: item.trim,
+        priceUsd: item.priceUsd,
+        miles: item.miles,
+        city: item.city,
+        state: item.state,
+        zip: item.zip,
+        dealer: item.dealer,
+        vdp: item.vdp,
+        primaryImage: item.primaryImage,
+        carfaxUrl: item.carfaxUrl,
+        used: item.used,
+        cpo: item.cpo,
+        accidentCount: item.accidentCount,
+        oneOwner: item.oneOwner,
+        ownerCount: item.ownerCount,
+        usageType: item.usageType,
+        fuel: item.fuel,
+        engine: item.engine,
+        drivetrain: item.drivetrain,
+        bodyStyle: item.bodyStyle,
+        latitude: item.latitude,
+        longitude: item.longitude,
+        removedAt: item.removedAt,
+        createdAt: item.createdAt,
+        source: item.source,
+        distanceMiles: item.distanceMiles,
+      });
+    }
     // Named multi-model searches: do not let the first-queried model fill all 8 slots
     // when other named models also returned inventory (t310 CR-V-only window).
     const listings = diversifyListingsByModel(rankedReady, 8);
@@ -436,9 +487,9 @@ export async function runFindMatch(
   }
 
   const visible = groups.reduce((sum, group) => sum + group.listings.length, 0);
-  // One comparable pool + one coverage total across the page: recompute badges from
-  // every shown card (not the pre-diversify collected set) so badge n= matches pick/score.
-  const allShown = groups.flatMap((g) => g.listings);
+  // One comparable pool across badge + pick/score: use full provider returns for this
+  // search (pre-diversify), not only the 24 shown cards, so same-model peers stay honest.
+  const compsPool = compsPoolAcc;
   for (const group of groups) {
     group.listings = group.listings.map((item) => {
       const priceView = item.priceView;
@@ -446,8 +497,8 @@ export async function runFindMatch(
       return {
         ...item,
         badge: usable
-          ? priceBadge(item, allShown)
-          : priceBadge({ ...item, priceUsd: null }, allShown),
+          ? priceBadge(item, compsPool)
+          : priceBadge({ ...item, priceUsd: null }, compsPool),
       };
     });
     const coverageInput = {
@@ -538,6 +589,7 @@ export async function runFindMatch(
       partialFailure: Boolean(partialFailureWarning),
       geoScope,
       directions: groups,
+      compsPool,
       providerQueriesUsed,
     },
   };
