@@ -97,7 +97,17 @@ export function isSoldAvailability(value: string | null | undefined): boolean {
   if (!value) return false;
   const token = schemaToken(value);
   if (token === "sold" || token === "soldout" || token === "outofstock" || token === "discontinued") return true;
-  return /\bSOLD\b/i.test(value) && !/not sold|unsold/i.test(value);
+  return textMentionsSold(value);
+}
+
+/** True when the text marks the car sold. "not sold" / "never sold" do not count. */
+export function textMentionsSold(text: string): boolean {
+  for (const hit of text.matchAll(/\bSOLD\b/gi)) {
+    const before = text.slice(Math.max(0, (hit.index ?? 0) - 32), hit.index ?? 0);
+    if (/\b(?:not|never|no|unsold|isn't|isnt|wasn't|wasnt)\b/i.test(before)) continue;
+    return true;
+  }
+  return /\bavailability[:\s]+sold\b/i.test(text);
 }
 
 /**

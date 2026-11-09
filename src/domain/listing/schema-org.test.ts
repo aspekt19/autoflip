@@ -20,6 +20,7 @@ describe("schema.org normalization", () => {
     expect(isSoldAvailability("SOLD")).toBe(true);
     expect(isSoldAvailability("https://schema.org/SoldOut")).toBe(true);
     expect(isSoldAvailability("In stock")).toBe(false);
+    expect(isSoldAvailability("This car has not been sold")).toBe(false);
   });
 
   it("drops junk seller names from page chrome", () => {

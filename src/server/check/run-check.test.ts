@@ -131,6 +131,7 @@ describe("runCheck listing paste (no paid Autodev/SERV)", () => {
     expect(result.result.fields?.sellerName.value).toBeNull();
     expect(result.result.fuelConflict).toMatch(/conflicts/i);
     expect(result.result.fields?.fuel.value).toMatch(/Gasoline/i);
+    expect(result.result.fields?.fuel.source).toBe("vin_decode");
     expect(result.result.questions[0]).toMatch(/still for sale/i);
   });
 

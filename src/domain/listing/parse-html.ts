@@ -17,6 +17,7 @@ import {
   normalizeAvailability,
   normalizeDrivetrain,
   normalizeFuelLabel,
+  textMentionsSold,
 } from "./schema-org";
 import { yearMakeModelFromSlug, yearMakeModelFromText } from "./year-make-model";
 import { mergeLayer, validateVinCandidate } from "./validate";
@@ -317,7 +318,7 @@ function visibleTextPartial(text: string): Record<string, unknown> {
     if (isPlausibleSellerName(seller)) partial.sellerName = seller;
   }
 
-  if (/\bSOLD\b/.test(text) || /availability[:\s]+sold/i.test(text)) {
+  if (textMentionsSold(text)) {
     partial.titleStatus ??= "SOLD";
   }
 
@@ -493,6 +494,13 @@ export function parseListingText(text: string, url: string | null = null): Listi
   }
   {
     const applied = applyLayer(fields, "pasted_text", visibleTextPartial(cleaned), [cleaned.slice(0, 500)]);
+    fields = applied.fields;
+    layers.push(applied.layer);
+  }
+  if (url) {
+    const partial: Record<string, unknown> = {};
+    applyYmm(partial, yearMakeModelFromSlug(url));
+    const applied = applyLayer(fields, "url", partial, [url]);
     fields = applied.fields;
     layers.push(applied.layer);
   }

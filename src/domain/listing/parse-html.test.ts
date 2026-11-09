@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { parseListingHtml } from "./parse-html";
+import { parseListingHtml, parseListingText } from "./parse-html";
 import { listingRedFlags } from "./red-flags";
 import { listingFromExtracted } from "./to-listing";
 
@@ -125,5 +125,26 @@ describe("parseListingHtml fixtures", () => {
     expect(f.make.value?.toLowerCase()).toBe("honda");
     expect(f.model.value?.toLowerCase()).toMatch(/cr-?v/);
     expect(listingFromExtracted(f)).not.toBeNull();
+  });
+
+  it("uses the URL slug when pasted text has no year, make, or model", () => {
+    const parsed = parseListingText(
+      "Call for price and availability.",
+      "https://www.cruz.com/inventory/used-2015-honda-cr-v-ex-awd-2hkrm4h75fh111111",
+    );
+    expect(parsed.deterministic.year.value).toBe(2015);
+    expect(parsed.deterministic.make.value?.toLowerCase()).toBe("honda");
+    expect(parsed.deterministic.model.value?.toLowerCase()).toBe("cr-v");
+    expect(parsed.deterministic.year.source).toBe("url");
+  });
+
+  it("does not treat “not been sold” as a stop flag", () => {
+    const parsed = parseListingHtml(
+      "<html><body><p>2018 Honda Civic. This car has not been sold. Sale price: $12,000. 40,000 miles.</p></body></html>",
+      null,
+    );
+    const flags = listingRedFlags({ fields: parsed.deterministic, pageText: parsed.llmText });
+    expect(flags.some((flag) => flag.id === "sold")).toBe(false);
+    expect(parsed.deterministic.titleStatus.value).toBeNull();
   });
 });

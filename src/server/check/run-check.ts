@@ -359,7 +359,7 @@ async function buildListingVerdict(
   if (fuelNote && decodeFuel) {
     fields = {
       ...fields,
-      fuel: { value: decodeFuel, source: fields.fuel.source ?? "json_ld" },
+      fuel: { value: decodeFuel, source: "vin_decode" },
     };
     subject = { ...subject, fuel: decodeFuel };
   }

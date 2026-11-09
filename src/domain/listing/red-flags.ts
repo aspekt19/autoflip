@@ -4,14 +4,13 @@
 import type { CheckRedFlag, ExtractedListingFields } from "./types";
 import { resolveMarketComps } from "@/domain/market-comps";
 import type { Listing } from "@/domain/types";
-import { isSoldAvailability } from "./schema-org";
+import { isSoldAvailability, textMentionsSold } from "./schema-org";
 
 const TITLE_BRAND_RE = /\b(salvage|rebuilt|reconstructed|flood|lemon|junk|branded title|reconditioned title|theft recovery)\b/i;
 const AS_IS_RE = /\bas[\s-]?is\b/i;
 const ACCIDENT_RE = /\b(accident|collision|damage history|frame damage|airbag(?:s)? deployed)\b/i;
 const ODO_RE = /\b(odometer|mileage)\b.{0,40}\b(rollback|rolled back|inoperative|exempt|not actual|tampered)\b/i;
 const MISSING_VIN_HINT = /\bVIN\s*(?:N\/?A|not available|unavailable|upon request)\b/i;
-const SOLD_PHRASE_RE = /\b(?:this\s+)?(?:vehicle|car|truck)?\s*(?:has\s+been\s+)?SOLD\b|\bSOLD\s+(?:OUT|ONLINE|VEHICLE)\b|\bavailability[:\s]+sold\b/i;
 
 export function listingRedFlags(input: {
   fields: ExtractedListingFields;
@@ -34,9 +33,7 @@ export function listingRedFlags(input: {
     .trim();
 
   const sold =
-    isSoldAvailability(input.fields.titleStatus.value) ||
-    SOLD_PHRASE_RE.test(text) ||
-    /\bSOLD\b/.test((input.fields.titleStatus.value ?? "").toUpperCase());
+    isSoldAvailability(input.fields.titleStatus.value) || textMentionsSold(text);
   if (sold) {
     flags.push({
       id: "sold",

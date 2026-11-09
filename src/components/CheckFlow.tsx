@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { SignInGate } from "@/components/SignInGate";
 import { PriceBadgeView, PriceRatingHow } from "@/components/PriceBadge";
 import { SimilarCarsList } from "@/components/SimilarCarsList";
@@ -68,6 +68,7 @@ function sourceLabel(source: string | null): string {
   if (source === "llm") return "model extract";
   if (source === "meta") return "meta tag";
   if (source === "url") return "URL";
+  if (source === "vin_decode") return "VIN decoder";
   return source;
 }
 
@@ -92,10 +93,12 @@ function CheckFlowForm() {
   const [blocked, setBlocked] = useState(false);
   const [result, setResult] = useState<CheckResultView | null>(null);
   const [allowance, setAllowance] = useState<"loading" | "signed-out" | "missing" | string>("loading");
+  const allowanceGen = useRef(0);
 
   async function refreshAllowance(from?: {
     freeChecks?: { remaining: number; limit: number; resetsLabel: string } | null;
   }) {
+    const token = ++allowanceGen.current;
     if (
       from?.freeChecks &&
       typeof from.freeChecks.remaining === "number" &&
@@ -113,8 +116,10 @@ function CheckFlowForm() {
     try {
       const response = await fetch("/api/account", { cache: "no-store" });
       const body = await response.json();
+      if (token !== allowanceGen.current) return;
       setAllowance(freeChecksRemainingFromAccount(body));
     } catch {
+      if (token !== allowanceGen.current) return;
       setAllowance((prev) => (prev === "loading" ? "missing" : prev));
     }
   }
