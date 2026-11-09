@@ -45,9 +45,27 @@ describe("decideFindNextCheckLoop", () => {
     expect(decideFindNextCheckLoop({ ...base, chosenId: "set_budget" }).reason).toBe(
       "needs_clarification",
     );
-    expect(decideFindNextCheckLoop({ ...base, chosenId: "run_full_analysis" }).reason).toBe(
-      "user_action_required",
-    );
+    expect(
+      decideFindNextCheckLoop({
+        ...base,
+        chosenId: "run_full_analysis",
+        remainingFreeGovCount: 0,
+        consistencyStillOpen: false,
+      }).reason,
+    ).toBe("user_action_required");
+  });
+
+  it("does not stop on a history suggestion while free public checks remain", () => {
+    const d = decideFindNextCheckLoop({
+      ...base,
+      chosenId: "get_history_report",
+      research: false,
+      rematchOk: null,
+      remainingFreeGovCount: 4,
+      consistencyStillOpen: true,
+    });
+    expect(d.continue).toBe(true);
+    expect(d.reason).toBe("remaining_free_checks");
   });
 
   it("free-gov evidence fingerprint change continues without rematch", () => {
@@ -88,7 +106,7 @@ describe("decideFindNextCheckLoop", () => {
     expect(d.reason).toBe("evidence_changed_replan");
   });
 
-  it("deterministic fallback keeps looping while free_gov remain even if receipts unchanged", () => {
+  it("a free check that adds no evidence stops instead of spinning", () => {
     const d = decideFindNextCheckLoop({
       ...base,
       autonomousServ: false,
@@ -103,6 +121,22 @@ describe("decideFindNextCheckLoop", () => {
       needAfterFp: "same",
       listingsBeforeFp: "same",
       listingsAfterFp: "same",
+    });
+    expect(d.continue).toBe(false);
+    expect(d.reason).toBe("unchanged_state");
+  });
+
+  it("compare still continues when free checks remain and this hop was not a free check", () => {
+    const d = decideFindNextCheckLoop({
+      ...base,
+      autonomousServ: true,
+      chosenId: "compare_observed_asks",
+      research: false,
+      rematchOk: null,
+      needAfterFp: "a",
+      listingsAfterFp: "L0",
+      remainingFreeGovCount: 2,
+      remainingActionableCount: 2,
     });
     expect(d.continue).toBe(true);
     expect(d.reason).toBe("remaining_free_checks");

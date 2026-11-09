@@ -234,21 +234,56 @@ export function freeGovToolCoverage(
   };
   const anyUnchecked =
     recalls.unchecked > 0 || safety.unchecked > 0 || vpic.unchecked > 0 || fuel.unchecked > 0;
-  const note =
-    allKeys.size === 0
-      ? "No cars to check against public recall, safety, or fuel records yet."
-      : anyUnchecked
-        ? `Public checks in progress — recalls ${recalls.checked}/${recalls.eligible}, safety ${safety.checked}/${safety.eligible}, VIN decode ${vpic.checked}/${vpic.eligible}, fuel ${fuel.checked}/${fuel.eligible}. Recall and crash-test data are per model and year, not for this exact car’s VIN.`
-        : `Public checks finished for these cards (recalls ${recalls.checked}, safety ${safety.checked}, VIN decode ${vpic.checked}, fuel ${fuel.checked}). Recall and crash-test data are per model and year, not for this exact car’s VIN.`;
-  return {
+  const coverage: FreeGovToolCoverage = {
     listingMmyCount: allKeys.size,
     recalls,
     safety,
     vpic,
     fuel,
     anyUnchecked,
-    note,
+    note: "",
   };
+  coverage.note = plainPublicCheckProgress(coverage);
+  return coverage;
+}
+
+function modelCountPhrase(n: number): string {
+  const count = Math.max(0, Math.floor(n));
+  return `${count} model${count === 1 ? "" : "s"}`;
+}
+
+function progressBit(label: string, slice: FreeGovToolCoverageSlice): string | null {
+  if (slice.eligible <= 0) return null;
+  if (slice.unchecked <= 0) return `${label}: checked ${modelCountPhrase(slice.checked)}`;
+  if (slice.checked <= 0) return `${label}: ${modelCountPhrase(slice.eligible)} not checked yet`;
+  return `${label}: ${slice.checked} checked, ${slice.unchecked} still to go`;
+}
+
+/** Buyer progress for free public checks. No slash counters and no decoder jargon. */
+export function plainPublicCheckProgress(coverage: FreeGovToolCoverage): string {
+  if (coverage.listingMmyCount === 0) {
+    return "No cars to check against public safety records yet.";
+  }
+  const scope = "Recall and crash-test data are per model and year, not for this exact car.";
+  const nothingStarted =
+    coverage.anyUnchecked &&
+    coverage.recalls.checked === 0 &&
+    coverage.safety.checked === 0 &&
+    coverage.vpic.checked === 0 &&
+    (coverage.fuel?.checked ?? 0) === 0;
+  if (nothingStarted) {
+    return `Public safety records: ${modelCountPhrase(coverage.listingMmyCount)} not checked yet. ${scope}`;
+  }
+  const slices = [
+    progressBit("Recalls", coverage.recalls),
+    progressBit("Crash-test ratings", coverage.safety),
+    progressBit("Vehicle specs", coverage.vpic),
+    coverage.fuel ? progressBit("Fuel cost", coverage.fuel) : null,
+  ].filter((line): line is string => Boolean(line));
+  const lead = coverage.anyUnchecked
+    ? "Public safety records are not finished for every model yet."
+    : "Public safety records are caught up for these cars.";
+  return `${lead} ${slices.join(". ")}. ${scope}`.replace(/\s+/g, " ").trim();
 }
 
 export function freeGovCheckStillHasUnchecked(

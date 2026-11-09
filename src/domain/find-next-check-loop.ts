@@ -115,6 +115,8 @@ export function decideFindNextCheckLoop(input: {
    * Compare / no-op must not finish while this is > 0.
    */
   remainingFreeGovCount?: number;
+  /** Per-car listing/VIN check still has unchecked top cars. */
+  consistencyStillOpen?: boolean;
 }): FindNextCheckLoopDisposition {
   const remainingFreeGov = input.remainingFreeGovCount ?? 0;
   if (!input.keyed) {
@@ -129,17 +131,36 @@ export function decideFindNextCheckLoop(input: {
     (input.freeGovBeforeFp ?? "") !== (input.freeGovAfterFp ?? "") &&
     Boolean(input.freeGovAfterFp);
 
+  const freeWorkLeft = remainingFreeGov > 0 || input.consistencyStillOpen === true;
+  const freeAttemptMadeNoProgress =
+    (isFindFreeGovCheckId(input.chosenId) || input.chosenId === "free_car_consistency") &&
+    !freeGovChangedEarly;
+
   if (!input.autonomousServ) {
-    // Free MMY batches must keep draining under deterministic fallback — otherwise
-    // coverage freezes mid-fleet (e.g. recalls 6/14, safety/fuel 3/14) while the UI
-    // still says "Checking public records…". Partial sample ≠ settled pick.
-    if (remainingFreeGov > 0) {
+    // Free batches keep draining under deterministic fallback when this hop was
+    // not itself a free check (for example a compare). A free check that added
+    // nothing must stop — otherwise the same batch is requested forever.
+    if (freeWorkLeft) {
+      if (freeGovChangedEarly) {
+        return {
+          continue: true,
+          reason: "evidence_changed_replan",
+          detail:
+            "Deterministic fallback ran free public checks; evidence changed and some checks are still open — continue (no Report credit).",
+        };
+      }
+      if (freeAttemptMadeNoProgress) {
+        return {
+          continue: false,
+          reason: "unchanged_state",
+          detail:
+            "A free public check added no evidence. Stopping so the same check cannot run forever.",
+        };
+      }
       return {
         continue: true,
-        reason: freeGovChangedEarly ? "evidence_changed_replan" : "remaining_free_checks",
-        detail: freeGovChangedEarly
-          ? "Deterministic fallback ran free public vehicle checks; receipts changed and unchecked year/make/model remain — continue free batches (no Report credit)."
-          : `${remainingFreeGov} free public vehicle check(s) still actionable for unchecked MMY after deterministic fallback — continue automatically (no Report credit).`,
+        reason: "remaining_free_checks",
+        detail: `${remainingFreeGov} free public check(s) still open after a non-free step — continue those checks (no Report credit).`,
       };
     }
     // Fallback still executed free-gov and stored receipts — continue so the next
@@ -177,13 +198,20 @@ export function decideFindNextCheckLoop(input: {
   }
 
   if (USER_ACTION_STOP.has(input.chosenId)) {
+    // A paid or manual suggestion is the non-free next step. It must not end
+    // the loop while free public checks are still incomplete.
+    if (remainingFreeGov > 0 || input.consistencyStillOpen === true) {
+      return {
+        continue: true,
+        reason: "remaining_free_checks",
+        detail:
+          "A paid or manual next step was suggested. Free public checks are still incomplete, so those continue. A history report does not replace them.",
+      };
+    }
     return {
       continue: false,
       reason: "user_action_required",
-      detail:
-        input.remainingActionableCount > 0
-          ? "Full analysis / history requires explicit user action (credit or external report). Free public checks may still remain on the allowlist for a later continue if the shopper declines paid history — partial MMY coverage is not fleet clearance."
-          : "Full analysis / history requires explicit user action (credit or external report).",
+      detail: "Full analysis / history requires explicit user action (credit or external report).",
     };
   }
 
@@ -205,13 +233,13 @@ export function decideFindNextCheckLoop(input: {
   }
 
   if (!contextChanged) {
-    // Scenario2: compare_observed_asks / no-op must NOT terminal-stop while free_gov_safety
-    // (or other free tools) still have unchecked MMYs on the allowlist.
-    if (remainingFreeGov > 0) {
+    // Compare / no-op must not stop while free checks remain. A free check that
+    // added nothing must stop, or the client will request that same check forever.
+    if (freeWorkLeft && !freeAttemptMadeNoProgress) {
       return {
         continue: true,
         reason: "remaining_free_checks",
-        detail: `${remainingFreeGov} free public vehicle check(s) still actionable for unchecked MMY — continue automatically (compare/no-op is not a free-gov terminal). No Report credit; no infinite compare: compare burns on apply while free_gov_* stay until tool coverage completes.`,
+        detail: `${remainingFreeGov} free public check(s) still open — continue automatically. A compare step is not the end of those checks.`,
       };
     }
     return {
@@ -272,6 +300,10 @@ export function decideFindNextCheckLoop(input: {
  * Count allowlisted checks that can still drive automatic research continuation.
  * Excludes already-applied, clarification-only, and explicit user-action ids.
  */
+export function isUserActionFindCheck(id: string): boolean {
+  return USER_ACTION_STOP.has(id);
+}
+
 export function countRemainingAutomaticChecks(
   allowedIds: readonly string[],
   appliedIds: readonly string[],

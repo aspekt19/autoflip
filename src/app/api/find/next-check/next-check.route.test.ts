@@ -147,18 +147,27 @@ describe("POST /api/find/next-check (HTTP)", () => {
     expect(b1.loop.reason).toBe("evidence_changed_replan");
     expect(matchImpl.mock.calls[0]![0].need.yearMin).toBe(2015);
 
-    // Step 2: compare observed asks with evidence present → grounded stop (no research)
-    fetchImpl.mockResolvedValueOnce(servChoice("compare_observed_asks"));
+    // Free public checks run in code. They must not spend another paid call.
     const step2 = await POST(req({ searchContextToken: "tok-multi" }));
     const b2 = await step2.json();
     expect(b2.ok).toBe(true);
-    expect(b2.chosenId).toBe("compare_observed_asks");
-    expect(b2.shortlist?.length).toBeGreaterThan(0);
-    expect(b2.loop.continue).toBe(false);
-    expect(["grounded_stop", "no_remaining_research_checks", "unchanged_state"]).toContain(
-      b2.loop.reason,
-    );
-    expect(fetchImpl).toHaveBeenCalledTimes(2);
+    expect(b2.chosenId === "free_car_consistency" || String(b2.chosenId).startsWith("free_gov_")).toBe(true);
+    expect(b2.loop.continue).toBe(true);
+    expect(b2.servPaidCalls).toBe(1);
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+
+    // After the free work, SERV still chooses the non-free next step.
+    let last = b2;
+    for (let hop = 0; hop < 16 && last.loop?.continue; hop++) {
+      if (fetchImpl.mock.calls.length === 1) fetchImpl.mockResolvedValueOnce(servChoice("compare_observed_asks"));
+      const step = await POST(req({ searchContextToken: "tok-multi" }));
+      last = await step.json();
+      expect(last.ok).toBe(true);
+    }
+    expect(last.loop.continue).toBe(false);
+    expect(last.servPaidCalls).toBeLessThanOrEqual(8);
+    expect(fetchImpl.mock.calls.length).toBeGreaterThanOrEqual(2);
+    expect(last.servPaidCalls).toBe(fetchImpl.mock.calls.length);
   });
 
   it("duplicate/concurrency: second in-flight same fingerprint → 409; replay after complete", async () => {

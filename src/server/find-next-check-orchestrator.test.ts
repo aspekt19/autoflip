@@ -354,22 +354,50 @@ describe("runFindNextCheckOrchestrator", () => {
       },
     );
     expect(first.ok).toBe(true);
-
-    const second = await runFindNextCheckOrchestrator(
-      { searchContextToken: "tok-ev" },
-      {
-        kv,
-        userId: "u1",
-        servKey: "k",
-        fetchImpl: fetchImpl as unknown as typeof fetch,
-        env: {},
-      },
-    );
-    expect(second.ok).toBe(true);
-    expect(fetchImpl).toHaveBeenCalledTimes(2);
-    // Nested user JSON is escaped inside the chat body — assert listing evidence landed.
-    expect(bodies[1]).toContain('observedListingCount\\":1');
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
     expect(bodies[0]).toContain('observedListingCount\\":0');
+
+    const gov = {
+      async run(toolId: "evidence.gov_recalls" | "evidence.gov_safety" | "evidence.gov_vpic" | "evidence.gov_fuel") {
+        return {
+          toolId,
+          status: "empty" as const,
+          cached: false,
+          fetchedAt: "2026-11-09T00:00:00.000Z",
+          scope: "offline_mock",
+          url: null,
+          timeoutMs: 1,
+          rateNote: "offline mock",
+          limitsNote: "Test double.",
+          facts: [] as [],
+          summary: "empty",
+          outcomeOk: true,
+          outcomeStatus: "empty" as const,
+          outcomeCapability: "empty" as const,
+        };
+      },
+    };
+    let sawListings = false;
+    for (let hop = 0; hop < 12 && !sawListings; hop++) {
+      const step = await runFindNextCheckOrchestrator(
+        { searchContextToken: "tok-ev" },
+        {
+          kv,
+          userId: "u1",
+          servKey: "k",
+          fetchImpl: fetchImpl as unknown as typeof fetch,
+          env: {},
+          freeGovPort: gov,
+        },
+      );
+      expect(step.ok).toBe(true);
+      if (!step.ok) return;
+      if (fetchImpl.mock.calls.length > 1) {
+        sawListings = bodies.some((body, index) => index > 0 && body.includes('observedListingCount\\":1'));
+      }
+    }
+    expect(sawListings).toBe(true);
+    expect(fetchImpl.mock.calls.length).toBeGreaterThanOrEqual(2);
   });
 
   it("runs a per-car consistency check only on SERV target keys, and ranks with the market pool", async () => {

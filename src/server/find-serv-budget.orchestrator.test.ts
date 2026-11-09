@@ -276,7 +276,7 @@ describe("orchestrator SERV paid-call budget (server-side)", () => {
     expect(result.autonomousServ).toBe(false);
   });
 
-  it("shortlist fingerprint change still invokes SERV during free-gov (autonomy preserved)", async () => {
+  it("shortlist fingerprint change does not spend a paid call while free checks remain", async () => {
     const kv = new MemoryKv();
     const minted = mintFindSearchContextRecord({
       userId: "u1",
@@ -320,9 +320,9 @@ describe("orchestrator SERV paid-call budget (server-side)", () => {
     );
     expect(result.ok).toBe(true);
     if (!result.ok) return;
-    expect(fetchImpl).toHaveBeenCalledTimes(1);
-    expect(result.servPaidCalls).toBe(2);
-    expect(result.servInvokeReason).toBe("shortlist_changed");
-    expect(result.autonomousServ).toBe(true);
+    expect(fetchImpl).not.toHaveBeenCalled();
+    expect(result.servPaidCalls).toBe(1);
+    expect(result.servInvokeReason).toMatch(/free_gov/);
+    expect(result.autonomousServ).toBe(false);
   });
 });

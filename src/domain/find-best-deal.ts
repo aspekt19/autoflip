@@ -12,7 +12,7 @@ import { computeFindBaseline, type FindBaselineDelta } from "./find-baseline";
 import { confirmedRecallCount, recallEvidenceState, type EvidenceState } from "./find-evidence-state";
 import type { FindFuelEvidence } from "./find-fuel-match";
 import type { FindFreeGovReceipt } from "./find-free-gov";
-import { checkedMmyKeysForCheck, freeGovToolCoverage } from "./find-free-gov";
+import { checkedMmyKeysForCheck, freeGovToolCoverage, plainPublicCheckProgress } from "./find-free-gov";
 import type { ObservedListingRow } from "./find-model-observe";
 import { mmyListingKey } from "./find-risk-evidence";
 import { formatMarketAskDetail, listingFeedHistoryNotes, resolveMarketComps } from "./market-comps";
@@ -168,11 +168,11 @@ export function plainFairnessHeldOutNote(heldOut: readonly BestDealFactorId[]): 
   if (heldOut.length === 0) return null;
   const labels = heldOut.map((id) => BEST_DEAL_FACTOR_PLAIN_LABELS[id] ?? "public check");
   if (labels.length === 1) {
-    return `Fair coverage: ${labels[0]} held out of ranking until every shortlist year/make/model has that check`;
+    return `Fair coverage: ${labels[0]} held out of ranking until every model in this shortlist has that check`;
   }
   const head = labels.slice(0, -1).join(", ");
   const tail = labels[labels.length - 1]!;
-  return `Fair coverage: ${head}, and ${tail} held out of ranking until every shortlist year/make/model has those checks`;
+  return `Fair coverage: ${head}, and ${tail} held out of ranking until every model in this shortlist has those checks`;
 }
 
 function median(values: number[]): number | null {
@@ -1157,10 +1157,10 @@ export function selectBestDealOnEvidence(input: {
   const evidenceSettled = !coverage.anyUnchecked && fairnessHeldOut.length === 0;
   const heldOutSet = new Set(fairnessHeldOut);
   const settlementNote = evidenceSettled
-    ? "Public year/make/model checks finished for this shortlist — pick is settled on current evidence (still not VIN history)."
+    ? "Public safety records are finished for this shortlist — the pick is settled on current evidence (still not a vehicle history report)."
     : coverage.anyUnchecked
-      ? `Pick may change as checks complete — free public progress: recalls ${coverage.recalls.checked}/${coverage.recalls.eligible}, safety ${coverage.safety.checked}/${coverage.safety.eligible}, VIN decode ${coverage.vpic.checked}/${coverage.vpic.eligible}, fuel ${coverage.fuel?.checked ?? 0}/${coverage.fuel?.eligible ?? coverage.listingMmyCount}.`
-      : `Public checks ran for every shortlist year/make/model, but ranking is still provisional while ${plainFairnessHeldOutNote(fairnessHeldOut)?.replace(/^Fair coverage:\s*/i, "") ?? "some public factors stay held out for fairness"}.`;
+      ? `The pick may change as checks complete. ${plainPublicCheckProgress(coverage)}`
+      : `Public safety records were checked for every model here, but ranking is still provisional while ${plainFairnessHeldOutNote(fairnessHeldOut)?.replace(/^Fair coverage:\s*/i, "") ?? "some public factors stay held out for fairness"}.`;
 
   const fuelAttemptedKeys = checkedMmyKeysForCheck(receipts, "free_gov_fuel");
   const ncapAttemptedKeys = checkedMmyKeysForCheck(receipts, "free_gov_safety");

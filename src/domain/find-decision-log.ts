@@ -33,9 +33,9 @@ export type DecisionCarLabel = {
 };
 
 const ACTION_PLAIN: Record<string, string> = {
-  free_car_consistency: "Compared the listing with the VIN",
+  free_car_consistency: "Compared the listing with government vehicle specs",
   free_gov_recalls: "Checked government recall records",
-  free_gov_vpic: "Decoded the VIN",
+  free_gov_vpic: "Looked up government vehicle specs",
   free_gov_safety: "Checked government crash-test ratings",
   free_gov_fuel: "Checked estimated fuel cost",
   compare_observed_asks: "Compared asking prices",

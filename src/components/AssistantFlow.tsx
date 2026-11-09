@@ -38,10 +38,13 @@ import {
   rematchRefineFromReplan,
   shouldAutoContinueFindNextCheck,
   shouldAutoStartFindNextCheck,
+  shouldResumeFindLoop,
 } from "@/domain/find-next-check-ui";
 import {
   FIND_RESULTS_BILLING_HINT,
+  buyerCheckActivityLine,
   publicCheckStatusLine,
+  formatGroundedShortlistLine,
   formatBuyerBestDeal,
   formatBuyerLoopStatus,
   formatBuyerLoopStep,
@@ -408,10 +411,24 @@ function AssistantFlow({
       if (resume.searchContextToken) {
         setSearchContextToken(resume.searchContextToken);
         setServNextCheckEnabled(resume.servNextCheckEnabled);
+        let loopSettled = false;
+        try {
+          const rawLoop = sessionStorage.getItem("af-find-loop");
+          if (rawLoop) {
+            const parsed = JSON.parse(rawLoop) as { token?: string; settled?: boolean };
+            loopSettled = parsed.token === resume.searchContextToken && parsed.settled === true;
+          }
+        } catch {
+          loopSettled = false;
+        }
         if (
-          saved.stage === "results" &&
-          resume.servNextCheckEnabled &&
-          !resumedFindTokens.has(resume.searchContextToken)
+          shouldResumeFindLoop({
+            stage: saved.stage ?? "",
+            servEnabled: resume.servNextCheckEnabled,
+            token: resume.searchContextToken,
+            alreadyResumed: resumedFindTokens.has(resume.searchContextToken),
+            loopSettled,
+          })
         ) {
           const token = resume.searchContextToken;
           resumedFindTokens.add(token);
@@ -599,9 +616,12 @@ function AssistantFlow({
     let continueToken: string | null = null;
     // Count this hop when it was triggered by auto-continue/auto-start chain.
     if (opts?.auto) autoContinueCountRef.current += 1;
+    const controller = new AbortController();
+    const timer = window.setTimeout(() => controller.abort(), 70_000);
     try {
       const response = await fetch("/api/find/next-check", {
         method: "POST",
+        signal: controller.signal,
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ searchContextToken: token }),
       });
@@ -784,24 +804,32 @@ function AssistantFlow({
         fuelPending: body.chosenId === "free_gov_fuel" ? fuelPending : undefined,
       });
       const status = formatBuyerLoopStatus(body.loop?.reason ?? null);
-      const settleBit =
-        toolCov && toolCov.anyUnchecked === false
-          ? "Public records checks caught up for this shortlist."
-          : toolCov && toolCov.anyUnchecked
-            ? "Still checking remaining year/make/model groups — pick may change."
-            : null;
+      const willContinue = shouldAutoContinueFindNextCheck({
+        servNextCheckEnabled: servNextCheckEnabled || Boolean(opts?.auto),
+        autonomousServ: Boolean(body.autonomousServ),
+        searchContextToken: nextTok,
+        autoContinueCount: autoContinueCountRef.current,
+        loop: body.loop
+          ? { continue: Boolean(body.loop.continue), reason: body.loop.reason ?? "" }
+          : null,
+      });
+      const settleBit = toolCov
+        ? buyerCheckActivityLine({
+            anyUnchecked: Boolean(toolCov.anyUnchecked),
+            continuing: willContinue,
+          })
+        : null;
       setNextCheckNote([step, status, settleBit].filter(Boolean).join(" "));
-      if (
-        shouldAutoContinueFindNextCheck({
-          servNextCheckEnabled: servNextCheckEnabled || Boolean(opts?.auto),
-          autonomousServ: Boolean(body.autonomousServ),
-          searchContextToken: nextTok,
-          autoContinueCount: autoContinueCountRef.current,
-          loop: body.loop
-            ? { continue: Boolean(body.loop.continue), reason: body.loop.reason ?? "" }
-            : null,
-        })
-      ) {
+      const checksSettled = body.loop?.continue === false && toolCov?.anyUnchecked !== true;
+      try {
+        sessionStorage.setItem(
+          "af-find-loop",
+          JSON.stringify({ token: nextTok, settled: checksSettled }),
+        );
+      } catch {
+        /* ignore */
+      }
+      if (willContinue) {
         continueToken = nextTok;
       } else if (
         body.loop?.continue &&
@@ -810,7 +838,7 @@ function AssistantFlow({
       ) {
         // Bound hit — settle the spinner honestly rather than looping forever.
         setNextCheckNote((prev) =>
-          [prev, "Automatic public checks paused after many steps — some year/make/model groups may still be unchecked."]
+          [prev, "Automatic public checks paused after many steps. Some models may still be unchecked. Nothing else is running."]
             .filter(Boolean)
             .join(" "),
         );
@@ -947,9 +975,15 @@ function AssistantFlow({
           window.clearTimeout(timer);
         }
       }
-    } catch {
-      setError("Next check failed — try again.");
+    } catch (err) {
+      const timedOut = err instanceof DOMException && err.name === "AbortError";
+      setError(
+        timedOut
+          ? "That check took too long, so it stopped. Nothing is running now. You can try again."
+          : "Next check failed — try again.",
+      );
     } finally {
+      window.clearTimeout(timer);
       setPending(null);
     }
     // Continue loop after pending clears — evidence→replan until server stop reason.
@@ -1848,15 +1882,10 @@ function AssistantFlow({
                 if (checks.length === 0 && shortlist.length === 0 && !dealCopy) return null;
                 return (
                   <div className="hint" role="note">
-                    {servNextCheckEnabled && pending === "next-check" ? (
+                    {servNextCheckEnabled && freeGovAnyUnchecked && error && pending !== "next-check" ? (
                       <p>
-                        We keep checking public safety and fuel data automatically as results update. You do not
-                        need to press anything. The pick may change as checks complete.
-                      </p>
-                    ) : servNextCheckEnabled && freeGovAnyUnchecked && error ? (
-                      <p>
-                        Public checks paused — some year/make/model groups are still unchecked. You can retry after
-                        fixing the error; the pick may change once checks finish.
+                        Public checks stopped. Some models are still unchecked. You can retry after fixing the
+                        error. The pick may change once checks finish.
                       </p>
                     ) : (
                       <p>
@@ -1865,6 +1894,10 @@ function AssistantFlow({
                           anyUnchecked: freeGovAnyUnchecked,
                           checksHaveRun:
                             freeGovReceiptsForShortlist.length > 0 || Boolean(bestDeal),
+                          running: pending === "next-check",
+                          modelCount: new Set(
+                            allListings.map((car) => `${car.make}|${car.model}|${car.year}`),
+                          ).size,
                         })}
                       </p>
                     )}
@@ -1902,7 +1935,7 @@ function AssistantFlow({
                       </div>
                     ) : null}
                     {nextCheckNote ? <p className="hint">{nextCheckNote}</p> : null}
-                    {pending === "next-check" ? <p className="hint">Checking public records…</p> : null}
+                    {pending === "next-check" ? <p className="hint">Checking public safety records…</p> : null}
                     {pending !== "next-check" && !freeGovAnyUnchecked && bestDeal?.evidenceSettled ? (
                       <p className="hint">Checks settled — ranking below is on completed free public coverage.</p>
                     ) : null}
@@ -1968,6 +2001,16 @@ function AssistantFlow({
                             </ul>
                           </>
                         ) : null}
+                        {dealCopy.sellerQuestionLines.length > 0 ? (
+                          <>
+                            <p>Questions for the seller</p>
+                            <ul>
+                              {dealCopy.sellerQuestionLines.map((line) => (
+                                <li key={line}>{line}</li>
+                              ))}
+                            </ul>
+                          </>
+                        ) : null}
                         <p>Still unknown:</p>
                         <ul>
                           {dealCopy.stillUnknown.map((u) => (
@@ -1996,11 +2039,13 @@ function AssistantFlow({
                         <ul>
                           {shortlist.map((row) => (
                             <li key={`${row.make}-${row.model}`}>
-                              {row.make} {row.model}: {row.why}. Still unknown: {row.unknowns.join("; ")}
-                              {row.campaignRefs.length > 0
-                                ? `. ${row.campaignRefs.map((id) => formatOfficialRecallNumber(id)).join("; ")}`
-                                : ""}
-                              .
+                              {formatGroundedShortlistLine({
+                                make: row.make,
+                                model: row.model,
+                                why: row.why,
+                                unknowns: row.unknowns,
+                                campaignRefs: row.campaignRefs.map((id) => formatOfficialRecallNumber(id)),
+                              })}
                             </li>
                           ))}
                         </ul>
