@@ -411,7 +411,12 @@ export async function runFindNextCheckOrchestrator(
             year: row.year,
             make: row.make,
             model: row.model,
-            trim: null,
+            // Preserve trim when search context carried it — same-trim comps must match card badges.
+            trim: (() => {
+              const t = (row as { trim?: string | null }).trim;
+              if (typeof t === "string" && t.trim()) return t.trim();
+              return t ?? null;
+            })(),
             priceUsd: row.priceUsd,
             miles: row.miles,
             city: null,

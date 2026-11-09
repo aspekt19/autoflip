@@ -54,6 +54,7 @@ export const BUYER_FORBIDDEN_TECH_PATTERNS: RegExp[] = [
   /\bbudget_fit\b/,
   /\bfairnessHeldOut\b/,
   /\bevidenceSettled\b/,
+  /\bevidence\.gov_(?:recalls|vpic|safety|fuel)\b/,
 ];
 
 export function findForbiddenTechArtifacts(text: string): string[] {

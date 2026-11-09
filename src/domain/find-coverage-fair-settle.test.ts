@@ -353,6 +353,23 @@ describe("live 24-card coverage settle + fair scoring", () => {
       r.factors.some((f) => f.id === "estimated_fuel_cost" && f.points !== 0),
     );
     expect(scoredFuel).toBe(true);
+    // $6.8k / 139k Camry must not win (or even top the shortlist) under condition-first.
+    expect(result.pick?.vin).not.toBe("CAM-EXTREME");
+    expect(result.ranked[0]?.vin).not.toBe("CAM-EXTREME");
+    expect(result.ranked.some((r) => r.vin === "CAM-EXTREME")).toBe(false);
+    const fullRank = selectBestDealOnEvidence({
+      need,
+      listings,
+      receipts,
+      nowYear: 2026,
+      shortlistMax: listings.length,
+    });
+    const extreme = fullRank.ranked.find((r) => r.vin === "CAM-EXTREME");
+    expect(extreme).toBeTruthy();
+    expect(extreme!.factors.find((f) => f.id === "price_vs_model_asks")!.detail).toMatch(
+      /caution|capped|high mileage/i,
+    );
+    expect(fullRank.ranked.findIndex((r) => r.vin === "CAM-EXTREME")).toBeGreaterThan(2);
     if (result.confidence === "confident") {
       expect(result.pick).not.toBeNull();
     } else {
@@ -490,9 +507,12 @@ describe("price-below-market cap under condition-first", () => {
     expect(priceFactor.points).toBeLessThanOrEqual(
       Math.round(BEST_DEAL_WEIGHTS.price * BEST_DEAL_PRICE_BELOW_CAP_FRAC * 2 * 10) / 10 + 0.1,
     );
-    expect(priceFactor.detail).toMatch(/capped|caution|condition-first/i);
-    // Full uncapped bonus would approach +22; document the cap is real.
+    expect(priceFactor.detail).toMatch(/capped|caution|condition-first|high mileage/i);
+    // Full uncapped bonus would approach +22; deep+high-mile shrinks further under the soft cap.
     expect(priceFactor.points).toBeLessThan(BEST_DEAL_WEIGHTS.price);
+    expect(priceFactor.points).toBeLessThanOrEqual(
+      Math.round(BEST_DEAL_WEIGHTS.price * BEST_DEAL_PRICE_BELOW_CAP_FRAC * 0.45 * 2 * 10) / 10 + 0.15,
+    );
   });
 });
 

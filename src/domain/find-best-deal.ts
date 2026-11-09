@@ -400,6 +400,11 @@ function scoreOne(
       rel = Math.min(relRaw, BEST_DEAL_PRICE_BELOW_CAP_FRAC);
       if (relRaw >= BEST_DEAL_PRICE_BELOW_CAUTION_FRAC) {
         caution = `; extreme discount (~${Math.round(relRaw * 100)}% under median) capped under condition-first — treat as condition risk until inspected`;
+        // Deep ask cut + high odometer is a warning, not a win — further shrink the capped bonus.
+        if (row.miles != null && row.miles >= BEST_DEAL_HIGH_MILES_SOFT) {
+          rel = Math.min(rel, BEST_DEAL_PRICE_BELOW_CAP_FRAC * 0.45);
+          caution += `; deep discount with high mileage treated as caution, not a bargain`;
+        }
       } else if (relRaw > BEST_DEAL_PRICE_BELOW_CAP_FRAC) {
         caution = `; price-below-market bonus capped at ${Math.round(BEST_DEAL_PRICE_BELOW_CAP_FRAC * 100)}% under condition-first`;
       }
@@ -896,17 +901,21 @@ export function selectBestDealOnEvidence(input: {
   const fuelByMmy = input.fuelByMmy ?? fuelIndexFromReceipts(receipts);
   const risk = riskIndexFromReceipts(receipts);
   const coverage = freeGovToolCoverage(input.listings, receipts);
-  const evidenceSettled = !coverage.anyUnchecked;
   const fairnessHeldOut = fairnessHeldOutFactors({
     listings: input.listings,
     fuelByMmy,
     risk,
     receipts,
   });
+  // Settled only when coverage attempts are done AND no fairness hold-outs remain —
+  // never claim "settled" while ranking still suppresses partial factors.
+  const evidenceSettled = !coverage.anyUnchecked && fairnessHeldOut.length === 0;
   const heldOutSet = new Set(fairnessHeldOut);
   const settlementNote = evidenceSettled
     ? "Public year/make/model checks finished for this shortlist — pick is settled on current evidence (still not VIN history)."
-    : `Pick may change as checks complete — free public progress: recalls ${coverage.recalls.checked}/${coverage.recalls.eligible}, safety ${coverage.safety.checked}/${coverage.safety.eligible}, VIN decode ${coverage.vpic.checked}/${coverage.vpic.eligible}, fuel ${coverage.fuel?.checked ?? 0}/${coverage.fuel?.eligible ?? coverage.listingMmyCount}.`;
+    : coverage.anyUnchecked
+      ? `Pick may change as checks complete — free public progress: recalls ${coverage.recalls.checked}/${coverage.recalls.eligible}, safety ${coverage.safety.checked}/${coverage.safety.eligible}, VIN decode ${coverage.vpic.checked}/${coverage.vpic.eligible}, fuel ${coverage.fuel?.checked ?? 0}/${coverage.fuel?.eligible ?? coverage.listingMmyCount}.`
+      : `Public checks ran for every shortlist year/make/model, but ranking is still provisional while ${plainFairnessHeldOutNote(fairnessHeldOut)?.replace(/^Fair coverage:\s*/i, "") ?? "some public factors stay held out for fairness"}.`;
 
   const priced = input.listings.filter((l) => l.priceUsd != null);
   const rankOpts = {
