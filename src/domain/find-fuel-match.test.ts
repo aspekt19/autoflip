@@ -30,6 +30,24 @@ describe("find fuel match (fixture — no live network)", () => {
     expect(names).toEqual(["CR-V AWD", "CR-V FWD"]);
   });
 
+  it("does not prefix-match Fuel Cell / Hybrid / PHEV onto a plain gas listing model", () => {
+    expect(
+      resolveEpaModelNames("Tucson", [
+        "Tucson 2WD",
+        "Tucson AWD",
+        "Tucson Fuel Cell",
+        "Santa Fe",
+      ]),
+    ).toEqual(["Tucson 2WD", "Tucson AWD"]);
+    expect(
+      resolveEpaModelNames("Camry", ["Camry", "Camry Hybrid LE", "Camry Hybrid XLE"]),
+    ).toEqual(["Camry"]);
+    // Explicit alt-powertrain listings still resolve their own keys.
+    expect(
+      resolveEpaModelNames("Tucson Fuel Cell", ["Tucson AWD", "Tucson Fuel Cell"]),
+    ).toEqual(["Tucson Fuel Cell"]);
+  });
+
   it("exact single-config match", () => {
     const assumptions = buildFindFuelAssumptions({
       note: "city driving",
@@ -182,6 +200,53 @@ describe("find fuel match (fixture — no live network)", () => {
       priceKey: "e85",
       unit: "gallon",
     });
+  });
+
+  it("drops Fuel Cell siblings when gas Tucson configs exist", () => {
+    const assumptions = buildFindFuelAssumptions({
+      usdPerGallon: 3.5,
+      priceSource: "labeled_fallback",
+    });
+    const gas = {
+      id: 1,
+      combMpg: 23,
+      cityMpg: 21,
+      highwayMpg: 26,
+      annualFuelCostUsd: 1800,
+      vehicleClass: null,
+      engine: "2.0 L",
+      transmission: null,
+      drive: "All-Wheel Drive",
+      fuelType: "Regular Gasoline",
+      make: "Hyundai",
+      model: "Tucson AWD",
+      year: 2015,
+    };
+    const cell = {
+      ...gas,
+      id: 2,
+      combMpg: 50,
+      cityMpg: 49,
+      highwayMpg: 51,
+      annualFuelCostUsd: 500,
+      fuelType: "Hydrogen",
+      model: "Tucson Fuel Cell",
+      drive: "Front-Wheel Drive",
+      engine: null,
+    };
+    const evidence = matchFuelVehicles({
+      listing: { year: 2015, make: "Hyundai", model: "Tucson" },
+      vehicles: [
+        { detail: gas, optionText: "Auto, 4 cyl", modelName: "Tucson AWD" },
+        { detail: cell, optionText: "Auto (A1)", modelName: "Tucson Fuel Cell" },
+      ],
+      assumptions,
+      modelNamesTried: ["Tucson AWD", "Tucson Fuel Cell"],
+      sourceUrl: "fixture://tucson",
+    });
+    expect(evidence.match).not.toBe("no_match");
+    expect(evidence.combMpgHigh).toBeLessThan(40);
+    expect(evidence.fuelType).toMatch(/gasoline/i);
   });
 
   it("electricity uses EPA published annual — never MPGe × $/gal fallback", () => {

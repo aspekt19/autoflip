@@ -229,7 +229,7 @@ export function applyFindNextCheck(
     return {
       need: next,
       refine,
-      note: "Prioritize inspection + NMVTIS-approved history before purchase — Find cards have no condition score.",
+      note: "Get an NMVTIS-approved vehicle history report and a pre-purchase inspection before you buy — Find cards have no condition score.",
       research: false,
     };
   }

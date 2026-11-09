@@ -133,7 +133,13 @@ describe("buyer-safe Find copy", () => {
     expect(formatBuyerLoopStep({ chosenId: "compare_observed_asks", listingCount: 24 })).toBe(
       "We compared asking prices across the 24 cars found.",
     );
-    expect(formatBuyerLoopStep({ chosenId: "free_gov_fuel", listingCount: 24 })).toMatch(/fuel costs/i);
+    expect(
+      formatBuyerLoopStep({
+        chosenId: "free_gov_fuel",
+        listingCount: 24,
+        fuelOutcome: { attempted: 3, matched: 2, noMatch: 1, unavailable: 0 },
+      }),
+    ).toMatch(/FuelEconomy\.gov|matched/i);
     expect(formatBuyerLoopStatus("unchanged_state")).toMatch(/caught up/i);
     expect(formatBuyerLoopStatus("evidence_changed_replan")).toMatch(/continuing/i);
     expect(assertBuyerSafeText(formatBuyerLoopStatus("remaining_free_checks")!).ok).toBe(true);

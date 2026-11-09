@@ -400,11 +400,33 @@ function stringList(value: unknown): string[] {
 
 /** Read a budget the shopper actually wrote. Does not guess a number that is not there. */
 export function budgetFromText(text: string): number | null {
-  const match = text.match(/(?:\$\s*|(?:\bunder\b|\bbudget\b)\s+\$?\s*)([0-9]{1,3}(?:,[0-9]{3})+|[0-9]{4,6})\b/i);
+  const match = text.match(/(?:\$\s*|(?:\bunder\b|\bbudget\b|\baround\b|\babout\b|\bnear\b)\s+\$?\s*)([0-9]{1,3}(?:,[0-9]{3})+|[0-9]{4,6})\b/i);
   if (!match) return null;
   const value = Number(match[1]!.replace(/,/g, ""));
   if (!Number.isFinite(value) || value < 1000 || value > 250_000) return null;
   return value;
+}
+
+/**
+ * True when the note frames the budget as approximate ("around $15,000").
+ * Approximate budgets still assess affordability, with a labeled soft tolerance.
+ */
+export function budgetIsApproximateFromNote(text: string | null | undefined): boolean {
+  if (!text) return false;
+  return /\b(?:around|about|approximately|roughly|near)\s+\$?\s*[0-9]|\b~\s*\$?\s*[0-9]/i.test(text);
+}
+
+/** Soft over-budget tolerance fraction for "around $X" notes (10%). Hard max still flags overages. */
+export const BUDGET_AROUND_TOLERANCE_FRAC = 0.1;
+
+export function budgetWorkingCopy(need: Pick<StructuredNeed, "budgetKnown" | "budgetUsd" | "note">): string | null {
+  if (!need.budgetKnown || need.budgetUsd == null) return null;
+  const amount = `$${need.budgetUsd.toLocaleString("en-US")}`;
+  if (budgetIsApproximateFromNote(need.note)) {
+    const tol = Math.round(need.budgetUsd * BUDGET_AROUND_TOLERANCE_FRAC);
+    return `Using your ~${amount} budget from your note (±$${tol.toLocaleString("en-US")} soft tolerance); set a hard max to change it.`;
+  }
+  return `Using your ${amount} budget from your note; set a hard max to change it.`;
 }
 
 export function useCaseFromText(text: string): UseCase {
@@ -876,11 +898,33 @@ export function overlayExplicit(
     preferredModels.length === 0
       ? "none"
       : explicit.preferredModelsSource ?? extracted.preferredModelsSource ?? "user_note";
+  // Form "Not sure yet" must not wipe a budget the shopper already wrote in the note.
+  // Prefer an explicit numeric form budget; otherwise keep the note-derived working budget.
+  const noteBudgetUsd = extracted.budgetKnown ? extracted.budgetUsd : null;
+  const formGaveNumber =
+    explicit.budgetKnown !== false &&
+    typeof explicit.budgetUsd === "number" &&
+    Number.isFinite(explicit.budgetUsd);
+  let budgetUsd: number | null;
+  let budgetKnown: boolean;
+  if (formGaveNumber) {
+    budgetUsd = explicit.budgetUsd ?? null;
+    budgetKnown = true;
+  } else if (noteBudgetUsd != null) {
+    budgetUsd = noteBudgetUsd;
+    budgetKnown = true;
+  } else if (explicit.budgetKnown === false) {
+    budgetUsd = null;
+    budgetKnown = false;
+  } else {
+    budgetUsd = explicit.budgetUsd ?? extracted.budgetUsd;
+    budgetKnown = explicit.budgetKnown ?? extracted.budgetKnown;
+  }
   return {
     ...extracted,
     mode: explicit.mode ?? extracted.mode,
-    budgetUsd: explicit.budgetKnown === false ? null : explicit.budgetUsd ?? extracted.budgetUsd,
-    budgetKnown: explicit.budgetKnown ?? extracted.budgetKnown,
+    budgetUsd,
+    budgetKnown,
     budgetScope: explicit.budgetScope ?? extracted.budgetScope,
     zip,
     distanceMiles,

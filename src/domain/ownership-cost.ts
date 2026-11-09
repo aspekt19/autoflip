@@ -86,7 +86,7 @@ export function estimateOwnershipFuelCost(
       reason: "no_fuel_fact",
       combMpg: null,
       honesty:
-        "Ownership fuel cost is unavailable — no FuelEconomy.gov match yet. Find cards do not invent TCO or MPG rankings.",
+        "Ownership fuel cost is unavailable — no FuelEconomy.gov match for this year/make/model (or the check has not run yet). Find cards do not invent TCO or MPG rankings.",
     };
   }
 

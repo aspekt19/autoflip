@@ -4,7 +4,7 @@ import { parseCountInput, parseUsdInput } from "@/domain/budget";
 import type { PriceBadge } from "@/domain/price-badge";
 import { whyThisCar } from "@/domain/why-car";
 import { PriceBadgeView, PriceRatingHow } from "./PriceBadge";
-import { budgetFromText } from "@/domain/need";
+import { budgetFromText, budgetWorkingCopy } from "@/domain/need";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import type { DecisionProof } from "@/domain/decision-note";
@@ -36,11 +36,13 @@ import {
   formatBuyerLoopStatus,
   formatBuyerLoopStep,
   formatBuyerNextCheckWhy,
+  summarizeFuelCheckOutcome,
 } from "@/domain/find-buyer-copy";
 import type { BestDealResult } from "@/domain/find-best-deal";
 import { formatFindFuelEvidenceShort, fuelFactFromFindEvidence } from "@/domain/find-fuel-match";
 import { buildGroundedShortlist } from "@/domain/find-path";
 import {
+  buyerSourceLinesForUi,
   formatFreeGovReceiptsForAgents,
   formatFreeGovReceiptsForUi,
   uiRowsToRiskReceipts,
@@ -626,22 +628,20 @@ function AssistantFlow({
       const toolCov = (
         body as { freeGovCoverage?: { note?: string; anyUnchecked?: boolean } | null }
       ).freeGovCoverage;
-      // Soft-scrub technical coverage notes for buyers.
+      // Soft-scrub technical coverage notes for buyers (never garble NMVTIS-approved).
+      const scrubCoverage = (note: string) =>
+        note
+          .replace(/\bMMY\b/g, "year/make/model")
+          .replace(/\bvPIC\b/g, "VIN decode")
+          .replace(
+            /\bNMVTIS-approved history\s*\+\s*inspection before purchase\b/gi,
+            "an NMVTIS-approved vehicle history report and a pre-purchase inspection before you buy",
+          )
+          .replace(/\bNMVTIS\b/g, "NMVTIS (official title history)")
+          .trim();
       const coverageBits = [
-        coverage && typeof coverage.note === "string"
-          ? coverage.note
-              .replace(/\bMMY\b/g, "year/make/model")
-              .replace(/\bvPIC\b/g, "VIN decode")
-              .replace(/\bNMVTIS\b/g, "official title history")
-              .trim()
-          : "",
-        toolCov && typeof toolCov.note === "string"
-          ? toolCov.note
-              .replace(/\bMMY\b/g, "year/make/model")
-              .replace(/\bvPIC\b/g, "VIN decode")
-              .replace(/\bNMVTIS\b/g, "official title history")
-              .trim()
-          : "",
+        coverage && typeof coverage.note === "string" ? scrubCoverage(coverage.note) : "",
+        toolCov && typeof toolCov.note === "string" ? scrubCoverage(toolCov.note) : "",
       ].filter(Boolean);
       if (coverageBits.length > 0) {
         setRiskCoverageNote(coverageBits.join(" "));
@@ -652,9 +652,16 @@ function AssistantFlow({
       void clamp;
       void keyedDiag;
       const listingCount = groups.reduce((n, g) => n + g.listings.length, 0);
+      const mergedReceiptsForFuel =
+        receipts.length > 0 ? receipts : freeGovReceiptsForShortlist;
+      const fuelOutcome =
+        body.chosenId === "free_gov_fuel"
+          ? summarizeFuelCheckOutcome(uiRowsToRiskReceipts(mergedReceiptsForFuel))
+          : null;
       const step = formatBuyerLoopStep({
         chosenId: body.chosenId ?? "",
         listingCount: listingCount || undefined,
+        fuelOutcome,
       });
       const status = formatBuyerLoopStatus(body.loop?.reason ?? null);
       setNextCheckNote([step, status].filter(Boolean).join(" "));
@@ -1214,6 +1221,15 @@ function AssistantFlow({
               <input type="checkbox" checked={!budgetKnown} onChange={(event) => setBudgetKnown(!event.target.checked)} /> Not sure yet
             </label>
           </div>
+          {!budgetKnown && budgetFromText(text) != null ? (
+            <p className="hint">
+              {budgetWorkingCopy({
+                budgetKnown: true,
+                budgetUsd: budgetFromText(text),
+                note: text,
+              })}
+            </p>
+          ) : null}
           <p className="hint">{mode === "flip" ? "This is the cash available for the deal. Repair estimates are assumptions, not a quote." : "We use this as the vehicle asking-price limit. Taxes, title, registration and dealer fees are not included."}</p>
           {/* Geo connects here in-process (not on the homepage) before inventory. Nationwide only when chosen. */}
           <ZipRadiusFields
@@ -1601,6 +1617,25 @@ function AssistantFlow({
                             <li key={line.slice(0, 100)}>{line}</li>
                           ))}
                         </ul>
+                        {(() => {
+                          const sources = buyerSourceLinesForUi(freeGovReceiptsForShortlist).filter(
+                            (s) => s.href,
+                          );
+                          if (sources.length === 0) return null;
+                          return (
+                            <p className="hint">
+                              Public pages:{" "}
+                              {sources.map((s, i) => (
+                                <span key={`${s.label}-${s.href}`}>
+                                  {i > 0 ? " · " : null}
+                                  <a href={s.href!} target="_blank" rel="noreferrer">
+                                    {s.label}
+                                  </a>
+                                </span>
+                              ))}
+                            </p>
+                          );
+                        })()}
                         {riskCoverageNote ? <p className="hint">{riskCoverageNote}</p> : null}
                       </div>
                     ) : null}
@@ -1616,6 +1651,16 @@ function AssistantFlow({
                             <ul>
                               {dealCopy.rankedLines.map((line) => (
                                 <li key={line}>{line}</li>
+                              ))}
+                            </ul>
+                          </>
+                        ) : null}
+                        {dealCopy.factorLines.length > 0 ? (
+                          <>
+                            <p>Why each ranked car scored this way:</p>
+                            <ul>
+                              {dealCopy.factorLines.map((line) => (
+                                <li key={line.slice(0, 120)}>{line}</li>
                               ))}
                             </ul>
                           </>
@@ -1670,7 +1715,11 @@ function AssistantFlow({
                 );
               })()
             : null}
-          {!affordability ? <p className="hint">Budget was not set, so affordability was not assessed.</p> : null}
+          {need && need.budgetKnown && need.budgetUsd != null ? (
+            <p className="hint">{budgetWorkingCopy(need)}</p>
+          ) : !affordability ? (
+            <p className="hint">Budget was not set, so affordability was not assessed.</p>
+          ) : null}
           {partialFailure ? (
             <p className="warn-box" role="status">
               {matchMessage || "Some listing sources failed. Results below are partial and are not an exhaustive market scan."}

@@ -5,6 +5,7 @@ export function PriceBadgeView({ badge }: { badge: PriceBadge }) {
     <p className={`price-badge ${badge.tone}`}>
       <strong>{badge.label}</strong>
       {badge.deltaLabel ? <span> · {badge.deltaLabel}</span> : null}
+      {badge.sampleNote ? <span className="hint"> · {badge.sampleNote}</span> : null}
     </p>
   );
 }
