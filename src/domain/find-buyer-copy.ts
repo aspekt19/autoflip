@@ -93,6 +93,7 @@ export const BUYER_FORBIDDEN_TECH_PATTERNS: RegExp[] = [
   /explicit \$\/gal/i,
   /\$\/gal/,
   /A blank budget stays blank/i,
+  /\bmedian ask\b/i,
 ];
 
 /**

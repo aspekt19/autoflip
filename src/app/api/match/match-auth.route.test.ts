@@ -5,7 +5,9 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { MemoryKv } from "@/io/kv";
 import { creditBalance, creditGrant } from "@/io/credit-book";
+import { readFreeCheckQuota } from "@/io/free-check-quota";
 import {
+  loadFindSearchContext,
   mintFindSearchContextRecord,
   storeFindSearchContext,
 } from "@/server/find-search-context";
@@ -166,8 +168,9 @@ describe("POST /api/match verified-auth Find (t334 Fix A)", () => {
     expect(firstBody.balance).toBe(2);
     expect(typeof firstBody.searchContextToken).toBe("string");
     expect(await creditBalance(kvHolder.kv, ACCOUNT)).toBe(2);
-    // Anonymous ledger untouched.
+    // Anonymous ledger untouched. Monthly free VIN checks are not the Find payment.
     expect(await creditBalance(kvHolder.kv, ANON)).toBe(9);
+    expect((await readFreeCheckQuota(kvHolder.kv, ACCOUNT)).used).toBe(0);
 
     const token = firstBody.searchContextToken!;
     // Ensure ownership is on verified account (route also mints; seed for clarity).
@@ -175,9 +178,10 @@ describe("POST /api/match verified-auth Find (t334 Fix A)", () => {
       userId: ACCOUNT,
       need: NEED as never,
       listings: [],
-      servNextCheckEnabled: false,
+      servNextCheckEnabled: true,
       token,
     });
+    seeded.servPaidCalls = 4;
     await storeFindSearchContext(kvHolder.kv, seeded);
 
     const rematch = await POST(
@@ -192,9 +196,14 @@ describe("POST /api/match verified-auth Find (t334 Fix A)", () => {
       charged?: boolean;
       rematchContinuation?: boolean;
       balance?: number;
+      searchContextToken?: string;
     };
     expect(rematchBody.rematchContinuation).toBe(true);
     expect(rematchBody.charged).toBe(false);
+    expect(rematchBody.searchContextToken).toBe(token);
+    const kept = await loadFindSearchContext(kvHolder.kv, { userId: ACCOUNT, token });
+    expect(kept.ok).toBe(true);
+    if (kept.ok) expect(kept.record.servPaidCalls).toBe(4);
     expect(await creditBalance(kvHolder.kv, ACCOUNT)).toBe(2);
   });
 
@@ -241,36 +250,71 @@ describe("POST /api/match verified-auth Find (t334 Fix A)", () => {
     expect(await creditBalance(kvHolder.kv, ACCOUNT)).toBe(2);
   });
 
-  it("debits once per idempotency key and does not refund that delivery if a retry fails", async () => {
+  it("returns the stored delivery for the same key and does not search or debit again", async () => {
     requireFind.mockResolvedValue({ ok: true, id: ACCOUNT, email: "a@example.com" });
     const delivered = {
       ok: true,
       status: 200,
       body: { ok: true, directions: [] },
     };
-    runFind.mockResolvedValueOnce(delivered);
+    runFind.mockResolvedValue(delivered);
     const first = await POST(req({ need: NEED, searchIdempotencyKey: "find-once-key-01" }));
     expect(first.status).toBe(200);
+    const firstBody = (await first.json()) as { searchContextToken?: string };
     expect(await creditBalance(kvHolder.kv, ACCOUNT)).toBe(2);
+    expect(runFind).toHaveBeenCalledTimes(1);
 
-    runFind.mockResolvedValueOnce(delivered);
-    const replay = await POST(req({ need: NEED, searchIdempotencyKey: "find-once-key-01" }));
+    // A later failure must not run, and must not refund the original delivery.
+    runFind.mockRejectedValueOnce(new Error("retry must not run"));
+    const replay = await POST(req({ need: { ...NEED, note: "different search" }, searchIdempotencyKey: "find-once-key-01" }));
     expect(replay.status).toBe(200);
-    const replayBody = (await replay.json()) as { charged?: boolean; balance?: number };
+    const replayBody = (await replay.json()) as {
+      charged?: boolean;
+      balance?: number;
+      searchContextToken?: string;
+    };
     expect(replayBody.charged).toBe(true);
     expect(replayBody.balance).toBe(2);
+    expect(replayBody.searchContextToken).toBe(firstBody.searchContextToken);
+    expect(runFind).toHaveBeenCalledTimes(1);
     expect(await creditBalance(kvHolder.kv, ACCOUNT)).toBe(2);
+  });
 
-    runFind.mockResolvedValueOnce({
-      ok: false,
-      status: 502,
-      body: { error: "provider_failure", message: "retry failed" },
+  it("collapses concurrent retries of one key into a single search and a single debit", async () => {
+    requireFind.mockResolvedValue({ ok: true, id: ACCOUNT, email: "a@example.com" });
+    runFind.mockImplementation(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 40));
+      return { ok: true, status: 200, body: { ok: true, directions: [] } };
     });
-    const retryFail = await POST(req({ need: NEED, searchIdempotencyKey: "find-once-key-01" }));
-    expect(retryFail.status).toBe(502);
-    const retryBody = (await retryFail.json()) as { charged?: boolean };
-    expect(retryBody.charged).toBe(false);
+    const [a, b] = await Promise.all([
+      POST(req({ need: NEED, searchIdempotencyKey: "find-race-key-01" })),
+      POST(req({ need: NEED, searchIdempotencyKey: "find-race-key-01" })),
+    ]);
+    expect(a.status).toBe(200);
+    expect(b.status).toBe(200);
+    const aBody = (await a.json()) as { searchContextToken?: string; balance?: number };
+    const bBody = (await b.json()) as { searchContextToken?: string; balance?: number };
+    expect(aBody.searchContextToken).toBeTruthy();
+    expect(aBody.searchContextToken).toBe(bBody.searchContextToken);
+    expect(aBody.balance).toBe(2);
+    expect(bBody.balance).toBe(2);
+    expect(runFind).toHaveBeenCalledTimes(1);
     expect(await creditBalance(kvHolder.kv, ACCOUNT)).toBe(2);
+  });
+
+  it("scopes the idempotency key per account so two shoppers each pay once", async () => {
+    const other = "dddddddd-dddd-dddd-dddd-dddddddddddd";
+    await creditGrant(kvHolder.kv, other, 3, "init-other");
+    requireFind.mockImplementation(async () => ({ ok: true, id: ACCOUNT, email: "a@example.com" }));
+    runFind.mockResolvedValue({ ok: true, status: 200, body: { ok: true, directions: [] } });
+    const first = await POST(req({ need: NEED, searchIdempotencyKey: "shared-client-key" }));
+    expect(first.status).toBe(200);
+    requireFind.mockImplementation(async () => ({ ok: true, id: other, email: "b@example.com" }));
+    const second = await POST(req({ need: NEED, searchIdempotencyKey: "shared-client-key" }));
+    expect(second.status).toBe(200);
+    expect(await creditBalance(kvHolder.kv, ACCOUNT)).toBe(2);
+    expect(await creditBalance(kvHolder.kv, other)).toBe(2);
+    expect(runFind).toHaveBeenCalledTimes(2);
   });
 
   it("does not debit when the search throws", async () => {

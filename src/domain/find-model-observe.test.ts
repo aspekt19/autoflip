@@ -37,6 +37,8 @@ describe("observedModelSnapshots", () => {
     expect(snaps[0]?.medianAskUsd).toBe(11_095);
     expect(snaps[1]?.model).toBe("Tucson");
     expect(formatObservedModelSnapshot(snaps[0]!)).toMatch(/Honda CR-V/);
+    expect(formatObservedModelSnapshot(snaps[0]!)).toMatch(/typical asking price/);
+    expect(formatObservedModelSnapshot(snaps[0]!)).not.toMatch(/median ask/);
     expect(snaps.every((s) => /these cards only/i.test(s.honesty))).toBe(true);
     expect(snaps.every((s) => !/TCO|Observed from this search only/i.test(s.honesty))).toBe(true);
   });

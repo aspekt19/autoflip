@@ -16,7 +16,7 @@ import type { DecisionProof } from "@/domain/decision-note";
 import type { SearchDirection } from "@/domain/directions";
 import { CoverageLine } from "./CoverageNote";
 import { DecisionNote } from "./DecisionNote";
-import { decideAfFlowRestore } from "@/domain/af-flow-session";
+import { decideAfFlowRestore, resumeFindSearchFromFlow } from "@/domain/af-flow-session";
 import {
   resolveManualCheckHandoff,
   resolveSelectedListingHandoff,
@@ -153,6 +153,9 @@ export function CheckFlow() {
   return <AssistantFlow variant="check" />;
 }
 
+/** One automatic resume per token per page load — a refresh must not stack paid checks. */
+const resumedFindTokens = new Set<string>();
+
 function AssistantFlow({
   variant,
   initialNote,
@@ -241,6 +244,10 @@ function AssistantFlow({
   > | null>(null);
   /** Auto-start next-check once per searchContextToken when SERV keyed. */
   const autoNextCheckTokenRef = useRef<string | null>(null);
+  /** Blocks a second Show-cars click before React disables the button. */
+  const findSubmitLock = useRef(false);
+  /** Reused until a Find response is received, so a lost response is not a second purchase. */
+  const findIdempotencyKey = useRef<string | null>(null);
   /** Auto-continues fired for the current search token — hard-bounded in shouldAutoContinue. */
   const autoContinueCountRef = useRef(0);
 
@@ -356,6 +363,8 @@ function AssistantFlow({
         matchHeadline?: string | null;
         matchNextStep?: string | null;
         partialFailure?: boolean;
+        searchContextToken?: string | null;
+        servNextCheckEnabled?: boolean;
       };
       if (!saved.need || !saved.stage || saved.stage === "need") return;
 
@@ -395,6 +404,23 @@ function AssistantFlow({
       setPartialFailure(Boolean(saved.partialFailure));
       if (saved.need.budgetUsd) setBudget(String(saved.need.budgetUsd));
       if (saved.need.zip) setZipDraft(saved.need.zip);
+      const resume = resumeFindSearchFromFlow(saved);
+      if (resume.searchContextToken) {
+        setSearchContextToken(resume.searchContextToken);
+        setServNextCheckEnabled(resume.servNextCheckEnabled);
+        if (
+          saved.stage === "results" &&
+          resume.servNextCheckEnabled &&
+          !resumedFindTokens.has(resume.searchContextToken)
+        ) {
+          const token = resume.searchContextToken;
+          resumedFindTokens.add(token);
+          autoNextCheckTokenRef.current = token;
+          queueMicrotask(() => {
+            void applyLiveNextCheck({ token, auto: true });
+          });
+        }
+      }
     } catch {
       /* ignore a bad saved draft */
     }
@@ -465,6 +491,8 @@ function AssistantFlow({
           matchMessage,
           matchScope,
           emptyReason,
+          searchContextToken,
+          servNextCheckEnabled,
         }),
       );
     } catch {
@@ -835,7 +863,7 @@ function AssistantFlow({
             body: JSON.stringify({
               need: nextNeed,
               // Owned continuation — next-check rematch is not a second Find purchase.
-              searchContextToken: searchContextToken || undefined,
+              searchContextToken: nextTok,
               refine: rematchRefineFromReplan({
                 replanRefine: body.replan.refine,
                 needAfter: nextNeed,
@@ -937,6 +965,8 @@ function AssistantFlow({
       setError("Add a ZIP for a seller-distance radius, or choose Nationwide.");
       return;
     }
+    if (findSubmitLock.current) return;
+    findSubmitLock.current = true;
     setError(null);
     setMatchMessage(null);
     setMatchHeadline(null);
@@ -949,7 +979,24 @@ function AssistantFlow({
     /** Fired after finally so we do not clear next-check pending. */
     let autoNextToken: string | null = null;
     try {
-      const searchIdempotencyKey = `find-${Date.now()}-${Math.random().toString(36).slice(2, 12)}`;
+      let searchIdempotencyKey = findIdempotencyKey.current;
+      if (!searchIdempotencyKey) {
+        try {
+          const stored = sessionStorage.getItem("af-find-idem");
+          if (stored && /^[a-zA-Z0-9_-]{8,80}$/.test(stored)) searchIdempotencyKey = stored;
+        } catch {
+          /* ignore */
+        }
+      }
+      if (!searchIdempotencyKey) {
+        searchIdempotencyKey = `find-${Date.now()}-${Math.random().toString(36).slice(2, 12)}`;
+      }
+      findIdempotencyKey.current = searchIdempotencyKey;
+      try {
+        sessionStorage.setItem("af-find-idem", searchIdempotencyKey);
+      } catch {
+        /* ignore */
+      }
       const response = await fetch("/api/match", {
         method: "POST",
         signal: controller.signal,
@@ -1019,6 +1066,12 @@ function AssistantFlow({
         setGroups([]);
         setSample(false);
         return;
+      }
+      findIdempotencyKey.current = null;
+      try {
+        sessionStorage.removeItem("af-find-idem");
+      } catch {
+        /* ignore */
       }
       // Consumer /find never accepts sample rows as live inventory.
       const nextGroups = (body.directions ?? []).map((group) => ({
@@ -1114,6 +1167,7 @@ function AssistantFlow({
       setGroups([]);
       setStage("results");
     } finally {
+      findSubmitLock.current = false;
       window.clearTimeout(timer);
       setPending(null);
     }
@@ -2224,7 +2278,12 @@ function AssistantFlow({
         </div>
       ) : null}
 
-      {error ? (
+      {error &&
+      !(
+        stage === "results" &&
+        ((groups.some((group) => group.listings.length > 0) && pending === null) ||
+          ((groups.length === 0 || groups.every((group) => group.listings.length === 0)) && !matchMessage))
+      ) ? (
         <p className="warn" role="alert">
           {error}
         </p>

@@ -12,6 +12,7 @@ import { mintFindSearchContextRecord, storeFindSearchContext } from "@/server/fi
 
 const ACCOUNT = "11111111-1111-4111-8111-111111111111";
 const ANON = "22222222-2222-4222-8222-222222222222";
+const OTHER = "33333333-3333-4333-8333-333333333333";
 
 const session = vi.hoisted(() => ({
   account: null as string | null,
@@ -247,5 +248,24 @@ describe("Find search context owner (signed-in vs anonymous cookie)", () => {
     expect(body.ok).toBe(true);
     expect((body.decisionLog ?? []).length).toBeGreaterThan(0);
     expect(await creditBalance(kvHolder.kv, ANON)).toBe(3);
+  });
+
+  it("does not let another signed-in account read or advance a context by token alone", async () => {
+    session.account = ACCOUNT;
+    session.cookie = ANON;
+    const created = await matchPost(matchReq({ need: NEED, searchIdempotencyKey: "find-owner-signed-2" }));
+    expect(created.status).toBe(200);
+    const createdBody = (await created.json()) as { searchContextToken?: string };
+    const token = createdBody.searchContextToken;
+    expect(typeof token).toBe("string");
+
+    session.account = OTHER;
+    session.cookie = ACCOUNT;
+    const step = await nextPost(nextReq(token!));
+    expect(step.status).toBe(404);
+    const body = (await step.json()) as { message?: string };
+    expect(body.message).toBe("Search context expired or unknown — run Find again.");
+    expect(await creditBalance(kvHolder.kv, ACCOUNT)).toBe(2);
+    expect(await creditBalance(kvHolder.kv, OTHER)).toBe(0);
   });
 });

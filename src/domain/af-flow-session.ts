@@ -41,3 +41,15 @@ export function decideAfFlowRestore(saved: AfFlowRestoreInput): AfFlowRestoreDec
     clearPhantomLive: false,
   };
 }
+
+/** Search-context fields saved with a Find result. Missing token means the loop cannot resume. */
+export function resumeFindSearchFromFlow(saved: {
+  searchContextToken?: unknown;
+  servNextCheckEnabled?: unknown;
+}): { searchContextToken: string | null; servNextCheckEnabled: boolean } {
+  const token = typeof saved.searchContextToken === "string" ? saved.searchContextToken.trim() : "";
+  return {
+    searchContextToken: token || null,
+    servNextCheckEnabled: Boolean(saved.servNextCheckEnabled) && Boolean(token),
+  };
+}

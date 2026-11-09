@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { decideAfFlowRestore } from "./af-flow-session";
+import { decideAfFlowRestore, resumeFindSearchFromFlow } from "./af-flow-session";
 
 describe("af-flow session restore (Stage2A)", () => {
   it("never forces sample:true → sample:false", () => {
@@ -42,5 +42,17 @@ describe("af-flow session restore (Stage2A)", () => {
     });
     expect(d.action).toBe("apply");
     if (d.action === "apply") expect(d.warnUnknownSource).toBe(true);
+  });
+});
+
+describe("resumeFindSearchFromFlow", () => {
+  it("restores an owned search token and does not enable checks without one", () => {
+    expect(
+      resumeFindSearchFromFlow({ searchContextToken: "  abc  ", servNextCheckEnabled: true }),
+    ).toEqual({ searchContextToken: "abc", servNextCheckEnabled: true });
+    expect(resumeFindSearchFromFlow({ servNextCheckEnabled: true })).toEqual({
+      searchContextToken: null,
+      servNextCheckEnabled: false,
+    });
   });
 });

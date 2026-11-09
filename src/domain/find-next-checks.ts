@@ -202,7 +202,7 @@ export function proposeFindNextChecks(input: FindNextCheckInput): FindNextCheck[
   if (input.observedModelCount >= 2) {
     out.push({
       id: "compare_observed_asks",
-      why: "Compare median ask, miles, year bands, and fuel estimates across the models in these cards — observed facts only.",
+      why: "Compare asking prices, mileage, and year ranges across the models in these cards — observed facts only.",
       evidence: `observed_models_${input.observedModelCount}`,
     });
   }

@@ -129,9 +129,9 @@ export function observedModelSnapshots(listings: ObservedListingRow[]): Observed
 
 export function formatObservedModelSnapshot(snap: ObservedModelSnapshot): string {
   const ask =
-    snap.medianAskUsd == null ? "ask unknown" : `median ask $${snap.medianAskUsd.toLocaleString("en-US")}`;
+    snap.medianAskUsd == null ? "asking price unknown" : `typical asking price $${snap.medianAskUsd.toLocaleString("en-US")}`;
   const miles =
-    snap.medianMiles == null ? "miles unknown" : `median ${snap.medianMiles.toLocaleString("en-US")} mi`;
+    snap.medianMiles == null ? "mileage unknown" : `typical mileage ${snap.medianMiles.toLocaleString("en-US")} mi`;
   return `${snap.make} ${snap.model}: ${snap.count} card${snap.count === 1 ? "" : "s"}, ${snap.yearMin}–${snap.yearMax}, ${ask}, ${miles}.`;
 }
 
