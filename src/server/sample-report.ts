@@ -140,7 +140,7 @@ export function buildSampleReport(mode: Mode = "personal"): FullReport {
 
   computed.agentVerdict = emptyAgentVerdict({
     pick: null,
-    verdict: "negotiate",
+    verdict: null,
     confidence: null,
     reasons: [
       {

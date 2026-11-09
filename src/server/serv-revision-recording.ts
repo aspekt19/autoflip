@@ -59,6 +59,11 @@ export type LoadedServRevision =
   | { ok: true; recording: ServRevisionRecording; challenge: AgentSecondPassResult }
   | { ok: false; reason: "not_recorded" | "invalid_recording"; detail: string };
 
+function traceHasRunId(trace: ServRevisionHttpTrace): boolean {
+  const id = trace.openserv?.responseId ?? trace.openserv?.runId;
+  return typeof id === "string" && id.trim().length > 0;
+}
+
 function isTrace(value: unknown): value is ServRevisionHttpTrace {
   if (!value || typeof value !== "object") return false;
   const row = value as ServRevisionHttpTrace;
@@ -90,18 +95,25 @@ export function parseServRevisionRecording(raw: unknown): LoadedServRevision {
   if (typeof row.model !== "string" || !row.model.trim()) {
     return { ok: false, reason: "invalid_recording", detail: "model missing." };
   }
-  if (typeof row.provenance !== "string" || !/live|record-serv-revision/i.test(row.provenance)) {
+  if (typeof row.provenance !== "string" || !row.provenance.includes("npm run eval:record-serv-revision")) {
     return {
       ok: false,
       reason: "invalid_recording",
-      detail: "provenance must name the live recorder (not an agent-written example).",
+      detail: "provenance must name the live recorder (npm run eval:record-serv-revision).",
     };
   }
   if (!isTrace(row.first) || !isTrace(row.revised) || !isTrace(row.challenge)) {
     return { ok: false, reason: "invalid_recording", detail: "first/revised/challenge traces incomplete." };
   }
-  const firstParsed = parseServVerdict(row.first.rawResponse) ?? row.first.parsed;
-  const revisedParsed = parseServVerdict(row.revised.rawResponse) ?? row.revised.parsed;
+  if (!traceHasRunId(row.first) || !traceHasRunId(row.revised) || !traceHasRunId(row.challenge)) {
+    return {
+      ok: false,
+      reason: "invalid_recording",
+      detail: "Each call needs an OpenServ response id or run id.",
+    };
+  }
+  const firstParsed = parseServVerdict(row.first.rawResponse);
+  const revisedParsed = parseServVerdict(row.revised.rawResponse);
   if (!firstParsed || !revisedParsed) {
     return { ok: false, reason: "invalid_recording", detail: "Could not parse first/revised verdict JSON." };
   }

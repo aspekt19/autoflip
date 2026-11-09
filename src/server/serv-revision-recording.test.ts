@@ -47,7 +47,7 @@ describe("serv revision recording honesty", () => {
         }),
       },
       allowedEvidenceIds: ["ev_ask"],
-      provenance: "Hand-written by agent for docs",
+      provenance: "not a live capture",
     });
     expect(result.ok).toBe(false);
     if (result.ok) return;
@@ -59,6 +59,39 @@ describe("serv revision recording honesty", () => {
     expect(result.ok).toBe(false);
     if (result.ok) return;
     expect(result.reason).toBe("not_recorded");
+  });
+
+  it("rejects a recording that has no OpenServ id", () => {
+    const result = parseServRevisionRecording({
+      schema: "lemonless.serv_revision_recording.v1",
+      recordedAt: "2026-11-09T12:00:00.000Z",
+      model: "gpt-5.4-mini",
+      costUsd: null,
+      costNote: null,
+      subject: {},
+      first: {
+        request: { profile: "verdict_decide", model: "gpt-5.4-mini", user: "first" },
+        rawResponse: JSON.stringify({ verdict: "buy", note: "Under fair value." }),
+      },
+      revised: {
+        request: { profile: "verdict_decide", model: "gpt-5.4-mini", user: "revised" },
+        rawResponse: JSON.stringify({ verdict: "negotiate", note: "Newer comps lowered the case." }),
+      },
+      challenge: {
+        request: { profile: "verdict_challenge", model: "gpt-5.4-mini", user: "challenge" },
+        rawResponse: JSON.stringify({
+          agrees: true,
+          action: "negotiate",
+          objection: null,
+          evidenceIds: [],
+        }),
+      },
+      allowedEvidenceIds: ["ev_ask"],
+      provenance: "Live capture via npm run eval:record-serv-revision",
+    });
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.detail).toMatch(/response id|run id/i);
   });
 
   it("accepts a well-formed live-shaped recording", () => {

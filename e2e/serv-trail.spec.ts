@@ -13,6 +13,9 @@ test("sample report does not invent a SERV revision when none is recorded", asyn
   await expect(trail.getByText(/two newer comps arrived with lower asks/i)).toHaveCount(0);
   await expect(trail.getByText(/independent review disagreed/i)).toHaveCount(0);
   await expect(trail.getByText(/\$[0-9]/)).toHaveCount(0);
+  await expect(page.getByText("Fair price").first()).toBeVisible();
+  await expect(page.getByText("$33,699").first()).toBeVisible();
+  await expect(page.getByText("$34,374").first()).toBeVisible();
 
   await page.setViewportSize({ width: 390, height: 844 });
   const overflow = await page.evaluate(
