@@ -296,6 +296,9 @@ function AssistantFlow({
     entries: FindDecisionLogEntry[];
     labels: DecisionCarLabel[];
   }>({ entries: [], labels: [] });
+  const [pickSecondPass, setPickSecondPass] = useState<
+    import("@/domain/agent-verdict-schema").AgentSecondPassResult | null
+  >(null);
   const [baselineView, setBaselineView] = useState<ReturnType<typeof formatBaselineForBuyer> | null>(null);
   /** Structured free-gov receipts for risk-aware grounded shortlist (client mirror of server). */
   const [freeGovReceiptsForShortlist, setFreeGovReceiptsForShortlist] = useState<
@@ -803,6 +806,9 @@ function AssistantFlow({
         ];
         setDecisionView({ entries: serverLog, labels });
       }
+      const settlePass = (body as { pickSecondPass?: import("@/domain/agent-verdict-schema").AgentSecondPassResult | null })
+        .pickSecondPass;
+      if (settlePass && typeof settlePass === "object") setPickSecondPass(settlePass);
       if (receipts.length > 0) {
         setFreeGovReceiptsForShortlist(receipts);
         // Buyer-visible plain lines; raw receipts only in machine/agent channel.
@@ -1247,6 +1253,7 @@ function AssistantFlow({
       setBestDeal(null);
       setFindLoopOpen(false);
       setDecisionView({ entries: [], labels: [] });
+      setPickSecondPass(null);
       setBaselineView(null);
       setFreeGovReceiptsForShortlist([]);
       setFreeGovEvidenceLines([]);
@@ -1489,6 +1496,35 @@ function AssistantFlow({
         coverage: body.coverage ?? "",
         coverageLevel: body.coverageLevel ?? "low",
       });
+      const freeChecks = (body as { freeChecks?: { remaining?: number; limit?: number; resetsLabel?: string } | null })
+        .freeChecks;
+      if (
+        freeChecks &&
+        typeof freeChecks.remaining === "number" &&
+        typeof freeChecks.limit === "number" &&
+        typeof freeChecks.resetsLabel === "string"
+      ) {
+        setCheckAllowance(
+          freeChecksRemainingFromAccount({
+            authenticated: true,
+            freeChecks: {
+              remaining: freeChecks.remaining,
+              limit: freeChecks.limit,
+              resetsLabel: freeChecks.resetsLabel,
+            },
+          }),
+        );
+      } else {
+        try {
+          const account = (await fetch("/api/account", { cache: "no-store" }).then((r) => r.json())) as {
+            authenticated?: boolean;
+            freeChecks?: { remaining?: number; limit?: number; resetsLabel?: string } | null;
+          };
+          setCheckAllowance(freeChecksRemainingFromAccount(account));
+        } catch {
+          /* keep prior counter */
+        }
+      }
     } catch {
       setError("The price check did not finish.");
     } finally {
@@ -2091,7 +2127,13 @@ function AssistantFlow({
                 }
                 const sellerLines = bestDeal
                   ? omitQuestionsCoveredByTalkingPoints(
-                      sellerQuestionsForBuyer(bestDeal, listingHints),
+                      sellerQuestionsForBuyer(
+                        {
+                          ...bestDeal,
+                          shownKeys: topRows.map((row) => row.key),
+                        },
+                        listingHints,
+                      ),
                       [...readinessByKey.values()].flatMap((view) => view.talkingPoints),
                     )
                   : [];
@@ -2145,11 +2187,26 @@ function AssistantFlow({
                             const card = cardForRow(row);
                             const href = buyerListingHref(card?.vdp);
                             const readiness = readinessByKey.get(row.key);
+                            const findBits = [
+                              row.miles != null ? `${row.miles.toLocaleString("en-US")} mi` : null,
+                              card?.dealer || row.dealer || null,
+                              [card?.city || row.city, card?.state || row.state].filter(Boolean).join(", ") || null,
+                              row.vin ? `VIN ${row.vin}` : null,
+                            ].filter(Boolean);
                             return (
                               <li key={row.key}>
                                 {formatTopPickLine({ ...row, name: topNames.get(row.key) })}
                                 {" · "}
-                                {href ? <a href={href}>Dealer listing</a> : "Listing link unavailable"}
+                                {href ? (
+                                  <a href={href}>Dealer listing</a>
+                                ) : (
+                                  <span>
+                                    Listing link unavailable
+                                    {findBits.length
+                                      ? ` — find it via ${findBits.join(" · ")} (feed had no usable dealer URL)`
+                                      : " (feed had no usable dealer URL)"}
+                                  </span>
+                                )}
                                 {readiness ? <PurchaseReadinessNote view={readiness} /> : null}
                               </li>
                             );
@@ -2289,8 +2346,11 @@ function AssistantFlow({
                         labels: decisionLabels,
                         bestDeal,
                         baseline: bestDeal?.baseline ?? null,
+                        secondPass: pickSecondPass,
+                        confidenceLine: bestDeal?.choice?.confidenceLine ?? null,
                         servCalls: decisionView.entries.filter((entry) => entry.decidedBy === "SERV").length,
                       })}
+                      confidenceWhy={bestDeal?.choice?.confidenceLine ?? null}
                     />
                     {decisionPresented.lines.length > 0 ? (
                       <div className="hint" role="note">
@@ -2472,6 +2532,9 @@ function AssistantFlow({
                     <div className="listing-body">
                     <h3 className="car-title">
                       {car.year} {car.make} {car.model} {car.trim ?? ""}
+                      {car.miles != null ? ` · ${car.miles.toLocaleString("en-US")} mi` : ""}
+                      {car.dealer ? ` · ${car.dealer}` : ""}
+                      {car.city ? ` · ${car.city}${car.state ? `, ${car.state}` : ""}` : ""}
                     </h3>
                     <p className="listing-meta">
                       {car.priceView?.displayPrimary ??
@@ -2479,6 +2542,7 @@ function AssistantFlow({
                       {" · "}
                       {car.miles === null ? "Mileage not listed" : `${car.miles.toLocaleString("en-US")} mi`}
                       {car.city ? ` · ${car.city}${car.state ? `, ${car.state}` : ""}` : ""}
+                      {car.dealer ? ` · ${car.dealer}` : ""}
                     </p>
                     {car.priceView?.displayDetail ? <p className="hint">{car.priceView.displayDetail}</p> : null}
                     {(() => {
@@ -2518,7 +2582,16 @@ function AssistantFlow({
                         <>
                           {trimNote ? <p className="hint">{trimNote.note}</p> : null}
                           <p className="hint">
-                            {href ? <a href={href}>Dealer listing</a> : "Listing link unavailable"}
+                            {href ? (
+                              <a href={href}>Dealer listing</a>
+                            ) : (
+                              <>
+                                Listing link unavailable
+                                {car.dealer || car.vin
+                                  ? ` — find it via ${[car.dealer, car.vin ? `VIN ${car.vin}` : null, car.city].filter(Boolean).join(" · ")} (feed had no usable dealer URL)`
+                                  : " (feed had no usable dealer URL)"}
+                              </>
+                            )}
                           </p>
                         </>
                       );

@@ -700,4 +700,49 @@ describe("public-check copy stays plain and honest", () => {
     expect(lines.join(" ")).toMatch(/Ask the seller for accident records/i);
     expect(lines.join(" ")).toMatch(/2017 Honda CR-V/);
   });
+
+  it("does not double-append (listing n) and only names shown top picks", () => {
+    const pick = {
+      key: "t1",
+      year: 2017,
+      make: "Hyundai",
+      model: "Tucson",
+      priceUsd: 14_800,
+      miles: 80_000,
+      vin: null,
+      score: 10,
+      factors: [],
+      unknowns: [],
+      fuelSummary: null,
+      excludedFromPick: false,
+      excludedReason: null,
+      sellerQuestions: ["Ask about service records on the 2017 Hyundai Tucson."],
+      city: "Omaha",
+      dealer: "A Dealer",
+    };
+    const other = {
+      ...pick,
+      key: "camry",
+      make: "Toyota",
+      model: "Camry",
+      priceUsd: 14_800,
+      sellerQuestions: ["Ask about the 2017 Toyota Camry ($14,800)."],
+    };
+    const twin = {
+      ...pick,
+      key: "t2",
+      miles: 95_000,
+      priceUsd: 13_900,
+      sellerQuestions: ["Ask about accidents on the 2017 Hyundai Tucson."],
+    };
+    const lines = sellerQuestionsForBuyer({
+      ranked: [pick, twin, other],
+      pick,
+      shownKeys: [pick.key, twin.key],
+    });
+    const joined = lines.join(" | ");
+    expect(joined).not.toMatch(/\(listing 1\) \(listing 1\)/);
+    expect(joined).not.toMatch(/Toyota Camry/);
+    expect(joined).toMatch(/Tucson/);
+  });
 });

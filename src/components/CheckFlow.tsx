@@ -461,10 +461,13 @@ function CheckResultCard({ result }: { result: CheckResultView }) {
       <p className="kicker">{result.kind === "vin_dossier" ? "VIN dossier" : "Listing check"}</p>
       <h2>{result.title}</h2>
       <p className="lead">
-        <strong>{result.verdictLabel}</strong>
+        <strong>{sold ? "Pass — listing marked SOLD" : result.verdictLabel}</strong>
         {" · "}
         Confidence: {result.confidence}
       </p>
+      {sold && result.badge?.deltaLabel ? (
+        <p className="hint">Price note (not a buy signal while marked SOLD): {result.badge.deltaLabel}</p>
+      ) : null}
       <p>{result.summary}</p>
       <AgentDecisionTrail verdict={result.agentVerdict} defaultOpen />
       {result.servTrace && result.servTrace.calls.length > 0 ? (

@@ -29,6 +29,12 @@ export type AgentTrailStep = {
   changed: string | null;
   /** Optional evidence ids supporting this step. */
   evidenceIds?: string[];
+  /** SERV model when this step came from a recorded agent call. */
+  model?: string | null;
+  /** OpenSERV response id when the provider returned one. */
+  responseId?: string | null;
+  /** ISO timestamp when the call was recorded. */
+  recordedAt?: string | null;
 };
 
 export type AgentMultipathPathId = "price_first" | "risk_first" | "total_cost_first";

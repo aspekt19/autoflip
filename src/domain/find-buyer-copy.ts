@@ -891,24 +891,21 @@ export function sellerQuestionsForBuyer(
     ranked: readonly BestDealCandidate[];
     pick?: BestDealCandidate | null;
     allRanked?: readonly BestDealCandidate[];
+    /** When set, questions may only name these shown top-pick keys. */
+    shownKeys?: readonly string[];
     baseline?: { cheapest?: { key: string } | null; lowestMiles?: { key: string } | null } | null;
   },
   hints: readonly SellerQuestionListingHint[] = [],
 ): string[] {
   const pool = result.allRanked ?? result.ranked;
   const first = result.pick ?? result.ranked[0] ?? null;
-  const ordered: BestDealCandidate[] = [];
-  if (first) ordered.push(first);
-  const alternativeKeys = [result.baseline?.cheapest?.key, result.baseline?.lowestMiles?.key].filter(
-    (key): key is string => Boolean(key),
+  const shownKeys = new Set(
+    (result.shownKeys?.length ? result.shownKeys : result.ranked.slice(0, 5).map((car) => car.key)).filter(Boolean),
   );
-  for (const key of alternativeKeys) {
-    const car = pool.find((row) => row.key === key);
-    if (!car || ordered.some((row) => row.key === car.key)) continue;
-    if (!car.sellerQuestions.some((question) => /odometer/i.test(question))) continue;
-    ordered.push(car);
-  }
+  const ordered: BestDealCandidate[] = [];
+  if (first && shownKeys.has(first.key)) ordered.push(first);
   for (const car of result.ranked) {
+    if (!shownKeys.has(car.key)) continue;
     if (ordered.some((row) => row.key === car.key)) continue;
     ordered.push(car);
   }
@@ -927,24 +924,17 @@ export function sellerQuestionsForBuyer(
       listingUrl: hint?.vdp,
       decodedTrim: hint?.decodedTrim,
     });
-    const onlyOdometer =
-      first != null &&
-      car.key !== first.key &&
-      alternativeKeys.includes(car.key) &&
-      !result.ranked.some((row) => row.key === car.key);
     const carLines: string[] = [];
-    if (!onlyOdometer && trim) carLines.push(trim.sellerQuestion);
+    if (trim) carLines.push(trim.sellerQuestion);
     for (const question of car.sellerQuestions) {
       const clean = question.replace(/\s+/g, " ").trim();
       if (!clean) continue;
-      if (onlyOdometer && !/odometer/i.test(clean)) continue;
       carLines.push(clean);
     }
     const accidentOnCard = car.factors.some(
       (factor) => factor.id === "listing_feed_flags" && /accident/i.test(factor.detail),
     );
     if (
-      !onlyOdometer &&
       accidentOnCard &&
       !car.sellerQuestions.some((question) => /accident/i.test(question))
     ) {
@@ -959,7 +949,6 @@ export function sellerQuestionsForBuyer(
       );
     }
     if (
-      !onlyOdometer &&
       (car.excludedFromPick || /does not match/i.test(car.excludedReason ?? "")) &&
       car.excludedReason
     ) {
@@ -967,7 +956,13 @@ export function sellerQuestionsForBuyer(
     }
     for (const line of carLines) {
       if (lines.length >= SELLER_QUESTION_LIMIT) break;
-      const named = line.includes(title) ? line.replaceAll(title, shown) : line.includes(shown) ? line : `For the ${shown}: ${line}`;
+      // Prefer the full shown label; never replace a bare title when shown is already present
+      // (that produced "(listing 1) (listing 1)").
+      const named = line.includes(shown)
+        ? line
+        : line.includes(title)
+          ? line.replaceAll(title, shown)
+          : `For the ${shown}: ${line}`;
       if (!lines.includes(named)) lines.push(named);
     }
   }

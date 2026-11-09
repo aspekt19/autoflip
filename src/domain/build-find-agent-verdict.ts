@@ -6,7 +6,7 @@
 
 import { reconcileMultipathDeterministic, type AgentMultipathCandidate } from "./agent-multipath";
 import { buildAgentVerdictFromFind } from "./agent-trail";
-import type { AgentMultipathResult, AgentVerdict } from "./agent-verdict-schema";
+import type { AgentMultipathResult, AgentSecondPassResult, AgentVerdict } from "./agent-verdict-schema";
 import type { BestDealResult } from "./find-best-deal";
 import { closeCallCars } from "./find-close-call";
 import type { DecisionCarLabel, FindDecisionLogEntry } from "./find-decision-log";
@@ -29,6 +29,10 @@ export function buildFindAgentVerdict(input: {
   bestDeal: BestDealResult | null;
   baseline?: FindBaselineDelta | null;
   multipath?: AgentMultipathResult | null;
+  /** Always pass an explicit second-pass record (including not_run with a reason). */
+  secondPass?: AgentSecondPassResult | null;
+  /** One-line why confidence is Low/Medium when known. */
+  confidenceLine?: string | null;
   servCalls?: number;
 }): AgentVerdict {
   const ranked = input.bestDeal?.allRanked?.length
@@ -63,6 +67,31 @@ export function buildFindAgentVerdict(input: {
   const confidence =
     input.bestDeal?.confidence && input.bestDeal.confidence !== "none" ? input.bestDeal.confidence : null;
 
+  const confidenceLine =
+    input.confidenceLine?.trim() ||
+    input.bestDeal?.choice?.confidenceLine?.trim() ||
+    null;
+
+  const secondPass: AgentSecondPassResult =
+    input.secondPass ??
+    ({
+      status: "not_run",
+      action: null,
+      objection: input.bestDeal?.evidenceSettled
+        ? "Second check not run: Find settle did not invoke a verdict challenge on this run."
+        : "Second check not run: free public checks are still settling the shortlist.",
+      evidenceIds: [],
+      confidenceBefore: null,
+      confidenceAfter: null,
+    } satisfies AgentSecondPassResult);
+
+  const unknowns = [
+    ...(input.bestDeal?.closeCall
+      ? ["Top cars are close — confirm condition and history before buying."]
+      : []),
+    ...(confidence === "low" && confidenceLine ? [confidenceLine] : []),
+  ];
+
   return buildAgentVerdictFromFind({
     pickKey: pick?.key ?? null,
     pickLabel: pick && pickLabel ? pickLabel : null,
@@ -70,11 +99,10 @@ export function buildFindAgentVerdict(input: {
     decisionLog: input.decisionLog,
     labels: input.labels,
     multipath,
+    secondPass,
     vsCheapest,
     servCalls: input.servCalls,
-    unknowns: input.bestDeal?.closeCall
-      ? ["Top cars are close — confirm condition and history before buying."]
-      : [],
+    unknowns,
     hadServStep: input.decisionLog.some((entry) => entry.decidedBy === "SERV"),
   });
 }

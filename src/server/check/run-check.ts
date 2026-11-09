@@ -359,6 +359,9 @@ function verdictFromBadge(
   badge: PriceBadge | null,
   flags: CheckRedFlag[],
 ): { verdict: CheckVerdictLabel; label: string } {
+  if (flags.some((f) => f.id === "sold")) {
+    return { verdict: "walk_away", label: "Pass — listing marked SOLD" };
+  }
   if (flags.some((f) => f.level === "stop")) {
     return { verdict: "walk_away", label: verdictLabel("walk_away") };
   }
