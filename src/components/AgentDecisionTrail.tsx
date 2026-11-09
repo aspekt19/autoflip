@@ -41,7 +41,10 @@ export function AgentDecisionTrail({ verdict, defaultOpen = false }: Props) {
           /agent step unavailable/i.test(spend?.costNote ?? "") ||
           steps.some((step) => /agent step unavailable/i.test(step.decided))
             ? "Agent step unavailable — price rules only."
-            : "This run did not use an agent decision step. The ranking or verdict came from code checks only."}
+            : verdict.unknowns.some((line) => /example not yet recorded/i.test(line)) ||
+                /example not yet recorded/i.test(spend?.costNote ?? "")
+              ? "Example not yet recorded. This sample page shows labeled listing economics only — it does not invent an agent revision or second check."
+              : "This run did not use an agent decision step. The ranking or verdict came from code checks only."}
         </p>
       ) : null}
       {verdict.no_serv_step && closePaths ? (
