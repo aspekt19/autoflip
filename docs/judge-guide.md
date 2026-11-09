@@ -78,7 +78,7 @@ Lemonless is best presented as a consumer decision product with an agent-facing 
 | Criterion | What Lemonless can demonstrate | Honest qualification |
 | --- | --- | --- |
 | Creativity | One workflow supports both personal purchase decisions and resale screening; the same calculated evidence is exposed to shoppers and agents. SERV screens untrusted text, extracts structured needs, interprets procedural rules, reviews Radar signals, and selects Flip alert/skip outcomes. | Used-car valuation is an established category. The differentiator is the bounded, evidence-linked workflow—not the claim that the category itself is new. |
-| User readiness | A working preview, labeled sample report, report-credit flow, Deal Radar, and agent API are implemented. | This remains an evaluation preview. Stripe is test mode; Auto.dev free-plan usage is evaluation-only; no licensed full title/service-history provider is connected; browser identity is anonymous. |
+| User readiness | A working preview, labeled sample report, report-credit flow, Deal Radar, and agent API are implemented. | This remains an evaluation preview. Stripe is test mode; Auto.dev free-plan usage is evaluation-only; no licensed full title/service-history provider is connected. Find and Check require sign-in before the form. |
 | Revenue potential | One-credit full reports, paid Radar plans, and agent API access provide plausible monetization paths. An optional x402 payment path exists in code. | Test-mode checkout and an optional payment adapter are not proof of live revenue or a settled x402 transaction. Do not claim traction or live payments without receipts. |
 
 ### Comparison with Edition 01 winners
@@ -91,7 +91,7 @@ Payrun is a useful secondary reference for the separation of responsibilities—
 
 ### What would make the submission stronger
 
-1. Run the fixed `eval:serv` suite with the real SERV key, inspect the failures as well as the wins, and commit the resulting `latest.md` and `latest.json`. Until then, the comparison dashboard is intentionally empty and there is no measured claim that SERV beats the baseline.
+1. The fixed `eval:serv` suite has a committed run in `eval/results/latest.md` (2026-11-06, 44 pairs: checked better on 2, worse on 3, both passed on 39). That is not a claim that SERV beats the baseline. Re-run when the harness changes, and keep the regressions in the committed files.
 2. Show one real, redacted report/API proof trace that demonstrates which profile ran, what was actually returned by SERV, and which numeric fields remained code-computed. Do not substitute a planned profile or the static sample report for a live trace.
 3. In a short demo, make the `flip_judge` alert/skip decision and the input-guard / need-extraction path visible. Those are easier to recognize as reasoning work than a generic explanation paragraph.
 
