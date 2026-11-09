@@ -248,6 +248,11 @@ export type ComputedReport = {
     targetProfitUsd: number | null;
     repairAbility: "none" | "minor" | "major" | "unknown";
   };
+  /**
+   * Documented agent verdict trail (schema lemonless.agent_verdict.v1).
+   * Optional so older saved reports remain readable.
+   */
+  agentVerdict?: import("./agent-verdict-schema").AgentVerdict;
 };
 
 export type ProofStep = {

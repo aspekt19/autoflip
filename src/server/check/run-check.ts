@@ -2,6 +2,8 @@
  * /check orchestration: listing-link verdict or VIN dossier.
  * Uses shared adjusted-comparables pricing, free gov checks, OTD, seller questions.
  */
+import { buildCheckAgentVerdict } from "@/domain/build-check-agent-verdict";
+import type { AgentVerdict } from "@/domain/agent-verdict-schema";
 import { checkConfidence } from "@/domain/listing/confidence";
 import { knownModelYearIssues } from "@/domain/listing/known-issues";
 import { listingRedFlags } from "@/domain/listing/red-flags";
@@ -93,6 +95,8 @@ export type CheckResultPayload = {
   }>;
   llmUsed: boolean;
   sample: boolean;
+  /** Structured How-the-agent-decided trail (usually no agent step on free Check). */
+  agentVerdict: AgentVerdict;
 };
 
 export type CheckRunResult =
@@ -484,6 +488,21 @@ async function buildListingVerdict(
       })),
       llmUsed: input.llmUsed,
       sample: comps.sample,
+      agentVerdict: buildCheckAgentVerdict({
+        kind: "listing",
+        title: `${subject.year} ${subject.make} ${subject.model}`,
+        verdictLabel: decided.label,
+        confidence,
+        summary: summaryParts.join(". ") + ".",
+        compCount: badge.sampleSize ?? 0,
+        fairValueUsd: badge.fairValueUsd,
+        recallsAvailable: gov.recallsAvailable,
+        recallCount: gov.recalls.length,
+        complaintCount: gov.complaintCount,
+        hasVin: Boolean(fields.vin.value),
+        redFlagCount: flags.length,
+        unknown: unknownList(fields, ["Paid vehicle history (Carfax/AutoCheck/NMVTIS) was not run"]),
+      }),
     },
   };
 }
@@ -657,6 +676,21 @@ async function buildVinDossier(vin: string, deps: CheckRunDeps, optionalZip?: st
         city: row.city,
         state: row.state,
       })),
+      agentVerdict: buildCheckAgentVerdict({
+        kind: "vin_dossier",
+        title: `${subject.year} ${subject.make} ${subject.model}`,
+        verdictLabel: "VIN dossier (free sources)",
+        confidence,
+        summary,
+        compCount: 0,
+        fairValueUsd: null,
+        recallsAvailable: bundle.recallsAvailable,
+        recallCount: bundle.recalls.length,
+        complaintCount: bundle.complaintCount,
+        hasVin: true,
+        redFlagCount: bundle.recalls.some((r) => r.parkIt) ? 1 : 0,
+        unknown,
+      }),
       llmUsed: false,
       sample: false,
     },

@@ -47,6 +47,8 @@ export type AgentMultipathResult = {
   reconciliation: string;
   finalPickKey: string | null;
   finalPickLabel: string | null;
+  /** serv = a separate agent call returned the paths. code = ranked from recorded asks and checks. */
+  source: "serv" | "code";
 };
 
 export type AgentSecondPassStatus =
@@ -56,6 +58,7 @@ export type AgentSecondPassStatus =
   | "skipped_no_key"
   | "ignored_malformed"
   | "ignored_no_evidence"
+  | "unavailable"
   | "not_run";
 
 export type AgentSecondPassResult = {
@@ -103,7 +106,7 @@ export const AGENT_VERDICT_JSON_SCHEMA = {
   $id: "https://lemonless.app/schemas/agent-verdict.v1.json",
   title: "LemonlessAgentVerdict",
   description:
-    "Documented agent verdict for Find shortlist picks and Check/report shopper actions. Claims must cite evidence ids from the run.",
+    "Documented agent verdict for Find shortlist picks and Check/report shopper actions. Claims must cite evidence ids from the run. Exported for future agent API use.",
   type: "object",
   additionalProperties: false,
   required: [
@@ -176,6 +179,7 @@ export const AGENT_VERDICT_JSON_SCHEMA = {
     unknowns: { type: "array", items: { type: "string" } },
     serv_steps: {
       type: "array",
+      description: "Structured trail: what the agent decided → why → what changed after revisit/second pass.",
       items: {
         type: "object",
         additionalProperties: false,
@@ -212,6 +216,7 @@ export const AGENT_VERDICT_JSON_SCHEMA = {
                 "skipped_no_key",
                 "ignored_malformed",
                 "ignored_no_evidence",
+                "unavailable",
                 "not_run",
               ],
             },
@@ -242,7 +247,7 @@ export const AGENT_VERDICT_JSON_SCHEMA = {
         {
           type: "object",
           additionalProperties: false,
-          required: ["paths", "reconciliation", "finalPickKey", "finalPickLabel"],
+          required: ["paths", "reconciliation", "finalPickKey", "finalPickLabel", "source"],
           properties: {
             paths: {
               type: "array",
@@ -266,6 +271,7 @@ export const AGENT_VERDICT_JSON_SCHEMA = {
             reconciliation: { type: "string" },
             finalPickKey: { oneOf: [{ type: "string" }, { type: "null" }] },
             finalPickLabel: { oneOf: [{ type: "string" }, { type: "null" }] },
+            source: { type: "string", enum: ["serv", "code"] },
           },
         },
       ],

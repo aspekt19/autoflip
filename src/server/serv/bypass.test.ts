@@ -101,10 +101,14 @@ describe("SERV layer", () => {
         "flip_judge",
         "scout_plan",
         "verdict_decide",
+        "verdict_challenge",
+        "find_close_call_multipath",
         "find_next_check",
         "telegram_reply",
       ]),
     );
+    expect(PROFILES.verdict_challenge.jsonSchema?.name).toBe("report_verdict_challenge");
+    expect(PROFILES.find_close_call_multipath.feature).toBe("multipath");
     expect(PROFILES.find_next_check.jsonSchema?.name).toBe("find_next_check_choice");
     expect(PROFILES.find_next_check.codeComputed).toEqual(
       expect.arrayContaining(["allowedChecks"]),
