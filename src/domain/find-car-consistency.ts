@@ -13,6 +13,7 @@ import type { EvidenceFact, EvidenceState } from "./find-evidence-state";
 import { listingAgeDays } from "./flip-rank";
 import type { BestDealListing } from "./find-best-deal";
 import type { FindFreeGovReceipt } from "./find-free-gov";
+import { buyerListingHref } from "./find-listing-link";
 import { redactUntrustedPromptText } from "./screen";
 
 export const CAR_CONSISTENCY_CHECK_ID = "free_car_consistency" as const;
@@ -234,6 +235,155 @@ export function trimsMatch(listing: string | null | undefined, decoded: string |
   if (left.length === 1 && left[0] === compact(right)) return true;
   if (right.length === 1 && right[0] === compact(left)) return true;
   return false;
+}
+
+const URL_TRIM_NOISE = new Set([
+  ...TRIM_NOISE,
+  "used",
+  "new",
+  "certified",
+  "pre",
+  "owned",
+  "preowned",
+  "cpo",
+  "for",
+  "sale",
+  "the",
+  "and",
+  "at",
+  "near",
+  "car",
+  "cars",
+  "vehicle",
+  "inventory",
+  "vdp",
+  "4dr",
+  "2dr",
+  "4d",
+  "2d",
+  "door",
+  "doors",
+  "dr",
+  "utility",
+  "crossover",
+  "sportutility",
+]);
+
+const STATE_CODES = new Set([
+  "al", "ak", "az", "ar", "ca", "co", "ct", "dc", "de", "fl", "ga", "hi", "ia", "id", "il", "in",
+  "ks", "ky", "la", "ma", "md", "me", "mi", "mn", "mo", "ms", "mt", "nc", "nd", "ne", "nh", "nj",
+  "nm", "nv", "ny", "oh", "ok", "or", "pa", "ri", "sc", "sd", "tn", "tx", "ut", "va", "vt", "wa",
+  "wi", "wv", "wy",
+]);
+
+function showTrimToken(token: string): string {
+  const upper = new Set([
+    "ex", "lx", "se", "le", "sx", "sr", "sl", "sv", "gt", "st", "si", "rt", "ls", "lt", "ss", "rs",
+    "xle", "gls", "sel",
+  ]);
+  if (upper.has(token) || token.length <= 2) return token.toUpperCase();
+  return token.charAt(0).toUpperCase() + token.slice(1);
+}
+
+/**
+ * Trim words in a dealer listing URL title.
+ * Card trim often comes from the listing feed's vehicle description (a VIN decode).
+ * The dealer page title is a separate source and is not used to rename the card.
+ */
+export function trimPhraseFromListingUrl(
+  url: string | null | undefined,
+  car: { year?: number | null; make?: string | null; model?: string | null },
+): string | null {
+  const href = buyerListingHref(url);
+  if (!href) return null;
+  let pathname = "";
+  try {
+    pathname = decodeURIComponent(new URL(href).pathname);
+  } catch {
+    return null;
+  }
+  const segments = pathname.split("/").filter(Boolean);
+  if (segments.length === 0) return null;
+  const modelCompact = compactName(car.model ?? "");
+  const yearText = car.year != null ? String(car.year) : "";
+  let slug = segments[segments.length - 1] ?? "";
+  for (const segment of segments) {
+    const compact = compactName(segment);
+    if ((modelCompact && compact.includes(modelCompact)) || (yearText && segment.includes(yearText))) {
+      slug = segment;
+    }
+  }
+  let head = slug.replace(/[-_]+/g, " ");
+  head = head.replace(/\bsport\s+utility\b/gi, " ");
+  head = head.split(/\bfor sale\b/i)[0] ?? head;
+  const inParts = head.split(/\bin\b/i);
+  if (inParts.length > 1) {
+    const left = inParts[0] ?? "";
+    if (/\b(19|20)\d{2}\b/.test(left) || (modelCompact && compactName(left).includes(modelCompact))) {
+      head = left;
+    }
+  }
+  const makeTokens = new Set(norm(car.make).split(" ").filter(Boolean));
+  const modelTokens = new Set(norm(car.model).split(" ").filter(Boolean));
+  const tokens = norm(head)
+    .split(" ")
+    .filter((token) => {
+      if (!token || URL_TRIM_NOISE.has(token)) return false;
+      if (makeTokens.has(token) || modelTokens.has(token)) return false;
+      if (/^(19|20)\d{2}$/.test(token) || /^\d{5}$/.test(token) || /^\d+$/.test(token)) return false;
+      if (/^[a-hj-npr-z0-9]{11,17}$/i.test(token)) return false;
+      if (STATE_CODES.has(token)) return false;
+      return true;
+    });
+  if (tokens.length === 0) return null;
+  return tokens.map(showTrimToken).join(" ");
+}
+
+export type TrimSourceDisagreement = {
+  displayedTrim: string;
+  listingTitleTrim: string;
+  decodedTrim: string | null;
+  /** Buyer sentence naming each source. Does not rename the card. */
+  note: string;
+  sellerQuestion: string;
+};
+
+/**
+ * When the dealer link title and the trim we show disagree, say which source said what.
+ * The card title stays the listing-data trim — this does not relabel it.
+ */
+export function trimSourceDisagreement(input: {
+  year: number;
+  make: string;
+  model: string;
+  displayedTrim: string | null | undefined;
+  listingUrl: string | null | undefined;
+  decodedTrim?: string | null;
+}): TrimSourceDisagreement | null {
+  const displayed = (input.displayedTrim ?? "").replace(/\s+/g, " ").trim();
+  if (!displayed) return null;
+  const listingTitleTrim = trimPhraseFromListingUrl(input.listingUrl, input);
+  if (!listingTitleTrim) return null;
+  if (trimsMatch(displayed, listingTitleTrim) !== false) return null;
+  const title = `${input.year} ${input.make} ${input.model}`;
+  const decoded = (input.decodedTrim ?? "").replace(/\s+/g, " ").trim();
+  const sentences = [
+    `Trim names disagree on this ${title}.`,
+    `Listing data on this card says ${displayed}.`,
+    `The dealer listing link title says ${listingTitleTrim}.`,
+  ];
+  if (decoded && trimsMatch(decoded, displayed) === true) {
+    sentences.push(`Government vehicle specs also say ${decoded}.`);
+  } else if (decoded && trimsMatch(decoded, displayed) === false) {
+    sentences.push(`Government vehicle specs say ${decoded}.`);
+  }
+  return {
+    displayedTrim: displayed,
+    listingTitleTrim,
+    decodedTrim: decoded || null,
+    note: sentences.join(" "),
+    sellerQuestion: `Ask the seller to confirm the trim on the ${title} — the dealer listing link says ${listingTitleTrim}, and the listing data on this card says ${displayed}.`,
+  };
 }
 
 function field(

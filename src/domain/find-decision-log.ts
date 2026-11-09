@@ -101,6 +101,84 @@ export function formatDecisionLogForBuyer(
   return slice.map((entry) => formatDecisionLogLine(entry, labels));
 }
 
+const FREE_LOG_ACTIONS = new Set([
+  "free_car_consistency",
+  "free_gov_recalls",
+  "free_gov_vpic",
+  "free_gov_safety",
+  "free_gov_fuel",
+  "compare_observed_asks",
+]);
+
+/** True when this hop changed who is on top or where they sit. */
+export function decisionLogRankingChanged(entry: FindDecisionLogEntry): boolean {
+  if (entry.pickBefore !== entry.pickAfter) return true;
+  const before = new Map(entry.top5Before.map((row) => [row.key, row.rank]));
+  const after = new Map(entry.top5After.map((row) => [row.key, row.rank]));
+  if (before.size !== after.size) return true;
+  for (const [key, rank] of after) {
+    if (before.get(key) !== rank) return true;
+  }
+  return false;
+}
+
+export type BuyerDecisionLogView = {
+  /** Collapsed checklist runs, plus full lines when the rank moved or AI chose the step. */
+  lines: string[];
+  /** Individual free-check steps that were folded into a summary. */
+  hiddenSteps: string[];
+};
+
+/**
+ * Consecutive free-check hops that did not move the ranking become one line.
+ * Rank changes and AI-chosen steps stay written out. The folded steps are the
+ * "show all" list — buyers should not have to read dozens of identical lines.
+ */
+export function presentDecisionLogForBuyer(
+  log: readonly FindDecisionLogEntry[],
+  labels: readonly DecisionCarLabel[],
+): BuyerDecisionLogView {
+  const lines: string[] = [];
+  const hiddenSteps: string[] = [];
+  type Group = { action: string; who: string; full: string[] };
+  let group: Group | null = null;
+  const flush = () => {
+    if (!group) return;
+    if (group.full.length === 1) {
+      lines.push(group.full[0]!);
+    } else {
+      const action = ACTION_PLAIN[group.action] ?? "Updated the search checks";
+      lines.push(
+        `${action} ${group.full.length} times (${group.who}). The order of the top cars stayed the same.`.replace(
+          /\s+/g,
+          " ",
+        ),
+      );
+      hiddenSteps.push(...group.full);
+    }
+    group = null;
+  };
+  for (const entry of log) {
+    const full = formatDecisionLogLine(entry, labels);
+    const important = entry.decidedBy === "SERV" || decisionLogRankingChanged(entry);
+    const free = FREE_LOG_ACTIONS.has(entry.action);
+    if (important || !free) {
+      flush();
+      lines.push(full);
+      continue;
+    }
+    const who = "built-in checklist";
+    if (group && group.action === entry.action && group.who === who) {
+      group.full.push(full);
+    } else {
+      flush();
+      group = { action: entry.action, who, full: [full] };
+    }
+  }
+  flush();
+  return { lines, hiddenSteps };
+}
+
 export function top5Ranks(
   ranked: readonly { key: string }[],
 ): FindDecisionRank[] {

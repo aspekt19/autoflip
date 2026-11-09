@@ -29,6 +29,12 @@ export type FreeGovReceiptUiRow = {
     /** Full provider campaign count when known — may exceed listed IDs. */
     campaignCountReported?: number | null;
     complaintCount?: number | null;
+    /** True when the lookup returned a results array, including a confirmed empty one. */
+    recallsAvailable?: boolean | null;
+    complaintsAvailable?: boolean | null;
+  } | null;
+  vpicSpecs?: {
+    trim?: string | null;
   } | null;
   fuelEvidence?: FindFuelEvidence | null;
 };
@@ -164,8 +170,10 @@ export function uiRowsToRiskReceipts(
             campaignNumbers,
             campaignCountReported,
             complaintCount: r.riskFacts.complaintCount ?? null,
-            recallsAvailable: null,
-            complaintsAvailable: null,
+            recallsAvailable:
+              typeof r.riskFacts.recallsAvailable === "boolean" ? r.riskFacts.recallsAvailable : null,
+            complaintsAvailable:
+              typeof r.riskFacts.complaintsAvailable === "boolean" ? r.riskFacts.complaintsAvailable : null,
             sourceUrl: r.sourceUrl ?? null,
             toolId,
             scope: "ui_mirror",

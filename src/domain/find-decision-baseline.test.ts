@@ -17,6 +17,7 @@ import {
 } from "./find-car-consistency";
 import {
   formatDecisionLogForBuyer,
+  presentDecisionLogForBuyer,
   type FindDecisionLogEntry,
 } from "./find-decision-log";
 import { recallEvidenceState } from "./find-evidence-state";
@@ -220,6 +221,53 @@ describe("A1 decision log", () => {
       expect(line).not.toMatch(/shortlist_changed|free_car_consistency|https?:\/\//);
       expect(line).toMatch(/AI chose/);
       expect(line).toMatch(/2015 Honda CR-V/);
+    }
+  });
+
+  it("folds consecutive checklist steps that did not move the ranking", () => {
+    const same = [
+      { key: "a", rank: 1 },
+      { key: "b", rank: 2 },
+    ];
+    const fuel = (hop: number): FindDecisionLogEntry => ({
+      hop,
+      decidedBy: "code",
+      invokeReason: "free_gov_deterministic_drain",
+      action: "free_gov_fuel",
+      targetCars: [],
+      evidenceAdded: [],
+      top5Before: same,
+      top5After: same,
+      pickBefore: "a",
+      pickAfter: "a",
+    });
+    const moved: FindDecisionLogEntry = {
+      ...fuel(7),
+      decidedBy: "SERV",
+      action: "free_gov_recalls",
+      top5After: [
+        { key: "b", rank: 1 },
+        { key: "a", rank: 2 },
+      ],
+      pickAfter: "b",
+    };
+    const view = presentDecisionLogForBuyer(
+      [...Array.from({ length: 6 }, (_, hop) => fuel(hop + 1)), moved, fuel(8), fuel(9)],
+      [
+        { key: "a", year: 2016, make: "Kia", model: "Sportage" },
+        { key: "b", year: 2015, make: "Honda", model: "CR-V" },
+      ],
+    );
+    expect(view.lines[0]).toMatch(/Checked estimated fuel cost 6 times \(built-in checklist\)/);
+    expect(view.lines[0]).toMatch(/The order of the top cars stayed the same/);
+    expect(view.lines[1]).toMatch(/AI chose/);
+    expect(view.lines[1]).toMatch(/moved from #2 to #1|the pick is now/);
+    expect(view.lines[2]).toMatch(/Checked estimated fuel cost 2 times \(built-in checklist\)/);
+    expect(view.hiddenSteps).toHaveLength(8);
+    expect(view.lines.join(" ").length).toBeLessThan(view.hiddenSteps.join(" ").length);
+    for (const line of [...view.lines, ...view.hiddenSteps]) {
+      expect(assertBuyerSafeText(line).ok, line).toBe(true);
+      expect(line).not.toMatch(/free_gov_fuel|deterministic/);
     }
   });
 });

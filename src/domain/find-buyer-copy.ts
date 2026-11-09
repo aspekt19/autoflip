@@ -5,12 +5,14 @@
 
 import type { FindBaselineDelta } from "./find-baseline";
 import { formatBaselineForBuyer } from "./find-baseline";
+import { trimSourceDisagreement } from "./find-car-consistency";
 import { recallEvidenceState, recallFactPlain } from "./find-evidence-state";
 import type { FindFreeGovReceipt } from "./find-free-gov";
 import type { FindNextCheckLoopReason } from "./find-next-check-loop";
 import type { FindNextCheckId } from "./find-next-checks";
-import type { BestDealResult } from "./find-best-deal";
+import type { BestDealCandidate, BestDealResult } from "./find-best-deal";
 import { formatFindFuelEvidenceShort } from "./find-fuel-match";
+import { mmyListingKey } from "./find-risk-evidence";
 
 /** Patterns that must never appear in buyer-visible Find/report text. */
 export const BUYER_FORBIDDEN_TECH_PATTERNS: RegExp[] = [
@@ -582,6 +584,66 @@ export function summarizeFuelCheckOutcome(
   };
 }
 
+export type RecallCheckOutcomeSummary = {
+  /** Distinct year/make/model recall attempts. */
+  attempted: number;
+  /** Attempts that returned a confirmed count (including a confirmed zero). */
+  confirmed: number;
+  couldNotConfirm: number;
+  /** Distinct make+model among attempts. */
+  modelCount: number;
+  /** Distinct make+model with at least one confirmed model year. */
+  confirmedModelCount: number;
+};
+
+export function summarizeRecallCheckOutcome(
+  receipts: readonly FindFreeGovReceipt[],
+): RecallCheckOutcomeSummary {
+  const byMmy = new Map<string, FindFreeGovReceipt>();
+  for (const receipt of receipts) {
+    if (receipt.checkId !== "free_gov_recalls") continue;
+    byMmy.set(mmyListingKey(receipt.make, receipt.model, receipt.year), receipt);
+  }
+  let confirmed = 0;
+  let couldNotConfirm = 0;
+  const models = new Set<string>();
+  const confirmedModels = new Set<string>();
+  for (const receipt of byMmy.values()) {
+    const modelKey = `${receipt.make}\0${receipt.model}`.toLowerCase();
+    models.add(modelKey);
+    const state = recallEvidenceState(receipt);
+    if (state === "issue_found" || state === "none_found") {
+      confirmed += 1;
+      confirmedModels.add(modelKey);
+    } else if (state === "could_not_check") {
+      couldNotConfirm += 1;
+    }
+  }
+  return {
+    attempted: byMmy.size,
+    confirmed,
+    couldNotConfirm,
+    modelCount: models.size,
+    confirmedModelCount: confirmedModels.size,
+  };
+}
+
+/** Honest recall checklist line. An attempt is not the same as a result. */
+export function formatRecallCheckSummary(outcome: RecallCheckOutcomeSummary): string {
+  const models = Math.max(outcome.modelCount, outcome.attempted > 0 ? 1 : 0);
+  const years = outcome.attempted;
+  const modelWord = `model${models === 1 ? "" : "s"}`;
+  const yearWord = `model year${years === 1 ? "" : "s"}`;
+  if (years <= 0) return "Government recall records have not come back for this search yet.";
+  if (outcome.confirmed <= 0) {
+    return `Government recall records did not come back for any of the ${models} ${modelWord} we tried (0 of ${years} ${yearWord}). That is not a clean result.`;
+  }
+  if (outcome.confirmed >= years) {
+    return `Government recall records came back for all ${models} ${modelWord} (${years} ${yearWord}).`;
+  }
+  return `Government recall records came back for ${outcome.confirmedModelCount} of ${models} ${modelWord} (${outcome.confirmed} of ${years} ${yearWord}). The rest could not be confirmed — that is not a clean result.`;
+}
+
 export function formatBuyerLoopStep(input: {
   chosenId: string;
   listingCount?: number;
@@ -592,13 +654,16 @@ export function formatBuyerLoopStep(input: {
   fuelOutcome?: FuelCheckOutcomeSummary | null;
   /** True while fuel MMYs remain unchecked — checklist stays progressive, not “failed”. */
   fuelPending?: boolean;
+  /** Actual recall receipt outcomes — required so a failed lookup is not described as a completed check. */
+  recallOutcome?: RecallCheckOutcomeSummary | null;
 }): string {
   const id = input.chosenId as FindNextCheckId | string;
   const n = input.listingCount;
   const cars = typeof n === "number" ? ` the ${n} car${n === 1 ? "" : "s"} found` : " the cars found";
   switch (id) {
     case "free_gov_recalls":
-      return `We checked government recall records for${cars}.`;
+      if (input.recallOutcome) return formatRecallCheckSummary(input.recallOutcome);
+      return "Government recall records have not come back for this search yet.";
     case "free_gov_safety":
       return `We checked government crash-test ratings for${cars}.`;
     case "free_gov_vpic":
@@ -692,7 +757,11 @@ export function formatBuyerLoopStatus(reason: FindNextCheckLoopReason | string |
 export function formatBuyerNextCheckWhy(
   id: FindNextCheckId | string,
   technicalWhy: string,
-  opts?: { fuelOutcome?: FuelCheckOutcomeSummary | null; fuelPending?: boolean },
+  opts?: {
+    fuelOutcome?: FuelCheckOutcomeSummary | null;
+    fuelPending?: boolean;
+    recallOutcome?: RecallCheckOutcomeSummary | null;
+  },
 ): string {
   // Prefer rewriting known ids; strip technical tokens from fallback.
   if (id === "get_history_report") {
@@ -702,6 +771,7 @@ export function formatBuyerNextCheckWhy(
     chosenId: id,
     fuelOutcome: opts?.fuelOutcome,
     fuelPending: opts?.fuelPending,
+    recallOutcome: opts?.recallOutcome,
   });
   if (PLAIN_CHECK_IDS.has(id)) return plain;
   // Soft scrub of technicalWhy — never turn "NMVTIS-approved" into "official title history-approved".
@@ -748,36 +818,114 @@ export function formatGroundedShortlistLine(row: {
   return line.replace(/\.{2,}/g, ".").replace(/\s+/g, " ").trim();
 }
 
+/** Listing fields the questions list can use to compare a dealer link title with the card trim. */
+export type SellerQuestionListingHint = {
+  vin?: string | null;
+  key?: string | null;
+  year?: number;
+  make?: string;
+  model?: string;
+  trim?: string | null;
+  vdp?: string | null;
+  decodedTrim?: string | null;
+};
+
+const SELLER_QUESTION_LIMIT = 5;
+
+function hintForCar(
+  car: BestDealCandidate,
+  hints: readonly SellerQuestionListingHint[],
+): SellerQuestionListingHint | null {
+  const vin = (car.vin ?? "").trim().toUpperCase();
+  if (vin) {
+    const byVin = hints.find((hint) => (hint.vin ?? "").trim().toUpperCase() === vin);
+    if (byVin) return byVin;
+  }
+  const byKey = hints.find((hint) => hint.key && hint.key === car.key);
+  if (byKey) return byKey;
+  return (
+    hints.find(
+      (hint) =>
+        hint.year === car.year &&
+        hint.make?.toLowerCase() === car.make.toLowerCase() &&
+        hint.model?.toLowerCase() === car.model.toLowerCase() &&
+        (hint.trim ?? "").trim().length > 0,
+    ) ?? null
+  );
+}
+
 /**
- * Seller questions for cars that already show a listing accident, rental/fleet use,
- * or a VIN mismatch. Listing-feed accident notes count even before the per-car check.
+ * Seller questions for the pick, then the other shortlisted cars.
+ * Cars outside that group are left out. At most five questions, and each one names its car.
  */
-export function sellerQuestionsForBuyer(result: Pick<BestDealResult, "ranked" | "allRanked">): string[] {
-  const cars = result.allRanked.length > 0 ? result.allRanked : result.ranked;
+export function sellerQuestionsForBuyer(
+  result: {
+    ranked: readonly BestDealCandidate[];
+    pick?: BestDealCandidate | null;
+  },
+  hints: readonly SellerQuestionListingHint[] = [],
+): string[] {
+  const ordered: BestDealCandidate[] = [];
+  if (result.pick) ordered.push(result.pick);
+  for (const car of result.ranked) {
+    if (ordered.some((row) => row.key === car.key)) continue;
+    ordered.push(car);
+  }
   const lines: string[] = [];
-  for (const car of cars) {
+  for (const car of ordered) {
+    if (lines.length >= SELLER_QUESTION_LIMIT) break;
     const title = `${car.year} ${car.make} ${car.model}`;
+    const hint = hintForCar(car, hints);
+    const trim = trimSourceDisagreement({
+      year: car.year,
+      make: car.make,
+      model: car.model,
+      displayedTrim: hint?.trim,
+      listingUrl: hint?.vdp,
+      decodedTrim: hint?.decodedTrim,
+    });
+    const carLines: string[] = [];
+    if (trim) carLines.push(trim.sellerQuestion);
     for (const question of car.sellerQuestions) {
       const clean = question.replace(/\s+/g, " ").trim();
-      if (clean) lines.push(clean);
+      if (clean) carLines.push(clean);
     }
     const accidentOnCard = car.factors.some(
       (factor) => factor.id === "listing_feed_flags" && /accident/i.test(factor.detail),
     );
     if (accidentOnCard && !car.sellerQuestions.some((question) => /accident/i.test(question))) {
-      lines.push(
+      carLines.push(
         `Ask the seller for accident records on the ${title} — the listing says accidents were reported.`,
       );
     }
     if (
       (car.excludedFromPick || /does not match/i.test(car.excludedReason ?? "")) &&
-      car.excludedReason &&
-      !lines.some((line) => line === car.excludedReason)
+      car.excludedReason
     ) {
-      lines.push(car.excludedReason);
+      carLines.push(car.excludedReason);
+    }
+    for (const line of carLines) {
+      if (lines.length >= SELLER_QUESTION_LIMIT) break;
+      const named = new RegExp(title.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "i").test(line)
+        ? line
+        : `For the ${title}: ${line}`;
+      if (!lines.includes(named)) lines.push(named);
     }
   }
-  return [...new Set(lines)];
+  return lines;
+}
+
+/** One ranked row for the Top picks list. The link is separate so a missing URL is not a fake anchor. */
+export function formatTopPickLine(input: {
+  year: number;
+  make: string;
+  model: string;
+  priceUsd: number | null;
+  miles: number | null;
+}): string {
+  const price = input.priceUsd != null ? `$${input.priceUsd.toLocaleString("en-US")}` : "Price not listed";
+  const miles = input.miles != null ? `${input.miles.toLocaleString("en-US")} mi` : "Mileage not listed";
+  return `${input.year} ${input.make} ${input.model} — ${price} · ${miles}`;
 }
 
 export function formatBuyerBestDeal(result: BestDealResult): {
@@ -831,20 +979,22 @@ export function formatBuyerBestDeal(result: BestDealResult): {
     headline,
     why: result.why,
     sellerQuestionLines: sellerQuestionsForBuyer(result),
-    stillUnknown: result.stillUnknown.map((line) => {
-      // Belt-and-suspenders: never surface raw factor ids if a caller built stillUnknown ad hoc.
-      return line
-        .replace(/\bestimated_fuel_cost\b/g, "estimated fuel cost")
-        .replace(/\bmmy_recall_campaigns\b/g, "recall campaigns")
-        .replace(/\bmmy_ncap_rating\b/g, "crash-test ratings")
-        .replace(/\bprice_vs_model_asks\b/g, "asking price vs same model")
-        .replace(/\bmiles_per_year_vs_peers\b/g, "mileage pace vs peers")
-        .replace(/\bnamed_model_preference\b/g, "named model match")
-        .replace(/\bcondition_priority\b/g, "condition-first preference")
-        .replace(/\bbudget_fit\b/g, "budget fit")
-        .replace(/\blisting_feed_flags\b/g, "listing history flags")
-        .replace(/\bdays_listed\b/g, "days on the market");
-    }),
+    stillUnknown: result.stillUnknown
+      .map((line) => {
+        // Belt-and-suspenders: never surface raw factor ids if a caller built stillUnknown ad hoc.
+        return line
+          .replace(/\bestimated_fuel_cost\b/g, "estimated fuel cost")
+          .replace(/\bmmy_recall_campaigns\b/g, "recall campaigns")
+          .replace(/\bmmy_ncap_rating\b/g, "crash-test ratings")
+          .replace(/\bprice_vs_model_asks\b/g, "asking price vs same model")
+          .replace(/\bmiles_per_year_vs_peers\b/g, "mileage pace vs peers")
+          .replace(/\bnamed_model_preference\b/g, "named model match")
+          .replace(/\bcondition_priority\b/g, "condition-first preference")
+          .replace(/\bbudget_fit\b/g, "budget fit")
+          .replace(/\blisting_feed_flags\b/g, "listing history flags")
+          .replace(/\bdays_listed\b/g, "days on the market");
+      })
+      .filter((line) => !/^Ask the seller\b/i.test(line)),
     rankedLines,
     factorLines,
     sensitivityLines,

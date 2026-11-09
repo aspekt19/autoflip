@@ -762,6 +762,24 @@ export function softPrefGapsFromText(text: string): SoftPrefGap[] {
   return gaps;
 }
 
+/**
+ * Result-page wording for the “not too old” note.
+ * An explicit “no year floor” choice is not the same as leaving the question unanswered.
+ */
+export function ageGapBuyerHonesty(
+  need: Pick<StructuredNeed, "yearMin" | "yearMax" | "yearBandResolved">,
+): string {
+  if (need.yearMin != null) {
+    return need.yearMax != null
+      ? `You set a model-year range of ${need.yearMin}–${need.yearMax}.`
+      : `You set a model-year floor of ${need.yearMin}. Search will not go older than that.`;
+  }
+  if (need.yearBandResolved) {
+    return "You chose no year floor — search uses the budget-based editorial year band only.";
+  }
+  return "No hard model-year cutoff was stated. Answer the year-band clarification or set an explicit year range on Confirm — otherwise Find uses only the budget-based editorial band.";
+}
+
 export function followUps(need: StructuredNeed): FollowUp[] {
   if (need.mode === "flip") {
     const questions: FollowUp[] = [];
