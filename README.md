@@ -12,18 +12,23 @@
 
 ## For judges (SERV Hackathon Open Track)
 
+**Start here:** [`docs/JUDGES.md`](docs/JUDGES.md) — Find / Check / SERV paths, agent `af_` API, honest limits, and how to run tests/evals.
+
+**Hard rule:** nothing invented. Every number, screenshot, or SERV claim must cite a real file/run in the repo (run id, model, timestamp) or say **not yet run / pending live run**. Sample `/report/sample` agent revision is **not yet recorded** ([`docs/serv-fixture-audit.md`](docs/serv-fixture-audit.md)).
+
 Judged mainly from this GitHub repo and a live demo. Consumer UI stays free of hackathon / OpenServ / crypto wording; this README may name SERV.
 
 | Link | What |
 | --- | --- |
+| [**Judge brief**](docs/JUDGES.md) | Concise hackathon brief (preferred) |
 | [Live demo](https://autoflip-umber.vercel.app/) | Product preview |
-| [Sample report](https://autoflip-umber.vercel.app/report/sample) | Labeled fixture report |
+| [Sample report](https://autoflip-umber.vercel.app/report/sample) | Labeled fixture report (revision trail pending live recording) |
 | [Eval dashboard `/compare`](https://autoflip-umber.vercel.app/compare) | Standard vs SERV-checked (reads committed results only) |
-| [Agents / MCP](https://autoflip-umber.vercel.app/developers) | API key + MCP snippets |
+| [Agents / MCP](https://autoflip-umber.vercel.app/developers) | `af_` keys + MCP snippets |
 | [Verdict eval status](eval/results/verdict-latest.md) | Measured or **not yet run** — never fabricated |
-| [SERV eval results](eval/results/latest.md) | Last committed `eval:serv` run (when present) |
-| [Proof of AI example](docs/examples/proof-of-ai-verdict.md) | Redacted verdict + guardrail proof shape |
-| [Judge guide](docs/judge-guide.md) | One-page architecture notes |
+| [SERV eval results](eval/results/latest.md) | Last committed `eval:serv` run (2026-11-06) |
+| [Live proof trace](eval/results/serv-proof-trace.md) | Real `flip_judge` call · response id in JSON |
+| [Architecture notes](docs/judge-guide.md) | Longer architecture write-up |
 
 ### Architecture
 
@@ -120,9 +125,13 @@ Open http://localhost:3000. For a local full report without Stripe, set `AUTOFLI
 npm run typecheck
 npm test
 npm run build
-npm run eval:serv      # requires SERV_API_KEY; exits immediately without it
+npm run test:e2e
+npm run eval:serv      # requires SERV_API_KEY; real credits; exits without inventing scores if unset
 npm run eval:verdict   # verdict_decide accuracy; writes not-yet-run stub without a key
+# Live sample revision (costs SERV): COMPARISON_ALLOW_PAID=1 SERV_API_KEY=… npm run eval:record-serv-revision
 ```
+
+See [`docs/JUDGES.md`](docs/JUDGES.md) for the full judge checklist and provenance table.
 
 Stripe test card: `4242 4242 4242 4242`. Forward webhooks to `POST /api/stripe/webhook`.
 
