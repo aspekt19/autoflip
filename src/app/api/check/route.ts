@@ -1,6 +1,6 @@
 import { freeCheckMonthKey } from "@/domain/free-check-quota";
 import { isValidVin } from "@/domain/vin";
-import { commitFreeCheck, releaseFreeCheck, reserveFreeCheck } from "@/io/free-check-quota";
+import { commitFreeCheck, freeCheckSlotsRemaining, releaseFreeCheck, reserveFreeCheck } from "@/io/free-check-quota";
 import { getKv } from "@/io/kv";
 import { runCheck, type CheckRunInput } from "@/server/check/run-check";
 import { runtimeDeps } from "@/server/deps";
@@ -65,6 +65,22 @@ export async function POST(request: Request) {
   let freeCheckKey: string | null = null;
   let usedFreeCheck = false;
   let needsCredit = false;
+
+  // Link and paste fetch a page and may call the model. Refuse before that work
+  // when this account has neither a free check nor a credit.
+  if (input.kind !== "vin") {
+    const slots = await freeCheckSlotsRemaining(getKv(), access.id);
+    if (slots.remaining < 1 && (await balanceOf(access.id)) < 1) {
+      return Response.json(
+        {
+          error: "credits_required",
+          message: "No free checks left this month. Buy a report credit to continue.",
+          freeChecks: slots.view,
+        },
+        { status: 403 },
+      );
+    }
+  }
 
   // When VIN is known up front, reserve (or require credit) before the expensive work.
   if (input.kind === "vin") {

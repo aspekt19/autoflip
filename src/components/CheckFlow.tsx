@@ -372,9 +372,6 @@ function CheckResultCard({ result }: { result: CheckResultView }) {
         <>
           <PriceBadgeView badge={result.badge} />
           <p className="hint">{result.compScope}</p>
-          {result.fairValueUsd != null ? (
-            <p className="hint">Adjusted comparable mid: {formatUsd(result.fairValueUsd)} ({result.compCount} similar listings)</p>
-          ) : null}
           <PriceRatingHow />
         </>
       ) : null}

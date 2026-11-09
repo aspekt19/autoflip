@@ -229,6 +229,15 @@ function microdataPartial(html: string): Record<string, unknown> {
   return partial;
 }
 
+function milesFromVisible(text: string): string | null {
+  const thousands = text.match(/(?:mileage|odometer|miles)\s*[:\-]?\s*([0-9]{1,3}(?:\.[0-9])?)\s*k\b/i);
+  if (thousands) return String(Math.round(Number(thousands[1]) * 1000));
+  const labeled = text.match(/(?:mileage|odometer)\s*[:\-]?\s*([0-9]{1,3}(?:,[0-9]{3})+|[0-9]{1,6})\b/i);
+  if (labeled) return labeled[1]!;
+  const loose = text.match(/\b([0-9]{1,3}(?:,[0-9]{3})+|[0-9]{3,6})\s*(?:miles|mi)\b/i);
+  return loose?.[1] ?? null;
+}
+
 function visibleTextPartial(text: string): Record<string, unknown> {
   const partial: Record<string, unknown> = {};
   const vin = extractVin(text) ?? validateVinCandidate(text.match(/\b[A-HJ-NPR-Z0-9]{17}\b/i)?.[0] ?? "");
@@ -239,10 +248,8 @@ function visibleTextPartial(text: string): Record<string, unknown> {
     text.match(/\$\s*([0-9]{1,3}(?:,[0-9]{3})+(?:\.[0-9]{2})?)/);
   if (priceMatch) partial.priceUsd = priceMatch[1];
 
-  const milesMatch =
-    text.match(/(?:mileage|odometer|miles)\s*[:\-]?\s*([0-9]{1,3}(?:,[0-9]{3})*)/i) ??
-    text.match(/\b([0-9]{1,3}(?:,[0-9]{3})*)\s*(?:miles|mi)\b/i);
-  if (milesMatch) partial.miles = milesMatch[1];
+  const miles = milesFromVisible(text);
+  if (miles) partial.miles = miles;
 
   const yearMakeModel = text.match(
     /\b((?:19|20)\d{2})\s+([A-Za-z][A-Za-z0-9\-]+)\s+([A-Za-z0-9][A-Za-z0-9\-]+(?:\s+[A-Za-z0-9][A-Za-z0-9\-]*){0,3})/,
@@ -306,6 +313,32 @@ function urlPartial(url: string | null): Record<string, unknown> {
   return partial;
 }
 
+/** A search-results page is not one car. Do not pick the first card as the subject. */
+function isMultiVehiclePage(html: string): boolean {
+  let products = 0;
+  let listItems = 0;
+  let search = false;
+  const walk = (node: unknown) => {
+    if (!node || typeof node !== "object") return;
+    if (Array.isArray(node)) {
+      for (const item of node) walk(item);
+      return;
+    }
+    const record = node as Record<string, unknown>;
+    const types = typeNames(record);
+    if (types.some((type) => type.includes("searchresultspage"))) search = true;
+    if (types.some((type) => type === "itemlist") && Array.isArray(record.itemListElement)) {
+      listItems += record.itemListElement.length;
+    }
+    if (types.some((type) => type === "product" || type === "vehicle" || type === "car")) products += 1;
+    for (const value of Object.values(record)) {
+      if (value && typeof value === "object") walk(value);
+    }
+  };
+  for (const block of collectJsonLdBlocks(html)) walk(block);
+  return search || listItems > 1 || products > 1;
+}
+
 function applyLayer(
   fields: ExtractedListingFields,
   source: ListingFieldSource,
@@ -334,13 +367,16 @@ export function parseListingHtml(html: string, url: string | null = null): Listi
     layers.push(applied.layer);
   }
 
+  const multi = isMultiVehiclePage(html);
   const jsonNodes: Record<string, unknown>[] = [];
-  for (const block of collectJsonLdBlocks(html)) walkJsonLd(block, jsonNodes);
+  if (!multi) {
+    for (const block of collectJsonLdBlocks(html)) walkJsonLd(block, jsonNodes);
+  }
   {
     const applied = applyLayer(
       fields,
       "json_ld",
-      jsonLdToPartial(jsonNodes),
+      multi ? {} : jsonLdToPartial(jsonNodes),
       jsonNodes.map((n) => JSON.stringify(n).slice(0, 400)),
     );
     fields = applied.fields;
@@ -348,13 +384,13 @@ export function parseListingHtml(html: string, url: string | null = null): Listi
   }
 
   {
-    const applied = applyLayer(fields, "open_graph", openGraphPartial(html), []);
+    const applied = applyLayer(fields, "open_graph", multi ? {} : openGraphPartial(html), []);
     fields = applied.fields;
     layers.push(applied.layer);
   }
 
   {
-    const applied = applyLayer(fields, "meta", {
+    const applied = applyLayer(fields, "meta", multi ? {} : {
       description: metaContent(html, "description"),
     }, []);
     fields = applied.fields;
@@ -362,13 +398,13 @@ export function parseListingHtml(html: string, url: string | null = null): Listi
   }
 
   {
-    const applied = applyLayer(fields, "microdata", microdataPartial(html), []);
+    const applied = applyLayer(fields, "microdata", multi ? {} : microdataPartial(html), []);
     fields = applied.fields;
     layers.push(applied.layer);
   }
 
   {
-    const applied = applyLayer(fields, "visible_text", visibleTextPartial(visible), [visible.slice(0, 500)]);
+    const applied = applyLayer(fields, "visible_text", multi ? {} : visibleTextPartial(visible), [visible.slice(0, 500)]);
     fields = applied.fields;
     layers.push(applied.layer);
   }

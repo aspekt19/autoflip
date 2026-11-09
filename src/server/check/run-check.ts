@@ -34,7 +34,7 @@ import { safetyRatingsFor } from "@/io/nhtsa-safety";
 import { extractFromListingUrl, extractFromPastedText, type ListingExtractDeps } from "./extract-listing";
 import { getKv, type Kv } from "@/io/kv";
 import { isServerlessRuntime, requireSharedQuotaForPaidDispatch } from "@/server/paid-dispatch-guard";
-import { resolveMarketComps } from "@/domain/market-comps";
+import { GENERATION_YEAR_WINDOW } from "@/domain/adjusted-comparables";
 import { odometerCaution } from "@/domain/odometer";
 
 export type CheckRunInput =
@@ -159,14 +159,16 @@ async function searchComps(input: {
     return { listings: [], scope: "Listings quota backend unavailable", sample: false };
   }
   const zip = input.zip?.replace(/\D/g, "").slice(0, 5) || undefined;
+  const yearMin = Math.max(1981, input.year - GENERATION_YEAR_WINDOW);
+  const yearMax = input.year + GENERATION_YEAR_WINDOW;
   const search = await autodevSearch(
     {
       make: input.make,
       model: input.model,
-      year: input.year,
+      yearRange: `${yearMin}-${yearMax}`,
       zip,
-      distanceMiles: zip ? 500 : undefined,
-      limit: 20,
+      distanceMiles: zip ? 100 : undefined,
+      limit: 24,
     },
     {
       fetch: input.fetchImpl,
@@ -185,8 +187,8 @@ async function searchComps(input: {
   return {
     listings: search.listings,
     scope: zip
-      ? `Similar ${input.year} ${input.make} ${input.model} listings near ZIP ${zip}`
-      : `Similar ${input.year} ${input.make} ${input.model} listings nationwide`,
+      ? `Same ${input.make} ${input.model}, within ${GENERATION_YEAR_WINDOW} model years, near ZIP ${zip}`
+      : `Same ${input.make} ${input.model}, within ${GENERATION_YEAR_WINDOW} model years`,
     sample: false,
   };
 }
@@ -338,7 +340,6 @@ async function buildListingVerdict(
       : [subject, ...providerListings];
 
   const badge = priceBadge(subject, pool);
-  const market = resolveMarketComps(subject, pool);
   const gov = await govBundle(fields.vin.value, subject, { fetch: fetchImpl });
   const vinMismatch = mismatchNote(gov.vinDecode, subject);
   const flags = listingRedFlags({
@@ -419,7 +420,7 @@ async function buildListingVerdict(
     fields,
     hasVin: Boolean(fields.vin.value),
     govRan: Boolean(gov.vinDecode) || gov.recallsAvailable,
-    compCount: market.ok ? market.sampleSize : 0,
+    compCount: badge.sampleSize ?? 0,
     listingSourceCount: provenanceRows(fields).filter((row) => row.value != null).length,
   });
 
@@ -449,12 +450,12 @@ async function buildListingVerdict(
       confidence,
       summary: summaryParts.join(". ") + ".",
       badge,
-      fairValueUsd: market.ok ? market.fairValueUsd : null,
+      fairValueUsd: badge.fairValueUsd,
       priceGap:
-        market.ok && subject.priceUsd != null
-          ? (subject.priceUsd - market.fairValueUsd) / market.fairValueUsd
+        badge.fairValueUsd != null && subject.priceUsd != null && badge.fairValueUsd > 0
+          ? (subject.priceUsd - badge.fairValueUsd) / badge.fairValueUsd
           : null,
-      compCount: market.ok ? market.sampleSize : 0,
+      compCount: badge.sampleSize ?? 0,
       compScope: comps.scope,
       redFlags: flags,
       questions,
@@ -584,15 +585,25 @@ async function buildVinDossier(vin: string, deps: CheckRunDeps, optionalZip?: st
   ];
   if (!listingsForVin.length) unknown.push("Current dealer listings for this VIN");
 
-  const confidence: CheckConfidence =
-    listingsForVin.length > 0 && bundle.recallsAvailable ? "Medium" : "Low";
+  const safetyKnown = bundle.safetySummary != null && !/unavailable/i.test(bundle.safetySummary);
+  const recordCount = [bundle.recallsAvailable, bundle.complaintCount != null, safetyKnown].filter(Boolean).length;
+  const confidence: CheckConfidence = recordCount >= 3 ? "High" : recordCount >= 1 ? "Medium" : "Low";
+  const parkIt = bundle.recalls.some((row) => row.parkIt);
 
   const summary = [
     `VIN dossier for ${subject.year} ${subject.make} ${subject.model}.`,
+    parkIt
+      ? "A model-year park-it campaign is on file. Do not treat this VIN as cleared to drive until applicability and repair are confirmed."
+      : bundle.recallsAvailable
+        ? bundle.recalls.length === 0
+          ? "No recall campaigns were listed for this model year. That is not a VIN-specific repair check."
+          : `${bundle.recalls.length} model-year recall campaign${bundle.recalls.length === 1 ? "" : "s"} are on file. Repair status for this exact VIN is still unknown.`
+        : "Recall campaigns could not be checked.",
+    "There is no asking price on a VIN-only check, so this car is not price-rated.",
     listingsForVin.length
-      ? `Found ${listingsForVin.length} current listing${listingsForVin.length === 1 ? "" : "s"} for this VIN in the listings provider.`
-      : "No current dealer listing for this VIN was returned by the listings provider.",
-    "This is a free-source screening dossier, not a paid history report.",
+      ? `Found ${listingsForVin.length} current listing${listingsForVin.length === 1 ? "" : "s"} for this VIN.`
+      : "No current dealer listing for this VIN was returned.",
+    "This uses free government records only, not a paid history report.",
   ].join(" ");
 
   return {
@@ -624,10 +635,10 @@ async function buildVinDossier(vin: string, deps: CheckRunDeps, optionalZip?: st
       otdNeedsZip: false,
       fields: null,
       provenance: [
-        { field: "vin", value: vin, source: "url" },
-        { field: "year", value: subject.year, source: "json_ld" },
-        { field: "make", value: subject.make, source: "json_ld" },
-        { field: "model", value: subject.model, source: "json_ld" },
+        { field: "vin", value: vin, source: "typed VIN" },
+        { field: "year", value: subject.year, source: "government VIN decoder" },
+        { field: "make", value: subject.make, source: "government VIN decoder" },
+        { field: "model", value: subject.model, source: "government VIN decoder" },
       ],
       vin,
       vinDecode: bundle.vinDecode ?? decode,

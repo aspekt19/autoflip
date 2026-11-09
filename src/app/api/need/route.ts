@@ -1,4 +1,5 @@
 import { understandNeed } from "@/server/understand-need";
+import { requireVerifiedAccountForFind } from "@/server/session";
 import type { FollowUp, StructuredNeed } from "@/domain/need";
 
 export const dynamic = "force-dynamic";
@@ -15,6 +16,9 @@ const FOLLOW_UP_IDS: ReadonlySet<FollowUp["id"]> = new Set([
 ]);
 
 export async function POST(request: Request) {
+  const access = await requireVerifiedAccountForFind();
+  if (!access.ok) return access.response;
+
   const body = (await request.json().catch(() => null)) as Record<string, unknown> | null;
   if (!body) return Response.json({ error: "invalid_json", message: "Send JSON." }, { status: 400 });
   const followRaw = body.followUp && typeof body.followUp === "object" ? (body.followUp as { id?: unknown; value?: unknown }) : null;
