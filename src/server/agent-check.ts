@@ -252,10 +252,8 @@ export async function runAgentCheck(
         comparables_summary: {
           n: result.result.compCount,
           method: "evaluateListingPrice",
-          walk_away_usd:
-            "walkAwayUsd" in result.result
-              ? ((result.result as { walkAwayUsd?: number | null }).walkAwayUsd ?? null)
-              : result.result.fairValueUsd,
+          // PR108 always exposes walkAwayUsd on CheckResultPayload (null when unknown).
+          walk_away_usd: result.result.walkAwayUsd,
         },
         code_computed: {
           fairValueUsd: result.result.fairValueUsd,
