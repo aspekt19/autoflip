@@ -1,0 +1,10 @@
+{
+  "mcpServers": {
+    "lemonless": {
+      "url": "https://autoflip-umber.vercel.app/api/mcp",
+      "headers": {
+        "Authorization": "Bearer ${env:LEMONLESS_API_KEY}"
+      }
+    }
+  }
+}

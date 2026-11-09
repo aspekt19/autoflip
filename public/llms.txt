@@ -1,0 +1,34 @@
+# Lemonless — for coding agents
+
+Buy smart. Stay lemonless. Used-car Check + Find with a fixed JSON verdict.
+TypeScript owns the numbers; settle credits only after success.
+
+## Auth
+- Create a key at /developers (signed-in browser).
+- Send `Authorization: Bearer af_YOUR_KEY` on every REST and MCP call.
+- Scopes: `read` | `check` | `find` (default: all three).
+- Optional: `Idempotency-Key` on paid calls to retry without a second charge.
+
+## Tools (MCP POST /api/mcp)
+- `check_car` — VIN | listing URL | pasted text. Free monthly check or 1 credit after success. Scope: check.
+- `find_cars` — natural-language request → `run_id`. Scope: find. Then `find_cars_status` / `find_cars_result`.
+- `deal_radar` — free make/model scan. Scope: read.
+- `full_report` — full VIN report, 1 credit. Scope: check.
+
+## REST
+- `POST /api/v1/check` — same as check_car
+- `POST /api/v1/find` → 202 `{ run_id }` ; `GET /api/v1/find/{run_id}/status` ; `GET /api/v1/find/{run_id}`
+- `GET /api/v1/receipts` and `GET /api/v1/receipts/{id}`
+- `POST /api/v1/report` — full report (existing)
+
+## Discovery
+- /.well-known/agent.json
+- /openapi.json
+- /llms-full.txt
+- /developers (curl + MCP config + OpenServ auth note)
+
+## Errors
+Every 4xx/5xx includes `error_code`, `message`, `credit_spent`, `retry_safe`, and `next_steps.request` (method/url/body).
+
+## Costs
+- No on-chain payment required. Site report credits + free monthly Check allotment only.

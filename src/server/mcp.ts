@@ -9,9 +9,61 @@ const PROTOCOL = "2025-06-18";
 export function toolList() {
   return [
     {
+      name: "check_car",
+      description:
+        "Check a car by listing URL, VIN, or pasted listing text. Same path as the site /check. Uses the account’s free monthly check allotment when available, otherwise 1 report credit — settled only after success. Requires a key with the check scope. Returns a fixed verdict schema with serv.steps, code_computed, unknowns, credit_spent, and receipt_id.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          vin: { type: "string" },
+          url: { type: "string", description: "Public listing URL" },
+          text: { type: "string", description: "Pasted listing text when the site blocks fetch" },
+          zip: { type: "string" },
+        },
+      },
+      annotations: { readOnlyHint: false, destructiveHint: false },
+    },
+    {
+      name: "find_cars",
+      description:
+        "Start an async Find from a natural-language request. Returns run_id; poll find_cars_status / find_cars_result (or REST status/get). Costs 1 report credit after a successful search. Requires the find scope. Idempotency-Key / arguments.idempotencyKey supported.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          text: { type: "string", description: "Natural-language car request" },
+          mode: { type: "string", enum: ["personal", "flip"] },
+          zip: { type: "string" },
+          budgetUsd: { type: "number" },
+          idempotencyKey: { type: "string" },
+        },
+        required: ["text"],
+      },
+      annotations: { readOnlyHint: false, destructiveHint: false },
+    },
+    {
+      name: "find_cars_status",
+      description: "Poll current_step for a find_cars run_id.",
+      inputSchema: {
+        type: "object",
+        properties: { run_id: { type: "string" } },
+        required: ["run_id"],
+      },
+      annotations: { readOnlyHint: true, destructiveHint: false },
+    },
+    {
+      name: "find_cars_result",
+      description: "Get the completed find_cars result for a run_id (advances the run if still queued).",
+      inputSchema: {
+        type: "object",
+        properties: { run_id: { type: "string" } },
+        required: ["run_id"],
+      },
+      annotations: { readOnlyHint: true, destructiveHint: false },
+    },
+    {
       name: "deal_radar",
       description:
-        "Free scan of current listings for one make and model. Returns a deal score from comparable asking prices in that result set. Does not charge. Recalls and fuel are not included; use full_report for those. The result always includes proof: profiles that ran, tools, model suffixes, guard result, shadow outcome and iteration cap, latency, which fields were computed in code, and any id, model, finish_reason, usage, or reasoning output the inference response included.",
+        "Free scan of current listings for one make and model. Returns a deal score from comparable asking prices in that result set. Does not charge. Requires the read scope. Recalls and fuel are not included; use full_report or check_car for those.",
       inputSchema: {
         type: "object",
         properties: {
@@ -29,7 +81,7 @@ export function toolList() {
     {
       name: "full_report",
       description:
-        "Full Lemonless analysis for one VIN. Costs 1 credit on the account that owns the API key. Send Authorization: Bearer af_…. A zero balance returns insufficient_credits and a buy-credits link, and does not run the analysis. The same JSON-RPC id does not charge twice. A payment header is accepted only when that optional rail is configured. Every response includes proof: profiles that ran, tools, model suffixes, guard result, shadow outcome and iteration cap, latency, which fields were computed in code, and any id, model, finish_reason, usage, or reasoning output the inference response included.",
+        "Full Lemonless analysis for one VIN. Costs 1 credit on the account that owns the API key. Send Authorization: Bearer af_…. Requires the check scope. A zero balance returns insufficient_credits and does not run the analysis.",
       inputSchema: {
         type: "object",
         properties: {
