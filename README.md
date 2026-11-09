@@ -4,7 +4,7 @@
 
 **Product:** Lemonless turns a US used-car listing into an explainable **buy / negotiate / pass / needs inspection** decision with the arithmetic shown — or **withholds** a verdict when evidence is insufficient.
 
-**For judges:** TypeScript owns every dollar figure. A full report links to its Proof of AI record; that record is the gates and any SERV call, not a scoreboard. Free Check on this `main` is code screening. Start at [`docs/JUDGES.md`](docs/JUDGES.md).
+**For judges:** TypeScript owns every dollar figure. A full report links to its Proof of AI record; that record is the gates and any SERV call, not a scoreboard. Check, when a SERV key is set and the gates allow it, runs `verdict_decide` then a TypeScript clamp then `verdict_challenge`. Start at [`docs/JUDGES.md`](docs/JUDGES.md).
 
 **Legacy identifiers:** Env vars (`AUTOFLIP_*`), Redis/KV globals, cookie `af_uid`, Stripe lookup keys, schema versions (`autoflip.*.v1`), the GitHub repo name, and the Vercel host still use the legacy `autoflip` / `af_` prefix so existing config and stored data keep working. The Flip **mode** name is unchanged.
 
@@ -61,10 +61,10 @@ flowchart LR
 1. **TS facts** — comps, mileage/history adjustments, fair value, price gap, recall/title/odometer flags (`src/domain/report.ts`).
 2. **Ordered gates** — data sufficiency → VIN identity → title/recall/odometer → price vs comps → mandate fit (budget / target profit / repair skill). Insufficient evidence → **WITHHELD** with a concrete refusal reason; SERV is skipped (`src/domain/verdict-gates.ts`).
 3. **Hard guardrails** — built from those gates (`src/domain/verdict-guardrails.ts`). Buy is forbidden where listed; title/park-it force `pass`.
-4. **SERV decision** — only when gates allow; `verdict_decide` returns `{ verdict, note }` with `verdict ∈ { buy, negotiate, pass, needs_inspection }` (`src/server/serv/profiles.ts`).
-5. **Clamp** — TypeScript applies rails, records override reasons, maps to internal `Verdict` (`src/domain/verdict-decide.ts`, wired in `src/server/assemble.ts`).
-6. **Explanation** — separate SERV prose, number-audited (`src/domain/audit.ts`). On SERV failure/timeout, the **labeled deterministic fallback** is used.
-7. **Proof of AI** — inputs hash, profile checks, ordered gates, `servChoice`, guardrail result, `finalAction` / `finalVerdict` in `proof.toolOutputs.verdictDecision`. Every report UI links to that record under **How this was checked**.
+4. **SERV decision** — only when gates allow; `verdict_decide` returns `{ verdict, note }` with `verdict ∈ { buy, negotiate, pass, needs_inspection }` (`src/server/serv/profiles.ts`). Check uses the same sequence in `src/server/shopper-verdict-serv.ts` when a key is set.
+5. **Clamp** — TypeScript applies rails and records override reasons (`src/domain/verdict-decide.ts`). Full reports wire it in `src/server/assemble.ts`. Check wires it in `shopper-verdict-serv.ts`, then `verdict_challenge` only if decide returned a usable action.
+6. **Explanation** — separate SERV prose on full reports, number-audited (`src/domain/audit.ts`). On SERV failure, the labeled code baseline remains. Check shows **Agent step unavailable — price rules only** and does not invent a trail.
+7. **Proof of AI** — full reports record inputs hash, gates, `servChoice`, and `finalAction` under **How this was checked**. Check shows `servTrace` (model, timestamp, response id, raw text) only from that run. No Check response id is committed in the repo yet.
 
 ### Task → SERV profile → why
 

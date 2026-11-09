@@ -28,10 +28,11 @@ Profiles live in [`src/server/serv/profiles.ts`](../src/server/serv/profiles.ts)
 | Step | Profile / code | What happens |
 | --- | --- | --- |
 | Find — choose next check | `find_next_check` | SERV picks an allowlisted check id; code applies it. Cap: `FIND_SERV_PAID_CALLS_PER_FIND_MAX = 8` in [`src/domain/find-serv-budget.ts`](../src/domain/find-serv-budget.ts). Orchestrator: [`find-next-check-orchestrator.ts`](../src/server/find-next-check-orchestrator.ts). |
-| Check — listing extract (optional) | `check_guard`, `listing_extract` | Runs only when `SERV_API_KEY` is set and the parsed page text is non-empty ([`extract-listing.ts`](../src/server/check/extract-listing.ts)). The visible Check trail is still code screening with `no_serv_step: true` ([`build-check-agent-verdict.ts`](../src/domain/build-check-agent-verdict.ts)); [`run-check.ts`](../src/server/check/run-check.ts) does not call `verdict_decide`. **Routing free Check through `verdict_decide` is open PR #112 (pending merge), not on this `main` tip.** |
+| Check — listing extract (optional) | `check_guard`, `listing_extract` | Skipped when year, make, and model are already parsed. Otherwise runs only if `SERV_API_KEY` is set and the page text is non-empty ([`extract-listing.ts`](../src/server/check/extract-listing.ts)). Those calls count toward Check’s 2-request cap in [`run-check.ts`](../src/server/check/run-check.ts). |
+| Check — shopper verdict | `verdict_decide` → TS clamp → `verdict_challenge` | When a SERV key is set and ordered gates do not withhold: [`runShopperVerdictServ`](../src/server/shopper-verdict-serv.ts) from [`run-check.ts`](../src/server/check/run-check.ts). Prices stay on `evaluateListingPrice` via [`price-badge.ts`](../src/domain/price-badge.ts). No committed Check response id is in the repo yet — the path is wired, not a published live trace. |
 | Full report — shopper verdict | `verdict_decide` | Multipath + JSON `{ verdict, note }`. Wired in [`assemble.ts`](../src/server/assemble.ts) after ordered gates. |
 | TS clamp | `resolveVerdictDecision` | [`src/domain/verdict-decide.ts`](../src/domain/verdict-decide.ts) + rails in [`verdict-guardrails.ts`](../src/domain/verdict-guardrails.ts) / gates in [`verdict-gates.ts`](../src/domain/verdict-gates.ts). Dollar amounts stay in TypeScript. Park-it and title-brand force `pass`. A VIN identity conflict **withholds** the verdict and skips SERV. |
-| Independent second pass | `verdict_challenge` | [`src/server/agent-second-pass.ts`](../src/server/agent-second-pass.ts) → `runReportVerdictChallenge`; assembled into the trail in `assemble.ts`. |
+| Independent second pass | `verdict_challenge` | [`src/server/agent-second-pass.ts`](../src/server/agent-second-pass.ts) → `runReportVerdictChallenge`. Full reports call it from [`assemble.ts`](../src/server/assemble.ts). Check calls it from [`shopper-verdict-serv.ts`](../src/server/shopper-verdict-serv.ts) only after a usable `verdict_decide`. A failed decide does not spend the second call. |
 | Revisions (sample replay) | Live recorder only | Script: `npm run eval:record-serv-revision` ([`eval/record-serv-revision.ts`](../eval/record-serv-revision.ts)). Output path: `fixtures/serv/recordings/verdict-revision.latest.json`. **Not yet recorded** on `main` — sample page shows “Example not yet recorded” ([`sample-report.ts`](../src/server/sample-report.ts), [`serv-revision-recording.ts`](../src/server/serv-revision-recording.ts)). |
 
 ### Visible decision trail
@@ -39,7 +40,9 @@ Profiles live in [`src/server/serv/profiles.ts`](../src/server/serv/profiles.ts)
 UI: [`AgentDecisionTrail`](../src/components/AgentDecisionTrail.tsx) (“How the agent decided”). Schema: [`docs/agent-verdict-schema.json`](agent-verdict-schema.json) ↔ [`src/domain/agent-verdict-schema.ts`](../src/domain/agent-verdict-schema.ts).
 
 - Full reports: trail from `buildAgentVerdictFromReport` ([`agent-trail.ts`](../src/domain/agent-trail.ts)) using real decide/challenge outcomes when `SERV_API_KEY` is set.
-- Free Check today: code screening steps + explicit `no_serv_step: true` ([`build-check-agent-verdict.ts`](../src/domain/build-check-agent-verdict.ts)).
+- Check with a SERV key and gates that allow a verdict: the trail’s “why” is the model note from that run. `servTrace` on the Check result stores model, timestamp, OpenServ response id, and raw text ([`CheckFlow.tsx`](../src/components/CheckFlow.tsx)). There is no saved Check recording in the repo to cite.
+- Check when decide fails: the panel says **Agent step unavailable — price rules only.** Trail steps stay empty. Price figures remain the code screening result.
+- Check with no SERV key, or when gates withhold (for example a VIN dossier with no asking price): `no_serv_step: true` and no SERV spend ([`build-check-agent-verdict.ts`](../src/domain/build-check-agent-verdict.ts), [`shopper-verdict-serv.ts`](../src/server/shopper-verdict-serv.ts)).
 - Sample SERV revision screenshots under [`docs/screenshots/serv-trail/`](screenshots/serv-trail/) are **withdrawn as SERV proof** (see that folder’s README).
 
 ---
@@ -99,7 +102,7 @@ curl -s https://autoflip-umber.vercel.app/api/v1/check \
 | --- | --- |
 | Listing **link** mode can fail when sites block fetch (`listing_fetch_blocked`, paste/VIN alternatives) | [`run-check.ts`](../src/server/check/run-check.ts) |
 | Recalls are model-year NHTSA coverage, not VIN repair proof; paid history (Carfax/NMVTIS) not connected | Check unknowns / report `dataNotes`; judge guide |
-| Free Check trail is code-screening (`no_serv_step`) on current `main`; full-report path has decide+challenge when keyed | [`build-check-agent-verdict.ts`](../src/domain/build-check-agent-verdict.ts); assemble second pass |
+| Check SERV path is wired, but no Check response id is committed. A missing key or a failed decide does not invent a trail | [`shopper-verdict-serv.ts`](../src/server/shopper-verdict-serv.ts); UI copy in [`AgentDecisionTrail.tsx`](../src/components/AgentDecisionTrail.tsx) |
 | Close-call **multipath** on Find is code reconciliation (`source: "code"` in `reconcileMultipathDeterministic`) unless the caller passes a live multipath result | [`agent-multipath.ts`](../src/domain/agent-multipath.ts), [`build-find-agent-verdict.ts`](../src/domain/build-find-agent-verdict.ts) |
 | Verdict accuracy eval & sample revision recording | **Pending live run** (see artifacts above) |
 | Stripe test mode; Auto.dev evaluation plan; preview product | README / [`docs/judge-guide.md`](judge-guide.md) |
