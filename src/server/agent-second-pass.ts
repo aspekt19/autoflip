@@ -105,10 +105,24 @@ export async function runReportVerdictChallenge(input: {
     deps,
   );
 
+  if (!judged.ok) {
+    return {
+      result: {
+        status: "unavailable",
+        action: null,
+        objection: "Second check did not finish. The first verdict stands.",
+        evidenceIds: [],
+        confidenceBefore: input.confidence,
+        confidenceAfter: input.confidence,
+      },
+      proof: judged.proof,
+    };
+  }
+
   const result = applyAgentSecondPass({
     primaryAction: input.primaryAction,
     confidence: input.confidence,
-    rawText: judged.ok ? judged.text : null,
+    rawText: judged.text,
     allowedEvidenceIds: ids,
   });
   return { result, proof: judged.proof };

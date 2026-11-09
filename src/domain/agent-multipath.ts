@@ -146,7 +146,9 @@ export function reconcileMultipathDeterministic(
       "total_cost_first",
       "Total cost first",
       costWinner,
-      `Lowest estimated total cost among the close group: ${costWinner.label}.`,
+      costWinner.totalCostUsd != null
+        ? `Lowest ask plus estimated annual fuel in the close group: ${costWinner.label}. Not a full ownership cost.`
+        : `No estimated annual fuel was recorded, so this path uses the asking price: ${costWinner.label}.`,
     ),
   ];
 
@@ -168,15 +170,16 @@ export function reconcileMultipathDeterministic(
   const disagree = paths.filter((path) => path.pickKey !== final.key);
   const reconciliation =
     disagree.length === 0
-      ? `All three paths chose ${final.label}.`
-      : `Paths disagreed. Kept ${final.label} after reconciling price, risk, and total-cost views` +
-        (bestVotes >= 2 ? ` (${bestVotes} of 3 paths).` : ".");
+      ? `All three code paths chose ${final.label}.`
+      : `Code paths disagreed. Kept ${final.label} after reconciling recorded price, risk, and fuel views` +
+        (bestVotes >= 2 ? ` (${bestVotes} of 3 paths). This was not an agent call.` : ". This was not an agent call.");
 
   return {
     paths,
     reconciliation,
     finalPickKey: final.key,
     finalPickLabel: final.label,
+    source: "code",
   };
 }
 
@@ -204,5 +207,6 @@ export function buildMultipathResultFromServ(
     reconciliation: payload.reconciliation || `Reconciled to ${final?.label ?? payload.finalPickKey}.`,
     finalPickKey: payload.finalPickKey,
     finalPickLabel: final?.label ?? payload.finalPickKey,
+    source: "serv",
   };
 }

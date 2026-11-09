@@ -97,7 +97,10 @@ export function AgentDecisionTrail({ verdict, defaultOpen = false }: Props) {
           {second.status === "disagreed" ? (
             <p>
               An independent review disagreed
-              {second.action ? ` (would ${second.action})` : ""}.
+              {second.action
+                ? ` (would ${second.action === "needs_inspection" ? "needs inspection" : second.action})`
+                : ""}
+              .
               {second.objection ? ` ${second.objection}` : ""}
               {second.confidenceBefore &&
               second.confidenceAfter &&
@@ -105,6 +108,9 @@ export function AgentDecisionTrail({ verdict, defaultOpen = false }: Props) {
                 ? ` Confidence lowered from ${confidenceLabel(second.confidenceBefore)} to ${confidenceLabel(second.confidenceAfter)}.`
                 : ""}
             </p>
+          ) : null}
+          {second.status === "unavailable" ? (
+            <p>{second.objection ?? "Second check did not finish. The first verdict stands."}</p>
           ) : null}
           {second.status === "skipped_no_budget" || second.status === "skipped_no_key" ? (
             <p>{second.objection ?? "Second check skipped."}</p>

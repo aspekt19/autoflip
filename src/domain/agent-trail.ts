@@ -44,11 +44,14 @@ export function trailStepFromDecisionLogEntry(
   const decidedBy = entry.decidedBy === "SERV" ? "Lemonless AI" : "A standard check";
   const actionPlain = formatDecisionLogLine(entry, labels).split(" (")[0] ?? entry.action;
   const decided = `${decidedBy} ran: ${actionPlain.replace(/\.$/, "")}.`;
+  const recorded = entry.evidenceAdded.map((line) => line.trim()).filter(Boolean).join(" ");
   const why =
-    ACTION_WHY[entry.action] ??
+    recorded ||
+    INVOKE_WHY[entry.invokeReason] ||
+    ACTION_WHY[entry.action] ||
     (entry.decidedBy === "SERV"
-      ? "The agent chose the next useful check from the allowlist."
-      : "Code drained a free check that did not need an agent call.");
+      ? "The agent chose the next check from the allowlist."
+      : "Code ran a check that did not need an agent call.");
   let changed: string | null = null;
   if (entry.pickBefore !== entry.pickAfter) {
     changed = entry.pickAfter
@@ -74,13 +77,31 @@ export function trailStepsFromDecisionLog(
   return log.map((entry) => trailStepFromDecisionLogEntry(entry, labels));
 }
 
+const INVOKE_WHY: Record<string, string> = {
+  initial_decision: "This was the first agent choice for the search.",
+  shortlist_changed: "New evidence changed the shortlist, so the agent chose again.",
+  nontrivial_choice: "A check that is not a free public lookup still needed a choice.",
+  paid_cap_reached: "The paid agent cap for this search was already used, so code chose.",
+  free_gov_deterministic_drain: "The remaining checks were free public lookups, so code ran them without another agent call.",
+  free_gov_batch_no_decision_change: "The free public batch did not change the decision, so code continued.",
+  consistency_deterministic_drain: "Listing-to-government checks were still open, so code ran them without another agent call.",
+  no_decision_change: "The shortlist did not change, so code did not spend another agent call.",
+  close_call_free_per_car: "The top cars were close, so code finished the free per-car checks first.",
+  close_call_tie_break: "The top cars were still close after free checks, so one tie-break call was allowed under the existing cap.",
+};
+
 export function trailStepFromMultipath(result: AgentMultipathResult): AgentTrailStep {
   const pathBits = result.paths
     .map((path) => `${path.label} → ${path.pickLabel ?? "none"}`)
     .join("; ");
+  const fromServ = result.source === "serv";
   return {
-    decided: `Close-call reasoning paths: ${pathBits}.`,
-    why: "The top cars were too close for a single score, so Lemonless AI compared them on price, risk, and total cost.",
+    decided: fromServ
+      ? `Agent close-call paths: ${pathBits}.`
+      : `Code close-call paths: ${pathBits}.`,
+    why: fromServ
+      ? "A separate agent call compared the close cars. It could only pick cars and evidence ids from this search."
+      : "The top cars were close. Code ranked them from the recorded asks and checks. This was not an agent call.",
     changed: result.reconciliation,
     evidenceIds: result.paths.flatMap((path) => path.evidenceIds).slice(0, 8),
   };
@@ -92,6 +113,13 @@ export function trailStepFromSecondPass(result: AgentSecondPassResult): AgentTra
     return {
       decided: "Second check skipped.",
       why: result.objection ?? "No remaining agent budget for a second check.",
+      changed: null,
+    };
+  }
+  if (result.status === "unavailable") {
+    return {
+      decided: "Second check did not finish.",
+      why: result.objection ?? "Agent review was unavailable, so the first verdict stands.",
       changed: null,
     };
   }
@@ -114,7 +142,7 @@ export function trailStepFromSecondPass(result: AgentSecondPassResult): AgentTra
     };
   }
   return {
-    decided: `Second check disagreed${result.action ? ` (would ${result.action})` : ""}.`,
+    decided: `Second check disagreed${result.action ? ` (would ${result.action === "needs_inspection" ? "needs inspection" : result.action})` : ""}.`,
     why: result.objection ?? "The independent review objected with evidence.",
     changed:
       result.confidenceBefore && result.confidenceAfter && result.confidenceBefore !== result.confidenceAfter
@@ -148,10 +176,11 @@ export function buildAgentVerdictFromFind(input: {
   const hadServ =
     input.hadServStep === true ||
     input.decisionLog.some((entry) => entry.decidedBy === "SERV") ||
-    Boolean(input.multipath) ||
+    input.multipath?.source === "serv" ||
     (input.secondPass != null &&
       input.secondPass.status !== "not_run" &&
-      input.secondPass.status !== "skipped_no_key");
+      input.secondPass.status !== "skipped_no_key" &&
+      input.secondPass.status !== "unavailable");
 
   return emptyAgentVerdict({
     pick: input.pickKey && input.pickLabel ? { key: input.pickKey, label: input.pickLabel } : null,
@@ -213,9 +242,11 @@ export function buildAgentVerdictFromReport(input: {
   const secondStep = input.secondPass ? trailStepFromSecondPass(input.secondPass) : null;
   if (secondStep) steps.push(secondStep);
 
-  const hadServ = input.hadServStep === true || Boolean(input.revised) ||
+  const hadServ =
+    input.hadServStep === true ||
+    Boolean(input.revised) ||
     (input.secondPass != null &&
-      !["not_run", "skipped_no_key"].includes(input.secondPass.status));
+      !["not_run", "skipped_no_key", "unavailable"].includes(input.secondPass.status));
 
   return emptyAgentVerdict({
     pick: null,

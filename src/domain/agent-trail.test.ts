@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { reconcileMultipathDeterministic } from "./agent-multipath";
 import {
@@ -91,7 +92,7 @@ describe("agent trail + multipath", () => {
     expect(verdict.no_serv_step).toBe(false);
     expect(verdict.serv_steps.length).toBeGreaterThanOrEqual(2);
     expect(verdict.serv_steps[0]?.decided).toMatch(/ran/i);
-    expect(verdict.serv_steps[0]?.why).toMatch(/recall/i);
+    expect(verdict.serv_steps[0]?.why).toMatch(/park-it/i);
     expect(verdict.serv_steps[1]?.changed).toMatch(/pick changed/i);
     expect(verdict.vs_cheapest).toMatch(/cheapest/i);
   });
@@ -118,9 +119,44 @@ describe("agent trail + multipath", () => {
     expect(multipath).not.toBeNull();
     expect(multipath!.paths).toHaveLength(3);
     const step = trailStepFromMultipath(multipath!);
+    expect(multipath!.source).toBe("code");
     expect(step.decided).toMatch(/Price first/i);
-    expect(step.why).toMatch(/close/i);
+    expect(step.why).toMatch(/not an agent call/i);
+    expect(step.why).not.toMatch(/Lemonless AI/);
     expect(step.changed).toBeTruthy();
+  });
+
+  it("does not treat a code close-call reconciliation as an agent step", () => {
+    const multipath = reconcileMultipathDeterministic([
+      {
+        key: "a",
+        label: "2020 Toyota Camry",
+        askUsd: 18_000,
+        riskScore: 2,
+        totalCostUsd: null,
+        evidenceIds: ["car:a"],
+      },
+      {
+        key: "b",
+        label: "2019 Honda Accord",
+        askUsd: 16_500,
+        riskScore: 1,
+        totalCostUsd: null,
+        evidenceIds: ["car:b"],
+      },
+    ]);
+    const verdict = buildAgentVerdictFromFind({
+      pickKey: "b",
+      pickLabel: "2019 Honda Accord",
+      confidence: "low",
+      decisionLog: [hop({ hop: 1, action: "free_gov_fuel", evidenceAdded: ["Fuel estimate recorded."] })],
+      labels,
+      multipath,
+      hadServStep: false,
+    });
+    expect(verdict.no_serv_step).toBe(true);
+    expect(verdict.multipath?.source).toBe("code");
+    expect(verdict.serv_steps.some((step) => /Lemonless AI compared/i.test(step.why))).toBe(false);
   });
 
   it("records a second-pass revision in the report trail", () => {
@@ -173,5 +209,13 @@ describe("agent trail + multipath", () => {
       hadServStep: false,
     });
     expect(verdict.no_serv_step).toBe(true);
+  });
+
+  it("keeps the documented JSON schema equal to the exported schema file", () => {
+    const documented = JSON.parse(
+      readFileSync(new URL("../../docs/agent-verdict-schema.json", import.meta.url), "utf8"),
+    ) as Record<string, unknown>;
+    delete documented.$comment;
+    expect(documented).toEqual(AGENT_VERDICT_JSON_SCHEMA);
   });
 });

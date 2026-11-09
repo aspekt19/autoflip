@@ -387,21 +387,41 @@ export async function assembleReport(input: AssembleInput, deps: AssembleDeps): 
     decision.finalAction === "withheld" ? null : (decision.finalAction as Exclude<DecisionAction, "withheld">);
   const challengeConfidence: AgentVerdictConfidence =
     decision.source === "serv" && decision.overrideReasons.length === 0 ? "high" : "medium";
-  const challenge = await runReportVerdictChallenge({
-    report: computed,
-    primaryAction: primaryForChallenge,
-    confidence: decision.gateRun.withheld ? null : challengeConfidence,
-    allowedActions: decision.allowedActions.filter(
-      (action): action is Exclude<DecisionAction, "withheld"> => action !== "withheld",
-    ),
-    hasBudget: !decision.gateRun.withheld,
-    servKey: deps.servKey,
-    servBaseUrl: deps.servBaseUrl,
-    model,
-    fetchImpl,
-  });
+  const challenge = decision.gateRun.withheld
+    ? {
+        result: {
+          status: "not_run" as const,
+          action: null,
+          objection: null,
+          evidenceIds: [] as string[],
+          confidenceBefore: null,
+          confidenceAfter: null,
+        },
+        proof: null,
+      }
+    : await runReportVerdictChallenge({
+        report: computed,
+        primaryAction: primaryForChallenge,
+        confidence: challengeConfidence,
+        allowedActions: decision.allowedActions.filter(
+          (action): action is Exclude<DecisionAction, "withheld"> => action !== "withheld",
+        ),
+        hasBudget: true,
+        servKey: deps.servKey,
+        servBaseUrl: deps.servBaseUrl,
+        model,
+        fetchImpl,
+      });
   challengeProof = challenge.proof;
-  if (challenge.result.status === "skipped_no_budget" || challenge.result.status === "skipped_no_key") {
+  if (challenge.result.status === "not_run") {
+    // Withheld verdicts do not spend a second call and do not claim a missing budget.
+  } else if (challenge.result.status === "unavailable") {
+    steps.push({
+      id: "serv_verdict_challenge",
+      status: "unavailable",
+      detail: challenge.result.objection ?? "Second check did not finish.",
+    });
+  } else if (challenge.result.status === "skipped_no_budget" || challenge.result.status === "skipped_no_key") {
     steps.push({
       id: "serv_verdict_challenge",
       status: "skipped",

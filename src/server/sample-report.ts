@@ -1,7 +1,10 @@
+import { applyAgentSecondPass } from "@/domain/agent-second-pass";
 import { buildAgentVerdictFromReport } from "@/domain/agent-trail";
 import { buildComputedReport } from "@/domain/report";
 import { templateExplanation } from "@/domain/template";
 import type { FullReport, Mode } from "@/domain/types";
+import { parseServVerdict } from "@/domain/verdict-decide";
+import revisionFixture from "../../fixtures/serv/verdict-revision.json";
 import { sampleListings } from "@/io/sample";
 
 /**
@@ -32,14 +35,29 @@ export function buildSampleReport(mode: Mode = "personal"): FullReport {
     sample: true,
   });
 
+  const first = parseServVerdict(JSON.stringify(revisionFixture.first));
+  const revised = parseServVerdict(JSON.stringify(revisionFixture.revised));
+  if (!first || !revised || first.verdict === revised.verdict) {
+    throw new Error("Verdict revision fixture must parse as two different SERV choices.");
+  }
+  const challenge = applyAgentSecondPass({
+    primaryAction: revised.verdict,
+    confidence: "high",
+    rawText: JSON.stringify(revisionFixture.challenge),
+    allowedEvidenceIds: new Set(["ev_recall_unavailable", "ev_fair_value", "ev_comp_count"]),
+  });
+  if (challenge.status !== "disagreed") {
+    throw new Error("Verdict revision fixture challenge must disagree with a real evidence id.");
+  }
+
   computed.decision = {
-    action: "negotiate",
+    action: revised.verdict,
     source: "serv",
-    servChoice: "buy",
+    servChoice: first.verdict,
     deterministicAction: "negotiate",
     overrideReasons: [],
     labeledFallback: false,
-    note: "Ask sits near fair value with enough similar listings.",
+    note: revised.note,
     withholdReason: null,
     gates: [
       { id: "identity", status: "passed", reason: "VIN and listing identity match." },
@@ -51,8 +69,8 @@ export function buildSampleReport(mode: Mode = "personal"): FullReport {
   computed.agentVerdict = buildAgentVerdictFromReport({
     verdict: "negotiate",
     confidence: "medium",
-    hadServStep: true,
-    primaryNote: "Ask sits near fair value with enough similar listings.",
+    hadServStep: false,
+    primaryNote: first.note,
     primarySource: "serv",
     reasons: [
       {
@@ -76,21 +94,13 @@ export function buildSampleReport(mode: Mode = "personal"): FullReport {
       "Recall campaigns were not available for this labeled sample.",
     ],
     revised: {
-      before: "buy",
-      after: "Lemonless AI revised to negotiate after new similar-listing evidence.",
-      why: "Two newer comps arrived with lower asks, so buy was no longer the honest action.",
+      before: first.verdict,
+      after: `Saved agent response revised the choice to ${revised.verdict}.`,
+      why: revised.note,
     },
-    secondPass: {
-      status: "disagreed",
-      action: "needs_inspection",
-      objection:
-        "Recall lookup was unavailable — do not treat a missing check as a clean history.",
-      evidenceIds: ["ev_recall_unavailable"],
-      confidenceBefore: "high",
-      confidenceAfter: "medium",
-    },
-    servCalls: 2,
-    costNote: "Labeled sample — no live agent spend.",
+    secondPass: challenge,
+    servCalls: 0,
+    costNote: "Labeled fixture replay of saved agent responses — no live spend.",
   });
 
   return {
@@ -108,7 +118,7 @@ export function buildSampleReport(mode: Mode = "personal"): FullReport {
         {
           id: "serv_verdict_decide",
           status: "ok",
-          detail: "Labeled sample: first chose buy, then revised to negotiate after new comps.",
+          detail: `Labeled fixture: first response ${first.verdict}, revised response ${revised.verdict}.`,
         },
         {
           id: "serv_verdict_challenge",

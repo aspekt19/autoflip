@@ -13,6 +13,16 @@ import type { DecisionCarLabel, FindDecisionLogEntry } from "./find-decision-log
 import type { FindBaselineDelta } from "./find-baseline";
 import { formatBaselineForBuyer } from "./find-baseline";
 
+/** Pull a recorded FuelEconomy.gov dollar from the factor detail. Does not invent one from score points. */
+export function annualFuelUsdFromFactor(detail: string): number | null {
+  const amounts = [...detail.matchAll(/\$([0-9][0-9,]*)/g)]
+    .map((match) => Number(match[1]!.replace(/,/g, "")))
+    .filter((value) => Number.isFinite(value) && value > 0);
+  if (amounts.length === 0) return null;
+  const sum = amounts.reduce((total, value) => total + value, 0);
+  return Math.round(sum / amounts.length);
+}
+
 export function buildFindAgentVerdict(input: {
   decisionLog: readonly FindDecisionLogEntry[];
   labels: readonly DecisionCarLabel[];
@@ -31,19 +41,19 @@ export function buildFindAgentVerdict(input: {
   if (!multipath && input.bestDeal?.closeCall) {
     const tied = closeCallCars(ranked);
     const pool = tied.length >= 2 ? tied : ranked.slice(0, 3);
-    const candidates: AgentMultipathCandidate[] = pool.map((car) => ({
-      key: car.key,
-      label: `${car.year} ${car.make} ${car.model}`,
-      askUsd: car.priceUsd,
-      riskScore:
-        (car.factors.find((f) => f.id === "mmy_recall_campaigns")?.points ?? 0) +
-        (car.factors.find((f) => f.id === "listing_feed_flags")?.points ?? 0),
-      totalCostUsd:
-        car.priceUsd == null
-          ? null
-          : car.priceUsd + Math.max(0, -(car.factors.find((f) => f.id === "estimated_fuel_cost")?.points ?? 0)),
-      evidenceIds: [`car:${car.key}`],
-    }));
+    const candidates: AgentMultipathCandidate[] = pool.map((car) => {
+      const recallPoints = car.factors.find((f) => f.id === "mmy_recall_campaigns")?.points;
+      const fuelUsd = annualFuelUsdFromFactor(car.factors.find((f) => f.id === "estimated_fuel_cost")?.detail ?? "");
+      return {
+        key: car.key,
+        label: `${car.year} ${car.make} ${car.model}`,
+        askUsd: car.priceUsd,
+        // Higher recall points mean fewer campaigns. Lower riskScore sorts first.
+        riskScore: recallPoints == null ? null : -recallPoints,
+        totalCostUsd: car.priceUsd != null && fuelUsd != null ? Math.round(car.priceUsd + fuelUsd) : null,
+        evidenceIds: [`car:${car.key}`],
+      };
+    });
     multipath = reconcileMultipathDeterministic(candidates);
   }
 
