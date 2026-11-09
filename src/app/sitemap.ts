@@ -6,7 +6,7 @@ export default function sitemap(): MetadataRoute.Sitemap {
     "/",
     "/find",
     "/check",
-    "/radar",
+    "/resale",
     "/reports",
     "/favorites",
     "/compare-cars",

@@ -98,7 +98,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           <p className="foot-links">
             <a href="/find">Find</a>
             <a href="/check">Check by VIN</a>
-            <a href="/radar">Deal Radar</a>
+            <a href="/resale">Resale</a>
             <a href="/reports">Reports</a>
             <a href="/favorites">Saved cars</a>
             <a href="/compare-cars">Compare cars</a>

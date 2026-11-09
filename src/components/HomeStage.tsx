@@ -61,11 +61,17 @@ export function HomeStage() {
         <ol className="steps-3 story-steps">
           <li>
             <strong>01 Say which goal</strong>
-            <span>For me, or for resale. A short note starts the search. Budget, ZIP, and seller distance come next in the flow. Resale also asks what profit you want and what repairs you can do.</span>
+            <span>
+              For me: a short note starts Find. Budget, ZIP, and seller distance come next. For resale: open the one-car
+              Resale estimate — buy ceiling, similar-listing range, and example costs.
+            </span>
           </li>
           <li>
             <strong>02 Read the listing</strong>
-            <span>Photo, price, miles, and a Good, Fair, or High price badge. Find is a credit-priced search when billing is enabled. Save the search if you want alerts. Alerts are a plan, not a report credit.</span>
+            <span>
+              Photo, price, miles, and a Good, Fair, or High price badge from similar asking prices. Find is a
+              credit-priced search when billing is enabled.
+            </span>
           </li>
           <li>
             <strong>03 Open the full analysis</strong>
@@ -74,7 +80,10 @@ export function HomeStage() {
         </ol>
         <p className="sample-link">
           <Link href="/pricing">See pricing</Link>
-          <span>. Report credits and Deal Radar plans are separate.</span>
+          <span>
+            . Report credits are separate from optional Radar plans.{" "}
+            <Link href="/resale">Resale estimate</Link> is a one-car tool, not a profit guarantee.
+          </span>
         </p>
       </section>
       <section className="story-after site-frame trust-row story-trust reveal" aria-label="What Lemonless checks">

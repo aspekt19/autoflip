@@ -5,40 +5,48 @@ import { usePathname } from "next/navigation";
 import { useEffect, useId, useRef, useState } from "react";
 import { headerAuthConfiguredProp, headerBalancePresentation } from "@/domain/account-load";
 import { CREDIT_BALANCE_EVENT } from "@/domain/credit-balance-event";
+import type { ProductFlags } from "@/domain/product-flags";
 import { BrandLockup } from "./BrandLockup";
 import { headerAuthControl } from "./header-auth";
 import { useAccountLoad } from "./use-account-load";
 
-const BASE_NAV_LINKS = [
-  { href: "/find", label: "Find a car" },
-  { href: "/check", label: "Check a car" },
-  { href: "/radar", label: "Deal Radar" },
-  { href: "/reports", label: "Reports" },
-  { href: "/favorites", label: "Saved cars" },
-  { href: "/compare-cars", label: "Compare cars" },
-  { href: "/pricing", label: "Pricing" },
-] as const;
+type NavLink = { href: string; label: string };
 
 /**
- * Primary nav. Scout link visibility follows runtime SCOUT_UI_ENABLED via
- * GET /api/scout capabilities — never a build-time bake of the flag (static
- * home must not omit Scout when the deploy later enables the UI).
+ * Primary nav. Product surface visibility follows runtime GET /api/product-flags
+ * (and Scout capabilities) — never a build-time bake of those flags.
  */
 export function Header({ scoutNavEnabled = false }: { scoutNavEnabled?: boolean }) {
   const pathname = usePathname();
   const accountLoad = useAccountLoad(pathname);
   /** Purchase events can move the count before the next /api/account response. */
   const [liveCredits, setLiveCredits] = useState<number | null>(null);
-  /** null = not yet known; prefer runtime capabilities over build-time prop. */
+  /** null = not yet known; prefer runtime flags over build-time prop. */
+  const [flags, setFlags] = useState<ProductFlags | null>(null);
   const [scoutUiRuntime, setScoutUiRuntime] = useState<boolean | null>(null);
   const [menuOpen, setMenuOpen] = useState(false);
   const menuBtnRef = useRef<HTMLButtonElement>(null);
   const navRef = useRef<HTMLElement>(null);
   const navId = useId();
+
+  const dealRadar = flags?.dealRadar === true;
+  const resaleEvaluate = flags == null ? true : flags.resaleEvaluate;
   const showScout = scoutUiRuntime ?? scoutNavEnabled;
-  const navLinks = showScout
-    ? [...BASE_NAV_LINKS.slice(0, 3), { href: "/scout", label: "Scout" }, ...BASE_NAV_LINKS.slice(3)]
-    : [...BASE_NAV_LINKS];
+
+  const navLinks: NavLink[] = [
+    { href: "/find", label: "Find a car" },
+    { href: "/check", label: "Check a car" },
+    ...(dealRadar
+      ? [{ href: "/radar", label: "Deal Radar" }]
+      : resaleEvaluate
+        ? [{ href: "/resale", label: "Resale" }]
+        : []),
+    ...(showScout ? [{ href: "/scout", label: "Scout" }] : []),
+    { href: "/reports", label: "Reports" },
+    { href: "/favorites", label: "Saved cars" },
+    { href: "/compare-cars", label: "Compare cars" },
+    { href: "/pricing", label: "Pricing" },
+  ];
 
   useEffect(() => {
     function onBalance(event: Event) {
@@ -52,6 +60,21 @@ export function Header({ scoutNavEnabled = false }: { scoutNavEnabled?: boolean 
   useEffect(() => {
     setLiveCredits(null);
   }, [accountLoad.body]);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch("/api/product-flags")
+      .then((response) => response.json())
+      .then((body: { flags?: ProductFlags }) => {
+        if (!cancelled && body.flags) setFlags(body.flags);
+      })
+      .catch(() => {
+        // Leave null so defaults (resale on, radar off) apply via local fallbacks.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
