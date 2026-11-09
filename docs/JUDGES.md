@@ -11,7 +11,7 @@ Sample report (labeled economics only; agent revision **not yet recorded**): [/r
 
 | Flow | What the shopper does | Sign-in | Code entry |
 | --- | --- | --- | --- |
-| **Find** | Describe a need → ranked shortlist → optional full analysis | Required before the need form | [`src/components/AssistantFlow.tsx`](../src/components/AssistantFlow.tsx), Find SERV loop in [`src/server/find-next-check-orchestrator.ts`](../src/server/find-next-check-orchestrator.ts) |
+| **Find** | Describe a need → ranked shortlist → optional full analysis | Required before the need form | Ranking is code: [`selectBestDealOnEvidence`](../src/domain/find-best-deal.ts) via [`AssistantFlow.tsx`](../src/components/AssistantFlow.tsx). Optional later hop: SERV `find_next_check` in [`find-next-check-orchestrator.ts`](../src/server/find-next-check-orchestrator.ts) |
 | **Check a car** | Listing URL, pasted listing text, or VIN | Required before the form | [`src/app/api/check/route.ts`](../src/app/api/check/route.ts) → [`src/server/check/run-check.ts`](../src/server/check/run-check.ts) |
 | **Full report** | VIN / listing after Find or paid Check handoff | Credits / account | [`src/server/assemble.ts`](../src/server/assemble.ts) |
 
@@ -28,9 +28,9 @@ Profiles live in [`src/server/serv/profiles.ts`](../src/server/serv/profiles.ts)
 | Step | Profile / code | What happens |
 | --- | --- | --- |
 | Find — choose next check | `find_next_check` | SERV picks an allowlisted check id; code applies it. Cap: `FIND_SERV_PAID_CALLS_PER_FIND_MAX = 8` in [`src/domain/find-serv-budget.ts`](../src/domain/find-serv-budget.ts). Orchestrator: [`find-next-check-orchestrator.ts`](../src/server/find-next-check-orchestrator.ts). |
-| Check — listing extract (optional) | `check_guard`, `listing_extract` | Only when HTML/text needs LLM fill ([`extract-listing.ts`](../src/server/check/extract-listing.ts)). Free Check trail still says `no_serv_step` unless a full-report SERV path ran — **routing free Check through `verdict_decide` is open PR #112 (pending merge), not on this `main` tip.** |
+| Check — listing extract (optional) | `check_guard`, `listing_extract` | Runs only when `SERV_API_KEY` is set and the parsed page text is non-empty ([`extract-listing.ts`](../src/server/check/extract-listing.ts)). The visible Check trail is still code screening with `no_serv_step: true` ([`build-check-agent-verdict.ts`](../src/domain/build-check-agent-verdict.ts)); [`run-check.ts`](../src/server/check/run-check.ts) does not call `verdict_decide`. **Routing free Check through `verdict_decide` is open PR #112 (pending merge), not on this `main` tip.** |
 | Full report — shopper verdict | `verdict_decide` | Multipath + JSON `{ verdict, note }`. Wired in [`assemble.ts`](../src/server/assemble.ts) after ordered gates. |
-| TS clamp | `resolveVerdictDecision` | [`src/domain/verdict-decide.ts`](../src/domain/verdict-decide.ts) + rails in [`verdict-guardrails.ts`](../src/domain/verdict-guardrails.ts) / gates in [`verdict-gates.ts`](../src/domain/verdict-gates.ts). SERV cannot invent dollars or override park-it / title / VIN withhold. |
+| TS clamp | `resolveVerdictDecision` | [`src/domain/verdict-decide.ts`](../src/domain/verdict-decide.ts) + rails in [`verdict-guardrails.ts`](../src/domain/verdict-guardrails.ts) / gates in [`verdict-gates.ts`](../src/domain/verdict-gates.ts). Dollar amounts stay in TypeScript. Park-it and title-brand force `pass`. A VIN identity conflict **withholds** the verdict and skips SERV. |
 | Independent second pass | `verdict_challenge` | [`src/server/agent-second-pass.ts`](../src/server/agent-second-pass.ts) → `runReportVerdictChallenge`; assembled into the trail in `assemble.ts`. |
 | Revisions (sample replay) | Live recorder only | Script: `npm run eval:record-serv-revision` ([`eval/record-serv-revision.ts`](../eval/record-serv-revision.ts)). Output path: `fixtures/serv/recordings/verdict-revision.latest.json`. **Not yet recorded** on `main` — sample page shows “Example not yet recorded” ([`sample-report.ts`](../src/server/sample-report.ts), [`serv-revision-recording.ts`](../src/server/serv-revision-recording.ts)). |
 
@@ -86,7 +86,7 @@ curl -s https://autoflip-umber.vercel.app/api/v1/check \
 | Artifact | Provenance |
 | --- | --- |
 | [`eval/results/serv-proof-trace.json`](../eval/results/serv-proof-trace.json) | Live `flip_judge` eval fixture. `generatedAt`: **2026-11-06T09:36:15.626Z**. Response id **`chatcmpl-EhAeeqtS7VTM5hgmyZxDbdz7quzxo`**. Model reported **`gpt-5.4-mini-2026-03-17`**. Disclosure: not customer traffic. Narrative: [`serv-proof-trace.md`](../eval/results/serv-proof-trace.md). |
-| [`eval/results/latest.md`](../eval/results/latest.md) / [`latest.json`](../eval/results/latest.json) | Committed `eval:serv` comparison. Generated **2026-11-06T09:35:38.636Z**. 44 pairs; token usage and $0.1024 mini-rate **estimate** (not an invoice) are in that file. |
+| [`eval/results/latest.md`](../eval/results/latest.md) / [`latest.json`](../eval/results/latest.json) | Committed `eval:serv` comparison. Generated **2026-11-06T09:35:38.636Z**. 44 pairs. Checked answer **better on 2, worse on 3, both passed 39**. That is not a superiority result. Token usage and $0.1024 mini-rate **estimate** (not an invoice) are in that file. |
 | [`eval/results/verdict-latest.md`](../eval/results/verdict-latest.md) | Status: **not yet run** (2026-11-06T13:44:21.845Z). No fabricated accuracy %. |
 | Sample `/report/sample` agent revision | **Not yet recorded** — needs `npm run eval:record-serv-revision` (costs real SERV credits). |
 | Lemonless vs plain-AI comparison scoreboard | **Not on `main` / pending live run** (harness work is not merged as measured jury totals here). |
@@ -100,7 +100,7 @@ curl -s https://autoflip-umber.vercel.app/api/v1/check \
 | Listing **link** mode can fail when sites block fetch (`listing_fetch_blocked`, paste/VIN alternatives) | [`run-check.ts`](../src/server/check/run-check.ts) |
 | Recalls are model-year NHTSA coverage, not VIN repair proof; paid history (Carfax/NMVTIS) not connected | Check unknowns / report `dataNotes`; judge guide |
 | Free Check trail is code-screening (`no_serv_step`) on current `main`; full-report path has decide+challenge when keyed | [`build-check-agent-verdict.ts`](../src/domain/build-check-agent-verdict.ts); assemble second pass |
-| Close-call **multipath** on Find defaults to **code-ranked** reconciliation (`source: "code"`) unless a live multipath result is supplied | [`agent-multipath.ts`](../src/domain/agent-multipath.ts), [`build-find-agent-verdict.ts`](../src/domain/build-find-agent-verdict.ts) |
+| Close-call **multipath** on Find is code reconciliation (`source: "code"` in `reconcileMultipathDeterministic`) unless the caller passes a live multipath result | [`agent-multipath.ts`](../src/domain/agent-multipath.ts), [`build-find-agent-verdict.ts`](../src/domain/build-find-agent-verdict.ts) |
 | Verdict accuracy eval & sample revision recording | **Pending live run** (see artifacts above) |
 | Stripe test mode; Auto.dev evaluation plan; preview product | README / [`docs/judge-guide.md`](judge-guide.md) |
 

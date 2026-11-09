@@ -4,7 +4,7 @@
 
 **Product:** Lemonless turns a US used-car listing into an explainable **buy / negotiate / pass / needs inspection** decision with the arithmetic shown — or **withholds** a verdict when evidence is insufficient.
 
-**For judges:** The model never touches a number — and every report links to the Proof of AI that proves it.
+**For judges:** TypeScript owns every dollar figure. A full report links to its Proof of AI record; that record is the gates and any SERV call, not a scoreboard. Free Check on this `main` is code screening. Start at [`docs/JUDGES.md`](docs/JUDGES.md).
 
 **Legacy identifiers:** Env vars (`AUTOFLIP_*`), Redis/KV globals, cookie `af_uid`, Stripe lookup keys, schema versions (`autoflip.*.v1`), the GitHub repo name, and the Vercel host still use the legacy `autoflip` / `af_` prefix so existing config and stored data keep working. The Flip **mode** name is unchanged.
 
@@ -23,7 +23,7 @@ Judged mainly from this GitHub repo and a live demo. Consumer UI stays free of h
 | [**Judge brief**](docs/JUDGES.md) | Concise hackathon brief (preferred) |
 | [Live demo](https://autoflip-umber.vercel.app/) | Product preview |
 | [Sample report](https://autoflip-umber.vercel.app/report/sample) | Labeled fixture report (revision trail pending live recording) |
-| [Eval dashboard `/compare`](https://autoflip-umber.vercel.app/compare) | Standard vs SERV-checked (reads committed results only) |
+| [Eval dashboard `/compare`](https://autoflip-umber.vercel.app/compare) | Reads committed `eval/results/latest.json` only. 2026-11-06 run: checked better on 2, worse on 3, both passed 39 — not a win |
 | [Agents / MCP](https://autoflip-umber.vercel.app/developers) | `af_` keys + MCP snippets |
 | [Verdict eval status](eval/results/verdict-latest.md) | Measured or **not yet run** — never fabricated |
 | [SERV eval results](eval/results/latest.md) | Last committed `eval:serv` run (2026-11-06) |
