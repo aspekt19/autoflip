@@ -1,10 +1,14 @@
 /**
  * One comparable set + one market number for card badge, score factor, and pick copy.
  * Badge and best-deal scoring must call this with the same subject + pool.
+ *
+ * Find market reference is the comps-adjusted mid only — not a history haircut.
+ * Full reports still apply historyAdjustment in report.ts. Mixing feed history
+ * into Find badges while scoring rebuilt stubs (accidentCount forced null) made
+ * card $ deltas disagree with factor-line references for the same car.
  */
 import { ASSUMPTIONS } from "./assumptions";
 import { adjustCompsToSubject, selectComparables } from "./comparables";
-import { historyAdjustment } from "./history";
 import { listingUsableForPurchaseEconomics } from "./report-purchase-ask";
 import { median, percentileRank, roundDollars } from "./stats";
 import type { Listing } from "./types";
@@ -17,15 +21,19 @@ export type MarketCompScopeLabel =
 
 export type MarketCompContext = {
   ok: true;
+  /** Single market reference used for badge delta and factor/pick copy. */
   fairValueUsd: number;
   sampleSize: number;
   scopeLabel: MarketCompScopeLabel;
-  /** 0–1 percentile of asking among mileage-adjusted comps; null if unavailable. */
+  /** 0–1 rank of asking among mileage-adjusted peers — machine channel only. */
   pct01: number | null;
-  /** Plain note shared by badge sampleNote. */
+  /** Buyer-visible note shared by badge sampleNote (no jargon). */
   sampleNote: string;
   source: string;
+  /** Buyer-visible method line when the year window widens. */
   methodNote: string;
+  /** Exact technical method — receipts / agents only, never buyer UI. */
+  methodNoteTechnical: string;
 };
 
 export type MarketCompInsufficient = {
@@ -46,6 +54,41 @@ function scopeLabelFromSelection(
 }
 
 /**
+ * Plain peer noun for “n=K …” badges/details — no leading count, never “comps”.
+ * Example: "similar Sportage LX listings" / "similar CR-V listings from nearby years".
+ */
+export function buyerScopePhrase(
+  scopeLabel: MarketCompScopeLabel,
+  subject?: Pick<Listing, "make" | "model" | "trim"> | null,
+): string {
+  const model = subject?.model?.trim() || "car";
+  const trim = subject?.trim?.trim();
+  if (scopeLabel === "same-trim" && trim) {
+    return `similar ${model} ${trim} listings`;
+  }
+  if (scopeLabel.includes("widened") || scopeLabel.includes("wider")) {
+    return `similar ${model} listings from nearby years`;
+  }
+  return `similar ${model} listings`;
+}
+
+export function buyerMethodNoteForScope(input: {
+  scopeLabel: MarketCompScopeLabel;
+  sampleSize: number;
+  subject?: Pick<Listing, "make" | "model" | "trim"> | null;
+}): string {
+  const model = input.subject?.model?.trim() || "car";
+  const trim = input.subject?.trim?.trim();
+  if (input.scopeLabel.includes("widened") || input.scopeLabel.includes("wider")) {
+    return `Compared with ${input.sampleSize} similar ${model}s from nearby years, adjusted for year and mileage`;
+  }
+  if (input.scopeLabel === "same-trim" && trim) {
+    return `Compared with ${input.sampleSize} similar ${model} ${trim} listings from nearby model years`;
+  }
+  return `Compared with ${input.sampleSize} similar ${model} listings from this search`;
+}
+
+/**
  * Resolve the single market comparable set for a listing against a pool.
  * Returns insufficient when fewer than ASSUMPTIONS.minComps usable comps remain
  * — callers must not invent a second median from a different peer set.
@@ -62,7 +105,11 @@ export function resolveMarketComps(subject: Listing, pool: readonly Listing[]): 
     return {
       ok: false,
       sampleSize: selection.comps.length,
-      sampleNote: selection.notes[0] ?? null,
+      sampleNote: buyerMethodNoteForScope({
+        scopeLabel: "same-model",
+        sampleSize: selection.comps.length,
+        subject,
+      }),
     };
   }
   const priced = selection.comps.filter(
@@ -75,7 +122,11 @@ export function resolveMarketComps(subject: Listing, pool: readonly Listing[]): 
     return {
       ok: false,
       sampleSize: priced.length,
-      sampleNote: selection.notes[0] ?? null,
+      sampleNote: buyerMethodNoteForScope({
+        scopeLabel: scopeLabelFromSelection(selection.scope),
+        sampleSize: priced.length,
+        subject,
+      }),
     };
   }
   const adjustYear =
@@ -90,54 +141,68 @@ export function resolveMarketComps(subject: Listing, pool: readonly Listing[]): 
     return {
       ok: false,
       sampleSize: before.length,
-      sampleNote: selection.notes[0] ?? null,
+      sampleNote: buyerMethodNoteForScope({
+        scopeLabel: scopeLabelFromSelection(selection.scope),
+        sampleSize: before.length,
+        subject,
+      }),
     };
   }
   const fairMid = median(before);
   if (fairMid === null || fairMid <= 0) {
-    return { ok: false, sampleSize: before.length, sampleNote: selection.notes[0] ?? null };
+    return {
+      ok: false,
+      sampleSize: before.length,
+      sampleNote: buyerMethodNoteForScope({
+        scopeLabel: scopeLabelFromSelection(selection.scope),
+        sampleSize: before.length,
+        subject,
+      }),
+    };
   }
-  const fair = roundDollars(fairMid * historyAdjustment(subject, "personal").multiplier);
+  // One reference everywhere: comps-adjusted mid. No history haircut on Find —
+  // cards say history was not checked, and scoring stubs previously forced a
+  // different accidentCount than the live listing badge subject.
+  const fair = roundDollars(fairMid);
   const scopeLabel = scopeLabelFromSelection(selection.scope);
   const pct = percentileRank(subject.priceUsd, before);
-  const sampleNote =
-    selection.notes[0] ??
-    `Compared with ${priced.length} ${scopeLabel} comps (similar year/mileage when available).`;
-  const methodBit = adjustYear ? ` ${adjusted.methodNote}` : "";
+  const buyerMethod = buyerMethodNoteForScope({
+    scopeLabel,
+    sampleSize: priced.length,
+    subject,
+  });
   return {
     ok: true,
     fairValueUsd: fair,
     sampleSize: priced.length,
     scopeLabel,
     pct01: pct == null ? null : pct / 100,
-    sampleNote: `${sampleNote}${methodBit}`.trim(),
+    sampleNote: buyerMethod,
     source: "Same comparable set as the card market badge",
-    methodNote: adjusted.methodNote,
+    methodNote: buyerMethod,
+    methodNoteTechnical: adjusted.methodNote,
   };
 }
 
-/** Plain factor/pick detail — one n=, one median, method disclosed when widened. */
+/** Plain factor/pick detail — one n=, one market reference, buyer-safe method. */
 export function formatMarketAskDetail(input: {
   askUsd: number;
   fairValueUsd: number;
   sampleSize: number;
   scopeLabel: MarketCompScopeLabel;
-  pct01: number | null;
+  /** Ignored for buyer copy — percentile stays in the machine channel. */
+  pct01?: number | null;
   thinBelow?: number;
   methodNote?: string | null;
+  subject?: Pick<Listing, "make" | "model" | "trim"> | null;
 }): string {
   const thinBelow = input.thinBelow ?? ASSUMPTIONS.minComps;
+  const peers = buyerScopePhrase(input.scopeLabel, input.subject);
   const thin =
-    input.sampleSize < thinBelow
-      ? ` (thin sample: ${input.sampleSize} priced ${input.scopeLabel} comps)`
-      : "";
-  const pctBit =
-    input.pct01 != null
-      ? ` (~${Math.round(input.pct01 * 100)}th percentile among ${input.scopeLabel} comps)`
-      : "";
+    input.sampleSize < thinBelow ? ` (thin sample: only ${input.sampleSize} similar listings)` : "";
   const widened =
     input.scopeLabel.includes("widened") || input.scopeLabel.includes("wider");
   const methodBit =
     widened && input.methodNote ? ` · ${input.methodNote}` : "";
-  return `Ask $${input.askUsd.toLocaleString("en-US")} vs median $${Math.round(input.fairValueUsd).toLocaleString("en-US")} (n=${input.sampleSize} ${input.scopeLabel} comps)${pctBit}${thin}${methodBit}`;
+  return `Ask $${input.askUsd.toLocaleString("en-US")} vs market $${Math.round(input.fairValueUsd).toLocaleString("en-US")} (n=${input.sampleSize} ${peers})${thin}${methodBit}`;
 }

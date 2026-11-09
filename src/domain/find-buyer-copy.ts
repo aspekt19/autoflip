@@ -58,6 +58,12 @@ export const BUYER_FORBIDDEN_TECH_PATTERNS: RegExp[] = [
   // Internal validation / provider jargon — buyer form copy must stay plain.
   /\bapp validation\b/i,
   /\bprovider hard limit\b/i,
+  // Market-method jargon — keep exact slopes/rates in the agent channel only.
+  /≈/,
+  /\bpercentile\b/i,
+  /\bfitted\b/i,
+  /\bdocumented rates\b/i,
+  /\bcomps\b/i,
 ];
 
 /**
