@@ -4,16 +4,20 @@
  * Offline: only pure-code arms (cheapest, Lemonless deterministic domain modules).
  * plain_llm is always `not_run` offline — never canned prose.
  *
- * Live: Lemonless uses production runCheck / selectBestDealOnEvidence + SERV
- * verdict_decide + shadow second pass (same profiles as assemble). plain_llm
- * gets one chat completion on the identical shared payload Lemonless ranked on.
+ * Live: Lemonless uses selectBestDealOnEvidence or the captured Check listing,
+ * then the production report path (verdict_decide + verdict_challenge).
+ * plain_llm gets one chat completion on the identical shared payload.
  */
 import { listingRedFlags } from "@/domain/listing/red-flags";
 import type { ExtractedListingFields } from "@/domain/listing/types";
 import { selectBestDealOnEvidence } from "@/domain/find-best-deal";
 import { explicitNeedFromText } from "@/domain/need";
 import { evaluateListingPrice } from "@/domain/price-evaluation";
-import type { Listing } from "@/domain/types";
+import { buildComputedReport } from "@/domain/report";
+import type { ComputedReport, Listing } from "@/domain/types";
+import { resolveVerdictDecision, verdictDecisionFacts } from "@/domain/verdict-decide";
+import type { MandateInput } from "@/domain/verdict-gates";
+import { runReportVerdictChallenge } from "@/server/agent-second-pass";
 import { BASE_MODEL, runServ } from "@/server/serv";
 import { bandFromAskVsFair } from "./score";
 import type {
@@ -367,160 +371,185 @@ export function runPlainOfflineCheck(_fixture: CheckCaseFixture): ArmOutput {
   );
 }
 
+function computedFromCaptured(subject: Listing, pool: Listing[]): ComputedReport {
+  return buildComputedReport({
+    mode: "personal",
+    subject,
+    candidates: pool.length > 0 ? pool : [subject],
+    recalls: [],
+    recallsAvailable: false,
+    complaintCount: null,
+    fuel: null,
+    vinDecode: null,
+    distanceToSearchZipMiles: null,
+    checkedAt: "2026-11-09T00:00:00.000Z",
+    externalLookupsPerformed: false,
+    sample: true,
+  });
+}
+
 /**
- * Production SERV path: verdict_decide then verdict_challenge (same profiles assemble uses).
+ * Same decide → guardrail → challenge sequence as assembleReport.
+ * userLookup is the shared listing payload. Scoring labels are not included.
+ * Facts are verdictDecisionFacts — code numbers and gates, not a custom prompt.
  */
-async function runServDecideAndChallenge(facts: Record<string, unknown>, user: string): Promise<{
-  text: string;
-  trace: LiveModelTrace;
+async function applyProductionVerdict(input: {
+  report: ComputedReport;
+  userLookup: string;
+  mandate: MandateInput;
+}): Promise<{
+  action: string;
+  source: string;
+  called: boolean;
   ok: boolean;
+  trace: LiveModelTrace | null;
+  challengeStatus: string;
 }> {
+  const mandate = input.mandate;
+  const preview = resolveVerdictDecision({
+    report: input.report,
+    servText: null,
+    servOk: false,
+    hasServKey: false,
+    mandate,
+  });
+  if (preview.gateRun.withheld || !liveAllowed()) {
+    return {
+      action: preview.finalAction,
+      source: preview.source,
+      called: false,
+      ok: false,
+      trace: null,
+      challengeStatus: "not_run",
+    };
+  }
+
   const model = sharedModelId();
   const timestamp = new Date().toISOString();
+  const facts = verdictDecisionFacts(input.report, mandate);
+  const user = JSON.stringify({ facts, userLookup: input.userLookup });
   const deps = {
-    apiKey: process.env.SERV_API_KEY,
-    model,
     fetch,
-    transportPolicy: "experiment_single_attempt" as const,
+    apiKey: process.env.SERV_API_KEY,
+    baseUrl: process.env.SERV_BASE_URL,
+    model,
   };
-  const primary = await runServ("verdict_decide", { user, facts }, deps);
-  let combined = primary.ok
-    ? primary.text
-    : `verdict_decide failed: ${"error" in primary ? primary.error : "unknown"}`;
-  if (primary.ok) {
-    const challenge = await runServ(
-      "verdict_challenge",
-      {
-        user: JSON.stringify({
-          primaryText: primary.text,
-          facts,
-          instruction:
-            "Independently challenge the shopper verdict. Cite only evidence ids present in facts. Do not invent dollars.",
-        }),
-        facts: { ...facts, firstPass: primary.text },
-      },
-      deps,
-    );
-    if (challenge.ok) combined = `${primary.text}\n--- verdict_challenge ---\n${challenge.text}`;
-    else combined = `${primary.text}\n--- verdict_challenge unavailable ---`;
-  }
+  const judged = await runServ("verdict_decide", { user }, deps);
+  const decision = resolveVerdictDecision({
+    report: input.report,
+    servText: judged.ok ? judged.text : null,
+    servOk: judged.ok,
+    hasServKey: true,
+    mandate,
+  });
+  const primary =
+    decision.finalAction === "withheld"
+      ? null
+      : (decision.finalAction as Exclude<typeof decision.finalAction, "withheld">);
+  const confidence = decision.source === "serv" && decision.overrideReasons.length === 0 ? "high" : "medium";
+  const challenge =
+    decision.finalAction === "withheld"
+      ? { result: { status: "not_run" as const }, proof: null, rawText: null }
+      : await runReportVerdictChallenge({
+          report: input.report,
+          primaryAction: primary,
+          confidence,
+          allowedActions: decision.allowedActions.filter(
+            (action): action is Exclude<typeof action, "withheld"> => action !== "withheld",
+          ),
+          hasBudget: true,
+          servKey: process.env.SERV_API_KEY,
+          servBaseUrl: process.env.SERV_BASE_URL,
+          model,
+          fetchImpl: fetch,
+        });
+  const decideRaw = judged.ok ? judged.text : `verdict_decide failed: ${"error" in judged ? judged.error : "unknown"}`;
+  const challengeRaw = challenge.rawText ?? "";
   return {
-    ok: primary.ok,
-    text: combined,
+    action: decision.finalAction,
+    source: decision.source,
+    called: true,
+    ok: judged.ok,
+    challengeStatus: challenge.result.status,
     trace: {
       model,
       timestamp,
       prompt: user,
-      rawResponse: combined,
+      rawResponse: challengeRaw ? `${decideRaw}\n--- verdict_challenge ---\n${challengeRaw}` : decideRaw,
+      openservResponseId: judged.proof.openserv?.id ?? null,
+      challengeResponseId: challenge.proof?.openserv?.id ?? null,
     },
   };
 }
 
+function applyServAction(base: ArmOutput, action: string): ArmOutput {
+  if (action === "pass" || action === "withheld") {
+    return { ...base, pickVin: null, priceVerdict: action === "withheld" ? "unknown" : base.priceVerdict };
+  }
+  return base;
+}
+
 /**
- * Live Lemonless Find: production selectBestDealOnEvidence + SERV verdict/second pass.
+ * Live Lemonless Find: production ranking, then the report verdict pipeline
+ * on that pick. No call unless COMPARISON_ALLOW_PAID=1 and SERV_API_KEY are set.
  */
 export async function runLemonlessFindLive(fixture: FindCaseFixture): Promise<ArmOutput> {
   const base = runLemonlessFindDeterministic(fixture);
   if (!liveAllowed()) return base;
-  const payload = sharedFindPayload(fixture);
-  const facts = {
-    ...payload,
-    codePickVin: base.pickVin,
-    codePriceVerdict: base.priceVerdict,
-    codeFairValueUsd: base.fairValueUsd,
-    codeRedFlags: base.redFlags,
-  };
-  const user = [
-    "Lemonless Find — code already ranked listings. Choose buy|negotiate|pass|needs_inspection for the code pick,",
-    "or pass if the pick is SOLD/unavailable. Do not invent dollar amounts; only use figures in facts.",
-    `Shared payload:\n${JSON.stringify(facts)}`,
-  ].join("\n");
+  const pick = fixture.listings.find((row) => row.vin === base.pickVin);
+  if (!pick) {
+    return { ...base, unknowns: [...base.unknowns, "No pick to send through verdict_decide."] };
+  }
+  const pool = [...fixture.listings, ...fixture.comps].map(toListing);
+  const report = computedFromCaptured(toListing(pick), pool);
   const started = Date.now();
-  const serv = await runServDecideAndChallenge(facts, user);
+  const serv = await applyProductionVerdict({
+    report,
+    userLookup: JSON.stringify(sharedFindPayload(fixture)),
+    mandate: {
+      budgetUsd: fixture.budgetUsd,
+      budgetKnown: fixture.budgetUsd != null,
+      targetProfitUsd: null,
+      repairAbility: "unknown",
+    },
+  });
+  const next = applyServAction(base, serv.action);
   return {
-    ...base,
-    summary: `${base.summary} SERV: ${serv.text.slice(0, 280)}`,
+    ...next,
+    summary: `${base.summary} Production verdict ${serv.action} (${serv.source}). Second check: ${serv.challengeStatus}.`,
     latencyMs: base.latencyMs + (Date.now() - started),
-    costUsd: null,
-    model: sharedModelId(),
+    costUsd: serv.called ? null : 0,
+    model: serv.called ? sharedModelId() : null,
     liveTrace: serv.trace,
-    unknowns: serv.ok ? base.unknowns : [...base.unknowns, "SERV call failed"],
+    unknowns: serv.called && !serv.ok ? [...next.unknowns, "SERV call failed"] : next.unknowns,
   };
 }
 
 /**
- * Live Lemonless Check: production runCheck on pasted text, then SERV
- * verdict_decide + verdict_challenge. Uses the same runCheck module as /api/check.
+ * Live Lemonless Check: same captured subject and comps as plain_llm,
+ * then production verdict_decide + verdict_challenge on those captured rows.
  */
 export async function runLemonlessCheckLive(fixture: CheckCaseFixture): Promise<ArmOutput> {
-  const started = Date.now();
-  const { runCheck } = await import("@/server/check/run-check");
-  const { runtimeDeps } = await import("@/server/deps");
-  const result = await runCheck(
-    { kind: "paste", text: fixture.rawText, url: fixture.subject.sourceUrl ?? null },
-    { ...runtimeDeps(), fetch },
-  );
-
-  let base: ArmOutput;
-  if (!result.ok) {
-    // Fall back to deterministic domain path if live extract fails (still production modules).
-    base = runLemonlessCheckDeterministic(fixture);
-    base.summary = `runCheck failed (${result.error}): ${result.message}. Deterministic fallback: ${base.summary}`;
-    base.unknowns = [...base.unknowns, "runCheck_failed"];
-  } else {
-    const check = result.result;
-    const flags = check.redFlags.map((f) => f.id);
-    if (soldFlag(fixture.subject, fixture.rawText).length) flags.push("sold");
-    base = {
-      arm: "lemonless",
-      status: "ran",
-      pickVin: flags.includes("sold") ? null : check.vin,
-      priceVerdict: flags.includes("sold")
-        ? "unknown"
-        : bandFromAskVsFair(check.fields?.priceUsd.value ?? fixture.subject.priceUsd, check.fairValueUsd),
-      fairValueUsd: check.fairValueUsd,
-      redFlags: [...new Set(flags)],
-      unknowns: check.unknown,
-      summary: check.summary,
-      latencyMs: Date.now() - started,
-      costUsd: 0,
-      model: null,
-      textForNumbers: [
-        `ask ${fixture.subject.priceUsd}`,
-        `year ${fixture.subject.year}`,
-        `miles ${fixture.subject.miles}`,
-        `compPrices ${fixture.comps.map((c) => c.priceUsd).join(" ")}`,
-        fixture.rawText,
-      ].join(" | "),
-    };
-  }
-
+  const base = runLemonlessCheckDeterministic(fixture);
   if (!liveAllowed()) return base;
-
-  const payload = sharedCheckPayload(fixture);
-  const facts = {
-    ...payload,
-    codePickVin: base.pickVin,
-    codePriceVerdict: base.priceVerdict,
-    codeFairValueUsd: base.fairValueUsd,
-    codeRedFlags: base.redFlags,
-    codeSummary: base.summary,
-  };
-  const user = [
-    "Lemonless Check — code already scored this listing. Choose buy|negotiate|pass|needs_inspection.",
-    "If SOLD/unavailable or title-branded, choose pass. Do not invent dollar amounts.",
-    `Shared payload:\n${JSON.stringify(facts)}`,
-  ].join("\n");
-  const servStarted = Date.now();
-  const serv = await runServDecideAndChallenge(facts, user);
+  const subject = toListing(fixture.subject);
+  const pool = [subject, ...fixture.comps.map(toListing)];
+  const report = computedFromCaptured(subject, pool);
+  const started = Date.now();
+  const serv = await applyProductionVerdict({
+    report,
+    userLookup: JSON.stringify(sharedCheckPayload(fixture)),
+    mandate: { budgetUsd: null, budgetKnown: false, targetProfitUsd: null, repairAbility: "unknown" },
+  });
+  const next = applyServAction(base, serv.action);
   return {
-    ...base,
-    summary: `${base.summary} SERV: ${serv.text.slice(0, 280)}`,
-    latencyMs: base.latencyMs + (Date.now() - servStarted),
-    costUsd: null,
-    model: sharedModelId(),
+    ...next,
+    summary: `${base.summary} Production verdict ${serv.action} (${serv.source}). Second check: ${serv.challengeStatus}.`,
+    latencyMs: base.latencyMs + (Date.now() - started),
+    costUsd: serv.called ? null : 0,
+    model: serv.called ? sharedModelId() : null,
     liveTrace: serv.trace,
-    unknowns: serv.ok ? base.unknowns : [...base.unknowns, "SERV call failed"],
+    unknowns: serv.called && !serv.ok ? [...next.unknowns, "SERV call failed"] : next.unknowns,
   };
 }
 

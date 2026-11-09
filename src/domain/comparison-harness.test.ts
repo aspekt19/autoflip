@@ -7,7 +7,9 @@ import { resolve } from "node:path";
 import {
   runCheapestFind,
   runLemonlessCheck,
+  runLemonlessCheckLive,
   runLemonlessFind,
+  runLemonlessFindLive,
   runPlainOfflineCheck,
   runPlainOfflineFind,
   sharedCheckPayload,
@@ -52,6 +54,15 @@ describe("comparison fixtures", () => {
     expect(ids.has("check-missing-vin")).toBe(true);
     expect(ids.has("check-high-mileage")).toBe(true);
     expect(checkCases.find((c) => c.id === "check-sold-camry")?.labels.isSold).toBe(true);
+  });
+
+  it("labels every case synthetic and does not present harness VINs as live captures", () => {
+    for (const row of [...findCases, ...checkCases]) {
+      expect(row.synthetic).toBe(true);
+      expect(row.capture?.source).toBe("harness_authored");
+      expect(`${row.capture?.note ?? ""} ${row.note}`).toMatch(/synthetic|not a live/i);
+      expect(`${row.capture?.note ?? ""} ${row.note}`).not.toMatch(/real vin|this vin was seen live/i);
+    }
   });
 
   it("keeps scoring labels off the shared SUT payload", () => {
@@ -118,6 +129,38 @@ describe("comparison arms (offline)", () => {
     expect(out.costUsd).toBe(0);
     // Must not pick the SOLD VIN.
     expect(out.pickVin).not.toBe("5J6RM4H5XEL999001");
+  });
+
+  it("live Lemonless stays offline unless the paid flag and key are both set", async () => {
+    const paid = process.env.COMPARISON_ALLOW_PAID;
+    const key = process.env.SERV_API_KEY;
+    delete process.env.COMPARISON_ALLOW_PAID;
+    delete process.env.SERV_API_KEY;
+    try {
+      const find = await runLemonlessFindLive(findCases[0]!);
+      const check = await runLemonlessCheckLive(checkCases[0]!);
+      expect(find.model).toBeNull();
+      expect(find.liveTrace ?? null).toBeNull();
+      expect(find.costUsd).toBe(0);
+      expect(check.model).toBeNull();
+      expect(check.liveTrace ?? null).toBeNull();
+      expect(check.costUsd).toBe(0);
+    } finally {
+      if (paid === undefined) delete process.env.COMPARISON_ALLOW_PAID;
+      else process.env.COMPARISON_ALLOW_PAID = paid;
+      if (key === undefined) delete process.env.SERV_API_KEY;
+      else process.env.SERV_API_KEY = key;
+    }
+  });
+
+  it("Lemonless live path uses the production verdict helpers and never reads labels", () => {
+    const src = readFileSync(resolve("eval/comparison/arms.ts"), "utf8");
+    expect(src).not.toMatch(/fixture\.labels\b/);
+    expect(src).not.toMatch(/Choose buy\|negotiate/);
+    expect(src).not.toMatch(/runCheck/);
+    expect(src).toMatch(/verdictDecisionFacts/);
+    expect(src).toMatch(/resolveVerdictDecision/);
+    expect(src).toMatch(/runReportVerdictChallenge/);
   });
 });
 

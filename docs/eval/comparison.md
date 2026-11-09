@@ -1,6 +1,6 @@
 # Lemonless vs plain AI vs price sort
 
-**Mode:** fixture / harness ready. Generated 2026-11-09T21:56:35.347Z.
+**Mode:** fixture / harness ready. Generated 2026-11-09T22:06:52.911Z.
 
 **No scoreboard yet.** Fixture mode does not publish totals, invented-dollar counts, or vivid case winners — those numbers would be fabricated without a live plain-LLM run.
 
@@ -8,11 +8,11 @@
 
 | Arm | Offline | Live |
 |-----|---------|------|
-| **lemonless** | Production domain modules only (`selectBestDealOnEvidence`, `evaluateListingPrice`, `listingRedFlags`; Check live uses `runCheck`) | Same + SERV `verdict_decide` + `verdict_challenge` |
-| **plain_llm** | **not run** (canned answers forbidden) | One chat completion on the **identical shared payload** Lemonless saw |
+| **lemonless** | Production domain modules only (`selectBestDealOnEvidence`, `evaluateListingPrice`, `listingRedFlags`) | Same captured listings, then production `verdict_decide` + `verdict_challenge` (`verdictDecisionFacts`, `resolveVerdictDecision`, `runReportVerdictChallenge`) |
+| **plain_llm** | **not run** (canned answers forbidden) | One chat completion on the **identical shared payload** |
 | **cheapest** | Sort by ask | Same |
 
-Shared model id for live plain_llm and Lemonless SERV: `gpt-5.4-mini`.
+Both arms see `sharedFindPayload` / `sharedCheckPayload` (no `fixture.labels`). Lemonless SERV also receives production `verdictDecisionFacts` (code fair value and gates). Shared model id: `gpt-5.4-mini`.
 
 ## Cases
 

@@ -105,12 +105,14 @@ function renderFixtureMarkdown(report: ComparisonReport): string {
   lines.push("| Arm | Offline | Live |");
   lines.push("|-----|---------|------|");
   lines.push(
-    "| **lemonless** | Production domain modules only (`selectBestDealOnEvidence`, `evaluateListingPrice`, `listingRedFlags`; Check live uses `runCheck`) | Same + SERV `verdict_decide` + `verdict_challenge` |",
+    "| **lemonless** | Production domain modules only (`selectBestDealOnEvidence`, `evaluateListingPrice`, `listingRedFlags`) | Same captured listings, then production `verdict_decide` + `verdict_challenge` (`verdictDecisionFacts`, `resolveVerdictDecision`, `runReportVerdictChallenge`) |",
   );
-  lines.push("| **plain_llm** | **not run** (canned answers forbidden) | One chat completion on the **identical shared payload** Lemonless saw |");
+  lines.push("| **plain_llm** | **not run** (canned answers forbidden) | One chat completion on the **identical shared payload** |");
   lines.push("| **cheapest** | Sort by ask | Same |");
   lines.push("");
-  lines.push(`Shared model id for live plain_llm and Lemonless SERV: \`${sharedModelId()}\`.`);
+  lines.push(
+    `Both arms see \`sharedFindPayload\` / \`sharedCheckPayload\` (no \`fixture.labels\`). Lemonless SERV also receives production \`verdictDecisionFacts\` (code fair value and gates). Shared model id: \`${sharedModelId()}\`.`,
+  );
   lines.push("");
   lines.push("## Cases");
   lines.push("");
@@ -278,22 +280,26 @@ export async function runComparisonHarness(opts?: { live?: boolean }): Promise<C
     checkCaseIds: checkCases.map((c) => c.id),
     syntheticCaseIds: allIds.filter((c) => c.synthetic).map((c) => c.id),
     realCaseIds: allIds.filter((c) => !c.synthetic).map((c) => c.id),
-    scores: live ? scores : scores.map((s) => (s.arm === "plain_llm" ? s : { ...s, /* keep code-arm scores in JSON for tests but docs omit */ })),
+    scores,
     totals: summarizeTotals(scores, { includeScores: live }),
     cases,
   };
 
-  // Offline JSON still records arm outputs for tests, but clears published score totals.
-  if (!live) {
-    report.scores = scores; // includes not_run for plain_llm; tests assert that
-    report.totals = null;
-  } else {
-    writeLiveTraces(cases);
-  }
+  if (!live) report.totals = null;
+  else writeLiveTraces(cases);
+
+  const published: ComparisonReport = live
+    ? report
+    : {
+        ...report,
+        scores: [],
+        totals: null,
+        cases: report.cases.map((row) => ({ ...row, scores: [] })),
+      };
 
   mkdirSync(resolve(ROOT, "eval/results"), { recursive: true });
   mkdirSync(resolve(ROOT, "docs/eval"), { recursive: true });
-  writeFileSync(OUT_JSON, `${JSON.stringify(report, null, 2)}\n`);
+  writeFileSync(OUT_JSON, `${JSON.stringify(published, null, 2)}\n`);
   const md = live ? renderLiveMarkdown(report) : renderFixtureMarkdown(report);
   writeFileSync(OUT_MD, md);
   writeFileSync(DOCS_MD, md);
@@ -332,7 +338,14 @@ async function main() {
   );
 }
 
-main().catch((error) => {
-  console.error(error);
-  process.exit(1);
-});
+function invokedDirectly(): boolean {
+  const entry = process.argv[1] ?? "";
+  return entry.endsWith("harness.ts") || entry.endsWith("harness.js");
+}
+
+if (invokedDirectly()) {
+  main().catch((error) => {
+    console.error(error);
+    process.exit(1);
+  });
+}

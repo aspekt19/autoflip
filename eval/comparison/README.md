@@ -8,8 +8,8 @@ Honest **Lemonless vs plain AI vs cheapest-price sort** on the same captured inp
 - No scoreboard in docs until a **live** run writes real totals.
 - Scoring `labels` (fair value, expected flags) are **never** passed into arms.
 - Current fixtures are **synthetic** (harness-authored VINs) with `labels.provenance` from production `evaluateListingPrice` / `listingRedFlags`. Prefer real captures over time; real vs synthetic totals are reported separately after a live run.
-- Live Lemonless uses production `runCheck` / `selectBestDealOnEvidence` + SERV `verdict_decide` + `verdict_challenge`.
-- Live plain_llm sees the **identical shared payload** (no labels). Model id, timestamp, prompt, and raw response are saved under `eval/results/comparison-live/`.
+- Live Lemonless ranks with `selectBestDealOnEvidence` (Find) or the captured Check listing, then runs production `verdict_decide` + `verdict_challenge` (`verdictDecisionFacts`, `resolveVerdictDecision`, `runReportVerdictChallenge`). It does not fetch new comps.
+- Live plain_llm sees the **identical shared payload** (no labels). Both arms use the same model id. Model id, timestamp, prompt, and raw response are saved under `eval/results/comparison-live/`.
 
 ## Commands
 

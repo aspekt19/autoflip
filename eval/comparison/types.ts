@@ -99,8 +99,11 @@ export type PlainLlmParsed = {
 export type LiveModelTrace = {
   model: string;
   timestamp: string;
+  /** Same shared listing payload the other arm saw, plus production verdict facts when this is Lemonless. */
   prompt: string;
   rawResponse: string;
+  openservResponseId?: string | null;
+  challengeResponseId?: string | null;
 };
 
 export type ArmOutput = {
