@@ -1,58 +1,60 @@
 # Lemonless vs plain AI vs price sort
 
-**Mode:** fixture (deterministic captured inputs). Generated 2026-11-09T21:42:21.770Z.
+**Mode:** fixture / harness ready. Generated 2026-11-09T21:56:35.347Z.
 
-Reproducible jury harness: **10 Find queries** + **10 Check listings** (SOLD, far-below market, salvage/rebuilt, high miles, missing VIN, recalls, odometer, as-is/accident). Three arms see identical captured JSON — A) Lemonless domain pipeline (+ SERV in live mode), B) single plain LLM call, C) cheapest-price sort.
+**No scoreboard yet.** Fixture mode does not publish totals, invented-dollar counts, or vivid case winners — those numbers would be fabricated without a live plain-LLM run.
 
-Fixture mode never opens the network. Live mode is gated by `COMPARISON_ALLOW_PAID=1` + `SERV_API_KEY` (optional `COMPARISON_DRY_RUN=1` forces offline).
+## What this harness compares
 
-## Totals
+| Arm | Offline | Live |
+|-----|---------|------|
+| **lemonless** | Production domain modules only (`selectBestDealOnEvidence`, `evaluateListingPrice`, `listingRedFlags`; Check live uses `runCheck`) | Same + SERV `verdict_decide` + `verdict_challenge` |
+| **plain_llm** | **not run** (canned answers forbidden) | One chat completion on the **identical shared payload** Lemonless saw |
+| **cheapest** | Sort by ask | Same |
 
-| Arm | Cases | Picked SOLD | Picked avoid | Invented $ | Avg |fair−label| | Red-flag recall | Avg latency | Cost |
-|---|---:|---:|---:|---:|---:|---:|---:|---:|
-| lemonless | 20 | 0 | 2 | 0 | 983 | 0.889 | 2ms | 0 |
-| plain_llm | 20 | 3 | 9 | 16 | 2660 | 0.143 | 1ms | 0 |
-| cheapest | 20 | 2 | 8 | 0 | 0 | 0.077 | 0ms | 0 |
+Shared model id for live plain_llm and Lemonless SERV: `gpt-5.4-mini`.
 
-## What each column means
+## Cases
 
-- **Picked SOLD** — Find: pick VIN is labeled sold. Check: treated a SOLD listing as still buyable.
-- **Picked avoid** — Find pick is in `expectedAvoidVins` (title brand, fleet/accident bait, etc.).
-- **Invented $** — any dollar/number in the arm text not present in the captured inputs.
-- **Avg |fair−label|** — absolute error vs fixture fair-value labels when the arm stated a fair value.
-- **Red-flag recall** — fraction of labeled red-flag ids the arm surfaced.
+- Find: 10 (0 real-sourced / 10 synthetic)
+- Check: 10 (0 real-sourced / 10 synthetic)
 
-## Vivid cases
+### Case list
 
-### Family SUV around $15k near 68114 (`find-family-suv-15k-68114`)
+- `find-family-suv-15k-68114` (synthetic, find) — plain_llm: **not_run** — plain_llm not run in fixture mode — canned answers are forbidden. Run live with COMPARISON_ALLOW_PAID=1.
+- `find-commuter-sedan-12k` (synthetic, find) — plain_llm: **not_run** — plain_llm not run in fixture mode — canned answers are forbidden. Run live with COMPARISON_ALLOW_PAID=1.
+- `find-teen-first-car-8k` (synthetic, find) — plain_llm: **not_run** — plain_llm not run in fixture mode — canned answers are forbidden. Run live with COMPARISON_ALLOW_PAID=1.
+- `find-awd-winter-18k-msp` (synthetic, find) — plain_llm: **not_run** — plain_llm not run in fixture mode — canned answers are forbidden. Run live with COMPARISON_ALLOW_PAID=1.
+- `find-low-mile-camry-20k` (synthetic, find) — plain_llm: **not_run** — plain_llm not run in fixture mode — canned answers are forbidden. Run live with COMPARISON_ALLOW_PAID=1.
+- `find-truck-weekend-22k` (synthetic, find) — plain_llm: **not_run** — plain_llm not run in fixture mode — canned answers are forbidden. Run live with COMPARISON_ALLOW_PAID=1.
+- `find-hybrid-fuel-16k` (synthetic, find) — plain_llm: **not_run** — plain_llm not run in fixture mode — canned answers are forbidden. Run live with COMPARISON_ALLOW_PAID=1.
+- `find-luxury-stretch-25k` (synthetic, find) — plain_llm: **not_run** — plain_llm not run in fixture mode — canned answers are forbidden. Run live with COMPARISON_ALLOW_PAID=1.
+- `find-city-crossover-14k` (synthetic, find) — plain_llm: **not_run** — plain_llm not run in fixture mode — canned answers are forbidden. Run live with COMPARISON_ALLOW_PAID=1.
+- `find-cheapest-reliable-honda-33101` (synthetic, find) — plain_llm: **not_run** — plain_llm not run in fixture mode — canned answers are forbidden. Run live with COMPARISON_ALLOW_PAID=1.
+- `check-sold-camry` (synthetic, check) — plain_llm: **not_run** — plain_llm not run in fixture mode — canned answers are forbidden. Run live with COMPARISON_ALLOW_PAID=1.
+- `check-far-below-market` (synthetic, check) — plain_llm: **not_run** — plain_llm not run in fixture mode — canned answers are forbidden. Run live with COMPARISON_ALLOW_PAID=1.
+- `check-salvage-rebuilt` (synthetic, check) — plain_llm: **not_run** — plain_llm not run in fixture mode — canned answers are forbidden. Run live with COMPARISON_ALLOW_PAID=1.
+- `check-high-mileage` (synthetic, check) — plain_llm: **not_run** — plain_llm not run in fixture mode — canned answers are forbidden. Run live with COMPARISON_ALLOW_PAID=1.
+- `check-missing-vin` (synthetic, check) — plain_llm: **not_run** — plain_llm not run in fixture mode — canned answers are forbidden. Run live with COMPARISON_ALLOW_PAID=1.
+- `check-fair-camry` (synthetic, check) — plain_llm: **not_run** — plain_llm not run in fixture mode — canned answers are forbidden. Run live with COMPARISON_ALLOW_PAID=1.
+- `check-overpriced-dealer` (synthetic, check) — plain_llm: **not_run** — plain_llm not run in fixture mode — canned answers are forbidden. Run live with COMPARISON_ALLOW_PAID=1.
+- `check-recall-heavy` (synthetic, check) — plain_llm: **not_run** — plain_llm not run in fixture mode — canned answers are forbidden. Run live with COMPARISON_ALLOW_PAID=1.
+- `check-odometer-rollback` (synthetic, check) — plain_llm: **not_run** — plain_llm not run in fixture mode — canned answers are forbidden. Run live with COMPARISON_ALLOW_PAID=1.
+- `check-as-is-accident` (synthetic, check) — plain_llm: **not_run** — plain_llm not run in fixture mode — canned answers are forbidden. Run live with COMPARISON_ALLOW_PAID=1.
 
-- **lemonless** → pick `2HKRM4H75FH123456`, verdict `above`, flags [5J6RM4H5XEL999001:sold, sold, accident]. sold=false invented$=false flags 1/1. Lemonless pick 2015 Honda CR-V (medium). The best choice may change as checks complete. Public safety records: 4 models not checked yet. Recall and crash-test data are per model and year, not for this exact car.
-- **plain_llm** → pick `5J6RM4H5XEL999001`, verdict `far_below`, flags [—]. sold=true invented$=true flags 0/1. Grab the $7995 CR-V — great deal at about $14000 market.
-- **cheapest** → pick `5J6RM4H5XEL999001`, verdict `fair`, flags [sold]. sold=true invented$=false flags 1/1. Cheapest ask: 2014 Honda CR-V at $7995.
+## Labels
 
-### SOLD Camry still listed (`check-sold-camry`)
+Scoring labels live on each fixture under `labels` with a `provenance` block. They are derived from captured comps via `evaluateListingPrice` / from listing text via `listingRedFlags` + sold/VIN heuristics — **not** hand-picked winners. Arms never read `labels`.
 
-- **lemonless** → pick `none`, verdict `unknown`, flags [sold]. sold=false invented$=false flags 1/1. 2015 Toyota Camry ask $11990. Walk away until title/availability is cleared.
-- **plain_llm** → pick `4T1BF1FK5FU111111`, verdict `fair`, flags [—]. sold=true invented$=false flags 0/1. Fairly priced Camry — good daily driver at $11990.
-- **cheapest** → pick `4T1BF1FK5FU111111`, verdict `fair`, flags [—]. sold=true invented$=false flags 0/1. Cheapest-price arm on a single listing: ask $11990.
-
-### Salvage / rebuilt title language (`check-salvage-rebuilt`)
-
-- **lemonless** → pick `3FA6P0H70GR333333`, verdict `far_below`, flags [title_brand, too_good_price]. sold=false invented$=false flags 1/1. 2016 Ford Fusion ask $7495. Walk away until title/availability is cleared.
-- **plain_llm** → pick `3FA6P0H70GR333333`, verdict `below`, flags [—]. sold=false invented$=true flags 0/1. Fusion under market — solid commute car.
-- **cheapest** → pick `3FA6P0H70GR333333`, verdict `far_below`, flags [—]. sold=false invented$=false flags 0/1. Cheapest-price arm on a single listing: ask $7495.
-
-## How to re-run
+## How to run live (parent only)
 
 ```bash
-# Offline / CI (default — no network, no credits)
-npm run eval:comparison
-
-# Live (parent only — spends SERV on plain LLM + Lemonless SERV pass)
 COMPARISON_ALLOW_PAID=1 SERV_API_KEY=… npm run eval:comparison
 ```
 
-Expected live cost: ~20 plain-LLM calls + ~20 Lemonless `verdict_decide` calls on `gpt-5.4-mini` ≈ **$0.40–$2.00** depending on prompt size (cost fields stay null unless usage is reconciled).
+Expected live cost: ~20 plain-LLM + ~20 Lemonless SERV (`verdict_decide` + second pass) on `gpt-5.4-mini` ≈ **$0.40–$2.50**. No site report credits. Traces land in `eval/results/comparison-live/`.
+
+After a live run, this file and `eval/results/comparison-latest.*` gain a scored table with **real** and **synthetic** rows reported separately.
 
 Fixtures: `eval/comparison/fixtures/find-cases.json`, `check-cases.json`.
 

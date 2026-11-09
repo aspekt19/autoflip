@@ -105,7 +105,7 @@ function renderFixtureMarkdown(report: ComparisonReport): string {
   lines.push("| Arm | Offline | Live |");
   lines.push("|-----|---------|------|");
   lines.push(
-    "| **lemonless** | Production domain modules only (`selectBestDealOnEvidence`, `evaluateListingPrice`, `listingRedFlags`; Check live uses `runCheck`) | Same + SERV `verdict_decide` + `report_explain` second pass |",
+    "| **lemonless** | Production domain modules only (`selectBestDealOnEvidence`, `evaluateListingPrice`, `listingRedFlags`; Check live uses `runCheck`) | Same + SERV `verdict_decide` + `verdict_challenge` |",
   );
   lines.push("| **plain_llm** | **not run** (canned answers forbidden) | One chat completion on the **identical shared payload** Lemonless saw |");
   lines.push("| **cheapest** | Sort by ask | Same |");

@@ -1,5 +1,6 @@
 {
-  "schema": "lemonless.comparison.fixtures.find.v1",
+  "schema": "lemonless.comparison.find_cases.v2",
+  "note": "All cases currently synthetic. Labels derived by rebuild-fixture-labels.ts from production modules. Arms never read labels.",
   "cases": [
     {
       "id": "find-family-suv-15k-68114",
@@ -314,38 +315,41 @@
           "miles": 141000
         }
       ],
+      "synthetic": true,
+      "capture": {
+        "source": "harness_authored",
+        "url": null,
+        "note": "Synthetic Find inventory for offline CI — not a live marketplace capture. Prefer replacing with real captures over time."
+      },
       "labels": {
         "soldVins": [
           "5J6RM4H5XEL999001"
         ],
         "expectedAvoidVins": [
-          "5J6RM4H5XEL999001",
-          "2HKRM4H75FH123456"
+          "2HKRM4H75FH123456",
+          "5J6RM4H5XEL999001"
         ],
         "expectedRedFlagIdsByVin": {
-          "5J6RM4H5XEL999001": [
-            "sold"
-          ],
           "2HKRM4H75FH123456": [
             "accident"
+          ],
+          "5J6RM4H5XEL999001": [
+            "sold"
           ]
         },
         "fairValueByVin": {
-          "KNDPBCAC6G7123456": 13200,
-          "2HKRM4H75FH123456": 11800,
-          "5J6RM4H37EL123456": 9200,
-          "KM8J3CA46HU123456": 14100,
-          "5J6RM4H5XEL999001": 8500
+          "KNDPBCAC6G7123456": 12540,
+          "2HKRM4H75FH123456": 11210,
+          "5J6RM4H37EL123456": 8203,
+          "KM8J3CA46HU123456": 13395,
+          "5J6RM4H5XEL999001": 8962
         },
-        "preferredVin": "KM8J3CA46HU123456"
-      },
-      "plainLlmOffline": {
-        "pickVin": "5J6RM4H5XEL999001",
-        "priceVerdict": "far_below",
-        "fairValueUsd": 14000,
-        "redFlags": [],
-        "unknowns": [],
-        "summary": "Grab the $7995 CR-V — great deal at about $14000 market."
+        "provenance": {
+          "fairValueMethod": "evaluateListingPrice(subject, comps∪listings) — production price module",
+          "redFlagMethod": "listingRedFlags + sold/missing_vin/recall heuristics on captured text",
+          "soldMethod": "availability===sold OR /\\bSOLD\\b/ OR schema.org/SoldOut in description/rawText",
+          "notes": "Harness-authored inventory (synthetic VINs). Labels recomputed; not hand-picked winners."
+        }
       }
     },
     {
@@ -601,6 +605,12 @@
           "miles": 138000
         }
       ],
+      "synthetic": true,
+      "capture": {
+        "source": "harness_authored",
+        "url": null,
+        "note": "Synthetic Find inventory for offline CI — not a live marketplace capture. Prefer replacing with real captures over time."
+      },
       "labels": {
         "soldVins": [],
         "expectedAvoidVins": [
@@ -613,20 +623,17 @@
           ]
         },
         "fairValueByVin": {
-          "4T1BF1FK5EU100001": 11200,
-          "1HGCR2F30EA200002": 11500,
-          "4T1BF1FK8EU300003": 9400,
-          "1N4AL3AP3EC400004": 5500
+          "4T1BF1FK5EU100001": 11098,
+          "1HGCR2F30EA200002": 10925,
+          "4T1BF1FK8EU300003": 8401,
+          "1N4AL3AP3EC400004": 5225
         },
-        "preferredVin": "4T1BF1FK5EU100001"
-      },
-      "plainLlmOffline": {
-        "pickVin": "1N4AL3AP3EC400004",
-        "priceVerdict": "far_below",
-        "fairValueUsd": 11000,
-        "redFlags": [],
-        "unknowns": [],
-        "summary": "Cheapest Altima at $7990 looks like a steal versus $11000 comps."
+        "provenance": {
+          "fairValueMethod": "evaluateListingPrice(subject, comps∪listings) — production price module",
+          "redFlagMethod": "listingRedFlags + sold/missing_vin/recall heuristics on captured text",
+          "soldMethod": "availability===sold OR /\\bSOLD\\b/ OR schema.org/SoldOut in description/rawText",
+          "notes": "Harness-authored inventory (synthetic VINs). Labels recomputed; not hand-picked winners."
+        }
       }
     },
     {
@@ -822,6 +829,12 @@
           "miles": 168000
         }
       ],
+      "synthetic": true,
+      "capture": {
+        "source": "harness_authored",
+        "url": null,
+        "note": "Synthetic Find inventory for offline CI — not a live marketplace capture. Prefer replacing with real captures over time."
+      },
       "labels": {
         "soldVins": [],
         "expectedAvoidVins": [
@@ -833,19 +846,16 @@
           ]
         },
         "fairValueByVin": {
-          "2T1BU4EE5DC500001": 7600,
-          "1HGCP2F37CA600002": 7100,
-          "KNAGM4A75D5700003": 4200
+          "2T1BU4EE5DC500001": 7220,
+          "1HGCP2F37CA600002": 6745,
+          "KNAGM4A75D5700003": 3990
         },
-        "preferredVin": "1HGCP2F37CA600002"
-      },
-      "plainLlmOffline": {
-        "pickVin": "KNAGM4A75D5700003",
-        "priceVerdict": "below",
-        "fairValueUsd": 7000,
-        "redFlags": [],
-        "unknowns": [],
-        "summary": "Optima at $5995 leaves room under budget for insurance."
+        "provenance": {
+          "fairValueMethod": "evaluateListingPrice(subject, comps∪listings) — production price module",
+          "redFlagMethod": "listingRedFlags + sold/missing_vin/recall heuristics on captured text",
+          "soldMethod": "availability===sold OR /\\bSOLD\\b/ OR schema.org/SoldOut in description/rawText",
+          "notes": "Harness-authored inventory (synthetic VINs). Labels recomputed; not hand-picked winners."
+        }
       }
     },
     {
@@ -1101,6 +1111,12 @@
           "miles": 174000
         }
       ],
+      "synthetic": true,
+      "capture": {
+        "source": "harness_authored",
+        "url": null,
+        "note": "Synthetic Find inventory for offline CI — not a live marketplace capture. Prefer replacing with real captures over time."
+      },
       "labels": {
         "soldVins": [],
         "expectedAvoidVins": [
@@ -1108,20 +1124,17 @@
         ],
         "expectedRedFlagIdsByVin": {},
         "fairValueByVin": {
-          "JM3KE2DY5G0700001": 16500,
-          "5J6RM4H75GL800002": 17200,
-          "2T3ZF4DV5BW900003": 12500,
-          "3CZRE3H50BG000004": 9800
+          "JM3KE2DY5G0700001": 15675,
+          "5J6RM4H75GL800002": 16340,
+          "2T3ZF4DV5BW900003": 11875,
+          "3CZRE3H50BG000004": 9310
         },
-        "preferredVin": "JM3KE2DY5G0700001"
-      },
-      "plainLlmOffline": {
-        "pickVin": "3CZRE3H50BG000004",
-        "priceVerdict": "fair",
-        "fairValueUsd": 10000,
-        "redFlags": [],
-        "unknowns": [],
-        "summary": "Cheapest CR-V saves money for winter tires."
+        "provenance": {
+          "fairValueMethod": "evaluateListingPrice(subject, comps∪listings) — production price module",
+          "redFlagMethod": "listingRedFlags + sold/missing_vin/recall heuristics on captured text",
+          "soldMethod": "availability===sold OR /\\bSOLD\\b/ OR schema.org/SoldOut in description/rawText",
+          "notes": "Harness-authored inventory (synthetic VINs). Labels recomputed; not hand-picked winners."
+        }
       }
     },
     {
@@ -1317,6 +1330,12 @@
           "miles": 14000
         }
       ],
+      "synthetic": true,
+      "capture": {
+        "source": "harness_authored",
+        "url": null,
+        "note": "Synthetic Find inventory for offline CI — not a live marketplace capture. Prefer replacing with real captures over time."
+      },
       "labels": {
         "soldVins": [],
         "expectedAvoidVins": [
@@ -1328,19 +1347,16 @@
           ]
         },
         "fairValueByVin": {
-          "4T1B11HK5JU700001": 18200,
-          "4T1B11HK0JU700002": 17600,
-          "4T1B11HK1JU700003": 17000
+          "4T1B11HK5JU700001": 17124,
+          "4T1B11HK0JU700002": 16378,
+          "4T1B11HK1JU700003": 20132
         },
-        "preferredVin": "4T1B11HK5JU700001"
-      },
-      "plainLlmOffline": {
-        "pickVin": "4T1B11HK1JU700003",
-        "priceVerdict": "below",
-        "fairValueUsd": 18500,
-        "redFlags": [],
-        "unknowns": [],
-        "summary": "Only 18k miles at $16995 is the clear winner."
+        "provenance": {
+          "fairValueMethod": "evaluateListingPrice(subject, comps∪listings) — production price module",
+          "redFlagMethod": "listingRedFlags + sold/missing_vin/recall heuristics on captured text",
+          "soldMethod": "availability===sold OR /\\bSOLD\\b/ OR schema.org/SoldOut in description/rawText",
+          "notes": "Harness-authored inventory (synthetic VINs). Labels recomputed; not hand-picked winners."
+        }
       }
     },
     {
@@ -1536,6 +1552,12 @@
           "miles": 206000
         }
       ],
+      "synthetic": true,
+      "capture": {
+        "source": "harness_authored",
+        "url": null,
+        "note": "Synthetic Find inventory for offline CI — not a live marketplace capture. Prefer replacing with real captures over time."
+      },
       "labels": {
         "soldVins": [],
         "expectedAvoidVins": [
@@ -1543,19 +1565,16 @@
         ],
         "expectedRedFlagIdsByVin": {},
         "fairValueByVin": {
-          "5TFRU5F18GX100001": 21500,
-          "1FTER4EH5HLA00002": 20500,
-          "5TFRU5F10DX200003": 13500
+          "5TFRU5F18GX100001": 19187,
+          "1FTER4EH5HLA00002": 19475,
+          "5TFRU5F10DX200003": 14904
         },
-        "preferredVin": "1FTER4EH5HLA00002"
-      },
-      "plainLlmOffline": {
-        "pickVin": "5TFRU5F10DX200003",
-        "priceVerdict": "below",
-        "fairValueUsd": 18000,
-        "redFlags": [],
-        "unknowns": [],
-        "summary": "Cheapest Tacoma leaves budget for a bed cover."
+        "provenance": {
+          "fairValueMethod": "evaluateListingPrice(subject, comps∪listings) — production price module",
+          "redFlagMethod": "listingRedFlags + sold/missing_vin/recall heuristics on captured text",
+          "soldMethod": "availability===sold OR /\\bSOLD\\b/ OR schema.org/SoldOut in description/rawText",
+          "notes": "Harness-authored inventory (synthetic VINs). Labels recomputed; not hand-picked winners."
+        }
       }
     },
     {
@@ -1755,24 +1774,27 @@
           "miles": 101000
         }
       ],
+      "synthetic": true,
+      "capture": {
+        "source": "harness_authored",
+        "url": null,
+        "note": "Synthetic Find inventory for offline CI — not a live marketplace capture. Prefer replacing with real captures over time."
+      },
       "labels": {
         "soldVins": [],
         "expectedAvoidVins": [],
         "expectedRedFlagIdsByVin": {},
         "fairValueByVin": {
-          "JTDKN3DU5E0100001": 12800,
-          "JTDKB20U293200002": 7500,
-          "4T1BF1FK5EU300003": 11500
+          "JTDKN3DU5E0100001": 12160,
+          "JTDKB20U293200002": 7125,
+          "4T1BF1FK5EU300003": 10925
         },
-        "preferredVin": "JTDKN3DU5E0100001"
-      },
-      "plainLlmOffline": {
-        "pickVin": "JTDKB20U293200002",
-        "priceVerdict": "fair",
-        "fairValueUsd": 8000,
-        "redFlags": [],
-        "unknowns": [],
-        "summary": "Oldest Prius is cheapest and still a hybrid."
+        "provenance": {
+          "fairValueMethod": "evaluateListingPrice(subject, comps∪listings) — production price module",
+          "redFlagMethod": "listingRedFlags + sold/missing_vin/recall heuristics on captured text",
+          "soldMethod": "availability===sold OR /\\bSOLD\\b/ OR schema.org/SoldOut in description/rawText",
+          "notes": "Harness-authored inventory (synthetic VINs). Labels recomputed; not hand-picked winners."
+        }
       }
     },
     {
@@ -1968,6 +1990,12 @@
           "miles": 94000
         }
       ],
+      "synthetic": true,
+      "capture": {
+        "source": "harness_authored",
+        "url": null,
+        "note": "Synthetic Find inventory for offline CI — not a live marketplace capture. Prefer replacing with real captures over time."
+      },
       "labels": {
         "soldVins": [],
         "expectedAvoidVins": [
@@ -1979,19 +2007,16 @@
           ]
         },
         "fairValueByVin": {
-          "58ABK1GG5GU400001": 23500,
-          "19UDE2F70GA500002": 21500,
-          "JTHBK1GG7E2500003": 14000
+          "58ABK1GG5GU400001": 21747,
+          "19UDE2F70GA500002": 20425,
+          "JTHBK1GG7E2500003": 16344
         },
-        "preferredVin": "19UDE2F70GA500002"
-      },
-      "plainLlmOffline": {
-        "pickVin": "JTHBK1GG7E2500003",
-        "priceVerdict": "far_below",
-        "fairValueUsd": 22000,
-        "redFlags": [],
-        "unknowns": [],
-        "summary": "Lexus ES for $16990 is thousands under market."
+        "provenance": {
+          "fairValueMethod": "evaluateListingPrice(subject, comps∪listings) — production price module",
+          "redFlagMethod": "listingRedFlags + sold/missing_vin/recall heuristics on captured text",
+          "soldMethod": "availability===sold OR /\\bSOLD\\b/ OR schema.org/SoldOut in description/rawText",
+          "notes": "Harness-authored inventory (synthetic VINs). Labels recomputed; not hand-picked winners."
+        }
       }
     },
     {
@@ -2187,6 +2212,12 @@
           "miles": 116000
         }
       ],
+      "synthetic": true,
+      "capture": {
+        "source": "harness_authored",
+        "url": null,
+        "note": "Synthetic Find inventory for offline CI — not a live marketplace capture. Prefer replacing with real captures over time."
+      },
       "labels": {
         "soldVins": [],
         "expectedAvoidVins": [
@@ -2194,19 +2225,16 @@
         ],
         "expectedRedFlagIdsByVin": {},
         "fairValueByVin": {
-          "JTMZF4DV5ED600001": 13500,
-          "SHSRD77805U700002": 5200,
-          "JM3TB2CA5D0800003": 12600
+          "JTMZF4DV5ED600001": 12825,
+          "SHSRD77805U700002": 4940,
+          "JM3TB2CA5D0800003": 11970
         },
-        "preferredVin": "JM3TB2CA5D0800003"
-      },
-      "plainLlmOffline": {
-        "pickVin": "SHSRD77805U700002",
-        "priceVerdict": "fair",
-        "fairValueUsd": 6000,
-        "redFlags": [],
-        "unknowns": [],
-        "summary": "Oldest CR-V is fine for city errands and cheapest."
+        "provenance": {
+          "fairValueMethod": "evaluateListingPrice(subject, comps∪listings) — production price module",
+          "redFlagMethod": "listingRedFlags + sold/missing_vin/recall heuristics on captured text",
+          "soldMethod": "availability===sold OR /\\bSOLD\\b/ OR schema.org/SoldOut in description/rawText",
+          "notes": "Harness-authored inventory (synthetic VINs). Labels recomputed; not hand-picked winners."
+        }
       }
     },
     {
@@ -2402,6 +2430,12 @@
           "miles": 84000
         }
       ],
+      "synthetic": true,
+      "capture": {
+        "source": "harness_authored",
+        "url": null,
+        "note": "Synthetic Find inventory for offline CI — not a live marketplace capture. Prefer replacing with real captures over time."
+      },
       "labels": {
         "soldVins": [
           "1HGCR2F84HA000003"
@@ -2411,23 +2445,21 @@
         ],
         "expectedRedFlagIdsByVin": {
           "1HGCR2F84HA000003": [
-            "sold"
+            "sold",
+            "too_good_price"
           ]
         },
         "fairValueByVin": {
-          "1HGCM82633A800001": 3200,
-          "2HGFC2F59GH900002": 12800,
-          "1HGCR2F84HA000003": 14500
+          "1HGCM82633A800001": 3040,
+          "2HGFC2F59GH900002": 12160,
+          "1HGCR2F84HA000003": 13775
         },
-        "preferredVin": "2HGFC2F59GH900002"
-      },
-      "plainLlmOffline": {
-        "pickVin": "1HGCR2F84HA000003",
-        "priceVerdict": "far_below",
-        "fairValueUsd": 14500,
-        "redFlags": [],
-        "unknowns": [],
-        "summary": "2017 Accord at $4500 is an incredible deal — buy today."
+        "provenance": {
+          "fairValueMethod": "evaluateListingPrice(subject, comps∪listings) — production price module",
+          "redFlagMethod": "listingRedFlags + sold/missing_vin/recall heuristics on captured text",
+          "soldMethod": "availability===sold OR /\\bSOLD\\b/ OR schema.org/SoldOut in description/rawText",
+          "notes": "Harness-authored inventory (synthetic VINs). Labels recomputed; not hand-picked winners."
+        }
       }
     }
   ]

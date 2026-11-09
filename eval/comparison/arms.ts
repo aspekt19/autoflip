@@ -14,7 +14,7 @@ import { selectBestDealOnEvidence } from "@/domain/find-best-deal";
 import { explicitNeedFromText } from "@/domain/need";
 import { evaluateListingPrice } from "@/domain/price-evaluation";
 import type { Listing } from "@/domain/types";
-import { BASE_MODEL, SHADOW_MAX_ITERATIONS, runServ } from "@/server/serv";
+import { BASE_MODEL, runServ } from "@/server/serv";
 import { bandFromAskVsFair } from "./score";
 import type {
   ArmOutput,
@@ -367,41 +367,42 @@ export function runPlainOfflineCheck(_fixture: CheckCaseFixture): ArmOutput {
   );
 }
 
-async function runServSecondPass(facts: Record<string, unknown>, user: string): Promise<{
+/**
+ * Production SERV path: verdict_decide then verdict_challenge (same profiles assemble uses).
+ */
+async function runServDecideAndChallenge(facts: Record<string, unknown>, user: string): Promise<{
   text: string;
   trace: LiveModelTrace;
   ok: boolean;
 }> {
   const model = sharedModelId();
   const timestamp = new Date().toISOString();
-  const primary = await runServ(
-    "verdict_decide",
-    { user, facts },
-    {
-      apiKey: process.env.SERV_API_KEY,
-      model,
-      fetch,
-      transportPolicy: "experiment_single_attempt",
-    },
-  );
-  let combined = primary.ok ? primary.text : `verdict_decide failed: ${"error" in primary ? primary.error : "unknown"}`;
-  // Second pass — same shadow profile family assemble uses (report_explain shadow).
+  const deps = {
+    apiKey: process.env.SERV_API_KEY,
+    model,
+    fetch,
+    transportPolicy: "experiment_single_attempt" as const,
+  };
+  const primary = await runServ("verdict_decide", { user, facts }, deps);
+  let combined = primary.ok
+    ? primary.text
+    : `verdict_decide failed: ${"error" in primary ? primary.error : "unknown"}`;
   if (primary.ok) {
-    const shadow = await runServ(
-      "report_explain",
+    const challenge = await runServ(
+      "verdict_challenge",
       {
-        user: `${user}\n\nFirst-pass decision JSON:\n${primary.text}\nChallenge or confirm. Do not invent dollar amounts.`,
+        user: JSON.stringify({
+          primaryText: primary.text,
+          facts,
+          instruction:
+            "Independently challenge the shopper verdict. Cite only evidence ids present in facts. Do not invent dollars.",
+        }),
         facts: { ...facts, firstPass: primary.text },
       },
-      {
-        apiKey: process.env.SERV_API_KEY,
-        model,
-        fetch,
-        transportPolicy: "experiment_single_attempt",
-      },
+      deps,
     );
-    if (shadow.ok) combined = `${primary.text}\n--- second_pass ---\n${shadow.text}`;
-    else combined = `${primary.text}\n--- second_pass unavailable ---`;
+    if (challenge.ok) combined = `${primary.text}\n--- verdict_challenge ---\n${challenge.text}`;
+    else combined = `${primary.text}\n--- verdict_challenge unavailable ---`;
   }
   return {
     ok: primary.ok,
@@ -435,7 +436,7 @@ export async function runLemonlessFindLive(fixture: FindCaseFixture): Promise<Ar
     `Shared payload:\n${JSON.stringify(facts)}`,
   ].join("\n");
   const started = Date.now();
-  const serv = await runServSecondPass(facts, user);
+  const serv = await runServDecideAndChallenge(facts, user);
   return {
     ...base,
     summary: `${base.summary} SERV: ${serv.text.slice(0, 280)}`,
@@ -448,8 +449,8 @@ export async function runLemonlessFindLive(fixture: FindCaseFixture): Promise<Ar
 }
 
 /**
- * Live Lemonless Check: production runCheck on pasted text, then SERV second pass.
- * Uses the same runCheck module as /api/check (not a fork).
+ * Live Lemonless Check: production runCheck on pasted text, then SERV
+ * verdict_decide + verdict_challenge. Uses the same runCheck module as /api/check.
  */
 export async function runLemonlessCheckLive(fixture: CheckCaseFixture): Promise<ArmOutput> {
   const started = Date.now();
@@ -509,10 +510,9 @@ export async function runLemonlessCheckLive(fixture: CheckCaseFixture): Promise<
     "Lemonless Check — code already scored this listing. Choose buy|negotiate|pass|needs_inspection.",
     "If SOLD/unavailable or title-branded, choose pass. Do not invent dollar amounts.",
     `Shared payload:\n${JSON.stringify(facts)}`,
-    `Shadow max iterations in production: ${SHADOW_MAX_ITERATIONS}.`,
   ].join("\n");
   const servStarted = Date.now();
-  const serv = await runServSecondPass(facts, user);
+  const serv = await runServDecideAndChallenge(facts, user);
   return {
     ...base,
     summary: `${base.summary} SERV: ${serv.text.slice(0, 280)}`,
@@ -523,6 +523,10 @@ export async function runLemonlessCheckLive(fixture: CheckCaseFixture): Promise<
     unknowns: serv.ok ? base.unknowns : [...base.unknowns, "SERV call failed"],
   };
 }
+
+/** Test aliases — offline deterministic path. */
+export const runLemonlessFind = runLemonlessFindDeterministic;
+export const runLemonlessCheck = runLemonlessCheckDeterministic;
 
 export async function runPlainLiveFind(fixture: FindCaseFixture): Promise<ArmOutput> {
   const payload = sharedFindPayload(fixture);
