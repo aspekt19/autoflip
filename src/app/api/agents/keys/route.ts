@@ -24,7 +24,7 @@ export async function GET() {
 
 export async function POST(request: Request) {
   const id = await ledgerOwnerId();
-  const body = (await request.json().catch(() => null)) as { label?: unknown } | null;
+  const body = (await request.json().catch(() => null)) as { label?: unknown; scopes?: unknown } | null;
   const label = typeof body?.label === "string" ? body.label : "Agent key";
   const existing = await listApiKeys(getKv(), id);
   if (existing.filter((key) => !key.revokedAt).length >= ACTIVE_LIMIT) {
@@ -33,7 +33,7 @@ export async function POST(request: Request) {
       { status: 400 },
     );
   }
-  const created = await createApiKey(getKv(), id, label);
+  const created = await createApiKey(getKv(), id, label, body?.scopes);
   return Response.json({
     token: created.token,
     key: publicKey(created.record),
@@ -51,6 +51,13 @@ export async function DELETE(request: Request) {
   return Response.json({ ok: true });
 }
 
-function publicKey(record: { id: string; label: string; prefix: string; createdAt: string; revokedAt: string | null }) {
+function publicKey(record: {
+  id: string;
+  label: string;
+  prefix: string;
+  createdAt: string;
+  revokedAt: string | null;
+  scopes?: string[];
+}) {
   return record;
 }

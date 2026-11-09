@@ -1,0 +1,164 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "Lemonless Agent API",
+    "version": "0.2.0",
+    "description": "Check a car and Find cars with af_ API keys. Credits settle after success only."
+  },
+  "servers": [{ "url": "/" }],
+  "components": {
+    "securitySchemes": {
+      "bearerAuth": {
+        "type": "http",
+        "scheme": "bearer",
+        "bearerFormat": "af_"
+      }
+    },
+    "schemas": {
+      "AgentError": {
+        "type": "object",
+        "required": ["error_code", "message", "credit_spent", "retry_safe", "next_steps"],
+        "properties": {
+          "error_code": { "type": "string" },
+          "message": { "type": "string" },
+          "credit_spent": { "type": "boolean" },
+          "retry_safe": { "type": "boolean" },
+          "next_steps": {
+            "type": "object",
+            "properties": {
+              "action": { "type": "string" },
+              "summary": { "type": "string" },
+              "request": {
+                "type": "object",
+                "properties": {
+                  "method": { "type": "string" },
+                  "url": { "type": "string" },
+                  "body": { "type": "object" }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "security": [{ "bearerAuth": [] }],
+  "paths": {
+    "/api/v1/check": {
+      "post": {
+        "summary": "check_car",
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "schema": { "type": "string" }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "vin": { "type": "string" },
+                  "url": { "type": "string" },
+                  "text": { "type": "string" },
+                  "zip": { "type": "string" }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Agent success wrapper: schema_version, tool, verdict, confidence, summary, reasons, risks, unknowns, subject, comparables_summary, serv.steps, code_computed, credit_spent, credits, free_check_spent, receipt_id, result.",
+            "headers": {
+              "X-RateLimit-Limit": { "schema": { "type": "integer" } },
+              "X-RateLimit-Remaining": { "schema": { "type": "integer" } }
+            }
+          },
+          "400": { "description": "Invalid input", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/AgentError" } } } },
+          "401": { "description": "Missing or invalid af_ key", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/AgentError" } } } },
+          "402": { "description": "Credits", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/AgentError" } } } },
+          "403": { "description": "Key lacks the check scope", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/AgentError" } } } },
+          "409": { "description": "Same Idempotency-Key is still running", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/AgentError" } } } },
+          "429": {
+            "description": "Per-key rate limit",
+            "headers": { "Retry-After": { "schema": { "type": "integer" } }, "X-RateLimit-Remaining": { "schema": { "type": "integer" } } },
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/AgentError" } } }
+          }
+        }
+      }
+    },
+    "/api/v1/find": {
+      "post": {
+        "summary": "Start async find_cars",
+        "parameters": [
+          { "name": "Idempotency-Key", "in": "header", "schema": { "type": "string" } }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["text"],
+                "properties": {
+                  "text": { "type": "string" },
+                  "mode": { "type": "string", "enum": ["personal", "flip"] },
+                  "zip": { "type": "string" },
+                  "budgetUsd": { "type": "number" }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "{ run_id, status, current_step, credit_spent, status_url, result_url, next_steps }. credit_spent is false until the run completes.",
+            "headers": {
+              "X-RateLimit-Limit": { "schema": { "type": "integer" } },
+              "X-RateLimit-Remaining": { "schema": { "type": "integer" } }
+            }
+          },
+          "401": { "description": "Auth", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/AgentError" } } } },
+          "402": { "description": "Credits", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/AgentError" } } } },
+          "403": { "description": "Key lacks the find scope", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/AgentError" } } } },
+          "429": { "description": "Rate limit", "headers": { "Retry-After": { "schema": { "type": "integer" } } }, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/AgentError" } } } }
+        }
+      }
+    },
+    "/api/v1/find/{runId}/status": {
+      "get": {
+        "summary": "Find run status",
+        "parameters": [{ "name": "runId", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "responses": { "200": { "description": "{ run_id, status, current_step, completed_steps }" } }
+      }
+    },
+    "/api/v1/find/{runId}": {
+      "get": {
+        "summary": "Find run result",
+        "parameters": [{ "name": "runId", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "responses": { "200": { "description": "Fixed agent verdict wrapper when completed" } }
+      }
+    },
+    "/api/v1/receipts": {
+      "get": {
+        "summary": "List recent receipts",
+        "responses": { "200": { "description": "{ receipts: [...] }" } }
+      }
+    },
+    "/api/v1/receipts/{receiptId}": {
+      "get": {
+        "summary": "Get one receipt",
+        "parameters": [{ "name": "receiptId", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "responses": { "200": { "description": "Receipt" } }
+      }
+    },
+    "/api/mcp": {
+      "get": { "summary": "MCP discovery", "security": [], "responses": { "200": { "description": "Server + tools" } } },
+      "post": { "summary": "MCP JSON-RPC", "responses": { "200": { "description": "JSON-RPC result" } } }
+    }
+  }
+}

@@ -1,65 +1,67 @@
 {
   "name": "Lemonless",
-  "description": "Buy smart. Stay lemonless. Used-car verdicts you can check. TypeScript owns every number; AI review may choose the shopper action only inside hard gates. Insufficient evidence yields a withheld verdict with a concrete reason.",
+  "description": "Buy smart. Stay lemonless. Agent Check + Find with the same credits as the site. TypeScript owns every number; settle only after success.",
   "url": "https://autoflip-umber.vercel.app",
   "documentation": "https://autoflip-umber.vercel.app/developers",
-  "version": "0.1.0",
+  "llms": "https://autoflip-umber.vercel.app/llms.txt",
+  "openapi": "https://autoflip-umber.vercel.app/openapi.json",
+  "version": "0.2.0",
   "authentication": {
     "schemes": ["bearer"],
     "header": "Authorization",
     "format": "Bearer af_YOUR_KEY",
+    "scopes": ["read", "check", "find"],
     "createKeyUrl": "https://autoflip-umber.vercel.app/developers"
+  },
+  "rateLimit": {
+    "perKeyPerMinute": 30
   },
   "endpoints": {
     "mcp": "https://autoflip-umber.vercel.app/api/mcp",
+    "check": "https://autoflip-umber.vercel.app/api/v1/check",
+    "find": "https://autoflip-umber.vercel.app/api/v1/find",
+    "receipts": "https://autoflip-umber.vercel.app/api/v1/receipts",
     "report": "https://autoflip-umber.vercel.app/api/v1/report",
     "agentCard": "https://autoflip-umber.vercel.app/.well-known/agent.json"
   },
   "tools": [
     {
+      "name": "check_car",
+      "transport": ["mcp", "http"],
+      "http": "POST /api/v1/check",
+      "cost": "free monthly check allotment, else 1 credit after success",
+      "scope": "check",
+      "input": { "vin": "string", "url": "string", "text": "string", "zip": "string" }
+    },
+    {
+      "name": "find_cars",
+      "transport": ["mcp", "http"],
+      "http": "POST /api/v1/find → GET /api/v1/find/{run_id}/status → GET /api/v1/find/{run_id}",
+      "cost": "1 credit after successful search",
+      "scope": "find",
+      "async": true,
+      "input": { "text": "string (required)", "mode": "personal|flip", "zip": "string", "budgetUsd": "number" }
+    },
+    {
       "name": "deal_radar",
       "transport": "mcp",
       "cost": "free",
-      "description": "Scan current listings for one make and model. Returns deal scores from comparable asking prices in that result set. Does not spend a credit. Recalls and fuel are not included.",
-      "input": {
-        "make": "string (required)",
-        "model": "string (required)",
-        "zip": "string",
-        "year": "integer",
-        "distanceMiles": "integer",
-        "mode": "personal | flip"
-      }
+      "scope": "read"
     },
     {
       "name": "full_report",
-      "transport": "mcp",
+      "transport": ["mcp", "http"],
+      "http": "POST /api/v1/report",
       "cost": "1 credit",
-      "description": "Full Lemonless analysis for one VIN or listing URL. Every response includes Proof of AI: which numbers came from code, which gates ran, and which AI review steps ran.",
-      "input": {
-        "mode": "personal | flip (required)",
-        "vin": "string",
-        "url": "string",
-        "zip": "string"
-      }
-    },
-    {
-      "name": "POST /api/v1/report",
-      "transport": "http",
-      "cost": "1 credit",
-      "description": "Same full report as MCP full_report over plain HTTP with an API key.",
-      "input": {
-        "mode": "personal | flip",
-        "vin": "string",
-        "url": "string",
-        "zip": "string",
-        "budgetUsd": "number (optional personal mandate)",
-        "targetProfitUsd": "number (optional flip mandate)",
-        "repairAbility": "none | minor | major | unknown"
-      }
+      "scope": "check"
     }
   ],
-  "proof": {
-    "everyPaidResponseIncludes": ["codeComputed fields", "ordered gates", "AI review checks", "finalAction"],
-    "consumerWording": "AI review"
+  "verdictSchema": "lemonless.agent_verdict.v1",
+  "errors": {
+    "envelope": ["error_code", "message", "credit_spent", "retry_safe", "next_steps"]
+  },
+  "payment": {
+    "primary": "site report credits + free Check allotment",
+    "onChain": "not required"
   }
 }

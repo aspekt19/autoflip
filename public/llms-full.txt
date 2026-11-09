@@ -1,0 +1,84 @@
+# Lemonless agent reference
+
+## Product
+Lemonless screens used cars. Humans use /check and /find in the browser (sign-in gated).
+Agents use the same analysis paths over MCP and REST with `af_` API keys tied to that account.
+
+## Authentication
+1. Sign in on the site and open /developers.
+2. Create an API key (`af_…`). Copy it once. Optional body: `{ "label": "Cursor", "scopes": ["read","check","find"] }`.
+3. Send on every request:
+   `Authorization: Bearer af_YOUR_KEY`
+4. OpenServ / remote MCP hosts: put the Bearer header on **every** JSON-RPC POST (including tools/call). Do not rely on a one-time initialize header.
+
+## Scopes
+| Scope | Allows |
+|-------|--------|
+| read | deal_radar, receipts list/get |
+| check | check_car, full_report, POST /api/v1/check, POST /api/v1/report |
+| find | find_cars (+ status/result), POST/GET /api/v1/find* |
+
+Missing scope → HTTP 403 `missing_scope` with `next_steps` to recreate the key.
+
+## Rate limit
+30 requests / key / UTC minute. HTTP 429 `rate_limited`, `retry_safe: true`.
+
+## check_car / POST /api/v1/check
+Body (one of):
+```json
+{ "vin": "4T1BF1FK0EU848445" }
+{ "url": "https://dealer.example/listing" }
+{ "text": "2014 Toyota Camry LE …" }
+```
+Optional: `zip`, header `Idempotency-Key`.
+Billing: free monthly Check allotment when available, else 1 report credit — **only after success**. Failures return `credit_spent: false`.
+
+## find_cars (async)
+1. `POST /api/v1/find` with `{ "text": "Reliable SUV under $18k near 78701" }` → 202 `{ "run_id", "status", "current_step", "status_url", "result_url" }`
+2. `GET /api/v1/find/{run_id}/status` → `{ status, current_step, completed_steps }`
+3. `GET /api/v1/find/{run_id}` → fixed verdict JSON when `completed`
+Same via MCP tools `find_cars`, `find_cars_status`, `find_cars_result`.
+Billing: 1 report credit settled only after a successful match. Balance is checked at create; no charge on failed understand/search.
+
+## Success schema (fixed)
+See docs/agent-verdict-schema.json (`lemonless.agent_verdict.v1`) plus wrapper fields:
+`schema_version`, `tool`, `verdict`, `confidence`, `summary`, `reasons`, `risks`, `unknowns`,
+`subject`, `comparables_summary`, `serv.steps`, `serv.second_pass`, `serv.checks_run`,
+`code_computed`, `credit_spent`, `credits`, `free_check_spent`, `receipt_id`, `run_id`, `result`.
+
+## Error envelope
+```json
+{
+  "error_code": "insufficient_credits",
+  "message": "…",
+  "credit_spent": false,
+  "retry_safe": true,
+  "next_steps": {
+    "action": "buy_credits_then_retry",
+    "summary": "…",
+    "request": { "method": "GET", "url": "https://HOST/credits" },
+    "docs": "https://HOST/developers"
+  }
+}
+```
+
+## Receipts
+`GET /api/v1/receipts` and `GET /api/v1/receipts/{receipt_id}` — what was charged per call (`credit_spent`, `free_check_spent`, `tool`, `serv_steps_hash`).
+
+## MCP config (Cursor)
+```json
+{
+  "mcpServers": {
+    "lemonless": {
+      "url": "https://HOST/api/mcp",
+      "headers": { "Authorization": "Bearer af_YOUR_KEY" }
+    }
+  }
+}
+```
+
+## OpenServ note
+OpenServ must forward `Authorization: Bearer af_…` on every tools/call POST. If headers are stripped, you get `auth_required` with `credit_spent: false`. Store the key as a secret; smoke with curl against /api/mcp tools/list first.
+
+## Non-goals
+No on-chain x402 / USDC required for these tools. Optional x402 code may exist elsewhere; agent docs use credits + `af_` only.
