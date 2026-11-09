@@ -55,7 +55,26 @@ export const BUYER_FORBIDDEN_TECH_PATTERNS: RegExp[] = [
   /\bfairnessHeldOut\b/,
   /\bevidenceSettled\b/,
   /\bevidence\.gov_(?:recalls|vpic|safety|fuel)\b/,
+  // Internal validation / provider jargon — buyer form copy must stay plain.
+  /\bapp validation\b/i,
+  /\bprovider hard limit\b/i,
 ];
+
+/**
+ * Find billing copy (shared by /find page + results hint).
+ * Billing/auth debit is NOT enabled in this tree (PR82 HOLD) — do not promise a free
+ * Find, invent a free VIN/URL monthly quota, or claim a Find debit that does not run.
+ */
+export const FIND_PAGE_BILLING_STEP =
+  "Find is a credit-priced search when billing is enabled. Open a full report for any car you want to investigate further (1 report credit).";
+
+export const FIND_RESULTS_BILLING_HINT =
+  "Find is a credit-priced search when billing is enabled. A full per-car report uses 1 report credit. Ongoing new-listing alerts require a separate monthly Radar plan.";
+
+/** Buyer-facing seller-distance custom-miles hint (no app-validation jargon). */
+export function customMilesBuyerHint(maxMiles: number): string {
+  return `You can enter any distance up to ${maxMiles.toLocaleString("en-US")} miles, or choose Nationwide to search without a distance limit.`;
+}
 
 export function findForbiddenTechArtifacts(text: string): string[] {
   const hits: string[] = [];

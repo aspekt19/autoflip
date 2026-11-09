@@ -362,11 +362,14 @@ export async function runFindNextCheckOrchestrator(
     }
 
     const servHttpAttempts = live.proofs.length > 0 && keyed && servDecision.invoke ? 1 : 0;
+    const nextPaidCallsPreview = paidSoFar + servHttpAttempts;
     if (claimId && servHttpAttempts > 0) {
       await logFindNextCheckServSpend(deps.kv, identity, claimId, {
         profile: "find_next_check",
         httpAttempts: servHttpAttempts,
         source: live.source,
+        servPaidCalls: nextPaidCallsPreview,
+        invokeReason: servDecision.reason,
       });
     }
 
@@ -422,7 +425,7 @@ export async function runFindNextCheckOrchestrator(
       }
     }
 
-    const nextPaidCalls = paidSoFar + servHttpAttempts;
+    const nextPaidCalls = nextPaidCallsPreview;
     const updated: FindSearchContextRecord = await updateFindSearchContext(deps.kv, ctx, {
       need: live.replan.need,
       refine: refineAfter,

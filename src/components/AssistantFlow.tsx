@@ -33,6 +33,7 @@ import {
   shouldAutoStartFindNextCheck,
 } from "@/domain/find-next-check-ui";
 import {
+  FIND_RESULTS_BILLING_HINT,
   formatBuyerBestDeal,
   formatBuyerLoopStatus,
   formatBuyerLoopStep,
@@ -1888,7 +1889,7 @@ function AssistantFlow({
               <button className="quiet" type="button" onClick={() => void watch(group.direction)} disabled={pending === group.direction.id}>
                 {pending === group.direction.id ? "Saving alert…" : need?.mode === "flip" ? "Get alerts for this budget" : "Get new-listing alerts"}
               </button>
-              <p className="hint">Find is a credit-priced search when billing is enabled — not a free search. A full per-car report uses 1 report credit. Ongoing new-listing alerts require a separate monthly Radar plan.</p>
+              <p className="hint">{FIND_RESULTS_BILLING_HINT}</p>
               {error && pending === null ? (
                 <p className="warn" role="alert">
                   {error} {/plan|watch/i.test(error) ? <a href="/pricing">See radar plans</a> : null}

@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useId, useState } from "react";
+import { customMilesBuyerHint } from "@/domain/find-buyer-copy";
 import {
   MAX_DISTANCE_MILES,
   SEARCH_RADII_MILES,
@@ -217,7 +218,7 @@ export function ZipRadiusFields({
           {SELLER_DISTANCE_HINT}
           {!allowNationwide
             ? " Nationwide watches are not supported here — pick a positive seller-distance radius."
-            : ` You can enter any distance up to ${MAX_DISTANCE_MILES.toLocaleString("en-US")} miles, or choose Nationwide to search without a distance limit.`}
+            : ` ${customMilesBuyerHint(MAX_DISTANCE_MILES)}`}
         </p>
       </div>
     </div>

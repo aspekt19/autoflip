@@ -13,6 +13,9 @@ import {
 } from "./find-best-deal";
 import {
   assertBuyerSafeText,
+  customMilesBuyerHint,
+  FIND_PAGE_BILLING_STEP,
+  FIND_RESULTS_BILLING_HINT,
   formatBuyerBestDeal,
   formatBuyerLoopStep,
   summarizeFuelCheckOutcome,
@@ -422,20 +425,20 @@ describe("Scenario2 defect 4 — fuel models vs model years + plain coverage", (
 describe("Scenario2 defect 5 — miles form copy for buyers", () => {
   it("documents a buyer-facing ceiling without provider-validation jargon", () => {
     expect(MAX_DISTANCE_MILES).toBe(3000);
-    const buyerHint = `You can enter any distance up to ${MAX_DISTANCE_MILES.toLocaleString("en-US")} miles, or choose Nationwide to search without a distance limit.`;
+    const buyerHint = customMilesBuyerHint(MAX_DISTANCE_MILES);
+    expect(buyerHint).toMatch(/up to 3,000 miles/i);
     expect(buyerHint).not.toMatch(/app validation|provider hard limit|omits distance/i);
+    expect(assertBuyerSafeText(buyerHint).ok).toBe(true);
   });
 });
 
-describe("Scenario2 defect 6 — Find is not promised free", () => {
-  it("buyer billing strings must not say the search is free", () => {
-    const findPageLine =
-      "Find is a credit-priced search when billing is enabled — it is not a free search. Open a full report for any car you want to investigate further (1 report credit). Up to 3 VIN or own-URL checks per verified account each UTC month stay free.";
-    const resultsLine =
-      "Find is a credit-priced search when billing is enabled — not a free search. A full per-car report uses 1 report credit. Ongoing new-listing alerts require a separate monthly Radar plan.";
-    for (const line of [findPageLine, resultsLine]) {
+describe("Scenario2 defect 6 — Find is not promised free and does not invent billing", () => {
+  it("shared billing copy neither promises free Find nor invents an unimplemented free VIN quota", () => {
+    for (const line of [FIND_PAGE_BILLING_STEP, FIND_RESULTS_BILLING_HINT]) {
       expect(line).not.toMatch(/The (one-time )?search is free/i);
-      expect(line).toMatch(/credit-priced search/i);
+      expect(line).not.toMatch(/\bfree search\b/i);
+      expect(line).not.toMatch(/3 VIN|own-URL|stay free/i);
+      expect(line).toMatch(/credit-priced search when billing is enabled/i);
       expect(assertBuyerSafeText(line).ok).toBe(true);
     }
   });
