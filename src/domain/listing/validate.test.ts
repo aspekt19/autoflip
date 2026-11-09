@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { emptyExtractedFields } from "./types";
 import {
+  groundLlmFieldsInPage,
   mergeLayer,
   mergeLlmExtraction,
   validateMiles,
@@ -45,5 +46,23 @@ describe("listing extract validation", () => {
     expect(merged.sellerName.value).toBeNull();
     const ok = mergeLayer(emptyExtractedFields(), { sellerName: "Sunrise Toyota" }, "json_ld");
     expect(ok.sellerName.value).toBe("Sunrise Toyota");
+  });
+
+  it("grounds LLM fields so values not on the page stay unknown", () => {
+    const base = emptyExtractedFields();
+    base.year = { value: 2021, source: "json_ld" };
+    base.make = { value: "Toyota", source: "llm" };
+    base.model = { value: "Camry", source: "llm" };
+    base.trim = { value: "Invented", source: "llm" };
+    base.priceUsd = { value: 23990, source: "llm" };
+    const grounded = groundLlmFieldsInPage(
+      base,
+      "Used 2021 Toyota Camry SE listed at $23,990 with 28,450 miles",
+    );
+    expect(grounded.year).toEqual({ value: 2021, source: "json_ld" });
+    expect(grounded.make.value).toBe("Toyota");
+    expect(grounded.model.value).toBe("Camry");
+    expect(grounded.trim.value).toBeNull();
+    expect(grounded.priceUsd.value).toBe(23990);
   });
 });

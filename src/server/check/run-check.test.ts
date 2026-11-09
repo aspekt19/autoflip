@@ -181,6 +181,65 @@ describe("runCheck listing paste (no paid Autodev/SERV)", () => {
     expect(result.result.summary).not.toMatch(/\.\./);
   });
 
+  it("auto-continues VIN dossier when listing fetch is blocked but URL contains a VIN", async () => {
+    const vin = "4T1KZ1AK4MU060006";
+    const publicLookup = async () => ["93.184.216.34"];
+    const fetchImpl = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("blocked.example")) {
+        return new Response("Access Denied", { status: 403 });
+      }
+      return govFetch(url);
+    });
+    const result = await runCheck(
+      { kind: "link", url: `https://blocked.example/cars/${vin}` },
+      { fetch: fetchImpl as unknown as typeof fetch, lookup: publicLookup },
+    );
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.result.kind).toBe("vin_dossier");
+    expect(result.result.vin).toBe(vin);
+  });
+
+  it("returns paste_text|enter_vin alternatives when fetch is blocked and no VIN is in the URL", async () => {
+    const publicLookup = async () => ["93.184.216.34"];
+    const fetchImpl = vi.fn(async () => new Response("Please verify you are a human", { status: 403 }));
+    const result = await runCheck(
+      { kind: "link", url: "https://blocked.example/cars/camry-no-vin" },
+      { fetch: fetchImpl as unknown as typeof fetch, lookup: publicLookup },
+    );
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.error).toBe("listing_fetch_blocked");
+    expect(result.blocked).toBe(true);
+    expect(result.alternatives).toEqual(["paste_text", "enter_vin"]);
+    expect(result.message).toMatch(/paste the listing text or enter the VIN/i);
+  });
+
+  it("returns clear next steps when the page is thin and has no VIN", async () => {
+    const publicLookup = async () => ["93.184.216.34"];
+    const fetchImpl = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("thin.example")) {
+        return new Response("<!doctype html><html><body><p>Welcome to our inventory portal.</p></body></html>", {
+          status: 200,
+          headers: { "content-type": "text/html" },
+        });
+      }
+      return govFetch(url);
+    });
+    const result = await runCheck(
+      { kind: "link", url: "https://thin.example/listing/abc" },
+      { fetch: fetchImpl as unknown as typeof fetch, lookup: publicLookup },
+    );
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.error).toBe("listing_fetch_thin");
+    expect(result.blocked).toBe(true);
+    expect(result.alternatives).toEqual(["paste_text", "enter_vin"]);
+    expect(result.message).toMatch(/Keep the URL/i);
+  });
+
   it("identifies cruz.com-style title/URL YMM without structured vehicle JSON-LD", async () => {
     const html = readFileSync(join(FIXTURES, "cruz-crv-title-only.html"), "utf8");
     const fetchImpl = vi.fn(async (input: RequestInfo | URL) => {

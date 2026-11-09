@@ -157,6 +157,88 @@ export function mergeLlmExtraction(
   return mergeLayer(base, raw as Partial<Record<keyof ExtractedListingFields, unknown>>, "llm");
 }
 
+function normalizeHaystack(text: string): string {
+  return text.toLowerCase().replace(/\s+/g, " ");
+}
+
+/** True when a candidate string (or a digit-stripped form) appears in the page/URL text. */
+export function valueAppearsInPage(value: string | number, pageText: string): boolean {
+  const hay = normalizeHaystack(pageText);
+  if (!hay.trim()) return false;
+  if (typeof value === "number") {
+    const raw = String(value);
+    if (hay.includes(raw)) return true;
+    // Common listing formats: 23,990 or $23990
+    const grouped = raw.replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+    if (hay.includes(grouped)) return true;
+    const digitsOnly = hay.replace(/[^0-9]/g, " ");
+    return digitsOnly.includes(raw);
+  }
+  const needle = value.toLowerCase().trim();
+  if (!needle) return false;
+  if (hay.includes(needle)) return true;
+  // Compact form for drivetrain etc. (AWD vs All-Wheel Drive already validated separately)
+  const compactNeedle = needle.replace(/[^a-z0-9]/g, "");
+  if (compactNeedle.length >= 3) {
+    const compactHay = hay.replace(/[^a-z0-9]/g, "");
+    if (compactHay.includes(compactNeedle)) return true;
+  }
+  return false;
+}
+
+/**
+ * Drop LLM-sourced fields that are not grounded in the page or URL text.
+ * Deterministic sources are left alone. Unknown stays unknown — never invent.
+ */
+export function groundLlmFieldsInPage(
+  fields: ExtractedListingFields,
+  pageText: string,
+): ExtractedListingFields {
+  const hay = `${pageText}`;
+
+  const keepScalar = <T extends string | number>(
+    field: Provenanced<T>,
+  ): Provenanced<T> => {
+    if (field.source !== "llm" || field.value == null) return field;
+    return valueAppearsInPage(field.value, hay) ? field : { value: null, source: null };
+  };
+
+  const features =
+    fields.features.source === "llm" && fields.features.value
+      ? (() => {
+          const kept = fields.features.value.filter((item) => valueAppearsInPage(item, hay));
+          return kept.length
+            ? ({ value: kept, source: "llm" } as Provenanced<string[]>)
+            : ({ value: null, source: null } as Provenanced<string[]>);
+        })()
+      : fields.features;
+
+  return {
+    priceUsd: keepScalar(fields.priceUsd),
+    year: keepScalar(fields.year),
+    make: keepScalar(fields.make),
+    model: keepScalar(fields.model),
+    trim: keepScalar(fields.trim),
+    miles: keepScalar(fields.miles),
+    vin: keepScalar(fields.vin),
+    transmission: keepScalar(fields.transmission),
+    drivetrain: keepScalar(fields.drivetrain),
+    fuel: keepScalar(fields.fuel),
+    color: keepScalar(fields.color),
+    location: keepScalar(fields.location),
+    zip: keepScalar(fields.zip),
+    state: keepScalar(fields.state),
+    sellerName: keepScalar(fields.sellerName),
+    listingDate: keepScalar(fields.listingDate),
+    description: keepScalar(fields.description),
+    photoCount: keepScalar(fields.photoCount),
+    accidentsStated: keepScalar(fields.accidentsStated),
+    ownersStated: keepScalar(fields.ownersStated),
+    titleStatus: keepScalar(fields.titleStatus),
+    features,
+  };
+}
+
 export function cloneExtracted(fields: ExtractedListingFields): ExtractedListingFields {
   return mergeLayer(emptyExtractedFields(), {
     priceUsd: fields.priceUsd.value,

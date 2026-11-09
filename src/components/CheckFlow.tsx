@@ -94,6 +94,7 @@ function CheckFlowForm() {
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [blocked, setBlocked] = useState(false);
+  const [recovery, setRecovery] = useState<null | { message: string; keepUrl: string }>(null);
   const [result, setResult] = useState<CheckResultView | null>(null);
   const [allowance, setAllowance] = useState<"loading" | "signed-out" | "missing" | string>("loading");
   const allowanceGen = useRef(0);
@@ -172,6 +173,7 @@ function CheckFlowForm() {
   async function submit() {
     setError(null);
     setBlocked(false);
+    setRecovery(null);
     setResult(null);
 
     if (kind === "link" && !url.trim()) {
@@ -241,9 +243,18 @@ function CheckFlowForm() {
       }
 
       if (!response.ok) {
-        setBlocked(body.blocked === true);
+        const isBlocked = body.blocked === true;
+        setBlocked(isBlocked);
         setError(body.message ?? "The check did not finish.");
-        if (body.blocked) setKind("paste");
+        if (isBlocked) {
+          // Never fail silently: keep the URL and offer clear next steps.
+          setRecovery({
+            message:
+              body.message ??
+              "We could not read enough from that listing. Keep the URL, then paste the listing text or enter the VIN.",
+            keepUrl: url.trim(),
+          });
+        }
         await refreshAllowance(body);
         return;
       }
@@ -387,15 +398,55 @@ function CheckFlowForm() {
         <p className="hint">{allowance}</p>
       )}
 
-      {error ? (
+      {error && !recovery ? (
         <p className="warn" role="alert">
           {error}
-          {blocked ? (
-            <>
-              {" "}
-              Use <strong>Paste listing text</strong> or <strong>By VIN</strong>.
-            </>
+        </p>
+      ) : null}
+
+      {recovery ? (
+        <div className="warn-box" role="alert">
+          <p className="kicker">Next step</p>
+          <p>{recovery.message}</p>
+          {recovery.keepUrl ? (
+            <p className="hint">
+              Kept listing URL: <code>{recovery.keepUrl}</code>
+            </p>
           ) : null}
+          <div className="btn-row">
+            <button
+              className="action"
+              type="button"
+              onClick={() => {
+                setKind("paste");
+                setUrl(recovery.keepUrl);
+                setBlocked(false);
+                setError(null);
+                setRecovery(null);
+              }}
+            >
+              Paste listing text
+            </button>
+            <button
+              className="ghost"
+              type="button"
+              onClick={() => {
+                setKind("vin");
+                setUrl(recovery.keepUrl);
+                setBlocked(false);
+                setError(null);
+                setRecovery(null);
+              }}
+            >
+              Enter the VIN
+            </button>
+          </div>
+        </div>
+      ) : null}
+
+      {blocked && kind === "paste" ? (
+        <p className="hint">
+          Paste the listing title, price, mileage, VIN, and description from the page. The original URL stays attached.
         </p>
       ) : null}
 

@@ -1,0 +1,6 @@
+{
+  "status": "not_yet_run",
+  "note": "Do not invent results. Run: npm run probe:listing-fetch — then this file is overwritten with measured status codes, byte sizes, and extraction summaries.",
+  "ranAt": null,
+  "results": []
+}

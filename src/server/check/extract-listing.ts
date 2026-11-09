@@ -3,7 +3,7 @@
  */
 import { parseListingHtml, parseListingText } from "@/domain/listing/parse-html";
 import type { ExtractedListingFields, ListingFetchOutcome, ListingPageParse } from "@/domain/listing/types";
-import { mergeLlmExtraction } from "@/domain/listing/validate";
+import { groundLlmFieldsInPage, mergeLlmExtraction } from "@/domain/listing/validate";
 import { screenUserInput } from "@/domain/screen";
 import { fetchListingPage, type ListingFetchDeps } from "@/io/listing-fetch";
 import { interpretGuard, runServ } from "@/server/serv";
@@ -80,8 +80,10 @@ async function runLlmFill(
   if (!extracted.ok) return { fields, llmUsed: false };
   try {
     const json = JSON.parse(extracted.text) as Record<string, unknown>;
-    fields = mergeLlmExtraction(fields, json);
-    return { fields, llmUsed: true };
+    const merged = mergeLlmExtraction(fields, json);
+    // Never keep LLM values that were not present on the page/URL text.
+    const grounded = groundLlmFieldsInPage(merged, `${parse.llmText}\n${parse.url ?? ""}`);
+    return { fields: grounded, llmUsed: true };
   } catch {
     return { fields, llmUsed: false };
   }
@@ -101,7 +103,7 @@ export async function extractFromListingUrl(
       ok: false,
       blocked: true,
       fetch: fetched,
-      message: `${fetched.reason} You can paste the listing text, or enter the VIN instead.`,
+      message: `${fetched.reason} Keep this URL, then paste the listing text or enter the VIN.`,
       alternatives: ["paste_text", "enter_vin"],
     };
   }

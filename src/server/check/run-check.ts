@@ -24,7 +24,7 @@ import {
   type SimilarCarView,
 } from "@/domain/purchase-readiness";
 import { dealerQuestions } from "@/domain/questions";
-import { isValidVin } from "@/domain/vin";
+import { extractVin, isValidVin } from "@/domain/vin";
 import { verdictLabel } from "@/domain/format";
 import type { FuelFact, Listing, RecallRecord, VinDecode } from "@/domain/types";
 import { autodevByVin, autodevSearch, type AutodevDeps } from "@/io/autodev";
@@ -290,12 +290,20 @@ async function buildListingVerdict(
   const fetchImpl = input.deps.fetch ?? fetch;
   const listing = listingFromExtracted(fields, { vdp: input.url ?? null });
   if (!listing) {
+    const vinFromPage =
+      (fields.vin.value && isValidVin(fields.vin.value) ? fields.vin.value : null) ??
+      (input.url ? extractVin(input.url) : null);
+    if (vinFromPage) {
+      return buildVinDossier(vinFromPage, input.deps, input.optionalZip);
+    }
     return {
       ok: false,
       status: 422,
       error: "insufficient_listing_data",
       message:
-        "Could not identify year, make, and model from that listing. Paste the listing text, or enter the VIN.",
+        "We could not read enough from that listing (year, make, and model are still unknown). Keep the URL, then paste the listing text or enter the VIN.",
+      blocked: true,
+      alternatives: ["paste_text", "enter_vin"],
     };
   }
 
@@ -787,13 +795,20 @@ export async function runCheck(input: CheckRunInput, deps: CheckRunDeps = {}): P
   const extracted = await extractFromListingUrl(input.url, deps);
   if (!extracted.ok) {
     if (extracted.blocked) {
+      // If the URL itself carries a VIN, continue on the VIN path instead of failing.
+      const vinFromUrl = extractVin(input.url);
+      if (vinFromUrl) {
+        return buildVinDossier(vinFromUrl, deps, input.optionalZip);
+      }
       return {
         ok: false,
         status: 422,
         error: "listing_fetch_blocked",
-        message: extracted.message,
+        message:
+          extracted.message ||
+          "This listing site blocked our fetch (login or anti-bot wall). Keep the URL, then paste the listing text or enter the VIN.",
         blocked: true,
-        alternatives: extracted.alternatives,
+        alternatives: extracted.alternatives ?? ["paste_text", "enter_vin"],
       };
     }
     return {
@@ -803,6 +818,31 @@ export async function runCheck(input: CheckRunInput, deps: CheckRunDeps = {}): P
       message: extracted.message,
     };
   }
+
+  // Thin page: prefer VIN path when a VIN is on the page or in the URL.
+  const hasYmm =
+    extracted.fields.year.value != null &&
+    Boolean(extracted.fields.make.value) &&
+    Boolean(extracted.fields.model.value);
+  if (!hasYmm) {
+    const vinFallback =
+      (extracted.fields.vin.value && isValidVin(extracted.fields.vin.value)
+        ? extracted.fields.vin.value
+        : null) ?? extractVin(extracted.fetch?.finalUrl ?? input.url);
+    if (vinFallback) {
+      return buildVinDossier(vinFallback, deps, input.optionalZip);
+    }
+    return {
+      ok: false,
+      status: 422,
+      error: "listing_fetch_thin",
+      message:
+        "We fetched the page but could not read a usable year, make, and model. Keep the URL, then paste the listing text or enter the VIN.",
+      blocked: true,
+      alternatives: ["paste_text", "enter_vin"],
+    };
+  }
+
   return buildListingVerdict(extracted.fields, {
     url: extracted.fetch?.finalUrl ?? input.url,
     optionalZip: input.optionalZip,
