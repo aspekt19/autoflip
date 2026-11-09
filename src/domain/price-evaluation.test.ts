@@ -10,6 +10,7 @@ import { NOT_ENOUGH_SIMILAR_CARS, evaluateListingPrice } from "./price-evaluatio
 import { buildPurchaseReadiness, purchaseReadinessForReport } from "./purchase-readiness";
 import { scoreRadar } from "./radar";
 import { prefilterListing } from "./radar-watch";
+import { buildComputedReport } from "./report";
 import type { Listing } from "./types";
 
 function car(partial: Partial<Listing> & Pick<Listing, "vin" | "priceUsd" | "miles">): Listing {
@@ -240,5 +241,262 @@ describe("one price evaluation across surfaces", () => {
     expect(ranked?.resaleMidUsd).toBe(badge.fairValueUsd);
     expect(personal.fairValueUsd).toBe(badge.fairValueUsd);
     expect(ranked?.excludeReason).not.toBe(NOT_ENOUGH_SIMILAR_CARS);
+  });
+});
+
+function omahaFamilySuvs(): Listing[] {
+  const models = [
+    { make: "Honda", model: "CR-V", base: 11200, yearStep: 850, trims: ["LX", "EX", "EX-L"] },
+    { make: "Hyundai", model: "Tucson", base: 9800, yearStep: 780, trims: ["SE", "SEL", "Limited"] },
+    { make: "Kia", model: "Sportage", base: 9400, yearStep: 740, trims: ["LX", "EX", "SX"] },
+  ];
+  const years = [2014, 2015, 2016, 2016, 2017, 2017, 2018, 2019];
+  const rows: Listing[] = [];
+  for (const model of models) {
+    years.forEach((year, index) => {
+      const age = 2026 - year;
+      const miles = Math.max(28_000, Math.round(age * 12_000 + ((index % 5) - 2) * 8_000));
+      const noise = ((index * 17) % 9 - 4) * 180;
+      const price = Math.max(7_500, model.base + (year - 2014) * model.yearStep - Math.round((miles - age * 11_000) * 0.04) + noise);
+      rows.push(
+        car({
+          vin: `${model.make.slice(0, 2)}${model.model.slice(0, 2)}-${year}-${index}`.toUpperCase(),
+          year,
+          make: model.make,
+          model: model.model,
+          trim: model.trims[index % model.trims.length]!,
+          priceUsd: price,
+          miles,
+          accidentCount: index % 7 === 0 ? null : index % 6 === 0 ? 1 : 0,
+          zip: "68114",
+          city: "Omaha",
+          state: "NE",
+        }),
+      );
+    });
+  }
+  rows.push(
+    car({
+      vin: "BARGAIN-TUCSON",
+      year: 2017,
+      make: "Hyundai",
+      model: "Tucson",
+      trim: "SE",
+      priceUsd: 10_900,
+      miles: 86_000,
+      accidentCount: 0,
+      zip: "68114",
+      city: "Omaha",
+      state: "NE",
+    }),
+  );
+  rows.push(
+    car({
+      vin: "HIGH-CRV",
+      year: 2017,
+      make: "Honda",
+      model: "CR-V",
+      trim: "EX",
+      priceUsd: 18_900,
+      miles: 78_000,
+      accidentCount: 0,
+      zip: "68114",
+      city: "Omaha",
+      state: "NE",
+    }),
+  );
+  return rows;
+}
+
+describe("realistic family-SUV search near 68114", () => {
+  const pool = omahaFamilySuvs();
+
+  it("prices most cars and ranks a real bargain above a high ask", () => {
+    expect(pool.length).toBeGreaterThanOrEqual(24);
+    expect(pool.length).toBeLessThanOrEqual(28);
+    const priced = pool.filter((listing) => evaluateListingPrice(listing, pool).priced);
+    expect(priced.length / pool.length).toBeGreaterThanOrEqual(0.8);
+
+    const bargain = pool.find((listing) => listing.vin === "BARGAIN-TUCSON")!;
+    const high = pool.find((listing) => listing.vin === "HIGH-CRV")!;
+    const bargainBadge = priceBadge(bargain, pool);
+    const highBadge = priceBadge(high, pool);
+    expect(bargainBadge.label).toBe("Good price");
+    expect(highBadge.label).toBe("High price");
+    expect(bargainBadge.fairValueUsd).not.toBeNull();
+    expect(highBadge.fairValueUsd).not.toBeNull();
+    expect(bargainBadge.label).not.toBe(NOT_ENOUGH_SIMILAR_CARS);
+    expect(highBadge.sampleNote ?? "").not.toMatch(/Not enough similar cars/);
+
+    const ranked = selectBestDealOnEvidence({
+      need: {
+        budgetKnown: true,
+        budgetUsd: 20_000,
+        preferredModels: [
+          { make: "Honda", model: "CR-V" },
+          { make: "Hyundai", model: "Tucson" },
+          { make: "Kia", model: "Sportage" },
+        ],
+        conditionPriority: "price_ok",
+        note: "Honda CR-V, Hyundai Tucson, and Kia Sportage near 68114",
+      },
+      listings: pool.map((listing) => ({
+        vin: listing.vin,
+        year: listing.year,
+        make: listing.make,
+        model: listing.model,
+        trim: listing.trim,
+        priceUsd: listing.priceUsd,
+        miles: listing.miles,
+        accidentCount: listing.accidentCount,
+        ownerCount: listing.ownerCount,
+        oneOwner: listing.oneOwner,
+        usageType: listing.usageType,
+        cpo: listing.cpo,
+      })),
+      marketPool: pool,
+      nowYear: 2026,
+    });
+    expect(ranked.priceProvisional).toBe(false);
+    const bargainRank = ranked.allRanked.findIndex((row) => row.vin === "BARGAIN-TUCSON");
+    const highRank = ranked.allRanked.findIndex((row) => row.vin === "HIGH-CRV");
+    expect(bargainRank).toBeGreaterThanOrEqual(0);
+    expect(highRank).toBeGreaterThan(bargainRank);
+    const bargainPoints = ranked.allRanked[bargainRank]!.factors.find((factor) => factor.id === "price_vs_model_asks")!;
+    const highPoints = ranked.allRanked[highRank]!.factors.find((factor) => factor.id === "price_vs_model_asks")!;
+    expect(bargainPoints.points).toBeGreaterThan(highPoints.points + 5);
+    expect(bargainPoints.detail).toContain(`$${bargainBadge.fairValueUsd!.toLocaleString("en-US")}`);
+    expect(highPoints.detail).toContain(`$${highBadge.fairValueUsd!.toLocaleString("en-US")}`);
+  });
+
+  it("does not hand out price points when the only pool is a thin diversified page", () => {
+    const shown: Listing[] = [];
+    for (const model of ["CR-V", "Tucson", "Sportage"]) {
+      shown.push(...pool.filter((listing) => listing.model === model).slice(0, 2));
+    }
+    expect(shown).toHaveLength(6);
+    expect(shown.every((listing) => evaluateListingPrice(listing, shown).priced === false)).toBe(true);
+    const ranked = selectBestDealOnEvidence({
+      need: {
+        budgetKnown: true,
+        budgetUsd: 20_000,
+        preferredModels: [],
+        conditionPriority: "price_ok",
+        note: "cars near 68114",
+      },
+      listings: shown.map((listing) => ({
+        vin: listing.vin,
+        year: listing.year,
+        make: listing.make,
+        model: listing.model,
+        trim: listing.trim,
+        priceUsd: listing.priceUsd,
+        miles: listing.miles,
+        accidentCount: listing.accidentCount,
+        ownerCount: listing.ownerCount,
+      })),
+      marketPool: shown,
+      nowYear: 2026,
+    });
+    expect(ranked.priceProvisional).toBe(true);
+    for (const row of ranked.allRanked) {
+      const price = row.factors.find((factor) => factor.id === "price_vs_model_asks")!;
+      expect(price.points).toBe(0);
+      expect(price.detail).toBe(NOT_ENOUGH_SIMILAR_CARS);
+    }
+  });
+
+  it("does not reward or penalize asking price when every car is unscored", () => {
+    const cheap = car({ vin: "CHEAP", year: 2017, make: "Honda", model: "CR-V", trim: "LX", priceUsd: 10_900, miles: 80_000, accidentCount: 0, ownerCount: 2 });
+    const dear = car({ vin: "DEAR", year: 2017, make: "Honda", model: "CR-V", trim: "LX", priceUsd: 18_900, miles: 80_000, accidentCount: 0, ownerCount: 2 });
+    const ranked = selectBestDealOnEvidence({
+      need: {
+        budgetKnown: true,
+        budgetUsd: 20_000,
+        preferredModels: [{ make: "Honda", model: "CR-V" }],
+        conditionPriority: "price_ok",
+        note: "a CR-V",
+      },
+      listings: [cheap, dear].map((listing) => ({
+        vin: listing.vin,
+        year: listing.year,
+        make: listing.make,
+        model: listing.model,
+        trim: listing.trim,
+        priceUsd: listing.priceUsd,
+        miles: listing.miles,
+        accidentCount: listing.accidentCount,
+        ownerCount: listing.ownerCount,
+      })),
+      marketPool: [cheap, dear],
+      nowYear: 2026,
+    });
+    expect(ranked.allRanked.map((row) => row.factors.find((factor) => factor.id === "price_vs_model_asks")!.points)).toEqual([0, 0]);
+    expect(ranked.allRanked[0]!.score).toBe(ranked.allRanked[1]!.score);
+  });
+
+  it("does not treat a later generation as similar enough to price an older one", () => {
+    const older = car({ vin: "GEN4", year: 2014, make: "Honda", model: "CR-V", trim: "LX", priceUsd: 10_000, miles: 140_000, accidentCount: 0 });
+    const newer = [0, 1, 2].map((index) =>
+      car({
+        vin: `GEN5-${index}`,
+        year: 2019,
+        make: "Honda",
+        model: "CR-V",
+        trim: "LX",
+        priceUsd: 16_000 + index * 400,
+        miles: 45_000,
+        accidentCount: 0,
+      }),
+    );
+    const evaluation = evaluateListingPrice(older, [older, ...newer]);
+    expect(evaluation.priced).toBe(false);
+    expect(evaluation.fairValueUsd).toBeNull();
+    expect(evaluation.sampleSize).toBe(0);
+  });
+
+  it("withholds flip resale dollars when adjusted prices are too far apart", () => {
+    const wide = [5_000, 9_000, 14_000, 20_000].map((priceUsd, index) =>
+      car({
+        vin: `WIDE${index}`,
+        year: 2016,
+        make: "Honda",
+        model: "Civic",
+        trim: "LX",
+        priceUsd,
+        miles: 90_000,
+        accidentCount: 0,
+        ownerCount: 2,
+      }),
+    );
+    const subject = wide[0]!;
+    const badge = priceBadge(subject, wide, { mode: "flip" });
+    const report = buildComputedReport({
+      mode: "flip",
+      subject,
+      candidates: wide,
+      recalls: [],
+      recallsAvailable: true,
+      complaintCount: null,
+      fuel: null,
+      vinDecode: null,
+      distanceToSearchZipMiles: null,
+      asOfYear: 2026,
+    });
+    expect(badge.label).toBe(NOT_ENOUGH_SIMILAR_CARS);
+    expect(badge.fairValueUsd).toBeNull();
+    expect(badge.deltaLabel).toBeNull();
+    expect(badge.sampleNote ?? "").toMatch(/too far apart/);
+    expect(badge.sampleNote ?? "").not.toMatch(/Compared with/);
+    expect(badge.sampleNote ?? "").not.toMatch(/\$\d/);
+    expect(report.fairValueUsd).toBeNull();
+    expect(report.priceGap).toBeNull();
+    expect(report.percentile).toBeNull();
+    expect(report.flip).toBeNull();
+    expect(report.verdict).toBe("insufficient_data");
+    const prose = `${report.reasons.join(" ")} ${report.dataNotes.join(" ")}`;
+    expect(prose).toMatch(/too far apart/);
+    expect(prose).not.toMatch(/\$\d/);
+    expect(report.comps.length).toBeGreaterThanOrEqual(3);
   });
 });

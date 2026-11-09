@@ -15,12 +15,12 @@ export type MarketCompContext = {
   fairValueUsd: number;
   sampleSize: number;
   scopeLabel: MarketCompScopeLabel;
-  /** 0–1 rank of asking among mileage-adjusted peers — machine channel only. */
+  /** 0–1 rank of asking among adjusted similar listings — machine channel only. */
   pct01: number | null;
   /** Buyer-visible note shared by badge sampleNote (no jargon). */
   sampleNote: string;
   source: string;
-  /** Buyer-visible method line when the year window widens. */
+  /** Buyer-visible method line from the shared price evaluation. */
   methodNote: string;
   /** Exact technical method — receipts / agents only, never buyer UI. */
   methodNoteTechnical: string;

@@ -8,9 +8,11 @@
  * When there are not enough similar cars, the result is "Not enough similar cars".
  * Nothing here falls back to a mileage-only or raw-median price.
  */
+import { ASSUMPTIONS } from "./assumptions";
 import {
   adjustComparableSet,
   comparableCarFromListing,
+  GENERATION_YEAR_WINDOW,
   type AdjustedComparableSet,
   type ComparableCar,
 } from "./adjusted-comparables";
@@ -81,13 +83,15 @@ export function evaluateAdjustedPrice(input: {
   });
 
   if (set.confidence === "not_available" || set.fairMidUsd == null || set.fairMidUsd <= 0) {
-    const why =
-      set.blockReason === "miles"
-        ? set.methodNote
-        : set.blockReason === "spread"
-          ? `${NOT_ENOUGH_SIMILAR_CARS}. ${set.methodNote}`
-          : NOT_ENOUGH_SIMILAR_CARS;
-    return withheld(why, set.blockReason ?? "count");
+    return withheld(
+      unpricedNote({
+        model: input.subject.model,
+        count: sampleSize,
+        blockReason: set.blockReason ?? "count",
+        milesNote: set.methodNote,
+      }),
+      set.blockReason ?? "count",
+    );
   }
   if (asking == null || !Number.isFinite(asking) || asking <= 0) {
     return withheld("Asking price is missing, so this car is not price-rated.", set.blockReason);
@@ -117,6 +121,26 @@ export function evaluateAdjustedPrice(input: {
     percentile01: pct == null ? null : pct / 100,
     set,
   };
+}
+
+/** Buyer explanation when no fair value is published. No dollar figure. */
+function unpricedNote(input: {
+  model: string;
+  count: number;
+  blockReason: AdjustedComparableSet["blockReason"];
+  milesNote: string;
+}): string {
+  const model = input.model.trim() || "car";
+  if (input.blockReason === "miles") return input.milesNote;
+  if (input.blockReason === "spread") {
+    const noun = input.count === 1 ? "listing was" : "listings were";
+    return `${input.count} similar ${model} ${noun} adjusted, but the adjusted prices are too far apart to estimate a fair value. No fair value is shown. These are asking prices, not sold prices.`;
+  }
+  if (input.count <= 0) {
+    return `${NOT_ENOUGH_SIMILAR_CARS}. No similar ${model} listings with a price and mileage were within ${GENERATION_YEAR_WINDOW} model years. A price needs at least ${ASSUMPTIONS.minComps}.`;
+  }
+  const noun = input.count === 1 ? "listing" : "listings";
+  return `${NOT_ENOUGH_SIMILAR_CARS}. Only ${input.count} similar ${model} ${noun} with a price and mileage within ${GENERATION_YEAR_WINDOW} model years. A price needs at least ${ASSUMPTIONS.minComps}.`;
 }
 
 export function evaluateListingPrice(

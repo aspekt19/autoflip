@@ -314,6 +314,7 @@ export function plainFlagSource(source: string): string {
 
 export function plainCompScope(scope: string): string {
   switch (scope) {
+    // Older saved reports used these scope ids before adjusted comparables.
     case "same_trim":
       return "same trim, nearby model years";
     case "year_window":

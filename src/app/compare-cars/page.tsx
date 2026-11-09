@@ -23,7 +23,7 @@ const ROWS: Row[] = [
   { label: "Park-it (do-not-drive until VIN verified)", value: (r) => !r.computed.recallsAvailable ? "Could not check — unknown, not cleared" : r.computed.openParkIt ? "Yes — model-year park-it; verify VIN applicability and repair" : "No park-it flag in returned campaigns (not VIN-cleared)" },
   { label: "Outdoor parking guidance (not do-not-drive alone)", value: (r) => !r.computed.recallsAvailable ? "Could not check — unknown, not cleared" : r.computed.openParkOutside ? "Yes — outdoor parking guidance; not a park-it stop by itself" : "No outdoor-parking flag in returned campaigns (not VIN-cleared)" },
   { label: "NHTSA model-year complaints", value: (r) => r.computed.complaintCount === null ? "Unavailable" : `${r.computed.complaintCount} (allegations, not defect proof)` },
-  { label: "Comparable listings used", value: (r) => String(r.computed.comps.length) },
+  { label: "Similar listings found", value: (r) => r.computed.fairValueUsd === null ? `${r.computed.comps.length} found, no fair value` : String(r.computed.comps.length) },
   { label: "Risk flags", value: (r) => `${r.computed.flags.filter((f) => f.level === "stop").length} stop · ${r.computed.flags.filter((f) => f.level === "caution").length} caution · ${r.computed.flags.filter((f) => f.level === "note").length} notes` },
   { label: "Data gaps", value: (r) => r.computed.dataNotes.length ? r.computed.dataNotes.slice(0, 2).join(" ") : "No additional gaps flagged" },
 ];

@@ -145,7 +145,7 @@ export function ReportView({ report }: { report: FullReport }) {
         </p>
         <ul className="refuse">
           <li>
-            <b>From code:</b> fair value {computed.fairValueUsd === null ? "not computed" : formatUsd(computed.fairValueUsd)}, asking gap{" "}
+            <b>From code:</b> fair value {computed.fairValueUsd === null ? "Not enough similar cars" : formatUsd(computed.fairValueUsd)}, asking gap{" "}
             {computed.priceGap === null ? "—" : formatPct(computed.priceGap)}, {computed.comps.length} similar listings
             {computed.score !== null ? `, price score ${computed.score}/100` : ""}.
           </li>

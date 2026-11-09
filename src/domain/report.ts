@@ -1,5 +1,4 @@
 import { ASSUMPTIONS } from "./assumptions";
-import { GENERATION_YEAR_WINDOW } from "./adjusted-comparables";
 import { evaluateListingPrice } from "./price-evaluation";
 import { priceGap, rankAgainstAdjusted } from "./comparables";
 import { flipMath } from "./flip";
@@ -216,22 +215,12 @@ export function buildComputedReport(input: ReportInput): ComputedReport {
       `NHTSA cleanly decoded this VIN, but the listing identity differs (${vinIdentityMismatches.join("; ")}). Decoder: ${input.vinDecode.year ?? "?"} ${input.vinDecode.make ?? "unknown"} ${input.vinDecode.model ?? "unknown"}; listing: ${input.subject.year} ${input.subject.make} ${input.subject.model}. Verify the VIN and listing before relying on this report.`,
     );
   }
-  const adjusted = evaluateListingPrice(input.subject, input.candidates, {
+  const evaluation = evaluateListingPrice(input.subject, input.candidates, {
     mode: input.mode,
     decodedTrim: input.vinDecode?.trim ?? null,
-  }).set;
-  if (adjusted.blockReason === "miles") {
-    dataNotes.push("Mileage was missing, so similar listings were not adjusted to this car.");
-  } else if (adjusted.blockReason === "count") {
-    const count = adjusted.cars.length;
-    dataNotes.push(
-      count === 0
-        ? `No similar ${input.subject.model} listings with a price and mileage were within ${GENERATION_YEAR_WINDOW} model years. A price verdict needs at least ${ASSUMPTIONS.minComps}.`
-        : `Only ${count} similar ${input.subject.model} ${count === 1 ? "listing" : "listings"} with a price and mileage within ${GENERATION_YEAR_WINDOW} model years. A price verdict needs at least ${ASSUMPTIONS.minComps}.`,
-    );
-  } else if (adjusted.blockReason === "spread") {
-    dataNotes.push("Adjusted asking prices were too far apart to estimate a fair value.");
-  }
+  });
+  const adjusted = evaluation.set;
+  if (!evaluation.priced) dataNotes.push(evaluation.methodNote);
   if (adjusted.trimUncertain) {
     dataNotes.push(
       "Trim was missing or not recognized on at least one car, so that trim was not adjusted and the estimate is rough.",
@@ -272,11 +261,11 @@ export function buildComputedReport(input: ReportInput): ComputedReport {
   // Accident, fleet, owner, and certification differences are already in each
   // adjusted asking price. Do not multiply by history.multiplier again.
   const fairBeforeHistory = adjusted.fairMidUsd;
-  const enough = !vinIdentityMismatch && adjusted.confidence !== "not_available" && fairBeforeHistory !== null && subjectPrice !== null;
+  const enough = evaluation.priced && !vinIdentityMismatch && fairBeforeHistory !== null && subjectPrice !== null;
   const fairValueUsd = enough ? fairBeforeHistory : null;
   const gap = fairValueUsd !== null && subjectPrice !== null ? priceGap(subjectPrice, fairValueUsd) : null;
   const percentile =
-    subjectPrice !== null && comps.length > 0
+    enough && subjectPrice !== null && comps.length > 0
       ? rankAgainstAdjusted(
           subjectPrice,
           comps.map((row) => row.adjustedPriceUsd),
@@ -323,7 +312,7 @@ export function buildComputedReport(input: ReportInput): ComputedReport {
     if (vinIdentityMismatch) {
       reasons.push("The VIN's NHTSA decode conflicts with the vehicle identity in the listing. The price verdict is withheld until the seller verifies the VIN and corrects the listing.");
     } else {
-      reasons.push("Not enough similar cars. A price verdict needs at least 3 priced listings of the same model within 3 model years, with mileage, and adjusted prices that are not too far apart.");
+      reasons.push(evaluation.methodNote);
     }
     if (subjectPrice === null) reasons.push("The listing has no asking price.");
   } else if (input.mode === "personal") {
@@ -373,7 +362,7 @@ export function buildComputedReport(input: ReportInput): ComputedReport {
   }
 
   const flip =
-    input.mode === "flip" && subjectPrice !== null && !vinIdentityMismatch
+    input.mode === "flip" && enough && subjectPrice !== null
       ? flipMath({
           askingUsd: subjectPrice,
           accidentCount: input.subject.accidentCount,
@@ -388,7 +377,6 @@ export function buildComputedReport(input: ReportInput): ComputedReport {
   if (input.mode === "flip") {
     if (!flip) {
       verdict = "insufficient_data";
-      if (!vinIdentityMismatch) reasons.push("A resale range needs at least three adjusted similar listings.");
     } else {
       verdict = flipVerdict(flip.marginUsd, parkIt);
       if (titleBrandHit) {
@@ -461,7 +449,7 @@ export function buildComputedReport(input: ReportInput): ComputedReport {
     fairRangeLowUsd: enough ? adjusted.fairLowUsd : null,
     fairRangeHighUsd: enough ? adjusted.fairHighUsd : null,
     fairConfidence: adjusted.confidence,
-    compMethodNote: adjusted.methodNote,
+    compMethodNote: evaluation.priced ? adjusted.methodNote : evaluation.methodNote,
     priceGap: gap,
     mileage: {
       expectedMiles: expectedMiles(input.subject.year, asOfYear),

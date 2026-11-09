@@ -33,15 +33,11 @@ export function priceBadge(
 ): PriceBadge {
   const evaluation = evaluateListingPrice(subject, pool, options);
   const model = subject.model?.trim() || "car";
-  const lead =
-    evaluation.sampleSize > 0
-      ? `Compared with ${evaluation.sampleSize} similar ${model} listings.`
-      : null;
-  const sampleNote = withFeedHistoryNote(
-    [lead, evaluation.methodNote].filter((part) => part && part.trim()).join(" "),
-    subject,
-  );
   if (!evaluation.priced || evaluation.fairValueUsd == null || evaluation.deltaUsd == null) {
+    const prefix = `${NOT_ENOUGH_SIMILAR_CARS}. `;
+    const detail = evaluation.methodNote.startsWith(prefix)
+      ? evaluation.methodNote.slice(prefix.length)
+      : evaluation.methodNote;
     return {
       label: NOT_ENOUGH_SIMILAR_CARS,
       tone: "unknown",
@@ -49,9 +45,14 @@ export function priceBadge(
       deltaLabel: null,
       fairValueUsd: null,
       sampleSize: evaluation.sampleSize > 0 ? evaluation.sampleSize : null,
-      sampleNote,
+      sampleNote: withFeedHistoryNote(detail, subject),
     };
   }
+  const lead = `Compared with ${evaluation.sampleSize} similar ${model} listings.`;
+  const sampleNote = withFeedHistoryNote(
+    [lead, evaluation.methodNote].filter((part) => part && part.trim()).join(" "),
+    subject,
+  );
   const peers = buyerScopePhrase("adjusted-similar", subject);
   const basis = buyerSampleBasis(evaluation.sampleSize, peers);
   const fair = formatUsd(evaluation.fairValueUsd);

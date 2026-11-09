@@ -4,7 +4,6 @@ import { priceBadge } from "@/domain/price-badge";
 import {
   formatFilterBreakdown,
   groupByCriteria,
-  hardReject,
   intervalHours,
   isDue,
   prefilterListing,
@@ -212,9 +211,6 @@ export async function runRadarCycle(deps: CycleDeps): Promise<StoredRun> {
         continue;
       }
       listings += job.listings.length;
-      const criteria = job.group[0]!.criteria;
-      const asOfYear = deps.now.getUTCFullYear();
-      const eligible = job.listings.filter((listing) => hardReject(listing, criteria, asOfYear) === null);
       for (const search of job.group) {
         if (isBroadFlip(search)) {
           const ranked = topFlipCandidates(job.listings, deps.now, ASSUMPTIONS.radarMaxAlertsPerSearch, {
@@ -249,9 +245,9 @@ export async function runRadarCycle(deps: CycleDeps): Promise<StoredRun> {
               priceUsd: item.listing.priceUsd ?? 0,
               fairValueUsd: badge.fairValueUsd,
               priceLabel: badge.label,
-              medianUsd: badge.fairValueUsd ?? item.resaleMidUsd ?? 0,
-              lowUsd: item.resaleLowUsd ?? badge.fairValueUsd ?? 0,
-              highUsd: item.resaleHighUsd ?? badge.fairValueUsd ?? 0,
+              medianUsd: badge.fairValueUsd ?? 0,
+              lowUsd: badge.fairValueUsd == null ? 0 : (item.resaleLowUsd ?? badge.fairValueUsd),
+              highUsd: badge.fairValueUsd == null ? 0 : (item.resaleHighUsd ?? badge.fairValueUsd),
               gapUsd: item.profitMidUsd ?? 0,
               miles: item.listing.miles,
               expectedMiles: null,
@@ -302,7 +298,10 @@ export async function runRadarCycle(deps: CycleDeps): Promise<StoredRun> {
         tallyReason(reasons, "already seen", scoped.length - fresh.length);
         const decisions = fresh.map((listing) => ({
           listing,
-          decision: prefilterListing(listing, search.criteria, eligible, search.mode, deps.now.getUTCFullYear()),
+          // Same pool as the badge below. A miles cap or other buy-box rule must not
+          // drop same-model comps, or the alert can say "Not enough similar cars"
+          // next to a fair value from the wider set.
+          decision: prefilterListing(listing, search.criteria, scoped, search.mode, deps.now.getUTCFullYear()),
           dropped: book.has(listing.vin),
         }));
         const passedRows = decisions.filter((item) => item.decision.pass);
@@ -735,7 +734,7 @@ async function sendTelegram(chatId: string, alert: WatchAlert, deps: CycleDeps, 
     milesMax: criteria?.milesMax ?? null,
     bodyStyle: criteria?.bodyStyle ?? null,
     priceLabel: alert.badge?.label ?? alert.numbers.priceLabel,
-    fairValueUsd: alert.badge?.fairValueUsd ?? alert.numbers.fairValueUsd,
+    fairValueUsd: alert.badge ? alert.badge.fairValueUsd : alert.numbers.fairValueUsd,
     origin: deps.origin,
     alertId: alert.id,
   };
