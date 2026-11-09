@@ -8,7 +8,7 @@
 import { mileageAdjust, selectComparables } from "./comparables";
 import type { FindFuelEvidence } from "./find-fuel-match";
 import type { FindFreeGovReceipt } from "./find-free-gov";
-import { freeGovToolCoverage } from "./find-free-gov";
+import { checkedMmyKeysForCheck, freeGovToolCoverage } from "./find-free-gov";
 import type { ObservedListingRow } from "./find-model-observe";
 import { mmyListingKey } from "./find-risk-evidence";
 import {
@@ -128,6 +128,30 @@ export const BEST_DEAL_COVERAGE_FAIR_FACTORS: readonly BestDealFactorId[] = [
   "mmy_recall_campaigns",
   "mmy_ncap_rating",
 ];
+
+/** Buyer-facing labels for coverage-gated factors — never expose raw factor ids in UI. */
+export const BEST_DEAL_FACTOR_PLAIN_LABELS: Record<BestDealFactorId, string> = {
+  price_vs_model_asks: "asking price vs same model",
+  miles_per_year_vs_peers: "mileage pace vs peers",
+  age: "model year / wear",
+  estimated_fuel_cost: "estimated fuel cost",
+  mmy_recall_campaigns: "recall campaigns",
+  mmy_ncap_rating: "crash-test ratings",
+  named_model_preference: "named model match",
+  budget_fit: "budget fit",
+  condition_priority: "condition-first preference",
+};
+
+export function plainFairnessHeldOutNote(heldOut: readonly BestDealFactorId[]): string | null {
+  if (heldOut.length === 0) return null;
+  const labels = heldOut.map((id) => BEST_DEAL_FACTOR_PLAIN_LABELS[id] ?? "public check");
+  if (labels.length === 1) {
+    return `Fair coverage: ${labels[0]} held out of ranking until every shortlist year/make/model has that check`;
+  }
+  const head = labels.slice(0, -1).join(", ");
+  const tail = labels[labels.length - 1]!;
+  return `Fair coverage: ${head}, and ${tail} held out of ranking until every shortlist year/make/model has those checks`;
+}
 
 function median(values: number[]): number | null {
   return statsMedian(values);
@@ -739,33 +763,55 @@ function round1(n: number): number {
 }
 
 /**
- * Hold out coverage-gated factors when some shortlist MMYs have data and others
- * do not — otherwise cars with crash/recall/fuel receipts win partly by luck of
- * which batch finished first.
+ * Hold out coverage-gated factors when some shortlist MMYs have been checked and
+ * others have not — otherwise cars with crash/recall/fuel receipts win partly by
+ * luck of which batch finished first.
+ *
+ * "Checked" means a free-gov receipt exists for that year/make/model (any status,
+ * including honest unavailable/error). Index presence alone is not enough: error
+ * receipts without riskFacts/fuelEvidence must still count as attempted so settle
+ * can lift the hold-out instead of freezing factors forever.
  */
 export function fairnessHeldOutFactors(input: {
   listings: readonly BestDealListing[];
   fuelByMmy: BestDealFuelIndex;
   risk: BestDealRiskIndex;
+  /** Prefer receipt attempts when provided (aligns with freeGovToolCoverage). */
+  receipts?: readonly FindFreeGovReceipt[];
 }): BestDealFactorId[] {
   const mmyKeys = [...new Set(input.listings.map((l) => mmyListingKey(l.make, l.model, l.year)))];
   if (mmyKeys.length === 0) return [];
   const held: BestDealFactorId[] = [];
+  const receipts = input.receipts ?? [];
+
+  const fuelAttemptedKeys =
+    receipts.length > 0
+      ? checkedMmyKeysForCheck(receipts, "free_gov_fuel")
+      : new Set([...input.fuelByMmy.keys()]);
   const fuelScored = mmyKeys.filter((k) => {
     const f = input.fuelByMmy.get(k);
     return Boolean(f && f.annualFuelUsdLow != null);
   }).length;
-  const fuelChecked = mmyKeys.filter((k) => input.fuelByMmy.has(k)).length;
+  const fuelChecked = mmyKeys.filter((k) => fuelAttemptedKeys.has(k)).length;
   // Someone has a usable fuel score while peers are still unchecked → hold out.
-  // Once every MMY has a fuel receipt (match or no-match), scoring is fair.
+  // Once every MMY has a fuel receipt attempt (match, no-match, or unavailable), scoring is fair.
   if (fuelScored > 0 && fuelChecked < mmyKeys.length) {
     held.push("estimated_fuel_cost");
   }
 
-  const recallHave = mmyKeys.filter((k) => input.risk.campaignCountByMmy.has(k)).length;
+  const recallAttemptedKeys =
+    receipts.length > 0
+      ? checkedMmyKeysForCheck(receipts, "free_gov_recalls")
+      : new Set([...input.risk.campaignCountByMmy.keys()]);
+  const recallHave = mmyKeys.filter((k) => recallAttemptedKeys.has(k)).length;
+  // Partial attempt sample only — once every MMY was attempted, score what we have.
   if (recallHave > 0 && recallHave < mmyKeys.length) held.push("mmy_recall_campaigns");
 
-  const ncapHave = mmyKeys.filter((k) => input.risk.ncapOverallByMmy.has(k)).length;
+  const ncapAttemptedKeys =
+    receipts.length > 0
+      ? checkedMmyKeysForCheck(receipts, "free_gov_safety")
+      : new Set([...input.risk.ncapOverallByMmy.keys()]);
+  const ncapHave = mmyKeys.filter((k) => ncapAttemptedKeys.has(k)).length;
   if (ncapHave > 0 && ncapHave < mmyKeys.length) held.push("mmy_ncap_rating");
 
   return held.filter((id) => BEST_DEAL_COVERAGE_FAIR_FACTORS.includes(id));
@@ -855,6 +901,7 @@ export function selectBestDealOnEvidence(input: {
     listings: input.listings,
     fuelByMmy,
     risk,
+    receipts,
   });
   const heldOutSet = new Set(fairnessHeldOut);
   const settlementNote = evidenceSettled
@@ -881,11 +928,8 @@ export function selectBestDealOnEvidence(input: {
   if (!evidenceSettled) {
     stillUnknown.unshift("Free public year/make/model checks are still running — ranking may change");
   }
-  if (fairnessHeldOut.length > 0) {
-    stillUnknown.push(
-      `Fair coverage: ${fairnessHeldOut.join(", ")} held out of ranking until every shortlist year/make/model has that check`,
-    );
-  }
+  const fairnessNote = plainFairnessHeldOutNote(fairnessHeldOut);
+  if (fairnessNote) stillUnknown.push(fairnessNote);
 
   const assumptionsNote = `Scoring uses only cars returned in this search, free public year/make/model safety/recall signals when checked for every shortlist peer (otherwise held out for fairness), and FuelEconomy.gov estimates when matched. Default mileage pace assumption for age context: ${milesPerYearAssumption.toLocaleString("en-US")} mi/yr. Under condition-first, price-below-market bonus is capped at ${Math.round(BEST_DEAL_PRICE_BELOW_CAP_FRAC * 100)}% under median.`;
 

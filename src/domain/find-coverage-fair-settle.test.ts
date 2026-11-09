@@ -16,6 +16,8 @@ import {
   type BestDealListing,
 } from "./find-best-deal";
 import {
+  assertBuyerSafeText,
+  formatBuyerBestDeal,
   formatBuyerLoopStep,
   formatBuyerNextCheckWhy,
   summarizeFuelCheckOutcome,
@@ -24,7 +26,10 @@ import type { FindFreeGovReceipt } from "./find-free-gov";
 import { freeGovToolCoverage } from "./find-free-gov";
 import { buildFindFuelAssumptions, type FindFuelEvidence } from "./find-fuel-match";
 import { decideFindNextCheckLoop } from "./find-next-check-loop";
-import { shouldAutoContinueFindNextCheck } from "./find-next-check-ui";
+import {
+  FIND_NEXT_CHECK_AUTO_CONTINUE_MAX,
+  shouldAutoContinueFindNextCheck,
+} from "./find-next-check-ui";
 import {
   budgetIsApproximateFromNote,
   budgetWorkingCopy,
@@ -282,6 +287,15 @@ describe("live 24-card coverage settle + fair scoring", () => {
         expect(f?.detail).toMatch(/Held out|fair coverage/i);
       }
     }
+    // Owner rule: raw factor ids / reason tags must never reach buyer-visible copy.
+    const buyer = formatBuyerBestDeal(result);
+    for (const line of [buyer.why, buyer.settlementNote, ...buyer.stillUnknown, ...buyer.factorLines]) {
+      expect(assertBuyerSafeText(line).ok).toBe(true);
+    }
+    expect(buyer.stillUnknown.join(" ")).toMatch(/recall campaigns|crash-test|fuel cost/i);
+    expect(buyer.stillUnknown.join(" ")).not.toMatch(
+      /estimated_fuel_cost|mmy_recall_campaigns|mmy_ncap_rating/,
+    );
   });
 
   it("full MMY coverage settles and scores fuel/recall/ncap for everyone", () => {
@@ -372,6 +386,86 @@ describe("live 24-card coverage settle + fair scoring", () => {
         loop: { continue: loop.continue, reason: loop.reason },
       }),
     ).toBe(true);
+    expect(
+      shouldAutoContinueFindNextCheck({
+        servNextCheckEnabled: true,
+        autonomousServ: false,
+        searchContextToken: "tok",
+        autoContinueCount: FIND_NEXT_CHECK_AUTO_CONTINUE_MAX,
+        loop: { continue: true, reason: "remaining_free_checks" },
+      }),
+    ).toBe(false);
+  });
+
+  it("honest unavailable/error receipts count as attempted so fairness can settle", () => {
+    const mmy = [...new Set(listings.map((l) => `${l.make}|${l.model}|${l.year}`))];
+    const receipts: FindFreeGovReceipt[] = [];
+    for (const [i, key] of mmy.entries()) {
+      const [make, model, yearStr] = key.split("|");
+      const year = Number(yearStr);
+      const failed = i % 5 === 0;
+      receipts.push(
+        receipt("free_gov_fuel", make!, model!, year, {
+          status: failed ? "unavailable" : "ok",
+          fuelEvidence: failed
+            ? {
+                ...fuelEv(0),
+                match: "unavailable",
+                annualFuelUsdLow: null,
+                annualFuelUsdHigh: null,
+              }
+            : fuelEv(1_800 + year),
+        }),
+      );
+      receipts.push(
+        receipt("free_gov_recalls", make!, model!, year, {
+          status: failed ? "error" : "ok",
+          riskFacts: failed
+            ? null
+            : {
+                parkIt: false,
+                parkOutside: false,
+                campaignNumbers: ["x"],
+                campaignCountReported: 1,
+                complaintCount: 0,
+                recallsAvailable: true,
+                complaintsAvailable: true,
+                sourceUrl: null,
+                toolId: "evidence.gov_recalls",
+                scope: "test",
+                vinOpenRecalls: null,
+                make: make!,
+                model: model!,
+                year,
+                listingKey: key.toLowerCase(),
+                cached: false,
+              },
+        }),
+      );
+      receipts.push(
+        receipt("free_gov_safety", make!, model!, year, {
+          status: failed ? "unavailable" : "ok",
+          factNotes: failed ? [] : ["overall=4"],
+          summary: failed ? "unavailable" : "overall=4",
+        }),
+      );
+      receipts.push({
+        ...receipt("free_gov_vpic", make!, model!, year),
+        vin: `VIN-${key}`,
+      });
+    }
+    const cov = freeGovToolCoverage(listings, receipts);
+    expect(cov.anyUnchecked).toBe(false);
+    const fuelByMmy = fuelIndexFromReceipts(receipts);
+    const risk = riskIndexFromReceipts(receipts);
+    // Without receipt-aware fairness, error rows missing riskFacts would keep factors held out forever.
+    expect(fairnessHeldOutFactors({ listings, fuelByMmy, risk, receipts })).toEqual([]);
+    const result = selectBestDealOnEvidence({ need, listings, receipts, nowYear: 2026 });
+    expect(result.evidenceSettled).toBe(true);
+    expect(result.fairnessHeldOut).toEqual([]);
+    const buyer = formatBuyerBestDeal(result);
+    expect(assertBuyerSafeText(buyer.why).ok).toBe(true);
+    expect(buyer.stillUnknown.every((u) => assertBuyerSafeText(u).ok)).toBe(true);
   });
 });
 
@@ -414,6 +508,15 @@ describe("checklist + market + budget + coverage copy", () => {
     });
     expect(withOutcome).toMatch(/Fuel costs found for 3 of 5/);
     expect(withOutcome).toMatch(/not available because/i);
+    expect(withOutcome).not.toMatch(/more groups still unchecked/i);
+    expect(assertBuyerSafeText(withOutcome).ok).toBe(true);
+
+    // Fuel pending is fuel-specific — do not claim fuel is still queued just because recalls remain.
+    const fuelDoneOtherPending = formatBuyerNextCheckWhy("free_gov_fuel", "technical", {
+      fuelOutcome: { attempted: 5, matched: 3, noMatch: 2, unavailable: 0 },
+      fuelPending: false,
+    });
+    expect(fuelDoneOtherPending).not.toMatch(/still queued|more groups still unchecked/i);
 
     const summary = summarizeFuelCheckOutcome([
       receipt("free_gov_fuel", "Honda", "CR-V", 2018),

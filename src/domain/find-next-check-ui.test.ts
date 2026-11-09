@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  FIND_NEXT_CHECK_AUTO_CONTINUE_MAX,
   rematchRefineFromReplan,
   shouldAutoContinueFindNextCheck,
   shouldAutoStartFindNextCheck,
@@ -78,6 +79,27 @@ describe("shouldAutoContinueFindNextCheck", () => {
         autonomousServ: false,
         searchContextToken: "t",
         loop: { continue: true, reason: "some_other_reason" },
+      }),
+    ).toBe(false);
+  });
+
+  it("hard-bounds auto-continues so a stuck disposition cannot spin forever", () => {
+    expect(
+      shouldAutoContinueFindNextCheck({
+        servNextCheckEnabled: true,
+        autonomousServ: false,
+        searchContextToken: "t",
+        autoContinueCount: FIND_NEXT_CHECK_AUTO_CONTINUE_MAX - 1,
+        loop: { continue: true, reason: "remaining_free_checks" },
+      }),
+    ).toBe(true);
+    expect(
+      shouldAutoContinueFindNextCheck({
+        servNextCheckEnabled: true,
+        autonomousServ: false,
+        searchContextToken: "t",
+        autoContinueCount: FIND_NEXT_CHECK_AUTO_CONTINUE_MAX,
+        loop: { continue: true, reason: "remaining_free_checks" },
       }),
     ).toBe(false);
   });
