@@ -1,6 +1,13 @@
 import { describe, expect, it } from "vitest";
 import { emptyExtractedFields } from "./types";
-import { mergeLlmExtraction, validateMiles, validatePriceUsd, validateVinCandidate, validateYear } from "./validate";
+import {
+  mergeLayer,
+  mergeLlmExtraction,
+  validateMiles,
+  validatePriceUsd,
+  validateVinCandidate,
+  validateYear,
+} from "./validate";
 
 describe("listing extract validation", () => {
   it("accepts checksum-valid VINs only", () => {
@@ -31,5 +38,12 @@ describe("listing extract validation", () => {
     expect(merged.make).toEqual({ value: "Toyota", source: "llm" });
     expect(merged.vin.value).toBe("4T1KZ1AK4MU060006");
     expect(merged.priceUsd.value).toBeNull();
+  });
+
+  it("drops junk seller names during merge", () => {
+    const merged = mergeLayer(emptyExtractedFields(), { sellerName: "ship Why trust Auto Boutique" }, "json_ld");
+    expect(merged.sellerName.value).toBeNull();
+    const ok = mergeLayer(emptyExtractedFields(), { sellerName: "Sunrise Toyota" }, "json_ld");
+    expect(ok.sellerName.value).toBe("Sunrise Toyota");
   });
 });
