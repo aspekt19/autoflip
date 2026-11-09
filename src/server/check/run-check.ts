@@ -4,6 +4,12 @@
  */
 import { buildCheckAgentVerdict } from "@/domain/build-check-agent-verdict";
 import type { AgentVerdict } from "@/domain/agent-verdict-schema";
+import { emptyAgentVerdict } from "@/domain/agent-verdict-schema";
+import { buildCheckComputedReport } from "@/server/check/check-computed-report";
+import {
+  runShopperVerdictServ,
+  type ShopperServTrace,
+} from "@/server/shopper-verdict-serv";
 import { checkConfidence } from "@/domain/listing/confidence";
 import { knownModelYearIssues } from "@/domain/listing/known-issues";
 import { listingRedFlags } from "@/domain/listing/red-flags";
@@ -104,8 +110,13 @@ export type CheckResultPayload = {
   }>;
   llmUsed: boolean;
   sample: boolean;
-  /** Structured How-the-agent-decided trail (usually no agent step on free Check). */
+  /** Structured How-the-agent-decided trail — only real SERV steps when a live call ran. */
   agentVerdict: AgentVerdict;
+  /**
+   * Raw SERV decide/challenge traces when attempted (model, timestamp, response id, raw text).
+   * Null when no key, gates withheld before spend, or no HTTP was dispatched.
+   */
+  servTrace: ShopperServTrace | null;
 };
 
 export type CheckRunResult =
@@ -260,6 +271,87 @@ function mismatchNote(decode: VinDecode | null, listing: Listing): boolean {
   const makeOk = decode.make.toLowerCase() === listing.make.toLowerCase();
   const modelOk = decode.model.toLowerCase() === listing.model.toLowerCase();
   return !(yearOk && makeOk && modelOk);
+}
+
+async function attachCheckShopperServ(input: {
+  codeTrail: AgentVerdict;
+  subject: Listing;
+  verdict: CheckVerdictLabel;
+  badge: PriceBadge | null;
+  fairValueUsd: number | null;
+  priceGap: number | null;
+  redFlags: CheckRedFlag[];
+  questions: string[];
+  similarCars: SimilarCarView[];
+  recalls: RecallRecord[];
+  recallsAvailable: boolean;
+  complaintCount: number | null;
+  fuel: FuelFact | null;
+  vinDecode: VinDecode | null;
+  summary: string;
+  unknown: string[];
+  sample: boolean;
+  compScope: string;
+  userLookup: string;
+  deps: CheckRunDeps;
+}): Promise<{ agentVerdict: AgentVerdict; servTrace: ShopperServTrace | null }> {
+  if (!input.deps.servKey?.trim()) {
+    return { agentVerdict: input.codeTrail, servTrace: null };
+  }
+
+  const reportVerdict =
+    input.verdict === "dossier" || input.verdict === "insufficient_data"
+      ? ("insufficient_data" as const)
+      : input.verdict;
+
+  const report = buildCheckComputedReport({
+    subject: input.subject,
+    verdict: reportVerdict,
+    badge: input.badge,
+    fairValueUsd: input.fairValueUsd,
+    priceGap: input.priceGap,
+    redFlags: input.redFlags,
+    questions: input.questions,
+    similarCars: input.similarCars,
+    recalls: input.recalls,
+    recallsAvailable: input.recallsAvailable,
+    complaintCount: input.complaintCount,
+    fuel: input.fuel,
+    vinDecode: input.vinDecode,
+    summary: input.summary,
+    unknown: input.unknown,
+    sample: input.sample,
+    compScope: input.compScope,
+  });
+
+  const shopper = await runShopperVerdictServ({
+    report,
+    userLookup: input.userLookup,
+    servKey: input.deps.servKey,
+    servBaseUrl: input.deps.servBaseUrl,
+    model: input.deps.servModel,
+    fetchImpl: input.deps.fetch ?? fetch,
+  });
+
+  if (shopper.decision.gateRun.withheld) {
+    return {
+      agentVerdict: emptyAgentVerdict({
+        ...input.codeTrail,
+        unknowns: [
+          ...input.codeTrail.unknowns,
+          shopper.decision.withholdReason ?? "Verdict withheld by ordered gates.",
+        ].slice(0, 8),
+        serv_spend: {
+          calls: 0,
+          costNote: "Ordered gates withheld the agent verdict — no agent spend.",
+        },
+        no_serv_step: true,
+      }),
+      servTrace: null,
+    };
+  }
+
+  return { agentVerdict: shopper.agentVerdict, servTrace: shopper.trace };
 }
 
 function verdictFromBadge(
@@ -488,6 +580,51 @@ async function buildListingVerdict(
   ].filter((part): part is string => Boolean(part)));
 
   const topComps = (readiness?.offer.similarCars ?? []).slice(0, 8);
+  const unknown = unknownList(fields, [
+    "Paid vehicle history (Carfax/AutoCheck/NMVTIS) was not run",
+  ]);
+  const fairValueUsd = badge.fairValueUsd ?? readiness?.offer.fairMidUsd ?? null;
+  const priceGap =
+    badge.fairValueUsd != null && subject.priceUsd != null && badge.fairValueUsd > 0
+      ? (subject.priceUsd - badge.fairValueUsd) / badge.fairValueUsd
+      : null;
+  const codeTrail = buildCheckAgentVerdict({
+    kind: "listing",
+    title: `${subject.year} ${subject.make} ${subject.model}`,
+    verdictLabel: decided.label,
+    confidence,
+    summary,
+    compCount: badge.sampleSize ?? 0,
+    fairValueUsd: badge.fairValueUsd,
+    recallsAvailable: gov.recallsAvailable,
+    recallCount: gov.recalls.length,
+    complaintCount: gov.complaintCount,
+    hasVin: Boolean(fields.vin.value),
+    redFlagCount: flags.length,
+    unknown,
+  });
+  const shopper = await attachCheckShopperServ({
+    codeTrail,
+    subject,
+    verdict: decided.verdict,
+    badge,
+    fairValueUsd,
+    priceGap,
+    redFlags: flags,
+    questions,
+    similarCars: topComps,
+    recalls: gov.recalls,
+    recallsAvailable: gov.recallsAvailable,
+    complaintCount: gov.complaintCount,
+    fuel: gov.fuel,
+    vinDecode: gov.vinDecode,
+    summary,
+    unknown,
+    sample: comps.sample,
+    compScope: comps.scope,
+    userLookup: input.url ?? subject.vin ?? `${subject.year} ${subject.make} ${subject.model}`,
+    deps: input.deps,
+  });
 
   return {
     ok: true,
@@ -499,11 +636,8 @@ async function buildListingVerdict(
       confidence,
       summary,
       badge,
-      fairValueUsd: badge.fairValueUsd ?? readiness?.offer.fairMidUsd ?? null,
-      priceGap:
-        badge.fairValueUsd != null && subject.priceUsd != null && badge.fairValueUsd > 0
-          ? (subject.priceUsd - badge.fairValueUsd) / badge.fairValueUsd
-          : null,
+      fairValueUsd,
+      priceGap,
       compCount: badge.sampleSize ?? readiness?.offer.compCount ?? 0,
       compScope: comps.scope,
       redFlags: flags,
@@ -524,9 +658,7 @@ async function buildListingVerdict(
       fuelConflict: fuelNote,
       safetySummary: gov.safetySummary,
       knownIssues,
-      unknown: unknownList(fields, [
-        "Paid vehicle history (Carfax/AutoCheck/NMVTIS) was not run",
-      ]),
+      unknown,
       listingsForVin: providerListings.map((row) => ({
         priceUsd: row.priceUsd,
         miles: row.miles,
@@ -537,21 +669,8 @@ async function buildListingVerdict(
       })),
       llmUsed: input.llmUsed,
       sample: comps.sample,
-      agentVerdict: buildCheckAgentVerdict({
-        kind: "listing",
-        title: `${subject.year} ${subject.make} ${subject.model}`,
-        verdictLabel: decided.label,
-        confidence,
-        summary,
-        compCount: badge.sampleSize ?? 0,
-        fairValueUsd: badge.fairValueUsd,
-        recallsAvailable: gov.recallsAvailable,
-        recallCount: gov.recalls.length,
-        complaintCount: gov.complaintCount,
-        hasVin: Boolean(fields.vin.value),
-        redFlagCount: flags.length,
-        unknown: unknownList(fields, ["Paid vehicle history (Carfax/AutoCheck/NMVTIS) was not run"]),
-      }),
+      agentVerdict: shopper.agentVerdict,
+      servTrace: shopper.servTrace,
     },
   };
 }
@@ -674,6 +793,55 @@ async function buildVinDossier(vin: string, deps: CheckRunDeps, optionalZip?: st
     "This uses free government records only, not a paid history report.",
   ].join(" ");
 
+  const redFlags: CheckRedFlag[] = bundle.recalls.some((r) => r.parkIt)
+    ? [
+        {
+          id: "park_it",
+          level: "stop",
+          text: "NHTSA lists a park-it (do not drive) campaign for this model year. Verify VIN applicability before driving.",
+          source: "nhtsa-recalls",
+        },
+      ]
+    : [];
+  const codeTrail = buildCheckAgentVerdict({
+    kind: "vin_dossier",
+    title: `${subject.year} ${subject.make} ${subject.model}`,
+    verdictLabel: "VIN dossier (free sources)",
+    confidence,
+    summary,
+    compCount: 0,
+    fairValueUsd: null,
+    recallsAvailable: bundle.recallsAvailable,
+    recallCount: bundle.recalls.length,
+    complaintCount: bundle.complaintCount,
+    hasVin: true,
+    redFlagCount: redFlags.length,
+    unknown,
+  });
+  // VIN-only has no ask/miles → ordered gates withhold; no invented SERV trail.
+  const shopper = await attachCheckShopperServ({
+    codeTrail,
+    subject,
+    verdict: "dossier",
+    badge: null,
+    fairValueUsd: null,
+    priceGap: null,
+    redFlags,
+    questions,
+    similarCars: [],
+    recalls: bundle.recalls,
+    recallsAvailable: bundle.recallsAvailable,
+    complaintCount: bundle.complaintCount,
+    fuel: bundle.fuel,
+    vinDecode: bundle.vinDecode ?? decode,
+    summary,
+    unknown,
+    sample: false,
+    compScope: "VIN dossier does not rate price without an asking price",
+    userLookup: vin,
+    deps,
+  });
+
   return {
     ok: true,
     result: {
@@ -688,16 +856,7 @@ async function buildVinDossier(vin: string, deps: CheckRunDeps, optionalZip?: st
       priceGap: null,
       compCount: 0,
       compScope: "VIN dossier does not rate price without an asking price",
-      redFlags: bundle.recalls.some((r) => r.parkIt)
-        ? [
-            {
-              id: "park_it",
-              level: "stop",
-              text: "NHTSA lists a park-it (do not drive) campaign for this model year. Verify VIN applicability before driving.",
-              source: "nhtsa-recalls",
-            },
-          ]
-        : [],
+      redFlags,
       questions,
       otd: null,
       otdNeedsZip: false,
@@ -729,21 +888,8 @@ async function buildVinDossier(vin: string, deps: CheckRunDeps, optionalZip?: st
         city: row.city,
         state: row.state,
       })),
-      agentVerdict: buildCheckAgentVerdict({
-        kind: "vin_dossier",
-        title: `${subject.year} ${subject.make} ${subject.model}`,
-        verdictLabel: "VIN dossier (free sources)",
-        confidence,
-        summary,
-        compCount: 0,
-        fairValueUsd: null,
-        recallsAvailable: bundle.recallsAvailable,
-        recallCount: bundle.recalls.length,
-        complaintCount: bundle.complaintCount,
-        hasVin: true,
-        redFlagCount: bundle.recalls.some((r) => r.parkIt) ? 1 : 0,
-        unknown,
-      }),
+      agentVerdict: shopper.agentVerdict,
+      servTrace: shopper.servTrace,
       llmUsed: false,
       sample: false,
     },

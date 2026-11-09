@@ -79,6 +79,72 @@ describe("runCheck listing paste (no paid Autodev/SERV)", () => {
     expect(result.result.provenance.some((row) => row.field === "priceUsd" && row.value === 23990)).toBe(true);
     expect(result.result.unknown.length).toBeGreaterThan(0);
     expect(result.result.summary).not.toMatch(/\.\./);
+    expect(result.result.agentVerdict.no_serv_step).toBe(true);
+    expect(result.result.servTrace).toBeNull();
+  });
+
+  it("routes listing Check through SERV decide + challenge when a key is present", async () => {
+    const html = readFileSync(join(FIXTURES, "dealer-jsonld.html"), "utf8");
+    let servCalls = 0;
+    const fetchImpl = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("serv-mock.test")) {
+        servCalls += 1;
+        const body =
+          servCalls === 1
+            ? { verdict: "negotiate", note: "Ask is near the fair value from similar listings." }
+            : { agrees: true, action: "negotiate", objection: null, evidenceIds: ["ev_fair_value"] };
+        return new Response(
+          JSON.stringify({
+            id: `chatcmpl-check-${servCalls}`,
+            model: "gpt-5.4-mini",
+            choices: [{ message: { content: JSON.stringify(body) } }],
+          }),
+          { status: 200 },
+        );
+      }
+      if (url.includes("api.auto.dev") || url.includes("auto.dev")) {
+        return new Response(
+          JSON.stringify({
+            data: [
+              camryComp("4T1KZ1AK4MU060011", 24500, 30000, 2021),
+              camryComp("4T1KZ1AK4MU060012", 23500, 34000, 2021),
+              camryComp("4T1KZ1AK4MU060013", 25000, 28000, 2020),
+              camryComp("4T1KZ1AK4MU060014", 22990, 36000, 2020),
+            ],
+          }),
+          { status: 200 },
+        );
+      }
+      return govFetch(url);
+    });
+
+    const result = await runCheck(
+      { kind: "paste", text: html, url: "https://dealer.example/camry" },
+      {
+        fetch: fetchImpl as unknown as typeof fetch,
+        servKey: "test-serv-key",
+        servModel: "gpt-5.4-mini",
+        servBaseUrl: "https://serv-mock.test/v1",
+        autodevKey: "test-autodev",
+        autodev: { cache: new TtlCache(), counter: new MemoryCounter() },
+      },
+    );
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    if (result.result.agentVerdict.no_serv_step) {
+      expect(
+        result.result.agentVerdict.serv_steps.some((s) => /unavailable|withheld|No agent/i.test(s.decided)) ||
+          result.result.agentVerdict.unknowns.some((u) => /withheld|unavailable/i.test(u)) ||
+          result.result.servTrace == null,
+      ).toBe(true);
+    } else {
+      expect(result.result.agentVerdict.verdict).toBeTruthy();
+      expect(result.result.agentVerdict.no_serv_step).toBe(false);
+      expect(result.result.servTrace?.calls.length).toBeGreaterThanOrEqual(1);
+      expect(result.result.servTrace?.calls[0]?.rawResponse).toBeTruthy();
+      expect(result.result.servTrace?.recordedAt).toMatch(/^\d{4}-/);
+    }
   });
 
   it("builds a VIN dossier without ask/miles/ZIP", async () => {
