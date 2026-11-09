@@ -3,11 +3,13 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
+import { AgentDecisionTrail } from "@/components/AgentDecisionTrail";
 import { SignInGate } from "@/components/SignInGate";
 import { PriceBadgeView, PriceRatingHow } from "@/components/PriceBadge";
 import { freeChecksRemainingFromAccount } from "@/domain/free-check-quota";
 import { isValidVin } from "@/domain/vin";
 import { formatUsd } from "@/domain/format";
+import type { AgentVerdict } from "@/domain/agent-verdict-schema";
 import type { PriceBadge } from "@/domain/price-badge";
 import type { CheckConfidence, CheckRedFlag, ExtractedListingFields } from "@/domain/listing/types";
 
@@ -46,6 +48,7 @@ type CheckResultView = {
     city: string | null;
     state: string | null;
   }>;
+  agentVerdict?: AgentVerdict | null;
 };
 
 function sourceLabel(source: string | null): string {
@@ -367,6 +370,7 @@ function CheckResultCard({ result }: { result: CheckResultView }) {
         Confidence: {result.confidence}
       </p>
       <p>{result.summary}</p>
+      <AgentDecisionTrail verdict={result.agentVerdict} defaultOpen />
 
       {result.badge ? (
         <>

@@ -1,0 +1,17 @@
+{
+  "note": "Saved response bodies in the verdict_decide and verdict_challenge schemas. The sample report replays them through the same parsers as a live call. They are not a live spend.",
+  "first": {
+    "verdict": "buy",
+    "note": "Ask sits under the fair value from the comps supplied."
+  },
+  "revised": {
+    "verdict": "negotiate",
+    "note": "Two newer comps arrived with lower asks, so buy is no longer the honest action."
+  },
+  "challenge": {
+    "agrees": false,
+    "action": "needs_inspection",
+    "objection": "Recall lookup was unavailable — do not treat a missing check as a clean history.",
+    "evidenceIds": ["ev_recall_unavailable"]
+  }
+}
