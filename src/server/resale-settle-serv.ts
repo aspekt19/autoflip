@@ -22,6 +22,7 @@ import {
   validateResaleServOutput,
 } from "@/domain/resale-serv-validate";
 import type { ComputedReport, Listing, Verdict } from "@/domain/types";
+import { rankByRiskAdjustedProfit, runResaleDeepChecks } from "@/server/resale-deep-check";
 import { runShopperVerdictServ, type ShopperServTrace } from "@/server/shopper-verdict-serv";
 import { runServ, type ServProof } from "@/server/serv";
 
@@ -230,8 +231,9 @@ export async function runResaleSettleServ(input: {
   });
 
   // --- Triage (resale_triage) ---
+  let selectedCheckIds = ["price_comps", "history"];
   if (input.servKey?.trim() && journal.servCalls < journal.servCallCap) {
-    const allowedCheckIds = ["price_comps", "vin_decode", "recalls", "complaints"];
+    const allowedCheckIds = ["price_comps", "vin_decode", "recalls", "complaints", "history"];
     const facts = {
       allowedVins: shortlist.map((item) => item.vin),
       allowedCheckIds,
@@ -270,7 +272,7 @@ export async function runResaleSettleServ(input: {
         },
         {
           ...bundle,
-          evidenceIds: [...bundle.evidenceIds, ...allowedCheckIds.map((id) => `check:${id}`)],
+          evidenceIds: [...bundle.evidenceIds, ...allowedCheckIds.map((id) => `check:${id}`), "check:history"],
           numberFacts: facts,
         },
       );
@@ -294,12 +296,14 @@ export async function runResaleSettleServ(input: {
         if (deepOk.length > 0) {
           working = shortlist.filter((item) => deepOk.includes(item.vin));
         }
+        const safeChecks = checks.filter((id) => allowedCheckIds.includes(id));
+        if (safeChecks.length > 0) selectedCheckIds = safeChecks;
         journal = appendJournalStep(journal, {
           kind: "triage",
           actor: "SERV",
-          decided: `Deep-check ${deepOk.length || shortlist.length} VIN(s); skip ${skipOk.length}; checks ${checks.filter((id) => allowedCheckIds.includes(id)).join(", ") || "none"}`,
+          decided: `Deep-check ${deepOk.length || shortlist.length} VIN(s); skip ${skipOk.length}; checks ${safeChecks.join(", ") || "none"}`,
           why: note || "Triage used allowlisted VINs and check ids only.",
-          inputsUsed: [...deepOk.map((vin) => `vin:${vin}`), ...checks.map((id) => `check:${id}`)],
+          inputsUsed: [...deepOk.map((vin) => `vin:${vin}`), ...safeChecks.map((id) => `check:${id}`)],
           changed: deepOk.length
             ? `Shortlist narrowed to ${working.map(carLabel).join(", ")}`
             : skipOk.length
@@ -311,7 +315,7 @@ export async function runResaleSettleServ(input: {
           rejected: null,
         });
         trail.push({
-          decided: "SERV triage",
+          decided: "Agent triage",
           why: note || "Allowlisted deep-check selection.",
           changed: deepOk.length ? `Deep-check ${deepOk.join(", ")}` : null,
           model: modelFrom(judged.proof, input.model),
@@ -337,9 +341,36 @@ export async function runResaleSettleServ(input: {
     journal = appendJournalStep(journal, {
       kind: "fallback",
       actor: "code",
-      decided: "No SERV key — code ranking only",
+      decided: "No agent key — code ranking only",
       why: `Top candidate is ${carLabel(shortlist[0]!)} from code P&L.`,
       inputsUsed: shortlist.map((item) => `pnl:${item.vin}`),
+      changed: null,
+      model: null,
+      responseId: null,
+      recordedAt,
+      rejected: null,
+    });
+  }
+
+  // --- Deep-check (code executes the free public lookups SERV selected) ---
+  const deepTargets = (working.length ? working : shortlist).slice(0, RESALE_SERV_JUDGE_MAX);
+  const deep = await runResaleDeepChecks({
+    candidates: deepTargets,
+    checkIds: selectedCheckIds,
+    journal,
+    fetchImpl,
+    nowIso: recordedAt,
+  });
+  journal = deep.journal;
+  working = deepTargets.filter((item) => !deep.rejectedVins.has(item.vin));
+  if (working.length === 0) {
+    working = deepTargets; // keep rejected visible for pass verdict rather than empty dead end
+    journal = appendJournalStep(journal, {
+      kind: "stop_or_widen",
+      actor: "code",
+      decided: "All deep-checked candidates were rejected — still return a pass verdict",
+      why: "Park-it or hard rejects cleared the shortlist. Widen budget/radius on the next search.",
+      inputsUsed: deepTargets.map((item) => `vin:${item.vin}`),
       changed: null,
       model: null,
       responseId: null,
@@ -353,7 +384,22 @@ export async function runResaleSettleServ(input: {
     if (faster.length > 0) working = faster;
   }
 
-  let ordered = sortByProfit(working.length ? working : shortlist);
+  // Risk-adjusted rank after deep-checks (code math only).
+  let ordered = rankByRiskAdjustedProfit(working.length ? working : shortlist, deep.riskByVin);
+  journal = appendJournalStep(journal, {
+    kind: "rank",
+    actor: "code",
+    decided: `Re-ranked by risk-adjusted expected mid profit`,
+    why: `Top after deep-checks: ${carLabel(ordered[0]!)}. Risk multipliers come from comps/recalls/history — not invented.`,
+    inputsUsed: ordered.map((item) => `pnl:${item.vin}`),
+    changed: ordered[0] && shortlist[0] && ordered[0].vin !== shortlist[0].vin
+      ? `Changed lead from ${shortlist[0].vin} to ${ordered[0].vin} after deep-checks`
+      : null,
+    model: null,
+    responseId: null,
+    recordedAt,
+    rejected: null,
+  });
   let best = ordered[0]!;
   let verdictAction: ResaleSettleServResult["verdictAction"] =
     best.profitMidUsd != null && best.profitMidUsd > 0 ? "negotiate" : "needs_inspection";

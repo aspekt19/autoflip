@@ -90,7 +90,9 @@ function ResaleSearchForm({ credits, onAuthLost }: { credits: number | null; onA
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<SearchResult | null>(null);
-  const [idemKey] = useState(() => crypto.randomUUID().replace(/-/g, "").slice(0, 24));
+  const [idemKey] = useState(
+    () => `resale-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 12)}`,
+  );
 
   async function submitSearch() {
     setError(null);

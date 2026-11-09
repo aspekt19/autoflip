@@ -13,10 +13,24 @@ Code owns every dollar figure, VIN, URL, and listing. SERV only chooses among **
 | `verdict_decide` / `verdict_challenge` | Shared shopper action path (also used when a ComputedReport is built for the pick) | report facts / gates | action + challenge | Existing Check/report limits |
 | `radar_review` | Alert vs skip for **NEW** radar listings only | allowlisted VINs + P&L | `decisions[{vin,verdict,note}]` | 14s; bounded per cron run |
 
+## Deep-checks (code executes what triage selected)
+
+After `resale_triage`, TypeScript runs free public lookups for the allowlisted check ids:
+
+| checkId | Source | Effect |
+|---|---|---|
+| `price_comps` | Already computed P&L | Journals basis; thin comps lower risk multiplier |
+| `vin_decode` | NHTSA vPIC | Confirms or marks decode unavailable |
+| `recalls` | NHTSA recallsByVehicle | **Rejects** on park-it; otherwise journals campaign count |
+| `complaints` | NHTSA complaintsByVehicle | Journals make/model/year count (not VIN-specific) |
+| `history` | Listing fields only | Unknown unless accidentCount present |
+
+Then code **re-ranks by risk-adjusted mid profit**. Challenge may still revise the pick; revisions appear in the journal as `Changed pick from X to Y because…`.
+
 ## Call budget
 
 - Resale search: hard cap **6** paid SERV calls per delivered search (`RESALE_SERV_CALL_CAP`).
-- Deal Radar cron: bounded separately (≤3 review calls per watch run unless documented otherwise).
+- Deal Radar cron: bounded separately (≤3 review calls per watch run unless documented otherwise). Same journal schema (`lemonless.resale_journal.v1`) for every Radar run.
 
 ## Evidence validation (code)
 

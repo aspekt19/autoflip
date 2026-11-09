@@ -915,7 +915,18 @@ export const PROFILES = {
         required: ["deepCheckVins", "skipVins", "checkIds", "note"],
       },
     },
-    codeComputed: ["allowedVins", "allowedCheckIds", "profitMidUsd", "compCount", "confidence"],
+    codeComputed: [
+      "allowedVins",
+      "allowedCheckIds",
+      "profitMidUsd",
+      "compCount",
+      "confidence",
+      "price_comps",
+      "vin_decode",
+      "recalls",
+      "complaints",
+      "history",
+    ],
   },
   /**
    * Resale pick — choose the best allowlisted flip VIN after code P&L.

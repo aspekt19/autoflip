@@ -125,8 +125,8 @@ export function parseRecalls(payload: unknown): RecallRecord[] {
       summary: str(row.Summary) ?? str(row.summary) ?? "",
       consequence: str(row.Consequence) ?? str(row.Conequence) ?? str(row.consequence) ?? "",
       remedy: str(row.Remedy) ?? str(row.remedy) ?? "",
-      parkIt: truthyFlag(row.parkIt),
-      parkOutSide: truthyFlag(row.parkOutSide ?? row.parkOutside),
+      parkIt: truthyFlag(row.parkIt ?? row.ParkIt),
+      parkOutSide: truthyFlag(row.parkOutSide ?? row.parkOutside ?? row.ParkOutSide ?? row.ParkOutside),
     };
   });
 }
