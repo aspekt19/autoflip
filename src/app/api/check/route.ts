@@ -30,5 +30,5 @@ export async function POST(request: Request) {
     runtimeDeps(),
   );
   if (!result.ok) return Response.json({ error: result.error, message: result.message }, { status: result.status });
-  return Response.json({ ...result, accountId: access.id });
+  return Response.json(result);
 }

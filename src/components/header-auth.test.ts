@@ -75,6 +75,7 @@ describe("header auth button", () => {
     const css = read("src/app/globals.css");
     expect(css).toMatch(/\.nav-auth\b/);
     expect(css).not.toMatch(/nav a:not\(\.nav-go, \.nav-auth\)/);
+    expect(css).toMatch(/nav:not\(\.nav-open\) \.nav-go \{ display: none; \}/);
   });
 });
 
@@ -107,6 +108,8 @@ describe("login unavailable state and email gating", () => {
     expect(form).toMatch(/EMAIL_LINK_STORAGE_KEY/);
     expect(form).toMatch(/Check your inbox \(and spam\) for a sign-in link/);
     expect(form).toMatch(/showEmail/);
+    expect(form).toMatch(/safeAuthCallbackUrl/);
+    expect(form).not.toMatch(/function safeCallback/);
     const finish = read("src/app/login/finish/page.tsx");
     expect(finish).toMatch(/Sign-in is not available yet/);
     const finishClient = read("src/components/EmailLinkFinish.tsx");
@@ -114,6 +117,11 @@ describe("login unavailable state and email gating", () => {
     expect(finishClient).toMatch(/signInWithEmailLink/);
     expect(finishClient).toMatch(/signInWithEmailLinkToken/);
     expect(finishClient).toMatch(/EMAIL_LINK_STORAGE_KEY/);
+    expect(finishClient).toMatch(/localStorage\.removeItem\(EMAIL_LINK_STORAGE_KEY\)/);
+    expect(finishClient).toMatch(/callbackUrl/);
+    const checkPage = read("src/app/check/page.tsx");
+    expect(checkPage).toMatch(/3 free VIN or your own listing URL checks/);
+    expect(checkPage).not.toMatch(/Full report: costs 1 report credit/);
     const auth = read("src/auth.ts");
     expect(auth).toMatch(/strategy:\s*"jwt"/);
     expect(auth).toMatch(/id:\s*"email-link"/);

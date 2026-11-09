@@ -1,5 +1,7 @@
 "use client";
 
+import { safeAuthCallbackUrl } from "@/auth/config";
+import { buyerFacingFailure } from "@/domain/buyer-facing-error";
 import { CREDIT_PACKS } from "@/domain/assumptions";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
@@ -18,6 +20,7 @@ function CreditsInner() {
   const params = useSearchParams();
   const need = params.get("need") === "1";
   const status = params.get("status");
+  const back = safeAuthCallbackUrl(params.get("return"));
   const [snap, setSnap] = useState<AccountSnap | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState<string | null>(null);
@@ -44,7 +47,7 @@ function CreditsInner() {
         return;
       }
       if (!response.ok || !body.url) {
-        setError(body.message || "Checkout is not available.");
+        setError(buyerFacingFailure(body.error, body.message, "Checkout is not available."));
         return;
       }
       window.location.href = body.url;
@@ -89,10 +92,10 @@ function CreditsInner() {
       {status === "success" ? (
         <p className="warn-box">
           Payment returned from checkout. If the balance has not moved, the payment notice has not arrived yet.
-          {params.get("return")?.startsWith("/") ? (
+          {back ? (
             <>
               {" "}
-              <a href={params.get("return") ?? "/find"}>Back to the car</a>
+              <a href={back}>Back to the car</a>
             </>
           ) : null}
         </p>

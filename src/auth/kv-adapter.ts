@@ -6,12 +6,14 @@ import type {
   VerificationToken,
 } from "@auth/core/adapters";
 import type { Kv } from "@/io/kv";
+import { canonicalAccountEmail } from "./email-address";
 
 function userKey(id: string) {
   return `auth:user:${id}`;
 }
 function emailKey(email: string) {
-  return `auth:email:${email.trim().toLowerCase()}`;
+  const normalized = canonicalAccountEmail(email) ?? email.trim().toLowerCase().normalize("NFC");
+  return `auth:email:${normalized}`;
 }
 function accountKey(provider: string, providerAccountId: string) {
   return `auth:account:${provider}:${providerAccountId}`;
@@ -50,6 +52,25 @@ function reviveToken(raw: VerificationToken & { expires: string | Date }): Verif
   return { ...raw, expires: new Date(raw.expires) };
 }
 
+async function userByEmail(kv: Kv, email: string): Promise<AdapterUser | null> {
+  const id = await kv.get(emailKey(email));
+  if (!id) return null;
+  const raw = parseJson<AdapterUser & { emailVerified?: string | Date | null }>(await kv.get(userKey(id)));
+  return raw ? reviveUser(raw) : null;
+}
+
+async function stampEmailVerified(
+  kv: Kv,
+  user: AdapterUser,
+  email: string,
+  emailVerified: Date | null | undefined,
+): Promise<AdapterUser> {
+  if (!emailVerified || user.emailVerified) return user;
+  const next: AdapterUser = { ...user, email, emailVerified };
+  await kv.set(userKey(user.id), JSON.stringify(next));
+  return next;
+}
+
 async function readAccountList(kv: Kv, userId: string): Promise<string[]> {
   const parsed = parseJson<string[]>(await kv.get(userAccountsKey(userId)));
   return Array.isArray(parsed) ? parsed : [];
@@ -66,18 +87,38 @@ async function writeAccountList(kv: Kv, userId: string, keys: string[]): Promise
 export function KvAdapter(kv: Kv): Adapter {
   return {
     async createUser(data) {
-      const id = crypto.randomUUID();
-      const email = data.email.trim().toLowerCase();
-      const user: AdapterUser = {
-        id,
-        name: data.name ?? null,
-        email,
-        emailVerified: data.emailVerified ?? null,
-        image: data.image ?? null,
-      };
-      await kv.set(userKey(id), JSON.stringify(user));
-      if (user.email) await kv.set(emailKey(user.email), id);
-      return user;
+      const email = canonicalAccountEmail(data.email);
+      if (!email) throw new Error("auth_email_invalid");
+      const lockKey = `auth:email-claim:${email}`;
+      for (let attempt = 0; attempt < 20; attempt += 1) {
+        const existing = await userByEmail(kv, email);
+        if (existing) return stampEmailVerified(kv, existing, email, data.emailVerified);
+        const claimed = await kv.setNx(lockKey, "1", { ttlMs: 8000 });
+        if (!claimed) {
+          await new Promise((resolve) => setTimeout(resolve, 20 * (attempt + 1)));
+          continue;
+        }
+        try {
+          const again = await userByEmail(kv, email);
+          if (again) return stampEmailVerified(kv, again, email, data.emailVerified);
+          const id = crypto.randomUUID();
+          const user: AdapterUser = {
+            id,
+            name: data.name ?? null,
+            email,
+            emailVerified: data.emailVerified ?? null,
+            image: data.image ?? null,
+          };
+          await kv.set(userKey(id), JSON.stringify(user));
+          await kv.set(emailKey(email), id);
+          return user;
+        } finally {
+          await kv.delete(lockKey);
+        }
+      }
+      const last = await userByEmail(kv, email);
+      if (last) return stampEmailVerified(kv, last, email, data.emailVerified);
+      throw new Error("auth_email_busy");
     },
 
     async getUser(id) {
@@ -86,10 +127,7 @@ export function KvAdapter(kv: Kv): Adapter {
     },
 
     async getUserByEmail(email) {
-      const id = await kv.get(emailKey(email));
-      if (!id) return null;
-      const raw = parseJson<AdapterUser & { emailVerified?: string | Date | null }>(await kv.get(userKey(id)));
-      return raw ? reviveUser(raw) : null;
+      return userByEmail(kv, email);
     },
 
     async getUserByAccount({ provider, providerAccountId }) {
@@ -103,11 +141,15 @@ export function KvAdapter(kv: Kv): Adapter {
       const existing = parseJson<AdapterUser & { emailVerified?: string | Date | null }>(await kv.get(userKey(data.id)));
       if (!existing) throw new Error("auth_user_missing");
       const priorEmail = existing.email;
-      const nextEmail = (data.email ?? existing.email).trim().toLowerCase();
+      const nextEmail = canonicalAccountEmail(data.email ?? existing.email);
+      if (!nextEmail) throw new Error("auth_email_invalid");
+      const priorNormalized = canonicalAccountEmail(priorEmail) ?? priorEmail.toLowerCase();
+      const owner = nextEmail === priorNormalized ? existing.id : await kv.get(emailKey(nextEmail));
+      const email = owner && owner !== existing.id ? priorEmail : nextEmail;
       const next: AdapterUser = reviveUser({
         ...existing,
         ...data,
-        email: nextEmail,
+        email,
         emailVerified:
           data.emailVerified === undefined
             ? existing.emailVerified
@@ -115,9 +157,10 @@ export function KvAdapter(kv: Kv): Adapter {
       });
       await kv.set(userKey(next.id), JSON.stringify(next));
       if (priorEmail && priorEmail.toLowerCase() !== next.email.toLowerCase()) {
-        await kv.delete(emailKey(priorEmail));
+        const priorOwner = await kv.get(emailKey(priorEmail));
+        if (priorOwner === next.id) await kv.delete(emailKey(priorEmail));
       }
-      if (next.email) await kv.set(emailKey(next.email), next.id);
+      if (next.email && (!owner || owner === next.id)) await kv.set(emailKey(next.email), next.id);
       return next;
     },
 

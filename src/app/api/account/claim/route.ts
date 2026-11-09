@@ -35,7 +35,7 @@ export async function POST(request: Request) {
     return Response.json(
       {
         error: "untrusted_owner_id",
-        message: "Do not send account ids. Browser claims use the signed-in session plus the af_uid cookie only.",
+        message: "Do not send account ids.",
       },
       { status: 400 },
     );

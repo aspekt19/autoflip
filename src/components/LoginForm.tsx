@@ -3,15 +3,10 @@
 import { useState, useTransition, type FormEvent } from "react";
 import { useSearchParams } from "next/navigation";
 import { sendSignInLinkToEmail } from "firebase/auth";
-import type { FirebasePublicConfig } from "@/auth/config";
+import { safeAuthCallbackUrl, type FirebasePublicConfig } from "@/auth/config";
 import { EMAIL_LINK_FINISH_PATH, EMAIL_LINK_STORAGE_KEY } from "@/auth/email-link";
 import { firebaseAuth } from "@/auth/firebase-browser";
 import { signInWithGoogle } from "@/auth/actions";
-
-function safeCallback(value: string | null): string {
-  if (!value || !value.startsWith("/") || value.startsWith("//") || value.includes("://")) return "/account";
-  return value.slice(0, 200);
-}
 
 export function LoginForm({
   google,
@@ -23,7 +18,7 @@ export function LoginForm({
   firebase: FirebasePublicConfig | null;
 }) {
   const params = useSearchParams();
-  const callbackUrl = safeCallback(params.get("callbackUrl"));
+  const callbackUrl = safeAuthCallbackUrl(params.get("callbackUrl")) ?? "/account";
   const error = params.get("error");
   const [pending, startTransition] = useTransition();
   const [sending, setSending] = useState(false);
@@ -41,8 +36,10 @@ export function LoginForm({
     setSending(true);
     setMessage(null);
     try {
+      const finish = new URL(EMAIL_LINK_FINISH_PATH, window.location.origin);
+      finish.searchParams.set("callbackUrl", callbackUrl);
       await sendSignInLinkToEmail(firebaseAuth(firebase), address, {
-        url: `${window.location.origin}${EMAIL_LINK_FINISH_PATH}`,
+        url: finish.toString(),
         handleCodeInApp: true,
       });
       window.localStorage.setItem(EMAIL_LINK_STORAGE_KEY, address);

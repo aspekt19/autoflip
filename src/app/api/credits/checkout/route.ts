@@ -1,3 +1,4 @@
+import { safeAuthCallbackUrl } from "@/auth/config";
 import { creditPack } from "@/domain/assumptions";
 import { requirePaidAccess } from "@/server/session";
 import { stripeClient } from "@/server/stripe";
@@ -26,7 +27,7 @@ export async function POST(request: Request) {
   }
   const id = access.id;
   const origin = originOf(request);
-  const back = safeReturn(body?.returnTo);
+  const back = safeAuthCallbackUrl(body?.returnTo);
   const session = await stripe.checkout.sessions.create({
     mode: "payment",
     customer_email: access.email,
@@ -47,9 +48,4 @@ export async function POST(request: Request) {
     ],
   });
   return Response.json({ url: session.url });
-}
-
-function safeReturn(value: string | undefined): string | null {
-  if (!value || !value.startsWith("/") || value.startsWith("//") || value.includes("://")) return null;
-  return value.slice(0, 200);
 }

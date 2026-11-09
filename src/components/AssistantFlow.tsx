@@ -17,6 +17,7 @@ import {
   resolveSelectedListingHandoff,
   type FindAnalysisPayload,
 } from "@/domain/find-analysis-handoff";
+import { buyerFacingFailure } from "@/domain/buyer-facing-error";
 import { isReportHardRefusal, reportRefusalUserMessage } from "@/domain/report-refusal-ui";
 import { findEmptyCopy, type FindEmptyReason } from "@/domain/find-empty";
 import type { FindListingPriceView } from "@/domain/find-listing-price";
@@ -828,6 +829,13 @@ function AssistantFlow({
             router.push("/credits?need=1&return=%2Ffind");
             return;
           }
+          if (matchBody.error === "auth_unconfigured" || matchBody.error === "money_store_unconfigured") {
+            const plain = buyerFacingFailure(matchBody.error, null, "Sign-in is not available yet.");
+            setError(plain);
+            setMatchMessage(plain);
+            setGroups([]);
+            return;
+          }
           if (!matchResponse.ok) {
             const reason = matchBody.emptyReason ?? "provider_failure";
             const copy = findEmptyCopy(reason, nextNeed, matchBody.message);
@@ -938,6 +946,15 @@ function AssistantFlow({
       if (response.status === 403 && body.error === "credits_required") {
         rememberFlow();
         router.push("/credits?need=1&return=%2Ffind");
+        return;
+      }
+      if (body.error === "auth_unconfigured" || body.error === "money_store_unconfigured") {
+        const plain = buyerFacingFailure(body.error, null, "Sign-in is not available yet.");
+        setError(plain);
+        setMatchMessage(plain);
+        setStage("results");
+        setGroups([]);
+        setSample(false);
         return;
       }
       if (!response.ok) {
@@ -1132,7 +1149,7 @@ function AssistantFlow({
         return;
       }
       if (!response.ok || !body.id) {
-        setError(body.message || "The report could not be built.");
+        setError(buyerFacingFailure(body.error, body.message, "The report could not be built."));
         return;
       }
       try {
@@ -1216,7 +1233,7 @@ function AssistantFlow({
         }
       }
       if (!response.ok || !body.badge || !body.title) {
-        setError(body.message || "The price check did not finish.");
+        setError(buyerFacingFailure(body.error, body.message, "The price check did not finish."));
         return;
       }
       setFreeCheck({
@@ -1273,7 +1290,7 @@ function AssistantFlow({
         return;
       }
       if (!response.ok || !body.id) {
-        setError(body.message || "The report could not be built.");
+        setError(buyerFacingFailure(body.error, body.message, "The report could not be built."));
         return;
       }
       try {
@@ -2110,9 +2127,9 @@ function AssistantFlow({
               </ul>
               <CoverageLine confidence={freeCheck.coverageLevel} sentence={freeCheck.coverage} />
               <PriceRatingHow />
-              <p className="hint">This quick result rates the asking price only. The full report adds broader safety and vehicle context; it costs 1 report credit.</p>
+              <p className="hint">This quick result rates the asking price only. The full report adds broader safety and vehicle context. It uses one of this month’s 3 free checks, or 1 report credit after those are used.</p>
               <button className="action" type="button" onClick={() => void checkListing()} disabled={pending === "report"}>
-                {pending === "report" ? "Building report…" : "Full analysis — 1 credit"}
+                {pending === "report" ? "Building report…" : "Full analysis"}
               </button>
             </article>
           ) : null}

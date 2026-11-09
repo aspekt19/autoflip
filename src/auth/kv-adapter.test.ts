@@ -73,4 +73,27 @@ describe("KvAdapter", () => {
     expect(byGoogle?.id).toBe(user.id);
     expect(byEmail?.id).toBe(user.id);
   });
+
+  it("refuses to retarget the email index onto a second user", async () => {
+    const kv = new MemoryKv();
+    const adapter = KvAdapter(kv);
+    const owner = await adapter.createUser!({
+      id: "ignored-owner",
+      email: "owner@example.com",
+      emailVerified: new Date(),
+      name: null,
+      image: null,
+    });
+    const other = await adapter.createUser!({
+      id: "ignored-other",
+      email: "other@example.com",
+      emailVerified: new Date(),
+      name: null,
+      image: null,
+    });
+    await adapter.updateUser!({ id: other.id, email: "owner@example.com" });
+    expect((await adapter.getUserByEmail!("owner@example.com"))?.id).toBe(owner.id);
+    expect((await adapter.getUserByEmail!("other@example.com"))?.id).toBe(other.id);
+    expect((await adapter.getUser!(other.id))?.email).toBe("other@example.com");
+  });
 });

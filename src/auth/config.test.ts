@@ -56,6 +56,11 @@ describe("auth config fail-closed", () => {
     expect(safeAuthCallbackUrl("//evil.com")).toBeNull();
     expect(safeAuthCallbackUrl("https://evil.com")).toBeNull();
     expect(safeAuthCallbackUrl("\\/evil")).toBeNull();
+    expect(safeAuthCallbackUrl("/\\evil.com")).toBeNull();
+    expect(safeAuthCallbackUrl("/%2f%2fevil.com")).toBeNull();
+    expect(safeAuthCallbackUrl("/%252F%252Fevil.com")).toBeNull();
+    expect(safeAuthCallbackUrl("/credits?return=//evil.com")).toBeNull();
+    expect(safeAuthCallbackUrl("/ok\n")).toBeNull();
     expect(safeAuthCallbackUrl(null)).toBeNull();
   });
 

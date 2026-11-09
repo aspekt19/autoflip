@@ -15,6 +15,7 @@ import {
 import { verifyFirebaseIdToken } from "@/auth/firebase-id-token";
 import { KvAdapter } from "@/auth/kv-adapter";
 import { consumeRateLimit, emailSignInRateKey } from "@/auth/rate-limit";
+import { verifiedGoogleEmail } from "@/auth/email-address";
 import { ensureVerifiedEmailAccount } from "@/auth/verified-email-account";
 
 function buildProviders(): Provider[] {
@@ -115,19 +116,53 @@ const nextAuth = NextAuth({
       if (typeof user?.email === "string") token.email = user.email.toLowerCase();
       if (user?.emailVerified) token.emailVerified = new Date(user.emailVerified).toISOString();
 
+      const kv = getKv();
       if (account?.provider === "google") {
-        const verified = Boolean((profile as { email_verified?: boolean } | undefined)?.email_verified);
-        if (verified) {
-          const stamp = new Date();
-          token.emailVerified = stamp.toISOString();
-          const id = typeof token.id === "string" ? token.id : user?.id;
-          if (id) {
-            try {
-              await KvAdapter(getKv()).updateUser?.({ id, emailVerified: stamp });
-            } catch {
-              /* Session still carries the verified stamp for this sign-in. */
+        const email = verifiedGoogleEmail(
+          profile as { email?: string | null; email_verified?: unknown } | undefined,
+          typeof user?.email === "string" ? user.email : typeof token.email === "string" ? token.email : null,
+        );
+        if (!email) {
+          token.emailVerified = null;
+          return token;
+        }
+        const stamp = new Date();
+        token.email = email;
+        token.emailVerified = stamp.toISOString();
+        try {
+          const canonical = await ensureVerifiedEmailAccount(email, kv);
+          if (canonical?.id) {
+            token.id = canonical.id;
+            if (account.providerAccountId) {
+              await KvAdapter(kv).linkAccount?.({
+                userId: canonical.id,
+                type: "oidc",
+                provider: "google",
+                providerAccountId: account.providerAccountId,
+              });
             }
           }
+        } catch {
+          /* Keep the adapter id already on the token. */
+        }
+      }
+
+      if (account?.provider === "email-link" && typeof token.email === "string") {
+        try {
+          const canonical = await ensureVerifiedEmailAccount(token.email, kv);
+          if (canonical?.id) token.id = canonical.id;
+        } catch {
+          /* authorize() already bound this sign-in to the email account. */
+        }
+      }
+
+      // Later session reads follow the email index, so a raced duplicate id cannot keep its own quota.
+      if (!account && typeof token.email === "string" && token.emailVerified) {
+        try {
+          const existing = await KvAdapter(kv).getUserByEmail!(token.email);
+          if (existing?.id && existing.emailVerified) token.id = existing.id;
+        } catch {
+          /* Keep the id already in the signed token. */
         }
       }
       return token;
@@ -146,8 +181,24 @@ const nextAuth = NextAuth({
       if (!authIsConfigured()) return false;
       if (!moneyAuthStorageOk()) return false;
       if (account?.provider === "google") {
-        const verified = Boolean((profile as { email_verified?: boolean } | undefined)?.email_verified);
-        return Boolean(user.email) && verified;
+        const email = verifiedGoogleEmail(
+          profile as { email?: string | null; email_verified?: unknown } | undefined,
+          user.email,
+        );
+        if (!email) {
+          if (account.providerAccountId) {
+            try {
+              await KvAdapter(getKv()).unlinkAccount?.({
+                provider: "google",
+                providerAccountId: account.providerAccountId,
+              });
+            } catch {
+              /* Still refuse the session. */
+            }
+          }
+          return false;
+        }
+        return true;
       }
       if (account?.provider === "email-link") {
         return Boolean(user.email) && Boolean(user.emailVerified);

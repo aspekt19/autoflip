@@ -1021,7 +1021,10 @@ pre.doc {
 
 @media (max-width: 720px) {
   .bar .brand-name { display: none; }
-  .nav-auth { padding-inline: 10px; letter-spacing: 0.04em; }
+  .nav-auth { padding-inline: 10px; letter-spacing: 0.04em; flex-shrink: 0; }
+  .menu-btn { flex-shrink: 0; }
+  /* Credits stay in the open menu. Leaving the chip in the bar clips Sign in on a 320px screen. */
+  nav:not(.nav-open) .nav-go { display: none; }
 }
 
 @media (max-width: 900px) {
@@ -1190,6 +1193,8 @@ pre.doc {
     padding-left: 10px;
     padding-right: 10px;
   }
+  .nav-auth { padding-inline: 8px; font-size: 12px; letter-spacing: 0.02em; }
+  .menu-btn { padding-inline: 10px; }
 }
 @media (prefers-reduced-motion: reduce) {
   .page-in, .marquee-track, .reveal, .listing-card { animation: none; }

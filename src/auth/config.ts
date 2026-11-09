@@ -52,16 +52,38 @@ export function authIsConfigured(env: AuthEnv = process.env): boolean {
   return authSecretConfigured(env) && configuredAuthProviders(env).length > 0;
 }
 
+const CALLBACK_CONTROL = /[\u0000-\u001F\u007F]/;
+
+function isSafeRelativeCallback(value: string): boolean {
+  if (!value.startsWith("/") || value.startsWith("//")) return false;
+  if (value.includes("\\") || value.includes("//") || value.includes("@")) return false;
+  if (CALLBACK_CONTROL.test(value)) return false;
+  return true;
+}
+
 /**
  * Only same-origin relative paths are allowed as post-login redirects.
- * Rejects protocol-relative, absolute, and backslash tricks.
+ * Rejects protocol-relative URLs, backslashes, control characters, and
+ * percent-encoded forms of those tricks (including a second decode).
  */
 export function safeAuthCallbackUrl(value: string | null | undefined, maxLen = 200): string | null {
-  if (!value) return null;
+  if (typeof value !== "string") return null;
+  if (CALLBACK_CONTROL.test(value)) return null;
   const trimmed = value.trim();
-  if (!trimmed.startsWith("/") || trimmed.startsWith("//") || trimmed.includes("://")) return null;
-  if (trimmed.includes("\\") || trimmed.includes("\0")) return null;
-  if (trimmed.length > maxLen) return null;
+  if (!trimmed || trimmed.length > maxLen) return null;
+  let current = trimmed;
+  for (let pass = 0; pass < 3; pass += 1) {
+    if (!isSafeRelativeCallback(current)) return null;
+    let decoded: string;
+    try {
+      decoded = decodeURIComponent(current);
+    } catch {
+      return null;
+    }
+    if (decoded === current) return trimmed;
+    current = decoded;
+  }
+  if (!isSafeRelativeCallback(current)) return null;
   return trimmed;
 }
 

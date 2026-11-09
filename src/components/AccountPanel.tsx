@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useEffect, useState, useTransition } from "react";
 import { signOutAction } from "@/auth/actions";
+import { buyerFacingFailure } from "@/domain/buyer-facing-error";
 
 type AccountBody = {
   credits?: number;
@@ -46,7 +47,7 @@ export function AccountPanel() {
         movedReports?: number;
       };
       if (!response.ok) {
-        setClaimMsg(json.message || "Claim failed.");
+        setClaimMsg(buyerFacingFailure(undefined, json.message, "Claim failed."));
         return;
       }
       setClaimMsg(

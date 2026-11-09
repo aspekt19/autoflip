@@ -1,45 +1,35 @@
 import type { AdapterUser } from "@auth/core/adapters";
 import type { Kv } from "@/io/kv";
+import { canonicalAccountEmail } from "./email-address";
 import { KvAdapter } from "./kv-adapter";
 
-/** One Lemonless user per lowercased verified email (Google and email-link). */
-export function canonicalAccountEmail(email: string): string | null {
-  const normalized = email.trim().toLowerCase();
-  if (!normalized.includes("@") || normalized.startsWith("@") || normalized.endsWith("@")) return null;
-  if (normalized.includes(" ") || normalized.length > 200) return null;
-  return normalized;
-}
+export { canonicalAccountEmail } from "./email-address";
 
 /**
  * Find or create the durable account for a verified email.
  * The returned id is what free-check quota and credits use.
+ * createUser is idempotent per email, so Google and email-link cannot mint a second id.
  */
 export async function ensureVerifiedEmailAccount(email: string, kv: Kv): Promise<AdapterUser | null> {
   const normalized = canonicalAccountEmail(email);
   if (!normalized) return null;
   const adapter = KvAdapter(kv);
-  const lockKey = `auth:email-claim:${normalized}`;
-  const claimed = await kv.setNx(lockKey, "1", { ttlMs: 8000 });
-  if (!claimed) {
-    for (let attempt = 0; attempt < 10; attempt += 1) {
-      const existing = await adapter.getUserByEmail!(normalized);
-      if (existing) return stampVerified(adapter, existing, normalized);
-      await new Promise((resolve) => setTimeout(resolve, 30));
-    }
-    return adapter.getUserByEmail!(normalized);
-  }
+  const existing = await adapter.getUserByEmail!(normalized);
+  if (existing?.email === normalized && existing.emailVerified) return existing;
+  if (existing) return stampVerified(adapter, existing, normalized);
   try {
-    const existing = await adapter.getUserByEmail!(normalized);
-    if (existing) return stampVerified(adapter, existing, normalized);
-    return adapter.createUser!({
+    const created = await adapter.createUser!({
       id: crypto.randomUUID(),
       email: normalized,
       emailVerified: new Date(),
       name: null,
       image: null,
     });
-  } finally {
-    await kv.delete(lockKey);
+    if (created.email === normalized && created.emailVerified) return created;
+    return stampVerified(adapter, created, normalized);
+  } catch {
+    const raced = await adapter.getUserByEmail!(normalized);
+    return raced ? stampVerified(adapter, raced, normalized) : null;
   }
 }
 

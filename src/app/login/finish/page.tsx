@@ -1,11 +1,18 @@
 import type { Metadata } from "next";
-import { firebasePublicConfig } from "@/auth/config";
+import { firebasePublicConfig, safeAuthCallbackUrl } from "@/auth/config";
 import { EmailLinkFinish } from "@/components/EmailLinkFinish";
 
 export const dynamic = "force-dynamic";
 export const metadata: Metadata = { title: "Finish sign-in" };
 
-export default function EmailLinkFinishPage() {
+export default async function EmailLinkFinishPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ callbackUrl?: string | string[] }>;
+}) {
+  const params = await searchParams;
+  const raw = Array.isArray(params.callbackUrl) ? params.callbackUrl[0] : params.callbackUrl;
+  const callbackUrl = safeAuthCallbackUrl(raw) ?? "/account";
   const firebase = firebasePublicConfig();
   return (
     <div className="sub">
@@ -17,7 +24,7 @@ export default function EmailLinkFinishPage() {
         ) : (
           <>
             <p className="lead">Use the link from your email to open your account.</p>
-            <EmailLinkFinish firebase={firebase} />
+            <EmailLinkFinish firebase={firebase} callbackUrl={callbackUrl} />
           </>
         )}
       </div>
