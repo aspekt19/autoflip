@@ -263,9 +263,10 @@ describe("A1 decision log", () => {
     expect(view.lines[1]).toMatch(/AI chose/);
     expect(view.lines[1]).toMatch(/moved from #2 to #1|the pick is now/);
     expect(view.lines[2]).toMatch(/Checked estimated fuel cost 2 times \(built-in checklist\)/);
-    expect(view.hiddenSteps).toHaveLength(8);
+    const folded = view.hiddenSteps.filter((line) => /order of the top cars stayed the same/i.test(line));
+    expect(folded).toHaveLength(8);
     expect(view.lines.join(" ").length).toBeLessThan(view.hiddenSteps.join(" ").length);
-    expect(view.hiddenSteps.join(" ")).not.toMatch(/AI chose|moved from|joined the top group|the pick is now/);
+    expect(folded.join(" ")).not.toMatch(/AI chose|moved from|joined the top group|the pick is now/);
     for (const line of [...view.lines, ...view.hiddenSteps]) {
       expect(assertBuyerSafeText(line).ok, line).toBe(true);
       expect(line).not.toMatch(/free_gov_fuel|deterministic/);
@@ -326,11 +327,10 @@ describe("A1 decision log", () => {
       pickAfter: "c",
     };
     const view = presentDecisionLogForBuyer([base, shuffled, aiQuiet, joined], labels);
-    expect(view.hiddenSteps).toHaveLength(0);
+    expect(view.lines[1]).toMatch(/the pick is now the 2016 Hyundai Tucson/i);
     expect(view.lines[1]).toMatch(/Hyundai Tucson moved from #3 to #1/);
     expect(view.lines[1]).toMatch(/Kia Sportage moved from #1 to #2/);
     expect(view.lines[1]).toMatch(/Honda CR-V moved from #2 to #3/);
-    expect(view.lines[1]).toMatch(/the pick is now the 2016 Hyundai Tucson/);
     expect(view.lines[1]).not.toMatch(/stayed the same/);
     expect(view.lines[2]).toMatch(/AI chose/);
     expect(view.lines[2]).not.toMatch(/built-in checklist/);
@@ -338,6 +338,75 @@ describe("A1 decision log", () => {
     expect(view.lines[3]).not.toMatch(/stayed the same/);
     expect(view.lines[3]).toMatch(/built-in checklist/);
     expect(view.lines[3]).not.toMatch(/AI chose/);
+  });
+
+  it("keeps rank changes and AI steps visible but short, with the rest under show all", () => {
+    const before = [
+      { key: "a", rank: 1 },
+      { key: "b", rank: 2 },
+      { key: "c", rank: 3 },
+      { key: "d", rank: 4 },
+      { key: "e", rank: 5 },
+    ];
+    const labels = [
+      { key: "a", year: 2017, make: "Toyota", model: "Camry" },
+      { key: "b", year: 2016, make: "Honda", model: "CR-V" },
+      { key: "c", year: 2017, make: "Hyundai", model: "Tucson" },
+      { key: "d", year: 2015, make: "Kia", model: "Sportage" },
+      { key: "e", year: 2014, make: "Mazda", model: "CX-5" },
+    ];
+    const entry = (hop: number, after: { key: string; rank: number }[], pick: string, decidedBy: "SERV" | "code"): FindDecisionLogEntry => ({
+      hop,
+      decidedBy,
+      invokeReason: decidedBy === "SERV" ? "shortlist_changed" : "free_gov_deterministic_drain",
+      action: decidedBy === "SERV" ? "free_car_consistency" : "free_gov_fuel",
+      targetCars: ["b", "c", "d"],
+      evidenceAdded: [
+        "2016 Honda CR-V: Listing trim does not match the VIN (listing says EX). Listing drivetrain does not match the VIN. Listing engine does not match the VIN.",
+        "2015 Kia Sportage: Listing says 1 accident reported. Ask the seller for the inspection and the service file and the title and the odometer photo.",
+        "2017 Hyundai Tucson: Listing says about 40 days on the market (context only).",
+      ],
+      top5Before: before,
+      top5After: after,
+      pickBefore: "a",
+      pickAfter: pick,
+    });
+    const view = presentDecisionLogForBuyer(
+      [
+        entry(1, [
+          { key: "b", rank: 1 },
+          { key: "c", rank: 2 },
+          { key: "a", rank: 3 },
+          { key: "d", rank: 4 },
+          { key: "e", rank: 5 },
+        ], "b", "SERV"),
+        entry(2, [
+          { key: "c", rank: 1 },
+          { key: "b", rank: 2 },
+          { key: "d", rank: 3 },
+          { key: "a", rank: 4 },
+          { key: "e", rank: 5 },
+        ], "c", "code"),
+      ],
+      labels,
+    );
+    expect(view.lines).toHaveLength(2);
+    expect(view.lines[0]).toMatch(/AI chose/);
+    expect(view.lines[0]).toMatch(/pick is now the 2016 Honda CR-V/);
+    expect(view.lines[0]).toMatch(/Toyota Camry moved from #1 to #3/);
+    expect(view.lines[0]).toMatch(/Honda CR-V moved from #2 to #1/);
+    expect(view.lines[0]).toMatch(/Hyundai Tucson moved from #3 to #2/);
+    expect(view.lines[1]).toMatch(/built-in checklist/);
+    expect(view.lines[1]).toMatch(/pick is now the 2017 Hyundai Tucson/);
+    expect(view.lines[1]).toMatch(/Toyota Camry moved from #1 to #4/);
+    expect(view.lines[1]).toMatch(/Hyundai Tucson moved from #3 to #1/);
+    expect(view.lines[1]).toMatch(/Kia Sportage moved from #4 to #3/);
+    expect(view.lines[1]).not.toMatch(/Honda CR-V moved/);
+    for (const line of view.lines) {
+      expect(line).not.toMatch(/accident reported|does not match the VIN|days on the market/i);
+    }
+    expect(view.hiddenSteps.join(" ")).toMatch(/accident|trim|days on the market/i);
+    expect(view.hiddenSteps.join(" ")).toMatch(/moved from/);
   });
 });
 
