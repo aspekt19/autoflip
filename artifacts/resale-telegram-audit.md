@@ -1,6 +1,6 @@
 # Resale / Telegram honesty audit
 
-Branch: `cursor/resale-telegram-honesty-9807` (from `2ab0aa6` / PR #103 shared `evaluateListingPrice`).
+Branch: `cursor/resale-telegram-honesty-9807`, synced with main through `5708861` (PR #105 Find prefill and PR #104 check sign-in). Shared price math remains `evaluateListingPrice`.
 
 | Surface | Decision | Why |
 | --- | --- | --- |
@@ -13,7 +13,7 @@ Branch: `cursor/resale-telegram-honesty-9807` (from `2ab0aa6` / PR #103 shared `
 | `/pricing` Radar plans | **Kept** with honest test-mode copy + Resale link | No Stripe/env changes. Notes Deal Radar may be off. |
 | Footer Deal Radar link | **Replaced with Resale** | Matches default nav. |
 | `/demo` redirect | **Radar if enabled, else Resale/home** | Avoids dead Radar landing when flag off. |
-| `/check`, `/find` intake | **Untouched** | PR #104 / #105 in review — conflict avoidance. |
+| `/check`, `/find` intake | **Kept from main** | Sign-in gates and note prefill stay. Find no longer offers Deal Radar alerts or a Radar sentence while that flag is off. |
 
 ## Env flags (names only)
 
@@ -26,3 +26,10 @@ Branch: `cursor/resale-telegram-honesty-9807` (from `2ab0aa6` / PR #103 shared `
 ## Screenshots
 
 `docs/screenshots/resale/` — home, `/resale` sign-in gate, `/radar` gated unavailable (390 / 1280 / 1920).
+
+## Review
+
+- Footer, report, developer, and Find alert links follow the runtime flags. Deal Radar, Scout, and Telegram are not in nav when those flags are off.
+- Pricing does not start a Radar subscription while Deal Radar is off.
+- `/resale` searches the same model-year window as the shared price math, used cars only. A low ask is not copied into the resale range. Unknown accident history is labeled as an example of 1 accident, not a known count.
+- Sign-in stays in front of `/resale`, `/find`, and `/check`.
