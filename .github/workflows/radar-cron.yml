@@ -2,7 +2,9 @@ name: radar
 
 on:
   schedule:
-    - cron: "0 */3 * * *"
+    # Every 6 hours. Vercel Hobby only allows one cron per day (see vercel.json);
+    # this workflow is the primary cadence when RADAR_CRON_SECRET is set.
+    - cron: "0 */6 * * *"
   workflow_dispatch:
 
 permissions:

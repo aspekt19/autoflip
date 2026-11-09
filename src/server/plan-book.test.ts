@@ -1,5 +1,28 @@
 import { describe, expect, it } from "vitest";
-import { billingEffect, emptyPlans } from "./plan-book";
+import { MemoryKv } from "@/io/kv";
+import { ASSUMPTIONS } from "@/domain/assumptions";
+import { allowance, billingEffect, emptyPlans, writePlans } from "./plan-book";
+
+describe("personal Deal Radar allowance", () => {
+  it("allows free personal watches up to the free limit without a Stripe plan", async () => {
+    const kv = new MemoryKv();
+    const ok = await allowance(kv, "user-free", "personal", ASSUMPTIONS.radarFreeWatchLimit - 1);
+    expect(ok).toEqual({ ok: true });
+    const blocked = await allowance(kv, "user-free", "personal", ASSUMPTIONS.radarFreeWatchLimit);
+    expect(blocked.ok).toBe(false);
+  });
+
+  it("still requires a Flip plan for flip watches", async () => {
+    const kv = new MemoryKv();
+    const blocked = await allowance(kv, "user-free", "flip", 0);
+    expect(blocked.ok).toBe(false);
+    await writePlans(kv, "user-free", {
+      ...emptyPlans(),
+      flip: { status: "active", lookupKey: "autoflip_flip_metro_monthly" },
+    });
+    expect(await allowance(kv, "user-free", "flip", 0)).toEqual({ ok: true });
+  });
+});
 
 describe("subscription webhook mapping", () => {
   it("activates a plan from a subscription checkout and leaves credit checkouts alone", () => {

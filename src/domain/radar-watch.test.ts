@@ -70,7 +70,7 @@ describe("radar pre-filter", () => {
     }
   });
 
-  it("drops an over-budget car, a suspiciously cheap car, and a car at fair value", () => {
+  it("drops an over-budget car, a suspiciously cheap car, and a high-priced car; keeps fair", () => {
     expect(prefilterListing(row({ vin: "E", priceUsd: 25_000, miles: 40_000, year: 2016 }), criteria, pool, "personal", 2026).pass).toBe(false);
     const scam = prefilterListing(row({ vin: "F", priceUsd: 700, miles: 40_000, year: 2016 }), criteria, pool, "personal", 2026);
     expect(scam.pass).toBe(false);
@@ -79,9 +79,12 @@ describe("radar pre-filter", () => {
     const usualCar = row({ vin: "G", priceUsd: anchor.priceUsd!, miles: 120_000, year: anchor.year });
     const fair = evaluateListingPrice(usualCar, pool).fairValueUsd;
     expect(fair).not.toBeNull();
-    const usual = prefilterListing({ ...usualCar, priceUsd: fair! }, criteria, pool, "personal", 2026);
-    expect(usual.pass).toBe(false);
-    if (!usual.pass) expect(usual.reason).toMatch(/usual price/);
+    // Fair tone is alert-eligible for personal Deal Radar.
+    const atFair = prefilterListing({ ...usualCar, priceUsd: fair! }, criteria, pool, "personal", 2026);
+    expect(atFair.pass).toBe(true);
+    const high = prefilterListing({ ...usualCar, priceUsd: Math.round(fair! * 1.2) }, criteria, pool, "personal", 2026);
+    expect(high.pass).toBe(false);
+    if (!high.pass) expect(high.reason).toMatch(/High price|usual price/i);
   });
 
   it("requires the flip buy-box margin", () => {

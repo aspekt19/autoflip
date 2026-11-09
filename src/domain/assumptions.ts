@@ -52,6 +52,10 @@ export const ASSUMPTIONS = {
   radarMonthlyBudget: 650,
   radarPageSize: 20,
   radarMaxAlertsPerSearch: 5,
+  /** Free saved watches per signed-in account (no Radar subscription required). */
+  radarFreeWatchLimit: 3,
+  /** Max SERV calls (verdict_decide) per saved search per cron/check-now run. */
+  radarMaxServPerSearch: 3,
   radarCheckNowMs: 30 * 60 * 1000,
   suspiciousPriceRatio: 0.4,
   suspiciousPriceFloorUsd: 800,
