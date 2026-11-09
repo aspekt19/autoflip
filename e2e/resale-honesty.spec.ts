@@ -208,7 +208,7 @@ test("resale requires sign-in and budget-first search; one-car estimate stays ho
   await expect(page.getByText(/Decision journal/i).first()).toBeVisible();
   await expect(page.getByText(/How the agent decided/i).first()).toBeVisible();
 
-  await page.getByText(/One-car buy-ceiling estimate/i).click();
+  await page.getByRole("strong").filter({ hasText: /^One-car buy-ceiling estimate$/i }).click();
   await expect(page.locator("#resale-year")).toBeVisible();
   await page.locator("#resale-make").fill("Honda");
   await page.locator("#resale-model").fill("CR-V");
