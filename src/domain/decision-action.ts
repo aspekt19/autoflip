@@ -66,7 +66,7 @@ export function verdictFromAction(action: DecisionAction, baseline: Verdict): Ve
 
 export function actionLabel(action: DecisionAction, mode: Mode): string {
   if (action === "buy") return mode === "flip" ? "Buy at the computed ceiling" : "Buy";
-  if (action === "negotiate") return "Negotiate";
+  if (action === "negotiate") return "Fair price";
   if (action === "needs_inspection") return "Needs inspection";
   if (action === "withheld") return "Verdict withheld";
   return mode === "flip" ? "Pass" : "Skip";

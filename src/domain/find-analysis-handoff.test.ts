@@ -129,7 +129,7 @@ describe("manual URL / VIN check path", () => {
     expect(result.payload.findContextToken).toBeUndefined();
   });
 
-  it("rejects a URL without a VIN before any charge", () => {
+  it("rejects a URL without a VIN before any charge (report handoff; /api/check fetches the page)", () => {
     const result = resolveManualCheckHandoff({
       mode: "personal",
       kind: "link",
@@ -138,6 +138,7 @@ describe("manual URL / VIN check path", () => {
     expect(result.ok).toBe(false);
     if (result.ok) return;
     expect(result.error).toBe("missing_identity");
+    expect(result.message).toMatch(/Check a car|read the listing page/i);
   });
 
   it("rejects an invalid 17-character VIN before submit (check digit)", () => {

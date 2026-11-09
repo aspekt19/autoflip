@@ -36,7 +36,7 @@ export function summaryLine(input: {
     if (!input.flip) {
       return {
         line: "Not enough comparable listings to decide.",
-        detail: "A resale range needs at least three mileage-adjusted listings.",
+        detail: "A resale range needs at least three adjusted similar listings whose prices are close enough to estimate. Otherwise no resale price is shown.",
       };
     }
     const workable = input.flip.marginUsd >= ASSUMPTIONS.flipThinMarginUsd && input.flip.targetBuyUsd > 0 && input.verdict !== "walk_away";
@@ -48,7 +48,7 @@ export function summaryLine(input: {
     }
     return {
       line: `Buy at up to ${formatUsd(input.flip.targetBuyUsd)}`,
-      detail: "That ceiling is the mileage-adjusted resale, minus the fee, the reconditioning assumption, and the profit target.",
+      detail: "That ceiling is the adjusted resale, minus the fee, the reconditioning assumption, and the profit target.",
     };
   }
   if (input.verdict === "insufficient_data" || input.fairValueUsd === null) {
@@ -58,13 +58,13 @@ export function summaryLine(input: {
     };
   }
   if (input.verdict === "good_deal") {
-    return { line: "Buy", detail: "The asking price is below the mileage-adjusted listings." };
+    return { line: "Buy", detail: "The asking price is below the adjusted similar listings." };
   }
   if (input.verdict === "fair") {
     return {
-      line: `Negotiate to ${formatUsd(input.fairValueUsd)}`,
-      detail: "That figure is the mileage-adjusted middle of the comparable listings.",
+      line: "Fair price",
+      detail: `The middle of the adjusted similar listings is ${formatUsd(input.fairValueUsd)}. Paying the asking price can still be reasonable in this band. The offer says whether to start a little under it.`,
     };
   }
-  return { line: "Skip", detail: "The asking price is above the mileage-adjusted listings." };
+  return { line: "Skip", detail: "The asking price is above the adjusted similar listings." };
 }

@@ -1,11 +1,11 @@
 import { ASSUMPTIONS } from "./assumptions";
-import { mileageAdjust, priceGap, rankAgainstAdjusted, selectComparables } from "./comparables";
+import { evaluateListingPrice } from "./price-evaluation";
+import { priceGap, rankAgainstAdjusted } from "./comparables";
 import { flipMath } from "./flip";
 import { formatPct, formatUsd } from "./format";
 import { historyAdjustment } from "./history";
 import { expectedMiles, odometerCaution } from "./odometer";
-import { listingUsableForPurchaseEconomics } from "./report-purchase-ask";
-import { median, roundDollars } from "./stats";
+import { median } from "./stats";
 import { listingTitleBrandHit } from "./title-risk";
 import type {
   ComputedReport,
@@ -215,38 +215,57 @@ export function buildComputedReport(input: ReportInput): ComputedReport {
       `NHTSA cleanly decoded this VIN, but the listing identity differs (${vinIdentityMismatches.join("; ")}). Decoder: ${input.vinDecode.year ?? "?"} ${input.vinDecode.make ?? "unknown"} ${input.vinDecode.model ?? "unknown"}; listing: ${input.subject.year} ${input.subject.make} ${input.subject.model}. Verify the VIN and listing before relying on this report.`,
     );
   }
-  const selection = selectComparables(input.subject, input.candidates);
-  dataNotes.push(...selection.notes);
-
-  const priced = selection.comps.filter(
-    (item): item is Listing & { priceUsd: number; miles: number } =>
-      item.priceUsd !== null &&
-      item.miles !== null &&
-      listingUsableForPurchaseEconomics(item),
-  );
+  const evaluation = evaluateListingPrice(input.subject, input.candidates, {
+    mode: input.mode,
+    decodedTrim: input.vinDecode?.trim ?? null,
+  });
+  const adjusted = evaluation.set;
+  if (!evaluation.priced) dataNotes.push(evaluation.methodNote);
+  if (adjusted.trimUncertain) {
+    dataNotes.push(
+      "Trim was missing or not recognized on at least one car, so that trim was not adjusted and the estimate is rough.",
+    );
+  }
 
   const subjectMiles = input.subject.miles;
   const subjectPrice = input.subject.priceUsd;
-  let comps: ComputedReport["comps"] = [];
-  let perMileUsd: number | null = null;
-  let fairBeforeHistory: number | null = null;
-
-  if (subjectMiles !== null && priced.length > 0) {
-    const adjusted = mileageAdjust(subjectMiles, priced);
-    comps = adjusted.rows;
-    perMileUsd = adjusted.perMileUsd;
-    fairBeforeHistory = median(adjusted.rows.map((row) => row.adjustedPriceUsd));
-  } else if (subjectMiles === null) {
-    dataNotes.push("Mileage was missing, so the price was not mileage-adjusted.");
-  }
+  const comps: ComputedReport["comps"] = adjusted.cars.map((car) => ({
+    vin: car.vin ?? "",
+    year: car.year,
+    trim: car.trim,
+    miles: car.miles,
+    priceUsd: car.askingUsd,
+    adjustedPriceUsd: car.adjustedUsd,
+    city: car.city,
+    state: car.state,
+    distanceMiles: car.distanceMiles,
+    sourceUrl: car.sourceUrl,
+    sourceLabel: car.sourceLabel,
+    fetchedAt: null,
+    adjustmentNotes: car.reasons,
+    accidentCount: car.accidentCount,
+    usageType: car.usageType,
+    cpo: car.cpo,
+    oneOwner: car.oneOwner,
+    ownerCount: car.ownerCount,
+  }));
+  const perMileUsd = adjusted.rates?.perMileUsd ?? null;
+  const compScope =
+    adjusted.confidence === "not_available"
+      ? "insufficient"
+      : adjusted.confidence === "rough"
+        ? "adjusted_rough"
+        : "adjusted_similar";
 
   const history = historyAdjustment(input.subject, input.mode);
-  const enough = !vinIdentityMismatch && selection.scope !== "insufficient" && fairBeforeHistory !== null && subjectPrice !== null;
-  const fairValueUsd =
-    enough && fairBeforeHistory !== null ? roundDollars(fairBeforeHistory * history.multiplier) : null;
+  // Accident, fleet, owner, and certification differences are already in each
+  // adjusted asking price. Do not multiply by history.multiplier again.
+  const fairBeforeHistory = adjusted.fairMidUsd;
+  const enough = evaluation.priced && !vinIdentityMismatch && fairBeforeHistory !== null && subjectPrice !== null;
+  const fairValueUsd = enough ? fairBeforeHistory : null;
   const gap = fairValueUsd !== null && subjectPrice !== null ? priceGap(subjectPrice, fairValueUsd) : null;
   const percentile =
-    subjectPrice !== null && comps.length > 0
+    enough && subjectPrice !== null && comps.length > 0
       ? rankAgainstAdjusted(
           subjectPrice,
           comps.map((row) => row.adjustedPriceUsd),
@@ -293,7 +312,7 @@ export function buildComputedReport(input: ReportInput): ComputedReport {
     if (vinIdentityMismatch) {
       reasons.push("The VIN's NHTSA decode conflicts with the vehicle identity in the listing. The price verdict is withheld until the seller verifies the VIN and corrects the listing.");
     } else {
-      reasons.push("There are not enough priced, same-model listings with mileage to score this asking price.");
+      reasons.push(evaluation.methodNote);
     }
     if (subjectPrice === null) reasons.push("The listing has no asking price.");
   } else if (input.mode === "personal") {
@@ -324,12 +343,13 @@ export function buildComputedReport(input: ReportInput): ComputedReport {
     } else if (parkOutside) {
       reasons.push("A model-year outdoor-parking guidance campaign was returned. That is not a do-not-drive park-it stop by itself — verify VIN applicability before treating it as cleared or as a hard stop.");
     }
+    const roughBit = adjusted.confidence === "rough" ? "This estimate is rough. " : "";
     reasons.push(
-      `Asking ${formatUsd(subjectPrice)} versus a mileage-and-history fair value of ${formatUsd(fairValueUsd)} (${formatPct(Math.abs(gap))} ${gap >= 0 ? "above" : "below"}).`,
+      `${roughBit}Asking ${formatUsd(subjectPrice)} versus an adjusted fair value of ${formatUsd(fairValueUsd)} (${formatPct(Math.abs(gap))} ${gap >= 0 ? "above" : "below"}). ${adjusted.methodNote}`,
     );
     if (percentile !== null) {
       reasons.push(
-        `About ${formatPct(percentile / 100, 0)} of the mileage-adjusted comparable listings are priced at or below this asking price.`,
+        `About ${formatPct(percentile / 100, 0)} of the adjusted similar listings are priced at or below this asking price.`,
       );
     }
     const expected = expectedMiles(input.subject.year, asOfYear);
@@ -342,7 +362,7 @@ export function buildComputedReport(input: ReportInput): ComputedReport {
   }
 
   const flip =
-    input.mode === "flip" && subjectPrice !== null && !vinIdentityMismatch
+    input.mode === "flip" && enough && subjectPrice !== null
       ? flipMath({
           askingUsd: subjectPrice,
           accidentCount: input.subject.accidentCount,
@@ -357,7 +377,6 @@ export function buildComputedReport(input: ReportInput): ComputedReport {
   if (input.mode === "flip") {
     if (!flip) {
       verdict = "insufficient_data";
-      if (!vinIdentityMismatch) reasons.push("A resale range needs at least three mileage-adjusted comparables.");
     } else {
       verdict = flipVerdict(flip.marginUsd, parkIt);
       if (titleBrandHit) {
@@ -368,7 +387,7 @@ export function buildComputedReport(input: ReportInput): ComputedReport {
         reasons.push("The asking price is suspiciously low versus fair value, so a clear good-deal flip verdict was capped until the discount is explained.");
       }
       reasons.push(
-        `Conservative resale (a lower mileage-adjusted asking price from this set — about the bottom quarter, after a ${formatPct(flip.sellFriction)} sell friction) is ${formatUsd(flip.conservativeProceedsUsd)}. All-in cost is ${formatUsd(flip.allInUsd)}. Margin is ${formatUsd(flip.marginUsd)}.`,
+        `Conservative resale (a lower adjusted asking price from this set — about the bottom quarter, after a ${formatPct(flip.sellFriction)} sell friction) is ${formatUsd(flip.conservativeProceedsUsd)}. All-in cost is ${formatUsd(flip.allInUsd)}. Margin is ${formatUsd(flip.marginUsd)}.`,
       );
       reasons.push(
         `Resale range from current comparable asking prices: ${formatUsd(flip.resaleLowUsd)} to ${formatUsd(flip.resaleHighUsd)}. These are asking prices, not closed sales.`,
@@ -424,14 +443,18 @@ export function buildComputedReport(input: ReportInput): ComputedReport {
     flags,
     questions,
     comps,
-    compScope: selection.scope,
+    compScope,
     percentile,
     fairValueUsd,
+    fairRangeLowUsd: enough ? adjusted.fairLowUsd : null,
+    fairRangeHighUsd: enough ? adjusted.fairHighUsd : null,
+    fairConfidence: adjusted.confidence,
+    compMethodNote: evaluation.priced ? adjusted.methodNote : evaluation.methodNote,
     priceGap: gap,
     mileage: {
       expectedMiles: expectedMiles(input.subject.year, asOfYear),
       subjectMiles,
-      medianCompMiles: subjectMiles === null ? null : median(priced.map((item) => item.miles)),
+      medianCompMiles: subjectMiles === null ? null : median(comps.map((item) => item.miles)),
       perMileUsd,
     },
     history,

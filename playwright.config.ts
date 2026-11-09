@@ -1,21 +1,33 @@
 import { defineConfig, devices } from "@playwright/test";
 
+const PORT = Number(process.env.PLAYWRIGHT_PORT ?? 3117);
+const baseURL = `http://127.0.0.1:${PORT}`;
+
 export default defineConfig({
-  testDir: "e2e",
+  testDir: "./e2e",
+  fullyParallel: false,
+  forbidOnly: Boolean(process.env.CI),
+  retries: process.env.CI ? 1 : 0,
+  workers: 1,
+  reporter: [["list"]],
   timeout: 90_000,
   expect: { timeout: 20_000 },
-  fullyParallel: false,
-  retries: 0,
-  reporter: "line",
   use: {
-    baseURL: "http://127.0.0.1:3456",
+    baseURL,
+    trace: "on-first-retry",
+    screenshot: "off",
     ...devices["Desktop Chrome"],
-    viewport: { width: 1280, height: 800 },
   },
   webServer: {
-    command: "npm run dev -- --port 3456",
-    url: "http://127.0.0.1:3456",
-    reuseExistingServer: false,
+    command: `npx next dev -p ${PORT} -H 127.0.0.1`,
+    url: baseURL,
+    reuseExistingServer: !process.env.CI,
     timeout: 180_000,
+    env: {
+      ...process.env,
+      AUTODEV_API_KEY: "",
+      SERV_API_KEY: "",
+      STRIPE_SECRET_KEY: "",
+    },
   },
 });

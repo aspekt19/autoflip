@@ -37,7 +37,7 @@ export function verdictLabel(verdict: string): string {
     case "good_deal":
       return "Buy";
     case "fair":
-      return "Negotiate";
+      return "Fair price";
     case "overpriced":
       return "Pass";
     case "walk_away":

@@ -18,6 +18,7 @@ import type { FullReport } from "@/domain/types";
 import { DecisionNote } from "./DecisionNote";
 import { FavoriteButton } from "./FavoriteButton";
 import { PurchaseReadinessNote } from "./PurchaseReadinessNote";
+import { SimilarCarsList } from "./SimilarCarsList";
 import { omitQuestionsCoveredByTalkingPoints, purchaseReadinessForReport } from "@/domain/purchase-readiness";
 
 export function ReportView({ report }: { report: FullReport }) {
@@ -144,7 +145,7 @@ export function ReportView({ report }: { report: FullReport }) {
         </p>
         <ul className="refuse">
           <li>
-            <b>From code:</b> fair value {computed.fairValueUsd === null ? "not computed" : formatUsd(computed.fairValueUsd)}, asking gap{" "}
+            <b>From code:</b> fair value {computed.fairValueUsd === null ? "Not enough similar cars" : formatUsd(computed.fairValueUsd)}, asking gap{" "}
             {computed.priceGap === null ? "—" : formatPct(computed.priceGap)}, {computed.comps.length} similar listings
             {computed.score !== null ? `, price score ${computed.score}/100` : ""}.
           </li>
@@ -190,8 +191,12 @@ export function ReportView({ report }: { report: FullReport }) {
           <ul className="refuse">
             <li>
               {computed.fairValueUsd === null
-                ? "No fair-value estimate. Not enough comparable listings."
-                : `Fair value ${formatUsd(computed.fairValueUsd)} is an estimate from similar asking prices, adjusted for mileage and listing history flags — not the same as the Find market figure, which skips history adjustments.`}
+                ? "No fair-value estimate. Not enough similar listings, or the adjusted prices are too far apart."
+                : `Fair value ${formatUsd(computed.fairValueUsd)} is the middle of similar asking prices from this search, adjusted for mileage, model year, trim, and listing history flags. ${
+                    computed.fairRangeLowUsd != null && computed.fairRangeHighUsd != null
+                      ? `The middle half runs from ${formatUsd(computed.fairRangeLowUsd)} to ${formatUsd(computed.fairRangeHighUsd)}. `
+                      : ""
+                  }${computed.fairConfidence === "rough" ? "This estimate is rough. " : ""}These are asking prices, not sold prices. The Find price badge, the ranking, the offer, Compare, and alerts use this same fair value.`}
             </li>
             {computed.flip ? (
               <li>
@@ -298,46 +303,21 @@ export function ReportView({ report }: { report: FullReport }) {
 
       <section id="report-comparables">
         <h2>Similar listings</h2>
-        <p className="hint">Scope: {plainCompScope(computed.compScope)}. Prices are adjusted to this car’s mileage.</p>
-        {computed.comps.length === 0 ? <p>No similar listings qualified.</p> : null}
-        {computed.comps.length > 0 ? (
-          <div className="table-scroll"><table>
-            <thead>
-              <tr>
-                <th>Vehicle</th>
-                <th>Miles</th>
-                <th>Asking</th>
-                <th>At this mileage</th>
-                <th>Where</th>
-                <th>Source</th>
-              </tr>
-            </thead>
-            <tbody>
-              {computed.comps.map((comp) => (
-                <tr key={comp.vin}>
-                  <td>
-                    {comp.year} {comp.trim ?? "trim n/a"}
-                    <div className="mono">{comp.vin}</div>
-                  </td>
-                  <td>{formatNumber(comp.miles)}</td>
-                  <td>{formatUsd(comp.priceUsd)}</td>
-                  <td>{formatUsd(comp.adjustedPriceUsd)}</td>
-                  <td>{[comp.city, comp.state].filter(Boolean).join(", ") || "—"}</td>
-                  <td>
-                    {comp.sourceUrl ? (
-                      <a href={comp.sourceUrl} target="_blank" rel="noreferrer">
-                        {comp.sourceLabel ?? "Listing"}
-                      </a>
-                    ) : (
-                      (comp.sourceLabel ?? "Listing feed")
-                    )}
-                    <div className="hint">Fetched {formatCheckedAt(comp.fetchedAt)}</div>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table></div>
-        ) : null}
+        <p className="hint">
+          Scope: {plainCompScope(computed.compScope)}. Each asking price is adjusted to this car. These are asking prices, not sold prices.
+        </p>
+        {computed.compMethodNote ? <p>{computed.compMethodNote}</p> : null}
+        <SimilarCarsList
+          open
+          cars={computed.comps.map((comp) => ({
+            year: comp.year,
+            trim: comp.trim,
+            miles: comp.miles,
+            askingUsd: comp.priceUsd,
+            adjustedUsd: comp.adjustedPriceUsd,
+            reasons: comp.adjustmentNotes ?? [],
+          }))}
+        />
       </section>
 
       <section id="report-history">

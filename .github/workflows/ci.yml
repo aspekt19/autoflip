@@ -10,7 +10,8 @@ permissions:
 
 jobs:
   test:
-    runs-on: ubuntu-latest
+    # Playwright Chromium install is not supported on ubuntu-latest (26.04) yet.
+    runs-on: ubuntu-24.04
     steps:
       - name: Check out source
         uses: actions/checkout@v4
@@ -51,6 +52,10 @@ jobs:
         run: node scripts/assert-openserv-source-boundary.mjs
       - name: Run unit tests
         run: npm test
+      - name: Install Playwright Chromium
+        run: npx playwright install --with-deps chromium
+      - name: Run Playwright check e2e
+        run: npm run test:e2e
       - name: Production build
         run: npm run build
       - name: Assert .next/server does not embed OpenServ SDK (fail-closed, Node)

@@ -34,7 +34,7 @@ import {
   budgetIsApproximateFromNote,
   type StructuredNeed,
 } from "./need";
-import { median as statsMedian, percentileRank as statsPercentileRank } from "./stats";
+import { median as statsMedian } from "./stats";
 import type { Listing } from "./types";
 
 export type BestDealFactorId =
@@ -218,12 +218,6 @@ function median(values: number[]): number | null {
   return statsMedian(values);
 }
 
-/** 0–1 rank with ties split (domain stats returns 0–100). */
-function percentileRank01(value: number, population: number[]): number | null {
-  const pct = statsPercentileRank(value, population);
-  return pct == null ? null : pct / 100;
-}
-
 function expectedMiles(year: number, nowYear: number, milesPerYear: number): number {
   const age = Math.max(0, nowYear - year);
   return Math.max(milesPerYear, age * milesPerYear);
@@ -238,7 +232,7 @@ export type BestDealListing = ObservedListingRow & {
   trim?: string | null;
   engine?: string | null;
   drivetrain?: string | null;
-  /** Listing-feed flags only — surfaced as notes, never baked into Find market $. */
+  /** Listing-feed flags. The shared price path adjusts for them; the note repeats them. */
   accidentCount?: number | null;
   cpo?: boolean | null;
   fuel?: string | null;
@@ -334,10 +328,6 @@ function listingKey(row: BestDealListing): string {
   return bestDealCarKey(row);
 }
 
-function modelKey(make: string, model: string): string {
-  return `${make}\0${model}`.toLowerCase();
-}
-
 /** Note cues that amplify wear/age even when the form left condition unspecified. */
 export function prefersConditionFromNote(note: string | null | undefined): boolean {
   if (!note) return false;
@@ -373,11 +363,11 @@ function listingStubForComps(row: BestDealListing): Listing | null {
     primaryImage: null,
     carfaxUrl: null,
     used: true,
-    cpo: false,
-    accidentCount: null,
-    oneOwner: null,
-    ownerCount: null,
-    usageType: null,
+    cpo: row.cpo ?? null,
+    accidentCount: row.accidentCount ?? null,
+    oneOwner: row.oneOwner ?? null,
+    ownerCount: row.ownerCount ?? null,
+    usageType: row.usageType ?? null,
     fuel: null,
     engine: row.engine ?? null,
     drivetrain: row.drivetrain ?? null,
@@ -393,7 +383,6 @@ function listingStubForComps(row: BestDealListing): Listing | null {
 function marketPriceContext(
   row: BestDealListing,
   marketPool: readonly Listing[] | undefined,
-  sameModelPrices: number[],
 ): {
   med: number;
   sampleSize: number;
@@ -405,56 +394,35 @@ function marketPriceContext(
   subject: Listing | null;
 } | null {
   const stub = listingStubForComps(row);
-  // When a market pool is provided (same pool the card badge uses), never invent a
-  // second comparable set — one car → one n= and one market reference across surfaces.
-  if (stub && marketPool && marketPool.length > 0) {
-    const resolved = resolveMarketComps(stub, marketPool);
-    if (resolved.ok) {
-      return {
-        med: resolved.fairValueUsd,
-        sampleSize: resolved.sampleSize,
-        pct01: resolved.pct01,
-        source: resolved.source,
-        scopeLabel: resolved.scopeLabel,
-        methodNote: resolved.methodNote,
-        methodNoteTechnical: resolved.methodNoteTechnical,
-        subject: stub,
-      };
-    }
-    return null;
-  }
-  // Legacy path when no marketPool was wired (unit tests without badge pool).
-  if (row.priceUsd != null && sameModelPrices.length > 0) {
-    const med = median(sameModelPrices);
-    if (med == null || med <= 0) return null;
-    return {
-      med,
-      sampleSize: sameModelPrices.length,
-      pct01: percentileRank01(row.priceUsd, sameModelPrices),
-      source: "Returned listings in this search only",
-      scopeLabel: "same-model",
-      methodNote: null,
-      methodNoteTechnical: null,
-      subject: stub,
-    };
-  }
-  return null;
+  // Same adjusted fair value as the card badge. No raw-median fallback.
+  if (!stub || !marketPool || marketPool.length === 0) return null;
+  const resolved = resolveMarketComps(stub, marketPool);
+  if (!resolved.ok) return null;
+  return {
+    med: resolved.fairValueUsd,
+    sampleSize: resolved.sampleSize,
+    pct01: resolved.pct01,
+    source: resolved.source,
+    scopeLabel: resolved.scopeLabel,
+    methodNote: resolved.methodNote,
+    methodNoteTechnical: resolved.methodNoteTechnical,
+    subject: stub,
+  };
 }
 
-/** Whether this listing can resolve a usable same-model market comps set. */
+/** Whether this listing can resolve a usable adjusted-similar set. */
 export function listingHasMarketPriceComps(
   row: BestDealListing,
   marketPool: readonly Listing[] | undefined,
-  sameModelPrices: number[],
 ): boolean {
-  return marketPriceContext(row, marketPool, sameModelPrices) != null;
+  return marketPriceContext(row, marketPool) != null;
 }
 
 /**
  * Material incomplete price-comps coverage across the priced shortlist.
  *
- * Prefer scoring every car that has an adequate (possibly year+miles-adjusted)
- * comparison. Neutralize everyone only when the remaining gap is material —
+ * Prefer scoring every car that has an adjusted similar-listing fair value.
+ * Neutralize everyone only when the remaining gap is material —
  * enough unscored peers that a dense-model price bonus would dominate ranking.
  * A single thin peer among a mostly covered shortlist must not switch price
  * scoring off for the whole Find (that would gut the best-deal tool).
@@ -465,19 +433,11 @@ export function priceCompsUnevenAcrossListings(
   listings: readonly BestDealListing[],
   marketPool: readonly Listing[] | undefined,
 ): boolean {
-  const byModel = new Map<string, number[]>();
-  for (const row of listings) {
-    if (row.priceUsd == null) continue;
-    const k = modelKey(row.make, row.model);
-    if (!byModel.has(k)) byModel.set(k, []);
-    byModel.get(k)!.push(row.priceUsd);
-  }
   let withComps = 0;
   let withoutComps = 0;
   for (const row of listings) {
     if (row.priceUsd == null) continue;
-    const sameModelPrices = byModel.get(modelKey(row.make, row.model)) ?? [];
-    if (listingHasMarketPriceComps(row, marketPool, sameModelPrices)) withComps += 1;
+    if (listingHasMarketPriceComps(row, marketPool)) withComps += 1;
     else withoutComps += 1;
   }
   if (!(withComps > 0 && withoutComps > 0)) return false;
@@ -498,7 +458,6 @@ function scoreOne(
       StructuredNeed,
       "budgetKnown" | "budgetUsd" | "preferredModels" | "conditionPriority" | "note"
     >;
-    sameModelPrices: number[];
     peerMilesPerYear: number[];
     peerMileageSamples: readonly PeerMileageSample[];
     nowYear: number;
@@ -547,7 +506,7 @@ function scoreOne(
         : "This listing says no accidents were reported. That is the seller's claim, not a history report.";
   const unknowns: string[] = [
     feedHistory.length > 0
-      ? "Listing feed flags are shown separately — still get a title/history report and inspection (Find market $ does not include them)"
+      ? "Listing feed flags are included in the adjusted price and repeated here. Still get a title and history report and an inspection"
       : "Condition and accident/title history are unknown on these cards",
     accidentUnknown,
     recallUnknown,
@@ -561,8 +520,8 @@ function scoreOne(
   const heldOut = ctx.heldOutFactors ?? new Set<BestDealFactorId>();
   const settled = Boolean(ctx.evidenceSettled);
 
-  // Price vs same-model observed asks (aligned with card badge when marketPool provided)
-  const market = marketPriceContext(row, ctx.marketPool, ctx.sameModelPrices);
+  // Price vs adjusted similar listings — the same fair value as the card badge.
+  const market = marketPriceContext(row, ctx.marketPool);
   if (ctx.priceFairnessNeutral) {
     unknowns.push(
       "Asking-price comparison held neutral — uneven same-model similar listings across shortlist peers",
@@ -599,13 +558,7 @@ function scoreOne(
     }
     const points = clamp(rel * WEIGHTS.price * 2, -WEIGHTS.price, WEIGHTS.price);
     score += points;
-    const scopeLabelTyped =
-      scopeLabel === "same-trim" ||
-      scopeLabel === "same-model (widened year)" ||
-      scopeLabel === "same-model (wider year ±3, year+miles adjusted)" ||
-      scopeLabel === "same-model"
-        ? scopeLabel
-        : "same-model";
+    const scopeLabelTyped = scopeLabel === "adjusted-similar" ? scopeLabel : "adjusted-similar";
     const machineMethod =
       methodNoteTechnical && methodNoteTechnical.trim()
         ? ` [method: ${methodNoteTechnical}]`
@@ -631,20 +584,24 @@ function scoreOne(
       source: `${source}${machineMethod}`,
     });
   } else {
-    unknowns.push("Asking price missing or no same-model priced peers");
+    unknowns.push(
+      row.priceUsd == null || row.miles == null
+        ? "Asking price or mileage is missing"
+        : "Not enough similar cars",
+    );
     factors.push({
       id: "price_vs_model_asks",
       label: "Asking price vs same model in this search",
       points: 0,
       detail:
-        ctx.sameModelPrices.length === 0
-          ? "Not scored — no same-model priced similar listings in this search"
-          : "Not scored — need a usable ask and same-model peers from this search",
-      source: "Returned listings in this search only",
+        row.priceUsd == null || row.miles == null
+          ? "Asking price or mileage is missing, so this car is not price-rated."
+          : "Not enough similar cars",
+      source: "Adjusted similar listings in this search",
     });
   }
 
-  // Listing-reported accidents / CPO — plain note only; never moves Find market $ or score.
+  // Listing-reported accidents / CPO. The price above already adjusts for them. This line does not add a second score.
   if (feedHistory.length > 0) {
     factors.push({
       id: "listing_feed_flags",
@@ -1364,15 +1321,9 @@ function rankAll(
     bodyClassByKey?: ReadonlyMap<string, string>;
   },
 ): BestDealCandidate[] {
-  const byModel = new Map<string, number[]>();
   const peerMpy: number[] = [];
   const peerMileageSamples: PeerMileageSample[] = [];
   for (const row of listings) {
-    if (row.priceUsd != null) {
-      const k = modelKey(row.make, row.model);
-      if (!byModel.has(k)) byModel.set(k, []);
-      byModel.get(k)!.push(row.priceUsd);
-    }
     if (row.miles != null) {
       const ageYears = Math.max(0.5, opts.nowYear - row.year);
       const milesPerYear = row.miles / ageYears;
@@ -1384,7 +1335,6 @@ function rankAll(
   const scored = listings.map((row) =>
     scoreOne(row, {
       need,
-      sameModelPrices: byModel.get(modelKey(row.make, row.model)) ?? [],
       peerMilesPerYear: peerMpy,
       peerMileageSamples,
       nowYear: opts.nowYear,
@@ -1477,14 +1427,23 @@ export function selectBestDealOnEvidence(input: {
     recallStateByMmy.set(mmyListingKey(receipt.make, receipt.model, receipt.year), recallEvidenceState(receipt));
   }
 
+  // Same cars the badge would see. When a caller does not pass a pool, use the
+  // listings being ranked — never a raw median of asking prices.
+  const marketPool =
+    input.marketPool && input.marketPool.length > 0
+      ? input.marketPool
+      : input.listings.flatMap((row) => {
+          const listing = listingStubForComps(row);
+          return listing ? [listing] : [];
+        });
   // Price fairness: neutralize only on a material comps gap (see priceCompsUnevenAcrossListings).
-  const priceFairnessNeutral = priceCompsUnevenAcrossListings(input.listings, input.marketPool);
+  const priceFairnessNeutral = priceCompsUnevenAcrossListings(input.listings, marketPool);
   const rankOpts = {
     nowYear,
     milesPerYearAssumption,
     fuelByMmy,
     risk,
-    marketPool: input.marketPool,
+    marketPool,
     heldOutFactors: heldOutSet,
     fuelAttemptedKeys,
     ncapAttemptedKeys,
@@ -1535,7 +1494,7 @@ export function selectBestDealOnEvidence(input: {
     );
   }
 
-  const assumptionsNote = `Scoring uses only cars returned in this search (including provider listings beyond the cards shown when available), free public year/make/model safety and recall records when checked for every model here (otherwise held out so one car is not favored for having more data), and fuel estimates from EPA fuel economy when a match is found. Same-model asking-price peers use nearby model years with year and mileage adjustments when the nearer window is thin. Assumed miles per year for age context: ${milesPerYearAssumption.toLocaleString("en-US")}. When you prioritize condition, an ask that looks unusually low only gets partial credit until inspected.`;
+  const assumptionsNote = `Scoring uses only cars returned in this search (including provider listings beyond the cards shown when available), free public year/make/model safety and recall records when checked for every model here (otherwise held out so one car is not favored for having more data), and fuel estimates from EPA fuel economy when a match is found. Asking price is scored only from the same fair value as the card: at least 3 cars of the same make and model, within 3 model years, adjusted for mileage, model year, trim, and listing history. Fewer than 3, or adjusted prices that are too far apart, leaves price unscored. When too many shortlist cars cannot be priced, price points stay 0 for every car so one car is not favored or penalized. Assumed miles per year for age context: ${milesPerYearAssumption.toLocaleString("en-US")}. When you prioritize condition, an ask that looks unusually low only gets partial credit until inspected.`;
 
   const honesty =
     "Best deal on current evidence only — not a guarantee, not VIN history clearance, and not a claim that Lemonless is error-free or better than other tools. Always inspect and verify before buying.";

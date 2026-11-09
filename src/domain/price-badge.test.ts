@@ -47,38 +47,41 @@ describe("price badge", () => {
     const low = priceBadge(car({ vin: "LOW", priceUsd: 8000, miles: 80000 }), comps);
     expect(low.label).toBe("Good price");
     expect(low.deltaUsd).toBeLessThan(0);
-    expect(low.deltaLabel).toMatch(/below market/);
+    expect(low.deltaLabel).toMatch(/below the fair value/);
     expect(low.deltaLabel).toMatch(/based on \d+ similar/);
     expect(low.sampleSize).toBeGreaterThanOrEqual(3);
     const high = priceBadge(car({ vin: "HIGH", priceUsd: 15000, miles: 80000 }), comps);
     expect(high.label).toBe("High price");
-    expect(high.deltaLabel).toMatch(/above market/);
+    expect(high.deltaLabel).toMatch(/above the fair value/);
   });
 
   it("does not guess when fewer than three comps have a price and mileage", () => {
     const thin = priceBadge(car({ vin: "SUB", priceUsd: 8000, miles: 80000 }), comps.slice(0, 2));
-    expect(thin.label).toBe("Not enough data to rate price");
+    expect(thin.label).toBe("Not enough similar cars");
     expect(thin.deltaUsd).toBeNull();
     expect(thin.deltaLabel).toBeNull();
   });
 
-  it("surfaces listing accidents/CPO without changing the market reference", () => {
-    const base = car({ vin: "BASE", priceUsd: 9000, miles: 80000, accidentCount: null, cpo: false });
-    const flagged = car({ vin: "FLAG", priceUsd: 9000, miles: 80000, accidentCount: 1, cpo: true });
-    const a = priceBadge(base, comps);
-    const b = priceBadge(flagged, comps);
-    expect(b.fairValueUsd).toBe(a.fairValueUsd);
-    expect(b.deltaUsd).toBe(a.deltaUsd);
+  it("includes listing accidents and CPO in the shared fair value", () => {
+    const base = car({ vin: "BASE", priceUsd: 9000, miles: 80000, accidentCount: 0, cpo: false, ownerCount: 2 });
+    const flagged = car({ vin: "FLAG", priceUsd: 9000, miles: 80000, accidentCount: 1, cpo: true, ownerCount: 2 });
+    const peers = comps.map((item) => ({ ...item, accidentCount: 0, cpo: false, ownerCount: 2 }));
+    const a = priceBadge(base, peers);
+    const b = priceBadge(flagged, peers);
+    expect(a.fairValueUsd).not.toBeNull();
+    expect(b.fairValueUsd).not.toBeNull();
+    expect(b.fairValueUsd).not.toBe(a.fairValueUsd);
     expect(b.sampleNote).toMatch(/Listing reports 1 accident/i);
+    expect(b.sampleNote).toMatch(/included in the adjusted price/i);
     expect(b.sampleNote).toMatch(/certified pre-owned/i);
-    expect(b.sampleNote).toMatch(/not reflected in this Find market figure/i);
+    expect(b.sampleNote).not.toMatch(/not reflected/i);
   });
 });
 
 describe("summary line", () => {
   it("maps a drive-it verdict onto buy, negotiate, or skip", () => {
     expect(summaryLine({ mode: "personal", verdict: "good_deal", fairValueUsd: 10000, flip: null }).line).toBe("Buy");
-    expect(summaryLine({ mode: "personal", verdict: "fair", fairValueUsd: 10400, flip: null }).line).toBe("Negotiate to $10,400");
+    expect(summaryLine({ mode: "personal", verdict: "fair", fairValueUsd: 10400, flip: null }).line).toBe("Fair price");
     expect(summaryLine({ mode: "personal", verdict: "walk_away", fairValueUsd: 9000, flip: null }).line).toBe("Skip");
     expect(summaryLine({ mode: "personal", verdict: "insufficient_data", fairValueUsd: null, flip: null }).line).toMatch(/Needs inspection/);
   });

@@ -92,8 +92,10 @@ export type AlertCopy = {
   yearMax: number | null;
   milesMax: number | null;
   bodyStyle: string | null;
-  /** True only when comparable asking prices were calculated and this asking price is under that midpoint. */
-  belowTypical: boolean;
+  /** Shared price label. Null when this alert has no price evaluation. */
+  priceLabel?: "Good price" | "Fair price" | "High price" | "Not enough similar cars" | null;
+  /** Same fair value as the card, report, and offer. */
+  fairValueUsd?: number | null;
   origin: string;
   alertId: string;
 };
@@ -125,7 +127,10 @@ export function alertText(input: AlertCopy): string {
   }
   if (input.bodyStyle) bullets.push(`Body type matches ${input.bodyStyle}`);
   if (input.priceDropFrom !== null) bullets.push(`Price dropped from ${money(input.priceDropFrom)}`);
-  if (input.mode === "flip" && input.belowTypical) bullets.push("Below the typical range of comparable listings");
+  if (input.priceLabel) {
+    const fair = input.fairValueUsd != null ? ` Fair value ${money(input.fairValueUsd)}.` : "";
+    bullets.push(`Price: ${input.priceLabel}.${fair}`);
+  }
   for (const bullet of bullets) lines.push(`• ${bullet}`);
   lines.push("");
   lines.push("This is a preliminary match. History and condition are not checked yet.");

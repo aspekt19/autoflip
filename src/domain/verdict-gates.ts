@@ -114,7 +114,7 @@ function gateDataSufficiency(report: ComputedReport): GateResult {
     return {
       id: "data_sufficiency",
       status: "withhold",
-      reason: "Mileage is missing, so mileage-adjusted similar listings cannot be trusted. Verdict withheld.",
+      reason: "Mileage is missing, so adjusted similar listings cannot be trusted. Verdict withheld.",
       forbid: ["buy", "negotiate", "pass", "needs_inspection"],
     };
   }

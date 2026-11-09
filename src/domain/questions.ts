@@ -133,7 +133,7 @@ export function buildFlags(input: {
     flags.push({
       level: "caution",
       source: "price",
-      text: "The asking price sits above the mileage-and-history adjusted comparable value.",
+      text: "The asking price sits above the adjusted value from similar listings.",
     });
   }
   if (input.complaintCount !== null && input.complaintCount > 0) {

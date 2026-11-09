@@ -134,6 +134,13 @@ export type ComparableUsed = {
   sourceLabel?: string | null;
   /** When Lemonless fetched or loaded this row for the report. */
   fetchedAt?: string | null;
+  /** Plain-English reasons the asking price was moved toward this car. */
+  adjustmentNotes?: string[];
+  accidentCount?: number | null;
+  usageType?: string | null;
+  cpo?: boolean | null;
+  oneOwner?: boolean | null;
+  ownerCount?: number | null;
 };
 
 export type HistoryAdjustment = {
@@ -178,6 +185,14 @@ export type ComputedReport = {
   compScope: string;
   percentile: number | null;
   fairValueUsd: number | null;
+  /** Low end of the middle half of adjusted asking prices. Omitted on older reports. */
+  fairRangeLowUsd?: number | null;
+  /** High end of the middle half of adjusted asking prices. Omitted on older reports. */
+  fairRangeHighUsd?: number | null;
+  /** How much to trust the adjusted range. Omitted on older reports. */
+  fairConfidence?: "reasonable" | "rough" | "not_available" | null;
+  /** How mileage, year, and trim were adjusted. Omitted on older reports. */
+  compMethodNote?: string | null;
   priceGap: number | null;
   mileage: {
     expectedMiles: number | null;

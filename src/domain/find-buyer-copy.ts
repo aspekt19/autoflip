@@ -119,12 +119,12 @@ export const FIND_RESULTS_BILLING_HINT =
 export function creditsNeedNotice(returnTo: string | null | undefined): string {
   const back = returnTo ?? "";
   if (back.startsWith("/find")) {
-    return "Find costs 1 report credit each time a search is delivered. The 3 free checks each UTC month are only for a VIN or your own listing URL — they do not pay for Find.";
+    return "Find costs 1 report credit each time a search is delivered. The 3 free checks each UTC month are only for Check a car (listing link or VIN) — they do not pay for Find.";
   }
   if (back.startsWith("/check")) {
-    return "A VIN or your own listing URL uses one of 3 free checks per verified account each UTC month. After those are used, a full report costs 1 report credit.";
+    return "A listing link or VIN uses one of 3 free checks per verified account each UTC month. After those are used, a check costs 1 report credit.";
   }
-  return "Find costs 1 report credit per delivered search. A VIN or your own listing URL uses one of 3 free checks per verified account each UTC month; a full report after that costs 1 credit.";
+  return "Find costs 1 report credit per delivered search. A listing link or VIN uses one of 3 free checks per verified account each UTC month; after that a check costs 1 credit.";
 }
 
 /**
@@ -252,6 +252,8 @@ export function plainGateStatus(status: string): string {
 }
 
 export function plainDecisionAction(action: string): string {
+  if (action === "fair" || action === "negotiate") return "Fair price";
+  if (action === "good_deal" || action === "buy") return "Buy";
   return plainBuyerPhrase(action.replaceAll("_", " "));
 }
 
@@ -312,6 +314,7 @@ export function plainFlagSource(source: string): string {
 
 export function plainCompScope(scope: string): string {
   switch (scope) {
+    // Older saved reports used these scope ids before adjusted comparables.
     case "same_trim":
       return "same trim, nearby model years";
     case "year_window":
@@ -322,6 +325,10 @@ export function plainCompScope(scope: string): string {
       return "same model, wider model years";
     case "insufficient":
       return "not enough similar listings";
+    case "adjusted_similar":
+      return "same model, nearby model years, prices adjusted to this car";
+    case "adjusted_rough":
+      return "same model, nearby model years, rough price adjustment";
     default:
       return plainBuyerPhrase(scope.replaceAll("_", " "));
   }
@@ -382,8 +389,8 @@ function buyerProofDetail(detail: string): string | null {
   if (/\bvPIC\b/i.test(trimmed)) {
     return "NHTSA VIN decoder, NHTSA recalls, NHTSA complaints, FuelEconomy.gov, and the U.S. Census geocoder.";
   }
-  if (/selectComparables|mileageAdjust|historyAdjustment|verdictFromPriceGap|flipMath|scoreFromGap|dealerQuestions/.test(trimmed)) {
-    return "Similar listings, mileage adjustment, history flags, price gap, resale math, price score, and dealer questions — computed in code.";
+  if (/evaluateListingPrice|adjustComparableSet|selectComparables|mileageAdjust|historyAdjustment|verdictFromPriceGap|flipMath|scoreFromGap|dealerQuestions/.test(trimmed)) {
+    return "Adjusted similar listings, history flags, price gap, resale math, price score, and dealer questions — computed in code.";
   }
   if (/^autoflip\./i.test(trimmed)) return null;
   if (/^final=/i.test(trimmed)) {

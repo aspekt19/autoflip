@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { auditExplanation } from "./audit";
 import { ASSUMPTIONS } from "./assumptions";
-import { mileageAdjust, selectComparables } from "./comparables";
+import { priceBadge } from "./price-badge";
 import { haversineMiles } from "./geo";
 import { historyAdjustment } from "./history";
 import { dealerQuestions, buildFlags } from "./questions";
@@ -142,20 +142,6 @@ describe("history and mileage", () => {
     expect(flip.multiplier).toBe(1);
   });
 
-  it("adjusts comparable prices toward the subject mileage", () => {
-    const subjectMiles = 50_000;
-    const comps = [
-      car({ vin: "A", priceUsd: 20_000, miles: 40_000 }),
-      car({ vin: "B", priceUsd: 18_000, miles: 60_000 }),
-    ];
-    const { rows, perMileUsd } = mileageAdjust(
-      subjectMiles,
-      comps as Array<Listing & { priceUsd: number; miles: number }>,
-    );
-    expect(perMileUsd).toBeCloseTo(19_000 * 0.005 / 1000, 8);
-    expect(rows[0]?.adjustedPriceUsd).toBe(Math.round(20_000 - 10_000 * perMileUsd));
-    expect(rows[1]?.adjustedPriceUsd).toBe(Math.round(18_000 - (-10_000) * perMileUsd));
-  });
 });
 
 describe("VIN identity validation", () => {
@@ -333,14 +319,16 @@ describe("fixture camry", () => {
     expect(auditExplanation("There are 99 open recalls and a score of 97 on this Camry.", report).ok).toBe(false);
   });
 
-  it("widens past trim when fewer than three same-trim comps exist", () => {
-    const subject = sample.find((item) => item.trim === "XSE")!;
-    const selected = selectComparables(subject, sample);
-    expect(selected.scope === "year_window" || selected.scope === "same_trim").toBe(true);
-    expect(selected.comps.length).toBeGreaterThanOrEqual(3);
+  it("rates the sample with the same fair value on the badge and the radar row", () => {
+    const subject = sample[0]!;
+    const badge = priceBadge(subject, sample);
     const rows = scoreRadar(sample, "personal", 2026);
+    const row = rows.find((item) => item.listing.vin === subject.vin);
     expect(rows).toHaveLength(5);
-    expect(rows.every((row) => row.verdict !== "not_scored")).toBe(true);
+    expect(badge.fairValueUsd).toBe(33_699);
+    expect(badge.label).toBe("Fair price");
+    expect(row?.fairValueUsd).toBe(badge.fairValueUsd);
+    expect(row?.verdict).toBe("fair");
   });
 
   it("builds a flip margin from the same comps", () => {
