@@ -54,3 +54,46 @@ export function freeCheckQuotaView(used: number, now = new Date()): FreeCheckQuo
     resetsLabel: freeCheckResetLabel(now),
   };
 }
+
+/** Buyer line for a quota view the server already computed. Does not recount usage. */
+export function formatFreeChecksRemaining(view: {
+  remaining: number;
+  limit: number;
+  resetsLabel: string;
+}): string {
+  return `Free checks this month: ${view.remaining} of ${view.limit} left (resets ${view.resetsLabel})`;
+}
+
+export function formatFreeChecksSignInPrompt(limit = FREE_VEHICLE_CHECKS_PER_MONTH): string {
+  return `Sign in to get ${limit} free checks a month`;
+}
+
+/**
+ * Turn GET /api/account into the sentence to show.
+ * Signed out does not invent a remaining count. Signed in only formats fields the server sent.
+ */
+export function freeChecksRemainingFromAccount(body: {
+  authenticated?: boolean;
+  freeChecks?: { remaining?: unknown; limit?: unknown; resetsLabel?: unknown } | null;
+}): "signed-out" | "missing" | string {
+  if (!body.authenticated) return "signed-out";
+  const view = body.freeChecks;
+  if (
+    !view ||
+    typeof view.remaining !== "number" ||
+    !Number.isInteger(view.remaining) ||
+    view.remaining < 0 ||
+    typeof view.limit !== "number" ||
+    !Number.isInteger(view.limit) ||
+    view.limit < 1 ||
+    typeof view.resetsLabel !== "string" ||
+    !view.resetsLabel.trim()
+  ) {
+    return "missing";
+  }
+  return formatFreeChecksRemaining({
+    remaining: view.remaining,
+    limit: view.limit,
+    resetsLabel: view.resetsLabel,
+  });
+}

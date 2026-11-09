@@ -5,8 +5,13 @@ import type { PriceBadge } from "@/domain/price-badge";
 import { whyThisCar } from "@/domain/why-car";
 import { PriceBadgeView, PriceRatingHow } from "./PriceBadge";
 import { budgetFromText, budgetWorkingCopy } from "@/domain/need";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
+import {
+  formatFreeChecksSignInPrompt,
+  freeChecksRemainingFromAccount,
+} from "@/domain/free-check-quota";
 import type { DecisionProof } from "@/domain/decision-note";
 import type { SearchDirection } from "@/domain/directions";
 import { CoverageLine } from "./CoverageNote";
@@ -195,6 +200,9 @@ function AssistantFlow({
   const [vinMiles, setVinMiles] = useState("");
   const [vinZip, setVinZip] = useState("");
   const booted = useRef(false);
+  const [checkAllowance, setCheckAllowance] = useState<"loading" | "signed-out" | "missing" | string>(
+    "loading",
+  );
   const [freeCheck, setFreeCheck] = useState<{
     title: string;
     sample?: boolean;
@@ -229,6 +237,22 @@ function AssistantFlow({
   const autoNextCheckTokenRef = useRef<string | null>(null);
   /** Auto-continues fired for the current search token — hard-bounded in shouldAutoContinue. */
   const autoContinueCountRef = useRef(0);
+
+  useEffect(() => {
+    if (variant !== "check") return;
+    let cancelled = false;
+    fetch("/api/account")
+      .then((response) => response.json())
+      .then((body: { authenticated?: boolean; freeChecks?: { remaining?: number; limit?: number; resetsLabel?: string } | null }) => {
+        if (!cancelled) setCheckAllowance(freeChecksRemainingFromAccount(body));
+      })
+      .catch(() => {
+        if (!cancelled) setCheckAllowance("missing");
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [variant]);
 
   async function understand(followUp?: { id: FollowUp["id"]; value: string }) {
     setError(null);
@@ -2114,7 +2138,17 @@ function AssistantFlow({
               Enter a valid 17-character VIN before checking the price.
             </p>
           ) : null}
-          <p className="hint">Sign in required. Each verified account gets 3 free full vehicle checks per UTC month (VIN or your listing URL); after that, a full report costs 1 report credit. Price preview does not use a free check or a credit. Resets at 00:00 UTC on the 1st.</p>
+          {checkAllowance === "loading" ? null : checkAllowance === "signed-out" ? (
+            <p className="hint">
+              <Link href="/login?callbackUrl=/check">Sign in</Link>
+              {formatFreeChecksSignInPrompt().slice("Sign in".length)}
+            </p>
+          ) : checkAllowance === "missing" ? (
+            <p className="hint">Free checks could not be loaded.</p>
+          ) : (
+            <p className="hint">{checkAllowance}</p>
+          )}
+          <p className="hint">The price check does not use a free check. A full report does, then 1 report credit after this month’s free checks are used.</p>
           {freeCheck ? (
             <article className="warn-box">
               <h2>{freeCheck.title}</h2>

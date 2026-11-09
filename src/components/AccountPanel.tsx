@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useState, useTransition } from "react";
 import { signOutAction } from "@/auth/actions";
 import { buyerFacingFailure } from "@/domain/buyer-facing-error";
+import { freeChecksRemainingFromAccount } from "@/domain/free-check-quota";
 
 type AccountBody = {
   credits?: number;
@@ -13,6 +14,7 @@ type AccountBody = {
   browserClaimable?: boolean;
   demo?: boolean;
   auth?: { configured?: boolean };
+  freeChecks?: { remaining?: number; limit?: number; resetsLabel?: string } | null;
 };
 
 export function AccountPanel() {
@@ -64,6 +66,8 @@ export function AccountPanel() {
   if (error) return <p className="warn">{error}</p>;
   if (!body) return <p className="hint">Loading account…</p>;
 
+  const freeCheckLine = freeChecksRemainingFromAccount(body);
+
   if (!body.authenticated) {
     const authConfigured = Boolean(body.auth?.configured);
     return (
@@ -90,6 +94,10 @@ export function AccountPanel() {
         <br />
         Balance: <strong>{typeof body.credits === "number" ? body.credits : "…"}</strong> report credit
         {body.credits === 1 ? "" : "s"}
+        <br />
+        {freeCheckLine === "missing" || freeCheckLine === "signed-out"
+          ? "Free checks could not be loaded."
+          : freeCheckLine}
       </p>
       {body.browserClaimable ? (
         <p>
