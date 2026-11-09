@@ -662,10 +662,7 @@ describe("public-check copy stays plain and honest", () => {
   });
 
   it("shows a seller question when the card already says the listing reports an accident", () => {
-    const lines = sellerQuestionsForBuyer({
-      ranked: [],
-      allRanked: [
-        {
+    const car = {
           key: "CRV",
           make: "Honda",
           model: "CR-V",
@@ -676,7 +673,7 @@ describe("public-check copy stays plain and honest", () => {
           score: 30,
           factors: [
             {
-              id: "listing_feed_flags",
+              id: "listing_feed_flags" as const,
               label: "Listing history flags",
               points: 0,
               detail: "Listing reports 1 accident — not reflected in this Find market figure",
@@ -688,9 +685,8 @@ describe("public-check copy stays plain and honest", () => {
           excludedFromPick: false,
           excludedReason: null,
           sellerQuestions: [],
-        },
-      ],
-    });
+    };
+    const lines = sellerQuestionsForBuyer({ ranked: [car], pick: car });
     expect(lines.join(" ")).toMatch(/Ask the seller for accident records/i);
     expect(lines.join(" ")).toMatch(/2017 Honda CR-V/);
   });

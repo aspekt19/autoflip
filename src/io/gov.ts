@@ -24,6 +24,46 @@ async function getJson(url: string, deps: GovDeps, headers?: Record<string, stri
   }
 }
 
+const RECALL_TRANSIENT_HTTP = new Set([408, 429, 500, 502, 503, 504]);
+
+function failureIsTimeout(error: unknown): boolean {
+  if (!error || typeof error !== "object") return false;
+  const name = "name" in error ? String((error as { name: unknown }).name) : "";
+  return name === "TimeoutError" || name === "AbortError";
+}
+
+/**
+ * One recallsByVehicle read, with a single retry when the gateway answers quickly
+ * with a transient HTTP status (the observed 504) or a fast network error.
+ * A timeout already used the 12s budget, so it is not tried again — three
+ * sequential model years plus a second full wait can exceed the route limit.
+ * There is no second NHTSA path: a different payload could be read as a
+ * confirmed empty list.
+ */
+async function fetchRecallPayload(url: string, deps: GovDeps): Promise<unknown | null> {
+  const once = async (): Promise<{ payload: unknown | null; retry: boolean }> => {
+    try {
+      const response = await deps.fetch(url, {
+        headers: { Accept: "application/json" },
+        signal: AbortSignal.timeout(12_000),
+      });
+      if (!response.ok) return { payload: null, retry: RECALL_TRANSIENT_HTTP.has(response.status) };
+      try {
+        return { payload: await response.json(), retry: false };
+      } catch {
+        return { payload: null, retry: false };
+      }
+    } catch (error) {
+      return { payload: null, retry: !failureIsTimeout(error) };
+    }
+  };
+  const first = await once();
+  if (first.payload != null) return first.payload;
+  if (!first.retry) return null;
+  const second = await once();
+  return second.payload;
+}
+
 export async function decodeVin(vin: string, deps: GovDeps): Promise<VinDecode | null> {
   const payload = await getJson(
     `https://vpic.nhtsa.dot.gov/api/vehicles/DecodeVinValues/${encodeURIComponent(vin)}?format=json`,
@@ -41,7 +81,10 @@ export type RecallsLookup = {
 
 export async function recallsFor(make: string, model: string, year: number, deps: GovDeps): Promise<RecallsLookup> {
   const params = new URLSearchParams({ make, model, modelYear: String(year) });
-  const payload = await getJson(`https://api.nhtsa.gov/recalls/recallsByVehicle?${params.toString()}`, deps);
+  const payload = await fetchRecallPayload(
+    `https://api.nhtsa.gov/recalls/recallsByVehicle?${params.toString()}`,
+    deps,
+  );
   if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
     return { records: [], available: false };
   }

@@ -598,6 +598,7 @@ export async function runFindNextCheckOrchestrator(
     let refineAfter = replan.refine;
     let rematchOk: boolean | null = null;
     let freeGovReceipts = priorReceipts;
+    let hopReceipts: FindFreeGovReceipt[] = [];
     let freeEvidenceNote: string | null = null;
     let carChecks = priorCarChecks;
     const top5Keys = priorBestDeal.ranked.slice(0, 5).map((car) => car.key);
@@ -650,6 +651,9 @@ export async function runFindNextCheckOrchestrator(
         targetKeys: executedId === "free_gov_vpic" && vpicTargets.length > 0 ? vpicTargets : undefined,
       });
       if (executed) {
+        // Only this hop's receipts belong in the decision log. Merged history is new
+        // objects, so an identity check against the prior array logged the same lines again.
+        hopReceipts = executed.receipts;
         // Dedup by checkId+year/make/model so cached re-runs cannot append duplicate receipts / fake cycles.
         if (executed.receipts.length > 0) {
           freeGovReceipts = mergeFreeGovReceiptsByMmy(priorReceipts, executed.receipts);
@@ -743,10 +747,9 @@ export async function runFindNextCheckOrchestrator(
     ).length;
 
     const evidenceAdded: string[] = [];
-    for (const receipt of freeGovReceipts) {
-      if (!priorReceipts.includes(receipt) && receipt.evidenceFacts?.[0]?.plain) {
-        evidenceAdded.push(receipt.evidenceFacts[0].plain);
-      }
+    for (const receipt of hopReceipts) {
+      const plain = receipt.evidenceFacts?.[0]?.plain;
+      if (plain) evidenceAdded.push(plain);
     }
     for (const check of newCarChecks) {
       for (const fact of check.fields) {

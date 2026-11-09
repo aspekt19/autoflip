@@ -783,6 +783,7 @@ button:disabled, .action:disabled, .quiet:disabled, .ghost:disabled {
 .sheet-page { width: min(980px, calc(100% - 2 * var(--pad))); margin: 0 auto; }
 .support { font-size: 18px; max-width: 62ch; }
 .hint { color: var(--muted); font-size: 15px; margin: 6px 0 0; }
+.top-picks { list-style: decimal; margin: 6px 0 0; padding-left: 1.3em; }
 .panel { background: transparent; padding: 8px 0 0; }
 .field { margin-bottom: 16px; border: 0; padding: 0; min-inline-size: 0; }
 .field legend, .field label { font-family: var(--sans); font-weight: 700; }

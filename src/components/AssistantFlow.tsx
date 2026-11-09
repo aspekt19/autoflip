@@ -50,11 +50,20 @@ import {
   formatBuyerLoopStep,
   formatBuyerNextCheckWhy,
   formatOfficialRecallNumber,
+  formatRecallCheckSummary,
+  formatTopPickLine,
+  sellerQuestionsForBuyer,
+  topPicksInRankOrder,
   summarizeFuelCheckOutcome,
+  summarizeRecallCheckOutcome,
 } from "@/domain/find-buyer-copy";
 import type { BestDealResult } from "@/domain/find-best-deal";
 import { formatBaselineForBuyer, type FindBaselineDelta } from "@/domain/find-baseline";
-import { formatDecisionLogForBuyer, type FindDecisionLogEntry } from "@/domain/find-decision-log";
+import {
+  presentDecisionLogForBuyer,
+  type DecisionCarLabel,
+  type FindDecisionLogEntry,
+} from "@/domain/find-decision-log";
 import { formatFindFuelEvidenceShort, fuelFactFromFindEvidence } from "@/domain/find-fuel-match";
 import { buildGroundedShortlist } from "@/domain/find-path";
 import {
@@ -64,8 +73,12 @@ import {
   uiRowsToRiskReceipts,
   type FreeGovReceiptUiRow,
 } from "@/domain/find-free-gov-format";
+import { trimSourceDisagreement } from "@/domain/find-car-consistency";
+import { buyerListingHref } from "@/domain/find-listing-link";
 import { mmyListingKey } from "@/domain/find-risk-evidence";
 import {
+  AGE_GAP_NO_FLOOR,
+  ageGapBuyerHonesty,
   applyFollowUp,
   followUps,
   USE_CASES,
@@ -232,7 +245,10 @@ function AssistantFlow({
   /** Machine/agent channel only — raw receipts JSON, not shown as page copy. */
   const [freeGovAgentPayload, setFreeGovAgentPayload] = useState<string | null>(null);
   const [bestDeal, setBestDeal] = useState<BestDealResult | null>(null);
-  const [decisionLines, setDecisionLines] = useState<string[]>([]);
+  const [decisionView, setDecisionView] = useState<{
+    entries: FindDecisionLogEntry[];
+    labels: DecisionCarLabel[];
+  }>({ entries: [], labels: [] });
   const [baselineView, setBaselineView] = useState<ReturnType<typeof formatBaselineForBuyer> | null>(null);
   /** Structured free-gov receipts for risk-aware grounded shortlist (client mirror of server). */
   const [freeGovReceiptsForShortlist, setFreeGovReceiptsForShortlist] = useState<
@@ -724,7 +740,7 @@ function AssistantFlow({
             model: car.model,
           })),
         ];
-        setDecisionLines(formatDecisionLogForBuyer(serverLog, labels, 8));
+        setDecisionView({ entries: serverLog, labels });
       }
       if (receipts.length > 0) {
         setFreeGovReceiptsForShortlist(receipts);
@@ -793,6 +809,7 @@ function AssistantFlow({
       const fuelOutcome = summarizeFuelCheckOutcome(uiRowsToRiskReceipts(mergedReceiptsForFuel));
       const nextFuelOutcome = fuelOutcome.attempted > 0 ? fuelOutcome : null;
       if (nextFuelOutcome) setFuelCheckOutcome(nextFuelOutcome);
+      const recallOutcome = summarizeRecallCheckOutcome(uiRowsToRiskReceipts(mergedReceiptsForFuel));
       const fuelPending =
         toolCov?.fuel && typeof toolCov.fuel.unchecked === "number"
           ? toolCov.fuel.unchecked > 0
@@ -802,6 +819,7 @@ function AssistantFlow({
         listingCount: listingCount || undefined,
         fuelOutcome: nextFuelOutcome ?? undefined,
         fuelPending: body.chosenId === "free_gov_fuel" ? fuelPending : undefined,
+        recallOutcome: body.chosenId === "free_gov_recalls" ? recallOutcome : undefined,
       });
       const status = formatBuyerLoopStatus(body.loop?.reason ?? null);
       const willContinue = shouldAutoContinueFindNextCheck({
@@ -1143,7 +1161,7 @@ function AssistantFlow({
       // Clear prior search's free-gov / best-deal state so a new Find cannot inherit
       // a stuck "still checking" banner or stale provisional pick.
       setBestDeal(null);
-      setDecisionLines([]);
+      setDecisionView({ entries: [], labels: [] });
       setBaselineView(null);
       setFreeGovReceiptsForShortlist([]);
       setFreeGovEvidenceLines([]);
@@ -1752,8 +1770,8 @@ function AssistantFlow({
               {need.yearMin != null
                 ? `Search will use ${need.yearMin}${need.yearMax != null ? `–${need.yearMax}` : "+"} from your clarification or this field.`
                 : need.yearBandResolved
-                  ? "No year floor — search uses the budget-based editorial year band only."
-                  : "Leave blank to use the budget-based editorial year band only."}
+                  ? AGE_GAP_NO_FLOOR
+                  : "Leave this blank to use the years that fit your budget."}
             </p>
           </div>
           {need.conditionPriority === "inspection_first" ? (
@@ -1776,7 +1794,7 @@ function AssistantFlow({
           ) : null}
           {softPrefGapsFromText(need.note).map((gap) => (
             <p className="hint" key={gap.id}>
-              Noted preference: {gap.mentioned}. {gap.honesty}
+              Noted preference: {gap.mentioned}. {gap.id === "age" ? ageGapBuyerHonesty(need) : gap.honesty}
             </p>
           ))}
           <div className="field">
@@ -1833,7 +1851,7 @@ function AssistantFlow({
           {need
             ? softPrefGapsFromText(need.note).map((gap) => (
                 <p className="hint" key={`results-${gap.id}`}>
-                  {gap.honesty}
+                  {gap.id === "age" ? ageGapBuyerHonesty(need) : gap.honesty}
                 </p>
               ))
             : null}
@@ -1879,9 +1897,69 @@ function AssistantFlow({
                   uiRowsToRiskReceipts(freeGovReceiptsForShortlist),
                 );
                 const dealCopy = bestDeal ? formatBuyerBestDeal(bestDeal) : null;
-                if (checks.length === 0 && shortlist.length === 0 && !dealCopy) return null;
+                const decisionPresented = presentDecisionLogForBuyer(decisionView.entries, decisionView.labels);
+                const recallSummary = summarizeRecallCheckOutcome(
+                  uiRowsToRiskReceipts(freeGovReceiptsForShortlist),
+                );
+                const recallSummaryLine =
+                  recallSummary.attempted > 0 ? formatRecallCheckSummary(recallSummary) : null;
+                const decodedTrimByVin = new Map<string, string>();
+                for (const row of freeGovReceiptsForShortlist) {
+                  const specsTrim = row.vpicSpecs?.trim;
+                  if (
+                    (row.checkId === "free_gov_vpic" || row.toolId === "evidence.gov_vpic") &&
+                    row.vin &&
+                    specsTrim
+                  ) {
+                    decodedTrimByVin.set(row.vin.toUpperCase(), specsTrim);
+                  }
+                }
+                const listingHints = allListings.map((car) => ({
+                  vin: car.vin,
+                  year: car.year,
+                  make: car.make,
+                  model: car.model,
+                  trim: car.trim,
+                  vdp: car.vdp,
+                  decodedTrim: decodedTrimByVin.get(car.vin.toUpperCase()) ?? null,
+                }));
+                const sellerLines = bestDeal ? sellerQuestionsForBuyer(bestDeal, listingHints) : [];
+                if (checks.length === 0 && shortlist.length === 0 && !dealCopy && decisionPresented.lines.length === 0)
+                  return null;
                 return (
                   <div className="hint" role="note">
+                    {bestDeal && bestDeal.ranked.length > 0 ? (
+                      <div>
+                        <p>{bestDeal.pick ? "Top picks" : "Top cars in the current order"}</p>
+                        <ol className="top-picks">
+                          {topPicksInRankOrder(bestDeal.ranked, bestDeal.pick?.key ?? null).rows.map((row) => {
+                            const card =
+                              allListings.find(
+                                (item) =>
+                                  item.vin &&
+                                  row.vin &&
+                                  item.vin.toUpperCase() === row.vin.toUpperCase(),
+                              ) ??
+                              allListings.find(
+                                (item) =>
+                                  item.year === row.year &&
+                                  item.make.toLowerCase() === row.make.toLowerCase() &&
+                                  item.model.toLowerCase() === row.model.toLowerCase() &&
+                                  item.priceUsd === row.priceUsd &&
+                                  item.miles === row.miles,
+                              );
+                            const href = buyerListingHref(card?.vdp);
+                            return (
+                              <li key={row.key}>
+                                {formatTopPickLine(row)}
+                                {" · "}
+                                {href ? <a href={href}>Dealer listing</a> : "Listing link unavailable"}
+                              </li>
+                            );
+                          })}
+                        </ol>
+                      </div>
+                    ) : null}
                     {servNextCheckEnabled && freeGovAnyUnchecked && error && pending !== "next-check" ? (
                       <p>
                         Public checks stopped. Some models are still unchecked. You can retry after fixing the
@@ -1908,19 +1986,30 @@ function AssistantFlow({
                             {formatBuyerNextCheckWhy(item.id, item.why, {
                               fuelOutcome: fuelCheckOutcome,
                               fuelPending: fuelCheckPending,
+                              recallOutcome: recallSummary.attempted > 0 ? recallSummary : undefined,
                             })}
                           </li>
                         ))}
                       </ul>
                     ) : null}
-                    {decisionLines.length > 0 ? (
+                    {decisionPresented.lines.length > 0 ? (
                       <div className="hint" role="note">
                         <p>How Lemonless decided</p>
                         <ul>
-                          {decisionLines.map((line, index) => (
+                          {decisionPresented.lines.map((line, index) => (
                             <li key={`decision-${index}`}>{line}</li>
                           ))}
                         </ul>
+                        {decisionPresented.hiddenSteps.length > 0 ? (
+                          <details>
+                            <summary>Show all steps</summary>
+                            <ul>
+                              {decisionPresented.hiddenSteps.map((line, index) => (
+                                <li key={`decision-all-${index}`}>{line}</li>
+                              ))}
+                            </ul>
+                          </details>
+                        ) : null}
                       </div>
                     ) : null}
                     {baselineView ? (
@@ -1945,6 +2034,7 @@ function AssistantFlow({
                           What we checked from free U.S. government sources (year/make/model scope — not the same as
                           a VIN history or title report):
                         </p>
+                        {recallSummaryLine ? <p>{recallSummaryLine}</p> : null}
                         <ul>
                           {freeGovEvidenceLines.map((line) => (
                             <li key={line.slice(0, 100)}>{line}</li>
@@ -2001,11 +2091,11 @@ function AssistantFlow({
                             </ul>
                           </>
                         ) : null}
-                        {dealCopy.sellerQuestionLines.length > 0 ? (
+                        {sellerLines.length > 0 ? (
                           <>
                             <p>Questions for the seller</p>
                             <ul>
-                              {dealCopy.sellerQuestionLines.map((line) => (
+                              {sellerLines.map((line) => (
                                 <li key={line}>{line}</li>
                               ))}
                             </ul>
@@ -2189,12 +2279,29 @@ function AssistantFlow({
                     {car.flipNote ? <p className="hint">{car.flipNote}</p> : null}
                     {car.clearsTarget === false ? <p className="hint">Under the profit target, so it ranks lower.</p> : null}
                     {car.clearsTarget === true ? <p className="hint">Clears the profit target. That target is an assumption, not a promised sale.</p> : null}
-                    {car.vdp ? (
-                      <>
-                        {" "}
-                        · <a href={car.vdp}>Dealer listing</a>
-                      </>
-                    ) : null}
+                    {(() => {
+                      const href = buyerListingHref(car.vdp);
+                      const trimNote = trimSourceDisagreement({
+                        year: car.year,
+                        make: car.make,
+                        model: car.model,
+                        displayedTrim: car.trim,
+                        listingUrl: href,
+                        decodedTrim: freeGovReceiptsForShortlist.find(
+                          (row) =>
+                            (row.checkId === "free_gov_vpic" || row.toolId === "evidence.gov_vpic") &&
+                            row.vin?.toUpperCase() === car.vin.toUpperCase(),
+                        )?.vpicSpecs?.trim,
+                      });
+                      return (
+                        <>
+                          {trimNote ? <p className="hint">{trimNote.note}</p> : null}
+                          <p className="hint">
+                            {href ? <a href={href}>Dealer listing</a> : "Listing link unavailable"}
+                          </p>
+                        </>
+                      );
+                    })()}
                     <p>
                       {whyThisCar({
                         year: car.year,
