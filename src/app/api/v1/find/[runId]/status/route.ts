@@ -33,6 +33,7 @@ export async function GET(request: Request, ctx: Ctx) {
           request: { method: "POST", url: `${origin}/api/v1/find`, body: { text: "Camry under $15k" } },
         },
       }),
+      auth.headers,
     );
   }
 
@@ -40,5 +41,5 @@ export async function GET(request: Request, ctx: Ctx) {
     run = (await advanceAgentFindRun(runId, { ...runtimeDeps(), kv, origin })) ?? run;
   }
 
-  return Response.json(await agentFindStatusPayload(run));
+  return Response.json(await agentFindStatusPayload(run), { headers: auth.headers });
 }

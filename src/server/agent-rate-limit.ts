@@ -37,3 +37,17 @@ export async function consumeAgentRateLimit(
   }
   return { ok: true, remaining: Math.max(0, limit - used), limit };
 }
+
+/** Headers for every authenticated agent response, including 429. */
+export function agentRateLimitHeaders(input: {
+  limit: number;
+  remaining: number;
+  retryAfterSec?: number;
+}): Record<string, string> {
+  const headers: Record<string, string> = {
+    "X-RateLimit-Limit": String(input.limit),
+    "X-RateLimit-Remaining": String(Math.max(0, input.remaining)),
+  };
+  if (input.retryAfterSec != null) headers["Retry-After"] = String(input.retryAfterSec);
+  return headers;
+}

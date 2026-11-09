@@ -4,7 +4,7 @@
 import { getKv } from "@/io/kv";
 import { authenticateAgentRequest, authFailureResponse } from "@/server/agent-auth";
 import { agentError, jsonError } from "@/server/agent-envelope";
-import { readAgentReceipt } from "@/server/agent-receipts";
+import { publicAgentReceipt, readAgentReceipt } from "@/server/agent-receipts";
 import { originOf } from "@/server/secrets";
 
 export const dynamic = "force-dynamic";
@@ -33,5 +33,5 @@ export async function GET(request: Request, ctx: Ctx) {
       }),
     );
   }
-  return Response.json({ ...receipt, credit_spent: receipt.credit_spent });
+  return Response.json(publicAgentReceipt(receipt), { headers: auth.headers });
 }

@@ -102,10 +102,58 @@ export async function createAgentFindRun(
   }
 
   const clientKey = findSearchIdempotencyKey({ clientKey: input.idempotencyKey });
-  const existingId = await deps.kv.get(idemKey(caller.userId, clientKey));
-  if (existingId) {
-    const existing = await readAgentFindRun(deps.kv, existingId);
-    if (existing) return { ok: true, run: existing };
+  const idem = idemKey(caller.userId, clientKey);
+  const existing = await loadIdempotentFind(deps.kv, idem);
+  if (existing === "pending") {
+    return {
+      ok: false,
+      status: 409,
+      body: agentError({
+        error_code: "idempotency_in_progress",
+        message: "A find with this Idempotency-Key is already starting.",
+        credit_spent: false,
+        retry_safe: true,
+        next_steps: {
+          action: "retry",
+          summary: "Retry with the same Idempotency-Key to get the same run id.",
+          request: {
+            method: "POST",
+            url: `${deps.origin}/api/v1/find`,
+            headers: { "Idempotency-Key": clientKey },
+            body: { text },
+          },
+        },
+      }),
+    };
+  }
+  if (existing && !(existing.status === "failed" && existing.error?.retry_safe)) {
+    return { ok: true, run: existing };
+  }
+  if (existing?.status === "failed") await deps.kv.delete(idem);
+  const claimed = await deps.kv.setNx(idem, "pending", { ttlMs: 120_000 });
+  if (!claimed) {
+    const again = await loadIdempotentFind(deps.kv, idem);
+    if (again && again !== "pending") return { ok: true, run: again };
+    return {
+      ok: false,
+      status: 409,
+      body: agentError({
+        error_code: "idempotency_in_progress",
+        message: "A find with this Idempotency-Key is already starting.",
+        credit_spent: false,
+        retry_safe: true,
+        next_steps: {
+          action: "retry",
+          summary: "Retry with the same Idempotency-Key to get the same run id.",
+          request: {
+            method: "POST",
+            url: `${deps.origin}/api/v1/find`,
+            headers: { "Idempotency-Key": clientKey },
+            body: { text },
+          },
+        },
+      }),
+    };
   }
 
   const spendKey = findSearchSpendKey(caller.userId, `agent-find:${clientKey}`);
@@ -114,6 +162,7 @@ export async function createAgentFindRun(
   } else {
     const balance = await creditBalance(deps.kv, caller.userId);
     if (balance < 1) {
+      await deps.kv.delete(idem);
       return { ok: false, status: 402, body: insufficientCreditsEnvelope(deps.origin, balance) };
     }
   }
@@ -136,8 +185,15 @@ export async function createAgentFindRun(
     need: null,
   };
   await saveRun(deps.kv, run);
-  await deps.kv.set(idemKey(caller.userId, clientKey), run.run_id);
+  await deps.kv.set(idem, run.run_id);
   return { ok: true, run };
+}
+
+async function loadIdempotentFind(kv: Kv, key: string): Promise<AgentFindRunRecord | "pending" | null> {
+  const id = await kv.get(key);
+  if (!id) return null;
+  if (id === "pending") return "pending";
+  return readAgentFindRun(kv, id);
 }
 
 async function mark(
@@ -211,11 +267,10 @@ export async function advanceAgentFindRun(
     let match: FindMatchResult;
     try {
       match = await runFindMatch({ need: understood.need }, deps);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : "Find failed.";
+    } catch {
       fresh.error = agentError({
         error_code: "find_failed",
-        message,
+        message: "Find failed. No credit was spent.",
         credit_spent: false,
         retry_safe: true,
         next_steps: {
@@ -287,8 +342,8 @@ export async function advanceAgentFindRun(
 
     const verdict = emptyAgentVerdict({
       pick,
-      verdict: pick ? "negotiate" : "withheld",
-      confidence: match.body.affordabilityAssessed ? "medium" : "low",
+      verdict: null,
+      confidence: null,
       reasons: pick
         ? [{ evidenceId: "find_rank", text: match.body.headline ?? "Top listing from this search." }]
         : [],

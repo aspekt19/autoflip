@@ -5,12 +5,12 @@ import { beforeAll, describe, expect, it, vi } from "vitest";
 import { creditBalance, creditGrant } from "@/io/credit-book";
 import { getKv, MemoryKv } from "@/io/kv";
 import { createApiKey } from "@/server/api-keys";
-import { authenticateAgentRequest } from "@/server/agent-auth";
+import { authenticateAgentRequest, authFailureResponse } from "@/server/agent-auth";
 import { agentError, insufficientCreditsEnvelope } from "@/server/agent-envelope";
 import { runAgentCheck } from "@/server/agent-check";
 import { advanceAgentFindRun, createAgentFindRun } from "@/server/agent-find";
 import { consumeAgentRateLimit } from "@/server/agent-rate-limit";
-import { listAgentReceiptIds, readAgentReceipt, writeAgentReceipt } from "@/server/agent-receipts";
+import { listAgentReceiptIds, publicAgentReceipt, readAgentReceipt, writeAgentReceipt } from "@/server/agent-receipts";
 import { normalizeAgentScopes, scopeAllows } from "@/server/agent-scopes";
 import { AGENT_VERDICT_SCHEMA_VERSION } from "@/domain/agent-verdict-schema";
 
@@ -26,6 +26,8 @@ describe("agent scopes + envelope", () => {
     expect(normalizeAgentScopes(["check"])).toEqual(["read", "check"]);
     expect(scopeAllows(["check"], "read")).toBe(true);
     expect(scopeAllows(["read"], "find")).toBe(false);
+    expect(normalizeAgentScopes(["nope"])).toEqual(["read"]);
+    expect(normalizeAgentScopes([])).toEqual(["read"]);
   });
 
   it("builds a concrete next_steps request on insufficient credits", () => {
@@ -66,6 +68,31 @@ describe("agent rate limit + receipts", () => {
     const ids = await listAgentReceiptIds(kv, "user-1");
     expect(ids[0]).toBe(receipt.receipt_id);
     expect((await readAgentReceipt(kv, receipt.receipt_id))?.tool).toBe("check_car");
+    const pub = publicAgentReceipt(receipt);
+    expect(pub).not.toHaveProperty("user_id");
+    expect(pub).not.toHaveProperty("key_id");
+    expect(pub.key_prefix).toBe("af_test");
+  });
+
+  it("sends rate-limit headers, including Retry-After when blocked", async () => {
+    const kv = new MemoryKv();
+    const created = await createApiKey(kv, "rate-user", "Rate");
+    let last: Awaited<ReturnType<typeof authenticateAgentRequest>> | null = null;
+    for (let i = 0; i < 31; i += 1) {
+      last = await authenticateAgentRequest(
+        kv,
+        new Request("http://localhost/api/v1/check", { headers: { authorization: `Bearer ${created.token}` } }),
+        "http://localhost",
+        "check",
+      );
+    }
+    expect(last?.ok).toBe(false);
+    if (!last || last.ok) return;
+    expect(last.status).toBe(429);
+    const response = authFailureResponse(last);
+    expect(response.headers.get("Retry-After")).toBeTruthy();
+    expect(response.headers.get("X-RateLimit-Remaining")).toBe("0");
+    expect(Number(response.headers.get("X-RateLimit-Limit"))).toBe(30);
   });
 });
 
@@ -150,6 +177,43 @@ describe("agent check_car (mocked runCheck path)", () => {
     expect(result.body.receipt_id).toBeTruthy();
     expect(result.body.code_computed).toHaveProperty("compCount");
     expect(typeof result.body.credit_spent).toBe("boolean");
+    const callsAfterFirst = gov.mock.calls.length;
+
+    const again = await runAgentCheck(
+      auth.caller,
+      { text: html, url: "https://dealer.example/camry", idempotencyKey: "paste-camry-1" },
+      { kv, origin: "http://localhost", fetch: gov as unknown as typeof fetch },
+    );
+    expect(again.ok).toBe(true);
+    if (!again.ok) return;
+    expect(again.body.receipt_id).toBe(result.body.receipt_id);
+    expect(callsAfterFirst).toBeGreaterThan(0);
+    expect(gov.mock.calls.length).toBe(callsAfterFirst);
+  });
+
+  it("refuses a private listing URL before fetch and does not spend a credit", async () => {
+    const kv = getKv();
+    await creditGrant(kv, "check-ssrf", 2, "seed-ssrf");
+    const created = await createApiKey(kv, "check-ssrf", "SSRF", ["check"]);
+    const auth = await authenticateAgentRequest(
+      kv,
+      new Request("http://localhost/api/v1/check", { headers: { authorization: `Bearer ${created.token}` } }),
+      "http://localhost",
+      "check",
+    );
+    expect(auth.ok).toBe(true);
+    if (!auth.ok) return;
+    const fetchImpl = vi.fn(async () => new Response("secret", { status: 200 }));
+    const result = await runAgentCheck(
+      auth.caller,
+      { url: "http://127.0.0.1/admin", idempotencyKey: "ssrf-1" },
+      { kv, origin: "http://localhost", fetch: fetchImpl as unknown as typeof fetch },
+    );
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.body.credit_spent).toBe(false);
+    expect(fetchImpl).not.toHaveBeenCalled();
+    expect(await creditBalance(kv, "check-ssrf")).toBe(2);
   });
 });
 

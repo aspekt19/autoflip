@@ -73,6 +73,23 @@ export async function writeAgentReceipt(
   return receipt;
 }
 
+/** Caller-facing receipt. Omits the account id. */
+export function publicAgentReceipt(receipt: AgentReceipt): Omit<AgentReceipt, "user_id" | "key_id"> {
+  return {
+    receipt_id: receipt.receipt_id,
+    key_prefix: receipt.key_prefix,
+    tool: receipt.tool,
+    credit_spent: receipt.credit_spent,
+    credits: receipt.credits,
+    free_check_spent: receipt.free_check_spent,
+    serv_steps_hash: receipt.serv_steps_hash,
+    created_at: receipt.created_at,
+    idempotency_key: receipt.idempotency_key,
+    run_id: receipt.run_id,
+    summary: receipt.summary,
+  };
+}
+
 export async function readAgentReceipt(kv: Kv, receiptId: string): Promise<AgentReceipt | null> {
   const raw = await kv.get(receiptKey(receiptId));
   if (!raw) return null;

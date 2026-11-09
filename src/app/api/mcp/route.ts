@@ -107,7 +107,10 @@ export async function POST(request: Request) {
   // Scoped auth + rate limit for all tools that need a live key.
   const auth = await authenticateAgentRequest(kv, request, origin, needed);
   if (!auth.ok) {
-    return Response.json(rpcError(id, -32001, auth.body.message, auth.body), { status: auth.status });
+    return Response.json(rpcError(id, -32001, auth.body.message, auth.body), {
+      status: auth.status,
+      headers: auth.headers,
+    });
   }
 
   if (name === "check_car") {

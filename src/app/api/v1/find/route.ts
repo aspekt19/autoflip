@@ -55,7 +55,7 @@ export async function POST(request: Request) {
     { ...runtimeDeps(), kv, origin },
   );
 
-  if (!created.ok) return jsonError(created.status, created.body);
+  if (!created.ok) return jsonError(created.status, created.body, auth.headers);
 
   return Response.json(
     {
@@ -71,6 +71,6 @@ export async function POST(request: Request) {
         request: { method: "GET", url: `${origin}/api/v1/find/${created.run.run_id}/status` },
       },
     },
-    { status: 202 },
+    { status: 202, headers: auth.headers },
   );
 }

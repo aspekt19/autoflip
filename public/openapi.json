@@ -71,10 +71,23 @@
           }
         },
         "responses": {
-          "200": { "description": "Fixed agent verdict wrapper" },
+          "200": {
+            "description": "Agent success wrapper: schema_version, tool, verdict, confidence, summary, reasons, risks, unknowns, subject, comparables_summary, serv.steps, code_computed, credit_spent, credits, free_check_spent, receipt_id, result.",
+            "headers": {
+              "X-RateLimit-Limit": { "schema": { "type": "integer" } },
+              "X-RateLimit-Remaining": { "schema": { "type": "integer" } }
+            }
+          },
           "400": { "description": "Invalid input", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/AgentError" } } } },
-          "401": { "description": "Auth", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/AgentError" } } } },
-          "402": { "description": "Credits", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/AgentError" } } } }
+          "401": { "description": "Missing or invalid af_ key", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/AgentError" } } } },
+          "402": { "description": "Credits", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/AgentError" } } } },
+          "403": { "description": "Key lacks the check scope", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/AgentError" } } } },
+          "409": { "description": "Same Idempotency-Key is still running", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/AgentError" } } } },
+          "429": {
+            "description": "Per-key rate limit",
+            "headers": { "Retry-After": { "schema": { "type": "integer" } }, "X-RateLimit-Remaining": { "schema": { "type": "integer" } } },
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/AgentError" } } }
+          }
         }
       }
     },
@@ -102,7 +115,17 @@
           }
         },
         "responses": {
-          "202": { "description": "{ run_id, status, current_step, status_url, result_url }" }
+          "202": {
+            "description": "{ run_id, status, current_step, credit_spent, status_url, result_url, next_steps }. credit_spent is false until the run completes.",
+            "headers": {
+              "X-RateLimit-Limit": { "schema": { "type": "integer" } },
+              "X-RateLimit-Remaining": { "schema": { "type": "integer" } }
+            }
+          },
+          "401": { "description": "Auth", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/AgentError" } } } },
+          "402": { "description": "Credits", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/AgentError" } } } },
+          "403": { "description": "Key lacks the find scope", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/AgentError" } } } },
+          "429": { "description": "Rate limit", "headers": { "Retry-After": { "schema": { "type": "integer" } } }, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/AgentError" } } } }
         }
       }
     },

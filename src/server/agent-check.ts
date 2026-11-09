@@ -76,6 +76,26 @@ function toRunInput(input: AgentCheckInput): CheckRunInput | { error: AgentError
   };
 }
 
+function checkIdemKey(userId: string, clientKey: string): string {
+  return `agent:check:idem:${userId}:${clientKey}`;
+}
+
+function checkLockKey(userId: string, clientKey: string): string {
+  return `agent:check:lock:${userId}:${clientKey}`;
+}
+
+async function readCachedCheck(kv: Kv, userId: string, clientKey: string): Promise<AgentApiSuccess | null> {
+  const raw = await kv.get(checkIdemKey(userId, clientKey));
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw) as AgentApiSuccess;
+    if (!parsed || parsed.tool !== "check_car" || typeof parsed.receipt_id !== "string") return null;
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
 export async function runAgentCheck(
   caller: AgentCaller,
   input: AgentCheckInput,
@@ -85,7 +105,35 @@ export async function runAgentCheck(
   if ("error" in parsed) return { ok: false, status: 400, body: parsed.error };
 
   const month = freeCheckMonthKey();
-  const clientKey = (input.idempotencyKey?.trim() || crypto.randomUUID()).slice(0, 80);
+  const suppliedKey = input.idempotencyKey?.trim().slice(0, 80) || null;
+  const clientKey = suppliedKey || crypto.randomUUID();
+  if (suppliedKey) {
+    const cached = await readCachedCheck(deps.kv, caller.userId, clientKey);
+    if (cached) return { ok: true, body: cached };
+    const locked = await deps.kv.setNx(checkLockKey(caller.userId, clientKey), "1", { ttlMs: 60_000 });
+    if (!locked) {
+      for (let attempt = 0; attempt < 20; attempt += 1) {
+        await new Promise((resolve) => setTimeout(resolve, 50));
+        const replay = await readCachedCheck(deps.kv, caller.userId, clientKey);
+        if (replay) return { ok: true, body: replay };
+      }
+      return {
+        ok: false,
+        status: 409,
+        body: agentError({
+          error_code: "idempotency_in_progress",
+          message: "A check with this Idempotency-Key is already running.",
+          credit_spent: false,
+          retry_safe: true,
+          next_steps: {
+            action: "retry",
+            summary: "Retry with the same Idempotency-Key. A completed check is returned without a second charge.",
+            request: { method: "POST", url: `${deps.origin}/api/v1/check`, headers: { "Idempotency-Key": clientKey } },
+          },
+        }),
+      };
+    }
+  }
   let freeCheckKey: string | null = null;
   let usedFreeCheck = false;
   let needsCredit = false;
@@ -197,9 +245,7 @@ export async function runAgentCheck(
       summary: result.result.summary,
     });
 
-    return {
-      ok: true,
-      body: wrapAgentSuccess({
+    const body = wrapAgentSuccess({
         tool: "check_car",
         verdict,
         subject: subjectFromCheck(result.result),
@@ -229,17 +275,17 @@ export async function runAgentCheck(
         receipt_id: receipt.receipt_id,
         summary: result.result.summary,
         result: result.result,
-      }),
-    };
-  } catch (error) {
+      });
+    if (suppliedKey) await deps.kv.set(checkIdemKey(caller.userId, clientKey), JSON.stringify(body));
+    return { ok: true, body };
+  } catch {
     if (usedFreeCheck && freeCheckKey) await releaseFreeCheck(deps.kv, caller.userId, freeCheckKey);
-    const message = error instanceof Error ? error.message : "Check failed.";
     return {
       ok: false,
       status: 500,
       body: agentError({
         error_code: "check_failed",
-        message,
+        message: "Check failed. No credit was spent.",
         retry_safe: true,
         next_steps: {
           action: "retry",
@@ -248,6 +294,8 @@ export async function runAgentCheck(
         },
       }),
     };
+  } finally {
+    if (suppliedKey) await deps.kv.delete(checkLockKey(caller.userId, clientKey));
   }
 }
 

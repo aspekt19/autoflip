@@ -33,6 +33,7 @@ export async function GET(request: Request, ctx: Ctx) {
           request: { method: "POST", url: `${origin}/api/v1/find`, body: { text: "Camry under $15k" } },
         },
       }),
+      auth.headers,
     );
   }
 
@@ -41,7 +42,7 @@ export async function GET(request: Request, ctx: Ctx) {
   }
 
   if (run.status === "failed" && run.error) {
-    return jsonError(run.error.error_code === "insufficient_credits" ? 402 : 422, run.error);
+    return jsonError(run.error.error_code === "insufficient_credits" ? 402 : 422, run.error, auth.headers);
   }
   if (run.status !== "completed" || !run.result) {
     return Response.json({
@@ -51,7 +52,7 @@ export async function GET(request: Request, ctx: Ctx) {
       credit_spent: false,
       message: "Find is still running. Poll again shortly.",
       retry_safe: true,
-    });
+    }, { headers: auth.headers });
   }
-  return Response.json(run.result);
+  return Response.json(run.result, { headers: auth.headers });
 }

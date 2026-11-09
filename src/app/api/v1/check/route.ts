@@ -51,6 +51,6 @@ export async function POST(request: Request) {
     { ...runtimeDeps(), kv, origin },
   );
 
-  if (!result.ok) return jsonError(result.status, result.body);
-  return Response.json(result.body);
+  if (!result.ok) return jsonError(result.status, result.body, auth.headers);
+  return Response.json(result.body, { headers: auth.headers });
 }

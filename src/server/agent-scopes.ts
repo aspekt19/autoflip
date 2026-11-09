@@ -9,13 +9,15 @@ export type AgentScope = (typeof AGENT_SCOPES)[number];
 export const DEFAULT_AGENT_SCOPES: readonly AgentScope[] = ["read", "check", "find"];
 
 export function normalizeAgentScopes(raw: unknown): AgentScope[] {
+  // Omitted scopes mean the historical default (all). An explicit list that
+  // names nothing valid is read-only — it must not silently grant check/find.
   if (!Array.isArray(raw)) return [...DEFAULT_AGENT_SCOPES];
   const set = new Set<AgentScope>();
   for (const item of raw) {
     if (item === "read" || item === "check" || item === "find") set.add(item);
   }
+  if (set.size === 0) return ["read"];
   if (set.has("check") || set.has("find")) set.add("read");
-  if (set.size === 0) return [...DEFAULT_AGENT_SCOPES];
   return AGENT_SCOPES.filter((scope) => set.has(scope));
 }
 

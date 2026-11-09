@@ -10,7 +10,7 @@ import {
   rateLimitedEnvelope,
   type AgentErrorEnvelope,
 } from "./agent-envelope";
-import { consumeAgentRateLimit } from "./agent-rate-limit";
+import { agentRateLimitHeaders, consumeAgentRateLimit } from "./agent-rate-limit";
 import { scopeAllows, scopeDenial, type AgentScope } from "./agent-scopes";
 import { bearer } from "./secrets";
 
@@ -24,8 +24,8 @@ export type AgentCaller = {
 };
 
 export type AgentAuthResult =
-  | { ok: true; caller: AgentCaller }
-  | { ok: false; status: number; body: AgentErrorEnvelope };
+  | { ok: true; caller: AgentCaller; headers: Record<string, string> }
+  | { ok: false; status: number; body: AgentErrorEnvelope; headers: Record<string, string> };
 
 export async function authenticateAgentRequest(
   kv: Kv,
@@ -38,6 +38,7 @@ export async function authenticateAgentRequest(
     return {
       ok: false,
       status: 401,
+      headers: {},
       body: agentError({
         error_code: "auth_required",
         message: "Send Authorization: Bearer af_… from /developers.",
@@ -58,17 +59,23 @@ export async function authenticateAgentRequest(
   }
   const record = await resolveApiKeyRecord(kv, token);
   if (!record) {
-    return { ok: false, status: 401, body: invalidKeyEnvelope(origin) };
+    return { ok: false, status: 401, headers: {}, body: invalidKeyEnvelope(origin) };
   }
   if (!scopeAllows(record.scopes, neededScope)) {
-    return { ok: false, status: 403, body: scopeDenial(neededScope, origin) };
+    return { ok: false, status: 403, headers: {}, body: scopeDenial(neededScope, origin) };
   }
   const rate = await consumeAgentRateLimit(kv, record.id);
+  const headers = agentRateLimitHeaders({
+    limit: rate.limit,
+    remaining: rate.remaining,
+    retryAfterSec: rate.ok ? undefined : rate.retryAfterSec,
+  });
   if (!rate.ok) {
-    return { ok: false, status: 429, body: rateLimitedEnvelope(origin, rate.retryAfterSec) };
+    return { ok: false, status: 429, headers, body: rateLimitedEnvelope(origin, rate.retryAfterSec) };
   }
   return {
     ok: true,
+    headers,
     caller: {
       userId: record.userId,
       keyId: record.id,
@@ -81,9 +88,5 @@ export async function authenticateAgentRequest(
 }
 
 export function authFailureResponse(result: Extract<AgentAuthResult, { ok: false }>): Response {
-  const headers =
-    result.status === 429
-      ? { "Retry-After": String(result.body.next_steps.request.body?.retryAfterSec ?? 60) }
-      : undefined;
-  return jsonError(result.status, result.body, headers);
+  return jsonError(result.status, result.body, result.headers);
 }
