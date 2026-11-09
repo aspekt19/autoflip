@@ -7,16 +7,10 @@ export const ASSUMPTIONS = {
   /** Share of the reference price removed per 1,000 miles above a comparable. */
   mileageRatePerThousandMiles: 0.005,
   minComps: 3,
-  yearWindow: 1,
-  yearWindowExpanded: 2,
   /**
-   * Widest disclosed year window for Find market comps when ±expanded is still thin.
-   * Used only with an explicit year+mileage adjustment (see comparables.adjustCompsToSubject).
-   */
-  yearWindowWide: 3,
-  /**
-   * Fallback share of the reference ask removed per model year older than the subject
-   * when a fitted year slope is unavailable (documented, not a market appraisal).
+   * Share of the reference ask added per model year newer than a comparable
+   * when this search does not show a stable year pattern.
+   * The live window is GENERATION_YEAR_WINDOW in adjusted-comparables.ts.
    */
   yearRatePerYear: 0.05,
   accidentHaircutEach: 0.04,

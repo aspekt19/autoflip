@@ -3,7 +3,8 @@
  * Asking price, state base sales tax, and listings already in hand.
  * No paid data source and no model call. Missing stays missing.
  */
-import { adjustComparableSet, GENERATION_YEAR_WINDOW, type ComparableCar } from "./adjusted-comparables";
+import { GENERATION_YEAR_WINDOW, type AdjustedCar, type ComparableCar } from "./adjusted-comparables";
+import { evaluateAdjustedPrice } from "./price-evaluation";
 import { ASSUMPTIONS } from "./assumptions";
 import { trimsMatch } from "./find-car-consistency";
 import { confirmedRecallCount, type RecallStateInput } from "./find-evidence-state";
@@ -295,7 +296,7 @@ function percentUnder(asking: number, price: number): number {
   return Math.round(((asking - price) / asking) * 100);
 }
 
-function toSimilarCars(cars: ReturnType<typeof adjustComparableSet>["cars"]): SimilarCarView[] {
+function toSimilarCars(cars: readonly AdjustedCar[]): SimilarCarView[] {
   return cars.map((item) => ({
     year: item.year,
     trim: item.trim,
@@ -311,11 +312,12 @@ function buildOffer(
   pool: readonly ReadinessCar[],
   asking: number | null,
 ): PurchaseReadiness["offer"] {
-  const adjusted = adjustComparableSet({
+  const adjusted = evaluateAdjustedPrice({
     subject: toComparable(car),
     pool: pool.map(toComparable),
     mode: "personal",
-  });
+    askingUsd: asking,
+  }).set;
   const similarCars = toSimilarCars(adjusted.cars);
   const closeAskingUsd = adjusted.confidence === "not_available" ? [] : adjusted.cars.map((item) => item.askingUsd);
   const windowPhrase = `same model, within ${GENERATION_YEAR_WINDOW} model years, any trim`;

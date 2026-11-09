@@ -275,7 +275,7 @@ export async function assembleReport(input: AssembleInput, deps: AssembleDeps): 
     id: "deterministic_tools",
     status: "ran",
     detail:
-      "selectComparables, mileageAdjust, historyAdjustment, verdictFromPriceGap, flipMath, scoreFromGap, dealerQuestions",
+      "evaluateListingPrice, adjustComparableSet, historyAdjustment, verdictFromPriceGap, flipMath, scoreFromGap, dealerQuestions",
   });
 
   const mandate = {

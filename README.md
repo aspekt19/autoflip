@@ -149,8 +149,8 @@ Do not commit `.env.local`.
 
 Constants: `src/domain/assumptions.ts` (copied onto each report).
 
-- Comparables: same make/model with price+miles; trim preferred; year window then widen; &lt;3 → needs inspection.
-- Mileage: 0.5% of median comp price per 1,000 miles difference.
+- Price: one fair value from the same make and model, within 3 model years, any trim, already in this search. Each asking price is adjusted for mileage, model year, trim, and listing history. Fewer than 3 similar cars, or adjusted prices that are too far apart, is “Not enough similar cars.” No mileage-only or raw-median fallback.
+- Mileage and model year: fitted from this search when the pattern is stable; otherwise 0.5% of a typical asking price per 1,000 miles and 5% per model year.
 - History: accident / fleet / multi-owner haircuts; **missing accident history is not clean** (`unknownHistoryHaircut`).
 - Personal gap bands: under −8% good price, through +6% fair price, through +15% pass-on-price, above that pass; park-it / title brand force pass; VIN conflict → needs inspection.
 - Flip: 25th/75th asking resale, 3% sell friction, fee + recon assumptions; park-it forces pass.

@@ -15,7 +15,7 @@ export function historyAdjustment(listing: Listing, mode: Mode): HistoryAdjustme
     // Missing history is not a clean record. Apply a published unknown-history haircut.
     multiplier *= 1 - ASSUMPTIONS.unknownHistoryHaircut;
     lines.push(
-      `Accident count was not in the listing feed. Fair value is reduced by ${Math.round(ASSUMPTIONS.unknownHistoryHaircut * 100)}% because missing history is not treated as a clean record.`,
+      `Accident count was not in the listing feed. Missing history is not treated as a clean record. When a fair value is estimated, each similar asking price is reduced by ${Math.round(ASSUMPTIONS.unknownHistoryHaircut * 100)}%.`,
     );
   } else if (accidents > 0) {
     const haircut = Math.min(ASSUMPTIONS.accidentHaircutCap, accidents * ASSUMPTIONS.accidentHaircutEach);

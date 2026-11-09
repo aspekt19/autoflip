@@ -145,7 +145,7 @@ export function ReportView({ report }: { report: FullReport }) {
         </p>
         <ul className="refuse">
           <li>
-            <b>From code:</b> fair value {computed.fairValueUsd === null ? "not computed" : formatUsd(computed.fairValueUsd)}, asking gap{" "}
+            <b>From code:</b> fair value {computed.fairValueUsd === null ? "Not enough similar cars" : formatUsd(computed.fairValueUsd)}, asking gap{" "}
             {computed.priceGap === null ? "—" : formatPct(computed.priceGap)}, {computed.comps.length} similar listings
             {computed.score !== null ? `, price score ${computed.score}/100` : ""}.
           </li>
@@ -196,7 +196,7 @@ export function ReportView({ report }: { report: FullReport }) {
                     computed.fairRangeLowUsd != null && computed.fairRangeHighUsd != null
                       ? `The middle half runs from ${formatUsd(computed.fairRangeLowUsd)} to ${formatUsd(computed.fairRangeHighUsd)}. `
                       : ""
-                  }${computed.fairConfidence === "rough" ? "This estimate is rough. " : ""}These are asking prices, not sold prices. Find's price badge can use a narrower mileage comparison and does not move the price for trim or history, so that badge can differ from this fair value. The offer uses this fair value.`}
+                  }${computed.fairConfidence === "rough" ? "This estimate is rough. " : ""}These are asking prices, not sold prices. The Find price badge, the ranking, the offer, Compare, and alerts use this same fair value.`}
             </li>
             {computed.flip ? (
               <li>

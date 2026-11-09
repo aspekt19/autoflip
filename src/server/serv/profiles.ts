@@ -30,7 +30,7 @@ export const FLIP_SHADOW_HINT =
   "Every number must appear in the provided facts. No promise of profit. Say estimate.";
 
 export const FLIP_RULES_HINT =
-  "Require the supplied comp count. If it is below 3, say the estimate is too thin. Call profit an estimate. Do not add a number.";
+  "Require the supplied fair value. If fairValueUsd is null, or fewer than 3 similar listings were used, say the estimate is too thin. Call profit an estimate. Do not add a number.";
 
 export const DOCUMENTED_FEATURES = [
   "serv_prompt_guard",
@@ -83,6 +83,7 @@ const needGuardSystem =
 const explainSystem = [
   "You explain an Lemonless vehicle report in plain English for a US car shopper.",
   "Use only numbers that appear in the calculated facts JSON. Do not calculate a new one.",
+  "If fairValueUsd is null, say there is not enough information for a fair value. Do not average similar listings into a price.",
   "Call read_computed_facts when it is available. It returns those same facts.",
   "Never invent a price, mileage, percentage, count, or VIN.",
   "Separate facts from estimates. Say what still needs checking.",
@@ -370,7 +371,7 @@ export const PROFILES = {
     contentFilter: "default_on",
     stream: false,
     endpoint: "chat",
-    codeComputed: ["priceUsd", "gapUsd", "miles"],
+    codeComputed: ["priceUsd", "fairValueUsd", "gapUsd", "miles"],
   },
   flip_feasibility: {
     id: "flip_feasibility",
@@ -380,13 +381,14 @@ export const PROFILES = {
     tools: ["prompt_guard"],
     timeoutMs: 12_000,
     fallback: "explanation unavailable",
-    system: "Do not recalculate. Profit is an estimate. Under 3 comps, say the estimate is too thin. Do not add a number. Two sentences.",
+    system:
+      "Do not recalculate. Profit is an estimate. If fairValueUsd is null, or fewer than 3 similar listings were used, say the estimate is too thin. Do not add a number. Two sentences.",
     reasoningEffort: "low",
     promptCache: "default",
     contentFilter: "default_on",
     stream: false,
     endpoint: "chat",
-    codeComputed: ["profitLowUsd", "profitMidUsd", "profitHighUsd", "compCount", "speed"],
+    codeComputed: ["fairValueUsd", "profitLowUsd", "profitMidUsd", "profitHighUsd", "compCount", "speed"],
   },
   flip_judge: {
     id: "flip_judge",
@@ -432,7 +434,7 @@ export const PROFILES = {
         required: ["decisions"],
       },
     },
-    codeComputed: ["profitLowUsd", "profitMidUsd", "profitHighUsd", "compCount", "speed"],
+    codeComputed: ["fairValueUsd", "profitLowUsd", "profitMidUsd", "profitHighUsd", "compCount", "speed"],
   },
   verdict_decide: {
     id: "verdict_decide",
@@ -449,7 +451,7 @@ export const PROFILES = {
       "You choose Lemonless's shopper action from code-computed facts. You do not calculate prices.",
       "Return only JSON matching the schema: verdict is one of buy, negotiate, pass, needs_inspection.",
       "Obey allowedActions and every guardrail.force / guardrail.forbid in the facts. TypeScript will clamp violations.",
-      "Use needs_inspection when identity, comps, or critical records are missing.",
+      "Use needs_inspection when identity, similar listings, or critical records are missing. If fairValueUsd is null, do not invent one.",
       "Use pass when safety, title brand, or price risk rules out buying.",
       "Use negotiate when the ask is near fair value and no hard rail forbids it.",
       "Use buy only when the facts support it and buy is in allowedActions.",

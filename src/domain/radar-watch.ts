@@ -1,9 +1,11 @@
 import { ASSUMPTIONS } from "./assumptions";
 import type { PriceBadge } from "./price-badge";
+import type { PriceLabel } from "./price-evaluation";
+import { NOT_ENOUGH_SIMILAR_CARS, evaluateListingPrice } from "./price-evaluation";
 import type { CoverageConfidence } from "./coverage";
 import type { DecisionProof } from "./decision-note";
 import { canonicalString, sha256Canonical } from "./hash";
-import { median, percentileValue, roundDollars } from "./stats";
+import { roundDollars } from "./stats";
 import type { Listing, Mode } from "./types";
 import { bodyStyleMatches } from "./body-style";
 import { autoDevMake, autoDevModel } from "./vehicle-names";
@@ -43,20 +45,20 @@ export type SavedSearch = {
   lastCheckedAt: string | null;
 };
 
-export type MarketBand = {
-  medianUsd: number;
-  lowUsd: number;
-  highUsd: number;
-  count: number;
-};
-
 export type AlertNumbers = {
   priceUsd: number;
+  /** Adjusted fair value. Null when there are not enough similar cars. */
+  fairValueUsd: number | null;
+  priceLabel: PriceLabel;
+  /**
+   * Same dollar as fairValueUsd when a fair value exists, otherwise 0.
+   * Older readers used this field as a raw median. It is the shared fair value now.
+   */
   medianUsd: number;
   lowUsd: number;
-  gapUsd: number;
-  /** 75th percentile asking price of the in-criteria rows. Flip margin uses this, not the median. */
+  /** High end of the adjusted similar-listing range. Flip margin uses this. */
   highUsd: number;
+  gapUsd: number;
   miles: number | null;
   expectedMiles: number | null;
   roughMarginUsd: number | null;
@@ -95,8 +97,9 @@ export type PrefilterDecision =
 /**
  * Bump when the pre-filter changes meaning, so VINs stored under an older rule are judged again.
  * Version 1 stored every fetched VIN, including rows the filter rejected.
+ * Version 3 judges price with adjusted similar listings, not a raw median of the page.
  */
-export const SEEN_RULES_VERSION = 2;
+export const SEEN_RULES_VERSION = 3;
 
 export function seenStorageKey(searchId: string, criteria: WatchCriteria): string {
   return `${searchId}:${criteriaKey(criteria)}:r${SEEN_RULES_VERSION}`;
@@ -215,18 +218,6 @@ export function hardReject(
   return null;
 }
 
-export function marketBand(listings: Listing[]): MarketBand | null {
-  const prices = listings
-    .map((item) => item.priceUsd)
-    .filter((price): price is number => typeof price === "number" && price > 0);
-  if (prices.length < 3) return null;
-  const mid = median(prices);
-  const low = percentileValue(prices, 25);
-  const high = percentileValue(prices, 75);
-  if (mid === null || low === null || high === null) return null;
-  return { medianUsd: roundDollars(mid), lowUsd: roundDollars(low), highUsd: roundDollars(high), count: prices.length };
-}
-
 function expectedMiles(year: number, asOfYear: number): number {
   return Math.max(0, asOfYear - year) * ASSUMPTIONS.milesPerYear;
 }
@@ -241,52 +232,74 @@ function roughMargin(price: number, anchorUsd: number, miles: number | null): nu
 export function prefilterListing(
   listing: Listing,
   criteria: WatchCriteria,
-  band: MarketBand | null,
+  pool: readonly Listing[],
   mode: Mode,
   asOfYear: number,
 ): PrefilterDecision {
   const rejected = hardReject(listing, criteria, asOfYear);
   if (rejected) return { pass: false, reason: rejected };
-  if (!band) return { pass: false, reason: "fewer than 3 priced rows, so there is no market band" };
 
   const price = listing.priceUsd;
   if (price === null) return { pass: false, reason: "no asking price" };
-  if (price < ASSUMPTIONS.suspiciousPriceFloorUsd || price < band.medianUsd * ASSUMPTIONS.suspiciousPriceRatio) {
-    return { pass: false, reason: "price is suspiciously low next to the other rows" };
-  }
 
+  const evaluation = evaluateListingPrice(listing, pool, { mode });
   const milesExpected = expectedMiles(listing.year, asOfYear);
   const lowMiles = listing.miles !== null && listing.miles < milesExpected * 0.85;
-  const belowBand = price <= band.lowUsd || price <= band.medianUsd * ASSUMPTIONS.belowMedianRatio;
-  const margin = mode === "flip" ? roughMargin(price, band.highUsd, listing.miles) : null;
-  const gapUsd = mode === "flip" && margin !== null ? margin : roundDollars(band.medianUsd - price);
+  const fair = evaluation.fairValueUsd;
+  const fairLow = evaluation.fairLowUsd;
+  const fairHigh = evaluation.fairHighUsd;
+  const priced = evaluation.priced && fair != null && fairLow != null && fairHigh != null;
+
+  if (priced && (price < ASSUMPTIONS.suspiciousPriceFloorUsd || price < fair * ASSUMPTIONS.suspiciousPriceRatio)) {
+    return { pass: false, reason: "price is suspiciously low next to similar cars" };
+  }
+  if (!priced && price < ASSUMPTIONS.suspiciousPriceFloorUsd) {
+    return { pass: false, reason: "price is suspiciously low next to similar cars" };
+  }
+
+  const belowFair = priced && (price <= fairLow || price <= fair * ASSUMPTIONS.belowMedianRatio);
+  const margin = priced && mode === "flip" ? roughMargin(price, fairHigh, listing.miles) : null;
+  const gapUsd = priced ? (mode === "flip" && margin !== null ? margin : roundDollars(fair - price)) : 0;
   const numbers: AlertNumbers = {
     priceUsd: price,
-    medianUsd: band.medianUsd,
-    lowUsd: band.lowUsd,
-    highUsd: band.highUsd,
+    fairValueUsd: priced ? fair : null,
+    priceLabel: priced ? evaluation.label : NOT_ENOUGH_SIMILAR_CARS,
+    medianUsd: priced ? fair : 0,
+    lowUsd: priced ? fairLow : 0,
+    highUsd: priced ? fairHigh : 0,
     gapUsd,
     miles: listing.miles,
     expectedMiles: milesExpected,
     roughMarginUsd: margin,
   };
 
-  if (mode === "flip") {
+  if (!priced) {
+    if (mode === "flip" || !lowMiles) return { pass: false, reason: NOT_ENOUGH_SIMILAR_CARS };
+  } else if (mode === "flip") {
     const needed = criteria.minProfitUsd ?? ASSUMPTIONS.flipDesiredProfitUsd;
     if (margin === null || margin < needed) return { pass: false, reason: "rough margin is under the buy box" };
-  } else if (!belowBand && !lowMiles) {
+  } else if (!belowFair && !lowMiles) {
     return { pass: false, reason: "inside the usual price and mileage band" };
   }
 
   const bits: string[] = [];
-  if (gapUsd > 0) bits.push(`${formatMoney(gapUsd)} below the median asking price in this result (${formatMoney(band.medianUsd)})`);
-  else bits.push(`at the median asking price in this result (${formatMoney(band.medianUsd)})`);
+  if (!priced) {
+    bits.push(NOT_ENOUGH_SIMILAR_CARS);
+  } else if (evaluation.deltaUsd != null && evaluation.deltaUsd < 0) {
+    bits.push(`${evaluation.label}. ${formatMoney(Math.abs(evaluation.deltaUsd))} below the fair value of ${formatMoney(fair)}`);
+  } else if (evaluation.deltaUsd === 0) {
+    bits.push(`${evaluation.label}. At the fair value of ${formatMoney(fair)}`);
+  } else if (evaluation.deltaUsd != null) {
+    bits.push(`${evaluation.label}. ${formatMoney(evaluation.deltaUsd)} above the fair value of ${formatMoney(fair)}`);
+  } else {
+    bits.push(evaluation.label);
+  }
   if (lowMiles && listing.miles !== null) {
     bits.push(`mileage ${listing.miles.toLocaleString("en-US")} is low for the model year (about ${milesExpected.toLocaleString("en-US")} at ${ASSUMPTIONS.milesPerYear.toLocaleString("en-US")} miles a year)`);
   }
-  if (margin !== null) {
+  if (margin !== null && fairHigh != null) {
     bits.push(
-      `rough margin ${formatMoney(margin)} after fee and reconditioning assumptions, using a higher asking price in this result (about the top quarter, ${formatMoney(band.highUsd)}) rather than closed sales`,
+      `rough margin ${formatMoney(margin)} after fee and reconditioning assumptions, using the high end of the adjusted fair value (${formatMoney(fairHigh)}) rather than closed sales`,
     );
   }
   const where = [listing.city, listing.state].filter(Boolean).join(", ");
