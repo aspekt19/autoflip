@@ -4,7 +4,7 @@
 
 **Product:** Lemonless turns a US used-car listing into an explainable **buy / negotiate / pass / needs inspection** decision with the arithmetic shown — or **withholds** a verdict when evidence is insufficient.
 
-**For judges:** The model never touches a number — and every report links to the Proof of AI that proves it.
+**For judges:** TypeScript owns every dollar figure. A full report links to its Proof of AI record; that record is the gates and any SERV call, not a scoreboard. Check, when a SERV key is set and the gates allow it, runs `verdict_decide` then a TypeScript clamp then `verdict_challenge`. Start at [`docs/JUDGES.md`](docs/JUDGES.md).
 
 **Legacy identifiers:** Env vars (`AUTOFLIP_*`), Redis/KV globals, cookie `af_uid`, Stripe lookup keys, schema versions (`autoflip.*.v1`), the GitHub repo name, and the Vercel host still use the legacy `autoflip` / `af_` prefix so existing config and stored data keep working. The Flip **mode** name is unchanged.
 
@@ -12,18 +12,23 @@
 
 ## For judges (SERV Hackathon Open Track)
 
+**Start here:** [`docs/JUDGES.md`](docs/JUDGES.md) — Find / Check / SERV paths, agent `af_` API, honest limits, and how to run tests/evals.
+
+**Hard rule:** nothing invented. Every number, screenshot, or SERV claim must cite a real file/run in the repo (run id, model, timestamp) or say **not yet run / pending live run**. Sample `/report/sample` agent revision is **not yet recorded** ([`docs/serv-fixture-audit.md`](docs/serv-fixture-audit.md)).
+
 Judged mainly from this GitHub repo and a live demo. Consumer UI stays free of hackathon / OpenServ / crypto wording; this README may name SERV.
 
 | Link | What |
 | --- | --- |
+| [**Judge brief**](docs/JUDGES.md) | Concise hackathon brief (preferred) |
 | [Live demo](https://autoflip-umber.vercel.app/) | Product preview |
-| [Sample report](https://autoflip-umber.vercel.app/report/sample) | Labeled fixture report |
-| [Eval dashboard `/compare`](https://autoflip-umber.vercel.app/compare) | Standard vs SERV-checked (reads committed results only) |
-| [Agents / MCP](https://autoflip-umber.vercel.app/developers) | API key + MCP snippets |
+| [Sample report](https://autoflip-umber.vercel.app/report/sample) | Labeled fixture report (revision trail pending live recording) |
+| [Eval dashboard `/compare`](https://autoflip-umber.vercel.app/compare) | Reads committed `eval/results/latest.json` only. 2026-11-06 run: checked better on 2, worse on 3, both passed 39 — not a win |
+| [Agents / MCP](https://autoflip-umber.vercel.app/developers) | `af_` keys + MCP snippets |
 | [Verdict eval status](eval/results/verdict-latest.md) | Measured or **not yet run** — never fabricated |
-| [SERV eval results](eval/results/latest.md) | Last committed `eval:serv` run (when present) |
-| [Proof of AI example](docs/examples/proof-of-ai-verdict.md) | Redacted verdict + guardrail proof shape |
-| [Judge guide](docs/judge-guide.md) | One-page architecture notes |
+| [SERV eval results](eval/results/latest.md) | Last committed `eval:serv` run (2026-11-06) |
+| [Live proof trace](eval/results/serv-proof-trace.md) | Real `flip_judge` call · response id in JSON |
+| [Architecture notes](docs/judge-guide.md) | Longer architecture write-up |
 
 ### Architecture
 
@@ -56,10 +61,10 @@ flowchart LR
 1. **TS facts** — comps, mileage/history adjustments, fair value, price gap, recall/title/odometer flags (`src/domain/report.ts`).
 2. **Ordered gates** — data sufficiency → VIN identity → title/recall/odometer → price vs comps → mandate fit (budget / target profit / repair skill). Insufficient evidence → **WITHHELD** with a concrete refusal reason; SERV is skipped (`src/domain/verdict-gates.ts`).
 3. **Hard guardrails** — built from those gates (`src/domain/verdict-guardrails.ts`). Buy is forbidden where listed; title/park-it force `pass`.
-4. **SERV decision** — only when gates allow; `verdict_decide` returns `{ verdict, note }` with `verdict ∈ { buy, negotiate, pass, needs_inspection }` (`src/server/serv/profiles.ts`).
-5. **Clamp** — TypeScript applies rails, records override reasons, maps to internal `Verdict` (`src/domain/verdict-decide.ts`, wired in `src/server/assemble.ts`).
-6. **Explanation** — separate SERV prose, number-audited (`src/domain/audit.ts`). On SERV failure/timeout, the **labeled deterministic fallback** is used.
-7. **Proof of AI** — inputs hash, profile checks, ordered gates, `servChoice`, guardrail result, `finalAction` / `finalVerdict` in `proof.toolOutputs.verdictDecision`. Every report UI links to that record under **How this was checked**.
+4. **SERV decision** — only when gates allow; `verdict_decide` returns `{ verdict, note }` with `verdict ∈ { buy, negotiate, pass, needs_inspection }` (`src/server/serv/profiles.ts`). Check uses the same sequence in `src/server/shopper-verdict-serv.ts` when a key is set.
+5. **Clamp** — TypeScript applies rails and records override reasons (`src/domain/verdict-decide.ts`). Full reports wire it in `src/server/assemble.ts`. Check wires it in `shopper-verdict-serv.ts`, then `verdict_challenge` only if decide returned a usable action.
+6. **Explanation** — separate SERV prose on full reports, number-audited (`src/domain/audit.ts`). On SERV failure, the labeled code baseline remains. Check shows **Agent step unavailable — price rules only** and does not invent a trail.
+7. **Proof of AI** — full reports record inputs hash, gates, `servChoice`, and `finalAction` under **How this was checked**. Check shows `servTrace` (model, timestamp, response id, raw text) only from that run. No Check response id is committed in the repo yet.
 
 ### Task → SERV profile → why
 
@@ -120,9 +125,13 @@ Open http://localhost:3000. For a local full report without Stripe, set `AUTOFLI
 npm run typecheck
 npm test
 npm run build
-npm run eval:serv      # requires SERV_API_KEY; exits immediately without it
+npm run test:e2e
+npm run eval:serv      # requires SERV_API_KEY; real credits; exits without inventing scores if unset
 npm run eval:verdict   # verdict_decide accuracy; writes not-yet-run stub without a key
+# Live sample revision (costs SERV): COMPARISON_ALLOW_PAID=1 SERV_API_KEY=… npm run eval:record-serv-revision
 ```
+
+See [`docs/JUDGES.md`](docs/JUDGES.md) for the full judge checklist and provenance table.
 
 Stripe test card: `4242 4242 4242 4242`. Forward webhooks to `POST /api/stripe/webhook`.
 
