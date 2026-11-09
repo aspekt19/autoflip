@@ -2,7 +2,14 @@
 
 import { useEffect, useState } from "react";
 
-type KeyRow = { id: string; label: string; prefix: string; createdAt: string; revokedAt: string | null };
+type KeyRow = {
+  id: string;
+  label: string;
+  prefix: string;
+  createdAt: string;
+  revokedAt: string | null;
+  scopes?: string[];
+};
 
 type BindingCard = {
   userId: string;

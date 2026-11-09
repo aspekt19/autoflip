@@ -42,8 +42,8 @@ describe("MCP API key", () => {
       params: { name: "deal_radar", arguments: { make: "Toyota", model: "Camry" } },
     });
     expect(response.status).toBe(401);
-    const body = (await response.json()) as { error: { data: { error: string } } };
-    expect(body.error.data.error).toBe("invalid_key");
+    const body = (await response.json()) as { error: { data: { error_code: string } } };
+    expect(body.error.data.error_code).toBe("invalid_key");
   });
 
   it("returns a buy-credits link and does not run a report when the balance is zero", async () => {
@@ -98,9 +98,9 @@ describe("MCP API key", () => {
       method: "tools/call",
       params: { name: "full_report", arguments: { mode: "personal", vin: "4T1KZ1AK4MU060006" } },
     });
-    expect(response.status).toBe(402);
-    const body = (await response.json()) as { result: { structuredContent: { error: string; buyCreditsUrl: string } } };
-    expect(body.result.structuredContent.error).toBe("api_key_required");
-    expect(body.result.structuredContent.buyCreditsUrl).toContain("/credits");
+    expect(response.status).toBe(401);
+    const body = (await response.json()) as { error: { data: { error_code: string; credit_spent: boolean } } };
+    expect(body.error.data.error_code).toBe("auth_required");
+    expect(body.error.data.credit_spent).toBe(false);
   });
 });

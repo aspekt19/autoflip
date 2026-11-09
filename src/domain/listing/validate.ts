@@ -3,6 +3,7 @@
  * VIN checksum + numeric ranges. Invalid values become unknown.
  */
 import { isValidVin } from "@/domain/vin";
+import { isPlausibleSellerName } from "./schema-org";
 import type { ExtractedListingFields, ListingFieldSource, Provenanced } from "./types";
 import { emptyExtractedFields } from "./types";
 
@@ -129,7 +130,14 @@ export function mergeLayer(
   next.location = setIfEmpty(next.location, validateShortText(partial.location, 80), source);
   next.zip = setIfEmpty(next.zip, validateZip(partial.zip), source);
   next.state = setIfEmpty(next.state, validateShortText(partial.state, 2)?.toUpperCase() ?? null, source);
-  next.sellerName = setIfEmpty(next.sellerName, validateShortText(partial.sellerName, 80), source);
+  next.sellerName = setIfEmpty(
+    next.sellerName,
+    (() => {
+      const candidate = validateShortText(partial.sellerName, 80);
+      return candidate && isPlausibleSellerName(candidate) ? candidate : null;
+    })(),
+    source,
+  );
   next.listingDate = setIfEmpty(next.listingDate, validateShortText(partial.listingDate, 40), source);
   next.description = setIfEmpty(next.description, validateDescription(partial.description), source);
   next.photoCount = setIfEmpty(next.photoCount, validatePhotoCount(partial.photoCount), source);

@@ -4,6 +4,7 @@
 import type { CheckRedFlag, ExtractedListingFields } from "./types";
 import { resolveMarketComps } from "@/domain/market-comps";
 import type { Listing } from "@/domain/types";
+import { isSoldAvailability, textMentionsSold } from "./schema-org";
 
 const TITLE_BRAND_RE = /\b(salvage|rebuilt|reconstructed|flood|lemon|junk|branded title|reconditioned title|theft recovery)\b/i;
 const AS_IS_RE = /\bas[\s-]?is\b/i;
@@ -30,6 +31,17 @@ export function listingRedFlags(input: {
     .join(" ")
     .replace(/\s+/g, " ")
     .trim();
+
+  const sold =
+    isSoldAvailability(input.fields.titleStatus.value) || textMentionsSold(text);
+  if (sold) {
+    flags.push({
+      id: "sold",
+      level: "stop",
+      text: "This listing is marked SOLD. Do not treat it as an available car — confirm with the seller before planning a visit or wiring money.",
+      source: "listing-availability",
+    });
+  }
 
   const titleHit =
     input.fields.titleStatus.value?.match(TITLE_BRAND_RE)?.[1] ??

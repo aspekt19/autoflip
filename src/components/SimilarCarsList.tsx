@@ -23,6 +23,14 @@ export function SimilarCarsList({
               <p>
                 {car.year} {car.trim ?? "trim not listed"}, {formatNumber(car.miles)} miles, asking {formatUsd(car.askingUsd)}
                 . Adjusted to this car: {formatUsd(car.adjustedUsd)}.
+                {car.sourceUrl ? (
+                  <>
+                    {" "}
+                    <a href={car.sourceUrl} target="_blank" rel="noreferrer">
+                      Source
+                    </a>
+                  </>
+                ) : null}
               </p>
               {car.reasons.length > 0 ? (
                 <ul>

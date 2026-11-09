@@ -1,6 +1,7 @@
 import { createHash, randomBytes, randomUUID } from "node:crypto";
 import type { Kv } from "@/io/kv";
 import { creditSpend } from "@/io/credit-book";
+import { DEFAULT_AGENT_SCOPES, normalizeAgentScopes, type AgentScope } from "./agent-scopes";
 
 export type ApiKeyRecord = {
   id: string;
@@ -8,6 +9,7 @@ export type ApiKeyRecord = {
   prefix: string;
   createdAt: string;
   revokedAt: string | null;
+  scopes: AgentScope[];
 };
 
 type StoredKey = ApiKeyRecord & { userId: string; hash: string };
@@ -20,18 +22,28 @@ function hashToken(token: string): string {
   return hashApiKeyToken(token);
 }
 
+function scopesOf(stored: StoredKey): AgentScope[] {
+  return normalizeAgentScopes(stored.scopes ?? DEFAULT_AGENT_SCOPES);
+}
+
 /** Resolve full stored key row (hash + userId) for grant binding checks. */
 export async function resolveApiKeyRecord(
   kv: Kv,
   token: string,
-): Promise<{ userId: string; hash: string; id: string } | null> {
+): Promise<{ userId: string; hash: string; id: string; prefix: string; scopes: AgentScope[] } | null> {
   if (!token.startsWith("af_")) return null;
   const raw = await kv.get(tokenKey(hashToken(token)));
   if (!raw) return null;
   try {
     const stored = JSON.parse(raw) as StoredKey;
     if (!stored.userId || stored.revokedAt || !stored.hash) return null;
-    return { userId: stored.userId, hash: stored.hash, id: stored.id };
+    return {
+      userId: stored.userId,
+      hash: stored.hash,
+      id: stored.id,
+      prefix: stored.prefix,
+      scopes: scopesOf(stored),
+    };
   } catch {
     return null;
   }
@@ -52,6 +64,7 @@ function publicRecord(stored: StoredKey): ApiKeyRecord {
     prefix: stored.prefix,
     createdAt: stored.createdAt,
     revokedAt: stored.revokedAt,
+    scopes: scopesOf(stored),
   };
 }
 
@@ -129,6 +142,7 @@ export async function createApiKey(
   kv: Kv,
   userId: string,
   label: string,
+  scopes: readonly AgentScope[] | unknown = DEFAULT_AGENT_SCOPES,
 ): Promise<{ token: string; record: ApiKeyRecord; binding: ApiKeyBinding }> {
   const token = `af_${randomBytes(24).toString("base64url")}`;
   const stored: StoredKey = {
@@ -137,6 +151,7 @@ export async function createApiKey(
     prefix: token.slice(0, 11),
     createdAt: new Date().toISOString(),
     revokedAt: null,
+    scopes: normalizeAgentScopes(scopes),
     userId,
     hash: hashToken(token),
   };
