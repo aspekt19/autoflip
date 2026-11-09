@@ -438,6 +438,18 @@ function CandidateCard({
         </li>
         <li>Similar listings in this scan: {candidate.compCount}</li>
       </ul>
+      {candidate.provenance?.length ? (
+        <>
+          <h4>Number sources</h4>
+          <ul className="refuse">
+            {candidate.provenance.map((row) => (
+              <li key={row.field}>
+                {row.field}: {row.display} · {row.source}
+              </li>
+            ))}
+          </ul>
+        </>
+      ) : null}
       <h4>Key risks</h4>
       <ul className="refuse">
         {candidate.risks.map((line) => (

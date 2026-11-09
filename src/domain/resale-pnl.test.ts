@@ -81,6 +81,9 @@ describe("buildResaleCandidatePnl", () => {
     expect(pnl.risks.length).toBeGreaterThan(0);
     expect(pnl.checkBeforeBuying.length).toBeGreaterThan(0);
     expect(pnl.resaleChannel).toBe("private_party");
+    expect(pnl.provenance.some((row) => row.kind === "autodev_listing" && row.field === "Ask")).toBe(true);
+    expect(pnl.provenance.some((row) => row.kind === "computed" && /profit/i.test(row.field))).toBe(true);
+    expect(pnl.provenance.every((row) => row.source.trim().length > 0)).toBe(true);
   });
 
   it("returns null for excluded estimates", () => {

@@ -72,4 +72,18 @@ describe("validateResaleServOutput", () => {
     if (result.ok) return;
     expect(result.detail).toMatch(/Evidence id/);
   });
+
+  it("rejects invented listing URLs", () => {
+    const result = validateResaleServOutput(
+      {
+        text: "See https://evil.example/car for details.",
+        vins: [REAL_VIN],
+      },
+      bundle,
+    );
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.reason).toBe("rejected: unsupported reference");
+    expect(result.detail).toMatch(/URL/i);
+  });
 });

@@ -7,6 +7,13 @@
 import { ASSUMPTIONS } from "./assumptions";
 import type { FlipEstimate, SaleSpeed } from "./flip-rank";
 import { reconUsd } from "./recon";
+import {
+  assumptionProvenance,
+  computedProvenance,
+  listingAskProvenance,
+  unknownProvenance,
+  type ResaleFieldProvenance,
+} from "./resale-provenance";
 import { formatTaxRate, stateBaseTaxUsd, stateSalesTax, STATE_SALES_TAX_AS_OF, STATE_SALES_TAX_SOURCE_LABEL } from "./state-sales-tax";
 import { roundDollars } from "./stats";
 import { TITLE_REGISTRATION_LINE } from "./title-doc-fees";
@@ -61,7 +68,14 @@ export type ResaleCandidatePnl = {
   risks: string[];
   checkBeforeBuying: string[];
   assumption: string | null;
+  /** Every displayed dollar/count with an explicit source — never a silent guess. */
+  provenance: ResaleFieldProvenance[];
 };
+
+function usdOrUnknown(value: number | null | undefined): string {
+  if (value == null || !Number.isFinite(value)) return "unknown";
+  return `$${value.toLocaleString("en-US")}`;
+}
 
 export type BuildResalePnlOptions = {
   repairAbility?: RepairAbility;
@@ -211,6 +225,42 @@ export function buildResaleCandidatePnl(
     "Budget for registration, local tax add-ons, and unexpected repairs beyond the estimate.",
   ];
 
+  const provenance: ResaleFieldProvenance[] = [
+    listingAskProvenance(estimate.vin, usdOrUnknown(asking)),
+    assumptionProvenance("Negotiated offer", usdOrUnknown(negotiate.usd), negotiate.basis),
+    tax.usd == null
+      ? unknownProvenance("Sales tax", tax.basis)
+      : assumptionProvenance("Sales tax", usdOrUnknown(tax.usd), tax.basis),
+    unknownProvenance("Title/registration dollar amount", TITLE_REGISTRATION_LINE),
+    assumptionProvenance("Title/fee assumption", usdOrUnknown(titleFee), titleFeeBasis),
+    assumptionProvenance("Reconditioning", usdOrUnknown(recon.usd), recon.because),
+    estimate.resaleMidUsd == null
+      ? unknownProvenance("Expected resale mid", "Similar-listing fair band unavailable in this scan.")
+      : computedProvenance(
+          "Expected resale mid",
+          usdOrUnknown(estimate.resaleMidUsd),
+          "evaluateListingPrice adjusted similar asks (this Auto.dev scan)",
+        ),
+    computedProvenance(
+      "Similar listing count",
+      String(estimate.compCount),
+      "Count of same-scan Auto.dev comps used by evaluateListingPrice",
+    ),
+    profitMidUsd == null
+      ? unknownProvenance("Expected net profit mid", "Resale band or all-in cost incomplete.")
+      : computedProvenance(
+          "Expected net profit mid",
+          usdOrUnknown(profitMidUsd),
+          "resaleMid × (1 − sellFriction) − (negotiate + tax + titleFee + recon)",
+        ),
+    roiPctMid == null
+      ? unknownProvenance("ROI mid", "Profit or all-in cost incomplete.")
+      : computedProvenance("ROI mid", `${roiPctMid}%`, "profitMid / allInCost"),
+    days.days == null
+      ? unknownProvenance("Estimated days to sell", days.basis)
+      : assumptionProvenance("Estimated days to sell", String(days.days), days.basis),
+  ];
+
   return {
     vin: estimate.vin,
     listing: estimate.listing,
@@ -245,6 +295,7 @@ export function buildResaleCandidatePnl(
     risks,
     checkBeforeBuying,
     assumption: estimate.assumption,
+    provenance,
   };
 }
 

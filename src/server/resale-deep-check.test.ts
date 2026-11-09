@@ -44,6 +44,14 @@ function candidate(vin: string, profitMidUsd: number, compCount = 6): ResaleCand
     askingUsd: 12_000,
     negotiatedOfferUsd: 11_400,
     negotiateBasis: "example",
+    provenance: [
+      {
+        field: "Ask",
+        display: "$12,000",
+        kind: "autodev_listing",
+        source: `Auto.dev listing VIN ${vin}`,
+      },
+    ],
     salesTaxUsd: null,
     salesTaxBasis: "unknown",
     titleRegistrationUsd: null,

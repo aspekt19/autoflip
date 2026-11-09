@@ -72,6 +72,14 @@ function candidate(partial: Partial<ResaleCandidatePnl> & Pick<ResaleCandidatePn
     risks: ["title unknown"],
     checkBeforeBuying: ["inspect"],
     assumption: null,
+    provenance: [
+      {
+        field: "Ask",
+        display: "$12,000",
+        kind: "autodev_listing",
+        source: `Auto.dev listing VIN ${partial.vin}`,
+      },
+    ],
     ...partial,
   };
 }
@@ -100,5 +108,83 @@ describe("runResaleSettleServ", () => {
     expect(result.agentVerdict.pick?.key).toBe("VINHIGH0000000001");
     expect(result.journal.steps.length).toBeGreaterThan(0);
     expect(result.journal.steps.some((step) => step.actor === "code")).toBe(true);
+  });
+
+  it("rejects mocked SERV that invents a VIN/price and falls back to code pick", async () => {
+    const inventingFetch: typeof fetch = async () =>
+      Response.json({
+        id: "chatcmpl-invent",
+        object: "chat.completion",
+        model: "test-model",
+        choices: [
+          {
+            finish_reason: "stop",
+            message: {
+              content: JSON.stringify({
+                pickVin: "1HGCM82633A999999",
+                action: "buy",
+                note: "Buy this phantom car at $99,999 — mid profit $50,000.",
+                evidenceIds: ["vin:1HGCM82633A999999", "made_up_check"],
+              }),
+            },
+          },
+        ],
+        usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 },
+      });
+
+    const low = candidate({ vin: "VINLOW00000000001", profitMidUsd: 800 });
+    const high = candidate({
+      vin: "VINHIGH0000000001",
+      profitMidUsd: 2_500,
+      listing: listing({ vin: "VINHIGH0000000001", year: 2018, make: "Toyota", model: "Corolla", priceUsd: 9_000 }),
+    });
+    const result = await runResaleSettleServ({
+      candidates: [low, high],
+      budgetUsd: 12_000,
+      servKey: "test-key",
+      fetchImpl: inventingFetch,
+      model: "test-model",
+    });
+
+    expect(result.best?.vin).toBe("VINHIGH0000000001");
+    expect(result.journal.steps.some((step) => step.rejected === "rejected: unsupported reference")).toBe(true);
+    expect(result.best?.provenance?.some((row) => row.kind === "autodev_listing")).toBe(true);
+  });
+
+  it("rejects mocked SERV invented listing URL in free text", async () => {
+    const inventingFetch: typeof fetch = async () =>
+      Response.json({
+        id: "chatcmpl-url",
+        object: "chat.completion",
+        model: "test-model",
+        choices: [
+          {
+            finish_reason: "stop",
+            message: {
+              content: JSON.stringify({
+                pickVin: "VINHIGH0000000001",
+                action: "buy",
+                note: "See https://evil.example/fake-listing for comps.",
+                evidenceIds: ["vin:VINHIGH0000000001"],
+              }),
+            },
+          },
+        ],
+        usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 },
+      });
+
+    const high = candidate({
+      vin: "VINHIGH0000000001",
+      profitMidUsd: 2_500,
+      listing: listing({ vin: "VINHIGH0000000001", year: 2018, make: "Toyota", model: "Corolla", priceUsd: 9_000 }),
+    });
+    const result = await runResaleSettleServ({
+      candidates: [high],
+      budgetUsd: 12_000,
+      servKey: "test-key",
+      fetchImpl: inventingFetch,
+      model: "test-model",
+    });
+    expect(result.journal.steps.some((step) => step.rejected === "rejected: unsupported reference")).toBe(true);
   });
 });
