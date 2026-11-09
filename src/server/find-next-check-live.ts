@@ -54,6 +54,13 @@ export type FindNextCheckLiveDeps = {
   servBaseUrl?: string | null;
   fetchImpl?: typeof fetch;
   env?: Record<string, string | undefined>;
+  /**
+   * When true, skip the paid SERV HTTP call and use the deterministic allowlist
+   * preferred id (free-gov drain / paid-call cap). Still a real next-check hop.
+   */
+  skipServ?: boolean;
+  /** Why SERV was skipped — logged in honesty / diag; never secrets. */
+  skipServReason?: string | null;
 };
 
 export type FindNextCheckLiveOk = {
@@ -215,7 +222,13 @@ export async function runFindNextCheckLive(
   const choiceSchema = buildFindNextCheckChoiceSchema(allowedIds);
 
   const key = deps.servKey?.trim() || null;
-  if (key) {
+  if (key && deps.skipServ) {
+    // Bounded free-gov drain / paid-call cap — keep SERV autonomy real on other hops.
+    source = "deterministic_fallback";
+    chosenId = preferred.id;
+    servNote = null;
+    failureDiag = null;
+  } else if (key) {
     const result = await runServ(
       "find_next_check",
       { user, facts },
@@ -304,6 +317,10 @@ export async function runFindNextCheckLive(
   const replan = applyFindNextCheck(need, chosenId, refine);
   const shortlist = buildGroundedShortlist(replan.need, listings, body.fuelsByModelKey ?? {});
 
+  const skipBit =
+    key && deps.skipServ
+      ? ` Paid SERV skipped this hop (${deps.skipServReason ?? "bounded_free_gov_drain"}) — deterministic free public batch only.`
+      : "";
   return {
     ok: true,
     source,
@@ -320,6 +337,6 @@ export async function runFindNextCheckLive(
     honesty:
       source === "serv"
         ? "SERV chose an allowlisted checkId. Apply/replan is code-owned. Rematch uses NEW need — no invented listings, TCO, or history."
-        : "deterministic_fallback (not autonomous SERV): code allowlist apply only. Keyed SERV path required for autonomous next-check.",
+        : `deterministic_fallback (not autonomous SERV): code allowlist apply only.${skipBit}`,
   };
 }

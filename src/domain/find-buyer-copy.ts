@@ -55,7 +55,26 @@ export const BUYER_FORBIDDEN_TECH_PATTERNS: RegExp[] = [
   /\bfairnessHeldOut\b/,
   /\bevidenceSettled\b/,
   /\bevidence\.gov_(?:recalls|vpic|safety|fuel)\b/,
+  // Internal validation / provider jargon — buyer form copy must stay plain.
+  /\bapp validation\b/i,
+  /\bprovider hard limit\b/i,
 ];
+
+/**
+ * Find billing copy (shared by /find page + results hint).
+ * Billing/auth debit is NOT enabled in this tree (PR82 HOLD) — do not promise a free
+ * Find, invent a free VIN/URL monthly quota, or claim a Find debit that does not run.
+ */
+export const FIND_PAGE_BILLING_STEP =
+  "Find is a credit-priced search when billing is enabled. Open a full report for any car you want to investigate further (1 report credit).";
+
+export const FIND_RESULTS_BILLING_HINT =
+  "Find is a credit-priced search when billing is enabled. A full per-car report uses 1 report credit. Ongoing new-listing alerts require a separate monthly Radar plan.";
+
+/** Buyer-facing seller-distance custom-miles hint (no app-validation jargon). */
+export function customMilesBuyerHint(maxMiles: number): string {
+  return `You can enter any distance up to ${maxMiles.toLocaleString("en-US")} miles, or choose Nationwide to search without a distance limit.`;
+}
 
 export function findForbiddenTechArtifacts(text: string): string[] {
   const hits: string[] = [];
@@ -165,10 +184,15 @@ export function formatBuyerReceiptLine(r: FindFreeGovReceipt): string {
 }
 
 export type FuelCheckOutcomeSummary = {
+  /** Distinct year/make/model fuel attempts. */
   attempted: number;
   matched: number;
   noMatch: number;
   unavailable: number;
+  /** Distinct make+model buckets among attempts. */
+  modelCount: number;
+  /** Distinct make+model buckets with a usable fuel match. */
+  matchedModelCount: number;
 };
 
 export function summarizeFuelCheckOutcome(
@@ -178,15 +202,31 @@ export function summarizeFuelCheckOutcome(
   let matched = 0;
   let noMatch = 0;
   let unavailable = 0;
+  const models = new Set<string>();
+  const matchedModels = new Set<string>();
   for (const r of receipts) {
     if (r.checkId !== "free_gov_fuel") continue;
     attempted += 1;
+    const modelKey = `${r.make}\0${r.model}`.toLowerCase();
+    models.add(modelKey);
     const match = r.fuelEvidence?.match;
-    if (match === "exact" || match === "ambiguous") matched += 1;
-    else if (match === "unavailable" || r.status === "error" || r.status === "unavailable") unavailable += 1;
-    else noMatch += 1;
+    if (match === "exact" || match === "ambiguous") {
+      matched += 1;
+      matchedModels.add(modelKey);
+    } else if (match === "unavailable" || r.status === "error" || r.status === "unavailable") {
+      unavailable += 1;
+    } else {
+      noMatch += 1;
+    }
   }
-  return { attempted, matched, noMatch, unavailable };
+  return {
+    attempted,
+    matched,
+    noMatch,
+    unavailable,
+    modelCount: models.size,
+    matchedModelCount: matchedModels.size,
+  };
 }
 
 export function formatBuyerLoopStep(input: {
@@ -217,17 +257,25 @@ export function formatBuyerLoopStep(input: {
           ? "FuelEconomy.gov fuel-cost checks are still queued for remaining year/make/model groups."
           : "FuelEconomy.gov fuel-cost check has not run yet for this search.";
       }
+      const modelCount = o.modelCount > 0 ? o.modelCount : o.attempted;
+      const matchedModels = o.matchedModelCount ?? o.matched;
       const parts: string[] = [];
-      if (o.matched > 0) {
+      if (o.matched > 0 && matchedModels >= modelCount && o.matched >= o.attempted) {
         parts.push(
-          `Fuel costs found for ${o.matched} of ${o.attempted} model${o.attempted === 1 ? "" : "s"}`,
+          `Fuel costs found for all ${modelCount} model${modelCount === 1 ? "" : "s"} (${o.attempted} model year${o.attempted === 1 ? "" : "s"})`,
+        );
+      } else if (o.matched > 0) {
+        parts.push(
+          `Fuel costs found for ${matchedModels} of ${modelCount} model${modelCount === 1 ? "" : "s"} (${o.matched} of ${o.attempted} model year${o.attempted === 1 ? "" : "s"})`,
         );
       } else {
-        parts.push(`Fuel costs checked for ${o.attempted} model${o.attempted === 1 ? "" : "s"} (none matched yet)`);
+        parts.push(
+          `Fuel costs checked for ${modelCount} model${modelCount === 1 ? "" : "s"} (${o.attempted} model year${o.attempted === 1 ? "" : "s"}; none matched yet)`,
+        );
       }
       if (o.noMatch > 0) {
         parts.push(
-          `${o.noMatch} not available because FuelEconomy.gov had no matching year/make/model menu`,
+          `${o.noMatch} model year${o.noMatch === 1 ? "" : "s"} not on FuelEconomy.gov’s menu`,
         );
       }
       if (o.unavailable > 0) {
@@ -341,10 +389,15 @@ export function formatBuyerBestDeal(result: BestDealResult): {
   });
   const factorLines = result.ranked.flatMap((c, i) => {
     const head = `${i + 1}. ${c.year} ${c.make} ${c.model} (score ${c.score}):`;
-    const bits = c.factors
+    // Settled breakdown replaces provisional lines — never keep “Held out” / “not on file yet”.
+    const factors = c.factors
       .slice()
-      .sort((a, b) => Math.abs(b.points) - Math.abs(a.points))
-      .map((f) => `${f.label}: ${f.detail} (${f.points >= 0 ? "+" : ""}${f.points})`);
+      .filter((f) => {
+        if (!result.evidenceSettled) return true;
+        return !/Held out of ranking|not on file yet|check not run|still pending/i.test(f.detail);
+      })
+      .sort((a, b) => Math.abs(b.points) - Math.abs(a.points));
+    const bits = factors.map((f) => `${f.label}: ${f.detail} (${f.points >= 0 ? "+" : ""}${f.points})`);
     return [head, ...bits.map((b) => `  — ${b}`)];
   });
   const sensitivityLines = result.sensitivity.map((s) =>

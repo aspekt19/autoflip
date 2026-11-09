@@ -5,19 +5,18 @@
  * Uses only returned real listings + free-gov receipts. Never claims VIN-specific recall
  * clearance, clean history, or that Lemonless is error-free / better than others.
  */
-import { mileageAdjust, selectComparables } from "./comparables";
 import type { FindFuelEvidence } from "./find-fuel-match";
 import type { FindFreeGovReceipt } from "./find-free-gov";
 import { checkedMmyKeysForCheck, freeGovToolCoverage } from "./find-free-gov";
 import type { ObservedListingRow } from "./find-model-observe";
 import { mmyListingKey } from "./find-risk-evidence";
+import { formatMarketAskDetail, resolveMarketComps } from "./market-comps";
 import {
   BUDGET_AROUND_TOLERANCE_FRAC,
   budgetIsApproximateFromNote,
   type StructuredNeed,
 } from "./need";
-import { historyAdjustment } from "./history";
-import { median as statsMedian, percentileRank as statsPercentileRank, roundDollars } from "./stats";
+import { median as statsMedian, percentileRank as statsPercentileRank } from "./stats";
 import type { Listing } from "./types";
 
 export type BestDealFactorId =
@@ -203,9 +202,11 @@ export function riskIndexFromReceipts(receipts: readonly FindFreeGovReceipt[]): 
       if (r.riskFacts.parkIt === true) parkItByMmy.set(key, true);
       else if (!parkItByMmy.has(key)) parkItByMmy.set(key, false);
     }
+    // Any safety receipt attempt indexes the MMY so settled scoring never says "not on file yet".
     if (r.checkId === "free_gov_safety") {
       const fromFacts = extractNcapOverall(r);
       if (fromFacts !== undefined) ncapOverallByMmy.set(key, fromFacts);
+      else if (!ncapOverallByMmy.has(key)) ncapOverallByMmy.set(key, null);
     }
   }
   return { campaignCountByMmy, ncapOverallByMmy, parkItByMmy };
@@ -313,36 +314,22 @@ function marketPriceContext(
   scopeLabel: string;
 } | null {
   const stub = listingStubForComps(row);
+  // When a market pool is provided (same pool the card badge uses), never invent a
+  // second comparable set — one car → one n= and one market median across surfaces.
   if (stub && marketPool && marketPool.length > 0) {
-    const selection = selectComparables(stub, [...marketPool]);
-    if (selection.scope !== "insufficient" && selection.comps.length >= BEST_DEAL_THIN_MODEL_SAMPLE) {
-      const priced = selection.comps.filter(
-        (item): item is Listing & { priceUsd: number; miles: number } =>
-          item.priceUsd != null && item.miles != null,
-      );
-      if (priced.length >= BEST_DEAL_THIN_MODEL_SAMPLE && stub.miles != null) {
-        const adjusted = mileageAdjust(stub.miles, priced);
-        const mid = median(adjusted.rows.map((r) => r.adjustedPriceUsd));
-        if (mid != null && mid > 0) {
-          const fair = roundDollars(mid * historyAdjustment(stub, "personal").multiplier);
-          const pct01 = percentileRank01(stub.priceUsd!, adjusted.rows.map((r) => r.adjustedPriceUsd));
-          const scopeLabel =
-            selection.scope === "same_trim"
-              ? "same-trim"
-              : selection.scope === "expanded_year"
-                ? "same-model (widened year)"
-                : "same-model";
-          return {
-            med: fair,
-            sampleSize: priced.length,
-            pct01,
-            source: "Same comparable set as the card market badge",
-            scopeLabel,
-          };
-        }
-      }
+    const resolved = resolveMarketComps(stub, marketPool);
+    if (resolved.ok) {
+      return {
+        med: resolved.fairValueUsd,
+        sampleSize: resolved.sampleSize,
+        pct01: resolved.pct01,
+        source: resolved.source,
+        scopeLabel: resolved.scopeLabel,
+      };
     }
+    return null;
   }
+  // Legacy path when no marketPool was wired (unit tests without badge pool).
   if (row.priceUsd != null && sameModelPrices.length > 0) {
     const med = median(sameModelPrices);
     if (med == null || med <= 0) return null;
@@ -351,7 +338,7 @@ function marketPriceContext(
       sampleSize: sameModelPrices.length,
       pct01: percentileRank01(row.priceUsd, sameModelPrices),
       source: "Returned listings in this search only",
-      scopeLabel: "same-model (this search)",
+      scopeLabel: "same-model",
     };
   }
   return null;
@@ -374,6 +361,14 @@ function scoreOne(
     marketPool?: readonly Listing[];
     /** Factor ids held out for fairness (scored 0 with honesty detail). */
     heldOutFactors?: ReadonlySet<BestDealFactorId>;
+    /** MMYs with a free_gov_fuel receipt attempt (any status). */
+    fuelAttemptedKeys?: ReadonlySet<string>;
+    /** MMYs with a free_gov_safety receipt attempt (any status). */
+    ncapAttemptedKeys?: ReadonlySet<string>;
+    /** MMYs with a free_gov_recalls receipt attempt (any status). */
+    recallAttemptedKeys?: ReadonlySet<string>;
+    /** When true, never emit provisional “not on file yet / check not run” wording. */
+    evidenceSettled?: boolean;
   },
 ): BestDealCandidate {
   const factors: BestDealFactorBreakdown[] = [];
@@ -387,6 +382,7 @@ function scoreOne(
   const conditionFirst =
     ctx.need.conditionPriority === "inspection_first" || prefersConditionFromNote(ctx.need.note);
   const heldOut = ctx.heldOutFactors ?? new Set<BestDealFactorId>();
+  const settled = Boolean(ctx.evidenceSettled);
 
   // Price vs same-model observed asks (aligned with card badge when marketPool provided)
   const market = marketPriceContext(row, ctx.marketPool, ctx.sameModelPrices);
@@ -411,17 +407,22 @@ function scoreOne(
     }
     const points = clamp(rel * WEIGHTS.price * 2, -WEIGHTS.price, WEIGHTS.price);
     score += points;
-    const thin =
-      sampleSize < BEST_DEAL_THIN_MODEL_SAMPLE
-        ? ` (thin sample: ${sampleSize} priced ${scopeLabel} comps)`
-        : "";
-    const pctBit =
-      pct01 != null ? ` (~${Math.round(pct01 * 100)}th percentile among ${scopeLabel} comps)` : "";
+    const scopeLabelTyped =
+      scopeLabel === "same-trim" || scopeLabel === "same-model (widened year)" || scopeLabel === "same-model"
+        ? scopeLabel
+        : "same-model";
     factors.push({
       id: "price_vs_model_asks",
       label: "Asking price vs same model in this search",
       points: round1(points),
-      detail: `Ask $${row.priceUsd.toLocaleString("en-US")} vs median $${Math.round(med).toLocaleString("en-US")} (n=${sampleSize} ${scopeLabel} comps)${pctBit}${thin}${caution}`,
+      detail: `${formatMarketAskDetail({
+        askUsd: row.priceUsd,
+        fairValueUsd: med,
+        sampleSize,
+        scopeLabel: scopeLabelTyped,
+        pct01,
+        thinBelow: BEST_DEAL_THIN_MODEL_SAMPLE,
+      })}${caution}`,
       source,
     });
   } else {
@@ -557,14 +558,27 @@ function scoreOne(
       source: "FuelEconomy.gov (U.S. government) + labeled assumptions",
     });
   } else {
-    unknowns.push("Estimated fuel cost unavailable without a FuelEconomy.gov match");
-    factors.push({
-      id: "estimated_fuel_cost",
-      label: "Estimated annual fuel cost",
-      points: 0,
-      detail: "Not scored — no FuelEconomy.gov match for this year/make/model (or check not run)",
-      source: "FuelEconomy.gov",
-    });
+    const fuelAttempted = ctx.fuelAttemptedKeys?.has(mmy) ?? false;
+    if (fuelAttempted || settled) {
+      unknowns.push("Estimated fuel cost unavailable — FuelEconomy.gov had no usable match for this year/make/model");
+      factors.push({
+        id: "estimated_fuel_cost",
+        label: "Estimated annual fuel cost",
+        points: 0,
+        detail:
+          "Checked — FuelEconomy.gov had no usable match for this year/make/model (not scored)",
+        source: "FuelEconomy.gov",
+      });
+    } else {
+      unknowns.push("Estimated fuel cost unavailable without a FuelEconomy.gov match");
+      factors.push({
+        id: "estimated_fuel_cost",
+        label: "Estimated annual fuel cost",
+        points: 0,
+        detail: "Not scored yet — fuel check still pending for this year/make/model",
+        source: "FuelEconomy.gov",
+      });
+    }
   }
 
   // MMY recall campaigns
@@ -589,14 +603,25 @@ function scoreOne(
       source: "NHTSA recalls (year/make/model scope)",
     });
   } else {
-    unknowns.push("Recall campaign count not checked yet for this year/make/model");
-    factors.push({
-      id: "mmy_recall_campaigns",
-      label: "Year/make/model recall campaigns on record",
-      points: 0,
-      detail: "Not scored — free recall check not on file for this year/make/model",
-      source: "NHTSA recalls",
-    });
+    const recallAttempted = ctx.recallAttemptedKeys?.has(mmy) ?? false;
+    if (recallAttempted || settled) {
+      factors.push({
+        id: "mmy_recall_campaigns",
+        label: "Year/make/model recall campaigns on record",
+        points: 0,
+        detail: "Checked — no usable recall campaign count for this year/make/model (not scored)",
+        source: "NHTSA recalls",
+      });
+    } else {
+      unknowns.push("Recall campaign count not checked yet for this year/make/model");
+      factors.push({
+        id: "mmy_recall_campaigns",
+        label: "Year/make/model recall campaigns on record",
+        points: 0,
+        detail: "Not scored yet — recall check still pending for this year/make/model",
+        source: "NHTSA recalls",
+      });
+    }
   }
 
   // NCAP
@@ -616,7 +641,7 @@ function scoreOne(
         id: "mmy_ncap_rating",
         label: "NHTSA crash-test rating (class)",
         points: 0,
-        detail: "Not Rated for this year/make/model — treated as unknown, not zero stars",
+        detail: "Checked — Not Rated / no class stars on file for this year/make/model (not scored)",
         source: "NHTSA NCAP (year/make/model class rating)",
       });
       unknowns.push("NHTSA crash-test rating is Not Rated for this year/make/model");
@@ -632,13 +657,24 @@ function scoreOne(
       });
     }
   } else {
-    factors.push({
-      id: "mmy_ncap_rating",
-      label: "NHTSA crash-test rating (class)",
-      points: 0,
-      detail: "Not scored — safety ratings not on file yet",
-      source: "NHTSA NCAP",
-    });
+    const ncapAttempted = ctx.ncapAttemptedKeys?.has(mmy) ?? false;
+    if (ncapAttempted || settled) {
+      factors.push({
+        id: "mmy_ncap_rating",
+        label: "NHTSA crash-test rating (class)",
+        points: 0,
+        detail: "Checked — no crash-test class rating on file for this year/make/model (not scored)",
+        source: "NHTSA NCAP",
+      });
+    } else {
+      factors.push({
+        id: "mmy_ncap_rating",
+        label: "NHTSA crash-test rating (class)",
+        points: 0,
+        detail: "Not scored yet — crash-test check still pending for this year/make/model",
+        source: "NHTSA NCAP",
+      });
+    }
   }
 
   // Named model preference
@@ -833,6 +869,10 @@ function rankAll(
     fuelWeightScale?: number;
     marketPool?: readonly Listing[];
     heldOutFactors?: ReadonlySet<BestDealFactorId>;
+    fuelAttemptedKeys?: ReadonlySet<string>;
+    ncapAttemptedKeys?: ReadonlySet<string>;
+    recallAttemptedKeys?: ReadonlySet<string>;
+    evidenceSettled?: boolean;
   },
 ): BestDealCandidate[] {
   const byModel = new Map<string, number[]>();
@@ -861,6 +901,10 @@ function rankAll(
       fuelWeightScale: opts.fuelWeightScale,
       marketPool: opts.marketPool,
       heldOutFactors: opts.heldOutFactors,
+      fuelAttemptedKeys: opts.fuelAttemptedKeys,
+      ncapAttemptedKeys: opts.ncapAttemptedKeys,
+      recallAttemptedKeys: opts.recallAttemptedKeys,
+      evidenceSettled: opts.evidenceSettled,
     }),
   );
   scored.sort((a, b) => {
@@ -917,6 +961,10 @@ export function selectBestDealOnEvidence(input: {
       ? `Pick may change as checks complete — free public progress: recalls ${coverage.recalls.checked}/${coverage.recalls.eligible}, safety ${coverage.safety.checked}/${coverage.safety.eligible}, VIN decode ${coverage.vpic.checked}/${coverage.vpic.eligible}, fuel ${coverage.fuel?.checked ?? 0}/${coverage.fuel?.eligible ?? coverage.listingMmyCount}.`
       : `Public checks ran for every shortlist year/make/model, but ranking is still provisional while ${plainFairnessHeldOutNote(fairnessHeldOut)?.replace(/^Fair coverage:\s*/i, "") ?? "some public factors stay held out for fairness"}.`;
 
+  const fuelAttemptedKeys = checkedMmyKeysForCheck(receipts, "free_gov_fuel");
+  const ncapAttemptedKeys = checkedMmyKeysForCheck(receipts, "free_gov_safety");
+  const recallAttemptedKeys = checkedMmyKeysForCheck(receipts, "free_gov_recalls");
+
   const priced = input.listings.filter((l) => l.priceUsd != null);
   const rankOpts = {
     nowYear,
@@ -925,6 +973,10 @@ export function selectBestDealOnEvidence(input: {
     risk,
     marketPool: input.marketPool,
     heldOutFactors: heldOutSet,
+    fuelAttemptedKeys,
+    ncapAttemptedKeys,
+    recallAttemptedKeys,
+    evidenceSettled,
   };
   const ranked = rankAll(input.listings, input.need, rankOpts);
   const top = ranked.slice(0, shortlistMax);

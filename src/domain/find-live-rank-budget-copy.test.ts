@@ -137,18 +137,32 @@ describe("fuel checklist honesty + NMVTIS copy", () => {
     const none = formatBuyerLoopStep({
       chosenId: "free_gov_fuel",
       listingCount: 24,
-      fuelOutcome: { attempted: 3, matched: 0, noMatch: 0, unavailable: 3 },
+      fuelOutcome: {
+        attempted: 3,
+        matched: 0,
+        noMatch: 0,
+        unavailable: 3,
+        modelCount: 3,
+        matchedModelCount: 0,
+      },
     });
     expect(none).not.toMatch(/We checked fuel costs using FuelEconomy\.gov for the 24 cars/);
-    expect(none).toMatch(/unavailable|no model match|0 matched/i);
+    expect(none).toMatch(/unavailable|none matched/i);
 
     const some = formatBuyerLoopStep({
       chosenId: "free_gov_fuel",
       listingCount: 24,
-      fuelOutcome: { attempted: 5, matched: 2, noMatch: 2, unavailable: 1 },
+      fuelOutcome: {
+        attempted: 5,
+        matched: 2,
+        noMatch: 2,
+        unavailable: 1,
+        modelCount: 5,
+        matchedModelCount: 2,
+      },
     });
-    expect(some).toMatch(/Fuel costs found for 2 of 5/);
-    expect(some).toMatch(/not available because/i);
+    expect(some).toMatch(/Fuel costs found for 2 of 5 models/);
+    expect(some).toMatch(/model year/i);
     expect(some).toMatch(/unavailable/i);
   });
 
@@ -208,7 +222,14 @@ describe("fuel checklist honesty + NMVTIS copy", () => {
         honesty: "x",
       },
     ]);
-    expect(summary).toEqual({ attempted: 1, matched: 0, noMatch: 1, unavailable: 0 });
+    expect(summary).toEqual({
+      attempted: 1,
+      matched: 0,
+      noMatch: 1,
+      unavailable: 0,
+      modelCount: 1,
+      matchedModelCount: 0,
+    });
   });
 
   it("history next-check why is plain English (no official title history-approved garble)", () => {

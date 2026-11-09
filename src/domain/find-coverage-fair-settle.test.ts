@@ -523,17 +523,31 @@ describe("checklist + market + budget + coverage copy", () => {
 
     const withOutcome = formatBuyerLoopStep({
       chosenId: "free_gov_fuel",
-      fuelOutcome: { attempted: 5, matched: 3, noMatch: 2, unavailable: 0 },
+      fuelOutcome: {
+        attempted: 5,
+        matched: 3,
+        noMatch: 2,
+        unavailable: 0,
+        modelCount: 5,
+        matchedModelCount: 3,
+      },
       fuelPending: false,
     });
-    expect(withOutcome).toMatch(/Fuel costs found for 3 of 5/);
-    expect(withOutcome).toMatch(/not available because/i);
+    expect(withOutcome).toMatch(/Fuel costs found for 3 of 5 models/);
+    expect(withOutcome).toMatch(/model year/i);
     expect(withOutcome).not.toMatch(/more groups still unchecked/i);
     expect(assertBuyerSafeText(withOutcome).ok).toBe(true);
 
     // Fuel pending is fuel-specific — do not claim fuel is still queued just because recalls remain.
     const fuelDoneOtherPending = formatBuyerNextCheckWhy("free_gov_fuel", "technical", {
-      fuelOutcome: { attempted: 5, matched: 3, noMatch: 2, unavailable: 0 },
+      fuelOutcome: {
+        attempted: 5,
+        matched: 3,
+        noMatch: 2,
+        unavailable: 0,
+        modelCount: 5,
+        matchedModelCount: 3,
+      },
       fuelPending: false,
     });
     expect(fuelDoneOtherPending).not.toMatch(/still queued|more groups still unchecked/i);
@@ -550,7 +564,14 @@ describe("checklist + market + budget + coverage copy", () => {
         },
       }),
     ]);
-    expect(summary).toEqual({ attempted: 2, matched: 1, noMatch: 1, unavailable: 0 });
+    expect(summary).toEqual({
+      attempted: 2,
+      matched: 1,
+      noMatch: 1,
+      unavailable: 0,
+      modelCount: 2,
+      matchedModelCount: 1,
+    });
   });
 
   it("uses one comparable n= across badge delta and sample note; plain zero-trim wording", () => {
@@ -583,16 +604,17 @@ describe("checklist + market + budget + coverage copy", () => {
     }
   });
 
-  it("coverage sentence is per search direction (not the whole page total)", () => {
+  it("coverage sentence names group + page totals without search-direction jargon", () => {
     const note = coverageNote({
       mode: "personal",
       sample: false,
       dealerListingCount: 8,
+      pageListingCount: 24,
       radiusMiles: 50,
       historyOnListing: false,
     });
-    expect(note).toMatch(/8 dealer listings in this search direction/);
-    expect(note).not.toMatch(/^Based on 8 dealer listings;/);
+    expect(note).toMatch(/8 dealer listings in this group \(24 on this page\)/);
+    expect(note).not.toMatch(/search direction/i);
   });
 
   it("note budget year-band copy never says hard cap when soft tolerance applies", () => {

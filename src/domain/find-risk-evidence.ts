@@ -374,14 +374,16 @@ export function riskCoverageHonesty(
   const checkedMmyCount = [...checked].filter((k) => listingKeys.has(k)).length;
   const listingMmyCount = listingKeys.size;
   const uncheckedMmyCount = Math.max(0, listingMmyCount - checkedMmyCount);
+  // Keep this short — buyer UI prefers freeGovToolCoverage’s single plain sentence.
+  // Avoid duplicating “year/make/model scope” jargon next to the tool coverage note.
   const note =
     listingMmyCount === 0
-      ? "No listing MMY keys to cover."
+      ? "No cars to cover with public recall checks yet."
       : checkedMmyCount === 0
-        ? `Free NHTSA sample has not checked any of ${listingMmyCount} listing make/model/year key(s) across ${listings.length} card(s) — risk unknown, not cleared.`
+        ? `Public recall checks have not run yet for these ${listings.length} cards.`
         : checkedMmyCount < listingMmyCount
-          ? `Free NHTSA sample covered ${checkedMmyCount} of ${listingMmyCount} listing make/model/year key(s) (${listings.length} cards). Unchecked years stay unknown — not a fleet-wide clearance.`
-          : `Free NHTSA sample covered all ${listingMmyCount} listing make/model/year key(s). Still MMY-scope only — not VIN-specific unrepaired status.`;
+          ? `Public recall checks cover ${checkedMmyCount} of ${listingMmyCount} model years on these ${listings.length} cards — remaining years are still unknown.`
+          : "";
   return {
     checkedMmyCount,
     listingMmyCount,

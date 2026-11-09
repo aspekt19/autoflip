@@ -137,9 +137,16 @@ describe("buyer-safe Find copy", () => {
       formatBuyerLoopStep({
         chosenId: "free_gov_fuel",
         listingCount: 24,
-        fuelOutcome: { attempted: 3, matched: 2, noMatch: 1, unavailable: 0 },
+        fuelOutcome: {
+          attempted: 3,
+          matched: 2,
+          noMatch: 1,
+          unavailable: 0,
+          modelCount: 3,
+          matchedModelCount: 2,
+        },
       }),
-    ).toMatch(/FuelEconomy\.gov|matched/i);
+    ).toMatch(/Fuel costs found|model year/i);
     expect(formatBuyerLoopStatus("unchanged_state")).toMatch(/caught up/i);
     expect(formatBuyerLoopStatus("evidence_changed_replan")).toMatch(/continuing/i);
     expect(assertBuyerSafeText(formatBuyerLoopStatus("remaining_free_checks")!).ok).toBe(true);
@@ -157,6 +164,9 @@ describe("buyer-safe Find copy", () => {
       "SERV chose compare_observed_asks — [unchanged_state] src=https://vpic.nhtsa.dot.gov/api/vehicles/DecodeVinValues/X?format=json MMY vPIC parkIt";
     const hits = findForbiddenTechArtifacts(dirty);
     expect(hits.length).toBeGreaterThan(3);
+    expect(findForbiddenTechArtifacts("capped by app validation (not a documented provider hard limit)")).toEqual(
+      expect.arrayContaining([expect.stringMatching(/app validation/i), expect.stringMatching(/provider hard limit/i)]),
+    );
   });
 
   it("grounded shortlist why/unknowns stay buyer-safe (no MMY/parkIt/vPIC)", () => {

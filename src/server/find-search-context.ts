@@ -34,6 +34,10 @@ export type FindSearchContextRecord = {
   freeGovReceipts: FindFreeGovReceipt[];
   /** True when SERV_API_KEY was present at mint — UI may auto-start next-check. */
   servNextCheckEnabled: boolean;
+  /** Paid SERV find_next_check HTTP calls so far this Find (accounting + hard cap). */
+  servPaidCalls?: number;
+  /** Shortlist fingerprint when SERV last ran — gates free-gov drain skips. */
+  lastServShortlistFp?: string | null;
   iat: number;
   exp: number;
 };
@@ -59,17 +63,31 @@ export function mintFindSearchContextRecord(input: {
     userId: input.userId,
     need: input.need,
     refine: input.refine ?? {},
-    listings: input.listings.map((row) => ({
-      make: row.make,
-      model: row.model,
-      year: row.year,
-      priceUsd: row.priceUsd ?? null,
-      miles: row.miles ?? null,
-      vin: row.vin ?? null,
-    })),
+    listings: input.listings.map((row) => {
+      const trim =
+        typeof row.trim === "string" && row.trim.trim()
+          ? row.trim.trim()
+          : row.trim === null
+            ? null
+            : undefined;
+      return {
+        make: row.make,
+        model: row.model,
+        year: row.year,
+        priceUsd: row.priceUsd ?? null,
+        miles: row.miles ?? null,
+        vin: row.vin ?? null,
+        // Preserve trim so best-deal market comps share same-trim scope with card badges.
+        ...(trim !== undefined ? { trim } : {}),
+      };
+    }),
     appliedCheckIds: [],
     freeGovReceipts: [],
     servNextCheckEnabled: Boolean(input.servNextCheckEnabled),
+    /** Paid SERV find_next_check HTTP calls this Find (bounded — see find-serv-budget). */
+    servPaidCalls: 0,
+    /** Shortlist fingerprint at last paid SERV call — skip SERV while free-gov drain is unchanged. */
+    lastServShortlistFp: null,
     iat,
     exp: iat + FIND_SEARCH_CONTEXT_TTL_SEC,
   };
@@ -146,6 +164,8 @@ export async function updateFindSearchContext(
     listings?: FindSearchListingFact[];
     appliedCheckIds?: string[];
     freeGovReceipts?: FindFreeGovReceipt[];
+    servPaidCalls?: number;
+    lastServShortlistFp?: string | null;
   },
 ): Promise<FindSearchContextRecord> {
   const next: FindSearchContextRecord = {
@@ -155,6 +175,11 @@ export async function updateFindSearchContext(
     listings: patch.listings ?? record.listings,
     appliedCheckIds: patch.appliedCheckIds ?? record.appliedCheckIds,
     freeGovReceipts: patch.freeGovReceipts ?? record.freeGovReceipts ?? [],
+    servPaidCalls: patch.servPaidCalls ?? record.servPaidCalls ?? 0,
+    lastServShortlistFp:
+      patch.lastServShortlistFp !== undefined
+        ? patch.lastServShortlistFp
+        : (record.lastServShortlistFp ?? null),
   };
   await storeFindSearchContext(kv, next);
   return next;

@@ -436,6 +436,39 @@ export async function runFindMatch(
   }
 
   const visible = groups.reduce((sum, group) => sum + group.listings.length, 0);
+  // One comparable pool + one coverage total across the page: recompute badges from
+  // every shown card (not the pre-diversify collected set) so badge n= matches pick/score.
+  const allShown = groups.flatMap((g) => g.listings);
+  for (const group of groups) {
+    group.listings = group.listings.map((item) => {
+      const priceView = item.priceView;
+      const usable = priceView?.usableForBudget !== false;
+      return {
+        ...item,
+        badge: usable
+          ? priceBadge(item, allShown)
+          : priceBadge({ ...item, priceUsd: null }, allShown),
+      };
+    });
+    const coverageInput = {
+      mode: need.mode,
+      sample: false,
+      dealerListingCount: group.listings.length,
+      pageListingCount: visible,
+      radiusMiles: radiusMiles,
+      historyOnListing: false,
+    };
+    const base = coverageSentence(coverageInput);
+    // Preserve any prior incomplete-search suffix after the base sentence.
+    const prior = group.coverage ?? "";
+    const incompleteBit = prior.includes("Coverage incomplete:")
+      ? prior.slice(prior.indexOf("Coverage incomplete:"))
+      : null;
+    group.coverage = incompleteBit ? `${base} ${incompleteBit}` : base;
+    if (!prior.includes("Coverage incomplete:")) {
+      group.coverageLevel = coverageConfidence(coverageInput);
+    }
+  }
   const allOutcomes = groups.flatMap((g) => g.queryOutcomes);
   const resolved = resolveFindEmptyFromOutcomes(allOutcomes, visible);
 

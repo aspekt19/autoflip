@@ -32,6 +32,11 @@ import {
   mergeFreeGovReceiptsByMmy,
   riskCoverageHonesty,
 } from "@/domain/find-risk-evidence";
+import {
+  countNonFreeAllowlistChoices,
+  fingerprintBestDealShortlist,
+  shouldInvokeServForFindNextCheck,
+} from "@/domain/find-serv-budget";
 import { softPrefGapsFromText, type StructuredNeed } from "@/domain/need";
 import type { ScoutFreeGovPort } from "@/domain/scout/free-gov";
 import type { Kv } from "@/io/kv";
@@ -139,6 +144,10 @@ export type FindNextCheckOrchestratorOk = {
   bestDeal: ReturnType<typeof selectBestDealOnEvidence>;
   /** Ordinary UI auto-continues when continue=true (no hidden step quota). */
   loop: FindNextCheckLoopDisposition;
+  /** Paid SERV find_next_check HTTP calls so far this Find (after this hop). */
+  servPaidCalls: number;
+  /** Why SERV ran or was skipped this hop (bounded drain accounting). */
+  servInvokeReason: string;
 };
 
 export function buildKeyedAutonomyDiag(input: {
@@ -227,6 +236,8 @@ function publicResultPayload(ok: FindNextCheckOrchestratorOk): string {
     loop: ok.loop,
     proofs: ok.proofs,
     bestDeal: ok.bestDeal,
+    servPaidCalls: ok.servPaidCalls,
+    servInvokeReason: ok.servInvokeReason,
   });
 }
 
@@ -294,6 +305,37 @@ export async function runFindNextCheckOrchestrator(
   try {
     const priorReceipts = ctx.freeGovReceipts ?? [];
     const priorCoverage = freeGovToolCoverage(ctx.listings, priorReceipts);
+    const softGapsPrior = softPrefGapsFromText(ctx.need.note);
+    const listingsHaveVinPrior = ctx.listings.some(
+      (l) => typeof l.vin === "string" && l.vin.trim().length >= 11,
+    );
+    const priorProposed = proposeFindNextChecks({
+      need: ctx.need,
+      softGaps: softGapsPrior,
+      observedListingCount: ctx.listings.length,
+      observedModelCount: new Set(ctx.listings.map((l) => `${l.make}|${l.model}`)).size,
+      emptyInventory: ctx.listings.length === 0,
+      appliedCheckIds: ctx.appliedCheckIds,
+      listingsHaveVin: listingsHaveVinPrior,
+      freeGovCoverage: priorCoverage,
+    });
+    const priorAllowedIds = priorProposed.map((c) => c.id);
+    const priorFreeGovCount = priorAllowedIds.filter((id) => isFindFreeGovCheckId(id)).length;
+    const priorBestDeal = selectBestDealOnEvidence({
+      need: ctx.need,
+      listings: ctx.listings,
+      receipts: priorReceipts,
+    });
+    const shortlistFp = fingerprintBestDealShortlist(priorBestDeal.ranked);
+    const paidSoFar = ctx.servPaidCalls ?? 0;
+    const servDecision = shouldInvokeServForFindNextCheck({
+      paidCallsSoFar: paidSoFar,
+      remainingFreeGovCount: priorFreeGovCount,
+      nonFreeChoiceCount: countNonFreeAllowlistChoices(priorAllowedIds),
+      shortlistFp,
+      lastServShortlistFp: ctx.lastServShortlistFp ?? null,
+      neverCalledServ: paidSoFar === 0,
+    });
     const live = await runFindNextCheckLive(
       {
         need: ctx.need,
@@ -309,6 +351,8 @@ export async function runFindNextCheckOrchestrator(
         servBaseUrl: deps.servBaseUrl,
         fetchImpl: deps.fetchImpl,
         env: deps.env,
+        skipServ: keyed && !servDecision.invoke,
+        skipServReason: servDecision.reason,
       },
     );
 
@@ -317,12 +361,15 @@ export async function runFindNextCheckOrchestrator(
       return live;
     }
 
-    const servHttpAttempts = live.proofs.length > 0 && keyed ? 1 : 0;
+    const servHttpAttempts = live.proofs.length > 0 && keyed && servDecision.invoke ? 1 : 0;
+    const nextPaidCallsPreview = paidSoFar + servHttpAttempts;
     if (claimId && servHttpAttempts > 0) {
       await logFindNextCheckServSpend(deps.kv, identity, claimId, {
         profile: "find_next_check",
         httpAttempts: servHttpAttempts,
         source: live.source,
+        servPaidCalls: nextPaidCallsPreview,
+        invokeReason: servDecision.reason,
       });
     }
 
@@ -378,12 +425,16 @@ export async function runFindNextCheckOrchestrator(
       }
     }
 
+    const nextPaidCalls = nextPaidCallsPreview;
     const updated: FindSearchContextRecord = await updateFindSearchContext(deps.kv, ctx, {
       need: live.replan.need,
       refine: refineAfter,
       listings: listingsAfter,
       appliedCheckIds: appliedNext,
       freeGovReceipts,
+      servPaidCalls: nextPaidCalls,
+      lastServShortlistFp:
+        servHttpAttempts > 0 ? shortlistFp : (ctx.lastServShortlistFp ?? null),
     });
 
     const fuelsByModelKey = fuelsByModelKeyFromReceipts(freeGovReceipts);
@@ -528,6 +579,8 @@ export async function runFindNextCheckOrchestrator(
       freeGovCoverage: coverageAfter,
       bestDeal,
       loop,
+      servPaidCalls: nextPaidCalls,
+      servInvokeReason: servDecision.reason,
     };
 
     if (claimId) {

@@ -220,10 +220,10 @@ export function freeGovToolCoverage(
     recalls.unchecked > 0 || safety.unchecked > 0 || vpic.unchecked > 0 || fuel.unchecked > 0;
   const note =
     allKeys.size === 0
-      ? "No listing year/make/model keys for free public coverage."
+      ? "No cars to check against public recall, safety, or fuel records yet."
       : anyUnchecked
-        ? `Free public progress — recalls ${recalls.checked}/${recalls.eligible}, safety ${safety.checked}/${safety.eligible}, VIN decode ${vpic.checked}/${vpic.eligible}, fuel ${fuel.checked}/${fuel.eligible}. Unchecked remain — not fleet-cleared; not VIN history.`
-        : `Free public sample exhausted eligible year/make/model rows (recalls ${recalls.checked}, safety ${safety.checked}, VIN decode ${vpic.checked}, fuel ${fuel.checked}). Still year/make/model scope only — not VIN unrepaired/title clearance.`;
+        ? `Public checks in progress — recalls ${recalls.checked}/${recalls.eligible}, safety ${safety.checked}/${safety.eligible}, VIN decode ${vpic.checked}/${vpic.eligible}, fuel ${fuel.checked}/${fuel.eligible}. Recall and crash-test data are per model and year, not for this exact car’s VIN.`
+        : `Public checks finished for these cards (recalls ${recalls.checked}, safety ${safety.checked}, VIN decode ${vpic.checked}, fuel ${fuel.checked}). Recall and crash-test data are per model and year, not for this exact car’s VIN.`;
   return {
     listingMmyCount: allKeys.size,
     recalls,
