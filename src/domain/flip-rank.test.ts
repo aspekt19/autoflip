@@ -38,14 +38,14 @@ const now = new Date("2026-11-04T00:00:00Z");
 describe("flip ranking", () => {
   it("excludes a car with fewer than 3 comps and ranks the rest by estimate", () => {
     const lone = car({ vin: "LONE0000000000001", priceUsd: 4_000, year: 2012, make: "Ford", model: "Ranger" });
-    const civics = [6_000, 8_000, 9_000, 11_000, 12_000].map((price, index) =>
+    const civics = [10_000, 10_500, 11_000, 11_500, 12_000].map((price, index) =>
       car({ vin: `CIVIC00000000000${index}`, priceUsd: price, year: 2014 }),
     );
-    const cheap = car({ vin: "CHEAP000000000001", priceUsd: 5_000, year: 2014 });
+    const cheap = car({ vin: "CHEAP000000000001", priceUsd: 8_000, year: 2014 });
     const ranked = rankFlipCandidates([lone, ...civics, cheap], now);
     const excluded = ranked.find((item) => item.vin === lone.vin);
     expect(excluded?.excluded).toBe(true);
-    expect(excluded?.excludeReason).toMatch(/fewer than 3/);
+    expect(excluded?.excludeReason).toBe("Not enough similar cars");
     const top = topFlipCandidates([lone, ...civics, cheap], now, 5);
     expect(top.every((item) => item.compCount >= 3)).toBe(true);
     expect(top.some((item) => item.vin === lone.vin)).toBe(false);

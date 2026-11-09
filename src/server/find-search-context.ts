@@ -20,9 +20,9 @@ export const FIND_SEARCH_CONTEXT_TTL_SEC = 60 * 60 * 2; // 2h
 
 export type FindSearchListingFact = ObservedListingRow & {
   vin?: string | null;
-  /** When present, best-deal market comps can share same-trim scope with card badges. */
+  /** When present, the shared price path can adjust trim the same way the card badge does. */
   trim?: string | null;
-  /** Listing-feed flags — surfaced as plain notes; never baked into Find market $. */
+  /** Listing-feed flags. The shared price path adjusts for them. */
   accidentCount?: number | null;
   cpo?: boolean | null;
   fuel?: string | null;
@@ -430,7 +430,7 @@ export function listingFactsFromCompsPool(
   );
 }
 
-/** Build Listing stubs for resolveMarketComps / selectBestDealOnEvidence.marketPool. */
+/** Build Listing stubs for the shared price path / selectBestDealOnEvidence.marketPool. */
 export function marketPoolFromListingFacts(
   rows: readonly FindSearchListingFact[],
 ): import("@/domain/types").Listing[] {
@@ -466,7 +466,7 @@ export function marketPoolFromListingFacts(
       primaryImage: null,
       carfaxUrl: null,
       used: true,
-      // Preserve feed flags for badge/factor notes only — resolveMarketComps ignores them.
+      // Feed flags change the adjusted fair value. Keep them on the pool the badge uses.
       cpo: row.cpo ?? null,
       accidentCount: row.accidentCount ?? null,
       oneOwner: row.oneOwner ?? null,

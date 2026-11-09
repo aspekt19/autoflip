@@ -145,7 +145,7 @@ describe("assembleReport Autodev fee re-fetch (selected listing handoff)", () =>
     expect(preview.ok).toBe(true);
     if (!preview.ok || !("badge" in preview)) return;
     expect(preview.badge.tone).toBe("unknown");
-    expect(preview.badge.label).toMatch(/not enough data/i);
+    expect(preview.badge.label).toMatch(/not enough similar cars/i);
   });
 
   it("flip mode: fee re-fetch yields no profit margin claim", async () => {

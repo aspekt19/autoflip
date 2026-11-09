@@ -1,7 +1,8 @@
 import { ASSUMPTIONS } from "./assumptions";
+import { NOT_ENOUGH_SIMILAR_CARS, evaluateListingPrice } from "./price-evaluation";
 import type { RepairAbility } from "./need";
 import { reconUsd } from "./recon";
-import { median, percentileValue, roundDollars } from "./stats";
+import { roundDollars } from "./stats";
 import type { Listing } from "./types";
 
 export type SaleSpeed = "faster" | "typical" | "slower" | "unknown";
@@ -33,8 +34,6 @@ export type FlipRankOptions = {
   targetProfitUsd?: number | null;
 };
 
-const MIN_COMPS = 3;
-
 /** Days since createdAt. Missing or unparseable age is null — never guessed. */
 export function listingAgeDays(listing: Listing, now: Date): number | null {
   if (!listing.createdAt) return null;
@@ -46,26 +45,13 @@ export function listingAgeDays(listing: Listing, now: Date): number | null {
   return days;
 }
 
-function sameName(a: string, b: string): boolean {
-  return a.trim().toLowerCase() === b.trim().toLowerCase();
-}
-
-function compsFor(subject: Listing, pool: Listing[]): Listing[] {
-  return pool.filter((item) => {
-    if (item.vin === subject.vin) return false;
-    if (!sameName(item.make, subject.make) || !sameName(item.model, subject.model)) return false;
-    if (Math.abs(item.year - subject.year) > 2) return false;
-    return typeof item.priceUsd === "number" && item.priceUsd > 0;
-  });
-}
-
 function exampleCost(miles: number | null, repairAbility?: RepairAbility): { usd: number; assumption: string } {
   const skill = repairAbility ?? "unknown";
   const recon = reconUsd({ miles, accidentCount: 0, repairAbility: skill });
   const title = ASSUMPTIONS.flipTitleFeeUsd;
   const titleLine = `Title/fee assumption: $${title.toLocaleString("en-US")} (example, not a quote).`;
   const soldDisclaimer =
-    "Resale band uses the middle and the spread of comparable asking prices in this scan — not closed sales or a resale guarantee.";
+    "Resale band is the adjusted fair value from similar listings in this scan — the same comparison as a report — not closed sales or a resale guarantee.";
   return {
     usd: title + recon.usd,
     assumption: `${titleLine} ${recon.because} ${soldDisclaimer}`,
@@ -100,7 +86,7 @@ export function flipAlertWhy(item: FlipEstimate): string {
   return [
     `${item.listing.year} ${item.listing.make} ${item.listing.model} · ${money(asking)}.`,
     `Estimate, not a completed sale: profit about ${money(item.profitLowUsd ?? 0)} to ${money(item.profitHighUsd ?? 0)} (mid ${money(item.profitMidUsd ?? 0)}).`,
-    `Basis: ${item.compCount} comparable asking prices in this scan, same make and model, within 2 model years, minus example costs of ${money(item.costUsd ?? 0)} (fee and reconditioning assumptions, not a quote for this car).`,
+    `Basis: fair value ${money(item.resaleMidUsd ?? 0)} from ${item.compCount} similar listings in this scan, adjusted for mileage, model year, trim, and listing history, minus example costs of ${money(item.costUsd ?? 0)} (fee and reconditioning assumptions, not a quote for this car).`,
     item.confidence === "low" ? "Confidence is low because this scan had only 3 or 4 similar listings." : "Confidence uses 5 or more similar listings in this scan.",
     `Speed of sale: ${item.speed}. ${item.speedBasis}`,
     item.assumption,
@@ -112,75 +98,66 @@ export function flipAlertWhy(item: FlipEstimate): string {
 }
 
 function estimateOne(listing: Listing, pool: Listing[], now: Date, options?: FlipRankOptions): FlipEstimate {
-  const comps = compsFor(listing, pool);
-  const prices = comps.map((item) => item.priceUsd).filter((price): price is number => price !== null);
+  const evaluation = evaluateListingPrice(listing, pool, { mode: "flip" });
   const age = listingAgeDays(listing, now);
-  const speed = speedOf(comps.length, age);
+  const speed = speedOf(evaluation.sampleSize, age);
   const asking = listing.priceUsd ?? 0;
   const priced = exampleCost(listing.miles, options?.repairAbility);
   const cost = priced.usd;
   const target = options?.targetProfitUsd ?? null;
-  if (prices.length < MIN_COMPS) {
+  const blank = {
+    vin: listing.vin,
+    listing,
+    compCount: evaluation.sampleSize,
+    costUsd: cost,
+    profitLowUsd: null as number | null,
+    profitMidUsd: null as number | null,
+    profitHighUsd: null as number | null,
+    confidence: "low" as const,
+    speed: speed.label,
+    speedBasis: speed.basis,
+    excluded: true,
+    score: Number.NEGATIVE_INFINITY,
+    clearsTarget: null as boolean | null,
+    assumption: priced.assumption,
+  };
+  if (
+    !evaluation.priced ||
+    evaluation.fairValueUsd == null ||
+    evaluation.fairLowUsd == null ||
+    evaluation.fairHighUsd == null
+  ) {
     return {
-      vin: listing.vin,
-      listing,
-      compCount: prices.length,
+      ...blank,
       resaleLowUsd: null,
       resaleMidUsd: null,
       resaleHighUsd: null,
-      costUsd: cost,
-      profitLowUsd: null,
-      profitMidUsd: null,
-      profitHighUsd: null,
-      confidence: "low",
-      speed: speed.label,
-      speedBasis: speed.basis,
-      excluded: true,
-      excludeReason: `fewer than ${MIN_COMPS} comparable asking prices in this scan`,
-      score: Number.NEGATIVE_INFINITY,
-      clearsTarget: null,
-      assumption: priced.assumption,
+      excludeReason: NOT_ENOUGH_SIMILAR_CARS,
     };
   }
-  const low = percentileValue(prices, 25)!;
-  const mid = median(prices)!;
-  const high = percentileValue(prices, 75)!;
-  if (asking < ASSUMPTIONS.suspiciousPriceFloorUsd || asking < mid * ASSUMPTIONS.suspiciousPriceRatio) {
+  const resaleLowUsd = evaluation.fairLowUsd;
+  const resaleMidUsd = evaluation.fairValueUsd;
+  const resaleHighUsd = evaluation.fairHighUsd;
+  if (asking < ASSUMPTIONS.suspiciousPriceFloorUsd || asking < resaleMidUsd * ASSUMPTIONS.suspiciousPriceRatio) {
     return {
-      vin: listing.vin,
-      listing,
-      compCount: prices.length,
-      resaleLowUsd: roundDollars(low),
-      resaleMidUsd: roundDollars(mid),
-      resaleHighUsd: roundDollars(high),
-      costUsd: cost,
-      profitLowUsd: null,
-      profitMidUsd: null,
-      profitHighUsd: null,
-      confidence: "low",
-      speed: speed.label,
-      speedBasis: speed.basis,
-      excluded: true,
-      excludeReason: "price is suspiciously low next to the other rows",
-      score: Number.NEGATIVE_INFINITY,
-      clearsTarget: null,
-      assumption: priced.assumption,
+      ...blank,
+      resaleLowUsd,
+      resaleMidUsd,
+      resaleHighUsd,
+      excludeReason: "price is suspiciously low next to similar cars",
     };
   }
-  const resaleLowUsd = roundDollars(low);
-  const resaleMidUsd = roundDollars(mid);
-  const resaleHighUsd = roundDollars(high);
   const profitLowUsd = profit(resaleLowUsd, asking, cost);
   const profitMidUsd = profit(resaleMidUsd, asking, cost);
   const profitHighUsd = profit(resaleHighUsd, asking, cost);
-  const confidence = prices.length >= 5 ? "ok" : "low";
+  const confidence = evaluation.sampleSize >= 5 ? "ok" : "low";
   const confidenceFactor = confidence === "ok" ? 1 : 0.75;
   const clearsTarget = target === null ? null : profitMidUsd >= target;
   const score = profitMidUsd * confidenceFactor * speed.factor * (clearsTarget === false ? 0.5 : 1);
   return {
     vin: listing.vin,
     listing,
-    compCount: prices.length,
+    compCount: evaluation.sampleSize,
     resaleLowUsd,
     resaleMidUsd,
     resaleHighUsd,
@@ -203,7 +180,7 @@ function speedOf(compCount: number, ageDays: number | null): { label: SaleSpeed;
   if (ageDays === null) {
     return {
       label: "unknown",
-      basis: `Listing age was not in the feed. ${compCount} comparable asking prices were in this scan.`,
+      basis: `Listing age was not in the feed. ${compCount} similar listings were in this scan.`,
       factor: 1,
     };
   }

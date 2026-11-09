@@ -294,7 +294,7 @@ export const PROFILES = {
     contentFilter: "default_on",
     stream: false,
     endpoint: "chat",
-    codeComputed: ["priceUsd", "gapUsd", "miles"],
+    codeComputed: ["priceUsd", "fairValueUsd", "gapUsd", "miles"],
   },
   flip_feasibility: {
     id: "flip_feasibility",
@@ -310,7 +310,7 @@ export const PROFILES = {
     contentFilter: "default_on",
     stream: false,
     endpoint: "chat",
-    codeComputed: ["profitLowUsd", "profitMidUsd", "profitHighUsd", "compCount", "speed"],
+    codeComputed: ["fairValueUsd", "profitLowUsd", "profitMidUsd", "profitHighUsd", "compCount", "speed"],
   },
   flip_judge: {
     id: "flip_judge",
@@ -356,7 +356,7 @@ export const PROFILES = {
         required: ["decisions"],
       },
     },
-    codeComputed: ["profitLowUsd", "profitMidUsd", "profitHighUsd", "compCount", "speed"],
+    codeComputed: ["fairValueUsd", "profitLowUsd", "profitMidUsd", "profitHighUsd", "compCount", "speed"],
   },
   verdict_decide: {
     id: "verdict_decide",

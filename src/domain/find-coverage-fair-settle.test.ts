@@ -4,7 +4,6 @@
  * market/budget/checklist copy stay honest and consistent.
  */
 import { describe, expect, it } from "vitest";
-import { selectComparables } from "./comparables";
 import { coverageNote } from "./coverage";
 import {
   BEST_DEAL_PRICE_BELOW_CAP_FRAC,
@@ -79,7 +78,7 @@ function buildLive24(): BestDealListing[] {
     make: "Toyota",
     model: "Camry",
     year: 2012,
-    priceUsd: 6_800,
+    priceUsd: 4_500,
     miles: 139_885,
     vin: "CAM-EXTREME",
   };
@@ -490,7 +489,7 @@ describe("live 24-card coverage settle + fair scoring", () => {
 });
 
 describe("price-below-market cap under condition-first", () => {
-  it("caps extreme discount bonus so a $6800/139k Camry cannot farm full +price weight", () => {
+  it("caps extreme discount bonus so a cheap high-mile Camry cannot farm full +price weight", () => {
     const need = {
       ...explicitNeedFromText(LIVE_NOTE, "personal"),
       budgetKnown: true as const,
@@ -499,10 +498,12 @@ describe("price-below-market cap under condition-first", () => {
       preferredModels: [{ make: "Toyota", model: "Camry" }],
     };
     const listings: BestDealListing[] = [
-      { make: "Toyota", model: "Camry", year: 2012, priceUsd: 6_800, miles: 139_885, vin: "LOW" },
-      { make: "Toyota", model: "Camry", year: 2014, priceUsd: 12_500, miles: 95_000, vin: "MID" },
-      { make: "Toyota", model: "Camry", year: 2015, priceUsd: 13_800, miles: 88_000, vin: "HI" },
-      { make: "Kia", model: "Sportage", year: 2016, priceUsd: 14_795, miles: 88_400, vin: "SP" },
+      { make: "Toyota", model: "Camry", year: 2014, priceUsd: 7_000, miles: 139_885, vin: "LOW" },
+      { make: "Toyota", model: "Camry", year: 2014, priceUsd: 12_000, miles: 130_000, vin: "A" },
+      { make: "Toyota", model: "Camry", year: 2014, priceUsd: 12_500, miles: 125_000, vin: "B" },
+      { make: "Toyota", model: "Camry", year: 2015, priceUsd: 13_000, miles: 120_000, vin: "C" },
+      { make: "Toyota", model: "Camry", year: 2015, priceUsd: 12_800, miles: 128_000, vin: "D" },
+      { make: "Toyota", model: "Camry", year: 2013, priceUsd: 11_800, miles: 135_000, vin: "E" },
     ];
     const result = selectBestDealOnEvidence({ need, listings, receipts: [], nowYear: 2026 });
     const extreme = result.ranked.find((r) => r.vin === "LOW")!;
@@ -593,10 +594,8 @@ describe("checklist + market + budget + coverage copy", () => {
       asListing({ make: "Kia", model: "Sportage", year: 2017, priceUsd: 15_200, miles: 80_000, vin: "C", trim: "EX" }),
       asListing({ make: "Kia", model: "Sportage", year: 2018, priceUsd: 16_000, miles: 70_000, vin: "D", trim: null }),
     ];
-    const selection = selectComparables(subject, pool);
-    expect(selection.notes[0]).not.toMatch(/Only 0 same-trim/);
-    expect(selection.notes[0]).toMatch(/No same-trim|Only \d+ same-trim|same-model/i);
     const badge = priceBadge(subject, pool);
+    expect(badge.sampleNote ?? "").not.toMatch(/Only 0 same-trim/);
     expect(badge.deltaLabel).toMatch(/based on \d+/);
     const nFromDelta = Number(badge.deltaLabel?.match(/based on (\d+)/)?.[1]);
     expect(nFromDelta).toBe(badge.sampleSize);

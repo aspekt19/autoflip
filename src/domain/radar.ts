@@ -49,7 +49,7 @@ export function scoreRadar(listings: Listing[], mode: Mode, asOfYear?: number): 
         priceGap: computed.priceGap,
         fairValueUsd: computed.fairValueUsd,
         compCount: computed.comps.length,
-        reason: computed.reasons[0] ?? "Not enough comparables in this result set.",
+        reason: computed.reasons[0] ?? "Not enough similar cars",
       };
     }
     const reason = computed.reasons.find((line) => line.startsWith("Asking") || line.startsWith("Conservative")) ??

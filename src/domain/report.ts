@@ -1,5 +1,6 @@
 import { ASSUMPTIONS } from "./assumptions";
-import { adjustComparableSet, comparableCarFromListing, GENERATION_YEAR_WINDOW } from "./adjusted-comparables";
+import { GENERATION_YEAR_WINDOW } from "./adjusted-comparables";
+import { evaluateListingPrice } from "./price-evaluation";
 import { priceGap, rankAgainstAdjusted } from "./comparables";
 import { flipMath } from "./flip";
 import { formatPct, formatUsd } from "./format";
@@ -215,15 +216,10 @@ export function buildComputedReport(input: ReportInput): ComputedReport {
       `NHTSA cleanly decoded this VIN, but the listing identity differs (${vinIdentityMismatches.join("; ")}). Decoder: ${input.vinDecode.year ?? "?"} ${input.vinDecode.make ?? "unknown"} ${input.vinDecode.model ?? "unknown"}; listing: ${input.subject.year} ${input.subject.make} ${input.subject.model}. Verify the VIN and listing before relying on this report.`,
     );
   }
-  const adjusted = adjustComparableSet({
-    subject: comparableCarFromListing(input.subject, { decodedTrim: input.vinDecode?.trim ?? null }),
-    pool: input.candidates.map((item) =>
-      comparableCarFromListing(item, {
-        sourceLabel: item.source === "sample" ? "Labeled sample fixture" : "Auto.dev listing",
-      }),
-    ),
+  const adjusted = evaluateListingPrice(input.subject, input.candidates, {
     mode: input.mode,
-  });
+    decodedTrim: input.vinDecode?.trim ?? null,
+  }).set;
   if (adjusted.blockReason === "miles") {
     dataNotes.push("Mileage was missing, so similar listings were not adjusted to this car.");
   } else if (adjusted.blockReason === "count") {
@@ -327,7 +323,7 @@ export function buildComputedReport(input: ReportInput): ComputedReport {
     if (vinIdentityMismatch) {
       reasons.push("The VIN's NHTSA decode conflicts with the vehicle identity in the listing. The price verdict is withheld until the seller verifies the VIN and corrects the listing.");
     } else {
-      reasons.push("There are not enough priced, same-model listings with mileage to score this asking price.");
+      reasons.push("Not enough similar cars. A price verdict needs at least 3 priced listings of the same model within 3 model years, with mileage, and adjusted prices that are not too far apart.");
     }
     if (subjectPrice === null) reasons.push("The listing has no asking price.");
   } else if (input.mode === "personal") {

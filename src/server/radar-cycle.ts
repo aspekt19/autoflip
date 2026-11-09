@@ -7,7 +7,6 @@ import {
   hardReject,
   intervalHours,
   isDue,
-  marketBand,
   prefilterListing,
   rankPasses,
   seenStorageKey,
@@ -216,7 +215,6 @@ export async function runRadarCycle(deps: CycleDeps): Promise<StoredRun> {
       const criteria = job.group[0]!.criteria;
       const asOfYear = deps.now.getUTCFullYear();
       const eligible = job.listings.filter((listing) => hardReject(listing, criteria, asOfYear) === null);
-      const band = marketBand(eligible);
       for (const search of job.group) {
         if (isBroadFlip(search)) {
           const ranked = topFlipCandidates(job.listings, deps.now, ASSUMPTIONS.radarMaxAlertsPerSearch, {
@@ -232,7 +230,7 @@ export async function runRadarCycle(deps: CycleDeps): Promise<StoredRun> {
             return [{ ...item, priceDropFrom }];
           });
           tallyReason(reasons, "already seen", ranked.length - fresh.length);
-          tallyReason(reasons, "fewer than 3 comps", job.listings.length - ranked.length);
+          tallyReason(reasons, "Not enough similar cars", job.listings.length - ranked.length);
           passed += fresh.length;
           filteredOut += job.listings.length - fresh.length;
           for (const item of ranked) book.set(item.vin, item.listing.priceUsd);
@@ -246,11 +244,14 @@ export async function runRadarCycle(deps: CycleDeps): Promise<StoredRun> {
           for (const item of fresh) {
             const decision = judged?.decisions?.get(item.vin);
             // Code owns the alert list. SERV may explain a skip preference, but it cannot suppress a ranked deal.
+            const badge = priceBadge(item.listing, job.listings, { mode: "flip" });
             const numbers = {
               priceUsd: item.listing.priceUsd ?? 0,
-              medianUsd: item.resaleMidUsd ?? 0,
-              lowUsd: item.resaleLowUsd ?? 0,
-              highUsd: item.resaleHighUsd ?? 0,
+              fairValueUsd: badge.fairValueUsd,
+              priceLabel: badge.label,
+              medianUsd: badge.fairValueUsd ?? item.resaleMidUsd ?? 0,
+              lowUsd: item.resaleLowUsd ?? badge.fairValueUsd ?? 0,
+              highUsd: item.resaleHighUsd ?? badge.fairValueUsd ?? 0,
               gapUsd: item.profitMidUsd ?? 0,
               miles: item.listing.miles,
               expectedMiles: null,
@@ -281,7 +282,7 @@ export async function runRadarCycle(deps: CycleDeps): Promise<StoredRun> {
               coverageSentence(flipCoverage),
               coverageConfidence(flipCoverage),
               item.priceDropFrom,
-              priceBadge(item.listing, job.listings),
+              badge,
             );
             alerts.unshift(alert);
             freshAlerts.push(alert);
@@ -301,7 +302,7 @@ export async function runRadarCycle(deps: CycleDeps): Promise<StoredRun> {
         tallyReason(reasons, "already seen", scoped.length - fresh.length);
         const decisions = fresh.map((listing) => ({
           listing,
-          decision: prefilterListing(listing, search.criteria, band, search.mode, deps.now.getUTCFullYear()),
+          decision: prefilterListing(listing, search.criteria, eligible, search.mode, deps.now.getUTCFullYear()),
           dropped: book.has(listing.vin),
         }));
         const passedRows = decisions.filter((item) => item.decision.pass);
@@ -347,7 +348,7 @@ export async function runRadarCycle(deps: CycleDeps): Promise<StoredRun> {
             coverageSentence(personalCoverage),
             coverageConfidence(personalCoverage),
             winner.priceDropFrom,
-            priceBadge(winner.listing, scoped),
+            priceBadge(winner.listing, scoped, { mode: "personal" }),
           );
           alerts.unshift(alert);
           freshAlerts.push(alert);
@@ -509,6 +510,7 @@ async function judgeFlipAlerts(
     make: item.listing.make,
     model: item.listing.model,
     askingUsd: item.listing.priceUsd ?? 0,
+    fairValueUsd: item.resaleMidUsd,
     compCount: item.compCount,
     profitLowUsd: item.profitLowUsd,
     profitMidUsd: item.profitMidUsd,
@@ -732,7 +734,8 @@ async function sendTelegram(chatId: string, alert: WatchAlert, deps: CycleDeps, 
     yearMax: criteria?.yearMax ?? null,
     milesMax: criteria?.milesMax ?? null,
     bodyStyle: criteria?.bodyStyle ?? null,
-    belowTypical: alert.mode === "flip" && alert.numbers.medianUsd > 0 && alert.priceUsd < alert.numbers.medianUsd,
+    priceLabel: alert.badge?.label ?? alert.numbers.priceLabel,
+    fairValueUsd: alert.badge?.fairValueUsd ?? alert.numbers.fairValueUsd,
     origin: deps.origin,
     alertId: alert.id,
   };
