@@ -915,6 +915,20 @@ export function sellerQuestionsForBuyer(
   return lines;
 }
 
+/**
+ * First five cars in ranking order.
+ * Does not move the pick to the front: when a pick exists it is already rank 1.
+ */
+export function topPicksInRankOrder<T extends { key: string }>(
+  ranked: readonly T[],
+  pickKey: string | null,
+): { rows: T[]; pickKeyRank: number | null } {
+  const rows = ranked.slice(0, 5);
+  if (!pickKey) return { rows, pickKeyRank: null };
+  const index = rows.findIndex((row) => row.key === pickKey);
+  return { rows, pickKeyRank: index === -1 ? null : index + 1 };
+}
+
 /** One ranked row for the Top picks list. The link is separate so a missing URL is not a fake anchor. */
 export function formatTopPickLine(input: {
   year: number;

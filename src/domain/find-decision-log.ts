@@ -79,7 +79,8 @@ export function formatDecisionLogLine(
   const after = new Map(entry.top5After.map((row) => [row.key, row.rank]));
   for (const [key, rank] of after) {
     const prev = before.get(key);
-    if (prev != null && prev !== rank) moves.push(`${name(key)} moved from #${prev} to #${rank}`);
+    if (prev == null) moves.push(`${name(key)} joined the top group at #${rank}`);
+    else if (prev !== rank) moves.push(`${name(key)} moved from #${prev} to #${rank}`);
   }
   for (const [key, rank] of before) {
     if (!after.has(key)) moves.push(`${name(key)} left the top group (was #${rank})`);
@@ -87,9 +88,9 @@ export function formatDecisionLogLine(
   if (entry.pickBefore !== entry.pickAfter) {
     moves.push(entry.pickAfter ? `the pick is now the ${name(entry.pickAfter)}` : "there is no confident pick now");
   }
-  const moveBit = moves.length > 0 ? `${moves.slice(0, 2).join("; ")}.` : "The order of the top cars stayed the same.";
+  const moveBit = moves.length > 0 ? `${moves.join("; ")}.` : "The order of the top cars stayed the same.";
   const evidenceBit = evidence.length > 0 ? `${evidence.join(" ")} ` : "";
-  return `${action}${onCars} (${who}). ${evidenceBit}${moveBit}`.replace(/\s+/g, " ").trim();
+  return `${action}${onCars} (${who}). ${evidenceBit}${moveBit}`.replace(/\s+/g, " ").replace(/\.{2,}/g, ".").trim();
 }
 
 export function formatDecisionLogForBuyer(

@@ -110,20 +110,68 @@ describe("government parsers", () => {
 
 describe("recall lookup availability", () => {
   it("distinguishes a successful empty result from an unavailable upstream", async () => {
+    let emptyCalls = 0;
     const empty = await recallsFor("Toyota", "Camry", 2021, {
-      fetch: async () => Response.json({ results: [] }),
+      fetch: async () => {
+        emptyCalls += 1;
+        return Response.json({ results: [] });
+      },
     });
     expect(empty).toEqual({ records: [], available: true });
+    expect(emptyCalls).toBe(1);
 
+    let unavailableCalls = 0;
     const unavailable = await recallsFor("Toyota", "Camry", 2021, {
-      fetch: async () => new Response("upstream unavailable", { status: 503 }),
+      fetch: async () => {
+        unavailableCalls += 1;
+        return new Response("upstream unavailable", { status: 503 });
+      },
     });
     expect(unavailable).toEqual({ records: [], available: false });
+    expect(unavailableCalls).toBe(2);
 
+    let malformedCalls = 0;
     const malformed = await recallsFor("Toyota", "Camry", 2021, {
-      fetch: async () => Response.json({ message: "unexpected response" }),
+      fetch: async () => {
+        malformedCalls += 1;
+        return Response.json({ message: "unexpected response" });
+      },
     });
     expect(malformed).toEqual({ records: [], available: false });
+    expect(malformedCalls).toBe(1);
+  });
+
+  it("retries one fast 504 and does not retry a timeout or a 400", async () => {
+    let gatewayCalls = 0;
+    const recovered = await recallsFor("Hyundai", "Tucson", 2016, {
+      fetch: async () => {
+        gatewayCalls += 1;
+        if (gatewayCalls === 1) return new Response("gateway timeout", { status: 504 });
+        return Response.json({ Count: 0, results: [] });
+      },
+    });
+    expect(recovered).toEqual({ records: [], available: true });
+    expect(gatewayCalls).toBe(2);
+
+    let timeoutCalls = 0;
+    const timedOut = await recallsFor("Hyundai", "Tucson", 2016, {
+      fetch: async () => {
+        timeoutCalls += 1;
+        throw Object.assign(new Error("timed out"), { name: "TimeoutError" });
+      },
+    });
+    expect(timedOut.available).toBe(false);
+    expect(timeoutCalls).toBe(1);
+
+    let clientCalls = 0;
+    const rejected = await recallsFor("Hyundai", "Tucson", 2016, {
+      fetch: async () => {
+        clientCalls += 1;
+        return new Response("bad model", { status: 400 });
+      },
+    });
+    expect(rejected.available).toBe(false);
+    expect(clientCalls).toBe(1);
   });
 });
 

@@ -60,7 +60,11 @@ const MAKE_CANON: Record<string, string> = {
   mercedesbenz: "mercedesbenz",
 };
 
-/** Drivetrain / body words dealers paste into the trim field. Not a trim-level difference. */
+/**
+ * Drivetrain / body / powertrain words dealers paste into the trim field.
+ * Not a trim-level difference. Shared by VIN comparison and listing-URL titles
+ * so a slug-only "AWD" or "crew cab" cannot disagree with the card.
+ */
 const TRIM_NOISE = new Set([
   "awd",
   "4wd",
@@ -72,6 +76,12 @@ const TRIM_NOISE = new Set([
   "quattro",
   "xdrive",
   "4matic",
+  "sh",
+  "all",
+  "wheel",
+  "wheels",
+  "drive",
+  "driven",
   "sedan",
   "coupe",
   "suv",
@@ -79,6 +89,58 @@ const TRIM_NOISE = new Set([
   "hatchback",
   "hatch",
   "convertible",
+  "utility",
+  "crossover",
+  "4dr",
+  "2dr",
+  "5dr",
+  "3dr",
+  "4d",
+  "2d",
+  "5d",
+  "door",
+  "doors",
+  "dr",
+  "crew",
+  "cab",
+  "pickup",
+  "truck",
+  "van",
+  "minivan",
+  "cargo",
+  "passenger",
+  "extended",
+  "quad",
+  "mega",
+  "supercrew",
+  "supercab",
+  "super",
+  "regular",
+  "short",
+  "long",
+  "bed",
+  "double",
+  "king",
+  "access",
+  "duty",
+  "heavy",
+  "sdn",
+  "conv",
+  "v6",
+  "v8",
+  "v4",
+  "i4",
+  "i6",
+  "h4",
+  "h6",
+  "cvt",
+  "automatic",
+  "manual",
+  "hybrid",
+  "phev",
+  "diesel",
+  "gas",
+  "gasoline",
 ]);
 
 function norm(value: string | null | undefined): string {
@@ -252,20 +314,26 @@ const URL_TRIM_NOISE = new Set([
   "and",
   "at",
   "near",
+  "with",
+  "w",
   "car",
   "cars",
   "vehicle",
+  "vehicles",
   "inventory",
   "vdp",
-  "4dr",
-  "2dr",
-  "4d",
-  "2d",
-  "door",
-  "doors",
-  "dr",
-  "utility",
-  "crossover",
+  "listing",
+  "listings",
+  "detail",
+  "details",
+  "view",
+  "auto",
+  "autos",
+  "html",
+  "htm",
+  "aspx",
+  "php",
+  "jsp",
   "sportutility",
 ]);
 
@@ -277,12 +345,34 @@ const STATE_CODES = new Set([
 ]);
 
 function showTrimToken(token: string): string {
-  const upper = new Set([
-    "ex", "lx", "se", "le", "sx", "sr", "sl", "sv", "gt", "st", "si", "rt", "ls", "lt", "ss", "rs",
-    "xle", "gls", "sel",
-  ]);
-  if (upper.has(token) || token.length <= 2) return token.toUpperCase();
+  if (token.length <= 3) return token.toUpperCase();
   return token.charAt(0).toUpperCase() + token.slice(1);
+}
+
+/** Drop a contiguous token run whose letters equal the compact model name (rav+4, cr+v, f+150). */
+function dropCompactSpans(tokens: string[], compactTarget: string): string[] {
+  if (!compactTarget) return tokens;
+  const out: string[] = [];
+  let index = 0;
+  while (index < tokens.length) {
+    let built = "";
+    let matched = 0;
+    for (let end = index; end < tokens.length; end += 1) {
+      built += tokens[end];
+      if (built === compactTarget) {
+        matched = end - index + 1;
+        break;
+      }
+      if (!compactTarget.startsWith(built)) break;
+    }
+    if (matched > 0) {
+      index += matched;
+      continue;
+    }
+    out.push(tokens[index]!);
+    index += 1;
+  }
+  return out;
 }
 
 /**
@@ -324,17 +414,19 @@ export function trimPhraseFromListingUrl(
     }
   }
   const makeTokens = new Set(norm(car.make).split(" ").filter(Boolean));
-  const modelTokens = new Set(norm(car.model).split(" ").filter(Boolean));
-  const tokens = norm(head)
+  const kept = norm(head)
     .split(" ")
     .filter((token) => {
       if (!token || URL_TRIM_NOISE.has(token)) return false;
-      if (makeTokens.has(token) || modelTokens.has(token)) return false;
-      if (/^(19|20)\d{2}$/.test(token) || /^\d{5}$/.test(token) || /^\d+$/.test(token)) return false;
+      if (makeTokens.has(token)) return false;
+      if (/^(19|20)\d{2}$/.test(token) || /^\d{5}$/.test(token)) return false;
+      if (/^\d+l$/.test(token) || /^\d+t$/.test(token)) return false;
+      if (/^[a-z]\d{3,}$/.test(token) || /^\d{3,}[a-z]$/.test(token)) return false;
       if (/^[a-hj-npr-z0-9]{11,17}$/i.test(token)) return false;
       if (STATE_CODES.has(token)) return false;
       return true;
     });
+  const tokens = dropCompactSpans(kept, compactName(car.model ?? "")).filter((token) => !/^\d+$/.test(token));
   if (tokens.length === 0) return null;
   return tokens.map(showTrimToken).join(" ");
 }
@@ -381,7 +473,7 @@ export function trimSourceDisagreement(input: {
     displayedTrim: displayed,
     listingTitleTrim,
     decodedTrim: decoded || null,
-    note: sentences.join(" "),
+    note: sentences.join(" ").replace(/\.{2,}/g, "."),
     sellerQuestion: `Ask the seller to confirm the trim on the ${title} — the dealer listing link says ${listingTitleTrim}, and the listing data on this card says ${displayed}.`,
   };
 }

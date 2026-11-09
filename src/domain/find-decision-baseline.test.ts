@@ -265,10 +265,79 @@ describe("A1 decision log", () => {
     expect(view.lines[2]).toMatch(/Checked estimated fuel cost 2 times \(built-in checklist\)/);
     expect(view.hiddenSteps).toHaveLength(8);
     expect(view.lines.join(" ").length).toBeLessThan(view.hiddenSteps.join(" ").length);
+    expect(view.hiddenSteps.join(" ")).not.toMatch(/AI chose|moved from|joined the top group|the pick is now/);
     for (const line of [...view.lines, ...view.hiddenSteps]) {
       expect(assertBuyerSafeText(line).ok, line).toBe(true);
       expect(line).not.toMatch(/free_gov_fuel|deterministic/);
+      expect(line).not.toMatch(/\.{2,}/);
     }
+  });
+
+  it("keeps every rank change and an AI step in the open log", () => {
+    const before = [
+      { key: "a", rank: 1 },
+      { key: "b", rank: 2 },
+      { key: "c", rank: 3 },
+    ];
+    const labels = [
+      { key: "a", year: 2016, make: "Kia", model: "Sportage" },
+      { key: "b", year: 2015, make: "Honda", model: "CR-V" },
+      { key: "c", year: 2016, make: "Hyundai", model: "Tucson" },
+      { key: "d", year: 2014, make: "Toyota", model: "Camry" },
+    ];
+    const base = {
+      hop: 1,
+      decidedBy: "code" as const,
+      invokeReason: "free_gov_deterministic_drain",
+      action: "free_gov_fuel",
+      targetCars: [],
+      evidenceAdded: [],
+      top5Before: before,
+      top5After: before,
+      pickBefore: "a",
+      pickAfter: "a",
+    };
+    const shuffled: FindDecisionLogEntry = {
+      ...base,
+      hop: 2,
+      top5After: [
+        { key: "c", rank: 1 },
+        { key: "a", rank: 2 },
+        { key: "b", rank: 3 },
+      ],
+      pickAfter: "c",
+    };
+    const aiQuiet: FindDecisionLogEntry = {
+      ...base,
+      hop: 3,
+      decidedBy: "SERV",
+      action: "free_gov_safety",
+      top5Before: shuffled.top5After,
+      top5After: shuffled.top5After,
+      pickBefore: "c",
+      pickAfter: "c",
+    };
+    const joined: FindDecisionLogEntry = {
+      ...base,
+      hop: 4,
+      top5Before: shuffled.top5After,
+      top5After: [...shuffled.top5After, { key: "d", rank: 4 }],
+      pickBefore: "c",
+      pickAfter: "c",
+    };
+    const view = presentDecisionLogForBuyer([base, shuffled, aiQuiet, joined], labels);
+    expect(view.hiddenSteps).toHaveLength(0);
+    expect(view.lines[1]).toMatch(/Hyundai Tucson moved from #3 to #1/);
+    expect(view.lines[1]).toMatch(/Kia Sportage moved from #1 to #2/);
+    expect(view.lines[1]).toMatch(/Honda CR-V moved from #2 to #3/);
+    expect(view.lines[1]).toMatch(/the pick is now the 2016 Hyundai Tucson/);
+    expect(view.lines[1]).not.toMatch(/stayed the same/);
+    expect(view.lines[2]).toMatch(/AI chose/);
+    expect(view.lines[2]).not.toMatch(/built-in checklist/);
+    expect(view.lines[3]).toMatch(/Toyota Camry joined the top group at #4/);
+    expect(view.lines[3]).not.toMatch(/stayed the same/);
+    expect(view.lines[3]).toMatch(/built-in checklist/);
+    expect(view.lines[3]).not.toMatch(/AI chose/);
   });
 });
 

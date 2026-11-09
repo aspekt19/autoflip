@@ -53,6 +53,7 @@ import {
   formatRecallCheckSummary,
   formatTopPickLine,
   sellerQuestionsForBuyer,
+  topPicksInRankOrder,
   summarizeFuelCheckOutcome,
   summarizeRecallCheckOutcome,
 } from "@/domain/find-buyer-copy";
@@ -76,6 +77,7 @@ import { trimSourceDisagreement } from "@/domain/find-car-consistency";
 import { buyerListingHref } from "@/domain/find-listing-link";
 import { mmyListingKey } from "@/domain/find-risk-evidence";
 import {
+  AGE_GAP_NO_FLOOR,
   ageGapBuyerHonesty,
   applyFollowUp,
   followUps,
@@ -1768,8 +1770,8 @@ function AssistantFlow({
               {need.yearMin != null
                 ? `Search will use ${need.yearMin}${need.yearMax != null ? `–${need.yearMax}` : "+"} from your clarification or this field.`
                 : need.yearBandResolved
-                  ? "No year floor — search uses the budget-based editorial year band only."
-                  : "Leave blank to use the budget-based editorial year band only."}
+                  ? AGE_GAP_NO_FLOOR
+                  : "Leave this blank to use the years that fit your budget."}
             </p>
           </div>
           {need.conditionPriority === "inspection_first" ? (
@@ -1928,9 +1930,9 @@ function AssistantFlow({
                   <div className="hint" role="note">
                     {bestDeal && bestDeal.ranked.length > 0 ? (
                       <div>
-                        <p>Top picks</p>
-                        <ol>
-                          {bestDeal.ranked.slice(0, 5).map((row) => {
+                        <p>{bestDeal.pick ? "Top picks" : "Top cars in the current order"}</p>
+                        <ol className="top-picks">
+                          {topPicksInRankOrder(bestDeal.ranked, bestDeal.pick?.key ?? null).rows.map((row) => {
                             const card =
                               allListings.find(
                                 (item) =>

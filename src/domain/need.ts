@@ -702,6 +702,13 @@ export type SoftPrefGap = {
   honesty: string;
 };
 
+/** Shown when “not too old” was mentioned and the year question is still open. */
+export const AGE_GAP_UNRESOLVED =
+  "No hard model-year cutoff was stated. Set an oldest year on the confirm step, or leave it open and search will use the years that fit your budget.";
+
+/** Shown after the shopper picks “No year floor.” */
+export const AGE_GAP_NO_FLOOR = "You chose no year floor. Search uses the years that fit your budget.";
+
 export function softPrefGapsFromText(text: string): SoftPrefGap[] {
   const t = text.toLowerCase();
   const gaps: SoftPrefGap[] = [];
@@ -744,8 +751,7 @@ export function softPrefGapsFromText(text: string): SoftPrefGap[] {
     gaps.push({
       id: "age",
       mentioned: "age / not too old",
-      honesty:
-        "No hard model-year cutoff was stated. Answer the year-band clarification or set an explicit year range on Confirm — otherwise Find uses only the budget-based editorial band.",
+      honesty: AGE_GAP_UNRESOLVED,
     });
   }
   if (
@@ -774,10 +780,8 @@ export function ageGapBuyerHonesty(
       ? `You set a model-year range of ${need.yearMin}–${need.yearMax}.`
       : `You set a model-year floor of ${need.yearMin}. Search will not go older than that.`;
   }
-  if (need.yearBandResolved) {
-    return "You chose no year floor — search uses the budget-based editorial year band only.";
-  }
-  return "No hard model-year cutoff was stated. Answer the year-band clarification or set an explicit year range on Confirm — otherwise Find uses only the budget-based editorial band.";
+  if (need.yearBandResolved) return AGE_GAP_NO_FLOOR;
+  return AGE_GAP_UNRESOLVED;
 }
 
 export function followUps(need: StructuredNeed): FollowUp[] {

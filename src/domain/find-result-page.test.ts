@@ -10,6 +10,7 @@ import {
   formatTopPickLine,
   sellerQuestionsForBuyer,
   summarizeRecallCheckOutcome,
+  topPicksInRankOrder,
 } from "./find-buyer-copy";
 import type { FindFreeGovReceipt } from "./find-free-gov";
 import { ageGapBuyerHonesty, emptyNeed } from "./need";
@@ -77,6 +78,11 @@ describe("listing links", () => {
     expect(buyerListingHref("#-7662469212002848605")).toBeNull();
     expect(buyerListingHref("-7662469212002848605")).toBeNull();
     expect(buyerListingHref("javascript:alert(1)")).toBeNull();
+    expect(buyerListingHref("mailto:dealer@example.com")).toBeNull();
+    expect(buyerListingHref("//dealer.example/used-2016-car")).toBeNull();
+    expect(buyerListingHref("https://dealer.example")).toBeNull();
+    expect(buyerListingHref("https://dealer.example/#-7662469212002848605")).toBeNull();
+    expect(buyerListingHref("https://dealer.example/inventory/1")).toBe("https://dealer.example/inventory/1");
     expect(buyerListingHref("")).toBeNull();
     expect(buyerListingHref(null)).toBeNull();
   });
@@ -121,6 +127,154 @@ describe("trim sources", () => {
         decodedTrim: "Touring",
       }),
     ).toBeNull();
+  });
+
+  it("ignores drivetrain, body style, file extensions, and hyphenated model pieces", () => {
+    const shapes: Array<{
+      url: string;
+      year: number;
+      make: string;
+      model: string;
+      trim: string;
+      phrase: string | null;
+    }> = [
+      {
+        url: "https://www.landerstoyotanwa.com/inventory/used-2021-toyota-camry-trd-v6-fwd-4dr-car-4t1kz1ak4mu060006/",
+        year: 2021,
+        make: "Toyota",
+        model: "Camry",
+        trim: "TRD V6",
+        phrase: "TRD",
+      },
+      {
+        url: "https://www.atlantavolkswagen.com/inventory/used-2021-toyota-camry-xse-fwd-4d-sedan-4t1k61ak0mu423359/",
+        year: 2021,
+        make: "Toyota",
+        model: "Camry",
+        trim: "XSE",
+        phrase: "XSE",
+      },
+      {
+        url: "https://www.joemachenstoyota.com/auto/used-2021-toyota-rav4-limited/126661218/",
+        year: 2021,
+        make: "Toyota",
+        model: "RAV4",
+        trim: "Limited",
+        phrase: "Limited",
+      },
+      {
+        url: "https://www.dealer.example/inventory/used-2021-toyota-rav-4-xle-awd-4dr-suv",
+        year: 2021,
+        make: "Toyota",
+        model: "RAV4",
+        trim: "XLE",
+        phrase: "XLE",
+      },
+      {
+        url: "https://www.dealer.example/inventory/used-2021-toyota-rav-4-awd",
+        year: 2021,
+        make: "Toyota",
+        model: "RAV4",
+        trim: "XLE",
+        phrase: null,
+      },
+      {
+        url: "https://www.hondadealer.example/used/Honda/2017-Honda-CR-V-EX-AWD-4dr-SUV.html",
+        year: 2017,
+        make: "Honda",
+        model: "CR-V",
+        trim: "EX",
+        phrase: "EX",
+      },
+      {
+        url: "https://www.hondadealer.example/used/2017-honda-cr-v-ex-l-awd",
+        year: 2017,
+        make: "Honda",
+        model: "CRV",
+        trim: "EX-L",
+        phrase: "EX L",
+      },
+      {
+        url: "https://www.forddealer.example/inventory/used-2018-ford-f-150-xlt-4wd-crew-cab",
+        year: 2018,
+        make: "Ford",
+        model: "F-150",
+        trim: "XLT",
+        phrase: "XLT",
+      },
+      {
+        url: "https://www.forddealer.example/inventory/used-2018-ford-f-150-xlt-supercrew-4x4",
+        year: 2018,
+        make: "Ford",
+        model: "F150",
+        trim: "XLT Crew Cab",
+        phrase: "XLT",
+      },
+      {
+        url: "https://www.forddealer.example/inventory/2018-ford-f-150-crew-cab-4x4",
+        year: 2018,
+        make: "Ford",
+        model: "F-150",
+        trim: "Lariat",
+        phrase: null,
+      },
+      {
+        url: "https://www.hondadealer.example/used-2018-honda-accord-sport-2-0t-cvt",
+        year: 2018,
+        make: "Honda",
+        model: "Accord",
+        trim: "Sport",
+        phrase: "Sport",
+      },
+      {
+        url: "https://www.dealer.example/inventory/used-2016-mazda-cx-5-touring-sport-utility-4d",
+        year: 2016,
+        make: "Mazda",
+        model: "CX5",
+        trim: "Touring",
+        phrase: "Touring",
+      },
+      {
+        url: "https://www.dealer.example/inventory/used-2016-kia-sportage-sport",
+        year: 2016,
+        make: "Kia",
+        model: "Sportage",
+        trim: "Sport",
+        phrase: "Sport",
+      },
+    ];
+    for (const shape of shapes) {
+      expect(
+        trimPhraseFromListingUrl(shape.url, shape),
+        shape.url,
+      ).toBe(shape.phrase);
+      expect(
+        trimSourceDisagreement({
+          year: shape.year,
+          make: shape.make,
+          model: shape.model,
+          displayedTrim: shape.trim,
+          listingUrl: shape.url,
+        }),
+        shape.url,
+      ).toBeNull();
+    }
+    expect(
+      trimPhraseFromListingUrl("https://www.dealer.example/inventory/used-2016-kia-sportage-lx", {
+        year: 2016,
+        make: "Kia",
+        model: "Sportage",
+      }),
+    ).toBe("LX");
+    const real = trimSourceDisagreement({
+      year: 2016,
+      make: "Kia",
+      model: "Sportage",
+      displayedTrim: "Sport",
+      listingUrl: "https://www.dealer.example/inventory/used-2016-kia-sportage-lx",
+    });
+    expect(real?.listingTitleTrim).toBe("LX");
+    expect(real?.note).not.toMatch(/\.{2,}/);
   });
 });
 
@@ -236,6 +390,10 @@ describe("recall summary", () => {
       },
     ]);
     expect(recallEvidenceState(mapped[0])).toBe("none_found");
+    const line = formatRecallCheckSummary(summarizeRecallCheckOutcome(mapped));
+    expect(line).toMatch(/came back for all 1 model/);
+    expect(line).not.toMatch(/could not confirm|not a clean result|did not come back/);
+    expect(line).not.toMatch(/\.{2,}/);
   });
 });
 
@@ -250,9 +408,14 @@ describe("year floor copy", () => {
     };
     const line = ageGapBuyerHonesty(need);
     expect(line).toMatch(/You chose no year floor/);
-    expect(line).toMatch(/budget-based editorial year band/);
+    expect(line).toMatch(/years that fit your budget/);
+    expect(line).not.toMatch(/editorial/);
     expect(line).not.toMatch(/No hard model-year cutoff was stated/);
-    expect(ageGapBuyerHonesty({ ...need, yearBandResolved: false })).toMatch(/No hard model-year cutoff was stated/);
+    expect(line).not.toMatch(/\.{2,}/);
+    const unresolved = ageGapBuyerHonesty({ ...need, yearBandResolved: false });
+    expect(unresolved).toMatch(/No hard model-year cutoff was stated/);
+    expect(unresolved).not.toMatch(/You chose no year floor/);
+    expect(unresolved).not.toMatch(/editorial/);
     expect(ageGapBuyerHonesty({ ...need, yearMin: 2015, yearBandResolved: true })).toMatch(/2015/);
   });
 });
@@ -268,5 +431,23 @@ describe("top picks line", () => {
     });
     expect(line).toBe("2016 Hyundai Tucson — $14,900 · 80,400 mi");
     expect(line).not.toMatch(/score/i);
+  });
+
+  it("keeps ranking order and reports the pick at rank 1", () => {
+    const ranked = [
+      { key: "pick" },
+      { key: "second" },
+      { key: "third" },
+      { key: "fourth" },
+      { key: "fifth" },
+      { key: "sixth" },
+    ];
+    const view = topPicksInRankOrder(ranked, "pick");
+    expect(view.rows.map((row) => row.key)).toEqual(["pick", "second", "third", "fourth", "fifth"]);
+    expect(view.pickKeyRank).toBe(1);
+    expect(topPicksInRankOrder(ranked, null).pickKeyRank).toBeNull();
+    const misplaced = topPicksInRankOrder(ranked, "second");
+    expect(misplaced.rows[0]?.key).toBe("pick");
+    expect(misplaced.pickKeyRank).toBe(2);
   });
 });
