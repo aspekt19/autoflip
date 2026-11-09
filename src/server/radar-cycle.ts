@@ -24,6 +24,7 @@ import { parseAutoDevListings } from "@/io/parsers";
 import { reserveRadarCall } from "@/io/persistent-quota";
 import { coverageConfidence, coverageSentence } from "@/domain/coverage";
 import { quotedNumbersStayIn, visibleProof, type DecisionProof } from "@/domain/decision-note";
+import { validateResaleServOutput } from "@/domain/resale-serv-validate";
 import { interpretGuard, runServ, servBudget, type ProfileId, type ServProof } from "@/server/serv";
 import { alertMessage, type AlertCopy } from "@/io/telegram";
 import type { Listing } from "@/domain/types";
@@ -660,16 +661,27 @@ function parseFlipJudgment(
   try {
     const parsed = JSON.parse(text) as { decisions?: Array<{ vin?: string; verdict?: string; note?: string }> };
     if (!Array.isArray(parsed.decisions)) return null;
-    const allowed = JSON.stringify(facts);
     const known = new Set(facts.map((item) => item.vin));
+    const bundle = {
+      vins: [...known],
+      urls: [] as string[],
+      evidenceIds: [...known].map((vin) => `vin:${vin}`),
+      numberFacts: facts,
+    };
     const decisions = new Map<string, { verdict: "alert" | "skip"; note: string }>();
     for (const decision of parsed.decisions) {
       if (!decision.vin || !known.has(decision.vin)) continue;
       if (decision.verdict !== "alert" && decision.verdict !== "skip") continue;
       const note = typeof decision.note === "string" ? decision.note : "";
-      // Exact token membership against the computed facts — not JSON substring matching.
-      const safe = !note.trim() || quotedNumbersStayIn(note, allowed);
-      decisions.set(decision.vin, { verdict: decision.verdict, note: safe ? note : "" });
+      const validation = validateResaleServOutput(
+        { text: note, vins: [decision.vin], evidenceIds: [`vin:${decision.vin}`] },
+        bundle,
+      );
+      // Invented numbers/VINs/URLs → drop the note (code alert still uses scan figures).
+      decisions.set(decision.vin, {
+        verdict: decision.verdict,
+        note: validation.ok ? note : "",
+      });
     }
     return decisions;
   } catch {
