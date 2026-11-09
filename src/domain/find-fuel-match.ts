@@ -234,18 +234,44 @@ function trimHintMatches(optionText: string, modelName: string, trim: string | n
   return hay.includes(t);
 }
 
+/**
+ * Alt-powertrain tokens that must not bleed into a plain gas listing via prefix match
+ * (e.g. "Tucson" must not resolve "Tucson Fuel Cell"; "Camry" must not resolve hybrids
+ * when the exact "Camry" key is absent and we fall through to prefix/includes).
+ */
+const ALT_POWERTRAIN_RE =
+  /\b(fuel\s*cells?|hybrid|plug[\s-]?in|phev|electric|ev(?=[^a-z]|$)|e-?tron|prime)\b/i;
+
+export function listingModelRequestsAltPowertrain(listingModel: string): boolean {
+  return ALT_POWERTRAIN_RE.test(listingModel);
+}
+
+/** True for hydrogen / electricity / plug-in fuelType1 values that are not ordinary liquid gas/diesel. */
+export function isAltPowertrainFuelType(fuelType: string | null | undefined): boolean {
+  if (!fuelType) return false;
+  const t = fuelType.toLowerCase();
+  if (t.includes("hydrogen")) return true;
+  if (isElectricFuelType(fuelType)) return true;
+  if (t.includes("plug-in") || t.includes("phev")) return true;
+  return false;
+}
+
 /** Resolve EPA model menu names that correspond to a listing model (e.g. CR-V → CR-V AWD/FWD). */
 export function resolveEpaModelNames(listingModel: string, menuNames: string[]): string[] {
   const want = normalizeToken(listingModel);
   if (!want) return [];
-  const exact = menuNames.filter((n) => normalizeToken(n) === want);
+  const allowAlt = listingModelRequestsAltPowertrain(listingModel);
+  const eligible = allowAlt
+    ? menuNames
+    : menuNames.filter((n) => !ALT_POWERTRAIN_RE.test(n));
+  const exact = eligible.filter((n) => normalizeToken(n) === want);
   if (exact.length > 0) return exact;
-  const prefixed = menuNames.filter((n) => {
+  const prefixed = eligible.filter((n) => {
     const nrm = normalizeToken(n);
     return nrm === want || nrm.startsWith(want);
   });
   if (prefixed.length > 0) return prefixed;
-  return menuNames.filter((n) => normalizeToken(n).includes(want));
+  return eligible.filter((n) => normalizeToken(n).includes(want));
 }
 
 function emptyEvidence(
@@ -366,16 +392,28 @@ export function matchFuelVehicles(input: {
     });
   }
 
-  const filtered = input.vehicles.filter((v) => {
+  const allowAlt = listingModelRequestsAltPowertrain(input.listing.model);
+  const isAltVehicle = (v: { detail: { fuelType: string | null }; modelName: string }) =>
+    isAltPowertrainFuelType(v.detail.fuelType) || ALT_POWERTRAIN_RE.test(v.modelName);
+  // Drop Fuel Cell / Hybrid / EV siblings when ordinary gas/diesel configs exist for the
+  // same listing model. Pure-EV listings (Model 3, Leaf, …) keep their electric configs.
+  const hasOrdinarySibling = input.vehicles.some((v) => !isAltVehicle(v));
+  const compatible = input.vehicles.filter((v) => {
+    if (!allowAlt && hasOrdinarySibling && isAltVehicle(v)) return false;
+    return true;
+  });
+  const basePool = compatible.length > 0 ? compatible : input.vehicles;
+
+  const filtered = basePool.filter((v) => {
     if (!driveHintMatches(v.detail.drive, input.listing.drivetrain)) return false;
     if (!engineHintMatches(v.detail, v.optionText, input.listing.engine)) return false;
     if (!trimHintMatches(v.optionText, v.modelName, input.listing.trim)) return false;
     return true;
   });
 
-  // If hints eliminated everything, fall back to all configs as ambiguous (honest).
-  const pool = filtered.length > 0 ? filtered : input.vehicles;
-  const usedFallback = filtered.length === 0 && input.vehicles.length > 0;
+  // If hints eliminated everything, fall back to compatible configs as ambiguous (honest).
+  const pool = filtered.length > 0 ? filtered : basePool;
+  const usedFallback = filtered.length === 0 && basePool.length > 0;
   const evidence = summarizeVehicles(pool, input.assumptions, input.modelNamesTried, input.sourceUrl);
   if (usedFallback) {
     return {

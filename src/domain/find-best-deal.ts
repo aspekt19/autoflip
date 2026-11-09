@@ -462,7 +462,9 @@ function scoreOne(
     });
   }
 
-  // Budget fit — "around $X" soft tolerance; overages beyond soft band are heavily penalized
+  // Budget fit — "around $X" soft tolerance; overages beyond soft band are heavily penalized.
+  // Past the soft/hard band, severity is steep: ~25% over budget ≈ full −budget weight so a
+  // $20k ask cannot nearly tie an in-budget car under a ~$15k note.
   if (ctx.need.budgetKnown && ctx.need.budgetUsd != null && row.priceUsd != null) {
     const budget = ctx.need.budgetUsd;
     const approx = budgetIsApproximateFromNote(ctx.need.note);
@@ -480,10 +482,11 @@ function scoreOne(
       points = WEIGHTS.budget * 0.35;
       detail = `$${over.toLocaleString("en-US")} over ~$${budget.toLocaleString("en-US")}, still inside ±$${softTol.toLocaleString("en-US")} soft tolerance from your note`;
     } else {
-      // Any dollars past soft tolerance must score negative (old 1-over/budget clamped mild overages to 0).
+      // Dollars past soft/hard band: map overage fraction so 25% over ≈ −full budget weight.
       const denom = Math.max(budget, 1);
-      const severity = approx ? overSoft / denom : over / denom;
-      points = -clamp(severity, 0, 1.25) * WEIGHTS.budget;
+      const raw = (approx ? overSoft : over) / denom;
+      const severity = clamp(raw / 0.25, 0.35, 1.4);
+      points = -severity * WEIGHTS.budget;
       detail = approx
         ? `$${over.toLocaleString("en-US")} over your ~$${budget.toLocaleString("en-US")} note budget (beyond ±$${softTol.toLocaleString("en-US")} soft tolerance)`
         : `$${over.toLocaleString("en-US")} over your $${budget.toLocaleString("en-US")} budget`;

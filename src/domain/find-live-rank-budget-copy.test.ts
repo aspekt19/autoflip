@@ -3,6 +3,7 @@
  */
 import { describe, expect, it } from "vitest";
 import {
+  BEST_DEAL_TIE_EPSILON,
   BEST_DEAL_WEIGHTS,
   selectBestDealOnEvidence,
   type BestDealListing,
@@ -104,6 +105,8 @@ describe("live shortlist ranking under condition-first + ~$15k", () => {
     const top = result.ranked[0]!;
     // A 2014 CX-5 with 172k miles must not win under condition-first + not-too-old.
     expect(`${top.year} ${top.make} ${top.model}`).not.toBe("2014 Mazda CX-5");
+    // Careful ~$15k buyer: top pick must be at/near budget, not the $20k card.
+    expect(top.priceUsd == null || top.priceUsd <= 16_500).toBe(true);
     // 2015 Sportage at 166k should not outrank healthier nearer-budget options solely on cheap ask.
     const sportageIdx = result.ranked.findIndex((r) => r.year === 2015 && r.model === "Sportage");
     const camry2014Idx = result.ranked.findIndex((r) => r.year === 2014 && r.model === "Camry");
@@ -111,11 +114,15 @@ describe("live shortlist ranking under condition-first + ~$15k", () => {
     expect(camry2014Idx).toBeGreaterThan(-1);
     expect(sportageIdx).toBeGreaterThan(camry2014Idx);
 
-    // $20k CX-5 is well over ~$15k — budget factor must be negative / flagged.
+    // $20k CX-5 is ~33% over ~$15k — budget factor must be strongly negative, and it
+    // must not nearly tie the in-budget leader (careful buyer would not treat it as #1/#2).
     const cx5_2019 = result.ranked.find((r) => r.year === 2019 && r.model === "CX-5")!;
     const budgetFactor = cx5_2019.factors.find((f) => f.id === "budget_fit")!;
-    expect(budgetFactor.points).toBeLessThan(0);
+    expect(budgetFactor.points).toBeLessThanOrEqual(-8);
     expect(budgetFactor.detail).toMatch(/over/i);
+    const cx5Idx = result.ranked.findIndex((r) => r.year === 2019 && r.model === "CX-5");
+    expect(cx5Idx).toBeGreaterThan(1);
+    expect(top.score - cx5_2019.score).toBeGreaterThan(BEST_DEAL_TIE_EPSILON);
 
     const buyer = formatBuyerBestDeal(result);
     expect(buyer.rankedLines.every((l) => /score/.test(l))).toBe(true);
