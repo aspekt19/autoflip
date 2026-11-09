@@ -21,8 +21,8 @@ describe("estimateOwnershipFuelCost", () => {
     if (estimate.status !== "sourced_epa_annual") return;
     expect(estimate.annualFuelUsd).toBe(2_100);
     expect(estimate.source).toBe("fueleconomy.gov");
-    expect(formatOwnershipFuelEstimate(estimate)).toMatch(/EPA annual fuel/);
-    expect(estimate.honesty).toMatch(/not a full ownership TCO/i);
+    expect(formatOwnershipFuelEstimate(estimate)).toMatch(/Est\. annual fuel/);
+    expect(estimate.honesty).toMatch(/not a full ownership cost/i);
   });
 
   it("reports EPA range when annual is null but low/high exist", () => {

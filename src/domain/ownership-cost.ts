@@ -133,10 +133,10 @@ export function estimateOwnershipFuelCost(
 
 export function formatOwnershipFuelEstimate(estimate: OwnershipFuelEstimate): string {
   if (estimate.status === "sourced_epa_annual") {
-    return `EPA annual fuel ~$${estimate.annualFuelUsd.toLocaleString("en-US")} (${estimate.source}).`;
+    return `Est. annual fuel ~$${estimate.annualFuelUsd.toLocaleString("en-US")} (${estimate.source}).`;
   }
   if (estimate.status === "sourced_epa_range") {
-    return `EPA annual fuel ~$${estimate.annualFuelLowUsd.toLocaleString("en-US")}–$${estimate.annualFuelHighUsd.toLocaleString("en-US")} (${estimate.source}).`;
+    return `Est. annual fuel ~$${estimate.annualFuelLowUsd.toLocaleString("en-US")}–$${estimate.annualFuelHighUsd.toLocaleString("en-US")} (${estimate.source}).`;
   }
   if (estimate.status === "mpg_with_explicit_assumptions") {
     return `~$${estimate.annualFuelUsd.toLocaleString("en-US")}/yr fuel using ${estimate.combMpg} MPG and your stated assumptions.`;
