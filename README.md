@@ -152,7 +152,7 @@ Constants: `src/domain/assumptions.ts` (copied onto each report).
 - Comparables: same make/model with price+miles; trim preferred; year window then widen; &lt;3 → needs inspection.
 - Mileage: 0.5% of median comp price per 1,000 miles difference.
 - History: accident / fleet / multi-owner haircuts; **missing accident history is not clean** (`unknownHistoryHaircut`).
-- Personal gap bands: under −8% buy band, through +6% negotiate, through +15% pass-on-price, above that pass; park-it / title brand force pass; VIN conflict → needs inspection.
+- Personal gap bands: under −8% good price, through +6% fair price, through +15% pass-on-price, above that pass; park-it / title brand force pass; VIN conflict → needs inspection.
 - Flip: 25th/75th asking resale, 3% sell friction, fee + recon assumptions; park-it forces pass.
 
 ## Agent API

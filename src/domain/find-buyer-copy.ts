@@ -252,6 +252,8 @@ export function plainGateStatus(status: string): string {
 }
 
 export function plainDecisionAction(action: string): string {
+  if (action === "fair" || action === "negotiate") return "Fair price";
+  if (action === "good_deal" || action === "buy") return "Buy";
   return plainBuyerPhrase(action.replaceAll("_", " "));
 }
 
@@ -322,6 +324,10 @@ export function plainCompScope(scope: string): string {
       return "same model, wider model years";
     case "insufficient":
       return "not enough similar listings";
+    case "adjusted_similar":
+      return "same model, nearby model years, prices adjusted to this car";
+    case "adjusted_rough":
+      return "same model, nearby model years, rough price adjustment";
     default:
       return plainBuyerPhrase(scope.replaceAll("_", " "));
   }

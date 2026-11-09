@@ -78,7 +78,7 @@ describe("price badge", () => {
 describe("summary line", () => {
   it("maps a drive-it verdict onto buy, negotiate, or skip", () => {
     expect(summaryLine({ mode: "personal", verdict: "good_deal", fairValueUsd: 10000, flip: null }).line).toBe("Buy");
-    expect(summaryLine({ mode: "personal", verdict: "fair", fairValueUsd: 10400, flip: null }).line).toBe("Negotiate to $10,400");
+    expect(summaryLine({ mode: "personal", verdict: "fair", fairValueUsd: 10400, flip: null }).line).toBe("Fair price");
     expect(summaryLine({ mode: "personal", verdict: "walk_away", fairValueUsd: 9000, flip: null }).line).toBe("Skip");
     expect(summaryLine({ mode: "personal", verdict: "insufficient_data", fairValueUsd: null, flip: null }).line).toMatch(/Needs inspection/);
   });

@@ -73,6 +73,8 @@ function collectPercents(report: ComputedReport): number[] {
   points.push(report.assumptions.fairGap! * 100);
   points.push(report.assumptions.overpricedGap! * 100);
   points.push(report.assumptions.mileageRatePerThousandMiles! * 100);
+  points.push(report.assumptions.yearRatePerYear! * 100);
+  points.push(report.assumptions.unknownHistoryHaircut! * 100);
   points.push(report.assumptions.flipSellFriction! * 100);
   const haircut = 1 - report.history.multiplier;
   if (Number.isFinite(haircut)) points.push(Math.abs(haircut) * 100);

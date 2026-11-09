@@ -1,4 +1,5 @@
 import type { PurchaseReadiness } from "@/domain/purchase-readiness";
+import { SimilarCarsList } from "./SimilarCarsList";
 
 /** Shared buyer copy for a Find pick and a paid report. */
 export function PurchaseReadinessNote({ view }: { view: PurchaseReadiness }) {
@@ -22,9 +23,11 @@ export function PurchaseReadinessNote({ view }: { view: PurchaseReadiness }) {
           ))}
         </p>
       ) : null}
+      <p>{view.offer.confidenceLabel}</p>
       <p>{view.offer.openingLabel}</p>
       <p>{view.offer.walkAwayLabel}</p>
       <p>{view.offer.sentence}</p>
+      <SimilarCarsList cars={view.offer.similarCars} />
       {view.talkingPoints.length > 0 ? (
         <>
           <p>Negotiation</p>
