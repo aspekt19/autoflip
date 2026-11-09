@@ -11,7 +11,8 @@ export type ListingFieldSource =
   | "visible_text"
   | "llm"
   | "url"
-  | "pasted_text";
+  | "pasted_text"
+  | "vin_decode";
 
 export type Provenanced<T> = {
   value: T | null;

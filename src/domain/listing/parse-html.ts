@@ -12,6 +12,14 @@ import {
   type ListingPageParse,
   type ListingParseLayer,
 } from "./types";
+import {
+  isPlausibleSellerName,
+  normalizeAvailability,
+  normalizeDrivetrain,
+  normalizeFuelLabel,
+  textMentionsSold,
+} from "./schema-org";
+import { yearMakeModelFromSlug, yearMakeModelFromText } from "./year-make-model";
 import { mergeLayer, validateVinCandidate } from "./validate";
 
 const SCRIPT_STYLE_RE = /<(script|style|noscript|svg|iframe)[^>]*>[\s\S]*?<\/\1>/gi;
@@ -50,6 +58,19 @@ function metaContent(html: string, key: string): string | null {
 function pageTitle(html: string): string | null {
   const match = html.match(/<title[^>]*>([\s\S]*?)<\/title>/i);
   return match?.[1] ? stripTags(match[1]).slice(0, 200) : null;
+}
+
+function firstHeading(html: string): string | null {
+  const match = html.match(/<h1\b[^>]*>([\s\S]*?)<\/h1>/i) ?? html.match(/<h2\b[^>]*>([\s\S]*?)<\/h2>/i);
+  return match?.[1] ? stripTags(match[1]).slice(0, 200) : null;
+}
+
+function applyYmm(partial: Record<string, unknown>, hit: ReturnType<typeof yearMakeModelFromText>): void {
+  if (!hit) return;
+  partial.year ??= hit.year;
+  partial.make ??= hit.make;
+  partial.model ??= hit.model;
+  if (hit.trim) partial.trim ??= hit.trim;
 }
 
 function collectJsonLdBlocks(html: string): unknown[] {
@@ -151,9 +172,12 @@ function jsonLdToPartial(nodes: Record<string, unknown>[]): Record<string, unkno
       partial.vin ??= firstString(node.vehicleIdentificationNumber, node.vin, node.serialNumber);
       partial.miles ??= firstNumber(node.mileageFromOdometer, node.mileage);
       partial.color ??= firstString(node.color, node.bodyColor);
-      partial.fuel ??= firstString(node.fuelType);
+      partial.fuel ??= normalizeFuelLabel(node.fuelType) ?? firstString(node.fuelType);
       partial.transmission ??= firstString(node.vehicleTransmission, node.transmission);
-      partial.drivetrain ??= firstString(node.driveWheelConfiguration, node.drivetrain);
+      partial.drivetrain ??=
+        normalizeDrivetrain(node.driveWheelConfiguration) ??
+        normalizeDrivetrain(node.drivetrain) ??
+        firstString(node.driveWheelConfiguration, node.drivetrain);
       partial.description ??= firstString(node.description);
       if (Array.isArray(node.image)) partial.photoCount ??= node.image.length;
       else if (node.image) partial.photoCount ??= 1;
@@ -162,13 +186,22 @@ function jsonLdToPartial(nodes: Record<string, unknown>[]): Record<string, unkno
         if (!offer || typeof offer !== "object") continue;
         const o = offer as Record<string, unknown>;
         partial.priceUsd ??= firstNumber(o.price, o.lowPrice);
-        const seller = o.seller ?? o.offeredBy;
-        partial.sellerName ??= firstString(seller);
+        {
+          const availability = normalizeAvailability(o.availability);
+          if (availability && /SOLD/i.test(availability)) partial.titleStatus ??= availability;
+        }
+        const seller = firstString(o.seller, o.offeredBy);
+        if (seller && isPlausibleSellerName(seller)) partial.sellerName ??= seller;
       }
     }
     if (isOffer) {
       partial.priceUsd ??= firstNumber(node.price, node.lowPrice);
-      partial.sellerName ??= firstString(node.seller, node.offeredBy);
+      {
+        const availability = normalizeAvailability(node.availability);
+        if (availability && /SOLD/i.test(availability)) partial.titleStatus ??= availability;
+      }
+      const seller = firstString(node.seller, node.offeredBy);
+      if (seller && isPlausibleSellerName(seller)) partial.sellerName ??= seller;
       const item = node.itemOffered;
       if (item && typeof item === "object") {
         walkJsonLd(item, nodes);
@@ -188,18 +221,8 @@ function openGraphPartial(html: string): Record<string, unknown> {
   const partial: Record<string, unknown> = {};
   if (description) partial.description = description;
   if (price) partial.priceUsd = price;
-  if (title) {
-    const yearMatch = title.match(/\b(19|20)\d{2}\b/);
-    if (yearMatch) partial.year = yearMatch[0];
-    // "2021 Toyota Camry LE" style
-    const named = title.match(/\b(?:19|20)\d{2}\s+([A-Za-z][A-Za-z0-9\-]+)\s+([A-Za-z0-9][A-Za-z0-9\- ]{1,40})/);
-    if (named) {
-      partial.make = named[1];
-      const rest = named[2]!.trim().split(/\s+/);
-      partial.model = rest[0];
-      if (rest.length > 1) partial.trim = rest.slice(1).join(" ");
-    }
-  }
+  applyYmm(partial, yearMakeModelFromText(title));
+  applyYmm(partial, yearMakeModelFromText(description));
   return partial;
 }
 
@@ -221,11 +244,16 @@ function microdataPartial(html: string): Record<string, unknown> {
   partial.model ??= bag.model;
   partial.trim ??= bag.vehicleconfiguration ?? bag.trim;
   partial.color ??= bag.color;
-  partial.fuel ??= bag.fueltype;
+  partial.fuel ??= normalizeFuelLabel(bag.fueltype) ?? bag.fueltype;
   partial.transmission ??= bag.vehicletransmission;
-  partial.drivetrain ??= bag.drivewheelconfiguration;
+  partial.drivetrain ??= normalizeDrivetrain(bag.drivewheelconfiguration) ?? bag.drivewheelconfiguration;
   partial.description ??= bag.description;
-  partial.sellerName ??= bag.seller ?? bag.name;
+  {
+    const availability = normalizeAvailability(bag.availability);
+    if (availability && /SOLD/i.test(availability)) partial.titleStatus ??= availability;
+  }
+  const seller = bag.seller ?? bag.name;
+  if (seller && isPlausibleSellerName(seller)) partial.sellerName ??= seller;
   return partial;
 }
 
@@ -251,16 +279,7 @@ function visibleTextPartial(text: string): Record<string, unknown> {
   const miles = milesFromVisible(text);
   if (miles) partial.miles = miles;
 
-  const yearMakeModel = text.match(
-    /\b((?:19|20)\d{2})\s+([A-Za-z][A-Za-z0-9\-]+)\s+([A-Za-z0-9][A-Za-z0-9\-]+(?:\s+[A-Za-z0-9][A-Za-z0-9\-]*){0,3})/,
-  );
-  if (yearMakeModel) {
-    partial.year = yearMakeModel[1];
-    partial.make = yearMakeModel[2];
-    const bits = yearMakeModel[3]!.trim().split(/\s+/);
-    partial.model = bits[0];
-    if (bits.length > 1) partial.trim = bits.slice(1).join(" ");
-  }
+  applyYmm(partial, yearMakeModelFromText(text));
 
   const zipMatch = text.match(/\b([0-9]{5})(?:-[0-9]{4})?\b/);
   if (zipMatch) partial.zip = zipMatch[1];
@@ -275,10 +294,10 @@ function visibleTextPartial(text: string): Record<string, unknown> {
   if (transmissionMatch) partial.transmission = transmissionMatch[1];
 
   const drivetrainMatch = text.match(/\b(AWD|FWD|RWD|4WD|four[\s-]?wheel|all[\s-]?wheel|front[\s-]?wheel|rear[\s-]?wheel)\b/i);
-  if (drivetrainMatch) partial.drivetrain = drivetrainMatch[1];
+  if (drivetrainMatch) partial.drivetrain = normalizeDrivetrain(drivetrainMatch[1]) ?? drivetrainMatch[1];
 
   const fuelMatch = text.match(/\b(gasoline|gas|diesel|hybrid|electric|plug-?in hybrid|E85)\b/i);
-  if (fuelMatch) partial.fuel = fuelMatch[1];
+  if (fuelMatch) partial.fuel = normalizeFuelLabel(fuelMatch[1]) ?? fuelMatch[1];
 
   const accidentMatch = text.match(/\b(\d+)\s+accident/i) ?? text.match(/\b(no accidents?|accident free|accident-free)\b/i);
   if (accidentMatch) partial.accidentsStated = accidentMatch[0];
@@ -294,7 +313,14 @@ function visibleTextPartial(text: string): Record<string, unknown> {
 
   const dealerMatch =
     text.match(/(?:dealer|seller|sold by|listed by)\s*[:\-]?\s*([A-Za-z0-9][A-Za-z0-9 &.'\-]{2,60})/i);
-  if (dealerMatch) partial.sellerName = dealerMatch[1]!.trim();
+  if (dealerMatch) {
+    const seller = dealerMatch[1]!.trim();
+    if (isPlausibleSellerName(seller)) partial.sellerName = seller;
+  }
+
+  if (textMentionsSold(text)) {
+    partial.titleStatus ??= "SOLD";
+  }
 
   return partial;
 }
@@ -304,12 +330,21 @@ function urlPartial(url: string | null): Record<string, unknown> {
   const partial: Record<string, unknown> = {};
   const vin = extractVin(url);
   if (vin) partial.vin = vin;
-  const yearMake = url.match(/\/((?:19|20)\d{2})[-_/]([A-Za-z]+)[-_/]([A-Za-z0-9]+)/);
-  if (yearMake) {
-    partial.year = yearMake[1];
-    partial.make = yearMake[2];
-    partial.model = yearMake[3];
-  }
+  // Year/make/model from the slug is applied later as a fallback so structured
+  // JSON-LD / Open Graph values (correct casing, trim split) win when present.
+  return partial;
+}
+
+/** Title / H1 / meta / og / URL — last-chance YMM when structured layers miss or multi-page skips them. */
+function identityFallbackPartial(html: string, url: string | null, title: string | null): Record<string, unknown> {
+  const partial: Record<string, unknown> = {};
+  applyYmm(partial, yearMakeModelFromSlug(url));
+  applyYmm(partial, yearMakeModelFromText(title));
+  applyYmm(partial, yearMakeModelFromText(firstHeading(html)));
+  applyYmm(partial, yearMakeModelFromText(metaContent(html, "og:title")));
+  applyYmm(partial, yearMakeModelFromText(metaContent(html, "twitter:title")));
+  applyYmm(partial, yearMakeModelFromText(metaContent(html, "og:description")));
+  applyYmm(partial, yearMakeModelFromText(metaContent(html, "description")));
   return partial;
 }
 
@@ -409,6 +444,18 @@ export function parseListingHtml(html: string, url: string | null = null): Listi
     layers.push(applied.layer);
   }
 
+  // Always try title / H1 / meta / og / URL for year-make-model before giving up —
+  // including when a page is treated as multi-vehicle (search chrome) but the URL/title name one car.
+  {
+    const applied = applyLayer(fields, "meta", identityFallbackPartial(html, url, title), [
+      title ?? "",
+      firstHeading(html) ?? "",
+      url ?? "",
+    ]);
+    fields = applied.fields;
+    layers.push(applied.layer);
+  }
+
   if (!fields.description.value && visible) {
     fields = mergeLayer(fields, { description: visible.slice(0, 2000) }, "visible_text");
   }
@@ -447,6 +494,13 @@ export function parseListingText(text: string, url: string | null = null): Listi
   }
   {
     const applied = applyLayer(fields, "pasted_text", visibleTextPartial(cleaned), [cleaned.slice(0, 500)]);
+    fields = applied.fields;
+    layers.push(applied.layer);
+  }
+  if (url) {
+    const partial: Record<string, unknown> = {};
+    applyYmm(partial, yearMakeModelFromSlug(url));
+    const applied = applyLayer(fields, "url", partial, [url]);
     fields = applied.fields;
     layers.push(applied.layer);
   }
