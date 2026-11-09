@@ -12,7 +12,7 @@ export default function ScoutPage() {
 
   return (
     <div className="sub">
-      <div className="flow-page">
+      <div className="flow-page site-frame">
         <p className="kicker">Scout</p>
         <h1>Investigation shortlist</h1>
         <p className="lead">

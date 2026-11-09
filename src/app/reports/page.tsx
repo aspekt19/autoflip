@@ -19,7 +19,7 @@ export default async function ReportsPage() {
 
   return (
     <div className="sub">
-      <div className="sheet-page">
+      <div className="sheet-page site-frame">
         <p className="kicker">{demo ? "Shared demo" : session ? "Your account" : "This browser"}</p>
         <h1>My reports</h1>
         <p className="lead">Reports you generated are collected here so you can reopen them without searching for the original link.</p>

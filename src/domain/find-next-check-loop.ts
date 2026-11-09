@@ -32,7 +32,11 @@ export type FindNextCheckLoopReason =
    * allowlist (timeout / parse / clamp / HTTP). Not a missing-key condition.
    */
   | "serv_deterministic_fallback"
-  | "no_remaining_research_checks";
+  | "no_remaining_research_checks"
+  /** One more hop so SERV can try to separate cars that are still too close. */
+  | "close_call_tie_break"
+  /** Free checks are done, the tie-break was spent or cannot be paid for, and the cars are still too close. */
+  | "close_call_unresolved";
 
 export type FindNextCheckLoopDisposition = {
   /** When true, ordinary UI should invoke next-check again without a button. */
@@ -117,6 +121,12 @@ export function decideFindNextCheckLoop(input: {
   remainingFreeGovCount?: number;
   /** Per-car listing/VIN check still has unchecked top cars. */
   consistencyStillOpen?: boolean;
+  /** Tied cars still need a free per-car check. Keep going before any tie-break. */
+  closeCallNeedsFreePerCar?: boolean;
+  /** Free per-car checks are done and one paid tie-break is still allowed. */
+  closeCallNeedsTieBreak?: boolean;
+  /** Still tied after the checks that could separate them. Stop. Do not call SERV again. */
+  closeCallStop?: boolean;
 }): FindNextCheckLoopDisposition {
   const remainingFreeGov = input.remainingFreeGovCount ?? 0;
   if (!input.keyed) {
@@ -136,83 +146,117 @@ export function decideFindNextCheckLoop(input: {
     (isFindFreeGovCheckId(input.chosenId) || input.chosenId === "free_car_consistency") &&
     !freeGovChangedEarly;
 
+  const hardStop = new Set<FindNextCheckLoopReason>([
+    "no_serv_key",
+    "no_keyed_autonomy",
+    "provider_failure",
+    "needs_clarification",
+  ]);
+  const gate = (disposition: FindNextCheckLoopDisposition): FindNextCheckLoopDisposition => {
+    if (hardStop.has(disposition.reason)) return disposition;
+    if (input.closeCallStop && !input.closeCallNeedsFreePerCar && !input.closeCallNeedsTieBreak) {
+      return {
+        continue: false,
+        reason: "close_call_unresolved",
+        detail: "Checks finished. The best choice is the car ahead, and the top two are still very close.",
+      };
+    }
+    if (disposition.reason === "unchanged_state" && freeAttemptMadeNoProgress) return disposition;
+    if (disposition.continue) return disposition;
+    if (input.closeCallNeedsFreePerCar && !freeAttemptMadeNoProgress) {
+      return {
+        continue: true,
+        reason: "remaining_free_checks",
+        detail: "The top cars are very close, and a free per-car check is still open on those cars.",
+      };
+    }
+    if (input.closeCallNeedsTieBreak) {
+      return {
+        continue: true,
+        reason: "close_call_tie_break",
+        detail: "The top cars are very close. One more check can try to separate them.",
+      };
+    }
+    return disposition;
+  };
+
   if (!input.autonomousServ) {
     // Free batches keep draining under deterministic fallback when this hop was
     // not itself a free check (for example a compare). A free check that added
     // nothing must stop — otherwise the same batch is requested forever.
     if (freeWorkLeft) {
       if (freeGovChangedEarly) {
-        return {
+        return gate({
           continue: true,
           reason: "evidence_changed_replan",
           detail:
             "Deterministic fallback ran free public checks; evidence changed and some checks are still open — continue (no Report credit).",
-        };
+        });
       }
       if (freeAttemptMadeNoProgress) {
-        return {
+        return gate({
           continue: false,
           reason: "unchanged_state",
           detail:
             "A free public check added no evidence. Stopping so the same check cannot run forever.",
-        };
+        });
       }
-      return {
+      return gate({
         continue: true,
         reason: "remaining_free_checks",
         detail: `${remainingFreeGov} free public check(s) still open after a non-free step — continue those checks (no Report credit).`,
-      };
+      });
     }
     // Fallback still executed free-gov and stored receipts — continue so the next
     // keyed SERV step can decide on real evidence (PR80: stop left receipts unused).
     if (freeGovChangedEarly && input.remainingActionableCount > 0) {
-      return {
+      return gate({
         continue: true,
         reason: "evidence_changed_replan",
         detail:
           "Deterministic fallback ran free public vehicle checks; receipts changed — continue keyed SERV next-check on new evidence (no Report credit).",
-      };
+      });
     }
-    return {
+    return gate({
       continue: false,
       reason: "serv_deterministic_fallback",
       detail:
         "SERV key present but find_next_check did not yield an allowlisted choice (timeout/parse/clamp/HTTP) — code fallback applied; not autonomous SERV continuation. Inspect failureDiag category/reasonCode (no secrets).",
-    };
+    });
   }
 
   if (input.research && input.rematchOk === false) {
-    return {
+    return gate({
       continue: false,
       reason: "provider_failure",
       detail: "Rematch/provider failed — stop automatic continuation.",
-    };
+    });
   }
 
   if (CLARIFY_STOP.has(input.chosenId)) {
-    return {
+    return gate({
       continue: false,
       reason: "needs_clarification",
       detail: "Shopper clarification required (e.g. budget) — cannot invent.",
-    };
+    });
   }
 
   if (USER_ACTION_STOP.has(input.chosenId)) {
     // A paid or manual suggestion is the non-free next step. It must not end
     // the loop while free public checks are still incomplete.
     if (remainingFreeGov > 0 || input.consistencyStillOpen === true) {
-      return {
+      return gate({
         continue: true,
         reason: "remaining_free_checks",
         detail:
           "A paid or manual next step was suggested. Free public checks are still incomplete, so those continue. A history report does not replace them.",
-      };
+      });
     }
-    return {
+    return gate({
       continue: false,
       reason: "user_action_required",
       detail: "Full analysis / history requires explicit user action (credit or external report).",
-    };
+    });
   }
 
   const needChanged = input.needBeforeFp !== input.needAfterFp;
@@ -224,29 +268,29 @@ export function decideFindNextCheckLoop(input: {
 
   // Free public evidence just landed — continue SERV with new facts (no rematch required).
   if (freeGovChanged && input.remainingActionableCount > 0) {
-    return {
+    return gate({
       continue: true,
       reason: "evidence_changed_replan",
       detail:
         "Free public vehicle evidence receipts changed — continue SERV next-check automatically (no Report credit).",
-    };
+    });
   }
 
   if (!contextChanged) {
     // Compare / no-op must not stop while free checks remain. A free check that
     // added nothing must stop, or the client will request that same check forever.
     if (freeWorkLeft && !freeAttemptMadeNoProgress) {
-      return {
+      return gate({
         continue: true,
         reason: "remaining_free_checks",
         detail: `${remainingFreeGov} free public check(s) still open — continue automatically. A compare step is not the end of those checks.`,
-      };
+      });
     }
-    return {
+    return gate({
       continue: false,
       reason: "unchanged_state",
       detail: "Need, listings, and free-gov evidence unchanged after apply/rematch — loop guard stop.",
-    };
+    });
   }
 
   // Compare-only presentation with grounded cards and no further research → stop.
@@ -257,43 +301,43 @@ export function decideFindNextCheckLoop(input: {
     !input.research &&
     !freeGovChanged
   ) {
-    if (remainingFreeGov > 0) {
-      return {
+    if (remainingFreeGov > 0 || input.consistencyStillOpen === true) {
+      return gate({
         continue: true,
         reason: "remaining_free_checks",
-        detail: `Grounded compare available but ${remainingFreeGov} free public check(s) still unchecked — continue free_gov before terminal stop.`,
-      };
+        detail: `Grounded compare available but free public checks are still open — continue those checks before a terminal stop.`,
+      });
     }
-    return {
+    return gate({
       continue: false,
       reason: "grounded_stop",
       detail: "Grounded observed compare available — stop automatic research loop.",
-    };
+    });
   }
 
   // Context changed; only continue when further research-capable checks remain.
   // remainingActionableCount excludes clarify-only / user-action stops when computed by caller.
   if (input.remainingActionableCount > 0) {
-    return {
+    return gate({
       continue: true,
       reason: "evidence_changed_replan",
       detail: "Evidence or need changed — continue SERV next-check automatically.",
-    };
+    });
   }
 
   if (input.shortlistCount > 0) {
-    return {
+    return gate({
       continue: false,
       reason: "grounded_stop",
       detail: "Grounded shortlist present; no remaining automatic research checks.",
-    };
+    });
   }
 
-  return {
+  return gate({
     continue: false,
     reason: "no_remaining_research_checks",
     detail: "No further automatic research checks after evidence update.",
-  };
+  });
 }
 
 /**

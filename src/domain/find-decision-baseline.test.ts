@@ -258,11 +258,11 @@ describe("A1 decision log", () => {
         { key: "b", year: 2015, make: "Honda", model: "CR-V" },
       ],
     );
-    expect(view.lines[0]).toMatch(/Checked estimated fuel cost 6 times \(built-in checklist\)/);
+    expect(view.lines[0]).toMatch(/Checked estimated fuel cost 6 times \(standard check\)/);
     expect(view.lines[0]).toMatch(/The order of the top cars stayed the same/);
     expect(view.lines[1]).toMatch(/AI chose/);
     expect(view.lines[1]).toMatch(/moved from #2 to #1|the pick is now/);
-    expect(view.lines[2]).toMatch(/Checked estimated fuel cost 2 times \(built-in checklist\)/);
+    expect(view.lines[2]).toMatch(/Checked estimated fuel cost 2 times \(standard check\)/);
     const folded = view.hiddenSteps.filter((line) => /order of the top cars stayed the same/i.test(line));
     expect(folded).toHaveLength(8);
     expect(view.lines.join(" ").length).toBeLessThan(view.hiddenSteps.join(" ").length);
@@ -333,10 +333,10 @@ describe("A1 decision log", () => {
     expect(view.lines[1]).toMatch(/Honda CR-V moved from #2 to #3/);
     expect(view.lines[1]).not.toMatch(/stayed the same/);
     expect(view.lines[2]).toMatch(/AI chose/);
-    expect(view.lines[2]).not.toMatch(/built-in checklist/);
+    expect(view.lines[2]).not.toMatch(/standard check/);
     expect(view.lines[3]).toMatch(/Toyota Camry joined the top group at #4/);
     expect(view.lines[3]).not.toMatch(/stayed the same/);
-    expect(view.lines[3]).toMatch(/built-in checklist/);
+    expect(view.lines[3]).toMatch(/standard check/);
     expect(view.lines[3]).not.toMatch(/AI chose/);
   });
 
@@ -396,7 +396,7 @@ describe("A1 decision log", () => {
     expect(view.lines[0]).toMatch(/Toyota Camry moved from #1 to #3/);
     expect(view.lines[0]).toMatch(/Honda CR-V moved from #2 to #1/);
     expect(view.lines[0]).toMatch(/Hyundai Tucson moved from #3 to #2/);
-    expect(view.lines[1]).toMatch(/built-in checklist/);
+    expect(view.lines[1]).toMatch(/standard check/);
     expect(view.lines[1]).toMatch(/pick is now the 2017 Hyundai Tucson/);
     expect(view.lines[1]).toMatch(/Toyota Camry moved from #1 to #4/);
     expect(view.lines[1]).toMatch(/Hyundai Tucson moved from #3 to #1/);
@@ -713,6 +713,13 @@ describe("unknown is not a clean zero", () => {
         points: 0,
       }),
     ).not.toMatch(/\+0|\b0\b/);
+    expect(
+      buyerFactorBit({
+        label: "Asking price vs same model",
+        detail: "Ask $14,200 versus similar listings",
+        points: 8.5,
+      }),
+    ).not.toMatch(/\(\+?8\.5\)|\bscore\b/);
     const sportageEmpty = {
       ...emptyCrvRecall(),
       make: "Kia",

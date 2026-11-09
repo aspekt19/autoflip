@@ -22,7 +22,7 @@ export default function LoginPage() {
   const firebase = firebasePublicConfig();
   return (
     <div className="sub">
-      <div className="sheet-page">
+      <div className="sheet-page site-frame">
         <p className="kicker">Account</p>
         <h1>Sign in</h1>
         <p className="lead">{leadFor(auth)}</p>

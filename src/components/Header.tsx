@@ -112,7 +112,7 @@ export function Header({ scoutNavEnabled = false }: { scoutNavEnabled?: boolean 
   });
 
   return (
-    <header className="bar">
+    <header className="bar site-frame">
       <BrandLockup size={58} animated className="brand" surface="dark" />
       <nav id={navId} ref={navRef} aria-label="Primary" className={menuOpen ? "nav-open" : undefined}>
         {navLinks.map((item) => (

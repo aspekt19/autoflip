@@ -163,24 +163,28 @@ describe("selectBestDealOnEvidence (deterministic)", () => {
     expect(a.ranked.map((r) => r.key)).toEqual(b.ranked.map((r) => r.key));
     expect(a.ranked.map((r) => r.score)).toEqual(b.ranked.map((r) => r.score));
     expect(a.pick?.key).toBe(b.pick?.key);
-    expect(a.confidence).toBe("confident");
+    expect(a.confidence).not.toBe("none");
+    expect(a.why).toMatch(/Best choice on current data/i);
     expect(a.pick).toBeTruthy();
     expect(a.pick!.factors.length).toBeGreaterThan(5);
     expect(a.stillUnknown.some((u) => /inspection|history|VIN/i.test(u))).toBe(true);
   });
 
-  it("no confident pick when evidence is too thin", () => {
+  it("still names a best choice when only one priced car is in the search", () => {
     const result = selectBestDealOnEvidence({
       need: baseNeed,
       listings: [{ make: "Honda", model: "CR-V", year: 2016, priceUsd: 13_500, miles: 78_000 }],
       receipts: [],
       nowYear: 2026,
     });
-    expect(result.confidence).toBe("no_confident_pick");
-    expect(result.pick).toBeNull();
+    expect(result.pick).toBeTruthy();
+    expect(result.confidence).toBe("medium");
+    expect(result.choice?.confidenceLine).toMatch(/only usable car/i);
+    expect(result.why).toMatch(/Best choice on current data/i);
+    expect(result.why).not.toMatch(/no confident|no clear winner/i);
   });
 
-  it("no confident pick on near ties", () => {
+  it("names the leader on a near tie and marks confidence low", () => {
     const twins: BestDealListing[] = [
       { make: "Honda", model: "CR-V", year: 2016, priceUsd: 14_000, miles: 80_000, vin: "A" },
       { make: "Honda", model: "CR-V", year: 2016, priceUsd: 14_010, miles: 80_100, vin: "B" },
@@ -194,14 +198,18 @@ describe("selectBestDealOnEvidence (deterministic)", () => {
       ],
       nowYear: 2026,
     });
-    // If scores land within epsilon, expect no confident pick; otherwise still a valid outcome.
-    if (result.ranked.length >= 2) {
-      const gap = Math.abs(result.ranked[0]!.score - result.ranked[1]!.score);
-      if (gap <= BEST_DEAL_TIE_EPSILON) {
-        expect(result.confidence).toBe("no_confident_pick");
-        expect(result.pick).toBeNull();
-      }
-    }
+    expect(result.ranked.length).toBeGreaterThanOrEqual(2);
+    const gap = Math.abs(result.ranked[0]!.score - result.ranked[1]!.score);
+    expect(gap).toBeLessThanOrEqual(BEST_DEAL_TIE_EPSILON);
+    expect(result.pick?.key).toBe(result.ranked[0]?.key);
+    expect(result.confidence).toBe("low");
+    expect(result.choice?.confidenceLine).toMatch(/top two are very close/i);
+    expect(result.choice?.runnerUpLabel).toBeTruthy();
+    expect(result.choice?.reasons.length).toBeGreaterThanOrEqual(1);
+    expect(result.choice?.reasons.length).toBeLessThanOrEqual(2);
+    expect(result.why).toMatch(/Best choice on current data/i);
+    expect(result.why).not.toMatch(/\bscore\b/i);
+    expect(result.why).not.toMatch(/no confident|no clear winner|What would decide/i);
   });
 
   it("sensitivity reports whether pick changes under milder fuel weight", () => {

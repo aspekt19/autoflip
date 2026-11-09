@@ -173,18 +173,22 @@ describe("Scenario2 history-first still finishes free public checks", () => {
     expect(last.servPaidCalls).toBeLessThanOrEqual(FIND_SERV_PAID_CALLS_PER_FIND_MAX);
     expect(last.servPaidCalls).toBeGreaterThanOrEqual(1);
 
-    const targeted = last.decisionLog.find(
-      (entry) => entry.decidedBy === "SERV" && entry.action === "free_car_consistency",
+    const onCrv = last.decisionLog.find(
+      (entry) => entry.action === "free_car_consistency" && entry.targetCars.includes(CRV),
     );
-    expect(targeted?.targetCars).toContain(CRV);
+    expect(onCrv?.targetCars).toContain(CRV);
     const labels = last.bestDeal.allRanked.map((car) => ({
       key: car.key,
       year: car.year,
       make: car.make,
       model: car.model,
     }));
-    expect(formatDecisionLogLine(targeted!, labels)).toMatch(/AI chose/);
-    expect(formatDecisionLogLine(targeted!, labels)).toMatch(/CR-V/);
+    expect(formatDecisionLogLine(onCrv!, labels)).toMatch(/Lemonless AI chose|standard check/);
+    expect(formatDecisionLogLine(onCrv!, labels)).toMatch(/CR-V/);
+    expect(last.bestDeal.pick).toBeTruthy();
+    expect(last.bestDeal.why).toMatch(/Best choice on current data/i);
+    expect(last.bestDeal.why).not.toMatch(/\bscore\b/i);
+    expect(last.bestDeal.why).not.toMatch(/no clear winner|no confident/i);
 
     const checked = new Set(last.carChecks.map((row) => row.key));
     for (const car of last.bestDeal.ranked) {

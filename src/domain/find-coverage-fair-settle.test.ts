@@ -370,10 +370,13 @@ describe("live 24-card coverage settle + fair scoring", () => {
       /unusually low|suggest an inspection/i,
     );
     expect(fullRank.ranked.findIndex((r) => r.vin === "CAM-EXTREME")).toBeGreaterThan(2);
-    if (result.confidence === "confident") {
-      expect(result.pick).not.toBeNull();
-    } else {
-      expect(result.why).toMatch(/too close|No single confident pick/i);
+    expect(result.pick).toBeTruthy();
+    expect(result.why).toMatch(/Best choice on current data/i);
+    expect(result.why).not.toMatch(/\bscore\s+\d/);
+    expect(result.why).not.toMatch(/no confident|no clear winner/i);
+    if (result.confidence === "low") {
+      expect(result.choice?.confidenceLine).toMatch(/very close/i);
+      expect(result.settlementNote).not.toMatch(/pick is settled/i);
     }
   });
 

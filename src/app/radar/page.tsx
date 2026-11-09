@@ -260,7 +260,7 @@ function RadarInner() {
 
   return (
     <div className="sub">
-      <div className="wrap">
+      <div className="wrap site-frame">
         <p className="kicker">{demo ? "Guided preview" : "Saved search"}</p>
         <h1>Deal Radar</h1>
         <p className="lead">Save a vehicle search and Lemonless will check for new matching dealer listings on a schedule. Ongoing alerts require a <Link href="/pricing">Radar plan</Link>; opening a full vehicle report separately costs 1 report credit.</p>
@@ -610,7 +610,7 @@ function SaveSearchForm({ onSaved }: { onSaved: () => void }) {
 
 export default function RadarPage() {
   return (
-    <Suspense fallback={<div className="wrap page">Loading Deal Radar…</div>}>
+    <Suspense fallback={<div className="wrap site-frame page">Loading Deal Radar…</div>}>
       <RadarInner />
     </Suspense>
   );

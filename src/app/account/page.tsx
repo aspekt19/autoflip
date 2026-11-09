@@ -7,7 +7,7 @@ export const metadata: Metadata = { title: "Account" };
 export default function AccountPage() {
   return (
     <div className="sub">
-      <div className="sheet-page">
+      <div className="sheet-page site-frame">
         <p className="kicker">Account</p>
         <h1>Account</h1>
         <p className="lead">Your signed-in balance and report history stay with this account after cookies are cleared.</p>

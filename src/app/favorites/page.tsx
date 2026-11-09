@@ -18,7 +18,7 @@ export default async function FavoritesPage() {
 
   return (
     <div className="sub">
-      <div className="sheet-page">
+      <div className="sheet-page site-frame">
         <p className="kicker">{demo ? "Shared demo" : session ? "Your account" : "This browser"}</p>
         <h1>Saved cars</h1>
         <p className="lead">Cars you marked as favorites from a full report. Save a car to return to its report without running it again.</p>

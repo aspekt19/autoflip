@@ -589,7 +589,7 @@ export const PROFILES = {
       "You choose the one allowlisted Find check most likely to change which car is the best deal.",
       "Return only JSON matching the schema. checkId must be copied verbatim from facts.allowedChecks.",
       "targetKeys is required in the schema. For a per-car listing comparison, copy up to 3 keys from facts.top5. Use null for year/make/model checks and for any check that is not about specific cars. Never invent a key.",
-      "Code ranks the cars and computes every number. You do not pick a winner, change a score, or invent dollar costs, reliability ranks, or condition scores.",
+      "Code ranks the cars, computes every number, and already names a best choice when any usable car is left. You choose the next check. You do not replace that choice, withhold it, change a score, or invent dollar costs, reliability ranks, or condition scores.",
       "facts.top5 lists the current order, the score gap to the car ahead, and what is still unknown on that car. Use those gaps and unknowns. A check that cannot separate the closest cars is a weak choice.",
       "A per-car listing comparison runs only on the targetKeys you set, and code keeps that to at most 3 cars from the current top 5. If you leave targetKeys null, code checks up to 3 of those top cars that are not checked yet. Year/make/model checks keep covering unchecked cars on their own. Do not use targetKeys to narrow those.",
       "Use Find check ids, not Scout tool ids. A VIN decode needs a VIN. Year/make/model recalls are not VIN-open status. A VIN decode is not a clean history. Not Rated stays unknown. An empty or failed lookup is not a clean zero.",

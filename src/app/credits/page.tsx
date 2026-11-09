@@ -50,7 +50,7 @@ function CreditsInner() {
 
   return (
     <div className="sub">
-      <div className="sheet-page">
+      <div className="sheet-page site-frame">
       <p className="kicker">Test checkout</p>
       <h1>Credits</h1>
       <p className="lead">A full vehicle report costs 1 report credit. Verified accounts get 3 free VIN or your own listing URL checks per UTC month. Find is a credit-priced search when billing is enabled. Ongoing saved-search alerts require a separate Radar plan. All preview prices are in U.S. dollars.</p>
@@ -124,7 +124,7 @@ function CreditsInner() {
 
 export default function CreditsPage() {
   return (
-    <Suspense fallback={<div className="wrap page">Loading credits…</div>}>
+    <Suspense fallback={<div className="wrap site-frame page">Loading credits…</div>}>
       <CreditsInner />
     </Suspense>
   );

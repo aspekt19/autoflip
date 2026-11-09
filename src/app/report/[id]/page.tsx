@@ -12,7 +12,7 @@ export default async function ReportPage({ params }: { params: Promise<{ id: str
   if (!report) notFound();
   return (
     <div className="sub">
-      <div className="sheet-page">
+      <div className="sheet-page site-frame">
         <ReportView report={report} />
       </div>
     </div>

@@ -9,7 +9,19 @@ import { ASSUMPTIONS } from "./assumptions";
 import { bodyFamily, modelBodyFamily } from "./body-style";
 import type { CarConsistencyReceipt } from "./find-car-consistency";
 import { bestDealCarKey } from "./find-car-consistency";
+import { buyerCarLabels } from "./find-car-label";
 import { computeFindBaseline, type FindBaselineDelta } from "./find-baseline";
+import {
+  CHECKS_FINISHED_NOTE,
+  NO_USABLE_LISTINGS_NOTE,
+  PICK_SETTLED_NOTE,
+  type FindChoice,
+  type FindChoiceConfidence,
+  closeCallCars,
+  closeCallLeadReason,
+  findChoiceConfidence,
+  whatWouldDecideCloseCall,
+} from "./find-close-call";
 import { confirmedRecallCount, recallEvidenceState, type EvidenceState } from "./find-evidence-state";
 import type { FindFuelEvidence } from "./find-fuel-match";
 import type { FindFreeGovReceipt } from "./find-free-gov";
@@ -63,6 +75,23 @@ export type BestDealCandidate = {
   excludedFromPick: boolean;
   excludedReason: string | null;
   sellerQuestions: string[];
+  trim?: string | null;
+  city?: string | null;
+  state?: string | null;
+  dealer?: string | null;
+};
+
+/**
+ * Set when the top two usable cars are within the close-call margin.
+ * The leader is still the best choice. This only records why confidence is low.
+ */
+export type BestDealCloseCall = {
+  leaningKey: string;
+  leaningLabel: string;
+  /** One concrete reason the leader edges the runner-up. No internal score. */
+  leadReason: string;
+  /** Advice only. Not required before the verdict. */
+  wouldDecide: string[];
 };
 
 export type BestDealSensitivity = {
@@ -74,7 +103,10 @@ export type BestDealSensitivity = {
 export type BestDealResult = {
   ranked: BestDealCandidate[];
   pick: BestDealCandidate | null;
-  confidence: "confident" | "no_confident_pick";
+  /** none only when there is no usable listing. */
+  confidence: FindChoiceConfidence | "none";
+  /** Present whenever a usable car can be named. */
+  choice: FindChoice | null;
   why: string;
   stillUnknown: string[];
   sensitivity: BestDealSensitivity[];
@@ -98,6 +130,8 @@ export type BestDealResult = {
   allRanked: BestDealCandidate[];
   /** Cheapest-in-budget and lowest-miles-in-budget on this same list. */
   baseline: FindBaselineDelta;
+  /** Set when the top two are very close. The pick is still the leader. */
+  closeCall: BestDealCloseCall | null;
 };
 
 /**
@@ -131,7 +165,7 @@ const WEIGHTS = BEST_DEAL_WEIGHTS;
 
 /** Tie epsilon — scores within this are treated as tied. */
 export const BEST_DEAL_TIE_EPSILON = 2.5;
-/** Need at least this many priced cards for a confident pick. */
+/** Older callers still read this. One usable listing is enough for a best choice. */
 export const BEST_DEAL_MIN_PRICED = 2;
 /** Same-model sample below this is labeled thin. */
 export const BEST_DEAL_THIN_MODEL_SAMPLE = 3;
@@ -214,6 +248,9 @@ export type BestDealListing = ObservedListingRow & {
   createdAt?: string | null;
   bodyStyle?: string | null;
   style?: string | null;
+  city?: string | null;
+  state?: string | null;
+  dealer?: string | null;
 };
 
 /** Unverified odometer: under this share of the peer median miles per year. */
@@ -1050,6 +1087,10 @@ function scoreOne(
     excludedFromPick: Boolean(ctx.carCheck?.identityMismatch),
     excludedReason: ctx.carCheck?.excludedReason ?? null,
     sellerQuestions: [...new Set([...(ctx.carCheck?.sellerQuestions ?? []), ...extraSellerQuestions])],
+    trim: row.trim ?? null,
+    city: row.city ?? null,
+    state: row.state ?? null,
+    dealer: row.dealer ?? null,
   };
 }
 
@@ -1225,7 +1266,7 @@ function whyPickOverNamedModels(
     );
   }
   if (reasons.length === 0) {
-    reasons.push("the other checks we could score still favored it");
+    reasons.push("the other checks we could run still favored it");
   }
   return `${bodyBit}We picked it over the ${bestNamed.year} ${bestNamed.make} ${bestNamed.model} you named because ${reasons.join(" and ")}. `;
 }
@@ -1379,7 +1420,7 @@ function rankAll(
 }
 
 /**
- * Compute ranked shortlist + single best-deal pick (or explicit no confident pick).
+ * Compute ranked shortlist and a best choice whenever a usable car exists.
  */
 export function selectBestDealOnEvidence(input: {
   need: Pick<
@@ -1414,11 +1455,16 @@ export function selectBestDealOnEvidence(input: {
   // never claim "settled" while ranking still suppresses partial factors.
   const evidenceSettled = !coverage.anyUnchecked && fairnessHeldOut.length === 0;
   const heldOutSet = new Set(fairnessHeldOut);
-  const settlementNote = evidenceSettled
-    ? "Public safety records are finished for this shortlist — the pick is settled on current evidence (still not a vehicle history report)."
-    : coverage.anyUnchecked
-      ? `The pick may change as checks complete. ${plainPublicCheckProgress(coverage)}`
-      : `Public safety records were checked for every model here, but the ranking can still change. ${plainFairnessHeldOutNote(fairnessHeldOut) ?? "Some checks are not in the ranking yet so one car is not favored for having more data."}`;
+  const settlementFor = (level: FindChoiceConfidence | "none") => {
+    if (!evidenceSettled) {
+      return coverage.anyUnchecked
+        ? `The best choice may change as checks complete. ${plainPublicCheckProgress(coverage)}`
+        : `Public safety records were checked for every model here, but the ranking can still change. ${plainFairnessHeldOutNote(fairnessHeldOut) ?? "Some checks are not in the ranking yet so one car is not favored for having more data."}`;
+    }
+    if (level === "none") return NO_USABLE_LISTINGS_NOTE;
+    if (level === "high") return PICK_SETTLED_NOTE;
+    return CHECKS_FINISHED_NOTE;
+  };
 
   const fuelAttemptedKeys = checkedMmyKeysForCheck(receipts, "free_gov_fuel");
   const ncapAttemptedKeys = checkedMmyKeysForCheck(receipts, "free_gov_safety");
@@ -1431,7 +1477,6 @@ export function selectBestDealOnEvidence(input: {
     recallStateByMmy.set(mmyListingKey(receipt.make, receipt.model, receipt.year), recallEvidenceState(receipt));
   }
 
-  const priced = input.listings.filter((l) => l.priceUsd != null);
   // Price fairness: neutralize only on a material comps gap (see priceCompsUnevenAcrossListings).
   const priceFairnessNeutral = priceCompsUnevenAcrossListings(input.listings, input.marketPool);
   const rankOpts = {
@@ -1452,9 +1497,16 @@ export function selectBestDealOnEvidence(input: {
   };
   const rankedAll = rankAll(input.listings, input.need, rankOpts);
   const ranked = rankedAll.slice(0, shortlistMax);
+  const leader = rankedAll.find((car) => !car.excludedFromPick) ?? null;
   const baselineFor = (pick: BestDealCandidate | null) =>
-    computeFindBaseline({ need: input.need, cars: rankedAll, pick });
+    computeFindBaseline({
+      need: input.need,
+      cars: rankedAll,
+      pick,
+      leading: pick ? null : leader,
+    });
   const top = ranked;
+  const labelOfCars = buyerCarLabels(rankedAll);
 
   // Provisional on price when fairness neutralized uneven comps, or when no ranked
   // car got a rated Ask-vs-median line (truly thin comps). Points may be 0 at median.
@@ -1488,47 +1540,35 @@ export function selectBestDealOnEvidence(input: {
   const honesty =
     "Best deal on current evidence only — not a guarantee, not VIN history clearance, and not a claim that Lemonless is error-free or better than other tools. Always inspect and verify before buying.";
 
-  if (priced.length < BEST_DEAL_MIN_PRICED || top.length === 0) {
+  const firstUsable = rankedAll.find((car) => !car.excludedFromPick) ?? null;
+  if (top.length === 0 || !firstUsable) {
+    const noneNote = settlementFor("none");
+    const why =
+      rankedAll.length === 0
+        ? NO_USABLE_LISTINGS_NOTE
+        : (rankedAll[0]?.excludedReason ??
+          "No usable listings in this search. Every car was left out because the listing does not match the VIN.");
     return {
       ranked: top,
       pick: null,
-      confidence: "no_confident_pick",
-      why: `Not enough priced cars in this search to name a confident best deal (need at least ${BEST_DEAL_MIN_PRICED} with asking prices).`,
+      confidence: "none",
+      choice: null,
+      why,
       stillUnknown,
       sensitivity: [],
       assumptionsNote,
       honesty,
       evidenceSettled,
-      settlementNote,
+      settlementNote: noneNote,
       fairnessHeldOut,
       priceProvisional: true,
       allRanked: rankedAll,
       baseline: baselineFor(null),
+      closeCall: null,
     };
   }
 
-  const first = top[0]!;
-  if (first.excludedFromPick) {
-    return {
-      ranked: top,
-      pick: null,
-      confidence: "no_confident_pick",
-      why: first.excludedReason ?? "Every priced car was left out of the pick because the VIN does not match the listing.",
-      stillUnknown,
-      sensitivity: [],
-      assumptionsNote,
-      honesty,
-      evidenceSettled,
-      settlementNote,
-      fairnessHeldOut,
-      priceProvisional,
-      allRanked: rankedAll,
-      baseline: baselineFor(null),
-    };
-  }
-  const second = top.find((car, index) => index > 0 && !car.excludedFromPick);
-  const tied =
-    second != null && Math.abs(first.score - second.score) <= BEST_DEAL_TIE_EPSILON;
+  const first = firstUsable;
 
   // Sensitivity: fuel weight down; city-heavy already in fuel evidence — re-rank with fuel muted
   const altFuelMuted = rankAll(input.listings, input.need, {
@@ -1570,63 +1610,73 @@ export function selectBestDealOnEvidence(input: {
     });
   }
 
-  const tieBreakHelp =
-    "A free FuelEconomy.gov match, crash rating, or recall check on unchecked year/make/model cards — or a paid NMVTIS-approved history + pre-purchase inspection — could break the tie.";
-
-  if (tied) {
-    const gapBits = [
-      `Top cars are too close on current evidence (${first.year} ${first.make} ${first.model} score ${first.score} vs ${second!.year} ${second!.make} ${second!.model} score ${second!.score}).`,
-      "No single confident pick.",
-      `What would break the tie: a clearer gap on miles/year wear, staying inside budget, or matching a model you named. ${tieBreakHelp}`,
-      settlementNote,
-      priceProvisional ? "Asking-price comparison remains provisional." : null,
-    ].filter(Boolean);
-    return {
-      ranked: top,
-      pick: null,
-      confidence: "no_confident_pick",
-      why: gapBits.join(" "),
-      stillUnknown,
-      sensitivity,
-      assumptionsNote,
-      honesty,
-      evidenceSettled,
-      settlementNote,
-      fairnessHeldOut,
-      priceProvisional,
-      allRanked: rankedAll,
-      baseline: baselineFor(null),
-    };
+  const nameOf = (car: BestDealCandidate) =>
+    labelOfCars.get(car.key) ?? `${car.year} ${car.make} ${car.model}`;
+  const usableCount = rankedAll.filter((car) => !car.excludedFromPick).length;
+  const runnerUp = rankedAll.find((car) => !car.excludedFromPick && car.key !== first.key) ?? null;
+  const close = closeCallCars(top, BEST_DEAL_TIE_EPSILON).length >= 2;
+  const level = findChoiceConfidence({
+    close,
+    usableCount,
+    evidenceSettled,
+    priceProvisional,
+  });
+  const edge = runnerUp ? closeCallLeadReason(first, runnerUp, nameOf) : null;
+  const namedWhy = whyPickOverNamedModels(first, rankedAll, input.need, bodyClassByKey)
+    .replace(/\s+/g, " ")
+    .trim();
+  const reasons = [edge, namedWhy || null].filter((line): line is string => Boolean(line)).slice(0, 2);
+  if (reasons.length === 0) {
+    const price =
+      first.priceUsd != null ? `$${first.priceUsd.toLocaleString("en-US")}` : "price not listed";
+    reasons.push(`${nameOf(first)} is the only usable car in this search (${price}).`);
   }
-
-  const whyParts = first.factors
-    .filter((f) => f.points !== 0)
-    .sort((a, b) => Math.abs(b.points) - Math.abs(a.points))
-    .slice(0, 4)
-    .map((f) => `${f.label}: ${f.detail}`);
-
-  const settlePrefix = evidenceSettled
-    ? priceProvisional
-      ? "Best deal on settled evidence (provisional on price)"
-      : "Best deal on settled evidence"
-    : "Provisional best deal (may change as checks complete)";
-
-  const namedWhy = whyPickOverNamedModels(first, rankedAll, input.need, bodyClassByKey);
+  const confirmBeforeBuying = whatWouldDecideCloseCall(runnerUp ? [first, runnerUp] : [first], nameOf);
+  const choice: FindChoice = {
+    label: nameOf(first),
+    runnerUpLabel: runnerUp ? nameOf(runnerUp) : null,
+    reasons,
+    confidence: level.confidence,
+    confidenceLine: level.confidenceLine,
+    confirmBeforeBuying,
+  };
+  const note = settlementFor(level.confidence);
+  const closeCall: BestDealCloseCall | null = close
+    ? {
+        leaningKey: first.key,
+        leaningLabel: choice.label,
+        leadReason: reasons[0] ?? choice.confidenceLine,
+        wouldDecide: confirmBeforeBuying,
+      }
+    : null;
+  const why = [
+    `Best choice on current data: ${choice.label}.`,
+    choice.confidenceLine,
+    ...choice.reasons,
+    note,
+    priceProvisional ? "Asking-price comparison remains provisional." : null,
+  ]
+    .filter(Boolean)
+    .join(" ")
+    .replace(/\s+/g, " ")
+    .trim();
 
   return {
     ranked: top,
     pick: first,
-    confidence: "confident",
-    why: `${settlePrefix}: ${first.year} ${first.make} ${first.model}${first.priceUsd != null ? ` at $${first.priceUsd.toLocaleString("en-US")}` : ""}. ${namedWhy}${whyParts.join(" ")} ${settlementNote}`.replace(/\s+/g, " ").trim(),
+    confidence: level.confidence,
+    choice,
+    why,
     stillUnknown: [...new Set([...stillUnknown, ...first.unknowns])],
     sensitivity,
     assumptionsNote,
     honesty,
     evidenceSettled,
-    settlementNote,
+    settlementNote: note,
     fairnessHeldOut,
     priceProvisional,
     allRanked: rankedAll,
     baseline: baselineFor(first),
+    closeCall,
   };
 }

@@ -45,6 +45,7 @@ import {
   buyerCheckActivityLine,
   publicCheckStatusLine,
   formatGroundedShortlistLine,
+  findSettledStatusLine,
   formatBuyerBestDeal,
   formatBuyerLoopStatus,
   formatBuyerLoopStep,
@@ -53,11 +54,13 @@ import {
   formatRecallCheckSummary,
   formatTopPickLine,
   sellerQuestionsForBuyer,
+  topCarsHeading,
   topPicksInRankOrder,
   summarizeFuelCheckOutcome,
   summarizeRecallCheckOutcome,
 } from "@/domain/find-buyer-copy";
 import type { BestDealResult } from "@/domain/find-best-deal";
+import { buyerCarLabels } from "@/domain/find-car-label";
 import { formatBaselineForBuyer, type FindBaselineDelta } from "@/domain/find-baseline";
 import {
   presentDecisionLogForBuyer,
@@ -83,7 +86,7 @@ import {
   type ReadinessCar,
 } from "@/domain/purchase-readiness";
 import { PurchaseReadinessNote } from "./PurchaseReadinessNote";
-import { buyerListingHref } from "@/domain/find-listing-link";
+import { buyerListingHref, matchBuyerListing } from "@/domain/find-listing-link";
 import { mmyListingKey } from "@/domain/find-risk-evidence";
 import {
   AGE_GAP_NO_FLOOR,
@@ -111,6 +114,7 @@ type ListingCard = {
   miles: number | null;
   city: string | null;
   state: string | null;
+  dealer?: string | null;
   vdp: string | null;
   primaryImage: string | null;
   source: string;
@@ -258,6 +262,8 @@ function AssistantFlow({
   /** Machine/agent channel only — raw receipts JSON, not shown as page copy. */
   const [freeGovAgentPayload, setFreeGovAgentPayload] = useState<string | null>(null);
   const [bestDeal, setBestDeal] = useState<BestDealResult | null>(null);
+  /** True while the server says another automatic check will run. */
+  const [findLoopOpen, setFindLoopOpen] = useState(false);
   /** Full search pool for offer ranges. Shown cards are the fallback. */
   const [marketPool, setMarketPool] = useState<ReadinessCar[]>([]);
   const [decisionView, setDecisionView] = useState<{
@@ -757,6 +763,12 @@ function AssistantFlow({
             year: car.year,
             make: car.make,
             model: car.model,
+            trim: car.trim ?? null,
+            priceUsd: car.priceUsd,
+            miles: car.miles,
+            city: car.city ?? null,
+            state: car.state ?? null,
+            dealer: car.dealer ?? null,
           })),
         ];
         setDecisionView({ entries: serverLog, labels });
@@ -857,6 +869,7 @@ function AssistantFlow({
           })
         : null;
       setNextCheckNote([step, status, settleBit].filter(Boolean).join(" "));
+      setFindLoopOpen(Boolean(body.loop?.continue));
       const checksSettled = body.loop?.continue === false && toolCov?.anyUnchecked !== true;
       try {
         sessionStorage.setItem(
@@ -1193,6 +1206,7 @@ function AssistantFlow({
       // Clear prior search's free-gov / best-deal state so a new Find cannot inherit
       // a stuck "still checking" banner or stale provisional pick.
       setBestDeal(null);
+      setFindLoopOpen(false);
       setDecisionView({ entries: [], labels: [] });
       setBaselineView(null);
       setFreeGovReceiptsForShortlist([]);
@@ -1876,7 +1890,7 @@ function AssistantFlow({
       ) : null}
 
       {stage === "results" ? (
-        <div id="find-results">
+        <div id="find-results" className="find-results">
           <h2>Cars that fit</h2>
           <PriceRatingHow />
           <DecisionNote scene="find" proofs={checks} />
@@ -1930,7 +1944,19 @@ function AssistantFlow({
                   uiRowsToRiskReceipts(freeGovReceiptsForShortlist),
                 );
                 const dealCopy = bestDeal ? formatBuyerBestDeal(bestDeal) : null;
-                const decisionPresented = presentDecisionLogForBuyer(decisionView.entries, decisionView.labels);
+                const decisionLabels = decisionView.labels.map((label) => {
+                  const card = allListings.find(
+                    (item) => item.vin && label.key && item.vin.toUpperCase() === label.key.toUpperCase(),
+                  );
+                  return {
+                    ...label,
+                    trim: label.trim ?? card?.trim ?? null,
+                    city: label.city ?? card?.city ?? null,
+                    state: label.state ?? card?.state ?? null,
+                    dealer: label.dealer ?? card?.dealer ?? null,
+                  };
+                });
+                const decisionPresented = presentDecisionLogForBuyer(decisionView.entries, decisionLabels);
                 const recallSummary = summarizeRecallCheckOutcome(
                   uiRowsToRiskReceipts(freeGovReceiptsForShortlist),
                 );
@@ -1963,46 +1989,29 @@ function AssistantFlow({
                 const topRows = bestDeal
                   ? topPicksInRankOrder(bestDeal.ranked, bestDeal.pick?.key ?? null).rows
                   : [];
-                const cardForRow = (row: (typeof topRows)[number]) =>
-                  allListings.find(
-                    (item) => item.vin && row.vin && item.vin.toUpperCase() === row.vin.toUpperCase(),
-                  ) ??
-                  allListings.find(
-                    (item) =>
-                      item.year === row.year &&
-                      item.make.toLowerCase() === row.make.toLowerCase() &&
-                      item.model.toLowerCase() === row.model.toLowerCase() &&
-                      item.priceUsd === row.priceUsd &&
-                      item.miles === row.miles,
-                  );
-                const poolForRow = (row: (typeof topRows)[number]) => {
-                  const vin = (row.vin ?? "").trim().toUpperCase();
-                  if (vin) {
-                    const byVin = offerPool.find((item) => (item.vin ?? "").trim().toUpperCase() === vin);
-                    if (byVin) return byVin;
-                  }
-                  return (
-                    offerPool.find(
-                      (item) =>
-                        item.year === row.year &&
-                        item.make.toLowerCase() === row.make.toLowerCase() &&
-                        item.model.toLowerCase() === row.model.toLowerCase() &&
-                        item.priceUsd === row.priceUsd &&
-                        item.miles === row.miles,
-                    ) ?? null
-                  );
-                };
+                const cardForRow = (row: (typeof topRows)[number]) => matchBuyerListing(row, allListings);
+                const poolForRow = (row: (typeof topRows)[number]) => matchBuyerListing(row, offerPool);
                 const readinessByKey = new Map<string, ReturnType<typeof buildPurchaseReadiness>>();
                 for (const row of topRows) {
                   const card = cardForRow(row);
                   const pooled = poolForRow(row);
-                  const hint = listingHints.find(
-                    (item) =>
-                      (row.vin && item.vin && item.vin.toUpperCase() === row.vin.toUpperCase()) ||
-                      (item.year === row.year &&
-                        item.make?.toLowerCase() === row.make.toLowerCase() &&
-                        item.model?.toLowerCase() === row.model.toLowerCase()),
-                  );
+                  const hint = (() => {
+                    const vin = (row.vin ?? "").trim().toUpperCase();
+                    if (vin) {
+                      const byVin = listingHints.find((item) => (item.vin ?? "").trim().toUpperCase() === vin);
+                      if (byVin) return byVin;
+                    }
+                    const rowTrim = (row.trim ?? "").trim().toLowerCase();
+                    const loose = listingHints.filter((item) => {
+                      if (item.year !== row.year) return false;
+                      if (item.make?.toLowerCase() !== row.make.toLowerCase()) return false;
+                      if (item.model?.toLowerCase() !== row.model.toLowerCase()) return false;
+                      const itemTrim = (item.trim ?? "").trim().toLowerCase();
+                      if (rowTrim && itemTrim && rowTrim !== itemTrim) return false;
+                      return true;
+                    });
+                    return loose.length === 1 ? loose[0] : null;
+                  })();
                   const trimGap = trimSourceDisagreement({
                     year: row.year,
                     make: row.make,
@@ -2046,13 +2055,51 @@ function AssistantFlow({
                       [...readinessByKey.values()].flatMap((view) => view.talkingPoints),
                     )
                   : [];
+                const confirmLines = [
+                  ...sellerLines,
+                  ...(dealCopy?.choice?.confirmBeforeBuying ?? []).filter(
+                    (line) => !sellerLines.some((existing) => existing.toLowerCase().includes(line.slice(0, 24).toLowerCase())),
+                  ),
+                ].slice(0, 8);
                 if (checks.length === 0 && shortlist.length === 0 && !dealCopy && decisionPresented.lines.length === 0)
                   return null;
+                const rankedForLabels = bestDeal?.allRanked?.length ? bestDeal.allRanked : bestDeal?.ranked ?? [];
+                const topNames = buyerCarLabels(
+                  rankedForLabels.map((car) => {
+                    const card = matchBuyerListing(car, allListings);
+                    return {
+                      key: car.key,
+                      year: car.year,
+                      make: car.make,
+                      model: car.model,
+                      trim: car.trim ?? card?.trim ?? null,
+                      priceUsd: car.priceUsd,
+                      miles: car.miles,
+                      city: car.city ?? card?.city ?? null,
+                      state: car.state ?? card?.state ?? null,
+                      dealer: car.dealer ?? card?.dealer ?? null,
+                    };
+                  }),
+                );
+                const settledLine = findSettledStatusLine({
+                  pending: pending === "next-check",
+                  anyUnchecked: freeGovAnyUnchecked,
+                  evidenceSettled: Boolean(bestDeal?.evidenceSettled),
+                  loopOpen: findLoopOpen,
+                  hasPick: Boolean(bestDeal?.pick),
+                  confidence: bestDeal?.confidence ?? null,
+                });
                 return (
-                  <div className="hint" role="note">
+                  <div className="find-results-grid">
+                    <div className="find-col-main">
                     {bestDeal && bestDeal.ranked.length > 0 ? (
                       <div>
-                        <p>{bestDeal.pick ? "Top picks" : "Top cars in the current order"}</p>
+                        <p>
+                          {topCarsHeading({
+                            hasPick: Boolean(bestDeal.pick),
+                            evidenceSettled: bestDeal.evidenceSettled,
+                          })}
+                        </p>
                         <ol className="top-picks">
                           {topRows.map((row) => {
                             const card = cardForRow(row);
@@ -2060,7 +2107,7 @@ function AssistantFlow({
                             const readiness = readinessByKey.get(row.key);
                             return (
                               <li key={row.key}>
-                                {formatTopPickLine(row)}
+                                {formatTopPickLine({ ...row, name: topNames.get(row.key) })}
                                 {" · "}
                                 {href ? <a href={href}>Dealer listing</a> : "Listing link unavailable"}
                                 {readiness ? <PurchaseReadinessNote view={readiness} /> : null}
@@ -2068,58 +2115,6 @@ function AssistantFlow({
                             );
                           })}
                         </ol>
-                      </div>
-                    ) : null}
-                    {servNextCheckEnabled && freeGovAnyUnchecked && error && pending !== "next-check" ? (
-                      <p>
-                        Public checks stopped. Some models are still unchecked. You can retry after fixing the
-                        error. The pick may change once checks finish.
-                      </p>
-                    ) : (
-                      <p>
-                        {publicCheckStatusLine({
-                          servEnabled: servNextCheckEnabled,
-                          anyUnchecked: freeGovAnyUnchecked,
-                          checksHaveRun:
-                            freeGovReceiptsForShortlist.length > 0 || Boolean(bestDeal),
-                          running: pending === "next-check",
-                          modelCount: new Set(
-                            allListings.map((car) => `${car.make}|${car.model}|${car.year}`),
-                          ).size,
-                        })}
-                      </p>
-                    )}
-                    {checks.length > 0 ? (
-                      <ul>
-                        {checks.map((item) => (
-                          <li key={item.id}>
-                            {formatBuyerNextCheckWhy(item.id, item.why, {
-                              fuelOutcome: fuelCheckOutcome,
-                              fuelPending: fuelCheckPending,
-                              recallOutcome: recallSummary.attempted > 0 ? recallSummary : undefined,
-                            })}
-                          </li>
-                        ))}
-                      </ul>
-                    ) : null}
-                    {decisionPresented.lines.length > 0 ? (
-                      <div className="hint" role="note">
-                        <p>How Lemonless decided</p>
-                        <ul>
-                          {decisionPresented.lines.map((line, index) => (
-                            <li key={`decision-${index}`}>{line}</li>
-                          ))}
-                        </ul>
-                        {decisionPresented.hiddenSteps.length > 0 ? (
-                          <details>
-                            <summary>Show all steps</summary>
-                            <ul>
-                              {decisionPresented.hiddenSteps.map((line, index) => (
-                                <li key={`decision-all-${index}`}>{line}</li>
-                              ))}
-                            </ul>
-                          </details>
-                        ) : null}
                       </div>
                     ) : null}
                     {baselineView ? (
@@ -2133,52 +2128,24 @@ function AssistantFlow({
                         <p>{baselineView.whyNotCheapest}</p>
                       </div>
                     ) : null}
-                    {nextCheckNote ? <p className="hint">{nextCheckNote}</p> : null}
-                    {pending === "next-check" ? <p className="hint">Checking public safety records…</p> : null}
-                    {pending !== "next-check" && !freeGovAnyUnchecked && bestDeal?.evidenceSettled ? (
-                      <p className="hint">Checks settled — ranking below is on completed free public coverage.</p>
-                    ) : null}
-                    {freeGovEvidenceLines.length > 0 ? (
-                      <div className="hint" role="note">
-                        <p>
-                          What we checked from free U.S. government sources (year/make/model scope — not the same as
-                          a VIN history or title report):
-                        </p>
-                        {recallSummaryLine ? <p>{recallSummaryLine}</p> : null}
-                        <ul>
-                          {freeGovEvidenceLines.map((line) => (
-                            <li key={line.slice(0, 100)}>{line}</li>
-                          ))}
-                        </ul>
-                        {(() => {
-                          const sources = buyerSourceLinesForUi(freeGovReceiptsForShortlist).filter(
-                            (s) => s.href,
-                          );
-                          if (sources.length === 0) return null;
-                          return (
-                            <p className="hint">
-                              Public pages:{" "}
-                              {sources.map((s, i) => (
-                                <span key={`${s.label}-${s.href}`}>
-                                  {i > 0 ? " · " : null}
-                                  <a href={s.href!} target="_blank" rel="noreferrer">
-                                    {s.label}
-                                  </a>
-                                </span>
-                              ))}
-                            </p>
-                          );
-                        })()}
-                        {riskCoverageNote ? <p className="hint">{riskCoverageNote}</p> : null}
-                      </div>
-                    ) : null}
                     {dealCopy ? (
                       <div className="hint" role="note">
                         <p>
                           <strong>{dealCopy.headline}</strong>
                         </p>
                         {dealCopy.settlementNote ? <p className="hint">{dealCopy.settlementNote}</p> : null}
-                        <p>{dealCopy.why}</p>
+                        {dealCopy.choice ? (
+                          <>
+                            <p>{dealCopy.choice.confidenceLine}</p>
+                            <ul>
+                              {dealCopy.choice.reasons.map((line) => (
+                                <li key={line}>{line}</li>
+                              ))}
+                            </ul>
+                          </>
+                        ) : (
+                          <p>{dealCopy.why}</p>
+                        )}
                         {dealCopy.rankedLines.length > 0 ? (
                           <>
                             <p>Ranked on current evidence:</p>
@@ -2191,22 +2158,12 @@ function AssistantFlow({
                         ) : null}
                         {dealCopy.factorLines.length > 0 ? (
                           <>
-                            <p>Why each ranked car scored this way:</p>
+                            <p>What the checks say about each ranked car:</p>
                             <ul>
                               {dealCopy.factorLines.map((line, idx) => (
                                 <li key={`factor-${bestDeal?.evidenceSettled ? "settled" : "prov"}-${idx}`}>
                                   {line}
                                 </li>
-                              ))}
-                            </ul>
-                          </>
-                        ) : null}
-                        {sellerLines.length > 0 ? (
-                          <>
-                            <p>Questions for the seller</p>
-                            <ul>
-                              {sellerLines.map((line) => (
-                                <li key={line}>{line}</li>
                               ))}
                             </ul>
                           </>
@@ -2251,6 +2208,109 @@ function AssistantFlow({
                         </ul>
                       </>
                     ) : null}
+                    </div>
+                    <div className="find-col-side">
+                    {servNextCheckEnabled && freeGovAnyUnchecked && error && pending !== "next-check" ? (
+                      <p>
+                        Public checks stopped. Some models are still unchecked. You can retry after fixing the
+                        error. The best choice may change once checks finish.
+                      </p>
+                    ) : (
+                      <p>
+                        {publicCheckStatusLine({
+                          servEnabled: servNextCheckEnabled,
+                          anyUnchecked: freeGovAnyUnchecked,
+                          checksHaveRun:
+                            freeGovReceiptsForShortlist.length > 0 || Boolean(bestDeal),
+                          running: pending === "next-check",
+                          loopOpen: findLoopOpen,
+                          modelCount: new Set(
+                            allListings.map((car) => `${car.make}|${car.model}|${car.year}`),
+                          ).size,
+                        })}
+                      </p>
+                    )}
+                    {checks.length > 0 ? (
+                      <ul>
+                        {checks.map((item) => (
+                          <li key={item.id}>
+                            {formatBuyerNextCheckWhy(item.id, item.why, {
+                              fuelOutcome: fuelCheckOutcome,
+                              fuelPending: fuelCheckPending,
+                              recallOutcome: recallSummary.attempted > 0 ? recallSummary : undefined,
+                            })}
+                          </li>
+                        ))}
+                      </ul>
+                    ) : null}
+                    {decisionPresented.lines.length > 0 ? (
+                      <div className="hint" role="note">
+                        <p>How Lemonless decided</p>
+                        <ul>
+                          {decisionPresented.lines.map((line, index) => (
+                            <li key={`decision-${index}`}>{line}</li>
+                          ))}
+                        </ul>
+                        {decisionPresented.hiddenSteps.length > 0 ? (
+                          <details>
+                            <summary>Show all steps</summary>
+                            <ul>
+                              {decisionPresented.hiddenSteps.map((line, index) => (
+                                <li key={`decision-all-${index}`}>{line}</li>
+                              ))}
+                            </ul>
+                          </details>
+                        ) : null}
+                      </div>
+                    ) : null}
+                    {confirmLines.length > 0 ? (
+                      <div className="hint" role="note">
+                        <p>What to confirm before buying</p>
+                        <ul>
+                          {confirmLines.map((line) => (
+                            <li key={line}>{line}</li>
+                          ))}
+                        </ul>
+                      </div>
+                    ) : null}
+                    {nextCheckNote ? <p className="hint">{nextCheckNote}</p> : null}
+                    {pending === "next-check" ? <p className="hint">Checking public safety records…</p> : null}
+                    {settledLine ? <p className="hint">{settledLine}</p> : null}
+                    {freeGovEvidenceLines.length > 0 ? (
+                      <div className="hint" role="note">
+                        <p>
+                          What we checked from free U.S. government sources (year/make/model scope — not the same as
+                          a VIN history or title report):
+                        </p>
+                        {recallSummaryLine ? <p>{recallSummaryLine}</p> : null}
+                        <ul>
+                          {freeGovEvidenceLines.map((line) => (
+                            <li key={line.slice(0, 100)}>{line}</li>
+                          ))}
+                        </ul>
+                        {(() => {
+                          const sources = buyerSourceLinesForUi(freeGovReceiptsForShortlist).filter(
+                            (s) => s.href,
+                          );
+                          if (sources.length === 0) return null;
+                          return (
+                            <p className="hint">
+                              Public pages:{" "}
+                              {sources.map((s, i) => (
+                                <span key={`${s.label}-${s.href}`}>
+                                  {i > 0 ? " · " : null}
+                                  <a href={s.href!} target="_blank" rel="noreferrer">
+                                    {s.label}
+                                  </a>
+                                </span>
+                              ))}
+                            </p>
+                          );
+                        })()}
+                        {riskCoverageNote ? <p className="hint">{riskCoverageNote}</p> : null}
+                      </div>
+                    ) : null}
+                    </div>
                     {freeGovAgentPayload ? (
                       <script
                         type="application/json"
