@@ -9,6 +9,8 @@ import { buildComputedReport } from "@/domain/report";
 import { resolvePurchaseAskForEconomics } from "@/domain/report-purchase-ask";
 import { screenUserInput } from "@/domain/screen";
 import { templateExplanation } from "@/domain/template";
+import { buildAgentVerdictFromReport } from "@/domain/agent-trail";
+import { collectReportEvidenceIds, runReportVerdictChallenge } from "@/server/agent-second-pass";
 import { resolveVerdictDecision, verdictDecisionFacts } from "@/domain/verdict-decide";
 import { extractVin } from "@/domain/vin";
 import type { FullReport, Listing, Mode, Proof, ProofStep } from "@/domain/types";
@@ -30,6 +32,8 @@ import {
   SHADOW_MAX_ITERATIONS,
 } from "@/io/serv";
 import { agentProof, interpretGuard, plannedProof, runServ, type AgentProof, type ProfileId, type ServProof } from "@/server/serv";
+import type { AgentVerdictConfidence } from "@/domain/agent-verdict-schema";
+import type { DecisionAction } from "@/domain/decision-action";
 
 export type AssembleInput = {
   mode: Mode;
@@ -377,6 +381,76 @@ export async function assembleReport(input: AssembleInput, deps: AssembleDeps): 
       `final=${decision.finalAction}; source=${decision.source}`,
   });
 
+  // Independent second-pass challenge (counts as one SERV call when a key exists).
+  let challengeProof: ServProof | null = null;
+  const primaryForChallenge: Exclude<DecisionAction, "withheld"> | null =
+    decision.finalAction === "withheld" ? null : (decision.finalAction as Exclude<DecisionAction, "withheld">);
+  const challengeConfidence: AgentVerdictConfidence =
+    decision.source === "serv" && decision.overrideReasons.length === 0 ? "high" : "medium";
+  const challenge = await runReportVerdictChallenge({
+    report: computed,
+    primaryAction: primaryForChallenge,
+    confidence: decision.gateRun.withheld ? null : challengeConfidence,
+    allowedActions: decision.allowedActions.filter(
+      (action): action is Exclude<DecisionAction, "withheld"> => action !== "withheld",
+    ),
+    hasBudget: !decision.gateRun.withheld,
+    servKey: deps.servKey,
+    servBaseUrl: deps.servBaseUrl,
+    model,
+    fetchImpl,
+  });
+  challengeProof = challenge.proof;
+  if (challenge.result.status === "skipped_no_budget" || challenge.result.status === "skipped_no_key") {
+    steps.push({
+      id: "serv_verdict_challenge",
+      status: "skipped",
+      detail: challenge.result.objection ?? challenge.result.status,
+    });
+  } else if (challenge.result.status === "ignored_malformed" || challenge.result.status === "ignored_no_evidence") {
+    steps.push({
+      id: "serv_verdict_challenge",
+      status: "ignored",
+      detail: challenge.result.status,
+    });
+  } else {
+    steps.push({
+      id: "serv_verdict_challenge",
+      status: challenge.result.status,
+      detail: challenge.result.objection ?? challenge.result.action ?? undefined,
+    });
+  }
+  if (challenge.result.status === "disagreed" && challenge.result.confidenceAfter) {
+    // Confidence lives on agentVerdict; primary action stays under hard gates.
+  }
+
+  const evidencePack = collectReportEvidenceIds(computed);
+  const agentReasons = computed.reasons.slice(0, 4).map((text, index) => ({
+    evidenceId: `ev_reason_${index}`,
+    text,
+  }));
+  const agentRisks = computed.flags
+    .filter((flag) => flag.level === "stop" || flag.level === "caution")
+    .slice(0, 4)
+    .map((flag, index) => ({
+      evidenceId: `ev_flag_${index}`,
+      text: flag.text,
+    }));
+  computed.agentVerdict = buildAgentVerdictFromReport({
+    verdict: decision.finalAction,
+    confidence:
+      challenge.result.confidenceAfter ??
+      (decision.gateRun.withheld ? null : challengeConfidence),
+    reasons: agentReasons.filter((row) => evidencePack.ids.has(row.evidenceId)),
+    risks: agentRisks.filter((row) => evidencePack.ids.has(row.evidenceId)),
+    unknowns: computed.dataNotes.slice(0, 6),
+    primaryNote: decision.note,
+    primarySource: decision.source,
+    secondPass: challenge.result,
+    servCalls: [guardProof, verdictServProof, challengeProof].filter(Boolean).length,
+    hadServStep: Boolean(verdictServOk && decision.servChoice),
+  });
+
   let explanation = templateExplanation(computed);
   let explanationSource: Proof["explanationSource"] = "template";
   let usedModel: string | null = null;
@@ -384,10 +458,12 @@ export async function assembleReport(input: AssembleInput, deps: AssembleDeps): 
     ? [
         ...(guardProof ? [guardProof] : []),
         ...(verdictServProof ? [verdictServProof] : []),
+        ...(challengeProof ? [challengeProof] : []),
       ]
     : [
         plannedProof(guardProfile),
         plannedProof("verdict_decide"),
+        plannedProof("verdict_challenge"),
         plannedProof("check_rules"),
         plannedProof(explainProfile),
       ];

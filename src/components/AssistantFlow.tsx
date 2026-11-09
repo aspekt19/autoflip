@@ -62,11 +62,13 @@ import {
 import type { BestDealResult } from "@/domain/find-best-deal";
 import { buyerCarLabels } from "@/domain/find-car-label";
 import { formatBaselineForBuyer, type FindBaselineDelta } from "@/domain/find-baseline";
+import { buildFindAgentVerdict } from "@/domain/build-find-agent-verdict";
 import {
   presentDecisionLogForBuyer,
   type DecisionCarLabel,
   type FindDecisionLogEntry,
 } from "@/domain/find-decision-log";
+import { AgentDecisionTrail } from "@/components/AgentDecisionTrail";
 import { formatFindFuelEvidenceShort, fuelFactFromFindEvidence } from "@/domain/find-fuel-match";
 import { buildGroundedShortlist } from "@/domain/find-path";
 import {
@@ -2257,9 +2259,18 @@ function AssistantFlow({
                         ))}
                       </ul>
                     ) : null}
+                    <AgentDecisionTrail
+                      verdict={buildFindAgentVerdict({
+                        decisionLog: decisionView.entries,
+                        labels: decisionLabels,
+                        bestDeal,
+                        baseline: bestDeal?.baseline ?? null,
+                        servCalls: decisionView.entries.filter((entry) => entry.decidedBy === "SERV").length,
+                      })}
+                    />
                     {decisionPresented.lines.length > 0 ? (
                       <div className="hint" role="note">
-                        <p>How Lemonless decided</p>
+                        <p>Check checklist (detail)</p>
                         <ul>
                           {decisionPresented.lines.map((line, index) => (
                             <li key={`decision-${index}`}>{line}</li>
