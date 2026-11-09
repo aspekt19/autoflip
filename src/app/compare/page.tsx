@@ -31,13 +31,13 @@ export default function ComparePage() {
             <path d="M-20 500 C 200 440, 280 360, 480 380 S 680 500, 880 340" />
           </svg>
         </div>
-        <div className="wrap hero-copy">
+        <div className="wrap site-frame hero-copy">
           <p className="kicker">Comparison</p>
           <h1>Standard AI vs Lemonless</h1>
           <p className="lead">The same listing, read two ways. Lemonless keeps the writing tied to the figures it calculated.</p>
         </div>
       </section>
-      <div className="compare-sheet">
+      <div className="compare-sheet site-frame">
         {board.examples.length === 0 ? (
           <section className="compare-listing">
             <p className="kicker">No saved run</p>

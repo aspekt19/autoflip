@@ -53,7 +53,7 @@ export default function ActivityPage() {
 
   return (
     <div className="sub">
-      <div className="sheet-page">
+      <div className="sheet-page site-frame">
         <p className="kicker">Guided preview</p>
         <h1>Activity log</h1>
         <p className="lead">Every saved-search run, in order. This page is the technical record.</p>

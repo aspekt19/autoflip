@@ -6,6 +6,7 @@
 
 import type { BestDealCandidate, BestDealResult } from "./find-best-deal";
 import { buyerCarLabels } from "./find-car-label";
+import { plainBuyerDetail } from "./find-close-call";
 import type { StructuredNeed } from "./need";
 
 export type BaselineCarRef = {
@@ -42,8 +43,8 @@ export type FindBaselineDelta = {
   whyNotCheapest: string;
   factors: FindBaselineFactor[];
   /**
-   * The #1 car used for the comparison when there is no confident pick.
-   * Null when a pick exists, or when there is no car to lean toward.
+   * Usable #1 used for the comparison only when there is no pick.
+   * Null when a pick exists, or when no usable car remains.
    */
   leading: BaselineCarRef | null;
 };
@@ -77,8 +78,8 @@ function nameOf(
 function factorDetail(car: BestDealCandidate | null, id: string): string {
   if (!car) return "not in this search";
   const factor = car.factors.find((row) => row.id === id);
-  if (!factor) return "not scored";
-  return factor.detail;
+  if (!factor) return "not on file";
+  return plainBuyerDetail(factor.detail);
 }
 
 function inBudget(
@@ -194,12 +195,12 @@ export function computeFindBaseline(input: {
 function flagSummary(car: BestDealCandidate | null): string {
   if (!car) return "not in this search";
   const bits: string[] = [];
-  if (car.excludedFromPick && car.excludedReason) bits.push(car.excludedReason);
+  if (car.excludedFromPick && car.excludedReason) bits.push(plainBuyerDetail(car.excludedReason));
   if (car.sellerQuestions.length > 0) bits.push(car.sellerQuestions.join(" "));
   const feed = car.factors.find((row) => row.id === "listing_feed_flags");
-  if (feed && feed.detail) bits.push(feed.detail);
+  if (feed && feed.detail) bits.push(plainBuyerDetail(feed.detail));
   const days = car.factors.find((row) => row.id === "days_listed");
-  if (days && days.points === 0 && /day/i.test(days.detail)) bits.push(days.detail);
+  if (days && days.points === 0 && /day/i.test(days.detail)) bits.push(plainBuyerDetail(days.detail));
   if (bits.length === 0) return "No per-car flags on this car.";
   return bits.join(" ");
 }

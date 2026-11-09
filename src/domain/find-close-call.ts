@@ -1,9 +1,10 @@
 /**
  * Close-call policy for Find.
- * Scores within the best-deal margin are not a confident pick.
+ * Cars within the best-deal margin are still a best choice. Confidence is Low,
+ * the runner-up is named, and the leader's edge is one plain reason.
  * Spend remaining free per-car checks on the tied cars first, then at most
- * one paid tie-break under the existing SERV cap, then say what is leaning
- * and what would decide it.
+ * one paid tie-break under the existing SERV cap. Confirm-before-buying
+ * lines are advice, not a reason to withhold the choice.
  */
 
 import type { BestDealCandidate, BestDealFactorId } from "./find-best-deal";
@@ -55,7 +56,12 @@ export function findChoiceConfidence(input: {
   priceProvisional: boolean;
 }): { confidence: FindChoiceConfidence; confidenceLine: string } {
   if (input.close) {
-    return { confidence: "low", confidenceLine: "Low: the top two are very close." };
+    const extra = !input.evidenceSettled
+      ? ", and some checks are still open"
+      : input.priceProvisional
+        ? ", and the price comparison is still provisional"
+        : "";
+    return { confidence: "low", confidenceLine: `Low: the top two are very close${extra}.` };
   }
   if (input.usableCount < 2) {
     return { confidence: "medium", confidenceLine: "Medium: this is the only usable car in the search." };
@@ -83,7 +89,8 @@ const FACTOR_PLAIN: Record<BestDealFactorId, string> = {
   days_listed: "time on the market",
 };
 
-function scrubDetail(detail: string): string {
+/** Buyer-facing factor text. Drops the word "score" and never includes point totals. */
+export function plainBuyerDetail(detail: string): string {
   return detail
     .replace(/lower score for condition risk:\s*/gi, "Condition risk: ")
     .replace(/\bis scored lower\b/gi, "ranks lower")
@@ -93,7 +100,7 @@ function scrubDetail(detail: string): string {
 }
 
 function detailSentences(detail: string): string[] {
-  return scrubDetail(detail)
+  return plainBuyerDetail(detail)
     .split(/(?<=\.)\s+/)
     .map((sentence) => sentence.replace(/\.$/, "").trim())
     .filter(Boolean);
@@ -154,7 +161,7 @@ export function closeCallLeadReason(
   if (first.miles != null && second.miles != null && first.miles < second.miles) {
     return `${lead} has ${first.miles.toLocaleString("en-US")} miles, fewer than the ${other} at ${second.miles.toLocaleString("en-US")} miles.`;
   }
-  return `The checks we ran do not separate the ${lead} from the ${other}.`;
+  return `${lead} stays ahead of the ${other} because the checks we ran match, and none of them favor the ${other}.`;
 }
 
 function namedQuestion(question: string, car: BestDealCandidate, name: string): string {

@@ -38,7 +38,7 @@
   --mono: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
   --ease: cubic-bezier(0.16, 1, 0.3, 1);
   --pad: 28px;
-  /* Same outer width as the site header (.bar) on every page. */
+  /* Same outer width as the site header on every page. */
   --site-max: 1360px;
   --site-gutter: 14px;
   accent-color: var(--blue);
@@ -126,6 +126,14 @@ a { color: inherit; }
   font-weight: 500;
 }
 
+/* One shared content width. Header and every page main column use .site-frame. */
+.site-frame {
+  box-sizing: border-box;
+  width: min(var(--site-max), calc(100% - 2 * var(--site-gutter)));
+  max-width: var(--site-max);
+  margin-inline: auto;
+}
+
 .bar {
   position: sticky;
   top: 14px;
@@ -136,7 +144,6 @@ a { color: inherit; }
   align-items: center;
   justify-content: space-between;
   gap: 16px;
-  width: min(var(--site-max), calc(100% - 2 * var(--site-gutter)));
   margin: 14px auto 0;
   min-height: 74px;
   padding: 10px 12px 10px 16px;
@@ -491,7 +498,7 @@ span.nav-go { cursor: default; }
 .choice-arrow { margin-top: auto; font-family: var(--sans); font-weight: 700; font-size: 22px; }
 .compare-hero { padding-bottom: 8px; }
 .compare-hero h1 { max-width: 14ch; }
-.compare-sheet { width: min(var(--site-max), calc(100% - 2 * var(--site-gutter))); margin: 0 auto 72px; }
+.compare-sheet { margin: 0 auto 72px; }
 .compare-listing { text-align: center; margin: 36px 0 0; }
 .compare-listing h2 { margin-bottom: 8px; }
 .compare-pair { max-width: none; }
@@ -606,7 +613,7 @@ span.nav-go { cursor: default; }
 .trust-row article { text-align: center; padding: 8px 12px; }
 .trust-row strong { display: block; margin-bottom: 6px; font-family: var(--sans); font-size: 18px; }
 .trust-row span { color: var(--muted); }
-.flow-page { width: min(var(--site-max), calc(100% - 2 * var(--site-gutter))); margin: 12px auto 72px; }
+.flow-page { margin: 12px auto 72px; }
 .flow-page h1 { max-width: none; font-size: clamp(32px, 4vw, 44px); margin-bottom: 12px; }
 .flow-page .lead { max-width: none; }
 .progress {
@@ -645,8 +652,6 @@ span.nav-go { cursor: default; }
 .hero-grid {
   position: relative;
   z-index: 1;
-  width: min(var(--site-max), calc(100% - 2 * var(--site-gutter)));
-  margin: 0 auto;
   display: grid;
   grid-template-columns: 1.05fr 0.95fr;
   gap: 48px;
@@ -770,7 +775,7 @@ button:disabled, .action:disabled, .quiet:disabled, .ghost:disabled {
 
 .band { padding: 72px 0; }
 .band.paper, .sub { background: var(--paper); }
-.wrap { width: min(var(--site-max), calc(100% - 2 * var(--site-gutter))); margin: 0 auto; }
+.wrap { margin: 0 auto; }
 .path { list-style: none; margin: 0; padding: 0; display: grid; gap: 0; counter-reset: step; }
 .path li {
   display: grid;
@@ -795,18 +800,16 @@ button:disabled, .action:disabled, .quiet:disabled, .ghost:disabled {
 .refuse li { padding: 14px 0; border-top: 1px solid var(--line); font-size: 18px; }
 
 .sub { padding: 28px 0 72px; }
-.sheet-page { width: min(var(--site-max), calc(100% - 2 * var(--site-gutter))); margin: 0 auto; }
+.sheet-page { margin: 0 auto; }
 .support { font-size: 18px; max-width: 62ch; }
 .hint { color: var(--muted); font-size: 15px; margin: 6px 0 0; }
 .top-picks { list-style: decimal; margin: 6px 0 0; padding-left: 1.3em; }
 /* Prose stays readable inside the shared header-width container, and cannot force a card wider than its column. */
-.wrap :where(p, .lead, .hint),
-.sheet-page :where(p, .lead, .hint, .support),
-.flow-page :where(p, .lead, .hint),
-.compare-sheet :where(p, .lead, .hint),
-.story-after :where(p, .lead),
+.site-frame :is(p, .lead, .hint, .support, .choice-desc),
+.site-frame :is(.steps-3 span, .trust-row span, .onboarding-note li, .onboarding-note p),
 .decision p {
   max-width: min(80ch, 100%);
+  overflow-wrap: break-word;
 }
 .compare-card,
 .choice-card,
@@ -1143,9 +1146,10 @@ pre.doc {
 .film-copy {
   position: absolute;
   top: 112px;
-  left: 3vw;
-  right: 3vw;
-  width: auto;
+  left: 50%;
+  right: auto;
+  margin-inline: 0;
+  transform: translateX(-50%);
   display: grid;
   grid-template-columns: minmax(200px, 280px) minmax(280px, 1fr);
   gap: 8px 28px;
@@ -1157,7 +1161,7 @@ pre.doc {
   border: 1px solid rgba(255, 255, 255, 0.1);
   transition: opacity 0.4s ease, transform 0.4s ease;
 }
-.phase-detail .film-copy { opacity: 0; transform: translateY(-10px); pointer-events: none; }
+.phase-detail .film-copy { opacity: 0; transform: translateX(-50%) translateY(-10px); pointer-events: none; }
 .film-copy h1 { text-transform: none; font-size: clamp(26px, 2.4vw, 36px); max-width: 14ch; margin: 4px 0 6px; line-height: 0.95; }
 .film-copy .lead { font-size: 13px; line-height: 1.35; margin: 0 0 8px; color: rgba(255,255,255,0.8); }
 .film-copy textarea { min-height: 0; height: 58px; font-size: 14px; }
@@ -1177,7 +1181,7 @@ pre.doc {
   letter-spacing: 0.12em;
   text-transform: uppercase;
 }
-.story-after { width: min(var(--site-max), calc(100% - 2 * var(--site-gutter))); margin: 0 auto; padding: 72px 0; }
+.story-after { margin: 0 auto; padding: 72px 0; }
 .story-steps { margin-top: 8px; }
 .story-steps li { background: #101010; border: 1px solid rgba(255,255,255,0.12); }
 .story-trust { padding-top: 12px; }
@@ -1209,11 +1213,9 @@ pre.doc {
   .film-copy {
     top: 84px;
     bottom: 52px;
-    left: 12px;
-    right: 12px;
-    width: auto;
-    max-width: none;
-    box-sizing: border-box;
+    left: 50%;
+    right: auto;
+    transform: translateX(-50%);
     display: flex;
     flex-direction: column;
     justify-content: space-between;
@@ -1244,9 +1246,10 @@ pre.doc {
 @media (max-width: 420px) {
   :root { --pad: 14px; --site-gutter: 6px; }
   .film-copy {
-    left: 10px;
-    right: 10px;
+    left: 50%;
+    right: auto;
     top: 76px;
+    transform: translateX(-50%);
   }
   .film-copy > div { padding: 10px; }
   .film-copy h1,
@@ -1269,7 +1272,7 @@ pre.doc {
   .listing-card:hover { transform: none; }
   .film-pin { height: auto; }
   .film-sticky { position: relative; height: 100vh; height: 100dvh; }
-  .phase-detail .film-copy { opacity: 1; transform: none; pointer-events: auto; }
+  .phase-detail .film-copy { opacity: 1; transform: translateX(-50%); pointer-events: auto; }
 }
 
 

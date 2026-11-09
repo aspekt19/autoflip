@@ -87,7 +87,7 @@ function PricingContent() {
 
   return (
     <div className="sub">
-      <div className="sheet-page">
+      <div className="sheet-page site-frame">
         <p className="kicker">Preview pricing</p>
         <h1>Radar plans</h1>
         <p className="lead">Preview-only test subscriptions. Displayed monthly amounts are placeholders, and Stripe test mode does not charge real money. Radar plans cover ongoing saved-search alerts; report credits are separate.</p>
@@ -155,5 +155,5 @@ function PricingContent() {
 }
 
 export default function PricingPage() {
-  return <Suspense fallback={<div className="wrap page">Loading pricing…</div>}><PricingContent /></Suspense>;
+  return <Suspense fallback={<div className="wrap site-frame page">Loading pricing…</div>}><PricingContent /></Suspense>;
 }

@@ -165,7 +165,7 @@ const WEIGHTS = BEST_DEAL_WEIGHTS;
 
 /** Tie epsilon — scores within this are treated as tied. */
 export const BEST_DEAL_TIE_EPSILON = 2.5;
-/** Need at least this many priced cards for a confident pick. */
+/** Older callers still read this. One usable listing is enough for a best choice. */
 export const BEST_DEAL_MIN_PRICED = 2;
 /** Same-model sample below this is labeled thin. */
 export const BEST_DEAL_THIN_MODEL_SAMPLE = 3;
@@ -1497,7 +1497,7 @@ export function selectBestDealOnEvidence(input: {
   };
   const rankedAll = rankAll(input.listings, input.need, rankOpts);
   const ranked = rankedAll.slice(0, shortlistMax);
-  const leader = rankedAll.find((car) => !car.excludedFromPick) ?? rankedAll[0] ?? null;
+  const leader = rankedAll.find((car) => !car.excludedFromPick) ?? null;
   const baselineFor = (pick: BestDealCandidate | null) =>
     computeFindBaseline({
       need: input.need,

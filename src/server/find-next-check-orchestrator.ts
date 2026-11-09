@@ -513,8 +513,21 @@ export async function runFindNextCheckOrchestrator(
       paidCap: FIND_SERV_PAID_CALLS_PER_FIND_MAX,
       keyed,
     });
-    const servDecision =
-      closePlan.kind === "free_per_car"
+    // The first paid call stays with SERV even when the cars are already close.
+    // Later free per-car drains stay in code so the cap is not spent on them.
+    const deferCloseFree = closePlan.kind === "free_per_car" && paidSoFar === 0;
+    const servDecision = deferCloseFree
+      ? shouldInvokeServForFindNextCheck({
+          paidCallsSoFar: paidSoFar,
+          remainingFreeGovCount: priorFreeGovCount,
+          nonFreeChoiceCount: countNonFreeAllowlistChoices(priorAllowedIds),
+          shortlistFp,
+          lastServShortlistFp: ctx.lastServShortlistFp ?? null,
+          neverCalledServ: true,
+          consistencyOpen: consistencyStillOpen && priorAllowedIds.includes("free_car_consistency"),
+          offerServRetarget: retargetPending,
+        })
+      : closePlan.kind === "free_per_car"
         ? { invoke: false as const, reason: "close_call_free_per_car" as const }
         : closePlan.kind === "tie_break"
           ? { invoke: true as const, reason: "close_call_tie_break" as const }
@@ -590,16 +603,18 @@ export async function runFindNextCheckOrchestrator(
     let executedId = live.chosenId;
     let executedTargets = live.targetKeys;
     let replan = live.replan;
-    if (closePlan.kind === "free_per_car") {
+    if (closePlan.kind === "free_per_car" && !deferCloseFree) {
       executedId = "free_car_consistency";
       executedTargets = [...closePlan.targets];
       replan = applyFindNextCheck(ctx.need, "free_car_consistency", ctx.refine);
     } else if (closePlan.kind === "tie_break" && executedTargets.length === 0) {
       executedTargets = [...closePlan.targets];
     }
-    const servChoseExecuted = live.source === "serv" && closePlan.kind !== "free_per_car";
+    const servChoseExecuted = live.source === "serv" && (closePlan.kind !== "free_per_car" || deferCloseFree);
     const overrodeUserAction =
-      closePlan.kind !== "free_per_car" && freeWorkOpen && isUserActionFindCheck(live.chosenId);
+      (closePlan.kind !== "free_per_car" || deferCloseFree) &&
+      freeWorkOpen &&
+      isUserActionFindCheck(live.chosenId);
     if (overrodeUserAction) {
       const nextFree = priorProposedOpen.find(
         (check) => isFindFreeGovCheckId(check.id) || check.id === "free_car_consistency",

@@ -2158,7 +2158,7 @@ function AssistantFlow({
                         ) : null}
                         {dealCopy.factorLines.length > 0 ? (
                           <>
-                            <p>Why each ranked car scored this way:</p>
+                            <p>What the checks say about each ranked car:</p>
                             <ul>
                               {dealCopy.factorLines.map((line, idx) => (
                                 <li key={`factor-${bestDeal?.evidenceSettled ? "settled" : "prov"}-${idx}`}>
@@ -2213,7 +2213,7 @@ function AssistantFlow({
                     {servNextCheckEnabled && freeGovAnyUnchecked && error && pending !== "next-check" ? (
                       <p>
                         Public checks stopped. Some models are still unchecked. You can retry after fixing the
-                        error. The pick may change once checks finish.
+                        error. The best choice may change once checks finish.
                       </p>
                     ) : (
                       <p>
@@ -2223,6 +2223,7 @@ function AssistantFlow({
                           checksHaveRun:
                             freeGovReceiptsForShortlist.length > 0 || Boolean(bestDeal),
                           running: pending === "next-check",
+                          loopOpen: findLoopOpen,
                           modelCount: new Set(
                             allListings.map((car) => `${car.make}|${car.model}|${car.year}`),
                           ).size,

@@ -16,6 +16,7 @@ import {
   CLOSE_CALL_MARGIN,
   closeCallCars,
   closeCallLeadReason,
+  findChoiceConfidence,
   copyWhileChecksContinue,
   planCloseCallAfterHop,
   planCloseCallHop,
@@ -142,6 +143,9 @@ describe("close-call copy", () => {
     expect(result.pick).toBeTruthy();
     expect(result.evidenceSettled).toBe(true);
     expect(result.choice?.confidenceLine).toBe("Low: the top two are very close.");
+    expect(
+      findChoiceConfidence({ close: true, usableCount: 2, evidenceSettled: false, priceProvisional: false }).confidenceLine,
+    ).toBe("Low: the top two are very close, and some checks are still open.");
     expect(result.choice?.reasons.length).toBeGreaterThanOrEqual(1);
     expect(result.choice?.reasons.length).toBeLessThanOrEqual(2);
     expect(result.choice?.runnerUpLabel).toMatch(/Tucson/);
@@ -162,7 +166,7 @@ describe("close-call copy", () => {
     const buyer = formatBuyerBestDeal(result);
     expect(buyer.headline).toMatch(/Best choice on current data: 2016 Hyundai Tucson/i);
     expect(buyer.rankedLines.join("\n")).not.toMatch(/\bscore\b/i);
-    expect(buyer.factorLines.join("\n")).not.toMatch(/\(score /);
+    expect(buyer.factorLines.join("\n")).not.toMatch(/\(score |\([+-]?\d+(\.\d+)?\)/);
     expect(buyer.choice?.reasons.join(" ")).not.toMatch(/\bscore\b/i);
   });
 
@@ -403,13 +407,15 @@ describe("close-call reason and actions", () => {
     expect(reason).not.toMatch(/\bscore\b/i);
   });
 
-  it("says the checks do not separate cars that are the same on the evidence", () => {
+  it("keeps the leader ahead when the checks match, and names the runner-up", () => {
     const a = candidate({ key: "A", year: 2016, make: "Hyundai", model: "Tucson", trim: "Sport" });
     const b = candidate({ key: "B", year: 2016, make: "Hyundai", model: "Tucson", trim: "Limited" });
     const reason = closeCallLeadReason(a, b, label);
-    expect(reason).toMatch(/do not separate/i);
+    expect(reason).toMatch(/stays ahead/i);
+    expect(reason).toMatch(/none of them favor/i);
     expect(reason).toMatch(/Sport/);
     expect(reason).toMatch(/Limited/);
+    expect(reason).not.toMatch(/do not separate/i);
     expect(reason).not.toMatch(/listed first/i);
     expect(reason).not.toMatch(/\bscore\b/i);
   });

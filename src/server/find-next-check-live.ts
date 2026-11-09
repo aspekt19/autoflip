@@ -222,7 +222,7 @@ export async function runFindNextCheckLive(
     tieBreak: body.tieBreakKeys && body.tieBreakKeys.length > 0
       ? {
           keys: body.tieBreakKeys,
-          note: "These cars are too close to name a confident pick. Choose the one allowlisted check most likely to separate them. targetKeys must be copied from these keys.",
+          note: "Code already names the current leader as the best choice. These cars are very close. Choose the one allowlisted check most likely to separate them. targetKeys must be copied from these keys.",
         }
       : null,
     freeGovHonesty:

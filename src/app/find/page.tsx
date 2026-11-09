@@ -15,7 +15,7 @@ export default async function FindPage({
 
   return (
     <div className="sub">
-      <div className="flow-page">
+      <div className="flow-page site-frame">
         <p className="kicker">Help me choose</p>
         <h1>What kind of car do you need?</h1>
         <div className="onboarding-note">

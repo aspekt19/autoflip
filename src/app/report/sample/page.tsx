@@ -9,7 +9,7 @@ export default function SampleReportPage() {
   const report = buildSampleReport("personal");
   return (
     <div className="sub">
-      <div className="sheet-page">
+      <div className="sheet-page site-frame">
         <p>
           <Link href="/">Back to the start</Link>
         </p>

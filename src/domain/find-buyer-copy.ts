@@ -3,6 +3,7 @@
  * Technical receipts stay in the machine/agent channel — never in visible UI prose.
  */
 
+import { plainBuyerDetail } from "./find-close-call";
 import type { FindBaselineDelta } from "./find-baseline";
 import { formatBaselineForBuyer } from "./find-baseline";
 import { buyerCarLabels, type CarLabelInput } from "./find-car-label";
@@ -137,6 +138,8 @@ export function publicCheckStatusLine(input: {
   checksHaveRun: boolean;
   /** True only while a next-check request is in flight. */
   running?: boolean;
+  /** True while the server loop will run another check. */
+  loopOpen?: boolean;
   modelCount?: number | null;
 }): string {
   if (!input.servEnabled) {
@@ -148,10 +151,13 @@ export function publicCheckStatusLine(input: {
     ? `Public safety records: checking ${count} model${count === 1 ? "" : "s"}.`
     : "Public safety records: checking these models.";
   if (input.running) {
-    return `${checking} The pick may change.`;
+    return `${checking} The best choice may change.`;
+  }
+  if (input.loopOpen) {
+    return "Another check is still going to run. The best choice may change.";
   }
   if (input.anyUnchecked) {
-    return "Public safety checks are not running. Some models are still unchecked, so the pick can still change if checks resume.";
+    return "Public safety checks are not running. Some models are still unchecked, so the best choice can still change if checks resume.";
   }
   if (input.checksHaveRun) {
     return "Public safety records for this shortlist are caught up.";
@@ -165,7 +171,7 @@ export function buyerCheckActivityLine(input: {
   continuing: boolean;
 }): string {
   if (!input.anyUnchecked) return "Public safety records are caught up for this shortlist.";
-  if (input.continuing) return "Public safety records are still being checked. The pick may change.";
+  if (input.continuing) return "Public safety records are still being checked. The best choice may change.";
   return "Public safety checks are not running. Some models are still unchecked.";
 }
 
@@ -794,14 +800,9 @@ export function formatBuyerNextCheckWhy(
     .replace(/\bNMVTIS\b/g, "NMVTIS (official title history)");
 }
 
-/** Hide a numeric zero when the factor was not actually scored. A real scored zero still shows. */
+/** Plain factor line. Point totals stay off the page. */
 export function buyerFactorBit(factor: { label: string; detail: string; points: number }): string {
-  const unscored =
-    /not scored|couldn't confirm|could not confirm|not a clean|held out of ranking|not used in the ranking yet|still pending|have not been checked|has not been compared|listing reports \d+ accident/i.test(
-      factor.detail,
-    );
-  if (unscored) return `${factor.label}: ${factor.detail}`;
-  return `${factor.label}: ${factor.detail} (${factor.points >= 0 ? "+" : ""}${factor.points})`;
+  return `${factor.label}: ${plainBuyerDetail(factor.detail)}`;
 }
 
 /** One buyer sentence. A trailing period on either piece does not become "..". */

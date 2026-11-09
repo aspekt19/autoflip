@@ -713,6 +713,13 @@ describe("unknown is not a clean zero", () => {
         points: 0,
       }),
     ).not.toMatch(/\+0|\b0\b/);
+    expect(
+      buyerFactorBit({
+        label: "Asking price vs same model",
+        detail: "Ask $14,200 versus similar listings",
+        points: 8.5,
+      }),
+    ).not.toMatch(/\(\+?8\.5\)|\bscore\b/);
     const sportageEmpty = {
       ...emptyCrvRecall(),
       make: "Kia",

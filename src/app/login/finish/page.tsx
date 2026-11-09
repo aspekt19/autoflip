@@ -16,7 +16,7 @@ export default async function EmailLinkFinishPage({
   const firebase = firebasePublicConfig();
   return (
     <div className="sub">
-      <div className="sheet-page">
+      <div className="sheet-page site-frame">
         <p className="kicker">Account</p>
         <h1>Finish sign-in</h1>
         {!firebase ? (

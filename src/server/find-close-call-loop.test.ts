@@ -309,6 +309,7 @@ describe("close-call loop", () => {
     expect(last?.ok).toBe(true);
     if (!last?.ok) return;
     expect(last.loop.continue).toBe(false);
+    expect(calls).toBeGreaterThanOrEqual(1);
     expect(calls).toBeLessThanOrEqual(FIND_SERV_PAID_CALLS_PER_FIND_MAX);
     expect(last.bestDeal.why).not.toMatch(/\bscore\s+\d/);
     expect(last.bestDeal.pick).toBeTruthy();

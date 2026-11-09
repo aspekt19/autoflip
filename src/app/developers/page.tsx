@@ -6,7 +6,7 @@ export const metadata: Metadata = { title: "For agents" };
 export default function DevelopersPage() {
   return (
     <div className="sub">
-      <div className="sheet-page prose">
+      <div className="sheet-page site-frame prose">
         <h1>For agents</h1>
         <p className="lead">
           An agent can run the same analysis a person buys with a credit. Create a key for this browser, then send it as <code>Authorization: Bearer</code>.
