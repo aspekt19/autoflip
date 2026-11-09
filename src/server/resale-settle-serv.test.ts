@@ -84,9 +84,10 @@ describe("runResaleSettleServ", () => {
     expect(result.confidence).toBe("Low");
     expect(result.agentVerdict.verdict).toBe("pass");
     expect(result.agentVerdict.no_serv_step).toBe(true);
+    expect(result.journal.steps.some((step) => step.kind === "stop_or_widen")).toBe(true);
   });
 
-  it("picks the higher mid-profit candidate without SERV", async () => {
+  it("picks the higher mid-profit candidate without SERV and writes a journal", async () => {
     const low = candidate({ vin: "VINLOW00000000001", profitMidUsd: 800 });
     const high = candidate({ vin: "VINHIGH0000000001", profitMidUsd: 2_500, listing: listing({ vin: "VINHIGH0000000001", year: 2018, make: "Toyota", model: "Corolla", priceUsd: 9_000 }) });
     const result = await runResaleSettleServ({
@@ -97,6 +98,7 @@ describe("runResaleSettleServ", () => {
     expect(result.alternatives.some((item) => item.vin === "VINLOW00000000001")).toBe(true);
     expect(["buy", "negotiate", "pass", "needs_inspection"]).toContain(result.verdictAction);
     expect(result.agentVerdict.pick?.key).toBe("VINHIGH0000000001");
-    expect(result.agentVerdict.serv_steps.length).toBeGreaterThan(0);
+    expect(result.journal.steps.length).toBeGreaterThan(0);
+    expect(result.journal.steps.some((step) => step.actor === "code")).toBe(true);
   });
 });

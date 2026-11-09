@@ -4,6 +4,13 @@
  * Code computes all P&L numbers; SERV never invents figures.
  */
 import type { AgentVerdict } from "@/domain/agent-verdict-schema";
+import { proposeDirections } from "@/domain/directions";
+import {
+  appendJournalStep,
+  emptyResaleJournal,
+  RESALE_SERV_CALL_CAP,
+  type ResaleDecisionJournal,
+} from "@/domain/resale-decision-journal";
 import { topFlipCandidates } from "@/domain/flip-rank";
 import { buildResaleCandidatePnls, type ResaleCandidatePnl } from "@/domain/resale-pnl";
 import {
@@ -11,10 +18,12 @@ import {
   parseResaleSearchInput,
   type ResaleSearchInput,
 } from "@/domain/resale-search-input";
+import { validateResaleServOutput } from "@/domain/resale-serv-validate";
 import type { Listing } from "@/domain/types";
 import type { Kv } from "@/io/kv";
 import { runFindMatch, type FindMatchDeps } from "@/server/find-match";
 import { runResaleSettleServ } from "@/server/resale-settle-serv";
+import { runServ } from "@/server/serv";
 
 export const RESALE_ALTERNATIVE_LIMIT = 4;
 export const RESALE_SHORTLIST_LIMIT = 8;
@@ -36,6 +45,7 @@ export type ResaleSearchOkBody = {
   verdictAction: "buy" | "negotiate" | "pass" | "needs_inspection";
   confidence: "High" | "Medium" | "Low";
   agentVerdict: AgentVerdict;
+  journal: ResaleDecisionJournal;
   headline: string;
   message: string;
   nextStep: string;
@@ -60,6 +70,15 @@ export type ResaleSearchResult =
       };
     };
 
+function mergeJournals(plan: ResaleDecisionJournal, settle: ResaleDecisionJournal): ResaleDecisionJournal {
+  return {
+    schemaVersion: "lemonless.resale_journal.v1",
+    steps: [...plan.steps, ...settle.steps],
+    servCalls: Math.min(RESALE_SERV_CALL_CAP, plan.servCalls + settle.servCalls),
+    servCallCap: RESALE_SERV_CALL_CAP,
+  };
+}
+
 export async function runResaleSearch(
   rawInput: unknown,
   deps: ResaleSearchDeps,
@@ -79,8 +98,125 @@ export async function runResaleSearch(
 
   const input: ResaleSearchInput = parsed.input;
   const need = needFromResaleSearchInput(input);
+  const recordedAt = new Date().toISOString();
+  let planJournal = emptyResaleJournal(RESALE_SERV_CALL_CAP);
 
-  const match = await runFindMatch({ need }, deps);
+  const directions = proposeDirections(need);
+  const allowedDirections = directions.map((d) => ({
+    id: d.id,
+    segment: d.segment,
+    make: d.search.make,
+    model: d.search.model,
+    yearMin: d.yearMin,
+    yearMax: d.yearMax,
+  }));
+
+  planJournal = appendJournalStep(planJournal, {
+    kind: "plan_search",
+    actor: "code",
+    decided: `Proposed ${allowedDirections.length} search directions for budget $${input.budgetUsd.toLocaleString("en-US")}`,
+    why: "Editorial allowlist from budget band and optional filters — not market ranking.",
+    inputsUsed: allowedDirections.map((d) => `direction:${d.id}`),
+    changed: null,
+    model: null,
+    responseId: null,
+    recordedAt,
+    rejected: null,
+  });
+
+  let refine: { make?: string; model?: string; yearMin?: number; yearMax?: number } | undefined;
+  if (deps.servKey?.trim() && allowedDirections.length > 0) {
+    const facts = {
+      allowedDirections,
+      budgetUsd: input.budgetUsd,
+      zip: input.zip,
+      distanceMiles: input.distanceMiles,
+    };
+    try {
+      const planned = await runServ(
+        "resale_plan_search",
+        { user: JSON.stringify({ facts }) },
+        {
+          fetch: deps.fetchImpl ?? fetch,
+          apiKey: deps.servKey,
+          baseUrl: deps.servBaseUrl,
+          model: deps.servModel,
+        },
+      );
+      let payload: Record<string, unknown> | null = null;
+      try {
+        const parsedPlan = planned.ok ? (JSON.parse(planned.text) as unknown) : null;
+        payload =
+          parsedPlan && typeof parsedPlan === "object" && !Array.isArray(parsedPlan)
+            ? (parsedPlan as Record<string, unknown>)
+            : null;
+      } catch {
+        payload = null;
+      }
+      const rawIds = payload?.directionIds;
+      const directionIds = Array.isArray(rawIds)
+        ? rawIds.filter((id): id is string => typeof id === "string")
+        : [];
+      const note = typeof payload?.note === "string" ? payload.note : "";
+      const allowIds = new Set(allowedDirections.map((d) => d.id));
+      const validation = validateResaleServOutput(
+        { text: note },
+        {
+          vins: [],
+          urls: [],
+          evidenceIds: allowedDirections.map((d) => `direction:${d.id}`),
+          numberFacts: facts,
+        },
+      );
+      const safeIds = directionIds.filter((id) => allowIds.has(id));
+      if (planned.ok && payload && validation.ok && safeIds.length > 0) {
+        const first = allowedDirections.find((d) => d.id === safeIds[0]);
+        if (first) {
+          refine = { make: first.make, model: first.model, yearMin: first.yearMin, yearMax: first.yearMax };
+        }
+        planJournal = appendJournalStep(planJournal, {
+          kind: "plan_search",
+          actor: "SERV",
+          decided: `Run directions ${safeIds.join(", ")}${payload.widen === true ? " (widen allowed)" : ""}`,
+          why: note || "Plan used allowlisted direction ids only.",
+          inputsUsed: safeIds.map((id) => `direction:${id}`),
+          changed: refine ? `First query focus ${refine.make} ${refine.model}` : null,
+          model: deps.servModel || planned.proof.modelReported || planned.proof.modelRequested || null,
+          responseId: typeof planned.proof.openserv?.id === "string" ? planned.proof.openserv.id : null,
+          recordedAt,
+          rejected: null,
+        });
+      } else {
+        planJournal = appendJournalStep(planJournal, {
+          kind: "fallback",
+          actor: "SERV",
+          decided: "Plan rejected or unavailable — code runs full editorial directions",
+          why: !validation.ok ? validation.detail : "Plan payload missing allowlisted direction ids.",
+          inputsUsed: allowedDirections.map((d) => `direction:${d.id}`),
+          changed: null,
+          model: deps.servModel || planned.proof.modelReported || planned.proof.modelRequested || null,
+          responseId: typeof planned.proof.openserv?.id === "string" ? planned.proof.openserv.id : null,
+          recordedAt,
+          rejected: !validation.ok ? validation.reason : "rejected: unsupported reference",
+        });
+      }
+    } catch (err) {
+      planJournal = appendJournalStep(planJournal, {
+        kind: "fallback",
+        actor: "code",
+        decided: "Plan threw — code runs full editorial directions",
+        why: err instanceof Error ? err.message : "Plan error.",
+        inputsUsed: allowedDirections.map((d) => `direction:${d.id}`),
+        changed: null,
+        model: null,
+        responseId: null,
+        recordedAt,
+        rejected: null,
+      });
+    }
+  }
+
+  const match = await runFindMatch({ need, refine }, deps);
   if (!match.ok) {
     return {
       ok: false,
@@ -110,15 +246,18 @@ export async function runResaleSearch(
     resaleChannel: input.resaleChannel,
   });
 
+  const remainingCap = Math.max(0, RESALE_SERV_CALL_CAP - planJournal.servCalls);
   const settled = await runResaleSettleServ({
     candidates: pnls,
     budgetUsd: input.budgetUsd,
     timeToSellPref: input.timeToSell,
-    servKey: deps.servKey,
+    servKey: remainingCap > 0 ? deps.servKey : undefined,
     servBaseUrl: deps.servBaseUrl,
     model: deps.servModel,
     fetchImpl: deps.fetchImpl,
   });
+
+  const journal = mergeJournals(planJournal, settled.journal);
 
   const emptyPool = pnls.length === 0;
   const headline = emptyPool
@@ -151,6 +290,7 @@ export async function runResaleSearch(
       verdictAction: settled.verdictAction,
       confidence: settled.confidence,
       agentVerdict: settled.agentVerdict,
+      journal,
       headline,
       message,
       nextStep,

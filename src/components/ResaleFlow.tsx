@@ -4,8 +4,10 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useId, useState } from "react";
 import { AgentDecisionTrail } from "@/components/AgentDecisionTrail";
+import { ResaleDecisionJournalView } from "@/components/ResaleDecisionJournal";
 import { useAccountLoad } from "@/components/use-account-load";
 import type { AgentVerdict } from "@/domain/agent-verdict-schema";
+import type { ResaleDecisionJournal } from "@/domain/resale-decision-journal";
 import { formatUsd } from "@/domain/format";
 import { NOTE_BODY_STYLES } from "@/domain/note-intake";
 import { NOT_ENOUGH_SIMILAR_CARS } from "@/domain/price-evaluation";
@@ -65,6 +67,7 @@ type SearchResult = {
   verdictAction: string;
   confidence: "High" | "Medium" | "Low";
   agentVerdict: AgentVerdict;
+  journal: ResaleDecisionJournal;
   headline: string;
   message: string;
   nextStep: string;
@@ -118,6 +121,7 @@ function ResaleSearchForm({ credits, onAuthLost }: { credits: number | null; onA
         verdictAction?: string;
         confidence?: "High" | "Medium" | "Low";
         agentVerdict?: AgentVerdict;
+        journal?: ResaleDecisionJournal;
         headline?: string;
         nextStep?: string;
         creditNote?: string;
@@ -143,6 +147,12 @@ function ResaleSearchForm({ credits, onAuthLost }: { credits: number | null; onA
         verdictAction: body.verdictAction,
         confidence: body.confidence,
         agentVerdict: body.agentVerdict,
+        journal: body.journal ?? {
+          schemaVersion: "lemonless.resale_journal.v1",
+          steps: [],
+          servCalls: 0,
+          servCallCap: 6,
+        },
         headline: body.headline ?? "Resale search",
         message: body.message ?? "",
         nextStep: body.nextStep ?? "",
@@ -358,6 +368,7 @@ function ResaleSearchResultView({ result }: { result: SearchResult }) {
         </section>
       ) : null}
 
+      <ResaleDecisionJournalView journal={result.journal} defaultOpen />
       <AgentDecisionTrail verdict={result.agentVerdict} defaultOpen />
     </article>
   );

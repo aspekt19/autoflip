@@ -1,5 +1,5 @@
 /**
- * Resale SERV settle: flip_judge shortlist filter → verdict_decide + challenge on the best flip.
+ * Resale SERV settle: triage/pick/challenge with evidence validation + decision journal.
  * Code owns all dollar figures. SERV only chooses among allowlisted VINs / actions.
  */
 import {
@@ -10,8 +10,17 @@ import {
   type AgentVerdictConfidence,
 } from "@/domain/agent-verdict-schema";
 import { ASSUMPTIONS } from "@/domain/assumptions";
-import { quotedNumbersStayIn } from "@/domain/decision-note";
+import {
+  appendJournalStep,
+  emptyResaleJournal,
+  RESALE_SERV_CALL_CAP,
+  type ResaleDecisionJournal,
+} from "@/domain/resale-decision-journal";
 import type { ResaleCandidatePnl } from "@/domain/resale-pnl";
+import {
+  evidenceBundleFromCandidates,
+  validateResaleServOutput,
+} from "@/domain/resale-serv-validate";
 import type { ComputedReport, Listing, Verdict } from "@/domain/types";
 import { runShopperVerdictServ, type ShopperServTrace } from "@/server/shopper-verdict-serv";
 import { runServ, type ServProof } from "@/server/serv";
@@ -22,8 +31,8 @@ export type ResaleSettleServResult = {
   best: ResaleCandidatePnl | null;
   alternatives: ResaleCandidatePnl[];
   agentVerdict: AgentVerdict;
+  journal: ResaleDecisionJournal;
   trace: ShopperServTrace | null;
-  /** Honest always-on verdict label for the UI. */
   verdictAction: "buy" | "negotiate" | "pass" | "needs_inspection";
   confidence: "High" | "Medium" | "Low";
   ranJudge: boolean;
@@ -45,6 +54,10 @@ function confidenceFromPnl(item: ResaleCandidatePnl | null): AgentVerdictConfide
 function responseIdFrom(proof: ServProof | null): string | null {
   const id = proof?.openserv?.id;
   return typeof id === "string" && id.trim() ? id : null;
+}
+
+function modelFrom(proof: ServProof | null, fallback?: string | null): string | null {
+  return fallback || proof?.modelReported || proof?.modelRequested || null;
 }
 
 function buildFlipReport(candidate: ResaleCandidatePnl, budgetUsd: number): ComputedReport {
@@ -111,31 +124,18 @@ function buildFlipReport(candidate: ResaleCandidatePnl, budgetUsd: number): Comp
   };
 }
 
-function parseFlipJudgment(
-  text: string,
-  facts: Array<{ vin: string } & Record<string, unknown>>,
-): Map<string, { verdict: "alert" | "skip"; note: string }> | null {
+function sortByProfit(items: ResaleCandidatePnl[]): ResaleCandidatePnl[] {
+  return [...items].sort((a, b) => (b.profitMidUsd ?? Number.NEGATIVE_INFINITY) - (a.profitMidUsd ?? Number.NEGATIVE_INFINITY));
+}
+
+function parseJsonObject(text: string): Record<string, unknown> | null {
   try {
-    const parsed = JSON.parse(text) as { decisions?: Array<{ vin?: string; verdict?: string; note?: string }> };
-    if (!Array.isArray(parsed.decisions)) return null;
-    const allowed = JSON.stringify(facts);
-    const known = new Set(facts.map((item) => item.vin));
-    const decisions = new Map<string, { verdict: "alert" | "skip"; note: string }>();
-    for (const decision of parsed.decisions) {
-      if (!decision.vin || !known.has(decision.vin)) continue;
-      if (decision.verdict !== "alert" && decision.verdict !== "skip") continue;
-      const note = typeof decision.note === "string" ? decision.note : "";
-      const safe = !note.trim() || quotedNumbersStayIn(note, allowed);
-      decisions.set(decision.vin, { verdict: decision.verdict, note: safe ? note : "" });
-    }
-    return decisions;
+    const parsed = JSON.parse(text) as unknown;
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return null;
+    return parsed as Record<string, unknown>;
   } catch {
     return null;
   }
-}
-
-function sortByProfit(items: ResaleCandidatePnl[]): ResaleCandidatePnl[] {
-  return [...items].sort((a, b) => (b.profitMidUsd ?? Number.NEGATIVE_INFINITY) - (a.profitMidUsd ?? Number.NEGATIVE_INFINITY));
 }
 
 /**
@@ -152,11 +152,24 @@ export async function runResaleSettleServ(input: {
 }): Promise<ResaleSettleServResult> {
   const recordedAt = new Date().toISOString();
   const trail: AgentTrailStep[] = [];
+  let journal = emptyResaleJournal(RESALE_SERV_CALL_CAP);
   const fetchImpl = input.fetchImpl ?? fetch;
   const ranked = sortByProfit(input.candidates);
   const shortlist = ranked.slice(0, RESALE_SERV_JUDGE_MAX);
 
   if (shortlist.length === 0) {
+    journal = appendJournalStep(journal, {
+      kind: "stop_or_widen",
+      actor: "code",
+      decided: "Stop — no flip candidates cleared economics",
+      why: "No listings in this scan cleared similar-listing P&L. Raise budget or clear filters; this is still a verdict, not a dead end.",
+      inputsUsed: [`budgetUsd:${input.budgetUsd}`],
+      changed: null,
+      model: null,
+      responseId: null,
+      recordedAt,
+      rejected: null,
+    });
     const agentVerdict = emptyAgentVerdict({
       verdict: "pass",
       confidence: "low",
@@ -172,11 +185,20 @@ export async function runResaleSettleServ(input: {
         confidenceBefore: null,
         confidenceAfter: null,
       },
+      serv_steps: [
+        {
+          decided: "No candidates — pass",
+          why: "Code found no usable flip P&L rows.",
+          changed: null,
+          recordedAt,
+        },
+      ],
     });
     return {
       best: null,
       alternatives: [],
       agentVerdict,
+      journal,
       trace: null,
       verdictAction: "pass",
       confidence: "Low",
@@ -185,81 +207,144 @@ export async function runResaleSettleServ(input: {
     };
   }
 
+  const bundle = evidenceBundleFromCandidates(shortlist, [
+    "check:price_comps",
+    "check:vin_decode",
+    "check:recalls",
+    "check:complaints",
+  ]);
   let working = shortlist;
   let ranJudge = false;
-  let judgeProof: ServProof | null = null;
 
-  if (input.servKey?.trim() && shortlist.length > 0) {
-    const facts = shortlist.map((item) => ({
-      vin: item.vin,
-      year: item.listing.year,
-      make: item.listing.make,
-      model: item.listing.model,
-      askingUsd: item.askingUsd,
-      fairValueUsd: item.resaleMidUsd,
-      compCount: item.compCount,
-      profitLowUsd: item.profitLowUsd,
-      profitMidUsd: item.profitMidUsd,
-      profitHighUsd: item.profitHighUsd,
-      confidence: item.confidence,
-      speed: item.speed,
-      speedBasis: item.daysToSellBasis,
-    }));
+  journal = appendJournalStep(journal, {
+    kind: "rank",
+    actor: "code",
+    decided: `Ranked ${shortlist.length} candidates by mid expected profit`,
+    why: `Top: ${carLabel(shortlist[0]!)} (code P&L only).`,
+    inputsUsed: shortlist.map((item) => `pnl:${item.vin}`),
+    changed: null,
+    model: null,
+    responseId: null,
+    recordedAt,
+    rejected: null,
+  });
+
+  // --- Triage (resale_triage) ---
+  if (input.servKey?.trim() && journal.servCalls < journal.servCallCap) {
+    const allowedCheckIds = ["price_comps", "vin_decode", "recalls", "complaints"];
+    const facts = {
+      allowedVins: shortlist.map((item) => item.vin),
+      allowedCheckIds,
+      candidates: shortlist.map((item) => ({
+        vin: item.vin,
+        profitMidUsd: item.profitMidUsd,
+        compCount: item.compCount,
+        confidence: item.confidence,
+        askingUsd: item.askingUsd,
+      })),
+    };
     try {
-      const judged = await runServ("flip_judge", { user: JSON.stringify({ facts, rulesNote: null }) }, {
+      const judged = await runServ("resale_triage", { user: JSON.stringify({ facts }) }, {
         fetch: fetchImpl,
         apiKey: input.servKey,
         baseUrl: input.servBaseUrl,
         model: input.model,
       });
-      judgeProof = judged.proof;
       ranJudge = true;
-      const decisions = judged.ok ? parseFlipJudgment(judged.text, facts) : null;
-      if (decisions && decisions.size > 0) {
-        const alerted = shortlist.filter((item) => decisions.get(item.vin)?.verdict === "alert");
-        const skipped = shortlist.filter((item) => decisions.get(item.vin)?.verdict === "skip");
-        if (alerted.length > 0) working = alerted;
-        trail.push({
-          decided: alerted.length
-            ? `SERV flagged ${alerted.length} of ${shortlist.length} candidates as worth a closer look`
-            : `SERV skipped all ${shortlist.length} shortlist cars — code still ranks the top estimate`,
-          why: alerted.length
-            ? alerted.map((item) => decisions.get(item.vin)?.note || carLabel(item)).join("; ")
-            : skipped.map((item) => decisions.get(item.vin)?.note || carLabel(item)).join("; ") ||
-              "No usable alert notes; ranking falls back to code profit mid.",
-          changed: alerted.length ? `Shortlist narrowed to ${alerted.map(carLabel).join(", ")}` : null,
-          model: input.model || judged.proof.modelReported || judged.proof.modelRequested || null,
+      const payload = judged.ok ? parseJsonObject(judged.text) : null;
+      const deep = Array.isArray(payload?.deepCheckVins)
+        ? (payload!.deepCheckVins as unknown[]).filter((v): v is string => typeof v === "string")
+        : [];
+      const skip = Array.isArray(payload?.skipVins)
+        ? (payload!.skipVins as unknown[]).filter((v): v is string => typeof v === "string")
+        : [];
+      const checks = Array.isArray(payload?.checkIds)
+        ? (payload!.checkIds as unknown[]).filter((v): v is string => typeof v === "string")
+        : [];
+      const note = typeof payload?.note === "string" ? payload.note : "";
+      const validation = validateResaleServOutput(
+        {
+          text: note,
+          vins: [...deep, ...skip],
+          evidenceIds: checks.map((id) => `check:${id}`),
+        },
+        {
+          ...bundle,
+          evidenceIds: [...bundle.evidenceIds, ...allowedCheckIds.map((id) => `check:${id}`)],
+          numberFacts: facts,
+        },
+      );
+      if (!judged.ok || !payload || !validation.ok) {
+        journal = appendJournalStep(journal, {
+          kind: "fallback",
+          actor: "SERV",
+          decided: "Triage rejected or unavailable — code shortlist stands",
+          why: !validation.ok ? validation.detail : "Triage call failed or payload unusable.",
+          inputsUsed: shortlist.map((item) => `vin:${item.vin}`),
+          changed: null,
+          model: modelFrom(judged.proof, input.model),
           responseId: responseIdFrom(judged.proof),
           recordedAt,
+          rejected: !validation.ok ? validation.reason : null,
         });
       } else {
+        const allow = new Set(shortlist.map((item) => item.vin));
+        const deepOk = deep.filter((vin) => allow.has(vin));
+        const skipOk = skip.filter((vin) => allow.has(vin));
+        if (deepOk.length > 0) {
+          working = shortlist.filter((item) => deepOk.includes(item.vin));
+        }
+        journal = appendJournalStep(journal, {
+          kind: "triage",
+          actor: "SERV",
+          decided: `Deep-check ${deepOk.length || shortlist.length} VIN(s); skip ${skipOk.length}; checks ${checks.filter((id) => allowedCheckIds.includes(id)).join(", ") || "none"}`,
+          why: note || "Triage used allowlisted VINs and check ids only.",
+          inputsUsed: [...deepOk.map((vin) => `vin:${vin}`), ...checks.map((id) => `check:${id}`)],
+          changed: deepOk.length
+            ? `Shortlist narrowed to ${working.map(carLabel).join(", ")}`
+            : skipOk.length
+              ? `Skipped ${skipOk.join(", ")}`
+              : null,
+          model: modelFrom(judged.proof, input.model),
+          responseId: responseIdFrom(judged.proof),
+          recordedAt,
+          rejected: null,
+        });
         trail.push({
-          decided: "SERV flip judge unavailable — code ranking stands",
-          why: judged.ok
-            ? "Judge payload could not be parsed against allowlisted VINs."
-            : "Judge call failed or timed out.",
-          changed: null,
-          model: input.model || judged.proof.modelReported || judged.proof.modelRequested || null,
+          decided: "SERV triage",
+          why: note || "Allowlisted deep-check selection.",
+          changed: deepOk.length ? `Deep-check ${deepOk.join(", ")}` : null,
+          model: modelFrom(judged.proof, input.model),
           responseId: responseIdFrom(judged.proof),
           recordedAt,
         });
       }
     } catch (err) {
-      trail.push({
-        decided: "SERV flip judge unavailable — code ranking stands",
-        why: err instanceof Error ? err.message : "Judge call threw.",
+      journal = appendJournalStep(journal, {
+        kind: "fallback",
+        actor: "code",
+        decided: "Triage threw — code shortlist stands",
+        why: err instanceof Error ? err.message : "Triage error.",
+        inputsUsed: shortlist.map((item) => `vin:${item.vin}`),
         changed: null,
-        model: input.model ?? null,
+        model: null,
         responseId: null,
         recordedAt,
+        rejected: null,
       });
     }
-  } else {
-    trail.push({
-      decided: "No SERV key — code ranked by expected mid profit",
-      why: `Top candidate is ${carLabel(shortlist[0]!)} from code P&L only.`,
+  } else if (!input.servKey?.trim()) {
+    journal = appendJournalStep(journal, {
+      kind: "fallback",
+      actor: "code",
+      decided: "No SERV key — code ranking only",
+      why: `Top candidate is ${carLabel(shortlist[0]!)} from code P&L.`,
+      inputsUsed: shortlist.map((item) => `pnl:${item.vin}`),
       changed: null,
+      model: null,
+      responseId: null,
       recordedAt,
+      rejected: null,
     });
   }
 
@@ -268,24 +353,244 @@ export async function runResaleSettleServ(input: {
     if (faster.length > 0) working = faster;
   }
 
-  const ordered = sortByProfit(working.length ? working : shortlist);
-  const best = ordered[0]!;
-  const alternatives = sortByProfit(ranked.filter((item) => item.vin !== best.vin)).slice(0, 4);
+  let ordered = sortByProfit(working.length ? working : shortlist);
+  let best = ordered[0]!;
+  let verdictAction: ResaleSettleServResult["verdictAction"] =
+    best.profitMidUsd != null && best.profitMidUsd > 0 ? "negotiate" : "needs_inspection";
 
+  // --- Pick (resale_pick) ---
+  if (input.servKey?.trim() && journal.servCalls < journal.servCallCap) {
+    const pickFacts = {
+      allowedVins: ordered.map((item) => item.vin),
+      candidates: ordered.map((item) => ({
+        vin: item.vin,
+        profitMidUsd: item.profitMidUsd,
+        roiPctMid: item.roiPctMid,
+        compCount: item.compCount,
+        confidence: item.confidence,
+        askingUsd: item.askingUsd,
+        fairValueUsd: item.resaleMidUsd,
+      })),
+    };
+    try {
+      const picked = await runServ("resale_pick", { user: JSON.stringify({ facts: pickFacts }) }, {
+        fetch: fetchImpl,
+        apiKey: input.servKey,
+        baseUrl: input.servBaseUrl,
+        model: input.model,
+      });
+      const payload = picked.ok ? parseJsonObject(picked.text) : null;
+      const pickVin = typeof payload?.pickVin === "string" ? payload.pickVin : null;
+      const action = typeof payload?.action === "string" ? payload.action : null;
+      const note = typeof payload?.note === "string" ? payload.note : "";
+      const evidenceIds = Array.isArray(payload?.evidenceIds)
+        ? (payload!.evidenceIds as unknown[]).filter((id): id is string => typeof id === "string")
+        : [];
+      const validation = validateResaleServOutput(
+        { text: note, vins: pickVin ? [pickVin] : [], evidenceIds },
+        { ...bundle, numberFacts: pickFacts },
+      );
+      const allow = new Set(ordered.map((item) => item.vin));
+      if (picked.ok && payload && validation.ok && pickVin && allow.has(pickVin)) {
+        const prior = best.vin;
+        best = ordered.find((item) => item.vin === pickVin) ?? best;
+        if (action === "buy" || action === "negotiate" || action === "pass" || action === "needs_inspection") {
+          verdictAction = action;
+        }
+        journal = appendJournalStep(journal, {
+          kind: "pick",
+          actor: "SERV",
+          decided: `Pick ${carLabel(best)} → ${verdictAction}`,
+          why: note || "Pick used allowlisted VIN and code P&L facts.",
+          inputsUsed: [`vin:${best.vin}`, ...evidenceIds],
+          changed: prior !== best.vin ? `Changed pick from ${prior} to ${best.vin}` : null,
+          model: modelFrom(picked.proof, input.model),
+          responseId: responseIdFrom(picked.proof),
+          recordedAt,
+          rejected: null,
+        });
+        trail.push({
+          decided: `SERV pick → ${verdictAction}`,
+          why: note || "Allowlisted pick.",
+          changed: prior !== best.vin ? `Changed pick from ${prior} to ${best.vin}` : null,
+          model: modelFrom(picked.proof, input.model),
+          responseId: responseIdFrom(picked.proof),
+          recordedAt,
+        });
+      } else {
+        journal = appendJournalStep(journal, {
+          kind: "fallback",
+          actor: "SERV",
+          decided: `Pick rejected — code keeps ${carLabel(best)}`,
+          why: !validation.ok ? validation.detail : "Pick payload missing allowlisted VIN.",
+          inputsUsed: ordered.map((item) => `vin:${item.vin}`),
+          changed: null,
+          model: modelFrom(picked.proof, input.model),
+          responseId: responseIdFrom(picked.proof),
+          recordedAt,
+          rejected: !validation.ok ? validation.reason : "rejected: unsupported reference",
+        });
+      }
+    } catch (err) {
+      journal = appendJournalStep(journal, {
+        kind: "fallback",
+        actor: "code",
+        decided: `Pick unavailable — code keeps ${carLabel(best)}`,
+        why: err instanceof Error ? err.message : "Pick error.",
+        inputsUsed: [`vin:${best.vin}`],
+        changed: null,
+        model: null,
+        responseId: null,
+        recordedAt,
+        rejected: null,
+      });
+    }
+  }
+
+  // --- Challenge (resale_challenge) ---
   let ranDecide = false;
   let trace: ShopperServTrace | null = null;
   let secondPass: AgentSecondPassResult = {
-    status: "not_run",
+    status: input.servKey?.trim() ? "not_run" : "skipped_no_key",
     action: null,
-    objection: "Second check not run.",
+    objection: input.servKey?.trim()
+      ? "Second check not run yet."
+      : "Second check not run: SERV_API_KEY is not configured on this deployment.",
     evidenceIds: [],
-    confidenceBefore: null,
+    confidenceBefore: confidenceFromPnl(best),
     confidenceAfter: null,
   };
-  let verdictAction: ResaleSettleServResult["verdictAction"] = "negotiate";
   let agentConfidence = confidenceFromPnl(best);
 
-  if (input.servKey?.trim()) {
+  if (input.servKey?.trim() && journal.servCalls < journal.servCallCap) {
+    const challengeFacts = {
+      primaryPickVin: best.vin,
+      allowedVins: ordered.map((item) => item.vin),
+      allowedEvidenceIds: bundle.evidenceIds,
+      allowedActions: ["buy", "negotiate", "pass", "needs_inspection"],
+      primaryAction: verdictAction,
+      candidates: ordered.map((item) => ({
+        vin: item.vin,
+        profitMidUsd: item.profitMidUsd,
+        compCount: item.compCount,
+        confidence: item.confidence,
+      })),
+    };
+    try {
+      const challenged = await runServ("resale_challenge", { user: JSON.stringify({ facts: challengeFacts }) }, {
+        fetch: fetchImpl,
+        apiKey: input.servKey,
+        baseUrl: input.servBaseUrl,
+        model: input.model,
+      });
+      ranDecide = true;
+      const payload = challenged.ok ? parseJsonObject(challenged.text) : null;
+      const agrees = payload?.agrees === true;
+      const pickVin = typeof payload?.pickVin === "string" ? payload.pickVin : null;
+      const action = typeof payload?.action === "string" ? payload.action : null;
+      const objection = typeof payload?.objection === "string" ? payload.objection : null;
+      const evidenceIds = Array.isArray(payload?.evidenceIds)
+        ? (payload!.evidenceIds as unknown[]).filter((id): id is string => typeof id === "string")
+        : [];
+      const validation = validateResaleServOutput(
+        { text: objection, vins: pickVin ? [pickVin] : [], evidenceIds },
+        { ...bundle, numberFacts: challengeFacts },
+      );
+      const allow = new Set(ordered.map((item) => item.vin));
+      if (challenged.ok && payload && validation.ok && pickVin && allow.has(pickVin)) {
+        const prior = best.vin;
+        if (!agrees) {
+          best = ordered.find((item) => item.vin === pickVin) ?? best;
+          if (action === "buy" || action === "negotiate" || action === "pass" || action === "needs_inspection") {
+            verdictAction = action;
+          }
+          agentConfidence = agentConfidence === "high" ? "medium" : agentConfidence === "medium" ? "low" : "low";
+          secondPass = {
+            status: "disagreed",
+            action: verdictAction,
+            objection: objection ?? "Challenger revised the pick using allowlisted evidence.",
+            evidenceIds,
+            confidenceBefore: confidenceFromPnl(ordered.find((i) => i.vin === prior) ?? best),
+            confidenceAfter: agentConfidence,
+          };
+          journal = appendJournalStep(journal, {
+            kind: "challenge",
+            actor: "SERV",
+            decided: `Challenge revised pick to ${carLabel(best)} → ${verdictAction}`,
+            why: objection ?? "Challenger disagreed with evidence-backed reasons.",
+            inputsUsed: [`vin:${best.vin}`, ...evidenceIds],
+            changed: prior !== best.vin ? `Changed pick from ${prior} to ${best.vin} because ${objection ?? "challenge"}` : `Revised action to ${verdictAction}`,
+            model: modelFrom(challenged.proof, input.model),
+            responseId: responseIdFrom(challenged.proof),
+            recordedAt,
+            rejected: null,
+          });
+        } else {
+          secondPass = {
+            status: "agreed",
+            action: verdictAction,
+            objection: null,
+            evidenceIds,
+            confidenceBefore: agentConfidence,
+            confidenceAfter: agentConfidence,
+          };
+          journal = appendJournalStep(journal, {
+            kind: "challenge",
+            actor: "SERV",
+            decided: "Challenge agreed with the pick",
+            why: "Independent review agreed using allowlisted evidence ids.",
+            inputsUsed: [`vin:${best.vin}`, ...evidenceIds],
+            changed: null,
+            model: modelFrom(challenged.proof, input.model),
+            responseId: responseIdFrom(challenged.proof),
+            recordedAt,
+            rejected: null,
+          });
+        }
+        trail.push({
+          decided: agrees ? "SERV challenge agreed" : "SERV challenge revised pick",
+          why: objection ?? "Challenge completed.",
+          changed: !agrees && prior !== best.vin ? `Changed pick from ${prior} to ${best.vin}` : null,
+          model: modelFrom(challenged.proof, input.model),
+          responseId: responseIdFrom(challenged.proof),
+          recordedAt,
+        });
+      } else {
+        secondPass = {
+          status: "ignored_malformed",
+          action: null,
+          objection: !validation.ok ? validation.detail : "Challenge payload ignored.",
+          evidenceIds: [],
+          confidenceBefore: agentConfidence,
+          confidenceAfter: agentConfidence,
+        };
+        journal = appendJournalStep(journal, {
+          kind: "fallback",
+          actor: "SERV",
+          decided: "Challenge rejected — first pick stands",
+          why: !validation.ok ? validation.detail : "Challenge payload unusable.",
+          inputsUsed: [`vin:${best.vin}`],
+          changed: null,
+          model: modelFrom(challenged.proof, input.model),
+          responseId: responseIdFrom(challenged.proof),
+          recordedAt,
+          rejected: !validation.ok ? validation.reason : "rejected: unsupported reference",
+        });
+      }
+    } catch {
+      secondPass = {
+        status: "unavailable",
+        action: null,
+        objection: "Second check did not finish. The first verdict stands.",
+        evidenceIds: [],
+        confidenceBefore: agentConfidence,
+        confidenceAfter: agentConfidence,
+      };
+    }
+  }
+
+  // Optional shopper decide path for ComputedReport parity (counts toward cap when key present and budget remains).
+  if (input.servKey?.trim() && journal.servCalls < journal.servCallCap) {
     const report = buildFlipReport(best, input.budgetUsd);
     const shopper = await runShopperVerdictServ({
       report,
@@ -295,76 +600,36 @@ export async function runResaleSettleServ(input: {
       model: input.model,
       fetchImpl,
     });
-    ranDecide = Boolean(shopper.trace);
-    trace = shopper.trace;
-    secondPass =
-      shopper.agentVerdict.second_pass ??
-      ({
-        status: "not_run",
-        action: null,
-        objection: "Second check not run: shopper SERV returned no challenge record.",
-        evidenceIds: [],
-        confidenceBefore: null,
-        confidenceAfter: null,
-      } satisfies AgentSecondPassResult);
-
-    const action = shopper.decision.finalAction;
-    if (action === "buy" || action === "negotiate" || action === "pass" || action === "needs_inspection") {
-      verdictAction = action;
+    if (shopper.trace) {
+      ranDecide = true;
+      trace = shopper.trace;
+      journal = {
+        ...journal,
+        servCalls: Math.min(journal.servCallCap, journal.servCalls + shopper.trace.calls.length),
+      };
+      const action = shopper.decision.finalAction;
+      if (action === "buy" || action === "negotiate" || action === "pass" || action === "needs_inspection") {
+        verdictAction = action;
+      }
+      if (shopper.agentVerdict.confidence) agentConfidence = shopper.agentVerdict.confidence;
+      if (shopper.agentVerdict.second_pass && shopper.agentVerdict.second_pass.status !== "not_run") {
+        secondPass = shopper.agentVerdict.second_pass;
+      }
+      for (const call of shopper.trace.calls) {
+        trail.push({
+          decided: call.profile === "verdict_decide" ? `Verdict decide → ${verdictAction}` : `Verdict challenge → ${call.ok ? "ok" : "fail"}`,
+          why: call.profile === "verdict_decide" ? shopper.decision.note ?? "Shopper decide on code report." : secondPass.objection ?? "Shopper challenge.",
+          changed: null,
+          model: call.model ?? input.model ?? null,
+          responseId: call.responseId,
+          recordedAt: shopper.trace.recordedAt,
+        });
+      }
     }
-    if (shopper.agentVerdict.confidence) agentConfidence = shopper.agentVerdict.confidence;
-
-    for (const call of shopper.trace?.calls ?? []) {
-      trail.push({
-        decided:
-          call.profile === "verdict_decide"
-            ? `Verdict decide → ${verdictAction}`
-            : `Verdict challenge → ${call.ok ? "completed" : "failed"}`,
-        why:
-          call.profile === "verdict_decide"
-            ? shopper.decision.note ?? "Decide used code-computed fair value and profit facts only."
-            : secondPass.objection ?? "Challenge finished.",
-        changed:
-          call.profile === "verdict_challenge" && secondPass.status === "disagreed"
-            ? `Challenger would ${secondPass.action ?? "change the action"}`
-            : null,
-        model: call.model ?? input.model ?? null,
-        responseId: call.responseId,
-        recordedAt: shopper.trace?.recordedAt ?? recordedAt,
-      });
-    }
-    if (!shopper.trace) {
-      trail.push({
-        decided: `Deterministic verdict → ${verdictAction}`,
-        why: shopper.decision.note ?? shopper.decision.withholdReason ?? "No SERV decide call; code guardrails chose the action.",
-        changed: null,
-        recordedAt,
-      });
-    }
-  } else {
-    verdictAction = best.profitMidUsd != null && best.profitMidUsd > 0 ? "negotiate" : "needs_inspection";
-    secondPass = {
-      status: "skipped_no_key",
-      action: null,
-      objection: "Second check not run: SERV_API_KEY is not configured on this deployment.",
-      evidenceIds: [],
-      confidenceBefore: null,
-      confidenceAfter: null,
-    };
-    trail.push({
-      decided: `Code verdict → ${verdictAction}`,
-      why:
-        best.profitMidUsd != null && best.profitMidUsd > 0
-          ? `Mid profit estimate $${best.profitMidUsd.toLocaleString("en-US")} — negotiate path without inventing a guarantee.`
-          : "Mid profit is thin or unknown — inspection-first path.",
-      changed: null,
-      recordedAt,
-    });
   }
 
-  // Ignore unused judgeProof reference for lint if needed
-  void judgeProof;
-
+  ordered = sortByProfit(ranked.filter((item) => item.vin !== best.vin));
+  const alternatives = ordered.slice(0, 4);
   const confidenceLabel =
     agentConfidence === "high" ? "High" : agentConfidence === "medium" ? "Medium" : "Low";
 
@@ -393,8 +658,8 @@ export async function runResaleSettleServ(input: {
       second_pass: secondPass,
       no_serv_step: !ranJudge && !ranDecide,
       serv_spend: {
-        calls: (ranJudge ? 1 : 0) + (trace?.calls.length ?? 0),
-        costNote: null,
+        calls: journal.servCalls,
+        costNote: `Resale SERV call cap ${journal.servCallCap}; recorded ${journal.servCalls}.`,
       },
     }),
   };
@@ -403,6 +668,7 @@ export async function runResaleSettleServ(input: {
     best,
     alternatives,
     agentVerdict,
+    journal,
     trace,
     verdictAction,
     confidence: confidenceLabel,

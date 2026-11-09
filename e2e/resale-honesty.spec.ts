@@ -157,6 +157,26 @@ test("resale requires sign-in and budget-first search; one-car estimate stays ho
           serv_spend: null,
           no_serv_step: true,
         },
+        journal: {
+          schemaVersion: "lemonless.resale_journal.v1",
+          steps: [
+            {
+              id: "step_1",
+              kind: "stop_or_widen",
+              actor: "code",
+              decided: "Stop — no flip candidates cleared economics",
+              why: "No listings cleared similar-listing P&L.",
+              inputsUsed: ["budgetUsd:12000"],
+              changed: null,
+              model: null,
+              responseId: null,
+              recordedAt: "2026-11-09T00:00:00.000Z",
+              rejected: null,
+            },
+          ],
+          servCalls: 0,
+          servCallCap: 6,
+        },
         headline: "No flip candidates in this budget",
         message: "No listings cleared similar-listing economics inside this budget.",
         nextStep: "Raise the budget or clear optional filters.",
@@ -185,6 +205,7 @@ test("resale requires sign-in and budget-first search; one-car estimate stays ho
   await expect(page.getByRole("heading", { name: "No flip candidates in this budget" })).toBeVisible();
   await expect(page.getByText(/Verdict: pass/i)).toBeVisible();
   await expect(page.getByText(/Confidence: Low/i).first()).toBeVisible();
+  await expect(page.getByText(/Decision journal/i)).toBeVisible();
   await expect(page.getByText(/How the agent decided/i)).toBeVisible();
 
   await page.getByText(/One-car buy-ceiling estimate/i).click();

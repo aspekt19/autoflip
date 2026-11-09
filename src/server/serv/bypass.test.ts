@@ -104,6 +104,11 @@ describe("SERV layer", () => {
         "verdict_challenge",
         "find_close_call_multipath",
         "find_next_check",
+        "resale_plan_search",
+        "resale_triage",
+        "resale_pick",
+        "resale_challenge",
+        "radar_review",
         "telegram_reply",
       ]),
     );
