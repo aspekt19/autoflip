@@ -1,4 +1,5 @@
 import { getKv } from "@/io/kv";
+import { requireMoneyAuthStore } from "@/io/kv-guard";
 import { billingEffect, emptyPlans, readPlans, writePlans } from "@/server/plan-book";
 import { listSearches, saveSearches } from "@/server/radar-store";
 import { stripeClient, stripeWebhookSecret } from "@/server/stripe";
@@ -53,6 +54,8 @@ async function billingObject(
 }
 
 export async function POST(request: Request) {
+  const store = requireMoneyAuthStore();
+  if (!store.ok) return store.response;
   const secret = stripeWebhookSecret();
   const stripe = stripeClient();
   if (!secret || "error" in stripe) {
@@ -67,6 +70,18 @@ export async function POST(request: Request) {
   } catch {
     return Response.json({ error: "bad_signature" }, { status: 400 });
   }
+  // Livemode fence: this app only accepts Stripe TEST keys (sk_test_).
+  // Refuse credit grants from livemode events even if a live webhook were miswired.
+  if (event.livemode === true) {
+    return Response.json(
+      {
+        error: "livemode_refused",
+        message: "Live-mode Stripe events cannot grant credits on this deploy (test-mode only).",
+        received: true,
+      },
+      { status: 200 },
+    );
+  }
   const rawObject = event.data.object as unknown as Record<string, unknown>;
   const object = await billingObject(stripe, event.type, rawObject);
   const effect = billingEffect(await plansForEvent(object), event.type, object);
@@ -74,7 +89,17 @@ export async function POST(request: Request) {
     const session = event.data.object;
     const user = session.metadata?.userId;
     const credits = Number(session.metadata?.credits ?? "0");
-    if (user && Number.isInteger(credits) && credits > 0 && session.payment_status === "paid") {
+    // Grant only from signed webhook + paid status + test mode. Never trust client
+    // redirects, body user ids, or arbitrary grant endpoints.
+    // Idempotency key stripe:{event.id} makes duplicates/replays a no-op.
+    if (
+      typeof user === "string" &&
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(user) &&
+      Number.isInteger(credits) &&
+      credits > 0 &&
+      credits <= 100 &&
+      session.payment_status === "paid"
+    ) {
       await grantCredit(user, credits, `stripe:${event.id}`);
     }
   }

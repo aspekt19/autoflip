@@ -319,6 +319,47 @@ nav a:hover { color: #fff; }
   text-decoration: none;
   font-weight: 700;
 }
+.nav-auth {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 44px;
+  padding: 8px 14px;
+  border-radius: 999px;
+  border: 1.5px solid rgba(255, 255, 255, 0.78);
+  background: transparent;
+  color: #fff;
+  font-family: var(--sans);
+  font-weight: 700;
+  font-size: 13px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  text-decoration: none;
+  white-space: nowrap;
+}
+.nav-auth:hover,
+.nav-auth:focus-visible {
+  background: rgba(255, 255, 255, 0.1);
+  color: #fff;
+}
+.nav-auth:focus-visible {
+  outline: 2px solid #fff;
+  outline-offset: 2px;
+}
+.nav-auth-initial {
+  display: inline-grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 999px;
+  background: #ffd60a;
+  color: #0a0a0a;
+  font-size: 12px;
+  letter-spacing: 0;
+  line-height: 1;
+}
 
 .hero {
   position: relative;
@@ -514,6 +555,14 @@ nav a:hover { color: #fff; }
 .source-status.not_checked, .source-status.not_connected { color: var(--muted); }
 .sample-link { margin: 22px 0 0; font-family: var(--sans); font-size: 16px; }
 .sample-link a { font-weight: 700; }
+.account-note {
+  margin: 10px 0 0;
+  max-width: 48ch;
+  font-family: var(--sans);
+  font-size: 13px;
+  line-height: 1.45;
+  color: rgba(255, 255, 255, 0.86);
+}
 .center-title { text-align: center; }
 .steps-3 {
   list-style: none;
@@ -970,6 +1019,14 @@ pre.doc {
   .brand-name { font-size: 16px; }
 }
 
+@media (max-width: 720px) {
+  .bar .brand-name { display: none; }
+  .nav-auth { padding-inline: 10px; letter-spacing: 0.04em; flex-shrink: 0; }
+  .menu-btn { flex-shrink: 0; }
+  /* Credits stay in the open menu. Leaving the chip in the bar clips Sign in on a 320px screen. */
+  nav:not(.nav-open) .nav-go { display: none; }
+}
+
 @media (max-width: 900px) {
   :root { --pad: 18px; }
   .hero-grid, .split, .pair, .facts-row, .prices, .radar-row, .choice-grid, .steps-3, .trust-row { grid-template-columns: 1fr; }
@@ -993,7 +1050,7 @@ pre.doc {
 }
 
 @media (forced-colors: active) {
-  .action, .quiet, .pill, .sheet, .warn-box, .badge {
+  .action, .quiet, .pill, .sheet, .warn-box, .badge, .nav-auth {
     border: 1px solid ButtonText;
   }
 }
@@ -1061,6 +1118,12 @@ pre.doc {
 .listing-card { transition: transform 0.35s var(--ease), border-color 0.35s var(--ease); }
 .listing-card:hover { transform: translateY(-4px); border-color: rgba(255,255,255,0.38); }
 .nav-go { border-radius: 999px; }
+.nav-go-short { display: none; }
+@media (max-width: 720px) {
+  .nav-go-full { display: none; }
+  .nav-go-short { display: inline; }
+  .nav-go { max-width: none; overflow: visible; text-overflow: clip; }
+}
 .hero-chat textarea, .flow-page textarea { background: rgba(12,12,12,0.8); }
 
 @media (prefers-reduced-motion: no-preference) {
@@ -1130,6 +1193,8 @@ pre.doc {
     padding-left: 10px;
     padding-right: 10px;
   }
+  .nav-auth { padding-inline: 8px; font-size: 12px; letter-spacing: 0.02em; }
+  .menu-btn { padding-inline: 10px; }
 }
 @media (prefers-reduced-motion: reduce) {
   .page-in, .marquee-track, .reveal, .listing-card { animation: none; }
@@ -1314,6 +1379,28 @@ pre.doc {
 @media (max-width: 680px) {
   .compare-picker { align-items: stretch; flex-direction: column; }
   .compare-picker .action { width: 100%; }
+
+/* Auth surfaces — reuse existing sheet/action language; no new visual system. */
+.auth-panel { margin: 18px 0; }
+.auth-email {
+  display: grid;
+  gap: 10px;
+  max-width: 28rem;
+  margin: 18px 0;
+}
+.auth-email label {
+  font-family: var(--sans);
+  font-weight: 700;
+  font-size: 14px;
+}
+.auth-email input[type="email"] {
+  font: inherit;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  background: var(--canvas);
+  color: var(--ink);
+  border-radius: 0;
+}
 }
 
 /* Scout (minimal, default-OFF UI) */

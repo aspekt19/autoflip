@@ -71,8 +71,9 @@ export const BUYER_FORBIDDEN_TECH_PATTERNS: RegExp[] = [
 
 /**
  * Find billing copy (shared by /find page + results hint).
- * Billing/auth debit is NOT enabled in this tree (PR82 HOLD) — do not promise a free
- * Find, invent a free VIN/URL monthly quota, or claim a Find debit that does not run.
+ * A new Find search debits 1 report credit for a verified account when sign-in is on.
+ * Keep the public phrase "when billing is enabled": do not promise a free Find, and do
+ * not fold Find into the separate monthly VIN / own-listing-URL check allotment.
  */
 export const FIND_PAGE_BILLING_STEP =
   "Find is a credit-priced search when billing is enabled. Open a full report for any car you want to investigate further (1 report credit).";

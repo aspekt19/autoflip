@@ -60,6 +60,11 @@ export const ASSUMPTIONS = {
   cacheTtlMs: 6 * 60 * 60 * 1000,
   cacheMaxEntries: 200,
   complaintContextMin: 100,
+  /**
+   * Free consumer vehicle checks (VIN or own listing URL) per verified account
+   * per UTC calendar month. Find/searches are always paid — not this allotment.
+   */
+  freeVehicleChecksPerMonth: 3,
 } as const;
 
 export const CREDIT_PACKS = [

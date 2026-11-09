@@ -19,9 +19,17 @@ import {
   waitForFindAnalysisReceipt,
   type ReportAnalysisIdentity,
 } from "@/server/report-analysis-idempotency";
-import { balanceOf, compensateSpendCredit, spendCredit, userId } from "@/server/session";
+import { commitFreeCheck, releaseFreeCheck, reserveFreeCheck } from "@/io/free-check-quota";
+import {
+  balanceOf,
+  compensateSpendCredit,
+  spendCredit,
+  ledgerOwnerId,
+  requireVerifiedAccountForChecks,
+} from "@/server/session";
 import { sendLinkedTelegram } from "@/server/telegram-notify";
 import { originOf } from "@/server/secrets";
+import { freeCheckMonthKey } from "@/domain/free-check-quota";
 
 export const dynamic = "force-dynamic";
 /** Listings, government data, then a rules call and a two-step explanation. Hobby allows 60s. */
@@ -78,7 +86,6 @@ export async function POST(request: Request) {
     );
   }
 
-  const id = await userId();
   const mode = parseMode(body.mode);
   const vinKey = identity.vin;
   const claimingFind = claimsFindAnalysisHandoff({
@@ -86,6 +93,17 @@ export async function POST(request: Request) {
     cta,
     findContextToken,
   });
+  // VIN / listing-URL checks (not Find handoff) require a verified Auth.js account.
+  // Anonymous af_uid cannot mint a fresh monthly free allotment by clearing cookies.
+  const vehicleCheckSurface = !claimingFind;
+  let id: string;
+  if (vehicleCheckSurface) {
+    const access = await requireVerifiedAccountForChecks();
+    if (!access.ok) return access.response;
+    id = access.id;
+  } else {
+    id = await ledgerOwnerId();
+  }
   const surfaceHint = claimingFind ? "find" : body.surface === "check" ? "check" : "report";
 
   // Idempotent resume for an already-saved report — same car, 0 additional debit.
@@ -164,12 +182,45 @@ export async function POST(request: Request) {
     }
   }
 
-  if ((await balanceOf(id)) < 1) {
+  /**
+   * Free monthly CHECK allotment (VIN / own listing URL only).
+   * Find handoff never uses free checks — always report credits + claim fence.
+   */
+  let freeCheckKey: string | null = null;
+  let usedFreeCheck = false;
+  if (vehicleCheckSurface && !trustedFind) {
+    const month = freeCheckMonthKey();
+    // VIN-scoped (not mode-scoped): personal↔flip on the same VIN must not burn
+    // two free slots. A completed free check for this VIN falls through to credits
+    // for a genuine second analysis (already_completed) without another free burn.
+    freeCheckKey = `free-check:report:${id}:${month}:${vinKey}`;
+    const reserved = await reserveFreeCheck(getKv(), id, freeCheckKey);
+    if (reserved.ok) {
+      usedFreeCheck = true;
+    } else if (reserved.reason === "lock_busy") {
+      return Response.json(
+        {
+          error: "quota_busy",
+          message: "Could not reserve a free vehicle check right now. Retry in a moment. No credit was charged.",
+          charge: false,
+          freeChecks: reserved.view,
+          cta,
+          surface,
+        },
+        { status: 503 },
+      );
+    }
+    // exhausted | already_completed → fall through to paid credits (no second free slot)
+  }
+
+  if (!usedFreeCheck && (await balanceOf(id)) < 1) {
     return Response.json(
       {
         error: "credits_required",
         balance: 0,
-        message: "A full report costs 1 credit.",
+        message: vehicleCheckSurface
+          ? "You have used this month’s 3 free vehicle checks. A full report costs 1 credit, or wait until the UTC month reset."
+          : "A full report costs 1 credit.",
         cta,
         surface,
       },
@@ -310,6 +361,7 @@ export async function POST(request: Request) {
   );
   if (!assembled.ok) {
     if (analysisIdentity && heldClaimId) await releaseFindAnalysis(getKv(), analysisIdentity, heldClaimId);
+    if (usedFreeCheck && freeCheckKey) await releaseFreeCheck(getKv(), id, freeCheckKey);
     await sendLinkedTelegram(id, REPORT_FAILED_TEXT);
     return Response.json({ error: assembled.error, message: assembled.message }, { status: assembled.status });
   }
@@ -318,6 +370,7 @@ export async function POST(request: Request) {
   const chargeDecision = decideReportCharge(assembled.report.computed);
   if (!chargeDecision.charge) {
     if (analysisIdentity && heldClaimId) await releaseFindAnalysis(getKv(), analysisIdentity, heldClaimId);
+    if (usedFreeCheck && freeCheckKey) await releaseFreeCheck(getKv(), id, freeCheckKey);
     return Response.json(
       {
         error: chargeDecision.error,
@@ -334,16 +387,21 @@ export async function POST(request: Request) {
   }
 
   // Find path: analysis-scoped spend key (not report UUID). Manual path keeps UUID key.
+  // Free monthly check path: no credit debit — commit only after durable persist.
   const spendKey = analysisIdentity
     ? findAnalysisSpendKey(analysisIdentity)
     : legacyReportUuidSpendKey(assembled.report.id);
-  const spent = await spendCredit(id, spendKey);
-  if (!spent.ok) {
-    if (analysisIdentity && heldClaimId) await releaseFindAnalysis(getKv(), analysisIdentity, heldClaimId);
-    return Response.json(
-      { error: "credits_required", balance: spent.balance, message: "A full report costs 1 credit." },
-      { status: 403 },
-    );
+  let spentBalance = await balanceOf(id);
+  if (!usedFreeCheck) {
+    const spent = await spendCredit(id, spendKey);
+    if (!spent.ok) {
+      if (analysisIdentity && heldClaimId) await releaseFindAnalysis(getKv(), analysisIdentity, heldClaimId);
+      return Response.json(
+        { error: "credits_required", balance: spent.balance, message: "A full report costs 1 credit." },
+        { status: 403 },
+      );
+    }
+    spentBalance = spent.balance;
   }
   try {
     await persistReport(assembled.report);
@@ -357,6 +415,10 @@ export async function POST(request: Request) {
       );
       if (!completed.ok) throw new Error(`complete_failed:${completed.reason}`);
     }
+    if (usedFreeCheck && freeCheckKey) {
+      const committed = await commitFreeCheck(getKv(), id, freeCheckKey);
+      if (!committed.ok) throw new Error("free_check_commit_failed");
+    }
   } catch {
     // Durable report already saved → finish receipt / return it. Do NOT compensate
     // (would open FREE_REPORT) and do NOT drop a successful paid artifact.
@@ -365,6 +427,7 @@ export async function POST(request: Request) {
       if (analysisIdentity && heldClaimId) {
         await completeFindAnalysis(getKv(), analysisIdentity, saved.id, heldClaimId);
       }
+      if (usedFreeCheck && freeCheckKey) await commitFreeCheck(getKv(), id, freeCheckKey);
       const carSaved = saved.computed.subject;
       const readySaved = reportReadyMessage({
         car: `${carSaved.year} ${carSaved.make} ${carSaved.model}`,
@@ -373,13 +436,27 @@ export async function POST(request: Request) {
         reportId: saved.id,
       });
       await sendLinkedTelegram(id, readySaved.text, readySaved.reply_markup.inline_keyboard[0]?.[0]);
-      return Response.json({ ...saved, balance: spent.balance });
+      return Response.json({
+        ...saved,
+        balance: spentBalance,
+        charged: !usedFreeCheck,
+        freeCheck: usedFreeCheck,
+      });
     }
     // Persist never landed — compensate spend (clears spend event) + fenced release.
-    await compensateSpendCredit(id, spendKey);
+    if (!usedFreeCheck) await compensateSpendCredit(id, spendKey);
+    if (usedFreeCheck && freeCheckKey) await releaseFreeCheck(getKv(), id, freeCheckKey);
     if (analysisIdentity && heldClaimId) await releaseFindAnalysis(getKv(), analysisIdentity, heldClaimId);
     await sendLinkedTelegram(id, REPORT_FAILED_TEXT);
-    return Response.json({ error: "save_failed", message: "The report did not finish. No credit was used." }, { status: 500 });
+    return Response.json(
+      {
+        error: "save_failed",
+        message: usedFreeCheck
+          ? "The report did not finish. No free check was used."
+          : "The report did not finish. No credit was used.",
+      },
+      { status: 500 },
+    );
   }
   const car = assembled.report.computed.subject;
   const ready = reportReadyMessage({
@@ -389,5 +466,10 @@ export async function POST(request: Request) {
     reportId: assembled.report.id,
   });
   await sendLinkedTelegram(id, ready.text, ready.reply_markup.inline_keyboard[0]?.[0]);
-  return Response.json({ ...assembled.report, balance: spent.balance });
+  return Response.json({
+    ...assembled.report,
+    balance: spentBalance,
+    charged: !usedFreeCheck,
+    freeCheck: usedFreeCheck,
+  });
 }

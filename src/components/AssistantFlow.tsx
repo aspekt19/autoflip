@@ -5,8 +5,13 @@ import type { PriceBadge } from "@/domain/price-badge";
 import { whyThisCar } from "@/domain/why-car";
 import { PriceBadgeView, PriceRatingHow } from "./PriceBadge";
 import { budgetFromText, budgetWorkingCopy } from "@/domain/need";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
+import {
+  formatFreeChecksSignInPrompt,
+  freeChecksRemainingFromAccount,
+} from "@/domain/free-check-quota";
 import type { DecisionProof } from "@/domain/decision-note";
 import type { SearchDirection } from "@/domain/directions";
 import { CoverageLine } from "./CoverageNote";
@@ -17,6 +22,7 @@ import {
   resolveSelectedListingHandoff,
   type FindAnalysisPayload,
 } from "@/domain/find-analysis-handoff";
+import { buyerFacingFailure } from "@/domain/buyer-facing-error";
 import { isReportHardRefusal, reportRefusalUserMessage } from "@/domain/report-refusal-ui";
 import { findEmptyCopy, type FindEmptyReason } from "@/domain/find-empty";
 import type { FindListingPriceView } from "@/domain/find-listing-price";
@@ -194,6 +200,9 @@ function AssistantFlow({
   const [vinMiles, setVinMiles] = useState("");
   const [vinZip, setVinZip] = useState("");
   const booted = useRef(false);
+  const [checkAllowance, setCheckAllowance] = useState<"loading" | "signed-out" | "missing" | string>(
+    "loading",
+  );
   const [freeCheck, setFreeCheck] = useState<{
     title: string;
     sample?: boolean;
@@ -228,6 +237,22 @@ function AssistantFlow({
   const autoNextCheckTokenRef = useRef<string | null>(null);
   /** Auto-continues fired for the current search token — hard-bounded in shouldAutoContinue. */
   const autoContinueCountRef = useRef(0);
+
+  useEffect(() => {
+    if (variant !== "check") return;
+    let cancelled = false;
+    fetch("/api/account")
+      .then((response) => response.json())
+      .then((body: { authenticated?: boolean; freeChecks?: { remaining?: number; limit?: number; resetsLabel?: string } | null }) => {
+        if (!cancelled) setCheckAllowance(freeChecksRemainingFromAccount(body));
+      })
+      .catch(() => {
+        if (!cancelled) setCheckAllowance("missing");
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [variant]);
 
   async function understand(followUp?: { id: FollowUp["id"]; value: string }) {
     setError(null);
@@ -787,6 +812,8 @@ function AssistantFlow({
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
               need: nextNeed,
+              // Owned continuation — next-check rematch is not a second Find purchase.
+              searchContextToken: searchContextToken || undefined,
               refine: rematchRefineFromReplan({
                 replanRefine: body.replan.refine,
                 needAfter: nextNeed,
@@ -807,7 +834,32 @@ function AssistantFlow({
             affordabilityAssessed?: boolean;
             searchContextToken?: string | null;
             servNextCheckEnabled?: boolean;
+            error?: string;
           };
+          if (
+            matchResponse.status === 401 ||
+            (matchResponse.status === 403 &&
+              (matchBody.error === "auth_required" ||
+                matchBody.error === "auth_unconfigured" ||
+                matchBody.error === "email_unverified" ||
+                matchBody.error === "email_required"))
+          ) {
+            rememberFlow();
+            router.push(`/login?callbackUrl=${encodeURIComponent("/find")}`);
+            return;
+          }
+          if (matchResponse.status === 403 && matchBody.error === "credits_required") {
+            rememberFlow();
+            router.push("/credits?need=1&return=%2Ffind");
+            return;
+          }
+          if (matchBody.error === "auth_unconfigured" || matchBody.error === "money_store_unconfigured") {
+            const plain = buyerFacingFailure(matchBody.error, null, "Sign-in is not available yet.");
+            setError(plain);
+            setMatchMessage(plain);
+            setGroups([]);
+            return;
+          }
           if (!matchResponse.ok) {
             const reason = matchBody.emptyReason ?? "provider_failure";
             const copy = findEmptyCopy(reason, nextNeed, matchBody.message);
@@ -873,12 +925,14 @@ function AssistantFlow({
     /** Fired after finally so we do not clear next-check pending. */
     let autoNextToken: string | null = null;
     try {
+      const searchIdempotencyKey = `find-${Date.now()}-${Math.random().toString(36).slice(2, 12)}`;
       const response = await fetch("/api/match", {
         method: "POST",
         signal: controller.signal,
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           need,
+          searchIdempotencyKey,
           refine: {
             make: make.trim() || undefined,
             model: model.trim() || undefined,
@@ -899,7 +953,34 @@ function AssistantFlow({
         affordabilityAssessed?: boolean;
         searchContextToken?: string | null;
         servNextCheckEnabled?: boolean;
+        error?: string;
       };
+      if (
+        response.status === 401 ||
+        (response.status === 403 &&
+          (body.error === "auth_required" ||
+            body.error === "auth_unconfigured" ||
+            body.error === "email_unverified" ||
+            body.error === "email_required"))
+      ) {
+        rememberFlow();
+        router.push(`/login?callbackUrl=${encodeURIComponent("/find")}`);
+        return;
+      }
+      if (response.status === 403 && body.error === "credits_required") {
+        rememberFlow();
+        router.push("/credits?need=1&return=%2Ffind");
+        return;
+      }
+      if (body.error === "auth_unconfigured" || body.error === "money_store_unconfigured") {
+        const plain = buyerFacingFailure(body.error, null, "Sign-in is not available yet.");
+        setError(plain);
+        setMatchMessage(plain);
+        setStage("results");
+        setGroups([]);
+        setSample(false);
+        return;
+      }
       if (!response.ok) {
         const reason = body.emptyReason ?? "provider_failure";
         const copy = findEmptyCopy(reason, need, body.message);
@@ -1092,7 +1173,7 @@ function AssistantFlow({
         return;
       }
       if (!response.ok || !body.id) {
-        setError(body.message || "The report could not be built.");
+        setError(buyerFacingFailure(body.error, body.message, "The report could not be built."));
         return;
       }
       try {
@@ -1158,9 +1239,25 @@ function AssistantFlow({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(checkPayload()),
       });
-      const body = (await response.json()) as { title?: string; badge?: PriceBadge; reasons?: string[]; coverage?: string; coverageLevel?: "low" | "medium" | "high"; sample?: boolean; message?: string };
+      const body = (await response.json()) as {
+        title?: string;
+        badge?: PriceBadge;
+        reasons?: string[];
+        coverage?: string;
+        coverageLevel?: "low" | "medium" | "high";
+        sample?: boolean;
+        message?: string;
+        error?: string;
+      };
+      if (response.status === 401 || response.status === 403) {
+        if (body.error === "auth_required" || body.error === "auth_unconfigured" || body.error === "email_unverified") {
+          sessionStorage.setItem("af-check", JSON.stringify({ mode, checkKind, lookup, vinPrice, vinMiles, vinZip }));
+          router.push(`/login?callbackUrl=${encodeURIComponent("/check")}`);
+          return;
+        }
+      }
       if (!response.ok || !body.badge || !body.title) {
-        setError(body.message || "The price check did not finish.");
+        setError(buyerFacingFailure(body.error, body.message, "The price check did not finish."));
         return;
       }
       setFreeCheck({
@@ -1206,13 +1303,18 @@ function AssistantFlow({
         body: JSON.stringify(handoff.payload),
       });
       const body = (await response.json()) as { id?: string; message?: string; error?: string };
+      if (response.status === 401 || (response.status === 403 && (body.error === "auth_required" || body.error === "auth_unconfigured" || body.error === "email_unverified" || body.error === "email_required"))) {
+        sessionStorage.setItem("af-check", JSON.stringify({ mode, checkKind, lookup, vinPrice, vinMiles, vinZip }));
+        router.push(`/login?callbackUrl=${encodeURIComponent("/check")}`);
+        return;
+      }
       if (response.status === 403 && body.error === "credits_required") {
         sessionStorage.setItem("af-check", JSON.stringify({ mode, checkKind, lookup, vinPrice, vinMiles, vinZip }));
         router.push("/credits?need=1&return=%2Fcheck");
         return;
       }
       if (!response.ok || !body.id) {
-        setError(body.message || "The report could not be built.");
+        setError(buyerFacingFailure(body.error, body.message, "The report could not be built."));
         return;
       }
       try {
@@ -2036,7 +2138,17 @@ function AssistantFlow({
               Enter a valid 17-character VIN before checking the price.
             </p>
           ) : null}
-          <p className="hint">The quick price check is free. A full report costs 1 report credit and adds the broader vehicle assessment, recalls, complaints, available history flags and comparable listings.</p>
+          {checkAllowance === "loading" ? null : checkAllowance === "signed-out" ? (
+            <p className="hint">
+              <Link href="/login?callbackUrl=/check">Sign in</Link>
+              {formatFreeChecksSignInPrompt().slice("Sign in".length)}
+            </p>
+          ) : checkAllowance === "missing" ? (
+            <p className="hint">Free checks could not be loaded.</p>
+          ) : (
+            <p className="hint">{checkAllowance}</p>
+          )}
+          <p className="hint">The price check does not use a free check. A full report does, then 1 report credit after this month’s free checks are used.</p>
           {freeCheck ? (
             <article className="warn-box">
               <h2>{freeCheck.title}</h2>
@@ -2049,9 +2161,9 @@ function AssistantFlow({
               </ul>
               <CoverageLine confidence={freeCheck.coverageLevel} sentence={freeCheck.coverage} />
               <PriceRatingHow />
-              <p className="hint">This quick result rates the asking price only. The full report adds broader safety and vehicle context; it costs 1 report credit.</p>
+              <p className="hint">This quick result rates the asking price only. The full report adds broader safety and vehicle context. It uses one of this month’s 3 free checks, or 1 report credit after those are used.</p>
               <button className="action" type="button" onClick={() => void checkListing()} disabled={pending === "report"}>
-                {pending === "report" ? "Building report…" : "Full analysis — 1 credit"}
+                {pending === "report" ? "Building report…" : "Full analysis"}
               </button>
             </article>
           ) : null}

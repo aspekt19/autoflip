@@ -96,6 +96,7 @@ Registry: [`src/server/serv/profiles.ts`](src/server/serv/profiles.ts). Gateway:
 - Stripe is **test mode** only.
 - Without `SERV_API_KEY`, verdicts use the labeled code baseline under the same guardrails.
 - `eval:verdict` commits **not yet run** until someone with a real key runs it — see [`eval/results/verdict-latest.md`](eval/results/verdict-latest.md).
+- Durable Google / email sign-in (Auth.js) is optional until `AUTH_SECRET` and a provider are set; paid checkout fails closed without them. See [`docs/auth-and-credits.md`](docs/auth-and-credits.md).
 
 ## What works
 
@@ -138,6 +139,9 @@ Stripe test card: `4242 4242 4242 4242`. Forward webhooks to `POST /api/stripe/w
 | `NEXT_PUBLIC_APP_URL` | Checkout return URL |
 | `AUTOFLIP_DEV_CREDITS` | Optional local starting balance |
 | `UPSTASH_REDIS_REST_URL` / `UPSTASH_REDIS_REST_TOKEN` | Durable KV on Vercel |
+| `AUTH_SECRET` | Auth.js secret (required for sign-in) |
+| `AUTH_GOOGLE_ID` / `AUTH_GOOGLE_SECRET` | Google OAuth |
+| `NEXT_PUBLIC_FIREBASE_API_KEY` / `NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN` / `NEXT_PUBLIC_FIREBASE_PROJECT_ID` / `NEXT_PUBLIC_FIREBASE_APP_ID` | Passwordless email link (Firebase sends it). All four required or the email option stays hidden. |
 
 Do not commit `.env.local`.
 
@@ -182,4 +186,4 @@ Saved searches run on a schedule without spending report credits. Personal watch
 
 ## Deploy
 
-Next.js on Vercel (`npm run build`). Secrets only in the host env. This preview does not invent a durable identity system beyond cookie + optional Upstash Redis.
+Next.js on Vercel (`npm run build`). Secrets only in the host env. With Auth.js configured, credits and reports belong to the signed-in account in Upstash/KV; without auth env, search still works and paid checkout stays locked. Details: [`docs/auth-and-credits.md`](docs/auth-and-credits.md).

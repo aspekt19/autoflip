@@ -69,6 +69,10 @@ export function SearchPanel({ initial }: Props) {
         }),
       });
       const body = (await response.json()) as { id?: string; message?: string; error?: string };
+      if (response.status === 401 || (response.status === 403 && (body.error === "auth_required" || body.error === "auth_unconfigured" || body.error === "email_unverified" || body.error === "email_required"))) {
+        router.push("/login?callbackUrl=/");
+        return;
+      }
       if (response.status === 403 && body.error === "credits_required") {
         router.push("/credits?need=1");
         return;

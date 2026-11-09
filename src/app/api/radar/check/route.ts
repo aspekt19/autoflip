@@ -3,7 +3,7 @@ import { getKv, storageMode } from "@/io/kv";
 import { lastCheckNow, listSearches, markCheckNow } from "@/server/radar-store";
 import { runRadarCycle } from "@/server/radar-cycle";
 import { originOf } from "@/server/secrets";
-import { isDemoUser, userId } from "@/server/session";
+import { isDemoUser, ledgerOwnerId } from "@/server/session";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -15,7 +15,7 @@ export async function POST(request: Request) {
       { status: 503 },
     );
   }
-  const id = await userId();
+  const id = await ledgerOwnerId();
   const kv = getKv();
   const mine = (await listSearches(kv)).filter((item) => item.ownerId === id && item.enabled);
   if (!isDemoUser(id) && mine.length === 0) {
