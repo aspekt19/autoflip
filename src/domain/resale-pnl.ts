@@ -1,0 +1,258 @@
+/**
+ * Honest flip P&amp;L for Resale search candidates.
+ * Every dollar comes from code (flip-rank + labeled assumptions + state tax tables).
+ * SERV must never invent these numbers.
+ */
+
+import { ASSUMPTIONS } from "./assumptions";
+import type { FlipEstimate, SaleSpeed } from "./flip-rank";
+import { reconUsd } from "./recon";
+import { formatTaxRate, stateBaseTaxUsd, stateSalesTax, STATE_SALES_TAX_AS_OF, STATE_SALES_TAX_SOURCE_LABEL } from "./state-sales-tax";
+import { roundDollars } from "./stats";
+import { TITLE_REGISTRATION_LINE } from "./title-doc-fees";
+import type { RepairAbility } from "./need";
+import type { Listing } from "./types";
+
+export type ResaleChannel = "private_party" | "dealer_trade";
+
+export type ResaleConfidenceLabel = "High" | "Medium" | "Low";
+
+export type ResaleCandidatePnl = {
+  vin: string;
+  listing: Listing;
+  /** Asking price from the listing feed. */
+  askingUsd: number;
+  /** Realistic negotiated offer estimate (labeled assumption). */
+  negotiatedOfferUsd: number;
+  negotiateBasis: string;
+  /** Statewide base sales tax estimate when state is known; null otherwise. */
+  salesTaxUsd: number | null;
+  salesTaxBasis: string;
+  /** Title/registration — unknown without a public statewide figure. */
+  titleRegistrationUsd: number | null;
+  titleRegistrationBasis: string;
+  /** Example title/fee assumption used in flip costs (not a DMV quote). */
+  titleFeeAssumptionUsd: number;
+  titleFeeBasis: string;
+  /** Reconditioning / repair estimate. */
+  reconUsd: number;
+  reconBasis: string;
+  /** Expected resale band from adjusted similar listings (same evaluateListingPrice path). */
+  resaleLowUsd: number | null;
+  resaleMidUsd: number | null;
+  resaleHighUsd: number | null;
+  resaleChannel: ResaleChannel;
+  resaleChannelBasis: string;
+  /** Net profit after negotiate + tax + fees + recon + sell friction. */
+  profitLowUsd: number | null;
+  profitMidUsd: number | null;
+  profitHighUsd: number | null;
+  /** ROI on all-in buy cost (negotiate + tax + fees + recon). */
+  roiPctMid: number | null;
+  /** Days-to-sell when listing age is available; otherwise null + unknown note. */
+  estimatedDaysToSell: number | null;
+  daysToSellBasis: string;
+  speed: SaleSpeed;
+  confidence: ResaleConfidenceLabel;
+  confidenceBasis: string;
+  compCount: number;
+  score: number;
+  clearsTarget: boolean | null;
+  risks: string[];
+  checkBeforeBuying: string[];
+  assumption: string | null;
+};
+
+export type BuildResalePnlOptions = {
+  repairAbility?: RepairAbility;
+  /** Prefer private-party resale (default) vs dealer wholesale. */
+  resaleChannel?: ResaleChannel;
+  /** Optional shopper state override for tax (ZIP→state not resolved here). */
+  taxState?: string | null;
+};
+
+function negotiateOffer(askingUsd: number): { usd: number; basis: string } {
+  const haircut = ASSUMPTIONS.flipNegotiateHaircut;
+  const usd = roundDollars(askingUsd * (1 - haircut));
+  return {
+    usd,
+    basis: `Negotiated offer estimate: $${usd.toLocaleString("en-US")} (${Math.round(haircut * 100)}% under ask). Example assumption, not a dealer quote.`,
+  };
+}
+
+function taxFor(state: string | null | undefined, offerUsd: number): { usd: number | null; basis: string } {
+  const row = stateSalesTax(state);
+  if (!row) {
+    return {
+      usd: null,
+      basis: "Sales tax: unknown — listing state was missing, so no statewide base rate was applied.",
+    };
+  }
+  const usd = stateBaseTaxUsd(offerUsd, row.milliPercent);
+  return {
+    usd,
+    basis: `Sales tax estimate: $${usd.toLocaleString("en-US")} at ${formatTaxRate(row.milliPercent)} statewide base (${row.name}). ${STATE_SALES_TAX_SOURCE_LABEL} as of ${STATE_SALES_TAX_AS_OF}. Local add-ons unknown.`,
+  };
+}
+
+function daysToSell(speed: SaleSpeed, speedBasis: string, listingAgeDays: number | null): {
+  days: number | null;
+  basis: string;
+} {
+  if (listingAgeDays == null && speed === "unknown") {
+    return {
+      days: null,
+      basis: "Estimated days to sell: unknown. Listing age was not in the feed and no separate market days-on-market feed is wired.",
+    };
+  }
+  if (speed === "faster") {
+    return {
+      days: listingAgeDays != null ? Math.max(7, listingAgeDays) : 14,
+      basis: `Estimated days to sell: proxy from listing age and similar-listing density (${speedBasis}). Not closed-sale days-on-market data.`,
+    };
+  }
+  if (speed === "slower") {
+    return {
+      days: listingAgeDays != null ? Math.max(45, listingAgeDays) : 60,
+      basis: `Estimated days to sell: proxy from listing age (${speedBasis}). Not closed-sale days-on-market data.`,
+    };
+  }
+  if (speed === "typical") {
+    return {
+      days: listingAgeDays != null ? Math.max(21, listingAgeDays) : 30,
+      basis: `Estimated days to sell: proxy from listing age (${speedBasis}). Not closed-sale days-on-market data.`,
+    };
+  }
+  return {
+    days: null,
+    basis: "Estimated days to sell: unknown.",
+  };
+}
+
+function confidenceLabel(compCount: number, speed: SaleSpeed): { label: ResaleConfidenceLabel; basis: string } {
+  if (compCount >= 8 && speed !== "unknown") {
+    return { label: "High", basis: `Confidence High: ${compCount} similar listings in this scan and listing age was available.` };
+  }
+  if (compCount >= 5) {
+    return { label: "Medium", basis: `Confidence Medium: ${compCount} similar listings in this scan.` };
+  }
+  return { label: "Low", basis: `Confidence Low: only ${compCount} similar listings in this scan (need 5+ for Medium).` };
+}
+
+function channelBasis(channel: ResaleChannel): string {
+  if (channel === "dealer_trade") {
+    return "Resale channel assumption: dealer trade / wholesale. Proceeds use the adjusted fair band with the standard sell-friction haircut — not a dealer buy offer.";
+  }
+  return "Resale channel assumption: private-party resale. Proceeds use adjusted similar listing asks minus sell-friction — not a closed private sale.";
+}
+
+/**
+ * Enrich a ranked FlipEstimate into a full honest P&amp;L card.
+ * Returns null when the estimate was excluded or missing ask.
+ */
+export function buildResaleCandidatePnl(
+  estimate: FlipEstimate,
+  options?: BuildResalePnlOptions,
+): ResaleCandidatePnl | null {
+  const asking = estimate.listing.priceUsd;
+  if (asking == null || asking <= 0 || estimate.excluded) return null;
+
+  const repairAbility = options?.repairAbility ?? "unknown";
+  const channel = options?.resaleChannel ?? "private_party";
+  const negotiate = negotiateOffer(asking);
+  const taxState = options?.taxState ?? estimate.listing.state;
+  const tax = taxFor(taxState, negotiate.usd);
+  const recon = reconUsd({
+    miles: estimate.listing.miles,
+    accidentCount: estimate.listing.accidentCount,
+    repairAbility,
+  });
+  const titleFee = ASSUMPTIONS.flipTitleFeeUsd;
+  const titleFeeBasis = `Title/fee assumption: $${titleFee.toLocaleString("en-US")} (example, not a DMV quote). ${TITLE_REGISTRATION_LINE}`;
+
+  const friction = ASSUMPTIONS.flipSellFriction;
+  const costAllIn =
+    negotiate.usd + (tax.usd ?? 0) + titleFee + recon.usd;
+
+  const profitFrom = (resale: number | null): number | null => {
+    if (resale == null) return null;
+    return roundDollars(resale * (1 - friction) - costAllIn);
+  };
+
+  const profitLowUsd = profitFrom(estimate.resaleLowUsd);
+  const profitMidUsd = profitFrom(estimate.resaleMidUsd);
+  const profitHighUsd = profitFrom(estimate.resaleHighUsd);
+  const roiPctMid =
+    profitMidUsd != null && costAllIn > 0
+      ? Math.round((profitMidUsd / costAllIn) * 1000) / 10
+      : null;
+
+  const ageMatch = estimate.speedBasis.match(/about (\d+) days/);
+  const listingAgeDays = ageMatch ? Number(ageMatch[1]) : null;
+  const days = daysToSell(estimate.speed, estimate.speedBasis, listingAgeDays);
+  const confidence = confidenceLabel(estimate.compCount, estimate.speed);
+
+  const risks: string[] = [
+    "Title brand and full accident history are unknown until you pull a report and inspect the car.",
+    "Open recalls are not checked in this search — verify before buying.",
+    "Demand and days-to-sell are inferred from this scan, not a national DOM feed.",
+  ];
+  if (estimate.listing.accidentCount == null) {
+    risks.push("Accident count was missing on the listing — missing is not the same as clean.");
+  }
+  if (estimate.confidence === "low") {
+    risks.push("Thin similar-listing set — resale band is less reliable.");
+  }
+
+  const checkBeforeBuying: string[] = [
+    "Confirm title status (clean / rebuilt / salvage) and lien payoff.",
+    "Get a pre-purchase inspection; walk if the seller blocks it.",
+    "Match VIN, odometer, and options to the listing before depositing money.",
+    "Budget for registration, local tax add-ons, and unexpected repairs beyond the estimate.",
+  ];
+
+  return {
+    vin: estimate.vin,
+    listing: estimate.listing,
+    askingUsd: asking,
+    negotiatedOfferUsd: negotiate.usd,
+    negotiateBasis: negotiate.basis,
+    salesTaxUsd: tax.usd,
+    salesTaxBasis: tax.basis,
+    titleRegistrationUsd: null,
+    titleRegistrationBasis: TITLE_REGISTRATION_LINE,
+    titleFeeAssumptionUsd: titleFee,
+    titleFeeBasis,
+    reconUsd: recon.usd,
+    reconBasis: recon.because,
+    resaleLowUsd: estimate.resaleLowUsd,
+    resaleMidUsd: estimate.resaleMidUsd,
+    resaleHighUsd: estimate.resaleHighUsd,
+    resaleChannel: channel,
+    resaleChannelBasis: channelBasis(channel),
+    profitLowUsd,
+    profitMidUsd,
+    profitHighUsd,
+    roiPctMid,
+    estimatedDaysToSell: days.days,
+    daysToSellBasis: days.basis,
+    speed: estimate.speed,
+    confidence: confidence.label,
+    confidenceBasis: confidence.basis,
+    compCount: estimate.compCount,
+    score: estimate.score,
+    clearsTarget: estimate.clearsTarget,
+    risks,
+    checkBeforeBuying,
+    assumption: estimate.assumption,
+  };
+}
+
+export function buildResaleCandidatePnls(
+  estimates: FlipEstimate[],
+  options?: BuildResalePnlOptions,
+): ResaleCandidatePnl[] {
+  return estimates
+    .map((item) => buildResaleCandidatePnl(item, options))
+    .filter((item): item is ResaleCandidatePnl => item != null);
+}

@@ -62,8 +62,8 @@ export function HomeStage() {
           <li>
             <strong>01 Say which goal</strong>
             <span>
-              For me: a short note starts Find. Budget, ZIP, and seller distance come next. For resale: open the one-car
-              Resale estimate — buy ceiling, similar-listing range, and example costs.
+              For me: a short note starts Find. Budget, ZIP, and seller distance come next. For resale: open budget-first
+              Resale search — best flip plus alternatives with an honest P&L.
             </span>
           </li>
           <li>
@@ -82,7 +82,7 @@ export function HomeStage() {
           <Link href="/pricing">See pricing</Link>
           <span>
             . Report credits are separate from optional Radar plans.{" "}
-            <Link href="/resale">Resale estimate</Link> is a one-car tool, not a profit guarantee.
+            <Link href="/resale">Resale</Link> is the money-button flip search (1 credit), not a profit guarantee.
           </span>
         </p>
       </section>

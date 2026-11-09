@@ -74,6 +74,15 @@ export function AgentDecisionTrail({ verdict, defaultOpen = false }: Props) {
                 Why: {step.why}
                 {step.changed ? ` What changed: ${step.changed}` : ""}
               </span>
+              {step.model || step.responseId || step.recordedAt ? (
+                <span className="hint">
+                  {step.model ? `Model ${step.model}` : "Model not recorded"}
+                  {step.responseId ? ` · response ${step.responseId}` : " · no response id"}
+                  {step.recordedAt
+                    ? ` · ${new Date(step.recordedAt).toLocaleString("en-US", { timeZone: "UTC" })} UTC`
+                    : ""}
+                </span>
+              ) : null}
             </li>
           ))}
         </ol>

@@ -9,7 +9,7 @@ import type { Mode } from "@/domain/types";
  * ZIP and seller-distance radius are collected later in /find (budget → confirm)
  * before geographically constrained inventory runs — not on the hero.
  *
- * "For resale" routes to the minimal /resale estimate (honest one-car flow).
+ * "For resale" routes to budget-first /resale inventory search (honest flip P&L).
  * "For me" keeps the native GET submit to /find.
  */
 export function HomeSearch({ onModeChange }: { onModeChange?: (mode: Mode) => void }) {
@@ -48,12 +48,12 @@ export function HomeSearch({ onModeChange }: { onModeChange?: (mode: Mode) => vo
       {forResale ? (
         <>
           <p className="hint">
-            One car at a time: buy-ceiling estimate, expected resale range from similar listings, and example costs. Not a
-            profit guarantee.
+            Enter a budget. Lemonless searches what you can buy now and returns the best flip plus alternatives — with an
+            honest profit calc. 1 report credit per search. Not a profit guarantee.
           </p>
           <div className="btn-row">
             <Link className="action" href="/resale">
-              Estimate resale
+              Find flips
             </Link>
             <a className="quiet" href="/check">
               Check a car
