@@ -65,6 +65,7 @@ export const BUYER_FORBIDDEN_TECH_PATTERNS: RegExp[] = [
   /\bfitted\b/i,
   /\bdocumented rates\b/i,
   /\bcomps\b/i,
+  /\bcomp\s/i,
 ];
 
 /**
@@ -81,6 +82,34 @@ export const FIND_RESULTS_BILLING_HINT =
 /** Buyer-facing seller-distance custom-miles hint (no app-validation jargon). */
 export function customMilesBuyerHint(maxMiles: number): string {
   return `You can enter any distance up to ${maxMiles.toLocaleString("en-US")} miles, or choose Nationwide to search without a distance limit.`;
+}
+
+const BUYER_ID_LABELS: Record<string, string> = {
+  price_vs_comps: "asking price vs similar listings",
+  insufficient_comps: "not enough similar listings",
+  data_sufficiency: "enough listing data",
+  identity_vin: "VIN matches the listing",
+  safety_red_flags: "safety flags",
+  mandate_fit: "fits what you asked for",
+};
+
+/** Plain stand-in for an internal gate id when that id would otherwise be shown to a buyer. */
+export function plainBuyerPhrase(text: string): string {
+  let out = text;
+  const ids = Object.keys(BUYER_ID_LABELS).sort((a, b) => b.length - a.length);
+  for (const id of ids) out = out.replaceAll(id, BUYER_ID_LABELS[id]!);
+  return out;
+}
+
+/**
+ * NHTSA campaign ids (for example 12V501000) stay visible only with a plain label:
+ * they are the official recall number a buyer can look up.
+ */
+export function formatOfficialRecallNumber(id: string): string {
+  const trimmed = id.trim();
+  if (/^official recall number\b/i.test(trimmed)) return trimmed;
+  const bare = trimmed.replace(/^NHTSA recall campaign\s+/i, "").trim();
+  return `Official recall number ${bare} — look this up on NHTSA`;
 }
 
 export function findForbiddenTechArtifacts(text: string): string[] {

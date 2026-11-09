@@ -1,17 +1,56 @@
+import { readFileSync } from "node:fs";
+import path from "node:path";
 import { describe, expect, it } from "vitest";
+import { selectComparables } from "./comparables";
 import {
   assertBuyerSafeText,
   findForbiddenTechArtifacts,
   formatBuyerLoopStatus,
   formatBuyerLoopStep,
   formatBuyerReceiptLine,
+  formatOfficialRecallNumber,
   machineReceiptsPayload,
+  plainBuyerPhrase,
 } from "./find-buyer-copy";
+import type { Listing } from "./types";
 import type { FindFreeGovReceipt } from "./find-free-gov";
 import { buildFindFuelAssumptions } from "./find-fuel-match";
 import { formatFreeGovReceiptsForUi } from "./find-free-gov-format";
 import { buildGroundedShortlist } from "./find-path";
 import { explicitNeedFromText } from "./need";
+
+function noteCar(vin: string, year: number, priceUsd: number, trim: string): Listing {
+  return {
+    vin,
+    year,
+    make: "Kia",
+    model: "Sportage",
+    trim,
+    miles: 60_000,
+    priceUsd,
+    city: null,
+    state: null,
+    zip: null,
+    dealer: null,
+    vdp: null,
+    primaryImage: null,
+    carfaxUrl: null,
+    used: true,
+    cpo: false,
+    accidentCount: null,
+    oneOwner: null,
+    ownerCount: null,
+    usageType: null,
+    fuel: null,
+    engine: null,
+    drivetrain: null,
+    bodyStyle: null,
+    latitude: null,
+    longitude: null,
+    removedAt: null,
+    source: "sample",
+  };
+}
 
 function recallReceipt(): FindFreeGovReceipt {
   return {
@@ -157,6 +196,53 @@ describe("buyer-safe Find copy", () => {
     const payload = JSON.parse(machineReceiptsPayload([recallReceipt()]));
     expect(payload.channel).toBe("for-agents");
     expect(payload.receipts[0].sourceUrl).toMatch(/DecodeVinValues|format=json|api\.nhtsa/);
+  });
+
+  it("keeps the landing explainer free of listing jargon", () => {
+    const layout = readFileSync(path.join(process.cwd(), "src/app/layout.tsx"), "utf8");
+    const match = layout.match(/Lemonless prepares a price verdict[\s\S]*?before you pay\./);
+    expect(match).toBeTruthy();
+    const line = match![0].replace(/\s+/g, " ");
+    expect(findForbiddenTechArtifacts(line)).toEqual([]);
+    expect(line).toMatch(/similar listings nearby and public government data/);
+    expect(
+      findForbiddenTechArtifacts(
+        "Lemonless prepares a price verdict from listing comps and public government data.",
+      ),
+    ).toEqual(expect.arrayContaining([expect.stringMatching(/comps/i)]));
+    expect(findForbiddenTechArtifacts("25th percentile")).toEqual(
+      expect.arrayContaining([expect.stringMatching(/percentile/i)]),
+    );
+    expect(findForbiddenTechArtifacts("fitted price")).toEqual(
+      expect.arrayContaining([expect.stringMatching(/fitted/i)]),
+    );
+    expect(findForbiddenTechArtifacts("price≈year")).toEqual(expect.arrayContaining([expect.stringMatching(/≈/)]));
+    expect(findForbiddenTechArtifacts("one comp left")).toEqual(
+      expect.arrayContaining([expect.stringMatching(/comp\s/i)]),
+    );
+
+    const terms = readFileSync(path.join(process.cwd(), "src/app/terms/page.tsx"), "utf8");
+    const termsLine = terms.match(/Similar listings nearby[\s\S]*?Auto\.dev\./)?.[0]?.replace(/\s+/g, " ");
+    expect(termsLine).toBeTruthy();
+    expect(findForbiddenTechArtifacts(termsLine!)).toEqual([]);
+    expect(terms).not.toMatch(/\bcomps\b/);
+
+    expect(findForbiddenTechArtifacts(plainBuyerPhrase("price_vs_comps (pass)"))).toEqual([]);
+    expect(plainBuyerPhrase("insufficient_comps: buy forbidden")).toMatch(/not enough similar listings/);
+    expect(formatOfficialRecallNumber("12V501000")).toBe(
+      "Official recall number 12V501000 — look this up on NHTSA",
+    );
+    const labeled = formatOfficialRecallNumber("12V501000");
+    expect(formatOfficialRecallNumber(labeled)).toBe(labeled);
+    expect(findForbiddenTechArtifacts(labeled)).toEqual([]);
+
+    const subject = noteCar("SUBJ0000000000001", 2016, 14000, "EX");
+    const peers = [12000, 13000, 15000, 16000].map((price, index) =>
+      noteCar(`PEER000000000000${index}`, 2016, price, "LX"),
+    );
+    for (const note of selectComparables(subject, [subject, ...peers]).notes) {
+      expect(findForbiddenTechArtifacts(note)).toEqual([]);
+    }
   });
 
   it("detects forbidden technical artifacts", () => {

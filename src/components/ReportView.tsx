@@ -1,3 +1,4 @@
+import { plainBuyerPhrase } from "@/domain/find-buyer-copy";
 import { CoverageNote } from "./CoverageNote";
 import { fitHeadline, midProfitUsd, walkAwayAskingUsd } from "@/domain/fit";
 import { summaryLine } from "@/domain/summary-line";
@@ -62,8 +63,10 @@ export function ReportView({ report }: { report: FullReport }) {
       </p>
       {computed.verdict === "withheld" ? (
         <p className="risk-primary" role="alert">
-          {computed.decision?.withholdReason ??
-            "Verdict withheld: there is not enough verified evidence for a buy, negotiate, or pass decision."}
+          {plainBuyerPhrase(
+            computed.decision?.withholdReason ??
+              "Verdict withheld: there is not enough verified evidence for a buy, negotiate, or pass decision.",
+          )}
         </p>
       ) : null}
       {computed.decision ? (
@@ -87,7 +90,7 @@ export function ReportView({ report }: { report: FullReport }) {
           {computed.decision.overrideReasons.length > 0 ? (
             <ul className="refuse">
               {computed.decision.overrideReasons.map((reason) => (
-                <li key={reason}>{reason}</li>
+                <li key={reason}>{plainBuyerPhrase(reason)}</li>
               ))}
             </ul>
           ) : null}
@@ -128,7 +131,7 @@ export function ReportView({ report }: { report: FullReport }) {
           <li>
             <b>Ordered gates:</b>{" "}
             {computed.decision?.gates?.length
-              ? computed.decision.gates.map((gate) => `${gate.id} (${gate.status})`).join(" → ")
+              ? computed.decision.gates.map((gate) => `${plainBuyerPhrase(gate.id)} (${gate.status})`).join(" → ")
               : "not recorded on this saved report"}
             .
           </li>
@@ -336,7 +339,7 @@ export function ReportView({ report }: { report: FullReport }) {
         <h2>Recall campaigns</h2>
         <p className="hint">
           Source: NHTSA
-          {nhtsaRecallCheck?.checkedAt ? ` · fetched ${formatCheckedAt(nhtsaRecallCheck.checkedAt)} UTC` : ""}. These campaigns match the year, make, and model. They are not a record of what was fixed on this VIN.
+          {nhtsaRecallCheck?.checkedAt ? ` · fetched ${formatCheckedAt(nhtsaRecallCheck.checkedAt)} UTC` : ""}. The numbers below are official recall numbers you can look up on NHTSA. They match the year, make, and model. They are not a record of what was fixed on this VIN.
         </p>
         <ul className="refuse">
           <li>
@@ -390,7 +393,7 @@ export function ReportView({ report }: { report: FullReport }) {
           <div className="table-scroll"><table>
             <thead>
               <tr>
-                <th>Campaign</th>
+                <th>Official recall number</th>
                 <th>Component</th>
                 <th>Park-it (do not drive)</th>
                 <th>Outdoor parking guidance</th>
@@ -481,8 +484,8 @@ export function ReportView({ report }: { report: FullReport }) {
           <li>Explanation source: {report.proof.explanationSource}</li>
           {(report.proof.steps ?? []).map((step) => (
             <li key={`${step.id}-${step.status}`}>
-              {step.id.replaceAll("_", " ")}: {step.status}
-              {step.detail ? ` — ${step.detail}` : ""}
+              {plainBuyerPhrase(step.id.replaceAll("_", " "))}: {step.status}
+              {step.detail ? ` — ${plainBuyerPhrase(step.detail)}` : ""}
             </li>
           ))}
         </ul>

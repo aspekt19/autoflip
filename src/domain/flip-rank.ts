@@ -65,7 +65,7 @@ function exampleCost(miles: number | null, repairAbility?: RepairAbility): { usd
   const title = ASSUMPTIONS.flipTitleFeeUsd;
   const titleLine = `Title/fee assumption: $${title.toLocaleString("en-US")} (example, not a quote).`;
   const soldDisclaimer =
-    "Resale band uses comparable asking-price median/percentiles in this scan — not closed sales or a resale guarantee.";
+    "Resale band uses the middle and the spread of comparable asking prices in this scan — not closed sales or a resale guarantee.";
   return {
     usd: title + recon.usd,
     assumption: `${titleLine} ${recon.because} ${soldDisclaimer}`,
@@ -101,7 +101,7 @@ export function flipAlertWhy(item: FlipEstimate): string {
     `${item.listing.year} ${item.listing.make} ${item.listing.model} · ${money(asking)}.`,
     `Estimate, not a completed sale: profit about ${money(item.profitLowUsd ?? 0)} to ${money(item.profitHighUsd ?? 0)} (mid ${money(item.profitMidUsd ?? 0)}).`,
     `Basis: ${item.compCount} comparable asking prices in this scan, same make and model, within 2 model years, minus example costs of ${money(item.costUsd ?? 0)} (fee and reconditioning assumptions, not a quote for this car).`,
-    item.confidence === "low" ? "Confidence is low because this scan had only 3 or 4 comps." : "Confidence uses 5 or more comps in this scan.",
+    item.confidence === "low" ? "Confidence is low because this scan had only 3 or 4 similar listings." : "Confidence uses 5 or more similar listings in this scan.",
     `Speed of sale: ${item.speed}. ${item.speedBasis}`,
     item.assumption,
     item.clearsTarget === false ? "This ranks lower because the estimate is under the profit target." : null,
@@ -210,20 +210,20 @@ function speedOf(compCount: number, ageDays: number | null): { label: SaleSpeed;
   if (ageDays > 45) {
     return {
       label: "slower",
-      basis: `Listing age about ${ageDays} days, from the listing timestamp. ${compCount} comps in this scan.`,
+      basis: `Listing age about ${ageDays} days, from the listing timestamp. ${compCount} similar listings in this scan.`,
       factor: 0.75,
     };
   }
   if (ageDays < 14 && compCount >= 8) {
     return {
       label: "faster",
-      basis: `Listing age about ${ageDays} days and ${compCount} comps in this scan.`,
+      basis: `Listing age about ${ageDays} days and ${compCount} similar listings in this scan.`,
       factor: 1.1,
     };
   }
   return {
     label: "typical",
-    basis: `Listing age about ${ageDays} days. ${compCount} comps in this scan.`,
+    basis: `Listing age about ${ageDays} days. ${compCount} similar listings in this scan.`,
     factor: 1,
   };
 }

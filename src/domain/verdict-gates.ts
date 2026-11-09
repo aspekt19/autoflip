@@ -114,7 +114,7 @@ function gateDataSufficiency(report: ComputedReport): GateResult {
     return {
       id: "data_sufficiency",
       status: "withhold",
-      reason: "Mileage is missing, so mileage-adjusted comps cannot be trusted. Verdict withheld.",
+      reason: "Mileage is missing, so mileage-adjusted similar listings cannot be trusted. Verdict withheld.",
       forbid: ["buy", "negotiate", "pass", "needs_inspection"],
     };
   }
@@ -136,7 +136,7 @@ function gateDataSufficiency(report: ComputedReport): GateResult {
       forbid: ["buy", "negotiate", "pass", "needs_inspection"],
     };
   }
-  return { id: "data_sufficiency", status: "pass", reason: "Enough priced comps and subject price/miles to continue.", forbid: [] };
+  return { id: "data_sufficiency", status: "pass", reason: "Enough priced similar listings, and this car has a price and mileage, to continue.", forbid: [] };
 }
 
 function gateIdentity(report: ComputedReport): GateResult {
@@ -192,7 +192,7 @@ function gatePrice(report: ComputedReport): GateResult {
     return {
       id: "price_vs_comps",
       status: "forbid",
-      reason: "Asking price is suspiciously low versus comps. Buy is forbidden until the discount is explained.",
+      reason: "Asking price is suspiciously low versus similar listings. Buy is forbidden until the discount is explained.",
       forbid: ["buy"],
     };
   }

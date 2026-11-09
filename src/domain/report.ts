@@ -368,7 +368,7 @@ export function buildComputedReport(input: ReportInput): ComputedReport {
         reasons.push("The asking price is suspiciously low versus fair value, so a clear good-deal flip verdict was capped until the discount is explained.");
       }
       reasons.push(
-        `Conservative resale (25th percentile of mileage-adjusted asking prices, after a ${formatPct(flip.sellFriction)} sell friction) is ${formatUsd(flip.conservativeProceedsUsd)}. All-in cost is ${formatUsd(flip.allInUsd)}. Margin is ${formatUsd(flip.marginUsd)}.`,
+        `Conservative resale (a lower mileage-adjusted asking price from this set — about the bottom quarter, after a ${formatPct(flip.sellFriction)} sell friction) is ${formatUsd(flip.conservativeProceedsUsd)}. All-in cost is ${formatUsd(flip.allInUsd)}. Margin is ${formatUsd(flip.marginUsd)}.`,
       );
       reasons.push(
         `Resale range from current comparable asking prices: ${formatUsd(flip.resaleLowUsd)} to ${formatUsd(flip.resaleHighUsd)}. These are asking prices, not closed sales.`,
