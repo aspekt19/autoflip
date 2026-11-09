@@ -10,6 +10,8 @@ import {
 import type { FindFreeGovReceipt } from "./find-free-gov";
 import { buildFindFuelAssumptions } from "./find-fuel-match";
 import { formatFreeGovReceiptsForUi } from "./find-free-gov-format";
+import { buildGroundedShortlist } from "./find-path";
+import { explicitNeedFromText } from "./need";
 
 function recallReceipt(): FindFreeGovReceipt {
   return {
@@ -146,8 +148,47 @@ describe("buyer-safe Find copy", () => {
 
   it("detects forbidden technical artifacts", () => {
     const dirty =
-      "SERV chose compare_observed_asks — [unchanged_state] src=https://vpic.nhtsa.dot.gov/api/vehicles/DecodeVinValues/X?format=json MMY vPIC";
+      "SERV chose compare_observed_asks — [unchanged_state] src=https://vpic.nhtsa.dot.gov/api/vehicles/DecodeVinValues/X?format=json MMY vPIC parkIt";
     const hits = findForbiddenTechArtifacts(dirty);
     expect(hits.length).toBeGreaterThan(3);
+  });
+
+  it("grounded shortlist why/unknowns stay buyer-safe (no MMY/parkIt/vPIC)", () => {
+    const need = {
+      ...explicitNeedFromText("family SUV around fifteen thousand", "personal"),
+      budgetKnown: true,
+      budgetUsd: 15_000,
+      milesMax: null,
+      milesCapResolved: true,
+      yearMin: 2014,
+      conditionPriority: "inspection_first" as const,
+    };
+    const short = buildGroundedShortlist(
+      need,
+      [{ make: "Kia", model: "Sportage", year: 2019, priceUsd: 15_000, miles: 60_000 }],
+      {},
+      [
+        {
+          ...recallReceipt(),
+          make: "Kia",
+          model: "Sportage",
+          year: 2019,
+          riskFacts: {
+            ...recallReceipt().riskFacts!,
+            parkIt: false,
+            parkOutside: true,
+            make: "Kia",
+            model: "Sportage",
+            year: 2019,
+            listingKey: "kia|sportage|2019",
+          },
+        },
+      ],
+    );
+    expect(short.length).toBeGreaterThan(0);
+    for (const row of short) {
+      const rendered = `${row.make} ${row.model}: ${row.why}. Still unknown: ${row.unknowns.join("; ")}`;
+      expect(findForbiddenTechArtifacts(rendered)).toEqual([]);
+    }
   });
 });

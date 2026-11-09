@@ -147,10 +147,12 @@ describe("find risk evidence (structured shapes)", () => {
     ]);
     expect(short).toHaveLength(1);
     expect(short[0]!.conditionStatus).toBe("mmy_park_outside_flag");
-    expect(short[0]!.why).toMatch(/parkOutside/i);
-    expect(short[0]!.why).toMatch(/not a do-not-drive\/parkIt claim/i);
+    expect(short[0]!.why).toMatch(/outdoor-parking/i);
+    expect(short[0]!.why).toMatch(/not a do-not-drive\s*\/\s*park-it claim/i);
+    expect(short[0]!.why).not.toMatch(/\bparkIt\b|\bparkOutside\b|\bMMY\b/);
     expect(short[0]!.conditionStatus).not.toBe("mmy_park_it_investigate");
-    expect(short[0]!.unknowns.some((u) => /parkOutside ≠ parkIt/i.test(u))).toBe(true);
+    expect(short[0]!.unknowns.some((u) => /outdoor-parking|park-it/i.test(u))).toBe(true);
+    expect(short[0]!.unknowns.every((u) => !/\bparkIt\b|\bparkOutside\b|\bMMY\b/.test(u))).toBe(true);
   });
 
   it("unknown / no VIN / unchecked MMY stays unknown — not cleared", () => {

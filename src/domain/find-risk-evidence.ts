@@ -292,13 +292,15 @@ export function riskStatusForModelFamily(
       outstandingChecks: ["free_gov_recalls", "free_gov_safety"],
       whyBits:
         byMmy.size > 0
-          ? ["this make/model year span was not in the free-gov MMY sample — free checks still available"]
+          ? [
+              "this make/model year span was not in the free public year/make/model sample — free checks still available",
+            ]
           : [],
       unknowns: [
         "condition/history unknown on Find cards",
         byMmy.size > 0
-          ? "this model’s years were not covered by free NHTSA sample — risk unknown, not cleared"
-          : "no free NHTSA risk facts applied yet",
+          ? "this model’s years were not covered by free government sample — risk unknown, not cleared"
+          : "no free government risk facts applied yet",
       ],
     };
   }
@@ -307,41 +309,43 @@ export function riskStatusForModelFamily(
   if (anyParkIt) {
     status = "mmy_park_it_investigate";
     whyBits.push(
-      "NHTSA make/model/year parkIt campaign(s) — investigate VIN applicability; not auto-buy; not VIN-cleared",
+      "Government year/make/model park-it campaign(s) — investigate VIN applicability; not auto-buy; not VIN-cleared",
     );
     outstandingChecks.push("free_gov_vpic", "get_history_report");
     unknowns.push(
-      "parkIt is MMY-scope only — VIN applicability and repair status unknown",
-      "title/NMVTIS unknown (paid history not autocharged)",
+      "Park-it flags are year/make/model scope only — VIN applicability and repair status unknown",
+      "Title / official title history unknown (paid history not autocharged)",
     );
   } else if (anyParkOutside && !anyParkIt) {
     status = "mmy_park_outside_flag";
     whyBits.push(
-      "NHTSA parkOutside campaign flag (outdoor parking guidance) — not a do-not-drive/parkIt claim by itself",
+      "Government outdoor-parking campaign flag — not a do-not-drive / park-it claim by itself",
     );
     outstandingChecks.push("get_history_report");
-    unknowns.push("parkOutside ≠ parkIt do-not-drive; VIN repair status still unknown");
+    unknowns.push(
+      "Outdoor-parking guidance is not the same as a park-it do-not-drive flag; VIN repair status still unknown",
+    );
   } else if (complaintsOnly && !anyCampaigns) {
     status = "mmy_complaints_only";
     whyBits.push(
-      "NHTSA complaints recorded (owner allegations) — not verified defects; not a reject by itself",
+      "Government complaints recorded (owner allegations) — not verified defects; not a reject by itself",
     );
     unknowns.push("complaints ≠ defect proof; condition still unknown");
   } else if (anyUnavailable && !anyCampaigns && !complaintsOnly) {
     status = "mmy_lookup_unavailable";
-    whyBits.push("NHTSA recall lookup unavailable for sampled year(s) — not a clean pass");
+    whyBits.push("Government recall lookup unavailable for sampled year(s) — not a clean pass");
     outstandingChecks.push("free_gov_recalls");
     unknowns.push("recall risk unknown because lookup failed");
   } else if (anyEmpty && !anyCampaigns && !complaintsOnly) {
     status = "mmy_empty_no_campaigns";
     whyBits.push(
-      "NHTSA returned zero make/model/year campaigns for sampled year(s) — not VIN-clear",
+      "Government returned zero year/make/model campaigns for sampled year(s) — not VIN-clear",
     );
-    unknowns.push("empty MMY campaigns ≠ VIN unrepaired clearance");
+    unknowns.push("Empty year/make/model campaigns ≠ VIN unrepaired clearance");
   } else if (anyCampaigns) {
     status = "mmy_campaigns_recorded";
     whyBits.push(
-      `NHTSA campaign ref(s) ${[...campaignNums].slice(0, 4).join(", ") || "recorded"} — MMY scope only`,
+      `Government campaign ref(s) ${[...campaignNums].slice(0, 4).join(", ") || "recorded"} — year/make/model scope only`,
     );
     unknowns.push("campaigns recorded ≠ VIN repair proof");
   }

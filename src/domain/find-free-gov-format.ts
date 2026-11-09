@@ -58,14 +58,21 @@ export function formatFreeGovReceiptsForUi(
           `… showing ${previewMax} of ${mapped.length} public checks (full details kept for review — not silent clearance).`,
         ]
       : mapped.map(formatBuyerReceiptLine);
-  for (const line of lines) {
+  return lines.map((line) => {
     const check = assertBuyerSafeText(line);
-    if (!check.ok) {
-      // Soft scrub rather than crash the UI — strip offending substrings.
-      // Tests assert the happy path; this is defense in depth.
+    if (check.ok) return line;
+    // Soft scrub rather than crash the UI — strip offending substrings.
+    let scrubbed = line;
+    for (const hit of check.hits) {
+      scrubbed = scrubbed.split(hit).join("").replace(/\s{2,}/g, " ").trim();
     }
-  }
-  return lines;
+    scrubbed = scrubbed
+      .replace(/\bMMY\b/g, "year/make/model")
+      .replace(/\bvPIC\b/g, "VIN decoder")
+      .replace(/\bparkIt\b/g, "park-it")
+      .replace(/\bparkOutside\b/g, "outdoor-parking guidance");
+    return scrubbed || "Public vehicle check recorded.";
+  });
 }
 
 /** Machine-only JSON for hidden data attributes / agent channel. */
