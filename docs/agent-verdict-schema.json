@@ -1,0 +1,190 @@
+{
+  "$comment": "Canonical export of lemonless.agent_verdict.v1 — keep in sync with src/domain/agent-verdict-schema.ts",
+  "$id": "https://lemonless.app/schemas/agent-verdict.v1.json",
+  "title": "LemonlessAgentVerdict",
+  "description": "Documented agent verdict for Find shortlist picks and Check/report shopper actions. Claims must cite evidence ids from the run. Exported for future agent API use.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "pick",
+    "verdict",
+    "reasons",
+    "risks",
+    "confidence",
+    "unknowns",
+    "serv_steps",
+    "second_pass",
+    "multipath",
+    "vs_cheapest",
+    "serv_spend",
+    "no_serv_step"
+  ],
+  "properties": {
+    "schemaVersion": { "type": "string", "const": "lemonless.agent_verdict.v1" },
+    "pick": {
+      "oneOf": [
+        { "type": "null" },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["key", "label"],
+          "properties": {
+            "key": { "type": "string" },
+            "label": { "type": "string" }
+          }
+        }
+      ]
+    },
+    "verdict": {
+      "oneOf": [
+        { "type": "null" },
+        {
+          "type": "string",
+          "enum": ["buy", "negotiate", "pass", "needs_inspection", "withheld"]
+        }
+      ]
+    },
+    "reasons": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["evidenceId", "text"],
+        "properties": {
+          "evidenceId": { "type": "string" },
+          "text": { "type": "string" }
+        }
+      }
+    },
+    "risks": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["evidenceId", "text"],
+        "properties": {
+          "evidenceId": { "type": "string" },
+          "text": { "type": "string" }
+        }
+      }
+    },
+    "confidence": {
+      "oneOf": [{ "type": "null" }, { "type": "string", "enum": ["high", "medium", "low"] }]
+    },
+    "unknowns": { "type": "array", "items": { "type": "string" } },
+    "serv_steps": {
+      "type": "array",
+      "description": "Structured trail: what the agent decided → why → what changed after revisit/second pass.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["decided", "why", "changed"],
+        "properties": {
+          "decided": { "type": "string" },
+          "why": { "type": "string" },
+          "changed": { "oneOf": [{ "type": "string" }, { "type": "null" }] },
+          "evidenceIds": { "type": "array", "items": { "type": "string" } }
+        }
+      }
+    },
+    "second_pass": {
+      "oneOf": [
+        { "type": "null" },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "status",
+            "action",
+            "objection",
+            "evidenceIds",
+            "confidenceBefore",
+            "confidenceAfter"
+          ],
+          "properties": {
+            "status": {
+              "type": "string",
+              "enum": [
+                "agreed",
+                "disagreed",
+                "skipped_no_budget",
+                "skipped_no_key",
+                "ignored_malformed",
+                "ignored_no_evidence",
+                "not_run"
+              ]
+            },
+            "action": {
+              "oneOf": [
+                { "type": "null" },
+                {
+                  "type": "string",
+                  "enum": ["buy", "negotiate", "pass", "needs_inspection"]
+                }
+              ]
+            },
+            "objection": { "oneOf": [{ "type": "string" }, { "type": "null" }] },
+            "evidenceIds": { "type": "array", "items": { "type": "string" } },
+            "confidenceBefore": {
+              "oneOf": [{ "type": "null" }, { "type": "string", "enum": ["high", "medium", "low"] }]
+            },
+            "confidenceAfter": {
+              "oneOf": [{ "type": "null" }, { "type": "string", "enum": ["high", "medium", "low"] }]
+            }
+          }
+        }
+      ]
+    },
+    "multipath": {
+      "oneOf": [
+        { "type": "null" },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["paths", "reconciliation", "finalPickKey", "finalPickLabel"],
+          "properties": {
+            "paths": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["id", "label", "pickKey", "pickLabel", "summary", "evidenceIds"],
+                "properties": {
+                  "id": {
+                    "type": "string",
+                    "enum": ["price_first", "risk_first", "total_cost_first"]
+                  },
+                  "label": { "type": "string" },
+                  "pickKey": { "oneOf": [{ "type": "string" }, { "type": "null" }] },
+                  "pickLabel": { "oneOf": [{ "type": "string" }, { "type": "null" }] },
+                  "summary": { "type": "string" },
+                  "evidenceIds": { "type": "array", "items": { "type": "string" } }
+                }
+              }
+            },
+            "reconciliation": { "type": "string" },
+            "finalPickKey": { "oneOf": [{ "type": "string" }, { "type": "null" }] },
+            "finalPickLabel": { "oneOf": [{ "type": "string" }, { "type": "null" }] }
+          }
+        }
+      ]
+    },
+    "vs_cheapest": { "oneOf": [{ "type": "string" }, { "type": "null" }] },
+    "serv_spend": {
+      "oneOf": [
+        { "type": "null" },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["calls", "costNote"],
+          "properties": {
+            "calls": { "type": "integer", "minimum": 0 },
+            "costNote": { "oneOf": [{ "type": "string" }, { "type": "null" }] }
+          }
+        }
+      ]
+    },
+    "no_serv_step": { "type": "boolean" }
+  }
+}
