@@ -503,7 +503,7 @@ describe("ranking stays principled outside the live shortlist", () => {
       nowYear: 2026,
     });
     expect(result.pick?.vin).toBe("CAM");
-    expect(result.why).toMatch(/not one of the models you named/i);
+    expect(result.why).toMatch(/not one of the SUVs you named/i);
     expect(result.why).toMatch(/sedan/i);
     expect(result.why).toMatch(/Sportage/);
     expect(result.why).toMatch(/condition risk|higher mileage|asking price/i);

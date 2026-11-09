@@ -138,29 +138,32 @@ describe("close-call copy", () => {
       receipts: covered(twins),
       nowYear: 2026,
     });
-    expect(result.confidence).toBe("no_confident_pick");
-    expect(result.pick).toBeNull();
+    expect(result.confidence).toBe("low");
+    expect(result.pick).toBeTruthy();
     expect(result.evidenceSettled).toBe(true);
-    expect(result.closeCall).toBeTruthy();
-    expect(result.closeCall?.wouldDecide.length).toBeGreaterThanOrEqual(1);
-    expect(result.closeCall?.wouldDecide.length).toBeLessThanOrEqual(3);
+    expect(result.choice?.confidenceLine).toBe("Low: the top two are very close.");
+    expect(result.choice?.reasons.length).toBeGreaterThanOrEqual(1);
+    expect(result.choice?.reasons.length).toBeLessThanOrEqual(2);
+    expect(result.choice?.runnerUpLabel).toMatch(/Tucson/);
+    expect(result.choice?.confirmBeforeBuying.length).toBeGreaterThanOrEqual(1);
+    expect(result.choice?.confirmBeforeBuying.length).toBeLessThanOrEqual(3);
+    expect(result.why).toMatch(/Best choice on current data/i);
     expect(result.why).toMatch(/very close/i);
-    expect(result.why).toMatch(/Leaning:/);
-    expect(result.why).toMatch(/What would decide it/);
+    expect(result.why).not.toMatch(/Leaning:/);
+    expect(result.why).not.toMatch(/What would decide it/);
+    expect(result.why).not.toMatch(/no confident|no clear winner/i);
     expect(result.why).not.toMatch(/\bscore\b/i);
     expect(result.why).not.toMatch(/\b\d+\.\d\b/);
-    expect(result.settlementNote).toBe("Checks finished — no clear winner yet.");
+    expect(result.settlementNote).toBe("Checks finished.");
     expect(result.settlementNote).not.toMatch(/pick is settled/i);
     expect(result.why).not.toMatch(/pick is settled/i);
     expect(result.baseline.whyNotCheapest).not.toMatch(/Not enough priced cars in budget/i);
-    expect(result.baseline.whyNotCheapest).toMatch(/leading car/i);
     expect(result.baseline.cheapest).toBeTruthy();
     const buyer = formatBuyerBestDeal(result);
-    expect(buyer.headline).toMatch(/No confident best-deal pick/i);
+    expect(buyer.headline).toMatch(/Best choice on current data: 2016 Hyundai Tucson/i);
     expect(buyer.rankedLines.join("\n")).not.toMatch(/\bscore\b/i);
     expect(buyer.factorLines.join("\n")).not.toMatch(/\(score /);
-    expect(buyer.closeCall?.leaningLabel).toMatch(/2016 Hyundai Tucson/);
-    expect(buyer.closeCall?.leadReason).not.toMatch(/\bscore\b/i);
+    expect(buyer.choice?.reasons.join(" ")).not.toMatch(/\bscore\b/i);
   });
 
   it("says Pick settled when a pick exists and checks are finished", () => {
@@ -174,12 +177,12 @@ describe("close-call copy", () => {
       receipts: covered(cars),
       nowYear: 2026,
     });
-    expect(result.confidence).toBe("confident");
+    expect(["high", "medium"]).toContain(result.confidence);
     expect(result.pick).toBeTruthy();
     expect(result.closeCall).toBeNull();
     expect(result.evidenceSettled).toBe(true);
-    expect(result.settlementNote).toBe("Pick settled.");
-    expect(result.why).not.toMatch(/no clear winner/i);
+    expect(result.why).toMatch(/Best choice on current data/i);
+    expect(result.why).not.toMatch(/no clear winner|no confident/i);
   });
 });
 
@@ -211,8 +214,8 @@ describe("baseline when there is no pick", () => {
     expect(result.baseline.whyNotCheapest).toMatch(/leading car/i);
     expect(result.baseline.whyNotCheapest).toMatch(/cheapest/i);
     const buyer = formatBaselineForBuyer(result.baseline);
-    expect(buyer.lines[0]).toMatch(/no confident pick/i);
-    expect(buyer.lines[0]).toMatch(/Leaning:/);
+    expect(buyer.lines[0]).toMatch(/Best choice on current data/i);
+    expect(buyer.lines[0]).not.toMatch(/Leaning:|no confident/i);
     expect(buyer.whyNotCheapest).not.toMatch(/Not enough priced cars in budget/i);
   });
 });
@@ -440,24 +443,26 @@ describe("close-call reason and actions", () => {
 
   it("does not say checks finished while another check will still run", () => {
     const running = copyWhileChecksContinue(
-      { settlementNote: "Checks finished — no clear winner yet.", why: "Leaning: Tucson. Checks finished — no clear winner yet." },
+      { settlementNote: "Checks finished.", why: "Best choice on current data: Tucson. Checks finished." },
       true,
     );
     expect(running.settlementNote).toBe(CHECKS_STILL_RUNNING_NOTE);
+    expect(running.why).toMatch(/Best choice on current data/);
     expect(running.why).not.toMatch(/Checks finished/);
     expect(running.why).not.toMatch(/pick is settled/i);
     const stopped = copyWhileChecksContinue(
-      { settlementNote: "Checks finished — no clear winner yet.", why: "Leaning: Tucson. Checks finished — no clear winner yet." },
+      { settlementNote: "Checks finished.", why: "Best choice on current data: Tucson. Checks finished." },
       false,
     );
-    expect(stopped.settlementNote).toBe("Checks finished — no clear winner yet.");
-    expect(findSettledStatusLine({ pending: false, anyUnchecked: false, evidenceSettled: true, loopOpen: true, hasPick: false })).toBeNull();
-    expect(findSettledStatusLine({ pending: false, anyUnchecked: false, evidenceSettled: true, loopOpen: false, hasPick: false })).toBe(
-      "Checks finished — no clear winner yet.",
+    expect(stopped.settlementNote).toBe("Checks finished.");
+    expect(findSettledStatusLine({ pending: false, anyUnchecked: false, evidenceSettled: true, loopOpen: true, hasPick: true, confidence: "low" })).toBeNull();
+    expect(findSettledStatusLine({ pending: false, anyUnchecked: false, evidenceSettled: true, loopOpen: false, hasPick: true, confidence: "low" })).toBe(
+      "Checks finished.",
     );
-    expect(findSettledStatusLine({ pending: false, anyUnchecked: false, evidenceSettled: true, loopOpen: false, hasPick: true })).toBe(
+    expect(findSettledStatusLine({ pending: false, anyUnchecked: false, evidenceSettled: true, loopOpen: false, hasPick: true, confidence: "high" })).toBe(
       "Pick settled.",
     );
+    expect(findSettledStatusLine({ pending: false, anyUnchecked: false, evidenceSettled: true, loopOpen: false, hasPick: false, confidence: "none" })).toBeNull();
   });
 });
 
@@ -495,7 +500,7 @@ describe("no pick with priced cars", () => {
     });
     expect(baseline.cheapest?.key).toBe("CHEAP");
     expect(baseline.whyNotCheapest).not.toMatch(/Not enough priced cars in budget/i);
-    expect(baseline.whyNotCheapest).toMatch(/leading car/i);
+    expect(baseline.whyNotCheapest).toMatch(/Best choice on current data/i);
     expect(baseline.whyNotCheapest).toMatch(/CR-V/);
     expect(baseline.whyNotCheapest).toMatch(/Camry/);
   });
@@ -514,14 +519,18 @@ describe("no pick with priced cars", () => {
   it("does not lean when there are no cars or only one priced car", () => {
     const none = selectBestDealOnEvidence({ need: need(), listings: [], receipts: [], nowYear: 2026 });
     expect(none.closeCall).toBeNull();
-    expect(none.why).not.toMatch(/Leaning:/);
+    expect(none.choice).toBeNull();
+    expect(none.confidence).toBe("none");
+    expect(none.why).not.toMatch(/Best choice on current data/);
     const one: BestDealListing[] = [
       { vin: "2HKRM4H75FH111111", year: 2016, make: "Honda", model: "CR-V", priceUsd: 14_000, miles: 70_000 },
     ];
     const solo = selectBestDealOnEvidence({ need: need(), listings: one, receipts: covered(one), nowYear: 2026 });
-    expect(solo.closeCall).toBeNull();
-    expect(solo.pick).toBeNull();
-    expect(solo.why).not.toMatch(/Leaning:/);
+    expect(solo.pick).toBeTruthy();
+    expect(solo.confidence).toBe("medium");
+    expect(solo.choice?.confidenceLine).toMatch(/only usable car/i);
+    expect(solo.why).toMatch(/Best choice on current data/);
+    expect(solo.why).not.toMatch(/no clear winner|no confident/i);
   });
 });
 

@@ -168,8 +168,11 @@ describe("close-call loop", () => {
       receipts: covered(listings),
       nowYear: 2026,
     });
-    expect(ranked.confidence).toBe("no_confident_pick");
-    expect(ranked.closeCall?.leaningLabel).toMatch(/Tucson/);
+    expect(ranked.confidence).toBe("low");
+    expect(ranked.pick).toBeTruthy();
+    expect(ranked.choice?.confidenceLine).toMatch(/top two are very close/i);
+    expect(ranked.choice?.label).toMatch(/Tucson/);
+    expect(ranked.choice?.runnerUpLabel).toMatch(/Tucson|Camry/);
   });
 
   it("runs remaining free per-car checks on the tied cars before any tie-break call", async () => {
@@ -226,11 +229,13 @@ describe("close-call loop", () => {
     expect(first.servPaidCalls).toBe(FIND_SERV_PAID_CALLS_PER_FIND_MAX);
     expect(first.servPaidCalls).toBeLessThanOrEqual(FIND_SERV_PAID_CALLS_PER_FIND_MAX);
     expect(first.loop.continue).toBe(false);
-    expect(first.bestDeal.confidence).toBe("no_confident_pick");
-    expect(first.bestDeal.why).toMatch(/Leaning:/);
+    expect(first.bestDeal.confidence).toBe("low");
+    expect(first.bestDeal.pick).toBeTruthy();
+    expect(first.bestDeal.why).toMatch(/Best choice on current data/i);
     expect(first.bestDeal.why).toMatch(/very close/i);
     expect(first.bestDeal.why).not.toMatch(/\bscore\b/i);
-    expect(first.bestDeal.settlementNote).toBe("Checks finished — no clear winner yet.");
+    expect(first.bestDeal.why).not.toMatch(/no clear winner|no confident|What would decide/i);
+    expect(first.bestDeal.settlementNote).toBe("Checks finished.");
     const init = fetchImpl.mock.calls[0]?.[1] as RequestInit | undefined;
     if (!init?.body || typeof init.body !== "string") throw new Error("missing SERV request body");
     const body = JSON.parse(init.body) as unknown;
@@ -268,7 +273,9 @@ describe("close-call loop", () => {
     expect(fetchImpl).not.toHaveBeenCalled();
     expect(result.servPaidCalls).toBe(FIND_SERV_PAID_CALLS_PER_FIND_MAX);
     expect(result.loop.continue).toBe(false);
-    expect(result.bestDeal.closeCall).toBeTruthy();
+    expect(result.bestDeal.confidence).toBe("low");
+    expect(result.bestDeal.pick).toBeTruthy();
+    expect(result.bestDeal.why).toMatch(/Best choice on current data/i);
     expect(result.bestDeal.why).toMatch(/very close/i);
   });
 
@@ -304,8 +311,11 @@ describe("close-call loop", () => {
     expect(last.loop.continue).toBe(false);
     expect(calls).toBeLessThanOrEqual(FIND_SERV_PAID_CALLS_PER_FIND_MAX);
     expect(last.bestDeal.why).not.toMatch(/\bscore\s+\d/);
-    if (last.bestDeal.confidence === "no_confident_pick") {
-      expect(last.bestDeal.why).toMatch(/Leaning:/);
+    expect(last.bestDeal.pick).toBeTruthy();
+    expect(last.bestDeal.why).toMatch(/Best choice on current data/i);
+    expect(last.bestDeal.why).not.toMatch(/no clear winner|no confident/i);
+    if (last.bestDeal.confidence === "low") {
+      expect(last.bestDeal.choice?.runnerUpLabel).toBeTruthy();
       expect(last.bestDeal.settlementNote).not.toMatch(/pick is settled/i);
     }
     const again = await runFindNextCheckOrchestrator({ searchContextToken: token }, deps(kv, fetchImpl));

@@ -158,7 +158,7 @@ export function decideFindNextCheckLoop(input: {
       return {
         continue: false,
         reason: "close_call_unresolved",
-        detail: "Checks finished — no clear winner yet. The top cars are still very close.",
+        detail: "Checks finished. The best choice is the car ahead, and the top two are still very close.",
       };
     }
     if (disposition.reason === "unchanged_state" && freeAttemptMadeNoProgress) return disposition;

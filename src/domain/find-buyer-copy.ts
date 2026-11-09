@@ -751,7 +751,7 @@ export function formatBuyerLoopStatus(reason: FindNextCheckLoopReason | string |
     case "close_call_tie_break":
       return "The top cars are very close — one more check will try to separate them.";
     case "close_call_unresolved":
-      return "Checks finished — no clear winner yet.";
+      return "Checks finished. The best choice is the car ahead, and the top two are very close.";
     case "no_remaining_research_checks":
       return "No further automatic research steps on this search.";
     default:
@@ -987,9 +987,10 @@ export function findSettledStatusLine(input: {
   evidenceSettled: boolean;
   loopOpen: boolean;
   hasPick: boolean;
+  confidence?: "high" | "medium" | "low" | "none" | null;
 }): string | null {
-  if (input.pending || input.anyUnchecked || !input.evidenceSettled || input.loopOpen) return null;
-  return input.hasPick ? "Pick settled." : "Checks finished — no clear winner yet.";
+  if (input.pending || input.anyUnchecked || !input.evidenceSettled || input.loopOpen || !input.hasPick) return null;
+  return input.confidence === "high" ? "Pick settled." : "Checks finished.";
 }
 
 /** Heading for the ranked list. After checks finish, drop "in the current order". */
@@ -1029,17 +1030,15 @@ export function formatBuyerBestDeal(result: BestDealResult): {
   settlementNote: string;
   evidenceSettled: boolean;
   closeCall: BestDealResult["closeCall"];
+  choice: BestDealResult["choice"];
 } {
-  const settleTag = result.evidenceSettled
-    ? result.priceProvisional
-      ? "settled; provisional on price"
-      : "settled"
-    : "provisional — may change as checks complete";
   const labels = buyerCarLabels(result.ranked.map(labelInputFor));
-  const headline =
-    result.confidence === "confident" && result.pick
-      ? `Best deal (${settleTag}): ${labels.get(result.pick.key) ?? `${result.pick.year} ${result.pick.make} ${result.pick.model}`}${result.pick.priceUsd != null ? ` · $${result.pick.priceUsd.toLocaleString("en-US")}` : ""}`
-      : "No confident best-deal pick on current evidence";
+  const choiceLabel =
+    result.choice?.label ??
+    (result.pick ? (labels.get(result.pick.key) ?? `${result.pick.year} ${result.pick.make} ${result.pick.model}`) : null);
+  const headline = choiceLabel
+    ? `Best choice on current data: ${choiceLabel}`
+    : "No usable listings in this search.";
   const rankedLines = result.ranked.map((c, i) => {
     const fuel = c.fuelSummary ? ` · ${c.fuelSummary}` : "";
     const ask = c.priceUsd != null ? `$${c.priceUsd.toLocaleString("en-US")}` : "price n/a";
@@ -1093,6 +1092,7 @@ export function formatBuyerBestDeal(result: BestDealResult): {
     settlementNote: result.settlementNote,
     evidenceSettled: result.evidenceSettled,
     closeCall: result.closeCall ?? null,
+    choice: result.choice ?? null,
   };
 }
 

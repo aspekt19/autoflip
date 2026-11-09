@@ -221,7 +221,7 @@ function whyNotCheapest(
   }
   if (!confident) {
     if (same) {
-      return `${leftOut}No confident pick yet. The leading car is also the cheapest in budget: the ${nameOf(subjectCar, labels)}.`.replace(
+      return `${leftOut}Best choice on current data is also the cheapest in budget: the ${nameOf(subjectCar, labels)}.`.replace(
         /\s+/g,
         " ",
       ).trim();
@@ -230,8 +230,8 @@ function whyNotCheapest(
     const leadMiles = tidy(subjectCar.factors.find((row) => row.id === "miles_per_year_vs_peers")?.detail ?? "");
     const cheapMiles = tidy(cheapest.factors.find((row) => row.id === "miles_per_year_vs_peers")?.detail ?? "");
     const miles =
-      leadMiles && cheapMiles ? ` Miles per year: leading car ${leadMiles}; cheapest ${cheapMiles}.` : "";
-    return `${leftOut}No confident pick yet. Comparing the leading car (${nameOf(subjectCar, labels)}) with the cheapest in budget (${nameOf(cheapest, labels)}).${miles}`
+      leadMiles && cheapMiles ? ` Miles per year: best choice ${leadMiles}; cheapest ${cheapMiles}.` : "";
+    return `${leftOut}Best choice on current data: ${nameOf(subjectCar, labels)}. Compared with the cheapest in budget (${nameOf(cheapest, labels)}).${miles}`
       .replace(/\s+/g, " ")
       .trim();
   }
@@ -263,10 +263,10 @@ export function formatBaselineForBuyer(baseline: FindBaselineDelta): FindBaselin
   const focusWord = baseline.pick ? "pick" : "leading";
   const lines = [
     baseline.pick
-      ? `Our pick: ${nameOf(baseline.pick)}.`
+      ? `Best choice on current data: ${nameOf(baseline.pick)}.`
       : baseline.leading
-        ? `Our pick: no confident pick on current evidence. Leaning: ${nameOf(baseline.leading)}.`
-        : "Our pick: no confident pick on current evidence.",
+        ? `Best choice on current data: ${nameOf(baseline.leading)}.`
+        : "No usable listings in this search.",
     baseline.cheaperLeftOut
       ? cheapestSame
         ? `${baseline.cheaperLeftOut} Cheapest still in the running: same car as ${baseline.pick ? "our pick" : "the leading car"}.`

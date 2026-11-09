@@ -97,7 +97,7 @@ export function formatDecisionLogLine(
     if (!after.has(key)) moves.push(`${name(key)} left the top group (was #${rank})`);
   }
   if (entry.pickBefore !== entry.pickAfter) {
-    moves.push(entry.pickAfter ? `the pick is now the ${name(entry.pickAfter)}` : "there is no confident pick now");
+    moves.push(entry.pickAfter ? `the pick is now the ${name(entry.pickAfter)}` : "there is no usable car to choose now");
   }
   const moveBit = moves.length > 0 ? `${moves.join("; ")}.` : "The order of the top cars stayed the same.";
   const evidenceBit = evidence.length > 0 ? `${evidence.join(" ")} ` : "";
@@ -170,7 +170,7 @@ function importantDecisionFacts(
   if (entry.pickBefore !== entry.pickAfter) {
     moves.push({
       weight: 100,
-      text: entry.pickAfter ? `the pick is now the ${name(entry.pickAfter)}` : "there is no confident pick now",
+      text: entry.pickAfter ? `the pick is now the ${name(entry.pickAfter)}` : "there is no usable car to choose now",
     });
   }
   for (const [key, rank] of after) {

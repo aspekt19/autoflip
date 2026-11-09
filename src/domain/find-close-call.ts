@@ -29,9 +29,45 @@ export function closeCallCars<T extends { score: number; excludedFromPick?: bool
   return tied.length >= 2 ? tied : [];
 }
 
-export const CHECKS_FINISHED_NOTE = "Checks finished — no clear winner yet.";
+export const CHECKS_FINISHED_NOTE = "Checks finished.";
 export const PICK_SETTLED_NOTE = "Pick settled.";
-export const CHECKS_STILL_RUNNING_NOTE = "Checks are still running. The pick may change.";
+export const CHECKS_STILL_RUNNING_NOTE = "Checks are still running. The best choice may change.";
+export const NO_USABLE_LISTINGS_NOTE = "No usable listings in this search.";
+
+export type FindChoiceConfidence = "high" | "medium" | "low";
+
+export type FindChoice = {
+  label: string;
+  runnerUpLabel: string | null;
+  /** One or two plain reasons. No internal scores. */
+  reasons: string[];
+  confidence: FindChoiceConfidence;
+  /** For example, "Low: the top two are very close." */
+  confidenceLine: string;
+  /** Advice only. Not a precondition for the verdict. */
+  confirmBeforeBuying: string[];
+};
+
+export function findChoiceConfidence(input: {
+  close: boolean;
+  usableCount: number;
+  evidenceSettled: boolean;
+  priceProvisional: boolean;
+}): { confidence: FindChoiceConfidence; confidenceLine: string } {
+  if (input.close) {
+    return { confidence: "low", confidenceLine: "Low: the top two are very close." };
+  }
+  if (input.usableCount < 2) {
+    return { confidence: "medium", confidenceLine: "Medium: this is the only usable car in the search." };
+  }
+  if (!input.evidenceSettled) {
+    return { confidence: "medium", confidenceLine: "Medium: some checks are still open, so this uses partial data." };
+  }
+  if (input.priceProvisional) {
+    return { confidence: "medium", confidenceLine: "Medium: the price comparison is still provisional." };
+  }
+  return { confidence: "high", confidenceLine: "High: this car is clearly ahead on the checks that are finished." };
+}
 
 const FACTOR_PLAIN: Record<BestDealFactorId, string> = {
   price_vs_model_asks: "asking price versus similar listings",
@@ -130,7 +166,7 @@ function namedQuestion(question: string, car: BestDealCandidate, name: string): 
   return `For the ${name}: ${clean}`;
 }
 
-/** One to three specific actions. The leaning car's own questions come first. No internal scores. */
+/** Advice to confirm before buying. Not a precondition for naming a best choice. */
 export function whatWouldDecideCloseCall(
   cars: readonly BestDealCandidate[],
   labelOf: (car: BestDealCandidate) => string,

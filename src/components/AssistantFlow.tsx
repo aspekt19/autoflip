@@ -2055,6 +2055,12 @@ function AssistantFlow({
                       [...readinessByKey.values()].flatMap((view) => view.talkingPoints),
                     )
                   : [];
+                const confirmLines = [
+                  ...sellerLines,
+                  ...(dealCopy?.choice?.confirmBeforeBuying ?? []).filter(
+                    (line) => !sellerLines.some((existing) => existing.toLowerCase().includes(line.slice(0, 24).toLowerCase())),
+                  ),
+                ].slice(0, 8);
                 if (checks.length === 0 && shortlist.length === 0 && !dealCopy && decisionPresented.lines.length === 0)
                   return null;
                 const rankedForLabels = bestDeal?.allRanked?.length ? bestDeal.allRanked : bestDeal?.ranked ?? [];
@@ -2081,6 +2087,7 @@ function AssistantFlow({
                   evidenceSettled: Boolean(bestDeal?.evidenceSettled),
                   loopOpen: findLoopOpen,
                   hasPick: Boolean(bestDeal?.pick),
+                  confidence: bestDeal?.confidence ?? null,
                 });
                 return (
                   <div className="find-results-grid">
@@ -2127,16 +2134,11 @@ function AssistantFlow({
                           <strong>{dealCopy.headline}</strong>
                         </p>
                         {dealCopy.settlementNote ? <p className="hint">{dealCopy.settlementNote}</p> : null}
-                        {dealCopy.closeCall ? (
+                        {dealCopy.choice ? (
                           <>
-                            <p>The top cars are very close, so this is not a confident pick.</p>
-                            <p>
-                              <strong>Leaning: {dealCopy.closeCall.leaningLabel}</strong>
-                            </p>
-                            <p>{dealCopy.closeCall.leadReason}</p>
-                            <p>What would decide it</p>
+                            <p>{dealCopy.choice.confidenceLine}</p>
                             <ul>
-                              {dealCopy.closeCall.wouldDecide.map((line) => (
+                              {dealCopy.choice.reasons.map((line) => (
                                 <li key={line}>{line}</li>
                               ))}
                             </ul>
@@ -2260,11 +2262,11 @@ function AssistantFlow({
                         ) : null}
                       </div>
                     ) : null}
-                    {sellerLines.length > 0 ? (
+                    {confirmLines.length > 0 ? (
                       <div className="hint" role="note">
-                        <p>Questions for the seller</p>
+                        <p>What to confirm before buying</p>
                         <ul>
-                          {sellerLines.map((line) => (
+                          {confirmLines.map((line) => (
                             <li key={line}>{line}</li>
                           ))}
                         </ul>

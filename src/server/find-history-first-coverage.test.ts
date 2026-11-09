@@ -185,11 +185,10 @@ describe("Scenario2 history-first still finishes free public checks", () => {
     }));
     expect(formatDecisionLogLine(onCrv!, labels)).toMatch(/Lemonless AI chose|standard check/);
     expect(formatDecisionLogLine(onCrv!, labels)).toMatch(/CR-V/);
-    if (!last.bestDeal.pick) {
-      expect(last.bestDeal.why).toMatch(/Leaning:/);
-      expect(last.bestDeal.why).not.toMatch(/\bscore\b/i);
-      expect(last.bestDeal.settlementNote).toBe("Checks finished — no clear winner yet.");
-    }
+    expect(last.bestDeal.pick).toBeTruthy();
+    expect(last.bestDeal.why).toMatch(/Best choice on current data/i);
+    expect(last.bestDeal.why).not.toMatch(/\bscore\b/i);
+    expect(last.bestDeal.why).not.toMatch(/no clear winner|no confident/i);
 
     const checked = new Set(last.carChecks.map((row) => row.key));
     for (const car of last.bestDeal.ranked) {
