@@ -302,8 +302,8 @@ export function buildGroundedShortlistWithRisk(
     const unknowns: string[] = [
       ...risk.unknowns,
       row.ownershipFuel.status === "unavailable"
-        ? "ownership fuel unavailable without FuelEconomy.gov match (+ explicit $/gal assumptions if only MPG)"
-        : "ownership fuel is EPA/assumption-sourced — still not full TCO",
+        ? "Fuel cost for this model is not in yet. It needs a FuelEconomy.gov match, and miles-per-gallon alone is not turned into a dollar estimate."
+        : "Fuel cost here is a FuelEconomy.gov estimate, not a full ownership cost. Insurance, maintenance, and repairs are separate.",
     ];
     if (row.medianAskUsd == null) unknowns.push("median ask unknown");
     if (row.medianMiles == null) unknowns.push("median miles unknown");

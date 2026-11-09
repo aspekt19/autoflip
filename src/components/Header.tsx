@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useId, useRef, useState } from "react";
+import { CREDIT_BALANCE_EVENT } from "@/domain/credit-balance-event";
 import { BrandLockup } from "./BrandLockup";
 import { headerAuthControl } from "./header-auth";
 
@@ -38,6 +39,15 @@ export function Header({ scoutNavEnabled = false }: { scoutNavEnabled?: boolean 
   const navLinks = showScout
     ? [...BASE_NAV_LINKS.slice(0, 3), { href: "/scout", label: "Scout" }, ...BASE_NAV_LINKS.slice(3)]
     : [...BASE_NAV_LINKS];
+
+  useEffect(() => {
+    function onBalance(event: Event) {
+      const detail = (event as CustomEvent<number>).detail;
+      if (typeof detail === "number" && Number.isFinite(detail)) setCredits(detail);
+    }
+    window.addEventListener(CREDIT_BALANCE_EVENT, onBalance);
+    return () => window.removeEventListener(CREDIT_BALANCE_EVENT, onBalance);
+  }, []);
 
   useEffect(() => {
     let cancelled = false;

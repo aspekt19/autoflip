@@ -4,7 +4,9 @@ import { describe, expect, it } from "vitest";
 import { selectComparables } from "./comparables";
 import {
   assertBuyerSafeText,
+  creditsNeedNotice,
   findForbiddenTechArtifacts,
+  publicCheckStatusLine,
   formatBuyerLoopStatus,
   formatBuyerLoopStep,
   formatBuyerNextCheckWhy,
@@ -24,7 +26,10 @@ import type { FindFreeGovReceipt } from "./find-free-gov";
 import { buildFindFuelAssumptions } from "./find-fuel-match";
 import { formatFreeGovReceiptsForUi } from "./find-free-gov-format";
 import { buildGroundedShortlist } from "./find-path";
-import { explicitNeedFromText } from "./need";
+import { explicitNeedFromText, softPrefGapsFromText } from "./need";
+import { whyWeDecided } from "./decision-note";
+import { observedModelSnapshots } from "./find-model-observe";
+import { priceBadge } from "./price-badge";
 import { buildComputedReport } from "./report";
 import { summaryLine } from "./summary-line";
 import { fitHeadline } from "./fit";
@@ -285,6 +290,92 @@ describe("buyer-safe Find copy", () => {
     expect(findForbiddenTechArtifacts("capped by app validation (not a documented provider hard limit)")).toEqual(
       expect.arrayContaining([expect.stringMatching(/app validation/i), expect.stringMatching(/provider hard limit/i)]),
     );
+    expect(findForbiddenTechArtifacts("n=3 similar CR-V LX listings")).toEqual(
+      expect.arrayContaining([expect.stringMatching(/n=3/)]),
+    );
+    expect(findForbiddenTechArtifacts("(n=3)")).not.toEqual([]);
+    expect(findForbiddenTechArtifacts("Observed from this search only")).not.toEqual([]);
+    expect(findForbiddenTechArtifacts("not a full TCO")).not.toEqual([]);
+    expect(findForbiddenTechArtifacts("(+ explicit $/gal assumptions if only MPG)")).not.toEqual([]);
+    expect(findForbiddenTechArtifacts("A blank budget stays blank")).not.toEqual([]);
+  });
+
+  it("plain Find copy names the sample without n=, TCO, or a blank-budget claim", () => {
+    const subject = noteCar("CRV00000000000001", 2016, 15000, "LX");
+    subject.make = "Honda";
+    subject.model = "CR-V";
+    const peers = [14000, 15500, 16000].map((price, index) => {
+      const car = noteCar(`CRVP00000000000${index}`, 2016, price, "LX");
+      car.make = "Honda";
+      car.model = "CR-V";
+      return car;
+    });
+    const badge = priceBadge(subject, [subject, ...peers]);
+    expect(badge.deltaLabel).toMatch(/based on \d+ similar CR-V LX listings/);
+    expect(assertBuyerSafeText(badge.deltaLabel ?? "").ok).toBe(true);
+
+    const decided = whyWeDecided("find", [
+      {
+        purpose: "find_guard",
+        tools: ["serv_prompt_guard"],
+        features: [],
+        promptGuard: "allow",
+        shadowOutcome: "not_used",
+        shadowMaxIterations: null,
+        latencyMs: 1,
+      },
+    ]).join(" ");
+    expect(assertBuyerSafeText(decided).ok).toBe(true);
+    expect(decided).toMatch(/price in your note is the budget/);
+
+    const snap = observedModelSnapshots([
+      { make: "Honda", model: "CR-V", year: 2016, priceUsd: 15000, miles: 80000 },
+    ])[0]!;
+    expect(assertBuyerSafeText(snap.honesty).ok).toBe(true);
+    expect(snap.honesty).toMatch(/these cards only/);
+
+    const fuelGap = softPrefGapsFromText("reasonably cheap to run").find((gap) => gap.id === "fuel_or_running_cost");
+    expect(fuelGap).toBeTruthy();
+    expect(assertBuyerSafeText(fuelGap!.honesty).ok).toBe(true);
+
+    const short = buildGroundedShortlist(
+      {
+        ...explicitNeedFromText("family car around $15,000", "personal"),
+        budgetKnown: true,
+        budgetUsd: 15_000,
+      },
+      [{ make: "Honda", model: "CR-V", year: 2016, priceUsd: 15000, miles: 80000 }],
+    );
+    for (const row of short) {
+      expect(assertBuyerSafeText(row.unknowns.join(" ")).ok).toBe(true);
+      expect(row.unknowns.join(" ")).not.toMatch(/\$\/gal|TCO/);
+    }
+
+    expect(
+      publicCheckStatusLine({ servEnabled: true, anyUnchecked: false, checksHaveRun: false }),
+    ).toMatch(/have not finished/);
+    expect(
+      publicCheckStatusLine({ servEnabled: true, anyUnchecked: false, checksHaveRun: true }),
+    ).toMatch(/caught up/);
+    expect(assertBuyerSafeText(publicCheckStatusLine({ servEnabled: true, anyUnchecked: true, checksHaveRun: false })).ok).toBe(
+      true,
+    );
+
+    const findNotice = creditsNeedNotice("/find");
+    expect(findNotice).toMatch(/1 report credit/);
+    expect(findNotice).toMatch(/do not pay for Find/);
+    expect(findNotice).toMatch(/3 free checks/);
+    expect(assertBuyerSafeText(findNotice).ok).toBe(true);
+    expect(assertBuyerSafeText(creditsNeedNotice("/check")).ok).toBe(true);
+
+    for (const file of [
+      "src/components/PriceBadge.tsx",
+      "src/components/DecisionNote.tsx",
+      "src/app/credits/page.tsx",
+    ]) {
+      const text = readFileSync(path.join(process.cwd(), file), "utf8");
+      expect(findForbiddenTechArtifacts(text), file).toEqual([]);
+    }
   });
 
   it("grounded shortlist why/unknowns stay buyer-safe (no MMY/parkIt/vPIC)", () => {

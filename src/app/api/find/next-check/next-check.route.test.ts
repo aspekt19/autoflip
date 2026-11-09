@@ -17,6 +17,7 @@ const fetchImpl = vi.fn();
 
 vi.mock("@/server/session", () => ({
   userId: () => uid(),
+  authenticatedAccountId: async () => null,
 }));
 
 vi.mock("@/io/kv", async (importOriginal) => {

@@ -23,6 +23,7 @@ import {
   type FindAnalysisPayload,
 } from "@/domain/find-analysis-handoff";
 import { buyerFacingFailure } from "@/domain/buyer-facing-error";
+import { publishCreditBalance } from "@/domain/credit-balance-event";
 import { isReportHardRefusal, reportRefusalUserMessage } from "@/domain/report-refusal-ui";
 import { findEmptyCopy, type FindEmptyReason } from "@/domain/find-empty";
 import type { FindListingPriceView } from "@/domain/find-listing-price";
@@ -40,6 +41,7 @@ import {
 } from "@/domain/find-next-check-ui";
 import {
   FIND_RESULTS_BILLING_HINT,
+  publicCheckStatusLine,
   formatBuyerBestDeal,
   formatBuyerLoopStatus,
   formatBuyerLoopStep,
@@ -843,6 +845,7 @@ function AssistantFlow({
             }),
           });
           const matchBody = (await matchResponse.json()) as {
+            balance?: number;
             directions?: MatchGroup[];
             sample?: boolean;
             message?: string;
@@ -856,6 +859,7 @@ function AssistantFlow({
             servNextCheckEnabled?: boolean;
             error?: string;
           };
+          if (typeof matchBody.balance === "number") publishCreditBalance(matchBody.balance);
           if (
             matchResponse.status === 401 ||
             (matchResponse.status === 403 &&
@@ -962,6 +966,7 @@ function AssistantFlow({
         }),
       });
       const body = (await response.json()) as {
+        balance?: number;
         directions?: MatchGroup[];
         sample?: boolean;
         message?: string;
@@ -975,6 +980,7 @@ function AssistantFlow({
         servNextCheckEnabled?: boolean;
         error?: string;
       };
+      if (typeof body.balance === "number") publishCreditBalance(body.balance);
       if (
         response.status === 401 ||
         (response.status === 403 &&
@@ -1460,7 +1466,7 @@ function AssistantFlow({
             void answerFollowUps();
           }}
         >
-          <p className="hint">{need?.mode === "flip" ? "These answers change the reconditioning assumption and the profit target. They are not a quote." : "A few clarifications for facts Find can act on — not a condition score or invented TCO."}</p>
+          <p className="hint">{need?.mode === "flip" ? "These answers change the reconditioning assumption and the profit target. They are not a quote." : "A few clarifications for facts Find can act on — not a condition score or a made-up ownership cost."}</p>
           {questions.map((question) => (
             <div className="field" key={question.id}>
               <label htmlFor={question.id}>{question.prompt}</label>
@@ -1798,15 +1804,15 @@ function AssistantFlow({
                         Public checks paused — some year/make/model groups are still unchecked. You can retry after
                         fixing the error; the pick may change once checks finish.
                       </p>
-                    ) : servNextCheckEnabled && freeGovAnyUnchecked ? (
-                      <p>
-                        Still finishing public year/make/model checks — the pick may change as remaining groups
-                        complete.
-                      </p>
-                    ) : servNextCheckEnabled ? (
-                      <p>Public year/make/model checks for this shortlist are caught up.</p>
                     ) : (
-                      <p>Here is what we can check next with the cars already found:</p>
+                      <p>
+                        {publicCheckStatusLine({
+                          servEnabled: servNextCheckEnabled,
+                          anyUnchecked: freeGovAnyUnchecked,
+                          checksHaveRun:
+                            freeGovReceiptsForShortlist.length > 0 || Boolean(bestDeal),
+                        })}
+                      </p>
                     )}
                     {checks.length > 0 ? (
                       <ul>
@@ -1977,6 +1983,11 @@ function AssistantFlow({
               <p className="hint">{matchNextStep || findEmptyCopy(emptyReason ?? (groups.length === 0 ? "no_directions" : "empty_inventory"), need).nextStep}</p>
             </div>
           ) : null}
+          {error && pending === null && groups.some((group) => group.listings.length > 0) ? (
+            <p className="warn" role="alert">
+              {error} {/plan|watch/i.test(error) ? <a href="/pricing">See radar plans</a> : null}
+            </p>
+          ) : null}
           {groups.map((group) => (
             <section key={group.direction.id}>
               <h3>{group.direction.segment}</h3>
@@ -2019,10 +2030,7 @@ function AssistantFlow({
                     if (compared.length === 0) return null;
                     return (
                       <div className="hint" role="note">
-                        <p>
-                          Side-by-side from these cards only (not a full ownership cost or reliability score —{" "}
-                          {compared[0]!.honesty}):
-                        </p>
+                        <p>{compared[0]!.honesty}</p>
                         <ul>
                           {compared.map((row) => (
                             <li key={`${row.make}-${row.model}`}>{formatModelCompareRow(row)}</li>
@@ -2036,11 +2044,6 @@ function AssistantFlow({
                 {pending === group.direction.id ? "Saving alert…" : need?.mode === "flip" ? "Get alerts for this budget" : "Get new-listing alerts"}
               </button>
               <p className="hint">{FIND_RESULTS_BILLING_HINT}</p>
-              {error && pending === null ? (
-                <p className="warn" role="alert">
-                  {error} {/plan|watch/i.test(error) ? <a href="/pricing">See radar plans</a> : null}
-                </p>
-              ) : null}
               {group.note &&
               !(
                 (matchMessage && matchMessage.toLowerCase().includes(group.note.toLowerCase())) ||

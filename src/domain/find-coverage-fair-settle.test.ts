@@ -594,8 +594,8 @@ describe("checklist + market + budget + coverage copy", () => {
     expect(selection.notes[0]).not.toMatch(/Only 0 same-trim/);
     expect(selection.notes[0]).toMatch(/No same-trim|Only \d+ same-trim|same-model/i);
     const badge = priceBadge(subject, pool);
-    expect(badge.deltaLabel).toMatch(/n=\d+/);
-    const nFromDelta = Number(badge.deltaLabel?.match(/n=(\d+)/)?.[1]);
+    expect(badge.deltaLabel).toMatch(/based on \d+/);
+    const nFromDelta = Number(badge.deltaLabel?.match(/based on (\d+)/)?.[1]);
     expect(nFromDelta).toBe(badge.sampleSize);
     // deltaLabel and sampleNote must not advertise conflicting sample sizes.
     if (badge.sampleNote) {

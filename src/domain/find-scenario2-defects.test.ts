@@ -294,7 +294,7 @@ describe("Scenario2 defect 2 — one market comps set across badge / factor / pi
     if (!resolved.ok) return;
     expect(badge.sampleSize).toBe(resolved.sampleSize);
     expect(badge.fairValueUsd).toBe(resolved.fairValueUsd);
-    expect(badge.deltaLabel).toMatch(new RegExp(`n=${resolved.sampleSize}`));
+    expect(badge.deltaLabel).toMatch(new RegExp(`based on ${resolved.sampleSize}`));
     expect(badge.deltaLabel).not.toMatch(/this search/i);
     expect(badge.deltaLabel).not.toMatch(/\bcomps\b/i);
     expect(assertBuyerSafeText(badge.deltaLabel ?? "").ok).toBe(true);
@@ -312,7 +312,7 @@ describe("Scenario2 defect 2 — one market comps set across badge / factor / pi
       pct01: resolved.pct01,
       subject,
     });
-    expect(detail).toContain(`n=${resolved.sampleSize}`);
+    expect(detail).toContain(`based on ${resolved.sampleSize}`);
     expect(detail).toMatch(/similar .+ listings/);
     expect(detail).not.toMatch(/\bcomps\b/i);
     expect(detail).not.toMatch(/percentile/i);
@@ -346,7 +346,7 @@ describe("Scenario2 defect 2 — one market comps set across badge / factor / pi
     });
     const pick = result.ranked.find((r) => r.vin === "SP-2016-PICK")!;
     const priceFactor = pick.factors.find((f) => f.id === "price_vs_model_asks")!;
-    expect(priceFactor.detail).toContain(`n=${resolved.sampleSize}`);
+    expect(priceFactor.detail).toContain(`based on ${resolved.sampleSize}`);
     expect(priceFactor.detail).toContain(
       `market $${Math.round(resolved.fairValueUsd).toLocaleString("en-US")}`,
     );
@@ -756,7 +756,7 @@ describe("Scenario2 defect 8 — price comps coverage + fairness on live shortli
     for (const row of result.ranked) {
       const price = row.factors.find((f) => f.id === "price_vs_model_asks")!;
       expect(price.detail).toMatch(/^Ask \$/);
-      expect(price.detail).toMatch(/n=\d+/);
+      expect(price.detail).toMatch(/based on \d+/);
       expect(price.detail).not.toMatch(/Not scored/);
       expect(price.detail).not.toMatch(/Not scored for fairness/);
     }
@@ -772,7 +772,7 @@ describe("Scenario2 defect 8 — price comps coverage + fairness on live shortli
     const pickFactor = result.ranked
       .find((r) => r.vin === "SP-2016")!
       .factors.find((f) => f.id === "price_vs_model_asks")!;
-    expect(pickFactor.detail).toContain(`n=${resolved.sampleSize}`);
+    expect(pickFactor.detail).toContain(`based on ${resolved.sampleSize}`);
 
     const buyer = formatBuyerBestDeal(result);
     expect(buyer.headline).toMatch(/settled/);
@@ -1025,7 +1025,7 @@ describe("Scenario2 defect 8 — price comps coverage + fairness on live shortli
       expect(badge.sampleSize).toBe(resolved.sampleSize);
       expect(badge.fairValueUsd).toBe(resolved.fairValueUsd);
       const pickPrice = pick.factors.find((f) => f.id === "price_vs_model_asks")!;
-      expect(pickPrice.detail).toContain(`n=${resolved.sampleSize}`);
+      expect(pickPrice.detail).toContain(`based on ${resolved.sampleSize}`);
     }
     // Bargain cap / deep-discount caution still present when applicable — plain English.
     for (const row of result.ranked) {
@@ -1084,7 +1084,7 @@ describe("Scenario2 defect 8 — price comps coverage + fairness on live shortli
       expect(Number.isFinite(marketFromDetail)).toBe(true);
       expect(badge.fairValueUsd).toBe(marketFromDetail);
       expect(badge.sampleSize).toBe(
-        Number(price.detail.match(/n=(\d+)/)?.[1]),
+        Number(price.detail.match(/based on (\d+)/)?.[1]),
       );
       expect(row.priceUsd! - marketFromDetail).toBe(badge.deltaUsd);
       expect(assertBuyerSafeText(price.detail).ok).toBe(true);

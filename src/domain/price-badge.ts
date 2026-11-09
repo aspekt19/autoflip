@@ -1,6 +1,6 @@
 import { priceGap } from "./comparables";
 import { formatUsd } from "./format";
-import { buyerScopePhrase, listingFeedHistoryNotes, resolveMarketComps } from "./market-comps";
+import { buyerSampleBasis, buyerScopePhrase, listingFeedHistoryNotes, resolveMarketComps } from "./market-comps";
 import { roundDollars } from "./stats";
 import type { Listing } from "./types";
 import { verdictFromPriceGap } from "./verdict";
@@ -52,13 +52,14 @@ export function priceBadge(subject: Listing, pool: Listing[]): PriceBadge {
   const verdict = verdictFromPriceGap(gap);
   const deltaUsd = roundDollars(subject.priceUsd - resolved.fairValueUsd);
   const peers = buyerScopePhrase(resolved.scopeLabel, subject);
+  const basis = buyerSampleBasis(resolved.sampleSize, peers);
   const sampleNote = withFeedHistoryNote(resolved.sampleNote, subject);
   const deltaLabel =
     deltaUsd === 0
-      ? `At the market price (n=${resolved.sampleSize} ${peers})`
+      ? `At the market price, ${basis}`
       : deltaUsd < 0
-        ? `${formatUsd(Math.abs(deltaUsd))} below market (n=${resolved.sampleSize} ${peers})`
-        : `${formatUsd(deltaUsd)} above market (n=${resolved.sampleSize} ${peers})`;
+        ? `${formatUsd(Math.abs(deltaUsd))} below market, ${basis}`
+        : `${formatUsd(deltaUsd)} above market, ${basis}`;
   const base = {
     deltaUsd,
     deltaLabel,

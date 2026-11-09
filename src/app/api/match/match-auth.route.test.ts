@@ -197,4 +197,91 @@ describe("POST /api/match verified-auth Find (t334 Fix A)", () => {
     expect(rematchBody.charged).toBe(false);
     expect(await creditBalance(kvHolder.kv, ACCOUNT)).toBe(2);
   });
+
+  it("refuses a new Find at balance 0 before searching", async () => {
+    requireFind.mockResolvedValue({ ok: true, id: ACCOUNT, email: "a@example.com" });
+    kvHolder.kv = new MemoryKv();
+    await creditGrant(kvHolder.kv, ACCOUNT, 0, "init-zero");
+    const res = await POST(req({ need: NEED, searchIdempotencyKey: "find-zero-balance1" }));
+    expect(res.status).toBe(403);
+    const body = (await res.json()) as { error?: string; balance?: number };
+    expect(body.error).toBe("credits_required");
+    expect(body.balance).toBe(0);
+    expect(runFind).not.toHaveBeenCalled();
+    expect(await creditBalance(kvHolder.kv, ACCOUNT)).toBe(0);
+  });
+
+  it("does not debit when the search fails, and a later success debits once", async () => {
+    requireFind.mockResolvedValue({ ok: true, id: ACCOUNT, email: "a@example.com" });
+    runFind.mockResolvedValueOnce({
+      ok: false,
+      status: 502,
+      body: { error: "provider_failure", message: "upstream down" },
+    });
+    const failed = await POST(req({ need: NEED, searchIdempotencyKey: "find-fail-then-ok1" }));
+    expect(failed.status).toBe(502);
+    const failedBody = (await failed.json()) as { charged?: boolean; balance?: number };
+    expect(failedBody.charged).toBe(false);
+    expect(failedBody.balance).toBe(3);
+    expect(await creditBalance(kvHolder.kv, ACCOUNT)).toBe(3);
+
+    runFind.mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      body: {
+        ok: true,
+        directions: [],
+      },
+    });
+    const ok = await POST(req({ need: NEED, searchIdempotencyKey: "find-fail-then-ok1" }));
+    expect(ok.status).toBe(200);
+    const okBody = (await ok.json()) as { charged?: boolean; balance?: number };
+    expect(okBody.charged).toBe(true);
+    expect(okBody.balance).toBe(2);
+    expect(await creditBalance(kvHolder.kv, ACCOUNT)).toBe(2);
+  });
+
+  it("debits once per idempotency key and does not refund that delivery if a retry fails", async () => {
+    requireFind.mockResolvedValue({ ok: true, id: ACCOUNT, email: "a@example.com" });
+    const delivered = {
+      ok: true,
+      status: 200,
+      body: { ok: true, directions: [] },
+    };
+    runFind.mockResolvedValueOnce(delivered);
+    const first = await POST(req({ need: NEED, searchIdempotencyKey: "find-once-key-01" }));
+    expect(first.status).toBe(200);
+    expect(await creditBalance(kvHolder.kv, ACCOUNT)).toBe(2);
+
+    runFind.mockResolvedValueOnce(delivered);
+    const replay = await POST(req({ need: NEED, searchIdempotencyKey: "find-once-key-01" }));
+    expect(replay.status).toBe(200);
+    const replayBody = (await replay.json()) as { charged?: boolean; balance?: number };
+    expect(replayBody.charged).toBe(true);
+    expect(replayBody.balance).toBe(2);
+    expect(await creditBalance(kvHolder.kv, ACCOUNT)).toBe(2);
+
+    runFind.mockResolvedValueOnce({
+      ok: false,
+      status: 502,
+      body: { error: "provider_failure", message: "retry failed" },
+    });
+    const retryFail = await POST(req({ need: NEED, searchIdempotencyKey: "find-once-key-01" }));
+    expect(retryFail.status).toBe(502);
+    const retryBody = (await retryFail.json()) as { charged?: boolean };
+    expect(retryBody.charged).toBe(false);
+    expect(await creditBalance(kvHolder.kv, ACCOUNT)).toBe(2);
+  });
+
+  it("does not debit when the search throws", async () => {
+    requireFind.mockResolvedValue({ ok: true, id: ACCOUNT, email: "a@example.com" });
+    runFind.mockRejectedValueOnce(new Error("boom"));
+    const res = await POST(req({ need: NEED, searchIdempotencyKey: "find-throw-key01" }));
+    expect(res.status).toBe(500);
+    const body = (await res.json()) as { charged?: boolean; balance?: number; message?: string };
+    expect(body.charged).toBe(false);
+    expect(body.balance).toBe(3);
+    expect(body.message).toMatch(/No credit was used/);
+    expect(await creditBalance(kvHolder.kv, ACCOUNT)).toBe(3);
+  });
 });

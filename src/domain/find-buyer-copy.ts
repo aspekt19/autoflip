@@ -85,6 +85,14 @@ export const BUYER_FORBIDDEN_TECH_PATTERNS: RegExp[] = [
   /\bcomps\b/i,
   /\bcomp\s/i,
   /\bcomparables\b/i,
+  // Sample-size and cost jargon that leaked onto Find cards and the decision note.
+  /\(n=\d+/,
+  /\bn=\d+\b/,
+  /\bTCO\b/,
+  /Observed from this search only/i,
+  /explicit \$\/gal/i,
+  /\$\/gal/,
+  /A blank budget stays blank/i,
 ];
 
 /**
@@ -98,6 +106,43 @@ export const FIND_PAGE_BILLING_STEP =
 
 export const FIND_RESULTS_BILLING_HINT =
   "Find is a credit-priced search when billing is enabled. A full per-car report uses 1 report credit. Ongoing new-listing alerts require a separate monthly Radar plan.";
+
+/**
+ * /credits?need=1 copy. Find is never paid by the monthly VIN / own-URL allotment.
+ * `returnTo` is the safe relative path the shopper was sent from.
+ */
+export function creditsNeedNotice(returnTo: string | null | undefined): string {
+  const back = returnTo ?? "";
+  if (back.startsWith("/find")) {
+    return "Find costs 1 report credit each time a search is delivered. The 3 free checks each UTC month are only for a VIN or your own listing URL — they do not pay for Find.";
+  }
+  if (back.startsWith("/check")) {
+    return "A VIN or your own listing URL uses one of 3 free checks per verified account each UTC month. After those are used, a full report costs 1 report credit.";
+  }
+  return "Find costs 1 report credit per delivered search. A VIN or your own listing URL uses one of 3 free checks per verified account each UTC month; a full report after that costs 1 credit.";
+}
+
+/**
+ * Checklist heading for public year/make/model checks.
+ * "Caught up" only after a next-check hop has actually run. A fresh result
+ * with the loop not started yet is not caught up.
+ */
+export function publicCheckStatusLine(input: {
+  servEnabled: boolean;
+  anyUnchecked: boolean;
+  checksHaveRun: boolean;
+}): string {
+  if (!input.servEnabled) {
+    return "Here is what we can check next with the cars already found:";
+  }
+  if (input.anyUnchecked) {
+    return "Still finishing public year/make/model checks — the pick may change as remaining groups complete.";
+  }
+  if (input.checksHaveRun) {
+    return "Public year/make/model checks for this shortlist are caught up.";
+  }
+  return "Public year/make/model checks have not finished for this shortlist yet.";
+}
 
 /** Buyer-facing seller-distance custom-miles hint (no app-validation jargon). */
 export function customMilesBuyerHint(maxMiles: number): string {

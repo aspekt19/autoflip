@@ -122,7 +122,7 @@ export function observedModelSnapshots(listings: ObservedListingRow[]): Observed
       medianAskUsd,
       medianMiles,
       honesty:
-        "Observed from this search only — asking prices and odometer readings on returned cards, not a closed-sale TCO or reliability score.",
+        "Asking prices and mileage on these cards only — not sold prices, not a full ownership cost, and not a reliability score.",
     };
   });
 }
