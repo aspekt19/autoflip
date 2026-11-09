@@ -1,6 +1,12 @@
 /**
  * Three comparison arms on the SAME captured inputs.
- * Fixture mode never calls the network. Live mode requires COMPARISON_ALLOW_PAID=1.
+ *
+ * Offline: only pure-code arms (cheapest, Lemonless deterministic domain modules).
+ * plain_llm is always `not_run` offline — never canned prose.
+ *
+ * Live: Lemonless uses production runCheck / selectBestDealOnEvidence + SERV
+ * verdict_decide + shadow second pass (same profiles as assemble). plain_llm
+ * gets one chat completion on the identical shared payload Lemonless ranked on.
  */
 import { listingRedFlags } from "@/domain/listing/red-flags";
 import type { ExtractedListingFields } from "@/domain/listing/types";
@@ -8,19 +14,49 @@ import { selectBestDealOnEvidence } from "@/domain/find-best-deal";
 import { explicitNeedFromText } from "@/domain/need";
 import { evaluateListingPrice } from "@/domain/price-evaluation";
 import type { Listing } from "@/domain/types";
-import { BASE_MODEL } from "@/server/serv";
+import { BASE_MODEL, SHADOW_MAX_ITERATIONS, runServ } from "@/server/serv";
 import { bandFromAskVsFair } from "./score";
 import type {
   ArmOutput,
   CapturedListing,
   CheckCaseFixture,
-  ComparisonArmId,
   FindCaseFixture,
-  PlainLlmOutput,
+  LiveModelTrace,
+  PlainLlmParsed,
   PriceBand,
 } from "./types";
 
-function toListing(row: CapturedListing): Listing {
+export function sharedModelId(): string {
+  return process.env.SERV_MODEL?.trim() || BASE_MODEL;
+}
+
+export function liveAllowed(): boolean {
+  if (process.env.COMPARISON_DRY_RUN === "1") return false;
+  return process.env.COMPARISON_ALLOW_PAID === "1" && Boolean(process.env.SERV_API_KEY?.trim());
+}
+
+/** Shared payload both Lemonless (facts) and plain_llm (prompt) see. */
+export function sharedFindPayload(fixture: FindCaseFixture) {
+  return {
+    kind: "find" as const,
+    query: fixture.query,
+    zip: fixture.zip,
+    budgetUsd: fixture.budgetUsd,
+    listings: fixture.listings,
+    comps: fixture.comps,
+  };
+}
+
+export function sharedCheckPayload(fixture: CheckCaseFixture) {
+  return {
+    kind: "check" as const,
+    rawText: fixture.rawText,
+    subject: fixture.subject,
+    comps: fixture.comps,
+  };
+}
+
+export function toListing(row: CapturedListing): Listing {
   return {
     vin: row.vin ?? `NOVIN${row.year}${row.make}${row.model}`.replace(/[^A-Z0-9]/gi, "").slice(0, 17).toUpperCase().padEnd(17, "0"),
     year: row.year,
@@ -101,35 +137,68 @@ function recallFlag(rawText: string): string[] {
   return [];
 }
 
+function notRunPlain(reason: string): ArmOutput {
+  return {
+    arm: "plain_llm",
+    status: "not_run",
+    reasonNotRun: reason,
+    pickVin: null,
+    priceVerdict: "unknown",
+    fairValueUsd: null,
+    redFlags: [],
+    unknowns: [],
+    summary: reason,
+    latencyMs: 0,
+    costUsd: null,
+    model: null,
+    textForNumbers: "",
+    liveTrace: null,
+  };
+}
+
 export function runCheapestFind(fixture: FindCaseFixture): ArmOutput {
   const started = Date.now();
   const ranked = [...fixture.listings].sort((a, b) => a.priceUsd - b.priceUsd);
   const pick = ranked[0] ?? null;
-  const fair = pick?.vin ? fixture.labels.fairValueByVin[pick.vin] ?? null : null;
+  const pool = [...fixture.listings, ...fixture.comps].map(toListing);
+  const fair =
+    pick != null
+      ? evaluateListingPrice(toListing(pick), pool).fairValueUsd
+      : null;
   const summary = pick
     ? `Cheapest ask: ${pick.year} ${pick.make} ${pick.model} at $${pick.priceUsd}.`
     : "No listings.";
   return {
     arm: "cheapest",
+    status: "ran",
     pickVin: pick?.vin ?? null,
     priceVerdict: bandFromAskVsFair(pick?.priceUsd ?? null, fair),
     fairValueUsd: fair,
     redFlags: pick ? [...soldFlag(pick, pick.description ?? ""), ...missingVinFlag(pick, pick.description ?? "")] : [],
-    unknowns: ["Cheapest sort does not inspect title, recalls, or comps beyond the label fair value."],
+    unknowns: ["Cheapest sort does not inspect title, recalls, or condition."],
     summary,
     latencyMs: Date.now() - started,
     costUsd: 0,
-    textForNumbers: summary,
+    model: null,
+    textForNumbers: [
+      `prices ${fixture.listings.map((r) => r.priceUsd).join(" ")}`,
+      `miles ${fixture.listings.map((r) => r.miles).join(" ")}`,
+      `years ${fixture.listings.map((r) => r.year).join(" ")}`,
+    ].join(" | "),
   };
 }
 
 export function runCheapestCheck(fixture: CheckCaseFixture): ArmOutput {
   const started = Date.now();
   const ask = fixture.subject.priceUsd;
-  const fair = fixture.labels.fairValueUsd;
+  const fair = evaluateListingPrice(
+    toListing(fixture.subject),
+    fixture.comps.length ? fixture.comps.map(toListing) : [toListing(fixture.subject)],
+  ).fairValueUsd;
   const summary = `Cheapest-price arm on a single listing: ask $${ask}.`;
   return {
     arm: "cheapest",
+    status: "ran",
     pickVin: fixture.subject.vin,
     priceVerdict: bandFromAskVsFair(ask, fair),
     fairValueUsd: fair,
@@ -138,11 +207,21 @@ export function runCheapestCheck(fixture: CheckCaseFixture): ArmOutput {
     summary,
     latencyMs: Date.now() - started,
     costUsd: 0,
-    textForNumbers: summary,
+    model: null,
+    textForNumbers: [
+      `ask ${ask}`,
+      `year ${fixture.subject.year}`,
+      `miles ${fixture.subject.miles}`,
+      `compPrices ${fixture.comps.map((c) => c.priceUsd).join(" ")}`,
+      fixture.rawText,
+    ].join(" | "),
   };
 }
 
-export function runLemonlessFind(fixture: FindCaseFixture): ArmOutput {
+/**
+ * Offline Lemonless Find — production ranking module only (no SERV, no labels).
+ */
+export function runLemonlessFindDeterministic(fixture: FindCaseFixture): ArmOutput {
   const started = Date.now();
   const parsed = explicitNeedFromText(fixture.query, "personal");
   const need = {
@@ -152,29 +231,24 @@ export function runLemonlessFind(fixture: FindCaseFixture): ArmOutput {
     zip: fixture.zip,
     note: fixture.query,
   };
-  // Production Check would refuse SOLD; filter sold captures before ranking so Find
-  // does not "pick" an unavailable car just because it is cheapest in the fixture.
-  const usableCaptured = fixture.listings.filter((row) => row.availability !== "sold");
-  const listings = usableCaptured.map(toListing);
+  const usable = fixture.listings.filter((row) => row.availability !== "sold");
+  const listings = usable.map(toListing);
+  const pool = [...fixture.listings, ...fixture.comps].map(toListing);
   const result = selectBestDealOnEvidence({
     need,
     listings,
-    marketPool: [...fixture.listings, ...fixture.comps].map(toListing),
+    marketPool: pool,
     nowYear: 2026,
   });
   const pickKey = result.pick?.vin ?? result.pick?.key ?? null;
   const pickListing = listings.find((row) => row.vin === pickKey) ?? null;
   const captured = fixture.listings.find((row) => row.vin === pickKey) ?? null;
-  const fair = pickKey ? fixture.labels.fairValueByVin[pickKey] ?? null : null;
-  const evalPrice =
-    pickListing != null
-      ? evaluateListingPrice(pickListing, [...listings, ...fixture.comps.map(toListing)])
-      : null;
-  const fairValueUsd = evalPrice?.fairValueUsd ?? fair;
+  const evalPrice = pickListing != null ? evaluateListingPrice(pickListing, pool) : null;
+  const fairValueUsd = evalPrice?.fairValueUsd ?? null;
+
   const flags = new Set<string>();
   for (const row of fixture.listings) {
-    for (const id of soldFlag(row, row.description ?? "")) flags.add(`${row.vin}:sold`);
-    if (row.availability === "sold") flags.add("sold");
+    for (const id of soldFlag(row, row.description ?? "")) flags.add(id);
   }
   if (captured) {
     for (const id of soldFlag(captured, captured.description ?? "")) flags.add(id);
@@ -188,30 +262,20 @@ export function runLemonlessFind(fixture: FindCaseFixture): ArmOutput {
     });
     for (const flag of red) flags.add(flag.id);
   }
-  const unknowns: string[] = [];
+
+  const unknowns = [...result.stillUnknown.slice(0, 3)];
   if (!result.pick) unknowns.push("No usable pick after evidence ranking.");
-  if (result.confidence === "low" || result.confidence === "none") unknowns.push(`Confidence: ${result.confidence}`);
-  unknowns.push(...result.stillUnknown.slice(0, 3));
-  const pickLabel = result.pick
-    ? `${result.pick.year} ${result.pick.make} ${result.pick.model}`
-    : null;
+  if (result.confidence === "low" || result.confidence === "none") {
+    unknowns.push(`Confidence: ${result.confidence}`);
+  }
+  const pickLabel = result.pick ? `${result.pick.year} ${result.pick.make} ${result.pick.model}` : null;
   const summary = result.pick
     ? `Lemonless pick ${pickLabel} (${result.confidence}). ${result.settlementNote}`
     : `Lemonless withheld a pick. ${result.settlementNote}`;
-  // Space-separate figures so comma-grouping does not glue JSON array digits into one token.
-  // Avoid model codes with digits (CX-5, RAV4, CR-V) in invent-check text.
-  const textForNumbers = [
-    `pick ${pickKey ?? "none"}`,
-    `year ${result.pick?.year ?? ""}`,
-    `prices ${fixture.listings.map((r) => r.priceUsd).join(" ")}`,
-    `miles ${fixture.listings.map((r) => r.miles).join(" ")}`,
-    `years ${fixture.listings.map((r) => r.year).join(" ")}`,
-    `budget ${fixture.budgetUsd ?? "none"}`,
-    `zip ${fixture.zip}`,
-    fixture.query.replace(/\b(CX|CR|RAV|F|CT)-?\d+\b/gi, "MODEL"),
-  ].join(" | ");
+
   return {
     arm: "lemonless",
+    status: "ran",
     pickVin: pickKey,
     priceVerdict: bandFromAskVsFair(pickListing?.priceUsd ?? null, fairValueUsd),
     fairValueUsd,
@@ -220,11 +284,24 @@ export function runLemonlessFind(fixture: FindCaseFixture): ArmOutput {
     summary,
     latencyMs: Date.now() - started,
     costUsd: 0,
-    textForNumbers,
+    model: null,
+    textForNumbers: [
+      `pick ${pickKey ?? "none"}`,
+      `year ${result.pick?.year ?? ""}`,
+      `prices ${fixture.listings.map((r) => r.priceUsd).join(" ")}`,
+      `miles ${fixture.listings.map((r) => r.miles).join(" ")}`,
+      `years ${fixture.listings.map((r) => r.year).join(" ")}`,
+      `budget ${fixture.budgetUsd ?? "none"}`,
+      `zip ${fixture.zip}`,
+      fixture.query.replace(/\b(CX|CR|RAV|F|CT)-?\d+\b/gi, "MODEL"),
+    ].join(" | "),
   };
 }
 
-export function runLemonlessCheck(fixture: CheckCaseFixture): ArmOutput {
+/**
+ * Offline Lemonless Check — production pricing + red-flag modules (no labels).
+ */
+export function runLemonlessCheckDeterministic(fixture: CheckCaseFixture): ArmOutput {
   const started = Date.now();
   const subject = toListing(fixture.subject);
   const pool = fixture.comps.map(toListing);
@@ -242,7 +319,10 @@ export function runLemonlessCheck(fixture: CheckCaseFixture): ArmOutput {
     ...recallFlag(fixture.rawText),
     ...red.map((f) => f.id),
   ];
-  const unknowns = [...fixture.subject.vin ? [] : ["VIN missing from listing"], ...price.fairValueUsd == null ? ["Fair value not established"] : []];
+  const unknowns = [
+    ...(fixture.subject.vin ? [] : ["VIN missing from listing"]),
+    ...(price.fairValueUsd == null ? ["Fair value not established"] : []),
+  ];
   const walk =
     flags.includes("sold") || flags.includes("title_brand")
       ? "Walk away until title/availability is cleared."
@@ -252,186 +332,243 @@ export function runLemonlessCheck(fixture: CheckCaseFixture): ArmOutput {
           ? `Price reading: ${price.label}.`
           : "Price reading incomplete.";
   const summary = `${fixture.subject.year} ${fixture.subject.make} ${fixture.subject.model} ask $${fixture.subject.priceUsd}. ${walk}`;
-  const textForNumbers = [
-    `ask ${fixture.subject.priceUsd}`,
-    `year ${fixture.subject.year}`,
-    `miles ${fixture.subject.miles}`,
-    `compPrices ${fixture.comps.map((c) => c.priceUsd).join(" ")}`,
-    `compMiles ${fixture.comps.map((c) => c.miles).join(" ")}`,
-    fixture.rawText,
-  ].join(" | ");
+
   return {
     arm: "lemonless",
+    status: "ran",
     pickVin: flags.includes("sold") ? null : fixture.subject.vin,
-    priceVerdict: flags.includes("sold")
-      ? "unknown"
-      : bandFromAskVsFair(fixture.subject.priceUsd, price.fairValueUsd ?? fixture.labels.fairValueUsd),
-    fairValueUsd: price.fairValueUsd ?? fixture.labels.fairValueUsd,
+    priceVerdict: flags.includes("sold") ? "unknown" : bandFromAskVsFair(fixture.subject.priceUsd, price.fairValueUsd),
+    fairValueUsd: price.fairValueUsd,
     redFlags: flags,
     unknowns,
     summary,
     latencyMs: Date.now() - started,
     costUsd: 0,
-    textForNumbers,
+    model: null,
+    textForNumbers: [
+      `ask ${fixture.subject.priceUsd}`,
+      `year ${fixture.subject.year}`,
+      `miles ${fixture.subject.miles}`,
+      `compPrices ${fixture.comps.map((c) => c.priceUsd).join(" ")}`,
+      fixture.rawText,
+    ].join(" | "),
   };
 }
 
-export function runPlainOfflineFind(fixture: FindCaseFixture): ArmOutput {
-  return plainFromCanned("plain_llm", fixture.plainLlmOffline, Date.now());
+export function runPlainOfflineFind(_fixture: FindCaseFixture): ArmOutput {
+  return notRunPlain(
+    "plain_llm not run in fixture mode — canned answers are forbidden. Run live with COMPARISON_ALLOW_PAID=1.",
+  );
 }
 
-export function runPlainOfflineCheck(fixture: CheckCaseFixture): ArmOutput {
-  return plainFromCanned("plain_llm", fixture.plainLlmOffline, Date.now());
+export function runPlainOfflineCheck(_fixture: CheckCaseFixture): ArmOutput {
+  return notRunPlain(
+    "plain_llm not run in fixture mode — canned answers are forbidden. Run live with COMPARISON_ALLOW_PAID=1.",
+  );
 }
 
-function plainFromCanned(arm: ComparisonArmId, canned: PlainLlmOutput, started: number): ArmOutput {
-  const text = `${canned.summary} fairValueUsd=${canned.fairValueUsd ?? ""} verdict=${canned.priceVerdict} flags=${canned.redFlags.join(",")}`;
+async function runServSecondPass(facts: Record<string, unknown>, user: string): Promise<{
+  text: string;
+  trace: LiveModelTrace;
+  ok: boolean;
+}> {
+  const model = sharedModelId();
+  const timestamp = new Date().toISOString();
+  const primary = await runServ(
+    "verdict_decide",
+    { user, facts },
+    {
+      apiKey: process.env.SERV_API_KEY,
+      model,
+      fetch,
+      transportPolicy: "experiment_single_attempt",
+    },
+  );
+  let combined = primary.ok ? primary.text : `verdict_decide failed: ${"error" in primary ? primary.error : "unknown"}`;
+  // Second pass — same shadow profile family assemble uses (report_explain shadow).
+  if (primary.ok) {
+    const shadow = await runServ(
+      "report_explain",
+      {
+        user: `${user}\n\nFirst-pass decision JSON:\n${primary.text}\nChallenge or confirm. Do not invent dollar amounts.`,
+        facts: { ...facts, firstPass: primary.text },
+      },
+      {
+        apiKey: process.env.SERV_API_KEY,
+        model,
+        fetch,
+        transportPolicy: "experiment_single_attempt",
+      },
+    );
+    if (shadow.ok) combined = `${primary.text}\n--- second_pass ---\n${shadow.text}`;
+    else combined = `${primary.text}\n--- second_pass unavailable ---`;
+  }
   return {
-    arm,
-    pickVin: canned.pickVin,
-    priceVerdict: canned.priceVerdict,
-    fairValueUsd: canned.fairValueUsd,
-    redFlags: canned.redFlags,
-    unknowns: canned.unknowns,
-    summary: canned.summary,
-    latencyMs: Math.max(1, Date.now() - started),
-    costUsd: 0,
-    textForNumbers: text,
+    ok: primary.ok,
+    text: combined,
+    trace: {
+      model,
+      timestamp,
+      prompt: user,
+      rawResponse: combined,
+    },
   };
-}
-
-export function liveAllowed(): boolean {
-  if (process.env.COMPARISON_DRY_RUN === "1") return false;
-  return process.env.COMPARISON_ALLOW_PAID === "1" && Boolean(process.env.SERV_API_KEY?.trim());
 }
 
 /**
- * Live plain LLM: one chat completion on the same captured payload.
- * Estimated ~$0.01–0.03 per call on gpt-5.4-mini (costUsd left null unless usage returns).
+ * Live Lemonless Find: production selectBestDealOnEvidence + SERV verdict/second pass.
  */
-export async function runPlainLiveFind(fixture: FindCaseFixture): Promise<ArmOutput> {
-  const started = Date.now();
+export async function runLemonlessFindLive(fixture: FindCaseFixture): Promise<ArmOutput> {
+  const base = runLemonlessFindDeterministic(fixture);
+  if (!liveAllowed()) return base;
+  const payload = sharedFindPayload(fixture);
+  const facts = {
+    ...payload,
+    codePickVin: base.pickVin,
+    codePriceVerdict: base.priceVerdict,
+    codeFairValueUsd: base.fairValueUsd,
+    codeRedFlags: base.redFlags,
+  };
   const user = [
-    "You are a used-car shopping assistant. Given this buyer query and captured listings JSON, pick ONE vin, state a price verdict band",
-    "(far_below|below|fair|above|far_above|unknown), optional fairValueUsd, red flag ids, unknowns, and a one-sentence summary.",
-    "Reply JSON only: {pickVin,priceVerdict,fairValueUsd,redFlags,unknowns,summary}",
-    `Query: ${fixture.query}`,
-    `ZIP: ${fixture.zip}`,
-    `Budget: ${fixture.budgetUsd}`,
-    `Listings: ${JSON.stringify(fixture.listings)}`,
+    "Lemonless Find — code already ranked listings. Choose buy|negotiate|pass|needs_inspection for the code pick,",
+    "or pass if the pick is SOLD/unavailable. Do not invent dollar amounts; only use figures in facts.",
+    `Shared payload:\n${JSON.stringify(facts)}`,
   ].join("\n");
-  const parsed = await callPlainLlm(user);
-  return plainFromCanned("plain_llm", parsed, started);
+  const started = Date.now();
+  const serv = await runServSecondPass(facts, user);
+  return {
+    ...base,
+    summary: `${base.summary} SERV: ${serv.text.slice(0, 280)}`,
+    latencyMs: base.latencyMs + (Date.now() - started),
+    costUsd: null,
+    model: sharedModelId(),
+    liveTrace: serv.trace,
+    unknowns: serv.ok ? base.unknowns : [...base.unknowns, "SERV call failed"],
+  };
+}
+
+/**
+ * Live Lemonless Check: production runCheck on pasted text, then SERV second pass.
+ * Uses the same runCheck module as /api/check (not a fork).
+ */
+export async function runLemonlessCheckLive(fixture: CheckCaseFixture): Promise<ArmOutput> {
+  const started = Date.now();
+  const { runCheck } = await import("@/server/check/run-check");
+  const { runtimeDeps } = await import("@/server/deps");
+  const result = await runCheck(
+    { kind: "paste", text: fixture.rawText, url: fixture.subject.sourceUrl ?? null },
+    { ...runtimeDeps(), fetch },
+  );
+
+  let base: ArmOutput;
+  if (!result.ok) {
+    // Fall back to deterministic domain path if live extract fails (still production modules).
+    base = runLemonlessCheckDeterministic(fixture);
+    base.summary = `runCheck failed (${result.error}): ${result.message}. Deterministic fallback: ${base.summary}`;
+    base.unknowns = [...base.unknowns, "runCheck_failed"];
+  } else {
+    const check = result.result;
+    const flags = check.redFlags.map((f) => f.id);
+    if (soldFlag(fixture.subject, fixture.rawText).length) flags.push("sold");
+    base = {
+      arm: "lemonless",
+      status: "ran",
+      pickVin: flags.includes("sold") ? null : check.vin,
+      priceVerdict: flags.includes("sold")
+        ? "unknown"
+        : bandFromAskVsFair(check.fields?.priceUsd.value ?? fixture.subject.priceUsd, check.fairValueUsd),
+      fairValueUsd: check.fairValueUsd,
+      redFlags: [...new Set(flags)],
+      unknowns: check.unknown,
+      summary: check.summary,
+      latencyMs: Date.now() - started,
+      costUsd: 0,
+      model: null,
+      textForNumbers: [
+        `ask ${fixture.subject.priceUsd}`,
+        `year ${fixture.subject.year}`,
+        `miles ${fixture.subject.miles}`,
+        `compPrices ${fixture.comps.map((c) => c.priceUsd).join(" ")}`,
+        fixture.rawText,
+      ].join(" | "),
+    };
+  }
+
+  if (!liveAllowed()) return base;
+
+  const payload = sharedCheckPayload(fixture);
+  const facts = {
+    ...payload,
+    codePickVin: base.pickVin,
+    codePriceVerdict: base.priceVerdict,
+    codeFairValueUsd: base.fairValueUsd,
+    codeRedFlags: base.redFlags,
+    codeSummary: base.summary,
+  };
+  const user = [
+    "Lemonless Check — code already scored this listing. Choose buy|negotiate|pass|needs_inspection.",
+    "If SOLD/unavailable or title-branded, choose pass. Do not invent dollar amounts.",
+    `Shared payload:\n${JSON.stringify(facts)}`,
+    `Shadow max iterations in production: ${SHADOW_MAX_ITERATIONS}.`,
+  ].join("\n");
+  const servStarted = Date.now();
+  const serv = await runServSecondPass(facts, user);
+  return {
+    ...base,
+    summary: `${base.summary} SERV: ${serv.text.slice(0, 280)}`,
+    latencyMs: base.latencyMs + (Date.now() - servStarted),
+    costUsd: null,
+    model: sharedModelId(),
+    liveTrace: serv.trace,
+    unknowns: serv.ok ? base.unknowns : [...base.unknowns, "SERV call failed"],
+  };
+}
+
+export async function runPlainLiveFind(fixture: FindCaseFixture): Promise<ArmOutput> {
+  const payload = sharedFindPayload(fixture);
+  const prompt = [
+    "You are a used-car shopping assistant. Given this Find payload (identical to what Lemonless ranked),",
+    "pick ONE vin, state priceVerdict (far_below|below|fair|above|far_above|unknown), optional fairValueUsd,",
+    "redFlags, unknowns, and a one-sentence summary. Reply JSON only:",
+    "{pickVin,priceVerdict,fairValueUsd,redFlags,unknowns,summary}",
+    "Do not invent VINs or dollar figures absent from the payload.",
+    `Shared payload:\n${JSON.stringify(payload)}`,
+  ].join("\n");
+  return callPlainLlm(prompt);
 }
 
 export async function runPlainLiveCheck(fixture: CheckCaseFixture): Promise<ArmOutput> {
-  const started = Date.now();
-  const user = [
-    "You are a used-car listing checker. Given raw listing text + subject + comps, decide if it is buyable.",
-    "Reply JSON only: {pickVin,priceVerdict,fairValueUsd,redFlags,unknowns,summary}",
-    "priceVerdict one of far_below|below|fair|above|far_above|unknown. Include sold/salvage/missing_vin in redFlags when present.",
-    `Raw text:\n${fixture.rawText}`,
-    `Subject: ${JSON.stringify(fixture.subject)}`,
-    `Comps: ${JSON.stringify(fixture.comps)}`,
+  const payload = sharedCheckPayload(fixture);
+  const prompt = [
+    "You are a used-car listing checker. Given this Check payload (identical to what Lemonless scored),",
+    "decide if it is buyable. Reply JSON only:",
+    "{pickVin,priceVerdict,fairValueUsd,redFlags,unknowns,summary}",
+    "priceVerdict one of far_below|below|fair|above|far_above|unknown.",
+    "Include sold/salvage/missing_vin/recall in redFlags when present. Do not invent figures.",
+    `Shared payload:\n${JSON.stringify(payload)}`,
   ].join("\n");
-  const parsed = await callPlainLlm(user);
-  return plainFromCanned("plain_llm", parsed, started);
+  return callPlainLlm(prompt);
 }
 
-/**
- * Live Lemonless SERV pass: one verdict_decide-style call on already-computed facts.
- * Domain ranking/pricing still run locally first (as production: code owns numbers).
- */
-export async function runLemonlessLiveFind(fixture: FindCaseFixture): Promise<ArmOutput> {
-  const base = runLemonlessFind(fixture);
-  if (!liveAllowed()) return base;
-  const started = Date.now();
-  const { runServ } = await import("@/server/serv");
-  const facts = {
-    pickVin: base.pickVin,
-    priceVerdict: base.priceVerdict,
-    fairValueUsd: base.fairValueUsd,
-    redFlags: base.redFlags,
-    listings: fixture.listings.map((row) => ({
-      vin: row.vin,
-      priceUsd: row.priceUsd,
-      miles: row.miles,
-      availability: row.availability,
-    })),
-  };
-  const result = await runServ(
-    "verdict_decide",
-    {
-      user: `Buyer query: ${fixture.query}\nCalculated facts:\n${JSON.stringify(facts)}\nChoose buy|negotiate|pass|needs_inspection. Do not invent dollar amounts.`,
-      facts,
-    },
-    {
-      apiKey: process.env.SERV_API_KEY,
-      model: process.env.SERV_MODEL || BASE_MODEL,
-      fetch,
-      transportPolicy: "experiment_single_attempt",
-    },
-  );
-  const extra = result.ok ? result.text : "SERV unavailable";
-  return {
-    ...base,
-    summary: `${base.summary} SERV: ${extra.slice(0, 240)}`,
-    latencyMs: Date.now() - started + base.latencyMs,
-    costUsd: null,
-    textForNumbers: base.textForNumbers,
-    unknowns: result.ok ? base.unknowns : [...base.unknowns, "SERV call failed"],
-  };
-}
-
-export async function runLemonlessLiveCheck(fixture: CheckCaseFixture): Promise<ArmOutput> {
-  const base = runLemonlessCheck(fixture);
-  if (!liveAllowed()) return base;
-  const started = Date.now();
-  const { runServ } = await import("@/server/serv");
-  const facts = {
-    askUsd: fixture.subject.priceUsd,
-    fairValueUsd: base.fairValueUsd,
-    redFlags: base.redFlags,
-    availability: fixture.subject.availability,
-    vin: fixture.subject.vin,
-  };
-  const result = await runServ(
-    "verdict_decide",
-    {
-      user: `Listing check. Calculated facts:\n${JSON.stringify(facts)}\nRaw excerpt:\n${fixture.rawText.slice(0, 1200)}\nChoose buy|negotiate|pass|needs_inspection. Do not invent dollar amounts.`,
-      facts,
-    },
-    {
-      apiKey: process.env.SERV_API_KEY,
-      model: process.env.SERV_MODEL || BASE_MODEL,
-      fetch,
-      transportPolicy: "experiment_single_attempt",
-    },
-  );
-  const extra = result.ok ? result.text : "SERV unavailable";
-  return {
-    ...base,
-    summary: `${base.summary} SERV: ${extra.slice(0, 240)}`,
-    latencyMs: Date.now() - started + base.latencyMs,
-    costUsd: null,
-    textForNumbers: base.textForNumbers,
-    unknowns: result.ok ? base.unknowns : [...base.unknowns, "SERV call failed"],
-  };
-}
-
-async function callPlainLlm(user: string): Promise<PlainLlmOutput> {
+async function callPlainLlm(prompt: string): Promise<ArmOutput> {
   const key = process.env.SERV_API_KEY?.trim();
-  if (!key) throw new Error("SERV_API_KEY required for live plain LLM");
+  if (!key) return notRunPlain("SERV_API_KEY required for live plain LLM");
+  const model = sharedModelId();
+  const started = Date.now();
+  const timestamp = new Date().toISOString();
   const base = (process.env.SERV_BASE_URL || "https://inference-api.openserv.ai/v1").replace(/\/$/, "");
   const response = await fetch(`${base}/chat/completions`, {
     method: "POST",
     headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
     body: JSON.stringify({
-      model: process.env.SERV_MODEL || BASE_MODEL,
+      model,
       stream: false,
       messages: [
-        { role: "system", content: "Return only compact JSON. Never invent VINs or dollar figures that are not in the user payload." },
-        { role: "user", content: user },
+        {
+          role: "system",
+          content: "Return only compact JSON. Never invent VINs or dollar figures that are not in the user payload.",
+        },
+        { role: "user", content: prompt },
       ],
     }),
     signal: AbortSignal.timeout(45_000),
@@ -439,11 +576,28 @@ async function callPlainLlm(user: string): Promise<PlainLlmOutput> {
   const payload = (await response.json().catch(() => null)) as {
     choices?: Array<{ message?: { content?: string } }>;
   } | null;
-  const text = payload?.choices?.[0]?.message?.content?.trim() ?? "";
-  return parsePlainJson(text);
+  const raw = payload?.choices?.[0]?.message?.content?.trim() ?? "";
+  const parsed = parsePlainJson(raw);
+  const text = `${parsed.summary} fairValueUsd=${parsed.fairValueUsd ?? ""} verdict=${parsed.priceVerdict} flags=${parsed.redFlags.join(",")}`;
+  const trace: LiveModelTrace = { model, timestamp, prompt, rawResponse: raw };
+  return {
+    arm: "plain_llm",
+    status: "ran",
+    pickVin: parsed.pickVin,
+    priceVerdict: parsed.priceVerdict,
+    fairValueUsd: parsed.fairValueUsd,
+    redFlags: parsed.redFlags,
+    unknowns: parsed.unknowns,
+    summary: parsed.summary,
+    latencyMs: Date.now() - started,
+    costUsd: null,
+    model,
+    textForNumbers: text,
+    liveTrace: trace,
+  };
 }
 
-function parsePlainJson(text: string): PlainLlmOutput {
+function parsePlainJson(text: string): PlainLlmParsed {
   const match = text.match(/\{[\s\S]*\}/);
   if (!match) {
     return {
@@ -456,9 +610,9 @@ function parsePlainJson(text: string): PlainLlmOutput {
     };
   }
   try {
-    const parsed = JSON.parse(match[0]) as Partial<PlainLlmOutput>;
-    const band = parsed.priceVerdict;
+    const parsed = JSON.parse(match[0]) as Partial<PlainLlmParsed>;
     const okBand: PriceBand[] = ["far_below", "below", "fair", "above", "far_above", "unknown"];
+    const band = parsed.priceVerdict;
     return {
       pickVin: typeof parsed.pickVin === "string" ? parsed.pickVin : null,
       priceVerdict: okBand.includes(band as PriceBand) ? (band as PriceBand) : "unknown",

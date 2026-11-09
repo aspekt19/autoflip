@@ -1,12 +1,14 @@
 /**
  * Honest comparison harness: Lemonless vs plain AI vs cheapest-price sort.
  *
- * Default = fixture mode (zero network, uses canned plain-LLM outputs).
- * Live mode (parent only — spends SERV):
+ * Default = fixture mode (zero network). Offline may only run pure-code arms;
+ * plain_llm is always `not_run`. No scoreboard is written until a live run.
+ *
+ * Live (parent only — spends SERV):
  *   COMPARISON_ALLOW_PAID=1 SERV_API_KEY=… npm run eval:comparison
  *
- * Do not invent live scores. Fixture mode writes docs/eval/comparison.md +
- * eval/results/comparison-latest.{json,md} from deterministic captured inputs.
+ * Live artifacts: eval/results/comparison-live/<caseId>-<arm>.json
+ * (model id, timestamp, prompt, raw response).
  */
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
@@ -14,14 +16,15 @@ import {
   liveAllowed,
   runCheapestCheck,
   runCheapestFind,
-  runLemonlessCheck,
-  runLemonlessFind,
-  runLemonlessLiveCheck,
-  runLemonlessLiveFind,
+  runLemonlessCheckDeterministic,
+  runLemonlessCheckLive,
+  runLemonlessFindDeterministic,
+  runLemonlessFindLive,
   runPlainLiveCheck,
   runPlainLiveFind,
   runPlainOfflineCheck,
   runPlainOfflineFind,
+  sharedModelId,
 } from "./arms";
 import { scoreArmOnCheck, scoreArmOnFind, summarizeTotals } from "./score";
 import type {
@@ -38,6 +41,7 @@ const CHECK_PATH = resolve(ROOT, "eval/comparison/fixtures/check-cases.json");
 const OUT_JSON = resolve(ROOT, "eval/results/comparison-latest.json");
 const OUT_MD = resolve(ROOT, "eval/results/comparison-latest.md");
 const DOCS_MD = resolve(ROOT, "docs/eval/comparison.md");
+const LIVE_DIR = resolve(ROOT, "eval/results/comparison-live");
 
 function loadFind(): FindCaseFixture[] {
   const raw = JSON.parse(readFileSync(FIND_PATH, "utf8")) as { cases: FindCaseFixture[] };
@@ -50,91 +54,167 @@ function loadCheck(): CheckCaseFixture[] {
 }
 
 async function runFindArms(fixture: FindCaseFixture, live: boolean): Promise<ArmOutput[]> {
-  const lemonless = live ? await runLemonlessLiveFind(fixture) : runLemonlessFind(fixture);
+  const lemonless = live ? await runLemonlessFindLive(fixture) : runLemonlessFindDeterministic(fixture);
   const plain = live ? await runPlainLiveFind(fixture) : runPlainOfflineFind(fixture);
   const cheapest = runCheapestFind(fixture);
   return [lemonless, plain, cheapest];
 }
 
 async function runCheckArms(fixture: CheckCaseFixture, live: boolean): Promise<ArmOutput[]> {
-  const lemonless = live ? await runLemonlessLiveCheck(fixture) : runLemonlessCheck(fixture);
+  const lemonless = live ? await runLemonlessCheckLive(fixture) : runLemonlessCheckDeterministic(fixture);
   const plain = live ? await runPlainLiveCheck(fixture) : runPlainOfflineCheck(fixture);
   const cheapest = runCheapestCheck(fixture);
   return [lemonless, plain, cheapest];
 }
 
-function renderMarkdown(report: ComparisonReport): string {
+function writeLiveTraces(cases: ComparisonReport["cases"]) {
+  mkdirSync(LIVE_DIR, { recursive: true });
+  for (const row of cases) {
+    for (const out of row.outputs) {
+      if (!out.liveTrace) continue;
+      const path = resolve(LIVE_DIR, `${row.caseId}-${out.arm}.json`);
+      writeFileSync(
+        path,
+        `${JSON.stringify(
+          {
+            caseId: row.caseId,
+            arm: out.arm,
+            synthetic: row.synthetic,
+            ...out.liveTrace,
+          },
+          null,
+          2,
+        )}\n`,
+      );
+    }
+  }
+}
+
+function renderFixtureMarkdown(report: ComparisonReport): string {
   const lines: string[] = [];
   lines.push("# Lemonless vs plain AI vs price sort");
   lines.push("");
-  lines.push(
-    report.mode === "fixture"
-      ? `**Mode:** fixture (deterministic captured inputs). Generated ${report.generatedAt}.`
-      : `**Mode:** live SERV. Generated ${report.generatedAt}.`,
-  );
+  lines.push(`**Mode:** fixture / harness ready. Generated ${report.generatedAt}.`);
   lines.push("");
   lines.push(
-    "Reproducible jury harness: **10 Find queries** + **10 Check listings** (SOLD, far-below market, salvage/rebuilt, high miles, missing VIN, recalls, odometer, as-is/accident). Three arms see identical captured JSON — A) Lemonless domain pipeline (+ SERV in live mode), B) single plain LLM call, C) cheapest-price sort.",
+    "**No scoreboard yet.** Fixture mode does not publish totals, invented-dollar counts, or vivid case winners — those numbers would be fabricated without a live plain-LLM run.",
   );
   lines.push("");
-  lines.push("Fixture mode never opens the network. Live mode is gated by `COMPARISON_ALLOW_PAID=1` + `SERV_API_KEY` (optional `COMPARISON_DRY_RUN=1` forces offline).");
+  lines.push("## What this harness compares");
   lines.push("");
-  lines.push("## Totals");
-  lines.push("");
+  lines.push("| Arm | Offline | Live |");
+  lines.push("|-----|---------|------|");
   lines.push(
-    "| Arm | Cases | Picked SOLD | Picked avoid | Invented $ | Avg |fair−label| | Red-flag recall | Avg latency | Cost |",
+    "| **lemonless** | Production domain modules only (`selectBestDealOnEvidence`, `evaluateListingPrice`, `listingRedFlags`; Check live uses `runCheck`) | Same + SERV `verdict_decide` + `report_explain` second pass |",
   );
-  lines.push("|---|---:|---:|---:|---:|---:|---:|---:|---:|");
-  for (const arm of report.arms) {
-    const t = report.totals[arm];
+  lines.push("| **plain_llm** | **not run** (canned answers forbidden) | One chat completion on the **identical shared payload** Lemonless saw |");
+  lines.push("| **cheapest** | Sort by ask | Same |");
+  lines.push("");
+  lines.push(`Shared model id for live plain_llm and Lemonless SERV: \`${sharedModelId()}\`.`);
+  lines.push("");
+  lines.push("## Cases");
+  lines.push("");
+  lines.push(`- Find: ${report.findCaseIds.length} (${report.realCaseIds.filter((id) => id.startsWith("find-")).length} real-sourced / ${report.syntheticCaseIds.filter((id) => id.startsWith("find-")).length} synthetic)`);
+  lines.push(`- Check: ${report.checkCaseIds.length} (${report.realCaseIds.filter((id) => id.startsWith("check-")).length} real-sourced / ${report.syntheticCaseIds.filter((id) => id.startsWith("check-")).length} synthetic)`);
+  lines.push("");
+  lines.push("### Case list");
+  lines.push("");
+  for (const row of report.cases) {
+    const tag = row.synthetic ? "synthetic" : "real-sourced";
+    const plain = row.outputs.find((o) => o.arm === "plain_llm");
     lines.push(
-      `| ${arm} | ${t.cases} | ${t.pickedSold} | ${t.pickedAvoid} | ${t.inventedNumber} | ${t.avgPriceErrorUsd ?? "—"} | ${t.redFlagRecall ?? "—"} | ${t.avgLatencyMs}ms | ${t.totalCostUsd ?? "—"} |`,
+      `- \`${row.caseId}\` (${tag}, ${row.kind}) — plain_llm: **${plain?.status ?? "not_run"}**${plain?.reasonNotRun ? ` — ${plain.reasonNotRun}` : ""}`,
     );
   }
   lines.push("");
-  lines.push("## What each column means");
+  lines.push("## Labels");
   lines.push("");
-  lines.push("- **Picked SOLD** — Find: pick VIN is labeled sold. Check: treated a SOLD listing as still buyable.");
-  lines.push("- **Picked avoid** — Find pick is in `expectedAvoidVins` (title brand, fleet/accident bait, etc.).");
-  lines.push("- **Invented $** — any dollar/number in the arm text not present in the captured inputs.");
-  lines.push("- **Avg |fair−label|** — absolute error vs fixture fair-value labels when the arm stated a fair value.");
-  lines.push("- **Red-flag recall** — fraction of labeled red-flag ids the arm surfaced.");
+  lines.push(
+    "Scoring labels live on each fixture under `labels` with a `provenance` block. They are derived from captured comps via `evaluateListingPrice` / from listing text via `listingRedFlags` + sold/VIN heuristics — **not** hand-picked winners. Arms never read `labels`.",
+  );
   lines.push("");
-  lines.push("## Vivid cases");
-  lines.push("");
-
-  const vividIds = ["find-family-suv-15k-68114", "check-sold-camry", "check-salvage-rebuilt"];
-  for (const id of vividIds) {
-    const row = report.cases.find((c) => c.caseId === id);
-    if (!row) continue;
-    lines.push(`### ${row.title} (\`${row.caseId}\`)`);
-    lines.push("");
-    for (const out of row.outputs) {
-      const score = row.scores.find((s) => s.arm === out.arm)!;
-      lines.push(
-        `- **${out.arm}** → pick \`${out.pickVin ?? "none"}\`, verdict \`${out.priceVerdict}\`, flags [${out.redFlags.join(", ") || "—"}]. ` +
-          `sold=${score.pickedSold} invented$=${score.inventedNumber} flags ${score.redFlagsCaught}/${score.redFlagsExpected}. ` +
-          `${out.summary}`,
-      );
-    }
-    lines.push("");
-  }
-
-  lines.push("## How to re-run");
+  lines.push("## How to run live (parent only)");
   lines.push("");
   lines.push("```bash");
-  lines.push("# Offline / CI (default — no network, no credits)");
-  lines.push("npm run eval:comparison");
-  lines.push("");
-  lines.push("# Live (parent only — spends SERV on plain LLM + Lemonless SERV pass)");
   lines.push("COMPARISON_ALLOW_PAID=1 SERV_API_KEY=… npm run eval:comparison");
   lines.push("```");
   lines.push("");
   lines.push(
-    "Expected live cost: ~20 plain-LLM calls + ~20 Lemonless `verdict_decide` calls on `gpt-5.4-mini` ≈ **$0.40–$2.00** depending on prompt size (cost fields stay null unless usage is reconciled).",
+    "Expected live cost: ~20 plain-LLM + ~20 Lemonless SERV (`verdict_decide` + second pass) on `gpt-5.4-mini` ≈ **$0.40–$2.50**. No site report credits. Traces land in `eval/results/comparison-live/`.",
   );
   lines.push("");
+  lines.push("After a live run, this file and `eval/results/comparison-latest.*` gain a scored table with **real** and **synthetic** rows reported separately.");
+  lines.push("");
   lines.push("Fixtures: `eval/comparison/fixtures/find-cases.json`, `check-cases.json`.");
+  lines.push("");
+  return `${lines.join("\n")}\n`;
+}
+
+function renderLiveMarkdown(report: ComparisonReport): string {
+  const lines: string[] = [];
+  lines.push("# Lemonless vs plain AI vs price sort");
+  lines.push("");
+  lines.push(`**Mode:** live SERV. Generated ${report.generatedAt}.`);
+  lines.push("");
+  lines.push(`Models: plain_llm=\`${report.modelForPlainLlm}\`, lemonless SERV=\`${report.modelForLemonlessServ}\`.`);
+  lines.push("");
+  lines.push("## Totals (all cases)");
+  lines.push("");
+  lines.push(
+    "| Arm | Ran | Not run | Picked SOLD | Picked avoid | Invented $ | Avg |fair−label| | Red-flag recall | Avg latency |",
+  );
+  lines.push("|---|---:|---:|---:|---:|---:|---:|---:|---:|");
+  for (const arm of report.arms) {
+    const t = report.totals![arm];
+    lines.push(
+      `| ${arm} | ${t.cases - t.notRun} | ${t.notRun} | ${t.pickedSold} | ${t.pickedAvoid} | ${t.inventedNumber} | ${t.avgPriceErrorUsd ?? "—"} | ${t.redFlagRecall ?? "—"} | ${t.avgLatencyMs}ms |`,
+    );
+  }
+  lines.push("");
+  lines.push("### Real-sourced only");
+  lines.push("");
+  const realScores = report.scores.filter((s) => !s.synthetic);
+  const realTotals = summarizeTotals(realScores, { includeScores: true });
+  if (realTotals) {
+    lines.push("| Arm | Picked SOLD | Invented $ | Red-flag recall |");
+    lines.push("|---|---:|---:|---:|");
+    for (const arm of report.arms) {
+      const t = realTotals[arm];
+      lines.push(`| ${arm} | ${t.pickedSold} | ${t.inventedNumber} | ${t.redFlagRecall ?? "—"} |`);
+    }
+  }
+  lines.push("");
+  lines.push("### Synthetic only");
+  lines.push("");
+  const synScores = report.scores.filter((s) => s.synthetic);
+  const synTotals = summarizeTotals(synScores, { includeScores: true });
+  if (synTotals) {
+    lines.push("| Arm | Picked SOLD | Invented $ | Red-flag recall |");
+    lines.push("|---|---:|---:|---:|");
+    for (const arm of report.arms) {
+      const t = synTotals[arm];
+      lines.push(`| ${arm} | ${t.pickedSold} | ${t.inventedNumber} | ${t.redFlagRecall ?? "—"} |`);
+    }
+  }
+  lines.push("");
+  lines.push("## Case notes");
+  lines.push("");
+  for (const row of report.cases.slice(0, 6)) {
+    lines.push(`### ${row.title} (\`${row.caseId}\`, ${row.synthetic ? "synthetic" : "real-sourced"})`);
+    lines.push("");
+    for (const out of row.outputs) {
+      const score = row.scores.find((s) => s.arm === out.arm)!;
+      if (out.status !== "ran") {
+        lines.push(`- **${out.arm}** — not run: ${out.reasonNotRun ?? out.summary}`);
+        continue;
+      }
+      lines.push(
+        `- **${out.arm}** (model=${out.model ?? "code"}) → pick \`${out.pickVin ?? "none"}\`, sold=${score.pickedSold}, invented$=${score.inventedNumber}. ${out.summary.slice(0, 200)}`,
+      );
+    }
+    lines.push("");
+  }
+  lines.push("Live traces: `eval/results/comparison-live/`.");
   lines.push("");
   return `${lines.join("\n")}\n`;
 }
@@ -147,13 +227,10 @@ export async function runComparisonHarness(opts?: { live?: boolean }): Promise<C
     );
   }
 
-  // Refuse accidental network in fixture mode.
   if (!live) {
-    const original = globalThis.fetch;
     globalThis.fetch = (() => {
       throw new Error("eval:comparison fixture mode refuses network");
     }) as typeof fetch;
-    void original;
   }
 
   const findCases = loadFind();
@@ -165,43 +242,70 @@ export async function runComparisonHarness(opts?: { live?: boolean }): Promise<C
     const outputs = await runFindArms(fixture, live);
     const caseScores = outputs.map((output) => scoreArmOnFind({ fixture, output }));
     scores.push(...caseScores);
-    cases.push({ caseId: fixture.id, kind: "find", title: fixture.title, outputs, scores: caseScores });
+    cases.push({
+      caseId: fixture.id,
+      kind: "find",
+      title: fixture.title,
+      synthetic: fixture.synthetic,
+      outputs,
+      scores: caseScores,
+    });
   }
   for (const fixture of checkCases) {
     const outputs = await runCheckArms(fixture, live);
     const caseScores = outputs.map((output) => scoreArmOnCheck({ fixture, output }));
     scores.push(...caseScores);
-    cases.push({ caseId: fixture.id, kind: "check", title: fixture.title, outputs, scores: caseScores });
+    cases.push({
+      caseId: fixture.id,
+      kind: "check",
+      title: fixture.title,
+      synthetic: fixture.synthetic,
+      outputs,
+      scores: caseScores,
+    });
   }
 
+  const allIds = [...findCases, ...checkCases];
   const report: ComparisonReport = {
     schema: "lemonless.comparison.v1",
     mode: live ? "live" : "fixture",
     generatedAt: new Date().toISOString(),
+    hasLiveScores: live,
+    modelForPlainLlm: live ? sharedModelId() : null,
+    modelForLemonlessServ: live ? sharedModelId() : null,
     arms: ["lemonless", "plain_llm", "cheapest"],
     findCaseIds: findCases.map((c) => c.id),
     checkCaseIds: checkCases.map((c) => c.id),
-    scores,
-    totals: summarizeTotals(scores),
+    syntheticCaseIds: allIds.filter((c) => c.synthetic).map((c) => c.id),
+    realCaseIds: allIds.filter((c) => !c.synthetic).map((c) => c.id),
+    scores: live ? scores : scores.map((s) => (s.arm === "plain_llm" ? s : { ...s, /* keep code-arm scores in JSON for tests but docs omit */ })),
+    totals: summarizeTotals(scores, { includeScores: live }),
     cases,
   };
+
+  // Offline JSON still records arm outputs for tests, but clears published score totals.
+  if (!live) {
+    report.scores = scores; // includes not_run for plain_llm; tests assert that
+    report.totals = null;
+  } else {
+    writeLiveTraces(cases);
+  }
 
   mkdirSync(resolve(ROOT, "eval/results"), { recursive: true });
   mkdirSync(resolve(ROOT, "docs/eval"), { recursive: true });
   writeFileSync(OUT_JSON, `${JSON.stringify(report, null, 2)}\n`);
-  const md = renderMarkdown(report);
+  const md = live ? renderLiveMarkdown(report) : renderFixtureMarkdown(report);
   writeFileSync(OUT_MD, md);
   writeFileSync(DOCS_MD, md);
   return report;
 }
 
 async function main() {
-  const live = process.argv.includes("--live") || process.env.COMPARISON_ALLOW_PAID === "1";
-  // Live still requires explicit ALLOW + key via liveAllowed() inside.
-  const wantLive = live && liveAllowed();
-  if (live && !wantLive) {
+  const liveFlag = process.argv.includes("--live") || process.env.COMPARISON_ALLOW_PAID === "1";
+  const wantLive = liveFlag && liveAllowed();
+  if (liveFlag && !wantLive) {
     console.error(
-      "COMPARISON_ALLOW_PAID=1 was set (or --live) but SERV_API_KEY is missing / dry-run. Refusing to invent live scores.",
+      "COMPARISON_ALLOW_PAID=1 was set (or --live) but SERV_API_KEY is missing / COMPARISON_DRY_RUN=1. Refusing to invent live scores.",
     );
     process.exit(2);
   }
@@ -210,8 +314,15 @@ async function main() {
     JSON.stringify(
       {
         mode: report.mode,
+        hasLiveScores: report.hasLiveScores,
         find: report.findCaseIds.length,
         check: report.checkCaseIds.length,
+        real: report.realCaseIds.length,
+        synthetic: report.syntheticCaseIds.length,
+        plainLlmStatuses: report.cases.map((c) => ({
+          id: c.caseId,
+          status: c.outputs.find((o) => o.arm === "plain_llm")?.status,
+        })),
         totals: report.totals,
         wrote: [OUT_JSON, OUT_MD, DOCS_MD],
       },

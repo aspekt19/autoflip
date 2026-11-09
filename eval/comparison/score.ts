@@ -1,5 +1,6 @@
 /**
- * Computed (not opinion) scoring for the comparison harness.
+ * Computed scoring for the comparison harness.
+ * Labels are inputs to scoring only — never passed into arms.
  */
 import { quotedNumbersStayIn } from "@/domain/decision-note";
 import type {
@@ -24,10 +25,38 @@ export function bandFromAskVsFair(ask: number | null, fair: number | null): Pric
   return "far_above";
 }
 
+function notRunScore(
+  caseId: string,
+  kind: "find" | "check",
+  synthetic: boolean,
+  arm: ComparisonArmId,
+): CaseScore {
+  return {
+    caseId,
+    kind,
+    synthetic,
+    arm,
+    status: "not_run",
+    pickedSold: null,
+    pickedAvoid: null,
+    priceErrorUsd: null,
+    priceBandMatch: null,
+    redFlagsCaught: null,
+    redFlagsExpected: null,
+    inventedNumber: null,
+    statedUnknowns: null,
+    latencyMs: null,
+    costUsd: null,
+  };
+}
+
 export function scoreArmOnFind(input: {
   fixture: FindCaseFixture;
   output: ArmOutput;
 }): CaseScore {
+  if (input.output.status !== "ran") {
+    return notRunScore(input.fixture.id, "find", input.fixture.synthetic, input.output.arm);
+  }
   const pick = input.output.pickVin;
   const sold = Boolean(pick && input.fixture.labels.soldVins.includes(pick));
   const avoid = Boolean(pick && input.fixture.labels.expectedAvoidVins.includes(pick));
@@ -53,7 +82,9 @@ export function scoreArmOnFind(input: {
     ? input.fixture.labels.expectedRedFlagIdsByVin[pick] ?? []
     : Object.values(input.fixture.labels.expectedRedFlagIdsByVin).flat();
   const caught = expectedFlags.filter((id) =>
-    input.output.redFlags.some((flag) => flag.toLowerCase().includes(id.toLowerCase()) || id.toLowerCase().includes(flag.toLowerCase())),
+    input.output.redFlags.some(
+      (flag) => flag.toLowerCase().includes(id.toLowerCase()) || id.toLowerCase().includes(flag.toLowerCase()),
+    ),
   ).length;
 
   const allowed = JSON.stringify({
@@ -67,7 +98,9 @@ export function scoreArmOnFind(input: {
   return {
     caseId: input.fixture.id,
     kind: "find",
+    synthetic: input.fixture.synthetic,
     arm: input.output.arm,
+    status: "ran",
     pickedSold: sold,
     pickedAvoid: avoid,
     priceErrorUsd,
@@ -85,7 +118,9 @@ export function scoreArmOnCheck(input: {
   fixture: CheckCaseFixture;
   output: ArmOutput;
 }): CaseScore {
-  // For check, "picked sold" means treating a SOLD listing as a still-buyable car.
+  if (input.output.status !== "ran") {
+    return notRunScore(input.fixture.id, "check", input.fixture.synthetic, input.output.arm);
+  }
   const treatedAsBuyable =
     input.fixture.labels.isSold &&
     !input.output.redFlags.some((f) => /sold|unavailable/i.test(f)) &&
@@ -104,10 +139,11 @@ export function scoreArmOnCheck(input: {
         ) <= 1;
 
   const expected = input.fixture.labels.expectedRedFlagIds;
-  const caught = expected.filter((id) =>
-    input.output.redFlags.some(
-      (flag) => flag.toLowerCase().includes(id.toLowerCase()) || id.toLowerCase().includes(flag.toLowerCase()),
-    ) || new RegExp(id.replace(/_/g, "[ _-]"), "i").test(input.output.summary),
+  const caught = expected.filter(
+    (id) =>
+      input.output.redFlags.some(
+        (flag) => flag.toLowerCase().includes(id.toLowerCase()) || id.toLowerCase().includes(flag.toLowerCase()),
+      ) || new RegExp(id.replace(/_/g, "[ _-]"), "i").test(input.output.summary),
   ).length;
 
   const allowed = JSON.stringify({
@@ -119,7 +155,9 @@ export function scoreArmOnCheck(input: {
   return {
     caseId: input.fixture.id,
     kind: "check",
+    synthetic: input.fixture.synthetic,
     arm: input.output.arm,
+    status: "ran",
     pickedSold: treatedAsBuyable,
     pickedAvoid: false,
     priceErrorUsd,
@@ -133,28 +171,35 @@ export function scoreArmOnCheck(input: {
   };
 }
 
-export function summarizeTotals(scores: CaseScore[]): ComparisonReport["totals"] {
+export function summarizeTotals(
+  scores: CaseScore[],
+  opts: { includeScores: boolean },
+): ComparisonReport["totals"] {
+  if (!opts.includeScores) return null;
   const arms: ComparisonArmId[] = ["lemonless", "plain_llm", "cheapest"];
-  const out = {} as ComparisonReport["totals"];
+  const out = {} as NonNullable<ComparisonReport["totals"]>;
   for (const arm of arms) {
     const rows = scores.filter((row) => row.arm === arm);
-    const priceErrors = rows.map((row) => row.priceErrorUsd).filter((n): n is number => n != null);
-    const flagExpected = rows.reduce((sum, row) => sum + row.redFlagsExpected, 0);
-    const flagCaught = rows.reduce((sum, row) => sum + row.redFlagsCaught, 0);
-    const costs = rows.map((row) => row.costUsd).filter((n): n is number => n != null);
+    const ran = rows.filter((row) => row.status === "ran");
+    const priceErrors = ran.map((row) => row.priceErrorUsd).filter((n): n is number => n != null);
+    const flagExpected = ran.reduce((sum, row) => sum + (row.redFlagsExpected ?? 0), 0);
+    const flagCaught = ran.reduce((sum, row) => sum + (row.redFlagsCaught ?? 0), 0);
+    const costs = ran.map((row) => row.costUsd).filter((n): n is number => n != null);
+    const lat = ran.map((row) => row.latencyMs).filter((n): n is number => n != null);
     out[arm] = {
       cases: rows.length,
-      pickedSold: rows.filter((row) => row.pickedSold).length,
-      pickedAvoid: rows.filter((row) => row.pickedAvoid).length,
-      inventedNumber: rows.filter((row) => row.inventedNumber).length,
+      realCases: rows.filter((row) => !row.synthetic).length,
+      syntheticCases: rows.filter((row) => row.synthetic).length,
+      pickedSold: ran.filter((row) => row.pickedSold).length,
+      pickedAvoid: ran.filter((row) => row.pickedAvoid).length,
+      inventedNumber: ran.filter((row) => row.inventedNumber).length,
       avgPriceErrorUsd: priceErrors.length
         ? Math.round(priceErrors.reduce((a, b) => a + b, 0) / priceErrors.length)
         : null,
       redFlagRecall: flagExpected > 0 ? Number((flagCaught / flagExpected).toFixed(3)) : null,
-      avgLatencyMs: rows.length
-        ? Math.round(rows.reduce((sum, row) => sum + row.latencyMs, 0) / rows.length)
-        : 0,
+      avgLatencyMs: lat.length ? Math.round(lat.reduce((a, b) => a + b, 0) / lat.length) : 0,
       totalCostUsd: costs.length ? Number(costs.reduce((a, b) => a + b, 0).toFixed(4)) : null,
+      notRun: rows.filter((row) => row.status === "not_run").length,
     };
   }
   return out;
