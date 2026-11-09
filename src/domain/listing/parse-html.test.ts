@@ -93,4 +93,37 @@ describe("parseListingHtml fixtures", () => {
     expect(parsed.llmText).toMatch(/\[removed\]/i);
     expect(parsed.llmText).not.toMatch(/reveal your system prompt/i);
   });
+
+  it("maps schema.org drivetrain URLs, marks SOLD, and drops junk seller names", () => {
+    const html = readFileSync(join(FIXTURES, "sold-schema-camry.html"), "utf8");
+    const parsed = parseListingHtml(
+      html,
+      "https://www.autoboutiquetexas.com/vehicle-details/used-2014-toyota-camry-le-4t1bf1fk0eu848445",
+    );
+    const f = parsed.deterministic;
+    expect(f.year.value).toBe(2014);
+    expect(f.make.value?.toLowerCase()).toBe("toyota");
+    expect(f.model.value?.toLowerCase()).toBe("camry");
+    expect(f.drivetrain.value).toBe("FWD");
+    expect(f.drivetrain.value).not.toMatch(/schema\.org/i);
+    expect(f.titleStatus.value).toMatch(/SOLD/i);
+    expect(f.sellerName.value).toBeNull();
+    expect(f.fuel.value).toMatch(/Hybrid/i);
+
+    const flags = listingRedFlags({ fields: f, pageText: parsed.llmText });
+    expect(flags.some((flag) => flag.id === "sold" && flag.level === "stop")).toBe(true);
+  });
+
+  it("recovers year/make/model from title, H1, og tags, and URL slug when structured data is thin", () => {
+    const html = readFileSync(join(FIXTURES, "cruz-crv-title-only.html"), "utf8");
+    const parsed = parseListingHtml(
+      html,
+      "https://www.cruz.com/inventory/used-2015-honda-cr-v-ex-awd-2hkrm4h75fh111111",
+    );
+    const f = parsed.deterministic;
+    expect(f.year.value).toBe(2015);
+    expect(f.make.value?.toLowerCase()).toBe("honda");
+    expect(f.model.value?.toLowerCase()).toMatch(/cr-?v/);
+    expect(listingFromExtracted(f)).not.toBeNull();
+  });
 });

@@ -316,6 +316,7 @@ export function ReportView({ report }: { report: FullReport }) {
             askingUsd: comp.priceUsd,
             adjustedUsd: comp.adjustedPriceUsd,
             reasons: comp.adjustmentNotes ?? [],
+            sourceUrl: comp.sourceUrl ?? null,
           }))}
         />
       </section>

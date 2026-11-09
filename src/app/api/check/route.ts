@@ -179,11 +179,13 @@ export async function POST(request: Request) {
       spentCredit = true;
     }
 
+    let freeChecks = (await freeCheckSlotsRemaining(getKv(), access.id)).view;
     if (usedFreeCheck && freeCheckKey) {
-      await commitFreeCheck(getKv(), access.id, freeCheckKey);
+      const committed = await commitFreeCheck(getKv(), access.id, freeCheckKey);
+      freeChecks = committed.view;
     }
 
-    return Response.json({ ok: true, ...result.result, usedFreeCheck, spentCredit });
+    return Response.json({ ok: true, ...result.result, usedFreeCheck, spentCredit, freeChecks });
   } catch (error) {
     if (usedFreeCheck && freeCheckKey) await releaseFreeCheck(getKv(), access.id, freeCheckKey);
     const message = error instanceof Error ? error.message : "Check failed.";

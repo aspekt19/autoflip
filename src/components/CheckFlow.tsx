@@ -5,11 +5,16 @@ import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { SignInGate } from "@/components/SignInGate";
 import { PriceBadgeView, PriceRatingHow } from "@/components/PriceBadge";
-import { freeChecksRemainingFromAccount } from "@/domain/free-check-quota";
+import { SimilarCarsList } from "@/components/SimilarCarsList";
+import {
+  formatFreeChecksRemaining,
+  freeChecksRemainingFromAccount,
+} from "@/domain/free-check-quota";
 import { isValidVin } from "@/domain/vin";
 import { formatUsd } from "@/domain/format";
 import type { PriceBadge } from "@/domain/price-badge";
 import type { CheckConfidence, CheckRedFlag, ExtractedListingFields } from "@/domain/listing/types";
+import type { SimilarCarView } from "@/domain/purchase-readiness";
 
 type CheckKind = "link" | "vin" | "paste";
 
@@ -28,6 +33,9 @@ type CheckResultView = {
   questions: string[];
   otd: { headline: string; lines: string[]; status: string } | null;
   otdNeedsZip: boolean;
+  walkAwayUsd: number | null;
+  walkAwayLabel: string | null;
+  similarCars: SimilarCarView[];
   fields: ExtractedListingFields | null;
   provenance: Array<{ field: string; value: string | number | string[] | null; source: string | null }>;
   vin: string | null;
@@ -35,6 +43,7 @@ type CheckResultView = {
   recallsAvailable: boolean;
   complaintCount: number | null;
   fuel: { combMpg: number | null; annualFuelCostUsd: number | null } | null;
+  fuelConflict: string | null;
   safetySummary: string | null;
   knownIssues: Array<{ text: string; source: string }>;
   unknown: string[];
@@ -46,6 +55,7 @@ type CheckResultView = {
     city: string | null;
     state: string | null;
   }>;
+  freeChecks?: { remaining: number; limit: number; resetsLabel: string } | null;
 };
 
 function sourceLabel(source: string | null): string {
@@ -83,12 +93,35 @@ function CheckFlowForm() {
   const [result, setResult] = useState<CheckResultView | null>(null);
   const [allowance, setAllowance] = useState<"loading" | "signed-out" | "missing" | string>("loading");
 
+  async function refreshAllowance(from?: {
+    freeChecks?: { remaining: number; limit: number; resetsLabel: string } | null;
+  }) {
+    if (
+      from?.freeChecks &&
+      typeof from.freeChecks.remaining === "number" &&
+      typeof from.freeChecks.limit === "number" &&
+      typeof from.freeChecks.resetsLabel === "string"
+    ) {
+      setAllowance(
+        formatFreeChecksRemaining({
+          remaining: from.freeChecks.remaining,
+          limit: from.freeChecks.limit,
+          resetsLabel: from.freeChecks.resetsLabel,
+        }),
+      );
+    }
+    try {
+      const response = await fetch("/api/account", { cache: "no-store" });
+      const body = await response.json();
+      setAllowance(freeChecksRemainingFromAccount(body));
+    } catch {
+      setAllowance((prev) => (prev === "loading" ? "missing" : prev));
+    }
+  }
+
   useEffect(() => {
-    fetch("/api/account", { cache: "no-store" })
-      .then((r) => r.json())
-      .then((body) => setAllowance(freeChecksRemainingFromAccount(body)))
-      .catch(() => setAllowance("missing"));
-  }, [result]);
+    void refreshAllowance();
+  }, []);
 
   useEffect(() => {
     try {
@@ -153,6 +186,7 @@ function CheckFlowForm() {
     }
 
     setPending(true);
+    void refreshAllowance();
     try {
       const payload =
         kind === "link"
@@ -177,9 +211,11 @@ function CheckFlowForm() {
         blocked?: boolean;
         alternatives?: string[];
         ok?: boolean;
+        freeChecks?: { remaining: number; limit: number; resetsLabel: string } | null;
       };
 
       if (response.status === 401 || response.status === 403) {
+        await refreshAllowance(body);
         if (body.error === "credits_required") {
           stash();
           router.push("/credits?need=1&return=%2Fcheck");
@@ -200,10 +236,12 @@ function CheckFlowForm() {
         setBlocked(body.blocked === true);
         setError(body.message ?? "The check did not finish.");
         if (body.blocked) setKind("paste");
+        await refreshAllowance(body);
         return;
       }
 
       setResult(body);
+      await refreshAllowance(body);
       try {
         sessionStorage.removeItem("af-check");
       } catch {
@@ -211,6 +249,7 @@ function CheckFlowForm() {
       }
     } catch {
       setError("The check did not finish.");
+      await refreshAllowance();
     } finally {
       setPending(false);
     }
@@ -298,25 +337,27 @@ function CheckFlowForm() {
         </>
       ) : null}
 
-      {showZip || result?.otdNeedsZip ? (
-        <div className="field">
-          <label htmlFor="otd-zip">ZIP for out-the-door tax estimate (optional)</label>
-          <input
-            id="otd-zip"
-            value={optionalZip}
-            onChange={(event) => setOptionalZip(event.target.value)}
-            inputMode="numeric"
-            placeholder="e.g. 33101"
-          />
-        </div>
-      ) : (
-        <p className="hint">
-          <button type="button" className="quiet" onClick={() => setShowZip(true)}>
-            Add a ZIP for the tax estimate
-          </button>{" "}
-          — only needed when the listing has no location.
-        </p>
-      )}
+      {kind !== "vin" ? (
+        showZip || result?.otdNeedsZip ? (
+          <div className="field">
+            <label htmlFor="otd-zip">ZIP for out-the-door tax estimate (optional)</label>
+            <input
+              id="otd-zip"
+              value={optionalZip}
+              onChange={(event) => setOptionalZip(event.target.value)}
+              inputMode="numeric"
+              placeholder="e.g. 33101"
+            />
+          </div>
+        ) : (
+          <p className="hint">
+            <button type="button" className="quiet" onClick={() => setShowZip(true)}>
+              Add a ZIP for the tax estimate
+            </button>{" "}
+            — only needed when the listing has no location.
+          </p>
+        )
+      ) : null}
 
       <div className="btn-row">
         <button className="ghost" type="button" onClick={() => router.push("/")}>
@@ -328,7 +369,7 @@ function CheckFlowForm() {
           disabled={pending || (kind === "vin" && Boolean(vin.trim()) && !isValidVin(vin.trim()))}
           onClick={() => void submit()}
         >
-          {pending ? "Checking…" : kind === "vin" ? "Build VIN dossier" : "Check this car"}
+          {pending ? "Checking…" : kind === "vin" ? "Check this VIN" : "Check this car"}
         </button>
       </div>
 
@@ -357,6 +398,9 @@ function CheckFlowForm() {
 
 function CheckResultCard({ result }: { result: CheckResultView }) {
   const priced = result.fields?.priceUsd.value;
+  const stopFlags = result.redFlags.filter((flag) => flag.level === "stop");
+  const sold = result.redFlags.some((flag) => flag.id === "sold");
+  const similarCars = result.similarCars ?? [];
   return (
     <article className="warn-box check-result" aria-live="polite">
       <p className="kicker">{result.kind === "vin_dossier" ? "VIN dossier" : "Listing check"}</p>
@@ -368,12 +412,32 @@ function CheckResultCard({ result }: { result: CheckResultView }) {
       </p>
       <p>{result.summary}</p>
 
+      {sold ? (
+        <p className="warn" role="status">
+          This listing is marked SOLD. Do not treat seller questions or price notes as a green light to buy until the
+          seller confirms the car is still available.
+        </p>
+      ) : null}
+
       {result.badge ? (
         <>
           <PriceBadgeView badge={result.badge} />
           <p className="hint">{result.compScope}</p>
           <PriceRatingHow />
         </>
+      ) : null}
+
+      {result.kind === "listing" && (result.walkAwayLabel || similarCars.length > 0) ? (
+        <section>
+          <h3>Walk-away and comps</h3>
+          {result.walkAwayLabel ? <p>{result.walkAwayLabel}</p> : null}
+          {result.walkAwayUsd != null ? (
+            <p className="lead">
+              Walk-away: <strong>{formatUsd(result.walkAwayUsd)}</strong>
+            </p>
+          ) : null}
+          {similarCars.length > 0 ? <SimilarCarsList cars={similarCars} open /> : null}
+        </section>
       ) : null}
 
       {result.redFlags.length > 0 ? (
@@ -392,6 +456,10 @@ function CheckResultCard({ result }: { result: CheckResultView }) {
         <p className="hint">No stop-level red flags from the listing text. Missing history is still unknown.</p>
       )}
 
+      {stopFlags.length === 0 && result.redFlags.length > 0 ? (
+        <p className="hint">No stop-level red flags. The notes above are cautions, and missing history is still unknown.</p>
+      ) : null}
+
       {result.otd ? (
         <section>
           <h3>Out-the-door estimate</h3>
@@ -402,7 +470,7 @@ function CheckResultCard({ result }: { result: CheckResultView }) {
             ))}
           </ul>
         </section>
-      ) : result.otdNeedsZip ? (
+      ) : result.otdNeedsZip && result.kind === "listing" ? (
         <p className="hint">Add a ZIP above to estimate state sales tax for the out-the-door floor.</p>
       ) : priced == null && result.kind === "listing" ? (
         <p className="hint">No asking price was found, so an out-the-door estimate is not available.</p>
@@ -430,6 +498,7 @@ function CheckResultCard({ result }: { result: CheckResultView }) {
               ? `about ${result.fuel.combMpg} mpg combined${result.fuel.annualFuelCostUsd != null ? ` · ~${formatUsd(result.fuel.annualFuelCostUsd)}/yr` : ""}`
               : "unavailable"}
           </li>
+          {result.fuelConflict ? <li>{result.fuelConflict}</li> : null}
           {result.vin ? <li>VIN: {result.vin}</li> : <li>VIN: not found on the listing</li>}
         </ul>
       </section>
@@ -472,6 +541,11 @@ function CheckResultCard({ result }: { result: CheckResultView }) {
       {result.questions.length > 0 ? (
         <section>
           <h3>Ask the seller</h3>
+          {sold ? (
+            <p className="hint">
+              These questions only matter if the seller confirms the car is still available — the listing is marked SOLD.
+            </p>
+          ) : null}
           <ul className="refuse">
             {result.questions.map((q) => (
               <li key={q}>{q}</li>

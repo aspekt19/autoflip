@@ -5,6 +5,7 @@
 import { checkConfidence } from "@/domain/listing/confidence";
 import { knownModelYearIssues } from "@/domain/listing/known-issues";
 import { listingRedFlags } from "@/domain/listing/red-flags";
+import { fuelConflictNote } from "@/domain/listing/schema-org";
 import { listingFromExtracted } from "@/domain/listing/to-listing";
 import type {
   CheckConfidence,
@@ -12,11 +13,13 @@ import type {
   CheckVerdictLabel,
   ExtractedListingFields,
 } from "@/domain/listing/types";
+import { joinSummarySentences } from "@/domain/listing/year-make-model";
 import { priceBadge, type PriceBadge } from "@/domain/price-badge";
 import {
   buildPurchaseReadiness,
   zipChoice,
   type PurchaseReadiness,
+  type SimilarCarView,
 } from "@/domain/purchase-readiness";
 import { dealerQuestions } from "@/domain/questions";
 import { isValidVin } from "@/domain/vin";
@@ -72,6 +75,11 @@ export type CheckResultPayload = {
   questions: string[];
   otd: PurchaseReadiness["otd"] | null;
   otdNeedsZip: boolean;
+  /** Same walk-away path as Find / sample report when asking price is known. */
+  walkAwayUsd: number | null;
+  walkAwayLabel: string | null;
+  /** Top adjusted comps used for the walk-away (year/trim/miles/price/adjustment + source). */
+  similarCars: SimilarCarView[];
   fields: ExtractedListingFields | null;
   provenance: FieldProvenanceRow[];
   vin: string | null;
@@ -80,6 +88,7 @@ export type CheckResultPayload = {
   recallsAvailable: boolean;
   complaintCount: number | null;
   fuel: FuelFact | null;
+  fuelConflict: string | null;
   safetySummary: string | null;
   knownIssues: Array<{ text: string; source: string }>;
   unknown: string[];
@@ -342,6 +351,19 @@ async function buildListingVerdict(
   const badge = priceBadge(subject, pool);
   const gov = await govBundle(fields.vin.value, subject, { fetch: fetchImpl });
   const vinMismatch = mismatchNote(gov.vinDecode, subject);
+
+  // Prefer government VIN-decoder fuel over listing JSON-LD when they conflict.
+  const decodeFuel = gov.vinDecode?.fuel ?? null;
+  const listingFuel = fields.fuel.value;
+  const fuelNote = fuelConflictNote(listingFuel, decodeFuel);
+  if (fuelNote && decodeFuel) {
+    fields = {
+      ...fields,
+      fuel: { value: decodeFuel, source: fields.fuel.source ?? "json_ld" },
+    };
+    subject = { ...subject, fuel: decodeFuel };
+  }
+
   const flags = listingRedFlags({
     fields,
     description: fields.description.value,
@@ -365,10 +387,19 @@ async function buildListingVerdict(
       source: "vin-identity",
     });
   }
+  if (fuelNote) {
+    flags.push({
+      id: "fuel_conflict",
+      level: "caution",
+      text: fuelNote,
+      source: "vin-fuel",
+    });
+  }
 
+  const soldFlag = flags.some((f) => f.id === "sold");
   const parkIt = gov.recalls.some((r) => r.parkIt);
   const parkOutside = gov.recalls.some((r) => r.parkOutSide);
-  const questions = dealerQuestions({
+  let questions = dealerQuestions({
     listing: subject,
     recalls: gov.recalls,
     vinIdentityMismatch: vinMismatch,
@@ -379,6 +410,12 @@ async function buildListingVerdict(
       /\b(salvage|rebuilt|flood|lemon|junk|branded title)\b/i,
     )?.[0] ?? null,
   });
+  if (soldFlag) {
+    questions = [
+      "Confirm with the seller that this exact VIN is still for sale before planning a visit or deposit.",
+      ...questions,
+    ];
+  }
 
   const zipPick = zipChoice(null, zip);
   const readiness =
@@ -395,6 +432,7 @@ async function buildListingVerdict(
             accidentCount: subject.accidentCount,
             askingPriceKind: subject.askingPriceKind ?? "purchase_ask",
             zip: zipPick.zip,
+            sourceUrl: subject.vdp,
           },
           pool: pool.map((row) => ({
             vin: row.vin,
@@ -407,6 +445,7 @@ async function buildListingVerdict(
             accidentCount: row.accidentCount,
             askingPriceKind: row.askingPriceKind ?? "purchase_ask",
             zip: row.zip,
+            sourceUrl: row.vdp,
           })),
           zip: zipPick.zip,
           zipUsedFor: zipPick.zipUsedFor,
@@ -420,7 +459,7 @@ async function buildListingVerdict(
     fields,
     hasVin: Boolean(fields.vin.value),
     govRan: Boolean(gov.vinDecode) || gov.recallsAvailable,
-    compCount: badge.sampleSize ?? 0,
+    compCount: badge.sampleSize ?? readiness?.offer.compCount ?? 0,
     listingSourceCount: provenanceRows(fields).filter((row) => row.value != null).length,
   });
 
@@ -432,13 +471,19 @@ async function buildListingVerdict(
     recallCount: gov.recallsAvailable ? gov.recalls.length : null,
   });
 
-  const summaryParts = [
+  const stop = flags.some((f) => f.level === "stop");
+  const summary = joinSummarySentences([
     `${subject.year} ${subject.make} ${subject.model}${subject.trim ? ` ${subject.trim}` : ""}`,
+    soldFlag
+      ? "This listing is marked SOLD — treat it as unavailable until the seller confirms otherwise"
+      : null,
     badge?.deltaLabel ?? "Price could not be rated from similar listings",
-    flags.some((f) => f.level === "stop")
-      ? "At least one stop-level red flag needs attention before you buy."
-      : "Review the red flags and seller questions below.",
-  ];
+    stop
+      ? "At least one stop-level red flag needs attention before you buy"
+      : "Review the red flags and seller questions below",
+  ].filter((part): part is string => Boolean(part)));
+
+  const topComps = (readiness?.offer.similarCars ?? []).slice(0, 8);
 
   return {
     ok: true,
@@ -448,19 +493,22 @@ async function buildListingVerdict(
       verdict: decided.verdict,
       verdictLabel: decided.label,
       confidence,
-      summary: summaryParts.join(". ") + ".",
+      summary,
       badge,
-      fairValueUsd: badge.fairValueUsd,
+      fairValueUsd: badge.fairValueUsd ?? readiness?.offer.fairMidUsd ?? null,
       priceGap:
         badge.fairValueUsd != null && subject.priceUsd != null && badge.fairValueUsd > 0
           ? (subject.priceUsd - badge.fairValueUsd) / badge.fairValueUsd
           : null,
-      compCount: badge.sampleSize ?? 0,
+      compCount: badge.sampleSize ?? readiness?.offer.compCount ?? 0,
       compScope: comps.scope,
       redFlags: flags,
       questions,
       otd: readiness?.otd ?? null,
       otdNeedsZip: !zipPick.zip && subject.priceUsd != null,
+      walkAwayUsd: readiness?.offer.walkAwayUsd ?? null,
+      walkAwayLabel: readiness?.offer.walkAwayLabel ?? null,
+      similarCars: topComps,
       fields,
       provenance: provenanceRows(fields),
       vin: fields.vin.value,
@@ -469,6 +517,7 @@ async function buildListingVerdict(
       recallsAvailable: gov.recallsAvailable,
       complaintCount: gov.complaintCount,
       fuel: gov.fuel,
+      fuelConflict: fuelNote,
       safetySummary: gov.safetySummary,
       knownIssues,
       unknown: unknownList(fields, [
@@ -633,6 +682,9 @@ async function buildVinDossier(vin: string, deps: CheckRunDeps, optionalZip?: st
       questions,
       otd: null,
       otdNeedsZip: false,
+      walkAwayUsd: null,
+      walkAwayLabel: null,
+      similarCars: [],
       fields: null,
       provenance: [
         { field: "vin", value: vin, source: "typed VIN" },
@@ -646,6 +698,7 @@ async function buildVinDossier(vin: string, deps: CheckRunDeps, optionalZip?: st
       recallsAvailable: bundle.recallsAvailable,
       complaintCount: bundle.complaintCount,
       fuel: bundle.fuel,
+      fuelConflict: null,
       safetySummary: bundle.safetySummary,
       knownIssues,
       unknown,

@@ -60,6 +60,8 @@ export type ReadinessCar = {
   ownerCount?: number | null;
   askingPriceKind?: AskingPriceKind | null;
   zip?: string | null;
+  /** Public listing URL when available (shown on Check comps). */
+  sourceUrl?: string | null;
 };
 
 /** Buyer-facing similar car. No VIN and no internal id. */
@@ -70,6 +72,8 @@ export type SimilarCarView = {
   askingUsd: number;
   adjustedUsd: number;
   reasons: string[];
+  /** Public source listing when known. */
+  sourceUrl: string | null;
 };
 
 export type TalkingPointTopic =
@@ -265,6 +269,7 @@ function toComparable(car: ReadinessCar): ComparableCar {
     cpo: car.cpo ?? null,
     oneOwner: car.oneOwner ?? null,
     ownerCount: car.ownerCount ?? null,
+    sourceUrl: car.sourceUrl ?? null,
   };
 }
 
@@ -304,6 +309,7 @@ function toSimilarCars(cars: readonly AdjustedCar[]): SimilarCarView[] {
     askingUsd: item.askingUsd,
     adjustedUsd: item.adjustedUsd,
     reasons: item.reasons,
+    sourceUrl: item.sourceUrl,
   }));
 }
 
