@@ -38,9 +38,11 @@ import {
   rematchRefineFromReplan,
   shouldAutoContinueFindNextCheck,
   shouldAutoStartFindNextCheck,
+  shouldResumeFindLoop,
 } from "@/domain/find-next-check-ui";
 import {
   FIND_RESULTS_BILLING_HINT,
+  buyerCheckActivityLine,
   publicCheckStatusLine,
   formatGroundedShortlistLine,
   formatBuyerBestDeal,
@@ -409,10 +411,24 @@ function AssistantFlow({
       if (resume.searchContextToken) {
         setSearchContextToken(resume.searchContextToken);
         setServNextCheckEnabled(resume.servNextCheckEnabled);
+        let loopSettled = false;
+        try {
+          const rawLoop = sessionStorage.getItem("af-find-loop");
+          if (rawLoop) {
+            const parsed = JSON.parse(rawLoop) as { token?: string; settled?: boolean };
+            loopSettled = parsed.token === resume.searchContextToken && parsed.settled === true;
+          }
+        } catch {
+          loopSettled = false;
+        }
         if (
-          saved.stage === "results" &&
-          resume.servNextCheckEnabled &&
-          !resumedFindTokens.has(resume.searchContextToken)
+          shouldResumeFindLoop({
+            stage: saved.stage ?? "",
+            servEnabled: resume.servNextCheckEnabled,
+            token: resume.searchContextToken,
+            alreadyResumed: resumedFindTokens.has(resume.searchContextToken),
+            loopSettled,
+          })
         ) {
           const token = resume.searchContextToken;
           resumedFindTokens.add(token);
@@ -600,9 +616,12 @@ function AssistantFlow({
     let continueToken: string | null = null;
     // Count this hop when it was triggered by auto-continue/auto-start chain.
     if (opts?.auto) autoContinueCountRef.current += 1;
+    const controller = new AbortController();
+    const timer = window.setTimeout(() => controller.abort(), 70_000);
     try {
       const response = await fetch("/api/find/next-check", {
         method: "POST",
+        signal: controller.signal,
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ searchContextToken: token }),
       });
@@ -785,26 +804,32 @@ function AssistantFlow({
         fuelPending: body.chosenId === "free_gov_fuel" ? fuelPending : undefined,
       });
       const status = formatBuyerLoopStatus(body.loop?.reason ?? null);
-      const settleBit =
-        toolCov && toolCov.anyUnchecked === false
-          ? "Public safety records are caught up for this shortlist."
-          : toolCov && toolCov.anyUnchecked && body.loop?.continue
-            ? "Public safety records are still being checked. The pick may change."
-            : toolCov && toolCov.anyUnchecked
-              ? "Public safety checks are not running. Some models are still unchecked."
-              : null;
+      const willContinue = shouldAutoContinueFindNextCheck({
+        servNextCheckEnabled: servNextCheckEnabled || Boolean(opts?.auto),
+        autonomousServ: Boolean(body.autonomousServ),
+        searchContextToken: nextTok,
+        autoContinueCount: autoContinueCountRef.current,
+        loop: body.loop
+          ? { continue: Boolean(body.loop.continue), reason: body.loop.reason ?? "" }
+          : null,
+      });
+      const settleBit = toolCov
+        ? buyerCheckActivityLine({
+            anyUnchecked: Boolean(toolCov.anyUnchecked),
+            continuing: willContinue,
+          })
+        : null;
       setNextCheckNote([step, status, settleBit].filter(Boolean).join(" "));
-      if (
-        shouldAutoContinueFindNextCheck({
-          servNextCheckEnabled: servNextCheckEnabled || Boolean(opts?.auto),
-          autonomousServ: Boolean(body.autonomousServ),
-          searchContextToken: nextTok,
-          autoContinueCount: autoContinueCountRef.current,
-          loop: body.loop
-            ? { continue: Boolean(body.loop.continue), reason: body.loop.reason ?? "" }
-            : null,
-        })
-      ) {
+      const checksSettled = body.loop?.continue === false && toolCov?.anyUnchecked !== true;
+      try {
+        sessionStorage.setItem(
+          "af-find-loop",
+          JSON.stringify({ token: nextTok, settled: checksSettled }),
+        );
+      } catch {
+        /* ignore */
+      }
+      if (willContinue) {
         continueToken = nextTok;
       } else if (
         body.loop?.continue &&
@@ -950,9 +975,15 @@ function AssistantFlow({
           window.clearTimeout(timer);
         }
       }
-    } catch {
-      setError("Next check failed — try again.");
+    } catch (err) {
+      const timedOut = err instanceof DOMException && err.name === "AbortError";
+      setError(
+        timedOut
+          ? "That check took too long, so it stopped. Nothing is running now. You can try again."
+          : "Next check failed — try again.",
+      );
     } finally {
+      window.clearTimeout(timer);
       setPending(null);
     }
     // Continue loop after pending clears — evidence→replan until server stop reason.

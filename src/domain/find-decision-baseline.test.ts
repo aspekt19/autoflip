@@ -490,8 +490,31 @@ describe("target keys and paid calls", () => {
       neverCalledServ: false,
       consistencyOpen: true,
     });
-    expect(changed.invoke).toBe(true);
-    expect(changed.reason).toBe("shortlist_changed");
+    expect(changed.invoke).toBe(false);
+    expect(changed.reason).toBe("consistency_deterministic_drain");
+    const retarget = shouldInvokeServForFindNextCheck({
+      paidCallsSoFar: 1,
+      remainingFreeGovCount: 0,
+      nonFreeChoiceCount: 2,
+      shortlistFp: "same",
+      lastServShortlistFp: "same",
+      neverCalledServ: false,
+      consistencyOpen: true,
+      offerServRetarget: true,
+    });
+    expect(retarget.invoke).toBe(true);
+    expect(retarget.reason).toBe("nontrivial_choice");
+    const duringFree = shouldInvokeServForFindNextCheck({
+      paidCallsSoFar: 1,
+      remainingFreeGovCount: 3,
+      nonFreeChoiceCount: 2,
+      shortlistFp: "moved",
+      lastServShortlistFp: "old",
+      neverCalledServ: false,
+      offerServRetarget: true,
+    });
+    expect(duringFree.invoke).toBe(false);
+    expect(duringFree.reason).toMatch(/free_gov/);
   });
 });
 

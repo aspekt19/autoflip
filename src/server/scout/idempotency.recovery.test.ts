@@ -57,6 +57,9 @@ describe("Stage1B-recovery", () => {
       decr(k: string) {
         return durable.decr(k);
       }
+      compareAndSwap(k: string, expected: string | null, next: string | null) {
+        return durable.compareAndSwap(k, expected, next);
+      }
     })();
 
     failReceipt = true;
@@ -298,6 +301,9 @@ describe("Stage1B-recovery", () => {
       }
       decr(k: string) {
         return durable.decr(k);
+      }
+      compareAndSwap(k: string, expected: string | null, next: string | null) {
+        return durable.compareAndSwap(k, expected, next);
       }
     })();
 

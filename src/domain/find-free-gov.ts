@@ -255,7 +255,7 @@ function modelCountPhrase(n: number): string {
 function progressBit(label: string, slice: FreeGovToolCoverageSlice): string | null {
   if (slice.eligible <= 0) return null;
   if (slice.unchecked <= 0) return `${label}: checked ${modelCountPhrase(slice.checked)}`;
-  if (slice.checked <= 0) return `${label}: checking ${modelCountPhrase(slice.eligible)}`;
+  if (slice.checked <= 0) return `${label}: ${modelCountPhrase(slice.eligible)} not checked yet`;
   return `${label}: ${slice.checked} checked, ${slice.unchecked} still to go`;
 }
 
@@ -272,7 +272,7 @@ export function plainPublicCheckProgress(coverage: FreeGovToolCoverage): string 
     coverage.vpic.checked === 0 &&
     (coverage.fuel?.checked ?? 0) === 0;
   if (nothingStarted) {
-    return `Public safety records: checking ${modelCountPhrase(coverage.listingMmyCount)}. ${scope}`;
+    return `Public safety records: ${modelCountPhrase(coverage.listingMmyCount)} not checked yet. ${scope}`;
   }
   const slices = [
     progressBit("Recalls", coverage.recalls),
@@ -281,7 +281,7 @@ export function plainPublicCheckProgress(coverage: FreeGovToolCoverage): string 
     coverage.fuel ? progressBit("Fuel cost", coverage.fuel) : null,
   ].filter((line): line is string => Boolean(line));
   const lead = coverage.anyUnchecked
-    ? "Public safety records are still being checked."
+    ? "Public safety records are not finished for every model yet."
     : "Public safety records are caught up for these cars.";
   return `${lead} ${slices.join(". ")}. ${scope}`.replace(/\s+/g, " ").trim();
 }

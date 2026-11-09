@@ -4,6 +4,7 @@ import {
   rematchRefineFromReplan,
   shouldAutoContinueFindNextCheck,
   shouldAutoStartFindNextCheck,
+  shouldResumeFindLoop,
 } from "./find-next-check-ui";
 
 describe("shouldAutoStartFindNextCheck", () => {
@@ -100,6 +101,50 @@ describe("shouldAutoContinueFindNextCheck", () => {
         searchContextToken: "t",
         autoContinueCount: FIND_NEXT_CHECK_AUTO_CONTINUE_MAX,
         loop: { continue: true, reason: "remaining_free_checks" },
+      }),
+    ).toBe(false);
+  });
+});
+
+describe("shouldResumeFindLoop", () => {
+  it("starts the next hop once when the loop is still open", () => {
+    expect(
+      shouldResumeFindLoop({
+        stage: "results",
+        servEnabled: true,
+        token: "tok",
+        alreadyResumed: false,
+        loopSettled: false,
+      }),
+    ).toBe(true);
+  });
+
+  it("does not start a second hop after the loop settled, and does not resume twice", () => {
+    expect(
+      shouldResumeFindLoop({
+        stage: "results",
+        servEnabled: true,
+        token: "tok",
+        alreadyResumed: false,
+        loopSettled: true,
+      }),
+    ).toBe(false);
+    expect(
+      shouldResumeFindLoop({
+        stage: "results",
+        servEnabled: true,
+        token: "tok",
+        alreadyResumed: true,
+        loopSettled: false,
+      }),
+    ).toBe(false);
+    expect(
+      shouldResumeFindLoop({
+        stage: "confirm",
+        servEnabled: true,
+        token: "tok",
+        alreadyResumed: false,
+        loopSettled: false,
       }),
     ).toBe(false);
   });

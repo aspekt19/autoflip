@@ -78,19 +78,9 @@ export function shouldInvokeServForFindNextCheck(input: {
     return { invoke: true, reason: "initial_decision" };
   }
 
-  const shortlistChanged =
-    input.lastServShortlistFp != null && input.shortlistFp !== input.lastServShortlistFp;
-
-  if (shortlistChanged) {
-    return { invoke: true, reason: "shortlist_changed" };
-  }
-
-  if (input.offerServRetarget) {
-    return { invoke: true, reason: "nontrivial_choice" };
-  }
-
-  // Mid free-gov fleet drain: allowlist still has free_gov_* with unchecked MMYs.
-  // Deterministic preferred free_gov_* is enough — SERV cannot invent different MMY batches.
+  // Free government batches are deterministic. Do not pay because the shortlist
+  // moved or because a retarget is owed — that one paid call waits until the
+  // per-car check is the open work.
   if (input.remainingFreeGovCount > 0) {
     return {
       invoke: false,
@@ -101,8 +91,19 @@ export function shouldInvokeServForFindNextCheck(input: {
     };
   }
 
+  if (input.consistencyOpen && input.offerServRetarget) {
+    return { invoke: true, reason: "nontrivial_choice" };
+  }
+
   if (input.consistencyOpen) {
     return { invoke: false, reason: "consistency_deterministic_drain" };
+  }
+
+  const shortlistChanged =
+    input.lastServShortlistFp != null && input.shortlistFp !== input.lastServShortlistFp;
+
+  if (shortlistChanged) {
+    return { invoke: true, reason: "shortlist_changed" };
   }
 
   if (input.nonFreeChoiceCount > 0) {

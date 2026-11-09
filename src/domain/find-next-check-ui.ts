@@ -3,6 +3,24 @@
  */
 
 /** When SERV is keyed, auto-start next-check once per searchContextToken. */
+/**
+ * One automatic resume per page load, and only while the loop is still open.
+ * A finished search must not start another hop. A second call in the same page
+ * load must not stack another chain.
+ */
+export function shouldResumeFindLoop(input: {
+  stage: string;
+  servEnabled: boolean;
+  token: string | null | undefined;
+  alreadyResumed: boolean;
+  loopSettled: boolean;
+}): boolean {
+  const token = typeof input.token === "string" ? input.token.trim() : "";
+  if (input.stage !== "results" || !input.servEnabled || !token) return false;
+  if (input.alreadyResumed || input.loopSettled) return false;
+  return true;
+}
+
 export function shouldAutoStartFindNextCheck(opts: {
   servNextCheckEnabled: boolean;
   searchContextToken: string | null | undefined;

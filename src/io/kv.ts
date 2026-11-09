@@ -28,6 +28,12 @@ export interface Kv {
   incr(key: string): Promise<number>;
   /** Atomically decrement; only for confirmed pre-dispatch reservation rollback / cache-hit refund. */
   decr(key: string): Promise<number>;
+  /**
+   * Replace the stored string only when it is still exactly `expected`.
+   * `expected` null means the key must be absent. `next` null deletes it.
+   * Returns whether this caller won the swap.
+   */
+  compareAndSwap(key: string, expected: string | null, next: string | null): Promise<boolean>;
 }
 
 function parseIntegerOrThrow(raw: string | undefined, key: string): number {
@@ -84,6 +90,15 @@ export class MemoryKv implements Kv {
       const next = parseIntegerOrThrow(this.map.get(key), key) - 1;
       this.map.set(key, String(next));
       return next;
+    });
+  }
+  compareAndSwap(key: string, expected: string | null, next: string | null): Promise<boolean> {
+    return this.enqueue(() => {
+      const current = this.map.has(key) ? (this.map.get(key) ?? null) : null;
+      if (current !== expected) return false;
+      if (next == null) this.map.delete(key);
+      else this.map.set(key, next);
+      return true;
     });
   }
 }
@@ -172,6 +187,18 @@ export class FileKv implements Kv {
       return next;
     });
   }
+
+  async compareAndSwap(key: string, expected: string | null, next: string | null): Promise<boolean> {
+    return this.enqueue(() => {
+      const data = this.read();
+      const current = Object.prototype.hasOwnProperty.call(data, key) ? (data[key] ?? null) : null;
+      if (current !== expected) return false;
+      if (next == null) delete data[key];
+      else data[key] = next;
+      this.write(data);
+      return true;
+    });
+  }
 }
 
 /** Records Redis commands for offline Upstash semantics tests (not a hosted proof). */
@@ -239,6 +266,28 @@ export class UpstashKv implements Kv {
     if (typeof result === "number" && Number.isInteger(result)) return result;
     if (typeof result === "string" && Number.isInteger(Number(result))) return Number(result);
     throw new Error("Upstash DECR returned a non-integer");
+  }
+
+  async compareAndSwap(key: string, expected: string | null, next: string | null): Promise<boolean> {
+    // Atomic on the store. Empty ARGV means absent / delete — claim values are JSON, never "".
+    const script = `
+local cur = redis.call('GET', KEYS[1])
+local expected = ARGV[1]
+if expected == '' then
+  if cur then return 0 end
+else
+  if cur ~= expected then return 0 end
+end
+local nxt = ARGV[2]
+if nxt == '' then
+  redis.call('DEL', KEYS[1])
+else
+  redis.call('SET', KEYS[1], nxt)
+end
+return 1
+`;
+    const result = await this.command(["EVAL", script, "1", key, expected ?? "", next ?? ""]);
+    return result === 1 || result === "1";
   }
 }
 

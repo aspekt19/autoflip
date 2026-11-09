@@ -6,6 +6,7 @@ import {
   assertBuyerSafeText,
   creditsNeedNotice,
   findForbiddenTechArtifacts,
+  buyerCheckActivityLine,
   publicCheckStatusLine,
   formatBuyerLoopStatus,
   formatBuyerLoopStep,
@@ -24,7 +25,7 @@ import {
   plainFlagSource,
 } from "./find-buyer-copy";
 import type { Listing } from "./types";
-import type { FindFreeGovReceipt } from "./find-free-gov";
+import { freeGovToolCoverage, plainPublicCheckProgress, type FindFreeGovReceipt } from "./find-free-gov";
 import { buildFindFuelAssumptions } from "./find-fuel-match";
 import { formatFreeGovReceiptsForUi } from "./find-free-gov-format";
 import { buildGroundedShortlist } from "./find-path";
@@ -592,6 +593,29 @@ describe("public-check copy stays plain and honest", () => {
     });
     expect(running).toMatch(/Public safety records: checking 17 models/);
     expect(running).not.toMatch(/\d+\/\d+|VIN decode/);
+  });
+
+  it("coverage progress does not say checks are running when it only describes what is left", () => {
+    const listings = Array.from({ length: 17 }, (_, index) => ({
+      make: "Honda",
+      model: `Model${index}`,
+      year: 2015 + (index % 5),
+      priceUsd: 12000,
+      miles: 80000,
+      vin: null,
+    }));
+    const coverage = freeGovToolCoverage(listings, []);
+    const note = plainPublicCheckProgress(coverage);
+    expect(note).not.toMatch(/checking|still being checked/i);
+    expect(note).toMatch(/not checked yet|not finished/i);
+    expect(note).not.toMatch(/\d+\/\d+|VIN decode|year\/make\/model/i);
+    expect(assertBuyerSafeText(note).ok).toBe(true);
+
+    const running = buyerCheckActivityLine({ anyUnchecked: true, continuing: true });
+    const idle = buyerCheckActivityLine({ anyUnchecked: true, continuing: false });
+    expect(running).toMatch(/still being checked/i);
+    expect(idle).toMatch(/not running/i);
+    expect(idle).not.toMatch(/still being checked/i);
   });
 
   it("does not double the period after a fuel estimate", () => {

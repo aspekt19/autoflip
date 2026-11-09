@@ -106,7 +106,7 @@ describe("decideFindNextCheckLoop", () => {
     expect(d.reason).toBe("evidence_changed_replan");
   });
 
-  it("deterministic fallback keeps looping while free_gov remain even if receipts unchanged", () => {
+  it("a free check that adds no evidence stops instead of spinning", () => {
     const d = decideFindNextCheckLoop({
       ...base,
       autonomousServ: false,
@@ -121,6 +121,22 @@ describe("decideFindNextCheckLoop", () => {
       needAfterFp: "same",
       listingsBeforeFp: "same",
       listingsAfterFp: "same",
+    });
+    expect(d.continue).toBe(false);
+    expect(d.reason).toBe("unchanged_state");
+  });
+
+  it("compare still continues when free checks remain and this hop was not a free check", () => {
+    const d = decideFindNextCheckLoop({
+      ...base,
+      autonomousServ: true,
+      chosenId: "compare_observed_asks",
+      research: false,
+      rematchOk: null,
+      needAfterFp: "a",
+      listingsAfterFp: "L0",
+      remainingFreeGovCount: 2,
+      remainingActionableCount: 2,
     });
     expect(d.continue).toBe(true);
     expect(d.reason).toBe("remaining_free_checks");

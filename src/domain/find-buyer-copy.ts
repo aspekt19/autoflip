@@ -156,6 +156,16 @@ export function publicCheckStatusLine(input: {
   return "Public safety records have not finished for this shortlist yet.";
 }
 
+/** One sentence for the latest hop. "Still being checked" only when another hop will run. */
+export function buyerCheckActivityLine(input: {
+  anyUnchecked: boolean;
+  continuing: boolean;
+}): string {
+  if (!input.anyUnchecked) return "Public safety records are caught up for this shortlist.";
+  if (input.continuing) return "Public safety records are still being checked. The pick may change.";
+  return "Public safety checks are not running. Some models are still unchecked.";
+}
+
 /** Buyer-facing seller-distance custom-miles hint (no app-validation jargon). */
 export function customMilesBuyerHint(maxMiles: number): string {
   return `You can enter any distance up to ${maxMiles.toLocaleString("en-US")} miles, or choose Nationwide to search without a distance limit.`;

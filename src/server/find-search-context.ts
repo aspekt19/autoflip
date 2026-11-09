@@ -64,6 +64,11 @@ export type FindSearchContextRecord = {
    * manual step while free public checks were still open.
    */
   servRetargetPending?: boolean;
+  /**
+   * True after a hop stopped with free public checks finished.
+   * A later next-check returns that result and does not spend another paid call.
+   */
+  loopSettled?: boolean;
   iat: number;
   exp: number;
 };
@@ -152,6 +157,7 @@ export function mintFindSearchContextRecord(input: {
     decisionLog: [],
     carChecks: [],
     servRetargetPending: false,
+    loopSettled: false,
     iat,
     exp: iat + FIND_SEARCH_CONTEXT_TTL_SEC,
   };
@@ -236,6 +242,7 @@ export async function updateFindSearchContext(
     decisionLog?: FindDecisionLogEntry[];
     carChecks?: CarConsistencyReceipt[];
     servRetargetPending?: boolean;
+    loopSettled?: boolean;
   },
 ): Promise<FindSearchContextRecord> {
   const next: FindSearchContextRecord = {
@@ -260,6 +267,8 @@ export async function updateFindSearchContext(
       patch.servRetargetPending !== undefined
         ? patch.servRetargetPending
         : (record.servRetargetPending ?? false),
+    loopSettled:
+      patch.loopSettled !== undefined ? patch.loopSettled : (record.loopSettled ?? false),
   };
   await storeFindSearchContext(kv, next);
   return next;

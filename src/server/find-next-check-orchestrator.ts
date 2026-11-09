@@ -49,6 +49,7 @@ import {
   fingerprintBestDealShortlist,
   shouldInvokeServForFindNextCheck,
 } from "@/domain/find-serv-budget";
+import { compareObservedModels } from "@/domain/find-model-observe";
 import { softPrefGapsFromText, type StructuredNeed } from "@/domain/need";
 import type { ScoutFreeGovPort } from "@/domain/scout/free-gov";
 import type { Kv } from "@/io/kv";
@@ -56,8 +57,10 @@ import {
   appliedFingerprint,
   claimFindNextCheckAction,
   completeFindNextCheckAction,
+  findNextCheckClaimHeld,
   logFindNextCheckServSpend,
   releaseFindNextCheckAction,
+  reserveFindNextCheckPaidSlot,
   type FindNextCheckActionIdentity,
 } from "@/server/find-next-check-claim";
 import {
@@ -297,6 +300,106 @@ function carCheckFingerprint(checks: readonly CarConsistencyReceipt[]): string {
   );
 }
 
+function freePublicWorkOpen(ctx: FindSearchContextRecord): boolean {
+  const receipts = ctx.freeGovReceipts ?? [];
+  const coverage = freeGovToolCoverage(ctx.listings, receipts);
+  if (coverage.anyUnchecked) return true;
+  const carChecks = ctx.carChecks ?? [];
+  const best = rankFindOnSamePool({
+    need: ctx.need,
+    listings: ctx.listings,
+    receipts,
+    carChecks,
+    compsPool: ctx.compsPool ?? ctx.listings,
+  });
+  const checked = new Set(carChecks.map((row) => row.key));
+  return best.ranked.some((car) => !checked.has(car.key));
+}
+
+/** Finished search: same buyer payload, no new check and no paid call. */
+function settledFindReplay(
+  ctx: FindSearchContextRecord,
+  deps: FindNextCheckOrchestratorDeps,
+): FindNextCheckOrchestratorOk {
+  const receipts = ctx.freeGovReceipts ?? [];
+  const carChecks = ctx.carChecks ?? [];
+  const bestDeal = rankFindOnSamePool({
+    need: ctx.need,
+    listings: ctx.listings,
+    receipts,
+    carChecks,
+    compsPool: ctx.compsPool ?? ctx.listings,
+  });
+  const coverage = freeGovToolCoverage(ctx.listings, receipts);
+  const fuels = fuelsByModelKeyFromReceipts(receipts);
+  const shortlistPack = buildGroundedShortlistWithRisk(ctx.need, ctx.listings, fuels, receipts);
+  const listingsHaveVin = ctx.listings.some(
+    (row) => typeof row.vin === "string" && row.vin.trim().length >= 11,
+  );
+  const allowed = proposeFindNextChecks({
+    need: ctx.need,
+    softGaps: softPrefGapsFromText(ctx.need.note),
+    observedListingCount: ctx.listings.length,
+    observedModelCount: new Set(ctx.listings.map((row) => `${row.make}|${row.model}`)).size,
+    emptyInventory: ctx.listings.length === 0,
+    appliedCheckIds: ctx.appliedCheckIds,
+    listingsHaveVin,
+    freeGovCoverage: coverage,
+    consistencyStillOpen: false,
+  });
+  const lastAction = ctx.decisionLog?.[ctx.decisionLog.length - 1]?.action ?? "compare_observed_asks";
+  const keyed = Boolean(deps.servKey?.trim());
+  return {
+    ok: true,
+    searchContextToken: ctx.token,
+    source: "deterministic_fallback",
+    autonomousServ: false,
+    replay: true,
+    chosenId: lastAction,
+    servNote: null,
+    replan: {
+      need: ctx.need,
+      refine: ctx.refine,
+      note: "Checks already finished for this search.",
+      research: false,
+    },
+    research: false,
+    allowedChecks: allowed,
+    compare: compareObservedModels(ctx.listings, fuels),
+    shortlist: shortlistPack.entries,
+    proofs: [],
+    failureDiag: null,
+    clampDiag: null,
+    keyedAutonomyDiag: buildKeyedAutonomyDiag({
+      keyed,
+      mintSaidKeyed: Boolean(ctx.servNextCheckEnabled),
+      autonomousServ: false,
+      source: "deterministic_fallback",
+      failureDiag: null,
+    }),
+    honesty: "Checks already finished for this search. No new paid step.",
+    rematch: null,
+    needAfter: ctx.need,
+    appliedCheckIds: ctx.appliedCheckIds,
+    freeGovReceipts: receipts,
+    freeEvidenceNote: null,
+    riskCoverage: shortlistPack.coverage,
+    freeGovCoverage: coverage,
+    bestDeal,
+    loop: {
+      continue: false,
+      reason: "grounded_stop",
+      detail: "Free public checks already finished for this search. Reloading does not start another check.",
+    },
+    servPaidCalls: ctx.servPaidCalls ?? 0,
+    servInvokeReason: "no_decision_change",
+    decisionLog: ctx.decisionLog ?? [],
+    baseline: bestDeal.baseline,
+    carChecks,
+    targetKeys: [],
+  };
+}
+
 export async function runFindNextCheckOrchestrator(
   input: { searchContextToken?: string | null },
   deps: FindNextCheckOrchestratorDeps,
@@ -321,6 +424,9 @@ export async function runFindNextCheckOrchestrator(
   };
 
   const keyed = Boolean(deps.servKey?.trim());
+  if (ctx.loopSettled === true && !freePublicWorkOpen(ctx)) {
+    return settledFindReplay(ctx, deps);
+  }
   let claimId: string | null = null;
   let replay = false;
 
@@ -331,7 +437,7 @@ export async function runFindNextCheckOrchestrator(
         ok: false,
         status: 409,
         error: "next_check_in_progress",
-        message: "That next-check is already running for this search — wait or retry shortly.",
+        message: "Those checks are already running for this search. Wait a moment, then try again.",
       };
     }
     if (claim.kind === "conflict") {
@@ -402,6 +508,13 @@ export async function runFindNextCheckOrchestrator(
       consistencyOpen: consistencyStillOpen && priorAllowedIds.includes("free_car_consistency"),
       offerServRetarget: retargetPending,
     });
+    let servHttpAttempts = 0;
+    let skipPaidSlot = false;
+    if (keyed && servDecision.invoke && claimId) {
+      const slot = await reserveFindNextCheckPaidSlot(deps.kv, identity, claimId);
+      servHttpAttempts = 1;
+      skipPaidSlot = slot === "already_reserved";
+    }
     const live = await runFindNextCheckLive(
       {
         need: ctx.need,
@@ -426,8 +539,8 @@ export async function runFindNextCheckOrchestrator(
         servBaseUrl: deps.servBaseUrl,
         fetchImpl: deps.fetchImpl,
         env: deps.env,
-        skipServ: keyed && !servDecision.invoke,
-        skipServReason: servDecision.reason,
+        skipServ: (keyed && !servDecision.invoke) || skipPaidSlot,
+        skipServReason: skipPaidSlot ? "paid_already_reserved" : servDecision.reason,
       },
     );
 
@@ -436,7 +549,6 @@ export async function runFindNextCheckOrchestrator(
       return live;
     }
 
-    const servHttpAttempts = live.proofs.length > 0 && keyed && servDecision.invoke ? 1 : 0;
     const nextPaidCallsPreview = paidSoFar + servHttpAttempts;
     if (claimId && servHttpAttempts > 0) {
       await logFindNextCheckServSpend(deps.kv, identity, claimId, {
@@ -470,7 +582,14 @@ export async function runFindNextCheckOrchestrator(
       }
     }
     const ranServChoice = servChoseExecuted && executedId === live.chosenId;
-    const nextRetarget = overrodeUserAction && executedId !== live.chosenId && !retargetPending;
+    const consumedRetarget = retargetPending && servHttpAttempts > 0;
+    const lostInitialDecision =
+      skipPaidSlot &&
+      paidSoFar === 0 &&
+      (isFindFreeGovCheckId(executedId) || executedId === "free_car_consistency");
+    const armedRetarget =
+      (overrodeUserAction && executedId !== live.chosenId) || lostInitialDecision;
+    const nextRetarget = consumedRetarget ? false : retargetPending || armedRetarget;
 
     const appliedNext = [...ctx.appliedCheckIds, executedId];
     let rematch: FindNextCheckOrchestratorOk["rematch"] = null;
@@ -556,6 +675,14 @@ export async function runFindNextCheckOrchestrator(
     }
 
     const nextPaidCalls = nextPaidCallsPreview;
+    if (claimId && !(await findNextCheckClaimHeld(deps.kv, identity, claimId))) {
+      return {
+        ok: false,
+        status: 409,
+        error: "next_check_in_progress",
+        message: "Those checks were already picked up. Wait a moment, then try again.",
+      };
+    }
     const updated: FindSearchContextRecord = await updateFindSearchContext(deps.kv, ctx, {
       need: replan.need,
       refine: refineAfter,
@@ -692,6 +819,11 @@ export async function runFindNextCheckOrchestrator(
       remainingFreeGovCount,
       consistencyStillOpen: consistencyStillOpenAfter,
     });
+    const loopSettled = !loop.continue && remainingFreeGovCount === 0 && !consistencyStillOpenAfter;
+    if (loopSettled !== (updated.loopSettled === true)) {
+      updated.loopSettled = loopSettled;
+      await updateFindSearchContext(deps.kv, updated, { loopSettled });
+    }
 
     const payload: FindNextCheckOrchestratorOk = {
       ok: true,

@@ -6,7 +6,10 @@
  * duplicate keyed find_next_check call. Pattern mirrors report-analysis-idempotency
  * (SET NX + claimId fence). No report-credit debit; optional spend log for accounting.
  *
- * Fail-closed: aged in_progress is NOT auto-reclaimed (same integrity stance).
+ * An in-progress claim that outlives FIND_NEXT_CHECK_CLAIM_TTL_MS can be reclaimed.
+ * That window is longer than the next-check route limit, so a live request is not
+ * stolen. A paid slot for the same fingerprint is taken before the SERV call, so
+ * reclaim cannot place a second paid call. Completed receipts still replay.
  */
 import type { Kv } from "@/io/kv";
 
@@ -47,6 +50,12 @@ export type FindNextCheckClaimResult =
   | { kind: "in_progress" }
   | { kind: "conflict"; reason: string };
 
+/**
+ * Longer than /api/find/next-check maxDuration (60s). A request the platform
+ * already stopped can be reclaimed; a request still inside that limit cannot.
+ */
+export const FIND_NEXT_CHECK_CLAIM_TTL_MS = 90_000;
+
 export function appliedFingerprint(ids: readonly string[]): string {
   return [...ids].filter(Boolean).sort().join(",");
 }
@@ -59,6 +68,33 @@ export function findNextCheckRecordKey(identity: FindNextCheckActionIdentity): s
 
 export function findNextCheckSpendLogKey(identity: FindNextCheckActionIdentity, claimId: string): string {
   return `find-nextcheck-spend:v1:${identity.userId}:${identity.searchContextToken.trim()}:${claimId}`;
+}
+
+/** One paid SERV attempt per fingerprint. setNx, so a replay or reclaim cannot take a second slot. */
+export function findNextCheckPaidSlotKey(identity: FindNextCheckActionIdentity): string {
+  const token = identity.searchContextToken.trim();
+  const fp = identity.appliedFingerprint;
+  return `find-nextcheck-paid-slot:v1:${identity.userId}:${token}:fp=${fp || "_"}`;
+}
+
+function claimAgeMs(claimedAt: string, nowMs: number): number {
+  const at = Date.parse(claimedAt);
+  if (!Number.isFinite(at)) return FIND_NEXT_CHECK_CLAIM_TTL_MS;
+  return nowMs - at;
+}
+
+function claimIsAbandoned(claim: FindNextCheckClaim, nowMs: number): boolean {
+  return claimAgeMs(claim.claimedAt, nowMs) >= FIND_NEXT_CHECK_CLAIM_TTL_MS;
+}
+
+function outcomeFromRecord(
+  identity: FindNextCheckActionIdentity,
+  record: FindNextCheckRecord | null,
+): FindNextCheckClaimResult {
+  if (!record) return { kind: "conflict", reason: "lost_race_unreadable" };
+  if (record.userId !== identity.userId) return { kind: "conflict", reason: "wrong_user" };
+  if (record.status === "completed") return { kind: "replay", receipt: record };
+  return { kind: "in_progress" };
 }
 
 function parseRecord(raw: string): FindNextCheckRecord | null {
@@ -83,6 +119,7 @@ function parseRecord(raw: string): FindNextCheckRecord | null {
 export async function claimFindNextCheckAction(
   kv: Kv,
   identity: FindNextCheckActionIdentity,
+  nowMs = Date.now(),
 ): Promise<FindNextCheckClaimResult> {
   const token = identity.searchContextToken.trim();
   if (!token || !identity.userId) {
@@ -96,7 +133,21 @@ export async function claimFindNextCheckAction(
     if (!existing) return { kind: "conflict", reason: "corrupt_record" };
     if (existing.userId !== identity.userId) return { kind: "conflict", reason: "wrong_user" };
     if (existing.status === "completed") return { kind: "replay", receipt: existing };
-    return { kind: "in_progress" };
+    if (!claimIsAbandoned(existing, nowMs)) return { kind: "in_progress" };
+    const reclaimed: FindNextCheckClaim = {
+      status: "in_progress",
+      userId: identity.userId,
+      searchContextToken: token,
+      appliedFingerprint: identity.appliedFingerprint,
+      claimedAt: new Date(nowMs).toISOString(),
+      claimId: crypto.randomUUID(),
+    };
+    const won = await kv.compareAndSwap(recordKey, existingRaw, JSON.stringify(reclaimed));
+    if (!won) {
+      const raced = await kv.get(recordKey);
+      return outcomeFromRecord(identity, raced ? parseRecord(raced) : null);
+    }
+    return { kind: "proceed", recordKey, claimId: reclaimed.claimId };
   }
 
   const claimId = crypto.randomUUID();
@@ -147,18 +198,12 @@ export async function completeFindNextCheckAction(
     resultJson,
     servHttpAttempts,
   };
+  const won = await kv.compareAndSwap(recordKey, raw, JSON.stringify(receipt));
+  if (won) return { ok: true };
   const again = await kv.get(recordKey);
   const againRecord = again ? parseRecord(again) : null;
-  if (
-    !againRecord ||
-    againRecord.status !== "in_progress" ||
-    againRecord.claimId !== claimId ||
-    againRecord.userId !== identity.userId
-  ) {
-    return { ok: false, reason: "fence_lost" };
-  }
-  await kv.set(recordKey, JSON.stringify(receipt));
-  return { ok: true };
+  if (againRecord?.status === "completed" && againRecord.resultJson === resultJson) return { ok: true };
+  return { ok: false, reason: "fence_lost" };
 }
 
 export async function releaseFindNextCheckAction(
@@ -172,8 +217,34 @@ export async function releaseFindNextCheckAction(
   const record = parseRecord(raw);
   if (!record || record.status !== "in_progress") return false;
   if (record.userId !== identity.userId || record.claimId !== claimId) return false;
-  await kv.delete(recordKey);
-  return true;
+  return kv.compareAndSwap(recordKey, raw, null);
+}
+
+export async function findNextCheckClaimHeld(
+  kv: Kv,
+  identity: FindNextCheckActionIdentity,
+  claimId: string,
+): Promise<boolean> {
+  const raw = await kv.get(findNextCheckRecordKey(identity));
+  const record = raw ? parseRecord(raw) : null;
+  return Boolean(
+    record &&
+      record.status === "in_progress" &&
+      record.claimId === claimId &&
+      record.userId === identity.userId,
+  );
+}
+
+export async function reserveFindNextCheckPaidSlot(
+  kv: Kv,
+  identity: FindNextCheckActionIdentity,
+  claimId: string,
+): Promise<"owned" | "already_reserved"> {
+  const won = await kv.setNx(
+    findNextCheckPaidSlotKey(identity),
+    JSON.stringify({ v: 1, claimId, at: new Date().toISOString() }),
+  );
+  return won ? "owned" : "already_reserved";
 }
 
 /** Durable SERV spend log — accounting only; never stores API keys or raw refusals. */
