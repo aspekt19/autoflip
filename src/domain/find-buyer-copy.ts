@@ -66,6 +66,7 @@ export const BUYER_FORBIDDEN_TECH_PATTERNS: RegExp[] = [
   /\bdocumented rates\b/i,
   /\bcomps\b/i,
   /\bcomp\s/i,
+  /\bcomparables\b/i,
 ];
 
 /**
@@ -91,7 +92,33 @@ const BUYER_ID_LABELS: Record<string, string> = {
   identity_vin: "VIN matches the listing",
   safety_red_flags: "safety flags",
   mandate_fit: "fits what you asked for",
+  price_far_above_market: "asking price far above similar listings",
+  vin_identity_mismatch: "VIN does not match the listing",
+  critical_missing_data: "missing data",
+  suspiciously_cheap: "asking price looks too low",
+  park_it_recall: "park-it recall",
+  odometer_mismatch: "odometer concern",
+  gates_withheld: "checks withheld a verdict",
+  title_brand: "title brand",
+  needs_inspection: "needs inspection",
+  insufficient_data: "not enough data",
+  good_deal: "good deal",
+  walk_away: "walk away",
 };
+
+const PLAIN_CHECK_IDS = new Set<string>([
+  "free_gov_recalls",
+  "free_gov_safety",
+  "free_gov_vpic",
+  "free_gov_fuel",
+  "compare_observed_asks",
+  "clarify_year_band",
+  "clarify_miles_cap",
+  "set_budget",
+  "widen_or_nationwide",
+  "run_full_analysis",
+  "get_history_report",
+]);
 
 /** Plain stand-in for an internal gate id when that id would otherwise be shown to a buyer. */
 export function plainBuyerPhrase(text: string): string {
@@ -110,6 +137,210 @@ export function formatOfficialRecallNumber(id: string): string {
   if (/^official recall number\b/i.test(trimmed)) return trimmed;
   const bare = trimmed.replace(/^NHTSA recall campaign\s+/i, "").trim();
   return `Official recall number ${bare} — look this up on NHTSA`;
+}
+
+export function plainGateStatus(status: string): string {
+  switch (status) {
+    case "pass":
+    case "passed":
+      return "passed";
+    case "withhold":
+    case "withheld":
+      return "withheld";
+    case "forbid":
+    case "blocked":
+      return "blocked";
+    default:
+      return plainBuyerPhrase(status.replaceAll("_", " "));
+  }
+}
+
+export function plainDecisionAction(action: string): string {
+  return plainBuyerPhrase(action.replaceAll("_", " "));
+}
+
+export function plainDecisionSource(source: string): string {
+  switch (source) {
+    case "gates_withheld":
+      return "checks withheld a verdict";
+    case "serv":
+      return "AI review";
+    case "guardrail_clamp":
+      return "safety rules adjusted the suggestion";
+    case "deterministic_fallback":
+      return "built-in reading";
+    case "no_serv_key":
+      return "automatic review is not configured";
+    default:
+      return plainBuyerPhrase(source.replaceAll("_", " "));
+  }
+}
+
+export function plainExplanationSource(source: string): string {
+  switch (source) {
+    case "serv":
+      return "AI review";
+    case "template":
+      return "standard explanation";
+    case "unavailable":
+      return "unavailable";
+    default:
+      return plainBuyerPhrase(source.replaceAll("_", " "));
+  }
+}
+
+export function plainFlagSource(source: string): string {
+  switch (source) {
+    case "nhtsa-recalls":
+      return "NHTSA recalls";
+    case "nhtsa-complaints":
+      return "NHTSA complaints";
+    case "vin-identity":
+      return "VIN check";
+    case "title-brand":
+      return "title brand";
+    case "listing-history":
+    case "listing":
+      return "listing";
+    case "price":
+    case "price-anomaly":
+      return "price";
+    case "odometer":
+      return "odometer";
+    case "sample":
+      return "sample";
+    default:
+      return plainBuyerPhrase(source.replaceAll("-", " ").replaceAll("_", " "));
+  }
+}
+
+export function plainCompScope(scope: string): string {
+  switch (scope) {
+    case "same_trim":
+      return "same trim, nearby model years";
+    case "year_window":
+      return "same model, nearby model years";
+    case "expanded_year":
+      return "same model, widened model years";
+    case "wide_year":
+      return "same model, wider model years";
+    case "insufficient":
+      return "not enough similar listings";
+    default:
+      return plainBuyerPhrase(scope.replaceAll("_", " "));
+  }
+}
+
+const PROOF_STEP_LABELS: Record<string, string> = {
+  local_input_screen: "Input check",
+  serv_prompt_guard: "Request screen",
+  listings: "Listing lookup",
+  government_data: "Government records",
+  deterministic_tools: "Code-computed numbers",
+  ordered_gates: "Ordered safety checks",
+  serv_verdict_decide: "Verdict review",
+  verdict_guardrails: "Safety rules",
+  serv_shadow_agent: "Written explanation",
+  number_audit: "Number check",
+};
+
+const PROOF_STATUS_LABELS: Record<string, string> = {
+  passed: "passed",
+  skipped: "skipped",
+  error: "did not finish",
+  sample: "sample data",
+  autodev: "from the listing feed",
+  ran: "ran",
+  withheld: "withheld",
+  skipped_withheld: "skipped — verdict withheld",
+  ok: "finished",
+  fallback: "used the built-in reading",
+  skipped_no_key: "automatic review is not configured",
+  overrode: "adjusted under safety rules",
+  explanation_unavailable: "explanation unavailable",
+  fallback_template: "used the standard explanation",
+  passed_but_shadow_failed: "numbers checked; the written explanation was not used",
+  failed: "blocked text that did not match the computed facts",
+  template: "standard explanation",
+  block: "blocked",
+  allow: "allowed",
+};
+
+function plainGateList(detail: string): string | null {
+  const parts = detail.split(",").map((part) => part.trim()).filter(Boolean);
+  if (parts.length === 0 || !parts.every((part) => /^[a-z0-9_]+:[a-z0-9_]+$/i.test(part))) return null;
+  return parts
+    .map((part) => {
+      const [id, status] = part.split(":");
+      return `${plainBuyerPhrase(id!)} (${plainGateStatus(status!)})`;
+    })
+    .join(", ");
+}
+
+function buyerProofDetail(detail: string): string | null {
+  const trimmed = detail.trim();
+  if (!trimmed) return null;
+  if (/SERV_API_KEY/i.test(trimmed)) {
+    return "Automatic review is not configured. The written summary is the standard explanation.";
+  }
+  if (/\bvPIC\b/i.test(trimmed)) {
+    return "NHTSA VIN decoder, NHTSA recalls, NHTSA complaints, FuelEconomy.gov, and the U.S. Census geocoder.";
+  }
+  if (/selectComparables|mileageAdjust|historyAdjustment|verdictFromPriceGap|flipMath|scoreFromGap|dealerQuestions/.test(trimmed)) {
+    return "Similar listings, mileage adjustment, history flags, price gap, resale math, price score, and dealer questions — computed in code.";
+  }
+  if (/^autoflip\./i.test(trimmed)) return null;
+  if (/^final=/i.test(trimmed)) {
+    const action = trimmed.match(/final=([^;]+)/i)?.[1]?.trim();
+    const source = trimmed.match(/source=([^\s;]+)/i)?.[1]?.trim();
+    const actionBit = action ? plainDecisionAction(action) : "recorded";
+    return source ? `Final action ${actionBit} (${plainDecisionSource(source)})` : `Final action ${actionBit}`;
+  }
+  if (trimmed === "cache hit") return "from a recent saved copy";
+  if (trimmed === "fetched") return "fetched just now";
+  const gateList = plainGateList(trimmed);
+  if (gateList) return gateList;
+  const scrubbed = plainBuyerPhrase(trimmed);
+  return findForbiddenTechArtifacts(scrubbed).length === 0 ? scrubbed : null;
+}
+
+/** Buyer-visible Proof of AI line. Stored proof can keep machine ids; this is what the report shows. */
+export function formatBuyerProofLine(step: { id: string; status: string; detail?: string | null }): string {
+  const label = PROOF_STEP_LABELS[step.id] ?? plainBuyerPhrase(step.id.replaceAll("_", " "));
+  const status = PROOF_STATUS_LABELS[step.status] ?? plainGateStatus(step.status);
+  const detail = step.detail ? buyerProofDetail(step.detail) : null;
+  const line = detail ? `${label}: ${status} — ${detail}` : `${label}: ${status}`;
+  return findForbiddenTechArtifacts(line).length === 0 ? line : `${label}: ${status}`;
+}
+
+const SERV_PURPOSE_LABELS: Record<string, string> = {
+  report_guard: "Report request screen",
+  check_guard: "Check request screen",
+  agent_guard: "Agent request screen",
+  report_explain: "Report explanation",
+  agent_explain: "Agent explanation",
+  verdict_decide: "Verdict review",
+  check_rules: "Wording rules",
+};
+
+/** One AI-review bullet. Feature codenames stay off the page; the decision note already explains them. */
+export function formatBuyerServCheckSummary(check: {
+  purpose: string;
+  promptGuard?: string | null;
+  shadowOutcome?: string | null;
+}): string {
+  const purpose =
+    SERV_PURPOSE_LABELS[check.purpose] ?? plainBuyerPhrase(check.purpose.replaceAll("_", " "));
+  const bits = [purpose];
+  if (check.promptGuard === "allow" || check.promptGuard === "passed") bits.push("input accepted");
+  else if (check.promptGuard === "block") bits.push("input blocked");
+  else if (check.promptGuard === "unavailable") bits.push("input screen did not finish");
+  if (check.shadowOutcome === "ok" || check.shadowOutcome === "passed") bits.push("second pass finished");
+  else if (check.shadowOutcome === "exhausted" || check.shadowOutcome === "failed") {
+    bits.push("second pass was not used");
+  }
+  const line = bits.join(" · ");
+  return findForbiddenTechArtifacts(line).length === 0 ? line : purpose;
 }
 
 export function findForbiddenTechArtifacts(text: string): string[] {
@@ -384,7 +615,7 @@ export function formatBuyerNextCheckWhy(
     fuelOutcome: opts?.fuelOutcome,
     fuelPending: opts?.fuelPending,
   });
-  if (id.startsWith("free_gov_") || id === "compare_observed_asks") return plain;
+  if (PLAIN_CHECK_IDS.has(id)) return plain;
   // Soft scrub of technicalWhy — never turn "NMVTIS-approved" into "official title history-approved".
   return technicalWhy
     .replace(/\bMMY\b/g, "year/make/model")

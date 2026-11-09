@@ -27,11 +27,11 @@ export function dealerQuestions(input: {
     questions.push("Ask for the repair invoices and whether any airbags deployed.");
   }
   if (input.parkIt) {
-    questions.push("NHTSA lists a parkIt campaign for this model year, make, and model. Ask the dealer to verify whether it applies to this VIN and provide the repair order before driving; model-level coverage alone does not confirm this VIN is affected or still unrepaired.");
+    questions.push("NHTSA lists a park-it (do not drive) campaign for this model year, make, and model. Ask the dealer to verify whether it applies to this VIN and provide the repair order before driving; model-level coverage alone does not confirm this VIN is affected or still unrepaired.");
   } else if (input.parkOutside) {
-    questions.push("NHTSA lists a parkOutside campaign (outdoor parking guidance) for this model year, make, and model. That is not a parkIt / do-not-drive claim by itself — ask the dealer to check VIN applicability and any completed remedy.");
+    questions.push("NHTSA lists an outdoor-parking guidance campaign for this model year, make, and model. That is not a do-not-drive park-it claim by itself — ask the dealer to check VIN applicability and any completed remedy.");
   } else if (input.recalls.length > 0) {
-    questions.push("Ask the dealer to run this VIN through NHTSA, identify which model-year campaigns apply to this vehicle, and provide repair orders for any applicable campaign already completed. Absence of parkIt/parkOutside flags is not VIN-cleared.");
+    questions.push("Ask the dealer to run this VIN through NHTSA, identify which model-year campaigns apply to this vehicle, and provide repair orders for any applicable campaign already completed. Absence of a do-not-drive or outdoor-parking flag is not VIN-cleared.");
   } else {
     questions.push("Ask the dealer to run this VIN through NHTSA’s recall lookup before you pay. A model-year search is not a VIN-specific repair-status check.");
   }
@@ -106,13 +106,13 @@ export function buildFlags(input: {
     flags.push({
       level: "stop",
       source: "nhtsa-recalls",
-      text: "NHTSA lists a parkIt campaign for this year, make, and model. This is model-level coverage, not confirmation that this VIN is affected or still unrepaired. Do not drive until the dealer or NHTSA verifies VIN applicability and repair status.",
+      text: "NHTSA lists a park-it (do not drive) campaign for this year, make, and model. This is model-level coverage, not confirmation that this VIN is affected or still unrepaired. Do not drive until the dealer or NHTSA verifies VIN applicability and repair status.",
     });
   } else if (input.parkOutside) {
     flags.push({
       level: "caution",
       source: "nhtsa-recalls",
-      text: "NHTSA lists a parkOutside campaign (outdoor parking guidance) for this year, make, and model. That is not a parkIt / do-not-drive stop by itself — verify VIN applicability; model coverage is not VIN-cleared.",
+      text: "NHTSA lists an outdoor-parking guidance campaign for this year, make, and model. That is not a do-not-drive park-it stop by itself — verify VIN applicability; model coverage is not VIN-cleared.",
     });
   }
   if ((input.listing.accidentCount ?? 0) > 0) {

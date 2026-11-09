@@ -59,6 +59,6 @@ export function flipMath(input: {
     targetBuyUsd: Math.max(0, targetBuyUsd),
     timeToSellRisk,
     timeToSellNote:
-      "Days on market are not in the listing feed, so time-to-sell risk is only how many current comparables were found. A thin set is a slower, less certain resale.",
+      "Days on market are not in the listing feed, so time-to-sell risk is only how many similar listings were found. A thin set is a slower, less certain resale.",
   };
 }

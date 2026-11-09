@@ -84,7 +84,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             <span className="tagline-lemon">lemon</span>
             <span className="tagline-less">less.</span>
           </strong>{" "}
-          Lemonless prepares a price verdict from similar listings nearby and public government data. It is not a dealer,
+          Lemonless prepares a price verdict from similar listings of the same model and public government data. It is not a dealer,
           lender, inspector, or insurer. Recalls can be incomplete. Confirm the car, the out-the-door price, and any open
           campaigns with the seller before you pay.
         </p>
