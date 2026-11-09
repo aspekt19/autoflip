@@ -27,7 +27,7 @@ export function flagsFromCheck(redFlags: CheckRedFlag[]): Flag[] {
 
 export function compsFromSimilar(similar: SimilarCarView[]): ComparableUsed[] {
   return similar.map((row, index) => ({
-    vin: `CHECKCOMP${String(index).padStart(9, "0")}`.slice(0, 17),
+    vin: `comp-${index + 1}`,
     year: row.year,
     trim: row.trim,
     miles: row.miles,

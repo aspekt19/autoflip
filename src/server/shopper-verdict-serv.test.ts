@@ -168,8 +168,40 @@ describe("runShopperVerdictServ", () => {
     });
     expect(result.agentVerdict.no_serv_step).toBe(true);
     expect(result.agentVerdict.verdict).toBeNull();
-    expect(result.agentVerdict.serv_steps[0]?.decided).toMatch(/Agent step unavailable/i);
-    expect(result.agentVerdict.unknowns.some((line) => /Agent step unavailable/i.test(line))).toBe(true);
+    expect(result.agentVerdict.serv_steps).toEqual([]);
+    expect(result.agentVerdict.second_pass?.status).toBe("not_run");
+    expect(result.agentVerdict.unknowns).toEqual(["Agent step unavailable — price rules only"]);
+    expect(result.agentVerdict.serv_spend?.costNote).toMatch(/Agent step unavailable — price rules only/);
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+    expect(result.trace?.calls).toHaveLength(1);
+    expect(result.trace?.calls[0]?.profile).toBe("verdict_decide");
+    expect(result.trace?.calls[0]?.rawResponse).toBeNull();
+  });
+
+  it("clamps a SERV buy when title-brand gates forbid buy and negotiate", async () => {
+    const fetchImpl = vi.fn(async () =>
+      jsonResponse({ verdict: "buy", note: "Looks fine." }, "chatcmpl-buy"),
+    );
+    const result = await runShopperVerdictServ({
+      report: report({
+        flags: [{ level: "stop", text: "Salvage title.", source: "title-brand" }],
+      }),
+      servKey: "test-key",
+      model: "gpt-5.4-mini",
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+    });
+    expect(result.decision.servChoice).toBe("buy");
+    expect(result.decision.finalAction).not.toBe("buy");
+    expect(result.decision.finalAction).not.toBe("negotiate");
+    expect(result.agentVerdict.verdict).not.toBe("buy");
+    expect(result.agentVerdict.serv_steps[0]?.why).toBe("Looks fine.");
+    expect(result.agentVerdict.serv_steps[0]?.changed).toMatch(/gates kept/);
+    const init = (fetchImpl.mock.calls as unknown as Array<[unknown, RequestInit]>)[0]?.[1];
+    const sent = JSON.parse(String(init?.body)) as { messages?: Array<{ role?: string; content?: string }> };
+    const user = sent.messages?.find((message) => message.role === "user")?.content ?? "";
+    const facts = JSON.parse(user) as { facts?: { allowedActions?: string[] } };
+    expect(facts.facts?.allowedActions).not.toContain("buy");
+    expect(facts.facts?.allowedActions).not.toContain("negotiate");
   });
 
   it("withholds without inventing SERV when asking price is missing", async () => {

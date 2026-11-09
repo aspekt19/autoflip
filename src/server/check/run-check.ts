@@ -6,6 +6,7 @@ import { buildCheckAgentVerdict } from "@/domain/build-check-agent-verdict";
 import type { AgentVerdict } from "@/domain/agent-verdict-schema";
 import { emptyAgentVerdict } from "@/domain/agent-verdict-schema";
 import { buildCheckComputedReport } from "@/server/check/check-computed-report";
+import { isServEndpointUrl } from "@/server/serv";
 import {
   runShopperVerdictServ,
   type ShopperServTrace,
@@ -896,13 +897,37 @@ async function buildVinDossier(vin: string, deps: CheckRunDeps, optionalZip?: st
   };
 }
 
+const CHECK_SERV_CALL_BUDGET = 2;
+
+/** One Check may spend at most decide + challenge. Further SERV HTTP gets a local refusal. */
+function boundServFetch(deps: CheckRunDeps): CheckRunDeps {
+  const inner = deps.fetch ?? fetch;
+  const left = { n: CHECK_SERV_CALL_BUDGET };
+  const fetchImpl: typeof fetch = async (input, init) => {
+    const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+    const servCall = isServEndpointUrl(url, deps.servBaseUrl);
+    if (servCall) {
+      if (left.n <= 0) {
+        return new Response(JSON.stringify({ error: "check_serv_budget" }), {
+          status: 429,
+          headers: { "content-type": "application/json" },
+        });
+      }
+      left.n -= 1;
+    }
+    return inner(input, init);
+  };
+  return { ...deps, fetch: fetchImpl };
+}
+
 export async function runCheck(input: CheckRunInput, deps: CheckRunDeps = {}): Promise<CheckRunResult> {
+  const bounded = boundServFetch(deps);
   if (input.kind === "vin") {
-    return buildVinDossier(input.vin.trim().toUpperCase(), deps, input.optionalZip);
+    return buildVinDossier(input.vin.trim().toUpperCase(), bounded, input.optionalZip);
   }
 
   if (input.kind === "paste") {
-    const extracted = await extractFromPastedText(input.text, deps, input.url);
+    const extracted = await extractFromPastedText(input.text, bounded, input.url);
     if (!extracted.ok) {
       if (extracted.blocked) {
         return {
@@ -926,11 +951,11 @@ export async function runCheck(input: CheckRunInput, deps: CheckRunDeps = {}): P
       optionalZip: input.optionalZip,
       llmUsed: extracted.llmUsed,
       pageText: extracted.parse.llmText,
-      deps,
+      deps: bounded,
     });
   }
 
-  const extracted = await extractFromListingUrl(input.url, deps);
+  const extracted = await extractFromListingUrl(input.url, bounded);
   if (!extracted.ok) {
     if (extracted.blocked) {
       return {
@@ -954,6 +979,6 @@ export async function runCheck(input: CheckRunInput, deps: CheckRunDeps = {}): P
     optionalZip: input.optionalZip,
     llmUsed: extracted.llmUsed,
     pageText: extracted.parse.llmText,
-    deps,
+    deps: bounded,
   });
 }

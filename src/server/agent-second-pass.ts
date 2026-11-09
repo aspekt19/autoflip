@@ -59,6 +59,7 @@ export async function runReportVerdictChallenge(input: {
   servBaseUrl?: string;
   model?: string;
   fetchImpl?: typeof fetch;
+  transportPolicy?: ServDeps["transportPolicy"];
 }): Promise<{ result: AgentSecondPassResult; proof: ServProof | null; rawText: string | null }> {
   if (!input.hasBudget) {
     return {
@@ -93,6 +94,7 @@ export async function runReportVerdictChallenge(input: {
     apiKey: input.servKey,
     baseUrl: input.servBaseUrl,
     model: input.model,
+    transportPolicy: input.transportPolicy,
   };
   const judged = await runServ(
     "verdict_challenge",

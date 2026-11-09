@@ -132,19 +132,16 @@ describe("runCheck listing paste (no paid Autodev/SERV)", () => {
     );
     expect(result.ok).toBe(true);
     if (!result.ok) return;
-    if (result.result.agentVerdict.no_serv_step) {
-      expect(
-        result.result.agentVerdict.serv_steps.some((s) => /unavailable|withheld|No agent/i.test(s.decided)) ||
-          result.result.agentVerdict.unknowns.some((u) => /withheld|unavailable/i.test(u)) ||
-          result.result.servTrace == null,
-      ).toBe(true);
-    } else {
-      expect(result.result.agentVerdict.verdict).toBeTruthy();
-      expect(result.result.agentVerdict.no_serv_step).toBe(false);
-      expect(result.result.servTrace?.calls.length).toBeGreaterThanOrEqual(1);
-      expect(result.result.servTrace?.calls[0]?.rawResponse).toBeTruthy();
-      expect(result.result.servTrace?.recordedAt).toMatch(/^\d{4}-/);
-    }
+    expect(servCalls).toBe(2);
+    expect(result.result.agentVerdict.no_serv_step).toBe(false);
+    expect(result.result.agentVerdict.verdict).toBe("negotiate");
+    expect(result.result.agentVerdict.serv_steps.some((step) => /Lemonless AI chose/i.test(step.decided))).toBe(false);
+    expect(result.result.servTrace?.calls).toHaveLength(2);
+    expect(result.result.servTrace?.calls[0]?.responseId).toBe("chatcmpl-check-1");
+    expect(result.result.servTrace?.calls[0]?.rawResponse).toMatch(/negotiate/);
+    expect(result.result.servTrace?.calls[1]?.profile).toBe("verdict_challenge");
+    expect(result.result.servTrace?.recordedAt).toMatch(/^\d{4}-/);
+    expect(result.result.servTrace?.model).toBe("gpt-5.4-mini");
   });
 
   it("builds a VIN dossier without ask/miles/ZIP", async () => {

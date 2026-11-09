@@ -125,6 +125,7 @@ export async function runShopperVerdictServ(input: {
         apiKey: input.servKey,
         baseUrl: input.servBaseUrl,
         model: input.model,
+        transportPolicy: "experiment_single_attempt",
       },
     );
     decideProof = judged.proof;
@@ -176,7 +177,8 @@ export async function runShopperVerdictServ(input: {
   const challengeConfidence: AgentVerdictConfidence =
     decision.source === "serv" && decision.overrideReasons.length === 0 ? "high" : "medium";
 
-  const challenge = decision.gateRun.withheld
+  const challengeSkipped = decision.gateRun.withheld || !decision.servChoice;
+  const challenge = challengeSkipped
     ? {
         result: {
           status: "not_run" as const,
@@ -201,6 +203,7 @@ export async function runShopperVerdictServ(input: {
         servBaseUrl: input.servBaseUrl,
         model: input.model,
         fetchImpl,
+        transportPolicy: "experiment_single_attempt",
       });
   challengeProof = challenge.proof;
 
@@ -208,7 +211,7 @@ export async function runShopperVerdictServ(input: {
     callTraces.push(
       traceCall("verdict_challenge", {
         ok: challenge.result.status === "agreed" || challenge.result.status === "disagreed",
-        model,
+        model: challenge.proof?.modelReported ?? model,
         proof: challenge.proof,
         raw: challenge.rawText,
         error:
@@ -264,10 +267,38 @@ export async function runShopperVerdictServ(input: {
 
   const hadServStep = Boolean(verdictServOk && decision.servChoice);
   const servFailed = Boolean(input.servKey) && !decision.gateRun.withheld && !hadServStep;
+  const recordedModel =
+    callTraces.find((call) => call.model)?.model ?? (model && callTraces.length > 0 ? model : null);
   const costBits: string[] = [];
-  if (model) costBits.push(model);
-  if (callTraces.length > 0) costBits.push(`recorded ${recordedAt}`);
+  if (recordedModel) costBits.push(recordedModel);
+  if (callTraces.length > 0) costBits.push(recordedAt);
   if (servFailed) costBits.push("Agent step unavailable — price rules only");
+
+  const recordedSteps = hadServStep
+    ? [
+        ...(decision.note
+          ? [
+              {
+                decided: decision.finalAction,
+                why: decision.note,
+                changed:
+                  decision.servChoice && decision.servChoice !== decision.finalAction
+                    ? `Model returned ${decision.servChoice}; gates kept ${decision.finalAction}.`
+                    : null,
+              },
+            ]
+          : []),
+        ...(challenge.rawText
+          ? [
+              {
+                decided: challenge.result.status,
+                why: challenge.result.objection ?? challenge.rawText,
+                changed: null,
+              },
+            ]
+          : []),
+      ]
+    : [];
 
   let agentVerdict = buildAgentVerdictFromReport({
     verdict: decision.finalAction,
@@ -276,41 +307,34 @@ export async function runShopperVerdictServ(input: {
       (decision.gateRun.withheld ? null : challengeConfidence),
     reasons: agentReasons.filter((row) => evidencePack.ids.has(row.evidenceId)),
     risks: agentRisks.filter((row) => evidencePack.ids.has(row.evidenceId)),
-    unknowns: [
-      ...input.report.dataNotes.slice(0, 4),
-      ...(servFailed ? ["Agent step unavailable — price rules only"] : []),
-    ],
+    unknowns: input.report.dataNotes.slice(0, 4),
     primaryNote: decision.note,
-    primarySource: decision.source,
-    secondPass: challenge.result,
-    servCalls: [decideProof, challengeProof].filter(Boolean).length,
+    primarySource: hadServStep ? decision.source : "deterministic_fallback",
+    secondPass: hadServStep ? challenge.result : { status: "not_run", action: null, objection: null, evidenceIds: [], confidenceBefore: null, confidenceAfter: null },
+    servCalls: callTraces.length,
     costNote: costBits.length ? costBits.join(" · ") : null,
     hadServStep,
   });
+  agentVerdict = { ...agentVerdict, serv_steps: recordedSteps };
 
-  // When SERV was expected but failed, force honest fallback — never invent a choice trail.
   if (servFailed) {
     agentVerdict = {
       ...agentVerdict,
       no_serv_step: true,
       verdict: null,
-      serv_steps: [
-        {
-          decided: "Agent step unavailable — price rules only",
-          why: "The agent call did not return a usable verdict. Code kept the screening price rules under the same gates.",
-          changed: null,
-        },
-      ],
+      confidence: null,
+      serv_steps: [],
       second_pass: {
-        status: "unavailable",
+        status: "not_run",
         action: null,
-        objection: "Agent step unavailable — price rules only",
+        objection: null,
         evidenceIds: [],
         confidenceBefore: null,
         confidenceAfter: null,
       },
+      unknowns: ["Agent step unavailable — price rules only"],
       serv_spend: {
-        calls: [decideProof, challengeProof].filter(Boolean).length,
+        calls: callTraces.length,
         costNote: costBits.join(" · "),
       },
     };
@@ -321,7 +345,7 @@ export async function runShopperVerdictServ(input: {
     agentVerdict,
     decideProof,
     challengeProof,
-    trace: callTraces.length > 0 ? { recordedAt, model, calls: callTraces } : null,
+    trace: callTraces.length > 0 ? { recordedAt, model: recordedModel, calls: callTraces } : null,
     steps,
   };
 }
