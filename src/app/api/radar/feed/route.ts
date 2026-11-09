@@ -1,4 +1,5 @@
 import { ASSUMPTIONS } from "@/domain/assumptions";
+import { journalFromRadarActivity } from "@/domain/radar-activity-journal";
 import { getKv } from "@/io/kv";
 import { listAlerts, listRuns, listSearches, seenVins } from "@/server/radar-store";
 import { seenStorageKey } from "@/domain/radar-watch";
@@ -45,15 +46,22 @@ export async function GET() {
     emailConfigured: false,
     emailNote: "Email alerts are not configured in this deployment. New matches appear on this page only.",
     activity: lastRun
-      ? {
-          runId: lastRun.id,
-          startedAt: lastRun.startedAt,
-          finishedAt: lastRun.finishedAt,
-          alertsSent: lastRun.alertsSent,
-          listings: lastRun.listings,
-          servActivity: (lastRun.servActivity ?? []).filter((row) => mySearchIds.has(row.searchId)),
-          notes: lastRun.notes,
-        }
+      ? (() => {
+          const servActivity = (lastRun.servActivity ?? []).filter((row) => mySearchIds.has(row.searchId));
+          return {
+            runId: lastRun.id,
+            startedAt: lastRun.startedAt,
+            finishedAt: lastRun.finishedAt,
+            alertsSent: lastRun.alertsSent,
+            listings: lastRun.listings,
+            servActivity,
+            decisionJournal: journalFromRadarActivity(servActivity, {
+              notes: lastRun.notes,
+              startedAt: lastRun.startedAt,
+            }),
+            notes: lastRun.notes,
+          };
+        })()
       : null,
   });
 }

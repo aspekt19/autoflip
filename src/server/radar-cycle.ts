@@ -29,6 +29,7 @@ import { alertMessage, type AlertCopy } from "@/io/telegram";
 import type { Listing } from "@/domain/types";
 import { syncPresetSearches } from "@/domain/demo-presets";
 import { resolveProductFlags } from "@/domain/product-flags";
+import { journalFromRadarActivity } from "@/domain/radar-activity-journal";
 import { reviewPersonalCandidate, type RadarServActivity } from "./radar-serv";
 import { listSearches, upsertRun, saveAlerts, saveSearches, seenBook, storeSeenPrices, readListingCache, writeListingCache, telegramChat, telegramPaused, type StoredRun, listAlerts } from "./radar-store";
 
@@ -246,7 +247,8 @@ export async function runRadarCycle(deps: CycleDeps): Promise<StoredRun> {
           );
           touchedOwnerIds.add(search.ownerId);
           touchedSearchIds.add(search.id);
-          const judged = await judgeFlipAlerts(fresh, deps, remain(), limits.serv, servChecks);
+          const judged = await judgeFlipAlerts(fresh, deps, remain(), limits.serv, servChecks, search.id);
+          if (judged?.activity?.length) servActivity.push(...judged.activity);
           if (deps.servKey && !judged?.decisions) notes.push("Flip explanation unavailable. The estimates below are from the scan only.");
           for (const item of fresh) {
             const decision = judged?.decisions?.get(item.vin);
@@ -432,12 +434,12 @@ export async function runRadarCycle(deps: CycleDeps): Promise<StoredRun> {
     await upsertRun(deps.kv, snapshot());
 
     // Personal alerts already ran verdict_decide (+ optional challenge) above.
-    // Flip alerts still get flip_judge notes from judgeFlipAlerts.
+    // Flip alerts record radar_review activity via judgeFlipAlerts.
     if (!deps.servKey) {
       shadow = "not_configured";
       steps.push({ id: "serv_verdict", status: "not_configured" });
     } else if (servActivity.length === 0 && freshAlerts.every((alert) => alert.mode === "flip")) {
-      shadow = freshAlerts.length === 0 ? "no_alerts" : "flip_judge";
+      shadow = freshAlerts.length === 0 ? "no_alerts" : "radar_review";
       steps.push({ id: "serv_verdict", status: shadow });
     } else if (servActivity.length === 0) {
       shadow = "no_candidates";
@@ -553,6 +555,7 @@ function finish(
     ownerIds,
     searchIds,
     servActivity,
+    decisionJournal: journalFromRadarActivity(servActivity, { notes, startedAt }),
     payment,
   };
 }
@@ -563,7 +566,12 @@ async function judgeFlipAlerts(
   remainMs: number,
   ceilingMs: number,
   proofs: ServProof[],
-): Promise<{ decisions: Map<string, { verdict: "alert" | "skip"; note: string }> | null; checks: DecisionProof[] } | null> {
+  searchId: string,
+): Promise<{
+  decisions: Map<string, { verdict: "alert" | "skip"; note: string }> | null;
+  checks: DecisionProof[];
+  activity: RadarServActivity[];
+} | null> {
   if (!deps.servKey || fresh.length === 0 || remainMs <= 0) return null;
   const facts = fresh.map((item) => ({
     vin: item.vin,
@@ -581,6 +589,8 @@ async function judgeFlipAlerts(
     speedBasis: item.speedBasis,
   }));
   const guards = proofs.filter((item) => item.purpose === "radar_guard").map(visibleProof);
+  const activity: RadarServActivity[] = [];
+  const nowIso = deps.now.toISOString();
   const deadline = Date.now() + remainMs;
   const budget = (id: ProfileId) => servBudget(id, deadline - Date.now(), ceilingMs);
   try {
@@ -601,9 +611,9 @@ async function judgeFlipAlerts(
       if (!rulesNote) rules.proof.fallbackUsed = true;
       proofs.push(rules.proof);
     }
-    const judgeMs = budget("flip_judge");
-    if (judgeMs < 500) return { decisions: null, checks: rules ? [...guards, visibleProof(rules.proof)] : guards };
-    const judged = await runServ("flip_judge", { user: JSON.stringify({ facts, rulesNote }) }, {
+    const judgeMs = budget("radar_review");
+    if (judgeMs < 500) return { decisions: null, checks: rules ? [...guards, visibleProof(rules.proof)] : guards, activity };
+    const judged = await runServ("radar_review", { user: JSON.stringify({ facts, rulesNote }) }, {
       fetch: deps.fetchImpl,
       apiKey: deps.servKey,
       baseUrl: deps.servBaseUrl,
@@ -611,12 +621,35 @@ async function judgeFlipAlerts(
       timeoutMs: judgeMs,
     });
     proofs.push(judged.proof);
+    const decisions = judged.ok ? parseFlipJudgment(judged.text, facts) : null;
+    const responseId =
+      typeof judged.proof.openserv?.id === "string" && judged.proof.openserv.id.trim()
+        ? judged.proof.openserv.id.trim()
+        : null;
+    for (const item of fresh) {
+      const decision = decisions?.get(item.vin);
+      activity.push({
+        at: nowIso,
+        searchId,
+        vin: item.vin,
+        profile: "radar_review",
+        modelRequested: judged.proof.modelRequested,
+        modelReported: judged.proof.modelReported,
+        responseId,
+        latencyMs: judged.proof.latencyMs,
+        ok: Boolean(judged.ok && decision),
+        decision: decision?.verdict ?? null,
+        note: decision?.note ?? null,
+        alerted: true,
+      });
+    }
     return {
-      decisions: judged.ok ? parseFlipJudgment(judged.text, facts) : null,
+      decisions,
       checks: [...guards, ...(rules ? [visibleProof(rules.proof)] : []), visibleProof(judged.proof)],
+      activity,
     };
   } catch {
-    return { decisions: null, checks: guards };
+    return { decisions: null, checks: guards, activity };
   }
 }
 

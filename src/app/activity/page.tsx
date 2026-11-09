@@ -1,6 +1,8 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { ResaleDecisionJournalView } from "@/components/ResaleDecisionJournal";
+import type { ResaleDecisionJournal } from "@/domain/resale-decision-journal";
 
 type Run = {
   id: string;
@@ -30,6 +32,7 @@ type Run = {
     shadowMaxIterations: number | null;
     latencyMs: number;
   }>;
+  decisionJournal?: ResaleDecisionJournal;
   payment: { status: string; missing: string[]; tx: string | null; detail: string; costAtomic: string | null; network: string | null };
 };
 
@@ -97,6 +100,7 @@ export default function ActivityPage() {
                 <li key={note}>{note}</li>
               ))}
             </ul>
+            <ResaleDecisionJournalView journal={run.decisionJournal} defaultOpen={false} />
           </article>
         ))}
         {runs && runs.length === 0 && !message ? <p>No run yet.</p> : null}

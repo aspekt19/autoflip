@@ -5,7 +5,9 @@ import type { DecisionProof } from "@/domain/decision-note";
 import { CoverageLine } from "@/components/CoverageNote";
 import { DecisionNote } from "@/components/DecisionNote";
 import { PriceBadgeView, PriceRatingHow } from "@/components/PriceBadge";
+import { ResaleDecisionJournalView } from "@/components/ResaleDecisionJournal";
 import type { PriceBadge } from "@/domain/price-badge";
+import type { ResaleDecisionJournal } from "@/domain/resale-decision-journal";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useRef, useState, type FormEvent } from "react";
 import { MakeModelFields } from "@/components/MakeModelFields";
@@ -83,6 +85,7 @@ function RadarInner() {
       alerted: boolean;
       latencyMs: number;
     }>;
+    decisionJournal?: ResaleDecisionJournal;
     notes: string[];
   } | null>(null);
   const confirmId = params.get("confirm");
@@ -408,21 +411,10 @@ function RadarInner() {
             <p>
               {new Date(activity.startedAt).toLocaleString("en-US", { timeZone: "UTC" })} UTC · listings {activity.listings} · alerts {activity.alertsSent}
             </p>
+            <ResaleDecisionJournalView journal={activity.decisionJournal} defaultOpen />
             {activity.servActivity.length === 0 ? (
               <p className="hint">No SERV calls in this run (no new good/fair candidates, or SERV was not configured).</p>
-            ) : (
-              <ul className="refuse">
-                {activity.servActivity.map((row, index) => (
-                  <li key={`${row.vin}-${row.profile}-${index}`}>
-                    {row.profile} · {row.vin} · model {row.modelReported || "—"} · {row.latencyMs} ms
-                    {row.responseId ? ` · response ${row.responseId}` : " · no response id"}
-                    {row.decision ? ` · ${row.decision}` : ""}
-                    {row.alerted ? " · alerted" : " · not alerted"}
-                    {row.note ? ` · ${row.note}` : ""}
-                  </li>
-                ))}
-              </ul>
-            )}
+            ) : null}
             {activity.notes.length > 0 ? (
               <ul className="refuse">
                 {activity.notes.map((note) => (

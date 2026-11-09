@@ -1,3 +1,4 @@
+import { journalFromRadarActivity } from "@/domain/radar-activity-journal";
 import { getKv } from "@/io/kv";
 import { listRuns, listSearches } from "@/server/radar-store";
 import { isDemoUser, ledgerOwnerId } from "@/server/session";
@@ -23,10 +24,17 @@ export async function GET() {
     return (run.servActivity ?? []).some((row) => searchIds.has(row.searchId));
   });
   return Response.json({
-    runs: filtered.map((run) => ({
-      ...run,
-      servActivity: (run.servActivity ?? []).filter((row) => searchIds.has(row.searchId)),
-    })),
+    runs: filtered.map((run) => {
+      const servActivity = (run.servActivity ?? []).filter((row) => searchIds.has(row.searchId));
+      return {
+        ...run,
+        servActivity,
+        decisionJournal: journalFromRadarActivity(servActivity, {
+          notes: run.notes,
+          startedAt: run.startedAt,
+        }),
+      };
+    }),
     scope: "owner",
   });
 }

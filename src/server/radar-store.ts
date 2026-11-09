@@ -121,7 +121,7 @@ export type StoredRun = {
   ownerIds?: string[];
   /** Search ids checked in this run. */
   searchIds?: string[];
-  /** Per SERV call log (verdict_decide / verdict_challenge) with response ids. */
+  /** Per SERV call log (verdict_decide / verdict_challenge / radar_review) with response ids. */
   servActivity?: Array<{
     at: string;
     searchId: string;
@@ -136,6 +136,8 @@ export type StoredRun = {
     note: string | null;
     alerted: boolean;
   }>;
+  /** Same journal schema as Resale search (`lemonless.resale_journal.v1`). */
+  decisionJournal?: import("@/domain/resale-decision-journal").ResaleDecisionJournal;
   payment: {
     status: string;
     missing: string[];
