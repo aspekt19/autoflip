@@ -1,0 +1,1240 @@
+{
+  "schema": "lemonless.comparison.v1",
+  "mode": "fixture",
+  "generatedAt": "2026-11-09T22:06:52.911Z",
+  "hasLiveScores": false,
+  "modelForPlainLlm": null,
+  "modelForLemonlessServ": null,
+  "arms": [
+    "lemonless",
+    "plain_llm",
+    "cheapest"
+  ],
+  "findCaseIds": [
+    "find-family-suv-15k-68114",
+    "find-commuter-sedan-12k",
+    "find-teen-first-car-8k",
+    "find-awd-winter-18k-msp",
+    "find-low-mile-camry-20k",
+    "find-truck-weekend-22k",
+    "find-hybrid-fuel-16k",
+    "find-luxury-stretch-25k",
+    "find-city-crossover-14k",
+    "find-cheapest-reliable-honda-33101"
+  ],
+  "checkCaseIds": [
+    "check-sold-camry",
+    "check-far-below-market",
+    "check-salvage-rebuilt",
+    "check-high-mileage",
+    "check-missing-vin",
+    "check-fair-camry",
+    "check-overpriced-dealer",
+    "check-recall-heavy",
+    "check-odometer-rollback",
+    "check-as-is-accident"
+  ],
+  "syntheticCaseIds": [
+    "find-family-suv-15k-68114",
+    "find-commuter-sedan-12k",
+    "find-teen-first-car-8k",
+    "find-awd-winter-18k-msp",
+    "find-low-mile-camry-20k",
+    "find-truck-weekend-22k",
+    "find-hybrid-fuel-16k",
+    "find-luxury-stretch-25k",
+    "find-city-crossover-14k",
+    "find-cheapest-reliable-honda-33101",
+    "check-sold-camry",
+    "check-far-below-market",
+    "check-salvage-rebuilt",
+    "check-high-mileage",
+    "check-missing-vin",
+    "check-fair-camry",
+    "check-overpriced-dealer",
+    "check-recall-heavy",
+    "check-odometer-rollback",
+    "check-as-is-accident"
+  ],
+  "realCaseIds": [],
+  "scores": [],
+  "totals": null,
+  "cases": [
+    {
+      "caseId": "find-family-suv-15k-68114",
+      "kind": "find",
+      "title": "Family SUV around $15k near 68114",
+      "synthetic": true,
+      "outputs": [
+        {
+          "arm": "lemonless",
+          "status": "ran",
+          "pickVin": "2HKRM4H75FH123456",
+          "priceVerdict": "above",
+          "fairValueUsd": 11210,
+          "redFlags": [
+            "sold",
+            "accident"
+          ],
+          "unknowns": [
+            "Free public year/make/model checks are still running — ranking may change",
+            "Condition, accident history, and title brands stay unknown until a history report + inspection",
+            "VIN-level open/closed recall status is not verified here"
+          ],
+          "summary": "Lemonless pick 2015 Honda CR-V (medium). The best choice may change as checks complete. Public safety records: 4 models not checked yet. Recall and crash-test data are per model and year, not for this exact car.",
+          "latencyMs": 19,
+          "costUsd": 0,
+          "model": null,
+          "textForNumbers": "pick 2HKRM4H75FH123456 | year 2015 | prices 14795 12500 8990 14900 7995 | miles 128000 46000 162000 98000 145000 | years 2016 2015 2014 2017 2014 | budget 15000 | zip 68114 | Family SUV around $15,000 near 68114. Prefer Honda CR-V, Hyundai Tucson, or Kia Sportage. Reliable, not too old."
+        },
+        {
+          "arm": "plain_llm",
+          "status": "not_run",
+          "reasonNotRun": "plain_llm not run in fixture mode — canned answers are forbidden. Run live with COMPARISON_ALLOW_PAID=1.",
+          "pickVin": null,
+          "priceVerdict": "unknown",
+          "fairValueUsd": null,
+          "redFlags": [],
+          "unknowns": [],
+          "summary": "plain_llm not run in fixture mode — canned answers are forbidden. Run live with COMPARISON_ALLOW_PAID=1.",
+          "latencyMs": 0,
+          "costUsd": null,
+          "model": null,
+          "textForNumbers": "",
+          "liveTrace": null
+        },
+        {
+          "arm": "cheapest",
+          "status": "ran",
+          "pickVin": "5J6RM4H5XEL999001",
+          "priceVerdict": "below",
+          "fairValueUsd": 8962,
+          "redFlags": [
+            "sold"
+          ],
+          "unknowns": [
+            "Cheapest sort does not inspect title, recalls, or condition."
+          ],
+          "summary": "Cheapest ask: 2014 Honda CR-V at $7995.",
+          "latencyMs": 0,
+          "costUsd": 0,
+          "model": null,
+          "textForNumbers": "prices 14795 12500 8990 14900 7995 | miles 128000 46000 162000 98000 145000 | years 2016 2015 2014 2017 2014"
+        }
+      ],
+      "scores": []
+    },
+    {
+      "caseId": "find-commuter-sedan-12k",
+      "kind": "find",
+      "title": "Commuter sedan under $12k",
+      "synthetic": true,
+      "outputs": [
+        {
+          "arm": "lemonless",
+          "status": "ran",
+          "pickVin": "4T1BF1FK5EU100001",
+          "priceVerdict": "fair",
+          "fairValueUsd": 11098,
+          "redFlags": [],
+          "unknowns": [
+            "Free public year/make/model checks are still running — ranking may change",
+            "Condition, accident history, and title brands stay unknown until a history report + inspection",
+            "VIN-level open/closed recall status is not verified here"
+          ],
+          "summary": "Lemonless pick 2014 Toyota Camry (medium). The best choice may change as checks complete. Public safety records: 3 models not checked yet. Recall and crash-test data are per model and year, not for this exact car.",
+          "latencyMs": 5,
+          "costUsd": 0,
+          "model": null,
+          "textForNumbers": "pick 4T1BF1FK5EU100001 | year 2014 | prices 10990 11950 8995 7990 | miles 118000 132000 168000 142000 | years 2014 2014 2014 2014 | budget 12000 | zip 33101 | Commuter sedan under $12,000 near 33101. Camry or Accord preferred. Daily highway miles."
+        },
+        {
+          "arm": "plain_llm",
+          "status": "not_run",
+          "reasonNotRun": "plain_llm not run in fixture mode — canned answers are forbidden. Run live with COMPARISON_ALLOW_PAID=1.",
+          "pickVin": null,
+          "priceVerdict": "unknown",
+          "fairValueUsd": null,
+          "redFlags": [],
+          "unknowns": [],
+          "summary": "plain_llm not run in fixture mode — canned answers are forbidden. Run live with COMPARISON_ALLOW_PAID=1.",
+          "latencyMs": 0,
+          "costUsd": null,
+          "model": null,
+          "textForNumbers": "",
+          "liveTrace": null
+        },
+        {
+          "arm": "cheapest",
+          "status": "ran",
+          "pickVin": "1N4AL3AP3EC400004",
+          "priceVerdict": "far_above",
+          "fairValueUsd": 5225,
+          "redFlags": [],
+          "unknowns": [
+            "Cheapest sort does not inspect title, recalls, or condition."
+          ],
+          "summary": "Cheapest ask: 2014 Nissan Altima at $7990.",
+          "latencyMs": 0,
+          "costUsd": 0,
+          "model": null,
+          "textForNumbers": "prices 10990 11950 8995 7990 | miles 118000 132000 168000 142000 | years 2014 2014 2014 2014"
+        }
+      ],
+      "scores": []
+    },
+    {
+      "caseId": "find-teen-first-car-8k",
+      "kind": "find",
+      "title": "Teen first car under $8k",
+      "synthetic": true,
+      "outputs": [
+        {
+          "arm": "lemonless",
+          "status": "ran",
+          "pickVin": "2T1BU4EE5DC500001",
+          "priceVerdict": "fair",
+          "fairValueUsd": 7220,
+          "redFlags": [],
+          "unknowns": [
+            "Free public year/make/model checks are still running — ranking may change",
+            "Condition, accident history, and title brands stay unknown until a history report + inspection",
+            "VIN-level open/closed recall status is not verified here",
+            "Confidence: low"
+          ],
+          "summary": "Lemonless pick 2013 Toyota Corolla (low). The best choice may change as checks complete. Public safety records: 3 models not checked yet. Recall and crash-test data are per model and year, not for this exact car.",
+          "latencyMs": 2,
+          "costUsd": 0,
+          "model": null,
+          "textForNumbers": "pick 2T1BU4EE5DC500001 | year 2013 | prices 7495 6990 5995 | miles 145000 158000 172000 | years 2013 2012 2013 | budget 8000 | zip 75201 | First car for a careful teen under $8000 near 75201. Something boring and safe."
+        },
+        {
+          "arm": "plain_llm",
+          "status": "not_run",
+          "reasonNotRun": "plain_llm not run in fixture mode — canned answers are forbidden. Run live with COMPARISON_ALLOW_PAID=1.",
+          "pickVin": null,
+          "priceVerdict": "unknown",
+          "fairValueUsd": null,
+          "redFlags": [],
+          "unknowns": [],
+          "summary": "plain_llm not run in fixture mode — canned answers are forbidden. Run live with COMPARISON_ALLOW_PAID=1.",
+          "latencyMs": 0,
+          "costUsd": null,
+          "model": null,
+          "textForNumbers": "",
+          "liveTrace": null
+        },
+        {
+          "arm": "cheapest",
+          "status": "ran",
+          "pickVin": "KNAGM4A75D5700003",
+          "priceVerdict": "far_above",
+          "fairValueUsd": 3990,
+          "redFlags": [],
+          "unknowns": [
+            "Cheapest sort does not inspect title, recalls, or condition."
+          ],
+          "summary": "Cheapest ask: 2013 Kia Optima at $5995.",
+          "latencyMs": 0,
+          "costUsd": 0,
+          "model": null,
+          "textForNumbers": "prices 7495 6990 5995 | miles 145000 158000 172000 | years 2013 2012 2013"
+        }
+      ],
+      "scores": []
+    },
+    {
+      "caseId": "find-awd-winter-18k-msp",
+      "kind": "find",
+      "title": "AWD winter car near Minneapolis ~$18k",
+      "synthetic": true,
+      "outputs": [
+        {
+          "arm": "lemonless",
+          "status": "ran",
+          "pickVin": "JM3KE2DY5G0700001",
+          "priceVerdict": "above",
+          "fairValueUsd": 15675,
+          "redFlags": [],
+          "unknowns": [
+            "Free public year/make/model checks are still running — ranking may change",
+            "Condition, accident history, and title brands stay unknown until a history report + inspection",
+            "VIN-level open/closed recall status is not verified here",
+            "Confidence: low"
+          ],
+          "summary": "Lemonless pick 2016 Mazda CX-5 (low). The best choice may change as checks complete. Public safety records: 4 models not checked yet. Recall and crash-test data are per model and year, not for this exact car.",
+          "latencyMs": 2,
+          "costUsd": 0,
+          "model": null,
+          "textForNumbers": "pick JM3KE2DY5G0700001 | year 2016 | prices 16990 17950 12990 9995 | miles 88000 92000 155000 178000 | years 2016 2016 2011 2011 | budget 18000 | zip 55401 | Need AWD for Minnesota winters around $18000 near 55401. Crossover preferred."
+        },
+        {
+          "arm": "plain_llm",
+          "status": "not_run",
+          "reasonNotRun": "plain_llm not run in fixture mode — canned answers are forbidden. Run live with COMPARISON_ALLOW_PAID=1.",
+          "pickVin": null,
+          "priceVerdict": "unknown",
+          "fairValueUsd": null,
+          "redFlags": [],
+          "unknowns": [],
+          "summary": "plain_llm not run in fixture mode — canned answers are forbidden. Run live with COMPARISON_ALLOW_PAID=1.",
+          "latencyMs": 0,
+          "costUsd": null,
+          "model": null,
+          "textForNumbers": "",
+          "liveTrace": null
+        },
+        {
+          "arm": "cheapest",
+          "status": "ran",
+          "pickVin": "3CZRE3H50BG000004",
+          "priceVerdict": "fair",
+          "fairValueUsd": 9310,
+          "redFlags": [],
+          "unknowns": [
+            "Cheapest sort does not inspect title, recalls, or condition."
+          ],
+          "summary": "Cheapest ask: 2011 Honda CR-V at $9995.",
+          "latencyMs": 0,
+          "costUsd": 0,
+          "model": null,
+          "textForNumbers": "prices 16990 17950 12990 9995 | miles 88000 92000 155000 178000 | years 2016 2016 2011 2011"
+        }
+      ],
+      "scores": []
+    },
+    {
+      "caseId": "find-low-mile-camry-20k",
+      "kind": "find",
+      "title": "Low-mileage Camry under $20k",
+      "synthetic": true,
+      "outputs": [
+        {
+          "arm": "lemonless",
+          "status": "ran",
+          "pickVin": "4T1B11HK1JU700003",
+          "priceVerdict": "below",
+          "fairValueUsd": 20132,
+          "redFlags": [
+            "odometer"
+          ],
+          "unknowns": [
+            "Free public year/make/model checks are still running — ranking may change",
+            "Condition, accident history, and title brands stay unknown until a history report + inspection",
+            "VIN-level open/closed recall status is not verified here"
+          ],
+          "summary": "Lemonless pick 2018 Toyota Camry (medium). The best choice may change as checks complete. Public safety records: 1 model not checked yet. Recall and crash-test data are per model and year, not for this exact car.",
+          "latencyMs": 6,
+          "costUsd": 0,
+          "model": null,
+          "textForNumbers": "pick 4T1B11HK1JU700003 | year 2018 | prices 18990 17500 16995 | miles 52000 61000 18000 | years 2018 2018 2018 | budget 20000 | zip 78701 | Toyota Camry under $20000 with under 60k miles near 78701."
+        },
+        {
+          "arm": "plain_llm",
+          "status": "not_run",
+          "reasonNotRun": "plain_llm not run in fixture mode — canned answers are forbidden. Run live with COMPARISON_ALLOW_PAID=1.",
+          "pickVin": null,
+          "priceVerdict": "unknown",
+          "fairValueUsd": null,
+          "redFlags": [],
+          "unknowns": [],
+          "summary": "plain_llm not run in fixture mode — canned answers are forbidden. Run live with COMPARISON_ALLOW_PAID=1.",
+          "latencyMs": 0,
+          "costUsd": null,
+          "model": null,
+          "textForNumbers": "",
+          "liveTrace": null
+        },
+        {
+          "arm": "cheapest",
+          "status": "ran",
+          "pickVin": "4T1B11HK1JU700003",
+          "priceVerdict": "below",
+          "fairValueUsd": 20132,
+          "redFlags": [],
+          "unknowns": [
+            "Cheapest sort does not inspect title, recalls, or condition."
+          ],
+          "summary": "Cheapest ask: 2018 Toyota Camry at $16995.",
+          "latencyMs": 0,
+          "costUsd": 0,
+          "model": null,
+          "textForNumbers": "prices 18990 17500 16995 | miles 52000 61000 18000 | years 2018 2018 2018"
+        }
+      ],
+      "scores": []
+    },
+    {
+      "caseId": "find-truck-weekend-22k",
+      "kind": "find",
+      "title": "Weekend hauling truck under $22k",
+      "synthetic": true,
+      "outputs": [
+        {
+          "arm": "lemonless",
+          "status": "ran",
+          "pickVin": "5TFRU5F18GX100001",
+          "priceVerdict": "above",
+          "fairValueUsd": 19187,
+          "redFlags": [],
+          "unknowns": [
+            "Free public year/make/model checks are still running — ranking may change",
+            "Condition, accident history, and title brands stay unknown until a history report + inspection",
+            "VIN-level open/closed recall status is not verified here"
+          ],
+          "summary": "Lemonless pick 2016 Toyota Tacoma (medium). The best choice may change as checks complete. Public safety records: 3 models not checked yet. Recall and crash-test data are per model and year, not for this exact car.",
+          "latencyMs": 3,
+          "costUsd": 0,
+          "model": null,
+          "textForNumbers": "pick 5TFRU5F18GX100001 | year 2016 | prices 21990 20950 14990 | miles 98000 87000 210000 | years 2016 2017 2013 | budget 22000 | zip 85001 | Light truck for weekend hauling under $22000 near 85001. Tacoma or Ranger."
+        },
+        {
+          "arm": "plain_llm",
+          "status": "not_run",
+          "reasonNotRun": "plain_llm not run in fixture mode — canned answers are forbidden. Run live with COMPARISON_ALLOW_PAID=1.",
+          "pickVin": null,
+          "priceVerdict": "unknown",
+          "fairValueUsd": null,
+          "redFlags": [],
+          "unknowns": [],
+          "summary": "plain_llm not run in fixture mode — canned answers are forbidden. Run live with COMPARISON_ALLOW_PAID=1.",
+          "latencyMs": 0,
+          "costUsd": null,
+          "model": null,
+          "textForNumbers": "",
+          "liveTrace": null
+        },
+        {
+          "arm": "cheapest",
+          "status": "ran",
+          "pickVin": "5TFRU5F10DX200003",
+          "priceVerdict": "fair",
+          "fairValueUsd": 14904,
+          "redFlags": [],
+          "unknowns": [
+            "Cheapest sort does not inspect title, recalls, or condition."
+          ],
+          "summary": "Cheapest ask: 2013 Toyota Tacoma at $14990.",
+          "latencyMs": 0,
+          "costUsd": 0,
+          "model": null,
+          "textForNumbers": "prices 21990 20950 14990 | miles 98000 87000 210000 | years 2016 2017 2013"
+        }
+      ],
+      "scores": []
+    },
+    {
+      "caseId": "find-hybrid-fuel-16k",
+      "kind": "find",
+      "title": "Hybrid / fuel saver under $16k",
+      "synthetic": true,
+      "outputs": [
+        {
+          "arm": "lemonless",
+          "status": "ran",
+          "pickVin": "JTDKN3DU5E0100001",
+          "priceVerdict": "fair",
+          "fairValueUsd": 12160,
+          "redFlags": [],
+          "unknowns": [
+            "Free public year/make/model checks are still running — ranking may change",
+            "Condition, accident history, and title brands stay unknown until a history report + inspection",
+            "VIN-level open/closed recall status is not verified here",
+            "Confidence: low"
+          ],
+          "summary": "Lemonless pick 2014 Toyota Prius (low). The best choice may change as checks complete. Public safety records: 3 models not checked yet. Recall and crash-test data are per model and year, not for this exact car.",
+          "latencyMs": 2,
+          "costUsd": 0,
+          "model": null,
+          "textForNumbers": "pick JTDKN3DU5E0100001 | year 2014 | prices 12990 7995 11990 | miles 110000 165000 105000 | years 2014 2009 2014 | budget 16000 | zip 94107 | Want better fuel economy, hybrid preferred, under $16000 near 94107."
+        },
+        {
+          "arm": "plain_llm",
+          "status": "not_run",
+          "reasonNotRun": "plain_llm not run in fixture mode — canned answers are forbidden. Run live with COMPARISON_ALLOW_PAID=1.",
+          "pickVin": null,
+          "priceVerdict": "unknown",
+          "fairValueUsd": null,
+          "redFlags": [],
+          "unknowns": [],
+          "summary": "plain_llm not run in fixture mode — canned answers are forbidden. Run live with COMPARISON_ALLOW_PAID=1.",
+          "latencyMs": 0,
+          "costUsd": null,
+          "model": null,
+          "textForNumbers": "",
+          "liveTrace": null
+        },
+        {
+          "arm": "cheapest",
+          "status": "ran",
+          "pickVin": "JTDKB20U293200002",
+          "priceVerdict": "above",
+          "fairValueUsd": 7125,
+          "redFlags": [],
+          "unknowns": [
+            "Cheapest sort does not inspect title, recalls, or condition."
+          ],
+          "summary": "Cheapest ask: 2009 Toyota Prius at $7995.",
+          "latencyMs": 0,
+          "costUsd": 0,
+          "model": null,
+          "textForNumbers": "prices 12990 7995 11990 | miles 110000 165000 105000 | years 2014 2009 2014"
+        }
+      ],
+      "scores": []
+    },
+    {
+      "caseId": "find-luxury-stretch-25k",
+      "kind": "find",
+      "title": "Luxury sedan stretch under $25k",
+      "synthetic": true,
+      "outputs": [
+        {
+          "arm": "lemonless",
+          "status": "ran",
+          "pickVin": "58ABK1GG5GU400001",
+          "priceVerdict": "above",
+          "fairValueUsd": 21747,
+          "redFlags": [],
+          "unknowns": [
+            "Free public year/make/model checks are still running — ranking may change",
+            "Condition, accident history, and title brands stay unknown until a history report + inspection",
+            "VIN-level open/closed recall status is not verified here",
+            "Confidence: low"
+          ],
+          "summary": "Lemonless pick 2016 Lexus ES (low). The best choice may change as checks complete. Public safety records: 3 models not checked yet. Recall and crash-test data are per model and year, not for this exact car.",
+          "latencyMs": 2,
+          "costUsd": 0,
+          "model": null,
+          "textForNumbers": "pick 58ABK1GG5GU400001 | year 2016 | prices 23990 21950 16990 | miles 72000 81000 98000 | years 2016 2016 2014 | budget 25000 | zip 10001 | Stretch to a nicer sedan under $25000 near 10001. Lexus ES or Acura TLX."
+        },
+        {
+          "arm": "plain_llm",
+          "status": "not_run",
+          "reasonNotRun": "plain_llm not run in fixture mode — canned answers are forbidden. Run live with COMPARISON_ALLOW_PAID=1.",
+          "pickVin": null,
+          "priceVerdict": "unknown",
+          "fairValueUsd": null,
+          "redFlags": [],
+          "unknowns": [],
+          "summary": "plain_llm not run in fixture mode — canned answers are forbidden. Run live with COMPARISON_ALLOW_PAID=1.",
+          "latencyMs": 0,
+          "costUsd": null,
+          "model": null,
+          "textForNumbers": "",
+          "liveTrace": null
+        },
+        {
+          "arm": "cheapest",
+          "status": "ran",
+          "pickVin": "JTHBK1GG7E2500003",
+          "priceVerdict": "fair",
+          "fairValueUsd": 16344,
+          "redFlags": [],
+          "unknowns": [
+            "Cheapest sort does not inspect title, recalls, or condition."
+          ],
+          "summary": "Cheapest ask: 2014 Lexus ES at $16990.",
+          "latencyMs": 0,
+          "costUsd": 0,
+          "model": null,
+          "textForNumbers": "prices 23990 21950 16990 | miles 72000 81000 98000 | years 2016 2016 2014"
+        }
+      ],
+      "scores": []
+    },
+    {
+      "caseId": "find-city-crossover-14k",
+      "kind": "find",
+      "title": "Small city crossover under $14k",
+      "synthetic": true,
+      "outputs": [
+        {
+          "arm": "lemonless",
+          "status": "ran",
+          "pickVin": "JTMZF4DV5ED600001",
+          "priceVerdict": "above",
+          "fairValueUsd": 12825,
+          "redFlags": [],
+          "unknowns": [
+            "Free public year/make/model checks are still running — ranking may change",
+            "Condition, accident history, and title brands stay unknown until a history report + inspection",
+            "VIN-level open/closed recall status is not verified here",
+            "Confidence: low"
+          ],
+          "summary": "Lemonless pick 2013 Toyota RAV4 (low). The best choice may change as checks complete. Public safety records: 3 models not checked yet. Recall and crash-test data are per model and year, not for this exact car.",
+          "latencyMs": 1,
+          "costUsd": 0,
+          "model": null,
+          "textForNumbers": "pick JTMZF4DV5ED600001 | year 2013 | prices 13990 5995 12950 | miles 112000 198000 120000 | years 2013 2005 2013 | budget 14000 | zip 60614 | Small crossover for city parking under $14000 near 60614."
+        },
+        {
+          "arm": "plain_llm",
+          "status": "not_run",
+          "reasonNotRun": "plain_llm not run in fixture mode — canned answers are forbidden. Run live with COMPARISON_ALLOW_PAID=1.",
+          "pickVin": null,
+          "priceVerdict": "unknown",
+          "fairValueUsd": null,
+          "redFlags": [],
+          "unknowns": [],
+          "summary": "plain_llm not run in fixture mode — canned answers are forbidden. Run live with COMPARISON_ALLOW_PAID=1.",
+          "latencyMs": 0,
+          "costUsd": null,
+          "model": null,
+          "textForNumbers": "",
+          "liveTrace": null
+        },
+        {
+          "arm": "cheapest",
+          "status": "ran",
+          "pickVin": "SHSRD77805U700002",
+          "priceVerdict": "far_above",
+          "fairValueUsd": 4940,
+          "redFlags": [],
+          "unknowns": [
+            "Cheapest sort does not inspect title, recalls, or condition."
+          ],
+          "summary": "Cheapest ask: 2005 Honda CR-V at $5995.",
+          "latencyMs": 0,
+          "costUsd": 0,
+          "model": null,
+          "textForNumbers": "prices 13990 5995 12950 | miles 112000 198000 120000 | years 2013 2005 2013"
+        }
+      ],
+      "scores": []
+    },
+    {
+      "caseId": "find-cheapest-reliable-honda-33101",
+      "kind": "find",
+      "title": "Cheapest reliable Honda near 33101",
+      "synthetic": true,
+      "outputs": [
+        {
+          "arm": "lemonless",
+          "status": "ran",
+          "pickVin": "2HGFC2F59GH900002",
+          "priceVerdict": "fair",
+          "fairValueUsd": 12160,
+          "redFlags": [
+            "sold"
+          ],
+          "unknowns": [
+            "Free public year/make/model checks are still running — ranking may change",
+            "Condition, accident history, and title brands stay unknown until a history report + inspection",
+            "VIN-level open/closed recall status is not verified here"
+          ],
+          "summary": "Lemonless pick 2016 Honda Civic (medium). The best choice may change as checks complete. Public safety records: 2 models not checked yet. Recall and crash-test data are per model and year, not for this exact car.",
+          "latencyMs": 1,
+          "costUsd": 0,
+          "model": null,
+          "textForNumbers": "pick 2HGFC2F59GH900002 | year 2016 | prices 2995 12990 4500 | miles 210000 95000 88000 | years 2003 2016 2017 | budget none | zip 33101 | Cheapest reliable Honda near 33101. Civic or Accord."
+        },
+        {
+          "arm": "plain_llm",
+          "status": "not_run",
+          "reasonNotRun": "plain_llm not run in fixture mode — canned answers are forbidden. Run live with COMPARISON_ALLOW_PAID=1.",
+          "pickVin": null,
+          "priceVerdict": "unknown",
+          "fairValueUsd": null,
+          "redFlags": [],
+          "unknowns": [],
+          "summary": "plain_llm not run in fixture mode — canned answers are forbidden. Run live with COMPARISON_ALLOW_PAID=1.",
+          "latencyMs": 0,
+          "costUsd": null,
+          "model": null,
+          "textForNumbers": "",
+          "liveTrace": null
+        },
+        {
+          "arm": "cheapest",
+          "status": "ran",
+          "pickVin": "1HGCM82633A800001",
+          "priceVerdict": "fair",
+          "fairValueUsd": 3040,
+          "redFlags": [],
+          "unknowns": [
+            "Cheapest sort does not inspect title, recalls, or condition."
+          ],
+          "summary": "Cheapest ask: 2003 Honda Accord at $2995.",
+          "latencyMs": 0,
+          "costUsd": 0,
+          "model": null,
+          "textForNumbers": "prices 2995 12990 4500 | miles 210000 95000 88000 | years 2003 2016 2017"
+        }
+      ],
+      "scores": []
+    },
+    {
+      "caseId": "check-sold-camry",
+      "kind": "check",
+      "title": "SOLD Camry still listed",
+      "synthetic": true,
+      "outputs": [
+        {
+          "arm": "lemonless",
+          "status": "ran",
+          "pickVin": null,
+          "priceVerdict": "unknown",
+          "fairValueUsd": 11875,
+          "redFlags": [
+            "sold",
+            "sold"
+          ],
+          "unknowns": [],
+          "summary": "2015 Toyota Camry ask $11990. Walk away until title/availability is cleared.",
+          "latencyMs": 0,
+          "costUsd": 0,
+          "model": null,
+          "textForNumbers": "ask 11990 | year 2015 | miles 102000 | compPrices 11700 12500 13400 12300 12900 | 2015 Toyota Camry LE — SOLD. Availability: https://schema.org/SoldOut. Ask was $11990. VIN 4T1BF1FK5FU111111. 102000 miles."
+        },
+        {
+          "arm": "plain_llm",
+          "status": "not_run",
+          "reasonNotRun": "plain_llm not run in fixture mode — canned answers are forbidden. Run live with COMPARISON_ALLOW_PAID=1.",
+          "pickVin": null,
+          "priceVerdict": "unknown",
+          "fairValueUsd": null,
+          "redFlags": [],
+          "unknowns": [],
+          "summary": "plain_llm not run in fixture mode — canned answers are forbidden. Run live with COMPARISON_ALLOW_PAID=1.",
+          "latencyMs": 0,
+          "costUsd": null,
+          "model": null,
+          "textForNumbers": "",
+          "liveTrace": null
+        },
+        {
+          "arm": "cheapest",
+          "status": "ran",
+          "pickVin": "4T1BF1FK5FU111111",
+          "priceVerdict": "fair",
+          "fairValueUsd": 11875,
+          "redFlags": [],
+          "unknowns": [
+            "Single-listing cheapest arm does not scan red-flag language."
+          ],
+          "summary": "Cheapest-price arm on a single listing: ask $11990.",
+          "latencyMs": 1,
+          "costUsd": 0,
+          "model": null,
+          "textForNumbers": "ask 11990 | year 2015 | miles 102000 | compPrices 11700 12500 13400 12300 12900 | 2015 Toyota Camry LE — SOLD. Availability: https://schema.org/SoldOut. Ask was $11990. VIN 4T1BF1FK5FU111111. 102000 miles."
+        }
+      ],
+      "scores": []
+    },
+    {
+      "caseId": "check-far-below-market",
+      "kind": "check",
+      "title": "Price far below adjusted comps",
+      "synthetic": true,
+      "outputs": [
+        {
+          "arm": "lemonless",
+          "status": "ran",
+          "pickVin": "2HKRM4H75HH222222",
+          "priceVerdict": "far_below",
+          "fairValueUsd": 14725,
+          "redFlags": [
+            "too_good_price"
+          ],
+          "unknowns": [],
+          "summary": "2017 Honda CR-V ask $8995. Price reading: Good price.",
+          "latencyMs": 0,
+          "costUsd": 0,
+          "model": null,
+          "textForNumbers": "ask 8995 | year 2017 | miles 78000 | compPrices 14700 15500 16400 15300 15900 | 2017 Honda CR-V EX AWD. $8995. 78000 miles. VIN 2HKRM4H75HH222222. Clean title. No accidents stated."
+        },
+        {
+          "arm": "plain_llm",
+          "status": "not_run",
+          "reasonNotRun": "plain_llm not run in fixture mode — canned answers are forbidden. Run live with COMPARISON_ALLOW_PAID=1.",
+          "pickVin": null,
+          "priceVerdict": "unknown",
+          "fairValueUsd": null,
+          "redFlags": [],
+          "unknowns": [],
+          "summary": "plain_llm not run in fixture mode — canned answers are forbidden. Run live with COMPARISON_ALLOW_PAID=1.",
+          "latencyMs": 0,
+          "costUsd": null,
+          "model": null,
+          "textForNumbers": "",
+          "liveTrace": null
+        },
+        {
+          "arm": "cheapest",
+          "status": "ran",
+          "pickVin": "2HKRM4H75HH222222",
+          "priceVerdict": "far_below",
+          "fairValueUsd": 14725,
+          "redFlags": [],
+          "unknowns": [
+            "Single-listing cheapest arm does not scan red-flag language."
+          ],
+          "summary": "Cheapest-price arm on a single listing: ask $8995.",
+          "latencyMs": 0,
+          "costUsd": 0,
+          "model": null,
+          "textForNumbers": "ask 8995 | year 2017 | miles 78000 | compPrices 14700 15500 16400 15300 15900 | 2017 Honda CR-V EX AWD. $8995. 78000 miles. VIN 2HKRM4H75HH222222. Clean title. No accidents stated."
+        }
+      ],
+      "scores": []
+    },
+    {
+      "caseId": "check-salvage-rebuilt",
+      "kind": "check",
+      "title": "Salvage / rebuilt title language",
+      "synthetic": true,
+      "outputs": [
+        {
+          "arm": "lemonless",
+          "status": "ran",
+          "pickVin": "3FA6P0H70GR333333",
+          "priceVerdict": "far_below",
+          "fairValueUsd": 9975,
+          "redFlags": [
+            "title_brand",
+            "too_good_price"
+          ],
+          "unknowns": [],
+          "summary": "2016 Ford Fusion ask $7495. Walk away until title/availability is cleared.",
+          "latencyMs": 1,
+          "costUsd": 0,
+          "model": null,
+          "textForNumbers": "ask 7495 | year 2016 | miles 99000 | compPrices 9700 10500 11400 10300 10900 | 2016 Ford Fusion SE. $7495. 99000 miles. VIN 3FA6P0H70GR333333. Rebuilt title after salvage. Runs great."
+        },
+        {
+          "arm": "plain_llm",
+          "status": "not_run",
+          "reasonNotRun": "plain_llm not run in fixture mode — canned answers are forbidden. Run live with COMPARISON_ALLOW_PAID=1.",
+          "pickVin": null,
+          "priceVerdict": "unknown",
+          "fairValueUsd": null,
+          "redFlags": [],
+          "unknowns": [],
+          "summary": "plain_llm not run in fixture mode — canned answers are forbidden. Run live with COMPARISON_ALLOW_PAID=1.",
+          "latencyMs": 0,
+          "costUsd": null,
+          "model": null,
+          "textForNumbers": "",
+          "liveTrace": null
+        },
+        {
+          "arm": "cheapest",
+          "status": "ran",
+          "pickVin": "3FA6P0H70GR333333",
+          "priceVerdict": "far_below",
+          "fairValueUsd": 9975,
+          "redFlags": [],
+          "unknowns": [
+            "Single-listing cheapest arm does not scan red-flag language."
+          ],
+          "summary": "Cheapest-price arm on a single listing: ask $7495.",
+          "latencyMs": 0,
+          "costUsd": 0,
+          "model": null,
+          "textForNumbers": "ask 7495 | year 2016 | miles 99000 | compPrices 9700 10500 11400 10300 10900 | 2016 Ford Fusion SE. $7495. 99000 miles. VIN 3FA6P0H70GR333333. Rebuilt title after salvage. Runs great."
+        }
+      ],
+      "scores": []
+    },
+    {
+      "caseId": "check-high-mileage",
+      "kind": "check",
+      "title": "Very high mileage ask",
+      "synthetic": true,
+      "outputs": [
+        {
+          "arm": "lemonless",
+          "status": "ran",
+          "pickVin": "4SBNANAC5E3444444",
+          "priceVerdict": "fair",
+          "fairValueUsd": 8640,
+          "redFlags": [],
+          "unknowns": [],
+          "summary": "2014 Subaru Outback ask $8990. Price reading: Fair price.",
+          "latencyMs": 0,
+          "costUsd": 0,
+          "model": null,
+          "textForNumbers": "ask 8990 | year 2014 | miles 238000 | compPrices 11200 12000 12900 11800 12400 | 2014 Subaru Outback 2.5i. $8990. 238000 miles. VIN 4SBNANAC5E3444444. One owner. Maintenance records available."
+        },
+        {
+          "arm": "plain_llm",
+          "status": "not_run",
+          "reasonNotRun": "plain_llm not run in fixture mode — canned answers are forbidden. Run live with COMPARISON_ALLOW_PAID=1.",
+          "pickVin": null,
+          "priceVerdict": "unknown",
+          "fairValueUsd": null,
+          "redFlags": [],
+          "unknowns": [],
+          "summary": "plain_llm not run in fixture mode — canned answers are forbidden. Run live with COMPARISON_ALLOW_PAID=1.",
+          "latencyMs": 0,
+          "costUsd": null,
+          "model": null,
+          "textForNumbers": "",
+          "liveTrace": null
+        },
+        {
+          "arm": "cheapest",
+          "status": "ran",
+          "pickVin": "4SBNANAC5E3444444",
+          "priceVerdict": "fair",
+          "fairValueUsd": 8640,
+          "redFlags": [],
+          "unknowns": [
+            "Single-listing cheapest arm does not scan red-flag language."
+          ],
+          "summary": "Cheapest-price arm on a single listing: ask $8990.",
+          "latencyMs": 0,
+          "costUsd": 0,
+          "model": null,
+          "textForNumbers": "ask 8990 | year 2014 | miles 238000 | compPrices 11200 12000 12900 11800 12400 | 2014 Subaru Outback 2.5i. $8990. 238000 miles. VIN 4SBNANAC5E3444444. One owner. Maintenance records available."
+        }
+      ],
+      "scores": []
+    },
+    {
+      "caseId": "check-missing-vin",
+      "kind": "check",
+      "title": "Missing VIN",
+      "synthetic": true,
+      "outputs": [
+        {
+          "arm": "lemonless",
+          "status": "ran",
+          "pickVin": null,
+          "priceVerdict": "fair",
+          "fairValueUsd": 16910,
+          "redFlags": [
+            "missing_vin",
+            "missing_vin"
+          ],
+          "unknowns": [
+            "VIN missing from listing"
+          ],
+          "summary": "2018 Mazda CX-5 ask $17990. Do not buy without a VIN decode and history.",
+          "latencyMs": 0,
+          "costUsd": 0,
+          "model": null,
+          "textForNumbers": "ask 17990 | year 2018 | miles 64000 | compPrices 17000 17800 18700 17600 18200 | 2018 Mazda CX-5 Touring. $17990. 64000 miles. VIN N/A — available upon request at the store. Clean Carfax claimed."
+        },
+        {
+          "arm": "plain_llm",
+          "status": "not_run",
+          "reasonNotRun": "plain_llm not run in fixture mode — canned answers are forbidden. Run live with COMPARISON_ALLOW_PAID=1.",
+          "pickVin": null,
+          "priceVerdict": "unknown",
+          "fairValueUsd": null,
+          "redFlags": [],
+          "unknowns": [],
+          "summary": "plain_llm not run in fixture mode — canned answers are forbidden. Run live with COMPARISON_ALLOW_PAID=1.",
+          "latencyMs": 0,
+          "costUsd": null,
+          "model": null,
+          "textForNumbers": "",
+          "liveTrace": null
+        },
+        {
+          "arm": "cheapest",
+          "status": "ran",
+          "pickVin": null,
+          "priceVerdict": "fair",
+          "fairValueUsd": 16910,
+          "redFlags": [],
+          "unknowns": [
+            "Single-listing cheapest arm does not scan red-flag language."
+          ],
+          "summary": "Cheapest-price arm on a single listing: ask $17990.",
+          "latencyMs": 0,
+          "costUsd": 0,
+          "model": null,
+          "textForNumbers": "ask 17990 | year 2018 | miles 64000 | compPrices 17000 17800 18700 17600 18200 | 2018 Mazda CX-5 Touring. $17990. 64000 miles. VIN N/A — available upon request at the store. Clean Carfax claimed."
+        }
+      ],
+      "scores": []
+    },
+    {
+      "caseId": "check-fair-camry",
+      "kind": "check",
+      "title": "Fair-priced clean Camry",
+      "synthetic": true,
+      "outputs": [
+        {
+          "arm": "lemonless",
+          "status": "ran",
+          "pickVin": "4T1KZ1AK4MU060006",
+          "priceVerdict": "fair",
+          "fairValueUsd": 22990,
+          "redFlags": [],
+          "unknowns": [],
+          "summary": "2021 Toyota Camry ask $23990. Price reading: Fair price.",
+          "latencyMs": 1,
+          "costUsd": 0,
+          "model": null,
+          "textForNumbers": "ask 23990 | year 2021 | miles 28450 | compPrices 23400 24200 25100 24000 24600 | 2021 Toyota Camry SE. $23990. 28450 miles. VIN 4T1KZ1AK4MU060006. Clean title. One owner."
+        },
+        {
+          "arm": "plain_llm",
+          "status": "not_run",
+          "reasonNotRun": "plain_llm not run in fixture mode — canned answers are forbidden. Run live with COMPARISON_ALLOW_PAID=1.",
+          "pickVin": null,
+          "priceVerdict": "unknown",
+          "fairValueUsd": null,
+          "redFlags": [],
+          "unknowns": [],
+          "summary": "plain_llm not run in fixture mode — canned answers are forbidden. Run live with COMPARISON_ALLOW_PAID=1.",
+          "latencyMs": 0,
+          "costUsd": null,
+          "model": null,
+          "textForNumbers": "",
+          "liveTrace": null
+        },
+        {
+          "arm": "cheapest",
+          "status": "ran",
+          "pickVin": "4T1KZ1AK4MU060006",
+          "priceVerdict": "fair",
+          "fairValueUsd": 22990,
+          "redFlags": [],
+          "unknowns": [
+            "Single-listing cheapest arm does not scan red-flag language."
+          ],
+          "summary": "Cheapest-price arm on a single listing: ask $23990.",
+          "latencyMs": 0,
+          "costUsd": 0,
+          "model": null,
+          "textForNumbers": "ask 23990 | year 2021 | miles 28450 | compPrices 23400 24200 25100 24000 24600 | 2021 Toyota Camry SE. $23990. 28450 miles. VIN 4T1KZ1AK4MU060006. Clean title. One owner."
+        }
+      ],
+      "scores": []
+    },
+    {
+      "caseId": "check-overpriced-dealer",
+      "kind": "check",
+      "title": "Overpriced dealer listing",
+      "synthetic": true,
+      "outputs": [
+        {
+          "arm": "lemonless",
+          "status": "ran",
+          "pickVin": "1HGCV1F30KA555555",
+          "priceVerdict": "far_above",
+          "fairValueUsd": 19950,
+          "redFlags": [],
+          "unknowns": [],
+          "summary": "2019 Honda Accord ask $27995. Price reading: High price.",
+          "latencyMs": 0,
+          "costUsd": 0,
+          "model": null,
+          "textForNumbers": "ask 27995 | year 2019 | miles 41000 | compPrices 20200 21000 21900 20800 21400 | 2019 Honda Accord Sport. $27995. 41000 miles. VIN 1HGCV1F30KA555555. Dealer certified."
+        },
+        {
+          "arm": "plain_llm",
+          "status": "not_run",
+          "reasonNotRun": "plain_llm not run in fixture mode — canned answers are forbidden. Run live with COMPARISON_ALLOW_PAID=1.",
+          "pickVin": null,
+          "priceVerdict": "unknown",
+          "fairValueUsd": null,
+          "redFlags": [],
+          "unknowns": [],
+          "summary": "plain_llm not run in fixture mode — canned answers are forbidden. Run live with COMPARISON_ALLOW_PAID=1.",
+          "latencyMs": 0,
+          "costUsd": null,
+          "model": null,
+          "textForNumbers": "",
+          "liveTrace": null
+        },
+        {
+          "arm": "cheapest",
+          "status": "ran",
+          "pickVin": "1HGCV1F30KA555555",
+          "priceVerdict": "far_above",
+          "fairValueUsd": 19950,
+          "redFlags": [],
+          "unknowns": [
+            "Single-listing cheapest arm does not scan red-flag language."
+          ],
+          "summary": "Cheapest-price arm on a single listing: ask $27995.",
+          "latencyMs": 0,
+          "costUsd": 0,
+          "model": null,
+          "textForNumbers": "ask 27995 | year 2019 | miles 41000 | compPrices 20200 21000 21900 20800 21400 | 2019 Honda Accord Sport. $27995. 41000 miles. VIN 1HGCV1F30KA555555. Dealer certified."
+        }
+      ],
+      "scores": []
+    },
+    {
+      "caseId": "check-recall-heavy",
+      "kind": "check",
+      "title": "Recall-heavy year/model note",
+      "synthetic": true,
+      "outputs": [
+        {
+          "arm": "lemonless",
+          "status": "ran",
+          "pickVin": "2HGFB2F54EH666666",
+          "priceVerdict": "fair",
+          "fairValueUsd": 8740,
+          "redFlags": [
+            "recall"
+          ],
+          "unknowns": [],
+          "summary": "2014 Honda Civic ask $8995. Price reading: Fair price.",
+          "latencyMs": 0,
+          "costUsd": 0,
+          "model": null,
+          "textForNumbers": "ask 8995 | year 2014 | miles 120000 | compPrices 8400 9200 10100 9000 9600 | 2014 Honda Civic LX. $8995. 120000 miles. VIN 2HGFB2F54EH666666. Open Takata airbag recall — dealer will repair after sale."
+        },
+        {
+          "arm": "plain_llm",
+          "status": "not_run",
+          "reasonNotRun": "plain_llm not run in fixture mode — canned answers are forbidden. Run live with COMPARISON_ALLOW_PAID=1.",
+          "pickVin": null,
+          "priceVerdict": "unknown",
+          "fairValueUsd": null,
+          "redFlags": [],
+          "unknowns": [],
+          "summary": "plain_llm not run in fixture mode — canned answers are forbidden. Run live with COMPARISON_ALLOW_PAID=1.",
+          "latencyMs": 0,
+          "costUsd": null,
+          "model": null,
+          "textForNumbers": "",
+          "liveTrace": null
+        },
+        {
+          "arm": "cheapest",
+          "status": "ran",
+          "pickVin": "2HGFB2F54EH666666",
+          "priceVerdict": "fair",
+          "fairValueUsd": 8740,
+          "redFlags": [],
+          "unknowns": [
+            "Single-listing cheapest arm does not scan red-flag language."
+          ],
+          "summary": "Cheapest-price arm on a single listing: ask $8995.",
+          "latencyMs": 0,
+          "costUsd": 0,
+          "model": null,
+          "textForNumbers": "ask 8995 | year 2014 | miles 120000 | compPrices 8400 9200 10100 9000 9600 | 2014 Honda Civic LX. $8995. 120000 miles. VIN 2HGFB2F54EH666666. Open Takata airbag recall — dealer will repair after sale."
+        }
+      ],
+      "scores": []
+    },
+    {
+      "caseId": "check-odometer-rollback",
+      "kind": "check",
+      "title": "Odometer rollback language",
+      "synthetic": true,
+      "outputs": [
+        {
+          "arm": "lemonless",
+          "status": "ran",
+          "pickVin": "1G11C5SL5FF777777",
+          "priceVerdict": "far_below",
+          "fairValueUsd": 10880,
+          "redFlags": [
+            "odometer",
+            "too_good_price"
+          ],
+          "unknowns": [],
+          "summary": "2015 Chevrolet Malibu ask $6995. Price reading: Good price.",
+          "latencyMs": 0,
+          "costUsd": 0,
+          "model": null,
+          "textForNumbers": "ask 6995 | year 2015 | miles 45000 | compPrices 7700 8500 9400 8300 8900 | 2015 Chevy Malibu LT. $6995. 45000 miles. VIN 1G11C5SL5FF777777. Title says odometer not actual mileage / mileage exempt."
+        },
+        {
+          "arm": "plain_llm",
+          "status": "not_run",
+          "reasonNotRun": "plain_llm not run in fixture mode — canned answers are forbidden. Run live with COMPARISON_ALLOW_PAID=1.",
+          "pickVin": null,
+          "priceVerdict": "unknown",
+          "fairValueUsd": null,
+          "redFlags": [],
+          "unknowns": [],
+          "summary": "plain_llm not run in fixture mode — canned answers are forbidden. Run live with COMPARISON_ALLOW_PAID=1.",
+          "latencyMs": 0,
+          "costUsd": null,
+          "model": null,
+          "textForNumbers": "",
+          "liveTrace": null
+        },
+        {
+          "arm": "cheapest",
+          "status": "ran",
+          "pickVin": "1G11C5SL5FF777777",
+          "priceVerdict": "far_below",
+          "fairValueUsd": 10880,
+          "redFlags": [],
+          "unknowns": [
+            "Single-listing cheapest arm does not scan red-flag language."
+          ],
+          "summary": "Cheapest-price arm on a single listing: ask $6995.",
+          "latencyMs": 0,
+          "costUsd": 0,
+          "model": null,
+          "textForNumbers": "ask 6995 | year 2015 | miles 45000 | compPrices 7700 8500 9400 8300 8900 | 2015 Chevy Malibu LT. $6995. 45000 miles. VIN 1G11C5SL5FF777777. Title says odometer not actual mileage / mileage exempt."
+        }
+      ],
+      "scores": []
+    },
+    {
+      "caseId": "check-as-is-accident",
+      "kind": "check",
+      "title": "As-is with accident stated",
+      "synthetic": true,
+      "outputs": [
+        {
+          "arm": "lemonless",
+          "status": "ran",
+          "pickVin": null,
+          "priceVerdict": "unknown",
+          "fairValueUsd": 9310,
+          "redFlags": [
+            "sold",
+            "sold",
+            "as_is"
+          ],
+          "unknowns": [],
+          "summary": "2016 Hyundai Sonata ask $8495. Walk away until title/availability is cleared.",
+          "latencyMs": 0,
+          "costUsd": 0,
+          "model": null,
+          "textForNumbers": "ask 8495 | year 2016 | miles 108000 | compPrices 9000 9800 10700 9600 10200 | 2016 Hyundai Sonata SE. $8495. 108000 miles. VIN 5NPE24AF6GH888888. Sold as-is. Seller notes two accidents on Carfax."
+        },
+        {
+          "arm": "plain_llm",
+          "status": "not_run",
+          "reasonNotRun": "plain_llm not run in fixture mode — canned answers are forbidden. Run live with COMPARISON_ALLOW_PAID=1.",
+          "pickVin": null,
+          "priceVerdict": "unknown",
+          "fairValueUsd": null,
+          "redFlags": [],
+          "unknowns": [],
+          "summary": "plain_llm not run in fixture mode — canned answers are forbidden. Run live with COMPARISON_ALLOW_PAID=1.",
+          "latencyMs": 0,
+          "costUsd": null,
+          "model": null,
+          "textForNumbers": "",
+          "liveTrace": null
+        },
+        {
+          "arm": "cheapest",
+          "status": "ran",
+          "pickVin": "5NPE24AF6GH888888",
+          "priceVerdict": "below",
+          "fairValueUsd": 9310,
+          "redFlags": [],
+          "unknowns": [
+            "Single-listing cheapest arm does not scan red-flag language."
+          ],
+          "summary": "Cheapest-price arm on a single listing: ask $8495.",
+          "latencyMs": 0,
+          "costUsd": 0,
+          "model": null,
+          "textForNumbers": "ask 8495 | year 2016 | miles 108000 | compPrices 9000 9800 10700 9600 10200 | 2016 Hyundai Sonata SE. $8495. 108000 miles. VIN 5NPE24AF6GH888888. Sold as-is. Seller notes two accidents on Carfax."
+        }
+      ],
+      "scores": []
+    }
+  ]
+}

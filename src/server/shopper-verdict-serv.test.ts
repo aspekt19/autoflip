@@ -1,0 +1,220 @@
+import { describe, expect, it, vi } from "vitest";
+import { ASSUMPTIONS } from "@/domain/assumptions";
+import type { ComputedReport, Listing } from "@/domain/types";
+import { runShopperVerdictServ } from "./shopper-verdict-serv";
+
+function listing(partial: Partial<Listing> = {}): Listing {
+  return {
+    vin: "4T1KZ1AK4MU060006",
+    year: 2021,
+    make: "Toyota",
+    model: "Camry",
+    trim: "SE",
+    miles: 32000,
+    priceUsd: 23990,
+    city: "Dallas",
+    state: "TX",
+    zip: "75201",
+    dealer: null,
+    vdp: null,
+    primaryImage: null,
+    carfaxUrl: null,
+    used: true,
+    cpo: false,
+    accidentCount: 0,
+    oneOwner: true,
+    ownerCount: 1,
+    usageType: "Personal",
+    fuel: null,
+    engine: null,
+    drivetrain: null,
+    bodyStyle: "Sedan",
+    latitude: null,
+    longitude: null,
+    removedAt: null,
+    source: "autodev",
+    ...partial,
+  };
+}
+
+function report(partial: Partial<ComputedReport> = {}): ComputedReport {
+  const subject = listing();
+  return {
+    mode: "personal",
+    subject,
+    verdict: "fair",
+    score: null,
+    reasons: ["Ask near similar listings."],
+    flags: [],
+    questions: [],
+    comps: [
+      {
+        vin: "4T1KZ1AK4MU060001",
+        year: 2021,
+        trim: "SE",
+        miles: 30000,
+        priceUsd: 24500,
+        adjustedPriceUsd: 24200,
+        city: null,
+        state: null,
+        distanceMiles: null,
+      },
+      {
+        vin: "4T1KZ1AK4MU060002",
+        year: 2020,
+        trim: "SE",
+        miles: 35000,
+        priceUsd: 22900,
+        adjustedPriceUsd: 23500,
+        city: null,
+        state: null,
+        distanceMiles: null,
+      },
+      {
+        vin: "4T1KZ1AK4MU060003",
+        year: 2021,
+        trim: "LE",
+        miles: 28000,
+        priceUsd: 25000,
+        adjustedPriceUsd: 24800,
+        city: null,
+        state: null,
+        distanceMiles: null,
+      },
+    ],
+    compScope: "test",
+    percentile: null,
+    fairValueUsd: 24000,
+    priceGap: (23990 - 24000) / 24000,
+    mileage: {
+      expectedMiles: null,
+      subjectMiles: 32000,
+      medianCompMiles: null,
+      perMileUsd: null,
+    },
+    history: { multiplier: 1, lines: [] },
+    recalls: [],
+    recallsAvailable: true,
+    openParkIt: false,
+    complaintCount: 0,
+    fuel: null,
+    vinDecode: null,
+    distanceToSearchZipMiles: null,
+    flip: null,
+    assumptions: { ...ASSUMPTIONS },
+    dataNotes: ["Paid history was not run"],
+    sample: false,
+    ...partial,
+  };
+}
+
+function jsonResponse(body: unknown, id: string) {
+  return new Response(JSON.stringify({ id, model: "gpt-5.4-mini", choices: [{ message: { content: JSON.stringify(body) } }] }), {
+    status: 200,
+    headers: { "content-type": "application/json" },
+  });
+}
+
+describe("runShopperVerdictServ", () => {
+  it("skips SERV when no key and leaves no invented trail spend", async () => {
+    const result = await runShopperVerdictServ({ report: report(), servKey: undefined });
+    expect(result.agentVerdict.no_serv_step).toBe(true);
+    expect(result.trace).toBeNull();
+    expect(result.decideProof).toBeNull();
+  });
+
+  it("records a real decide + challenge trail when SERV succeeds", async () => {
+    let calls = 0;
+    const fetchImpl = vi.fn(async () => {
+      calls += 1;
+      if (calls === 1) {
+        return jsonResponse({ verdict: "negotiate", note: "Ask sits near fair value from the comps." }, "chatcmpl-decide-1");
+      }
+      return jsonResponse(
+        {
+          agrees: true,
+          action: "negotiate",
+          objection: null,
+          evidenceIds: ["ev_fair_value"],
+        },
+        "chatcmpl-challenge-1",
+      );
+    });
+
+    const result = await runShopperVerdictServ({
+      report: report(),
+      servKey: "test-key",
+      model: "gpt-5.4-mini",
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+    });
+
+    expect(result.agentVerdict.no_serv_step).toBe(false);
+    expect(result.agentVerdict.verdict).toBe("negotiate");
+    expect(result.agentVerdict.second_pass?.status).toMatch(/agreed|disagreed|ignored/);
+    expect(result.trace?.calls.length).toBeGreaterThanOrEqual(1);
+    expect(result.trace?.calls[0]?.rawResponse).toMatch(/negotiate/);
+    expect(result.trace?.calls[0]?.responseId).toBe("chatcmpl-decide-1");
+    expect(result.trace?.model).toBe("gpt-5.4-mini");
+    expect(result.trace?.recordedAt).toMatch(/^\d{4}-/);
+  });
+
+  it("shows honest unavailable fallback when decide fails", async () => {
+    const fetchImpl = vi.fn(async () => new Response("nope", { status: 503 }));
+    const result = await runShopperVerdictServ({
+      report: report(),
+      servKey: "test-key",
+      model: "gpt-5.4-mini",
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+    });
+    expect(result.agentVerdict.no_serv_step).toBe(true);
+    expect(result.agentVerdict.verdict).toBeNull();
+    expect(result.agentVerdict.serv_steps).toEqual([]);
+    expect(result.agentVerdict.second_pass?.status).toBe("not_run");
+    expect(result.agentVerdict.unknowns).toEqual(["Agent step unavailable — price rules only"]);
+    expect(result.agentVerdict.serv_spend?.costNote).toMatch(/Agent step unavailable — price rules only/);
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+    expect(result.trace?.calls).toHaveLength(1);
+    expect(result.trace?.calls[0]?.profile).toBe("verdict_decide");
+    expect(result.trace?.calls[0]?.rawResponse).toBeNull();
+  });
+
+  it("clamps a SERV buy when title-brand gates forbid buy and negotiate", async () => {
+    const fetchImpl = vi.fn(async () =>
+      jsonResponse({ verdict: "buy", note: "Looks fine." }, "chatcmpl-buy"),
+    );
+    const result = await runShopperVerdictServ({
+      report: report({
+        flags: [{ level: "stop", text: "Salvage title.", source: "title-brand" }],
+      }),
+      servKey: "test-key",
+      model: "gpt-5.4-mini",
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+    });
+    expect(result.decision.servChoice).toBe("buy");
+    expect(result.decision.finalAction).not.toBe("buy");
+    expect(result.decision.finalAction).not.toBe("negotiate");
+    expect(result.agentVerdict.verdict).not.toBe("buy");
+    expect(result.agentVerdict.serv_steps[0]?.why).toBe("Looks fine.");
+    expect(result.agentVerdict.serv_steps[0]?.changed).toMatch(/gates kept/);
+    const init = (fetchImpl.mock.calls as unknown as Array<[unknown, RequestInit]>)[0]?.[1];
+    const sent = JSON.parse(String(init?.body)) as { messages?: Array<{ role?: string; content?: string }> };
+    const user = sent.messages?.find((message) => message.role === "user")?.content ?? "";
+    const facts = JSON.parse(user) as { facts?: { allowedActions?: string[] } };
+    expect(facts.facts?.allowedActions).not.toContain("buy");
+    expect(facts.facts?.allowedActions).not.toContain("negotiate");
+  });
+
+  it("withholds without inventing SERV when asking price is missing", async () => {
+    const fetchImpl = vi.fn(async () => {
+      throw new Error("network should not be called when gates withhold");
+    });
+    const result = await runShopperVerdictServ({
+      report: report({ subject: listing({ priceUsd: null }), verdict: "insufficient_data", fairValueUsd: null }),
+      servKey: "test-key",
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+    });
+    expect(result.decision.gateRun.withheld).toBe(true);
+    expect(result.trace).toBeNull();
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+});

@@ -59,7 +59,8 @@ export async function runReportVerdictChallenge(input: {
   servBaseUrl?: string;
   model?: string;
   fetchImpl?: typeof fetch;
-}): Promise<{ result: AgentSecondPassResult; proof: ServProof | null }> {
+  transportPolicy?: ServDeps["transportPolicy"];
+}): Promise<{ result: AgentSecondPassResult; proof: ServProof | null; rawText: string | null }> {
   if (!input.hasBudget) {
     return {
       result: applyAgentSecondPass({
@@ -70,6 +71,7 @@ export async function runReportVerdictChallenge(input: {
         statusIfNoBudget: "skipped_no_budget",
       }),
       proof: null,
+      rawText: null,
     };
   }
   if (!input.servKey) {
@@ -82,6 +84,7 @@ export async function runReportVerdictChallenge(input: {
         statusIfNoBudget: "skipped_no_key",
       }),
       proof: null,
+      rawText: null,
     };
   }
 
@@ -91,6 +94,7 @@ export async function runReportVerdictChallenge(input: {
     apiKey: input.servKey,
     baseUrl: input.servBaseUrl,
     model: input.model,
+    transportPolicy: input.transportPolicy,
   };
   const judged = await runServ(
     "verdict_challenge",
@@ -116,6 +120,7 @@ export async function runReportVerdictChallenge(input: {
         confidenceAfter: input.confidence,
       },
       proof: judged.proof,
+      rawText: null,
     };
   }
 
@@ -125,5 +130,5 @@ export async function runReportVerdictChallenge(input: {
     rawText: judged.text,
     allowedEvidenceIds: ids,
   });
-  return { result, proof: judged.proof };
+  return { result, proof: judged.proof, rawText: judged.text };
 }
