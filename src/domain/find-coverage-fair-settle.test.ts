@@ -367,7 +367,7 @@ describe("live 24-card coverage settle + fair scoring", () => {
     const extreme = fullRank.ranked.find((r) => r.vin === "CAM-EXTREME");
     expect(extreme).toBeTruthy();
     expect(extreme!.factors.find((f) => f.id === "price_vs_model_asks")!.detail).toMatch(
-      /caution|capped|high mileage/i,
+      /unusually low|suggest an inspection/i,
     );
     expect(fullRank.ranked.findIndex((r) => r.vin === "CAM-EXTREME")).toBeGreaterThan(2);
     if (result.confidence === "confident") {
@@ -507,7 +507,7 @@ describe("price-below-market cap under condition-first", () => {
     expect(priceFactor.points).toBeLessThanOrEqual(
       Math.round(BEST_DEAL_WEIGHTS.price * BEST_DEAL_PRICE_BELOW_CAP_FRAC * 2 * 10) / 10 + 0.1,
     );
-    expect(priceFactor.detail).toMatch(/capped|caution|condition-first|high mileage/i);
+    expect(priceFactor.detail).toMatch(/unusually low|suggest an inspection/i);
     // Full uncapped bonus would approach +22; deep+high-mile shrinks further under the soft cap.
     expect(priceFactor.points).toBeLessThan(BEST_DEAL_WEIGHTS.price);
     expect(priceFactor.points).toBeLessThanOrEqual(
@@ -613,8 +613,10 @@ describe("checklist + market + budget + coverage copy", () => {
       radiusMiles: 50,
       historyOnListing: false,
     });
-    expect(note).toMatch(/8 dealer listings in this group \(24 on this page\)/);
-    expect(note).not.toMatch(/search direction/i);
+    expect(note).toBe(
+      "Based on 24 dealer listings within 50 miles; no vehicle history checked.",
+    );
+    expect(note).not.toMatch(/in this group|on this page|search direction/i);
   });
 
   it("note budget year-band copy never says hard cap when soft tolerance applies", () => {

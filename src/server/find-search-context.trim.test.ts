@@ -39,6 +39,37 @@ describe("listingsFromMatchDirections trim plumbing", () => {
     expect(rows[1]).toMatchObject({ trim: null, vin: "SP2" });
   });
 
+  it("preserves listing accidentCount/cpo through mint and marketPool for feed-flag notes", () => {
+    const rows = listingsFromMatchDirections([
+      {
+        listings: [
+          {
+            make: "Kia",
+            model: "Sportage",
+            year: 2016,
+            priceUsd: 14_795,
+            miles: 88_400,
+            vin: "SP-ACC",
+            trim: "LX",
+            accidentCount: 2,
+            cpo: true,
+            priceView: { usableForBudget: true },
+          },
+        ],
+      },
+    ]);
+    expect(rows[0]).toMatchObject({ accidentCount: 2, cpo: true });
+    const record = mintFindSearchContextRecord({
+      userId: "u1",
+      need: explicitNeedFromText("family car around 15000", "personal"),
+      listings: rows,
+      servNextCheckEnabled: true,
+    });
+    expect(record.listings[0]).toMatchObject({ accidentCount: 2, cpo: true });
+    const pool = marketPoolFromListingFacts(record.listings);
+    expect(pool[0]).toMatchObject({ accidentCount: 2, cpo: true });
+  });
+
   it("mintFindSearchContextRecord preserves trim (not stripped at mint)", () => {
     const listings = listingsFromMatchDirections([
       {

@@ -6,6 +6,7 @@
 import { describe, expect, it } from "vitest";
 import { coverageNote } from "./coverage";
 import {
+  BEST_DEAL_WEIGHTS,
   fuelIndexFromReceipts,
   priceCompsUnevenAcrossListings,
   riskIndexFromReceipts,
@@ -145,8 +146,8 @@ function asListing(row: BestDealListing & { trim?: string | null }): Listing {
     primaryImage: null,
     carfaxUrl: null,
     used: true,
-    cpo: false,
-    accidentCount: null,
+    cpo: row.cpo ?? false,
+    accidentCount: row.accidentCount ?? null,
     oneOwner: null,
     ownerCount: null,
     usageType: null,
@@ -285,7 +286,7 @@ describe("Scenario2 defect 1 — settled factor lines replace provisional Not sc
 });
 
 describe("Scenario2 defect 2 — one market comps set across badge / factor / pick", () => {
-  it("badge delta, resolveMarketComps, and score factor share n= and median", () => {
+  it("badge delta, resolveMarketComps, and score factor share n= and market reference", () => {
     const { subject, pool } = sportageMarketFixture();
     const badge = priceBadge(subject, pool);
     const resolved = resolveMarketComps(subject, pool);
@@ -295,6 +296,9 @@ describe("Scenario2 defect 2 — one market comps set across badge / factor / pi
     expect(badge.fairValueUsd).toBe(resolved.fairValueUsd);
     expect(badge.deltaLabel).toMatch(new RegExp(`n=${resolved.sampleSize}`));
     expect(badge.deltaLabel).not.toMatch(/this search/i);
+    expect(badge.deltaLabel).not.toMatch(/\bcomps\b/i);
+    expect(assertBuyerSafeText(badge.deltaLabel ?? "").ok).toBe(true);
+    expect(assertBuyerSafeText(badge.sampleNote ?? "").ok).toBe(true);
 
     const ask = subject.priceUsd!;
     const deltaFromBadge = badge.deltaUsd!;
@@ -306,9 +310,13 @@ describe("Scenario2 defect 2 — one market comps set across badge / factor / pi
       sampleSize: resolved.sampleSize,
       scopeLabel: resolved.scopeLabel,
       pct01: resolved.pct01,
+      subject,
     });
-    expect(detail).toContain(`n=${resolved.sampleSize} ${resolved.scopeLabel}`);
-    expect(detail).not.toMatch(/\(this search\)/);
+    expect(detail).toContain(`n=${resolved.sampleSize}`);
+    expect(detail).toMatch(/similar .+ listings/);
+    expect(detail).not.toMatch(/\bcomps\b/i);
+    expect(detail).not.toMatch(/percentile/i);
+    expect(assertBuyerSafeText(detail).ok).toBe(true);
 
     // Rank only Sportage rows so price fairness does not neutralize a lone CR-V peer
     // that cannot resolve comps — badge/score alignment is the point of this defect.
@@ -340,20 +348,69 @@ describe("Scenario2 defect 2 — one market comps set across badge / factor / pi
     const priceFactor = pick.factors.find((f) => f.id === "price_vs_model_asks")!;
     expect(priceFactor.detail).toContain(`n=${resolved.sampleSize}`);
     expect(priceFactor.detail).toContain(
-      `median $${Math.round(resolved.fairValueUsd).toLocaleString("en-US")}`,
+      `market $${Math.round(resolved.fairValueUsd).toLocaleString("en-US")}`,
     );
-    expect(priceFactor.detail).not.toMatch(/\(this search\)/);
-    // 14,795 − fair must match badge delta (no second median).
-    const medianFromDetail = Number(
-      priceFactor.detail.match(/vs median \$([0-9,]+)/)?.[1]?.replace(/,/g, ""),
+    expect(priceFactor.detail).not.toMatch(/\bcomps\b/i);
+    // 14,795 − fair must match badge delta (no second reference).
+    const marketFromDetail = Number(
+      priceFactor.detail.match(/vs market \$([0-9,]+)/)?.[1]?.replace(/,/g, ""),
     );
-    expect(medianFromDetail).toBe(Math.round(resolved.fairValueUsd));
-    expect(ask - medianFromDetail).toBe(deltaFromBadge);
+    expect(marketFromDetail).toBe(Math.round(resolved.fairValueUsd));
+    expect(ask - marketFromDetail).toBe(deltaFromBadge);
+  });
+
+  it("history on the live card cannot diverge badge vs score (root cause of CX-5/Camry mismatch)", () => {
+    const { subject, pool } = sportageMarketFixture();
+    // Live Auto.dev cards often arrive with accidentCount:0 / cpo while score stubs
+    // previously forced null/false — historyAdjustment then moved fair value.
+    const cardSubject = { ...subject, accidentCount: 0, cpo: true, oneOwner: true };
+    const badge = priceBadge(cardSubject, pool);
+    const result = selectBestDealOnEvidence({
+      need: {
+        budgetKnown: true,
+        budgetUsd: 15_000,
+        preferredModels: [{ make: "Kia", model: "Sportage" }],
+        conditionPriority: "inspection_first",
+        note: LIVE_NOTE,
+      },
+      listings: [
+        {
+          make: cardSubject.make,
+          model: cardSubject.model,
+          year: cardSubject.year,
+          priceUsd: cardSubject.priceUsd,
+          miles: cardSubject.miles,
+          vin: cardSubject.vin,
+          trim: cardSubject.trim,
+        },
+        ...pool
+          .filter((l) => l.vin !== cardSubject.vin && l.make === "Kia")
+          .map((l) => ({
+            make: l.make,
+            model: l.model,
+            year: l.year,
+            priceUsd: l.priceUsd,
+            miles: l.miles,
+            vin: l.vin,
+            trim: l.trim,
+          })),
+      ],
+      marketPool: pool,
+      receipts: [],
+      nowYear: 2026,
+    });
+    const ranked = result.ranked.find((r) => r.vin === cardSubject.vin)!;
+    const priceFactor = ranked.factors.find((f) => f.id === "price_vs_model_asks")!;
+    const marketFromDetail = Number(
+      priceFactor.detail.match(/vs market \$([0-9,]+)/)?.[1]?.replace(/,/g, ""),
+    );
+    expect(badge.fairValueUsd).toBe(marketFromDetail);
+    expect(cardSubject.priceUsd! - marketFromDetail).toBe(badge.deltaUsd);
   });
 });
 
 describe("Scenario2 defect 3 — coverage names real page total", () => {
-  it("says group count and page total without search-direction jargon", () => {
+  it("names the page listing total plainly without group jargon", () => {
     const note = coverageNote({
       mode: "personal",
       sample: false,
@@ -362,8 +419,11 @@ describe("Scenario2 defect 3 — coverage names real page total", () => {
       radiusMiles: 50,
       historyOnListing: false,
     });
-    expect(note).toMatch(/8 dealer listings in this group \(24 on this page\)/);
-    expect(note).toMatch(/within 50 miles/);
+    expect(note).toBe(
+      "Based on 24 dealer listings within 50 miles; no vehicle history checked.",
+    );
+    expect(note).not.toMatch(/in this group/i);
+    expect(note).not.toMatch(/on this page/i);
     expect(note).not.toMatch(/search direction/i);
   });
 });
@@ -877,8 +937,43 @@ describe("Scenario2 defect 8 — price comps coverage + fairness on live shortli
       }),
     ].map((l) => ({ ...l, priceUsd: l.priceUsd!, miles: l.miles! }));
     const adjusted = adjustCompsToSubject(subject, comps, { adjustYear: true });
-    expect(adjusted.methodNote).toMatch(/documented rates|fitted price/i);
+    // Technical method stays on the adjuster for the machine channel.
+    expect(adjusted.methodNote).toMatch(/documented rates|fitted price|documented Lemonless rate/i);
     expect(adjusted.methodNote).toMatch(/10k mi|model year/i);
+    // Force a widened year window so resolveMarketComps attaches year+miles method notes.
+    const wideSubject = asListing({
+      make: "Kia",
+      model: "Sportage",
+      year: 2016,
+      priceUsd: 13_500,
+      miles: 80_000,
+      vin: "FIT-SUB",
+      trim: "EX", // no same-trim peers → falls through to year windows
+    });
+    const widePool = [
+      wideSubject,
+      ...[2013, 2014, 2015, 2018, 2019].map((year, i) =>
+        asListing({
+          make: "Kia",
+          model: "Sportage",
+          year,
+          priceUsd: 11_000 + i * 1_200,
+          miles: 110_000 - i * 8_000,
+          vin: `FIT-WIDE-${year}`,
+          trim: "LX",
+        }),
+      ),
+    ];
+    const resolved = resolveMarketComps(wideSubject, widePool);
+    expect(resolved.ok).toBe(true);
+    if (resolved.ok) {
+      expect(resolved.scopeLabel).toMatch(/widened|wider/);
+      expect(assertBuyerSafeText(resolved.methodNote).ok).toBe(true);
+      expect(assertBuyerSafeText(resolved.sampleNote).ok).toBe(true);
+      expect(resolved.methodNote).toMatch(/adjusted for year and mileage/i);
+      expect(resolved.methodNoteTechnical).toMatch(/documented rates|fitted price/i);
+      expect(assertBuyerSafeText(resolved.methodNoteTechnical).ok).toBe(false);
+    }
     for (const row of adjusted.rows) {
       const move = Math.abs(row.adjustedPriceUsd - row.priceUsd) / row.priceUsd;
       expect(move).toBeLessThanOrEqual(0.281);
@@ -914,11 +1009,13 @@ describe("Scenario2 defect 8 — price comps coverage + fairness on live shortli
     // above-median price penalty (−1.2); 2017 Sportage $11,998 is cheaper but higher miles.
     expect(["SP-2016", "SP-2017", "CX-2014", "CAM-2017"]).toContain(pick.vin);
     expect(pick.vin).not.toBe("CR-2012");
-    // Above-median 2016 Sportage must not keep a free pass — price factor ≤ 0.
+    // 2016 Sportage ask is rated against the shared comps-adjusted market reference
+    // (no Find history haircut). Points may be mildly positive or negative — never a
+    // free uncapped bargain farm, and card delta must match the factor line.
     const sportage2016 = result.ranked.find((r) => r.vin === "SP-2016")!;
     const spPrice = sportage2016.factors.find((f) => f.id === "price_vs_model_asks")!;
     expect(spPrice.detail).toMatch(/^Ask \$/);
-    expect(spPrice.points).toBeLessThanOrEqual(0);
+    expect(spPrice.points).toBeLessThan(BEST_DEAL_WEIGHTS.price);
     // Badge n= matches factor n= for the pick.
     const pickListing = shortlistExact.find((r) => r.vin === pick.vin)!;
     const badge = priceBadge(asListing(pickListing), pool);
@@ -930,12 +1027,13 @@ describe("Scenario2 defect 8 — price comps coverage + fairness on live shortli
       const pickPrice = pick.factors.find((f) => f.id === "price_vs_model_asks")!;
       expect(pickPrice.detail).toContain(`n=${resolved.sampleSize}`);
     }
-    // Bargain cap / deep-discount caution still present when applicable.
+    // Bargain cap / deep-discount caution still present when applicable — plain English.
     for (const row of result.ranked) {
       const price = row.factors.find((f) => f.id === "price_vs_model_asks")!;
-      if (/extreme discount|capped under condition-first|deep discount with high mileage/i.test(price.detail)) {
+      if (/unusually low|suggest an inspection/i.test(price.detail)) {
         expect(price.points).toBeLessThan(22);
       }
+      expect(price.detail).not.toMatch(/capped under condition-first|percentile|documented rates|fitted|≈|\bcomps\b/i);
     }
     const buyer = formatBuyerBestDeal(result);
     expect(buyer.headline).toMatch(/settled/);
@@ -943,5 +1041,111 @@ describe("Scenario2 defect 8 — price comps coverage + fairness on live shortli
     for (const line of [...buyer.factorLines, buyer.why, ...buyer.stillUnknown]) {
       expect(assertBuyerSafeText(line).ok).toBe(true);
     }
+  });
+
+  it("card $ difference equals ask minus factor-line market reference for every shortlist car", () => {
+    const pool = fullProviderCompsPool();
+    // Reproduce the live divergence: card listings often have clean/CPO flags while
+    // score stubs previously forced accidentCount:null — one reference must still match.
+    const cardPool = pool.map((l, i) =>
+      i % 3 === 0
+        ? { ...l, accidentCount: 0 as number | null, cpo: true as boolean | null }
+        : i % 3 === 1
+          ? { ...l, accidentCount: null, cpo: false as boolean | null }
+          : { ...l, accidentCount: 0 as number | null, oneOwner: true as boolean | null },
+    );
+    const result = selectBestDealOnEvidence({
+      need: {
+        budgetKnown: true,
+        budgetUsd: 15_000,
+        preferredModels: [
+          { make: "Honda", model: "CR-V" },
+          { make: "Hyundai", model: "Tucson" },
+          { make: "Kia", model: "Sportage" },
+        ],
+        conditionPriority: "inspection_first",
+        note: LIVE_NOTE,
+      },
+      listings: shortlistExact,
+      marketPool: cardPool,
+      receipts: fullCoverageReceipts(shortlistExact),
+      nowYear: 2026,
+    });
+    expect(result.ranked.length).toBe(5);
+    for (const row of shortlistExact) {
+      const cardListing = cardPool.find((l) => l.vin === row.vin) ?? asListing(row);
+      const badge = priceBadge(cardListing, cardPool);
+      const ranked = result.ranked.find((r) => r.vin === row.vin)!;
+      const price = ranked.factors.find((f) => f.id === "price_vs_model_asks")!;
+      expect(price.detail).toMatch(/^Ask \$/);
+      const marketFromDetail = Number(
+        price.detail.match(/vs market \$([0-9,]+)/)?.[1]?.replace(/,/g, ""),
+      );
+      expect(Number.isFinite(marketFromDetail)).toBe(true);
+      expect(badge.fairValueUsd).toBe(marketFromDetail);
+      expect(badge.sampleSize).toBe(
+        Number(price.detail.match(/n=(\d+)/)?.[1]),
+      );
+      expect(row.priceUsd! - marketFromDetail).toBe(badge.deltaUsd);
+      expect(assertBuyerSafeText(price.detail).ok).toBe(true);
+      expect(assertBuyerSafeText(badge.deltaLabel ?? "").ok).toBe(true);
+      expect(assertBuyerSafeText(badge.sampleNote ?? "").ok).toBe(true);
+    }
+  });
+
+  it("listing accidents>0 / CPO surface as plain notes without moving Find market $", () => {
+    const pool = fullProviderCompsPool();
+    const subject = asListing({
+      ...shortlistExact.find((r) => r.vin === "SP-2016")!,
+      accidentCount: 2,
+      cpo: true,
+    });
+    const clean = asListing({
+      ...shortlistExact.find((r) => r.vin === "SP-2016")!,
+      accidentCount: null,
+      cpo: false,
+    });
+    const badgeFlagged = priceBadge(subject, pool);
+    const badgeClean = priceBadge(clean, pool);
+    expect(badgeFlagged.fairValueUsd).toBe(badgeClean.fairValueUsd);
+    expect(badgeFlagged.sampleNote).toMatch(/Listing reports 2 accidents/i);
+    expect(badgeFlagged.sampleNote).toMatch(/certified pre-owned/i);
+    expect(badgeFlagged.sampleNote).toMatch(/not reflected in this Find market figure/i);
+    expect(assertBuyerSafeText(badgeFlagged.sampleNote ?? "").ok).toBe(true);
+
+    const result = selectBestDealOnEvidence({
+      need: {
+        budgetKnown: true,
+        budgetUsd: 15_000,
+        preferredModels: [
+          { make: "Honda", model: "CR-V" },
+          { make: "Hyundai", model: "Tucson" },
+          { make: "Kia", model: "Sportage" },
+        ],
+        conditionPriority: "inspection_first",
+        note: LIVE_NOTE,
+      },
+      listings: shortlistExact.map((row) =>
+        row.vin === "SP-2016"
+          ? { ...row, accidentCount: 2, cpo: true }
+          : row,
+      ),
+      marketPool: pool,
+      receipts: fullCoverageReceipts(shortlistExact),
+      nowYear: 2026,
+    });
+    const ranked = result.ranked.find((r) => r.vin === "SP-2016")!;
+    const flags = ranked.factors.find((f) => f.id === "listing_feed_flags");
+    expect(flags).toBeTruthy();
+    expect(flags!.points).toBe(0);
+    expect(flags!.detail).toMatch(/2 accidents/i);
+    expect(flags!.detail).toMatch(/certified pre-owned/i);
+    expect(assertBuyerSafeText(flags!.detail).ok).toBe(true);
+    const price = ranked.factors.find((f) => f.id === "price_vs_model_asks")!;
+    const marketFromDetail = Number(
+      price.detail.match(/vs market \$([0-9,]+)/)?.[1]?.replace(/,/g, ""),
+    );
+    expect(badgeFlagged.fairValueUsd).toBe(marketFromDetail);
+    expect(ranked.unknowns.some((u) => /listing feed flags/i.test(u))).toBe(true);
   });
 });

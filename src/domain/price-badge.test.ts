@@ -61,6 +61,18 @@ describe("price badge", () => {
     expect(thin.deltaUsd).toBeNull();
     expect(thin.deltaLabel).toBeNull();
   });
+
+  it("surfaces listing accidents/CPO without changing the market reference", () => {
+    const base = car({ vin: "BASE", priceUsd: 9000, miles: 80000, accidentCount: null, cpo: false });
+    const flagged = car({ vin: "FLAG", priceUsd: 9000, miles: 80000, accidentCount: 1, cpo: true });
+    const a = priceBadge(base, comps);
+    const b = priceBadge(flagged, comps);
+    expect(b.fairValueUsd).toBe(a.fairValueUsd);
+    expect(b.deltaUsd).toBe(a.deltaUsd);
+    expect(b.sampleNote).toMatch(/Listing reports 1 accident/i);
+    expect(b.sampleNote).toMatch(/certified pre-owned/i);
+    expect(b.sampleNote).toMatch(/not reflected in this Find market figure/i);
+  });
 });
 
 describe("summary line", () => {

@@ -288,6 +288,7 @@ describe("market badge sample size + same-model comps", () => {
     const badge = priceBadge(subject, pool);
     expect(badge.sampleSize).toBeGreaterThanOrEqual(3);
     expect(badge.deltaLabel).toMatch(/n=\d+/);
-    expect(badge.sampleNote).toMatch(/same-model|model year/i);
+    expect(badge.sampleNote).toMatch(/similar .+ listings/i);
+    expect(badge.sampleNote).not.toMatch(/\bcomps\b/i);
   });
 });

@@ -20,6 +20,9 @@ export type FindSearchListingFact = ObservedListingRow & {
   vin?: string | null;
   /** When present, best-deal market comps can share same-trim scope with card badges. */
   trim?: string | null;
+  /** Listing-feed flags — surfaced as plain notes; never baked into Find market $. */
+  accidentCount?: number | null;
+  cpo?: boolean | null;
 };
 
 export type FindSearchContextRecord = {
@@ -55,6 +58,14 @@ function sanitizeListingFacts(rows: FindSearchListingFact[]): FindSearchListingF
         : row.trim === null
           ? null
           : undefined;
+    const accidentCount =
+      typeof row.accidentCount === "number" && Number.isFinite(row.accidentCount)
+        ? Math.max(0, Math.floor(row.accidentCount))
+        : row.accidentCount === null
+          ? null
+          : undefined;
+    const cpo =
+      row.cpo === true ? true : row.cpo === false ? false : row.cpo === null ? null : undefined;
     return {
       make: row.make,
       model: row.model,
@@ -63,6 +74,8 @@ function sanitizeListingFacts(rows: FindSearchListingFact[]): FindSearchListingF
       miles: row.miles ?? null,
       vin: row.vin ?? null,
       ...(trim !== undefined ? { trim } : {}),
+      ...(accidentCount !== undefined ? { accidentCount } : {}),
+      ...(cpo !== undefined ? { cpo } : {}),
     };
   });
 }
@@ -248,6 +261,8 @@ export function listingsFromMatchDirections(
     miles?: number | null;
     vin?: string;
     trim?: string | null;
+    accidentCount?: number | null;
+    cpo?: boolean | null;
     priceView?: { usableForBudget?: boolean } | null;
   }> }>,
 ): FindSearchListingFact[] {
@@ -265,6 +280,8 @@ export function listingsFromMatchDirections(
         miles: typeof row.miles === "number" ? row.miles : null,
         vin: row.vin ?? null,
         ...(trim !== undefined ? { trim } : {}),
+        ...(row.accidentCount !== undefined ? { accidentCount: row.accidentCount } : {}),
+        ...(row.cpo !== undefined ? { cpo: row.cpo } : {}),
       });
     }
   }
@@ -281,6 +298,8 @@ export function listingFactsFromCompsPool(
     miles?: number | null;
     vin?: string | null;
     trim?: string | null;
+    accidentCount?: number | null;
+    cpo?: boolean | null;
   }>,
 ): FindSearchListingFact[] {
   return sanitizeListingFacts(
@@ -292,6 +311,8 @@ export function listingFactsFromCompsPool(
       miles: typeof row.miles === "number" ? row.miles : null,
       vin: row.vin ?? null,
       trim: typeof row.trim === "string" && row.trim.trim() ? row.trim.trim() : row.trim ?? null,
+      ...(row.accidentCount !== undefined ? { accidentCount: row.accidentCount } : {}),
+      ...(row.cpo !== undefined ? { cpo: row.cpo } : {}),
     })),
   );
 }
@@ -332,8 +353,9 @@ export function marketPoolFromListingFacts(
       primaryImage: null,
       carfaxUrl: null,
       used: true,
-      cpo: false,
-      accidentCount: null,
+      // Preserve feed flags for badge/factor notes only — resolveMarketComps ignores them.
+      cpo: row.cpo ?? null,
+      accidentCount: row.accidentCount ?? null,
       oneOwner: null,
       ownerCount: null,
       usageType: null,

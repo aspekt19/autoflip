@@ -8,7 +8,7 @@ export type CoverageInput = {
   dealerListingCount: number;
   /**
    * Total dealer listings shown across the whole Find page (all suggestion groups).
-   * When set and greater than dealerListingCount, the sentence names both numbers.
+   * When present and positive, the sentence prefers this page total over the group count.
    */
   pageListingCount?: number | null;
   /** Search radius in miles, only when the search used one. */
@@ -35,22 +35,16 @@ export function coverageSentence(input: CoverageInput): string {
     typeof input.pageListingCount === "number" && Number.isFinite(input.pageListingCount)
       ? Math.max(0, Math.floor(input.pageListingCount))
       : null;
+  // Prefer the full page total when present — “8 in this group (24 on this page)”
+  // confused buyers. Group size is an internal diversify detail, not a second market.
+  const shown = page != null && page > 0 ? page : count;
   let listing: string;
-  if (page != null && page > count && count > 0) {
-    listing =
-      count === 1
-        ? `Based on 1 dealer listing in this group (${page} on this page)`
-        : `Based on ${count} dealer listings in this group (${page} on this page)`;
-  } else if (page != null && page === count && count > 0) {
-    listing =
-      count === 1
-        ? "Based on 1 dealer listing on this page"
-        : `Based on ${count} dealer listings on this page`;
+  if (shown === 1) {
+    listing = "Based on 1 dealer listing";
+  } else if (shown > 0) {
+    listing = `Based on ${shown} dealer listings`;
   } else {
-    listing =
-      count === 1
-        ? "Based on 1 dealer listing shown here"
-        : `Based on ${count} dealer listings shown here`;
+    listing = "Based on dealer listings shown here";
   }
   const where = input.radiusMiles !== null ? ` within ${input.radiusMiles} miles` : "";
   const history = input.historyOnListing

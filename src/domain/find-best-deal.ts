@@ -11,7 +11,7 @@ import type { FindFreeGovReceipt } from "./find-free-gov";
 import { checkedMmyKeysForCheck, freeGovToolCoverage } from "./find-free-gov";
 import type { ObservedListingRow } from "./find-model-observe";
 import { mmyListingKey } from "./find-risk-evidence";
-import { formatMarketAskDetail, resolveMarketComps } from "./market-comps";
+import { formatMarketAskDetail, listingFeedHistoryNotes, resolveMarketComps } from "./market-comps";
 import {
   BUDGET_AROUND_TOLERANCE_FRAC,
   budgetIsApproximateFromNote,
@@ -29,7 +29,8 @@ export type BestDealFactorId =
   | "mmy_ncap_rating"
   | "named_model_preference"
   | "budget_fit"
-  | "condition_priority";
+  | "condition_priority"
+  | "listing_feed_flags";
 
 export type BestDealFactorBreakdown = {
   id: BestDealFactorId;
@@ -146,6 +147,7 @@ export const BEST_DEAL_FACTOR_PLAIN_LABELS: Record<BestDealFactorId, string> = {
   named_model_preference: "named model match",
   budget_fit: "budget fit",
   condition_priority: "condition-first preference",
+  listing_feed_flags: "listing history flags",
 };
 
 export function plainFairnessHeldOutNote(heldOut: readonly BestDealFactorId[]): string | null {
@@ -183,6 +185,9 @@ export type BestDealListing = ObservedListingRow & {
   trim?: string | null;
   engine?: string | null;
   drivetrain?: string | null;
+  /** Listing-feed flags only — surfaced as notes, never baked into Find market $. */
+  accidentCount?: number | null;
+  cpo?: boolean | null;
 };
 
 export type BestDealFuelIndex = Map<string, FindFuelEvidence>;
@@ -320,10 +325,12 @@ function marketPriceContext(
   source: string;
   scopeLabel: string;
   methodNote: string | null;
+  methodNoteTechnical: string | null;
+  subject: Listing | null;
 } | null {
   const stub = listingStubForComps(row);
   // When a market pool is provided (same pool the card badge uses), never invent a
-  // second comparable set — one car → one n= and one market median across surfaces.
+  // second comparable set — one car → one n= and one market reference across surfaces.
   if (stub && marketPool && marketPool.length > 0) {
     const resolved = resolveMarketComps(stub, marketPool);
     if (resolved.ok) {
@@ -334,6 +341,8 @@ function marketPriceContext(
         source: resolved.source,
         scopeLabel: resolved.scopeLabel,
         methodNote: resolved.methodNote,
+        methodNoteTechnical: resolved.methodNoteTechnical,
+        subject: stub,
       };
     }
     return null;
@@ -349,6 +358,8 @@ function marketPriceContext(
       source: "Returned listings in this search only",
       scopeLabel: "same-model",
       methodNote: null,
+      methodNoteTechnical: null,
+      subject: stub,
     };
   }
   return null;
@@ -402,7 +413,7 @@ export function priceCompsUnevenAcrossListings(
 }
 
 export const PRICE_FAIRNESS_NEUTRAL_DETAIL =
-  "Not scored for fairness — too many shortlist cars still lack usable same-model comps from this search, so asking-price comparison is treated as neutral (+0) for everyone. Pick is provisional on price.";
+  "Not scored for fairness — too many shortlist cars still lack usable same-model similar listings from this search, so asking-price comparison is treated as neutral (+0) for everyone. Pick is provisional on price.";
 
 function scoreOne(
   row: BestDealListing,
@@ -434,8 +445,14 @@ function scoreOne(
   },
 ): BestDealCandidate {
   const factors: BestDealFactorBreakdown[] = [];
+  const feedHistory = listingFeedHistoryNotes({
+    accidentCount: row.accidentCount ?? null,
+    cpo: row.cpo ?? null,
+  });
   const unknowns: string[] = [
-    "Condition and accident/title history are unknown on these cards",
+    feedHistory.length > 0
+      ? "Listing feed flags are shown separately — still get a title/history report and inspection (Find market $ does not include them)"
+      : "Condition and accident/title history are unknown on these cards",
     "Open recalls are not checked at VIN level — only year/make/model campaigns when available",
     "A pre-purchase inspection is still required",
   ];
@@ -449,7 +466,9 @@ function scoreOne(
   // Price vs same-model observed asks (aligned with card badge when marketPool provided)
   const market = marketPriceContext(row, ctx.marketPool, ctx.sameModelPrices);
   if (ctx.priceFairnessNeutral) {
-    unknowns.push("Asking-price comparison held neutral — uneven same-model comps across shortlist peers");
+    unknowns.push(
+      "Asking-price comparison held neutral — uneven same-model similar listings across shortlist peers",
+    );
     factors.push({
       id: "price_vs_model_asks",
       label: "Asking price vs same model in this search",
@@ -458,7 +477,8 @@ function scoreOne(
       source: "Returned listings in this search only",
     });
   } else if (row.priceUsd != null && market) {
-    const { med, sampleSize, pct01, source, scopeLabel, methodNote } = market;
+    const { med, sampleSize, source, scopeLabel, methodNote, methodNoteTechnical, subject } =
+      market;
     const relRaw = med > 0 ? (med - row.priceUsd) / med : 0;
     let rel = relRaw;
     let caution = "";
@@ -466,14 +486,17 @@ function scoreOne(
       // Cap bargain bonus; extreme discounts under condition-first are a caution, not a jackpot.
       rel = Math.min(relRaw, BEST_DEAL_PRICE_BELOW_CAP_FRAC);
       if (relRaw >= BEST_DEAL_PRICE_BELOW_CAUTION_FRAC) {
-        caution = `; extreme discount (~${Math.round(relRaw * 100)}% under median) capped under condition-first — treat as condition risk until inspected`;
+        caution =
+          "; price looks unusually low — we count only part of the discount and suggest an inspection";
         // Deep ask cut + high odometer is a warning, not a win — further shrink the capped bonus.
         if (row.miles != null && row.miles >= BEST_DEAL_HIGH_MILES_SOFT) {
           rel = Math.min(rel, BEST_DEAL_PRICE_BELOW_CAP_FRAC * 0.45);
-          caution += `; deep discount with high mileage treated as caution, not a bargain`;
+          caution =
+            "; price looks unusually low for its mileage — we count only part of the discount and suggest an inspection";
         }
       } else if (relRaw > BEST_DEAL_PRICE_BELOW_CAP_FRAC) {
-        caution = `; price-below-market bonus capped at ${Math.round(BEST_DEAL_PRICE_BELOW_CAP_FRAC * 100)}% under condition-first`;
+        caution =
+          "; price looks unusually low — we count only part of the discount and suggest an inspection";
       }
     }
     const points = clamp(rel * WEIGHTS.price * 2, -WEIGHTS.price, WEIGHTS.price);
@@ -485,6 +508,10 @@ function scoreOne(
       scopeLabel === "same-model"
         ? scopeLabel
         : "same-model";
+    const machineMethod =
+      methodNoteTechnical && methodNoteTechnical.trim()
+        ? ` [method: ${methodNoteTechnical}]`
+        : "";
     factors.push({
       id: "price_vs_model_asks",
       label: "Asking price vs same model in this search",
@@ -494,11 +521,16 @@ function scoreOne(
         fairValueUsd: med,
         sampleSize,
         scopeLabel: scopeLabelTyped,
-        pct01,
         thinBelow: BEST_DEAL_THIN_MODEL_SAMPLE,
         methodNote,
+        subject: subject ?? {
+          make: row.make,
+          model: row.model,
+          trim: row.trim ?? null,
+        },
       })}${caution}`,
-      source,
+      // Technical slopes/rates stay on source for agents — not in buyer detail.
+      source: `${source}${machineMethod}`,
     });
   } else {
     unknowns.push("Asking price missing or no same-model priced peers");
@@ -508,9 +540,20 @@ function scoreOne(
       points: 0,
       detail:
         ctx.sameModelPrices.length === 0
-          ? "Not scored — no same-model priced comps in this search"
+          ? "Not scored — no same-model priced similar listings in this search"
           : "Not scored — need a usable ask and same-model peers from this search",
       source: "Returned listings in this search only",
+    });
+  }
+
+  // Listing-reported accidents / CPO — plain note only; never moves Find market $ or score.
+  if (feedHistory.length > 0) {
+    factors.push({
+      id: "listing_feed_flags",
+      label: "Listing history flags",
+      points: 0,
+      detail: feedHistory.join(" · "),
+      source: "Listing feed flags on this card",
     });
   }
 
@@ -586,7 +629,7 @@ function scoreOne(
     score += agePoints;
     const wearBit =
       row.miles != null && conditionFirst && row.miles >= BEST_DEAL_HIGH_MILES_SOFT
-        ? `; very high odometer (${row.miles.toLocaleString("en-US")} mi) weighed down under condition-first`
+        ? `; very high odometer (${row.miles.toLocaleString("en-US")} mi) weighed down because you prioritized condition`
         : "";
     factors.push({
       id: "age",
@@ -1080,15 +1123,15 @@ export function selectBestDealOnEvidence(input: {
   if (fairnessNote) stillUnknown.push(fairnessNote);
   if (priceFairnessNeutral) {
     stillUnknown.push(
-      "Asking-price comparison is provisional — treated as neutral because too many shortlist cars still lack usable same-model comps from this search",
+      "Asking-price comparison is provisional — treated as neutral because too many shortlist cars still lack usable same-model similar listings from this search",
     );
   } else if (priceProvisional) {
     stillUnknown.push(
-      "Asking-price comparison is provisional — not enough same-model comps from this search to rate price for the shortlist",
+      "Asking-price comparison is provisional — not enough same-model similar listings from this search to rate price for the shortlist",
     );
   }
 
-  const assumptionsNote = `Scoring uses only cars returned in this search (including provider listings beyond the cards shown when available), free public year/make/model safety/recall signals when checked for every shortlist peer (otherwise held out for fairness), and FuelEconomy.gov estimates when matched. Same-model asking-price comps use up to ±${ASSUMPTIONS.yearWindowWide} model years with a disclosed year+mileage adjustment when the nearer window is thin. Default mileage pace assumption for age context: ${milesPerYearAssumption.toLocaleString("en-US")} mi/yr. Under condition-first, price-below-market bonus is capped at ${Math.round(BEST_DEAL_PRICE_BELOW_CAP_FRAC * 100)}% under median.`;
+  const assumptionsNote = `Scoring uses only cars returned in this search (including provider listings beyond the cards shown when available), free public year/make/model safety/recall signals when checked for every shortlist peer (otherwise held out for fairness), and FuelEconomy.gov estimates when matched. Same-model asking-price peers use nearby model years with year and mileage adjustments when the nearer window is thin. Default mileage pace assumption for age context: ${milesPerYearAssumption.toLocaleString("en-US")} mi/yr. When you prioritize condition, an ask that looks unusually low only gets partial credit until inspected.`;
 
   const honesty =
     "Best deal on current evidence only — not a guarantee, not VIN history clearance, and not a claim that Lemonless is error-free or better than other tools. Always inspect and verify before buying.";
