@@ -54,9 +54,9 @@ export default function ActivityPage() {
   return (
     <div className="sub">
       <div className="sheet-page site-frame">
-        <p className="kicker">Guided preview</p>
+        <p className="kicker">Deal Radar</p>
         <h1>Activity log</h1>
-        <p className="lead">Every saved-search run, in order. This page is the technical record.</p>
+        <p className="lead">Real scheduled and check-now runs for your radars. Empty means no run has happened yet — nothing is seeded.</p>
         {message ? <p className="warn">{message}</p> : null}
         {runs === null ? <p>Loading…</p> : null}
         {(runs ?? []).map((run) => (
@@ -81,10 +81,10 @@ export default function ActivityPage() {
                 </li>
               ))}
               <li>Input check: {run.serv.promptGuard}</li>
-              <li>Second pass: {run.serv.shadow}</li>
+              <li>SERV path: {run.serv.shadow}</li>
               {(run.servChecks ?? []).map((check, index) => (
                 <li key={`${check.purpose}-${index}`}>
-                  Writing check {check.purpose}: finished in {check.latencyMs} ms
+                  SERV {check.purpose}: finished in {check.latencyMs} ms · model {check.modelReported}
                 </li>
               ))}
               <li>
@@ -93,15 +93,13 @@ export default function ActivityPage() {
                 {run.payment.costAtomic ? ` · amount ${run.payment.costAtomic}` : ""}
                 {run.payment.network ? ` · ${run.payment.network}` : ""}
               </li>
-              {run.notes
-                .filter((note) => !/prompt guard|\bserv\b/i.test(note))
-                .map((note) => (
-                  <li key={note}>{note}</li>
-                ))}
+              {run.notes.map((note) => (
+                <li key={note}>{note}</li>
+              ))}
             </ul>
           </article>
         ))}
-        {runs && runs.length === 0 && !message ? <p>No runs yet.</p> : null}
+        {runs && runs.length === 0 && !message ? <p>No run yet.</p> : null}
       </div>
     </div>
   );

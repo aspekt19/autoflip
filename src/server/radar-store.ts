@@ -117,6 +117,25 @@ export type StoredRun = {
     shadowMaxIterations: number | null;
     latencyMs: number;
   }>;
+  /** Owners whose watches were due in this run (for per-account activity). */
+  ownerIds?: string[];
+  /** Search ids checked in this run. */
+  searchIds?: string[];
+  /** Per SERV call log (verdict_decide / verdict_challenge) with response ids. */
+  servActivity?: Array<{
+    at: string;
+    searchId: string;
+    vin: string;
+    profile: string;
+    modelRequested: string;
+    modelReported: string;
+    responseId: string | null;
+    latencyMs: number;
+    ok: boolean;
+    decision: string | null;
+    note: string | null;
+    alerted: boolean;
+  }>;
   payment: {
     status: string;
     missing: string[];

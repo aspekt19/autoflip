@@ -182,7 +182,7 @@ curl -s https://autoflip-umber.vercel.app/api/v1/report \
 
 ## Deal Radar
 
-Saved searches run on a schedule without spending report credits. Personal watches use market-band prefilters (including suspiciously cheap rejection). Broad flip watches rank comps in-scan; SERV `flip_judge` may annotate but cannot suppress a code-ranked alert. Details: `src/server/radar-cycle.ts`, `src/domain/radar-watch.ts`.
+Personal Deal Radar watches are free with a signed-in account (up to three). Cron re-runs Auto.dev listing search, diffs seen listing ids, and runs SERV `verdict_decide` (challenge on the top candidate only) for at most three new good/fair candidates per radar per run. Alerts are in-app only unless an email provider is added later. Telegram stays gated off. MCP `deal_radar` remains a free one-shot scan (not a saved watch). Schedule: GitHub Actions every 6h (`RADAR_CRON_SECRET`); Vercel Cron once daily on Hobby (`vercel.json`). Details: `src/server/radar-cycle.ts`, `src/server/radar-serv.ts`.
 
 ## Deploy
 

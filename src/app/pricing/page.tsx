@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { Suspense, useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
+import { ASSUMPTIONS } from "@/domain/assumptions";
 import { PLAN_CATALOG } from "@/domain/plans";
 
 type PlanModeState = { status: string; lookupKey: string | null; searchLimit?: number };
@@ -22,6 +23,7 @@ function PricingContent() {
   const [message, setMessage] = useState<string | null>(null);
   const [pending, setPending] = useState<string | null>(null);
   const [radarUi, setRadarUi] = useState<boolean | null>(null);
+  const freeLimit = ASSUMPTIONS.radarFreeWatchLimit;
 
   async function refreshAccount() {
     setAccountLoading(true);
@@ -55,7 +57,7 @@ function PricingContent() {
 
   async function subscribe(planId: string) {
     if (radarUi !== true) {
-      setMessage("Deal Radar saved searches are not available in this preview, so a plan cannot be started.");
+      setMessage("Deal Radar is not available in this preview, so a plan cannot be started.");
       return;
     }
     setMessage(null);
@@ -105,17 +107,14 @@ function PricingContent() {
   return (
     <div className="sub">
       <div className="sheet-page site-frame">
-        <p className="kicker">Preview pricing</p>
-        <h1>{radarUi ? "Radar plans" : "Pricing"}</h1>
+        <p className="kicker">Pricing</p>
+        <h1>Deal Radar and report credits</h1>
         <p className="lead">
-          Preview-only test subscriptions. Displayed monthly amounts are placeholders, and Stripe test mode does not charge
-          real money. These plans are for ongoing saved-search alerts when Deal Radar is enabled. Report credits are
-          separate. For a one-car flip estimate without a plan, use{" "}
-          <Link href="/resale">Resale</Link>.
+          Deal Radar personal watches are free with a signed-in account — up to {freeLimit} saved radars. Scheduled checks and in-app alerts do not spend report credits. Opening a full vehicle report costs 1 report credit. Email alerts are not configured in this deployment (in-app only). Telegram stays off.
         </p>
         <p className="hint">
-          Deal Radar saved searches may be off in this preview. To test a subscription when Radar is on, use Stripe card
-          4242 4242 4242 4242, any future expiry date and any CVC. No real payment is taken.
+          Optional Stripe test subscriptions below only raise the personal watch cap above {freeLimit}, or unlock Flip watches. Displayed monthly amounts are Stripe test placeholders and do not charge real money. For a one-car flip estimate without a watch, use{" "}
+          <Link href="/resale">Resale</Link>.
         </p>
 
         {params.get("status") === "success" ? (
@@ -126,7 +125,7 @@ function PricingContent() {
 
         {accountLoading ? <p className="hint">Loading your current plan…</p> : null}
         {account?.demo ? (
-          <p className="warn-box">Shared demo: both Personal and For resale alerts are already included. You do not need to start a subscription here.</p>
+          <p className="warn-box">Shared demo: Deal Radar watches are included. You do not need to start a subscription here.</p>
         ) : null}
         {!account?.demo && (personalActive || flipActive) ? (
           <section className="subscription-status">
@@ -143,28 +142,28 @@ function PricingContent() {
           </section>
         ) : null}
 
-        <h2>For me</h2>
-        <p className="hint">Choose how many saved vehicle searches you want Lemonless to monitor.</p>
+        <h2>Optional paid caps (Stripe test)</h2>
+        <p className="hint">Only needed if you want more than {freeLimit} personal watches, or Flip watches.</p>
         <div className="choice-grid">
           {PLAN_CATALOG.filter((plan) => plan.mode === "personal").map((plan) => (
             <article className="choice-card" key={plan.id}>
               <strong className="choice-title">{plan.name}</strong>
               <span className="choice-desc">{plan.detail}</span>
-              <b>${plan.amountCents / 100}/month</b>
+              <b>${plan.amountCents / 100}/month (test)</b>
               <button className="action" type="button" disabled={radarUi !== true || accountLoading || pending === plan.id || Boolean(account?.demo) || Boolean(personalActive)} onClick={() => void subscribe(plan.id)}>
                 {radarUi === false ? "Not available in this preview" : personalActive ? "Personal plan active" : account?.demo ? "Included in shared demo" : pending === plan.id ? "Starting…" : "Start test subscription"}
               </button>
             </article>
           ))}
         </div>
-        <h2>For resale</h2>
-        <p className="hint">Monitor one local market using a ZIP code, search radius and maximum purchase budget.</p>
+        <h2>For resale (Flip watches)</h2>
+        <p className="hint">Flip watches still need a Flip radar plan. Personal Deal Radar stays free.</p>
         <div className="choice-grid">
           {PLAN_CATALOG.filter((plan) => plan.mode === "flip").map((plan) => (
             <article className="choice-card" key={plan.id}>
               <strong className="choice-title">{plan.name}</strong>
               <span className="choice-desc">{plan.detail}</span>
-              <b>${plan.amountCents / 100}/month</b>
+              <b>${plan.amountCents / 100}/month (test)</b>
               <button className="action" type="button" disabled={radarUi !== true || accountLoading || pending === plan.id || Boolean(account?.demo) || Boolean(flipActive)} onClick={() => void subscribe(plan.id)}>
                 {radarUi === false ? "Not available in this preview" : flipActive ? "For resale plan active" : account?.demo ? "Included in shared demo" : pending === plan.id ? "Starting…" : "Start test subscription"}
               </button>
@@ -173,6 +172,7 @@ function PricingContent() {
         </div>
         {message ? <p className="warn">{message}</p> : null}
         <p><Link href="/credits">Report credits are separate.</Link></p>
+        <p><Link href="/radar">Open Deal Radar</Link></p>
         <p><Link href="/reports">View your report history.</Link></p>
       </div>
     </div>
@@ -180,5 +180,9 @@ function PricingContent() {
 }
 
 export default function PricingPage() {
-  return <Suspense fallback={<div className="wrap site-frame page">Loading pricing…</div>}><PricingContent /></Suspense>;
+  return (
+    <Suspense fallback={<div className="wrap site-frame page">Loading pricing…</div>}>
+      <PricingContent />
+    </Suspense>
+  );
 }

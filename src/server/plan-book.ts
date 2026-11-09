@@ -1,4 +1,5 @@
 import type { Kv } from "@/io/kv";
+import { ASSUMPTIONS } from "@/domain/assumptions";
 import { planById, planByLookupKey, type PlanId } from "@/domain/plans";
 import { DEMO_USER_ID } from "@/domain/radar-watch";
 
@@ -137,6 +138,11 @@ export function billingEffect(current: StoredPlans, type: string, object: Record
   return { kind: "ignore" };
 }
 
+/**
+ * Deal Radar watches are free with a signed-in account up to
+ * {@link ASSUMPTIONS.radarFreeWatchLimit}. Paid Stripe radar plans (if any)
+ * only raise that cap. Opening a full report still costs 1 report credit.
+ */
 export async function allowance(
   kv: Kv,
   userId: string,
@@ -146,14 +152,22 @@ export async function allowance(
   const plans = await plansFor(kv, userId);
   if (userId === DEMO_USER_ID) return { ok: true };
   if (mode === "flip") {
+    // Flip watches stay plan-gated (higher Autodev spend). Personal is free.
     if (plans.flip.status === "active") return { ok: true };
-    return { ok: false, message: "A Flip radar plan is required before this watch can be saved. Report credits stay separate." };
+    return {
+      ok: false,
+      message:
+        "Flip watches need a Flip radar plan. Personal Deal Radar watches are free with your account (up to three). Report credits stay separate.",
+    };
   }
-  if (plans.personal.status !== "active") {
-    return { ok: false, message: "A Personal radar plan is required before this watch can be saved. Report credits stay separate." };
-  }
-  if (personalCount >= plans.personal.searchLimit) {
-    return { ok: false, message: "This Personal plan has no room for another watch. Report credits stay separate." };
+  const freeCap = ASSUMPTIONS.radarFreeWatchLimit;
+  const planCap = plans.personal.status === "active" ? plans.personal.searchLimit : 0;
+  const limit = Math.max(freeCap, planCap);
+  if (personalCount >= limit) {
+    return {
+      ok: false,
+      message: `This account can save up to ${limit} personal Deal Radar watches. Opening a full report still costs 1 credit.`,
+    };
   }
   return { ok: true };
 }

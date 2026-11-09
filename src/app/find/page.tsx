@@ -27,7 +27,11 @@ export default async function FindPage({
             <li>Add a U.S. ZIP and seller-distance radius when you want nearby listings — or choose Nationwide.</li>
             <li>Review matching dealer listings. {FIND_PAGE_BILLING_STEP}</li>
           </ol>
-          {resolveProductFlags().dealRadar ? <p>Deal Radar is a separate optional monthly plan.</p> : null}
+          {resolveProductFlags().dealRadar ? (
+            <p>
+              Deal Radar personal watches are free with your account (up to three). Opening a full report still costs 1 credit.
+            </p>
+          ) : null}
         </div>
         <SignInGate callbackPath="/find">
           <FindFlow

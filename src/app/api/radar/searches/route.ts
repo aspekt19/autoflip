@@ -69,6 +69,13 @@ export async function POST(request: Request) {
 }
 
 function normalizeCriteria(criteria: WatchCriteria, mode: "personal" | "flip", radiusMiles: number): WatchCriteria {
+  const notes =
+    typeof criteria.notes === "string" && criteria.notes.trim()
+      ? criteria.notes.trim().slice(0, 500)
+      : undefined;
+  const priorities = Array.isArray(criteria.priorities)
+    ? criteria.priorities.filter((item): item is string => typeof item === "string").slice(0, 12)
+    : undefined;
   if (mode === "flip") {
     return {
       priceMax: Number(criteria.priceMax),
@@ -76,6 +83,8 @@ function normalizeCriteria(criteria: WatchCriteria, mode: "personal" | "flip", r
       radiusMiles,
       repairAbility: criteria.repairAbility ?? "unknown",
       minProfitUsd: typeof criteria.minProfitUsd === "number" ? criteria.minProfitUsd : undefined,
+      notes,
+      priorities,
     };
   }
   const models = modelList(criteria);
@@ -89,6 +98,8 @@ function normalizeCriteria(criteria: WatchCriteria, mode: "personal" | "flip", r
     zip: String(criteria.zip),
     radiusMiles,
     milesMax: criteria.milesMax,
+    notes,
+    priorities,
   };
 }
 
