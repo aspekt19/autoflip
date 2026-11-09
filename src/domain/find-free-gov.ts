@@ -352,8 +352,8 @@ function evidenceFactsForPacket(
     ];
   }
   if (checkId === "free_gov_safety") {
-    const state =
-      packet.status === "ok" ? "none_found" : packet.status === "empty" || packet.status === "error" || packet.status === "unavailable" ? "could_not_check" : "could_not_check";
+    const notRated = /not[_\s-]*rated/i.test(packet.summary) && !/overall=\d/.test(packet.summary);
+    const state = packet.status === "ok" && !notRated ? "none_found" : "could_not_check";
     return [
       {
         field: "crash_rating",
@@ -463,13 +463,24 @@ export async function executeFindFreeGovCheck(input: {
 
   const prior = input.priorReceipts ?? [];
   const coverage = freeGovToolCoverage(input.listings, prior);
-  const candidates = selectFindFreeGovCandidates(
+  const explicitTargets = (input.targetKeys ?? []).map((key) => key.trim()).filter(Boolean).slice(0, 3);
+  let candidates = selectFindFreeGovCandidates(
     input.listings,
     checkId,
     FIND_FREE_GOV_BATCH_MAX,
     prior,
-    input.targetKeys,
+    explicitTargets.length > 0 ? explicitTargets : undefined,
   );
+  // Stale targets (already decoded) must not freeze the rest of the fleet.
+  if (candidates.length === 0 && explicitTargets.length > 0) {
+    const progress = selectFindFreeGovCandidates(
+      input.listings,
+      checkId,
+      FIND_FREE_GOV_BATCH_MAX,
+      prior,
+    );
+    if (progress.length > 0) candidates = progress;
+  }
   if (candidates.length === 0) {
     const covered = !freeGovCheckStillHasUnchecked(coverage, checkId);
     const plainTool =

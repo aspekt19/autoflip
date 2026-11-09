@@ -30,6 +30,7 @@ export const BUYER_FORBIDDEN_TECH_PATTERNS: RegExp[] = [
   /\binitial_decision\b/,
   /\bnontrivial_choice\b/,
   /\bfree_gov_deterministic_drain\b/,
+  /\bconsistency_deterministic_drain\b/,
   /\bpaid_cap_reached\b/,
   /\bcould_not_check\b/,
   /\bissue_found\b/,
@@ -452,11 +453,9 @@ export function formatBuyerReceiptLine(r: FindFreeGovReceipt): string {
     return `${lead}.${park} Source: ${src.label}.${when}`;
   }
   if (r.checkId === "free_gov_safety") {
-    if (r.status === "ok") {
+    const notRated = /not[_\s-]*rated/i.test(r.summary) && !/overall=\d/.test(r.summary);
+    if (r.status === "ok" && !notRated) {
       return `${title}: Safety ratings checked for this year/make/model class. Source: ${src.label}.${when}`;
-    }
-    if (r.status === "empty" || r.status === "error" || r.status === "unavailable") {
-      return `${title}: Couldn't confirm crash-test ratings for this year/make/model. That is not a clean result. Source: ${src.label}.${when}`;
     }
     return `${title}: Couldn't confirm crash-test ratings for this year/make/model. That is not a clean result. Source: ${src.label}.${when}`;
   }
@@ -652,6 +651,16 @@ export function formatBuyerNextCheckWhy(
     .replace(/\bNMVTIS\b/g, "NMVTIS (official title history)");
 }
 
+/** Hide a numeric zero when the factor was not actually scored. A real scored zero still shows. */
+export function buyerFactorBit(factor: { label: string; detail: string; points: number }): string {
+  const unscored =
+    /not scored|couldn't confirm|could not confirm|not a clean|held out of ranking|still pending|have not been checked|has not been compared|listing reports \d+ accident/i.test(
+      factor.detail,
+    );
+  if (unscored) return `${factor.label}: ${factor.detail}`;
+  return `${factor.label}: ${factor.detail} (${factor.points >= 0 ? "+" : ""}${factor.points})`;
+}
+
 export function formatBuyerBestDeal(result: BestDealResult): {
   headline: string;
   why: string;
@@ -689,7 +698,7 @@ export function formatBuyerBestDeal(result: BestDealResult): {
         return !/Held out of ranking|not on file yet|check not run|still pending/i.test(f.detail);
       })
       .sort((a, b) => Math.abs(b.points) - Math.abs(a.points));
-    const bits = factors.map((f) => `${f.label}: ${f.detail} (${f.points >= 0 ? "+" : ""}${f.points})`);
+    const bits = factors.map((f) => buyerFactorBit(f));
     return [head, ...bits.map((b) => `  — ${b}`)];
   });
   const sensitivityLines = result.sensitivity.map((s) =>

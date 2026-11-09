@@ -36,6 +36,10 @@ import {
 import { buildGroundedShortlistWithRisk, type FindSearchRefine } from "@/domain/find-path";
 import { proposeFindNextChecks } from "@/domain/find-next-checks";
 import {
+  clampFindNextCheckTargetKeys,
+  resolveConsistencyTargetKeys,
+} from "@/domain/find-next-check-choice";
+import {
   mergeFreeGovReceiptsByMmy,
   riskCoverageHonesty,
 } from "@/domain/find-risk-evidence";
@@ -393,6 +397,7 @@ export async function runFindNextCheckOrchestrator(
       shortlistFp,
       lastServShortlistFp: ctx.lastServShortlistFp ?? null,
       neverCalledServ: paidSoFar === 0,
+      consistencyOpen: consistencyStillOpen && priorAllowedIds.includes("free_car_consistency"),
     });
     const live = await runFindNextCheckLive(
       {
@@ -449,13 +454,16 @@ export async function runFindNextCheckOrchestrator(
     let freeGovReceipts = priorReceipts;
     let freeEvidenceNote: string | null = null;
     let carChecks = priorCarChecks;
-    const perCarCheck = live.chosenId === "free_car_consistency" || live.chosenId === "free_gov_vpic";
-    const fallbackTargets = priorBestDeal.ranked.slice(0, 3).map((car) => car.key);
-    const targetKeys = perCarCheck
-      ? live.targetKeys.length > 0
-        ? live.targetKeys
-        : fallbackTargets
-      : [];
+    const top5Keys = priorBestDeal.ranked.slice(0, 5).map((car) => car.key);
+    const consistencyTargets =
+      live.chosenId === "free_car_consistency"
+        ? resolveConsistencyTargetKeys(live.targetKeys, top5Keys, checkedCarKeys)
+        : [];
+    // Explicit VIN-decode targets only. An empty list keeps the normal unchecked batch
+    // so a null target list cannot pin decode to three cars and stall the rest.
+    const vpicTargets =
+      live.chosenId === "free_gov_vpic" ? clampFindNextCheckTargetKeys(live.targetKeys, top5Keys) : [];
+    const targetKeys = live.chosenId === "free_car_consistency" ? consistencyTargets : vpicTargets;
 
     if (live.research && deps.runMatch) {
       // CRITICAL: rematch uses NEW need from apply — never pre-apply / stale UI years.
@@ -493,7 +501,7 @@ export async function runFindNextCheckOrchestrator(
         priorReceipts,
         gov: deps.freeGovPort,
         shopperNote: live.replan.need.note,
-        targetKeys: live.chosenId === "free_gov_vpic" ? targetKeys : undefined,
+        targetKeys: live.chosenId === "free_gov_vpic" && vpicTargets.length > 0 ? vpicTargets : undefined,
       });
       if (executed) {
         // Dedup by checkId+year/make/model so cached re-runs cannot append duplicate receipts / fake cycles.
@@ -512,7 +520,7 @@ export async function runFindNextCheckOrchestrator(
       live.chosenId === "free_car_consistency"
         ? executeCarConsistency({
             listings: listingsAfter,
-            targetKeys,
+            targetKeys: consistencyTargets,
             vpicReceipts: freeGovReceipts,
           })
         : [];
@@ -609,7 +617,15 @@ export async function runFindNextCheckOrchestrator(
     };
     const decisionLog = [...(ctx.decisionLog ?? []), decisionEntry].slice(-24);
     updated.decisionLog = decisionLog;
-    await updateFindSearchContext(deps.kv, updated, { decisionLog });
+    const consistencyFp =
+      live.chosenId === "free_car_consistency"
+        ? fingerprintBestDealShortlist(bestDeal.ranked)
+        : undefined;
+    if (consistencyFp) updated.lastServShortlistFp = consistencyFp;
+    await updateFindSearchContext(deps.kv, updated, {
+      decisionLog,
+      ...(consistencyFp ? { lastServShortlistFp: consistencyFp } : {}),
+    });
 
     const autonomousServ = live.source === "serv";
     const mintSaidKeyed = Boolean(ctx.servNextCheckEnabled);
@@ -632,12 +648,15 @@ export async function runFindNextCheckOrchestrator(
       needAfterFp: fingerprintNeed(updated.need),
       listingsBeforeFp: fingerprintListings(ctx.listings),
       listingsAfterFp: fingerprintListings(updated.listings),
+      // Count per-car check progress when SERV chose it, or when this hop is the
+      // intentional free consistency drain. A SERV timeout/fallback must not look
+      // like new evidence and keep the paid loop going.
       freeGovBeforeFp:
-        live.source === "serv"
+        live.source === "serv" || servDecision.reason === "consistency_deterministic_drain"
           ? `${fingerprintFreeGovReceipts(priorReceipts)}|${carCheckFingerprint(priorCarChecks)}`
           : fingerprintFreeGovReceipts(priorReceipts),
       freeGovAfterFp:
-        live.source === "serv"
+        live.source === "serv" || servDecision.reason === "consistency_deterministic_drain"
           ? `${fingerprintFreeGovReceipts(freeGovReceipts)}|${carCheckFingerprint(carChecks)}`
           : fingerprintFreeGovReceipts(freeGovReceipts),
       shortlistCount: shortlistAfter.length,

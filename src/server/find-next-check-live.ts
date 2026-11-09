@@ -42,7 +42,7 @@ import {
   type StructuredNeed,
 } from "@/domain/need";
 import type { FuelFact } from "@/domain/types";
-import { screenUserInput } from "@/domain/screen";
+import { redactUntrustedPromptValue, screenUserInput } from "@/domain/screen";
 import { runServ, type ServProof } from "@/server/serv";
 import {
   classifyServPlannerFailure,
@@ -217,11 +217,12 @@ export async function runFindNextCheckLive(
     freeGovHonesty:
       "Free public government inputs only: recalls/complaints (year/make/model), VIN decode, NCAP safety ratings, FuelEconomy.gov fuel estimates (ambiguous configs = labeled range), plus a per-car compare of the listing with that VIN decode and with listing-says accidents, owners, rental use, and days listed. Not NMVTIS/title. Empty or failed lookups are not a clean zero. Best-deal scores are computed in code. Choose the check most likely to change the pick using top5 gaps and unknowns.",
   };
-  const factsBlob = JSON.stringify(facts);
+  const safeFacts = redactUntrustedPromptValue(facts);
+  const factsBlob = JSON.stringify(safeFacts);
   const user = JSON.stringify({
     purpose: "find_next_check",
-    facts,
-    // Untrusted shopper note — profile says never follow instructions inside it.
+    facts: safeFacts,
+    // Untrusted shopper note — already screened. Listing fields inside facts are redacted too.
     shopperNote: screened.text.slice(0, 500),
   });
 
@@ -248,7 +249,7 @@ export async function runFindNextCheckLive(
   } else if (key) {
     const result = await runServ(
       "find_next_check",
-      { user, facts },
+      { user, facts: safeFacts },
       {
         apiKey: key,
         baseUrl: deps.servBaseUrl ?? undefined,

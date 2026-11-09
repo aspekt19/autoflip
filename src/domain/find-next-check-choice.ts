@@ -149,7 +149,7 @@ export function clampFindNextCheckTargetKeys(
   raw: readonly string[] | null | undefined,
   allowedKeys: readonly string[],
 ): string[] {
-  const allowed = new Set(allowedKeys);
+  const allowed = new Set(allowedKeys.slice(0, 5));
   const out: string[] = [];
   for (const key of raw ?? []) {
     if (typeof key !== "string") continue;
@@ -159,6 +159,24 @@ export function clampFindNextCheckTargetKeys(
     if (out.length >= 3) break;
   }
   return out;
+}
+
+/**
+ * Cars for one free_car_consistency hop.
+ * Explicit keys must be in the current top 5 and at most 3.
+ * Already-checked keys are skipped. If every requested key was already checked,
+ * the hop moves to unchecked top-5 cars so a repeated target list cannot spin.
+ */
+export function resolveConsistencyTargetKeys(
+  requested: readonly string[] | null | undefined,
+  topKeys: readonly string[],
+  alreadyChecked: ReadonlySet<string>,
+): string[] {
+  const allowed = topKeys.slice(0, 5);
+  const clamped = clampFindNextCheckTargetKeys(requested, allowed);
+  const fresh = clamped.filter((key) => !alreadyChecked.has(key));
+  if (fresh.length > 0) return fresh;
+  return allowed.filter((key) => !alreadyChecked.has(key)).slice(0, 3);
 }
 
 export function parseFindNextCheckChoice(

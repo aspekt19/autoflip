@@ -761,7 +761,10 @@ function scoreOne(
       id: "mmy_recall_campaigns",
       label: "Year/make/model recall campaigns on record",
       points: round1(points),
-      detail: `${count} campaign${count === 1 ? "" : "s"} recorded for this year/make/model (not VIN open/closed status)`,
+      detail:
+        count === 0
+          ? "No recall campaigns on file for this year/make/model (not VIN open/closed status)"
+          : `${count} campaign${count === 1 ? "" : "s"} recorded for this year/make/model (not VIN open/closed status)`,
       source: "NHTSA recalls (year/make/model scope)",
     });
   } else {

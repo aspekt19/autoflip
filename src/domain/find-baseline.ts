@@ -26,10 +26,16 @@ export type FindBaselineFactor = {
 
 export type FindBaselineDelta = {
   pick: BaselineCarRef | null;
+  /** Cheapest in-budget car still eligible for the pick. */
   cheapest: BaselineCarRef | null;
   lowestMiles: BaselineCarRef | null;
   cheapestIsPick: boolean;
   lowestMilesIsPick: boolean;
+  /**
+   * Set when a cheaper in-budget car was left out of the pick.
+   * Plain sentence. The factor table still compares the cheapest car still in the running.
+   */
+  cheaperLeftOut: string | null;
   whyNotCheapest: string;
   factors: FindBaselineFactor[];
 };
@@ -68,20 +74,33 @@ function inBudget(
   return car.priceUsd <= need.budgetUsd;
 }
 
+function cheapestOf(cars: readonly BestDealCandidate[]): BestDealCandidate | null {
+  return (
+    cars
+      .filter((car) => car.priceUsd != null)
+      .slice()
+      .sort((a, b) => (a.priceUsd ?? 0) - (b.priceUsd ?? 0) || a.key.localeCompare(b.key))[0] ?? null
+  );
+}
+
 export function computeFindBaseline(input: {
   need: Pick<StructuredNeed, "budgetKnown" | "budgetUsd">;
   /** Full scored list, not only the top 5. Pass `rankedAll` when available. */
   cars: readonly BestDealCandidate[];
   pick: BestDealCandidate | null;
 }): FindBaselineDelta {
-  const pool = input.cars.filter((car) => inBudget(car, input.need) && !car.excludedFromPick);
-  const cheapest =
-    pool
-      .filter((car) => car.priceUsd != null)
-      .slice()
-      .sort((a, b) => (a.priceUsd ?? 0) - (b.priceUsd ?? 0) || a.key.localeCompare(b.key))[0] ?? null;
+  const inBudgetCars = input.cars.filter((car) => inBudget(car, input.need));
+  const eligible = inBudgetCars.filter((car) => !car.excludedFromPick);
+  const cheapestAny = cheapestOf(inBudgetCars);
+  const cheapest = cheapestOf(eligible);
+  const leftOutCheaper =
+    cheapestAny && cheapestAny.excludedFromPick && cheapestAny.key !== input.pick?.key ? cheapestAny : null;
+  const cheaperLeftOut = leftOutCheaper
+    ? leftOutCheaper.excludedReason ??
+      `${nameOf(leftOutCheaper)} was left out of the pick.`
+    : null;
   const lowestMiles =
-    pool
+    eligible
       .filter((car) => car.miles != null)
       .slice()
       .sort((a, b) => (a.miles ?? 0) - (b.miles ?? 0) || a.key.localeCompare(b.key))[0] ?? null;
@@ -140,7 +159,8 @@ export function computeFindBaseline(input: {
     lowestMiles: refOf(lowestMiles),
     cheapestIsPick,
     lowestMilesIsPick,
-    whyNotCheapest: whyNotCheapest(pick, cheapest, cheapestIsPick),
+    cheaperLeftOut,
+    whyNotCheapest: whyNotCheapest(pick, cheapest, cheapestIsPick, cheaperLeftOut),
     factors,
   };
 }
@@ -162,14 +182,26 @@ function whyNotCheapest(
   pick: BestDealCandidate | null,
   cheapest: BestDealCandidate | null,
   same: boolean,
+  cheaperLeftOut: string | null,
 ): string {
-  if (!pick || !cheapest) return "Not enough priced cars in budget to compare with the cheapest.";
-  if (same) return `The cheapest car in budget is the same car we picked: the ${nameOf(pick)}.`;
+  const leftOut = cheaperLeftOut ? `${cheaperLeftOut} ` : "";
+  if (!pick || !cheapest) {
+    if (cheaperLeftOut) {
+      return `${cheaperLeftOut} Not enough other priced cars in budget to compare.`;
+    }
+    return "Not enough priced cars in budget to compare with the cheapest.";
+  }
+  if (same) {
+    return cheaperLeftOut
+      ? `${cheaperLeftOut} The cheapest car still in the running is the one we picked: the ${nameOf(pick)}.`
+      : `The cheapest car in budget is the same car we picked: the ${nameOf(pick)}.`;
+  }
   const pickMiles = pick.factors.find((row) => row.id === "miles_per_year_vs_peers")?.detail ?? "";
   const cheapMiles = cheapest.factors.find((row) => row.id === "miles_per_year_vs_peers")?.detail ?? "";
-  const flags = cheapest.sellerQuestions[0] ?? (cheapest.excludedFromPick ? cheapest.excludedReason : null);
+  const flags = cheapest.sellerQuestions[0] ?? null;
   const flagBit = flags ? ` ${flags}` : "";
-  return `We did not pick the cheapest in budget (${nameOf(cheapest)}) because the ${pick.year} ${pick.make} ${pick.model} is the stronger deal on the checks we could score.${pickMiles && cheapMiles ? ` Mileage pace: pick ${pickMiles}; cheapest ${cheapMiles}.` : ""}${flagBit}`;
+  const subject = cheaperLeftOut ? "the cheapest car still in the running" : "the cheapest in budget";
+  return `${leftOut}We did not pick ${subject} (${nameOf(cheapest)}) because the ${pick.year} ${pick.make} ${pick.model} is the stronger deal on the checks we could score.${pickMiles && cheapMiles ? ` Mileage pace: pick ${pickMiles}; cheapest ${cheapMiles}.` : ""}${flagBit}`;
 }
 
 export type FindBaselineBuyer = {
@@ -184,9 +216,13 @@ export function formatBaselineForBuyer(baseline: FindBaselineDelta): FindBaselin
     baseline.pick
       ? `Our pick: ${nameOf(baseline.pick)}.`
       : "Our pick: no confident pick on current evidence.",
-    baseline.cheapestIsPick
-      ? "Cheapest in budget: same car as our pick."
-      : `Cheapest in budget: ${nameOf(baseline.cheapest)}.`,
+    baseline.cheaperLeftOut
+      ? baseline.cheapestIsPick
+        ? `${baseline.cheaperLeftOut} Cheapest still in the running: same car as our pick.`
+        : `${baseline.cheaperLeftOut} Cheapest still in the running: ${nameOf(baseline.cheapest)}.`
+      : baseline.cheapestIsPick
+        ? "Cheapest in budget: same car as our pick."
+        : `Cheapest in budget: ${nameOf(baseline.cheapest)}.`,
     baseline.lowestMilesIsPick
       ? "Lowest miles in budget: same car as our pick."
       : `Lowest miles in budget: ${nameOf(baseline.lowestMiles)}.`,

@@ -125,4 +125,53 @@ describe("find free-gov execute (offline / labeled NOT live)", () => {
     expect(progress!.note).not.toMatch(/free_gov_fuel|evidence\.gov_fuel/);
     expect(assertBuyerSafeText(progress!.note).ok).toBe(true);
   });
+
+  it("already-decoded target keys do not stall the next unchecked VIN", async () => {
+    const result = await executeFindFreeGovCheck({
+      checkId: "free_gov_vpic",
+      listings: [
+        {
+          make: "Honda",
+          model: "CR-V",
+          year: 2015,
+          priceUsd: 11_000,
+          miles: 80_000,
+          vin: "2HKRM4H75FH123456",
+        },
+        {
+          make: "Kia",
+          model: "Sportage",
+          year: 2016,
+          priceUsd: 14_000,
+          miles: 70_000,
+          vin: "KNDPBCAC6G7123456",
+        },
+      ],
+      priorReceipts: [
+        {
+          checkId: "free_gov_vpic",
+          toolId: "evidence.gov_vpic",
+          status: "ok",
+          summary: "decoded",
+          scope: "t",
+          limitsNote: "",
+          vin: "2HKRM4H75FH123456",
+          make: "Honda",
+          model: "CR-V",
+          year: 2015,
+          fetchedAt: "t",
+          cached: false,
+          sourceUrl: null,
+          factNotes: [],
+          riskFacts: null,
+          fuelEvidence: null,
+          honesty: "t",
+        },
+      ],
+      targetKeys: ["2HKRM4H75FH123456"],
+      gov: unsupportedFreeGovPort(),
+    });
+    expect(result!.evidenceChanged).toBe(true);
+    expect(result!.receipts.map((row) => row.model)).toEqual(["Sportage"]);
+  });
 });
