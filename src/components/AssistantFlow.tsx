@@ -74,6 +74,15 @@ import {
   type FreeGovReceiptUiRow,
 } from "@/domain/find-free-gov-format";
 import { trimSourceDisagreement } from "@/domain/find-car-consistency";
+import {
+  buildPurchaseReadiness,
+  omitQuestionsCoveredByTalkingPoints,
+  readinessCarsFromUnknown,
+  recallCampaignCountForCar,
+  zipChoice,
+  type ReadinessCar,
+} from "@/domain/purchase-readiness";
+import { PurchaseReadinessNote } from "./PurchaseReadinessNote";
 import { buyerListingHref } from "@/domain/find-listing-link";
 import { mmyListingKey } from "@/domain/find-risk-evidence";
 import {
@@ -112,6 +121,10 @@ type ListingCard = {
   flipNote?: string | null;
   clearsTarget?: boolean | null;
   priceView?: FindListingPriceView;
+  zip?: string | null;
+  createdAt?: string | null;
+  accidentCount?: number | null;
+  askingPriceKind?: "purchase_ask" | "dealer_fee" | "unknown" | null;
   /** Opaque server-minted token from /api/match — required for trusted full analysis. */
   analysisContextToken?: string | null;
 };
@@ -245,6 +258,8 @@ function AssistantFlow({
   /** Machine/agent channel only — raw receipts JSON, not shown as page copy. */
   const [freeGovAgentPayload, setFreeGovAgentPayload] = useState<string | null>(null);
   const [bestDeal, setBestDeal] = useState<BestDealResult | null>(null);
+  /** Full search pool for offer ranges. Shown cards are the fallback. */
+  const [marketPool, setMarketPool] = useState<ReadinessCar[]>([]);
   const [decisionView, setDecisionView] = useState<{
     entries: FindDecisionLogEntry[];
     labels: DecisionCarLabel[];
@@ -384,6 +399,7 @@ function AssistantFlow({
         partialFailure?: boolean;
         searchContextToken?: string | null;
         servNextCheckEnabled?: boolean;
+        marketPool?: unknown;
       };
       if (!saved.need || !saved.stage || saved.stage === "need") return;
 
@@ -394,6 +410,7 @@ function AssistantFlow({
         setNeed(saved.need);
         setStage("confirm");
         setGroups([]);
+        setMarketPool([]);
         setSample(false);
         setMatchMessage(decision.reason);
         if (saved.need.budgetUsd) setBudget(String(saved.need.budgetUsd));
@@ -404,6 +421,7 @@ function AssistantFlow({
       setNeed(saved.need);
       setStage(saved.stage);
       setGroups(groups);
+      setMarketPool(readinessCarsFromUnknown(saved.marketPool));
       setSource(saved.source ?? "form");
       setChecks(saved.checks ?? []);
       setAffordability(saved.affordability ?? true);
@@ -526,6 +544,7 @@ function AssistantFlow({
           emptyReason,
           searchContextToken,
           servNextCheckEnabled,
+          marketPool,
         }),
       );
     } catch {
@@ -881,6 +900,12 @@ function AssistantFlow({
           listings: (group.listings ?? []).filter((car) => car.source !== "sample"),
         }));
         setGroups(nextGroups);
+        const rematchPool = readinessCarsFromUnknown((matchBody as { compsPool?: unknown }).compsPool);
+        setMarketPool(
+          rematchPool.length > 0
+            ? rematchPool
+            : readinessCarsFromUnknown(nextGroups.flatMap((group) => group.listings)),
+        );
         setSample(Boolean(matchBody.sample));
         setAffordability(matchBody.affordabilityAssessed !== false);
         setMatchScope(matchBody.scope ?? null);
@@ -1077,6 +1102,7 @@ function AssistantFlow({
         affordabilityAssessed?: boolean;
         searchContextToken?: string | null;
         servNextCheckEnabled?: boolean;
+        compsPool?: unknown;
         error?: string;
       };
       if (typeof body.balance === "number") publishCreditBalance(body.balance);
@@ -1142,6 +1168,12 @@ function AssistantFlow({
         return;
       }
       setGroups(nextGroups);
+      const matchedPool = readinessCarsFromUnknown(body.compsPool);
+      setMarketPool(
+        matchedPool.length > 0
+          ? matchedPool
+          : readinessCarsFromUnknown(nextGroups.flatMap((group) => group.listings)),
+      );
       setSample(false);
       setAffordability(body.affordabilityAssessed !== false);
       setMatchMessage(body.message ?? null);
@@ -1193,6 +1225,7 @@ function AssistantFlow({
             partialFailure: Boolean(body.partialFailure),
             searchContextToken: nextToken,
             servNextCheckEnabled: Boolean(body.servNextCheckEnabled && nextToken),
+            marketPool: matchedPool.length > 0 ? matchedPool : readinessCarsFromUnknown(nextGroups.flatMap((group) => group.listings)),
           }),
         );
       } catch {
@@ -1923,7 +1956,96 @@ function AssistantFlow({
                   vdp: car.vdp,
                   decodedTrim: decodedTrimByVin.get(car.vin.toUpperCase()) ?? null,
                 }));
-                const sellerLines = bestDeal ? sellerQuestionsForBuyer(bestDeal, listingHints) : [];
+                const recallReceipts = uiRowsToRiskReceipts(freeGovReceiptsForShortlist);
+                const offerPool =
+                  marketPool.length > 0 ? marketPool : readinessCarsFromUnknown(allListings);
+                const readinessNow = new Date();
+                const topRows = bestDeal
+                  ? topPicksInRankOrder(bestDeal.ranked, bestDeal.pick?.key ?? null).rows
+                  : [];
+                const cardForRow = (row: (typeof topRows)[number]) =>
+                  allListings.find(
+                    (item) => item.vin && row.vin && item.vin.toUpperCase() === row.vin.toUpperCase(),
+                  ) ??
+                  allListings.find(
+                    (item) =>
+                      item.year === row.year &&
+                      item.make.toLowerCase() === row.make.toLowerCase() &&
+                      item.model.toLowerCase() === row.model.toLowerCase() &&
+                      item.priceUsd === row.priceUsd &&
+                      item.miles === row.miles,
+                  );
+                const poolForRow = (row: (typeof topRows)[number]) => {
+                  const vin = (row.vin ?? "").trim().toUpperCase();
+                  if (vin) {
+                    const byVin = offerPool.find((item) => (item.vin ?? "").trim().toUpperCase() === vin);
+                    if (byVin) return byVin;
+                  }
+                  return (
+                    offerPool.find(
+                      (item) =>
+                        item.year === row.year &&
+                        item.make.toLowerCase() === row.make.toLowerCase() &&
+                        item.model.toLowerCase() === row.model.toLowerCase() &&
+                        item.priceUsd === row.priceUsd &&
+                        item.miles === row.miles,
+                    ) ?? null
+                  );
+                };
+                const readinessByKey = new Map<string, ReturnType<typeof buildPurchaseReadiness>>();
+                for (const row of topRows) {
+                  const card = cardForRow(row);
+                  const pooled = poolForRow(row);
+                  const hint = listingHints.find(
+                    (item) =>
+                      (row.vin && item.vin && item.vin.toUpperCase() === row.vin.toUpperCase()) ||
+                      (item.year === row.year &&
+                        item.make?.toLowerCase() === row.make.toLowerCase() &&
+                        item.model?.toLowerCase() === row.model.toLowerCase()),
+                  );
+                  const trimGap = trimSourceDisagreement({
+                    year: row.year,
+                    make: row.make,
+                    model: row.model,
+                    displayedTrim: card?.trim ?? hint?.trim,
+                    listingUrl: card?.vdp ?? hint?.vdp,
+                    decodedTrim: hint?.decodedTrim,
+                  });
+                  const priceBlocked = card?.priceView?.usableForBudget === false;
+                  const chosen = zipChoice(need.zip, card?.zip ?? pooled?.zip ?? null);
+                  readinessByKey.set(
+                    row.key,
+                    buildPurchaseReadiness({
+                      car: {
+                        vin: row.vin,
+                        year: row.year,
+                        make: row.make,
+                        model: row.model,
+                        trim: card?.trim ?? hint?.trim ?? null,
+                        priceUsd: priceBlocked ? null : (row.priceUsd ?? pooled?.priceUsd ?? null),
+                        miles: row.miles ?? pooled?.miles ?? null,
+                        createdAt: card?.createdAt ?? pooled?.createdAt ?? null,
+                        accidentCount: card?.accidentCount ?? pooled?.accidentCount ?? null,
+                        askingPriceKind: card?.askingPriceKind ?? pooled?.askingPriceKind ?? null,
+                        zip: card?.zip ?? pooled?.zip ?? null,
+                      },
+                      pool: offerPool,
+                      zip: chosen.zip,
+                      zipUsedFor: chosen.zipUsedFor,
+                      now: readinessNow,
+                      trimMismatchNote: trimGap ? `${trimGap.note} ${trimGap.sellerQuestion}` : null,
+                      identityMismatchNote:
+                        row.excludedFromPick && row.excludedReason ? row.excludedReason : null,
+                      recallCampaignCount: recallCampaignCountForCar(row, recallReceipts),
+                    }),
+                  );
+                }
+                const sellerLines = bestDeal
+                  ? omitQuestionsCoveredByTalkingPoints(
+                      sellerQuestionsForBuyer(bestDeal, listingHints),
+                      [...readinessByKey.values()].flatMap((view) => view.talkingPoints),
+                    )
+                  : [];
                 if (checks.length === 0 && shortlist.length === 0 && !dealCopy && decisionPresented.lines.length === 0)
                   return null;
                 return (
@@ -1932,28 +2054,16 @@ function AssistantFlow({
                       <div>
                         <p>{bestDeal.pick ? "Top picks" : "Top cars in the current order"}</p>
                         <ol className="top-picks">
-                          {topPicksInRankOrder(bestDeal.ranked, bestDeal.pick?.key ?? null).rows.map((row) => {
-                            const card =
-                              allListings.find(
-                                (item) =>
-                                  item.vin &&
-                                  row.vin &&
-                                  item.vin.toUpperCase() === row.vin.toUpperCase(),
-                              ) ??
-                              allListings.find(
-                                (item) =>
-                                  item.year === row.year &&
-                                  item.make.toLowerCase() === row.make.toLowerCase() &&
-                                  item.model.toLowerCase() === row.model.toLowerCase() &&
-                                  item.priceUsd === row.priceUsd &&
-                                  item.miles === row.miles,
-                              );
+                          {topRows.map((row) => {
+                            const card = cardForRow(row);
                             const href = buyerListingHref(card?.vdp);
+                            const readiness = readinessByKey.get(row.key);
                             return (
                               <li key={row.key}>
                                 {formatTopPickLine(row)}
                                 {" · "}
                                 {href ? <a href={href}>Dealer listing</a> : "Listing link unavailable"}
+                                {readiness ? <PurchaseReadinessNote view={readiness} /> : null}
                               </li>
                             );
                           })}
