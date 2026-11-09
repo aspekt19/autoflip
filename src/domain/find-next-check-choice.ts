@@ -20,9 +20,11 @@ export const FIND_NEXT_CHECK_SCOUT_ALIASES: Readonly<Record<string, FindNextChec
   "evidence.gov_recalls": "free_gov_recalls",
   "evidence.gov_vpic": "free_gov_vpic",
   "evidence.gov_safety": "free_gov_safety",
+  "evidence.gov_fuel": "free_gov_fuel",
   gov_recalls: "free_gov_recalls",
   gov_vpic: "free_gov_vpic",
   gov_safety: "free_gov_safety",
+  gov_fuel: "free_gov_fuel",
 };
 
 const DENIED_ID_SHAPE = /^[a-zA-Z0-9][a-zA-Z0-9_./-]{0,63}$/;

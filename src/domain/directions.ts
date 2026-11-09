@@ -1,5 +1,5 @@
 import type { PreferredModel, StructuredNeed } from "./need";
-import { yearBandForBudget } from "./need";
+import { budgetIsApproximateFromNote, yearBandForBudget } from "./need";
 
 export type CandidateModel = { make: string; model: string };
 
@@ -62,7 +62,9 @@ export function proposeDirections(
   refine?: { make?: string; model?: string; yearMin?: number; yearMax?: number },
   now = new Date(),
 ): SearchDirection[] {
-  const band = yearBandForBudget(need.budgetUsd, now);
+  const band = yearBandForBudget(need.budgetUsd, now, {
+    approximateFromNote: budgetIsApproximateFromNote(need.note),
+  });
   // Prefer Confirm refine, then clarified need year bounds, then budget editorial band.
   const yearMin = refine?.yearMin ?? need.yearMin ?? band.yearMin;
   const yearMax = refine?.yearMax ?? need.yearMax ?? band.yearMax;

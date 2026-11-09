@@ -17,8 +17,8 @@ export default function TermsPage() {
 
         <h2>Service description</h2>
         <p>
-          Lemonless turns a US used-car listing into an explainable buy / caution / walk-away reading. Listing comps come from
-          Auto.dev. Recall and complaint context come from NHTSA when available. Code computes the numbers; model writing only
+          Lemonless turns a US used-car listing into an explainable buy / caution / walk-away reading. Similar listings of the
+          same model come from Auto.dev. Recall and complaint context come from NHTSA when available. Code computes the numbers; model writing only
           explains those numbers. Stripe on this site is test mode only and does not collect live payment.
         </p>
 

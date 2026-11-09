@@ -82,8 +82,8 @@ describe("parkIt ≠ parkOutside report semantics (t313/t316/t334 follow-up)", (
     expect(report.score).not.toBeNull();
     expect(report.flags.some((f) => f.source === "nhtsa-recalls" && f.level === "stop")).toBe(false);
     expect(report.flags.some((f) => f.source === "nhtsa-recalls" && f.level === "caution")).toBe(true);
-    expect(report.flags.find((f) => f.source === "nhtsa-recalls")?.text).toMatch(/not a parkIt/i);
-    expect(report.reasons.join(" ")).toMatch(/not a parkIt/i);
+    expect(report.flags.find((f) => f.source === "nhtsa-recalls")?.text).toMatch(/not a do-not-drive/i);
+    expect(report.reasons.join(" ")).toMatch(/not a do-not-drive/i);
     expect(report.reasons.join(" ")).not.toMatch(/do-not-drive override/i);
 
     const decision = summaryLine({
@@ -109,7 +109,7 @@ describe("parkIt ≠ parkOutside report semantics (t313/t316/t334 follow-up)", (
     expect(report.verdict).toBe("walk_away");
     expect(report.score).toBeNull();
     expect(report.flags.some((f) => f.source === "nhtsa-recalls" && f.level === "stop")).toBe(true);
-    expect(report.reasons.join(" ")).toMatch(/parkIt/i);
+    expect(report.reasons.join(" ")).toMatch(/do-not-drive/i);
     expect(report.reasons.join(" ")).toMatch(/does not prove this VIN is affected|not VIN unrepaired/i);
     expect(report.questions.join(" ")).toMatch(/does not confirm this VIN is affected/i);
 
@@ -185,6 +185,6 @@ describe("parkIt ≠ parkOutside report semantics (t313/t316/t334 follow-up)", (
     expect(report.openParkIt).toBe(false);
     expect(report.openParkOutside).toBe(true);
     expect(report.verdict).not.toBe("walk_away");
-    expect(report.reasons.join(" ")).toMatch(/does not alone force a parkIt walk-away/i);
+    expect(report.reasons.join(" ")).toMatch(/does not alone force a do-not-drive walk-away/i);
   });
 });

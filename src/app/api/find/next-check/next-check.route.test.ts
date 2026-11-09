@@ -357,7 +357,10 @@ describe("POST /api/find/next-check (HTTP)", () => {
         body.freeGovReceipts[0].riskFacts.parkOutside === null,
     ).toBe(true);
     expect(body.riskCoverage?.listingCardCount).toBeGreaterThan(0);
-    expect(body.riskCoverage?.note).toMatch(/make\/model\/year|MMY|VIN|sample/i);
+    // Plain buyer coverage — freeGovCoverage carries the model/year ≠ VIN honesty line.
+    expect(body.freeGovCoverage?.note ?? body.riskCoverage?.note ?? "").toMatch(
+      /per model and year|not for this exact car|model years|VIN/i,
+    );
     expect(
       body.shortlist?.every((s: { outstandingChecks?: string[] }) => Array.isArray(s.outstandingChecks)),
     ).toBe(true);

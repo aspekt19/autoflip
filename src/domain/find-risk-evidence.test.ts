@@ -115,6 +115,7 @@ function receiptFrom(
     sourceUrl: packet.url,
     factNotes: packet.facts.map((f) => f.note ?? "").filter(Boolean),
     riskFacts,
+    fuelEvidence: null,
     honesty: "Make/model/year recalls/complaints ≠ VIN-specific unrepaired/open recall status. parkIt ≠ parkOutside.",
   };
 }
@@ -146,10 +147,12 @@ describe("find risk evidence (structured shapes)", () => {
     ]);
     expect(short).toHaveLength(1);
     expect(short[0]!.conditionStatus).toBe("mmy_park_outside_flag");
-    expect(short[0]!.why).toMatch(/parkOutside/i);
-    expect(short[0]!.why).toMatch(/not a do-not-drive\/parkIt claim/i);
+    expect(short[0]!.why).toMatch(/outdoor-parking/i);
+    expect(short[0]!.why).toMatch(/not a do-not-drive\s*\/\s*park-it claim/i);
+    expect(short[0]!.why).not.toMatch(/\bparkIt\b|\bparkOutside\b|\bMMY\b/);
     expect(short[0]!.conditionStatus).not.toBe("mmy_park_it_investigate");
-    expect(short[0]!.unknowns.some((u) => /parkOutside ≠ parkIt/i.test(u))).toBe(true);
+    expect(short[0]!.unknowns.some((u) => /outdoor-parking|park-it/i.test(u))).toBe(true);
+    expect(short[0]!.unknowns.every((u) => !/\bparkIt\b|\bparkOutside\b|\bMMY\b/.test(u))).toBe(true);
   });
 
   it("unknown / no VIN / unchecked MMY stays unknown — not cleared", () => {
@@ -238,7 +241,7 @@ describe("find risk evidence (structured shapes)", () => {
     expect(short[0]!.outstandingChecks).toEqual(
       expect.arrayContaining(["get_history_report"]),
     );
-    expect(short[0]!.campaignRefs).toContain("18V123");
+    expect(short[0]!.campaignRefs).toContain("Official recall number 18V123 — look this up on NHTSA");
     expect(short[0]!.why).toMatch(/investigate VIN|not auto-buy/i);
   });
 
@@ -279,9 +282,10 @@ describe("find risk evidence (structured shapes)", () => {
     expect(coverage.checkedMmyCount).toBe(3);
     expect(coverage.uncheckedMmyCount).toBe(coverage.listingMmyCount - 3);
     expect(coverage.note).toMatch(/3 of \d+/);
-    expect(coverage.note).toMatch(/not a fleet-wide clearance|Unchecked/i);
-    // Mechanism is MMY-keyed — note must not invent VIN clearance.
-    expect(coverage.note).toMatch(/make\/model\/year|MMY|VIN/i);
+    expect(coverage.note).toMatch(/remaining years are still unknown|still unknown/i);
+    // Plain buyer note — no listing-key jargon; does not invent VIN clearance.
+    expect(coverage.note).not.toMatch(/listing make\/model\/year key/i);
+    expect(coverage.note).not.toMatch(/\bMMY\b/);
   });
 
   it("executeFindFreeGovCheck retains structured riskFacts + sourceUrl (not summary-only)", async () => {

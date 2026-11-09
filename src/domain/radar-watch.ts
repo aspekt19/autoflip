@@ -286,7 +286,7 @@ export function prefilterListing(
   }
   if (margin !== null) {
     bits.push(
-      `rough margin ${formatMoney(margin)} after fee and reconditioning assumptions, using the 75th percentile asking price in this result (${formatMoney(band.highUsd)}) rather than closed sales`,
+      `rough margin ${formatMoney(margin)} after fee and reconditioning assumptions, using a higher asking price in this result (about the top quarter, ${formatMoney(band.highUsd)}) rather than closed sales`,
     );
   }
   const where = [listing.city, listing.state].filter(Boolean).join(", ");

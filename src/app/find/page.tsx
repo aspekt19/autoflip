@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { FindFlow } from "@/components/AssistantFlow";
+import { FIND_PAGE_BILLING_STEP } from "@/domain/find-buyer-copy";
 import { parseFindEntryParams } from "@/domain/need";
 
 export const metadata: Metadata = { title: "Find a car" };
@@ -22,7 +23,7 @@ export default async function FindPage({
           <ol>
             <li>Describe the car and your budget.</li>
             <li>Add a U.S. ZIP and seller-distance radius when you want nearby listings — or choose Nationwide.</li>
-            <li>Review matching dealer listings. Find search costs 1 report credit. Open a full report for any car you want to investigate further (another 1 report credit).</li>
+            <li>Review matching dealer listings. {FIND_PAGE_BILLING_STEP}</li>
           </ol>
           <p>Deal Radar is a separate optional monthly plan.</p>
         </div>

@@ -41,6 +41,7 @@ import {
 import { clampScoutPlanWithSearchContinuation } from "./search-revision";
 import {
   createLiveFreeGovPort,
+  freeGovProcessCache,
   isFreeGovToolId,
   unsupportedFreeGovPort,
   type ScoutFreeGovPort,
@@ -1572,7 +1573,7 @@ export async function runScout(input: RunScoutInput): Promise<ScoutRunResult> {
             input.gov ??
             (process.env.VITEST && process.env.SCOUT_FREE_GOV_LIVE !== "1"
               ? unsupportedFreeGovPort()
-              : createLiveFreeGovPort());
+              : createLiveFreeGovPort({ cache: freeGovProcessCache() }));
           const packet = await govPort.run(toolId, candidates.get(vin)!.listing);
           const candGov = candidates.get(vin)!;
           candGov.evidence.push(...packet.facts);

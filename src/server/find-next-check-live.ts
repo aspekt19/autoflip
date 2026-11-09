@@ -54,6 +54,13 @@ export type FindNextCheckLiveDeps = {
   servBaseUrl?: string | null;
   fetchImpl?: typeof fetch;
   env?: Record<string, string | undefined>;
+  /**
+   * When true, skip the paid SERV HTTP call and use the deterministic allowlist
+   * preferred id (free-gov drain / paid-call cap). Still a real next-check hop.
+   */
+  skipServ?: boolean;
+  /** Why SERV was skipped — logged in honesty / diag; never secrets. */
+  skipServReason?: string | null;
 };
 
 export type FindNextCheckLiveOk = {
@@ -122,6 +129,15 @@ export async function runFindNextCheckLive(
         riskFacts?: Record<string, unknown> | null;
       }>;
     } | null;
+    /** Per-tool MMY coverage — keeps free_gov_* allowlisted while unchecked remain. */
+    freeGovCoverage?: {
+      listingMmyCount: number;
+      recalls: { checked: number; unchecked: number; eligible: number };
+      safety: { checked: number; unchecked: number; eligible: number };
+      vpic: { checked: number; unchecked: number; eligible: number };
+      anyUnchecked: boolean;
+      note: string;
+    } | null;
   },
   deps: FindNextCheckLiveDeps = {},
 ): Promise<FindNextCheckLiveOk | FindNextCheckLiveErr> {
@@ -152,6 +168,7 @@ export async function runFindNextCheckLive(
     emptyInventory: listings.length === 0,
     appliedCheckIds,
     listingsHaveVin,
+    freeGovCoverage: body.freeGovCoverage ?? null,
   });
   const allowedIds = allowedFindNextCheckIds(allowedChecks);
   if (allowedIds.length === 0) {
@@ -181,8 +198,9 @@ export async function runFindNextCheckLive(
     listingsHaveVin,
     appliedCheckIds,
     freeGovEvidence: body.freeGovBrief ?? { count: 0, toolIds: [], statuses: [], summaries: [] },
+    freeGovCoverage: body.freeGovCoverage ?? null,
     freeGovHonesty:
-      "Free NHTSA only (recalls/complaints make/model/year, vPIC DecodeVinValues, NCAP SafetyRatings). Not NMVTIS/title. FuelEconomy unsupported on free Find surface. Missing VIN/history stays unknown.",
+      "Free public government inputs only: recalls/complaints (year/make/model), VIN decode, NCAP safety ratings, FuelEconomy.gov fuel estimates (ambiguous configs = labeled range). Not NMVTIS/title. Missing VIN/history stays unknown. While freeGovCoverage.anyUnchecked, prefer free_gov_* before get_history_report — partial sample ≠ fleet clearance. Best-deal scores are computed in code from evidence, not invented here.",
   };
   const factsBlob = JSON.stringify(facts);
   const user = JSON.stringify({
@@ -204,7 +222,13 @@ export async function runFindNextCheckLive(
   const choiceSchema = buildFindNextCheckChoiceSchema(allowedIds);
 
   const key = deps.servKey?.trim() || null;
-  if (key) {
+  if (key && deps.skipServ) {
+    // Bounded free-gov drain / paid-call cap — keep SERV autonomy real on other hops.
+    source = "deterministic_fallback";
+    chosenId = preferred.id;
+    servNote = null;
+    failureDiag = null;
+  } else if (key) {
     const result = await runServ(
       "find_next_check",
       { user, facts },
@@ -293,6 +317,10 @@ export async function runFindNextCheckLive(
   const replan = applyFindNextCheck(need, chosenId, refine);
   const shortlist = buildGroundedShortlist(replan.need, listings, body.fuelsByModelKey ?? {});
 
+  const skipBit =
+    key && deps.skipServ
+      ? ` Paid SERV skipped this hop (${deps.skipServReason ?? "bounded_free_gov_drain"}) — deterministic free public batch only.`
+      : "";
   return {
     ok: true,
     source,
@@ -309,6 +337,6 @@ export async function runFindNextCheckLive(
     honesty:
       source === "serv"
         ? "SERV chose an allowlisted checkId. Apply/replan is code-owned. Rematch uses NEW need — no invented listings, TCO, or history."
-        : "deterministic_fallback (not autonomous SERV): code allowlist apply only. Keyed SERV path required for autonomous next-check.",
+        : `deterministic_fallback (not autonomous SERV): code allowlist apply only.${skipBit}`,
   };
 }

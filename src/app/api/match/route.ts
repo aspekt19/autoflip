@@ -5,6 +5,7 @@ import { rememberFindAnalysisContexts } from "@/server/find-analysis-context";
 import { runFindMatch } from "@/server/find-match";
 import { runtimeDeps } from "@/server/deps";
 import {
+  listingFactsFromCompsPool,
   listingsFromMatchDirections,
   loadFindSearchContext,
   mintFindSearchContextRecord,
@@ -129,11 +130,16 @@ export async function POST(request: Request) {
     // Owner-bound search context for next-check (server authority — not client body).
     const validated = validateNeed(body?.need ?? {});
     if (validated.ok) {
+      const shown = listingsFromMatchDirections(result.body.directions);
+      const compsPool = Array.isArray(result.body.compsPool)
+        ? listingFactsFromCompsPool(result.body.compsPool)
+        : shown;
       const record = mintFindSearchContextRecord({
         userId: id,
         need: validated.need,
         refine: body?.refine ?? {},
-        listings: listingsFromMatchDirections(result.body.directions),
+        listings: shown,
+        compsPool,
         servNextCheckEnabled,
       });
       await storeFindSearchContext(kv, record);

@@ -13,10 +13,10 @@ export function midProfitUsd(flip: FlipMath): number {
 
 export function fitHeadline(report: ComputedReport): string {
   if (report.openParkIt) {
-    return "A parkIt campaign matched this model year. Confirm VIN applicability and repair status before any price decision — model coverage is not VIN unrepaired proof.";
+    return "A park-it (do not drive) campaign matched this model year. Confirm VIN applicability and repair status before any price decision — model coverage is not VIN unrepaired proof.";
   }
   if (report.openParkOutside) {
-    return "A parkOutside campaign (outdoor parking guidance) matched this model year. That is not a parkIt / do-not-drive stop by itself; verify VIN applicability.";
+    return "An outdoor-parking guidance campaign matched this model year. That is not a do-not-drive park-it stop by itself; verify VIN applicability.";
   }
   if (report.flags.some((flag) => flag.source === "title-brand" && flag.level === "stop")) {
     return "Listing text suggests a title brand (salvage, rebuilt, flood, or similar). Do not treat price alone as the decision.";

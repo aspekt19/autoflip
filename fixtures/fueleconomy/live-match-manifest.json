@@ -1,0 +1,86 @@
+[
+  {
+    "slug": "crv-2018",
+    "year": 2018,
+    "make": "Honda",
+    "model": "CR-V",
+    "aliases": [
+      "CR-V AWD",
+      "CR-V FWD"
+    ],
+    "vehicleIds": [
+      39628,
+      39629,
+      39624,
+      39625
+    ]
+  },
+  {
+    "slug": "tucson-2018",
+    "year": 2018,
+    "make": "Hyundai",
+    "model": "Tucson",
+    "aliases": [
+      "Tucson AWD",
+      "Tucson FWD"
+    ],
+    "vehicleIds": [
+      39630,
+      39631,
+      39732,
+      39674,
+      39675,
+      39728
+    ]
+  },
+  {
+    "slug": "sportage-2015",
+    "year": 2015,
+    "make": "Kia",
+    "model": "Sportage",
+    "aliases": [
+      "Sportage AWD",
+      "Sportage FWD",
+      "Sportage SX AWD",
+      "Sportage SX FWD"
+    ],
+    "vehicleIds": [
+      35204,
+      35205,
+      35202,
+      35203,
+      36019,
+      36018
+    ]
+  },
+  {
+    "slug": "cx5-2014",
+    "year": 2014,
+    "make": "Mazda",
+    "model": "CX-5",
+    "aliases": [
+      "CX-5 2WD",
+      "CX-5 4WD"
+    ],
+    "vehicleIds": [
+      33401,
+      33403,
+      33402,
+      33404,
+      33405
+    ]
+  },
+  {
+    "slug": "camry-2012",
+    "year": 2012,
+    "make": "Toyota",
+    "model": "Camry",
+    "aliases": [
+      "Camry"
+    ],
+    "vehicleIds": [
+      31765,
+      31766
+    ]
+  }
+]

@@ -4,8 +4,13 @@ export type CoverageInput = {
   mode: "personal" | "flip";
   /** True when the rows are the labeled fixture. */
   sample: boolean;
-  /** Dealer listings actually used for this result. Never invent a count. */
+  /** Dealer listings actually shown for this result group. Never invent a count. */
   dealerListingCount: number;
+  /**
+   * Total dealer listings shown across the whole Find page (all suggestion groups).
+   * When present and positive, the sentence prefers this page total over the group count.
+   */
+  pageListingCount?: number | null;
   /** Search radius in miles, only when the search used one. */
   radiusMiles: number | null;
   /** Listing feed included accident and owner fields. A title report is never assumed. */
@@ -26,7 +31,21 @@ export function coverageConfidence(input: CoverageInput): CoverageConfidence {
 /** One sentence. The confidence word lives on the badge, not in this line. */
 export function coverageSentence(input: CoverageInput): string {
   const count = Math.max(0, Math.floor(input.dealerListingCount));
-  const listing = count === 1 ? "Based on 1 dealer listing" : `Based on ${count} dealer listings`;
+  const page =
+    typeof input.pageListingCount === "number" && Number.isFinite(input.pageListingCount)
+      ? Math.max(0, Math.floor(input.pageListingCount))
+      : null;
+  // Prefer the full page total when present — “8 in this group (24 on this page)”
+  // confused buyers. Group size is an internal diversify detail, not a second market.
+  const shown = page != null && page > 0 ? page : count;
+  let listing: string;
+  if (shown === 1) {
+    listing = "Based on 1 dealer listing";
+  } else if (shown > 0) {
+    listing = `Based on ${shown} dealer listings`;
+  } else {
+    listing = "Based on dealer listings shown here";
+  }
   const where = input.radiusMiles !== null ? ` within ${input.radiusMiles} miles` : "";
   const history = input.historyOnListing
     ? "listing history flags only; no title report checked"

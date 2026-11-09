@@ -9,6 +9,16 @@ export const ASSUMPTIONS = {
   minComps: 3,
   yearWindow: 1,
   yearWindowExpanded: 2,
+  /**
+   * Widest disclosed year window for Find market comps when ±expanded is still thin.
+   * Used only with an explicit year+mileage adjustment (see comparables.adjustCompsToSubject).
+   */
+  yearWindowWide: 3,
+  /**
+   * Fallback share of the reference ask removed per model year older than the subject
+   * when a fitted year slope is unavailable (documented, not a market appraisal).
+   */
+  yearRatePerYear: 0.05,
   accidentHaircutEach: 0.04,
   accidentHaircutCap: 0.12,
   /** Fair-value haircut when accident count is missing. Missing is not the same as clean. */

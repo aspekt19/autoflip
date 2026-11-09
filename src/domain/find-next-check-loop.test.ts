@@ -78,6 +78,7 @@ describe("decideFindNextCheckLoop", () => {
       freeGovBeforeFp: "[]",
       freeGovAfterFp: '[{"checkId":"free_gov_recalls"}]',
       remainingActionableCount: 3,
+      remainingFreeGovCount: 2,
       needBeforeFp: "same",
       needAfterFp: "same",
       listingsBeforeFp: "same",
@@ -87,20 +88,57 @@ describe("decideFindNextCheckLoop", () => {
     expect(d.reason).toBe("evidence_changed_replan");
   });
 
+  it("deterministic fallback keeps looping while free_gov remain even if receipts unchanged", () => {
+    const d = decideFindNextCheckLoop({
+      ...base,
+      autonomousServ: false,
+      chosenId: "free_gov_safety",
+      research: false,
+      rematchOk: null,
+      freeGovBeforeFp: '[{"checkId":"free_gov_recalls"}]',
+      freeGovAfterFp: '[{"checkId":"free_gov_recalls"}]',
+      remainingActionableCount: 2,
+      remainingFreeGovCount: 2,
+      needBeforeFp: "same",
+      needAfterFp: "same",
+      listingsBeforeFp: "same",
+      listingsAfterFp: "same",
+    });
+    expect(d.continue).toBe(true);
+    expect(d.reason).toBe("remaining_free_checks");
+  });
+
   it("loop-guards unchanged state (no hidden quota)", () => {
     const d = decideFindNextCheckLoop({
       ...base,
       needAfterFp: "a",
       listingsAfterFp: "L0",
+      remainingFreeGovCount: 0,
     });
     expect(d.continue).toBe(false);
     expect(d.reason).toBe("unchanged_state");
+  });
+
+  it("compare/no-op continues when free_gov remain (Scenario2 free-terminal)", () => {
+    const d = decideFindNextCheckLoop({
+      ...base,
+      chosenId: "compare_observed_asks",
+      research: false,
+      rematchOk: null,
+      needAfterFp: "a",
+      listingsAfterFp: "L0",
+      remainingFreeGovCount: 1,
+      remainingActionableCount: 2,
+    });
+    expect(d.continue).toBe(true);
+    expect(d.reason).toBe("remaining_free_checks");
   });
 
   it("grounded stop when shortlist and no remaining automatic checks", () => {
     const d = decideFindNextCheckLoop({
       ...base,
       remainingActionableCount: 0,
+      remainingFreeGovCount: 0,
       shortlistCount: 2,
     });
     expect(d.reason).toBe("grounded_stop");

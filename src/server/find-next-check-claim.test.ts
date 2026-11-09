@@ -66,10 +66,14 @@ describe("find next-check claim fence", () => {
       profile: "find_next_check",
       httpAttempts: 1,
       source: "serv",
+      servPaidCalls: 1,
+      invokeReason: "initial_decision",
     });
     const spend = await kv.get(findNextCheckSpendLogKey(identity, first.claimId));
     expect(spend).toBeTruthy();
     expect(spend).not.toMatch(/sk-|api[_-]?key/i);
+    expect(spend).toMatch(/"servPaidCalls":1/);
+    expect(spend).toMatch(/"invokeReason":"initial_decision"/);
     expect(await releaseFindNextCheckAction(kv, identity, first.claimId)).toBe(true);
     const retry = await claimFindNextCheckAction(kv, identity);
     expect(retry.kind).toBe("proceed");

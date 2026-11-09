@@ -127,13 +127,17 @@ export async function POST(request: Request) {
     allowedChecks: result.allowedChecks,
     compare: result.compare,
     shortlist: result.shortlist,
+    bestDeal: result.bestDeal,
     needAfter: result.needAfter,
     appliedCheckIds: result.appliedCheckIds,
     freeGovReceipts: result.freeGovReceipts,
     freeEvidenceNote: result.freeEvidenceNote,
     riskCoverage: result.riskCoverage,
+    freeGovCoverage: result.freeGovCoverage,
     rematch: result.rematch,
     loop: result.loop,
+    servPaidCalls: result.servPaidCalls,
+    servInvokeReason: result.servInvokeReason,
     honesty: result.honesty,
     failureDiag: result.failureDiag
       ? {

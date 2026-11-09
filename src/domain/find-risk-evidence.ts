@@ -14,7 +14,13 @@ export type FreeGovRiskFacts = {
   parkIt: boolean | null;
   /** True only when parkOutSide=true — separate from parkIt; not do-not-drive alone. */
   parkOutside: boolean | null;
+  /** Retained campaign IDs (may be capped); never silently imply this is the full set. */
   campaignNumbers: string[];
+  /**
+   * Full NHTSA recallCount when known (from packet). May exceed campaignNumbers.length
+   * when planner briefs cap campaign objects — UI/SERV must label shown vs reported.
+   */
+  campaignCountReported: number | null;
   complaintCount: number | null;
   recallsAvailable: boolean | null;
   complaintsAvailable: boolean | null;
@@ -77,6 +83,7 @@ export function riskFactsFromPacket(
     parkIt: null,
     parkOutside: null,
     campaignNumbers: [],
+    campaignCountReported: null,
     complaintCount: null,
     recallsAvailable: null,
     complaintsAvailable: null,
@@ -135,6 +142,14 @@ export function riskFactsFromPacket(
       : typeof value?.complaintCount === "string" && /^\d+$/.test(value.complaintCount)
         ? Number(value.complaintCount)
         : null;
+  const campaignCountReported =
+    typeof value?.recallCount === "number"
+      ? value.recallCount
+      : typeof value?.recallCount === "string" && /^\d+$/.test(value.recallCount)
+        ? Number(value.recallCount)
+        : campaignNumbers.length > 0
+          ? campaignNumbers.length
+          : null;
 
   if (packet.status === "unavailable" || packet.status === "error") {
     return {
@@ -144,14 +159,23 @@ export function riskFactsFromPacket(
       recallsAvailable: false,
       complaintsAvailable: complaintsAvailable === true ? true : false,
       complaintCount,
+      campaignCountReported,
     };
   }
 
+  const retainedIds = campaignNumbers.slice(0, 8);
   return {
     ...base,
     parkIt,
     parkOutside,
-    campaignNumbers: campaignNumbers.slice(0, 8),
+    campaignNumbers: retainedIds,
+    // Prefer provider recallCount; never under-report vs retained IDs.
+    campaignCountReported:
+      campaignCountReported != null
+        ? Math.max(campaignCountReported, retainedIds.length)
+        : retainedIds.length > 0
+          ? retainedIds.length
+          : null,
     complaintCount,
     recallsAvailable,
     complaintsAvailable,
@@ -264,16 +288,19 @@ export function riskStatusForModelFamily(
     return {
       status: byMmy.size > 0 ? "unchecked_mmy" : "unknown_needs_inspection",
       facts,
-      outstandingChecks: byMmy.size > 0 ? [] : ["free_gov_recalls"],
+      // Unchecked MMY is a valid free path even when other models already have sample evidence.
+      outstandingChecks: ["free_gov_recalls", "free_gov_safety"],
       whyBits:
         byMmy.size > 0
-          ? ["this make/model year span was not in the free-gov MMY sample"]
+          ? [
+              "this make/model year span was not in the free public year/make/model sample — free checks still available",
+            ]
           : [],
       unknowns: [
         "condition/history unknown on Find cards",
         byMmy.size > 0
-          ? "this model’s years were not covered by free NHTSA sample — risk unknown, not cleared"
-          : "no free NHTSA risk facts applied yet",
+          ? "this model’s years were not covered by free government sample — risk unknown, not cleared"
+          : "no free government risk facts applied yet",
       ],
     };
   }
@@ -282,41 +309,43 @@ export function riskStatusForModelFamily(
   if (anyParkIt) {
     status = "mmy_park_it_investigate";
     whyBits.push(
-      "NHTSA make/model/year parkIt campaign(s) — investigate VIN applicability; not auto-buy; not VIN-cleared",
+      "Government year/make/model park-it campaign(s) — investigate VIN applicability; not auto-buy; not VIN-cleared",
     );
     outstandingChecks.push("free_gov_vpic", "get_history_report");
     unknowns.push(
-      "parkIt is MMY-scope only — VIN applicability and repair status unknown",
-      "title/NMVTIS unknown (paid history not autocharged)",
+      "Park-it flags are year/make/model scope only — VIN applicability and repair status unknown",
+      "Title / official title history unknown (paid history not autocharged)",
     );
   } else if (anyParkOutside && !anyParkIt) {
     status = "mmy_park_outside_flag";
     whyBits.push(
-      "NHTSA parkOutside campaign flag (outdoor parking guidance) — not a do-not-drive/parkIt claim by itself",
+      "Government outdoor-parking campaign flag — not a do-not-drive / park-it claim by itself",
     );
     outstandingChecks.push("get_history_report");
-    unknowns.push("parkOutside ≠ parkIt do-not-drive; VIN repair status still unknown");
+    unknowns.push(
+      "Outdoor-parking guidance is not the same as a park-it do-not-drive flag; VIN repair status still unknown",
+    );
   } else if (complaintsOnly && !anyCampaigns) {
     status = "mmy_complaints_only";
     whyBits.push(
-      "NHTSA complaints recorded (owner allegations) — not verified defects; not a reject by itself",
+      "Government complaints recorded (owner allegations) — not verified defects; not a reject by itself",
     );
     unknowns.push("complaints ≠ defect proof; condition still unknown");
   } else if (anyUnavailable && !anyCampaigns && !complaintsOnly) {
     status = "mmy_lookup_unavailable";
-    whyBits.push("NHTSA recall lookup unavailable for sampled year(s) — not a clean pass");
+    whyBits.push("Government recall lookup unavailable for sampled year(s) — not a clean pass");
     outstandingChecks.push("free_gov_recalls");
     unknowns.push("recall risk unknown because lookup failed");
   } else if (anyEmpty && !anyCampaigns && !complaintsOnly) {
     status = "mmy_empty_no_campaigns";
     whyBits.push(
-      "NHTSA returned zero make/model/year campaigns for sampled year(s) — not VIN-clear",
+      "Government returned zero year/make/model campaigns for sampled year(s) — not VIN-clear",
     );
-    unknowns.push("empty MMY campaigns ≠ VIN unrepaired clearance");
+    unknowns.push("Empty year/make/model campaigns ≠ VIN unrepaired clearance");
   } else if (anyCampaigns) {
     status = "mmy_campaigns_recorded";
     whyBits.push(
-      `NHTSA campaign ref(s) ${[...campaignNums].slice(0, 4).join(", ") || "recorded"} — MMY scope only`,
+      `Government campaign ref(s) ${[...campaignNums].slice(0, 4).join(", ") || "recorded"} — year/make/model scope only`,
     );
     unknowns.push("campaigns recorded ≠ VIN repair proof");
   }
@@ -325,6 +354,7 @@ export function riskStatusForModelFamily(
     unknowns.push(
       `${uncheckedInSpan} listing year(s) in this model family unchecked by free-gov sample (checked ${checkedInSpan})`,
     );
+    outstandingChecks.push("free_gov_recalls");
   }
 
   unknowns.push("condition/history unknown on Find cards");
@@ -344,14 +374,16 @@ export function riskCoverageHonesty(
   const checkedMmyCount = [...checked].filter((k) => listingKeys.has(k)).length;
   const listingMmyCount = listingKeys.size;
   const uncheckedMmyCount = Math.max(0, listingMmyCount - checkedMmyCount);
+  // Keep this short — buyer UI prefers freeGovToolCoverage’s single plain sentence.
+  // Avoid duplicating “year/make/model scope” jargon next to the tool coverage note.
   const note =
     listingMmyCount === 0
-      ? "No listing MMY keys to cover."
+      ? "No cars to cover with public recall checks yet."
       : checkedMmyCount === 0
-        ? `Free NHTSA sample has not checked any of ${listingMmyCount} listing make/model/year key(s) across ${listings.length} card(s) — risk unknown, not cleared.`
+        ? `Public recall checks have not run yet for these ${listings.length} cards.`
         : checkedMmyCount < listingMmyCount
-          ? `Free NHTSA sample covered ${checkedMmyCount} of ${listingMmyCount} listing make/model/year key(s) (${listings.length} cards). Unchecked years stay unknown — not a fleet-wide clearance.`
-          : `Free NHTSA sample covered all ${listingMmyCount} listing make/model/year key(s). Still MMY-scope only — not VIN-specific unrepaired status.`;
+          ? `Public recall checks cover ${checkedMmyCount} of ${listingMmyCount} model years on these ${listings.length} cards — remaining years are still unknown.`
+          : "";
   return {
     checkedMmyCount,
     listingMmyCount,

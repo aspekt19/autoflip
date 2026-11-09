@@ -400,11 +400,33 @@ function stringList(value: unknown): string[] {
 
 /** Read a budget the shopper actually wrote. Does not guess a number that is not there. */
 export function budgetFromText(text: string): number | null {
-  const match = text.match(/(?:\$\s*|(?:\bunder\b|\bbudget\b)\s+\$?\s*)([0-9]{1,3}(?:,[0-9]{3})+|[0-9]{4,6})\b/i);
+  const match = text.match(/(?:\$\s*|(?:\bunder\b|\bbudget\b|\baround\b|\babout\b|\bnear\b)\s+\$?\s*)([0-9]{1,3}(?:,[0-9]{3})+|[0-9]{4,6})\b/i);
   if (!match) return null;
   const value = Number(match[1]!.replace(/,/g, ""));
   if (!Number.isFinite(value) || value < 1000 || value > 250_000) return null;
   return value;
+}
+
+/**
+ * True when the note frames the budget as approximate ("around $15,000").
+ * Approximate budgets still assess affordability, with a labeled soft tolerance.
+ */
+export function budgetIsApproximateFromNote(text: string | null | undefined): boolean {
+  if (!text) return false;
+  return /\b(?:around|about|approximately|roughly|near)\s+\$?\s*[0-9]|\b~\s*\$?\s*[0-9]/i.test(text);
+}
+
+/** Soft over-budget tolerance fraction for "around $X" notes (10%). Hard max still flags overages. */
+export const BUDGET_AROUND_TOLERANCE_FRAC = 0.1;
+
+export function budgetWorkingCopy(need: Pick<StructuredNeed, "budgetKnown" | "budgetUsd" | "note">): string | null {
+  if (!need.budgetKnown || need.budgetUsd == null) return null;
+  const amount = `$${need.budgetUsd.toLocaleString("en-US")}`;
+  if (budgetIsApproximateFromNote(need.note)) {
+    const tol = Math.round(need.budgetUsd * BUDGET_AROUND_TOLERANCE_FRAC);
+    return `Using your ~${amount} budget from your note (±$${tol.toLocaleString("en-US")} soft tolerance); set a hard max to change it.`;
+  }
+  return `Using your ${amount} budget from your note; set a hard max to change it.`;
 }
 
 export function useCaseFromText(text: string): UseCase {
@@ -715,7 +737,7 @@ export function softPrefGapsFromText(text: string): SoftPrefGap[] {
       id: "fuel_or_running_cost",
       mentioned: "running cost / fuel economy",
       honesty:
-        "Find does not invent TCO or rank MPG across cards. When a full analysis gets a usable FuelEconomy.gov match, annual fuel cost is shown from that source (or from MPG plus your stated $/gal and miles/year). Otherwise ownership fuel cost stays unavailable.",
+        "Find can estimate annual fuel cost from free public FuelEconomy.gov when year/make/model matches (ambiguous configs stay a labeled range). That is not a full TCO — insurance, maintenance, and repairs stay out of scope.",
     });
   }
   if (/\b(not too old|newer|recent(?:er)?|not ancient)\b/i.test(t) && !/\b(19|20)\d{2}\b/.test(t) && !/\bunder\s+\d+\s+years?\b/i.test(t)) {
@@ -876,11 +898,33 @@ export function overlayExplicit(
     preferredModels.length === 0
       ? "none"
       : explicit.preferredModelsSource ?? extracted.preferredModelsSource ?? "user_note";
+  // Form "Not sure yet" must not wipe a budget the shopper already wrote in the note.
+  // Prefer an explicit numeric form budget; otherwise keep the note-derived working budget.
+  const noteBudgetUsd = extracted.budgetKnown ? extracted.budgetUsd : null;
+  const formGaveNumber =
+    explicit.budgetKnown !== false &&
+    typeof explicit.budgetUsd === "number" &&
+    Number.isFinite(explicit.budgetUsd);
+  let budgetUsd: number | null;
+  let budgetKnown: boolean;
+  if (formGaveNumber) {
+    budgetUsd = explicit.budgetUsd ?? null;
+    budgetKnown = true;
+  } else if (noteBudgetUsd != null) {
+    budgetUsd = noteBudgetUsd;
+    budgetKnown = true;
+  } else if (explicit.budgetKnown === false) {
+    budgetUsd = null;
+    budgetKnown = false;
+  } else {
+    budgetUsd = explicit.budgetUsd ?? extracted.budgetUsd;
+    budgetKnown = explicit.budgetKnown ?? extracted.budgetKnown;
+  }
   return {
     ...extracted,
     mode: explicit.mode ?? extracted.mode,
-    budgetUsd: explicit.budgetKnown === false ? null : explicit.budgetUsd ?? extracted.budgetUsd,
-    budgetKnown: explicit.budgetKnown ?? extracted.budgetKnown,
+    budgetUsd,
+    budgetKnown,
     budgetScope: explicit.budgetScope ?? extracted.budgetScope,
     zip,
     distanceMiles,
@@ -925,22 +969,31 @@ export function parseNeedJson(text: string): unknown {
   return JSON.parse(body.slice(start, end + 1));
 }
 
-export function yearBandForBudget(budgetUsd: number | null, now = new Date()): { yearMin: number; yearMax: number; because: string } {
+export function yearBandForBudget(
+  budgetUsd: number | null,
+  now = new Date(),
+  opts?: { approximateFromNote?: boolean },
+): { yearMin: number; yearMax: number; because: string } {
   const cap = now.getUTCFullYear() + 1;
+  const approx = Boolean(opts?.approximateFromNote);
   if (budgetUsd === null) return { yearMin: 2012, yearMax: Math.min(2020, cap), because: "No budget was given, so this is only a starting year band." };
   if (budgetUsd < 12_000) return { yearMin: 2008, yearMax: 2016, because: "Under $12,000, the guidance table starts with older model years." };
   if (budgetUsd < 20_000) {
     return {
       yearMin: 2012,
       yearMax: 2019,
-      because: `With a $${budgetUsd.toLocaleString("en-US")} budget, the guidance table uses a mid-2010s band. The budget itself is a hard cap.`,
+      because: approx
+        ? `With a ~$${budgetUsd.toLocaleString("en-US")} note budget, the guidance table uses a mid-2010s band. Asking-price soft tolerance (±${Math.round(BUDGET_AROUND_TOLERANCE_FRAC * 100)}%) still applies until you set a hard max.`
+        : `With a $${budgetUsd.toLocaleString("en-US")} budget, the guidance table uses a mid-2010s band. Set a hard max asking price to filter listings strictly.`,
     };
   }
   if (budgetUsd < 30_000) {
     return {
       yearMin: 2015,
       yearMax: Math.min(2022, cap),
-      because: `With a $${budgetUsd.toLocaleString("en-US")} budget, the guidance table uses a newer band. The budget itself is a hard cap.`,
+      because: approx
+        ? `With a ~$${budgetUsd.toLocaleString("en-US")} note budget, the guidance table uses a newer band. Asking-price soft tolerance (±${Math.round(BUDGET_AROUND_TOLERANCE_FRAC * 100)}%) still applies until you set a hard max.`
+        : `With a $${budgetUsd.toLocaleString("en-US")} budget, the guidance table uses a newer band. Set a hard max asking price to filter listings strictly.`,
     };
   }
   return { yearMin: 2018, yearMax: cap, because: "At $30,000 or more, the guidance table starts near the current model years." };

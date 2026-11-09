@@ -18,7 +18,7 @@ export function templateExplanation(report: ComputedReport): string {
     ? "Sample data: these listings are the evaluation fixture, not a live market search."
     : "";
 
-  let fuel = "Annual fuel cost was not available from fueleconomy.gov for this configuration.";
+  let fuel = "Annual fuel cost was not available from FuelEconomy.gov for this configuration.";
   if (report.fuel?.annualFuelCostUsd !== null && report.fuel?.annualFuelCostUsd !== undefined) {
     fuel = `EPA annual fuel cost for the matched configuration is ${formatUsd(report.fuel.annualFuelCostUsd)}.`;
   } else if (
@@ -34,10 +34,10 @@ export function templateExplanation(report: ComputedReport): string {
       ? "NHTSA returned no campaigns for this year, make, and model. That is not VIN-cleared."
       : `NHTSA returned ${report.recalls.length} campaign${report.recalls.length === 1 ? "" : "s"} for this year, make, and model. ${
           report.openParkIt
-            ? "At least one has parkIt=true (do-not-drive until VIN applicability and repair status are verified)."
+            ? "At least one is a park-it (do not drive) campaign. Confirm VIN applicability and repair status before driving."
             : report.openParkOutside
-              ? "At least one has parkOutside=true (outdoor parking guidance) — not a parkIt / do-not-drive claim by itself."
-              : "None is marked parkIt or parkOutside; that is not VIN-cleared."
+              ? "At least one includes outdoor-parking guidance — not a do-not-drive park-it claim by itself."
+              : "None is marked as a do-not-drive park-it campaign or outdoor-parking guidance; that is not VIN-cleared."
         }`;
 
   const mode =

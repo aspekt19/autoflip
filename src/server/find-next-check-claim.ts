@@ -181,7 +181,15 @@ export async function logFindNextCheckServSpend(
   kv: Kv,
   identity: FindNextCheckActionIdentity,
   claimId: string,
-  meta: { profile: "find_next_check"; httpAttempts: number; source: string },
+  meta: {
+    profile: "find_next_check";
+    httpAttempts: number;
+    source: string;
+    /** Cumulative paid find_next_check HTTP calls this Find after this hop. */
+    servPaidCalls?: number;
+    /** Why SERV ran this hop (initial / shortlist_changed / nontrivial_choice). */
+    invokeReason?: string;
+  },
 ): Promise<void> {
   const key = findNextCheckSpendLogKey(identity, claimId);
   await kv.set(
@@ -195,6 +203,8 @@ export async function logFindNextCheckServSpend(
       profile: meta.profile,
       httpAttempts: meta.httpAttempts,
       source: meta.source,
+      servPaidCalls: meta.servPaidCalls ?? null,
+      invokeReason: meta.invokeReason ?? null,
       at: new Date().toISOString(),
     }),
   );
