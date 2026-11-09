@@ -828,6 +828,18 @@ button:disabled, .action:disabled, .quiet:disabled, .ghost:disabled {
 }
 .find-col-main,
 .find-col-side { min-width: 0; }
+.purchase-readiness {
+  margin: 10px 0 4px;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--paper);
+}
+.purchase-readiness p,
+.purchase-readiness li {
+  max-width: min(80ch, 100%);
+}
+.top-picks .purchase-readiness { margin-left: 0; }
 @media (min-width: 1100px) {
   .find-results-grid { grid-template-columns: minmax(0, 1.15fr) minmax(0, 0.85fr); }
   .listing-grid { grid-template-columns: 1fr 1fr; }

@@ -8,11 +8,12 @@
 import { readFileSync, mkdirSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { selectBestDealOnEvidence } from "../src/domain/find-best-deal";
-import { executeCarConsistency, type VpicSpecs } from "../src/domain/find-car-consistency";
+import { executeCarConsistency, trimsMatch, type VpicSpecs } from "../src/domain/find-car-consistency";
 import { presentDecisionLogForBuyer, top5Ranks, type FindDecisionLogEntry } from "../src/domain/find-decision-log";
 import { recallEvidenceState } from "../src/domain/find-evidence-state";
 import type { FindFreeGovReceipt } from "../src/domain/find-free-gov";
 import { explicitNeedFromText } from "../src/domain/need";
+import { buildPurchaseReadiness } from "../src/domain/purchase-readiness";
 
 const fetchImpl = globalThis.fetch;
 globalThis.fetch = (() => {
@@ -218,6 +219,73 @@ const milesLabel = baseline.lowestMiles
   ? `${baseline.lowestMiles.year} ${baseline.lowestMiles.make} ${baseline.lowestMiles.model} ${baseline.lowestMiles.miles} mi`
   : "none";
 
+const readinessPool = listings.map((car) => ({
+  vin: car.vin,
+  year: car.year,
+  make: car.make,
+  model: car.model,
+  trim: car.trim,
+  priceUsd: car.priceUsd,
+  miles: car.miles,
+  createdAt: car.createdAt,
+  accidentCount: car.accidentCount,
+}));
+const readinessNow = new Date("2026-11-09T12:00:00Z");
+const readinessLines = (after.pick ? [after.pick, ...after.ranked.filter((row) => row.key !== after.pick?.key)] : after.ranked)
+  .slice(0, 5)
+  .flatMap((row) => {
+    const source = fixture.cars.find((car) => car.vin === row.vin || car.vin === row.key);
+    const title = `${row.year} ${row.make} ${row.model}`;
+    const trimNote =
+      source && trimsMatch(source.trim, source.vpic.trim) === false
+        ? `The listing says trim ${source.trim}, but the VIN decoder says ${source.vpic.trim}. Ask the seller to confirm the trim before you rely on the equipment.`
+        : null;
+    const decodedMake = source?.vpic.make ?? null;
+    const decodedModel = source?.vpic.model ?? null;
+    const decodedYear = source?.vpic.year ?? null;
+    const identityNote =
+      (decodedYear != null && String(decodedYear) !== String(row.year)) ||
+      (decodedMake != null && decodedMake.toLowerCase() !== row.make.toLowerCase()) ||
+      (decodedModel != null && decodedModel.toLowerCase() !== row.model.toLowerCase())
+        ? `${title} is listed with a VIN year, make, or model that does not match the government VIN decoder. Ask the seller to photograph the VIN plate and the title before you pay.`
+        : null;
+    const view = buildPurchaseReadiness({
+      car: {
+        vin: row.vin,
+        year: row.year,
+        make: row.make,
+        model: row.model,
+        priceUsd: row.priceUsd,
+        miles: row.miles,
+        createdAt: source?.createdAt ?? null,
+        accidentCount: source?.accidentCount ?? null,
+        trim: source?.trim ?? null,
+      },
+      pool: readinessPool,
+      zip: fixture.zip,
+      zipUsedFor: "search",
+      now: readinessNow,
+      trimMismatchNote: trimNote,
+      identityMismatchNote: identityNote,
+      recallCampaignCount: null,
+    });
+    const lines = [
+      `### ${title}${after.pick?.key === row.key ? " (pick)" : ""}`,
+      "",
+      view.otd.headline,
+      ...view.otd.lines,
+      view.offer.openingLabel,
+      view.offer.walkAwayLabel,
+      view.offer.sentence,
+    ];
+    if (view.talkingPoints.length > 0) {
+      lines.push("", "Negotiation:", ...view.talkingPoints.map((point) => `- ${point.text}`));
+    }
+    if (view.talkingPointsNote) lines.push(view.talkingPointsNote);
+    lines.push("");
+    return lines;
+  });
+
 const text = [
   "# Find baseline (offline)",
   "",
@@ -240,6 +308,12 @@ const text = [
   ...(plainLog.hiddenSteps.length > 0
     ? ["", "Show all steps:", ...plainLog.hiddenSteps.map((line) => `- ${line}`)]
     : []),
+  "",
+  "## Purchase readiness",
+  "",
+  "Out-the-door uses the fixture ZIP and the checked-in state base sales-tax table. An offer needs at least 3 same-trim listings in this fixture, within 1 model year and mileage within 15 percent of that car. No network and no paid call.",
+  "",
+  ...readinessLines,
   "",
 ].join("\n");
 
