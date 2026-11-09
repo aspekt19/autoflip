@@ -1,25 +1,23 @@
-import { priceGap } from "./comparables";
 import { formatUsd } from "./format";
-import { buyerSampleBasis, buyerScopePhrase, listingFeedHistoryNotes, resolveMarketComps } from "./market-comps";
-import { roundDollars } from "./stats";
-import type { Listing } from "./types";
-import { verdictFromPriceGap } from "./verdict";
+import { buyerSampleBasis, buyerScopePhrase, listingFeedHistoryNotes } from "./market-comps";
+import { evaluateListingPrice, NOT_ENOUGH_SIMILAR_CARS, type PriceLabel, type PriceTone } from "./price-evaluation";
+import type { Listing, Mode } from "./types";
 
 export type PriceBadge = {
-  label: "Good price" | "Fair price" | "High price" | "Not enough data to rate price";
-  tone: "good" | "fair" | "high" | "unknown";
-  /** Asking minus the shared market reference. Negative means below those listings. */
+  label: PriceLabel;
+  tone: PriceTone;
+  /** Asking minus the shared fair value. Negative means below fair value. */
   deltaUsd: number | null;
   deltaLabel: string | null;
   fairValueUsd: number | null;
-  /** Same make/model similar listings used after year (+ optional mileage) filters. */
+  /** Adjusted similar listings used. */
   sampleSize: number | null;
   /** How peers were scoped — plain buyer language. */
   sampleNote: string | null;
 };
 
 export const PRICE_RATING_HOW =
-  "We compare the asking price with other dealer listings of the same make and model from this search (including listings beyond the cards shown when the provider returned more), preferring similar model years and mileage, then adjust for odometer — and for year when the window widens to nearby years. This Find market figure does not apply accident or certified-pre-owned adjustments; a full report fair value can. Fewer than 3 usable listings is not rated. The badge always shows the sample size and method.";
+  "We rate the asking price against other listings of the same make and model already in this search, within 3 model years, any trim. Each similar asking price is adjusted for mileage, model year, trim, and listing history flags. The middle of those adjusted prices is the fair value. Find cards, ranking, the offer, the report, Compare, Deal Radar, and alerts use that same fair value. Fewer than 3 similar cars, or adjusted prices that are too far apart, is labeled “Not enough similar cars.” We do not switch to a different comparison. These are asking prices, not sold prices.";
 
 function withFeedHistoryNote(base: string | null, subject: Listing): string | null {
   const flags = listingFeedHistoryNotes(subject);
@@ -28,46 +26,50 @@ function withFeedHistoryNote(base: string | null, subject: Listing): string | nu
   return base && base.trim() ? `${base} · ${flagBit}` : flagBit;
 }
 
-export function priceBadge(subject: Listing, pool: Listing[]): PriceBadge {
-  const unknown: PriceBadge = {
-    label: "Not enough data to rate price",
-    tone: "unknown",
-    deltaUsd: null,
-    deltaLabel: null,
-    fairValueUsd: null,
-    sampleSize: null,
-    sampleNote: withFeedHistoryNote(null, subject),
-  };
-  const resolved = resolveMarketComps(subject, pool);
-  if (!resolved.ok) {
+export function priceBadge(
+  subject: Listing,
+  pool: Listing[],
+  options?: { mode?: Mode; decodedTrim?: string | null },
+): PriceBadge {
+  const evaluation = evaluateListingPrice(subject, pool, options);
+  const model = subject.model?.trim() || "car";
+  if (!evaluation.priced || evaluation.fairValueUsd == null || evaluation.deltaUsd == null) {
+    const prefix = `${NOT_ENOUGH_SIMILAR_CARS}. `;
+    const detail = evaluation.methodNote.startsWith(prefix)
+      ? evaluation.methodNote.slice(prefix.length)
+      : evaluation.methodNote;
     return {
-      ...unknown,
-      sampleSize: resolved.sampleSize > 0 ? resolved.sampleSize : null,
-      sampleNote: withFeedHistoryNote(resolved.sampleNote, subject),
+      label: NOT_ENOUGH_SIMILAR_CARS,
+      tone: "unknown",
+      deltaUsd: null,
+      deltaLabel: null,
+      fairValueUsd: null,
+      sampleSize: evaluation.sampleSize > 0 ? evaluation.sampleSize : null,
+      sampleNote: withFeedHistoryNote(detail, subject),
     };
   }
-  if (subject.priceUsd === null) return unknown;
-  const gap = priceGap(subject.priceUsd, resolved.fairValueUsd);
-  if (gap === null || resolved.fairValueUsd <= 0) return unknown;
-  const verdict = verdictFromPriceGap(gap);
-  const deltaUsd = roundDollars(subject.priceUsd - resolved.fairValueUsd);
-  const peers = buyerScopePhrase(resolved.scopeLabel, subject);
-  const basis = buyerSampleBasis(resolved.sampleSize, peers);
-  const sampleNote = withFeedHistoryNote(resolved.sampleNote, subject);
+  const lead = `Compared with ${evaluation.sampleSize} similar ${model} listings.`;
+  const sampleNote = withFeedHistoryNote(
+    [lead, evaluation.methodNote].filter((part) => part && part.trim()).join(" "),
+    subject,
+  );
+  const peers = buyerScopePhrase("adjusted-similar", subject);
+  const basis = buyerSampleBasis(evaluation.sampleSize, peers);
+  const fair = formatUsd(evaluation.fairValueUsd);
+  const deltaUsd = evaluation.deltaUsd;
   const deltaLabel =
     deltaUsd === 0
-      ? `At the market price, ${basis}`
+      ? `At the fair value of ${fair}, ${basis}`
       : deltaUsd < 0
-        ? `${formatUsd(Math.abs(deltaUsd))} below market, ${basis}`
-        : `${formatUsd(deltaUsd)} above market, ${basis}`;
-  const base = {
+        ? `${formatUsd(Math.abs(deltaUsd))} below the fair value of ${fair}, ${basis}`
+        : `${formatUsd(deltaUsd)} above the fair value of ${fair}, ${basis}`;
+  return {
+    label: evaluation.label,
+    tone: evaluation.tone,
     deltaUsd,
     deltaLabel,
-    fairValueUsd: resolved.fairValueUsd,
-    sampleSize: resolved.sampleSize,
+    fairValueUsd: evaluation.fairValueUsd,
+    sampleSize: evaluation.sampleSize,
     sampleNote,
   };
-  if (verdict === "good_deal") return { label: "Good price", tone: "good", ...base };
-  if (verdict === "fair") return { label: "Fair price", tone: "fair", ...base };
-  return { label: "High price", tone: "high", ...base };
 }

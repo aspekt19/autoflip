@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { selectComparables } from "./comparables";
+import { evaluateListingPrice } from "./price-evaluation";
 import {
   assertBuyerSafeText,
   creditsNeedNotice,
@@ -40,7 +40,7 @@ import { templateExplanation } from "./template";
 import { runOrderedGates } from "./verdict-gates";
 import { clampDecision, constraintsFromGates } from "./verdict-guardrails";
 import { flipAlertWhy, topFlipCandidates } from "./flip-rank";
-import { prefilterListing, marketBand } from "./radar-watch";
+import { prefilterListing } from "./radar-watch";
 import type { RecallRecord } from "./types";
 
 function noteCar(vin: string, year: number, priceUsd: number, trim: string): Listing {
@@ -280,7 +280,8 @@ describe("buyer-safe Find copy", () => {
     const peers = [12000, 13000, 15000, 16000].map((price, index) =>
       noteCar(`PEER000000000000${index}`, 2016, price, "LX"),
     );
-    for (const note of selectComparables(subject, [subject, ...peers]).notes) {
+    const priced = evaluateListingPrice(subject, [subject, ...peers]);
+    for (const note of [priced.methodNote, priced.label]) {
       expect(findForbiddenTechArtifacts(note)).toEqual([]);
     }
   });
@@ -314,7 +315,7 @@ describe("buyer-safe Find copy", () => {
       return car;
     });
     const badge = priceBadge(subject, [subject, ...peers]);
-    expect(badge.deltaLabel).toMatch(/based on \d+ similar CR-V LX listings/);
+    expect(badge.deltaLabel).toMatch(/based on \d+ similar CR-V listings/);
     expect(assertBuyerSafeText(badge.deltaLabel ?? "").ok).toBe(true);
 
     const decided = whyWeDecided("find", [
@@ -514,7 +515,7 @@ describe("buyer-safe Find copy", () => {
       formatBuyerProofLine({
         id: "deterministic_tools",
         status: "ran",
-        detail: "selectComparables, mileageAdjust, historyAdjustment, verdictFromPriceGap, flipMath, scoreFromGap, dealerQuestions",
+        detail: "evaluateListingPrice, adjustComparableSet, historyAdjustment, verdictFromPriceGap, flipMath, scoreFromGap, dealerQuestions",
       }),
       formatBuyerProofLine({
         id: "ordered_gates",
@@ -544,7 +545,7 @@ describe("buyer-safe Find copy", () => {
     for (const line of proofLines) {
       expect(findForbiddenTechArtifacts(line), line).toEqual([]);
     }
-    expect(proofLines.join(" ")).not.toMatch(/SERV_API_KEY|vPIC|selectComparables|price_vs_comps|no_serv_key|Find-card invent/i);
+    expect(proofLines.join(" ")).not.toMatch(/SERV_API_KEY|vPIC|selectComparables|evaluateListingPrice|price_vs_comps|no_serv_key|Find-card invent/i);
     expect(proofLines.join(" ")).toMatch(/Official|automatic review is not configured|NHTSA VIN decoder|1 report credit/i);
 
     const ranked = topFlipCandidates(
@@ -558,12 +559,10 @@ describe("buyer-safe Find copy", () => {
     const pool = [12000, 13000, 15000, 16000].map((price, index) =>
       noteCar(`RADAR00000000000${index}`, 2018, price, "LE"),
     );
-    const band = marketBand(pool);
-    expect(band).toBeTruthy();
     const radar = prefilterListing(
       { ...pool[0]!, priceUsd: 9000 },
       { priceMax: 20000, zip: "68114", radiusMiles: 50, make: "Kia", model: "Sportage" },
-      band,
+      pool,
       "flip",
       2026,
     );

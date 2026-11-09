@@ -314,6 +314,7 @@ export function plainFlagSource(source: string): string {
 
 export function plainCompScope(scope: string): string {
   switch (scope) {
+    // Older saved reports used these scope ids before adjusted comparables.
     case "same_trim":
       return "same trim, nearby model years";
     case "year_window":
@@ -388,8 +389,8 @@ function buyerProofDetail(detail: string): string | null {
   if (/\bvPIC\b/i.test(trimmed)) {
     return "NHTSA VIN decoder, NHTSA recalls, NHTSA complaints, FuelEconomy.gov, and the U.S. Census geocoder.";
   }
-  if (/selectComparables|mileageAdjust|historyAdjustment|verdictFromPriceGap|flipMath|scoreFromGap|dealerQuestions/.test(trimmed)) {
-    return "Similar listings, mileage adjustment, history flags, price gap, resale math, price score, and dealer questions — computed in code.";
+  if (/evaluateListingPrice|adjustComparableSet|selectComparables|mileageAdjust|historyAdjustment|verdictFromPriceGap|flipMath|scoreFromGap|dealerQuestions/.test(trimmed)) {
+    return "Adjusted similar listings, history flags, price gap, resale math, price score, and dealer questions — computed in code.";
   }
   if (/^autoflip\./i.test(trimmed)) return null;
   if (/^final=/i.test(trimmed)) {

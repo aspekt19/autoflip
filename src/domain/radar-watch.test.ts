@@ -1,13 +1,14 @@
 import { describe, expect, it } from "vitest";
 import { ASSUMPTIONS } from "./assumptions";
 import { listingsSearchUrl } from "@/io/autodev";
+import { priceBadge } from "./price-badge";
+import { evaluateListingPrice } from "./price-evaluation";
 import {
   checkNowAllowed,
   criteriaKey,
   groupByCriteria,
   intervalHours,
   isDue,
-  marketBand,
   mergeSeen,
   prefilterListing,
   toListingsQuery,
@@ -51,30 +52,36 @@ const criteria = demoPresets()[0]!.criteria;
 describe("radar pre-filter", () => {
   const pool = [
     row({ vin: "A", priceUsd: 16_000, miles: 40_000, year: 2016 }),
-    row({ vin: "B", priceUsd: 17_500, miles: 80_000, year: 2016 }),
-    row({ vin: "C", priceUsd: 18_000, miles: 90_000, year: 2017 }),
-    row({ vin: "D", priceUsd: 15_000, miles: 30_000, year: 2016 }),
+    row({ vin: "B", priceUsd: 17_500, miles: 70_000, year: 2016 }),
+    row({ vin: "C", priceUsd: 18_000, miles: 75_000, year: 2017 }),
+    row({ vin: "D", priceUsd: 17_000, miles: 72_000, year: 2016 }),
   ];
-  const band = marketBand(pool);
-
-  it("builds a band and flags a cheap low-mile car", () => {
-    expect(band).not.toBeNull();
-    const decision = prefilterListing(pool[0]!, criteria, band, "personal", 2026);
+  it("flags a cheap low-mile car with the shared fair value", () => {
+    const decision = prefilterListing(pool[0]!, criteria, pool, "personal", 2026);
+    const badge = priceBadge(pool[0]!, pool);
     expect(decision.pass).toBe(true);
     if (decision.pass) {
       expect(decision.why).toContain("$16,000");
       expect(decision.why).toContain("Miami");
-      expect(decision.numbers.medianUsd).toBe(band!.medianUsd);
+      expect(decision.why).toContain(badge.label);
+      expect(decision.numbers.fairValueUsd).toBe(badge.fairValueUsd);
+      expect(decision.numbers.priceLabel).toBe(badge.label);
+      expect(decision.numbers.medianUsd).toBe(badge.fairValueUsd);
     }
   });
 
-  it("drops an over-budget car, a suspiciously cheap car, and a car inside the band", () => {
-    expect(prefilterListing(row({ vin: "E", priceUsd: 25_000, miles: 40_000, year: 2016 }), criteria, band, "personal", 2026).pass).toBe(false);
-    const scam = prefilterListing(row({ vin: "F", priceUsd: 700, miles: 40_000, year: 2016 }), criteria, band, "personal", 2026);
+  it("drops an over-budget car, a suspiciously cheap car, and a car at fair value", () => {
+    expect(prefilterListing(row({ vin: "E", priceUsd: 25_000, miles: 40_000, year: 2016 }), criteria, pool, "personal", 2026).pass).toBe(false);
+    const scam = prefilterListing(row({ vin: "F", priceUsd: 700, miles: 40_000, year: 2016 }), criteria, pool, "personal", 2026);
     expect(scam.pass).toBe(false);
     if (!scam.pass) expect(scam.reason).toMatch(/suspiciously/);
-    const usual = prefilterListing(row({ vin: "G", priceUsd: band!.medianUsd, miles: 110_000, year: 2016 }), criteria, band, "personal", 2026);
+    const anchor = pool[2]!;
+    const usualCar = row({ vin: "G", priceUsd: anchor.priceUsd!, miles: 120_000, year: anchor.year });
+    const fair = evaluateListingPrice(usualCar, pool).fairValueUsd;
+    expect(fair).not.toBeNull();
+    const usual = prefilterListing({ ...usualCar, priceUsd: fair! }, criteria, pool, "personal", 2026);
     expect(usual.pass).toBe(false);
+    if (!usual.pass) expect(usual.reason).toMatch(/usual price/);
   });
 
   it("requires the flip buy-box margin", () => {
@@ -90,11 +97,10 @@ describe("radar pre-filter", () => {
         year: 2015,
       }),
     );
-    const civicBand = marketBand(cars);
     const cheap = prefilterListing(
       row({ vin: "LOW", make: "Honda", model: "Civic", bodyStyle: "Sedan", priceUsd: 7_000, miles: 80_000, year: 2015 }),
       flip,
-      civicBand,
+      cars,
       "flip",
       2026,
     );
@@ -161,12 +167,12 @@ describe("body style and a 20-row flip page", () => {
     const utility = prefilterListing(
       row({ vin: "SU", priceUsd: 15_000, miles: 40_000, year: 2016, bodyStyle: "4D Sport Utility" }),
       suv,
-      marketBand([
+      [
         row({ vin: "SU", priceUsd: 15_000, miles: 40_000, year: 2016, bodyStyle: "4D Sport Utility" }),
         row({ vin: "B", priceUsd: 17_000, miles: 80_000, year: 2016, bodyStyle: "SUV" }),
         row({ vin: "C", priceUsd: 18_000, miles: 90_000, year: 2017, bodyStyle: "Sport Utility Vehicle" }),
         row({ vin: "D", priceUsd: 16_000, miles: 70_000, year: 2016, bodyStyle: "SUV" }),
-      ]),
+      ],
       "personal",
       2026,
     );
@@ -174,12 +180,12 @@ describe("body style and a 20-row flip page", () => {
     const sedan = prefilterListing(
       row({ vin: "CAR", priceUsd: 15_000, miles: 40_000, year: 2016, bodyStyle: "Car", style: "Sedan" }),
       suv,
-      marketBand([
+      [
         row({ vin: "CAR", priceUsd: 15_000, miles: 40_000, year: 2016, bodyStyle: "Car" }),
         row({ vin: "B", priceUsd: 17_000, miles: 80_000, year: 2016, bodyStyle: "Car" }),
         row({ vin: "C", priceUsd: 18_000, miles: 90_000, year: 2017, bodyStyle: "Car" }),
         row({ vin: "D", priceUsd: 16_000, miles: 70_000, year: 2016, bodyStyle: "Car" }),
-      ]),
+      ],
       "personal",
       2026,
     );
@@ -187,7 +193,7 @@ describe("body style and a 20-row flip page", () => {
     if (!sedan.pass) expect(sedan.reason).toBe("body style does not match");
   });
 
-  it("rejects a tight Civic page and keeps a cheap outlier on a wider page", () => {
+  it("rejects a tight Civic page and does not use a raw median when prices are far apart", () => {
     const flip = demoPresets()[1]!.criteria;
     const tight = Array.from({ length: 20 }, (_, index) =>
       row({
@@ -200,8 +206,7 @@ describe("body style and a 20-row flip page", () => {
         year: 2016,
       }),
     );
-    const tightBand = marketBand(tight);
-    const tightCheap = prefilterListing(tight[0]!, flip, tightBand, "flip", 2026);
+    const tightCheap = prefilterListing(tight[0]!, flip, tight, "flip", 2026);
     expect(tightCheap.pass).toBe(false);
     if (!tightCheap.pass) expect(tightCheap.reason).toBe("rough margin is under the buy box");
 
@@ -216,10 +221,13 @@ describe("body style and a 20-row flip page", () => {
         year: 2012,
       }),
     );
-    const wideBand = marketBand(wide);
-    const outlier = prefilterListing(wide[0]!, flip, wideBand, "flip", 2026);
-    expect(outlier.pass).toBe(true);
-    const ordinary = prefilterListing(wide[10]!, flip, wideBand, "flip", 2026);
+    const outlier = prefilterListing(wide[0]!, flip, wide, "flip", 2026);
+    expect(outlier.pass).toBe(false);
+    if (!outlier.pass) expect(outlier.reason).toBe("Not enough similar cars");
+    const ordinary = prefilterListing(wide[10]!, flip, wide, "flip", 2026);
     expect(ordinary.pass).toBe(false);
+    if (!ordinary.pass) expect(ordinary.reason).toBe("Not enough similar cars");
+    expect(priceBadge(wide[0]!, wide).label).toBe("Not enough similar cars");
+    expect(priceBadge(wide[0]!, wide).fairValueUsd).toBeNull();
   });
 });

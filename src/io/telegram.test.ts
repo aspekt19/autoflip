@@ -45,7 +45,8 @@ const base: AlertCopy = {
   yearMax: 2019,
   milesMax: null,
   bodyStyle: null,
-  belowTypical: false,
+  priceLabel: null,
+  fairValueUsd: null,
   origin: "https://autoflip.example",
   alertId: "11111111-1111-1111-1111-111111111111",
 };
@@ -118,16 +119,17 @@ describe("telegram linking", () => {
       ...base,
       mode: "flip",
       searchName: "Miami budget",
-      belowTypical: false,
+      priceLabel: null,
+      fairValueUsd: null,
       yearMin: null,
       yearMax: null,
     });
     expect(flip).toMatch(/Worth a look/);
-    expect(flip).not.toMatch(/Below the typical range/);
+    expect(flip).not.toMatch(/Fair value/);
     expect(flip).not.toMatch(/\bprofit\b/i);
     expect(flip).toMatch(/Fees, repairs, and history still need checking/);
-    const supported = alertText({ ...base, mode: "flip", belowTypical: true });
-    expect(supported).toMatch(/Below the typical range of comparable listings/);
+    const supported = alertText({ ...base, mode: "flip", priceLabel: "Good price", fairValueUsd: 15000 });
+    expect(supported).toMatch(/Price: Good price\. Fair value \$15,000\./);
     expect(supported).not.toMatch(/\bprofit\b/i);
   });
 

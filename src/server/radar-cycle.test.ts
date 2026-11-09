@@ -169,4 +169,59 @@ describe("radar cycle", () => {
     const stored = await listSearches(kv);
     expect(stored.find((item) => item.id === "preset-personal-rav4")?.criteria.priceMax).toBe(demoPresets()[0]!.criteria.priceMax);
   });
+
+  it("does not say Not enough similar cars next to a fair value when the miles cap drops comps", async () => {
+    const kv = new MemoryKv();
+    const search = {
+      ...demoPresets()[0]!,
+      id: "miles-cap-rav4",
+      ownerId: "user-miles",
+      preset: false,
+      name: "RAV4 under 80k miles",
+      criteria: {
+        make: "Toyota",
+        model: "RAV4",
+        yearMin: 2014,
+        yearMax: 2019,
+        priceMax: 20_000,
+        zip: "68114",
+        radiusMiles: 50,
+        milesMax: 80_000,
+      },
+    };
+    await saveSearches(kv, [search]);
+    const rows = [
+      { vin: "2T3ZFREV0GW000001", year: 2016, price: 14_000, miles: 40_000 },
+      { vin: "2T3ZFREV0GW000002", year: 2016, price: 15_000, miles: 70_000 },
+      { vin: "2T3ZFREV0GW000003", year: 2015, price: 12_000, miles: 120_000 },
+      { vin: "2T3ZFREV0GW000004", year: 2017, price: 16_000, miles: 130_000 },
+      { vin: "2T3ZFREV0GW000005", year: 2016, price: 14_500, miles: 125_000 },
+    ];
+    const payload = {
+      data: rows.map((row) => ({
+        vin: row.vin,
+        vehicle: { vin: row.vin, year: row.year, make: "Toyota", model: "RAV4", bodyStyle: "SUV" },
+        retailListing: { price: row.price, miles: row.miles, city: "Omaha", state: "NE", zip: "68114", used: true, distance: 12 },
+      })),
+    };
+    const fetchImpl: typeof fetch = async () => new Response(JSON.stringify(payload), { status: 200 });
+    await runRadarCycle({
+      kv,
+      now: new Date("2026-11-09T12:00:00Z"),
+      trigger: "cron",
+      fetchImpl,
+      autodevKey: "test",
+      origin: "https://autoflip.example",
+      env: {},
+    });
+    const alerts = (await listAlerts(kv)).filter((item) => item.searchId === search.id && item.vin === "2T3ZFREV0GW000001");
+    expect(alerts).toHaveLength(1);
+    const alert = alerts[0]!;
+    expect(alert.badge?.fairValueUsd).not.toBeNull();
+    expect(alert.badge?.label).not.toBe("Not enough similar cars");
+    expect(alert.why).not.toContain("Not enough similar cars");
+    expect(alert.numbers.fairValueUsd).toBe(alert.badge?.fairValueUsd);
+    expect(alert.numbers.priceLabel).toBe(alert.badge?.label);
+    expect(alert.why).toContain("fair value");
+  });
 });

@@ -142,7 +142,9 @@ describe("close-call copy", () => {
     expect(result.confidence).toBe("low");
     expect(result.pick).toBeTruthy();
     expect(result.evidenceSettled).toBe(true);
-    expect(result.choice?.confidenceLine).toBe("Low: the top two are very close.");
+    expect(result.choice?.confidenceLine).toBe(
+      "Low: the top two are very close, and the price comparison is still provisional.",
+    );
     expect(
       findChoiceConfidence({ close: true, usableCount: 2, evidenceSettled: false, priceProvisional: false }).confidenceLine,
     ).toBe("Low: the top two are very close, and some checks are still open.");

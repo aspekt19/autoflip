@@ -13,7 +13,7 @@ import {
   selectBestDealOnEvidence,
   type BestDealListing,
 } from "./find-best-deal";
-import { adjustCompsToSubject, selectComparables } from "./comparables";
+import { evaluateListingPrice } from "./price-evaluation";
 import {
   assertBuyerSafeText,
   customMilesBuyerHint,
@@ -348,12 +348,12 @@ describe("Scenario2 defect 2 — one market comps set across badge / factor / pi
     const priceFactor = pick.factors.find((f) => f.id === "price_vs_model_asks")!;
     expect(priceFactor.detail).toContain(`based on ${resolved.sampleSize}`);
     expect(priceFactor.detail).toContain(
-      `market $${Math.round(resolved.fairValueUsd).toLocaleString("en-US")}`,
+      `fair value $${Math.round(resolved.fairValueUsd).toLocaleString("en-US")}`,
     );
     expect(priceFactor.detail).not.toMatch(/\bcomps\b/i);
     // 14,795 − fair must match badge delta (no second reference).
     const marketFromDetail = Number(
-      priceFactor.detail.match(/vs market \$([0-9,]+)/)?.[1]?.replace(/,/g, ""),
+      priceFactor.detail.match(/vs fair value \$([0-9,]+)/)?.[1]?.replace(/,/g, ""),
     );
     expect(marketFromDetail).toBe(Math.round(resolved.fairValueUsd));
     expect(ask - marketFromDetail).toBe(deltaFromBadge);
@@ -382,6 +382,9 @@ describe("Scenario2 defect 2 — one market comps set across badge / factor / pi
           miles: cardSubject.miles,
           vin: cardSubject.vin,
           trim: cardSubject.trim,
+          accidentCount: cardSubject.accidentCount,
+          cpo: cardSubject.cpo,
+          oneOwner: cardSubject.oneOwner,
         },
         ...pool
           .filter((l) => l.vin !== cardSubject.vin && l.make === "Kia")
@@ -402,7 +405,7 @@ describe("Scenario2 defect 2 — one market comps set across badge / factor / pi
     const ranked = result.ranked.find((r) => r.vin === cardSubject.vin)!;
     const priceFactor = ranked.factors.find((f) => f.id === "price_vs_model_asks")!;
     const marketFromDetail = Number(
-      priceFactor.detail.match(/vs market \$([0-9,]+)/)?.[1]?.replace(/,/g, ""),
+      priceFactor.detail.match(/vs fair value \$([0-9,]+)/)?.[1]?.replace(/,/g, ""),
     );
     expect(badge.fairValueUsd).toBe(marketFromDetail);
     expect(cardSubject.priceUsd! - marketFromDetail).toBe(badge.deltaUsd);
@@ -876,7 +879,7 @@ describe("Scenario2 defect 8 — price comps coverage + fairness on live shortli
     );
     expect(scored.length).toBeGreaterThanOrEqual(4);
     const crv = result.ranked.find((r) => r.vin === "CR-2012")!;
-    expect(crv.factors.find((f) => f.id === "price_vs_model_asks")!.detail).toMatch(/Not scored/);
+    expect(crv.factors.find((f) => f.id === "price_vs_model_asks")!.detail).toMatch(/Not enough similar cars/);
   });
 
   it("subject VIN case mismatch cannot count the car as its own comp", () => {
@@ -885,17 +888,15 @@ describe("Scenario2 defect 8 — price comps coverage + fairness on live shortli
       { ...subject, vin: subject.vin.toLowerCase() },
       ...fullProviderCompsPool().filter((l) => l.vin !== subject.vin),
     ];
-    const selected = selectComparables(subject, pool);
-    expect(selected.comps.every((c) => c.vin.toUpperCase() !== subject.vin.toUpperCase())).toBe(
+    const evaluation = evaluateListingPrice(subject, pool);
+    expect(evaluation.set.cars.every((car) => (car.vin ?? "").toUpperCase() !== subject.vin.toUpperCase())).toBe(
       true,
     );
     const resolved = resolveMarketComps(subject, pool);
-    expect(resolved.ok).toBe(true);
+    expect(resolved.ok).toBe(evaluation.priced);
   });
 
-  it("year+miles fit rejects absurd slopes and caps per-comp move; method discloses sample", () => {
-    const subject = { year: 2016, miles: 80_000 };
-    // One extreme outlier would pull raw OLS into nonsense without caps/fallback.
+  it("adjusted prices stay inside the move cap and use one buyer-safe method", () => {
     const comps = [
       asListing({
         make: "Kia",
@@ -938,11 +939,22 @@ describe("Scenario2 defect 8 — price comps coverage + fairness on live shortli
         vin: "FIT-5",
       }),
     ].map((l) => ({ ...l, priceUsd: l.priceUsd!, miles: l.miles! }));
-    const adjusted = adjustCompsToSubject(subject, comps, { adjustYear: true });
-    // Technical method stays on the adjuster for the machine channel.
-    expect(adjusted.methodNote).toMatch(/documented rates|fitted price|documented Lemonless rate/i);
-    expect(adjusted.methodNote).toMatch(/10k mi|model year/i);
-    // Force a widened year window so resolveMarketComps attaches year+miles method notes.
+    const outlierSubject = asListing({
+      make: "Kia",
+      model: "Sportage",
+      year: 2016,
+      priceUsd: 13_500,
+      miles: 80_000,
+      vin: "FIT-SUB",
+      trim: "EX",
+    });
+    const outlierEval = evaluateListingPrice(outlierSubject, [outlierSubject, ...comps]);
+    if (outlierEval.priced) {
+      for (const row of outlierEval.set.cars) {
+        const move = Math.abs(row.adjustedUsd - row.askingUsd) / row.askingUsd;
+        expect(move).toBeLessThanOrEqual(0.281);
+      }
+    }
     const wideSubject = asListing({
       make: "Kia",
       model: "Sportage",
@@ -967,18 +979,15 @@ describe("Scenario2 defect 8 — price comps coverage + fairness on live shortli
       ),
     ];
     const resolved = resolveMarketComps(wideSubject, widePool);
+    const badge = priceBadge(wideSubject, widePool);
     expect(resolved.ok).toBe(true);
     if (resolved.ok) {
-      expect(resolved.scopeLabel).toMatch(/widened|wider/);
+      expect(resolved.scopeLabel).toBe("adjusted-similar");
+      expect(resolved.fairValueUsd).toBe(badge.fairValueUsd);
       expect(assertBuyerSafeText(resolved.methodNote).ok).toBe(true);
       expect(assertBuyerSafeText(resolved.sampleNote).ok).toBe(true);
-      expect(resolved.methodNote).toMatch(/adjusted for year and mileage/i);
-      expect(resolved.methodNoteTechnical).toMatch(/documented rates|fitted price/i);
-      expect(assertBuyerSafeText(resolved.methodNoteTechnical).ok).toBe(false);
-    }
-    for (const row of adjusted.rows) {
-      const move = Math.abs(row.adjustedPriceUsd - row.priceUsd) / row.priceUsd;
-      expect(move).toBeLessThanOrEqual(0.281);
+      expect(assertBuyerSafeText(resolved.methodNoteTechnical).ok).toBe(true);
+      expect(resolved.methodNote).toMatch(/Lemonless|asking prices in this search/i);
     }
   });
 
@@ -1070,7 +1079,17 @@ describe("Scenario2 defect 8 — price comps coverage + fairness on live shortli
         conditionPriority: "inspection_first",
         note: LIVE_NOTE,
       },
-      listings: shortlistExact,
+      listings: shortlistExact.map((row) => {
+        const card = cardPool.find((item) => item.vin === row.vin);
+        return {
+          ...row,
+          accidentCount: card?.accidentCount ?? row.accidentCount,
+          cpo: card?.cpo ?? row.cpo,
+          oneOwner: card?.oneOwner ?? row.oneOwner,
+          ownerCount: card?.ownerCount ?? row.ownerCount,
+          usageType: card?.usageType ?? row.usageType,
+        };
+      }),
       marketPool: cardPool,
       receipts: fullCoverageReceipts(shortlistExact),
       nowYear: 2026,
@@ -1083,7 +1102,7 @@ describe("Scenario2 defect 8 — price comps coverage + fairness on live shortli
       const price = ranked.factors.find((f) => f.id === "price_vs_model_asks")!;
       expect(price.detail).toMatch(/^Ask \$/);
       const marketFromDetail = Number(
-        price.detail.match(/vs market \$([0-9,]+)/)?.[1]?.replace(/,/g, ""),
+        price.detail.match(/vs fair value \$([0-9,]+)/)?.[1]?.replace(/,/g, ""),
       );
       expect(Number.isFinite(marketFromDetail)).toBe(true);
       expect(badge.fairValueUsd).toBe(marketFromDetail);
@@ -1111,10 +1130,10 @@ describe("Scenario2 defect 8 — price comps coverage + fairness on live shortli
     });
     const badgeFlagged = priceBadge(subject, pool);
     const badgeClean = priceBadge(clean, pool);
-    expect(badgeFlagged.fairValueUsd).toBe(badgeClean.fairValueUsd);
     expect(badgeFlagged.sampleNote).toMatch(/Listing reports 2 accidents/i);
+    expect(badgeFlagged.sampleNote).toMatch(/included in the adjusted price/i);
     expect(badgeFlagged.sampleNote).toMatch(/certified pre-owned/i);
-    expect(badgeFlagged.sampleNote).toMatch(/not reflected in this Find market figure/i);
+    expect(badgeFlagged.sampleNote).not.toMatch(/not reflected/i);
     expect(assertBuyerSafeText(badgeFlagged.sampleNote ?? "").ok).toBe(true);
 
     const result = selectBestDealOnEvidence({
@@ -1147,7 +1166,7 @@ describe("Scenario2 defect 8 — price comps coverage + fairness on live shortli
     expect(assertBuyerSafeText(flags!.detail).ok).toBe(true);
     const price = ranked.factors.find((f) => f.id === "price_vs_model_asks")!;
     const marketFromDetail = Number(
-      price.detail.match(/vs market \$([0-9,]+)/)?.[1]?.replace(/,/g, ""),
+      price.detail.match(/vs fair value \$([0-9,]+)/)?.[1]?.replace(/,/g, ""),
     );
     expect(badgeFlagged.fairValueUsd).toBe(marketFromDetail);
     expect(ranked.unknowns.some((u) => /listing feed flags/i.test(u))).toBe(true);

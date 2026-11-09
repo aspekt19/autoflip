@@ -755,7 +755,7 @@ export async function runFindNextCheckOrchestrator(
       freeGovReceipts,
     );
     // Prefer full provider comps pool (pre-diversify) so same-model peers are not limited
-    // to the 24 shown cards — badge and score share resolveMarketComps on this pool.
+    // to the 24 shown cards — badge and score share the adjusted fair value on this pool.
     const bestDeal = rankFindOnSamePool({
       need: updated.need,
       listings: updated.listings,

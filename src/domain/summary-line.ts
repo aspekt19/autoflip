@@ -36,7 +36,7 @@ export function summaryLine(input: {
     if (!input.flip) {
       return {
         line: "Not enough comparable listings to decide.",
-        detail: "A resale range needs at least three adjusted similar listings.",
+        detail: "A resale range needs at least three adjusted similar listings whose prices are close enough to estimate. Otherwise no resale price is shown.",
       };
     }
     const workable = input.flip.marginUsd >= ASSUMPTIONS.flipThinMarginUsd && input.flip.targetBuyUsd > 0 && input.verdict !== "walk_away";

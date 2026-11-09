@@ -22,7 +22,11 @@ export function fitHeadline(report: ComputedReport): string {
     return "Listing text suggests a title brand (salvage, rebuilt, flood, or similar). Do not treat price alone as the decision.";
   }
   if (report.mode === "flip") {
-    if (!report.flip) return "This deal cannot be priced yet. There are not enough comparable listings.";
+    if (!report.flip) {
+      return /too far apart/i.test(report.compMethodNote ?? "")
+        ? "This deal cannot be priced yet. The adjusted prices of similar listings are too far apart."
+        : "This deal cannot be priced yet. There are not enough similar listings.";
+    }
     if (report.verdict === "good_deal") return "At this asking price, the conservative resale math still clears the target margin.";
     if (report.verdict === "walk_away") return "At this asking price, the conservative resale math does not leave a workable margin.";
     return "The resale math is in between. Read the buy-at price and the walk-away price before you decide.";
