@@ -45,6 +45,7 @@ import {
   buyerCheckActivityLine,
   publicCheckStatusLine,
   formatGroundedShortlistLine,
+  findSettledStatusLine,
   formatBuyerBestDeal,
   formatBuyerLoopStatus,
   formatBuyerLoopStep,
@@ -76,7 +77,7 @@ import {
   type FreeGovReceiptUiRow,
 } from "@/domain/find-free-gov-format";
 import { trimSourceDisagreement } from "@/domain/find-car-consistency";
-import { buyerListingHref } from "@/domain/find-listing-link";
+import { buyerListingHref, matchBuyerListing } from "@/domain/find-listing-link";
 import { mmyListingKey } from "@/domain/find-risk-evidence";
 import {
   AGE_GAP_NO_FLOOR,
@@ -248,6 +249,8 @@ function AssistantFlow({
   /** Machine/agent channel only — raw receipts JSON, not shown as page copy. */
   const [freeGovAgentPayload, setFreeGovAgentPayload] = useState<string | null>(null);
   const [bestDeal, setBestDeal] = useState<BestDealResult | null>(null);
+  /** True while the server says another automatic check will run. */
+  const [findLoopOpen, setFindLoopOpen] = useState(false);
   const [decisionView, setDecisionView] = useState<{
     entries: FindDecisionLogEntry[];
     labels: DecisionCarLabel[];
@@ -847,6 +850,7 @@ function AssistantFlow({
           })
         : null;
       setNextCheckNote([step, status, settleBit].filter(Boolean).join(" "));
+      setFindLoopOpen(Boolean(body.loop?.continue));
       const checksSettled = body.loop?.continue === false && toolCov?.anyUnchecked !== true;
       try {
         sessionStorage.setItem(
@@ -1170,6 +1174,7 @@ function AssistantFlow({
       // Clear prior search's free-gov / best-deal state so a new Find cannot inherit
       // a stuck "still checking" banner or stale provisional pick.
       setBestDeal(null);
+      setFindLoopOpen(false);
       setDecisionView({ entries: [], labels: [] });
       setBaselineView(null);
       setFreeGovReceiptsForShortlist([]);
@@ -1852,7 +1857,7 @@ function AssistantFlow({
       ) : null}
 
       {stage === "results" ? (
-        <div id="find-results">
+        <div id="find-results" className="find-results">
           <h2>Cars that fit</h2>
           <PriceRatingHow />
           <DecisionNote scene="find" proofs={checks} />
@@ -1947,8 +1952,34 @@ function AssistantFlow({
                 const sellerLines = bestDeal ? sellerQuestionsForBuyer(bestDeal, listingHints) : [];
                 if (checks.length === 0 && shortlist.length === 0 && !dealCopy && decisionPresented.lines.length === 0)
                   return null;
+                const rankedForLabels = bestDeal?.allRanked?.length ? bestDeal.allRanked : bestDeal?.ranked ?? [];
+                const topNames = buyerCarLabels(
+                  rankedForLabels.map((car) => {
+                    const card = matchBuyerListing(car, allListings);
+                    return {
+                      key: car.key,
+                      year: car.year,
+                      make: car.make,
+                      model: car.model,
+                      trim: car.trim ?? card?.trim ?? null,
+                      priceUsd: car.priceUsd,
+                      miles: car.miles,
+                      city: car.city ?? card?.city ?? null,
+                      state: car.state ?? card?.state ?? null,
+                      dealer: car.dealer ?? card?.dealer ?? null,
+                    };
+                  }),
+                );
+                const settledLine = findSettledStatusLine({
+                  pending: pending === "next-check",
+                  anyUnchecked: freeGovAnyUnchecked,
+                  evidenceSettled: Boolean(bestDeal?.evidenceSettled),
+                  loopOpen: findLoopOpen,
+                  hasPick: Boolean(bestDeal?.pick),
+                });
                 return (
-                  <div className="hint" role="note">
+                  <div className="find-results-grid">
+                    <div className="find-col-main">
                     {bestDeal && bestDeal.ranked.length > 0 ? (
                       <div>
                         <p>
@@ -1958,54 +1989,118 @@ function AssistantFlow({
                           })}
                         </p>
                         <ol className="top-picks">
-                          {(() => {
-                            const rows = topPicksInRankOrder(bestDeal.ranked, bestDeal.pick?.key ?? null).rows;
-                            const cards = rows.map((row) => ({
-                              row,
-                              card:
-                                allListings.find(
-                                  (item) =>
-                                    item.vin &&
-                                    row.vin &&
-                                    item.vin.toUpperCase() === row.vin.toUpperCase(),
-                                ) ??
-                                allListings.find(
-                                  (item) =>
-                                    item.year === row.year &&
-                                    item.make.toLowerCase() === row.make.toLowerCase() &&
-                                    item.model.toLowerCase() === row.model.toLowerCase() &&
-                                    item.priceUsd === row.priceUsd &&
-                                    item.miles === row.miles,
-                                ),
-                            }));
-                            const names = buyerCarLabels(
-                              cards.map(({ row, card }) => ({
-                                key: row.key,
-                                year: row.year,
-                                make: row.make,
-                                model: row.model,
-                                trim: row.trim ?? card?.trim ?? null,
-                                priceUsd: row.priceUsd,
-                                miles: row.miles,
-                                city: row.city ?? card?.city ?? null,
-                                state: row.state ?? card?.state ?? null,
-                                dealer: row.dealer ?? card?.dealer ?? null,
-                              })),
+                          {topPicksInRankOrder(bestDeal.ranked, bestDeal.pick?.key ?? null).rows.map((row) => {
+                            const card = matchBuyerListing(row, allListings);
+                            const href = buyerListingHref(card?.vdp);
+                            return (
+                              <li key={row.key}>
+                                {formatTopPickLine({ ...row, name: topNames.get(row.key) })}
+                                {" · "}
+                                {href ? <a href={href}>Dealer listing</a> : "Listing link unavailable"}
+                              </li>
                             );
-                            return cards.map(({ row, card }) => {
-                              const href = buyerListingHref(card?.vdp);
-                              return (
-                                <li key={row.key}>
-                                  {formatTopPickLine({ ...row, name: names.get(row.key) })}
-                                  {" · "}
-                                  {href ? <a href={href}>Dealer listing</a> : "Listing link unavailable"}
-                                </li>
-                              );
-                            });
-                          })()}
+                          })}
                         </ol>
                       </div>
                     ) : null}
+                    {baselineView ? (
+                      <div className="hint" role="note">
+                        <p>{baselineView.title}</p>
+                        <ul>
+                          {baselineView.lines.map((line) => (
+                            <li key={line}>{line}</li>
+                          ))}
+                        </ul>
+                        <p>{baselineView.whyNotCheapest}</p>
+                      </div>
+                    ) : null}
+                    {dealCopy ? (
+                      <div className="hint" role="note">
+                        <p>
+                          <strong>{dealCopy.headline}</strong>
+                        </p>
+                        {dealCopy.settlementNote ? <p className="hint">{dealCopy.settlementNote}</p> : null}
+                        {dealCopy.closeCall ? (
+                          <>
+                            <p>The top cars are very close, so this is not a confident pick.</p>
+                            <p>
+                              <strong>Leaning: {dealCopy.closeCall.leaningLabel}</strong>
+                            </p>
+                            <p>{dealCopy.closeCall.leadReason}</p>
+                            <p>What would decide it</p>
+                            <ul>
+                              {dealCopy.closeCall.wouldDecide.map((line) => (
+                                <li key={line}>{line}</li>
+                              ))}
+                            </ul>
+                          </>
+                        ) : (
+                          <p>{dealCopy.why}</p>
+                        )}
+                        {dealCopy.rankedLines.length > 0 ? (
+                          <>
+                            <p>Ranked on current evidence:</p>
+                            <ul>
+                              {dealCopy.rankedLines.map((line) => (
+                                <li key={line}>{line}</li>
+                              ))}
+                            </ul>
+                          </>
+                        ) : null}
+                        {dealCopy.factorLines.length > 0 ? (
+                          <>
+                            <p>Why each ranked car scored this way:</p>
+                            <ul>
+                              {dealCopy.factorLines.map((line, idx) => (
+                                <li key={`factor-${bestDeal?.evidenceSettled ? "settled" : "prov"}-${idx}`}>
+                                  {line}
+                                </li>
+                              ))}
+                            </ul>
+                          </>
+                        ) : null}
+                        <p>Still unknown:</p>
+                        <ul>
+                          {dealCopy.stillUnknown.map((u) => (
+                            <li key={u.slice(0, 80)}>{u}</li>
+                          ))}
+                        </ul>
+                        {dealCopy.sensitivityLines.length > 0 ? (
+                          <>
+                            <p>If assumptions change:</p>
+                            <ul>
+                              {dealCopy.sensitivityLines.map((line) => (
+                                <li key={line}>{line}</li>
+                              ))}
+                            </ul>
+                          </>
+                        ) : null}
+                        <p className="hint">{dealCopy.honesty}</p>
+                      </div>
+                    ) : null}
+                    {shortlist.length > 0 ? (
+                      <>
+                        <p>
+                          Models that still fit your stated limits (from these cards only — not an auto-buy
+                          recommendation):
+                        </p>
+                        <ul>
+                          {shortlist.map((row) => (
+                            <li key={`${row.make}-${row.model}`}>
+                              {formatGroundedShortlistLine({
+                                make: row.make,
+                                model: row.model,
+                                why: row.why,
+                                unknowns: row.unknowns,
+                                campaignRefs: row.campaignRefs.map((id) => formatOfficialRecallNumber(id)),
+                              })}
+                            </li>
+                          ))}
+                        </ul>
+                      </>
+                    ) : null}
+                    </div>
+                    <div className="find-col-side">
                     {servNextCheckEnabled && freeGovAnyUnchecked && error && pending !== "next-check" ? (
                       <p>
                         Public checks stopped. Some models are still unchecked. You can retry after fixing the
@@ -2058,24 +2153,19 @@ function AssistantFlow({
                         ) : null}
                       </div>
                     ) : null}
-                    {baselineView ? (
+                    {sellerLines.length > 0 ? (
                       <div className="hint" role="note">
-                        <p>{baselineView.title}</p>
+                        <p>Questions for the seller</p>
                         <ul>
-                          {baselineView.lines.map((line) => (
+                          {sellerLines.map((line) => (
                             <li key={line}>{line}</li>
                           ))}
                         </ul>
-                        <p>{baselineView.whyNotCheapest}</p>
                       </div>
                     ) : null}
                     {nextCheckNote ? <p className="hint">{nextCheckNote}</p> : null}
                     {pending === "next-check" ? <p className="hint">Checking public safety records…</p> : null}
-                    {pending !== "next-check" && !freeGovAnyUnchecked && bestDeal?.evidenceSettled ? (
-                      <p className="hint">
-                        {bestDeal.pick ? "Pick settled." : "Checks finished — no clear winner yet."}
-                      </p>
-                    ) : null}
+                    {settledLine ? <p className="hint">{settledLine}</p> : null}
                     {freeGovEvidenceLines.length > 0 ? (
                       <div className="hint" role="note">
                         <p>
@@ -2110,101 +2200,7 @@ function AssistantFlow({
                         {riskCoverageNote ? <p className="hint">{riskCoverageNote}</p> : null}
                       </div>
                     ) : null}
-                    {dealCopy ? (
-                      <div className="hint" role="note">
-                        <p>
-                          <strong>{dealCopy.headline}</strong>
-                        </p>
-                        {dealCopy.settlementNote ? <p className="hint">{dealCopy.settlementNote}</p> : null}
-                        {dealCopy.closeCall ? (
-                          <>
-                            <p>The top cars are very close, so this is not a confident pick.</p>
-                            <p>
-                              <strong>Leaning: {dealCopy.closeCall.leaningLabel}</strong>
-                            </p>
-                            <p>{dealCopy.closeCall.leadReason}</p>
-                            <p>What would decide it</p>
-                            <ul>
-                              {dealCopy.closeCall.wouldDecide.map((line) => (
-                                <li key={line}>{line}</li>
-                              ))}
-                            </ul>
-                          </>
-                        ) : (
-                          <p>{dealCopy.why}</p>
-                        )}
-                        {dealCopy.rankedLines.length > 0 ? (
-                          <>
-                            <p>Ranked on current evidence:</p>
-                            <ul>
-                              {dealCopy.rankedLines.map((line) => (
-                                <li key={line}>{line}</li>
-                              ))}
-                            </ul>
-                          </>
-                        ) : null}
-                        {dealCopy.factorLines.length > 0 ? (
-                          <>
-                            <p>Why each ranked car scored this way:</p>
-                            <ul>
-                              {dealCopy.factorLines.map((line, idx) => (
-                                <li key={`factor-${bestDeal?.evidenceSettled ? "settled" : "prov"}-${idx}`}>
-                                  {line}
-                                </li>
-                              ))}
-                            </ul>
-                          </>
-                        ) : null}
-                        {sellerLines.length > 0 ? (
-                          <>
-                            <p>Questions for the seller</p>
-                            <ul>
-                              {sellerLines.map((line) => (
-                                <li key={line}>{line}</li>
-                              ))}
-                            </ul>
-                          </>
-                        ) : null}
-                        <p>Still unknown:</p>
-                        <ul>
-                          {dealCopy.stillUnknown.map((u) => (
-                            <li key={u.slice(0, 80)}>{u}</li>
-                          ))}
-                        </ul>
-                        {dealCopy.sensitivityLines.length > 0 ? (
-                          <>
-                            <p>If assumptions change:</p>
-                            <ul>
-                              {dealCopy.sensitivityLines.map((line) => (
-                                <li key={line}>{line}</li>
-                              ))}
-                            </ul>
-                          </>
-                        ) : null}
-                        <p className="hint">{dealCopy.honesty}</p>
-                      </div>
-                    ) : null}
-                    {shortlist.length > 0 ? (
-                      <>
-                        <p>
-                          Models that still fit your stated limits (from these cards only — not an auto-buy
-                          recommendation):
-                        </p>
-                        <ul>
-                          {shortlist.map((row) => (
-                            <li key={`${row.make}-${row.model}`}>
-                              {formatGroundedShortlistLine({
-                                make: row.make,
-                                model: row.model,
-                                why: row.why,
-                                unknowns: row.unknowns,
-                                campaignRefs: row.campaignRefs.map((id) => formatOfficialRecallNumber(id)),
-                              })}
-                            </li>
-                          ))}
-                        </ul>
-                      </>
-                    ) : null}
+                    </div>
                     {freeGovAgentPayload ? (
                       <script
                         type="application/json"

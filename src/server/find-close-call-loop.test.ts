@@ -191,6 +191,10 @@ describe("close-call loop", () => {
     if (!first.ok) return;
     expect(fetchImpl).not.toHaveBeenCalled();
     expect(first.servPaidCalls).toBe(1);
+    expect(first.bestDeal.evidenceSettled).toBe(true);
+    expect(first.bestDeal.settlementNote).toMatch(/still running/i);
+    expect(first.bestDeal.why).not.toMatch(/Checks finished/);
+    expect(first.bestDeal.why).not.toMatch(/pick is settled/i);
     expect(first.chosenId).toBe("free_car_consistency");
     expect(first.targetKeys).toEqual(expect.arrayContaining([A.vin, B.vin]));
     expect(first.targetKeys).not.toContain(OUTSIDER.vin);

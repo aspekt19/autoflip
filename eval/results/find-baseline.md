@@ -6,7 +6,7 @@ Network: none.
 Pick: 2017 Hyundai Tucson
 Cheapest in budget: 2014 Honda CR-V $8990
 Lowest miles in budget: 2015 Honda CR-V 46000 mi
-Why not the cheapest: We did not pick the cheapest in budget (2014 Honda CR-V ($8,990)) because the 2017 Hyundai Tucson is the stronger deal on the checks we could score. Miles per year: pick 10,889 miles per year, versus about 11,844 miles per year for similar cars in this search. Assumed 12,000 miles per year; cheapest 13,500 miles per year, versus about 11,844 miles per year for similar cars in this search. Assumed 12,000 miles per year.
+Why not the cheapest: We did not pick the cheapest in budget (2014 Honda CR-V ($8,990)) because the 2017 Hyundai Tucson ($14,900) is the stronger deal on the checks we could run. Miles per year: pick 10,889 miles per year, versus about 11,844 miles per year for similar cars in this search. Assumed 12,000 miles per year; cheapest 13,500 miles per year, versus about 11,844 miles per year for similar cars in this search. Assumed 12,000 miles per year.
 
 Per-car flags: 4
 Pick changes caused by checks: 1

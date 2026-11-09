@@ -980,6 +980,18 @@ export function topPicksInRankOrder<T extends { key: string }>(
   return { rows, pickKeyRank: index === -1 ? null : index + 1 };
 }
 
+/** Status line after checks. Hidden while a check is running or the loop will continue. */
+export function findSettledStatusLine(input: {
+  pending: boolean;
+  anyUnchecked: boolean;
+  evidenceSettled: boolean;
+  loopOpen: boolean;
+  hasPick: boolean;
+}): string | null {
+  if (input.pending || input.anyUnchecked || !input.evidenceSettled || input.loopOpen) return null;
+  return input.hasPick ? "Pick settled." : "Checks finished — no clear winner yet.";
+}
+
 /** Heading for the ranked list. After checks finish, drop "in the current order". */
 export function topCarsHeading(input: { hasPick: boolean; evidenceSettled: boolean }): string {
   if (input.hasPick) return "Top picks";

@@ -82,5 +82,21 @@ export function buyerCarLabels(cars: readonly CarLabelInput[]): Map<string, stri
     const detail = distinguisher(car, siblings);
     out.set(car.key, detail ? `${base} (${detail})` : base);
   }
+  for (const siblings of groups.values()) {
+    if (siblings.length < 2) continue;
+    const counts = new Map<string, number>();
+    for (const car of siblings) {
+      const text = out.get(car.key) ?? "";
+      counts.set(text, (counts.get(text) ?? 0) + 1);
+    }
+    const seen = new Map<string, number>();
+    for (const car of siblings) {
+      const text = out.get(car.key) ?? "";
+      if ((counts.get(text) ?? 0) < 2) continue;
+      const n = (seen.get(text) ?? 0) + 1;
+      seen.set(text, n);
+      out.set(car.key, `${text} (listing ${n})`);
+    }
+  }
   return out;
 }

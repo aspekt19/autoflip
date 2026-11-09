@@ -38,6 +38,9 @@
   --mono: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
   --ease: cubic-bezier(0.16, 1, 0.3, 1);
   --pad: 28px;
+  /* Same outer width as the site header (.bar) on every page. */
+  --site-max: 1360px;
+  --site-gutter: 14px;
   accent-color: var(--blue);
   background: var(--canvas);
   color: var(--ink);
@@ -133,7 +136,7 @@ a { color: inherit; }
   align-items: center;
   justify-content: space-between;
   gap: 16px;
-  width: min(1360px, calc(100% - 28px));
+  width: min(var(--site-max), calc(100% - 2 * var(--site-gutter)));
   margin: 14px auto 0;
   min-height: 74px;
   padding: 10px 12px 10px 16px;
@@ -449,14 +452,13 @@ span.nav-go { cursor: default; }
   outline: 2px solid #fff;
   outline-offset: 2px;
 }
-.table-scroll { max-width: 100%; overflow-x: auto; }
+.table-scroll { width: 100%; max-width: 100%; overflow-x: auto; }
 .hero-copy { position: relative; z-index: 1; }
 .choice-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 16px;
-  max-width: 760px;
-  margin: 28px auto 0;
+  margin: 28px 0 0;
   text-align: left;
 }
 .choice-card {
@@ -489,7 +491,7 @@ span.nav-go { cursor: default; }
 .choice-arrow { margin-top: auto; font-family: var(--sans); font-weight: 700; font-size: 22px; }
 .compare-hero { padding-bottom: 8px; }
 .compare-hero h1 { max-width: 14ch; }
-.compare-sheet { width: min(880px, calc(100% - 2 * var(--pad))); margin: 0 auto 72px; }
+.compare-sheet { width: min(var(--site-max), calc(100% - 2 * var(--site-gutter))); margin: 0 auto 72px; }
 .compare-listing { text-align: center; margin: 36px 0 0; }
 .compare-listing h2 { margin-bottom: 8px; }
 .compare-pair { max-width: none; }
@@ -604,7 +606,7 @@ span.nav-go { cursor: default; }
 .trust-row article { text-align: center; padding: 8px 12px; }
 .trust-row strong { display: block; margin-bottom: 6px; font-family: var(--sans); font-size: 18px; }
 .trust-row span { color: var(--muted); }
-.flow-page { width: min(640px, calc(100% - 2 * var(--pad))); margin: 12px auto 72px; }
+.flow-page { width: min(var(--site-max), calc(100% - 2 * var(--site-gutter))); margin: 12px auto 72px; }
 .flow-page h1 { max-width: none; font-size: clamp(32px, 4vw, 44px); margin-bottom: 12px; }
 .flow-page .lead { max-width: none; }
 .progress {
@@ -643,7 +645,7 @@ span.nav-go { cursor: default; }
 .hero-grid {
   position: relative;
   z-index: 1;
-  width: min(1120px, calc(100% - 2 * var(--pad)));
+  width: min(var(--site-max), calc(100% - 2 * var(--site-gutter)));
   margin: 0 auto;
   display: grid;
   grid-template-columns: 1.05fr 0.95fr;
@@ -768,7 +770,7 @@ button:disabled, .action:disabled, .quiet:disabled, .ghost:disabled {
 
 .band { padding: 72px 0; }
 .band.paper, .sub { background: var(--paper); }
-.wrap { width: min(1120px, calc(100% - 2 * var(--pad))); margin: 0 auto; }
+.wrap { width: min(var(--site-max), calc(100% - 2 * var(--site-gutter))); margin: 0 auto; }
 .path { list-style: none; margin: 0; padding: 0; display: grid; gap: 0; counter-reset: step; }
 .path li {
   display: grid;
@@ -793,10 +795,44 @@ button:disabled, .action:disabled, .quiet:disabled, .ghost:disabled {
 .refuse li { padding: 14px 0; border-top: 1px solid var(--line); font-size: 18px; }
 
 .sub { padding: 28px 0 72px; }
-.sheet-page { width: min(980px, calc(100% - 2 * var(--pad))); margin: 0 auto; }
+.sheet-page { width: min(var(--site-max), calc(100% - 2 * var(--site-gutter))); margin: 0 auto; }
 .support { font-size: 18px; max-width: 62ch; }
 .hint { color: var(--muted); font-size: 15px; margin: 6px 0 0; }
 .top-picks { list-style: decimal; margin: 6px 0 0; padding-left: 1.3em; }
+/* Prose stays readable inside the shared header-width container, and cannot force a card wider than its column. */
+.wrap :where(p, .lead, .hint),
+.sheet-page :where(p, .lead, .hint, .support),
+.flow-page :where(p, .lead, .hint),
+.compare-sheet :where(p, .lead, .hint),
+.story-after :where(p, .lead),
+.decision p {
+  max-width: min(80ch, 100%);
+}
+.compare-card,
+.choice-card,
+.pack,
+.listing-card,
+.find-col-main,
+.find-col-side {
+  min-width: 0;
+}
+.flow-page :where(input, textarea, select),
+.sheet-page :where(input, textarea, select) {
+  max-width: 80ch;
+}
+.find-results { width: 100%; }
+.find-results-grid {
+  display: grid;
+  gap: 28px 32px;
+  align-items: start;
+}
+.find-col-main,
+.find-col-side { min-width: 0; }
+@media (min-width: 1100px) {
+  .find-results-grid { grid-template-columns: minmax(0, 1.15fr) minmax(0, 0.85fr); }
+  .listing-grid { grid-template-columns: 1fr 1fr; }
+  .report-history-list { grid-template-columns: 1fr 1fr; }
+}
 .panel { background: transparent; padding: 8px 0 0; }
 .field { margin-bottom: 16px; border: 0; padding: 0; min-inline-size: 0; }
 .field legend, .field label { font-family: var(--sans); font-weight: 700; }
@@ -953,20 +989,27 @@ pre.doc {
   font-weight: 700;
   font-size: 18px;
 }
-.foot-note { color: var(--muted); font-size: 15px; margin: 0; padding: 22px var(--pad) 0; }
+.foot-note {
+  color: var(--muted);
+  font-size: 15px;
+  margin: 0 auto 0 max(var(--site-gutter), calc((100% - var(--site-max)) / 2));
+  padding: 22px 0 0;
+  max-width: 80ch;
+}
 .colophon {
   display: flex;
   justify-content: space-between;
   gap: 16px;
   flex-wrap: wrap;
   align-items: center;
-  padding: 22px var(--pad) 28px;
+  box-sizing: border-box;
+  margin-top: 22px;
+  padding: 22px max(var(--site-gutter), calc((100% - var(--site-max)) / 2)) 28px;
   font-size: 15px;
   border-top: 1px solid var(--line);
   background: var(--paper);
-  margin-top: 22px;
 }
-.foot-links { display: flex; gap: 16px; font-family: var(--sans); margin: 0; }
+.foot-links { display: flex; flex-wrap: wrap; gap: 12px 16px; font-family: var(--sans); margin: 0; max-width: 100%; }
 .foot-links a { font-weight: 700; text-decoration: none; }
 
 @media (prefers-reduced-motion: no-preference) {
@@ -1020,11 +1063,11 @@ pre.doc {
     justify-content: center;
     margin-top: 4px;
   }
+  :root { --site-gutter: 8px; }
   .bar {
     position: sticky;
     top: 8px;
     border-radius: 18px;
-    width: calc(100% - 16px);
     margin-left: auto;
     margin-right: auto;
   }
@@ -1122,7 +1165,7 @@ pre.doc {
   letter-spacing: 0.12em;
   text-transform: uppercase;
 }
-.story-after { width: min(1100px, calc(100% - 48px)); margin: 0 auto; padding: 72px 0; }
+.story-after { width: min(var(--site-max), calc(100% - 2 * var(--site-gutter))); margin: 0 auto; padding: 72px 0; }
 .story-steps { margin-top: 8px; }
 .story-steps li { background: #101010; border: 1px solid rgba(255,255,255,0.12); }
 .story-trust { padding-top: 12px; }
@@ -1182,12 +1225,12 @@ pre.doc {
     max-width: 100%;
     overflow-wrap: anywhere;
   }
-  .story-after { width: calc(100% - 32px); padding: 48px 0; }
+  .story-after { padding: 48px 0; }
 }
 
 /* Narrow phones: keep hero copy full-bleed within padding — avoid left-biased squeeze from wide min tracks. */
 @media (max-width: 420px) {
-  :root { --pad: 14px; }
+  :root { --pad: 14px; --site-gutter: 6px; }
   .film-copy {
     left: 10px;
     right: 10px;
@@ -1200,7 +1243,6 @@ pre.doc {
   }
   .film-copy .lead { font-size: 12px; }
   .bar {
-    width: calc(100% - 12px);
     margin-left: auto;
     margin-right: auto;
     gap: 8px;

@@ -10,7 +10,7 @@
  */
 import type { DecisionProof } from "@/domain/decision-note";
 import { BEST_DEAL_TIE_EPSILON, selectBestDealOnEvidence } from "@/domain/find-best-deal";
-import { closeCallCars, planCloseCallAfterHop, planCloseCallHop } from "@/domain/find-close-call";
+import { closeCallCars, copyWhileChecksContinue, planCloseCallAfterHop, planCloseCallHop } from "@/domain/find-close-call";
 import {
   executeCarConsistency,
   mergeCarConsistency,
@@ -880,6 +880,7 @@ export async function runFindNextCheckOrchestrator(
       await updateFindSearchContext(deps.kv, updated, { loopSettled });
     }
 
+    const buyerDeal = copyWhileChecksContinue(bestDeal, loop.continue);
     const payload: FindNextCheckOrchestratorOk = {
       ok: true,
       searchContextToken: updated.token,
@@ -911,12 +912,12 @@ export async function runFindNextCheckOrchestrator(
       freeEvidenceNote,
       riskCoverage,
       freeGovCoverage: coverageAfter,
-      bestDeal,
+      bestDeal: buyerDeal,
       loop,
       servPaidCalls: nextPaidCalls,
       servInvokeReason: servDecision.reason,
       decisionLog,
-      baseline: bestDeal.baseline,
+      baseline: buyerDeal.baseline,
       carChecks,
       targetKeys,
     };

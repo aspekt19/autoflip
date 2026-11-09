@@ -5,6 +5,7 @@
  */
 
 import type { BestDealCandidate, BestDealResult } from "./find-best-deal";
+import { buyerCarLabels } from "./find-car-label";
 import type { StructuredNeed } from "./need";
 
 export type BaselineCarRef = {
@@ -14,6 +15,8 @@ export type BaselineCarRef = {
   model: string;
   priceUsd: number | null;
   miles: number | null;
+  /** Distinguishing buyer label when two cars share a year, make, and model. */
+  label?: string | null;
 };
 
 export type FindBaselineFactor = {
@@ -45,7 +48,7 @@ export type FindBaselineDelta = {
   leading: BaselineCarRef | null;
 };
 
-function refOf(car: BestDealCandidate | null): BaselineCarRef | null {
+function refOf(car: BestDealCandidate | null, labels: ReadonlyMap<string, string>): BaselineCarRef | null {
   if (!car) return null;
   return {
     key: car.key,
@@ -54,13 +57,21 @@ function refOf(car: BestDealCandidate | null): BaselineCarRef | null {
     model: car.model,
     priceUsd: car.priceUsd,
     miles: car.miles,
+    label: labels.get(car.key) ?? null,
   };
 }
 
-function nameOf(car: BaselineCarRef | BestDealCandidate | null): string {
+function nameOf(
+  car: (BaselineCarRef | BestDealCandidate) | null,
+  labels?: ReadonlyMap<string, string>,
+): string {
   if (!car) return "none";
-  const ask = car.priceUsd != null ? `$${car.priceUsd.toLocaleString("en-US")}` : "price not listed";
-  return `${car.year} ${car.make} ${car.model} (${ask})`;
+  const stored = "label" in car && car.label ? car.label : null;
+  const base = (car.key && labels?.get(car.key)) || stored || `${car.year} ${car.make} ${car.model}`;
+  if (car.priceUsd == null) return `${base} (price not listed)`;
+  const ask = `$${car.priceUsd.toLocaleString("en-US")}`;
+  if (base.includes(ask)) return base;
+  return `${base} (${ask})`;
 }
 
 function factorDetail(car: BestDealCandidate | null, id: string): string {
@@ -99,6 +110,7 @@ export function computeFindBaseline(input: {
    */
   leading?: BestDealCandidate | null;
 }): FindBaselineDelta {
+  const labels = buyerCarLabels(input.cars);
   const inBudgetCars = input.cars.filter((car) => inBudget(car, input.need));
   const eligible = inBudgetCars.filter((car) => !car.excludedFromPick);
   const cheapestAny = cheapestOf(inBudgetCars);
@@ -109,7 +121,7 @@ export function computeFindBaseline(input: {
     cheapestAny && cheapestAny.excludedFromPick && cheapestAny.key !== subject?.key ? cheapestAny : null;
   const cheaperLeftOut = leftOutCheaper
     ? leftOutCheaper.excludedReason ??
-      `${nameOf(leftOutCheaper)} was left out of the pick.`
+      `${nameOf(leftOutCheaper, labels)} was left out of the pick.`
     : null;
   const lowestMiles =
     eligible
@@ -167,15 +179,15 @@ export function computeFindBaseline(input: {
 
   const sameSubject = Boolean(subject && cheapest && subject.key === cheapest.key);
   return {
-    pick: refOf(pick),
-    cheapest: refOf(cheapest),
-    lowestMiles: refOf(lowestMiles),
+    pick: refOf(pick, labels),
+    cheapest: refOf(cheapest, labels),
+    lowestMiles: refOf(lowestMiles, labels),
     cheapestIsPick,
     lowestMilesIsPick,
     cheaperLeftOut,
-    whyNotCheapest: whyNotCheapest(subject, cheapest, sameSubject, cheaperLeftOut, Boolean(pick)),
+    whyNotCheapest: whyNotCheapest(subject, cheapest, sameSubject, cheaperLeftOut, Boolean(pick), labels),
     factors,
-    leading: refOf(leading),
+    leading: refOf(leading, labels),
   };
 }
 
@@ -198,6 +210,7 @@ function whyNotCheapest(
   same: boolean,
   cheaperLeftOut: string | null,
   confident: boolean,
+  labels?: ReadonlyMap<string, string>,
 ): string {
   const leftOut = cheaperLeftOut ? `${cheaperLeftOut} ` : "";
   if (!subjectCar || !cheapest) {
@@ -208,7 +221,7 @@ function whyNotCheapest(
   }
   if (!confident) {
     if (same) {
-      return `${leftOut}No confident pick yet. The leading car is also the cheapest in budget: the ${nameOf(subjectCar)}.`.replace(
+      return `${leftOut}No confident pick yet. The leading car is also the cheapest in budget: the ${nameOf(subjectCar, labels)}.`.replace(
         /\s+/g,
         " ",
       ).trim();
@@ -218,14 +231,14 @@ function whyNotCheapest(
     const cheapMiles = tidy(cheapest.factors.find((row) => row.id === "miles_per_year_vs_peers")?.detail ?? "");
     const miles =
       leadMiles && cheapMiles ? ` Miles per year: leading car ${leadMiles}; cheapest ${cheapMiles}.` : "";
-    return `${leftOut}No confident pick yet. Comparing the leading car (${nameOf(subjectCar)}) with the cheapest in budget (${nameOf(cheapest)}).${miles}`
+    return `${leftOut}No confident pick yet. Comparing the leading car (${nameOf(subjectCar, labels)}) with the cheapest in budget (${nameOf(cheapest, labels)}).${miles}`
       .replace(/\s+/g, " ")
       .trim();
   }
   if (same) {
     return cheaperLeftOut
-      ? `${cheaperLeftOut} The cheapest car still in the running is the one we picked: the ${nameOf(subjectCar)}.`
-      : `The cheapest car in budget is the same car we picked: the ${nameOf(subjectCar)}.`;
+      ? `${cheaperLeftOut} The cheapest car still in the running is the one we picked: the ${nameOf(subjectCar, labels)}.`
+      : `The cheapest car in budget is the same car we picked: the ${nameOf(subjectCar, labels)}.`;
   }
   const tidy = (text: string) => text.replace(/\.+$/, "").trim();
   const pickMiles = tidy(subjectCar.factors.find((row) => row.id === "miles_per_year_vs_peers")?.detail ?? "");
@@ -233,7 +246,7 @@ function whyNotCheapest(
   const flags = cheapest.sellerQuestions[0] ?? null;
   const flagBit = flags ? ` ${flags}` : "";
   const subject = cheaperLeftOut ? "the cheapest car still in the running" : "the cheapest in budget";
-  return `${leftOut}We did not pick ${subject} (${nameOf(cheapest)}) because the ${subjectCar.year} ${subjectCar.make} ${subjectCar.model} is the stronger deal on the checks we could score.${pickMiles && cheapMiles ? ` Miles per year: pick ${pickMiles}; cheapest ${cheapMiles}.` : ""}${flagBit}`;
+  return `${leftOut}We did not pick ${subject} (${nameOf(cheapest, labels)}) because the ${nameOf(subjectCar, labels)} is the stronger deal on the checks we could run.${pickMiles && cheapMiles ? ` Miles per year: pick ${pickMiles}; cheapest ${cheapMiles}.` : ""}${flagBit}`;
 }
 
 export type FindBaselineBuyer = {

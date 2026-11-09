@@ -29,26 +29,59 @@ export function closeCallCars<T extends { score: number; excludedFromPick?: bool
   return tied.length >= 2 ? tied : [];
 }
 
-const LEAD: Record<BestDealFactorId, (lead: string, other: string) => string> = {
-  price_vs_model_asks: (lead, other) =>
-    `${lead} is priced better against similar listings than the ${other}.`,
-  miles_per_year_vs_peers: (lead, other) =>
-    `${lead} has lower miles for its age than the ${other}.`,
-  age: (lead, other) => `${lead} is newer or less worn than the ${other}.`,
-  estimated_fuel_cost: (lead, other) => `${lead} should cost less to fuel than the ${other}.`,
-  mmy_recall_campaigns: (lead, other) =>
-    `${lead} has a cleaner recall record on the checks we ran than the ${other}.`,
-  mmy_ncap_rating: (lead, other) => `${lead} has a stronger crash-test rating than the ${other}.`,
-  named_model_preference: (lead, other) =>
-    `${lead} matches what you named more closely than the ${other}.`,
-  budget_fit: (lead, other) => `${lead} fits the budget better than the ${other}.`,
-  condition_priority: (lead, other) =>
-    `${lead} looks better on the condition checks we have than the ${other}.`,
-  listing_feed_flags: (lead, other) => `${lead} has fewer listing warnings than the ${other}.`,
-  days_listed: (lead, other) => `${lead} has been on the market a different length of time than the ${other}.`,
+export const CHECKS_FINISHED_NOTE = "Checks finished — no clear winner yet.";
+export const PICK_SETTLED_NOTE = "Pick settled.";
+export const CHECKS_STILL_RUNNING_NOTE = "Checks are still running. The pick may change.";
+
+const FACTOR_PLAIN: Record<BestDealFactorId, string> = {
+  price_vs_model_asks: "asking price versus similar listings",
+  miles_per_year_vs_peers: "miles for its age",
+  age: "model year and wear",
+  estimated_fuel_cost: "fuel cost",
+  mmy_recall_campaigns: "recall record",
+  mmy_ncap_rating: "crash-test rating",
+  named_model_preference: "how it matches what you asked for",
+  budget_fit: "budget fit",
+  condition_priority: "condition checks",
+  listing_feed_flags: "listing warnings",
+  days_listed: "time on the market",
 };
 
-/** One plain reason the first car leads. No internal scores. */
+function scrubDetail(detail: string): string {
+  return detail
+    .replace(/lower score for condition risk:\s*/gi, "Condition risk: ")
+    .replace(/\bis scored lower\b/gi, "ranks lower")
+    .replace(/\bscore\b/gi, "rating")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function detailSentences(detail: string): string[] {
+  return scrubDetail(detail)
+    .split(/(?<=\.)\s+/)
+    .map((sentence) => sentence.replace(/\.$/, "").trim())
+    .filter(Boolean);
+}
+
+function clipSentence(sentence: string): string {
+  if (sentence.length <= 160) return sentence;
+  return sentence.slice(0, 157).replace(/\s+\S*$/, "").trim();
+}
+
+/** The first sentence that is not the same on both cars. Identical openings hide the real difference. */
+function differingDetails(leadDetail: string, otherDetail: string): { lead: string; other: string } {
+  const lead = detailSentences(leadDetail);
+  const other = detailSentences(otherDetail);
+  const count = Math.max(lead.length, other.length);
+  for (let index = 0; index < count; index += 1) {
+    const leadBit = lead[index] ?? "";
+    const otherBit = other[index] ?? "";
+    if (leadBit !== otherBit) return { lead: clipSentence(leadBit), other: clipSentence(otherBit) };
+  }
+  return { lead: clipSentence(lead[0] ?? ""), other: clipSentence(other[0] ?? "") };
+}
+
+/** One plain reason the first car leads. Cites the check that actually separates them. No internal scores. */
 export function closeCallLeadReason(
   first: BestDealCandidate,
   second: BestDealCandidate,
@@ -56,55 +89,82 @@ export function closeCallLeadReason(
 ): string {
   const lead = labelOf(first);
   const other = labelOf(second);
-  let best: { id: BestDealFactorId; delta: number } | null = null;
+  let best: { id: BestDealFactorId; delta: number; leadDetail: string; otherDetail: string } | null = null;
   for (const factor of first.factors) {
-    const otherPoints = second.factors.find((row) => row.id === factor.id)?.points ?? 0;
-    const delta = factor.points - otherPoints;
-    if (!best || delta > best.delta) best = { id: factor.id, delta };
+    const otherFactor = second.factors.find((row) => row.id === factor.id);
+    const delta = factor.points - (otherFactor?.points ?? 0);
+    if (delta <= 0) continue;
+    if (!best || delta > best.delta) {
+      best = {
+        id: factor.id,
+        delta,
+        leadDetail: factor.detail,
+        otherDetail: otherFactor?.detail ?? "",
+      };
+    }
   }
-  if (best && best.delta > 0) return LEAD[best.id](lead, other);
+  if (best) {
+    const bits = differingDetails(best.leadDetail, best.otherDetail);
+    const leadBit = bits.lead ? ` ${bits.lead}.` : "";
+    const compared = bits.other ? ` Compared with the ${other}: ${bits.other}.` : "";
+    return `${lead} is ahead on ${FACTOR_PLAIN[best.id]}.${leadBit}${compared}`
+      .replace(/\s+/g, " ")
+      .replace(/\.{2,}/g, ".")
+      .trim();
+  }
   if (first.priceUsd != null && second.priceUsd != null && first.priceUsd < second.priceUsd) {
-    return `${lead} asks less than the ${other}.`;
+    return `${lead} asks $${first.priceUsd.toLocaleString("en-US")}, less than the ${other} at $${second.priceUsd.toLocaleString("en-US")}.`;
   }
   if (first.miles != null && second.miles != null && first.miles < second.miles) {
-    return `${lead} has fewer miles than the ${other}.`;
+    return `${lead} has ${first.miles.toLocaleString("en-US")} miles, fewer than the ${other} at ${second.miles.toLocaleString("en-US")} miles.`;
   }
-  return `${lead} is listed first, and the two cars are very close.`;
+  return `The checks we ran do not separate the ${lead} from the ${other}.`;
 }
 
-/** One to three specific actions. Names the cars. No internal scores. */
+function namedQuestion(question: string, car: BestDealCandidate, name: string): string {
+  const title = `${car.year} ${car.make} ${car.model}`;
+  const clean = question.replace(/\s+/g, " ").trim();
+  if (!clean) return "";
+  if (clean.includes(title)) return clean.replaceAll(title, name);
+  if (clean.includes(name)) return clean;
+  return `For the ${name}: ${clean}`;
+}
+
+/** One to three specific actions. The leaning car's own questions come first. No internal scores. */
 export function whatWouldDecideCloseCall(
   cars: readonly BestDealCandidate[],
   labelOf: (car: BestDealCandidate) => string,
 ): string[] {
   const actions: string[] = [];
   const push = (line: string) => {
-    if (actions.length >= 3) return;
+    if (actions.length >= 3 || !line) return;
     if (!actions.includes(line)) actions.push(line);
   };
-  for (const car of cars.slice(0, 3)) {
+  for (const car of cars) {
     const name = labelOf(car);
-    if (car.sellerQuestions.some((question) => /trim/i.test(question))) {
-      push(`Seller confirms the trim on the ${name}.`);
-    }
-  }
-  for (const car of cars.slice(0, 3)) {
-    const name = labelOf(car);
-    if (car.sellerQuestions.some((question) => /odometer/i.test(question))) {
-      push(`Seller confirms the odometer reading and service records on the ${name}.`);
-    }
-  }
-  for (const car of cars.slice(0, 2)) {
-    const name = labelOf(car);
-    if (car.sellerQuestions.some((question) => /accident/i.test(question))) {
-      push(`Seller explains the accident record on the ${name}.`);
-    }
+    for (const question of car.sellerQuestions) push(namedQuestion(question, car, name));
   }
   const names = cars.slice(0, 2).map((car) => labelOf(car));
   if (names.length >= 2) push(`A history report on the ${names[0]} and the ${names[1]}.`);
   else if (names[0]) push(`A history report on the ${names[0]}.`);
   if (names[0]) push(`A pre-purchase inspection of the ${names[0]}.`);
   return actions.slice(0, 3);
+}
+
+/** While another check is still going to run, do not say the checks finished or the pick settled. */
+export function copyWhileChecksContinue<T extends { settlementNote: string; why: string }>(
+  deal: T,
+  continuing: boolean,
+): T {
+  if (!continuing) return deal;
+  if (deal.settlementNote !== CHECKS_FINISHED_NOTE && deal.settlementNote !== PICK_SETTLED_NOTE) return deal;
+  return {
+    ...deal,
+    settlementNote: CHECKS_STILL_RUNNING_NOTE,
+    why: deal.why
+      .replaceAll(CHECKS_FINISHED_NOTE, CHECKS_STILL_RUNNING_NOTE)
+      .replaceAll(PICK_SETTLED_NOTE, CHECKS_STILL_RUNNING_NOTE),
+  };
 }
 
 export type CloseCallHopPlan =

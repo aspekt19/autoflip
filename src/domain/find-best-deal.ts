@@ -11,7 +11,13 @@ import type { CarConsistencyReceipt } from "./find-car-consistency";
 import { bestDealCarKey } from "./find-car-consistency";
 import { buyerCarLabels } from "./find-car-label";
 import { computeFindBaseline, type FindBaselineDelta } from "./find-baseline";
-import { closeCallCars, closeCallLeadReason, whatWouldDecideCloseCall } from "./find-close-call";
+import {
+  CHECKS_FINISHED_NOTE,
+  PICK_SETTLED_NOTE,
+  closeCallCars,
+  closeCallLeadReason,
+  whatWouldDecideCloseCall,
+} from "./find-close-call";
 import { confirmedRecallCount, recallEvidenceState, type EvidenceState } from "./find-evidence-state";
 import type { FindFuelEvidence } from "./find-fuel-match";
 import type { FindFreeGovReceipt } from "./find-free-gov";
@@ -1445,7 +1451,7 @@ export function selectBestDealOnEvidence(input: {
         ? `The pick may change as checks complete. ${plainPublicCheckProgress(coverage)}`
         : `Public safety records were checked for every model here, but the ranking can still change. ${plainFairnessHeldOutNote(fairnessHeldOut) ?? "Some checks are not in the ranking yet so one car is not favored for having more data."}`;
     }
-    return hasPick ? "Pick settled." : "Checks finished — no clear winner yet.";
+    return hasPick ? PICK_SETTLED_NOTE : CHECKS_FINISHED_NOTE;
   };
 
   const fuelAttemptedKeys = checkedMmyKeysForCheck(receipts, "free_gov_fuel");

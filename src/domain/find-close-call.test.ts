@@ -3,7 +3,7 @@
  * baseline comparison, seller-question order, and a terminating tie-break plan.
  */
 import { describe, expect, it } from "vitest";
-import { formatBaselineForBuyer } from "./find-baseline";
+import { computeFindBaseline, formatBaselineForBuyer } from "./find-baseline";
 import {
   BEST_DEAL_TIE_EPSILON,
   selectBestDealOnEvidence,
@@ -12,14 +12,20 @@ import {
 } from "./find-best-deal";
 import { buyerCarLabels } from "./find-car-label";
 import {
+  CHECKS_STILL_RUNNING_NOTE,
   CLOSE_CALL_MARGIN,
   closeCallCars,
+  closeCallLeadReason,
+  copyWhileChecksContinue,
   planCloseCallAfterHop,
   planCloseCallHop,
+  whatWouldDecideCloseCall,
 } from "./find-close-call";
+import { matchBuyerListing } from "./find-listing-link";
 import { formatDecisionLogLine, presentDecisionLogForBuyer, type FindDecisionLogEntry } from "./find-decision-log";
 import type { FindFreeGovReceipt } from "./find-free-gov";
 import {
+  findSettledStatusLine,
   formatBuyerBestDeal,
   formatTopPickLine,
   sellerQuestionsForBuyer,
@@ -263,6 +269,18 @@ describe("distinguishing labels", () => {
     expect(view.lines[0]).not.toMatch(/\(AI chose\)/);
   });
 
+  it("uses a plain listing number when no public field differs, and does not print the id", () => {
+    const names = buyerCarLabels([
+      { ...labels[0]!, key: "2HKRM4H75FH111111", trim: "Sport", priceUsd: 14_200, city: "Omaha", state: "NE", dealer: "Same Motors", miles: 80_000 },
+      { ...labels[1]!, key: "2HKRM4H75FH222222", trim: "Sport", priceUsd: 14_200, city: "Omaha", state: "NE", dealer: "Same Motors", miles: 80_000 },
+    ]);
+    expect(names.get("2HKRM4H75FH111111")).not.toBe(names.get("2HKRM4H75FH222222"));
+    const joined = [...names.values()].join(" ");
+    expect(joined).toMatch(/listing 1/);
+    expect(joined).toMatch(/listing 2/);
+    expect(joined).not.toMatch(/2HKRM4H75FH/);
+  });
+
   it("uses price when trim does not distinguish the cars", () => {
     const names = buyerCarLabels([
       { ...labels[0]!, trim: "Sport" },
@@ -337,6 +355,173 @@ describe("seller questions", () => {
     const lines = sellerQuestionsForBuyer({ ranked: [sport, limited], pick: sport, allRanked: [sport, limited] });
     expect(lines.some((line) => /Sport/.test(line))).toBe(true);
     expect(lines.some((line) => /Limited/.test(line))).toBe(true);
+  });
+});
+
+describe("close-call reason and actions", () => {
+  const label = (car: BestDealCandidate) =>
+    car.trim ? `${car.year} ${car.make} ${car.model} (${car.trim})` : `${car.year} ${car.make} ${car.model}`;
+
+  it("cites the check that separates the cars instead of claiming a named-model match", () => {
+    const suv = candidate({
+      key: "SUV",
+      year: 2019,
+      make: "Mazda",
+      model: "CX-5",
+      factors: [
+        {
+          id: "named_model_preference",
+          label: "Matches a model you named",
+          points: 4,
+          detail: "Not one of the models you named. This is an SUV, and the models you named are SUVs.",
+          source: "Your search note",
+        },
+      ],
+    });
+    const sedan = candidate({
+      key: "SED",
+      year: 2018,
+      make: "Toyota",
+      model: "Camry",
+      factors: [
+        {
+          id: "named_model_preference",
+          label: "Matches a model you named",
+          points: -8,
+          detail: "Not one of the models you named. This is a sedan, and the models you named are SUVs.",
+          source: "Your search note",
+        },
+      ],
+    });
+    const reason = closeCallLeadReason(suv, sedan, label);
+    expect(reason).toMatch(/SUV/);
+    expect(reason).toMatch(/sedan/);
+    expect(reason).not.toMatch(/matches what you named more closely/i);
+    expect(reason).not.toMatch(/\bscore\b/i);
+  });
+
+  it("says the checks do not separate cars that are the same on the evidence", () => {
+    const a = candidate({ key: "A", year: 2016, make: "Hyundai", model: "Tucson", trim: "Sport" });
+    const b = candidate({ key: "B", year: 2016, make: "Hyundai", model: "Tucson", trim: "Limited" });
+    const reason = closeCallLeadReason(a, b, label);
+    expect(reason).toMatch(/do not separate/i);
+    expect(reason).toMatch(/Sport/);
+    expect(reason).toMatch(/Limited/);
+    expect(reason).not.toMatch(/listed first/i);
+    expect(reason).not.toMatch(/\bscore\b/i);
+  });
+
+  it("puts the leaning car's own question ahead of the other car", () => {
+    const lead = candidate({
+      key: "LEAD",
+      year: 2016,
+      make: "Hyundai",
+      model: "Tucson",
+      trim: "Sport",
+      sellerQuestions: [
+        "Ask the seller for accident records on the 2016 Hyundai Tucson — the listing says accidents were reported.",
+      ],
+    });
+    const other = candidate({
+      key: "OTHER",
+      year: 2016,
+      make: "Hyundai",
+      model: "Tucson",
+      trim: "Limited",
+      sellerQuestions: ["Ask the seller to confirm the trim on the 2016 Hyundai Tucson."],
+    });
+    const actions = whatWouldDecideCloseCall([lead, other], label);
+    expect(actions.length).toBeGreaterThanOrEqual(1);
+    expect(actions.length).toBeLessThanOrEqual(3);
+    expect(actions[0]).toMatch(/accident/i);
+    expect(actions[0]).toMatch(/Sport/);
+    expect(actions.join(" ")).not.toMatch(/\bscore\b/i);
+  });
+
+  it("does not say checks finished while another check will still run", () => {
+    const running = copyWhileChecksContinue(
+      { settlementNote: "Checks finished — no clear winner yet.", why: "Leaning: Tucson. Checks finished — no clear winner yet." },
+      true,
+    );
+    expect(running.settlementNote).toBe(CHECKS_STILL_RUNNING_NOTE);
+    expect(running.why).not.toMatch(/Checks finished/);
+    expect(running.why).not.toMatch(/pick is settled/i);
+    const stopped = copyWhileChecksContinue(
+      { settlementNote: "Checks finished — no clear winner yet.", why: "Leaning: Tucson. Checks finished — no clear winner yet." },
+      false,
+    );
+    expect(stopped.settlementNote).toBe("Checks finished — no clear winner yet.");
+    expect(findSettledStatusLine({ pending: false, anyUnchecked: false, evidenceSettled: true, loopOpen: true, hasPick: false })).toBeNull();
+    expect(findSettledStatusLine({ pending: false, anyUnchecked: false, evidenceSettled: true, loopOpen: false, hasPick: false })).toBe(
+      "Checks finished — no clear winner yet.",
+    );
+    expect(findSettledStatusLine({ pending: false, anyUnchecked: false, evidenceSettled: true, loopOpen: false, hasPick: true })).toBe(
+      "Pick settled.",
+    );
+  });
+});
+
+describe("listing link for a leaning car", () => {
+  const sport = { vin: "2HKRM4H75FH111111", year: 2016, make: "Hyundai", model: "Tucson", priceUsd: 14_200, miles: 80_000, trim: "Sport", vdp: null };
+  const limited = { vin: "2HKRM4H75FH222222", year: 2016, make: "Hyundai", model: "Tucson", priceUsd: 14_200, miles: 80_000, trim: "Limited", vdp: "https://dealer.example/limited" };
+
+  it("does not borrow the other car's link when the leaning car has no listing URL", () => {
+    const card = matchBuyerListing(
+      { key: sport.vin, vin: sport.vin, year: sport.year, make: sport.make, model: sport.model, priceUsd: sport.priceUsd, miles: sport.miles, trim: sport.trim },
+      [limited, sport],
+    );
+    expect(card?.vin).toBe(sport.vin);
+    expect(card?.vdp).toBeNull();
+  });
+
+  it("does not guess a link when two cars share price and miles and neither VIN is on the row", () => {
+    const card = matchBuyerListing(
+      { year: 2016, make: "Hyundai", model: "Tucson", priceUsd: 14_200, miles: 80_000 },
+      [sport, limited],
+    );
+    expect(card).toBeNull();
+  });
+});
+
+describe("no pick with priced cars", () => {
+  it("compares a leading car that has no listed price with the cheapest priced car", () => {
+    const leading = candidate({ key: "LEAD", year: 2016, make: "Honda", model: "CR-V", priceUsd: null, trim: "EX" });
+    const cheap = candidate({ key: "CHEAP", year: 2008, make: "Toyota", model: "Camry", priceUsd: 4_200, miles: 180_000 });
+    const baseline = computeFindBaseline({
+      need: need(),
+      cars: [leading, cheap],
+      pick: null,
+      leading,
+    });
+    expect(baseline.cheapest?.key).toBe("CHEAP");
+    expect(baseline.whyNotCheapest).not.toMatch(/Not enough priced cars in budget/i);
+    expect(baseline.whyNotCheapest).toMatch(/leading car/i);
+    expect(baseline.whyNotCheapest).toMatch(/CR-V/);
+    expect(baseline.whyNotCheapest).toMatch(/Camry/);
+  });
+
+  it("distinguishes the leading car from the cheapest when they share a model year", () => {
+    const leading = candidate({ key: "A", year: 2016, make: "Hyundai", model: "Tucson", trim: "Sport", priceUsd: 14_200 });
+    const cheap = candidate({ key: "B", year: 2016, make: "Hyundai", model: "Tucson", trim: "Limited", priceUsd: 12_900 });
+    const baseline = computeFindBaseline({ need: need(), cars: [leading, cheap], pick: null, leading });
+    expect(baseline.whyNotCheapest).toMatch(/Sport/);
+    expect(baseline.whyNotCheapest).toMatch(/Limited/);
+    const buyer = formatBaselineForBuyer(baseline);
+    expect(buyer.lines[0]).toMatch(/Sport/);
+    expect(buyer.lines[0]).not.toMatch(/Limited/);
+  });
+
+  it("does not lean when there are no cars or only one priced car", () => {
+    const none = selectBestDealOnEvidence({ need: need(), listings: [], receipts: [], nowYear: 2026 });
+    expect(none.closeCall).toBeNull();
+    expect(none.why).not.toMatch(/Leaning:/);
+    const one: BestDealListing[] = [
+      { vin: "2HKRM4H75FH111111", year: 2016, make: "Honda", model: "CR-V", priceUsd: 14_000, miles: 70_000 },
+    ];
+    const solo = selectBestDealOnEvidence({ need: need(), listings: one, receipts: covered(one), nowYear: 2026 });
+    expect(solo.closeCall).toBeNull();
+    expect(solo.pick).toBeNull();
+    expect(solo.why).not.toMatch(/Leaning:/);
   });
 });
 
