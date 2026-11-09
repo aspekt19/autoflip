@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
+import { AgentDecisionTrail } from "@/components/AgentDecisionTrail";
 import { SignInGate } from "@/components/SignInGate";
 import { PriceBadgeView, PriceRatingHow } from "@/components/PriceBadge";
 import { SimilarCarsList } from "@/components/SimilarCarsList";
@@ -12,6 +13,7 @@ import {
 } from "@/domain/free-check-quota";
 import { isValidVin } from "@/domain/vin";
 import { formatUsd } from "@/domain/format";
+import type { AgentVerdict } from "@/domain/agent-verdict-schema";
 import type { PriceBadge } from "@/domain/price-badge";
 import type { CheckConfidence, CheckRedFlag, ExtractedListingFields } from "@/domain/listing/types";
 import type { SimilarCarView } from "@/domain/purchase-readiness";
@@ -56,6 +58,7 @@ type CheckResultView = {
     state: string | null;
   }>;
   freeChecks?: { remaining: number; limit: number; resetsLabel: string } | null;
+  agentVerdict?: AgentVerdict | null;
 };
 
 function sourceLabel(source: string | null): string {
@@ -416,6 +419,7 @@ function CheckResultCard({ result }: { result: CheckResultView }) {
         Confidence: {result.confidence}
       </p>
       <p>{result.summary}</p>
+      <AgentDecisionTrail verdict={result.agentVerdict} defaultOpen />
 
       {sold ? (
         <p className="warn" role="status">

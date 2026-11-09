@@ -15,6 +15,7 @@ import { summaryLine } from "@/domain/summary-line";
 import { formatNumber, formatPct, formatUsd, verdictLabel } from "@/domain/format";
 import type { DecisionScene } from "@/domain/decision-note";
 import type { FullReport } from "@/domain/types";
+import { AgentDecisionTrail } from "./AgentDecisionTrail";
 import { DecisionNote } from "./DecisionNote";
 import { resolveProductFlags } from "@/domain/product-flags";
 import { FavoriteButton } from "./FavoriteButton";
@@ -118,6 +119,7 @@ export function ReportView({ report }: { report: FullReport }) {
           ) : null}
         </div>
       ) : null}
+      <AgentDecisionTrail verdict={computed.agentVerdict} defaultOpen={computed.sample === true} />
       <CoverageNote
         input={{
           mode: computed.mode,
