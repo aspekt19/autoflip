@@ -3,7 +3,7 @@
 import { safeAuthCallbackUrl } from "@/auth/config";
 import { creditsNeedNotice } from "@/domain/find-buyer-copy";
 import { buyerFacingFailure } from "@/domain/buyer-facing-error";
-import { creditsPackButton, creditsPageModel } from "@/domain/account-load";
+import { canStartCreditCheckout, creditsPackButton, creditsPageModel } from "@/domain/account-load";
 import { CREDIT_PACKS } from "@/domain/assumptions";
 import { useAccountLoad } from "@/components/use-account-load";
 import Link from "next/link";
@@ -22,6 +22,7 @@ function CreditsInner() {
   const model = creditsPageModel({ phase: account.phase, snap });
 
   async function buy(pack: string) {
+    if (!canStartCreditCheckout({ phase: account.phase, snap })) return;
     setPending(pack);
     setError(null);
     try {

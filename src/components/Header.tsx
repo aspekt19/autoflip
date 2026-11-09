@@ -121,17 +121,23 @@ export function Header({ scoutNavEnabled = false }: { scoutNavEnabled?: boolean 
           </Link>
         ))}
         {balance.kind === "failed" ? (
-          <button className="nav-go" type="button" onClick={() => accountLoad.retry()}>
+          <button
+            className="nav-go"
+            type="button"
+            aria-label={balance.accessibleLabel}
+            title={balance.accessibleLabel}
+            onClick={() => accountLoad.retry()}
+          >
             <span className="nav-go-full">{balance.full}</span>
             <span className="nav-go-short">{balance.short}</span>
           </button>
         ) : balance.kind === "loading" ? (
-          <span className="nav-go" aria-busy="true">
+          <span className="nav-go" role="status" aria-live="polite" aria-busy="true" aria-label={balance.accessibleLabel} title={balance.accessibleLabel}>
             <span className="nav-go-full">{balance.full}</span>
             <span className="nav-go-short">{balance.short}</span>
           </span>
         ) : (
-          <Link className="nav-go" href="/credits" onClick={() => setMenuOpen(false)}>
+          <Link className="nav-go" href="/credits" aria-label={balance.accessibleLabel} onClick={() => setMenuOpen(false)}>
             <span className="nav-go-full">{balance.full}</span>
             <span className="nav-go-short">{balance.short}</span>
           </Link>

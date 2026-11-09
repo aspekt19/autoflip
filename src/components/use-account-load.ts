@@ -1,7 +1,12 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { readAccountFetch, type AccountLoadPhase, type AccountSnapshot } from "@/domain/account-load";
+import {
+  reduceAccountLoad,
+  readAccountFetch,
+  type AccountLoadPhase,
+  type AccountSnapshot,
+} from "@/domain/account-load";
 
 /**
  * GET /api/account with loading / failed / loaded.
@@ -17,33 +22,35 @@ export function useAccountLoad(reloadKey = ""): {
   const [body, setBody] = useState<AccountSnapshot | null>(null);
   const gen = useRef(0);
   const phaseRef = useRef<AccountLoadPhase>("loading");
+  const bodyRef = useRef<AccountSnapshot | null>(null);
+
+  const apply = useCallback((next: { phase: AccountLoadPhase; body: AccountSnapshot | null }) => {
+    phaseRef.current = next.phase;
+    bodyRef.current = next.body;
+    setPhase(next.phase);
+    setBody(next.body);
+  }, []);
 
   const load = useCallback(async (mode: "replace" | "preserve-loaded") => {
     const token = ++gen.current;
-    if (!(mode === "preserve-loaded" && phaseRef.current === "loaded")) {
-      phaseRef.current = "loading";
-      setPhase("loading");
-    }
+    const prev = { phase: phaseRef.current, body: bodyRef.current };
+    const started = reduceAccountLoad(prev, { type: "start", mode });
+    if (started.phase !== prev.phase || started.body !== prev.body) apply(started);
     try {
       const response = await fetch("/api/account", { cache: "no-store" });
       const result = await readAccountFetch(response);
       if (token !== gen.current) return;
-      if (result.phase === "failed") {
-        phaseRef.current = "failed";
-        setBody(null);
-        setPhase("failed");
-        return;
-      }
-      phaseRef.current = "loaded";
-      setBody(result.body);
-      setPhase("loaded");
+      apply(reduceAccountLoad({ phase: phaseRef.current, body: bodyRef.current }, { type: "result", result }));
     } catch {
       if (token !== gen.current) return;
-      phaseRef.current = "failed";
-      setBody(null);
-      setPhase("failed");
+      apply(
+        reduceAccountLoad(
+          { phase: phaseRef.current, body: bodyRef.current },
+          { type: "result", result: { phase: "failed" } },
+        ),
+      );
     }
-  }, []);
+  }, [apply]);
 
   useEffect(() => {
     void load(phaseRef.current === "loaded" ? "preserve-loaded" : "replace");

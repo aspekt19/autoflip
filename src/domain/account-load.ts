@@ -19,6 +19,8 @@ export const SIGN_IN_TO_BUY_LABEL = "Sign in to buy";
 export const BUY_IN_TEST_MODE_LABEL = "Buy in test mode";
 export const CHECKOUT_STARTING_LABEL = "Starting…";
 export const CREDITS_PACK_LOADING_LABEL = "Loading…";
+/** Failed checkout control. Not an ellipsis, and not the locked-checkout label. */
+export const CREDITS_PACK_FAILED_LABEL = "Couldn't load";
 
 export const ACCOUNT_AUTH_UNAVAILABLE =
   "Sign-in is not available yet. Vehicle checks, Find search, and buying credits stay locked.";
@@ -62,6 +64,31 @@ export async function readAccountFetch(
   }
   if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return { phase: "failed" };
   return { phase: "loaded", body: parsed as AccountSnapshot };
+}
+
+export type AccountLoadState = {
+  phase: AccountLoadPhase;
+  body: AccountSnapshot | null;
+};
+
+/**
+ * A failed read drops any previous payload.
+ * Loading and failure must not keep auth.configured === false around to render.
+ * A refresh that already loaded keeps that payload only until the next result.
+ */
+export function reduceAccountLoad(
+  prev: AccountLoadState,
+  event:
+    | { type: "start"; mode: "replace" | "preserve-loaded" }
+    | { type: "result"; result: { phase: "failed" } | { phase: "loaded"; body: AccountSnapshot } },
+): AccountLoadState {
+  if (event.type === "start") {
+    if (event.mode === "preserve-loaded" && prev.phase === "loaded") return prev;
+    if (prev.phase === "loading" && prev.body === null) return prev;
+    return { phase: "loading", body: null };
+  }
+  if (event.result.phase === "failed") return { phase: "failed", body: null };
+  return { phase: "loaded", body: event.result.body };
 }
 
 export type CreditsHint =
@@ -128,31 +155,48 @@ export function creditsPackButton(input: {
 }): { label: string; disabled: boolean } {
   if (input.pendingThis) return { label: CHECKOUT_STARTING_LABEL, disabled: true };
   if (input.phase === "loading") return { label: CREDITS_PACK_LOADING_LABEL, disabled: true };
-  if (input.phase !== "loaded") return { label: "…", disabled: true };
+  if (input.phase !== "loaded") return { label: CREDITS_PACK_FAILED_LABEL, disabled: true };
   if (accountAuthConfigured(input.snap) === false) return { label: CHECKOUT_LOCKED_LABEL, disabled: true };
   if (input.snap?.authenticated === true) return { label: BUY_IN_TEST_MODE_LABEL, disabled: false };
   return { label: SIGN_IN_TO_BUY_LABEL, disabled: true };
 }
 
+/** True only when the pack button would actually start checkout. */
+export function canStartCreditCheckout(input: {
+  phase: AccountLoadPhase;
+  snap: AccountSnapshot | null;
+}): boolean {
+  return creditsPackButton({ ...input, pendingThis: false }).disabled === false;
+}
+
 export function headerBalancePresentation(input: {
   phase: AccountLoadPhase;
   credits: number | null;
-}): { kind: "loading" | "failed" | "balance"; full: string; short: string } {
+}): { kind: "loading" | "failed" | "balance"; full: string; short: string; accessibleLabel: string } {
+  // Visible chip stays short. The header row is nowrap, and a full sentence
+  // crowds the Sign in control. The accessible name keeps the full sentence.
   if (input.phase === "loading") {
-    return { kind: "loading", full: ACCOUNT_LOADING_LABEL, short: "…" };
+    return {
+      kind: "loading",
+      full: CREDITS_PACK_LOADING_LABEL,
+      short: CREDITS_PACK_LOADING_LABEL,
+      accessibleLabel: ACCOUNT_LOADING_LABEL,
+    };
   }
   if (input.phase === "failed") {
     return {
       kind: "failed",
-      full: `${ACCOUNT_LOAD_FAILED_LABEL} ${ACCOUNT_RETRY_LABEL}`,
+      full: ACCOUNT_RETRY_LABEL,
       short: ACCOUNT_RETRY_LABEL,
+      accessibleLabel: `${ACCOUNT_LOAD_FAILED_LABEL} ${ACCOUNT_RETRY_LABEL}`,
     };
   }
   if (input.credits === null) {
-    return { kind: "balance", full: "Report credits", short: "Credits" };
+    return { kind: "balance", full: "Report credits", short: "Credits", accessibleLabel: "Report credits" };
   }
-  const full = `${input.credits} report credit${input.credits === 1 ? "" : "s"}`;
-  return { kind: "balance", full, short: `${input.credits} credits` };
+  const noun = input.credits === 1 ? "credit" : "credits";
+  const full = `${input.credits} report ${noun}`;
+  return { kind: "balance", full, short: `${input.credits} ${noun}`, accessibleLabel: full };
 }
 
 /** False only after a loaded payload explicitly says providers are off. */

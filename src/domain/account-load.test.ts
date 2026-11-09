@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { headerAuthControl } from "@/components/header-auth";
+import { assertBuyerSafeText } from "./find-buyer-copy";
 import {
   ACCOUNT_AUTH_UNAVAILABLE,
   ACCOUNT_LOAD_FAILED_LABEL,
@@ -13,16 +14,20 @@ import {
   CHECKOUT_STARTING_LABEL,
   CREDITS_AUTH_OFF_BALANCE,
   CREDITS_AUTH_UNAVAILABLE,
+  CREDITS_PACK_FAILED_LABEL,
   CREDITS_PACK_LOADING_LABEL,
   CREDITS_SIGN_IN_HINT,
+  CREDITS_STRIPE_OFF,
   SIGN_IN_TO_BUY_LABEL,
   accountAuthConfigured,
   accountSignedOutMessage,
+  canStartCreditCheckout,
   creditsPackButton,
   creditsPageModel,
   headerAuthConfiguredProp,
   headerBalancePresentation,
   readAccountFetch,
+  reduceAccountLoad,
 } from "./account-load";
 
 const LOCKED = /Sign-in is not available yet|Sign-in is not configured|Checkout locked/;
@@ -80,6 +85,30 @@ describe("credits page copy", () => {
     expect(button.label).toBe(CREDITS_PACK_LOADING_LABEL);
     expect(button.label).not.toBe(CHECKOUT_LOCKED_LABEL);
     expect(button.disabled).toBe(true);
+    expect(canStartCreditCheckout({ phase: "loading", snap: null })).toBe(false);
+  });
+
+  it("ignores a stale auth-off payload while loading or after failure", () => {
+    const stale = {
+      auth: { configured: false as const },
+      authenticated: true,
+      credits: 4,
+      stripeConfigured: false,
+    };
+    for (const phase of ["loading", "failed"] as const) {
+      const model = creditsPageModel({ phase, snap: stale });
+      expect(model.showBalance).toBe(false);
+      expect(model.authOffNote).toBeNull();
+      expect(model.stripeOffNote).toBeNull();
+      expect(JSON.stringify(model)).not.toMatch(LOCKED);
+      const button = creditsPackButton({ phase, snap: stale, pendingThis: false });
+      expect(button.disabled).toBe(true);
+      expect(button.label).not.toMatch(LOCKED);
+      expect(button.label).not.toBe("…");
+      expect(canStartCreditCheckout({ phase, snap: stale })).toBe(false);
+    }
+    expect(headerAuthConfiguredProp("loading", stale)).toBeUndefined();
+    expect(headerAuthConfiguredProp("failed", stale)).toBeUndefined();
   });
 
   it("asks for a retry when the account request fails and does not claim sign-in is off", () => {
@@ -97,8 +126,12 @@ describe("credits page copy", () => {
     expect(JSON.stringify(model)).not.toMatch(LOCKED);
 
     const button = creditsPackButton({ phase: "failed", snap: null, pendingThis: false });
+    expect(button.label).toBe(CREDITS_PACK_FAILED_LABEL);
+    expect(button.label).toBe("Couldn't load");
     expect(button.label).not.toBe(CHECKOUT_LOCKED_LABEL);
+    expect(button.label).not.toMatch(/…|\.\.\./);
     expect(button.disabled).toBe(true);
+    expect(canStartCreditCheckout({ phase: "failed", snap: null })).toBe(false);
   });
 
   it("shows the locked checkout copy only when the payload says auth.configured is false", () => {
@@ -130,6 +163,7 @@ describe("credits page copy", () => {
     const button = creditsPackButton({ phase: "loaded", snap, pendingThis: false });
     expect(button.label).toBe(SIGN_IN_TO_BUY_LABEL);
     expect(button.disabled).toBe(true);
+    expect(canStartCreditCheckout({ phase: "loaded", snap })).toBe(false);
     expect(JSON.stringify(model) + button.label).not.toMatch(LOCKED);
   });
 
@@ -139,6 +173,7 @@ describe("credits page copy", () => {
     expect(model.hint.kind).toBe("sign-in");
     expect(model.authOffNote).toBeNull();
     expect(creditsPackButton({ phase: "loaded", snap, pendingThis: false }).label).toBe(SIGN_IN_TO_BUY_LABEL);
+    expect(canStartCreditCheckout({ phase: "loaded", snap: { authenticated: true, credits: 2 } })).toBe(true);
   });
 
   it("enables test checkout for a signed-in visitor when auth is on", () => {
@@ -150,6 +185,7 @@ describe("credits page copy", () => {
     const idle = creditsPackButton({ phase: "loaded", snap, pendingThis: false });
     expect(idle.label).toBe(BUY_IN_TEST_MODE_LABEL);
     expect(idle.disabled).toBe(false);
+    expect(canStartCreditCheckout({ phase: "loaded", snap })).toBe(true);
     const pending = creditsPackButton({ phase: "loaded", snap, pendingThis: true });
     expect(pending.label).toBe(CHECKOUT_STARTING_LABEL);
     expect(pending.disabled).toBe(true);
@@ -167,9 +203,13 @@ describe("credits page copy", () => {
 describe("header balance and account signed-out copy", () => {
   it("uses a neutral loading label instead of Balance: …", () => {
     const view = headerBalancePresentation({ phase: "loading", credits: null });
-    expect(view).toEqual({ kind: "loading", full: ACCOUNT_LOADING_LABEL, short: "…" });
-    expect(view.full).not.toMatch(/^Balance:/);
-    expect(view.full).not.toMatch(LOCKED);
+    expect(view.kind).toBe("loading");
+    expect(view.full).toBe(CREDITS_PACK_LOADING_LABEL);
+    expect(view.short).toBe(CREDITS_PACK_LOADING_LABEL);
+    expect(view.accessibleLabel).toBe(ACCOUNT_LOADING_LABEL);
+    expect(view.full.length).toBeLessThan(ACCOUNT_LOADING_LABEL.length);
+    expect(`${view.full} ${view.short} ${view.accessibleLabel}`).not.toMatch(/^Balance:/);
+    expect(`${view.full} ${view.short} ${view.accessibleLabel}`).not.toMatch(LOCKED);
     expect(headerAuthConfiguredProp("loading", null)).toBeUndefined();
     expect(headerAuthControl({ authenticated: false, authConfigured: undefined }).availability).toBe("ready");
   });
@@ -177,9 +217,12 @@ describe("header balance and account signed-out copy", () => {
   it("shows a retry after the header account request fails", () => {
     const view = headerBalancePresentation({ phase: "failed", credits: null });
     expect(view.kind).toBe("failed");
-    expect(view.full).toBe(`${ACCOUNT_LOAD_FAILED_LABEL} ${ACCOUNT_RETRY_LABEL}`);
+    expect(view.full).toBe(ACCOUNT_RETRY_LABEL);
     expect(view.short).toBe(ACCOUNT_RETRY_LABEL);
-    expect(view.full).not.toMatch(LOCKED);
+    expect(view.accessibleLabel).toBe(`${ACCOUNT_LOAD_FAILED_LABEL} ${ACCOUNT_RETRY_LABEL}`);
+    expect(view.full).not.toMatch(/Balance:/);
+    expect(view.short).not.toMatch(/…|\.\.\./);
+    expect(`${view.full} ${view.short} ${view.accessibleLabel}`).not.toMatch(LOCKED);
     expect(headerAuthConfiguredProp("failed", { auth: { configured: false } })).toBeUndefined();
     expect(headerAuthControl({ authenticated: false, authConfigured: undefined }).availability).not.toBe("unavailable");
   });
@@ -188,17 +231,20 @@ describe("header balance and account signed-out copy", () => {
     expect(headerBalancePresentation({ phase: "loaded", credits: 1 })).toEqual({
       kind: "balance",
       full: "1 report credit",
-      short: "1 credits",
+      short: "1 credit",
+      accessibleLabel: "1 report credit",
     });
     expect(headerBalancePresentation({ phase: "loaded", credits: 2 })).toEqual({
       kind: "balance",
       full: "2 report credits",
       short: "2 credits",
+      accessibleLabel: "2 report credits",
     });
     expect(headerBalancePresentation({ phase: "loaded", credits: null })).toEqual({
       kind: "balance",
       full: "Report credits",
       short: "Credits",
+      accessibleLabel: "Report credits",
     });
     expect(headerAuthConfiguredProp("loaded", { auth: { configured: false } })).toBe(false);
     expect(headerAuthConfiguredProp("loaded", { auth: { configured: true } })).toBe(true);
@@ -231,12 +277,68 @@ describe("account load surfaces", () => {
     expect(credits).toMatch(/creditsPageModel/);
     expect(credits).toMatch(/creditsPackButton/);
     expect(credits).toMatch(/kind === "failed"/);
+    expect(credits).toMatch(/canStartCreditCheckout/);
+    expect(credits).toMatch(/disabled=\{button\.disabled\}/);
+    expect(credits).not.toMatch(/Checkout locked|Sign-in is not configured|Sign-in is not available yet/);
     expect(header).toMatch(/headerBalancePresentation/);
     expect(header).toMatch(/kind === "failed"/);
     expect(header).toMatch(/type="button"/);
+    expect(header).toMatch(/aria-label=\{balance\.accessibleLabel\}/);
+    expect(header).toMatch(/accountLoad\.retry\(\)/);
+    expect(header).not.toMatch(/Checkout locked|Sign-in is not configured|Sign-in is not available yet|Balance:/);
     expect(account).toMatch(/accountSignedOutMessage/);
     expect(account).toMatch(/phase === "failed"/);
     expect(account).toMatch(/ACCOUNT_RETRY_LABEL/);
+    expect(account).not.toMatch(/Checkout locked|Sign-in is not configured|Sign-in is not available yet/);
+    expect(account.indexOf("freeChecksRemainingFromAccount(body)")).toBeGreaterThan(account.indexOf('phase === "failed"'));
+    expect(account.indexOf("accountSignedOutMessage(accountAuthConfigured")).toBeGreaterThan(
+      account.indexOf('phase === "loaded"'),
+    );
+  });
+
+  it("drops a failed payload before any screen can treat it as sign-in turned off", async () => {
+    const loaded = {
+      phase: "loaded" as const,
+      body: { auth: { configured: true }, authenticated: true, credits: 4, stripeConfigured: true },
+    };
+    const kept = reduceAccountLoad(loaded, { type: "start", mode: "preserve-loaded" });
+    expect(kept).toBe(loaded);
+    const fetched = await readAccountFetch(
+      new Response(JSON.stringify({ auth: { configured: false }, authenticated: false, credits: 0 }), { status: 503 }),
+    );
+    const dropped = reduceAccountLoad(kept, { type: "result", result: fetched });
+    expect(dropped).toEqual({ phase: "failed", body: null });
+    expect(creditsPageModel({ phase: dropped.phase, snap: dropped.body }).authOffNote).toBeNull();
+    expect(creditsPackButton({ phase: dropped.phase, snap: dropped.body, pendingThis: false }).label).toBe(
+      CREDITS_PACK_FAILED_LABEL,
+    );
+    expect(canStartCreditCheckout({ phase: dropped.phase, snap: dropped.body })).toBe(false);
+
+    const replaced = reduceAccountLoad(loaded, { type: "start", mode: "replace" });
+    expect(replaced).toEqual({ phase: "loading", body: null });
+    expect(creditsPackButton({ phase: replaced.phase, snap: replaced.body, pendingThis: false }).disabled).toBe(true);
+  });
+
+  it("keeps buyer copy plain", () => {
+    for (const text of [
+      ACCOUNT_LOADING_LABEL,
+      ACCOUNT_LOAD_FAILED_LABEL,
+      ACCOUNT_RETRY_LABEL,
+      CREDITS_AUTH_UNAVAILABLE,
+      CREDITS_AUTH_OFF_BALANCE,
+      CREDITS_SIGN_IN_HINT,
+      CREDITS_STRIPE_OFF,
+      CHECKOUT_LOCKED_LABEL,
+      SIGN_IN_TO_BUY_LABEL,
+      BUY_IN_TEST_MODE_LABEL,
+      CHECKOUT_STARTING_LABEL,
+      CREDITS_PACK_LOADING_LABEL,
+      CREDITS_PACK_FAILED_LABEL,
+      ACCOUNT_AUTH_UNAVAILABLE,
+      ACCOUNT_SIGNED_OUT,
+    ]) {
+      expect(assertBuyerSafeText(text).ok, text).toBe(true);
+    }
   });
 
   it("find does not coerce a missing account payload into auth-off copy", () => {

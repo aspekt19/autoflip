@@ -327,6 +327,8 @@ span.nav-go {
   text-transform: uppercase;
   white-space: nowrap;
   border: 0;
+  background: var(--blue);
+  color: #fff;
 }
 button.nav-go { cursor: pointer; }
 span.nav-go { cursor: default; }
