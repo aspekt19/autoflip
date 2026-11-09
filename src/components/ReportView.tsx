@@ -17,9 +17,19 @@ import type { DecisionScene } from "@/domain/decision-note";
 import type { FullReport } from "@/domain/types";
 import { DecisionNote } from "./DecisionNote";
 import { FavoriteButton } from "./FavoriteButton";
+import { PurchaseReadinessNote } from "./PurchaseReadinessNote";
+import { omitQuestionsCoveredByTalkingPoints, purchaseReadinessForReport } from "@/domain/purchase-readiness";
 
 export function ReportView({ report }: { report: FullReport }) {
   const { computed } = report;
+  const readinessNow = Number.isNaN(Date.parse(report.createdAt))
+    ? new Date("2026-11-09T00:00:00Z")
+    : new Date(report.createdAt);
+  const purchaseReadiness = purchaseReadinessForReport(computed, readinessNow);
+  const dealerQuestions = omitQuestionsCoveredByTalkingPoints(
+    computed.questions,
+    purchaseReadiness.talkingPoints,
+  );
   const car = computed.subject;
   const title = `${car.year} ${car.make} ${car.model}${car.trim ? ` ${car.trim}` : ""}`;
   const decision = summaryLine({
@@ -239,9 +249,11 @@ export function ReportView({ report }: { report: FullReport }) {
               {flag.text}
             </p>
           ))}
+          <h3>Out-the-door estimate</h3>
+          <PurchaseReadinessNote view={purchaseReadiness} />
           <h3>Questions for the dealer</h3>
           <ol className="refuse">
-            {computed.questions.map((question) => (
+            {dealerQuestions.map((question) => (
               <li key={question}>{question}</li>
             ))}
           </ol>
