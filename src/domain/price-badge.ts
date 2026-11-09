@@ -1,9 +1,7 @@
-import { ASSUMPTIONS } from "./assumptions";
-import { mileageAdjust, priceGap, selectComparables } from "./comparables";
-import { historyAdjustment } from "./history";
+import { priceGap } from "./comparables";
 import { formatUsd } from "./format";
-import { listingUsableForPurchaseEconomics } from "./report-purchase-ask";
-import { median, roundDollars } from "./stats";
+import { resolveMarketComps } from "./market-comps";
+import { roundDollars } from "./stats";
 import type { Listing } from "./types";
 import { verdictFromPriceGap } from "./verdict";
 
@@ -33,65 +31,32 @@ export function priceBadge(subject: Listing, pool: Listing[]): PriceBadge {
     sampleSize: null,
     sampleNote: null,
   };
-  if (subject.priceUsd === null || subject.miles === null) return unknown;
-  // Fee/placeholder/suspicious feed figures are not purchase-ask economics.
-  if (!listingUsableForPurchaseEconomics(subject)) return unknown;
-  const selection = selectComparables(subject, pool);
-  if (selection.scope === "insufficient") {
+  const resolved = resolveMarketComps(subject, pool);
+  if (!resolved.ok) {
     return {
       ...unknown,
-      sampleSize: selection.comps.length,
-      sampleNote: selection.notes[0] ?? null,
+      sampleSize: resolved.sampleSize > 0 ? resolved.sampleSize : null,
+      sampleNote: resolved.sampleNote,
     };
   }
-  const priced = selection.comps.filter(
-    (item): item is Listing & { priceUsd: number; miles: number } =>
-      item.priceUsd !== null && item.miles !== null && listingUsableForPurchaseEconomics(item),
-  );
-  if (priced.length < ASSUMPTIONS.minComps) {
-    return {
-      ...unknown,
-      sampleSize: priced.length,
-      sampleNote: selection.notes[0] ?? null,
-    };
-  }
-  const adjusted = mileageAdjust(subject.miles, priced);
-  const before = adjusted.rows.map((row) => row.adjustedPriceUsd);
-  if (before.length < ASSUMPTIONS.minComps) {
-    return {
-      ...unknown,
-      sampleSize: before.length,
-      sampleNote: selection.notes[0] ?? null,
-    };
-  }
-  const mid = median(before);
-  if (mid === null || mid <= 0) return unknown;
-  const fair = roundDollars(mid * historyAdjustment(subject, "personal").multiplier);
-  const gap = priceGap(subject.priceUsd, fair);
-  if (gap === null || fair <= 0) return unknown;
+  if (subject.priceUsd === null) return unknown;
+  const gap = priceGap(subject.priceUsd, resolved.fairValueUsd);
+  if (gap === null || resolved.fairValueUsd <= 0) return unknown;
   const verdict = verdictFromPriceGap(gap);
-  const deltaUsd = roundDollars(subject.priceUsd - fair);
-  // One comparable set + one n= across deltaLabel and sampleNote (no trim-n vs model-n clash).
-  const scopeWord =
-    selection.scope === "same_trim"
-      ? "same-trim"
-      : selection.scope === "expanded_year"
-        ? "same-model (widened year)"
-        : "same-model";
-  const sampleNote =
-    selection.notes[0] ??
-    `Compared with ${priced.length} ${scopeWord} comps (similar year/mileage when available).`;
+  const deltaUsd = roundDollars(subject.priceUsd - resolved.fairValueUsd);
+  const scopeWord = resolved.scopeLabel;
+  const sampleNote = resolved.sampleNote;
   const deltaLabel =
     deltaUsd === 0
-      ? `At the market price (n=${priced.length} ${scopeWord} comps)`
+      ? `At the market price (n=${resolved.sampleSize} ${scopeWord} comps)`
       : deltaUsd < 0
-        ? `${formatUsd(Math.abs(deltaUsd))} below market (n=${priced.length} ${scopeWord} comps)`
-        : `${formatUsd(deltaUsd)} above market (n=${priced.length} ${scopeWord} comps)`;
+        ? `${formatUsd(Math.abs(deltaUsd))} below market (n=${resolved.sampleSize} ${scopeWord} comps)`
+        : `${formatUsd(deltaUsd)} above market (n=${resolved.sampleSize} ${scopeWord} comps)`;
   const base = {
     deltaUsd,
     deltaLabel,
-    fairValueUsd: fair,
-    sampleSize: priced.length,
+    fairValueUsd: resolved.fairValueUsd,
+    sampleSize: resolved.sampleSize,
     sampleNote,
   };
   if (verdict === "good_deal") return { label: "Good price", tone: "good", ...base };

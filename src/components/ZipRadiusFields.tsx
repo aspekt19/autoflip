@@ -194,7 +194,7 @@ export function ZipRadiusFields({
         </select>
         {mode === "custom" ? (
           <label className="block" htmlFor={customId} style={{ marginTop: 8 }}>
-            Custom miles (app ceiling {MAX_DISTANCE_MILES.toLocaleString("en-US")} mi; choose Nationwide for unbounded)
+            Custom miles (up to {MAX_DISTANCE_MILES.toLocaleString("en-US")} mi)
             <input
               id={customId}
               type="text"
@@ -217,7 +217,7 @@ export function ZipRadiusFields({
           {SELLER_DISTANCE_HINT}
           {!allowNationwide
             ? " Nationwide watches are not supported here — pick a positive seller-distance radius."
-            : ` Custom miles are capped at ${MAX_DISTANCE_MILES.toLocaleString("en-US")} by app validation (not a documented provider hard limit); Nationwide omits distance for unbounded search.`}
+            : ` You can enter any distance up to ${MAX_DISTANCE_MILES.toLocaleString("en-US")} miles, or choose Nationwide to search without a distance limit.`}
         </p>
       </div>
     </div>

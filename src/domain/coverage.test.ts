@@ -11,7 +11,7 @@ describe("coverage note", () => {
       historyOnListing: false,
     });
     expect(note).toBe(
-      "Based on 34 dealer listings in this search direction within 150 miles; no vehicle history checked.",
+      "Based on 34 dealer listings shown here within 150 miles; no vehicle history checked.",
     );
   });
 

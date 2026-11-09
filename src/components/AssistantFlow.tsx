@@ -664,10 +664,22 @@ function AssistantFlow({
           )
           .replace(/\bNMVTIS\b/g, "NMVTIS (official title history)")
           .trim();
-      const coverageBits = [
-        coverage && typeof coverage.note === "string" ? scrubCoverage(coverage.note) : "",
-        toolCov && typeof toolCov.note === "string" ? scrubCoverage(toolCov.note) : "",
-      ].filter(Boolean);
+      // Prefer one plain coverage sentence — avoid duplicating year/make/model jargon.
+      const toolNote =
+        toolCov && typeof toolCov.note === "string" && toolCov.note.trim()
+          ? scrubCoverage(toolCov.note)
+          : "";
+      const riskNote =
+        coverage && typeof coverage.note === "string" && coverage.note.trim()
+          ? scrubCoverage(coverage.note)
+          : "";
+      const coverageBits = toolNote
+        ? riskNote && !toolNote.includes(riskNote.slice(0, 40)) && riskNote.length > 0
+          ? [toolNote, riskNote]
+          : [toolNote]
+        : riskNote
+          ? [riskNote]
+          : [];
       if (coverageBits.length > 0) {
         setRiskCoverageNote(coverageBits.join(" "));
       }
@@ -1741,8 +1753,10 @@ function AssistantFlow({
                           <>
                             <p>Why each ranked car scored this way:</p>
                             <ul>
-                              {dealCopy.factorLines.map((line) => (
-                                <li key={line.slice(0, 120)}>{line}</li>
+                              {dealCopy.factorLines.map((line, idx) => (
+                                <li key={`factor-${bestDeal?.evidenceSettled ? "settled" : "prov"}-${idx}`}>
+                                  {line}
+                                </li>
                               ))}
                             </ul>
                           </>
@@ -1874,7 +1888,7 @@ function AssistantFlow({
               <button className="quiet" type="button" onClick={() => void watch(group.direction)} disabled={pending === group.direction.id}>
                 {pending === group.direction.id ? "Saving alert…" : need?.mode === "flip" ? "Get alerts for this budget" : "Get new-listing alerts"}
               </button>
-              <p className="hint">The one-time search is free. Ongoing new-listing alerts require a separate monthly Radar plan.</p>
+              <p className="hint">Find is a credit-priced search when billing is enabled — not a free search. A full per-car report uses 1 report credit. Ongoing new-listing alerts require a separate monthly Radar plan.</p>
               {error && pending === null ? (
                 <p className="warn" role="alert">
                   {error} {/plan|watch/i.test(error) ? <a href="/pricing">See radar plans</a> : null}

@@ -136,6 +136,8 @@ export async function POST(request: Request) {
     freeGovCoverage: result.freeGovCoverage,
     rematch: result.rematch,
     loop: result.loop,
+    servPaidCalls: result.servPaidCalls,
+    servInvokeReason: result.servInvokeReason,
     honesty: result.honesty,
     failureDiag: result.failureDiag
       ? {

@@ -4,8 +4,13 @@ export type CoverageInput = {
   mode: "personal" | "flip";
   /** True when the rows are the labeled fixture. */
   sample: boolean;
-  /** Dealer listings actually used for this result. Never invent a count. */
+  /** Dealer listings actually shown for this result group. Never invent a count. */
   dealerListingCount: number;
+  /**
+   * Total dealer listings shown across the whole Find page (all suggestion groups).
+   * When set and greater than dealerListingCount, the sentence names both numbers.
+   */
+  pageListingCount?: number | null;
   /** Search radius in miles, only when the search used one. */
   radiusMiles: number | null;
   /** Listing feed included accident and owner fields. A title report is never assumed. */
@@ -26,11 +31,27 @@ export function coverageConfidence(input: CoverageInput): CoverageConfidence {
 /** One sentence. The confidence word lives on the badge, not in this line. */
 export function coverageSentence(input: CoverageInput): string {
   const count = Math.max(0, Math.floor(input.dealerListingCount));
-  // Per search direction — other directions on the page are counted separately.
-  const listing =
-    count === 1
-      ? "Based on 1 dealer listing in this search direction"
-      : `Based on ${count} dealer listings in this search direction`;
+  const page =
+    typeof input.pageListingCount === "number" && Number.isFinite(input.pageListingCount)
+      ? Math.max(0, Math.floor(input.pageListingCount))
+      : null;
+  let listing: string;
+  if (page != null && page > count && count > 0) {
+    listing =
+      count === 1
+        ? `Based on 1 dealer listing in this group (${page} on this page)`
+        : `Based on ${count} dealer listings in this group (${page} on this page)`;
+  } else if (page != null && page === count && count > 0) {
+    listing =
+      count === 1
+        ? "Based on 1 dealer listing on this page"
+        : `Based on ${count} dealer listings on this page`;
+  } else {
+    listing =
+      count === 1
+        ? "Based on 1 dealer listing shown here"
+        : `Based on ${count} dealer listings shown here`;
+  }
   const where = input.radiusMiles !== null ? ` within ${input.radiusMiles} miles` : "";
   const history = input.historyOnListing
     ? "listing history flags only; no title report checked"

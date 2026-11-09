@@ -282,9 +282,10 @@ describe("find risk evidence (structured shapes)", () => {
     expect(coverage.checkedMmyCount).toBe(3);
     expect(coverage.uncheckedMmyCount).toBe(coverage.listingMmyCount - 3);
     expect(coverage.note).toMatch(/3 of \d+/);
-    expect(coverage.note).toMatch(/not a fleet-wide clearance|Unchecked/i);
-    // Mechanism is MMY-keyed — note must not invent VIN clearance.
-    expect(coverage.note).toMatch(/make\/model\/year|MMY|VIN/i);
+    expect(coverage.note).toMatch(/remaining years are still unknown|still unknown/i);
+    // Plain buyer note — no listing-key jargon; does not invent VIN clearance.
+    expect(coverage.note).not.toMatch(/listing make\/model\/year key/i);
+    expect(coverage.note).not.toMatch(/\bMMY\b/);
   });
 
   it("executeFindFreeGovCheck retains structured riskFacts + sourceUrl (not summary-only)", async () => {
