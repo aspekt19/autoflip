@@ -94,9 +94,13 @@ export function buildResaleAssessment(input: {
     timeToSellRisk: flip.timeToSellRisk,
   });
 
+  const accidentLine =
+    input.accidentCount == null
+      ? `Accident history was not entered. The recon example uses 1 accident (${formatUsd(ASSUMPTIONS.flipReconPerAccidentUsd)}) so unknown history is not treated as a clean car. That count is not a known accident.`
+      : `Accidents entered: ${input.accidentCount}. The recon example adds ${formatUsd(ASSUMPTIONS.flipReconPerAccidentUsd)} per accident. This is not a shop quote or a history report.`;
   const costLines = [
     `Title / transfer fee estimate: ${formatUsd(flip.titleFeeUsd)} (example assumption, not a DMV quote).`,
-    `Reconditioning estimate: ${formatUsd(flip.reconUsd)} (example assumption, not a shop quote).`,
+    `Reconditioning estimate: ${formatUsd(flip.reconUsd)} (example assumption, not a shop quote). ${accidentLine}`,
     `Sell friction: ${Math.round(flip.sellFriction * 100)}% off the low end of similar asking prices (estimate for fees/time, not a sold price).`,
   ];
 

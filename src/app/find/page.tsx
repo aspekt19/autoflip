@@ -1,7 +1,9 @@
 import type { Metadata } from "next";
 import { FindFlow } from "@/components/AssistantFlow";
+import { SignInGate } from "@/components/SignInGate";
 import { FIND_PAGE_BILLING_STEP } from "@/domain/find-buyer-copy";
 import { parseFindEntryParams } from "@/domain/need";
+import { resolveProductFlags } from "@/domain/product-flags";
 
 export const metadata: Metadata = { title: "Find a car" };
 
@@ -25,14 +27,16 @@ export default async function FindPage({
             <li>Add a U.S. ZIP and seller-distance radius when you want nearby listings — or choose Nationwide.</li>
             <li>Review matching dealer listings. {FIND_PAGE_BILLING_STEP}</li>
           </ol>
-          <p>Deal Radar is a separate optional monthly plan.</p>
+          {resolveProductFlags().dealRadar ? <p>Deal Radar is a separate optional monthly plan.</p> : null}
         </div>
-        <FindFlow
-          initialNote={entry.note}
-          initialMode={entry.mode}
-          initialZip={entry.zip}
-          initialDistanceMiles={entry.distanceMiles}
-        />
+        <SignInGate callbackPath="/find">
+          <FindFlow
+            initialNote={entry.note}
+            initialMode={entry.mode}
+            initialZip={entry.zip}
+            initialDistanceMiles={entry.distanceMiles}
+          />
+        </SignInGate>
       </div>
     </div>
   );

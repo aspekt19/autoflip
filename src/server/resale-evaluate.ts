@@ -2,12 +2,14 @@
  * Server orchestration for minimal /resale evaluate.
  * Uses Autodev comps + shared evaluateListingPrice + buildResaleAssessment.
  */
+import { GENERATION_YEAR_WINDOW } from "@/domain/adjusted-comparables";
 import { autoDevMake, autoDevModel } from "@/domain/vehicle-names";
 import { evaluateListingPrice } from "@/domain/price-evaluation";
 import { buildResaleAssessment, type ResaleAssessment } from "@/domain/resale-evaluate";
 import type { RepairAbility } from "@/domain/need";
 import type { Listing } from "@/domain/types";
 import { autodevSearch, type AutodevDeps } from "@/io/autodev";
+import type { ListingQuery } from "@/io/marketcheck";
 import { getKv, type Kv } from "@/io/kv";
 import { isServerlessRuntime, requireSharedQuotaForPaidDispatch } from "@/server/paid-dispatch-guard";
 import { screenUserInput } from "@/domain/screen";
@@ -37,6 +39,22 @@ export type ResaleEvaluateDeps = {
 export type ResaleEvaluateResult =
   | { ok: true; assessment: ResaleAssessment; title: string; sample: boolean }
   | { ok: false; status: number; error: string; message: string };
+
+/** Same make/model window the shared price math will accept. One model year would hide comps and look like a thin market. */
+export function resaleListingQuery(input: ResaleEvaluateInput, now = new Date()): ListingQuery {
+  const yearMin = Math.max(1981, input.year - GENERATION_YEAR_WINDOW);
+  const yearMax = Math.min(now.getUTCFullYear() + 1, input.year + GENERATION_YEAR_WINDOW);
+  const zip = input.zip?.replace(/\D/g, "").slice(0, 5) || undefined;
+  return {
+    make: autoDevMake(input.make),
+    model: autoDevModel(input.model),
+    yearRange: `${yearMin}-${yearMax}`,
+    zip,
+    distanceMiles: zip ? 500 : undefined,
+    limit: 24,
+    used: true,
+  };
+}
 
 export async function evaluateResaleDeal(
   input: ResaleEvaluateInput,
@@ -79,16 +97,10 @@ export async function evaluateResaleDeal(
     return { ok: false, status: 503, error: "quota_backend_not_distributed", message: gate.message };
   }
 
-  const zip = input.zip?.replace(/\D/g, "").slice(0, 5) || undefined;
+  const query = resaleListingQuery(input, deps.now);
+  const zip = query.zip;
   const search = await autodevSearch(
-    {
-      make,
-      model,
-      year: input.year,
-      zip,
-      distanceMiles: zip ? 500 : undefined,
-      limit: 20,
-    },
+    query,
     {
       fetch: deps.fetch ?? fetch,
       cache: deps.autodev.cache,

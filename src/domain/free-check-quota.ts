@@ -2,7 +2,7 @@
  * Consumer free vehicle-check allotment (t334 / business 327–332).
  *
  * - 3 free CHECKS per verified authenticated account per UTC calendar month
- * - VIN or shopper-own listing URL only (Check-a-car surface)
+ * - Check-a-car surface: listing link (fetched page), pasted listing text, or VIN
  * - Find / searches are always paid credits — not this allotment
  * - Find next-check / rematches / free-gov evidence are NOT user checks
  * - No SERV decision-count cap here

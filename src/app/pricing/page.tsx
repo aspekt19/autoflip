@@ -21,6 +21,7 @@ function PricingContent() {
   const [accountLoading, setAccountLoading] = useState(true);
   const [message, setMessage] = useState<string | null>(null);
   const [pending, setPending] = useState<string | null>(null);
+  const [radarUi, setRadarUi] = useState<boolean | null>(null);
 
   async function refreshAccount() {
     setAccountLoading(true);
@@ -38,9 +39,25 @@ function PricingContent() {
 
   useEffect(() => {
     void refreshAccount();
+    let cancelled = false;
+    fetch("/api/product-flags")
+      .then((response) => response.json())
+      .then((body: { flags?: { dealRadar?: boolean } }) => {
+        if (!cancelled) setRadarUi(body.flags?.dealRadar === true);
+      })
+      .catch(() => {
+        if (!cancelled) setRadarUi(false);
+      });
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   async function subscribe(planId: string) {
+    if (radarUi !== true) {
+      setMessage("Deal Radar saved searches are not available in this preview, so a plan cannot be started.");
+      return;
+    }
     setMessage(null);
     setPending(planId);
     try {
@@ -89,7 +106,7 @@ function PricingContent() {
     <div className="sub">
       <div className="sheet-page site-frame">
         <p className="kicker">Preview pricing</p>
-        <h1>Radar plans</h1>
+        <h1>{radarUi ? "Radar plans" : "Pricing"}</h1>
         <p className="lead">
           Preview-only test subscriptions. Displayed monthly amounts are placeholders, and Stripe test mode does not charge
           real money. These plans are for ongoing saved-search alerts when Deal Radar is enabled. Report credits are
@@ -134,8 +151,8 @@ function PricingContent() {
               <strong className="choice-title">{plan.name}</strong>
               <span className="choice-desc">{plan.detail}</span>
               <b>${plan.amountCents / 100}/month</b>
-              <button className="action" type="button" disabled={accountLoading || pending === plan.id || Boolean(account?.demo) || Boolean(personalActive)} onClick={() => void subscribe(plan.id)}>
-                {personalActive ? "Personal plan active" : account?.demo ? "Included in shared demo" : pending === plan.id ? "Starting…" : "Start test subscription"}
+              <button className="action" type="button" disabled={radarUi !== true || accountLoading || pending === plan.id || Boolean(account?.demo) || Boolean(personalActive)} onClick={() => void subscribe(plan.id)}>
+                {radarUi === false ? "Not available in this preview" : personalActive ? "Personal plan active" : account?.demo ? "Included in shared demo" : pending === plan.id ? "Starting…" : "Start test subscription"}
               </button>
             </article>
           ))}
@@ -148,8 +165,8 @@ function PricingContent() {
               <strong className="choice-title">{plan.name}</strong>
               <span className="choice-desc">{plan.detail}</span>
               <b>${plan.amountCents / 100}/month</b>
-              <button className="action" type="button" disabled={accountLoading || pending === plan.id || Boolean(account?.demo) || Boolean(flipActive)} onClick={() => void subscribe(plan.id)}>
-                {flipActive ? "For resale plan active" : account?.demo ? "Included in shared demo" : pending === plan.id ? "Starting…" : "Start test subscription"}
+              <button className="action" type="button" disabled={radarUi !== true || accountLoading || pending === plan.id || Boolean(account?.demo) || Boolean(flipActive)} onClick={() => void subscribe(plan.id)}>
+                {radarUi === false ? "Not available in this preview" : flipActive ? "For resale plan active" : account?.demo ? "Included in shared demo" : pending === plan.id ? "Starting…" : "Start test subscription"}
               </button>
             </article>
           ))}

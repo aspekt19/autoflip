@@ -57,6 +57,7 @@ function ResaleForm({ onAuthLost }: { onAuthLost: () => void }) {
   const [miles, setMiles] = useState("");
   const [asking, setAsking] = useState("");
   const [zip, setZip] = useState("");
+  const [accidents, setAccidents] = useState("");
   const [targetProfit, setTargetProfit] = useState("1500");
   const [repairAbility, setRepairAbility] = useState<"unknown" | "none" | "minor" | "major">("unknown");
   const [pending, setPending] = useState(false);
@@ -81,6 +82,7 @@ function ResaleForm({ onAuthLost }: { onAuthLost: () => void }) {
           miles: Number(miles.replace(/[^0-9.]/g, "")),
           askingUsd: asking,
           zip: zip.trim() || null,
+          accidentCount: accidents.trim() === "" ? null : Number(accidents),
           targetProfitUsd: targetProfit,
           repairAbility,
         }),
@@ -168,6 +170,17 @@ function ResaleForm({ onAuthLost }: { onAuthLost: () => void }) {
             placeholder="e.g. 1,500"
           />
         </div>
+      </div>
+      <div className="field">
+        <label htmlFor="resale-accidents">Known accidents (optional)</label>
+        <input
+          id="resale-accidents"
+          value={accidents}
+          onChange={(e) => setAccidents(e.target.value)}
+          inputMode="numeric"
+          placeholder="Leave blank if you do not know"
+        />
+        <p className="hint">Blank does not mean a clean history. The recon example then uses 1 accident and says so.</p>
       </div>
       <div className="field">
         <label htmlFor="resale-zip">U.S. ZIP for nearby comps (optional)</label>

@@ -78,6 +78,37 @@ describe("buildResaleAssessment", () => {
     expect(result.resaleMidUsd).toBeGreaterThanOrEqual(result.resaleLowUsd);
     expect(result.costLines.some((line) => /estimate/i.test(line))).toBe(true);
     expect(result.summary).toMatch(/not a profit guarantee/i);
+    expect(result.costLines.join(" ")).toMatch(/Accidents entered: 0/);
+    expect(result.costLines.join(" ")).toMatch(/not a shop quote or a history report/i);
     expect(["High", "Medium", "Low"]).toContain(result.confidence);
+    expect(result.fairValueUsd).not.toBe(18_000);
+    expect(result.resaleMidUsd).toBeGreaterThan(15_000);
+  });
+
+  it("does not copy a low ask into the resale range", () => {
+    const subject = car({ vin: "S", year: 2018, miles: 70_000, priceUsd: 8_000 });
+    const pool = [
+      subject,
+      car({ vin: "1", year: 2017, miles: 68_000, priceUsd: 16_400 }),
+      car({ vin: "2", year: 2018, miles: 62_000, priceUsd: 17_200 }),
+      car({ vin: "3", year: 2019, miles: 55_000, priceUsd: 18_100 }),
+      car({ vin: "4", year: 2018, miles: 74_000, priceUsd: 15_900 }),
+      car({ vin: "5", year: 2016, miles: 80_000, priceUsd: 14_800 }),
+    ];
+    const evaluation = evaluateListingPrice(subject, pool, { mode: "flip" });
+    expect(evaluation.priced).toBe(true);
+    expect(evaluation.fairValueUsd).toBeGreaterThan(12_000);
+    const result = buildResaleAssessment({
+      askingUsd: 8_000,
+      miles: 70_000,
+      accidentCount: null,
+      evaluation,
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.resaleMidUsd).toBeGreaterThan(12_000);
+    expect(result.resaleMidUsd).not.toBe(8_000);
+    expect(result.buyCeilingUsd).not.toBe(8_000);
+    expect(result.costLines.join(" ")).toMatch(/not a known accident/i);
   });
 });

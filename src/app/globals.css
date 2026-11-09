@@ -819,6 +819,20 @@ button:disabled, .action:disabled, .quiet:disabled, .ghost:disabled {
 .find-col-side {
   min-width: 0;
 }
+.sign-in-gate {
+  max-width: 42rem;
+  padding: 1.25rem 0 2rem;
+}
+.check-result {
+  margin-top: 1.5rem;
+}
+.check-result h3 {
+  margin-top: 1.25rem;
+}
+.check-flow .pills {
+  flex-wrap: wrap;
+}
+
 .flow-page :where(input, textarea, select),
 .sheet-page :where(input, textarea, select) {
   max-width: 80ch;
@@ -1569,4 +1583,84 @@ pre.doc {
 .muted {
   opacity: 0.75;
   font-size: 0.9rem;
+}
+
+/* Visible checkbox row. Do not use .pill here: .pill hides the input with
+   position:absolute, and the global input min-height then overlaps the field. */
+.field > label.check-line,
+label.check-line {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  width: fit-content;
+  max-width: 100%;
+  min-block-size: 44px;
+  margin-block-start: 8px;
+  margin-bottom: 0;
+  font-weight: 700;
+  cursor: pointer;
+}
+.field > label.check-line input[type="checkbox"],
+label.check-line input[type="checkbox"],
+.note-chip input[type="checkbox"] {
+  position: static;
+  inline-size: 1.25rem;
+  block-size: 1.25rem;
+  width: 1.25rem;
+  height: 1.25rem;
+  min-width: 1.25rem;
+  min-height: 1.25rem;
+  max-width: 1.25rem;
+  margin: 0;
+  padding: 0;
+  flex: 0 0 auto;
+  accent-color: var(--blue);
+}
+.from-note {
+  display: inline-block;
+  margin-inline-start: 0.5rem;
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+}
+.note-facts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  border: 0;
+  margin: 0 0 16px;
+  padding: 0;
+}
+.note-facts-title {
+  flex: 1 0 100%;
+  margin: 0 0 4px;
+  font-weight: 700;
+}
+.note-chip {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 4px;
+  flex: 1 1 12rem;
+  max-width: 100%;
+  margin: 0;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--field);
+  font-weight: 700;
+}
+.note-chip .from-note {
+  margin-inline-start: 0;
+}
+.note-chip.check-line {
+  align-items: flex-start;
+  width: auto;
+  margin-block-start: 0;
+}
+.note-chip input:not([type="checkbox"]),
+.note-chip select {
+  width: 100%;
+  min-height: 44px;
+  font-weight: 500;
 }

@@ -1,6 +1,17 @@
 import { parseUsdInput } from "./budget";
 import { bodyStyleMatches } from "./body-style";
+import {
+  budgetFromText,
+  intakeFromNote,
+  milesCapFromNote,
+  NOTE_BODY_STYLES,
+  type HistoryPref,
+  type NoteBodyStyle,
+  type TransmissionPref,
+} from "./note-intake";
 import { FALLBACK_MODELS, MAINSTREAM_MAKES } from "./vehicle-names";
+
+export { budgetFromText };
 
 export const USE_CASES = ["family", "commute", "haul", "first_car", "comfort", "unspecified"] as const;
 export type UseCase = (typeof USE_CASES)[number];
@@ -78,6 +89,16 @@ export type StructuredNeed = {
    * Triggers inspection/history next-checks — never a fictitious condition score.
    */
   conditionPriority: "unspecified" | "inspection_first" | "price_ok";
+  /** Transmission the note named. Null means the note did not say. */
+  transmission?: TransmissionPref | null;
+  /** True when the note asks for fuel economy (good on gas, mpg, and similar). */
+  fuelEconomyPriority?: boolean;
+  /** Salvage / accident exclusion the note already stated. */
+  historyPreference?: HistoryPref | null;
+  /** Body style named in the note, including styles Find does not hard-filter yet. */
+  bodyStyle?: NoteBodyStyle | null;
+  /** Place named in the note when it is not a ZIP. Not a guessed ZIP. */
+  locationPhrase?: string | null;
   /**
    * First preferred make, kept for older callers.
    * Prefer `preferredMakes` when deciding what to keep or drop.
@@ -100,6 +121,7 @@ export type StructuredNeed = {
 export type NeedIssue = { field: string; message: string };
 
 const ZIP = /^\d{5}$/;
+const NOTE_BODY_STYLE_SET = new Set<string>(NOTE_BODY_STYLES);
 
 export function emptyNeed(mode: "personal" | "flip" = "personal"): StructuredNeed {
   return {
@@ -121,6 +143,11 @@ export function emptyNeed(mode: "personal" | "flip" = "personal"): StructuredNee
     yearBandResolved: false,
     milesCapResolved: false,
     conditionPriority: "unspecified",
+    transmission: null,
+    fuelEconomyPriority: false,
+    historyPreference: null,
+    bodyStyle: null,
+    locationPhrase: null,
     make: null,
     preferredMakes: [],
     preferredModels: [],
@@ -284,6 +311,20 @@ export function validateNeed(input: unknown): { ok: true; need: StructuredNeed }
     raw.conditionPriority === "inspection_first" || raw.conditionPriority === "price_ok"
       ? raw.conditionPriority
       : "unspecified";
+  const transmission = raw.transmission === "automatic" || raw.transmission === "manual" ? raw.transmission : null;
+  const fuelEconomyPriority = raw.fuelEconomyPriority === true;
+  const historyPreference =
+    raw.historyPreference === "no_salvage" ||
+    raw.historyPreference === "no_accidents" ||
+    raw.historyPreference === "no_salvage_no_accidents"
+      ? raw.historyPreference
+      : null;
+  const bodyStyle =
+    typeof raw.bodyStyle === "string" && NOTE_BODY_STYLE_SET.has(raw.bodyStyle) ? (raw.bodyStyle as NoteBodyStyle) : null;
+  const locationPhrase =
+    typeof raw.locationPhrase === "string" && raw.locationPhrase.trim()
+      ? raw.locationPhrase.trim().slice(0, 80)
+      : null;
   let distanceMiles: number | null = null;
   const distanceParsed = parseDistanceMiles(raw.distanceMiles);
   if (!distanceParsed.ok) {
@@ -335,6 +376,11 @@ export function validateNeed(input: unknown): { ok: true; need: StructuredNeed }
       yearBandResolved,
       milesCapResolved,
       conditionPriority,
+      transmission,
+      fuelEconomyPriority,
+      historyPreference,
+      bodyStyle,
+      locationPhrase,
       make: makes[0] ?? null,
       preferredMakes: makes,
       preferredModels,
@@ -398,15 +444,6 @@ function stringList(value: unknown): string[] {
     .map((item) => item.slice(0, 80));
 }
 
-/** Read a budget the shopper actually wrote. Does not guess a number that is not there. */
-export function budgetFromText(text: string): number | null {
-  const match = text.match(/(?:\$\s*|(?:\bunder\b|\bbudget\b|\baround\b|\babout\b|\bnear\b)\s+\$?\s*)([0-9]{1,3}(?:,[0-9]{3})+|[0-9]{4,6})\b/i);
-  if (!match) return null;
-  const value = Number(match[1]!.replace(/,/g, ""));
-  if (!Number.isFinite(value) || value < 1000 || value > 250_000) return null;
-  return value;
-}
-
 /**
  * True when the note frames the budget as approximate ("around $15,000").
  * Approximate budgets still assess affordability, with a labeled soft tolerance.
@@ -448,39 +485,45 @@ export function repairFromText(text: string): RepairAbility {
 }
 
 export function explicitNeedFromText(text: string, mode: "personal" | "flip"): StructuredNeed {
-  const budget = budgetFromText(text);
   const note = text.trim().slice(0, 500);
+  const intake = intakeFromNote(note);
   const preferredMakes = makesFromText(note);
   const preferredModels = preferredModelsFromText(note);
   const openToOtherMakes = preferOpenToOtherMakes(note, preferredMakes);
+  const milesMax = intake.milesMax;
   return {
     ...emptyNeed(mode),
     useCase: useCaseFromText(text),
     note,
-    budgetUsd: budget,
-    budgetKnown: budget !== null,
+    budgetUsd: intake.budgetUsd,
+    budgetKnown: intake.budgetUsd !== null,
     repairAbility: mode === "flip" ? repairFromText(text) : "unknown",
-    milesMax: milesFromText(note),
+    milesMax,
+    milesCapResolved: milesMax != null,
+    yearMin: intake.yearMin,
+    yearMax: intake.yearMax,
+    yearBandResolved: intake.yearMin != null || intake.yearMax != null,
+    zip: intake.zip,
+    distanceMiles: intake.distanceMiles,
+    transmission: intake.transmission,
+    fuelEconomyPriority: intake.fuelEconomyPriority,
+    historyPreference: intake.historyPreference,
+    bodyStyle: intake.bodyStyle,
+    locationPhrase: intake.locationPhrase,
+    conditionPriority: intake.historyPreference ? "inspection_first" : "unspecified",
+    mustHaves: intake.mustHaves,
+    priorities: intake.priorities,
     make: preferredMakes[0] ?? null,
     preferredMakes,
     preferredModels,
     preferredModelsSource: preferredModels.length ? "user_note" : "none",
     openToOtherMakes,
-    distanceMiles: null,
   };
 }
 
-/** Mileage the shopper actually capped. "Low mileage" with no number is not a cap. */
+/** Mileage the shopper actually capped. "Low mileage" with no number is not a cap. "under 15k" is a price, not miles. */
 export function milesFromText(text: string): number | null {
-  const match = text.match(
-    /(?:up to|under|less than|no more than|max(?:imum)?|at most)\s+([0-9]{1,3}(?:,[0-9]{3})+|[0-9]+(?:\.[0-9]+)?)\s*(k)?\s*(miles|mi)?\b/i,
-  );
-  if (!match || match[0].includes("$")) return null;
-  if (!match[2] && !match[3]) return null;
-  let value = Number(match[1]!.replace(/,/g, ""));
-  if (match[2]) value *= 1000;
-  if (!Number.isFinite(value) || value < 1_000 || value > 400_000) return null;
-  return Math.round(value);
+  return milesCapFromNote(text);
 }
 
 export function makeFromText(text: string): string | null {
@@ -736,7 +779,7 @@ export function softPrefGapsFromText(text: string): SoftPrefGap[] {
     });
   }
   if (
-    /\b(fuel economy|fuel costs?|mpg|cheap(?:er)? to (?:run|maintain|operate)|not too expensive to maintain|reasonably cheap to run|running costs?|ownership cost|total cost of ownership|tco)\b/i.test(
+    /\b(fuel economy|fuel costs?|mpg|good on gas|gas mileage|cheap(?:er)? to (?:run|maintain|operate)|not too expensive to maintain|reasonably cheap to run|running costs?|ownership cost|total cost of ownership|tco)\b/i.test(
       t,
     )
   ) {
@@ -802,10 +845,8 @@ export function followUps(need: StructuredNeed): FollowUp[] {
     return questions.slice(0, 3);
   }
   const questions: FollowUp[] = [];
-  // ZIP is optional for personal find — blank means nationwide. Do not block confirm on it.
-  if (need.useCase === "unspecified") {
-    questions.push({ id: "use", prompt: "What will you use the car for most?" });
-  }
+  // Use is edited on Confirm. An unspecified use is not a blocking step.
+  // ZIP is optional for personal find — blank means nationwide.
   const gaps = softPrefGapsFromText(need.note);
   // Progressive clarifications for material missing facts we can act on — not AWD (unenforced).
   if (
@@ -816,7 +857,7 @@ export function followUps(need: StructuredNeed): FollowUp[] {
   ) {
     questions.push({
       id: "age",
-      prompt: "You said “not too old” without a year. What is the oldest model year you will consider?",
+      prompt: "Oldest model year you will consider?",
     });
   }
   if (gaps.some((g) => g.id === "miles") && !need.milesCapResolved && need.milesMax == null) {
@@ -828,7 +869,7 @@ export function followUps(need: StructuredNeed): FollowUp[] {
   if (gaps.some((g) => g.id === "history") && need.conditionPriority === "unspecified") {
     questions.push({
       id: "condition",
-      prompt: "Condition and history are unknown on Find cards. Should we prioritize inspection and a history report before chasing the lowest ask?",
+      prompt: "Prioritize a history report before the lowest price?",
     });
   }
   return questions.slice(0, 3);
@@ -979,6 +1020,62 @@ export function overlayExplicit(
         : explicit.openToOtherMakes !== undefined
           ? explicit.openToOtherMakes
           : extracted.openToOtherMakes,
+  };
+}
+
+function mergePhraseList(current: string[], extra: string[]): string[] {
+  const seen = new Set(current.map((item) => item.toLowerCase()));
+  const out = [...current];
+  for (const item of extra) {
+    const key = item.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(item);
+    if (out.length >= 6) break;
+  }
+  return out;
+}
+
+/**
+ * Fill facts the note already stated when a model extract or a blank form left them empty.
+ * An explicit no-year-floor or no-mileage-cap choice is left alone.
+ * An explicit nationwide radius (ZIP set, distance null) is left alone.
+ */
+export function supplementNeedFromNote(need: StructuredNeed, text: string): StructuredNeed {
+  const intake = intakeFromNote(text);
+  const yearBlocked = need.yearBandResolved && need.yearMin == null && need.yearMax == null;
+  const milesBlocked = need.milesCapResolved && need.milesMax == null;
+  const yearMin = need.yearMin != null ? need.yearMin : yearBlocked ? null : intake.yearMin;
+  const yearMax = need.yearMax != null ? need.yearMax : yearBlocked ? null : intake.yearMax;
+  const milesMax = need.milesMax != null ? need.milesMax : milesBlocked ? null : intake.milesMax;
+  const historyPreference = need.historyPreference ?? intake.historyPreference;
+  const conditionPriority =
+    need.conditionPriority !== "unspecified" ? need.conditionPriority : historyPreference ? "inspection_first" : "unspecified";
+  const zip = need.zip ?? intake.zip;
+  const distanceMiles =
+    need.distanceMiles != null ? need.distanceMiles : need.zip == null && zip != null ? intake.distanceMiles : need.distanceMiles;
+  const budgetMissing = !need.budgetKnown || need.budgetUsd == null;
+  const budgetUsd = budgetMissing ? (intake.budgetUsd ?? need.budgetUsd) : need.budgetUsd;
+  const budgetKnown = budgetUsd != null && (need.budgetKnown || intake.budgetUsd != null);
+  return {
+    ...need,
+    budgetUsd: budgetKnown ? budgetUsd : null,
+    budgetKnown,
+    transmission: need.transmission ?? intake.transmission,
+    fuelEconomyPriority: need.fuelEconomyPriority === true || intake.fuelEconomyPriority,
+    historyPreference,
+    conditionPriority,
+    bodyStyle: need.bodyStyle ?? intake.bodyStyle,
+    locationPhrase: need.locationPhrase ?? intake.locationPhrase,
+    yearMin,
+    yearMax,
+    yearBandResolved: need.yearBandResolved || yearMin != null || yearMax != null,
+    milesMax,
+    milesCapResolved: need.milesCapResolved || milesMax != null,
+    zip,
+    distanceMiles,
+    mustHaves: mergePhraseList(need.mustHaves, intake.mustHaves),
+    priorities: mergePhraseList(need.priorities, intake.priorities),
   };
 }
 

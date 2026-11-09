@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import localFont from "next/font/local";
 import { BrandLockup, BrandTagline } from "@/components/BrandLockup";
+import { FooterProductLink } from "@/components/FooterProductLink";
 import { Header } from "@/components/Header";
 import { PageFade } from "@/components/PageFade";
 import { SmoothScroll } from "@/components/SmoothScroll";
@@ -97,8 +98,8 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           </p>
           <p className="foot-links">
             <a href="/find">Find</a>
-            <a href="/check">Check by VIN</a>
-            <a href="/resale">Resale</a>
+            <a href="/check">Check a car</a>
+            <FooterProductLink />
             <a href="/reports">Reports</a>
             <a href="/favorites">Saved cars</a>
             <a href="/compare-cars">Compare cars</a>

@@ -36,6 +36,8 @@ export type ZipRadiusFieldsProps = {
    * Default true.
    */
   allowNationwide?: boolean;
+  /** Shown beside the ZIP label when the ZIP was read from the shopper's note. */
+  zipMark?: string | null;
 };
 
 /**
@@ -52,6 +54,7 @@ export function ZipRadiusFields({
   nationwideClearsZip = false,
   zipRequiredWithRadius = true,
   allowNationwide = true,
+  zipMark = null,
 }: ZipRadiusFieldsProps) {
   const autoId = useId();
   const prefix = idPrefix ?? autoId;
@@ -79,7 +82,15 @@ export function ZipRadiusFields({
       return;
     }
     setMode(next);
-    if (next === "custom" && distanceMiles != null) setCustomDraft(String(distanceMiles));
+    if (next === "custom" && distanceMiles != null) {
+      // Do not replace an in-progress draft with the normalized number ("010" must stay "010").
+      setCustomDraft((current) => {
+        const parsed = parseDistanceMiles(current.trim());
+        if (parsed.ok && parsed.miles === distanceMiles) return current;
+        return String(distanceMiles);
+      });
+      return;
+    }
     if (next === "nationwide") {
       setCustomDraft("");
       setCustomError(null);
@@ -137,13 +148,17 @@ export function ZipRadiusFields({
   return (
     <div className="zip-radius-fields">
       <div className="field">
-        <label htmlFor={zipId}>U.S. ZIP code</label>
+        <label htmlFor={zipId}>
+          U.S. ZIP code{zipMark ? <span className="from-note">{zipMark}</span> : null}
+        </label>
         <input
           id={zipId}
           name="zip"
           type="text"
           inputMode="numeric"
           autoComplete="postal-code"
+          autoCorrect="off"
+          spellCheck={false}
           value={zip}
           disabled={disabled || (nationwideClearsZip && mode === "nationwide")}
           placeholder={mode === "nationwide" ? "Optional when nationwide" : "e.g. 02101"}
@@ -198,8 +213,12 @@ export function ZipRadiusFields({
             Custom miles (up to {MAX_DISTANCE_MILES.toLocaleString("en-US")} mi)
             <input
               id={customId}
+              name="distanceMiles"
               type="text"
               inputMode="numeric"
+              autoComplete="off"
+              autoCorrect="off"
+              spellCheck={false}
               value={customDraft}
               disabled={disabled}
               placeholder="e.g. 137"
