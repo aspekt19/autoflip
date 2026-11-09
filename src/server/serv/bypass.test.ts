@@ -91,6 +91,7 @@ describe("SERV layer", () => {
         "need_guard",
         "need_extract",
         "check_guard",
+        "listing_extract",
         "report_guard",
         "report_explain",
         "agent_guard",

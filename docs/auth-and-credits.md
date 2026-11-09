@@ -5,8 +5,8 @@
 | Surface | Cost |
 | --- | --- |
 | **Find / search** (`POST /api/match`) | **Verified Auth.js account required** + **1 report credit** for a new Show-cars search. Anonymous `af_uid` cannot debit. Owned next-check rematches (`searchContextToken`) do **not** debit again. |
-| **Vehicle CHECK** (VIN or shopper-own listing URL → full report) | **3 free / verified account / UTC calendar month**, then **1 report credit** each. Free key is **VIN-scoped** (not mode): personal↔flip on the same VIN burns **one** free slot; a second analysis after commit uses credits (`already_completed`). |
-| **Price preview** (`POST /api/check`) | Requires verified sign-in; **does not** spend a credit or burn a free check. |
+| **Vehicle CHECK** (listing link fetch, pasted listing text, or VIN dossier via `POST /api/check`, and VIN/URL → full report) | **3 free / verified account / UTC calendar month**, then **1 report credit** each. Free key is **VIN-scoped** (not mode): personal↔flip on the same VIN burns **one** free slot; a second analysis after commit uses credits (`already_completed`). Listing links may be any public URL — Lemonless fetches the page (no login/captcha bypass). |
+| **Sign-in gate** (`/check`, `/find`) | Verified sign-in is required **before** the form is shown (not after submit). |
 | **Find → full analysis** | Always **1 report credit** (existing claim / idempotency fences). Not a free check. |
 | **Find next-check / free-gov rematches** | **Not** user checks; **no** free-check burn; **no** SERV decision-count cap. |
 | **Stripe** | **TEST mode only** (`sk_test_`). Unlimited test pack purchases for validation. Livemode webhook events **never** grant credits. |

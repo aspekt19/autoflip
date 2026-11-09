@@ -84,7 +84,7 @@ describe("home account line", () => {
   it("states the real free-check allotment and the Find billing phrase", () => {
     expect(FREE_VEHICLE_CHECKS_PER_MONTH).toBe(3);
     expect(HOME_ACCOUNT_LINE).toContain(
-      `${FREE_VEHICLE_CHECKS_PER_MONTH} free VIN or your own listing URL checks per verified account each UTC month`,
+      `${FREE_VEHICLE_CHECKS_PER_MONTH} free VIN or listing checks per verified account each UTC month`,
     );
     expect(HOME_ACCOUNT_LINE).toMatch(/credit-priced search when billing is enabled/);
     expect(HOME_ACCOUNT_LINE).toMatch(/free account/);
@@ -121,8 +121,10 @@ describe("login unavailable state and email gating", () => {
     expect(finishClient).toMatch(/localStorage\.removeItem\(EMAIL_LINK_STORAGE_KEY\)/);
     expect(finishClient).toMatch(/callbackUrl/);
     const checkPage = read("src/app/check/page.tsx");
-    expect(checkPage).toMatch(/3 free VIN or your own listing URL checks/);
+    expect(checkPage).toMatch(/3 free VIN or listing checks/);
     expect(checkPage).not.toMatch(/Full report: costs 1 report credit/);
+    expect(checkPage).not.toMatch(/Lemonless looks up that VIN in its listings data rather than reading the listing page/);
+    expect(checkPage).toMatch(/Paste any listing link/);
     const auth = read("src/auth.ts");
     expect(auth).toMatch(/strategy:\s*"jwt"/);
     expect(auth).toMatch(/id:\s*"email-link"/);

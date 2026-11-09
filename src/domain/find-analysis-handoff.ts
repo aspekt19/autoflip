@@ -189,12 +189,14 @@ export function resolveManualCheckHandoff(input: {
         message: "Paste a listing link that starts with http:// or https://.",
       };
     }
+    // Prefer /api/check (page fetch + extract). Handoff to /api/report still works when the URL embeds a VIN.
     const vin = extractVin(lookup);
     if (!vin) {
       return {
         ok: false,
         error: "missing_identity",
-        message: "That link does not include a VIN. Paste a dealer link that contains the VIN, or enter the VIN directly.",
+        message:
+          "Use Check a car with this link so Lemonless can read the listing page. A full saved report still needs a VIN.",
       };
     }
     return {
