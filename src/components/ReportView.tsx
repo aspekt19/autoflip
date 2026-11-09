@@ -196,7 +196,7 @@ export function ReportView({ report }: { report: FullReport }) {
                     computed.fairRangeLowUsd != null && computed.fairRangeHighUsd != null
                       ? `The middle half runs from ${formatUsd(computed.fairRangeLowUsd)} to ${formatUsd(computed.fairRangeHighUsd)}. `
                       : ""
-                  }${computed.fairConfidence === "rough" ? "This estimate is rough. " : ""}These are asking prices, not sold prices. It is not the same as the Find market figure, which skips history adjustments.`}
+                  }${computed.fairConfidence === "rough" ? "This estimate is rough. " : ""}These are asking prices, not sold prices. Find's price badge can use a narrower mileage comparison and does not move the price for trim or history, so that badge can differ from this fair value. The offer uses this fair value.`}
             </li>
             {computed.flip ? (
               <li>

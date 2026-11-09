@@ -98,6 +98,19 @@ describe("mileage and year rates", () => {
     expect(rates.milesFrom).toBe("published");
     expect(rates.yearFrom).toBe("published");
   });
+
+  it("rejects a mileage pattern whose upper half says more miles cost more", () => {
+    const rows = [
+      { year: 2016, miles: 10_000, priceUsd: 20_000, tier: 1 },
+      { year: 2016, miles: 30_000, priceUsd: 19_000, tier: 1 },
+      { year: 2016, miles: 50_000, priceUsd: 18_000, tier: 1 },
+      { year: 2016, miles: 70_000, priceUsd: 20_000, tier: 1 },
+      { year: 2016, miles: 90_000, priceUsd: 19_500, tier: 1 },
+    ];
+    const rates = estimateMileYearRates(rows, 19_500);
+    expect(rates.milesFrom).toBe("published");
+    expect(rates.perMileUsd).toBeCloseTo((19_500 * ASSUMPTIONS.mileageRatePerThousandMiles) / 1000, 8);
+  });
 });
 
 describe("adjusted comparables", () => {
@@ -117,13 +130,14 @@ describe("adjusted comparables", () => {
     expect(view.confidence).toBe("reasonable");
     for (const item of view.cars) {
       expect(item.adjustedUsd).toBe(23_200);
-      expect(item.reasons.join(" ")).toMatch(/\+\$3,200 for a lower trim/);
+      expect(item.reasons.join(" ")).toMatch(/\+\$3,200 because this car is a higher trim/);
       expect(assertBuyerSafeText(item.reasons.join(" ")).ok).toBe(true);
     }
     expect(view.fairLowUsd).toBe(23_200);
     expect(view.fairHighUsd).toBe(23_200);
     expect(view.fairMidUsd).toBe(23_200);
-    expect(view.methodNote).toMatch(/published trim list/);
+    expect(view.methodNote).toMatch(/Lemonless trim list/);
+    expect(view.methodNote).not.toMatch(/published/i);
     expect(view.methodNote).toMatch(/4%/);
     expect(view.methodNote).toMatch(/not sold prices/);
     expect(assertBuyerSafeText(view.methodNote).ok).toBe(true);
@@ -137,6 +151,7 @@ describe("adjusted comparables", () => {
       car({ vin: "C", year: 2017, miles: 40_000, priceUsd: 19_600 }),
       car({ vin: "D", year: 2017, miles: 60_000, priceUsd: 19_200 }),
       car({ vin: "E", year: 2018, miles: 40_000, priceUsd: 20_000 }),
+      car({ vin: "F", year: 2016, miles: 40_000, priceUsd: 19_200 }),
     ];
     const view = adjustComparableSet({ subject: rows[0]!, pool: rows });
     expect(view.rates?.milesFrom).toBe("search");
@@ -145,7 +160,7 @@ describe("adjusted comparables", () => {
     expect(view.methodNote).not.toMatch(/published rules/i);
     const highMiles = view.cars.find((item) => item.miles === 80_000)!;
     expect(highMiles.adjustedUsd).toBe(19_200);
-    expect(highMiles.reasons.join(" ")).toMatch(/\+\$800 for 40,000 fewer miles/);
+    expect(highMiles.reasons.join(" ")).toMatch(/\+\$800 because this car has 40,000 fewer miles/);
     expect(view.cars.every((item) => item.adjustedUsd === 19_200)).toBe(true);
   });
 
@@ -324,6 +339,101 @@ describe("adjusted comparables", () => {
     expect(view.confidence).toBe("rough");
     expect(view.fairMidUsd).toBe(19_000);
     expect(view.cars[0]?.reasons.join(" ")).toMatch(/accident history is missing/);
+  });
+
+  it("does not let this car's asking price set the mileage rate", () => {
+    const comps = [0, 1, 2, 3, 4].map((index) =>
+      car({
+        vin: `C${index}`,
+        year: 2016,
+        miles: 40_000 + index * 20_000,
+        priceUsd: 20_000 - index * 400,
+        trim: "LE",
+      }),
+    );
+    const subject = car({ vin: "SUBJ", year: 2016, miles: 20_000, priceUsd: 40_000, trim: "LE" });
+    const view = adjustComparableSet({ subject, pool: [subject, ...comps] });
+    expect(view.cars.some((item) => item.vin === "SUBJ")).toBe(false);
+    expect(view.rates?.milesFrom).toBe("search");
+    expect(view.rates?.perMileUsd).toBeCloseTo(0.02, 5);
+    const far = view.cars.find((item) => item.miles === 120_000)!;
+    expect(far.adjustedUsd).toBe(20_400);
+    expect(far.reasons.join(" ")).toMatch(/because this car has 100,000 fewer miles/);
+  });
+
+  it("does not count this car when the copy in the search has a VIN and this card does not", () => {
+    const subject = car({ vin: null, year: 2016, miles: 40_000, priceUsd: 20_000 });
+    const view = adjustComparableSet({
+      subject,
+      pool: [
+        { ...subject, vin: "HASVIN" },
+        car({ vin: "A", year: 2016, priceUsd: 18_000 }),
+        car({ vin: "B", year: 2016, priceUsd: 19_000 }),
+        car({ vin: "C", year: 2016, priceUsd: 21_000 }),
+      ],
+    });
+    expect(view.cars).toHaveLength(3);
+    expect(view.cars.some((item) => item.vin === "HASVIN")).toBe(false);
+  });
+
+  it("lowers a higher trim, a newer comp, a one-owner comp, and a certified comp", () => {
+    const subject = car({
+      vin: "SUBJ",
+      year: 2016,
+      trim: "LE",
+      miles: 50_000,
+      priceUsd: 20_000,
+      cpo: false,
+      oneOwner: false,
+      ownerCount: 2,
+    });
+    const higher = adjustComparableSet({
+      subject,
+      pool: [
+        subject,
+        car({ vin: "A", year: 2016, trim: "TRD", miles: 50_000, priceUsd: 24_000 }),
+        car({ vin: "B", year: 2016, trim: "TRD", miles: 50_000, priceUsd: 24_000 }),
+        car({ vin: "C", year: 2016, trim: "TRD", miles: 50_000, priceUsd: 24_000 }),
+      ],
+    });
+    expect(higher.cars[0]?.adjustedUsd).toBeLessThan(higher.cars[0]!.askingUsd);
+    expect(higher.cars[0]?.reasons.join(" ")).toMatch(/lower trim/);
+
+    const newer = adjustComparableSet({
+      subject,
+      pool: [
+        subject,
+        car({ vin: "A", year: 2018, trim: "LE", miles: 50_000, priceUsd: 22_000 }),
+        car({ vin: "B", year: 2018, trim: "LE", miles: 50_000, priceUsd: 22_000 }),
+        car({ vin: "C", year: 2018, trim: "LE", miles: 50_000, priceUsd: 22_000 }),
+      ],
+    });
+    expect(newer.cars[0]?.adjustedUsd).toBeLessThan(newer.cars[0]!.askingUsd);
+    expect(newer.cars[0]?.reasons.join(" ")).toMatch(/older/);
+
+    const certified = adjustComparableSet({
+      subject,
+      pool: [
+        subject,
+        car({ vin: "A", year: 2016, trim: "LE", miles: 50_000, priceUsd: 22_000, cpo: true }),
+        car({ vin: "B", year: 2016, trim: "LE", miles: 50_000, priceUsd: 22_000, cpo: true }),
+        car({ vin: "C", year: 2016, trim: "LE", miles: 50_000, priceUsd: 22_000, cpo: true }),
+      ],
+    });
+    expect(certified.cars[0]?.adjustedUsd).toBe(22_000 - 440);
+    expect(certified.cars[0]?.reasons.join(" ")).toMatch(/certified pre-owned/);
+
+    const oneOwner = adjustComparableSet({
+      subject,
+      pool: [
+        subject,
+        car({ vin: "A", year: 2016, trim: "LE", miles: 50_000, priceUsd: 22_000, oneOwner: true, ownerCount: 1 }),
+        car({ vin: "B", year: 2016, trim: "LE", miles: 50_000, priceUsd: 22_000, oneOwner: true, ownerCount: 1 }),
+        car({ vin: "C", year: 2016, trim: "LE", miles: 50_000, priceUsd: 22_000, oneOwner: true, ownerCount: 1 }),
+      ],
+    });
+    expect(oneOwner.cars[0]?.adjustedUsd).toBeLessThan(oneOwner.cars[0]!.askingUsd);
+    expect(oneOwner.cars[0]?.reasons.join(" ")).toMatch(/one owner/);
   });
 
   it("withholds the range when adjusted prices are very far apart", () => {

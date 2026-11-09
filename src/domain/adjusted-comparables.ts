@@ -5,8 +5,10 @@
  * years, any trim, already in this search. Each asking price is moved toward the
  * subject for mileage, model year, trim tier, and listing-stated accident or
  * condition flags. Mileage and year rates are a robust pairwise-median fit when
- * this search has a stable pattern inside published bounds; otherwise the
- * published Lemonless rates are used. Unknown trim is not given a dollar
+ * this search has a stable pattern inside Lemonless bounds; otherwise the
+ * Lemonless rules are used (0.5% per 1,000 miles and 5% per model year).
+ * Those rules are Lemonless assumptions, not a cited market study.
+ * Unknown trim is not given a dollar
  * adjustment, and the estimate is marked rough.
  *
  * These are asking prices, not sold prices. No paid data source.
@@ -34,10 +36,10 @@ export const FIT_MIN_ROWS = 5;
 /** Pairwise slopes needed before that rate is trusted. */
 export const FIT_MIN_PAIRS = 3;
 
-/** Reject a year rate steeper than this share of the typical asking price per model year. */
+/** Reject a year rate steeper than this share of the typical asking price per model year. Lemonless bound. */
 export const FIT_MAX_YEAR_FRAC = 0.12;
 
-/** Reject a mileage rate steeper than this share of the typical asking price per 1,000 miles. */
+/** Reject a mileage rate steeper than this share of the typical asking price per 1,000 miles. Lemonless bound. */
 export const FIT_MAX_MILES_PER_1K_FRAC = 0.015;
 
 /** Middle-half width / midpoint above this is a rough estimate. */
@@ -119,7 +121,14 @@ export type AdjustedComparableSet = {
   unknownAccidentHaircut: boolean;
 };
 
-type FitRow = { year: number; miles: number; priceUsd: number; tier: number | null };
+type FitRow = {
+  year: number;
+  miles: number;
+  priceUsd: number;
+  tier: number | null;
+  /** Dollars of condition already in the asking price versus a clean two-owner car. Null when condition is unknown. */
+  conditionUsd?: number | null;
+};
 
 function sameName(a: string, b: string): boolean {
   return a.trim().toLowerCase() === b.trim().toLowerCase();
@@ -202,6 +211,16 @@ function ownerPremium(car: Pick<ComparableCar, "oneOwner" | "ownerCount">): numb
   return null;
 }
 
+/** Dollars of condition already inside an asking price, versus a clean two-owner car. Null when accident, owners, or certification is unknown. */
+function conditionComponentUsd(car: ComparableCar, asking: number, mode: Mode): number | null {
+  const accidents = accidentHaircut(car.accidentCount);
+  const owner = ownerPremium(car);
+  const cpo = cpoPremium(car.cpo, mode);
+  if (accidents == null || owner == null || cpo == null) return null;
+  const fleet = fleetHaircut(car.usageType) ?? 0;
+  return asking * (-accidents - fleet + owner + cpo);
+}
+
 function cpoPremium(cpo: boolean | null | undefined, mode: Mode): number | null {
   if (mode !== "personal") return 0;
   if (cpo == null) return null;
@@ -270,9 +289,10 @@ function slopeSpanOk(slopes: number[], maxAbs: number): boolean {
 }
 
 /**
- * Robust mileage and year rates: the median of pairwise slopes, after a trim-step
- * residual, kept only when the sign and the size sit inside the published bounds.
- * Otherwise that rate falls back to the published Lemonless rule.
+ * Robust mileage and year rates from similar cars only, never from the car being priced.
+ * Pairwise slopes use a trim and condition residual. A rate is kept only when the
+ * median and the central half have the right sign and sit inside the Lemonless bounds.
+ * Otherwise that rate falls back to the Lemonless rule: 0.5% per 1,000 miles, 5% per model year.
  */
 export function estimateMileYearRates(rows: readonly FitRow[], referencePriceUsd: number): MileYearRates {
   const reference = referencePriceUsd > 0 ? referencePriceUsd : 0;
@@ -285,15 +305,19 @@ export function estimateMileYearRates(rows: readonly FitRow[], referencePriceUsd
     yearFrom: "published",
     referencePriceUsd: reference,
   };
-  if (reference <= 0 || rows.length < FIT_MIN_ROWS) return published;
+  const conditionKnown = rows.filter((row) => row.conditionUsd != null);
+  const useCondition = conditionKnown.length >= FIT_MIN_ROWS;
+  const sampleRows = useCondition ? conditionKnown : rows;
+  if (reference <= 0 || sampleRows.length < FIT_MIN_ROWS) return published;
 
   const step = reference * TRIM_STEP_RATE;
-  const priced = rows.map((row) => ({
+  const priced = sampleRows.map((row) => ({
     ...row,
-    residual: row.priceUsd - (row.tier ?? 0) * step,
+    residual: row.priceUsd - (row.tier ?? 0) * step - (useCondition ? (row.conditionUsd ?? 0) : 0),
   }));
   const known = priced.filter((row) => row.tier != null);
   const sample = known.length >= FIT_MIN_ROWS ? known : priced;
+  if (sample.length < FIT_MIN_ROWS) return published;
 
   const maxPerMile = (reference * FIT_MAX_MILES_PER_1K_FRAC) / 1000;
   const maxPerYear = reference * FIT_MAX_YEAR_FRAC;
@@ -317,9 +341,12 @@ export function estimateMileYearRates(rows: readonly FitRow[], referencePriceUsd
   let perMileUsd = publishedMile;
   let milesFrom: RateSource = "published";
   const mileMedian = median(mileSlopes);
+  const mileHigh = percentileValue(mileSlopes, 75);
   if (
     mileMedian != null &&
+    mileHigh != null &&
     mileMedian <= 0 &&
+    mileHigh <= 1e-9 &&
     Math.abs(mileMedian) <= maxPerMile &&
     slopeSpanOk(mileSlopes, maxPerMile)
   ) {
@@ -330,7 +357,15 @@ export function estimateMileYearRates(rows: readonly FitRow[], referencePriceUsd
   let perYearUsd = publishedYear;
   let yearFrom: RateSource = "published";
   const yearMedian = median(yearSlopes);
-  if (yearMedian != null && yearMedian >= 0 && yearMedian <= maxPerYear && slopeSpanOk(yearSlopes, maxPerYear)) {
+  const yearLow = percentileValue(yearSlopes, 25);
+  if (
+    yearMedian != null &&
+    yearLow != null &&
+    yearMedian >= 0 &&
+    yearLow >= -1e-9 &&
+    yearMedian <= maxPerYear &&
+    slopeSpanOk(yearSlopes, maxPerYear)
+  ) {
     perYearUsd = yearMedian;
     yearFrom = "search";
   }
@@ -344,16 +379,16 @@ function methodSentence(rates: MileYearRates, trimAdjusted: boolean): string {
     ratesBit = "Mileage and model year were adjusted from the asking prices in this search.";
   } else if (rates.milesFrom === "published" && rates.yearFrom === "published") {
     ratesBit =
-      "Mileage and model year were adjusted with Lemonless's published rules (0.5% of a typical asking price for every thousand miles, and 5% for each model year), because this search did not show a stable price pattern.";
+      "Mileage and model year were adjusted with Lemonless rules (0.5% of a typical asking price for every thousand miles, and 5% for each model year), because this search did not show a stable price pattern.";
   } else if (rates.milesFrom === "search") {
     ratesBit =
-      "Mileage was adjusted from the asking prices in this search. Model year was adjusted with Lemonless's published rule of 5% of a typical asking price for each model year, because this search did not show a stable year pattern.";
+      "Mileage was adjusted from the asking prices in this search. Model year was adjusted with the Lemonless rule of 5% of a typical asking price for each model year, because this search did not show a stable year pattern.";
   } else {
     ratesBit =
-      "Model year was adjusted from the asking prices in this search. Mileage was adjusted with Lemonless's published rule of 0.5% of a typical asking price for every thousand miles, because this search did not show a stable mileage pattern.";
+      "Model year was adjusted from the asking prices in this search. Mileage was adjusted with the Lemonless rule of 0.5% of a typical asking price for every thousand miles, because this search did not show a stable mileage pattern.";
   }
   const trimBit = trimAdjusted
-    ? " Trim was adjusted with the published trim list, at 4% of a typical asking price per trim step."
+    ? " Trim was adjusted with the Lemonless trim list, at 4% of a typical asking price per trim step."
     : "";
   return `${ratesBit}${trimBit} These are asking prices, not sold prices.`;
 }
@@ -385,7 +420,8 @@ function selectCars(subject: ComparableCar, pool: readonly ComparableCar[]): Com
     if (!Number.isFinite(item.year) || Math.abs(item.year - subject.year) > GENERATION_YEAR_WINDOW) continue;
     const vin = normalizeVin(item.vin);
     if (subjectVin && vin && vin === subjectVin) continue;
-    if (!subjectVin && !vin && fingerprint(item) === subjectFp) continue;
+    // Same listing with a missing VIN on one side. Two different VINs stay, even if the fingerprint matches.
+    if (fingerprint(item) === subjectFp && (!subjectVin || !vin)) continue;
     const price = usableAsking(item);
     if (price == null) continue;
     if (item.miles == null || !Number.isFinite(item.miles) || item.miles < 0) continue;
@@ -505,16 +541,7 @@ export function adjustComparableSet(input: {
 
   const selected = selectCars(subject, input.pool);
   const subjectTrim = resolveTrim(subject);
-  const subjectPrice = usableAsking(subject);
   const fitRows: FitRow[] = [];
-  if (subjectPrice != null) {
-    fitRows.push({
-      year: subject.year,
-      miles: subject.miles,
-      priceUsd: subjectPrice,
-      tier: subjectTrim.tier,
-    });
-  }
   for (const car of selected) {
     const price = usableAsking(car);
     if (price == null || car.miles == null) continue;
@@ -523,6 +550,7 @@ export function adjustComparableSet(input: {
       miles: car.miles,
       priceUsd: price,
       tier: resolveTrim(car).tier,
+      conditionUsd: conditionComponentUsd(car, price, mode),
     });
   }
   const reference = median(fitRows.map((row) => row.priceUsd)) ?? 0;
@@ -545,7 +573,7 @@ export function adjustComparableSet(input: {
         usd,
         reason: (amount) => {
           const fewer = mileDelta < 0;
-          return `${signedUsd(amount)} for ${formatNumber(Math.abs(mileDelta))} ${fewer ? "fewer" : "more"} miles`;
+          return `${signedUsd(amount)} because this car has ${formatNumber(Math.abs(mileDelta))} ${fewer ? "fewer" : "more"} miles`;
         },
       });
     }
@@ -557,7 +585,7 @@ export function adjustComparableSet(input: {
         reason: (amount) => {
           const years = Math.abs(yearDelta);
           const newer = yearDelta > 0;
-          return `${signedUsd(amount)} for ${years} ${newer ? "newer" : "older"} model year${years === 1 ? "" : "s"}`;
+          return `${signedUsd(amount)} because this car is ${years} model year${years === 1 ? "" : "s"} ${newer ? "newer" : "older"}`;
         },
       });
     }
@@ -569,8 +597,8 @@ export function adjustComparableSet(input: {
         usd,
         reason: (amount) =>
           steps > 0
-            ? `${signedUsd(amount)} for a lower trim`
-            : `${signedUsd(amount)} for a higher trim`,
+            ? `${signedUsd(amount)} because this car is a higher trim`
+            : `${signedUsd(amount)} because this car is a lower trim`,
       });
     }
     const condition = conditionParts(subject, car, asking, mode);
@@ -616,7 +644,7 @@ export function adjustComparableSet(input: {
     methodNote = `This car's trim came from the government VIN decoder. ${methodNote}`;
   }
   if (trimUncertain) {
-    methodNote = `Trim was not adjusted where the name was missing or not on the published trim list, so this estimate is rough. ${methodNote}`;
+    methodNote = `Trim was not adjusted where the name was missing or not on the Lemonless trim list, so this estimate is rough. ${methodNote}`;
   }
   if (unknownAccident) {
     methodNote = `Accident history is missing on this car, so each adjusted price is reduced by ${Math.round(ASSUMPTIONS.unknownHistoryHaircut * 100)}%. ${methodNote}`;

@@ -1,5 +1,5 @@
 /**
- * Published trim steps for adjusting one listing's asking price toward another.
+ * Lemonless trim steps for adjusting one listing's asking price toward another.
  * A higher tier is more equipment. This is an equipment order, not a sold-price study.
  * Each step is worth TRIM_STEP_RATE of a typical asking price (see adjusted-comparables).
  * A name that is not in the list is unknown: no dollar adjustment, and the estimate gets wider.

@@ -252,6 +252,8 @@ export function plainGateStatus(status: string): string {
 }
 
 export function plainDecisionAction(action: string): string {
+  if (action === "fair" || action === "negotiate") return "Fair price";
+  if (action === "good_deal" || action === "buy") return "Buy";
   return plainBuyerPhrase(action.replaceAll("_", " "));
 }
 

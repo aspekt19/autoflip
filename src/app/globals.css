@@ -998,6 +998,9 @@ pre.doc {
   border: 1px solid var(--line);
   border-radius: 12px;
   background: var(--paper);
+  min-width: 0;
+  max-width: 100%;
+  overflow-wrap: anywhere;
 }
 .similar-cars summary {
   cursor: pointer;
@@ -1008,16 +1011,24 @@ pre.doc {
 }
 .similar-cars::details-content {
   padding: 0 14px 12px;
+  max-width: 100%;
 }
 .similar-cars ul {
   margin: 0;
   padding: 0 0 4px 18px;
+  max-width: 100%;
 }
-.similar-cars li {
+.similar-cars li,
+.similar-cars p {
   margin: 8px 0;
+  max-width: 100%;
+  overflow-wrap: anywhere;
 }
 .similar-cars p {
   margin: 0;
+}
+.purchase-readiness .similar-cars {
+  margin-inline: 0;
 }
 .decision p { margin: 0; padding: 0 16px 14px; }
 .ask details { border-top: 1px solid var(--line); }

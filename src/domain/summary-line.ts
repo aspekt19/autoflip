@@ -62,8 +62,8 @@ export function summaryLine(input: {
   }
   if (input.verdict === "fair") {
     return {
-      line: `Negotiate to ${formatUsd(input.fairValueUsd)}`,
-      detail: "That figure is the middle of the adjusted similar listings.",
+      line: "Fair price",
+      detail: `The middle of the adjusted similar listings is ${formatUsd(input.fairValueUsd)}. Paying the asking price can still be reasonable in this band. The offer says whether to start a little under it.`,
     };
   }
   return { line: "Skip", detail: "The asking price is above the adjusted similar listings." };

@@ -335,32 +335,47 @@ function buildOffer(
 
   const fairLow = adjusted.fairLowUsd!;
   const fairHigh = Math.max(adjusted.fairHighUsd!, fairLow);
-  let opening = fairLow;
-  let anchored = false;
-  if (asking != null) {
-    const ask = roundDollars(asking);
-    if (ask < opening) {
-      opening = ask;
-      anchored = true;
-    }
-  }
-  let walkAway = fairHigh;
-  if (walkAway < opening) walkAway = opening;
+  const fairMid = adjusted.fairMidUsd!;
+  const ask = asking != null && asking > 0 ? roundDollars(asking) : null;
   const rough = adjusted.confidence === "rough" ? "This estimate is rough. " : "";
   const range = `The middle half of the adjusted asking prices runs from ${formatUsd(fairLow)} to ${formatUsd(fairHigh)}.`;
   const compared = `Compared with ${similarPhrase(adjusted.cars.length, car.model)} from this search (${windowPhrase}).`;
+  const openWord = adjusted.confidence === "rough" ? "Rough opening offer" : "Reasonable opening offer";
   const base = {
     confidence: adjusted.confidence,
     confidenceLabel: adjusted.confidenceLabel,
     compCount: adjusted.cars.length,
     fairLowUsd: fairLow,
     fairHighUsd: fairHigh,
-    fairMidUsd: adjusted.fairMidUsd,
+    fairMidUsd: fairMid,
     methodNote: adjusted.methodNote,
     similarCars,
     closeAskingUsd,
   };
-  if (asking != null && asking > 0 && asking - opening > asking * OFFER_MAX_BELOW_ASK) {
+  const priceAtOrBelowFair = ask != null && fairMid >= ask;
+  if (priceAtOrBelowFair && ask != null) {
+    const modest = fairLow < ask && ask - fairLow <= ask * OFFER_MAX_BELOW_ASK;
+    const opening = modest ? fairLow : ask;
+    const payBit = modest
+      ? `A modest opening offer is ${formatUsd(opening)}. Paying the asking price is also reasonable.`
+      : "You can offer a little less, or pay the asking price.";
+    return {
+      ...base,
+      status: adjusted.confidence === "rough" ? "rough" : "ok",
+      openingUsd: opening,
+      walkAwayUsd: ask,
+      openingLabel: modest ? `${openWord}: ${formatUsd(opening)}.` : `You can pay the asking price of ${formatUsd(ask)}, or offer a little less.`,
+      walkAwayLabel: `Do not pay more than the asking price of ${formatUsd(ask)}.`,
+      sentence: `${rough}${compared} ${range} ${adjusted.methodNote} The asking price of ${formatUsd(ask)} is at or below the fair value of ${formatUsd(fairMid)}. ${payBit} Do not pay more than ${formatUsd(ask)}.`,
+    };
+  }
+  let opening = fairLow;
+  let anchored = false;
+  if (ask != null && ask < opening) {
+    opening = ask;
+    anchored = true;
+  }
+  if (ask != null && asking != null && asking - opening > asking * OFFER_MAX_BELOW_ASK) {
     const pct = percentUnder(asking, fairLow);
     const gapPhrase = pct > Math.round(OFFER_MAX_BELOW_ASK * 100) ? `about ${pct}% under` : "more than 10% under";
     return {
@@ -373,17 +388,25 @@ function buildOffer(
       sentence: `${rough}There is not enough support for a reasonable opening offer or a walk-away price. ${compared} ${range} ${adjusted.methodNote} The low end is ${gapPhrase} this car's ${formatUsd(asking)} asking price. That gap is too wide to turn into an opening offer from listing prices alone.`,
     };
   }
-  const openWord = adjusted.confidence === "rough" ? "Rough opening offer" : "Reasonable opening offer";
+  let walkAway = fairHigh;
+  if (walkAway < opening) walkAway = opening;
+  const capped = ask != null && walkAway > ask;
+  if (capped && ask != null) walkAway = ask;
+  if (walkAway < opening) walkAway = opening;
+  const capBit =
+    capped && ask != null
+      ? ` The high end of that range is above the asking price, so do not pay more than the asking price of ${formatUsd(ask)}.`
+      : "";
   const sentence = anchored
-    ? `${rough}${compared} ${range} ${adjusted.methodNote} ${openWord} stays at this car's asking price of ${formatUsd(opening)}, which is already under that range. The walk-away price is ${formatUsd(walkAway)}, the high end of that range.`
-    : `${rough}${compared} ${range} ${adjusted.methodNote} ${openWord} is ${formatUsd(opening)}, the low end of that range. The walk-away price is ${formatUsd(walkAway)}, the high end of that range.`;
+    ? `${rough}${compared} ${range} ${adjusted.methodNote} ${openWord} stays at this car's asking price of ${formatUsd(opening)}, which is already under that range. The walk-away price is ${formatUsd(walkAway)}.${capBit}`
+    : `${rough}${compared} ${range} ${adjusted.methodNote} ${openWord} is ${formatUsd(opening)}, the low end of that range. The walk-away price is ${formatUsd(walkAway)}, ${capped ? "the asking price." : "the high end of that range."}${capBit}`;
   return {
     ...base,
     status: adjusted.confidence === "rough" ? "rough" : "ok",
     openingUsd: opening,
     walkAwayUsd: walkAway,
     openingLabel: `${openWord}: ${formatUsd(opening)}.`,
-    walkAwayLabel: `Walk-away price: ${formatUsd(walkAway)}.`,
+    walkAwayLabel: capped && ask != null ? `Walk-away price: ${formatUsd(ask)}. Do not pay more than the asking price.` : `Walk-away price: ${formatUsd(walkAway)}.`,
     sentence,
   };
 }
@@ -456,16 +479,29 @@ function buildPoints(
         ),
         "similar listings in this search",
       );
+    } else if ((offer.status === "ok" || offer.status === "rough") && offer.fairMidUsd != null && asking <= offer.fairMidUsd) {
+      push(
+        "price",
+        withSource(
+          `The asking price is at or below the fair value from ${similarPhrase(offer.compCount, input.car.model)} in this search. You can offer a little less, or pay the asking price. Do not pay more than ${formatUsd(asking)}.`,
+          "similar listings in this search",
+        ),
+        "similar listings in this search",
+      );
     } else if (
       (offer.status === "ok" || offer.status === "rough") &&
       offer.walkAwayUsd != null &&
       offer.fairMidUsd != null &&
       asking > offer.fairMidUsd
     ) {
+      const gap = (asking - offer.fairMidUsd) / offer.fairMidUsd;
+      const withinFair = gap <= ASSUMPTIONS.fairGap;
       push(
         "price",
         withSource(
-          `The asking price is above the middle of the adjusted prices from ${similarPhrase(offer.compCount, input.car.model)} in this search. The walk-away price is ${formatUsd(offer.walkAwayUsd)}. Ask the seller to explain that gap before you pay more.`,
+          withinFair
+            ? `The asking price is a little above the middle of the adjusted prices from ${similarPhrase(offer.compCount, input.car.model)} in this search, and it is still in the fair-price range. Do not pay more than ${formatUsd(Math.min(asking, offer.walkAwayUsd))}.`
+            : `The asking price is above the middle of the adjusted prices from ${similarPhrase(offer.compCount, input.car.model)} in this search. The walk-away price is ${formatUsd(offer.walkAwayUsd)}. Ask the seller to explain that gap before you pay more.`,
           "similar listings in this search",
         ),
         "similar listings in this search",

@@ -90,3 +90,4 @@ Negotiation:
 - The listing reports 1 accident. Ask for the repair invoices and whether any airbags deployed. Source: the listing.
 - The listing says trim EX, but the VIN decoder says LX. Ask the seller to confirm the trim before you rely on the equipment. Source: the listing and the government VIN decoder.
 - The listing feed first recorded this car 86 days ago. Source: listing first-seen date.
+
