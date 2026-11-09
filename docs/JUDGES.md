@@ -92,7 +92,7 @@ curl -s https://autoflip-umber.vercel.app/api/v1/check \
 | [`eval/results/latest.md`](../eval/results/latest.md) / [`latest.json`](../eval/results/latest.json) | Committed `eval:serv` comparison. Generated **2026-11-06T09:35:38.636Z**. 44 pairs. Checked answer **better on 2, worse on 3, both passed 39**. That is not a superiority result. Token usage and $0.1024 mini-rate **estimate** (not an invoice) are in that file. |
 | [`eval/results/verdict-latest.md`](../eval/results/verdict-latest.md) | Status: **not yet run** (2026-11-06T13:44:21.845Z). No fabricated accuracy %. |
 | Sample `/report/sample` agent revision | **Not yet recorded** — needs `npm run eval:record-serv-revision` (costs real SERV credits). |
-| Lemonless vs plain-AI comparison scoreboard | **Not on `main` / pending live run** (harness work is not merged as measured jury totals here). |
+| Lemonless vs plain-AI comparison scoreboard | Harness is on `main` ([`docs/eval/comparison.md`](eval/comparison.md), [`eval/results/comparison-latest.json`](../eval/results/comparison-latest.json)). That file is fixture mode, generated **2026-11-09T22:06:52.911Z**, `hasLiveScores: false`, `totals: null`, `scores: []`, `plain_llm` **not_run**. **No live scoreboard yet.** |
 
 ---
 
