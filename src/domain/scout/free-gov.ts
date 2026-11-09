@@ -25,7 +25,7 @@ export const FREE_GOV_TIMEOUT_MS = 12_000;
 /** Bounded cache for free public endpoints (demo engineering policy, not provider TTL). */
 export const FREE_GOV_CACHE_TTL_MS = 6 * 60 * 60 * 1000;
 export const FREE_GOV_RATE_NOTE =
-  "Free public NHTSA vPIC/recalls/complaints/SafetyRatings + FuelEconomy.gov — no API key; polite sequential calls; 12s timeout; 6h process cache.";
+  "Free public NHTSA VIN decode/recalls/complaints/SafetyRatings + FuelEconomy.gov — no API key; polite sequential calls; 12s timeout; 6h process cache.";
 
 /** Free decision-input tools for Find (and Scout port reuse). */
 export type FreeGovToolId =
@@ -54,6 +54,18 @@ export type FreeGovEvidencePacket = {
   /** Structured fuel evidence when toolId is evidence.gov_fuel. */
   fuelEvidence?: FindFuelEvidence | null;
 };
+
+/** Process-global free-gov cache (survives per-request port construction). */
+const globalFreeGov = globalThis as unknown as {
+  __autoflipFreeGovCache?: TtlCache<FreeGovEvidencePacket>;
+};
+
+export function freeGovProcessCache(): TtlCache<FreeGovEvidencePacket> {
+  if (!globalFreeGov.__autoflipFreeGovCache) {
+    globalFreeGov.__autoflipFreeGovCache = new TtlCache<FreeGovEvidencePacket>(FREE_GOV_CACHE_TTL_MS);
+  }
+  return globalFreeGov.__autoflipFreeGovCache;
+}
 
 export type ScoutFreeGovPort = {
   run(toolId: FreeGovToolId, listing: Listing): Promise<FreeGovEvidencePacket>;
@@ -140,15 +152,27 @@ export function createLiveFreeGovPort(opts?: {
   shopperNote?: string | null;
 }): ScoutFreeGovPort {
   const fetchImpl = opts?.fetch ?? fetch;
+  // Default: fresh cache (test isolation). Live Find/Scout must pass freeGovProcessCache().
   const cache = opts?.cache ?? new TtlCache<FreeGovEvidencePacket>(FREE_GOV_CACHE_TTL_MS);
   const now = opts?.now ?? (() => new Date());
   const deps: GovDeps = { fetch: fetchImpl };
   const shopperNote = opts?.shopperNote ?? null;
+  const cityHeavyBit = /\bmostly\s+city\b|\bcity\s+driving\b|\bcity[\s-]?heavy\b|\bmainly\s+city\b/i.test(
+    shopperNote ?? "",
+  )
+    ? "cityheavy"
+    : "defaultmix";
 
   return {
     async run(toolId, listing) {
       const fetchedAt = now().toISOString();
-      const cacheKey = `${toolId}:${listing.vin}:${listing.year}:${listing.make}:${listing.model}`.toLowerCase();
+      // Include shopper mix + listing trim/engine/drive so fuel cache does not collide.
+      const fuelHints =
+        toolId === "evidence.gov_fuel"
+          ? `:${cityHeavyBit}:${listing.trim ?? ""}:${listing.engine ?? ""}:${listing.drivetrain ?? ""}`
+          : "";
+      const cacheKey =
+        `${toolId}:${listing.vin}:${listing.year}:${listing.make}:${listing.model}${fuelHints}`.toLowerCase();
       const hit = cache.get(cacheKey, now().getTime());
       if (hit) {
         return {

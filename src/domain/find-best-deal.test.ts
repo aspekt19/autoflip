@@ -221,4 +221,34 @@ describe("selectBestDealOnEvidence (deterministic)", () => {
     expect(result.sensitivity.length).toBeGreaterThan(0);
     expect(result.honesty).toMatch(/not a guarantee|current evidence/i);
   });
+
+  it("miles/year sensitivity axis can change scores (not a dead void)", () => {
+    const sparse: BestDealListing[] = [
+      { make: "Honda", model: "CR-V", year: 2016, priceUsd: 13_500, miles: 60_000, vin: "A" },
+      { make: "Honda", model: "CR-V", year: 2014, priceUsd: 13_400, miles: 140_000, vin: "B" },
+    ];
+    const receipts = [
+      receiptFuel("Honda", "CR-V", 2016, fuelEv({})),
+      receiptFuel("Honda", "CR-V", 2014, fuelEv({})),
+      receiptRecalls("Honda", "CR-V", 2016, 0),
+      receiptRecalls("Honda", "CR-V", 2014, 0),
+    ];
+    const at12k = selectBestDealOnEvidence({
+      need: { ...baseNeed, preferredModels: [{ make: "Honda", model: "CR-V" }] },
+      listings: sparse,
+      receipts,
+      nowYear: 2026,
+      milesPerYearAssumption: 12_000,
+    });
+    const at18k = selectBestDealOnEvidence({
+      need: { ...baseNeed, preferredModels: [{ make: "Honda", model: "CR-V" }] },
+      listings: sparse,
+      receipts,
+      nowYear: 2026,
+      milesPerYearAssumption: 18_000,
+    });
+    // Ranked scores must respond to the labeled miles/year assumption.
+    expect(at12k.ranked.map((r) => r.score)).not.toEqual(at18k.ranked.map((r) => r.score));
+    expect(at12k.sensitivity.some((s) => /15,000 miles\/year/i.test(s.label))).toBe(true);
+  });
 });

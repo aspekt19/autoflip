@@ -15,6 +15,7 @@ import {
 } from "./find-risk-evidence";
 import {
   createLiveFreeGovPort,
+  freeGovProcessCache,
   isFreeGovToolId,
   type FreeGovEvidencePacket,
   type FreeGovToolId,
@@ -377,6 +378,7 @@ export async function executeFindFreeGovCheck(input: {
     input.gov ??
     createLiveFreeGovPort({
       shopperNote: input.shopperNote ?? null,
+      cache: freeGovProcessCache(),
     });
   const receipts: FindFreeGovReceipt[] = [];
   for (const listing of candidates) {

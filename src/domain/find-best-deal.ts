@@ -235,44 +235,69 @@ function scoreOne(
     });
   }
 
-  // Miles per year vs peers
+  // Miles per year vs peers (and vs labeled assumption when peers are thin/missing)
   const ageYears = Math.max(0.5, ctx.nowYear - row.year);
   const mpy = row.miles != null ? row.miles / ageYears : null;
-  if (mpy != null && ctx.peerMilesPerYear.length > 0) {
-    const med = median(ctx.peerMilesPerYear)!;
-    const rel = med > 0 ? (med - mpy) / med : 0;
-    const points = clamp(rel * WEIGHTS.milesPerYear * 1.5, -WEIGHTS.milesPerYear, WEIGHTS.milesPerYear);
+  const assumedPace = ctx.milesPerYearAssumption;
+  if (mpy != null) {
+    const peerMed = ctx.peerMilesPerYear.length > 0 ? median(ctx.peerMilesPerYear) : null;
+    const peerPts =
+      peerMed != null && peerMed > 0
+        ? clamp(((peerMed - mpy) / peerMed) * WEIGHTS.milesPerYear * 1.1, -WEIGHTS.milesPerYear, WEIGHTS.milesPerYear)
+        : 0;
+    // Always include a real term vs the labeled miles/year assumption so sensitivity can change picks.
+    const assumePts =
+      assumedPace > 0
+        ? clamp(
+            ((assumedPace - mpy) / assumedPace) * WEIGHTS.milesPerYear * 0.45,
+            -WEIGHTS.milesPerYear * 0.5,
+            WEIGHTS.milesPerYear * 0.5,
+          )
+        : 0;
+    const points = peerPts + assumePts;
     score += points;
+    const peerBit =
+      peerMed != null
+        ? `vs peer median ~${Math.round(peerMed).toLocaleString("en-US")} mi/yr`
+        : "no peer median yet";
     factors.push({
       id: "miles_per_year_vs_peers",
-      label: "Mileage pace vs peers in this search",
+      label: "Mileage pace vs peers / labeled assumption",
       points: round1(points),
-      detail: `~${Math.round(mpy).toLocaleString("en-US")} mi/yr vs peer median ~${Math.round(med).toLocaleString("en-US")} mi/yr`,
-      source: "Returned listings in this search only",
+      detail: `~${Math.round(mpy).toLocaleString("en-US")} mi/yr ${peerBit}; labeled assumption ${assumedPace.toLocaleString("en-US")} mi/yr`,
+      source: "Returned listings + labeled miles/year assumption",
     });
   } else {
-    unknowns.push("Mileage pace not comparable (missing miles or peers)");
+    unknowns.push("Mileage pace not comparable (missing miles)");
     factors.push({
       id: "miles_per_year_vs_peers",
-      label: "Mileage pace vs peers in this search",
+      label: "Mileage pace vs peers / labeled assumption",
       points: 0,
-      detail: "Not scored — miles missing or no peers",
+      detail: "Not scored — miles missing",
       source: "Returned listings in this search only",
     });
   }
 
-  // Age (mild — newer better)
+  // Age (mild — newer better) + miles vs expected under labeled assumption
   {
     const expected = expectedMiles(row.year, ctx.nowYear, ctx.milesPerYearAssumption);
-    void expected;
-    const ageScore = clamp((8 - Math.min(ageYears, 12)) / 8, 0, 1) * WEIGHTS.age;
-    score += ageScore;
+    const ageScore = clamp((8 - Math.min(ageYears, 12)) / 8, 0, 1) * WEIGHTS.age * 0.65;
+    let vsExpected = 0;
+    if (row.miles != null && expected > 0) {
+      vsExpected = clamp(((expected - row.miles) / expected) * WEIGHTS.age * 0.35, -WEIGHTS.age * 0.4, WEIGHTS.age * 0.4);
+    }
+    const agePoints = ageScore + vsExpected;
+    score += agePoints;
     factors.push({
       id: "age",
-      label: "Model year",
-      points: round1(ageScore),
-      detail: `${row.year} (~${Math.round(ageYears)} year${Math.round(ageYears) === 1 ? "" : "s"} old)`,
-      source: "Listing model year",
+      label: "Model year / miles vs expected pace",
+      points: round1(agePoints),
+      detail: `${row.year} (~${Math.round(ageYears)} year${Math.round(ageYears) === 1 ? "" : "s"} old)${
+        row.miles != null
+          ? `; ${row.miles.toLocaleString("en-US")} mi vs ~${Math.round(expected).toLocaleString("en-US")} mi expected at ${assumedPace.toLocaleString("en-US")} mi/yr`
+          : ""
+      }`,
+      source: "Listing model year + labeled miles/year assumption",
     });
   }
 

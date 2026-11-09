@@ -226,6 +226,7 @@ function publicResultPayload(ok: FindNextCheckOrchestratorOk): string {
     freeGovCoverage: ok.freeGovCoverage,
     loop: ok.loop,
     proofs: ok.proofs,
+    bestDeal: ok.bestDeal,
   });
 }
 
