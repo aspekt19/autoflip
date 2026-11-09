@@ -1826,6 +1826,9 @@ function AssistantFlow({
             onCommit={(next) => {
               setNeed({ ...need, yearMin: next.yearMin, yearBandResolved: next.yearBandResolved });
               setYearMin(next.yearMin != null ? String(next.yearMin) : "");
+              if (noteMarks?.year && next.yearMin !== need.yearMin) {
+                setNoteMarks({ ...noteMarks, year: false });
+              }
             }}
           />
           {need.conditionPriority === "inspection_first" ? <p className="hint">{CONDITION_HINT}</p> : null}
@@ -1850,7 +1853,10 @@ function AssistantFlow({
             onCommit={(next) => {
               setNeed({ ...need, budgetUsd: next.budgetUsd, budgetKnown: next.budgetKnown });
               setBudget(next.budgetUsd != null ? next.budgetUsd.toLocaleString("en-US") : "");
-              setBudgetKnown(true);
+              setBudgetKnown(next.budgetKnown);
+              if (noteMarks?.budget && next.budgetUsd !== need.budgetUsd) {
+                setNoteMarks({ ...noteMarks, budget: false });
+              }
             }}
           />
           {need.mode === "personal" ? <p className="hint">This limit applies to the vehicle asking price only; taxes, title and dealer fees are not estimated.</p> : null}

@@ -49,6 +49,24 @@ function moneyValue(raw: string, k: boolean): number | null {
   return value;
 }
 
+function grandValue(raw: string): number | null {
+  const base = Number(raw.replace(/,/g, ""));
+  if (!Number.isFinite(base) || base <= 0) return null;
+  const value = Math.round(base * 1000);
+  if (value < 1000 || value > 250_000) return null;
+  return value;
+}
+
+/** "12-15k" means 12,000–15,000. The price field is a maximum, so the high end is used. */
+function rangeEnd(raw: string, own: string, other: string): number | null {
+  if (own === "grand") return grandValue(raw);
+  if (own === "k") return moneyValue(raw, true);
+  if ((other === "k" || other === "grand") && Number(raw.replace(/,/g, "")) < 1000) {
+    return other === "grand" ? grandValue(raw) : moneyValue(raw, true);
+  }
+  return moneyValue(raw, false);
+}
+
 function followedByMiles(text: string, end: number): boolean {
   return /^\s*(?:miles|mi)\b/i.test(text.slice(end));
 }
@@ -117,6 +135,31 @@ export function budgetFromText(text: string, now = new Date()): number | null {
     const k = Boolean(match[4]);
     const end = (match.index ?? 0) + match[0].length;
     consider(match.index ?? 0, raw, k, end, { dollar: Boolean(match[2]), keyword: match[1] ?? "" });
+  }
+
+  const range = new RegExp(
+    String.raw`\b(?:around|about|between|budget|roughly)\b[^$\n]{0,24}?\$?\s*(${MONEY_NUMBER})\s*(k|grand)?\s*(?:-|–|—|to|and)\s*\$?\s*(${MONEY_NUMBER})\s*(k|grand)?\b`,
+    "gi",
+  );
+  for (const match of text.matchAll(range)) {
+    const end = (match.index ?? 0) + match[0].length;
+    if (followedByMiles(text, end)) continue;
+    const leftSuffix = (match[2] ?? "").toLowerCase();
+    const rightSuffix = (match[4] ?? "").toLowerCase();
+    const left = rangeEnd(match[1] ?? "", leftSuffix, rightSuffix);
+    const right = rangeEnd(match[3] ?? "", rightSuffix, leftSuffix);
+    const usd = Math.max(left ?? 0, right ?? 0);
+    if (usd >= 1000) hits.push({ index: match.index ?? 0, usd });
+  }
+
+  const grand = new RegExp(
+    String.raw`\b(?:under|below|budget|around|about|approximately|roughly|less than|up to)?\s*\$?\s*(${MONEY_NUMBER})\s*grand\b`,
+    "gi",
+  );
+  for (const match of text.matchAll(grand)) {
+    const usd = grandValue(match[1] ?? "");
+    if (usd == null) continue;
+    hits.push({ index: match.index ?? 0, usd });
   }
 
   const tilde = new RegExp(String.raw`~\s*\$?\s*(${MONEY_NUMBER})\s*(k)?\b`, "gi");

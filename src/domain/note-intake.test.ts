@@ -17,6 +17,13 @@ describe("budget phrases the old regex dropped", () => {
     expect(budgetFromText("around $15,000")).toBe(15_000);
     expect(budgetFromText("~$15k")).toBe(15_000);
     expect(budgetFromText("Need a reliable family car under $18,000")).toBe(18_000);
+    expect(budgetFromText("budget around $15k")).toBe(15_000);
+    expect(budgetFromText("under 20 grand")).toBe(20_000);
+    expect(budgetFromText("around 12-15k")).toBe(15_000);
+    expect(budgetFromText("between $12,000 and $15,000")).toBe(15_000);
+    expect(budgetFromText("Looking for a reliable used car for 15,000 dollars.")).toBe(15_000);
+    expect(budgetFromText("Looking for a reliable used car under 20 grand.")).toBe(20_000);
+    expect(budgetFromText("Looking for a reliable used car around 12-15k.")).toBe(15_000);
   });
 
   it("does not invent a budget or treat miles and model years as prices", () => {
@@ -63,6 +70,24 @@ describe("owner find note", () => {
     expect(need.historyPreference).toBeNull();
     expect(followUps(need).map((item) => item.id)).toEqual(expect.arrayContaining(["age", "condition"]));
     expect(findStageAfterNote(need)).toBe("follow");
+  });
+
+  it("does not ask the price again for grand, comma, and range budgets", () => {
+    for (const [note, usd] of [
+      ["Looking for a reliable used car under 20 grand.", 20_000],
+      ["Looking for a reliable used car for 15,000 dollars.", 15_000],
+      ["Looking for a reliable used car around 12-15k.", 15_000],
+    ] as const) {
+      const need = explicitNeedFromText(note, "personal");
+      expect(need.budgetUsd).toBe(usd);
+      expect(need.budgetKnown).toBe(true);
+      expect(need.milesMax).toBeNull();
+      expect(followUps(need).map((item) => item.id)).not.toContain("cash");
+      expect(findStageAfterNote(need)).toBe("confirm");
+    }
+    const open = explicitNeedFromText("Looking for a reliable used car for errands.", "personal");
+    expect(open.budgetUsd).toBeNull();
+    expect(findStageAfterNote(open)).toBe("budget");
   });
 
   it("prefills body, year, mileage, ZIP, and radius when they are written", () => {
