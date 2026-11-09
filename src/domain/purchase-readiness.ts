@@ -7,7 +7,7 @@ import { ASSUMPTIONS } from "./assumptions";
 import { trimsMatch } from "./find-car-consistency";
 import { confirmedRecallCount, type RecallStateInput } from "./find-evidence-state";
 import { findForbiddenTechArtifacts } from "./find-buyer-copy";
-import { formatUsd } from "./format";
+import { formatNumber, formatUsd } from "./format";
 import { listingAgeDays } from "./flip-rank";
 import { odometerCaution } from "./odometer";
 import { listingUsableForPurchaseEconomics } from "./report-purchase-ask";
@@ -31,8 +31,19 @@ import { normalizeZip, stateFromZip, ZIP_PREFIX_AS_OF, ZIP_PREFIX_SOURCE_LABEL, 
 
 export { stateFromZip } from "./zip-to-state";
 
-/** Same closeness Find already uses when it prefers similar mileage. Not widened. */
-export const OFFER_MILES_CLOSE_FRAC = 0.45;
+/**
+ * Mileage must sit within this fraction of this car's own mileage.
+ * Symmetric on purpose. The old 45% band used the higher odometer as the
+ * denominator, so a 53,508-mile car counted as close to a 31,149-mile car.
+ */
+export const OFFER_MILES_CLOSE_FRAC = 0.15;
+
+/**
+ * Do not quote an opening offer more than this far under the asking price.
+ * A wider gap is described, with the other asking prices, and is not turned
+ * into a number to offer.
+ */
+export const OFFER_MAX_BELOW_ASK = 0.1;
 
 const POINT_LIMIT = 5;
 
@@ -81,13 +92,15 @@ export type PurchaseReadiness = {
     openHigh: boolean;
   };
   offer: {
-    status: "ok" | "insufficient";
+    status: "ok" | "insufficient" | "wide_gap";
     compCount: number;
     openingUsd: number | null;
     walkAwayUsd: number | null;
     openingLabel: string;
     walkAwayLabel: string;
     sentence: string;
+    /** Asking prices of the listings that passed the close-comp rules. Empty when fewer than 3 did. */
+    closeAskingUsd: number[];
   };
   talkingPoints: TalkingPoint[];
   talkingPointsNote: string | null;
@@ -164,12 +177,15 @@ function buildOtd(input: PurchaseReadinessInput, asking: number | null): Purchas
   }
   const tax = stateSalesTax(stateCode);
   if (!tax || !normalized) {
-    const shown = normalized ?? (input.zip?.trim() || "none");
+    const shown = normalized ?? input.zip?.trim() ?? "";
+    const why = shown
+      ? `ZIP ${shown} does not map to a state in the checked-in ZIP table, so state sales tax is unknown.`
+      : "No ZIP was available, so state sales tax is unknown.";
     return {
       status: "unknown_state",
       headline: "Out-the-door estimate: not calculated.",
       lines: [
-        `The asking price is ${formatUsd(asking)}, but ZIP ${shown} does not map to a state in the checked-in ZIP table, so state sales tax is unknown.`,
+        `The asking price is ${formatUsd(asking)}, but ${why}`,
         "Local sales-tax add-ons are unknown.",
         TITLE_REGISTRATION_LINE,
         DOC_FEE_UNKNOWN_LINE,
@@ -211,82 +227,227 @@ function similarPhrase(count: number, model: string): string {
   return `${count} similar ${model} ${noun}`;
 }
 
+function normalizeVin(vin: string | null | undefined): string {
+  return (vin ?? "").trim().toUpperCase();
+}
+
+function listingFingerprint(car: ReadinessCar): string {
+  return [
+    car.year,
+    car.make.trim().toLowerCase(),
+    car.model.trim().toLowerCase(),
+    (car.trim ?? "").trim().toLowerCase(),
+    car.miles == null || !Number.isFinite(car.miles) ? "" : String(car.miles),
+    car.priceUsd == null || !Number.isFinite(car.priceUsd) ? "" : String(car.priceUsd),
+  ].join("|");
+}
+
+function milesAreClose(subjectMiles: number, otherMiles: number): boolean {
+  const base = Math.max(subjectMiles, 1);
+  return Math.abs(otherMiles - subjectMiles) / base <= OFFER_MILES_CLOSE_FRAC;
+}
+
+/** Trim key for an offer. Spacing and hyphens fold together. "SE" does not match "SE Nightshade" or "XSE". */
+function offerTrimKey(value: string | null | undefined): string | null {
+  const normed = (value ?? "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim()
+    .replace(/\s+/g, " ");
+  if (!normed) return null;
+  return normed.replace(/ /g, "");
+}
+
+function offerTrimsMatch(subject: ReadinessCar, item: ReadinessCar): boolean {
+  const left = offerTrimKey(subject.trim);
+  const right = offerTrimKey(item.trim);
+  if (!left || !right) return false;
+  return left === right;
+}
+
+type OfferCandidate = {
+  year: number;
+  trim: string;
+  miles: number;
+  priceUsd: number;
+  sameTrim: boolean;
+  closeMiles: boolean;
+};
+
+function blankOffer(compCount: number, sentence: string): PurchaseReadiness["offer"] {
+  return {
+    status: "insufficient",
+    compCount,
+    openingUsd: null,
+    walkAwayUsd: null,
+    openingLabel: "Reasonable opening offer: not estimated.",
+    walkAwayLabel: "Walk-away price: not estimated.",
+    sentence,
+    closeAskingUsd: [],
+  };
+}
+
+function joinAnd(parts: readonly string[]): string {
+  if (parts.length <= 1) return parts[0] ?? "";
+  if (parts.length === 2) return `${parts[0]} and ${parts[1]}`;
+  return `${parts.slice(0, -1).join("; ")}; and ${parts[parts.length - 1]}`;
+}
+
+function priceList(prices: readonly number[]): string {
+  const formatted = [...prices].sort((a, b) => a - b).map((price) => formatUsd(price));
+  return joinAnd(formatted);
+}
+
+function describeCloseComps(comps: readonly OfferCandidate[]): string {
+  const sorted = [...comps].sort((a, b) => a.priceUsd - b.priceUsd || a.miles - b.miles || a.year - b.year);
+  if (sorted.length > 6) return `asking ${priceList(sorted.map((item) => item.priceUsd))}`;
+  return joinAnd(
+    sorted.map(
+      (item) =>
+        `a ${item.year} ${item.trim} with ${formatNumber(item.miles)} miles asking ${formatUsd(item.priceUsd)}`,
+    ),
+  );
+}
+
+function percentUnder(asking: number, price: number): number {
+  return Math.round(((asking - price) / asking) * 100);
+}
+
+function selectOfferCandidates(car: ReadinessCar, pool: readonly ReadinessCar[]): OfferCandidate[] {
+  const subjectVin = normalizeVin(car.vin);
+  const subjectFp = listingFingerprint(car);
+  const seenVin = new Set<string>();
+  if (subjectVin) seenVin.add(subjectVin);
+  const gathered: Array<OfferCandidate & { vin: string; fp: string }> = [];
+  for (const item of pool) {
+    if (!sameName(item.make, car.make) || !sameName(item.model, car.model)) continue;
+    if (Math.abs(item.year - car.year) > ASSUMPTIONS.yearWindow) continue;
+    const vin = normalizeVin(item.vin);
+    if (subjectVin && vin && vin === subjectVin) continue;
+    if (!subjectVin && !vin && listingFingerprint(item) === subjectFp) continue;
+    const price = usableAsking(item);
+    if (price == null) continue;
+    if (item.miles == null || !Number.isFinite(item.miles) || item.miles < 0) continue;
+    if (vin) {
+      if (seenVin.has(vin)) continue;
+      seenVin.add(vin);
+    }
+    gathered.push({
+      year: item.year,
+      trim: (item.trim ?? "").replace(/\s+/g, " ").trim(),
+      miles: item.miles,
+      priceUsd: price,
+      sameTrim: offerTrimsMatch(car, item),
+      closeMiles: milesAreClose(car.miles ?? 0, item.miles),
+      vin,
+      fp: listingFingerprint(item),
+    });
+  }
+  const vinFingerprints = new Set(gathered.filter((item) => item.vin).map((item) => item.fp));
+  const seenLoose = new Set<string>([subjectFp]);
+  const unique: OfferCandidate[] = [];
+  for (const item of gathered) {
+    if (!item.vin) {
+      if (vinFingerprints.has(item.fp) || seenLoose.has(item.fp)) continue;
+      seenLoose.add(item.fp);
+    }
+    unique.push(item);
+  }
+  return unique;
+}
+
 function buildOffer(
   car: ReadinessCar,
   pool: readonly ReadinessCar[],
   asking: number | null,
 ): PurchaseReadiness["offer"] {
-  const notEstimated = {
-    openingUsd: null as number | null,
-    walkAwayUsd: null as number | null,
-    openingLabel: "Reasonable opening offer: not estimated.",
-    walkAwayLabel: "Walk-away price: not estimated.",
-  };
   if (car.miles == null || !Number.isFinite(car.miles) || car.miles < 0) {
-    return {
-      status: "insufficient",
-      compCount: 0,
-      ...notEstimated,
-      sentence:
-        "There is not enough data for a reasonable opening offer or a walk-away price. Mileage is missing, so close-mileage listings could not be chosen.",
-    };
+    return blankOffer(
+      0,
+      "There is not enough data for a reasonable opening offer or a walk-away price. Mileage is missing, so close-mileage listings could not be chosen.",
+    );
   }
-  const subjectVin = (car.vin ?? "").trim().toUpperCase();
-  const seen = new Set<string>();
-  const prices: number[] = [];
-  for (const item of pool) {
-    const vin = (item.vin ?? "").trim().toUpperCase();
-    if (subjectVin && vin && vin === subjectVin) continue;
-    if (!sameName(item.make, car.make) || !sameName(item.model, car.model)) continue;
-    if (Math.abs(item.year - car.year) > ASSUMPTIONS.yearWindow) continue;
-    const price = usableAsking(item);
-    if (price == null) continue;
-    if (item.miles == null || !Number.isFinite(item.miles) || item.miles < 0) continue;
-    const denom = Math.max(car.miles, item.miles, 1);
-    if (Math.abs(item.miles - car.miles) / denom > OFFER_MILES_CLOSE_FRAC) continue;
-    if (vin) {
-      if (seen.has(vin)) continue;
-      seen.add(vin);
+  const trimName = (car.trim ?? "").replace(/\s+/g, " ").trim();
+  if (!trimName) {
+    return blankOffer(
+      0,
+      "There is not enough data for a reasonable opening offer or a walk-away price. This listing does not name a trim, so other trims were not used in its place.",
+    );
+  }
+  const candidates = selectOfferCandidates(car, pool);
+  const close = candidates.filter((item) => item.sameTrim && item.closeMiles);
+  const differentTrim = candidates.filter((item) => !item.sameTrim).length;
+  const farMiles = candidates.filter((item) => item.sameTrim && !item.closeMiles).length;
+  if (close.length < ASSUMPTIONS.minComps) {
+    const aside: string[] = [];
+    if (differentTrim > 0) {
+      aside.push(
+        `${differentTrim} other ${car.model} ${differentTrim === 1 ? "listing is" : "listings are"} a different trim`,
+      );
     }
-    prices.push(price);
+    if (farMiles > 0) {
+      aside.push(
+        `${farMiles} same-trim ${farMiles === 1 ? "listing is" : "listings are"} outside that mileage band`,
+      );
+    }
+    const setAside = differentTrim + farMiles;
+    const asideSentence =
+      aside.length === 0
+        ? ""
+        : ` ${aside.join(", and ")}. ${setAside === 1 ? "That listing was not used." : "Those listings were not used."}`;
+    return blankOffer(
+      close.length,
+      `There is not enough data for a reasonable opening offer or a walk-away price. This search has ${similarPhrase(close.length, car.model)} with the ${trimName} trim, within 1 model year, and mileage within ${Math.round(OFFER_MILES_CLOSE_FRAC * 100)} percent of this car. That needs at least ${ASSUMPTIONS.minComps}.${asideSentence}`,
+    );
   }
-  if (prices.length < ASSUMPTIONS.minComps) {
-    return {
-      status: "insufficient",
-      compCount: prices.length,
-      ...notEstimated,
-      sentence: `There is not enough data for a reasonable opening offer or a walk-away price. This search has ${similarPhrase(prices.length, car.model)} within 1 model year and close mileage, and that needs at least ${ASSUMPTIONS.minComps}.`,
-    };
-  }
+  const prices = close.map((item) => item.priceUsd);
   const quarter = percentileValue(prices, 25);
   const middle = median(prices);
   if (quarter == null || middle == null) {
-    return {
-      status: "insufficient",
-      compCount: prices.length,
-      ...notEstimated,
-      sentence: `There is not enough data for a reasonable opening offer or a walk-away price. This search has ${similarPhrase(prices.length, car.model)} within 1 model year and close mileage, and that needs at least ${ASSUMPTIONS.minComps}.`,
-    };
+    return blankOffer(
+      close.length,
+      `There is not enough data for a reasonable opening offer or a walk-away price. This search has ${similarPhrase(close.length, car.model)} with the ${trimName} trim, within 1 model year, and mileage within ${Math.round(OFFER_MILES_CLOSE_FRAC * 100)} percent of this car. That needs at least ${ASSUMPTIONS.minComps}.`,
+    );
   }
   let opening = roundDollars(quarter);
   const walkAway = roundDollars(middle);
-  const methodCore = `the price one quarter of the way up the list of ${similarPhrase(prices.length, car.model)} in this search (same model, within 1 model year, mileage within 45 percent), and the walk-away price is the middle price on that list — asking prices, not sold prices.`;
-  let sentence: string;
-  if (asking != null) {
-    opening = Math.min(opening, roundDollars(asking));
-    sentence = `Reasonable opening offer is the lower of this car's asking price and ${methodCore}`;
-  } else {
-    sentence = `The opening offer is ${methodCore}`;
+  if (asking != null) opening = Math.min(opening, roundDollars(asking));
+  const listed = describeCloseComps(close);
+  const windowPhrase = `same trim, within 1 model year, mileage within ${Math.round(OFFER_MILES_CLOSE_FRAC * 100)} percent of this car`;
+  if (opening > walkAway) {
+    return blankOffer(
+      close.length,
+      `There is not enough data for a reasonable opening offer or a walk-away price. These similar listings (${listed}) did not form an opening price at or below the middle price, so no offer is shown.`,
+    );
   }
-  if (opening > walkAway) opening = walkAway;
+  if (asking != null && asking > 0 && asking - opening > asking * OFFER_MAX_BELOW_ASK) {
+    const pct = percentUnder(asking, opening);
+    const gapPhrase = pct > Math.round(OFFER_MAX_BELOW_ASK * 100) ? `about ${pct}% under` : "more than 10% under";
+    return {
+      status: "wide_gap",
+      compCount: close.length,
+      openingUsd: null,
+      walkAwayUsd: null,
+      openingLabel: "Reasonable opening offer: not estimated.",
+      walkAwayLabel: "Walk-away price: not estimated.",
+      sentence: `There is not enough support for a reasonable opening offer or a walk-away price. ${similarPhrase(close.length, car.model)} in this search are close enough to compare (${windowPhrase}): ${listed}. The price one quarter of the way up that list is ${gapPhrase} this car's ${formatUsd(asking)} asking price. That gap is too wide to turn into an offer from listing prices alone. These are asking prices, not sold prices.`,
+      closeAskingUsd: prices,
+    };
+  }
+  const anchoredToAsk = asking != null && opening === roundDollars(asking) && roundDollars(quarter) > opening;
+  const countPhrase = similarPhrase(close.length, car.model);
+  const sentence = anchoredToAsk
+    ? `Reasonable opening offer stays at this car's asking price of ${formatUsd(opening)}, which is already under the price one quarter of the way up these ${countPhrase}: ${listed}. The walk-away price is ${formatUsd(walkAway)}, the middle price on that list. Those listings are the ${windowPhrase}. Asking prices, not sold prices.`
+    : `Reasonable opening offer is ${formatUsd(opening)}, the price one quarter of the way up these ${countPhrase}: ${listed}. The walk-away price is ${formatUsd(walkAway)}, the middle price on that list. Those listings are the ${windowPhrase}. Asking prices, not sold prices.`;
   return {
     status: "ok",
-    compCount: prices.length,
+    compCount: close.length,
     openingUsd: opening,
     walkAwayUsd: walkAway,
     openingLabel: `Reasonable opening offer: ${formatUsd(opening)}.`,
     walkAwayLabel: `Walk-away price: ${formatUsd(walkAway)}.`,
     sentence,
+    closeAskingUsd: prices,
   };
 }
 
@@ -347,20 +508,32 @@ function buildPoints(
     draft.push({ topic, carLabel: label, text, source });
   };
 
-  if (
-    offer.status === "ok" &&
-    asking != null &&
-    offer.walkAwayUsd != null &&
-    asking > offer.walkAwayUsd
-  ) {
-    push(
-      "price",
-      withSource(
-        `The asking price is above the walk-away price of ${formatUsd(offer.walkAwayUsd)} from ${similarPhrase(offer.compCount, input.car.model)} in this search. Ask the seller to explain that gap before you pay more.`,
-        "similar listings in this search",
-      ),
-      "similar listings in this search",
-    );
+  if (asking != null && offer.closeAskingUsd.length >= ASSUMPTIONS.minComps) {
+    const middle = median(offer.closeAskingUsd);
+    const quarter = percentileValue(offer.closeAskingUsd, 25);
+    if (middle != null && quarter != null && asking > roundDollars(middle)) {
+      const prices = priceList(offer.closeAskingUsd);
+      if (offer.status === "ok" && offer.walkAwayUsd != null) {
+        push(
+          "price",
+          withSource(
+            `The asking price is above the walk-away price of ${formatUsd(offer.walkAwayUsd)} from ${similarPhrase(offer.compCount, input.car.model)} in this search (${prices}). Ask the seller to explain that gap before you pay more.`,
+            "similar listings in this search",
+          ),
+          "similar listings in this search",
+        );
+      } else if (offer.status === "wide_gap") {
+        const pct = percentUnder(asking, roundDollars(quarter));
+        push(
+          "price",
+          withSource(
+            `Same-trim listings with close mileage in this search ask ${prices}. The price one quarter of the way up that list is about ${pct}% under this car's asking price, which is too wide a gap to use as an opening offer. Ask the seller what is different about this car before you pay the asking price.`,
+            "similar listings in this search",
+          ),
+          "similar listings in this search",
+        );
+      }
+    }
   }
 
   const accidents = input.car.accidentCount;
@@ -465,7 +638,21 @@ const QUESTION_TOPIC: Partial<Record<TalkingPointTopic, RegExp>> = {
 };
 
 function questionNamesCar(question: string, label: string): boolean {
-  return question.toLowerCase().includes(label.toLowerCase());
+  const q = question.toLowerCase().replace(/\s+/g, " ").trim();
+  const name = label.toLowerCase().replace(/\s+/g, " ").trim();
+  if (!name) return false;
+  let from = 0;
+  while (from < q.length) {
+    const idx = q.indexOf(name, from);
+    if (idx < 0) return false;
+    const beforeOk = idx === 0 || !/[a-z0-9]/i.test(q[idx - 1] ?? "");
+    const after = q.slice(idx + name.length);
+    const afterOk =
+      after.length === 0 || /^[,:;.!?)\]]/.test(after) || /^\s+(?:[—–-]|[,:;.!?])/.test(after);
+    if (beforeOk && afterOk) return true;
+    from = idx + 1;
+  }
+  return false;
 }
 
 /**
@@ -477,8 +664,13 @@ export function omitQuestionsCoveredByTalkingPoints(
   points: readonly Pick<TalkingPoint, "topic" | "carLabel">[],
 ): string[] {
   const labels = [...new Set(points.map((point) => point.carLabel))];
-  return questions.filter((question) => {
-    return !points.some((point) => {
+  const kept: string[] = [];
+  const seen = new Set<string>();
+  for (const question of questions) {
+    const key = question.replace(/\s+/g, " ").trim().toLowerCase();
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    const covered = points.some((point) => {
       const pattern = QUESTION_TOPIC[point.topic];
       if (!pattern || !pattern.test(question)) return false;
       if (point.topic === "recall" && /park-it|do not drive|outdoor-parking/i.test(question)) return false;
@@ -488,7 +680,9 @@ export function omitQuestionsCoveredByTalkingPoints(
       if (!aboutThis && /\b(19|20)\d{2}\b/.test(question)) return false;
       return true;
     });
-  });
+    if (!covered) kept.push(question);
+  }
+  return kept;
 }
 
 export function readinessCarsFromUnknown(value: unknown): ReadinessCar[] {

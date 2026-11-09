@@ -1,8 +1,10 @@
 import { describe, expect, it } from "vitest";
+import { buildSampleReport } from "@/server/sample-report";
 import { assertBuyerSafeText } from "./find-buyer-copy";
 import {
   buildPurchaseReadiness,
   omitQuestionsCoveredByTalkingPoints,
+  purchaseReadinessForReport,
   readinessCarsFromUnknown,
   recallCampaignCountForCar,
   stateFromZip,
@@ -15,7 +17,7 @@ function car(over: Partial<ReadinessCar> & Pick<ReadinessCar, "vin" | "year" | "
   return {
     priceUsd: 15000,
     miles: 80000,
-    trim: null,
+    trim: "SE",
     createdAt: null,
     accidentCount: null,
     ...over,
@@ -61,7 +63,13 @@ describe("ZIP to state", () => {
     expect(stateFromZip("20001")).toBe("DC");
     expect(stateFromZip("96701")).toBe("HI");
     expect(stateFromZip("96799")).toBeNull();
+    expect(stateFromZip("00901")).toBeNull();
+    expect(stateFromZip("00801")).toBeNull();
+    expect(stateFromZip("96910")).toBeNull();
+    expect(stateFromZip("96950")).toBeNull();
     expect(stateFromZip("09012")).toBeNull();
+    expect(stateFromZip("34001")).toBeNull();
+    expect(stateFromZip("96201")).toBeNull();
     expect(stateFromZip("00000")).toBeNull();
     expect(stateFromZip("abc")).toBeNull();
     expect(stateFromZip(null)).toBeNull();
@@ -95,6 +103,32 @@ describe("out-the-door estimate", () => {
     );
     expect(view.sources.some((source) => source.href.includes("List_of_ZIP_Code_prefixes"))).toBe(true);
     for (const line of buyerText(view)) expect(assertBuyerSafeText(line).ok, line).toBe(true);
+  });
+
+  it("does not invent a state rate when the ZIP is missing or a territory", () => {
+    const missing = readiness({
+      car: car({ vin: "T1", year: 2016, make: "Hyundai", model: "Tucson", priceUsd: 12000 }),
+      zip: null,
+    });
+    expect(missing.otd.status).toBe("unknown_state");
+    expect(missing.otd.floorUsd).toBeNull();
+    const missingText = [missing.otd.headline, ...missing.otd.lines].join(" ");
+    expect(missingText).toMatch(/no ZIP was available/i);
+    expect(missingText).toMatch(/unknown/i);
+    expect(missingText).not.toMatch(/or more|5\.5%/);
+
+    for (const zip of ["00901", "00801", "96910", "96950", "96799", "09012"]) {
+      const view = readiness({
+        car: car({ vin: "T1", year: 2016, make: "Hyundai", model: "Tucson", priceUsd: 12000 }),
+        zip,
+      });
+      expect(view.otd.status, zip).toBe("unknown_state");
+      expect(view.otd.floorUsd, zip).toBeNull();
+      const text = [view.otd.headline, ...view.otd.lines].join(" ");
+      expect(text, zip).toMatch(new RegExp(zip));
+      expect(text, zip).toMatch(/unknown/i);
+      expect(text, zip).not.toMatch(/or more|5\.5%|\$12,660/);
+    }
   });
 
   it("does not invent a state rate when the ZIP is unknown", () => {
@@ -174,9 +208,9 @@ describe("out-the-door estimate", () => {
 describe("offer range", () => {
   const subject = car({ vin: "T1", year: 2016, make: "Hyundai", model: "Tucson", priceUsd: 15000, miles: 80000 });
   const close = [
-    car({ vin: "C1", year: 2016, make: "Hyundai", model: "Tucson", priceUsd: 12000, miles: 70000 }),
-    car({ vin: "C2", year: 2015, make: "Hyundai", model: "Tucson", priceUsd: 14000, miles: 90000 }),
-    car({ vin: "C3", year: 2017, make: "Hyundai", model: "Tucson", priceUsd: 18000, miles: 85000 }),
+    car({ vin: "C1", year: 2016, make: "Hyundai", model: "Tucson", trim: "SE", priceUsd: 14000, miles: 70000 }),
+    car({ vin: "C2", year: 2015, make: "Hyundai", model: "Tucson", trim: "SE", priceUsd: 14800, miles: 90000 }),
+    car({ vin: "C3", year: 2017, make: "Hyundai", model: "Tucson", trim: "SE", priceUsd: 16000, miles: 85000 }),
   ];
 
   it("uses the lower end and the middle of close same-model listings", () => {
@@ -193,16 +227,22 @@ describe("offer range", () => {
     });
     expect(view.offer.status).toBe("ok");
     expect(view.offer.compCount).toBe(3);
-    expect(view.offer.openingUsd).toBe(13000);
-    expect(view.offer.walkAwayUsd).toBe(14000);
-    expect(view.offer.openingLabel).toMatch(/Reasonable opening offer: \$13,000/);
-    expect(view.offer.walkAwayLabel).toMatch(/Walk-away price: \$14,000/);
+    expect(view.offer.openingUsd).toBe(14400);
+    expect(view.offer.walkAwayUsd).toBe(14800);
+    expect(view.offer.walkAwayUsd).toBeGreaterThanOrEqual(view.offer.openingUsd!);
+    expect(view.offer.openingLabel).toMatch(/Reasonable opening offer: \$14,400/);
+    expect(view.offer.walkAwayLabel).toMatch(/Walk-away price: \$14,800/);
     expect(view.offer.sentence).toMatch(/one quarter of the way up/);
     expect(view.offer.sentence).toMatch(/middle price/);
+    expect(view.offer.sentence).toMatch(/\$14,000/);
+    expect(view.offer.sentence).toMatch(/\$14,800/);
+    expect(view.offer.sentence).toMatch(/\$16,000/);
+    expect(view.offer.sentence).toMatch(/70,000 miles/);
     expect(view.offer.sentence).toMatch(/3 similar Tucson listings/);
     expect(view.offer.sentence).toMatch(/1 model year/);
-    expect(view.offer.sentence).toMatch(/45 percent/);
+    expect(view.offer.sentence).toMatch(/15 percent/);
     expect(view.offer.sentence).toMatch(/not sold prices/);
+    expect(view.offer.sentence).not.toMatch(/45 percent/);
     expect(view.talkingPoints.some((point) => point.topic === "price")).toBe(true);
     const price = view.talkingPoints.find((point) => point.topic === "price")!;
     expect(price.text).toMatch(/Source: similar listings in this search/);
@@ -261,9 +301,226 @@ describe("offer range", () => {
     const cheap = car({ vin: "T1", year: 2016, make: "Hyundai", model: "Tucson", priceUsd: 11000, miles: 80000 });
     const view = readiness({ car: cheap, pool: [cheap, ...close] });
     expect(view.offer.openingUsd).toBe(11000);
-    expect(view.offer.walkAwayUsd).toBe(14000);
-    expect(view.offer.sentence).toMatch(/lower of this car’s asking price|lower of this car's asking price/);
+    expect(view.offer.walkAwayUsd).toBe(14800);
+    expect(view.offer.walkAwayUsd).toBeGreaterThanOrEqual(view.offer.openingUsd!);
+    expect(view.offer.sentence).toMatch(/stays at this car’s asking price|stays at this car's asking price/);
     expect(view.talkingPoints.some((point) => point.topic === "price")).toBe(false);
+  });
+
+  it("does not treat a different trim or much higher mileage as a reason to lowball", () => {
+    const trd = car({
+      vin: "4T1KZ1AK4MU060006",
+      year: 2021,
+      make: "Toyota",
+      model: "Camry",
+      trim: "TRD",
+      priceUsd: 34988,
+      miles: 31149,
+      zip: "72758",
+    });
+    const view = readiness({
+      car: trd,
+      zip: "72758",
+      zipUsedFor: "listing",
+      pool: [
+        trd,
+        car({
+          vin: "4T1K61AK0MU423359",
+          year: 2021,
+          make: "Toyota",
+          model: "Camry",
+          trim: "XSE",
+          priceUsd: 28795,
+          miles: 53508,
+        }),
+        car({
+          vin: "4T1K61AK4MU610393",
+          year: 2021,
+          make: "Toyota",
+          model: "Camry",
+          trim: "XSE",
+          priceUsd: 29998,
+          miles: 45872,
+        }),
+        car({
+          vin: "4T1NZ1AK2LU042082",
+          year: 2020,
+          make: "Toyota",
+          model: "Camry",
+          trim: "TRD",
+          priceUsd: 30995,
+          miles: 57711,
+        }),
+        car({
+          vin: "4T1K61AK4LU371927",
+          year: 2020,
+          make: "Toyota",
+          model: "Camry",
+          trim: "XSE",
+          priceUsd: 27998,
+          miles: 41530,
+        }),
+      ],
+    });
+    expect(view.otd.floorUsd).toBe(37262);
+    expect(view.otd.headline).toMatch(/\$37,262 or more/);
+    expect(view.offer.status).toBe("insufficient");
+    expect(view.offer.compCount).toBe(0);
+    expect(view.offer.openingUsd).toBeNull();
+    expect(view.offer.walkAwayUsd).toBeNull();
+    expect(view.offer.sentence).toMatch(/TRD/);
+    expect(view.offer.sentence).toMatch(/different trim/);
+    expect(view.offer.sentence).toMatch(/mileage band/);
+    expect(view.offer.sentence).not.toMatch(/\$28,397|\$28,795|\$27,998|\$29,998/);
+    expect(view.talkingPoints.some((point) => point.topic === "price")).toBe(false);
+  });
+
+  it("matches only the same trim name, including hyphen spacing but not a longer trim", () => {
+    const subject = car({ vin: "T1", year: 2016, make: "Hyundai", model: "Tucson", trim: "EX-L", priceUsd: 15000, miles: 80000 });
+    const view = readiness({
+      car: subject,
+      pool: [
+        subject,
+        car({ vin: "C1", year: 2016, make: "Hyundai", model: "Tucson", trim: "EXL", priceUsd: 14000, miles: 78000 }),
+        car({ vin: "C2", year: 2016, make: "Hyundai", model: "Tucson", trim: "EX L", priceUsd: 14800, miles: 82000 }),
+        car({ vin: "C3", year: 2015, make: "Hyundai", model: "Tucson", trim: "EX-L", priceUsd: 16000, miles: 86000 }),
+        car({ vin: "LONG", year: 2016, make: "Hyundai", model: "Tucson", trim: "EX-L Premium", priceUsd: 11000, miles: 80000 }),
+        car({ vin: "HYB", year: 2016, make: "Hyundai", model: "Tucson", trim: "EX-L Hybrid", priceUsd: 10000, miles: 80000 }),
+      ],
+    });
+    expect(view.offer.status).toBe("ok");
+    expect(view.offer.compCount).toBe(3);
+    expect(view.offer.openingUsd).toBe(14400);
+    expect(view.offer.sentence).not.toMatch(/\$11,000|\$10,000|Premium|Hybrid/);
+  });
+
+  it("flags a wide gap instead of quoting an opening far under the asking price", () => {
+    const subject = car({ vin: "T1", year: 2016, make: "Hyundai", model: "Tucson", trim: "SE", priceUsd: 15000, miles: 80000 });
+    const view = readiness({
+      car: subject,
+      pool: [
+        subject,
+        car({ vin: "C1", year: 2016, make: "Hyundai", model: "Tucson", trim: "SE", priceUsd: 12000, miles: 70000 }),
+        car({ vin: "C2", year: 2015, make: "Hyundai", model: "Tucson", trim: "SE", priceUsd: 14000, miles: 90000 }),
+        car({ vin: "C3", year: 2017, make: "Hyundai", model: "Tucson", trim: "SE", priceUsd: 18000, miles: 85000 }),
+      ],
+    });
+    expect(view.offer.status).toBe("wide_gap");
+    expect(view.offer.openingUsd).toBeNull();
+    expect(view.offer.walkAwayUsd).toBeNull();
+    expect(view.offer.openingLabel).toMatch(/not estimated/);
+    expect(view.offer.walkAwayLabel).toMatch(/not estimated/);
+    expect(view.offer.sentence).toMatch(/\$12,000/);
+    expect(view.offer.sentence).toMatch(/\$14,000/);
+    expect(view.offer.sentence).toMatch(/\$18,000/);
+    expect(view.offer.sentence).toMatch(/too wide to turn into an offer/);
+    expect(view.offer.sentence).not.toMatch(/Reasonable opening offer is \$13,000/);
+    const price = view.talkingPoints.find((point) => point.topic === "price");
+    expect(price?.text).toMatch(/\$12,000/);
+    expect(price?.text).toMatch(/too wide a gap to use as an opening offer/);
+    expect(price?.text).toMatch(/Source: similar listings in this search/);
+    expect(price?.text).not.toMatch(/walk-away price of/i);
+  });
+
+  it("counts a repeated VIN or a repeated no-VIN listing only once", () => {
+    const subject = car({ vin: "T1", year: 2016, make: "Hyundai", model: "Tucson", trim: "SE", priceUsd: 15000, miles: 80000 });
+    const view = readiness({
+      car: subject,
+      pool: [
+        subject,
+        car({ vin: "c1", year: 2016, make: "Hyundai", model: "Tucson", trim: "SE", priceUsd: 14000, miles: 70000 }),
+        car({ vin: "C1", year: 2016, make: "Hyundai", model: "Tucson", trim: "SE", priceUsd: 10000, miles: 70000 }),
+        car({ vin: "C2", year: 2015, make: "Hyundai", model: "Tucson", trim: "SE", priceUsd: 14800, miles: 90000 }),
+        car({ vin: null, year: 2017, make: "Hyundai", model: "Tucson", trim: "SE", priceUsd: 16000, miles: 85000 }),
+        car({ vin: null, year: 2017, make: "Hyundai", model: "Tucson", trim: "SE", priceUsd: 16000, miles: 85000 }),
+        car({ vin: "LE", year: 2016, make: "Hyundai", model: "Tucson", trim: "Limited", priceUsd: 9000, miles: 80000 }),
+      ],
+    });
+    expect(view.offer.status).toBe("ok");
+    expect(view.offer.compCount).toBe(3);
+    expect(view.offer.openingUsd).toBe(14400);
+    expect(view.offer.walkAwayUsd).toBe(14800);
+    expect(view.offer.sentence).not.toMatch(/\$10,000|\$9,000/);
+  });
+
+  it("does not quote an offer when fewer than 3 listings remain after duplicate removal", () => {
+    const subject = car({ vin: "T1", year: 2016, make: "Hyundai", model: "Tucson", trim: "SE", priceUsd: 15000, miles: 80000 });
+    const view = readiness({
+      car: subject,
+      pool: [
+        subject,
+        { ...subject, vin: "t1" },
+        car({ vin: null, year: 2016, make: "Hyundai", model: "Tucson", trim: "SE", priceUsd: 15000, miles: 80000 }),
+        car({ vin: "C1", year: 2016, make: "Hyundai", model: "Tucson", trim: "SE", priceUsd: 14000, miles: 78000 }),
+      ],
+    });
+    expect(view.offer.status).toBe("insufficient");
+    expect(view.offer.compCount).toBe(1);
+    expect(view.offer.openingUsd).toBeNull();
+    expect(view.offer.walkAwayUsd).toBeNull();
+  });
+
+  it("does not guess an offer from other trims when this listing has no trim", () => {
+    const subject = car({ vin: "T1", year: 2016, make: "Hyundai", model: "Tucson", trim: null, priceUsd: 15000, miles: 80000 });
+    const view = readiness({
+      car: subject,
+      pool: [subject, ...close],
+    });
+    expect(view.offer.status).toBe("insufficient");
+    expect(view.offer.openingUsd).toBeNull();
+    expect(view.offer.sentence).toMatch(/does not name a trim/);
+  });
+
+  it("never publishes a walk-away price below the opening offer", () => {
+    const subject = car({ vin: "T1", year: 2016, make: "Hyundai", model: "Tucson", trim: "SE", priceUsd: 15000, miles: 80000 });
+    const grids = [
+      [14000, 14800, 16000],
+      [14900, 15000, 15100],
+      [10000, 10000, 10000],
+      [12000, 14000, 18000],
+      [5000, 8000, 9000, 20000],
+    ];
+    for (const prices of grids) {
+      const view = readiness({
+        car: subject,
+        pool: [
+          subject,
+          ...prices.map((priceUsd, index) =>
+            car({
+              vin: `P${index}`,
+              year: 2016,
+              make: "Hyundai",
+              model: "Tucson",
+              trim: "SE",
+              priceUsd,
+              miles: 80000 + index * 500,
+            }),
+          ),
+        ],
+      });
+      if (view.offer.openingUsd != null || view.offer.walkAwayUsd != null) {
+        expect(view.offer.openingUsd, prices.join(",")).not.toBeNull();
+        expect(view.offer.walkAwayUsd, prices.join(",")).not.toBeNull();
+        expect(view.offer.walkAwayUsd!, prices.join(",")).toBeGreaterThanOrEqual(view.offer.openingUsd!);
+      }
+    }
+  });
+
+  it("does not lowball the labeled sample Camry TRD from higher-mile XSE listings", () => {
+    const report = buildSampleReport("personal");
+    const view = purchaseReadinessForReport(report.computed, NOW);
+    expect(report.computed.subject.priceUsd).toBe(34988);
+    expect(report.computed.subject.trim).toBe("TRD");
+    expect(view.otd.status).toBe("estimated");
+    expect(view.otd.floorUsd).toBe(37262);
+    expect(view.otd.headline).toMatch(/\$37,262 or more/);
+    expect(view.otd.lines.join(" ")).toMatch(/Arkansas/);
+    expect(view.otd.lines.join(" ")).toMatch(/6\.5%/);
+    expect(view.offer.openingUsd).toBeNull();
+    expect(view.offer.walkAwayUsd).toBeNull();
+    expect(view.offer.sentence).toMatch(/not enough/i);
+    expect(view.offer.sentence).not.toMatch(/\$28,397|\$28,795/);
+    for (const line of buyerText(view)) expect(assertBuyerSafeText(line).ok, line).toBe(true);
   });
 });
 
@@ -364,6 +621,41 @@ describe("negotiation points", () => {
 });
 
 describe("questions stay, duplicates go", () => {
+  it("keeps a park-it question when the recall point is only a general campaign count", () => {
+    const view = readiness({
+      car: car({ vin: "T1", year: 2016, make: "Hyundai", model: "Tucson", accidentCount: 0, miles: 80000 }),
+      recallCampaignCount: 2,
+    });
+    const questions = [
+      "NHTSA lists a park-it (do not drive) campaign for this model year, make, and model. Ask the dealer to verify whether it applies to this VIN and provide the repair order before driving.",
+      "NHTSA lists an outdoor-parking guidance campaign for this model year, make, and model. That is not a do-not-drive park-it claim by itself — ask the dealer to check VIN applicability and any completed remedy.",
+      "Ask the dealer to run this VIN through NHTSA, identify which model-year campaigns apply to this vehicle, and provide repair orders for any applicable campaign already completed.",
+      "Ask the dealer to run this VIN through NHTSA, identify which model-year campaigns apply to this vehicle, and provide repair orders for any applicable campaign already completed.",
+      "Ask for the out-the-door price, including dealer fees, and which fees are optional.",
+    ];
+    const kept = omitQuestionsCoveredByTalkingPoints(questions, view.talkingPoints);
+    expect(kept.join(" ")).toMatch(/park-it/);
+    expect(kept.join(" ")).toMatch(/outdoor-parking/);
+    expect(kept.join(" ")).toMatch(/out-the-door price/);
+    expect(kept.join(" ")).not.toMatch(/model-year campaigns apply/);
+    expect(kept.filter((question) => /model-year campaigns apply/.test(question))).toHaveLength(0);
+  });
+
+  it("does not drop a question about a longer model name", () => {
+    const view = readiness({
+      car: car({ vin: "A1", year: 2018, make: "Honda", model: "Accord", accidentCount: 1, miles: 40000, priceUsd: 18000 }),
+    });
+    const kept = omitQuestionsCoveredByTalkingPoints(
+      [
+        "Ask the seller for accident records on the 2018 Honda Accord — the listing says accidents were reported.",
+        "Ask the seller for accident records on the 2018 Honda Accord Hybrid — the listing says accidents were reported.",
+      ],
+      view.talkingPoints,
+    );
+    expect(kept.join(" ")).not.toMatch(/2018 Honda Accord —/);
+    expect(kept.join(" ")).toMatch(/2018 Honda Accord Hybrid/);
+  });
+
   it("removes seller questions already covered for that car and keeps the out-the-door ask", () => {
     const view = readiness({
       car: car({
