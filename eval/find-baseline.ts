@@ -311,7 +311,7 @@ const text = [
   "",
   "## Purchase readiness",
   "",
-  "Out-the-door uses the fixture ZIP and the checked-in state base sales-tax table. An offer needs at least 3 same-trim listings in this fixture, within 1 model year and mileage within 15 percent of that car. No network and no paid call.",
+  "Out-the-door uses the fixture ZIP and the checked-in state base sales-tax table. An offer adjusts same-model listings already in this fixture (within 3 model years, any trim) for mileage, model year, trim, and stated condition. Fewer than 3 similar cars, or a very wide spread, is not an offer. No network and no paid call.",
   "",
   ...readinessLines,
   "",

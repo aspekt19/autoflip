@@ -21,7 +21,7 @@ export function historyAdjustment(listing: Listing, mode: Mode): HistoryAdjustme
     const haircut = Math.min(ASSUMPTIONS.accidentHaircutCap, accidents * ASSUMPTIONS.accidentHaircutEach);
     multiplier *= 1 - haircut;
     lines.push(
-      `${accidents} accident${accidents === 1 ? "" : "s"} reported on the listing. Fair value is reduced by ${Math.round(haircut * 100)}% (the published price rule, capped at ${Math.round(ASSUMPTIONS.accidentHaircutCap * 100)}%).`,
+      `${accidents} accident${accidents === 1 ? "" : "s"} reported on the listing. Similar listings with a different accident count are adjusted by ${Math.round(ASSUMPTIONS.accidentHaircutEach * 100)}% per accident, capped at ${Math.round(ASSUMPTIONS.accidentHaircutCap * 100)}%.`,
     );
   } else {
     lines.push("The listing reports no accidents.");
@@ -32,7 +32,7 @@ export function historyAdjustment(listing: Listing, mode: Mode): HistoryAdjustme
   } else if (isFleet(listing.usageType)) {
     multiplier *= 1 - ASSUMPTIONS.fleetHaircut;
     lines.push(
-      `Usage is “${listing.usageType}”. Fair value is reduced by ${Math.round(ASSUMPTIONS.fleetHaircut * 100)}% (the published price rule for fleet, rental, or commercial use).`,
+      `Usage is “${listing.usageType}”. Similar listings are adjusted by ${Math.round(ASSUMPTIONS.fleetHaircut * 100)}% when their usage is not fleet, rental, or commercial.`,
     );
   } else {
     lines.push(`Usage on the listing is “${listing.usageType}”. No usage penalty.`);
@@ -43,12 +43,12 @@ export function historyAdjustment(listing: Listing, mode: Mode): HistoryAdjustme
   } else if ((listing.ownerCount ?? 0) >= ASSUMPTIONS.multiOwnerAt) {
     multiplier *= 1 - ASSUMPTIONS.multiOwnerHaircut;
     lines.push(
-      `${listing.ownerCount} owners reported. Fair value is reduced by ${Math.round(ASSUMPTIONS.multiOwnerHaircut * 100)}% (the published price rule at ${ASSUMPTIONS.multiOwnerAt}+ owners).`,
+      `${listing.ownerCount} owners reported. Similar listings are adjusted by ${Math.round(ASSUMPTIONS.multiOwnerHaircut * 100)}% when this car is at ${ASSUMPTIONS.multiOwnerAt}+ owners and that listing is not.`,
     );
   } else if (listing.oneOwner === true || listing.ownerCount === 1) {
     multiplier *= 1 + ASSUMPTIONS.oneOwnerBonus;
     lines.push(
-      `One owner reported. Fair value is raised by ${Math.round(ASSUMPTIONS.oneOwnerBonus * 1000) / 10}% (the published price rule).`,
+      `One owner reported. Similar listings are adjusted by ${Math.round(ASSUMPTIONS.oneOwnerBonus * 1000) / 10}% when their owner count differs.`,
     );
   } else if (listing.ownerCount !== null) {
     lines.push(`${listing.ownerCount} owners reported. No owner penalty under ${ASSUMPTIONS.multiOwnerAt}.`);
@@ -57,7 +57,7 @@ export function historyAdjustment(listing: Listing, mode: Mode): HistoryAdjustme
   if (mode === "personal" && listing.cpo === true) {
     multiplier *= 1 + ASSUMPTIONS.cpoBonusPersonal;
     lines.push(
-      `Certified pre-owned. For a car you would drive, fair value is raised by ${Math.round(ASSUMPTIONS.cpoBonusPersonal * 100)}% (the published price rule). The certification is not treated as extra resale value in flip mode.`,
+      `Certified pre-owned. For a car you would drive, similar listings are adjusted by ${Math.round(ASSUMPTIONS.cpoBonusPersonal * 100)}% when their certification differs. The certification is not treated as extra resale value in flip mode.`,
     );
   } else if (listing.cpo === null) {
     lines.push("Certified pre-owned status was not in the listing feed.");

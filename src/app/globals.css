@@ -942,6 +942,32 @@ pre.doc {
   padding: 14px 16px;
   min-height: 48px;
 }
+.similar-cars {
+  margin: 12px 0 16px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--paper);
+}
+.similar-cars summary {
+  cursor: pointer;
+  font-family: var(--sans);
+  font-weight: 700;
+  padding: 12px 14px;
+  min-height: 48px;
+}
+.similar-cars::details-content {
+  padding: 0 14px 12px;
+}
+.similar-cars ul {
+  margin: 0;
+  padding: 0 0 4px 18px;
+}
+.similar-cars li {
+  margin: 8px 0;
+}
+.similar-cars p {
+  margin: 0;
+}
 .decision p { margin: 0; padding: 0 16px 14px; }
 .ask details { border-top: 1px solid var(--line); }
 .ask summary {

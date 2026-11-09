@@ -57,7 +57,7 @@ export function decideReportCharge(report: ComputedReport): ReportChargeDecision
       outcome: "refused_missing_critical_input",
       error: "missing_critical_input",
       message:
-        "Mileage is missing, so mileage-adjusted price analysis cannot run. No credit was charged.",
+        "Mileage is missing, so the price could not be adjusted to this car. No credit was charged.",
     };
   }
 

@@ -124,6 +124,10 @@ type ListingCard = {
   zip?: string | null;
   createdAt?: string | null;
   accidentCount?: number | null;
+  usageType?: string | null;
+  cpo?: boolean | null;
+  oneOwner?: boolean | null;
+  ownerCount?: number | null;
   askingPriceKind?: "purchase_ask" | "dealer_fee" | "unknown" | null;
   /** Opaque server-minted token from /api/match — required for trusted full analysis. */
   analysisContextToken?: string | null;
@@ -1957,8 +1961,14 @@ function AssistantFlow({
                   decodedTrim: decodedTrimByVin.get(car.vin.toUpperCase()) ?? null,
                 }));
                 const recallReceipts = uiRowsToRiskReceipts(freeGovReceiptsForShortlist);
-                const offerPool =
-                  marketPool.length > 0 ? marketPool : readinessCarsFromUnknown(allListings);
+                const offerPool = (marketPool.length > 0 ? marketPool : readinessCarsFromUnknown(allListings)).map(
+                  (item) => ({
+                    ...item,
+                    decodedTrim:
+                      item.decodedTrim ??
+                      (item.vin ? decodedTrimByVin.get(item.vin.toUpperCase()) ?? null : null),
+                  }),
+                );
                 const readinessNow = new Date();
                 const topRows = bestDeal
                   ? topPicksInRankOrder(bestDeal.ranked, bestDeal.pick?.key ?? null).rows
@@ -2022,10 +2032,15 @@ function AssistantFlow({
                         make: row.make,
                         model: row.model,
                         trim: card?.trim ?? hint?.trim ?? null,
+                        decodedTrim: hint?.decodedTrim ?? pooled?.decodedTrim ?? null,
                         priceUsd: priceBlocked ? null : (row.priceUsd ?? pooled?.priceUsd ?? null),
                         miles: row.miles ?? pooled?.miles ?? null,
                         createdAt: card?.createdAt ?? pooled?.createdAt ?? null,
                         accidentCount: card?.accidentCount ?? pooled?.accidentCount ?? null,
+                        usageType: card?.usageType ?? pooled?.usageType ?? null,
+                        cpo: card?.cpo ?? pooled?.cpo ?? null,
+                        oneOwner: card?.oneOwner ?? pooled?.oneOwner ?? null,
+                        ownerCount: card?.ownerCount ?? pooled?.ownerCount ?? null,
                         askingPriceKind: card?.askingPriceKind ?? pooled?.askingPriceKind ?? null,
                         zip: card?.zip ?? pooled?.zip ?? null,
                       },

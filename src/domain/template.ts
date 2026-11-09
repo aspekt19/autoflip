@@ -43,7 +43,7 @@ export function templateExplanation(report: ComputedReport): string {
   const mode =
     report.mode === "flip"
       ? "This is the resale view. Fees and reconditioning are example assumptions, not a quote for this car."
-      : "This is the drive-it view. It compares the asking price with current comparable listings, then applies mileage and the history flags that were actually present.";
+      : "This is the drive-it view. It compares the asking price with similar listings from this search, after adjusting those asking prices for mileage, model year, trim, and the history flags that were present. These are asking prices, not sold prices.";
 
   const gap =
     report.priceGap === null || report.fairValueUsd === null

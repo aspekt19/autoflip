@@ -23,7 +23,7 @@ Show all steps:
 
 ## Purchase readiness
 
-Out-the-door uses the fixture ZIP and the checked-in state base sales-tax table. An offer needs at least 3 same-trim listings in this fixture, within 1 model year and mileage within 15 percent of that car. No network and no paid call.
+Out-the-door uses the fixture ZIP and the checked-in state base sales-tax table. An offer adjusts same-model listings already in this fixture (within 3 model years, any trim) for mileage, model year, trim, and stated condition. Fewer than 3 similar cars, or a very wide spread, is not an offer. No network and no paid call.
 
 ### 2017 Hyundai Tucson (pick)
 
@@ -35,7 +35,7 @@ Title and registration: unknown. No single statewide amount for a used car is in
 Dealer doc fee: unknown on this car.
 Reasonable opening offer: not estimated.
 Walk-away price: not estimated.
-There is not enough data for a reasonable opening offer or a walk-away price. This search has 0 similar Tucson listings with the SE trim, within 1 model year, and mileage within 15 percent of this car. That needs at least 3.
+There is not enough data for a reasonable opening offer or a walk-away price. This search has 0 similar Tucson cars within 3 model years. That needs at least 3. The estimate is not available.
 
 Negotiation:
 - The listing feed first recorded this car 8 days ago. Source: listing first-seen date.
@@ -51,7 +51,7 @@ Title and registration: unknown. No single statewide amount for a used car is in
 Dealer doc fee: unknown on this car.
 Reasonable opening offer: not estimated.
 Walk-away price: not estimated.
-There is not enough data for a reasonable opening offer or a walk-away price. This search has 0 similar Sportage listings with the LX trim, within 1 model year, and mileage within 15 percent of this car. That needs at least 3.
+There is not enough data for a reasonable opening offer or a walk-away price. This search has 0 similar Sportage cars within 3 model years. That needs at least 3. The estimate is not available.
 
 Negotiation:
 - The listing feed first recorded this car 39 days ago. Source: listing first-seen date.
@@ -67,7 +67,7 @@ Title and registration: unknown. No single statewide amount for a used car is in
 Dealer doc fee: unknown on this car.
 Reasonable opening offer: not estimated.
 Walk-away price: not estimated.
-There is not enough data for a reasonable opening offer or a walk-away price. This search has 0 similar CR-V listings with the LX trim, within 1 model year, and mileage within 15 percent of this car. That needs at least 3. 1 other CR-V listing is a different trim. That listing was not used.
+There is not enough data for a reasonable opening offer or a walk-away price. This search has 1 similar CR-V car within 3 model years. That needs at least 3. The estimate is not available.
 
 Negotiation:
 - 2014 Honda CR-V is listed with a VIN year, make, or model that does not match the government VIN decoder. Ask the seller to photograph the VIN plate and the title before you pay. Source: the government VIN decoder and the listing.
@@ -84,7 +84,7 @@ Title and registration: unknown. No single statewide amount for a used car is in
 Dealer doc fee: unknown on this car.
 Reasonable opening offer: not estimated.
 Walk-away price: not estimated.
-There is not enough data for a reasonable opening offer or a walk-away price. This search has 0 similar CR-V listings with the EX trim, within 1 model year, and mileage within 15 percent of this car. That needs at least 3. 1 other CR-V listing is a different trim. That listing was not used.
+There is not enough data for a reasonable opening offer or a walk-away price. This search has 1 similar CR-V car within 3 model years. That needs at least 3. The estimate is not available.
 
 Negotiation:
 - The listing reports 1 accident. Ask for the repair invoices and whether any airbags deployed. Source: the listing.
