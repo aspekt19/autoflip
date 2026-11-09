@@ -280,7 +280,18 @@ export function parseFuelPrices(payload: unknown): FuelPrices | null {
   };
 }
 
-/** Map FuelEconomy fuelType string → published $/gal (or kWh) when available. */
+/** True when FuelEconomy fuelType1 is electricity (MPGe — never × $/gal). */
+export function isElectricFuelType(fuelType: string | null | undefined): boolean {
+  if (!fuelType) return false;
+  const t = fuelType.toLowerCase();
+  return t.includes("electric") || t.includes("electricity");
+}
+
+/**
+ * Map FuelEconomy fuelType string → published $/gal (or kWh) when available.
+ * Flex-fuel "Gasoline or E85" prefers regular gasoline (typical use) — never silent E85.
+ * Pure E85 / Electricity keep their own price keys.
+ */
 export function usdPerUnitFromFuelPrices(
   fuelType: string | null,
   prices: FuelPrices | null,
@@ -290,15 +301,23 @@ export function usdPerUnitFromFuelPrices(
   if (t.includes("diesel")) return { usdPerUnit: prices.diesel, priceKey: "diesel", unit: "gallon" };
   if (t.includes("premium")) return { usdPerUnit: prices.premium, priceKey: "premium", unit: "gallon" };
   if (t.includes("midgrade")) return { usdPerUnit: prices.midgrade, priceKey: "midgrade", unit: "gallon" };
-  if (t.includes("e85")) return { usdPerUnit: prices.e85, priceKey: "e85", unit: "gallon" };
-  if (t.includes("electric") || t.includes("electricity")) {
+  if (isElectricFuelType(fuelType)) {
     return { usdPerUnit: prices.electric, priceKey: "electric", unit: "kwh" };
+  }
+  // Dual-fuel gasoline/E85 → regular (typical gasoline use). Pure E85 → e85.
+  if (t.includes("e85")) {
+    if (t.includes("gasoline") || t.includes("regular") || /\bor\b/.test(t)) {
+      return { usdPerUnit: prices.regular, priceKey: "regular", unit: "gallon" };
+    }
+    return { usdPerUnit: prices.e85, priceKey: "e85", unit: "gallon" };
   }
   if (t.includes("cng") || t.includes("natural")) return { usdPerUnit: prices.cng, priceKey: "cng", unit: "gallon" };
   if (t.includes("propane") || t.includes("lpg")) return { usdPerUnit: prices.lpg, priceKey: "lpg", unit: "gallon" };
   if (t.includes("regular") || t.includes("gasoline") || t.includes("gas")) {
     return { usdPerUnit: prices.regular, priceKey: "regular", unit: "gallon" };
   }
+  // Hydrogen / unknown liquid — do not invent a gasoline price as if matched.
+  if (t.includes("hydrogen")) return { usdPerUnit: null, priceKey: null, unit: null };
   return { usdPerUnit: prices.regular, priceKey: "regular", unit: "gallon" };
 }
 

@@ -86,6 +86,13 @@ export type FuelFact = {
   annualFuelCostHighUsd: number | null;
   vehicleClass: string | null;
   configsConsidered: number;
+  /**
+   * How annualFuelCost* dollars were produced.
+   * - epa_published: FuelEconomy fuelCost08 (or legacy equivalent)
+   * - labeled_estimate: Find mix × published/fallback $/gal (or EPA annual for electricity)
+   * Omit / undefined treated as epa_published for older callers.
+   */
+  costBasis?: "epa_published" | "labeled_estimate";
 };
 
 export type VinDecode = {

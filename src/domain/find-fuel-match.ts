@@ -16,6 +16,7 @@ import {
   type FuelEconomyDeps,
 } from "@/io/fuel-economy";
 import {
+  isElectricFuelType,
   usdPerUnitFromFuelPrices,
   type FuelPrices,
   type FuelVehicleDetail,
@@ -23,11 +24,11 @@ import {
 import type { FuelFact } from "./types";
 
 export const FIND_FUEL_DEFAULT_MILES_PER_YEAR = 12_000;
-/** EPA-ish blended share when the shopper did not say mostly city. */
+/** Harmonic city/highway blend when the shopper did not say mostly city (EPA-style share). */
 export const FIND_FUEL_DEFAULT_CITY_SHARE = 0.55;
 /** When note says mostly city driving. */
 export const FIND_FUEL_CITY_HEAVY_SHARE = 0.7;
-/** Labeled fallback only when FuelEconomy fuelprices is unavailable. */
+/** Labeled fallback only when FuelEconomy fuelprices is unavailable for liquid fuels. */
 export const FIND_FUEL_FALLBACK_USD_PER_GAL = 3.5;
 
 export type FindFuelMatchKind = "exact" | "ambiguous" | "no_match" | "unavailable";
@@ -41,6 +42,13 @@ export type FindFuelAssumptions = {
   priceKey: string | null;
   cityHeavy: boolean;
   label: string;
+  /**
+   * Electricity: annual $ comes from FuelEconomy fuelCost08 (never MPGe × $/gal).
+   * Liquid fuels: false — use harmonic city/hwy MPG × miles × $/gal.
+   */
+  useEpaPublishedAnnual: boolean;
+  /** Price unit for the labeled feed (gallon fuels vs kWh electricity context). */
+  priceUnit: "gallon" | "kwh" | "epa_annual";
 };
 
 export type FindFuelEvidence = {
@@ -98,20 +106,45 @@ export function buildFindFuelAssumptions(input: {
   usdPerGallon?: number | null;
   priceSource?: FindFuelAssumptions["priceSource"];
   priceKey?: string | null;
+  /** Electricity path — annual $ from EPA fuelCost08, not gal math. */
+  electric?: boolean;
+  usdPerKwh?: number | null;
 }): FindFuelAssumptions {
   const cityHeavy = parseCityHeavyFromNote(input.note);
   const cityShare = cityHeavy ? FIND_FUEL_CITY_HEAVY_SHARE : FIND_FUEL_DEFAULT_CITY_SHARE;
   const milesPerYear =
     finitePositive(input.milesPerYear) ? Math.round(input.milesPerYear) : FIND_FUEL_DEFAULT_MILES_PER_YEAR;
+  if (input.electric) {
+    const kwh =
+      finitePositive(input.usdPerKwh) ? input.usdPerKwh : null;
+    const priceSource = kwh != null ? "fueleconomy.gov/fuelprices" : "labeled_fallback";
+    const kwhBit =
+      kwh != null
+        ? `FuelEconomy.gov published electricity ~$${kwh.toFixed(2)}/kWh (context only)`
+        : "FuelEconomy.gov electricity price feed unavailable";
+    return {
+      milesPerYear,
+      cityShare,
+      highwayShare: 1 - cityShare,
+      usdPerGallon: 0,
+      priceSource,
+      priceKey: "electric",
+      cityHeavy,
+      useEpaPublishedAnnual: true,
+      priceUnit: "epa_annual",
+      label: `Electricity — using FuelEconomy.gov published annual electricity cost (fuelCost08), not MPGe × $/gal. ${kwhBit}. City/highway mix does not apply to this electricity annual.`,
+    };
+  }
   const usdPerGallon = finitePositive(input.usdPerGallon)
     ? input.usdPerGallon
     : FIND_FUEL_FALLBACK_USD_PER_GAL;
   const priceSource = input.priceSource ?? "labeled_fallback";
   const priceKey = input.priceKey ?? (priceSource === "labeled_fallback" ? "regular_fallback" : null);
+  const mixBit = `${milesPerYear.toLocaleString("en-US")} mi/yr, ${Math.round(cityShare * 100)}% city / ${Math.round((1 - cityShare) * 100)}% highway (harmonic EPA-style blend)${cityHeavy ? " (mostly city from your note)" : ""}`;
   const label =
     priceSource === "fueleconomy.gov/fuelprices"
-      ? `${milesPerYear.toLocaleString("en-US")} mi/yr, ${Math.round(cityShare * 100)}% city / ${Math.round((1 - cityShare) * 100)}% highway${cityHeavy ? " (mostly city from your note)" : ""}, fuel price from FuelEconomy.gov published ${priceKey ?? "regular"} ($${usdPerGallon.toFixed(2)}/gal)`
-      : `${milesPerYear.toLocaleString("en-US")} mi/yr, ${Math.round(cityShare * 100)}% city / ${Math.round((1 - cityShare) * 100)}% highway${cityHeavy ? " (mostly city from your note)" : ""}, labeled fuel-price assumption $${usdPerGallon.toFixed(2)}/gal (FuelEconomy.gov price feed unavailable)`;
+      ? `${mixBit}, fuel price from FuelEconomy.gov published ${priceKey ?? "regular"} ($${usdPerGallon.toFixed(2)}/gal)`
+      : `${mixBit}, labeled fuel-price assumption $${usdPerGallon.toFixed(2)}/gal (FuelEconomy.gov price feed unavailable)`;
   return {
     milesPerYear,
     cityShare,
@@ -120,6 +153,8 @@ export function buildFindFuelAssumptions(input: {
     priceSource,
     priceKey,
     cityHeavy,
+    useEpaPublishedAnnual: false,
+    priceUnit: "gallon",
     label,
   };
 }
@@ -256,20 +291,26 @@ function summarizeVehicles(
   const city = vehicles.map((v) => v.detail.cityMpg).filter(finitePositive);
   const hwy = vehicles.map((v) => v.detail.highwayMpg).filter(finitePositive);
   const epa = vehicles.map((v) => v.detail.annualFuelCostUsd).filter(finitePositive);
-  const annuals = vehicles
-    .map((v) =>
-      estimateAnnualFuelUsd({
-        cityMpg: v.detail.cityMpg,
-        highwayMpg: v.detail.highwayMpg,
-        combMpg: v.detail.combMpg,
-        assumptions,
-      }),
-    )
-    .filter((n): n is number => n != null);
+  const electric = vehicles.some((v) => isElectricFuelType(v.detail.fuelType));
+  // Electricity: never MPGe × $/gal — use EPA published annual (fuelCost08) only.
+  const annuals = electric
+    ? epa
+    : vehicles
+        .map((v) =>
+          estimateAnnualFuelUsd({
+            cityMpg: v.detail.cityMpg,
+            highwayMpg: v.detail.highwayMpg,
+            combMpg: v.detail.combMpg,
+            assumptions,
+          }),
+        )
+        .filter((n): n is number => n != null);
   const ids = vehicles.map((v) => v.detail.id).filter((id): id is number => id != null);
   const ambiguous = vehicles.length > 1;
   const match: FindFuelMatchKind = vehicles.length === 0 ? "no_match" : ambiguous ? "ambiguous" : "exact";
   const fuelType = vehicles[0]?.detail.fuelType ?? null;
+  const annualLow = annuals.length ? Math.min(...annuals) : null;
+  const annualHigh = annuals.length ? Math.max(...annuals) : null;
   return {
     match,
     ambiguous,
@@ -279,8 +320,8 @@ function summarizeVehicles(
     cityMpgHigh: city.length ? Math.max(...city) : null,
     highwayMpgLow: hwy.length ? Math.min(...hwy) : null,
     highwayMpgHigh: hwy.length ? Math.max(...hwy) : null,
-    annualFuelUsdLow: annuals.length ? Math.min(...annuals) : null,
-    annualFuelUsdHigh: annuals.length ? Math.max(...annuals) : null,
+    annualFuelUsdLow: annualLow,
+    annualFuelUsdHigh: annualHigh,
     epaAnnualUsdLow: epa.length ? Math.min(...epa) : null,
     epaAnnualUsdHigh: epa.length ? Math.max(...epa) : null,
     fuelType,
@@ -293,10 +334,14 @@ function summarizeVehicles(
     humanPageUrl: fuelEconomyHumanPage(ids[0] ?? null),
     reason: ambiguous
       ? "Several FuelEconomy.gov configurations match this year/make/model — showing a range, not a silent single pick."
-      : null,
+      : electric && annualLow == null
+        ? "Electricity match found but FuelEconomy.gov did not publish an annual electricity cost — dollars not invented from MPGe."
+        : null,
     honesty: ambiguous
       ? `Ambiguous FuelEconomy.gov match (${vehicles.length} configs). Annual fuel shown as a range using labeled assumptions (${assumptions.label}). Not a full ownership cost; not VIN-specific.`
-      : `FuelEconomy.gov match using labeled assumptions (${assumptions.label}). Not a full ownership cost; not VIN-specific.`,
+      : electric && annualLow == null
+        ? `FuelEconomy.gov electricity match found, but published annual electricity cost is missing — Lemonless will not invent MPGe × $/gal. (${assumptions.label})`
+        : `FuelEconomy.gov match using labeled assumptions (${assumptions.label}). Not a full ownership cost; not VIN-specific.`,
   };
 }
 
@@ -350,6 +395,14 @@ function priceAssumptionsFromFeed(
   prices: FuelPrices | null,
   note: string | null | undefined,
 ): FindFuelAssumptions {
+  if (isElectricFuelType(fuelType)) {
+    const mapped = usdPerUnitFromFuelPrices(fuelType, prices);
+    return buildFindFuelAssumptions({
+      note,
+      electric: true,
+      usdPerKwh: mapped.usdPerUnit,
+    });
+  }
   const mapped = usdPerUnitFromFuelPrices(fuelType, prices);
   if (mapped.usdPerUnit != null && mapped.unit === "gallon") {
     return buildFindFuelAssumptions({
@@ -512,27 +565,36 @@ export function fuelFactFromFindEvidence(evidence: FindFuelEvidence | null | und
   if (evidence.annualFuelUsdLow == null && evidence.epaAnnualUsdLow == null && evidence.combMpgLow == null) {
     return null;
   }
+  // Prefer Find labeled annuals (mix×price or EPA electricity annual). Mark costBasis so
+  // ownership-cost does not rebrand them as raw EPA sticker dollars when they are labeled.
+  const labeledLow = evidence.annualFuelUsdLow ?? evidence.epaAnnualUsdLow;
+  const labeledHigh = evidence.annualFuelUsdHigh ?? evidence.epaAnnualUsdHigh;
+  const costBasis: FuelFact["costBasis"] = evidence.assumptions.useEpaPublishedAnnual
+    ? "epa_published"
+    : "labeled_estimate";
   if (evidence.ambiguous || evidence.match === "ambiguous") {
     return {
       source: "fueleconomy.gov",
       match: "range",
       combMpg: evidence.combMpgLow === evidence.combMpgHigh ? evidence.combMpgLow : null,
       annualFuelCostUsd: null,
-      annualFuelCostLowUsd: evidence.annualFuelUsdLow ?? evidence.epaAnnualUsdLow,
-      annualFuelCostHighUsd: evidence.annualFuelUsdHigh ?? evidence.epaAnnualUsdHigh,
+      annualFuelCostLowUsd: labeledLow,
+      annualFuelCostHighUsd: labeledHigh,
       vehicleClass: null,
       configsConsidered: evidence.configsConsidered,
+      costBasis,
     };
   }
   return {
     source: "fueleconomy.gov",
     match: "closest_config",
     combMpg: evidence.combMpgLow,
-    annualFuelCostUsd: evidence.annualFuelUsdLow ?? evidence.epaAnnualUsdLow,
-    annualFuelCostLowUsd: evidence.annualFuelUsdLow ?? evidence.epaAnnualUsdLow,
-    annualFuelCostHighUsd: evidence.annualFuelUsdHigh ?? evidence.epaAnnualUsdHigh,
+    annualFuelCostUsd: labeledLow,
+    annualFuelCostLowUsd: labeledLow,
+    annualFuelCostHighUsd: labeledHigh,
     vehicleClass: null,
     configsConsidered: evidence.configsConsidered,
+    costBasis,
   };
 }
 
@@ -540,16 +602,20 @@ export function formatFindFuelEvidenceShort(evidence: FindFuelEvidence): string 
   if (evidence.match === "unavailable" || evidence.match === "no_match") {
     return "Fuel cost unavailable";
   }
+  const assumptionsBit = ` Assumptions: ${evidence.assumptions.label}.`;
   if (
     evidence.ambiguous &&
     evidence.annualFuelUsdLow != null &&
     evidence.annualFuelUsdHigh != null &&
     evidence.annualFuelUsdLow !== evidence.annualFuelUsdHigh
   ) {
-    return `Est. fuel ~$${evidence.annualFuelUsdLow.toLocaleString("en-US")}–$${evidence.annualFuelUsdHigh.toLocaleString("en-US")}/yr (range — several configs match)`;
+    return `Est. fuel ~$${evidence.annualFuelUsdLow.toLocaleString("en-US")}–$${evidence.annualFuelUsdHigh.toLocaleString("en-US")}/yr (range — several configs match).${assumptionsBit}`;
   }
   if (evidence.annualFuelUsdLow != null) {
-    return `Est. fuel ~$${evidence.annualFuelUsdLow.toLocaleString("en-US")}/yr`;
+    return `Est. fuel ~$${evidence.annualFuelUsdLow.toLocaleString("en-US")}/yr.${assumptionsBit}`;
+  }
+  if (isElectricFuelType(evidence.fuelType)) {
+    return `Fuel cost unavailable — electricity annual not published.${assumptionsBit}`;
   }
   return "Fuel cost unavailable";
 }

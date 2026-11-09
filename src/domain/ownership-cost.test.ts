@@ -16,13 +16,28 @@ const baseFuel = (over: Partial<FuelFact>): FuelFact => ({
 
 describe("estimateOwnershipFuelCost", () => {
   it("uses sourced EPA annual when present — never invents TCO extras", () => {
-    const estimate = estimateOwnershipFuelCost(baseFuel({ annualFuelCostUsd: 2_100, combMpg: 28 }));
+    const estimate = estimateOwnershipFuelCost(
+      baseFuel({ annualFuelCostUsd: 2_100, combMpg: 28, costBasis: "epa_published" }),
+    );
     expect(estimate.status).toBe("sourced_epa_annual");
     if (estimate.status !== "sourced_epa_annual") return;
     expect(estimate.annualFuelUsd).toBe(2_100);
     expect(estimate.source).toBe("fueleconomy.gov");
     expect(formatOwnershipFuelEstimate(estimate)).toMatch(/Est\. annual fuel/);
+    expect(formatOwnershipFuelEstimate(estimate)).toMatch(/published annual/i);
     expect(estimate.honesty).toMatch(/not a full ownership cost/i);
+  });
+
+  it("does not rebrand labeled Find estimates as EPA sticker annual", () => {
+    const estimate = estimateOwnershipFuelCost(
+      baseFuel({ annualFuelCostUsd: 1_491, combMpg: 34, costBasis: "labeled_estimate" }),
+    );
+    expect(estimate.status).toBe("labeled_estimate_annual");
+    if (estimate.status !== "labeled_estimate_annual") return;
+    expect(estimate.annualFuelUsd).toBe(1_491);
+    expect(formatOwnershipFuelEstimate(estimate)).toMatch(/labeled FuelEconomy\.gov estimate/i);
+    expect(estimate.honesty).toMatch(/labeled miles\/year/i);
+    expect(estimate.honesty).not.toMatch(/^Annual fuel cost from FuelEconomy\.gov for the matched/);
   });
 
   it("reports EPA range when annual is null but low/high exist", () => {

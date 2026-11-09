@@ -1,7 +1,7 @@
 /**
  * Grounded ownership-fuel estimates only.
  * Never invents TCO, insurance, maintenance, or a $/gal when the shopper did not supply one.
- * Prefers EPA FuelEconomy.gov annual figures already matched on a FuelFact.
+ * Distinguishes EPA published annuals from Find labeled mix×price estimates.
  */
 
 import type { FuelFact } from "./types";
@@ -23,6 +23,21 @@ export type OwnershipFuelEstimate =
     }
   | {
       status: "sourced_epa_range";
+      annualFuelLowUsd: number;
+      annualFuelHighUsd: number;
+      source: "fueleconomy.gov";
+      match: FuelFact["match"];
+      honesty: string;
+    }
+  | {
+      status: "labeled_estimate_annual";
+      annualFuelUsd: number;
+      source: "fueleconomy.gov";
+      match: FuelFact["match"];
+      honesty: string;
+    }
+  | {
+      status: "labeled_estimate_range";
       annualFuelLowUsd: number;
       annualFuelHighUsd: number;
       source: "fueleconomy.gov";
@@ -55,7 +70,13 @@ function finitePositive(n: unknown): n is number {
 export function estimateOwnershipFuelCost(
   fuel: Pick<
     FuelFact,
-    "source" | "match" | "combMpg" | "annualFuelCostUsd" | "annualFuelCostLowUsd" | "annualFuelCostHighUsd"
+    | "source"
+    | "match"
+    | "combMpg"
+    | "annualFuelCostUsd"
+    | "annualFuelCostLowUsd"
+    | "annualFuelCostHighUsd"
+    | "costBasis"
   > | null,
   assumptions: OwnershipFuelAssumptions | null = null,
 ): OwnershipFuelEstimate {
@@ -69,7 +90,19 @@ export function estimateOwnershipFuelCost(
     };
   }
 
+  const labeled = fuel.costBasis === "labeled_estimate";
+
   if (finitePositive(fuel.annualFuelCostUsd)) {
+    if (labeled) {
+      return {
+        status: "labeled_estimate_annual",
+        annualFuelUsd: Math.round(fuel.annualFuelCostUsd),
+        source: "fueleconomy.gov",
+        match: fuel.match,
+        honesty:
+          "Estimated annual fuel using FuelEconomy.gov MPG with labeled miles/year, city/highway mix, and fuel-price assumptions — not the EPA sticker annual alone, and not a full ownership cost (no insurance, maintenance, or repairs).",
+      };
+    }
     return {
       status: "sourced_epa_annual",
       annualFuelUsd: Math.round(fuel.annualFuelCostUsd),
@@ -81,6 +114,17 @@ export function estimateOwnershipFuelCost(
   }
 
   if (finitePositive(fuel.annualFuelCostLowUsd) && finitePositive(fuel.annualFuelCostHighUsd)) {
+    if (labeled) {
+      return {
+        status: "labeled_estimate_range",
+        annualFuelLowUsd: Math.round(fuel.annualFuelCostLowUsd),
+        annualFuelHighUsd: Math.round(fuel.annualFuelCostHighUsd),
+        source: "fueleconomy.gov",
+        match: fuel.match,
+        honesty:
+          "Estimated annual fuel range across several FuelEconomy.gov configs using labeled miles/year, city/highway mix, and fuel-price assumptions — stays a range (not a silent single pick). Not a full ownership cost.",
+      };
+    }
     return {
       status: "sourced_epa_range",
       annualFuelLowUsd: Math.round(fuel.annualFuelCostLowUsd),
@@ -133,10 +177,16 @@ export function estimateOwnershipFuelCost(
 
 export function formatOwnershipFuelEstimate(estimate: OwnershipFuelEstimate): string {
   if (estimate.status === "sourced_epa_annual") {
-    return `Est. annual fuel ~$${estimate.annualFuelUsd.toLocaleString("en-US")} (${estimate.source}).`;
+    return `Est. annual fuel ~$${estimate.annualFuelUsd.toLocaleString("en-US")} (FuelEconomy.gov published annual).`;
   }
   if (estimate.status === "sourced_epa_range") {
-    return `Est. annual fuel ~$${estimate.annualFuelLowUsd.toLocaleString("en-US")}–$${estimate.annualFuelHighUsd.toLocaleString("en-US")} (${estimate.source}).`;
+    return `Est. annual fuel ~$${estimate.annualFuelLowUsd.toLocaleString("en-US")}–$${estimate.annualFuelHighUsd.toLocaleString("en-US")} (FuelEconomy.gov published range).`;
+  }
+  if (estimate.status === "labeled_estimate_annual") {
+    return `Est. annual fuel ~$${estimate.annualFuelUsd.toLocaleString("en-US")} (labeled FuelEconomy.gov estimate — not sticker annual alone).`;
+  }
+  if (estimate.status === "labeled_estimate_range") {
+    return `Est. annual fuel ~$${estimate.annualFuelLowUsd.toLocaleString("en-US")}–$${estimate.annualFuelHighUsd.toLocaleString("en-US")} (labeled FuelEconomy.gov range — not sticker annual alone).`;
   }
   if (estimate.status === "mpg_with_explicit_assumptions") {
     return `~$${estimate.annualFuelUsd.toLocaleString("en-US")}/yr fuel using ${estimate.combMpg} MPG and your stated assumptions.`;

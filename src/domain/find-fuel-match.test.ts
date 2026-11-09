@@ -11,7 +11,7 @@ import {
   parseCityHeavyFromNote,
   resolveEpaModelNames,
 } from "./find-fuel-match";
-import { parseFuelVehicleDetail } from "@/io/parsers";
+import { parseFuelVehicleDetail, usdPerUnitFromFuelPrices } from "@/io/parsers";
 
 const FIX = join(process.cwd(), "fixtures/fueleconomy");
 
@@ -159,5 +159,105 @@ describe("find fuel match (fixture — no live network)", () => {
     });
     expect(evidence.match).toBe("exact");
     expect(evidence.configsConsidered).toBe(1);
+  });
+
+  it("flex-fuel Gasoline or E85 maps to regular — not silent E85", () => {
+    const prices = {
+      regular: 4.15,
+      midgrade: 4.76,
+      premium: 5.16,
+      diesel: 6.29,
+      e85: 2.95,
+      electric: 0.15,
+      cng: 3.1,
+      lpg: 3.55,
+    };
+    expect(usdPerUnitFromFuelPrices("Gasoline or E85", prices)).toEqual({
+      usdPerUnit: 4.15,
+      priceKey: "regular",
+      unit: "gallon",
+    });
+    expect(usdPerUnitFromFuelPrices("E85", prices)).toEqual({
+      usdPerUnit: 2.95,
+      priceKey: "e85",
+      unit: "gallon",
+    });
+  });
+
+  it("electricity uses EPA published annual — never MPGe × $/gal fallback", () => {
+    const assumptions = buildFindFuelAssumptions({
+      electric: true,
+      usdPerKwh: 0.15,
+    });
+    expect(assumptions.useEpaPublishedAnnual).toBe(true);
+    expect(assumptions.label).toMatch(/not MPGe/i);
+    const evidence = matchFuelVehicles({
+      listing: { year: 2022, make: "Tesla", model: "Model 3" },
+      vehicles: [
+        {
+          detail: {
+            id: 45011,
+            combMpg: 131,
+            cityMpg: 138,
+            highwayMpg: 126,
+            annualFuelCostUsd: 600,
+            vehicleClass: "Small Station Wagons",
+            engine: null,
+            transmission: null,
+            drive: "Rear-Wheel Drive",
+            fuelType: "Electricity",
+            make: "Tesla",
+            model: "Model 3",
+            year: 2022,
+          },
+          optionText: "Automatic (A1)",
+          modelName: "Model 3",
+        },
+      ],
+      assumptions,
+      modelNamesTried: ["Model 3"],
+      sourceUrl: "fixture://ev",
+    });
+    expect(evidence.match).toBe("exact");
+    expect(evidence.annualFuelUsdLow).toBe(600);
+    expect(evidence.annualFuelUsdHigh).toBe(600);
+    // Guard against the broken MPGe × $3.50/gal path (~$320).
+    expect(evidence.annualFuelUsdLow).not.toBe(Math.round((12_000 / 131) * 3.5));
+    const fact = fuelFactFromFindEvidence(evidence);
+    expect(fact?.costBasis).toBe("epa_published");
+    expect(fact?.annualFuelCostUsd).toBe(600);
+  });
+
+  it("electricity without published annual stays unavailable dollars (honest)", () => {
+    const assumptions = buildFindFuelAssumptions({ electric: true, usdPerKwh: 0.15 });
+    const evidence = matchFuelVehicles({
+      listing: { year: 2022, make: "Tesla", model: "Model 3" },
+      vehicles: [
+        {
+          detail: {
+            id: 1,
+            combMpg: 131,
+            cityMpg: 138,
+            highwayMpg: 126,
+            annualFuelCostUsd: null,
+            vehicleClass: null,
+            engine: null,
+            transmission: null,
+            drive: null,
+            fuelType: "Electricity",
+            make: "Tesla",
+            model: "Model 3",
+            year: 2022,
+          },
+          optionText: "Auto",
+          modelName: "Model 3",
+        },
+      ],
+      assumptions,
+      modelNamesTried: ["Model 3"],
+      sourceUrl: null,
+    });
+    expect(evidence.annualFuelUsdLow).toBeNull();
+    expect(evidence.reason ?? evidence.honesty).toMatch(/not invent|not published|missing/i);
   });
 });
