@@ -23,11 +23,17 @@ describe("assemble", () => {
     const checks = report.computed.sourceChecks ?? [];
     expect(report.createdAt).toBe("2026-11-04T00:00:00.000Z");
     expect(report.computed.sample).toBe(true);
-    expect(report.computed.decision?.servChoice).toBe("buy");
+    // Without a live recording, sample shows labeled economics only — never invents SERV.
+    expect(report.computed.decision?.servChoice).toBeNull();
+    expect(report.computed.decision?.source).toBe("deterministic_fallback");
     expect(report.computed.decision?.action).toBe("negotiate");
-    expect(report.computed.agentVerdict?.second_pass?.status).toBe("disagreed");
+    expect(report.computed.agentVerdict?.no_serv_step).toBe(true);
+    expect(report.computed.agentVerdict?.second_pass?.status).toBe("not_run");
     expect(report.computed.agentVerdict?.serv_spend?.calls).toBe(0);
-    expect(report.computed.agentVerdict?.serv_spend?.costNote).toMatch(/no live spend/i);
+    expect(report.computed.agentVerdict?.serv_spend?.costNote).toMatch(/example not yet recorded/i);
+    expect(report.proof.steps.find((s) => s.id === "serv_verdict_decide")?.status).toBe(
+      "example_not_yet_recorded",
+    );
     expect(checks.find((item) => item.source === "Auto.dev listings")?.status).toBe("sample");
     for (const source of [
       "NHTSA VIN decoder",
