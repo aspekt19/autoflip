@@ -215,6 +215,10 @@ function AssistantFlow({
     FreeGovReceiptUiRow[]
   >([]);
   const [riskCoverageNote, setRiskCoverageNote] = useState<string | null>(null);
+  const [freeGovAnyUnchecked, setFreeGovAnyUnchecked] = useState(false);
+  const [fuelCheckOutcome, setFuelCheckOutcome] = useState<ReturnType<
+    typeof summarizeFuelCheckOutcome
+  > | null>(null);
   /** Auto-start next-check once per searchContextToken when SERV keyed. */
   const autoNextCheckTokenRef = useRef<string | null>(null);
 
@@ -628,6 +632,9 @@ function AssistantFlow({
       const toolCov = (
         body as { freeGovCoverage?: { note?: string; anyUnchecked?: boolean } | null }
       ).freeGovCoverage;
+      if (toolCov && typeof toolCov.anyUnchecked === "boolean") {
+        setFreeGovAnyUnchecked(toolCov.anyUnchecked);
+      }
       // Soft-scrub technical coverage notes for buyers (never garble NMVTIS-approved).
       const scrubCoverage = (note: string) =>
         note
@@ -654,17 +661,26 @@ function AssistantFlow({
       const listingCount = groups.reduce((n, g) => n + g.listings.length, 0);
       const mergedReceiptsForFuel =
         receipts.length > 0 ? receipts : freeGovReceiptsForShortlist;
-      const fuelOutcome =
-        body.chosenId === "free_gov_fuel"
-          ? summarizeFuelCheckOutcome(uiRowsToRiskReceipts(mergedReceiptsForFuel))
-          : null;
+      // Always summarize cumulative fuel receipts so the checklist reflects final outcomes
+      // even when the latest step was recalls/safety (not free_gov_fuel).
+      const fuelOutcome = summarizeFuelCheckOutcome(uiRowsToRiskReceipts(mergedReceiptsForFuel));
+      const nextFuelOutcome = fuelOutcome.attempted > 0 ? fuelOutcome : null;
+      if (nextFuelOutcome) setFuelCheckOutcome(nextFuelOutcome);
+      const fuelPending = Boolean(toolCov?.anyUnchecked);
       const step = formatBuyerLoopStep({
         chosenId: body.chosenId ?? "",
         listingCount: listingCount || undefined,
-        fuelOutcome,
+        fuelOutcome: nextFuelOutcome ?? undefined,
+        fuelPending: body.chosenId === "free_gov_fuel" ? fuelPending : undefined,
       });
       const status = formatBuyerLoopStatus(body.loop?.reason ?? null);
-      setNextCheckNote([step, status].filter(Boolean).join(" "));
+      const settleBit =
+        toolCov && toolCov.anyUnchecked === false
+          ? "Public records checks caught up for this shortlist."
+          : toolCov && toolCov.anyUnchecked
+            ? "Still checking remaining year/make/model groups — pick may change."
+            : null;
+      setNextCheckNote([step, status, settleBit].filter(Boolean).join(" "));
       if (
         shouldAutoContinueFindNextCheck({
           servNextCheckEnabled: servNextCheckEnabled || Boolean(opts?.auto),
@@ -1589,23 +1605,33 @@ function AssistantFlow({
                 if (checks.length === 0 && shortlist.length === 0 && !dealCopy) return null;
                 return (
                   <div className="hint" role="note">
-                    {servNextCheckEnabled ? (
+                    {servNextCheckEnabled && (freeGovAnyUnchecked || pending === "next-check") ? (
                       <p>
                         We keep checking public safety and fuel data automatically as results update. You do not
-                        need to press anything.
+                        need to press anything. The pick may change as checks complete.
                       </p>
+                    ) : servNextCheckEnabled ? (
+                      <p>Public year/make/model checks for this shortlist are caught up.</p>
                     ) : (
                       <p>Here is what we can check next with the cars already found:</p>
                     )}
                     {checks.length > 0 ? (
                       <ul>
                         {checks.map((item) => (
-                          <li key={item.id}>{formatBuyerNextCheckWhy(item.id, item.why)}</li>
+                          <li key={item.id}>
+                            {formatBuyerNextCheckWhy(item.id, item.why, {
+                              fuelOutcome: fuelCheckOutcome,
+                              fuelPending: freeGovAnyUnchecked,
+                            })}
+                          </li>
                         ))}
                       </ul>
                     ) : null}
                     {nextCheckNote ? <p className="hint">{nextCheckNote}</p> : null}
                     {pending === "next-check" ? <p className="hint">Checking public records…</p> : null}
+                    {pending !== "next-check" && !freeGovAnyUnchecked && bestDeal?.evidenceSettled ? (
+                      <p className="hint">Checks settled — ranking below is on completed free public coverage.</p>
+                    ) : null}
                     {freeGovEvidenceLines.length > 0 ? (
                       <div className="hint" role="note">
                         <p>
@@ -1644,6 +1670,7 @@ function AssistantFlow({
                         <p>
                           <strong>{dealCopy.headline}</strong>
                         </p>
+                        {dealCopy.settlementNote ? <p className="hint">{dealCopy.settlementNote}</p> : null}
                         <p>{dealCopy.why}</p>
                         {dealCopy.rankedLines.length > 0 ? (
                           <>

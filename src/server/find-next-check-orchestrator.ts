@@ -398,6 +398,47 @@ export async function runFindNextCheckOrchestrator(
       need: updated.need,
       listings: updated.listings,
       receipts: freeGovReceipts,
+      // Same listing pool the cards were ranked from — price factor shares badge comps when possible.
+      marketPool: updated.listings
+        .map((row) => {
+          if (row.priceUsd == null || row.miles == null) return null;
+          const vin =
+            typeof row.vin === "string" && row.vin.trim() && !row.vin.startsWith("UNKNOWN-")
+              ? row.vin.trim().toUpperCase()
+              : `FIND-${row.year}-${row.make}-${row.model}-${row.priceUsd}-${row.miles}`;
+          return {
+            vin,
+            year: row.year,
+            make: row.make,
+            model: row.model,
+            trim: null,
+            priceUsd: row.priceUsd,
+            miles: row.miles,
+            city: null,
+            state: null,
+            zip: null,
+            dealer: null,
+            vdp: null,
+            primaryImage: null,
+            carfaxUrl: null,
+            used: true,
+            cpo: false,
+            accidentCount: null,
+            oneOwner: null,
+            ownerCount: null,
+            usageType: null,
+            fuel: null,
+            engine: null,
+            drivetrain: null,
+            bodyStyle: null,
+            latitude: null,
+            longitude: null,
+            removedAt: null,
+            createdAt: null,
+            source: "autodev" as const,
+          };
+        })
+        .filter((row): row is NonNullable<typeof row> => row != null),
     });
     const shortlistAfter = shortlistPack.entries;
     const riskCoverage = shortlistPack.coverage;

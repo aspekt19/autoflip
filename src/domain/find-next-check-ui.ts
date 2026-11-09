@@ -15,6 +15,13 @@ export function shouldAutoStartFindNextCheck(opts: {
 }
 
 /**
+ * Free-gov continuation reasons must keep the client chain alive even when a step
+ * fell back to deterministic (`autonomousServ: false`). Requiring autonomous SERV
+ * here was the live regression: server said continue, UI froze on partial coverage.
+ */
+const FREE_GOV_CONTINUE_REASONS = new Set(["evidence_changed_replan", "remaining_free_checks"]);
+
+/**
  * After a step, continue automatically when server loop says so (evidence→replan).
  * No hidden step quota — server stop reasons are authoritative.
  */
@@ -25,8 +32,10 @@ export function shouldAutoContinueFindNextCheck(opts: {
   loop: { continue: boolean; reason: string } | null | undefined;
 }): boolean {
   const token = typeof opts.searchContextToken === "string" ? opts.searchContextToken.trim() : "";
-  if (!opts.servNextCheckEnabled || !opts.autonomousServ || !token) return false;
-  return Boolean(opts.loop?.continue);
+  if (!opts.servNextCheckEnabled || !token) return false;
+  if (!opts.loop?.continue) return false;
+  if (FREE_GOV_CONTINUE_REASONS.has(opts.loop.reason)) return true;
+  return Boolean(opts.autonomousServ);
 }
 
 /**

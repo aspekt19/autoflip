@@ -147,8 +147,9 @@ describe("fuel checklist honesty + NMVTIS copy", () => {
       listingCount: 24,
       fuelOutcome: { attempted: 5, matched: 2, noMatch: 2, unavailable: 1 },
     });
-    expect(some).toMatch(/2 matched/);
-    expect(some).toMatch(/5 year\/make\/model/);
+    expect(some).toMatch(/Fuel costs found for 2 of 5/);
+    expect(some).toMatch(/not available because/i);
+    expect(some).toMatch(/unavailable/i);
   });
 
   it("summarizes fuel receipts without inventing success", () => {

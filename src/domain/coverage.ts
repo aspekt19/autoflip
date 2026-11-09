@@ -26,7 +26,11 @@ export function coverageConfidence(input: CoverageInput): CoverageConfidence {
 /** One sentence. The confidence word lives on the badge, not in this line. */
 export function coverageSentence(input: CoverageInput): string {
   const count = Math.max(0, Math.floor(input.dealerListingCount));
-  const listing = count === 1 ? "Based on 1 dealer listing" : `Based on ${count} dealer listings`;
+  // Per search direction — other directions on the page are counted separately.
+  const listing =
+    count === 1
+      ? "Based on 1 dealer listing in this search direction"
+      : `Based on ${count} dealer listings in this search direction`;
   const where = input.radiusMiles !== null ? ` within ${input.radiusMiles} miles` : "";
   const history = input.historyOnListing
     ? "listing history flags only; no title report checked"

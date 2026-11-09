@@ -78,6 +78,7 @@ describe("decideFindNextCheckLoop", () => {
       freeGovBeforeFp: "[]",
       freeGovAfterFp: '[{"checkId":"free_gov_recalls"}]',
       remainingActionableCount: 3,
+      remainingFreeGovCount: 2,
       needBeforeFp: "same",
       needAfterFp: "same",
       listingsBeforeFp: "same",
@@ -85,6 +86,26 @@ describe("decideFindNextCheckLoop", () => {
     });
     expect(d.continue).toBe(true);
     expect(d.reason).toBe("evidence_changed_replan");
+  });
+
+  it("deterministic fallback keeps looping while free_gov remain even if receipts unchanged", () => {
+    const d = decideFindNextCheckLoop({
+      ...base,
+      autonomousServ: false,
+      chosenId: "free_gov_safety",
+      research: false,
+      rematchOk: null,
+      freeGovBeforeFp: '[{"checkId":"free_gov_recalls"}]',
+      freeGovAfterFp: '[{"checkId":"free_gov_recalls"}]',
+      remainingActionableCount: 2,
+      remainingFreeGovCount: 2,
+      needBeforeFp: "same",
+      needAfterFp: "same",
+      listingsBeforeFp: "same",
+      listingsAfterFp: "same",
+    });
+    expect(d.continue).toBe(true);
+    expect(d.reason).toBe("remaining_free_checks");
   });
 
   it("loop-guards unchanged state (no hidden quota)", () => {

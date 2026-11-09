@@ -35,7 +35,7 @@ describe("shouldAutoStartFindNextCheck", () => {
 });
 
 describe("shouldAutoContinueFindNextCheck", () => {
-  it("continues only when server loop.continue + autonomous SERV", () => {
+  it("continues free-gov reasons even when a step fell back to deterministic", () => {
     expect(
       shouldAutoContinueFindNextCheck({
         servNextCheckEnabled: true,
@@ -52,12 +52,32 @@ describe("shouldAutoContinueFindNextCheck", () => {
         loop: { continue: false, reason: "grounded_stop" },
       }),
     ).toBe(false);
+    // Live regression: server continue + deterministic fallback must NOT freeze coverage.
     expect(
       shouldAutoContinueFindNextCheck({
         servNextCheckEnabled: true,
         autonomousServ: false,
         searchContextToken: "t",
         loop: { continue: true, reason: "evidence_changed_replan" },
+      }),
+    ).toBe(true);
+    expect(
+      shouldAutoContinueFindNextCheck({
+        servNextCheckEnabled: true,
+        autonomousServ: false,
+        searchContextToken: "t",
+        loop: { continue: true, reason: "remaining_free_checks" },
+      }),
+    ).toBe(true);
+  });
+
+  it("still requires autonomous SERV for non-free-gov continue reasons", () => {
+    expect(
+      shouldAutoContinueFindNextCheck({
+        servNextCheckEnabled: true,
+        autonomousServ: false,
+        searchContextToken: "t",
+        loop: { continue: true, reason: "some_other_reason" },
       }),
     ).toBe(false);
   });

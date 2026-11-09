@@ -5,8 +5,10 @@
  * Uses only returned real listings + free-gov receipts. Never claims VIN-specific recall
  * clearance, clean history, or that Lemonless is error-free / better than others.
  */
+import { mileageAdjust, selectComparables } from "./comparables";
 import type { FindFuelEvidence } from "./find-fuel-match";
 import type { FindFreeGovReceipt } from "./find-free-gov";
+import { freeGovToolCoverage } from "./find-free-gov";
 import type { ObservedListingRow } from "./find-model-observe";
 import { mmyListingKey } from "./find-risk-evidence";
 import {
@@ -14,6 +16,9 @@ import {
   budgetIsApproximateFromNote,
   type StructuredNeed,
 } from "./need";
+import { historyAdjustment } from "./history";
+import { median as statsMedian, percentileRank as statsPercentileRank, roundDollars } from "./stats";
+import type { Listing } from "./types";
 
 export type BestDealFactorId =
   | "price_vs_model_asks"
@@ -64,6 +69,14 @@ export type BestDealResult = {
   sensitivity: BestDealSensitivity[];
   assumptionsNote: string;
   honesty: string;
+  /**
+   * False while free public year/make/model checks remain unchecked for the
+   * shortlist pool — pick may change as coverage completes.
+   */
+  evidenceSettled: boolean;
+  settlementNote: string;
+  /** Factors held out of ranking until every shortlist MMY has that check (or none do). */
+  fairnessHeldOut: BestDealFactorId[];
 };
 
 /**
@@ -100,19 +113,30 @@ export const BEST_DEAL_THIN_MODEL_SAMPLE = 3;
 /** Absolute miles above this under condition-first draw a strong wear penalty. */
 export const BEST_DEAL_HIGH_MILES_SOFT = 120_000;
 export const BEST_DEAL_HIGH_MILES_HARD = 160_000;
+/**
+ * Under condition-first, relative discount credited toward the price bonus is
+ * capped here. Extreme under-median asks often reflect condition/mileage risk;
+ * uncapped bonuses let a $6.8k/139k Camry farm ~+22 for being “cheap.”
+ */
+export const BEST_DEAL_PRICE_BELOW_CAP_FRAC = 0.22;
+/** Beyond this discount under condition-first, detail calls out caution. */
+export const BEST_DEAL_PRICE_BELOW_CAUTION_FRAC = 0.35;
+
+/** Score factors that must not advantage cars that have data over peers that don't. */
+export const BEST_DEAL_COVERAGE_FAIR_FACTORS: readonly BestDealFactorId[] = [
+  "estimated_fuel_cost",
+  "mmy_recall_campaigns",
+  "mmy_ncap_rating",
+];
 
 function median(values: number[]): number | null {
-  if (values.length === 0) return null;
-  const sorted = [...values].sort((a, b) => a - b);
-  const mid = Math.floor(sorted.length / 2);
-  if (sorted.length % 2 === 1) return sorted[mid]!;
-  return (sorted[mid - 1]! + sorted[mid]!) / 2;
+  return statsMedian(values);
 }
 
-function percentileRank(value: number, population: number[]): number | null {
-  if (population.length === 0) return null;
-  const below = population.filter((v) => v < value).length;
-  return below / population.length;
+/** 0–1 rank with ties split (domain stats returns 0–100). */
+function percentileRank01(value: number, population: number[]): number | null {
+  const pct = statsPercentileRank(value, population);
+  return pct == null ? null : pct / 100;
 }
 
 function expectedMiles(year: number, nowYear: number, milesPerYear: number): number {
@@ -214,6 +238,101 @@ export function prefersNotTooOldFromNote(note: string | null | undefined): boole
   return /\bnot too old\b|\bnewer\b|\brecent model\b|\breliable\b/i.test(note);
 }
 
+function listingStubForComps(row: BestDealListing): Listing | null {
+  if (row.priceUsd == null || row.miles == null) return null;
+  const vin =
+    typeof row.vin === "string" && row.vin.trim() && !row.vin.startsWith("UNKNOWN-")
+      ? row.vin.trim().toUpperCase()
+      : `FIND-${row.year}-${row.make}-${row.model}-${row.priceUsd}-${row.miles}`;
+  return {
+    vin,
+    year: row.year,
+    make: row.make,
+    model: row.model,
+    trim: row.trim ?? null,
+    priceUsd: row.priceUsd,
+    miles: row.miles,
+    city: null,
+    state: null,
+    zip: null,
+    dealer: null,
+    vdp: null,
+    primaryImage: null,
+    carfaxUrl: null,
+    used: true,
+    cpo: false,
+    accidentCount: null,
+    oneOwner: null,
+    ownerCount: null,
+    usageType: null,
+    fuel: null,
+    engine: row.engine ?? null,
+    drivetrain: row.drivetrain ?? null,
+    bodyStyle: null,
+    latitude: null,
+    longitude: null,
+    removedAt: null,
+    createdAt: null,
+    source: "autodev",
+  };
+}
+
+function marketPriceContext(
+  row: BestDealListing,
+  marketPool: readonly Listing[] | undefined,
+  sameModelPrices: number[],
+): {
+  med: number;
+  sampleSize: number;
+  pct01: number | null;
+  source: string;
+  scopeLabel: string;
+} | null {
+  const stub = listingStubForComps(row);
+  if (stub && marketPool && marketPool.length > 0) {
+    const selection = selectComparables(stub, [...marketPool]);
+    if (selection.scope !== "insufficient" && selection.comps.length >= BEST_DEAL_THIN_MODEL_SAMPLE) {
+      const priced = selection.comps.filter(
+        (item): item is Listing & { priceUsd: number; miles: number } =>
+          item.priceUsd != null && item.miles != null,
+      );
+      if (priced.length >= BEST_DEAL_THIN_MODEL_SAMPLE && stub.miles != null) {
+        const adjusted = mileageAdjust(stub.miles, priced);
+        const mid = median(adjusted.rows.map((r) => r.adjustedPriceUsd));
+        if (mid != null && mid > 0) {
+          const fair = roundDollars(mid * historyAdjustment(stub, "personal").multiplier);
+          const pct01 = percentileRank01(stub.priceUsd!, adjusted.rows.map((r) => r.adjustedPriceUsd));
+          const scopeLabel =
+            selection.scope === "same_trim"
+              ? "same-trim"
+              : selection.scope === "expanded_year"
+                ? "same-model (widened year)"
+                : "same-model";
+          return {
+            med: fair,
+            sampleSize: priced.length,
+            pct01,
+            source: "Same comparable set as the card market badge",
+            scopeLabel,
+          };
+        }
+      }
+    }
+  }
+  if (row.priceUsd != null && sameModelPrices.length > 0) {
+    const med = median(sameModelPrices);
+    if (med == null || med <= 0) return null;
+    return {
+      med,
+      sampleSize: sameModelPrices.length,
+      pct01: percentileRank01(row.priceUsd, sameModelPrices),
+      source: "Returned listings in this search only",
+      scopeLabel: "same-model (this search)",
+    };
+  }
+  return null;
+}
+
 function scoreOne(
   row: BestDealListing,
   ctx: {
@@ -228,6 +347,9 @@ function scoreOne(
     fuelByMmy: BestDealFuelIndex;
     risk: BestDealRiskIndex;
     fuelWeightScale?: number;
+    marketPool?: readonly Listing[];
+    /** Factor ids held out for fairness (scored 0 with honesty detail). */
+    heldOutFactors?: ReadonlySet<BestDealFactorId>;
   },
 ): BestDealCandidate {
   const factors: BestDealFactorBreakdown[] = [];
@@ -238,24 +360,40 @@ function scoreOne(
   ];
   const mmy = mmyListingKey(row.make, row.model, row.year);
   let score = 0;
+  const conditionFirst =
+    ctx.need.conditionPriority === "inspection_first" || prefersConditionFromNote(ctx.need.note);
+  const heldOut = ctx.heldOutFactors ?? new Set<BestDealFactorId>();
 
-  // Price vs same-model observed asks
-  if (row.priceUsd != null && ctx.sameModelPrices.length > 0) {
-    const med = median(ctx.sameModelPrices)!;
-    const pct = percentileRank(row.priceUsd, ctx.sameModelPrices);
-    const rel = med > 0 ? (med - row.priceUsd) / med : 0;
+  // Price vs same-model observed asks (aligned with card badge when marketPool provided)
+  const market = marketPriceContext(row, ctx.marketPool, ctx.sameModelPrices);
+  if (row.priceUsd != null && market) {
+    const { med, sampleSize, pct01, source, scopeLabel } = market;
+    const relRaw = med > 0 ? (med - row.priceUsd) / med : 0;
+    let rel = relRaw;
+    let caution = "";
+    if (conditionFirst && relRaw > 0) {
+      // Cap bargain bonus; extreme discounts under condition-first are a caution, not a jackpot.
+      rel = Math.min(relRaw, BEST_DEAL_PRICE_BELOW_CAP_FRAC);
+      if (relRaw >= BEST_DEAL_PRICE_BELOW_CAUTION_FRAC) {
+        caution = `; extreme discount (~${Math.round(relRaw * 100)}% under median) capped under condition-first — treat as condition risk until inspected`;
+      } else if (relRaw > BEST_DEAL_PRICE_BELOW_CAP_FRAC) {
+        caution = `; price-below-market bonus capped at ${Math.round(BEST_DEAL_PRICE_BELOW_CAP_FRAC * 100)}% under condition-first`;
+      }
+    }
     const points = clamp(rel * WEIGHTS.price * 2, -WEIGHTS.price, WEIGHTS.price);
     score += points;
     const thin =
-      ctx.sameModelPrices.length < BEST_DEAL_THIN_MODEL_SAMPLE
-        ? ` (thin sample: ${ctx.sameModelPrices.length} priced ${row.make} ${row.model} card${ctx.sameModelPrices.length === 1 ? "" : "s"})`
+      sampleSize < BEST_DEAL_THIN_MODEL_SAMPLE
+        ? ` (thin sample: ${sampleSize} priced ${scopeLabel} comps)`
         : "";
+    const pctBit =
+      pct01 != null ? ` (~${Math.round(pct01 * 100)}th percentile among ${scopeLabel} comps)` : "";
     factors.push({
       id: "price_vs_model_asks",
       label: "Asking price vs same model in this search",
       points: round1(points),
-      detail: `Ask $${row.priceUsd.toLocaleString("en-US")} vs median $${Math.round(med).toLocaleString("en-US")}${pct != null ? ` (~${Math.round(pct * 100)}th percentile among same-model asks)` : ""}${thin}`,
-      source: "Returned listings in this search only",
+      detail: `Ask $${row.priceUsd.toLocaleString("en-US")} vs median $${Math.round(med).toLocaleString("en-US")} (n=${sampleSize} ${scopeLabel} comps)${pctBit}${thin}${caution}`,
+      source,
     });
   } else {
     unknowns.push("Asking price missing or no same-model priced peers");
@@ -263,7 +401,10 @@ function scoreOne(
       id: "price_vs_model_asks",
       label: "Asking price vs same model in this search",
       points: 0,
-      detail: "Not scored — need a usable ask and same-model peers from this search",
+      detail:
+        ctx.sameModelPrices.length === 0
+          ? "Not scored — no same-model priced comps in this search"
+          : "Not scored — need a usable ask and same-model peers from this search",
       source: "Returned listings in this search only",
     });
   }
@@ -272,8 +413,6 @@ function scoreOne(
   const ageYears = Math.max(0.5, ctx.nowYear - row.year);
   const mpy = row.miles != null ? row.miles / ageYears : null;
   const assumedPace = ctx.milesPerYearAssumption;
-  const conditionFirst =
-    ctx.need.conditionPriority === "inspection_first" || prefersConditionFromNote(ctx.need.note);
   const notTooOld = prefersNotTooOldFromNote(ctx.need.note) || conditionFirst;
   if (mpy != null) {
     const peerMed = ctx.peerMilesPerYear.length > 0 ? median(ctx.peerMilesPerYear) : null;
@@ -357,10 +496,19 @@ function scoreOne(
     });
   }
 
-  // Fuel cost
+  // Fuel cost — held out when coverage is incomplete across shortlist peers
   const fuel = ctx.fuelByMmy.get(mmy);
   const fuelScale = ctx.fuelWeightScale ?? 1;
-  if (fuel && fuel.annualFuelUsdLow != null) {
+  if (heldOut.has("estimated_fuel_cost")) {
+    factors.push({
+      id: "estimated_fuel_cost",
+      label: "Estimated annual fuel cost",
+      points: 0,
+      detail:
+        "Held out of ranking until every shortlist year/make/model has a fuel check (fair coverage) — value may still show on the card",
+      source: "FuelEconomy.gov",
+    });
+  } else if (fuel && fuel.annualFuelUsdLow != null) {
     const mid =
       fuel.annualFuelUsdHigh != null
         ? (fuel.annualFuelUsdLow + fuel.annualFuelUsdHigh) / 2
@@ -391,7 +539,16 @@ function scoreOne(
   }
 
   // MMY recall campaigns
-  if (ctx.risk.campaignCountByMmy.has(mmy)) {
+  if (heldOut.has("mmy_recall_campaigns")) {
+    factors.push({
+      id: "mmy_recall_campaigns",
+      label: "Year/make/model recall campaigns on record",
+      points: 0,
+      detail:
+        "Held out of ranking until every shortlist year/make/model has a recall check (fair coverage)",
+      source: "NHTSA recalls",
+    });
+  } else if (ctx.risk.campaignCountByMmy.has(mmy)) {
     const count = ctx.risk.campaignCountByMmy.get(mmy) ?? 0;
     const points = clamp((3 - Math.min(count, 6)) / 3, -1, 1) * WEIGHTS.recalls;
     score += points;
@@ -414,7 +571,16 @@ function scoreOne(
   }
 
   // NCAP
-  if (ctx.risk.ncapOverallByMmy.has(mmy)) {
+  if (heldOut.has("mmy_ncap_rating")) {
+    factors.push({
+      id: "mmy_ncap_rating",
+      label: "NHTSA crash-test rating (class)",
+      points: 0,
+      detail:
+        "Held out of ranking until every shortlist year/make/model has a crash-rating check (fair coverage)",
+      source: "NHTSA NCAP",
+    });
+  } else if (ctx.risk.ncapOverallByMmy.has(mmy)) {
     const overall = ctx.risk.ncapOverallByMmy.get(mmy);
     if (overall == null) {
       factors.push({
@@ -572,6 +738,39 @@ function round1(n: number): number {
   return Math.round(n * 10) / 10;
 }
 
+/**
+ * Hold out coverage-gated factors when some shortlist MMYs have data and others
+ * do not — otherwise cars with crash/recall/fuel receipts win partly by luck of
+ * which batch finished first.
+ */
+export function fairnessHeldOutFactors(input: {
+  listings: readonly BestDealListing[];
+  fuelByMmy: BestDealFuelIndex;
+  risk: BestDealRiskIndex;
+}): BestDealFactorId[] {
+  const mmyKeys = [...new Set(input.listings.map((l) => mmyListingKey(l.make, l.model, l.year)))];
+  if (mmyKeys.length === 0) return [];
+  const held: BestDealFactorId[] = [];
+  const fuelScored = mmyKeys.filter((k) => {
+    const f = input.fuelByMmy.get(k);
+    return Boolean(f && f.annualFuelUsdLow != null);
+  }).length;
+  const fuelChecked = mmyKeys.filter((k) => input.fuelByMmy.has(k)).length;
+  // Someone has a usable fuel score while peers are still unchecked → hold out.
+  // Once every MMY has a fuel receipt (match or no-match), scoring is fair.
+  if (fuelScored > 0 && fuelChecked < mmyKeys.length) {
+    held.push("estimated_fuel_cost");
+  }
+
+  const recallHave = mmyKeys.filter((k) => input.risk.campaignCountByMmy.has(k)).length;
+  if (recallHave > 0 && recallHave < mmyKeys.length) held.push("mmy_recall_campaigns");
+
+  const ncapHave = mmyKeys.filter((k) => input.risk.ncapOverallByMmy.has(k)).length;
+  if (ncapHave > 0 && ncapHave < mmyKeys.length) held.push("mmy_ncap_rating");
+
+  return held.filter((id) => BEST_DEAL_COVERAGE_FAIR_FACTORS.includes(id));
+}
+
 function rankAll(
   listings: readonly BestDealListing[],
   need: BestDealResult extends never ? never : Parameters<typeof scoreOne>[1]["need"],
@@ -581,6 +780,8 @@ function rankAll(
     fuelByMmy: BestDealFuelIndex;
     risk: BestDealRiskIndex;
     fuelWeightScale?: number;
+    marketPool?: readonly Listing[];
+    heldOutFactors?: ReadonlySet<BestDealFactorId>;
   },
 ): BestDealCandidate[] {
   const byModel = new Map<string, number[]>();
@@ -607,6 +808,8 @@ function rankAll(
       fuelByMmy: opts.fuelByMmy,
       risk: opts.risk,
       fuelWeightScale: opts.fuelWeightScale,
+      marketPool: opts.marketPool,
+      heldOutFactors: opts.heldOutFactors,
     }),
   );
   scored.sort((a, b) => {
@@ -637,6 +840,8 @@ export function selectBestDealOnEvidence(input: {
   nowYear?: number;
   milesPerYearAssumption?: number;
   shortlistMax?: number;
+  /** Optional full listing pool so price factor shares the card badge comparable set. */
+  marketPool?: readonly Listing[];
 }): BestDealResult {
   const nowYear = input.nowYear ?? new Date().getFullYear();
   const milesPerYearAssumption = input.milesPerYearAssumption ?? 12_000;
@@ -644,14 +849,28 @@ export function selectBestDealOnEvidence(input: {
   const receipts = input.receipts ?? [];
   const fuelByMmy = input.fuelByMmy ?? fuelIndexFromReceipts(receipts);
   const risk = riskIndexFromReceipts(receipts);
+  const coverage = freeGovToolCoverage(input.listings, receipts);
+  const evidenceSettled = !coverage.anyUnchecked;
+  const fairnessHeldOut = fairnessHeldOutFactors({
+    listings: input.listings,
+    fuelByMmy,
+    risk,
+  });
+  const heldOutSet = new Set(fairnessHeldOut);
+  const settlementNote = evidenceSettled
+    ? "Public year/make/model checks finished for this shortlist — pick is settled on current evidence (still not VIN history)."
+    : `Pick may change as checks complete — free public progress: recalls ${coverage.recalls.checked}/${coverage.recalls.eligible}, safety ${coverage.safety.checked}/${coverage.safety.eligible}, VIN decode ${coverage.vpic.checked}/${coverage.vpic.eligible}, fuel ${coverage.fuel?.checked ?? 0}/${coverage.fuel?.eligible ?? coverage.listingMmyCount}.`;
 
   const priced = input.listings.filter((l) => l.priceUsd != null);
-  const ranked = rankAll(input.listings, input.need, {
+  const rankOpts = {
     nowYear,
     milesPerYearAssumption,
     fuelByMmy,
     risk,
-  });
+    marketPool: input.marketPool,
+    heldOutFactors: heldOutSet,
+  };
+  const ranked = rankAll(input.listings, input.need, rankOpts);
   const top = ranked.slice(0, shortlistMax);
 
   const stillUnknown = [
@@ -659,8 +878,16 @@ export function selectBestDealOnEvidence(input: {
     "VIN-level open/closed recall status is not verified here",
     "Fuel estimates use labeled assumptions and may be a range when several configs match",
   ];
+  if (!evidenceSettled) {
+    stillUnknown.unshift("Free public year/make/model checks are still running — ranking may change");
+  }
+  if (fairnessHeldOut.length > 0) {
+    stillUnknown.push(
+      `Fair coverage: ${fairnessHeldOut.join(", ")} held out of ranking until every shortlist year/make/model has that check`,
+    );
+  }
 
-  const assumptionsNote = `Scoring uses only cars returned in this search, free public year/make/model safety/recall signals when checked, and FuelEconomy.gov estimates when matched. Default mileage pace assumption for age context: ${milesPerYearAssumption.toLocaleString("en-US")} mi/yr.`;
+  const assumptionsNote = `Scoring uses only cars returned in this search, free public year/make/model safety/recall signals when checked for every shortlist peer (otherwise held out for fairness), and FuelEconomy.gov estimates when matched. Default mileage pace assumption for age context: ${milesPerYearAssumption.toLocaleString("en-US")} mi/yr. Under condition-first, price-below-market bonus is capped at ${Math.round(BEST_DEAL_PRICE_BELOW_CAP_FRAC * 100)}% under median.`;
 
   const honesty =
     "Best deal on current evidence only — not a guarantee, not VIN history clearance, and not a claim that Lemonless is error-free or better than other tools. Always inspect and verify before buying.";
@@ -675,6 +902,9 @@ export function selectBestDealOnEvidence(input: {
       sensitivity: [],
       assumptionsNote,
       honesty,
+      evidenceSettled,
+      settlementNote,
+      fairnessHeldOut,
     };
   }
 
@@ -685,17 +915,12 @@ export function selectBestDealOnEvidence(input: {
 
   // Sensitivity: fuel weight down; city-heavy already in fuel evidence — re-rank with fuel muted
   const altFuelMuted = rankAll(input.listings, input.need, {
-    nowYear,
-    milesPerYearAssumption,
-    fuelByMmy,
-    risk,
+    ...rankOpts,
     fuelWeightScale: 0.35,
   });
   const altMiles = rankAll(input.listings, input.need, {
-    nowYear,
+    ...rankOpts,
     milesPerYearAssumption: 15_000,
-    fuelByMmy,
-    risk,
   });
   const altBudgetLoose =
     input.need.budgetKnown && input.need.budgetUsd != null
@@ -705,12 +930,7 @@ export function selectBestDealOnEvidence(input: {
             ...input.need,
             note: `${input.need.note ?? ""} around $${input.need.budgetUsd}`,
           },
-          {
-            nowYear,
-            milesPerYearAssumption,
-            fuelByMmy,
-            risk,
-          },
+          rankOpts,
         )
       : null;
   const sensitivity: BestDealSensitivity[] = [
@@ -741,6 +961,7 @@ export function selectBestDealOnEvidence(input: {
       `Top cars are too close on current evidence (${first.year} ${first.make} ${first.model} score ${first.score} vs ${second!.year} ${second!.make} ${second!.model} score ${second!.score}).`,
       "No single confident pick.",
       `What would break the tie: a clearer gap on miles/year wear, staying inside budget, or matching a model you named. ${tieBreakHelp}`,
+      settlementNote,
     ];
     return {
       ranked: top,
@@ -751,6 +972,9 @@ export function selectBestDealOnEvidence(input: {
       sensitivity,
       assumptionsNote,
       honesty,
+      evidenceSettled,
+      settlementNote,
+      fairnessHeldOut,
     };
   }
 
@@ -760,14 +984,19 @@ export function selectBestDealOnEvidence(input: {
     .slice(0, 5)
     .map((f) => `${f.label}: ${f.detail} (${f.points >= 0 ? "+" : ""}${f.points})`);
 
+  const settlePrefix = evidenceSettled ? "Best deal on settled evidence" : "Provisional best deal (may change as checks complete)";
+
   return {
     ranked: top,
     pick: first,
     confidence: "confident",
-    why: `Best deal on current evidence: ${first.year} ${first.make} ${first.model}${first.priceUsd != null ? ` at $${first.priceUsd.toLocaleString("en-US")}` : ""} (score ${first.score}). ${whyParts.join(" · ")}`,
+    why: `${settlePrefix}: ${first.year} ${first.make} ${first.model}${first.priceUsd != null ? ` at $${first.priceUsd.toLocaleString("en-US")}` : ""} (score ${first.score}). ${whyParts.join(" · ")} ${settlementNote}`,
     stillUnknown: [...new Set([...stillUnknown, ...first.unknowns])],
     sensitivity,
     assumptionsNote,
     honesty,
+    evidenceSettled,
+    settlementNote,
+    fairnessHeldOut,
   };
 }

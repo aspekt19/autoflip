@@ -969,22 +969,31 @@ export function parseNeedJson(text: string): unknown {
   return JSON.parse(body.slice(start, end + 1));
 }
 
-export function yearBandForBudget(budgetUsd: number | null, now = new Date()): { yearMin: number; yearMax: number; because: string } {
+export function yearBandForBudget(
+  budgetUsd: number | null,
+  now = new Date(),
+  opts?: { approximateFromNote?: boolean },
+): { yearMin: number; yearMax: number; because: string } {
   const cap = now.getUTCFullYear() + 1;
+  const approx = Boolean(opts?.approximateFromNote);
   if (budgetUsd === null) return { yearMin: 2012, yearMax: Math.min(2020, cap), because: "No budget was given, so this is only a starting year band." };
   if (budgetUsd < 12_000) return { yearMin: 2008, yearMax: 2016, because: "Under $12,000, the guidance table starts with older model years." };
   if (budgetUsd < 20_000) {
     return {
       yearMin: 2012,
       yearMax: 2019,
-      because: `With a $${budgetUsd.toLocaleString("en-US")} budget, the guidance table uses a mid-2010s band. The budget itself is a hard cap.`,
+      because: approx
+        ? `With a ~$${budgetUsd.toLocaleString("en-US")} note budget, the guidance table uses a mid-2010s band. Asking-price soft tolerance (±${Math.round(BUDGET_AROUND_TOLERANCE_FRAC * 100)}%) still applies until you set a hard max.`
+        : `With a $${budgetUsd.toLocaleString("en-US")} budget, the guidance table uses a mid-2010s band. Set a hard max asking price to filter listings strictly.`,
     };
   }
   if (budgetUsd < 30_000) {
     return {
       yearMin: 2015,
       yearMax: Math.min(2022, cap),
-      because: `With a $${budgetUsd.toLocaleString("en-US")} budget, the guidance table uses a newer band. The budget itself is a hard cap.`,
+      because: approx
+        ? `With a ~$${budgetUsd.toLocaleString("en-US")} note budget, the guidance table uses a newer band. Asking-price soft tolerance (±${Math.round(BUDGET_AROUND_TOLERANCE_FRAC * 100)}%) still applies until you set a hard max.`
+        : `With a $${budgetUsd.toLocaleString("en-US")} budget, the guidance table uses a newer band. Set a hard max asking price to filter listings strictly.`,
     };
   }
   return { yearMin: 2018, yearMax: cap, because: "At $30,000 or more, the guidance table starts near the current model years." };
