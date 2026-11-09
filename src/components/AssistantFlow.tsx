@@ -31,12 +31,22 @@ import {
   shouldAutoContinueFindNextCheck,
   shouldAutoStartFindNextCheck,
 } from "@/domain/find-next-check-ui";
+import {
+  formatBuyerBestDeal,
+  formatBuyerLoopStatus,
+  formatBuyerLoopStep,
+  formatBuyerNextCheckWhy,
+} from "@/domain/find-buyer-copy";
+import type { BestDealResult } from "@/domain/find-best-deal";
+import { formatFindFuelEvidenceShort, fuelFactFromFindEvidence } from "@/domain/find-fuel-match";
 import { buildGroundedShortlist } from "@/domain/find-path";
 import {
+  formatFreeGovReceiptsForAgents,
   formatFreeGovReceiptsForUi,
   uiRowsToRiskReceipts,
   type FreeGovReceiptUiRow,
 } from "@/domain/find-free-gov-format";
+import { mmyListingKey } from "@/domain/find-risk-evidence";
 import {
   applyFollowUp,
   followUps,
@@ -193,8 +203,11 @@ function AssistantFlow({
   /** Find next-check live path — ids already applied this session (loop guard). */
   const [appliedNextChecks, setAppliedNextChecks] = useState<string[]>([]);
   const [nextCheckNote, setNextCheckNote] = useState<string | null>(null);
-  /** Per-card free NHTSA receipt lines (server-owned; not status-only). */
+  /** Per-card free public check lines (buyer-visible plain language). */
   const [freeGovEvidenceLines, setFreeGovEvidenceLines] = useState<string[]>([]);
+  /** Machine/agent channel only — raw receipts JSON, not shown as page copy. */
+  const [freeGovAgentPayload, setFreeGovAgentPayload] = useState<string | null>(null);
+  const [bestDeal, setBestDeal] = useState<BestDealResult | null>(null);
   /** Structured free-gov receipts for risk-aware grounded shortlist (client mirror of server). */
   const [freeGovReceiptsForShortlist, setFreeGovReceiptsForShortlist] = useState<
     FreeGovReceiptUiRow[]
@@ -601,39 +614,50 @@ function AssistantFlow({
         : [];
       if (receipts.length > 0) {
         setFreeGovReceiptsForShortlist(receipts);
-        // Full store inspectable — no silent 6-row drop of MMY claims.
+        // Buyer-visible plain lines; raw receipts only in machine/agent channel.
         setFreeGovEvidenceLines(formatFreeGovReceiptsForUi(receipts));
+        setFreeGovAgentPayload(formatFreeGovReceiptsForAgents(receipts));
+      }
+      const serverBestDeal = (body as { bestDeal?: BestDealResult | null }).bestDeal;
+      if (serverBestDeal && typeof serverBestDeal === "object") {
+        setBestDeal(serverBestDeal);
       }
       const coverage = (body as { riskCoverage?: { note?: string } | null }).riskCoverage;
       const toolCov = (
         body as { freeGovCoverage?: { note?: string; anyUnchecked?: boolean } | null }
       ).freeGovCoverage;
+      // Soft-scrub technical coverage notes for buyers.
       const coverageBits = [
-        coverage && typeof coverage.note === "string" ? coverage.note.trim() : "",
-        toolCov && typeof toolCov.note === "string" ? toolCov.note.trim() : "",
+        coverage && typeof coverage.note === "string"
+          ? coverage.note
+              .replace(/\bMMY\b/g, "year/make/model")
+              .replace(/\bvPIC\b/g, "VIN decode")
+              .replace(/\bNMVTIS\b/g, "official title history")
+              .trim()
+          : "",
+        toolCov && typeof toolCov.note === "string"
+          ? toolCov.note
+              .replace(/\bMMY\b/g, "year/make/model")
+              .replace(/\bvPIC\b/g, "VIN decode")
+              .replace(/\bNMVTIS\b/g, "official title history")
+              .trim()
+          : "",
       ].filter(Boolean);
       if (coverageBits.length > 0) {
         setRiskCoverageNote(coverageBits.join(" "));
       }
-      setNextCheckNote(
-        [
-          body.autonomousServ ? "SERV chose" : "Code fallback (not autonomous SERV)",
-          body.chosenId,
-          "—",
-          body.replan.note,
-          body.servNote ? `(${body.servNote})` : "",
-          freeNote ? `(${freeNote})` : "",
-          body.loop?.reason ? `[${body.loop.reason}]` : "",
-          failCat ? `diag=${failCat}${failCode ? `/${failCode}` : ""}` : "",
-          clamp?.deniedCheckId
-            ? `denied=${clamp.deniedCheckId} allowlist=[${(clamp.allowlistIds ?? []).join(",")}]`
-            : "",
-          clamp?.aliasApplied ? `alias=${clamp.aliasApplied}` : "",
-          keyedDiag?.configHint ? `hint=${keyedDiag.configHint}` : "",
-        ]
-          .filter(Boolean)
-          .join(" "),
-      );
+      void freeNote;
+      void failCat;
+      void failCode;
+      void clamp;
+      void keyedDiag;
+      const listingCount = groups.reduce((n, g) => n + g.listings.length, 0);
+      const step = formatBuyerLoopStep({
+        chosenId: body.chosenId ?? "",
+        listingCount: listingCount || undefined,
+      });
+      const status = formatBuyerLoopStatus(body.loop?.reason ?? null);
+      setNextCheckNote([step, status].filter(Boolean).join(" "));
       if (
         shouldAutoContinueFindNextCheck({
           servNextCheckEnabled: servNextCheckEnabled || Boolean(opts?.auto),
@@ -1532,82 +1556,115 @@ function AssistantFlow({
                   priceUsd: car.priceView?.usableForBudget ? car.priceUsd : null,
                   miles: car.miles,
                 }));
+                const fuelsByModel: Record<string, ReturnType<typeof fuelFactFromFindEvidence>> = {};
+                for (const r of freeGovReceiptsForShortlist) {
+                  if (r.checkId !== "free_gov_fuel" || !r.fuelEvidence) continue;
+                  fuelsByModel[`${r.make}\0${r.model}`.toLowerCase()] = fuelFactFromFindEvidence(
+                    r.fuelEvidence,
+                  );
+                }
                 const shortlist = buildGroundedShortlist(
                   need,
                   listingRows,
-                  {},
+                  fuelsByModel,
                   uiRowsToRiskReceipts(freeGovReceiptsForShortlist),
                 );
-                if (checks.length === 0 && shortlist.length === 0) return null;
+                const dealCopy = bestDeal ? formatBuyerBestDeal(bestDeal) : null;
+                if (checks.length === 0 && shortlist.length === 0 && !dealCopy) return null;
                 return (
                   <div className="hint" role="note">
+                    {servNextCheckEnabled ? (
+                      <p>
+                        We keep checking public safety and fuel data automatically as results update. You do not
+                        need to press anything.
+                      </p>
+                    ) : (
+                      <p>Here is what we can check next with the cars already found:</p>
+                    )}
                     {checks.length > 0 ? (
-                      <>
+                      <ul>
+                        {checks.map((item) => (
+                          <li key={item.id}>{formatBuyerNextCheckWhy(item.id, item.why)}</li>
+                        ))}
+                      </ul>
+                    ) : null}
+                    {nextCheckNote ? <p className="hint">{nextCheckNote}</p> : null}
+                    {pending === "next-check" ? <p className="hint">Checking public records…</p> : null}
+                    {freeGovEvidenceLines.length > 0 ? (
+                      <div className="hint" role="note">
                         <p>
-                          {servNextCheckEnabled
-                            ? "When SERV is configured, next-check continues automatically after search as evidence updates (apply → rematch → replan) until grounded stop, clarification, failure, or unchanged-state. Manual retry:"
-                            : "Suggested next checks (code allowlist). SERV is not configured — deterministic fallback only (not autonomous SERV). Manual apply:"}
+                          What we checked from free U.S. government sources (year/make/model scope — not the same as
+                          a VIN history or title report):
                         </p>
                         <ul>
-                          {checks.map((item) => (
-                            <li key={item.id}>
-                              <strong>{item.id}</strong>: {item.why}
-                            </li>
+                          {freeGovEvidenceLines.map((line) => (
+                            <li key={line.slice(0, 100)}>{line}</li>
                           ))}
                         </ul>
+                        {riskCoverageNote ? <p className="hint">{riskCoverageNote}</p> : null}
+                      </div>
+                    ) : null}
+                    {dealCopy ? (
+                      <div className="hint" role="note">
                         <p>
-                          <button
-                            type="button"
-                            className="secondary"
-                            disabled={pending !== null || !searchContextToken}
-                            onClick={() => void applyLiveNextCheck()}
-                          >
-                            {pending === "next-check"
-                              ? "Choosing next check…"
-                              : servNextCheckEnabled
-                                ? "Retry next check (SERV + rematch)"
-                                : "Apply next check (deterministic)"}
-                          </button>
+                          <strong>{dealCopy.headline}</strong>
                         </p>
-                        {nextCheckNote ? <p className="hint">{nextCheckNote}</p> : null}
-                        {freeGovEvidenceLines.length > 0 ? (
-                          <div className="hint" role="note">
-                            <p>
-                              Free public NHTSA evidence (server receipts — make/model/year scope; not VIN-open
-                              status; not NMVTIS/title; no Report credit):
-                            </p>
+                        <p>{dealCopy.why}</p>
+                        {dealCopy.rankedLines.length > 0 ? (
+                          <>
+                            <p>Ranked on current evidence:</p>
                             <ul>
-                              {freeGovEvidenceLines.map((line) => (
-                                <li key={line.slice(0, 80)}>{line}</li>
+                              {dealCopy.rankedLines.map((line) => (
+                                <li key={line}>{line}</li>
                               ))}
                             </ul>
-                            {riskCoverageNote ? <p className="hint">{riskCoverageNote}</p> : null}
-                          </div>
+                          </>
                         ) : null}
-                      </>
+                        <p>Still unknown:</p>
+                        <ul>
+                          {dealCopy.stillUnknown.map((u) => (
+                            <li key={u.slice(0, 80)}>{u}</li>
+                          ))}
+                        </ul>
+                        {dealCopy.sensitivityLines.length > 0 ? (
+                          <>
+                            <p>If assumptions change:</p>
+                            <ul>
+                              {dealCopy.sensitivityLines.map((line) => (
+                                <li key={line}>{line}</li>
+                              ))}
+                            </ul>
+                          </>
+                        ) : null}
+                        <p className="hint">{dealCopy.honesty}</p>
+                      </div>
                     ) : null}
                     {shortlist.length > 0 ? (
                       <>
                         <p>
-                          Grounded shortlist from returned cards only (not a “best car” rank — risk from free NHTSA
-                          when present; fuel unavailable without EPA match; no auto-buy):
+                          Models that still fit your stated limits (from these cards only — not an auto-buy
+                          recommendation):
                         </p>
                         <ul>
                           {shortlist.map((row) => (
                             <li key={`${row.make}-${row.model}`}>
-                              {row.make} {row.model} [{row.conditionStatus}]: {row.why}. Unknowns:{" "}
-                              {row.unknowns.join("; ")}
-                              {row.outstandingChecks.length > 0
-                                ? `. Outstanding: ${row.outstandingChecks.join(", ")}`
-                                : ""}
+                              {row.make} {row.model}: {row.why}. Still unknown: {row.unknowns.join("; ")}
                               {row.campaignRefs.length > 0
-                                ? `. Campaigns: ${row.campaignRefs.join(", ")}`
+                                ? `. Recall campaigns on file: ${row.campaignRefs.join(", ")}`
                                 : ""}
                               .
                             </li>
                           ))}
                         </ul>
                       </>
+                    ) : null}
+                    {freeGovAgentPayload ? (
+                      <script
+                        type="application/json"
+                        id="find-agent-receipts"
+                        data-channel="for-agents"
+                        dangerouslySetInnerHTML={{ __html: freeGovAgentPayload }}
+                      />
                     ) : null}
                   </div>
                 );
@@ -1659,12 +1716,19 @@ function AssistantFlow({
                       priceUsd: car.priceView?.usableForBudget ? car.priceUsd : null,
                       miles: car.miles,
                     }));
-                    const compared = compareObservedModels(rows);
+                    const fuelsByModel: Record<string, ReturnType<typeof fuelFactFromFindEvidence>> = {};
+                    for (const r of freeGovReceiptsForShortlist) {
+                      if (r.checkId !== "free_gov_fuel" || !r.fuelEvidence) continue;
+                      fuelsByModel[`${r.make}\0${r.model}`.toLowerCase()] = fuelFactFromFindEvidence(
+                        r.fuelEvidence,
+                      );
+                    }
+                    const compared = compareObservedModels(rows, fuelsByModel);
                     if (compared.length === 0) return null;
                     return (
                       <div className="hint" role="note">
                         <p>
-                          Observed model comparison from these cards only (not a TCO, reliability, or “best car” rank —{" "}
+                          Side-by-side from these cards only (not a full ownership cost or reliability score —{" "}
                           {compared[0]!.honesty}):
                         </p>
                         <ul>
@@ -1712,6 +1776,19 @@ function AssistantFlow({
                       {car.city ? ` · ${car.city}${car.state ? `, ${car.state}` : ""}` : ""}
                     </p>
                     {car.priceView?.displayDetail ? <p className="hint">{car.priceView.displayDetail}</p> : null}
+                    {(() => {
+                      const fuelRow = freeGovReceiptsForShortlist.find(
+                        (r) =>
+                          r.checkId === "free_gov_fuel" &&
+                          r.fuelEvidence &&
+                          mmyListingKey(r.make, r.model, r.year) ===
+                            mmyListingKey(car.make, car.model, car.year),
+                      );
+                      if (!fuelRow?.fuelEvidence) return null;
+                      return (
+                        <p className="hint">{formatFindFuelEvidenceShort(fuelRow.fuelEvidence)}</p>
+                      );
+                    })()}
                     {car.overBudget ? <p className="budget-flag">Slightly over budget</p> : null}
                     {car.source !== "autodev" ? <p className="hint">Source {car.source}: not treated as verified live inventory.</p> : null}
                     {car.badge ? <PriceBadgeView badge={car.badge} /> : null}

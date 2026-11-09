@@ -93,6 +93,7 @@ function receipt(
     sourceUrl: packet.url,
     factNotes: [],
     riskFacts: checkId === "free_gov_recalls" ? riskFacts : null,
+    fuelEvidence: null,
     honesty: "t",
   };
 }

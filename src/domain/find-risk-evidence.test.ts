@@ -115,6 +115,7 @@ function receiptFrom(
     sourceUrl: packet.url,
     factNotes: packet.facts.map((f) => f.note ?? "").filter(Boolean),
     riskFacts,
+    fuelEvidence: null,
     honesty: "Make/model/year recalls/complaints ≠ VIN-specific unrepaired/open recall status. parkIt ≠ parkOutside.",
   };
 }

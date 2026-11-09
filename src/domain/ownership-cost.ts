@@ -76,7 +76,7 @@ export function estimateOwnershipFuelCost(
       source: "fueleconomy.gov",
       match: fuel.match,
       honesty:
-        "EPA annual fuel cost from FuelEconomy.gov for the matched configuration — not a full ownership TCO (no insurance, maintenance, or repairs).",
+        "Annual fuel cost from FuelEconomy.gov for the matched configuration — not a full ownership cost (no insurance, maintenance, or repairs).",
     };
   }
 
@@ -88,7 +88,7 @@ export function estimateOwnershipFuelCost(
       source: "fueleconomy.gov",
       match: fuel.match,
       honesty:
-        "EPA annual fuel cost range across configurations of this year/make/model from FuelEconomy.gov — trim match was uncertain. Not a full TCO.",
+        "Annual fuel cost range across configurations of this year/make/model from FuelEconomy.gov — several configs matched, so this stays a range. Not a full ownership cost.",
     };
   }
 

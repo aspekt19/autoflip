@@ -40,8 +40,8 @@ const listing: Listing = {
 };
 
 describe("free gov port (offline mocked)", () => {
-  it("FuelEconomy is not a free Scout tool id", () => {
-    expect(isFreeGovToolId("evidence.gov_fuel")).toBe(false);
+  it("FuelEconomy.gov is an allowlisted free gov tool id (Find free_gov_fuel)", () => {
+    expect(isFreeGovToolId("evidence.gov_fuel")).toBe(true);
     expect(isFreeGovToolId("evidence.gov_recalls")).toBe(true);
     expect(isFreeGovToolId("evidence.gov_vpic")).toBe(true);
     expect(isFreeGovToolId("evidence.gov_safety")).toBe(true);

@@ -156,18 +156,65 @@ export function parseVinDecode(payload: unknown): VinDecode | null {
   };
 }
 
-export function parseFuelMenuIds(payload: unknown): number[] {
+export type FuelMenuItem = {
+  id: number;
+  text: string;
+  value: string;
+};
+
+export function parseFuelMenuItems(payload: unknown): FuelMenuItem[] {
   const record = asRecord(payload);
-  const menu = record?.menuItem ?? record?.menuItems;
+  if (!record) {
+    // Some callers pass already-normalized item arrays.
+    if (Array.isArray(payload)) {
+      return payload
+        .map((item) => {
+          const row = asRecord(item);
+          if (!row) return null;
+          const value = str(row.value) ?? "";
+          const text = str(row.text) ?? value;
+          const id = num(row.value) ?? num(row.id) ?? 0;
+          return { id, text, value };
+        })
+        .filter((item): item is FuelMenuItem => item != null);
+    }
+    return [];
+  }
+  const menu = record.menuItem ?? record.menuItems;
   const items = Array.isArray(menu) ? menu : menu ? [menu] : [];
-  const ids: number[] = [];
+  const out: FuelMenuItem[] = [];
   for (const item of items) {
     const row = asRecord(item);
-    const id = num(row?.value ?? row?.value);
-    if (id !== null) ids.push(id);
+    if (!row) continue;
+    const value = str(row.value) ?? "";
+    const text = str(row.text) ?? value;
+    const id = num(row.value) ?? num(row.id) ?? 0;
+    out.push({ id, text, value });
   }
-  return ids;
+  return out;
 }
+
+export function parseFuelMenuIds(payload: unknown): number[] {
+  return parseFuelMenuItems(payload)
+    .map((item) => item.id)
+    .filter((id) => id > 0);
+}
+
+export type FuelVehicleDetail = {
+  id: number | null;
+  combMpg: number | null;
+  cityMpg: number | null;
+  highwayMpg: number | null;
+  annualFuelCostUsd: number | null;
+  vehicleClass: string | null;
+  engine: string | null;
+  transmission: string | null;
+  drive: string | null;
+  fuelType: string | null;
+  make: string | null;
+  model: string | null;
+  year: number | null;
+};
 
 export function parseFuelVehicle(payload: unknown): {
   combMpg: number | null;
@@ -176,15 +223,83 @@ export function parseFuelVehicle(payload: unknown): {
   engine: string | null;
   transmission: string | null;
 } | null {
+  const detail = parseFuelVehicleDetail(payload);
+  if (!detail) return null;
+  return {
+    combMpg: detail.combMpg,
+    annualFuelCostUsd: detail.annualFuelCostUsd,
+    vehicleClass: detail.vehicleClass,
+    engine: detail.engine,
+    transmission: detail.transmission,
+  };
+}
+
+export function parseFuelVehicleDetail(payload: unknown): FuelVehicleDetail | null {
   const row = asRecord(payload);
   if (!row) return null;
   return {
+    id: num(row.id),
     combMpg: num(row.comb08),
+    cityMpg: num(row.city08),
+    highwayMpg: num(row.highway08),
     annualFuelCostUsd: num(row.fuelCost08),
     vehicleClass: str(row.VClass),
     engine: str(row.eng_dscr) ?? str(row.engine),
     transmission: str(row.trany),
+    drive: str(row.drive),
+    fuelType: str(row.fuelType1) ?? str(row.fuelType),
+    make: str(row.make),
+    model: str(row.model),
+    year: num(row.year),
   };
+}
+
+export type FuelPrices = {
+  regular: number | null;
+  midgrade: number | null;
+  premium: number | null;
+  diesel: number | null;
+  e85: number | null;
+  electric: number | null;
+  cng: number | null;
+  lpg: number | null;
+};
+
+export function parseFuelPrices(payload: unknown): FuelPrices | null {
+  const row = asRecord(payload);
+  if (!row) return null;
+  return {
+    regular: num(row.regular),
+    midgrade: num(row.midgrade),
+    premium: num(row.premium),
+    diesel: num(row.diesel),
+    e85: num(row.e85),
+    electric: num(row.electric),
+    cng: num(row.cng),
+    lpg: num(row.lpg),
+  };
+}
+
+/** Map FuelEconomy fuelType string → published $/gal (or kWh) when available. */
+export function usdPerUnitFromFuelPrices(
+  fuelType: string | null,
+  prices: FuelPrices | null,
+): { usdPerUnit: number | null; priceKey: string | null; unit: "gallon" | "kwh" | null } {
+  if (!prices || !fuelType) return { usdPerUnit: null, priceKey: null, unit: null };
+  const t = fuelType.toLowerCase();
+  if (t.includes("diesel")) return { usdPerUnit: prices.diesel, priceKey: "diesel", unit: "gallon" };
+  if (t.includes("premium")) return { usdPerUnit: prices.premium, priceKey: "premium", unit: "gallon" };
+  if (t.includes("midgrade")) return { usdPerUnit: prices.midgrade, priceKey: "midgrade", unit: "gallon" };
+  if (t.includes("e85")) return { usdPerUnit: prices.e85, priceKey: "e85", unit: "gallon" };
+  if (t.includes("electric") || t.includes("electricity")) {
+    return { usdPerUnit: prices.electric, priceKey: "electric", unit: "kwh" };
+  }
+  if (t.includes("cng") || t.includes("natural")) return { usdPerUnit: prices.cng, priceKey: "cng", unit: "gallon" };
+  if (t.includes("propane") || t.includes("lpg")) return { usdPerUnit: prices.lpg, priceKey: "lpg", unit: "gallon" };
+  if (t.includes("regular") || t.includes("gasoline") || t.includes("gas")) {
+    return { usdPerUnit: prices.regular, priceKey: "regular", unit: "gallon" };
+  }
+  return { usdPerUnit: prices.regular, priceKey: "regular", unit: "gallon" };
 }
 
 export function fuelFactFromVehicles(

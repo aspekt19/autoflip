@@ -1,9 +1,10 @@
 /**
- * Free public NHTSA decision-input port for Scout.
- * Four families only: vPIC DecodeVinValues, recallsByVehicle, complaintsByVehicle, NCAP SafetyRatings.
- * FuelEconomy.gov is intentionally excluded (commercial reuse rights unclear — ORNL disclaimer).
+ * Free public government decision-input port (NHTSA + FuelEconomy.gov).
+ * Families: vPIC DecodeVinValues, recallsByVehicle, complaintsByVehicle, NCAP SafetyRatings,
+ * and FuelEconomy.gov menu/vehicle/fuelprices (Find free_gov_fuel).
  * Title / NMVTIS / total-loss remain unknown_not_connected. Never fabricates clean title.
  * Never claims VIN-specific unrepaired/open recall status from make/model/year campaigns.
+ * Fuel matches that are ambiguous stay a labeled range — never a silent single pick.
  */
 import { TtlCache } from "@/io/cache";
 import {
@@ -13,6 +14,10 @@ import {
   type GovDeps,
 } from "@/io/gov";
 import { safetyRatingsFor } from "@/io/nhtsa-safety";
+import {
+  lookupFindFuelEvidence,
+  type FindFuelEvidence,
+} from "@/domain/find-fuel-match";
 import type { Listing } from "@/domain/types";
 import type { EvidenceFact, ScoutToolId } from "./types";
 
@@ -20,13 +25,14 @@ export const FREE_GOV_TIMEOUT_MS = 12_000;
 /** Bounded cache for free public endpoints (demo engineering policy, not provider TTL). */
 export const FREE_GOV_CACHE_TTL_MS = 6 * 60 * 60 * 1000;
 export const FREE_GOV_RATE_NOTE =
-  "Free public NHTSA vPIC/recalls/complaints/SafetyRatings only — no API key; polite sequential calls; 12s timeout; 6h process cache. FuelEconomy excluded (rights hold).";
+  "Free public NHTSA vPIC/recalls/complaints/SafetyRatings + FuelEconomy.gov — no API key; polite sequential calls; 12s timeout; 6h process cache.";
 
-/** Scout free decision-input tools — FuelEconomy is not in this set. */
+/** Free decision-input tools for Find (and Scout port reuse). */
 export type FreeGovToolId =
   | "evidence.gov_recalls"
   | "evidence.gov_vpic"
-  | "evidence.gov_safety";
+  | "evidence.gov_safety"
+  | "evidence.gov_fuel";
 
 export type FreeGovLookupStatus = "ok" | "empty" | "unavailable" | "error";
 
@@ -45,6 +51,8 @@ export type FreeGovEvidencePacket = {
   outcomeOk: boolean;
   outcomeStatus: "success" | "empty" | "failed" | "unsupported";
   outcomeCapability: "supported_executed" | "empty" | "failed" | "unsupported";
+  /** Structured fuel evidence when toolId is evidence.gov_fuel. */
+  fuelEvidence?: FindFuelEvidence | null;
 };
 
 export type ScoutFreeGovPort = {
@@ -55,7 +63,8 @@ export function isFreeGovToolId(id: string): id is FreeGovToolId {
   return (
     id === "evidence.gov_recalls" ||
     id === "evidence.gov_vpic" ||
-    id === "evidence.gov_safety"
+    id === "evidence.gov_safety" ||
+    id === "evidence.gov_fuel"
   );
 }
 
@@ -127,11 +136,14 @@ export function createLiveFreeGovPort(opts?: {
   fetch?: typeof fetch;
   cache?: TtlCache<FreeGovEvidencePacket>;
   now?: () => Date;
+  /** Shopper note — used for city-heavy fuel assumptions on evidence.gov_fuel. */
+  shopperNote?: string | null;
 }): ScoutFreeGovPort {
   const fetchImpl = opts?.fetch ?? fetch;
   const cache = opts?.cache ?? new TtlCache<FreeGovEvidencePacket>(FREE_GOV_CACHE_TTL_MS);
   const now = opts?.now ?? (() => new Date());
   const deps: GovDeps = { fetch: fetchImpl };
+  const shopperNote = opts?.shopperNote ?? null;
 
   return {
     async run(toolId, listing) {
@@ -153,6 +165,8 @@ export function createLiveFreeGovPort(opts?: {
           packet = await runRecalls(listing, deps, fetchedAt);
         } else if (toolId === "evidence.gov_vpic") {
           packet = await runVpic(listing, deps, fetchedAt);
+        } else if (toolId === "evidence.gov_fuel") {
+          packet = await runFuel(listing, deps, fetchedAt, shopperNote);
         } else {
           packet = await runSafety(listing, deps, fetchedAt);
         }
@@ -587,6 +601,150 @@ async function runSafety(listing: Listing, deps: GovDeps, fetchedAt: string): Pr
     outcomeOk: true,
     outcomeStatus: "success",
     outcomeCapability: "supported_executed",
+  };
+}
+
+async function runFuel(
+  listing: Listing,
+  deps: GovDeps,
+  fetchedAt: string,
+  shopperNote: string | null,
+): Promise<FreeGovEvidencePacket> {
+  const scope =
+    "fueleconomy_gov_menu_vehicle_fuelprices — year/make/model (+ trim/engine/drive when listed); ambiguous configs stay a labeled range; not full TCO";
+  const evidence = await lookupFindFuelEvidence(
+    {
+      year: listing.year,
+      make: listing.make,
+      model: listing.model,
+      trim: listing.trim,
+      engine: listing.engine,
+      drivetrain: listing.drivetrain,
+    },
+    { deps: { fetch: deps.fetch }, note: shopperNote },
+  );
+
+  if (evidence.match === "unavailable") {
+    return {
+      toolId: "evidence.gov_fuel",
+      status: "unavailable",
+      cached: false,
+      fetchedAt,
+      scope,
+      url: evidence.sourceUrl,
+      timeoutMs: FREE_GOV_TIMEOUT_MS,
+      rateNote: FREE_GOV_RATE_NOTE,
+      limitsNote: evidence.reason ?? "FuelEconomy.gov unavailable.",
+      facts: [
+        {
+          key: "evidence.gov_fuel",
+          value: {
+            status: "unavailable",
+            match: evidence.match,
+            assumptions: evidence.assumptions,
+            scope,
+            url: evidence.sourceUrl,
+            fetchedAt,
+          },
+          kind: "unknown",
+          source: "gov",
+          note: evidence.honesty,
+        },
+      ],
+      summary: "FuelEconomy.gov unavailable — fuel cost not invented.",
+      outcomeOk: false,
+      outcomeStatus: "failed",
+      outcomeCapability: "failed",
+      fuelEvidence: evidence,
+    };
+  }
+
+  if (evidence.match === "no_match") {
+    return {
+      toolId: "evidence.gov_fuel",
+      status: "empty",
+      cached: false,
+      fetchedAt,
+      scope,
+      url: evidence.sourceUrl,
+      timeoutMs: FREE_GOV_TIMEOUT_MS,
+      rateNote: FREE_GOV_RATE_NOTE,
+      limitsNote: evidence.reason ?? "No FuelEconomy.gov match.",
+      facts: [
+        {
+          key: "evidence.gov_fuel",
+          value: {
+            status: "empty",
+            match: evidence.match,
+            assumptions: evidence.assumptions,
+            scope,
+            url: evidence.sourceUrl,
+            fetchedAt,
+          },
+          kind: "verified",
+          source: "gov",
+          note: evidence.honesty,
+        },
+      ],
+      summary: "No FuelEconomy.gov match for this year/make/model.",
+      outcomeOk: true,
+      outcomeStatus: "empty",
+      outcomeCapability: "empty",
+      fuelEvidence: evidence,
+    };
+  }
+
+  const costBit =
+    evidence.ambiguous &&
+    evidence.annualFuelUsdLow != null &&
+    evidence.annualFuelUsdHigh != null &&
+    evidence.annualFuelUsdLow !== evidence.annualFuelUsdHigh
+      ? `est. $${evidence.annualFuelUsdLow}–$${evidence.annualFuelUsdHigh}/yr (ambiguous)`
+      : evidence.annualFuelUsdLow != null
+        ? `est. $${evidence.annualFuelUsdLow}/yr`
+        : "MPG on file; annual $ pending assumptions";
+
+  return {
+    toolId: "evidence.gov_fuel",
+    status: "ok",
+    cached: false,
+    fetchedAt,
+    scope,
+    url: evidence.sourceUrl,
+    timeoutMs: FREE_GOV_TIMEOUT_MS,
+    rateNote: FREE_GOV_RATE_NOTE,
+    limitsNote: evidence.honesty.slice(0, 280),
+    facts: [
+      {
+        key: "evidence.gov_fuel",
+        value: {
+          status: "ok",
+          match: evidence.match,
+          ambiguous: evidence.ambiguous,
+          annualFuelUsdLow: evidence.annualFuelUsdLow,
+          annualFuelUsdHigh: evidence.annualFuelUsdHigh,
+          combMpgLow: evidence.combMpgLow,
+          combMpgHigh: evidence.combMpgHigh,
+          cityMpgLow: evidence.cityMpgLow,
+          highwayMpgLow: evidence.highwayMpgLow,
+          fuelType: evidence.fuelType,
+          configsConsidered: evidence.configsConsidered,
+          assumptions: evidence.assumptions,
+          humanPageUrl: evidence.humanPageUrl,
+          scope,
+          url: evidence.sourceUrl,
+          fetchedAt,
+        },
+        kind: "verified",
+        source: "gov",
+        note: evidence.honesty,
+      },
+    ],
+    summary: `FuelEconomy.gov ${evidence.match}: ${costBit}.`,
+    outcomeOk: true,
+    outcomeStatus: "success",
+    outcomeCapability: "supported_executed",
+    fuelEvidence: evidence,
   };
 }
 

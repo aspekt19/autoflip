@@ -127,6 +127,7 @@ export async function POST(request: Request) {
     allowedChecks: result.allowedChecks,
     compare: result.compare,
     shortlist: result.shortlist,
+    bestDeal: result.bestDeal,
     needAfter: result.needAfter,
     appliedCheckIds: result.appliedCheckIds,
     freeGovReceipts: result.freeGovReceipts,

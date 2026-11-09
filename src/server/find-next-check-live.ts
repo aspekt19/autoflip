@@ -193,7 +193,7 @@ export async function runFindNextCheckLive(
     freeGovEvidence: body.freeGovBrief ?? { count: 0, toolIds: [], statuses: [], summaries: [] },
     freeGovCoverage: body.freeGovCoverage ?? null,
     freeGovHonesty:
-      "Free NHTSA only (recalls/complaints make/model/year, vPIC DecodeVinValues, NCAP SafetyRatings). Not NMVTIS/title. FuelEconomy unsupported on free Find surface. Missing VIN/history stays unknown. While freeGovCoverage.anyUnchecked, prefer free_gov_* before get_history_report — partial sample ≠ fleet clearance.",
+      "Free public government inputs only: recalls/complaints (year/make/model), VIN decode, NCAP safety ratings, FuelEconomy.gov fuel estimates (ambiguous configs = labeled range). Not NMVTIS/title. Missing VIN/history stays unknown. While freeGovCoverage.anyUnchecked, prefer free_gov_* before get_history_report — partial sample ≠ fleet clearance. Best-deal scores are computed in code from evidence, not invented here.",
   };
   const factsBlob = JSON.stringify(facts);
   const user = JSON.stringify({

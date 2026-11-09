@@ -1,9 +1,11 @@
 /**
- * Ordinary Find free vehicle checks — reuses Scout free-gov port (vPIC / recalls / NCAP).
+ * Ordinary Find free vehicle checks — reuses Scout free-gov port
+ * (vPIC / recalls / NCAP / FuelEconomy.gov).
  * No paid NMVTIS / Auto.dev spend. No Report credit. Never invents clean history.
- * FuelEconomy stays unsupported on this free surface (rights hold) — same as Scout.
+ * FuelEconomy matches that are ambiguous stay a labeled min..max range.
  */
 import type { ObservedListingRow } from "./find-model-observe";
+import { fuelFactFromFindEvidence, type FindFuelEvidence } from "./find-fuel-match";
 import type { FindNextCheckId } from "./find-next-checks";
 import {
   listingMmyKeys,
@@ -18,12 +20,13 @@ import {
   type FreeGovToolId,
   type ScoutFreeGovPort,
 } from "./scout/free-gov";
-import type { Listing } from "./types";
+import type { FuelFact, Listing } from "./types";
 
 export const FIND_FREE_GOV_CHECK_IDS = [
   "free_gov_recalls",
   "free_gov_vpic",
   "free_gov_safety",
+  "free_gov_fuel",
 ] as const;
 
 export type FindFreeGovCheckId = (typeof FIND_FREE_GOV_CHECK_IDS)[number];
@@ -35,6 +38,7 @@ export function isFindFreeGovCheckId(id: string): id is FindFreeGovCheckId {
 export function findFreeGovToolIdForCheck(id: FindFreeGovCheckId): FreeGovToolId {
   if (id === "free_gov_recalls") return "evidence.gov_recalls";
   if (id === "free_gov_vpic") return "evidence.gov_vpic";
+  if (id === "free_gov_fuel") return "evidence.gov_fuel";
   return "evidence.gov_safety";
 }
 
@@ -52,18 +56,20 @@ export type FindFreeGovReceipt = {
   year: number;
   fetchedAt: string;
   cached: boolean;
-  /** Source URL when the free public endpoint was called (planner + UI provenance). */
+  /** Source URL when the free public endpoint was called (planner + machine channel). */
   sourceUrl: string | null;
   /** Short planner-facing notes — never raw HTTP bodies. */
   factNotes: string[];
   /** Structured risk facts — not summary-only; drives grounded shortlist risk. */
   riskFacts: FreeGovRiskFacts | null;
+  /** Structured fuel evidence when checkId is free_gov_fuel. */
+  fuelEvidence: FindFuelEvidence | null;
   honesty: string;
 };
 
 /**
  * Stable fingerprint for loop guards.
- * Uses structured risk fields — ignores cached summary suffixes so duplicate
+ * Uses structured risk/fuel fields — ignores cached summary suffixes so duplicate
  * cache hits cannot fake an evidence-changed cycle.
  */
 export function fingerprintFreeGovReceipts(receipts: readonly FindFreeGovReceipt[]): string {
@@ -81,6 +87,10 @@ export function fingerprintFreeGovReceipts(receipts: readonly FindFreeGovReceipt
     campaignCountReported: r.riskFacts?.campaignCountReported ?? null,
     complaints: r.riskFacts?.complaintCount ?? null,
     sourceUrl: r.sourceUrl ?? r.riskFacts?.sourceUrl ?? null,
+    fuelMatch: r.fuelEvidence?.match ?? null,
+    fuelAnnualLow: r.fuelEvidence?.annualFuelUsdLow ?? null,
+    fuelAnnualHigh: r.fuelEvidence?.annualFuelUsdHigh ?? null,
+    fuelAmbiguous: r.fuelEvidence?.ambiguous ?? null,
   }));
   rows.sort((a, b) =>
     `${a.checkId}|${a.vin}|${a.make}|${a.model}|${a.year}`.localeCompare(
@@ -90,15 +100,22 @@ export function fingerprintFreeGovReceipts(receipts: readonly FindFreeGovReceipt
   return JSON.stringify(rows);
 }
 
-function toListingStub(row: ObservedListingRow & { vin?: string | null }): Listing | null {
+function toListingStub(
+  row: ObservedListingRow & {
+    vin?: string | null;
+    trim?: string | null;
+    engine?: string | null;
+    drivetrain?: string | null;
+  },
+): Listing | null {
   const vin = typeof row.vin === "string" ? row.vin.trim().toUpperCase() : "";
-  // vPIC requires VIN; recalls/safety can run with make/model/year and a placeholder vin field.
+  // vPIC requires VIN; recalls/safety/fuel can run with make/model/year and a placeholder vin field.
   return {
     vin: vin || `UNKNOWN-${row.make}-${row.model}-${row.year}`.slice(0, 32),
     year: row.year,
     make: row.make,
     model: row.model,
-    trim: null,
+    trim: row.trim ?? null,
     miles: row.miles ?? null,
     priceUsd: row.priceUsd ?? null,
     city: null,
@@ -115,8 +132,8 @@ function toListingStub(row: ObservedListingRow & { vin?: string | null }): Listi
     ownerCount: null,
     usageType: null,
     fuel: null,
-    engine: null,
-    drivetrain: null,
+    engine: row.engine ?? null,
+    drivetrain: row.drivetrain ?? null,
     bodyStyle: null,
     latitude: null,
     longitude: null,
@@ -141,6 +158,8 @@ export type FreeGovToolCoverage = {
   recalls: FreeGovToolCoverageSlice;
   safety: FreeGovToolCoverageSlice;
   vpic: FreeGovToolCoverageSlice;
+  /** Present on current coverage; optional for older stored/planner snapshots. */
+  fuel?: FreeGovToolCoverageSlice;
   anyUnchecked: boolean;
   note: string;
 };
@@ -174,6 +193,7 @@ export function freeGovToolCoverage(
   const recallsChecked = checkedMmyKeysForCheck(receipts, "free_gov_recalls");
   const safetyChecked = checkedMmyKeysForCheck(receipts, "free_gov_safety");
   const vpicChecked = checkedMmyKeysForCheck(receipts, "free_gov_vpic");
+  const fuelChecked = checkedMmyKeysForCheck(receipts, "free_gov_fuel");
   const recalls = {
     checked: [...recallsChecked].filter((k) => allKeys.has(k)).length,
     unchecked: Math.max(0, allKeys.size - [...recallsChecked].filter((k) => allKeys.has(k)).length),
@@ -190,18 +210,25 @@ export function freeGovToolCoverage(
     unchecked: Math.max(0, vinKeys.size - vpicCheckedIn),
     eligible: vinKeys.size,
   };
-  const anyUnchecked = recalls.unchecked > 0 || safety.unchecked > 0 || vpic.unchecked > 0;
+  const fuel = {
+    checked: [...fuelChecked].filter((k) => allKeys.has(k)).length,
+    unchecked: Math.max(0, allKeys.size - [...fuelChecked].filter((k) => allKeys.has(k)).length),
+    eligible: allKeys.size,
+  };
+  const anyUnchecked =
+    recalls.unchecked > 0 || safety.unchecked > 0 || vpic.unchecked > 0 || fuel.unchecked > 0;
   const note =
     allKeys.size === 0
-      ? "No listing MMY keys for free public coverage."
+      ? "No listing year/make/model keys for free public coverage."
       : anyUnchecked
-        ? `Free NHTSA progress — recalls ${recalls.checked}/${recalls.eligible} MMY, safety ${safety.checked}/${safety.eligible}, vpic ${vpic.checked}/${vpic.eligible} VIN-eligible. Unchecked remain — not fleet-cleared; not VIN history.`
-        : `Free NHTSA sample exhausted eligible MMYs (recalls ${recalls.checked}, safety ${safety.checked}, vpic ${vpic.checked}). Still MMY-scope only — not VIN unrepaired/title clearance.`;
+        ? `Free public progress — recalls ${recalls.checked}/${recalls.eligible}, safety ${safety.checked}/${safety.eligible}, VIN decode ${vpic.checked}/${vpic.eligible}, fuel ${fuel.checked}/${fuel.eligible}. Unchecked remain — not fleet-cleared; not VIN history.`
+        : `Free public sample exhausted eligible year/make/model rows (recalls ${recalls.checked}, safety ${safety.checked}, VIN decode ${vpic.checked}, fuel ${fuel.checked}). Still year/make/model scope only — not VIN unrepaired/title clearance.`;
   return {
     listingMmyCount: allKeys.size,
     recalls,
     safety,
     vpic,
+    fuel,
     anyUnchecked,
     note,
   };
@@ -213,6 +240,7 @@ export function freeGovCheckStillHasUnchecked(
 ): boolean {
   if (checkId === "free_gov_recalls") return coverage.recalls.unchecked > 0;
   if (checkId === "free_gov_safety") return coverage.safety.unchecked > 0;
+  if (checkId === "free_gov_fuel") return (coverage.fuel?.unchecked ?? 0) > 0;
   return coverage.vpic.unchecked > 0 && coverage.vpic.eligible > 0;
 }
 
@@ -222,7 +250,12 @@ export function freeGovCheckStillHasUnchecked(
  * Attempted MMYs (ok/empty/error/unavailable) are skipped so errors do not spin.
  */
 export function selectFindFreeGovCandidates(
-  listings: readonly (ObservedListingRow & { vin?: string | null })[],
+  listings: readonly (ObservedListingRow & {
+    vin?: string | null;
+    trim?: string | null;
+    engine?: string | null;
+    drivetrain?: string | null;
+  })[],
   checkId: FindFreeGovCheckId,
   max = FIND_FREE_GOV_BATCH_MAX,
   priorReceipts: readonly FindFreeGovReceipt[] = [],
@@ -232,7 +265,6 @@ export function selectFindFreeGovCandidates(
   const already = checkedMmyKeysForCheck(priorReceipts, checkId);
   const seen = new Set<string>();
   const unchecked: Listing[] = [];
-  const fallback: Listing[] = [];
   for (const row of pool) {
     const key = mmyListingKey(row.make, row.model, row.year);
     if (seen.has(key)) continue;
@@ -241,14 +273,11 @@ export function selectFindFreeGovCandidates(
     if (checkId === "free_gov_vpic" && stub.vin.startsWith("UNKNOWN-")) continue;
     seen.add(key);
     if (already.has(key)) {
-      // Already attempted for this tool — do not re-select (no spin / no fake new evidence).
       continue;
     }
     unchecked.push(stub);
     if (unchecked.length >= max) break;
   }
-  // Only unchecked MMYs — empty means coverage complete for this tool on current inventory.
-  void fallback;
   return unchecked.slice(0, max);
 }
 
@@ -263,6 +292,7 @@ function packetToReceipt(
     .filter(Boolean)
     .slice(0, 6);
   const riskFacts = riskFactsFromPacket(packet, listing);
+  const fuelEvidence = checkId === "free_gov_fuel" ? packet.fuelEvidence ?? null : null;
   return {
     checkId,
     toolId: packet.toolId,
@@ -279,12 +309,15 @@ function packetToReceipt(
     sourceUrl: packet.url,
     factNotes,
     riskFacts,
+    fuelEvidence,
     honesty:
       checkId === "free_gov_vpic"
-        ? "vPIC decode ≠ clean VIN history; ErrorCode must be inspected; missing VIN stays unknown."
+        ? "VIN decode ≠ clean VIN history; incomplete decode stays unknown."
         : checkId === "free_gov_recalls"
-          ? "Make/model/year recalls/complaints ≠ VIN-specific unrepaired/open recall status. parkIt ≠ parkOutside."
-          : "NCAP SafetyRatings are make/model/year class ratings — Not Rated stays unknown, never 0-star invent.",
+          ? "Year/make/model recalls/complaints ≠ VIN-specific unrepaired/open recall status."
+          : checkId === "free_gov_fuel"
+            ? "FuelEconomy.gov estimate with labeled assumptions — not full ownership cost; ambiguous configs stay a range."
+            : "Crash-test ratings are year/make/model class ratings — Not Rated stays unknown, never 0-star invent.",
   };
 }
 
@@ -303,10 +336,17 @@ export type ExecuteFindFreeGovResult = {
  */
 export async function executeFindFreeGovCheck(input: {
   checkId: FindNextCheckId | string;
-  listings: readonly (ObservedListingRow & { vin?: string | null })[];
+  listings: readonly (ObservedListingRow & {
+    vin?: string | null;
+    trim?: string | null;
+    engine?: string | null;
+    drivetrain?: string | null;
+  })[];
   /** Prior receipts — next batch prefers unchecked MMYs for this checkId. */
   priorReceipts?: readonly FindFreeGovReceipt[];
   gov?: ScoutFreeGovPort;
+  /** Shopper note for city-heavy fuel assumptions when using the live port. */
+  shopperNote?: string | null;
 }): Promise<ExecuteFindFreeGovResult | null> {
   if (!isFindFreeGovCheckId(input.checkId)) return null;
   const checkId = input.checkId;
@@ -326,14 +366,18 @@ export async function executeFindFreeGovCheck(input: {
       evidenceChanged: false,
       note:
         checkId === "free_gov_vpic" && coverage.vpic.eligible === 0
-          ? "free_gov_vpic skipped — no VIN on returned cards; VIN decode stays unknown (not a clean-history claim)."
+          ? "VIN decode skipped — no VIN on returned cards; VIN decode stays unknown (not a clean-history claim)."
           : covered
-            ? `${checkId} coverage complete for current listing MMYs (${coverage.note}). Not VIN/title clearance.`
+            ? `${checkId} coverage complete for current listing year/make/model rows. Not VIN/title clearance.`
             : `${checkId} skipped — no listing identity for free public lookup.`,
     };
   }
 
-  const gov = input.gov ?? createLiveFreeGovPort();
+  const gov =
+    input.gov ??
+    createLiveFreeGovPort({
+      shopperNote: input.shopperNote ?? null,
+    });
   const receipts: FindFreeGovReceipt[] = [];
   for (const listing of candidates) {
     const packet = await gov.run(toolId, listing);
@@ -352,7 +396,7 @@ export async function executeFindFreeGovCheck(input: {
     toolId,
     receipts,
     evidenceChanged: true,
-    note: `Free ${toolId} batch ${receipts.length} unchecked MMY(s): ${okish} ok/empty, ${failed} unavailable/error. ${perCard}. Progress: ${after.note} ${receipts[0]?.honesty ?? ""} No Report credit. Not NMVTIS/title clearance.`,
+    note: `Free public ${toolId} batch ${receipts.length} unchecked year/make/model: ${okish} ok/empty, ${failed} unavailable/error. ${perCard}. Progress: ${after.note} ${receipts[0]?.honesty ?? ""} No Report credit. Not NMVTIS/title clearance.`,
   };
 }
 
@@ -382,6 +426,9 @@ export function freeGovReceiptsBrief(receipts: readonly FindFreeGovReceipt[]): {
     campaignIdsShown: number;
     campaignCountReported: number | null;
     complaintCount: number | null;
+    fuelMatch: string | null;
+    fuelAnnualLow: number | null;
+    fuelAnnualHigh: number | null;
   }>;
   cards: Array<{
     make: string;
@@ -395,6 +442,7 @@ export function freeGovReceiptsBrief(receipts: readonly FindFreeGovReceipt[]): {
     factNotes: string[];
     honesty: string;
     riskFacts: FreeGovRiskFacts | null;
+    fuelEvidence: FindFuelEvidence | null;
   }>;
 } {
   const preview = FREE_GOV_BRIEF_CARD_PREVIEW;
@@ -404,7 +452,7 @@ export function freeGovReceiptsBrief(receipts: readonly FindFreeGovReceipt[]): {
     cardsShown: Math.min(preview, receipts.length),
     cardsTruncated: truncated,
     truncationNote: truncated
-      ? `SERV brief cards show ${preview} of ${receipts.length} receipts — allCoverage retains every MMY claim (source/status/tool); not silent clearance of hidden rows.`
+      ? `SERV brief cards show ${preview} of ${receipts.length} receipts — allCoverage retains every year/make/model claim (source/status/tool); not silent clearance of hidden rows.`
       : null,
     toolIds: [...new Set(receipts.map((r) => r.toolId))],
     statuses: receipts.map((r) => r.status),
@@ -422,6 +470,9 @@ export function freeGovReceiptsBrief(receipts: readonly FindFreeGovReceipt[]): {
       campaignIdsShown: r.riskFacts?.campaignNumbers.length ?? 0,
       campaignCountReported: r.riskFacts?.campaignCountReported ?? null,
       complaintCount: r.riskFacts?.complaintCount ?? null,
+      fuelMatch: r.fuelEvidence?.match ?? null,
+      fuelAnnualLow: r.fuelEvidence?.annualFuelUsdLow ?? null,
+      fuelAnnualHigh: r.fuelEvidence?.annualFuelUsdHigh ?? null,
     })),
     cards: receipts.slice(0, preview).map((r) => ({
       make: r.make,
@@ -449,7 +500,24 @@ export function freeGovReceiptsBrief(receipts: readonly FindFreeGovReceipt[]): {
                   : null,
           }
         : null,
+      fuelEvidence: r.fuelEvidence,
     })),
   };
 }
 
+/** Build fuelsByModelKey from free_gov_fuel receipts for compare/shortlist. */
+export function fuelsByModelKeyFromReceipts(
+  receipts: readonly FindFreeGovReceipt[],
+): Record<string, FuelFact | null> {
+  const out: Record<string, FuelFact | null> = {};
+  for (const r of receipts) {
+    if (r.checkId !== "free_gov_fuel" || !r.fuelEvidence) continue;
+    const key = `${r.make}\0${r.model}`.toLowerCase();
+    const fact = fuelFactFromFindEvidence(r.fuelEvidence);
+    // Prefer exact over ambiguous when multiple years collide on model key.
+    if (!out[key] || (fact && fact.match === "closest_config")) {
+      out[key] = fact;
+    }
+  }
+  return out;
+}

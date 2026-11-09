@@ -53,8 +53,8 @@ export type FindReplan = {
   /** Whether another inventory search is warranted after this check. */
   research: boolean;
   /**
-   * When true, orchestrator runs allowlisted free public NHTSA tools
-   * (vPIC / recalls / NCAP) against returned cards — no Report credit.
+   * When true, orchestrator runs allowlisted free public government tools
+   * (recalls / VIN decode / NCAP / FuelEconomy.gov) against returned cards — no Report credit.
    */
   freeEvidence?: boolean;
 };
@@ -103,6 +103,7 @@ export function applyFindNextCheck(
     "free_gov_recalls",
     "free_gov_vpic",
     "free_gov_safety",
+    "free_gov_fuel",
     "compare_observed_asks",
     "run_full_analysis",
     "get_history_report",
@@ -188,13 +189,20 @@ export function applyFindNextCheck(
     };
   }
 
-  if (id === "free_gov_recalls" || id === "free_gov_vpic" || id === "free_gov_safety") {
+  if (
+    id === "free_gov_recalls" ||
+    id === "free_gov_vpic" ||
+    id === "free_gov_safety" ||
+    id === "free_gov_fuel"
+  ) {
     const label =
       id === "free_gov_recalls"
-        ? "free NHTSA recalls+complaints (make/model/year — not VIN-open status)"
+        ? "free government recalls and complaints (year/make/model — not VIN-open status)"
         : id === "free_gov_vpic"
-          ? "free vPIC VIN decode (ErrorCode=0 required; decode ≠ clean history)"
-          : "free NCAP SafetyRatings (Not Rated stays unknown)";
+          ? "free government VIN decode (successful decode required; decode ≠ clean history)"
+          : id === "free_gov_fuel"
+            ? "free FuelEconomy.gov fuel-cost estimates (ambiguous configs stay a labeled range)"
+            : "free government crash-test ratings (Not Rated stays unknown)";
     return {
       need,
       refine,
@@ -208,7 +216,7 @@ export function applyFindNextCheck(
     return {
       need,
       refine,
-      note: "Compare observed median ask/miles/year across returned models — condition stays unknown; fuel stays unavailable without FuelEconomy.gov match.",
+      note: "Compare observed median ask/miles/year and fuel estimates across returned models — condition stays unknown; fuel uses FuelEconomy.gov when matched.",
       research: false,
     };
   }
