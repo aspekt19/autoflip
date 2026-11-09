@@ -3,6 +3,9 @@
  * Technical receipts stay in the machine/agent channel — never in visible UI prose.
  */
 
+import type { FindBaselineDelta } from "./find-baseline";
+import { formatBaselineForBuyer } from "./find-baseline";
+import { recallEvidenceState, recallFactPlain } from "./find-evidence-state";
 import type { FindFreeGovReceipt } from "./find-free-gov";
 import type { FindNextCheckLoopReason } from "./find-next-check-loop";
 import type { FindNextCheckId } from "./find-next-checks";
@@ -19,6 +22,20 @@ export const BUYER_FORBIDDEN_TECH_PATTERNS: RegExp[] = [
   /\bsrc=https?:\/\//i,
   /\bcompare_observed_asks\b/,
   /\bfree_gov_(?:recalls|vpic|safety|fuel)\b/,
+  /\bfree_car_consistency\b/,
+  /\btargetKeys\b/,
+  /\bdecidedBy\b/,
+  /\binvokeReason\b/,
+  /\bshortlist_changed\b/,
+  /\binitial_decision\b/,
+  /\bnontrivial_choice\b/,
+  /\bfree_gov_deterministic_drain\b/,
+  /\bpaid_cap_reached\b/,
+  /\bcould_not_check\b/,
+  /\bissue_found\b/,
+  /\bnone_found\b/,
+  /\bnot_checked\b/,
+  /\blisting_says\b/,
   /\brun_full_analysis\b/,
   /\bget_history_report\b/,
   /\bremaining_free_checks\b/,
@@ -112,6 +129,7 @@ const PLAIN_CHECK_IDS = new Set<string>([
   "free_gov_safety",
   "free_gov_vpic",
   "free_gov_fuel",
+  "free_car_consistency",
   "compare_observed_asks",
   "clarify_year_band",
   "clarify_miles_cap",
@@ -413,34 +431,34 @@ export function formatBuyerReceiptLine(r: FindFreeGovReceipt): string {
     return `${title}: ${formatFindFuelEvidenceShort(r.fuelEvidence)}. Source: ${src.label}.${when}`;
   }
   if (r.checkId === "free_gov_recalls") {
-    const campaigns =
-      r.riskFacts?.campaignCountReported ?? r.riskFacts?.campaignNumbers.length ?? null;
+    const state = recallEvidenceState(r);
     const parkBits: string[] = [];
-    if (r.riskFacts?.parkIt === true) {
+    if (state === "issue_found" && r.riskFacts?.parkIt === true) {
       parkBits.push("Includes a park-it campaign flag for this year/make/model");
     }
-    if (r.riskFacts?.parkOutside === true) {
+    if (state === "issue_found" && r.riskFacts?.parkOutside === true) {
       parkBits.push(
         "Includes outdoor-parking guidance for a campaign (not the same as a do-not-drive park-it flag)",
       );
     }
-    if (r.riskFacts?.parkIt === false && r.riskFacts?.parkOutside === false) {
+    if (state === "none_found" && r.riskFacts?.parkIt === false && r.riskFacts?.parkOutside === false) {
       parkBits.push("No park-it or outdoor-parking campaign flags on the retained rows");
     }
     const park = parkBits.length ? ` ${parkBits.join(". ")}.` : "";
-    if (r.status === "ok" || r.status === "empty") {
-      return `${title}: ${campaigns === 0 || r.status === "empty" ? "No recall campaigns on file" : `${campaigns} recall campaign${campaigns === 1 ? "" : "s"} on file`} for this year/make/model (not the same as VIN open/closed status).${park} Source: ${src.label}.${when}`;
+    const lead = recallFactPlain(r, title).replace(/\.$/, "");
+    if (state === "could_not_check") {
+      return `${lead}. Source: ${src.label}.${when}`;
     }
-    return `${title}: Recall check unavailable. Source: ${src.label}.${when}`;
+    return `${lead}.${park} Source: ${src.label}.${when}`;
   }
   if (r.checkId === "free_gov_safety") {
     if (r.status === "ok") {
       return `${title}: Safety ratings checked for this year/make/model class. Source: ${src.label}.${when}`;
     }
-    if (r.status === "empty") {
-      return `${title}: No safety ratings listed for this year/make/model. Source: ${src.label}.${when}`;
+    if (r.status === "empty" || r.status === "error" || r.status === "unavailable") {
+      return `${title}: Couldn't confirm crash-test ratings for this year/make/model. That is not a clean result. Source: ${src.label}.${when}`;
     }
-    return `${title}: Safety ratings unavailable. Source: ${src.label}.${when}`;
+    return `${title}: Couldn't confirm crash-test ratings for this year/make/model. That is not a clean result. Source: ${src.label}.${when}`;
   }
   if (r.checkId === "free_gov_vpic") {
     if (r.status === "ok") {
@@ -518,6 +536,8 @@ export function formatBuyerLoopStep(input: {
       return `We checked government crash-test ratings for year/make/model on${cars}.`;
     case "free_gov_vpic":
       return `We decoded available VINs with the government VIN decoder (specs only).`;
+    case "free_car_consistency":
+      return "We compared the listing with the VIN and with what the listing says about accidents, owners, and rental use.";
     case "free_gov_fuel": {
       const o = input.fuelOutcome;
       if (!o || o.attempted <= 0) {
@@ -691,7 +711,8 @@ export function formatBuyerBestDeal(result: BestDealResult): {
         .replace(/\bnamed_model_preference\b/g, "named model match")
         .replace(/\bcondition_priority\b/g, "condition-first preference")
         .replace(/\bbudget_fit\b/g, "budget fit")
-        .replace(/\blisting_feed_flags\b/g, "listing history flags");
+        .replace(/\blisting_feed_flags\b/g, "listing history flags")
+        .replace(/\bdays_listed\b/g, "days on the market");
     }),
     rankedLines,
     factorLines,
@@ -703,10 +724,14 @@ export function formatBuyerBestDeal(result: BestDealResult): {
 }
 
 /** Machine-only payload for agents / hidden data attributes — not for visible UI. */
-export function machineReceiptsPayload(receipts: readonly FindFreeGovReceipt[]): string {
+export function machineReceiptsPayload(
+  receipts: readonly FindFreeGovReceipt[],
+  extras?: { baseline?: FindBaselineDelta | null },
+): string {
+  const baseline = extras?.baseline ?? null;
   return JSON.stringify({
     channel: "for-agents",
-    version: 1,
+    version: 2,
     receipts: receipts.map((r) => ({
       checkId: r.checkId,
       toolId: r.toolId,
@@ -721,6 +746,10 @@ export function machineReceiptsPayload(receipts: readonly FindFreeGovReceipt[]):
       riskFacts: r.riskFacts,
       fuelEvidence: r.fuelEvidence ?? null,
       factNotes: r.factNotes,
+      evidenceFacts: r.evidenceFacts ?? null,
+      recallState: r.checkId === "free_gov_recalls" ? recallEvidenceState(r) : null,
     })),
+    baseline,
+    baselinePlain: baseline ? formatBaselineForBuyer(baseline) : null,
   });
 }

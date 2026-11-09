@@ -6,6 +6,10 @@
  * clearance, clean history, or that Lemonless is error-free / better than others.
  */
 import { ASSUMPTIONS } from "./assumptions";
+import type { CarConsistencyReceipt } from "./find-car-consistency";
+import { bestDealCarKey } from "./find-car-consistency";
+import { computeFindBaseline, type FindBaselineDelta } from "./find-baseline";
+import { confirmedRecallCount, recallEvidenceState, type EvidenceState } from "./find-evidence-state";
 import type { FindFuelEvidence } from "./find-fuel-match";
 import type { FindFreeGovReceipt } from "./find-free-gov";
 import { checkedMmyKeysForCheck, freeGovToolCoverage } from "./find-free-gov";
@@ -30,7 +34,8 @@ export type BestDealFactorId =
   | "named_model_preference"
   | "budget_fit"
   | "condition_priority"
-  | "listing_feed_flags";
+  | "listing_feed_flags"
+  | "days_listed";
 
 export type BestDealFactorBreakdown = {
   id: BestDealFactorId;
@@ -53,6 +58,10 @@ export type BestDealCandidate = {
   factors: BestDealFactorBreakdown[];
   unknowns: string[];
   fuelSummary: string | null;
+  /** VIN year/make/model mismatch — kept visible, never chosen as the pick. */
+  excludedFromPick: boolean;
+  excludedReason: string | null;
+  sellerQuestions: string[];
 };
 
 export type BestDealSensitivity = {
@@ -84,6 +93,10 @@ export type BestDealResult = {
    * evidenceSettled — price comps are not a free-gov check.
    */
   priceProvisional: boolean;
+  /** Full scored list (not only the top 5) so baselines can see cheaper cars. */
+  allRanked: BestDealCandidate[];
+  /** Cheapest-in-budget and lowest-miles-in-budget on this same list. */
+  baseline: FindBaselineDelta;
 };
 
 /**
@@ -148,6 +161,7 @@ export const BEST_DEAL_FACTOR_PLAIN_LABELS: Record<BestDealFactorId, string> = {
   budget_fit: "budget fit",
   condition_priority: "condition-first preference",
   listing_feed_flags: "listing history flags",
+  days_listed: "days on the market",
 };
 
 export function plainFairnessHeldOutNote(heldOut: readonly BestDealFactorId[]): string | null {
@@ -188,6 +202,11 @@ export type BestDealListing = ObservedListingRow & {
   /** Listing-feed flags only — surfaced as notes, never baked into Find market $. */
   accidentCount?: number | null;
   cpo?: boolean | null;
+  fuel?: string | null;
+  ownerCount?: number | null;
+  oneOwner?: boolean | null;
+  usageType?: string | null;
+  createdAt?: string | null;
 };
 
 export type BestDealFuelIndex = Map<string, FindFuelEvidence>;
@@ -206,13 +225,12 @@ export function riskIndexFromReceipts(receipts: readonly FindFreeGovReceipt[]): 
   for (const r of receipts) {
     const key = mmyListingKey(r.make, r.model, r.year);
     if (r.checkId === "free_gov_recalls" && r.riskFacts) {
-      const count =
-        r.riskFacts.campaignCountReported ??
-        r.riskFacts.campaignNumbers.length ??
-        0;
-      campaignCountByMmy.set(key, Math.max(campaignCountByMmy.get(key) ?? 0, count));
+      const count = confirmedRecallCount(r);
+      if (count != null) {
+        campaignCountByMmy.set(key, Math.max(campaignCountByMmy.get(key) ?? 0, count));
+      }
       if (r.riskFacts.parkIt === true) parkItByMmy.set(key, true);
-      else if (!parkItByMmy.has(key)) parkItByMmy.set(key, false);
+      else if (recallEvidenceState(r) === "none_found" && !parkItByMmy.has(key)) parkItByMmy.set(key, false);
     }
     // Any safety receipt attempt indexes the MMY so settled scoring never says "not on file yet".
     if (r.checkId === "free_gov_safety") {
@@ -253,9 +271,7 @@ export function fuelIndexFromReceipts(receipts: readonly FindFreeGovReceipt[]): 
 }
 
 function listingKey(row: BestDealListing): string {
-  const vin = typeof row.vin === "string" && row.vin.trim() ? row.vin.trim().toUpperCase() : "";
-  if (vin && !vin.startsWith("UNKNOWN-")) return vin;
-  return `${row.year}|${row.make}|${row.model}|${row.priceUsd ?? ""}|${row.miles ?? ""}`.toLowerCase();
+  return bestDealCarKey(row);
 }
 
 function modelKey(make: string, model: string): string {
@@ -442,6 +458,8 @@ function scoreOne(
     evidenceSettled?: boolean;
     /** When true, zero price points for every car (uneven comps coverage). */
     priceFairnessNeutral?: boolean;
+    carCheck?: CarConsistencyReceipt | null;
+    recallState?: EvidenceState;
   },
 ): BestDealCandidate {
   const factors: BestDealFactorBreakdown[] = [];
@@ -449,10 +467,27 @@ function scoreOne(
     accidentCount: row.accidentCount ?? null,
     cpo: row.cpo ?? null,
   });
+  const recallState = ctx.recallState ?? "not_checked";
+  const recallUnknown =
+    recallState === "could_not_check"
+      ? "Couldn't confirm recall campaigns for this car's year and model. That is not a clean result."
+      : recallState === "issue_found"
+        ? "Recall campaigns are on file for this year and model — repair status for this exact car is still unknown."
+        : recallState === "none_found"
+          ? "Recall campaigns were checked for this year and model and none were on file. Open recalls on this exact car are still unknown."
+          : "Recall campaigns have not been checked yet for this car.";
+  const accidentUnknown =
+    row.accidentCount == null
+      ? "This listing does not say whether accidents were reported."
+      : row.accidentCount > 0
+        ? `This listing says ${row.accidentCount} accident${row.accidentCount === 1 ? "" : "s"} were reported.`
+        : "This listing says no accidents were reported. That is the seller's claim, not a history report.";
   const unknowns: string[] = [
     feedHistory.length > 0
       ? "Listing feed flags are shown separately — still get a title/history report and inspection (Find market $ does not include them)"
       : "Condition and accident/title history are unknown on these cards",
+    accidentUnknown,
+    recallUnknown,
     "Open recalls are not checked at VIN level — only year/make/model campaigns when available",
     "A pre-purchase inspection is still required",
   ];
@@ -709,6 +744,15 @@ function scoreOne(
         "Held out of ranking until every shortlist year/make/model has a recall check (fair coverage)",
       source: "NHTSA recalls",
     });
+  } else if (ctx.recallState === "could_not_check") {
+    factors.push({
+      id: "mmy_recall_campaigns",
+      label: "Year/make/model recall campaigns on record",
+      points: 0,
+      detail: "Couldn't confirm recall campaigns for this year/make/model (not scored, not a clean result)",
+      source: "NHTSA recalls",
+    });
+    unknowns.push("Couldn't confirm recall campaigns for this year/make/model");
   } else if (ctx.risk.campaignCountByMmy.has(mmy)) {
     const count = ctx.risk.campaignCountByMmy.get(mmy) ?? 0;
     const points = clamp((3 - Math.min(count, 6)) / 3, -1, 1) * WEIGHTS.recalls;
@@ -858,6 +902,22 @@ function scoreOne(
     });
   }
 
+  const consistencyPenalty = Math.min(ctx.carCheck?.conditionPenalty ?? 0, WEIGHTS.condition);
+  if (ctx.carCheck) {
+    for (const question of ctx.carCheck.sellerQuestions) unknowns.push(question);
+    if (ctx.carCheck.excludedReason) unknowns.push(ctx.carCheck.excludedReason);
+    factors.push({
+      id: "days_listed",
+      label: "Days on the market",
+      points: 0,
+      detail:
+        ctx.carCheck.daysListed == null
+          ? "Listing does not say how long this car has been listed (not scored)"
+          : `Listing says about ${ctx.carCheck.daysListed} day${ctx.carCheck.daysListed === 1 ? "" : "s"} on the market (context only, not scored)`,
+      source: "Listing created date",
+    });
+  }
+
   // Condition priority — parkIt investigate penalty + wear signal; never invent clean history
   if (conditionFirst) {
     const parkIt = ctx.risk.parkItByMmy.get(mmy) === true;
@@ -872,25 +932,33 @@ function scoreOne(
         points -= WEIGHTS.condition * 0.3;
       }
     }
+    points -= consistencyPenalty;
     score += points;
     factors.push({
       id: "condition_priority",
       label: "Condition-first preference",
       points: round1(points),
-      detail: parkIt
-        ? "Year/make/model has a park-it recall campaign flag — investigate before buying (not VIN proof)"
-        : row.miles != null && row.miles >= BEST_DEAL_HIGH_MILES_SOFT
-          ? "You said you'd rather pay more for good condition than expensive repairs — this high-mileage/older card is weighed down (history + inspection still required; no clean-history claim)"
-          : "You prioritized condition over squeezing price — history/inspection still required; no clean-history claim",
-      source: "Your preference + NHTSA year/make/model flags when present",
+      detail: `${
+        parkIt
+          ? "Year/make/model has a park-it recall campaign flag — investigate before buying (not VIN proof)"
+          : row.miles != null && row.miles >= BEST_DEAL_HIGH_MILES_SOFT
+            ? "You said you'd rather pay more for good condition than expensive repairs — this high-mileage/older card is weighed down (history + inspection still required; no clean-history claim)"
+            : "You prioritized condition over squeezing price — history/inspection still required; no clean-history claim"
+      }${consistencyPenalty > 0 ? ` Condition penalty ${consistencyPenalty} for a listing/VIN mismatch, rental or fleet use, or a reported accident.` : ""}`,
+      source: "Your preference + NHTSA year/make/model flags when present + listing/VIN consistency when checked",
     });
   } else {
+    const points = -consistencyPenalty;
+    score += points;
     factors.push({
       id: "condition_priority",
       label: "Condition-first preference",
-      points: 0,
-      detail: "Condition-first preference not set",
-      source: "Your preference",
+      points: round1(points),
+      detail:
+        consistencyPenalty > 0
+          ? `Condition penalty ${consistencyPenalty} for a listing/VIN mismatch, rental or fleet use, or a reported accident. History and inspection are still required.`
+          : "Condition-first preference not set",
+      source: "Listing/VIN consistency when checked",
     });
   }
 
@@ -914,6 +982,9 @@ function scoreOne(
     factors,
     unknowns: [...new Set(unknowns)],
     fuelSummary,
+    excludedFromPick: Boolean(ctx.carCheck?.identityMismatch),
+    excludedReason: ctx.carCheck?.excludedReason ?? null,
+    sellerQuestions: ctx.carCheck?.sellerQuestions ?? [],
   };
 }
 
@@ -992,6 +1063,8 @@ function rankAll(
     recallAttemptedKeys?: ReadonlySet<string>;
     evidenceSettled?: boolean;
     priceFairnessNeutral?: boolean;
+    carChecks?: ReadonlyMap<string, CarConsistencyReceipt>;
+    recallStateByMmy?: ReadonlyMap<string, EvidenceState>;
   },
 ): BestDealCandidate[] {
   const byModel = new Map<string, number[]>();
@@ -1025,9 +1098,12 @@ function rankAll(
       recallAttemptedKeys: opts.recallAttemptedKeys,
       evidenceSettled: opts.evidenceSettled,
       priceFairnessNeutral: opts.priceFairnessNeutral,
+      carCheck: opts.carChecks?.get(listingKey(row)) ?? null,
+      recallState: opts.recallStateByMmy?.get(mmyListingKey(row.make, row.model, row.year)) ?? "not_checked",
     }),
   );
   scored.sort((a, b) => {
+    if (a.excludedFromPick !== b.excludedFromPick) return a.excludedFromPick ? 1 : -1;
     if (b.score !== a.score) return b.score - a.score;
     // Stable tie-break: lower price, then lower miles, then key
     const pa = a.priceUsd ?? Number.POSITIVE_INFINITY;
@@ -1057,6 +1133,8 @@ export function selectBestDealOnEvidence(input: {
   shortlistMax?: number;
   /** Optional full listing pool so price factor shares the card badge comparable set. */
   marketPool?: readonly Listing[];
+  /** Per-car consistency receipts (VIN vs listing + listing-says flags). */
+  carChecks?: readonly CarConsistencyReceipt[];
 }): BestDealResult {
   const nowYear = input.nowYear ?? new Date().getFullYear();
   const milesPerYearAssumption = input.milesPerYearAssumption ?? 12_000;
@@ -1084,6 +1162,12 @@ export function selectBestDealOnEvidence(input: {
   const fuelAttemptedKeys = checkedMmyKeysForCheck(receipts, "free_gov_fuel");
   const ncapAttemptedKeys = checkedMmyKeysForCheck(receipts, "free_gov_safety");
   const recallAttemptedKeys = checkedMmyKeysForCheck(receipts, "free_gov_recalls");
+  const carCheckMap = new Map((input.carChecks ?? []).map((row) => [row.key, row]));
+  const recallStateByMmy = new Map<string, EvidenceState>();
+  for (const receipt of receipts) {
+    if (receipt.checkId !== "free_gov_recalls") continue;
+    recallStateByMmy.set(mmyListingKey(receipt.make, receipt.model, receipt.year), recallEvidenceState(receipt));
+  }
 
   const priced = input.listings.filter((l) => l.priceUsd != null);
   // Price fairness: neutralize only on a material comps gap (see priceCompsUnevenAcrossListings).
@@ -1100,9 +1184,14 @@ export function selectBestDealOnEvidence(input: {
     recallAttemptedKeys,
     evidenceSettled,
     priceFairnessNeutral,
+    carChecks: carCheckMap,
+    recallStateByMmy,
   };
-  const ranked = rankAll(input.listings, input.need, rankOpts);
-  const top = ranked.slice(0, shortlistMax);
+  const rankedAll = rankAll(input.listings, input.need, rankOpts);
+  const ranked = rankedAll.slice(0, shortlistMax);
+  const baselineFor = (pick: BestDealCandidate | null) =>
+    computeFindBaseline({ need: input.need, cars: rankedAll, pick });
+  const top = ranked;
 
   // Provisional on price when fairness neutralized uneven comps, or when no ranked
   // car got a rated Ask-vs-median line (truly thin comps). Points may be 0 at median.
@@ -1150,11 +1239,31 @@ export function selectBestDealOnEvidence(input: {
       settlementNote,
       fairnessHeldOut,
       priceProvisional: true,
+      allRanked: rankedAll,
+      baseline: baselineFor(null),
     };
   }
 
   const first = top[0]!;
-  const second = top[1];
+  if (first.excludedFromPick) {
+    return {
+      ranked: top,
+      pick: null,
+      confidence: "no_confident_pick",
+      why: first.excludedReason ?? "Every priced car was left out of the pick because the VIN does not match the listing.",
+      stillUnknown,
+      sensitivity: [],
+      assumptionsNote,
+      honesty,
+      evidenceSettled,
+      settlementNote,
+      fairnessHeldOut,
+      priceProvisional,
+      allRanked: rankedAll,
+      baseline: baselineFor(null),
+    };
+  }
+  const second = top.find((car, index) => index > 0 && !car.excludedFromPick);
   const tied =
     second != null && Math.abs(first.score - second.score) <= BEST_DEAL_TIE_EPSILON;
 
@@ -1222,6 +1331,8 @@ export function selectBestDealOnEvidence(input: {
       settlementNote,
       fairnessHeldOut,
       priceProvisional,
+      allRanked: rankedAll,
+      baseline: baselineFor(null),
     };
   }
 
@@ -1250,5 +1361,7 @@ export function selectBestDealOnEvidence(input: {
     settlementNote,
     fairnessHeldOut,
     priceProvisional,
+    allRanked: rankedAll,
+    baseline: baselineFor(first),
   };
 }

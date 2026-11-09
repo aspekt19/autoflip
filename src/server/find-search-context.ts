@@ -8,6 +8,8 @@
  *
  * No invented TCO/history. No report-credit debit. TTL mirrors find analysis ctx.
  */
+import type { CarConsistencyReceipt } from "@/domain/find-car-consistency";
+import type { FindDecisionLogEntry } from "@/domain/find-decision-log";
 import type { FindFreeGovReceipt } from "@/domain/find-free-gov";
 import type { ObservedListingRow } from "@/domain/find-model-observe";
 import type { FindSearchRefine } from "@/domain/find-path";
@@ -23,6 +25,13 @@ export type FindSearchListingFact = ObservedListingRow & {
   /** Listing-feed flags — surfaced as plain notes; never baked into Find market $. */
   accidentCount?: number | null;
   cpo?: boolean | null;
+  fuel?: string | null;
+  engine?: string | null;
+  drivetrain?: string | null;
+  ownerCount?: number | null;
+  oneOwner?: boolean | null;
+  usageType?: string | null;
+  createdAt?: string | null;
 };
 
 export type FindSearchContextRecord = {
@@ -46,6 +55,10 @@ export type FindSearchContextRecord = {
   servPaidCalls?: number;
   /** Shortlist fingerprint when SERV last ran — gates free-gov drain skips. */
   lastServShortlistFp?: string | null;
+  /** Every next-check hop. Buyer UI formats this; it is not shown raw. */
+  decisionLog?: FindDecisionLogEntry[];
+  /** Per-car VIN/listing consistency receipts. */
+  carChecks?: CarConsistencyReceipt[];
   iat: number;
   exp: number;
 };
@@ -66,6 +79,16 @@ function sanitizeListingFacts(rows: FindSearchListingFact[]): FindSearchListingF
           : undefined;
     const cpo =
       row.cpo === true ? true : row.cpo === false ? false : row.cpo === null ? null : undefined;
+    const text = (value: string | null | undefined) =>
+      typeof value === "string" && value.trim() ? value.trim() : value === null ? null : undefined;
+    const ownerCount =
+      typeof row.ownerCount === "number" && Number.isFinite(row.ownerCount)
+        ? Math.max(0, Math.floor(row.ownerCount))
+        : row.ownerCount === null
+          ? null
+          : undefined;
+    const oneOwner =
+      row.oneOwner === true ? true : row.oneOwner === false ? false : row.oneOwner === null ? null : undefined;
     return {
       make: row.make,
       model: row.model,
@@ -76,6 +99,13 @@ function sanitizeListingFacts(rows: FindSearchListingFact[]): FindSearchListingF
       ...(trim !== undefined ? { trim } : {}),
       ...(accidentCount !== undefined ? { accidentCount } : {}),
       ...(cpo !== undefined ? { cpo } : {}),
+      ...(text(row.fuel) !== undefined ? { fuel: text(row.fuel) } : {}),
+      ...(text(row.engine) !== undefined ? { engine: text(row.engine) } : {}),
+      ...(text(row.drivetrain) !== undefined ? { drivetrain: text(row.drivetrain) } : {}),
+      ...(ownerCount !== undefined ? { ownerCount } : {}),
+      ...(oneOwner !== undefined ? { oneOwner } : {}),
+      ...(text(row.usageType) !== undefined ? { usageType: text(row.usageType) } : {}),
+      ...(text(row.createdAt) !== undefined ? { createdAt: text(row.createdAt) } : {}),
     };
   });
 }
@@ -114,6 +144,8 @@ export function mintFindSearchContextRecord(input: {
     servPaidCalls: 0,
     /** Shortlist fingerprint at last paid SERV call — skip SERV while free-gov drain is unchanged. */
     lastServShortlistFp: null,
+    decisionLog: [],
+    carChecks: [],
     iat,
     exp: iat + FIND_SEARCH_CONTEXT_TTL_SEC,
   };
@@ -166,6 +198,8 @@ export async function loadFindSearchContext(
   if (!Array.isArray(record.appliedCheckIds)) {
     record.appliedCheckIds = [];
   }
+  if (!Array.isArray(record.decisionLog)) record.decisionLog = [];
+  if (!Array.isArray(record.carChecks)) record.carChecks = [];
   if (record.userId !== input.userId) {
     return { ok: false, reason: "wrong_user", message: "Search context belongs to another session." };
   }
@@ -193,6 +227,8 @@ export async function updateFindSearchContext(
     freeGovReceipts?: FindFreeGovReceipt[];
     servPaidCalls?: number;
     lastServShortlistFp?: string | null;
+    decisionLog?: FindDecisionLogEntry[];
+    carChecks?: CarConsistencyReceipt[];
   },
 ): Promise<FindSearchContextRecord> {
   const next: FindSearchContextRecord = {
@@ -211,6 +247,8 @@ export async function updateFindSearchContext(
       patch.lastServShortlistFp !== undefined
         ? patch.lastServShortlistFp
         : (record.lastServShortlistFp ?? null),
+    decisionLog: patch.decisionLog ?? record.decisionLog ?? [],
+    carChecks: patch.carChecks ?? record.carChecks ?? [],
   };
   await storeFindSearchContext(kv, next);
   return next;
@@ -263,6 +301,13 @@ export function listingsFromMatchDirections(
     trim?: string | null;
     accidentCount?: number | null;
     cpo?: boolean | null;
+    fuel?: string | null;
+    engine?: string | null;
+    drivetrain?: string | null;
+    ownerCount?: number | null;
+    oneOwner?: boolean | null;
+    usageType?: string | null;
+    createdAt?: string | null;
     priceView?: { usableForBudget?: boolean } | null;
   }> }>,
 ): FindSearchListingFact[] {
@@ -282,6 +327,13 @@ export function listingsFromMatchDirections(
         ...(trim !== undefined ? { trim } : {}),
         ...(row.accidentCount !== undefined ? { accidentCount: row.accidentCount } : {}),
         ...(row.cpo !== undefined ? { cpo: row.cpo } : {}),
+        ...(row.fuel !== undefined ? { fuel: row.fuel } : {}),
+        ...(row.engine !== undefined ? { engine: row.engine } : {}),
+        ...(row.drivetrain !== undefined ? { drivetrain: row.drivetrain } : {}),
+        ...(row.ownerCount !== undefined ? { ownerCount: row.ownerCount } : {}),
+        ...(row.oneOwner !== undefined ? { oneOwner: row.oneOwner } : {}),
+        ...(row.usageType !== undefined ? { usageType: row.usageType } : {}),
+        ...(row.createdAt !== undefined ? { createdAt: row.createdAt } : {}),
       });
     }
   }
@@ -300,6 +352,13 @@ export function listingFactsFromCompsPool(
     trim?: string | null;
     accidentCount?: number | null;
     cpo?: boolean | null;
+    fuel?: string | null;
+    engine?: string | null;
+    drivetrain?: string | null;
+    ownerCount?: number | null;
+    oneOwner?: boolean | null;
+    usageType?: string | null;
+    createdAt?: string | null;
   }>,
 ): FindSearchListingFact[] {
   return sanitizeListingFacts(
@@ -313,6 +372,13 @@ export function listingFactsFromCompsPool(
       trim: typeof row.trim === "string" && row.trim.trim() ? row.trim.trim() : row.trim ?? null,
       ...(row.accidentCount !== undefined ? { accidentCount: row.accidentCount } : {}),
       ...(row.cpo !== undefined ? { cpo: row.cpo } : {}),
+      ...(row.fuel !== undefined ? { fuel: row.fuel } : {}),
+      ...(row.engine !== undefined ? { engine: row.engine } : {}),
+      ...(row.drivetrain !== undefined ? { drivetrain: row.drivetrain } : {}),
+      ...(row.ownerCount !== undefined ? { ownerCount: row.ownerCount } : {}),
+      ...(row.oneOwner !== undefined ? { oneOwner: row.oneOwner } : {}),
+      ...(row.usageType !== undefined ? { usageType: row.usageType } : {}),
+      ...(row.createdAt !== undefined ? { createdAt: row.createdAt } : {}),
     })),
   );
 }
@@ -356,17 +422,17 @@ export function marketPoolFromListingFacts(
       // Preserve feed flags for badge/factor notes only — resolveMarketComps ignores them.
       cpo: row.cpo ?? null,
       accidentCount: row.accidentCount ?? null,
-      oneOwner: null,
-      ownerCount: null,
-      usageType: null,
-      fuel: null,
-      engine: null,
-      drivetrain: null,
+      oneOwner: row.oneOwner ?? null,
+      ownerCount: row.ownerCount ?? null,
+      usageType: row.usageType ?? null,
+      fuel: row.fuel ?? null,
+      engine: row.engine ?? null,
+      drivetrain: row.drivetrain ?? null,
       bodyStyle: null,
       latitude: null,
       longitude: null,
       removedAt: null,
-      createdAt: null,
+      createdAt: row.createdAt ?? null,
       source: "autodev",
     });
   }

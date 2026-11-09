@@ -7,6 +7,7 @@
 import type { ObservedListingRow } from "./find-model-observe";
 import { fuelFactFromFindEvidence, type FindFuelEvidence } from "./find-fuel-match";
 import type { FindNextCheckId } from "./find-next-checks";
+import { recallEvidenceState, recallFactPlain, type EvidenceFact } from "./find-evidence-state";
 import {
   listingMmyKeys,
   mmyListingKey,
@@ -66,6 +67,21 @@ export type FindFreeGovReceipt = {
   /** Structured fuel evidence when checkId is free_gov_fuel. */
   fuelEvidence: FindFuelEvidence | null;
   honesty: string;
+  /**
+   * VIN spec fields from the same vPIC decode (ErrorCode=0 only).
+   * Absent on older receipts and on non-decode checks.
+   */
+  vpicSpecs?: {
+    year: number | null;
+    make: string | null;
+    model: string | null;
+    trim: string | null;
+    drivetrain: string | null;
+    engine: string | null;
+    fuel: string | null;
+  } | null;
+  /** Four-state facts for this receipt. Derived when missing on older rows. */
+  evidenceFacts?: import("./find-evidence-state").EvidenceFact[];
 };
 
 /**
@@ -260,9 +276,23 @@ export function selectFindFreeGovCandidates(
   checkId: FindFreeGovCheckId,
   max = FIND_FREE_GOV_BATCH_MAX,
   priorReceipts: readonly FindFreeGovReceipt[] = [],
+  /** When set, only these car keys (VIN or year|make|model…) are eligible. */
+  targetKeys?: readonly string[],
 ): Listing[] {
-  const withVin = listings.filter((l) => typeof l.vin === "string" && l.vin.trim().length >= 11);
-  const pool = checkId === "free_gov_vpic" ? withVin : listings;
+  const targets = new Set((targetKeys ?? []).map((key) => key.trim().toUpperCase()).filter(Boolean));
+  const matchesTarget = (row: { vin?: string | null; year: number; make: string; model: string; priceUsd?: number | null; miles?: number | null }) => {
+    if (targets.size === 0) return true;
+    const vin = typeof row.vin === "string" ? row.vin.trim().toUpperCase() : "";
+    if (vin && targets.has(vin)) return true;
+    const loose = `${row.year}|${row.make}|${row.model}|${row.priceUsd ?? ""}|${row.miles ?? ""}`.toLowerCase();
+    for (const target of targets) {
+      if (target.toLowerCase() === loose) return true;
+    }
+    return false;
+  };
+  const scoped = targets.size > 0 ? listings.filter((row) => matchesTarget(row)) : listings;
+  const withVin = scoped.filter((l) => typeof l.vin === "string" && l.vin.trim().length >= 11);
+  const pool = checkId === "free_gov_vpic" ? withVin : scoped;
   const already = checkedMmyKeysForCheck(priorReceipts, checkId);
   const seen = new Set<string>();
   const unchecked: Listing[] = [];
@@ -282,6 +312,77 @@ export function selectFindFreeGovCandidates(
   return unchecked.slice(0, max);
 }
 
+function vpicSpecsFromPacket(packet: FreeGovEvidencePacket): FindFreeGovReceipt["vpicSpecs"] {
+  if (packet.toolId !== "evidence.gov_vpic" || packet.status !== "ok") return null;
+  const primary = packet.facts.find((fact) => fact.key === "evidence.gov_vpic");
+  const value =
+    primary && primary.value && typeof primary.value === "object"
+      ? (primary.value as Record<string, unknown>)
+      : null;
+  if (!value) return null;
+  const text = (key: string) => (typeof value[key] === "string" && value[key] ? String(value[key]) : null);
+  const year = typeof value.year === "number" ? value.year : null;
+  return {
+    year,
+    make: text("make"),
+    model: text("model"),
+    trim: text("trim"),
+    drivetrain: text("driveType") ?? text("drivetrain"),
+    engine: text("engine"),
+    fuel: text("fuel"),
+  };
+}
+
+function evidenceFactsForPacket(
+  checkId: FindFreeGovCheckId,
+  listing: { year: number; make: string; model: string },
+  packet: FreeGovEvidencePacket,
+  riskFacts: FreeGovRiskFacts,
+): EvidenceFact[] {
+  const title = `${listing.year} ${listing.make} ${listing.model}`;
+  if (checkId === "free_gov_recalls") {
+    const state = recallEvidenceState({ status: packet.status, riskFacts });
+    return [
+      {
+        field: "recall_campaigns",
+        state,
+        source: "government",
+        plain: recallFactPlain({ status: packet.status, riskFacts }, title),
+      },
+    ];
+  }
+  if (checkId === "free_gov_safety") {
+    const state =
+      packet.status === "ok" ? "none_found" : packet.status === "empty" || packet.status === "error" || packet.status === "unavailable" ? "could_not_check" : "could_not_check";
+    return [
+      {
+        field: "crash_rating",
+        state,
+        source: "government",
+        plain:
+          state === "could_not_check"
+            ? `${title}: Couldn't confirm crash-test ratings. That is not a clean result.`
+            : `${title}: Crash-test ratings were checked for this year/make/model class.`,
+      },
+    ];
+  }
+  if (checkId === "free_gov_vpic") {
+    const state = packet.status === "ok" ? "none_found" : "could_not_check";
+    return [
+      {
+        field: "vin_decode",
+        state,
+        source: "government",
+        plain:
+          state === "could_not_check"
+            ? `${title}: Couldn't confirm a VIN decode. That is not a clean history.`
+            : `${title}: VIN decoded (specs only — not a clean history).`,
+      },
+    ];
+  }
+  return [];
+}
+
 function packetToReceipt(
   checkId: FindFreeGovCheckId,
   listing: Listing,
@@ -294,6 +395,8 @@ function packetToReceipt(
     .slice(0, 6);
   const riskFacts = riskFactsFromPacket(packet, listing);
   const fuelEvidence = checkId === "free_gov_fuel" ? packet.fuelEvidence ?? null : null;
+  const vpicSpecs = vpicSpecsFromPacket(packet);
+  const evidenceFacts = evidenceFactsForPacket(checkId, listing, packet, riskFacts);
   return {
     checkId,
     toolId: packet.toolId,
@@ -311,6 +414,8 @@ function packetToReceipt(
     factNotes,
     riskFacts,
     fuelEvidence,
+    vpicSpecs,
+    evidenceFacts,
     honesty:
       checkId === "free_gov_vpic"
         ? "VIN decode ≠ clean VIN history; incomplete decode stays unknown."
@@ -348,6 +453,8 @@ export async function executeFindFreeGovCheck(input: {
   gov?: ScoutFreeGovPort;
   /** Shopper note for city-heavy fuel assumptions when using the live port. */
   shopperNote?: string | null;
+  /** Per-car checks run only on these keys (fallback is the caller's top 3). */
+  targetKeys?: readonly string[];
 }): Promise<ExecuteFindFreeGovResult | null> {
   if (!isFindFreeGovCheckId(input.checkId)) return null;
   const checkId = input.checkId;
@@ -356,7 +463,13 @@ export async function executeFindFreeGovCheck(input: {
 
   const prior = input.priorReceipts ?? [];
   const coverage = freeGovToolCoverage(input.listings, prior);
-  const candidates = selectFindFreeGovCandidates(input.listings, checkId, FIND_FREE_GOV_BATCH_MAX, prior);
+  const candidates = selectFindFreeGovCandidates(
+    input.listings,
+    checkId,
+    FIND_FREE_GOV_BATCH_MAX,
+    prior,
+    input.targetKeys,
+  );
   if (candidates.length === 0) {
     const covered = !freeGovCheckStillHasUnchecked(coverage, checkId);
     const plainTool =

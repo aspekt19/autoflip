@@ -103,6 +103,11 @@ export type VinDecode = {
   errorCode: string | null;
   /** vPIC ErrorText when present (e.g. "6 - Incomplete VIN"). */
   errorText?: string | null;
+  /** Extra spec fields from the same DecodeVinValues payload. Missing means not published. */
+  trim?: string | null;
+  driveType?: string | null;
+  engine?: string | null;
+  fuel?: string | null;
 };
 
 export type Flag = {

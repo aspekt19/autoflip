@@ -281,6 +281,8 @@ export function countRemainingAutomaticChecks(
     if (CLARIFY_STOP.has(id) || USER_ACTION_STOP.has(id)) return false;
     // Free-gov stays actionable when still on allowlist (unchecked MMY progress).
     if (isFindFreeGovCheckId(id)) return true;
+    // Per-car consistency stays actionable while propose still lists it.
+    if (id === "free_car_consistency") return true;
     return !applied.has(id);
   }).length;
 }

@@ -371,4 +371,128 @@ describe("runFindNextCheckOrchestrator", () => {
     expect(bodies[1]).toContain('observedListingCount\\":1');
     expect(bodies[0]).toContain('observedListingCount\\":0');
   });
+
+  it("runs a per-car consistency check only on SERV target keys, and ranks with the market pool", async () => {
+    const kv = new MemoryKv();
+    const fleet = "2HKRM4H75FH123456";
+    const clean = "KNDPBCAC6G7123456";
+    await storeFindSearchContext(
+      kv,
+      mintFindSearchContextRecord({
+        userId: "u1",
+        need: {
+          ...baseNeed,
+          budgetKnown: true,
+          budgetUsd: 20_000,
+          conditionPriority: "inspection_first",
+          yearMin: 2012,
+        },
+        listings: [
+          {
+            vin: fleet,
+            make: "Honda",
+            model: "CR-V",
+            year: 2015,
+            priceUsd: 11_000,
+            miles: 80_000,
+            trim: "EX",
+            usageType: "Fleet",
+            accidentCount: 2,
+            engine: "2.4L",
+            drivetrain: "AWD",
+            fuel: "Gasoline",
+          },
+          {
+            vin: clean,
+            make: "Kia",
+            model: "Sportage",
+            year: 2016,
+            priceUsd: 14_000,
+            miles: 70_000,
+            trim: "LX",
+            usageType: "Personal",
+            accidentCount: 0,
+          },
+        ],
+        compsPool: [
+          {
+            vin: fleet,
+            make: "Honda",
+            model: "CR-V",
+            year: 2015,
+            priceUsd: 11_000,
+            miles: 80_000,
+          },
+          {
+            vin: "COMP0000000000001",
+            make: "Honda",
+            model: "CR-V",
+            year: 2015,
+            priceUsd: 16_000,
+            miles: 60_000,
+          },
+          {
+            vin: "COMP0000000000002",
+            make: "Honda",
+            model: "CR-V",
+            year: 2015,
+            priceUsd: 17_000,
+            miles: 55_000,
+          },
+          {
+            vin: clean,
+            make: "Kia",
+            model: "Sportage",
+            year: 2016,
+            priceUsd: 14_000,
+            miles: 70_000,
+          },
+        ],
+        servNextCheckEnabled: true,
+        token: "tok-target",
+      }),
+    );
+    const fetchImpl = vi.fn(async () =>
+      jsonResponse({
+        choices: [
+          {
+            message: {
+              content: JSON.stringify({
+                checkId: "free_car_consistency",
+                note: "Check the CR-V",
+                targetKeys: [fleet],
+              }),
+            },
+          },
+        ],
+      }),
+    );
+    const result = await runFindNextCheckOrchestrator(
+      { searchContextToken: "tok-target" },
+      {
+        kv,
+        userId: "u1",
+        servKey: "test-key",
+        fetchImpl: fetchImpl as unknown as typeof fetch,
+        env: {},
+      },
+    );
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.chosenId).toBe("free_car_consistency");
+    expect(result.autonomousServ).toBe(true);
+    expect(result.targetKeys).toEqual([fleet]);
+    expect(result.carChecks.map((row) => row.key)).toEqual([fleet]);
+    expect(result.decisionLog).toHaveLength(1);
+    expect(result.decisionLog[0]?.decidedBy).toBe("SERV");
+    expect(result.decisionLog[0]?.action).toBe("free_car_consistency");
+    expect(result.decisionLog[0]?.top5Before.length).toBeGreaterThan(0);
+    expect(result.decisionLog[0]?.pickBefore).toBe(result.decisionLog[0]?.top5Before[0]?.key);
+    expect(result.baseline.factors.length).toBe(6);
+    const flagged = result.bestDeal.allRanked.find((row) => row.key === fleet);
+    expect(flagged?.sellerQuestions.length).toBeGreaterThan(0);
+    const requestBody = JSON.stringify(fetchImpl.mock.calls);
+    expect(requestBody).toContain("gapToAhead");
+    expect(requestBody).not.toContain("BEFORE compare_observed_asks");
+  });
 });

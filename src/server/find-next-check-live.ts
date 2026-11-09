@@ -18,6 +18,7 @@ import {
 import {
   buildFindNextCheckChoiceSchema,
   clampFindNextCheckChoice,
+  clampFindNextCheckTargetKeys,
   parseFindNextCheckChoice,
   type FindNextCheckClampDiag,
 } from "@/domain/find-next-check-choice";
@@ -68,6 +69,8 @@ export type FindNextCheckLiveOk = {
   source: "serv" | "deterministic_fallback";
   allowedChecks: FindNextCheck[];
   chosenId: FindNextCheckId;
+  /** Server-clamped car keys (max 3, subset of the top 5). Null when SERV sent none. */
+  targetKeys: string[];
   servNote: string | null;
   replan: FindReplan;
   compare: ReturnType<typeof compareObservedModels>;
@@ -138,6 +141,16 @@ export async function runFindNextCheckLive(
       anyUnchecked: boolean;
       note: string;
     } | null;
+    /** Current top 5, ranked with the same market pool as the pick the shopper sees. */
+    top5?: Array<{
+      key: string;
+      rank: number;
+      label: string;
+      score: number;
+      gapToAhead: number;
+      unknowns: string[];
+    }>;
+    consistencyStillOpen?: boolean;
   },
   deps: FindNextCheckLiveDeps = {},
 ): Promise<FindNextCheckLiveOk | FindNextCheckLiveErr> {
@@ -169,6 +182,7 @@ export async function runFindNextCheckLive(
     appliedCheckIds,
     listingsHaveVin,
     freeGovCoverage: body.freeGovCoverage ?? null,
+    consistencyStillOpen: body.consistencyStillOpen,
   });
   const allowedIds = allowedFindNextCheckIds(allowedChecks);
   if (allowedIds.length === 0) {
@@ -199,8 +213,9 @@ export async function runFindNextCheckLive(
     appliedCheckIds,
     freeGovEvidence: body.freeGovBrief ?? { count: 0, toolIds: [], statuses: [], summaries: [] },
     freeGovCoverage: body.freeGovCoverage ?? null,
+    top5: body.top5 ?? [],
     freeGovHonesty:
-      "Free public government inputs only: recalls/complaints (year/make/model), VIN decode, NCAP safety ratings, FuelEconomy.gov fuel estimates (ambiguous configs = labeled range). Not NMVTIS/title. Missing VIN/history stays unknown. While freeGovCoverage.anyUnchecked, prefer free_gov_* before get_history_report — partial sample ≠ fleet clearance. Best-deal scores are computed in code from evidence, not invented here.",
+      "Free public government inputs only: recalls/complaints (year/make/model), VIN decode, NCAP safety ratings, FuelEconomy.gov fuel estimates (ambiguous configs = labeled range), plus a per-car compare of the listing with that VIN decode and with listing-says accidents, owners, rental use, and days listed. Not NMVTIS/title. Empty or failed lookups are not a clean zero. Best-deal scores are computed in code. Choose the check most likely to change the pick using top5 gaps and unknowns.",
   };
   const factsBlob = JSON.stringify(facts);
   const user = JSON.stringify({
@@ -213,13 +228,15 @@ export async function runFindNextCheckLive(
   const proofs: ServProof[] = [];
   let source: "serv" | "deterministic_fallback" = "deterministic_fallback";
   let chosenId: FindNextCheckId = preferred.id;
+  let targetKeys: string[] = [];
   let servNote: string | null = null;
   let failureDiag: ServResponseFailureDiag | null = null;
   let clampDiag: FindNextCheckClampDiag | null = null;
 
   // Request schema enum = live allowlist only (not the full catalog) so constrained
   // decoding cannot emit schema-valid / allowlist-invalid ids (PR80 Scenario2).
-  const choiceSchema = buildFindNextCheckChoiceSchema(allowedIds);
+  const top5Keys = (body.top5 ?? []).map((row) => row.key);
+  const choiceSchema = buildFindNextCheckChoiceSchema(allowedIds, top5Keys);
 
   const key = deps.servKey?.trim() || null;
   if (key && deps.skipServ) {
@@ -306,6 +323,7 @@ export async function runFindNextCheckLive(
           };
         } else {
           chosenId = clampDiag.clamped;
+          targetKeys = clampFindNextCheckTargetKeys(parsed.targetKeys, top5Keys);
           servNote = sanitizeServNote(parsed.note, factsBlob) || null;
           source = "serv";
         }
@@ -326,6 +344,7 @@ export async function runFindNextCheckLive(
     source,
     allowedChecks,
     chosenId,
+    targetKeys,
     servNote,
     replan,
     compare,
@@ -336,7 +355,7 @@ export async function runFindNextCheckLive(
     clampDiag,
     honesty:
       source === "serv"
-        ? "SERV chose an allowlisted checkId. Apply/replan is code-owned. Rematch uses NEW need — no invented listings, TCO, or history."
+        ? "SERV chose an allowlisted check and optional target cars. Apply/replan is code-owned. Rematch uses NEW need — no invented listings, TCO, or history."
         : `deterministic_fallback (not autonomous SERV): code allowlist apply only.${skipBit}`,
   };
 }

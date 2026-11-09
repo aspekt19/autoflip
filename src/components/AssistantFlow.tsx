@@ -48,6 +48,8 @@ import {
   summarizeFuelCheckOutcome,
 } from "@/domain/find-buyer-copy";
 import type { BestDealResult } from "@/domain/find-best-deal";
+import { formatBaselineForBuyer, type FindBaselineDelta } from "@/domain/find-baseline";
+import { formatDecisionLogForBuyer, type FindDecisionLogEntry } from "@/domain/find-decision-log";
 import { formatFindFuelEvidenceShort, fuelFactFromFindEvidence } from "@/domain/find-fuel-match";
 import { buildGroundedShortlist } from "@/domain/find-path";
 import {
@@ -222,6 +224,8 @@ function AssistantFlow({
   /** Machine/agent channel only — raw receipts JSON, not shown as page copy. */
   const [freeGovAgentPayload, setFreeGovAgentPayload] = useState<string | null>(null);
   const [bestDeal, setBestDeal] = useState<BestDealResult | null>(null);
+  const [decisionLines, setDecisionLines] = useState<string[]>([]);
+  const [baselineView, setBaselineView] = useState<ReturnType<typeof formatBaselineForBuyer> | null>(null);
   /** Structured free-gov receipts for risk-aware grounded shortlist (client mirror of server). */
   const [freeGovReceiptsForShortlist, setFreeGovReceiptsForShortlist] = useState<
     FreeGovReceiptUiRow[]
@@ -652,15 +656,31 @@ function AssistantFlow({
       const receipts = Array.isArray((body as { freeGovReceipts?: FreeGovReceiptUiRow[] }).freeGovReceipts)
         ? ((body as { freeGovReceipts?: FreeGovReceiptUiRow[] }).freeGovReceipts as FreeGovReceiptUiRow[])
         : [];
+      const serverBestDeal = (body as { bestDeal?: BestDealResult | null }).bestDeal;
+      const serverBaseline = (body as { baseline?: FindBaselineDelta | null }).baseline ?? serverBestDeal?.baseline ?? null;
+      if (serverBestDeal && typeof serverBestDeal === "object") {
+        setBestDeal(serverBestDeal);
+      }
+      if (serverBaseline && typeof serverBaseline === "object") {
+        setBaselineView(formatBaselineForBuyer(serverBaseline));
+      }
+      const serverLog = (body as { decisionLog?: FindDecisionLogEntry[] }).decisionLog;
+      if (Array.isArray(serverLog)) {
+        const labels = [
+          ...(serverBestDeal?.allRanked ?? serverBestDeal?.ranked ?? []).map((car) => ({
+            key: car.key,
+            year: car.year,
+            make: car.make,
+            model: car.model,
+          })),
+        ];
+        setDecisionLines(formatDecisionLogForBuyer(serverLog, labels, 8));
+      }
       if (receipts.length > 0) {
         setFreeGovReceiptsForShortlist(receipts);
         // Buyer-visible plain lines; raw receipts only in machine/agent channel.
         setFreeGovEvidenceLines(formatFreeGovReceiptsForUi(receipts));
-        setFreeGovAgentPayload(formatFreeGovReceiptsForAgents(receipts));
-      }
-      const serverBestDeal = (body as { bestDeal?: BestDealResult | null }).bestDeal;
-      if (serverBestDeal && typeof serverBestDeal === "object") {
-        setBestDeal(serverBestDeal);
+        setFreeGovAgentPayload(formatFreeGovReceiptsForAgents(receipts, serverBaseline));
       }
       const coverage = (body as { riskCoverage?: { note?: string } | null }).riskCoverage;
       const toolCov = (
@@ -1030,6 +1050,8 @@ function AssistantFlow({
       // Clear prior search's free-gov / best-deal state so a new Find cannot inherit
       // a stuck "still checking" banner or stale provisional pick.
       setBestDeal(null);
+      setDecisionLines([]);
+      setBaselineView(null);
       setFreeGovReceiptsForShortlist([]);
       setFreeGovEvidenceLines([]);
       setFreeGovAgentPayload(null);
@@ -1797,6 +1819,27 @@ function AssistantFlow({
                           </li>
                         ))}
                       </ul>
+                    ) : null}
+                    {decisionLines.length > 0 ? (
+                      <div className="hint" role="note">
+                        <p>How Lemonless decided</p>
+                        <ul>
+                          {decisionLines.map((line, index) => (
+                            <li key={`decision-${index}`}>{line}</li>
+                          ))}
+                        </ul>
+                      </div>
+                    ) : null}
+                    {baselineView ? (
+                      <div className="hint" role="note">
+                        <p>{baselineView.title}</p>
+                        <ul>
+                          {baselineView.lines.map((line) => (
+                            <li key={line}>{line}</li>
+                          ))}
+                        </ul>
+                        <p>{baselineView.whyNotCheapest}</p>
+                      </div>
                     ) : null}
                     {nextCheckNote ? <p className="hint">{nextCheckNote}</p> : null}
                     {pending === "next-check" ? <p className="hint">Checking public records…</p> : null}

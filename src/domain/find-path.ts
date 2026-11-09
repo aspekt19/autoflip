@@ -105,6 +105,7 @@ export function applyFindNextCheck(
     "free_gov_vpic",
     "free_gov_safety",
     "free_gov_fuel",
+    "free_car_consistency",
     "compare_observed_asks",
     "run_full_analysis",
     "get_history_report",
@@ -210,6 +211,15 @@ export function applyFindNextCheck(
       note: `Run ${label} on returned cards — no Report credit; missing VIN/history stays unknown.`,
       research: false,
       freeEvidence: true,
+    };
+  }
+
+  if (id === "free_car_consistency") {
+    return {
+      need,
+      refine,
+      note: "Compare listing year, make, model, trim, drivetrain, engine, and fuel with the VIN decode, and read accidents, owners, rental use, and days listed from the listing. No new paid source.",
+      research: false,
     };
   }
 
