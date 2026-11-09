@@ -1,6 +1,6 @@
 {
   "schema": "autoflip.serv-proof-trace.v1",
-  "generatedAt": "2026-11-06T09:36:15.626Z",
+  "generatedAt": "2026-11-09T14:48:18.631Z",
   "disclosure": "Real SERV inference execution against Lemonless's fixed flip-clear evaluation fixture. This is not live customer traffic or a production vehicle report. Raw prompt, VIN, supplied facts, and free-form response text are intentionally omitted.",
   "scenario": {
     "caseId": "flip-clear",
@@ -13,13 +13,13 @@
     "decision": "alert"
   },
   "response": {
-    "id": "chatcmpl-EhAeeqtS7VTM5hgmyZxDbdz7quzxo",
+    "id": "chatcmpl-EiKxI4Iv4LGnB2SSje7sZKukNIfdL",
     "model": "gpt-5.4-mini-2026-03-17",
     "finishReason": "stop",
     "usage": {
       "promptTokens": 532,
-      "completionTokens": 347,
-      "totalTokens": 879
+      "completionTokens": 427,
+      "totalTokens": 959
     }
   },
   "proof": {
@@ -38,7 +38,7 @@
     "promptGuardRecorded": "passed",
     "shadowOutcome": "not_exposed",
     "shadowMaxIterations": 2,
-    "latencyMs": 11522,
+    "latencyMs": 8666,
     "contentFilter": "default_on",
     "promptCache": "default",
     "streamed": false,

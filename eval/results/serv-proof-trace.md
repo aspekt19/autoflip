@@ -16,9 +16,9 @@ Real SERV inference execution against Lemonless's fixed flip-clear evaluation fi
 | Prompt guard record | passed |
 | Shadow outcome | not_exposed |
 | Shadow iteration cap | 2 |
-| Latency | 11522 ms |
-| Response ID | chatcmpl-EhAeeqtS7VTM5hgmyZxDbdz7quzxo |
-| Token usage | {"promptTokens":532,"completionTokens":347,"totalTokens":879} |
+| Latency | 8666 ms |
+| Response ID | chatcmpl-EiKxI4Iv4LGnB2SSje7sZKukNIfdL |
+| Token usage | {"promptTokens":532,"completionTokens":427,"totalTokens":959} |
 | Code-computed fields | profitLowUsd, profitMidUsd, profitHighUsd, compCount, speed |
 | Deterministic fallback used | no |
 
