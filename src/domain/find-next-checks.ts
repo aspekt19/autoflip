@@ -143,32 +143,23 @@ export function proposeFindNextChecks(input: FindNextCheckInput): FindNextCheck[
   if (freeWanted && input.observedListingCount > 0) {
     // Keep free_gov_* allowlisted while unchecked year/make/model rows remain — do not permanently burn after one batch.
     if (recallsOpen) {
-      const progress = coverage
-        ? ` (${coverage.recalls.checked}/${coverage.recalls.eligible} year/make/model checked; ${coverage.recalls.unchecked} unchecked)`
-        : "";
       out.push({
         id: "free_gov_recalls",
-        why: `Check free public government recalls + complaints for unchecked year/make/model cards${progress} — not VIN-open status, not clean history.`,
+        why: "Check free public recall records for models that are not checked yet. This is not the same as open recalls on this exact car, and it is not a clean history.",
         evidence: coverage && coverage.recalls.checked > 0 ? "free_gov_mmy_progress" : "condition_or_hidden_risk",
       });
     }
     if (vpicOpen) {
-      const progress = coverage
-        ? ` (${coverage.vpic.checked}/${coverage.vpic.eligible} VIN-eligible checked; ${coverage.vpic.unchecked} unchecked)`
-        : "";
       out.push({
         id: "free_gov_vpic",
-        why: `Decode VIN via the free public government VIN decoder for unchecked VIN cards${progress} — successful decode required; decode ≠ clean title/history.`,
+        why: "Look up free public vehicle specs from the VIN for cars that are not checked yet. Specs are not a clean title or history.",
         evidence: coverage && coverage.vpic.checked > 0 ? "free_gov_mmy_progress" : "vin_present_condition_risk",
       });
     }
     if (safetyOpen) {
-      const progress = coverage
-        ? ` (${coverage.safety.checked}/${coverage.safety.eligible} year/make/model checked; ${coverage.safety.unchecked} unchecked)`
-        : "";
       out.push({
         id: "free_gov_safety",
-        why: `Fetch free public government crash-test ratings for unchecked year/make/model cards${progress} — Not Rated stays unknown.`,
+        why: "Check free public crash-test ratings for models that are not checked yet. Not Rated stays unknown.",
         evidence: coverage && coverage.safety.checked > 0 ? "free_gov_mmy_progress" : "condition_or_hidden_risk",
       });
     }
@@ -176,12 +167,9 @@ export function proposeFindNextChecks(input: FindNextCheckInput): FindNextCheck[
 
   if (fuelWanted && input.observedListingCount > 0 && fuelOpen) {
     const fuelSlice = coverage?.fuel;
-    const progress = fuelSlice
-      ? ` (${fuelSlice.checked}/${fuelSlice.eligible} year/make/model checked; ${fuelSlice.unchecked} unchecked)`
-      : "";
     out.push({
       id: "free_gov_fuel",
-      why: `Estimate annual fuel cost from free public FuelEconomy.gov for unchecked year/make/model cards${progress} — ambiguous configs stay a labeled range; not full ownership cost.`,
+      why: "Estimate annual fuel cost from free public FuelEconomy.gov data for models that are not checked yet. When several configurations match, the result stays a labeled range. This is not a full ownership cost.",
       evidence:
         fuelSlice && fuelSlice.checked > 0
           ? "free_gov_mmy_progress"
@@ -194,7 +182,7 @@ export function proposeFindNextChecks(input: FindNextCheckInput): FindNextCheck[
   if (input.observedListingCount > 0 && input.consistencyStillOpen !== false) {
     out.push({
       id: "free_car_consistency",
-      why: "Compare each car's listing with its VIN decode and with what the listing says about accidents, owners, rental use, and days listed. This can change which car is picked.",
+      why: "Compare each car's listing with the government vehicle specs and with what the listing says about accidents, owners, rental use, and days listed. This can change which car is picked.",
       evidence: "per_car_listing_fields",
     });
   }

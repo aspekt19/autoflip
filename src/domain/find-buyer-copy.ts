@@ -132,17 +132,28 @@ export function publicCheckStatusLine(input: {
   servEnabled: boolean;
   anyUnchecked: boolean;
   checksHaveRun: boolean;
+  /** True only while a next-check request is in flight. */
+  running?: boolean;
+  modelCount?: number | null;
 }): string {
   if (!input.servEnabled) {
     return "Here is what we can check next with the cars already found:";
   }
+  const count =
+    typeof input.modelCount === "number" && input.modelCount > 0 ? Math.floor(input.modelCount) : null;
+  const checking = count
+    ? `Public safety records: checking ${count} model${count === 1 ? "" : "s"}.`
+    : "Public safety records: checking these models.";
+  if (input.running) {
+    return `${checking} The pick may change.`;
+  }
   if (input.anyUnchecked) {
-    return "Still finishing public year/make/model checks — the pick may change as remaining groups complete.";
+    return "Public safety checks are not running. Some models are still unchecked, so the pick can still change if checks resume.";
   }
   if (input.checksHaveRun) {
-    return "Public year/make/model checks for this shortlist are caught up.";
+    return "Public safety records for this shortlist are caught up.";
   }
-  return "Public year/make/model checks have not finished for this shortlist yet.";
+  return "Public safety records have not finished for this shortlist yet.";
 }
 
 /** Buyer-facing seller-distance custom-miles hint (no app-validation jargon). */
@@ -475,7 +486,8 @@ export function formatBuyerReceiptLine(r: FindFreeGovReceipt): string {
   const when = src.checkedAt ? ` Checked ${src.checkedAt.slice(0, 10)}.` : "";
   const title = `${r.year} ${r.make} ${r.model}`;
   if (r.checkId === "free_gov_fuel" && r.fuelEvidence) {
-    return `${title}: ${formatFindFuelEvidenceShort(r.fuelEvidence)}. Source: ${src.label}.${when}`;
+    const fuelLine = formatFindFuelEvidenceShort(r.fuelEvidence).trim().replace(/\.+$/, "");
+    return `${title}: ${fuelLine}. Source: ${src.label}.${when}`.replace(/\.{2,}/g, ".");
   }
   if (r.checkId === "free_gov_recalls") {
     const state = recallEvidenceState(r);
@@ -509,7 +521,7 @@ export function formatBuyerReceiptLine(r: FindFreeGovReceipt): string {
     if (r.status === "ok") {
       return `${title}: VIN decoded with the government decoder (specs only — not a clean history). Source: ${src.label}.${when}`;
     }
-    return `${title}: VIN decode unavailable or incomplete. Source: ${src.label}.${when}`;
+    return `${title}: Government vehicle specs were unavailable or incomplete. Source: ${src.label}.${when}`;
   }
   return `${title}: Public vehicle check recorded. Source: ${src.label}.${when}`;
 }
@@ -576,9 +588,9 @@ export function formatBuyerLoopStep(input: {
   const cars = typeof n === "number" ? ` the ${n} car${n === 1 ? "" : "s"} found` : " the cars found";
   switch (id) {
     case "free_gov_recalls":
-      return `We checked government recall records for year/make/model on${cars}.`;
+      return `We checked government recall records for${cars}.`;
     case "free_gov_safety":
-      return `We checked government crash-test ratings for year/make/model on${cars}.`;
+      return `We checked government crash-test ratings for${cars}.`;
     case "free_gov_vpic":
       return `We decoded available VINs with the government VIN decoder (specs only).`;
     case "free_car_consistency":
@@ -587,8 +599,8 @@ export function formatBuyerLoopStep(input: {
       const o = input.fuelOutcome;
       if (!o || o.attempted <= 0) {
         return input.fuelPending
-          ? "FuelEconomy.gov fuel-cost checks are still queued for remaining year/make/model groups."
-          : "FuelEconomy.gov fuel-cost check has not run yet for this search.";
+          ? "Fuel cost checks are still queued for the remaining models."
+          : "Fuel cost check has not run yet for this search.";
       }
       const modelCount = o.modelCount > 0 ? o.modelCount : o.attempted;
       const matchedModels = o.matchedModelCount ?? o.matched;
@@ -707,6 +719,57 @@ export function buyerFactorBit(factor: { label: string; detail: string; points: 
   return `${factor.label}: ${factor.detail} (${factor.points >= 0 ? "+" : ""}${factor.points})`;
 }
 
+/** One buyer sentence. A trailing period on either piece does not become "..". */
+export function formatGroundedShortlistLine(row: {
+  make: string;
+  model: string;
+  why: string;
+  unknowns: readonly string[];
+  campaignRefs?: readonly string[];
+}): string {
+  const why = row.why.trim().replace(/\.+$/, "");
+  const unknowns = row.unknowns
+    .map((line) => line.trim().replace(/\.+$/, ""))
+    .filter(Boolean);
+  const campaigns = (row.campaignRefs ?? []).map((id) => id.trim()).filter(Boolean);
+  let line = `${row.make} ${row.model}: ${why}.`;
+  if (unknowns.length > 0) line += ` Still unknown: ${unknowns.join("; ")}.`;
+  if (campaigns.length > 0) line += ` ${campaigns.join("; ")}.`;
+  return line.replace(/\.{2,}/g, ".").replace(/\s+/g, " ").trim();
+}
+
+/**
+ * Seller questions for cars that already show a listing accident, rental/fleet use,
+ * or a VIN mismatch. Listing-feed accident notes count even before the per-car check.
+ */
+export function sellerQuestionsForBuyer(result: Pick<BestDealResult, "ranked" | "allRanked">): string[] {
+  const cars = result.allRanked.length > 0 ? result.allRanked : result.ranked;
+  const lines: string[] = [];
+  for (const car of cars) {
+    const title = `${car.year} ${car.make} ${car.model}`;
+    for (const question of car.sellerQuestions) {
+      const clean = question.replace(/\s+/g, " ").trim();
+      if (clean) lines.push(clean);
+    }
+    const accidentOnCard = car.factors.some(
+      (factor) => factor.id === "listing_feed_flags" && /accident/i.test(factor.detail),
+    );
+    if (accidentOnCard && !car.sellerQuestions.some((question) => /accident/i.test(question))) {
+      lines.push(
+        `Ask the seller for accident records on the ${title} — the listing says accidents were reported.`,
+      );
+    }
+    if (
+      (car.excludedFromPick || /does not match/i.test(car.excludedReason ?? "")) &&
+      car.excludedReason &&
+      !lines.some((line) => line === car.excludedReason)
+    ) {
+      lines.push(car.excludedReason);
+    }
+  }
+  return [...new Set(lines)];
+}
+
 export function formatBuyerBestDeal(result: BestDealResult): {
   headline: string;
   why: string;
@@ -714,6 +777,8 @@ export function formatBuyerBestDeal(result: BestDealResult): {
   rankedLines: string[];
   /** Plain-English per-factor breakdown for every ranked car. */
   factorLines: string[];
+  /** Questions to ask the seller when a listing flag or a VIN mismatch is on file. */
+  sellerQuestionLines: string[];
   sensitivityLines: string[];
   honesty: string;
   settlementNote: string;
@@ -755,6 +820,7 @@ export function formatBuyerBestDeal(result: BestDealResult): {
   return {
     headline,
     why: result.why,
+    sellerQuestionLines: sellerQuestionsForBuyer(result),
     stillUnknown: result.stillUnknown.map((line) => {
       // Belt-and-suspenders: never surface raw factor ids if a caller built stillUnknown ad hoc.
       return line

@@ -31,9 +31,10 @@ import {
   decideFindNextCheckLoop,
   fingerprintListings,
   fingerprintNeed,
+  isUserActionFindCheck,
   type FindNextCheckLoopDisposition,
 } from "@/domain/find-next-check-loop";
-import { buildGroundedShortlistWithRisk, type FindSearchRefine } from "@/domain/find-path";
+import { applyFindNextCheck, buildGroundedShortlistWithRisk, type FindSearchRefine } from "@/domain/find-path";
 import { proposeFindNextChecks } from "@/domain/find-next-checks";
 import {
   clampFindNextCheckTargetKeys,
@@ -390,6 +391,7 @@ export async function runFindNextCheckOrchestrator(
     const priorFreeGovCount = priorAllowedIds.filter((id) => isFindFreeGovCheckId(id)).length;
     const shortlistFp = fingerprintBestDealShortlist(priorBestDeal.ranked);
     const paidSoFar = ctx.servPaidCalls ?? 0;
+    const retargetPending = ctx.servRetargetPending === true;
     const servDecision = shouldInvokeServForFindNextCheck({
       paidCallsSoFar: paidSoFar,
       remainingFreeGovCount: priorFreeGovCount,
@@ -398,6 +400,7 @@ export async function runFindNextCheckOrchestrator(
       lastServShortlistFp: ctx.lastServShortlistFp ?? null,
       neverCalledServ: paidSoFar === 0,
       consistencyOpen: consistencyStillOpen && priorAllowedIds.includes("free_car_consistency"),
+      offerServRetarget: retargetPending,
     });
     const live = await runFindNextCheckLive(
       {
@@ -445,31 +448,55 @@ export async function runFindNextCheckOrchestrator(
       });
     }
 
-    const appliedNext = [...ctx.appliedCheckIds, live.chosenId];
+    // SERV chooses order, targets, and the non-free next step. A paid or manual
+    // suggestion does not run, and is not recorded as applied, while free public
+    // checks are still open. Code runs the next free check instead.
+    const freeWorkOpen =
+      priorFreeGovCount > 0 ||
+      (consistencyStillOpen && priorAllowedIds.includes("free_car_consistency"));
+    let executedId = live.chosenId;
+    let executedTargets = live.targetKeys;
+    let replan = live.replan;
+    const servChoseExecuted = live.source === "serv";
+    const overrodeUserAction = freeWorkOpen && isUserActionFindCheck(live.chosenId);
+    if (overrodeUserAction) {
+      const nextFree = priorProposedOpen.find(
+        (check) => isFindFreeGovCheckId(check.id) || check.id === "free_car_consistency",
+      );
+      if (nextFree) {
+        executedId = nextFree.id;
+        executedTargets = [];
+        replan = applyFindNextCheck(ctx.need, nextFree.id, ctx.refine);
+      }
+    }
+    const ranServChoice = servChoseExecuted && executedId === live.chosenId;
+    const nextRetarget = overrodeUserAction && executedId !== live.chosenId && !retargetPending;
+
+    const appliedNext = [...ctx.appliedCheckIds, executedId];
     let rematch: FindNextCheckOrchestratorOk["rematch"] = null;
     let listingsAfter = ctx.listings;
     let compsPoolAfter: FindSearchListingFact[] = ctx.compsPool ?? ctx.listings;
-    let refineAfter = live.replan.refine;
+    let refineAfter = replan.refine;
     let rematchOk: boolean | null = null;
     let freeGovReceipts = priorReceipts;
     let freeEvidenceNote: string | null = null;
     let carChecks = priorCarChecks;
     const top5Keys = priorBestDeal.ranked.slice(0, 5).map((car) => car.key);
     const consistencyTargets =
-      live.chosenId === "free_car_consistency"
-        ? resolveConsistencyTargetKeys(live.targetKeys, top5Keys, checkedCarKeys)
+      executedId === "free_car_consistency"
+        ? resolveConsistencyTargetKeys(executedTargets, top5Keys, checkedCarKeys)
         : [];
-    // Explicit VIN-decode targets only. An empty list keeps the normal unchecked batch
-    // so a null target list cannot pin decode to three cars and stall the rest.
+    // Explicit vehicle-spec targets only. An empty list keeps the normal unchecked batch
+    // so a null target list cannot pin the check to three cars and stall the rest.
     const vpicTargets =
-      live.chosenId === "free_gov_vpic" ? clampFindNextCheckTargetKeys(live.targetKeys, top5Keys) : [];
-    const targetKeys = live.chosenId === "free_car_consistency" ? consistencyTargets : vpicTargets;
+      executedId === "free_gov_vpic" ? clampFindNextCheckTargetKeys(executedTargets, top5Keys) : [];
+    const targetKeys = executedId === "free_car_consistency" ? consistencyTargets : vpicTargets;
 
-    if (live.research && deps.runMatch) {
+    if (replan.research && deps.runMatch) {
       // CRITICAL: rematch uses NEW need from apply — never pre-apply / stale UI years.
       const matchResult = await deps.runMatch({
-        need: live.replan.need,
-        refine: live.replan.refine,
+        need: replan.need,
+        refine: replan.refine,
       });
       rematch = {
         ok: matchResult.ok && Boolean(matchResult.body.ok !== false),
@@ -488,20 +515,20 @@ export async function runFindNextCheckOrchestrator(
             )
           : listingsAfter;
       }
-    } else if (live.research && !deps.runMatch) {
+    } else if (replan.research && !deps.runMatch) {
       rematch = null; // client must rematch with returned needAfter only
       rematchOk = null;
     }
 
     // Free public government tools — autonomous, no Report credit, reuses Scout free-gov port.
-    if (live.replan.freeEvidence) {
+    if (replan.freeEvidence) {
       const executed = await executeFindFreeGovCheck({
-        checkId: live.chosenId,
+        checkId: executedId,
         listings: listingsAfter,
         priorReceipts,
         gov: deps.freeGovPort,
-        shopperNote: live.replan.need.note,
-        targetKeys: live.chosenId === "free_gov_vpic" && vpicTargets.length > 0 ? vpicTargets : undefined,
+        shopperNote: replan.need.note,
+        targetKeys: executedId === "free_gov_vpic" && vpicTargets.length > 0 ? vpicTargets : undefined,
       });
       if (executed) {
         // Dedup by checkId+year/make/model so cached re-runs cannot append duplicate receipts / fake cycles.
@@ -509,15 +536,15 @@ export async function runFindNextCheckOrchestrator(
           freeGovReceipts = mergeFreeGovReceiptsByMmy(priorReceipts, executed.receipts);
         }
         freeEvidenceNote = executed.note;
-        live.replan = {
-          ...live.replan,
-          note: `${live.replan.note} ${executed.note}`.trim(),
+        replan = {
+          ...replan,
+          note: `${replan.note} ${executed.note}`.trim(),
         };
       }
     }
 
     const newCarChecks =
-      live.chosenId === "free_car_consistency"
+      executedId === "free_car_consistency"
         ? executeCarConsistency({
             listings: listingsAfter,
             targetKeys: consistencyTargets,
@@ -530,7 +557,7 @@ export async function runFindNextCheckOrchestrator(
 
     const nextPaidCalls = nextPaidCallsPreview;
     const updated: FindSearchContextRecord = await updateFindSearchContext(deps.kv, ctx, {
-      need: live.replan.need,
+      need: replan.need,
       refine: refineAfter,
       listings: listingsAfter,
       compsPool: compsPoolAfter,
@@ -540,6 +567,7 @@ export async function runFindNextCheckOrchestrator(
       lastServShortlistFp:
         servHttpAttempts > 0 ? shortlistFp : (ctx.lastServShortlistFp ?? null),
       carChecks,
+      servRetargetPending: nextRetarget,
     });
 
     const fuelsByModelKey = fuelsByModelKeyFromReceipts(freeGovReceipts);
@@ -605,9 +633,9 @@ export async function runFindNextCheckOrchestrator(
         : newCarChecks.map((row) => row.key);
     const decisionEntry: FindDecisionLogEntry = {
       hop: (ctx.decisionLog?.length ?? 0) + 1,
-      decidedBy: live.source === "serv" ? "SERV" : "code",
+      decidedBy: ranServChoice ? "SERV" : "code",
       invokeReason: servDecision.reason,
-      action: live.chosenId,
+      action: executedId,
       targetCars: loggedTargets.slice(0, 3),
       evidenceAdded: evidenceAdded.slice(0, 4),
       top5Before: top5Ranks(priorBestDeal.ranked),
@@ -618,7 +646,7 @@ export async function runFindNextCheckOrchestrator(
     const decisionLog = [...(ctx.decisionLog ?? []), decisionEntry].slice(-24);
     updated.decisionLog = decisionLog;
     const consistencyFp =
-      live.chosenId === "free_car_consistency"
+      executedId === "free_car_consistency"
         ? fingerprintBestDealShortlist(bestDeal.ranked)
         : undefined;
     if (consistencyFp) updated.lastServShortlistFp = consistencyFp;
@@ -641,8 +669,8 @@ export async function runFindNextCheckOrchestrator(
     const loop = decideFindNextCheckLoop({
       keyed,
       autonomousServ,
-      chosenId: live.chosenId,
-      research: live.research,
+      chosenId: executedId,
+      research: replan.research,
       rematchOk,
       needBeforeFp: fingerprintNeed(ctx.need),
       needAfterFp: fingerprintNeed(updated.need),
@@ -662,6 +690,7 @@ export async function runFindNextCheckOrchestrator(
       shortlistCount: shortlistAfter.length,
       remainingActionableCount,
       remainingFreeGovCount,
+      consistencyStillOpen: consistencyStillOpenAfter,
     });
 
     const payload: FindNextCheckOrchestratorOk = {
@@ -670,10 +699,10 @@ export async function runFindNextCheckOrchestrator(
       source: live.source,
       autonomousServ,
       replay,
-      chosenId: live.chosenId,
+      chosenId: executedId,
       servNote: live.servNote,
-      replan: live.replan,
-      research: live.research,
+      replan,
+      research: replan.research,
       allowedChecks: live.allowedChecks,
       compare: live.compare,
       shortlist: shortlistAfter,
@@ -682,11 +711,14 @@ export async function runFindNextCheckOrchestrator(
       clampDiag: live.clampDiag,
       keyedAutonomyDiag,
       honesty:
-        live.source === "serv"
+        (live.source === "serv"
           ? `${live.honesty}${freeEvidenceNote ? ` ${freeEvidenceNote}` : ""}`
-          : `${live.honesty} Source=deterministic_fallback — not autonomous SERV.${keyedAutonomyDiag.configHint ? ` ${keyedAutonomyDiag.configHint}` : ""}${freeEvidenceNote ? ` ${freeEvidenceNote}` : ""}`,
+          : `${live.honesty} Source=deterministic_fallback — not autonomous SERV.${keyedAutonomyDiag.configHint ? ` ${keyedAutonomyDiag.configHint}` : ""}${freeEvidenceNote ? ` ${freeEvidenceNote}` : ""}`) +
+        (overrodeUserAction && executedId !== live.chosenId
+          ? " A paid or manual step was suggested. Free public checks still run."
+          : ""),
       rematch,
-      needAfter: live.replan.need,
+      needAfter: replan.need,
       appliedCheckIds: appliedNext,
       freeGovReceipts,
       freeEvidenceNote,

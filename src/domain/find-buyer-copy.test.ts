@@ -12,6 +12,8 @@ import {
   formatBuyerNextCheckWhy,
   formatBuyerProofLine,
   formatBuyerReceiptLine,
+  formatGroundedShortlistLine,
+  sellerQuestionsForBuyer,
   formatBuyerServCheckSummary,
   formatOfficialRecallNumber,
   machineReceiptsPayload,
@@ -565,5 +567,107 @@ describe("buyer-safe Find copy", () => {
       2026,
     );
     if (radar.pass && radar.why) expect(findForbiddenTechArtifacts(radar.why)).toEqual([]);
+  });
+});
+
+describe("public-check copy stays plain and honest", () => {
+  it("does not claim checks are still running when nothing is in flight", () => {
+    const idle = publicCheckStatusLine({
+      servEnabled: true,
+      anyUnchecked: true,
+      checksHaveRun: true,
+      running: false,
+      modelCount: 17,
+    });
+    expect(idle).toMatch(/not running/i);
+    expect(idle).not.toMatch(/keep checking|still finishing|year\/make\/model/i);
+    expect(assertBuyerSafeText(idle).ok).toBe(true);
+
+    const running = publicCheckStatusLine({
+      servEnabled: true,
+      anyUnchecked: true,
+      checksHaveRun: false,
+      running: true,
+      modelCount: 17,
+    });
+    expect(running).toMatch(/Public safety records: checking 17 models/);
+    expect(running).not.toMatch(/\d+\/\d+|VIN decode/);
+  });
+
+  it("does not double the period after a fuel estimate", () => {
+    const line = formatBuyerReceiptLine({
+      ...recallReceipt(),
+      checkId: "free_gov_fuel",
+      toolId: "evidence.gov_fuel",
+      fuelEvidence: {
+        match: "exact",
+        ambiguous: false,
+        combMpgLow: 28,
+        combMpgHigh: 28,
+        cityMpgLow: 24,
+        cityMpgHigh: 24,
+        highwayMpgLow: 32,
+        highwayMpgHigh: 32,
+        annualFuelUsdLow: 1500,
+        annualFuelUsdHigh: 1500,
+        epaAnnualUsdLow: null,
+        epaAnnualUsdHigh: null,
+        fuelType: "Regular Gasoline",
+        configsConsidered: 1,
+        optionTexts: [],
+        epaVehicleIds: [],
+        modelNamesTried: [],
+        assumptions: buildFindFuelAssumptions({ note: "city driving" }),
+        sourceUrl: null,
+        humanPageUrl: null,
+        reason: null,
+        honesty: "labeled estimate.",
+      },
+    });
+    expect(line).not.toMatch(/\.\./);
+    expect(line).toMatch(/Est\. fuel/);
+
+    const short = formatGroundedShortlistLine({
+      make: "Honda",
+      model: "CR-V",
+      why: "3 observed cards",
+      unknowns: ["miles-per-gallon alone is not turned into a dollar estimate."],
+    });
+    expect(short).not.toMatch(/\.\./);
+    expect(short).toMatch(/estimate\.$/);
+  });
+
+  it("shows a seller question when the card already says the listing reports an accident", () => {
+    const lines = sellerQuestionsForBuyer({
+      ranked: [],
+      allRanked: [
+        {
+          key: "CRV",
+          make: "Honda",
+          model: "CR-V",
+          year: 2017,
+          priceUsd: 14950,
+          miles: 78000,
+          vin: "CRV",
+          score: 30,
+          factors: [
+            {
+              id: "listing_feed_flags",
+              label: "Listing history flags",
+              points: 0,
+              detail: "Listing reports 1 accident — not reflected in this Find market figure",
+              source: "Listing feed flags on this card",
+            },
+          ],
+          unknowns: [],
+          fuelSummary: null,
+          excludedFromPick: false,
+          excludedReason: null,
+          sellerQuestions: [],
+        },
+      ],
+    });
+    expect(lines.join(" ")).toMatch(/Ask the seller for accident records/i);
+    expect(lines.join(" ")).toMatch(/2017 Honda CR-V/);
   });
 });

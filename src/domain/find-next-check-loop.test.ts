@@ -45,9 +45,27 @@ describe("decideFindNextCheckLoop", () => {
     expect(decideFindNextCheckLoop({ ...base, chosenId: "set_budget" }).reason).toBe(
       "needs_clarification",
     );
-    expect(decideFindNextCheckLoop({ ...base, chosenId: "run_full_analysis" }).reason).toBe(
-      "user_action_required",
-    );
+    expect(
+      decideFindNextCheckLoop({
+        ...base,
+        chosenId: "run_full_analysis",
+        remainingFreeGovCount: 0,
+        consistencyStillOpen: false,
+      }).reason,
+    ).toBe("user_action_required");
+  });
+
+  it("does not stop on a history suggestion while free public checks remain", () => {
+    const d = decideFindNextCheckLoop({
+      ...base,
+      chosenId: "get_history_report",
+      research: false,
+      rematchOk: null,
+      remainingFreeGovCount: 4,
+      consistencyStillOpen: true,
+    });
+    expect(d.continue).toBe(true);
+    expect(d.reason).toBe("remaining_free_checks");
   });
 
   it("free-gov evidence fingerprint change continues without rematch", () => {

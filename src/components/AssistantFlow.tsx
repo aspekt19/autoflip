@@ -42,6 +42,7 @@ import {
 import {
   FIND_RESULTS_BILLING_HINT,
   publicCheckStatusLine,
+  formatGroundedShortlistLine,
   formatBuyerBestDeal,
   formatBuyerLoopStatus,
   formatBuyerLoopStep,
@@ -786,10 +787,12 @@ function AssistantFlow({
       const status = formatBuyerLoopStatus(body.loop?.reason ?? null);
       const settleBit =
         toolCov && toolCov.anyUnchecked === false
-          ? "Public records checks caught up for this shortlist."
-          : toolCov && toolCov.anyUnchecked
-            ? "Still checking remaining year/make/model groups — pick may change."
-            : null;
+          ? "Public safety records are caught up for this shortlist."
+          : toolCov && toolCov.anyUnchecked && body.loop?.continue
+            ? "Public safety records are still being checked. The pick may change."
+            : toolCov && toolCov.anyUnchecked
+              ? "Public safety checks are not running. Some models are still unchecked."
+              : null;
       setNextCheckNote([step, status, settleBit].filter(Boolean).join(" "));
       if (
         shouldAutoContinueFindNextCheck({
@@ -810,7 +813,7 @@ function AssistantFlow({
       ) {
         // Bound hit — settle the spinner honestly rather than looping forever.
         setNextCheckNote((prev) =>
-          [prev, "Automatic public checks paused after many steps — some year/make/model groups may still be unchecked."]
+          [prev, "Automatic public checks paused after many steps. Some models may still be unchecked. Nothing else is running."]
             .filter(Boolean)
             .join(" "),
         );
@@ -1848,15 +1851,10 @@ function AssistantFlow({
                 if (checks.length === 0 && shortlist.length === 0 && !dealCopy) return null;
                 return (
                   <div className="hint" role="note">
-                    {servNextCheckEnabled && pending === "next-check" ? (
+                    {servNextCheckEnabled && freeGovAnyUnchecked && error && pending !== "next-check" ? (
                       <p>
-                        We keep checking public safety and fuel data automatically as results update. You do not
-                        need to press anything. The pick may change as checks complete.
-                      </p>
-                    ) : servNextCheckEnabled && freeGovAnyUnchecked && error ? (
-                      <p>
-                        Public checks paused — some year/make/model groups are still unchecked. You can retry after
-                        fixing the error; the pick may change once checks finish.
+                        Public checks stopped. Some models are still unchecked. You can retry after fixing the
+                        error. The pick may change once checks finish.
                       </p>
                     ) : (
                       <p>
@@ -1865,6 +1863,10 @@ function AssistantFlow({
                           anyUnchecked: freeGovAnyUnchecked,
                           checksHaveRun:
                             freeGovReceiptsForShortlist.length > 0 || Boolean(bestDeal),
+                          running: pending === "next-check",
+                          modelCount: new Set(
+                            allListings.map((car) => `${car.make}|${car.model}|${car.year}`),
+                          ).size,
                         })}
                       </p>
                     )}
@@ -1902,7 +1904,7 @@ function AssistantFlow({
                       </div>
                     ) : null}
                     {nextCheckNote ? <p className="hint">{nextCheckNote}</p> : null}
-                    {pending === "next-check" ? <p className="hint">Checking public records…</p> : null}
+                    {pending === "next-check" ? <p className="hint">Checking public safety records…</p> : null}
                     {pending !== "next-check" && !freeGovAnyUnchecked && bestDeal?.evidenceSettled ? (
                       <p className="hint">Checks settled — ranking below is on completed free public coverage.</p>
                     ) : null}
@@ -1968,6 +1970,16 @@ function AssistantFlow({
                             </ul>
                           </>
                         ) : null}
+                        {dealCopy.sellerQuestionLines.length > 0 ? (
+                          <>
+                            <p>Questions for the seller</p>
+                            <ul>
+                              {dealCopy.sellerQuestionLines.map((line) => (
+                                <li key={line}>{line}</li>
+                              ))}
+                            </ul>
+                          </>
+                        ) : null}
                         <p>Still unknown:</p>
                         <ul>
                           {dealCopy.stillUnknown.map((u) => (
@@ -1996,11 +2008,13 @@ function AssistantFlow({
                         <ul>
                           {shortlist.map((row) => (
                             <li key={`${row.make}-${row.model}`}>
-                              {row.make} {row.model}: {row.why}. Still unknown: {row.unknowns.join("; ")}
-                              {row.campaignRefs.length > 0
-                                ? `. ${row.campaignRefs.map((id) => formatOfficialRecallNumber(id)).join("; ")}`
-                                : ""}
-                              .
+                              {formatGroundedShortlistLine({
+                                make: row.make,
+                                model: row.model,
+                                why: row.why,
+                                unknowns: row.unknowns,
+                                campaignRefs: row.campaignRefs.map((id) => formatOfficialRecallNumber(id)),
+                              })}
                             </li>
                           ))}
                         </ul>

@@ -59,6 +59,11 @@ export type FindSearchContextRecord = {
   decisionLog?: FindDecisionLogEntry[];
   /** Per-car VIN/listing consistency receipts. */
   carChecks?: CarConsistencyReceipt[];
+  /**
+   * One paid SERV retarget is owed because the last SERV choice was a paid or
+   * manual step while free public checks were still open.
+   */
+  servRetargetPending?: boolean;
   iat: number;
   exp: number;
 };
@@ -146,6 +151,7 @@ export function mintFindSearchContextRecord(input: {
     lastServShortlistFp: null,
     decisionLog: [],
     carChecks: [],
+    servRetargetPending: false,
     iat,
     exp: iat + FIND_SEARCH_CONTEXT_TTL_SEC,
   };
@@ -229,6 +235,7 @@ export async function updateFindSearchContext(
     lastServShortlistFp?: string | null;
     decisionLog?: FindDecisionLogEntry[];
     carChecks?: CarConsistencyReceipt[];
+    servRetargetPending?: boolean;
   },
 ): Promise<FindSearchContextRecord> {
   const next: FindSearchContextRecord = {
@@ -249,6 +256,10 @@ export async function updateFindSearchContext(
         : (record.lastServShortlistFp ?? null),
     decisionLog: patch.decisionLog ?? record.decisionLog ?? [],
     carChecks: patch.carChecks ?? record.carChecks ?? [],
+    servRetargetPending:
+      patch.servRetargetPending !== undefined
+        ? patch.servRetargetPending
+        : (record.servRetargetPending ?? false),
   };
   await storeFindSearchContext(kv, next);
   return next;

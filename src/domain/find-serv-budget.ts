@@ -64,6 +64,12 @@ export function shouldInvokeServForFindNextCheck(input: {
    * Drain those in code. Do not spend another paid call per batch of target keys.
    */
   consistencyOpen?: boolean;
+  /**
+   * One follow-up paid call after SERV suggested a paid or manual step while
+   * free checks were still open, so SERV can still target a per-car check.
+   * Cleared by the caller after that call. Does not repeat each free batch.
+   */
+  offerServRetarget?: boolean;
 }): FindServInvokeDecision {
   if (input.paidCallsSoFar >= FIND_SERV_PAID_CALLS_PER_FIND_MAX) {
     return { invoke: false, reason: "paid_cap_reached" };
@@ -77,6 +83,10 @@ export function shouldInvokeServForFindNextCheck(input: {
 
   if (shortlistChanged) {
     return { invoke: true, reason: "shortlist_changed" };
+  }
+
+  if (input.offerServRetarget) {
+    return { invoke: true, reason: "nontrivial_choice" };
   }
 
   // Mid free-gov fleet drain: allowlist still has free_gov_* with unchecked MMYs.
