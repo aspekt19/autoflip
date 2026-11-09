@@ -80,12 +80,36 @@ export function buyerMethodNoteForScope(input: {
   const model = input.subject?.model?.trim() || "car";
   const trim = input.subject?.trim?.trim();
   if (input.scopeLabel.includes("widened") || input.scopeLabel.includes("wider")) {
-    return `Compared with ${input.sampleSize} similar ${model}s from nearby years, adjusted for year and mileage`;
+    return `Compared with ${input.sampleSize} similar ${model} listings from nearby years, adjusted for year and mileage`;
   }
   if (input.scopeLabel === "same-trim" && trim) {
     return `Compared with ${input.sampleSize} similar ${model} ${trim} listings from nearby model years`;
   }
   return `Compared with ${input.sampleSize} similar ${model} listings from this search`;
+}
+
+/**
+ * Plain notes when the listing feed reports accidents or CPO.
+ * Find market $ does not bake these in — surface them separately so buyers are not misled.
+ */
+export function listingFeedHistoryNotes(
+  subject: Pick<Listing, "accidentCount" | "cpo">,
+): string[] {
+  const notes: string[] = [];
+  const accidents = subject.accidentCount;
+  if (typeof accidents === "number" && Number.isFinite(accidents) && accidents > 0) {
+    notes.push(
+      accidents === 1
+        ? "Listing reports 1 accident — not reflected in this Find market figure; verify with a history report"
+        : `Listing reports ${accidents} accidents — not reflected in this Find market figure; verify with a history report`,
+    );
+  }
+  if (subject.cpo === true) {
+    notes.push(
+      "Listing marks this as certified pre-owned — not reflected in this Find market figure",
+    );
+  }
+  return notes;
 }
 
 /**
@@ -202,7 +226,7 @@ export function formatMarketAskDetail(input: {
     input.sampleSize < thinBelow ? ` (thin sample: only ${input.sampleSize} similar listings)` : "";
   const widened =
     input.scopeLabel.includes("widened") || input.scopeLabel.includes("wider");
-  const methodBit =
-    widened && input.methodNote ? ` · ${input.methodNote}` : "";
+  // Peers already say “from nearby years”; only add the year/mileage adjustment tag here.
+  const methodBit = widened ? " · adjusted for year and mileage" : "";
   return `Ask $${input.askUsd.toLocaleString("en-US")} vs market $${Math.round(input.fairValueUsd).toLocaleString("en-US")} (n=${input.sampleSize} ${peers})${thin}${methodBit}`;
 }

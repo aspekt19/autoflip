@@ -11,7 +11,7 @@ import type { FindFreeGovReceipt } from "./find-free-gov";
 import { checkedMmyKeysForCheck, freeGovToolCoverage } from "./find-free-gov";
 import type { ObservedListingRow } from "./find-model-observe";
 import { mmyListingKey } from "./find-risk-evidence";
-import { formatMarketAskDetail, resolveMarketComps } from "./market-comps";
+import { formatMarketAskDetail, listingFeedHistoryNotes, resolveMarketComps } from "./market-comps";
 import {
   BUDGET_AROUND_TOLERANCE_FRAC,
   budgetIsApproximateFromNote,
@@ -29,7 +29,8 @@ export type BestDealFactorId =
   | "mmy_ncap_rating"
   | "named_model_preference"
   | "budget_fit"
-  | "condition_priority";
+  | "condition_priority"
+  | "listing_feed_flags";
 
 export type BestDealFactorBreakdown = {
   id: BestDealFactorId;
@@ -146,6 +147,7 @@ export const BEST_DEAL_FACTOR_PLAIN_LABELS: Record<BestDealFactorId, string> = {
   named_model_preference: "named model match",
   budget_fit: "budget fit",
   condition_priority: "condition-first preference",
+  listing_feed_flags: "listing history flags",
 };
 
 export function plainFairnessHeldOutNote(heldOut: readonly BestDealFactorId[]): string | null {
@@ -183,6 +185,9 @@ export type BestDealListing = ObservedListingRow & {
   trim?: string | null;
   engine?: string | null;
   drivetrain?: string | null;
+  /** Listing-feed flags only — surfaced as notes, never baked into Find market $. */
+  accidentCount?: number | null;
+  cpo?: boolean | null;
 };
 
 export type BestDealFuelIndex = Map<string, FindFuelEvidence>;
@@ -440,8 +445,14 @@ function scoreOne(
   },
 ): BestDealCandidate {
   const factors: BestDealFactorBreakdown[] = [];
+  const feedHistory = listingFeedHistoryNotes({
+    accidentCount: row.accidentCount ?? null,
+    cpo: row.cpo ?? null,
+  });
   const unknowns: string[] = [
-    "Condition and accident/title history are unknown on these cards",
+    feedHistory.length > 0
+      ? "Listing feed flags are shown separately — still get a title/history report and inspection (Find market $ does not include them)"
+      : "Condition and accident/title history are unknown on these cards",
     "Open recalls are not checked at VIN level — only year/make/model campaigns when available",
     "A pre-purchase inspection is still required",
   ];
@@ -532,6 +543,17 @@ function scoreOne(
           ? "Not scored — no same-model priced similar listings in this search"
           : "Not scored — need a usable ask and same-model peers from this search",
       source: "Returned listings in this search only",
+    });
+  }
+
+  // Listing-reported accidents / CPO — plain note only; never moves Find market $ or score.
+  if (feedHistory.length > 0) {
+    factors.push({
+      id: "listing_feed_flags",
+      label: "Listing history flags",
+      points: 0,
+      detail: feedHistory.join(" · "),
+      source: "Listing feed flags on this card",
     });
   }
 

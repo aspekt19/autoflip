@@ -177,7 +177,7 @@ export function ReportView({ report }: { report: FullReport }) {
             <li>
               {computed.fairValueUsd === null
                 ? "No fair-value estimate. Not enough comparable listings."
-                : `Fair value ${formatUsd(computed.fairValueUsd)} is an estimate from comparable asking prices, adjusted for mileage.`}
+                : `Fair value ${formatUsd(computed.fairValueUsd)} is an estimate from similar asking prices, adjusted for mileage and listing history flags — not the same as the Find market figure, which skips history adjustments.`}
             </li>
             {computed.flip ? (
               <li>

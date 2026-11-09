@@ -146,8 +146,8 @@ function asListing(row: BestDealListing & { trim?: string | null }): Listing {
     primaryImage: null,
     carfaxUrl: null,
     used: true,
-    cpo: false,
-    accidentCount: null,
+    cpo: row.cpo ?? false,
+    accidentCount: row.accidentCount ?? null,
     oneOwner: null,
     ownerCount: null,
     usageType: null,
@@ -1091,5 +1091,61 @@ describe("Scenario2 defect 8 — price comps coverage + fairness on live shortli
       expect(assertBuyerSafeText(badge.deltaLabel ?? "").ok).toBe(true);
       expect(assertBuyerSafeText(badge.sampleNote ?? "").ok).toBe(true);
     }
+  });
+
+  it("listing accidents>0 / CPO surface as plain notes without moving Find market $", () => {
+    const pool = fullProviderCompsPool();
+    const subject = asListing({
+      ...shortlistExact.find((r) => r.vin === "SP-2016")!,
+      accidentCount: 2,
+      cpo: true,
+    });
+    const clean = asListing({
+      ...shortlistExact.find((r) => r.vin === "SP-2016")!,
+      accidentCount: null,
+      cpo: false,
+    });
+    const badgeFlagged = priceBadge(subject, pool);
+    const badgeClean = priceBadge(clean, pool);
+    expect(badgeFlagged.fairValueUsd).toBe(badgeClean.fairValueUsd);
+    expect(badgeFlagged.sampleNote).toMatch(/Listing reports 2 accidents/i);
+    expect(badgeFlagged.sampleNote).toMatch(/certified pre-owned/i);
+    expect(badgeFlagged.sampleNote).toMatch(/not reflected in this Find market figure/i);
+    expect(assertBuyerSafeText(badgeFlagged.sampleNote ?? "").ok).toBe(true);
+
+    const result = selectBestDealOnEvidence({
+      need: {
+        budgetKnown: true,
+        budgetUsd: 15_000,
+        preferredModels: [
+          { make: "Honda", model: "CR-V" },
+          { make: "Hyundai", model: "Tucson" },
+          { make: "Kia", model: "Sportage" },
+        ],
+        conditionPriority: "inspection_first",
+        note: LIVE_NOTE,
+      },
+      listings: shortlistExact.map((row) =>
+        row.vin === "SP-2016"
+          ? { ...row, accidentCount: 2, cpo: true }
+          : row,
+      ),
+      marketPool: pool,
+      receipts: fullCoverageReceipts(shortlistExact),
+      nowYear: 2026,
+    });
+    const ranked = result.ranked.find((r) => r.vin === "SP-2016")!;
+    const flags = ranked.factors.find((f) => f.id === "listing_feed_flags");
+    expect(flags).toBeTruthy();
+    expect(flags!.points).toBe(0);
+    expect(flags!.detail).toMatch(/2 accidents/i);
+    expect(flags!.detail).toMatch(/certified pre-owned/i);
+    expect(assertBuyerSafeText(flags!.detail).ok).toBe(true);
+    const price = ranked.factors.find((f) => f.id === "price_vs_model_asks")!;
+    const marketFromDetail = Number(
+      price.detail.match(/vs market \$([0-9,]+)/)?.[1]?.replace(/,/g, ""),
+    );
+    expect(badgeFlagged.fairValueUsd).toBe(marketFromDetail);
+    expect(ranked.unknowns.some((u) => /listing feed flags/i.test(u))).toBe(true);
   });
 });

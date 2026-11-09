@@ -8,7 +8,7 @@ export type CoverageInput = {
   dealerListingCount: number;
   /**
    * Total dealer listings shown across the whole Find page (all suggestion groups).
-   * When set and greater than dealerListingCount, the sentence names both numbers.
+   * When present and positive, the sentence prefers this page total over the group count.
    */
   pageListingCount?: number | null;
   /** Search radius in miles, only when the search used one. */

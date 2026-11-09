@@ -1,6 +1,6 @@
 import { priceGap } from "./comparables";
 import { formatUsd } from "./format";
-import { buyerScopePhrase, resolveMarketComps } from "./market-comps";
+import { buyerScopePhrase, listingFeedHistoryNotes, resolveMarketComps } from "./market-comps";
 import { roundDollars } from "./stats";
 import type { Listing } from "./types";
 import { verdictFromPriceGap } from "./verdict";
@@ -19,7 +19,14 @@ export type PriceBadge = {
 };
 
 export const PRICE_RATING_HOW =
-  "We compare the asking price with other dealer listings of the same make and model from this search (including listings beyond the cards shown when the provider returned more), preferring similar model years and mileage, then adjust for odometer — and for year when the window widens to nearby years. Fewer than 3 usable listings is not rated. The badge always shows the sample size and method.";
+  "We compare the asking price with other dealer listings of the same make and model from this search (including listings beyond the cards shown when the provider returned more), preferring similar model years and mileage, then adjust for odometer — and for year when the window widens to nearby years. This Find market figure does not apply accident or certified-pre-owned adjustments; a full report fair value can. Fewer than 3 usable listings is not rated. The badge always shows the sample size and method.";
+
+function withFeedHistoryNote(base: string | null, subject: Listing): string | null {
+  const flags = listingFeedHistoryNotes(subject);
+  if (flags.length === 0) return base;
+  const flagBit = flags.join(" · ");
+  return base && base.trim() ? `${base} · ${flagBit}` : flagBit;
+}
 
 export function priceBadge(subject: Listing, pool: Listing[]): PriceBadge {
   const unknown: PriceBadge = {
@@ -29,14 +36,14 @@ export function priceBadge(subject: Listing, pool: Listing[]): PriceBadge {
     deltaLabel: null,
     fairValueUsd: null,
     sampleSize: null,
-    sampleNote: null,
+    sampleNote: withFeedHistoryNote(null, subject),
   };
   const resolved = resolveMarketComps(subject, pool);
   if (!resolved.ok) {
     return {
       ...unknown,
       sampleSize: resolved.sampleSize > 0 ? resolved.sampleSize : null,
-      sampleNote: resolved.sampleNote,
+      sampleNote: withFeedHistoryNote(resolved.sampleNote, subject),
     };
   }
   if (subject.priceUsd === null) return unknown;
@@ -45,7 +52,7 @@ export function priceBadge(subject: Listing, pool: Listing[]): PriceBadge {
   const verdict = verdictFromPriceGap(gap);
   const deltaUsd = roundDollars(subject.priceUsd - resolved.fairValueUsd);
   const peers = buyerScopePhrase(resolved.scopeLabel, subject);
-  const sampleNote = resolved.sampleNote;
+  const sampleNote = withFeedHistoryNote(resolved.sampleNote, subject);
   const deltaLabel =
     deltaUsd === 0
       ? `At the market price (n=${resolved.sampleSize} ${peers})`

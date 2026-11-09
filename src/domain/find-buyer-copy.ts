@@ -52,6 +52,7 @@ export const BUYER_FORBIDDEN_TECH_PATTERNS: RegExp[] = [
   /\bnamed_model_preference\b/,
   /\bcondition_priority\b/,
   /\bbudget_fit\b/,
+  /\blisting_feed_flags\b/,
   /\bfairnessHeldOut\b/,
   /\bevidenceSettled\b/,
   /\bevidence\.gov_(?:recalls|vpic|safety|fuel)\b/,
@@ -428,7 +429,8 @@ export function formatBuyerBestDeal(result: BestDealResult): {
         .replace(/\bmiles_per_year_vs_peers\b/g, "mileage pace vs peers")
         .replace(/\bnamed_model_preference\b/g, "named model match")
         .replace(/\bcondition_priority\b/g, "condition-first preference")
-        .replace(/\bbudget_fit\b/g, "budget fit");
+        .replace(/\bbudget_fit\b/g, "budget fit")
+        .replace(/\blisting_feed_flags\b/g, "listing history flags");
     }),
     rankedLines,
     factorLines,
