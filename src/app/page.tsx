@@ -1,7 +1,10 @@
 import type { Metadata } from "next";
 import { HomeStage } from "@/components/HomeStage";
 
-export const metadata: Metadata = { title: "A clear verdict on a used car" };
+/** Absolute so the root template does not become "Lemonless · Lemonless". */
+export const metadata: Metadata = {
+  title: { absolute: "Lemonless" },
+};
 
 export default function HomePage() {
   return <HomeStage />;

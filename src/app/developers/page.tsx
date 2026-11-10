@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import { AgentKeys } from "@/components/AgentKeys";
 import { resolveProductFlags } from "@/domain/product-flags";
 
-export const metadata: Metadata = { title: "For agents" };
+export const metadata: Metadata = { title: "Agents" };
 
 /** Scout link follows the runtime flag. Do not bake SCOUT_UI_ENABLED. */
 export const dynamic = "force-dynamic";

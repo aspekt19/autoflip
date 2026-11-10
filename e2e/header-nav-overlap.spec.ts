@@ -1,6 +1,24 @@
 import { expect, test, type Page } from "@playwright/test";
 
-const WIDTHS = [1024, 1280, 1366, 1440, 1536, 1728, 1920, 2240] as const;
+/** Phones → tablets → laptops → desktops (incl. ultrawide). */
+const WIDTHS = [
+  320, 360, 375, 390, 414, 430, 768, 820, 1024, 1280, 1366, 1440, 1536, 1728, 1920, 2240, 2560, 3440,
+] as const;
+
+test("browser tab titles are brand-first", async ({ page }) => {
+  await page.goto("/");
+  await expect(page).toHaveTitle("Lemonless");
+  await page.goto("/find");
+  await expect(page).toHaveTitle("Lemonless · Find a car");
+  await page.goto("/check");
+  await expect(page).toHaveTitle("Lemonless · Check a car");
+  await page.goto("/resale");
+  await expect(page).toHaveTitle("Lemonless · Resale");
+  await page.goto("/radar");
+  await expect(page).toHaveTitle("Lemonless · Deal Radar");
+  await page.goto("/pricing");
+  await expect(page).toHaveTitle("Lemonless · Pricing");
+});
 
 test("home hero film fills the viewport under an overlaid header", async ({ page }) => {
   await page.setViewportSize({ width: 2240, height: 1260 });
@@ -11,9 +29,12 @@ test("home hero film fills the viewport under an overlaid header", async ({ page
     const sticky = document.querySelector(".film-sticky");
     if (!sticky) return null;
     const rect = sticky.getBoundingClientRect();
-    const before = getComputedStyle(document.querySelector("header.bar")!, "::before");
-    // Outside the centered pill, top strip must hit the film — not a black header curtain.
-    const hit = document.elementFromPoint(80, 36);
+    const header = document.querySelector("header.bar")!;
+    const before = getComputedStyle(header, "::before");
+    const headerBottom = header.getBoundingClientRect().bottom;
+    // Just below the full-bleed header, the film must be the hit target (no black curtain).
+    const y = Math.min(headerBottom + 8, window.innerHeight - 2);
+    const hit = document.elementFromPoint(80, y);
     const hitClass = hit instanceof Element ? hit.className.toString() : String(hit?.nodeName ?? "");
     return {
       top: rect.top,
@@ -22,6 +43,8 @@ test("home hero film fills the viewport under an overlaid header", async ({ page
       viewportH: window.innerHeight,
       beforeContent: before.content,
       hitClass,
+      headerWidth: header.getBoundingClientRect().width,
+      viewportW: window.innerWidth,
     };
   });
   expect(metrics).toBeTruthy();
@@ -30,6 +53,8 @@ test("home hero film fills the viewport under an overlaid header", async ({ page
   expect(Math.abs(metrics!.bottom - metrics!.viewportH)).toBeLessThanOrEqual(1);
   expect(metrics!.beforeContent === "none" || metrics!.beforeContent === "normal").toBe(true);
   expect(metrics!.hitClass).toMatch(/film-(canvas|poster|stage|sticky)/);
+  // Header spans the viewport (fluid pad is inside the bar).
+  expect(Math.abs(metrics!.headerWidth - metrics!.viewportW)).toBeLessThanOrEqual(1);
 });
 type Box = { x: number; y: number; width: number; height: number };
 
@@ -70,15 +95,42 @@ async function mockCrowdedHeader(page: Page) {
   });
 }
 
+test("wide viewport shows all primary links without More", async ({ page }) => {
+  await mockCrowdedHeader(page);
+  await page.setViewportSize({ width: 1920, height: 900 });
+  await page.goto("/");
+  await expect
+    .poll(async () => page.locator("header nav a[href='/scout']").count())
+    .toBeGreaterThan(0);
+  await expect(page.locator("header .nav-more-btn")).toBeHidden();
+  for (const href of ["/scout", "/reports", "/favorites", "/compare-cars"]) {
+    await expect(page.locator(`header nav a.nav-overflow[href='${href}']`)).toBeVisible();
+  }
+});
+
+test("mid viewport keeps overflow destinations under More", async ({ page }) => {
+  await mockCrowdedHeader(page);
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto("/");
+  await expect
+    .poll(async () => page.locator("header .nav-more-btn").count())
+    .toBeGreaterThan(0);
+  await expect(page.locator("header .nav-more-btn")).toBeVisible();
+  await expect(page.locator("header nav a.nav-overflow[href='/reports']")).toBeHidden();
+});
+
 for (const width of WIDTHS) {
   test(`header logo and nav do not intersect at ${width}px`, async ({ page }) => {
     await mockCrowdedHeader(page);
-    await page.setViewportSize({ width, height: 900 });
+    await page.setViewportSize({ width, height: width < 768 ? 844 : 900 });
     await page.goto("/");
     await expect(page.getByTestId("site-header")).toBeVisible();
-    await expect(page.locator("header .brand-name")).toBeVisible();
-
-    // Wait for runtime flags so Deal Radar + Scout (More) can appear.
+    // Account chip settles after /api/account (credits may be display:none under 720 when Menu is closed).
+    await expect(page.locator("header .nav-auth")).toBeVisible();
+    await expect
+      .poll(async () => page.locator("header nav .nav-go").getAttribute("aria-busy"))
+      .not.toBe("true");
+    // Flags load into the DOM even when links are in the compact Menu.
     await expect
       .poll(async () => page.locator("header nav a[href='/radar'], header nav a[href='/scout']").count())
       .toBeGreaterThan(0);
@@ -87,26 +139,40 @@ for (const width of WIDTHS) {
     const logoBox = await logo.boundingBox();
     expect(logoBox, "logo bounding box").toBeTruthy();
 
+    // Visible chrome: mark/logo + any shown nav links/More + credits + Account + Menu.
     const targets = page.locator(
-      "header nav a.nav-core:visible, header nav a.nav-overflow:visible, header nav .nav-more-btn:visible, header nav .nav-go:visible, header .nav-auth:visible, header .menu-btn:visible",
+      "header .brand, header nav a.nav-core:visible, header nav a.nav-overflow:visible, header nav .nav-more-btn:visible, header nav .nav-go:visible, header .nav-auth:visible, header .menu-btn:visible",
     );
     const count = await targets.count();
-    expect(count).toBeGreaterThan(0);
+    expect(count).toBeGreaterThan(1);
 
+    const boxes: { name: string; box: Box }[] = [];
     for (let i = 0; i < count; i += 1) {
-      const box = await targets.nth(i).boundingBox();
+      const el = targets.nth(i);
+      const box = await el.boundingBox();
       if (!box || box.width < 1 || box.height < 1) continue;
-      expect(
-        boxesIntersect(logoBox!, box),
-        `logo intersects target #${i} (${await targets.nth(i).innerText()}) at ${width}px`,
-      ).toBe(false);
+      const name = (await el.innerText().catch(() => `#${i}`)).trim() || `#${i}`;
+      boxes.push({ name, box });
+    }
+    expect(boxes.length).toBeGreaterThan(1);
+
+    // Pairwise: mark, Menu, credits (when shown), Account, and any inline nav must not overlap.
+    for (let i = 0; i < boxes.length; i += 1) {
+      for (let j = i + 1; j < boxes.length; j += 1) {
+        expect(
+          boxesIntersect(boxes[i].box, boxes[j].box),
+          `${width}px: "${boxes[i].name}" intersects "${boxes[j].name}"`,
+        ).toBe(false);
+      }
     }
 
-    // Wordmark must stay fully inside the brand lockup (no clip under Find).
+    // When the wordmark is shown, it must stay fully inside the brand lockup.
     const wordmark = page.locator("header .brand-name");
-    const wordBox = await wordmark.boundingBox();
-    expect(wordBox, "wordmark bounding box").toBeTruthy();
-    expect(wordBox!.x).toBeGreaterThanOrEqual(logoBox!.x - 0.5);
-    expect(wordBox!.x + wordBox!.width).toBeLessThanOrEqual(logoBox!.x + logoBox!.width + 0.5);
+    if (await wordmark.isVisible()) {
+      const wordBox = await wordmark.boundingBox();
+      expect(wordBox, "wordmark bounding box").toBeTruthy();
+      expect(wordBox!.x).toBeGreaterThanOrEqual(logoBox!.x - 0.5);
+      expect(wordBox!.x + wordBox!.width).toBeLessThanOrEqual(logoBox!.x + logoBox!.width + 0.5);
+    }
   });
 }

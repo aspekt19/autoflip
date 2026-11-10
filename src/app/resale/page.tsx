@@ -3,7 +3,7 @@ import Link from "next/link";
 import { ResaleFlow } from "@/components/ResaleFlow";
 import { productFlagsUnavailableMessage, resolveProductFlags } from "@/domain/product-flags";
 
-export const metadata: Metadata = { title: "Resale — find flips" };
+export const metadata: Metadata = { title: "Resale" };
 
 /** Runtime flag — must not bake RESALE_EVALUATE_ENABLED at build time. */
 export const dynamic = "force-dynamic";

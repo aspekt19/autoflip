@@ -7,7 +7,7 @@ import { authIsConfigured } from "@/auth/config";
 import { existingLedgerOwnerId, isDemoUser, authenticatedSession } from "@/server/session";
 
 export const dynamic = "force-dynamic";
-export const metadata: Metadata = { title: "My reports" };
+export const metadata: Metadata = { title: "Reports" };
 
 export default async function ReportsPage() {
   // Prefer signed-in account; otherwise read existing cookie without creating one.

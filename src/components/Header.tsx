@@ -137,7 +137,7 @@ export function Header({ scoutNavEnabled = false }: { scoutNavEnabled?: boolean 
 
   return (
     <header
-      className={`bar site-frame${overMedia ? " bar-over-media" : ""}`}
+      className={`bar${overMedia ? " bar-over-media" : ""}`}
       data-testid="site-header"
     >
       <BrandLockup size={58} animated className="brand" surface="dark" />
