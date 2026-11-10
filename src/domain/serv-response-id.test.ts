@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
   isLocalCallUuid,
-  isSyntheticChatCmplId,
   isSyntheticTestId,
   providerResponseId,
   providerResponseIdFromCall,
@@ -15,13 +14,12 @@ describe("providerResponseId", () => {
     );
   });
 
-  it("rejects bare UUIDs (local callId) and chatcmpl-<uuid>", () => {
-    // Provenance: UUID-shaped error-body id recorded in eval/results/latest.json (chatcmpl-6d69ce35-7705-440a-b716-023484661bbe).
-    const uuid = "6d69ce35-7705-440a-b716-023484661bbe";
+  it("rejects bare UUIDs (local callId) and synthetic-test-<uuid>", () => {
+    const uuid = "0fc22f78-ff49-41e6-9ac1-25ec62e96e62";
     expect(isLocalCallUuid(uuid)).toBe(true);
-    expect(isSyntheticChatCmplId(`chatcmpl-${uuid}`)).toBe(true);
+    expect(isSyntheticTestId(`synthetic-test-${uuid}`)).toBe(true);
     expect(providerResponseId(uuid)).toBeNull();
-    expect(providerResponseId(`chatcmpl-${uuid}`)).toBeNull();
+    expect(providerResponseId(`synthetic-test-${uuid}`)).toBeNull();
   });
 
   it("rejects synthetic-test-* unit-test mock ids", () => {
