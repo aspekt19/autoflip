@@ -161,27 +161,52 @@ function normalizeHaystack(text: string): string {
   return text.toLowerCase().replace(/\s+/g, " ");
 }
 
-/** True when a candidate string (or a digit-stripped form) appears in the page/URL text. */
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+/**
+ * Whole digit tokens from page text after collapsing thousand separators
+ * ($23,990 → 23990). Used so price/mileage never match on a digit substring
+ * (990 inside 23,990).
+ */
+export function wholeNumberTokensInPage(pageText: string): Set<string> {
+  let collapsed = normalizeHaystack(pageText).replace(/\$/g, " ");
+  // Collapse US-style thousand groups repeatedly: 1,234,567 → 1234567
+  for (let i = 0; i < 4; i += 1) {
+    const next = collapsed.replace(/(\d),(\d{3})(?!\d)/g, "$1$2");
+    if (next === collapsed) break;
+    collapsed = next;
+  }
+  return new Set(collapsed.match(/\d+/g) ?? []);
+}
+
+/** True when a candidate appears as a whole token in the page/URL text (never a substring). */
 export function valueAppearsInPage(value: string | number, pageText: string): boolean {
   const hay = normalizeHaystack(pageText);
   if (!hay.trim()) return false;
   if (typeof value === "number") {
-    const raw = String(value);
-    if (hay.includes(raw)) return true;
-    // Common listing formats: 23,990 or $23990
-    const grouped = raw.replace(/\B(?=(\d{3})+(?!\d))/g, ",");
-    if (hay.includes(grouped)) return true;
-    const digitsOnly = hay.replace(/[^0-9]/g, " ");
-    return digitsOnly.includes(raw);
+    if (!Number.isFinite(value)) return false;
+    const raw = String(Math.round(value));
+    return wholeNumberTokensInPage(hay).has(raw);
   }
   const needle = value.toLowerCase().trim();
   if (!needle) return false;
-  if (hay.includes(needle)) return true;
-  // Compact form for drivetrain etc. (AWD vs All-Wheel Drive already validated separately)
+  // Word-boundary match — "in" / "red" must not match inside "indiana" / "preferred".
+  const bounded = new RegExp(`(?:^|[^a-z0-9])${escapeRegExp(needle)}(?:[^a-z0-9]|$)`, "i");
+  if (bounded.test(hay)) return true;
+  // Compact form for multi-character tokens like AWD (not for short words).
   const compactNeedle = needle.replace(/[^a-z0-9]/g, "");
-  if (compactNeedle.length >= 3) {
+  if (compactNeedle.length >= 3 && compactNeedle !== needle.replace(/\s+/g, "")) {
     const compactHay = hay.replace(/[^a-z0-9]/g, "");
-    if (compactHay.includes(compactNeedle)) return true;
+    // Compact hay has no separators — require the compact needle as a whole run
+    // by checking adjacent non-matches via length scan on tokenized alnum runs.
+    const runs = compactHay.match(/[a-z0-9]+/g) ?? [compactHay];
+    if (runs.some((run) => run === compactNeedle)) return true;
+  } else if (compactNeedle.length >= 3) {
+    // Needle was already alnum (e.g. "awd") — still require a whole compact run.
+    const compactHay = hay.replace(/[^a-z0-9]+/g, " ");
+    if (new RegExp(`(?:^|\\s)${escapeRegExp(compactNeedle)}(?:\\s|$)`).test(compactHay)) return true;
   }
   return false;
 }
