@@ -392,6 +392,21 @@ export async function runRadarCycle(deps: CycleDeps): Promise<StoredRun> {
         }
         const storageKey = seenStorageKey(search.id, search.criteria);
         const book = await seenBook(deps.kv, storageKey);
+        // Drop stuck not_reviewed / code-only rows from the seen book BEFORE fresh
+        // filtering so verdict_decide can run again within the SERV cap.
+        // Code-only retries only when SERV is configured now — otherwise every Check
+        // would re-alert the same VINs forever.
+        const needsDecide = alerts.filter(
+          (row) =>
+            row.searchId === search.id &&
+            (row.status === "not_reviewed" ||
+              (Boolean(deps.servKey) &&
+                row.status === "new" &&
+                /uses the code price rating only/i.test(row.why))),
+        );
+        for (const pending of needsDecide) {
+          book.delete(pending.vin);
+        }
         const scoped = job.listings.filter((listing) => matchesWatchModels(listing, search.criteria));
         tallyReason(reasons, "model does not match", job.listings.length - scoped.length);
         const fresh = scoped.filter((listing) => {
@@ -422,12 +437,6 @@ export async function runRadarCycle(deps: CycleDeps): Promise<StoredRun> {
             return [{ listing: item.listing, numbers: item.decision.numbers, why, priceDropFrom: dropped ? previous : null }];
           }),
         );
-        // Force re-review of stuck not_reviewed Drive-it rows so verdict_decide runs again.
-        for (const pending of alerts.filter(
-          (row) => row.searchId === search.id && row.status === "not_reviewed",
-        )) {
-          book.delete(pending.vin);
-        }
         const winners = ranked.slice(0, ASSUMPTIONS.radarMaxServPerSearch);
         tallyReason(reasons, "past the SERV/alert cap", Math.max(0, ranked.length - winners.length));
         filteredOut += decisions.length - passedRows.length;

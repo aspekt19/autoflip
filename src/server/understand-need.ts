@@ -14,6 +14,8 @@ import {
   type FollowUp,
   type StructuredNeed,
 } from "@/domain/need";
+import { attachNoteGeo } from "@/domain/find-intake-stage";
+import { intakeFromNote } from "@/domain/note-intake";
 import type { DecisionProof } from "@/domain/decision-note";
 import type { CriteriaParseProvenance } from "@/domain/radar-criteria-provenance";
 import { criteriaParseLabel } from "@/domain/radar-criteria-provenance";
@@ -150,6 +152,19 @@ export async function understandNeed(
   };
   need = supplementNeedFromNote(need, screened.text);
   if (body.followUp) need = applyFollowUp(need, body.followUp.id, body.followUp.value);
+  // Drop stale wizard ZIP when this note named a city/place without those digits.
+  {
+    const intake = intakeFromNote(screened.text);
+    if (intake.locationPhrase && !intake.zip && need.zip && need.zip !== intake.zip) {
+      need = { ...need, zip: null, locationPhrase: need.locationPhrase ?? intake.locationPhrase };
+    }
+  }
+  // City/phrase → ZIP via free table; labelled default radius when city given without miles.
+  {
+    const withGeo = attachNoteGeo(need, { applyDefaultRadius: true });
+    const { locationResolution: _loc, radiusIsDefault: _rad, ...rest } = withGeo;
+    need = rest;
+  }
   const checked = validateNeed(need);
   if (!checked.ok) return { ok: false, status: 400, error: "invalid_need", message: checked.issues[0]?.message ?? "That need is not usable." };
   const recorded = checks.length > 0 ? checks : [plannedProof("need_guard"), plannedProof("need_extract")];

@@ -12,7 +12,7 @@ import { useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useRef, useState } from "react";
 import { SignInGate } from "@/components/SignInGate";
 import { formatUsd } from "@/domain/format";
-import { criteriaParseLabel, watchCriteriaSummary } from "@/domain/radar-criteria-provenance";
+import { criteriaSourceLine, watchCriteriaSummary } from "@/domain/radar-criteria-provenance";
 import { buildRadarReportPayload } from "@/domain/radar-report-handoff";
 import type { WatchCriteria } from "@/domain/radar-watch";
 import type { Mode } from "@/domain/types";
@@ -299,10 +299,12 @@ function RadarInner() {
           </li>
           <li>Next run: {nextRunAt ? `${new Date(nextRunAt).toLocaleString("en-US", { timeZone: "UTC" })} UTC` : "No run yet"}</li>
           <li>
-            Alerts on this page: {alerts.length}
-            {activity ? ` · ${activity.alertsSent} new in last check` : ""}
+            Open alerts on this page: {alerts.length}
+            {activity
+              ? ` · New from last check: ${activity.alertsSent}`
+              : " · New from last check: — (no run yet)"}
             {skippedReviews.length > 0 ? ` · ${skippedReviews.length} reviewed — skipped` : ""}
-            {notReviewed.length > 0 ? ` · ${notReviewed.length} not reviewed` : ""}
+            {notReviewed.length > 0 ? ` · ${notReviewed.length} waiting on SERV verdict` : ""}
           </li>
         </ul>
         {emailNote ? <p className="hint">{emailNote}</p> : null}
@@ -340,14 +342,17 @@ function RadarInner() {
           {searches.map((search) => {
             const seen = listingCounts.find((row) => row.searchId === search.id)?.listingsSeen ?? 0;
             const summary = watchCriteriaSummary(search.criteria, search.mode === "flip" ? "flip" : "personal");
-            const parseLabel = criteriaParseLabel(
-              search.criteria.criteriaParseSource
+            const parseLabel = criteriaSourceLine({
+              parse: search.criteria.criteriaParseSource
                 ? {
                     source: search.criteria.criteriaParseSource,
                     responseId: search.criteria.criteriaResponseId ?? null,
                   }
-                : null,
-            );
+                : { source: "form", responseId: null },
+              origin: search.criteria.criteriaOrigin ?? null,
+              originSearchId: search.criteria.originSearchId ?? null,
+              freeText: search.criteria.freeText ?? search.criteria.notes ?? null,
+            });
             return (
               <article className="radar-row" key={search.id}>
                 <div>

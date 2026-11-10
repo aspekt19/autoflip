@@ -929,7 +929,10 @@ export async function runFindNextCheckOrchestrator(
     let pickSecondPass: import("@/domain/agent-verdict-schema").AgentSecondPassResult | null = null;
     let pickServTrace: import("@/server/shopper-verdict-serv").ShopperServTrace | null = null;
     let pickAgentVerdict: import("@/domain/agent-verdict-schema").AgentVerdict | null = null;
-    if (loopSettled && buyerDeal.evidenceSettled && buyerDeal.pick) {
+    // Run verdict_decide when the loop stops with a pick — even if a soft evidence
+    // flag is still open — so the top pick always gets Buy/Negotiate/Pass + response id.
+    const shouldSettlePick = !loop.continue && Boolean(buyerDeal.pick);
+    if (shouldSettlePick && buyerDeal.pick) {
       const { runFindSettleServ } = await import("@/server/find-settle-serv");
       const settled = await runFindSettleServ({
         bestDeal: buyerDeal,

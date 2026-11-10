@@ -43,6 +43,10 @@ export type WatchCriteria = {
   criteriaParseSource?: "serv" | "code" | "form";
   /** Provider response id when criteriaParseSource is serv; never a local UUID. */
   criteriaResponseId?: string | null;
+  /** Where the watch was created: Find, Resale, or form fields only. */
+  criteriaOrigin?: "find" | "resale" | "fields";
+  /** Find/Resale search context id when available (never invent). */
+  originSearchId?: string | null;
 };
 
 export type SavedSearch = {

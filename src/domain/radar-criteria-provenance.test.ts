@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { criteriaParseLabel, watchCriteriaSummary } from "./radar-criteria-provenance";
+import { criteriaParseLabel, criteriaSourceLine, watchCriteriaSummary } from "./radar-criteria-provenance";
 
 describe("criteriaParseLabel", () => {
   it("labels SERV with a real response id", () => {
@@ -15,6 +15,19 @@ describe("criteriaParseLabel", () => {
   it("labels code and form honestly", () => {
     expect(criteriaParseLabel({ source: "code", responseId: null })).toBe("Parsed by code");
     expect(criteriaParseLabel({ source: "form", responseId: null })).toBe("Entered on the form");
+  });
+});
+
+describe("criteriaSourceLine", () => {
+  it("shows Find free text origin with parse label", () => {
+    expect(
+      criteriaSourceLine({
+        parse: { source: "code", responseId: null },
+        origin: "find",
+        originSearchId: "ctx_abc",
+        freeText: "sedan for commute",
+      }),
+    ).toBe("Find (free text) · search ctx_abc · Parsed by code");
   });
 });
 
