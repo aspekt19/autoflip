@@ -67,7 +67,19 @@ export async function GET() {
     emailNote: "Email alerts are not configured in this deployment. New matches appear on this page only.",
     activity: lastRun
       ? (() => {
-          const servActivity = (lastRun.servActivity ?? []).filter((row) => mySearchIds.has(row.searchId));
+          const servActivity = (lastRun.servActivity ?? []).filter((row) => {
+            if (mySearchIds.has(row.searchId)) return true;
+            // Shared radar_guard is stamped with the first search id in the cycle —
+            // still show it to every owner who had a search in this run.
+            if (
+              row.profile === "radar_guard" &&
+              (lastRun.ownerIds ?? []).includes(id) &&
+              (lastRun.searchIds ?? []).some((searchId) => mySearchIds.has(searchId))
+            ) {
+              return true;
+            }
+            return false;
+          });
           const minePerSearch = (lastRun.perSearch ?? []).filter((row) => mySearchIds.has(row.searchId));
           const ownerListings =
             minePerSearch.length > 0
@@ -109,6 +121,7 @@ export async function GET() {
             decisionJournal: journalFromRadarActivity(servActivity, {
               notes: ownerNotes,
               startedAt: lastRun.startedAt,
+              filterBreakdown: lastRun.filterBreakdown ?? null,
             }),
             notes: ownerNotes,
           };

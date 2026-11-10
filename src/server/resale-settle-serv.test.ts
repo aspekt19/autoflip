@@ -123,6 +123,27 @@ describe("runResaleSettleServ", () => {
     expect(result.journal.steps.some((step) => step.kind === "stop_or_widen")).toBe(true);
   });
 
+  it("labels negative mid-profit alternatives as Not profitable at ask", async () => {
+    const loser = candidate({
+      vin: "VINNEG00000000001",
+      profitMidUsd: -400,
+      rankingProfitMidUsd: -400,
+      listing: listing({ vin: "VINNEG00000000001", year: 2014, make: "Toyota", model: "Corolla", priceUsd: 11_000 }),
+    });
+    const high = candidate({
+      vin: "VINHIGH0000000001",
+      profitMidUsd: 2_500,
+      listing: listing({ vin: "VINHIGH0000000001", year: 2018, make: "Toyota", model: "Corolla", priceUsd: 9_000 }),
+    });
+    const result = await runResaleSettleServ({
+      candidates: [loser, high],
+      budgetUsd: 12_000,
+    });
+    const alt = result.alternatives.find((item) => item.vin === "VINNEG00000000001");
+    expect(alt).toBeTruthy();
+    expect(alt?.risks.some((line) => /^Not profitable at ask$/i.test(line))).toBe(true);
+  });
+
   it("picks the higher mid-profit candidate without SERV and writes a journal", async () => {
     const low = candidate({ vin: "VINLOW00000000001", profitMidUsd: 800 });
     const high = candidate({

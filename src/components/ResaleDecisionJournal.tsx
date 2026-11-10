@@ -38,7 +38,10 @@ export function ResaleDecisionJournalView({
               <span className="hint">Inputs: {step.inputsUsed.join(", ")}</span>
             ) : null}
             {step.rejected ? (
-              <span className="warn" role="status">
+              // Historical journal lines must not use role=status — that aria-live
+              // region re-announces stale http_error text when a later Check finishes
+              // with 0 new alerts while the previous journal is still on screen.
+              <span className="warn" aria-live="off">
                 {step.rejected}
                 {step.why ? ` — ${step.why}` : ""}
               </span>

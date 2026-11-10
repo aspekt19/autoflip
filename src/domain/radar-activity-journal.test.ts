@@ -1,5 +1,19 @@
 import { describe, expect, it } from "vitest";
-import { groupByHttpCall, journalFromRadarActivity, RADAR_SERV_CALL_CAP } from "./radar-activity-journal";
+import {
+  groupByHttpCall,
+  journalFromRadarActivity,
+  noAgentCallsWhy,
+  RADAR_SERV_CALL_CAP,
+} from "./radar-activity-journal";
+
+describe("noAgentCallsWhy", () => {
+  it("does not use prompt guard boilerplate as the empty-run reason", () => {
+    expect(
+      noAgentCallsWhy(["prompt guard: allow", "Email alerts are not configured. New matches stay in the Deal Radar page."]),
+    ).not.toMatch(/prompt guard/i);
+    expect(noAgentCallsWhy(["prompt guard: allow"], "already seen: 12")).toMatch(/already seen: 12/);
+  });
+});
 
 describe("journalFromRadarActivity", () => {
   it("maps SERV activity rows into the shared Resale journal schema", () => {
@@ -31,9 +45,14 @@ describe("journalFromRadarActivity", () => {
   });
 
   it("records an honest empty journal when no SERV calls ran", () => {
-    const journal = journalFromRadarActivity([]);
+    const journal = journalFromRadarActivity([], {
+      notes: ["prompt guard: allow"],
+      filterBreakdown: "already seen: 8, Not enough similar cars: 2",
+    });
     expect(journal.steps[0]?.kind).toBe("stop_or_widen");
     expect(journal.servCalls).toBe(0);
+    expect(journal.steps[0]?.why).toMatch(/already seen: 8/);
+    expect(journal.steps[0]?.why).not.toMatch(/prompt guard/i);
   });
 
   it("counts one batched radar_review HTTP response as one SERV call, not N decisions", () => {
