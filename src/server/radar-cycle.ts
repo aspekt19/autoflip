@@ -499,6 +499,7 @@ export async function runRadarCycle(deps: CycleDeps): Promise<StoredRun> {
               why: `${winner.why} SERV was not configured; this alert uses the code price rating only.`,
               checks: [],
               activity: [],
+              proofRecords: [],
             };
           }
           servActivity.push(...review.activity);

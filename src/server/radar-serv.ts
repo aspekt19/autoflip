@@ -5,6 +5,11 @@
  */
 
 import { randomUUID } from "node:crypto";
+import {
+  buildDecisionProofRecord,
+  RADAR_VERDICT_RUBRIC_ID,
+  type DecisionProofRecord,
+} from "@/domain/decision-proof-record";
 import { radarReviewFailureFields } from "@/domain/radar-review-activity";
 import { providerResponseIdFromCall } from "@/domain/serv-response-id";
 import { parseServVerdict } from "@/domain/verdict-decide";
@@ -50,6 +55,8 @@ export type RadarServReview = {
   why: string;
   checks: DecisionProof[];
   activity: RadarServActivity[];
+  /** One proof record per SERV decision (or honest skip). */
+  proofRecords: DecisionProofRecord[];
 };
 
 type ReviewDeps = {
@@ -171,6 +178,7 @@ export function radarVerdictFacts(input: {
 /**
  * Run verdict_decide (and optional challenge) for one good/fair candidate.
  * When SERV is unavailable, returns alertWorthy=true with code-only why (caller already filtered tone).
+ * Incomplete / failed SERV never invents pass — status stays unknown / not alerted.
  */
 export async function reviewPersonalCandidate(
   input: {
@@ -186,15 +194,63 @@ export async function reviewPersonalCandidate(
   const facts = radarVerdictFacts(input);
   const allowed = JSON.stringify(facts);
   const activity: RadarServActivity[] = [];
+  const proofRecords: DecisionProofRecord[] = [];
+  const recordedAt = deps.nowIso;
+  const guardChecks = proofs.filter((item) => item.purpose === "radar_guard").map(visibleProof);
+
+  // Principle 4: no verified price evidence → do not call SERV.
+  const sampleSize = input.badge.sampleSize ?? 0;
+  const verified =
+    input.numbers.fairValueUsd != null &&
+    Number.isFinite(input.numbers.fairValueUsd) &&
+    sampleSize >= 3 &&
+    (input.badge.tone === "good" || input.badge.tone === "fair");
+  if (!verified) {
+    const detail =
+      sampleSize < 3 || input.numbers.fairValueUsd == null
+        ? `Not enough verified similar listings (sample ${sampleSize}). SERV was not called.`
+        : "Price evidence is incomplete. SERV was not called.";
+    proofRecords.push(
+      buildDecisionProofRecord({
+        purpose: "verdict_decide",
+        rubricId: RADAR_VERDICT_RUBRIC_ID,
+        status: "skipped_no_evidence",
+        recordedAt,
+        inputs: facts,
+        detail,
+      }),
+    );
+    return {
+      // Incomplete → unknown, never treat as a pass/alert.
+      alertWorthy: false,
+      action: null,
+      note: null,
+      why: `${input.baseWhy} ${detail}`,
+      checks: guardChecks,
+      activity,
+      proofRecords,
+    };
+  }
 
   if (!deps.servKey || deps.timeoutMs < 500) {
+    proofRecords.push(
+      buildDecisionProofRecord({
+        purpose: "verdict_decide",
+        rubricId: RADAR_VERDICT_RUBRIC_ID,
+        status: "skipped_no_key",
+        recordedAt,
+        inputs: facts,
+        detail: "SERV was not available for this run; code price rating only.",
+      }),
+    );
     return {
       alertWorthy: true,
       action: null,
       note: null,
       why: `${input.baseWhy} SERV was not available for this run; this alert uses the code price rating only.`,
-      checks: proofs.filter((item) => item.purpose === "radar_guard").map(visibleProof),
+      checks: guardChecks,
       activity,
+      proofRecords,
     };
   }
 
@@ -235,16 +291,52 @@ export async function reviewPersonalCandidate(
   let why = input.baseWhy;
   if (action && !decideFail && parsed?.note) {
     why = `${input.baseWhy} SERV: ${action}. ${parsed.note}`;
+    proofRecords.push(
+      buildDecisionProofRecord({
+        purpose: "verdict_decide",
+        rubricId: RADAR_VERDICT_RUBRIC_ID,
+        status: "ok",
+        responseId: responseIdFrom(decided.proof, true),
+        model: decided.proof.modelReported,
+        recordedAt,
+        inputs: facts,
+        verdict: action,
+        detail: parsed.note,
+      }),
+    );
   } else if (decided.ok && !action) {
     why = `${input.baseWhy} SERV returned an unusable verdict; this match was not alerted.`;
     alertWorthy = false;
+    proofRecords.push(
+      buildDecisionProofRecord({
+        purpose: "verdict_decide",
+        rubricId: RADAR_VERDICT_RUBRIC_ID,
+        status: "unknown",
+        model: decided.proof.modelReported,
+        recordedAt,
+        inputs: facts,
+        detail: "SERV returned an unusable verdict.",
+      }),
+    );
   } else if (!decided.ok) {
-    why = `${input.baseWhy} SERV did not finish (${decideFail?.note ?? decided.error}); this match was not alerted.`;
+    const failDetail = decideFail?.note ?? decided.error;
+    why = `${input.baseWhy} SERV did not finish (${failDetail}); this match was not alerted.`;
     alertWorthy = false;
+    proofRecords.push(
+      buildDecisionProofRecord({
+        purpose: "verdict_decide",
+        rubricId: RADAR_VERDICT_RUBRIC_ID,
+        status: "error",
+        model: decided.proof.modelReported,
+        recordedAt,
+        inputs: facts,
+        detail: failDetail,
+      }),
+    );
   }
 
   const checks: DecisionProof[] = [
-    ...proofs.filter((item) => item.purpose === "radar_guard").map(visibleProof),
+    ...guardChecks,
     visibleProof(decided.proof),
   ];
 
@@ -252,21 +344,20 @@ export async function reviewPersonalCandidate(
     const challengeMs = Math.min(deps.timeoutMs, 12_000);
     if (challengeMs >= 500) {
       const challengeCallId = randomUUID();
+      const challengeInputs = {
+        primaryAction: action,
+        evidence: [
+          { id: "e1", text: `asking ${input.numbers.priceUsd}` },
+          { id: "e2", text: `fairValue ${input.numbers.fairValueUsd}` },
+          { id: "e3", text: `tone ${input.badge.tone}` },
+          { id: "e4", text: `label ${input.badge.label}` },
+        ],
+        allowedEvidenceIds: ["e1", "e2", "e3", "e4"],
+        allowedActions: (facts.allowedActions as string[]) ?? [],
+      };
       const challenged = await runServ(
         "verdict_challenge",
-        {
-          user: JSON.stringify({
-            primaryAction: action,
-            evidence: [
-              { id: "e1", text: `asking ${input.numbers.priceUsd}` },
-              { id: "e2", text: `fairValue ${input.numbers.fairValueUsd}` },
-              { id: "e3", text: `tone ${input.badge.tone}` },
-              { id: "e4", text: `label ${input.badge.label}` },
-            ],
-            allowedEvidenceIds: ["e1", "e2", "e3", "e4"],
-            allowedActions: (facts.allowedActions as string[]) ?? [],
-          }),
-        },
+        { user: JSON.stringify(challengeInputs) },
         {
           fetch: deps.fetchImpl,
           apiKey: deps.servKey,
@@ -283,6 +374,17 @@ export async function reviewPersonalCandidate(
         const fail = failureFieldsFromResult(challenged);
         challengeDecision = fail.decision;
         challengeNote = fail.note;
+        proofRecords.push(
+          buildDecisionProofRecord({
+            purpose: "verdict_challenge",
+            rubricId: RADAR_VERDICT_RUBRIC_ID,
+            status: "error",
+            model: challenged.proof.modelReported,
+            recordedAt,
+            inputs: challengeInputs,
+            detail: fail.note,
+          }),
+        );
       } else {
         try {
           const body = JSON.parse(challenged.text) as {
@@ -301,8 +403,32 @@ export async function reviewPersonalCandidate(
           } else {
             challengeNote = "agreed";
           }
+          proofRecords.push(
+            buildDecisionProofRecord({
+              purpose: "verdict_challenge",
+              rubricId: RADAR_VERDICT_RUBRIC_ID,
+              status: "ok",
+              responseId: responseIdFrom(challenged.proof, true),
+              model: challenged.proof.modelReported,
+              recordedAt,
+              inputs: challengeInputs,
+              verdict: challengeDecision ?? challengeNote,
+              detail: challengeNote,
+            }),
+          );
         } catch {
           challengeNote = "unparseable";
+          proofRecords.push(
+            buildDecisionProofRecord({
+              purpose: "verdict_challenge",
+              rubricId: RADAR_VERDICT_RUBRIC_ID,
+              status: "unknown",
+              model: challenged.proof.modelReported,
+              recordedAt,
+              inputs: challengeInputs,
+              detail: "Challenge response was unparseable.",
+            }),
+          );
         }
       }
       activity.push(
@@ -325,7 +451,7 @@ export async function reviewPersonalCandidate(
   const decideRow = activity.find((row) => row.profile === "verdict_decide");
   if (decideRow) decideRow.alerted = alertWorthy;
 
-  return { alertWorthy, action, note, why, checks, activity };
+  return { alertWorthy, action, note, why, checks, activity, proofRecords };
 }
 
 function quotedSafe(note: string, allowedJson: string): boolean {

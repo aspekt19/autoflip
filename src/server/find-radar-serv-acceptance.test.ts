@@ -8,13 +8,24 @@
 import { describe, expect, it } from "vitest";
 import { MemoryKv } from "@/io/kv";
 import { demoPresets } from "@/domain/demo-presets";
+import {
+  assertServStepProof,
+  isDecisionProofRecord,
+  NEED_PARSE_RUBRIC_ID,
+  RADAR_VERDICT_RUBRIC_ID,
+  VERDICT_RUBRIC_ID,
+} from "@/domain/decision-proof-record";
 import { seenStorageKey, type SavedSearch, type WatchAlert } from "@/domain/radar-watch";
 import type { BestDealCandidate, BestDealResult } from "@/domain/find-best-deal";
 import { understandNeed } from "@/server/understand-need";
 import { runFindSettleServ } from "@/server/find-settle-serv";
+import { reviewPersonalCandidate } from "@/server/radar-serv";
 import { normalizeCriteria } from "@/server/radar-normalize-criteria";
 import { listAlerts, listRuns, saveAlerts, saveSearches, seenVins, storeSeenPrices } from "@/server/radar-store";
 import { runRadarCycle } from "@/server/radar-cycle";
+import type { Listing } from "@/domain/types";
+import type { AlertNumbers } from "@/domain/radar-watch";
+import type { PriceBadge } from "@/domain/price-badge";
 
 const NOTE =
   "Looking for a Toyota RAV4 near Miami under $18,000 with under 80,000 miles for commuting.";
@@ -168,6 +179,13 @@ describe("find → SERV → watch → radar verdict_decide acceptance (merge gat
     expect(parsed.criteriaParse.source).toBe("serv");
     expect(parsed.criteriaParse.responseId).toBe(EXTRACT_ID);
     expect(parsed.criteriaParse.label).toMatch(/response\s+chatcmpl-FindExtractE2E01/);
+    expect(parsed.proofRecords.every(isDecisionProofRecord)).toBe(true);
+    const guardProof = assertServStepProof(parsed.proofRecords, "need_guard");
+    expect(guardProof.rubricId).toBe(NEED_PARSE_RUBRIC_ID);
+    expect(guardProof.responseId).toBe(GUARD_ID);
+    const extractProof = assertServStepProof(parsed.proofRecords, "need_extract");
+    expect(extractProof.rubricId).toBe(NEED_PARSE_RUBRIC_ID);
+    expect(extractProof.responseId).toBe(EXTRACT_ID);
 
     // --- (2) Find top-pick verdict_decide even when evidenceSettled is false ---
     const pick = candidate({ key: "top" });
@@ -252,6 +270,11 @@ describe("find → SERV → watch → radar verdict_decide acceptance (merge gat
       .map((step) => step.responseId)
       .filter((id): id is string => typeof id === "string" && id.length > 0);
     expect(findIds.length, "Find agentVerdict trail missing SERV response id").toBeGreaterThan(0);
+    expect(settled.proofRecords.every(isDecisionProofRecord)).toBe(true);
+    const findDecideProof = assertServStepProof(settled.proofRecords, "verdict_decide");
+    expect(findDecideProof.rubricId).toBe(VERDICT_RUBRIC_ID);
+    expect(findDecideProof.responseId).toBe(DECIDE_ID);
+    expect(findDecideProof.clamp).toBeTruthy();
 
     // --- (3) Watch stores parse provenance ---
     const kv = new MemoryKv();
@@ -404,6 +427,76 @@ describe("find → SERV → watch → radar verdict_decide acceptance (merge gat
     const withId = decideActivity.find((row) => Boolean(row.responseId));
     expect(withId?.responseId, "radar verdict_decide missing response id").toBeTruthy();
     expect(withId?.responseId).toBe(RADAR_DECIDE_ID);
+
+    // Same proof contract as Find — reviewPersonalCandidate must emit a proof record.
+    const listing: Listing = {
+      vin: "4T1KZ1AK4MU060006",
+      year: 2016,
+      make: "Toyota",
+      model: "RAV4",
+      trim: null,
+      priceUsd: 14_900,
+      miles: 40_000,
+      city: "Miami",
+      state: "FL",
+      zip: "33101",
+      dealer: null,
+      vdp: null,
+      primaryImage: null,
+      carfaxUrl: null,
+      used: true,
+      cpo: null,
+      accidentCount: null,
+      oneOwner: null,
+      ownerCount: null,
+      usageType: null,
+      fuel: null,
+      engine: null,
+      drivetrain: null,
+      bodyStyle: "SUV",
+      latitude: null,
+      longitude: null,
+      removedAt: null,
+      source: "autodev",
+    };
+    const numbers: AlertNumbers = {
+      priceUsd: 14_900,
+      fairValueUsd: 17_000,
+      priceLabel: "Good price",
+      medianUsd: 17_000,
+      lowUsd: 16_000,
+      highUsd: 18_000,
+      gapUsd: 2_100,
+      miles: 40_000,
+      expectedMiles: 90_000,
+      roughMarginUsd: null,
+    };
+    const badge: PriceBadge = {
+      label: "Good price",
+      tone: "good",
+      deltaUsd: -2_100,
+      deltaLabel: "$2,100 below the fair value of $17,000",
+      fairValueUsd: 17_000,
+      sampleSize: 3,
+      sampleNote: "Compared with 3 similar RAV4 listings.",
+    };
+    const radarReview = await reviewPersonalCandidate(
+      { listing, numbers, badge, baseWhy: "Good price vs similar RAV4s.", budgetUsd: 18_000 },
+      {
+        fetchImpl: radarFetch,
+        servKey: "test-key",
+        servModel: "gpt-5.4-mini",
+        timeoutMs: 8_000,
+        searchId: search.id,
+        challenge: false,
+        nowIso: "2026-11-10T12:00:00.000Z",
+      },
+      [],
+    );
+    expect(radarReview.proofRecords.every(isDecisionProofRecord)).toBe(true);
+    const radarDecideProof = assertServStepProof(radarReview.proofRecords, "verdict_decide");
+    expect(radarDecideProof.rubricId).toBe(RADAR_VERDICT_RUBRIC_ID);
+    expect(radarDecideProof.responseId).toBe(RADAR_DECIDE_ID);
 
     const alerts = await listAlerts(kv);
     const stillStuckOnly =

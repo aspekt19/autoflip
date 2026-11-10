@@ -182,6 +182,8 @@ export type FindNextCheckOrchestratorOk = {
   pickServTrace?: import("@/server/shopper-verdict-serv").ShopperServTrace | null;
   /** Full shopper agentVerdict for the settled pick (decide + challenge trail). */
   pickAgentVerdict?: import("@/domain/agent-verdict-schema").AgentVerdict | null;
+  /** One proof record per settle SERV decision (shared site/MCP/af_ contract). */
+  pickProofRecords?: import("@/domain/decision-proof-record").DecisionProofRecord[];
 };
 
 export function buildKeyedAutonomyDiag(input: {
@@ -279,6 +281,7 @@ function publicResultPayload(ok: FindNextCheckOrchestratorOk): string {
     pickSecondPass: ok.pickSecondPass ?? null,
     pickServTrace: ok.pickServTrace ?? null,
     pickAgentVerdict: ok.pickAgentVerdict ?? null,
+    pickProofRecords: ok.pickProofRecords ?? [],
   });
 }
 
@@ -929,6 +932,7 @@ export async function runFindNextCheckOrchestrator(
     let pickSecondPass: import("@/domain/agent-verdict-schema").AgentSecondPassResult | null = null;
     let pickServTrace: import("@/server/shopper-verdict-serv").ShopperServTrace | null = null;
     let pickAgentVerdict: import("@/domain/agent-verdict-schema").AgentVerdict | null = null;
+    let pickProofRecords: import("@/domain/decision-proof-record").DecisionProofRecord[] = [];
     // Run verdict_decide when the loop stops with a pick — even if a soft evidence
     // flag is still open — so the top pick always gets Buy/Negotiate/Pass + response id.
     const shouldSettlePick = !loop.continue && Boolean(buyerDeal.pick);
@@ -945,6 +949,7 @@ export async function runFindNextCheckOrchestrator(
       pickSecondPass = settled.secondPass;
       pickServTrace = settled.trace;
       pickAgentVerdict = settled.agentVerdict;
+      pickProofRecords = settled.proofRecords;
     }
     const payload: FindNextCheckOrchestratorOk = {
       ok: true,
@@ -988,6 +993,7 @@ export async function runFindNextCheckOrchestrator(
       pickSecondPass,
       pickServTrace,
       pickAgentVerdict,
+      pickProofRecords,
     };
 
     if (claimId) {

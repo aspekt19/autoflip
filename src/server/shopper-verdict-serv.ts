@@ -23,6 +23,12 @@ import {
   RESALE_TIME_BUDGET_SKIP,
   type ResaleDeadline,
 } from "@/domain/resale-deadline";
+import {
+  buildDecisionProofRecord,
+  clampFromDecision,
+  VERDICT_RUBRIC_ID,
+  type DecisionProofRecord,
+} from "@/domain/decision-proof-record";
 import { providerResponseIdFromCall } from "@/domain/serv-response-id";
 import { collectReportEvidenceIds, runReportVerdictChallenge } from "@/server/agent-second-pass";
 import { profile, runServ, type ServProof } from "@/server/serv";
@@ -81,6 +87,8 @@ export type ShopperVerdictServResult = {
   /** Present when any SERV HTTP was attempted; null when skipped (no key / withheld). */
   trace: ShopperServTrace | null;
   steps: Array<{ id: string; status: string; detail?: string }>;
+  /** One proof record per decide/challenge (or honest skip). */
+  proofRecords: DecisionProofRecord[];
 };
 
 function responseIdFrom(proof: ServProof | null, ok: boolean): string | null {
@@ -399,16 +407,120 @@ export async function runShopperVerdictServ(input: {
   if (recordedModel) costBits.push(recordedModel);
   if (callTraces.length > 0) costBits.push(recordedAt);
   if (usageNote) costBits.push(usageNote);
-  if (servFailed) costBits.push("Agent step unavailable — price rules only");
+  if (servFailed) {
+    const failWhy =
+      callTraces.find((call) => call.error)?.error?.trim() ||
+      steps.find((step) => step.id === "serv_verdict_decide" && step.status !== "ok")?.detail ||
+      "SERV did not finish";
+    costBits.push(`Agent step failed: ${failWhy}`);
+  }
 
-  const decideResponseId =
-    typeof decideProof?.openserv?.id === "string" && decideProof.openserv.id.trim()
-      ? decideProof.openserv.id.trim()
-      : null;
-  const challengeResponseId =
-    typeof challengeProof?.openserv?.id === "string" && challengeProof.openserv.id.trim()
-      ? challengeProof.openserv.id.trim()
-      : null;
+  const decideResponseId = responseIdFrom(decideProof, verdictServOk);
+  const challengeOk =
+    challenge.result.status === "agreed" || challenge.result.status === "disagreed";
+  const challengeResponseId = responseIdFrom(challengeProof, challengeOk);
+  const decideFacts = verdictDecisionFacts(input.report, mandate);
+  const proofRecords: DecisionProofRecord[] = [];
+
+  if (previewDecision.gateRun.withheld) {
+    proofRecords.push(
+      buildDecisionProofRecord({
+        purpose: "verdict_decide",
+        rubricId: VERDICT_RUBRIC_ID,
+        status: "skipped_withheld",
+        model: recordedModel,
+        recordedAt,
+        inputs: decideFacts,
+        detail: previewDecision.withholdReason ?? "Verdict withheld by ordered gates.",
+      }),
+    );
+  } else if (decideCapSkipped) {
+    proofRecords.push(
+      buildDecisionProofRecord({
+        purpose: "verdict_decide",
+        rubricId: VERDICT_RUBRIC_ID,
+        status: "skipped_call_cap",
+        model: recordedModel,
+        recordedAt,
+        inputs: decideFacts,
+        detail: "call cap reached",
+      }),
+    );
+  } else if (!input.servKey) {
+    proofRecords.push(
+      buildDecisionProofRecord({
+        purpose: "verdict_decide",
+        rubricId: VERDICT_RUBRIC_ID,
+        status: "skipped_no_key",
+        recordedAt,
+        inputs: decideFacts,
+        detail: "SERV_API_KEY is not configured on this deployment.",
+      }),
+    );
+  } else if (servFailed) {
+    const failWhy =
+      callTraces.find((call) => call.profile === "verdict_decide" && call.error)?.error?.trim() ||
+      "SERV did not finish";
+    proofRecords.push(
+      buildDecisionProofRecord({
+        purpose: "verdict_decide",
+        rubricId: VERDICT_RUBRIC_ID,
+        status: "error",
+        model: recordedModel,
+        recordedAt,
+        inputs: decideFacts,
+        detail: failWhy,
+      }),
+    );
+  } else if (hadServStep) {
+    proofRecords.push(
+      buildDecisionProofRecord({
+        purpose: "verdict_decide",
+        rubricId: VERDICT_RUBRIC_ID,
+        status: "ok",
+        responseId: decideResponseId,
+        model: decideProof?.modelReported ?? recordedModel,
+        recordedAt,
+        inputs: decideFacts,
+        verdict: decision.finalAction,
+        clamp: clampFromDecision({
+          servChoice: decision.servChoice,
+          finalAction: decision.finalAction,
+          overrideReasons: decision.overrideReasons,
+        }),
+        detail: decision.note,
+      }),
+    );
+  }
+
+  if (hadServStep && challenge.result.status !== "not_run") {
+    const challengeStatus =
+      challenge.result.status === "agreed" || challenge.result.status === "disagreed"
+        ? ("ok" as const)
+        : challenge.result.status === "unavailable"
+          ? ("error" as const)
+          : ("unknown" as const);
+    proofRecords.push(
+      buildDecisionProofRecord({
+        purpose: "verdict_challenge",
+        rubricId: VERDICT_RUBRIC_ID,
+        status: challengeStatus,
+        responseId: challengeResponseId,
+        model: challengeProof?.modelReported ?? recordedModel,
+        recordedAt,
+        inputs: {
+          primaryAction: decision.finalAction,
+          evidenceIds: challenge.result.evidenceIds,
+        },
+        verdict:
+          challengeStatus === "ok"
+            ? challenge.result.action ?? challenge.result.status
+            : null,
+        detail: challenge.result.objection,
+      }),
+    );
+  }
+
   const recordedSteps = hadServStep
     ? [
         {
@@ -452,7 +564,20 @@ export async function runShopperVerdictServ(input: {
             ]
           : []),
       ]
-    : [];
+    : servFailed
+      ? [
+          {
+            decided: "Agent step failed.",
+            why:
+              callTraces.find((call) => call.error)?.error?.trim() ||
+              "SERV did not finish. No tidy fallback verdict was invented.",
+            changed: null,
+            model: recordedModel,
+            responseId: null,
+            recordedAt,
+          },
+        ]
+      : [];
 
   const agentOnlyConfidence =
     challenge.result.confidenceAfter ??
@@ -476,21 +601,23 @@ export async function runShopperVerdictServ(input: {
   agentVerdict = { ...agentVerdict, serv_steps: recordedSteps };
 
   if (servFailed) {
+    // Principle 3: keep the real error on the trail; never invent a tidy fallback verdict.
+    const failWhy =
+      callTraces.find((call) => call.error)?.error?.trim() || "SERV did not finish";
     agentVerdict = {
       ...agentVerdict,
-      no_serv_step: true,
+      no_serv_step: false,
       verdict: null,
       confidence: null,
-      serv_steps: [],
       second_pass: {
         status: "not_run",
         action: null,
-        objection: null,
+        objection: failWhy,
         evidenceIds: [],
         confidenceBefore: null,
         confidenceAfter: null,
       },
-      unknowns: ["Agent step unavailable — price rules only"],
+      unknowns: [`Agent step failed: ${failWhy}`, "unknown"],
       serv_spend: {
         calls: callTraces.length,
         costNote: costBits.join(" · "),
@@ -505,5 +632,6 @@ export async function runShopperVerdictServ(input: {
     challengeProof,
     trace: callTraces.length > 0 ? { recordedAt, model: recordedModel, calls: callTraces } : null,
     steps,
+    proofRecords,
   };
 }
