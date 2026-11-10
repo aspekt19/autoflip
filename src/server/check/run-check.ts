@@ -5,6 +5,7 @@
 import { buildCheckAgentVerdict } from "@/domain/build-check-agent-verdict";
 import type { AgentVerdict } from "@/domain/agent-verdict-schema";
 import { emptyAgentVerdict } from "@/domain/agent-verdict-schema";
+import type { DecisionProofRecord } from "@/domain/decision-proof-record";
 import { buildCheckComputedReport } from "@/server/check/check-computed-report";
 import { isServEndpointUrl } from "@/server/serv";
 import {
@@ -130,6 +131,11 @@ export type CheckResultPayload = {
    * Null when no key, gates withheld before spend, or no HTTP was dispatched.
    */
   servTrace: ShopperServTrace | null;
+  /**
+   * Shared lemonless.decision_proof.v1 rows from decide/challenge (same contract as Find/Radar).
+   * Empty when SERV is not configured or gates withheld before any decide call.
+   */
+  proofRecords: DecisionProofRecord[];
 };
 
 export type CheckRunResult =
@@ -402,9 +408,13 @@ async function attachCheckShopperServ(input: {
   compScope: string;
   userLookup: string;
   deps: CheckRunDeps;
-}): Promise<{ agentVerdict: AgentVerdict; servTrace: ShopperServTrace | null }> {
+}): Promise<{
+  agentVerdict: AgentVerdict;
+  servTrace: ShopperServTrace | null;
+  proofRecords: DecisionProofRecord[];
+}> {
   if (!input.deps.servKey?.trim()) {
-    return { agentVerdict: input.codeTrail, servTrace: null };
+    return { agentVerdict: input.codeTrail, servTrace: null, proofRecords: [] };
   }
 
   const reportVerdict =
@@ -457,10 +467,12 @@ async function attachCheckShopperServ(input: {
         no_serv_step: true,
       }),
       servTrace: null,
+      // Keep any skipped/failed rows from the shopper path — never invent ok decide rows.
+      proofRecords: shopper.proofRecords,
     };
   }
 
-  return { agentVerdict: shopper.agentVerdict, servTrace: shopper.trace };
+  return { agentVerdict: shopper.agentVerdict, servTrace: shopper.trace, proofRecords: shopper.proofRecords };
 }
 
 /**
@@ -851,6 +863,7 @@ async function buildListingVerdict(
       sample: comps.sample,
       agentVerdict: shopper.agentVerdict,
       servTrace: shopper.servTrace,
+      proofRecords: shopper.proofRecords,
     },
   };
 }
@@ -1214,6 +1227,7 @@ async function buildVinDossier(vin: string, deps: CheckRunDeps, optionalZip?: st
       })),
       agentVerdict: shopper.agentVerdict,
       servTrace: shopper.servTrace,
+      proofRecords: shopper.proofRecords,
       llmUsed: false,
       sample: compsSample,
     },

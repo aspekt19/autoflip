@@ -57,6 +57,16 @@
     }
   ],
   "verdictSchema": "lemonless.agent_verdict.v1",
+  "decisionProofSchema": "lemonless.decision_proof.v1",
+  "decisionProof": {
+    "field": "proofRecords",
+    "description": "Shared on site, MCP, and af_ REST. Each row: schemaVersion, purpose, rubricId, status (ok|failed|skipped), servResponseId (only when ok), model, timestamp, inputsDigest, verdict, clampResult, reason, optional rawResponse.",
+    "tools": {
+      "check_car": "verdict_decide / verdict_challenge when SERV ran; empty array when SERV was not configured or not called",
+      "find_cars": "need_guard / need_extract / verdict rows on completed find_cars_result",
+      "deal_radar": "radar_guard (and related) when attempted"
+    }
+  },
   "errors": {
     "envelope": ["error_code", "message", "credit_spent", "retry_safe", "next_steps"]
   },

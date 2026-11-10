@@ -44,7 +44,28 @@ Billing: 1 report credit settled only after a successful match. Balance is check
 See docs/agent-verdict-schema.json (`lemonless.agent_verdict.v1`) plus wrapper fields:
 `schema_version`, `tool`, `verdict`, `confidence`, `summary`, `reasons`, `risks`, `unknowns`,
 `subject`, `comparables_summary`, `serv.steps`, `serv.second_pass`, `serv.checks_run`,
-`code_computed`, `credit_spent`, `credits`, `free_check_spent`, `receipt_id`, `run_id`, `result`.
+`proofRecords`, `code_computed`, `credit_spent`, `credits`, `free_check_spent`, `receipt_id`,
+`run_id`, `result`.
+
+## Decision proof (`lemonless.decision_proof.v1`)
+Shared contract for site Find/Radar, MCP tools, and `af_` REST. Each row:
+
+| Field | Notes |
+|-------|--------|
+| schemaVersion | always `lemonless.decision_proof.v1` |
+| purpose | e.g. `need_guard`, `need_extract`, `verdict_decide`, `verdict_challenge`, `radar_guard` |
+| rubricId | rubric id for that purpose |
+| status | `ok` \| `failed` \| `skipped` |
+| servResponseId | provider id when `ok`; **null** on failed/skipped — never invented |
+| model | model id when known |
+| timestamp | ISO-8601 |
+| inputsDigest | sha256 of facts handed to SERV |
+| verdict | choice/action when known; null on failed/skipped |
+| clampResult | `{ servChoice, finalAction, overridden, overrideReasons }` or null |
+| reason | required when not `ok` |
+| rawResponse | optional raw SERV body when recorded |
+
+`check_car` / `POST /api/v1/check` fills `proofRecords` from the same shopper decide/challenge path as site `/check`. The array is empty only when SERV was not configured or not called (TypeScript screening still runs). Do not treat `[]` as a successful SERV decide.
 
 ## Error envelope
 ```json

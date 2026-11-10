@@ -11,7 +11,7 @@ export function toolList() {
     {
       name: "check_car",
       description:
-        "Check a car by listing URL, VIN, or pasted listing text. Same path as the site /check. Uses the account’s free monthly check allotment when available, otherwise 1 report credit — settled only after success. Requires a key with the check scope. Returns a fixed verdict schema with serv.steps, code_computed, unknowns, credit_spent, and receipt_id.",
+        "Check a car by listing URL, VIN, or pasted listing text. Same path as the site /check. Uses the account’s free monthly check allotment when available, otherwise 1 report credit — settled only after success. Requires a key with the check scope. Returns lemonless.agent_verdict.v1 plus proofRecords (lemonless.decision_proof.v1 rows for verdict_decide / verdict_challenge when SERV ran; empty array when SERV was not configured or not called — never invents servResponseId). Also includes serv.steps, code_computed, unknowns, credit_spent, and receipt_id.",
       inputSchema: {
         type: "object",
         properties: {
@@ -26,7 +26,7 @@ export function toolList() {
     {
       name: "find_cars",
       description:
-        "Start an async Find from a natural-language request. Returns run_id; poll find_cars_status / find_cars_result (or REST status/get). Costs 1 report credit after a successful search. Requires the find scope. Idempotency-Key / arguments.idempotencyKey supported.",
+        "Start an async Find from a natural-language request. Returns run_id; poll find_cars_status / find_cars_result (or REST status/get). Completed results include proofRecords (lemonless.decision_proof.v1 — need_guard / need_extract / verdict_decide / verdict_challenge). Costs 1 report credit after a successful search. Requires the find scope. Idempotency-Key / arguments.idempotencyKey supported.",
       inputSchema: {
         type: "object",
         properties: {
@@ -63,7 +63,7 @@ export function toolList() {
     {
       name: "deal_radar",
       description:
-        "One-shot scan of current Auto.dev listings for one make and model (same price rating as the site). Does not create a saved Deal Radar watch and does not unlock Radar — saved watches require a paid Radar or Radar Pro plan on the signed-in Deal Radar page (cron). Does not charge. Requires the read scope. Recalls and fuel are not included; use full_report or check_car for those.",
+        "One-shot scan of current Auto.dev listings for one make and model (same price rating as the site). Does not create a saved Deal Radar watch and does not unlock Radar — saved watches require a paid Radar or Radar Pro plan on the signed-in Deal Radar page (cron). Does not charge. Requires the read scope. Returns proofRecords (lemonless.decision_proof.v1), including radar_guard when that step ran; empty only when no SERV step was attempted. Recalls and fuel are not included; use full_report or check_car for those.",
       inputSchema: {
         type: "object",
         properties: {
@@ -159,7 +159,7 @@ export function radarToolResult(
     sample,
     message,
     ...(proof !== undefined ? { proof } : {}),
-    /** Shared lemonless.decision_proof.v1 — empty when this one-shot scan did not call SERV decide. */
+    /** Shared lemonless.decision_proof.v1 — empty when this one-shot scan did not call SERV. */
     proofRecords: proofRecords ?? [],
     listings: rows.map((row) => ({
       vin: row.listing.vin,

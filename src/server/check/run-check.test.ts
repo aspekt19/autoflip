@@ -81,6 +81,8 @@ describe("runCheck listing paste (no paid Autodev/SERV)", () => {
     expect(result.result.summary).not.toMatch(/\.\./);
     expect(result.result.agentVerdict.no_serv_step).toBe(true);
     expect(result.result.servTrace).toBeNull();
+    // No SERV key → shared proof contract is an honest empty array (never invents ids).
+    expect(result.result.proofRecords).toEqual([]);
   });
 
   it("routes listing Check through SERV decide + challenge when a key is present", async () => {
@@ -143,6 +145,12 @@ describe("runCheck listing paste (no paid Autodev/SERV)", () => {
     expect(result.result.servTrace?.calls[1]?.profile).toBe("verdict_challenge");
     expect(result.result.servTrace?.recordedAt).toMatch(/^\d{4}-/);
     expect(result.result.servTrace?.model).toBe("gpt-5.4-mini");
+    expect(result.result.proofRecords.some((row) => row.schemaVersion === "lemonless.decision_proof.v1")).toBe(
+      true,
+    );
+    expect(result.result.proofRecords.some((row) => row.purpose === "verdict_decide" && row.status === "ok")).toBe(
+      true,
+    );
   });
 
   it("builds a VIN dossier without ask/miles/ZIP", async () => {

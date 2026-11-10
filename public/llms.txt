@@ -10,14 +10,20 @@ TypeScript owns the numbers; settle credits only after success.
 - Optional: `Idempotency-Key` on paid calls to retry without a second charge.
 
 ## Tools (MCP POST /api/mcp)
-- `check_car` — VIN | listing URL | pasted text. Free monthly check or 1 credit after success. Scope: check.
-- `find_cars` — natural-language request → `run_id`. Scope: find. Then `find_cars_status` / `find_cars_result`.
-- `deal_radar` — free make/model scan. Scope: read.
+- `check_car` — VIN | listing URL | pasted text. Free monthly check or 1 credit after success. Scope: check. Returns `proofRecords` (`lemonless.decision_proof.v1`).
+- `find_cars` — natural-language request → `run_id`. Scope: find. Then `find_cars_status` / `find_cars_result` (result includes `proofRecords`).
+- `deal_radar` — free make/model scan. Scope: read. Returns `proofRecords` (e.g. `radar_guard`).
 - `full_report` — full VIN report, 1 credit. Scope: check.
 
+## Decision proof (`lemonless.decision_proof.v1`)
+Same object on site, MCP, and `af_` REST: `schemaVersion`, `purpose`, `rubricId`, `status` (`ok`|`failed`|`skipped`), `servResponseId` (only when `ok`), `model`, `timestamp`, `inputsDigest`, `verdict`, `clampResult`, `reason`, optional `rawResponse`.
+- `check_car` / `POST /api/v1/check`: rows from `verdict_decide` / `verdict_challenge` when SERV ran; `[]` when SERV was not configured or not called (never invents a response id).
+- `find_cars_result` / Find settle: need-parse + verdict rows from the run.
+- `deal_radar`: guard (and related) rows when attempted.
+
 ## REST
-- `POST /api/v1/check` — same as check_car
-- `POST /api/v1/find` → 202 `{ run_id }` ; `GET /api/v1/find/{run_id}/status` ; `GET /api/v1/find/{run_id}`
+- `POST /api/v1/check` — same as check_car (includes `proofRecords`)
+- `POST /api/v1/find` → 202 `{ run_id }` ; `GET /api/v1/find/{run_id}/status` ; `GET /api/v1/find/{run_id}` (includes `proofRecords` when completed)
 - `GET /api/v1/receipts` and `GET /api/v1/receipts/{id}`
 - `POST /api/v1/report` — full report (existing)
 

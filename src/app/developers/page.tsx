@@ -66,6 +66,36 @@ export default function DevelopersPage() {
               Verdict schema: <code>lemonless.agent_verdict.v1</code> (
               <a href="https://github.com/aspekt19/autoflip/blob/main/docs/agent-verdict-schema.json">docs</a>)
             </li>
+            <li>
+              Decision proof: <code>lemonless.decision_proof.v1</code> on success field{" "}
+              <code>proofRecords</code> (same object on site, MCP <code>tools/list</code> /{" "}
+              <code>tools/call</code>, and <code>af_</code> REST).{" "}
+              <code>servResponseId</code> only when <code>status</code> is <code>ok</code>.
+            </li>
+          </ul>
+        </section>
+
+        <section>
+          <h2>Decision proof</h2>
+          <p>
+            Every successful Check / Find / Deal Radar agent response includes{" "}
+            <code>proofRecords</code>: an array of <code>lemonless.decision_proof.v1</code> rows (
+            purpose, rubricId, status, servResponseId, model, timestamp, inputsDigest, verdict,
+            clampResult, reason, optional rawResponse).
+          </p>
+          <ul>
+            <li>
+              <code>check_car</code> — decide/challenge rows when SERV ran;{" "}
+              <code>[]</code> when SERV was not configured or not called (TypeScript screening still
+              runs; never invents a response id).
+            </li>
+            <li>
+              <code>find_cars_result</code> — need-parse and verdict rows from that Find run.
+            </li>
+            <li>
+              <code>deal_radar</code> — <code>radar_guard</code> (and related) when that step was
+              attempted.
+            </li>
           </ul>
         </section>
 
@@ -132,12 +162,17 @@ curl -s https://autoflip-umber.vercel.app/api/v1/find/RUN_ID \\
   "verdict": "negotiate",
   "confidence": "medium",
   "serv": { "steps": [{ "decided": "…", "why": "…", "changed": null }], "second_pass": null, "checks_run": ["listing_extract"], "no_serv_step": true },
+  "proofRecords": [],
   "code_computed": { "fairValueUsd": 0, "compCount": 0 },
   "unknowns": ["Paid vehicle history was not run"],
   "credit_spent": false,
   "free_check_spent": true,
   "receipt_id": "…"
 }`}</pre>
+          <p className="hint" role="note">
+            Empty <code>proofRecords</code> in this example means no SERV decide/challenge for that
+            illustrative run. Live Check fills rows when SERV is configured and called.
+          </p>
           <p>Errors always include <code>error_code</code>, <code>credit_spent</code>, <code>retry_safe</code>, and a concrete <code>next_steps.request</code>.</p>
         </section>
 
