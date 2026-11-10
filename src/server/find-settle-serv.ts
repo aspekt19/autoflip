@@ -213,9 +213,10 @@ function hasVerifiedPriceEvidence(report: ComputedReport): boolean {
 function mapDealConfidence(
   level: AgentVerdictConfidence | null | undefined,
   fallback: BestDealResult["confidence"],
-): BestDealResult["confidence"] {
+): "high" | "medium" | "low" {
   if (level === "high" || level === "medium" || level === "low") return level;
-  return fallback;
+  if (fallback === "high" || fallback === "medium" || fallback === "low") return fallback;
+  return "medium";
 }
 
 /** Buyer-visible code fact from the published pick (price factor first). */

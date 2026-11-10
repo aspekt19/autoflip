@@ -737,8 +737,10 @@ export async function runFindNextCheckOrchestrator(
       }
     }
 
-    // Consistency uses vPIC receipts. If consistency ran before vPIC, carChecks still
-    // say "has not been compared with a VIN decode yet" until we refresh after decode.
+    // After vPIC: refresh decode fields only on cars that already had free_car_consistency.
+    // Never invent new carCheck rows for unchecked cars — that would close consistencyStillOpen
+    // and block SERV from ever choosing free_car_consistency.
+    const priorConsistencyKeys = priorCarChecks.map((row) => row.key);
     const newCarChecks =
       executedId === "free_car_consistency"
         ? executeCarConsistency({
@@ -746,10 +748,10 @@ export async function runFindNextCheckOrchestrator(
             targetKeys: consistencyTargets,
             vpicReceipts: freeGovReceipts,
           })
-        : executedId === "free_gov_vpic"
+        : executedId === "free_gov_vpic" && priorConsistencyKeys.length > 0
           ? executeCarConsistency({
               listings: listingsAfter,
-              targetKeys: vpicTargets.length > 0 ? vpicTargets : top5Keys,
+              targetKeys: priorConsistencyKeys,
               vpicReceipts: freeGovReceipts,
             })
           : [];

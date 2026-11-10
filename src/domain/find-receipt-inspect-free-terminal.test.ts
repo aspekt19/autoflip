@@ -452,7 +452,7 @@ describe("parkOutside ≠ parkIt regressions", () => {
         },
       },
     ])[0]!;
-    expect(line).toMatch(/outdoor-parking guidance/i);
+    expect(line).toMatch(/outdoor-parking \/ fire-risk guidance/i);
     expect(line).not.toMatch(/park-it campaign flag for this year\/make\/model\./i);
     expect(line).not.toMatch(/api\.nhtsa\.gov|format=json|parkIt=false|parkOutside=true/i);
     const brief = freeGovReceiptsBrief([
