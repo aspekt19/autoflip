@@ -205,8 +205,10 @@ export default function CreditsPage() {
   return (
     <Suspense
       fallback={
-        <div className="wrap site-frame page">
-          <p className="eyebrow">Loading credits…</p>
+        <div className="sub">
+          <div className="sheet-page site-frame">
+            <p className="eyebrow">Loading credits…</p>
+          </div>
         </div>
       }
     >

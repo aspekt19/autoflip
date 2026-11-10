@@ -4,14 +4,48 @@ import { join } from "node:path";
 
 /**
  * Content-width contract (owner layout):
- * Centered, comfortably wide column (~920px) — not the old narrow left card,
- * and not edge-to-edge with the header. At 1440/1280: centered
- * (|left−right| ≤ 8px) and width ≥ 840px. At 390: full width minus padding.
+ * Every consumer route: main page column + h1 are horizontally centered
+ * (|left gap − right gap| ≤ 8px). Comfortable ~920px column on form pages;
+ * wide data boards still sit centered in the padded header width.
+ * At 390: full width minus padding (still centered, no overflow).
  */
 
 const ARTIFACT_DIR = join(process.cwd(), "docs/screenshots/content-width");
 
-async function mockSignedOut(page: Page) {
+/** All routes that must not hug the left with empty space on the right. */
+const ROUTES: { path: string; slug: string }[] = [
+  { path: "/", slug: "home" },
+  { path: "/find", slug: "find" },
+  { path: "/check", slug: "check" },
+  { path: "/resale", slug: "resale" },
+  { path: "/radar", slug: "radar" },
+  { path: "/activity", slug: "activity" },
+  { path: "/pricing", slug: "pricing" },
+  { path: "/compare", slug: "compare" },
+  { path: "/compare-cars", slug: "compare-cars" },
+  { path: "/reports", slug: "reports" },
+  { path: "/favorites", slug: "favorites" },
+  { path: "/scout", slug: "scout" },
+  { path: "/developers", slug: "developers" },
+  { path: "/credits", slug: "credits" },
+  { path: "/account", slug: "account" },
+  { path: "/report/sample", slug: "report-sample" },
+  { path: "/login", slug: "login" },
+  { path: "/privacy", slug: "privacy" },
+  { path: "/terms", slug: "terms" },
+];
+
+const MAIN_COL_SELECTOR = [
+  ".film-search",
+  ".flow-page.site-frame",
+  ".sheet-page.site-frame",
+  ".sub > .wrap.site-frame",
+  ".compare-sheet.site-frame",
+].join(", ");
+
+const H1_SELECTOR = "h1.brand-hero-title, .flow-page h1, .sheet-page h1, .sub h1, .compare-hero h1, main h1";
+
+async function mockAccount(page: Page) {
   await page.route("**/api/account", async (route) => {
     await route.fulfill({
       status: 200,
@@ -67,150 +101,93 @@ async function measureCenteredInViewport(page: Page, selector: string): Promise<
   }, selector);
 }
 
-test.describe("content width + centering", () => {
+test.describe("content width + centering — all routes", () => {
   test.beforeAll(() => {
     mkdirSync(join(ARTIFACT_DIR, "after"), { recursive: true });
   });
 
-  for (const width of [1440, 1280] as const) {
-    test(`home hero + search card centered column @ ${width}`, async ({ page }) => {
-      await mockSignedOut(page);
-      await page.setViewportSize({ width, height: 900 });
-      await page.goto("/");
-      await expect(page.locator("h1.brand-hero-title")).toBeVisible();
-      await expect(page.locator(".film-search")).toBeVisible();
+  for (const route of ROUTES) {
+    test(`${route.path} centered main + h1 @ 1440`, async ({ page }) => {
+      await mockAccount(page);
+      await page.setViewportSize({ width: 1440, height: 900 });
+      await page.goto(route.path, { waitUntil: "domcontentloaded" });
+      await expect(page.getByTestId("site-header")).toBeVisible({ timeout: 15_000 });
 
-      const title = await measureCenteredInViewport(page, "h1.brand-hero-title");
-      const card = await measureCenteredInViewport(page, ".film-search");
-      expect(title, "hero title metrics").not.toBeNull();
-      expect(card, "search card metrics").not.toBeNull();
-      expect(title!.gapDelta, `title |left−right| @ ${width} = ${title!.gapDelta}`).toBeLessThanOrEqual(8);
-      expect(card!.gapDelta, `card |left−right| @ ${width} = ${card!.gapDelta}`).toBeLessThanOrEqual(8);
-      expect(card!.elementWidth, `card width @ ${width} = ${card!.elementWidth}`).toBeGreaterThanOrEqual(840);
-      // Not edge-to-edge with the viewport (comfortable column, not full header).
-      expect(card!.elementWidth, `card must stay under full viewport @ ${width}`).toBeLessThan(width - 80);
+      const h1 = page.locator(H1_SELECTOR).first();
+      await expect(h1).toBeVisible({ timeout: 15_000 });
+      const main = page.locator(MAIN_COL_SELECTOR).first();
+      await expect(main).toBeVisible({ timeout: 15_000 });
+
+      const heading = await measureCenteredInViewport(page, H1_SELECTOR);
+      const column = await measureCenteredInViewport(page, MAIN_COL_SELECTOR);
+      expect(heading, `${route.path} h1 metrics`).not.toBeNull();
+      expect(column, `${route.path} main column metrics`).not.toBeNull();
+      expect(
+        heading!.gapDelta,
+        `${route.path} h1 |left−right|=${heading!.gapDelta} @ 1440`,
+      ).toBeLessThanOrEqual(8);
+      expect(
+        column!.gapDelta,
+        `${route.path} main |left−right|=${column!.gapDelta} @ 1440`,
+      ).toBeLessThanOrEqual(8);
+
+      // Comfortable column pages should be noticeably wider than the old ~560px hug.
+      if (route.path !== "/compare") {
+        expect(
+          column!.elementWidth,
+          `${route.path} main width=${column!.elementWidth} @ 1440`,
+        ).toBeGreaterThanOrEqual(840);
+      }
 
       await page.screenshot({
-        path: join(ARTIFACT_DIR, "after", `home-${width}.png`),
+        path: join(ARTIFACT_DIR, "after", `${route.slug}-1440.png`),
         fullPage: false,
       });
     });
 
-    test(`/find main panel centered column @ ${width}`, async ({ page }) => {
-      await mockSignedOut(page);
-      await page.setViewportSize({ width, height: 900 });
-      await page.goto("/find");
-      await expect(page.locator(".flow-page h1")).toBeVisible();
-      const panel = page.locator(".flow-page .onboarding-note, .flow-page .sign-in-gate").first();
-      await expect(panel).toBeVisible();
+    test(`${route.path} centered main + h1 @ 390`, async ({ page }) => {
+      await mockAccount(page);
+      await page.setViewportSize({ width: 390, height: 844 });
+      await page.goto(route.path, { waitUntil: "domcontentloaded" });
+      await expect(page.getByTestId("site-header")).toBeVisible({ timeout: 15_000 });
 
-      const heading = await measureCenteredInViewport(page, ".flow-page h1");
-      const panelMetrics = await measureCenteredInViewport(
-        page,
-        ".flow-page .sign-in-gate, .flow-page .onboarding-note",
-      );
-      expect(heading, "find heading").not.toBeNull();
-      expect(heading!.gapDelta, `find h1 centering @ ${width}`).toBeLessThanOrEqual(8);
-      expect(panelMetrics, "find panel").not.toBeNull();
-      expect(panelMetrics!.gapDelta, `find panel centering @ ${width}`).toBeLessThanOrEqual(8);
-      expect(
-        panelMetrics!.elementWidth,
-        `find panel width @ ${width} = ${panelMetrics!.elementWidth}`,
-      ).toBeGreaterThanOrEqual(840);
+      const h1 = page.locator(H1_SELECTOR).first();
+      await expect(h1).toBeVisible({ timeout: 15_000 });
+      const main = page.locator(MAIN_COL_SELECTOR).first();
+      await expect(main).toBeVisible({ timeout: 15_000 });
 
-      await page.screenshot({
-        path: join(ARTIFACT_DIR, "after", `find-${width}.png`),
-        fullPage: false,
+      const heading = await measureCenteredInViewport(page, H1_SELECTOR);
+      const column = await measureCenteredInViewport(page, MAIN_COL_SELECTOR);
+      expect(heading, `${route.path} h1 @ 390`).not.toBeNull();
+      expect(column, `${route.path} main @ 390`).not.toBeNull();
+      expect(heading!.gapDelta, `${route.path} h1 centering @ 390`).toBeLessThanOrEqual(8);
+      expect(column!.gapDelta, `${route.path} main centering @ 390`).toBeLessThanOrEqual(8);
+
+      const overflow = await page.evaluate(() => {
+        const doc = document.documentElement;
+        const body = document.body;
+        return {
+          scrollWidth: Math.max(doc.scrollWidth, body.scrollWidth),
+          clientWidth: doc.clientWidth,
+        };
       });
-    });
-
-    test(`/check main panel centered column @ ${width}`, async ({ page }) => {
-      await mockSignedOut(page);
-      await page.setViewportSize({ width, height: 900 });
-      await page.goto("/check");
-      await expect(page.locator(".flow-page h1")).toBeVisible();
-
-      const heading = await measureCenteredInViewport(page, ".flow-page h1");
-      const panelMetrics = await measureCenteredInViewport(
-        page,
-        ".flow-page .sign-in-gate, .flow-page .onboarding-note",
-      );
-      expect(heading, "check heading").not.toBeNull();
-      expect(heading!.gapDelta, `check h1 centering @ ${width}`).toBeLessThanOrEqual(8);
-      expect(panelMetrics, "check panel").not.toBeNull();
-      expect(panelMetrics!.gapDelta, `check panel centering @ ${width}`).toBeLessThanOrEqual(8);
       expect(
-        panelMetrics!.elementWidth,
-        `check panel width @ ${width} = ${panelMetrics!.elementWidth}`,
-      ).toBeGreaterThanOrEqual(840);
-
-      await page.screenshot({
-        path: join(ARTIFACT_DIR, "after", `check-${width}.png`),
-        fullPage: false,
-      });
+        overflow.scrollWidth,
+        `${route.path} horizontal overflow @ 390`,
+      ).toBeLessThanOrEqual(overflow.clientWidth + 1);
     });
   }
 
-  test("home @ 390 full width minus padding, no overflow", async ({ page }) => {
-    await mockSignedOut(page);
-    await page.setViewportSize({ width: 390, height: 844 });
-    await page.goto("/");
-    await expect(page.locator(".film-search")).toBeVisible();
-
-    const metrics = await page.evaluate(() => {
-      const card = document.querySelector(".film-search");
-      const frame = document.querySelector(".film-copy.site-frame");
-      const doc = document.documentElement;
-      const body = document.body;
-      const box = card?.getBoundingClientRect();
-      const fs = frame ? getComputedStyle(frame) : null;
-      const padL = fs ? Number.parseFloat(fs.paddingLeft) || 0 : 0;
-      const padR = fs ? Number.parseFloat(fs.paddingRight) || 0 : 0;
-      const available = window.innerWidth - padL - padR;
-      return {
-        scrollWidth: Math.max(doc.scrollWidth, body.scrollWidth),
-        clientWidth: doc.clientWidth,
-        cardWidth: box?.width ?? 0,
-        available,
-        widthDelta: Math.abs((box?.width ?? 0) - available),
-      };
+  for (const width of [1440, 1280] as const) {
+    test(`home search card width ≥ 840 and not full-bleed @ ${width}`, async ({ page }) => {
+      await mockAccount(page);
+      await page.setViewportSize({ width, height: 900 });
+      await page.goto("/");
+      const card = await measureCenteredInViewport(page, ".film-search");
+      expect(card).not.toBeNull();
+      expect(card!.gapDelta).toBeLessThanOrEqual(8);
+      expect(card!.elementWidth).toBeGreaterThanOrEqual(840);
+      expect(card!.elementWidth).toBeLessThan(width - 80);
     });
-    expect(metrics.scrollWidth).toBeLessThanOrEqual(metrics.clientWidth + 1);
-    expect(
-      metrics.widthDelta,
-      `card should fill padded width @ 390 (delta ${metrics.widthDelta})`,
-    ).toBeLessThanOrEqual(8);
-
-    await page.screenshot({
-      path: join(ARTIFACT_DIR, "after", "home-390.png"),
-      fullPage: false,
-    });
-  });
-
-  test("find @ 390 full width minus padding, no overflow", async ({ page }) => {
-    await mockSignedOut(page);
-    await page.setViewportSize({ width: 390, height: 844 });
-    await page.goto("/find");
-    await expect(page.locator(".flow-page")).toBeVisible();
-    const metrics = await page.evaluate(() => {
-      const doc = document.documentElement;
-      const body = document.body;
-      const frame = document.querySelector(".flow-page.site-frame");
-      const box = frame?.getBoundingClientRect();
-      return {
-        scrollWidth: Math.max(doc.scrollWidth, body.scrollWidth),
-        clientWidth: doc.clientWidth,
-        frameWidth: box?.width ?? 0,
-        leftGap: box?.left ?? 0,
-        rightGap: window.innerWidth - (box?.right ?? 0),
-      };
-    });
-    expect(metrics.scrollWidth).toBeLessThanOrEqual(metrics.clientWidth + 1);
-    expect(Math.abs(metrics.leftGap - metrics.rightGap)).toBeLessThanOrEqual(8);
-    expect(metrics.frameWidth).toBeGreaterThan(300);
-    await page.screenshot({
-      path: join(ARTIFACT_DIR, "after", "find-390.png"),
-      fullPage: false,
-    });
-  });
+  }
 });

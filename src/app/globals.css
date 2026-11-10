@@ -552,10 +552,10 @@ span.nav-go { cursor: default; }
   height: 100%;
   mask-image: radial-gradient(ellipse at center, transparent 0 46%, #000 78%);
 }
-.hero-home { padding: 36px 0 28px; text-align: left; overflow: hidden; }
+.hero-home { padding: 36px 0 28px; text-align: center; overflow: hidden; }
 .hero-split { display: grid; grid-template-columns: minmax(0, 1.05fr) minmax(280px, 0.95fr); gap: 36px; align-items: center; }
-.hero-home h1 { max-width: 16ch; margin-inline: 0; }
-.hero-home .lead { max-width: 42ch; margin-inline: 0; }
+.hero-home h1 { max-width: none; margin-inline: auto; }
+.hero-home .lead { max-width: 42ch; margin-inline: auto; }
 .hero-photo { margin: 0; }
 .hero-photo img { width: 100%; height: auto; border-radius: 16px; aspect-ratio: 16 / 10; object-fit: cover; }
 .hero-photo figcaption { margin-top: 8px; color: var(--muted); font-size: 13px; }
@@ -662,8 +662,8 @@ span.nav-go { cursor: default; }
 }
 .choice-desc { color: var(--muted); font-size: 16px; }
 .choice-arrow { margin-top: auto; font-family: var(--sans); font-weight: 700; font-size: 22px; }
-.compare-hero { padding-bottom: 8px; }
-.compare-hero h1 { max-width: 14ch; }
+.compare-hero { padding-bottom: 8px; text-align: center; }
+.compare-hero h1 { max-width: none; }
 .compare-sheet { margin: 0 auto 72px; }
 .compare-listing { text-align: center; margin: 36px 0 0; }
 .compare-listing h2 { margin-bottom: 8px; }
@@ -805,37 +805,60 @@ span.nav-go { cursor: default; }
   line-height: var(--type-brand-line);
 }
 .trust-row span { color: var(--muted); }
-.flow-page {
-  margin: 12px auto 72px;
-  width: 100%;
-  max-width: min(100%, calc(var(--content-col) + 2 * var(--site-pad)));
-  box-sizing: border-box;
-}
-.sheet-page {
-  width: 100%;
-  max-width: min(100%, calc(var(--content-col) + 2 * var(--site-pad)));
+/*
+  Centered comfortable column (~920px) for every app page shell.
+  Home film stays full-bleed; wide data boards (.content-wide) use header width.
+*/
+.flow-page,
+.sheet-page,
+.sub > .wrap.site-frame,
+.wrap.site-frame.page,
+.compare-hero .wrap.site-frame {
   margin-inline: auto;
+  width: 100%;
+  max-width: min(100%, calc(var(--content-col) + 2 * var(--site-pad)));
   box-sizing: border-box;
 }
-.flow-page > .kicker,
-.flow-page > h1,
-.flow-page > .lead,
-.sheet-page > .kicker,
-.sheet-page > h1,
-.sheet-page > .lead {
+.flow-page {
+  margin-block: 12px 72px;
+}
+.flow-page > :is(.kicker, .eyebrow, h1, .lead),
+.sheet-page > :is(.kicker, .eyebrow, h1, .lead),
+.sub > .wrap.site-frame > :is(.kicker, .eyebrow, h1, .lead),
+.wrap.site-frame.page > :is(.kicker, .eyebrow, h1, .lead),
+.compare-hero .wrap.site-frame > :is(.kicker, .eyebrow, h1, .lead) {
   text-align: center;
   margin-inline: auto;
 }
 .flow-page h1,
-.sheet-page h1 {
+.sheet-page h1,
+.sub > .wrap.site-frame h1,
+.wrap.site-frame.page h1,
+.compare-hero .wrap.site-frame h1 {
   max-width: none;
   width: 100%;
   font-size: clamp(32px, 4vw, 44px);
   margin-bottom: 12px;
+  text-align: center;
 }
 .flow-page .lead,
-.sheet-page .lead {
+.sheet-page .lead,
+.sub > .wrap.site-frame .lead,
+.compare-hero .wrap.site-frame .lead {
   max-width: min(62ch, 100%);
+}
+/* Wide tables / boards: fill the padded header width (equal side pad = centered). */
+.site-frame.content-wide,
+.compare-sheet.site-frame {
+  width: 100%;
+  max-width: none;
+  margin-inline: 0;
+}
+.compare-sheet > :is(.kicker, .eyebrow, h1, h2, .lead),
+.site-frame.content-wide > :is(.kicker, .eyebrow, h1, h2, .lead) {
+  text-align: center;
+  margin-inline: auto;
+  max-width: none;
 }
 .progress {
   list-style: none;
@@ -1235,10 +1258,13 @@ code, .sheet-page a, .prose a {
   overflow-wrap: anywhere;
   word-break: break-word;
 }
-.sheet-page,
+/* Do not cap .sheet-page here — content-col max-width (~920px) owns the column. */
 .prose,
 .sub {
   max-width: 100%;
+  min-width: 0;
+}
+.sheet-page {
   min-width: 0;
 }
 .verdict-level {
@@ -1301,7 +1327,13 @@ code, .sheet-page a, .prose a {
   margin-top: 16px;
 }
 .warn-box .file-chip, .radar-row .file-chip { margin: 0 8px 8px 0; }
-.sub h1 { max-width: min(22ch, 100%); }
+/* Headings fill the centered page column — never a left-hugging 22ch strip. */
+.sub h1 {
+  max-width: none;
+  width: 100%;
+  text-align: center;
+  margin-inline: auto;
+}
 @media (max-width: 380px) {
   .btn-row .action,
   .btn-row .quiet,
