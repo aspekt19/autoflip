@@ -120,6 +120,7 @@ describe("subscription webhook mapping", () => {
       id: "cs_test_1",
       mode: "subscription",
       payment_status: "paid",
+      amount_total: 10000,
       metadata: { userId: "user-1", planId: "radar" },
     });
     expect(sub.kind).toBe("plans");
@@ -138,6 +139,20 @@ describe("subscription webhook mapping", () => {
       metadata: { userId: "user-1", credits: "3" },
     });
     expect(credits.kind).toBe("credits");
+  });
+
+  it("refuses paid checkout with amount_total 0 — no plan, no credit grant", () => {
+    const started = emptyPlans();
+    const zeroTotal = billingEffect(started, "checkout.session.completed", {
+      id: "cs_test_zero_total",
+      mode: "subscription",
+      payment_status: "paid",
+      amount_total: 0,
+      metadata: { userId: "user-1", planId: "radar" },
+    });
+    expect(zeroTotal.kind).toBe("ignore");
+    expect(hasActiveRadarPlan(started)).toBe(false);
+    expect(effectiveRadarLimits(started)).toEqual(NO_RADAR_PLAN);
   });
 
   it("refuses trialing and no_payment_required — account stays on NO_RADAR_PLAN with no credit grant", () => {

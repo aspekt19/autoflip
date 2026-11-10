@@ -173,7 +173,12 @@ export function billingEffect(current: StoredPlans, type: string, object: Record
       if (!userId || !planId) return { kind: "ignore" };
       // Trials / $0 checkouts must not unlock Radar or grant plan credits.
       // Only a real paid subscription checkout activates a plan.
+      // payment_status can be "paid" with amount_total 0 (100% coupon / $0 price).
       if (object.payment_status !== "paid") {
+        return { kind: "ignore" };
+      }
+      const amountTotal = Number(object.amount_total ?? 0);
+      if (!Number.isFinite(amountTotal) || amountTotal <= 0) {
         return { kind: "ignore" };
       }
       const plan = planById(planId) ?? planByLookupKey(planId);
