@@ -635,7 +635,13 @@ function RadarInner() {
 
 export default function RadarPage() {
   return (
-    <Suspense fallback={<div className="wrap site-frame page">Loading Deal Radar…</div>}>
+    <Suspense
+      fallback={
+        <div className="wrap site-frame page">
+          <p className="eyebrow">Loading Deal Radar…</p>
+        </div>
+      }
+    >
       <SignInGate callbackPath="/radar">
         <RadarInner />
       </SignInGate>

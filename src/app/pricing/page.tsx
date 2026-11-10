@@ -185,7 +185,13 @@ function PricingContent() {
 
 export default function PricingPage() {
   return (
-    <Suspense fallback={<div className="wrap site-frame page">Loading pricing…</div>}>
+    <Suspense
+      fallback={
+        <div className="wrap site-frame page">
+          <p className="eyebrow">Loading pricing…</p>
+        </div>
+      }
+    >
       <PricingContent />
     </Suspense>
   );

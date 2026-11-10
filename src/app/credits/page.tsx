@@ -203,7 +203,13 @@ function CreditsInner() {
 
 export default function CreditsPage() {
   return (
-    <Suspense fallback={<div className="wrap site-frame page">Loading credits…</div>}>
+    <Suspense
+      fallback={
+        <div className="wrap site-frame page">
+          <p className="eyebrow">Loading credits…</p>
+        </div>
+      }
+    >
       <CreditsInner />
     </Suspense>
   );
