@@ -331,11 +331,6 @@ nav a {
 nav a:hover { color: #fff; }
 /* Desktop: overflow destinations live under More until the viewport is wide enough to fit them. */
 .nav-overflow { display: none; }
-/* Wide screens: show every primary link inline; More only when they would not fit. */
-@media (min-width: 1600px) {
-  .nav-overflow { display: inline-flex; }
-  .nav-more { display: none; }
-}
 .nav-more {
   position: relative;
   display: inline-flex;
@@ -388,6 +383,12 @@ nav a:hover { color: #fff; }
 .nav-more-panel a:hover,
 .nav-more-panel a:focus-visible {
   background: rgba(255, 255, 255, 0.06);
+}
+/* Wide screens: show every primary link inline; More only when they would not fit.
+   Must follow .nav-more { display: inline-flex } so this wins in the cascade. */
+@media (min-width: 1600px) {
+  .nav-overflow { display: inline-flex; }
+  .nav-more { display: none; }
 }
 .nav-go {
   background: var(--blue);
