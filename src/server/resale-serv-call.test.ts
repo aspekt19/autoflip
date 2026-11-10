@@ -76,6 +76,19 @@ describe("resale SERV failure labeling", () => {
     expect(fail.rejected).toBe("http_error");
   });
 
+  it("does not label model-allowlist / status-0 local failures as timeouts", () => {
+    const result = failedResult({
+      error: "Unsupported model test-model for profile resale_pick.",
+      status: 0,
+      latencyMs: 0,
+    });
+    expect(isServTimeout(result)).toBe(false);
+    const fail = describeServCallFailure(result);
+    expect(fail.isTimeout).toBe(false);
+    expect(fail.why).toMatch(/SERV call failed:/);
+    expect(fail.rejected).toBe("call_failed");
+  });
+
   it("labels validation rejects with an explicit payload prefix", () => {
     const rej = describeServPayloadRejection("Evidence id \"made_up\" was not in the evidence bundle.");
     expect(rej.why).toBe(

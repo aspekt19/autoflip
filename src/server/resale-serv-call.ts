@@ -91,8 +91,9 @@ export function stringArrayField(payload: Record<string, unknown> | null, key: s
 
 export function isServTimeout(result: ServResult): boolean {
   if (result.ok) return false;
-  if (result.status === 0) return true;
   const err = result.error ?? "";
+  // status 0 is shared by timeout, not-configured, and model-allowlist failures —
+  // only label timeout when the error text says so.
   return err === "SERV did not respond." || /timed?\s*out/i.test(err);
 }
 
@@ -111,7 +112,7 @@ export function describeServCallFailure(result: ServResult): {
       ? Math.max(0, Math.round(result.proof.latencyMs))
       : null;
   if (isServTimeout(result)) {
-    const secs = latencyMs != null ? Math.max(1, Math.round(latencyMs / 1000)) : null;
+    const secs = latencyMs != null && latencyMs > 0 ? Math.max(1, Math.round(latencyMs / 1000)) : null;
     return {
       why: secs != null ? `SERV timed out after ${secs}s` : "SERV timed out",
       rejected: "timeout",
@@ -120,10 +121,18 @@ export function describeServCallFailure(result: ServResult): {
     };
   }
   if (!result.ok) {
-    const statusBit = result.status ? `HTTP ${result.status}` : "HTTP error";
     const detail = result.error?.trim() || "call failed";
+    // status 0 is transport/local failure (not configured, allowlist, abort) — not HTTP.
+    if (!result.status) {
+      return {
+        why: `SERV call failed: ${detail}`,
+        rejected: "call_failed",
+        isTimeout: false,
+        latencyMs,
+      };
+    }
     return {
-      why: `SERV ${statusBit}: ${detail}`,
+      why: `SERV HTTP ${result.status}: ${detail}`,
       rejected: "http_error",
       isTimeout: false,
       latencyMs,
