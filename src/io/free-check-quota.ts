@@ -233,8 +233,8 @@ export async function freeCheckSlotsRemaining(
   const month = freeCheckMonthKey(now);
   const record = await read(kv, userId, month);
   const held = reservedOrCommittedCount(record);
-  return {
-    remaining: Math.max(0, FREE_VEHICLE_CHECKS_PER_MONTH - held),
-    view: freeCheckQuotaView(record.used, now),
-  };
+  // One source of truth: view.remaining matches gate remaining (held = used + reserved).
+  const remaining = Math.max(0, FREE_VEHICLE_CHECKS_PER_MONTH - held);
+  const view = freeCheckQuotaView(held, now);
+  return { remaining, view: { ...view, used: record.used, remaining } };
 }

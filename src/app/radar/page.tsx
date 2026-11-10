@@ -541,6 +541,7 @@ function SaveSearchForm({ onSaved }: { onSaved: () => void }) {
   const seedZip = params.get("zip")?.trim() || "";
   const seedMode = params.get("mode") === "flip" ? "flip" : params.get("mode") === "personal" ? "personal" : null;
   const seedRadiusRaw = params.get("distanceMiles") ?? params.get("radiusMiles");
+  const seedNationwide = params.get("nationwide") === "1";
   const seedRadius = seedRadiusRaw != null && seedRadiusRaw !== "" ? Number(seedRadiusRaw) : null;
   const [name, setName] = useState("Saved search");
   const [searchMode, setSearchMode] = useState<Mode>(seedMode ?? "personal");
@@ -551,9 +552,11 @@ function SaveSearchForm({ onSaved }: { onSaved: () => void }) {
   // Prefer the actual budget from Resale/Find handoff — never invent 18000 over a known budget.
   const [priceMax, setPriceMax] = useState(seedPrice);
   const [zip, setZip] = useState(seedZip);
-  const [distanceMiles, setDistanceMiles] = useState<number | null>(
-    seedRadius != null && Number.isFinite(seedRadius) ? seedRadius : 50,
-  );
+  const [distanceMiles, setDistanceMiles] = useState<number | null>(() => {
+    if (seedMode === "flip" && seedNationwide) return null;
+    if (seedRadius != null && Number.isFinite(seedRadius)) return seedRadius;
+    return seedMode === "flip" && !seedZip ? null : 50;
+  });
   const [notes, setNotes] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
@@ -566,12 +569,17 @@ function SaveSearchForm({ onSaved }: { onSaved: () => void }) {
       setError("Choose a make for a drive-it watch. Flip watches can stay on Any.");
       return;
     }
-    if (!zip.trim() || budget === null) {
+    if (budget === null) {
+      setError("Add a maximum price.");
+      return;
+    }
+    const nationwideFlip = searchMode === "flip" && (distanceMiles == null || distanceMiles === 0);
+    if (!nationwideFlip && !zip.trim()) {
       setError("Add a ZIP and a maximum price.");
       return;
     }
-    const radiusParsed = parseDistanceMiles(distanceMiles);
-    if (!radiusParsed.ok || radiusParsed.miles == null) {
+    const radiusParsed = nationwideFlip ? { ok: true as const, miles: null } : parseDistanceMiles(distanceMiles);
+    if (!nationwideFlip && (!radiusParsed.ok || radiusParsed.miles == null)) {
       setError(
         radiusParsed.ok
           ? "Deal Radar watches need a seller-distance radius (not nationwide)."
@@ -594,7 +602,8 @@ function SaveSearchForm({ onSaved }: { onSaved: () => void }) {
             yearMax: yearMax ? Number(yearMax) : undefined,
             priceMax: budget,
             zip: zip.trim(),
-            radiusMiles: radiusParsed.miles,
+            radiusMiles: nationwideFlip ? null : radiusParsed.ok ? radiusParsed.miles : null,
+            nationwide: nationwideFlip || undefined,
             minProfitUsd: searchMode === "flip" ? 1500 : undefined,
             notes: notes.trim() || undefined,
           },
@@ -634,7 +643,10 @@ function SaveSearchForm({ onSaved }: { onSaved: () => void }) {
         </div>
       </fieldset>
       {searchMode === "flip" ? (
-        <p className="hint">Flip uses the budget and ZIP only. Make stays Any.</p>
+        <p className="hint">
+          Flip uses the budget (and optional ZIP/radius). Leave radius empty for nationwide — same as Resale. Make stays
+          Any.
+        </p>
       ) : (
         <MakeModelFields
           make={make}
@@ -657,7 +669,7 @@ function SaveSearchForm({ onSaved }: { onSaved: () => void }) {
         distanceMiles={distanceMiles}
         onZipChange={setZip}
         onDistanceChange={setDistanceMiles}
-        allowNationwide={false}
+        allowNationwide={searchMode === "flip"}
       />
       <div className="field">
         <label htmlFor="search-notes">Notes (optional)</label>

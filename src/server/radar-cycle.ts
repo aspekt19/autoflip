@@ -34,12 +34,12 @@ import { reviewPersonalCandidate, type RadarServActivity } from "./radar-serv";
 import { listSearches, upsertRun, saveAlerts, saveSearches, seenBook, storeSeenPrices, readListingCache, writeListingCache, telegramChat, telegramPaused, type StoredRun, listAlerts } from "./radar-store";
 
 /** Stay under the 60s Hobby limit so the log write still happens. */
-export const CYCLE_BUDGET_MS = 40_000;
+export const CYCLE_BUDGET_MS = 52_000;
 
 const CALL_MS = {
   autodev: 8_000,
-  /** Ceiling for one SERV request. Personal reviews use a shorter profile timeout. */
-  serv: 25_000,
+  /** Ceiling for one SERV request — match ~35–40s profile budgets (guard/review were timing out at 8–14s). */
+  serv: 40_000,
   telegram: 5_000,
   kite: 8_000,
 };
@@ -131,7 +131,14 @@ export async function runRadarCycle(deps: CycleDeps): Promise<StoredRun> {
     const alerts = await listAlerts(deps.kv);
     const freshAlerts: WatchAlert[] = [];
 
-    promptGuard = await runGuard(searches, deps, servBudget("radar_guard", remain(), limits.serv), servChecks);
+    const guardResult = await runGuard(
+      searches,
+      deps,
+      servBudget("radar_guard", remain(), limits.serv),
+      servChecks,
+    );
+    promptGuard = guardResult.status;
+    if (guardResult.activity) servActivity.push(guardResult.activity);
     steps.push({ id: "serv_prompt_guard", status: promptGuard });
     notes.push(`prompt guard: ${promptGuard}`);
     if (promptGuard === "block") {
@@ -687,12 +694,38 @@ function parseFlipJudgment(
   }
 }
 
-async function runGuard(searches: SavedSearch[], deps: CycleDeps, timeoutMs: number, proofs: ServProof[]): Promise<string> {
-  if (!deps.servKey) return "not_configured";
+async function runGuard(
+  searches: SavedSearch[],
+  deps: CycleDeps,
+  timeoutMs: number,
+  proofs: ServProof[],
+): Promise<{ status: string; activity: RadarServActivity | null }> {
+  const searchId = searches[0]?.id ?? "radar";
+  const at = deps.now.toISOString();
+  if (!deps.servKey) return { status: "not_configured", activity: null };
   const text = searches.map((item) => `${item.name} ${item.mode} ${item.criteria.zip} ${item.criteria.priceMax}`).join("\n");
-  if (!text.trim()) return "skipped_empty";
-  if (timeoutMs <= 0) return "timeout";
+  if (!text.trim()) return { status: "skipped_empty", activity: null };
+  if (timeoutMs <= 0) {
+    return {
+      status: "timeout",
+      activity: {
+        at,
+        searchId,
+        vin: "",
+        profile: "radar_guard",
+        modelRequested: deps.servModel ?? "",
+        modelReported: "",
+        responseId: null,
+        latencyMs: 0,
+        ok: false,
+        decision: "timeout",
+        note: "SERV timed out before radar_guard could start (budget exhausted).",
+        alerted: false,
+      },
+    };
+  }
   try {
+    const started = Date.now();
     const result = await withTimeout(
       runServ("radar_guard", { user: text }, {
         fetch: deps.fetchImpl,
@@ -704,10 +737,53 @@ async function runGuard(searches: SavedSearch[], deps: CycleDeps, timeoutMs: num
       timeoutMs,
     );
     proofs.push(result.proof);
-    if (!result.ok) return result.error === "SERV did not respond." ? "timeout" : `error: ${result.error}`;
-    return interpretGuard(result.text);
+    const latencyMs = result.proof.latencyMs ?? Date.now() - started;
+    const timedOut = !result.ok && (result.error === "SERV did not respond." || result.status === 0);
+    const status = !result.ok
+      ? timedOut
+        ? "timeout"
+        : `error: ${result.error}`
+      : interpretGuard(result.text);
+    const secs = Math.max(1, Math.round(latencyMs / 1000));
+    return {
+      status,
+      activity: {
+        at,
+        searchId,
+        vin: "",
+        profile: "radar_guard",
+        modelRequested: result.proof.modelRequested ?? deps.servModel ?? "",
+        modelReported: result.proof.modelReported ?? "",
+        responseId: typeof result.proof.openserv?.id === "string" ? result.proof.openserv.id : null,
+        latencyMs,
+        ok: result.ok && status !== "block",
+        decision: status,
+        note: timedOut
+          ? `SERV timed out after ${secs}s`
+          : result.ok
+            ? `prompt guard: ${status}`
+            : result.error ?? "radar_guard failed",
+        alerted: false,
+      },
+    };
   } catch {
-    return "timeout";
+    return {
+      status: "timeout",
+      activity: {
+        at,
+        searchId,
+        vin: "",
+        profile: "radar_guard",
+        modelRequested: deps.servModel ?? "",
+        modelReported: "",
+        responseId: null,
+        latencyMs: timeoutMs,
+        ok: false,
+        decision: "timeout",
+        note: `SERV timed out after ${Math.max(1, Math.round(timeoutMs / 1000))}s`,
+        alerted: false,
+      },
+    };
   }
 }
 

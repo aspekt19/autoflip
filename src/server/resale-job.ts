@@ -43,13 +43,17 @@ export const RESALE_JOB_TTL_SEC = 60 * 60 * 2; // 2h
 export const RESALE_JOB_STEP_BUDGET_MS = RESALE_INTERNAL_BUDGET_MS;
 
 export const RESALE_JOB_STEP_LABELS = [
-  "Plan & inventory",
+  "Plan search",
+  "Inventory & P&L",
   "Triage & deep checks",
-  "Pick & challenge",
+  "Pick",
+  "Challenge",
   "Shopper decide",
 ] as const;
 
-export type ResaleJobStep = 1 | 2 | 3 | 4;
+export const RESALE_JOB_FINAL_STEP = 6 as const;
+
+export type ResaleJobStep = 1 | 2 | 3 | 4 | 5 | 6;
 
 export type ResaleJobProgressStep = {
   id: ResaleJobStep;
@@ -64,7 +68,7 @@ export type ResaleJobRecord = {
   spendKey: string;
   idempotencyKey: string;
   input: ResaleSearchInput;
-  /** Highest completed step (0 = created, not yet run). */
+  /** Highest completed step (0 = created, not yet run). Final delivery is step 6. */
   stepCompleted: 0 | ResaleJobStep;
   /**
    * - running: steps in progress
@@ -78,6 +82,8 @@ export type ResaleJobRecord = {
    */
   status: "running" | "completed" | "delivered_unpaid" | "failed";
   candidates: ResaleCandidatePnl[];
+  /** SERV/code plan refine from step 1 — consumed by inventory step 2. */
+  planRefine: { make?: string; model?: string; yearMin?: number; yearMax?: number } | null;
   planJournal: ResaleDecisionJournal;
   settleCheckpoint: ResaleSettleCheckpoint | null;
   providerQueriesUsed: number;
@@ -132,18 +138,19 @@ export function buildResaleJobProgress(stepCompleted: number): {
   label: string;
   steps: ResaleJobProgressStep[];
 } {
+  const final = RESALE_JOB_FINAL_STEP;
   const current =
-    stepCompleted >= 4 ? 4 : ((Math.max(0, stepCompleted) + 1) as ResaleJobStep);
+    stepCompleted >= final ? final : ((Math.max(0, stepCompleted) + 1) as ResaleJobStep);
   const steps: ResaleJobProgressStep[] = RESALE_JOB_STEP_LABELS.map((label, index) => {
     const id = (index + 1) as ResaleJobStep;
     if (stepCompleted >= id) return { id, label, status: "done" };
-    if (id === current && stepCompleted < 4) return { id, label, status: "current" };
+    if (id === current && stepCompleted < final) return { id, label, status: "current" };
     return { id, label, status: "pending" };
   });
   const label =
-    stepCompleted >= 4
+    stepCompleted >= final
       ? "Resale search complete"
-      : RESALE_JOB_STEP_LABELS[Math.min(3, stepCompleted)] ?? "Resale search";
+      : RESALE_JOB_STEP_LABELS[Math.min(final - 1, stepCompleted)] ?? "Resale search";
   return { label, steps };
 }
 
@@ -188,8 +195,8 @@ export function jobToClientBody(
       paidComplete
         ? null
         : unpaidDelivered
-          ? 4
-          : job.stepCompleted >= 4
+          ? RESALE_JOB_FINAL_STEP
+          : job.stepCompleted >= RESALE_JOB_FINAL_STEP
             ? null
             : ((job.stepCompleted + 1) as ResaleJobStep),
     done,
@@ -234,7 +241,7 @@ export function jobToClientBody(
       confidence: job.settleCheckpoint.confidence,
       agentVerdict: job.settleCheckpoint.agentVerdict,
       headline: `Working — ${progress.label}`,
-      message: `Step ${job.stepCompleted} of 4 complete. Credit is charged only when the final verdict is delivered.`,
+      message: `Step ${job.stepCompleted} of ${RESALE_JOB_FINAL_STEP} complete. Credit is charged only when the final verdict is delivered.`,
       nextStepHint: "Continue to the next agent step.",
     };
   }
@@ -243,9 +250,11 @@ export function jobToClientBody(
     ...base,
     headline: progress.label,
     message:
-      job.candidates.length === 0
-        ? "No flip candidates cleared economics in this scan."
-        : `Shortlisted ${job.candidates.length} candidates. Continuing agent steps…`,
+      job.stepCompleted < 2
+        ? "Search plan ready. Continuing to inventory…"
+        : job.candidates.length === 0
+          ? "No flip candidates cleared economics in this scan."
+          : `Shortlisted ${job.candidates.length} candidates. Continuing agent steps…`,
     nextStepHint: done ? undefined : "Continue to the next agent step.",
   };
 }
@@ -347,7 +356,7 @@ async function chargeAndStoreDelivery(
   const next: ResaleJobRecord = {
     ...job,
     status: charged ? "completed" : "delivered_unpaid",
-    stepCompleted: 4,
+    stepCompleted: RESALE_JOB_FINAL_STEP,
     delivery: honestDelivery,
     charged,
     settleCheckpoint: job.settleCheckpoint,
@@ -498,6 +507,7 @@ export async function createAndRunResaleJobStep1(
     stepCompleted: 0,
     status: "running",
     candidates: [],
+    planRefine: null,
     planJournal: emptyResaleJournal(RESALE_SERV_CALL_CAP),
     settleCheckpoint: null,
     providerQueriesUsed: 0,
@@ -515,29 +525,30 @@ export async function createAndRunResaleJobStep1(
   const deadline = deps.deadline ?? makeResaleDeadline(deps.internalBudgetMs ?? RESALE_JOB_STEP_BUDGET_MS);
   logResaleStage("job_step1_start", deadline.startedAtMs, { jobId });
 
-  const inventory = await runResaleSearch(rawInput, {
+  // Step 1: plan SERV only (own ~50s budget). Inventory is step 2.
+  const planned = await runResaleSearch(rawInput, {
     ...deps,
     deadline,
-    stopAfter: "inventory",
+    stopAfter: "plan",
   });
 
-  if (!inventory.ok) {
+  if (!planned.ok) {
     job = {
       ...job,
       status: "failed",
       error: {
-        error: inventory.body.error,
-        message: inventory.body.message,
-        nextStep: inventory.body.nextStep,
+        error: planned.body.error,
+        message: planned.body.message,
+        nextStep: planned.body.nextStep,
       },
       updatedAt: new Date().toISOString(),
     };
     await storeResaleJob(deps.kv, job);
     return {
       ok: false,
-      status: inventory.status,
+      status: planned.status,
       body: {
-        ...inventory.body,
+        ...planned.body,
         jobId,
         balance: await creditBalance(deps.kv, deps.ownerId),
         charged: false,
@@ -545,44 +556,27 @@ export async function createAndRunResaleJobStep1(
     };
   }
 
-  if (!("stopAfter" in inventory.body) || inventory.body.stopAfter !== "inventory") {
+  if (!("stopAfter" in planned.body) || planned.body.stopAfter !== "plan") {
     return {
       ok: false,
       status: 500,
-      body: { error: "search_failed", message: "Inventory step returned an unexpected shape.", jobId },
+      body: { error: "search_failed", message: "Plan step returned an unexpected shape.", jobId },
     };
   }
 
-  const inv = inventory.body;
+  const planBody = planned.body;
   job = {
     ...job,
     stepCompleted: 1,
-    candidates: inv.candidates,
-    planJournal: inv.journal,
-    providerQueriesUsed: inv.providerQueriesUsed,
-    scope: inv.scope,
-    emptyReason: inv.emptyReason,
+    planRefine: planBody.planRefine,
+    planJournal: planBody.journal,
     updatedAt: new Date().toISOString(),
   };
-
-  // Empty shortlist: finalize with pass verdict and charge (same as one-shot empty delivery).
-  if (inv.candidates.length === 0) {
-    const delivery = emptyPassDelivery(parsed.input, inv.journal);
-    delivery.providerQueriesUsed = inv.providerQueriesUsed;
-    delivery.scope = inv.scope;
-    delivery.emptyReason = inv.emptyReason ?? "no_flip_candidates";
-    delivery.headline = inv.headline;
-    delivery.message = inv.message;
-    delivery.nextStep = inv.nextStep;
-    const charged = await chargeAndStoreDelivery(deps.kv, job, delivery);
-    logResaleStage("job_step1_empty_done", deadline.startedAtMs, { jobId });
-    return { ok: true, kind: "job", job: charged.job, balance: charged.balance };
-  }
 
   await storeResaleJob(deps.kv, job);
   logResaleStage("job_step1_done", deadline.startedAtMs, {
     jobId,
-    candidates: job.candidates.length,
+    hasRefine: Boolean(job.planRefine),
   });
   return { ok: true, kind: "job", job, balance: await creditBalance(deps.kv, deps.ownerId) };
 }
@@ -600,12 +594,14 @@ export async function advanceResaleJob(
     kv: Kv;
     ownerId: string;
     jobId: string;
-    /** Target step to complete (2|3|4). Defaults to stepCompleted + 1. */
+    /** Target step to complete (2–6). Defaults to stepCompleted + 1. */
     step?: number | null;
     servKey?: string;
     servBaseUrl?: string;
     servModel?: string;
     fetchImpl?: typeof fetch;
+    /** Required for step 2 inventory (Auto.dev). */
+    inventoryDeps?: Omit<ResaleSearchDeps, "kv" | "deadline" | "stopAfter" | "skipPlanServ" | "priorPlanJournal" | "planRefine">;
   },
 ): Promise<AdvanceResaleJobResult> {
   const jobId = deps.jobId.trim();
@@ -642,7 +638,7 @@ export async function advanceResaleJob(
     return { ok: true, job: retried.job, balance: retried.balance };
   }
 
-  if (job.stepCompleted >= 4 && job.charged) {
+  if (job.stepCompleted >= RESALE_JOB_FINAL_STEP && job.charged) {
     return { ok: true, job, balance };
   }
 
@@ -650,14 +646,18 @@ export async function advanceResaleJob(
     typeof deps.step === "number" && Number.isFinite(deps.step)
       ? Math.floor(deps.step)
       : job.status === "delivered_unpaid"
-        ? 4
+        ? RESALE_JOB_FINAL_STEP
         : job.stepCompleted + 1;
 
-  if (requested < 2 || requested > 4) {
+  if (requested < 2 || requested > RESALE_JOB_FINAL_STEP) {
     return {
       ok: false,
       status: 400,
-      body: { error: "invalid_input", message: "step must be 2, 3, or 4.", jobId },
+      body: {
+        error: "invalid_input",
+        message: `step must be 2–${RESALE_JOB_FINAL_STEP}.`,
+        jobId,
+      },
     };
   }
 
@@ -675,7 +675,7 @@ export async function advanceResaleJob(
         message: `Complete step ${job.stepCompleted + 1} before step ${requested}.`,
         jobId,
         step: job.stepCompleted,
-        nextStep: job.stepCompleted < 4 ? job.stepCompleted + 1 : null,
+        nextStep: job.stepCompleted < RESALE_JOB_FINAL_STEP ? job.stepCompleted + 1 : null,
       },
     };
   }
@@ -684,19 +684,118 @@ export async function advanceResaleJob(
   const deadline = makeResaleDeadline(RESALE_JOB_STEP_BUDGET_MS);
   logResaleStage(`job_step${nextStep}_start`, deadline.startedAtMs, { jobId });
 
+  const settleCap = (current: ResaleJobRecord) =>
+    Math.max(
+      0,
+      RESALE_SERV_CALL_CAP -
+        current.planJournal.servCalls -
+        (current.settleCheckpoint?.journal.servCalls ?? 0),
+    );
+
   try {
+    // Step 2: inventory + code PnL (own ~50s budget; plan already done).
     if (nextStep === 2) {
-      if (job.settleCheckpoint?.phaseCompleted === "triage_deep" || job.settleCheckpoint?.phaseCompleted === "pick_challenge" || job.settleCheckpoint?.phaseCompleted === "shopper") {
-        // Already past step 2 — idempotent return.
+      if (job.candidates.length > 0 || job.emptyReason) {
         job = { ...job, stepCompleted: Math.max(job.stepCompleted, 2) as ResaleJobRecord["stepCompleted"] };
         return { ok: true, job, balance };
       }
-      const remainingCap = Math.max(0, RESALE_SERV_CALL_CAP - job.planJournal.servCalls);
+      if (!deps.inventoryDeps) {
+        return {
+          ok: false,
+          status: 500,
+          body: {
+            error: "search_failed",
+            message: "Inventory deps missing for step 2.",
+            jobId,
+          },
+        };
+      }
+      const inventory = await runResaleSearch(job.input, {
+        ...deps.inventoryDeps,
+        kv: deps.kv,
+        servKey: deps.servKey ?? deps.inventoryDeps.servKey,
+        servBaseUrl: deps.servBaseUrl ?? deps.inventoryDeps.servBaseUrl,
+        servModel: deps.servModel ?? deps.inventoryDeps.servModel,
+        fetchImpl: deps.fetchImpl ?? deps.inventoryDeps.fetchImpl,
+        deadline,
+        stopAfter: "inventory",
+        skipPlanServ: true,
+        priorPlanJournal: job.planJournal,
+        planRefine: job.planRefine,
+      });
+      if (!inventory.ok) {
+        job = {
+          ...job,
+          status: "failed",
+          error: {
+            error: inventory.body.error,
+            message: inventory.body.message,
+            nextStep: inventory.body.nextStep,
+          },
+          updatedAt: new Date().toISOString(),
+        };
+        await storeResaleJob(deps.kv, job);
+        return {
+          ok: false,
+          status: inventory.status,
+          body: { ...inventory.body, jobId, charged: false, balance },
+        };
+      }
+      if (!("stopAfter" in inventory.body) || inventory.body.stopAfter !== "inventory") {
+        return {
+          ok: false,
+          status: 500,
+          body: { error: "search_failed", message: "Inventory step returned an unexpected shape.", jobId },
+        };
+      }
+      const inv = inventory.body;
+      job = {
+        ...job,
+        stepCompleted: 2,
+        candidates: inv.candidates,
+        planJournal: inv.journal,
+        providerQueriesUsed: inv.providerQueriesUsed,
+        scope: inv.scope,
+        emptyReason: inv.emptyReason,
+        updatedAt: new Date().toISOString(),
+      };
+      if (inv.candidates.length === 0) {
+        const delivery = emptyPassDelivery(job.input, inv.journal);
+        delivery.providerQueriesUsed = inv.providerQueriesUsed;
+        delivery.scope = inv.scope;
+        delivery.emptyReason = inv.emptyReason ?? "no_flip_candidates";
+        delivery.headline = inv.headline;
+        delivery.message = inv.message;
+        delivery.nextStep = inv.nextStep;
+        const charged = await chargeAndStoreDelivery(deps.kv, job, delivery);
+        logResaleStage("job_step2_empty_done", deadline.startedAtMs, { jobId });
+        return { ok: true, job: charged.job, balance: charged.balance };
+      }
+      await storeResaleJob(deps.kv, job);
+      logResaleStage("job_step2_done", deadline.startedAtMs, {
+        jobId,
+        candidates: job.candidates.length,
+      });
+      return { ok: true, job, balance };
+    }
+
+    // Step 3: triage + deep checks
+    if (nextStep === 3) {
+      if (
+        job.settleCheckpoint?.phaseCompleted === "triage_deep" ||
+        job.settleCheckpoint?.phaseCompleted === "pick" ||
+        job.settleCheckpoint?.phaseCompleted === "challenge" ||
+        job.settleCheckpoint?.phaseCompleted === "pick_challenge" ||
+        job.settleCheckpoint?.phaseCompleted === "shopper"
+      ) {
+        job = { ...job, stepCompleted: Math.max(job.stepCompleted, 3) as ResaleJobRecord["stepCompleted"] };
+        return { ok: true, job, balance };
+      }
       const settled = await runResaleSettleServ({
         candidates: job.candidates,
         budgetUsd: job.input.budgetUsd,
         timeToSellPref: job.input.timeToSell,
-        servKey: remainingCap > 0 ? deps.servKey : undefined,
+        servKey: settleCap(job) > 0 ? deps.servKey : undefined,
         servBaseUrl: deps.servBaseUrl,
         model: deps.servModel,
         fetchImpl: deps.fetchImpl,
@@ -705,23 +804,27 @@ export async function advanceResaleJob(
       });
       job = {
         ...job,
-        stepCompleted: 2,
+        stepCompleted: 3,
         settleCheckpoint: settled.checkpoint,
         updatedAt: new Date().toISOString(),
       };
       await storeResaleJob(deps.kv, job);
-      logResaleStage("job_step2_done", deadline.startedAtMs, {
+      logResaleStage("job_step3_done", deadline.startedAtMs, {
         jobId,
         servCalls: settled.journal.servCalls,
       });
       return { ok: true, job, balance };
     }
 
-    if (nextStep === 3) {
+    // Step 4: pick only (own ~50s budget)
+    if (nextStep === 4) {
       if (
+        job.settleCheckpoint?.phaseCompleted === "pick" ||
+        job.settleCheckpoint?.phaseCompleted === "challenge" ||
         job.settleCheckpoint?.phaseCompleted === "pick_challenge" ||
         job.settleCheckpoint?.phaseCompleted === "shopper"
       ) {
+        job = { ...job, stepCompleted: Math.max(job.stepCompleted, 4) as ResaleJobRecord["stepCompleted"] };
         return { ok: true, job, balance };
       }
       if (!job.settleCheckpoint || job.settleCheckpoint.phaseCompleted !== "triage_deep") {
@@ -736,37 +839,81 @@ export async function advanceResaleJob(
           },
         };
       }
-      const remainingCap = Math.max(
-        0,
-        RESALE_SERV_CALL_CAP - job.planJournal.servCalls - job.settleCheckpoint.journal.servCalls,
-      );
       const settled = await runResaleSettleServ({
         candidates: job.candidates,
         budgetUsd: job.input.budgetUsd,
         timeToSellPref: job.input.timeToSell,
-        servKey: remainingCap > 0 ? deps.servKey : undefined,
+        servKey: settleCap(job) > 0 ? deps.servKey : undefined,
         servBaseUrl: deps.servBaseUrl,
         model: deps.servModel,
         fetchImpl: deps.fetchImpl,
         deadline,
-        phase: "pick_challenge",
+        phase: "pick",
         checkpoint: job.settleCheckpoint,
       });
       job = {
         ...job,
-        stepCompleted: 3,
+        stepCompleted: 4,
         settleCheckpoint: settled.checkpoint,
         updatedAt: new Date().toISOString(),
       };
       await storeResaleJob(deps.kv, job);
-      logResaleStage("job_step3_done", deadline.startedAtMs, {
+      logResaleStage("job_step4_done", deadline.startedAtMs, {
         jobId,
         bestVin: settled.best?.vin ?? null,
       });
       return { ok: true, job, balance };
     }
 
-    // nextStep === 4
+    // Step 5: challenge only (own ~50s budget)
+    if (nextStep === 5) {
+      if (
+        job.settleCheckpoint?.phaseCompleted === "challenge" ||
+        job.settleCheckpoint?.phaseCompleted === "pick_challenge" ||
+        job.settleCheckpoint?.phaseCompleted === "shopper"
+      ) {
+        job = { ...job, stepCompleted: Math.max(job.stepCompleted, 5) as ResaleJobRecord["stepCompleted"] };
+        return { ok: true, job, balance };
+      }
+      if (!job.settleCheckpoint || job.settleCheckpoint.phaseCompleted !== "pick") {
+        return {
+          ok: false,
+          status: 409,
+          body: {
+            error: "step_out_of_order",
+            message: "Pick must finish before challenge. Retry from the previous step.",
+            jobId,
+            step: job.stepCompleted,
+          },
+        };
+      }
+      const settled = await runResaleSettleServ({
+        candidates: job.candidates,
+        budgetUsd: job.input.budgetUsd,
+        timeToSellPref: job.input.timeToSell,
+        servKey: settleCap(job) > 0 ? deps.servKey : undefined,
+        servBaseUrl: deps.servBaseUrl,
+        model: deps.servModel,
+        fetchImpl: deps.fetchImpl,
+        deadline,
+        phase: "challenge",
+        checkpoint: job.settleCheckpoint,
+      });
+      job = {
+        ...job,
+        stepCompleted: 5,
+        settleCheckpoint: settled.checkpoint,
+        updatedAt: new Date().toISOString(),
+      };
+      await storeResaleJob(deps.kv, job);
+      logResaleStage("job_step5_done", deadline.startedAtMs, {
+        jobId,
+        bestVin: settled.best?.vin ?? null,
+      });
+      return { ok: true, job, balance };
+    }
+
+    // Step 6: shopper decide + charge
     if (job.settleCheckpoint?.phaseCompleted === "shopper" && job.delivery) {
       if (!job.charged) {
         const retried = await retryUnpaidCharge(deps.kv, job);
@@ -774,8 +921,11 @@ export async function advanceResaleJob(
       }
       return { ok: true, job, balance };
     }
-    if (!job.settleCheckpoint || job.settleCheckpoint.phaseCompleted !== "pick_challenge") {
-      // Allow shopper if somehow already shopper-complete without delivery (retry charge).
+    if (
+      !job.settleCheckpoint ||
+      (job.settleCheckpoint.phaseCompleted !== "challenge" &&
+        job.settleCheckpoint.phaseCompleted !== "pick_challenge")
+    ) {
       if (job.settleCheckpoint?.phaseCompleted === "shopper" && job.settleCheckpoint.best) {
         const journal = mergeJournals(job.planJournal, job.settleCheckpoint.journal);
         const delivery: ResaleSearchOkBody = {
@@ -809,22 +959,18 @@ export async function advanceResaleJob(
         status: 409,
         body: {
           error: "step_out_of_order",
-          message: "Pick must finish before shopper decide. Retry from the previous step.",
+          message: "Challenge must finish before shopper decide. Retry from the previous step.",
           jobId,
           step: job.stepCompleted,
         },
       };
     }
 
-    const remainingCap = Math.max(
-      0,
-      RESALE_SERV_CALL_CAP - job.planJournal.servCalls - job.settleCheckpoint.journal.servCalls,
-    );
     const settled = await runResaleSettleServ({
       candidates: job.candidates,
       budgetUsd: job.input.budgetUsd,
       timeToSellPref: job.input.timeToSell,
-      servKey: remainingCap > 0 ? deps.servKey : undefined,
+      servKey: settleCap(job) > 0 ? deps.servKey : undefined,
       servBaseUrl: deps.servBaseUrl,
       model: deps.servModel,
       fetchImpl: deps.fetchImpl,
@@ -834,6 +980,13 @@ export async function advanceResaleJob(
     });
 
     const journal = mergeJournals(job.planJournal, settled.journal);
+    // Keep header SERV n/cap and agentVerdict "recorded N" on the same merged total.
+    if (settled.agentVerdict.serv_spend) {
+      settled.agentVerdict.serv_spend = {
+        calls: journal.servCalls,
+        costNote: `Resale SERV call cap ${journal.servCallCap}; recorded ${journal.servCalls}.`,
+      };
+    }
     const best = settled.best;
     const delivery: ResaleSearchOkBody = {
       ok: true,
@@ -844,7 +997,13 @@ export async function advanceResaleJob(
       alternatives: settled.alternatives,
       verdictAction: settled.verdictAction,
       confidence: settled.confidence,
-      agentVerdict: settled.agentVerdict,
+      agentVerdict: {
+        ...settled.agentVerdict,
+        serv_spend: {
+          calls: journal.servCalls,
+          costNote: `Resale SERV call cap ${journal.servCallCap}; recorded ${journal.servCalls}.`,
+        },
+      },
       journal,
       headline: best
         ? `Best flip: ${best.listing.year} ${best.listing.make} ${best.listing.model}`
@@ -864,12 +1023,12 @@ export async function advanceResaleJob(
 
     job = {
       ...job,
-      stepCompleted: 4,
+      stepCompleted: RESALE_JOB_FINAL_STEP,
       settleCheckpoint: settled.checkpoint,
       updatedAt: new Date().toISOString(),
     };
     const charged = await chargeAndStoreDelivery(deps.kv, job, delivery);
-    logResaleStage("job_step4_done", deadline.startedAtMs, {
+    logResaleStage("job_step6_done", deadline.startedAtMs, {
       jobId,
       charged: charged.job.charged,
       bestVin: best?.vin ?? null,

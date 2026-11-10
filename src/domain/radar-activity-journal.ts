@@ -3,12 +3,16 @@
  * so every Radar run shows the same user-facing journal as Resale search.
  */
 
+import { ASSUMPTIONS } from "./assumptions";
 import {
   appendJournalStep,
   emptyResaleJournal,
-  RESALE_SERV_CALL_CAP,
   type ResaleDecisionJournal,
 } from "./resale-decision-journal";
+
+/** Guard + flip_feasibility + radar_review + personal decide/challenge slots. */
+export const RADAR_SERV_CALL_CAP =
+  1 + 2 + ASSUMPTIONS.radarMaxServPerSearch * 2;
 
 export type RadarActivityRow = {
   at: string;
@@ -29,7 +33,7 @@ export function journalFromRadarActivity(
   rows: RadarActivityRow[],
   extras?: { notes?: string[]; startedAt?: string },
 ): ResaleDecisionJournal {
-  let journal = emptyResaleJournal(Math.max(RESALE_SERV_CALL_CAP, 8));
+  let journal = emptyResaleJournal(RADAR_SERV_CALL_CAP);
   const recordedAt = extras?.startedAt ?? new Date().toISOString();
 
   if (rows.length === 0) {
@@ -54,24 +58,40 @@ export function journalFromRadarActivity(
     const kind =
       row.profile === "verdict_challenge" || row.profile === "resale_challenge"
         ? "challenge"
-        : row.profile === "radar_review" || row.profile === "flip_judge"
+        : row.profile === "radar_review" || row.profile === "flip_judge" || row.profile === "flip_feasibility"
           ? "triage"
           : row.profile === "verdict_decide" || row.profile === "resale_pick"
             ? "pick"
-            : "deep_check";
+            : row.profile === "radar_guard"
+              ? "stop_or_widen"
+              : "deep_check";
+    const timedOut =
+      !row.ok &&
+      (row.note?.toLowerCase().includes("timed out") ||
+        row.note?.toLowerCase().includes("timeout") ||
+        row.decision === "timeout");
+    const secs = row.latencyMs > 0 ? Math.max(1, Math.round(row.latencyMs / 1000)) : null;
     journal = appendJournalStep(journal, {
       kind,
       actor: "SERV",
       decided: row.ok
-        ? `${row.profile} → ${row.decision ?? (row.alerted ? "alert" : "skip")} for ${row.vin}`
-        : `${row.profile} failed for ${row.vin}`,
-      why: row.note?.trim() || (row.ok ? "Agent used code-computed facts only." : "Agent call failed or timed out."),
-      inputsUsed: [`vin:${row.vin}`, `search:${row.searchId}`, `check:${row.profile}`],
+        ? `${row.profile} → ${row.decision ?? (row.alerted ? "alert" : "skip")}${row.vin ? ` for ${row.vin}` : ""}`
+        : `${row.profile} failed${row.vin ? ` for ${row.vin}` : ""}`,
+      why: timedOut
+        ? secs != null
+          ? `SERV timed out after ${secs}s`
+          : "SERV timed out"
+        : row.note?.trim() || (row.ok ? "Agent used code-computed facts only." : "Agent call failed."),
+      inputsUsed: [
+        ...(row.vin ? [`vin:${row.vin}`] : []),
+        `search:${row.searchId}`,
+        `check:${row.profile}`,
+      ],
       changed: null,
       model: row.modelReported || row.modelRequested || null,
       responseId: row.responseId,
       recordedAt: row.at || recordedAt,
-      rejected: row.ok ? null : "rejected: unsupported reference",
+      rejected: row.ok ? null : timedOut ? "timeout" : "http_error",
     });
   }
 

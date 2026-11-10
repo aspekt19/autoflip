@@ -17,14 +17,20 @@ import {
   type ResaleDecisionJournal,
 } from "@/domain/resale-decision-journal";
 import type { ResaleCandidatePnl } from "@/domain/resale-pnl";
-import {
-  evidenceBundleFromCandidates,
-  validateResaleServOutput,
-} from "@/domain/resale-serv-validate";
+import { evidenceBundleFromCandidates } from "@/domain/resale-serv-validate";
 import type { ComputedReport, Listing, Verdict } from "@/domain/types";
 import { rankByRiskAdjustedProfit, runResaleDeepChecks } from "@/server/resale-deep-check";
+import {
+  journalWhyFromServAttempt,
+  normalizeCheckId,
+  normalizeVin,
+  runResaleServWithRejectRetry,
+  softFilterEvidenceIds,
+  stringArrayField,
+  validationFromCall,
+} from "@/server/resale-serv-call";
 import { runShopperVerdictServ, type ShopperServTrace } from "@/server/shopper-verdict-serv";
-import { profile, runServ, type ServProof } from "@/server/serv";
+import { profile, type ServProof } from "@/server/serv";
 import {
   resaleCallTimeoutMs,
   RESALE_STAGE_BUDGET_MS,
@@ -35,14 +41,21 @@ import {
 const RESALE_SERV_JUDGE_MAX = 3;
 
 /** Settle phases for client-driven stepped Resale jobs. `all` keeps one-shot behavior. */
-export type ResaleSettlePhase = "triage_deep" | "pick_challenge" | "shopper" | "all";
+export type ResaleSettlePhase =
+  | "triage_deep"
+  | "pick"
+  | "challenge"
+  /** @deprecated Prefer separate pick + challenge steps (each needs its own ~50s budget). */
+  | "pick_challenge"
+  | "shopper"
+  | "all";
 
 /**
  * Persisted mid-settle state between job steps.
  * Code owns dollar figures; SERV only chooses among allowlisted VINs / actions.
  */
 export type ResaleSettleCheckpoint = {
-  phaseCompleted: "triage_deep" | "pick_challenge" | "shopper" | "empty";
+  phaseCompleted: "triage_deep" | "pick" | "challenge" | "pick_challenge" | "shopper" | "empty";
   journal: ResaleDecisionJournal;
   /** Profit-sorted full candidate list (for alternatives). */
   rankedAll: ResaleCandidatePnl[];
@@ -316,7 +329,10 @@ export async function runResaleSettleServ(input: {
 
   const resumeFrom =
     input.checkpoint &&
-    (phase === "pick_challenge" || phase === "shopper") &&
+    (phase === "pick" ||
+      phase === "challenge" ||
+      phase === "pick_challenge" ||
+      phase === "shopper") &&
     input.checkpoint.phaseCompleted !== "empty"
       ? input.checkpoint
       : null;
@@ -432,7 +448,10 @@ export async function runResaleSettleServ(input: {
   let trace: ShopperServTrace | null = resumeFrom?.trace ?? null;
 
   const runTriageDeep = phase === "all" || phase === "triage_deep";
-  const runPickChallenge = phase === "all" || phase === "pick_challenge";
+  const runPick =
+    phase === "all" || phase === "pick" || phase === "pick_challenge";
+  const runChallenge =
+    phase === "all" || phase === "challenge" || phase === "pick_challenge";
   const runShopperPhase = phase === "all" || phase === "shopper";
 
   // --- Triage + deep (skipped when resuming pick/shopper) ---
@@ -462,70 +481,131 @@ export async function runResaleSettleServ(input: {
     stageOk(RESALE_STAGE_BUDGET_MS.triage, triageTimeoutMs)
   ) {
     const allowedCheckIds = ["price_comps", "vin_decode", "recalls", "complaints", "history"];
+    const allowedVins = shortlist.map((item) => item.vin.toUpperCase());
+    const triageEvidenceIds = [
+      ...bundle.evidenceIds,
+      ...allowedCheckIds.map((id) => `check:${id}`),
+      "check:history",
+    ];
     const facts = {
-      allowedVins: shortlist.map((item) => item.vin),
+      allowedVins,
       allowedCheckIds,
+      allowedEvidenceIds: triageEvidenceIds,
+      evidence: triageEvidenceIds.map((id) => ({
+        id,
+        text: id.startsWith("check:")
+          ? `Allowlisted check ${id.slice("check:".length)}`
+          : id.startsWith("pnl:")
+            ? `Code P&L for ${id.slice("pnl:".length)}`
+            : `Allowlisted VIN ${id.replace(/^vin:/, "")}`,
+      })),
       candidates: shortlist.map((item) => ({
-        vin: item.vin,
+        vin: item.vin.toUpperCase(),
         profitMidUsd: item.profitMidUsd,
         compCount: item.compCount,
         confidence: item.confidence,
         askingUsd: item.askingUsd,
       })),
     };
+    const triageBundle = {
+      ...bundle,
+      vins: allowedVins,
+      evidenceIds: triageEvidenceIds,
+      numberFacts: facts,
+    };
     try {
-      const judged = await runServ("resale_triage", { user: JSON.stringify({ facts }) }, {
-        fetch: fetchImpl,
-        apiKey: input.servKey,
-        baseUrl: input.servBaseUrl,
-        model: input.model,
-        timeoutMs: triageTimeoutMs,
+      const allowVin = new Set(allowedVins);
+      const allowCheck = new Set(allowedCheckIds);
+      const attempt = await runResaleServWithRejectRetry({
+        profileId: "resale_triage",
+        facts,
+        deps: {
+          fetch: fetchImpl,
+          apiKey: input.servKey,
+          baseUrl: input.servBaseUrl,
+          model: input.model,
+          timeoutMs: triageTimeoutMs,
+        },
+        deadline,
+        canRetry: journal.servCalls + 1 < journal.servCallCap,
+        validatePayload: (payload, result) => {
+          const deep = stringArrayField(payload, "deepCheckVins").map(normalizeVin);
+          const skip = stringArrayField(payload, "skipVins").map(normalizeVin);
+          const checks = stringArrayField(payload, "checkIds").map(normalizeCheckId);
+          const note = typeof payload?.note === "string" ? payload.note : "";
+          const evidenceIds = softFilterEvidenceIds(
+            [...checks.map((id) => `check:${id}`), ...(note.match(/(?:vin|pnl|check):[A-Za-z0-9_-]+/g) ?? [])],
+            triageEvidenceIds,
+          );
+          const base = validationFromCall({
+            result,
+            payload,
+            text: note,
+            vins: [...deep, ...skip],
+            evidenceIds,
+            bundle: triageBundle,
+          });
+          if (!base.ok) return base;
+          const deepOk = deep.filter((vin) => allowVin.has(vin));
+          const safeChecks = checks.filter((id) => allowCheck.has(id));
+          if (deepOk.length === 0 && safeChecks.length === 0) {
+            return {
+              ok: false,
+              reason: "rejected: unsupported reference",
+              detail:
+                "Triage payload unusable — deepCheckVins/checkIds must copy exact allowlisted values from facts.",
+            };
+          }
+          return { ok: true };
+        },
       });
+      const judged = attempt.result;
       ranJudge = true;
-      const payload = judged.ok ? parseJsonObject(judged.text) : null;
-      const deep = Array.isArray(payload?.deepCheckVins)
-        ? (payload!.deepCheckVins as unknown[]).filter((v): v is string => typeof v === "string")
-        : [];
-      const skip = Array.isArray(payload?.skipVins)
-        ? (payload!.skipVins as unknown[]).filter((v): v is string => typeof v === "string")
-        : [];
-      const checks = Array.isArray(payload?.checkIds)
-        ? (payload!.checkIds as unknown[]).filter((v): v is string => typeof v === "string")
-        : [];
+      const payload = attempt.payload;
+      const validation = attempt.validation;
+      const deep = stringArrayField(payload, "deepCheckVins").map(normalizeVin);
+      const skip = stringArrayField(payload, "skipVins").map(normalizeVin);
+      const checks = stringArrayField(payload, "checkIds").map(normalizeCheckId);
       const note = typeof payload?.note === "string" ? payload.note : "";
-      const validation = validateResaleServOutput(
-        {
-          text: note,
-          vins: [...deep, ...skip],
-          evidenceIds: checks.map((id) => `check:${id}`),
-        },
-        {
-          ...bundle,
-          evidenceIds: [...bundle.evidenceIds, ...allowedCheckIds.map((id) => `check:${id}`), "check:history"],
-          numberFacts: facts,
-        },
-      );
+      if (attempt.attempt === 2) {
+        journal = appendJournalStep(journal, {
+          kind: "fallback",
+          actor: "SERV",
+          decided: "Triage first response rejected — retried once with validation error",
+          why: "Reject-retry within step budget.",
+          inputsUsed: shortlist.map((item) => `vin:${item.vin}`),
+          changed: null,
+          model: modelFrom(judged.proof, input.model),
+          responseId: null,
+          recordedAt,
+          rejected: "rejected: unsupported reference",
+        });
+      }
       if (!judged.ok || !payload || !validation.ok) {
+        const fail = journalWhyFromServAttempt({
+          result: judged,
+          validation,
+          missingPayloadFallback: "Triage call failed or payload unusable.",
+        });
         journal = appendJournalStep(journal, {
           kind: "fallback",
           actor: "SERV",
           decided: "Triage rejected or unavailable — code shortlist stands",
-          why: !validation.ok ? validation.detail : "Triage call failed or payload unusable.",
+          why: fail.why,
           inputsUsed: shortlist.map((item) => `vin:${item.vin}`),
           changed: null,
           model: modelFrom(judged.proof, input.model),
           responseId: responseIdFrom(judged.proof),
           recordedAt,
-          rejected: !validation.ok ? validation.reason : null,
+          rejected: fail.rejected,
         });
       } else {
-        const allow = new Set(shortlist.map((item) => item.vin));
-        const deepOk = deep.filter((vin) => allow.has(vin));
-        const skipOk = skip.filter((vin) => allow.has(vin));
+        const deepOk = deep.filter((vin) => allowVin.has(vin));
+        const skipOk = skip.filter((vin) => allowVin.has(vin));
         if (deepOk.length > 0) {
-          working = shortlist.filter((item) => deepOk.includes(item.vin));
+          working = shortlist.filter((item) => deepOk.includes(item.vin.toUpperCase()));
         }
-        const safeChecks = checks.filter((id) => allowedCheckIds.includes(id));
+        const safeChecks = checks.filter((id) => allowCheck.has(id));
         if (safeChecks.length > 0) selectedCheckIds = safeChecks;
         journal = appendJournalStep(journal, {
           kind: "triage",
@@ -719,16 +799,29 @@ export async function runResaleSettleServ(input: {
     ? resaleCallTimeoutMs(profile("resale_pick").timeoutMs, deadline)
     : profile("resale_pick").timeoutMs;
   if (
-    runPickChallenge &&
+    runPick &&
     input.servKey?.trim() &&
     journal.servCalls < journal.servCallCap &&
     pickTimeoutMs != null &&
     stageOk(RESALE_STAGE_BUDGET_MS.pick, pickTimeoutMs)
   ) {
+    const allowedVins = ordered.map((item) => item.vin.toUpperCase());
+    const pickEvidenceIds = [
+      ...bundle.evidenceIds,
+      ...ordered.flatMap((item) => [`vin:${item.vin.toUpperCase()}`, `pnl:${item.vin.toUpperCase()}`]),
+    ];
+    const uniquePickEvidence = [...new Set(pickEvidenceIds)];
     const pickFacts = {
-      allowedVins: ordered.map((item) => item.vin),
+      allowedVins,
+      allowedEvidenceIds: uniquePickEvidence,
+      evidence: uniquePickEvidence.map((id) => ({
+        id,
+        text: id.startsWith("pnl:")
+          ? `Code P&L mid profit for ${id.slice("pnl:".length)}`
+          : `Allowlisted VIN ${id.replace(/^vin:/, "")}`,
+      })),
       candidates: ordered.map((item) => ({
-        vin: item.vin,
+        vin: item.vin.toUpperCase(),
         profitMidUsd: item.profitMidUsd,
         roiPctMid: item.roiPctMid,
         compCount: item.compCount,
@@ -737,29 +830,73 @@ export async function runResaleSettleServ(input: {
         fairValueUsd: item.resaleMidUsd,
       })),
     };
+    const pickBundle = {
+      ...bundle,
+      vins: allowedVins,
+      evidenceIds: uniquePickEvidence,
+      numberFacts: pickFacts,
+    };
     try {
-      const picked = await runServ("resale_pick", { user: JSON.stringify({ facts: pickFacts }) }, {
-        fetch: fetchImpl,
-        apiKey: input.servKey,
-        baseUrl: input.servBaseUrl,
-        model: input.model,
-        timeoutMs: pickTimeoutMs,
+      const allow = new Set(allowedVins);
+      const attempt = await runResaleServWithRejectRetry({
+        profileId: "resale_pick",
+        facts: pickFacts,
+        deps: {
+          fetch: fetchImpl,
+          apiKey: input.servKey,
+          baseUrl: input.servBaseUrl,
+          model: input.model,
+          timeoutMs: pickTimeoutMs,
+        },
+        deadline,
+        canRetry: journal.servCalls + 1 < journal.servCallCap,
+        validatePayload: (payload, result) => {
+          const pickVinRaw = typeof payload?.pickVin === "string" ? normalizeVin(payload.pickVin) : null;
+          const note = typeof payload?.note === "string" ? payload.note : "";
+          const evidenceIds = softFilterEvidenceIds(stringArrayField(payload, "evidenceIds"), uniquePickEvidence);
+          const base = validationFromCall({
+            result,
+            payload,
+            text: note,
+            vins: pickVinRaw ? [pickVinRaw] : [],
+            evidenceIds,
+            bundle: pickBundle,
+          });
+          if (!base.ok) return base;
+          if (!pickVinRaw || !allow.has(pickVinRaw)) {
+            return {
+              ok: false,
+              reason: "rejected: unsupported reference",
+              detail: "Pick payload missing allowlisted VIN. Copy pickVin exactly from facts.allowedVins.",
+            };
+          }
+          return { ok: true };
+        },
       });
-      const payload = picked.ok ? parseJsonObject(picked.text) : null;
-      const pickVin = typeof payload?.pickVin === "string" ? payload.pickVin : null;
+      const picked = attempt.result;
+      const payload = attempt.payload;
+      const validation = attempt.validation;
+      const pickVin = typeof payload?.pickVin === "string" ? normalizeVin(payload.pickVin) : null;
       const action = typeof payload?.action === "string" ? payload.action : null;
       const note = typeof payload?.note === "string" ? payload.note : "";
-      const evidenceIds = Array.isArray(payload?.evidenceIds)
-        ? (payload!.evidenceIds as unknown[]).filter((id): id is string => typeof id === "string")
-        : [];
-      const validation = validateResaleServOutput(
-        { text: note, vins: pickVin ? [pickVin] : [], evidenceIds },
-        { ...bundle, numberFacts: pickFacts },
-      );
-      const allow = new Set(ordered.map((item) => item.vin));
+      const evidenceIds = softFilterEvidenceIds(stringArrayField(payload, "evidenceIds"), uniquePickEvidence);
+      if (attempt.attempt === 2) {
+        journal = appendJournalStep(journal, {
+          kind: "fallback",
+          actor: "SERV",
+          decided: "Pick first response rejected — retried once with validation error",
+          why: "Reject-retry within step budget.",
+          inputsUsed: ordered.map((item) => `vin:${item.vin}`),
+          changed: null,
+          model: modelFrom(picked.proof, input.model),
+          responseId: null,
+          recordedAt,
+          rejected: "rejected: unsupported reference",
+        });
+      }
       if (picked.ok && payload && validation.ok && pickVin && allow.has(pickVin)) {
         const prior = best.vin;
-        best = ordered.find((item) => item.vin === pickVin) ?? best;
+        best = ordered.find((item) => item.vin.toUpperCase() === pickVin) ?? best;
         if (action === "buy" || action === "negotiate" || action === "pass" || action === "needs_inspection") {
           verdictAction = action;
         }
@@ -784,17 +921,22 @@ export async function runResaleSettleServ(input: {
           recordedAt,
         });
       } else {
+        const fail = journalWhyFromServAttempt({
+          result: picked,
+          validation,
+          missingPayloadFallback: "Pick payload missing allowlisted VIN.",
+        });
         journal = appendJournalStep(journal, {
           kind: "fallback",
           actor: "SERV",
           decided: `Pick rejected — code keeps ${carLabel(best)}`,
-          why: !validation.ok ? validation.detail : "Pick payload missing allowlisted VIN.",
+          why: fail.why,
           inputsUsed: ordered.map((item) => `vin:${item.vin}`),
           changed: null,
           model: modelFrom(picked.proof, input.model),
           responseId: responseIdFrom(picked.proof),
           recordedAt,
-          rejected: !validation.ok ? validation.reason : "rejected: unsupported reference",
+          rejected: fail.rejected,
         });
       }
     } catch (err) {
@@ -814,7 +956,7 @@ export async function runResaleSettleServ(input: {
   }
 
   if (
-    runPickChallenge &&
+    runPick &&
     input.servKey?.trim() &&
     journal.servCalls < journal.servCallCap &&
     deadline &&
@@ -835,56 +977,161 @@ export async function runResaleSettleServ(input: {
     });
   }
 
+  if (phase === "pick") {
+    const alternatives = sortByProfit(ranked.filter((item) => item.vin !== best.vin)).slice(0, 4);
+    const confidenceLabel =
+      agentConfidence === "high" ? "High" : agentConfidence === "medium" ? "Medium" : "Low";
+    const agentVerdict = finalizeAgentVerdict({
+      best,
+      verdictAction,
+      agentConfidence,
+      trail,
+      secondPass,
+      journal,
+      ranJudge,
+      ranDecide,
+    });
+    const checkpoint: ResaleSettleCheckpoint = {
+      phaseCompleted: "pick",
+      journal,
+      rankedAll: ranked,
+      ordered,
+      shortlist,
+      best,
+      alternatives,
+      verdictAction,
+      confidence: confidenceLabel,
+      agentVerdict,
+      trail,
+      secondPass,
+      agentConfidence,
+      ranJudge,
+      ranDecide,
+      trace: null,
+      budgetUsd: input.budgetUsd,
+      timeToSellPref: input.timeToSellPref,
+    };
+    return buildSettleResult({
+      best,
+      alternatives,
+      agentVerdict,
+      journal,
+      trace: null,
+      verdictAction,
+      confidence: confidenceLabel,
+      ranJudge,
+      ranDecide,
+      checkpoint,
+    });
+  }
+
   // --- Challenge (resale_challenge) ---
   const challengeTimeoutMs = deadline
     ? resaleCallTimeoutMs(profile("resale_challenge").timeoutMs, deadline)
     : profile("resale_challenge").timeoutMs;
   if (
-    runPickChallenge &&
+    runChallenge &&
     input.servKey?.trim() &&
     journal.servCalls < journal.servCallCap &&
     challengeTimeoutMs != null &&
     stageOk(RESALE_STAGE_BUDGET_MS.challenge, challengeTimeoutMs)
   ) {
+    const allowedVins = ordered.map((item) => item.vin.toUpperCase());
+    const challengeEvidenceIds = [
+      ...new Set([
+        ...bundle.evidenceIds,
+        ...ordered.flatMap((item) => [`vin:${item.vin.toUpperCase()}`, `pnl:${item.vin.toUpperCase()}`]),
+      ]),
+    ];
     const challengeFacts = {
-      primaryPickVin: best.vin,
-      allowedVins: ordered.map((item) => item.vin),
-      allowedEvidenceIds: bundle.evidenceIds,
+      primaryPickVin: best.vin.toUpperCase(),
+      allowedVins,
+      allowedEvidenceIds: challengeEvidenceIds,
       allowedActions: ["buy", "negotiate", "pass", "needs_inspection"],
       primaryAction: verdictAction,
+      evidence: challengeEvidenceIds.map((id) => ({
+        id,
+        text: id.startsWith("pnl:")
+          ? `Code P&L mid profit for ${id.slice("pnl:".length)}`
+          : `Allowlisted VIN ${id.replace(/^vin:/, "")}`,
+      })),
       candidates: ordered.map((item) => ({
-        vin: item.vin,
+        vin: item.vin.toUpperCase(),
         profitMidUsd: item.profitMidUsd,
         compCount: item.compCount,
         confidence: item.confidence,
       })),
     };
+    const challengeBundle = {
+      ...bundle,
+      vins: allowedVins,
+      evidenceIds: challengeEvidenceIds,
+      numberFacts: challengeFacts,
+    };
     try {
-      const challenged = await runServ("resale_challenge", { user: JSON.stringify({ facts: challengeFacts }) }, {
-        fetch: fetchImpl,
-        timeoutMs: challengeTimeoutMs,
-        apiKey: input.servKey,
-        baseUrl: input.servBaseUrl,
-        model: input.model,
+      const allow = new Set(allowedVins);
+      const attempt = await runResaleServWithRejectRetry({
+        profileId: "resale_challenge",
+        facts: challengeFacts,
+        deps: {
+          fetch: fetchImpl,
+          timeoutMs: challengeTimeoutMs,
+          apiKey: input.servKey,
+          baseUrl: input.servBaseUrl,
+          model: input.model,
+        },
+        deadline,
+        canRetry: journal.servCalls + 1 < journal.servCallCap,
+        validatePayload: (payload, result) => {
+          const pickVinRaw = typeof payload?.pickVin === "string" ? normalizeVin(payload.pickVin) : null;
+          const objection = typeof payload?.objection === "string" ? payload.objection : null;
+          const evidenceIds = softFilterEvidenceIds(stringArrayField(payload, "evidenceIds"), challengeEvidenceIds);
+          const base = validationFromCall({
+            result,
+            payload,
+            text: objection,
+            vins: pickVinRaw ? [pickVinRaw] : [],
+            evidenceIds,
+            bundle: challengeBundle,
+          });
+          if (!base.ok) return base;
+          if (!pickVinRaw || !allow.has(pickVinRaw)) {
+            return {
+              ok: false,
+              reason: "rejected: unsupported reference",
+              detail: "Challenge payload unusable — pickVin must be copied from facts.allowedVins.",
+            };
+          }
+          return { ok: true };
+        },
       });
+      const challenged = attempt.result;
       ranDecide = true;
-      const payload = challenged.ok ? parseJsonObject(challenged.text) : null;
+      const payload = attempt.payload;
+      const validation = attempt.validation;
       const agrees = payload?.agrees === true;
-      const pickVin = typeof payload?.pickVin === "string" ? payload.pickVin : null;
+      const pickVin = typeof payload?.pickVin === "string" ? normalizeVin(payload.pickVin) : null;
       const action = typeof payload?.action === "string" ? payload.action : null;
       const objection = typeof payload?.objection === "string" ? payload.objection : null;
-      const evidenceIds = Array.isArray(payload?.evidenceIds)
-        ? (payload!.evidenceIds as unknown[]).filter((id): id is string => typeof id === "string")
-        : [];
-      const validation = validateResaleServOutput(
-        { text: objection, vins: pickVin ? [pickVin] : [], evidenceIds },
-        { ...bundle, numberFacts: challengeFacts },
-      );
-      const allow = new Set(ordered.map((item) => item.vin));
+      const evidenceIds = softFilterEvidenceIds(stringArrayField(payload, "evidenceIds"), challengeEvidenceIds);
+      if (attempt.attempt === 2) {
+        journal = appendJournalStep(journal, {
+          kind: "fallback",
+          actor: "SERV",
+          decided: "Challenge first response rejected — retried once with validation error",
+          why: "Reject-retry within step budget.",
+          inputsUsed: [`vin:${best.vin}`],
+          changed: null,
+          model: modelFrom(challenged.proof, input.model),
+          responseId: null,
+          recordedAt,
+          rejected: "rejected: unsupported reference",
+        });
+      }
       if (challenged.ok && payload && validation.ok && pickVin && allow.has(pickVin)) {
         const prior = best.vin;
         if (!agrees) {
-          best = ordered.find((item) => item.vin === pickVin) ?? best;
+          best = ordered.find((item) => item.vin.toUpperCase() === pickVin) ?? best;
           if (action === "buy" || action === "negotiate" || action === "pass" || action === "needs_inspection") {
             verdictAction = action;
           }
@@ -940,10 +1187,15 @@ export async function runResaleSettleServ(input: {
           recordedAt,
         });
       } else {
+        const fail = journalWhyFromServAttempt({
+          result: challenged,
+          validation,
+          missingPayloadFallback: "Challenge payload unusable.",
+        });
         secondPass = {
           status: "ignored_malformed",
           action: null,
-          objection: !validation.ok ? validation.detail : "Challenge payload ignored.",
+          objection: fail.why,
           evidenceIds: [],
           confidenceBefore: agentConfidence,
           confidenceAfter: agentConfidence,
@@ -952,13 +1204,13 @@ export async function runResaleSettleServ(input: {
           kind: "fallback",
           actor: "SERV",
           decided: "Challenge rejected — first pick stands",
-          why: !validation.ok ? validation.detail : "Challenge payload unusable.",
+          why: fail.why,
           inputsUsed: [`vin:${best.vin}`],
           changed: null,
           model: modelFrom(challenged.proof, input.model),
           responseId: responseIdFrom(challenged.proof),
           recordedAt,
-          rejected: !validation.ok ? validation.reason : "rejected: unsupported reference",
+          rejected: fail.rejected,
         });
       }
     } catch {
@@ -974,7 +1226,7 @@ export async function runResaleSettleServ(input: {
   }
 
   if (
-    runPickChallenge &&
+    runChallenge &&
     input.servKey?.trim() &&
     journal.servCalls < journal.servCallCap &&
     deadline &&
@@ -1003,7 +1255,7 @@ export async function runResaleSettleServ(input: {
     });
   }
 
-  if (phase === "pick_challenge") {
+  if (phase === "challenge" || phase === "pick_challenge") {
     const alternatives = sortByProfit(ranked.filter((item) => item.vin !== best.vin)).slice(0, 4);
     const confidenceLabel =
       agentConfidence === "high" ? "High" : agentConfidence === "medium" ? "Medium" : "Low";
@@ -1018,7 +1270,7 @@ export async function runResaleSettleServ(input: {
       ranDecide,
     });
     const checkpoint: ResaleSettleCheckpoint = {
-      phaseCompleted: "pick_challenge",
+      phaseCompleted: phase === "challenge" ? "challenge" : "pick_challenge",
       journal,
       rankedAll: ranked,
       ordered,
@@ -1077,10 +1329,6 @@ export async function runResaleSettleServ(input: {
     if (shopper.trace) {
       ranDecide = true;
       trace = shopper.trace;
-      journal = {
-        ...journal,
-        servCalls: Math.min(journal.servCallCap, journal.servCalls + shopper.trace.calls.length),
-      };
       const action = shopper.decision.finalAction;
       if (action === "buy" || action === "negotiate" || action === "pass" || action === "needs_inspection") {
         verdictAction = action;
@@ -1090,6 +1338,27 @@ export async function runResaleSettleServ(input: {
         secondPass = shopper.agentVerdict.second_pass;
       }
       for (const call of shopper.trace.calls) {
+        // Count each shopper HTTP attempt via appendJournalStep (not a silent servCalls bump).
+        journal = appendJournalStep(journal, {
+          kind: call.profile === "verdict_decide" ? "pick" : "challenge",
+          actor: "SERV",
+          decided:
+            call.profile === "verdict_decide"
+              ? `Verdict decide → ${verdictAction}`
+              : `Verdict challenge → ${call.ok ? "ok" : "fail"}`,
+          why:
+            call.ok
+              ? call.profile === "verdict_decide"
+                ? shopper.decision.note ?? "Shopper decide on code report."
+                : secondPass.objection ?? "Shopper challenge."
+              : call.error?.trim() || "Shopper SERV call failed.",
+          inputsUsed: [`vin:${best.vin}`, `check:${call.profile}`],
+          changed: null,
+          model: call.model ?? input.model ?? null,
+          responseId: call.responseId,
+          recordedAt: shopper.trace.recordedAt,
+          rejected: call.ok ? null : "http_error",
+        });
         trail.push({
           decided: call.profile === "verdict_decide" ? `Verdict decide → ${verdictAction}` : `Verdict challenge → ${call.ok ? "ok" : "fail"}`,
           why: call.profile === "verdict_decide" ? shopper.decision.note ?? "Shopper decide on code report." : secondPass.objection ?? "Shopper challenge.",
