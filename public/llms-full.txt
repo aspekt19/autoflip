@@ -66,6 +66,7 @@ Shared contract for site Find/Radar, MCP tools, and `af_` REST. Each row:
 | rawResponse | optional raw SERV body when recorded |
 
 `check_car` / `POST /api/v1/check` fills `proofRecords` from the same shopper decide/challenge path as site `/check`. The array is empty only when SERV was not configured or not called (TypeScript screening still runs). Do not treat `[]` as a successful SERV decide.
+Docs omit filled proof JSON examples unless captured from a real run (servResponseId, model, timestamp, rawResponse).
 
 ## Error envelope
 ```json
