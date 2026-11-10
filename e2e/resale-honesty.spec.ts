@@ -103,8 +103,9 @@ test("Scout and Telegram stay hidden; Deal Radar is available when default-on", 
   for (const width of [1280, 390]) {
     await page.setViewportSize({ width, height: width === 390 ? 844 : 800 });
     await page.goto("/");
-    await expect(page.getByRole("link", { name: "Resale" }).first()).toBeVisible();
-    await expect(page.getByRole("link", { name: "Deal Radar" }).first()).toBeVisible();
+    const primaryNav = page.getByRole("navigation", { name: "Primary" });
+    await expect(primaryNav.getByRole("link", { name: "Resale" })).toBeVisible();
+    await expect(primaryNav.getByRole("link", { name: "Deal Radar" })).toBeVisible();
     await expect(page.getByRole("link", { name: "Scout" })).toHaveCount(0);
     await expect(page.getByRole("button", { name: /telegram/i })).toHaveCount(0);
     expect(await scoutTelegramHrefs(page)).toEqual([]);
