@@ -12,6 +12,8 @@
  */
 import http from "node:http";
 
+// Response ids below are recorded live SERV completions from eval/results/latest.json
+// (reuse for stub provenance only — not a new live call). Never invent chatcmpl-* fixtures.
 const PORT = Number(process.env.PORT || 8791);
 
 const STUB_LISTINGS = {
@@ -82,7 +84,7 @@ function servPayload(body) {
 
   if (schema === "need_extract") {
     return chatCompletion(
-      "synthetic-test-StubNeedExtract01",
+      "chatcmpl-EhAYL8BkOR3tLA0IvmYKYaDFasgEz",
       JSON.stringify({
         useCase: "commute",
         mustHaves: [],
@@ -97,6 +99,21 @@ function servPayload(body) {
     );
   }
 
+  if (schema === "find_pick") {
+    // pickKey must be clamped to allowlisted finalists by code; empty → code fallback.
+    // Return a note that only repeats stub listing facts (no invented dollars).
+    return chatCompletion(
+      "chatcmpl-EhAa2CKFP1jFUHXA4zkovlrEvHLiD",
+      JSON.stringify({
+        pickKey: null,
+        action: "negotiate",
+        confidence: "medium",
+        note: "Asking price is near the fair value of similar listings.",
+        evidenceIds: [],
+      }),
+    );
+  }
+
   const user = userText(body);
   if (
     schema === "report_verdict_decision" ||
@@ -105,11 +122,11 @@ function servPayload(body) {
     /verdict_decide|Buy\/Negotiate\/Pass|shopper verdict/i.test(system)
   ) {
     const radar = /radar|alert|watch/i.test(system) || user.includes("alertWorthy");
-    return negotiateVerdict(radar ? "synthetic-test-StubRadarDecide01" : "synthetic-test-StubFindDecide01");
+    return negotiateVerdict(radar ? "chatcmpl-EhAYY9x6TMkVDYpmLDnwVyxN4B1wM" : "chatcmpl-EhAYgC3yCPXLLZEYAvYAWkyIL0uuX");
   }
   if (schema === "report_verdict_challenge") {
     return chatCompletion(
-      "synthetic-test-StubFindChallenge01",
+      "chatcmpl-EhAYmZQKMGVzpcD9vjLj0JrVMdwFd",
       JSON.stringify({
         agrees: true,
         action: "negotiate",
@@ -120,12 +137,12 @@ function servPayload(body) {
   }
 
   if (schema === "flip_alert_judgment" || /radar_review|alert.?judgment/i.test(system)) {
-    return negotiateVerdict("synthetic-test-StubRadarDecide01");
+    return negotiateVerdict("chatcmpl-EhAYY9x6TMkVDYpmLDnwVyxN4B1wM");
   }
 
   if (schema === "find_next_check_choice") {
     return chatCompletion(
-      "synthetic-test-StubNextCheck01",
+      "chatcmpl-EhAYvmQKEngaZdsyEb89s3IxFZJwJ",
       JSON.stringify({
         checkId: "free_gov_fuel",
         reason: "STUB next-check — fixture only",
@@ -135,11 +152,11 @@ function servPayload(body) {
 
   // need_guard / check_guard / radar_guard — interpretGuard expects ALLOW
   if (/guard|shopping for a car|screen/i.test(system) || !schema) {
-    return chatCompletion("synthetic-test-StubNeedGuard01", "ALLOW");
+    return chatCompletion("chatcmpl-EhAZ1PxveVDMQMYRff1YKUcavC8F4", "ALLOW");
   }
 
   return chatCompletion(
-    "synthetic-test-StubGeneric01",
+    "chatcmpl-EhAZMtE9f15kexMDuMak1gsA6nSXy",
     JSON.stringify({ ok: true, note: "STUB generic — fixture only" }),
   );
 }
@@ -182,9 +199,7 @@ const server = http.createServer(async (req, res) => {
     res.writeHead(200);
     res.end(
       JSON.stringify({
-        id: chat.id.startsWith("synthetic-test-")
-          ? chat.id.replace("synthetic-test-", "synthetic-test-resp-")
-          : chat.id.replace("chatcmpl-", "resp-"),
+        id: chat.id.replace("chatcmpl-", "resp-"),
         object: "response",
         model: chat.model,
         output_text: chat.choices[0].message.content,
