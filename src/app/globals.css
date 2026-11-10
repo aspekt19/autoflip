@@ -53,10 +53,10 @@
   --brand-accent: var(--blue);
   --ease: cubic-bezier(0.16, 1, 0.3, 1);
   --pad: 28px;
-  /* Shared content column for interior pages (header is full-bleed separately). */
-  --site-max: 1360px;
-  --site-gutter: 14px;
-  /* Edge padding for full-bleed header + home story sections (matches ticker span). */
+  /* Content width = header width (line 23): same horizontal pad as .bar. */
+  --site-max: 1360px; /* legacy; prefer --site-pad alignment over this cap */
+  --site-gutter: 14px; /* legacy gutters; new frames use --site-pad */
+  /* Edge padding for full-bleed header + content frames (matches ticker span). */
   --site-pad: clamp(16px, 3vw, 48px);
   accent-color: var(--blue);
   background: var(--canvas);
@@ -177,12 +177,13 @@ a { color: inherit; }
   font-weight: 500;
 }
 
-/* Shared content column for interior pages. Header is full-bleed (.bar); home story-after overrides. */
+/* Content column matches header edges: full width with the same --site-pad as .bar. */
 .site-frame {
   box-sizing: border-box;
-  width: min(var(--site-max), calc(100% - 2 * var(--site-gutter)));
-  max-width: var(--site-max);
-  margin-inline: auto;
+  width: 100%;
+  max-width: none;
+  margin-inline: 0;
+  padding-inline: var(--site-pad);
 }
 
 .bar {
@@ -1198,7 +1199,15 @@ code, .sheet-page a, .prose a {
 .badge.overpriced { background: var(--blue-soft); color: var(--ink); }
 .badge.walk_away { background: var(--ink); color: var(--canvas); }
 .badge.insufficient_data, .badge.not_scored, .badge.withheld { background: transparent; color: var(--muted); border: 1px solid var(--line); }
-.price-badge { margin: 8px 0; font-family: var(--sans); font-size: 15px; font-weight: 500; }
+.price-badge {
+  margin: 8px 0;
+  font-family: var(--type-brand);
+  font-weight: var(--type-brand-weight);
+  font-size: max(13px, var(--type-brand-size-nav));
+  letter-spacing: var(--type-brand-tracking-tight);
+  text-transform: uppercase;
+  line-height: var(--type-brand-line);
+}
 .price-badge strong {
   font-family: var(--type-brand);
   font-weight: var(--type-brand-weight);
@@ -1384,9 +1393,9 @@ pre.doc {
 .foot-note {
   color: var(--muted);
   font-size: 15px;
-  margin: 0 auto 0 max(var(--site-gutter), calc((100% - var(--site-max)) / 2));
-  padding: 22px 0 0;
-  max-width: 80ch;
+  margin: 0;
+  padding: 22px var(--site-pad) 0;
+  max-width: none;
 }
 .colophon {
   display: flex;
@@ -1396,7 +1405,7 @@ pre.doc {
   align-items: center;
   box-sizing: border-box;
   margin-top: 22px;
-  padding: 22px max(var(--site-gutter), calc((100% - var(--site-max)) / 2)) 28px;
+  padding: 22px var(--site-pad) 28px;
   font-size: 15px;
   border-top: 1px solid var(--line);
   background: var(--paper);
@@ -1572,27 +1581,28 @@ pre.doc {
 .film-copy {
   position: absolute;
   top: max(96px, calc(env(safe-area-inset-top, 0px) + 80px));
-  left: 50%;
-  right: auto;
+  left: 0;
+  right: 0;
   margin-inline: 0;
-  transform: translateX(-50%);
+  transform: none;
   /* Landing pattern: slogan first, search card as its own block below. */
   display: grid;
   grid-template-columns: 1fr;
-  gap: 28px;
+  gap: 36px;
   align-items: start;
   justify-items: start;
   pointer-events: auto;
-  padding: 0;
+  /* Keep --site-pad from .site-frame so hero matches header edges (line 23). */
+  padding-block: 0;
   border-radius: 0;
   background: transparent;
   border: none;
   transition: opacity 0.4s ease, transform 0.4s ease;
-  max-width: min(var(--site-max), calc(100% - 2 * var(--site-gutter)));
+  max-width: none;
   box-sizing: border-box;
-  width: min(var(--site-max), calc(100% - 2 * var(--site-gutter)));
+  width: 100%;
 }
-.phase-detail .film-copy { opacity: 0; transform: translateX(-50%) translateY(-10px); pointer-events: none; }
+.phase-detail .film-copy { opacity: 0; transform: translateY(-10px); pointer-events: none; }
 .film-slogan {
   position: relative;
   z-index: 2;
@@ -1611,11 +1621,11 @@ pre.doc {
 .film-copy .brand-hero-title {
   font-family: var(--display);
   text-transform: uppercase;
-  font-size: clamp(32px, 5vw, 56px);
-  max-width: min(22ch, 100%);
+  font-size: clamp(34px, 5.4vw, 68px);
+  max-width: min(18ch, 100%);
   margin: 0;
   line-height: 1.08;
-  letter-spacing: 0.04em;
+  letter-spacing: 0.06em;
   font-weight: 700;
 }
 .film-slogan .lead,
@@ -1663,7 +1673,7 @@ pre.doc {
   padding: 72px var(--site-pad);
 }
 .home-story > .story-after.site-frame {
-  /* Full-bleed like the ticker — pad only; do not re-cap at --site-max. */
+  /* Same pad as header — already on .site-frame; keep explicit for clarity. */
   width: 100%;
   max-width: none;
   margin-inline: 0;
@@ -1722,15 +1732,16 @@ pre.doc {
   .film-copy {
     top: max(76px, calc(env(safe-area-inset-top, 0px) + 64px));
     bottom: auto;
-    left: 50%;
-    right: auto;
-    transform: translateX(-50%);
+    left: 0;
+    right: 0;
+    transform: none;
     display: grid;
     grid-template-columns: 1fr;
     gap: 18px;
     background: transparent;
     border: none;
-    padding: 0;
+    padding-block: 0;
+    padding-inline: var(--site-pad);
     pointer-events: none;
   }
   .film-slogan,
@@ -1757,10 +1768,11 @@ pre.doc {
 @media (max-width: 420px) {
   :root { --pad: 14px; --site-gutter: 6px; }
   .film-copy {
-    left: 50%;
-    right: auto;
+    left: 0;
+    right: 0;
     top: max(72px, calc(env(safe-area-inset-top, 0px) + 56px));
-    transform: translateX(-50%);
+    transform: none;
+    padding-inline: var(--site-pad);
   }
   .film-search { padding: 10px; }
   .film-slogan .brand-hero-title,
@@ -1791,7 +1803,7 @@ pre.doc {
     min-height: 100dvh;
     min-height: 100svh;
   }
-  .phase-detail .film-copy { opacity: 1; transform: translateX(-50%); pointer-events: auto; }
+  .phase-detail .film-copy { opacity: 1; transform: none; pointer-events: auto; }
 }
 
 

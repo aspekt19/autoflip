@@ -67,31 +67,44 @@ test.describe("brand type on chrome", () => {
     mkdirSync(SCREEN_DIR, { recursive: true });
   });
 
-  test("home hero: Orbitron BUY SMART headline above search (one column @ 1920)", async ({ page }) => {
-    await mockSignedIn(page);
-    await page.setViewportSize({ width: 1920, height: 1080 });
-    await page.goto("/");
-    const title = page.locator("h1.brand-hero-title");
-    await expect(title).toBeVisible();
-    await expect(title).toHaveText(/BUY SMART\.\s*STAY\s*LEMONLESS\./i);
-    const titleFamily = await title.evaluate((el) => getComputedStyle(el).fontFamily);
-    expect(isBrandFace(titleFamily), `hero title font-family=${titleFamily}`).toBe(true);
+  for (const width of [375, 1280, 1920] as const) {
+    test(`home hero: BUY SMART above search + content matches header pad @ ${width}`, async ({ page }) => {
+      await mockSignedIn(page);
+      await page.setViewportSize({ width, height: width < 800 ? 812 : 1080 });
+      await page.goto("/");
+      const title = page.locator("h1.brand-hero-title");
+      await expect(title).toBeVisible();
+      await expect(title).toHaveText(/BUY SMART\.\s*STAY\s*LEMONLESS\./i);
+      const titleFamily = await title.evaluate((el) => getComputedStyle(el).fontFamily);
+      expect(isBrandFace(titleFamily), `hero title font-family=${titleFamily}`).toBe(true);
 
-    const search = page.locator(".film-search");
-    await expect(search).toBeVisible();
-    const stacked = await page.evaluate(() => {
-      const slogan = document.querySelector(".film-slogan");
-      const card = document.querySelector(".film-search");
-      if (!slogan || !card) return false;
-      const a = slogan.getBoundingClientRect();
-      const b = card.getBoundingClientRect();
-      // Search sits below the slogan (not beside it).
-      return b.top >= a.bottom - 4;
+      const search = page.locator(".film-search");
+      await expect(search).toBeVisible();
+      const layout = await page.evaluate(() => {
+        const slogan = document.querySelector(".film-slogan");
+        const card = document.querySelector(".film-search");
+        const header = document.querySelector('[data-testid="site-header"]');
+        const frame = document.querySelector(".film-copy.site-frame");
+        if (!slogan || !card || !header || !frame) return { stacked: false, padMatch: false };
+        const a = slogan.getBoundingClientRect();
+        const b = card.getBoundingClientRect();
+        const hs = getComputedStyle(header);
+        const fs = getComputedStyle(frame);
+        const headerPad = Number.parseFloat(hs.paddingLeft) || 0;
+        const framePad = Number.parseFloat(fs.paddingLeft) || 0;
+        return {
+          stacked: b.top >= a.bottom - 4,
+          padMatch: Math.abs(headerPad - framePad) <= 1,
+          headerPad,
+          framePad,
+        };
+      });
+      expect(layout.stacked, `search must sit below slogan @ ${width}`).toBe(true);
+      expect(layout.padMatch, `content pad ${layout.framePad} vs header ${layout.headerPad} @ ${width}`).toBe(true);
+
+      await page.screenshot({ path: join(SCREEN_DIR, `home-hero-${width}.png`), fullPage: false });
     });
-    expect(stacked, "search card must sit below the slogan at 1920").toBe(true);
-
-    await page.screenshot({ path: join(SCREEN_DIR, "home-hero-1920.png"), fullPage: false });
-  });
+  }
 
   for (const path of PAGES) {
     test(`${path} buttons and labels use Orbitron brand face`, async ({ page }) => {
