@@ -133,7 +133,9 @@
             },
             "confidenceAfter": {
               "oneOf": [{ "type": "null" }, { "type": "string", "enum": ["high", "medium", "low"] }]
-            }
+            },
+            "profile": { "oneOf": [{ "type": "string" }, { "type": "null" }] },
+            "responseId": { "oneOf": [{ "type": "string" }, { "type": "null" }] }
           }
         }
       ]

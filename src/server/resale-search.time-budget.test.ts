@@ -143,7 +143,8 @@ describe("resale time budget (Hobby ~50s)", () => {
     expect(
       settled.journal.steps.some(
         (s) =>
-          /shopper/i.test(s.decided) && s.decided.includes(RESALE_TIME_BUDGET_SKIP),
+          /Verdict decide skipped/i.test(s.decided) &&
+          s.decided.includes(RESALE_TIME_BUDGET_SKIP),
       ),
     ).toBe(true);
   });
