@@ -46,6 +46,11 @@ export type ResaleSearchDeps = FindMatchDeps & {
   deadline?: ResaleDeadline;
   /** Internal budget ms when deadline is not injected (Hobby-safe ~50s default). */
   internalBudgetMs?: number;
+  /**
+   * Stop after plan + inventory + code PnL shortlist (no settle SERV).
+   * Used by stepped Resale jobs (step 1).
+   */
+  stopAfter?: "inventory";
 };
 
 export type ResaleSearchOkBody = {
@@ -68,8 +73,26 @@ export type ResaleSearchOkBody = {
   creditNote: string;
 };
 
+/** Step-1 inventory slice: plan + listings + code PnL shortlist, no settle SERV. */
+export type ResaleSearchInventoryBody = {
+  ok: true;
+  sample: false;
+  chargedCredit: false;
+  stopAfter: "inventory";
+  budgetUsd: number;
+  candidates: ResaleCandidatePnl[];
+  journal: ResaleDecisionJournal;
+  headline: string;
+  message: string;
+  nextStep: string;
+  providerQueriesUsed: number;
+  scope: string | null;
+  emptyReason: string | null;
+};
+
 export type ResaleSearchResult =
   | { ok: true; status: number; body: ResaleSearchOkBody }
+  | { ok: true; status: number; body: ResaleSearchInventoryBody }
   | {
       ok: false;
       status: number;
@@ -319,6 +342,45 @@ export async function runResaleSearch(
     resaleChannel: input.resaleChannel,
   });
 
+  const emptyPool = pnls.length === 0;
+
+  if (deps.stopAfter === "inventory") {
+    logResaleStage("inventory_stop", deadline.startedAtMs, {
+      remainingMs: deadline.remainingMs(),
+      candidates: pnls.length,
+      journalSteps: planJournal.steps.length,
+    });
+    const headline = emptyPool
+      ? match.body.headline ?? "No flip candidates in this budget"
+      : `Shortlisted ${pnls.length} flip candidate${pnls.length === 1 ? "" : "s"} — continuing agent steps`;
+    const message = emptyPool
+      ? match.body.message ??
+        "No listings cleared similar-listing economics inside this budget. Try a higher budget, nationwide radius, or fewer filters — this is still a verdict, not a dead end."
+      : `Code ranked ${pnls.length} candidates by expected mid profit. Next steps: triage, pick, and shopper decide.`;
+    const nextStep = emptyPool
+      ? match.body.nextStep ?? "Raise the budget or clear optional filters, then search again (1 report credit)."
+      : "Continue the resale job — credit is charged only when the final verdict is delivered.";
+    return {
+      ok: true,
+      status: 200,
+      body: {
+        ok: true,
+        sample: false,
+        chargedCredit: false,
+        stopAfter: "inventory",
+        budgetUsd: input.budgetUsd,
+        candidates: pnls,
+        journal: planJournal,
+        headline,
+        message,
+        nextStep,
+        providerQueriesUsed: match.body.providerQueriesUsed,
+        scope: match.body.scope,
+        emptyReason: emptyPool ? match.body.emptyReason ?? "no_flip_candidates" : null,
+      },
+    };
+  }
+
   const remainingCap = Math.max(0, RESALE_SERV_CALL_CAP - planJournal.servCalls);
   const settleStarted = Date.now();
   const settled = await runResaleSettleServ({
@@ -339,7 +401,6 @@ export async function runResaleSearch(
 
   const journal = mergeJournals(planJournal, settled.journal);
 
-  const emptyPool = pnls.length === 0;
   logResaleStage("done", deadline.startedAtMs, {
     remainingMs: deadline.remainingMs(),
     emptyPool,

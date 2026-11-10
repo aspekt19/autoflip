@@ -203,7 +203,7 @@ describe("resale time budget (Hobby ~50s)", () => {
     expect(elapsed).toBeLessThan(2_400);
     expect(result.ok).toBe(true);
     if (!result.ok) return;
-    expect(result.body.best).not.toBeNull();
+    expect("best" in result.body && result.body.best).not.toBeNull();
     expect(result.body.budgetUsd).toBe(15_000);
     expect(
       result.body.journal.steps.some(

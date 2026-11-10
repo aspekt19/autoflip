@@ -91,15 +91,89 @@ function ResaleSearchForm({ credits, onAuthLost }: { credits: number | null; onA
   const [targetProfit, setTargetProfit] = useState("");
   const [showFilters, setShowFilters] = useState(false);
   const [pending, setPending] = useState(false);
+  const [progressLabel, setProgressLabel] = useState<string | null>(null);
+  const [progressSteps, setProgressSteps] = useState<
+    Array<{ id: number; label: string; status: "pending" | "current" | "done" }> | null
+  >(null);
+  const [partialJournal, setPartialJournal] = useState<ResaleDecisionJournal | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<SearchResult | null>(null);
   const [idemKey] = useState(
     () => `resale-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 12)}`,
   );
 
+  type JobBody = {
+    error?: string;
+    message?: string;
+    jobId?: string;
+    step?: number;
+    nextStep?: number | null;
+    done?: boolean;
+    progress?: {
+      label?: string;
+      steps?: Array<{ id: number; label: string; status: "pending" | "current" | "done" }>;
+    };
+    best?: ResaleCandidatePnl | null;
+    alternatives?: ResaleCandidatePnl[];
+    verdictAction?: string;
+    confidence?: "High" | "Medium" | "Low";
+    agentVerdict?: AgentVerdict;
+    journal?: ResaleDecisionJournal;
+    headline?: string;
+    nextStepHint?: string;
+    creditNote?: string;
+    balance?: number;
+    budgetUsd?: number;
+    chargedCredit?: boolean;
+  };
+
+  function applyProgress(body: JobBody) {
+    if (body.progress?.steps?.length) setProgressSteps(body.progress.steps);
+    if (body.progress?.label) setProgressLabel(body.progress.label);
+    if (body.journal) setPartialJournal(body.journal);
+  }
+
+  function finishFromBody(body: JobBody) {
+    if (!body.agentVerdict || !body.confidence || !body.verdictAction) {
+      const hint =
+        typeof body.nextStepHint === "string" && body.nextStepHint.trim()
+          ? ` ${body.nextStepHint.trim()}`
+          : "";
+      setError(`${body.message ?? "The resale search did not finish."}${hint}`);
+      return;
+    }
+    setResult({
+      best: body.best ?? null,
+      alternatives: body.alternatives ?? [],
+      verdictAction: body.verdictAction,
+      confidence: body.confidence,
+      agentVerdict: body.agentVerdict,
+      journal: body.journal ?? {
+        schemaVersion: "lemonless.resale_journal.v1",
+        steps: [],
+        servCalls: 0,
+        servCallCap: 6,
+      },
+      headline: body.headline ?? "Resale search",
+      message: body.message ?? "",
+      nextStep: body.nextStepHint ?? "",
+      creditNote: body.creditNote ?? "1 report credit per delivered resale search.",
+      balance: body.balance,
+      budgetUsd: typeof body.budgetUsd === "number" ? body.budgetUsd : Number(budget),
+      zip: zip.trim() || null,
+      distanceMiles: radius === "" ? null : Number(radius),
+    });
+    setProgressLabel(null);
+    setProgressSteps(null);
+    setPartialJournal(null);
+  }
+
   async function submitSearch() {
     setError(null);
     setResult(null);
+    setPartialJournal(null);
+    setProgressSteps(null);
+    setProgressLabel("Plan & inventory");
     setPending(true);
     try {
       const response = await fetch("/api/resale/search", {
@@ -118,21 +192,7 @@ function ResaleSearchForm({ credits, onAuthLost }: { credits: number | null; onA
           searchIdempotencyKey: idemKey,
         }),
       });
-      const body = (await response.json()) as {
-        error?: string;
-        message?: string;
-        best?: ResaleCandidatePnl | null;
-        alternatives?: ResaleCandidatePnl[];
-        verdictAction?: string;
-        confidence?: "High" | "Medium" | "Low";
-        agentVerdict?: AgentVerdict;
-        journal?: ResaleDecisionJournal;
-        headline?: string;
-        nextStep?: string;
-        creditNote?: string;
-        balance?: number;
-        budgetUsd?: number;
-      };
+      const body = (await response.json()) as JobBody;
       if (response.status === 401 || response.status === 403) {
         if (body.error === "auth_required" || body.error === "email_unverified" || body.error === "auth_unconfigured") {
           onAuthLost();
@@ -143,32 +203,69 @@ function ResaleSearchForm({ credits, onAuthLost }: { credits: number | null; onA
           return;
         }
       }
-      if (!response.ok || !body.agentVerdict || !body.confidence || !body.verdictAction) {
-        const hint = typeof body.nextStep === "string" && body.nextStep.trim() ? ` ${body.nextStep.trim()}` : "";
+      if (!response.ok) {
+        const hint =
+          typeof body.nextStepHint === "string" && body.nextStepHint.trim()
+            ? ` ${body.nextStepHint.trim()}`
+            : "";
         setError(`${body.message ?? "The resale search did not finish."}${hint}`);
         return;
       }
-      setResult({
-        best: body.best ?? null,
-        alternatives: body.alternatives ?? [],
-        verdictAction: body.verdictAction,
-        confidence: body.confidence,
-        agentVerdict: body.agentVerdict,
-        journal: body.journal ?? {
-          schemaVersion: "lemonless.resale_journal.v1",
-          steps: [],
-          servCalls: 0,
-          servCallCap: 6,
-        },
-        headline: body.headline ?? "Resale search",
-        message: body.message ?? "",
-        nextStep: body.nextStep ?? "",
-        creditNote: body.creditNote ?? "1 report credit per delivered resale search.",
-        balance: body.balance,
-        budgetUsd: typeof body.budgetUsd === "number" ? body.budgetUsd : Number(budget),
-        zip: zip.trim() || null,
-        distanceMiles: radius === "" ? null : Number(radius),
-      });
+
+      // Legacy / replay full delivery in one response.
+      if (body.done === true || (body.agentVerdict && body.confidence && body.verdictAction && !body.jobId)) {
+        finishFromBody(body);
+        return;
+      }
+
+      if (!body.jobId) {
+        setError(body.message ?? "The resale search did not return a job id.");
+        return;
+      }
+
+      applyProgress(body);
+      let jobId = body.jobId;
+      let next = body.nextStep ?? null;
+      let latest = body;
+
+      while (next != null && latest.done !== true) {
+        const stepRes = await fetch("/api/resale/search/step", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ jobId, step: next }),
+        });
+        const stepBody = (await stepRes.json()) as JobBody;
+        if (stepRes.status === 401 || stepRes.status === 403) {
+          if (
+            stepBody.error === "auth_required" ||
+            stepBody.error === "email_unverified" ||
+            stepBody.error === "auth_unconfigured"
+          ) {
+            onAuthLost();
+            return;
+          }
+          if (stepBody.error === "forbidden") {
+            setError(stepBody.message ?? "This resale job belongs to another account.");
+            return;
+          }
+          if (stepBody.error === "credits_required") {
+            setError(stepBody.message ?? "Resale search costs 1 report credit.");
+            return;
+          }
+        }
+        if (!stepRes.ok) {
+          setError(stepBody.message ?? "A resale search step did not finish. Retry — credit is only charged on delivery.");
+          applyProgress(stepBody);
+          return;
+        }
+        applyProgress(stepBody);
+        latest = stepBody;
+        if (stepBody.jobId) jobId = stepBody.jobId;
+        next = stepBody.nextStep ?? null;
+        if (stepBody.done) break;
+      }
+
+      finishFromBody(latest);
     } catch {
       setError("The resale search did not finish. Retry — failed searches never debit a credit.");
     } finally {
@@ -332,9 +429,28 @@ function ResaleSearchForm({ credits, onAuthLost }: { credits: number | null; onA
 
       <div className="btn-row">
         <button className="action" type="button" disabled={pending || !budget.trim()} onClick={() => void submitSearch()}>
-          {pending ? "Searching flips…" : "Find flips (1 credit)"}
+          {pending ? progressLabel ?? "Searching flips…" : "Find flips (1 credit)"}
         </button>
       </div>
+
+      {pending && progressSteps ? (
+        <ol className="progress" aria-label="Resale search progress" aria-live="polite">
+          {progressSteps.map((step) => (
+            <li
+              key={step.id}
+              className={
+                step.status === "current" ? "is-current" : step.status === "done" ? "is-done" : undefined
+              }
+            >
+              {step.label}
+            </li>
+          ))}
+        </ol>
+      ) : null}
+
+      {pending && partialJournal && partialJournal.steps.length > 0 ? (
+        <ResaleDecisionJournalView journal={partialJournal} defaultOpen />
+      ) : null}
 
       {error ? (
         <p className="warn" role="alert">

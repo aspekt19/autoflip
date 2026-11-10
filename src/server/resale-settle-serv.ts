@@ -34,6 +34,36 @@ import {
 
 const RESALE_SERV_JUDGE_MAX = 3;
 
+/** Settle phases for client-driven stepped Resale jobs. `all` keeps one-shot behavior. */
+export type ResaleSettlePhase = "triage_deep" | "pick_challenge" | "shopper" | "all";
+
+/**
+ * Persisted mid-settle state between job steps.
+ * Code owns dollar figures; SERV only chooses among allowlisted VINs / actions.
+ */
+export type ResaleSettleCheckpoint = {
+  phaseCompleted: "triage_deep" | "pick_challenge" | "shopper" | "empty";
+  journal: ResaleDecisionJournal;
+  /** Profit-sorted full candidate list (for alternatives). */
+  rankedAll: ResaleCandidatePnl[];
+  /** Risk-adjusted ordered shortlist after triage/deep (or code rank). */
+  ordered: ResaleCandidatePnl[];
+  shortlist: ResaleCandidatePnl[];
+  best: ResaleCandidatePnl | null;
+  alternatives: ResaleCandidatePnl[];
+  verdictAction: "buy" | "negotiate" | "pass" | "needs_inspection";
+  confidence: "High" | "Medium" | "Low";
+  agentVerdict: AgentVerdict;
+  trail: AgentTrailStep[];
+  secondPass: AgentSecondPassResult;
+  agentConfidence: AgentVerdictConfidence;
+  ranJudge: boolean;
+  ranDecide: boolean;
+  trace: ShopperServTrace | null;
+  budgetUsd: number;
+  timeToSellPref?: "any" | "faster" | "unknown";
+};
+
 export type ResaleSettleServResult = {
   best: ResaleCandidatePnl | null;
   alternatives: ResaleCandidatePnl[];
@@ -44,6 +74,8 @@ export type ResaleSettleServResult = {
   confidence: "High" | "Medium" | "Low";
   ranJudge: boolean;
   ranDecide: boolean;
+  /** Snapshot for the next job step (or final state). */
+  checkpoint: ResaleSettleCheckpoint;
 };
 
 function carLabel(item: ResaleCandidatePnl): string {
@@ -67,7 +99,11 @@ function modelFrom(proof: ServProof | null, fallback?: string | null): string | 
   return fallback || proof?.modelReported || proof?.modelRequested || null;
 }
 
-function buildFlipReport(candidate: ResaleCandidatePnl, budgetUsd: number): ComputedReport {
+function buildFlipReport(
+  candidate: ResaleCandidatePnl,
+  budgetUsd: number,
+  peerCandidates: ResaleCandidatePnl[] = [],
+): ComputedReport {
   const subject: Listing = candidate.listing;
   const fair = candidate.resaleMidUsd;
   const ask = candidate.askingUsd;
@@ -79,6 +115,24 @@ function buildFlipReport(candidate: ResaleCandidatePnl, budgetUsd: number): Comp
     else if (priceGap <= ASSUMPTIONS.overpricedGap) verdict = "overpriced";
     else verdict = "walk_away";
   }
+  // Ordered gates require minComps priced peers — use other shortlist cars from this scan.
+  const comps = peerCandidates
+    .filter(
+      (item): item is ResaleCandidatePnl & { listing: Listing & { priceUsd: number; miles: number } } =>
+        item.vin !== candidate.vin && item.listing.priceUsd != null && item.listing.miles != null,
+    )
+    .slice(0, 8)
+    .map((item) => ({
+      vin: item.vin,
+      year: item.listing.year,
+      trim: item.listing.trim,
+      miles: item.listing.miles,
+      priceUsd: item.listing.priceUsd,
+      adjustedPriceUsd: item.listing.priceUsd,
+      city: item.listing.city,
+      state: item.listing.state,
+      distanceMiles: null as number | null,
+    }));
   return {
     mode: "flip",
     subject,
@@ -95,7 +149,7 @@ function buildFlipReport(candidate: ResaleCandidatePnl, budgetUsd: number): Comp
     ],
     flags: [],
     questions: candidate.checkBeforeBuying.slice(0, 6),
-    comps: [],
+    comps,
     compScope: "Resale search similar asks in this scan",
     percentile: null,
     fairValueUsd: fair,
@@ -157,8 +211,76 @@ function parseJsonObject(text: string): Record<string, unknown> | null {
   }
 }
 
+function buildSettleResult(state: {
+  best: ResaleCandidatePnl | null;
+  alternatives: ResaleCandidatePnl[];
+  agentVerdict: AgentVerdict;
+  journal: ResaleDecisionJournal;
+  trace: ShopperServTrace | null;
+  verdictAction: ResaleSettleServResult["verdictAction"];
+  confidence: ResaleSettleServResult["confidence"];
+  ranJudge: boolean;
+  ranDecide: boolean;
+  checkpoint: ResaleSettleCheckpoint;
+}): ResaleSettleServResult {
+  return {
+    best: state.best,
+    alternatives: state.alternatives,
+    agentVerdict: state.agentVerdict,
+    journal: state.journal,
+    trace: state.trace,
+    verdictAction: state.verdictAction,
+    confidence: state.confidence,
+    ranJudge: state.ranJudge,
+    ranDecide: state.ranDecide,
+    checkpoint: state.checkpoint,
+  };
+}
+
+function finalizeAgentVerdict(input: {
+  best: ResaleCandidatePnl;
+  verdictAction: ResaleSettleServResult["verdictAction"];
+  agentConfidence: AgentVerdictConfidence;
+  trail: AgentTrailStep[];
+  secondPass: AgentSecondPassResult;
+  journal: ResaleDecisionJournal;
+  ranJudge: boolean;
+  ranDecide: boolean;
+}): AgentVerdict {
+  return {
+    ...emptyAgentVerdict({
+      pick: { key: input.best.vin, label: carLabel(input.best) },
+      verdict: input.verdictAction,
+      confidence: input.agentConfidence,
+      reasons: [
+        {
+          evidenceId: "pnl_mid",
+          text: profitHeadline(input.best),
+        },
+        { evidenceId: "comps", text: `${input.best.compCount} similar listings in this scan.` },
+      ],
+      risks: input.best.risks.slice(0, 4).map((text, i) => ({ evidenceId: `risk_${i}`, text })),
+      unknowns: [
+        ...(input.best.salesTaxKnown
+          ? []
+          : ["Sales tax unknown — profit shown before sales tax (state unknown); ranking applies a conservative tax haircut."]),
+        "Title/registration dollar amount unknown.",
+        ...(input.best.estimatedDaysToSell == null ? ["Days to sell unknown without listing age / DOM feed."] : []),
+      ],
+      serv_steps: input.trail,
+      second_pass: input.secondPass,
+      no_serv_step: !input.ranJudge && !input.ranDecide,
+      serv_spend: {
+        calls: input.journal.servCalls,
+        costNote: `Resale SERV call cap ${input.journal.servCallCap}; recorded ${input.journal.servCalls}.`,
+      },
+    }),
+  };
+}
+
 /**
  * Pick best flip + alternatives. Always returns a verdict (never a dead end).
+ * Optional `phase` + `checkpoint` split the SERV chain across stepped job requests.
  */
 export async function runResaleSettleServ(input: {
   candidates: ResaleCandidatePnl[];
@@ -170,13 +292,39 @@ export async function runResaleSettleServ(input: {
   fetchImpl?: typeof fetch;
   /** When set, skip remaining SERV stages once the wall-clock budget is gone. */
   deadline?: ResaleDeadline;
+  /**
+   * Settle slice for stepped jobs.
+   * `all` (default) runs the full chain in one call.
+   */
+  phase?: ResaleSettlePhase;
+  /** Prior phase snapshot — required for pick_challenge / shopper phases. */
+  checkpoint?: ResaleSettleCheckpoint | null;
 }): Promise<ResaleSettleServResult> {
   const recordedAt = new Date().toISOString();
-  const trail: AgentTrailStep[] = [];
-  let journal = emptyResaleJournal(RESALE_SERV_CALL_CAP);
+  const phase: ResaleSettlePhase = input.phase ?? "all";
+  const stepped = phase !== "all";
   const fetchImpl = input.fetchImpl ?? fetch;
-  const ranked = sortByProfit(input.candidates);
-  const shortlist = ranked.slice(0, RESALE_SERV_JUDGE_MAX);
+  const deadline = input.deadline;
+
+  /** Stepped jobs: only skip SERV when the per-step deadline is truly expired. */
+  const stageOk = (needMs: number, timeoutMs: number | null): boolean => {
+    if (timeoutMs == null) return false;
+    if (!deadline) return true;
+    if (stepped) return !deadline.expired();
+    return deadline.allow(needMs);
+  };
+
+  const resumeFrom =
+    input.checkpoint &&
+    (phase === "pick_challenge" || phase === "shopper") &&
+    input.checkpoint.phaseCompleted !== "empty"
+      ? input.checkpoint
+      : null;
+
+  let trail: AgentTrailStep[] = resumeFrom ? [...resumeFrom.trail] : [];
+  let journal = resumeFrom ? resumeFrom.journal : emptyResaleJournal(RESALE_SERV_CALL_CAP);
+  const ranked = resumeFrom ? resumeFrom.rankedAll : sortByProfit(input.candidates);
+  const shortlist = resumeFrom ? resumeFrom.shortlist : ranked.slice(0, RESALE_SERV_JUDGE_MAX);
 
   if (shortlist.length === 0) {
     journal = appendJournalStep(journal, {
@@ -215,7 +363,34 @@ export async function runResaleSettleServ(input: {
         },
       ],
     });
-    return {
+    const checkpoint: ResaleSettleCheckpoint = {
+      phaseCompleted: "empty",
+      journal,
+      rankedAll: [],
+      ordered: [],
+      shortlist: [],
+      best: null,
+      alternatives: [],
+      verdictAction: "pass",
+      confidence: "Low",
+      agentVerdict,
+      trail: [],
+      secondPass: {
+        status: "not_run",
+        action: null,
+        objection: "Second check not run: no candidate to challenge.",
+        evidenceIds: [],
+        confidenceBefore: null,
+        confidenceAfter: null,
+      },
+      agentConfidence: "low",
+      ranJudge: false,
+      ranDecide: false,
+      trace: null,
+      budgetUsd: input.budgetUsd,
+      timeToSellPref: input.timeToSellPref,
+    };
+    return buildSettleResult({
       best: null,
       alternatives: [],
       agentVerdict,
@@ -225,7 +400,8 @@ export async function runResaleSettleServ(input: {
       confidence: "Low",
       ranJudge: false,
       ranDecide: false,
-    };
+      checkpoint,
+    });
   }
 
   const bundle = evidenceBundleFromCandidates(shortlist, [
@@ -234,9 +410,34 @@ export async function runResaleSettleServ(input: {
     "check:recalls",
     "check:complaints",
   ]);
-  let working = shortlist;
-  let ranJudge = false;
+  let working = resumeFrom ? resumeFrom.ordered : shortlist;
+  let ranJudge = resumeFrom?.ranJudge ?? false;
+  let ordered = resumeFrom ? resumeFrom.ordered : shortlist;
+  let best = resumeFrom?.best ?? shortlist[0]!;
+  let verdictAction: ResaleSettleServResult["verdictAction"] =
+    resumeFrom?.verdictAction ??
+    (best.profitMidUsd != null && best.profitMidUsd > 0 ? "negotiate" : "needs_inspection");
+  let secondPass: AgentSecondPassResult = resumeFrom?.secondPass ?? {
+    status: input.servKey?.trim() ? "not_run" : "skipped_no_key",
+    action: null,
+    objection: input.servKey?.trim()
+      ? "Second check not run yet."
+      : "Second check not run: SERV_API_KEY is not configured on this deployment.",
+    evidenceIds: [],
+    confidenceBefore: confidenceFromPnl(best),
+    confidenceAfter: null,
+  };
+  let agentConfidence = resumeFrom?.agentConfidence ?? confidenceFromPnl(best);
+  let ranDecide = resumeFrom?.ranDecide ?? false;
+  let trace: ShopperServTrace | null = resumeFrom?.trace ?? null;
 
+  const runTriageDeep = phase === "all" || phase === "triage_deep";
+  const runPickChallenge = phase === "all" || phase === "pick_challenge";
+  const runShopperPhase = phase === "all" || phase === "shopper";
+
+  // --- Triage + deep (skipped when resuming pick/shopper) ---
+  let selectedCheckIds = ["price_comps", "history"];
+  if (runTriageDeep && !resumeFrom) {
   journal = appendJournalStep(journal, {
     kind: "rank",
     actor: "code",
@@ -251,16 +452,14 @@ export async function runResaleSettleServ(input: {
   });
 
   // --- Triage (resale_triage) ---
-  let selectedCheckIds = ["price_comps", "history"];
-  const deadline = input.deadline;
   const triageTimeoutMs = deadline
     ? resaleCallTimeoutMs(profile("resale_triage").timeoutMs, deadline)
     : profile("resale_triage").timeoutMs;
   if (
     input.servKey?.trim() &&
     journal.servCalls < journal.servCallCap &&
-    (!deadline || deadline.allow(RESALE_STAGE_BUDGET_MS.triage)) &&
-    triageTimeoutMs != null
+    triageTimeoutMs != null &&
+    stageOk(RESALE_STAGE_BUDGET_MS.triage, triageTimeoutMs)
   ) {
     const allowedCheckIds = ["price_comps", "vin_decode", "recalls", "complaints", "history"];
     const facts = {
@@ -383,7 +582,7 @@ export async function runResaleSettleServ(input: {
   } else if (
     input.servKey?.trim() &&
     deadline &&
-    (triageTimeoutMs == null || !deadline.allow(RESALE_STAGE_BUDGET_MS.triage))
+    !stageOk(RESALE_STAGE_BUDGET_MS.triage, triageTimeoutMs)
   ) {
     journal = appendJournalStep(journal, {
       kind: "fallback",
@@ -408,7 +607,9 @@ export async function runResaleSettleServ(input: {
     fetchImpl,
     nowIso: recordedAt,
     deadline,
-    stageCapMs: RESALE_STAGE_BUDGET_MS.deepCheck,
+    stageCapMs: stepped
+      ? Math.max(RESALE_STAGE_BUDGET_MS.deepCheck, deadline?.remainingMs() ?? RESALE_STAGE_BUDGET_MS.deepCheck)
+      : RESALE_STAGE_BUDGET_MS.deepCheck,
   });
   journal = deep.journal;
   working = deepTargets.filter((item) => !deep.rejectedVins.has(item.vin));
@@ -434,7 +635,7 @@ export async function runResaleSettleServ(input: {
   }
 
   // Risk-adjusted rank after deep-checks (code math only).
-  let ordered = rankByRiskAdjustedProfit(working.length ? working : shortlist, deep.riskByVin);
+  ordered = rankByRiskAdjustedProfit(working.length ? working : shortlist, deep.riskByVin);
   journal = appendJournalStep(journal, {
     kind: "rank",
     actor: "code",
@@ -449,19 +650,80 @@ export async function runResaleSettleServ(input: {
     recordedAt,
     rejected: null,
   });
-  let best = ordered[0]!;
-  let verdictAction: ResaleSettleServResult["verdictAction"] =
+  best = ordered[0]!;
+  verdictAction =
     best.profitMidUsd != null && best.profitMidUsd > 0 ? "negotiate" : "needs_inspection";
+  agentConfidence = confidenceFromPnl(best);
+  secondPass = {
+    status: input.servKey?.trim() ? "not_run" : "skipped_no_key",
+    action: null,
+    objection: input.servKey?.trim()
+      ? "Second check not run yet."
+      : "Second check not run: SERV_API_KEY is not configured on this deployment.",
+    evidenceIds: [],
+    confidenceBefore: agentConfidence,
+    confidenceAfter: null,
+  };
+  } // end runTriageDeep && !resumeFrom
+
+  if (phase === "triage_deep") {
+    const alternatives = sortByProfit(ranked.filter((item) => item.vin !== best.vin)).slice(0, 4);
+    const confidenceLabel =
+      agentConfidence === "high" ? "High" : agentConfidence === "medium" ? "Medium" : "Low";
+    const agentVerdict = finalizeAgentVerdict({
+      best,
+      verdictAction,
+      agentConfidence,
+      trail,
+      secondPass,
+      journal,
+      ranJudge,
+      ranDecide,
+    });
+    const checkpoint: ResaleSettleCheckpoint = {
+      phaseCompleted: "triage_deep",
+      journal,
+      rankedAll: ranked,
+      ordered,
+      shortlist,
+      best,
+      alternatives,
+      verdictAction,
+      confidence: confidenceLabel,
+      agentVerdict,
+      trail,
+      secondPass,
+      agentConfidence,
+      ranJudge,
+      ranDecide,
+      trace: null,
+      budgetUsd: input.budgetUsd,
+      timeToSellPref: input.timeToSellPref,
+    };
+    return buildSettleResult({
+      best,
+      alternatives,
+      agentVerdict,
+      journal,
+      trace: null,
+      verdictAction,
+      confidence: confidenceLabel,
+      ranJudge,
+      ranDecide,
+      checkpoint,
+    });
+  }
 
   // --- Pick (resale_pick) ---
   const pickTimeoutMs = deadline
     ? resaleCallTimeoutMs(profile("resale_pick").timeoutMs, deadline)
     : profile("resale_pick").timeoutMs;
   if (
+    runPickChallenge &&
     input.servKey?.trim() &&
     journal.servCalls < journal.servCallCap &&
-    (!deadline || deadline.allow(RESALE_STAGE_BUDGET_MS.pick)) &&
-    pickTimeoutMs != null
+    pickTimeoutMs != null &&
+    stageOk(RESALE_STAGE_BUDGET_MS.pick, pickTimeoutMs)
   ) {
     const pickFacts = {
       allowedVins: ordered.map((item) => item.vin),
@@ -552,10 +814,11 @@ export async function runResaleSettleServ(input: {
   }
 
   if (
+    runPickChallenge &&
     input.servKey?.trim() &&
     journal.servCalls < journal.servCallCap &&
     deadline &&
-    (pickTimeoutMs == null || !deadline.allow(RESALE_STAGE_BUDGET_MS.pick)) &&
+    !stageOk(RESALE_STAGE_BUDGET_MS.pick, pickTimeoutMs) &&
     !journal.steps.some((s) => s.kind === "pick" && s.actor === "SERV")
   ) {
     journal = appendJournalStep(journal, {
@@ -573,28 +836,15 @@ export async function runResaleSettleServ(input: {
   }
 
   // --- Challenge (resale_challenge) ---
-  let ranDecide = false;
-  let trace: ShopperServTrace | null = null;
-  let secondPass: AgentSecondPassResult = {
-    status: input.servKey?.trim() ? "not_run" : "skipped_no_key",
-    action: null,
-    objection: input.servKey?.trim()
-      ? "Second check not run yet."
-      : "Second check not run: SERV_API_KEY is not configured on this deployment.",
-    evidenceIds: [],
-    confidenceBefore: confidenceFromPnl(best),
-    confidenceAfter: null,
-  };
-  let agentConfidence = confidenceFromPnl(best);
-
   const challengeTimeoutMs = deadline
     ? resaleCallTimeoutMs(profile("resale_challenge").timeoutMs, deadline)
     : profile("resale_challenge").timeoutMs;
   if (
+    runPickChallenge &&
     input.servKey?.trim() &&
     journal.servCalls < journal.servCallCap &&
-    (!deadline || deadline.allow(RESALE_STAGE_BUDGET_MS.challenge)) &&
-    challengeTimeoutMs != null
+    challengeTimeoutMs != null &&
+    stageOk(RESALE_STAGE_BUDGET_MS.challenge, challengeTimeoutMs)
   ) {
     const challengeFacts = {
       primaryPickVin: best.vin,
@@ -724,10 +974,11 @@ export async function runResaleSettleServ(input: {
   }
 
   if (
+    runPickChallenge &&
     input.servKey?.trim() &&
     journal.servCalls < journal.servCallCap &&
     deadline &&
-    (challengeTimeoutMs == null || !deadline.allow(RESALE_STAGE_BUDGET_MS.challenge)) &&
+    !stageOk(RESALE_STAGE_BUDGET_MS.challenge, challengeTimeoutMs) &&
     secondPass.status === "not_run"
   ) {
     secondPass = {
@@ -752,18 +1003,67 @@ export async function runResaleSettleServ(input: {
     });
   }
 
+  if (phase === "pick_challenge") {
+    const alternatives = sortByProfit(ranked.filter((item) => item.vin !== best.vin)).slice(0, 4);
+    const confidenceLabel =
+      agentConfidence === "high" ? "High" : agentConfidence === "medium" ? "Medium" : "Low";
+    const agentVerdict = finalizeAgentVerdict({
+      best,
+      verdictAction,
+      agentConfidence,
+      trail,
+      secondPass,
+      journal,
+      ranJudge,
+      ranDecide,
+    });
+    const checkpoint: ResaleSettleCheckpoint = {
+      phaseCompleted: "pick_challenge",
+      journal,
+      rankedAll: ranked,
+      ordered,
+      shortlist,
+      best,
+      alternatives,
+      verdictAction,
+      confidence: confidenceLabel,
+      agentVerdict,
+      trail,
+      secondPass,
+      agentConfidence,
+      ranJudge,
+      ranDecide,
+      trace: null,
+      budgetUsd: input.budgetUsd,
+      timeToSellPref: input.timeToSellPref,
+    };
+    return buildSettleResult({
+      best,
+      alternatives,
+      agentVerdict,
+      journal,
+      trace: null,
+      verdictAction,
+      confidence: confidenceLabel,
+      ranJudge,
+      ranDecide,
+      checkpoint,
+    });
+  }
+
   // Optional shopper decide path for ComputedReport parity (counts toward cap when key present and budget remains).
   // Decide timeout is clamped here; challenge is re-clamped inside runShopperVerdictServ after decide returns.
   const shopperTimeoutDecide = deadline
     ? resaleCallTimeoutMs(profile("verdict_decide").timeoutMs, deadline)
     : profile("verdict_decide").timeoutMs;
   if (
+    runShopperPhase &&
     input.servKey?.trim() &&
     journal.servCalls < journal.servCallCap &&
-    (!deadline || deadline.allow(RESALE_STAGE_BUDGET_MS.shopper)) &&
-    shopperTimeoutDecide != null
+    shopperTimeoutDecide != null &&
+    stageOk(RESALE_STAGE_BUDGET_MS.shopper, shopperTimeoutDecide)
   ) {
-    const report = buildFlipReport(best, input.budgetUsd);
+    const report = buildFlipReport(best, input.budgetUsd, ranked);
     const shopper = await runShopperVerdictServ({
       report,
       mandate: { budgetUsd: input.budgetUsd, budgetKnown: true },
@@ -818,10 +1118,11 @@ export async function runResaleSettleServ(input: {
       });
     }
   } else if (
+    runShopperPhase &&
     input.servKey?.trim() &&
     journal.servCalls < journal.servCallCap &&
     deadline &&
-    (shopperTimeoutDecide == null || !deadline.allow(RESALE_STAGE_BUDGET_MS.shopper))
+    !stageOk(RESALE_STAGE_BUDGET_MS.shopper, shopperTimeoutDecide)
   ) {
     journal = appendJournalStep(journal, {
       kind: "fallback",
@@ -837,42 +1138,44 @@ export async function runResaleSettleServ(input: {
     });
   }
 
-  ordered = sortByProfit(ranked.filter((item) => item.vin !== best.vin));
-  const alternatives = ordered.slice(0, 4);
+  const altOrdered = sortByProfit(ranked.filter((item) => item.vin !== best.vin));
+  const alternatives = altOrdered.slice(0, 4);
   const confidenceLabel =
     agentConfidence === "high" ? "High" : agentConfidence === "medium" ? "Medium" : "Low";
 
-  const agentVerdict: AgentVerdict = {
-    ...emptyAgentVerdict({
-      pick: { key: best.vin, label: carLabel(best) },
-      verdict: verdictAction,
-      confidence: agentConfidence,
-      reasons: [
-        {
-          evidenceId: "pnl_mid",
-          text: profitHeadline(best),
-        },
-        { evidenceId: "comps", text: `${best.compCount} similar listings in this scan.` },
-      ],
-      risks: best.risks.slice(0, 4).map((text, i) => ({ evidenceId: `risk_${i}`, text })),
-      unknowns: [
-        ...(best.salesTaxKnown
-          ? []
-          : ["Sales tax unknown — profit shown before sales tax (state unknown); ranking applies a conservative tax haircut."]),
-        "Title/registration dollar amount unknown.",
-        ...(best.estimatedDaysToSell == null ? ["Days to sell unknown without listing age / DOM feed."] : []),
-      ],
-      serv_steps: trail,
-      second_pass: secondPass,
-      no_serv_step: !ranJudge && !ranDecide,
-      serv_spend: {
-        calls: journal.servCalls,
-        costNote: `Resale SERV call cap ${journal.servCallCap}; recorded ${journal.servCalls}.`,
-      },
-    }),
+  const agentVerdict = finalizeAgentVerdict({
+    best,
+    verdictAction,
+    agentConfidence,
+    trail,
+    secondPass,
+    journal,
+    ranJudge,
+    ranDecide,
+  });
+
+  const checkpoint: ResaleSettleCheckpoint = {
+    phaseCompleted: "shopper",
+    journal,
+    rankedAll: ranked,
+    ordered,
+    shortlist,
+    best,
+    alternatives,
+    verdictAction,
+    confidence: confidenceLabel,
+    agentVerdict,
+    trail,
+    secondPass,
+    agentConfidence,
+    ranJudge,
+    ranDecide,
+    trace,
+    budgetUsd: input.budgetUsd,
+    timeToSellPref: input.timeToSellPref,
   };
 
-  return {
+  return buildSettleResult({
     best,
     alternatives,
     agentVerdict,
@@ -882,5 +1185,6 @@ export async function runResaleSettleServ(input: {
     confidence: confidenceLabel,
     ranJudge,
     ranDecide,
-  };
+    checkpoint,
+  });
 }
