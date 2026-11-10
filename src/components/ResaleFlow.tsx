@@ -15,7 +15,7 @@ import { NOTE_BODY_STYLES } from "@/domain/note-intake";
 import { NOT_ENOUGH_SIMILAR_CARS } from "@/domain/price-evaluation";
 import type { ResaleAssessment } from "@/domain/resale-evaluate";
 import type { ResaleCandidatePnl } from "@/domain/resale-pnl";
-import { listingVdpVerifiability } from "@/domain/listing-vdp-verifiability";
+import { resalePrimaryListingLink } from "@/domain/resale-listing-link";
 import { SEARCH_RADII_MILES } from "@/domain/need";
 import { publishCreditBalance } from "@/domain/credit-balance-event";
 import { resaleVerdictLineage } from "@/domain/resale-verdict-lineage";
@@ -755,13 +755,14 @@ function CandidateCard({
     budgetUsd != null &&
     candidate.askingUsd > budgetUsd &&
     candidate.risks.some((line) => /^Over budget:/i.test(line));
-  const link = listingVdpVerifiability({
+  const primary = resalePrimaryListingLink({
     dealer: l.dealer,
     vdp: l.vdp,
     vin: candidate.vin,
     year: l.year,
     trim: l.trim,
   });
+  const link = primary.verifiability;
   return (
     <section className={featured ? "resale-best" : undefined}>
       <h3>
@@ -863,15 +864,15 @@ function CandidateCard({
           <li key={line}>{line}</li>
         ))}
       </ul>
-      {link.href ? (
+      {primary.href && primary.label ? (
         <p>
-          <a href={link.href} target="_blank" rel="noreferrer">
-            {link.direct ? "Open listing" : "Open feed link (not a verified listing page)"}
+          <a href={primary.href} target="_blank" rel="noreferrer">
+            {primary.label}
           </a>
         </p>
-      ) : (
-        <p className="hint">No listing URL in the feed for this VIN.</p>
-      )}
+      ) : primary.unavailableHint ? (
+        <p className="hint">{primary.unavailableHint}</p>
+      ) : null}
     </section>
   );
 }
