@@ -150,9 +150,10 @@ export function flipCandidateOutcome(input: {
   baseWhy: string;
 }): FlipCandidateOutcome {
   if (!input.hasServKey) {
+    // Match personal re-check honesty: no SERV key → skip, never code-price-only alert.
     return {
-      kind: "code_alert",
-      why: `${input.baseWhy} SERV was not configured; this alert uses the code price rating only.`,
+      kind: "serv_skipped",
+      why: `${input.baseWhy} SERV was not configured; this match was not alerted (code price rating alone does not alert).`,
     };
   }
   if (!input.decisions) {

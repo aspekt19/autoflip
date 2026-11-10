@@ -4,10 +4,12 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useId, useState } from "react";
 import { AgentDecisionTrail } from "@/components/AgentDecisionTrail";
+import { DecisionRecordList } from "@/components/DecisionRecord";
 import { MakeModelFields } from "@/components/MakeModelFields";
 import { ResaleDecisionJournalView } from "@/components/ResaleDecisionJournal";
 import { useAccountLoad } from "@/components/use-account-load";
 import type { AgentVerdict } from "@/domain/agent-verdict-schema";
+import type { DecisionProofRecord } from "@/domain/decision-proof-view";
 import type { ResaleDecisionJournal } from "@/domain/resale-decision-journal";
 import { formatUsd } from "@/domain/format";
 import { criteriaParseLabel } from "@/domain/radar-criteria-provenance";
@@ -73,6 +75,7 @@ type SearchResult = {
   confidence: "High" | "Medium" | "Low";
   agentVerdict: AgentVerdict;
   journal: ResaleDecisionJournal;
+  proofRecords: DecisionProofRecord[];
   headline: string;
   message: string;
   nextStep: string;
@@ -146,6 +149,7 @@ function ResaleSearchForm({ credits, onAuthLost }: { credits: number | null; onA
     confidence?: "High" | "Medium" | "Low";
     agentVerdict?: AgentVerdict;
     journal?: ResaleDecisionJournal;
+    proofRecords?: DecisionProofRecord[];
     headline?: string;
     nextStepHint?: string;
     creditNote?: string;
@@ -184,6 +188,7 @@ function ResaleSearchForm({ credits, onAuthLost }: { credits: number | null; onA
         servCalls: 0,
         servCallCap: 6,
       },
+      proofRecords: Array.isArray(body.proofRecords) ? body.proofRecords : [],
       headline: body.headline ?? "Resale search",
       message: body.message ?? "",
       nextStep: body.nextStepHint ?? "",
@@ -734,6 +739,10 @@ function ResaleSearchResultView({ result }: { result: SearchResult }) {
       ) : null}
 
       <ResaleDecisionJournalView journal={result.journal} defaultOpen />
+      <DecisionRecordList
+        records={result.proofRecords}
+        emptyHint="No agent decision records for this Resale run yet (shopper decide may have been skipped)."
+      />
       <AgentDecisionTrail verdict={result.agentVerdict} defaultOpen />
     </article>
   );

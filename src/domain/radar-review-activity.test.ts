@@ -68,17 +68,18 @@ describe("buildRadarReviewActivityRows (production timeout shape)", () => {
 });
 
 describe("flipCandidateOutcome", () => {
-  it("labels Flip code-only alerts with the same code price rating sentence as Drive-it", () => {
+  it("skips Flip candidates when SERV key is missing (no code-price-only alert)", () => {
     const outcome = flipCandidateOutcome({
       hasServKey: false,
       decisions: null,
       vin: "4T1BF1FK4GU197310",
       baseWhy: "Mid profit $600.",
     });
-    expect(outcome.kind).toBe("code_alert");
-    if (outcome.kind === "code_alert") {
-      expect(outcome.why).toMatch(/uses the code price rating only/i);
+    expect(outcome.kind).toBe("serv_skipped");
+    if (outcome.kind === "serv_skipped") {
+      expect(outcome.why).toMatch(/not alerted/i);
       expect(outcome.why).toMatch(/SERV was not configured/i);
+      expect(outcome.why).not.toMatch(/uses the code price rating only/i);
     }
   });
 

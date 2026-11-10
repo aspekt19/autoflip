@@ -544,7 +544,8 @@ export async function runRadarCycle(deps: CycleDeps): Promise<StoredRun> {
             historyOnListing: winner.listing.accidentCount !== null && winner.listing.ownerCount !== null,
           };
           servSlot += 1;
-          let review: Awaited<ReturnType<typeof reviewPersonalCandidate>>;
+          // Always go through reviewPersonalCandidate — missing SERV key is an honest
+          // skip (no code-price-only alert), not an inline alertWorthy:true bypass.
           if (deps.servKey) {
             const ownerPlans = await plansOf(search.ownerId);
             const servCap = await servAllowanceRemaining(deps.kv, search.ownerId, ownerPlans);
@@ -553,39 +554,29 @@ export async function runRadarCycle(deps: CycleDeps): Promise<StoredRun> {
               tallyReason(reasons, "monthly SERV cap");
               continue;
             }
-            review = await reviewPersonalCandidate(
-              {
-                listing: winner.listing,
-                numbers: winner.numbers,
-                badge,
-                baseWhy: winner.why,
-                budgetUsd: search.criteria.priceMax,
-              },
-              {
-                fetchImpl: deps.fetchImpl,
-                servKey: deps.servKey,
-                servModel: deps.servModel,
-                servBaseUrl: deps.servBaseUrl,
-                timeoutMs: servBudget("verdict_decide", remain(), limits.serv),
-                searchId: search.id,
-                challenge: servSlot === 1,
-                nowIso: deps.now.toISOString(),
-              },
-              servChecks,
-            );
-            if (review.activity.some((row) => row.profile === "verdict_decide")) {
-              await incrementServUsage(deps.kv, search.ownerId, 1);
-            }
-          } else {
-            review = {
-              alertWorthy: true,
-              action: null,
-              note: null,
-              why: `${winner.why} SERV was not configured; this alert uses the code price rating only.`,
-              checks: [],
-              activity: [],
-              proofRecords: [],
-            };
+          }
+          const review = await reviewPersonalCandidate(
+            {
+              listing: winner.listing,
+              numbers: winner.numbers,
+              badge,
+              baseWhy: winner.why,
+              budgetUsd: search.criteria.priceMax,
+            },
+            {
+              fetchImpl: deps.fetchImpl,
+              servKey: deps.servKey,
+              servModel: deps.servModel,
+              servBaseUrl: deps.servBaseUrl,
+              timeoutMs: servBudget("verdict_decide", remain(), limits.serv),
+              searchId: search.id,
+              challenge: Boolean(deps.servKey) && servSlot === 1,
+              nowIso: deps.now.toISOString(),
+            },
+            servChecks,
+          );
+          if (deps.servKey && review.activity.some((row) => row.profile === "verdict_decide")) {
+            await incrementServUsage(deps.kv, search.ownerId, 1);
           }
           servActivity.push(...review.activity);
           proofRecords.push(

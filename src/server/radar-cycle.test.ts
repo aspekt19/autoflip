@@ -59,10 +59,12 @@ describe("radar cycle", () => {
     expect(first.autodevCalls).toBe(1);
     expect(first.payment.status).toBe("not_configured");
     expect(first.serv.promptGuard).toBe("not_configured");
-    expect(first.alertsSent).toBeGreaterThan(0);
+    // No SERV key → honest skip (no code-price-only alerts).
+    expect(first.alertsSent).toBe(0);
     const alerts = await listAlerts(kv);
-    expect(new Set(alerts.map((item) => item.ownerId)).size).toBe(2);
+    expect(alerts.every((item) => item.status === "serv_skipped")).toBe(true);
     expect(alerts.every((item) => item.sample === false)).toBe(true);
+    expect(alerts.some((item) => /code price rating alone does not alert/i.test(item.why))).toBe(true);
     const seen = await seenVins(kv, seenStorageKey(preset.id, preset.criteria));
     expect(seen.size).toBe(4);
     const personalBefore = (await listAlerts(kv)).filter((item) => item.mode === "personal").length;
@@ -118,7 +120,9 @@ describe("radar cycle", () => {
     expect(run.steps.find((step) => step.id === "serv_verdict" || step.id === "listings")).toBeTruthy();
     expect(run.notes.some((note) => /email alerts are not configured/i.test(note))).toBe(true);
     const seen = await seenVins(kv, seenStorageKey(demoPresets()[0]!.id, demoPresets()[0]!.criteria));
-    expect(seen.size).toBe(4);
+    // Winners stay unmarked when SERV times out so the next Check can retry verdict_decide.
+    expect(seen.size).toBeLessThan(4);
+    expect((await listAlerts(kv)).some((row) => row.status === "not_reviewed")).toBe(true);
     expect((await listRuns(kv)).some((item) => item.id === run.id)).toBe(true);
     expect((await quotaSnapshot(kv, new Date("2026-11-04T12:00:00Z"))).radar).toBe(1);
   });

@@ -4,6 +4,7 @@
  * Code computes all P&L numbers; SERV never invents figures.
  */
 import type { AgentVerdict } from "@/domain/agent-verdict-schema";
+import type { DecisionProofRecord } from "@/domain/decision-proof-record";
 import { proposeDirections } from "@/domain/directions";
 import {
   appendJournalStep,
@@ -80,6 +81,8 @@ export type ResaleSearchOkBody = {
   confidence: "High" | "Medium" | "Low";
   agentVerdict: AgentVerdict;
   journal: ResaleDecisionJournal;
+  /** Shared lemonless.decision_proof.v1 — shopper decide/challenge (or honest skips). */
+  proofRecords?: DecisionProofRecord[];
   headline: string;
   message: string;
   nextStep: string;
