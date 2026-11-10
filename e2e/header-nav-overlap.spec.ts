@@ -2,6 +2,17 @@ import { expect, test, type Page } from "@playwright/test";
 
 const WIDTHS = [1024, 1280, 1366, 1440, 1536, 1728, 1920, 2240, 2560, 3440] as const;
 
+test("browser tab titles are brand-first", async ({ page }) => {
+  await page.goto("/");
+  await expect(page).toHaveTitle("Lemonless — A clear verdict on a used car");
+  await page.goto("/find");
+  await expect(page).toHaveTitle("Find a car · Lemonless");
+  await page.goto("/resale");
+  await expect(page).toHaveTitle("Resale · Lemonless");
+  await page.goto("/radar");
+  await expect(page).toHaveTitle("Deal Radar · Lemonless");
+});
+
 test("home hero film fills the viewport under an overlaid header", async ({ page }) => {
   await page.setViewportSize({ width: 2240, height: 1260 });
   await page.goto("/");

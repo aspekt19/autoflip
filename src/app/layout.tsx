@@ -37,10 +37,12 @@ const wide = localFont({
 
 const TAGLINE = "Buy smart. Stay lemonless.";
 const CATEGORY = "Used-car verdicts you can check.";
+const HOME_TITLE = "Lemonless — A clear verdict on a used car";
 const SITE_URL = process.env.NEXT_PUBLIC_APP_URL || "https://autoflip-umber.vercel.app";
 
 export const metadata: Metadata = {
-  title: { default: `Lemonless — ${TAGLINE}`, template: "%s — Lemonless" },
+  // Brand-first default (home). Child pages use template → "Find a car · Lemonless".
+  title: { default: HOME_TITLE, template: "%s · Lemonless" },
   description: `${TAGLINE} ${CATEGORY}`,
   metadataBase: new URL(SITE_URL),
   icons: {
@@ -52,7 +54,7 @@ export const metadata: Metadata = {
     apple: [{ url: "/apple-touch-icon.png", sizes: "180x180" }],
   },
   openGraph: {
-    title: `Lemonless — ${TAGLINE}`,
+    title: HOME_TITLE,
     description: `${TAGLINE} ${CATEGORY}`,
     siteName: "Lemonless",
     type: "website",
@@ -60,7 +62,7 @@ export const metadata: Metadata = {
   },
   twitter: {
     card: "summary_large_image",
-    title: `Lemonless — ${TAGLINE}`,
+    title: HOME_TITLE,
     description: `${TAGLINE} ${CATEGORY}`,
     images: ["/og-logo.png"],
   },
