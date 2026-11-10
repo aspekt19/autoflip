@@ -30,11 +30,31 @@ function candidate(partial: Partial<BestDealCandidate> & Pick<BestDealCandidate,
 }
 
 describe("find settle SERV", () => {
-  it("builds a ComputedReport from the pick without inventing a fair value", () => {
+  it("builds a ComputedReport via adjusted comps — no fair value without peers", () => {
     const report = buildFindPickComputedReport(candidate({ key: "a" }));
     expect(report.subject.year).toBe(2014);
-    expect(report.fairValueUsd).toBe(12_500);
+    // evaluateListingPrice with no similar peers withholds a number (unknown, not invented).
+    expect(report.fairValueUsd).toBeNull();
     expect(report.comps).toEqual([]);
+    expect(report.compMethodNote).toMatch(/similar|enough|need/i);
+  });
+
+  it("uses adjusted peer asks for fair value (not raw factor regex)", () => {
+    const pick = candidate({ key: "a", priceUsd: 12_000, miles: 90_000, year: 2014 });
+    const peers = [1, 2, 3, 4].map((n) =>
+      candidate({
+        key: `p${n}`,
+        vin: `4T1BF1FK0EU84844${n}`,
+        priceUsd: 11_500 + n * 200,
+        miles: 85_000 + n * 500,
+        year: 2014 + (n % 2),
+      }),
+    );
+    const report = buildFindPickComputedReport(pick, peers);
+    expect(report.fairValueUsd).not.toBeNull();
+    expect(report.comps.length).toBeGreaterThanOrEqual(3);
+    expect(report.comps.every((row) => row.adjustedPriceUsd > 0)).toBe(true);
+    expect(report.compScope).toMatch(/evaluateListingPrice/i);
   });
 
   it("returns an honest not_run second check when SERV is not configured", async () => {
