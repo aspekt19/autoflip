@@ -13,6 +13,10 @@ import {
   RESALE_TIME_BUDGET_SKIP,
   type ResaleDeadline,
 } from "@/domain/resale-deadline";
+import {
+  listingVdpVerifiability,
+  NO_DIRECT_LISTING_RISK_MUL,
+} from "@/domain/listing-vdp-verifiability";
 import { complaintsFor, decodeVin, recallsFor, type GovDeps } from "@/io/gov";
 
 export type ResaleDeepCheckFinding = {
@@ -470,7 +474,14 @@ export function rankByRiskAdjustedProfit(
   riskByVin: Map<string, number>,
 ): ResaleCandidatePnl[] {
   const scored = candidates.map((item) => {
-    const row = riskAdjustedScore(item, riskByVin.get(item.vin) ?? 1);
+    const link = listingVdpVerifiability({
+      vdp: item.listing.vdp,
+      dealer: item.listing.dealer,
+      vin: item.vin,
+    });
+    // Demote cars without a verifiable listing page so they do not win silently.
+    const linkMul = link.direct ? 1 : NO_DIRECT_LISTING_RISK_MUL;
+    const row = riskAdjustedScore(item, (riskByVin.get(item.vin) ?? 1) * linkMul);
     return { item: { ...item, riskAdjustedRankFormula: row.formula }, score: row.score };
   });
   scored.sort((a, b) => b.score - a.score);

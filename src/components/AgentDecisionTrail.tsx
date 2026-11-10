@@ -42,9 +42,22 @@ export function AgentDecisionTrail({
     (verdict.confidence === "low"
       ? verdict.unknowns.find((line) => /^Low:/i.test(line)) ?? null
       : null);
+  // settledAt is when the delivery was stored — label as "saved at", not the SERV step time.
   const savedLabel = savedRunAt
-    ? `Saved run from ${new Date(savedRunAt).toLocaleString("en-US", { timeZone: "UTC" })} UTC`
+    ? `Saved at ${new Date(savedRunAt).toLocaleString("en-US", { timeZone: "UTC" })} UTC`
     : null;
+  const secondCite = (() => {
+    if (!second) return "";
+    if (second.profile || second.responseId) {
+      return ` (${[second.profile, second.responseId ? `response ${second.responseId}` : null]
+        .filter(Boolean)
+        .join(" · ")})`;
+    }
+    const trailHit = steps.find(
+      (step) => /challenge agreed|Second check agreed/i.test(step.decided) && step.responseId,
+    );
+    return trailHit?.responseId ? ` (response ${trailHit.responseId})` : "";
+  })();
 
   return (
     <details className="agent-decision-trail onboarding-note" open={defaultOpen}>
@@ -139,14 +152,16 @@ export function AgentDecisionTrail({
             {second?.objection ?? "no challenge record was attached to this run."}
           </p>
         ) : null}
-        {second?.status === "agreed" ? <p>An independent review agreed with the verdict.</p> : null}
+        {second?.status === "agreed" ? (
+          <p>An independent review agreed with the verdict{secondCite}.</p>
+        ) : null}
         {second?.status === "disagreed" ? (
           <p>
             An independent review disagreed
             {second.action
               ? ` (would ${second.action === "needs_inspection" ? "needs inspection" : second.action})`
               : ""}
-            .
+            {secondCite}.
             {second.objection ? ` ${second.objection}` : ""}
             {second.confidenceBefore &&
             second.confidenceAfter &&

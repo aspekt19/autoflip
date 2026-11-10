@@ -13,7 +13,7 @@ import { NOTE_BODY_STYLES } from "@/domain/note-intake";
 import { NOT_ENOUGH_SIMILAR_CARS } from "@/domain/price-evaluation";
 import type { ResaleAssessment } from "@/domain/resale-evaluate";
 import type { ResaleCandidatePnl } from "@/domain/resale-pnl";
-import { sellerLinkHonesty } from "@/domain/listing-seller-honesty";
+import { listingVdpVerifiability } from "@/domain/listing-vdp-verifiability";
 import { SEARCH_RADII_MILES } from "@/domain/need";
 import { publishCreditBalance } from "@/domain/credit-balance-event";
 import { resaleVerdictLineage } from "@/domain/resale-verdict-lineage";
@@ -560,12 +560,13 @@ function CandidateCard({
     budgetUsd != null &&
     candidate.askingUsd > budgetUsd &&
     candidate.risks.some((line) => /^Over budget:/i.test(line));
-  const sellerHonesty = sellerLinkHonesty({ dealer: l.dealer, vdp: l.vdp });
+  const link = listingVdpVerifiability({ dealer: l.dealer, vdp: l.vdp, vin: candidate.vin });
   return (
     <section className={featured ? "resale-best" : undefined}>
       <h3>
         {title}
         {overBudget ? " · over budget" : ""}
+        {!link.direct ? " · no direct listing link" : ""}
       </h3>
       <p>
         {l.year} {l.make} {l.model}
@@ -576,7 +577,8 @@ function CandidateCard({
           ? ` · listing feed: ${[l.city, l.state, l.zip].filter(Boolean).join(", ")}`
           : ""}
       </p>
-      {sellerHonesty.note ? <p className="hint">{sellerHonesty.note}</p> : null}
+      {link.flag ? <p className="hint">{link.flag}</p> : null}
+      {link.sellerMismatchNote ? <p className="hint">{link.sellerMismatchNote}</p> : null}
       <ul className="refuse">
         <li>
           {candidate.riskAdjustedRankFormula
@@ -650,13 +652,15 @@ function CandidateCard({
           <li key={line}>{line}</li>
         ))}
       </ul>
-      {l.vdp ? (
+      {link.href ? (
         <p>
-          <a href={l.vdp} target="_blank" rel="noreferrer">
-            Open listing
+          <a href={link.href} target="_blank" rel="noreferrer">
+            {link.direct ? "Open listing" : "Open feed link (not a verified listing page)"}
           </a>
         </p>
-      ) : null}
+      ) : (
+        <p className="hint">No listing URL in the feed for this VIN.</p>
+      )}
     </section>
   );
 }

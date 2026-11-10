@@ -181,11 +181,17 @@ export async function runReportVerdictChallenge(input: {
     };
   }
 
+  const responseId =
+    typeof judged.proof?.openserv?.id === "string" && judged.proof.openserv.id.trim()
+      ? judged.proof.openserv.id.trim()
+      : null;
   const result = applyAgentSecondPass({
     primaryAction: input.primaryAction,
     confidence: input.confidence,
     rawText: judged.text,
     allowedEvidenceIds: ids,
+    profile: "verdict_challenge",
+    responseId,
   });
   return { result, proof: judged.proof, rawText: judged.text };
 }
