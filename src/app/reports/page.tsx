@@ -36,7 +36,10 @@ export default async function ReportsPage() {
           <article className="warn-box">
             <h2>No saved reports yet</h2>
             <p>Run a full vehicle report and it will appear here. The free quick price check is not saved as a full report.</p>
-            <p><Link className="action" href="/check">Check a car</Link> <Link className="quiet" href="/find">Find a car</Link></p>
+            <p className="btn-row">
+              <Link className="action" href="/check">Check a car</Link>
+              <Link className="quiet" href="/find">Find a car</Link>
+            </p>
           </article>
         ) : (
           <ReportHistoryList reports={reports} />

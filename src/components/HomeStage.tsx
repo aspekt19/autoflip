@@ -22,12 +22,12 @@ export function HomeStage() {
           </div>
             <div className={`film-overlay phase-${phase}`}>
             <div className="film-copy site-frame">
-              <div>
+              <div className="film-slogan">
                 <p className="kicker">Used-car verdicts you can check.</p>
                 <BrandHeroTitle />
                 <p className="lead">Find better cars. Detect hidden risks. Make smarter decisions.</p>
               </div>
-              <div>
+              <div className="film-search">
                 <HomeSearch onModeChange={setMode} />
                 <p className="sample-link">
                   <Link href="/report/sample">See a sample report</Link>
