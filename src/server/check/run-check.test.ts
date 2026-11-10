@@ -352,7 +352,8 @@ describe("runCheck listing paste (no paid Autodev/SERV)", () => {
     expect(result.result.agentVerdict.verdict).toBe("negotiate");
     expect(result.result.servTrace?.calls).toHaveLength(2);
     expect(result.result.agentVerdict.serv_spend?.costNote).not.toMatch(/Ordered gates withheld/i);
-    expect(result.result.confidenceWhy).toMatch(/similar listings/i);
+    // After decide → clamp → challenge, confidenceWhy follows the guarded agent decision.
+    expect(result.result.confidenceWhy).toMatch(/guarded agent decision/i);
   });
 
   it("flags SOLD listings, avoids soft no-red-flag summary, and prefers vPIC fuel over Hybrid claim", async () => {

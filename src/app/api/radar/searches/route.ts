@@ -41,8 +41,8 @@ export async function POST(request: Request) {
   const kv = getKv();
   const searches = await listSearches(kv);
   const mine = searches.filter((item) => item.ownerId === id);
-  const personalCount = mine.filter((item) => item.mode === "personal" && item.enabled).length;
-  const allowed = await allowance(kv, id, mode, personalCount);
+  const modeCount = mine.filter((item) => item.mode === mode && item.enabled).length;
+  const allowed = await allowance(kv, id, mode, modeCount);
   if (!allowed.ok) {
     return Response.json({ error: "plan_required", message: allowed.message }, { status: 402 });
   }

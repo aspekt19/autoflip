@@ -9,13 +9,20 @@ import {
 } from "./parsers";
 import type { FuelFact, RecallRecord, VinDecode } from "@/domain/types";
 
-export type GovDeps = { fetch: typeof fetch };
+export type GovDeps = { fetch: typeof fetch; signal?: AbortSignal | null };
+
+function govSignal(deps: GovDeps, timeoutMs = 12_000): AbortSignal {
+  const timeout = AbortSignal.timeout(timeoutMs);
+  if (!deps.signal) return timeout;
+  if (typeof AbortSignal.any === "function") return AbortSignal.any([deps.signal, timeout]);
+  return deps.signal.aborted ? deps.signal : timeout;
+}
 
 async function getJson(url: string, deps: GovDeps, headers?: Record<string, string>): Promise<unknown | null> {
   try {
     const response = await deps.fetch(url, {
       headers: { Accept: "application/json", ...headers },
-      signal: AbortSignal.timeout(12_000),
+      signal: govSignal(deps),
     });
     if (!response.ok) return null;
     return await response.json();
@@ -45,7 +52,7 @@ async function fetchRecallPayload(url: string, deps: GovDeps): Promise<unknown |
     try {
       const response = await deps.fetch(url, {
         headers: { Accept: "application/json" },
-        signal: AbortSignal.timeout(12_000),
+        signal: govSignal(deps),
       });
       if (!response.ok) return { payload: null, retry: RECALL_TRANSIENT_HTTP.has(response.status) };
       try {

@@ -38,8 +38,10 @@ import {
 } from "@/domain/purchase-readiness";
 import { dealerQuestions } from "@/domain/questions";
 import { extractVin, isValidVin } from "@/domain/vin";
+import { actionLabel, isServDecisionAction, verdictFromAction } from "@/domain/decision-action";
+import { confidenceLabel } from "@/domain/agent-verdict-schema";
 import { verdictLabel } from "@/domain/format";
-import type { FuelFact, Listing, RecallRecord, VinDecode } from "@/domain/types";
+import type { FuelFact, Listing, RecallRecord, Verdict, VinDecode } from "@/domain/types";
 import { autodevByVin, autodevByVdp, autodevSearch, type AutodevDeps } from "@/io/autodev";
 import {
   complaintCountFor,
@@ -461,6 +463,50 @@ async function attachCheckShopperServ(input: {
   return { agentVerdict: shopper.agentVerdict, servTrace: shopper.trace };
 }
 
+/**
+ * Headline must follow the final guarded decision (decide → TS clamp → challenge),
+ * never the price-rating screening alone.
+ */
+export function headlineFromGuardedDecision(input: {
+  screeningVerdict: CheckVerdictLabel;
+  screeningLabel: string;
+  screeningConfidence: CheckConfidence;
+  screeningConfidenceWhy: string;
+  agentVerdict: AgentVerdict;
+}): {
+  verdict: CheckVerdictLabel;
+  verdictLabel: string;
+  confidence: CheckConfidence;
+  confidenceWhy: string;
+} {
+  const action = input.agentVerdict.verdict;
+  if (!action || input.agentVerdict.no_serv_step || !isServDecisionAction(action)) {
+    return {
+      verdict: input.screeningVerdict,
+      verdictLabel: input.screeningLabel,
+      confidence: input.screeningConfidence,
+      confidenceWhy: input.screeningConfidenceWhy,
+    };
+  }
+  const baseline: Verdict =
+    input.screeningVerdict === "dossier"
+      ? "insufficient_data"
+      : (input.screeningVerdict as Verdict);
+  const mapped = verdictFromAction(action, baseline);
+  const confidence: CheckConfidence =
+    input.agentVerdict.confidence === "high"
+      ? "High"
+      : input.agentVerdict.confidence === "medium"
+        ? "Medium"
+        : "Low";
+  return {
+    verdict: mapped === "withheld" ? "insufficient_data" : (mapped as CheckVerdictLabel),
+    verdictLabel: actionLabel(action, "personal"),
+    confidence,
+    confidenceWhy: `Final guarded agent decision (${actionLabel(action, "personal")}, confidence ${confidenceLabel(input.agentVerdict.confidence)}) after decide → clamp → challenge — not the price rating alone.`,
+  };
+}
+
 function verdictFromBadge(
   badge: PriceBadge | null,
   flags: CheckRedFlag[],
@@ -751,16 +797,23 @@ async function buildListingVerdict(
     userLookup: input.url ?? subject.vin ?? `${subject.year} ${subject.make} ${subject.model}`,
     deps: input.deps,
   });
+  const headline = headlineFromGuardedDecision({
+    screeningVerdict: decided.verdict,
+    screeningLabel: decided.label,
+    screeningConfidence: confidence,
+    screeningConfidenceWhy: listingConfidenceWhy,
+    agentVerdict: shopper.agentVerdict,
+  });
 
   return {
     ok: true,
     result: {
       kind: "listing",
       title: `${subject.year} ${subject.make} ${subject.model}`,
-      verdict: decided.verdict,
-      verdictLabel: decided.label,
-      confidence,
-      confidenceWhy: listingConfidenceWhy,
+      verdict: headline.verdict,
+      verdictLabel: headline.verdictLabel,
+      confidence: headline.confidence,
+      confidenceWhy: headline.confidenceWhy,
       summary,
       badge,
       fairValueUsd,
@@ -1085,6 +1138,13 @@ async function buildVinDossier(vin: string, deps: CheckRunDeps, optionalZip?: st
     userLookup: vin,
     deps,
   });
+  const headline = headlineFromGuardedDecision({
+    screeningVerdict: decided.verdict,
+    screeningLabel: decided.label,
+    screeningConfidence: confidence,
+    screeningConfidenceWhy: confidenceWhy,
+    agentVerdict: shopper.agentVerdict,
+  });
 
   const provenance: FieldProvenanceRow[] = [
     { field: "vin", value: vin, source: "typed VIN" },
@@ -1115,10 +1175,10 @@ async function buildVinDossier(vin: string, deps: CheckRunDeps, optionalZip?: st
     result: {
       kind: "vin_dossier",
       title: `${subject.year} ${subject.make} ${subject.model}`,
-      verdict: decided.verdict,
-      verdictLabel: decided.label,
-      confidence,
-      confidenceWhy,
+      verdict: headline.verdict,
+      verdictLabel: headline.verdictLabel,
+      confidence: headline.confidence,
+      confidenceWhy: headline.confidenceWhy,
       summary,
       badge,
       fairValueUsd,

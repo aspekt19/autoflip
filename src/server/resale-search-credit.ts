@@ -47,7 +47,9 @@ export async function waitForResaleSearchDelivery(
   inflightKey: string,
   opts?: { timeoutMs?: number; pollMs?: number },
 ): Promise<ResaleSearchDelivery | null> {
-  const timeoutMs = opts?.timeoutMs ?? 55_000;
+  // Callers must pass a deadline-bounded timeout. Keep a short default so a
+  // forgotten opts can never burn ~55s against the Hobby kill.
+  const timeoutMs = opts?.timeoutMs ?? 3_000;
   const pollMs = opts?.pollMs ?? 25;
   const start = Date.now();
   while (Date.now() - start < timeoutMs) {

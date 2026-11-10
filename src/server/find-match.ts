@@ -35,6 +35,17 @@ export type FindMatchDeps = AssembleDeps & {
   env?: Record<string, string | undefined>;
   /** Override server query ceiling in tests. */
   maxProviderQueries?: number;
+  /**
+   * When true, dispatch Auto.dev queries concurrently (Resale path).
+   * Find stays sequential by default to preserve existing pacing.
+   */
+  parallelProviderQueries?: boolean;
+  /** Wall-clock stage cap for the inventory wave (ms). */
+  inventoryStageCapMs?: number;
+  /** Shared deadline — stop dispatching when expired. */
+  deadline?: { remainingMs: () => number; expired: () => boolean; allow: (needMs: number) => boolean };
+  /** Test seam — production uses assembleRadar. */
+  assembleRadarImpl?: typeof assembleRadar;
 };
 
 export type FindMatchListing = Listing & {
@@ -254,35 +265,49 @@ export async function runFindMatch(
   const compsPoolAcc: Listing[] = [];
   const compsPoolVins = new Set<string>();
 
-  for (const direction of directions) {
-    const queries = queriesForDirection(direction);
-    const collected: Listing[] = [];
-    let directionNote: string | null = null;
-    let directionWarning: string | null = null;
-    const queryOutcomes: FindMatchGroup["queryOutcomes"] = [];
-
-    for (const query of queries) {
-      if (providerQueriesUsed >= maxQueries) {
-        queryOutcomes.push({
-          make: query.make,
-          model: query.model,
-          outcome: "budget_exhausted",
-          message: "Server provider query budget exhausted for this /find request.",
-        });
-        directionWarning = "Server provider query budget reached — remaining models were not searched.";
-        partialFailureWarning = directionWarning;
-        continue; // record remaining planned models as skipped, do not dispatch
+  type PlannedQuery = {
+    direction: SearchDirection;
+    query: { make: string; model: string };
+    directionIndex: number;
+  };
+  const planned: PlannedQuery[] = [];
+  const skippedByDirection = new Map<number, Array<{ make: string; model: string; reason: "budget_exhausted" }>>();
+  for (let di = 0; di < directions.length; di++) {
+    const direction = directions[di]!;
+    for (const query of queriesForDirection(direction)) {
+      if (planned.length >= maxQueries) {
+        const list = skippedByDirection.get(di) ?? [];
+        list.push({ make: query.make, model: query.model, reason: "budget_exhausted" });
+        skippedByDirection.set(di, list);
+        continue;
       }
+      if (deps.deadline?.expired()) {
+        const list = skippedByDirection.get(di) ?? [];
+        list.push({ make: query.make, model: query.model, reason: "budget_exhausted" });
+        skippedByDirection.set(di, list);
+        continue;
+      }
+      planned.push({ direction, query, directionIndex: di });
+    }
+  }
 
-      providerQueriesUsed += 1;
-      const result = await assembleRadar(
+  type DispatchRow = {
+    planned: PlannedQuery;
+    result: Awaited<ReturnType<typeof assembleRadar>> | null;
+    timedOut: boolean;
+  };
+
+  const runAssemble = deps.assembleRadarImpl ?? assembleRadar;
+
+  async function dispatchOne(job: PlannedQuery): Promise<DispatchRow> {
+    try {
+      const result = await runAssemble(
         {
-          make: query.make,
-          model: query.model,
+          make: job.query.make,
+          model: job.query.model,
           zip: searchZip,
-          yearMin: direction.yearMin,
-          yearMax: direction.yearMax,
-          // null = nationwide (no invented radius); number = explicit miles filter
+          yearMin: job.direction.yearMin,
+          yearMax: job.direction.yearMax,
           distanceMiles: radiusMiles,
           mode: need.mode,
           milesMax: need.milesMax ?? undefined,
@@ -290,6 +315,119 @@ export async function runFindMatch(
         },
         deps,
       );
+      return { planned: job, result, timedOut: false };
+    } catch {
+      return { planned: job, result: null, timedOut: true };
+    }
+  }
+
+  let dispatches: DispatchRow[] = [];
+  const inventoryCapMs = Math.max(
+    1_000,
+    Math.min(
+      deps.inventoryStageCapMs ?? 60_000,
+      deps.deadline ? Math.max(1_000, deps.deadline.remainingMs()) : 60_000,
+    ),
+  );
+  if (deps.parallelProviderQueries && planned.length > 0) {
+    // Shared stage AbortController: when the inventory cap fires, abort in-flight
+    // Auto.dev fetches so nothing keeps the isolate alive after we return.
+    const stageAbort = new AbortController();
+    const stageTimer = setTimeout(() => stageAbort.abort(), inventoryCapMs);
+    const cappedDeps: FindMatchDeps = {
+      ...deps,
+      autodev: deps.autodev
+        ? {
+            ...deps.autodev,
+            signal: stageAbort.signal,
+            timeoutMs: Math.min(deps.autodev.timeoutMs ?? 12_000, inventoryCapMs),
+          }
+        : deps.autodev,
+    };
+    const runCapped = deps.assembleRadarImpl ?? assembleRadar;
+    async function dispatchCapped(job: PlannedQuery): Promise<DispatchRow> {
+      if (stageAbort.signal.aborted) {
+        return { planned: job, result: null, timedOut: true };
+      }
+      try {
+        const result = await runCapped(
+          {
+            make: job.query.make,
+            model: job.query.model,
+            zip: searchZip,
+            yearMin: job.direction.yearMin,
+            yearMax: job.direction.yearMax,
+            distanceMiles: radiusMiles,
+            mode: need.mode,
+            milesMax: need.milesMax ?? undefined,
+            priceMax: need.budgetKnown && need.budgetUsd ? need.budgetUsd : undefined,
+          },
+          cappedDeps,
+        );
+        return { planned: job, result, timedOut: stageAbort.signal.aborted };
+      } catch {
+        return { planned: job, result: null, timedOut: true };
+      }
+    }
+    try {
+      dispatches = await Promise.all(planned.map((job) => dispatchCapped(job)));
+      providerQueriesUsed = planned.length;
+    } finally {
+      clearTimeout(stageTimer);
+      if (!stageAbort.signal.aborted) stageAbort.abort();
+    }
+  } else {
+    for (const job of planned) {
+      if (deps.deadline?.expired()) {
+        dispatches.push({ planned: job, result: null, timedOut: true });
+        continue;
+      }
+      dispatches.push(await dispatchOne(job));
+      providerQueriesUsed += 1;
+    }
+  }
+
+  // Group dispatch results by direction index for the existing post-processing.
+  const byDirection = new Map<number, DispatchRow[]>();
+  for (const row of dispatches) {
+    const list = byDirection.get(row.planned.directionIndex) ?? [];
+    list.push(row);
+    byDirection.set(row.planned.directionIndex, list);
+  }
+
+  for (let di = 0; di < directions.length; di++) {
+    const direction = directions[di]!;
+    const collected: Listing[] = [];
+    let directionNote: string | null = null;
+    let directionWarning: string | null = null;
+    const queryOutcomes: FindMatchGroup["queryOutcomes"] = [];
+    const rows = byDirection.get(di) ?? [];
+
+    for (const skip of skippedByDirection.get(di) ?? []) {
+      queryOutcomes.push({
+        make: skip.make,
+        model: skip.model,
+        outcome: "budget_exhausted",
+        message: "Server provider query budget exhausted for this /find request.",
+      });
+      directionWarning = "Server provider query budget reached — remaining models were not searched.";
+      partialFailureWarning = directionWarning;
+    }
+
+    for (const row of rows) {
+      const query = row.planned.query;
+      if (row.timedOut || !row.result) {
+        queryOutcomes.push({
+          make: query.make,
+          model: query.model,
+          outcome: "timeout",
+          message: "Inventory lookup hit the stage time budget.",
+        });
+        directionWarning = "Inventory lookup hit the stage time budget — some models were not searched.";
+        partialFailureWarning = directionWarning;
+        continue;
+      }
+      const result = row.result;
 
       if (!result.ok) {
         const reason = emptyReasonFromProviderError(
@@ -480,7 +618,7 @@ export async function runFindMatch(
     groups.push({
       direction,
       listings,
-      plannedModels: queries,
+      plannedModels: queriesForDirection(direction),
       searchedModels: succeeded.map((o) => ({ make: o.make, model: o.model })),
       failedModels: failed.map((o) => ({ make: o.make, model: o.model, outcome: o.outcome })),
       skippedModels: skipped,

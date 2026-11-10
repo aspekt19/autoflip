@@ -7,7 +7,7 @@ export type PlanStatus = "active" | "past_due" | "canceled" | "none";
 
 export type StoredPlans = {
   personal: { status: PlanStatus; lookupKey: string | null; searchLimit: number };
-  flip: { status: PlanStatus; lookupKey: string | null };
+  flip: { status: PlanStatus; lookupKey: string | null; searchLimit: number };
   /** Stripe customer used by the test-mode billing portal. */
   stripeCustomerId: string | null;
 };
@@ -15,7 +15,7 @@ export type StoredPlans = {
 export function emptyPlans(): StoredPlans {
   return {
     personal: { status: "none", lookupKey: null, searchLimit: 0 },
-    flip: { status: "none", lookupKey: null },
+    flip: { status: "none", lookupKey: null, searchLimit: 0 },
     stripeCustomerId: null,
   };
 }
@@ -46,7 +46,7 @@ export async function writePlans(kv: Kv, userId: string, plans: StoredPlans): Pr
 export function demoPlans(): StoredPlans {
   return {
     personal: { status: "active", lookupKey: "demo", searchLimit: 5 },
-    flip: { status: "active", lookupKey: "demo" },
+    flip: { status: "active", lookupKey: "demo", searchLimit: 5 },
     stripeCustomerId: null,
   };
 }
@@ -62,7 +62,7 @@ function activate(plans: StoredPlans, planId: string): StoredPlans {
   if (plan.mode === "personal") {
     return { ...plans, personal: { status: "active", lookupKey: plan.lookupKey, searchLimit: plan.searchLimit } };
   }
-  return { ...plans, flip: { status: "active", lookupKey: plan.lookupKey } };
+  return { ...plans, flip: { status: "active", lookupKey: plan.lookupKey, searchLimit: plan.searchLimit } };
 }
 
 function setStatus(plans: StoredPlans, planId: string, status: PlanStatus): StoredPlans {
@@ -78,7 +78,14 @@ function setStatus(plans: StoredPlans, planId: string, status: PlanStatus): Stor
       },
     };
   }
-  return { ...plans, flip: { status, lookupKey: status === "none" ? null : plan.lookupKey } };
+  return {
+    ...plans,
+    flip: {
+      status,
+      lookupKey: status === "none" ? null : plan.lookupKey,
+      searchLimit: status === "active" || status === "past_due" ? plan.searchLimit : 0,
+    },
+  };
 }
 
 function metadataOf(object: Record<string, unknown>): { userId: string | null; planId: string | null } {
@@ -139,31 +146,35 @@ export function billingEffect(current: StoredPlans, type: string, object: Record
 }
 
 /**
- * Deal Radar watches are free with a signed-in account up to
- * {@link ASSUMPTIONS.radarFreeWatchLimit}. Paid Stripe radar plans (if any)
- * only raise that cap. Opening a full report still costs 1 report credit.
+ * Deal Radar watches: personal free up to {@link ASSUMPTIONS.radarFreeWatchLimit};
+ * Flip free up to {@link ASSUMPTIONS.radarFreeFlipWatchLimit}. Paid Stripe plans
+ * only raise those caps. Opening a full report still costs 1 report credit.
  */
 export async function allowance(
   kv: Kv,
   userId: string,
   mode: "personal" | "flip",
-  personalCount: number,
+  /** Enabled watches for this mode (personalCount or flipCount). */
+  modeCount: number,
 ): Promise<{ ok: true } | { ok: false; message: string }> {
   const plans = await plansFor(kv, userId);
   if (userId === DEMO_USER_ID) return { ok: true };
   if (mode === "flip") {
-    // Flip watches stay plan-gated (higher Autodev spend). Personal is free.
-    if (plans.flip.status === "active") return { ok: true };
-    return {
-      ok: false,
-      message:
-        "Flip watches need a Flip radar plan. Personal Deal Radar watches are free with your account (up to three). Report credits stay separate.",
-    };
+    const freeCap = ASSUMPTIONS.radarFreeFlipWatchLimit;
+    const planCap = plans.flip.status === "active" ? plans.flip.searchLimit : 0;
+    const limit = Math.max(freeCap, planCap);
+    if (modeCount >= limit) {
+      return {
+        ok: false,
+        message: `This account can save up to ${limit} Flip Deal Radar watch${limit === 1 ? "" : "es"} (1 free; paid Flip plans raise the cap). Opening a full report still costs 1 credit.`,
+      };
+    }
+    return { ok: true };
   }
   const freeCap = ASSUMPTIONS.radarFreeWatchLimit;
   const planCap = plans.personal.status === "active" ? plans.personal.searchLimit : 0;
   const limit = Math.max(freeCap, planCap);
-  if (personalCount >= limit) {
+  if (modeCount >= limit) {
     return {
       ok: false,
       message: `This account can save up to ${limit} personal Deal Radar watches. Opening a full report still costs 1 credit.`,

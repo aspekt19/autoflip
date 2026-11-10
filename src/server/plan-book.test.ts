@@ -12,15 +12,18 @@ describe("personal Deal Radar allowance", () => {
     expect(blocked.ok).toBe(false);
   });
 
-  it("still requires a Flip plan for flip watches", async () => {
+  it("allows 1 free Flip watch; paid Flip plan raises the cap", async () => {
     const kv = new MemoryKv();
-    const blocked = await allowance(kv, "user-free", "flip", 0);
+    expect(await allowance(kv, "user-free", "flip", 0)).toEqual({ ok: true });
+    const blocked = await allowance(kv, "user-free", "flip", ASSUMPTIONS.radarFreeFlipWatchLimit);
     expect(blocked.ok).toBe(false);
+    expect(blocked.ok === false && blocked.message).toMatch(/1 free/i);
     await writePlans(kv, "user-free", {
       ...emptyPlans(),
-      flip: { status: "active", lookupKey: "autoflip_flip_metro_monthly" },
+      flip: { status: "active", lookupKey: "autoflip_flip_metro_monthly", searchLimit: 3 },
     });
-    expect(await allowance(kv, "user-free", "flip", 0)).toEqual({ ok: true });
+    expect(await allowance(kv, "user-free", "flip", 2)).toEqual({ ok: true });
+    expect((await allowance(kv, "user-free", "flip", 3)).ok).toBe(false);
   });
 });
 

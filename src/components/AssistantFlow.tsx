@@ -1369,7 +1369,13 @@ function AssistantFlow({
         setError(body.message || "The search was not saved.");
         return;
       }
-      router.push("/radar");
+      const q = new URLSearchParams({
+        mode: need.mode,
+        priceMax: String(priceMax),
+        zip: need.zip,
+        distanceMiles: String(need.distanceMiles),
+      });
+      router.push(`/radar?${q.toString()}`);
     } catch {
       setError("The search was not saved.");
     } finally {
