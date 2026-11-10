@@ -173,7 +173,7 @@ describe("runShopperVerdictServ", () => {
     expect(result.agentVerdict.second_pass?.status).toBe("not_run");
     expect(result.agentVerdict.unknowns?.[0]).toMatch(/Agent step failed/i);
     expect(result.agentVerdict.serv_spend?.costNote).toMatch(/Agent step failed/i);
-    expect(result.proofRecords.some((row) => row.purpose === "verdict_decide" && row.status === "error")).toBe(
+    expect(result.proofRecords.some((row) => row.purpose === "verdict_decide" && row.status === "failed")).toBe(
       true,
     );
     expect(fetchImpl).toHaveBeenCalledTimes(1);

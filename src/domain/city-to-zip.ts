@@ -119,11 +119,15 @@ const CITY_ZIP: Record<string, string> = {
 
 export type LocationZipResolution = {
   zip: string | null;
-  /** How the ZIP was obtained — never invent “from your note” for city-resolved. */
-  from: "note_zip" | "city_table" | null;
+  /**
+   * How the ZIP was obtained:
+   * - note_zip — buyer typed the 5 digits (only case for “from your note”)
+   * - inferred_from_city — city/state table lookup (never “from your note”)
+   */
+  from: "note_zip" | "inferred_from_city" | null;
   /** True when a place was named but no ZIP could be resolved. */
   needed: boolean;
-  /** Normalised city label when resolved from phrase (e.g. "Columbus OH"). */
+  /** Normalised city label when resolved from phrase (e.g. "Columbus, OH"). */
   cityLabel: string | null;
 };
 
@@ -187,19 +191,20 @@ export function resolveLocationZip(input: {
     return { zip: null, from: null, needed: true, cityLabel: phrase };
   }
   const resolved = zipForCityState(parsed.city, parsed.state);
-  const label = `${parsed.city.replace(/\b\w/g, (c) => c.toUpperCase())} ${parsed.state}`;
+  const cityTitle = parsed.city.replace(/\b\w/g, (c) => c.toUpperCase());
+  const label = `${cityTitle}, ${parsed.state}`;
   if (!resolved) {
     return { zip: null, from: null, needed: true, cityLabel: label };
   }
-  return { zip: resolved, from: "city_table", needed: false, cityLabel: label };
+  return { zip: resolved, from: "inferred_from_city", needed: false, cityLabel: label };
 }
 
 /** Buyer-facing ZIP field mark — never “from your note” unless digits came from the note. */
 export function zipFieldMark(resolution: LocationZipResolution | null | undefined): string | null {
   if (!resolution) return null;
   if (resolution.from === "note_zip") return "from your note";
-  if (resolution.from === "city_table" && resolution.cityLabel) {
-    return `from ${resolution.cityLabel} in your note`;
+  if (resolution.from === "inferred_from_city" && resolution.cityLabel) {
+    return `near ${resolution.cityLabel} (inferred)`;
   }
   if (resolution.needed) return "needed";
   return null;

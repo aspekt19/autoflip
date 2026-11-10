@@ -90,6 +90,7 @@ export async function runRadarCycle(deps: CycleDeps): Promise<StoredRun> {
   let shadow = "not_started";
   const servChecks: ServProof[] = [];
   const servActivity: RadarServActivity[] = [];
+  const proofRecords: import("@/domain/decision-proof-record").DecisionProofRecord[] = [];
   const touchedOwnerIds = new Set<string>();
   const touchedSearchIds = new Set<string>();
   const perSearchStats = new Map<string, { listings: number; alertsSent: number }>();
@@ -137,6 +138,7 @@ export async function runRadarCycle(deps: CycleDeps): Promise<StoredRun> {
         listings: row.listings,
         alertsSent: row.alertsSent,
       })),
+      proofRecords,
     );
 
   try {
@@ -503,6 +505,7 @@ export async function runRadarCycle(deps: CycleDeps): Promise<StoredRun> {
             };
           }
           servActivity.push(...review.activity);
+          proofRecords.push(...(review.proofRecords ?? []));
           if (!review.alertWorthy) {
             const decideRow = review.activity.find((row) => row.profile === "verdict_decide");
             const servFailed = Boolean(decideRow && !decideRow.ok);
@@ -519,6 +522,7 @@ export async function runRadarCycle(deps: CycleDeps): Promise<StoredRun> {
                 winner.priceDropFrom,
                 badge,
                 "not_reviewed",
+                review.proofRecords,
               );
               const next = upsertNotReviewedAlert(alerts, pending);
               alerts.length = 0;
@@ -540,6 +544,7 @@ export async function runRadarCycle(deps: CycleDeps): Promise<StoredRun> {
               winner.priceDropFrom,
               badge,
               "serv_skipped",
+              review.proofRecords,
             );
             alerts.unshift(skipped);
             if (winner.listing.priceUsd != null) book.set(winner.listing.vin, winner.listing.priceUsd);
@@ -557,6 +562,8 @@ export async function runRadarCycle(deps: CycleDeps): Promise<StoredRun> {
             coverageConfidence(personalCoverage),
             winner.priceDropFrom,
             badge,
+            "new",
+            review.proofRecords,
           );
           alerts.unshift(alert);
           freshAlerts.push(alert);
@@ -693,6 +700,7 @@ function finish(
   searchIds: string[],
   servActivity: RadarServActivity[],
   perSearch: NonNullable<StoredRun["perSearch"]> = [],
+  proofRecords: import("@/domain/decision-proof-record").DecisionProofRecord[] = [],
 ): StoredRun {
   return {
     id,
@@ -721,6 +729,7 @@ function finish(
       startedAt,
       filterBreakdown,
     }),
+    proofRecords,
     perSearch,
     payment,
   };
@@ -987,6 +996,7 @@ function makeAlert(
   priceDropFrom?: number | null,
   badge?: WatchAlert["badge"],
   status: WatchAlert["status"] = "new",
+  proofRecords?: import("@/domain/decision-proof-record").DecisionProofRecord[],
 ): WatchAlert {
   return {
     id: randomUUID(),
@@ -1008,6 +1018,7 @@ function makeAlert(
     numbers,
     sample: listing.source === "sample",
     checks,
+    proofRecords: proofRecords?.length ? proofRecords : undefined,
     coverage,
     coverageLevel,
     priceDropFrom,

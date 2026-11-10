@@ -147,12 +147,20 @@ export function describeInitialize(id: unknown) {
   });
 }
 
-export function radarToolResult(rows: ReturnType<typeof scoreRadar>, sample: boolean, message: string | null, proof?: unknown) {
+export function radarToolResult(
+  rows: ReturnType<typeof scoreRadar>,
+  sample: boolean,
+  message: string | null,
+  proof?: unknown,
+  proofRecords?: import("@/domain/decision-proof-record").DecisionProofRecord[],
+) {
   const pool = rows.map((row) => row.listing);
   return {
     sample,
     message,
     ...(proof !== undefined ? { proof } : {}),
+    /** Shared lemonless.decision_proof.v1 — empty when this one-shot scan did not call SERV decide. */
+    proofRecords: proofRecords ?? [],
     listings: rows.map((row) => ({
       vin: row.listing.vin,
       year: row.listing.year,

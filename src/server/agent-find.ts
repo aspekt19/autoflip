@@ -12,6 +12,7 @@ import { understandNeed, type UnderstandDeps } from "@/server/understand-need";
 import type { AgentCaller } from "./agent-auth";
 import { agentError, insufficientCreditsEnvelope, type AgentErrorEnvelope } from "./agent-envelope";
 import { hashServSteps, writeAgentReceipt } from "./agent-receipts";
+import type { DecisionProofRecord } from "@/domain/decision-proof-record";
 import { emptyAgentVerdict, wrapAgentSuccess, type AgentApiSuccess } from "./agent-result";
 
 export type AgentFindCreateInput = {
@@ -47,6 +48,8 @@ export type AgentFindRunRecord = {
   error: AgentErrorEnvelope | null;
   result: AgentApiSuccess | null;
   need: StructuredNeed | null;
+  /** Shared lemonless.decision_proof.v1 rows from need parse (+ settle when present). */
+  proofRecords: DecisionProofRecord[];
 };
 
 function runKey(runId: string): string {
@@ -183,6 +186,7 @@ export async function createAgentFindRun(
     error: null,
     result: null,
     need: null,
+    proofRecords: [],
   };
   await saveRun(deps.kv, run);
   await deps.kv.set(idem, run.run_id);
@@ -259,6 +263,7 @@ export async function advanceAgentFindRun(
     }
 
     fresh.need = understood.need;
+    fresh.proofRecords = understood.proofRecords ?? [];
     await mark(fresh, "searching_listings", "searching_listings");
     await saveRun(deps.kv, fresh);
     await mark(fresh, "ranking", "ranking");
@@ -398,6 +403,7 @@ export async function advanceAgentFindRun(
       receipt_id: receipt.receipt_id,
       run_id: fresh.run_id,
       summary: match.body.headline ?? match.body.message,
+      proofRecords: fresh.proofRecords,
       result: {
         sample: match.body.sample,
         emptyReason: match.body.emptyReason,
@@ -412,6 +418,7 @@ export async function advanceAgentFindRun(
           coverage: group.coverage,
           listingCount: group.listings.length,
         })),
+        proofRecords: fresh.proofRecords,
       },
     });
 
@@ -434,6 +441,7 @@ export async function agentFindStatusPayload(run: AgentFindRunRecord) {
     credit_spent: run.result?.credit_spent ?? false,
     error_code: run.error?.error_code ?? null,
     message: run.error?.message ?? null,
+    proofRecords: run.proofRecords ?? [],
   };
 }
 

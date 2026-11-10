@@ -20,7 +20,7 @@ describe("fresh free-text geo honesty", () => {
     expect(attached.zip).toBe("43215");
     expect(attached.distanceMiles).toBe(100);
     expect(attached.radiusIsDefault).toBe(true);
-    expect(zipFieldMark(attached.locationResolution)).toBe("from Columbus OH in your note");
+    expect(zipFieldMark(attached.locationResolution)).toBe("near Columbus, OH (inferred)");
 
     const marks = noteMarksFrom({ ...attached, zip: "43215" }, note);
     expect(marks.zip).toBe(false); // digits were not in the note

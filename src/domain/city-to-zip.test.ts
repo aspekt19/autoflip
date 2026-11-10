@@ -13,11 +13,11 @@ describe("city-to-zip", () => {
     const resolved = resolveLocationZip({ zip: null, locationPhrase: "Columbus OH" });
     expect(resolved).toEqual({
       zip: "43215",
-      from: "city_table",
+      from: "inferred_from_city",
       needed: false,
-      cityLabel: "Columbus OH",
+      cityLabel: "Columbus, OH",
     });
-    expect(zipFieldMark(resolved)).toBe("from Columbus OH in your note");
+    expect(zipFieldMark(resolved)).toBe("near Columbus, OH (inferred)");
   });
 
   it("keeps an explicit note ZIP and marks from your note", () => {

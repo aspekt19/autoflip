@@ -19,15 +19,18 @@ export function needFromFindEntry(input: {
 }): StructuredNeed {
   const mode = input.mode === "flip" ? "flip" : "personal";
   const parsed = explicitNeedFromText(input.note, mode);
-  // Entry URL ZIP only applies when the note did not already name a place/ZIP.
-  const noteGeo = attachNoteGeo(parsed);
-  const zip = noteGeo.zip ?? input.zip ?? null;
+  // Fresh note geo only — never reuse a stale wizard/URL ZIP when the note named a place.
+  const noteGeo = attachNoteGeo({ ...parsed, zip: null });
+  const namedPlace = Boolean(noteGeo.locationPhrase || parsed.locationPhrase);
+  const zip = noteGeo.zip ?? (namedPlace ? null : input.zip ?? null);
   let distanceMiles =
     noteGeo.distanceMiles !== undefined && noteGeo.distanceMiles !== null
       ? noteGeo.distanceMiles
-      : input.distanceMiles !== undefined
-        ? input.distanceMiles
-        : null;
+      : namedPlace
+        ? noteGeo.distanceMiles ?? null
+        : input.distanceMiles !== undefined
+          ? input.distanceMiles
+          : null;
   if (distanceMiles != null && !zip) distanceMiles = null;
   return { ...parsed, ...noteGeo, zip, distanceMiles };
 }
@@ -80,16 +83,23 @@ export function attachNoteGeo(
   need: StructuredNeed,
   opts?: { applyDefaultRadius?: boolean },
 ): StructuredNeed & { locationResolution: LocationZipResolution; radiusIsDefault: boolean } {
+  // Only a ZIP whose digits appear in the note is “from your note”.
+  // City→ZIP is inferred_from_city. Stale need.zip from a prior query is ignored unless
+  // it matches digits in this note.
+  const noteText = (need.note ?? "").trim();
+  const intake = noteText ? intakeFromNote(noteText) : null;
+  const zipDigitsInNote =
+    typeof intake?.zip === "string" && /^\d{5}$/.test(intake.zip) ? intake.zip : null;
   const resolution = resolveLocationZip({
-    zip: need.zip,
-    locationPhrase: need.locationPhrase ?? null,
+    zip: zipDigitsInNote,
+    locationPhrase: need.locationPhrase ?? intake?.locationPhrase ?? null,
   });
   const explicitRadius = need.distanceMiles;
   const applyDefault =
     opts?.applyDefaultRadius !== false &&
     resolution.zip != null &&
     explicitRadius == null &&
-    Boolean(need.locationPhrase || resolution.from === "city_table");
+    Boolean(need.locationPhrase || intake?.locationPhrase || resolution.from === "inferred_from_city");
   const distanceMiles = explicitRadius != null ? explicitRadius : applyDefault ? NOTE_DEFAULT_RADIUS_WHEN_ZIP : null;
   return {
     ...need,

@@ -24,9 +24,11 @@ import {
   freeChecksRemainingFromAccount,
 } from "@/domain/free-check-quota";
 import type { DecisionProof } from "@/domain/decision-note";
+import type { DecisionProofRecord } from "@/domain/decision-proof-record";
 import type { SearchDirection } from "@/domain/directions";
 import { CoverageLine } from "./CoverageNote";
 import { DecisionNote } from "./DecisionNote";
+import { DecisionRecordList } from "./DecisionRecord";
 import { decideAfFlowRestore, resumeFindSearchFromFlow } from "@/domain/af-flow-session";
 import {
   resolveManualCheckHandoff,
@@ -44,6 +46,7 @@ import {
   observedModelSnapshots,
 } from "@/domain/find-model-observe";
 import { proposeFindNextChecks } from "@/domain/find-next-checks";
+import { findNextCheckPendingLabel } from "@/domain/find-next-check-pending";
 import {
   FIND_NEXT_CHECK_AUTO_CONTINUE_MAX,
   rematchRefineFromReplan,
@@ -263,6 +266,9 @@ function AssistantFlow({
       : null,
   );
   const [checks, setChecks] = useState<DecisionProof[]>([]);
+  const [proofRecords, setProofRecords] = useState<DecisionProofRecord[]>([]);
+  /** Buyer-facing line while a next-check hop is in flight (never a stale spinner sentence). */
+  const [pendingCheckLabel, setPendingCheckLabel] = useState<string | null>(null);
   /** Home/deep-link free text used to skip /api/need; fire SERV parse once on entry. */
   const entryServParseRef = useRef(false);
   const [questions, setQuestions] = useState<FollowUp[]>(entryNeed && entryStage === "follow" ? followUps(entryNeed) : []);
@@ -452,7 +458,7 @@ function AssistantFlow({
         locationPhrase: finalNeed.locationPhrase ?? intake.locationPhrase,
       });
       const resolutionForField =
-        loc.from === "city_table" && finalNeed.zip
+        loc.from === "inferred_from_city" && finalNeed.zip
           ? { ...loc, zip: finalNeed.zip }
           : loc.needed && !finalNeed.zip
             ? loc
@@ -481,7 +487,7 @@ function AssistantFlow({
         Boolean(
           finalNeed.zip &&
             finalNeed.distanceMiles === NOTE_DEFAULT_RADIUS_WHEN_ZIP &&
-            (finalNeed.locationPhrase || loc.from === "city_table") &&
+            (finalNeed.locationPhrase || loc.from === "inferred_from_city") &&
             !/\bwithin\s+\d+/i.test(text),
         ),
       );
@@ -501,6 +507,9 @@ function AssistantFlow({
             : { source: "form" as const, responseId: null, label: "Entered on the form" });
       setCriteriaParse(parse);
       setChecks(body.checks ?? []);
+      if (Array.isArray((body as { proofRecords?: DecisionProofRecord[] }).proofRecords)) {
+        setProofRecords((body as { proofRecords: DecisionProofRecord[] }).proofRecords);
+      }
       if ((body.checks ?? []).length === 0 && body.guard === "unavailable") {
         setError("The safety check on your note did not finish. You can continue with the calculated reading.");
       }
@@ -771,6 +780,9 @@ function AssistantFlow({
             : body.need.conditionPriority,
       };
       if (Array.isArray(body.checks)) setChecks(body.checks);
+      if (Array.isArray((body as { proofRecords?: DecisionProofRecord[] }).proofRecords)) {
+        setProofRecords((body as { proofRecords: DecisionProofRecord[] }).proofRecords);
+      }
       if (body.criteriaParse) setCriteriaParse(body.criteriaParse);
       else if (body.source) {
         setCriteriaParse(
@@ -814,6 +826,7 @@ function AssistantFlow({
     setError(null);
     setNextCheckNote(null);
     setPending("next-check");
+    setPendingCheckLabel(findNextCheckPendingLabel({ pending: true, auto: Boolean(opts?.auto) }));
     let continueToken: string | null = null;
     // Count this hop when it was triggered by auto-continue/auto-start chain.
     if (opts?.auto) autoContinueCountRef.current += 1;
@@ -860,8 +873,23 @@ function AssistantFlow({
       };
       if (!response.ok || !body.ok || !body.replan?.need) {
         setFindLoopOpen(false);
-        setError(body.message || "Next check could not be applied.");
+        const reason =
+          body.message ||
+          body.loop?.detail ||
+          body.honesty ||
+          "Next check could not be applied.";
+        setPendingCheckLabel(findNextCheckPendingLabel({ pending: false, terminalReason: reason }));
+        setError(reason);
+        setNextCheckNote(reason);
         return;
+      }
+      const pickProofs = Array.isArray(
+        (body as { pickProofRecords?: DecisionProofRecord[] }).pickProofRecords,
+      )
+        ? ((body as { pickProofRecords?: DecisionProofRecord[] }).pickProofRecords as DecisionProofRecord[])
+        : [];
+      if (pickProofs.length > 0) {
+        setProofRecords((prev) => [...prev, ...pickProofs]);
       }
       // Always adopt NEW need from server apply — never stale same-tick UI years.
       const nextNeed = body.needAfter ?? body.replan.need;
@@ -1035,7 +1063,11 @@ function AssistantFlow({
             continuing: willContinue,
           })
         : null;
-      setNextCheckNote([step, status, settleBit].filter(Boolean).join(" "));
+      const progressLine = [step, status, settleBit].filter(Boolean).join(" ");
+      setNextCheckNote(progressLine);
+      setPendingCheckLabel(
+        findNextCheckPendingLabel({ pending: true, auto: Boolean(opts?.auto), progressLine }),
+      );
       setFindLoopOpen(Boolean(body.loop?.continue));
       const checksSettled = body.loop?.continue === false && toolCov?.anyUnchecked !== true;
       try {
@@ -1051,17 +1083,18 @@ function AssistantFlow({
       } else {
         // No further auto hops — clear the “still checking” spinner state.
         setFindLoopOpen(false);
+        setPendingCheckLabel(null);
         if (
           body.loop?.continue &&
           autoContinueCountRef.current >= FIND_NEXT_CHECK_AUTO_CONTINUE_MAX &&
           toolCov?.anyUnchecked
         ) {
           // Bound hit — settle the spinner honestly rather than looping forever.
-          setNextCheckNote((prev) =>
-            [prev, "Automatic public checks paused after many steps. Some models may still be unchecked. Nothing else is running."]
-              .filter(Boolean)
-              .join(" "),
-          );
+          const pauseReason =
+            "Automatic public checks paused after many steps. Some models may still be unchecked. Nothing else is running.";
+          setNextCheckNote((prev) => [prev, pauseReason].filter(Boolean).join(" "));
+        } else if (body.loop?.continue === false && body.loop?.detail) {
+          setNextCheckNote((prev) => [prev, body.loop?.detail].filter(Boolean).join(" "));
         }
       }
 
@@ -1071,7 +1104,10 @@ function AssistantFlow({
         if (!body.rematch.ok) {
           const reason = matchBody.emptyReason ?? "provider_failure";
           const copy = findEmptyCopy(reason, nextNeed, matchBody.message);
+          setFindLoopOpen(false);
+          setPendingCheckLabel(null);
           setError(copy.detail);
+          setNextCheckNote(copy.detail);
           setMatchHeadline(matchBody.headline ?? copy.headline);
           setMatchNextStep(matchBody.nextStep ?? copy.nextStep);
           setMatchMessage(copy.detail);
@@ -1204,15 +1240,17 @@ function AssistantFlow({
       }
     } catch (err) {
       setFindLoopOpen(false);
+      setPendingCheckLabel(null);
       const timedOut = err instanceof DOMException && err.name === "AbortError";
-      setError(
-        timedOut
-          ? "That check took too long, so it stopped. Nothing is running now. You can try again."
-          : "Next check failed — try again.",
-      );
+      const reason = timedOut
+        ? "That check took too long, so it stopped. Nothing is running now. You can try again."
+        : "Next check failed — try again.";
+      setError(reason);
+      setNextCheckNote(reason);
     } finally {
       window.clearTimeout(timer);
       setPending(null);
+      if (!continueToken) setPendingCheckLabel(null);
     }
     // Continue loop after pending clears — evidence→replan until server stop reason.
     if (continueToken) {
@@ -1806,6 +1844,8 @@ function AssistantFlow({
             setZipDraft("");
             setDistanceDraft(null);
             setChecks([]);
+            setProofRecords([]);
+            setPendingCheckLabel(null);
             setCriteriaParse(null);
             setSource(null);
             setGroups([]);
@@ -2166,6 +2206,7 @@ function AssistantFlow({
           <h2>Cars that fit</h2>
           <PriceRatingHow />
           <DecisionNote scene="find" proofs={checks} />
+          <DecisionRecordList records={proofRecords} />
           {need ? <p className="hint">Scope: {matchScope ?? searchScopeLabel(need)}</p> : null}
           {need
             ? softPrefGapsFromText(need.note).map((gap) => (
@@ -2610,7 +2651,12 @@ function AssistantFlow({
                       </div>
                     ) : null}
                     {nextCheckNote ? <p className="hint">{nextCheckNote}</p> : null}
-                    {pending === "next-check" ? <p className="hint">Checking public safety records…</p> : null}
+                    {pending === "next-check" && pendingCheckLabel ? (
+                      <p className="hint">{pendingCheckLabel}</p>
+                    ) : null}
+                    <DecisionRecordList
+                      records={proofRecords.filter((row) => row.purpose === "verdict_decide")}
+                    />
                     {settledLine ? <p className="hint">{settledLine}</p> : null}
                     {freeGovEvidenceLines.length > 0 ? (
                       <div className="hint" role="note">

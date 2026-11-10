@@ -123,6 +123,7 @@ export async function GET() {
               startedAt: lastRun.startedAt,
               filterBreakdown: lastRun.filterBreakdown ?? null,
             }),
+            proofRecords: lastRun.proofRecords ?? [],
             notes: ownerNotes,
           };
         })()

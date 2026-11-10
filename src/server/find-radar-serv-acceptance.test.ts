@@ -182,10 +182,10 @@ describe("find → SERV → watch → radar verdict_decide acceptance (merge gat
     expect(parsed.proofRecords.every(isDecisionProofRecord)).toBe(true);
     const guardProof = assertServStepProof(parsed.proofRecords, "need_guard");
     expect(guardProof.rubricId).toBe(NEED_PARSE_RUBRIC_ID);
-    expect(guardProof.responseId).toBe(GUARD_ID);
+    expect(guardProof.servResponseId).toBe(GUARD_ID);
     const extractProof = assertServStepProof(parsed.proofRecords, "need_extract");
     expect(extractProof.rubricId).toBe(NEED_PARSE_RUBRIC_ID);
-    expect(extractProof.responseId).toBe(EXTRACT_ID);
+    expect(extractProof.servResponseId).toBe(EXTRACT_ID);
 
     // --- (2) Find top-pick verdict_decide even when evidenceSettled is false ---
     const pick = candidate({ key: "top" });
@@ -273,8 +273,8 @@ describe("find → SERV → watch → radar verdict_decide acceptance (merge gat
     expect(settled.proofRecords.every(isDecisionProofRecord)).toBe(true);
     const findDecideProof = assertServStepProof(settled.proofRecords, "verdict_decide");
     expect(findDecideProof.rubricId).toBe(VERDICT_RUBRIC_ID);
-    expect(findDecideProof.responseId).toBe(DECIDE_ID);
-    expect(findDecideProof.clamp).toBeTruthy();
+    expect(findDecideProof.servResponseId).toBe(DECIDE_ID);
+    expect(findDecideProof.clampResult).toBeTruthy();
 
     // --- (3) Watch stores parse provenance ---
     const kv = new MemoryKv();
@@ -496,7 +496,7 @@ describe("find → SERV → watch → radar verdict_decide acceptance (merge gat
     expect(radarReview.proofRecords.every(isDecisionProofRecord)).toBe(true);
     const radarDecideProof = assertServStepProof(radarReview.proofRecords, "verdict_decide");
     expect(radarDecideProof.rubricId).toBe(RADAR_VERDICT_RUBRIC_ID);
-    expect(radarDecideProof.responseId).toBe(RADAR_DECIDE_ID);
+    expect(radarDecideProof.servResponseId).toBe(RADAR_DECIDE_ID);
 
     const alerts = await listAlerts(kv);
     const stillStuckOnly =

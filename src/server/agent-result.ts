@@ -8,6 +8,7 @@ import {
   type AgentTrailStep,
   type AgentVerdict,
 } from "@/domain/agent-verdict-schema";
+import type { DecisionProofRecord } from "@/domain/decision-proof-record";
 import type { CheckResultPayload } from "@/server/check/run-check";
 
 export type AgentApiSuccess = {
@@ -27,6 +28,8 @@ export type AgentApiSuccess = {
     checks_run: string[];
     no_serv_step: boolean;
   };
+  /** Shared lemonless.decision_proof.v1 — same contract as site Find/Radar. */
+  proofRecords: DecisionProofRecord[];
   code_computed: Record<string, number | string | boolean | null>;
   credit_spent: boolean;
   credits: number;
@@ -106,6 +109,7 @@ export function wrapAgentSuccess(input: {
   receipt_id: string;
   run_id?: string | null;
   summary?: string | null;
+  proofRecords?: DecisionProofRecord[];
   result: unknown;
 }): AgentApiSuccess {
   return {
@@ -125,6 +129,7 @@ export function wrapAgentSuccess(input: {
       checks_run: input.checks_run,
       no_serv_step: input.verdict.no_serv_step,
     },
+    proofRecords: input.proofRecords ?? [],
     code_computed: input.code_computed,
     credit_spent: input.credit_spent,
     credits: input.credits,
