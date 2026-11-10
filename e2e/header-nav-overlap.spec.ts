@@ -4,13 +4,17 @@ const WIDTHS = [1024, 1280, 1366, 1440, 1536, 1728, 1920, 2240, 2560, 3440] as c
 
 test("browser tab titles are brand-first", async ({ page }) => {
   await page.goto("/");
-  await expect(page).toHaveTitle("Lemonless — A clear verdict on a used car");
+  await expect(page).toHaveTitle("Lemonless");
   await page.goto("/find");
-  await expect(page).toHaveTitle("Find a car · Lemonless");
+  await expect(page).toHaveTitle("Lemonless · Find a car");
+  await page.goto("/check");
+  await expect(page).toHaveTitle("Lemonless · Check a car");
   await page.goto("/resale");
-  await expect(page).toHaveTitle("Resale · Lemonless");
+  await expect(page).toHaveTitle("Lemonless · Resale");
   await page.goto("/radar");
-  await expect(page).toHaveTitle("Deal Radar · Lemonless");
+  await expect(page).toHaveTitle("Lemonless · Deal Radar");
+  await page.goto("/pricing");
+  await expect(page).toHaveTitle("Lemonless · Pricing");
 });
 
 test("home hero film fills the viewport under an overlaid header", async ({ page }) => {
