@@ -158,4 +158,66 @@ describe("/api/check settlement", () => {
     expect((await readFreeCheckQuota(kvHolder.kv, ACCOUNT)).used).toBe(1);
     expect(await creditBalance(kvHolder.kv, ACCOUNT)).toBe(1);
   });
+
+  it("prefers a free check over a report credit when both remain", async () => {
+    await creditGrant(kvHolder.kv, ACCOUNT, 5, "init-credits");
+    const { reserveFreeCheck, commitFreeCheck } = await import("@/io/free-check-quota");
+    // Two free checks already used — one remains.
+    for (let i = 0; i < 2; i += 1) {
+      const key = `prior-${i}`;
+      expect((await reserveFreeCheck(kvHolder.kv, ACCOUNT, key)).ok).toBe(true);
+      await commitFreeCheck(kvHolder.kv, ACCOUNT, key);
+    }
+    expect((await readFreeCheckQuota(kvHolder.kv, ACCOUNT)).remaining).toBe(1);
+    expect(await creditBalance(kvHolder.kv, ACCOUNT)).toBe(5);
+
+    runCheckMock.mockResolvedValue({
+      ok: true,
+      result: {
+        kind: "vin_dossier",
+        title: "2019 Honda Civic",
+        verdict: "negotiate",
+        verdictLabel: "Negotiate",
+        confidence: "Low",
+        summary: "ok",
+        badge: null,
+        fairValueUsd: 15_000,
+        priceGap: 0.01,
+        compCount: 6,
+        compScope: "test",
+        redFlags: [],
+        questions: [],
+        otd: null,
+        otdNeedsZip: false,
+        walkAwayUsd: null,
+        walkAwayLabel: null,
+        similarCars: [],
+        fields: null,
+        provenance: [],
+        vin: "2HGFC3B33KH356212",
+        vinDecode: null,
+        recalls: [],
+        recallsAvailable: false,
+        complaintCount: null,
+        fuel: null,
+        fuelConflict: null,
+        safetySummary: null,
+        knownIssues: [],
+        unknown: [],
+        listingsForVin: [],
+        llmUsed: false,
+        sample: false,
+        agentVerdict: null,
+      },
+    });
+
+    const response = await POST(req({ kind: "vin", vin: "2HGFC3B33KH356212" }));
+    const body = await response.json();
+    expect(response.status).toBe(200);
+    expect(body.usedFreeCheck).toBe(true);
+    expect(body.spentCredit).toBe(false);
+    expect((await readFreeCheckQuota(kvHolder.kv, ACCOUNT)).used).toBe(3);
+    expect((await readFreeCheckQuota(kvHolder.kv, ACCOUNT)).remaining).toBe(0);
+    expect(await creditBalance(kvHolder.kv, ACCOUNT)).toBe(5);
+  });
 });
