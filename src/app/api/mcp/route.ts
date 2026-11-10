@@ -211,11 +211,24 @@ export async function POST(request: Request) {
         rpcResult(id, {
           content: [{ type: "text", text: result.message }],
           isError: true,
-          structuredContent: { error_code: result.error, error: result.error, message: result.message, credit_spent: false, proof: result.proof },
+          structuredContent: {
+            error_code: result.error,
+            error: result.error,
+            message: result.message,
+            credit_spent: false,
+            proof: result.proof,
+            proofRecords: result.proofRecords,
+          },
         }),
       );
     }
-    const payload = radarToolResult(scoreRadar(result.listings, parseMode(args.mode)), result.sample, result.message, result.proof);
+    const payload = radarToolResult(
+      scoreRadar(result.listings, parseMode(args.mode)),
+      result.sample,
+      result.message,
+      result.proof,
+      result.proofRecords,
+    );
     return Response.json(rpcResult(id, { content: [{ type: "text", text: JSON.stringify(payload) }], structuredContent: { ...payload, credit_spent: false } }));
   }
 

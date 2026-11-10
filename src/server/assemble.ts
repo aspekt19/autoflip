@@ -799,31 +799,118 @@ export async function assembleRadar(
   },
   deps: AssembleDeps,
 ): Promise<
-  | { ok: true; listings: Listing[]; sample: boolean; message: string | null; proof: AgentProof }
-  | { ok: false; status: number; error: string; message: string; proof: AgentProof }
+  | {
+      ok: true;
+      listings: Listing[];
+      sample: boolean;
+      message: string | null;
+      proof: AgentProof;
+      proofRecords: import("@/domain/decision-proof-record").DecisionProofRecord[];
+    }
+  | {
+      ok: false;
+      status: number;
+      error: string;
+      message: string;
+      proof: AgentProof;
+      proofRecords: import("@/domain/decision-proof-record").DecisionProofRecord[];
+    }
 > {
+  const {
+    buildDecisionProofRecord,
+    RADAR_VERDICT_RUBRIC_ID,
+  } = await import("@/domain/decision-proof-record");
+  const { providerResponseIdFromCall } = await import("@/domain/serv-response-id");
   const screened = screenUserInput(
     [input.make, input.model, input.zip, input.year?.toString(), input.yearMin?.toString(), input.yearMax?.toString()]
       .filter(Boolean)
       .join(" "),
   );
   const scanFields = ["score", "verdict", "reason", "priceUsd", "miles"];
+  const recordedAt = new Date().toISOString();
+  const guardInputs = {
+    make: input.make,
+    model: input.model ?? null,
+    zip: input.zip ?? null,
+    mode: input.mode,
+  };
   if (!screened.ok) {
-    return { ok: false, status: 400, error: "rejected_input", message: screened.reason, proof: agentProof([plannedProof("radar_guard")], scanFields) };
+    const proofRecords = [
+      buildDecisionProofRecord({
+        purpose: "radar_guard",
+        rubricId: RADAR_VERDICT_RUBRIC_ID,
+        status: "skipped_no_evidence",
+        recordedAt,
+        inputs: guardInputs,
+        detail: screened.reason,
+      }),
+    ];
+    return {
+      ok: false,
+      status: 400,
+      error: "rejected_input",
+      message: screened.reason,
+      proof: agentProof([plannedProof("radar_guard")], scanFields),
+      proofRecords,
+    };
   }
-  const guard = await runServ("radar_guard", { user: screened.text }, {
-    fetch: deps.fetch ?? fetch,
-    apiKey: deps.servKey,
-    baseUrl: deps.servBaseUrl,
-    model: deps.servModel,
+  const guard = deps.servKey?.trim()
+    ? await runServ("radar_guard", { user: screened.text }, {
+        fetch: deps.fetch ?? fetch,
+        apiKey: deps.servKey,
+        baseUrl: deps.servBaseUrl,
+        model: deps.servModel,
+      })
+    : null;
+  const proof = agentProof([guard?.proof ?? plannedProof("radar_guard")], scanFields);
+  const guardDecision =
+    guard && guard.ok ? interpretGuard(guard.text) : null;
+  const guardStatus = !deps.servKey?.trim()
+    ? "skipped_no_key"
+    : !guard
+      ? "skipped_no_key"
+      : !guard.ok
+        ? "error"
+        : guardDecision === "block"
+          ? "error"
+          : "ok";
+  const guardProofRecord = buildDecisionProofRecord({
+    purpose: "radar_guard",
+    rubricId: RADAR_VERDICT_RUBRIC_ID,
+    status: guardStatus === "ok" ? "ok" : guardStatus === "skipped_no_key" ? "skipped_no_key" : "error",
+    responseId: guard
+      ? providerResponseIdFromCall({
+          ok: guardStatus === "ok",
+          id: typeof guard.proof.openserv?.id === "string" ? guard.proof.openserv.id : null,
+        })
+      : null,
+    model: guard?.proof.modelReported ?? null,
+    recordedAt,
+    inputs: guardInputs,
+    verdict: guardStatus === "ok" ? guardDecision : null,
+    detail:
+      guardStatus === "ok"
+        ? null
+        : !deps.servKey?.trim() || !guard
+          ? "SERV_API_KEY is not configured — radar guard skipped."
+          : !guard.ok
+            ? guard.error
+            : "radar_guard blocked this scan.",
   });
-  const proof = agentProof([guard.proof], scanFields);
+  const proofRecords = [guardProofRecord];
   const flipOpen = input.mode === "flip" && !input.make.trim();
   if (!input.make.trim() && !flipOpen) {
-    return { ok: false, status: 400, error: "make_required", message: "Choose a make.", proof };
+    return { ok: false, status: 400, error: "make_required", message: "Choose a make.", proof, proofRecords };
   }
   if (flipOpen && (!input.priceMax || !input.zip)) {
-    return { ok: false, status: 400, error: "budget_required", message: "A flip scan needs a budget and a ZIP.", proof };
+    return {
+      ok: false,
+      status: 400,
+      error: "budget_required",
+      message: "A flip scan needs a budget and a ZIP.",
+      proof,
+      proofRecords,
+    };
   }
   if (!deps.autodevKey || !deps.autodev) {
     return {
@@ -833,6 +920,7 @@ export async function assembleRadar(
       message:
         "Live dealer listings are not configured in this environment. Lemonless will not show sample inventory as search results.",
       proof,
+      proofRecords,
     };
   }
   const kv = deps.kv ?? getKv();
@@ -847,6 +935,7 @@ export async function assembleRadar(
       error: "quota_backend_not_distributed",
       message: storeGate.message,
       proof,
+      proofRecords,
     };
   }
   const fetchImpl = deps.fetch ?? fetch;
@@ -890,6 +979,7 @@ export async function assembleRadar(
       error: search.error === "demo_limit" ? "demo_limit" : "listings_error",
       message: search.message,
       proof,
+      proofRecords,
     };
   }
   return {
@@ -898,6 +988,7 @@ export async function assembleRadar(
     sample: false,
     message: search.listings.length === 0 ? "No listings came back for that search." : null,
     proof,
+    proofRecords,
   };
 }
 

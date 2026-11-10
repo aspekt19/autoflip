@@ -12,6 +12,8 @@ jobs:
   test:
     # Playwright Chromium install is not supported on ubuntu-latest (26.04) yet.
     runs-on: ubuntu-24.04
+    # Fail the job if a step hangs (Playwright matrix + next-check loops).
+    timeout-minutes: 25
     steps:
       - name: Check out source
         uses: actions/checkout@v4
@@ -52,6 +54,10 @@ jobs:
         run: node scripts/assert-openserv-source-boundary.mjs
       - name: Run unit tests
         run: npm test
+      - name: Find/Radar SERV acceptance (merge gate)
+        run: npm run test:acceptance:find-radar-serv
+      - name: Find/Radar HTTP e2e (stub upstreams)
+        run: npm run test:e2e:find-radar-http
       - name: Install Playwright Chromium
         run: npx playwright install --with-deps chromium
       - name: Run Playwright check e2e

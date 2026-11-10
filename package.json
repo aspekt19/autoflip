@@ -9,6 +9,8 @@
     "start": "next start",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
+    "test:acceptance:find-radar-serv": "vitest run src/server/find-radar-serv-acceptance.test.ts",
+    "test:e2e:find-radar-http": "bash scripts/e2e-find-radar-ci.sh",
     "test:e2e": "playwright test",
     "audit:prod": "npm audit --omit=dev --audit-level=high",
     "audit:full-report": "npm audit --audit-level=high",

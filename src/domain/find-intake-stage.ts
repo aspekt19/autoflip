@@ -1,4 +1,6 @@
-import { explicitNeedFromText, followUps, type StructuredNeed } from "./need";
+import { resolveLocationZip, type LocationZipResolution } from "./city-to-zip";
+import { intakeFromNote, NOTE_DEFAULT_RADIUS_WHEN_ZIP } from "./note-intake";
+import { explicitNeedFromText, followUps, useCaseFromText, type StructuredNeed } from "./need";
 
 export type FindIntakeStage = "budget" | "follow" | "confirm";
 
@@ -17,10 +19,20 @@ export function needFromFindEntry(input: {
 }): StructuredNeed {
   const mode = input.mode === "flip" ? "flip" : "personal";
   const parsed = explicitNeedFromText(input.note, mode);
-  const zip = input.zip ?? parsed.zip;
-  let distanceMiles = input.distanceMiles !== undefined ? input.distanceMiles : parsed.distanceMiles;
+  // Fresh note geo only — never reuse a stale wizard/URL ZIP when the note named a place.
+  const noteGeo = attachNoteGeo({ ...parsed, zip: null });
+  const namedPlace = Boolean(noteGeo.locationPhrase || parsed.locationPhrase);
+  const zip = noteGeo.zip ?? (namedPlace ? null : input.zip ?? null);
+  let distanceMiles =
+    noteGeo.distanceMiles !== undefined && noteGeo.distanceMiles !== null
+      ? noteGeo.distanceMiles
+      : namedPlace
+        ? noteGeo.distanceMiles ?? null
+        : input.distanceMiles !== undefined
+          ? input.distanceMiles
+          : null;
   if (distanceMiles != null && !zip) distanceMiles = null;
-  return { ...parsed, zip, distanceMiles };
+  return { ...parsed, ...noteGeo, zip, distanceMiles };
 }
 
 export type NoteMarks = {
@@ -36,17 +48,64 @@ export type NoteMarks = {
   body: boolean;
 };
 
-export function noteMarksFrom(need: StructuredNeed): NoteMarks {
+/**
+ * Marks are true only when the value was derived from the shopper's note text.
+ * A stale wizard ZIP must never get “from your note”.
+ */
+export function noteMarksFrom(need: StructuredNeed, noteText?: string): NoteMarks {
+  const source = (noteText ?? need.note ?? "").trim();
+  const intake = source ? intakeFromNote(source) : null;
+  const useFromNote = source ? useCaseFromText(source) : "unspecified";
   return {
-    budget: Boolean(need.budgetKnown && need.budgetUsd != null),
-    use: need.useCase !== "unspecified",
-    year: need.yearMin != null || need.yearMax != null,
-    miles: need.milesMax != null,
-    zip: need.zip != null,
-    location: Boolean(need.locationPhrase),
-    transmission: need.transmission != null,
-    fuel: need.fuelEconomyPriority === true,
-    history: need.historyPreference != null,
-    body: need.bodyStyle != null,
+    budget: Boolean(
+      need.budgetKnown && need.budgetUsd != null && intake?.budgetUsd != null && intake.budgetUsd === need.budgetUsd,
+    ),
+    use: need.useCase !== "unspecified" && useFromNote === need.useCase,
+    year:
+      (need.yearMin != null || need.yearMax != null) &&
+      Boolean(intake && (intake.yearMin != null || intake.yearMax != null)),
+    miles: need.milesMax != null && intake?.milesMax === need.milesMax,
+    zip: Boolean(need.zip && intake?.zip === need.zip),
+    location: Boolean(need.locationPhrase && intake?.locationPhrase),
+    transmission: need.transmission != null && intake?.transmission === need.transmission,
+    fuel: need.fuelEconomyPriority === true && intake?.fuelEconomyPriority === true,
+    history: need.historyPreference != null && intake?.historyPreference === need.historyPreference,
+    body: need.bodyStyle != null && intake?.bodyStyle === need.bodyStyle,
+  };
+}
+
+/**
+ * Fresh free-text parse: resolve city→ZIP, apply a labelled default radius when a
+ * city/ZIP came from the note without an explicit “within N miles”, else leave
+ * radius null (nationwide / ask inline). Never keeps a caller-supplied stale ZIP.
+ */
+export function attachNoteGeo(
+  need: StructuredNeed,
+  opts?: { applyDefaultRadius?: boolean },
+): StructuredNeed & { locationResolution: LocationZipResolution; radiusIsDefault: boolean } {
+  // Only a ZIP whose digits appear in the note is “from your note”.
+  // City→ZIP is inferred_from_city. Stale need.zip from a prior query is ignored unless
+  // it matches digits in this note.
+  const noteText = (need.note ?? "").trim();
+  const intake = noteText ? intakeFromNote(noteText) : null;
+  const zipDigitsInNote =
+    typeof intake?.zip === "string" && /^\d{5}$/.test(intake.zip) ? intake.zip : null;
+  const resolution = resolveLocationZip({
+    zip: zipDigitsInNote,
+    locationPhrase: need.locationPhrase ?? intake?.locationPhrase ?? null,
+  });
+  const explicitRadius = need.distanceMiles;
+  const applyDefault =
+    opts?.applyDefaultRadius !== false &&
+    resolution.zip != null &&
+    explicitRadius == null &&
+    Boolean(need.locationPhrase || intake?.locationPhrase || resolution.from === "inferred_from_city");
+  const distanceMiles = explicitRadius != null ? explicitRadius : applyDefault ? NOTE_DEFAULT_RADIUS_WHEN_ZIP : null;
+  return {
+    ...need,
+    zip: resolution.zip,
+    distanceMiles,
+    locationResolution: resolution,
+    radiusIsDefault: applyDefault,
   };
 }

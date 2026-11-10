@@ -1,4 +1,5 @@
 import { ASSUMPTIONS } from "@/domain/assumptions";
+import { filterProofRecordsForOwner } from "@/domain/decision-proof-record";
 import { journalFromRadarActivity } from "@/domain/radar-activity-journal";
 import {
   countNewRadarAlertsInWindow,
@@ -122,6 +123,10 @@ export async function GET() {
               notes: ownerNotes,
               startedAt: lastRun.startedAt,
               filterBreakdown: lastRun.filterBreakdown ?? null,
+            }),
+            proofRecords: filterProofRecordsForOwner(lastRun.proofRecords, {
+              ownerId: id,
+              searchIds: mySearchIds,
             }),
             notes: ownerNotes,
           };

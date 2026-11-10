@@ -30,6 +30,13 @@ export type AutodevResult =
   | { ok: false; error: "demo_limit"; message: string; quota: QuotaDecision & { ok: false } }
   | { ok: false; error: "upstream"; status: number; message: string; quota: QuotaDecision & { ok: true } };
 
+/** Override only for labelled local/CI stubs — production keeps api.auto.dev. */
+export function autodevOrigin(env: Record<string, string | undefined> = process.env): string {
+  const raw = env.AUTODEV_BASE_URL?.trim();
+  if (raw) return raw.replace(/\/$/, "");
+  return "https://api.auto.dev";
+}
+
 export function listingsSearchUrl(query: ListingQuery): string {
   const params = new URLSearchParams();
   if (query.make) params.set("vehicle.make", query.make);
@@ -45,11 +52,11 @@ export function listingsSearchUrl(query: ListingQuery): string {
   if (query.sort) params.set("sort", query.sort);
   if (query.page && query.page > 1) params.set("page", String(query.page));
   params.set("limit", String(query.limit ?? 20));
-  return `https://api.auto.dev/listings?${params.toString()}`;
+  return `${autodevOrigin()}/listings?${params.toString()}`;
 }
 
 export function listingByVinUrl(vin: string): string {
-  return `https://api.auto.dev/listings/${encodeURIComponent(vin)}`;
+  return `${autodevOrigin()}/listings/${encodeURIComponent(vin)}`;
 }
 
 /** Normalize a VDP URL for exact equality checks (no guessing). */
@@ -73,7 +80,7 @@ export function listingByVdpUrl(vdp: string): string {
   const params = new URLSearchParams();
   params.set("retailListing.vdp", vdp);
   params.set("limit", "10");
-  return `https://api.auto.dev/listings?${params.toString()}`;
+  return `${autodevOrigin()}/listings?${params.toString()}`;
 }
 
 export function findExactVdpMatch(listings: readonly Listing[], vdp: string): Listing | null {

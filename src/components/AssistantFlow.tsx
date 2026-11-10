@@ -5,7 +5,15 @@ import type { PriceBadge } from "@/domain/price-badge";
 import { whyThisCar } from "@/domain/why-car";
 import { PriceBadgeView, PriceRatingHow } from "./PriceBadge";
 import { budgetFromText, budgetWorkingCopy } from "@/domain/need";
-import { findStageAfterNote, needFromFindEntry, noteMarksFrom, type NoteMarks } from "@/domain/find-intake-stage";
+import {
+  findStageAfterNote,
+  needFromFindEntry,
+  noteMarksFrom,
+  type NoteMarks,
+} from "@/domain/find-intake-stage";
+import { resolveLocationZip, zipFieldMark, type LocationZipResolution } from "@/domain/city-to-zip";
+import { intakeFromNote, NOTE_DEFAULT_RADIUS_WHEN_ZIP } from "@/domain/note-intake";
+import { criteriaParseLabel } from "@/domain/radar-criteria-provenance";
 import { FOLLOW_HINT } from "@/domain/intake-copy";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -16,9 +24,11 @@ import {
   freeChecksRemainingFromAccount,
 } from "@/domain/free-check-quota";
 import type { DecisionProof } from "@/domain/decision-note";
+import type { DecisionProofRecord } from "@/domain/decision-proof-view";
 import type { SearchDirection } from "@/domain/directions";
 import { CoverageLine } from "./CoverageNote";
 import { DecisionNote } from "./DecisionNote";
+import { DecisionRecordList } from "./DecisionRecord";
 import { decideAfFlowRestore, resumeFindSearchFromFlow } from "@/domain/af-flow-session";
 import {
   resolveManualCheckHandoff,
@@ -36,6 +46,7 @@ import {
   observedModelSnapshots,
 } from "@/domain/find-model-observe";
 import { proposeFindNextChecks } from "@/domain/find-next-checks";
+import { findNextCheckPendingLabel } from "@/domain/find-next-check-pending";
 import {
   FIND_NEXT_CHECK_AUTO_CONTINUE_MAX,
   rematchRefineFromReplan,
@@ -236,13 +247,30 @@ function AssistantFlow({
   const [budgetKnown, setBudgetKnown] = useState(true);
   const [need, setNeed] = useState<StructuredNeed | null>(entryNeed);
   const [noteMarks, setNoteMarks] = useState<NoteMarks | null>(entryNeed ? noteMarksFrom(entryNeed) : null);
+  const [locationResolution, setLocationResolution] = useState<LocationZipResolution | null>(null);
+  const [radiusIsDefault, setRadiusIsDefault] = useState(false);
+  const [watchGeoDraft, setWatchGeoDraft] = useState<{
+    direction: SearchDirection;
+    zip: string;
+    distanceMiles: number | null;
+  } | null>(null);
   const [source, setSource] = useState<"model" | "form" | null>(entryNeed ? "form" : null);
   const [criteriaParse, setCriteriaParse] = useState<{
     source: "serv" | "code" | "form";
     responseId: string | null;
     label: string;
-  } | null>(entryNeed ? { source: "form", responseId: null, label: "Entered on the form" } : null);
+  } | null>(
+    // Local entry parse is code, not form — SERV response id arrives after /api/need.
+    entryNeed
+      ? { source: "code", responseId: null, label: criteriaParseLabel({ source: "code", responseId: null }) }
+      : null,
+  );
   const [checks, setChecks] = useState<DecisionProof[]>([]);
+  const [proofRecords, setProofRecords] = useState<DecisionProofRecord[]>([]);
+  /** Buyer-facing line while a next-check hop is in flight (never a stale spinner sentence). */
+  const [pendingCheckLabel, setPendingCheckLabel] = useState<string | null>(null);
+  /** Home/deep-link free text used to skip /api/need; fire SERV parse once on entry. */
+  const entryServParseRef = useRef(false);
   const [questions, setQuestions] = useState<FollowUp[]>(entryNeed && entryStage === "follow" ? followUps(entryNeed) : []);
   const [answers, setAnswers] = useState<Record<string, string>>({});
   const [stage, setStage] = useState<"need" | "budget" | "follow" | "confirm" | "results">(entryStage);
@@ -345,6 +373,19 @@ function AssistantFlow({
     };
   }, [variant]);
 
+  // Root cause (a): home/deep-link notes that already clear budget/follow-ups jumped
+  // straight to confirm with empty checks and no SERV response id ("prompt guard …
+  // not recorded"). Budget/follow entry still hits /api/need on Continue.
+  useEffect(() => {
+    if (variant !== "find" || !initialNote?.trim()) return;
+    if (entryStage !== "confirm") return;
+    if (entryServParseRef.current) return;
+    entryServParseRef.current = true;
+    void understand(undefined, { freshNote: true });
+    // understand closes over latest drafts; run once per confirm-entry note only.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [variant, initialNote, entryStage]);
+
   useEffect(() => {
     if (variant !== "check") return;
     let cancelled = false;
@@ -361,10 +402,15 @@ function AssistantFlow({
     };
   }, [variant]);
 
-  async function understand(followUp?: { id: FollowUp["id"]; value: string }) {
+  async function understand(
+    followUp?: { id: FollowUp["id"]; value: string },
+    opts?: { freshNote?: boolean },
+  ) {
     setError(null);
-    const zipForNeed = zipDraft.trim() || need?.zip || null;
-    if (distanceDraft != null && !zipForNeed) {
+    // Fresh free text: never send stale wizard ZIP/radius — server resolves from the note.
+    const zipForNeed = opts?.freshNote ? null : zipDraft.trim() || need?.zip || null;
+    const distanceForNeed = opts?.freshNote ? null : distanceDraft;
+    if (distanceForNeed != null && !zipForNeed) {
       setError("Add a ZIP for a seller-distance radius, or choose Nationwide.");
       return;
     }
@@ -384,10 +430,10 @@ function AssistantFlow({
           budgetKnown,
           zip: zipForNeed,
           // Always send the user-selected radius (null = Nationwide). Never drop it silently.
-          distanceMiles: distanceDraft,
-          repairAbility: need?.repairAbility,
-          useCase: need?.useCase,
-          targetProfitUsd: need?.targetProfitUsd,
+          distanceMiles: distanceForNeed,
+          repairAbility: opts?.freshNote ? undefined : need?.repairAbility,
+          useCase: opts?.freshNote ? undefined : need?.useCase,
+          targetProfitUsd: opts?.freshNote ? undefined : need?.targetProfitUsd,
           followUp,
         }),
       });
@@ -397,25 +443,76 @@ function AssistantFlow({
         followUps?: FollowUp[];
         checks?: DecisionProof[];
         message?: string;
+        guard?: string;
         criteriaParse?: { source: "serv" | "code" | "form"; responseId: string | null; label: string };
       };
       if (!response.ok || !body.need) {
         setError(body.message || "That note could not be read.");
         return;
       }
-      setNeed(body.need);
-      setZipDraft(body.need.zip ?? "");
-      setDistanceDraft(body.need.distanceMiles);
-      if (body.need.yearMin != null) setYearMin(String(body.need.yearMin));
-      if (body.need.yearMax != null) setYearMax(String(body.need.yearMax));
-      setSource(body.source ?? "form");
-      setCriteriaParse(
-        body.criteriaParse ??
-          (body.source === "model"
-            ? { source: "serv", responseId: null, label: "Parsed by SERV · no response id" }
-            : { source: "code", responseId: null, label: "Parsed by code" }),
+      const finalNeed = body.need;
+      // Provenance from the note text only — never treat a city-resolved ZIP as “from your note”.
+      const intake = intakeFromNote(text);
+      const loc = resolveLocationZip({
+        zip: intake.zip,
+        locationPhrase: finalNeed.locationPhrase ?? intake.locationPhrase,
+      });
+      const resolutionForField =
+        loc.from === "inferred_from_city" && finalNeed.zip
+          ? { ...loc, zip: finalNeed.zip }
+          : loc.needed && !finalNeed.zip
+            ? loc
+            : intake.zip && finalNeed.zip === intake.zip
+              ? loc
+              : finalNeed.zip
+                ? ({
+                    zip: finalNeed.zip,
+                    from: null,
+                    needed: false,
+                    cityLabel: finalNeed.locationPhrase ?? null,
+                  } satisfies LocationZipResolution)
+                : finalNeed.locationPhrase
+                  ? ({
+                      zip: null,
+                      from: null,
+                      needed: true,
+                      cityLabel: finalNeed.locationPhrase,
+                    } satisfies LocationZipResolution)
+                  : null;
+      setNeed(finalNeed);
+      setNoteMarks(noteMarksFrom(finalNeed, text));
+      setLocationResolution(resolutionForField);
+      // Labelled default when server set 100 mi from a city/ZIP with no explicit “within N miles”.
+      setRadiusIsDefault(
+        Boolean(
+          finalNeed.zip &&
+            finalNeed.distanceMiles === NOTE_DEFAULT_RADIUS_WHEN_ZIP &&
+            (finalNeed.locationPhrase || loc.from === "inferred_from_city") &&
+            !/\bwithin\s+\d+/i.test(text),
+        ),
       );
+      setZipDraft(finalNeed.zip ?? "");
+      setDistanceDraft(finalNeed.distanceMiles);
+      if (finalNeed.yearMin != null) setYearMin(String(finalNeed.yearMin));
+      if (finalNeed.yearMax != null) setYearMax(String(finalNeed.yearMax));
+      if (finalNeed.budgetUsd != null) setBudget(finalNeed.budgetUsd.toLocaleString("en-US"));
+      setBudgetKnown(finalNeed.budgetKnown);
+      setSource(body.source ?? "form");
+      const parse =
+        body.criteriaParse ??
+        (body.source === "model"
+          ? { source: "serv" as const, responseId: null, label: criteriaParseLabel({ source: "serv", responseId: null }) }
+          : text.trim()
+            ? { source: "code" as const, responseId: null, label: "Parsed by code" }
+            : { source: "form" as const, responseId: null, label: "Entered on the form" });
+      setCriteriaParse(parse);
       setChecks(body.checks ?? []);
+      if (Array.isArray((body as { proofRecords?: DecisionProofRecord[] }).proofRecords)) {
+        setProofRecords((body as { proofRecords: DecisionProofRecord[] }).proofRecords);
+      }
+      if ((body.checks ?? []).length === 0 && body.guard === "unavailable") {
+        setError("The safety check on your note did not finish. You can continue with the calculated reading.");
+      }
       const next = body.followUps ?? [];
       if (!followUp && next.length > 0) {
         setQuestions(next);
@@ -444,6 +541,7 @@ function AssistantFlow({
         groups?: MatchGroup[];
         source?: "model" | "form";
         checks?: DecisionProof[];
+        criteriaParse?: { source: "serv" | "code" | "form"; responseId: string | null; label: string };
         affordability?: boolean;
         sample?: boolean;
         matchMessage?: string | null;
@@ -470,6 +568,8 @@ function AssistantFlow({
         setMatchMessage(decision.reason);
         if (saved.need.budgetUsd) setBudget(String(saved.need.budgetUsd));
         if (saved.need.zip) setZipDraft(saved.need.zip);
+        if (saved.criteriaParse) setCriteriaParse(saved.criteriaParse);
+        if (saved.checks) setChecks(saved.checks);
         return;
       }
 
@@ -479,6 +579,7 @@ function AssistantFlow({
       setMarketPool(readinessCarsFromUnknown(saved.marketPool));
       setSource(saved.source ?? "form");
       setChecks(saved.checks ?? []);
+      if (saved.criteriaParse) setCriteriaParse(saved.criteriaParse);
       setAffordability(saved.affordability ?? true);
       setSample(decision.sample);
       if (decision.warnUnknownSource) {
@@ -592,6 +693,7 @@ function AssistantFlow({
           groups,
           source,
           checks,
+          criteriaParse,
           affordability,
           sample,
           matchMessage,
@@ -652,7 +754,14 @@ function AssistantFlow({
           conditionPriority: current.conditionPriority,
         }),
       });
-      const body = (await response.json()) as { need?: StructuredNeed; followUps?: FollowUp[]; message?: string };
+      const body = (await response.json()) as {
+        need?: StructuredNeed;
+        followUps?: FollowUp[];
+        message?: string;
+        checks?: DecisionProof[];
+        criteriaParse?: { source: "serv" | "code" | "form"; responseId: string | null; label: string };
+        source?: "model" | "form";
+      };
       if (!response.ok || !body.need) {
         setError(body.message || "That answer could not be saved.");
         return;
@@ -670,6 +779,19 @@ function AssistantFlow({
             ? current.conditionPriority
             : body.need.conditionPriority,
       };
+      if (Array.isArray(body.checks)) setChecks(body.checks);
+      if (Array.isArray((body as { proofRecords?: DecisionProofRecord[] }).proofRecords)) {
+        setProofRecords((body as { proofRecords: DecisionProofRecord[] }).proofRecords);
+      }
+      if (body.criteriaParse) setCriteriaParse(body.criteriaParse);
+      else if (body.source) {
+        setCriteriaParse(
+          body.source === "model"
+            ? { source: "serv", responseId: null, label: criteriaParseLabel({ source: "serv", responseId: null }) }
+            : { source: "code", responseId: null, label: "Parsed by code" },
+        );
+      }
+      if (body.source) setSource(body.source);
       if (followUps(current).length > 0) {
         setNeed(current);
         setQuestions(followUps(current));
@@ -677,6 +799,7 @@ function AssistantFlow({
         return;
       }
       setNeed(current);
+      setNoteMarks(noteMarksFrom(current, text));
       if (current.yearMin != null) setYearMin(String(current.yearMin));
       if (current.yearMax != null) setYearMax(String(current.yearMax));
       setQuestions([]);
@@ -703,6 +826,7 @@ function AssistantFlow({
     setError(null);
     setNextCheckNote(null);
     setPending("next-check");
+    setPendingCheckLabel(findNextCheckPendingLabel({ pending: true, auto: Boolean(opts?.auto) }));
     let continueToken: string | null = null;
     // Count this hop when it was triggered by auto-continue/auto-start chain.
     if (opts?.auto) autoContinueCountRef.current += 1;
@@ -748,8 +872,24 @@ function AssistantFlow({
         honesty?: string;
       };
       if (!response.ok || !body.ok || !body.replan?.need) {
-        setError(body.message || "Next check could not be applied.");
+        setFindLoopOpen(false);
+        const reason =
+          body.message ||
+          body.loop?.detail ||
+          body.honesty ||
+          "Next check could not be applied.";
+        setPendingCheckLabel(findNextCheckPendingLabel({ pending: false, terminalReason: reason }));
+        setError(reason);
+        setNextCheckNote(reason);
         return;
+      }
+      const pickProofs = Array.isArray(
+        (body as { pickProofRecords?: DecisionProofRecord[] }).pickProofRecords,
+      )
+        ? ((body as { pickProofRecords?: DecisionProofRecord[] }).pickProofRecords as DecisionProofRecord[])
+        : [];
+      if (pickProofs.length > 0) {
+        setProofRecords((prev) => [...prev, ...pickProofs]);
       }
       // Always adopt NEW need from server apply — never stale same-tick UI years.
       const nextNeed = body.needAfter ?? body.replan.need;
@@ -923,7 +1063,11 @@ function AssistantFlow({
             continuing: willContinue,
           })
         : null;
-      setNextCheckNote([step, status, settleBit].filter(Boolean).join(" "));
+      const progressLine = [step, status, settleBit].filter(Boolean).join(" ");
+      setNextCheckNote(progressLine);
+      setPendingCheckLabel(
+        findNextCheckPendingLabel({ pending: true, auto: Boolean(opts?.auto), progressLine }),
+      );
       setFindLoopOpen(Boolean(body.loop?.continue));
       const checksSettled = body.loop?.continue === false && toolCov?.anyUnchecked !== true;
       try {
@@ -936,17 +1080,22 @@ function AssistantFlow({
       }
       if (willContinue) {
         continueToken = nextTok;
-      } else if (
-        body.loop?.continue &&
-        autoContinueCountRef.current >= FIND_NEXT_CHECK_AUTO_CONTINUE_MAX &&
-        toolCov?.anyUnchecked
-      ) {
-        // Bound hit — settle the spinner honestly rather than looping forever.
-        setNextCheckNote((prev) =>
-          [prev, "Automatic public checks paused after many steps. Some models may still be unchecked. Nothing else is running."]
-            .filter(Boolean)
-            .join(" "),
-        );
+      } else {
+        // No further auto hops — clear the “still checking” spinner state.
+        setFindLoopOpen(false);
+        setPendingCheckLabel(null);
+        if (
+          body.loop?.continue &&
+          autoContinueCountRef.current >= FIND_NEXT_CHECK_AUTO_CONTINUE_MAX &&
+          toolCov?.anyUnchecked
+        ) {
+          // Bound hit — settle the spinner honestly rather than looping forever.
+          const pauseReason =
+            "Automatic public checks paused after many steps. Some models may still be unchecked. Nothing else is running.";
+          setNextCheckNote((prev) => [prev, pauseReason].filter(Boolean).join(" "));
+        } else if (body.loop?.continue === false && body.loop?.detail) {
+          setNextCheckNote((prev) => [prev, body.loop?.detail].filter(Boolean).join(" "));
+        }
       }
 
       // Prefer server rematch (NEW need). Fallback client rematch uses replan only — never yearMin UI state.
@@ -955,7 +1104,10 @@ function AssistantFlow({
         if (!body.rematch.ok) {
           const reason = matchBody.emptyReason ?? "provider_failure";
           const copy = findEmptyCopy(reason, nextNeed, matchBody.message);
+          setFindLoopOpen(false);
+          setPendingCheckLabel(null);
           setError(copy.detail);
+          setNextCheckNote(copy.detail);
           setMatchHeadline(matchBody.headline ?? copy.headline);
           setMatchNextStep(matchBody.nextStep ?? copy.nextStep);
           setMatchMessage(copy.detail);
@@ -1087,15 +1239,18 @@ function AssistantFlow({
         }
       }
     } catch (err) {
+      setFindLoopOpen(false);
+      setPendingCheckLabel(null);
       const timedOut = err instanceof DOMException && err.name === "AbortError";
-      setError(
-        timedOut
-          ? "That check took too long, so it stopped. Nothing is running now. You can try again."
-          : "Next check failed — try again.",
-      );
+      const reason = timedOut
+        ? "That check took too long, so it stopped. Nothing is running now. You can try again."
+        : "Next check failed — try again.";
+      setError(reason);
+      setNextCheckNote(reason);
     } finally {
       window.clearTimeout(timer);
       setPending(null);
+      if (!continueToken) setPendingCheckLabel(null);
     }
     // Continue loop after pending clears — evidence→replan until server stop reason.
     if (continueToken) {
@@ -1339,63 +1494,80 @@ function AssistantFlow({
     }
   }
 
-  async function watch(direction: SearchDirection) {
-    if (!dealRadarUi) return;
-    // Drive-it watches need ZIP + radius. Flip may be nationwide (null distance).
-    if (need?.mode !== "flip" && (!need?.zip?.trim() || need.distanceMiles == null)) {
-      setError("Watch with Deal Radar needs a ZIP and a seller-distance radius for Drive it searches.");
+  async function watch(
+    direction: SearchDirection,
+    geoOverride?: { zip: string; distanceMiles: number | null },
+  ) {
+    if (!dealRadarUi || !need) return;
+    const zip = (geoOverride?.zip ?? need.zip ?? "").trim();
+    const distanceMiles =
+      geoOverride?.distanceMiles !== undefined ? geoOverride.distanceMiles : need.distanceMiles;
+    // Drive-it watches need ZIP + radius. Open an inline picker instead of a dead-end error.
+    if (need.mode !== "flip" && (!zip || distanceMiles == null)) {
+      setError(null);
+      setWatchGeoDraft({
+        direction,
+        zip: zip || zipDraft || "",
+        distanceMiles: distanceMiles ?? NOTE_DEFAULT_RADIUS_WHEN_ZIP,
+      });
       return;
     }
-    if (need?.mode === "flip" && need.distanceMiles != null && !need.zip?.trim()) {
+    if (need.mode === "flip" && distanceMiles != null && !zip) {
       setError("A Flip watch with a radius needs a ZIP, or leave radius empty for nationwide.");
       return;
     }
     setPending(direction.id);
+    setWatchGeoDraft(null);
     try {
-      const priceMax = need!.budgetKnown && need!.budgetUsd ? need!.budgetUsd : 40_000;
-      const freeText = (need!.note?.trim() || text.trim() || "").slice(0, 500) || undefined;
+      const priceMax = need.budgetKnown && need.budgetUsd ? need.budgetUsd : 40_000;
+      const freeText = (need.note?.trim() || text.trim() || "").slice(0, 500) || undefined;
       const parse = criteriaParse ?? { source: "form" as const, responseId: null };
+      const originSearchId = searchContextToken?.slice(0, 80) || null;
       const response = await fetch("/api/radar/searches", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           name: direction.segment,
-          mode: need!.mode,
+          mode: need.mode,
           criteria:
-            need!.mode === "flip"
+            need.mode === "flip"
               ? {
                   priceMax,
-                  zip: need!.zip ?? "",
-                  radiusMiles: need!.distanceMiles,
-                  nationwide: need!.distanceMiles == null || undefined,
-                  repairAbility: need!.repairAbility,
-                  minProfitUsd: need!.targetProfitUsd ?? undefined,
-                  bodyStyle: need!.bodyStyle ?? undefined,
-                  make: need!.preferredMakes[0] ?? need!.make ?? undefined,
-                  preferredMakes: need!.preferredMakes,
+                  zip: zip || "",
+                  radiusMiles: distanceMiles,
+                  nationwide: distanceMiles == null || undefined,
+                  repairAbility: need.repairAbility,
+                  minProfitUsd: need.targetProfitUsd ?? undefined,
+                  bodyStyle: need.bodyStyle ?? undefined,
+                  make: need.preferredMakes[0] ?? need.make ?? undefined,
+                  preferredMakes: need.preferredMakes,
                   models: direction.models.slice(0, 6),
-                  yearMin: direction.yearMin ?? need!.yearMin ?? undefined,
-                  yearMax: direction.yearMax ?? need!.yearMax ?? undefined,
-                  milesMax: need!.milesMax ?? undefined,
+                  yearMin: direction.yearMin ?? need.yearMin ?? undefined,
+                  yearMax: direction.yearMax ?? need.yearMax ?? undefined,
+                  milesMax: need.milesMax ?? undefined,
                   freeText,
                   notes: freeText,
                   criteriaParseSource: parse.source,
                   criteriaResponseId: parse.responseId,
+                  criteriaOrigin: "find",
+                  originSearchId,
                 }
               : {
                   models: direction.models.slice(0, 6),
                   yearMin: direction.yearMin,
                   yearMax: direction.yearMax,
                   priceMax,
-                  zip: need!.zip,
-                  radiusMiles: need!.distanceMiles,
-                  milesMax: need!.milesMax ?? undefined,
-                  bodyStyle: need!.bodyStyle ?? undefined,
-                  priorities: need!.priorities?.length ? need!.priorities : undefined,
+                  zip,
+                  radiusMiles: distanceMiles,
+                  milesMax: need.milesMax ?? undefined,
+                  bodyStyle: need.bodyStyle ?? undefined,
+                  priorities: need.priorities?.length ? need.priorities : undefined,
                   freeText,
                   notes: freeText,
                   criteriaParseSource: parse.source,
                   criteriaResponseId: parse.responseId,
+                  criteriaOrigin: "find",
+                  originSearchId,
                 },
         }),
       });
@@ -1659,27 +1831,34 @@ function AssistantFlow({
         <form
           onSubmit={(event) => {
             event.preventDefault();
-            const parsed = explicitNeedFromText(text, mode);
-            const withGeo = {
-              ...parsed,
-              zip: zipDraft.trim() || parsed.zip,
-              distanceMiles: zipDraft.trim() ? distanceDraft : parsed.zip ? parsed.distanceMiles : null,
-            };
-            if (withGeo.distanceMiles != null && !withGeo.zip) {
-              setError("Add a ZIP for a seller-distance radius, or choose Nationwide.");
-              return;
+            // New free text resets stale wizard geo / session — SERV parse runs next.
+            try {
+              sessionStorage.removeItem("af-flow");
+            } catch {
+              /* ignore */
             }
-            setNeed(withGeo);
-            setNoteMarks(noteMarksFrom(withGeo));
-            setSource("form");
-            if (withGeo.budgetUsd != null) setBudget(withGeo.budgetUsd.toLocaleString("en-US"));
-            setBudgetKnown(true);
-            if (withGeo.zip) setZipDraft(withGeo.zip);
-            if (withGeo.yearMin != null) setYearMin(String(withGeo.yearMin));
-            if (withGeo.yearMax != null) setYearMax(String(withGeo.yearMax));
-            const nextStage = findStageAfterNote(withGeo);
-            if (nextStage === "follow") setQuestions(followUps(withGeo));
-            setStage(nextStage);
+            setNeed(null);
+            setNoteMarks(null);
+            setLocationResolution(null);
+            setRadiusIsDefault(false);
+            setZipDraft("");
+            setDistanceDraft(null);
+            setChecks([]);
+            setProofRecords([]);
+            setPendingCheckLabel(null);
+            setCriteriaParse(null);
+            setSource(null);
+            setGroups([]);
+            setBestDeal(null);
+            setPickAgentVerdict(null);
+            setPickSecondPass(null);
+            setFindLoopOpen(false);
+            const parsed = explicitNeedFromText(text, mode);
+            if (parsed.budgetUsd != null) {
+              setBudget(parsed.budgetUsd.toLocaleString("en-US"));
+              setBudgetKnown(true);
+            }
+            void understand(undefined, { freshNote: true });
           }}
         >
           <ModePills mode={mode} onMode={setMode} />
@@ -1696,8 +1875,8 @@ function AssistantFlow({
             <button className="ghost" type="button" onClick={goBack}>
               Back
             </button>
-            <button className="action" type="submit" disabled={text.trim().length < 8}>
-              Continue
+            <button className="action" type="submit" disabled={text.trim().length < 8 || pending === "need"}>
+              {pending === "need" ? "Reading…" : "Continue"}
             </button>
           </div>
           {text.trim().length < 8 ? <p className="hint">Write a short note first, at least a few words.</p> : null}
@@ -1903,7 +2082,10 @@ function AssistantFlow({
           <ZipRadiusFields
             idPrefix="find-confirm"
             zip={need.zip ?? ""}
-            zipMark={noteMarks?.zip ? "from your note" : null}
+            zipMark={
+              zipFieldMark(locationResolution) ??
+              (noteMarks?.zip ? "from your note" : locationResolution?.needed || (need.locationPhrase && !need.zip) ? "needed" : null)
+            }
             distanceMiles={need.distanceMiles}
             onZipChange={(nextZip) => {
               const trimmed = nextZip.trim() || null;
@@ -1915,12 +2097,32 @@ function AssistantFlow({
               });
               setZipDraft(nextZip);
               setDistanceDraft(trimmed ? need.distanceMiles : null);
+              setLocationResolution(
+                trimmed
+                  ? { zip: trimmed, from: "note_zip", needed: false, cityLabel: null }
+                  : need.locationPhrase
+                    ? { zip: null, from: null, needed: true, cityLabel: need.locationPhrase }
+                    : null,
+              );
+              setRadiusIsDefault(false);
+              if (noteMarks) setNoteMarks({ ...noteMarks, zip: false });
             }}
             onDistanceChange={(miles) => {
               setNeed({ ...need, distanceMiles: miles });
               setDistanceDraft(miles);
+              setRadiusIsDefault(false);
             }}
           />
+          {radiusIsDefault && need.distanceMiles != null ? (
+            <p className="hint" role="note">
+              Seller distance {need.distanceMiles} mi is the default for {need.locationPhrase ?? "your city"} — change it if you want a different radius.
+            </p>
+          ) : need.locationPhrase && !need.zip ? (
+            <p className="hint" role="note">
+              Your note mentioned {need.locationPhrase}. Add a U.S. ZIP (needed) to search nearby, or choose Nationwide.
+            </p>
+          ) : null}
+          {criteriaParse ? <p className="hint">{criteriaParse.label}</p> : null}
           <p className="hint" aria-live="polite">
             Scope: {searchScopeLabel(need)}
           </p>
@@ -2004,6 +2206,7 @@ function AssistantFlow({
           <h2>Cars that fit</h2>
           <PriceRatingHow />
           <DecisionNote scene="find" proofs={checks} />
+          <DecisionRecordList records={proofRecords} />
           {need ? <p className="hint">Scope: {matchScope ?? searchScopeLabel(need)}</p> : null}
           {need
             ? softPrefGapsFromText(need.note).map((gap) => (
@@ -2275,10 +2478,29 @@ function AssistantFlow({
                         <p>
                           <strong>{dealCopy.headline}</strong>
                         </p>
+                        {pickAgentVerdict?.verdict ? (
+                          <p>
+                            Verdict:{" "}
+                            <strong>
+                              {pickAgentVerdict.verdict === "buy"
+                                ? "Buy"
+                                : pickAgentVerdict.verdict === "negotiate"
+                                  ? "Negotiate"
+                                  : pickAgentVerdict.verdict === "pass"
+                                    ? "Pass"
+                                    : pickAgentVerdict.verdict === "needs_inspection"
+                                      ? "Needs inspection"
+                                      : pickAgentVerdict.verdict}
+                            </strong>
+                            {dealCopy.choice?.confidenceLine ? ` · ${dealCopy.choice.confidenceLine}` : null}
+                          </p>
+                        ) : pending === "next-check" || findLoopOpen ? (
+                          <p className="hint">Shopper verdict (Buy / Negotiate / Pass) runs after public checks settle.</p>
+                        ) : null}
                         {dealCopy.settlementNote ? <p className="hint">{dealCopy.settlementNote}</p> : null}
                         {dealCopy.choice ? (
                           <>
-                            <p>{dealCopy.choice.confidenceLine}</p>
+                            {!pickAgentVerdict?.verdict ? <p>{dealCopy.choice.confidenceLine}</p> : null}
                             <ul>
                               {dealCopy.choice.reasons.map((line) => (
                                 <li key={line}>{line}</li>
@@ -2429,7 +2651,12 @@ function AssistantFlow({
                       </div>
                     ) : null}
                     {nextCheckNote ? <p className="hint">{nextCheckNote}</p> : null}
-                    {pending === "next-check" ? <p className="hint">Checking public safety records…</p> : null}
+                    {pending === "next-check" && pendingCheckLabel ? (
+                      <p className="hint">{pendingCheckLabel}</p>
+                    ) : null}
+                    <DecisionRecordList
+                      records={proofRecords.filter((row) => row.purpose === "verdict_decide")}
+                    />
                     {settledLine ? <p className="hint">{settledLine}</p> : null}
                     {freeGovEvidenceLines.length > 0 ? (
                       <div className="hint" role="note">
@@ -2559,6 +2786,44 @@ function AssistantFlow({
                   {pending === group.direction.id ? "Saving watch…" : "Watch with Deal Radar"}
                 </button>
               ) : null}
+              {watchGeoDraft && watchGeoDraft.direction.id === group.direction.id ? (
+                <div className="warn-box" role="region" aria-label="Deal Radar location">
+                  <p>
+                    This Find search was nationwide (or missing a radius). Add a ZIP and seller-distance radius to
+                    create the watch — prefilled from your search when available.
+                  </p>
+                  <ZipRadiusFields
+                    idPrefix={`watch-${group.direction.id}`}
+                    zip={watchGeoDraft.zip}
+                    distanceMiles={watchGeoDraft.distanceMiles}
+                    allowNationwide={false}
+                    onZipChange={(next) => setWatchGeoDraft({ ...watchGeoDraft, zip: next })}
+                    onDistanceChange={(miles) => setWatchGeoDraft({ ...watchGeoDraft, distanceMiles: miles })}
+                  />
+                  <div className="btn-row">
+                    <button className="ghost" type="button" onClick={() => setWatchGeoDraft(null)}>
+                      Cancel
+                    </button>
+                    <button
+                      className="action"
+                      type="button"
+                      disabled={
+                        pending === group.direction.id ||
+                        !watchGeoDraft.zip.trim() ||
+                        watchGeoDraft.distanceMiles == null
+                      }
+                      onClick={() =>
+                        void watch(watchGeoDraft.direction, {
+                          zip: watchGeoDraft.zip,
+                          distanceMiles: watchGeoDraft.distanceMiles,
+                        })
+                      }
+                    >
+                      {pending === group.direction.id ? "Saving watch…" : "Save watch"}
+                    </button>
+                  </div>
+                </div>
+              ) : null}
               <p className="hint">{FIND_RESULTS_BILLING_HINT}</p>
               {group.note &&
               !(
@@ -2567,8 +2832,10 @@ function AssistantFlow({
               ) ? (
                 <p className="hint">{group.note}</p>
               ) : null}
-              <div className="listing-grid">
-                {group.listings.map((car) => (
+              {(() => {
+                const inBudget = group.listings.filter((car) => !car.overBudget);
+                const slightOver = group.listings.filter((car) => car.overBudget);
+                const renderCard = (car: (typeof group.listings)[number]) => (
                   <article className="listing-card" key={car.vin}>
                     {car.primaryImage ? (
                       <img src={car.primaryImage} alt="" width={640} height={400} />
@@ -2665,8 +2932,27 @@ function AssistantFlow({
                     </div>
                     </div>
                   </article>
-                ))}
-              </div>
+                );
+                return (
+                  <>
+                    {inBudget.length > 0 ? (
+                      <>
+                        <h4 className="hint">Within budget</h4>
+                        <div className="listing-grid">{inBudget.map(renderCard)}</div>
+                      </>
+                    ) : null}
+                    {slightOver.length > 0 ? (
+                      <>
+                        <h4 className="hint">Slightly over budget (up to 5% above your max)</h4>
+                        <div className="listing-grid">{slightOver.map(renderCard)}</div>
+                      </>
+                    ) : null}
+                    {inBudget.length === 0 && slightOver.length === 0 ? (
+                      <div className="listing-grid">{group.listings.map(renderCard)}</div>
+                    ) : null}
+                  </>
+                );
+              })()}
             </section>
           ))}
         </div>

@@ -10,11 +10,16 @@ export default defineConfig({
   retries: process.env.CI ? 1 : 0,
   workers: 1,
   reporter: [["list"]],
-  timeout: 90_000,
-  expect: { timeout: 20_000 },
+  // Fail fast on hangs (matrix + Find/Radar). CI job also has timeout-minutes.
+  globalTimeout: process.env.CI ? 20 * 60_000 : undefined,
+  timeout: 45_000,
+  expect: { timeout: 12_000 },
   use: {
     baseURL,
-    trace: "on-first-retry",
+    actionTimeout: 12_000,
+    navigationTimeout: 30_000,
+    // Retain a trace when a hang/timeout fails so CI artifacts show the overlay.
+    trace: process.env.CI ? "retain-on-failure" : "on-first-retry",
     screenshot: "off",
     ...devices["Desktop Chrome"],
   },
@@ -22,7 +27,7 @@ export default defineConfig({
     command: `npx next dev -p ${PORT} -H 127.0.0.1`,
     url: baseURL,
     reuseExistingServer: !process.env.CI,
-    timeout: 180_000,
+    timeout: 120_000,
     env: {
       ...process.env,
       AUTODEV_API_KEY: "",

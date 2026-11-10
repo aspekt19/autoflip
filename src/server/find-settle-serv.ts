@@ -5,6 +5,11 @@
  */
 import type { AgentSecondPassResult, AgentVerdict } from "@/domain/agent-verdict-schema";
 import type { BestDealCandidate, BestDealResult } from "@/domain/find-best-deal";
+import {
+  buildDecisionProofRecord,
+  VERDICT_RUBRIC_ID,
+  type DecisionProofRecord,
+} from "@/domain/decision-proof-record";
 import type { ComputedReport, Listing, Verdict } from "@/domain/types";
 import { ASSUMPTIONS } from "@/domain/assumptions";
 import { runShopperVerdictServ, type ShopperServTrace } from "@/server/shopper-verdict-serv";
@@ -135,7 +140,23 @@ export type FindSettleServResult = {
   agentVerdict: AgentVerdict | null;
   /** True when decide+challenge HTTP ran. */
   ran: boolean;
+  /** One proof record per SERV decision (or honest skip). */
+  proofRecords: DecisionProofRecord[];
 };
+
+function emptySecondPass(
+  objection: string,
+  status: AgentSecondPassResult["status"] = "not_run",
+): AgentSecondPassResult {
+  return {
+    status,
+    action: null,
+    objection,
+    evidenceIds: [],
+    confidenceBefore: null,
+    confidenceAfter: null,
+  };
+}
 
 /**
  * Run decide + challenge for the settled Find pick, or return an honest not_run record.
@@ -151,21 +172,26 @@ export async function runFindSettleServ(input: {
   transportPolicy?: "production" | "experiment_single_attempt";
 }): Promise<FindSettleServResult> {
   const pick = input.bestDeal.pick;
-  if (!pick || !input.bestDeal.evidenceSettled) {
+  const recordedAt = new Date().toISOString();
+  // Root cause (b): blocking on evidenceSettled skipped verdict_decide after the Find
+  // loop already stopped with a pick — UI showed no Buy/Negotiate/Pass. Run decide
+  // whenever a pick exists; soft evidence is noted on the challenge skip copy only.
+  if (!pick) {
     return {
       ran: false,
       trace: null,
       agentVerdict: null,
-      secondPass: {
-        status: "not_run",
-        action: null,
-        objection: !pick
-          ? "Second check not run: no pick was settled."
-          : "Second check not run: free public checks are still settling the shortlist.",
-        evidenceIds: [],
-        confidenceBefore: null,
-        confidenceAfter: null,
-      },
+      secondPass: emptySecondPass("Second check not run: no pick was settled."),
+      proofRecords: [
+        buildDecisionProofRecord({
+          purpose: "verdict_decide",
+          rubricId: VERDICT_RUBRIC_ID,
+          status: "skipped_no_evidence",
+          recordedAt,
+          inputs: { reason: "no_pick" },
+          detail: "Second check not run: no pick was settled.",
+        }),
+      ],
     };
   }
   if (!input.servKey?.trim()) {
@@ -174,14 +200,20 @@ export async function runFindSettleServ(input: {
       ran: false,
       trace: null,
       agentVerdict: null,
-      secondPass: {
-        status: "skipped_no_key",
-        action: null,
-        objection: "Second check not run: SERV_API_KEY is not configured on this deployment.",
-        evidenceIds: [],
-        confidenceBefore: null,
-        confidenceAfter: null,
-      },
+      secondPass: emptySecondPass(
+        "Second check not run: SERV_API_KEY is not configured on this deployment.",
+        "skipped_no_key",
+      ),
+      proofRecords: [
+        buildDecisionProofRecord({
+          purpose: "verdict_decide",
+          rubricId: VERDICT_RUBRIC_ID,
+          status: "skipped_no_key",
+          recordedAt,
+          inputs: { vin: pick.vin, priceUsd: pick.priceUsd },
+          detail: "Second check not run: SERV_API_KEY is not configured on this deployment.",
+        }),
+      ],
     };
   }
 
@@ -189,6 +221,41 @@ export async function runFindSettleServ(input: {
     ? input.bestDeal.allRanked
     : input.bestDeal.ranked;
   const report = buildFindPickComputedReport(pick, peers);
+  // Principle 4: no verified price evidence → do not call SERV; say why (unknown, not pass).
+  const verifiedPrice =
+    typeof report.subject.priceUsd === "number" &&
+    Number.isFinite(report.subject.priceUsd) &&
+    report.fairValueUsd != null &&
+    report.comps.length >= 3;
+  if (!verifiedPrice) {
+    const detail =
+      report.comps.length < 3
+        ? `Second check not run: only ${report.comps.length} verified similar asks (need 3+).`
+        : report.fairValueUsd == null
+          ? "Second check not run: no verified fair value from similar asks."
+          : "Second check not run: asking price is not verified.";
+    return {
+      ran: false,
+      trace: null,
+      agentVerdict: null,
+      secondPass: emptySecondPass(detail),
+      proofRecords: [
+        buildDecisionProofRecord({
+          purpose: "verdict_decide",
+          rubricId: VERDICT_RUBRIC_ID,
+          status: "skipped_no_evidence",
+          recordedAt,
+          inputs: {
+            priceUsd: report.subject.priceUsd,
+            fairValueUsd: report.fairValueUsd,
+            compCount: report.comps.length,
+          },
+          detail,
+        }),
+      ],
+    };
+  }
+
   const shopper = await runShopperVerdictServ({
     report,
     mandate: {
@@ -210,13 +277,7 @@ export async function runFindSettleServ(input: {
     agentVerdict: shopper.agentVerdict,
     secondPass:
       shopper.agentVerdict.second_pass ??
-      ({
-        status: "not_run",
-        action: null,
-        objection: "Second check not run: shopper SERV returned no challenge record.",
-        evidenceIds: [],
-        confidenceBefore: null,
-        confidenceAfter: null,
-      } satisfies AgentSecondPassResult),
+      emptySecondPass("Second check not run: shopper SERV returned no challenge record."),
+    proofRecords: shopper.proofRecords,
   };
 }

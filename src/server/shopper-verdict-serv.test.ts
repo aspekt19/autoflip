@@ -166,12 +166,16 @@ describe("runShopperVerdictServ", () => {
       model: "gpt-5.4-mini",
       fetchImpl: fetchImpl as unknown as typeof fetch,
     });
-    expect(result.agentVerdict.no_serv_step).toBe(true);
+    expect(result.agentVerdict.no_serv_step).toBe(false);
     expect(result.agentVerdict.verdict).toBeNull();
-    expect(result.agentVerdict.serv_steps).toEqual([]);
+    expect(result.agentVerdict.serv_steps[0]?.decided).toMatch(/failed/i);
+    expect(result.agentVerdict.serv_steps[0]?.why).toBeTruthy();
     expect(result.agentVerdict.second_pass?.status).toBe("not_run");
-    expect(result.agentVerdict.unknowns).toEqual(["Agent step unavailable — price rules only"]);
-    expect(result.agentVerdict.serv_spend?.costNote).toMatch(/Agent step unavailable — price rules only/);
+    expect(result.agentVerdict.unknowns?.[0]).toMatch(/Agent step failed/i);
+    expect(result.agentVerdict.serv_spend?.costNote).toMatch(/Agent step failed/i);
+    expect(result.proofRecords.some((row) => row.purpose === "verdict_decide" && row.status === "failed")).toBe(
+      true,
+    );
     expect(fetchImpl).toHaveBeenCalledTimes(1);
     expect(result.trace?.calls).toHaveLength(1);
     expect(result.trace?.calls[0]?.profile).toBe("verdict_decide");

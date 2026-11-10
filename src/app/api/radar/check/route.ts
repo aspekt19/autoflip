@@ -1,3 +1,4 @@
+import { filterProofRecordsForOwner } from "@/domain/decision-proof-record";
 import {
   countNewRadarAlertsInWindow,
   remapLegacyServSkipAlerts,
@@ -34,13 +35,15 @@ export async function POST(request: Request) {
     });
   }
   const now = Date.now();
-  if (!checkNowAllowed(await lastCheckNow(kv), now)) {
+  // Stub HTTP acceptance may re-run Check in the same minute; skip the shared preview window.
+  const stubE2e = process.env.LEMONLESS_E2E_STUB === "1" && !process.env.VERCEL;
+  if (!stubE2e && !checkNowAllowed(await lastCheckNow(kv), now)) {
     return Response.json(
       { error: "rate_limited", message: "A check already ran in the last 30 minutes. The shared preview is limited so the listings budget lasts the month." },
       { status: 429 },
     );
   }
-  await markCheckNow(kv, now);
+  if (!stubE2e) await markCheckNow(kv, now);
   const run = await runRadarCycle({
     kv,
     now: new Date(),
@@ -76,11 +79,18 @@ export async function POST(request: Request) {
   });
   // Same source as feed: SERV alert decisions when present, else remapped new/opened rows.
   const ownerAlerts = hasDecisionLabels ? servAlerted : remappedInWindow;
+  const ownerProofRecords = filterProofRecordsForOwner(run.proofRecords, {
+    ownerId: id,
+    searchIds: mySearchIds,
+  });
   return Response.json({
     ok: true,
     alertsSent: ownerAlerts,
     listings: ownerListings,
     filteredOut: run.filteredOut,
     message: `Check finished. ${ownerAlerts} new alerts.`,
+    runId: run.id,
+    proofRecords: ownerProofRecords,
+    servActivity: ownerServActivity,
   });
 }

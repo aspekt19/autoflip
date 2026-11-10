@@ -26,6 +26,31 @@ export function criteriaParseLabel(parse: CriteriaParseProvenance | null | undef
   return "Entered on the form";
 }
 
+/** Full buyer-facing criteria source line for Deal Radar watch cards. */
+export function criteriaSourceLine(input: {
+  parse: CriteriaParseProvenance | null | undefined;
+  origin?: "find" | "resale" | "fields" | null;
+  originSearchId?: string | null;
+  freeText?: string | null;
+}): string {
+  const origin =
+    input.origin === "find"
+      ? "Find"
+      : input.origin === "resale"
+        ? "Resale"
+        : input.origin === "fields"
+          ? "Form fields"
+          : null;
+  const how = input.freeText?.trim() ? "free text" : "fields";
+  const id =
+    typeof input.originSearchId === "string" && input.originSearchId.trim()
+      ? ` · search ${input.originSearchId.trim()}`
+      : "";
+  const parse = criteriaParseLabel(input.parse);
+  if (!origin) return parse;
+  return `${origin} (${how})${id} · ${parse}`;
+}
+
 /** Short human summary for subscription cards (existing + new watches). */
 export function watchCriteriaSummary(criteria: WatchCriteria, mode: Mode): string {
   const parts: string[] = [];

@@ -4,15 +4,17 @@ import Link from "next/link";
 import type { DecisionProof } from "@/domain/decision-note";
 import { CoverageLine } from "@/components/CoverageNote";
 import { DecisionNote } from "@/components/DecisionNote";
+import { DecisionRecordList } from "@/components/DecisionRecord";
 import { PriceBadgeView } from "@/components/PriceBadge";
 import { ResaleDecisionJournalView } from "@/components/ResaleDecisionJournal";
+import type { DecisionProofRecord } from "@/domain/decision-proof-view";
 import type { PriceBadge } from "@/domain/price-badge";
 import type { ResaleDecisionJournal } from "@/domain/resale-decision-journal";
 import { useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useRef, useState } from "react";
 import { SignInGate } from "@/components/SignInGate";
 import { formatUsd } from "@/domain/format";
-import { criteriaParseLabel, watchCriteriaSummary } from "@/domain/radar-criteria-provenance";
+import { criteriaSourceLine, watchCriteriaSummary } from "@/domain/radar-criteria-provenance";
 import { buildRadarReportPayload } from "@/domain/radar-report-handoff";
 import type { WatchCriteria } from "@/domain/radar-watch";
 import type { Mode } from "@/domain/types";
@@ -32,7 +34,25 @@ function RadarInner() {
       lastCheckedAt: string | null;
     }>
   >([]);
-  const [alerts, setAlerts] = useState<Array<{ id: string; vin: string; why: string; createdAt: string; mode: string; priceUsd: number; miles: number | null; year: number; make: string; model: string; checks?: DecisionProof[]; coverage?: string; coverageLevel?: "low" | "medium" | "high"; badge?: PriceBadge }>>([]);
+  const [alerts, setAlerts] = useState<
+    Array<{
+      id: string;
+      vin: string;
+      why: string;
+      createdAt: string;
+      mode: string;
+      priceUsd: number;
+      miles: number | null;
+      year: number;
+      make: string;
+      model: string;
+      checks?: DecisionProof[];
+      proofRecords?: DecisionProofRecord[];
+      coverage?: string;
+      coverageLevel?: "low" | "medium" | "high";
+      badge?: PriceBadge;
+    }>
+  >([]);
   const [skippedReviews, setSkippedReviews] = useState<typeof alerts>([]);
   const [notReviewed, setNotReviewed] = useState<typeof alerts>([]);
   const [watchNote, setWatchNote] = useState<string | null>(null);
@@ -65,8 +85,10 @@ function RadarInner() {
       latencyMs: number;
     }>;
     decisionJournal?: ResaleDecisionJournal;
+    proofRecords?: DecisionProofRecord[];
     notes: string[];
   } | null>(null);
+  const [checkProofRecords, setCheckProofRecords] = useState<DecisionProofRecord[]>([]);
   const confirmId = params.get("confirm");
 
   async function loadFeed() {
@@ -221,11 +243,20 @@ function RadarInner() {
     setActivity(null);
     try {
       const response = await fetch("/api/radar/check", { method: "POST" });
-      const body = (await response.json()) as { message?: string; alertsSent?: number };
-      setWatchNote(body.message || (response.ok ? `Check finished. ${body.alertsSent ?? 0} new alerts.` : "The check did not run."));
+      const body = (await response.json()) as {
+        message?: string;
+        alertsSent?: number;
+        proofRecords?: DecisionProofRecord[];
+      };
+      setWatchNote(
+        body.message ||
+          (response.ok ? `Check finished. ${body.alertsSent ?? 0} new alerts.` : "The check did not run."),
+      );
+      if (Array.isArray(body.proofRecords)) setCheckProofRecords(body.proofRecords);
       await loadFeed();
     } catch {
       setWatchNote("The check did not finish.");
+      setCheckProofRecords([]);
     } finally {
       setChecking(false);
     }
@@ -299,10 +330,12 @@ function RadarInner() {
           </li>
           <li>Next run: {nextRunAt ? `${new Date(nextRunAt).toLocaleString("en-US", { timeZone: "UTC" })} UTC` : "No run yet"}</li>
           <li>
-            Alerts on this page: {alerts.length}
-            {activity ? ` · ${activity.alertsSent} new in last check` : ""}
+            Open alerts on this page: {alerts.length}
+            {activity
+              ? ` · New from last check: ${activity.alertsSent}`
+              : " · New from last check: — (no run yet)"}
             {skippedReviews.length > 0 ? ` · ${skippedReviews.length} reviewed — skipped` : ""}
-            {notReviewed.length > 0 ? ` · ${notReviewed.length} not reviewed` : ""}
+            {notReviewed.length > 0 ? ` · ${notReviewed.length} waiting on SERV verdict` : ""}
           </li>
         </ul>
         {emailNote ? <p className="hint">{emailNote}</p> : null}
@@ -340,14 +373,17 @@ function RadarInner() {
           {searches.map((search) => {
             const seen = listingCounts.find((row) => row.searchId === search.id)?.listingsSeen ?? 0;
             const summary = watchCriteriaSummary(search.criteria, search.mode === "flip" ? "flip" : "personal");
-            const parseLabel = criteriaParseLabel(
-              search.criteria.criteriaParseSource
+            const parseLabel = criteriaSourceLine({
+              parse: search.criteria.criteriaParseSource
                 ? {
                     source: search.criteria.criteriaParseSource,
                     responseId: search.criteria.criteriaResponseId ?? null,
                   }
-                : null,
-            );
+                : { source: "form", responseId: null },
+              origin: search.criteria.criteriaOrigin ?? null,
+              originSearchId: search.criteria.originSearchId ?? null,
+              freeText: search.criteria.freeText ?? search.criteria.notes ?? null,
+            });
             return (
               <article className="radar-row" key={search.id}>
                 <div>
@@ -431,6 +467,9 @@ function RadarInner() {
               listings {activity.listings} · alerts {activity.alertsSent}
             </p>
             <ResaleDecisionJournalView journal={activity.decisionJournal} defaultOpen />
+            <DecisionRecordList
+              records={activity.proofRecords?.length ? activity.proofRecords : checkProofRecords}
+            />
             {activity.servActivity.length === 0 ? (
               <p className="hint">No SERV calls in this run (no new good/fair candidates, or SERV was not configured).</p>
             ) : null}
@@ -471,6 +510,7 @@ function RadarInner() {
                   <p className="hint">{alert.coverage ?? "Coverage was not recorded for this alert."}</p>
                 )}
                 <DecisionNote scene={alert.mode === "flip" ? "flip" : "personal_alert"} proofs={alert.checks ?? []} />
+                <DecisionRecordList records={alert.proofRecords} />
                 <p className="hint">{new Date(alert.createdAt).toLocaleString("en-US", { timeZone: "UTC" })} UTC · {alert.vin}</p>
               </div>
               <div className="row-actions">

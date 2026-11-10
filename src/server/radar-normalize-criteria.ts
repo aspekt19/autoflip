@@ -19,21 +19,44 @@ export function normalizeCriteria(
     typeof criteria.notes === "string" && criteria.notes.trim()
       ? criteria.notes.trim().slice(0, 500)
       : freeText;
-  const parseSource =
+  const parseSource: NonNullable<WatchCriteria["criteriaParseSource"]> =
     criteria.criteriaParseSource === "serv" ||
     criteria.criteriaParseSource === "code" ||
     criteria.criteriaParseSource === "form"
       ? criteria.criteriaParseSource
       : freeText
         ? "form"
-        : undefined;
+        : "form";
   const responseId =
     parseSource === "serv" ? providerResponseId(criteria.criteriaResponseId ?? null) : null;
+  const origin =
+    criteria.criteriaOrigin === "find" ||
+    criteria.criteriaOrigin === "resale" ||
+    criteria.criteriaOrigin === "fields"
+      ? criteria.criteriaOrigin
+      : freeText
+        ? mode === "flip"
+          ? "resale"
+          : "find"
+        : "fields";
+  const originSearchId =
+    typeof criteria.originSearchId === "string" && criteria.originSearchId.trim()
+      ? criteria.originSearchId.trim().slice(0, 80)
+      : null;
 
   const shared: WatchCriteria = {
     priceMax: Number(criteria.priceMax),
     zip: criteria.zip ? String(criteria.zip) : "",
-    radiusMiles: radiusMiles ?? (mode === "flip" ? 0 : 50),
+    // Flip may be nationwide (0). Personal: keep an explicit null radius only when
+    // the client sent nationwide — otherwise default 50 for legacy rows missing miles.
+    radiusMiles:
+      radiusMiles != null
+        ? radiusMiles
+        : mode === "flip"
+          ? 0
+          : typeof criteria.radiusMiles === "number"
+            ? criteria.radiusMiles
+            : 50,
     bodyStyle: criteria.bodyStyle?.trim() || undefined,
     yearMin: typeof criteria.yearMin === "number" ? criteria.yearMin : undefined,
     yearMax: typeof criteria.yearMax === "number" ? criteria.yearMax : undefined,
@@ -42,6 +65,8 @@ export function normalizeCriteria(
     freeText,
     criteriaParseSource: parseSource,
     criteriaResponseId: responseId,
+    criteriaOrigin: origin,
+    originSearchId,
   };
 
   if (mode === "flip") {

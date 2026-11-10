@@ -35,6 +35,11 @@ import {
   flipCandidateOutcome,
   upsertNotReviewedAlert,
 } from "@/domain/radar-review-activity";
+import {
+  buildDecisionProofRecord,
+  RADAR_VERDICT_RUBRIC_ID,
+  type DecisionProofRecord,
+} from "@/domain/decision-proof-record";
 import { providerResponseIdFromCall } from "@/domain/serv-response-id";
 import { reviewPersonalCandidate, type RadarServActivity } from "./radar-serv";
 import { listSearches, upsertRun, saveAlerts, saveSearches, seenBook, storeSeenPrices, readListingCache, writeListingCache, telegramChat, telegramPaused, type StoredRun, listAlerts } from "./radar-store";
@@ -90,6 +95,7 @@ export async function runRadarCycle(deps: CycleDeps): Promise<StoredRun> {
   let shadow = "not_started";
   const servChecks: ServProof[] = [];
   const servActivity: RadarServActivity[] = [];
+  const proofRecords: DecisionProofRecord[] = [];
   const touchedOwnerIds = new Set<string>();
   const touchedSearchIds = new Set<string>();
   const perSearchStats = new Map<string, { listings: number; alertsSent: number }>();
@@ -137,6 +143,7 @@ export async function runRadarCycle(deps: CycleDeps): Promise<StoredRun> {
         listings: row.listings,
         alertsSent: row.alertsSent,
       })),
+      proofRecords,
     );
 
   try {
@@ -158,6 +165,18 @@ export async function runRadarCycle(deps: CycleDeps): Promise<StoredRun> {
     );
     promptGuard = guardResult.status;
     if (guardResult.activity) servActivity.push(guardResult.activity);
+    // Stamp one guard proof per watch so Check/feed can filter by owner/search.
+    if (guardResult.proofRecord && searches.length > 0) {
+      for (const search of searches) {
+        proofRecords.push({
+          ...guardResult.proofRecord,
+          searchId: search.id,
+          ownerId: search.ownerId,
+        });
+      }
+    } else if (guardResult.proofRecord) {
+      proofRecords.push(guardResult.proofRecord);
+    }
     steps.push({ id: "serv_prompt_guard", status: promptGuard });
     notes.push(`prompt guard: ${promptGuard}`);
     if (promptGuard === "block") {
@@ -392,6 +411,21 @@ export async function runRadarCycle(deps: CycleDeps): Promise<StoredRun> {
         }
         const storageKey = seenStorageKey(search.id, search.criteria);
         const book = await seenBook(deps.kv, storageKey);
+        // Drop stuck not_reviewed / code-only rows from the seen book BEFORE fresh
+        // filtering so verdict_decide can run again within the SERV cap.
+        // Code-only retries only when SERV is configured now — otherwise every Check
+        // would re-alert the same VINs forever.
+        const needsDecide = alerts.filter(
+          (row) =>
+            row.searchId === search.id &&
+            (row.status === "not_reviewed" ||
+              (Boolean(deps.servKey) &&
+                row.status === "new" &&
+                /uses the code price rating only/i.test(row.why))),
+        );
+        for (const pending of needsDecide) {
+          book.delete(pending.vin);
+        }
         const scoped = job.listings.filter((listing) => matchesWatchModels(listing, search.criteria));
         tallyReason(reasons, "model does not match", job.listings.length - scoped.length);
         const fresh = scoped.filter((listing) => {
@@ -422,12 +456,6 @@ export async function runRadarCycle(deps: CycleDeps): Promise<StoredRun> {
             return [{ listing: item.listing, numbers: item.decision.numbers, why, priceDropFrom: dropped ? previous : null }];
           }),
         );
-        // Force re-review of stuck not_reviewed Drive-it rows so verdict_decide runs again.
-        for (const pending of alerts.filter(
-          (row) => row.searchId === search.id && row.status === "not_reviewed",
-        )) {
-          book.delete(pending.vin);
-        }
         const winners = ranked.slice(0, ASSUMPTIONS.radarMaxServPerSearch);
         tallyReason(reasons, "past the SERV/alert cap", Math.max(0, ranked.length - winners.length));
         filteredOut += decisions.length - passedRows.length;
@@ -490,9 +518,17 @@ export async function runRadarCycle(deps: CycleDeps): Promise<StoredRun> {
               why: `${winner.why} SERV was not configured; this alert uses the code price rating only.`,
               checks: [],
               activity: [],
+              proofRecords: [],
             };
           }
           servActivity.push(...review.activity);
+          proofRecords.push(
+            ...(review.proofRecords ?? []).map((row) => ({
+              ...row,
+              searchId: search.id,
+              ownerId: search.ownerId,
+            })),
+          );
           if (!review.alertWorthy) {
             const decideRow = review.activity.find((row) => row.profile === "verdict_decide");
             const servFailed = Boolean(decideRow && !decideRow.ok);
@@ -509,6 +545,11 @@ export async function runRadarCycle(deps: CycleDeps): Promise<StoredRun> {
                 winner.priceDropFrom,
                 badge,
                 "not_reviewed",
+                (review.proofRecords ?? []).map((row) => ({
+                  ...row,
+                  searchId: search.id,
+                  ownerId: search.ownerId,
+                })),
               );
               const next = upsertNotReviewedAlert(alerts, pending);
               alerts.length = 0;
@@ -530,6 +571,11 @@ export async function runRadarCycle(deps: CycleDeps): Promise<StoredRun> {
               winner.priceDropFrom,
               badge,
               "serv_skipped",
+              (review.proofRecords ?? []).map((row) => ({
+                ...row,
+                searchId: search.id,
+                ownerId: search.ownerId,
+              })),
             );
             alerts.unshift(skipped);
             if (winner.listing.priceUsd != null) book.set(winner.listing.vin, winner.listing.priceUsd);
@@ -547,6 +593,12 @@ export async function runRadarCycle(deps: CycleDeps): Promise<StoredRun> {
             coverageConfidence(personalCoverage),
             winner.priceDropFrom,
             badge,
+            "new",
+            (review.proofRecords ?? []).map((row) => ({
+              ...row,
+              searchId: search.id,
+              ownerId: search.ownerId,
+            })),
           );
           alerts.unshift(alert);
           freshAlerts.push(alert);
@@ -683,6 +735,7 @@ function finish(
   searchIds: string[],
   servActivity: RadarServActivity[],
   perSearch: NonNullable<StoredRun["perSearch"]> = [],
+  proofRecords: import("@/domain/decision-proof-record").DecisionProofRecord[] = [],
 ): StoredRun {
   return {
     id,
@@ -711,6 +764,7 @@ function finish(
       startedAt,
       filterBreakdown,
     }),
+    proofRecords,
     perSearch,
     payment,
   };
@@ -853,12 +907,46 @@ async function runGuard(
   deps: CycleDeps,
   timeoutMs: number,
   proofs: ServProof[],
-): Promise<{ status: string; activity: RadarServActivity | null }> {
+): Promise<{
+  status: string;
+  activity: RadarServActivity | null;
+  proofRecord: DecisionProofRecord | null;
+}> {
   const searchId = searches[0]?.id ?? "radar";
   const at = deps.now.toISOString();
-  if (!deps.servKey) return { status: "not_configured", activity: null };
+  const guardInputs = {
+    searchCount: searches.length,
+    zips: searches.map((item) => item.criteria.zip),
+  };
+  if (!deps.servKey) {
+    return {
+      status: "not_configured",
+      activity: null,
+      proofRecord: buildDecisionProofRecord({
+        purpose: "radar_guard",
+        rubricId: RADAR_VERDICT_RUBRIC_ID,
+        status: "skipped_no_key",
+        recordedAt: at,
+        inputs: guardInputs,
+        detail: "SERV_API_KEY is not configured — radar guard skipped.",
+      }),
+    };
+  }
   const text = searches.map((item) => `${item.name} ${item.mode} ${item.criteria.zip} ${item.criteria.priceMax}`).join("\n");
-  if (!text.trim()) return { status: "skipped_empty", activity: null };
+  if (!text.trim()) {
+    return {
+      status: "skipped_empty",
+      activity: null,
+      proofRecord: buildDecisionProofRecord({
+        purpose: "radar_guard",
+        rubricId: RADAR_VERDICT_RUBRIC_ID,
+        status: "skipped_no_evidence",
+        recordedAt: at,
+        inputs: guardInputs,
+        detail: "No saved-search criteria text to guard.",
+      }),
+    };
+  }
   const guardCallId = randomUUID();
   if (timeoutMs <= 0) {
     return {
@@ -878,6 +966,14 @@ async function runGuard(
         note: "SERV timed out before radar_guard could start (budget exhausted).",
         alerted: false,
       },
+      proofRecord: buildDecisionProofRecord({
+        purpose: "radar_guard",
+        rubricId: RADAR_VERDICT_RUBRIC_ID,
+        status: "error",
+        recordedAt: at,
+        inputs: guardInputs,
+        detail: "SERV timed out before radar_guard could start (budget exhausted).",
+      }),
     };
   }
   try {
@@ -901,6 +997,15 @@ async function runGuard(
         : `error: ${result.error}`
       : interpretGuard(result.text);
     const secs = Math.max(1, Math.round(latencyMs / 1000));
+    const responseId = providerResponseIdFromCall({
+      ok: result.ok && status !== "block",
+      id: typeof result.proof.openserv?.id === "string" ? result.proof.openserv.id : null,
+    });
+    const note = timedOut
+      ? `SERV timed out after ${secs}s`
+      : result.ok
+        ? `prompt guard: ${status}`
+        : result.error ?? "radar_guard failed";
     return {
       status,
       activity: {
@@ -911,22 +1016,27 @@ async function runGuard(
         modelRequested: result.proof.modelRequested ?? deps.servModel ?? "",
         modelReported: result.proof.modelReported ?? "",
         callId: guardCallId,
-        responseId: providerResponseIdFromCall({
-          ok: result.ok && status !== "block",
-          id: typeof result.proof.openserv?.id === "string" ? result.proof.openserv.id : null,
-        }),
+        responseId,
         latencyMs,
         ok: result.ok && status !== "block",
         decision: status,
-        note: timedOut
-          ? `SERV timed out after ${secs}s`
-          : result.ok
-            ? `prompt guard: ${status}`
-            : result.error ?? "radar_guard failed",
+        note,
         alerted: false,
       },
+      proofRecord: buildDecisionProofRecord({
+        purpose: "radar_guard",
+        rubricId: RADAR_VERDICT_RUBRIC_ID,
+        status: result.ok && status !== "block" ? "ok" : result.ok && status === "block" ? "error" : "error",
+        responseId,
+        model: result.proof.modelReported,
+        recordedAt: at,
+        inputs: guardInputs,
+        verdict: result.ok ? status : null,
+        detail: result.ok && status !== "block" ? null : note,
+      }),
     };
   } catch {
+    const note = `SERV timed out after ${Math.max(1, Math.round(timeoutMs / 1000))}s`;
     return {
       status: "timeout",
       activity: {
@@ -941,9 +1051,17 @@ async function runGuard(
         latencyMs: timeoutMs,
         ok: false,
         decision: "timeout",
-        note: `SERV timed out after ${Math.max(1, Math.round(timeoutMs / 1000))}s`,
+        note,
         alerted: false,
       },
+      proofRecord: buildDecisionProofRecord({
+        purpose: "radar_guard",
+        rubricId: RADAR_VERDICT_RUBRIC_ID,
+        status: "error",
+        recordedAt: at,
+        inputs: guardInputs,
+        detail: note,
+      }),
     };
   }
 }
@@ -977,6 +1095,7 @@ function makeAlert(
   priceDropFrom?: number | null,
   badge?: WatchAlert["badge"],
   status: WatchAlert["status"] = "new",
+  proofRecords?: import("@/domain/decision-proof-record").DecisionProofRecord[],
 ): WatchAlert {
   return {
     id: randomUUID(),
@@ -998,6 +1117,7 @@ function makeAlert(
     numbers,
     sample: listing.source === "sample",
     checks,
+    proofRecords: proofRecords?.length ? proofRecords : undefined,
     coverage,
     coverageLevel,
     priceDropFrom,

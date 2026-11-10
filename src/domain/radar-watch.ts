@@ -4,6 +4,7 @@ import type { PriceLabel } from "./price-evaluation";
 import { NOT_ENOUGH_SIMILAR_CARS, evaluateListingPrice } from "./price-evaluation";
 import type { CoverageConfidence } from "./coverage";
 import type { DecisionProof } from "./decision-note";
+import type { DecisionProofRecord } from "./decision-proof-record";
 import { canonicalString, sha256Canonical } from "./hash";
 import { roundDollars } from "./stats";
 import type { Listing, Mode } from "./types";
@@ -43,6 +44,10 @@ export type WatchCriteria = {
   criteriaParseSource?: "serv" | "code" | "form";
   /** Provider response id when criteriaParseSource is serv; never a local UUID. */
   criteriaResponseId?: string | null;
+  /** Where the watch was created: Find, Resale, or form fields only. */
+  criteriaOrigin?: "find" | "resale" | "fields";
+  /** Find/Resale search context id when available (never invent). */
+  originSearchId?: string | null;
 };
 
 export type SavedSearch = {
@@ -103,6 +108,8 @@ export type WatchAlert = {
   numbers: AlertNumbers;
   sample: boolean;
   checks?: DecisionProof[];
+  /** Shared lemonless.decision_proof.v1 from the personal SERV review for this alert. */
+  proofRecords?: DecisionProofRecord[];
   coverage?: string;
   coverageLevel?: CoverageConfidence;
   priceDropFrom?: number | null;

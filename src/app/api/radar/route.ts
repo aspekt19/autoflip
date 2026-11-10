@@ -28,7 +28,15 @@ export async function POST(request: Request) {
     runtimeDeps(),
   );
   if (!result.ok) {
-    return Response.json({ error: result.error, message: result.message }, { status: result.status });
+    return Response.json(
+      {
+        error: result.error,
+        message: result.message,
+        proof: result.proof,
+        proofRecords: result.proofRecords,
+      },
+      { status: result.status },
+    );
   }
   if (mode === "flip") {
     const top = topFlipCandidates(result.listings, new Date(), 5);
@@ -36,6 +44,8 @@ export async function POST(request: Request) {
     return Response.json({
       sample: result.sample,
       message: top.length === 0 ? empty : result.message,
+      proof: result.proof,
+      proofRecords: result.proofRecords,
       listings: top.map((item) => ({
         vin: item.listing.vin,
         year: item.listing.year,
@@ -56,5 +66,7 @@ export async function POST(request: Request) {
     });
   }
   const rows = scoreRadar(result.listings, mode);
-  return Response.json(radarToolResult(rows, result.sample, result.message));
+  return Response.json(
+    radarToolResult(rows, result.sample, result.message, result.proof, result.proofRecords),
+  );
 }

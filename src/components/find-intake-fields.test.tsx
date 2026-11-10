@@ -22,12 +22,79 @@ vi.mock("next/link", () => ({
 const REPRO =
   "Looking for a reliable used car for myself, budget around $15k, automatic, good on gas, nothing salvage or with accident history.";
 
+/** Confirm-entry notes call /api/need once for criteria parse — stub so jsdom stays offline. */
+function mockEntryNeedParse() {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("/api/product-flags")) {
+        return Response.json({ flags: { dealRadar: true } });
+      }
+      if (url.includes("/api/need")) {
+        return Response.json({
+          ok: true,
+          source: "form",
+          guard: "not_configured",
+          need: {
+            mode: "personal",
+            useCase: "commute",
+            note: REPRO,
+            budgetUsd: 15_000,
+            budgetKnown: true,
+            budgetScope: "car",
+            mustHaves: [],
+            priorities: ["fuel economy"],
+            zip: null,
+            distanceMiles: null,
+            repairAbility: "unknown",
+            targetProfitUsd: null,
+            milesMax: null,
+            yearMin: null,
+            yearMax: null,
+            yearBandResolved: false,
+            milesCapResolved: false,
+            conditionPriority: "unspecified",
+            make: null,
+            preferredMakes: [],
+            preferredModels: [],
+            preferredModelsSource: "none",
+            openToOtherMakes: true,
+            bodyStyle: null,
+            transmission: "automatic",
+            fuelEconomyPriority: true,
+            historyPreference: "no_salvage_no_accidents",
+            locationPhrase: null,
+          },
+          followUps: [],
+          checks: [
+            {
+              purpose: "need_guard",
+              tools: [],
+              features: [],
+              promptGuard: "not_configured",
+              shadowOutcome: "not_used",
+              shadowMaxIterations: null,
+              latencyMs: 0,
+            },
+          ],
+          criteriaParse: { source: "code", responseId: null, label: "Parsed by code" },
+          proofRecords: [],
+        });
+      }
+      return Response.json({ ok: false }, { status: 404 });
+    }),
+  );
+}
+
 afterEach(() => {
   cleanup();
+  vi.unstubAllGlobals();
 });
 
 describe("find intake from the home note", () => {
   it("opens on Confirm with the note already filled in", () => {
+    mockEntryNeedParse();
     render(<FindFlow initialNote={REPRO} initialMode="personal" />);
     expect(screen.getByRole("heading", { name: /what i understood/i })).toBeInTheDocument();
     expect(document.querySelector(".progress .is-current")).toHaveTextContent("Confirm");
@@ -45,6 +112,7 @@ describe("find intake from the home note", () => {
   });
 
   it("lets the shopper type a model year without the field clearing", async () => {
+    mockEntryNeedParse();
     const user = userEvent.setup();
     render(<FindFlow initialNote={REPRO} initialMode="personal" />);
     const year = screen.getByLabelText(/oldest model year/i);
@@ -55,6 +123,7 @@ describe("find intake from the home note", () => {
   });
 
   it("shows a plain range error for a finished year and keeps the typed digits", async () => {
+    mockEntryNeedParse();
     const user = userEvent.setup();
     render(<FindFlow initialNote={REPRO} initialMode="personal" />);
     const year = screen.getByLabelText(/oldest model year/i);
@@ -72,6 +141,7 @@ describe("find intake from the home note", () => {
   });
 
   it("keeps formatted price, mileage, ZIP, and custom radius text while typing", async () => {
+    mockEntryNeedParse();
     const user = userEvent.setup();
     render(<FindFlow initialNote={REPRO} initialMode="personal" />);
     const price = screen.getByLabelText(/maximum vehicle price/i);
@@ -94,6 +164,7 @@ describe("find intake from the home note", () => {
   });
 
   it("places Not sure yet in a checkbox row instead of a pill", () => {
+    mockEntryNeedParse();
     render(<FindFlow initialNote="Looking for a reliable used car for commuting" initialMode="personal" />);
     const box = screen.getByRole("checkbox", { name: /not sure yet/i });
     expect(box.closest("label")).toHaveClass("check-line");

@@ -21,6 +21,108 @@ async function mockSignedIn(page: Page) {
   });
 }
 
+function budgetUsdFromNote(text: string): number | null {
+  const rangeK = text.match(/(\d{1,3})\s*-\s*(\d{1,3})\s*k\b/i);
+  if (rangeK) return Number(rangeK[2]) * 1000;
+  const k = text.match(/(?:\$|budget|around|under|for)\s*\$?\s*(\d{1,3})\s*k\b/i);
+  if (k) return Number(k[1]) * 1000;
+  const grand = text.match(/(\d{1,3})\s*grand\b/i);
+  if (grand) return Number(grand[1]) * 1000;
+  const dollars = text.match(/for\s+(\d{1,3}(?:,\d{3})*)\s*dollars/i);
+  if (dollars) return Number(dollars[1].replace(/,/g, ""));
+  const cash = text.match(/\$\s*(\d{1,3}(?:,\d{3})*)\b/);
+  if (cash) return Number(cash[1].replace(/,/g, ""));
+  return null;
+}
+
+/** Confirm-entry notes always call /api/need for SERV parse — stub so e2e stays offline. */
+async function mockNeedParse(page: Page) {
+  await page.route("**/api/need", async (route) => {
+    if (route.request().method() !== "POST") {
+      await route.continue();
+      return;
+    }
+    const body = route.request().postDataJSON() as {
+      text?: string;
+      mode?: "personal" | "flip";
+      budgetUsd?: number | null;
+      budgetKnown?: boolean;
+      zip?: string | null;
+      distanceMiles?: number | null;
+    };
+    const text = typeof body.text === "string" ? body.text : "";
+    const budgetUsd =
+      typeof body.budgetUsd === "number" && Number.isFinite(body.budgetUsd)
+        ? body.budgetUsd
+        : budgetUsdFromNote(text);
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        ok: true,
+        source: "form",
+        guard: "not_configured",
+        need: {
+          mode: body.mode === "flip" ? "flip" : "personal",
+          useCase: /family|myself|errands|commute/i.test(text) ? "commute" : "unspecified",
+          note: text,
+          budgetUsd,
+          budgetKnown: budgetUsd != null,
+          budgetScope: "car",
+          mustHaves: [],
+          priorities: /gas|fuel/i.test(text) ? ["fuel economy"] : [],
+          zip: body.zip ?? null,
+          distanceMiles: body.distanceMiles ?? null,
+          repairAbility: "unknown",
+          targetProfitUsd: null,
+          milesMax: null,
+          yearMin: null,
+          yearMax: null,
+          yearBandResolved: false,
+          milesCapResolved: false,
+          conditionPriority: "unspecified",
+          make: null,
+          preferredMakes: [],
+          preferredModels: [],
+          preferredModelsSource: "none",
+          openToOtherMakes: true,
+          bodyStyle: null,
+          transmission: /automatic/i.test(text) ? "automatic" : null,
+          fuelEconomyPriority: /gas|fuel/i.test(text),
+          historyPreference: /salvage|accident/i.test(text) ? "no_salvage_no_accidents" : null,
+          locationPhrase: null,
+        },
+        followUps: [],
+        checks: [
+          {
+            purpose: "need_guard",
+            tools: ["serv_prompt_guard"],
+            features: [],
+            promptGuard: "not_configured",
+            shadowOutcome: "not_used",
+            shadowMaxIterations: null,
+            latencyMs: 0,
+          },
+          {
+            purpose: "need_extract",
+            tools: ["serv_prompt_guard"],
+            features: [],
+            promptGuard: "not_used",
+            shadowOutcome: "not_used",
+            shadowMaxIterations: null,
+            latencyMs: 0,
+          },
+        ],
+        criteriaParse: {
+          source: "code",
+          responseId: null,
+          label: "Parsed by code",
+        },
+      }),
+    });
+  });
+}
+
 async function openHomeNote(page: Page, note: string) {
   await page.goto("/");
   await page.locator("#home-note").fill(note);
@@ -57,8 +159,9 @@ test("home note opens Find confirm with the note prefilled", async ({ page }) =>
     await blockPaid(route);
   });
   await page.route("**/api/scout/**", blockPaid);
-  await page.route(/\/api\/(match|need|report|stripe|credits|plans|serv)(\/|$|\?)/, blockPaid);
+  await page.route(/\/api\/(match|report|stripe|credits|plans|serv)(\/|$|\?)/, blockPaid);
   await mockSignedIn(page);
+  await mockNeedParse(page);
 
   await mkdir("docs/screenshots/intake", { recursive: true });
   await page.setViewportSize({ width: 1280, height: 800 });
@@ -145,6 +248,7 @@ test("home note opens Find confirm with the note prefilled", async ({ page }) =>
 
 test("note phrasings prefill a budget or leave the price step when none was written", async ({ page }) => {
   await mockSignedIn(page);
+  await mockNeedParse(page);
   const cases: Array<{ note: string; price: string | null }> = [
     { note: "Looking for a reliable used car, budget around $15k.", price: "15,000" },
     { note: "Looking for a reliable used car for 15,000 dollars.", price: "15,000" },

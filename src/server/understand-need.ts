@@ -14,7 +14,14 @@ import {
   type FollowUp,
   type StructuredNeed,
 } from "@/domain/need";
+import { attachNoteGeo } from "@/domain/find-intake-stage";
+import { intakeFromNote } from "@/domain/note-intake";
 import type { DecisionProof } from "@/domain/decision-note";
+import {
+  buildDecisionProofRecord,
+  NEED_PARSE_RUBRIC_ID,
+  type DecisionProofRecord,
+} from "@/domain/decision-proof-record";
 import type { CriteriaParseProvenance } from "@/domain/radar-criteria-provenance";
 import { criteriaParseLabel } from "@/domain/radar-criteria-provenance";
 import { providerResponseIdFromCall } from "@/domain/serv-response-id";
@@ -38,6 +45,8 @@ export type UnderstandResult =
       checks: DecisionProof[];
       /** Honest provenance for free-text → structured criteria (Watch with Deal Radar). */
       criteriaParse: CriteriaParseProvenance & { label: string };
+      /** One proof record per need_guard / need_extract (or honest skip). */
+      proofRecords: DecisionProofRecord[];
     }
   | { ok: false; status: number; error: string; message: string };
 
@@ -91,9 +100,42 @@ export async function understandNeed(
   let guard = "not_configured";
   let extracted = explicitNeedFromText(screened.text, mode);
   const checks: ServProof[] = [];
+  const proofRecords: DecisionProofRecord[] = [];
+  const recordedAt = new Date().toISOString();
+  const parseInputs = { text: screened.text, mode };
   let extractResponseId: string | null = null;
 
-  if (deps.servKey) {
+  if (!screened.text.trim()) {
+    proofRecords.push(
+      buildDecisionProofRecord({
+        purpose: "need_extract",
+        rubricId: NEED_PARSE_RUBRIC_ID,
+        status: "skipped_no_evidence",
+        recordedAt,
+        inputs: parseInputs,
+        detail: "No free-text need to parse.",
+      }),
+    );
+  } else if (!deps.servKey) {
+    proofRecords.push(
+      buildDecisionProofRecord({
+        purpose: "need_guard",
+        rubricId: NEED_PARSE_RUBRIC_ID,
+        status: "skipped_no_key",
+        recordedAt,
+        inputs: parseInputs,
+        detail: "SERV_API_KEY is not configured — local parsers only.",
+      }),
+      buildDecisionProofRecord({
+        purpose: "need_extract",
+        rubricId: NEED_PARSE_RUBRIC_ID,
+        status: "skipped_no_key",
+        recordedAt,
+        inputs: parseInputs,
+        detail: "SERV_API_KEY is not configured — local parsers only.",
+      }),
+    );
+  } else {
     const model = deps.servModel;
     const fetchImpl = deps.fetchImpl ?? fetch;
     const servDeps = { fetch: fetchImpl, apiKey: deps.servKey, baseUrl: deps.servBaseUrl, model };
@@ -101,8 +143,35 @@ export async function understandNeed(
     checks.push(guarded.proof);
     if (!guarded.ok) {
       guard = "unavailable";
+      proofRecords.push(
+        buildDecisionProofRecord({
+          purpose: "need_guard",
+          rubricId: NEED_PARSE_RUBRIC_ID,
+          status: "error",
+          model: guarded.proof.modelReported,
+          recordedAt,
+          inputs: parseInputs,
+          detail: guarded.error,
+        }),
+      );
     } else {
       guard = interpretGuard(guarded.text);
+      proofRecords.push(
+        buildDecisionProofRecord({
+          purpose: "need_guard",
+          rubricId: NEED_PARSE_RUBRIC_ID,
+          status: "ok",
+          responseId: providerResponseIdFromCall({
+            ok: true,
+            id: guarded.proof.openserv?.id ?? null,
+          }),
+          model: guarded.proof.modelReported,
+          recordedAt,
+          inputs: parseInputs,
+          verdict: guard,
+          detail: guard === "block" ? "Input gate blocked this note." : null,
+        }),
+      );
     }
     if (guard !== "block") {
       const extractedCall = await runServ("need_extract", { user: screened.text }, servDeps);
@@ -117,10 +186,57 @@ export async function understandNeed(
               ok: extractedCall.ok,
               id: extractedCall.proof.openserv?.id ?? null,
             });
+            proofRecords.push(
+              buildDecisionProofRecord({
+                purpose: "need_extract",
+                rubricId: NEED_PARSE_RUBRIC_ID,
+                status: "ok",
+                responseId: extractResponseId,
+                model: extractedCall.proof.modelReported,
+                recordedAt,
+                inputs: parseInputs,
+                verdict: "extracted",
+              }),
+            );
+          } else {
+            proofRecords.push(
+              buildDecisionProofRecord({
+                purpose: "need_extract",
+                rubricId: NEED_PARSE_RUBRIC_ID,
+                status: "unknown",
+                model: extractedCall.proof.modelReported,
+                recordedAt,
+                inputs: parseInputs,
+                detail: parsed.issues[0]?.message ?? "Extracted need failed validation.",
+              }),
+            );
           }
         } catch {
           source = "form";
+          proofRecords.push(
+            buildDecisionProofRecord({
+              purpose: "need_extract",
+              rubricId: NEED_PARSE_RUBRIC_ID,
+              status: "unknown",
+              model: extractedCall.proof.modelReported,
+              recordedAt,
+              inputs: parseInputs,
+              detail: "Extract response was unparseable.",
+            }),
+          );
         }
+      } else {
+        proofRecords.push(
+          buildDecisionProofRecord({
+            purpose: "need_extract",
+            rubricId: NEED_PARSE_RUBRIC_ID,
+            status: "error",
+            model: extractedCall.proof.modelReported,
+            recordedAt,
+            inputs: parseInputs,
+            detail: extractedCall.error,
+          }),
+        );
       }
     }
   }
@@ -150,6 +266,19 @@ export async function understandNeed(
   };
   need = supplementNeedFromNote(need, screened.text);
   if (body.followUp) need = applyFollowUp(need, body.followUp.id, body.followUp.value);
+  // Drop stale wizard ZIP when this note named a city/place without those digits.
+  {
+    const intake = intakeFromNote(screened.text);
+    if (intake.locationPhrase && !intake.zip && need.zip && need.zip !== intake.zip) {
+      need = { ...need, zip: null, locationPhrase: need.locationPhrase ?? intake.locationPhrase };
+    }
+  }
+  // City/phrase → ZIP via free table; labelled default radius when city given without miles.
+  {
+    const withGeo = attachNoteGeo(need, { applyDefaultRadius: true });
+    const { locationResolution: _loc, radiusIsDefault: _rad, ...rest } = withGeo;
+    need = rest;
+  }
   const checked = validateNeed(need);
   if (!checked.ok) return { ok: false, status: 400, error: "invalid_need", message: checked.issues[0]?.message ?? "That need is not usable." };
   const recorded = checks.length > 0 ? checks : [plannedProof("need_guard"), plannedProof("need_extract")];
@@ -167,6 +296,7 @@ export async function understandNeed(
     guard,
     checks: recorded.map(publicCheck),
     criteriaParse: { ...criteriaParse, label: criteriaParseLabel(criteriaParse) },
+    proofRecords,
   };
 }
 

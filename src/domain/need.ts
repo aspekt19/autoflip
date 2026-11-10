@@ -1057,10 +1057,13 @@ export function supplementNeedFromNote(need: StructuredNeed, text: string): Stru
   const budgetMissing = !need.budgetKnown || need.budgetUsd == null;
   const budgetUsd = budgetMissing ? (intake.budgetUsd ?? need.budgetUsd) : need.budgetUsd;
   const budgetKnown = budgetUsd != null && (need.budgetKnown || intake.budgetUsd != null);
+  const useCase =
+    need.useCase !== "unspecified" ? need.useCase : useCaseFromText(text);
   return {
     ...need,
     budgetUsd: budgetKnown ? budgetUsd : null,
     budgetKnown,
+    useCase,
     transmission: need.transmission ?? intake.transmission,
     fuelEconomyPriority: need.fuelEconomyPriority === true || intake.fuelEconomyPriority,
     historyPreference,
