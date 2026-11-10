@@ -54,6 +54,8 @@ function candidate(vin: string, profitMidUsd: number, compCount = 6): ResaleCand
     ],
     salesTaxUsd: null,
     salesTaxBasis: "unknown",
+    salesTaxKnown: false,
+    profitScopeLabel: "before sales tax (state unknown)",
     titleRegistrationUsd: null,
     titleRegistrationBasis: "unknown",
     titleFeeAssumptionUsd: 350,
@@ -68,6 +70,7 @@ function candidate(vin: string, profitMidUsd: number, compCount = 6): ResaleCand
     profitLowUsd: 500,
     profitMidUsd,
     profitHighUsd: 2_000,
+    rankingProfitMidUsd: profitMidUsd,
     roiPctMid: 10,
     estimatedDaysToSell: null,
     daysToSellBasis: "unknown",
@@ -141,5 +144,29 @@ describe("rankByRiskAdjustedProfit", () => {
       ["VINSAFE0000000001", 1],
     ]));
     expect(ranked[0]?.vin).toBe("VINSAFE0000000001");
+  });
+
+  it("does not favor unknown-tax cars that look better only because tax was omitted", () => {
+    const taxed = {
+      ...candidate("VINTAXED000000001", 1_800),
+      salesTaxKnown: true,
+      profitScopeLabel: "",
+      profitMidUsd: 1_800,
+      rankingProfitMidUsd: 1_800,
+    };
+    // Displayed before-tax profit is higher, but ranking haircut brings it below the taxed peer.
+    const unknownTax = {
+      ...candidate("VINUNKTAX00000001", 2_200),
+      salesTaxKnown: false,
+      profitScopeLabel: "before sales tax (state unknown)",
+      profitMidUsd: 2_200,
+      rankingProfitMidUsd: 1_600,
+    };
+    const ranked = rankByRiskAdjustedProfit([unknownTax, taxed], new Map([
+      ["VINTAXED000000001", 1],
+      ["VINUNKTAX00000001", 1],
+    ]));
+    expect(ranked[0]?.vin).toBe("VINTAXED000000001");
+    expect(unknownTax.profitMidUsd).toBeGreaterThan(taxed.profitMidUsd);
   });
 });

@@ -422,10 +422,14 @@ function CandidateCard({
           {candidate.resaleHighUsd != null ? formatUsd(candidate.resaleHighUsd) : "—"} — {candidate.resaleChannelBasis}
         </li>
         <li>
-          Expected net profit:{" "}
+          Expected net profit
+          {candidate.profitScopeLabel ? ` (${candidate.profitScopeLabel})` : ""}:{" "}
           {candidate.profitLowUsd != null ? formatUsd(candidate.profitLowUsd) : "—"} to{" "}
           {candidate.profitHighUsd != null ? formatUsd(candidate.profitHighUsd) : "—"} (mid{" "}
           {candidate.profitMidUsd != null ? formatUsd(candidate.profitMidUsd) : "—"})
+          {!candidate.salesTaxKnown && candidate.rankingProfitMidUsd != null
+            ? ` · ranking uses ${formatUsd(candidate.rankingProfitMidUsd)} after a conservative tax haircut`
+            : ""}
         </li>
         <li>ROI (mid): {candidate.roiPctMid != null ? `${candidate.roiPctMid}%` : "unknown"}</li>
         <li>

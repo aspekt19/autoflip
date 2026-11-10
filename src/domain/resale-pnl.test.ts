@@ -70,7 +70,10 @@ describe("buildResaleCandidatePnl", () => {
     expect(pnl.negotiatedOfferUsd).toBe(Math.round(10_000 * (1 - ASSUMPTIONS.flipNegotiateHaircut)));
     expect(pnl.negotiateBasis).toMatch(/example assumption/i);
     expect(pnl.salesTaxUsd).not.toBeNull();
+    expect(pnl.salesTaxKnown).toBe(true);
+    expect(pnl.profitScopeLabel).toBe("");
     expect(pnl.salesTaxBasis).toMatch(/Tax Foundation/i);
+    expect(pnl.rankingProfitMidUsd).toBe(pnl.profitMidUsd);
     expect(pnl.titleRegistrationUsd).toBeNull();
     expect(pnl.titleRegistrationBasis).toMatch(/unknown/i);
     expect(pnl.reconUsd).toBeGreaterThan(0);
@@ -84,6 +87,63 @@ describe("buildResaleCandidatePnl", () => {
     expect(pnl.provenance.some((row) => row.kind === "autodev_listing" && row.field === "Ask")).toBe(true);
     expect(pnl.provenance.some((row) => row.kind === "computed" && /profit/i.test(row.field))).toBe(true);
     expect(pnl.provenance.every((row) => row.source.trim().length > 0)).toBe(true);
+  });
+
+  it("resolves tax from ZIP when listing state is missing", () => {
+    const pnl = buildResaleCandidatePnl(
+      estimate({
+        listing: listing({
+          vin: "5J6RM4H75GL000001",
+          year: 2018,
+          miles: 70_000,
+          priceUsd: 10_000,
+          state: null,
+          zip: "68114",
+        }),
+      }),
+    );
+    expect(pnl).not.toBeNull();
+    if (!pnl) return;
+    expect(pnl.salesTaxKnown).toBe(true);
+    expect(pnl.salesTaxUsd).not.toBeNull();
+    expect(pnl.salesTaxBasis).toMatch(/NE|Nebraska|Tax Foundation/i);
+    expect(pnl.profitScopeLabel).toBe("");
+    expect(pnl.rankingProfitMidUsd).toBe(pnl.profitMidUsd);
+  });
+
+  it("labels profit before sales tax and haircuts ranking when state is unknown", () => {
+    const known = buildResaleCandidatePnl(estimate());
+    const unknown = buildResaleCandidatePnl(
+      estimate({
+        listing: listing({
+          vin: "5J6RM4H75GL000002",
+          year: 2018,
+          miles: 70_000,
+          priceUsd: 10_000,
+          state: null,
+          zip: null,
+        }),
+      }),
+    );
+    expect(known).not.toBeNull();
+    expect(unknown).not.toBeNull();
+    if (!known || !unknown) return;
+
+    expect(unknown.salesTaxKnown).toBe(false);
+    expect(unknown.salesTaxUsd).toBeNull();
+    expect(unknown.profitScopeLabel).toBe("before sales tax (state unknown)");
+    expect(unknown.confidence).toBe("Low");
+    expect(unknown.confidenceBasis).toMatch(/before sales tax/i);
+    expect(unknown.profitMidUsd).not.toBeNull();
+    expect(unknown.rankingProfitMidUsd).not.toBeNull();
+    // Displayed profit omits tax (higher than taxed peer); ranking must not.
+    expect(unknown.profitMidUsd!).toBeGreaterThan(known.profitMidUsd!);
+    expect(unknown.rankingProfitMidUsd!).toBeLessThan(unknown.profitMidUsd!);
+    expect(unknown.rankingProfitMidUsd!).toBeLessThanOrEqual(known.rankingProfitMidUsd!);
+    expect(unknown.risks.some((r) => /before sales tax/i.test(r))).toBe(true);
+    expect(unknown.provenance.some((row) => /before sales tax/i.test(row.field) || /before sales tax/i.test(row.source))).toBe(
+      true,
+    );
   });
 
   it("returns null for excluded estimates", () => {

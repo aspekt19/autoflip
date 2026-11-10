@@ -57,11 +57,19 @@ export async function runResaleDeepChecks(input: {
   // Always treat price/comps as already computed by code for every candidate.
   if (checks.has("price_comps") || checks.size === 0) {
     for (const item of input.candidates) {
+      const profitBit =
+        item.profitMidUsd != null
+          ? `$${item.profitMidUsd.toLocaleString("en-US")}${
+              item.profitScopeLabel ? ` ${item.profitScopeLabel}` : ""
+            }`
+          : "unknown";
+      const rankingNote =
+        !item.salesTaxKnown && item.rankingProfitMidUsd != null
+          ? ` Ranking note: uses $${item.rankingProfitMidUsd.toLocaleString("en-US")} after a conservative tax haircut so unknown-tax cars are not favored.`
+          : "";
       const detail =
         item.compCount >= 3
-          ? `Price/comps already computed: ${item.compCount} similar listings, mid profit ${
-              item.profitMidUsd != null ? `$${item.profitMidUsd.toLocaleString("en-US")}` : "unknown"
-            }.`
+          ? `Price/comps already computed: ${item.compCount} similar listings, mid profit ${profitBit}.${rankingNote}`
           : `Price/comps thin: only ${item.compCount} similar listings — confidence stays Low.`;
       findings.push({
         vin: item.vin,
@@ -294,14 +302,16 @@ export async function runResaleDeepChecks(input: {
   return { findings, rejectedVins, riskByVin, journal };
 }
 
-/** Re-rank by risk-adjusted mid profit after deep-checks. */
+/** Re-rank by risk-adjusted mid profit after deep-checks (uses ranking profit, not displayed). */
 export function rankByRiskAdjustedProfit(
   candidates: ResaleCandidatePnl[],
   riskByVin: Map<string, number>,
 ): ResaleCandidatePnl[] {
   return [...candidates].sort((a, b) => {
-    const aScore = (a.profitMidUsd ?? Number.NEGATIVE_INFINITY) * (riskByVin.get(a.vin) ?? 1);
-    const bScore = (b.profitMidUsd ?? Number.NEGATIVE_INFINITY) * (riskByVin.get(b.vin) ?? 1);
+    const aMid = a.rankingProfitMidUsd ?? a.profitMidUsd ?? Number.NEGATIVE_INFINITY;
+    const bMid = b.rankingProfitMidUsd ?? b.profitMidUsd ?? Number.NEGATIVE_INFINITY;
+    const aScore = aMid * (riskByVin.get(a.vin) ?? 1);
+    const bScore = bMid * (riskByVin.get(b.vin) ?? 1);
     return bScore - aScore;
   });
 }

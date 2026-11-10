@@ -14,6 +14,15 @@ export const STATE_SALES_TAX_AS_OF = "2026-01-01";
 export const STATE_SALES_TAX_SOURCE_URL = "https://taxfoundation.org/data/all/state/sales-tax-rates/";
 export const STATE_SALES_TAX_SOURCE_LABEL = "Tax Foundation statewide base sales tax";
 
+/**
+ * Ranking-only haircut when listing state (and ZIP→state) is still unknown.
+ * 6000 milli = 6.0% — near the unweighted center of Tax Foundation statewide base
+ * rates as of {@link STATE_SALES_TAX_AS_OF}. Never shown as the buyer’s sales-tax
+ * line; displayed profit stays “before sales tax (state unknown)”.
+ */
+export const RANKING_UNKNOWN_STATE_TAX_MILLI = 6000;
+export const RANKING_UNKNOWN_STATE_TAX_NOTE = `Ranking applies a 6% statewide-base haircut when state is unknown so cars without tax do not outrank taxed peers. Source: ${STATE_SALES_TAX_SOURCE_LABEL} as of ${STATE_SALES_TAX_AS_OF}. Not a quoted tax.`;
+
 export type StateSalesTax = {
   code: string;
   name: string;

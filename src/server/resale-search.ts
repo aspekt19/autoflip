@@ -270,7 +270,9 @@ export async function runResaleSearch(
     ? match.body.message ??
       "No listings cleared similar-listing economics inside this budget. Try a higher budget, nationwide radius, or fewer filters — this is still a verdict, not a dead end."
     : settled.best?.profitMidUsd != null
-      ? `Expected mid net profit about $${settled.best.profitMidUsd.toLocaleString("en-US")} (estimate). Confidence ${settled.confidence}. Verdict: ${settled.verdictAction}.`
+      ? `Expected mid net profit about $${settled.best.profitMidUsd.toLocaleString("en-US")}${
+          settled.best.profitScopeLabel ? ` ${settled.best.profitScopeLabel}` : ""
+        } (estimate). Confidence ${settled.confidence}. Verdict: ${settled.verdictAction}.`
       : `Best candidate found but profit band is thin. Confidence ${settled.confidence}. Verdict: ${settled.verdictAction}.`;
 
   const nextStep = emptyPool

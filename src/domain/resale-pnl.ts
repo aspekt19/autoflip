@@ -14,11 +14,20 @@ import {
   unknownProvenance,
   type ResaleFieldProvenance,
 } from "./resale-provenance";
-import { formatTaxRate, stateBaseTaxUsd, stateSalesTax, STATE_SALES_TAX_AS_OF, STATE_SALES_TAX_SOURCE_LABEL } from "./state-sales-tax";
+import {
+  formatTaxRate,
+  RANKING_UNKNOWN_STATE_TAX_MILLI,
+  RANKING_UNKNOWN_STATE_TAX_NOTE,
+  stateBaseTaxUsd,
+  stateSalesTax,
+  STATE_SALES_TAX_AS_OF,
+  STATE_SALES_TAX_SOURCE_LABEL,
+} from "./state-sales-tax";
 import { roundDollars } from "./stats";
 import { TITLE_REGISTRATION_LINE } from "./title-doc-fees";
 import type { RepairAbility } from "./need";
 import type { Listing } from "./types";
+import { stateFromZip } from "./zip-to-state";
 
 export type ResaleChannel = "private_party" | "dealer_trade";
 
@@ -35,6 +44,13 @@ export type ResaleCandidatePnl = {
   /** Statewide base sales tax estimate when state is known; null otherwise. */
   salesTaxUsd: number | null;
   salesTaxBasis: string;
+  /** True when listing state or ZIP→state resolved a Tax Foundation row. */
+  salesTaxKnown: boolean;
+  /**
+   * When sales tax is unknown, displayed profit is before tax.
+   * Empty string when tax was included.
+   */
+  profitScopeLabel: string;
   /** Title/registration — unknown without a public statewide figure. */
   titleRegistrationUsd: number | null;
   titleRegistrationBasis: string;
@@ -50,11 +66,21 @@ export type ResaleCandidatePnl = {
   resaleHighUsd: number | null;
   resaleChannel: ResaleChannel;
   resaleChannelBasis: string;
-  /** Net profit after negotiate + tax + fees + recon + sell friction. */
+  /**
+   * Net profit mid/low/high for display.
+   * When {@link salesTaxKnown} is false these are **before sales tax** (state unknown) —
+   * never treat missing tax as $0 in the published figure.
+   */
   profitLowUsd: number | null;
   profitMidUsd: number | null;
   profitHighUsd: number | null;
-  /** ROI on all-in buy cost (negotiate + tax + fees + recon). */
+  /**
+   * Profit used for ranking / best-pick sort. When tax is known, equals profitMidUsd.
+   * When tax is unknown, applies a conservative cited statewide-base haircut so
+   * unknown-tax cars do not outrank taxed peers.
+   */
+  rankingProfitMidUsd: number | null;
+  /** ROI on all-in buy cost (negotiate + tax when known + fees + recon). */
   roiPctMid: number | null;
   /** Days-to-sell when listing age is available; otherwise null + unknown note. */
   estimatedDaysToSell: number | null;
@@ -81,7 +107,7 @@ export type BuildResalePnlOptions = {
   repairAbility?: RepairAbility;
   /** Prefer private-party resale (default) vs dealer wholesale. */
   resaleChannel?: ResaleChannel;
-  /** Optional shopper state override for tax (ZIP→state not resolved here). */
+  /** Optional shopper state override for tax (else listing.state, else ZIP→state). */
   taxState?: string | null;
 };
 
@@ -99,7 +125,7 @@ function taxFor(state: string | null | undefined, offerUsd: number): { usd: numb
   if (!row) {
     return {
       usd: null,
-      basis: "Sales tax: unknown — listing state was missing, so no statewide base rate was applied.",
+      basis: "Sales tax: unknown — listing state and ZIP→state were unavailable, so no statewide base rate was applied. Profit is shown before sales tax (state unknown).",
     };
   }
   const usd = stateBaseTaxUsd(offerUsd, row.milliPercent);
@@ -143,7 +169,18 @@ function daysToSell(speed: SaleSpeed, speedBasis: string, listingAgeDays: number
   };
 }
 
-function confidenceLabel(compCount: number, speed: SaleSpeed): { label: ResaleConfidenceLabel; basis: string } {
+function confidenceLabel(
+  compCount: number,
+  speed: SaleSpeed,
+  salesTaxKnown: boolean,
+): { label: ResaleConfidenceLabel; basis: string } {
+  if (!salesTaxKnown) {
+    return {
+      label: "Low",
+      basis:
+        "Confidence Low: sales-tax state is unknown, so published profit is before sales tax and ranking applies a conservative tax haircut.",
+    };
+  }
   if (compCount >= 8 && speed !== "unknown") {
     return { label: "High", basis: `Confidence High: ${compCount} similar listings in this scan and listing age was available.` };
   }
@@ -151,6 +188,15 @@ function confidenceLabel(compCount: number, speed: SaleSpeed): { label: ResaleCo
     return { label: "Medium", basis: `Confidence Medium: ${compCount} similar listings in this scan.` };
   }
   return { label: "Low", basis: `Confidence Low: only ${compCount} similar listings in this scan (need 5+ for Medium).` };
+}
+
+/** Prefer listing.state; fall back to ZIP→state prefix table (same as OTD). */
+export function resolveListingTaxState(listing: Listing, override?: string | null): string | null {
+  const fromOverride = override?.trim().toUpperCase() || null;
+  if (fromOverride && stateSalesTax(fromOverride)) return fromOverride;
+  const fromListing = listing.state?.trim().toUpperCase() || null;
+  if (fromListing && stateSalesTax(fromListing)) return fromListing;
+  return stateFromZip(listing.zip);
 }
 
 function channelBasis(channel: ResaleChannel): string {
@@ -174,8 +220,9 @@ export function buildResaleCandidatePnl(
   const repairAbility = options?.repairAbility ?? "unknown";
   const channel = options?.resaleChannel ?? "private_party";
   const negotiate = negotiateOffer(asking);
-  const taxState = options?.taxState ?? estimate.listing.state;
+  const taxState = resolveListingTaxState(estimate.listing, options?.taxState);
   const tax = taxFor(taxState, negotiate.usd);
+  const salesTaxKnown = tax.usd != null;
   const recon = reconUsd({
     miles: estimate.listing.miles,
     accidentCount: estimate.listing.accidentCount,
@@ -185,32 +232,47 @@ export function buildResaleCandidatePnl(
   const titleFeeBasis = `Title/fee assumption: $${titleFee.toLocaleString("en-US")} (example, not a DMV quote). ${TITLE_REGISTRATION_LINE}`;
 
   const friction = ASSUMPTIONS.flipSellFriction;
-  const costAllIn =
-    negotiate.usd + (tax.usd ?? 0) + titleFee + recon.usd;
+  // Never treat unknown sales tax as $0 in the published all-in / profit.
+  const costBeforeTax = negotiate.usd + titleFee + recon.usd;
+  const costAllInDisplay = costBeforeTax + (tax.usd ?? 0);
 
-  const profitFrom = (resale: number | null): number | null => {
+  const profitFrom = (resale: number | null, cost: number): number | null => {
     if (resale == null) return null;
-    return roundDollars(resale * (1 - friction) - costAllIn);
+    return roundDollars(resale * (1 - friction) - cost);
   };
 
-  const profitLowUsd = profitFrom(estimate.resaleLowUsd);
-  const profitMidUsd = profitFrom(estimate.resaleMidUsd);
-  const profitHighUsd = profitFrom(estimate.resaleHighUsd);
+  const profitLowUsd = profitFrom(estimate.resaleLowUsd, costAllInDisplay);
+  const profitMidUsd = profitFrom(estimate.resaleMidUsd, costAllInDisplay);
+  const profitHighUsd = profitFrom(estimate.resaleHighUsd, costAllInDisplay);
+  const profitScopeLabel = salesTaxKnown ? "" : "before sales tax (state unknown)";
+
+  // Ranking: when tax is unknown, apply a conservative cited haircut so missing
+  // tax cannot make a car look more profitable than a taxed peer.
+  const rankingTaxUsd = salesTaxKnown
+    ? 0
+    : stateBaseTaxUsd(negotiate.usd, RANKING_UNKNOWN_STATE_TAX_MILLI);
+  const rankingProfitMidUsd = profitFrom(estimate.resaleMidUsd, costBeforeTax + rankingTaxUsd + (tax.usd ?? 0));
+
   const roiPctMid =
-    profitMidUsd != null && costAllIn > 0
-      ? Math.round((profitMidUsd / costAllIn) * 1000) / 10
+    profitMidUsd != null && costAllInDisplay > 0
+      ? Math.round((profitMidUsd / costAllInDisplay) * 1000) / 10
       : null;
 
   const ageMatch = estimate.speedBasis.match(/about (\d+) days/);
   const listingAgeDays = ageMatch ? Number(ageMatch[1]) : null;
   const days = daysToSell(estimate.speed, estimate.speedBasis, listingAgeDays);
-  const confidence = confidenceLabel(estimate.compCount, estimate.speed);
+  const confidence = confidenceLabel(estimate.compCount, estimate.speed, salesTaxKnown);
 
   const risks: string[] = [
     "Title brand and full accident history are unknown until you pull a report and inspect the car.",
     "Open recalls are not checked in this search — verify before buying.",
     "Demand and days-to-sell are inferred from this scan, not a national DOM feed.",
   ];
+  if (!salesTaxKnown) {
+    risks.push(
+      "Sales-tax state is unknown — published profit is before sales tax; ranking applies a conservative tax haircut so this car is not favored over taxed peers.",
+    );
+  }
   if (estimate.listing.accidentCount == null) {
     risks.push("Accident count was missing on the listing — missing is not the same as clean.");
   }
@@ -249,13 +311,19 @@ export function buildResaleCandidatePnl(
     profitMidUsd == null
       ? unknownProvenance("Expected net profit mid", "Resale band or all-in cost incomplete.")
       : computedProvenance(
-          "Expected net profit mid",
+          salesTaxKnown ? "Expected net profit mid" : "Expected net profit mid (before sales tax)",
           usdOrUnknown(profitMidUsd),
-          "resaleMid × (1 − sellFriction) − (negotiate + tax + titleFee + recon)",
+          salesTaxKnown
+            ? "resaleMid × (1 − sellFriction) − (negotiate + tax + titleFee + recon)"
+            : `Before sales tax (state unknown). resaleMid × (1 − sellFriction) − (negotiate + titleFee + recon). ${RANKING_UNKNOWN_STATE_TAX_NOTE}`,
         ),
     roiPctMid == null
       ? unknownProvenance("ROI mid", "Profit or all-in cost incomplete.")
-      : computedProvenance("ROI mid", `${roiPctMid}%`, "profitMid / allInCost"),
+      : computedProvenance(
+          salesTaxKnown ? "ROI mid" : "ROI mid (before sales tax)",
+          `${roiPctMid}%`,
+          salesTaxKnown ? "profitMid / allInCost" : "profitMid (before tax) / cost before tax",
+        ),
     days.days == null
       ? unknownProvenance("Estimated days to sell", days.basis)
       : assumptionProvenance("Estimated days to sell", String(days.days), days.basis),
@@ -269,6 +337,8 @@ export function buildResaleCandidatePnl(
     negotiateBasis: negotiate.basis,
     salesTaxUsd: tax.usd,
     salesTaxBasis: tax.basis,
+    salesTaxKnown,
+    profitScopeLabel,
     titleRegistrationUsd: null,
     titleRegistrationBasis: TITLE_REGISTRATION_LINE,
     titleFeeAssumptionUsd: titleFee,
@@ -283,6 +353,7 @@ export function buildResaleCandidatePnl(
     profitLowUsd,
     profitMidUsd,
     profitHighUsd,
+    rankingProfitMidUsd,
     roiPctMid,
     estimatedDaysToSell: days.days,
     daysToSellBasis: days.basis,

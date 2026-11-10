@@ -80,7 +80,9 @@ function buildFlipReport(candidate: ResaleCandidatePnl, budgetUsd: number): Comp
     score: candidate.score,
     reasons: [
       candidate.profitMidUsd != null
-        ? `Code estimate mid profit $${candidate.profitMidUsd.toLocaleString("en-US")} from ${candidate.compCount} similar listings.`
+        ? `Code estimate mid profit $${candidate.profitMidUsd.toLocaleString("en-US")}${
+            candidate.profitScopeLabel ? ` ${candidate.profitScopeLabel}` : ""
+          } from ${candidate.compCount} similar listings.`
         : "Profit band incomplete — similar listings were thin.",
       candidate.negotiateBasis,
       candidate.resaleChannelBasis,
@@ -126,7 +128,17 @@ function buildFlipReport(candidate: ResaleCandidatePnl, budgetUsd: number): Comp
 }
 
 function sortByProfit(items: ResaleCandidatePnl[]): ResaleCandidatePnl[] {
-  return [...items].sort((a, b) => (b.profitMidUsd ?? Number.NEGATIVE_INFINITY) - (a.profitMidUsd ?? Number.NEGATIVE_INFINITY));
+  return [...items].sort((a, b) => {
+    const aMid = a.rankingProfitMidUsd ?? a.profitMidUsd ?? Number.NEGATIVE_INFINITY;
+    const bMid = b.rankingProfitMidUsd ?? b.profitMidUsd ?? Number.NEGATIVE_INFINITY;
+    return bMid - aMid;
+  });
+}
+
+function profitHeadline(c: ResaleCandidatePnl): string {
+  if (c.profitMidUsd == null) return "Profit mid unavailable — similar listings were thin.";
+  const scope = c.profitScopeLabel ? ` ${c.profitScopeLabel}` : "";
+  return `Expected mid net profit about $${c.profitMidUsd.toLocaleString("en-US")}${scope} (estimate from similar listings minus labeled costs).`;
 }
 
 function parseJsonObject(text: string): Record<string, unknown> | null {
@@ -687,16 +699,15 @@ export async function runResaleSettleServ(input: {
       reasons: [
         {
           evidenceId: "pnl_mid",
-          text:
-            best.profitMidUsd != null
-              ? `Expected mid net profit about $${best.profitMidUsd.toLocaleString("en-US")} (estimate from similar listings minus labeled costs).`
-              : "Profit mid unavailable — similar listings were thin.",
+          text: profitHeadline(best),
         },
         { evidenceId: "comps", text: `${best.compCount} similar listings in this scan.` },
       ],
       risks: best.risks.slice(0, 4).map((text, i) => ({ evidenceId: `risk_${i}`, text })),
       unknowns: [
-        ...(best.salesTaxUsd == null ? ["Sales tax unknown without listing state."] : []),
+        ...(best.salesTaxKnown
+          ? []
+          : ["Sales tax unknown — profit shown before sales tax (state unknown); ranking applies a conservative tax haircut."]),
         "Title/registration dollar amount unknown.",
         ...(best.estimatedDaysToSell == null ? ["Days to sell unknown without listing age / DOM feed."] : []),
       ],
