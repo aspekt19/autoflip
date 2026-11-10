@@ -52,17 +52,25 @@ export async function POST(request: Request) {
   });
   // Toast must match the owner's feed — not every watch in a shared cycle.
   const mySearchIds = new Set(mine.map((item) => item.id));
+  const minePerSearch = (run.perSearch ?? []).filter((row) => mySearchIds.has(row.searchId));
+  const ownerListings =
+    minePerSearch.length > 0
+      ? minePerSearch.reduce((sum, row) => sum + row.listings, 0)
+      : run.listings;
   const alerts = await listAlerts(kv);
-  const ownerAlerts = alerts.filter(
-    (alert) =>
-      alert.ownerId === id &&
-      mySearchIds.has(alert.searchId) &&
-      alert.createdAt >= run.startedAt,
-  ).length;
+  const ownerAlerts =
+    minePerSearch.length > 0
+      ? minePerSearch.reduce((sum, row) => sum + row.alertsSent, 0)
+      : alerts.filter(
+          (alert) =>
+            alert.ownerId === id &&
+            mySearchIds.has(alert.searchId) &&
+            alert.createdAt >= run.startedAt,
+        ).length;
   return Response.json({
     ok: true,
     alertsSent: ownerAlerts,
-    listings: run.listings,
+    listings: ownerListings,
     filteredOut: run.filteredOut,
     message: `Check finished. ${ownerAlerts} new alerts.`,
   });

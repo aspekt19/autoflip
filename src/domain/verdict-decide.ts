@@ -1,3 +1,4 @@
+import { ASSUMPTIONS } from "./assumptions";
 import {
   actionFromVerdict,
   isServDecisionAction,
@@ -64,7 +65,17 @@ export function verdictDecisionFacts(
       usageType: report.subject.usageType,
       cpo: report.subject.cpo,
     },
+    // Personal: fairValueUsd is buy-side fair value. Flip: same field holds resale mid — labeled below.
     fairValueUsd: report.fairValueUsd,
+    ...(report.mode === "flip"
+      ? {
+          resaleMidUsd: report.fairValueUsd,
+          askingUsd: report.subject.priceUsd,
+          fairValueRole: "resale_mid_estimate_not_buy_side_fair_value",
+          adequateMarginUsd: mandate.targetProfitUsd ?? ASSUMPTIONS.flipDesiredProfitUsd,
+          thinMarginUsd: ASSUMPTIONS.flipThinMarginUsd,
+        }
+      : {}),
     priceGap: report.priceGap,
     percentile: report.percentile,
     score: report.score,
@@ -81,6 +92,12 @@ export function verdictDecisionFacts(
           marginUsd: report.flip.marginUsd,
           targetBuyUsd: report.flip.targetBuyUsd,
           timeToSellRisk: report.flip.timeToSellRisk,
+          resaleMidUsd: report.flip.resaleMidUsd,
+          allInUsd: report.flip.allInUsd,
+          allInIncludesSalesTax: !report.dataNotes.some((note) =>
+            /allInIncludesSalesTax=false|omits sales tax/i.test(note),
+          ),
+          salesTaxKnown: !report.dataNotes.some((note) => /salesTaxKnown=false/i.test(note)),
         }
       : null,
     mandate: {

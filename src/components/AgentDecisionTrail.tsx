@@ -142,7 +142,17 @@ export function AgentDecisionTrail({ verdict, defaultOpen = false, confidenceWhy
           </p>
         ) : null}
         {second?.status === "unavailable" ? (
-          <p>{second.objection ?? "Second check did not finish. The first verdict stands."}</p>
+          <>
+            <p>{second.objection ?? "Second check unavailable: second check did not finish"}</p>
+            {second.rawDump ? (
+              <details className="onboarding-note">
+                <summary>Raw second-check dump</summary>
+                <p className="hint" style={{ whiteSpace: "pre-wrap" }}>
+                  {second.rawDump}
+                </p>
+              </details>
+            ) : null}
+          </>
         ) : null}
         {second?.status === "skipped_no_budget" || second?.status === "skipped_no_key" ? (
           <p>{second.objection ?? "Second check skipped."}</p>

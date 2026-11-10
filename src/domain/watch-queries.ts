@@ -3,8 +3,19 @@ import { toListingsQuery, type SavedSearch, type WatchCriteria, type WatchModel 
 import type { ListingQuery } from "@/io/marketcheck";
 
 export const MAX_PERSONAL_MODELS = 6;
-/** Two pages of the cheapest in-budget listings. Capped so a flip scan cannot walk the catalog. */
-export const FLIP_SCAN_PAGES = 2;
+/** Legacy page-count for cheapest-first Flip scans (kept for callers/tests). */
+export const FLIP_SCAN_PAGES = 3;
+
+/**
+ * Liquid make/model segments for a budget-only Flip watch.
+ * A cheapest-first nationwide page is too mixed for similar-listing comps;
+ * querying named liquid models matches Resale plan directions (cap = FLIP_SCAN_PAGES).
+ */
+export const FLIP_BROAD_SCAN_MODELS: WatchModel[] = [
+  { make: "Toyota", model: "Corolla" },
+  { make: "Toyota", model: "RAV4" },
+  { make: "Toyota", model: "Camry" },
+];
 
 export function watchModels(criteria: WatchCriteria): WatchModel[] {
   if (criteria.models?.length) {
@@ -34,17 +45,16 @@ export function isBroadFlip(search: Pick<SavedSearch, "mode" | "criteria">): boo
 
 export function listingQueries(search: Pick<SavedSearch, "mode" | "criteria">): ListingQuery[] {
   if (isBroadFlip(search)) {
-    const base = toListingsQuery({
-      ...search.criteria,
-      make: undefined,
-      model: undefined,
-      models: undefined,
-      yearMin: undefined,
-      yearMax: undefined,
-      milesMax: undefined,
-      bodyStyle: undefined,
-    });
-    return Array.from({ length: FLIP_SCAN_PAGES }, (_, index) => ({ ...base, page: index + 1, sort: "price.asc" }));
+    // Named liquid segments so similar-listing comps exist within each page.
+    return FLIP_BROAD_SCAN_MODELS.slice(0, FLIP_SCAN_PAGES).map((item) =>
+      toListingsQuery({
+        ...search.criteria,
+        make: item.make,
+        model: item.model,
+        models: undefined,
+        bodyStyle: undefined,
+      }),
+    );
   }
   const models = watchModels(search.criteria);
   if (models.length <= 1) return [toListingsQuery(search.criteria)];

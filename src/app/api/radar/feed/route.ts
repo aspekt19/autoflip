@@ -50,18 +50,39 @@ export async function GET() {
     activity: lastRun
       ? (() => {
           const servActivity = (lastRun.servActivity ?? []).filter((row) => mySearchIds.has(row.searchId));
+          const minePerSearch = (lastRun.perSearch ?? []).filter((row) => mySearchIds.has(row.searchId));
+          const ownerListings =
+            minePerSearch.length > 0
+              ? minePerSearch.reduce((sum, row) => sum + row.listings, 0)
+              : lastRun.listings;
+          const ownerAlerts =
+            minePerSearch.length > 0
+              ? minePerSearch.reduce((sum, row) => sum + row.alertsSent, 0)
+              : // Fall back: count this owner's alerts created in the run window.
+                myAlerts.filter((alert) => alert.createdAt >= lastRun.startedAt).length;
+          // Keep Flip explanation notes only once, and only when they apply to this owner.
+          const ownerNotes = Array.from(
+            new Set(
+              (lastRun.notes ?? []).filter((note) => {
+                if (/Flip explanation unavailable/i.test(note)) {
+                  return mine.some((search) => search.mode === "flip");
+                }
+                return true;
+              }),
+            ),
+          );
           return {
             runId: lastRun.id,
             startedAt: lastRun.startedAt,
             finishedAt: lastRun.finishedAt,
-            alertsSent: lastRun.alertsSent,
-            listings: lastRun.listings,
+            alertsSent: ownerAlerts,
+            listings: ownerListings,
             servActivity,
             decisionJournal: journalFromRadarActivity(servActivity, {
-              notes: lastRun.notes,
+              notes: ownerNotes,
               startedAt: lastRun.startedAt,
             }),
-            notes: lastRun.notes,
+            notes: ownerNotes,
           };
         })()
       : null,

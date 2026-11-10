@@ -40,16 +40,17 @@ describe("multi-model personal watches", () => {
     expect(isPriceDrop(null, 11_000)).toBe(false);
   });
 
-  it("scans a budget-only flip watch in two capped pages and no model filter", () => {
+  it("scans a budget-only flip watch across capped liquid make/model segments", () => {
     const queries = listingQueries({
       mode: "flip",
       criteria: { priceMax: 12_000, zip: "33101", radiusMiles: 50 },
     });
-    expect(queries).toHaveLength(2);
-    expect(queries[0]?.make).toBeUndefined();
-    expect(queries[0]?.model).toBeUndefined();
-    expect(queries[0]?.priceRange).toBe("1-12000");
-    expect(queries[1]?.page).toBe(2);
-    expect(queries.every((item) => item.sort === "price.asc")).toBe(true);
+    expect(queries).toHaveLength(3);
+    expect(queries.map((item) => `${item.make} ${item.model}`)).toEqual([
+      "Toyota Corolla",
+      "Toyota RAV4",
+      "Toyota Camry",
+    ]);
+    expect(queries.every((item) => item.priceRange === "1-12000")).toBe(true);
   });
 });

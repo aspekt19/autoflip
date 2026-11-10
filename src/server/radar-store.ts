@@ -137,6 +137,8 @@ export type StoredRun = {
   }>;
   /** Same journal schema as Resale search (`lemonless.resale_journal.v1`). */
   decisionJournal?: import("@/domain/resale-decision-journal").ResaleDecisionJournal;
+  /** Per-watch listing/alert counts for owner-scoped activity (honest Flip/Drive-it totals). */
+  perSearch?: Array<{ searchId: string; listings: number; alertsSent: number }>;
   payment: {
     status: string;
     missing: string[];

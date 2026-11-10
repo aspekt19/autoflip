@@ -101,8 +101,47 @@ describe("runReportVerdictChallenge failure trail", () => {
     });
 
     expect(result.status).toBe("unavailable");
-    expect(result.objection).toMatch(/empty explanation/i);
-    expect(result.objection).toMatch(/chatcmpl-7d34dd97-5ff2-4429-84e5-f6361a67fc73/);
-    expect(result.objection).toMatch(/first verdict stands/i);
+    expect(result.objection).toBe("Second check unavailable: empty response");
+    expect(result.rawDump).toMatch(/empty explanation/i);
+    expect(result.rawDump).toMatch(/chatcmpl-7d34dd97-5ff2-4429-84e5-f6361a67fc73/);
+    expect(result.rawDump).toMatch(/first verdict stands/i);
+  });
+
+  it("maps structured refusal to a short Second check unavailable label", async () => {
+    runServ.mockResolvedValue({
+      ok: false,
+      error: "SERV structured refusal field (message_content_null_refusal_field).",
+      status: 200,
+      proof: {
+        latencyMs: 1_244,
+        modelReported: "gpt-5.4-mini",
+        openserv: { id: "chatcmpl-91e97028-9249-4df4-a8ab-eccac014750d", usage: { total_tokens: 40 } },
+      },
+      fallback: "ignored_malformed",
+      upstream: "refusal",
+      httpAttempts: 1,
+      transportPolicy: "production",
+      responseShape: null,
+      failureDiag: {
+        reasonCode: "message_content_null_refusal_field",
+        category: "content_null_refusal_field",
+      },
+    });
+
+    const { result } = await runReportVerdictChallenge({
+      report: report(),
+      primaryAction: "buy",
+      confidence: "high",
+      allowedActions: ["buy", "negotiate", "pass", "needs_inspection"],
+      hasBudget: true,
+      servKey: "test-key",
+    });
+
+    expect(result.status).toBe("unavailable");
+    expect(result.objection).toBe(
+      "Second check unavailable: model returned a refusal with no usable answer",
+    );
+    expect(result.rawDump).toMatch(/message_content_null_refusal_field/);
+    expect(result.rawDump).toMatch(/chatcmpl-91e97028/);
   });
 });

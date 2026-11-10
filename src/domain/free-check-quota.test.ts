@@ -62,12 +62,14 @@ describe("free-check-quota domain", () => {
     expect(freeChecksRemainingFromAccount({ authenticated: true, freeChecks: { remaining: 2 } })).toBe("missing");
   });
 
-  it("account and check pages render that server line", () => {
+  it("account, check, and credits pages render that server line", () => {
     const account = readFileSync(path.join(process.cwd(), "src/components/AccountPanel.tsx"), "utf8");
     const check = readFileSync(path.join(process.cwd(), "src/components/AssistantFlow.tsx"), "utf8");
+    const credits = readFileSync(path.join(process.cwd(), "src/app/credits/page.tsx"), "utf8");
     expect(account).toMatch(/freeChecksRemainingFromAccount/);
     expect(check).toMatch(/freeChecksRemainingFromAccount/);
     expect(check).toMatch(/formatFreeChecksSignInPrompt/);
     expect(check).toMatch(/fetch\(["']\/api\/account["']\)/);
+    expect(credits).toMatch(/freeChecksRemainingFromAccount/);
   });
 });

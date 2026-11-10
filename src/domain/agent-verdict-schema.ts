@@ -71,7 +71,16 @@ export type AgentSecondPassResult = {
   status: AgentSecondPassStatus;
   /** Challenger's action when parsed and evidence-backed (or agreed). */
   action: Exclude<DecisionAction, "withheld"> | null;
+  /**
+   * Buyer-facing note. On unavailable, a short label only
+   * (`Second check unavailable: <reason>`) — never the raw upstream dump.
+   */
   objection: string | null;
+  /**
+   * Optional raw upstream / diagnostic dump for a collapsible UI field.
+   * Never invent; omit or null when nothing was recorded.
+   */
+  rawDump?: string | null;
   evidenceIds: string[];
   confidenceBefore: AgentVerdictConfidence | null;
   confidenceAfter: AgentVerdictConfidence | null;
@@ -236,6 +245,7 @@ export const AGENT_VERDICT_JSON_SCHEMA = {
               ],
             },
             objection: { oneOf: [{ type: "string" }, { type: "null" }] },
+            rawDump: { oneOf: [{ type: "string" }, { type: "null" }] },
             evidenceIds: { type: "array", items: { type: "string" } },
             confidenceBefore: {
               oneOf: [{ type: "null" }, { type: "string", enum: ["high", "medium", "low"] }],
