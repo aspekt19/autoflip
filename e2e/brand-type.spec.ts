@@ -3,9 +3,9 @@ import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 
 /**
- * Brand chrome (buttons, labels, nav, kickers) must use the condensed
- * uppercase face (--type-brand / Bebas Neue), not Manrope/system.
- * Body paragraphs and field values stay on the sans face.
+ * Brand chrome (buttons, labels, nav, kickers) must use Orbitron
+ * (--type-brand / --display), not Bebas/Manrope/system.
+ * Body paragraphs and field values stay on the sans face (Manrope).
  */
 
 const SCREEN_DIR = join(process.cwd(), "docs/screenshots/brand-type/after");
@@ -44,8 +44,8 @@ async function mockSignedIn(page: Page) {
 }
 
 function isBrandFace(family: string): boolean {
-  // next/font local injects a hashed family that falls back to Bebas Neue.
-  return /bebas|impact|__wide_|type-brand/i.test(family);
+  // next/font local injects a hashed family that falls back to Orbitron.
+  return /orbitron|__display_|type-brand/i.test(family) && !/bebas|impact|__wide_/i.test(family);
 }
 
 function isBodyFace(family: string): boolean {
@@ -67,8 +67,34 @@ test.describe("brand type on chrome", () => {
     mkdirSync(SCREEN_DIR, { recursive: true });
   });
 
+  test("home hero: Orbitron BUY SMART headline above search (one column @ 1920)", async ({ page }) => {
+    await mockSignedIn(page);
+    await page.setViewportSize({ width: 1920, height: 1080 });
+    await page.goto("/");
+    const title = page.locator("h1.brand-hero-title");
+    await expect(title).toBeVisible();
+    await expect(title).toHaveText(/BUY SMART\.\s*STAY\s*LEMONLESS\./i);
+    const titleFamily = await title.evaluate((el) => getComputedStyle(el).fontFamily);
+    expect(isBrandFace(titleFamily), `hero title font-family=${titleFamily}`).toBe(true);
+
+    const search = page.locator(".film-search");
+    await expect(search).toBeVisible();
+    const stacked = await page.evaluate(() => {
+      const slogan = document.querySelector(".film-slogan");
+      const card = document.querySelector(".film-search");
+      if (!slogan || !card) return false;
+      const a = slogan.getBoundingClientRect();
+      const b = card.getBoundingClientRect();
+      // Search sits below the slogan (not beside it).
+      return b.top >= a.bottom - 4;
+    });
+    expect(stacked, "search card must sit below the slogan at 1920").toBe(true);
+
+    await page.screenshot({ path: join(SCREEN_DIR, "home-hero-1920.png"), fullPage: false });
+  });
+
   for (const path of PAGES) {
-    test(`${path} buttons and labels use brand condensed face`, async ({ page }) => {
+    test(`${path} buttons and labels use Orbitron brand face`, async ({ page }) => {
       await mockSignedIn(page);
       await page.setViewportSize({ width: 1440, height: 900 });
       await page.goto(path);
