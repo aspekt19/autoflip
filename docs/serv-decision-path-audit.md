@@ -1,27 +1,38 @@
 # SERV decision-path audit (Find / Resale / Deal Radar)
 
-Generated with the `cursor/serv-decision-trail-9807` work. Line numbers refer to that branch tip.
+Generated with the `cursor/serv-decision-trail-9807` work (detail pass from [Audit SERV decision paths](bc-8d234b00-c7ba-5de0-89de-a01357c6ba37)). Line numbers drift; prefer symbols below.
 
 Eval harness (no paid calls by default): `scripts/eval-serv-vs-baseline.ts --dry-run` → `eval/results/serv-vs-baseline-latest.json`.
 
 ## Summary table
 
-| Surface | SERV step | File:lines | Changes finalAction / pick / checks? | Notes |
-|---------|-----------|------------|--------------------------------------|-------|
-| Find need parse | `need_guard` / `need_extract` | `src/server` need path → `proofRecords` on `/api/need` | Criteria / need fields (clamped) | UI: `DecisionRecordList` in `AssistantFlow.tsx` |
-| Find next-check | `find_next_check` | `src/server/find-next-check-live.ts` (~105–360) | **Yes — which check runs** (allowlist clamp) then `applyFindNextCheck` | Deterministic fallback when SERV unavailable (honest) |
-| Find settle | `verdict_decide` + `verdict_challenge` | `src/server/find-settle-serv.ts` 169–287 → `runShopperVerdictServ` | **Yes — Buy/Negotiate/Pass** via `finalAction`; pick stays code ranking | Challenge disagreement applies under guardrails (`shopper-verdict-serv.ts` ~413–441) |
-| Resale plan/pick/challenge | `resale_*` profiles | `src/server/resale-settle-serv.ts` | **Yes — VIN pick / challenge** among allowlisted VINs; money action via `applyFlipPublishedAction` | Journal: `ResaleDecisionJournalView` |
-| Resale shopper | `verdict_decide` + challenge | `resale-settle-serv.ts` ~1621–1800 | **Yes — published `verdictAction`** when SERV returns allowlisted action | Now also emits `proofRecords` → UI `DecisionRecordList` |
-| Radar re-check | `verdict_decide` (+ optional challenge) | `src/server/radar-serv.ts` `reviewPersonalCandidate` ~183–455 | **Yes — `alertWorthy`** (buy/negotiate alert; challenge can clear alert) | **Fixed:** no-key path no longer alerts on code price alone |
-| Radar guard | `radar_guard` | `radar-cycle.ts` / assemble | Gate before review | `proofRecords` on Check/feed (owner-filtered) |
+| Surface | SERV step | Call site | Changes finalAction / pick / checks? | Notes |
+|---------|-----------|-----------|--------------------------------------|-------|
+| Find need parse | `need_guard` / `need_extract` | `understandNeed` | Criteria / need fields (clamped) | UI: `DecisionRecordList` in `AssistantFlow.tsx`. Resale `/api/need` also calls this but drops `proofRecords` in UI |
+| Find next-check | `find_next_check` | `runFindNextCheckLive` → orchestrator | **Yes — which check runs** (allowlist clamp) | Deterministic fallback when SERV unavailable. UI filters for `find_next_check` proofs but live path does not yet emit `DecisionProofRecord` for that purpose. Free-gov open can override executed check away from SERV choice |
+| Find settle | `verdict_decide` + `verdict_challenge` | `runFindSettleServ` → `runShopperVerdictServ` | **Yes — Buy/Negotiate/Pass** via `finalAction`; **pick stays code ranking** | Challenge disagreement applies under guardrails |
+| Resale plan/pick/challenge | `resale_*` | `runResaleSettleServ` | **Yes — VIN pick / challenge** among allowlisted VINs | Journal: `ResaleDecisionJournalView` |
+| Resale shopper | `verdict_decide` + challenge | `runResaleSettleServ` → `runShopperVerdictServ` | **Yes — published `verdictAction`** | Emits `proofRecords` → UI `DecisionRecordList` |
+| Resale evaluate (one-car) | — | `evaluateResaleDeal` | **No SERV** | Code comps only; no decision journal by design |
+| Radar re-check (personal) | `verdict_decide` (+ optional challenge) | `reviewPersonalCandidate` via `runRadarCycle` | **Yes — `alertWorthy`** | Challenge can only veto alert. **Fixed:** cycle always calls `reviewPersonalCandidate` (no inline `alertWorthy: true`) |
+| Radar flip re-check | `flip_feasibility` / `radar_review` | `judgeFlipAlerts` + `flipCandidateOutcome` | **Yes — alert vs skip vs not_reviewed** | **Fixed:** no SERV key → `serv_skipped`, not `code_alert` |
+| Radar guard | `radar_guard` | `runRadarCycle` / assemble | Soft gate / proof | Always one row when assembled |
 
 ## Decorative / bypass fixes in this PR
 
-1. **Radar no SERV key** (`radar-serv.ts`): previously `alertWorthy: true` with code price only — SERV bypassed. Now **does not alert** without a SERV decision when evidence exists; proof status `skipped_no_key`.
-2. **Resale missing shared proof journal**: had Resale journal + `AgentDecisionTrail` but not `lemonless.decision_proof.v1` rows. Now threads `proofRecords` from shopper settle through job delivery into `DecisionRecordList` (purpose, response id, what changed, raw response).
+1. **Radar no SERV key — personal** (`radar-serv.ts` + `radar-cycle.ts`): previously the cycle short-circuited with `alertWorthy: true` / “code price rating only” and never hit `reviewPersonalCandidate`. Now the cycle always calls review; missing key → skip + `skipped_no_key` proof (no alert).
+2. **Radar no SERV key — flip** (`flipCandidateOutcome`): previously `code_alert`. Now `serv_skipped` with the same honesty sentence.
+3. **Resale missing shared proof journal**: threads `proofRecords` from shopper settle through job delivery into `DecisionRecordList`.
 
-## What still is code-owned (by design, with TS guardrails)
+## Still open / by design (not in this PR)
+
+- Find next-check does not emit `DecisionProofRecord` (UI filter is aspirational).
+- Orchestrator may override SERV’s chosen check while free public checks remain.
+- Resale evaluate path has no SERV and no decision journal.
+- Resale free-text `/api/need` mutates form fields but does not render returned `proofRecords`.
+- Find settle never replaces the ranked car — only the Buy/Negotiate/Pass action.
+
+## What still is code-owned (with TS guardrails)
 
 - **Which car is ranked first on Find**: `selectBestDealOnEvidence` — SERV reviews that pick; challenge can change the **verdict**, not invent a new VIN.
 - **Dollar figures**: always TypeScript (P&L, fair value, comps).

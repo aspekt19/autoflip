@@ -59,10 +59,12 @@ describe("radar cycle", () => {
     expect(first.autodevCalls).toBe(1);
     expect(first.payment.status).toBe("not_configured");
     expect(first.serv.promptGuard).toBe("not_configured");
-    expect(first.alertsSent).toBeGreaterThan(0);
+    // No SERV key → honest skip (no code-price-only alerts).
+    expect(first.alertsSent).toBe(0);
     const alerts = await listAlerts(kv);
-    expect(new Set(alerts.map((item) => item.ownerId)).size).toBe(2);
+    expect(alerts.every((item) => item.status === "serv_skipped")).toBe(true);
     expect(alerts.every((item) => item.sample === false)).toBe(true);
+    expect(alerts.some((item) => /code price rating alone does not alert/i.test(item.why))).toBe(true);
     const seen = await seenVins(kv, seenStorageKey(preset.id, preset.criteria));
     expect(seen.size).toBe(4);
     const personalBefore = (await listAlerts(kv)).filter((item) => item.mode === "personal").length;
