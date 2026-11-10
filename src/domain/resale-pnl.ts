@@ -267,7 +267,20 @@ export function buildResaleCandidatePnl(
   const ageMatch = estimate.speedBasis.match(/about (\d+) days/);
   const listingAgeDays = ageMatch ? Number(ageMatch[1]) : null;
   const days = daysToSell(estimate.speed, estimate.speedBasis, listingAgeDays);
-  const confidence = confidenceLabel(estimate.compCount, estimate.speed, salesTaxKnown);
+  const link = listingVdpVerifiability({
+    vdp: estimate.listing.vdp,
+    dealer: estimate.listing.dealer,
+    vin: estimate.vin,
+    year: estimate.listing.year,
+    trim: estimate.listing.trim,
+  });
+  let confidence = confidenceLabel(estimate.compCount, estimate.speed, salesTaxKnown);
+  if (link.pageMismatchNote && confidence.label !== "Low") {
+    confidence = {
+      label: "Low",
+      basis: `${confidence.basis} Lowered: listing URL trim/year may not match the feed row — comps may be off.`,
+    };
+  }
 
   const risks: string[] = [
     "Title brand and full accident history are unknown until you pull a report and inspect the car.",
@@ -292,17 +305,18 @@ export function buildResaleCandidatePnl(
     "Match VIN, odometer, and options to the listing before depositing money.",
     "Budget for registration, local tax add-ons, and unexpected repairs beyond the estimate.",
   ];
-  const link = listingVdpVerifiability({
-    vdp: estimate.listing.vdp,
-    dealer: estimate.listing.dealer,
-    vin: estimate.vin,
-  });
   if (link.flag) {
     risks.push(link.flag);
     checkBeforeBuying.unshift(link.flag);
   }
   if (link.sellerMismatchNote) {
     risks.push(link.sellerMismatchNote);
+  }
+  if (link.pageMismatchNote) {
+    risks.push(
+      `${link.pageMismatchNote} Similar-listing comps may be for a different trim.`,
+    );
+    checkBeforeBuying.unshift(link.pageMismatchNote);
   }
 
   const provenance: ResaleFieldProvenance[] = [

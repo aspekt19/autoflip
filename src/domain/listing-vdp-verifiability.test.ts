@@ -63,4 +63,31 @@ describe("listingVdpVerifiability", () => {
     expect(row.pageMismatchNote).toMatch(/different year/i);
     expect(row.pageMismatchNote).not.toMatch(/different trim/i);
   });
+
+  it("flags Corolla LE feed vs slug -l (Germain-style)", () => {
+    const row = listingVdpVerifiability({
+      dealer: "Germain Toyota",
+      vdp: "https://www.germainvwofcolumbus.com/inventory/used-2013-toyota-corolla-l/VIN",
+      year: 2013,
+      trim: "LE",
+    });
+    expect(row.pageMismatchNote).toMatch(/different trim/i);
+  });
+
+  it("flags feed S vs slug le, and feed S vs slug s-premium", () => {
+    const le = listingVdpVerifiability({
+      dealer: "Example Toyota",
+      vdp: "https://www.exampletoyota.com/inventory/used-2015-toyota-corolla-le/ABC",
+      year: 2015,
+      trim: "S",
+    });
+    expect(le.pageMismatchNote).toMatch(/different trim/i);
+    const premium = listingVdpVerifiability({
+      dealer: "Example Toyota",
+      vdp: "https://www.exampletoyota.com/inventory/used-2015-toyota-corolla-s-premium/ABC",
+      year: 2015,
+      trim: "S",
+    });
+    expect(premium.pageMismatchNote).toMatch(/different trim/i);
+  });
 });

@@ -254,6 +254,14 @@ export async function runRadarCycle(deps: CycleDeps): Promise<StoredRun> {
           });
           const storageKey = seenStorageKey(search.id, search.criteria);
           const book = await seenBook(deps.kv, storageKey);
+          // Force re-review of stuck not_reviewed rows within this search so SERV
+          // (radar_review) actually runs again instead of leaving them forever.
+          const pendingNotReviewed = alerts.filter(
+            (row) => row.searchId === search.id && row.status === "not_reviewed",
+          );
+          for (const pending of pendingNotReviewed) {
+            book.delete(pending.vin);
+          }
           const fresh = ranked.flatMap((item) => {
             const previous = book.get(item.vin);
             if (previous !== undefined && !isPriceDrop(previous, item.listing.priceUsd)) return [];
@@ -414,22 +422,25 @@ export async function runRadarCycle(deps: CycleDeps): Promise<StoredRun> {
             return [{ listing: item.listing, numbers: item.decision.numbers, why, priceDropFrom: dropped ? previous : null }];
           }),
         );
+        // Force re-review of stuck not_reviewed Drive-it rows so verdict_decide runs again.
+        for (const pending of alerts.filter(
+          (row) => row.searchId === search.id && row.status === "not_reviewed",
+        )) {
+          book.delete(pending.vin);
+        }
         const winners = ranked.slice(0, ASSUMPTIONS.radarMaxServPerSearch);
         tallyReason(reasons, "past the SERV/alert cap", Math.max(0, ranked.length - winners.length));
         filteredOut += decisions.length - passedRows.length;
         passed += passedRows.length;
-        // Mark soft-evaluated listings as seen so cron diffs stay honest. Hard rejects
-        // (year/radius/budget) stay unmarked so widening criteria can re-check them.
+        // Mark soft-evaluated non-winners as seen. Winners stay unmarked until SERV
+        // finishes so a failed verdict_decide can retry on the next Check.
+        const winnerVins = new Set(winners.map((row) => row.listing.vin));
         for (const item of decisions) {
           if (hardReject(item.listing, search.criteria, deps.now.getUTCFullYear())) continue;
           if (item.listing.priceUsd == null) continue;
+          if (winnerVins.has(item.listing.vin)) continue;
           book.set(item.listing.vin, item.listing.priceUsd);
         }
-        await storeSeenPrices(
-          deps.kv,
-          storageKey,
-          [...book.entries()].map(([vin, priceUsd]) => ({ vin, priceUsd })),
-        );
         touchedOwnerIds.add(search.ownerId);
         touchedSearchIds.add(search.id);
         bumpSearch(search.id, { listings: scoped.length });
@@ -438,6 +449,7 @@ export async function runRadarCycle(deps: CycleDeps): Promise<StoredRun> {
           const badge = priceBadge(winner.listing, scoped, { mode: "personal" });
           if (badge.tone !== "good" && badge.tone !== "fair") {
             tallyReason(reasons, badge.label || "not good/fair");
+            if (winner.listing.priceUsd != null) book.set(winner.listing.vin, winner.listing.priceUsd);
             continue;
           }
           const personalCoverage = {
@@ -482,6 +494,45 @@ export async function runRadarCycle(deps: CycleDeps): Promise<StoredRun> {
           }
           servActivity.push(...review.activity);
           if (!review.alertWorthy) {
+            const decideRow = review.activity.find((row) => row.profile === "verdict_decide");
+            const servFailed = Boolean(decideRow && !decideRow.ok);
+            if (servFailed || (deps.servKey && !decideRow?.ok && review.action == null)) {
+              const pending = makeAlert(
+                search,
+                winner.listing,
+                `Not reviewed — SERV verdict_decide did not finish (will retry on next Check). ${winner.why}`,
+                winner.numbers,
+                deps.now.toISOString(),
+                review.checks.length ? review.checks : undefined,
+                coverageSentence(personalCoverage),
+                coverageConfidence(personalCoverage),
+                winner.priceDropFrom,
+                badge,
+                "not_reviewed",
+              );
+              const next = upsertNotReviewedAlert(alerts, pending);
+              alerts.length = 0;
+              alerts.push(...next);
+              tallyReason(reasons, "SERV did not finish — left Not reviewed");
+              // Leave out of seen book so the next Check can re-run verdict_decide.
+              continue;
+            }
+            // SERV reviewed and chose pass / needs_inspection — not an alert.
+            const skipped = makeAlert(
+              search,
+              winner.listing,
+              `Reviewed — skipped: ${review.why}`,
+              winner.numbers,
+              deps.now.toISOString(),
+              review.checks.length ? review.checks : undefined,
+              coverageSentence(personalCoverage),
+              coverageConfidence(personalCoverage),
+              winner.priceDropFrom,
+              badge,
+              "serv_skipped",
+            );
+            alerts.unshift(skipped);
+            if (winner.listing.priceUsd != null) book.set(winner.listing.vin, winner.listing.priceUsd);
             tallyReason(reasons, "SERV did not rate good/fair");
             continue;
           }
@@ -501,7 +552,13 @@ export async function runRadarCycle(deps: CycleDeps): Promise<StoredRun> {
           freshAlerts.push(alert);
           alertsSent += 1;
           bumpSearch(search.id, { alertsSent: 1 });
+          if (winner.listing.priceUsd != null) book.set(winner.listing.vin, winner.listing.priceUsd);
         }
+        await storeSeenPrices(
+          deps.kv,
+          storageKey,
+          [...book.entries()].map(([vin, priceUsd]) => ({ vin, priceUsd })),
+        );
         search.lastCheckedAt = deps.now.toISOString();
       }
     }
@@ -649,7 +706,11 @@ function finish(
     ownerIds,
     searchIds,
     servActivity,
-    decisionJournal: journalFromRadarActivity(servActivity, { notes, startedAt }),
+    decisionJournal: journalFromRadarActivity(servActivity, {
+      notes,
+      startedAt,
+      filterBreakdown,
+    }),
     perSearch,
     payment,
   };
