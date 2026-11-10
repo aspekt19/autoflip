@@ -254,8 +254,8 @@ export async function requireVerifiedAccountForFind(): Promise<VerifiedAccessOk 
 }
 
 /**
- * Deal Radar saved searches require a verified Auth.js account (same gate as Find).
- * Anonymous af_uid cookies cannot create or own watches.
+ * All Deal Radar user routes require a verified Auth.js account (same gate as Find).
+ * Anonymous af_uid cookies cannot scan, create watches, check, or read feed/activity.
  */
 export async function requireVerifiedAccountForRadar(): Promise<VerifiedAccessOk | VerifiedAccessErr> {
   return requireVerifiedSignedIn("radar_search");

@@ -3,12 +3,14 @@ import { journalFromRadarActivity } from "@/domain/radar-activity-journal";
 import { getKv } from "@/io/kv";
 import { listAlerts, listRuns, listSearches, seenVins } from "@/server/radar-store";
 import { seenStorageKey } from "@/domain/radar-watch";
-import { isDemoUser, ledgerOwnerId } from "@/server/session";
+import { isDemoUser, requireVerifiedAccountForRadar } from "@/server/session";
 
 export const dynamic = "force-dynamic";
 
 export async function GET() {
-  const id = await ledgerOwnerId();
+  const access = await requireVerifiedAccountForRadar();
+  if (!access.ok) return access.response;
+  const id = access.id;
   const kv = getKv();
   const [searches, alerts, runs] = await Promise.all([listSearches(kv), listAlerts(kv), listRuns(kv)]);
   const mine = searches.filter((item) => item.ownerId === id);

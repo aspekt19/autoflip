@@ -1,17 +1,19 @@
 import { journalFromRadarActivity } from "@/domain/radar-activity-journal";
 import { getKv } from "@/io/kv";
 import { listRuns, listSearches } from "@/server/radar-store";
-import { isDemoUser, ledgerOwnerId } from "@/server/session";
+import { isDemoUser, requireVerifiedAccountForRadar } from "@/server/session";
 
 export const dynamic = "force-dynamic";
 
 /**
  * Activity log for Deal Radar runs.
- * Signed-in owners see runs that touched their watches; shared demo sees all runs.
+ * Verified owners see runs that touched their watches; shared demo sees all runs.
  * Empty list is honest — no invented history.
  */
 export async function GET() {
-  const id = await ledgerOwnerId();
+  const access = await requireVerifiedAccountForRadar();
+  if (!access.ok) return access.response;
+  const id = access.id;
   const kv = getKv();
   const runs = await listRuns(kv);
   if (isDemoUser(id)) {

@@ -3,19 +3,21 @@ import { getKv, storageMode } from "@/io/kv";
 import { lastCheckNow, listSearches, markCheckNow } from "@/server/radar-store";
 import { runRadarCycle } from "@/server/radar-cycle";
 import { originOf } from "@/server/secrets";
-import { isDemoUser, ledgerOwnerId } from "@/server/session";
+import { isDemoUser, requireVerifiedAccountForRadar } from "@/server/session";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 
 export async function POST(request: Request) {
+  const access = await requireVerifiedAccountForRadar();
+  if (!access.ok) return access.response;
   if (storageMode() === "unconfigured") {
     return Response.json(
       { error: "storage_not_configured", message: "Persistent storage is not configured, so a check would not be saved." },
       { status: 503 },
     );
   }
-  const id = await ledgerOwnerId();
+  const id = access.id;
   const kv = getKv();
   const mine = (await listSearches(kv)).filter((item) => item.ownerId === id && item.enabled);
   if (!isDemoUser(id) && mine.length === 0) {
