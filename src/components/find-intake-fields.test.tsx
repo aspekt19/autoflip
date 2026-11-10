@@ -22,7 +22,7 @@ vi.mock("next/link", () => ({
 const REPRO =
   "Looking for a reliable used car for myself, budget around $15k, automatic, good on gas, nothing salvage or with accident history.";
 
-/** Confirm-entry notes call /api/need once for SERV parse — stub so jsdom stays offline. */
+/** Confirm-entry notes call /api/need once for criteria parse — stub so jsdom stays offline. */
 function mockEntryNeedParse() {
   vi.stubGlobal(
     "fetch",
@@ -70,7 +70,7 @@ function mockEntryNeedParse() {
           checks: [
             {
               purpose: "need_guard",
-              tools: ["serv_prompt_guard"],
+              tools: [],
               features: [],
               promptGuard: "not_configured",
               shadowOutcome: "not_used",
