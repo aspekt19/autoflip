@@ -116,10 +116,10 @@ test("Scout and Telegram stay hidden; Deal Radar is available when default-on", 
 
   await page.setViewportSize({ width: 1280, height: 800 });
   await page.goto("/radar");
-  // Anonymous cookies cannot use Deal Radar — verified sign-in required.
+  // Page chrome (title) stays visible; watches still require verified sign-in.
+  await expect(page.getByRole("heading", { name: "Deal Radar" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Sign in to continue" })).toBeVisible();
   await expect(page.getByText(/not an anonymous browser cookie/i)).toBeVisible();
-  await expect(page.getByRole("heading", { name: "Deal Radar" })).toHaveCount(0);
 
   await mockAccount(page, true);
   await page.route("**/api/radar/feed", async (route) => {

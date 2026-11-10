@@ -315,26 +315,19 @@ function RadarInner() {
   }
 
   return (
-    <div className="sub">
-      <div className="wrap site-frame">
-        <p className="kicker">{demo ? "Guided preview" : "Subscriptions"}</p>
-        <h1>Deal Radar</h1>
-        <p className="lead">
-          Deal Radar is paid-only. Watches cover Find (Drive it) or Resale (flip) under your plan cap
-          {planName ? ` (${planName}: up to ${watchLimit})` : ""}. Criteria are not edited here — start a search, then
-          choose Watch with Deal Radar. Opening a full report costs 1 report credit.
-        </p>
+    <>
+        {demo ? <p className="kicker">Guided preview</p> : null}
+        {planName ? (
+          <p className="hint">
+            Plan: {planName} (up to {watchLimit})
+          </p>
+        ) : null}
         {requiresPlan ? (
           <p className="warn-box">
             No active Radar plan. Existing watches stay saved but are paused until you subscribe.{" "}
             <Link href="/pricing?from=watch">Choose Radar or Radar Pro</Link>
           </p>
         ) : null}
-        <p className="hint">
-          <Link href="/activity">Activity log</Link>
-          {" · "}
-          <Link href="/pricing">Pricing</Link>
-        </p>
         <ul className="refuse">
           <li>
             Last run finished:{" "}
@@ -647,8 +640,7 @@ function RadarInner() {
             <Link href="/credits">Buy credits</Link> for a full report.
           </p>
         ) : null}
-      </div>
-    </div>
+    </>
   );
 }
 
@@ -656,14 +648,32 @@ export default function RadarPage() {
   return (
     <Suspense
       fallback={
-        <div className="wrap site-frame page">
-          <p className="eyebrow">Loading Deal Radar…</p>
+        <div className="sub">
+            <div className="sheet-page site-frame">
+            <p className="eyebrow">Loading Deal Radar…</p>
+          </div>
         </div>
       }
     >
-      <SignInGate callbackPath="/radar">
-        <RadarInner />
-      </SignInGate>
+      <div className="sub">
+        <div className="sheet-page site-frame">
+          <p className="kicker">Subscriptions</p>
+          <h1>Deal Radar</h1>
+          <p className="lead">
+            Deal Radar is paid-only. Watches cover Find (Drive it) or Resale (flip) under your plan cap. Criteria are not
+            edited here — start a search, then choose Watch with Deal Radar. Opening a full report costs 1 report
+            credit.
+          </p>
+          <p className="hint">
+            <Link href="/activity">Activity log</Link>
+            {" · "}
+            <Link href="/pricing">Pricing</Link>
+          </p>
+          <SignInGate callbackPath="/radar">
+            <RadarInner />
+          </SignInGate>
+        </div>
+      </div>
     </Suspense>
   );
 }
