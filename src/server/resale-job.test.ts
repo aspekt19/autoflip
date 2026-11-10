@@ -136,7 +136,7 @@ function servFetchMock(): typeof fetch {
     }
 
     return Response.json({
-      id: `chatcmpl-step-${call}-${schema ?? "other"}`,
+      id: `synthetic-test-step-${call}-${schema ?? "other"}`,
       object: "chat.completion",
       
       choices: [

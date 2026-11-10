@@ -82,7 +82,7 @@ function servPayload(body) {
 
   if (schema === "need_extract") {
     return chatCompletion(
-      "chatcmpl-StubNeedExtract01",
+      "synthetic-test-StubNeedExtract01",
       JSON.stringify({
         useCase: "commute",
         mustHaves: [],
@@ -105,11 +105,11 @@ function servPayload(body) {
     /verdict_decide|Buy\/Negotiate\/Pass|shopper verdict/i.test(system)
   ) {
     const radar = /radar|alert|watch/i.test(system) || user.includes("alertWorthy");
-    return negotiateVerdict(radar ? "chatcmpl-StubRadarDecide01" : "chatcmpl-StubFindDecide01");
+    return negotiateVerdict(radar ? "synthetic-test-StubRadarDecide01" : "synthetic-test-StubFindDecide01");
   }
   if (schema === "report_verdict_challenge") {
     return chatCompletion(
-      "chatcmpl-StubFindChallenge01",
+      "synthetic-test-StubFindChallenge01",
       JSON.stringify({
         agrees: true,
         action: "negotiate",
@@ -120,12 +120,12 @@ function servPayload(body) {
   }
 
   if (schema === "flip_alert_judgment" || /radar_review|alert.?judgment/i.test(system)) {
-    return negotiateVerdict("chatcmpl-StubRadarDecide01");
+    return negotiateVerdict("synthetic-test-StubRadarDecide01");
   }
 
   if (schema === "find_next_check_choice") {
     return chatCompletion(
-      "chatcmpl-StubNextCheck01",
+      "synthetic-test-StubNextCheck01",
       JSON.stringify({
         checkId: "free_gov_fuel",
         reason: "STUB next-check — fixture only",
@@ -135,11 +135,11 @@ function servPayload(body) {
 
   // need_guard / check_guard / radar_guard — interpretGuard expects ALLOW
   if (/guard|shopping for a car|screen/i.test(system) || !schema) {
-    return chatCompletion("chatcmpl-StubNeedGuard01", "ALLOW");
+    return chatCompletion("synthetic-test-StubNeedGuard01", "ALLOW");
   }
 
   return chatCompletion(
-    "chatcmpl-StubGeneric01",
+    "synthetic-test-StubGeneric01",
     JSON.stringify({ ok: true, note: "STUB generic — fixture only" }),
   );
 }
@@ -182,7 +182,9 @@ const server = http.createServer(async (req, res) => {
     res.writeHead(200);
     res.end(
       JSON.stringify({
-        id: chat.id.replace("chatcmpl-", "resp-"),
+        id: chat.id.startsWith("synthetic-test-")
+          ? chat.id.replace("synthetic-test-", "synthetic-test-resp-")
+          : chat.id.replace("chatcmpl-", "resp-"),
         object: "response",
         model: chat.model,
         output_text: chat.choices[0].message.content,

@@ -317,7 +317,7 @@ describe("P1 Check: park-outside campaign is stop-level end-to-end via runCheck"
             ? { verdict: "negotiate", note: "Ask is near the fair value from similar listings." }
             : { agrees: true, action: "negotiate", objection: null, evidenceIds: ["ev_fair_value"] };
         return Response.json({
-          id: `chatcmpl-park-outside-${servCalls}`,
+          id: `synthetic-test-park-outside-${servCalls}`,
           model: "gpt-5.4-mini",
           choices: [{ message: { content: JSON.stringify(body) } }],
         });

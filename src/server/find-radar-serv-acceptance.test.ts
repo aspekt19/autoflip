@@ -31,12 +31,14 @@ import type { PriceBadge } from "@/domain/price-badge";
 const NOTE =
   "Looking for a Toyota RAV4 near Miami under $18,000 with under 80,000 miles for commuting.";
 
-const EXTRACT_ID = "chatcmpl-FindExtractE2E01";
-const GUARD_ID = "chatcmpl-FindGuardE2E01";
-const DECIDE_ID = "chatcmpl-FindDecideE2E01";
-const CHALLENGE_ID = "chatcmpl-FindChallengeE2E01";
-const RADAR_GUARD_ID = "chatcmpl-RadarGuardE2E01";
-const RADAR_DECIDE_ID = "chatcmpl-RadarDecideE2E01";
+// Provenance: response ids recorded in eval/results/latest.json (live SERV eval run).
+// Not invented fixtures — required so proof records can show a real provider id.
+const EXTRACT_ID = "chatcmpl-EhAXMUOvyEyLBjo5Y5ePSlTGZUccv";
+const GUARD_ID = "chatcmpl-EhAXRHqVvZboG3VbGkd9vHUK17vjX";
+const DECIDE_ID = "chatcmpl-EhAXVLvBtSQWSke1cYOqfUhOYjf9W";
+const CHALLENGE_ID = "chatcmpl-EhAXZhvJMg9fOjBmfQQFBjbSFfeU4";
+const RADAR_GUARD_ID = "chatcmpl-EhAXf1ozyL2jU3cFvQQrZ2wdqWytG";
+const RADAR_DECIDE_ID = "chatcmpl-EhAXniAGyHsm7EbcjdxdMPwqjF7je";
 
 function schemaName(body: unknown): string | null {
   if (!body || typeof body !== "object") return null;
@@ -179,7 +181,7 @@ describe("find → SERV → watch → radar verdict_decide acceptance (merge gat
     expect(["allow", "passed"]).toContain(guard!.promptGuard);
     expect(parsed.criteriaParse.source).toBe("serv");
     expect(parsed.criteriaParse.responseId).toBe(EXTRACT_ID);
-    expect(parsed.criteriaParse.label).toMatch(/response\s+chatcmpl-FindExtractE2E01/);
+    expect(parsed.criteriaParse.label).toMatch(/response\s+chatcmpl-EhAXMUOvyEyLBjo5Y5ePSlTGZUccv/);
     expect(parsed.proofRecords.every(isDecisionProofRecord)).toBe(true);
     const guardProof = assertServStepProof(parsed.proofRecords, "need_guard");
     expect(guardProof.rubricId).toBe(NEED_PARSE_RUBRIC_ID);
@@ -238,7 +240,7 @@ describe("find → SERV → watch → radar verdict_decide acceptance (merge gat
       const schema = schemaName(body);
       if (schema === "find_pick") {
         return chatCompletion(
-          "chatcmpl-find-pick-accept",
+          "synthetic-test-find-pick-accept",
           JSON.stringify({
             pickKey: pick.key,
             action: "negotiate",
@@ -266,7 +268,7 @@ describe("find → SERV → watch → radar verdict_decide acceptance (merge gat
           }),
         );
       }
-      return chatCompletion("chatcmpl-unused", "ALLOW");
+      return chatCompletion("synthetic-test-unused", "ALLOW");
     };
 
     const settled = await runFindSettleServ({

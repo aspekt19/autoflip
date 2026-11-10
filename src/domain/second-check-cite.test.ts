@@ -14,10 +14,10 @@ describe("second check citation", () => {
       }),
       allowedEvidenceIds: new Set(["e1"]),
       profile: "resale_challenge",
-      responseId: "chatcmpl-second-1",
+      responseId: "synthetic-test-second-1",
     });
     expect(result.status).toBe("agreed");
     expect(result.profile).toBe("resale_challenge");
-    expect(result.responseId).toBe("chatcmpl-second-1");
+    expect(result.responseId).toBe("synthetic-test-second-1");
   });
 });

@@ -9,7 +9,7 @@ import { normalizeCompareUsageLoose } from "@/server/scout/plan-parse-diagnostic
 
 describe("Gemini-safe response failure diagnostics (t317)", () => {
   const geminiStylePayload = {
-    id: "chatcmpl-gemini-test",
+    id: "synthetic-test-gemini",
     choices: [
       {
         finish_reason: "stop",

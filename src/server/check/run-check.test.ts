@@ -98,7 +98,7 @@ describe("runCheck listing paste (no paid Autodev/SERV)", () => {
             : { agrees: true, action: "negotiate", objection: null, evidenceIds: ["ev_fair_value"] };
         return new Response(
           JSON.stringify({
-            id: `chatcmpl-check-${servCalls}`,
+            id: `synthetic-test-check-${servCalls}`,
             model: "gpt-5.4-mini",
             choices: [{ message: { content: JSON.stringify(body) } }],
           }),
@@ -140,7 +140,8 @@ describe("runCheck listing paste (no paid Autodev/SERV)", () => {
     expect(result.result.agentVerdict.serv_steps.some((step) => /Lemonless AI chose negotiate/i.test(step.decided))).toBe(true);
     expect(result.result.agentVerdict.serv_steps.some((step) => Boolean(step.responseId || step.model))).toBe(true);
     expect(result.result.servTrace?.calls).toHaveLength(2);
-    expect(result.result.servTrace?.calls[0]?.responseId).toBe("chatcmpl-check-1");
+    // synthetic-test-* mock ids must never surface as provider response ids.
+    expect(result.result.servTrace?.calls[0]?.responseId).toBeNull();
     expect(result.result.servTrace?.calls[0]?.rawResponse).toMatch(/negotiate/);
     expect(result.result.servTrace?.calls[1]?.profile).toBe("verdict_challenge");
     expect(result.result.servTrace?.recordedAt).toMatch(/^\d{4}-/);
@@ -287,7 +288,7 @@ describe("runCheck listing paste (no paid Autodev/SERV)", () => {
             : { agrees: true, action: "negotiate", objection: null, evidenceIds: ["ev_fair_value"] };
         return new Response(
           JSON.stringify({
-            id: `chatcmpl-vin-${servCalls}`,
+            id: `synthetic-test-vin-${servCalls}`,
             model: "gpt-5.4-mini",
             choices: [{ message: { content: JSON.stringify(body) } }],
           }),

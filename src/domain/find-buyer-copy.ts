@@ -978,15 +978,18 @@ export function sellerQuestionsForBuyer(
 }
 
 /**
- * First five cars in ranking order.
- * Does not move the pick to the front: when a pick exists it is already rank 1.
+ * First five cars for the Top picks list.
+ * When a published pick exists, it goes first; other cars keep their relative order.
  */
 export function topPicksInRankOrder<T extends { key: string }>(
   ranked: readonly T[],
   pickKey: string | null,
 ): { rows: T[]; pickKeyRank: number | null } {
-  const rows = ranked.slice(0, 5);
-  if (!pickKey) return { rows, pickKeyRank: null };
+  if (!pickKey) return { rows: ranked.slice(0, 5), pickKeyRank: null };
+  const pick = ranked.find((row) => row.key === pickKey) ?? null;
+  const rest = ranked.filter((row) => row.key !== pickKey);
+  const ordered = pick ? [pick, ...rest] : [...ranked];
+  const rows = ordered.slice(0, 5);
   const index = rows.findIndex((row) => row.key === pickKey);
   return { rows, pickKeyRank: index === -1 ? null : index + 1 };
 }

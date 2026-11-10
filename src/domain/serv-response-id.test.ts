@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   isLocalCallUuid,
   isSyntheticChatCmplId,
+  isSyntheticTestId,
   providerResponseId,
   providerResponseIdFromCall,
 } from "./serv-response-id";
@@ -19,6 +20,12 @@ describe("providerResponseId", () => {
     expect(isSyntheticChatCmplId(`chatcmpl-${uuid}`)).toBe(true);
     expect(providerResponseId(uuid)).toBeNull();
     expect(providerResponseId(`chatcmpl-${uuid}`)).toBeNull();
+  });
+
+  it("rejects synthetic-test-* unit-test mock ids", () => {
+    expect(isSyntheticTestId("synthetic-test-find-pick")).toBe(true);
+    expect(providerResponseId("synthetic-test-find-pick")).toBeNull();
+    expect(providerResponseId("synthetic-test-decide-soft")).toBeNull();
   });
 
   it("rejects empty / whitespace", () => {

@@ -201,15 +201,103 @@ function mapDealConfidence(
   return fallback;
 }
 
-function publishBestDeal(
-  bestDeal: BestDealResult,
-  pick: BestDealCandidate,
-  confidence: BestDealResult["confidence"],
-): BestDealResult {
-  return {
-    ...bestDeal,
-    pick,
+/** Buyer-visible code fact from the published pick (price factor first). */
+function codeFactFromPick(pick: BestDealCandidate): string | null {
+  const price = pick.factors.find((factor) => factor.id === "price_vs_model_asks");
+  const detail = (price ?? pick.factors[0])?.detail?.trim();
+  return detail ? detail.replace(/\s+/g, " ") : null;
+}
+
+/**
+ * Buyer-visible confidence line. Content comes from SERV's stated note plus a code
+ * fact when present. Code fallback is labelled "code" — never the stale selectBestDeal
+ * sentence ("clearly ahead on the checks…").
+ */
+function confidenceLineFor(
+  confidence: Exclude<BestDealResult["confidence"], "none">,
+  actor: "SERV" | "code",
+  note: string | null,
+  codeFact: string | null,
+): string {
+  const cap = confidence === "high" ? "High" : confidence === "medium" ? "Medium" : "Low";
+  const noteBit = note?.trim() ? note.trim().replace(/\s+/g, " ") : "";
+  const factBit = codeFact?.trim() ? codeFact.trim().replace(/\s+/g, " ") : "";
+  if (actor === "SERV") {
+    const bits = [noteBit, factBit && factBit !== noteBit ? factBit : ""].filter(Boolean);
+    if (bits.length === 0) return `${cap}: chosen among eligible finalists.`;
+    return `${cap}: ${bits.join(" ")}`.trim();
+  }
+  // Code fallback labelled as code (buyer-safe — no "SERV" token).
+  const extra = noteBit || factBit;
+  return extra ? `${cap}: code ranking. ${extra}`.trim() : `${cap}: code ranking.`;
+}
+
+/**
+ * Publish SERV's (or labelled code-fallback) pick as the single source for the Find page:
+ * choice.label / confidence / confidenceLine, pick first in ranked cards, rest keep order.
+ */
+export function publishBestDeal(input: {
+  bestDeal: BestDealResult;
+  pick: BestDealCandidate;
+  confidence: BestDealResult["confidence"];
+  actor: "SERV" | "code";
+  /** SERV find_pick note (or null) — may only repeat numbers already in facts. */
+  servNote?: string | null;
+}): BestDealResult {
+  const confidence = input.confidence === "none" ? "medium" : input.confidence;
+  const label = `${input.pick.year} ${input.pick.make} ${input.pick.model}`;
+  const ask =
+    input.pick.priceUsd != null ? `$${input.pick.priceUsd.toLocaleString("en-US")}` : "price not listed";
+  const servNote = input.servNote?.trim() || null;
+  const codeFact = codeFactFromPick(input.pick);
+  const reasons: string[] = [];
+  if (servNote) reasons.push(servNote);
+  if (codeFact && codeFact !== servNote) reasons.push(codeFact);
+  if (reasons.length === 0) {
+    reasons.push(
+      input.actor === "code"
+        ? `${label} (${ask}) — published pick from code ranking.`
+        : `${label} (${ask}) — chosen among eligible finalists.`,
+    );
+  }
+  // Keep at most two reasons (FindChoice contract).
+  const trimmedReasons = reasons.slice(0, 2);
+  const priorPick = input.bestDeal.pick;
+  const priorLabel =
+    priorPick && priorPick.key !== input.pick.key
+      ? `${priorPick.year} ${priorPick.make} ${priorPick.model}`
+      : null;
+  const choice = {
+    label,
+    runnerUpLabel: priorLabel ?? input.bestDeal.choice?.runnerUpLabel ?? null,
+    reasons: trimmedReasons,
     confidence,
+    confidenceLine: confidenceLineFor(confidence, input.actor, servNote, codeFact),
+    confirmBeforeBuying: input.bestDeal.choice?.confirmBeforeBuying ?? [],
+  };
+  const movePickFirst = <T extends { key: string }>(rows: readonly T[]): T[] => {
+    const hit = rows.find((row) => row.key === input.pick.key);
+    if (!hit) return [...rows];
+    return [hit, ...rows.filter((row) => row.key !== input.pick.key)];
+  };
+  const ranked = movePickFirst(input.bestDeal.ranked);
+  const allRanked = movePickFirst(input.bestDeal.allRanked?.length ? input.bestDeal.allRanked : ranked);
+  const why = [
+    `Best choice on current data: ${label}.`,
+    choice.confidenceLine,
+    ...choice.reasons,
+    input.bestDeal.settlementNote || null,
+  ]
+    .filter(Boolean)
+    .join(" ");
+  return {
+    ...input.bestDeal,
+    pick: input.pick,
+    confidence,
+    choice,
+    ranked,
+    allRanked,
+    why,
   };
 }
 
@@ -308,6 +396,7 @@ export async function runFindSettleServ(input: {
   let pickActor: "SERV" | "code" = "code";
   let pickConfidence: AgentVerdictConfidence | null =
     input.bestDeal.confidence !== "none" ? input.bestDeal.confidence : null;
+  let pickNote: string | null = null;
   const proofRecords: DecisionProofRecord[] = [];
   const fetchImpl = input.fetchImpl ?? fetch;
   const servKey = input.servKey?.trim() || "";
@@ -385,6 +474,7 @@ export async function runFindSettleServ(input: {
       pickActor = "SERV";
       const conf = payload.confidence;
       if (conf === "high" || conf === "medium" || conf === "low") pickConfidence = conf;
+      pickNote = typeof payload.note === "string" ? payload.note.trim() || null : null;
       proofRecords.push(
         buildDecisionProofRecord({
           purpose: "find_pick",
@@ -507,7 +597,13 @@ export async function runFindSettleServ(input: {
   }
 
   return {
-    bestDeal: publishBestDeal(input.bestDeal, pick, publishedConfidence),
+    bestDeal: publishBestDeal({
+      bestDeal: input.bestDeal,
+      pick,
+      confidence: publishedConfidence,
+      actor: pickActor,
+      servNote: pickNote,
+    }),
     ran: Boolean(shopper.trace) || pickActor === "SERV",
     trace: shopper.trace,
     agentVerdict,

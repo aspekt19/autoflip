@@ -98,7 +98,7 @@ const SERV_MODEL = "gpt-5.4-mini";
 function inventingFetch(content: Record<string, unknown>): typeof fetch {
   return (async () =>
     Response.json({
-      id: "chatcmpl-thin-buy",
+      id: "synthetic-test-thin-buy",
       object: "chat.completion",
       model: SERV_MODEL,
       choices: [

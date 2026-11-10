@@ -25,12 +25,18 @@ export function isSyntheticChatCmplId(id: string): boolean {
   return false;
 }
 
+/** Unit-test mock ids — never a live OpenSERV completion. */
+export function isSyntheticTestId(id: string): boolean {
+  return /^synthetic-test-/i.test(id.trim());
+}
+
 /** True when this string must never be shown as a provider response id. */
 export function isNonProviderResponseId(id: string): boolean {
   const trimmed = id.trim();
   if (!trimmed) return true;
   if (isLocalCallUuid(trimmed)) return true;
   if (isSyntheticChatCmplId(trimmed)) return true;
+  if (isSyntheticTestId(trimmed)) return true;
   return false;
 }
 

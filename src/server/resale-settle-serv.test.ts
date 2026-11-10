@@ -98,7 +98,7 @@ const SERV_MODEL = "gpt-5.4-mini";
 function inventingFetch(content: Record<string, unknown>): typeof fetch {
   return (async () =>
     Response.json({
-      id: "chatcmpl-invent",
+      id: "synthetic-test-invent",
       object: "chat.completion",
       model: SERV_MODEL,
       choices: [
@@ -227,7 +227,7 @@ describe("runResaleSettleServ", () => {
         inputsUsed: [`vin:${best.vin}`],
         changed: null,
         model: SERV_MODEL,
-        responseId: `chatcmpl-prior-${i}`,
+        responseId: `synthetic-test-prior-${i}`,
         recordedAt: new Date().toISOString(),
         rejected: null,
       });
@@ -292,7 +292,7 @@ describe("runResaleSettleServ", () => {
               evidenceIds: ["ev_fair_value"],
             };
       return Response.json({
-        id: `chatcmpl-shopper-nocap-${calls}`,
+        id: `synthetic-test-shopper-nocap-${calls}`,
         object: "chat.completion",
         model: SERV_MODEL,
         choices: [{ finish_reason: "stop", message: { content: JSON.stringify(body) } }],
@@ -355,7 +355,7 @@ describe("runResaleSettleServ", () => {
         inputsUsed: [`vin:${best.vin}`],
         changed: null,
         model: SERV_MODEL,
-        responseId: `chatcmpl-prior-${i}`,
+        responseId: `synthetic-test-prior-${i}`,
         recordedAt: new Date().toISOString(),
         rejected: null,
       });
@@ -404,7 +404,7 @@ describe("runResaleSettleServ", () => {
               evidenceIds: ["ev_fair_value"],
             };
       return Response.json({
-        id: `chatcmpl-shopper-${calls}`,
+        id: `synthetic-test-shopper-${calls}`,
         object: "chat.completion",
         model: SERV_MODEL,
         choices: [{ finish_reason: "stop", message: { content: JSON.stringify(body) } }],

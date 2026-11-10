@@ -105,13 +105,13 @@ describe("serv revision recording honesty", () => {
       first: {
         request: { profile: "verdict_decide", model: "gpt-5.4-mini", user: "first" },
         rawResponse: JSON.stringify({ verdict: "buy", note: "Under fair value." }),
-        openserv: { responseId: "chatcmpl-test-1" },
+        openserv: { responseId: "synthetic-test-1" },
         parsed: { verdict: "buy", note: "Under fair value." },
       },
       revised: {
         request: { profile: "verdict_decide", model: "gpt-5.4-mini", user: "revised" },
         rawResponse: JSON.stringify({ verdict: "negotiate", note: "Newer comps lowered the case." }),
-        openserv: { responseId: "chatcmpl-test-2" },
+        openserv: { responseId: "synthetic-test-2" },
         parsed: { verdict: "negotiate", note: "Newer comps lowered the case." },
       },
       challenge: {
@@ -122,7 +122,7 @@ describe("serv revision recording honesty", () => {
           objection: "Recall lookup was unavailable.",
           evidenceIds: ["ev_recall_unavailable"],
         }),
-        openserv: { responseId: "chatcmpl-test-3" },
+        openserv: { responseId: "synthetic-test-3" },
       },
       allowedEvidenceIds: ["ev_recall_unavailable", "ev_fair_value"],
       provenance: "Live capture via npm run eval:record-serv-revision",
