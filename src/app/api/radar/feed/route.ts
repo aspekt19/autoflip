@@ -1,7 +1,11 @@
 import { ASSUMPTIONS } from "@/domain/assumptions";
 import { journalFromRadarActivity } from "@/domain/radar-activity-journal";
+import {
+  countNewRadarAlertsInWindow,
+  remapLegacyServSkipAlerts,
+} from "@/domain/radar-legacy-skip";
 import { getKv } from "@/io/kv";
-import { listAlerts, listRuns, listSearches, seenVins } from "@/server/radar-store";
+import { listAlerts, listRuns, listSearches, saveAlerts, seenVins } from "@/server/radar-store";
 import { seenStorageKey } from "@/domain/radar-watch";
 import { isDemoUser, requireVerifiedAccountForRadar } from "@/server/session";
 
@@ -12,7 +16,12 @@ export async function GET() {
   if (!access.ok) return access.response;
   const id = access.id;
   const kv = getKv();
-  const [searches, alerts, runs] = await Promise.all([listSearches(kv), listAlerts(kv), listRuns(kv)]);
+  const [searches, rawAlerts, runs] = await Promise.all([listSearches(kv), listAlerts(kv), listRuns(kv)]);
+  const alerts = remapLegacyServSkipAlerts(rawAlerts);
+  // Persist remapped statuses once so later reads stay consistent without re-detecting copy.
+  if (alerts.some((row, i) => row.status !== rawAlerts[i]?.status)) {
+    await saveAlerts(kv, alerts);
+  }
   const mine = searches.filter((item) => item.ownerId === id);
   const myAlerts = alerts.filter(
     (item) => item.ownerId === id && (item.status === "new" || item.status === "opened"),
@@ -64,14 +73,21 @@ export async function GET() {
             minePerSearch.length > 0
               ? minePerSearch.reduce((sum, row) => sum + row.listings, 0)
               : lastRun.listings;
-          const servAlerted = servActivity.filter((row) => row.alerted || row.decision === "alert").length;
-          const ownerAlerts =
-            minePerSearch.length > 0
-              ? minePerSearch.reduce((sum, row) => sum + row.alertsSent, 0)
-              : // Prefer SERV alert decisions when activity is present; else counted new alerts.
-                servActivity.length > 0
-                ? servAlerted
-                : myAlerts.filter((alert) => alert.createdAt >= lastRun.startedAt).length;
+          // Derive from remapped alert rows (or SERV alert decisions) — never prefer
+          // perSearch.alertsSent, which counted legacy SERV-skip rows as alerts.
+          const hasDecisionLabels = servActivity.some(
+            (row) => row.decision === "alert" || row.decision === "skip",
+          );
+          const servAlerted = hasDecisionLabels
+            ? servActivity.filter((row) => row.decision === "alert").length
+            : servActivity.filter((row) => row.alerted).length;
+          const remappedInWindow = countNewRadarAlertsInWindow(alerts, {
+            ownerId: id,
+            searchIds: mySearchIds,
+            startedAt: lastRun.startedAt,
+          });
+          // When SERV labeled decisions exist, trust those; otherwise remapped window rows.
+          const ownerAlerts = hasDecisionLabels ? servAlerted : remappedInWindow;
           // Keep Flip explanation notes only once, and only when they apply to this owner.
           const ownerNotes = Array.from(
             new Set(

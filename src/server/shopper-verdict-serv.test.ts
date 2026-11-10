@@ -251,5 +251,51 @@ describe("runShopperVerdictServ", () => {
     expect(result.decision.gateRun.withheld).toBe(true);
     expect(result.trace).toBeNull();
     expect(fetchImpl).not.toHaveBeenCalled();
+    expect(
+      result.steps.some(
+        (s) => s.id === "serv_verdict_challenge" && s.status === "skipped_withheld",
+      ),
+    ).toBe(true);
+  });
+
+  it("journals challenge skip when decide returns no usable choice", async () => {
+    const fetchImpl = vi.fn(async () => new Response("nope", { status: 503 }));
+    const result = await runShopperVerdictServ({
+      report: report(),
+      servKey: "test-key",
+      model: "gpt-5.4-mini",
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+      transportPolicy: "experiment_single_attempt",
+    });
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+    const challenge = result.steps.find((s) => s.id === "serv_verdict_challenge");
+    expect(challenge?.status).toBe("skipped_no_choice");
+    expect(challenge?.detail).toMatch(/no usable choice/i);
+  });
+
+  it("skips challenge for call cap when only one slot remains", async () => {
+    let calls = 0;
+    const fetchImpl = vi.fn(async () => {
+      calls += 1;
+      if (calls > 1) throw new Error("challenge must not run when only one SERV slot remains");
+      return jsonResponse(
+        { verdict: "negotiate", note: "Ask sits near fair value from the comps." },
+        "chatcmpl-decide-cap",
+      );
+    });
+    const result = await runShopperVerdictServ({
+      report: report(),
+      servKey: "test-key",
+      model: "gpt-5.4-mini",
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+      maxAdditionalServCalls: 1,
+      transportPolicy: "experiment_single_attempt",
+    });
+    expect(calls).toBe(1);
+    expect(
+      result.steps.some(
+        (s) => s.id === "serv_verdict_challenge" && s.status === "skipped_call_cap",
+      ),
+    ).toBe(true);
   });
 });

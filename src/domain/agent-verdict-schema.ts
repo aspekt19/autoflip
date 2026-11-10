@@ -84,6 +84,10 @@ export type AgentSecondPassResult = {
   evidenceIds: string[];
   confidenceBefore: AgentVerdictConfidence | null;
   confidenceAfter: AgentVerdictConfidence | null;
+  /** SERV profile that produced this second check when known (e.g. resale_challenge). */
+  profile?: string | null;
+  /** Upstream response id for the challenge call — cite in UI when agreed/disagreed. */
+  responseId?: string | null;
 };
 
 export type AgentServSpend = {
@@ -253,6 +257,8 @@ export const AGENT_VERDICT_JSON_SCHEMA = {
             confidenceAfter: {
               oneOf: [{ type: "null" }, { type: "string", enum: ["high", "medium", "low"] }],
             },
+            profile: { oneOf: [{ type: "string" }, { type: "null" }] },
+            responseId: { oneOf: [{ type: "string" }, { type: "null" }] },
           },
         },
       ],

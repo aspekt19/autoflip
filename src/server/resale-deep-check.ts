@@ -13,6 +13,10 @@ import {
   RESALE_TIME_BUDGET_SKIP,
   type ResaleDeadline,
 } from "@/domain/resale-deadline";
+import {
+  listingVdpVerifiability,
+  NO_DIRECT_LISTING_RISK_MUL,
+} from "@/domain/listing-vdp-verifiability";
 import { complaintsFor, decodeVin, recallsFor, type GovDeps } from "@/io/gov";
 
 export type ResaleDeepCheckFinding = {
@@ -434,14 +438,16 @@ export const BAND_SPREAD_FLOOR = 0.5;
 /**
  * Risk-adjusted ranking score from code P&L + deep-check multipliers.
  * Formula (shown to users with numbers plugged in):
- *   score = rankingProfitMid × riskMul × bandSpreadMul
+ *   score = rankingProfitMid × riskMul × linkMul × bandSpreadMul
  * where bandSpreadMul = max(0.5, min(1, (profitLow + profitMid) / (2 × profitMid)))
- * when both ends exist (floor 0.5 = design choice), and riskMul already folds
- * thin-comp / decode / recall / history evidence multipliers from deep-checks.
+ * when both ends exist (floor 0.5 = design choice), riskMul is deep-check evidence
+ * (thin-comp / decode / recall / history), and linkMul is 1 for a direct VDP or
+ * NO_DIRECT_LISTING_RISK_MUL when the listing page is not verifiable.
  */
 export function riskAdjustedScore(
   item: ResaleCandidatePnl,
   riskMul: number,
+  linkMul: number = 1,
 ): { score: number; formula: string; bandSpreadMul: number } {
   const mid = item.rankingProfitMidUsd ?? item.profitMidUsd;
   if (mid == null || !Number.isFinite(mid)) {
@@ -454,13 +460,20 @@ export function riskAdjustedScore(
     low != null && Number.isFinite(low) && mid > 0
       ? Math.max(BAND_SPREAD_FLOOR, Math.min(1, rawSpread))
       : 1;
-  const score = mid * riskMul * bandSpreadMul;
+  const safeLink = Number.isFinite(linkMul) && linkMul > 0 ? linkMul : 1;
+  const score = mid * riskMul * safeLink * bandSpreadMul;
   const lowBit = low != null && Number.isFinite(low) ? Math.round(low) : "n/a";
-  const formula =
-    `score=${Math.round(mid)}×${riskMul.toFixed(2)}×${bandSpreadMul.toFixed(2)}=${Math.round(score)}` +
-    ` (mid×risk×max(${BAND_SPREAD_FLOOR},(low+mid)/(2×mid));` +
-    ` mid=${Math.round(mid)}, low=${lowBit}, risk=${riskMul.toFixed(2)},` +
-    ` floor ${BAND_SPREAD_FLOOR} design choice; comps=${item.compCount})`;
+  const showLink = safeLink < 1;
+  const formula = showLink
+    ? `score=${Math.round(mid)}×${riskMul.toFixed(2)}×${safeLink.toFixed(2)}×${bandSpreadMul.toFixed(2)}=${Math.round(score)}` +
+      ` (mid×risk×link×max(${BAND_SPREAD_FLOOR},(low+mid)/(2×mid));` +
+      ` mid=${Math.round(mid)}, low=${lowBit}, risk=${riskMul.toFixed(2)},` +
+      ` link=${safeLink.toFixed(2)} 'no direct listing page',` +
+      ` floor ${BAND_SPREAD_FLOOR} design choice; comps=${item.compCount})`
+    : `score=${Math.round(mid)}×${riskMul.toFixed(2)}×${bandSpreadMul.toFixed(2)}=${Math.round(score)}` +
+      ` (mid×risk×max(${BAND_SPREAD_FLOOR},(low+mid)/(2×mid));` +
+      ` mid=${Math.round(mid)}, low=${lowBit}, risk=${riskMul.toFixed(2)},` +
+      ` floor ${BAND_SPREAD_FLOOR} design choice; comps=${item.compCount})`;
   return { score, formula, bandSpreadMul };
 }
 
@@ -470,7 +483,15 @@ export function rankByRiskAdjustedProfit(
   riskByVin: Map<string, number>,
 ): ResaleCandidatePnl[] {
   const scored = candidates.map((item) => {
-    const row = riskAdjustedScore(item, riskByVin.get(item.vin) ?? 1);
+    const link = listingVdpVerifiability({
+      vdp: item.listing.vdp,
+      dealer: item.listing.dealer,
+      vin: item.vin,
+    });
+    // Demote cars without a verifiable listing page so they do not win silently.
+    const linkMul = link.direct ? 1 : NO_DIRECT_LISTING_RISK_MUL;
+    const riskMul = riskByVin.get(item.vin) ?? 1;
+    const row = riskAdjustedScore(item, riskMul, linkMul);
     return { item: { ...item, riskAdjustedRankFormula: row.formula }, score: row.score };
   });
   scored.sort((a, b) => b.score - a.score);

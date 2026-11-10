@@ -538,12 +538,18 @@ export async function runResaleSettleServ(input: {
   phase?: ResaleSettlePhase;
   /** Prior phase snapshot — required for pick_challenge / shopper phases. */
   checkpoint?: ResaleSettleCheckpoint | null;
+  /**
+   * SERV HTTP calls already counted on the plan journal (or other prior phase).
+   * Global Resale cap is priorServCalls + settle journal.servCalls.
+   */
+  priorServCalls?: number;
 }): Promise<ResaleSettleServResult> {
   const recordedAt = new Date().toISOString();
   const phase: ResaleSettlePhase = input.phase ?? "all";
   const stepped = phase !== "all";
   const fetchImpl = input.fetchImpl ?? fetch;
   const deadline = input.deadline;
+  const priorServCalls = Math.max(0, Math.floor(input.priorServCalls ?? 0));
 
   /** Stepped jobs: only skip SERV when the per-step deadline is truly expired. */
   const stageOk = (needMs: number, timeoutMs: number | null): boolean => {
@@ -552,6 +558,17 @@ export async function runResaleSettleServ(input: {
     if (stepped) return !deadline.expired();
     return deadline.allow(needMs);
   };
+  /** True when another settle SERV HTTP call fits under the global Resale cap. */
+  const hasServSlot = (journal: ResaleDecisionJournal): boolean =>
+    priorServCalls + journal.servCalls < journal.servCallCap;
+  const totalServCalls = (journal: ResaleDecisionJournal): number =>
+    priorServCalls + journal.servCalls;
+  const remainingServSlots = (journal: ResaleDecisionJournal): number =>
+    Math.max(0, journal.servCallCap - totalServCalls(journal));
+  const callCapSkipLine = (journal: ResaleDecisionJournal): string =>
+    `call cap reached (${totalServCalls(journal)}/${journal.servCallCap})`;
+  const callCapSkipWhy = (journal: ResaleDecisionJournal): string =>
+    `plan ${priorServCalls} + settle ${journal.servCalls} = ${journal.servCallCap}`;
 
   const resumeFrom =
     input.checkpoint &&
@@ -701,7 +718,7 @@ export async function runResaleSettleServ(input: {
     : profile("resale_triage").timeoutMs;
   if (
     input.servKey?.trim() &&
-    journal.servCalls < journal.servCallCap &&
+    hasServSlot(journal) &&
     triageTimeoutMs != null &&
     stageOk(RESALE_STAGE_BUDGET_MS.triage, triageTimeoutMs)
   ) {
@@ -752,7 +769,7 @@ export async function runResaleSettleServ(input: {
           timeoutMs: triageTimeoutMs,
         },
         deadline,
-        canRetry: journal.servCalls + 1 < journal.servCallCap,
+        canRetry: remainingServSlots(journal) > 1,
         validatePayload: (payload, result) => {
           const deep = stringArrayField(payload, "deepCheckVins").map(normalizeVin);
           const skip = stringArrayField(payload, "skipVins").map(normalizeVin);
@@ -1030,7 +1047,7 @@ export async function runResaleSettleServ(input: {
   if (
     runPick &&
     input.servKey?.trim() &&
-    journal.servCalls < journal.servCallCap &&
+    hasServSlot(journal) &&
     pickTimeoutMs != null &&
     stageOk(RESALE_STAGE_BUDGET_MS.pick, pickTimeoutMs)
   ) {
@@ -1078,7 +1095,7 @@ export async function runResaleSettleServ(input: {
           timeoutMs: pickTimeoutMs,
         },
         deadline,
-        canRetry: journal.servCalls + 1 < journal.servCallCap,
+        canRetry: remainingServSlots(journal) > 1,
         validatePayload: (payload, result) => {
           const pickVinRaw = typeof payload?.pickVin === "string" ? normalizeVin(payload.pickVin) : null;
           const note = typeof payload?.note === "string" ? payload.note : "";
@@ -1202,7 +1219,7 @@ export async function runResaleSettleServ(input: {
   if (
     runPick &&
     input.servKey?.trim() &&
-    journal.servCalls < journal.servCallCap &&
+    hasServSlot(journal) &&
     deadline &&
     !stageOk(RESALE_STAGE_BUDGET_MS.pick, pickTimeoutMs) &&
     !journal.steps.some((s) => s.kind === "pick" && s.actor === "SERV")
@@ -1276,7 +1293,7 @@ export async function runResaleSettleServ(input: {
   if (
     runChallenge &&
     input.servKey?.trim() &&
-    journal.servCalls < journal.servCallCap &&
+    hasServSlot(journal) &&
     challengeTimeoutMs != null &&
     stageOk(RESALE_STAGE_BUDGET_MS.challenge, challengeTimeoutMs)
   ) {
@@ -1325,7 +1342,7 @@ export async function runResaleSettleServ(input: {
           model: input.model,
         },
         deadline,
-        canRetry: journal.servCalls + 1 < journal.servCallCap,
+        canRetry: remainingServSlots(journal) > 1,
         validatePayload: (payload, result) => {
           const pickVinRaw = typeof payload?.pickVin === "string" ? normalizeVin(payload.pickVin) : null;
           const objection = typeof payload?.objection === "string" ? payload.objection : null;
@@ -1413,6 +1430,8 @@ export async function runResaleSettleServ(input: {
             evidenceIds,
             confidenceBefore: confidenceFromPnl(ordered.find((i) => i.vin === prior) ?? best),
             confidenceAfter: agentConfidence,
+            profile: "resale_challenge",
+            responseId: responseIdFrom(challenged.proof),
           };
         } else {
           secondPass = {
@@ -1422,6 +1441,8 @@ export async function runResaleSettleServ(input: {
             evidenceIds,
             confidenceBefore: agentConfidence,
             confidenceAfter: agentConfidence,
+            profile: "resale_challenge",
+            responseId: responseIdFrom(challenged.proof),
           };
           journal = appendJournalStep(journal, {
             kind: "challenge",
@@ -1487,7 +1508,7 @@ export async function runResaleSettleServ(input: {
   if (
     runChallenge &&
     input.servKey?.trim() &&
-    journal.servCalls < journal.servCallCap &&
+    hasServSlot(journal) &&
     deadline &&
     !stageOk(RESALE_STAGE_BUDGET_MS.challenge, challengeTimeoutMs) &&
     secondPass.status === "not_run"
@@ -1567,103 +1588,13 @@ export async function runResaleSettleServ(input: {
   const shopperTimeoutDecide = deadline
     ? resaleCallTimeoutMs(profile("verdict_decide").timeoutMs, deadline)
     : profile("verdict_decide").timeoutMs;
-  if (
-    runShopperPhase &&
-    input.servKey?.trim() &&
-    journal.servCalls < journal.servCallCap &&
-    shopperTimeoutDecide != null &&
-    stageOk(RESALE_STAGE_BUDGET_MS.shopper, shopperTimeoutDecide)
-  ) {
-    const report = buildFlipReport(best, input.budgetUsd, ranked);
-    const shopper = await runShopperVerdictServ({
-      report,
-      mandate: {
-        budgetUsd: input.budgetUsd,
-        budgetKnown: true,
-        targetProfitUsd: ASSUMPTIONS.flipDesiredProfitUsd,
-      },
-      servKey: input.servKey,
-      servBaseUrl: input.servBaseUrl,
-      model: input.model,
-      fetchImpl,
-      deadline,
-      decideTimeoutMs: shopperTimeoutDecide,
-    });
-    if (shopper.trace) {
-      ranDecide = true;
-      trace = shopper.trace;
-      const action = shopper.decision.finalAction;
-      if (action === "buy" || action === "negotiate" || action === "pass" || action === "needs_inspection") {
-        const published = applyFlipPublishedAction({
-          proposed: action,
-          candidate: best,
-          source: "SERV",
-          journal,
-          trail,
-          recordedAt: shopper.trace.recordedAt,
-          model: shopper.trace.calls[0]?.model ?? input.model ?? null,
-          responseId: shopper.trace.calls[0]?.responseId ?? null,
-        });
-        verdictAction = published.action;
-        journal = published.journal;
-        trail = published.trail;
-      }
-      if (shopper.agentVerdict.confidence) agentConfidence = shopper.agentVerdict.confidence;
-      if (shopper.agentVerdict.second_pass && shopper.agentVerdict.second_pass.status !== "not_run") {
-        secondPass = shopper.agentVerdict.second_pass;
-      }
-      for (const call of shopper.trace.calls) {
-        const fail = call.ok
-          ? null
-          : journalWhyFromShopperCall({
-              ok: call.ok,
-              error: call.error,
-              latencyMs: call.latencyMs,
-            });
-        // Count each shopper HTTP attempt via appendJournalStep (not a silent servCalls bump).
-        const decideWhy = decideWhyWithGateResult(shopper.decision);
-        journal = appendJournalStep(journal, {
-          kind: call.profile === "verdict_decide" ? "pick" : "challenge",
-          actor: "SERV",
-          decided:
-            call.profile === "verdict_decide"
-              ? `Verdict decide → ${verdictAction}`
-              : `Verdict challenge → ${call.ok ? "ok" : "fail"}`,
-          why: call.ok
-            ? call.profile === "verdict_decide"
-              ? decideWhy
-              : secondPass.objection ?? "Shopper challenge."
-            : fail?.why ?? "Shopper SERV call failed.",
-          inputsUsed: [`vin:${best.vin}`, `check:${call.profile}`],
-          changed: null,
-          model: call.model ?? input.model ?? null,
-          responseId: call.responseId,
-          recordedAt: shopper.trace.recordedAt,
-          rejected: call.ok ? null : fail?.rejected ?? "call_failed",
-        });
-        trail.push({
-          decided: call.profile === "verdict_decide" ? `Verdict decide → ${verdictAction}` : `Verdict challenge → ${call.ok ? "ok" : "fail"}`,
-          why: call.ok
-            ? call.profile === "verdict_decide"
-              ? decideWhy
-              : secondPass.objection ?? "Shopper challenge."
-            : fail?.why ?? "Shopper SERV call failed.",
-          changed: null,
-          model: call.model ?? input.model ?? null,
-          responseId: call.responseId,
-          recordedAt: shopper.trace.recordedAt,
-        });
-      }
-    }
-    if (
-      shopper.steps.some((s) => s.id === "serv_verdict_challenge" && s.status === "skipped_time_budget") ||
-      shopper.agentVerdict.second_pass?.objection === RESALE_TIME_BUDGET_SKIP
-    ) {
+  if (runShopperPhase) {
+    const skipShopper = (decided: string, why: string) => {
       journal = appendJournalStep(journal, {
         kind: "fallback",
         actor: "code",
-        decided: `Shopper challenge ${RESALE_TIME_BUDGET_SKIP}`,
-        why: `Wall-clock budget remaining ${deadline?.remainingMs() ?? 0}ms after decide — shopper challenge skipped.`,
+        decided,
+        why,
         inputsUsed: [`vin:${best.vin}`],
         changed: null,
         model: null,
@@ -1671,26 +1602,145 @@ export async function runResaleSettleServ(input: {
         recordedAt,
         rejected: null,
       });
+    };
+    if (!input.servKey?.trim()) {
+      skipShopper(
+        "Verdict decide skipped: SERV not configured",
+        "SERV_API_KEY is not configured — pick/challenge stand without shopper decide.",
+      );
+    } else if (!hasServSlot(journal)) {
+      skipShopper(
+        `Verdict decide skipped: ${callCapSkipLine(journal)}`,
+        callCapSkipWhy(journal),
+      );
+    } else if (shopperTimeoutDecide == null || !stageOk(RESALE_STAGE_BUDGET_MS.shopper, shopperTimeoutDecide)) {
+      skipShopper(
+        `Verdict decide skipped: ${RESALE_TIME_BUDGET_SKIP}`,
+        `Wall-clock budget remaining ${deadline?.remainingMs() ?? 0}ms — resale pick/challenge stand without shopper SERV.`,
+      );
+    } else {
+      const report = buildFlipReport(best, input.budgetUsd, ranked);
+      const shopperSlots = remainingServSlots(journal);
+      const shopper = await runShopperVerdictServ({
+        report,
+        mandate: {
+          budgetUsd: input.budgetUsd,
+          budgetKnown: true,
+          targetProfitUsd: ASSUMPTIONS.flipDesiredProfitUsd,
+        },
+        servKey: input.servKey,
+        servBaseUrl: input.servBaseUrl,
+        model: input.model,
+        fetchImpl,
+        deadline,
+        decideTimeoutMs: shopperTimeoutDecide,
+        maxAdditionalServCalls: shopperSlots,
+      });
+      if (shopper.trace && shopper.trace.calls.length > 0) {
+        ranDecide = true;
+        trace = shopper.trace;
+        const action = shopper.decision.finalAction;
+        if (action === "buy" || action === "negotiate" || action === "pass" || action === "needs_inspection") {
+          const published = applyFlipPublishedAction({
+            proposed: action,
+            candidate: best,
+            source: "SERV",
+            journal,
+            trail,
+            recordedAt: shopper.trace.recordedAt,
+            model: shopper.trace.calls[0]?.model ?? input.model ?? null,
+            responseId: shopper.trace.calls[0]?.responseId ?? null,
+          });
+          verdictAction = published.action;
+          journal = published.journal;
+          trail = published.trail;
+        }
+        if (shopper.agentVerdict.confidence) agentConfidence = shopper.agentVerdict.confidence;
+        if (shopper.agentVerdict.second_pass && shopper.agentVerdict.second_pass.status !== "not_run") {
+          const challengeCall = shopper.trace.calls.find((call) => call.profile === "verdict_challenge");
+          secondPass = {
+            ...shopper.agentVerdict.second_pass,
+            profile: shopper.agentVerdict.second_pass.profile ?? "verdict_challenge",
+            responseId:
+              shopper.agentVerdict.second_pass.responseId ?? challengeCall?.responseId ?? null,
+          };
+        }
+        for (const call of shopper.trace.calls) {
+          const fail = call.ok
+            ? null
+            : journalWhyFromShopperCall({
+                ok: call.ok,
+                error: call.error,
+                latencyMs: call.latencyMs,
+              });
+          const decideWhy = decideWhyWithGateResult(shopper.decision);
+          journal = appendJournalStep(journal, {
+            kind: call.profile === "verdict_decide" ? "pick" : "challenge",
+            actor: "SERV",
+            decided:
+              call.profile === "verdict_decide"
+                ? `Verdict decide → ${verdictAction}`
+                : `Verdict challenge → ${call.ok ? "ok" : "fail"}`,
+            why: call.ok
+              ? call.profile === "verdict_decide"
+                ? decideWhy
+                : secondPass.objection ?? "Shopper challenge."
+              : fail?.why ?? "Shopper SERV call failed.",
+            inputsUsed: [`vin:${best.vin}`, `check:${call.profile}`],
+            changed: null,
+            model: call.model ?? input.model ?? null,
+            responseId: call.responseId,
+            recordedAt: shopper.trace.recordedAt,
+            rejected: call.ok ? null : fail?.rejected ?? "call_failed",
+          });
+          trail.push({
+            decided:
+              call.profile === "verdict_decide"
+                ? `Verdict decide → ${verdictAction}`
+                : `Verdict challenge → ${call.ok ? "ok" : "fail"}`,
+            why: call.ok
+              ? call.profile === "verdict_decide"
+                ? decideWhy
+                : secondPass.objection ?? "Shopper challenge."
+              : fail?.why ?? "Shopper SERV call failed.",
+            changed: null,
+            model: call.model ?? input.model ?? null,
+            responseId: call.responseId,
+            recordedAt: shopper.trace.recordedAt,
+          });
+        }
+      } else {
+        const decideStep = shopper.steps.find((s) => s.id === "serv_verdict_decide");
+        const detail =
+          decideStep?.detail?.trim() ||
+          shopper.steps.map((s) => `${s.id}:${s.status}`).join(", ") ||
+          "no SERV trace recorded";
+        skipShopper(`Verdict decide skipped: ${detail}`, "Shopper decide did not record a SERV call.");
+      }
+      const challengeStep = shopper.steps.find((s) => s.id === "serv_verdict_challenge");
+      const challengeCallRan = Boolean(
+        shopper.trace?.calls.some((call) => call.profile === "verdict_challenge"),
+      );
+      if (!challengeCallRan && challengeStep && challengeStep.status !== "ok") {
+        const reason =
+          challengeStep.detail?.trim() ||
+          challengeStep.status ||
+          "Shopper challenge was not run after decide.";
+        if (challengeStep.status === "skipped_time_budget" || reason === RESALE_TIME_BUDGET_SKIP) {
+          skipShopper(
+            `Verdict challenge skipped: ${RESALE_TIME_BUDGET_SKIP}`,
+            `Wall-clock budget remaining ${deadline?.remainingMs() ?? 0}ms after decide — shopper challenge skipped.`,
+          );
+        } else if (challengeStep.status === "skipped_call_cap") {
+          skipShopper(
+            `Verdict challenge skipped: ${callCapSkipLine(journal)}`,
+            `${callCapSkipWhy(journal)}. ${reason}`,
+          );
+        } else {
+          skipShopper(`Verdict challenge skipped: ${reason}`, reason);
+        }
+      }
     }
-  } else if (
-    runShopperPhase &&
-    input.servKey?.trim() &&
-    journal.servCalls < journal.servCallCap &&
-    deadline &&
-    !stageOk(RESALE_STAGE_BUDGET_MS.shopper, shopperTimeoutDecide)
-  ) {
-    journal = appendJournalStep(journal, {
-      kind: "fallback",
-      actor: "code",
-      decided: `Shopper decide/challenge ${RESALE_TIME_BUDGET_SKIP}`,
-      why: `Wall-clock budget remaining ${deadline.remainingMs()}ms — resale pick/challenge stand without shopper SERV.`,
-      inputsUsed: [`vin:${best.vin}`],
-      changed: null,
-      model: null,
-      responseId: null,
-      recordedAt,
-      rejected: null,
-    });
   }
 
   const alternatives = pickAlternatives(ranked, best.vin, input.budgetUsd);

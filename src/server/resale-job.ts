@@ -684,14 +684,6 @@ export async function advanceResaleJob(
   const deadline = makeResaleDeadline(RESALE_JOB_STEP_BUDGET_MS);
   logResaleStage(`job_step${nextStep}_start`, deadline.startedAtMs, { jobId });
 
-  const settleCap = (current: ResaleJobRecord) =>
-    Math.max(
-      0,
-      RESALE_SERV_CALL_CAP -
-        current.planJournal.servCalls -
-        (current.settleCheckpoint?.journal.servCalls ?? 0),
-    );
-
   try {
     // Step 2: inventory + code PnL (own ~50s budget; plan already done).
     if (nextStep === 2) {
@@ -795,7 +787,9 @@ export async function advanceResaleJob(
         candidates: job.candidates,
         budgetUsd: job.input.budgetUsd,
         timeToSellPref: job.input.timeToSell,
-        servKey: settleCap(job) > 0 ? deps.servKey : undefined,
+        // Always pass the real key — settle journals call-cap skips honestly (never "SERV not configured").
+        servKey: deps.servKey,
+        priorServCalls: job.planJournal.servCalls,
         servBaseUrl: deps.servBaseUrl,
         model: deps.servModel,
         fetchImpl: deps.fetchImpl,
@@ -843,7 +837,8 @@ export async function advanceResaleJob(
         candidates: job.candidates,
         budgetUsd: job.input.budgetUsd,
         timeToSellPref: job.input.timeToSell,
-        servKey: settleCap(job) > 0 ? deps.servKey : undefined,
+        servKey: deps.servKey,
+        priorServCalls: job.planJournal.servCalls,
         servBaseUrl: deps.servBaseUrl,
         model: deps.servModel,
         fetchImpl: deps.fetchImpl,
@@ -891,7 +886,8 @@ export async function advanceResaleJob(
         candidates: job.candidates,
         budgetUsd: job.input.budgetUsd,
         timeToSellPref: job.input.timeToSell,
-        servKey: settleCap(job) > 0 ? deps.servKey : undefined,
+        servKey: deps.servKey,
+        priorServCalls: job.planJournal.servCalls,
         servBaseUrl: deps.servBaseUrl,
         model: deps.servModel,
         fetchImpl: deps.fetchImpl,
@@ -970,7 +966,8 @@ export async function advanceResaleJob(
       candidates: job.candidates,
       budgetUsd: job.input.budgetUsd,
       timeToSellPref: job.input.timeToSell,
-      servKey: settleCap(job) > 0 ? deps.servKey : undefined,
+      servKey: deps.servKey,
+      priorServCalls: job.planJournal.servCalls,
       servBaseUrl: deps.servBaseUrl,
       model: deps.servModel,
       fetchImpl: deps.fetchImpl,

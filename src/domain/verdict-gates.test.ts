@@ -135,6 +135,22 @@ describe("ordered gates", () => {
     expect(run.withholdReason).toMatch(/history.*recall|recall.*history/i);
   });
 
+  it("flip mode does not withhold shopper decide when history and recalls are both unknown", () => {
+    const report = reportFor(
+      car({
+        vin: "FLIPHISTRECALL0001",
+        priceUsd: 12_000,
+        miles: 40_000,
+        accidentCount: null,
+        ownerCount: null,
+      }),
+      { recallsAvailable: false, mode: "flip" },
+    );
+    const run = runOrderedGates(report);
+    expect(run.withheld).toBe(false);
+    expect(run.gates.find((gate) => gate.id === "data_sufficiency")?.status).toBe("pass");
+  });
+
   it("identity_vin withholds on NHTSA decode conflict", () => {
     const report = reportFor(car({ vin: "1M8GDM9AXKP042788", priceUsd: 12_000, miles: 20_000 }), {
       vinDecode: { year: 2018, make: "Honda", model: "Accord", errorCode: "0" },

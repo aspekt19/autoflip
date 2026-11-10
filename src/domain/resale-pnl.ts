@@ -28,6 +28,7 @@ import { TITLE_REGISTRATION_LINE } from "./title-doc-fees";
 import type { RepairAbility } from "./need";
 import type { Listing } from "./types";
 import { stateFromZip } from "./zip-to-state";
+import { listingVdpVerifiability } from "./listing-vdp-verifiability";
 
 export type ResaleChannel = "private_party" | "dealer_trade";
 
@@ -291,6 +292,18 @@ export function buildResaleCandidatePnl(
     "Match VIN, odometer, and options to the listing before depositing money.",
     "Budget for registration, local tax add-ons, and unexpected repairs beyond the estimate.",
   ];
+  const link = listingVdpVerifiability({
+    vdp: estimate.listing.vdp,
+    dealer: estimate.listing.dealer,
+    vin: estimate.vin,
+  });
+  if (link.flag) {
+    risks.push(link.flag);
+    checkBeforeBuying.unshift(link.flag);
+  }
+  if (link.sellerMismatchNote) {
+    risks.push(link.sellerMismatchNote);
+  }
 
   const provenance: ResaleFieldProvenance[] = [
     listingAskProvenance(estimate.vin, usdOrUnknown(asking)),

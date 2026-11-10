@@ -58,7 +58,13 @@ export function applyAgentSecondPass(input: {
   rawText: string | null;
   allowedEvidenceIds: ReadonlySet<string>;
   statusIfNoBudget?: Extract<AgentSecondPassResult["status"], "skipped_no_budget" | "skipped_no_key">;
+  profile?: string | null;
+  responseId?: string | null;
 }): AgentSecondPassResult {
+  const cite = {
+    profile: input.profile ?? null,
+    responseId: input.responseId ?? null,
+  };
   if (input.statusIfNoBudget) {
     return {
       status: input.statusIfNoBudget,
@@ -70,6 +76,7 @@ export function applyAgentSecondPass(input: {
       evidenceIds: [],
       confidenceBefore: input.confidence,
       confidenceAfter: input.confidence,
+      ...cite,
     };
   }
 
@@ -81,6 +88,7 @@ export function applyAgentSecondPass(input: {
       evidenceIds: [],
       confidenceBefore: input.confidence,
       confidenceAfter: input.confidence,
+      ...cite,
     };
   }
 
@@ -93,6 +101,7 @@ export function applyAgentSecondPass(input: {
       evidenceIds: [],
       confidenceBefore: input.confidence,
       confidenceAfter: input.confidence,
+      ...cite,
     };
   }
 
@@ -106,6 +115,7 @@ export function applyAgentSecondPass(input: {
       evidenceIds,
       confidenceBefore: input.confidence,
       confidenceAfter: input.confidence,
+      ...cite,
     };
   }
 
@@ -118,6 +128,7 @@ export function applyAgentSecondPass(input: {
       evidenceIds: [],
       confidenceBefore: input.confidence,
       confidenceAfter: input.confidence,
+      ...cite,
     };
   }
 
@@ -131,6 +142,7 @@ export function applyAgentSecondPass(input: {
       evidenceIds,
       confidenceBefore: input.confidence,
       confidenceAfter: input.confidence,
+      ...cite,
     };
   }
 
@@ -141,5 +153,6 @@ export function applyAgentSecondPass(input: {
     evidenceIds,
     confidenceBefore: input.confidence,
     confidenceAfter: lowerConfidenceOneLevel(input.confidence) ?? input.confidence,
+    ...cite,
   };
 }

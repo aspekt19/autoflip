@@ -488,13 +488,14 @@ export async function runResaleSearch(
     };
   }
 
-  const remainingCap = Math.max(0, RESALE_SERV_CALL_CAP - planJournal.servCalls);
   const settleStarted = Date.now();
   const settled = await runResaleSettleServ({
     candidates: pnls,
     budgetUsd: input.budgetUsd,
     timeToSellPref: input.timeToSell,
-    servKey: remainingCap > 0 ? deps.servKey : undefined,
+    // Keep the real key; settle enforces the global plan+settle cap with honest skip lines.
+    servKey: deps.servKey,
+    priorServCalls: planJournal.servCalls,
     servBaseUrl: deps.servBaseUrl,
     model: deps.servModel,
     fetchImpl: deps.fetchImpl,

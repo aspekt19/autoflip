@@ -129,6 +129,18 @@ function gateDataSufficiency(report: ComputedReport): GateResult {
   // fairValueUsd can be null for VIN identity conflicts — identity_vin owns that withhold.
   const historyMissing = report.subject.accidentCount === null && report.subject.ownerCount === null;
   if (historyMissing && report.recallsAvailable === false) {
+    // Flip Resale already risk-adjusts unknown history/recalls in ranking and forbids buy via
+    // mandate_fit when accident history is missing. Withholding here would skip shopper
+    // decide/challenge even when SERV call slots remain — keep negotiate/pass reachable.
+    if (report.mode === "flip") {
+      return {
+        id: "data_sufficiency",
+        status: "pass",
+        reason:
+          "Flip path: accident/recall gaps are handled by risk-adjusted rank and mandate buy forbid — shopper decide may still run.",
+        forbid: [],
+      };
+    }
     return {
       id: "data_sufficiency",
       status: "withhold",

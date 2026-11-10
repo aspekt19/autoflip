@@ -70,7 +70,7 @@ type CheckResultView = {
   usedFreeCheck?: boolean;
   spentCredit?: boolean;
   fromCache?: boolean;
-  /** ISO timestamp when the saved check was originally settled (fromCache only). */
+  /** ISO timestamp when the saved check delivery was stored ("Saved at …" on the trail). */
   settledAt?: string;
   billingNote?: string;
   agentVerdict?: AgentVerdict | null;
