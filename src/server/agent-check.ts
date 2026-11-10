@@ -261,6 +261,8 @@ export async function runAgentCheck(
         free_check_spent: usedFreeCheck,
         receipt_id: receipt.receipt_id,
         summary: result.result.summary,
+        // Shared lemonless.decision_proof.v1 — empty only when SERV was not configured / not called.
+        proofRecords: result.result.proofRecords,
         result: result.result,
       });
     if (suppliedKey) await deps.kv.set(checkIdemKey(caller.userId, clientKey), JSON.stringify(body));

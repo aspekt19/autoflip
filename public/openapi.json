@@ -39,6 +39,39 @@
             }
           }
         }
+      },
+      "DecisionProofRecord": {
+        "type": "object",
+        "description": "Shared lemonless.decision_proof.v1 — same contract on site, MCP, and af_ API. servResponseId only when status is ok.",
+        "required": [
+          "schemaVersion",
+          "purpose",
+          "rubricId",
+          "status",
+          "servResponseId",
+          "model",
+          "timestamp",
+          "inputsDigest",
+          "verdict",
+          "clampResult",
+          "reason"
+        ],
+        "properties": {
+          "schemaVersion": { "type": "string", "const": "lemonless.decision_proof.v1" },
+          "purpose": { "type": "string" },
+          "rubricId": { "type": "string" },
+          "status": { "type": "string", "enum": ["ok", "failed", "skipped"] },
+          "servResponseId": { "type": ["string", "null"] },
+          "model": { "type": ["string", "null"] },
+          "timestamp": { "type": "string", "format": "date-time" },
+          "inputsDigest": { "type": "string" },
+          "verdict": { "type": ["string", "null"] },
+          "clampResult": { "type": ["object", "null"] },
+          "reason": { "type": ["string", "null"] },
+          "rawResponse": { "type": ["string", "null"] },
+          "searchId": { "type": ["string", "null"] },
+          "ownerId": { "type": ["string", "null"] }
+        }
       }
     }
   },
@@ -47,6 +80,7 @@
     "/api/v1/check": {
       "post": {
         "summary": "check_car",
+        "description": "Same path as site /check. Success includes proofRecords (lemonless.decision_proof.v1). Empty proofRecords only when SERV_API_KEY is not configured; when the key is set and gates withhold decide, expect a skipped row with the withhold reason — never invents servResponseId.",
         "parameters": [
           {
             "name": "Idempotency-Key",
@@ -72,7 +106,7 @@
         },
         "responses": {
           "200": {
-            "description": "Agent success wrapper: schema_version, tool, verdict, confidence, summary, reasons, risks, unknowns, subject, comparables_summary, serv.steps, code_computed, credit_spent, credits, free_check_spent, receipt_id, result.",
+            "description": "Agent success wrapper: schema_version, tool, verdict, confidence, summary, reasons, risks, unknowns, subject, comparables_summary, serv.steps, proofRecords (lemonless.decision_proof.v1), code_computed, credit_spent, credits, free_check_spent, receipt_id, result.",
             "headers": {
               "X-RateLimit-Limit": { "schema": { "type": "integer" } },
               "X-RateLimit-Remaining": { "schema": { "type": "integer" } }
@@ -140,7 +174,11 @@
       "get": {
         "summary": "Find run result",
         "parameters": [{ "name": "runId", "in": "path", "required": true, "schema": { "type": "string" } }],
-        "responses": { "200": { "description": "Fixed agent verdict wrapper when completed" } }
+        "responses": {
+          "200": {
+            "description": "Fixed agent verdict wrapper when completed, including proofRecords (lemonless.decision_proof.v1)."
+          }
+        }
       }
     },
     "/api/v1/receipts": {
@@ -157,8 +195,20 @@
       }
     },
     "/api/mcp": {
-      "get": { "summary": "MCP discovery", "security": [], "responses": { "200": { "description": "Server + tools" } } },
-      "post": { "summary": "MCP JSON-RPC", "responses": { "200": { "description": "JSON-RPC result" } } }
+      "get": {
+        "summary": "MCP discovery",
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "Server + tools. tools/list descriptions document proofRecords (lemonless.decision_proof.v1) on check_car, find_cars, and deal_radar."
+          }
+        }
+      },
+      "post": {
+        "summary": "MCP JSON-RPC",
+        "description": "initialize | tools/list | tools/call | ping. Successful check_car / find_cars_result / deal_radar payloads include proofRecords.",
+        "responses": { "200": { "description": "JSON-RPC result" } }
+      }
     }
   }
 }

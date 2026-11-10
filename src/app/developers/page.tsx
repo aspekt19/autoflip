@@ -66,6 +66,40 @@ export default function DevelopersPage() {
               Verdict schema: <code>lemonless.agent_verdict.v1</code> (
               <a href="https://github.com/aspekt19/autoflip/blob/main/docs/agent-verdict-schema.json">docs</a>)
             </li>
+            <li>
+              Decision proof: <code>lemonless.decision_proof.v1</code> on success field{" "}
+              <code>proofRecords</code> (same object on site, MCP <code>tools/list</code> /{" "}
+              <code>tools/call</code>, and <code>af_</code> REST).{" "}
+              <code>servResponseId</code> only when <code>status</code> is <code>ok</code>.
+            </li>
+          </ul>
+        </section>
+
+        <section>
+          <h2>Decision proof</h2>
+          <p>
+            Every successful Check / Find / Deal Radar agent response includes{" "}
+            <code>proofRecords</code>: an array of <code>lemonless.decision_proof.v1</code> rows (
+            purpose, rubricId, status, servResponseId, model, timestamp, inputsDigest, verdict,
+            clampResult, reason, optional rawResponse). Docs here list field names only — no
+            invented filled rows. A published JSON example must come from a real run (response id,
+            model, timestamp, and raw response) or be omitted.
+          </p>
+          <ul>
+            <li>
+              <code>check_car</code> — decide/challenge rows when SERV ran; a{" "}
+              <code>skipped</code> row with the withhold reason when <code>SERV_API_KEY</code> is set
+              but gates withhold decide; <code>[]</code> only when <code>SERV_API_KEY</code> is not
+              configured (never invents a response id).
+            </li>
+            <li>
+              <code>find_cars_result</code> — need-parse and verdict rows from that Find run.
+            </li>
+            <li>
+              <code>deal_radar</code> — Deal Radar make/model scan (saved watches need a paid Radar /
+              Radar Pro plan). Always exactly one <code>radar_guard</code> row (
+              <code>ok</code>, <code>skipped</code> when the key is missing, or <code>failed</code>).
+            </li>
           </ul>
         </section>
 
@@ -122,22 +156,17 @@ curl -s https://autoflip-umber.vercel.app/api/v1/find/RUN_ID \\
         </section>
 
         <section>
-          <h2>Example success (Check)</h2>
-          <p className="hint" role="note">
-            Illustrative schema example — not a real run. Field shapes match the live agent envelope; values are placeholders.
+          <h2>Success fields (Check)</h2>
+          <p>
+            Successful <code>check_car</code> / <code>POST /api/v1/check</code> returns the fixed
+            agent envelope: <code>schema_version</code>, <code>tool</code>, <code>verdict</code>,{" "}
+            <code>confidence</code>, <code>summary</code>, <code>reasons</code>, <code>risks</code>,{" "}
+            <code>unknowns</code>, <code>subject</code>, <code>comparables_summary</code>,{" "}
+            <code>serv</code>, <code>proofRecords</code>, <code>code_computed</code>,{" "}
+            <code>credit_spent</code>, <code>credits</code>, <code>free_check_spent</code>,{" "}
+            <code>receipt_id</code>, <code>result</code>. Call the live API for a real payload —
+            this page does not invent sample values.
           </p>
-          <pre className="doc">{`{
-  "schema_version": "lemonless.agent_verdict.v1",
-  "tool": "check_car",
-  "verdict": "negotiate",
-  "confidence": "medium",
-  "serv": { "steps": [{ "decided": "…", "why": "…", "changed": null }], "second_pass": null, "checks_run": ["listing_extract"], "no_serv_step": true },
-  "code_computed": { "fairValueUsd": 0, "compCount": 0 },
-  "unknowns": ["Paid vehicle history was not run"],
-  "credit_spent": false,
-  "free_check_spent": true,
-  "receipt_id": "…"
-}`}</pre>
           <p>Errors always include <code>error_code</code>, <code>credit_spent</code>, <code>retry_safe</code>, and a concrete <code>next_steps.request</code>.</p>
         </section>
 
