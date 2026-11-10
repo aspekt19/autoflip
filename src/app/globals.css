@@ -862,8 +862,8 @@ span.nav-go { cursor: default; }
 h1, h2, h3 {
   font-family: var(--type-brand);
   font-weight: var(--type-brand-weight);
-  letter-spacing: -0.03em;
-  line-height: 0.92;
+  letter-spacing: var(--type-brand-tracking);
+  line-height: 1.05;
   margin: 0;
   text-transform: uppercase;
 }
@@ -1175,8 +1175,8 @@ code, .sheet-page a, .prose a {
 .verdict-level {
   font-family: var(--type-brand);
   font-weight: var(--type-brand-weight);
-  letter-spacing: -0.02em;
-  line-height: 0.95;
+  letter-spacing: var(--type-brand-tracking);
+  line-height: 1.05;
   font-size: clamp(44px, 6vw, 72px);
   margin: 8px 0 0;
   text-transform: uppercase;
