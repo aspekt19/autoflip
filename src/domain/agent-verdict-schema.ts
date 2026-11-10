@@ -35,6 +35,8 @@ export type AgentTrailStep = {
   responseId?: string | null;
   /** ISO timestamp when the call was recorded. */
   recordedAt?: string | null;
+  /** Raw SERV response for this step when recorded — never invent. */
+  rawResponse?: string | null;
 };
 
 export type AgentMultipathPathId = "price_first" | "risk_first" | "total_cost_first";

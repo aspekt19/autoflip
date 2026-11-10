@@ -126,6 +126,14 @@ export function AgentDecisionTrail({
                     : ""}
                 </p>
               ) : null}
+              {step.rawResponse ? (
+                <details className="onboarding-note">
+                  <summary>Open agent response</summary>
+                  <p className="hint" style={{ whiteSpace: "pre-wrap" }}>
+                    {step.rawResponse}
+                  </p>
+                </details>
+              ) : null}
             </li>
             );
           })}
@@ -165,7 +173,7 @@ export function AgentDecisionTrail({
           <p>
             An independent review disagreed
             {second.action
-              ? ` (would ${second.action === "needs_inspection" ? "needs inspection" : second.action})`
+              ? ` and chose ${second.action === "needs_inspection" ? "needs inspection" : second.action}`
               : ""}
             {secondCite}.
             {second.objection ? ` ${second.objection}` : ""}

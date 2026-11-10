@@ -65,6 +65,11 @@ export type DecisionProofRecord = {
   /** Real skip/failure reason. Null only when status is ok. */
   reason: string | null;
   /**
+   * Raw SERV response body for this step when recorded (never invented).
+   * Optional — older records and skip/error rows may omit it.
+   */
+  rawResponse?: string | null;
+  /**
    * Radar/Check scoping — set when the proof belongs to one watch.
    * Check/feed must return only the calling account’s rows (never another buyer’s SERV id).
    */
@@ -106,6 +111,7 @@ export function isDecisionProofRecord(value: unknown): value is DecisionProofRec
   if (typeof row.inputsDigest !== "string" || row.inputsDigest.length < 32) return false;
   if (row.verdict != null && typeof row.verdict !== "string") return false;
   if (row.reason != null && typeof row.reason !== "string") return false;
+  if (row.rawResponse != null && typeof row.rawResponse !== "string") return false;
   if (row.searchId != null && typeof row.searchId !== "string") return false;
   if (row.ownerId != null && typeof row.ownerId !== "string") return false;
   if (row.clampResult != null) {
@@ -117,19 +123,38 @@ export function isDecisionProofRecord(value: unknown): value is DecisionProofRec
   return true;
 }
 
+/** Buyer-facing label for a decision purpose id (API keeps the technical purpose). */
+export function decisionPurposeLabel(purpose: string): string {
+  switch (purpose) {
+    case "verdict_decide":
+      return "First decision";
+    case "verdict_challenge":
+      return "Second review";
+    case "need_extract":
+      return "Need parse";
+    case "need_guard":
+      return "Need screen";
+    case "find_next_check":
+      return "Next check choice";
+    default:
+      return purpose.replace(/_/g, " ");
+  }
+}
+
 /** Compact buyer/agent line for Find results and Radar run. */
 export function formatDecisionRecordLine(record: DecisionProofRecord): string {
   const when = record.timestamp ? new Date(record.timestamp).toISOString() : "time unknown";
+  const label = decisionPurposeLabel(record.purpose);
   if (record.status === "ok") {
     const bits = [
-      `Decision record · ${record.purpose}`,
-      record.servResponseId ? `SERV ${record.servResponseId}` : null,
+      label,
+      record.servResponseId ? `response ${record.servResponseId}` : null,
       record.model ? `model ${record.model}` : null,
       when,
       record.verdict ? `verdict ${record.verdict}` : null,
-      record.clampResult?.overridden ? "clamp overrode SERV" : null,
+      record.clampResult?.overridden ? "guardrails changed the agent choice" : null,
     ].filter(Boolean);
     return bits.join(" · ");
   }
-  return `Decision record · ${record.purpose} · ${record.status}: ${record.reason ?? record.status}`;
+  return `${label} · ${record.status}: ${record.reason ?? record.status}`;
 }

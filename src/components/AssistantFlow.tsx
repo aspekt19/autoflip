@@ -77,6 +77,7 @@ import type { BestDealResult } from "@/domain/find-best-deal";
 import { buyerCarLabels } from "@/domain/find-car-label";
 import { formatBaselineForBuyer, type FindBaselineDelta } from "@/domain/find-baseline";
 import { buildFindAgentVerdict } from "@/domain/build-find-agent-verdict";
+import { findVerdictLineage } from "@/domain/find-verdict-lineage";
 import {
   presentDecisionLogForBuyer,
   type DecisionCarLabel,
@@ -2482,6 +2483,11 @@ function AssistantFlow({
                         <p>
                           <strong>{dealCopy.headline}</strong>
                         </p>
+                        {dealCopy.choice?.confidenceLine ? (
+                          <p>
+                            <strong>Confidence:</strong> {dealCopy.choice.confidenceLine}
+                          </p>
+                        ) : null}
                         {pickAgentVerdict?.verdict ? (
                           <p>
                             Verdict:{" "}
@@ -2496,7 +2502,6 @@ function AssistantFlow({
                                       ? "Needs inspection"
                                       : pickAgentVerdict.verdict}
                             </strong>
-                            {dealCopy.choice?.confidenceLine ? ` · ${dealCopy.choice.confidenceLine}` : null}
                           </p>
                         ) : pending === "next-check" || findLoopOpen ? (
                           <p className="hint">Shopper verdict (Buy / Negotiate / Pass) runs after public checks settle.</p>
@@ -2658,8 +2663,27 @@ function AssistantFlow({
                     {pending === "next-check" && pendingCheckLabel ? (
                       <p className="hint">{pendingCheckLabel}</p>
                     ) : null}
+                    {(() => {
+                      const lineage = findVerdictLineage(proofRecords, pickAgentVerdict?.verdict ?? null);
+                      return lineage ? (
+                        <p className="hint" role="note">
+                          <strong>Lineage:</strong> {lineage.chain}
+                          {pickAgentVerdict?.verdict
+                            ? " · Ranking names which car to review first; the second review can change Buy, Negotiate, or Pass when the guardrails allow it."
+                            : null}
+                        </p>
+                      ) : null;
+                    })()}
                     <DecisionRecordList
-                      records={proofRecords.filter((row) => row.purpose === "verdict_decide")}
+                      records={proofRecords.filter(
+                        (row) =>
+                          row.purpose === "verdict_decide" ||
+                          row.purpose === "verdict_challenge" ||
+                          row.purpose === "need_extract" ||
+                          row.purpose === "need_guard" ||
+                          row.purpose === "find_next_check",
+                      )}
+                      emptyHint="No decision records for this Find run yet."
                     />
                     {settledLine ? <p className="hint">{settledLine}</p> : null}
                     {freeGovEvidenceLines.length > 0 ? (

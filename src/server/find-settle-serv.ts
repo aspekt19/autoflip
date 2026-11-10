@@ -1,7 +1,7 @@
 /**
  * When Find shortlist evidence settles, run the same shopper decide + challenge
  * path used by Check/report against a ComputedReport built from the pick.
- * Never invents listings or prices — numbers come from the scored pick only.
+ * Never invents listings or prices — fair value + comps from evaluateListingPrice only.
  */
 import type { AgentSecondPassResult, AgentVerdict } from "@/domain/agent-verdict-schema";
 import type { BestDealCandidate, BestDealResult } from "@/domain/find-best-deal";
@@ -10,24 +10,27 @@ import {
   VERDICT_RUBRIC_ID,
   type DecisionProofRecord,
 } from "@/domain/decision-proof-record";
+import { evaluateListingPrice } from "@/domain/price-evaluation";
 import type { ComputedReport, Listing, Verdict } from "@/domain/types";
 import { ASSUMPTIONS } from "@/domain/assumptions";
 import { runShopperVerdictServ, type ShopperServTrace } from "@/server/shopper-verdict-serv";
 
-function subjectFromPick(pick: BestDealCandidate): Listing {
+function listingFromCandidate(row: BestDealCandidate): Listing {
+  const hasVin = Boolean(row.vin && row.vin.length === 17);
   return {
-    vin: pick.vin && pick.vin.length === 17 ? pick.vin : "FIND0000000000000",
-    year: pick.year,
-    make: pick.make,
-    model: pick.model,
-    trim: pick.trim ?? null,
-    miles: pick.miles,
-    priceUsd: pick.priceUsd,
-    city: pick.city ?? null,
-    state: pick.state ?? null,
+    // Missing VIN stays empty — never invent FIND* placeholders for the report or SERV.
+    vin: hasVin ? row.vin! : "",
+    year: row.year,
+    make: row.make,
+    model: row.model,
+    trim: row.trim ?? null,
+    miles: row.miles,
+    priceUsd: row.priceUsd,
+    city: row.city ?? null,
+    state: row.state ?? null,
     zip: null,
-    dealer: pick.dealer ?? null,
-    vdp: pick.vdp ?? null,
+    dealer: row.dealer ?? null,
+    vdp: row.vdp ?? null,
     primaryImage: null,
     carfaxUrl: null,
     used: true,
@@ -47,70 +50,72 @@ function subjectFromPick(pick: BestDealCandidate): Listing {
   };
 }
 
-function verdictFromPick(pick: BestDealCandidate): Verdict {
-  const priceFactor = pick.factors.find((f) => f.id === "price_vs_model_asks");
-  if (priceFactor && priceFactor.points >= 8) return "good_deal";
-  if (priceFactor && priceFactor.points >= 0) return "fair";
-  if (priceFactor && priceFactor.points < 0) return "overpriced";
-  return "insufficient_data";
+function verdictFromEvaluation(verdict: Verdict): Verdict {
+  return verdict;
 }
 
 /**
  * Build a Check-shaped report for the Find pick so verdict_decide/challenge can run.
- * Comps come only from the scored shortlist peers (never invented). Recalls are
- * "available" only when a free_gov_recalls factor was recorded on the pick.
+ * Fair value and comps use the same adjusted-comparable path as ranking (line 9).
+ * Recalls are "available" only when a free_gov_recalls factor was recorded on the pick.
  */
 export function buildFindPickComputedReport(
   pick: BestDealCandidate,
   peers: readonly BestDealCandidate[] = [],
 ): ComputedReport {
-  const fairMatch = pick.factors
-    .find((f) => f.id === "price_vs_model_asks")
-    ?.detail.match(/\$([0-9][0-9,]*)/);
-  const fairValueUsd = fairMatch ? Number(fairMatch[1]!.replace(/,/g, "")) : null;
-  const priceGap =
-    fairValueUsd != null && pick.priceUsd != null && fairValueUsd > 0
-      ? (pick.priceUsd - fairValueUsd) / fairValueUsd
-      : null;
-  const comps = peers
-    .filter(
-      (row) =>
-        row.key !== pick.key &&
-        row.priceUsd != null &&
-        row.miles != null &&
-        row.make.toLowerCase() === pick.make.toLowerCase() &&
-        row.model.toLowerCase() === pick.model.toLowerCase(),
-    )
-    .slice(0, 12)
-    .map((row) => ({
-      vin: row.vin && row.vin.length === 17 ? row.vin : `FINDPEER${row.key}`.slice(0, 17).padEnd(17, "0"),
-      year: row.year,
-      trim: row.trim ?? null,
-      miles: row.miles!,
-      priceUsd: row.priceUsd!,
-      adjustedPriceUsd: row.priceUsd!,
-      city: row.city ?? null,
-      state: row.state ?? null,
-      distanceMiles: null,
-    }));
+  const subject = listingFromCandidate(pick);
+  const vinPlaceholder = !(pick.vin && pick.vin.length === 17);
+  const pool: Listing[] = [
+    subject,
+    ...peers
+      .filter(
+        (row) =>
+          row.key !== pick.key &&
+          row.priceUsd != null &&
+          row.miles != null &&
+          row.make.toLowerCase() === pick.make.toLowerCase() &&
+          row.model.toLowerCase() === pick.model.toLowerCase(),
+      )
+      .map((row) => listingFromCandidate(row)),
+  ];
+  const evaluation = evaluateListingPrice(subject, pool, { mode: "personal" });
+  const comps = evaluation.set.cars.slice(0, 12).map((car) => ({
+    // Keep real VIN or empty — never invent FINDPEER* placeholders.
+    vin: car.vin && car.vin.length === 17 ? car.vin : "",
+    year: car.year,
+    trim: car.trim ?? null,
+    miles: car.miles,
+    priceUsd: car.askingUsd,
+    adjustedPriceUsd: car.adjustedUsd,
+    city: car.city ?? null,
+    state: car.state ?? null,
+    distanceMiles: car.distanceMiles ?? null,
+    sourceUrl: car.sourceUrl ?? null,
+    sourceLabel: car.sourceLabel ?? null,
+    adjustmentNotes: car.reasons.slice(0, 4),
+  }));
   const recallsAvailable = pick.factors.some((factor) => factor.id === "mmy_recall_campaigns");
+  const dataNotes = [
+    ...pick.unknowns.slice(0, 8),
+    ...(vinPlaceholder ? ["VIN not in listing"] : []),
+  ];
   return {
     mode: "personal",
-    subject: subjectFromPick(pick),
-    verdict: verdictFromPick(pick),
+    subject,
+    verdict: verdictFromEvaluation(evaluation.priceVerdict),
     score: pick.score,
     reasons: pick.factors.slice(0, 6).map((f) => f.detail).filter(Boolean),
     flags: [],
     questions: pick.sellerQuestions.slice(0, 6),
     comps,
-    compScope: "Find shortlist similar asks (same make/model peers from this search)",
-    percentile: null,
-    fairValueUsd: Number.isFinite(fairValueUsd) ? fairValueUsd : null,
-    fairRangeLowUsd: null,
-    fairRangeHighUsd: null,
-    fairConfidence: null,
-    compMethodNote: "Peers are other Find shortlist cars with price and miles — not a closed-sale market study.",
-    priceGap,
+    compScope: "Adjusted similar asks from this Find shortlist (same evaluateListingPrice path as ranking)",
+    percentile: evaluation.percentile01,
+    fairValueUsd: evaluation.fairValueUsd,
+    fairRangeLowUsd: evaluation.fairLowUsd,
+    fairRangeHighUsd: evaluation.fairHighUsd,
+    fairConfidence: evaluation.priced ? evaluation.set.confidence : null,
+    compMethodNote: evaluation.methodNote,
+    priceGap: evaluation.priceGap,
     mileage: {
       expectedMiles: null,
       subjectMiles: pick.miles,
@@ -128,7 +133,7 @@ export function buildFindPickComputedReport(
     distanceToSearchZipMiles: null,
     flip: null,
     assumptions: { ...ASSUMPTIONS },
-    dataNotes: pick.unknowns.slice(0, 8),
+    dataNotes,
     sample: false,
   };
 }
@@ -269,8 +274,7 @@ export async function runFindSettleServ(input: {
     transportPolicy: input.transportPolicy,
   });
 
-  // Keep the code pick (selectBestDealOnEvidence). SERV only chooses buy/negotiate/pass
-  // under TS guardrails + challenge — same pattern as Check (PR112).
+  // Ranking names which car to review; decide + challenge set Buy/Negotiate/Pass under gates.
   return {
     ran: Boolean(shopper.trace),
     trace: shopper.trace,

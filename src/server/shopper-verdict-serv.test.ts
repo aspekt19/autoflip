@@ -277,6 +277,81 @@ describe("runShopperVerdictServ", () => {
     expect(challenge?.detail).toMatch(/no usable choice/i);
   });
 
+  it("applies a valid challenge disagreement as finalAction under guardrails", async () => {
+    let calls = 0;
+    const fetchImpl = vi.fn(async () => {
+      calls += 1;
+      if (calls === 1) {
+        return jsonResponse(
+          { verdict: "buy", note: "Ask looks strong versus comps." },
+          "chatcmpl-decide-buy",
+        );
+      }
+      return jsonResponse(
+        {
+          agrees: false,
+          action: "pass",
+          objection: "Accident history note and thin comps make buy too aggressive.",
+          evidenceIds: ["ev_fair_value", "ev_note_0"],
+        },
+        "chatcmpl-challenge-pass",
+      );
+    });
+
+    const result = await runShopperVerdictServ({
+      report: report(),
+      servKey: "test-key",
+      model: "gpt-5.4-mini",
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+    });
+
+    expect(result.agentVerdict.second_pass?.status).toBe("disagreed");
+    expect(result.decision.finalAction).toBe("pass");
+    expect(result.agentVerdict.verdict).toBe("pass");
+    expect(result.agentVerdict.serv_steps.some((step) => /changed the verdict to pass/i.test(step.decided))).toBe(
+      true,
+    );
+    const challengeProof = result.proofRecords.find((row) => row.purpose === "verdict_challenge");
+    expect(challengeProof?.rawResponse).toMatch(/Accident history/);
+    expect(challengeProof?.verdict).toBe("pass");
+    const decideProof = result.proofRecords.find((row) => row.purpose === "verdict_decide");
+    expect(decideProof?.rawResponse).toMatch(/buy/);
+  });
+
+  it("keeps guardrail clamp when challenge wants a forbidden action", async () => {
+    let calls = 0;
+    const fetchImpl = vi.fn(async () => {
+      calls += 1;
+      if (calls === 1) {
+        return jsonResponse({ verdict: "pass", note: "Title risk." }, "chatcmpl-decide-pass");
+      }
+      return jsonResponse(
+        {
+          agrees: false,
+          action: "buy",
+          objection: "Still want buy despite title brand.",
+          evidenceIds: ["ev_flag_0"],
+        },
+        "chatcmpl-challenge-buy",
+      );
+    });
+
+    const result = await runShopperVerdictServ({
+      report: report({
+        flags: [{ level: "stop", text: "Salvage title.", source: "title-brand" }],
+        dataNotes: ["Title brand stop."],
+      }),
+      servKey: "test-key",
+      model: "gpt-5.4-mini",
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+    });
+
+    expect(result.agentVerdict.second_pass?.status).toBe("disagreed");
+    // buy is not in allowedActions for salvage — challenge must not become finalAction.
+    expect(result.decision.finalAction).not.toBe("buy");
+    expect(result.decision.allowedActions).not.toContain("buy");
+  });
+
   it("skips challenge for call cap when only one slot remains", async () => {
     let calls = 0;
     const fetchImpl = vi.fn(async () => {
