@@ -23,6 +23,7 @@ import {
   RESALE_TIME_BUDGET_SKIP,
   type ResaleDeadline,
 } from "@/domain/resale-deadline";
+import { providerResponseIdFromCall } from "@/domain/serv-response-id";
 import { collectReportEvidenceIds, runReportVerdictChallenge } from "@/server/agent-second-pass";
 import { profile, runServ, type ServProof } from "@/server/serv";
 
@@ -82,9 +83,11 @@ export type ShopperVerdictServResult = {
   steps: Array<{ id: string; status: string; detail?: string }>;
 };
 
-function responseIdFrom(proof: ServProof | null): string | null {
-  const id = proof?.openserv?.id;
-  return typeof id === "string" && id.trim() ? id : null;
+function responseIdFrom(proof: ServProof | null, ok: boolean): string | null {
+  return providerResponseIdFromCall({
+    ok,
+    id: typeof proof?.openserv?.id === "string" ? proof.openserv.id : null,
+  });
 }
 
 function traceCall(
@@ -101,7 +104,7 @@ function traceCall(
     profile,
     ok: input.ok,
     model: input.model,
-    responseId: responseIdFrom(input.proof),
+    responseId: responseIdFrom(input.proof, input.ok),
     rawResponse: input.raw,
     latencyMs: input.proof?.latencyMs ?? null,
     error: input.error,

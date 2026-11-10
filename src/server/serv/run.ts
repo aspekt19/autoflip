@@ -91,27 +91,50 @@ type Tool = {
   parameters?: Record<string, unknown>;
 };
 
+/**
+ * Strict-compatible empty object params.
+ * Combining tools with response_format.strict requires every tool parameters
+ * object to satisfy the OpenAI/OpenServ strict JSON Schema subset (no bare
+ * tools without parameters; no `default`; additionalProperties:false; required).
+ */
+const STRICT_EMPTY_OBJECT_PARAMS = {
+  type: "object",
+  properties: {},
+  required: [] as string[],
+  additionalProperties: false,
+} as const;
+
 function promptGuardTool(endpoint: ServProfile["endpoint"]): Tool {
-  if (endpoint === "responses") return { type: "function", name: "serv_prompt_guard" };
-  return { type: "function", function: { name: "serv_prompt_guard" } };
+  const parameters = { ...STRICT_EMPTY_OBJECT_PARAMS, required: [...STRICT_EMPTY_OBJECT_PARAMS.required] };
+  if (endpoint === "responses") {
+    return { type: "function", name: "serv_prompt_guard", parameters };
+  }
+  return { type: "function", function: { name: "serv_prompt_guard", parameters } };
 }
 
 function shadowTool(entry: ServProfile): Tool {
+  // No `default` — strict response_format rejects it (HTTP 400 Invalid schema).
+  // Single-value enums pin the platform config the way defaults used to.
+  const hint = entry.shadowHint ?? "";
+  const maxIterations = entry.shadowMaxIterations ?? 2;
   const parameters = {
     type: "object",
     properties: {
-      hint: { type: "string", default: entry.shadowHint ?? "" },
-      max_iterations: { type: "integer", default: entry.shadowMaxIterations ?? 2 },
+      hint: { type: "string", enum: [hint] },
+      max_iterations: { type: "integer", enum: [maxIterations] },
     },
+    required: ["hint", "max_iterations"],
+    additionalProperties: false,
   };
+  const description = "Enable SERV shadow-agent validation.";
   if (entry.endpoint === "responses") {
-    return { type: "function", name: "serv_shadow_agent", description: "Enable SERV shadow-agent validation.", parameters };
+    return { type: "function", name: "serv_shadow_agent", description, parameters };
   }
   return {
     type: "function",
     function: {
       name: "serv_shadow_agent",
-      description: "Enable SERV shadow-agent validation.",
+      description,
       parameters,
     },
   };

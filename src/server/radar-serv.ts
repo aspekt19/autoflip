@@ -5,12 +5,14 @@
  */
 
 import { randomUUID } from "node:crypto";
+import { radarReviewFailureFields } from "@/domain/radar-review-activity";
+import { providerResponseIdFromCall } from "@/domain/serv-response-id";
 import { parseServVerdict } from "@/domain/verdict-decide";
 import type { AlertNumbers } from "@/domain/radar-watch";
 import type { PriceBadge } from "@/domain/price-badge";
 import type { Listing } from "@/domain/types";
 import { visibleProof, type DecisionProof } from "@/domain/decision-note";
-import { runServ, type ServProof } from "@/server/serv";
+import { runServ, type ServProof, type ServResult } from "@/server/serv";
 
 export type RadarServActivity = {
   at: string;
@@ -61,9 +63,12 @@ type ReviewDeps = {
   nowIso: string;
 };
 
-function responseIdFrom(proof: ServProof): string | null {
-  const id = proof.openserv?.id;
-  return typeof id === "string" && id.trim() ? id.trim() : null;
+function responseIdFrom(proof: ServProof, ok: boolean): string | null {
+  // Never surface error-body ids, local call UUIDs, or chatcmpl-<uuid>.
+  return providerResponseIdFromCall({
+    ok,
+    id: typeof proof.openserv?.id === "string" ? proof.openserv.id : null,
+  });
 }
 
 function activityFrom(
@@ -85,13 +90,31 @@ function activityFrom(
     modelRequested: proof.modelRequested,
     modelReported: proof.modelReported,
     callId,
-    responseId: responseIdFrom(proof),
+    responseId: responseIdFrom(proof, ok),
     latencyMs: proof.latencyMs,
     ok,
     decision,
     note,
     alerted,
   };
+}
+
+/** Honest decision/note for a failed personal SERV call — never leave note empty. */
+function failureFieldsFromResult(result: Extract<ServResult, { ok: false }>): {
+  decision: string;
+  note: string;
+} {
+  const base = radarReviewFailureFields({
+    error: result.error,
+    status: result.status,
+    latencyMs: result.proof.latencyMs,
+    failureCategory: result.failureDiag?.category ?? result.failureDiag?.reasonCode ?? null,
+  });
+  const upstream = typeof result.upstream === "string" && result.upstream.trim() ? result.upstream.trim() : null;
+  if (upstream && !base.note.includes(upstream)) {
+    return { decision: base.decision, note: `${base.note} · ${upstream}` };
+  }
+  return base;
 }
 
 /** Compact facts for verdict_decide — numbers come from evaluateListingPrice / badge only. */
@@ -109,6 +132,9 @@ export function radarVerdictFacts(input: {
       : input.badge.tone === "fair"
         ? ["negotiate", "pass", "needs_inspection"]
         : ["pass", "needs_inspection"];
+  // History: only report what the listing carries. Radar personal does not call NHTSA here.
+  const historyOnListing =
+    input.listing.accidentCount !== null && input.listing.ownerCount !== null;
   return {
     mode: "personal",
     subject: {
@@ -119,6 +145,8 @@ export function radarVerdictFacts(input: {
       trim: input.listing.trim,
       miles: input.listing.miles,
       priceUsd: input.listing.priceUsd,
+      accidentCount: input.listing.accidentCount,
+      ownerCount: input.listing.ownerCount,
     },
     fairValueUsd: input.numbers.fairValueUsd,
     priceGap,
@@ -132,6 +160,7 @@ export function radarVerdictFacts(input: {
     recallsAvailable: false,
     recallCount: 0,
     complaintCount: 0,
+    historyOnListing,
     flip: null,
     mandate: { budgetUsd: input.budgetUsd, budgetKnown: input.budgetUsd != null },
     allowedActions,
@@ -182,10 +211,12 @@ export async function reviewPersonalCandidate(
     },
   );
   proofs.push(decided.proof);
+  const decideFail = !decided.ok ? failureFieldsFromResult(decided) : null;
   const parsed = decided.ok ? parseServVerdict(decided.text) : null;
   const noteOk = parsed?.note ? quotedSafe(parsed.note, allowed) : true;
   const action = parsed && noteOk ? parsed.verdict : null;
-  const note = parsed && noteOk ? parsed.note : null;
+  const note = decideFail?.note ?? (parsed && noteOk ? parsed.note : null);
+  const decideDecision = decideFail?.decision ?? action;
   let alertWorthy = action === "buy" || action === "negotiate";
   activity.push(
     activityFrom(
@@ -194,7 +225,7 @@ export async function reviewPersonalCandidate(
       "verdict_decide",
       decided.proof,
       decided.ok,
-      action,
+      decideDecision,
       note,
       alertWorthy,
       decideCallId,
@@ -202,13 +233,13 @@ export async function reviewPersonalCandidate(
   );
 
   let why = input.baseWhy;
-  if (action && note) {
-    why = `${input.baseWhy} SERV: ${action}. ${note}`;
+  if (action && !decideFail && parsed?.note) {
+    why = `${input.baseWhy} SERV: ${action}. ${parsed.note}`;
   } else if (decided.ok && !action) {
     why = `${input.baseWhy} SERV returned an unusable verdict; this match was not alerted.`;
     alertWorthy = false;
   } else if (!decided.ok) {
-    why = `${input.baseWhy} SERV did not finish; this match was not alerted.`;
+    why = `${input.baseWhy} SERV did not finish (${decideFail?.note ?? decided.error}); this match was not alerted.`;
     alertWorthy = false;
   }
 
@@ -248,7 +279,11 @@ export async function reviewPersonalCandidate(
       checks.push(visibleProof(challenged.proof));
       let challengeDecision: string | null = null;
       let challengeNote: string | null = null;
-      if (challenged.ok) {
+      if (!challenged.ok) {
+        const fail = failureFieldsFromResult(challenged);
+        challengeDecision = fail.decision;
+        challengeNote = fail.note;
+      } else {
         try {
           const body = JSON.parse(challenged.text) as {
             agrees?: boolean;

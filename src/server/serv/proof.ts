@@ -62,10 +62,25 @@ function featureList(model: string): string[] {
 }
 
 function shadowMax(body: unknown): number | null {
-  const tools = (body as { tools?: Array<{ name?: string; function?: { name?: string; parameters?: { properties?: { max_iterations?: { default?: number } } } }; parameters?: { properties?: { max_iterations?: { default?: number } } } }> }).tools;
+  const tools = (
+    body as {
+      tools?: Array<{
+        name?: string;
+        function?: {
+          name?: string;
+          parameters?: { properties?: { max_iterations?: { default?: number; enum?: unknown[] } } };
+        };
+        parameters?: { properties?: { max_iterations?: { default?: number; enum?: unknown[] } } };
+      }>;
+    }
+  ).tools;
   const shadow = tools?.find((tool) => (tool.function?.name || tool.name) === "serv_shadow_agent");
-  const value = shadow?.function?.parameters?.properties?.max_iterations?.default ?? shadow?.parameters?.properties?.max_iterations?.default;
-  return typeof value === "number" ? value : null;
+  const prop =
+    shadow?.function?.parameters?.properties?.max_iterations ?? shadow?.parameters?.properties?.max_iterations;
+  if (!prop) return null;
+  if (typeof prop.default === "number") return prop.default;
+  const fromEnum = Array.isArray(prop.enum) ? prop.enum.find((v) => typeof v === "number") : null;
+  return typeof fromEnum === "number" ? fromEnum : null;
 }
 
 export function interpretGuard(text: string): "allow" | "block" {

@@ -103,7 +103,9 @@ describe("runReportVerdictChallenge failure trail", () => {
     expect(result.status).toBe("unavailable");
     expect(result.objection).toBe("Second check unavailable: empty response");
     expect(result.rawDump).toMatch(/empty explanation/i);
-    expect(result.rawDump).toMatch(/chatcmpl-7d34dd97-5ff2-4429-84e5-f6361a67fc73/);
+    // Error-body ids must never be shown as provider response ids.
+    expect(result.rawDump).toMatch(/no response id/i);
+    expect(result.rawDump).not.toMatch(/chatcmpl-7d34dd97/);
     expect(result.rawDump).toMatch(/first verdict stands/i);
   });
 
@@ -142,6 +144,7 @@ describe("runReportVerdictChallenge failure trail", () => {
       "Second check unavailable: model returned a refusal with no usable answer",
     );
     expect(result.rawDump).toMatch(/message_content_null_refusal_field/);
-    expect(result.rawDump).toMatch(/chatcmpl-91e97028/);
+    expect(result.rawDump).toMatch(/no response id/i);
+    expect(result.rawDump).not.toMatch(/chatcmpl-91e97028/);
   });
 });

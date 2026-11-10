@@ -35,6 +35,7 @@ import {
   flipCandidateOutcome,
   upsertNotReviewedAlert,
 } from "@/domain/radar-review-activity";
+import { providerResponseIdFromCall } from "@/domain/serv-response-id";
 import { reviewPersonalCandidate, type RadarServActivity } from "./radar-serv";
 import { listSearches, upsertRun, saveAlerts, saveSearches, seenBook, storeSeenPrices, readListingCache, writeListingCache, telegramChat, telegramPaused, type StoredRun, listAlerts } from "./radar-store";
 
@@ -718,10 +719,10 @@ async function judgeFlipAlerts(
     });
     proofs.push(judged.proof);
     const decisions = judged.ok ? parseFlipJudgment(judged.text, facts) : null;
-    const responseId =
-      typeof judged.proof.openserv?.id === "string" && judged.proof.openserv.id.trim()
-        ? judged.proof.openserv.id.trim()
-        : null;
+    const responseId = providerResponseIdFromCall({
+      ok: judged.ok,
+      id: typeof judged.proof.openserv?.id === "string" ? judged.proof.openserv.id : null,
+    });
     const seeds = fresh.map((item) => ({
       at: nowIso,
       searchId,
@@ -849,7 +850,10 @@ async function runGuard(
         modelRequested: result.proof.modelRequested ?? deps.servModel ?? "",
         modelReported: result.proof.modelReported ?? "",
         callId: guardCallId,
-        responseId: typeof result.proof.openserv?.id === "string" ? result.proof.openserv.id : null,
+        responseId: providerResponseIdFromCall({
+          ok: result.ok && status !== "block",
+          id: typeof result.proof.openserv?.id === "string" ? result.proof.openserv.id : null,
+        }),
         latencyMs,
         ok: result.ok && status !== "block",
         decision: status,

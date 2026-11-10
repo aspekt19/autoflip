@@ -68,6 +68,20 @@ describe("buildRadarReviewActivityRows (production timeout shape)", () => {
 });
 
 describe("flipCandidateOutcome", () => {
+  it("labels Flip code-only alerts with the same code price rating sentence as Drive-it", () => {
+    const outcome = flipCandidateOutcome({
+      hasServKey: false,
+      decisions: null,
+      vin: "4T1BF1FK4GU197310",
+      baseWhy: "Mid profit $600.",
+    });
+    expect(outcome.kind).toBe("code_alert");
+    if (outcome.kind === "code_alert") {
+      expect(outcome.why).toMatch(/uses the code price rating only/i);
+      expect(outcome.why).toMatch(/SERV was not configured/i);
+    }
+  });
+
   it("marks every car Not reviewed when there is no decision map (timeout path)", () => {
     const outcome = flipCandidateOutcome({
       hasServKey: true,

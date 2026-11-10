@@ -170,3 +170,71 @@ describe("scout_plan Anthropic enum/type reconciliation (offline; Sonnet HTTP 40
     );
   });
 });
+
+function toolParameterSchemas(req: unknown): Array<{ name: string; parameters: unknown }> {
+  const tools = (req as { tools?: Array<{ name?: string; function?: { name?: string; parameters?: unknown }; parameters?: unknown }> })
+    .tools;
+  if (!Array.isArray(tools)) return [];
+  return tools.map((tool) => ({
+    name: tool.function?.name || tool.name || "unknown",
+    parameters: tool.function?.parameters ?? tool.parameters ?? null,
+  }));
+}
+
+describe("every SERV requestFor payload is strict-schema clean (tools + response_format)", () => {
+  const profileIds = Object.keys(PROFILES) as Array<keyof typeof PROFILES>;
+
+  it("validates response_format schemas and every tool parameters object for all profiles", () => {
+    const failures: string[] = [];
+    for (const id of profileIds) {
+      let req: unknown;
+      try {
+        req = requestFor(id, "{}", undefined, {});
+      } catch (err) {
+        // Some profiles require env token bounds — skip with a clear note only if throw is expected.
+        failures.push(`${id}: requestFor threw ${err instanceof Error ? err.message : String(err)}`);
+        continue;
+      }
+      const rf = (req as { response_format?: { json_schema?: { schema?: unknown; strict?: boolean } } })
+        .response_format;
+      if (rf?.json_schema?.schema) {
+        expect(rf.json_schema.strict).toBe(true);
+        for (const issue of assertStrictJsonSchemaSubset(rf.json_schema.schema)) {
+          failures.push(`${id} response_format ${issue.path}: ${issue.message}`);
+        }
+        for (const issue of assertEnumTypeReconciled(rf.json_schema.schema)) {
+          failures.push(`${id} response_format enum ${issue.path}: ${issue.message}`);
+        }
+      }
+      for (const tool of toolParameterSchemas(req)) {
+        if (tool.parameters == null) {
+          failures.push(`${id} tool ${tool.name}: missing parameters object (strict response_format incompatible)`);
+          continue;
+        }
+        // Tool params must not use JSON Schema `default` (OpenServ HTTP 400 with strict response_format).
+        const serialized = JSON.stringify(tool.parameters);
+        if (/"default"\s*:/.test(serialized)) {
+          failures.push(`${id} tool ${tool.name}: parameters must not include default (strict subset)`);
+        }
+        for (const issue of assertStrictJsonSchemaSubset(tool.parameters)) {
+          failures.push(`${id} tool ${tool.name} ${issue.path}: ${issue.message}`);
+        }
+      }
+    }
+    expect(failures).toEqual([]);
+  });
+
+  it("verdict_decide keeps prompt_guard + shadow with strict-clean params alongside response_format", () => {
+    const req = requestFor("verdict_decide", JSON.stringify({ facts: {} }), undefined, {});
+    const tools = toolParameterSchemas(req);
+    expect(tools.map((t) => t.name).sort()).toEqual(["serv_prompt_guard", "serv_shadow_agent"].sort());
+    for (const tool of tools) {
+      expect(assertStrictJsonSchemaSubset(tool.parameters)).toEqual([]);
+      expect(JSON.stringify(tool.parameters)).not.toMatch(/"default"\s*:/);
+    }
+    const rf = (req as { response_format: { json_schema: { strict: boolean; schema: unknown } } })
+      .response_format;
+    expect(rf.json_schema.strict).toBe(true);
+    expect(assertStrictJsonSchemaSubset(rf.json_schema.schema)).toEqual([]);
+  });
+});

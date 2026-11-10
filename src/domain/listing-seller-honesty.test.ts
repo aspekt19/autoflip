@@ -21,4 +21,14 @@ describe("sellerLinkHonesty", () => {
     expect(row.mismatch).toBe(false);
     expect(row.note).toBeNull();
   });
+
+  it("flags franchise brand conflict even when the dealer surname matches the host", () => {
+    const row = sellerLinkHonesty({
+      dealer: "Ron Bouchard Honda",
+      vdp: "https://www.ronbouchardchryslerdodge.com/inventory/used-2018-toyota-corolla-le/VIN",
+    });
+    expect(row.mismatch).toBe(true);
+    expect(row.note).toMatch(/Seller\/link mismatch/i);
+    expect(row.note).toMatch(/ronbouchardchryslerdodge\.com/);
+  });
 });

@@ -448,40 +448,15 @@ function RadarInner() {
         )}
         <h2>Alerts</h2>
         {alerts.length === 0 ? <p>No new matches yet. New good/fair listings SERV rates alert will appear here after a scheduled check.</p> : null}
-        {skippedReviews.length > 0 ? (
-          <details className="onboarding-note">
-            <summary>
-              Reviewed — skipped ({skippedReviews.length}, not counted as alerts)
-            </summary>
-            <ul className="refuse">
-              {skippedReviews.map((row) => (
-                <li key={row.id}>
-                  {row.year} {row.make} {row.model} · {formatUsd(row.priceUsd)} — {row.why}
-                </li>
-              ))}
-            </ul>
-          </details>
-        ) : null}
-        {notReviewed.length > 0 ? (
-          <details className="onboarding-note">
-            <summary>
-              Not reviewed ({notReviewed.length}, no SERV decision — will retry next run)
-            </summary>
-            <ul className="refuse">
-              {notReviewed.map((row) => (
-                <li key={row.id}>
-                  {row.year} {row.make} {row.model} · {formatUsd(row.priceUsd)} — {row.why}
-                </li>
-              ))}
-            </ul>
-          </details>
-        ) : null}
         <div className="radar-list">
-          {alerts.map((alert) => (
+          {alerts.map((alert) => {
+            const codeOnly = /uses the code price rating only/i.test(alert.why);
+            return (
             <article className="radar-row" key={alert.id} id={`alert-${alert.id}`}>
               <div>
                 <div className="score">{formatUsd(alert.priceUsd)}</div>
                 <span className="file-chip">{alert.mode === "flip" ? "Flip" : "Drive it"}</span>
+                {codeOnly ? <span className="file-chip">Code rating only</span> : null}
               </div>
               <div />
               <div>
@@ -490,6 +465,9 @@ function RadarInner() {
                 </h2>
                 {alert.badge ? <PriceBadgeView badge={alert.badge} /> : null}
                 <p><strong>Why this car. </strong>{alert.why}</p>
+                {codeOnly ? (
+                  <p className="hint">Alert uses the code price rating only — SERV did not complete a review for this car.</p>
+                ) : null}
                 {alert.coverage && alert.coverageLevel ? (
                   <CoverageLine confidence={alert.coverageLevel} sentence={alert.coverage} />
                 ) : (
@@ -517,8 +495,97 @@ function RadarInner() {
                 </button>
               </div>
             </article>
-          ))}
+            );
+          })}
         </div>
+        {skippedReviews.length > 0 ? (
+          <section className="onboarding-note" aria-labelledby="radar-serv-skipped-heading">
+            <h2 id="radar-serv-skipped-heading">
+              Reviewed — skipped ({skippedReviews.length})
+            </h2>
+            <p className="hint">
+              SERV reviewed these cars and chose skip — not alerts. You can still run Analyze; there is no dismiss action here.
+            </p>
+            <div className="radar-list">
+              {skippedReviews.map((row) => (
+                <article className="radar-row" key={row.id}>
+                  <div>
+                    <div className="score">{formatUsd(row.priceUsd)}</div>
+                    <span className="file-chip">Reviewed — skipped</span>
+                    <span className="file-chip">{row.mode === "flip" ? "Flip" : "Drive it"}</span>
+                  </div>
+                  <div />
+                  <div>
+                    <h3 className="car-title">
+                      {row.year} {row.make} {row.model}
+                    </h3>
+                    <p>{row.why}</p>
+                    <p className="hint">{new Date(row.createdAt).toLocaleString("en-US", { timeZone: "UTC" })} UTC · {row.vin}</p>
+                  </div>
+                  <div className="row-actions">
+                    <button
+                      className="action"
+                      type="button"
+                      onClick={() =>
+                        openReport(
+                          { vin: row.vin, priceUsd: row.priceUsd, miles: row.miles },
+                          row.mode === "flip" ? "flip" : "personal",
+                        )
+                      }
+                      disabled={busyVin === row.vin}
+                    >
+                      {busyVin === row.vin ? "Working…" : "Analyze — 1 credit"}
+                    </button>
+                  </div>
+                </article>
+              ))}
+            </div>
+          </section>
+        ) : null}
+        {notReviewed.length > 0 ? (
+          <section className="onboarding-note" aria-labelledby="radar-not-reviewed-heading">
+            <h2 id="radar-not-reviewed-heading">
+              Not reviewed ({notReviewed.length})
+            </h2>
+            <p className="hint">
+              No SERV decision for these cars on the last run — they will retry on the next check. Not counted as alerts.
+            </p>
+            <div className="radar-list">
+              {notReviewed.map((row) => (
+                <article className="radar-row" key={row.id}>
+                  <div>
+                    <div className="score">{formatUsd(row.priceUsd)}</div>
+                    <span className="file-chip">Not reviewed</span>
+                    <span className="file-chip">{row.mode === "flip" ? "Flip" : "Drive it"}</span>
+                  </div>
+                  <div />
+                  <div>
+                    <h3 className="car-title">
+                      {row.year} {row.make} {row.model}
+                    </h3>
+                    <p>{row.why}</p>
+                    <p className="hint">{new Date(row.createdAt).toLocaleString("en-US", { timeZone: "UTC" })} UTC · {row.vin}</p>
+                  </div>
+                  <div className="row-actions">
+                    <button
+                      className="action"
+                      type="button"
+                      onClick={() =>
+                        openReport(
+                          { vin: row.vin, priceUsd: row.priceUsd, miles: row.miles },
+                          row.mode === "flip" ? "flip" : "personal",
+                        )
+                      }
+                      disabled={busyVin === row.vin}
+                    >
+                      {busyVin === row.vin ? "Working…" : "Analyze — 1 credit"}
+                    </button>
+                  </div>
+                </article>
+              ))}
+            </div>
+          </section>
+        ) : null}
         {rows && rows.length > 0 ? (
           <>
             <h2 id="scan-results">Scan results</h2>

@@ -7,6 +7,7 @@ import {
   agentSpend,
   agentTrailSteps,
 } from "@/domain/agent-verdict-view";
+import { providerResponseId } from "@/domain/serv-response-id";
 
 type Props = {
   verdict: AgentVerdict | null | undefined;
@@ -48,15 +49,17 @@ export function AgentDecisionTrail({
     : null;
   const secondCite = (() => {
     if (!second) return "";
-    if (second.profile || second.responseId) {
-      return ` (${[second.profile, second.responseId ? `response ${second.responseId}` : null]
+    const secondId = providerResponseId(second.responseId);
+    if (second.profile || secondId) {
+      return ` (${[second.profile, secondId ? `response ${secondId}` : null]
         .filter(Boolean)
         .join(" · ")})`;
     }
     const trailHit = steps.find(
-      (step) => /challenge agreed|Second check agreed/i.test(step.decided) && step.responseId,
+      (step) => /challenge agreed|Second check agreed/i.test(step.decided) && providerResponseId(step.responseId),
     );
-    return trailHit?.responseId ? ` (response ${trailHit.responseId})` : "";
+    const trailId = trailHit ? providerResponseId(trailHit.responseId) : null;
+    return trailId ? ` (response ${trailId})` : "";
   })();
 
   return (
@@ -105,24 +108,27 @@ export function AgentDecisionTrail({
 
       {steps.length > 0 ? (
         <ol className="steps-3 story-steps">
-          {steps.map((step, index) => (
+          {steps.map((step, index) => {
+            const responseId = providerResponseId(step.responseId);
+            return (
             <li key={`trail-${index}`}>
               <strong>{step.decided}</strong>
               <span>
                 Why: {step.why}
                 {step.changed ? ` What changed: ${step.changed}` : ""}
               </span>
-              {step.model || step.responseId || step.recordedAt ? (
+              {step.model || responseId || step.recordedAt ? (
                 <p className="hint">
                   {step.model ? `Model ${step.model}` : "Model not recorded"}
-                  {step.responseId ? ` · response ${step.responseId}` : " · no response id"}
+                  {responseId ? ` · response ${responseId}` : " · no response id"}
                   {step.recordedAt
                     ? ` · ${new Date(step.recordedAt).toLocaleString("en-US", { timeZone: "UTC" })} UTC`
                     : ""}
                 </p>
               ) : null}
             </li>
-          ))}
+            );
+          })}
         </ol>
       ) : !verdict.no_serv_step ? (
         <p className="hint">No structured decision steps were recorded for this run.</p>

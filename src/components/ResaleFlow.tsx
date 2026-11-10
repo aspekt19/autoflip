@@ -560,7 +560,13 @@ function CandidateCard({
     budgetUsd != null &&
     candidate.askingUsd > budgetUsd &&
     candidate.risks.some((line) => /^Over budget:/i.test(line));
-  const link = listingVdpVerifiability({ dealer: l.dealer, vdp: l.vdp, vin: candidate.vin });
+  const link = listingVdpVerifiability({
+    dealer: l.dealer,
+    vdp: l.vdp,
+    vin: candidate.vin,
+    year: l.year,
+    trim: l.trim,
+  });
   return (
     <section className={featured ? "resale-best" : undefined}>
       <h3>
@@ -579,6 +585,7 @@ function CandidateCard({
       </p>
       {link.flag ? <p className="hint">{link.flag}</p> : null}
       {link.sellerMismatchNote ? <p className="hint">{link.sellerMismatchNote}</p> : null}
+      {link.pageMismatchNote ? <p className="hint">{link.pageMismatchNote}</p> : null}
       <ul className="refuse">
         <li>
           {candidate.riskAdjustedRankFormula

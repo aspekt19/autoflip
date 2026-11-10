@@ -142,7 +142,13 @@ export function journalFromRadarActivity(
       model: head.modelReported || head.modelRequested || null,
       responseId: head.responseId,
       recordedAt: head.at || recordedAt,
-      rejected: head.ok ? null : timedOut ? "timeout" : "http_error",
+      rejected: head.ok
+        ? null
+        : timedOut || head.decision === "timeout"
+          ? "timeout"
+          : head.decision === "http_error" || head.decision === "error"
+            ? head.decision
+            : "http_error",
       countServCall: true,
     });
 

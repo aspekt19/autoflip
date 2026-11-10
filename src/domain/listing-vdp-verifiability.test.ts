@@ -30,4 +30,37 @@ describe("listingVdpVerifiability", () => {
     expect(row.href).toBeNull();
     expect(row.flag).toMatch(/No direct listing link/i);
   });
+
+  it("flags URL slug trim that contradicts the feed trim", () => {
+    const row = listingVdpVerifiability({
+      dealer: "Ron Bouchard Honda",
+      vdp: "https://www.ronbouchardchryslerdodge.com/inventory/used-2018-toyota-corolla-le/ABC",
+      vin: "2T1BURHE6JC000001",
+      year: 2018,
+      trim: "XLE",
+    });
+    expect(row.pageMismatchNote).toMatch(/different trim/i);
+    expect(row.sellerMismatchNote).toMatch(/mismatch/i);
+  });
+
+  it("does not flag when slug trim matches the feed trim", () => {
+    const row = listingVdpVerifiability({
+      dealer: "Example Toyota",
+      vdp: "https://www.exampletoyota.com/inventory/used-2018-toyota-corolla-xle/ABC",
+      year: 2018,
+      trim: "XLE",
+    });
+    expect(row.pageMismatchNote).toBeNull();
+  });
+
+  it("labels a slug year mismatch as year, not trim", () => {
+    const row = listingVdpVerifiability({
+      dealer: "Example Toyota",
+      vdp: "https://www.exampletoyota.com/inventory/used-2017-toyota-corolla-xle/ABC",
+      year: 2018,
+      trim: "XLE",
+    });
+    expect(row.pageMismatchNote).toMatch(/different year/i);
+    expect(row.pageMismatchNote).not.toMatch(/different trim/i);
+  });
 });
