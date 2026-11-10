@@ -428,7 +428,7 @@ function CandidateCard({
           {candidate.profitHighUsd != null ? formatUsd(candidate.profitHighUsd) : "—"} (mid{" "}
           {candidate.profitMidUsd != null ? formatUsd(candidate.profitMidUsd) : "—"})
           {!candidate.salesTaxKnown && candidate.rankingProfitMidUsd != null
-            ? ` · ranking uses ${formatUsd(candidate.rankingProfitMidUsd)} after a conservative tax haircut`
+            ? ` · ranking uses ${formatUsd(candidate.rankingProfitMidUsd)} after the max statewide-base tax haircut`
             : ""}
         </li>
         <li>ROI (mid): {candidate.roiPctMid != null ? `${candidate.roiPctMid}%` : "unknown"}</li>

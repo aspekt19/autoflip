@@ -65,7 +65,7 @@ export async function runResaleDeepChecks(input: {
           : "unknown";
       const rankingNote =
         !item.salesTaxKnown && item.rankingProfitMidUsd != null
-          ? ` Ranking note: uses $${item.rankingProfitMidUsd.toLocaleString("en-US")} after a conservative tax haircut so unknown-tax cars are not favored.`
+          ? ` Ranking note: uses $${item.rankingProfitMidUsd.toLocaleString("en-US")} after the max statewide-base tax haircut so unknown-tax cars are not favored.`
           : "";
       const detail =
         item.compCount >= 3

@@ -14,15 +14,6 @@ export const STATE_SALES_TAX_AS_OF = "2026-01-01";
 export const STATE_SALES_TAX_SOURCE_URL = "https://taxfoundation.org/data/all/state/sales-tax-rates/";
 export const STATE_SALES_TAX_SOURCE_LABEL = "Tax Foundation statewide base sales tax";
 
-/**
- * Ranking-only haircut when listing state (and ZIP→state) is still unknown.
- * 6000 milli = 6.0% — near the unweighted center of Tax Foundation statewide base
- * rates as of {@link STATE_SALES_TAX_AS_OF}. Never shown as the buyer’s sales-tax
- * line; displayed profit stays “before sales tax (state unknown)”.
- */
-export const RANKING_UNKNOWN_STATE_TAX_MILLI = 6000;
-export const RANKING_UNKNOWN_STATE_TAX_NOTE = `Ranking applies a 6% statewide-base haircut when state is unknown so cars without tax do not outrank taxed peers. Source: ${STATE_SALES_TAX_SOURCE_LABEL} as of ${STATE_SALES_TAX_AS_OF}. Not a quoted tax.`;
-
 export type StateSalesTax = {
   code: string;
   name: string;
@@ -86,6 +77,26 @@ const ROWS: Record<string, { name: string; milliPercent: number; statewideLocalM
   DC: { name: "District of Columbia", milliPercent: 6000 },
 };
 
+/** 5.5% → "5.5%". 6.875% → "6.875%". */
+export function formatTaxRate(milliPercent: number): string {
+  const pct = milliPercent / 1000;
+  const text = pct.toFixed(3).replace(/0+$/, "").replace(/\.$/, "");
+  return `${text}%`;
+}
+
+/**
+ * Ranking-only haircut when listing state (and ZIP→state) is still unknown.
+ * Uses the highest statewide base in this table (California 7.25%) so an
+ * unknown-state car cannot outrank a peer taxed at any tabulated rate.
+ * Never shown as the buyer’s sales-tax line; displayed profit stays
+ * “before sales tax (state unknown)”.
+ */
+export const RANKING_UNKNOWN_STATE_TAX_MILLI = Math.max(
+  ...Object.values(ROWS).map((row) => row.milliPercent),
+);
+
+export const RANKING_UNKNOWN_STATE_TAX_NOTE = `Ranking applies a ${formatTaxRate(RANKING_UNKNOWN_STATE_TAX_MILLI)} statewide-base haircut (highest rate in this table) when state is unknown so cars without tax do not outrank taxed peers. Source: ${STATE_SALES_TAX_SOURCE_LABEL} as of ${STATE_SALES_TAX_AS_OF}. Not a quoted tax.`;
+
 export function stateSalesTax(code: string | null | undefined): StateSalesTax | null {
   if (!code) return null;
   const row = ROWS[code.trim().toUpperCase()];
@@ -96,13 +107,6 @@ export function stateSalesTax(code: string | null | undefined): StateSalesTax | 
     milliPercent: row.milliPercent,
     statewideLocalMilli: row.statewideLocalMilli ?? null,
   };
-}
-
-/** 5.5% → "5.5%". 6.875% → "6.875%". */
-export function formatTaxRate(milliPercent: number): string {
-  const pct = milliPercent / 1000;
-  const text = pct.toFixed(3).replace(/0+$/, "").replace(/\.$/, "");
-  return `${text}%`;
 }
 
 /** Whole dollars of state base tax. Does not add local rates. */
