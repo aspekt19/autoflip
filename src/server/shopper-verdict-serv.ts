@@ -124,6 +124,12 @@ export async function runShopperVerdictServ(input: {
    * Unit tests inject experiment_single_attempt so unlisted models and single-shot mocks work.
    */
   transportPolicy?: "production" | "experiment_single_attempt";
+  /** Optional wall-clock deadline (Resale path) — sizes per-call timeouts. */
+  deadline?: { remainingMs: () => number; expired: () => boolean; allow: (needMs: number) => boolean };
+  /** Explicit decide timeout (already clamped to remaining budget by caller). */
+  decideTimeoutMs?: number | null;
+  /** Explicit challenge timeout; null skips challenge as time-budget. */
+  challengeTimeoutMs?: number | null;
 }): Promise<ShopperVerdictServResult> {
   const mandate = input.mandate ?? {};
   const fetchImpl = input.fetchImpl ?? fetch;
@@ -156,7 +162,7 @@ export async function runShopperVerdictServ(input: {
       status: "skipped_withheld",
       detail: previewDecision.withholdReason ?? "Verdict withheld by ordered gates.",
     });
-  } else if (input.servKey) {
+  } else if (input.servKey && input.decideTimeoutMs !== null) {
     const decisionFacts = verdictDecisionFacts(input.report, mandate);
     const judged = await runServ(
       "verdict_decide",
@@ -172,6 +178,7 @@ export async function runShopperVerdictServ(input: {
         baseUrl: input.servBaseUrl,
         model: input.model,
         transportPolicy,
+        ...(typeof input.decideTimeoutMs === "number" ? { timeoutMs: input.decideTimeoutMs } : {}),
       },
     );
     decideProof = judged.proof;
@@ -190,6 +197,12 @@ export async function runShopperVerdictServ(input: {
       id: "serv_verdict_decide",
       status: judged.ok ? "ok" : "fallback",
       detail: judged.ok ? judged.shadowOutcome : judged.error,
+    });
+  } else if (input.servKey && input.decideTimeoutMs === null) {
+    steps.push({
+      id: "serv_verdict_decide",
+      status: "skipped_time_budget",
+      detail: "not run (time budget)",
     });
   } else {
     steps.push({ id: "serv_verdict_decide", status: "skipped_no_key" });
@@ -223,13 +236,14 @@ export async function runShopperVerdictServ(input: {
   const challengeConfidence: AgentVerdictConfidence =
     decision.source === "serv" && decision.overrideReasons.length === 0 ? "high" : "medium";
 
-  const challengeSkipped = decision.gateRun.withheld || !decision.servChoice;
+  const challengeBudgetSkipped = input.challengeTimeoutMs === null;
+  const challengeSkipped = decision.gateRun.withheld || !decision.servChoice || challengeBudgetSkipped;
   const challenge = challengeSkipped
     ? {
         result: {
           status: "not_run" as const,
           action: null,
-          objection: null,
+          objection: challengeBudgetSkipped ? "not run (time budget)" : null,
           evidenceIds: [] as string[],
           confidenceBefore: null,
           confidenceAfter: null,
@@ -250,6 +264,7 @@ export async function runShopperVerdictServ(input: {
         model: input.model,
         fetchImpl,
         transportPolicy,
+        ...(typeof input.challengeTimeoutMs === "number" ? { timeoutMs: input.challengeTimeoutMs } : {}),
       });
   challengeProof = challenge.proof;
 

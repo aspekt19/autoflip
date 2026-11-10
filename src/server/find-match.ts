@@ -330,23 +330,52 @@ export async function runFindMatch(
     ),
   );
   if (deps.parallelProviderQueries && planned.length > 0) {
-    // One shared stage timer: each query either finishes or is marked timedOut.
-    // Do not re-dispatch on timeout — background work may still complete after we return.
-    const rows = await Promise.all(
-      planned.map((job) =>
-        Promise.race([
-          dispatchOne(job),
-          new Promise<DispatchRow>((resolve) => {
-            setTimeout(
-              () => resolve({ planned: job, result: null, timedOut: true }),
-              inventoryCapMs,
-            );
-          }),
-        ]),
-      ),
-    );
-    dispatches = rows;
-    providerQueriesUsed = planned.length;
+    // Shared stage AbortController: when the inventory cap fires, abort in-flight
+    // Auto.dev fetches so nothing keeps the isolate alive after we return.
+    const stageAbort = new AbortController();
+    const stageTimer = setTimeout(() => stageAbort.abort(), inventoryCapMs);
+    const cappedDeps: FindMatchDeps = {
+      ...deps,
+      autodev: deps.autodev
+        ? {
+            ...deps.autodev,
+            signal: stageAbort.signal,
+            timeoutMs: Math.min(deps.autodev.timeoutMs ?? 12_000, inventoryCapMs),
+          }
+        : deps.autodev,
+    };
+    const runCapped = deps.assembleRadarImpl ?? assembleRadar;
+    async function dispatchCapped(job: PlannedQuery): Promise<DispatchRow> {
+      if (stageAbort.signal.aborted) {
+        return { planned: job, result: null, timedOut: true };
+      }
+      try {
+        const result = await runCapped(
+          {
+            make: job.query.make,
+            model: job.query.model,
+            zip: searchZip,
+            yearMin: job.direction.yearMin,
+            yearMax: job.direction.yearMax,
+            distanceMiles: radiusMiles,
+            mode: need.mode,
+            milesMax: need.milesMax ?? undefined,
+            priceMax: need.budgetKnown && need.budgetUsd ? need.budgetUsd : undefined,
+          },
+          cappedDeps,
+        );
+        return { planned: job, result, timedOut: stageAbort.signal.aborted };
+      } catch {
+        return { planned: job, result: null, timedOut: true };
+      }
+    }
+    try {
+      dispatches = await Promise.all(planned.map((job) => dispatchCapped(job)));
+      providerQueriesUsed = planned.length;
+    } finally {
+      clearTimeout(stageTimer);
+      if (!stageAbort.signal.aborted) stageAbort.abort();
+    }
   } else {
     for (const job of planned) {
       if (deps.deadline?.expired()) {

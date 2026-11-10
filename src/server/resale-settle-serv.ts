@@ -24,8 +24,9 @@ import {
 import type { ComputedReport, Listing, Verdict } from "@/domain/types";
 import { rankByRiskAdjustedProfit, runResaleDeepChecks } from "@/server/resale-deep-check";
 import { runShopperVerdictServ, type ShopperServTrace } from "@/server/shopper-verdict-serv";
-import { runServ, type ServProof } from "@/server/serv";
+import { profile, runServ, type ServProof } from "@/server/serv";
 import {
+  resaleCallTimeoutMs,
   RESALE_STAGE_BUDGET_MS,
   RESALE_TIME_BUDGET_SKIP,
   type ResaleDeadline,
@@ -252,10 +253,14 @@ export async function runResaleSettleServ(input: {
   // --- Triage (resale_triage) ---
   let selectedCheckIds = ["price_comps", "history"];
   const deadline = input.deadline;
+  const triageTimeoutMs = deadline
+    ? resaleCallTimeoutMs(profile("resale_triage").timeoutMs, deadline)
+    : profile("resale_triage").timeoutMs;
   if (
     input.servKey?.trim() &&
     journal.servCalls < journal.servCallCap &&
-    (!deadline || deadline.allow(RESALE_STAGE_BUDGET_MS.triage))
+    (!deadline || deadline.allow(RESALE_STAGE_BUDGET_MS.triage)) &&
+    triageTimeoutMs != null
   ) {
     const allowedCheckIds = ["price_comps", "vin_decode", "recalls", "complaints", "history"];
     const facts = {
@@ -275,6 +280,7 @@ export async function runResaleSettleServ(input: {
         apiKey: input.servKey,
         baseUrl: input.servBaseUrl,
         model: input.model,
+        timeoutMs: triageTimeoutMs,
       });
       ranJudge = true;
       const payload = judged.ok ? parseJsonObject(judged.text) : null;
@@ -374,7 +380,11 @@ export async function runResaleSettleServ(input: {
       recordedAt,
       rejected: null,
     });
-  } else if (deadline && !deadline.allow(RESALE_STAGE_BUDGET_MS.triage)) {
+  } else if (
+    input.servKey?.trim() &&
+    deadline &&
+    (triageTimeoutMs == null || !deadline.allow(RESALE_STAGE_BUDGET_MS.triage))
+  ) {
     journal = appendJournalStep(journal, {
       kind: "fallback",
       actor: "code",
@@ -397,6 +407,8 @@ export async function runResaleSettleServ(input: {
     journal,
     fetchImpl,
     nowIso: recordedAt,
+    deadline,
+    stageCapMs: RESALE_STAGE_BUDGET_MS.deepCheck,
   });
   journal = deep.journal;
   working = deepTargets.filter((item) => !deep.rejectedVins.has(item.vin));
@@ -442,10 +454,14 @@ export async function runResaleSettleServ(input: {
     best.profitMidUsd != null && best.profitMidUsd > 0 ? "negotiate" : "needs_inspection";
 
   // --- Pick (resale_pick) ---
+  const pickTimeoutMs = deadline
+    ? resaleCallTimeoutMs(profile("resale_pick").timeoutMs, deadline)
+    : profile("resale_pick").timeoutMs;
   if (
     input.servKey?.trim() &&
     journal.servCalls < journal.servCallCap &&
-    (!deadline || deadline.allow(RESALE_STAGE_BUDGET_MS.pick))
+    (!deadline || deadline.allow(RESALE_STAGE_BUDGET_MS.pick)) &&
+    pickTimeoutMs != null
   ) {
     const pickFacts = {
       allowedVins: ordered.map((item) => item.vin),
@@ -465,6 +481,7 @@ export async function runResaleSettleServ(input: {
         apiKey: input.servKey,
         baseUrl: input.servBaseUrl,
         model: input.model,
+        timeoutMs: pickTimeoutMs,
       });
       const payload = picked.ok ? parseJsonObject(picked.text) : null;
       const pickVin = typeof payload?.pickVin === "string" ? payload.pickVin : null;
@@ -538,7 +555,7 @@ export async function runResaleSettleServ(input: {
     input.servKey?.trim() &&
     journal.servCalls < journal.servCallCap &&
     deadline &&
-    !deadline.allow(RESALE_STAGE_BUDGET_MS.pick) &&
+    (pickTimeoutMs == null || !deadline.allow(RESALE_STAGE_BUDGET_MS.pick)) &&
     !journal.steps.some((s) => s.kind === "pick" && s.actor === "SERV")
   ) {
     journal = appendJournalStep(journal, {
@@ -570,10 +587,14 @@ export async function runResaleSettleServ(input: {
   };
   let agentConfidence = confidenceFromPnl(best);
 
+  const challengeTimeoutMs = deadline
+    ? resaleCallTimeoutMs(profile("resale_challenge").timeoutMs, deadline)
+    : profile("resale_challenge").timeoutMs;
   if (
     input.servKey?.trim() &&
     journal.servCalls < journal.servCallCap &&
-    (!deadline || deadline.allow(RESALE_STAGE_BUDGET_MS.challenge))
+    (!deadline || deadline.allow(RESALE_STAGE_BUDGET_MS.challenge)) &&
+    challengeTimeoutMs != null
   ) {
     const challengeFacts = {
       primaryPickVin: best.vin,
@@ -591,6 +612,7 @@ export async function runResaleSettleServ(input: {
     try {
       const challenged = await runServ("resale_challenge", { user: JSON.stringify({ facts: challengeFacts }) }, {
         fetch: fetchImpl,
+        timeoutMs: challengeTimeoutMs,
         apiKey: input.servKey,
         baseUrl: input.servBaseUrl,
         model: input.model,
@@ -705,7 +727,7 @@ export async function runResaleSettleServ(input: {
     input.servKey?.trim() &&
     journal.servCalls < journal.servCallCap &&
     deadline &&
-    !deadline.allow(RESALE_STAGE_BUDGET_MS.challenge) &&
+    (challengeTimeoutMs == null || !deadline.allow(RESALE_STAGE_BUDGET_MS.challenge)) &&
     secondPass.status === "not_run"
   ) {
     secondPass = {
@@ -731,10 +753,17 @@ export async function runResaleSettleServ(input: {
   }
 
   // Optional shopper decide path for ComputedReport parity (counts toward cap when key present and budget remains).
+  const shopperTimeoutDecide = deadline
+    ? resaleCallTimeoutMs(profile("verdict_decide").timeoutMs, deadline)
+    : profile("verdict_decide").timeoutMs;
+  const shopperTimeoutChallenge = deadline
+    ? resaleCallTimeoutMs(profile("verdict_challenge").timeoutMs, deadline)
+    : profile("verdict_challenge").timeoutMs;
   if (
     input.servKey?.trim() &&
     journal.servCalls < journal.servCallCap &&
-    (!deadline || deadline.allow(RESALE_STAGE_BUDGET_MS.shopper))
+    (!deadline || deadline.allow(RESALE_STAGE_BUDGET_MS.shopper)) &&
+    shopperTimeoutDecide != null
   ) {
     const report = buildFlipReport(best, input.budgetUsd);
     const shopper = await runShopperVerdictServ({
@@ -744,6 +773,9 @@ export async function runResaleSettleServ(input: {
       servBaseUrl: input.servBaseUrl,
       model: input.model,
       fetchImpl,
+      deadline,
+      decideTimeoutMs: shopperTimeoutDecide,
+      challengeTimeoutMs: shopperTimeoutChallenge,
     });
     if (shopper.trace) {
       ranDecide = true;
@@ -771,6 +803,24 @@ export async function runResaleSettleServ(input: {
         });
       }
     }
+  } else if (
+    input.servKey?.trim() &&
+    journal.servCalls < journal.servCallCap &&
+    deadline &&
+    (shopperTimeoutDecide == null || !deadline.allow(RESALE_STAGE_BUDGET_MS.shopper))
+  ) {
+    journal = appendJournalStep(journal, {
+      kind: "fallback",
+      actor: "code",
+      decided: `Shopper decide/challenge ${RESALE_TIME_BUDGET_SKIP}`,
+      why: `Wall-clock budget remaining ${deadline.remainingMs()}ms — resale pick/challenge stand without shopper SERV.`,
+      inputsUsed: [`vin:${best.vin}`],
+      changed: null,
+      model: null,
+      responseId: null,
+      recordedAt,
+      rejected: null,
+    });
   }
 
   ordered = sortByProfit(ranked.filter((item) => item.vin !== best.vin));

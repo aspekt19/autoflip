@@ -2,6 +2,8 @@ import { creditBalance, creditEventSeen } from "@/io/credit-book";
 import { getKv } from "@/io/kv";
 import {
   makeResaleDeadline,
+  RESALE_HANDLER_HARD_CAP_MS,
+  RESALE_INFLIGHT_WAIT_CAP_MS,
   RESALE_INTERNAL_BUDGET_MS,
   logResaleStage,
 } from "@/domain/resale-deadline";
@@ -59,6 +61,10 @@ function timeBudgetResult(): ResaleSearchResult {
 }
 
 export async function POST(request: Request) {
+  // Wall-clock budget starts at request arrival — before auth, credit lock, or SERV.
+  const deadline = makeResaleDeadline(RESALE_INTERNAL_BUDGET_MS);
+  logResaleStage("route_arrival", deadline.startedAtMs, { userScoped: true });
+
   const access = await requireVerifiedAccountForFind();
   if (!access.ok) return access.response;
   const id = access.id;
@@ -90,14 +96,21 @@ export async function POST(request: Request) {
   const inflightKey = resaleSearchInflightKey(spendKey);
   let holdInflight = await kv.setNx(inflightKey, "1", { ttlMs: RESALE_SEARCH_INFLIGHT_TTL_MS });
   if (!holdInflight) {
-    const waited = await waitForResaleSearchDelivery(kv, spendKey, inflightKey);
+    // Bound by the same deadline — never burn ~55s waiting on another worker.
+    const waitCapMs = Math.min(RESALE_INFLIGHT_WAIT_CAP_MS, Math.max(0, deadline.remainingMs() - 1_000));
+    const waited =
+      waitCapMs > 0
+        ? await waitForResaleSearchDelivery(kv, spendKey, inflightKey, { timeoutMs: waitCapMs })
+        : null;
     if (waited) return replayPaidDelivery(kv, id, waited);
     holdInflight = await kv.setNx(inflightKey, "1", { ttlMs: RESALE_SEARCH_INFLIGHT_TTL_MS });
     if (!holdInflight) {
+      logResaleStage("inflight_busy", deadline.startedAtMs, { waitCapMs });
       return Response.json(
         {
           error: "search_in_progress",
-          message: "That resale search is already running. Retry this same request in a moment. No extra credit was used.",
+          message:
+            "That resale search is already running. Retry this same request in a moment. No extra credit was used.",
           balance: await creditBalance(kv, id),
           charged: false,
         },
@@ -118,9 +131,6 @@ export async function POST(request: Request) {
     }
   };
 
-  const deadline = makeResaleDeadline(RESALE_INTERNAL_BUDGET_MS);
-  logResaleStage("route_start", deadline.startedAtMs, { userScoped: true });
-
   try {
     const deps = runtimeDeps();
     let result: ResaleSearchResult;
@@ -136,8 +146,13 @@ export async function POST(request: Request) {
         internalBudgetMs: RESALE_INTERNAL_BUDGET_MS,
       });
       // Safety net: always resolve JSON before the Hobby 60s platform kill.
+      // Cap by hard handler budget from request arrival, not a fresh timer.
+      const guardMs = Math.max(
+        500,
+        Math.min(deadline.remainingMs(), RESALE_HANDLER_HARD_CAP_MS - deadline.elapsedMs()),
+      );
       const guardPromise = new Promise<ResaleSearchResult>((resolve) => {
-        setTimeout(() => resolve(timeBudgetResult()), Math.max(500, deadline.remainingMs()));
+        setTimeout(() => resolve(timeBudgetResult()), guardMs);
       });
       result = await Promise.race([searchPromise, guardPromise]);
     } catch (err) {
@@ -166,6 +181,7 @@ export async function POST(request: Request) {
       logResaleStage("route_fail", deadline.startedAtMs, {
         error: result.body.error,
         status: result.status,
+        elapsedMs: deadline.elapsedMs(),
       });
       return Response.json(
         {
@@ -208,6 +224,7 @@ export async function POST(request: Request) {
     await releaseInflight();
     logResaleStage("route_ok", deadline.startedAtMs, {
       remainingMs: deadline.remainingMs(),
+      elapsedMs: deadline.elapsedMs(),
       charged: true,
     });
     return Response.json({

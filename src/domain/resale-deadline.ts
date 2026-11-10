@@ -22,6 +22,21 @@ export type ResaleDeadline = {
 /** Default internal budget under Hobby's 60s hard kill. */
 export const RESALE_INTERNAL_BUDGET_MS = 50_000;
 
+/**
+ * Absolute worst-case JSON return from request arrival.
+ * Internal budget (50s) + small margin for credit settle / JSON serialize — still under Hobby 60s.
+ */
+export const RESALE_HANDLER_HARD_CAP_MS = 52_000;
+
+/** Leave this much headroom when sizing a SERV/HTTP timeout against the deadline. */
+export const RESALE_SERV_SAFETY_MS = 750;
+
+/** Max wait for an in-flight credit lock before returning search_in_progress JSON. */
+export const RESALE_INFLIGHT_WAIT_CAP_MS = 3_000;
+
+/** Floor below which a SERV call is not worth starting. */
+export const RESALE_SERV_MIN_USEFUL_MS = 2_000;
+
 /** Minimum remaining ms before starting each stage. */
 export const RESALE_STAGE_BUDGET_MS = {
   plan: 12_000,
@@ -33,6 +48,21 @@ export const RESALE_STAGE_BUDGET_MS = {
   challenge: 12_000,
   shopper: 20_000,
 } as const;
+
+/**
+ * Timeout for one SERV call: min(profile timeout, remaining − safety).
+ * Returns null when the remaining budget is below `minUsefulMs` — caller must skip
+ * and journal `not run (time budget)`.
+ */
+export function resaleCallTimeoutMs(
+  profileTimeoutMs: number,
+  deadline: ResaleDeadline,
+  minUsefulMs: number = RESALE_SERV_MIN_USEFUL_MS,
+): number | null {
+  const remain = deadline.remainingMs() - RESALE_SERV_SAFETY_MS;
+  if (remain < minUsefulMs) return null;
+  return Math.max(1, Math.min(profileTimeoutMs, Math.floor(remain)));
+}
 
 export function makeResaleDeadline(budgetMs: number, nowMs = Date.now()): ResaleDeadline {
   const startedAtMs = nowMs;

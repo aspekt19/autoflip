@@ -24,6 +24,7 @@ import type { Kv } from "@/io/kv";
 import {
   logResaleStage,
   makeResaleDeadline,
+  resaleCallTimeoutMs,
   RESALE_INTERNAL_BUDGET_MS,
   RESALE_STAGE_BUDGET_MS,
   RESALE_TIME_BUDGET_SKIP,
@@ -31,7 +32,7 @@ import {
 } from "@/domain/resale-deadline";
 import { runFindMatch, type FindMatchDeps } from "@/server/find-match";
 import { runResaleSettleServ } from "@/server/resale-settle-serv";
-import { runServ } from "@/server/serv";
+import { profile, runServ } from "@/server/serv";
 
 export const RESALE_ALTERNATIVE_LIMIT = 4;
 export const RESALE_SHORTLIST_LIMIT = 8;
@@ -143,10 +144,12 @@ export async function runResaleSearch(
   });
 
   let refine: { make?: string; model?: string; yearMin?: number; yearMax?: number } | undefined;
+  const planTimeoutMs = resaleCallTimeoutMs(profile("resale_plan_search").timeoutMs, deadline);
   if (
     deps.servKey?.trim() &&
     allowedDirections.length > 0 &&
-    deadline.allow(RESALE_STAGE_BUDGET_MS.plan)
+    deadline.allow(RESALE_STAGE_BUDGET_MS.plan) &&
+    planTimeoutMs != null
   ) {
     const planStarted = Date.now();
     const facts = {
@@ -164,6 +167,7 @@ export async function runResaleSearch(
           apiKey: deps.servKey,
           baseUrl: deps.servBaseUrl,
           model: deps.servModel,
+          timeoutMs: planTimeoutMs,
         },
       );
       let payload: Record<string, unknown> | null = null;

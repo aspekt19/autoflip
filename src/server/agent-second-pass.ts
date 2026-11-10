@@ -60,6 +60,8 @@ export async function runReportVerdictChallenge(input: {
   model?: string;
   fetchImpl?: typeof fetch;
   transportPolicy?: ServDeps["transportPolicy"];
+  /** Clamped wall-clock timeout for this challenge call (AbortSignal via runServ). */
+  timeoutMs?: number;
 }): Promise<{ result: AgentSecondPassResult; proof: ServProof | null; rawText: string | null }> {
   if (!input.hasBudget) {
     return {
@@ -97,6 +99,7 @@ export async function runReportVerdictChallenge(input: {
     // Prefer production retries for empty/timeout — experiment_single_attempt left
     // challenge as "did not finish" after a response id with an empty body.
     transportPolicy: input.transportPolicy ?? "production",
+    ...(typeof input.timeoutMs === "number" ? { timeoutMs: input.timeoutMs } : {}),
   };
   const judged = await runServ(
     "verdict_challenge",

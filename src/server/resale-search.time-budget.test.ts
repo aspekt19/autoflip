@@ -4,7 +4,12 @@
  */
 import { describe, expect, it, vi } from "vitest";
 import { MemoryKv } from "@/io/kv";
-import { makeResaleDeadline, RESALE_TIME_BUDGET_SKIP } from "@/domain/resale-deadline";
+import {
+  makeResaleDeadline,
+  RESALE_HANDLER_HARD_CAP_MS,
+  RESALE_INTERNAL_BUDGET_MS,
+  RESALE_TIME_BUDGET_SKIP,
+} from "@/domain/resale-deadline";
 import type { Listing } from "@/domain/types";
 import { runResaleSearch } from "./resale-search";
 import { runResaleSettleServ } from "./resale-settle-serv";
@@ -58,6 +63,39 @@ function pool(): Listing[] {
   ];
 }
 
+/** Fake upstream that hangs until AbortSignal fires — tracks in-flight count. */
+function hangingFetchTracker() {
+  let inFlight = 0;
+  const fetchImpl = vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+    inFlight += 1;
+    try {
+      await new Promise<void>((resolve, reject) => {
+        const signal = init?.signal;
+        if (signal?.aborted) {
+          reject(new DOMException("Aborted", "AbortError"));
+          return;
+        }
+        const timer = setTimeout(() => resolve(), 120_000);
+        signal?.addEventListener(
+          "abort",
+          () => {
+            clearTimeout(timer);
+            reject(new DOMException("Aborted", "AbortError"));
+          },
+          { once: true },
+        );
+      });
+      return new Response("{}", { status: 200 });
+    } finally {
+      inFlight -= 1;
+    }
+  }) as unknown as typeof fetch;
+  return {
+    fetchImpl,
+    inFlight: () => inFlight,
+  };
+}
+
 describe("resale time budget (Hobby ~50s)", () => {
   it("skips later SERV stages when the deadline is already short", async () => {
     const { buildResaleCandidatePnls } = await import("@/domain/resale-pnl");
@@ -86,14 +124,48 @@ describe("resale time budget (Hobby ~50s)", () => {
     expect(slowServ).not.toHaveBeenCalled();
   });
 
+  it("journals shopper skip as not run (time budget)", async () => {
+    const { buildResaleCandidatePnls } = await import("@/domain/resale-pnl");
+    const { topFlipCandidates } = await import("@/domain/flip-rank");
+    const candidates = buildResaleCandidatePnls(topFlipCandidates(pool(), new Date(), 8));
+    // Enough for triage floor skip path — shopper must journal when skipped.
+    const deadline = makeResaleDeadline(3_000);
+    const settled = await runResaleSettleServ({
+      candidates,
+      budgetUsd: 15_000,
+      servKey: "test-key",
+      fetchImpl: (async () => {
+        await new Promise((r) => setTimeout(r, 60_000));
+        return new Response("{}", { status: 200 });
+      }) as typeof fetch,
+      deadline,
+    });
+    expect(
+      settled.journal.steps.some(
+        (s) =>
+          /shopper/i.test(s.decided) && s.decided.includes(RESALE_TIME_BUDGET_SKIP),
+      ),
+    ).toBe(true);
+  });
+
   it("budget-only search still returns under a simulated slow inventory wave", async () => {
     const kv = new MemoryKv();
     const listings = pool();
     let calls = 0;
-    const assemble = vi.fn(async () => {
+    const assemble = vi.fn(async (_q: unknown, deps?: { autodev?: { signal?: AbortSignal } }) => {
       calls += 1;
-      // Each Autodev call would be ~12s sequential; parallel + stage cap must not wait for all.
-      await new Promise((r) => setTimeout(r, 80));
+      const signal = deps?.autodev?.signal;
+      await new Promise<void>((resolve, reject) => {
+        const timer = setTimeout(() => resolve(), 80);
+        signal?.addEventListener(
+          "abort",
+          () => {
+            clearTimeout(timer);
+            reject(new DOMException("Aborted", "AbortError"));
+          },
+          { once: true },
+        );
+      }).catch(() => undefined);
       return {
         ok: true as const,
         listings,
@@ -111,6 +183,7 @@ describe("resale time budget (Hobby ~50s)", () => {
         kv,
         assembleRadarImpl: assemble as never,
         autodevKey: "test",
+        autodev: { cache: undefined as never, counter: undefined as never },
         servKey: "test-key",
         fetchImpl: (async () => {
           await new Promise((r) => setTimeout(r, 60_000));
@@ -139,4 +212,85 @@ describe("resale time budget (Hobby ~50s)", () => {
     ).toBe(true);
     expect(calls).toBeGreaterThan(0);
   });
+
+  it("worst case: JSON within 52s of request start with hanging SERV + Auto.dev; no pending work", async () => {
+    const kv = new MemoryKv();
+    const listings = pool();
+    const hang = hangingFetchTracker();
+    let assembleInFlight = 0;
+
+    const assemble = vi.fn(async (_q: unknown, deps?: { autodev?: { signal?: AbortSignal } }) => {
+      assembleInFlight += 1;
+      try {
+        const signal = deps?.autodev?.signal;
+        await new Promise<void>((resolve, reject) => {
+          if (signal?.aborted) {
+            reject(new DOMException("Aborted", "AbortError"));
+            return;
+          }
+          const timer = setTimeout(() => resolve(), 120_000);
+          signal?.addEventListener(
+            "abort",
+            () => {
+              clearTimeout(timer);
+              reject(new DOMException("Aborted", "AbortError"));
+            },
+            { once: true },
+          );
+        });
+        return {
+          ok: true as const,
+          listings,
+          sample: false,
+          message: "should not finish",
+          status: 200,
+        };
+      } catch {
+        return {
+          ok: false as const,
+          listings: [] as Listing[],
+          sample: false,
+          message: "aborted",
+          status: 504,
+          error: "provider_timeout",
+        };
+      } finally {
+        assembleInFlight -= 1;
+      }
+    });
+
+    // Simulate request arrival — deadline starts here (same as route first line).
+    const requestStarted = Date.now();
+    const deadline = makeResaleDeadline(RESALE_INTERNAL_BUDGET_MS, requestStarted);
+
+    const result = await runResaleSearch(
+      { budgetUsd: 15_000 },
+      {
+        kv,
+        assembleRadarImpl: assemble as never,
+        autodevKey: "test",
+        autodev: { cache: undefined as never, counter: undefined as never },
+        servKey: "test-key",
+        fetchImpl: hang.fetchImpl,
+        deadline,
+        internalBudgetMs: RESALE_INTERNAL_BUDGET_MS,
+        inventoryStageCapMs: 22_000,
+        parallelProviderQueries: true,
+        maxProviderQueries: 6,
+        env: { VERCEL: undefined, NETLIFY: undefined },
+      },
+    );
+    const elapsed = Date.now() - requestStarted;
+
+    expect(elapsed).toBeLessThan(RESALE_HANDLER_HARD_CAP_MS);
+    // Must return a JSON-shaped result (ok or time_budget) — never hang.
+    expect(result).toBeTruthy();
+    expect(typeof result.ok).toBe("boolean");
+    expect(result.status).toBeGreaterThanOrEqual(200);
+
+    // Drain microtasks; aborted fetches must have cleared in-flight counters.
+    await new Promise((r) => setTimeout(r, 50));
+    expect(hang.inFlight()).toBe(0);
+    expect(assembleInFlight).toBe(0);
+  }, 60_000);
 });
