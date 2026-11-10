@@ -68,7 +68,7 @@ test.describe("brand type on chrome", () => {
   });
 
   for (const width of [375, 390, 1280, 1920] as const) {
-    test(`home hero: BUY SMART above search + content matches header pad @ ${width}`, async ({ page }) => {
+    test(`home hero: search card above BUY SMART + content matches header pad @ ${width}`, async ({ page }) => {
       await mockSignedIn(page);
       await page.setViewportSize({ width, height: width < 800 ? 812 : 1080 });
       await page.goto("/");
@@ -93,13 +93,14 @@ test.describe("brand type on chrome", () => {
         const headerPad = Number.parseFloat(hs.paddingLeft) || 0;
         const framePad = Number.parseFloat(fs.paddingLeft) || 0;
         return {
-          stacked: b.top >= a.bottom - 4,
+          // Card must sit above the h1 / slogan (city lights hurt headline-on-top).
+          stacked: a.top >= b.bottom - 4,
           padMatch: Math.abs(headerPad - framePad) <= 1,
           headerPad,
           framePad,
         };
       });
-      expect(layout.stacked, `search must sit below slogan @ ${width}`).toBe(true);
+      expect(layout.stacked, `search card must sit above slogan/h1 @ ${width}`).toBe(true);
       expect(layout.padMatch, `content pad ${layout.framePad} vs header ${layout.headerPad} @ ${width}`).toBe(true);
 
       await page.screenshot({ path: join(SCREEN_DIR, `home-hero-${width}.png`), fullPage: false });

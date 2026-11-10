@@ -6,6 +6,7 @@ import type { Mode } from "@/domain/types";
 import { HOME_ACCOUNT_LINE } from "./account-cta-copy";
 import { BrandHeroTitle } from "./BrandLockup";
 import { FilmScrub, type FilmPhase } from "./FilmScrub";
+import { HomeMarquee } from "./HomeMarquee";
 import { HomeSearch } from "./HomeSearch";
 
 export function HomeStage() {
@@ -22,11 +23,7 @@ export function HomeStage() {
           </div>
             <div className={`film-overlay phase-${phase}`}>
             <div className="film-copy site-frame">
-              <div className="film-slogan">
-                <p className="kicker">Used-car verdicts you can check.</p>
-                <BrandHeroTitle />
-                <p className="lead">Find better cars. Detect hidden risks. Make smarter decisions.</p>
-              </div>
+              {/* Search card above headline — city lights behind the title hurt legibility. */}
               <div className="film-search">
                 <HomeSearch onModeChange={setMode} />
                 <p className="sample-link">
@@ -35,27 +32,17 @@ export function HomeStage() {
                 </p>
                 <p className="account-note">{HOME_ACCOUNT_LINE}</p>
               </div>
+              <div className="film-slogan">
+                <p className="kicker">Used-car verdicts you can check.</p>
+                <BrandHeroTitle />
+                <p className="lead">Find better cars. Detect hidden risks. Make smarter decisions.</p>
+              </div>
             </div>
             <p className="sale-caption">Not a car for sale</p>
           </div>
         </div>
       </section>
-      <div className="marquee" aria-hidden="true">
-        <div className="marquee-track">
-          <span>For me</span>
-          <span>For resale</span>
-          <span>Price badge</span>
-          <span>Mileage</span>
-          <span>Full analysis</span>
-          <span>For agents</span>
-          <span>For me</span>
-          <span>For resale</span>
-          <span>Price badge</span>
-          <span>Mileage</span>
-          <span>Full analysis</span>
-          <span>For agents</span>
-        </div>
-      </div>
+      <HomeMarquee />
       <section className="story-after site-frame reveal">
         <p className="kicker">How it works</p>
         <ol className="steps-3 story-steps">
