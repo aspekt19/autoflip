@@ -3,7 +3,7 @@ import {
   type DecisionProofRecord,
 } from "@/domain/decision-proof-view";
 
-/** Compact one-line proof for Find / Radar — SERV id or the real failure reason. */
+/** Shared lemonless.decision_proof.v1 journal — purpose, SERV id, what changed, raw response. */
 export function DecisionRecordList({
   records,
   emptyHint,
@@ -19,7 +19,11 @@ export function DecisionRecordList({
     <ul className="decision-record-list">
       {rows.map((row) => (
         <li key={`${row.purpose}-${row.timestamp}-${row.servResponseId ?? row.reason ?? "x"}`}>
-          <p className="hint">{formatDecisionRecordLine(row)}</p>
+          <p className="hint">
+            <strong>{row.purpose}</strong>
+            {" · "}
+            {formatDecisionRecordLine(row)}
+          </p>
           {row.rawResponse ? (
             <details className="onboarding-note">
               <summary>Open agent response</summary>

@@ -83,6 +83,32 @@ describe("radarVerdictFacts", () => {
 });
 
 describe("reviewPersonalCandidate failures", () => {
+  it("does not alert on code price alone when SERV key is missing", async () => {
+    const review = await reviewPersonalCandidate(
+      {
+        listing,
+        numbers,
+        badge,
+        baseWhy: "Good price vs similar RAV4s.",
+        budgetUsd: 18_000,
+      },
+      {
+        fetchImpl: fetch,
+        servKey: undefined,
+        servModel: "gpt-5.4-mini",
+        timeoutMs: 8_000,
+        searchId: "search-1",
+        challenge: false,
+        nowIso: "2026-11-10T06:00:00.000Z",
+      },
+      [],
+    );
+    expect(review.alertWorthy).toBe(false);
+    expect(review.proofRecords.some((row) => row.purpose === "verdict_decide" && row.status === "skipped")).toBe(
+      true,
+    );
+  });
+
   it("journals real HTTP error text and never shows chatcmpl-<uuid> as response id", async () => {
     const synthetic = "chatcmpl-0fc22f78-ff49-41e6-9ac1-25ec62e96e62";
     const fetchImpl = vi.fn(async () =>

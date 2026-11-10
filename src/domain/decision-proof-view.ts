@@ -141,10 +141,19 @@ export function decisionPurposeLabel(purpose: string): string {
   }
 }
 
-/** Compact buyer/agent line for Find results and Radar run. */
+/** Compact buyer/agent line for Find / Resale / Radar — purpose, SERV id, what changed. */
 export function formatDecisionRecordLine(record: DecisionProofRecord): string {
   const when = record.timestamp ? new Date(record.timestamp).toISOString() : "time unknown";
   const label = decisionPurposeLabel(record.purpose);
+  const changed =
+    record.clampResult?.overridden &&
+    (record.clampResult.servChoice || record.clampResult.finalAction)
+      ? `What changed: ${record.clampResult.servChoice ?? "?"} → ${record.clampResult.finalAction ?? "?"}${
+          record.clampResult.overrideReasons.length
+            ? ` (${record.clampResult.overrideReasons.slice(0, 2).join("; ")})`
+            : ""
+        }`
+      : null;
   if (record.status === "ok") {
     const bits = [
       label,
@@ -152,9 +161,10 @@ export function formatDecisionRecordLine(record: DecisionProofRecord): string {
       record.model ? `model ${record.model}` : null,
       when,
       record.verdict ? `verdict ${record.verdict}` : null,
-      record.clampResult?.overridden ? "guardrails changed the agent choice" : null,
+      changed,
     ].filter(Boolean);
     return bits.join(" · ");
   }
-  return `${label} · ${record.status}: ${record.reason ?? record.status}`;
+  const skipBits = [label, record.status, record.reason ?? record.status, changed].filter(Boolean);
+  return skipBits.join(" · ");
 }

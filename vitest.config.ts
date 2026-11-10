@@ -9,7 +9,7 @@ export default defineConfig({
     // Preserve the existing mock-history semantics during the Vitest 5 upgrade.
     clearMocks: false,
     environment: "node",
-    include: ["src/**/*.test.ts", "src/**/*.test.tsx"],
+    include: ["src/**/*.test.ts", "src/**/*.test.tsx", "eval/**/*.test.ts", "scripts/**/*.test.ts"],
   },
   resolve: {
     alias: {

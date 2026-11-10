@@ -115,6 +115,7 @@ export type ResaleJobClientBody = {
   verdictAction?: ResaleSearchOkBody["verdictAction"];
   confidence?: ResaleSearchOkBody["confidence"];
   agentVerdict?: ResaleSearchOkBody["agentVerdict"];
+  proofRecords?: ResaleSearchOkBody["proofRecords"];
   headline?: string;
   message?: string;
   nextStepHint?: string;
@@ -219,6 +220,7 @@ export function jobToClientBody(
       verdictAction: job.delivery.verdictAction,
       confidence: job.delivery.confidence,
       agentVerdict: job.delivery.agentVerdict,
+      proofRecords: job.delivery.proofRecords,
       headline: job.delivery.headline,
       message: job.delivery.message,
       nextStepHint: unpaidDelivered
@@ -240,6 +242,7 @@ export function jobToClientBody(
       verdictAction: job.settleCheckpoint.verdictAction,
       confidence: job.settleCheckpoint.confidence,
       agentVerdict: job.settleCheckpoint.agentVerdict,
+      proofRecords: job.settleCheckpoint.proofRecords,
       headline: `Working — ${progress.label}`,
       message: `Step ${job.stepCompleted} of ${RESALE_JOB_FINAL_STEP} complete. Credit is charged only when the final verdict is delivered.`,
       nextStepHint: "Continue to the next agent step.",
@@ -935,6 +938,7 @@ export async function advanceResaleJob(
           confidence: job.settleCheckpoint.confidence,
           agentVerdict: job.settleCheckpoint.agentVerdict,
           journal,
+          proofRecords: job.settleCheckpoint.proofRecords,
           headline: `Best flip: ${job.settleCheckpoint.best.listing.year} ${job.settleCheckpoint.best.listing.make} ${job.settleCheckpoint.best.listing.model}`,
           message:
             job.settleCheckpoint.best.profitMidUsd != null
@@ -1002,6 +1006,7 @@ export async function advanceResaleJob(
         },
       },
       journal,
+      proofRecords: settled.proofRecords,
       headline: best
         ? `Best flip: ${best.listing.year} ${best.listing.make} ${best.listing.model}`
         : "Resale search complete",

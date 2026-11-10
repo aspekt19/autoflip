@@ -48,6 +48,11 @@ import { decideWhyWithGateResult } from "@/domain/verdict-decide";
 import { providerResponseIdFromCall } from "@/domain/serv-response-id";
 import { redactSecretsOnly } from "@/domain/redact-secrets";
 import { stripUnsupportedNumbers } from "@/domain/resale-serv-validate";
+import {
+  buildDecisionProofRecord,
+  VERDICT_RUBRIC_ID,
+  type DecisionProofRecord,
+} from "@/domain/decision-proof-record";
 
 const RESALE_SERV_JUDGE_MAX = 3;
 
@@ -84,6 +89,8 @@ export type ResaleSettleCheckpoint = {
   ranJudge: boolean;
   ranDecide: boolean;
   trace: ShopperServTrace | null;
+  /** Shared lemonless.decision_proof.v1 rows from shopper decide/challenge (and honest skips). */
+  proofRecords: DecisionProofRecord[];
   budgetUsd: number;
   timeToSellPref?: "any" | "faster" | "unknown";
 };
@@ -98,6 +105,8 @@ export type ResaleSettleServResult = {
   confidence: "High" | "Medium" | "Low";
   ranJudge: boolean;
   ranDecide: boolean;
+  /** Shared lemonless.decision_proof.v1 — same contract as Find/Radar. */
+  proofRecords: DecisionProofRecord[];
   /** Snapshot for the next job step (or final state). */
   checkpoint: ResaleSettleCheckpoint;
 };
@@ -478,6 +487,7 @@ function buildSettleResult(state: {
   confidence: ResaleSettleServResult["confidence"];
   ranJudge: boolean;
   ranDecide: boolean;
+  proofRecords: DecisionProofRecord[];
   checkpoint: ResaleSettleCheckpoint;
 }): ResaleSettleServResult {
   return {
@@ -486,6 +496,7 @@ function buildSettleResult(state: {
     agentVerdict: state.agentVerdict,
     journal: state.journal,
     trace: state.trace,
+    proofRecords: state.proofRecords,
     verdictAction: state.verdictAction,
     confidence: state.confidence,
     ranJudge: state.ranJudge,
@@ -599,6 +610,7 @@ export async function runResaleSettleServ(input: {
       : null;
 
   let trail: AgentTrailStep[] = resumeFrom ? [...resumeFrom.trail] : [];
+  let proofRecords: DecisionProofRecord[] = resumeFrom?.proofRecords ? [...resumeFrom.proofRecords] : [];
   let journal = resumeFrom ? resumeFrom.journal : emptyResaleJournal(RESALE_SERV_CALL_CAP);
   const ranked = resumeFrom ? resumeFrom.rankedAll : sortByProfit(input.candidates);
   const shortlist = resumeFrom ? resumeFrom.shortlist : ranked.slice(0, RESALE_SERV_JUDGE_MAX);
@@ -664,6 +676,7 @@ export async function runResaleSettleServ(input: {
       ranJudge: false,
       ranDecide: false,
       trace: null,
+      proofRecords: [],
       budgetUsd: input.budgetUsd,
       timeToSellPref: input.timeToSellPref,
     };
@@ -673,6 +686,7 @@ export async function runResaleSettleServ(input: {
       agentVerdict,
       journal,
       trace: null,
+      proofRecords: [],
       verdictAction: "pass",
       confidence: "Low",
       ranJudge: false,
@@ -1047,6 +1061,7 @@ export async function runResaleSettleServ(input: {
       ranJudge,
       ranDecide,
       trace: null,
+      proofRecords,
       budgetUsd: input.budgetUsd,
       timeToSellPref: input.timeToSellPref,
     };
@@ -1056,6 +1071,7 @@ export async function runResaleSettleServ(input: {
       agentVerdict,
       journal,
       trace: null,
+      proofRecords,
       verdictAction,
       confidence: confidenceLabel,
       ranJudge,
@@ -1293,6 +1309,7 @@ export async function runResaleSettleServ(input: {
       ranJudge,
       ranDecide,
       trace: null,
+      proofRecords,
       budgetUsd: input.budgetUsd,
       timeToSellPref: input.timeToSellPref,
     };
@@ -1302,6 +1319,7 @@ export async function runResaleSettleServ(input: {
       agentVerdict,
       journal,
       trace: null,
+      proofRecords,
       verdictAction,
       confidence: confidenceLabel,
       ranJudge,
@@ -1590,6 +1608,7 @@ export async function runResaleSettleServ(input: {
       ranJudge,
       ranDecide,
       trace: null,
+      proofRecords,
       budgetUsd: input.budgetUsd,
       timeToSellPref: input.timeToSellPref,
     };
@@ -1599,6 +1618,7 @@ export async function runResaleSettleServ(input: {
       agentVerdict,
       journal,
       trace: null,
+      proofRecords,
       verdictAction,
       confidence: confidenceLabel,
       ranJudge,
@@ -1613,7 +1633,11 @@ export async function runResaleSettleServ(input: {
     ? resaleCallTimeoutMs(profile("verdict_decide").timeoutMs, deadline)
     : profile("verdict_decide").timeoutMs;
   if (runShopperPhase) {
-    const skipShopper = (decided: string, why: string) => {
+    const skipShopper = (
+      decided: string,
+      why: string,
+      status?: "skipped_no_key" | "skipped_call_cap" | "skipped_time_budget",
+    ) => {
       journal = appendJournalStep(journal, {
         kind: "fallback",
         actor: "code",
@@ -1626,21 +1650,38 @@ export async function runResaleSettleServ(input: {
         recordedAt,
         rejected: null,
       });
+      // Only emit a proof row for pre-shopper skips — after runShopperVerdictServ we already have its rows.
+      if (status) {
+        proofRecords = [
+          ...proofRecords,
+          buildDecisionProofRecord({
+            purpose: "verdict_decide",
+            rubricId: VERDICT_RUBRIC_ID,
+            status,
+            recordedAt,
+            inputs: { vin: best.vin, phase: "resale_shopper" },
+            detail: why,
+          }),
+        ];
+      }
     };
     if (!input.servKey?.trim()) {
       skipShopper(
         "Verdict decide skipped: SERV not configured",
         "SERV_API_KEY is not configured — pick/challenge stand without shopper decide.",
+        "skipped_no_key",
       );
     } else if (!hasServSlot(journal)) {
       skipShopper(
         `Verdict decide skipped: ${callCapSkipLine(journal)}`,
         callCapSkipWhy(journal),
+        "skipped_call_cap",
       );
     } else if (shopperTimeoutDecide == null || !stageOk(RESALE_STAGE_BUDGET_MS.shopper, shopperTimeoutDecide)) {
       skipShopper(
         `Verdict decide skipped: ${RESALE_TIME_BUDGET_SKIP}`,
         `Wall-clock budget remaining ${deadline?.remainingMs() ?? 0}ms — resale pick/challenge stand without shopper SERV.`,
+        "skipped_time_budget",
       );
     } else {
       const report = buildFlipReport(best, input.budgetUsd, ranked);
@@ -1660,6 +1701,7 @@ export async function runResaleSettleServ(input: {
         decideTimeoutMs: shopperTimeoutDecide,
         maxAdditionalServCalls: shopperSlots,
       });
+      proofRecords = [...proofRecords, ...shopper.proofRecords];
       if (shopper.trace && shopper.trace.calls.length > 0) {
         ranDecide = true;
         trace = shopper.trace;
@@ -1799,6 +1841,7 @@ export async function runResaleSettleServ(input: {
     ranJudge,
     ranDecide,
     trace,
+    proofRecords,
     budgetUsd: input.budgetUsd,
     timeToSellPref: input.timeToSellPref,
   };
@@ -1809,6 +1852,7 @@ export async function runResaleSettleServ(input: {
     agentVerdict,
     journal,
     trace,
+    proofRecords,
     verdictAction,
     confidence: confidenceLabel,
     ranJudge,

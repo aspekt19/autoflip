@@ -28,7 +28,8 @@
     "eval:record-serv-revision": "tsx eval/record-serv-revision.ts",
     "test:hero-scrub": "node scripts/hero-scrub-scroll.mjs",
     "smoke:free-gov": "node scripts/free-gov-smoke.mjs",
-    "probe:listing-fetch": "tsx scripts/probe-listing-fetch.ts"
+    "probe:listing-fetch": "tsx scripts/probe-listing-fetch.ts",
+    "eval:serv-vs-baseline": "tsx scripts/eval-serv-vs-baseline.ts --dry-run"
   },
   "engines": {
     "node": "22.x"

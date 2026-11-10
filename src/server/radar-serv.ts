@@ -233,6 +233,7 @@ export async function reviewPersonalCandidate(
   }
 
   if (!deps.servKey || deps.timeoutMs < 500) {
+    // Do not alert on code price alone — SERV must decide alert vs skip when evidence exists.
     proofRecords.push(
       buildDecisionProofRecord({
         purpose: "verdict_decide",
@@ -240,14 +241,14 @@ export async function reviewPersonalCandidate(
         status: "skipped_no_key",
         recordedAt,
         inputs: facts,
-        detail: "SERV was not available for this run; code price rating only.",
+        detail: "SERV was not available for this run; no alert without a SERV decision.",
       }),
     );
     return {
-      alertWorthy: true,
+      alertWorthy: false,
       action: null,
       note: null,
-      why: `${input.baseWhy} SERV was not available for this run; this alert uses the code price rating only.`,
+      why: `${input.baseWhy} SERV was not available for this run; this match was not alerted (code price rating alone does not alert).`,
       checks: guardChecks,
       activity,
       proofRecords,
