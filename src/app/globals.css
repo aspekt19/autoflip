@@ -60,6 +60,8 @@
   --site-pad: clamp(16px, 3vw, 48px);
   /* Centered action column: wider than the old ~560px card, not full header width. */
   --content-col: 920px;
+  /* Home hero search only — ~60% of 1728/1440, not used on other routes. */
+  --home-search-col: 1120px;
   accent-color: var(--blue);
   background: var(--canvas);
   color: var(--ink);
@@ -1749,17 +1751,21 @@ details.similar-cars > summary,
   z-index: 2;
   width: min(100%, var(--content-col));
   max-width: 100%;
-  padding: 6px 0 8px;
+  padding: 14px 20px 16px;
   /* Keep eyebrow clear of the display headline (no overlap). */
   display: grid;
   gap: 12px;
   justify-items: center;
   text-align: center;
+  /* Subtle dark plate so headline stays legible over city lights. */
+  border-radius: 6px;
+  background: linear-gradient(180deg, rgba(5, 5, 5, 0.55), rgba(5, 5, 5, 0.28));
 }
 .film-slogan .kicker {
   margin: 0;
   position: relative;
   z-index: 1;
+  text-shadow: 0 1px 10px rgba(0, 0, 0, 0.75);
 }
 .film-slogan .brand-hero-title,
 .film-copy .brand-hero-title {
@@ -1775,6 +1781,7 @@ details.similar-cars > summary,
   font-weight: 700;
   text-align: center;
   text-wrap: balance;
+  text-shadow: 0 2px 18px rgba(0, 0, 0, 0.85), 0 0 2px rgba(0, 0, 0, 0.9);
 }
 .film-slogan .lead,
 .film-copy .lead {
@@ -1785,11 +1792,13 @@ details.similar-cars > summary,
   max-width: 42ch;
   color: rgba(255, 255, 255, 0.86);
   text-align: center;
+  text-shadow: 0 1px 12px rgba(0, 0, 0, 0.8);
 }
 .film-search {
   position: relative;
-  z-index: 1;
-  width: min(100%, var(--content-col));
+  z-index: 3;
+  /* Home-only wider card (~60% / 1120px max). Parent .site-frame already pads. */
+  width: min(var(--home-search-col), 100%);
   max-width: 100%;
   padding: 16px 18px;
   border-radius: 6px;
@@ -1807,7 +1816,7 @@ details.similar-cars > summary,
 .film-copy textarea { min-height: 0; height: 72px; font-size: 15px; width: 100%; }
 .film-copy .btn-row { margin-top: 8px; }
 .film-copy .hero-chat { margin-top: 0; width: 100%; }
-/* Keep one column at every width: headline first, search card below (checklist line 20). */
+/* Home: search card above slogan (card first in DOM). */
 .sale-caption {
   position: absolute;
   left: 50%;
@@ -1856,7 +1865,36 @@ details.similar-cars > summary,
 }
 .showroom-credit { margin: 12px 0 0; max-width: 46ch; color: var(--muted); font-size: 12px; }
 .marquee { position: relative; z-index: 2; overflow: hidden; border-block: 1px solid rgba(255,255,255,0.12); background: rgba(0,0,0,0.55); }
-.marquee-track { display: flex; gap: 36px; width: max-content; padding: 14px 0; font-family: var(--display); letter-spacing: 0.16em; text-transform: uppercase; font-size: 12px; }
+.marquee-measure {
+  position: absolute;
+  visibility: hidden;
+  pointer-events: none;
+  display: flex;
+  gap: 36px;
+  width: max-content;
+  font-family: var(--display);
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  font-size: 12px;
+}
+.marquee-track {
+  display: flex;
+  width: max-content;
+  padding: 14px 0;
+  font-family: var(--display);
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  font-size: 12px;
+  transform: translateX(0);
+  animation-delay: 0s;
+  will-change: transform;
+}
+.marquee-group {
+  display: flex;
+  flex-shrink: 0;
+  gap: 36px;
+  padding-inline-end: 36px;
+}
 .listing-card { transition: transform 0.35s var(--ease), border-color 0.35s var(--ease); }
 .listing-card:hover { transform: translateY(-4px); border-color: rgba(255,255,255,0.38); }
 .nav-go { border-radius: 999px; }

@@ -178,16 +178,82 @@ test.describe("content width + centering — all routes", () => {
     });
   }
 
-  for (const width of [1440, 1280] as const) {
-    test(`home search card width ≥ 840 and not full-bleed @ ${width}`, async ({ page }) => {
-      await mockAccount(page);
-      await page.setViewportSize({ width, height: 900 });
-      await page.goto("/");
-      const card = await measureCenteredInViewport(page, ".film-search");
-      expect(card).not.toBeNull();
-      expect(card!.gapDelta).toBeLessThanOrEqual(8);
-      expect(card!.elementWidth).toBeGreaterThanOrEqual(840);
-      expect(card!.elementWidth).toBeLessThan(width - 80);
+  test("home search card ≥ 1000px and centered @ 1440", async ({ page }) => {
+    await mockAccount(page);
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.goto("/");
+    const card = await measureCenteredInViewport(page, ".film-search");
+    expect(card).not.toBeNull();
+    expect(card!.gapDelta).toBeLessThanOrEqual(8);
+    expect(card!.elementWidth).toBeGreaterThanOrEqual(1000);
+    expect(card!.elementWidth).toBeLessThanOrEqual(1120 + 1);
+    expect(card!.elementWidth).toBeLessThan(1440 - 80);
+  });
+
+  test("home search card centered and wider than old 920 @ 1280", async ({ page }) => {
+    await mockAccount(page);
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.goto("/");
+    const card = await measureCenteredInViewport(page, ".film-search");
+    expect(card).not.toBeNull();
+    expect(card!.gapDelta).toBeLessThanOrEqual(8);
+    // At 1280, pad ~38 → content ~1204; card caps at 1120.
+    expect(card!.elementWidth).toBeGreaterThanOrEqual(1000);
+    expect(card!.elementWidth).toBeLessThan(1280 - 80);
+  });
+
+  test("home search card is full padded width @ 390", async ({ page }) => {
+    await mockAccount(page);
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.goto("/");
+    const metrics = await page.evaluate(() => {
+      const card = document.querySelector(".film-search");
+      const frame = document.querySelector(".film-copy.site-frame");
+      if (!card || !frame) return null;
+      const c = card.getBoundingClientRect();
+      const f = frame.getBoundingClientRect();
+      const pad = Number.parseFloat(getComputedStyle(frame).paddingLeft) || 0;
+      return {
+        cardWidth: c.width,
+        frameInner: f.width - 2 * pad,
+        leftGap: Math.abs(c.left - (f.left + pad)),
+        rightGap: Math.abs(f.right - pad - c.right),
+      };
     });
-  }
+    expect(metrics).not.toBeNull();
+    expect(metrics!.leftGap).toBeLessThanOrEqual(2);
+    expect(metrics!.rightGap).toBeLessThanOrEqual(2);
+    expect(Math.abs(metrics!.cardWidth - metrics!.frameInner)).toBeLessThanOrEqual(2);
+  });
+
+  test("home marquee fills edge-to-edge at t=0 and track ≥ 2× strip", async ({ page }) => {
+    await mockAccount(page);
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.goto("/");
+    const marquee = page.getByTestId("home-marquee");
+    await expect(marquee).toBeVisible();
+    // Wait a tick for ResizeObserver to expand copies, then freeze animation at t=0.
+    await page.waitForTimeout(50);
+    const metrics = await page.evaluate(() => {
+      const strip = document.querySelector('[data-testid="home-marquee"]');
+      const track = document.querySelector('[data-testid="home-marquee-track"]');
+      if (!strip || !track) return null;
+      const first = track.querySelector(".marquee-group span");
+      if (!first) return null;
+      // Force first frame (no mid-animation empty left).
+      (track as HTMLElement).style.animation = "none";
+      (track as HTMLElement).style.transform = "translateX(0)";
+      const sr = strip.getBoundingClientRect();
+      const fr = first.getBoundingClientRect();
+      return {
+        firstLeft: fr.left,
+        stripLeft: sr.left,
+        trackWidth: (track as HTMLElement).scrollWidth,
+        stripWidth: sr.width,
+      };
+    });
+    expect(metrics).not.toBeNull();
+    expect(metrics!.firstLeft).toBeLessThanOrEqual(metrics!.stripLeft + 24);
+    expect(metrics!.trackWidth).toBeGreaterThanOrEqual(metrics!.stripWidth * 2);
+  });
 });
