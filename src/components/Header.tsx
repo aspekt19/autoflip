@@ -133,8 +133,13 @@ export function Header({ scoutNavEnabled = false }: { scoutNavEnabled?: boolean 
     setMoreOpen(false);
   }
 
+  const overMedia = pathname === "/";
+
   return (
-    <header className="bar site-frame" data-testid="site-header">
+    <header
+      className={`bar site-frame${overMedia ? " bar-over-media" : ""}`}
+      data-testid="site-header"
+    >
       <BrandLockup size={58} animated className="brand" surface="dark" />
       <nav id={navId} ref={navRef} aria-label="Primary" className={menuOpen ? "nav-open" : undefined}>
         {coreLinks.map((item) => (

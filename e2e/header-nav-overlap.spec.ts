@@ -2,6 +2,35 @@ import { expect, test, type Page } from "@playwright/test";
 
 const WIDTHS = [1024, 1280, 1366, 1440, 1536, 1728, 1920, 2240] as const;
 
+test("home hero film fills the viewport under an overlaid header", async ({ page }) => {
+  await page.setViewportSize({ width: 2240, height: 1260 });
+  await page.goto("/");
+  await expect(page.getByTestId("site-header")).toHaveClass(/bar-over-media/);
+
+  const metrics = await page.evaluate(() => {
+    const sticky = document.querySelector(".film-sticky");
+    if (!sticky) return null;
+    const rect = sticky.getBoundingClientRect();
+    const before = getComputedStyle(document.querySelector("header.bar")!, "::before");
+    // Outside the centered pill, top strip must hit the film — not a black header curtain.
+    const hit = document.elementFromPoint(80, 36);
+    const hitClass = hit instanceof Element ? hit.className.toString() : String(hit?.nodeName ?? "");
+    return {
+      top: rect.top,
+      bottom: rect.bottom,
+      height: rect.height,
+      viewportH: window.innerHeight,
+      beforeContent: before.content,
+      hitClass,
+    };
+  });
+  expect(metrics).toBeTruthy();
+  expect(metrics!.top).toBeLessThanOrEqual(1);
+  expect(Math.abs(metrics!.height - metrics!.viewportH)).toBeLessThanOrEqual(1);
+  expect(Math.abs(metrics!.bottom - metrics!.viewportH)).toBeLessThanOrEqual(1);
+  expect(metrics!.beforeContent === "none" || metrics!.beforeContent === "normal").toBe(true);
+  expect(metrics!.hitClass).toMatch(/film-(canvas|poster|stage|sticky)/);
+});
 type Box = { x: number; y: number; width: number; height: number };
 
 function boxesIntersect(a: Box, b: Box): boolean {
