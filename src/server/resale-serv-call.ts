@@ -185,11 +185,12 @@ export async function runResaleServWithRejectRetry(input: {
     ...input.userExtra,
   };
   const first = await runServ(input.profileId, { user: JSON.stringify(userBody) }, input.deps);
+  // Payload only exists when HTTP succeeded with parseable text — never invent one for timeouts.
   const firstPayload = first.ok ? parseJsonObject(first.text) : null;
   const firstValidation = input.validatePayload(firstPayload, first);
 
-  // Timeouts / HTTP failures: do not retry — surface measured latency to the journal.
-  if (!first.ok || isServTimeout(first)) {
+  // No payload (timeout / HTTP / local): do not retry — journal measured latency / error.
+  if (!first.ok || isServTimeout(first) || !firstPayload) {
     return { result: first, payload: firstPayload, validation: firstValidation, attempt: 1 };
   }
   if (firstValidation.ok || !input.canRetry) {
@@ -224,6 +225,10 @@ export async function runResaleServWithRejectRetry(input: {
   );
   const secondPayload = second.ok ? parseJsonObject(second.text) : null;
   const secondValidation = input.validatePayload(secondPayload, second);
+  // Retry got no payload (timeout/HTTP): keep the first payload rejection as journal truth.
+  if ((!second.ok || isServTimeout(second) || !secondPayload) && !firstValidation.ok) {
+    return { result: first, payload: firstPayload, validation: firstValidation, attempt: 2 };
+  }
   return { result: second, payload: secondPayload, validation: secondValidation, attempt: 2 };
 }
 
@@ -237,11 +242,16 @@ export function validationFromCall(input: {
   evidenceIds?: string[] | null;
   bundle: ResaleEvidenceBundle;
 }): ResaleServValidation {
+  // Transport failure: do not pretend this is an allowlist/schema rejection.
   if (!input.result.ok || isServTimeout(input.result)) {
     const fail = describeServCallFailure(input.result);
+    const reason =
+      fail.rejected === "timeout" || fail.rejected === "http_error" || fail.rejected === "call_failed"
+        ? fail.rejected
+        : "call_failed";
     return {
       ok: false,
-      reason: "rejected: unsupported reference",
+      reason,
       detail: fail.why,
     };
   }
@@ -263,15 +273,33 @@ export function validationFromCall(input: {
   );
 }
 
-/** Prefer timeout/HTTP wording over a generic validation fallback. */
+/**
+ * Journal labeling:
+ * - payload received but rejected → `rejected: unsupported reference` + `SERV payload rejected: …`
+ * - no payload → timeout / HTTP / local call failure (never validation fallback text)
+ */
 export function journalWhyFromServAttempt(input: {
   result: ServResult;
   validation: ResaleServValidation;
   missingPayloadFallback: string;
+  /** Parsed JSON when HTTP succeeded; null when there was no payload. */
+  payload?: Record<string, unknown> | null;
 }): { why: string; rejected: string | null } {
-  if (!input.result.ok || isServTimeout(input.result)) {
-    const fail = describeServCallFailure(input.result);
-    return { why: fail.why, rejected: fail.rejected };
+  const hadPayload = input.payload != null;
+  // Payload present → content rejection wins over any transport wording on validation.detail.
+  if (hadPayload && !input.validation.ok) {
+    const rej = describeServPayloadRejection(input.validation.detail);
+    return { why: rej.why, rejected: rej.rejected };
+  }
+  if (!input.result.ok || isServTimeout(input.result) || !hadPayload) {
+    if (!input.result.ok || isServTimeout(input.result)) {
+      const fail = describeServCallFailure(input.result);
+      return { why: fail.why, rejected: fail.rejected };
+    }
+    return {
+      why: input.missingPayloadFallback,
+      rejected: "rejected: unsupported reference",
+    };
   }
   if (!input.validation.ok) {
     const rej = describeServPayloadRejection(input.validation.detail);
@@ -281,4 +309,26 @@ export function journalWhyFromServAttempt(input: {
     why: input.missingPayloadFallback,
     rejected: "rejected: unsupported reference",
   };
+}
+
+/** Classify a shopper trace call the same way as other SERV steps. */
+export function journalWhyFromShopperCall(call: {
+  ok: boolean;
+  error: string | null;
+  latencyMs: number | null;
+}): { why: string; rejected: string | null } {
+  if (call.ok) return { why: "", rejected: null };
+  const err = call.error?.trim() || "Shopper SERV call failed.";
+  if (err === "SERV did not respond." || /timed?\s*out/i.test(err)) {
+    const secs = call.latencyMs != null && call.latencyMs > 0 ? Math.max(1, Math.round(call.latencyMs / 1000)) : null;
+    return {
+      why: secs != null ? `SERV timed out after ${secs}s` : "SERV timed out",
+      rejected: "timeout",
+    };
+  }
+  const httpMatch = /HTTP\s+(\d{3})/i.exec(err);
+  if (httpMatch) {
+    return { why: `SERV HTTP ${httpMatch[1]}: ${err}`, rejected: "http_error" };
+  }
+  return { why: `SERV call failed: ${err}`, rejected: "call_failed" };
 }

@@ -96,4 +96,29 @@ describe("resale SERV failure labeling", () => {
     );
     expect(rej.rejected).toBe("rejected: unsupported reference");
   });
+
+  it("journals a received-but-rejected payload as rejected: unsupported reference (not timeout)", () => {
+    const okResult = {
+      ...failedResult({ error: "x", status: 200, latencyMs: 900 }),
+      ok: true as const,
+      text: "{}",
+      model: "gpt-5.4-mini",
+      shadowOutcome: "not_exposed",
+      rawStatus: 200,
+      failureDiag: null,
+    };
+    const journal = journalWhyFromServAttempt({
+      result: okResult,
+      payload: { pickVin: "1HGCM82633A999999", action: "buy", note: "x", evidenceIds: [] },
+      validation: {
+        ok: false,
+        reason: "rejected: unsupported reference",
+        detail: 'VIN "1HGCM82633A999999" is not in the allowlist.',
+      },
+      missingPayloadFallback: "Pick payload missing allowlisted VIN.",
+    });
+    expect(journal.rejected).toBe("rejected: unsupported reference");
+    expect(journal.why).toMatch(/^SERV payload rejected:/);
+    expect(journal.why).not.toMatch(/timed out/i);
+  });
 });

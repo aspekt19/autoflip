@@ -560,9 +560,9 @@ function CandidateCard({
       </p>
       <ul className="refuse">
         <li>
-          Ranking uses risk-adjusted mid profit: mid × deep-check risk × (low+mid)/(2×mid) when both
-          ends exist; thin comps (&lt;3 / &lt;5 in the mileage band) already cut the risk multiplier.
-          Comps in this scan: {candidate.compCount}.
+          {candidate.riskAdjustedRankFormula
+            ? `Risk-adjusted rank: ${candidate.riskAdjustedRankFormula}`
+            : `Risk-adjusted rank formula: score = mid × risk × max(0.5, (low+mid)/(2×mid)); floor 0.5 is a design choice; thin comps (&lt;3 / &lt;5) cut risk. Comps in this scan: ${candidate.compCount}.`}
         </li>
         <li>Ask: {formatUsd(candidate.askingUsd)}</li>
         <li>

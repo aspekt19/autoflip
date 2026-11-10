@@ -19,9 +19,14 @@ import {
 import type { ResaleCandidatePnl } from "@/domain/resale-pnl";
 import { evidenceBundleFromCandidates } from "@/domain/resale-serv-validate";
 import type { ComputedReport, Listing, Verdict } from "@/domain/types";
-import { rankByRiskAdjustedProfit, runResaleDeepChecks } from "@/server/resale-deep-check";
+import {
+  rankByRiskAdjustedProfit,
+  riskAdjustedScore,
+  runResaleDeepChecks,
+} from "@/server/resale-deep-check";
 import {
   journalWhyFromServAttempt,
+  journalWhyFromShopperCall,
   normalizeCheckId,
   normalizeVin,
   runResaleServWithRejectRetry,
@@ -585,6 +590,7 @@ export async function runResaleSettleServ(input: {
         const fail = journalWhyFromServAttempt({
           result: judged,
           validation,
+          payload,
           missingPayloadFallback: "Triage call failed or payload unusable.",
         });
         journal = appendJournalStep(journal, {
@@ -714,13 +720,17 @@ export async function runResaleSettleServ(input: {
     if (faster.length > 0) working = faster;
   }
 
-  // Risk-adjusted rank after deep-checks (code math only).
+  // Risk-adjusted rank after deep-checks (code math only; formula stamped on each row).
   ordered = rankByRiskAdjustedProfit(working.length ? working : shortlist, deep.riskByVin);
+  const topRank = ordered[0]!;
+  const topFormula =
+    topRank.riskAdjustedRankFormula ??
+    riskAdjustedScore(topRank, deep.riskByVin.get(topRank.vin) ?? 1).formula;
   journal = appendJournalStep(journal, {
     kind: "rank",
     actor: "code",
     decided: `Re-ranked by risk-adjusted expected mid profit`,
-    why: `Top after deep-checks: ${carLabel(ordered[0]!)}. Risk multipliers come from comps/recalls/history — not invented.`,
+    why: `Top after deep-checks: ${carLabel(topRank)}. Formula: ${topFormula}. Risk multipliers come from comps/recalls/history deep-checks.`,
     inputsUsed: ordered.map((item) => `pnl:${item.vin}`),
     changed: ordered[0] && shortlist[0] && ordered[0].vin !== shortlist[0].vin
       ? `Changed lead from ${shortlist[0].vin} to ${ordered[0].vin} after deep-checks`
@@ -924,6 +934,7 @@ export async function runResaleSettleServ(input: {
         const fail = journalWhyFromServAttempt({
           result: picked,
           validation,
+          payload,
           missingPayloadFallback: "Pick payload missing allowlisted VIN.",
         });
         journal = appendJournalStep(journal, {
@@ -1190,6 +1201,7 @@ export async function runResaleSettleServ(input: {
         const fail = journalWhyFromServAttempt({
           result: challenged,
           validation,
+          payload,
           missingPayloadFallback: "Challenge payload unusable.",
         });
         secondPass = {
@@ -1338,6 +1350,13 @@ export async function runResaleSettleServ(input: {
         secondPass = shopper.agentVerdict.second_pass;
       }
       for (const call of shopper.trace.calls) {
+        const fail = call.ok
+          ? null
+          : journalWhyFromShopperCall({
+              ok: call.ok,
+              error: call.error,
+              latencyMs: call.latencyMs,
+            });
         // Count each shopper HTTP attempt via appendJournalStep (not a silent servCalls bump).
         journal = appendJournalStep(journal, {
           kind: call.profile === "verdict_decide" ? "pick" : "challenge",
@@ -1346,22 +1365,25 @@ export async function runResaleSettleServ(input: {
             call.profile === "verdict_decide"
               ? `Verdict decide → ${verdictAction}`
               : `Verdict challenge → ${call.ok ? "ok" : "fail"}`,
-          why:
-            call.ok
-              ? call.profile === "verdict_decide"
-                ? shopper.decision.note ?? "Shopper decide on code report."
-                : secondPass.objection ?? "Shopper challenge."
-              : call.error?.trim() || "Shopper SERV call failed.",
+          why: call.ok
+            ? call.profile === "verdict_decide"
+              ? shopper.decision.note ?? "Shopper decide on code report."
+              : secondPass.objection ?? "Shopper challenge."
+            : fail?.why ?? "Shopper SERV call failed.",
           inputsUsed: [`vin:${best.vin}`, `check:${call.profile}`],
           changed: null,
           model: call.model ?? input.model ?? null,
           responseId: call.responseId,
           recordedAt: shopper.trace.recordedAt,
-          rejected: call.ok ? null : "http_error",
+          rejected: call.ok ? null : fail?.rejected ?? "call_failed",
         });
         trail.push({
           decided: call.profile === "verdict_decide" ? `Verdict decide → ${verdictAction}` : `Verdict challenge → ${call.ok ? "ok" : "fail"}`,
-          why: call.profile === "verdict_decide" ? shopper.decision.note ?? "Shopper decide on code report." : secondPass.objection ?? "Shopper challenge.",
+          why: call.ok
+            ? call.profile === "verdict_decide"
+              ? shopper.decision.note ?? "Shopper decide on code report."
+              : secondPass.objection ?? "Shopper challenge."
+            : fail?.why ?? "Shopper SERV call failed.",
           changed: null,
           model: call.model ?? input.model ?? null,
           responseId: call.responseId,

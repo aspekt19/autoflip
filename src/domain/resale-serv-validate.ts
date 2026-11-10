@@ -18,7 +18,12 @@ export type ResaleEvidenceBundle = {
 
 export type ResaleServValidation =
   | { ok: true }
-  | { ok: false; reason: "rejected: unsupported reference"; detail: string };
+  | {
+      ok: false;
+      /** Payload allowlist/schema reject, or transport classification when no payload. */
+      reason: "rejected: unsupported reference" | "timeout" | "http_error" | "call_failed";
+      detail: string;
+    };
 
 const VIN_RE = /\b[A-HJ-NPR-Z0-9]{17}\b/gi;
 const URL_RE = /https?:\/\/[^\s"'<>]+/gi;

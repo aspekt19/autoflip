@@ -307,6 +307,7 @@ export async function runResaleSearch(
         const fail = journalWhyFromServAttempt({
           result: planned,
           validation,
+          payload,
           missingPayloadFallback: "Plan payload missing allowlisted direction ids.",
         });
         planJournal = appendJournalStep(planJournal, {

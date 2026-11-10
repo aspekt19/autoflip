@@ -428,13 +428,16 @@ export async function runResaleDeepChecks(input: {
   return { findings, rejectedVins, riskByVin, journal };
 }
 
+/** Design assumption: band-spread multiplier never drops below this floor. */
+export const BAND_SPREAD_FLOOR = 0.5;
+
 /**
  * Risk-adjusted ranking score from code P&L + deep-check multipliers.
- * Formula (shown to users):
+ * Formula (shown to users with numbers plugged in):
  *   score = rankingProfitMid × riskMul × bandSpreadMul
- * where bandSpreadMul = (profitLow + profitMid) / (2 × profitMid) when both ends exist
- * (pulls toward the low end of the range when the mid/low spread is wide — no invented penalty),
- * and riskMul already folds thin-comp / decode / recall / history evidence multipliers.
+ * where bandSpreadMul = max(0.5, min(1, (profitLow + profitMid) / (2 × profitMid)))
+ * when both ends exist (floor 0.5 = design choice), and riskMul already folds
+ * thin-comp / decode / recall / history evidence multipliers from deep-checks.
  */
 export function riskAdjustedScore(
   item: ResaleCandidatePnl,
@@ -445,24 +448,31 @@ export function riskAdjustedScore(
     return { score: Number.NEGATIVE_INFINITY, formula: "no mid profit", bandSpreadMul: 1 };
   }
   const low = item.profitLowUsd;
+  const rawSpread =
+    low != null && Number.isFinite(low) && mid > 0 ? (low + mid) / (2 * mid) : 1;
   const bandSpreadMul =
     low != null && Number.isFinite(low) && mid > 0
-      ? Math.max(0.5, Math.min(1, (low + mid) / (2 * mid)))
+      ? Math.max(BAND_SPREAD_FLOOR, Math.min(1, rawSpread))
       : 1;
-  const mul = riskMul * bandSpreadMul;
-  const score = mid * mul;
-  const formula = `score=${Math.round(mid)}×${riskMul.toFixed(2)}×${bandSpreadMul.toFixed(2)} (mid×risk×(low+mid)/(2×mid)); comps=${item.compCount}`;
+  const score = mid * riskMul * bandSpreadMul;
+  const lowBit = low != null && Number.isFinite(low) ? Math.round(low) : "n/a";
+  const formula =
+    `score=${Math.round(mid)}×${riskMul.toFixed(2)}×${bandSpreadMul.toFixed(2)}=${Math.round(score)}` +
+    ` (mid×risk×max(${BAND_SPREAD_FLOOR},(low+mid)/(2×mid));` +
+    ` mid=${Math.round(mid)}, low=${lowBit}, risk=${riskMul.toFixed(2)},` +
+    ` floor ${BAND_SPREAD_FLOOR} design choice; comps=${item.compCount})`;
   return { score, formula, bandSpreadMul };
 }
 
-/** Re-rank by risk-adjusted mid profit after deep-checks (uses ranking profit, not displayed). */
+/** Re-rank by risk-adjusted mid profit after deep-checks; stamps formula on each row. */
 export function rankByRiskAdjustedProfit(
   candidates: ResaleCandidatePnl[],
   riskByVin: Map<string, number>,
 ): ResaleCandidatePnl[] {
-  return [...candidates].sort((a, b) => {
-    const aScore = riskAdjustedScore(a, riskByVin.get(a.vin) ?? 1).score;
-    const bScore = riskAdjustedScore(b, riskByVin.get(b.vin) ?? 1).score;
-    return bScore - aScore;
+  const scored = candidates.map((item) => {
+    const row = riskAdjustedScore(item, riskByVin.get(item.vin) ?? 1);
+    return { item: { ...item, riskAdjustedRankFormula: row.formula }, score: row.score };
   });
+  scored.sort((a, b) => b.score - a.score);
+  return scored.map((row) => row.item);
 }
