@@ -7,7 +7,7 @@ import { DecisionNote } from "@/components/DecisionNote";
 import { DecisionRecordList } from "@/components/DecisionRecord";
 import { PriceBadgeView } from "@/components/PriceBadge";
 import { ResaleDecisionJournalView } from "@/components/ResaleDecisionJournal";
-import type { DecisionProofRecord } from "@/domain/decision-proof-record";
+import type { DecisionProofRecord } from "@/domain/decision-proof-view";
 import type { PriceBadge } from "@/domain/price-badge";
 import type { ResaleDecisionJournal } from "@/domain/resale-decision-journal";
 import { useSearchParams } from "next/navigation";

@@ -12,6 +12,8 @@ jobs:
   test:
     # Playwright Chromium install is not supported on ubuntu-latest (26.04) yet.
     runs-on: ubuntu-24.04
+    # Fail the job if a step hangs (Playwright matrix + next-check loops).
+    timeout-minutes: 25
     steps:
       - name: Check out source
         uses: actions/checkout@v4

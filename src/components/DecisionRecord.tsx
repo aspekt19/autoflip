@@ -1,7 +1,7 @@
 import {
   formatDecisionRecordLine,
   type DecisionProofRecord,
-} from "@/domain/decision-proof-record";
+} from "@/domain/decision-proof-view";
 
 /** Compact one-line proof for Find / Radar — SERV id or the real failure reason. */
 export function DecisionRecordList({

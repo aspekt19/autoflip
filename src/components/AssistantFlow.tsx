@@ -24,7 +24,7 @@ import {
   freeChecksRemainingFromAccount,
 } from "@/domain/free-check-quota";
 import type { DecisionProof } from "@/domain/decision-note";
-import type { DecisionProofRecord } from "@/domain/decision-proof-record";
+import type { DecisionProofRecord } from "@/domain/decision-proof-view";
 import type { SearchDirection } from "@/domain/directions";
 import { CoverageLine } from "./CoverageNote";
 import { DecisionNote } from "./DecisionNote";
