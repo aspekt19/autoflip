@@ -4,9 +4,8 @@ import { useEffect, useState } from "react";
 import type { ProductFlags } from "@/domain/product-flags";
 
 /**
- * Footer twin of the header product link.
- * Deal Radar is shown when GET /api/product-flags says it is on (default ON).
- * Resale is the default so a hidden radar route is never a footer link.
+ * Footer twin of the header product links.
+ * Resale stays when evaluate is on; Deal Radar sits next to it when enabled.
  */
 export function FooterProductLink() {
   const [flags, setFlags] = useState<ProductFlags | null>(null);
@@ -26,7 +25,13 @@ export function FooterProductLink() {
     };
   }, []);
 
-  if (flags?.dealRadar === true) return <a href="/radar">Deal Radar</a>;
-  if (flags == null || flags.resaleEvaluate) return <a href="/resale">Resale</a>;
-  return null;
+  const resale = flags == null || flags.resaleEvaluate;
+  const radar = flags?.dealRadar === true;
+  if (!resale && !radar) return null;
+  return (
+    <>
+      {resale ? <a href="/resale">Resale</a> : null}
+      {radar ? <a href="/radar">Deal Radar</a> : null}
+    </>
+  );
 }

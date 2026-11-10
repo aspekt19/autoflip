@@ -8,9 +8,8 @@ import { CREDIT_BALANCE_EVENT } from "@/domain/credit-balance-event";
 import type { ProductFlags } from "@/domain/product-flags";
 import { BrandLockup } from "./BrandLockup";
 import { headerAuthControl } from "./header-auth";
+import { primaryNavLinks } from "./header-nav";
 import { useAccountLoad } from "./use-account-load";
-
-type NavLink = { href: string; label: string };
 
 /**
  * Primary nav. Product surface visibility follows runtime GET /api/product-flags
@@ -29,24 +28,8 @@ export function Header({ scoutNavEnabled = false }: { scoutNavEnabled?: boolean 
   const navRef = useRef<HTMLElement>(null);
   const navId = useId();
 
-  const dealRadar = flags?.dealRadar === true;
-  const resaleEvaluate = flags == null ? true : flags.resaleEvaluate;
   const showScout = scoutUiRuntime ?? scoutNavEnabled;
-
-  const navLinks: NavLink[] = [
-    { href: "/find", label: "Find a car" },
-    { href: "/check", label: "Check a car" },
-    ...(dealRadar
-      ? [{ href: "/radar", label: "Deal Radar" }]
-      : resaleEvaluate
-        ? [{ href: "/resale", label: "Resale" }]
-        : []),
-    ...(showScout ? [{ href: "/scout", label: "Scout" }] : []),
-    { href: "/reports", label: "Reports" },
-    { href: "/favorites", label: "Saved cars" },
-    { href: "/compare-cars", label: "Compare cars" },
-    { href: "/pricing", label: "Pricing" },
-  ];
+  const navLinks = primaryNavLinks({ flags, showScout });
 
   useEffect(() => {
     function onBalance(event: Event) {
