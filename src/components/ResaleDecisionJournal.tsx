@@ -1,6 +1,7 @@
 "use client";
 
 import type { ResaleDecisionJournal } from "@/domain/resale-decision-journal";
+import { providerResponseId } from "@/domain/serv-response-id";
 
 /** User-facing SERV/code decision journal for Resale and Radar. */
 export function ResaleDecisionJournalView({
@@ -22,7 +23,9 @@ export function ResaleDecisionJournalView({
         </span>
       </summary>
       <ol className="steps-3 story-steps">
-        {journal.steps.map((step) => (
+        {journal.steps.map((step) => {
+          const responseId = providerResponseId(step.responseId);
+          return (
           <li key={step.id}>
             <strong>
               [{step.actor}] {step.decided}
@@ -42,13 +45,14 @@ export function ResaleDecisionJournalView({
             ) : null}
             <span className="hint">
               {step.model ? `Model ${step.model}` : "Model not recorded"}
-              {step.responseId ? ` · response ${step.responseId}` : " · no response id"}
+              {responseId ? ` · response ${responseId}` : " · no response id"}
               {step.recordedAt
                 ? ` · ${new Date(step.recordedAt).toLocaleString("en-US", { timeZone: "UTC" })} UTC`
                 : ""}
             </span>
           </li>
-        ))}
+          );
+        })}
       </ol>
     </details>
   );

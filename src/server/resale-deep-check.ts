@@ -487,6 +487,8 @@ export function rankByRiskAdjustedProfit(
       vdp: item.listing.vdp,
       dealer: item.listing.dealer,
       vin: item.vin,
+      year: item.listing.year,
+      trim: item.listing.trim,
     });
     // Demote cars without a verifiable listing page so they do not win silently.
     const linkMul = link.direct ? 1 : NO_DIRECT_LISTING_RISK_MUL;

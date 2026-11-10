@@ -22,6 +22,49 @@ function hostOf(vdp: string | null | undefined): string | null {
   }
 }
 
+const NOISE_TOKENS = new Set([
+  "dealer",
+  "motors",
+  "auto",
+  "automotive",
+  "sales",
+  "group",
+  "llc",
+  "inc",
+]);
+
+/** OEM / franchise brands — used for host vs dealer brand conflict, not name matching. */
+const BRAND_TOKENS = [
+  "honda",
+  "ford",
+  "toyota",
+  "chevy",
+  "chevrolet",
+  "chrysler",
+  "dodge",
+  "jeep",
+  "ram",
+  "gmc",
+  "buick",
+  "cadillac",
+  "nissan",
+  "hyundai",
+  "kia",
+  "subaru",
+  "mazda",
+  "volkswagen",
+  "vw",
+  "bmw",
+  "audi",
+  "lexus",
+  "acura",
+  "infiniti",
+  "mitsubishi",
+  "volvo",
+  "mercedes",
+  "benz",
+];
+
 /** Tokens from a dealer name that are long enough to compare to a hostname. */
 function dealerTokens(dealer: string): string[] {
   return dealer
@@ -30,7 +73,35 @@ function dealerTokens(dealer: string): string[] {
     .split(/\s+/)
     .map((t) => t.trim())
     .filter((t) => t.length >= 4)
-    .filter((t) => !["honda", "ford", "toyota", "chevy", "chevrolet", "dealer", "motors", "auto", "automotive", "sales", "group", "llc", "inc"].includes(t));
+    .filter((t) => !NOISE_TOKENS.has(t) && !BRAND_TOKENS.includes(t));
+}
+
+function normalizeBrand(brand: string): string {
+  if (brand === "vw") return "volkswagen";
+  if (brand === "chevy") return "chevrolet";
+  if (brand === "benz") return "mercedes";
+  return brand;
+}
+
+function brandsInDealer(dealer: string): Set<string> {
+  const compact = dealer.toLowerCase().replace(/[^a-z0-9\s]/g, " ");
+  const found = new Set<string>();
+  for (const brand of BRAND_TOKENS) {
+    if (new RegExp(`(?:^|[^a-z0-9])${brand}(?:[^a-z0-9]|$)`, "i").test(compact)) {
+      found.add(normalizeBrand(brand));
+    }
+  }
+  return found;
+}
+
+/** Hostnames mash brands together (ronbouchardchryslerdodge.com) — substring match. */
+function brandsInHost(host: string): Set<string> {
+  const compact = host.toLowerCase().replace(/[^a-z0-9]/g, "");
+  const found = new Set<string>();
+  for (const brand of BRAND_TOKENS) {
+    if (compact.includes(brand)) found.add(normalizeBrand(brand));
+  }
+  return found;
 }
 
 /**
@@ -47,8 +118,23 @@ export function sellerLinkHonesty(input: {
   if (!dealer || !vdpHost) {
     return { dealer, vdp, vdpHost, mismatch: false, note: null };
   }
-  const tokens = dealerTokens(dealer);
   const hostCompact = vdpHost.replace(/[^a-z0-9]/g, "");
+  const dealerBrands = brandsInDealer(dealer);
+  const hostBrands = brandsInHost(vdpHost);
+  // Franchise conflict: "Ron Bouchard Honda" vs ronbouchardchryslerdodge.com
+  if (dealerBrands.size > 0 && hostBrands.size > 0) {
+    const overlap = [...dealerBrands].some((b) => hostBrands.has(b));
+    if (!overlap) {
+      return {
+        dealer,
+        vdp,
+        vdpHost,
+        mismatch: true,
+        note: `Seller/link mismatch: feed dealer is “${dealer}” but the listing URL is ${vdpHost}. Prefer this feed VDP for this VIN; the dealer name may be from another row or a stale field.`,
+      };
+    }
+  }
+  const tokens = dealerTokens(dealer);
   const hit = tokens.some((token) => hostCompact.includes(token.replace(/[^a-z0-9]/g, "")));
   if (hit) {
     return { dealer, vdp, vdpHost, mismatch: false, note: null };
@@ -58,7 +144,7 @@ export function sellerLinkHonesty(input: {
     .toLowerCase()
     .replace(/[^a-z0-9\s]/g, " ")
     .split(/\s+/)
-    .filter((t) => t.length >= 5);
+    .filter((t) => t.length >= 5 && !BRAND_TOKENS.includes(t) && !NOISE_TOKENS.has(t));
   const looseHit = loose.some((token) => hostCompact.includes(token));
   if (looseHit) {
     return { dealer, vdp, vdpHost, mismatch: false, note: null };
