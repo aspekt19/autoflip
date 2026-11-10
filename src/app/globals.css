@@ -58,6 +58,8 @@
   --site-gutter: 14px; /* legacy gutters; new frames use --site-pad */
   /* Edge padding for full-bleed header + content frames (matches ticker span). */
   --site-pad: clamp(16px, 3vw, 48px);
+  /* Centered action column: wider than the old ~560px card, not full header width. */
+  --content-col: 920px;
   accent-color: var(--blue);
   background: var(--canvas);
   color: var(--ink);
@@ -803,9 +805,38 @@ span.nav-go { cursor: default; }
   line-height: var(--type-brand-line);
 }
 .trust-row span { color: var(--muted); }
-.flow-page { margin: 12px auto 72px; }
-.flow-page h1 { max-width: none; font-size: clamp(32px, 4vw, 44px); margin-bottom: 12px; }
-.flow-page .lead { max-width: none; }
+.flow-page {
+  margin: 12px auto 72px;
+  width: 100%;
+  max-width: min(100%, calc(var(--content-col) + 2 * var(--site-pad)));
+  box-sizing: border-box;
+}
+.sheet-page {
+  width: 100%;
+  max-width: min(100%, calc(var(--content-col) + 2 * var(--site-pad)));
+  margin-inline: auto;
+  box-sizing: border-box;
+}
+.flow-page > .kicker,
+.flow-page > h1,
+.flow-page > .lead,
+.sheet-page > .kicker,
+.sheet-page > h1,
+.sheet-page > .lead {
+  text-align: center;
+  margin-inline: auto;
+}
+.flow-page h1,
+.sheet-page h1 {
+  max-width: none;
+  width: 100%;
+  font-size: clamp(32px, 4vw, 44px);
+  margin-bottom: 12px;
+}
+.flow-page .lead,
+.sheet-page .lead {
+  max-width: min(62ch, 100%);
+}
 .progress {
   list-style: none;
   display: grid;
@@ -1052,8 +1083,26 @@ button:disabled, .action:disabled, .quiet:disabled, .ghost:disabled {
   min-width: 0;
 }
 .sign-in-gate {
-  max-width: 42rem;
+  max-width: none;
+  width: 100%;
   padding: 1.25rem 0 2rem;
+  box-sizing: border-box;
+}
+.sign-in-gate h2,
+.sign-in-gate .lead,
+.sign-in-gate .hint {
+  text-align: center;
+  max-width: none;
+  margin-inline: auto;
+}
+.sign-in-gate .btn-row {
+  width: 100%;
+}
+.sign-in-gate .btn-row .action,
+.sign-in-gate .btn-row .quiet,
+.sign-in-gate .btn-row .ghost {
+  flex: 1 1 100%;
+  width: 100%;
 }
 .check-result {
   margin-top: 1.5rem;
@@ -1067,7 +1116,22 @@ button:disabled, .action:disabled, .quiet:disabled, .ghost:disabled {
 
 .flow-page :where(input, textarea, select),
 .sheet-page :where(input, textarea, select) {
-  max-width: 80ch;
+  max-width: none;
+  width: 100%;
+  box-sizing: border-box;
+}
+.flow-page .panel,
+.flow-page .onboarding-note,
+.flow-page .progress,
+.sheet-page .panel,
+.sheet-page .onboarding-note {
+  width: 100%;
+  max-width: none;
+  box-sizing: border-box;
+}
+.flow-page .btn-row,
+.sheet-page .btn-row {
+  width: 100%;
 }
 .find-results { width: 100%; }
 .find-results-grid {
@@ -1618,12 +1682,13 @@ details.similar-cars > summary,
   right: 0;
   margin-inline: 0;
   transform: none;
-  /* Landing pattern: slogan first, search card as its own block below. */
+  /* Landing: centered slogan + comfortably wide search column (not edge-to-edge). */
   display: grid;
   grid-template-columns: 1fr;
   gap: 20px;
   align-items: start;
-  justify-items: start;
+  justify-items: center;
+  text-align: center;
   pointer-events: auto;
   /* Keep --site-pad from .site-frame so hero matches header edges (line 23). */
   padding-block: 0;
@@ -1650,11 +1715,14 @@ details.similar-cars > summary,
 .film-slogan {
   position: relative;
   z-index: 2;
-  max-width: min(28ch, 100%);
-  padding: 6px 10px 8px 0;
+  width: min(100%, var(--content-col));
+  max-width: 100%;
+  padding: 6px 0 8px;
   /* Keep eyebrow clear of the display headline (no overlap). */
   display: grid;
   gap: 12px;
+  justify-items: center;
+  text-align: center;
 }
 .film-slogan .kicker {
   margin: 0;
@@ -1666,34 +1734,47 @@ details.similar-cars > summary,
   font-family: var(--display);
   text-transform: uppercase;
   font-size: clamp(32px, 4.8vw, 58px);
-  max-width: min(18ch, 100%);
+  /* Wide enough for ~1–2 lines on desktop, not five stacked words. */
+  max-width: 100%;
+  width: 100%;
   margin: 0;
   line-height: 1.08;
   letter-spacing: 0.06em;
   font-weight: 700;
+  text-align: center;
+  text-wrap: balance;
 }
 .film-slogan .lead,
 .film-copy .lead {
   font-family: var(--sans);
   font-size: clamp(14px, 1.4vw, 18px);
   line-height: 1.4;
-  margin: 0;
-  max-width: 38ch;
+  margin: 0 auto;
+  max-width: 42ch;
   color: rgba(255, 255, 255, 0.86);
+  text-align: center;
 }
 .film-search {
   position: relative;
   z-index: 1;
-  width: min(100%, 560px);
+  width: min(100%, var(--content-col));
+  max-width: 100%;
   padding: 16px 18px;
   border-radius: 6px;
   background: linear-gradient(180deg, rgba(5, 5, 5, 0.78), rgba(5, 5, 5, 0.48));
   border: 1px solid rgba(255, 255, 255, 0.12);
   box-sizing: border-box;
+  text-align: left;
 }
-.film-copy textarea { min-height: 0; height: 72px; font-size: 15px; }
+.film-search .sample-link,
+.film-search .account-note {
+  text-align: center;
+  max-width: none;
+  margin-inline: auto;
+}
+.film-copy textarea { min-height: 0; height: 72px; font-size: 15px; width: 100%; }
 .film-copy .btn-row { margin-top: 8px; }
-.film-copy .hero-chat { margin-top: 0; }
+.film-copy .hero-chat { margin-top: 0; width: 100%; }
 /* Keep one column at every width: headline first, search card below (checklist line 20). */
 .sale-caption {
   position: absolute;
@@ -1782,6 +1863,8 @@ details.similar-cars > summary,
     display: grid;
     grid-template-columns: 1fr;
     gap: 18px;
+    justify-items: center;
+    text-align: center;
     background: transparent;
     border: none;
     padding-block: 0;
@@ -1798,12 +1881,14 @@ details.similar-cars > summary,
   }
   .film-search {
     padding: 12px;
+    text-align: left;
   }
   .film-slogan .brand-hero-title,
   .film-copy .brand-hero-title {
     max-width: 100%;
     overflow-wrap: anywhere;
     font-size: clamp(34px, 10vw, 48px);
+    text-align: center;
   }
   .story-after { padding: 48px var(--site-pad); }
 }
