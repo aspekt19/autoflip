@@ -46,7 +46,7 @@ export function SignInGate({
         <h2>Sign in to continue</h2>
         <p className="lead">{gateLead(callbackPath)}</p>
         {callbackPath === "/radar" ? (
-          <p className="hint">Personal watches are free with your account (up to three). Opening a full report still costs 1 credit.</p>
+          <p className="hint">Deal Radar watches require a paid plan (Radar or Radar Pro). Opening a full report still costs 1 credit.</p>
         ) : (
           <p className="hint">{formatFreeChecksSignInPrompt()}</p>
         )}

@@ -46,9 +46,11 @@
   --type-brand-size-label: 0.875rem; /* 14px min for labels */
   --type-brand-size-nav: 0.8125rem; /* 13px nav / tabs */
   --type-brand-line: 1.15;
-  /* Yellow accent (wordmark lemon) — labels / eyebrows / chips on dark. */
+  /* Lemon yellow — wordmark / LEMONLESS in hero only. */
   --brand-yellow: #ffd60a;
   --brand-yellow-ink: #0a0a0a;
+  /* Eyebrow / form-label accent — same red as “HELP ME CHOOSE”. */
+  --brand-accent: var(--blue);
   --ease: cubic-bezier(0.16, 1, 0.3, 1);
   --pad: 28px;
   /* Shared content column for interior pages (header is full-bleed separately). */
@@ -81,7 +83,7 @@
 .label,
 .eyebrow {
   font-size: max(14px, var(--type-brand-size-label));
-  color: var(--brand-yellow);
+  color: var(--brand-accent);
 }
 .btn {
   font-size: max(14px, var(--type-brand-size-btn));
@@ -813,7 +815,7 @@ span.nav-go { cursor: default; }
   padding-top: 10px;
   border-top: 3px solid var(--line);
   font-family: var(--type-brand);
-  font-size: max(13px, var(--type-brand-size-nav));
+  font-size: max(14px, var(--type-brand-size-label));
   font-weight: var(--type-brand-weight);
   letter-spacing: var(--type-brand-tracking);
   text-transform: uppercase;
@@ -848,14 +850,14 @@ span.nav-go { cursor: default; }
 }
 .kicker,
 .eyebrow {
-  margin: 0 0 14px;
+  margin: 0 0 12px;
   font-family: var(--type-brand);
   font-weight: var(--type-brand-weight);
   font-size: max(14px, var(--type-brand-size-label));
   letter-spacing: 0.14em;
   text-transform: uppercase;
   line-height: var(--type-brand-line);
-  color: var(--brand-yellow);
+  color: var(--brand-accent);
 }
 h1, h2, h3 {
   font-family: var(--type-brand);
@@ -963,7 +965,7 @@ button:disabled, .action:disabled, .quiet:disabled, .ghost:disabled {
   letter-spacing: 0.08em;
   text-transform: uppercase;
   line-height: var(--type-brand-line);
-  color: var(--brand-yellow);
+  color: var(--brand-accent);
 }
 .sheet-title {
   margin: 0 0 18px;
@@ -1099,7 +1101,7 @@ button:disabled, .action:disabled, .quiet:disabled, .ghost:disabled {
   letter-spacing: var(--type-brand-tracking);
   text-transform: uppercase;
   line-height: var(--type-brand-line);
-  color: var(--brand-yellow);
+  color: var(--brand-accent);
 }
 .field legend { margin-bottom: 8px; }
 .field > label, .field label.block { display: block; margin-bottom: 6px; }
@@ -1250,7 +1252,7 @@ code, .sheet-page a, .prose a {
   letter-spacing: var(--type-brand-tracking);
   text-transform: uppercase;
   line-height: var(--type-brand-line);
-  color: var(--brand-yellow);
+  color: var(--brand-accent);
 }
 
 .radar-list { display: grid; }
@@ -1290,7 +1292,7 @@ th {
   letter-spacing: 0.06em;
   text-transform: uppercase;
   line-height: var(--type-brand-line);
-  color: var(--brand-yellow);
+  color: var(--brand-accent);
 }
 td { font-family: var(--sans); }
 .sheet-page a { text-decoration: underline; text-underline-offset: 3px; }
@@ -1421,7 +1423,7 @@ pre.doc {
 .colophon h2,
 .colophon h3 {
   font-family: var(--type-brand);
-  color: var(--brand-yellow);
+  color: var(--brand-accent);
 }
 
 @media (prefers-reduced-motion: no-preference) {
@@ -1569,30 +1571,83 @@ pre.doc {
 .film-overlay { position: absolute; inset: 0; z-index: 2; pointer-events: none; }
 .film-copy {
   position: absolute;
-  top: max(112px, calc(env(safe-area-inset-top, 0px) + 96px));
+  top: max(96px, calc(env(safe-area-inset-top, 0px) + 80px));
   left: 50%;
   right: auto;
   margin-inline: 0;
   transform: translateX(-50%);
+  /* Landing pattern: slogan first, search card as its own block below. */
   display: grid;
-  grid-template-columns: minmax(0, 280px) minmax(0, 1fr);
-  gap: 8px 28px;
-  align-items: center;
+  grid-template-columns: 1fr;
+  gap: 28px;
+  align-items: start;
+  justify-items: start;
   pointer-events: auto;
-  padding: 12px 16px;
-  border-radius: 16px;
-  background: linear-gradient(180deg, rgba(5, 5, 5, 0.55), rgba(5, 5, 5, 0.28));
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  padding: 0;
+  border-radius: 0;
+  background: transparent;
+  border: none;
   transition: opacity 0.4s ease, transform 0.4s ease;
   max-width: min(var(--site-max), calc(100% - 2 * var(--site-gutter)));
   box-sizing: border-box;
+  width: min(var(--site-max), calc(100% - 2 * var(--site-gutter)));
 }
 .phase-detail .film-copy { opacity: 0; transform: translateX(-50%) translateY(-10px); pointer-events: none; }
-.film-copy h1 { text-transform: none; font-size: clamp(26px, 2.4vw, 36px); max-width: 14ch; margin: 4px 0 6px; line-height: 0.95; }
-.film-copy .lead { font-size: 13px; line-height: 1.35; margin: 0 0 8px; color: rgba(255,255,255,0.8); }
-.film-copy textarea { min-height: 0; height: 58px; font-size: 14px; }
+.film-slogan {
+  position: relative;
+  z-index: 2;
+  max-width: min(22ch, 100%);
+  padding: 6px 10px 8px 0;
+  /* Keep eyebrow clear of the display headline (no overlap). */
+  display: grid;
+  gap: 12px;
+}
+.film-slogan .kicker {
+  margin: 0;
+  position: relative;
+  z-index: 1;
+}
+.film-slogan .brand-hero-title,
+.film-copy .brand-hero-title {
+  text-transform: uppercase;
+  font-size: clamp(48px, 7vw, 92px);
+  max-width: 11ch;
+  margin: 0;
+  line-height: 0.88;
+  letter-spacing: -0.03em;
+}
+.film-slogan .lead,
+.film-copy .lead {
+  font-family: var(--sans);
+  font-size: clamp(14px, 1.4vw, 18px);
+  line-height: 1.4;
+  margin: 0;
+  max-width: 38ch;
+  color: rgba(255, 255, 255, 0.86);
+}
+.film-search {
+  position: relative;
+  z-index: 1;
+  width: min(100%, 560px);
+  padding: 16px 18px;
+  border-radius: 16px;
+  background: linear-gradient(180deg, rgba(5, 5, 5, 0.78), rgba(5, 5, 5, 0.48));
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  box-sizing: border-box;
+}
+.film-copy textarea { min-height: 0; height: 72px; font-size: 15px; }
 .film-copy .btn-row { margin-top: 8px; }
 .film-copy .hero-chat { margin-top: 0; }
+/* Ultra-wide only: optional clear two-column — slogan stays large, search is a separate card. */
+@media (min-width: 1600px) {
+  .film-copy {
+    grid-template-columns: minmax(0, 1.05fr) minmax(420px, 0.7fr);
+    gap: 40px 64px;
+    align-items: end;
+  }
+  .film-slogan { max-width: 12ch; }
+  .film-search { width: 100%; justify-self: end; }
+}
 .sale-caption {
   position: absolute;
   left: 50%;
@@ -1672,33 +1727,35 @@ pre.doc {
     min-height: 100svh;
   }
   .film-copy {
-    top: 84px;
-    bottom: 52px;
+    top: max(76px, calc(env(safe-area-inset-top, 0px) + 64px));
+    bottom: auto;
     left: 50%;
     right: auto;
     transform: translateX(-50%);
-    display: flex;
-    flex-direction: column;
-    justify-content: space-between;
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 18px;
     background: transparent;
     border: none;
     padding: 0;
     pointer-events: none;
   }
-  .film-copy > div {
+  .film-slogan,
+  .film-search {
     pointer-events: auto;
     min-width: 0;
     max-width: 100%;
+    width: 100%;
     box-sizing: border-box;
-    background: linear-gradient(180deg, rgba(5, 5, 5, 0.72), rgba(5, 5, 5, 0.42));
-    border: 1px solid rgba(255, 255, 255, 0.1);
-    border-radius: 16px;
+  }
+  .film-search {
     padding: 12px;
   }
-  .film-copy h1,
+  .film-slogan .brand-hero-title,
   .film-copy .brand-hero-title {
     max-width: 100%;
     overflow-wrap: anywhere;
+    font-size: clamp(34px, 10vw, 48px);
   }
   .story-after { padding: 48px var(--site-pad); }
 }
@@ -1709,15 +1766,15 @@ pre.doc {
   .film-copy {
     left: 50%;
     right: auto;
-    top: max(76px, calc(env(safe-area-inset-top, 0px) + 60px));
+    top: max(72px, calc(env(safe-area-inset-top, 0px) + 56px));
     transform: translateX(-50%);
   }
-  .film-copy > div { padding: 10px; }
-  .film-copy h1,
+  .film-search { padding: 10px; }
+  .film-slogan .brand-hero-title,
   .film-copy .brand-hero-title {
-    font-size: clamp(22px, 8vw, 32px);
+    font-size: clamp(30px, 9vw, 40px);
   }
-  .film-copy .lead { font-size: 12px; }
+  .film-copy .lead { font-size: 13px; }
   .bar {
     margin: 0;
     width: 100%;
@@ -1953,7 +2010,7 @@ pre.doc {
   letter-spacing: var(--type-brand-tracking);
   text-transform: uppercase;
   line-height: var(--type-brand-line);
-  color: var(--brand-yellow);
+  color: var(--brand-accent);
 }
 .auth-email input[type="email"] {
   font-family: inherit;
@@ -1989,7 +2046,7 @@ pre.doc {
   letter-spacing: var(--type-brand-tracking);
   text-transform: uppercase;
   line-height: var(--type-brand-line);
-  color: var(--brand-yellow);
+  color: var(--brand-accent);
 }
 .scout-controls input,
 .scout-controls select {
