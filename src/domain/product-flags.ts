@@ -1,10 +1,8 @@
 /**
- * Product surface flags for hackathon honesty.
- * Default OFF for Deal Radar UI, Scout UI (existing), and Telegram UI unless
- * explicitly enabled — judges click everything; half-wired surfaces must stay hidden.
+ * Product surface flags.
+ * Deal Radar is ON by default (real watches + cron). Scout and Telegram stay OFF
+ * unless explicitly enabled — Telegram delivery is not part of the default Radar path.
  * The minimal /resale evaluate flow stays ON by default.
- *
- * Code for hidden surfaces is kept; routes show a plain unavailable page.
  */
 
 function flagOn(raw: string | undefined): boolean {
@@ -20,13 +18,13 @@ function flagOffExplicit(raw: string | undefined): boolean {
 export type ProductFlags = {
   /** Minimal resale evaluate at /resale. Default ON. */
   resaleEvaluate: boolean;
-  /** Full Deal Radar watches / cron / plans UI. Default OFF. */
+  /** Full Deal Radar watches / cron / plans UI. Default ON. */
   dealRadar: boolean;
   /** Scout investigation UI. Default OFF (mirrors SCOUT_UI_ENABLED). */
   scout: boolean;
   /**
    * Telegram connect buttons and marketing mentions.
-   * Default OFF even when bot env vars exist — webhook wiring is not verified here.
+   * Default OFF — Deal Radar alerts are in-app (and email only when a provider is configured).
    */
   telegram: boolean;
 };
@@ -40,9 +38,15 @@ export function resolveProductFlags(
       ? true
       : flagOn(env.RESALE_EVALUATE_ENABLED);
 
+  const dealRadar = flagOffExplicit(env.DEAL_RADAR_UI_ENABLED)
+    ? false
+    : env.DEAL_RADAR_UI_ENABLED === undefined || env.DEAL_RADAR_UI_ENABLED === ""
+      ? true
+      : flagOn(env.DEAL_RADAR_UI_ENABLED);
+
   return {
     resaleEvaluate,
-    dealRadar: flagOn(env.DEAL_RADAR_UI_ENABLED),
+    dealRadar,
     scout: flagOn(env.SCOUT_UI_ENABLED),
     telegram: flagOn(env.TELEGRAM_UI_ENABLED),
   };

@@ -1359,6 +1359,8 @@ function AssistantFlow({
                   priceMax,
                   zip: need.zip,
                   radiusMiles: need.distanceMiles,
+                  priorities: need.priorities?.length ? need.priorities : undefined,
+                  notes: need.note?.trim() ? need.note.trim().slice(0, 500) : undefined,
                 },
         }),
       });

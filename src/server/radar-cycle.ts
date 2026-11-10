@@ -4,6 +4,7 @@ import { priceBadge } from "@/domain/price-badge";
 import {
   formatFilterBreakdown,
   groupByCriteria,
+  hardReject,
   intervalHours,
   isDue,
   prefilterListing,
@@ -23,10 +24,13 @@ import { parseAutoDevListings } from "@/io/parsers";
 import { reserveRadarCall } from "@/io/persistent-quota";
 import { coverageConfidence, coverageSentence } from "@/domain/coverage";
 import { quotedNumbersStayIn, visibleProof, type DecisionProof } from "@/domain/decision-note";
+import { validateResaleServOutput } from "@/domain/resale-serv-validate";
 import { interpretGuard, runServ, servBudget, type ProfileId, type ServProof } from "@/server/serv";
 import { alertMessage, type AlertCopy } from "@/io/telegram";
 import type { Listing } from "@/domain/types";
-import { syncPresetSearches } from "@/domain/demo-presets";
+import { resolveProductFlags } from "@/domain/product-flags";
+import { journalFromRadarActivity } from "@/domain/radar-activity-journal";
+import { reviewPersonalCandidate, type RadarServActivity } from "./radar-serv";
 import { listSearches, upsertRun, saveAlerts, saveSearches, seenBook, storeSeenPrices, readListingCache, writeListingCache, telegramChat, telegramPaused, type StoredRun, listAlerts } from "./radar-store";
 
 /** Stay under the 60s Hobby limit so the log write still happens. */
@@ -79,6 +83,9 @@ export async function runRadarCycle(deps: CycleDeps): Promise<StoredRun> {
   let promptGuard = "not_started";
   let shadow = "not_started";
   const servChecks: ServProof[] = [];
+  const servActivity: RadarServActivity[] = [];
+  const touchedOwnerIds = new Set<string>();
+  const touchedSearchIds = new Set<string>();
   let payment: StoredRun["payment"] = {
     status: "not_configured",
     missing: [],
@@ -108,12 +115,14 @@ export async function runRadarCycle(deps: CycleDeps): Promise<StoredRun> {
       shadow,
       servChecks,
       payment,
+      [...touchedOwnerIds],
+      [...touchedSearchIds],
+      servActivity,
     );
 
   try {
-    const synced = syncPresetSearches(await listSearches(deps.kv), deps.now.toISOString());
-    if (synced.changed) await saveSearches(deps.kv, synced.searches);
-    const searches = synced.searches.filter((item) => item.enabled);
+    // Never inject demo/preset watches on cron — only user-saved searches run in prod.
+    const searches = (await listSearches(deps.kv)).filter((item) => item.enabled);
     const groups = groupByCriteria(searches);
     uniqueSearches = groups.size;
     const callWeight = [...groups.values()].reduce((sum, group) => sum + listingQueries(group[0]!).length, 0);
@@ -235,7 +244,10 @@ export async function runRadarCycle(deps: CycleDeps): Promise<StoredRun> {
             storageKey,
             [...book.entries()].map(([vin, priceUsd]) => ({ vin, priceUsd })),
           );
-          const judged = await judgeFlipAlerts(fresh, deps, remain(), limits.serv, servChecks);
+          touchedOwnerIds.add(search.ownerId);
+          touchedSearchIds.add(search.id);
+          const judged = await judgeFlipAlerts(fresh, deps, remain(), limits.serv, servChecks, search.id);
+          if (judged?.activity?.length) servActivity.push(...judged.activity);
           if (deps.servKey && !judged?.decisions) notes.push("Flip explanation unavailable. The estimates below are from the scan only.");
           for (const item of fresh) {
             const decision = judged?.decisions?.get(item.vin);
@@ -308,7 +320,7 @@ export async function runRadarCycle(deps: CycleDeps): Promise<StoredRun> {
         for (const item of decisions) {
           if (!item.decision.pass) tallyReason(reasons, item.decision.reason);
         }
-        const winners = rankPasses(
+        const ranked = rankPasses(
           passedRows.flatMap((item) => {
             if (!item.decision.pass) return [];
             const previous = book.get(item.listing.vin);
@@ -318,18 +330,32 @@ export async function runRadarCycle(deps: CycleDeps): Promise<StoredRun> {
               : item.decision.why;
             return [{ listing: item.listing, numbers: item.decision.numbers, why, priceDropFrom: dropped ? previous : null }];
           }),
-        ).slice(0, ASSUMPTIONS.radarMaxAlertsPerSearch);
-        const winnerVins = new Set(winners.map((winner) => winner.listing.vin));
-        tallyReason(reasons, "past the alert cap", passedRows.filter((item) => !winnerVins.has(item.listing.vin)).length);
+        );
+        const winners = ranked.slice(0, ASSUMPTIONS.radarMaxServPerSearch);
+        tallyReason(reasons, "past the SERV/alert cap", Math.max(0, ranked.length - winners.length));
         filteredOut += decisions.length - passedRows.length;
         passed += passedRows.length;
-        for (const item of passedRows) book.set(item.listing.vin, item.listing.priceUsd);
+        // Mark soft-evaluated listings as seen so cron diffs stay honest. Hard rejects
+        // (year/radius/budget) stay unmarked so widening criteria can re-check them.
+        for (const item of decisions) {
+          if (hardReject(item.listing, search.criteria, deps.now.getUTCFullYear())) continue;
+          if (item.listing.priceUsd == null) continue;
+          book.set(item.listing.vin, item.listing.priceUsd);
+        }
         await storeSeenPrices(
           deps.kv,
           storageKey,
           [...book.entries()].map(([vin, priceUsd]) => ({ vin, priceUsd })),
         );
+        touchedOwnerIds.add(search.ownerId);
+        touchedSearchIds.add(search.id);
+        let servSlot = 0;
         for (const winner of winners) {
+          const badge = priceBadge(winner.listing, scoped, { mode: "personal" });
+          if (badge.tone !== "good" && badge.tone !== "fair") {
+            tallyReason(reasons, badge.label || "not good/fair");
+            continue;
+          }
           const personalCoverage = {
             mode: "personal" as const,
             sample: winner.listing.source === "sample",
@@ -337,17 +363,55 @@ export async function runRadarCycle(deps: CycleDeps): Promise<StoredRun> {
             radiusMiles: search.criteria.radiusMiles,
             historyOnListing: winner.listing.accidentCount !== null && winner.listing.ownerCount !== null,
           };
+          servSlot += 1;
+          let review: Awaited<ReturnType<typeof reviewPersonalCandidate>>;
+          if (deps.servKey) {
+            review = await reviewPersonalCandidate(
+              {
+                listing: winner.listing,
+                numbers: winner.numbers,
+                badge,
+                baseWhy: winner.why,
+                budgetUsd: search.criteria.priceMax,
+              },
+              {
+                fetchImpl: deps.fetchImpl,
+                servKey: deps.servKey,
+                servModel: deps.servModel,
+                servBaseUrl: deps.servBaseUrl,
+                timeoutMs: servBudget("verdict_decide", remain(), limits.serv),
+                searchId: search.id,
+                challenge: servSlot === 1,
+                nowIso: deps.now.toISOString(),
+              },
+              servChecks,
+            );
+          } else {
+            review = {
+              alertWorthy: true,
+              action: null,
+              note: null,
+              why: `${winner.why} SERV was not configured; this alert uses the code price rating only.`,
+              checks: [],
+              activity: [],
+            };
+          }
+          servActivity.push(...review.activity);
+          if (!review.alertWorthy) {
+            tallyReason(reasons, "SERV did not rate good/fair");
+            continue;
+          }
           const alert = makeAlert(
             search,
             winner.listing,
-            winner.why,
+            review.why,
             winner.numbers,
             deps.now.toISOString(),
-            undefined,
+            review.checks.length ? review.checks : undefined,
             coverageSentence(personalCoverage),
             coverageConfidence(personalCoverage),
             winner.priceDropFrom,
-            priceBadge(winner.listing, scoped, { mode: "personal" }),
+            badge,
           );
           alerts.unshift(alert);
           freshAlerts.push(alert);
@@ -368,52 +432,45 @@ export async function runRadarCycle(deps: CycleDeps): Promise<StoredRun> {
     shadow = deps.servKey ? "pending" : "not_configured";
     await upsertRun(deps.kv, snapshot());
 
+    // Personal alerts already ran verdict_decide (+ optional challenge) above.
+    // Flip alerts record radar_review activity via judgeFlipAlerts.
     if (!deps.servKey) {
       shadow = "not_configured";
-      steps.push({ id: "serv_shadow_agent", status: "not_configured" });
-    } else if (freshAlerts.length === 0) {
-      shadow = "no_alerts";
-      steps.push({ id: "serv_shadow_agent", status: "no_alerts" });
-    } else if (remain() < 500) {
-      shadow = "timeout";
-      notes.push("Shadow check skipped. Alerts kept the deterministic text.");
-      steps.push({ id: "serv_shadow_agent", status: "timeout", detail: "no time left" });
+      steps.push({ id: "serv_verdict", status: "not_configured" });
+    } else if (servActivity.length === 0 && freshAlerts.every((alert) => alert.mode === "flip")) {
+      shadow = freshAlerts.length === 0 ? "no_alerts" : "radar_review";
+      steps.push({ id: "serv_verdict", status: shadow });
+    } else if (servActivity.length === 0) {
+      shadow = "no_candidates";
+      steps.push({ id: "serv_verdict", status: "no_candidates" });
     } else {
-      const reviews = await Promise.all(
-        freshAlerts.map(async (alert) => {
-          if (alert.mode === "flip") return { why: alert.why, source: "flip_judge", checks: alert.checks ?? [] };
-          try {
-            return await reviewWhy(alert.why, alert.numbers, deps, servBudget("personal_alert_review", remain(), limits.serv), servChecks);
-          } catch {
-            return { why: alert.why, source: "timeout", checks: alert.checks ?? [] };
-          }
-        }),
-      );
-      reviews.forEach((review, index) => {
-        const alert = freshAlerts[index];
-        if (!alert) return;
-        const unfinished = review.source === "timeout" || review.source === "template_after_error";
-        alert.why = unfinished
-          ? `${review.why} The written check did not finish. This match is calculated from the saved search.`
-          : review.why;
-        alert.checks = review.checks;
+      shadow = summarizeShadow(servActivity.map((row) => (row.ok ? row.decision ?? "ok" : "error")));
+      steps.push({
+        id: "serv_verdict",
+        status: servActivity.some((row) => !row.ok) ? "partial" : "ok",
+        detail: `${servActivity.length} calls · ${shadow}`,
       });
-      shadow = summarizeShadow(reviews.map((review) => review.source));
-      const timedOut = reviews.some((review) => review.source === "timeout");
-      steps.push({ id: "serv_shadow_agent", status: timedOut ? "timeout" : "ok", detail: shadow });
-      await saveAlerts(deps.kv, alerts);
     }
+    await saveAlerts(deps.kv, alerts);
 
-    const chats = new Map<string, string | null>();
-    await Promise.all(
-      [...new Set(freshAlerts.map((alert) => alert.ownerId))].map(async (ownerId) => {
-        chats.set(ownerId, await telegramChat(deps.kv, ownerId));
-      }),
-    );
-    if (!deps.env.TELEGRAM_BOT_TOKEN) {
+    // No outbound email provider is configured in this repo (Firebase auth only).
+    notes.push("Email alerts are not configured. New matches stay in the Deal Radar page.");
+    steps.push({ id: "email", status: "not_configured", detail: "No email provider in this repo." });
+
+    const telegramEnabled = resolveProductFlags(deps.env).telegram;
+    if (!telegramEnabled) {
+      notes.push("Telegram delivery is hidden. Alerts stay in the app.");
+      steps.push({ id: "telegram", status: "hidden" });
+    } else if (!deps.env.TELEGRAM_BOT_TOKEN) {
       notes.push("Telegram is not configured. Alerts stay in the app.");
       steps.push({ id: "telegram", status: "not_configured" });
     } else {
+      const chats = new Map<string, string | null>();
+      await Promise.all(
+        [...new Set(freshAlerts.map((alert) => alert.ownerId))].map(async (ownerId) => {
+          chats.set(ownerId, await telegramChat(deps.kv, ownerId));
+        }),
+      );
       const sends = freshAlerts.filter((alert) => chats.get(alert.ownerId));
       const outcomes = await Promise.all(sends.map((alert) => sendTelegram(chats.get(alert.ownerId)!, alert, deps, Math.min(limits.telegram, remain()))));
       const telegramStatus = outcomes.some((item) => item === "timeout") ? "timeout" : "ok";
@@ -471,6 +528,9 @@ function finish(
   shadow: string,
   servChecks: ServProof[],
   payment: StoredRun["payment"],
+  ownerIds: string[],
+  searchIds: string[],
+  servActivity: RadarServActivity[],
 ): StoredRun {
   return {
     id,
@@ -491,6 +551,10 @@ function finish(
     steps,
     serv: { promptGuard, shadow },
     servChecks,
+    ownerIds,
+    searchIds,
+    servActivity,
+    decisionJournal: journalFromRadarActivity(servActivity, { notes, startedAt }),
     payment,
   };
 }
@@ -501,7 +565,12 @@ async function judgeFlipAlerts(
   remainMs: number,
   ceilingMs: number,
   proofs: ServProof[],
-): Promise<{ decisions: Map<string, { verdict: "alert" | "skip"; note: string }> | null; checks: DecisionProof[] } | null> {
+  searchId: string,
+): Promise<{
+  decisions: Map<string, { verdict: "alert" | "skip"; note: string }> | null;
+  checks: DecisionProof[];
+  activity: RadarServActivity[];
+} | null> {
   if (!deps.servKey || fresh.length === 0 || remainMs <= 0) return null;
   const facts = fresh.map((item) => ({
     vin: item.vin,
@@ -519,6 +588,8 @@ async function judgeFlipAlerts(
     speedBasis: item.speedBasis,
   }));
   const guards = proofs.filter((item) => item.purpose === "radar_guard").map(visibleProof);
+  const activity: RadarServActivity[] = [];
+  const nowIso = deps.now.toISOString();
   const deadline = Date.now() + remainMs;
   const budget = (id: ProfileId) => servBudget(id, deadline - Date.now(), ceilingMs);
   try {
@@ -539,9 +610,9 @@ async function judgeFlipAlerts(
       if (!rulesNote) rules.proof.fallbackUsed = true;
       proofs.push(rules.proof);
     }
-    const judgeMs = budget("flip_judge");
-    if (judgeMs < 500) return { decisions: null, checks: rules ? [...guards, visibleProof(rules.proof)] : guards };
-    const judged = await runServ("flip_judge", { user: JSON.stringify({ facts, rulesNote }) }, {
+    const judgeMs = budget("radar_review");
+    if (judgeMs < 500) return { decisions: null, checks: rules ? [...guards, visibleProof(rules.proof)] : guards, activity };
+    const judged = await runServ("radar_review", { user: JSON.stringify({ facts, rulesNote }) }, {
       fetch: deps.fetchImpl,
       apiKey: deps.servKey,
       baseUrl: deps.servBaseUrl,
@@ -549,12 +620,35 @@ async function judgeFlipAlerts(
       timeoutMs: judgeMs,
     });
     proofs.push(judged.proof);
+    const decisions = judged.ok ? parseFlipJudgment(judged.text, facts) : null;
+    const responseId =
+      typeof judged.proof.openserv?.id === "string" && judged.proof.openserv.id.trim()
+        ? judged.proof.openserv.id.trim()
+        : null;
+    for (const item of fresh) {
+      const decision = decisions?.get(item.vin);
+      activity.push({
+        at: nowIso,
+        searchId,
+        vin: item.vin,
+        profile: "radar_review",
+        modelRequested: judged.proof.modelRequested,
+        modelReported: judged.proof.modelReported,
+        responseId,
+        latencyMs: judged.proof.latencyMs,
+        ok: Boolean(judged.ok && decision),
+        decision: decision?.verdict ?? null,
+        note: decision?.note ?? null,
+        alerted: true,
+      });
+    }
     return {
-      decisions: judged.ok ? parseFlipJudgment(judged.text, facts) : null,
+      decisions,
       checks: [...guards, ...(rules ? [visibleProof(rules.proof)] : []), visibleProof(judged.proof)],
+      activity,
     };
   } catch {
-    return { decisions: null, checks: guards };
+    return { decisions: null, checks: guards, activity };
   }
 }
 
@@ -565,16 +659,27 @@ function parseFlipJudgment(
   try {
     const parsed = JSON.parse(text) as { decisions?: Array<{ vin?: string; verdict?: string; note?: string }> };
     if (!Array.isArray(parsed.decisions)) return null;
-    const allowed = JSON.stringify(facts);
     const known = new Set(facts.map((item) => item.vin));
+    const bundle = {
+      vins: [...known],
+      urls: [] as string[],
+      evidenceIds: [...known].map((vin) => `vin:${vin}`),
+      numberFacts: facts,
+    };
     const decisions = new Map<string, { verdict: "alert" | "skip"; note: string }>();
     for (const decision of parsed.decisions) {
       if (!decision.vin || !known.has(decision.vin)) continue;
       if (decision.verdict !== "alert" && decision.verdict !== "skip") continue;
       const note = typeof decision.note === "string" ? decision.note : "";
-      // Exact token membership against the computed facts — not JSON substring matching.
-      const safe = !note.trim() || quotedNumbersStayIn(note, allowed);
-      decisions.set(decision.vin, { verdict: decision.verdict, note: safe ? note : "" });
+      const validation = validateResaleServOutput(
+        { text: note, vins: [decision.vin], evidenceIds: [`vin:${decision.vin}`] },
+        bundle,
+      );
+      // Invented numbers/VINs/URLs → drop the note (code alert still uses scan figures).
+      decisions.set(decision.vin, {
+        verdict: decision.verdict,
+        note: validation.ok ? note : "",
+      });
     }
     return decisions;
   } catch {
@@ -604,33 +709,6 @@ async function runGuard(searches: SavedSearch[], deps: CycleDeps, timeoutMs: num
   } catch {
     return "timeout";
   }
-}
-
-async function reviewWhy(
-  why: string,
-  numbers: WatchAlert["numbers"],
-  deps: CycleDeps,
-  timeoutMs: number,
-  proofs: ServProof[],
-): Promise<{ why: string; source: string; checks: DecisionProof[] }> {
-  const guards = proofs.filter((item) => item.purpose === "radar_guard").map(visibleProof);
-  if (!deps.servKey) return { why, source: "template", checks: guards };
-  if (timeoutMs <= 0) return { why, source: "timeout", checks: guards };
-  const result = await runServ("personal_alert_review", { user: JSON.stringify({ alert: why, facts: numbers }) }, {
-    fetch: deps.fetchImpl,
-    apiKey: deps.servKey,
-    baseUrl: deps.servBaseUrl,
-    model: deps.servModel,
-    timeoutMs,
-  });
-  proofs.push(result.proof);
-  const checks = [...guards, visibleProof(result.proof)];
-  if (!result.ok) return { why, source: result.error === "SERV did not respond." ? "timeout" : "template_after_error", checks };
-  // Only numbers from this alert's computed payload — never invent fee/recon constants.
-  const numbersOk = quotedNumbersStayIn(result.text, JSON.stringify({ alert: why, facts: numbers }));
-  const failed = result.shadowOutcome === "exhausted" || result.shadowOutcome === "failed";
-  if (!numbersOk || failed) return { why, source: failed ? "shadow_rejected" : "audit_rejected", checks };
-  return { why: result.text, source: result.shadowOutcome, checks };
 }
 
 function withTimeout<T>(work: Promise<T>, ms: number): Promise<T> {

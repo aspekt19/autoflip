@@ -2,21 +2,24 @@ import { describe, expect, it } from "vitest";
 import { productFlagsUnavailableMessage, resolveProductFlags } from "./product-flags";
 
 describe("resolveProductFlags", () => {
-  it("defaults: resale on, radar/scout/telegram off", () => {
+  it("defaults: resale and deal radar on; scout/telegram off", () => {
     expect(resolveProductFlags({})).toEqual({
       resaleEvaluate: true,
-      dealRadar: false,
+      dealRadar: true,
       scout: false,
       telegram: false,
     });
   });
 
-  it("enables radar and telegram only with explicit flags", () => {
+  it("can turn deal radar off explicitly", () => {
+    expect(resolveProductFlags({ DEAL_RADAR_UI_ENABLED: "false" }).dealRadar).toBe(false);
+  });
+
+  it("enables scout and telegram only with explicit flags", () => {
     expect(
       resolveProductFlags({
-        DEAL_RADAR_UI_ENABLED: "true",
-        TELEGRAM_UI_ENABLED: "1",
         SCOUT_UI_ENABLED: "yes",
+        TELEGRAM_UI_ENABLED: "1",
       }),
     ).toEqual({
       resaleEvaluate: true,
@@ -36,4 +39,3 @@ describe("resolveProductFlags", () => {
     expect(productFlagsUnavailableMessage("telegram")).not.toMatch(/Connect Telegram/);
   });
 });
-

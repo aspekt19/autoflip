@@ -9,11 +9,21 @@ import { useAccountLoad } from "@/components/use-account-load";
  * Show a clear sign-in prompt BEFORE any check/find form fields when signed out.
  * Owner decision: login is required to prevent free VIN-checker abuse.
  */
+function gateLead(callbackPath: "/check" | "/find" | "/radar"): string {
+  if (callbackPath === "/check") {
+    return "Checking a listing or VIN requires a free account. This keeps the monthly free checks honest.";
+  }
+  if (callbackPath === "/radar") {
+    return "Deal Radar saved searches require a free account so watches stay tied to you — not an anonymous browser cookie.";
+  }
+  return "Finding cars requires a free account so searches stay tied to your credits.";
+}
+
 export function SignInGate({
   callbackPath,
   children,
 }: {
-  callbackPath: "/check" | "/find";
+  callbackPath: "/check" | "/find" | "/radar";
   children: ReactNode;
 }) {
   const account = useAccountLoad();
@@ -34,12 +44,12 @@ export function SignInGate({
     return (
       <div className="panel sign-in-gate" role="region" aria-label="Sign in required">
         <h2>Sign in to continue</h2>
-        <p className="lead">
-          {callbackPath === "/check"
-            ? "Checking a listing or VIN requires a free account. This keeps the monthly free checks honest."
-            : "Finding cars requires a free account so searches stay tied to your credits."}
-        </p>
-        <p className="hint">{formatFreeChecksSignInPrompt()}</p>
+        <p className="lead">{gateLead(callbackPath)}</p>
+        {callbackPath === "/radar" ? (
+          <p className="hint">Personal watches are free with your account (up to three). Opening a full report still costs 1 credit.</p>
+        ) : (
+          <p className="hint">{formatFreeChecksSignInPrompt()}</p>
+        )}
         {authConfigured ? (
           <p className="btn-row">
             <Link className="action" href={loginHref}>

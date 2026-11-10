@@ -1,7 +1,6 @@
 import type { Kv } from "@/io/kv";
 import { LINK_TTL_MS } from "@/io/telegram";
 import type { SavedSearch, WatchAlert } from "@/domain/radar-watch";
-import { syncPresetSearches } from "@/domain/demo-presets";
 import { DEMO_USER_ID } from "@/domain/radar-watch";
 import { creditSet } from "@/io/credit-book";
 
@@ -117,6 +116,27 @@ export type StoredRun = {
     shadowMaxIterations: number | null;
     latencyMs: number;
   }>;
+  /** Owners whose watches were due in this run (for per-account activity). */
+  ownerIds?: string[];
+  /** Search ids checked in this run. */
+  searchIds?: string[];
+  /** Per SERV call log (verdict_decide / verdict_challenge / radar_review) with response ids. */
+  servActivity?: Array<{
+    at: string;
+    searchId: string;
+    vin: string;
+    profile: string;
+    modelRequested: string;
+    modelReported: string;
+    responseId: string | null;
+    latencyMs: number;
+    ok: boolean;
+    decision: string | null;
+    note: string | null;
+    alerted: boolean;
+  }>;
+  /** Same journal schema as Resale search (`lemonless.resale_journal.v1`). */
+  decisionJournal?: import("@/domain/resale-decision-journal").ResaleDecisionJournal;
   payment: {
     status: string;
     missing: string[];
@@ -212,6 +232,5 @@ export async function ensureDemoAccount(kv: Kv, now = new Date()): Promise<void>
   if (Number.isInteger(credits) && credits >= 0) {
     await creditSet(kv, DEMO_USER_ID, credits, `demo-refill:${day}`);
   }
-  const synced = syncPresetSearches(await listSearches(kv), now.toISOString());
-  if (synced.changed) await saveSearches(kv, synced.searches);
+  // Do not seed demo/preset watches — Radar saved searches are account-owned only.
 }

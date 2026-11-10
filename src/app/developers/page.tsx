@@ -28,7 +28,8 @@ export default function DevelopersPage() {
               <code>find_cars</code> / <code>POST /api/v1/find</code> — async; 1 report credit after a successful search. Scope: <code>find</code>.
             </li>
             <li>
-              <code>deal_radar</code> is free (scope <code>read</code>). <code>full_report</code> costs 1 credit (scope <code>check</code>).
+              <code>deal_radar</code> is a free one-shot listing scan (scope <code>read</code>) — it does not create a saved watch. Saved Deal Radar watches live on the signed-in{" "}
+              <a href="/radar">Deal Radar</a> page (free up to three personal radars; full report still costs 1 credit). <code>full_report</code> costs 1 credit (scope <code>check</code>).
             </li>
           </ul>
           <p>

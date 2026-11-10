@@ -74,7 +74,7 @@ Shown on Resale results and every Deal Radar activity entry.
 |---|---|
 | Dedicated capabilities + strict JSON schemas | `PROFILES` in `src/server/serv/profiles.ts`: `resale_plan_search`, `resale_triage`, `resale_pick`, `resale_challenge`, `radar_review` — `additionalProperties: false`, enum/allowlist fields |
 | System: evidence ids only; no invented prices/VINs/listings/URLs | Profile `system` + `shadowHint` strings; documented above |
-| Validate SERV output vs input bundle | `validateResaleServOutput` on plan/triage/pick/challenge; Radar notes via `quotedNumbersStayIn` / journal mapping |
+| Validate SERV output vs input bundle | `validateResaleServOutput` on plan/triage/pick/challenge; Radar `radar_review` notes via the same validator in `parseFlipJudgment` |
 | Unsupported ref → reject + journal + code fallback | Settle writes `rejected: "rejected: unsupported reference"` and keeps code rank/pick |
 | Strip / verify free-text numbers | `quotedNumbersStayIn` reject path; `stripUnsupportedNumbers` helper |
 | Displayed numbers carry source | `ResaleCandidatePnl.provenance` + Resale UI “Number sources” |

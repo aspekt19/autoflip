@@ -6,12 +6,22 @@ export const dynamic = "force-dynamic";
 /** Hobby allows 60 seconds. The cycle itself stops at 40 so the log is written first. */
 export const maxDuration = 60;
 
-export async function POST(request: Request) {
-  const expected = process.env.RADAR_CRON_SECRET?.trim() ?? "";
-  if (!expected) {
-    return Response.json({ error: "not_configured", message: "RADAR_CRON_SECRET is not set." }, { status: 503 });
+/**
+ * Vercel Cron uses GET. GitHub Actions uses POST with RADAR_CRON_SECRET.
+ * Auth accepts RADAR_CRON_SECRET or Vercel's CRON_SECRET bearer token.
+ */
+async function handle(request: Request) {
+  const radar = process.env.RADAR_CRON_SECRET?.trim() ?? "";
+  const vercel = process.env.CRON_SECRET?.trim() ?? "";
+  if (!radar && !vercel) {
+    return Response.json(
+      { error: "not_configured", message: "RADAR_CRON_SECRET (or CRON_SECRET for Vercel Cron) is not set." },
+      { status: 503 },
+    );
   }
-  if (!secretMatch(bearer(request), expected)) {
+  const token = bearer(request);
+  const ok = (radar && secretMatch(token, radar)) || (vercel && secretMatch(token, vercel));
+  if (!ok) {
     return Response.json({ error: "unauthorized" }, { status: 401 });
   }
   if (storageMode() === "unconfigured") {
@@ -36,4 +46,12 @@ export async function POST(request: Request) {
     env: process.env,
   });
   return Response.json({ ok: true, id: run.id, alertsSent: run.alertsSent, autodevCalls: run.autodevCalls });
+}
+
+export async function GET(request: Request) {
+  return handle(request);
+}
+
+export async function POST(request: Request) {
+  return handle(request);
 }

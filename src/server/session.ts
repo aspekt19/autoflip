@@ -142,7 +142,7 @@ export async function existingLedgerOwnerId(): Promise<string | null> {
 type VerifiedAccessOk = { ok: true; id: string; email: string };
 type VerifiedAccessErr = { ok: false; response: Response };
 
-type VerifiedPurpose = "checkout" | "vehicle_check" | "find_search";
+type VerifiedPurpose = "checkout" | "vehicle_check" | "find_search" | "radar_search";
 
 function unverifiedMessages(purpose: VerifiedPurpose): {
   unconfigured: string;
@@ -168,6 +168,16 @@ function unverifiedMessages(purpose: VerifiedPurpose): {
       emailRequired: "Your account needs a verified email before Find search.",
       emailUnverified:
         "Verify your email before Find search. Anonymous browser cookies cannot spend Find credits.",
+    };
+  }
+  if (purpose === "radar_search") {
+    return {
+      unconfigured:
+        "Sign-in is required before Deal Radar saved searches, but authentication is not configured on this deploy.",
+      authRequired: "Sign in with Google or email before saving a Deal Radar watch.",
+      emailRequired: "Your account needs a verified email before Deal Radar saved searches.",
+      emailUnverified:
+        "Verify your email before Deal Radar. Anonymous browser cookies cannot own saved watches.",
     };
   }
   return {
@@ -241,4 +251,12 @@ export async function requireVerifiedAccountForChecks(): Promise<VerifiedAccessO
  */
 export async function requireVerifiedAccountForFind(): Promise<VerifiedAccessOk | VerifiedAccessErr> {
   return requireVerifiedSignedIn("find_search");
+}
+
+/**
+ * All Deal Radar user routes require a verified Auth.js account (same gate as Find).
+ * Anonymous af_uid cookies cannot scan, create watches, check, or read feed/activity.
+ */
+export async function requireVerifiedAccountForRadar(): Promise<VerifiedAccessOk | VerifiedAccessErr> {
+  return requireVerifiedSignedIn("radar_search");
 }

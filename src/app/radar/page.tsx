@@ -5,10 +5,13 @@ import type { DecisionProof } from "@/domain/decision-note";
 import { CoverageLine } from "@/components/CoverageNote";
 import { DecisionNote } from "@/components/DecisionNote";
 import { PriceBadgeView, PriceRatingHow } from "@/components/PriceBadge";
+import { ResaleDecisionJournalView } from "@/components/ResaleDecisionJournal";
 import type { PriceBadge } from "@/domain/price-badge";
+import type { ResaleDecisionJournal } from "@/domain/resale-decision-journal";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useRef, useState, type FormEvent } from "react";
 import { MakeModelFields } from "@/components/MakeModelFields";
+import { SignInGate } from "@/components/SignInGate";
 import { ZipRadiusFields } from "@/components/ZipRadiusFields";
 import { parseUsdInput } from "@/domain/budget";
 import { parseDistanceMiles } from "@/domain/need";
@@ -52,7 +55,7 @@ function RadarInner() {
   const [error, setError] = useState<string | null>(null);
   const [busyVin, setBusyVin] = useState<string | null>(null);
   const [demo, setDemo] = useState(false);
-  const [searches, setSearches] = useState<Array<{ id: string; name: string; mode: string; criteria: { priceMax: number; zip: string; radiusMiles: number; make?: string; model?: string }; preset: boolean }>>([]);
+  const [searches, setSearches] = useState<Array<{ id: string; name: string; mode: string; criteria: { priceMax: number; zip: string; radiusMiles: number; make?: string; model?: string; notes?: string }; preset: boolean; lastCheckedAt: string | null }>>([]);
   const [alerts, setAlerts] = useState<Array<{ id: string; vin: string; why: string; createdAt: string; mode: string; priceUsd: number; miles: number | null; year: number; make: string; model: string; checks?: DecisionProof[]; coverage?: string; coverageLevel?: "low" | "medium" | "high"; badge?: PriceBadge }>>([]);
   const [watchNote, setWatchNote] = useState<string | null>(null);
   const [checking, setChecking] = useState(false);
@@ -61,15 +64,56 @@ function RadarInner() {
   const [credits, setCredits] = useState<number | null>(null);
   const [feedReady, setFeedReady] = useState(false);
   const [savedReportId, setSavedReportId] = useState<string | null>(null);
+  const [lastRunAt, setLastRunAt] = useState<string | null>(null);
+  const [nextRunAt, setNextRunAt] = useState<string | null>(null);
+  const [listingCounts, setListingCounts] = useState<Array<{ searchId: string; listingsSeen: number }>>([]);
+  const [freeWatchLimit, setFreeWatchLimit] = useState(3);
+  const [emailNote, setEmailNote] = useState<string | null>(null);
+  const [activity, setActivity] = useState<{
+    runId: string;
+    startedAt: string;
+    finishedAt: string;
+    alertsSent: number;
+    listings: number;
+    servActivity: Array<{
+      at: string;
+      vin: string;
+      profile: string;
+      modelReported: string;
+      responseId: string | null;
+      decision: string | null;
+      note: string | null;
+      alerted: boolean;
+      latencyMs: number;
+    }>;
+    decisionJournal?: ResaleDecisionJournal;
+    notes: string[];
+  } | null>(null);
   const confirmId = params.get("confirm");
 
   async function loadFeed() {
     const response = await fetch("/api/radar/feed");
     if (!response.ok) return;
-    const body = (await response.json()) as { demo?: boolean; searches?: typeof searches; alerts?: typeof alerts };
+    const body = (await response.json()) as {
+      demo?: boolean;
+      searches?: typeof searches;
+      alerts?: typeof alerts;
+      lastRunAt?: string | null;
+      nextRunAt?: string | null;
+      listingCounts?: typeof listingCounts;
+      freeWatchLimit?: number;
+      emailNote?: string;
+      activity?: typeof activity;
+    };
     setDemo(Boolean(body.demo));
     setSearches(body.searches ?? []);
     setAlerts(body.alerts ?? []);
+    setLastRunAt(body.lastRunAt ?? null);
+    setNextRunAt(body.nextRunAt ?? null);
+    setListingCounts(body.listingCounts ?? []);
+    if (typeof body.freeWatchLimit === "number") setFreeWatchLimit(body.freeWatchLimit);
+    setEmailNote(body.emailNote ?? null);
+    setActivity(body.activity ?? null);
     setFeedReady(true);
   }
 
@@ -270,12 +314,20 @@ function RadarInner() {
       <div className="wrap site-frame">
         <p className="kicker">{demo ? "Guided preview" : "Saved search"}</p>
         <h1>Deal Radar</h1>
-        <p className="lead">Save a vehicle search and Lemonless will check for new matching dealer listings on a schedule. Ongoing alerts require a <Link href="/pricing">Radar plan</Link>; opening a full vehicle report separately costs 1 report credit.</p>
-        {demo ? (
-          <p className="hint">
-            <Link href="/activity">Activity log</Link>
-          </p>
-        ) : null}
+        <p className="lead">
+          Save a Find search (model, budget, ZIP, radius, notes). Lemonless re-checks Auto.dev listings on a schedule, diffs new listing ids, and runs SERV only on up to {freeWatchLimit} good/fair candidates per radar per run. Free with a signed-in account up to {freeWatchLimit} personal radars. Opening a full report costs 1 report credit.
+        </p>
+        <p className="hint">
+          <Link href="/activity">Activity log</Link>
+          {" · "}
+          <Link href="/pricing">Pricing</Link>
+        </p>
+        <ul className="refuse">
+          <li>Last run: {lastRunAt ? `${new Date(lastRunAt).toLocaleString("en-US", { timeZone: "UTC" })} UTC` : "No run yet"}</li>
+          <li>Next run: {nextRunAt ? `${new Date(nextRunAt).toLocaleString("en-US", { timeZone: "UTC" })} UTC` : "No run yet"}</li>
+          <li>New alerts on this page: {alerts.length}</li>
+        </ul>
+        {emailNote ? <p className="hint">{emailNote}</p> : null}
         <div className="hero-actions">
           <button className="action" type="button" onClick={checkNow} disabled={checking || !feedReady || (!demo && searches.length === 0)}>
             {checking ? "Checking…" : !feedReady ? "Loading…" : !demo && searches.length === 0 ? "Save a search first" : "Check now"}
@@ -291,23 +343,31 @@ function RadarInner() {
         <h2>Saved searches</h2>
         {searches.length === 0 ? (
           <article className="warn-box">
-            <h3>Create your first saved search</h3>
-            <p>Choose a vehicle or local budget below. Once saved, Lemonless can look for new matching dealer listings. A Radar plan is required for ongoing alerts.</p>
-            <p><Link href="/find">Start by finding a car</Link> · <Link href="/pricing">See Radar plans</Link></p>
+            <h3>No radars yet</h3>
+            <p>Save a search from Find or the form below. Personal Deal Radar watches are free with your account (up to {freeWatchLimit}).</p>
+            <p><Link href="/find">Start by finding a car</Link></p>
           </article>
         ) : null}
         <ul className="refuse">
-          {searches.map((search) => (
-            <li key={search.id}>
-              <strong>{search.name}</strong>
-              {search.preset ? " · preset" : ""}
-              {" · "}
-              {search.mode === "flip" ? "Flip" : "Drive it"}
-              {" · "}
-              up to {formatUsd(search.criteria.priceMax)} near {search.criteria.zip}, {search.criteria.radiusMiles} mi
-              {search.criteria.make ? ` · ${search.criteria.make} ${search.criteria.model ?? ""}` : ""}
-            </li>
-          ))}
+          {searches.map((search) => {
+            const seen = listingCounts.find((row) => row.searchId === search.id)?.listingsSeen ?? 0;
+            return (
+              <li key={search.id}>
+                <strong>{search.name}</strong>
+                {search.preset ? " · preset" : ""}
+                {" · "}
+                {search.mode === "flip" ? "Flip" : "Drive it"}
+                {" · "}
+                up to {formatUsd(search.criteria.priceMax)} near {search.criteria.zip}, {search.criteria.radiusMiles} mi
+                {search.criteria.make ? ` · ${search.criteria.make} ${search.criteria.model ?? ""}` : ""}
+                {" · "}
+                listings seen: {seen}
+                {" · "}
+                last checked: {search.lastCheckedAt ? `${new Date(search.lastCheckedAt).toLocaleString("en-US", { timeZone: "UTC" })} UTC` : "No run yet"}
+                {search.criteria.notes ? ` · notes: ${search.criteria.notes}` : ""}
+              </li>
+            );
+          })}
         </ul>
         {!demo || !searches.some((search) => !search.preset) ? (
           <SaveSearchForm onSaved={() => void loadFeed()} />
@@ -343,8 +403,30 @@ function RadarInner() {
             )}
           </article>
         ) : null}
+        <h2>Activity (last run)</h2>
+        {!activity ? (
+          <p>No run yet.</p>
+        ) : (
+          <article className="warn-box">
+            <p className="sheet-label">{activity.runId}</p>
+            <p>
+              {new Date(activity.startedAt).toLocaleString("en-US", { timeZone: "UTC" })} UTC · listings {activity.listings} · alerts {activity.alertsSent}
+            </p>
+            <ResaleDecisionJournalView journal={activity.decisionJournal} defaultOpen />
+            {activity.servActivity.length === 0 ? (
+              <p className="hint">No SERV calls in this run (no new good/fair candidates, or SERV was not configured).</p>
+            ) : null}
+            {activity.notes.length > 0 ? (
+              <ul className="refuse">
+                {activity.notes.map((note) => (
+                  <li key={note}>{note}</li>
+                ))}
+              </ul>
+            ) : null}
+          </article>
+        )}
         <h2>Alerts</h2>
-        {alerts.length === 0 ? <p>No new matches yet. New qualifying dealer listings will appear here after a scheduled check.</p> : null}
+        {alerts.length === 0 ? <p>No new matches yet. New good/fair listings SERV rates buy or negotiate will appear here after a scheduled check.</p> : null}
         <div className="radar-list">
           {alerts.map((alert) => (
             <article className="radar-row" key={alert.id} id={`alert-${alert.id}`}>
@@ -463,6 +545,7 @@ function SaveSearchForm({ onSaved }: { onSaved: () => void }) {
   const [priceMax, setPriceMax] = useState("18000");
   const [zip, setZip] = useState("");
   const [distanceMiles, setDistanceMiles] = useState<number | null>(50);
+  const [notes, setNotes] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
 
@@ -504,6 +587,7 @@ function SaveSearchForm({ onSaved }: { onSaved: () => void }) {
             zip: zip.trim(),
             radiusMiles: radiusParsed.miles,
             minProfitUsd: searchMode === "flip" ? 1500 : undefined,
+            notes: notes.trim() || undefined,
           },
         }),
       });
@@ -566,6 +650,10 @@ function SaveSearchForm({ onSaved }: { onSaved: () => void }) {
         onDistanceChange={setDistanceMiles}
         allowNationwide={false}
       />
+      <div className="field">
+        <label htmlFor="search-notes">Notes (optional)</label>
+        <textarea id="search-notes" rows={2} value={notes} onChange={(event) => setNotes(event.target.value.slice(0, 500))} />
+      </div>
       <div className="btn-row">
         <button className="action" type="submit" disabled={pending}>
           {pending ? "Saving…" : "Save search"}
@@ -610,7 +698,7 @@ function SaveSearchForm({ onSaved }: { onSaved: () => void }) {
       </div>
       {error ? (
         <p className="warn" role="alert">
-          {error} {/plan/i.test(error) ? <Link href="/pricing">See radar plans</Link> : null}
+          {error} {/plan|watch|radar/i.test(error) ? <Link href="/pricing">See pricing</Link> : null}
         </p>
       ) : null}
     </form>
@@ -620,7 +708,9 @@ function SaveSearchForm({ onSaved }: { onSaved: () => void }) {
 export default function RadarPage() {
   return (
     <Suspense fallback={<div className="wrap site-frame page">Loading Deal Radar…</div>}>
-      <RadarInner />
+      <SignInGate callbackPath="/radar">
+        <RadarInner />
+      </SignInGate>
     </Suspense>
   );
 }

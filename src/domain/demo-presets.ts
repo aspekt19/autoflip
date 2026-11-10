@@ -51,7 +51,10 @@ export function demoPresets(now = "2026-11-04T00:00:00.000Z"): SavedSearch[] {
   ];
 }
 
-/** Replace stored preset criteria when this file changes. Custom searches are left alone. */
+/**
+ * Test/fixture helper only — not called from cron or ensureDemoAccount.
+ * Production Radar never injects DEMO_USER_ID preset watches.
+ */
 const RETIRED_PRESETS = new Set(["preset-flip-civic"]);
 
 export function syncPresetSearches(existing: SavedSearch[], nowIso: string): { searches: SavedSearch[]; changed: boolean } {

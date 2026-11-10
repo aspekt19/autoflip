@@ -5,10 +5,13 @@ import { autoDevMake, autoDevModel } from "@/domain/vehicle-names";
 import { assembleRadar } from "@/server/assemble";
 import { runtimeDeps } from "@/server/deps";
 import { parseMode, radarToolResult } from "@/server/mcp";
+import { requireVerifiedAccountForRadar } from "@/server/session";
 
 export const dynamic = "force-dynamic";
 
 export async function POST(request: Request) {
+  const access = await requireVerifiedAccountForRadar();
+  if (!access.ok) return access.response;
   const body = (await request.json().catch(() => null)) as Record<string, unknown> | null;
   if (!body) return Response.json({ error: "invalid_json", message: "Send JSON." }, { status: 400 });
   const make = autoDevMake(typeof body.make === "string" ? body.make : "");

@@ -5,7 +5,7 @@ import type { ProductFlags } from "@/domain/product-flags";
 
 /**
  * Footer twin of the header product link.
- * Deal Radar is omitted until GET /api/product-flags says it is on.
+ * Deal Radar is shown when GET /api/product-flags says it is on (default ON).
  * Resale is the default so a hidden radar route is never a footer link.
  */
 export function FooterProductLink() {

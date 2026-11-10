@@ -31,6 +31,8 @@ export type WatchCriteria = {
   minProfitUsd?: number;
   repairAbility?: "none" | "minor" | "major" | "unknown";
   priorities?: string[];
+  /** Free-text notes from Find (or the save form). Stored as-is; not used for filtering. */
+  notes?: string;
 };
 
 export type SavedSearch = {
@@ -257,7 +259,6 @@ export function prefilterListing(
     return { pass: false, reason: "price is suspiciously low next to similar cars" };
   }
 
-  const belowFair = priced && (price <= fairLow || price <= fair * ASSUMPTIONS.belowMedianRatio);
   const margin = priced && mode === "flip" ? roughMargin(price, fairHigh, listing.miles) : null;
   const gapUsd = priced ? (mode === "flip" && margin !== null ? margin : roundDollars(fair - price)) : 0;
   const numbers: AlertNumbers = {
@@ -278,8 +279,9 @@ export function prefilterListing(
   } else if (mode === "flip") {
     const needed = criteria.minProfitUsd ?? ASSUMPTIONS.flipDesiredProfitUsd;
     if (margin === null || margin < needed) return { pass: false, reason: "rough margin is under the buy box" };
-  } else if (!belowFair && !lowMiles) {
-    return { pass: false, reason: "inside the usual price and mileage band" };
+  } else if (evaluation.tone !== "good" && evaluation.tone !== "fair") {
+    // Personal Deal Radar alerts only for good / fair asking prices (shared evaluateListingPrice).
+    return { pass: false, reason: priced ? evaluation.label : "inside the usual price and mileage band" };
   }
 
   const bits: string[] = [];

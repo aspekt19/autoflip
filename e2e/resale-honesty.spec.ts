@@ -3,10 +3,10 @@ import { evaluateListingPrice } from "../src/domain/price-evaluation";
 import { buildResaleAssessment } from "../src/domain/resale-evaluate";
 import type { Listing } from "../src/domain/types";
 
-/** Deal Radar may be on or off depending on branch; Scout/Telegram stay OFF. */
+/** Deal Radar is ON by default; Scout/Telegram stay OFF unless explicitly enabled. */
 const FLAGS = {
   resaleEvaluate: true,
-  dealRadar: false,
+  dealRadar: true,
   scout: false,
   telegram: false,
 };
@@ -97,17 +97,55 @@ async function scoutTelegramHrefs(page: Page) {
   );
 }
 
-test("Scout and Telegram stay hidden while Resale is available", async ({ page }) => {
+test("Scout and Telegram stay hidden; Deal Radar is available when default-on", async ({ page }) => {
   await mockFlags(page);
   await mockAccount(page, false);
   for (const width of [1280, 390]) {
     await page.setViewportSize({ width, height: width === 390 ? 844 : 800 });
     await page.goto("/");
     await expect(page.getByRole("link", { name: "Resale" }).first()).toBeVisible();
+    await expect(page.getByRole("link", { name: "Deal Radar" }).first()).toBeVisible();
     await expect(page.getByRole("link", { name: "Scout" })).toHaveCount(0);
     await expect(page.getByRole("button", { name: /telegram/i })).toHaveCount(0);
     expect(await scoutTelegramHrefs(page)).toEqual([]);
   }
+
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await page.goto("/radar");
+  // Anonymous cookies cannot use Deal Radar — verified sign-in required.
+  await expect(page.getByRole("heading", { name: "Sign in to continue" })).toBeVisible();
+  await expect(page.getByText(/not an anonymous browser cookie/i)).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Deal Radar" })).toHaveCount(0);
+
+  await mockAccount(page, true);
+  await page.route("**/api/radar/feed", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        demo: false,
+        searches: [],
+        alerts: [],
+        lastRunAt: null,
+        nextRunAt: null,
+        intervalHours: 6,
+        listingCounts: [],
+        freeWatchLimit: 3,
+        maxServPerSearch: 5,
+        emailConfigured: false,
+        emailNote: "Email alerts are not configured in this deployment. New matches appear on this page only.",
+        activity: null,
+      }),
+    });
+  });
+  await page.goto("/radar");
+  await expect(page.getByRole("heading", { name: "Deal Radar" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Not available" })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: /connect telegram/i })).toHaveCount(0);
+
+  await page.goto("/developers");
+  await expect(page.getByRole("heading", { name: "For agents" })).toBeVisible();
+  expect(await scoutTelegramHrefs(page)).toEqual([]);
 });
 
 test("resale requires sign-in and budget-first search; one-car estimate stays honest", async ({ page }) => {

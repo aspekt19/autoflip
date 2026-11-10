@@ -1,11 +1,13 @@
 import { getKv } from "@/io/kv";
 import { listAlerts, saveAlerts } from "@/server/radar-store";
-import { ledgerOwnerId } from "@/server/session";
+import { requireVerifiedAccountForRadar } from "@/server/session";
 
 export const dynamic = "force-dynamic";
 
 export async function POST(request: Request) {
-  const id = await ledgerOwnerId();
+  const access = await requireVerifiedAccountForRadar();
+  if (!access.ok) return access.response;
+  const id = access.id;
   const body = (await request.json().catch(() => null)) as { alertId?: string } | null;
   if (!body?.alertId) return Response.json({ error: "invalid" }, { status: 400 });
   const kv = getKv();
