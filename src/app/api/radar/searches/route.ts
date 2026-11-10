@@ -72,13 +72,28 @@ export async function POST(request: Request) {
   const kv = getKv();
   const searches = await listSearches(kv);
   const mine = searches.filter((item) => item.ownerId === id);
-  const modeCount = mine.filter((item) => item.mode === mode && item.enabled).length;
-  const allowed = await allowance(kv, id, mode, modeCount);
+  const totalEnabled = mine.filter((item) => item.enabled).length;
+  const allowed = await allowance(kv, id, totalEnabled);
   if (!allowed.ok) {
-    return Response.json({ error: "plan_required", message: allowed.message }, { status: 402 });
+    return Response.json(
+      {
+        error: allowed.code === "plan_required" ? "plan_required" : "plan_limit",
+        message: allowed.message,
+        redirect: "/pricing?from=watch",
+      },
+      { status: 402 },
+    );
   }
-  if (mine.length >= 5) {
-    return Response.json({ error: "limit", message: "Five saved searches is the maximum." }, { status: 403 });
+  const watchLimit = allowed.limits.watchLimit;
+  if (mine.length >= watchLimit) {
+    return Response.json(
+      {
+        error: "limit",
+        message: `This plan can save up to ${watchLimit} watched searches (Find or Resale).`,
+        redirect: "/pricing?from=watch",
+      },
+      { status: 403 },
+    );
   }
   searches.push({
     id: randomUUID(),
@@ -90,6 +105,7 @@ export async function POST(request: Request) {
     enabled: true,
     preset: false,
     lastCheckedAt: null,
+    pauseReason: null,
   });
   await saveSearches(kv, searches);
   return Response.json({ ok: true });

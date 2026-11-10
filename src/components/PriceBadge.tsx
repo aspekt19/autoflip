@@ -13,7 +13,7 @@ export function PriceBadgeView({ badge }: { badge: PriceBadge }) {
 export function PriceRatingHow() {
   return (
     <details className="decision">
-      <summary>How we rate prices</summary>
+      <summary className="type-brand">How we rate prices</summary>
       <p>{PRICE_RATING_HOW}</p>
     </details>
   );

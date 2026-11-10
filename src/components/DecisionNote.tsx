@@ -4,7 +4,7 @@ export function DecisionNote({ scene, proofs }: { scene: DecisionScene; proofs: 
   const paragraphs = whyWeDecided(scene, proofs);
   return (
     <details className="decision">
-      <summary>Why we decided this</summary>
+      <summary className="type-brand">Why we decided this</summary>
       {paragraphs.map((paragraph) => (
         <p key={paragraph}>{paragraph}</p>
       ))}

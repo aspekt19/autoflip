@@ -191,7 +191,7 @@ curl -s https://autoflip-umber.vercel.app/api/v1/report \
 
 ## Deal Radar
 
-Personal Deal Radar watches are free with a signed-in account (up to three). Cron re-runs Auto.dev listing search, diffs seen listing ids, and runs SERV `verdict_decide` (challenge on the top candidate only) for at most three new good/fair candidates per radar per run. Alerts are in-app only unless an email provider is added later. Telegram stays gated off. MCP `deal_radar` remains a free one-shot scan (not a saved watch). Schedule: GitHub Actions every 6h (`RADAR_CRON_SECRET`); Vercel Cron once daily on Hobby (`vercel.json`). Details: `src/server/radar-cycle.ts`, `src/server/radar-serv.ts`.
+Deal Radar is paid-only — no free tier and no trial. Radar $100/mo (5 watches, 6h cadence, 5 report credits, 1500 SERV cap) and Radar Pro $250/mo (20 watches, 3h, 15 credits, 6000 SERV). Credit packs never unlock radar. Cron re-runs Auto.dev listing search, diffs seen listing ids, and runs SERV `verdict_decide` (challenge on the top candidate only) for due watches. Alerts are in-app (Telegram optional when configured). MCP `deal_radar` is a one-shot listing scan (not a saved watch and not a Radar unlock). Schedule: GitHub Actions / host cron (`RADAR_CRON_SECRET`); see `vercel.json`. Details: `src/server/radar-cycle.ts`, `src/server/radar-serv.ts`.
 
 ## Deploy
 

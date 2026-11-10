@@ -32,6 +32,7 @@ function RadarInner() {
       enabled: boolean;
       preset: boolean;
       lastCheckedAt: string | null;
+      pauseReason?: "requires_plan" | null;
     }>
   >([]);
   const [alerts, setAlerts] = useState<
@@ -65,7 +66,9 @@ function RadarInner() {
   const [lastRunAt, setLastRunAt] = useState<string | null>(null);
   const [nextRunAt, setNextRunAt] = useState<string | null>(null);
   const [listingCounts, setListingCounts] = useState<Array<{ searchId: string; listingsSeen: number }>>([]);
-  const [freeWatchLimit, setFreeWatchLimit] = useState(3);
+  const [watchLimit, setWatchLimit] = useState(0);
+  const [requiresPlan, setRequiresPlan] = useState(false);
+  const [planName, setPlanName] = useState<string | null>(null);
   const [emailNote, setEmailNote] = useState<string | null>(null);
   const [activity, setActivity] = useState<{
     runId: string;
@@ -103,7 +106,9 @@ function RadarInner() {
       lastRunAt?: string | null;
       nextRunAt?: string | null;
       listingCounts?: typeof listingCounts;
-      freeWatchLimit?: number;
+      watchLimit?: number;
+      requiresPlan?: boolean;
+      planName?: string | null;
       emailNote?: string;
       activity?: typeof activity;
     };
@@ -115,7 +120,9 @@ function RadarInner() {
     setLastRunAt(body.lastRunAt ?? null);
     setNextRunAt(body.nextRunAt ?? null);
     setListingCounts(body.listingCounts ?? []);
-    if (typeof body.freeWatchLimit === "number") setFreeWatchLimit(body.freeWatchLimit);
+    if (typeof body.watchLimit === "number") setWatchLimit(body.watchLimit);
+    setRequiresPlan(body.requiresPlan === true);
+    setPlanName(typeof body.planName === "string" ? body.planName : null);
     setEmailNote(body.emailNote ?? null);
     setActivity(body.activity ?? null);
     setFeedReady(true);
@@ -313,8 +320,16 @@ function RadarInner() {
         <p className="kicker">{demo ? "Guided preview" : "Subscriptions"}</p>
         <h1>Deal Radar</h1>
         <p className="lead">
-          Deal Radar watches searches you already set in Find (Drive it) or Resale (flip). Criteria are not edited here — start a search, then choose Watch with Deal Radar. Lemonless re-checks Auto.dev listings on a schedule and runs SERV on up to {freeWatchLimit} good/fair candidates per radar per run. Opening a full report costs 1 report credit.
+          Deal Radar is paid-only. Watches cover Find (Drive it) or Resale (flip) under your plan cap
+          {planName ? ` (${planName}: up to ${watchLimit})` : ""}. Criteria are not edited here — start a search, then
+          choose Watch with Deal Radar. Opening a full report costs 1 report credit.
         </p>
+        {requiresPlan ? (
+          <p className="warn-box">
+            No active Radar plan. Existing watches stay saved but are paused until you subscribe.{" "}
+            <Link href="/pricing?from=watch">Choose Radar or Radar Pro</Link>
+          </p>
+        ) : null}
         <p className="hint">
           <Link href="/activity">Activity log</Link>
           {" · "}
@@ -356,8 +371,8 @@ function RadarInner() {
           <article className="warn-box">
             <h3>No radars yet</h3>
             <p>
-              Set criteria in Find (Drive it) or Resale (flip), run a search, then choose Watch with Deal Radar. Personal
-              watches are free with your account (up to {freeWatchLimit}).
+              Set criteria in Find (Drive it) or Resale (flip), run a search, then choose Watch with Deal Radar. A paid
+              Radar or Radar Pro plan is required{watchLimit > 0 ? ` (up to ${watchLimit} watches)` : ""}.
             </p>
             <p className="btn-row">
               <Link className="action" href="/find">
@@ -388,7 +403,11 @@ function RadarInner() {
               <article className="radar-row" key={search.id}>
                 <div>
                   <span className="file-chip">{search.mode === "flip" ? "Flip" : "Drive it"}</span>
-                  {search.enabled ? null : <span className="file-chip">Paused</span>}
+                  {search.enabled ? null : (
+                    <span className="file-chip">
+                      {search.pauseReason === "requires_plan" ? "Paused — requires plan" : "Paused"}
+                    </span>
+                  )}
                   {search.preset ? <span className="file-chip">preset</span> : null}
                 </div>
                 <div />
@@ -635,7 +654,13 @@ function RadarInner() {
 
 export default function RadarPage() {
   return (
-    <Suspense fallback={<div className="wrap site-frame page">Loading Deal Radar…</div>}>
+    <Suspense
+      fallback={
+        <div className="wrap site-frame page">
+          <p className="eyebrow">Loading Deal Radar…</p>
+        </div>
+      }
+    >
       <SignInGate callbackPath="/radar">
         <RadarInner />
       </SignInGate>

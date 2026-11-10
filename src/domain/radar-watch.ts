@@ -60,6 +60,11 @@ export type SavedSearch = {
   enabled: boolean;
   preset: boolean;
   lastCheckedAt: string | null;
+  /**
+   * Set when an existing watch was paused because Deal Radar is paid-only
+   * (no free tier). Data is kept; Resume needs an active plan.
+   */
+  pauseReason?: "requires_plan" | null;
 };
 
 export type AlertNumbers = {

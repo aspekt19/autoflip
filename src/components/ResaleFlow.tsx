@@ -676,8 +676,12 @@ function ResaleSearchResultView({ result }: { result: SearchResult }) {
           },
         }),
       });
-      const body = (await response.json()) as { message?: string };
+      const body = (await response.json()) as { message?: string; error?: string; redirect?: string };
       if (!response.ok) {
+        if (body.error === "plan_required" || response.status === 402) {
+          router.push(body.redirect || "/pricing?from=watch");
+          return;
+        }
         setWatchError(body.message || "The watch was not saved.");
         return;
       }

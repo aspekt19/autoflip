@@ -28,7 +28,18 @@ vi.mock("@/domain/product-flags", () => ({
 }));
 
 vi.mock("@/server/plan-book", () => ({
-  allowance: async () => ({ ok: true }),
+  allowance: async () => ({
+    ok: true,
+    limits: {
+      id: "radar",
+      name: "Radar",
+      watchLimit: 5,
+      intervalHours: 6,
+      servCallCapPerMonth: 1500,
+      reportCreditsPerMonth: 5,
+      paid: true,
+    },
+  }),
 }));
 
 import { POST } from "./route";

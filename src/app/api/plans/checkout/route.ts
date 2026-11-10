@@ -28,12 +28,29 @@ export async function POST(request: Request) {
   if ("error" in stripe) return Response.json({ error: "stripe_unconfigured", message: stripe.error }, { status: 503 });
   const id = access.id;
   if (id === DEMO_USER_ID) {
-    return Response.json({ error: "demo_included", message: "Both Radar modes are already included in the shared demo. No subscription is needed." }, { status: 409 });
+    return Response.json(
+      {
+        error: "demo_forbidden",
+        message:
+          "The shared demo cannot start a subscription. Sign in with your own account — Deal Radar is paid-only (Radar or Radar Pro).",
+      },
+      { status: 409 },
+    );
   }
   const current = await readPlans(getKv(), id);
-  const currentMode = plan.mode === "personal" ? current.personal.status : current.flip.status;
-  if (currentMode === "active" || currentMode === "past_due") {
-    return Response.json({ error: "plan_exists", message: "You already have a Radar plan for this mode. Use Manage subscription to change or cancel it." }, { status: 409 });
+  const already =
+    current.personal.status === "active" ||
+    current.personal.status === "past_due" ||
+    current.flip.status === "active" ||
+    current.flip.status === "past_due";
+  if (already) {
+    return Response.json(
+      {
+        error: "plan_exists",
+        message: "You already have a Deal Radar TEST plan. Use Manage subscription to change or cancel it.",
+      },
+      { status: 409 },
+    );
   }
   const origin = originOf(request);
   const price = await ensurePlanPrice(stripe, plan.id);

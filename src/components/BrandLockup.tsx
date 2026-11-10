@@ -70,12 +70,13 @@ export function BrandTagline({ className = "foot-tagline" }: { className?: strin
   );
 }
 
+/** Standalone hero headline — not glued to the wordmark (checklist line 20). */
 export function BrandHeroTitle() {
   return (
     <h1 className="brand-hero-title">
-      <span className="tagline-prefix">Buy smart. Stay </span>
-      <span className="tagline-lemon">lemon</span>
-      <span className="tagline-less">less.</span>
+      <span className="hero-line">BUY SMART. STAY </span>
+      <span className="tagline-lemon">LEMON</span>
+      <span className="tagline-less">LESS.</span>
     </h1>
   );
 }
