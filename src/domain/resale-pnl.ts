@@ -178,7 +178,7 @@ function confidenceLabel(
     return {
       label: "Low",
       basis:
-        "Confidence Low: sales-tax state is unknown, so published profit is before sales tax and ranking applies a conservative tax haircut.",
+        "Confidence Low: sales-tax state is unknown, so published profit is before sales tax and ranking applies the highest tabulated statewide-base tax haircut.",
     };
   }
   if (compCount >= 8 && speed !== "unknown") {
@@ -246,8 +246,8 @@ export function buildResaleCandidatePnl(
   const profitHighUsd = profitFrom(estimate.resaleHighUsd, costAllInDisplay);
   const profitScopeLabel = salesTaxKnown ? "" : "before sales tax (state unknown)";
 
-  // Ranking: when tax is unknown, apply a conservative cited haircut so missing
-  // tax cannot make a car look more profitable than a taxed peer.
+  // Ranking: when tax is unknown, apply the max tabulated statewide-base haircut
+  // so missing tax cannot make a car look more profitable than any taxed peer.
   const rankingTaxUsd = salesTaxKnown
     ? 0
     : stateBaseTaxUsd(negotiate.usd, RANKING_UNKNOWN_STATE_TAX_MILLI);
@@ -270,7 +270,7 @@ export function buildResaleCandidatePnl(
   ];
   if (!salesTaxKnown) {
     risks.push(
-      "Sales-tax state is unknown — published profit is before sales tax; ranking applies a conservative tax haircut so this car is not favored over taxed peers.",
+      "Sales-tax state is unknown — published profit is before sales tax; ranking applies the highest tabulated statewide-base tax haircut so this car is not favored over taxed peers.",
     );
   }
   if (estimate.listing.accidentCount == null) {

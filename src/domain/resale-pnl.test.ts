@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { ASSUMPTIONS } from "./assumptions";
 import type { FlipEstimate } from "./flip-rank";
 import { buildResaleCandidatePnl } from "./resale-pnl";
+import { RANKING_UNKNOWN_STATE_TAX_MILLI } from "./state-sales-tax";
 import type { Listing } from "./types";
 
 function listing(partial: Partial<Listing> & Pick<Listing, "vin" | "year" | "miles" | "priceUsd">): Listing {
@@ -141,6 +142,25 @@ describe("buildResaleCandidatePnl", () => {
     expect(unknown.rankingProfitMidUsd!).toBeLessThan(unknown.profitMidUsd!);
     expect(unknown.rankingProfitMidUsd!).toBeLessThanOrEqual(known.rankingProfitMidUsd!);
     expect(unknown.risks.some((r) => /before sales tax/i.test(r))).toBe(true);
+    expect(unknown.risks.some((r) => /highest tabulated/i.test(r))).toBe(true);
+
+    // Max table rate (CA 7.25%) — unknown-state must not outrank a California peer.
+    const ca = buildResaleCandidatePnl(
+      estimate({
+        listing: listing({
+          vin: "5J6RM4H75GL000003",
+          year: 2018,
+          miles: 70_000,
+          priceUsd: 10_000,
+          state: "CA",
+          zip: null,
+        }),
+      }),
+    );
+    expect(ca).not.toBeNull();
+    if (!ca) return;
+    expect(unknown.rankingProfitMidUsd!).toBeLessThanOrEqual(ca.rankingProfitMidUsd!);
+    expect(RANKING_UNKNOWN_STATE_TAX_MILLI).toBe(7250);
     expect(unknown.provenance.some((row) => /before sales tax/i.test(row.field) || /before sales tax/i.test(row.source))).toBe(
       true,
     );
