@@ -274,26 +274,50 @@ export async function runShopperVerdictServ(input: {
   if (callTraces.length > 0) costBits.push(recordedAt);
   if (servFailed) costBits.push("Agent step unavailable — price rules only");
 
+  const decideResponseId =
+    typeof decideProof?.openserv?.id === "string" && decideProof.openserv.id.trim()
+      ? decideProof.openserv.id.trim()
+      : null;
+  const challengeResponseId =
+    typeof challengeProof?.openserv?.id === "string" && challengeProof.openserv.id.trim()
+      ? challengeProof.openserv.id.trim()
+      : null;
   const recordedSteps = hadServStep
     ? [
-        ...(decision.note
+        {
+          decided: `Lemonless AI chose ${decision.finalAction}.`,
+          why: decision.note?.trim() || "The agent reviewed code-computed facts under hard gates.",
+          changed:
+            decision.servChoice && decision.servChoice !== decision.finalAction
+              ? `Model returned ${decision.servChoice}; gates kept ${decision.finalAction}.`
+              : null,
+          model: decideProof?.modelReported ?? recordedModel,
+          responseId: decideResponseId,
+          recordedAt,
+        },
+        ...(challenge.result.status !== "not_run"
           ? [
               {
-                decided: decision.finalAction,
-                why: decision.note,
+                decided:
+                  challenge.result.status === "agreed"
+                    ? "Second check agreed with the verdict."
+                    : challenge.result.status === "disagreed"
+                      ? `Second check disagreed${
+                          challenge.result.action
+                            ? ` (would ${challenge.result.action === "needs_inspection" ? "needs inspection" : challenge.result.action})`
+                            : ""
+                        }.`
+                      : `Second check: ${challenge.result.status}.`,
+                why: challenge.result.objection?.trim() || "Independent review of the same evidence.",
                 changed:
-                  decision.servChoice && decision.servChoice !== decision.finalAction
-                    ? `Model returned ${decision.servChoice}; gates kept ${decision.finalAction}.`
+                  challenge.result.confidenceBefore &&
+                  challenge.result.confidenceAfter &&
+                  challenge.result.confidenceBefore !== challenge.result.confidenceAfter
+                    ? `Confidence lowered from ${challenge.result.confidenceBefore} to ${challenge.result.confidenceAfter}.`
                     : null,
-              },
-            ]
-          : []),
-        ...(challenge.rawText
-          ? [
-              {
-                decided: challenge.result.status,
-                why: challenge.result.objection ?? challenge.rawText,
-                changed: null,
+                model: challengeProof?.modelReported ?? recordedModel,
+                responseId: challengeResponseId,
+                recordedAt,
               },
             ]
           : []),

@@ -290,18 +290,18 @@ describe("distinguishing labels", () => {
     expect(joined).not.toMatch(/2HKRM4H75FH/);
   });
 
-  it("uses price when trim does not distinguish the cars", () => {
+  it("uses miles before price when trim does not distinguish the cars", () => {
     const names = buyerCarLabels([
-      { ...labels[0]!, trim: "Sport" },
-      { ...labels[1]!, trim: "Sport" },
+      { ...labels[0]!, trim: "Sport", miles: 80_000, priceUsd: 12_900 },
+      { ...labels[1]!, trim: "Sport", miles: 95_000, priceUsd: 14_100 },
     ]);
-    expect(names.get("A")).toMatch(/\$12,900/);
-    expect(names.get("B")).toMatch(/\$14,100/);
+    expect(names.get("A")).toMatch(/80,000 mi/);
+    expect(names.get("B")).toMatch(/95,000 mi/);
   });
 });
 
 describe("seller questions", () => {
-  it("puts the leaning car first and includes an odometer question for a simpler-pick alternative", () => {
+  it("puts the pick first and only names shown top picks (not off-screen baseline cars)", () => {
     const leader = candidate({
       key: "LEAD",
       year: 2016,
@@ -330,16 +330,14 @@ describe("seller questions", () => {
     });
     const lines = sellerQuestionsForBuyer({
       ranked: [leader, other],
-      pick: null,
+      pick: leader,
       allRanked: [leader, other, low],
+      shownKeys: [leader.key, other.key],
       baseline: { cheapest: { key: "OTHER" }, lowestMiles: { key: "LOW" } },
     });
     expect(lines[0]).toMatch(/2016 Hyundai Tucson/);
-    expect(lines.join(" ")).toMatch(/odometer/i);
-    expect(lines.join(" ")).toMatch(/2017 Toyota Camry/);
-    expect(lines.findIndex((line) => /2016 Hyundai Tucson/.test(line))).toBeLessThan(
-      lines.findIndex((line) => /odometer/i.test(line)),
-    );
+    expect(lines.join(" ")).toMatch(/2015 Honda CR-V/);
+    expect(lines.join(" ")).not.toMatch(/2017 Toyota Camry/);
   });
 
   it("distinguishes two Tucson seller questions", () => {

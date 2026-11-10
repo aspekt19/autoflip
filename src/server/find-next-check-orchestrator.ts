@@ -176,6 +176,12 @@ export type FindNextCheckOrchestratorOk = {
   carChecks: CarConsistencyReceipt[];
   /** Cars this hop's per-car check actually ran on (empty when not per-car). */
   targetKeys: string[];
+  /** Settled-pick SERV decide/challenge second pass (honest not_run when skipped). */
+  pickSecondPass?: import("@/domain/agent-verdict-schema").AgentSecondPassResult | null;
+  /** Trace of settle decide/challenge calls when they ran. */
+  pickServTrace?: import("@/server/shopper-verdict-serv").ShopperServTrace | null;
+  /** Full shopper agentVerdict for the settled pick (decide + challenge trail). */
+  pickAgentVerdict?: import("@/domain/agent-verdict-schema").AgentVerdict | null;
 };
 
 export function buildKeyedAutonomyDiag(input: {
@@ -270,6 +276,9 @@ function publicResultPayload(ok: FindNextCheckOrchestratorOk): string {
     baseline: ok.baseline,
     carChecks: ok.carChecks,
     targetKeys: ok.targetKeys,
+    pickSecondPass: ok.pickSecondPass ?? null,
+    pickServTrace: ok.pickServTrace ?? null,
+    pickAgentVerdict: ok.pickAgentVerdict ?? null,
   });
 }
 
@@ -806,6 +815,15 @@ export async function runFindNextCheckOrchestrator(
       targetKeys.length > 0
         ? targetKeys
         : newCarChecks.map((row) => row.key);
+    const servProof = ranServChoice
+      ? (live.proofs?.[0] as
+          | (DecisionProof & {
+              modelReported?: string;
+              modelRequested?: string;
+              openserv?: { id?: string } | null;
+            })
+          | undefined) ?? null
+      : null;
     const decisionEntry: FindDecisionLogEntry = {
       hop: (ctx.decisionLog?.length ?? 0) + 1,
       decidedBy: ranServChoice ? "SERV" : "code",
@@ -817,6 +835,18 @@ export async function runFindNextCheckOrchestrator(
       top5After: top5Ranks(bestDeal.ranked),
       pickBefore: priorBestDeal.pick?.key ?? null,
       pickAfter: bestDeal.pick?.key ?? null,
+      model:
+        (typeof servProof?.modelReported === "string" && servProof.modelReported.trim()
+          ? servProof.modelReported.trim()
+          : null) ||
+        (typeof servProof?.modelRequested === "string" && servProof.modelRequested.trim()
+          ? servProof.modelRequested.trim()
+          : null),
+      responseId:
+        typeof servProof?.openserv?.id === "string" && servProof.openserv.id.trim()
+          ? servProof.openserv.id.trim()
+          : null,
+      recordedAt: ranServChoice ? new Date().toISOString() : null,
     };
     const decisionLog = [...(ctx.decisionLog ?? []), decisionEntry].slice(-24);
     updated.decisionLog = decisionLog;
@@ -896,6 +926,23 @@ export async function runFindNextCheckOrchestrator(
     }
 
     const buyerDeal = copyWhileChecksContinue(bestDeal, loop.continue);
+    let pickSecondPass: import("@/domain/agent-verdict-schema").AgentSecondPassResult | null = null;
+    let pickServTrace: import("@/server/shopper-verdict-serv").ShopperServTrace | null = null;
+    let pickAgentVerdict: import("@/domain/agent-verdict-schema").AgentVerdict | null = null;
+    if (loopSettled && buyerDeal.evidenceSettled && buyerDeal.pick) {
+      const { runFindSettleServ } = await import("@/server/find-settle-serv");
+      const settled = await runFindSettleServ({
+        bestDeal: buyerDeal,
+        servKey: deps.servKey ?? undefined,
+        servBaseUrl: deps.servBaseUrl ?? undefined,
+        model: deps.servModel ?? undefined,
+        fetchImpl: deps.fetchImpl,
+        budgetUsd: updated.need.budgetUsd ?? null,
+      });
+      pickSecondPass = settled.secondPass;
+      pickServTrace = settled.trace;
+      pickAgentVerdict = settled.agentVerdict;
+    }
     const payload: FindNextCheckOrchestratorOk = {
       ok: true,
       searchContextToken: updated.token,
@@ -935,6 +982,9 @@ export async function runFindNextCheckOrchestrator(
       baseline: buyerDeal.baseline,
       carChecks,
       targetKeys,
+      pickSecondPass,
+      pickServTrace,
+      pickAgentVerdict,
     };
 
     if (claimId) {

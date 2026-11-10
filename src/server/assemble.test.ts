@@ -25,7 +25,7 @@ describe("assemble", () => {
     expect(report.computed.sample).toBe(true);
     // Without a live recording, sample shows labeled economics only — never invents SERV.
     expect(report.computed.decision?.servChoice).toBeNull();
-    expect(report.computed.decision?.source).toBe("deterministic_fallback");
+    expect(report.computed.decision?.source).toBe("no_serv_key");
     expect(report.computed.decision?.action).toBe("negotiate");
     expect(report.computed.agentVerdict?.no_serv_step).toBe(true);
     expect(report.computed.agentVerdict?.second_pass?.status).toBe("not_run");

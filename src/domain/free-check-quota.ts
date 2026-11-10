@@ -61,7 +61,12 @@ export function formatFreeChecksRemaining(view: {
   limit: number;
   resetsLabel: string;
 }): string {
-  return `Free checks this month: ${view.remaining} of ${view.limit} left (resets ${view.resetsLabel})`;
+  return `${view.remaining} of ${view.limit} free checks left (resets ${view.resetsLabel})`;
+}
+
+/** Credits page copy when Check redirects with need=1 after free allotment is used. */
+export function checkCreditsNeedMessage(limit = FREE_VEHICLE_CHECKS_PER_MONTH): string {
+  return `You've used your ${limit} free checks this month — 1 credit per check.`;
 }
 
 export function formatFreeChecksSignInPrompt(limit = FREE_VEHICLE_CHECKS_PER_MONTH): string {

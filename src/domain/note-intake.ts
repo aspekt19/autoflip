@@ -2,6 +2,13 @@ import { parseUsdInput } from "./budget";
 
 /** Same ceiling as MAX_DISTANCE_MILES in need.ts. Kept local to avoid an import cycle. */
 const NOTE_RADIUS_MAX = 3000;
+/**
+ * Former silent default when a ZIP appeared without “within N miles”.
+ * Kept as a named constant for Confirm UI copy — intake no longer invents this
+ * into {@link NoteIntake.distanceMiles}; ZIP-only stays nationwide until the
+ * shopper sets a radius.
+ */
+export const NOTE_DEFAULT_RADIUS_WHEN_ZIP = 100;
 
 /**
  * Deterministic read of a Find note.
@@ -28,7 +35,11 @@ export type NoteIntake = {
   zip: string | null;
   /** City or place named in the note. Not a guessed ZIP. */
   locationPhrase: string | null;
-  /** Seller-distance radius when the note says “within N miles” and a ZIP is present. */
+  /**
+   * Seller-distance radius. Only set when the note explicitly says
+   * “within N miles”. A ZIP alone does not invent a radius — Confirm leaves
+   * the search nationwide until the shopper picks one.
+   */
   distanceMiles: number | null;
   mustHaves: string[];
   priorities: string[];
@@ -412,7 +423,8 @@ export function intakeFromNote(text: string, now = new Date()): NoteIntake {
     milesMax,
     zip,
     locationPhrase,
-    distanceMiles: zip ? radius : null,
+    // Only an explicit “within N miles” sets radius. ZIP alone → nationwide until Confirm.
+    distanceMiles: radius,
     mustHaves,
     priorities,
   };

@@ -25,6 +25,12 @@ export type FindDecisionLogEntry = {
   top5After: FindDecisionRank[];
   pickBefore: string | null;
   pickAfter: string | null;
+  /** SERV model when this hop used an agent call. */
+  model?: string | null;
+  /** OpenSERV response id when the provider returned one. */
+  responseId?: string | null;
+  /** ISO timestamp when the hop's SERV call finished. */
+  recordedAt?: string | null;
 };
 
 export type DecisionCarLabel = {
