@@ -88,6 +88,11 @@ export function findExactVdpMatch(listings: readonly Listing[], vdp: string): Li
  * Legitimate VDP / listing-URL lookup via Auto.dev only.
  * Never scrapes past anti-bot walls. Requires an exact retailListing.vdp match —
  * listing-site internal ids alone are not an Auto.dev query key.
+ *
+ * Autotrader (and similar) listing ids in the URL path (e.g. …/756212296) cannot be
+ * looked up by id on Auto.dev — there is no “source listing id” search. When the
+ * seller site walls the fetch and Auto.dev has no exact VDP match, refuse honestly
+ * and keep the URL tab (paste / VIN inline). Do not invent a listing from the id.
  */
 export async function autodevByVdp(
   vdp: string,

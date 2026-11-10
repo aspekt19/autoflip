@@ -179,7 +179,7 @@ test("listing-link flow with dealer JSON-LD fixture (mocked API, no paid calls)"
   await expect(page.getByText("VIN: 4T1KZ1AK4MU060006", { exact: true })).toBeVisible();
   await expect(page.getByText(/\(JSON-LD\)/).first()).toBeVisible();
   await expect(page.getByText(/Walk-away/i).first()).toBeVisible();
-  await expect(page.getByText(/Compared with 1 similar/i)).toBeVisible();
+  await expect(page.getByText(/Compared with 3 similar cars \(showing 1\)/i)).toBeVisible();
   await expect(page.getByText(/2 of 3 free checks left/i)).toBeVisible();
   await page.screenshot({ path: join(SCREEN_DIR, "check-listing-dealer.png"), fullPage: true });
 });

@@ -185,6 +185,8 @@ describe("find settle SERV", () => {
       fetchImpl,
       model: "gpt-test",
       budgetUsd: 15_000,
+      // Unlisted test model + single-shot mock — not production empty/timeout retry.
+      transportPolicy: "experiment_single_attempt",
     });
     expect(settled.ran).toBe(true);
     expect(settled.agentVerdict?.verdict).toBeTruthy();

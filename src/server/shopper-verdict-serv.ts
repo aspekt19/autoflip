@@ -4,7 +4,11 @@
  * Never invents a trail — callers build agentVerdict from this result only.
  */
 import { buildAgentVerdictFromReport } from "@/domain/agent-trail";
-import type { AgentVerdict, AgentVerdictConfidence } from "@/domain/agent-verdict-schema";
+import {
+  moreConservativeConfidence,
+  type AgentVerdict,
+  type AgentVerdictConfidence,
+} from "@/domain/agent-verdict-schema";
 import type { DecisionAction } from "@/domain/decision-action";
 import type { ComputedReport } from "@/domain/types";
 import type { MandateInput } from "@/domain/verdict-gates";
@@ -15,6 +19,36 @@ import {
 } from "@/domain/verdict-decide";
 import { collectReportEvidenceIds, runReportVerdictChallenge } from "@/server/agent-second-pass";
 import { runServ, type ServProof } from "@/server/serv";
+
+/** Format OpenServ usage for the trail spend line. Never invent a dollar amount. */
+function usageSpendNote(proofs: Array<ServProof | null>): string | null {
+  const bits: string[] = [];
+  let prompt = 0;
+  let completion = 0;
+  let total = 0;
+  let costUsd: number | null = null;
+  let sawUsage = false;
+  for (const proof of proofs) {
+    const usage = proof?.openserv?.usage;
+    if (!usage || typeof usage !== "object") continue;
+    sawUsage = true;
+    const row = usage as Record<string, unknown>;
+    const p = Number(row.prompt_tokens ?? row.promptTokens ?? 0);
+    const c = Number(row.completion_tokens ?? row.completionTokens ?? 0);
+    const t = Number(row.total_tokens ?? row.totalTokens ?? p + c);
+    if (Number.isFinite(p)) prompt += p;
+    if (Number.isFinite(c)) completion += c;
+    if (Number.isFinite(t)) total += t;
+    const cost = row.cost ?? row.cost_usd ?? row.total_cost;
+    if (typeof cost === "number" && Number.isFinite(cost)) {
+      costUsd = (costUsd ?? 0) + cost;
+    }
+  }
+  if (!sawUsage) return null;
+  if (costUsd != null) bits.push(`$${costUsd.toFixed(4)} from response usage`);
+  if (total > 0) bits.push(`${total} tokens (${prompt} in / ${completion} out)`);
+  return bits.length ? bits.join(" · ") : null;
+}
 
 export type ShopperServTraceCall = {
   profile: "verdict_decide" | "verdict_challenge";
@@ -79,10 +113,22 @@ export async function runShopperVerdictServ(input: {
   servBaseUrl?: string;
   model?: string;
   fetchImpl?: typeof fetch;
+  /**
+   * Screening confidence from Check/report code (High/Medium/Low mapped to agent).
+   * Trail confidence never exceeds this — SERV agreement must not flip Low → High.
+   */
+  screeningConfidence?: AgentVerdictConfidence | null;
+  /**
+   * SERV transport for decide + challenge.
+   * Production Check uses production (empty/timeout retry on challenge).
+   * Unit tests inject experiment_single_attempt so unlisted models and single-shot mocks work.
+   */
+  transportPolicy?: "production" | "experiment_single_attempt";
 }): Promise<ShopperVerdictServResult> {
   const mandate = input.mandate ?? {};
   const fetchImpl = input.fetchImpl ?? fetch;
   const model = input.model ?? null;
+  const transportPolicy = input.transportPolicy ?? "production";
   const recordedAt = new Date().toISOString();
   const steps: ShopperVerdictServResult["steps"] = [];
   const callTraces: ShopperServTraceCall[] = [];
@@ -125,7 +171,7 @@ export async function runShopperVerdictServ(input: {
         apiKey: input.servKey,
         baseUrl: input.servBaseUrl,
         model: input.model,
-        transportPolicy: "experiment_single_attempt",
+        transportPolicy,
       },
     );
     decideProof = judged.proof;
@@ -203,11 +249,11 @@ export async function runShopperVerdictServ(input: {
         servBaseUrl: input.servBaseUrl,
         model: input.model,
         fetchImpl,
-        transportPolicy: "experiment_single_attempt",
+        transportPolicy,
       });
   challengeProof = challenge.proof;
 
-  if (challenge.proof || challenge.rawText) {
+  if (challenge.proof || challenge.rawText || challenge.result.status === "unavailable") {
     callTraces.push(
       traceCall("verdict_challenge", {
         ok: challenge.result.status === "agreed" || challenge.result.status === "disagreed",
@@ -269,9 +315,11 @@ export async function runShopperVerdictServ(input: {
   const servFailed = Boolean(input.servKey) && !decision.gateRun.withheld && !hadServStep;
   const recordedModel =
     callTraces.find((call) => call.model)?.model ?? (model && callTraces.length > 0 ? model : null);
+  const usageNote = usageSpendNote([decideProof, challengeProof]);
   const costBits: string[] = [];
   if (recordedModel) costBits.push(recordedModel);
   if (callTraces.length > 0) costBits.push(recordedAt);
+  if (usageNote) costBits.push(usageNote);
   if (servFailed) costBits.push("Agent step unavailable — price rules only");
 
   const decideResponseId =
@@ -324,11 +372,15 @@ export async function runShopperVerdictServ(input: {
       ]
     : [];
 
+  const agentOnlyConfidence =
+    challenge.result.confidenceAfter ??
+    (decision.gateRun.withheld ? null : challengeConfidence);
+  // Single source of truth with Check screening: never show trail High when screening is Low.
+  const syncedConfidence = moreConservativeConfidence(input.screeningConfidence, agentOnlyConfidence);
+
   let agentVerdict = buildAgentVerdictFromReport({
     verdict: decision.finalAction,
-    confidence:
-      challenge.result.confidenceAfter ??
-      (decision.gateRun.withheld ? null : challengeConfidence),
+    confidence: syncedConfidence,
     reasons: agentReasons.filter((row) => evidencePack.ids.has(row.evidenceId)),
     risks: agentRisks.filter((row) => evidencePack.ids.has(row.evidenceId)),
     unknowns: input.report.dataNotes.slice(0, 4),
