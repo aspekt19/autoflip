@@ -164,7 +164,17 @@ a { color: inherit; }
   transform: translateX(-50%);
   background: #050505;
 }
-.brand { display: inline-flex; align-items: center; gap: 13px; line-height: 1; text-decoration: none; color: var(--ink); }
+.brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 13px;
+  line-height: 1;
+  text-decoration: none;
+  color: var(--ink);
+  /* Never let the pill compress the lockup under crowded nav links. */
+  flex-shrink: 0;
+  min-width: max-content;
+}
 .brand-mark,
 .brand img { height: 58px; width: 58px; display: block; flex-shrink: 0; }
 .brand-foot .brand-mark,
@@ -177,6 +187,7 @@ a { color: inherit; }
   letter-spacing: 0.14em;
   text-transform: uppercase;
   white-space: nowrap;
+  flex-shrink: 0;
 }
 .brand-lemon,
 .brand-less {
@@ -318,6 +329,61 @@ nav a {
   text-transform: uppercase;
 }
 nav a:hover { color: #fff; }
+/* Desktop: overflow destinations live under More; compact menu flattens them. */
+.nav-overflow { display: none; }
+.nav-more {
+  position: relative;
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+}
+.nav-more-btn {
+  flex-shrink: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-weight: 600;
+  font-size: 13px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.nav-more-btn:hover { color: #fff; }
+.nav-more-btn:focus-visible {
+  outline: 2px solid #fff;
+  outline-offset: 2px;
+}
+.nav-more-panel {
+  position: absolute;
+  top: calc(100% + 10px);
+  right: 0;
+  z-index: 6;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 180px;
+  padding: 10px;
+  background: rgba(8, 8, 8, 0.98);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 14px;
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.45);
+}
+.nav-more-panel[hidden] { display: none; }
+.nav-more-panel a {
+  display: flex;
+  align-items: center;
+  min-height: 40px;
+  padding: 8px 12px;
+  border-radius: 10px;
+}
+.nav-more-panel a:hover,
+.nav-more-panel a:focus-visible {
+  background: rgba(255, 255, 255, 0.06);
+}
 .nav-go {
   background: var(--blue);
   color: #fff;
@@ -1094,6 +1160,7 @@ pre.doc {
 @media (max-width: 1340px) {
   .menu-btn { display: inline-flex; }
   nav a:not(.nav-go) { display: none; }
+  .nav-more { display: none; }
   nav {
     gap: 10px;
   }
@@ -1120,6 +1187,9 @@ pre.doc {
     min-height: 44px;
     padding: 10px 12px;
     border-radius: 12px;
+  }
+  nav.nav-open a.nav-overflow {
+    display: flex;
   }
   nav.nav-open a:not(.nav-go):hover,
   nav.nav-open a:not(.nav-go):focus-visible {
@@ -1182,16 +1252,30 @@ pre.doc {
 @keyframes page-in { from { opacity: 0; } to { opacity: 1; } }
 
 .home-story { position: relative; z-index: 1; background: #050505; margin-top: -104px; }
-.film-pin { height: 150vh; }
+.film-pin { height: 150vh; min-height: 100svh; }
 .film-sticky {
   position: sticky;
   top: 0;
+  /* Full first viewport: image edge-to-edge with the sticky header overlaid. */
   height: 100vh;
   height: 100dvh;
+  height: 100svh;
+  min-height: 100vh;
+  min-height: 100dvh;
+  min-height: 100svh;
   background: #050505;
 }
-.film-stage { position: absolute; inset: 0; overflow: hidden; background: #050505; }
-.film-canvas, .film-poster { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; display: block; }
+.film-stage { position: absolute; inset: 0; width: 100%; height: 100%; overflow: hidden; background: #050505; }
+.film-canvas, .film-poster {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  max-width: none;
+  object-fit: cover;
+  object-position: center;
+  display: block;
+}
 .film-canvas { z-index: 1; }
 .film-overlay { position: absolute; inset: 0; z-index: 2; pointer-events: none; }
 .film-copy {
@@ -1258,9 +1342,16 @@ pre.doc {
 @keyframes rise { from { opacity: 0; transform: translateY(36px); } to { opacity: 1; transform: none; } }
 
 @media (max-width: 800px) {
-  .film-pin { height: 142vh; }
+  .film-pin { height: 142vh; min-height: 100svh; }
   .home-story { margin-top: -88px; }
-  .film-sticky { height: 100vh; height: 100dvh; }
+  .film-sticky {
+    height: 100vh;
+    height: 100dvh;
+    height: 100svh;
+    min-height: 100vh;
+    min-height: 100dvh;
+    min-height: 100svh;
+  }
   .film-copy {
     top: 84px;
     bottom: 52px;
@@ -1321,8 +1412,16 @@ pre.doc {
 @media (prefers-reduced-motion: reduce) {
   .page-in, .marquee-track, .reveal, .listing-card { animation: none; }
   .listing-card:hover { transform: none; }
-  .film-pin { height: auto; }
-  .film-sticky { position: relative; height: 100vh; height: 100dvh; }
+  .film-pin { height: auto; min-height: 100svh; }
+  .film-sticky {
+    position: relative;
+    height: 100vh;
+    height: 100dvh;
+    height: 100svh;
+    min-height: 100vh;
+    min-height: 100dvh;
+    min-height: 100svh;
+  }
   .phase-detail .film-copy { opacity: 1; transform: translateX(-50%); pointer-events: auto; }
 }
 

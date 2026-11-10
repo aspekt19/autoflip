@@ -8,7 +8,7 @@ import { CREDIT_BALANCE_EVENT } from "@/domain/credit-balance-event";
 import type { ProductFlags } from "@/domain/product-flags";
 import { BrandLockup } from "./BrandLockup";
 import { headerAuthControl } from "./header-auth";
-import { primaryNavLinks } from "./header-nav";
+import { primaryNavLinks, splitPrimaryNavLinks } from "./header-nav";
 import { useAccountLoad } from "./use-account-load";
 
 /**
@@ -24,12 +24,16 @@ export function Header({ scoutNavEnabled = false }: { scoutNavEnabled?: boolean 
   const [flags, setFlags] = useState<ProductFlags | null>(null);
   const [scoutUiRuntime, setScoutUiRuntime] = useState<boolean | null>(null);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [moreOpen, setMoreOpen] = useState(false);
   const menuBtnRef = useRef<HTMLButtonElement>(null);
+  const moreBtnRef = useRef<HTMLButtonElement>(null);
   const navRef = useRef<HTMLElement>(null);
   const navId = useId();
+  const moreId = useId();
 
   const showScout = scoutUiRuntime ?? scoutNavEnabled;
   const navLinks = primaryNavLinks({ flags, showScout });
+  const { core: coreLinks, more: moreLinks } = splitPrimaryNavLinks(navLinks);
 
   useEffect(() => {
     function onBalance(event: Event) {
@@ -76,13 +80,19 @@ export function Header({ scoutNavEnabled = false }: { scoutNavEnabled?: boolean 
 
   useEffect(() => {
     setMenuOpen(false);
+    setMoreOpen(false);
   }, [pathname]);
 
   useEffect(() => {
-    if (!menuOpen) return;
+    if (!menuOpen && !moreOpen) return;
     function onKeyDown(event: KeyboardEvent) {
       if (event.key === "Escape" || event.key === "Esc") {
         event.preventDefault();
+        if (moreOpen) {
+          setMoreOpen(false);
+          queueMicrotask(() => moreBtnRef.current?.focus());
+          return;
+        }
         setMenuOpen(false);
         queueMicrotask(() => menuBtnRef.current?.focus());
       }
@@ -92,6 +102,7 @@ export function Header({ scoutNavEnabled = false }: { scoutNavEnabled?: boolean 
       if (!target) return;
       if (navRef.current?.contains(target) || menuBtnRef.current?.contains(target)) return;
       setMenuOpen(false);
+      setMoreOpen(false);
     }
     document.addEventListener("keydown", onKeyDown, true);
     document.addEventListener("pointerdown", onPointerDown, true);
@@ -99,7 +110,7 @@ export function Header({ scoutNavEnabled = false }: { scoutNavEnabled?: boolean 
       document.removeEventListener("keydown", onKeyDown, true);
       document.removeEventListener("pointerdown", onPointerDown, true);
     };
-  }, [menuOpen]);
+  }, [menuOpen, moreOpen]);
 
   const accountCredits =
     accountLoad.phase === "loaded" && typeof accountLoad.body?.credits === "number" ? accountLoad.body.credits : null;
@@ -117,15 +128,47 @@ export function Header({ scoutNavEnabled = false }: { scoutNavEnabled?: boolean 
     authConfigured: headerAuthConfiguredProp(accountLoad.phase, accountLoad.body),
   });
 
+  function closeMenus() {
+    setMenuOpen(false);
+    setMoreOpen(false);
+  }
+
   return (
-    <header className="bar site-frame">
+    <header className="bar site-frame" data-testid="site-header">
       <BrandLockup size={58} animated className="brand" surface="dark" />
       <nav id={navId} ref={navRef} aria-label="Primary" className={menuOpen ? "nav-open" : undefined}>
-        {navLinks.map((item) => (
-          <Link key={item.href} href={item.href} onClick={() => setMenuOpen(false)}>
+        {coreLinks.map((item) => (
+          <Link key={item.href} className="nav-core" href={item.href} onClick={closeMenus}>
             {item.label}
           </Link>
         ))}
+        {moreLinks.map((item) => (
+          <Link key={item.href} className="nav-overflow" href={item.href} onClick={closeMenus}>
+            {item.label}
+          </Link>
+        ))}
+        {moreLinks.length > 0 ? (
+          <div className={`nav-more${moreOpen ? " nav-more-open" : ""}`}>
+            <button
+              ref={moreBtnRef}
+              className="nav-more-btn"
+              type="button"
+              aria-expanded={moreOpen}
+              aria-controls={moreId}
+              aria-haspopup="menu"
+              onClick={() => setMoreOpen((open) => !open)}
+            >
+              More
+            </button>
+            <div id={moreId} className="nav-more-panel" role="menu" hidden={!moreOpen}>
+              {moreLinks.map((item) => (
+                <Link key={item.href} role="menuitem" href={item.href} onClick={closeMenus}>
+                  {item.label}
+                </Link>
+              ))}
+            </div>
+          </div>
+        ) : null}
         {balance.kind === "failed" ? (
           <button
             className="nav-go"
@@ -143,7 +186,7 @@ export function Header({ scoutNavEnabled = false }: { scoutNavEnabled?: boolean 
             <span className="nav-go-short">{balance.short}</span>
           </span>
         ) : (
-          <Link className="nav-go" href="/credits" aria-label={balance.accessibleLabel} onClick={() => setMenuOpen(false)}>
+          <Link className="nav-go" href="/credits" aria-label={balance.accessibleLabel} onClick={closeMenus}>
             <span className="nav-go-full">{balance.full}</span>
             <span className="nav-go-short">{balance.short}</span>
           </Link>
@@ -164,7 +207,10 @@ export function Header({ scoutNavEnabled = false }: { scoutNavEnabled?: boolean 
         aria-expanded={menuOpen}
         aria-controls={navId}
         aria-label={menuOpen ? "Close menu" : "Open menu"}
-        onClick={() => setMenuOpen((open) => !open)}
+        onClick={() => {
+          setMoreOpen(false);
+          setMenuOpen((open) => !open);
+        }}
       >
         {menuOpen ? "Close" : "Menu"}
       </button>
