@@ -150,7 +150,10 @@ export function flipCandidateOutcome(input: {
   baseWhy: string;
 }): FlipCandidateOutcome {
   if (!input.hasServKey) {
-    return { kind: "code_alert", why: input.baseWhy };
+    return {
+      kind: "code_alert",
+      why: `${input.baseWhy} SERV was not configured; this alert uses the code price rating only.`,
+    };
   }
   if (!input.decisions) {
     return {

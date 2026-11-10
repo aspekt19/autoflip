@@ -6,7 +6,7 @@
 
 import { randomUUID } from "node:crypto";
 import { radarReviewFailureFields } from "@/domain/radar-review-activity";
-import { providerResponseId } from "@/domain/serv-response-id";
+import { providerResponseIdFromCall } from "@/domain/serv-response-id";
 import { parseServVerdict } from "@/domain/verdict-decide";
 import type { AlertNumbers } from "@/domain/radar-watch";
 import type { PriceBadge } from "@/domain/price-badge";
@@ -63,11 +63,12 @@ type ReviewDeps = {
   nowIso: string;
 };
 
-function responseIdFrom(proof: ServProof): string | null {
-  // Never surface local call UUIDs or chatcmpl-<uuid> as provider response ids.
-  return providerResponseId(
-    typeof proof.openserv?.id === "string" ? proof.openserv.id : null,
-  );
+function responseIdFrom(proof: ServProof, ok: boolean): string | null {
+  // Never surface error-body ids, local call UUIDs, or chatcmpl-<uuid>.
+  return providerResponseIdFromCall({
+    ok,
+    id: typeof proof.openserv?.id === "string" ? proof.openserv.id : null,
+  });
 }
 
 function activityFrom(
@@ -89,7 +90,7 @@ function activityFrom(
     modelRequested: proof.modelRequested,
     modelReported: proof.modelReported,
     callId,
-    responseId: responseIdFrom(proof),
+    responseId: responseIdFrom(proof, ok),
     latencyMs: proof.latencyMs,
     ok,
     decision,

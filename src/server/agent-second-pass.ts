@@ -12,6 +12,7 @@ import {
   secondCheckUnavailableRawDump,
   shortSecondCheckUnavailableReason,
 } from "@/domain/second-check-unavailable";
+import { providerResponseIdFromCall } from "@/domain/serv-response-id";
 import type { ComputedReport } from "@/domain/types";
 import { runServ, type ServDeps, type ServProof } from "@/server/serv";
 
@@ -147,10 +148,7 @@ export async function runReportVerdictChallenge(input: {
   );
 
   if (!judged.ok) {
-    const responseId =
-      typeof judged.proof?.openserv?.id === "string" && judged.proof.openserv.id.trim()
-        ? judged.proof.openserv.id.trim()
-        : null;
+    // Error-body ids are never provider response ids.
     const short = shortSecondCheckUnavailableReason({
       error: judged.error,
       upstream: judged.upstream,
@@ -162,7 +160,7 @@ export async function runReportVerdictChallenge(input: {
       judged.upstream ? `upstream=${judged.upstream}` : null,
       judged.status ? `http=${judged.status}` : null,
       judged.failureDiag?.reasonCode ? `diag=${judged.failureDiag.reasonCode}` : null,
-      responseId ? `response ${responseId}` : "no response id",
+      "no response id",
       typeof judged.proof?.latencyMs === "number" ? `${judged.proof.latencyMs}ms` : null,
       "The first verdict stands.",
     ]);
@@ -181,10 +179,10 @@ export async function runReportVerdictChallenge(input: {
     };
   }
 
-  const responseId =
-    typeof judged.proof?.openserv?.id === "string" && judged.proof.openserv.id.trim()
-      ? judged.proof.openserv.id.trim()
-      : null;
+  const responseId = providerResponseIdFromCall({
+    ok: true,
+    id: typeof judged.proof?.openserv?.id === "string" ? judged.proof.openserv.id : null,
+  });
   const result = applyAgentSecondPass({
     primaryAction: input.primaryAction,
     confidence: input.confidence,

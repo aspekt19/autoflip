@@ -9,6 +9,7 @@ import { PriceBadgeView, PriceRatingHow } from "@/components/PriceBadge";
 import { SimilarCarsList } from "@/components/SimilarCarsList";
 import { confidenceLabel, type AgentVerdict } from "@/domain/agent-verdict-schema";
 import { actionLabel } from "@/domain/decision-action";
+import { providerResponseId } from "@/domain/serv-response-id";
 import {
   formatFreeChecksRemaining,
   freeChecksRemainingFromAccount,
@@ -607,17 +608,20 @@ function CheckResultCard({ result }: { result: CheckResultView }) {
             Recorded {result.servTrace.recordedAt}
             {result.servTrace.model ? ` · ${result.servTrace.model}` : ""}
           </p>
-          {result.servTrace.calls.map((call) => (
-            <article key={`${call.profile}-${call.responseId ?? call.error ?? "call"}`}>
+          {result.servTrace.calls.map((call) => {
+            const responseId = call.ok ? providerResponseId(call.responseId) : null;
+            return (
+            <article key={`${call.profile}-${responseId ?? call.error ?? "call"}`}>
               <p>
                 <strong>{call.profile}</strong>
                 {call.model ? ` · ${call.model}` : ""}
-                {call.responseId ? ` · ${call.responseId}` : ""}
+                {responseId ? ` · ${responseId}` : ""}
               </p>
               {call.rawResponse ? <pre>{call.rawResponse}</pre> : null}
               {call.error ? <p className="hint">{call.error}</p> : null}
             </article>
-          ))}
+            );
+          })}
         </section>
       ) : null}
 

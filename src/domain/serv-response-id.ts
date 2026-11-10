@@ -45,3 +45,16 @@ export function providerResponseId(raw: string | null | undefined): string | nul
   if (isNonProviderResponseId(trimmed)) return null;
   return trimmed;
 }
+
+/**
+ * Response id for display/storage from a SERV call.
+ * Error bodies often still carry an `id` — never treat that as a provider response id.
+ * Only successful completions may surface an id.
+ */
+export function providerResponseIdFromCall(input: {
+  ok: boolean;
+  id?: string | null;
+}): string | null {
+  if (!input.ok) return null;
+  return providerResponseId(input.id);
+}

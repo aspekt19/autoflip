@@ -45,6 +45,7 @@ import {
   type ResaleDeadline,
 } from "@/domain/resale-deadline";
 import { decideWhyWithGateResult } from "@/domain/verdict-decide";
+import { providerResponseIdFromCall } from "@/domain/serv-response-id";
 
 const RESALE_SERV_JUDGE_MAX = 3;
 
@@ -111,9 +112,11 @@ function confidenceFromPnl(item: ResaleCandidatePnl | null): AgentVerdictConfide
   return "low";
 }
 
-function responseIdFrom(proof: ServProof | null): string | null {
-  const id = proof?.openserv?.id;
-  return typeof id === "string" && id.trim() ? id : null;
+function responseIdFrom(proof: ServProof | null, ok = true): string | null {
+  return providerResponseIdFromCall({
+    ok,
+    id: typeof proof?.openserv?.id === "string" ? proof.openserv.id : null,
+  });
 }
 
 function modelFrom(proof: ServProof | null, fallback?: string | null): string | null {
@@ -838,7 +841,7 @@ export async function runResaleSettleServ(input: {
           inputsUsed: shortlist.map((item) => `vin:${item.vin}`),
           changed: null,
           model: modelFrom(judged.proof, input.model),
-          responseId: responseIdFrom(judged.proof),
+          responseId: responseIdFrom(judged.proof, false),
           recordedAt,
           rejected: fail.rejected,
         });
@@ -1195,7 +1198,7 @@ export async function runResaleSettleServ(input: {
           inputsUsed: ordered.map((item) => `vin:${item.vin}`),
           changed: null,
           model: modelFrom(picked.proof, input.model),
-          responseId: responseIdFrom(picked.proof),
+          responseId: responseIdFrom(picked.proof, false),
           recordedAt,
           rejected: fail.rejected,
         });
@@ -1488,7 +1491,7 @@ export async function runResaleSettleServ(input: {
           inputsUsed: [`vin:${best.vin}`],
           changed: null,
           model: modelFrom(challenged.proof, input.model),
-          responseId: responseIdFrom(challenged.proof),
+          responseId: responseIdFrom(challenged.proof, false),
           recordedAt,
           rejected: fail.rejected,
         });

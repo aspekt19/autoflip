@@ -38,6 +38,7 @@ import {
   stringArrayField,
   validationFromCall,
 } from "@/server/resale-serv-call";
+import { providerResponseIdFromCall } from "@/domain/serv-response-id";
 import { runResaleSettleServ } from "@/server/resale-settle-serv";
 import { profile } from "@/server/serv";
 
@@ -306,7 +307,10 @@ export async function runResaleSearch(
           }),
           changed: refine ? `First query focus ${refine.make} ${refine.model}` : null,
           model: deps.servModel || planned.proof.modelReported || planned.proof.modelRequested || null,
-          responseId: typeof planned.proof.openserv?.id === "string" ? planned.proof.openserv.id : null,
+          responseId: providerResponseIdFromCall({
+            ok: true,
+            id: typeof planned.proof.openserv?.id === "string" ? planned.proof.openserv.id : null,
+          }),
           recordedAt,
           rejected: null,
         });
@@ -325,7 +329,10 @@ export async function runResaleSearch(
           inputsUsed: directionEvidenceIds,
           changed: null,
           model: deps.servModel || planned.proof.modelReported || planned.proof.modelRequested || null,
-          responseId: typeof planned.proof.openserv?.id === "string" ? planned.proof.openserv.id : null,
+          responseId: providerResponseIdFromCall({
+            ok: false,
+            id: typeof planned.proof.openserv?.id === "string" ? planned.proof.openserv.id : null,
+          }),
           recordedAt,
           rejected: fail.rejected,
         });

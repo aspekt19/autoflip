@@ -57,7 +57,7 @@ export function listingPageSlugMismatch(input: {
   if (input.year != null && Number.isFinite(input.year) && yearMatch) {
     const slugYear = Number(yearMatch[1]);
     if (slugYear !== input.year) {
-      return "Listing page may describe a different trim — verify";
+      return "Listing page may describe a different year — verify";
     }
   }
   const feedTrim = typeof input.trim === "string" ? input.trim.trim().toLowerCase() : "";

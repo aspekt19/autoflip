@@ -47,10 +47,21 @@ describe("SERV layer", () => {
     expect(flip.model).toBe("gpt-5.4-mini-serv-multipath");
     expect(flip.stream).toBe(false);
     expect(toolNames(flip.tools)).toEqual(["serv_prompt_guard", "serv_shadow_agent"]);
-    const hint = (flip.tools[1]!.function as unknown as { parameters: { properties: { hint: { default: string }; max_iterations: { default: number } } } })
-      .parameters.properties;
-    expect(hint.hint.default).toMatch(/estimate/i);
-    expect(hint.max_iterations.default).toBe(2);
+    const guardParams = (flip.tools[0]!.function as unknown as { parameters: Record<string, unknown> }).parameters;
+    expect(guardParams.additionalProperties).toBe(false);
+    expect(guardParams.required).toEqual([]);
+    const hint = (flip.tools[1]!.function as unknown as {
+      parameters: {
+        properties: { hint: { enum: string[] }; max_iterations: { enum: number[] } };
+        additionalProperties: boolean;
+        required: string[];
+      };
+    }).parameters;
+    expect(hint.additionalProperties).toBe(false);
+    expect(hint.required).toEqual(["hint", "max_iterations"]);
+    expect(hint.properties.hint.enum[0]).toMatch(/estimate/i);
+    expect(hint.properties.max_iterations.enum[0]).toBe(2);
+    expect(JSON.stringify(hint)).not.toMatch(/"default"\s*:/);
     const schema = flip.response_format?.json_schema.schema as {
       properties: { decisions: { items: { properties: { verdict: { enum: string[] } } } } };
     };

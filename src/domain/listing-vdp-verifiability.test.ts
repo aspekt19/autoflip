@@ -52,4 +52,15 @@ describe("listingVdpVerifiability", () => {
     });
     expect(row.pageMismatchNote).toBeNull();
   });
+
+  it("labels a slug year mismatch as year, not trim", () => {
+    const row = listingVdpVerifiability({
+      dealer: "Example Toyota",
+      vdp: "https://www.exampletoyota.com/inventory/used-2017-toyota-corolla-xle/ABC",
+      year: 2018,
+      trim: "XLE",
+    });
+    expect(row.pageMismatchNote).toMatch(/different year/i);
+    expect(row.pageMismatchNote).not.toMatch(/different trim/i);
+  });
 });

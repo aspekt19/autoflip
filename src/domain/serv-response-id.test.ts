@@ -3,6 +3,7 @@ import {
   isLocalCallUuid,
   isSyntheticChatCmplId,
   providerResponseId,
+  providerResponseIdFromCall,
 } from "./serv-response-id";
 
 describe("providerResponseId", () => {
@@ -23,5 +24,20 @@ describe("providerResponseId", () => {
   it("rejects empty / whitespace", () => {
     expect(providerResponseId(null)).toBeNull();
     expect(providerResponseId("   ")).toBeNull();
+  });
+
+  it("never surfaces an id from a failed call, even when shaped like a real completion id", () => {
+    expect(
+      providerResponseIdFromCall({
+        ok: false,
+        id: "chatcmpl-Eia7lwQyEdrZ4bOTwmVam3kWBjvp1",
+      }),
+    ).toBeNull();
+    expect(
+      providerResponseIdFromCall({
+        ok: true,
+        id: "chatcmpl-Eia7lwQyEdrZ4bOTwmVam3kWBjvp1",
+      }),
+    ).toBe("chatcmpl-Eia7lwQyEdrZ4bOTwmVam3kWBjvp1");
   });
 });
