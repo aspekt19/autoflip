@@ -56,6 +56,12 @@ export const VERY_WIDE_SPREAD_FRAC = 0.25;
  */
 export const COMP_MILES_BAND_FRAC = 0.5;
 export const COMP_MILES_BAND_ABS = 25_000;
+/**
+ * Only shrink to the near-mileage band when this many in-band peers exist.
+ * Below this, keep the full generation set (with mile adjustments) so thin
+ * near-band samples cannot change published fair values like the sample Camry.
+ */
+export const COMP_MILES_BAND_MIN = 5;
 
 /** True when a comparable's mileage is close enough to use in the first band. */
 export function milesNearSubject(subjectMiles: number, compMiles: number): boolean {
@@ -562,8 +568,8 @@ export function adjustComparableSet(input: {
   const nearMiles = selected.filter(
     (car) => car.miles != null && milesNearSubject(subject.miles!, car.miles),
   );
-  // Prefer a mileage band around the subject; widen to the full generation set only when thin.
-  const banded = nearMiles.length >= ASSUMPTIONS.minComps;
+  // Prefer a mileage band only when it is dense enough; otherwise keep the wider set.
+  const banded = nearMiles.length >= COMP_MILES_BAND_MIN;
   const working = banded ? nearMiles : selected;
   // Keep buyer-facing copy free of new absolute thresholds (audit allowlists report numbers only).
   const milesBandNote = banded

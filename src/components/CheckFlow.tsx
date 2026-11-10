@@ -94,7 +94,12 @@ function sourceLabel(source: string | null): string {
   if (source === "url") return "URL";
   if (source === "vin_decode") return "VIN decoder";
   // Per-field label — miles/seller/price from Auto.dev all share this wording.
-  if (source === "listing_feed" || source === "feed_only" || source === "listed price from data feed") {
+  if (
+    source === "listing_feed" ||
+    source === "feed_only" ||
+    source === "listed price from data feed" ||
+    source === "from data feed listing"
+  ) {
     return "from data feed listing";
   }
   return source;

@@ -254,7 +254,7 @@ describe("runCheck listing paste (no paid Autodev/SERV)", () => {
     expect(result.result.provenance.some((row) => row.field === "priceUsd" && row.value === 15_189)).toBe(true);
     expect(
       result.result.provenance.some(
-        (row) => row.field === "priceUsd" && row.source === "listed price from data feed",
+        (row) => row.field === "priceUsd" && row.source === "from data feed listing",
       ),
     ).toBe(true);
     expect(result.result.summary).toMatch(/from data feed listing/i);

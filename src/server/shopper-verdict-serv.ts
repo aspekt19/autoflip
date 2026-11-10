@@ -118,10 +118,17 @@ export async function runShopperVerdictServ(input: {
    * Trail confidence never exceeds this — SERV agreement must not flip Low → High.
    */
   screeningConfidence?: AgentVerdictConfidence | null;
+  /**
+   * SERV transport for decide + challenge.
+   * Production Check uses production (empty/timeout retry on challenge).
+   * Unit tests inject experiment_single_attempt so unlisted models and single-shot mocks work.
+   */
+  transportPolicy?: "production" | "experiment_single_attempt";
 }): Promise<ShopperVerdictServResult> {
   const mandate = input.mandate ?? {};
   const fetchImpl = input.fetchImpl ?? fetch;
   const model = input.model ?? null;
+  const transportPolicy = input.transportPolicy ?? "production";
   const recordedAt = new Date().toISOString();
   const steps: ShopperVerdictServResult["steps"] = [];
   const callTraces: ShopperServTraceCall[] = [];
@@ -164,7 +171,7 @@ export async function runShopperVerdictServ(input: {
         apiKey: input.servKey,
         baseUrl: input.servBaseUrl,
         model: input.model,
-        transportPolicy: "experiment_single_attempt",
+        transportPolicy,
       },
     );
     decideProof = judged.proof;
@@ -242,8 +249,7 @@ export async function runShopperVerdictServ(input: {
         servBaseUrl: input.servBaseUrl,
         model: input.model,
         fetchImpl,
-        // Allow empty/timeout retry — single-attempt left "did not finish" with a response id.
-        transportPolicy: "production",
+        transportPolicy,
       });
   challengeProof = challenge.proof;
 

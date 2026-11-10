@@ -468,6 +468,8 @@ describe("adjusted comparables", () => {
       car({ vin: "NEAR2", year: 2018, make: "Honda", model: "Civic", trim: "EX", miles: 22_000, priceUsd: 14_800 }),
       car({ vin: "NEAR3", year: 2019, make: "Honda", model: "Civic", trim: "EX", miles: 20_500, priceUsd: 15_100 }),
       car({ vin: "NEAR4", year: 2020, make: "Honda", model: "Civic", trim: "EX", miles: 16_000, priceUsd: 15_900 }),
+      // Band applies only when ≥ COMP_MILES_BAND_MIN (5) near peers exist.
+      car({ vin: "NEAR5", year: 2019, make: "Honda", model: "Civic", trim: "EX", miles: 19_200, priceUsd: 15_250 }),
     ];
     const far = [
       car({ vin: "FAR1", year: 2019, make: "Honda", model: "Civic", trim: "EX", miles: 65_000, priceUsd: 12_000 }),

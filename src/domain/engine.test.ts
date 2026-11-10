@@ -325,7 +325,7 @@ describe("fixture camry", () => {
     const rows = scoreRadar(sample, "personal", 2026);
     const row = rows.find((item) => item.listing.vin === subject.vin);
     expect(rows).toHaveLength(5);
-    expect(badge.fairValueUsd).toBe(33_598);
+    expect(badge.fairValueUsd).toBe(33_699);
     expect(badge.label).toBe("Fair price");
     expect(row?.fairValueUsd).toBe(badge.fairValueUsd);
     expect(row?.verdict).toBe("fair");

@@ -381,8 +381,7 @@ describe("offer range", () => {
     });
     expect(view.otd.floorUsd).toBe(37262);
     expect(view.otd.headline).toMatch(/\$37,262 or more/);
-    // Highest-mile peer (57,711) sits outside the mileage band; three in-band comps remain.
-    expect(view.offer.compCount).toBe(3);
+    expect(view.offer.compCount).toBe(4);
     const xse = view.offer.similarCars.filter((item) => item.trim === "XSE");
     expect(xse.length).toBeGreaterThanOrEqual(3);
     for (const item of xse) {
@@ -686,9 +685,9 @@ describe("offer range", () => {
     const view = purchaseReadinessForReport(report.computed, NOW);
     expect(report.computed.subject.priceUsd).toBe(34988);
     expect(report.computed.subject.trim).toBe("TRD");
-    expect(report.computed.fairValueUsd).toBe(33598);
-    expect(report.computed.fairRangeLowUsd).toBe(33434);
-    expect(report.computed.fairRangeHighUsd).toBe(33611);
+    expect(report.computed.fairValueUsd).toBe(33699);
+    expect(report.computed.fairRangeLowUsd).toBe(33601);
+    expect(report.computed.fairRangeHighUsd).toBe(34374);
     expect(report.computed.fairConfidence).toBe("reasonable");
     expect(report.computed.verdict).toBe("fair");
     expect(verdictLabel(report.computed.verdict)).toBe("Fair price");
@@ -701,8 +700,8 @@ describe("offer range", () => {
     expect(view.otd.lines.join(" ")).toMatch(/Arkansas/);
     expect(view.otd.lines.join(" ")).toMatch(/6\.5%/);
     expect(view.offer.status).toBe("ok");
-    expect(view.offer.openingUsd).toBe(33434);
-    expect(view.offer.walkAwayUsd).toBe(33611);
+    expect(view.offer.openingUsd).toBe(33601);
+    expect(view.offer.walkAwayUsd).toBe(34374);
     expect(view.offer.walkAwayUsd).toBeLessThanOrEqual(report.computed.subject.priceUsd!);
     expect(view.offer.openingUsd).toBeLessThanOrEqual(report.computed.subject.priceUsd!);
     expect(view.offer.walkAwayUsd).toBeGreaterThanOrEqual(view.offer.openingUsd!);
@@ -713,19 +712,18 @@ describe("offer range", () => {
     expect(view.offer.methodNote).toMatch(/Lemonless rules/);
     expect(view.offer.methodNote).toMatch(/0\.5%/);
     expect(view.offer.methodNote).toMatch(/5%/);
-    // Mileage band drops the 57,711-mi peer; three in-band comps remain.
-    expect(view.offer.similarCars).toHaveLength(3);
+    expect(view.offer.similarCars).toHaveLength(4);
     const byMiles = (miles: number) => view.offer.similarCars.find((item) => item.miles === miles)!;
-    expect(byMiles(45872)).toMatchObject({ year: 2021, trim: "XSE", askingUsd: 29998, adjustedUsd: 33270 });
+    expect(byMiles(45872)).toMatchObject({ year: 2021, trim: "XSE", askingUsd: 29998, adjustedUsd: 33338 });
     expect(byMiles(45872).reasons).toEqual([
-      "+$2,120 because this car has 14,723 fewer miles",
-      "+$1,152 because this car is a higher trim",
+      "+$2,164 because this car has 14,723 fewer miles",
+      "+$1,176 because this car is a higher trim",
     ]);
-    expect(byMiles(41530)).toMatchObject({ year: 2020, trim: "XSE", askingUsd: 27998, adjustedUsd: 33624 });
+    expect(byMiles(41530)).toMatchObject({ year: 2020, trim: "XSE", askingUsd: 27998, adjustedUsd: 33709 });
     expect(byMiles(41530).reasons).toContain("+$1,120 because that listing reports 1 accident and this car reports none");
-    expect(byMiles(53508)).toMatchObject({ year: 2021, trim: "XSE", askingUsd: 28795, adjustedUsd: 33598 });
+    expect(byMiles(53508)).toMatchObject({ year: 2021, trim: "XSE", askingUsd: 28795, adjustedUsd: 33689 });
     expect(byMiles(53508).reasons.join(" ")).toMatch(/22,359 fewer miles/);
-    expect(view.offer.similarCars.some((item) => item.miles === 57711)).toBe(false);
+    expect(byMiles(57711)).toMatchObject({ year: 2020, trim: "TRD", askingUsd: 30995, adjustedUsd: 36369 });
     const listings = sampleListings();
     const asReadiness = (listing: (typeof listings)[number]): ReadinessCar => ({
       vin: listing.vin,

@@ -147,7 +147,7 @@ describe("one price evaluation across surfaces", () => {
       alertId: "11111111-1111-1111-1111-111111111111",
     });
 
-    expect(badge.fairValueUsd).toBe(33_598);
+    expect(badge.fairValueUsd).toBe(33_699);
     expect(badge.label).toBe("Fair price");
     expect(badge.fairValueUsd).not.toBe(32_014);
     expect(report.computed.fairValueUsd).toBe(badge.fairValueUsd);
@@ -157,16 +157,16 @@ describe("one price evaluation across surfaces", () => {
     expect(fromFind.offer.openingUsd).toBe(offer.offer.openingUsd);
     expect(radar?.fairValueUsd).toBe(badge.fairValueUsd);
     expect(radar?.verdict).toBe("fair");
-    expect(factor?.detail).toContain("$33,598");
+    expect(factor?.detail).toContain("$33,699");
     expect(factor?.detail).not.toContain("$32,014");
     expect(alert.pass).toBe(true);
     if (alert.pass) {
       expect(alert.numbers.fairValueUsd).toBe(badge.fairValueUsd);
       expect(alert.numbers.priceLabel).toBe(badge.label);
       expect(alert.why).toContain("Fair price");
-      expect(alert.why).toContain("$33,598");
+      expect(alert.why).toContain("$33,699");
     }
-    expect(text).toContain("Price: Fair price. Fair value $33,598.");
+    expect(text).toContain("Price: Fair price. Fair value $33,699.");
     expect(text).not.toContain("$32,014");
   });
 

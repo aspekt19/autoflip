@@ -147,6 +147,8 @@ export async function runFindSettleServ(input: {
   model?: string;
   fetchImpl?: typeof fetch;
   budgetUsd?: number | null;
+  /** Injected for unit tests (unlisted models / single-shot mocks). Production omits. */
+  transportPolicy?: "production" | "experiment_single_attempt";
 }): Promise<FindSettleServResult> {
   const pick = input.bestDeal.pick;
   if (!pick || !input.bestDeal.evidenceSettled) {
@@ -197,6 +199,7 @@ export async function runFindSettleServ(input: {
     servBaseUrl: input.servBaseUrl,
     model: input.model,
     fetchImpl: input.fetchImpl,
+    transportPolicy: input.transportPolicy,
   });
 
   // Keep the code pick (selectBestDealOnEvidence). SERV only chooses buy/negotiate/pass

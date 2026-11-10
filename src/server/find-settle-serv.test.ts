@@ -185,19 +185,14 @@ describe("find settle SERV", () => {
       fetchImpl,
       model: "gpt-test",
       budgetUsd: 15_000,
+      // Unlisted test model + single-shot mock — not production empty/timeout retry.
+      transportPolicy: "experiment_single_attempt",
     });
     expect(settled.ran).toBe(true);
     expect(settled.agentVerdict?.verdict).toBeTruthy();
     expect(settled.agentVerdict?.serv_steps.some((step) => step.model || step.responseId)).toBe(true);
-    expect([
-      "agreed",
-      "disagreed",
-      "not_run",
-      "ignored_no_evidence",
-      "ignored_malformed",
-      "unavailable",
-      "skipped_no_budget",
-      "skipped_no_key",
-    ]).toContain(settled.secondPass.status);
+    expect(["agreed", "disagreed", "not_run", "ignored_no_evidence", "ignored_malformed"]).toContain(
+      settled.secondPass.status,
+    );
   });
 });

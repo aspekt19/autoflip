@@ -1096,18 +1096,18 @@ async function buildVinDossier(vin: string, deps: CheckRunDeps, optionalZip?: st
     provenance.push({
       field: "priceUsd",
       value: subject.priceUsd,
-      source: "listed price from data feed",
+      source: "from data feed listing",
     });
   }
   if (hasMiles) {
     provenance.push({
       field: "miles",
       value: subject.miles,
-      source: "listed price from data feed",
+      source: "from data feed listing",
     });
   }
   if (feed?.dealer) {
-    provenance.push({ field: "sellerName", value: feed.dealer, source: "listed price from data feed" });
+    provenance.push({ field: "sellerName", value: feed.dealer, source: "from data feed listing" });
   }
 
   return {
@@ -1160,9 +1160,13 @@ async function buildVinDossier(vin: string, deps: CheckRunDeps, optionalZip?: st
   };
 }
 
-const CHECK_SERV_CALL_BUDGET = 2;
+/**
+ * Decide + challenge, plus one empty-body/timeout re-POST on challenge under
+ * production transport. Stays within Netlify maxDuration 60s (challenge timeout 22s).
+ */
+const CHECK_SERV_CALL_BUDGET = 3;
 
-/** One Check may spend at most decide + challenge. Further SERV HTTP gets a local refusal. */
+/** Bound SERV HTTP for one Check. Further SERV HTTP gets a local 429 refusal. */
 function boundServFetch(deps: CheckRunDeps): CheckRunDeps {
   const inner = deps.fetch ?? fetch;
   const left = { n: CHECK_SERV_CALL_BUDGET };
