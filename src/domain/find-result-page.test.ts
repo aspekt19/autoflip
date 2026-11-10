@@ -488,7 +488,7 @@ describe("top picks line", () => {
     expect(line).not.toMatch(/score/i);
   });
 
-  it("keeps ranking order and reports the pick at rank 1", () => {
+  it("puts the published pick first and keeps the rest in order", () => {
     const ranked = [
       { key: "pick" },
       { key: "second" },
@@ -501,8 +501,9 @@ describe("top picks line", () => {
     expect(view.rows.map((row) => row.key)).toEqual(["pick", "second", "third", "fourth", "fifth"]);
     expect(view.pickKeyRank).toBe(1);
     expect(topPicksInRankOrder(ranked, null).pickKeyRank).toBeNull();
+    // SERV (or code) pick that was not rank 1 still leads the Top picks list.
     const misplaced = topPicksInRankOrder(ranked, "second");
-    expect(misplaced.rows[0]?.key).toBe("pick");
-    expect(misplaced.pickKeyRank).toBe(2);
+    expect(misplaced.rows.map((row) => row.key)).toEqual(["second", "pick", "third", "fourth", "fifth"]);
+    expect(misplaced.pickKeyRank).toBe(1);
   });
 });
