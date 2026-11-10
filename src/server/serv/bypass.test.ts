@@ -5,7 +5,7 @@ import { DOCUMENTED_FEATURES, PROFILES, featuresUsedBy, requestFor, runServ, typ
 import { agentReport } from "@/server/agent-report";
 import { buildSampleReport } from "@/server/sample-report";
 import { paymentRequiredBody, radarToolResult } from "@/server/mcp";
-import { agentProof, buildServProof, openservReportFrom } from "./index";
+import { agentProof, buildServProof, chatCompletionContent, openservReportFrom } from "./index";
 import { messageText, responseShape, servErrorSummary, toolCall } from "./run";
 
 function filesUnder(dir: string): string[] {
@@ -180,7 +180,7 @@ describe("SERV layer", () => {
 
   it("copies inference fields that exist and always builds an agent proof", () => {
     const payload = {
-      id: "chatcmpl-1",
+      id: "synthetic-test-1",
       object: "chat.completion",
       model: "gpt-5.4-mini",
       choices: [{ finish_reason: "stop", message: { content: "ALLOW" } }],
@@ -188,13 +188,15 @@ describe("SERV layer", () => {
     };
     const copied = openservReportFrom(payload);
     expect(copied).toEqual({
-      id: "chatcmpl-1",
+      id: "synthetic-test-1",
       object: "chat.completion",
       model: "gpt-5.4-mini",
       finish_reason: "stop",
       usage: payload.usage,
+      choices: [{ finish_reason: "stop", message: { content: "ALLOW" } }],
     });
     expect(copied).not.toHaveProperty("output");
+    expect(chatCompletionContent(copied)).toBe("ALLOW");
     const proof = buildServProof({
       purpose: "flip_judge",
       body: requestFor("flip_judge", "{}"),
@@ -215,7 +217,7 @@ describe("SERV layer", () => {
     expect(agent.profiles[0]?.promptGuard).toBe("passed");
     expect(agent.codeComputed).toEqual(expect.arrayContaining(["priceUsd", "profitMidUsd"]));
     expect(agent.usage).toBe(payload.usage);
-    expect(agent.id).toBe("chatcmpl-1");
+    expect(agent.id).toBe("synthetic-test-1");
     const empty = agentProof([]);
     expect(empty.profiles).toEqual([]);
     expect(Array.isArray(empty.responses)).toBe(true);
@@ -236,7 +238,7 @@ describe("SERV layer", () => {
         });
       }
       return Response.json({
-        id: "chatcmpl-2",
+        id: "synthetic-test-2",
         object: "chat.completion",
         model: "gpt-5.4-mini",
         choices: [{ finish_reason: "stop", message: { content: "The fair value is 10000." } }],
@@ -376,7 +378,7 @@ it("logs a redacted shape when a 200 is empty, and retries a personal review tha
       fetch: async () => {
         judgeCalls += 1;
         return Response.json({
-          id: "chatcmpl-empty",
+          id: "synthetic-test-empty",
           choices: [{ finish_reason: "stop", message: { content: null, refusal: null } }],
         });
       },

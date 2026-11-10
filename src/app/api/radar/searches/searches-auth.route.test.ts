@@ -109,7 +109,7 @@ describe("POST /api/radar/searches verified-auth", () => {
           model: "Civic",
           freeText: "reliable commute under 18k",
           criteriaParseSource: "serv",
-          criteriaResponseId: "chatcmpl-Eia7abc",
+          criteriaResponseId: "chatcmpl-EhAcLZozUJOVx7TeLgOvuMlWMHBMt" /* recorded: eval/results/latest.json */,
         },
       }),
     );
@@ -117,6 +117,6 @@ describe("POST /api/radar/searches verified-auth", () => {
     const search = (await listSearches(kvHolder.kv))[0];
     expect(search?.criteria.freeText).toBe("reliable commute under 18k");
     expect(search?.criteria.criteriaParseSource).toBe("serv");
-    expect(search?.criteria.criteriaResponseId).toBe("chatcmpl-Eia7abc");
+    expect(search?.criteria.criteriaResponseId).toBe("chatcmpl-EhAcLZozUJOVx7TeLgOvuMlWMHBMt");
   });
 });

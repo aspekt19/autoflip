@@ -147,15 +147,21 @@ async function deepCheckOneVin(input: {
       });
     } else {
       const parkIt = recalls.records.some((r) => r.parkIt);
+      const parkOutside = recalls.records.some((r) => r.parkOutSide && !r.parkIt);
+      // Stamp stop-level flags onto the candidate for clampFlipPublishedAction.
+      item.openParkIt = parkIt;
+      item.openParkOutside = parkOutside || parkIt;
       const detail = parkIt
         ? `NHTSA lists a park-it recall campaign for this make/model/year (${recalls.records.length} campaign(s)).`
-        : `NHTSA recalls available: ${recalls.records.length} campaign(s); none marked park-it.`;
+        : parkOutside
+          ? `NHTSA lists outdoor-parking / fire-risk guidance for this make/model/year (${recalls.records.length} campaign(s); parkIt=false).`
+          : `NHTSA recalls available: ${recalls.records.length} campaign(s); none marked park-it or park-outside.`;
       findings.push({
         vin: item.vin,
         checkId: "recalls",
         ok: true,
         reject: parkIt,
-        riskMultiplier: parkIt ? 0 : recalls.records.length > 0 ? 0.9 : 1,
+        riskMultiplier: parkIt ? 0 : parkOutside ? 0.75 : recalls.records.length > 0 ? 0.9 : 1,
         detail,
         evidenceId: `check:recalls:${item.vin}`,
       });
@@ -175,14 +181,18 @@ async function deepCheckOneVin(input: {
           rejected: null,
         });
       } else {
-        riskMul *= recalls.records.length > 0 ? 0.9 : 1;
+        riskMul *= parkOutside ? 0.75 : recalls.records.length > 0 ? 0.9 : 1;
         steps.push({
           kind: "deep_check",
           actor: "code",
-          decided: `Recalls checked for ${carLabel(item)}`,
+          decided: parkOutside
+            ? `Recalls checked for ${carLabel(item)} — park-outside stop flagged`
+            : `Recalls checked for ${carLabel(item)}`,
           why: detail,
           inputsUsed: [`vin:${item.vin}`, `check:recalls`],
-          changed: null,
+          changed: parkOutside
+            ? `openParkOutside stamped for clampFlipPublishedAction on ${item.vin}`
+            : null,
           model: null,
           responseId: null,
           recordedAt,

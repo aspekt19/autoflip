@@ -16,11 +16,11 @@ export type CriteriaParseProvenance = {
 };
 
 export function criteriaParseLabel(parse: CriteriaParseProvenance | null | undefined): string {
-  if (!parse) return "Criteria source not recorded";
+  if (!parse) return "How these criteria were read is not on this record";
   if (parse.source === "serv") {
     return parse.responseId
-      ? `Parsed by SERV · response ${parse.responseId}`
-      : "Parsed by SERV · no response id";
+      ? `Parsed from your note · response ${parse.responseId}`
+      : "Parsed from your note · no response id";
   }
   if (parse.source === "code") return "Parsed by code";
   return "Entered on the form";

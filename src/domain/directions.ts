@@ -82,11 +82,16 @@ export function proposeDirections(
     ? `Model years ${yearMin}–${yearMax} come from your year clarification or Confirm refine — not only the budget default band.`
     : band.because;
   if (refine?.make && refine.model) {
+    // Only label "you named" when preferred models came from the buyer (not service/SERV).
+    const userNamed =
+      (need.preferredModels?.length ?? 0) > 0 && need.preferredModelsSource !== "service";
     return [
       {
         id: "refine",
-        segment: "The model you named",
-        why: "Lemonless guidance was skipped for the search itself because you named a make and model. The other ideas stay editorial, not market data.",
+        segment: userNamed ? "The model you named" : "Focused model",
+        why: userNamed
+          ? "Lemonless guidance was skipped for the search itself because you named a make and model. The other ideas stay editorial, not market data."
+          : "Search is focused on one make/model from a plan refine. This is not a buyer-typed name.",
         guidance: "editorial",
         yearMin,
         yearMax,

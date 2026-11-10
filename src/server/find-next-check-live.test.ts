@@ -18,7 +18,7 @@ describe("runFindNextCheckLive seam (SERV choose → clamp → apply → researc
   it("SERV picks allowlisted widen_or_nationwide → apply mutates need → research true", async () => {
     const fetchImpl = vi.fn(async () =>
       jsonResponse({
-        id: "chatcmpl-find-next",
+        id: "synthetic-test-find-next",
         choices: [
           {
             finish_reason: "stop",

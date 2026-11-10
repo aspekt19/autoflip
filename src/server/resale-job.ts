@@ -6,7 +6,6 @@ import { randomUUID } from "node:crypto";
 import { emptyAgentVerdict } from "@/domain/agent-verdict-schema";
 import {
   emptyResaleJournal,
-  RESALE_SERV_CALL_CAP,
   type ResaleDecisionJournal,
 } from "@/domain/resale-decision-journal";
 import {
@@ -82,8 +81,10 @@ export type ResaleJobRecord = {
    */
   status: "running" | "completed" | "delivered_unpaid" | "failed";
   candidates: ResaleCandidatePnl[];
-  /** SERV/code plan refine from step 1 — consumed by inventory step 2. */
+  /** @deprecated Always null for new jobs — do not collapse inventory to one model. */
   planRefine: { make?: string; model?: string; yearMin?: number; yearMax?: number } | null;
+  /** Direction ids from plan step — inventory explores all of these. */
+  plannedDirectionIds: string[] | null;
   planJournal: ResaleDecisionJournal;
   settleCheckpoint: ResaleSettleCheckpoint | null;
   providerQueriesUsed: number;
@@ -162,8 +163,7 @@ function mergeJournals(
   return {
     schemaVersion: "lemonless.resale_journal.v1",
     steps: [...plan.steps, ...settle.steps],
-    servCalls: Math.min(RESALE_SERV_CALL_CAP, plan.servCalls + settle.servCalls),
-    servCallCap: RESALE_SERV_CALL_CAP,
+    servCalls: plan.servCalls + settle.servCalls,
   };
 }
 
@@ -511,7 +511,8 @@ export async function createAndRunResaleJobStep1(
     status: "running",
     candidates: [],
     planRefine: null,
-    planJournal: emptyResaleJournal(RESALE_SERV_CALL_CAP),
+    plannedDirectionIds: null,
+    planJournal: emptyResaleJournal(),
     settleCheckpoint: null,
     providerQueriesUsed: 0,
     scope: null,
@@ -571,7 +572,8 @@ export async function createAndRunResaleJobStep1(
   job = {
     ...job,
     stepCompleted: 1,
-    planRefine: planBody.planRefine,
+    planRefine: null,
+    plannedDirectionIds: planBody.plannedDirectionIds ?? null,
     planJournal: planBody.journal,
     updatedAt: new Date().toISOString(),
   };
@@ -579,7 +581,7 @@ export async function createAndRunResaleJobStep1(
   await storeResaleJob(deps.kv, job);
   logResaleStage("job_step1_done", deadline.startedAtMs, {
     jobId,
-    hasRefine: Boolean(job.planRefine),
+    directionCount: job.plannedDirectionIds?.length ?? 0,
   });
   return { ok: true, kind: "job", job, balance: await creditBalance(deps.kv, deps.ownerId) };
 }
@@ -716,7 +718,8 @@ export async function advanceResaleJob(
         stopAfter: "inventory",
         skipPlanServ: true,
         priorPlanJournal: job.planJournal,
-        planRefine: job.planRefine,
+        planRefine: null,
+        plannedDirectionIds: job.plannedDirectionIds,
       });
       if (!inventory.ok) {
         job = {
@@ -985,7 +988,7 @@ export async function advanceResaleJob(
     if (settled.agentVerdict.serv_spend) {
       settled.agentVerdict.serv_spend = {
         calls: journal.servCalls,
-        costNote: `Resale SERV call cap ${journal.servCallCap}; recorded ${journal.servCalls}.`,
+        costNote: `SERV calls this Resale run: ${journal.servCalls} (monthly plan + time budgets apply).`,
       };
     }
     const best = settled.best;
@@ -1002,7 +1005,7 @@ export async function advanceResaleJob(
         ...settled.agentVerdict,
         serv_spend: {
           calls: journal.servCalls,
-          costNote: `Resale SERV call cap ${journal.servCallCap}; recorded ${journal.servCalls}.`,
+          costNote: `SERV calls this Resale run: ${journal.servCalls} (monthly plan + time budgets apply).`,
         },
       },
       journal,

@@ -98,7 +98,7 @@ const SERV_MODEL = "gpt-5.4-mini";
 function inventingFetch(content: Record<string, unknown>): typeof fetch {
   return (async () =>
     Response.json({
-      id: "chatcmpl-thin-buy",
+      id: "synthetic-test-thin-buy",
       object: "chat.completion",
       model: SERV_MODEL,
       choices: [
@@ -118,12 +118,27 @@ describe("flip margin published action", () => {
     expect(gated.marginUsd).toBe(-235);
   });
 
-  it("clamps SERV buy to pass on that thin candidate", () => {
+  it("clamps SERV buy to pass on that thin candidate (negative low profit hard fact)", () => {
     const clamped = clampFlipPublishedAction("buy", thinCandidate());
     expect(clamped.overridden).toBe(true);
     expect(clamped.action).toBe("pass");
     expect(clamped.reason).toMatch(/SERV said buy/i);
     expect(clamped.reason).toMatch(/-235/);
+    expect(clamped.reason).toMatch(/negative/i);
+  });
+
+  it("does not override SERV needs_inspection even when low profit is negative", () => {
+    // Live report 10 Nov 2026 (db05acf): challenge chose needs_inspection; code must not rewrite to pass.
+    const clamped = clampFlipPublishedAction("needs_inspection", thinCandidate());
+    expect(clamped.overridden).toBe(false);
+    expect(clamped.action).toBe("needs_inspection");
+    expect(clamped.reason).toBeNull();
+  });
+
+  it("does not override SERV pass", () => {
+    const clamped = clampFlipPublishedAction("pass", thinCandidate());
+    expect(clamped.overridden).toBe(false);
+    expect(clamped.action).toBe("pass");
   });
 });
 

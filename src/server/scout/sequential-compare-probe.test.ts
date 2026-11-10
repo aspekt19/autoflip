@@ -20,7 +20,7 @@ function jsonResponse(body: unknown, status = 200): Response {
 
 function scoutPlanChoice(action: unknown) {
   return {
-    id: "chatcmpl-mock-sequential",
+    id: "synthetic-test-mock-sequential",
     model: "mock-model",
     choices: [
       {
@@ -91,7 +91,8 @@ describe("runSequentialCompareProbe (live entrypoint, mock HTTP)", () => {
     expect(result.decisions[0]!.rawStatus).toBe(200);
     expect(result.decisions[0]!.latencyMs).toBeTypeOf("number");
     expect(result.decisions[0]!.tokens?.total_tokens).toBe(30);
-    expect(result.decisions[0]!.upstreamResponseId).toBe("chatcmpl-mock-sequential");
+    // Probe stores the raw upstream id; fixture uses an obviously synthetic test id.
+    expect(result.decisions[0]!.upstreamResponseId).toBe("synthetic-test-mock-sequential");
     expect(result.decisions[0]!.finishReason).toBe("stop");
     expect(result.decisions[0]!.cost).toBe("unknown");
     expect(result.decisions[0]!.error).toBeNull();

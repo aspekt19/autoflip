@@ -9,7 +9,6 @@ import { proposeDirections } from "@/domain/directions";
 import {
   appendJournalStep,
   emptyResaleJournal,
-  RESALE_SERV_CALL_CAP,
   type ResaleDecisionJournal,
 } from "@/domain/resale-decision-journal";
 import { topFlipCandidates } from "@/domain/flip-rank";
@@ -61,8 +60,10 @@ export type ResaleSearchDeps = FindMatchDeps & {
    * - `inventory`: Auto.dev + code PnL (step 2); pass `planRefine` from step 1
    */
   stopAfter?: "plan" | "inventory";
-  /** Prior SERV/code plan refine from step 1 — used when stopAfter is inventory. */
+  /** @deprecated Unused for inventory — keep null so directions do not collapse. */
   planRefine?: { make?: string; model?: string; yearMin?: number; yearMax?: number } | null;
+  /** Direction ids from plan step (inventory explores all). */
+  plannedDirectionIds?: string[] | null;
   /** Skip re-running plan SERV when inventory step already has a plan journal. */
   skipPlanServ?: boolean;
   /** Prior plan journal to continue from (inventory step). */
@@ -100,7 +101,10 @@ export type ResaleSearchPlanBody = {
   stopAfter: "plan";
   budgetUsd: number;
   journal: ResaleDecisionJournal;
+  /** @deprecated Always null — Resale must not collapse to Confirm refine. */
   planRefine: { make?: string; model?: string; yearMin?: number; yearMax?: number } | null;
+  /** Allowlisted direction ids to explore on the inventory step (order preserved). */
+  plannedDirectionIds?: string[];
   headline: string;
   message: string;
   nextStep: string;
@@ -144,8 +148,7 @@ function mergeJournals(plan: ResaleDecisionJournal, settle: ResaleDecisionJourna
   return {
     schemaVersion: "lemonless.resale_journal.v1",
     steps: [...plan.steps, ...settle.steps],
-    servCalls: Math.min(RESALE_SERV_CALL_CAP, plan.servCalls + settle.servCalls),
-    servCallCap: RESALE_SERV_CALL_CAP,
+    servCalls: plan.servCalls + settle.servCalls,
   };
 }
 
@@ -173,7 +176,7 @@ export async function runResaleSearch(
     deps.deadline ?? makeResaleDeadline(deps.internalBudgetMs ?? RESALE_INTERNAL_BUDGET_MS);
   let planJournal = deps.priorPlanJournal
     ? { ...deps.priorPlanJournal, steps: [...deps.priorPlanJournal.steps] }
-    : emptyResaleJournal(RESALE_SERV_CALL_CAP);
+    : emptyResaleJournal();
   logResaleStage("start", deadline.startedAtMs, {
     budgetUsd: input.budgetUsd,
     budgetMs: deps.internalBudgetMs ?? RESALE_INTERNAL_BUDGET_MS,
@@ -190,8 +193,16 @@ export async function runResaleSearch(
     yearMax: d.yearMax,
   }));
 
-  let refine: { make?: string; model?: string; yearMin?: number; yearMax?: number } | undefined =
-    deps.planRefine ?? undefined;
+  // SERV may order/filter which editorial directions to run. Never set Confirm-style
+  // make/model refine here — that collapses proposeDirections to one model labeled
+  // "The model you named" even when the buyer named none (budget-only Resale).
+  let plannedDirectionIds: string[] =
+    deps.plannedDirectionIds && deps.plannedDirectionIds.length > 0
+      ? deps.plannedDirectionIds.filter((id) => allowedDirections.some((d) => d.id === id))
+      : allowedDirections.map((d) => d.id);
+  if (plannedDirectionIds.length === 0) {
+    plannedDirectionIds = allowedDirections.map((d) => d.id);
+  }
 
   if (!deps.skipPlanServ) {
   planJournal = appendJournalStep(planJournal, {
@@ -243,7 +254,7 @@ export async function runResaleSearch(
           timeoutMs: planTimeoutMs,
         },
         deadline,
-        canRetry: planJournal.servCalls + 1 < planJournal.servCallCap,
+        canRetry: true,
         validatePayload: (payload, result) => {
           const note = typeof payload?.note === "string" ? payload.note : "";
           const directionIds = stringArrayField(payload, "directionIds").map(normalizeDirectionId);
@@ -291,14 +302,13 @@ export async function runResaleSearch(
         });
       }
       if (planned.ok && payload && validation.ok && safeIds.length > 0) {
-        const first = allowedDirections.find((d) => d.id === safeIds[0]);
-        if (first) {
-          refine = { make: first.make, model: first.model, yearMin: first.yearMin, yearMax: first.yearMax };
-        }
+        // Keep every allowlisted direction SERV selected — do not collapse to safeIds[0].
+        plannedDirectionIds = safeIds;
         const named = safeIds.map((id) => {
           const row = allowedDirections.find((d) => d.id === id);
           return row ? `${row.segment} (${id})` : id;
         });
+        const firstLabel = allowedDirections.find((d) => d.id === safeIds[0]);
         planJournal = appendJournalStep(planJournal, {
           kind: "plan_search",
           actor: "SERV",
@@ -308,7 +318,9 @@ export async function runResaleSearch(
             const row = allowedDirections.find((d) => d.id === id);
             return row ? `direction:${id}:${row.segment}` : `direction:${id}`;
           }),
-          changed: refine ? `First query focus ${refine.make} ${refine.model}` : null,
+          changed: firstLabel
+            ? `Search order starts with ${firstLabel.segment} (${firstLabel.make} ${firstLabel.model}); all ${safeIds.length} selected directions still run`
+            : null,
           model: deps.servModel || planned.proof.modelReported || planned.proof.modelRequested || null,
           responseId: providerResponseIdFromCall({
             ok: true,
@@ -379,7 +391,7 @@ export async function runResaleSearch(
     logResaleStage("plan_stop", deadline.startedAtMs, {
       remainingMs: deadline.remainingMs(),
       journalSteps: planJournal.steps.length,
-      hasRefine: Boolean(refine),
+      directionCount: plannedDirectionIds.length,
     });
     return {
       ok: true,
@@ -391,11 +403,14 @@ export async function runResaleSearch(
         stopAfter: "plan",
         budgetUsd: input.budgetUsd,
         journal: planJournal,
-        planRefine: refine ?? null,
+        // Keep shape for stepped job, but never a single-model Confirm refine.
+        planRefine: null,
+        plannedDirectionIds,
         headline: "Search plan ready",
-        message: refine
-          ? `Agent planned a first query focus. Next: pull inventory for this budget.`
-          : "Code directions stand. Next: pull inventory for this budget.",
+        message:
+          plannedDirectionIds.length > 1
+            ? `Agent planned ${plannedDirectionIds.length} search directions. Next: pull inventory for this budget.`
+            : "Code directions stand. Next: pull inventory for this budget.",
         nextStep: "Continue to inventory — credit is charged only when the final verdict is delivered.",
       },
     };
@@ -416,8 +431,16 @@ export async function runResaleSearch(
 
   const inventoryStarted = Date.now();
   const inventoryCapMs = Math.min(RESALE_STAGE_BUDGET_MS.inventory, Math.max(1_000, deadline.remainingMs() - 8_000));
+  const idSet = new Set(plannedDirectionIds);
+  const inventoryDirections = directions
+    .filter((d) => idSet.has(d.id))
+    .sort((a, b) => plannedDirectionIds.indexOf(a.id) - plannedDirectionIds.indexOf(b.id));
   const match = await runFindMatch(
-    { need, refine },
+    {
+      need,
+      // Pass multi-direction list — never Confirm refine make/model for budget-only Resale.
+      directions: inventoryDirections.length > 0 ? inventoryDirections : directions,
+    },
     {
       ...deps,
       parallelProviderQueries: true,

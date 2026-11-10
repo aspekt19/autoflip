@@ -217,7 +217,6 @@ test("resale requires sign-in and budget-first search; one-car estimate stays ho
             },
           ],
           servCalls: 0,
-          servCallCap: 6,
         },
         headline: "No flip candidates in this budget",
         message: "No listings cleared similar-listing economics inside this budget.",

@@ -8,7 +8,7 @@ describe("sellerLinkHonesty", () => {
       vdp: "https://www.gengrasford.com/inventory/used-2015-toyota-corolla",
     });
     expect(row.mismatch).toBe(true);
-    expect(row.note).toMatch(/Seller\/link mismatch/i);
+    expect(row.note).toMatch(/does not match the feed dealer name/i);
     expect(row.note).toMatch(/gengrasford\.com/);
     expect(row.vdp).toContain("gengrasford.com");
   });
@@ -28,7 +28,7 @@ describe("sellerLinkHonesty", () => {
       vdp: "https://www.ronbouchardchryslerdodge.com/inventory/used-2018-toyota-corolla-le/VIN",
     });
     expect(row.mismatch).toBe(true);
-    expect(row.note).toMatch(/Seller\/link mismatch/i);
+    expect(row.note).toMatch(/does not match the feed dealer name/i);
     expect(row.note).toMatch(/ronbouchardchryslerdodge\.com/);
   });
 });

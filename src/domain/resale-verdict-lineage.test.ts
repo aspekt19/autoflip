@@ -4,7 +4,7 @@ import { resaleVerdictLineage } from "./resale-verdict-lineage";
 
 describe("resaleVerdictLineage", () => {
   it("builds SERV pick → guardrail → final chain from journal steps", () => {
-    let journal = emptyResaleJournal(6);
+    let journal = emptyResaleJournal();
     journal = appendJournalStep(journal, {
       kind: "pick",
       actor: "SERV",
@@ -55,7 +55,7 @@ describe("resaleVerdictLineage", () => {
   });
 
   it("ignores rejected/timeout decide and Challenge revised pick for SERV pick", () => {
-    let journal = emptyResaleJournal(6);
+    let journal = emptyResaleJournal();
     journal = appendJournalStep(journal, {
       kind: "pick",
       actor: "SERV",
@@ -100,7 +100,7 @@ describe("resaleVerdictLineage", () => {
   });
 
   it("takes SERV pick from guardrail SERV said when pick step is absent", () => {
-    let journal = emptyResaleJournal(6);
+    let journal = emptyResaleJournal();
     journal = appendJournalStep(journal, {
       kind: "fallback",
       actor: "code",

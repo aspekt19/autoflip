@@ -889,8 +889,13 @@ function AssistantFlow({
       )
         ? ((body as { pickProofRecords?: DecisionProofRecord[] }).pickProofRecords as DecisionProofRecord[])
         : [];
-      if (pickProofs.length > 0) {
-        setProofRecords((prev) => [...prev, ...pickProofs]);
+      const nextCheckProofs = Array.isArray(
+        (body as { nextCheckProofRecords?: DecisionProofRecord[] }).nextCheckProofRecords,
+      )
+        ? ((body as { nextCheckProofRecords?: DecisionProofRecord[] }).nextCheckProofRecords as DecisionProofRecord[])
+        : [];
+      if (pickProofs.length > 0 || nextCheckProofs.length > 0) {
+        setProofRecords((prev) => [...prev, ...nextCheckProofs, ...pickProofs]);
       }
       // Always adopt NEW need from server apply — never stale same-tick UI years.
       const nextNeed = body.needAfter ?? body.replan.need;

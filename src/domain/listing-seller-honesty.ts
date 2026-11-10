@@ -130,7 +130,7 @@ export function sellerLinkHonesty(input: {
         vdp,
         vdpHost,
         mismatch: true,
-        note: `Seller/link mismatch: feed dealer is “${dealer}” but the listing URL is ${vdpHost}. Prefer this feed VDP for this VIN; the dealer name may be from another row or a stale field.`,
+        note: `Listing host ${vdpHost} does not match the feed dealer name “${dealer}”. Prefer the listing URL for this VIN; the dealer name may be from another row or a stale field.`,
       };
     }
   }
@@ -154,6 +154,6 @@ export function sellerLinkHonesty(input: {
     vdp,
     vdpHost,
     mismatch: true,
-    note: `Seller/link mismatch: feed dealer is “${dealer}” but the listing URL is ${vdpHost}. Prefer this feed VDP for this VIN; the dealer name may be from another row or a stale field.`,
+    note: `Listing host ${vdpHost} does not match the feed dealer name “${dealer}”. Prefer the listing URL for this VIN; the dealer name may be from another row or a stale field.`,
   };
 }

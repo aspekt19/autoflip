@@ -17,10 +17,9 @@ export function ResaleDecisionJournalView({
     <details className="agent-decision-trail onboarding-note" open={defaultOpen}>
       <summary>
         <strong>Decision journal</strong>
-        <span className="hint">
-          {" "}
-          · SERV {journal.servCalls}/{journal.servCallCap} HTTP calls
-        </span>
+        {journal.servCalls > 0 ? (
+          <span className="hint"> · {journal.servCalls} paid model call{journal.servCalls === 1 ? "" : "s"} this run</span>
+        ) : null}
       </summary>
       <ol className="steps-3 story-steps">
         {journal.steps.map((step) => {
@@ -35,7 +34,20 @@ export function ResaleDecisionJournalView({
               {step.changed ? ` What changed: ${step.changed}` : ""}
             </span>
             {step.inputsUsed.length > 0 ? (
-              <span className="hint">Inputs: {step.inputsUsed.join(", ")}</span>
+              <span className="hint">
+                Inputs:{" "}
+                {step.inputsUsed
+                  .map((id) =>
+                    id.startsWith("pnl:")
+                      ? `P&L for ${id.slice(4)}`
+                      : id.startsWith("vin:")
+                        ? `VIN ${id.slice(4)}`
+                        : id.startsWith("check:")
+                          ? id.slice(6).replace(/_/g, " ")
+                          : id,
+                  )
+                  .join(", ")}
+              </span>
             ) : null}
             {step.rejected ? (
               // Historical journal lines must not use role=status — that aria-live

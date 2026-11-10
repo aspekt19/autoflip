@@ -12,7 +12,7 @@ describe("filterProofRecordsForOwner", () => {
       purpose: "verdict_decide",
       rubricId: RADAR_VERDICT_RUBRIC_ID,
       status: "ok",
-      responseId: "chatcmpl-mine",
+      responseId: "synthetic-test-mine",
       inputs: { vin: "a" },
       verdict: "negotiate",
       searchId: "search-mine",
@@ -22,7 +22,7 @@ describe("filterProofRecordsForOwner", () => {
       purpose: "verdict_decide",
       rubricId: RADAR_VERDICT_RUBRIC_ID,
       status: "ok",
-      responseId: "chatcmpl-theirs",
+      responseId: "synthetic-test-theirs",
       inputs: { vin: "b" },
       verdict: "buy",
       searchId: "search-theirs",
@@ -32,7 +32,7 @@ describe("filterProofRecordsForOwner", () => {
       purpose: "need_extract",
       rubricId: NEED_PARSE_RUBRIC_ID,
       status: "ok",
-      responseId: "chatcmpl-x",
+      responseId: "synthetic-test-x",
       inputs: { t: 1 },
       verdict: "extracted",
     });
@@ -41,6 +41,6 @@ describe("filterProofRecordsForOwner", () => {
       searchIds: new Set(["search-mine"]),
     });
     expect(filtered).toEqual([mine]);
-    expect(filtered.some((row) => row.servResponseId === "chatcmpl-theirs")).toBe(false);
+    expect(filtered.some((row) => row.servResponseId === "synthetic-test-theirs")).toBe(false);
   });
 });

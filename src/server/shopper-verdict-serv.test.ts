@@ -128,7 +128,7 @@ describe("runShopperVerdictServ", () => {
     const fetchImpl = vi.fn(async () => {
       calls += 1;
       if (calls === 1) {
-        return jsonResponse({ verdict: "negotiate", note: "Ask sits near fair value from the comps." }, "chatcmpl-decide-1");
+        return jsonResponse({ verdict: "negotiate", note: "Ask sits near fair value from the comps." }, "synthetic-test-decide-1");
       }
       return jsonResponse(
         {
@@ -137,7 +137,7 @@ describe("runShopperVerdictServ", () => {
           objection: null,
           evidenceIds: ["ev_fair_value"],
         },
-        "chatcmpl-challenge-1",
+        "synthetic-test-challenge-1",
       );
     });
 
@@ -153,7 +153,8 @@ describe("runShopperVerdictServ", () => {
     expect(result.agentVerdict.second_pass?.status).toMatch(/agreed|disagreed|ignored/);
     expect(result.trace?.calls.length).toBeGreaterThanOrEqual(1);
     expect(result.trace?.calls[0]?.rawResponse).toMatch(/negotiate/);
-    expect(result.trace?.calls[0]?.responseId).toBe("chatcmpl-decide-1");
+    // synthetic-test-* mock ids must never surface as provider response ids.
+    expect(result.trace?.calls[0]?.responseId).toBeNull();
     expect(result.trace?.model).toBe("gpt-5.4-mini");
     expect(result.trace?.recordedAt).toMatch(/^\d{4}-/);
   });
@@ -184,7 +185,7 @@ describe("runShopperVerdictServ", () => {
 
   it("clamps a SERV buy when title-brand gates forbid buy and negotiate", async () => {
     const fetchImpl = vi.fn(async () =>
-      jsonResponse({ verdict: "buy", note: "Looks fine." }, "chatcmpl-buy"),
+      jsonResponse({ verdict: "buy", note: "Looks fine." }, "synthetic-test-buy"),
     );
     const result = await runShopperVerdictServ({
       report: report({
@@ -219,7 +220,7 @@ describe("runShopperVerdictServ", () => {
         await new Promise((r) => setTimeout(r, 2_500));
         return jsonResponse(
           { verdict: "negotiate", note: "Ask sits near fair value from the comps." },
-          "chatcmpl-decide-budget",
+          "synthetic-test-decide-budget",
         );
       }
       throw new Error("challenge must not run when re-clamp skips");
@@ -284,7 +285,7 @@ describe("runShopperVerdictServ", () => {
       if (calls === 1) {
         return jsonResponse(
           { verdict: "buy", note: "Ask looks strong versus comps." },
-          "chatcmpl-decide-buy",
+          "synthetic-test-decide-buy",
         );
       }
       return jsonResponse(
@@ -294,7 +295,7 @@ describe("runShopperVerdictServ", () => {
           objection: "Accident history note and thin comps make buy too aggressive.",
           evidenceIds: ["ev_fair_value", "ev_note_0"],
         },
-        "chatcmpl-challenge-pass",
+        "synthetic-test-challenge-pass",
       );
     });
 
@@ -323,7 +324,7 @@ describe("runShopperVerdictServ", () => {
     const fetchImpl = vi.fn(async () => {
       calls += 1;
       if (calls === 1) {
-        return jsonResponse({ verdict: "pass", note: "Title risk." }, "chatcmpl-decide-pass");
+        return jsonResponse({ verdict: "pass", note: "Title risk." }, "synthetic-test-decide-pass");
       }
       return jsonResponse(
         {
@@ -332,7 +333,7 @@ describe("runShopperVerdictServ", () => {
           objection: "Still want buy despite title brand.",
           evidenceIds: ["ev_flag_0"],
         },
-        "chatcmpl-challenge-buy",
+        "synthetic-test-challenge-buy",
       );
     });
 
@@ -359,7 +360,7 @@ describe("runShopperVerdictServ", () => {
       if (calls > 1) throw new Error("challenge must not run when only one SERV slot remains");
       return jsonResponse(
         { verdict: "negotiate", note: "Ask sits near fair value from the comps." },
-        "chatcmpl-decide-cap",
+        "synthetic-test-decide-cap",
       );
     });
     const result = await runShopperVerdictServ({

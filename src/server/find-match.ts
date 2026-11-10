@@ -178,7 +178,12 @@ export function dedupeWarningMessages(messages: Array<string | null | undefined>
 }
 
 export async function runFindMatch(
-  body: { need?: unknown; refine?: { make?: string; model?: string; yearMin?: number; yearMax?: number } } | null,
+  body: {
+    need?: unknown;
+    refine?: { make?: string; model?: string; yearMin?: number; yearMax?: number };
+    /** When set (e.g. Resale multi-direction plan), skip proposeDirections collapse. */
+    directions?: SearchDirection[];
+  } | null,
   deps: FindMatchDeps,
 ): Promise<FindMatchResult> {
   const parsed = validateNeed(body?.need);
@@ -198,7 +203,10 @@ export async function runFindMatch(
   }
 
   const need = parsed.need;
-  const directions = proposeDirections(need, body?.refine);
+  const directions =
+    body?.directions && body.directions.length > 0
+      ? body.directions
+      : proposeDirections(need, body?.refine);
   if (directions.length === 0) {
     const empty = findEmptyCopy("no_directions", need);
     return {

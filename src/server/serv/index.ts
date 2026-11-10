@@ -36,7 +36,19 @@ export {
   isFlipDecisionShortlistId,
   type FlipDecisionShortlistEntry,
 } from "./flip-decision-shortlist";
-export { agentProof, buildServProof, interpretGuard, openservReportFrom, plannedProof, recentServProofs, recordServProof, shadowOutcomeFrom, type AgentProof, type ServProof } from "./proof";
+export {
+  agentProof,
+  buildServProof,
+  chatCompletionContent,
+  interpretGuard,
+  openservReportFrom,
+  plannedProof,
+  recentServProofs,
+  recordServProof,
+  shadowOutcomeFrom,
+  type AgentProof,
+  type ServProof,
+} from "./proof";
 export {
   SERV_OUTPUT_TOKEN_DEFAULT,
   SERV_OUTPUT_TOKEN_MAX,

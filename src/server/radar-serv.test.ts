@@ -109,8 +109,8 @@ describe("reviewPersonalCandidate failures", () => {
     );
   });
 
-  it("journals real HTTP error text and never shows chatcmpl-<uuid> as response id", async () => {
-    const synthetic = "chatcmpl-0fc22f78-ff49-41e6-9ac1-25ec62e96e62";
+  it("journals real HTTP error text and never shows a synthetic test id as response id", async () => {
+    const synthetic = "synthetic-test-0fc22f78-ff49-41e6-9ac1-25ec62e96e62";
     const fetchImpl = vi.fn(async () =>
       Response.json(
         { id: synthetic, error: { message: "Invalid schema for response_format", type: "invalid_request_error" } },

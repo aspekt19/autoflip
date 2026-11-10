@@ -473,7 +473,14 @@ async function attachCheckShopperServ(input: {
     };
   }
 
-  return { agentVerdict: shopper.agentVerdict, servTrace: shopper.trace, proofRecords: shopper.proofRecords };
+  // Stop-level red flags must never publish High agent confidence.
+  const stopPresent = input.redFlags.some((flag) => flag.level === "stop");
+  const agentVerdict =
+    stopPresent && shopper.agentVerdict.confidence === "high"
+      ? { ...shopper.agentVerdict, confidence: "medium" as const }
+      : shopper.agentVerdict;
+
+  return { agentVerdict, servTrace: shopper.trace, proofRecords: shopper.proofRecords };
 }
 
 /**
@@ -672,6 +679,26 @@ async function buildListingVerdict(
   const soldFlag = flags.some((f) => f.id === "sold");
   const parkIt = gov.recalls.some((r) => r.parkIt);
   const parkOutside = gov.recalls.some((r) => r.parkOutSide);
+  if (parkIt) {
+    flags.push({
+      id: "park_it",
+      level: "stop",
+      text: "NHTSA lists a park-it (do not drive) campaign for this model year. Verify VIN applicability before driving.",
+      source: "nhtsa-recalls",
+    });
+  }
+  const parkOutsideOnly = gov.recalls.filter((r) => r.parkOutSide && !r.parkIt);
+  if (parkOutsideOnly.length > 0) {
+    const sample = parkOutsideOnly[0]!;
+    flags.push({
+      id: "park_outside",
+      level: "stop",
+      text: `NHTSA lists outdoor-parking / fire-risk guidance${
+        sample.campaignNumber ? ` (campaign ${sample.campaignNumber})` : ""
+      }. Verify VIN applicability before parking indoors or ignoring the campaign.`,
+      source: "nhtsa-recalls",
+    });
+  }
   let questions = dealerQuestions({
     listing: subject,
     recalls: gov.recalls,
@@ -728,7 +755,7 @@ async function buildListingVerdict(
       : null;
 
   const decided = verdictFromBadge(badge, flags);
-  const confidence = checkConfidence({
+  let confidence = checkConfidence({
     fields,
     hasVin: Boolean(fields.vin.value),
     govRan: Boolean(gov.vinDecode) || gov.recallsAvailable,
@@ -745,6 +772,16 @@ async function buildListingVerdict(
   });
 
   const stop = flags.some((f) => f.level === "stop");
+  let listingConfidenceWhy =
+    badge.tone !== "unknown" && (badge.sampleSize ?? 0) > 0
+      ? `Verdict confidence from ${badge.sampleSize} similar listings plus listing and public-record evidence.`
+      : subject.priceUsd != null
+        ? "Verdict confidence is limited — an ask was found but similar listings were too thin for a firm price rating."
+        : "Covers listing and public-record screening only — not a price rating (no asking price).";
+  if (stop && confidence === "High") {
+    confidence = "Medium";
+    listingConfidenceWhy = `${listingConfidenceWhy} Lowered from High because a stop-level NHTSA campaign is on file.`;
+  }
   const summary = joinSummarySentences([
     `${subject.year} ${subject.make} ${subject.model}${subject.trim ? ` ${subject.trim}` : ""}`,
     soldFlag
@@ -765,12 +802,6 @@ async function buildListingVerdict(
     badge.fairValueUsd != null && subject.priceUsd != null && badge.fairValueUsd > 0
       ? (subject.priceUsd - badge.fairValueUsd) / badge.fairValueUsd
       : null;
-  const listingConfidenceWhy =
-    badge.tone !== "unknown" && (badge.sampleSize ?? 0) > 0
-      ? `Verdict confidence from ${badge.sampleSize} similar listings plus listing and public-record evidence.`
-      : subject.priceUsd != null
-        ? "Verdict confidence is limited — an ask was found but similar listings were too thin for a firm price rating."
-        : "Covers listing and public-record screening only — not a price rating (no asking price).";
   const codeTrail = buildCheckAgentVerdict({
     kind: "listing",
     title: `${subject.year} ${subject.make} ${subject.model}`,
@@ -961,16 +992,29 @@ async function buildVinDossier(vin: string, deps: CheckRunDeps, optionalZip?: st
     recallCount: bundle.recallsAvailable ? bundle.recalls.length : null,
   });
 
-  const redFlags: CheckRedFlag[] = bundle.recalls.some((r) => r.parkIt)
-    ? [
-        {
-          id: "park_it",
-          level: "stop",
-          text: "NHTSA lists a park-it (do not drive) campaign for this model year. Verify VIN applicability before driving.",
-          source: "nhtsa-recalls",
-        },
-      ]
-    : [];
+  const redFlags: CheckRedFlag[] = [];
+  if (bundle.recalls.some((r) => r.parkIt)) {
+    redFlags.push({
+      id: "park_it",
+      level: "stop",
+      text: "NHTSA lists a park-it (do not drive) campaign for this model year. Verify VIN applicability before driving.",
+      source: "nhtsa-recalls",
+    });
+  }
+  // Park-outside / fire-risk campaigns (e.g. 20V543000) are stop-level for confidence —
+  // never show "No stop-level red flags" with High confidence while these are open.
+  const parkOutsideRecalls = bundle.recalls.filter((r) => r.parkOutSide && !r.parkIt);
+  if (parkOutsideRecalls.length > 0) {
+    const sample = parkOutsideRecalls[0]!;
+    redFlags.push({
+      id: "park_outside",
+      level: "stop",
+      text: `NHTSA lists outdoor-parking / fire-risk guidance${
+        sample.campaignNumber ? ` (campaign ${sample.campaignNumber})` : ""
+      }. Verify VIN applicability before parking indoors or ignoring the campaign.`,
+      source: "nhtsa-recalls",
+    });
+  }
 
   let badge: PriceBadge | null = null;
   let compsScope = hasAsk
@@ -1075,6 +1119,10 @@ async function buildVinDossier(vin: string, deps: CheckRunDeps, optionalZip?: st
     confidence = recordCount >= 2 ? "Medium" : "Low";
     confidenceWhy =
       "Covers public-record identity and safety only — not a buy/negotiate/pass or price rating (no asking price).";
+  }
+  if (redFlags.some((flag) => flag.level === "stop") && confidence === "High") {
+    confidence = "Medium";
+    confidenceWhy = `${confidenceWhy} Lowered from High because a stop-level NHTSA campaign is on file.`;
   }
 
   const askLine = hasAsk

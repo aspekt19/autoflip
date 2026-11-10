@@ -11,7 +11,7 @@ describe("findVerdictLineage", () => {
           purpose: "verdict_decide",
           rubricId: VERDICT_RUBRIC_ID,
           status: "ok",
-          servResponseId: "chatcmpl-1",
+          servResponseId: "synthetic-test-1",
           model: "gpt-test",
           timestamp: "2026-11-10T12:00:00.000Z",
           inputsDigest: "a".repeat(64),

@@ -14,6 +14,7 @@ export const NEED_PARSE_RUBRIC_ID = "lemonless.need_parse_rubric.v1" as const;
 
 /** Radar alert/skip judgment over code price facts. */
 export const RADAR_VERDICT_RUBRIC_ID = "lemonless.radar_verdict_rubric.v1" as const;
+export const FIND_NEXT_CHECK_RUBRIC_ID = "lemonless.find_next_check_rubric.v1" as const;
 
 /** Public contract status — only these three values leave the process. */
 export type DecisionProofStatus = "ok" | "failed" | "skipped";
