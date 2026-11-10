@@ -166,12 +166,13 @@ test.describe("responsive matrix", () => {
     await mockCrowdedHeader(page);
     await page.setViewportSize({ width: 390, height: 844 });
     await page.goto("/");
-    // Hydration + account chip — same gate as existing nav e2e.
-    await expect(page.getByRole("link", { name: /Account/i })).toBeVisible();
+    // Scope to header chip — footer also has an Account link (strict-mode collision).
+    await expect(page.locator("header .nav-auth")).toBeVisible();
+    await expect(page.locator("header .nav-auth")).toHaveAttribute("href", "/account");
     const menuBtn = page.locator("header .menu-btn");
     await expect(menuBtn).toBeVisible();
     await menuBtn.click();
-    const primaryNav = page.getByRole("navigation", { name: "Primary" });
+    const primaryNav = page.locator("header").getByRole("navigation", { name: "Primary" });
     await expect(primaryNav.getByRole("link", { name: "Find" })).toBeVisible();
     await expect(menuBtn).toHaveAttribute("aria-expanded", "true");
     await expect(menuBtn).toHaveAttribute("aria-label", "Close menu");
@@ -184,12 +185,14 @@ test.describe("responsive matrix", () => {
     await mockCrowdedHeader(page);
     await page.setViewportSize({ width: 1440, height: 900 });
     await page.goto("/");
-    await expect(page.getByRole("link", { name: /Account/i })).toBeVisible();
+    // Scope to header chip — footer also has an Account link (strict-mode collision).
+    await expect(page.locator("header .nav-auth")).toBeVisible();
+    await expect(page.locator("header .nav-auth")).toHaveAttribute("href", "/account");
     // Wait for runtime flags so overflow destinations populate More.
-    const more = page.getByRole("button", { name: "More" });
+    const more = page.locator("header").getByRole("button", { name: "More" });
     await expect(more).toBeVisible();
     await more.click();
-    await expect(page.getByRole("menu")).toBeVisible();
+    await expect(page.locator("header").getByRole("menu")).toBeVisible();
     await expect(more).toHaveAttribute("aria-expanded", "true");
     await assertNoHorizontalScroll(page, "More menu @ 1440");
     await assertHeaderNoOverlap(page, "More menu @ 1440");
