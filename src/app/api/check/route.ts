@@ -1,4 +1,4 @@
-import { freeCheckMonthKey } from "@/domain/free-check-quota";
+import { checkCreditsNeedMessage, freeCheckMonthKey } from "@/domain/free-check-quota";
 import { isValidVin } from "@/domain/vin";
 import { commitFreeCheck, freeCheckSlotsRemaining, releaseFreeCheck, reserveFreeCheck } from "@/io/free-check-quota";
 import { getKv } from "@/io/kv";
@@ -8,8 +8,6 @@ import { balanceOf, requireVerifiedAccountForChecks, spendCredit } from "@/serve
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
-
-const CREDITS_REQUIRED_MESSAGE = "You've used your 3 free checks this month — 1 credit per check.";
 
 /**
  * Check a car by listing link, pasted listing text, or VIN.
@@ -77,7 +75,7 @@ export async function POST(request: Request) {
     return Response.json(
       {
         error: "credits_required",
-        message: CREDITS_REQUIRED_MESSAGE,
+        message: checkCreditsNeedMessage(),
         freeChecks: slots.view,
         credits: balance,
       },
@@ -140,7 +138,7 @@ export async function POST(request: Request) {
       return Response.json(
         {
           error: "credits_required",
-          message: CREDITS_REQUIRED_MESSAGE,
+          message: checkCreditsNeedMessage(),
           freeChecks: reserved.view,
         },
         { status: 403 },
@@ -155,7 +153,7 @@ export async function POST(request: Request) {
       if (!spent.ok) {
         if (usedFreeCheck && freeCheckKey) await releaseFreeCheck(kv, access.id, freeCheckKey);
         return Response.json(
-          { error: "credits_required", message: CREDITS_REQUIRED_MESSAGE },
+          { error: "credits_required", message: checkCreditsNeedMessage() },
           { status: 403 },
         );
       }

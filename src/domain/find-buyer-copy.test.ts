@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
+import { FREE_VEHICLE_CHECKS_PER_MONTH } from "./free-check-quota";
 import { evaluateListingPrice } from "./price-evaluation";
 import {
   assertBuyerSafeText,
@@ -368,7 +369,7 @@ describe("buyer-safe Find copy", () => {
     const findNotice = creditsNeedNotice("/find");
     expect(findNotice).toMatch(/1 report credit/);
     expect(findNotice).toMatch(/do not pay for Find/);
-    expect(findNotice).toMatch(/3 free checks/);
+    expect(findNotice).toMatch(new RegExp(`${FREE_VEHICLE_CHECKS_PER_MONTH} free checks`));
     expect(assertBuyerSafeText(findNotice).ok).toBe(true);
     expect(assertBuyerSafeText(creditsNeedNotice("/check")).ok).toBe(true);
 

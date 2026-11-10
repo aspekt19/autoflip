@@ -113,9 +113,9 @@ describe("owner find note", () => {
     expect(need.budgetUsd).toBe(12_000);
   });
 
-  it("prefills ZIP with a local radius instead of silent Nationwide", () => {
+  it("keeps ZIP without inventing a radius (nationwide until Confirm)", () => {
     const need = explicitNeedFromText("Reliable sedan under $15,000 near 68114.", "personal");
     expect(need.zip).toBe("68114");
-    expect(need.distanceMiles).toBe(100);
+    expect(need.distanceMiles).toBeNull();
   });
 });

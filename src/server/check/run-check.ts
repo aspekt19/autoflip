@@ -796,10 +796,11 @@ async function buildVinDossier(vin: string, deps: CheckRunDeps, optionalZip?: st
         trim: feed.trim ?? stub.trim,
         // Prefer typed ZIP when the feed has none.
         zip: stub.zip || feed.zip,
-        // Current listing for this VIN is a purchase ask when priced.
-        askingPriceKind: feed.priceUsd != null ? "purchase_ask" : feed.askingPriceKind ?? null,
-        askingPriceProvenance: feed.priceUsd != null ? "seller_page_labeled" : feed.askingPriceProvenance ?? null,
-        askingPriceSellerPageAccess: feed.vdp ? "obtained" : feed.askingPriceSellerPageAccess ?? null,
+        // Feed price is feed_only — a VDP URL alone is not seller-page access.
+        askingPriceKind: feed.priceUsd != null ? (feed.askingPriceKind ?? "purchase_ask") : feed.askingPriceKind ?? null,
+        askingPriceProvenance:
+          feed.priceUsd != null ? (feed.askingPriceProvenance ?? "feed_only") : feed.askingPriceProvenance ?? null,
+        askingPriceSellerPageAccess: feed.askingPriceSellerPageAccess ?? "not_attempted",
       }
     : stub;
 
@@ -933,10 +934,10 @@ async function buildVinDossier(vin: string, deps: CheckRunDeps, optionalZip?: st
 
   const askLine = hasAsk
     ? feed?.dealer
-      ? `Current listing ask $${subject.priceUsd!.toLocaleString("en-US")} at ${feed.dealer}${
+      ? `Listed price from data feed: $${subject.priceUsd!.toLocaleString("en-US")} at ${feed.dealer}${
           feed.city || feed.state ? ` (${[feed.city, feed.state].filter(Boolean).join(", ")})` : ""
         } — used for price rating.`
-      : `Current listing ask $${subject.priceUsd!.toLocaleString("en-US")} — used for price rating.`
+      : `Listed price from data feed: $${subject.priceUsd!.toLocaleString("en-US")} — used for price rating.`
     : "No current listing ask for this VIN, so this car is not price-rated.";
 
   const summary = [
@@ -1017,18 +1018,18 @@ async function buildVinDossier(vin: string, deps: CheckRunDeps, optionalZip?: st
     provenance.push({
       field: "priceUsd",
       value: subject.priceUsd,
-      source: "current listing for this VIN",
+      source: "listed price from data feed",
     });
   }
   if (hasMiles) {
     provenance.push({
       field: "miles",
       value: subject.miles,
-      source: "current listing for this VIN",
+      source: "listed price from data feed",
     });
   }
   if (feed?.dealer) {
-    provenance.push({ field: "sellerName", value: feed.dealer, source: "current listing for this VIN" });
+    provenance.push({ field: "sellerName", value: feed.dealer, source: "listed price from data feed" });
   }
 
   return {

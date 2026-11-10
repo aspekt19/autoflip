@@ -15,6 +15,10 @@ import type { FindNextCheckId } from "./find-next-checks";
 import type { BestDealCandidate, BestDealResult } from "./find-best-deal";
 import { formatFindFuelEvidenceShort } from "./find-fuel-match";
 import { mmyListingKey } from "./find-risk-evidence";
+import {
+  checkCreditsNeedMessage,
+  FREE_VEHICLE_CHECKS_PER_MONTH,
+} from "./free-check-quota";
 
 /** Patterns that must never appear in buyer-visible Find/report text. */
 export const BUYER_FORBIDDEN_TECH_PATTERNS: RegExp[] = [
@@ -118,13 +122,14 @@ export const FIND_RESULTS_BILLING_HINT =
  */
 export function creditsNeedNotice(returnTo: string | null | undefined): string {
   const back = returnTo ?? "";
+  const free = FREE_VEHICLE_CHECKS_PER_MONTH;
   if (back.startsWith("/find")) {
-    return "Find costs 1 report credit each time a search is delivered. The 3 free checks each UTC month are only for Check a car (listing link or VIN) — they do not pay for Find.";
+    return `Find costs 1 report credit each time a search is delivered. The ${free} free checks each UTC month are only for Check a car (listing link or VIN) — they do not pay for Find.`;
   }
   if (back.startsWith("/check")) {
-    return "You've used your 3 free checks this month — 1 credit per check.";
+    return checkCreditsNeedMessage();
   }
-  return "Find costs 1 report credit per delivered search. A listing link or VIN uses one of 3 free checks per verified account each UTC month; after that a check costs 1 credit.";
+  return `Find costs 1 report credit per delivered search. A listing link or VIN uses one of ${free} free checks per verified account each UTC month; after that a check costs 1 credit.`;
 }
 
 /**

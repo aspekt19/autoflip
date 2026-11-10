@@ -92,6 +92,13 @@ function sourceLabel(source: string | null): string {
   if (source === "meta") return "meta tag";
   if (source === "url") return "URL";
   if (source === "vin_decode") return "VIN decoder";
+  if (
+    source === "listing_feed" ||
+    source === "feed_only" ||
+    source === "listed price from data feed"
+  ) {
+    return "listed price from data feed";
+  }
   return source;
 }
 

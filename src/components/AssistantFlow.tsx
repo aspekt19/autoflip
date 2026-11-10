@@ -11,6 +11,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import {
+  FREE_VEHICLE_CHECKS_PER_MONTH,
   formatFreeChecksSignInPrompt,
   freeChecksRemainingFromAccount,
 } from "@/domain/free-check-quota";
@@ -1836,7 +1837,9 @@ function AssistantFlow({
           <p className="hint">
             {source === "model"
               ? "We read this from your note. Edit anything that is wrong. Directions below are guidance, not a market study."
-              : "This is only what you typed and the words we could match. Nothing was invented."}
+              : need.zip && need.distanceMiles == null
+                ? "This is only what you typed and the words we could match. Your ZIP has no radius yet — pick miles below or leave Nationwide. We did not invent a default radius."
+                : "This is only what you typed and the words we could match. Nothing was invented."}
           </p>
           <div className="field">
             <label htmlFor="note">Your note</label>
@@ -2715,7 +2718,11 @@ function AssistantFlow({
               </ul>
               <CoverageLine confidence={freeCheck.coverageLevel} sentence={freeCheck.coverage} />
               <PriceRatingHow />
-              <p className="hint">This quick result rates the asking price only. The full report adds broader safety and vehicle context. It uses one of this month’s 3 free checks, or 1 report credit after those are used.</p>
+              <p className="hint">
+                This quick result rates the asking price only. The full report adds broader safety and vehicle context. It
+                uses one of this month’s {FREE_VEHICLE_CHECKS_PER_MONTH} free checks, or 1 report credit after those are
+                used.
+              </p>
               <button className="action" type="button" onClick={() => void checkListing()} disabled={pending === "report"}>
                 {pending === "report" ? "Building report…" : "Full analysis"}
               </button>

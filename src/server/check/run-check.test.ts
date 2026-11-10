@@ -252,6 +252,12 @@ describe("runCheck listing paste (no paid Autodev/SERV)", () => {
     expect(result.result.compCount).toBeGreaterThanOrEqual(3);
     expect(result.result.compScope).toMatch(/nationwide|Honda Civic/i);
     expect(result.result.provenance.some((row) => row.field === "priceUsd" && row.value === 15_189)).toBe(true);
+    expect(
+      result.result.provenance.some(
+        (row) => row.field === "priceUsd" && row.source === "listed price from data feed",
+      ),
+    ).toBe(true);
+    expect(result.result.summary).toMatch(/Listed price from data feed/i);
     expect(result.result.unknown.some((line) => /asking price/i.test(line))).toBe(false);
     // Widened search should hit Autodev with normalized make + used + year window.
     const searchUrls = fetchImpl.mock.calls.map((c) => String(c[0])).filter((u) => u.includes("api.auto.dev/listings?"));
