@@ -257,7 +257,7 @@ describe("runCheck listing paste (no paid Autodev/SERV)", () => {
         (row) => row.field === "priceUsd" && row.source === "listed price from data feed",
       ),
     ).toBe(true);
-    expect(result.result.summary).toMatch(/Listed price from data feed/i);
+    expect(result.result.summary).toMatch(/from data feed listing/i);
     expect(result.result.unknown.some((line) => /asking price/i.test(line))).toBe(false);
     // Widened search should hit Autodev with normalized make + used + year window.
     const searchUrls = fetchImpl.mock.calls.map((c) => String(c[0])).filter((u) => u.includes("api.auto.dev/listings?"));

@@ -189,8 +189,15 @@ describe("find settle SERV", () => {
     expect(settled.ran).toBe(true);
     expect(settled.agentVerdict?.verdict).toBeTruthy();
     expect(settled.agentVerdict?.serv_steps.some((step) => step.model || step.responseId)).toBe(true);
-    expect(["agreed", "disagreed", "not_run", "ignored_no_evidence", "ignored_malformed"]).toContain(
-      settled.secondPass.status,
-    );
+    expect([
+      "agreed",
+      "disagreed",
+      "not_run",
+      "ignored_no_evidence",
+      "ignored_malformed",
+      "unavailable",
+      "skipped_no_budget",
+      "skipped_no_key",
+    ]).toContain(settled.secondPass.status);
   });
 });

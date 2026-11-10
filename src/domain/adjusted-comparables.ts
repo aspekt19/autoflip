@@ -565,12 +565,13 @@ export function adjustComparableSet(input: {
   // Prefer a mileage band around the subject; widen to the full generation set only when thin.
   const banded = nearMiles.length >= ASSUMPTIONS.minComps;
   const working = banded ? nearMiles : selected;
+  // Keep buyer-facing copy free of new absolute thresholds (audit allowlists report numbers only).
   const milesBandNote = banded
-    ? `Similar listings were limited to a mileage band around this car (±${Math.round(COMP_MILES_BAND_FRAC * 100)}% or ±${formatNumber(COMP_MILES_BAND_ABS)} miles); ${nearMiles.length} of ${selected.length} generation peers were in-band.`
+    ? `Similar listings were limited to a mileage band around this car; ${nearMiles.length} of ${selected.length} generation peers were in-band.`
     : nearMiles.length > 0
       ? `Only ${nearMiles.length} similar listing${nearMiles.length === 1 ? " was" : "s were"} in the mileage band around this car, so the window was widened to ${selected.length} generation peers.`
       : selected.length > 0
-        ? `No similar listings were in the mileage band around this car (±${Math.round(COMP_MILES_BAND_FRAC * 100)}% or ±${formatNumber(COMP_MILES_BAND_ABS)} miles), so the window used ${selected.length} generation peers.`
+        ? `No similar listings were in the mileage band around this car, so the window used ${selected.length} generation peers.`
         : null;
 
   const subjectTrim = resolveTrim(subject);
