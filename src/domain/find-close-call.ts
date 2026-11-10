@@ -124,6 +124,22 @@ function differingDetails(leadDetail: string, otherDetail: string): { lead: stri
   return { lead: clipSentence(lead[0] ?? ""), other: clipSentence(other[0] ?? "") };
 }
 
+/**
+ * Condition-first preference alone is not proof of known condition.
+ * Only cite “condition checks” when the factor text names a real risk or wear signal.
+ */
+export function conditionFactorHasKnownEvidence(detail: string): boolean {
+  const text = plainBuyerDetail(detail);
+  if (!text.trim()) return false;
+  if (/Condition preference not set/i.test(text)) return false;
+  if (/history and inspection (are|is) still required/i.test(text) && !/accident|park|mileage|mismatch|rental|fleet|trim|drivetrain|engine/i.test(text)) {
+    return false;
+  }
+  return /park the car|park-it|high-mileage|older car|accident|mismatch|rental|fleet|Condition risk:|ranks lower for condition/i.test(
+    text,
+  );
+}
+
 /** One plain reason the first car leads. Cites the check that actually separates them. No internal scores. */
 export function closeCallLeadReason(
   first: BestDealCandidate,
@@ -137,6 +153,10 @@ export function closeCallLeadReason(
     const otherFactor = second.factors.find((row) => row.id === factor.id);
     const delta = factor.points - (otherFactor?.points ?? 0);
     if (delta <= 0) continue;
+    // Never claim “ahead on condition checks” when condition is still unknown.
+    if (factor.id === "condition_priority" && !conditionFactorHasKnownEvidence(factor.detail)) {
+      continue;
+    }
     if (!best || delta > best.delta) {
       best = {
         id: factor.id,

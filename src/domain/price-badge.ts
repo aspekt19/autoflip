@@ -26,10 +26,38 @@ function withFeedHistoryNote(base: string | null, subject: Listing): string | nu
   return base && base.trim() ? `${base} · ${flagBit}` : flagBit;
 }
 
+/**
+ * When ranking held price neutral for fairness, do not leave a plain GOOD PRICE
+ * card next to “Not scored for fairness”. Qualify or drop the rating label.
+ */
+export function qualifyPriceBadgeForProvisionalRanking(badge: PriceBadge): PriceBadge {
+  if (badge.tone === "unknown" || badge.fairValueUsd == null) return badge;
+  const qualifiedLabel: PriceLabel =
+    badge.label === "Good price"
+      ? "Good price (ranking provisional)"
+      : badge.label === "Fair price"
+        ? "Fair price (ranking provisional)"
+        : badge.label === "High price"
+          ? "High price (ranking provisional)"
+          : badge.label;
+  const noteBit =
+    "Ranking held asking-price comparison neutral across the shortlist — this card figure is informational only.";
+  return {
+    ...badge,
+    label: qualifiedLabel,
+    sampleNote: badge.sampleNote ? `${badge.sampleNote} ${noteBit}` : noteBit,
+  };
+}
+
 export function priceBadge(
   subject: Listing,
   pool: Listing[],
-  options?: { mode?: Mode; decodedTrim?: string | null },
+  options?: {
+    mode?: Mode;
+    decodedTrim?: string | null;
+    /** When true, qualify Good/Fair/High so it cannot contradict ranking neutrality. */
+    rankingPriceProvisional?: boolean;
+  },
 ): PriceBadge {
   const evaluation = evaluateListingPrice(subject, pool, options);
   const model = subject.model?.trim() || "car";
@@ -63,7 +91,7 @@ export function priceBadge(
       : deltaUsd < 0
         ? `${formatUsd(Math.abs(deltaUsd))} below the fair value of ${fair}, ${basis}`
         : `${formatUsd(deltaUsd)} above the fair value of ${fair}, ${basis}`;
-  return {
+  const badge: PriceBadge = {
     label: evaluation.label,
     tone: evaluation.tone,
     deltaUsd,
@@ -72,4 +100,5 @@ export function priceBadge(
     sampleSize: evaluation.sampleSize,
     sampleNote,
   };
+  return options?.rankingPriceProvisional ? qualifyPriceBadgeForProvisionalRanking(badge) : badge;
 }

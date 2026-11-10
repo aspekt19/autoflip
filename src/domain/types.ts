@@ -182,6 +182,11 @@ export type ComputedReport = {
   flags: Flag[];
   questions: string[];
   comps: ComparableUsed[];
+  /**
+   * Adjusted similar-listing count that produced fairValueUsd (badge sampleSize).
+   * Prefer this over comps.length for SERV notes — comps may be truncated for display.
+   */
+  compSampleSize?: number | null;
   compScope: string;
   percentile: number | null;
   fairValueUsd: number | null;

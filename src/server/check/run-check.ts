@@ -43,6 +43,7 @@ import { actionLabel, isServDecisionAction, verdictFromAction } from "@/domain/d
 import { confidenceLabel } from "@/domain/agent-verdict-schema";
 import { verdictLabel } from "@/domain/format";
 import type { FuelFact, Listing, RecallRecord, Verdict, VinDecode } from "@/domain/types";
+import { valuationReuseNote, type VinDayValuation } from "@/domain/vin-day-valuation";
 import { autodevByVin, autodevByVdp, autodevSearch, type AutodevDeps } from "@/io/autodev";
 import {
   complaintCountFor,
@@ -54,6 +55,7 @@ import {
 import { safetyRatingsFor } from "@/io/nhtsa-safety";
 import { extractFromListingUrl, extractFromPastedText, type ListingExtractDeps } from "./extract-listing";
 import { getKv, type Kv } from "@/io/kv";
+import { readVinDayValuation, rememberVinDayValuation } from "@/io/vin-day-valuation-store";
 import { isServerlessRuntime, requireSharedQuotaForPaidDispatch } from "@/server/paid-dispatch-guard";
 import { GENERATION_YEAR_WINDOW } from "@/domain/adjusted-comparables";
 import { ASSUMPTIONS } from "@/domain/assumptions";
@@ -1024,6 +1026,7 @@ async function buildVinDossier(vin: string, deps: CheckRunDeps, optionalZip?: st
   let pool: Listing[] = feed ? [subject] : [];
   let readiness: PurchaseReadiness | null = null;
   let topComps: SimilarCarView[] = [];
+  let lockedValuationNote: string | null = null;
 
   if (hasAsk && hasMiles) {
     const zip = subject.zip?.replace(/\D/g, "").slice(0, 5) || null;
@@ -1044,6 +1047,45 @@ async function buildVinDossier(vin: string, deps: CheckRunDeps, optionalZip?: st
           : [subject, ...comps.listings]
         : [subject];
     badge = priceBadge(subject, pool, { decodedTrim: decode.trim ?? subject.trim });
+    // Same VIN + UTC day → one published fair value across Find and Check.
+    const kv = deps.kv ?? getKv();
+    const now = deps.now ?? new Date();
+    let locked: VinDayValuation | null = null;
+    if (subject.vin && subject.vin.length === 17) {
+      locked = await readVinDayValuation(kv, subject.vin, now);
+      if (
+        locked &&
+        badge.fairValueUsd != null &&
+        badge.sampleSize != null &&
+        (locked.fairValueUsd !== Math.round(badge.fairValueUsd) || locked.sampleSize !== badge.sampleSize)
+      ) {
+        badge = {
+          ...badge,
+          fairValueUsd: locked.fairValueUsd,
+          sampleSize: locked.sampleSize,
+          deltaUsd:
+            subject.priceUsd != null ? Math.round(subject.priceUsd - locked.fairValueUsd) : badge.deltaUsd,
+          deltaLabel:
+            subject.priceUsd != null
+              ? subject.priceUsd === locked.fairValueUsd
+                ? `At the fair value of $${locked.fairValueUsd.toLocaleString("en-US")}, based on ${locked.sampleSize} similar listings`
+                : subject.priceUsd < locked.fairValueUsd
+                  ? `$${(locked.fairValueUsd - subject.priceUsd).toLocaleString("en-US")} below the fair value of $${locked.fairValueUsd.toLocaleString("en-US")}, based on ${locked.sampleSize} similar listings`
+                  : `$${(subject.priceUsd - locked.fairValueUsd).toLocaleString("en-US")} above the fair value of $${locked.fairValueUsd.toLocaleString("en-US")}, based on ${locked.sampleSize} similar listings`
+              : badge.deltaLabel,
+          sampleNote: `${valuationReuseNote(locked)}${badge.sampleNote ? ` ${badge.sampleNote}` : ""}`,
+        };
+      } else if (badge.fairValueUsd != null && badge.sampleSize != null) {
+        await rememberVinDayValuation(kv, {
+          vin: subject.vin,
+          fairValueUsd: badge.fairValueUsd,
+          sampleSize: badge.sampleSize,
+          methodNote: badge.sampleNote ?? "Check adjusted similar listings",
+          source: "check",
+          now,
+        }).catch(() => undefined);
+      }
+    }
     const zipPick = zipChoice(null, zip);
     readiness = buildPurchaseReadiness({
       car: {
@@ -1074,10 +1116,24 @@ async function buildVinDossier(vin: string, deps: CheckRunDeps, optionalZip?: st
       })),
       zip: zipPick.zip,
       zipUsedFor: zipPick.zipUsedFor,
-      now: deps.now ?? new Date(),
+      now,
       recallCampaignCount: bundle.recallsAvailable ? bundle.recalls.length : null,
     });
+    // When fair value is locked to Find, keep readiness mid aligned so OTD/copy do not diverge.
+    if (locked && readiness.offer.fairMidUsd != null && readiness.offer.fairMidUsd !== locked.fairValueUsd) {
+      readiness = {
+        ...readiness,
+        offer: {
+          ...readiness.offer,
+          fairMidUsd: locked.fairValueUsd,
+          compCount: locked.sampleSize,
+        },
+      };
+    }
     topComps = (readiness.offer.similarCars ?? []).slice(0, 8);
+    if (locked) {
+      lockedValuationNote = valuationReuseNote(locked);
+    }
   }
 
   const questions = dealerQuestions({
@@ -1095,6 +1151,7 @@ async function buildVinDossier(vin: string, deps: CheckRunDeps, optionalZip?: st
   if (!hasAsk) unknown.unshift("Asking price (no current listing ask for this VIN)");
   if (!hasMiles) unknown.unshift("Mileage (no current listing mileage for this VIN)");
   if (!listingsForVin.length) unknown.push("Current dealer listings for this VIN");
+  if (lockedValuationNote) unknown.push(lockedValuationNote);
 
   const parkIt = bundle.recalls.some((row) => row.parkIt);
   const priced = Boolean(badge && badge.tone !== "unknown" && badge.fairValueUsd != null);

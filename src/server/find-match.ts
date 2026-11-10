@@ -16,11 +16,13 @@ import { admitFindListingForBudget, assessFindListingPrice, type FindListingPric
 import { diversifyListingsByModel } from "@/domain/find-model-observe";
 import { rankFlipCandidates } from "@/domain/flip-rank";
 import { listingWithinNeed, noMatchMessage, searchScopeLabel, validateNeed, type StructuredNeed } from "@/domain/need";
+import { priceCompsUnevenAcrossListings } from "@/domain/find-best-deal";
 import { priceBadge, type PriceBadge } from "@/domain/price-badge";
 import { reconUsd } from "@/domain/recon";
 import type { Listing } from "@/domain/types";
 import { geoScopeFromSearch, rememberComps, type CompGeoScope } from "@/io/comp-cache";
 import type { Kv } from "@/io/kv";
+import { rememberVinDayValuation } from "@/io/vin-day-valuation-store";
 import { assembleRadar, type AssembleDeps } from "@/server/assemble";
 import {
   isServerlessRuntime,
@@ -642,15 +644,31 @@ export async function runFindMatch(
   // One comparable pool across badge + pick/score: use full provider returns for this
   // search (pre-diversify), not only the 24 shown cards, so same-model peers stay honest.
   const compsPool = compsPoolAcc;
+  // Same uneven-comps gate as ranking — when true, card labels must not read as scored GOOD PRICE.
+  const rankingPriceProvisional = priceCompsUnevenAcrossListings(
+    groups.flatMap((group) => group.listings),
+    compsPool,
+  );
   for (const group of groups) {
     group.listings = group.listings.map((item) => {
       const priceView = item.priceView;
       const usable = priceView?.usableForBudget !== false;
+      const badge = usable
+        ? priceBadge(item, compsPool, { rankingPriceProvisional })
+        : priceBadge({ ...item, priceUsd: null }, compsPool, { rankingPriceProvisional });
+      // Remember priced VINs so Check can reuse the same fair value today.
+      if (badge.fairValueUsd != null && badge.sampleSize != null && item.vin && item.vin.length === 17) {
+        void rememberVinDayValuation(deps.kv, {
+          vin: item.vin,
+          fairValueUsd: badge.fairValueUsd,
+          sampleSize: badge.sampleSize,
+          methodNote: badge.sampleNote ?? badge.deltaLabel ?? "Find adjusted similar listings",
+          source: "find",
+        }).catch(() => undefined);
+      }
       return {
         ...item,
-        badge: usable
-          ? priceBadge(item, compsPool)
-          : priceBadge({ ...item, priceUsd: null }, compsPool),
+        badge,
       };
     });
     const coverageInput = {

@@ -125,6 +125,8 @@ export function buildFindPickComputedReport(
     flags: [],
     questions: pick.sellerQuestions.slice(0, 6),
     comps,
+    // Prefer evaluation sampleSize for SERV notes — comps[] may be truncated for display.
+    compSampleSize: evaluation.sampleSize > 0 ? evaluation.sampleSize : comps.length,
     compScope: usedMarket
       ? "Adjusted similar asks from the Find comps pool (same evaluateListingPrice path as cards/Check)"
       : "Adjusted similar asks from this Find shortlist (same evaluateListingPrice path as ranking)",

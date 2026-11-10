@@ -23,7 +23,15 @@ import { verdictFromPriceGap } from "./verdict";
 
 export const NOT_ENOUGH_SIMILAR_CARS = "Not enough similar cars" as const;
 
-export type PriceLabel = "Good price" | "Fair price" | "High price" | typeof NOT_ENOUGH_SIMILAR_CARS;
+export type PriceLabel =
+  | "Good price"
+  | "Fair price"
+  | "High price"
+  /** Ranking held price neutral — card figure must not read as a scored GOOD PRICE. */
+  | "Good price (ranking provisional)"
+  | "Fair price (ranking provisional)"
+  | "High price (ranking provisional)"
+  | typeof NOT_ENOUGH_SIMILAR_CARS;
 
 export type PriceTone = "good" | "fair" | "high" | "unknown";
 
