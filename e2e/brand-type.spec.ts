@@ -67,7 +67,7 @@ test.describe("brand type on chrome", () => {
     mkdirSync(SCREEN_DIR, { recursive: true });
   });
 
-  for (const width of [375, 1280, 1920] as const) {
+  for (const width of [375, 390, 1280, 1920] as const) {
     test(`home hero: BUY SMART above search + content matches header pad @ ${width}`, async ({ page }) => {
       await mockSignedIn(page);
       await page.setViewportSize({ width, height: width < 800 ? 812 : 1080 });
@@ -105,6 +105,29 @@ test.describe("brand type on chrome", () => {
       await page.screenshot({ path: join(SCREEN_DIR, `home-hero-${width}.png`), fullPage: false });
     });
   }
+
+  test("/report/sample tabs and badges use Orbitron brand face", async ({ page }) => {
+    await mockSignedIn(page);
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.goto("/report/sample");
+    await expect(page.getByTestId("site-header")).toBeVisible();
+
+    const toc = page.locator(".report-toc a").first();
+    if ((await toc.count()) > 0) {
+      const tocFamily = await toc.evaluate((el) => getComputedStyle(el).fontFamily);
+      expect(isBrandFace(tocFamily), `report-toc font-family=${tocFamily}`).toBe(true);
+    }
+
+    for (const selector of [".coverage-badge", ".source-status", ".decision summary", ".similar-cars summary"]) {
+      const node = page.locator(selector).first();
+      if ((await node.count()) === 0) continue;
+      if (!(await node.isVisible().catch(() => false))) continue;
+      const family = await node.evaluate((el) => getComputedStyle(el).fontFamily);
+      expect(isBrandFace(family), `${selector} font-family=${family}`).toBe(true);
+    }
+
+    await page.screenshot({ path: join(SCREEN_DIR, "report-sample-1440.png"), fullPage: false });
+  });
 
   for (const path of PAGES) {
     test(`${path} buttons and labels use Orbitron brand face`, async ({ page }) => {

@@ -714,15 +714,16 @@ span.nav-go { cursor: default; }
   flex: 0 0 auto;
   margin-top: 1px;
   padding: 4px 8px;
-  border-radius: 999px;
+  border-radius: 4px;
   border: 1px solid var(--line);
   background: var(--paper);
-  font-family: var(--sans);
-  font-size: 12px;
-  font-weight: 700;
-  letter-spacing: 0.04em;
+  font-family: var(--type-brand);
+  font-weight: var(--type-brand-weight);
+  font-size: max(12px, var(--type-brand-size-nav));
+  letter-spacing: var(--type-brand-tracking);
   text-transform: uppercase;
-  line-height: 1.3;
+  line-height: var(--type-brand-line);
+  color: var(--brand-accent);
 }
 .coverage-badge.low { background: var(--manila); }
 .coverage-badge.medium { background: var(--blue-soft); }
@@ -733,14 +734,15 @@ span.nav-go { cursor: default; }
   display: inline-block;
   padding: 3px 8px;
   border: 1px solid var(--line);
-  border-radius: 999px;
-  font-family: var(--sans);
-  font-size: 11px;
-  font-weight: 800;
-  letter-spacing: 0.04em;
-  line-height: 1.4;
+  border-radius: 4px;
+  font-family: var(--type-brand);
+  font-weight: var(--type-brand-weight);
+  font-size: max(11px, var(--type-brand-size-nav));
+  letter-spacing: var(--type-brand-tracking);
+  line-height: var(--type-brand-line);
   text-transform: uppercase;
   white-space: nowrap;
+  color: var(--brand-accent);
 }
 .source-status.available { background: var(--blue-soft); }
 .source-status.sample, .source-status.partial { background: var(--manila); }
@@ -1336,10 +1338,16 @@ pre.doc {
   background: var(--paper);
   margin: 16px 0;
 }
-.decision summary {
+details.decision > summary,
+.decision > summary {
   cursor: pointer;
-  font-family: var(--sans);
-  font-weight: 700;
+  font-family: var(--type-brand);
+  font-weight: var(--type-brand-weight);
+  font-size: max(14px, var(--type-brand-size-label));
+  letter-spacing: var(--type-brand-tracking);
+  text-transform: uppercase;
+  line-height: var(--type-brand-line);
+  color: var(--brand-accent);
   padding: 14px 16px;
   min-height: 48px;
 }
@@ -1352,10 +1360,16 @@ pre.doc {
   max-width: 100%;
   overflow-wrap: anywhere;
 }
-.similar-cars summary {
+details.similar-cars > summary,
+.similar-cars > summary {
   cursor: pointer;
-  font-family: var(--sans);
-  font-weight: 700;
+  font-family: var(--type-brand);
+  font-weight: var(--type-brand-weight);
+  font-size: max(14px, var(--type-brand-size-label));
+  letter-spacing: var(--type-brand-tracking);
+  text-transform: uppercase;
+  line-height: var(--type-brand-line);
+  color: var(--brand-accent);
   padding: 12px 14px;
   min-height: 48px;
 }
@@ -1387,9 +1401,13 @@ pre.doc {
   display: flex;
   align-items: center;
   cursor: pointer;
-  font-family: var(--sans);
-  font-weight: 700;
-  font-size: 18px;
+  font-family: var(--type-brand);
+  font-weight: var(--type-brand-weight);
+  font-size: max(14px, var(--type-brand-size-label));
+  letter-spacing: var(--type-brand-tracking);
+  text-transform: uppercase;
+  line-height: var(--type-brand-line);
+  color: var(--brand-accent);
 }
 .foot-note {
   color: var(--muted);
@@ -1786,7 +1804,8 @@ pre.doc {
     width: 100%;
     max-width: none;
     gap: 8px;
-    padding-inline: max(10px, var(--site-pad));
+    /* Same pad token as .film-copy / .site-frame — keep header+hero aligned at 390. */
+    padding-inline: var(--site-pad);
   }
   .nav-auth { padding-inline: 8px; font-size: 12px; letter-spacing: 0.02em; }
   .menu-btn { padding-inline: 10px; }
@@ -1824,12 +1843,15 @@ pre.doc {
   min-height: 44px;
   padding: 8px 12px;
   border: 1px solid var(--line);
-  border-radius: 999px;
+  border-radius: 4px;
   background: var(--paper);
-  color: var(--ink);
-  font-family: var(--sans);
-  font-size: 13px;
-  font-weight: 700;
+  color: var(--brand-accent);
+  font-family: var(--type-brand);
+  font-weight: var(--type-brand-weight);
+  font-size: max(13px, var(--type-brand-size-nav));
+  letter-spacing: var(--type-brand-tracking);
+  text-transform: uppercase;
+  line-height: var(--type-brand-line);
   text-decoration: none;
 }
 .report-toc a:hover { border-color: var(--blue); }
