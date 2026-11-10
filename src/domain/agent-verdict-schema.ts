@@ -335,3 +335,15 @@ export function confidenceLabel(level: AgentVerdictConfidence | null): string {
   if (level === "low") return "Low";
   return "Not rated";
 }
+
+const CONF_RANK: Record<AgentVerdictConfidence, number> = { high: 3, medium: 2, low: 1 };
+
+/** Prefer the lower of two confidence labels (screening vs agent). */
+export function moreConservativeConfidence(
+  a: AgentVerdictConfidence | null | undefined,
+  b: AgentVerdictConfidence | null | undefined,
+): AgentVerdictConfidence | null {
+  if (!a) return b ?? null;
+  if (!b) return a;
+  return CONF_RANK[a] <= CONF_RANK[b] ? a : b;
+}

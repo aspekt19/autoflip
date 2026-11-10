@@ -126,6 +126,9 @@ export async function POST(request: Request) {
             .toString("base64url")
             .slice(0, 24)}`;
     freeCheckKey = `free-check:check:${access.id}:${month}:${vinKey}`;
+    // Order: free monthly check first, then report credit.
+    // reserveFreeCheck is preferred whenever a free slot remains; credit only when
+    // the monthly free allotment is exhausted (or this VIN already used its free check).
     const reserved = await reserveFreeCheck(kv, access.id, freeCheckKey);
     if (reserved.ok) {
       usedFreeCheck = true;
@@ -145,10 +148,12 @@ export async function POST(request: Request) {
           error: "credits_required",
           message: checkCreditsNeedMessage(),
           freeChecks: reserved.view,
+          reservedReason: reserved.reason,
         },
         { status: 403 },
       );
     } else {
+      // exhausted or already_completed for this VIN — credit path
       needsCredit = true;
     }
 

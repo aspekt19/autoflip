@@ -48,6 +48,25 @@ export const ROUGH_SPREAD_FRAC = 0.15;
 /** Middle-half width / midpoint above this is too wide to estimate. */
 export const VERY_WIDE_SPREAD_FRAC = 0.25;
 
+/**
+ * Prefer comps whose mileage is near the subject before widening.
+ * A car is "near" when within ±50% of subject miles OR ±25,000 miles (whichever
+ * band includes it). High-mile peers alone can swing a low-mile Civic by $4–6k
+ * and trip the spread gate — band first so a price rating can publish.
+ */
+export const COMP_MILES_BAND_FRAC = 0.5;
+export const COMP_MILES_BAND_ABS = 25_000;
+
+/** True when a comparable's mileage is close enough to use in the first band. */
+export function milesNearSubject(subjectMiles: number, compMiles: number): boolean {
+  if (!Number.isFinite(subjectMiles) || !Number.isFinite(compMiles)) return false;
+  if (subjectMiles < 0 || compMiles < 0) return false;
+  const abs = Math.abs(subjectMiles - compMiles);
+  if (abs <= COMP_MILES_BAND_ABS) return true;
+  const base = Math.max(subjectMiles, 1);
+  return abs / base <= COMP_MILES_BAND_FRAC;
+}
+
 export type RateSource = "search" | "published";
 
 export type MileYearRates = {
@@ -540,9 +559,23 @@ export function adjustComparableSet(input: {
   }
 
   const selected = selectCars(subject, input.pool);
+  const nearMiles = selected.filter(
+    (car) => car.miles != null && milesNearSubject(subject.miles!, car.miles),
+  );
+  // Prefer a mileage band around the subject; widen to the full generation set only when thin.
+  const banded = nearMiles.length >= ASSUMPTIONS.minComps;
+  const working = banded ? nearMiles : selected;
+  const milesBandNote = banded
+    ? `Similar listings were limited to a mileage band around this car (±${Math.round(COMP_MILES_BAND_FRAC * 100)}% or ±${formatNumber(COMP_MILES_BAND_ABS)} miles); ${nearMiles.length} of ${selected.length} generation peers were in-band.`
+    : nearMiles.length > 0
+      ? `Only ${nearMiles.length} similar listing${nearMiles.length === 1 ? " was" : "s were"} in the mileage band around this car, so the window was widened to ${selected.length} generation peers.`
+      : selected.length > 0
+        ? `No similar listings were in the mileage band around this car (±${Math.round(COMP_MILES_BAND_FRAC * 100)}% or ±${formatNumber(COMP_MILES_BAND_ABS)} miles), so the window used ${selected.length} generation peers.`
+        : null;
+
   const subjectTrim = resolveTrim(subject);
   const fitRows: FitRow[] = [];
-  for (const car of selected) {
+  for (const car of working) {
     const price = usableAsking(car);
     if (price == null || car.miles == null) continue;
     fitRows.push({
@@ -560,7 +593,7 @@ export function adjustComparableSet(input: {
   let trimAdjusted = false;
   let anyAccidentUncertain = unknownAccident;
 
-  const cars: AdjustedCar[] = selected.map((car) => {
+  const cars: AdjustedCar[] = working.map((car) => {
     const asking = usableAsking(car)!;
     const miles = car.miles!;
     const compTrim = resolveTrim(car);
@@ -640,6 +673,9 @@ export function adjustComparableSet(input: {
   const low = percentileValue(prices, 25);
   const high = percentileValue(prices, 75);
   let methodNote = methodSentence(rates, trimAdjusted);
+  if (milesBandNote) {
+    methodNote = `${milesBandNote} ${methodNote}`;
+  }
   if (subjectTrim.fromDecoder) {
     methodNote = `This car's trim came from the government VIN decoder. ${methodNote}`;
   }

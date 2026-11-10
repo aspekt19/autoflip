@@ -487,7 +487,8 @@ export const PROFILES = {
     reason: "Independent review of the same facts. Strict JSON so software can ignore invented claims.",
     feature: "none",
     tools: ["prompt_guard"],
-    timeoutMs: 14_000,
+    // 22s — 14s was too tight for challenge JSON under load (empty/timeout → "did not finish").
+    timeoutMs: 22_000,
     fallback: "ignored_malformed",
     system: [
       "You are an independent challenger of a Lemonless shopper verdict. You did not choose the first action.",

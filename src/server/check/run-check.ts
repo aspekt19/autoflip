@@ -437,6 +437,7 @@ async function attachCheckShopperServ(input: {
     servBaseUrl: input.deps.servBaseUrl,
     model: input.deps.servModel,
     fetchImpl: input.deps.fetch ?? fetch,
+    screeningConfidence: input.codeTrail.confidence,
   });
 
   if (shopper.decision.gateRun.withheld) {
@@ -1011,10 +1012,10 @@ async function buildVinDossier(vin: string, deps: CheckRunDeps, optionalZip?: st
 
   const askLine = hasAsk
     ? feed?.dealer
-      ? `Listed price from data feed: $${subject.priceUsd!.toLocaleString("en-US")} at ${feed.dealer}${
+      ? `Ask $${subject.priceUsd!.toLocaleString("en-US")} at ${feed.dealer}${
           feed.city || feed.state ? ` (${[feed.city, feed.state].filter(Boolean).join(", ")})` : ""
-        } — used for price rating.`
-      : `Listed price from data feed: $${subject.priceUsd!.toLocaleString("en-US")} — used for price rating.`
+        } (from data feed listing) — used for price rating.`
+      : `Ask $${subject.priceUsd!.toLocaleString("en-US")} (from data feed listing) — used for price rating.`
     : "No current listing ask for this VIN, so this car is not price-rated.";
 
   const summary = [

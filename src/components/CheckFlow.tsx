@@ -7,6 +7,7 @@ import { AgentDecisionTrail } from "@/components/AgentDecisionTrail";
 import { SignInGate } from "@/components/SignInGate";
 import { PriceBadgeView, PriceRatingHow } from "@/components/PriceBadge";
 import { SimilarCarsList } from "@/components/SimilarCarsList";
+import { confidenceLabel } from "@/domain/agent-verdict-schema";
 import {
   formatFreeChecksRemaining,
   freeChecksRemainingFromAccount,
@@ -92,9 +93,9 @@ function sourceLabel(source: string | null): string {
   if (source === "meta") return "meta tag";
   if (source === "url") return "URL";
   if (source === "vin_decode") return "VIN decoder";
-  if (source === "listing_feed") return "listing feed";
-  if (source === "feed_only" || source === "listed price from data feed") {
-    return "listed price from data feed";
+  // Per-field label — miles/seller/price from Auto.dev all share this wording.
+  if (source === "listing_feed" || source === "feed_only" || source === "listed price from data feed") {
+    return "from data feed listing";
   }
   return source;
 }
@@ -335,8 +336,9 @@ function CheckFlowForm() {
             creditCharged: false,
             focusVin: body.focusVin === true,
           });
+          // Keep the "By listing link" tab — do not silently switch to VIN.
+          // Paste / Enter VIN stay available inline in the recovery panel.
           if (body.focusVin === true) {
-            setKind("vin");
             setFocusVinPending(true);
           }
         }
@@ -551,6 +553,11 @@ function CheckResultCard({ result }: { result: CheckResultView }) {
   const stopFlags = result.redFlags.filter((flag) => flag.level === "stop");
   const sold = result.redFlags.some((flag) => flag.id === "sold");
   const similarCars = result.similarCars ?? [];
+  // Single source of truth with the trail: prefer agentVerdict when present.
+  const confidenceDisplay =
+    result.agentVerdict?.confidence != null
+      ? confidenceLabel(result.agentVerdict.confidence)
+      : result.confidence;
   return (
     <article className="warn-box check-result" aria-live="polite">
       <p className="kicker">{result.kind === "vin_dossier" ? "VIN dossier" : "Listing check"}</p>
@@ -558,7 +565,7 @@ function CheckResultCard({ result }: { result: CheckResultView }) {
       <p className="lead">
         <strong>{sold ? "Pass — listing marked SOLD" : result.verdictLabel}</strong>
         {" · "}
-        Confidence: {result.confidence}
+        Confidence: {confidenceDisplay}
       </p>
       {result.confidenceWhy ? <p className="hint">{result.confidenceWhy}</p> : null}
       {sold && result.badge?.deltaLabel ? (
@@ -615,7 +622,9 @@ function CheckResultCard({ result }: { result: CheckResultView }) {
               Walk-away: <strong>{formatUsd(result.walkAwayUsd)}</strong>
             </p>
           ) : null}
-          {similarCars.length > 0 ? <SimilarCarsList cars={similarCars} open /> : null}
+          {similarCars.length > 0 ? (
+            <SimilarCarsList cars={similarCars} open totalUsed={result.compCount ?? similarCars.length} />
+          ) : null}
         </section>
       ) : null}
 
