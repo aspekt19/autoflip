@@ -47,6 +47,8 @@ import { extractFromListingUrl, extractFromPastedText, type ListingExtractDeps }
 import { getKv, type Kv } from "@/io/kv";
 import { isServerlessRuntime, requireSharedQuotaForPaidDispatch } from "@/server/paid-dispatch-guard";
 import { GENERATION_YEAR_WINDOW } from "@/domain/adjusted-comparables";
+import { ASSUMPTIONS } from "@/domain/assumptions";
+import { autoDevMake, autoDevModel } from "@/domain/vehicle-names";
 import { odometerCaution } from "@/domain/odometer";
 
 export type CheckRunInput =
@@ -74,6 +76,8 @@ export type CheckResultPayload = {
   verdict: CheckVerdictLabel;
   verdictLabel: string;
   confidence: CheckConfidence;
+  /** What the confidence label covers (verdict scope — not a silent “High”). */
+  confidenceWhy?: string | null;
   summary: string;
   badge: PriceBadge | null;
   fairValueUsd: number | null;
@@ -183,39 +187,71 @@ async function searchComps(input: {
   if (!gate.ok) {
     return { listings: [], scope: "Listings quota backend unavailable", sample: false };
   }
+  const make = autoDevMake(input.make);
+  const model = autoDevModel(input.model);
   const zip = input.zip?.replace(/\D/g, "").slice(0, 5) || undefined;
   const yearMin = Math.max(1981, input.year - GENERATION_YEAR_WINDOW);
-  const yearMax = input.year + GENERATION_YEAR_WINDOW;
-  const search = await autodevSearch(
-    {
-      make: input.make,
-      model: input.model,
-      yearRange: `${yearMin}-${yearMax}`,
-      zip,
-      distanceMiles: zip ? 100 : undefined,
-      limit: 24,
-    },
-    {
-      fetch: input.fetchImpl,
-      cache: input.deps.autodev.cache,
-      counter: input.deps.autodev.counter,
-      apiKey: input.deps.autodevKey,
-      now: input.deps.now,
-      reserve: input.deps.autodev.reserve,
-      signal: input.deps.autodev.signal,
-      timeoutMs: input.deps.autodev.timeoutMs,
-    },
-  );
-  if (!search.ok) {
-    return { listings: [], scope: search.message, sample: false };
-  }
-  return {
-    listings: search.listings,
-    scope: zip
-      ? `Same ${input.make} ${input.model}, within ${GENERATION_YEAR_WINDOW} model years, near ZIP ${zip}`
-      : `Same ${input.make} ${input.model}, within ${GENERATION_YEAR_WINDOW} model years`,
-    sample: false,
+  const yearMax = Math.min(new Date().getUTCFullYear() + 1, input.year + GENERATION_YEAR_WINDOW);
+  const yearRange = `${yearMin}-${yearMax}`;
+  const deps = {
+    fetch: input.fetchImpl,
+    cache: input.deps.autodev.cache,
+    counter: input.deps.autodev.counter,
+    apiKey: input.deps.autodevKey,
+    now: input.deps.now,
+    reserve: input.deps.autodev.reserve,
+    signal: input.deps.autodev.signal,
+    timeoutMs: input.deps.autodev.timeoutMs,
   };
+
+  // Prefer a wide local radius (same window as Resale). Fall back nationwide when thin.
+  const local = zip
+    ? await autodevSearch(
+        {
+          make,
+          model,
+          yearRange,
+          zip,
+          distanceMiles: 500,
+          limit: 24,
+          used: true,
+        },
+        deps,
+      )
+    : null;
+
+  let listings = local?.ok ? local.listings : [];
+  let scope = zip
+    ? `Same ${make} ${model}, within ${GENERATION_YEAR_WINDOW} model years, within 500 miles of ZIP ${zip}`
+    : `Same ${make} ${model}, within ${GENERATION_YEAR_WINDOW} model years (nationwide)`;
+
+  const pricedPeers = listings.filter((row) => row.priceUsd != null && row.miles != null).length;
+  if (!zip || pricedPeers < ASSUMPTIONS.minComps) {
+    const nationwide = await autodevSearch(
+      {
+        make,
+        model,
+        yearRange,
+        limit: 24,
+        used: true,
+      },
+      deps,
+    );
+    if (nationwide.ok && nationwide.listings.length > listings.length) {
+      listings = nationwide.listings;
+      scope = `Same ${make} ${model}, within ${GENERATION_YEAR_WINDOW} model years (nationwide — local inventory was thin)`;
+    } else if (!zip && nationwide.ok) {
+      listings = nationwide.listings;
+    } else if (!local?.ok && !nationwide.ok) {
+      return {
+        listings: [],
+        scope: nationwide.message || local?.message || "Listings search failed",
+        sample: false,
+      };
+    }
+  }
+
+  return { listings, scope, sample: false };
 }
 
 async function govBundle(
@@ -335,16 +371,16 @@ async function attachCheckShopperServ(input: {
   });
 
   if (shopper.decision.gateRun.withheld) {
+    const why =
+      shopper.decision.withholdReason?.trim() ||
+      "Not enough priced evidence (ask, miles, or similar cars) for an agent buy/negotiate/pass call.";
     return {
       agentVerdict: emptyAgentVerdict({
         ...input.codeTrail,
-        unknowns: [
-          ...input.codeTrail.unknowns,
-          shopper.decision.withholdReason ?? "Verdict withheld by ordered gates.",
-        ].slice(0, 8),
+        unknowns: [...input.codeTrail.unknowns, why].slice(0, 8),
         serv_spend: {
           calls: 0,
-          costNote: "Ordered gates withheld the agent verdict — no agent spend.",
+          costNote: `No agent verdict — ${why}`,
         },
         no_serv_step: true,
       }),
@@ -592,14 +628,22 @@ async function buildListingVerdict(
     badge.fairValueUsd != null && subject.priceUsd != null && badge.fairValueUsd > 0
       ? (subject.priceUsd - badge.fairValueUsd) / badge.fairValueUsd
       : null;
+  const listingConfidenceWhy =
+    badge.tone !== "unknown" && (badge.sampleSize ?? 0) > 0
+      ? `Verdict confidence from ${badge.sampleSize} similar listings plus listing and public-record evidence.`
+      : subject.priceUsd != null
+        ? "Verdict confidence is limited — an ask was found but similar listings were too thin for a firm price rating."
+        : "Covers listing and public-record screening only — not a price rating (no asking price).";
   const codeTrail = buildCheckAgentVerdict({
     kind: "listing",
     title: `${subject.year} ${subject.make} ${subject.model}`,
     verdictLabel: decided.label,
     confidence,
+    confidenceWhy: listingConfidenceWhy,
     summary,
     compCount: badge.sampleSize ?? 0,
     fairValueUsd: badge.fairValueUsd,
+    hasAsk: subject.priceUsd != null,
     recallsAvailable: gov.recallsAvailable,
     recallCount: gov.recalls.length,
     complaintCount: gov.complaintCount,
@@ -638,6 +682,7 @@ async function buildListingVerdict(
       verdict: decided.verdict,
       verdictLabel: decided.label,
       confidence,
+      confidenceWhy: listingConfidenceWhy,
       summary,
       badge,
       fairValueUsd,
@@ -741,15 +786,25 @@ async function buildVinDossier(vin: string, deps: CheckRunDeps, optionalZip?: st
     if (byVin.ok) listingsForVin = byVin.listings;
   }
 
-  const subject = listingsForVin[0]
+  const feed = listingsForVin[0] ?? null;
+  let subject: Listing = feed
     ? {
-        ...listingsForVin[0],
-        // Prefer decode identity when feed is thin
-        year: listingsForVin[0].year || stub.year,
-        make: listingsForVin[0].make || stub.make,
-        model: listingsForVin[0].model || stub.model,
+        ...feed,
+        year: feed.year || stub.year,
+        make: feed.make || stub.make,
+        model: feed.model || stub.model,
+        trim: feed.trim ?? stub.trim,
+        // Prefer typed ZIP when the feed has none.
+        zip: stub.zip || feed.zip,
+        // Current listing for this VIN is a purchase ask when priced.
+        askingPriceKind: feed.priceUsd != null ? "purchase_ask" : feed.askingPriceKind ?? null,
+        askingPriceProvenance: feed.priceUsd != null ? "seller_page_labeled" : feed.askingPriceProvenance ?? null,
+        askingPriceSellerPageAccess: feed.vdp ? "obtained" : feed.askingPriceSellerPageAccess ?? null,
       }
     : stub;
+
+  const hasAsk = subject.priceUsd != null && subject.priceUsd > 0;
+  const hasMiles = subject.miles != null && subject.miles >= 0;
 
   const bundle = await govBundle(vin, subject, gov);
   const knownIssues = knownModelYearIssues({
@@ -759,43 +814,6 @@ async function buildVinDossier(vin: string, deps: CheckRunDeps, optionalZip?: st
     complaintCount: bundle.complaintCount,
     recallCount: bundle.recallsAvailable ? bundle.recalls.length : null,
   });
-
-  const questions = dealerQuestions({
-    listing: subject,
-    recalls: bundle.recalls,
-    parkIt: bundle.recalls.some((r) => r.parkIt),
-    parkOutside: bundle.recalls.some((r) => r.parkOutSide),
-    historyMissing: true,
-  });
-
-  const unknown = [
-    "Asking price (not provided on a VIN-only check)",
-    "Mileage (not provided on a VIN-only check)",
-    "Paid vehicle history (Carfax/AutoCheck/NMVTIS) was not run",
-    "Title brand status from a paid report",
-  ];
-  if (!listingsForVin.length) unknown.push("Current dealer listings for this VIN");
-
-  const safetyKnown = bundle.safetySummary != null && !/unavailable/i.test(bundle.safetySummary);
-  const recordCount = [bundle.recallsAvailable, bundle.complaintCount != null, safetyKnown].filter(Boolean).length;
-  const confidence: CheckConfidence = recordCount >= 3 ? "High" : recordCount >= 1 ? "Medium" : "Low";
-  const parkIt = bundle.recalls.some((row) => row.parkIt);
-
-  const summary = [
-    `VIN dossier for ${subject.year} ${subject.make} ${subject.model}.`,
-    parkIt
-      ? "A model-year park-it campaign is on file. Do not treat this VIN as cleared to drive until applicability and repair are confirmed."
-      : bundle.recallsAvailable
-        ? bundle.recalls.length === 0
-          ? "No recall campaigns were listed for this model year. That is not a VIN-specific repair check."
-          : `${bundle.recalls.length} model-year recall campaign${bundle.recalls.length === 1 ? "" : "s"} are on file. Repair status for this exact VIN is still unknown.`
-        : "Recall campaigns could not be checked.",
-    "There is no asking price on a VIN-only check, so this car is not price-rated.",
-    listingsForVin.length
-      ? `Found ${listingsForVin.length} current listing${listingsForVin.length === 1 ? "" : "s"} for this VIN.`
-      : "No current dealer listing for this VIN was returned.",
-    "This uses free government records only, not a paid history report.",
-  ].join(" ");
 
   const redFlags: CheckRedFlag[] = bundle.recalls.some((r) => r.parkIt)
     ? [
@@ -807,14 +825,156 @@ async function buildVinDossier(vin: string, deps: CheckRunDeps, optionalZip?: st
         },
       ]
     : [];
+
+  let badge: PriceBadge | null = null;
+  let compsScope = hasAsk
+    ? "Looking up similar listings for this VIN’s current ask"
+    : "VIN check has no asking price yet — price rating needs a current listing ask";
+  let compsSample = false;
+  let pool: Listing[] = feed ? [subject] : [];
+  let readiness: PurchaseReadiness | null = null;
+  let topComps: SimilarCarView[] = [];
+
+  if (hasAsk && hasMiles) {
+    const zip = subject.zip?.replace(/\D/g, "").slice(0, 5) || null;
+    const comps = await searchComps({
+      make: subject.make,
+      model: subject.model,
+      year: subject.year,
+      zip,
+      deps,
+      fetchImpl,
+    });
+    compsScope = comps.scope;
+    compsSample = comps.sample;
+    pool =
+      comps.listings.length > 0
+        ? comps.listings.some((row) => row.vin === subject.vin)
+          ? comps.listings
+          : [subject, ...comps.listings]
+        : [subject];
+    badge = priceBadge(subject, pool, { decodedTrim: decode.trim ?? subject.trim });
+    const zipPick = zipChoice(null, zip);
+    readiness = buildPurchaseReadiness({
+      car: {
+        vin: subject.vin,
+        year: subject.year,
+        make: subject.make,
+        model: subject.model,
+        trim: subject.trim,
+        priceUsd: subject.priceUsd!,
+        miles: subject.miles,
+        accidentCount: subject.accidentCount,
+        askingPriceKind: subject.askingPriceKind ?? "purchase_ask",
+        zip: zipPick.zip,
+        sourceUrl: subject.vdp,
+      },
+      pool: pool.map((row) => ({
+        vin: row.vin,
+        year: row.year,
+        make: row.make,
+        model: row.model,
+        trim: row.trim,
+        priceUsd: row.priceUsd,
+        miles: row.miles,
+        accidentCount: row.accidentCount,
+        askingPriceKind: row.askingPriceKind ?? "purchase_ask",
+        zip: row.zip,
+        sourceUrl: row.vdp,
+      })),
+      zip: zipPick.zip,
+      zipUsedFor: zipPick.zipUsedFor,
+      now: deps.now ?? new Date(),
+      recallCampaignCount: bundle.recallsAvailable ? bundle.recalls.length : null,
+    });
+    topComps = (readiness.offer.similarCars ?? []).slice(0, 8);
+  }
+
+  const questions = dealerQuestions({
+    listing: subject,
+    recalls: bundle.recalls,
+    parkIt: bundle.recalls.some((r) => r.parkIt),
+    parkOutside: bundle.recalls.some((r) => r.parkOutSide),
+    historyMissing: subject.accidentCount === null || subject.ownerCount === null,
+  });
+
+  const unknown: string[] = [
+    "Paid vehicle history (Carfax/AutoCheck/NMVTIS) was not run",
+    "Title brand status from a paid report",
+  ];
+  if (!hasAsk) unknown.unshift("Asking price (no current listing ask for this VIN)");
+  if (!hasMiles) unknown.unshift("Mileage (no current listing mileage for this VIN)");
+  if (!listingsForVin.length) unknown.push("Current dealer listings for this VIN");
+
+  const parkIt = bundle.recalls.some((row) => row.parkIt);
+  const priced = Boolean(badge && badge.tone !== "unknown" && badge.fairValueUsd != null);
+  const decided = hasAsk
+    ? verdictFromBadge(badge, redFlags)
+    : { verdict: "dossier" as const, label: "VIN dossier (free sources)" };
+
+  // Confidence describes the screening verdict — not “gov records alone while unpriced = High”.
+  let confidence: CheckConfidence;
+  let confidenceWhy: string;
+  if (priced) {
+    const comps = badge?.sampleSize ?? 0;
+    confidence = comps >= 8 ? "High" : comps >= ASSUMPTIONS.minComps ? "Medium" : "Low";
+    confidenceWhy = `Verdict confidence from ${comps} similar listings plus public records (not a paid history report).`;
+  } else if (hasAsk) {
+    confidence = "Low";
+    confidenceWhy =
+      "Verdict confidence is low: an asking price was found, but similar listings were too thin for a price rating.";
+  } else {
+    const safetyKnown = bundle.safetySummary != null && !/unavailable/i.test(bundle.safetySummary);
+    const recordCount = [bundle.recallsAvailable, bundle.complaintCount != null, safetyKnown].filter(Boolean).length;
+    confidence = recordCount >= 2 ? "Medium" : "Low";
+    confidenceWhy =
+      "Covers public-record identity and safety only — not a buy/negotiate/pass or price rating (no asking price).";
+  }
+
+  const askLine = hasAsk
+    ? feed?.dealer
+      ? `Current listing ask $${subject.priceUsd!.toLocaleString("en-US")} at ${feed.dealer}${
+          feed.city || feed.state ? ` (${[feed.city, feed.state].filter(Boolean).join(", ")})` : ""
+        } — used for price rating.`
+      : `Current listing ask $${subject.priceUsd!.toLocaleString("en-US")} — used for price rating.`
+    : "No current listing ask for this VIN, so this car is not price-rated.";
+
+  const summary = [
+    `VIN dossier for ${subject.year} ${subject.make} ${subject.model}${subject.trim ? ` ${subject.trim}` : ""}.`,
+    parkIt
+      ? "A model-year park-it campaign is on file. Do not treat this VIN as cleared to drive until applicability and repair are confirmed."
+      : bundle.recallsAvailable
+        ? bundle.recalls.length === 0
+          ? "No recall campaigns were listed for this model year. That is not a VIN-specific repair check."
+          : `${bundle.recalls.length} model-year recall campaign${bundle.recalls.length === 1 ? "" : "s"} are on file. Repair status for this exact VIN is still unknown.`
+        : "Recall campaigns could not be checked.",
+    askLine,
+    priced ? badge?.deltaLabel ?? null : hasAsk ? "Similar listings were too thin to publish a fair value." : null,
+    listingsForVin.length
+      ? `Found ${listingsForVin.length} current listing${listingsForVin.length === 1 ? "" : "s"} for this VIN.`
+      : "No current dealer listing for this VIN was returned.",
+    "This is not a paid history report.",
+  ]
+    .filter((part): part is string => Boolean(part))
+    .join(" ");
+
+  const fairValueUsd = badge?.fairValueUsd ?? readiness?.offer.fairMidUsd ?? null;
+  const priceGap =
+    fairValueUsd != null && subject.priceUsd != null && fairValueUsd > 0
+      ? (subject.priceUsd - fairValueUsd) / fairValueUsd
+      : null;
+  const compCount = badge?.sampleSize ?? readiness?.offer.compCount ?? 0;
+
   const codeTrail = buildCheckAgentVerdict({
     kind: "vin_dossier",
     title: `${subject.year} ${subject.make} ${subject.model}`,
-    verdictLabel: "VIN dossier (free sources)",
+    verdictLabel: decided.label,
     confidence,
+    confidenceWhy,
     summary,
-    compCount: 0,
-    fairValueUsd: null,
+    compCount,
+    fairValueUsd,
+    hasAsk,
     recallsAvailable: bundle.recallsAvailable,
     recallCount: bundle.recalls.length,
     complaintCount: bundle.complaintCount,
@@ -822,17 +982,18 @@ async function buildVinDossier(vin: string, deps: CheckRunDeps, optionalZip?: st
     redFlagCount: redFlags.length,
     unknown,
   });
-  // VIN-only has no ask/miles → ordered gates withhold; no invented SERV trail.
+
+  // When ask + miles + comps exist, OpenServ decide+challenge runs (same gates as listing Check).
   const shopper = await attachCheckShopperServ({
     codeTrail,
     subject,
-    verdict: "dossier",
-    badge: null,
-    fairValueUsd: null,
-    priceGap: null,
+    verdict: decided.verdict,
+    badge,
+    fairValueUsd,
+    priceGap,
     redFlags,
     questions,
-    similarCars: [],
+    similarCars: topComps,
     recalls: bundle.recalls,
     recallsAvailable: bundle.recallsAvailable,
     complaintCount: bundle.complaintCount,
@@ -840,40 +1001,60 @@ async function buildVinDossier(vin: string, deps: CheckRunDeps, optionalZip?: st
     vinDecode: bundle.vinDecode ?? decode,
     summary,
     unknown,
-    sample: false,
-    compScope: "VIN dossier does not rate price without an asking price",
+    sample: compsSample,
+    compScope: compsScope,
     userLookup: vin,
     deps,
   });
+
+  const provenance: FieldProvenanceRow[] = [
+    { field: "vin", value: vin, source: "typed VIN" },
+    { field: "year", value: subject.year, source: "government VIN decoder" },
+    { field: "make", value: subject.make, source: "government VIN decoder" },
+    { field: "model", value: subject.model, source: "government VIN decoder" },
+  ];
+  if (hasAsk) {
+    provenance.push({
+      field: "priceUsd",
+      value: subject.priceUsd,
+      source: "current listing for this VIN",
+    });
+  }
+  if (hasMiles) {
+    provenance.push({
+      field: "miles",
+      value: subject.miles,
+      source: "current listing for this VIN",
+    });
+  }
+  if (feed?.dealer) {
+    provenance.push({ field: "sellerName", value: feed.dealer, source: "current listing for this VIN" });
+  }
 
   return {
     ok: true,
     result: {
       kind: "vin_dossier",
       title: `${subject.year} ${subject.make} ${subject.model}`,
-      verdict: "dossier",
-      verdictLabel: "VIN dossier (free sources)",
+      verdict: decided.verdict,
+      verdictLabel: decided.label,
       confidence,
+      confidenceWhy,
       summary,
-      badge: null,
-      fairValueUsd: null,
-      priceGap: null,
-      compCount: 0,
-      compScope: "VIN dossier does not rate price without an asking price",
+      badge,
+      fairValueUsd,
+      priceGap,
+      compCount,
+      compScope: compsScope,
       redFlags,
       questions,
-      otd: null,
-      otdNeedsZip: false,
-      walkAwayUsd: null,
-      walkAwayLabel: null,
-      similarCars: [],
+      otd: readiness?.otd ?? null,
+      otdNeedsZip: hasAsk && !subject.zip,
+      walkAwayUsd: readiness?.offer.walkAwayUsd ?? null,
+      walkAwayLabel: readiness?.offer.walkAwayLabel ?? null,
+      similarCars: topComps,
       fields: null,
-      provenance: [
-        { field: "vin", value: vin, source: "typed VIN" },
-        { field: "year", value: subject.year, source: "government VIN decoder" },
-        { field: "make", value: subject.make, source: "government VIN decoder" },
-        { field: "model", value: subject.model, source: "government VIN decoder" },
-      ],
+      provenance,
       vin,
       vinDecode: bundle.vinDecode ?? decode,
       recalls: bundle.recalls,
@@ -895,7 +1076,7 @@ async function buildVinDossier(vin: string, deps: CheckRunDeps, optionalZip?: st
       agentVerdict: shopper.agentVerdict,
       servTrace: shopper.servTrace,
       llmUsed: false,
-      sample: false,
+      sample: compsSample,
     },
   };
 }
