@@ -538,12 +538,18 @@ export async function runResaleSettleServ(input: {
   phase?: ResaleSettlePhase;
   /** Prior phase snapshot — required for pick_challenge / shopper phases. */
   checkpoint?: ResaleSettleCheckpoint | null;
+  /**
+   * SERV HTTP calls already counted on the plan journal (or other prior phase).
+   * Global Resale cap is priorServCalls + settle journal.servCalls.
+   */
+  priorServCalls?: number;
 }): Promise<ResaleSettleServResult> {
   const recordedAt = new Date().toISOString();
   const phase: ResaleSettlePhase = input.phase ?? "all";
   const stepped = phase !== "all";
   const fetchImpl = input.fetchImpl ?? fetch;
   const deadline = input.deadline;
+  const priorServCalls = Math.max(0, Math.floor(input.priorServCalls ?? 0));
 
   /** Stepped jobs: only skip SERV when the per-step deadline is truly expired. */
   const stageOk = (needMs: number, timeoutMs: number | null): boolean => {
@@ -552,6 +558,17 @@ export async function runResaleSettleServ(input: {
     if (stepped) return !deadline.expired();
     return deadline.allow(needMs);
   };
+  /** True when another settle SERV HTTP call fits under the global Resale cap. */
+  const hasServSlot = (journal: ResaleDecisionJournal): boolean =>
+    priorServCalls + journal.servCalls < journal.servCallCap;
+  const totalServCalls = (journal: ResaleDecisionJournal): number =>
+    priorServCalls + journal.servCalls;
+  const remainingServSlots = (journal: ResaleDecisionJournal): number =>
+    Math.max(0, journal.servCallCap - totalServCalls(journal));
+  const callCapSkipLine = (journal: ResaleDecisionJournal): string =>
+    `call cap reached (${totalServCalls(journal)}/${journal.servCallCap})`;
+  const callCapSkipWhy = (journal: ResaleDecisionJournal): string =>
+    `plan ${priorServCalls} + settle ${journal.servCalls} = ${journal.servCallCap}`;
 
   const resumeFrom =
     input.checkpoint &&
@@ -701,7 +718,7 @@ export async function runResaleSettleServ(input: {
     : profile("resale_triage").timeoutMs;
   if (
     input.servKey?.trim() &&
-    journal.servCalls < journal.servCallCap &&
+    hasServSlot(journal) &&
     triageTimeoutMs != null &&
     stageOk(RESALE_STAGE_BUDGET_MS.triage, triageTimeoutMs)
   ) {
@@ -752,7 +769,7 @@ export async function runResaleSettleServ(input: {
           timeoutMs: triageTimeoutMs,
         },
         deadline,
-        canRetry: journal.servCalls + 1 < journal.servCallCap,
+        canRetry: remainingServSlots(journal) > 1,
         validatePayload: (payload, result) => {
           const deep = stringArrayField(payload, "deepCheckVins").map(normalizeVin);
           const skip = stringArrayField(payload, "skipVins").map(normalizeVin);
@@ -1030,7 +1047,7 @@ export async function runResaleSettleServ(input: {
   if (
     runPick &&
     input.servKey?.trim() &&
-    journal.servCalls < journal.servCallCap &&
+    hasServSlot(journal) &&
     pickTimeoutMs != null &&
     stageOk(RESALE_STAGE_BUDGET_MS.pick, pickTimeoutMs)
   ) {
@@ -1078,7 +1095,7 @@ export async function runResaleSettleServ(input: {
           timeoutMs: pickTimeoutMs,
         },
         deadline,
-        canRetry: journal.servCalls + 1 < journal.servCallCap,
+        canRetry: remainingServSlots(journal) > 1,
         validatePayload: (payload, result) => {
           const pickVinRaw = typeof payload?.pickVin === "string" ? normalizeVin(payload.pickVin) : null;
           const note = typeof payload?.note === "string" ? payload.note : "";
@@ -1202,7 +1219,7 @@ export async function runResaleSettleServ(input: {
   if (
     runPick &&
     input.servKey?.trim() &&
-    journal.servCalls < journal.servCallCap &&
+    hasServSlot(journal) &&
     deadline &&
     !stageOk(RESALE_STAGE_BUDGET_MS.pick, pickTimeoutMs) &&
     !journal.steps.some((s) => s.kind === "pick" && s.actor === "SERV")
@@ -1276,7 +1293,7 @@ export async function runResaleSettleServ(input: {
   if (
     runChallenge &&
     input.servKey?.trim() &&
-    journal.servCalls < journal.servCallCap &&
+    hasServSlot(journal) &&
     challengeTimeoutMs != null &&
     stageOk(RESALE_STAGE_BUDGET_MS.challenge, challengeTimeoutMs)
   ) {
@@ -1325,7 +1342,7 @@ export async function runResaleSettleServ(input: {
           model: input.model,
         },
         deadline,
-        canRetry: journal.servCalls + 1 < journal.servCallCap,
+        canRetry: remainingServSlots(journal) > 1,
         validatePayload: (payload, result) => {
           const pickVinRaw = typeof payload?.pickVin === "string" ? normalizeVin(payload.pickVin) : null;
           const objection = typeof payload?.objection === "string" ? payload.objection : null;
@@ -1491,7 +1508,7 @@ export async function runResaleSettleServ(input: {
   if (
     runChallenge &&
     input.servKey?.trim() &&
-    journal.servCalls < journal.servCallCap &&
+    hasServSlot(journal) &&
     deadline &&
     !stageOk(RESALE_STAGE_BUDGET_MS.challenge, challengeTimeoutMs) &&
     secondPass.status === "not_run"
@@ -1591,10 +1608,10 @@ export async function runResaleSettleServ(input: {
         "Verdict decide skipped: SERV not configured",
         "SERV_API_KEY is not configured — pick/challenge stand without shopper decide.",
       );
-    } else if (journal.servCalls >= journal.servCallCap) {
+    } else if (!hasServSlot(journal)) {
       skipShopper(
-        `Verdict decide skipped: SERV call cap reached (${journal.servCalls}/${journal.servCallCap})`,
-        "Pick/challenge already used the Resale SERV call budget for this run.",
+        `Verdict decide skipped: ${callCapSkipLine(journal)}`,
+        callCapSkipWhy(journal),
       );
     } else if (shopperTimeoutDecide == null || !stageOk(RESALE_STAGE_BUDGET_MS.shopper, shopperTimeoutDecide)) {
       skipShopper(
@@ -1603,6 +1620,7 @@ export async function runResaleSettleServ(input: {
       );
     } else {
       const report = buildFlipReport(best, input.budgetUsd, ranked);
+      const shopperSlots = remainingServSlots(journal);
       const shopper = await runShopperVerdictServ({
         report,
         mandate: {
@@ -1616,6 +1634,7 @@ export async function runResaleSettleServ(input: {
         fetchImpl,
         deadline,
         decideTimeoutMs: shopperTimeoutDecide,
+        maxAdditionalServCalls: shopperSlots,
       });
       if (shopper.trace && shopper.trace.calls.length > 0) {
         ranDecide = true;
@@ -1698,24 +1717,28 @@ export async function runResaleSettleServ(input: {
           "no SERV trace recorded";
         skipShopper(`Verdict decide skipped: ${detail}`, "Shopper decide did not record a SERV call.");
       }
-      if (
-        shopper.steps.some((s) => s.id === "serv_verdict_challenge" && s.status === "skipped_time_budget") ||
-        shopper.agentVerdict.second_pass?.objection === RESALE_TIME_BUDGET_SKIP
-      ) {
-        skipShopper(
-          `Verdict challenge skipped: ${RESALE_TIME_BUDGET_SKIP}`,
-          `Wall-clock budget remaining ${deadline?.remainingMs() ?? 0}ms after decide — shopper challenge skipped.`,
-        );
-      } else if (
-        shopper.trace &&
-        !shopper.trace.calls.some((call) => call.profile === "verdict_challenge") &&
-        shopper.steps.some((s) => s.id === "serv_verdict_challenge" && s.status !== "ok")
-      ) {
-        const step = shopper.steps.find((s) => s.id === "serv_verdict_challenge");
-        skipShopper(
-          `Verdict challenge skipped: ${step?.status ?? "not_run"}`,
-          step?.detail ?? "Shopper challenge was not run after decide.",
-        );
+      const challengeStep = shopper.steps.find((s) => s.id === "serv_verdict_challenge");
+      const challengeCallRan = Boolean(
+        shopper.trace?.calls.some((call) => call.profile === "verdict_challenge"),
+      );
+      if (!challengeCallRan && challengeStep && challengeStep.status !== "ok") {
+        const reason =
+          challengeStep.detail?.trim() ||
+          challengeStep.status ||
+          "Shopper challenge was not run after decide.";
+        if (challengeStep.status === "skipped_time_budget" || reason === RESALE_TIME_BUDGET_SKIP) {
+          skipShopper(
+            `Verdict challenge skipped: ${RESALE_TIME_BUDGET_SKIP}`,
+            `Wall-clock budget remaining ${deadline?.remainingMs() ?? 0}ms after decide — shopper challenge skipped.`,
+          );
+        } else if (challengeStep.status === "skipped_call_cap") {
+          skipShopper(
+            `Verdict challenge skipped: ${callCapSkipLine(journal)}`,
+            `${callCapSkipWhy(journal)}. ${reason}`,
+          );
+        } else {
+          skipShopper(`Verdict challenge skipped: ${reason}`, reason);
+        }
       }
     }
   }

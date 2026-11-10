@@ -1,7 +1,12 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+import {
+  appendJournalStep,
+  emptyResaleJournal,
+  RESALE_SERV_CALL_CAP,
+} from "@/domain/resale-decision-journal";
 import type { ResaleCandidatePnl } from "@/domain/resale-pnl";
 import type { Listing } from "@/domain/types";
-import { runResaleSettleServ } from "./resale-settle-serv";
+import { runResaleSettleServ, type ResaleSettleCheckpoint } from "./resale-settle-serv";
 
 function listing(partial: Partial<Listing> & Pick<Listing, "vin" | "year" | "make" | "model" | "priceUsd">): Listing {
   return {
@@ -182,5 +187,223 @@ describe("runResaleSettleServ", () => {
     });
     expect(result.journal.steps.some((step) => step.rejected === "rejected: unsupported reference")).toBe(true);
     expect(result.journal.steps.some((step) => step.why.startsWith("SERV payload rejected:"))).toBe(true);
+  });
+
+  it("journals call cap with plan+settle totals when key is present but slots are gone", async () => {
+    const best = candidate({
+      vin: "VINHIGH0000000001",
+      profitMidUsd: 2_500,
+      listing: listing({ vin: "VINHIGH0000000001", year: 2018, make: "Toyota", model: "Corolla", priceUsd: 9_000 }),
+    });
+    let journal = emptyResaleJournal(RESALE_SERV_CALL_CAP);
+    // Four settle SERV calls already recorded; plan used 2 → global cap full.
+    for (let i = 0; i < 4; i += 1) {
+      journal = appendJournalStep(journal, {
+        kind: "pick",
+        actor: "SERV",
+        decided: `prior call ${i + 1}`,
+        why: "fixture",
+        inputsUsed: [`vin:${best.vin}`],
+        changed: null,
+        model: SERV_MODEL,
+        responseId: `chatcmpl-prior-${i}`,
+        recordedAt: new Date().toISOString(),
+        rejected: null,
+      });
+    }
+    const checkpoint: ResaleSettleCheckpoint = {
+      phaseCompleted: "challenge",
+      journal,
+      rankedAll: [best],
+      ordered: [best],
+      shortlist: [best],
+      best,
+      alternatives: [],
+      verdictAction: "negotiate",
+      confidence: "Medium",
+      agentVerdict: {
+        schemaVersion: "lemonless.agent_verdict.v1",
+        verdict: "negotiate",
+        confidence: "medium",
+        pick: null,
+        reasons: [],
+        risks: [],
+        unknowns: [],
+        no_serv_step: false,
+        second_pass: {
+          status: "not_run",
+          action: null,
+          objection: null,
+          evidenceIds: [],
+          confidenceBefore: null,
+          confidenceAfter: null,
+        },
+        serv_steps: [],
+        serv_spend: null,
+        multipath: null,
+      },
+      trail: [],
+      secondPass: {
+        status: "not_run",
+        action: null,
+        objection: null,
+        evidenceIds: [],
+        confidenceBefore: null,
+        confidenceAfter: null,
+      },
+      agentConfidence: "medium",
+      ranJudge: true,
+      ranDecide: false,
+      trace: null,
+      budgetUsd: 12_000,
+    };
+    const fetchImpl = vi.fn(async () => {
+      throw new Error("shopper must not call SERV when plan+settle already at cap");
+    });
+    const result = await runResaleSettleServ({
+      candidates: [best],
+      budgetUsd: 12_000,
+      servKey: "test-key",
+      priorServCalls: 2,
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+      model: SERV_MODEL,
+      phase: "shopper",
+      checkpoint,
+    });
+    expect(fetchImpl).not.toHaveBeenCalled();
+    expect(
+      result.journal.steps.some(
+        (s) =>
+          /Verdict decide skipped: call cap reached \(6\/6\)/.test(s.decided) &&
+          /plan 2 \+ settle 4 = 6/.test(s.why),
+      ),
+    ).toBe(true);
+    expect(result.journal.steps.some((s) => /SERV not configured/i.test(s.decided))).toBe(false);
+  });
+
+  it("runs shopper decide when plan+settle still have room under the cap", async () => {
+    const peers = [2, 3, 4].map((n) =>
+      candidate({
+        vin: `VINPEER0000000000${n}`,
+        profitMidUsd: 1_000 + n * 50,
+        listing: listing({
+          vin: `VINPEER0000000000${n}`,
+          year: 2018,
+          make: "Toyota",
+          model: "Corolla",
+          priceUsd: 9_500 + n * 100,
+          miles: 55_000 + n * 1_000,
+          state: "TX",
+        }),
+      }),
+    );
+    const best = candidate({
+      vin: "VINHIGH0000000001",
+      profitMidUsd: 2_500,
+      listing: listing({
+        vin: "VINHIGH0000000001",
+        year: 2018,
+        make: "Toyota",
+        model: "Corolla",
+        priceUsd: 9_000,
+        miles: 60_000,
+        state: "TX",
+      }),
+    });
+    const pool = [best, ...peers];
+    let journal = emptyResaleJournal(RESALE_SERV_CALL_CAP);
+    for (let i = 0; i < 3; i += 1) {
+      journal = appendJournalStep(journal, {
+        kind: "pick",
+        actor: "SERV",
+        decided: `prior call ${i + 1}`,
+        why: "fixture",
+        inputsUsed: [`vin:${best.vin}`],
+        changed: null,
+        model: SERV_MODEL,
+        responseId: `chatcmpl-prior-${i}`,
+        recordedAt: new Date().toISOString(),
+        rejected: null,
+      });
+    }
+    const checkpoint: ResaleSettleCheckpoint = {
+      phaseCompleted: "challenge",
+      journal,
+      rankedAll: pool,
+      ordered: pool,
+      shortlist: pool,
+      best,
+      alternatives: peers,
+      verdictAction: "negotiate",
+      confidence: "Medium",
+      agentVerdict: {
+        schemaVersion: "lemonless.agent_verdict.v1",
+        verdict: "negotiate",
+        confidence: "medium",
+        pick: null,
+        reasons: [],
+        risks: [],
+        unknowns: [],
+        no_serv_step: false,
+        second_pass: {
+          status: "not_run",
+          action: null,
+          objection: null,
+          evidenceIds: [],
+          confidenceBefore: null,
+          confidenceAfter: null,
+        },
+        serv_steps: [],
+        serv_spend: null,
+        multipath: null,
+      },
+      trail: [],
+      secondPass: {
+        status: "not_run",
+        action: null,
+        objection: null,
+        evidenceIds: [],
+        confidenceBefore: null,
+        confidenceAfter: null,
+      },
+      agentConfidence: "medium",
+      ranJudge: true,
+      ranDecide: false,
+      trace: null,
+      budgetUsd: 12_000,
+    };
+    let calls = 0;
+    const fetchImpl = vi.fn(async () => {
+      calls += 1;
+      const body =
+        calls === 1
+          ? { verdict: "negotiate", note: "Ask sits near fair value from the comps." }
+          : {
+              agrees: true,
+              action: "negotiate",
+              objection: null,
+              evidenceIds: ["ev_fair_value"],
+            };
+      return Response.json({
+        id: `chatcmpl-shopper-${calls}`,
+        object: "chat.completion",
+        model: SERV_MODEL,
+        choices: [{ finish_reason: "stop", message: { content: JSON.stringify(body) } }],
+        usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 },
+      });
+    });
+    const result = await runResaleSettleServ({
+      candidates: pool,
+      budgetUsd: 12_000,
+      servKey: "test-key",
+      priorServCalls: 1,
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+      model: SERV_MODEL,
+      phase: "shopper",
+      checkpoint,
+    });
+    expect(calls).toBeGreaterThanOrEqual(1);
+    expect(result.journal.steps.some((s) => /Verdict decide →/.test(s.decided))).toBe(true);
+    expect(result.journal.steps.some((s) => /call cap reached/i.test(s.decided))).toBe(false);
   });
 });

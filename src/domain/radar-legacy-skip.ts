@@ -34,3 +34,22 @@ export function remapLegacyServSkipAlerts<T extends Pick<WatchAlert, "status" | 
 ): T[] {
   return alerts.map(remapLegacyServSkipAlert);
 }
+
+/**
+ * Last-run "new alerts" count after legacy SERV-skip remap.
+ * Prefer this over stored perSearch.alertsSent, which counted pre-fix skip rows as alerts.
+ */
+export function countNewRadarAlertsInWindow<
+  T extends Pick<WatchAlert, "ownerId" | "searchId" | "status" | "createdAt">,
+>(
+  alerts: T[],
+  input: { ownerId: string; searchIds: Set<string>; startedAt: string },
+): number {
+  return alerts.filter(
+    (alert) =>
+      alert.ownerId === input.ownerId &&
+      input.searchIds.has(alert.searchId) &&
+      (alert.status === "new" || alert.status === "opened") &&
+      alert.createdAt >= input.startedAt,
+  ).length;
+}

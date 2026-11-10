@@ -139,6 +139,12 @@ export async function runShopperVerdictServ(input: {
    * re-clamped to `deadline.remainingMs()` immediately before the call instead.
    */
   challengeTimeoutMs?: number | null;
+  /**
+   * Remaining SERV HTTP slots for this shopper sequence (decide + challenge).
+   * When 1, decide may run and challenge is skipped for call cap.
+   * When 0, decide is skipped for call cap (caller usually journals first).
+   */
+  maxAdditionalServCalls?: number;
 }): Promise<ShopperVerdictServResult> {
   const mandate = input.mandate ?? {};
   const fetchImpl = input.fetchImpl ?? fetch;
@@ -164,12 +170,23 @@ export async function runShopperVerdictServ(input: {
   let verdictServText: string | null = null;
   let verdictServOk = false;
   let decideProof: ServProof | null = null;
+  const remainingCalls =
+    typeof input.maxAdditionalServCalls === "number"
+      ? Math.max(0, Math.floor(input.maxAdditionalServCalls))
+      : Number.POSITIVE_INFINITY;
+  const decideCapSkipped = remainingCalls < 1;
 
   if (previewDecision.gateRun.withheld) {
     steps.push({
       id: "serv_verdict_decide",
       status: "skipped_withheld",
       detail: previewDecision.withholdReason ?? "Verdict withheld by ordered gates.",
+    });
+  } else if (decideCapSkipped) {
+    steps.push({
+      id: "serv_verdict_decide",
+      status: "skipped_call_cap",
+      detail: "call cap reached",
     });
   } else if (input.servKey && input.decideTimeoutMs !== null) {
     const decisionFacts = verdictDecisionFacts(input.report, mandate);
@@ -252,12 +269,34 @@ export async function runShopperVerdictServ(input: {
       ? profile("verdict_challenge").timeoutMs
       : input.challengeTimeoutMs;
   const challengeBudgetSkipped = challengeTimeoutMs === null;
-  const challengeSkipped = decision.gateRun.withheld || !decision.servChoice || challengeBudgetSkipped;
+  // Decide consumed one slot when an HTTP call was attempted.
+  const challengeCapSkipped =
+    Number.isFinite(remainingCalls) && callTraces.length >= remainingCalls;
+  let challengeSkipStatus: string | null = null;
+  let challengeSkipDetail: string | null = null;
   if (challengeBudgetSkipped) {
+    challengeSkipStatus = "skipped_time_budget";
+    challengeSkipDetail = RESALE_TIME_BUDGET_SKIP;
+  } else if (decision.gateRun.withheld) {
+    challengeSkipStatus = "skipped_withheld";
+    challengeSkipDetail =
+      decision.withholdReason ?? "Verdict withheld by ordered gates — challenge not run.";
+  } else if (decideCapSkipped) {
+    challengeSkipStatus = "skipped_call_cap";
+    challengeSkipDetail = "call cap reached before decide";
+  } else if (challengeCapSkipped) {
+    challengeSkipStatus = "skipped_call_cap";
+    challengeSkipDetail = "call cap reached after decide";
+  } else if (!decision.servChoice) {
+    challengeSkipStatus = "skipped_no_choice";
+    challengeSkipDetail = "Decide returned no usable choice — challenge not run.";
+  }
+  const challengeSkipped = challengeSkipStatus != null;
+  if (challengeSkipStatus) {
     steps.push({
       id: "serv_verdict_challenge",
-      status: "skipped_time_budget",
-      detail: RESALE_TIME_BUDGET_SKIP,
+      status: challengeSkipStatus,
+      detail: challengeSkipDetail ?? challengeSkipStatus,
     });
   }
   const challenge = challengeSkipped
@@ -265,7 +304,7 @@ export async function runShopperVerdictServ(input: {
         result: {
           status: "not_run" as const,
           action: null,
-          objection: challengeBudgetSkipped ? RESALE_TIME_BUDGET_SKIP : null,
+          objection: challengeSkipDetail,
           evidenceIds: [] as string[],
           confidenceBefore: null,
           confidenceAfter: null,

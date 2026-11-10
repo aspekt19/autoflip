@@ -1,3 +1,7 @@
+import {
+  countNewRadarAlertsInWindow,
+  remapLegacyServSkipAlerts,
+} from "@/domain/radar-legacy-skip";
 import { checkNowAllowed } from "@/domain/radar-watch";
 import { getKv, storageMode } from "@/io/kv";
 import { lastCheckNow, listAlerts, listSearches, markCheckNow } from "@/server/radar-store";
@@ -57,17 +61,21 @@ export async function POST(request: Request) {
     minePerSearch.length > 0
       ? minePerSearch.reduce((sum, row) => sum + row.listings, 0)
       : run.listings;
-  const alerts = await listAlerts(kv);
-  const ownerAlerts =
-    minePerSearch.length > 0
-      ? minePerSearch.reduce((sum, row) => sum + row.alertsSent, 0)
-      : alerts.filter(
-          (alert) =>
-            alert.ownerId === id &&
-            mySearchIds.has(alert.searchId) &&
-            (alert.status === "new" || alert.status === "opened") &&
-            alert.createdAt >= run.startedAt,
-        ).length;
+  const alerts = remapLegacyServSkipAlerts(await listAlerts(kv));
+  const ownerServActivity = (run.servActivity ?? []).filter((row) => mySearchIds.has(row.searchId));
+  const hasDecisionLabels = ownerServActivity.some(
+    (row) => row.decision === "alert" || row.decision === "skip",
+  );
+  const servAlerted = hasDecisionLabels
+    ? ownerServActivity.filter((row) => row.decision === "alert").length
+    : ownerServActivity.filter((row) => row.alerted).length;
+  const remappedInWindow = countNewRadarAlertsInWindow(alerts, {
+    ownerId: id,
+    searchIds: mySearchIds,
+    startedAt: run.startedAt,
+  });
+  // Same source as feed: SERV alert decisions when present, else remapped new/opened rows.
+  const ownerAlerts = hasDecisionLabels ? servAlerted : remappedInWindow;
   return Response.json({
     ok: true,
     alertsSent: ownerAlerts,

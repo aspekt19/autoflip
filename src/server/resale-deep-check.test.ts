@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { NO_DIRECT_LISTING_RISK_MUL } from "@/domain/listing-vdp-verifiability";
 import { emptyResaleJournal } from "@/domain/resale-decision-journal";
 import type { ResaleCandidatePnl } from "@/domain/resale-pnl";
 import type { Listing } from "@/domain/types";
@@ -144,6 +145,23 @@ describe("rankByRiskAdjustedProfit", () => {
       ["VINSAFE0000000001", 1],
     ]));
     expect(ranked[0]?.vin).toBe("VINSAFE0000000001");
+  });
+
+  it("shows link=0.72 as its own factor when the listing is not a direct VDP", () => {
+    const generic = {
+      ...candidate("VINLINK00000000001", 3_000),
+      listing: {
+        ...listing("VINLINK00000000001"),
+        dealer: "Kenney's Automotive",
+        vdp: "https://www.autolist.com/toyota-corolla#vin=VINLINK00000000001",
+      },
+    };
+    const ranked = rankByRiskAdjustedProfit([generic], new Map([["VINLINK00000000001", 0.9]]));
+    const formula = ranked[0]?.riskAdjustedRankFormula ?? "";
+    expect(formula).toContain(`link=${NO_DIRECT_LISTING_RISK_MUL.toFixed(2)}`);
+    expect(formula).toContain("no direct listing page");
+    expect(formula).toMatch(/risk=0\.90/);
+    expect(formula).not.toMatch(/risk=0\.65/);
   });
 
   it("does not favor unknown-tax cars that look better only because tax was omitted", () => {
