@@ -15,7 +15,7 @@ export type RadarServActivity = {
   at: string;
   searchId: string;
   vin: string;
-  profile: "verdict_decide" | "verdict_challenge";
+  profile: "verdict_decide" | "verdict_challenge" | "radar_review";
   modelRequested: string;
   modelReported: string;
   /** OpenSERV response id when the provider returned one; otherwise null. */
