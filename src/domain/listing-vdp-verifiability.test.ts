@@ -11,7 +11,7 @@ describe("listingVdpVerifiability", () => {
     expect(row.direct).toBe(false);
     expect(row.flag).toMatch(/No direct listing link/i);
     expect(row.href).toContain("autolist.com");
-    expect(row.sellerMismatchNote).toMatch(/mismatch/i);
+    expect(row.sellerMismatchNote).toMatch(/does not match the feed dealer name/i);
   });
 
   it("accepts a dealer inventory VDP as direct", () => {
@@ -40,7 +40,7 @@ describe("listingVdpVerifiability", () => {
       trim: "XLE",
     });
     expect(row.pageMismatchNote).toMatch(/different trim/i);
-    expect(row.sellerMismatchNote).toMatch(/mismatch/i);
+    expect(row.sellerMismatchNote).toMatch(/does not match the feed dealer name/i);
   });
 
   it("does not flag when slug trim matches the feed trim", () => {
