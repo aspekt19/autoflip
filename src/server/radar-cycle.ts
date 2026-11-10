@@ -30,6 +30,11 @@ import { alertMessage, type AlertCopy } from "@/io/telegram";
 import type { Listing } from "@/domain/types";
 import { resolveProductFlags } from "@/domain/product-flags";
 import { journalFromRadarActivity } from "@/domain/radar-activity-journal";
+import {
+  buildRadarReviewActivityRows,
+  flipCandidateOutcome,
+  upsertNotReviewedAlert,
+} from "@/domain/radar-review-activity";
 import { reviewPersonalCandidate, type RadarServActivity } from "./radar-serv";
 import { listSearches, upsertRun, saveAlerts, saveSearches, seenBook, storeSeenPrices, readListingCache, writeListingCache, telegramChat, telegramPaused, type StoredRun, listAlerts } from "./radar-store";
 
@@ -258,28 +263,25 @@ export async function runRadarCycle(deps: CycleDeps): Promise<StoredRun> {
           tallyReason(reasons, "Not enough similar cars", job.listings.length - ranked.length);
           passed += fresh.length;
           filteredOut += job.listings.length - fresh.length;
-          // Count every priced listing this Flip watch examined — not only ranked winners —
-          // so "listings seen" matches the scan log for this watch.
+          // Mark non-fresh priced listings as seen. Fresh VINs stay out until SERV
+          // decides alert/skip — a missing decision must remain reviewable next run.
+          const freshVins = new Set(fresh.map((item) => item.vin));
           for (const listing of job.listings) {
             if (listing.priceUsd == null) continue;
+            if (freshVins.has(listing.vin)) continue;
             book.set(listing.vin, listing.priceUsd);
           }
-          await storeSeenPrices(
-            deps.kv,
-            storageKey,
-            [...book.entries()].map(([vin, priceUsd]) => ({ vin, priceUsd })),
-          );
           touchedOwnerIds.add(search.ownerId);
           touchedSearchIds.add(search.id);
           bumpSearch(search.id, { listings: job.listings.length });
           const judged = await judgeFlipAlerts(fresh, deps, remain(), limits.serv, servChecks, search.id);
           if (judged?.activity?.length) servActivity.push(...judged.activity);
           if (deps.servKey && fresh.length > 0 && !judged?.decisions) {
-            notes.push("Flip explanation unavailable. The estimates below are from the scan only.");
+            notes.push(
+              "Flip explanation unavailable. Candidates were left as Not reviewed so they can be checked again next run.",
+            );
           }
           for (const item of fresh) {
-            const decision = judged?.decisions?.get(item.vin);
-            // Code owns the alert list. SERV may explain a skip preference, but it cannot suppress a ranked deal.
             const badge = priceBadge(item.listing, job.listings, { mode: "flip" });
             const numbers = {
               priceUsd: item.listing.priceUsd ?? 0,
@@ -294,13 +296,6 @@ export async function runRadarCycle(deps: CycleDeps): Promise<StoredRun> {
               roughMarginUsd: item.profitMidUsd,
             };
             const baseWhy = flipAlertWhy(item);
-            const why = decision?.note
-              ? decision.verdict === "skip"
-                ? `${baseWhy} Review note (does not cancel this alert): ${decision.note}`
-                : `${baseWhy} ${decision.note}`
-              : deps.servKey && !decision
-                ? `${baseWhy} The written check did not finish. These figures are from the scan.`
-                : baseWhy;
             const flipCoverage = {
               mode: "flip" as const,
               sample: item.listing.source === "sample",
@@ -308,6 +303,58 @@ export async function runRadarCycle(deps: CycleDeps): Promise<StoredRun> {
               radiusMiles: search.criteria.radiusMiles,
               historyOnListing: item.listing.accidentCount !== null && item.listing.ownerCount !== null,
             };
+            const outcome = flipCandidateOutcome({
+              hasServKey: Boolean(deps.servKey),
+              // null judged / null decisions → no decision map (timeout, empty payload, budget).
+              decisions: judged?.decisions ?? null,
+              vin: item.vin,
+              baseWhy,
+            });
+            if (outcome.kind === "serv_skipped") {
+              const skipped = makeAlert(
+                search,
+                item.listing,
+                outcome.why,
+                numbers,
+                deps.now.toISOString(),
+                judged?.checks,
+                coverageSentence(flipCoverage),
+                coverageConfidence(flipCoverage),
+                item.priceDropFrom,
+                badge,
+                "serv_skipped",
+              );
+              alerts.unshift(skipped);
+              if (item.listing.priceUsd != null) book.set(item.vin, item.listing.priceUsd);
+              continue;
+            }
+            if (outcome.kind === "not_reviewed") {
+              const pending = makeAlert(
+                search,
+                item.listing,
+                outcome.why,
+                numbers,
+                deps.now.toISOString(),
+                judged?.checks,
+                coverageSentence(flipCoverage),
+                coverageConfidence(flipCoverage),
+                item.priceDropFrom,
+                badge,
+                "not_reviewed",
+              );
+              // Replace prior not_reviewed for this search+VIN so the 80-alert cap stays honest.
+              const next = upsertNotReviewedAlert(alerts, pending);
+              alerts.length = 0;
+              alerts.push(...next);
+              // Leave out of seen book so the next run can re-review.
+              continue;
+            }
+            const why =
+              outcome.kind === "alert" && outcome.whySuffix
+                ? `${baseWhy} ${outcome.whySuffix}`
+                : outcome.kind === "code_alert"
+                  ? outcome.why
+                  : baseWhy;
             const alert = makeAlert(
               search,
               item.listing,
@@ -324,7 +371,13 @@ export async function runRadarCycle(deps: CycleDeps): Promise<StoredRun> {
             freshAlerts.push(alert);
             alertsSent += 1;
             bumpSearch(search.id, { alertsSent: 1 });
+            if (item.listing.priceUsd != null) book.set(item.vin, item.listing.priceUsd);
           }
+          await storeSeenPrices(
+            deps.kv,
+            storageKey,
+            [...book.entries()].map(([vin, priceUsd]) => ({ vin, priceUsd })),
+          );
           search.lastCheckedAt = deps.now.toISOString();
           continue;
         }
@@ -476,10 +529,19 @@ export async function runRadarCycle(deps: CycleDeps): Promise<StoredRun> {
       steps.push({ id: "serv_verdict", status: "no_candidates" });
     } else {
       shadow = summarizeShadow(servActivity.map((row) => (row.ok ? row.decision ?? "ok" : "error")));
+      const httpCallKeys = new Set(
+        servActivity.map((row) =>
+          row.callId?.trim()
+            ? `${row.profile}::call:${row.callId.trim()}`
+            : row.responseId?.trim()
+              ? `${row.profile}::${row.responseId.trim()}`
+              : `${row.profile}::at:${row.at}::lat:${row.latencyMs}`,
+        ),
+      );
       steps.push({
         id: "serv_verdict",
         status: servActivity.some((row) => !row.ok) ? "partial" : "ok",
-        detail: `${servActivity.length} calls · ${shadow}`,
+        detail: `${httpCallKeys.size} HTTP call${httpCallKeys.size === 1 ? "" : "s"} · ${servActivity.length} decisions · ${shadow}`,
       });
     }
     await saveAlerts(deps.kv, alerts);
@@ -645,6 +707,8 @@ async function judgeFlipAlerts(
     }
     const judgeMs = budget("radar_review");
     if (judgeMs < 500) return { decisions: null, checks: rules ? [...guards, visibleProof(rules.proof)] : guards, activity };
+    // One call id for the whole batch — shared even when the provider returns no response id.
+    const reviewCallId = randomUUID();
     const judged = await runServ("radar_review", { user: JSON.stringify({ facts, rulesNote }) }, {
       fetch: deps.fetchImpl,
       apiKey: deps.servKey,
@@ -658,23 +722,25 @@ async function judgeFlipAlerts(
       typeof judged.proof.openserv?.id === "string" && judged.proof.openserv.id.trim()
         ? judged.proof.openserv.id.trim()
         : null;
-    for (const item of fresh) {
-      const decision = decisions?.get(item.vin);
-      activity.push({
-        at: nowIso,
-        searchId,
-        vin: item.vin,
-        profile: "radar_review",
-        modelRequested: judged.proof.modelRequested,
-        modelReported: judged.proof.modelReported,
-        responseId,
-        latencyMs: judged.proof.latencyMs,
-        ok: Boolean(judged.ok && decision),
-        decision: decision?.verdict ?? null,
-        note: decision?.note ?? null,
-        alerted: true,
-      });
-    }
+    const seeds = fresh.map((item) => ({
+      at: nowIso,
+      searchId,
+      vin: item.vin,
+      callId: reviewCallId,
+      responseId,
+      latencyMs: judged.proof.latencyMs,
+      modelRequested: judged.proof.modelRequested,
+      modelReported: judged.proof.modelReported,
+    }));
+    activity.push(
+      ...buildRadarReviewActivityRows(seeds, {
+        ok: judged.ok,
+        error: judged.ok ? undefined : judged.error,
+        status: judged.ok ? undefined : judged.status,
+        failureCategory: judged.ok ? null : (judged.failureDiag?.category ?? null),
+        decisions,
+      }),
+    );
     return {
       decisions,
       checks: [...guards, ...(rules ? [visibleProof(rules.proof)] : []), visibleProof(judged.proof)],
@@ -731,6 +797,7 @@ async function runGuard(
   if (!deps.servKey) return { status: "not_configured", activity: null };
   const text = searches.map((item) => `${item.name} ${item.mode} ${item.criteria.zip} ${item.criteria.priceMax}`).join("\n");
   if (!text.trim()) return { status: "skipped_empty", activity: null };
+  const guardCallId = randomUUID();
   if (timeoutMs <= 0) {
     return {
       status: "timeout",
@@ -741,6 +808,7 @@ async function runGuard(
         profile: "radar_guard",
         modelRequested: deps.servModel ?? "",
         modelReported: "",
+        callId: guardCallId,
         responseId: null,
         latencyMs: 0,
         ok: false,
@@ -780,6 +848,7 @@ async function runGuard(
         profile: "radar_guard",
         modelRequested: result.proof.modelRequested ?? deps.servModel ?? "",
         modelReported: result.proof.modelReported ?? "",
+        callId: guardCallId,
         responseId: typeof result.proof.openserv?.id === "string" ? result.proof.openserv.id : null,
         latencyMs,
         ok: result.ok && status !== "block",
@@ -802,6 +871,7 @@ async function runGuard(
         profile: "radar_guard",
         modelRequested: deps.servModel ?? "",
         modelReported: "",
+        callId: guardCallId,
         responseId: null,
         latencyMs: timeoutMs,
         ok: false,
@@ -841,6 +911,7 @@ function makeAlert(
   coverageLevel?: WatchAlert["coverageLevel"],
   priceDropFrom?: number | null,
   badge?: WatchAlert["badge"],
+  status: WatchAlert["status"] = "new",
 ): WatchAlert {
   return {
     id: randomUUID(),
@@ -848,7 +919,7 @@ function makeAlert(
     searchId: search.id,
     vin: listing.vin,
     createdAt: iso,
-    status: "new",
+    status,
     mode: search.mode,
     year: listing.year,
     make: listing.make,

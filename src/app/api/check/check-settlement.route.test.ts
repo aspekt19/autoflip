@@ -277,6 +277,8 @@ describe("/api/check settlement", () => {
     const secondBody = await second.json();
     expect(second.status).toBe(200);
     expect(secondBody.fromCache).toBe(true);
+    expect(typeof secondBody.settledAt).toBe("string");
+    expect(secondBody.settledAt.length).toBeGreaterThan(0);
     expect(secondBody.usedFreeCheck).toBe(false);
     expect(secondBody.spentCredit).toBe(false);
     expect(secondBody.billingNote).toMatch(/no additional|already used/i);

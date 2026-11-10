@@ -4,6 +4,7 @@
  * Does not invent listings or alerts — callers must already have a good/fair code rating.
  */
 
+import { randomUUID } from "node:crypto";
 import { parseServVerdict } from "@/domain/verdict-decide";
 import type { AlertNumbers } from "@/domain/radar-watch";
 import type { PriceBadge } from "@/domain/price-badge";
@@ -25,6 +26,11 @@ export type RadarServActivity = {
     | "resale_challenge";
   modelRequested: string;
   modelReported: string;
+  /**
+   * Client-generated id for one HTTP invocation (shared across VINs in a batch).
+   * Prefer this over responseId for call counting — timeouts may lack a provider id.
+   */
+  callId: string;
   /** OpenSERV response id when the provider returned one; otherwise null. */
   responseId: string | null;
   latencyMs: number;
@@ -69,6 +75,7 @@ function activityFrom(
   decision: string | null,
   note: string | null,
   alerted: boolean,
+  callId: string,
 ): RadarServActivity {
   return {
     at: deps.nowIso,
@@ -77,6 +84,7 @@ function activityFrom(
     profile,
     modelRequested: proof.modelRequested,
     modelReported: proof.modelReported,
+    callId,
     responseId: responseIdFrom(proof),
     latencyMs: proof.latencyMs,
     ok,
@@ -161,6 +169,7 @@ export async function reviewPersonalCandidate(
     };
   }
 
+  const decideCallId = randomUUID();
   const decided = await runServ(
     "verdict_decide",
     { user: JSON.stringify({ facts }) },
@@ -184,10 +193,11 @@ export async function reviewPersonalCandidate(
       input.listing.vin,
       "verdict_decide",
       decided.proof,
-      decided.ok && Boolean(action),
+      decided.ok,
       action,
       note,
       alertWorthy,
+      decideCallId,
     ),
   );
 
@@ -210,6 +220,7 @@ export async function reviewPersonalCandidate(
   if (deps.challenge && alertWorthy && action) {
     const challengeMs = Math.min(deps.timeoutMs, 12_000);
     if (challengeMs >= 500) {
+      const challengeCallId = randomUUID();
       const challenged = await runServ(
         "verdict_challenge",
         {
@@ -269,6 +280,7 @@ export async function reviewPersonalCandidate(
           challengeDecision,
           challengeNote,
           alertWorthy,
+          challengeCallId,
         ),
       );
     }

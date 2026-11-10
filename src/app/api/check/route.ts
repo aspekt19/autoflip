@@ -110,6 +110,7 @@ export async function POST(request: Request) {
         usedFreeCheck: false,
         spentCredit: false,
         fromCache: true,
+        settledAt: prior.settledAt,
         billingNote: prior.spentCredit
           ? "Returning saved check; no additional credit spent."
           : prior.usedFreeCheck
@@ -164,6 +165,7 @@ export async function POST(request: Request) {
         usedFreeCheck: false,
         spentCredit: false,
         fromCache: true,
+        settledAt: prior.settledAt,
         billingNote: prior.spentCredit
           ? "Returning saved check; no additional credit spent."
           : prior.usedFreeCheck

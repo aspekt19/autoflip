@@ -128,6 +128,8 @@ export type StoredRun = {
     profile: string;
     modelRequested: string;
     modelReported: string;
+    /** Per-HTTP-invocation id; preferred for call counting. */
+    callId?: string;
     responseId: string | null;
     latencyMs: number;
     ok: boolean;

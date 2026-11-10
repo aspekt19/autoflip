@@ -66,7 +66,9 @@ export default function ActivityPage() {
           <article key={run.id} className="warn-box">
             <p className="sheet-label">{run.trigger}</p>
             <h2>
-              {new Date(run.startedAt).toLocaleString("en-US", { timeZone: "UTC" })} UTC
+              Started {new Date(run.startedAt).toLocaleString("en-US", { timeZone: "UTC" })} UTC
+              {" · "}
+              finished {new Date(run.finishedAt).toLocaleString("en-US", { timeZone: "UTC" })} UTC
             </h2>
             <ul className="refuse">
               <li>Storage: {run.storage}</li>
