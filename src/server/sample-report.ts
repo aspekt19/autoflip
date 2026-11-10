@@ -122,14 +122,15 @@ export function buildSampleReport(mode: Mode = "personal"): FullReport {
   }
 
   // No real recording — keep Camry economics, do not invent a SERV trail.
+  // Use no_serv_key (not deterministic_fallback) so the UI does not claim an AI timeout.
   computed.decision = {
     action: "negotiate",
-    source: "deterministic_fallback",
+    source: "no_serv_key",
     servChoice: null,
     deterministicAction: "negotiate",
     overrideReasons: [],
     labeledFallback: true,
-    note: "Labeled sample economics only. Agent revision example not yet recorded.",
+    note: "Labeled sample economics only. No AI call ran — agent revision example not yet recorded.",
     withholdReason: null,
     gates: [
       { id: "identity", status: "passed", reason: "VIN and listing identity match." },

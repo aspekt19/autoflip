@@ -67,6 +67,9 @@ export function trailStepFromDecisionLogEntry(
     why,
     changed,
     evidenceIds: entry.evidenceAdded.length > 0 ? [entry.action] : undefined,
+    model: entry.model ?? null,
+    responseId: entry.responseId ?? null,
+    recordedAt: entry.recordedAt ?? null,
   };
 }
 
@@ -108,7 +111,13 @@ export function trailStepFromMultipath(result: AgentMultipathResult): AgentTrail
 }
 
 export function trailStepFromSecondPass(result: AgentSecondPassResult): AgentTrailStep | null {
-  if (result.status === "not_run") return null;
+  if (result.status === "not_run") {
+    return {
+      decided: "Second check not run.",
+      why: result.objection ?? "Second check was not invoked for this run.",
+      changed: null,
+    };
+  }
   if (result.status === "skipped_no_budget" || result.status === "skipped_no_key") {
     return {
       decided: "Second check skipped.",

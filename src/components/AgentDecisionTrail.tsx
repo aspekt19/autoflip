@@ -12,26 +12,37 @@ type Props = {
   verdict: AgentVerdict | null | undefined;
   /** Default open on sample / demos; collapsed on live results. */
   defaultOpen?: boolean;
+  /** One-line why confidence is Low/Medium when the trail summary needs it. */
+  confidenceWhy?: string | null;
 };
 
 /**
  * Collapsible "How the agent decided" panel.
  * Structured as decided → why → changed. Never invents steps.
- * Consumer copy avoids banned internal feature names.
+ * Second check is always shown: either a real record or an honest not-run reason.
  */
-export function AgentDecisionTrail({ verdict, defaultOpen = false }: Props) {
+export function AgentDecisionTrail({ verdict, defaultOpen = false, confidenceWhy = null }: Props) {
   if (!verdict) return null;
   const steps = agentTrailSteps(verdict);
   const closePaths = agentCloseCallPaths(verdict);
   const second = agentSecondCheck(verdict);
   const spend = agentSpend(verdict);
+  const lowWhy =
+    confidenceWhy?.trim() ||
+    (verdict.confidence === "low"
+      ? verdict.unknowns.find((line) => /^Low:/i.test(line)) ?? null
+      : null);
 
   return (
     <details className="agent-decision-trail onboarding-note" open={defaultOpen}>
       <summary>
         <strong>How the agent decided</strong>
         {verdict.confidence ? (
-          <span className="hint"> · Confidence {confidenceLabel(verdict.confidence)}</span>
+          <span className="hint">
+            {" "}
+            · Confidence {confidenceLabel(verdict.confidence)}
+            {lowWhy ? ` — ${lowWhy}` : ""}
+          </span>
         ) : null}
       </summary>
 
@@ -74,6 +85,15 @@ export function AgentDecisionTrail({ verdict, defaultOpen = false }: Props) {
                 Why: {step.why}
                 {step.changed ? ` What changed: ${step.changed}` : ""}
               </span>
+              {step.model || step.responseId || step.recordedAt ? (
+                <p className="hint">
+                  {step.model ? `Model ${step.model}` : "Model not recorded"}
+                  {step.responseId ? ` · response ${step.responseId}` : " · no response id"}
+                  {step.recordedAt
+                    ? ` · ${new Date(step.recordedAt).toLocaleString("en-US", { timeZone: "UTC" })} UTC`
+                    : ""}
+                </p>
+              ) : null}
             </li>
           ))}
         </ol>
@@ -97,36 +117,40 @@ export function AgentDecisionTrail({ verdict, defaultOpen = false }: Props) {
         </section>
       ) : null}
 
-      {second && second.status !== "not_run" ? (
-        <section aria-label="Second check">
-          <h3>Second check</h3>
-          {second.status === "agreed" ? <p>An independent review agreed with the verdict.</p> : null}
-          {second.status === "disagreed" ? (
-            <p>
-              An independent review disagreed
-              {second.action
-                ? ` (would ${second.action === "needs_inspection" ? "needs inspection" : second.action})`
-                : ""}
-              .
-              {second.objection ? ` ${second.objection}` : ""}
-              {second.confidenceBefore &&
-              second.confidenceAfter &&
-              second.confidenceBefore !== second.confidenceAfter
-                ? ` Confidence lowered from ${confidenceLabel(second.confidenceBefore)} to ${confidenceLabel(second.confidenceAfter)}.`
-                : ""}
-            </p>
-          ) : null}
-          {second.status === "unavailable" ? (
-            <p>{second.objection ?? "Second check did not finish. The first verdict stands."}</p>
-          ) : null}
-          {second.status === "skipped_no_budget" || second.status === "skipped_no_key" ? (
-            <p>{second.objection ?? "Second check skipped."}</p>
-          ) : null}
-          {second.status === "ignored_malformed" || second.status === "ignored_no_evidence" ? (
-            <p>Second check returned nothing usable and was ignored.</p>
-          ) : null}
-        </section>
-      ) : null}
+      <section aria-label="Second check">
+        <h3>Second check</h3>
+        {!second || second.status === "not_run" ? (
+          <p>
+            Second check not run:{" "}
+            {second?.objection ?? "no challenge record was attached to this run."}
+          </p>
+        ) : null}
+        {second?.status === "agreed" ? <p>An independent review agreed with the verdict.</p> : null}
+        {second?.status === "disagreed" ? (
+          <p>
+            An independent review disagreed
+            {second.action
+              ? ` (would ${second.action === "needs_inspection" ? "needs inspection" : second.action})`
+              : ""}
+            .
+            {second.objection ? ` ${second.objection}` : ""}
+            {second.confidenceBefore &&
+            second.confidenceAfter &&
+            second.confidenceBefore !== second.confidenceAfter
+              ? ` Confidence lowered from ${confidenceLabel(second.confidenceBefore)} to ${confidenceLabel(second.confidenceAfter)}.`
+              : ""}
+          </p>
+        ) : null}
+        {second?.status === "unavailable" ? (
+          <p>{second.objection ?? "Second check did not finish. The first verdict stands."}</p>
+        ) : null}
+        {second?.status === "skipped_no_budget" || second?.status === "skipped_no_key" ? (
+          <p>{second.objection ?? "Second check skipped."}</p>
+        ) : null}
+        {second?.status === "ignored_malformed" || second?.status === "ignored_no_evidence" ? (
+          <p>Second check returned nothing usable and was ignored.</p>
+        ) : null}
+      </section>
 
       {verdict.vs_cheapest ? (
         <p className="hint">

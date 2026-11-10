@@ -108,7 +108,14 @@ describe("owner find note", () => {
     const need = explicitNeedFromText("Reliable sedan around $12,000 in Austin.", "personal");
     expect(need.locationPhrase).toBe("Austin");
     expect(need.zip).toBeNull();
+    expect(need.distanceMiles).toBeNull();
     expect(need.bodyStyle).toBe("Sedan");
     expect(need.budgetUsd).toBe(12_000);
+  });
+
+  it("keeps ZIP without inventing a radius (nationwide until Confirm)", () => {
+    const need = explicitNeedFromText("Reliable sedan under $15,000 near 68114.", "personal");
+    expect(need.zip).toBe("68114");
+    expect(need.distanceMiles).toBeNull();
   });
 });

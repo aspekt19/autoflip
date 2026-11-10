@@ -15,6 +15,10 @@ import type { FindNextCheckId } from "./find-next-checks";
 import type { BestDealCandidate, BestDealResult } from "./find-best-deal";
 import { formatFindFuelEvidenceShort } from "./find-fuel-match";
 import { mmyListingKey } from "./find-risk-evidence";
+import {
+  checkCreditsNeedMessage,
+  FREE_VEHICLE_CHECKS_PER_MONTH,
+} from "./free-check-quota";
 
 /** Patterns that must never appear in buyer-visible Find/report text. */
 export const BUYER_FORBIDDEN_TECH_PATTERNS: RegExp[] = [
@@ -118,13 +122,14 @@ export const FIND_RESULTS_BILLING_HINT =
  */
 export function creditsNeedNotice(returnTo: string | null | undefined): string {
   const back = returnTo ?? "";
+  const free = FREE_VEHICLE_CHECKS_PER_MONTH;
   if (back.startsWith("/find")) {
-    return "Find costs 1 report credit each time a search is delivered. The 3 free checks each UTC month are only for Check a car (listing link or VIN) — they do not pay for Find.";
+    return `Find costs 1 report credit each time a search is delivered. The ${free} free checks each UTC month are only for Check a car (listing link or VIN) — they do not pay for Find.`;
   }
   if (back.startsWith("/check")) {
-    return "A listing link or VIN uses one of 3 free checks per verified account each UTC month. After those are used, a check costs 1 report credit.";
+    return checkCreditsNeedMessage();
   }
-  return "Find costs 1 report credit per delivered search. A listing link or VIN uses one of 3 free checks per verified account each UTC month; after that a check costs 1 credit.";
+  return `Find costs 1 report credit per delivered search. A listing link or VIN uses one of ${free} free checks per verified account each UTC month; after that a check costs 1 credit.`;
 }
 
 /**
@@ -891,28 +896,28 @@ export function sellerQuestionsForBuyer(
     ranked: readonly BestDealCandidate[];
     pick?: BestDealCandidate | null;
     allRanked?: readonly BestDealCandidate[];
+    /** When set, questions may only name these shown top-pick keys. */
+    shownKeys?: readonly string[];
     baseline?: { cheapest?: { key: string } | null; lowestMiles?: { key: string } | null } | null;
   },
   hints: readonly SellerQuestionListingHint[] = [],
 ): string[] {
-  const pool = result.allRanked ?? result.ranked;
-  const first = result.pick ?? result.ranked[0] ?? null;
+  // Only shown top-pick cards — never baseline / full allRanked walk (that named Camrys off-card).
+  const shownList =
+    result.shownKeys?.length
+      ? result.shownKeys
+          .map((key) => result.ranked.find((car) => car.key === key) ?? result.allRanked?.find((car) => car.key === key))
+          .filter((car): car is BestDealCandidate => Boolean(car))
+      : result.ranked.slice(0, 5);
+  const shownKeys = new Set(shownList.map((car) => car.key));
+  const first = result.pick && shownKeys.has(result.pick.key) ? result.pick : shownList[0] ?? null;
   const ordered: BestDealCandidate[] = [];
   if (first) ordered.push(first);
-  const alternativeKeys = [result.baseline?.cheapest?.key, result.baseline?.lowestMiles?.key].filter(
-    (key): key is string => Boolean(key),
-  );
-  for (const key of alternativeKeys) {
-    const car = pool.find((row) => row.key === key);
-    if (!car || ordered.some((row) => row.key === car.key)) continue;
-    if (!car.sellerQuestions.some((question) => /odometer/i.test(question))) continue;
-    ordered.push(car);
-  }
-  for (const car of result.ranked) {
+  for (const car of shownList) {
     if (ordered.some((row) => row.key === car.key)) continue;
     ordered.push(car);
   }
-  const labels = buyerCarLabels([...pool, ...ordered].map(labelInputFor));
+  const labels = buyerCarLabels(ordered.map(labelInputFor));
   const lines: string[] = [];
   for (const car of ordered) {
     if (lines.length >= SELLER_QUESTION_LIMIT) break;
@@ -927,24 +932,17 @@ export function sellerQuestionsForBuyer(
       listingUrl: hint?.vdp,
       decodedTrim: hint?.decodedTrim,
     });
-    const onlyOdometer =
-      first != null &&
-      car.key !== first.key &&
-      alternativeKeys.includes(car.key) &&
-      !result.ranked.some((row) => row.key === car.key);
     const carLines: string[] = [];
-    if (!onlyOdometer && trim) carLines.push(trim.sellerQuestion);
+    if (trim) carLines.push(trim.sellerQuestion);
     for (const question of car.sellerQuestions) {
       const clean = question.replace(/\s+/g, " ").trim();
       if (!clean) continue;
-      if (onlyOdometer && !/odometer/i.test(clean)) continue;
       carLines.push(clean);
     }
     const accidentOnCard = car.factors.some(
       (factor) => factor.id === "listing_feed_flags" && /accident/i.test(factor.detail),
     );
     if (
-      !onlyOdometer &&
       accidentOnCard &&
       !car.sellerQuestions.some((question) => /accident/i.test(question))
     ) {
@@ -959,7 +957,6 @@ export function sellerQuestionsForBuyer(
       );
     }
     if (
-      !onlyOdometer &&
       (car.excludedFromPick || /does not match/i.test(car.excludedReason ?? "")) &&
       car.excludedReason
     ) {
@@ -967,7 +964,13 @@ export function sellerQuestionsForBuyer(
     }
     for (const line of carLines) {
       if (lines.length >= SELLER_QUESTION_LIMIT) break;
-      const named = line.includes(title) ? line.replaceAll(title, shown) : line.includes(shown) ? line : `For the ${shown}: ${line}`;
+      // Prefer the full shown label; never replace a bare title when shown is already present
+      // (that produced "(listing 1) (listing 1)").
+      const named = line.includes(shown)
+        ? line
+        : line.includes(title)
+          ? line.replaceAll(title, shown)
+          : `For the ${shown}: ${line}`;
       if (!lines.includes(named)) lines.push(named);
     }
   }

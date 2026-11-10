@@ -145,30 +145,8 @@ export async function runAgentCheck(
         ? `url:${Buffer.from(parsed.url).toString("base64url").slice(0, 24)}`
         : `paste:${Buffer.from(parsed.text.slice(0, 64)).toString("base64url").slice(0, 24)}`;
 
-  // VIN: reserve free slot (or credit) before work — same as site.
-  if (parsed.kind === "vin") {
-    freeCheckKey = `free-check:agent-check:${caller.userId}:${month}:${parsed.vin}:${clientKey}`;
-    const reserved = await reserveFreeCheck(deps.kv, caller.userId, freeCheckKey);
-    if (reserved.ok) usedFreeCheck = true;
-    else if (reserved.reason === "lock_busy") {
-      return {
-        ok: false,
-        status: 503,
-        body: agentError({
-          error_code: "quota_busy",
-          message: "Could not reserve a free vehicle check right now. Retry in a moment.",
-          retry_safe: true,
-          next_steps: {
-            action: "retry",
-            summary: "Retry with the same Idempotency-Key in a few seconds.",
-            request: { method: "POST", url: `${deps.origin}/api/v1/check`, body: input as Record<string, unknown> },
-          },
-        }),
-      };
-    } else if ((await creditBalance(deps.kv, caller.userId)) < 1) {
-      return { ok: false, status: 402, body: insufficientCreditsEnvelope(deps.origin, 0) };
-    } else needsCredit = true;
-  } else {
+  // Gate before work. Settle free-check / credit only after a delivered result.
+  {
     const slots = await freeCheckSlotsRemaining(deps.kv, caller.userId);
     if (slots.remaining < 1 && (await creditBalance(deps.kv, caller.userId)) < 1) {
       return { ok: false, status: 402, body: insufficientCreditsEnvelope(deps.origin, 0) };
@@ -178,7 +156,6 @@ export async function runAgentCheck(
   try {
     const result = await runCheck(parsed, deps);
     if (!result.ok) {
-      if (usedFreeCheck && freeCheckKey) await releaseFreeCheck(deps.kv, caller.userId, freeCheckKey);
       return {
         ok: false,
         status: result.status,
@@ -203,18 +180,30 @@ export async function runAgentCheck(
       };
     }
 
-    if (!usedFreeCheck && !needsCredit) {
-      const vinKey =
-        result.result.vin && isValidVin(result.result.vin)
-          ? result.result.vin
-          : subjectKey;
-      freeCheckKey = `free-check:agent-check:${caller.userId}:${month}:${vinKey}:${clientKey}`;
-      const reserved = await reserveFreeCheck(deps.kv, caller.userId, freeCheckKey);
-      if (reserved.ok) usedFreeCheck = true;
-      else if ((await creditBalance(deps.kv, caller.userId)) < 1) {
-        return { ok: false, status: 402, body: insufficientCreditsEnvelope(deps.origin, 0) };
-      } else needsCredit = true;
-    }
+    const vinKey =
+      result.result.vin && isValidVin(result.result.vin) ? result.result.vin : subjectKey;
+    freeCheckKey = `free-check:agent-check:${caller.userId}:${month}:${vinKey}:${clientKey}`;
+    const reserved = await reserveFreeCheck(deps.kv, caller.userId, freeCheckKey);
+    if (reserved.ok) usedFreeCheck = true;
+    else if (reserved.reason === "lock_busy") {
+      return {
+        ok: false,
+        status: 503,
+        body: agentError({
+          error_code: "quota_busy",
+          message: "Could not reserve a free vehicle check right now. Retry in a moment.",
+          credit_spent: false,
+          retry_safe: true,
+          next_steps: {
+            action: "retry",
+            summary: "Retry with the same Idempotency-Key in a few seconds.",
+            request: { method: "POST", url: `${deps.origin}/api/v1/check`, body: input as Record<string, unknown> },
+          },
+        }),
+      };
+    } else if ((await creditBalance(deps.kv, caller.userId)) < 1) {
+      return { ok: false, status: 402, body: insufficientCreditsEnvelope(deps.origin, 0) };
+    } else needsCredit = true;
 
     let creditSpent = false;
     let credits = 0;
