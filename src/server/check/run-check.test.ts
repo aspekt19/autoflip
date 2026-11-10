@@ -162,7 +162,7 @@ describe("runCheck listing paste (no paid Autodev/SERV)", () => {
     expect(result.result.confidenceWhy).toMatch(/not a buy\/negotiate\/pass|no asking price/i);
     expect(result.result.summary).toMatch(/not price-rated/i);
     expect(result.result.agentVerdict.serv_steps.some((s) => /no asking price/i.test(s.decided))).toBe(true);
-    expect(result.result.agentVerdict.serv_spend.costNote).not.toMatch(/Ordered gates withheld/i);
+    expect(result.result.agentVerdict.serv_spend?.costNote).not.toMatch(/Ordered gates withheld/i);
   });
 
   it("uses the current Autodev listing ask/miles to price-rate a VIN check", async () => {
@@ -345,7 +345,7 @@ describe("runCheck listing paste (no paid Autodev/SERV)", () => {
     expect(result.result.agentVerdict.no_serv_step).toBe(false);
     expect(result.result.agentVerdict.verdict).toBe("negotiate");
     expect(result.result.servTrace?.calls).toHaveLength(2);
-    expect(result.result.agentVerdict.serv_spend.costNote).not.toMatch(/Ordered gates withheld/i);
+    expect(result.result.agentVerdict.serv_spend?.costNote).not.toMatch(/Ordered gates withheld/i);
     expect(result.result.confidenceWhy).toMatch(/similar listings/i);
   });
 

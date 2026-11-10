@@ -48,7 +48,7 @@ describe("buildCheckAgentVerdict", () => {
     });
     expect(verdict.serv_steps.some((step) => /No asking price was available/i.test(step.decided))).toBe(true);
     expect(verdict.serv_steps.every((step) => !/Not enough similar cars/i.test(step.decided))).toBe(true);
-    expect(verdict.serv_spend.costNote).toMatch(/no asking price/i);
-    expect(verdict.serv_spend.costNote).not.toMatch(/Ordered gates withheld/i);
+    expect(verdict.serv_spend?.costNote).toMatch(/no asking price/i);
+    expect(verdict.serv_spend?.costNote).not.toMatch(/Ordered gates withheld/i);
   });
 });
