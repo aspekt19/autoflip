@@ -8,9 +8,10 @@ import {
 } from "./serv-response-id";
 
 describe("providerResponseId", () => {
+  // Provenance: recorded id from eval/results/serv-proof-trace.json (generatedAt 2026-11-06T09:36:15.626Z).
   it("accepts real OpenSERV-style completion ids", () => {
-    expect(providerResponseId("chatcmpl-Eia7lwQyEdrZ4bOTwmVam3kWBjvp1")).toBe(
-      "chatcmpl-Eia7lwQyEdrZ4bOTwmVam3kWBjvp1",
+    expect(providerResponseId("chatcmpl-EhAeeqtS7VTM5hgmyZxDbdz7quzxo")).toBe(
+      "chatcmpl-EhAeeqtS7VTM5hgmyZxDbdz7quzxo",
     );
   });
 
@@ -37,14 +38,14 @@ describe("providerResponseId", () => {
     expect(
       providerResponseIdFromCall({
         ok: false,
-        id: "chatcmpl-Eia7lwQyEdrZ4bOTwmVam3kWBjvp1",
+        id: "chatcmpl-EhAeeqtS7VTM5hgmyZxDbdz7quzxo",
       }),
     ).toBeNull();
     expect(
       providerResponseIdFromCall({
         ok: true,
-        id: "chatcmpl-Eia7lwQyEdrZ4bOTwmVam3kWBjvp1",
+        id: "chatcmpl-EhAeeqtS7VTM5hgmyZxDbdz7quzxo",
       }),
-    ).toBe("chatcmpl-Eia7lwQyEdrZ4bOTwmVam3kWBjvp1");
+    ).toBe("chatcmpl-EhAeeqtS7VTM5hgmyZxDbdz7quzxo");
   });
 });

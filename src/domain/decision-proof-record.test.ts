@@ -11,12 +11,13 @@ import {
 } from "./decision-proof-record";
 
 describe("decision proof record", () => {
+  // Provenance: recorded id from eval/results/latest.json.
   it("builds an ok record with digest, rubric, and SERV response id", () => {
     const record = buildDecisionProofRecord({
       purpose: "verdict_decide",
       rubricId: VERDICT_RUBRIC_ID,
       status: "ok",
-      responseId: "chatcmpl-Eia7abc",
+      responseId: "chatcmpl-EhAbWoRGDxTDAPz8Lvx93kv1cfycl",
       model: "gpt-5.4-mini",
       inputs: { fairValueUsd: 17_000, priceUsd: 14_900 },
       verdict: "negotiate",
@@ -29,12 +30,12 @@ describe("decision proof record", () => {
     });
     expect(record.schemaVersion).toBe(DECISION_PROOF_SCHEMA);
     expect(record.rubricId).toBe(VERDICT_RUBRIC_ID);
-    expect(record.servResponseId).toBe("chatcmpl-Eia7abc");
+    expect(record.servResponseId).toBe("chatcmpl-EhAbWoRGDxTDAPz8Lvx93kv1cfycl");
     expect(record.inputsDigest).toBe(digestDecisionInputs({ fairValueUsd: 17_000, priceUsd: 14_900 }));
     expect(record.clampResult?.finalAction).toBe("negotiate");
     expect(isDecisionProofRecord(record)).toBe(true);
     expect(assertServStepProof([record], "verdict_decide").verdict).toBe("negotiate");
-    expect(formatDecisionRecordLine(record)).toMatch(/response chatcmpl-Eia7abc/);
+    expect(formatDecisionRecordLine(record)).toMatch(/response chatcmpl-EhAbWoRGDxTDAPz8Lvx93kv1cfycl/);
   });
 
   it("maps error/skip aliases and never keeps an invented verdict", () => {
@@ -42,7 +43,7 @@ describe("decision proof record", () => {
       purpose: "verdict_decide",
       rubricId: VERDICT_RUBRIC_ID,
       status: "error",
-      responseId: "chatcmpl-Eia7abc",
+      responseId: "chatcmpl-EhAbWoRGDxTDAPz8Lvx93kv1cfycl",
       inputs: { vin: "x" },
       verdict: "buy",
       detail: "SERV HTTP 503",

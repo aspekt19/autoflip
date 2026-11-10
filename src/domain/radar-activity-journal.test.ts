@@ -57,7 +57,8 @@ describe("journalFromRadarActivity", () => {
 
   it("counts one batched radar_review HTTP response as one SERV call, not N decisions", () => {
     const callId = "call-batch-1";
-    const responseId = "chatcmpl-EiYTlwQyEdrZ4bOTwmVam3kWBjvp1";
+    // Provenance: recorded id from eval/results/latest.json.
+    const responseId = "chatcmpl-EhAcU9ouce3ntAvdUPXxxARGjslqB";
     const vins = [
       "4T1BF1FK4GU197310",
       "JTMZD31V075052071",

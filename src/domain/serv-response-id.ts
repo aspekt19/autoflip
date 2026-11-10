@@ -13,8 +13,8 @@ export function isLocalCallUuid(id: string): boolean {
 
 /**
  * OpenSERV sometimes returns chatcmpl-<uuid> on error bodies; real completion
- * ids look like chatcmpl-Eia7… (no UUID dashes). Treat UUID-shaped ids as not
- * displayable provider response ids.
+ * ids look like chatcmpl-EhAee… (recorded shape from eval/results/serv-proof-trace.json;
+ * no UUID dashes). Treat UUID-shaped ids as not displayable provider response ids.
  */
 export function isSyntheticChatCmplId(id: string): boolean {
   const trimmed = id.trim();
