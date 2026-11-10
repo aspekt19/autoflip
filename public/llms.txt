@@ -12,14 +12,14 @@ TypeScript owns the numbers; settle credits only after success.
 ## Tools (MCP POST /api/mcp)
 - `check_car` — VIN | listing URL | pasted text. Free monthly check or 1 credit after success. Scope: check. Returns `proofRecords` (`lemonless.decision_proof.v1`).
 - `find_cars` — natural-language request → `run_id`. Scope: find. Then `find_cars_status` / `find_cars_result` (result includes `proofRecords`).
-- `deal_radar` — free make/model scan. Scope: read. Returns `proofRecords` (e.g. `radar_guard`).
+- `deal_radar` — Deal Radar make/model scan (scope `read`; no report-credit debit). Saved watches need a paid Radar / Radar Pro plan on `/radar`. Always returns one `radar_guard` proof row.
 - `full_report` — full VIN report, 1 credit. Scope: check.
 
 ## Decision proof (`lemonless.decision_proof.v1`)
 Same object on site, MCP, and `af_` REST: `schemaVersion`, `purpose`, `rubricId`, `status` (`ok`|`failed`|`skipped`), `servResponseId` (only when `ok`), `model`, `timestamp`, `inputsDigest`, `verdict`, `clampResult`, `reason`, optional `rawResponse`.
-- `check_car` / `POST /api/v1/check`: rows from `verdict_decide` / `verdict_challenge` when SERV ran; `[]` when SERV was not configured or not called (never invents a response id).
+- `check_car` / `POST /api/v1/check`: `verdict_decide` / `verdict_challenge` when SERV ran; a `skipped` row with the withhold reason when `SERV_API_KEY` is set but gates withhold decide; `[]` only when `SERV_API_KEY` is not configured (never invents a response id).
 - `find_cars_result` / Find settle: need-parse + verdict rows from the run.
-- `deal_radar`: guard (and related) rows when attempted.
+- `deal_radar`: always exactly one `radar_guard` row (`ok`, `skipped` when the key is missing, or `failed` with the real reason).
 
 ## REST
 - `POST /api/v1/check` — same as check_car (includes `proofRecords`)

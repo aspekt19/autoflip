@@ -80,7 +80,7 @@
     "/api/v1/check": {
       "post": {
         "summary": "check_car",
-        "description": "Same path as site /check. Success includes proofRecords (lemonless.decision_proof.v1). Empty proofRecords means SERV was not configured or not called — never invents servResponseId.",
+        "description": "Same path as site /check. Success includes proofRecords (lemonless.decision_proof.v1). Empty proofRecords only when SERV_API_KEY is not configured; when the key is set and gates withhold decide, expect a skipped row with the withhold reason — never invents servResponseId.",
         "parameters": [
           {
             "name": "Idempotency-Key",

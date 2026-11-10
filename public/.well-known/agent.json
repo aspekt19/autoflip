@@ -62,9 +62,9 @@
     "field": "proofRecords",
     "description": "Shared on site, MCP, and af_ REST. Each row: schemaVersion, purpose, rubricId, status (ok|failed|skipped), servResponseId (only when ok), model, timestamp, inputsDigest, verdict, clampResult, reason, optional rawResponse.",
     "tools": {
-      "check_car": "verdict_decide / verdict_challenge when SERV ran; empty array when SERV was not configured or not called",
+      "check_car": "verdict_decide / verdict_challenge when SERV ran; skipped row with withhold reason when SERV_API_KEY is set but gates withhold decide; [] only when SERV_API_KEY is not configured",
       "find_cars": "need_guard / need_extract / verdict rows on completed find_cars_result",
-      "deal_radar": "radar_guard (and related) when attempted"
+      "deal_radar": "always exactly one radar_guard row (ok, skipped_no_key, or failed); Deal Radar make/model scan — saved watches need paid Radar / Radar Pro"
     }
   },
   "errors": {

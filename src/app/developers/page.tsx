@@ -87,16 +87,18 @@ export default function DevelopersPage() {
           </p>
           <ul>
             <li>
-              <code>check_car</code> — decide/challenge rows when SERV ran;{" "}
-              <code>[]</code> when SERV was not configured or not called (TypeScript screening still
-              runs; never invents a response id).
+              <code>check_car</code> — decide/challenge rows when SERV ran; a{" "}
+              <code>skipped</code> row with the withhold reason when <code>SERV_API_KEY</code> is set
+              but gates withhold decide; <code>[]</code> only when <code>SERV_API_KEY</code> is not
+              configured (never invents a response id).
             </li>
             <li>
               <code>find_cars_result</code> — need-parse and verdict rows from that Find run.
             </li>
             <li>
-              <code>deal_radar</code> — <code>radar_guard</code> (and related) when that step was
-              attempted.
+              <code>deal_radar</code> — Deal Radar make/model scan (saved watches need a paid Radar /
+              Radar Pro plan). Always exactly one <code>radar_guard</code> row (
+              <code>ok</code>, <code>skipped</code> when the key is missing, or <code>failed</code>).
             </li>
           </ul>
         </section>

@@ -11,7 +11,7 @@ export function toolList() {
     {
       name: "check_car",
       description:
-        "Check a car by listing URL, VIN, or pasted listing text. Same path as the site /check. Uses the account’s free monthly check allotment when available, otherwise 1 report credit — settled only after success. Requires a key with the check scope. Returns lemonless.agent_verdict.v1 plus proofRecords (lemonless.decision_proof.v1 rows for verdict_decide / verdict_challenge when SERV ran; empty array when SERV was not configured or not called — never invents servResponseId). Also includes serv.steps, code_computed, unknowns, credit_spent, and receipt_id.",
+        "Check a car by listing URL, VIN, or pasted listing text. Same path as the site /check. Uses the account’s free monthly check allotment when available, otherwise 1 report credit — settled only after success. Requires a key with the check scope. Returns lemonless.agent_verdict.v1 plus proofRecords (lemonless.decision_proof.v1): verdict_decide / verdict_challenge when SERV ran; a skipped row with the withhold reason when SERV_API_KEY is set but ordered gates withhold decide; [] only when SERV_API_KEY is not configured. Never invents servResponseId. Also includes serv.steps, code_computed, unknowns, credit_spent, and receipt_id.",
       inputSchema: {
         type: "object",
         properties: {
@@ -63,7 +63,7 @@ export function toolList() {
     {
       name: "deal_radar",
       description:
-        "One-shot scan of current Auto.dev listings for one make and model (same price rating as the site). Does not create a saved Deal Radar watch and does not unlock Radar — saved watches require a paid Radar or Radar Pro plan on the signed-in Deal Radar page (cron). Does not charge. Requires the read scope. Returns proofRecords (lemonless.decision_proof.v1), including radar_guard when that step ran; empty only when no SERV step was attempted. Recalls and fuel are not included; use full_report or check_car for those.",
+        "Deal Radar make/model listing scan (same price rating as the site). Scope: read. Does not create or unlock a saved watch — saved Deal Radar watches require a paid Radar or Radar Pro plan on the signed-in /radar page (cron). This MCP call does not debit report credits. Always returns exactly one radar_guard row in proofRecords (ok, skipped_no_key when SERV_API_KEY is missing, or failed with the real reason). Recalls and fuel are not included; use full_report or check_car for those.",
       inputSchema: {
         type: "object",
         properties: {
@@ -159,7 +159,7 @@ export function radarToolResult(
     sample,
     message,
     ...(proof !== undefined ? { proof } : {}),
-    /** Shared lemonless.decision_proof.v1 — empty when this one-shot scan did not call SERV. */
+    /** Shared lemonless.decision_proof.v1 — assembleRadar always supplies one radar_guard row. */
     proofRecords: proofRecords ?? [],
     listings: rows.map((row) => ({
       vin: row.listing.vin,

@@ -65,7 +65,13 @@ Shared contract for site Find/Radar, MCP tools, and `af_` REST. Each row:
 | reason | required when not `ok` |
 | rawResponse | optional raw SERV body when recorded |
 
-`check_car` / `POST /api/v1/check` fills `proofRecords` from the same shopper decide/challenge path as site `/check`. The array is empty only when SERV was not configured or not called (TypeScript screening still runs). Do not treat `[]` as a successful SERV decide.
+`check_car` / `POST /api/v1/check` fills `proofRecords` from the same shopper decide/challenge path as site `/check` (`run-check` → `runShopperVerdictServ`):
+- `[]` **only** when `SERV_API_KEY` is not configured (TypeScript screening still runs).
+- When the key is set but ordered gates withhold decide, the array has a `skipped` `verdict_decide` row whose `reason` is the withhold reason — not an empty array.
+- When decide/challenge run, rows are `ok` / `failed` / `skipped` with real statuses; never invent `servResponseId` on non-ok rows.
+
+`deal_radar` always returns exactly one `radar_guard` row in `proofRecords` (including `skipped` when `SERV_API_KEY` is missing). It is the Deal Radar make/model scan tool (scope `read`); saved watches still require a paid Radar / Radar Pro plan on `/radar`.
+
 Docs omit filled proof JSON examples unless captured from a real run (servResponseId, model, timestamp, rawResponse).
 
 ## Error envelope
