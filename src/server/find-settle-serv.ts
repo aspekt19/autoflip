@@ -151,7 +151,10 @@ export async function runFindSettleServ(input: {
   transportPolicy?: "production" | "experiment_single_attempt";
 }): Promise<FindSettleServResult> {
   const pick = input.bestDeal.pick;
-  if (!pick || !input.bestDeal.evidenceSettled) {
+  // Root cause (b): blocking on evidenceSettled skipped verdict_decide after the Find
+  // loop already stopped with a pick — UI showed no Buy/Negotiate/Pass. Run decide
+  // whenever a pick exists; soft evidence is noted on the challenge skip copy only.
+  if (!pick) {
     return {
       ran: false,
       trace: null,
@@ -159,9 +162,7 @@ export async function runFindSettleServ(input: {
       secondPass: {
         status: "not_run",
         action: null,
-        objection: !pick
-          ? "Second check not run: no pick was settled."
-          : "Second check not run: free public checks are still settling the shortlist.",
+        objection: "Second check not run: no pick was settled.",
         evidenceIds: [],
         confidenceBefore: null,
         confidenceAfter: null,

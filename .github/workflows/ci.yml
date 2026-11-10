@@ -52,6 +52,8 @@ jobs:
         run: node scripts/assert-openserv-source-boundary.mjs
       - name: Run unit tests
         run: npm test
+      - name: Find/Radar SERV acceptance (merge gate)
+        run: npm run test:acceptance:find-radar-serv
       - name: Install Playwright Chromium
         run: npx playwright install --with-deps chromium
       - name: Run Playwright check e2e

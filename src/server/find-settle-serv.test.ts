@@ -74,6 +74,120 @@ describe("find settle SERV", () => {
     expect(settled.secondPass.objection).toMatch(/Second check not run/i);
   });
 
+  it("still runs verdict_decide when evidenceSettled is false but a pick exists", async () => {
+    const pick = candidate({
+      key: "a",
+      vdp: "https://dealer.example/camry",
+      factors: [
+        {
+          id: "price_vs_model_asks",
+          label: "Price",
+          points: 4,
+          detail: "Asking is near the fair value of $12,500 from similar listings.",
+          source: "code",
+        },
+        {
+          id: "mmy_recall_campaigns",
+          label: "Recalls",
+          points: 2,
+          detail: "Recall campaigns were checked for this year and model.",
+          source: "code",
+        },
+      ],
+    });
+    const peers = [1, 2, 3].map((n) =>
+      candidate({
+        key: `p${n}`,
+        vin: `4T1BF1FK0EU84844${n}`,
+        priceUsd: 11_000 + n * 100,
+        miles: 80_000 + n * 1000,
+      }),
+    );
+    const bestDeal = {
+      ranked: [pick, ...peers],
+      pick,
+      confidence: "medium",
+      choice: null,
+      why: "test",
+      stillUnknown: [],
+      sensitivity: [],
+      assumptionsNote: "",
+      honesty: "",
+      evidenceSettled: false,
+      settlementNote: "soft evidence still open",
+      fairnessHeldOut: [],
+      priceProvisional: false,
+      allRanked: [pick, ...peers],
+      baseline: {
+        pick: null,
+        cheapest: null,
+        lowestMiles: null,
+        cheapestIsPick: false,
+        lowestMilesIsPick: false,
+        cheaperLeftOut: null,
+        whyNotCheapest: "",
+        factors: [],
+        leading: null,
+      },
+      closeCall: null,
+    } as unknown as BestDealResult;
+
+    let decideCalls = 0;
+    const fetchImpl: typeof fetch = async () => {
+      decideCalls += 1;
+      if (decideCalls === 1) {
+        return Response.json({
+          id: "chatcmpl-decide-soft",
+          object: "chat.completion",
+          model: "gpt-test",
+          choices: [
+            {
+              finish_reason: "stop",
+              message: {
+                content: JSON.stringify({
+                  verdict: "negotiate",
+                  note: "Ask is near the fair value of $12,500.",
+                }),
+              },
+            },
+          ],
+          usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 },
+        });
+      }
+      return Response.json({
+        id: "chatcmpl-challenge-soft",
+        object: "chat.completion",
+        model: "gpt-test",
+        choices: [
+          {
+            finish_reason: "stop",
+            message: {
+              content: JSON.stringify({
+                agrees: true,
+                action: "negotiate",
+                objection: null,
+                evidenceIds: ["ev_reason_0"],
+              }),
+            },
+          },
+        ],
+        usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 },
+      });
+    };
+
+    const settled = await runFindSettleServ({
+      bestDeal,
+      servKey: "test-key",
+      fetchImpl,
+      model: "gpt-test",
+      budgetUsd: 15_000,
+      transportPolicy: "experiment_single_attempt",
+    });
+    expect(settled.ran).toBe(true);
+    expect(decideCalls).toBeGreaterThanOrEqual(1);
+    expect(settled.agentVerdict?.serv_steps.some((step) => step.responseId)).toBe(true);
+  });
+
   it("runs verdict_decide + challenge when SERV is mocked and returns an agentVerdict trail", async () => {
     const pick = candidate({
       key: "a",

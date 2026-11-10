@@ -256,8 +256,15 @@ function AssistantFlow({
     source: "serv" | "code" | "form";
     responseId: string | null;
     label: string;
-  } | null>(entryNeed ? { source: "form", responseId: null, label: "Entered on the form" } : null);
+  } | null>(
+    // Local entry parse is code, not form — SERV response id arrives after /api/need.
+    entryNeed
+      ? { source: "code", responseId: null, label: criteriaParseLabel({ source: "code", responseId: null }) }
+      : null,
+  );
   const [checks, setChecks] = useState<DecisionProof[]>([]);
+  /** Home/deep-link free text used to skip /api/need; fire SERV parse once on entry. */
+  const entryServParseRef = useRef(false);
   const [questions, setQuestions] = useState<FollowUp[]>(entryNeed && entryStage === "follow" ? followUps(entryNeed) : []);
   const [answers, setAnswers] = useState<Record<string, string>>({});
   const [stage, setStage] = useState<"need" | "budget" | "follow" | "confirm" | "results">(entryStage);
@@ -359,6 +366,19 @@ function AssistantFlow({
       cancelled = true;
     };
   }, [variant]);
+
+  // Root cause (a): home/deep-link notes that already clear budget/follow-ups jumped
+  // straight to confirm with empty checks and no SERV response id ("prompt guard …
+  // not recorded"). Budget/follow entry still hits /api/need on Continue.
+  useEffect(() => {
+    if (variant !== "find" || !initialNote?.trim()) return;
+    if (entryStage !== "confirm") return;
+    if (entryServParseRef.current) return;
+    entryServParseRef.current = true;
+    void understand(undefined, { freshNote: true });
+    // understand closes over latest drafts; run once per confirm-entry note only.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [variant, initialNote, entryStage]);
 
   useEffect(() => {
     if (variant !== "check") return;
@@ -512,6 +532,7 @@ function AssistantFlow({
         groups?: MatchGroup[];
         source?: "model" | "form";
         checks?: DecisionProof[];
+        criteriaParse?: { source: "serv" | "code" | "form"; responseId: string | null; label: string };
         affordability?: boolean;
         sample?: boolean;
         matchMessage?: string | null;
@@ -538,6 +559,8 @@ function AssistantFlow({
         setMatchMessage(decision.reason);
         if (saved.need.budgetUsd) setBudget(String(saved.need.budgetUsd));
         if (saved.need.zip) setZipDraft(saved.need.zip);
+        if (saved.criteriaParse) setCriteriaParse(saved.criteriaParse);
+        if (saved.checks) setChecks(saved.checks);
         return;
       }
 
@@ -547,6 +570,7 @@ function AssistantFlow({
       setMarketPool(readinessCarsFromUnknown(saved.marketPool));
       setSource(saved.source ?? "form");
       setChecks(saved.checks ?? []);
+      if (saved.criteriaParse) setCriteriaParse(saved.criteriaParse);
       setAffordability(saved.affordability ?? true);
       setSample(decision.sample);
       if (decision.warnUnknownSource) {
@@ -660,6 +684,7 @@ function AssistantFlow({
           groups,
           source,
           checks,
+          criteriaParse,
           affordability,
           sample,
           matchMessage,
