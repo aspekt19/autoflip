@@ -75,6 +75,7 @@ describe("journalFromRadarActivity", () => {
     const callId = "call-timeout-1";
     const at = "2026-11-10T05:14:00.000Z";
     const vins = ["V1", "V2", "V3", "V4", "V5"];
+    // Production shape after fix: decision=timeout + note with seconds (from radarReviewFailureFields).
     const journal = journalFromRadarActivity(
       vins.map((vin) => ({
         at,
@@ -87,7 +88,7 @@ describe("journalFromRadarActivity", () => {
         responseId: null,
         latencyMs: 40_000,
         ok: false,
-        decision: null,
+        decision: "timeout",
         note: "SERV timed out after 40s",
         alerted: false,
       })),
@@ -96,10 +97,10 @@ describe("journalFromRadarActivity", () => {
     expect(journal.servCalls).toBeLessThanOrEqual(RADAR_SERV_CALL_CAP);
     expect(journal.steps[0]?.rejected).toBe("timeout");
     expect(journal.steps[0]?.decided).toMatch(/HTTP call — 5 decisions/);
-    // Child rows must not invent skip or http_error when the parent timed out.
-    const child = journal.steps.find((step) => /no decision for V1/.test(step.decided));
+    const child = journal.steps.find((step) => /for V1/.test(step.decided));
     expect(child).toBeTruthy();
     expect(child!.rejected).toBe("timeout");
+    expect(child!.decided).toMatch(/timeout/);
     expect(child!.decided).not.toMatch(/\bskip\b/i);
   });
 

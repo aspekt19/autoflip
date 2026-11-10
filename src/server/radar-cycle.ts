@@ -30,6 +30,11 @@ import { alertMessage, type AlertCopy } from "@/io/telegram";
 import type { Listing } from "@/domain/types";
 import { resolveProductFlags } from "@/domain/product-flags";
 import { journalFromRadarActivity } from "@/domain/radar-activity-journal";
+import {
+  buildRadarReviewActivityRows,
+  flipCandidateOutcome,
+  upsertNotReviewedAlert,
+} from "@/domain/radar-review-activity";
 import { reviewPersonalCandidate, type RadarServActivity } from "./radar-serv";
 import { listSearches, upsertRun, saveAlerts, saveSearches, seenBook, storeSeenPrices, readListingCache, writeListingCache, telegramChat, telegramPaused, type StoredRun, listAlerts } from "./radar-store";
 
@@ -272,10 +277,11 @@ export async function runRadarCycle(deps: CycleDeps): Promise<StoredRun> {
           const judged = await judgeFlipAlerts(fresh, deps, remain(), limits.serv, servChecks, search.id);
           if (judged?.activity?.length) servActivity.push(...judged.activity);
           if (deps.servKey && fresh.length > 0 && !judged?.decisions) {
-            notes.push("Flip explanation unavailable. The estimates below are from the scan only.");
+            notes.push(
+              "Flip explanation unavailable. Candidates were left as Not reviewed so they can be checked again next run.",
+            );
           }
           for (const item of fresh) {
-            const decision = judged?.decisions?.get(item.vin);
             const badge = priceBadge(item.listing, job.listings, { mode: "flip" });
             const numbers = {
               priceUsd: item.listing.priceUsd ?? 0,
@@ -297,53 +303,58 @@ export async function runRadarCycle(deps: CycleDeps): Promise<StoredRun> {
               radiusMiles: search.criteria.radiusMiles,
               historyOnListing: item.listing.accidentCount !== null && item.listing.ownerCount !== null,
             };
-            // When SERV returned a decision map, only "alert" becomes a counted new alert.
-            // Explicit "skip" → serv_skipped (Reviewed — skipped). Missing verdict → not_reviewed, not seen.
-            if (deps.servKey && judged?.decisions) {
-              if (decision?.verdict === "skip") {
-                const skipped = makeAlert(
-                  search,
-                  item.listing,
-                  `Reviewed — skipped: ${decision.note?.trim() || baseWhy}`,
-                  numbers,
-                  deps.now.toISOString(),
-                  judged?.checks,
-                  coverageSentence(flipCoverage),
-                  coverageConfidence(flipCoverage),
-                  item.priceDropFrom,
-                  badge,
-                  "serv_skipped",
-                );
-                alerts.unshift(skipped);
-                if (item.listing.priceUsd != null) book.set(item.vin, item.listing.priceUsd);
-                continue;
-              }
-              if (decision?.verdict === "alert") {
-                // fall through to counted alert below
-              } else {
-                const pending = makeAlert(
-                  search,
-                  item.listing,
-                  `Not reviewed (no SERV decision). ${baseWhy}`,
-                  numbers,
-                  deps.now.toISOString(),
-                  judged?.checks,
-                  coverageSentence(flipCoverage),
-                  coverageConfidence(flipCoverage),
-                  item.priceDropFrom,
-                  badge,
-                  "not_reviewed",
-                );
-                alerts.unshift(pending);
-                // Leave out of seen book so the next run can re-review.
-                continue;
-              }
+            const outcome = flipCandidateOutcome({
+              hasServKey: Boolean(deps.servKey),
+              // null judged / null decisions → no decision map (timeout, empty payload, budget).
+              decisions: judged?.decisions ?? null,
+              vin: item.vin,
+              baseWhy,
+            });
+            if (outcome.kind === "serv_skipped") {
+              const skipped = makeAlert(
+                search,
+                item.listing,
+                outcome.why,
+                numbers,
+                deps.now.toISOString(),
+                judged?.checks,
+                coverageSentence(flipCoverage),
+                coverageConfidence(flipCoverage),
+                item.priceDropFrom,
+                badge,
+                "serv_skipped",
+              );
+              alerts.unshift(skipped);
+              if (item.listing.priceUsd != null) book.set(item.vin, item.listing.priceUsd);
+              continue;
             }
-            const why = decision?.note
-              ? `${baseWhy} ${decision.note}`
-              : deps.servKey && !decision
-                ? `${baseWhy} The written check did not finish. These figures are from the scan.`
-                : baseWhy;
+            if (outcome.kind === "not_reviewed") {
+              const pending = makeAlert(
+                search,
+                item.listing,
+                outcome.why,
+                numbers,
+                deps.now.toISOString(),
+                judged?.checks,
+                coverageSentence(flipCoverage),
+                coverageConfidence(flipCoverage),
+                item.priceDropFrom,
+                badge,
+                "not_reviewed",
+              );
+              // Replace prior not_reviewed for this search+VIN so the 80-alert cap stays honest.
+              const next = upsertNotReviewedAlert(alerts, pending);
+              alerts.length = 0;
+              alerts.push(...next);
+              // Leave out of seen book so the next run can re-review.
+              continue;
+            }
+            const why =
+              outcome.kind === "alert" && outcome.whySuffix
+                ? `${baseWhy} ${outcome.whySuffix}`
+                : outcome.kind === "code_alert"
+                  ? outcome.why
+                  : baseWhy;
             const alert = makeAlert(
               search,
               item.listing,
@@ -711,25 +722,25 @@ async function judgeFlipAlerts(
       typeof judged.proof.openserv?.id === "string" && judged.proof.openserv.id.trim()
         ? judged.proof.openserv.id.trim()
         : null;
-    for (const item of fresh) {
-      const decision = decisions?.get(item.vin);
-      activity.push({
-        at: nowIso,
-        searchId,
-        vin: item.vin,
-        profile: "radar_review",
-        modelRequested: judged.proof.modelRequested,
-        modelReported: judged.proof.modelReported,
-        callId: reviewCallId,
-        responseId,
-        latencyMs: judged.proof.latencyMs,
-        // HTTP ok is independent of whether this VIN got a verdict in the batch.
+    const seeds = fresh.map((item) => ({
+      at: nowIso,
+      searchId,
+      vin: item.vin,
+      callId: reviewCallId,
+      responseId,
+      latencyMs: judged.proof.latencyMs,
+      modelRequested: judged.proof.modelRequested,
+      modelReported: judged.proof.modelReported,
+    }));
+    activity.push(
+      ...buildRadarReviewActivityRows(seeds, {
         ok: judged.ok,
-        decision: decision?.verdict ?? null,
-        note: decision?.note ?? null,
-        alerted: decision?.verdict === "alert",
-      });
-    }
+        error: judged.ok ? undefined : judged.error,
+        status: judged.ok ? undefined : judged.status,
+        failureCategory: judged.ok ? null : (judged.failureDiag?.category ?? null),
+        decisions,
+      }),
+    );
     return {
       decisions,
       checks: [...guards, ...(rules ? [visibleProof(rules.proof)] : []), visibleProof(judged.proof)],
