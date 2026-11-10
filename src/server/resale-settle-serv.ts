@@ -753,12 +753,10 @@ export async function runResaleSettleServ(input: {
   }
 
   // Optional shopper decide path for ComputedReport parity (counts toward cap when key present and budget remains).
+  // Decide timeout is clamped here; challenge is re-clamped inside runShopperVerdictServ after decide returns.
   const shopperTimeoutDecide = deadline
     ? resaleCallTimeoutMs(profile("verdict_decide").timeoutMs, deadline)
     : profile("verdict_decide").timeoutMs;
-  const shopperTimeoutChallenge = deadline
-    ? resaleCallTimeoutMs(profile("verdict_challenge").timeoutMs, deadline)
-    : profile("verdict_challenge").timeoutMs;
   if (
     input.servKey?.trim() &&
     journal.servCalls < journal.servCallCap &&
@@ -775,7 +773,6 @@ export async function runResaleSettleServ(input: {
       fetchImpl,
       deadline,
       decideTimeoutMs: shopperTimeoutDecide,
-      challengeTimeoutMs: shopperTimeoutChallenge,
     });
     if (shopper.trace) {
       ranDecide = true;
@@ -802,6 +799,23 @@ export async function runResaleSettleServ(input: {
           recordedAt: shopper.trace.recordedAt,
         });
       }
+    }
+    if (
+      shopper.steps.some((s) => s.id === "serv_verdict_challenge" && s.status === "skipped_time_budget") ||
+      shopper.agentVerdict.second_pass?.objection === RESALE_TIME_BUDGET_SKIP
+    ) {
+      journal = appendJournalStep(journal, {
+        kind: "fallback",
+        actor: "code",
+        decided: `Shopper challenge ${RESALE_TIME_BUDGET_SKIP}`,
+        why: `Wall-clock budget remaining ${deadline?.remainingMs() ?? 0}ms after decide — shopper challenge skipped.`,
+        inputsUsed: [`vin:${best.vin}`],
+        changed: null,
+        model: null,
+        responseId: null,
+        recordedAt,
+        rejected: null,
+      });
     }
   } else if (
     input.servKey?.trim() &&

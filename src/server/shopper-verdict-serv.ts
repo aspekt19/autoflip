@@ -17,8 +17,13 @@ import {
   verdictDecisionFacts,
   type VerdictDecisionRecord,
 } from "@/domain/verdict-decide";
+import {
+  resaleCallTimeoutMs,
+  RESALE_TIME_BUDGET_SKIP,
+  type ResaleDeadline,
+} from "@/domain/resale-deadline";
 import { collectReportEvidenceIds, runReportVerdictChallenge } from "@/server/agent-second-pass";
-import { runServ, type ServProof } from "@/server/serv";
+import { profile, runServ, type ServProof } from "@/server/serv";
 
 /** Format OpenServ usage for the trail spend line. Never invent a dollar amount. */
 function usageSpendNote(proofs: Array<ServProof | null>): string | null {
@@ -124,11 +129,14 @@ export async function runShopperVerdictServ(input: {
    * Unit tests inject experiment_single_attempt so unlisted models and single-shot mocks work.
    */
   transportPolicy?: "production" | "experiment_single_attempt";
-  /** Optional wall-clock deadline (Resale path) — sizes per-call timeouts. */
-  deadline?: { remainingMs: () => number; expired: () => boolean; allow: (needMs: number) => boolean };
+  /** Optional wall-clock deadline (Resale path) — challenge is re-clamped after decide. */
+  deadline?: ResaleDeadline;
   /** Explicit decide timeout (already clamped to remaining budget by caller). */
   decideTimeoutMs?: number | null;
-  /** Explicit challenge timeout; null skips challenge as time-budget. */
+  /**
+   * Optional pre-clamped challenge timeout. When `deadline` is set, challenge is
+   * re-clamped to `deadline.remainingMs()` immediately before the call instead.
+   */
   challengeTimeoutMs?: number | null;
 }): Promise<ShopperVerdictServResult> {
   const mandate = input.mandate ?? {};
@@ -236,14 +244,27 @@ export async function runShopperVerdictServ(input: {
   const challengeConfidence: AgentVerdictConfidence =
     decision.source === "serv" && decision.overrideReasons.length === 0 ? "high" : "medium";
 
-  const challengeBudgetSkipped = input.challengeTimeoutMs === null;
+  // Re-clamp after decide — remaining budget may be below challenge's useful minimum.
+  const challengeTimeoutMs = input.deadline
+    ? resaleCallTimeoutMs(profile("verdict_challenge").timeoutMs, input.deadline)
+    : input.challengeTimeoutMs === undefined
+      ? profile("verdict_challenge").timeoutMs
+      : input.challengeTimeoutMs;
+  const challengeBudgetSkipped = challengeTimeoutMs === null;
   const challengeSkipped = decision.gateRun.withheld || !decision.servChoice || challengeBudgetSkipped;
+  if (challengeBudgetSkipped) {
+    steps.push({
+      id: "serv_verdict_challenge",
+      status: "skipped_time_budget",
+      detail: RESALE_TIME_BUDGET_SKIP,
+    });
+  }
   const challenge = challengeSkipped
     ? {
         result: {
           status: "not_run" as const,
           action: null,
-          objection: challengeBudgetSkipped ? "not run (time budget)" : null,
+          objection: challengeBudgetSkipped ? RESALE_TIME_BUDGET_SKIP : null,
           evidenceIds: [] as string[],
           confidenceBefore: null,
           confidenceAfter: null,
@@ -264,7 +285,7 @@ export async function runShopperVerdictServ(input: {
         model: input.model,
         fetchImpl,
         transportPolicy,
-        ...(typeof input.challengeTimeoutMs === "number" ? { timeoutMs: input.challengeTimeoutMs } : {}),
+        ...(typeof challengeTimeoutMs === "number" ? { timeoutMs: challengeTimeoutMs } : {}),
       });
   challengeProof = challenge.proof;
 

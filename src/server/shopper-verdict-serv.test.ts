@@ -204,6 +204,41 @@ describe("runShopperVerdictServ", () => {
     expect(facts.facts?.allowedActions).not.toContain("negotiate");
   });
 
+  it("re-clamps verdict_challenge after decide and skips when remaining budget is short", async () => {
+    const { makeResaleDeadline, RESALE_TIME_BUDGET_SKIP } = await import("@/domain/resale-deadline");
+    // 5s total: decide burns ~2.5s → remaining below challenge's useful minimum.
+    const deadline = makeResaleDeadline(5_000);
+    let calls = 0;
+    const fetchImpl = vi.fn(async () => {
+      calls += 1;
+      if (calls === 1) {
+        await new Promise((r) => setTimeout(r, 2_500));
+        return jsonResponse(
+          { verdict: "negotiate", note: "Ask sits near fair value from the comps." },
+          "chatcmpl-decide-budget",
+        );
+      }
+      throw new Error("challenge must not run when re-clamp skips");
+    });
+
+    const result = await runShopperVerdictServ({
+      report: report(),
+      servKey: "test-key",
+      model: "gpt-5.4-mini",
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+      deadline,
+      decideTimeoutMs: 3_500,
+      transportPolicy: "experiment_single_attempt",
+    });
+
+    expect(calls).toBe(1);
+    expect(result.steps.some((s) => s.id === "serv_verdict_challenge" && s.status === "skipped_time_budget")).toBe(
+      true,
+    );
+    expect(result.agentVerdict.second_pass?.objection).toBe(RESALE_TIME_BUDGET_SKIP);
+    expect(result.trace?.calls.every((c) => c.profile !== "verdict_challenge")).toBe(true);
+  });
+
   it("withholds without inventing SERV when asking price is missing", async () => {
     const fetchImpl = vi.fn(async () => {
       throw new Error("network should not be called when gates withhold");
