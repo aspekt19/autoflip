@@ -73,6 +73,12 @@ export type DecisionProofRecord = {
   clampResult: DecisionProofClamp | null;
   /** Real skip/failure reason. Null only when status is ok. */
   reason: string | null;
+  /**
+   * Radar/Check scoping — set when the proof belongs to one watch.
+   * Check/feed must return only the calling account’s rows (never another buyer’s SERV id).
+   */
+  searchId?: string | null;
+  ownerId?: string | null;
 };
 
 export function normalizeDecisionProofStatus(status: DecisionProofStatusInput): DecisionProofStatus {
@@ -104,6 +110,8 @@ export function buildDecisionProofRecord(input: {
   /** Preferred public name; `detail` accepted as alias at build time. */
   reason?: string | null;
   detail?: string | null;
+  searchId?: string | null;
+  ownerId?: string | null;
 }): DecisionProofRecord {
   const status = normalizeDecisionProofStatus(input.status);
   const rawId = input.servResponseId ?? input.responseId ?? null;
@@ -124,7 +132,23 @@ export function buildDecisionProofRecord(input: {
     verdict: blocked ? null : input.verdict ?? null,
     clampResult: input.clampResult ?? input.clamp ?? null,
     reason: status === "ok" ? null : reasonText || status,
+    searchId: input.searchId?.trim() || null,
+    ownerId: input.ownerId?.trim() || null,
   };
+}
+
+/** Keep only proofs for this owner's watches (radar Check / feed). */
+export function filterProofRecordsForOwner(
+  records: readonly DecisionProofRecord[] | null | undefined,
+  input: { ownerId: string; searchIds: ReadonlySet<string> },
+): DecisionProofRecord[] {
+  const rows = Array.isArray(records) ? records : [];
+  return rows.filter((row) => {
+    if (row.ownerId && row.ownerId === input.ownerId) return true;
+    if (row.searchId && input.searchIds.has(row.searchId)) return true;
+    // Unscoped rows are refused — never leak another buyer's SERV id by omission of ids.
+    return false;
+  });
 }
 
 /** Structural check for acceptance / API consumers — never invent missing fields. */
@@ -141,6 +165,8 @@ export function isDecisionProofRecord(value: unknown): value is DecisionProofRec
   if (typeof row.inputsDigest !== "string" || row.inputsDigest.length < 32) return false;
   if (row.verdict != null && typeof row.verdict !== "string") return false;
   if (row.reason != null && typeof row.reason !== "string") return false;
+  if (row.searchId != null && typeof row.searchId !== "string") return false;
+  if (row.ownerId != null && typeof row.ownerId !== "string") return false;
   if (row.clampResult != null) {
     if (typeof row.clampResult !== "object") return false;
     const clamp = row.clampResult as Record<string, unknown>;

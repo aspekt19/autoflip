@@ -1,3 +1,4 @@
+import { filterProofRecordsForOwner } from "@/domain/decision-proof-record";
 import {
   countNewRadarAlertsInWindow,
   remapLegacyServSkipAlerts,
@@ -78,9 +79,9 @@ export async function POST(request: Request) {
   });
   // Same source as feed: SERV alert decisions when present, else remapped new/opened rows.
   const ownerAlerts = hasDecisionLabels ? servAlerted : remappedInWindow;
-  const ownerProofRecords = (run.proofRecords ?? []).filter((row) => {
-    // Keep every run-level proof; personal reviews are already owner-scoped via this Check.
-    return Boolean(row);
+  const ownerProofRecords = filterProofRecordsForOwner(run.proofRecords, {
+    ownerId: id,
+    searchIds: mySearchIds,
   });
   return Response.json({
     ok: true,
