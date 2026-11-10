@@ -4,8 +4,14 @@
  */
 
 import { applyAgentSecondPass } from "@/domain/agent-second-pass";
+import { ASSUMPTIONS } from "@/domain/assumptions";
 import type { AgentSecondPassResult, AgentVerdictConfidence } from "@/domain/agent-verdict-schema";
 import type { DecisionAction } from "@/domain/decision-action";
+import {
+  secondCheckUnavailableLabel,
+  secondCheckUnavailableRawDump,
+  shortSecondCheckUnavailableReason,
+} from "@/domain/second-check-unavailable";
 import type { ComputedReport } from "@/domain/types";
 import { runServ, type ServDeps, type ServProof } from "@/server/serv";
 
@@ -17,12 +23,38 @@ export function collectReportEvidenceIds(report: ComputedReport): {
   const push = (id: string, text: string) => {
     facts.push({ id, text });
   };
-  if (report.fairValueUsd != null) {
+  const ask = report.subject.priceUsd;
+  if (report.mode === "flip") {
+    if (report.fairValueUsd != null) {
+      push(
+        "ev_resale_mid",
+        `Resale mid estimate from similar asks: ${report.fairValueUsd}. This is a resale mid, not a buy-side fair value.`,
+      );
+    } else {
+      push("ev_resale_mid_missing", "Not enough similar cars for a resale mid estimate.");
+    }
+    if (ask != null) {
+      push("ev_asking", `Asking price (buy-side): ${ask}.`);
+    }
+    if (report.flip) {
+      push(
+        "ev_flip_margin",
+        `Conservative flip margin (risk-adjusted): ${report.flip.marginUsd}. Adequate buy margin threshold: ${ASSUMPTIONS.flipDesiredProfitUsd} (flipDesiredProfitUsd). Thin margin threshold: ${ASSUMPTIONS.flipThinMarginUsd} (flipThinMarginUsd).`,
+      );
+      push("ev_flip_target_buy", `Target buy for the profit goal: ${report.flip.targetBuyUsd}.`);
+    }
+    if (report.priceGap != null) {
+      push(
+        "ev_ask_vs_resale_mid",
+        `Ask versus resale mid gap (positive means ask above resale mid): ${report.priceGap}.`,
+      );
+    }
+  } else if (report.fairValueUsd != null) {
     push("ev_fair_value", `Fair value from similar listings: ${report.fairValueUsd}.`);
   } else {
     push("ev_fair_value_missing", "Not enough similar cars for a fair value.");
   }
-  if (report.priceGap != null) {
+  if (report.mode !== "flip" && report.priceGap != null) {
     push("ev_price_gap", `Asking price gap versus fair value: ${report.priceGap}.`);
   }
   push("ev_comp_count", `Similar listing count: ${report.comps.length}.`);
@@ -119,19 +151,27 @@ export async function runReportVerdictChallenge(input: {
       typeof judged.proof?.openserv?.id === "string" && judged.proof.openserv.id.trim()
         ? judged.proof.openserv.id.trim()
         : null;
-    const reasonBits = [
-      judged.error?.trim() || "Second check did not finish",
+    const short = shortSecondCheckUnavailableReason({
+      error: judged.error,
+      upstream: judged.upstream,
+      status: judged.status,
+      reasonCode: judged.failureDiag?.reasonCode,
+    });
+    const rawDump = secondCheckUnavailableRawDump([
+      judged.error?.trim() || null,
       judged.upstream ? `upstream=${judged.upstream}` : null,
       judged.status ? `http=${judged.status}` : null,
       judged.failureDiag?.reasonCode ? `diag=${judged.failureDiag.reasonCode}` : null,
       responseId ? `response ${responseId}` : "no response id",
       typeof judged.proof?.latencyMs === "number" ? `${judged.proof.latencyMs}ms` : null,
-    ].filter(Boolean);
+      "The first verdict stands.",
+    ]);
     return {
       result: {
         status: "unavailable",
         action: null,
-        objection: `${reasonBits.join(" · ")}. The first verdict stands.`,
+        objection: secondCheckUnavailableLabel(short),
+        rawDump,
         evidenceIds: [],
         confidenceBefore: input.confidence,
         confidenceAfter: input.confidence,

@@ -13,6 +13,7 @@ import { NOTE_BODY_STYLES } from "@/domain/note-intake";
 import { NOT_ENOUGH_SIMILAR_CARS } from "@/domain/price-evaluation";
 import type { ResaleAssessment } from "@/domain/resale-evaluate";
 import type { ResaleCandidatePnl } from "@/domain/resale-pnl";
+import { sellerLinkHonesty } from "@/domain/listing-seller-honesty";
 import { SEARCH_RADII_MILES } from "@/domain/need";
 import { publishCreditBalance } from "@/domain/credit-balance-event";
 
@@ -517,12 +518,19 @@ function ResaleSearchResultView({ result }: { result: SearchResult }) {
       <p className="hint">{result.creditNote}</p>
       {typeof result.balance === "number" ? <p className="hint">Balance after search: {result.balance}</p> : null}
 
-      {result.best ? <CandidateCard title="Best flip" candidate={result.best} featured /> : null}
+      {result.best ? (
+        <CandidateCard title="Best flip" candidate={result.best} featured budgetUsd={result.budgetUsd} />
+      ) : null}
       {result.alternatives.length > 0 ? (
         <section>
           <h3>Alternatives</h3>
           {result.alternatives.map((item) => (
-            <CandidateCard key={item.vin} title={`${item.listing.year} ${item.listing.make} ${item.listing.model}`} candidate={item} />
+            <CandidateCard
+              key={item.vin}
+              title={`${item.listing.year} ${item.listing.make} ${item.listing.model}`}
+              candidate={item}
+              budgetUsd={result.budgetUsd}
+            />
           ))}
         </section>
       ) : null}
@@ -537,17 +545,24 @@ function CandidateCard({
   title,
   candidate,
   featured = false,
+  budgetUsd = null,
 }: {
   title: string;
   candidate: ResaleCandidatePnl;
   featured?: boolean;
+  budgetUsd?: number | null;
 }) {
   const l = candidate.listing;
+  const overBudget =
+    budgetUsd != null &&
+    candidate.askingUsd > budgetUsd &&
+    candidate.risks.some((line) => /^Over budget:/i.test(line));
+  const sellerHonesty = sellerLinkHonesty({ dealer: l.dealer, vdp: l.vdp });
   return (
     <section className={featured ? "resale-best" : undefined}>
       <h3>
         {title}
-        {featured ? "" : ""}
+        {overBudget ? " · over budget" : ""}
       </h3>
       <p>
         {l.year} {l.make} {l.model}
@@ -558,6 +573,7 @@ function CandidateCard({
           ? ` · listing feed: ${[l.city, l.state, l.zip].filter(Boolean).join(", ")}`
           : ""}
       </p>
+      {sellerHonesty.note ? <p className="hint">{sellerHonesty.note}</p> : null}
       <ul className="refuse">
         <li>
           {candidate.riskAdjustedRankFormula

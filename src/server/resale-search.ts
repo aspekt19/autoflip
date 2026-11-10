@@ -193,9 +193,9 @@ export async function runResaleSearch(
   planJournal = appendJournalStep(planJournal, {
     kind: "plan_search",
     actor: "code",
-    decided: `Proposed ${allowedDirections.length} search directions for budget $${input.budgetUsd.toLocaleString("en-US")}`,
+    decided: `Proposed ${allowedDirections.length} search directions for budget $${input.budgetUsd.toLocaleString("en-US")}: ${allowedDirections.map((d) => d.segment).join("; ")}`,
     why: "Editorial allowlist from budget band and optional filters — not market ranking.",
-    inputsUsed: allowedDirections.map((d) => `direction:${d.id}`),
+    inputsUsed: allowedDirections.map((d) => `direction:${d.id}:${d.segment}`),
     changed: null,
     model: null,
     responseId: null,
@@ -291,12 +291,19 @@ export async function runResaleSearch(
         if (first) {
           refine = { make: first.make, model: first.model, yearMin: first.yearMin, yearMax: first.yearMax };
         }
+        const named = safeIds.map((id) => {
+          const row = allowedDirections.find((d) => d.id === id);
+          return row ? `${row.segment} (${id})` : id;
+        });
         planJournal = appendJournalStep(planJournal, {
           kind: "plan_search",
           actor: "SERV",
-          decided: `Run directions ${safeIds.join(", ")}${payload.widen === true ? " (widen allowed)" : ""}`,
+          decided: `Run directions ${named.join("; ")}${payload.widen === true ? " (widen allowed)" : ""}`,
           why: note || "Plan used allowlisted direction ids only.",
-          inputsUsed: safeIds.map((id) => `direction:${id}`),
+          inputsUsed: safeIds.map((id) => {
+            const row = allowedDirections.find((d) => d.id === id);
+            return row ? `direction:${id}:${row.segment}` : `direction:${id}`;
+          }),
           changed: refine ? `First query focus ${refine.make} ${refine.model}` : null,
           model: deps.servModel || planned.proof.modelReported || planned.proof.modelRequested || null,
           responseId: typeof planned.proof.openserv?.id === "string" ? planned.proof.openserv.id : null,

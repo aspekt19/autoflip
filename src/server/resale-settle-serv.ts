@@ -19,6 +19,7 @@ import {
 import type { ResaleCandidatePnl } from "@/domain/resale-pnl";
 import { evidenceBundleFromCandidates } from "@/domain/resale-serv-validate";
 import type { ComputedReport, Listing, Verdict } from "@/domain/types";
+import { flipVerdict } from "@/domain/verdict";
 import {
   rankByRiskAdjustedProfit,
   riskAdjustedScore,
@@ -126,12 +127,60 @@ function buildFlipReport(
   const fair = candidate.resaleMidUsd;
   const ask = candidate.askingUsd;
   const priceGap = fair != null && fair > 0 ? (ask - fair) / fair : null;
+  // Flip framing: risk-adjusted margin is the conservative (low) profit when present.
+  // Buy requires mid profit ≥ flipDesiredProfitUsd; below that is negotiate/pass — never
+  // treat ask < resale mid as a personal "good deal" fair-value buy.
+  const marginUsd =
+    candidate.profitLowUsd != null
+      ? candidate.profitLowUsd
+      : candidate.profitMidUsd != null
+        ? candidate.profitMidUsd
+        : null;
+  const profitTarget = ASSUMPTIONS.flipDesiredProfitUsd;
+  const friction = ASSUMPTIONS.flipSellFriction;
+  const allInUsd =
+    candidate.negotiatedOfferUsd +
+    candidate.titleFeeAssumptionUsd +
+    candidate.reconUsd +
+    (candidate.salesTaxUsd ?? 0);
+  const conservativeProceedsUsd =
+    candidate.resaleLowUsd != null ? Math.round(candidate.resaleLowUsd * (1 - friction)) : 0;
+  const targetBuyUsd =
+    fair != null
+      ? Math.max(
+          0,
+          Math.round(
+            fair * (1 - friction) -
+              candidate.titleFeeAssumptionUsd -
+              candidate.reconUsd -
+              profitTarget,
+          ),
+        )
+      : 0;
+  const flip =
+    fair != null && marginUsd != null
+      ? {
+          resaleLowUsd: candidate.resaleLowUsd ?? fair,
+          resaleMidUsd: fair,
+          resaleHighUsd: candidate.resaleHighUsd ?? fair,
+          titleFeeUsd: candidate.titleFeeAssumptionUsd,
+          reconUsd: candidate.reconUsd,
+          sellFriction: friction,
+          allInUsd,
+          conservativeProceedsUsd,
+          marginUsd,
+          targetBuyUsd,
+          timeToSellRisk:
+            candidate.compCount < 5 ? ("high" as const) : candidate.compCount < 8 ? ("medium" as const) : ("low" as const),
+          timeToSellNote:
+            "Days on market are not in the listing feed, so time-to-sell risk is only how many similar listings were found.",
+        }
+      : null;
   let verdict: Verdict = "insufficient_data";
-  if (fair != null && priceGap != null) {
-    if (priceGap <= ASSUMPTIONS.goodDealGap) verdict = "good_deal";
-    else if (priceGap <= ASSUMPTIONS.fairGap) verdict = "fair";
-    else if (priceGap <= ASSUMPTIONS.overpricedGap) verdict = "overpriced";
-    else verdict = "walk_away";
+  if (flip) {
+    verdict = flipVerdict(flip.marginUsd, false);
+  } else if (candidate.profitMidUsd == null) {
+    verdict = "insufficient_data";
   }
   // Ordered gates require minComps priced peers — use other shortlist cars from this scan.
   const comps = peerCandidates
@@ -151,31 +200,37 @@ function buildFlipReport(
       state: item.listing.state,
       distanceMiles: null as number | null,
     }));
+  const midLine =
+    candidate.profitMidUsd != null
+      ? `Code estimate mid profit $${candidate.profitMidUsd.toLocaleString("en-US")}${
+          candidate.profitScopeLabel ? ` ${candidate.profitScopeLabel}` : ""
+        } from ${candidate.compCount} similar listings.`
+      : "Profit band incomplete — similar listings were thin.";
+  const thresholdLine = `Buy only when risk-adjusted (conservative) profit clears the labeled margin threshold of $${profitTarget.toLocaleString("en-US")} (flipDesiredProfitUsd); thin margin is $${ASSUMPTIONS.flipThinMarginUsd.toLocaleString("en-US")} (flipThinMarginUsd). Resale mid $${fair != null ? fair.toLocaleString("en-US") : "—"} is an exit estimate, not a buy-side fair value. Ask $${ask.toLocaleString("en-US")}.`;
+  const noFlipLine =
+    flip && flip.marginUsd < ASSUMPTIONS.flipThinMarginUsd
+      ? "No good flip within this budget on risk-adjusted margin — pass or keep shopping."
+      : null;
   return {
     mode: "flip",
     subject,
     verdict,
     score: candidate.score,
-    reasons: [
-      candidate.profitMidUsd != null
-        ? `Code estimate mid profit $${candidate.profitMidUsd.toLocaleString("en-US")}${
-            candidate.profitScopeLabel ? ` ${candidate.profitScopeLabel}` : ""
-          } from ${candidate.compCount} similar listings.`
-        : "Profit band incomplete — similar listings were thin.",
-      candidate.negotiateBasis,
-      candidate.resaleChannelBasis,
-    ],
+    reasons: [midLine, thresholdLine, noFlipLine, candidate.negotiateBasis, candidate.resaleChannelBasis].filter(
+      (line): line is string => Boolean(line),
+    ),
     flags: [],
     questions: candidate.checkBeforeBuying.slice(0, 6),
     comps,
     compScope: "Resale search similar asks in this scan",
     percentile: null,
+    // Kept for schema compatibility; flip facts label this as resale mid, not buy fair value.
     fairValueUsd: fair,
     fairRangeLowUsd: candidate.resaleLowUsd,
     fairRangeHighUsd: candidate.resaleHighUsd,
     fairConfidence: candidate.compCount >= 5 ? "reasonable" : candidate.compCount >= 3 ? "rough" : "not_available",
     compMethodNote:
-      "Adjusted similar listing asks (mileage/year/trim) via evaluateListingPrice — not identical-car matching or closed sales.",
+      "Adjusted similar listing asks (mileage/year/trim) via evaluateListingPrice — resale mid estimate, not a buy-side fair value or closed sales.",
     priceGap,
     mileage: {
       expectedMiles: null,
@@ -192,14 +247,14 @@ function buildFlipReport(
     fuel: null,
     vinDecode: null,
     distanceToSearchZipMiles: null,
-    flip: null,
+    flip,
     assumptions: { ...ASSUMPTIONS },
     dataNotes: candidate.risks.slice(0, 8),
     sample: false,
     mandate: {
       budgetUsd,
       budgetKnown: true,
-      targetProfitUsd: null,
+      targetProfitUsd: profitTarget,
       repairAbility: "unknown",
     },
   };
@@ -211,6 +266,38 @@ function sortByProfit(items: ResaleCandidatePnl[]): ResaleCandidatePnl[] {
     const bMid = b.rankingProfitMidUsd ?? b.profitMidUsd ?? Number.NEGATIVE_INFINITY;
     return bMid - aMid;
   });
+}
+
+/**
+ * Alternatives must respect the flip budget.
+ * Ask ≤ budget: keep. Ask over budget but negotiated offer ≤ budget: keep with an explicit over-budget label.
+ * Both ask and offer over budget: drop.
+ */
+function pickAlternatives(
+  ranked: ResaleCandidatePnl[],
+  bestVin: string,
+  budgetUsd: number,
+  limit = 4,
+): ResaleCandidatePnl[] {
+  const out: ResaleCandidatePnl[] = [];
+  for (const item of sortByProfit(ranked.filter((row) => row.vin !== bestVin))) {
+    if (out.length >= limit) break;
+    const ask = item.askingUsd;
+    const offer = item.negotiatedOfferUsd;
+    if (ask <= budgetUsd) {
+      out.push(item);
+      continue;
+    }
+    if (offer <= budgetUsd) {
+      const label = `Over budget: ask $${ask.toLocaleString("en-US")} against budget $${budgetUsd.toLocaleString("en-US")}; negotiated offer estimate $${offer.toLocaleString("en-US")} is under the budget.`;
+      out.push({
+        ...item,
+        risks: item.risks.includes(label) ? item.risks : [label, ...item.risks],
+      });
+      continue;
+    }
+  }
+  return out;
 }
 
 function profitHeadline(c: ResaleCandidatePnl): string {
@@ -757,7 +844,7 @@ export async function runResaleSettleServ(input: {
   } // end runTriageDeep && !resumeFrom
 
   if (phase === "triage_deep") {
-    const alternatives = sortByProfit(ranked.filter((item) => item.vin !== best.vin)).slice(0, 4);
+    const alternatives = pickAlternatives(ranked, best.vin, input.budgetUsd);
     const confidenceLabel =
       agentConfidence === "high" ? "High" : agentConfidence === "medium" ? "Medium" : "Low";
     const agentVerdict = finalizeAgentVerdict({
@@ -989,7 +1076,7 @@ export async function runResaleSettleServ(input: {
   }
 
   if (phase === "pick") {
-    const alternatives = sortByProfit(ranked.filter((item) => item.vin !== best.vin)).slice(0, 4);
+    const alternatives = pickAlternatives(ranked, best.vin, input.budgetUsd);
     const confidenceLabel =
       agentConfidence === "high" ? "High" : agentConfidence === "medium" ? "Medium" : "Low";
     const agentVerdict = finalizeAgentVerdict({
@@ -1268,7 +1355,7 @@ export async function runResaleSettleServ(input: {
   }
 
   if (phase === "challenge" || phase === "pick_challenge") {
-    const alternatives = sortByProfit(ranked.filter((item) => item.vin !== best.vin)).slice(0, 4);
+    const alternatives = pickAlternatives(ranked, best.vin, input.budgetUsd);
     const confidenceLabel =
       agentConfidence === "high" ? "High" : agentConfidence === "medium" ? "Medium" : "Low";
     const agentVerdict = finalizeAgentVerdict({
@@ -1330,7 +1417,11 @@ export async function runResaleSettleServ(input: {
     const report = buildFlipReport(best, input.budgetUsd, ranked);
     const shopper = await runShopperVerdictServ({
       report,
-      mandate: { budgetUsd: input.budgetUsd, budgetKnown: true },
+      mandate: {
+        budgetUsd: input.budgetUsd,
+        budgetKnown: true,
+        targetProfitUsd: ASSUMPTIONS.flipDesiredProfitUsd,
+      },
       servKey: input.servKey,
       servBaseUrl: input.servBaseUrl,
       model: input.model,
@@ -1429,8 +1520,7 @@ export async function runResaleSettleServ(input: {
     });
   }
 
-  const altOrdered = sortByProfit(ranked.filter((item) => item.vin !== best.vin));
-  const alternatives = altOrdered.slice(0, 4);
+  const alternatives = pickAlternatives(ranked, best.vin, input.budgetUsd);
   const confidenceLabel =
     agentConfidence === "high" ? "High" : agentConfidence === "medium" ? "Medium" : "Low";
 

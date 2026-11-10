@@ -86,6 +86,14 @@ export async function runRadarCycle(deps: CycleDeps): Promise<StoredRun> {
   const servActivity: RadarServActivity[] = [];
   const touchedOwnerIds = new Set<string>();
   const touchedSearchIds = new Set<string>();
+  const perSearchStats = new Map<string, { listings: number; alertsSent: number }>();
+  const bumpSearch = (searchId: string, patch: { listings?: number; alertsSent?: number }) => {
+    const prior = perSearchStats.get(searchId) ?? { listings: 0, alertsSent: 0 };
+    perSearchStats.set(searchId, {
+      listings: prior.listings + (patch.listings ?? 0),
+      alertsSent: prior.alertsSent + (patch.alertsSent ?? 0),
+    });
+  };
   let payment: StoredRun["payment"] = {
     status: "not_configured",
     missing: [],
@@ -118,6 +126,11 @@ export async function runRadarCycle(deps: CycleDeps): Promise<StoredRun> {
       [...touchedOwnerIds],
       [...touchedSearchIds],
       servActivity,
+      [...perSearchStats.entries()].map(([searchId, row]) => ({
+        searchId,
+        listings: row.listings,
+        alertsSent: row.alertsSent,
+      })),
     );
 
   try {
@@ -245,7 +258,12 @@ export async function runRadarCycle(deps: CycleDeps): Promise<StoredRun> {
           tallyReason(reasons, "Not enough similar cars", job.listings.length - ranked.length);
           passed += fresh.length;
           filteredOut += job.listings.length - fresh.length;
-          for (const item of ranked) book.set(item.vin, item.listing.priceUsd);
+          // Count every priced listing this Flip watch examined — not only ranked winners —
+          // so "listings seen" matches the scan log for this watch.
+          for (const listing of job.listings) {
+            if (listing.priceUsd == null) continue;
+            book.set(listing.vin, listing.priceUsd);
+          }
           await storeSeenPrices(
             deps.kv,
             storageKey,
@@ -253,9 +271,12 @@ export async function runRadarCycle(deps: CycleDeps): Promise<StoredRun> {
           );
           touchedOwnerIds.add(search.ownerId);
           touchedSearchIds.add(search.id);
+          bumpSearch(search.id, { listings: job.listings.length });
           const judged = await judgeFlipAlerts(fresh, deps, remain(), limits.serv, servChecks, search.id);
           if (judged?.activity?.length) servActivity.push(...judged.activity);
-          if (deps.servKey && !judged?.decisions) notes.push("Flip explanation unavailable. The estimates below are from the scan only.");
+          if (deps.servKey && fresh.length > 0 && !judged?.decisions) {
+            notes.push("Flip explanation unavailable. The estimates below are from the scan only.");
+          }
           for (const item of fresh) {
             const decision = judged?.decisions?.get(item.vin);
             // Code owns the alert list. SERV may explain a skip preference, but it cannot suppress a ranked deal.
@@ -302,6 +323,7 @@ export async function runRadarCycle(deps: CycleDeps): Promise<StoredRun> {
             alerts.unshift(alert);
             freshAlerts.push(alert);
             alertsSent += 1;
+            bumpSearch(search.id, { alertsSent: 1 });
           }
           search.lastCheckedAt = deps.now.toISOString();
           continue;
@@ -356,6 +378,7 @@ export async function runRadarCycle(deps: CycleDeps): Promise<StoredRun> {
         );
         touchedOwnerIds.add(search.ownerId);
         touchedSearchIds.add(search.id);
+        bumpSearch(search.id, { listings: scoped.length });
         let servSlot = 0;
         for (const winner of winners) {
           const badge = priceBadge(winner.listing, scoped, { mode: "personal" });
@@ -423,6 +446,7 @@ export async function runRadarCycle(deps: CycleDeps): Promise<StoredRun> {
           alerts.unshift(alert);
           freshAlerts.push(alert);
           alertsSent += 1;
+          bumpSearch(search.id, { alertsSent: 1 });
         }
         search.lastCheckedAt = deps.now.toISOString();
       }
@@ -538,6 +562,7 @@ function finish(
   ownerIds: string[],
   searchIds: string[],
   servActivity: RadarServActivity[],
+  perSearch: NonNullable<StoredRun["perSearch"]> = [],
 ): StoredRun {
   return {
     id,
@@ -562,6 +587,7 @@ function finish(
     searchIds,
     servActivity,
     decisionJournal: journalFromRadarActivity(servActivity, { notes, startedAt }),
+    perSearch,
     payment,
   };
 }

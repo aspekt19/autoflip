@@ -325,7 +325,10 @@ function RadarInner() {
         <ul className="refuse">
           <li>Last run: {lastRunAt ? `${new Date(lastRunAt).toLocaleString("en-US", { timeZone: "UTC" })} UTC` : "No run yet"}</li>
           <li>Next run: {nextRunAt ? `${new Date(nextRunAt).toLocaleString("en-US", { timeZone: "UTC" })} UTC` : "No run yet"}</li>
-          <li>New alerts on this page: {alerts.length}</li>
+          <li>
+            Alerts on this page: {alerts.length}
+            {activity ? ` · ${activity.alertsSent} new in last check` : ""}
+          </li>
         </ul>
         {emailNote ? <p className="hint">{emailNote}</p> : null}
         <div className="hero-actions">

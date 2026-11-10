@@ -5,10 +5,16 @@ import { creditsNeedNotice } from "@/domain/find-buyer-copy";
 import { buyerFacingFailure } from "@/domain/buyer-facing-error";
 import { canStartCreditCheckout, creditsPackButton, creditsPageModel } from "@/domain/account-load";
 import { CREDIT_PACKS } from "@/domain/assumptions";
+import {
+  formatFreeChecksSignInPrompt,
+  freeChecksRemainingFromAccount,
+} from "@/domain/free-check-quota";
 import { useAccountLoad } from "@/components/use-account-load";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
-import { Suspense, useState } from "react";
+import { Suspense, useEffect, useRef, useState } from "react";
+
+const CREDITS_BEFORE_CHECKOUT_KEY = "lemonless.creditsBeforeCheckout";
 
 function CreditsInner() {
   const params = useSearchParams();
@@ -18,14 +24,67 @@ function CreditsInner() {
   const account = useAccountLoad();
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState<string | null>(null);
+  const [showSuccessPending, setShowSuccessPending] = useState(status === "success");
+  const baselineBalance = useRef<number | null>(null);
   const snap = account.phase === "loaded" ? account.body : null;
   const model = creditsPageModel({ phase: account.phase, snap });
+  const freeChecksLine =
+    account.phase === "loaded"
+      ? freeChecksRemainingFromAccount({
+          authenticated: snap?.authenticated === true,
+          freeChecks: snap?.freeChecks ?? null,
+        })
+      : null;
+
+  useEffect(() => {
+    if (status !== "success" || account.phase !== "loaded") return;
+    const current = typeof snap?.credits === "number" && Number.isFinite(snap.credits) ? snap.credits : null;
+    if (current == null) return;
+    let before: number | null = null;
+    try {
+      const raw = sessionStorage.getItem(CREDITS_BEFORE_CHECKOUT_KEY);
+      if (raw != null && raw !== "") {
+        const parsed = Number(raw);
+        if (Number.isFinite(parsed)) before = parsed;
+      }
+    } catch {
+      /* ignore */
+    }
+    if (before != null && current !== before) {
+      setShowSuccessPending(false);
+      try {
+        sessionStorage.removeItem(CREDITS_BEFORE_CHECKOUT_KEY);
+      } catch {
+        /* ignore */
+      }
+      return;
+    }
+    if (baselineBalance.current == null) {
+      baselineBalance.current = current;
+      return;
+    }
+    if (current !== baselineBalance.current) {
+      setShowSuccessPending(false);
+      try {
+        sessionStorage.removeItem(CREDITS_BEFORE_CHECKOUT_KEY);
+      } catch {
+        /* ignore */
+      }
+    }
+  }, [status, account.phase, snap?.credits]);
 
   async function buy(pack: string) {
     if (!canStartCreditCheckout({ phase: account.phase, snap })) return;
     setPending(pack);
     setError(null);
     try {
+      if (typeof snap?.credits === "number" && Number.isFinite(snap.credits)) {
+        try {
+          sessionStorage.setItem(CREDITS_BEFORE_CHECKOUT_KEY, String(snap.credits));
+        } catch {
+          /* ignore */
+        }
+      }
       const response = await fetch("/api/credits/checkout", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -83,10 +142,30 @@ function CreditsInner() {
           {model.authOffNote ? ` ${model.authOffNote}` : null}
         </p>
       ) : null}
+      {freeChecksLine === "signed-out" ? (
+        <p className="hint">{formatFreeChecksSignInPrompt()}</p>
+      ) : freeChecksLine === "missing" || freeChecksLine == null ? (
+        account.phase === "loaded" && snap?.authenticated === true ? (
+          <p className="hint">Free checks could not be loaded.</p>
+        ) : null
+      ) : (
+        <p className="hint">{freeChecksLine}</p>
+      )}
       {need ? <p className="warn">{creditsNeedNotice(back)}</p> : null}
-      {status === "success" ? (
+      {status === "success" && showSuccessPending ? (
         <p className="warn-box">
           Payment returned from checkout. If the balance has not moved, the payment notice has not arrived yet.
+          {back ? (
+            <>
+              {" "}
+              <a href={back}>Back to the car</a>
+            </>
+          ) : null}
+        </p>
+      ) : null}
+      {status === "success" && !showSuccessPending ? (
+        <p className="hint">
+          Payment returned from checkout. Balance updated.
           {back ? (
             <>
               {" "}

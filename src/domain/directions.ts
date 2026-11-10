@@ -53,6 +53,15 @@ const MIDSIZE: CandidateModel[] = [
 
 export const MAX_DIRECTIONS = 3;
 
+/** Stable direction id from the segment label (not useCase-N). */
+export function directionIdFromSegment(segment: string, index = 0): string {
+  const slug = segment
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+  return slug || `direction-${index + 1}`;
+}
+
 /**
  * Lemonless's editorial starting points. Not prices, not sales data, not a ranking of the market.
  * At most three directions, and each direction is fetched once (its first model).
@@ -136,7 +145,7 @@ export function proposeDirections(
       .slice(0, Math.max(0, MAX_DIRECTIONS - 1))
       .map((item, index) => ({
         ...item,
-        id: `${need.useCase}-${index + 1}`,
+        id: directionIdFromSegment(item.segment, index),
         guidance: "editorial" as const,
         yearMin,
         yearMax,
@@ -159,7 +168,7 @@ export function proposeDirections(
     .slice(0, MAX_DIRECTIONS)
     .map((item, index) => ({
       ...item,
-      id: `${need.useCase}-${index + 1}`,
+      id: directionIdFromSegment(item.segment, index),
       guidance: "editorial" as const,
       yearMin,
       yearMax,
@@ -259,6 +268,26 @@ function fitsBody(body: ReturnType<typeof requestedBody>, segment: string): bool
 }
 
 function directionsFor(need: StructuredNeed): Array<Pick<SearchDirection, "segment" | "why" | "models">> {
+  // Flip first: resale needs named liquid segments even when useCase stays "unspecified".
+  if (need.mode === "flip") {
+    return [
+      {
+        segment: "High-volume compact cars",
+        why: "Lemonless guidance: a resale search with no body preference starts with compact cars that dealers list often. This is not a profit forecast.",
+        models: COMPACTS.slice(0, 5),
+      },
+      {
+        segment: "High-volume compact crossovers",
+        why: "Lemonless guidance: the second resale path is compact crossovers, again because they are commonly listed, not because a sale is assured.",
+        models: CROSSOVERS.slice(0, 5),
+      },
+      {
+        segment: "High-volume midsize sedans",
+        why: "Lemonless guidance: a third resale path is midsize sedans with strong used-lot liquidity. Not a profit forecast.",
+        models: MIDSIZE.slice(0, 5),
+      },
+    ];
+  }
   if (need.useCase === "family") {
     return [
       {
@@ -315,20 +344,6 @@ function directionsFor(need: StructuredNeed): Array<Pick<SearchDirection, "segme
       { segment: "Compact cars", why: "A second broad starting point. Compare the actual listings and running costs before deciding.", models: COMPACTS },
       { segment: "Midsize sedans", why: "Another common used-car shape to consider when you have not narrowed the use case yet.", models: MIDSIZE },
       { segment: "Midsize pickups", why: "A starting point only if a truck may fit your needs; towing capacity still needs to be checked on the exact vehicle.", models: TRUCKS },
-    ];
-  }
-  if (need.mode === "flip") {
-    return [
-      {
-        segment: "High-volume compact cars",
-        why: "Lemonless guidance: a resale search with no body preference starts with compact cars that dealers list often. This is not a profit forecast.",
-        models: COMPACTS.slice(0, 5),
-      },
-      {
-        segment: "High-volume compact crossovers",
-        why: "Lemonless guidance: the second resale path is compact crossovers, again because they are commonly listed, not because a sale is assured.",
-        models: CROSSOVERS.slice(0, 5),
-      },
     ];
   }
   return [];
