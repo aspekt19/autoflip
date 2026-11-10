@@ -62,6 +62,8 @@ export function buildDecisionProofRecord(input: {
   /** Preferred public name; `detail` accepted as alias at build time. */
   reason?: string | null;
   detail?: string | null;
+  /** Raw SERV response for this step when recorded — never invent. */
+  rawResponse?: string | null;
   searchId?: string | null;
   ownerId?: string | null;
 }): DecisionProofRecord {
@@ -72,6 +74,7 @@ export function buildDecisionProofRecord(input: {
   // Principle 3: failed/skip never invent a pass/buy/negotiate verdict.
   const blocked = status !== "ok";
   const reasonText = (input.reason ?? input.detail)?.trim() || null;
+  const raw = input.rawResponse?.trim() || null;
   return {
     schemaVersion: DECISION_PROOF_SCHEMA,
     purpose: input.purpose,
@@ -84,6 +87,7 @@ export function buildDecisionProofRecord(input: {
     verdict: blocked ? null : input.verdict ?? null,
     clampResult: input.clampResult ?? input.clamp ?? null,
     reason: status === "ok" ? null : reasonText || status,
+    rawResponse: raw,
     searchId: input.searchId?.trim() || null,
     ownerId: input.ownerId?.trim() || null,
   };

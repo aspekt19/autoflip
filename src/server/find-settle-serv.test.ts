@@ -39,6 +39,21 @@ describe("find settle SERV", () => {
     expect(report.compMethodNote).toMatch(/similar|enough|need/i);
   });
 
+  it("keeps missing VIN empty and labels VIN not in listing (no FIND* invent)", () => {
+    const report = buildFindPickComputedReport(
+      candidate({ key: "a", vin: null }),
+      [
+        candidate({ key: "p1", vin: "4T1BF1FK0EU848441", priceUsd: 11_800, miles: 88_000 }),
+        candidate({ key: "p2", vin: null, priceUsd: 12_100, miles: 91_000 }),
+        candidate({ key: "p3", vin: "4T1BF1FK0EU848443", priceUsd: 12_400, miles: 86_000 }),
+      ],
+    );
+    expect(report.subject.vin).toBe("");
+    expect(report.dataNotes).toContain("VIN not in listing");
+    expect(JSON.stringify(report)).not.toMatch(/FIND000|FINDPEER/);
+    expect(report.comps.some((row) => row.vin === "")).toBe(true);
+  });
+
   it("uses adjusted peer asks for fair value (not raw factor regex)", () => {
     const pick = candidate({ key: "a", priceUsd: 12_000, miles: 90_000, year: 2014 });
     const peers = [1, 2, 3, 4].map((n) =>

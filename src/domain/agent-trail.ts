@@ -151,7 +151,7 @@ export function trailStepFromSecondPass(result: AgentSecondPassResult): AgentTra
     };
   }
   return {
-    decided: `Second check disagreed${result.action ? ` (would ${result.action === "needs_inspection" ? "needs inspection" : result.action})` : ""}.`,
+    decided: `Second check disagreed${result.action ? ` (chose ${result.action === "needs_inspection" ? "needs inspection" : result.action})` : ""}.`,
     why: result.objection ?? "The independent review objected with evidence.",
     changed:
       result.confidenceBefore && result.confidenceAfter && result.confidenceBefore !== result.confidenceAfter

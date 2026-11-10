@@ -20,6 +20,14 @@ export function DecisionRecordList({
       {rows.map((row) => (
         <li key={`${row.purpose}-${row.timestamp}-${row.servResponseId ?? row.reason ?? "x"}`}>
           <p className="hint">{formatDecisionRecordLine(row)}</p>
+          {row.rawResponse ? (
+            <details className="onboarding-note">
+              <summary>Open agent response</summary>
+              <p className="hint" style={{ whiteSpace: "pre-wrap" }}>
+                {row.rawResponse}
+              </p>
+            </details>
+          ) : null}
         </li>
       ))}
     </ul>

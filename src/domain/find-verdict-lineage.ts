@@ -1,5 +1,5 @@
 /**
- * Buyer-facing Find lineage from real decision_proof.v1 rows only.
+ * Buyer-facing Find lineage from real decision proof rows only.
  * Never invents SERV picks — only paraphrases clampResult / trail already recorded.
  */
 

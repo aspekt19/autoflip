@@ -9,7 +9,11 @@ import {
   type AgentVerdict,
   type AgentVerdictConfidence,
 } from "@/domain/agent-verdict-schema";
-import type { DecisionAction } from "@/domain/decision-action";
+import {
+  isServDecisionAction,
+  verdictFromAction,
+  type DecisionAction,
+} from "@/domain/decision-action";
 import type { ComputedReport } from "@/domain/types";
 import type { MandateInput } from "@/domain/verdict-gates";
 import {
@@ -18,6 +22,7 @@ import {
   type VerdictDecisionRecord,
   decideWhyWithGateResult,
 } from "@/domain/verdict-decide";
+import { clampDecision } from "@/domain/verdict-guardrails";
 import {
   resaleCallTimeoutMs,
   RESALE_TIME_BUDGET_SKIP,
@@ -245,7 +250,7 @@ export async function runShopperVerdictServ(input: {
     steps.push({ id: "serv_verdict_decide", status: "skipped_no_key" });
   }
 
-  const decision = previewDecision.gateRun.withheld
+  let decision: VerdictDecisionRecord = previewDecision.gateRun.withheld
     ? previewDecision
     : resolveVerdictDecision({
         report: input.report,
@@ -398,7 +403,44 @@ export async function runShopperVerdictServ(input: {
       text: flag.text,
     }));
 
-  const hadServStep = Boolean(verdictServOk && decision.servChoice);
+  // Snapshot decide outcome before challenge may revise the final action.
+  const decideDecision: VerdictDecisionRecord = decision;
+  const decideRaw =
+    callTraces.find((call) => call.profile === "verdict_decide")?.rawResponse?.trim() || null;
+  const challengeRaw =
+    callTraces.find((call) => call.profile === "verdict_challenge")?.rawResponse?.trim() || null;
+
+  // Line 3: challenge disagreement with a valid reason + allowlisted action becomes
+  // the final action under the same guardrails (code ranking/decide is input, not final word).
+  let challengePriorAction: DecisionAction | null = null;
+  if (
+    challenge.result.status === "disagreed" &&
+    challenge.result.action &&
+    isServDecisionAction(challenge.result.action) &&
+    !decision.gateRun.withheld &&
+    decision.allowedActions.includes(challenge.result.action)
+  ) {
+    challengePriorAction = decision.finalAction;
+    const clamped = clampDecision(challenge.result.action, decision.guardrails);
+    decision = {
+      ...decision,
+      servChoice: challenge.result.action,
+      finalAction: clamped.finalAction,
+      finalVerdict: verdictFromAction(clamped.finalAction, input.report.verdict),
+      source: clamped.overridden ? "guardrail_clamp" : "serv",
+      overrideReasons: clamped.overrideReasons,
+      note: challenge.result.objection?.trim() || decision.note,
+    };
+    if (clamped.overrideReasons.length > 0) {
+      steps.push({
+        id: "verdict_guardrails",
+        status: "overrode",
+        detail: clamped.overrideReasons.slice(0, 3).join(" | "),
+      });
+    }
+  }
+
+  const hadServStep = Boolean(verdictServOk && decideDecision.servChoice);
   const servFailed = Boolean(input.servKey) && !decision.gateRun.withheld && !hadServStep;
   const recordedModel =
     callTraces.find((call) => call.model)?.model ?? (model && callTraces.length > 0 ? model : null);
@@ -482,13 +524,14 @@ export async function runShopperVerdictServ(input: {
         model: decideProof?.modelReported ?? recordedModel,
         recordedAt,
         inputs: decideFacts,
-        verdict: decision.finalAction,
+        verdict: decideDecision.finalAction,
         clamp: clampFromDecision({
-          servChoice: decision.servChoice,
-          finalAction: decision.finalAction,
-          overrideReasons: decision.overrideReasons,
+          servChoice: decideDecision.servChoice,
+          finalAction: decideDecision.finalAction,
+          overrideReasons: decideDecision.overrideReasons,
         }),
-        detail: decision.note,
+        detail: decideDecision.note,
+        rawResponse: decideRaw,
       }),
     );
   }
@@ -500,6 +543,14 @@ export async function runShopperVerdictServ(input: {
         : challenge.result.status === "unavailable"
           ? ("error" as const)
           : ("unknown" as const);
+    const challengeClamp =
+      challengePriorAction != null
+        ? clampFromDecision({
+            servChoice: challenge.result.action,
+            finalAction: decision.finalAction,
+            overrideReasons: decision.overrideReasons,
+          })
+        : null;
     proofRecords.push(
       buildDecisionProofRecord({
         purpose: "verdict_challenge",
@@ -509,14 +560,18 @@ export async function runShopperVerdictServ(input: {
         model: challengeProof?.modelReported ?? recordedModel,
         recordedAt,
         inputs: {
-          primaryAction: decision.finalAction,
+          primaryAction: decideDecision.finalAction,
           evidenceIds: challenge.result.evidenceIds,
         },
         verdict:
           challengeStatus === "ok"
-            ? challenge.result.action ?? challenge.result.status
+            ? decision.finalAction !== "withheld"
+              ? decision.finalAction
+              : challenge.result.action ?? challenge.result.status
             : null,
+        clamp: challengeClamp,
         detail: challenge.result.objection,
+        rawResponse: challengeRaw,
       }),
     );
   }
@@ -524,18 +579,19 @@ export async function runShopperVerdictServ(input: {
   const recordedSteps = hadServStep
     ? [
         {
-          decided: `Lemonless AI chose ${decision.finalAction}.`,
+          decided: `Lemonless AI chose ${decideDecision.finalAction}.`,
           why: decideWhyWithGateResult(
-            decision,
+            decideDecision,
             "The agent reviewed code-computed facts under hard gates.",
           ),
           changed:
-            decision.servChoice && decision.servChoice !== decision.finalAction
-              ? `Model returned ${decision.servChoice}; gates kept ${decision.finalAction}.`
+            decideDecision.servChoice && decideDecision.servChoice !== decideDecision.finalAction
+              ? `Model returned ${decideDecision.servChoice}; gates kept ${decideDecision.finalAction}.`
               : null,
           model: decideProof?.modelReported ?? recordedModel,
           responseId: decideResponseId,
           recordedAt,
+          rawResponse: decideRaw,
         },
         ...(challenge.result.status !== "not_run"
           ? [
@@ -544,22 +600,46 @@ export async function runShopperVerdictServ(input: {
                   challenge.result.status === "agreed"
                     ? "Second check agreed with the verdict."
                     : challenge.result.status === "disagreed"
-                      ? `Second check disagreed${
-                          challenge.result.action
-                            ? ` (would ${challenge.result.action === "needs_inspection" ? "needs inspection" : challenge.result.action})`
-                            : ""
-                        }.`
+                      ? challengePriorAction != null
+                        ? `Second check changed the verdict to ${decision.finalAction}.`
+                        : `Second check disagreed${
+                            challenge.result.action
+                              ? ` (wanted ${challenge.result.action === "needs_inspection" ? "needs inspection" : challenge.result.action})`
+                              : ""
+                          }.`
                       : `Second check: ${challenge.result.status}.`,
                 why: challenge.result.objection?.trim() || "Independent review of the same evidence.",
-                changed:
-                  challenge.result.confidenceBefore &&
-                  challenge.result.confidenceAfter &&
-                  challenge.result.confidenceBefore !== challenge.result.confidenceAfter
-                    ? `Confidence lowered from ${challenge.result.confidenceBefore} to ${challenge.result.confidenceAfter}.`
-                    : null,
+                changed: (() => {
+                  const bits: string[] = [];
+                  if (
+                    challengePriorAction != null &&
+                    challengePriorAction !== decision.finalAction
+                  ) {
+                    bits.push(`Changed from ${challengePriorAction} to ${decision.finalAction}.`);
+                  } else if (
+                    challengePriorAction != null &&
+                    challenge.result.action &&
+                    challenge.result.action !== decision.finalAction
+                  ) {
+                    bits.push(
+                      `Second check chose ${challenge.result.action}; gates kept ${decision.finalAction}.`,
+                    );
+                  }
+                  if (
+                    challenge.result.confidenceBefore &&
+                    challenge.result.confidenceAfter &&
+                    challenge.result.confidenceBefore !== challenge.result.confidenceAfter
+                  ) {
+                    bits.push(
+                      `Confidence lowered from ${challenge.result.confidenceBefore} to ${challenge.result.confidenceAfter}.`,
+                    );
+                  }
+                  return bits.length ? bits.join(" ") : null;
+                })(),
                 model: challengeProof?.modelReported ?? recordedModel,
                 responseId: challengeResponseId,
                 recordedAt,
+                rawResponse: challengeRaw,
               },
             ]
           : []),

@@ -2665,7 +2665,7 @@ function AssistantFlow({
                         <p className="hint" role="note">
                           <strong>Lineage:</strong> {lineage.chain}
                           {pickAgentVerdict?.verdict
-                            ? " · Challenge can change Buy/Negotiate/Pass under gates; the ranked car pick stays the code shortlist pick."
+                            ? " · Ranking names which car to review first; the second review can change Buy, Negotiate, or Pass when the guardrails allow it."
                             : null}
                         </p>
                       ) : null;
@@ -2679,7 +2679,7 @@ function AssistantFlow({
                           row.purpose === "need_guard" ||
                           row.purpose === "find_next_check",
                       )}
-                      emptyHint="No decision_proof.v1 rows for this Find run yet."
+                      emptyHint="No decision records for this Find run yet."
                     />
                     {settledLine ? <p className="hint">{settledLine}</p> : null}
                     {freeGovEvidenceLines.length > 0 ? (

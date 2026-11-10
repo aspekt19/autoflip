@@ -34,7 +34,7 @@ describe("decision proof record", () => {
     expect(record.clampResult?.finalAction).toBe("negotiate");
     expect(isDecisionProofRecord(record)).toBe(true);
     expect(assertServStepProof([record], "verdict_decide").verdict).toBe("negotiate");
-    expect(formatDecisionRecordLine(record)).toMatch(/SERV chatcmpl-Eia7abc/);
+    expect(formatDecisionRecordLine(record)).toMatch(/response chatcmpl-Eia7abc/);
   });
 
   it("maps error/skip aliases and never keeps an invented verdict", () => {

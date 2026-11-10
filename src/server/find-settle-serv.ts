@@ -18,7 +18,8 @@ import { runShopperVerdictServ, type ShopperServTrace } from "@/server/shopper-v
 function listingFromCandidate(row: BestDealCandidate): Listing {
   const hasVin = Boolean(row.vin && row.vin.length === 17);
   return {
-    vin: hasVin ? row.vin! : "FIND0000000000000",
+    // Missing VIN stays empty — never invent FIND* placeholders for the report or SERV.
+    vin: hasVin ? row.vin! : "",
     year: row.year,
     make: row.make,
     model: row.model,
@@ -79,7 +80,8 @@ export function buildFindPickComputedReport(
   ];
   const evaluation = evaluateListingPrice(subject, pool, { mode: "personal" });
   const comps = evaluation.set.cars.slice(0, 12).map((car) => ({
-    vin: car.vin && car.vin.length === 17 ? car.vin : "FINDPEER000000000".slice(0, 17),
+    // Keep real VIN or empty — never invent FINDPEER* placeholders.
+    vin: car.vin && car.vin.length === 17 ? car.vin : "",
     year: car.year,
     trim: car.trim ?? null,
     miles: car.miles,
@@ -95,9 +97,7 @@ export function buildFindPickComputedReport(
   const recallsAvailable = pick.factors.some((factor) => factor.id === "mmy_recall_campaigns");
   const dataNotes = [
     ...pick.unknowns.slice(0, 8),
-    ...(vinPlaceholder
-      ? ["Subject VIN was missing on the Find pick — placeholder used for settle only, not a real VIN."]
-      : []),
+    ...(vinPlaceholder ? ["VIN not in listing"] : []),
   ];
   return {
     mode: "personal",
@@ -274,8 +274,7 @@ export async function runFindSettleServ(input: {
     transportPolicy: input.transportPolicy,
   });
 
-  // Keep the code pick (selectBestDealOnEvidence). SERV only chooses buy/negotiate/pass
-  // under TS guardrails + challenge — same pattern as Check (PR112).
+  // Ranking names which car to review; decide + challenge set Buy/Negotiate/Pass under gates.
   return {
     ran: Boolean(shopper.trace),
     trace: shopper.trace,
