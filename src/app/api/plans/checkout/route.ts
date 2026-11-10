@@ -28,7 +28,14 @@ export async function POST(request: Request) {
   if ("error" in stripe) return Response.json({ error: "stripe_unconfigured", message: stripe.error }, { status: 503 });
   const id = access.id;
   if (id === DEMO_USER_ID) {
-    return Response.json({ error: "demo_included", message: "Both Radar modes are already included in the shared demo. No subscription is needed." }, { status: 409 });
+    return Response.json(
+      {
+        error: "demo_forbidden",
+        message:
+          "The shared demo cannot start a subscription. Sign in with your own account — Deal Radar is paid-only (Radar or Radar Pro).",
+      },
+      { status: 409 },
+    );
   }
   const current = await readPlans(getKv(), id);
   const already =

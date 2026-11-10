@@ -146,7 +146,10 @@ function PricingContent() {
 
         {accountLoading ? <p className="hint">Loading your current plan…</p> : null}
         {account?.demo ? (
-          <p className="warn-box">Shared demo: Deal Radar watches are included. You do not need to start a subscription here.</p>
+          <p className="warn-box">
+            Shared demo account: Deal Radar is still paid-only (Radar $100/mo or Radar Pro $250/mo). Sign in with your own
+            account to start a TEST subscription.
+          </p>
         ) : null}
         {!account?.demo && planActive ? (
           <section className="subscription-status">
@@ -192,7 +195,7 @@ function PricingContent() {
                   : planActive
                     ? "Plan active"
                     : account?.demo
-                      ? "Included in shared demo"
+                      ? "Sign in to subscribe"
                       : pending === plan.id
                         ? "Starting…"
                         : "Start test subscription"}

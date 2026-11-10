@@ -55,8 +55,8 @@ export const ASSUMPTIONS = {
   /** Free personal (drive-it) saved watches per signed-in account. */
   /** @deprecated Free radar removed — paid plans own watch caps. Kept so old readers do not crash. */
   radarFreeWatchLimit: 0,
-  /** Free Flip watches per verified account; paid Flip plans raise this cap. */
-  radarFreeFlipWatchLimit: 1,
+  /** @deprecated Free flip radar removed — paid plans own watch caps. */
+  radarFreeFlipWatchLimit: 0,
   /** Max SERV calls (verdict_decide) per saved search per cron/check-now run. */
   radarMaxServPerSearch: 3,
   radarCheckNowMs: 30 * 60 * 1000,

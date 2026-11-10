@@ -49,7 +49,7 @@ export function SearchPanel({ initial }: Props) {
   async function onReport() {
     setError(null);
     if (!lookup.trim()) {
-      setError("Paste a listing URL or a VIN for a full report. Deal Radar is the free scan.");
+      setError("Paste a listing URL or a VIN for a full report. Deal Radar watches require a paid Radar or Radar Pro plan.");
       return;
     }
     setPending("report");

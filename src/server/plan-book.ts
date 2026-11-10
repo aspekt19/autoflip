@@ -11,7 +11,7 @@ import {
   type PlanId,
   type RadarPlanLimits,
 } from "@/domain/plans";
-import { DEMO_USER_ID, type SavedSearch } from "@/domain/radar-watch";
+import type { SavedSearch } from "@/domain/radar-watch";
 
 export type PlanStatus = "active" | "past_due" | "canceled" | "none";
 
@@ -57,18 +57,16 @@ export async function writePlans(kv: Kv, userId: string, plans: StoredPlans): Pr
   await kv.set(planKey(userId), JSON.stringify(plans));
 }
 
+/**
+ * @deprecated Shared demo no longer grants free Radar (checklist: paid only).
+ * Kept for callers that still import the name; returns empty plans.
+ */
 export function demoPlans(): StoredPlans {
-  const pro = planById("radar_pro")!;
-  return {
-    personal: { status: "active", lookupKey: pro.lookupKey, searchLimit: pro.watchLimit },
-    flip: { status: "active", lookupKey: pro.lookupKey, searchLimit: pro.watchLimit },
-    stripeCustomerId: null,
-    planId: pro.id,
-  };
+  return emptyPlans();
 }
 
 export async function plansFor(kv: Kv, userId: string): Promise<StoredPlans> {
-  if (userId === DEMO_USER_ID) return demoPlans();
+  // Demo account is not a free Radar tier — same paid-only rules as every account.
   return readPlans(kv, userId);
 }
 
@@ -200,8 +198,19 @@ export function billingEffect(current: StoredPlans, type: string, object: Record
     const status = String(object.status ?? "active");
     const plan = planById(planId) ?? planByLookupKey(planId);
     // Refuse trialing — a TEST trial must not unlock Radar / Radar Pro without charge.
-    if (status === "trialing") {
+    // invoice.paid objects often have status "paid" even for $0 trials; also read parent subscription.
+    const subscriptionStatus = String(
+      object.subscription_status ?? object.subscriptionStatus ?? "",
+    );
+    if (status === "trialing" || subscriptionStatus === "trialing") {
       return { kind: "ignore" };
+    }
+    // $0 trial invoices (status paid, amount_paid 0) must not activate Radar.
+    if (type === "invoice.paid") {
+      const amountPaid = Number(object.amount_paid ?? 0);
+      if (!Number.isFinite(amountPaid) || amountPaid <= 0) {
+        return { kind: "ignore" };
+      }
     }
     if (status === "active" || type === "invoice.paid") {
       const invoiceId = typeof object.id === "string" ? object.id : `inv-${Date.now()}`;
@@ -280,9 +289,6 @@ export async function allowance(
   { ok: true; limits: RadarPlanLimits } | { ok: false; code: "plan_required" | "limit"; message: string }
 > {
   const plans = await plansFor(kv, userId);
-  if (userId === DEMO_USER_ID) {
-    return { ok: true, limits: effectiveRadarLimits(plans) };
-  }
   const limits = effectiveRadarLimits(plans);
   if (!limits.paid || limits.watchLimit < 1) {
     return {
@@ -311,7 +317,7 @@ export function pauseWatchesRequiringPlan(
   ownerId: string,
   plans: StoredPlans,
 ): { searches: SavedSearch[]; changed: boolean } {
-  if (hasActiveRadarPlan(plans) || ownerId === DEMO_USER_ID) {
+  if (hasActiveRadarPlan(plans)) {
     return { searches, changed: false };
   }
   let changed = false;

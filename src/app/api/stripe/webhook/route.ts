@@ -43,6 +43,8 @@ async function billingObject(
     const subscription = await stripe.subscriptions.retrieve(subscriptionId);
     return {
       ...object,
+      // Expose parent subscription status so $0 / trialing invoices cannot activate Radar.
+      subscription_status: subscription.status,
       metadata: {
         ...(metadataRecord(object) ?? {}),
         ...subscription.metadata,

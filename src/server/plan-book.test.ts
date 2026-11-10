@@ -160,6 +160,41 @@ describe("subscription webhook mapping", () => {
     expect(effectiveRadarLimits(started)).toEqual(NO_RADAR_PLAN);
   });
 
+  it("refuses $0 invoice.paid and trialing parent subscription — no plan, no credit grant", () => {
+    const started = emptyPlans();
+    const zeroInvoice = billingEffect(started, "invoice.paid", {
+      id: "in_test_zero",
+      status: "paid",
+      amount_paid: 0,
+      metadata: { userId: "user-1", planId: "radar" },
+    });
+    expect(zeroInvoice.kind).toBe("ignore");
+    expect(hasActiveRadarPlan(started)).toBe(false);
+    expect(effectiveRadarLimits(started)).toEqual(NO_RADAR_PLAN);
+
+    const trialingParent = billingEffect(started, "invoice.paid", {
+      id: "in_test_trial_parent",
+      status: "paid",
+      amount_paid: 10000,
+      subscription_status: "trialing",
+      metadata: { userId: "user-1", planId: "radar_pro" },
+    });
+    expect(trialingParent.kind).toBe("ignore");
+
+    const paidInvoice = billingEffect(started, "invoice.paid", {
+      id: "in_test_paid",
+      status: "paid",
+      amount_paid: 10000,
+      subscription_status: "active",
+      metadata: { userId: "user-1", planId: "radar" },
+    });
+    expect(paidInvoice.kind).toBe("plans");
+    if (paidInvoice.kind === "plans") {
+      expect(paidInvoice.plans.planId).toBe("radar");
+      expect(paidInvoice.grantReportCredits).toBe(5);
+    }
+  });
+
   it("marks a failed invoice past due and drops the plan when the subscription ends", () => {
     const active = billingEffect(emptyPlans(), "customer.subscription.updated", {
       status: "active",
