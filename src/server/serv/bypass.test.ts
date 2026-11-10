@@ -5,7 +5,7 @@ import { DOCUMENTED_FEATURES, PROFILES, featuresUsedBy, requestFor, runServ, typ
 import { agentReport } from "@/server/agent-report";
 import { buildSampleReport } from "@/server/sample-report";
 import { paymentRequiredBody, radarToolResult } from "@/server/mcp";
-import { agentProof, buildServProof, openservReportFrom } from "./index";
+import { agentProof, buildServProof, chatCompletionContent, openservReportFrom } from "./index";
 import { messageText, responseShape, servErrorSummary, toolCall } from "./run";
 
 function filesUnder(dir: string): string[] {
@@ -193,8 +193,10 @@ describe("SERV layer", () => {
       model: "gpt-5.4-mini",
       finish_reason: "stop",
       usage: payload.usage,
+      choices: [{ finish_reason: "stop", message: { content: "ALLOW" } }],
     });
     expect(copied).not.toHaveProperty("output");
+    expect(chatCompletionContent(copied)).toBe("ALLOW");
     const proof = buildServProof({
       purpose: "flip_judge",
       body: requestFor("flip_judge", "{}"),

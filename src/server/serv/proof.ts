@@ -90,6 +90,20 @@ export function interpretGuard(text: string): "allow" | "block" {
   return "block";
 }
 
+/** Strip refusal prose from chat choices — keep content for rawResponse, never leak refusal text. */
+function choicesWithoutRefusal(choices: unknown): unknown {
+  if (!Array.isArray(choices)) return choices;
+  return choices.map((choice) => {
+    if (!choice || typeof choice !== "object") return choice;
+    const row = choice as { message?: unknown; finish_reason?: unknown; text?: unknown };
+    if (!row.message || typeof row.message !== "object") return choice;
+    const message = row.message as Record<string, unknown>;
+    if (!("refusal" in message)) return choice;
+    const { refusal: _refusal, ...rest } = message;
+    return { ...row, message: rest };
+  });
+}
+
 /** Copy documented response fields only when the body actually contains them. */
 export function openservReportFrom(payload: unknown): OpenservReport | null {
   if (!payload || typeof payload !== "object") return null;
@@ -103,12 +117,15 @@ export function openservReportFrom(payload: unknown): OpenservReport | null {
     "usage",
     "output",
     "output_text",
-    "choices",
     "proof",
     "report",
     "reasoning",
   ] as const) {
     if (key in body && body[key] !== undefined) writable[key] = body[key];
+  }
+  // Keep choices for chat-completions rawResponse (content), but never store refusal prose.
+  if ("choices" in body && body.choices !== undefined) {
+    writable.choices = choicesWithoutRefusal(body.choices);
   }
   const choice = Array.isArray(body.choices) ? (body.choices[0] as { finish_reason?: unknown } | undefined) : undefined;
   if (choice && typeof choice.finish_reason === "string") report.finish_reason = choice.finish_reason;
