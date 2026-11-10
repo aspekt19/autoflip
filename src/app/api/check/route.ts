@@ -120,6 +120,8 @@ export async function POST(request: Request) {
     });
 
     if (!result.ok) {
+      // Link/paste reserve only happens after success below — still release if a
+      // VIN path reserved earlier and then somehow failed mid-flight.
       if (usedFreeCheck && freeCheckKey) await releaseFreeCheck(getKv(), access.id, freeCheckKey);
       return Response.json(
         {
@@ -127,6 +129,13 @@ export async function POST(request: Request) {
           message: result.message,
           blocked: result.blocked === true,
           alternatives: result.alternatives,
+          // Refusal never spends: link/paste do not reserve until ok; VIN reserves
+          // are released above. Surface this so the client never has to guess.
+          creditCharged: false,
+          spentCredit: false,
+          usedFreeCheck: false,
+          focusVin: result.focusVin === true,
+          urlHints: result.urlHints ?? null,
         },
         { status: result.status },
       );

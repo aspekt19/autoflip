@@ -213,7 +213,93 @@ describe("runCheck listing paste (no paid Autodev/SERV)", () => {
     expect(result.error).toBe("listing_fetch_blocked");
     expect(result.blocked).toBe(true);
     expect(result.alternatives).toEqual(["paste_text", "enter_vin"]);
+    expect(result.creditCharged).toBe(false);
+    expect(result.focusVin).toBe(true);
     expect(result.message).toMatch(/paste the listing text or enter the VIN/i);
+    expect(result.message).toMatch(/No credit or free check was used/i);
+  });
+
+  it("surfaces cars.com / Autotrader listing ids from the URL when the page is walled", async () => {
+    const publicLookup = async () => ["93.184.216.34"];
+    const fetchImpl = vi.fn(async () => new Response("Access Denied", { status: 403 }));
+    const cars = await runCheck(
+      {
+        kind: "link",
+        url: "https://www.cars.com/vehicledetail/39a91db4-14e9-4a6e-82f5-34589631ba2d/",
+      },
+      { fetch: fetchImpl as unknown as typeof fetch, lookup: publicLookup },
+    );
+    expect(cars.ok).toBe(false);
+    if (cars.ok) return;
+    expect(cars.error).toBe("listing_fetch_blocked");
+    expect(cars.creditCharged).toBe(false);
+    expect(cars.urlHints?.listingId).toBe("39a91db4-14e9-4a6e-82f5-34589631ba2d");
+    expect(cars.message).toMatch(/listing id 39a91db4/i);
+    expect(cars.message).toMatch(/No credit or free check was used/i);
+
+    const autotrader = await runCheck(
+      { kind: "link", url: "https://www.autotrader.com/cars-for-sale/vehicle/756212296" },
+      { fetch: fetchImpl as unknown as typeof fetch, lookup: publicLookup },
+    );
+    expect(autotrader.ok).toBe(false);
+    if (autotrader.ok) return;
+    expect(autotrader.urlHints?.listingId).toBe("756212296");
+    expect(autotrader.message).toMatch(/listing id 756212296/i);
+  });
+
+  it("continues via Auto.dev when an exact VDP match exists after a walled fetch", async () => {
+    const vin = "1M8GDM9AXKP042788";
+    const vdp = "https://www.autotrader.com/cars-for-sale/vehicle/756212296";
+    const publicLookup = async () => ["93.184.216.34"];
+    const fetchImpl = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      // Match Auto.dev before the VDP host — the filter query embeds the VDP URL.
+      if (url.includes("api.auto.dev/listings?") && url.includes("retailListing.vdp")) {
+        return new Response(
+          JSON.stringify({
+            data: [
+              {
+                vin,
+                vehicle: { year: 2018, make: "Honda", model: "Civic", trim: "EX" },
+                retailListing: {
+                  price: 14_500,
+                  miles: 42_000,
+                  city: "Miami",
+                  state: "FL",
+                  zip: "33101",
+                  used: true,
+                  vdp,
+                },
+              },
+            ],
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        );
+      }
+      if (url.includes("api.auto.dev")) {
+        return new Response(JSON.stringify({ data: [] }), { status: 404 });
+      }
+      if (url.includes("autotrader.com")) {
+        return new Response("Please verify you are a human", { status: 403 });
+      }
+      return govFetch(url, { ModelYear: "2018", Make: "HONDA", Model: "Civic", Trim: "EX" });
+    });
+    const result = await runCheck(
+      { kind: "link", url: vdp },
+      {
+        fetch: fetchImpl as unknown as typeof fetch,
+        lookup: publicLookup,
+        autodevKey: "test-key",
+        autodev: { cache: new TtlCache<unknown>(60_000), counter: new MemoryCounter() },
+        kv: new MemoryKv(),
+        env: { VERCEL: undefined },
+      },
+    );
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.result.vin).toBe(vin);
+    expect(result.result.fields?.priceUsd.value).toBe(14_500);
+    expect(result.result.provenance.some((row) => row.source === "listing_feed")).toBe(true);
   });
 
   it("returns clear next steps when the page is thin and has no VIN", async () => {
@@ -237,7 +323,8 @@ describe("runCheck listing paste (no paid Autodev/SERV)", () => {
     expect(result.error).toBe("listing_fetch_thin");
     expect(result.blocked).toBe(true);
     expect(result.alternatives).toEqual(["paste_text", "enter_vin"]);
-    expect(result.message).toMatch(/Keep the URL/i);
+    expect(result.creditCharged).toBe(false);
+    expect(result.message).toMatch(/No credit or free check was used/i);
   });
 
   it("identifies cruz.com-style title/URL YMM without structured vehicle JSON-LD", async () => {

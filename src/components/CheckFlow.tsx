@@ -72,6 +72,7 @@ function sourceLabel(source: string | null): string {
   if (source === "meta") return "meta tag";
   if (source === "url") return "URL";
   if (source === "vin_decode") return "VIN decoder";
+  if (source === "listing_feed") return "listing feed";
   return source;
 }
 
@@ -94,10 +95,23 @@ function CheckFlowForm() {
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [blocked, setBlocked] = useState(false);
-  const [recovery, setRecovery] = useState<null | { message: string; keepUrl: string }>(null);
+  const [recovery, setRecovery] = useState<null | {
+    message: string;
+    keepUrl: string;
+    creditCharged: false;
+    focusVin: boolean;
+  }>(null);
+  const [focusVinPending, setFocusVinPending] = useState(false);
   const [result, setResult] = useState<CheckResultView | null>(null);
   const [allowance, setAllowance] = useState<"loading" | "signed-out" | "missing" | string>("loading");
   const allowanceGen = useRef(0);
+  const vinInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (kind !== "vin" || !focusVinPending) return;
+    vinInputRef.current?.focus();
+    setFocusVinPending(false);
+  }, [kind, focusVinPending]);
 
   async function refreshAllowance(from?: {
     freeChecks?: { remaining: number; limit: number; resetsLabel: string } | null;
@@ -220,6 +234,8 @@ function CheckFlowForm() {
         message?: string;
         blocked?: boolean;
         alternatives?: string[];
+        creditCharged?: boolean;
+        focusVin?: boolean;
         ok?: boolean;
         freeChecks?: { remaining: number; limit: number; resetsLabel: string } | null;
       };
@@ -247,13 +263,24 @@ function CheckFlowForm() {
         setBlocked(isBlocked);
         setError(body.message ?? "The check did not finish.");
         if (isBlocked) {
-          // Never fail silently: keep the URL and offer clear next steps.
+          // Never fail silently: keep the URL, state no charge, offer paste/VIN.
+          const base =
+            body.message ??
+            "We could not read enough from that listing. Keep the URL, then paste the listing text or enter the VIN.";
+          const withCredit =
+            /no credit or free check was used/i.test(base)
+              ? base
+              : `${base} No credit or free check was used.`;
           setRecovery({
-            message:
-              body.message ??
-              "We could not read enough from that listing. Keep the URL, then paste the listing text or enter the VIN.",
+            message: withCredit,
             keepUrl: url.trim(),
+            creditCharged: false,
+            focusVin: body.focusVin === true,
           });
+          if (body.focusVin === true) {
+            setKind("vin");
+            setFocusVinPending(true);
+          }
         }
         await refreshAllowance(body);
         return;
@@ -320,6 +347,7 @@ function CheckFlowForm() {
             <label htmlFor="check-vin">17-character VIN</label>
             <input
               id="check-vin"
+              ref={vinInputRef}
               value={vin}
               onChange={(event) => setVin(event.target.value)}
               placeholder="17-character VIN"
@@ -408,6 +436,10 @@ function CheckFlowForm() {
         <div className="warn-box" role="alert">
           <p className="kicker">Next step</p>
           <p>{recovery.message}</p>
+          <p className="hint">
+            <strong>No credit or free check was charged</strong>
+            {recovery.creditCharged === false ? " for this attempt." : "."}
+          </p>
           {recovery.keepUrl ? (
             <p className="hint">
               Kept listing URL: <code>{recovery.keepUrl}</code>
@@ -436,6 +468,7 @@ function CheckFlowForm() {
                 setBlocked(false);
                 setError(null);
                 setRecovery(null);
+                setFocusVinPending(true);
               }}
             >
               Enter the VIN

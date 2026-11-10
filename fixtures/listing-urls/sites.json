@@ -9,6 +9,12 @@
       "url": "https://www.cars.com/vehicledetail/4c0f84ec-baf9-41af-ac7d-6bdd4d2eef75/"
     },
     {
+      "id": "cars-com-prod-walled",
+      "site": "cars.com",
+      "label": "Cars.com VDP observed walled on prod 986604c (~2-3s anti-bot)",
+      "url": "https://www.cars.com/vehicledetail/39a91db4-14e9-4a6e-82f5-34589631ba2d/"
+    },
+    {
       "id": "cars-com-search",
       "site": "cars.com",
       "label": "Cars.com used Camry search (often bot-walled)",
@@ -19,6 +25,12 @@
       "site": "autotrader.com",
       "label": "Autotrader Civic hatchback search",
       "url": "https://www.autotrader.com/cars-for-sale/hatchback/2020/honda/civic"
+    },
+    {
+      "id": "autotrader-prod-walled",
+      "site": "autotrader.com",
+      "label": "Autotrader VDP observed walled on prod 986604c (~2-3s anti-bot)",
+      "url": "https://www.autotrader.com/cars-for-sale/vehicle/756212296"
     },
     {
       "id": "autotrader-dealer",
