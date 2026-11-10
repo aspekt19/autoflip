@@ -37,16 +37,20 @@ export const RESALE_INFLIGHT_WAIT_CAP_MS = 3_000;
 /** Floor below which a SERV call is not worth starting. */
 export const RESALE_SERV_MIN_USEFUL_MS = 2_000;
 
-/** Minimum remaining ms before starting each stage. */
+/**
+ * Minimum remaining ms before starting each stage.
+ * Resale SERV profiles are ~38s; stepped jobs give each call a fresh ~50s budget,
+ * so stage gates must not refuse a call that still has enough wall time.
+ */
 export const RESALE_STAGE_BUDGET_MS = {
-  plan: 12_000,
+  plan: 35_000,
   /** Cap for all Auto.dev inventory queries combined (run in parallel). */
   inventory: 22_000,
-  triage: 12_000,
+  triage: 35_000,
   deepCheck: 8_000,
-  pick: 12_000,
-  challenge: 12_000,
-  shopper: 20_000,
+  pick: 35_000,
+  challenge: 35_000,
+  shopper: 35_000,
 } as const;
 
 /**

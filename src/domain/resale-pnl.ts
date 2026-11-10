@@ -96,6 +96,11 @@ export type ResaleCandidatePnl = {
   assumption: string | null;
   /** Every displayed dollar/count with an explicit source — never a silent guess. */
   provenance: ResaleFieldProvenance[];
+  /**
+   * Risk-adjusted ranking formula with numbers plugged in (set after deep-check re-rank).
+   * Example: `score=2100×0.85×0.90=1606.5; mid×risk×max(0.5,(low+mid)/(2×mid)); floor 0.5 design choice; comps=6`
+   */
+  riskAdjustedRankFormula?: string | null;
 };
 
 function usdOrUnknown(value: number | null | undefined): string {

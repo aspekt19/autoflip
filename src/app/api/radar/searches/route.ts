@@ -20,24 +20,55 @@ export async function POST(request: Request) {
   const access = await requireVerifiedAccountForRadar();
   if (!access.ok) return access.response;
   const id = access.id;
-  const body = (await request.json().catch(() => null)) as { name?: string; mode?: string; criteria?: WatchCriteria } | null;
+  const body = (await request.json().catch(() => null)) as {
+    name?: string;
+    mode?: string;
+    criteria?: WatchCriteria & { nationwide?: boolean };
+  } | null;
   const criteria = body?.criteria;
-  if (!criteria || !criteria.zip || !criteria.priceMax) {
+  const mode = body?.mode === "flip" ? "flip" : "personal";
+  if (!criteria || !criteria.priceMax) {
+    return Response.json({ error: "invalid", message: "A saved search needs a maximum price." }, { status: 400 });
+  }
+
+  const wantsNationwide =
+    mode === "flip" &&
+    (criteria.nationwide === true ||
+      criteria.radiusMiles == null ||
+      (typeof criteria.radiusMiles === "number" && !Number.isFinite(criteria.radiusMiles)));
+
+  if (mode === "personal" && !criteria.zip) {
     return Response.json({ error: "invalid", message: "A saved search needs a ZIP and a maximum price." }, { status: 400 });
   }
-  const radiusParsed = parseDistanceMiles(criteria.radiusMiles);
-  if (!radiusParsed.ok || radiusParsed.miles == null) {
-    return Response.json(
-      {
-        error: "invalid_radius",
-        message: radiusParsed.ok
-          ? "Deal Radar watches need a seller-distance radius (not nationwide)."
-          : radiusParsed.message,
-      },
-      { status: 400 },
-    );
+
+  let radiusMiles: number | null = null;
+  if (!wantsNationwide) {
+    if (!criteria.zip) {
+      return Response.json(
+        { error: "invalid", message: "A Flip watch with a radius needs a ZIP (or leave radius empty for nationwide)." },
+        { status: 400 },
+      );
+    }
+    const radiusParsed = parseDistanceMiles(criteria.radiusMiles);
+    if (!radiusParsed.ok || radiusParsed.miles == null) {
+      return Response.json(
+        {
+          error: "invalid_radius",
+          message: radiusParsed.ok
+            ? mode === "flip"
+              ? "Flip watches need a seller-distance radius, or leave radius empty for nationwide (same as Resale)."
+              : "Deal Radar watches need a seller-distance radius (not nationwide)."
+            : radiusParsed.message,
+        },
+        { status: 400 },
+      );
+    }
+    radiusMiles = radiusParsed.miles;
+  } else if (!criteria.zip) {
+    // Nationwide Flip: ZIP optional — use a sentinel empty string for storage shape.
+    criteria.zip = "";
   }
-  const mode = body?.mode === "flip" ? "flip" : "personal";
+
   const kv = getKv();
   const searches = await listSearches(kv);
   const mine = searches.filter((item) => item.ownerId === id);
@@ -54,7 +85,7 @@ export async function POST(request: Request) {
     ownerId: id,
     name: (body?.name || "Saved search").slice(0, 80),
     mode,
-    criteria: normalizeCriteria(criteria, mode, radiusParsed.miles),
+    criteria: normalizeCriteria(criteria, mode, radiusMiles),
     createdAt: new Date().toISOString(),
     enabled: true,
     preset: false,
@@ -64,12 +95,17 @@ export async function POST(request: Request) {
   return Response.json({ ok: true });
 }
 
-function normalizeCriteria(criteria: WatchCriteria, mode: "personal" | "flip", radiusMiles: number): WatchCriteria {
+function normalizeCriteria(
+  criteria: WatchCriteria,
+  mode: "personal" | "flip",
+  radiusMiles: number | null,
+): WatchCriteria {
   if (mode === "flip") {
     return {
       priceMax: Number(criteria.priceMax),
-      zip: String(criteria.zip),
-      radiusMiles,
+      zip: criteria.zip ? String(criteria.zip) : "",
+      // Nationwide Flip: 0 radiusMiles means "no seller-distance filter" (matched to Resale nationwide).
+      radiusMiles: radiusMiles ?? 0,
       repairAbility: criteria.repairAbility ?? "unknown",
       minProfitUsd: typeof criteria.minProfitUsd === "number" ? criteria.minProfitUsd : undefined,
     };
@@ -83,7 +119,7 @@ function normalizeCriteria(criteria: WatchCriteria, mode: "personal" | "flip", r
     yearMax: criteria.yearMax,
     priceMax: Number(criteria.priceMax),
     zip: String(criteria.zip),
-    radiusMiles,
+    radiusMiles: radiusMiles ?? 50,
     milesMax: criteria.milesMax,
   };
 }

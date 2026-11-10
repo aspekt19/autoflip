@@ -18,7 +18,6 @@ import {
   parseResaleSearchInput,
   type ResaleSearchInput,
 } from "@/domain/resale-search-input";
-import { validateResaleServOutput } from "@/domain/resale-serv-validate";
 import type { Listing } from "@/domain/types";
 import type { Kv } from "@/io/kv";
 import {
@@ -31,8 +30,16 @@ import {
   type ResaleDeadline,
 } from "@/domain/resale-deadline";
 import { runFindMatch, type FindMatchDeps } from "@/server/find-match";
+import {
+  journalWhyFromServAttempt,
+  normalizeDirectionId,
+  runResaleServWithRejectRetry,
+  softFilterEvidenceIds,
+  stringArrayField,
+  validationFromCall,
+} from "@/server/resale-serv-call";
 import { runResaleSettleServ } from "@/server/resale-settle-serv";
-import { profile, runServ } from "@/server/serv";
+import { profile } from "@/server/serv";
 
 export const RESALE_ALTERNATIVE_LIMIT = 4;
 export const RESALE_SHORTLIST_LIMIT = 8;
@@ -47,10 +54,17 @@ export type ResaleSearchDeps = FindMatchDeps & {
   /** Internal budget ms when deadline is not injected (Hobby-safe ~50s default). */
   internalBudgetMs?: number;
   /**
-   * Stop after plan + inventory + code PnL shortlist (no settle SERV).
-   * Used by stepped Resale jobs (step 1).
+   * Stepped job slices:
+   * - `plan`: SERV plan only (step 1)
+   * - `inventory`: Auto.dev + code PnL (step 2); pass `planRefine` from step 1
    */
-  stopAfter?: "inventory";
+  stopAfter?: "plan" | "inventory";
+  /** Prior SERV/code plan refine from step 1 — used when stopAfter is inventory. */
+  planRefine?: { make?: string; model?: string; yearMin?: number; yearMax?: number } | null;
+  /** Skip re-running plan SERV when inventory step already has a plan journal. */
+  skipPlanServ?: boolean;
+  /** Prior plan journal to continue from (inventory step). */
+  priorPlanJournal?: ResaleDecisionJournal | null;
 };
 
 export type ResaleSearchOkBody = {
@@ -74,7 +88,21 @@ export type ResaleSearchOkBody = {
   creditNote: string;
 };
 
-/** Step-1 inventory slice: plan + listings + code PnL shortlist, no settle SERV. */
+/** Step-1 plan-only slice. */
+export type ResaleSearchPlanBody = {
+  ok: true;
+  sample: false;
+  chargedCredit: false;
+  stopAfter: "plan";
+  budgetUsd: number;
+  journal: ResaleDecisionJournal;
+  planRefine: { make?: string; model?: string; yearMin?: number; yearMax?: number } | null;
+  headline: string;
+  message: string;
+  nextStep: string;
+};
+
+/** Step-2 inventory slice: listings + code PnL shortlist, no settle SERV. */
 export type ResaleSearchInventoryBody = {
   ok: true;
   sample: false;
@@ -93,6 +121,7 @@ export type ResaleSearchInventoryBody = {
 
 export type ResaleSearchResult =
   | { ok: true; status: number; body: ResaleSearchOkBody }
+  | { ok: true; status: number; body: ResaleSearchPlanBody }
   | { ok: true; status: number; body: ResaleSearchInventoryBody }
   | {
       ok: false;
@@ -138,10 +167,13 @@ export async function runResaleSearch(
   const recordedAt = new Date().toISOString();
   const deadline =
     deps.deadline ?? makeResaleDeadline(deps.internalBudgetMs ?? RESALE_INTERNAL_BUDGET_MS);
-  let planJournal = emptyResaleJournal(RESALE_SERV_CALL_CAP);
+  let planJournal = deps.priorPlanJournal
+    ? { ...deps.priorPlanJournal, steps: [...deps.priorPlanJournal.steps] }
+    : emptyResaleJournal(RESALE_SERV_CALL_CAP);
   logResaleStage("start", deadline.startedAtMs, {
     budgetUsd: input.budgetUsd,
     budgetMs: deps.internalBudgetMs ?? RESALE_INTERNAL_BUDGET_MS,
+    stopAfter: deps.stopAfter ?? "full",
   });
 
   const directions = proposeDirections(need);
@@ -154,6 +186,10 @@ export async function runResaleSearch(
     yearMax: d.yearMax,
   }));
 
+  let refine: { make?: string; model?: string; yearMin?: number; yearMax?: number } | undefined =
+    deps.planRefine ?? undefined;
+
+  if (!deps.skipPlanServ) {
   planJournal = appendJournalStep(planJournal, {
     kind: "plan_search",
     actor: "code",
@@ -167,7 +203,6 @@ export async function runResaleSearch(
     rejected: null,
   });
 
-  let refine: { make?: string; model?: string; yearMin?: number; yearMax?: number } | undefined;
   const planTimeoutMs = resaleCallTimeoutMs(profile("resale_plan_search").timeoutMs, deadline);
   if (
     deps.servKey?.trim() &&
@@ -176,50 +211,81 @@ export async function runResaleSearch(
     planTimeoutMs != null
   ) {
     const planStarted = Date.now();
+    const allowedDirectionIds = allowedDirections.map((d) => d.id);
+    const directionEvidenceIds = allowedDirectionIds.map((id) => `direction:${id}`);
     const facts = {
       allowedDirections,
+      allowedDirectionIds,
       budgetUsd: input.budgetUsd,
       zip: input.zip,
       distanceMiles: input.distanceMiles,
     };
+    const planBundle = {
+      vins: [] as string[],
+      urls: [] as string[],
+      evidenceIds: directionEvidenceIds,
+      numberFacts: facts,
+    };
     try {
-      const planned = await runServ(
-        "resale_plan_search",
-        { user: JSON.stringify({ facts }) },
-        {
+      const allowIds = new Set(allowedDirectionIds);
+      const attempt = await runResaleServWithRejectRetry({
+        profileId: "resale_plan_search",
+        facts,
+        deps: {
           fetch: deps.fetchImpl ?? fetch,
           apiKey: deps.servKey,
           baseUrl: deps.servBaseUrl,
           model: deps.servModel,
           timeoutMs: planTimeoutMs,
         },
-      );
-      let payload: Record<string, unknown> | null = null;
-      try {
-        const parsedPlan = planned.ok ? (JSON.parse(planned.text) as unknown) : null;
-        payload =
-          parsedPlan && typeof parsedPlan === "object" && !Array.isArray(parsedPlan)
-            ? (parsedPlan as Record<string, unknown>)
-            : null;
-      } catch {
-        payload = null;
-      }
-      const rawIds = payload?.directionIds;
-      const directionIds = Array.isArray(rawIds)
-        ? rawIds.filter((id): id is string => typeof id === "string")
-        : [];
-      const note = typeof payload?.note === "string" ? payload.note : "";
-      const allowIds = new Set(allowedDirections.map((d) => d.id));
-      const validation = validateResaleServOutput(
-        { text: note },
-        {
-          vins: [],
-          urls: [],
-          evidenceIds: allowedDirections.map((d) => `direction:${d.id}`),
-          numberFacts: facts,
+        deadline,
+        canRetry: planJournal.servCalls + 1 < planJournal.servCallCap,
+        validatePayload: (payload, result) => {
+          const note = typeof payload?.note === "string" ? payload.note : "";
+          const directionIds = stringArrayField(payload, "directionIds").map(normalizeDirectionId);
+          const safeIds = directionIds.filter((id) => allowIds.has(id));
+          const base = validationFromCall({
+            result,
+            payload,
+            text: note,
+            evidenceIds: softFilterEvidenceIds(
+              note.match(/direction:[A-Za-z0-9_-]+/g) ?? [],
+              directionEvidenceIds,
+            ),
+            bundle: planBundle,
+          });
+          if (!base.ok) return base;
+          if (safeIds.length === 0) {
+            return {
+              ok: false,
+              reason: "rejected: unsupported reference",
+              detail:
+                "Plan payload missing allowlisted direction ids. Copy exact strings from facts.allowedDirectionIds.",
+            };
+          }
+          return { ok: true };
         },
-      );
+      });
+      const planned = attempt.result;
+      const payload = attempt.payload;
+      const validation = attempt.validation;
+      const directionIds = stringArrayField(payload, "directionIds").map(normalizeDirectionId);
+      const note = typeof payload?.note === "string" ? payload.note : "";
       const safeIds = directionIds.filter((id) => allowIds.has(id));
+      if (attempt.attempt === 2) {
+        planJournal = appendJournalStep(planJournal, {
+          kind: "fallback",
+          actor: "SERV",
+          decided: "Plan first response rejected — retried once with validation error",
+          why: "Reject-retry within step budget.",
+          inputsUsed: directionEvidenceIds,
+          changed: null,
+          model: deps.servModel || planned.proof.modelReported || planned.proof.modelRequested || null,
+          responseId: null,
+          recordedAt,
+          rejected: "rejected: unsupported reference",
+        });
+      }
       if (planned.ok && payload && validation.ok && safeIds.length > 0) {
         const first = allowedDirections.find((d) => d.id === safeIds[0]);
         if (first) {
@@ -238,17 +304,23 @@ export async function runResaleSearch(
           rejected: null,
         });
       } else {
+        const fail = journalWhyFromServAttempt({
+          result: planned,
+          validation,
+          payload,
+          missingPayloadFallback: "Plan payload missing allowlisted direction ids.",
+        });
         planJournal = appendJournalStep(planJournal, {
           kind: "fallback",
           actor: "SERV",
           decided: "Plan rejected or unavailable — code runs full editorial directions",
-          why: !validation.ok ? validation.detail : "Plan payload missing allowlisted direction ids.",
-          inputsUsed: allowedDirections.map((d) => `direction:${d.id}`),
+          why: fail.why,
+          inputsUsed: directionEvidenceIds,
           changed: null,
           model: deps.servModel || planned.proof.modelReported || planned.proof.modelRequested || null,
           responseId: typeof planned.proof.openserv?.id === "string" ? planned.proof.openserv.id : null,
           recordedAt,
-          rejected: !validation.ok ? validation.reason : "rejected: unsupported reference",
+          rejected: fail.rejected,
         });
       }
     } catch (err) {
@@ -283,6 +355,33 @@ export async function runResaleSearch(
       reason: RESALE_TIME_BUDGET_SKIP,
       remainingMs: deadline.remainingMs(),
     });
+  }
+  } // end !skipPlanServ
+
+  if (deps.stopAfter === "plan") {
+    logResaleStage("plan_stop", deadline.startedAtMs, {
+      remainingMs: deadline.remainingMs(),
+      journalSteps: planJournal.steps.length,
+      hasRefine: Boolean(refine),
+    });
+    return {
+      ok: true,
+      status: 200,
+      body: {
+        ok: true,
+        sample: false,
+        chargedCredit: false,
+        stopAfter: "plan",
+        budgetUsd: input.budgetUsd,
+        journal: planJournal,
+        planRefine: refine ?? null,
+        headline: "Search plan ready",
+        message: refine
+          ? `Agent planned a first query focus. Next: pull inventory for this budget.`
+          : "Code directions stand. Next: pull inventory for this budget.",
+        nextStep: "Continue to inventory — credit is charged only when the final verdict is delivered.",
+      },
+    };
   }
 
   if (deadline.expired()) {

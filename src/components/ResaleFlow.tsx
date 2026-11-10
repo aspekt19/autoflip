@@ -14,6 +14,7 @@ import { NOT_ENOUGH_SIMILAR_CARS } from "@/domain/price-evaluation";
 import type { ResaleAssessment } from "@/domain/resale-evaluate";
 import type { ResaleCandidatePnl } from "@/domain/resale-pnl";
 import { SEARCH_RADII_MILES } from "@/domain/need";
+import { publishCreditBalance } from "@/domain/credit-balance-event";
 
 export function ResaleFlow() {
   const account = useAccountLoad();
@@ -142,6 +143,9 @@ function ResaleSearchForm({ credits, onAuthLost }: { credits: number | null; onA
       setError(`${body.message ?? "The resale search did not finish."}${hint}`);
       return;
     }
+    if (typeof body.balance === "number" && Number.isFinite(body.balance)) {
+      publishCreditBalance(body.balance);
+    }
     setResult({
       best: body.best ?? null,
       alternatives: body.alternatives ?? [],
@@ -265,7 +269,8 @@ function ResaleSearchForm({ credits, onAuthLost }: { credits: number | null; onA
         if (stepBody.done) break;
         // SERV finished but debit failed — show the result honestly; do not spin on step 4.
         if (
-          stepBody.step === 4 &&
+          stepBody.step != null &&
+          stepBody.step >= 6 &&
           stepBody.agentVerdict &&
           stepBody.verdictAction &&
           stepBody.chargedCredit === false
@@ -486,6 +491,9 @@ function ResaleSearchResultView({ result }: { result: SearchResult }) {
     if (result.zip) q.set("zip", result.zip);
     if (result.distanceMiles != null && Number.isFinite(result.distanceMiles)) {
       q.set("distanceMiles", String(result.distanceMiles));
+    } else {
+      // Match nationwide Resale scope — Flip watches may save without a radius.
+      q.set("nationwide", "1");
     }
     return `/radar?${q.toString()}`;
   })();
@@ -545,9 +553,17 @@ function CandidateCard({
         {l.year} {l.make} {l.model}
         {l.trim ? ` ${l.trim}` : ""}
         {l.miles != null ? ` · ${l.miles.toLocaleString("en-US")} mi` : ""}
-        {l.city || l.state ? ` · ${[l.city, l.state].filter(Boolean).join(", ")}` : ""}
+        {l.dealer ? ` · ${l.dealer}` : ""}
+        {l.city || l.state || l.zip
+          ? ` · listing feed: ${[l.city, l.state, l.zip].filter(Boolean).join(", ")}`
+          : ""}
       </p>
       <ul className="refuse">
+        <li>
+          {candidate.riskAdjustedRankFormula
+            ? `Risk-adjusted rank: ${candidate.riskAdjustedRankFormula}`
+            : `Risk-adjusted rank formula: score = mid × risk × max(0.5, (low+mid)/(2×mid)); floor 0.5 is a design choice; thin comps (&lt;3 / &lt;5) cut risk. Comps in this scan: ${candidate.compCount}.`}
+        </li>
         <li>Ask: {formatUsd(candidate.askingUsd)}</li>
         <li>
           Negotiated offer estimate: {formatUsd(candidate.negotiatedOfferUsd)} — {candidate.negotiateBasis}

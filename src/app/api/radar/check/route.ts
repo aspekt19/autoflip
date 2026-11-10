@@ -1,6 +1,6 @@
 import { checkNowAllowed } from "@/domain/radar-watch";
 import { getKv, storageMode } from "@/io/kv";
-import { lastCheckNow, listSearches, markCheckNow } from "@/server/radar-store";
+import { lastCheckNow, listAlerts, listSearches, markCheckNow } from "@/server/radar-store";
 import { runRadarCycle } from "@/server/radar-cycle";
 import { originOf } from "@/server/secrets";
 import { isDemoUser, requireVerifiedAccountForRadar } from "@/server/session";
@@ -50,11 +50,20 @@ export async function POST(request: Request) {
     env: process.env,
     forceAll: true,
   });
+  // Toast must match the owner's feed — not every watch in a shared cycle.
+  const mySearchIds = new Set(mine.map((item) => item.id));
+  const alerts = await listAlerts(kv);
+  const ownerAlerts = alerts.filter(
+    (alert) =>
+      alert.ownerId === id &&
+      mySearchIds.has(alert.searchId) &&
+      alert.createdAt >= run.startedAt,
+  ).length;
   return Response.json({
     ok: true,
-    alertsSent: run.alertsSent,
+    alertsSent: ownerAlerts,
     listings: run.listings,
     filteredOut: run.filteredOut,
-    message: `Check finished. ${run.alertsSent} new alerts.`,
+    message: `Check finished. ${ownerAlerts} new alerts.`,
   });
 }

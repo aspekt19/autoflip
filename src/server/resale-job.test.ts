@@ -160,8 +160,47 @@ function assembleFixture(listings: Listing[]) {
   }));
 }
 
+function inventoryDeps(listings: Listing[], fetchImpl: typeof fetch) {
+  return {
+    assembleRadarImpl: assembleFixture(listings) as never,
+    autodevKey: "test",
+    autodev: { cache: undefined as never, counter: undefined as never },
+    servKey: "test-key",
+    fetchImpl,
+    env: { VERCEL: undefined, NETLIFY: undefined },
+    maxProviderQueries: 6,
+    parallelProviderQueries: true,
+  };
+}
+
+async function advanceThrough(
+  args: {
+    kv: MemoryKv;
+    ownerId: string;
+    jobId: string;
+    listings: Listing[];
+    fetchImpl: typeof fetch;
+    throughStep: number;
+  },
+) {
+  for (let step = 2; step <= args.throughStep; step += 1) {
+    const run = await advanceResaleJob({
+      kv: args.kv,
+      ownerId: args.ownerId,
+      jobId: args.jobId,
+      step,
+      servKey: "test-key",
+      fetchImpl: args.fetchImpl,
+      inventoryDeps: inventoryDeps(args.listings, args.fetchImpl),
+    });
+    expect(run.ok).toBe(true);
+    if (!run.ok) return null;
+  }
+  return true;
+}
+
 describe("resale stepped job", () => {
-  it("happy path: inventory then all settle SERV phases, charge once on step 4", async () => {
+  it("happy path: plan → inventory → triage → pick → challenge → shopper, charge once on step 6", async () => {
     const kv = new MemoryKv();
     const ownerId = "11111111-1111-4111-8111-111111111111";
     await creditGrant(kv, ownerId, 3, "test-grant-happy");
@@ -188,7 +227,7 @@ describe("resale stepped job", () => {
     expect(created.ok).toBe(true);
     if (!created.ok || created.kind !== "job") return;
     expect(created.job.stepCompleted).toBe(1);
-    expect(created.job.candidates.length).toBeGreaterThan(0);
+    expect(created.job.candidates.length).toBe(0);
     expect(created.job.charged).toBe(false);
     expect(await creditBalance(kv, ownerId)).toBe(3);
 
@@ -199,6 +238,7 @@ describe("resale stepped job", () => {
       if (schema) profilesSeen.add(schema);
       return fetchImpl(input, init);
     };
+    const inv = inventoryDeps(listings, trackingFetch);
 
     const step2 = await advanceResaleJob({
       kv,
@@ -207,13 +247,12 @@ describe("resale stepped job", () => {
       step: 2,
       servKey: "test-key",
       fetchImpl: trackingFetch,
+      inventoryDeps: inv,
     });
     expect(step2.ok).toBe(true);
     if (!step2.ok) return;
     expect(step2.job.stepCompleted).toBe(2);
-    expect(step2.job.settleCheckpoint?.phaseCompleted).toBe("triage_deep");
-    expect(profilesSeen.has("resale_triage")).toBe(true);
-    expect(step2.job.charged).toBe(false);
+    expect(step2.job.candidates.length).toBeGreaterThan(0);
 
     const step3 = await advanceResaleJob({
       kv,
@@ -222,15 +261,13 @@ describe("resale stepped job", () => {
       step: 3,
       servKey: "test-key",
       fetchImpl: trackingFetch,
+      inventoryDeps: inv,
     });
     expect(step3.ok).toBe(true);
     if (!step3.ok) return;
     expect(step3.job.stepCompleted).toBe(3);
-    expect(step3.job.settleCheckpoint?.phaseCompleted).toBe("pick_challenge");
-    expect(profilesSeen.has("resale_pick")).toBe(true);
-    expect(profilesSeen.has("resale_challenge")).toBe(true);
-    expect(step3.job.charged).toBe(false);
-    expect(await creditBalance(kv, ownerId)).toBe(3);
+    expect(step3.job.settleCheckpoint?.phaseCompleted).toBe("triage_deep");
+    expect(profilesSeen.has("resale_triage")).toBe(true);
 
     const step4 = await advanceResaleJob({
       kv,
@@ -239,13 +276,46 @@ describe("resale stepped job", () => {
       step: 4,
       servKey: "test-key",
       fetchImpl: trackingFetch,
+      inventoryDeps: inv,
     });
     expect(step4.ok).toBe(true);
     if (!step4.ok) return;
     expect(step4.job.stepCompleted).toBe(4);
-    expect(step4.job.status).toBe("completed");
-    expect(step4.job.delivery?.best).toBeTruthy();
-    expect(step4.job.charged).toBe(true);
+    expect(step4.job.settleCheckpoint?.phaseCompleted).toBe("pick");
+    expect(profilesSeen.has("resale_pick")).toBe(true);
+    expect(profilesSeen.has("resale_challenge")).toBe(false);
+
+    const step5 = await advanceResaleJob({
+      kv,
+      ownerId,
+      jobId: created.job.jobId,
+      step: 5,
+      servKey: "test-key",
+      fetchImpl: trackingFetch,
+      inventoryDeps: inv,
+    });
+    expect(step5.ok).toBe(true);
+    if (!step5.ok) return;
+    expect(step5.job.stepCompleted).toBe(5);
+    expect(step5.job.settleCheckpoint?.phaseCompleted).toBe("challenge");
+    expect(profilesSeen.has("resale_challenge")).toBe(true);
+    expect(await creditBalance(kv, ownerId)).toBe(3);
+
+    const step6 = await advanceResaleJob({
+      kv,
+      ownerId,
+      jobId: created.job.jobId,
+      step: 6,
+      servKey: "test-key",
+      fetchImpl: trackingFetch,
+      inventoryDeps: inv,
+    });
+    expect(step6.ok).toBe(true);
+    if (!step6.ok) return;
+    expect(step6.job.stepCompleted).toBe(6);
+    expect(step6.job.status).toBe("completed");
+    expect(step6.job.delivery?.best).toBeTruthy();
+    expect(step6.job.charged).toBe(true);
     expect(profilesSeen.has("report_verdict_decision")).toBe(true);
     expect(profilesSeen.has("report_verdict_challenge")).toBe(true);
     expect(await creditBalance(kv, ownerId)).toBe(2);
@@ -284,6 +354,7 @@ describe("resale stepped job", () => {
     expect(created.ok && created.kind === "job").toBe(true);
     if (!created.ok || created.kind !== "job") return;
 
+    const inv = inventoryDeps(listings, countingFetch);
     const first2 = await advanceResaleJob({
       kv,
       ownerId,
@@ -291,11 +362,12 @@ describe("resale stepped job", () => {
       step: 2,
       servKey: "test-key",
       fetchImpl: countingFetch,
+      inventoryDeps: inv,
     });
     expect(first2.ok).toBe(true);
     if (!first2.ok) return;
     const postsAfter2 = servPosts;
-    const journalLen = first2.job.settleCheckpoint?.journal.steps.length ?? 0;
+    const candidatesLen = first2.job.candidates.length;
 
     const retry2 = await advanceResaleJob({
       kv,
@@ -304,14 +376,15 @@ describe("resale stepped job", () => {
       step: 2,
       servKey: "test-key",
       fetchImpl: countingFetch,
+      inventoryDeps: inv,
     });
     expect(retry2.ok).toBe(true);
     if (!retry2.ok) return;
     expect(retry2.job.stepCompleted).toBe(2);
     expect(servPosts).toBe(postsAfter2);
-    expect(retry2.job.settleCheckpoint?.journal.steps.length).toBe(journalLen);
+    expect(retry2.job.candidates.length).toBe(candidatesLen);
 
-    for (const step of [3, 4] as const) {
+    for (const step of [3, 4, 5, 6] as const) {
       const run = await advanceResaleJob({
         kv,
         ownerId,
@@ -319,26 +392,28 @@ describe("resale stepped job", () => {
         step,
         servKey: "test-key",
         fetchImpl: countingFetch,
+        inventoryDeps: inv,
       });
       expect(run.ok).toBe(true);
     }
     const balanceAfter = await creditBalance(kv, ownerId);
     expect(balanceAfter).toBe(1);
 
-    const postsBeforeRetry4 = servPosts;
-    const retry4 = await advanceResaleJob({
+    const postsBeforeRetry6 = servPosts;
+    const retry6 = await advanceResaleJob({
       kv,
       ownerId,
       jobId: created.job.jobId,
-      step: 4,
+      step: 6,
       servKey: "test-key",
       fetchImpl: countingFetch,
+      inventoryDeps: inv,
     });
-    expect(retry4.ok).toBe(true);
-    if (!retry4.ok) return;
-    expect(servPosts).toBe(postsBeforeRetry4);
+    expect(retry6.ok).toBe(true);
+    if (!retry6.ok) return;
+    expect(servPosts).toBe(postsBeforeRetry6);
     expect(await creditBalance(kv, ownerId)).toBe(1);
-    expect(retry4.job.charged).toBe(true);
+    expect(retry6.job.charged).toBe(true);
   });
 
   it("rejects step advances from a non-owner", async () => {
@@ -375,6 +450,7 @@ describe("resale stepped job", () => {
       step: 2,
       servKey: "test-key",
       fetchImpl: servFetchMock(),
+      inventoryDeps: inventoryDeps(listings, servFetchMock()),
     });
     expect(denied.ok).toBe(false);
     if (denied.ok) return;
@@ -389,10 +465,11 @@ describe("resale stepped job", () => {
   it("failed debit: shows result as delivered_unpaid, honest label, retries charge", async () => {
     const kv = new MemoryKv();
     const ownerId = "55555555-5555-4555-8555-555555555555";
-    // Exactly 1 credit — spent after step 3 so step 4 debit fails.
+    // Exactly 1 credit — spent after step 5 so step 6 debit fails.
     await creditGrant(kv, ownerId, 1, "test-grant-unpaid");
     const listings = pool();
     const fetchImpl = servFetchMock();
+    const inv = inventoryDeps(listings, fetchImpl);
 
     const created = await createAndRunResaleJobStep1(
       { budgetUsd: 15_000, searchIdempotencyKey: "job-unpaid-1" },
@@ -413,7 +490,7 @@ describe("resale stepped job", () => {
     expect(created.ok && created.kind === "job").toBe(true);
     if (!created.ok || created.kind !== "job") return;
 
-    for (const step of [2, 3] as const) {
+    for (const step of [2, 3, 4, 5] as const) {
       const run = await advanceResaleJob({
         kv,
         ownerId,
@@ -421,12 +498,13 @@ describe("resale stepped job", () => {
         step,
         servKey: "test-key",
         fetchImpl,
+        inventoryDeps: inv,
       });
       expect(run.ok).toBe(true);
     }
 
-    // Drain the only credit with an unrelated spend so step 4 debit fails.
-    const drained = await creditSpend(kv, ownerId, "drain-before-step4");
+    // Drain the only credit with an unrelated spend so step 6 debit fails.
+    const drained = await creditSpend(kv, ownerId, "drain-before-step6");
     expect(drained.ok).toBe(true);
     expect(await creditBalance(kv, ownerId)).toBe(0);
 
@@ -434,9 +512,10 @@ describe("resale stepped job", () => {
       kv,
       ownerId,
       jobId: created.job.jobId,
-      step: 4,
+      step: 6,
       servKey: "test-key",
       fetchImpl,
+      inventoryDeps: inv,
     });
     expect(unpaid.ok).toBe(true);
     if (!unpaid.ok) return;
@@ -485,9 +564,10 @@ describe("resale stepped job", () => {
       kv,
       ownerId,
       jobId: created.job.jobId,
-      step: 4,
+      step: 6,
       servKey: "test-key",
       fetchImpl: countingFetch,
+      inventoryDeps: inv,
     });
     expect(paid.ok).toBe(true);
     if (!paid.ok) return;

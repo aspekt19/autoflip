@@ -54,6 +54,13 @@ export async function POST(request: Request) {
       servKey: deps.servKey,
       servBaseUrl: deps.servBaseUrl,
       servModel: deps.servModel,
+      inventoryDeps: {
+        ...deps,
+        env: process.env,
+        servKey: deps.servKey,
+        servBaseUrl: deps.servBaseUrl,
+        servModel: deps.servModel,
+      },
     });
 
     if (!result.ok) {

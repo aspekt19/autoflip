@@ -20,7 +20,8 @@ export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 
 /**
- * Resale search step 1 — creates a job, runs plan + inventory + code PnL shortlist.
+ * Resale search step 1 — creates a job and runs SERV plan only (own ~50s budget).
+ * Step 2 pulls inventory; later steps triage / pick / challenge / shopper.
  * Credit is charged only when the final step stores a delivery.
  * Client advances with POST /api/resale/search/step.
  */
