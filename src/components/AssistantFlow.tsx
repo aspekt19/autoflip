@@ -1093,17 +1093,15 @@ function AssistantFlow({
 
   async function findCars() {
     if (!need) return;
-    // Geography must be coherent before inventory: radius requires ZIP; Nationwide is explicit null.
+    // Geography: a radius still needs a ZIP. ZIP with no radius is allowed — Nationwide
+    // (results can still sort by distance when ZIP is present). Never dead-end on Confirm.
     if (need.distanceMiles != null && !need.zip) {
       setError("Add a ZIP for a seller-distance radius, or choose Nationwide.");
       return;
     }
-    // Never silently search Nationwide when the note named a place or ZIP.
-    if (need.distanceMiles == null && (need.zip || need.locationPhrase || noteMarks?.location || noteMarks?.zip)) {
+    if (need.distanceMiles == null && !need.zip && (need.locationPhrase || noteMarks?.location)) {
       setError(
-        need.zip
-          ? `Your note included ZIP ${need.zip}. Pick a seller-distance radius — we will not search Nationwide without that.`
-          : `Your note mentioned ${need.locationPhrase ?? "a place"}. Add a U.S. ZIP and radius — we will not search Nationwide without that.`,
+        `Your note mentioned ${need.locationPhrase ?? "a place"}. Add a U.S. ZIP to search nearby, or leave ZIP blank for Nationwide.`,
       );
       return;
     }
@@ -1838,7 +1836,7 @@ function AssistantFlow({
             {source === "model"
               ? "We read this from your note. Edit anything that is wrong. Directions below are guidance, not a market study."
               : need.zip && need.distanceMiles == null
-                ? "This is only what you typed and the words we could match. Your ZIP has no radius yet — pick miles below or leave Nationwide. We did not invent a default radius."
+                ? "This is only what you typed and the words we could match. Your ZIP has no radius — search runs Nationwide (sorted by distance to that ZIP when the feed provides it). Pick miles below to narrow, or leave Nationwide. We did not invent a default radius."
                 : "This is only what you typed and the words we could match. Nothing was invented."}
           </p>
           <div className="field">

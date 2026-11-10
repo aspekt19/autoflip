@@ -791,7 +791,8 @@ export async function assembleRadar(
     year?: number;
     yearMin?: number;
     yearMax?: number;
-    distanceMiles?: number;
+    /** Number = radius filter. `null` = nationwide (ZIP may still rank by distance). Omitted may still apply a legacy default when ZIP is set. */
+    distanceMiles?: number | null;
     mode: Mode;
     priceMax?: number;
     milesMax?: number;
@@ -856,7 +857,16 @@ export async function assembleRadar(
       model: input.model?.trim() || undefined,
       ...years,
       zip: input.zip,
-      distanceMiles: input.distanceMiles ?? (input.zip ? (flipOpen ? 50 : 100) : undefined),
+      distanceMiles:
+        typeof input.distanceMiles === "number"
+          ? input.distanceMiles
+          : input.distanceMiles === null
+            ? undefined // explicit nationwide — do not invent 50/100; ZIP still ranks by distance
+            : input.zip
+              ? flipOpen
+                ? 50
+                : 100
+              : undefined,
       priceRange: input.priceMax ? `1-${Math.round(input.priceMax * 1.05)}` : undefined,
       milesRange: input.milesMax ? `0-${Math.round(input.milesMax)}` : undefined,
       limit: 20,
