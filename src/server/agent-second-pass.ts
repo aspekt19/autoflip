@@ -94,7 +94,9 @@ export async function runReportVerdictChallenge(input: {
     apiKey: input.servKey,
     baseUrl: input.servBaseUrl,
     model: input.model,
-    transportPolicy: input.transportPolicy,
+    // Prefer production retries for empty/timeout — experiment_single_attempt left
+    // challenge as "did not finish" after a response id with an empty body.
+    transportPolicy: input.transportPolicy ?? "production",
   };
   const judged = await runServ(
     "verdict_challenge",
@@ -110,11 +112,23 @@ export async function runReportVerdictChallenge(input: {
   );
 
   if (!judged.ok) {
+    const responseId =
+      typeof judged.proof?.openserv?.id === "string" && judged.proof.openserv.id.trim()
+        ? judged.proof.openserv.id.trim()
+        : null;
+    const reasonBits = [
+      judged.error?.trim() || "Second check did not finish",
+      judged.upstream ? `upstream=${judged.upstream}` : null,
+      judged.status ? `http=${judged.status}` : null,
+      judged.failureDiag?.reasonCode ? `diag=${judged.failureDiag.reasonCode}` : null,
+      responseId ? `response ${responseId}` : "no response id",
+      typeof judged.proof?.latencyMs === "number" ? `${judged.proof.latencyMs}ms` : null,
+    ].filter(Boolean);
     return {
       result: {
         status: "unavailable",
         action: null,
-        objection: "Second check did not finish. The first verdict stands.",
+        objection: `${reasonBits.join(" · ")}. The first verdict stands.`,
         evidenceIds: [],
         confidenceBefore: input.confidence,
         confidenceAfter: input.confidence,

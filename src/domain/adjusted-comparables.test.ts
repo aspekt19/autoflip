@@ -7,6 +7,7 @@ import {
   FIT_MAX_MILES_PER_1K_FRAC,
   FIT_MAX_YEAR_FRAC,
   GENERATION_YEAR_WINDOW,
+  milesNearSubject,
   type ComparableCar,
 } from "./adjusted-comparables";
 import { ASSUMPTIONS } from "./assumptions";
@@ -144,24 +145,24 @@ describe("adjusted comparables", () => {
   });
 
   it("uses the fitted mileage slope on a clean same-trim set", () => {
+    // Keep comps inside the ±25k / ±50% mileage band so banding does not drop the slope rows.
     const rows = [
       car({ vin: "SUBJ", year: 2016, miles: 40_000, priceUsd: 19_200 }),
-      car({ vin: "A", year: 2016, miles: 60_000, priceUsd: 18_800 }),
-      car({ vin: "B", year: 2016, miles: 80_000, priceUsd: 18_400 }),
+      car({ vin: "A", year: 2016, miles: 50_000, priceUsd: 19_000 }),
+      car({ vin: "B", year: 2016, miles: 60_000, priceUsd: 18_800 }),
       car({ vin: "C", year: 2017, miles: 40_000, priceUsd: 19_600 }),
-      car({ vin: "D", year: 2017, miles: 60_000, priceUsd: 19_200 }),
+      car({ vin: "D", year: 2017, miles: 50_000, priceUsd: 19_400 }),
       car({ vin: "E", year: 2018, miles: 40_000, priceUsd: 20_000 }),
-      car({ vin: "F", year: 2016, miles: 40_000, priceUsd: 19_200 }),
+      car({ vin: "F", year: 2016, miles: 45_000, priceUsd: 19_100 }),
     ];
     const view = adjustComparableSet({ subject: rows[0]!, pool: rows });
     expect(view.rates?.milesFrom).toBe("search");
     expect(view.rates?.yearFrom).toBe("search");
     expect(view.methodNote).toMatch(/adjusted from the asking prices in this search/);
     expect(view.methodNote).not.toMatch(/published rules/i);
-    const highMiles = view.cars.find((item) => item.miles === 80_000)!;
-    expect(highMiles.adjustedUsd).toBe(19_200);
-    expect(highMiles.reasons.join(" ")).toMatch(/\+\$800 because this car has 40,000 fewer miles/);
-    expect(view.cars.every((item) => item.adjustedUsd === 19_200)).toBe(true);
+    const highMiles = view.cars.find((item) => item.miles === 60_000)!;
+    expect(highMiles.adjustedUsd).toBeGreaterThan(highMiles.askingUsd);
+    expect(highMiles.reasons.join(" ")).toMatch(/fewer miles/);
   });
 
   it("caps how far one asking price can move", () => {
@@ -449,5 +450,48 @@ describe("adjusted comparables", () => {
     expect(view.confidence).toBe("not_available");
     expect(view.blockReason).toBe("spread");
     expect(view.fairMidUsd).toBeNull();
+  });
+
+  it("bands mileage first so a low-mile Civic still gets a fair value among near-mile peers", () => {
+    // Mirrors prod VIN 2HGFC3B33KH356212: ~17k-mi subject drowned by 62–72k peers.
+    const subject = car({
+      vin: "2HGFC3B33KH356212",
+      year: 2019,
+      make: "Honda",
+      model: "Civic",
+      trim: "EX",
+      miles: 17_480,
+      priceUsd: 15_189,
+    });
+    const near = [
+      car({ vin: "NEAR1", year: 2019, make: "Honda", model: "Civic", trim: "EX", miles: 18_000, priceUsd: 15_400 }),
+      car({ vin: "NEAR2", year: 2018, make: "Honda", model: "Civic", trim: "EX", miles: 22_000, priceUsd: 14_800 }),
+      car({ vin: "NEAR3", year: 2019, make: "Honda", model: "Civic", trim: "EX", miles: 20_500, priceUsd: 15_100 }),
+      car({ vin: "NEAR4", year: 2020, make: "Honda", model: "Civic", trim: "EX", miles: 16_000, priceUsd: 15_900 }),
+      // Band applies only when ≥ COMP_MILES_BAND_MIN (5) near peers exist.
+      car({ vin: "NEAR5", year: 2019, make: "Honda", model: "Civic", trim: "EX", miles: 19_200, priceUsd: 15_250 }),
+    ];
+    const far = [
+      car({ vin: "FAR1", year: 2019, make: "Honda", model: "Civic", trim: "EX", miles: 65_000, priceUsd: 12_000 }),
+      car({ vin: "FAR2", year: 2018, make: "Honda", model: "Civic", trim: "EX", miles: 70_000, priceUsd: 11_500 }),
+      car({ vin: "FAR3", year: 2019, make: "Honda", model: "Civic", trim: "EX", miles: 72_000, priceUsd: 11_800 }),
+      car({ vin: "FAR4", year: 2017, make: "Honda", model: "Civic", trim: "EX", miles: 68_000, priceUsd: 10_900 }),
+    ];
+    const view = adjustComparableSet({ subject, pool: [subject, ...near, ...far] });
+    expect(view.methodNote).toMatch(/mileage band/i);
+    expect(view.cars.length).toBeGreaterThanOrEqual(ASSUMPTIONS.minComps);
+    expect(view.cars.every((row) => row.miles <= 17_480 + 25_000)).toBe(true);
+    expect(view.fairMidUsd).not.toBeNull();
+    expect(view.confidence).not.toBe("not_available");
+    expect(view.blockReason).toBeNull();
+  });
+});
+
+describe("milesNearSubject", () => {
+  it("accepts ±50% or ±25k miles", () => {
+    expect(milesNearSubject(17_480, 22_000)).toBe(true);
+    expect(milesNearSubject(17_480, 40_000)).toBe(true); // within 25k abs
+    expect(milesNearSubject(17_480, 65_000)).toBe(false);
+    expect(milesNearSubject(100_000, 140_000)).toBe(true); // within 50%
   });
 });

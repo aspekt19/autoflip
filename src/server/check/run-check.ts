@@ -437,6 +437,7 @@ async function attachCheckShopperServ(input: {
     servBaseUrl: input.deps.servBaseUrl,
     model: input.deps.servModel,
     fetchImpl: input.deps.fetch ?? fetch,
+    screeningConfidence: input.codeTrail.confidence,
   });
 
   if (shopper.decision.gateRun.withheld) {
@@ -1011,10 +1012,10 @@ async function buildVinDossier(vin: string, deps: CheckRunDeps, optionalZip?: st
 
   const askLine = hasAsk
     ? feed?.dealer
-      ? `Listed price from data feed: $${subject.priceUsd!.toLocaleString("en-US")} at ${feed.dealer}${
+      ? `Ask $${subject.priceUsd!.toLocaleString("en-US")} at ${feed.dealer}${
           feed.city || feed.state ? ` (${[feed.city, feed.state].filter(Boolean).join(", ")})` : ""
-        } — used for price rating.`
-      : `Listed price from data feed: $${subject.priceUsd!.toLocaleString("en-US")} — used for price rating.`
+        } (from data feed listing) — used for price rating.`
+      : `Ask $${subject.priceUsd!.toLocaleString("en-US")} (from data feed listing) — used for price rating.`
     : "No current listing ask for this VIN, so this car is not price-rated.";
 
   const summary = [
@@ -1095,18 +1096,18 @@ async function buildVinDossier(vin: string, deps: CheckRunDeps, optionalZip?: st
     provenance.push({
       field: "priceUsd",
       value: subject.priceUsd,
-      source: "listed price from data feed",
+      source: "from data feed listing",
     });
   }
   if (hasMiles) {
     provenance.push({
       field: "miles",
       value: subject.miles,
-      source: "listed price from data feed",
+      source: "from data feed listing",
     });
   }
   if (feed?.dealer) {
-    provenance.push({ field: "sellerName", value: feed.dealer, source: "listed price from data feed" });
+    provenance.push({ field: "sellerName", value: feed.dealer, source: "from data feed listing" });
   }
 
   return {
@@ -1159,9 +1160,13 @@ async function buildVinDossier(vin: string, deps: CheckRunDeps, optionalZip?: st
   };
 }
 
-const CHECK_SERV_CALL_BUDGET = 2;
+/**
+ * Decide + challenge, plus one empty-body/timeout re-POST on challenge under
+ * production transport. Stays within Netlify maxDuration 60s (challenge timeout 22s).
+ */
+const CHECK_SERV_CALL_BUDGET = 3;
 
-/** One Check may spend at most decide + challenge. Further SERV HTTP gets a local refusal. */
+/** Bound SERV HTTP for one Check. Further SERV HTTP gets a local 429 refusal. */
 function boundServFetch(deps: CheckRunDeps): CheckRunDeps {
   const inner = deps.fetch ?? fetch;
   const left = { n: CHECK_SERV_CALL_BUDGET };

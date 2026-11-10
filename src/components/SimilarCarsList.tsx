@@ -5,18 +5,26 @@ import type { SimilarCarView } from "@/domain/purchase-readiness";
 export function SimilarCarsList({
   cars,
   open = false,
+  /** Total comps used for the price rating when the list is capped for display. */
+  totalUsed,
 }: {
   cars: readonly SimilarCarView[];
   /** Open on the report section, where this list is the point of the section. */
   open?: boolean;
+  totalUsed?: number;
 }) {
-  const count = cars.length;
-  const noun = count === 1 ? "car" : "cars";
+  const shown = cars.length;
+  const total = typeof totalUsed === "number" && totalUsed > shown ? totalUsed : shown;
+  const noun = total === 1 ? "car" : "cars";
+  const summary =
+    total > shown
+      ? `Compared with ${total} similar ${noun} (showing ${shown})`
+      : `Compared with ${total} similar ${noun}`;
   return (
     <details className="similar-cars" open={open}>
-      <summary>{`Compared with ${count} similar ${noun}`}</summary>
-      {count === 0 ? <p className="hint">No similar cars in this search were close enough to adjust.</p> : null}
-      {count > 0 ? (
+      <summary>{summary}</summary>
+      {shown === 0 ? <p className="hint">No similar cars in this search were close enough to adjust.</p> : null}
+      {shown > 0 ? (
         <ul>
           {cars.map((car, index) => (
             <li key={`${car.year}-${car.trim ?? "trim"}-${car.miles}-${car.askingUsd}-${index}`}>
