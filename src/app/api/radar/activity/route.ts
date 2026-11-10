@@ -27,13 +27,24 @@ export async function GET() {
   });
   return Response.json({
     runs: filtered.map((run) => {
-      const servActivity = (run.servActivity ?? []).filter((row) => searchIds.has(row.searchId));
+      const servActivity = (run.servActivity ?? []).filter((row) => {
+        if (searchIds.has(row.searchId)) return true;
+        if (
+          row.profile === "radar_guard" &&
+          (run.ownerIds ?? []).includes(id) &&
+          (run.searchIds ?? []).some((searchId) => searchIds.has(searchId))
+        ) {
+          return true;
+        }
+        return false;
+      });
       return {
         ...run,
         servActivity,
         decisionJournal: journalFromRadarActivity(servActivity, {
           notes: run.notes,
           startedAt: run.startedAt,
+          filterBreakdown: run.filterBreakdown ?? null,
         }),
       };
     }),

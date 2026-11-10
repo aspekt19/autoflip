@@ -46,6 +46,8 @@ import {
 } from "@/domain/resale-deadline";
 import { decideWhyWithGateResult } from "@/domain/verdict-decide";
 import { providerResponseIdFromCall } from "@/domain/serv-response-id";
+import { redactSecretsOnly } from "@/domain/redact-secrets";
+import { stripUnsupportedNumbers } from "@/domain/resale-serv-validate";
 
 const RESALE_SERV_JUDGE_MAX = 3;
 
@@ -290,6 +292,17 @@ function sortByProfit(items: ResaleCandidatePnl[]): ResaleCandidatePnl[] {
  * Ask ≤ budget: keep. Ask over budget but negotiated offer ≤ budget: keep with an explicit over-budget label.
  * Both ask and offer over budget: drop.
  */
+/** Label alternatives whose mid profit is negative — consistent with flip margin gates. */
+export function withNotProfitableAtAskLabel(item: ResaleCandidatePnl): ResaleCandidatePnl {
+  const mid = item.rankingProfitMidUsd ?? item.profitMidUsd;
+  if (mid == null || !Number.isFinite(mid) || mid >= 0) return item;
+  const label = "Not profitable at ask";
+  return {
+    ...item,
+    risks: item.risks.includes(label) ? item.risks : [label, ...item.risks],
+  };
+}
+
 function pickAlternatives(
   ranked: ResaleCandidatePnl[],
   bestVin: string,
@@ -302,15 +315,17 @@ function pickAlternatives(
     const ask = item.askingUsd;
     const offer = item.negotiatedOfferUsd;
     if (ask <= budgetUsd) {
-      out.push(item);
+      out.push(withNotProfitableAtAskLabel(item));
       continue;
     }
     if (offer <= budgetUsd) {
       const label = `Over budget: ask $${ask.toLocaleString("en-US")} against budget $${budgetUsd.toLocaleString("en-US")}; negotiated offer estimate $${offer.toLocaleString("en-US")} is under the budget.`;
-      out.push({
-        ...item,
-        risks: item.risks.includes(label) ? item.risks : [label, ...item.risks],
-      });
+      out.push(
+        withNotProfitableAtAskLabel({
+          ...item,
+          risks: item.risks.includes(label) ? item.risks : [label, ...item.risks],
+        }),
+      );
       continue;
     }
   }
@@ -833,11 +848,14 @@ export async function runResaleSettleServ(input: {
           payload,
           missingPayloadFallback: "Triage call failed or payload unusable.",
         });
+        const servNote = note.trim()
+          ? ` SERV note: ${redactSecretsOnly(stripUnsupportedNumbers(note, triageBundle))}`
+          : "";
         journal = appendJournalStep(journal, {
           kind: "fallback",
           actor: "SERV",
           decided: "Triage rejected or unavailable — code shortlist stands",
-          why: fail.why,
+          why: `${fail.why}${servNote}`,
           inputsUsed: shortlist.map((item) => `vin:${item.vin}`),
           changed: null,
           model: modelFrom(judged.proof, input.model),
@@ -853,11 +871,14 @@ export async function runResaleSettleServ(input: {
         }
         const safeChecks = checks.filter((id) => allowCheck.has(id));
         if (safeChecks.length > 0) selectedCheckIds = safeChecks;
+        const triageWhy = note.trim()
+          ? redactSecretsOnly(note)
+          : "Triage used allowlisted VINs and check ids only.";
         journal = appendJournalStep(journal, {
           kind: "triage",
           actor: "SERV",
           decided: `Deep-check ${deepOk.length || shortlist.length} VIN(s); skip ${skipOk.length}; checks ${safeChecks.join(", ") || "none"}`,
-          why: note || "Triage used allowlisted VINs and check ids only.",
+          why: triageWhy,
           inputsUsed: [...deepOk.map((vin) => `vin:${vin}`), ...safeChecks.map((id) => `check:${id}`)],
           changed: deepOk.length
             ? `Shortlist narrowed to ${working.map(carLabel).join(", ")}`
@@ -871,7 +892,7 @@ export async function runResaleSettleServ(input: {
         });
         trail.push({
           decided: "Agent triage",
-          why: note || "Allowlisted deep-check selection.",
+          why: triageWhy,
           changed: deepOk.length ? `Deep-check ${deepOk.join(", ")}` : null,
           model: modelFrom(judged.proof, input.model),
           responseId: responseIdFrom(judged.proof),

@@ -19,7 +19,12 @@ export type ListingVdpVerifiability = {
   pageMismatchNote: string | null;
 };
 
+/**
+ * Multi-token and single-letter trim hints. Longer tokens preferred when matching
+ * (xle before le; s-premium before s). Bare `l` / `s` catch Corolla L vs LE, S vs LE.
+ */
 const TRIM_SLUG_HINTS = [
+  "s-premium",
   "xle",
   "xse",
   "exl",
@@ -33,7 +38,6 @@ const TRIM_SLUG_HINTS = [
   "xlt",
   "stx",
   "trd",
-  "si",
   "type",
   "le",
   "se",
@@ -41,7 +45,44 @@ const TRIM_SLUG_HINTS = [
   "lx",
   "sx",
   "sv",
+  "si",
+  "l",
+  "s",
 ] as const;
+
+/** Normalize feed trim into comparable tokens (e.g. "S Premium" → ["s","premium"]). */
+export function feedTrimTokens(trim: string): string[] {
+  return trim
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .split(/\s+/)
+    .map((t) => t.trim())
+    .filter(Boolean);
+}
+
+/** Compact form for equality checks: "S Premium" → "spremiium" wait "spremium". */
+export function feedTrimCompact(trim: string): string {
+  return feedTrimTokens(trim).join("");
+}
+
+/**
+ * Extract trim-like tokens from a VDP pathname (longest-first so xle wins over le,
+ * s-premium over s). Single-letter L/S only when hyphen-bounded.
+ */
+export function slugTrimTokens(pathname: string): string[] {
+  const slug = pathname.toLowerCase();
+  const found: string[] = [];
+  for (const hint of TRIM_SLUG_HINTS) {
+    const escaped = hint.replace(/-/g, "[-]?");
+    const pattern = new RegExp(`(?:^|[^a-z0-9])${escaped}(?:[^a-z0-9]|$)`, "i");
+    if (!pattern.test(slug)) continue;
+    found.push(hint.replace(/-/g, ""));
+  }
+  // Drop subsumed short tokens (le when xle present; s when spremium present).
+  return found.filter(
+    (token) => !found.some((other) => other !== token && other.includes(token) && other.length > token.length),
+  );
+}
 
 /**
  * When the VDP path embeds a year or trim slug that conflicts with the feed row,
@@ -60,24 +101,19 @@ export function listingPageSlugMismatch(input: {
       return "Listing page may describe a different year — verify";
     }
   }
-  const feedTrim = typeof input.trim === "string" ? input.trim.trim().toLowerCase() : "";
+  const feedTrim = typeof input.trim === "string" ? input.trim.trim() : "";
   if (!feedTrim) return null;
-  const feedCompact = feedTrim.replace(/[^a-z0-9]/g, "");
-  const slugHints = TRIM_SLUG_HINTS.filter((hint) =>
-    new RegExp(`(?:^|[^a-z0-9])${hint}(?:[^a-z0-9]|$)`, "i").test(slug),
-  );
-  if (slugHints.length === 0) return null;
-  // Prefer the longest hint in the slug (xle over le).
-  const slugHint = [...slugHints].sort((a, b) => b.length - a.length)[0]!;
-  if (feedCompact === slugHint) return null;
-  // Feed XLE vs slug LE (or other distinct trim token) → conflict.
-  if (feedCompact.includes(slugHint) && feedCompact !== slugHint) {
-    return "Listing page may describe a different trim — verify";
-  }
-  if (!feedCompact.includes(slugHint)) {
-    return "Listing page may describe a different trim — verify";
-  }
-  return null;
+  const feedCompact = feedTrimCompact(feedTrim);
+  if (!feedCompact) return null;
+  const slugTokens = slugTrimTokens(input.pathname);
+  if (slugTokens.length === 0) return null;
+  const slugCompact = slugTokens.join("");
+  if (feedCompact === slugCompact) return null;
+  // Token-set equality (order-independent): feed "S Premium" vs slug s+premium.
+  const feedSet = [...feedTrimTokens(feedTrim)].sort().join("|");
+  const slugSet = [...slugTokens].sort().join("|");
+  if (feedSet === slugSet) return null;
+  return "Listing page may describe a different trim — verify";
 }
 
 const AGGREGATOR_HOSTS = new Set([

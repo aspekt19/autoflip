@@ -71,9 +71,35 @@ function decisionLabel(row: RadarActivityRow): string {
   return row.decision;
 }
 
+/**
+ * Prefer an honest empty-run reason over boilerplate notes like "prompt guard: allow"
+ * or delivery config lines that are not why SERV was skipped.
+ */
+export function noAgentCallsWhy(notes?: string[] | null, filterBreakdown?: string | null): string {
+  if (filterBreakdown?.trim()) {
+    return `No new candidates needed a SERV step this run. Filters: ${filterBreakdown.trim()}`;
+  }
+  const meaningful = (notes ?? []).filter((note) => {
+    const n = note.trim();
+    if (!n) return false;
+    if (/^prompt guard:/i.test(n)) return false;
+    if (/^Email alerts are not configured/i.test(n)) return false;
+    if (/^Telegram /i.test(n)) return false;
+    return true;
+  });
+  const hit = meaningful.find((n) =>
+    /already seen|no new|not due|No listings|candidates|Not reviewed|Flip explanation unavailable|AUTODEV/i.test(
+      n,
+    ),
+  );
+  if (hit) return hit;
+  if (meaningful[0]) return meaningful[0];
+  return "No new good/fair candidates needed a SERV step this run (all already seen, none passed filters, or SERV was not configured).";
+}
+
 export function journalFromRadarActivity(
   rows: RadarActivityRow[],
-  extras?: { notes?: string[]; startedAt?: string },
+  extras?: { notes?: string[]; startedAt?: string; filterBreakdown?: string | null },
 ): ResaleDecisionJournal {
   let journal = emptyResaleJournal(RADAR_SERV_CALL_CAP);
   const recordedAt = extras?.startedAt ?? new Date().toISOString();
@@ -83,9 +109,7 @@ export function journalFromRadarActivity(
       kind: "stop_or_widen",
       actor: "code",
       decided: "No agent calls on this Radar run",
-      why:
-        extras?.notes?.[0] ??
-        "No new good/fair candidates required a SERV step, or SERV was not configured. Alerts (if any) used code ratings only.",
+      why: noAgentCallsWhy(extras?.notes, extras?.filterBreakdown),
       inputsUsed: [],
       changed: null,
       model: null,
