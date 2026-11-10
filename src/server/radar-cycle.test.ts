@@ -1,10 +1,20 @@
 import { describe, expect, it } from "vitest";
 import { MemoryKv } from "@/io/kv";
 import { demoPresets } from "@/domain/demo-presets";
-import { seenStorageKey } from "@/domain/radar-watch";
+import { DEMO_USER_ID, seenStorageKey } from "@/domain/radar-watch";
 import { quotaSnapshot } from "@/io/persistent-quota";
+import { emptyPlans, writePlans } from "./plan-book";
 import { listAlerts, listRuns, listSearches, saveSearches, seenVins } from "./radar-store";
 import { runRadarCycle } from "./radar-cycle";
+
+async function grantRadarPlan(kv: MemoryKv, userId: string) {
+  await writePlans(kv, userId, {
+    ...emptyPlans(),
+    planId: "radar",
+    personal: { status: "active", lookupKey: "autoflip_radar_monthly", searchLimit: 5 },
+    flip: { status: "active", lookupKey: "autoflip_radar_monthly", searchLimit: 5 },
+  });
+}
 
 const listings = {
   data: [14900, 17000, 17500, 18000].map((price, index) => ({
@@ -27,6 +37,9 @@ describe("radar cycle", () => {
     const preset = demoPresets()[0]!;
     const copy = { ...preset, id: "user-copy", ownerId: "user-2", preset: false };
     const civic = { ...demoPresets()[1]!, lastCheckedAt: "2026-11-04T12:00:00.000Z" };
+    // Paid-only: fixture owners (incl. DEMO_USER_ID) need an active TEST plan.
+    await grantRadarPlan(kv, DEMO_USER_ID);
+    await grantRadarPlan(kv, "user-2");
     await saveSearches(kv, [preset, copy, civic]);
     let calls = 0;
     const fetchImpl: typeof fetch = async () => {
@@ -74,6 +87,7 @@ describe("radar cycle", () => {
   it("keeps fetched listings and records SERV activity when SERV times out (no invented alerts)", async () => {
     const kv = new MemoryKv();
     const civic = { ...demoPresets()[1]!, lastCheckedAt: "2026-11-04T12:00:00.000Z" };
+    await grantRadarPlan(kv, DEMO_USER_ID);
     await saveSearches(kv, [demoPresets()[0]!, civic]);
     const fetchImpl: typeof fetch = (url, init) => {
       const target = String(url);
@@ -116,6 +130,7 @@ describe("radar cycle", () => {
       id: "custom-rav4",
       preset: false,
     };
+    await grantRadarPlan(kv, search.ownerId);
     await saveSearches(kv, [search]);
     const payload = {
       data: [
@@ -207,6 +222,7 @@ describe("radar cycle", () => {
         milesMax: 80_000,
       },
     };
+    await grantRadarPlan(kv, "user-miles");
     await saveSearches(kv, [search]);
     const rows = [
       { vin: "2T3ZFREV0GW000001", year: 2016, price: 14_000, miles: 40_000 },

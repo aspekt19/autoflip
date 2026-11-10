@@ -112,7 +112,7 @@ function CreditsInner() {
       <div className="sheet-page site-frame">
       <p className="kicker">Test checkout</p>
       <h1>Credits</h1>
-      <p className="lead">A full vehicle report costs 1 report credit. Verified accounts get 3 free VIN or listing checks per UTC month. Find is a credit-priced search when billing is enabled. Ongoing saved-search alerts require a separate Radar plan. All preview prices are in U.S. dollars.</p>
+      <p className="lead">A full vehicle report costs 1 report credit. Verified accounts get 3 free VIN or listing checks per UTC month. Find is a credit-priced search when billing is enabled. Credit packs never include Deal Radar — watches require a separate paid Radar or Radar Pro plan on Pricing. All preview prices are in U.S. dollars.</p>
       <p className="hint">This is Stripe test mode: test-card checkouts do not take real money. Use 4242 4242 4242 4242, any future expiry date and any CVC.</p>
       {model.hint.kind === "loading" ? (
         <p className="hint" aria-busy="true">{model.hint.text}</p>

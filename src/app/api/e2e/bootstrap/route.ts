@@ -1,12 +1,14 @@
 /**
  * Stub-only test session mint for scripts/e2e-find-radar.ts.
  * Fail-closed: refused on Vercel / production and unless LEMONLESS_E2E_STUB=1.
- * Never invents live listings or SERV results — only a signed-in cookie + credits.
+ * Never invents live listings or SERV results — only a signed-in cookie + credits + paid TEST plan.
  */
 import { encode } from "@auth/core/jwt";
 import { randomUUID } from "node:crypto";
+import { planById } from "@/domain/plans";
 import { creditGrant } from "@/io/credit-book";
 import { getKv } from "@/io/kv";
+import { emptyPlans, writePlans } from "@/server/plan-book";
 
 export const dynamic = "force-dynamic";
 
@@ -43,6 +45,14 @@ export async function POST() {
     }),
   );
   await creditGrant(kv, userId, 5, `e2e-bootstrap:${userId}`);
+  // Deal Radar is paid-only — stub Watch needs an active TEST plan (not a free grant in product).
+  const radar = planById("radar")!;
+  await writePlans(kv, userId, {
+    ...emptyPlans(),
+    planId: radar.id,
+    personal: { status: "active", lookupKey: radar.lookupKey, searchLimit: radar.watchLimit },
+    flip: { status: "active", lookupKey: radar.lookupKey, searchLimit: radar.watchLimit },
+  });
 
   const token = await encode({
     token: {
@@ -66,6 +76,7 @@ export async function POST() {
       label: "STUB session — not a live buyer account",
       userId,
       email,
+      planId: radar.id,
     },
     {
       status: 200,

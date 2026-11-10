@@ -63,7 +63,7 @@ export function toolList() {
     {
       name: "deal_radar",
       description:
-        "Free one-shot scan of current Auto.dev listings for one make and model (same price rating as the site). Does not create a saved Deal Radar watch — watches are saved on the signed-in Deal Radar page and checked by cron. Does not charge. Requires the read scope. Recalls and fuel are not included; use full_report or check_car for those.",
+        "One-shot scan of current Auto.dev listings for one make and model (same price rating as the site). Does not create a saved Deal Radar watch and does not unlock Radar — saved watches require a paid Radar or Radar Pro plan on the signed-in Deal Radar page (cron). Does not charge. Requires the read scope. Recalls and fuel are not included; use full_report or check_car for those.",
       inputSchema: {
         type: "object",
         properties: {

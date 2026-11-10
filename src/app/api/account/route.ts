@@ -38,7 +38,7 @@ export async function GET() {
     freeChecks,
     plans: {
       personal: { status: plans.personal.status, lookupKey: plans.personal.lookupKey, searchLimit: plans.personal.searchLimit },
-      flip: { status: plans.flip.status, lookupKey: plans.flip.lookupKey },
+      flip: { status: plans.flip.status, lookupKey: plans.flip.lookupKey, searchLimit: plans.flip.searchLimit },
       billingPortalAvailable: Boolean(plans.stripeCustomerId) && !isDemoUser(id) && Boolean(session),
     },
     stripeConfigured: stripe,

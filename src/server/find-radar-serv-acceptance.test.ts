@@ -23,6 +23,7 @@ import { reviewPersonalCandidate } from "@/server/radar-serv";
 import { normalizeCriteria } from "@/server/radar-normalize-criteria";
 import { listAlerts, listRuns, saveAlerts, saveSearches, seenVins, storeSeenPrices } from "@/server/radar-store";
 import { runRadarCycle } from "@/server/radar-cycle";
+import { emptyPlans, writePlans } from "@/server/plan-book";
 import type { Listing } from "@/domain/types";
 import type { AlertNumbers } from "@/domain/radar-watch";
 import type { PriceBadge } from "@/domain/price-badge";
@@ -303,6 +304,13 @@ describe("find → SERV → watch → radar verdict_decide acceptance (merge gat
       criteria,
       lastCheckedAt: null,
     };
+    // Paid-only Radar: fixture watch owner needs an active TEST plan (not a product free grant).
+    await writePlans(kv, search.ownerId, {
+      ...emptyPlans(),
+      planId: "radar",
+      personal: { status: "active", lookupKey: "autoflip_radar_monthly", searchLimit: 5 },
+      flip: { status: "active", lookupKey: "autoflip_radar_monthly", searchLimit: 5 },
+    });
     await saveSearches(kv, [search]);
 
     // Seed stuck not_reviewed + seen book (root cause c regression).

@@ -1,6 +1,6 @@
 import { getKv } from "@/io/kv";
 import { requireMoneyAuthStore } from "@/io/kv-guard";
-import { billingEffect, emptyPlans, readPlans, writePlans } from "@/server/plan-book";
+import { billingEffect, emptyPlans, grantPlanReportCredits, readPlans, writePlans } from "@/server/plan-book";
 import { listSearches, saveSearches } from "@/server/radar-store";
 import { stripeClient, stripeWebhookSecret } from "@/server/stripe";
 import { grantCredit } from "@/server/session";
@@ -43,6 +43,8 @@ async function billingObject(
     const subscription = await stripe.subscriptions.retrieve(subscriptionId);
     return {
       ...object,
+      // Expose parent subscription status so $0 / trialing invoices cannot activate Radar.
+      subscription_status: subscription.status,
       metadata: {
         ...(metadataRecord(object) ?? {}),
         ...subscription.metadata,
@@ -117,10 +119,17 @@ export async function POST(request: Request) {
       const rows = await listSearches(kv);
       await saveSearches(
         kv,
-        rows.map((item) =>
-          item.ownerId === effect.userId && item.mode === effect.disableMode && !item.preset ? { ...item, enabled: false } : item,
-        ),
+        rows.map((item) => {
+          if (item.ownerId !== effect.userId || item.preset) return item;
+          if (effect.disableMode === "all" || item.mode === effect.disableMode) {
+            return { ...item, enabled: false };
+          }
+          return item;
+        }),
       );
+    }
+    if (effect.grantReportCredits > 0 && effect.grantIdempotencyKey) {
+      await grantPlanReportCredits(kv, effect.userId, effect.grantReportCredits, effect.grantIdempotencyKey);
     }
   }
   return Response.json({ received: true });
