@@ -1,8 +1,10 @@
 import { listingVdpVerifiability } from "./listing-vdp-verifiability";
 
 /**
- * Primary Resale card listing CTA — only a direct dealer VDP from the feed.
- * Never invent a URL; never present aggregator/feed model pages as the source listing.
+ * Resale card listing CTA from the feed URL the record actually returned.
+ * Never invent a URL. A real http(s) feed URL (including Autolist) is the link;
+ * only a truly missing URL is described as missing. Non-dealer pages keep an
+ * honest label so they are not sold as verified dealer VDPs.
  */
 export function resalePrimaryListingLink(input: {
   vdp?: string | null;
@@ -12,31 +14,25 @@ export function resalePrimaryListingLink(input: {
   trim?: string | null;
 }): {
   href: string | null;
-  label: "Open listing" | null;
+  label: "Open listing" | "Open feed link (not a verified listing page)" | null;
   unavailableHint: string | null;
   verifiability: ReturnType<typeof listingVdpVerifiability>;
 } {
   const verifiability = listingVdpVerifiability(input);
-  if (verifiability.direct && verifiability.href) {
+  if (verifiability.href) {
     return {
       href: verifiability.href,
-      label: "Open listing",
+      label: verifiability.direct
+        ? "Open listing"
+        : "Open feed link (not a verified listing page)",
       unavailableHint: null,
       verifiability,
     };
   }
-  const findBits = [input.dealer?.trim() || null, input.vin ? `VIN ${input.vin}` : null].filter(
-    Boolean,
-  );
-  const base =
-    verifiability.flag ?? "No direct listing link — verify the car exists.";
-  const unavailableHint = findBits.length
-    ? `${base} Find it via ${findBits.join(" · ")}.`
-    : base;
   return {
     href: null,
     label: null,
-    unavailableHint,
+    unavailableHint: "No listing URL in the feed for this VIN.",
     verifiability,
   };
 }

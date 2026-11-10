@@ -779,6 +779,7 @@ function CandidateCard({
           ? ` · listing feed: ${[l.city, l.state, l.zip].filter(Boolean).join(", ")}`
           : ""}
       </p>
+      {link.flag ? <p className="hint">{link.flag}</p> : null}
       {link.sellerMismatchNote ? <p className="hint">{link.sellerMismatchNote}</p> : null}
       {link.pageMismatchNote ? (
         <p className="hint">
