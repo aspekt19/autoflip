@@ -1587,6 +1587,8 @@ details.similar-cars > summary,
 .film-sticky {
   position: sticky;
   top: 0;
+  /* Above story-after while pinned so How-it-works never steals Find cars clicks. */
+  z-index: 3;
   /* Exact full-viewport film plane (showroom restore): edge-to-edge image, header overlaid. */
   height: 100vh;
   height: 100dvh;
@@ -1633,9 +1635,18 @@ details.similar-cars > summary,
   box-sizing: border-box;
   width: 100%;
 }
-.phase-detail .film-copy { opacity: 0; transform: translateY(-10px); pointer-events: none; }
-/* Search stays hittable while the open phase still owns the first viewport. */
-.film-search { isolation: isolate; }
+/*
+  Detail scrub fades the slogan only. Keep the search card fully visible and
+  clickable (checklist line 20) — never let How-it-works steal Find cars.
+*/
+.phase-detail .film-slogan {
+  opacity: 0;
+  pointer-events: none;
+}
+.phase-detail .film-search {
+  opacity: 1;
+  pointer-events: auto;
+}
 .film-slogan {
   position: relative;
   z-index: 2;
