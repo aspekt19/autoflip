@@ -1,161 +1,168 @@
 import { describe, expect, it } from "vitest";
-import { ASSUMPTIONS } from "@/domain/assumptions";
-import { actionFromVerdict } from "@/domain/decision-action";
 import type { ResaleCandidatePnl } from "@/domain/resale-pnl";
-import { flipVerdict } from "@/domain/verdict";
-import { runOrderedGates } from "@/domain/verdict-gates";
+import type { Listing } from "@/domain/types";
+import {
+  clampFlipPublishedAction,
+  flipMarginPublishedAction,
+  runResaleSettleServ,
+} from "./resale-settle-serv";
 
-/**
- * Mirror of settle buildFlipReport framing — keep in sync with resale-settle-serv.
- * Ensures thin mid profit cannot become buy/High via ask < resale mid.
- */
-function frameFlip(candidate: Pick<
-  ResaleCandidatePnl,
-  | "askingUsd"
-  | "resaleMidUsd"
-  | "resaleLowUsd"
-  | "resaleHighUsd"
-  | "profitLowUsd"
-  | "profitMidUsd"
-  | "negotiatedOfferUsd"
-  | "titleFeeAssumptionUsd"
-  | "reconUsd"
-  | "salesTaxUsd"
-  | "compCount"
-  | "listing"
->) {
-  const fair = candidate.resaleMidUsd;
-  const marginUsd =
-    candidate.profitLowUsd != null
-      ? candidate.profitLowUsd
-      : candidate.profitMidUsd != null
-        ? candidate.profitMidUsd
-        : null;
-  const friction = ASSUMPTIONS.flipSellFriction;
-  const allInUsd =
-    candidate.negotiatedOfferUsd +
-    candidate.titleFeeAssumptionUsd +
-    candidate.reconUsd +
-    (candidate.salesTaxUsd ?? 0);
-  const flip =
-    fair != null && marginUsd != null
-      ? {
-          resaleLowUsd: candidate.resaleLowUsd ?? fair,
-          resaleMidUsd: fair,
-          resaleHighUsd: candidate.resaleHighUsd ?? fair,
-          titleFeeUsd: candidate.titleFeeAssumptionUsd,
-          reconUsd: candidate.reconUsd,
-          sellFriction: friction,
-          allInUsd,
-          conservativeProceedsUsd: Math.round((candidate.resaleLowUsd ?? fair) * (1 - friction)),
-          marginUsd,
-          targetBuyUsd: 0,
-          timeToSellRisk: "high" as const,
-          timeToSellNote: "test",
-        }
-      : null;
-  const verdict = flip ? flipVerdict(flip.marginUsd, false) : "insufficient_data";
-  return { flip, verdict, action: actionFromVerdict(verdict) };
+function listing(partial: Partial<Listing> & Pick<Listing, "vin" | "year" | "make" | "model" | "priceUsd">): Listing {
+  return {
+    trim: "S",
+    miles: 90_000,
+    city: null,
+    state: null,
+    zip: null,
+    dealer: null,
+    vdp: null,
+    primaryImage: null,
+    carfaxUrl: null,
+    used: true,
+    cpo: null,
+    accidentCount: 0,
+    oneOwner: null,
+    ownerCount: 1,
+    usageType: null,
+    fuel: null,
+    engine: null,
+    drivetrain: null,
+    bodyStyle: null,
+    latitude: null,
+    longitude: null,
+    removedAt: null,
+    source: "autodev",
+    ...partial,
+  };
 }
 
-describe("resale flip framing", () => {
-  it("does not buy on thin mid profit when ask is below resale mid", () => {
-    const listing = {
-      vin: "2T1BURHE0FC123456",
+/** Live thin flip: mid +$478 / low −$235 against a $15k budget. */
+function thinCandidate(): ResaleCandidatePnl {
+  const vin = "2T1BURHE0FC123456";
+  return {
+    vin,
+    listing: listing({
+      vin,
       year: 2015,
       make: "Toyota",
       model: "Corolla",
-      trim: "S",
-      miles: 90_000,
       priceUsd: 12_450,
-      city: null,
-      state: null,
-      zip: null,
-      dealer: null,
-      vdp: null,
-      primaryImage: null,
-      carfaxUrl: null,
-      used: true,
-      cpo: null,
-      accidentCount: 0,
-      oneOwner: null,
-      ownerCount: 1,
-      usageType: null,
-      fuel: null,
-      engine: null,
-      drivetrain: null,
-      bodyStyle: null,
-      latitude: null,
-      longitude: null,
-      removedAt: null,
-      source: "autodev" as const,
-    };
-    const framed = frameFlip({
-      askingUsd: 12_450,
-      resaleMidUsd: 14_398,
-      resaleLowUsd: 13_200,
-      resaleHighUsd: 15_100,
-      profitLowUsd: -235,
-      profitMidUsd: 478,
-      negotiatedOfferUsd: 11_828,
-      titleFeeAssumptionUsd: 350,
-      reconUsd: 600,
-      salesTaxUsd: null,
-      compCount: 6,
-      listing,
-    });
-    expect(framed.action).toBe("pass");
-    expect(framed.flip?.marginUsd).toBe(-235);
-
-    const report = {
-      mode: "flip" as const,
-      subject: listing,
-      verdict: framed.verdict,
-      score: 0,
-      reasons: [],
-      flags: [],
-      questions: [],
-      comps: Array.from({ length: 3 }, (_, i) => ({
-        vin: `COMP000000000000${i}`,
-        year: 2015,
-        trim: null,
-        miles: 80_000,
-        priceUsd: 14_000,
-        adjustedPriceUsd: 14_000,
-        city: null,
-        state: null,
-        distanceMiles: null,
-      })),
-      compScope: "test",
-      percentile: null,
-      fairValueUsd: 14_398,
-      priceGap: (12_450 - 14_398) / 14_398,
-      mileage: { expectedMiles: null, subjectMiles: 90_000, medianCompMiles: null, perMileUsd: null },
-      history: { multiplier: 1, lines: [] },
-      recalls: [],
-      recallsAvailable: false,
-      openParkIt: false,
-      openParkOutside: false,
-      complaintCount: null,
-      fuel: null,
-      vinDecode: null,
-      distanceToSearchZipMiles: null,
-      flip: framed.flip,
-      assumptions: { ...ASSUMPTIONS },
-      dataNotes: [],
-      sample: false,
-      mandate: {
-        budgetUsd: 15_000,
-        budgetKnown: true,
-        targetProfitUsd: ASSUMPTIONS.flipDesiredProfitUsd,
-        repairAbility: "unknown" as const,
+    }),
+    askingUsd: 12_450,
+    negotiatedOfferUsd: 11_828,
+    negotiateBasis: "example 5% under ask",
+    salesTaxUsd: null,
+    salesTaxBasis: "Sales tax: unknown — listing state unavailable.",
+    salesTaxKnown: false,
+    profitScopeLabel: "before sales tax (state unknown)",
+    titleRegistrationUsd: null,
+    titleRegistrationBasis: "unknown",
+    titleFeeAssumptionUsd: 350,
+    titleFeeBasis: "fee",
+    reconUsd: 600,
+    reconBasis: "recon",
+    resaleLowUsd: 13_200,
+    resaleMidUsd: 14_398,
+    resaleHighUsd: 15_100,
+    resaleChannel: "private_party",
+    resaleChannelBasis: "private",
+    profitLowUsd: -235,
+    profitMidUsd: 478,
+    profitHighUsd: 1_100,
+    rankingProfitMidUsd: 478,
+    roiPctMid: 3.5,
+    estimatedDaysToSell: 30,
+    daysToSellBasis: "typical",
+    speed: "typical",
+    confidence: "Medium",
+    confidenceBasis: "comps",
+    compCount: 6,
+    score: 478,
+    clearsTarget: false,
+    risks: ["thin margin"],
+    checkBeforeBuying: ["inspect"],
+    assumption: null,
+    provenance: [
+      {
+        field: "Ask",
+        display: "$12,450",
+        kind: "autodev_listing",
+        source: `Auto.dev listing VIN ${vin}`,
       },
-    };
-    const gates = runOrderedGates(report, {
+    ],
+  };
+}
+
+const SERV_MODEL = "gpt-5.4-mini";
+
+function inventingFetch(content: Record<string, unknown>): typeof fetch {
+  return (async () =>
+    Response.json({
+      id: "chatcmpl-thin-buy",
+      object: "chat.completion",
+      model: SERV_MODEL,
+      choices: [
+        {
+          finish_reason: "stop",
+          message: { content: JSON.stringify(content) },
+        },
+      ],
+      usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 },
+    })) as typeof fetch;
+}
+
+describe("flip margin published action", () => {
+  it("codes pass for mid +478 / low -235", () => {
+    const gated = flipMarginPublishedAction(thinCandidate());
+    expect(gated.action).toBe("pass");
+    expect(gated.marginUsd).toBe(-235);
+  });
+
+  it("clamps SERV buy to pass on that thin candidate", () => {
+    const clamped = clampFlipPublishedAction("buy", thinCandidate());
+    expect(clamped.overridden).toBe(true);
+    expect(clamped.action).toBe("pass");
+    expect(clamped.reason).toMatch(/SERV said buy/i);
+    expect(clamped.reason).toMatch(/-235/);
+  });
+});
+
+describe("runResaleSettleServ publishes gated action", () => {
+  it("does not publish buy when SERV pick says buy on mid +478 / low -235", async () => {
+    const thin = thinCandidate();
+    const triage = await runResaleSettleServ({
+      candidates: [thin],
       budgetUsd: 15_000,
-      budgetKnown: true,
-      targetProfitUsd: ASSUMPTIONS.flipDesiredProfitUsd,
+      phase: "triage_deep",
     });
-    expect(gates.forbid).toContain("buy");
+    expect(triage.checkpoint).toBeTruthy();
+    expect(triage.verdictAction).toBe("pass");
+
+    const result = await runResaleSettleServ({
+      candidates: [thin],
+      budgetUsd: 15_000,
+      phase: "pick",
+      checkpoint: triage.checkpoint,
+      servKey: "test-key",
+      model: SERV_MODEL,
+      fetchImpl: inventingFetch({
+        pickVin: thin.vin.toUpperCase(),
+        action: "buy",
+        note: `Buy with mid profit $478 and ROI 3.5% from ${thin.compCount} comps.`,
+        evidenceIds: [`vin:${thin.vin.toUpperCase()}`, `pnl:${thin.vin.toUpperCase()}`],
+      }),
+    });
+
+    expect(result.verdictAction).not.toBe("buy");
+    expect(result.verdictAction).toBe("pass");
+    expect(result.agentVerdict.verdict).toBe("pass");
+    expect(
+      result.journal.steps.some(
+        (step) =>
+          step.actor === "code" &&
+          /Guardrail capped SERV buy → pass/i.test(step.decided) &&
+          /-235/.test(step.why),
+      ),
+    ).toBe(true);
   });
 });

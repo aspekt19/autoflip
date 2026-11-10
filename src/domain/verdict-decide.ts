@@ -94,6 +94,10 @@ export function verdictDecisionFacts(
           timeToSellRisk: report.flip.timeToSellRisk,
           resaleMidUsd: report.flip.resaleMidUsd,
           allInUsd: report.flip.allInUsd,
+          allInIncludesSalesTax: !report.dataNotes.some((note) =>
+            /allInIncludesSalesTax=false|omits sales tax/i.test(note),
+          ),
+          salesTaxKnown: !report.dataNotes.some((note) => /salesTaxKnown=false/i.test(note)),
         }
       : null,
     mandate: {

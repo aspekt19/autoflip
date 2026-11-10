@@ -18,6 +18,7 @@ import {
 } from "@/domain/resale-decision-journal";
 import type { ResaleCandidatePnl } from "@/domain/resale-pnl";
 import { evidenceBundleFromCandidates } from "@/domain/resale-serv-validate";
+import { actionFromVerdict } from "@/domain/decision-action";
 import type { ComputedReport, Listing, Verdict } from "@/domain/types";
 import { flipVerdict } from "@/domain/verdict";
 import {
@@ -138,11 +139,14 @@ function buildFlipReport(
         : null;
   const profitTarget = ASSUMPTIONS.flipDesiredProfitUsd;
   const friction = ASSUMPTIONS.flipSellFriction;
+  // Never invent sales tax as $0 — omit unknown tax from all-in and say so.
+  const salesTaxIncluded =
+    candidate.salesTaxKnown === true && typeof candidate.salesTaxUsd === "number";
   const allInUsd =
     candidate.negotiatedOfferUsd +
     candidate.titleFeeAssumptionUsd +
     candidate.reconUsd +
-    (candidate.salesTaxUsd ?? 0);
+    (salesTaxIncluded ? candidate.salesTaxUsd! : 0);
   const conservativeProceedsUsd =
     candidate.resaleLowUsd != null ? Math.round(candidate.resaleLowUsd * (1 - friction)) : 0;
   const targetBuyUsd =
@@ -211,12 +215,15 @@ function buildFlipReport(
     flip && flip.marginUsd < ASSUMPTIONS.flipThinMarginUsd
       ? "No good flip within this budget on risk-adjusted margin — pass or keep shopping."
       : null;
+  const taxNote = salesTaxIncluded
+    ? `All-in includes sales tax $${candidate.salesTaxUsd!.toLocaleString("en-US")}.`
+    : "All-in omits sales tax (state unknown) — tax is not treated as $0.";
   return {
     mode: "flip",
     subject,
     verdict,
     score: candidate.score,
-    reasons: [midLine, thresholdLine, noFlipLine, candidate.negotiateBasis, candidate.resaleChannelBasis].filter(
+    reasons: [midLine, thresholdLine, noFlipLine, taxNote, candidate.negotiateBasis, candidate.resaleChannelBasis].filter(
       (line): line is string => Boolean(line),
     ),
     flags: [],
@@ -249,7 +256,13 @@ function buildFlipReport(
     distanceToSearchZipMiles: null,
     flip,
     assumptions: { ...ASSUMPTIONS },
-    dataNotes: candidate.risks.slice(0, 8),
+    dataNotes: [
+      taxNote,
+      salesTaxIncluded
+        ? null
+        : "salesTaxUsd=null; salesTaxKnown=false; allInIncludesSalesTax=false",
+      ...candidate.risks.slice(0, 8),
+    ].filter((line): line is string => Boolean(line)),
     sample: false,
     mandate: {
       budgetUsd,
@@ -298,6 +311,126 @@ function pickAlternatives(
     }
   }
   return out;
+}
+
+export type FlipPublishedAction = ResaleSettleServResult["verdictAction"];
+
+/** Optimism rank — higher may not be published when the margin gate is lower. */
+function flipActionOptimism(action: FlipPublishedAction): number {
+  switch (action) {
+    case "buy":
+      return 3;
+    case "negotiate":
+      return 2;
+    case "needs_inspection":
+      return 1;
+    case "pass":
+      return 0;
+  }
+}
+
+/**
+ * Code-owned published flip action from risk-adjusted margin.
+ * Uses low profit when present (conservative), else mid. Maps via flipVerdict thresholds.
+ */
+export function flipMarginPublishedAction(candidate: ResaleCandidatePnl): {
+  action: FlipPublishedAction;
+  marginUsd: number | null;
+  reason: string;
+} {
+  const marginUsd =
+    candidate.profitLowUsd != null
+      ? candidate.profitLowUsd
+      : candidate.profitMidUsd != null
+        ? candidate.profitMidUsd
+        : null;
+  const mid = candidate.profitMidUsd;
+  const roi = candidate.roiPctMid;
+  if (marginUsd == null) {
+    return {
+      action: "needs_inspection",
+      marginUsd: null,
+      reason: "Risk-adjusted margin unavailable — profit band incomplete.",
+    };
+  }
+  const action = actionFromVerdict(flipVerdict(marginUsd, false)) as FlipPublishedAction;
+  const bits = [
+    `Risk-adjusted margin $${marginUsd.toLocaleString("en-US")} (low profit when present, else mid)`,
+    mid != null ? `mid $${mid.toLocaleString("en-US")}` : null,
+    roi != null ? `ROI mid ${roi}%` : null,
+    `buy needs ≥ $${ASSUMPTIONS.flipDesiredProfitUsd.toLocaleString("en-US")} (flipDesiredProfitUsd)`,
+    `negotiate/thin needs ≥ $${ASSUMPTIONS.flipThinMarginUsd.toLocaleString("en-US")} (flipThinMarginUsd)`,
+    `→ ${action}`,
+  ].filter(Boolean);
+  return { action, marginUsd, reason: bits.join("; ") + "." };
+}
+
+/**
+ * Cap a proposed action (code or SERV) so it cannot be more optimistic than the margin gate.
+ * SERV may still choose a more conservative action.
+ */
+export function clampFlipPublishedAction(
+  proposed: FlipPublishedAction,
+  candidate: ResaleCandidatePnl,
+): { action: FlipPublishedAction; overridden: boolean; reason: string | null } {
+  const gated = flipMarginPublishedAction(candidate);
+  if (flipActionOptimism(proposed) <= flipActionOptimism(gated.action)) {
+    return { action: proposed, overridden: false, reason: null };
+  }
+  return {
+    action: gated.action,
+    overridden: true,
+    reason: `SERV said ${proposed}; guardrail capped to ${gated.action}. ${gated.reason}`,
+  };
+}
+
+function applyFlipPublishedAction(input: {
+  proposed: FlipPublishedAction;
+  candidate: ResaleCandidatePnl;
+  source: "code" | "SERV";
+  journal: ResaleDecisionJournal;
+  trail: AgentTrailStep[];
+  recordedAt: string;
+  model?: string | null;
+  responseId?: string | null;
+}): {
+  action: FlipPublishedAction;
+  journal: ResaleDecisionJournal;
+  trail: AgentTrailStep[];
+} {
+  // Code path: publish the gate directly (no "SERV said" framing).
+  if (input.source === "code") {
+    const gated = flipMarginPublishedAction(input.candidate);
+    return { action: gated.action, journal: input.journal, trail: input.trail };
+  }
+  const clamped = clampFlipPublishedAction(input.proposed, input.candidate);
+  if (!clamped.overridden || !clamped.reason) {
+    return { action: clamped.action, journal: input.journal, trail: input.trail };
+  }
+  let journal = appendJournalStep(input.journal, {
+    kind: "fallback",
+    actor: "code",
+    decided: `Guardrail capped SERV ${input.proposed} → ${clamped.action}`,
+    why: clamped.reason,
+    inputsUsed: [`vin:${input.candidate.vin}`, "check:flip_margin_gate"],
+    changed: `Published action ${input.proposed} → ${clamped.action}`,
+    model: input.model ?? null,
+    responseId: input.responseId ?? null,
+    recordedAt: input.recordedAt,
+    rejected: null,
+  });
+  const trail = [
+    ...input.trail,
+    {
+      decided: `Guardrail capped SERV ${input.proposed} → ${clamped.action}`,
+      why: clamped.reason,
+      changed: `Published action ${input.proposed} → ${clamped.action}`,
+      model: input.model ?? null,
+      responseId: input.responseId ?? null,
+      recordedAt: input.recordedAt,
+    },
+  ];
+  return { action: clamped.action, journal, trail };
 }
 
 function profitHeadline(c: ResaleCandidatePnl): string {
@@ -523,8 +656,7 @@ export async function runResaleSettleServ(input: {
   let ordered = resumeFrom ? resumeFrom.ordered : shortlist;
   let best = resumeFrom?.best ?? shortlist[0]!;
   let verdictAction: ResaleSettleServResult["verdictAction"] =
-    resumeFrom?.verdictAction ??
-    (best.profitMidUsd != null && best.profitMidUsd > 0 ? "negotiate" : "needs_inspection");
+    resumeFrom?.verdictAction ?? flipMarginPublishedAction(best).action;
   let secondPass: AgentSecondPassResult = resumeFrom?.secondPass ?? {
     status: input.servKey?.trim() ? "not_run" : "skipped_no_key",
     action: null,
@@ -828,8 +960,7 @@ export async function runResaleSettleServ(input: {
     rejected: null,
   });
   best = ordered[0]!;
-  verdictAction =
-    best.profitMidUsd != null && best.profitMidUsd > 0 ? "negotiate" : "needs_inspection";
+  verdictAction = flipMarginPublishedAction(best).action;
   agentConfidence = confidenceFromPnl(best);
   secondPass = {
     status: input.servKey?.trim() ? "not_run" : "skipped_no_key",
@@ -994,13 +1125,14 @@ export async function runResaleSettleServ(input: {
       if (picked.ok && payload && validation.ok && pickVin && allow.has(pickVin)) {
         const prior = best.vin;
         best = ordered.find((item) => item.vin.toUpperCase() === pickVin) ?? best;
-        if (action === "buy" || action === "negotiate" || action === "pass" || action === "needs_inspection") {
-          verdictAction = action;
-        }
+        const proposed: FlipPublishedAction =
+          action === "buy" || action === "negotiate" || action === "pass" || action === "needs_inspection"
+            ? action
+            : verdictAction;
         journal = appendJournalStep(journal, {
           kind: "pick",
           actor: "SERV",
-          decided: `Pick ${carLabel(best)} → ${verdictAction}`,
+          decided: `Pick ${carLabel(best)} → ${proposed}`,
           why: note || "Pick used allowlisted VIN and code P&L facts.",
           inputsUsed: [`vin:${best.vin}`, ...evidenceIds],
           changed: prior !== best.vin ? `Changed pick from ${prior} to ${best.vin}` : null,
@@ -1010,13 +1142,26 @@ export async function runResaleSettleServ(input: {
           rejected: null,
         });
         trail.push({
-          decided: `SERV pick → ${verdictAction}`,
+          decided: `SERV pick → ${proposed}`,
           why: note || "Allowlisted pick.",
           changed: prior !== best.vin ? `Changed pick from ${prior} to ${best.vin}` : null,
           model: modelFrom(picked.proof, input.model),
           responseId: responseIdFrom(picked.proof),
           recordedAt,
         });
+        const published = applyFlipPublishedAction({
+          proposed,
+          candidate: best,
+          source: "SERV",
+          journal,
+          trail,
+          recordedAt,
+          model: modelFrom(picked.proof, input.model),
+          responseId: responseIdFrom(picked.proof),
+        });
+        verdictAction = published.action;
+        journal = published.journal;
+        trail = published.trail;
       } else {
         const fail = journalWhyFromServAttempt({
           result: picked,
@@ -1230,10 +1375,36 @@ export async function runResaleSettleServ(input: {
         const prior = best.vin;
         if (!agrees) {
           best = ordered.find((item) => item.vin.toUpperCase() === pickVin) ?? best;
-          if (action === "buy" || action === "negotiate" || action === "pass" || action === "needs_inspection") {
-            verdictAction = action;
-          }
+          const proposed: FlipPublishedAction =
+            action === "buy" || action === "negotiate" || action === "pass" || action === "needs_inspection"
+              ? action
+              : verdictAction;
           agentConfidence = agentConfidence === "high" ? "medium" : agentConfidence === "medium" ? "low" : "low";
+          journal = appendJournalStep(journal, {
+            kind: "challenge",
+            actor: "SERV",
+            decided: `Challenge revised pick to ${carLabel(best)} → ${proposed}`,
+            why: objection ?? "Challenger disagreed with evidence-backed reasons.",
+            inputsUsed: [`vin:${best.vin}`, ...evidenceIds],
+            changed: prior !== best.vin ? `Changed pick from ${prior} to ${best.vin} because ${objection ?? "challenge"}` : `Revised action to ${proposed}`,
+            model: modelFrom(challenged.proof, input.model),
+            responseId: responseIdFrom(challenged.proof),
+            recordedAt,
+            rejected: null,
+          });
+          const published = applyFlipPublishedAction({
+            proposed,
+            candidate: best,
+            source: "SERV",
+            journal,
+            trail,
+            recordedAt,
+            model: modelFrom(challenged.proof, input.model),
+            responseId: responseIdFrom(challenged.proof),
+          });
+          verdictAction = published.action;
+          journal = published.journal;
+          trail = published.trail;
           secondPass = {
             status: "disagreed",
             action: verdictAction,
@@ -1242,18 +1413,6 @@ export async function runResaleSettleServ(input: {
             confidenceBefore: confidenceFromPnl(ordered.find((i) => i.vin === prior) ?? best),
             confidenceAfter: agentConfidence,
           };
-          journal = appendJournalStep(journal, {
-            kind: "challenge",
-            actor: "SERV",
-            decided: `Challenge revised pick to ${carLabel(best)} → ${verdictAction}`,
-            why: objection ?? "Challenger disagreed with evidence-backed reasons.",
-            inputsUsed: [`vin:${best.vin}`, ...evidenceIds],
-            changed: prior !== best.vin ? `Changed pick from ${prior} to ${best.vin} because ${objection ?? "challenge"}` : `Revised action to ${verdictAction}`,
-            model: modelFrom(challenged.proof, input.model),
-            responseId: responseIdFrom(challenged.proof),
-            recordedAt,
-            rejected: null,
-          });
         } else {
           secondPass = {
             status: "agreed",
@@ -1434,7 +1593,19 @@ export async function runResaleSettleServ(input: {
       trace = shopper.trace;
       const action = shopper.decision.finalAction;
       if (action === "buy" || action === "negotiate" || action === "pass" || action === "needs_inspection") {
-        verdictAction = action;
+        const published = applyFlipPublishedAction({
+          proposed: action,
+          candidate: best,
+          source: "SERV",
+          journal,
+          trail,
+          recordedAt: shopper.trace.recordedAt,
+          model: shopper.trace.calls[0]?.model ?? input.model ?? null,
+          responseId: shopper.trace.calls[0]?.responseId ?? null,
+        });
+        verdictAction = published.action;
+        journal = published.journal;
+        trail = published.trail;
       }
       if (shopper.agentVerdict.confidence) agentConfidence = shopper.agentVerdict.confidence;
       if (shopper.agentVerdict.second_pass && shopper.agentVerdict.second_pass.status !== "not_run") {
