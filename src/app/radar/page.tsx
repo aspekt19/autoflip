@@ -4,58 +4,34 @@ import Link from "next/link";
 import type { DecisionProof } from "@/domain/decision-note";
 import { CoverageLine } from "@/components/CoverageNote";
 import { DecisionNote } from "@/components/DecisionNote";
-import { PriceBadgeView, PriceRatingHow } from "@/components/PriceBadge";
+import { PriceBadgeView } from "@/components/PriceBadge";
 import { ResaleDecisionJournalView } from "@/components/ResaleDecisionJournal";
 import type { PriceBadge } from "@/domain/price-badge";
 import type { ResaleDecisionJournal } from "@/domain/resale-decision-journal";
-import { useRouter, useSearchParams } from "next/navigation";
-import { Suspense, useEffect, useRef, useState, type FormEvent } from "react";
-import { MakeModelFields } from "@/components/MakeModelFields";
+import { useSearchParams } from "next/navigation";
+import { Suspense, useEffect, useRef, useState } from "react";
 import { SignInGate } from "@/components/SignInGate";
-import { ZipRadiusFields } from "@/components/ZipRadiusFields";
-import { parseUsdInput } from "@/domain/budget";
-import { parseDistanceMiles } from "@/domain/need";
-import { formatNumber, formatUsd, verdictLabel } from "@/domain/format";
+import { formatUsd } from "@/domain/format";
+import { criteriaParseLabel, watchCriteriaSummary } from "@/domain/radar-criteria-provenance";
 import { buildRadarReportPayload } from "@/domain/radar-report-handoff";
+import type { WatchCriteria } from "@/domain/radar-watch";
 import type { Mode } from "@/domain/types";
-
-type Row = {
-  vin: string;
-  year: number;
-  make: string;
-  model: string;
-  trim: string | null;
-  priceUsd: number | null;
-  miles: number | null;
-  city: string | null;
-  state: string | null;
-  primaryImage: string | null;
-  score: number | null;
-  verdict: string;
-  reason: string;
-  source: string;
-  badge?: PriceBadge;
-};
 
 function RadarInner() {
   const params = useSearchParams();
-  const router = useRouter();
-  const make = params.get("make") ?? "";
-  const model = params.get("model") ?? "";
-  const zip = params.get("zip") ?? "";
-  const yearMin = params.get("yearMin") ?? params.get("year") ?? "";
-  const yearMax = params.get("yearMax") ?? params.get("year") ?? "";
-  const mode = (params.get("mode") === "flip" ? "flip" : "personal") as Mode;
-  const priceMax = params.get("priceMax") ?? "";
-  const distanceParam = parseDistanceMiles(params.get("distanceMiles") ?? params.get("radiusMiles"));
-  const distanceMiles = distanceParam.ok && distanceParam.miles != null ? distanceParam.miles : undefined;
-  const [rows, setRows] = useState<Row[] | null>(null);
-  const [message, setMessage] = useState<string | null>(null);
-  const [sample, setSample] = useState(false);
-  const [error, setError] = useState<string | null>(null);
   const [busyVin, setBusyVin] = useState<string | null>(null);
   const [demo, setDemo] = useState(false);
-  const [searches, setSearches] = useState<Array<{ id: string; name: string; mode: string; criteria: { priceMax: number; zip: string; radiusMiles: number; make?: string; model?: string; notes?: string }; preset: boolean; lastCheckedAt: string | null }>>([]);
+  const [searches, setSearches] = useState<
+    Array<{
+      id: string;
+      name: string;
+      mode: string;
+      criteria: WatchCriteria;
+      enabled: boolean;
+      preset: boolean;
+      lastCheckedAt: string | null;
+    }>
+  >([]);
   const [alerts, setAlerts] = useState<Array<{ id: string; vin: string; why: string; createdAt: string; mode: string; priceUsd: number; miles: number | null; year: number; make: string; model: string; checks?: DecisionProof[]; coverage?: string; coverageLevel?: "low" | "medium" | "high"; badge?: PriceBadge }>>([]);
   const [skippedReviews, setSkippedReviews] = useState<typeof alerts>([]);
   const [notReviewed, setNotReviewed] = useState<typeof alerts>([]);
@@ -184,63 +160,19 @@ function RadarInner() {
       .catch(() => setSavedReportId(null));
   }, [confirmAlert]);
 
-  const flipReady = mode === "flip" && Boolean(priceMax) && Boolean(zip);
-  useEffect(() => {
-    if (!feedReady || demo || (mode === "flip" ? !flipReady : !make)) {
-      if (mode === "flip" ? !flipReady : !make) setRows(null);
-      return;
-    }
-    let cancelled = false;
-    setError(null);
-    setRows(null);
-    fetch("/api/radar", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        make: make || undefined,
-        model: model || undefined,
-        zip: zip || undefined,
-        distanceMiles,
-        priceMax: priceMax ? Number(priceMax) : undefined,
-        yearMin: yearMin ? Number(yearMin) : undefined,
-        yearMax: yearMax ? Number(yearMax) : undefined,
-        mode,
-      }),
-    })
-      .then(async (response) => {
-        const body = (await response.json()) as { message?: string; sample?: boolean; listings?: Row[]; error?: string };
-        if (cancelled) return;
-        if (!response.ok) {
-          setError(body.message || "The scan failed.");
-          setRows([]);
-          return;
-        }
-        setSample(Boolean(body.sample));
-        setMessage(body.message ?? null);
-        setRows(body.listings ?? []);
-      })
-      .catch(() => {
-        if (!cancelled) setError("The scan did not finish.");
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [feedReady, demo, make, model, zip, yearMin, yearMax, mode, priceMax, flipReady, distanceMiles]);
-
   type ReportTarget = {
     vin: string;
     priceUsd?: number | null;
     miles?: number | null;
   };
 
-  async function openReport(target: ReportTarget, reportMode: Mode = mode) {
+  async function openReport(target: ReportTarget, reportMode: Mode = "personal") {
     setBusyVin(target.vin);
-    setError(null);
+    setWatchNote(null);
     const payload = buildRadarReportPayload({
       vin: target.vin,
       mode: reportMode,
-      zip: zip || null,
-      year: yearMin && yearMin === yearMax ? Number(yearMin) : undefined,
+      zip: null,
       priceUsd: target.priceUsd,
       miles: target.miles,
     });
@@ -257,11 +189,11 @@ function RadarInner() {
         } catch {
           /* ignore */
         }
-        router.push("/credits?need=1&return=%2Fradar");
+        window.location.href = "/credits?need=1&return=%2Fradar";
         return;
       }
       if (!response.ok || !body.id) {
-        setError(body.message || "The report could not be built.");
+        setWatchNote(body.message || "The report could not be built.");
         return;
       }
       try {
@@ -269,9 +201,9 @@ function RadarInner() {
       } catch {
         /* ignore */
       }
-      router.push(`/report/${body.id}`);
+      window.location.href = `/report/${body.id}`;
     } catch {
-      setError("The report request did not finish.");
+      setWatchNote("The report request did not finish.");
     } finally {
       setBusyVin(null);
     }
@@ -279,7 +211,7 @@ function RadarInner() {
 
   async function checkNow() {
     if (!demo && searches.length === 0) {
-      setWatchNote("Save a search before checking. A check with nothing saved does not look up listings.");
+      setWatchNote("Watch a Find or Resale search first. A check with nothing saved does not look up listings.");
       return;
     }
     setChecking(true);
@@ -305,6 +237,32 @@ function RadarInner() {
     await loadFeed();
   }
 
+  async function toggleSearch(searchId: string, enabled: boolean) {
+    setWatchNote(null);
+    const response = await fetch(`/api/radar/searches/${encodeURIComponent(searchId)}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ enabled }),
+    });
+    const body = (await response.json().catch(() => null)) as { message?: string } | null;
+    if (!response.ok) {
+      setWatchNote(body?.message || "Could not update that watch.");
+      return;
+    }
+    await loadFeed();
+  }
+
+  async function deleteSearch(searchId: string) {
+    setWatchNote(null);
+    const response = await fetch(`/api/radar/searches/${encodeURIComponent(searchId)}`, { method: "DELETE" });
+    const body = (await response.json().catch(() => null)) as { message?: string } | null;
+    if (!response.ok) {
+      setWatchNote(body?.message || "Could not delete that watch.");
+      return;
+    }
+    await loadFeed();
+  }
+
   async function connectTelegram() {
     const response = await fetch("/api/telegram/link", { method: "POST" });
     const body = (await response.json()) as { configured?: boolean; url?: string; message?: string };
@@ -318,10 +276,10 @@ function RadarInner() {
   return (
     <div className="sub">
       <div className="wrap site-frame">
-        <p className="kicker">{demo ? "Guided preview" : "Saved search"}</p>
+        <p className="kicker">{demo ? "Guided preview" : "Subscriptions"}</p>
         <h1>Deal Radar</h1>
         <p className="lead">
-          Save a Find search (model, budget, ZIP, radius, notes). Lemonless re-checks Auto.dev listings on a schedule, diffs new listing ids, and runs SERV only on up to {freeWatchLimit} good/fair candidates per radar per run. Free with a signed-in account up to {freeWatchLimit} personal radars. Opening a full report costs 1 report credit.
+          Deal Radar watches searches you already set in Find (Drive it) or Resale (flip). Criteria are not edited here — start a search, then choose Watch with Deal Radar. Lemonless re-checks Auto.dev listings on a schedule and runs SERV on up to {freeWatchLimit} good/fair candidates per radar per run. Opening a full report costs 1 report credit.
         </p>
         <p className="hint">
           <Link href="/activity">Activity log</Link>
@@ -347,7 +305,7 @@ function RadarInner() {
         {emailNote ? <p className="hint">{emailNote}</p> : null}
         <div className="hero-actions">
           <button className="action" type="button" onClick={checkNow} disabled={checking || !feedReady || (!demo && searches.length === 0)}>
-            {checking ? "Checking…" : !feedReady ? "Loading…" : !demo && searches.length === 0 ? "Save a search first" : "Check now"}
+            {checking ? "Checking…" : !feedReady ? "Loading…" : !demo && searches.length === 0 ? "Watch a search first" : "Check now"}
           </button>
           {telegramUi ? (
             <button className="quiet" type="button" onClick={connectTelegram}>
@@ -357,40 +315,76 @@ function RadarInner() {
         </div>
         {watchNote ? <p className="warn">{watchNote}</p> : null}
         {telegramUi && telegramNote ? <p className="warn-box">{telegramNote}</p> : null}
-        <h2>Saved searches</h2>
+        <h2>Subscribed searches</h2>
         {searches.length === 0 ? (
           <article className="warn-box">
             <h3>No radars yet</h3>
-            <p>Save a search from Find or the form below. Personal Deal Radar watches are free with your account (up to {freeWatchLimit}).</p>
-            <p><Link href="/find">Start by finding a car</Link></p>
+            <p>
+              Set criteria in Find (Drive it) or Resale (flip), run a search, then choose Watch with Deal Radar. Personal
+              watches are free with your account (up to {freeWatchLimit}).
+            </p>
+            <p className="btn-row">
+              <Link className="action" href="/find">
+                Find a car
+              </Link>
+              <Link className="quiet" href="/resale">
+                Resale
+              </Link>
+            </p>
           </article>
         ) : null}
-        <ul className="refuse">
+        <div className="radar-list">
           {searches.map((search) => {
             const seen = listingCounts.find((row) => row.searchId === search.id)?.listingsSeen ?? 0;
+            const summary = watchCriteriaSummary(search.criteria, search.mode === "flip" ? "flip" : "personal");
+            const parseLabel = criteriaParseLabel(
+              search.criteria.criteriaParseSource
+                ? {
+                    source: search.criteria.criteriaParseSource,
+                    responseId: search.criteria.criteriaResponseId ?? null,
+                  }
+                : null,
+            );
             return (
-              <li key={search.id}>
-                <strong>{search.name}</strong>
-                {search.preset ? " · preset" : ""}
-                {" · "}
-                {search.mode === "flip" ? "Flip" : "Drive it"}
-                {" · "}
-                up to {formatUsd(search.criteria.priceMax)} near {search.criteria.zip}, {search.criteria.radiusMiles} mi
-                {search.criteria.make ? ` · ${search.criteria.make} ${search.criteria.model ?? ""}` : ""}
-                {" · "}
-                listings seen: {seen}
-                {" · "}
-                last checked: {search.lastCheckedAt ? `${new Date(search.lastCheckedAt).toLocaleString("en-US", { timeZone: "UTC" })} UTC` : "No run yet"}
-                {search.criteria.notes ? ` · notes: ${search.criteria.notes}` : ""}
-              </li>
+              <article className="radar-row" key={search.id}>
+                <div>
+                  <span className="file-chip">{search.mode === "flip" ? "Flip" : "Drive it"}</span>
+                  {search.enabled ? null : <span className="file-chip">Paused</span>}
+                  {search.preset ? <span className="file-chip">preset</span> : null}
+                </div>
+                <div />
+                <div>
+                  <h3 className="car-title">{search.name}</h3>
+                  <p>{summary}</p>
+                  <p className="hint">{parseLabel}</p>
+                  <p className="hint">
+                    Listings seen: {seen}
+                    {" · "}
+                    Last check:{" "}
+                    {search.lastCheckedAt
+                      ? `${new Date(search.lastCheckedAt).toLocaleString("en-US", { timeZone: "UTC" })} UTC`
+                      : "No run yet"}
+                    {" · "}
+                    Next check:{" "}
+                    {nextRunAt ? `${new Date(nextRunAt).toLocaleString("en-US", { timeZone: "UTC" })} UTC` : "After the next run"}
+                  </p>
+                </div>
+                <div className="row-actions">
+                  <button
+                    className="quiet"
+                    type="button"
+                    onClick={() => void toggleSearch(search.id, !search.enabled)}
+                  >
+                    {search.enabled ? "Pause" : "Resume"}
+                  </button>
+                  <button className="quiet" type="button" onClick={() => void deleteSearch(search.id)}>
+                    Delete
+                  </button>
+                </div>
+              </article>
             );
           })}
-        </ul>
-        {!demo || !searches.some((search) => !search.preset) ? (
-          <SaveSearchForm onSaved={() => void loadFeed()} />
-        ) : (
-          <p className="hint">The shared preview already has its one extra saved search.</p>
-        )}
+        </div>
         {confirmAlert ? (
           <article className="warn-box" id="confirm-analysis">
             <h2>Full analysis — 1 credit</h2>
@@ -586,60 +580,6 @@ function RadarInner() {
             </div>
           </section>
         ) : null}
-        {rows && rows.length > 0 ? (
-          <>
-            <h2 id="scan-results">Scan results</h2>
-            <PriceRatingHow />
-          </>
-        ) : null}
-        {sample ? (
-          <p className="warn-box">
-            <span className="file-chip">Sample</span> {message}
-          </p>
-        ) : null}
-        {!sample && message ? <p className="warn-box">{message}</p> : null}
-        {error ? <p className="warn">{error}</p> : null}
-        {(mode === "flip" ? flipReady : Boolean(make)) && rows === null && !error ? <p>Scanning…</p> : null}
-        <div className="radar-list">
-          {(rows ?? []).map((row) => (
-            <article className="radar-row" key={row.vin}>
-              {row.primaryImage ? <img src={row.primaryImage} alt="" width={128} height={84} /> : <div className="photo-fallback" />}
-              <div>
-                <div className="score">{row.score === null ? "—" : row.score}</div>
-                <span className={`badge ${row.verdict}`}>{verdictLabel(row.verdict === "not_scored" ? "insufficient_data" : row.verdict)}</span>
-                {row.source === "sample" ? (
-                  <div style={{ marginTop: 8 }}>
-                    <span className="file-chip">Sample</span>
-                  </div>
-                ) : null}
-              </div>
-              <div>
-                <h2 className="car-title">
-                  {row.year} {row.make} {row.model} {row.trim ?? ""}
-                </h2>
-                <p className="hint">
-                  {row.priceUsd === null ? "No price" : formatUsd(row.priceUsd)}
-                  {" · "}
-                  {row.miles === null ? "No mileage" : `${formatNumber(row.miles)} miles`}
-                  {row.city ? ` · ${row.city}, ${row.state ?? ""}` : ""}
-                </p>
-                {row.badge ? <PriceBadgeView badge={row.badge} /> : null}
-                <p><strong>Why this car. </strong>{row.reason}</p>
-                <p className="mono">{row.vin}</p>
-              </div>
-              <div className="row-actions">
-                <button
-                  className="action"
-                  type="button"
-                  onClick={() => openReport({ vin: row.vin, priceUsd: row.priceUsd, miles: row.miles })}
-                  disabled={busyVin === row.vin}
-                >
-                  {busyVin === row.vin ? "Working…" : "Full report · 1 credit"}
-                </button>
-              </div>
-            </article>
-          ))}
-        </div>
         {credits === null || credits === 0 ? (
           <p className="hint">
             <Link href="/credits">Buy credits</Link> for a full report.
@@ -647,198 +587,6 @@ function RadarInner() {
         ) : null}
       </div>
     </div>
-  );
-}
-
-function SaveSearchForm({ onSaved }: { onSaved: () => void }) {
-  const router = useRouter();
-  const params = useSearchParams();
-  const seedPrice = params.get("priceMax")?.trim() || "";
-  const seedZip = params.get("zip")?.trim() || "";
-  const seedMode = params.get("mode") === "flip" ? "flip" : params.get("mode") === "personal" ? "personal" : null;
-  const seedRadiusRaw = params.get("distanceMiles") ?? params.get("radiusMiles");
-  const seedNationwide = params.get("nationwide") === "1";
-  const seedRadius = seedRadiusRaw != null && seedRadiusRaw !== "" ? Number(seedRadiusRaw) : null;
-  const [name, setName] = useState("Saved search");
-  const [searchMode, setSearchMode] = useState<Mode>(seedMode ?? "personal");
-  const [make, setMake] = useState(params.get("make")?.trim() || "");
-  const [model, setModel] = useState(params.get("model")?.trim() || "");
-  const [yearMin, setYearMin] = useState("");
-  const [yearMax, setYearMax] = useState("");
-  // Prefer the actual budget from Resale/Find handoff — never invent 18000 over a known budget.
-  const [priceMax, setPriceMax] = useState(seedPrice);
-  const [zip, setZip] = useState(seedZip);
-  const [distanceMiles, setDistanceMiles] = useState<number | null>(() => {
-    if (seedMode === "flip" && seedNationwide) return null;
-    if (seedRadius != null && Number.isFinite(seedRadius)) return seedRadius;
-    return seedMode === "flip" && !seedZip ? null : 50;
-  });
-  const [notes, setNotes] = useState("");
-  const [error, setError] = useState<string | null>(null);
-  const [pending, setPending] = useState(false);
-
-  async function submit(event: FormEvent) {
-    event.preventDefault();
-    setError(null);
-    const budget = parseUsdInput(priceMax);
-    if (searchMode === "personal" && !make) {
-      setError("Choose a make for a drive-it watch. Flip watches can stay on Any.");
-      return;
-    }
-    if (budget === null) {
-      setError("Add a maximum price.");
-      return;
-    }
-    const nationwideFlip = searchMode === "flip" && (distanceMiles == null || distanceMiles === 0);
-    if (!nationwideFlip && !zip.trim()) {
-      setError("Add a ZIP and a maximum price.");
-      return;
-    }
-    const radiusParsed = nationwideFlip ? { ok: true as const, miles: null } : parseDistanceMiles(distanceMiles);
-    if (!nationwideFlip && (!radiusParsed.ok || radiusParsed.miles == null)) {
-      setError(
-        radiusParsed.ok
-          ? "Deal Radar watches need a seller-distance radius (not nationwide)."
-          : radiusParsed.message,
-      );
-      return;
-    }
-    setPending(true);
-    try {
-      const response = await fetch("/api/radar/searches", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          name,
-          mode: searchMode,
-          criteria: {
-            make,
-            model: model || undefined,
-            yearMin: yearMin ? Number(yearMin) : undefined,
-            yearMax: yearMax ? Number(yearMax) : undefined,
-            priceMax: budget,
-            zip: zip.trim(),
-            radiusMiles: nationwideFlip ? null : radiusParsed.ok ? radiusParsed.miles : null,
-            nationwide: nationwideFlip || undefined,
-            minProfitUsd: searchMode === "flip" ? 1500 : undefined,
-            notes: notes.trim() || undefined,
-          },
-        }),
-      });
-      const body = (await response.json()) as { message?: string };
-      if (!response.ok) {
-        setError(body.message || "The search was not saved.");
-        return;
-      }
-      onSaved();
-    } catch {
-      setError("The search was not saved.");
-    } finally {
-      setPending(false);
-    }
-  }
-
-  return (
-    <form className="panel" onSubmit={submit}>
-      <h2>Create a saved search</h2>
-      <div className="field">
-        <label htmlFor="search-name">Name</label>
-        <input id="search-name" value={name} onChange={(event) => setName(event.target.value)} />
-      </div>
-      <fieldset className="field">
-        <legend>Mode</legend>
-        <div className="pills">
-          <label className="pill">
-            <input type="radio" name="search-mode" checked={searchMode === "personal"} onChange={() => setSearchMode("personal")} />
-            Drive it
-          </label>
-          <label className="pill">
-            <input type="radio" name="search-mode" checked={searchMode === "flip"} onChange={() => setSearchMode("flip")} />
-            Flip it
-          </label>
-        </div>
-      </fieldset>
-      {searchMode === "flip" ? (
-        <p className="hint">
-          Flip uses the budget (and optional ZIP/radius). Leave radius empty for nationwide — same as Resale. Make stays
-          Any.
-        </p>
-      ) : (
-        <MakeModelFields
-          make={make}
-          model={model}
-          yearMin={yearMin}
-          yearMax={yearMax}
-          onMake={setMake}
-          onModel={setModel}
-          onYearMin={setYearMin}
-          onYearMax={setYearMax}
-        />
-      )}
-      <div className="field">
-        <label htmlFor="search-price">Maximum price</label>
-        <input id="search-price" inputMode="numeric" value={priceMax} onChange={(event) => setPriceMax(event.target.value)} />
-      </div>
-      <ZipRadiusFields
-        idPrefix="radar-save"
-        zip={zip}
-        distanceMiles={distanceMiles}
-        onZipChange={setZip}
-        onDistanceChange={setDistanceMiles}
-        allowNationwide={searchMode === "flip"}
-      />
-      <div className="field">
-        <label htmlFor="search-notes">Notes (optional)</label>
-        <textarea id="search-notes" rows={2} value={notes} onChange={(event) => setNotes(event.target.value.slice(0, 500))} />
-      </div>
-      <div className="btn-row">
-        <button className="action" type="submit" disabled={pending}>
-          {pending ? "Saving…" : "Save search"}
-        </button>
-        <button
-          className="quiet"
-          type="button"
-          onClick={() => {
-            const budget = parseUsdInput(priceMax);
-            if (searchMode === "personal" && !make) {
-              setError("Choose a make for a drive-it scan. Flip scans can stay on Any.");
-              return;
-            }
-            if (!zip.trim() || budget === null) {
-              setError("Add a ZIP and a maximum price.");
-              return;
-            }
-            const radiusParsed = parseDistanceMiles(distanceMiles);
-            if (!radiusParsed.ok || radiusParsed.miles == null) {
-              setError(
-                radiusParsed.ok
-                  ? "Deal Radar scans need a seller-distance radius (not nationwide)."
-                  : radiusParsed.message,
-              );
-              return;
-            }
-            const next = new URLSearchParams({
-              mode: searchMode,
-              zip: zip.trim(),
-              priceMax: String(budget),
-              distanceMiles: String(radiusParsed.miles),
-            });
-            if (make) next.set("make", make);
-            if (model) next.set("model", model);
-            if (yearMin) next.set("yearMin", yearMin);
-            if (yearMax) next.set("yearMax", yearMax);
-            router.push(`/radar?${next.toString()}#scan-results`);
-          }}
-        >
-          Scan once
-        </button>
-      </div>
-      {error ? (
-        <p className="warn" role="alert">
-          {error} {/plan|watch|radar/i.test(error) ? <Link href="/pricing">See pricing</Link> : null}
-        </p>
-      ) : null}
-    </form>
   );
 }
 

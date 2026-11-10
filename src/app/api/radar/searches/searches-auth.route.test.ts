@@ -83,4 +83,29 @@ describe("POST /api/radar/searches verified-auth", () => {
     expect(searches[0]?.preset).toBe(false);
     expect(searches[0]?.name).toBe("Family SUV");
   });
+
+  it("keeps free-text + SERV provenance on a Find/Resale watch handoff", async () => {
+    requireRadar.mockResolvedValue({ ok: true, id: ACCOUNT, email: "radar@example.com" });
+    const res = await POST(
+      req({
+        name: "From Find",
+        mode: "personal",
+        criteria: {
+          zip: "94107",
+          priceMax: 18_000,
+          radiusMiles: 50,
+          make: "Honda",
+          model: "Civic",
+          freeText: "reliable commute under 18k",
+          criteriaParseSource: "serv",
+          criteriaResponseId: "chatcmpl-Eia7abc",
+        },
+      }),
+    );
+    expect(res.status).toBe(200);
+    const search = (await listSearches(kvHolder.kv))[0];
+    expect(search?.criteria.freeText).toBe("reliable commute under 18k");
+    expect(search?.criteria.criteriaParseSource).toBe("serv");
+    expect(search?.criteria.criteriaResponseId).toBe("chatcmpl-Eia7abc");
+  });
 });

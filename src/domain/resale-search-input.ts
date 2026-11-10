@@ -22,11 +22,18 @@ export type ResaleSearchInput = {
   distanceMiles: number | null;
   bodyStyle: NoteBodyStyle | null;
   preferredMakes: string[];
+  preferredModels: Array<{ make: string; model: string }>;
+  yearMin: number | null;
+  yearMax: number | null;
   milesMax: number | null;
   repairAbility: RepairAbility;
   targetProfitUsd: number | null;
   timeToSell: TimeToSellPref;
   resaleChannel: "private_party" | "dealer_trade";
+  /** Shopper free-text description (own words). */
+  freeText: string | null;
+  criteriaParseSource?: "serv" | "code" | "form";
+  criteriaResponseId?: string | null;
 };
 
 export type ResaleSearchInputIssue = { field: string; message: string };
@@ -95,6 +102,58 @@ export function parseResaleSearchInput(
       if (part.trim()) preferredMakes.push(part.trim());
     }
   }
+
+  const preferredModels: Array<{ make: string; model: string }> = [];
+  if (Array.isArray(body.preferredModels)) {
+    for (const item of body.preferredModels) {
+      if (!item || typeof item !== "object") continue;
+      const row = item as { make?: unknown; model?: unknown };
+      if (typeof row.make === "string" && row.make.trim() && typeof row.model === "string" && row.model.trim()) {
+        preferredModels.push({ make: row.make.trim(), model: row.model.trim() });
+      }
+    }
+  }
+  if (typeof body.make === "string" && body.make.trim() && typeof body.model === "string" && body.model.trim()) {
+    preferredModels.push({ make: body.make.trim(), model: body.model.trim() });
+  }
+
+  let yearMin: number | null = null;
+  let yearMax: number | null = null;
+  if (body.yearMin != null && body.yearMin !== "") {
+    const n = typeof body.yearMin === "number" ? body.yearMin : Number(body.yearMin);
+    if (!Number.isFinite(n) || n < 1980) {
+      issues.push({ field: "yearMin", message: "Year min must be a four-digit year, or blank." });
+    } else {
+      yearMin = Math.round(n);
+    }
+  }
+  if (body.yearMax != null && body.yearMax !== "") {
+    const n = typeof body.yearMax === "number" ? body.yearMax : Number(body.yearMax);
+    if (!Number.isFinite(n) || n < 1980) {
+      issues.push({ field: "yearMax", message: "Year max must be a four-digit year, or blank." });
+    } else {
+      yearMax = Math.round(n);
+    }
+  }
+  if (yearMin != null && yearMax != null && yearMin > yearMax) {
+    issues.push({ field: "yearMin", message: "Year min cannot be after year max." });
+  }
+
+  const freeText =
+    typeof body.freeText === "string" && body.freeText.trim()
+      ? body.freeText.trim().slice(0, 500)
+      : typeof body.note === "string" && body.note.trim()
+        ? body.note.trim().slice(0, 500)
+        : null;
+
+  let criteriaParseSource: ResaleSearchInput["criteriaParseSource"];
+  if (body.criteriaParseSource === "serv" || body.criteriaParseSource === "code" || body.criteriaParseSource === "form") {
+    criteriaParseSource = body.criteriaParseSource;
+  }
+  const criteriaResponseId =
+    typeof body.criteriaResponseId === "string" && body.criteriaResponseId.trim()
+      ? body.criteriaResponseId.trim()
+      : null;
 
   let milesMax: number | null = null;
   if (body.milesMax != null && body.milesMax !== "") {
@@ -167,11 +226,17 @@ export function parseResaleSearchInput(
       distanceMiles: distance.ok ? distance.miles : null,
       bodyStyle,
       preferredMakes,
+      preferredModels,
+      yearMin,
+      yearMax,
       milesMax,
       repairAbility,
       targetProfitUsd,
       timeToSell,
       resaleChannel,
+      freeText,
+      criteriaParseSource,
+      criteriaResponseId,
     },
   };
 }
@@ -179,14 +244,22 @@ export function parseResaleSearchInput(
 /** Map Resale search input into a Find flip StructuredNeed for inventory search. */
 export function needFromResaleSearchInput(input: ResaleSearchInput): StructuredNeed {
   const noteParts = [
+    input.freeText,
     `Flip budget $${input.budgetUsd.toLocaleString("en-US")}.`,
     input.zip ? `Near ${input.zip}.` : "Nationwide search.",
     input.bodyStyle ? `Prefer ${input.bodyStyle.replace(/_/g, " ")}.` : null,
     input.preferredMakes.length ? `Prefer makes: ${input.preferredMakes.join(", ")}.` : null,
+    input.preferredModels.length
+      ? `Prefer models: ${input.preferredModels.map((m) => `${m.make} ${m.model}`).join(", ")}.`
+      : null,
+    input.yearMin != null || input.yearMax != null
+      ? `Years ${input.yearMin ?? "any"}–${input.yearMax ?? "any"}.`
+      : null,
     input.milesMax != null ? `Max ${input.milesMax.toLocaleString("en-US")} miles.` : null,
     input.timeToSell === "faster" ? "Prefer faster-turning inventory when ranking." : null,
   ].filter(Boolean);
 
+  const models = input.preferredModels;
   return {
     ...emptyNeed("flip"),
     note: noteParts.join(" "),
@@ -200,11 +273,15 @@ export function needFromResaleSearchInput(input: ResaleSearchInput): StructuredN
     milesMax: input.milesMax,
     milesCapResolved: input.milesMax != null,
     bodyStyle: input.bodyStyle,
-    preferredMakes: input.preferredMakes,
-    make: input.preferredMakes[0] ?? null,
-    preferredModels: [],
-    preferredModelsSource: "none",
-    openToOtherMakes: input.preferredMakes.length === 0,
+    preferredMakes: input.preferredMakes.length
+      ? input.preferredMakes
+      : [...new Set(models.map((m) => m.make))],
+    make: input.preferredMakes[0] ?? models[0]?.make ?? null,
+    preferredModels: models,
+    preferredModelsSource: models.length ? "user_note" : "none",
+    openToOtherMakes: input.preferredMakes.length === 0 && models.length === 0,
+    yearMin: input.yearMin,
+    yearMax: input.yearMax,
     yearBandResolved: true,
   };
 }

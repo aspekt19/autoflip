@@ -4,11 +4,13 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useId, useState } from "react";
 import { AgentDecisionTrail } from "@/components/AgentDecisionTrail";
+import { MakeModelFields } from "@/components/MakeModelFields";
 import { ResaleDecisionJournalView } from "@/components/ResaleDecisionJournal";
 import { useAccountLoad } from "@/components/use-account-load";
 import type { AgentVerdict } from "@/domain/agent-verdict-schema";
 import type { ResaleDecisionJournal } from "@/domain/resale-decision-journal";
 import { formatUsd } from "@/domain/format";
+import { criteriaParseLabel } from "@/domain/radar-criteria-provenance";
 import { NOTE_BODY_STYLES } from "@/domain/note-intake";
 import { NOT_ENOUGH_SIMILAR_CARS } from "@/domain/price-evaluation";
 import type { ResaleAssessment } from "@/domain/resale-evaluate";
@@ -79,19 +81,41 @@ type SearchResult = {
   budgetUsd: number;
   zip?: string | null;
   distanceMiles?: number | null;
+  freeText?: string | null;
+  bodyStyle?: string | null;
+  preferredMakes?: string[];
+  make?: string;
+  model?: string;
+  yearMin?: number | null;
+  yearMax?: number | null;
+  milesMax?: number | null;
+  repairAbility?: "unknown" | "none" | "minor" | "major";
+  targetProfitUsd?: number | null;
+  criteriaParseSource?: "serv" | "code" | "form";
+  criteriaResponseId?: string | null;
 };
 
 function ResaleSearchForm({ credits, onAuthLost }: { credits: number | null; onAuthLost: () => void }) {
   const filtersId = useId();
   const [budget, setBudget] = useState("");
+  const [freeText, setFreeText] = useState("");
   const [zip, setZip] = useState("");
   const [radius, setRadius] = useState<string>("");
   const [bodyStyle, setBodyStyle] = useState("");
   const [makes, setMakes] = useState("");
+  const [make, setMake] = useState("");
+  const [model, setModel] = useState("");
+  const [yearMin, setYearMin] = useState("");
+  const [yearMax, setYearMax] = useState("");
   const [milesMax, setMilesMax] = useState("");
   const [repairAbility, setRepairAbility] = useState<"unknown" | "none" | "minor" | "major">("unknown");
   const [timeToSell, setTimeToSell] = useState<"any" | "faster" | "unknown">("any");
   const [targetProfit, setTargetProfit] = useState("");
+  const [criteriaParse, setCriteriaParse] = useState<{
+    source: "serv" | "code" | "form";
+    responseId: string | null;
+    label: string;
+  } | null>(null);
   const [showFilters, setShowFilters] = useState(false);
   const [pending, setPending] = useState(false);
   const [progressLabel, setProgressLabel] = useState<string | null>(null);
@@ -168,10 +192,90 @@ function ResaleSearchForm({ credits, onAuthLost }: { credits: number | null; onA
       budgetUsd: typeof body.budgetUsd === "number" ? body.budgetUsd : Number(budget),
       zip: zip.trim() || null,
       distanceMiles: radius === "" ? null : Number(radius),
+      freeText: freeText.trim() || null,
+      bodyStyle: bodyStyle || null,
+      preferredMakes: makes
+        .split(/[,;/|]+/)
+        .map((part) => part.trim())
+        .filter(Boolean),
+      make: make || undefined,
+      model: model || undefined,
+      yearMin: yearMin ? Number(yearMin) : null,
+      yearMax: yearMax ? Number(yearMax) : null,
+      milesMax: milesMax.trim() === "" ? null : Number(milesMax.replace(/[^0-9.]/g, "")),
+      repairAbility,
+      targetProfitUsd: targetProfit.trim() === "" ? null : Number(targetProfit.replace(/[^0-9.]/g, "")),
+      criteriaParseSource: criteriaParse?.source,
+      criteriaResponseId: criteriaParse?.responseId ?? null,
     });
     setProgressLabel(null);
     setProgressSteps(null);
     setPartialJournal(null);
+  }
+
+  async function parseFreeText() {
+    if (!freeText.trim()) {
+      setCriteriaParse({ source: "form", responseId: null, label: criteriaParseLabel({ source: "form", responseId: null }) });
+      return;
+    }
+    try {
+      const response = await fetch("/api/need", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          text: freeText,
+          mode: "flip",
+          budgetUsd: budget.trim() ? Number(budget.replace(/[^0-9.]/g, "")) || null : null,
+          budgetKnown: Boolean(budget.trim()),
+          zip: zip.trim() || null,
+          distanceMiles: radius === "" ? null : Number(radius),
+        }),
+      });
+      const body = (await response.json()) as {
+        need?: {
+          budgetUsd?: number | null;
+          zip?: string | null;
+          distanceMiles?: number | null;
+          bodyStyle?: string | null;
+          preferredMakes?: string[];
+          make?: string | null;
+          preferredModels?: Array<{ make: string; model: string } | string>;
+          yearMin?: number | null;
+          yearMax?: number | null;
+          milesMax?: number | null;
+          repairAbility?: "unknown" | "none" | "minor" | "major";
+          targetProfitUsd?: number | null;
+        };
+        criteriaParse?: { source: "serv" | "code" | "form"; responseId: string | null; label: string };
+        message?: string;
+      };
+      if (!response.ok || !body.need) {
+        setCriteriaParse({ source: "code", responseId: null, label: "Parsed by code" });
+        return;
+      }
+      setCriteriaParse(
+        body.criteriaParse ?? { source: "code", responseId: null, label: "Parsed by code" },
+      );
+      if (body.need.budgetUsd != null && !budget.trim()) setBudget(String(body.need.budgetUsd));
+      if (body.need.zip && !zip.trim()) setZip(body.need.zip);
+      if (body.need.distanceMiles != null && radius === "") setRadius(String(body.need.distanceMiles));
+      if (body.need.bodyStyle && !bodyStyle) setBodyStyle(body.need.bodyStyle);
+      if (body.need.preferredMakes?.length && !makes.trim()) setMakes(body.need.preferredMakes.join(", "));
+      if (body.need.make && !make) setMake(body.need.make);
+      const firstModel = body.need.preferredModels?.[0];
+      if (firstModel && !model) {
+        setModel(typeof firstModel === "string" ? firstModel : firstModel.model);
+        if (typeof firstModel !== "string" && firstModel.make && !make) setMake(firstModel.make);
+      }
+      if (body.need.yearMin != null && !yearMin) setYearMin(String(body.need.yearMin));
+      if (body.need.yearMax != null && !yearMax) setYearMax(String(body.need.yearMax));
+      if (body.need.milesMax != null && !milesMax.trim()) setMilesMax(String(body.need.milesMax));
+      if (body.need.repairAbility && repairAbility === "unknown") setRepairAbility(body.need.repairAbility);
+      if (body.need.targetProfitUsd != null && !targetProfit.trim()) setTargetProfit(String(body.need.targetProfitUsd));
+      setShowFilters(true);
+    } catch {
+      setCriteriaParse({ source: "code", responseId: null, label: "Parsed by code" });
+    }
   }
 
   async function submitSearch() {
@@ -182,6 +286,9 @@ function ResaleSearchForm({ credits, onAuthLost }: { credits: number | null; onA
     setProgressLabel("Plan & inventory");
     setPending(true);
     try {
+      if (freeText.trim() && !criteriaParse) {
+        await parseFreeText();
+      }
       const response = await fetch("/api/resale/search", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -191,10 +298,18 @@ function ResaleSearchForm({ credits, onAuthLost }: { credits: number | null; onA
           distanceMiles: radius === "" ? null : Number(radius),
           bodyStyle: bodyStyle || null,
           preferredMakes: makes,
+          make: make || undefined,
+          model: model || undefined,
+          preferredModels: make && model ? [{ make, model }] : undefined,
+          yearMin: yearMin ? Number(yearMin) : null,
+          yearMax: yearMax ? Number(yearMax) : null,
           milesMax: milesMax.trim() === "" ? null : milesMax,
           repairAbility,
           timeToSell,
           targetProfitUsd: targetProfit.trim() === "" ? null : targetProfit,
+          freeText: freeText.trim() || null,
+          criteriaParseSource: criteriaParse?.source,
+          criteriaResponseId: criteriaParse?.responseId ?? null,
           searchIdempotencyKey: idemKey,
         }),
       });
@@ -314,6 +429,26 @@ function ResaleSearchForm({ credits, onAuthLost }: { credits: number | null; onA
         />
       </div>
 
+      <div className="field">
+        <label htmlFor="resale-note">Describe the flip in your own words (optional)</label>
+        <textarea
+          id="resale-note"
+          rows={3}
+          value={freeText}
+          onChange={(e) => {
+            setFreeText(e.target.value);
+            setCriteriaParse(null);
+          }}
+          placeholder="e.g. Honda or Toyota sedan under 80k miles near Dallas, light bodywork OK"
+        />
+        <p className="btn-row">
+          <button type="button" className="quiet" onClick={() => void parseFreeText()} disabled={!freeText.trim() || pending}>
+            Parse into filters
+          </button>
+        </p>
+        {criteriaParse ? <p className="hint">{criteriaParse.label}</p> : null}
+      </div>
+
       <p className="btn-row">
         <button
           type="button"
@@ -373,6 +508,16 @@ function ResaleSearchForm({ credits, onAuthLost }: { credits: number | null; onA
               />
             </div>
           </div>
+          <MakeModelFields
+            make={make}
+            model={model}
+            yearMin={yearMin}
+            yearMax={yearMax}
+            onMake={setMake}
+            onModel={setModel}
+            onYearMin={setYearMin}
+            onYearMax={setYearMax}
+          />
           <div className="pair">
             <div className="field">
               <label htmlFor="resale-miles-max">Max mileage</label>
@@ -487,19 +632,63 @@ function ResaleSearchForm({ credits, onAuthLost }: { credits: number | null; onA
 }
 
 function ResaleSearchResultView({ result }: { result: SearchResult }) {
-  const watchHref = (() => {
-    if (!result.budgetUsd) return null;
-    const q = new URLSearchParams({ mode: "flip", priceMax: String(result.budgetUsd) });
-    if (result.zip) q.set("zip", result.zip);
-    if (result.distanceMiles != null && Number.isFinite(result.distanceMiles)) {
-      q.set("distanceMiles", String(result.distanceMiles));
-    } else {
-      // Match nationwide Resale scope — Flip watches may save without a radius.
-      q.set("nationwide", "1");
-    }
-    return `/radar?${q.toString()}`;
-  })();
+  const router = useRouter();
+  const [watchPending, setWatchPending] = useState(false);
+  const [watchError, setWatchError] = useState<string | null>(null);
   const lineage = resaleVerdictLineage(result.journal, result.verdictAction);
+  const parseLabel = criteriaParseLabel(
+    result.criteriaParseSource
+      ? { source: result.criteriaParseSource, responseId: result.criteriaResponseId ?? null }
+      : result.freeText
+        ? { source: "form", responseId: null }
+        : null,
+  );
+
+  async function watchWithRadar() {
+    if (!result.budgetUsd) return;
+    setWatchPending(true);
+    setWatchError(null);
+    try {
+      const response = await fetch("/api/radar/searches", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: "Resale flip watch",
+          mode: "flip",
+          criteria: {
+            priceMax: result.budgetUsd,
+            zip: result.zip ?? "",
+            radiusMiles: result.distanceMiles,
+            nationwide: result.distanceMiles == null || undefined,
+            bodyStyle: result.bodyStyle ?? undefined,
+            make: result.make,
+            model: result.model,
+            preferredMakes: result.preferredMakes,
+            yearMin: result.yearMin ?? undefined,
+            yearMax: result.yearMax ?? undefined,
+            milesMax: result.milesMax ?? undefined,
+            repairAbility: result.repairAbility ?? "unknown",
+            minProfitUsd: result.targetProfitUsd ?? undefined,
+            freeText: result.freeText ?? undefined,
+            notes: result.freeText ?? undefined,
+            criteriaParseSource: result.criteriaParseSource ?? (result.freeText ? "form" : "form"),
+            criteriaResponseId: result.criteriaResponseId ?? null,
+          },
+        }),
+      });
+      const body = (await response.json()) as { message?: string };
+      if (!response.ok) {
+        setWatchError(body.message || "The watch was not saved.");
+        return;
+      }
+      router.push("/radar");
+    } catch {
+      setWatchError("The watch was not saved.");
+    } finally {
+      setWatchPending(false);
+    }
+  }
+
   return (
     <article className="warn-box check-result" aria-live="polite">
       <h2>{result.headline}</h2>
@@ -511,13 +700,15 @@ function ResaleSearchResultView({ result }: { result: SearchResult }) {
       {lineage ? <p className="hint">{lineage.chain}</p> : null}
       <p>{result.message}</p>
       <p className="hint">{result.nextStep}</p>
-      {watchHref ? (
+      <p className="hint">{parseLabel}</p>
+      {result.budgetUsd ? (
         <p className="btn-row">
-          <Link className="action" href={watchHref}>
-            Watch this budget on Deal Radar
-          </Link>
+          <button className="action" type="button" onClick={() => void watchWithRadar()} disabled={watchPending}>
+            {watchPending ? "Saving watch…" : "Watch with Deal Radar"}
+          </button>
         </p>
       ) : null}
+      {watchError ? <p className="warn">{watchError}</p> : null}
       <p className="hint">{result.creditNote}</p>
       {typeof result.balance === "number" ? <p className="hint">Balance after search: {result.balance}</p> : null}
 

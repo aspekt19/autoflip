@@ -15,6 +15,9 @@ import {
   type StructuredNeed,
 } from "@/domain/need";
 import type { DecisionProof } from "@/domain/decision-note";
+import type { CriteriaParseProvenance } from "@/domain/radar-criteria-provenance";
+import { criteriaParseLabel } from "@/domain/radar-criteria-provenance";
+import { providerResponseIdFromCall } from "@/domain/serv-response-id";
 import { interpretGuard, plannedProof, runServ, type ServProof } from "@/server/serv";
 import { screenUserInput } from "@/domain/screen";
 
@@ -26,7 +29,16 @@ export type UnderstandDeps = {
 };
 
 export type UnderstandResult =
-  | { ok: true; source: "model" | "form"; need: StructuredNeed; followUps: FollowUp[]; guard: string; checks: DecisionProof[] }
+  | {
+      ok: true;
+      source: "model" | "form";
+      need: StructuredNeed;
+      followUps: FollowUp[];
+      guard: string;
+      checks: DecisionProof[];
+      /** Honest provenance for free-text → structured criteria (Watch with Deal Radar). */
+      criteriaParse: CriteriaParseProvenance & { label: string };
+    }
   | { ok: false; status: number; error: string; message: string };
 
 export async function understandNeed(
@@ -79,6 +91,7 @@ export async function understandNeed(
   let guard = "not_configured";
   let extracted = explicitNeedFromText(screened.text, mode);
   const checks: ServProof[] = [];
+  let extractResponseId: string | null = null;
 
   if (deps.servKey) {
     const model = deps.servModel;
@@ -100,6 +113,10 @@ export async function understandNeed(
           if (parsed.ok) {
             extracted = parsed.need;
             source = "model";
+            extractResponseId = providerResponseIdFromCall({
+              ok: extractedCall.ok,
+              id: extractedCall.proof.openserv?.id ?? null,
+            });
           }
         } catch {
           source = "form";
@@ -136,7 +153,21 @@ export async function understandNeed(
   const checked = validateNeed(need);
   if (!checked.ok) return { ok: false, status: 400, error: "invalid_need", message: checked.issues[0]?.message ?? "That need is not usable." };
   const recorded = checks.length > 0 ? checks : [plannedProof("need_guard"), plannedProof("need_extract")];
-  return { ok: true, source, need: checked.need, followUps: followUps(checked.need), guard, checks: recorded.map(publicCheck) };
+  const criteriaParse: CriteriaParseProvenance =
+    source === "model"
+      ? { source: "serv", responseId: extractResponseId }
+      : screened.text.trim()
+        ? { source: "code", responseId: null }
+        : { source: "form", responseId: null };
+  return {
+    ok: true,
+    source,
+    need: checked.need,
+    followUps: followUps(checked.need),
+    guard,
+    checks: recorded.map(publicCheck),
+    criteriaParse: { ...criteriaParse, label: criteriaParseLabel(criteriaParse) },
+  };
 }
 
 function publicCheck(proof: ServProof): DecisionProof {
