@@ -133,7 +133,8 @@ export type CheckResultPayload = {
   servTrace: ShopperServTrace | null;
   /**
    * Shared lemonless.decision_proof.v1 rows from decide/challenge (same contract as Find/Radar).
-   * Empty when SERV is not configured or gates withheld before any decide call.
+   * Empty only when SERV_API_KEY is not configured. When the key is set but gates withhold
+   * decide, this is a skipped row with the withhold reason (not []).
    */
   proofRecords: DecisionProofRecord[];
 };
