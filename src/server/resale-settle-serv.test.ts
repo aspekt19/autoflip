@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { emptyAgentVerdict } from "@/domain/agent-verdict-schema";
 import {
   appendJournalStep,
   emptyResaleJournal,
@@ -221,27 +222,11 @@ describe("runResaleSettleServ", () => {
       alternatives: [],
       verdictAction: "negotiate",
       confidence: "Medium",
-      agentVerdict: {
-        schemaVersion: "lemonless.agent_verdict.v1",
+      agentVerdict: emptyAgentVerdict({
         verdict: "negotiate",
         confidence: "medium",
-        pick: null,
-        reasons: [],
-        risks: [],
-        unknowns: [],
         no_serv_step: false,
-        second_pass: {
-          status: "not_run",
-          action: null,
-          objection: null,
-          evidenceIds: [],
-          confidenceBefore: null,
-          confidenceAfter: null,
-        },
-        serv_steps: [],
-        serv_spend: null,
-        multipath: null,
-      },
+      }),
       trail: [],
       secondPass: {
         status: "not_run",
@@ -336,27 +321,11 @@ describe("runResaleSettleServ", () => {
       alternatives: peers,
       verdictAction: "negotiate",
       confidence: "Medium",
-      agentVerdict: {
-        schemaVersion: "lemonless.agent_verdict.v1",
+      agentVerdict: emptyAgentVerdict({
         verdict: "negotiate",
         confidence: "medium",
-        pick: null,
-        reasons: [],
-        risks: [],
-        unknowns: [],
         no_serv_step: false,
-        second_pass: {
-          status: "not_run",
-          action: null,
-          objection: null,
-          evidenceIds: [],
-          confidenceBefore: null,
-          confidenceAfter: null,
-        },
-        serv_steps: [],
-        serv_spend: null,
-        multipath: null,
-      },
+      }),
       trail: [],
       secondPass: {
         status: "not_run",
