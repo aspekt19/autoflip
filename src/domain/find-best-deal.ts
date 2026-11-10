@@ -79,6 +79,8 @@ export type BestDealCandidate = {
   city?: string | null;
   state?: string | null;
   dealer?: string | null;
+  /** Auto.dev dealer page URL when present on the listing fact. */
+  vdp?: string | null;
 };
 
 /**
@@ -245,6 +247,8 @@ export type BestDealListing = ObservedListingRow & {
   city?: string | null;
   state?: string | null;
   dealer?: string | null;
+  /** Auto.dev dealer page URL when the search context preserved one. */
+  vdp?: string | null;
 };
 
 /** Unverified odometer: under this share of the peer median miles per year. */
@@ -359,7 +363,7 @@ function listingStubForComps(row: BestDealListing): Listing | null {
     state: null,
     zip: null,
     dealer: null,
-    vdp: null,
+    vdp: row.vdp ?? null,
     primaryImage: null,
     carfaxUrl: null,
     used: true,
@@ -1048,6 +1052,7 @@ function scoreOne(
     city: row.city ?? null,
     state: row.state ?? null,
     dealer: row.dealer ?? null,
+    vdp: row.vdp ?? null,
   };
 }
 

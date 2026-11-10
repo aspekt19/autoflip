@@ -144,6 +144,9 @@ export async function POST(request: Request) {
     baseline: result.baseline,
     carChecks: result.carChecks,
     targetKeys: result.targetKeys,
+    pickSecondPass: result.pickSecondPass ?? null,
+    pickServTrace: result.pickServTrace ?? null,
+    pickAgentVerdict: result.pickAgentVerdict ?? null,
     honesty: result.honesty,
     failureDiag: result.failureDiag
       ? {

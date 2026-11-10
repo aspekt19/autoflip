@@ -26,6 +26,7 @@ type CheckResultView = {
   verdict: string;
   verdictLabel: string;
   confidence: CheckConfidence;
+  confidenceWhy?: string | null;
   summary: string;
   badge: PriceBadge | null;
   fairValueUsd: number | null;
@@ -44,7 +45,14 @@ type CheckResultView = {
   recalls: Array<{ campaignNumber: string; component: string; summary: string; parkIt: boolean }>;
   recallsAvailable: boolean;
   complaintCount: number | null;
-  fuel: { combMpg: number | null; annualFuelCostUsd: number | null } | null;
+  fuel: {
+    combMpg: number | null;
+    annualFuelCostUsd: number | null;
+    annualFuelCostLowUsd?: number | null;
+    annualFuelCostHighUsd?: number | null;
+    configsConsidered?: number;
+    match?: string | null;
+  } | null;
   fuelConflict: string | null;
   safetySummary: string | null;
   knownIssues: Array<{ text: string; source: string }>;
@@ -85,6 +93,9 @@ function sourceLabel(source: string | null): string {
   if (source === "url") return "URL";
   if (source === "vin_decode") return "VIN decoder";
   if (source === "listing_feed") return "listing feed";
+  if (source === "feed_only" || source === "listed price from data feed") {
+    return "listed price from data feed";
+  }
   return source;
 }
 
@@ -222,8 +233,43 @@ function CheckFlowForm() {
     }
 
     setPending(true);
-    void refreshAllowance();
     try {
+      // Gate quota before the listing fetch so exhausted accounts redirect immediately.
+      try {
+        const accountRes = await fetch("/api/account", { cache: "no-store" });
+        const account = (await accountRes.json()) as {
+          authenticated?: boolean;
+          credits?: number;
+          freeChecks?: { remaining?: number; limit?: number; resetsLabel?: string } | null;
+        };
+        if (account.authenticated) {
+          const remaining =
+            typeof account.freeChecks?.remaining === "number" ? account.freeChecks.remaining : null;
+          const credits = typeof account.credits === "number" ? account.credits : 0;
+          if (
+            remaining != null &&
+            account.freeChecks?.limit &&
+            account.freeChecks.resetsLabel &&
+            typeof account.freeChecks.resetsLabel === "string"
+          ) {
+            setAllowance(
+              formatFreeChecksRemaining({
+                remaining,
+                limit: account.freeChecks.limit,
+                resetsLabel: account.freeChecks.resetsLabel,
+              }),
+            );
+          }
+          if (remaining === 0 && credits < 1) {
+            stash();
+            router.push("/credits?need=1&return=%2Fcheck");
+            return;
+          }
+        }
+      } catch {
+        /* server still gates; continue */
+      }
+
       const payload =
         kind === "link"
           ? { kind: "link", url: url.trim(), optionalZip: optionalZip.trim() || undefined }
@@ -510,12 +556,20 @@ function CheckResultCard({ result }: { result: CheckResultView }) {
       <p className="kicker">{result.kind === "vin_dossier" ? "VIN dossier" : "Listing check"}</p>
       <h2>{result.title}</h2>
       <p className="lead">
-        <strong>{result.verdictLabel}</strong>
+        <strong>{sold ? "Pass — listing marked SOLD" : result.verdictLabel}</strong>
         {" · "}
         Confidence: {result.confidence}
       </p>
+      {result.confidenceWhy ? <p className="hint">{result.confidenceWhy}</p> : null}
+      {sold && result.badge?.deltaLabel ? (
+        <p className="hint">Price note (not a buy signal while marked SOLD): {result.badge.deltaLabel}</p>
+      ) : null}
       <p>{result.summary}</p>
-      <AgentDecisionTrail verdict={result.agentVerdict} defaultOpen />
+      <AgentDecisionTrail
+        verdict={result.agentVerdict}
+        defaultOpen
+        confidenceWhy={result.confidenceWhy ?? null}
+      />
       {result.servTrace && result.servTrace.calls.length > 0 ? (
         <section aria-label="Recorded agent calls">
           <h3>Recorded agent calls</h3>
@@ -552,7 +606,7 @@ function CheckResultCard({ result }: { result: CheckResultView }) {
         </>
       ) : null}
 
-      {result.kind === "listing" && (result.walkAwayLabel || similarCars.length > 0) ? (
+      {(result.walkAwayLabel || similarCars.length > 0) && (result.kind === "listing" || result.badge) ? (
         <section>
           <h3>Walk-away and comps</h3>
           {result.walkAwayLabel ? <p>{result.walkAwayLabel}</p> : null}
@@ -619,9 +673,22 @@ function CheckResultCard({ result }: { result: CheckResultView }) {
           <li>{result.safetySummary ?? "Crash ratings: not checked"}</li>
           <li>
             Fuel:{" "}
-            {result.fuel?.combMpg != null
-              ? `about ${result.fuel.combMpg} mpg combined${result.fuel.annualFuelCostUsd != null ? ` · ~${formatUsd(result.fuel.annualFuelCostUsd)}/yr` : ""}`
-              : "unavailable"}
+            {(() => {
+              const fuel = result.fuel;
+              if (!fuel) return "not checked — fueleconomy.gov was not queried";
+              if (fuel.combMpg != null) {
+                return `about ${fuel.combMpg} mpg combined${
+                  fuel.annualFuelCostUsd != null ? ` · ~${formatUsd(fuel.annualFuelCostUsd)}/yr` : ""
+                }`;
+              }
+              if (fuel.annualFuelCostLowUsd != null && fuel.annualFuelCostHighUsd != null) {
+                return `EPA annual cost range ~${formatUsd(fuel.annualFuelCostLowUsd)}–${formatUsd(fuel.annualFuelCostHighUsd)}/yr (${fuel.configsConsidered ?? "several"} configs; combined mpg not published as a single figure)`;
+              }
+              if ((fuel.configsConsidered ?? 0) > 0) {
+                return "EPA listed configurations, but combined mpg was not published as a single figure for this model year";
+              }
+              return "source unavailable — fueleconomy.gov returned no usable figure for this year/make/model";
+            })()}
           </li>
           {result.fuelConflict ? <li>{result.fuelConflict}</li> : null}
           {result.vin ? <li>VIN: {result.vin}</li> : <li>VIN: not found on the listing</li>}

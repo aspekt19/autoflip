@@ -101,9 +101,12 @@ export function ReportView({ report }: { report: FullReport }) {
                 ? "AI review chose this action from the computed facts. Code checked hard safety gates afterward."
                 : computed.decision.source === "guardrail_clamp"
                   ? "AI review proposed an action that code clamped under hard safety gates."
-                  : computed.decision.source === "deterministic_fallback"
-                    ? "AI review did not finish in time. This action is the labeled code fallback under the same gates."
-                    : "AI review was not configured for this report. This action is the labeled code baseline under hard gates."}
+                  : computed.sample || computed.decision.labeledFallback
+                    ? computed.decision.note?.trim() ||
+                      "Labeled code baseline — no AI call ran on this sample."
+                    : computed.decision.source === "deterministic_fallback"
+                      ? "AI review did not finish in time. This action is the labeled code fallback under the same gates."
+                      : "AI review was not configured for this report. This action is the labeled code baseline under hard gates."}
           </p>
           {computed.decision.servChoice && computed.decision.servChoice !== computed.decision.action ? (
             <p className="hint">

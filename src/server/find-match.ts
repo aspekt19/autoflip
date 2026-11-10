@@ -233,8 +233,13 @@ export async function runFindMatch(
 
   const maxQueries = Math.max(1, Math.min(FIND_MAX_PROVIDER_QUERIES, deps.maxProviderQueries ?? FIND_MAX_PROVIDER_QUERIES));
   const radiusMiles = need.distanceMiles;
-  const searchZip = radiusMiles != null ? need.zip ?? undefined : undefined;
-  const geoScope = geoScopeFromSearch({ searchZip, distanceMiles: radiusMiles });
+  // ZIP alone (no radius) still goes to the provider so results can sort by distance —
+  // geo scope stays nationwide until an explicit radius is set.
+  const searchZip = need.zip?.replace(/\D/g, "").slice(0, 5) || undefined;
+  const geoScope = geoScopeFromSearch({
+    searchZip: radiusMiles != null ? searchZip : null,
+    distanceMiles: radiusMiles,
+  });
 
   const groups: FindMatchGroup[] = [];
   let message: string | null = null;
@@ -277,7 +282,8 @@ export async function runFindMatch(
           zip: searchZip,
           yearMin: direction.yearMin,
           yearMax: direction.yearMax,
-          distanceMiles: radiusMiles ?? undefined,
+          // null = nationwide (no invented radius); number = explicit miles filter
+          distanceMiles: radiusMiles,
           mode: need.mode,
           milesMax: need.milesMax ?? undefined,
           priceMax: need.budgetKnown && need.budgetUsd ? need.budgetUsd : undefined,

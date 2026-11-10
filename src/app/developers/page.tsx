@@ -123,6 +123,9 @@ curl -s https://autoflip-umber.vercel.app/api/v1/find/RUN_ID \\
 
         <section>
           <h2>Example success (Check)</h2>
+          <p className="hint" role="note">
+            Illustrative schema example — not a real run. Field shapes match the live agent envelope; values are placeholders.
+          </p>
           <pre className="doc">{`{
   "schema_version": "lemonless.agent_verdict.v1",
   "tool": "check_car",

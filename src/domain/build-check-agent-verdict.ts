@@ -12,16 +12,20 @@ export type CheckTrailInput = {
   title: string;
   verdictLabel: string;
   confidence: CheckConfidence;
+  /** Plain-English scope for the confidence label (shown in the trail header). */
+  confidenceWhy?: string | null;
   summary: string;
   compCount: number;
   fairValueUsd: number | null;
+  /** False when there was never an asking price to rate. */
+  hasAsk?: boolean;
   recallsAvailable: boolean;
   recallCount: number;
   complaintCount: number | null;
   hasVin: boolean;
   redFlagCount: number;
   unknown: string[];
-  /** True only when a live agent call was recorded for this check (rare today). */
+  /** True only when a live agent call was recorded for this check. */
   hadServStep?: boolean;
   servCalls?: number;
 };
@@ -34,18 +38,23 @@ function mapConfidence(level: CheckConfidence): AgentVerdict["confidence"] {
 
 export function buildCheckAgentVerdict(input: CheckTrailInput): AgentVerdict {
   const steps: AgentTrailStep[] = [];
+  // Prefer explicit hasAsk; otherwise infer from price evidence already present.
+  const hasAsk =
+    typeof input.hasAsk === "boolean"
+      ? input.hasAsk
+      : input.fairValueUsd != null || input.compCount > 0;
 
   if (input.kind === "listing") {
     steps.push({
       decided: `Code screened the listing for ${input.title}.`,
-      why: "Listing fields, similar asks, and public records are enough for a free screening verdict.",
+      why: "Listing fields, similar asks, and public records are enough for a screening verdict.",
       changed: null,
       evidenceIds: ["check:listing_extract"],
     });
   } else {
     steps.push({
       decided: `Code built a VIN dossier for ${input.title}.`,
-      why: "Free government sources and any matching dealer listings for this VIN.",
+      why: "Government VIN decode, public safety records, and any current dealer listing for this VIN.",
       changed: null,
       evidenceIds: ["check:vin_dossier"],
     });
@@ -57,14 +66,21 @@ export function buildCheckAgentVerdict(input: CheckTrailInput): AgentVerdict {
         input.fairValueUsd != null
           ? `Compared the ask with ${input.compCount} similar listings.`
           : `Looked at ${input.compCount} similar listings but could not publish a fair value.`,
-      why: "The same adjusted-comparables price math used elsewhere on Lemonless.",
+      why: "The same adjusted-comparables price math used elsewhere on Lemonless (year window, mileage/trim adjustments).",
       changed: null,
       evidenceIds: ["check:comps"],
+    });
+  } else if (!hasAsk) {
+    steps.push({
+      decided: "No asking price was available, so this check did not rate price.",
+      why: "Price rating needs a current listing ask (and mileage) for this VIN or listing.",
+      changed: null,
+      evidenceIds: ["check:no_ask"],
     });
   } else {
     steps.push({
       decided: "Not enough similar cars for a price rating.",
-      why: "Fewer than the minimum similar asks, or the adjusted prices were too far apart.",
+      why: "Fewer than the minimum similar asks after a widened year window and nationwide fallback, or adjusted prices were too far apart.",
       changed: null,
       evidenceIds: ["check:comps_thin"],
     });
@@ -101,11 +117,21 @@ export function buildCheckAgentVerdict(input: CheckTrailInput): AgentVerdict {
   const hadServ = input.hadServStep === true;
   if (!hadServ) {
     steps.push({
-      decided: "No agent decision step ran for this check.",
-      why: "Free Check uses code and public records. A full report can add an independent agent review.",
+      decided: "No OpenServ buy/negotiate/pass call ran for this check.",
+      why: !hasAsk
+        ? "There was no asking price (and usually no mileage) to decide against — OpenServ only runs when that evidence exists."
+        : input.compCount < 3
+          ? "Similar listings were still too thin after a widened search, so OpenServ had nothing solid to decide against."
+          : "OpenServ was not configured for this environment, or evidence gates blocked a spend.",
       changed: null,
     });
   }
+
+  const confidenceScope =
+    input.confidenceWhy?.trim() ||
+    (hasAsk && (input.compCount > 0 || input.fairValueUsd != null)
+      ? "Verdict confidence from similar listings and public records."
+      : "Covers public-record identity and safety only — not a price rating.");
 
   return emptyAgentVerdict({
     pick: null,
@@ -113,7 +139,7 @@ export function buildCheckAgentVerdict(input: CheckTrailInput): AgentVerdict {
     reasons: [
       {
         evidenceId: "check:verdict",
-        text: `${input.verdictLabel} · Confidence ${input.confidence}.`,
+        text: `${input.verdictLabel} · Confidence ${input.confidence} — ${confidenceScope}`,
       },
     ],
     risks:
@@ -134,7 +160,12 @@ export function buildCheckAgentVerdict(input: CheckTrailInput): AgentVerdict {
     serv_spend:
       typeof input.servCalls === "number"
         ? { calls: input.servCalls, costNote: null }
-        : { calls: 0, costNote: "Free Check — no agent spend." },
+        : {
+            calls: 0,
+            costNote: !hasAsk
+              ? "No agent spend — no asking price to decide against."
+              : "No agent spend on this check.",
+          },
     no_serv_step: !hadServ,
   });
 }
