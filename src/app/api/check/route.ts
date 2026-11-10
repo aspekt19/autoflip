@@ -106,6 +106,11 @@ export async function POST(request: Request) {
           blocked: result.blocked === true,
           alternatives: result.alternatives,
           freeChecks: slots.view,
+          creditCharged: false,
+          spentCredit: false,
+          usedFreeCheck: false,
+          focusVin: result.focusVin === true,
+          urlHints: result.urlHints ?? null,
         },
         { status: result.status },
       );

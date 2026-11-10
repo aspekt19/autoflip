@@ -22,6 +22,12 @@ import type {
   CheckVerdictLabel,
   ExtractedListingFields,
 } from "@/domain/listing/types";
+import { extractedFieldsFromFeedListing } from "@/domain/listing/from-feed";
+import {
+  listingUrlHints,
+  listingUrlHintsSummary,
+  type ListingUrlHints,
+} from "@/domain/listing/url-hints";
 import { joinSummarySentences } from "@/domain/listing/year-make-model";
 import { priceBadge, type PriceBadge } from "@/domain/price-badge";
 import {
@@ -31,10 +37,10 @@ import {
   type SimilarCarView,
 } from "@/domain/purchase-readiness";
 import { dealerQuestions } from "@/domain/questions";
-import { isValidVin } from "@/domain/vin";
+import { extractVin, isValidVin } from "@/domain/vin";
 import { verdictLabel } from "@/domain/format";
 import type { FuelFact, Listing, RecallRecord, VinDecode } from "@/domain/types";
-import { autodevByVin, autodevSearch, type AutodevDeps } from "@/io/autodev";
+import { autodevByVin, autodevByVdp, autodevSearch, type AutodevDeps } from "@/io/autodev";
 import {
   complaintCountFor,
   decodeVin,
@@ -133,7 +139,70 @@ export type CheckRunResult =
       message: string;
       blocked?: boolean;
       alternatives?: Array<"paste_text" | "enter_vin">;
+      /** Always false on refusal — UI can show "no credit charged" without guessing. */
+      creditCharged?: false;
+      /** Hint the client to focus the VIN field after a walled fetch. */
+      focusVin?: boolean;
+      urlHints?: ListingUrlHints;
     };
+
+function blockedFetchRefusal(
+  url: string,
+  extractedMessage?: string | null,
+): Extract<CheckRunResult, { ok: false }> {
+  const hints = listingUrlHints(url);
+  const summary = listingUrlHintsSummary(hints);
+  const wall = (extractedMessage?.trim() ||
+    "This listing site blocked our fetch (login or anti-bot wall).")
+    // Drop recovery boilerplate from the fetcher — we append a single clear next step.
+    .replace(/\s*Keep this URL,?\s*then paste the listing text or enter the VIN\.?/i, "")
+    .replace(/\s*Keep the URL,?\s*then paste the listing text or enter the VIN\.?/i, "")
+    .trim();
+  return {
+    ok: false,
+    status: 422,
+    error: "listing_fetch_blocked",
+    message: `${wall} We do not bypass captchas or login walls. ${summary} No credit or free check was used. Paste the listing text or enter the VIN to continue.`,
+    blocked: true,
+    alternatives: ["paste_text", "enter_vin"],
+    creditCharged: false,
+    focusVin: true,
+    urlHints: hints,
+  };
+}
+
+async function tryAutodevVdpFallback(
+  url: string,
+  deps: CheckRunDeps,
+  optionalZip?: string | null,
+): Promise<CheckRunResult | null> {
+  if (!deps.autodevKey || !deps.autodev) return null;
+  const hints = listingUrlHints(url);
+  const fetchImpl = deps.fetch ?? fetch;
+  const found = await autodevByVdp(
+    url,
+    { year: hints.ymm?.year, make: hints.ymm?.make, model: hints.ymm?.model },
+    {
+      fetch: fetchImpl,
+      cache: deps.autodev.cache,
+      counter: deps.autodev.counter,
+      apiKey: deps.autodevKey,
+      now: deps.now,
+      reserve: deps.autodev.reserve,
+      signal: deps.autodev.signal,
+      timeoutMs: deps.autodev.timeoutMs,
+    },
+  );
+  if (!found.ok) return null;
+  const fields = extractedFieldsFromFeedListing(found.listing);
+  return buildListingVerdict(fields, {
+    url: found.listing.vdp ?? url,
+    optionalZip,
+    llmUsed: false,
+    pageText: null,
+    deps,
+  });
+}
 
 function provenanceRows(fields: ExtractedListingFields): FieldProvenanceRow[] {
   const keys = Object.keys(fields) as Array<keyof ExtractedListingFields>;
@@ -422,12 +491,20 @@ async function buildListingVerdict(
   const fetchImpl = input.deps.fetch ?? fetch;
   const listing = listingFromExtracted(fields, { vdp: input.url ?? null });
   if (!listing) {
+    const vinFromPage =
+      (fields.vin.value && isValidVin(fields.vin.value) ? fields.vin.value : null) ??
+      (input.url ? extractVin(input.url) : null);
+    if (vinFromPage) {
+      return buildVinDossier(vinFromPage, input.deps, input.optionalZip);
+    }
     return {
       ok: false,
       status: 422,
       error: "insufficient_listing_data",
       message:
-        "Could not identify year, make, and model from that listing. Paste the listing text, or enter the VIN.",
+        "We could not read enough from that listing (year, make, and model are still unknown). Keep the URL, then paste the listing text or enter the VIN.",
+      blocked: true,
+      alternatives: ["paste_text", "enter_vin"],
     };
   }
 
@@ -1143,14 +1220,15 @@ export async function runCheck(input: CheckRunInput, deps: CheckRunDeps = {}): P
   const extracted = await extractFromListingUrl(input.url, bounded);
   if (!extracted.ok) {
     if (extracted.blocked) {
-      return {
-        ok: false,
-        status: 422,
-        error: "listing_fetch_blocked",
-        message: extracted.message,
-        blocked: true,
-        alternatives: extracted.alternatives,
-      };
+      // URL-only evidence first — never bypass the wall.
+      const hints = listingUrlHints(input.url);
+      if (hints.vin) {
+        return buildVinDossier(hints.vin, deps, input.optionalZip);
+      }
+      // Legitimate Auto.dev VDP / YMM+exact-VDP lookup when the API can match.
+      const feed = await tryAutodevVdpFallback(input.url, deps, input.optionalZip);
+      if (feed?.ok) return feed;
+      return blockedFetchRefusal(input.url, extracted.message);
     }
     return {
       ok: false,
@@ -1159,6 +1237,29 @@ export async function runCheck(input: CheckRunInput, deps: CheckRunDeps = {}): P
       message: extracted.message,
     };
   }
+
+  // Thin page: prefer VIN path when a VIN is on the page or in the URL.
+  const hasYmm =
+    extracted.fields.year.value != null &&
+    Boolean(extracted.fields.make.value) &&
+    Boolean(extracted.fields.model.value);
+  if (!hasYmm) {
+    const vinFallback =
+      (extracted.fields.vin.value && isValidVin(extracted.fields.vin.value)
+        ? extracted.fields.vin.value
+        : null) ?? extractVin(extracted.fetch?.finalUrl ?? input.url);
+    if (vinFallback) {
+      return buildVinDossier(vinFallback, deps, input.optionalZip);
+    }
+    const feed = await tryAutodevVdpFallback(input.url, deps, input.optionalZip);
+    if (feed?.ok) return feed;
+    const thin = blockedFetchRefusal(
+      input.url,
+      "We fetched the page but could not read a usable year, make, and model.",
+    );
+    return { ...thin, error: "listing_fetch_thin" };
+  }
+
   return buildListingVerdict(extracted.fields, {
     url: extracted.fetch?.finalUrl ?? input.url,
     optionalZip: input.optionalZip,

@@ -1,0 +1,96 @@
+{
+  "description": "Small offline set of real public US listing URLs for major sites. Used by scripts/probe-listing-fetch.mjs to record what our server fetcher can read today. URLs may expire; refresh when probing.",
+  "updatedNote": "Curated from live public pages; probe results are not invented — run the script to fill probe-results.json.",
+  "sites": [
+    {
+      "id": "cars-com",
+      "site": "cars.com",
+      "label": "Cars.com vehicle detail",
+      "url": "https://www.cars.com/vehicledetail/4c0f84ec-baf9-41af-ac7d-6bdd4d2eef75/"
+    },
+    {
+      "id": "cars-com-prod-walled",
+      "site": "cars.com",
+      "label": "Cars.com VDP observed walled on prod 986604c (~2-3s anti-bot)",
+      "url": "https://www.cars.com/vehicledetail/39a91db4-14e9-4a6e-82f5-34589631ba2d/"
+    },
+    {
+      "id": "cars-com-search",
+      "site": "cars.com",
+      "label": "Cars.com used Camry search (often bot-walled)",
+      "url": "https://www.cars.com/shopping/results/?stock_type=used&makes[]=toyota&models[]=toyota-camry&zip=90001&maximum_distance=50"
+    },
+    {
+      "id": "autotrader",
+      "site": "autotrader.com",
+      "label": "Autotrader Civic hatchback search",
+      "url": "https://www.autotrader.com/cars-for-sale/hatchback/2020/honda/civic"
+    },
+    {
+      "id": "autotrader-prod-walled",
+      "site": "autotrader.com",
+      "label": "Autotrader VDP observed walled on prod 986604c (~2-3s anti-bot)",
+      "url": "https://www.autotrader.com/cars-for-sale/vehicle/756212296"
+    },
+    {
+      "id": "autotrader-dealer",
+      "site": "autotrader.com",
+      "label": "Autotrader dealer inventory page",
+      "url": "https://www.autotrader.com/car-dealers/tempe-az/1148495/tempe-honda"
+    },
+    {
+      "id": "cargurus",
+      "site": "cargurus.com",
+      "label": "CarGurus listing detail",
+      "url": "https://www.cargurus.com/details/447774678"
+    },
+    {
+      "id": "cargurus-search",
+      "site": "cargurus.com",
+      "label": "CarGurus used Camry browse",
+      "url": "https://www.cargurus.com/Cars/l-Used-Toyota-Camry-d448"
+    },
+    {
+      "id": "carmax",
+      "site": "carmax.com",
+      "label": "CarMax vehicle page",
+      "url": "https://www.carmax.com/car/70163746"
+    },
+    {
+      "id": "carvana",
+      "site": "carvana.com",
+      "label": "Carvana vehicle page",
+      "url": "https://www.carvana.com/vehicle/4802365"
+    },
+    {
+      "id": "craigslist",
+      "site": "craigslist.org",
+      "label": "Craigslist owner Camry listing",
+      "url": "https://vermont.craigslist.org/cto/d/new-haven-inspected-2011-toyota-camry/7859281973.html"
+    },
+    {
+      "id": "craigslist-dealer",
+      "site": "craigslist.org",
+      "label": "Craigslist dealer Camry listing (VIN in body)",
+      "url": "https://seattle.craigslist.org/tac/ctd/d/spanaway-2011-toyota-camry-base-4dr/7847532813.html"
+    },
+    {
+      "id": "facebook-marketplace",
+      "site": "facebook.com/marketplace",
+      "label": "Facebook Marketplace item",
+      "url": "https://www.facebook.com/marketplace/item/1798003918051799/"
+    },
+    {
+      "id": "dealer-autoboutique",
+      "site": "dealer site",
+      "label": "Independent dealer VDP (schema.org)",
+      "url": "https://www.autoboutiquetexas.com/vehicle-details/used-2014-toyota-camry-le-4t1bf1fk0eu848445"
+    },
+    {
+      "id": "dealer-toyota-of-greenville",
+      "site": "dealer site",
+      "label": "Franchise dealer Camry Hybrid VDP",
+      "url": "https://www.toyotaofgreenville.com/used/Toyota/2021-Toyota-Camry-Hybrid-in-Greenville-62d5677cac1814f42b5f378d085186cb.htm"
+    }
+  ]
+}

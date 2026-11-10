@@ -157,6 +157,113 @@ export function mergeLlmExtraction(
   return mergeLayer(base, raw as Partial<Record<keyof ExtractedListingFields, unknown>>, "llm");
 }
 
+function normalizeHaystack(text: string): string {
+  return text.toLowerCase().replace(/\s+/g, " ");
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+/**
+ * Whole digit tokens from page text after collapsing thousand separators
+ * ($23,990 → 23990). Used so price/mileage never match on a digit substring
+ * (990 inside 23,990).
+ */
+export function wholeNumberTokensInPage(pageText: string): Set<string> {
+  let collapsed = normalizeHaystack(pageText).replace(/\$/g, " ");
+  // Collapse US-style thousand groups repeatedly: 1,234,567 → 1234567
+  for (let i = 0; i < 4; i += 1) {
+    const next = collapsed.replace(/(\d),(\d{3})(?!\d)/g, "$1$2");
+    if (next === collapsed) break;
+    collapsed = next;
+  }
+  return new Set(collapsed.match(/\d+/g) ?? []);
+}
+
+/** True when a candidate appears as a whole token in the page/URL text (never a substring). */
+export function valueAppearsInPage(value: string | number, pageText: string): boolean {
+  const hay = normalizeHaystack(pageText);
+  if (!hay.trim()) return false;
+  if (typeof value === "number") {
+    if (!Number.isFinite(value)) return false;
+    const raw = String(Math.round(value));
+    return wholeNumberTokensInPage(hay).has(raw);
+  }
+  const needle = value.toLowerCase().trim();
+  if (!needle) return false;
+  // Word-boundary match — "in" / "red" must not match inside "indiana" / "preferred".
+  const bounded = new RegExp(`(?:^|[^a-z0-9])${escapeRegExp(needle)}(?:[^a-z0-9]|$)`, "i");
+  if (bounded.test(hay)) return true;
+  // Compact form for multi-character tokens like AWD (not for short words).
+  const compactNeedle = needle.replace(/[^a-z0-9]/g, "");
+  if (compactNeedle.length >= 3 && compactNeedle !== needle.replace(/\s+/g, "")) {
+    const compactHay = hay.replace(/[^a-z0-9]/g, "");
+    // Compact hay has no separators — require the compact needle as a whole run
+    // by checking adjacent non-matches via length scan on tokenized alnum runs.
+    const runs = compactHay.match(/[a-z0-9]+/g) ?? [compactHay];
+    if (runs.some((run) => run === compactNeedle)) return true;
+  } else if (compactNeedle.length >= 3) {
+    // Needle was already alnum (e.g. "awd") — still require a whole compact run.
+    const compactHay = hay.replace(/[^a-z0-9]+/g, " ");
+    if (new RegExp(`(?:^|\\s)${escapeRegExp(compactNeedle)}(?:\\s|$)`).test(compactHay)) return true;
+  }
+  return false;
+}
+
+/**
+ * Drop LLM-sourced fields that are not grounded in the page or URL text.
+ * Deterministic sources are left alone. Unknown stays unknown — never invent.
+ */
+export function groundLlmFieldsInPage(
+  fields: ExtractedListingFields,
+  pageText: string,
+): ExtractedListingFields {
+  const hay = `${pageText}`;
+
+  const keepScalar = <T extends string | number>(
+    field: Provenanced<T>,
+  ): Provenanced<T> => {
+    if (field.source !== "llm" || field.value == null) return field;
+    return valueAppearsInPage(field.value, hay) ? field : { value: null, source: null };
+  };
+
+  const features =
+    fields.features.source === "llm" && fields.features.value
+      ? (() => {
+          const kept = fields.features.value.filter((item) => valueAppearsInPage(item, hay));
+          return kept.length
+            ? ({ value: kept, source: "llm" } as Provenanced<string[]>)
+            : ({ value: null, source: null } as Provenanced<string[]>);
+        })()
+      : fields.features;
+
+  return {
+    priceUsd: keepScalar(fields.priceUsd),
+    year: keepScalar(fields.year),
+    make: keepScalar(fields.make),
+    model: keepScalar(fields.model),
+    trim: keepScalar(fields.trim),
+    miles: keepScalar(fields.miles),
+    vin: keepScalar(fields.vin),
+    transmission: keepScalar(fields.transmission),
+    drivetrain: keepScalar(fields.drivetrain),
+    fuel: keepScalar(fields.fuel),
+    color: keepScalar(fields.color),
+    location: keepScalar(fields.location),
+    zip: keepScalar(fields.zip),
+    state: keepScalar(fields.state),
+    sellerName: keepScalar(fields.sellerName),
+    listingDate: keepScalar(fields.listingDate),
+    description: keepScalar(fields.description),
+    photoCount: keepScalar(fields.photoCount),
+    accidentsStated: keepScalar(fields.accidentsStated),
+    ownersStated: keepScalar(fields.ownersStated),
+    titleStatus: keepScalar(fields.titleStatus),
+    features,
+  };
+}
+
 export function cloneExtracted(fields: ExtractedListingFields): ExtractedListingFields {
   return mergeLayer(emptyExtractedFields(), {
     priceUsd: fields.priceUsd.value,

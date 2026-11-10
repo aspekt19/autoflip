@@ -52,6 +52,90 @@ export function listingByVinUrl(vin: string): string {
   return `https://api.auto.dev/listings/${encodeURIComponent(vin)}`;
 }
 
+/** Normalize a VDP URL for exact equality checks (no guessing). */
+export function normalizeVdpUrl(raw: string): string {
+  try {
+    const url = new URL(raw.trim());
+    url.hash = "";
+    url.hostname = url.hostname.replace(/^www\./i, "").toLowerCase();
+    url.pathname = url.pathname.replace(/\/+$/, "") || "/";
+    return url.toString().toLowerCase();
+  } catch {
+    return raw.trim().toLowerCase().replace(/\/+$/, "");
+  }
+}
+
+/**
+ * Attempt a direct Auto.dev filter by retailListing.vdp.
+ * Many feeds index the seller VDP; if the API rejects the filter, callers fall back.
+ */
+export function listingByVdpUrl(vdp: string): string {
+  const params = new URLSearchParams();
+  params.set("retailListing.vdp", vdp);
+  params.set("limit", "10");
+  return `https://api.auto.dev/listings?${params.toString()}`;
+}
+
+export function findExactVdpMatch(listings: readonly Listing[], vdp: string): Listing | null {
+  const want = normalizeVdpUrl(vdp);
+  for (const row of listings) {
+    if (row.vdp && normalizeVdpUrl(row.vdp) === want) return row;
+  }
+  return null;
+}
+
+/**
+ * Legitimate VDP / listing-URL lookup via Auto.dev only.
+ * Never scrapes past anti-bot walls. Requires an exact retailListing.vdp match —
+ * listing-site internal ids alone are not an Auto.dev query key.
+ */
+export async function autodevByVdp(
+  vdp: string,
+  hints: { year?: number | null; make?: string | null; model?: string | null },
+  deps: AutodevDeps,
+): Promise<
+  | { ok: true; listing: Listing; cached: boolean; via: "vdp_filter" | "ymm_exact_vdp" }
+  | { ok: false; reason: "no_match" | "upstream" | "demo_limit"; message: string }
+> {
+  const direct = await cachedGet(listingByVdpUrl(vdp), deps);
+  if (direct.ok) {
+    const hit = findExactVdpMatch(direct.listings, vdp);
+    if (hit) return { ok: true, listing: hit, cached: direct.cached, via: "vdp_filter" };
+  } else if (direct.error === "demo_limit") {
+    return { ok: false, reason: "demo_limit", message: direct.message };
+  }
+  // Filter unsupported / empty: only continue when URL slug exposed YMM we can search honestly.
+  const year = hints.year ?? null;
+  const make = hints.make?.trim() || null;
+  const model = hints.model?.trim() || null;
+  if (!year || !make || !model) {
+    return {
+      ok: false,
+      reason: "no_match",
+      message: "Auto.dev has no listing matching this VDP URL (no year/make/model in the URL to search).",
+    };
+  }
+  const search = await autodevSearch(
+    { year, make, model, used: true, limit: 50 },
+    deps,
+  );
+  if (!search.ok) {
+    if (search.error === "demo_limit") {
+      return { ok: false, reason: "demo_limit", message: search.message };
+    }
+    return { ok: false, reason: "upstream", message: search.message };
+  }
+  const hit = findExactVdpMatch(search.listings, vdp);
+  if (!hit) {
+    return {
+      ok: false,
+      reason: "no_match",
+      message: "Auto.dev returned same-YMM listings, but none matched this VDP URL exactly.",
+    };
+  }
+  return { ok: true, listing: hit, cached: search.cached, via: "ymm_exact_vdp" };
+}
+
 async function cachedGet(url: string, deps: AutodevDeps): Promise<AutodevResult> {
   const hit = deps.bypassCache ? undefined : deps.cache.get(url);
   if (hit !== undefined) {
