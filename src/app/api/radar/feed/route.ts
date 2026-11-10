@@ -6,7 +6,12 @@ import {
   remapLegacyServSkipAlerts,
 } from "@/domain/radar-legacy-skip";
 import { getKv } from "@/io/kv";
-import { listAlerts, listRuns, listSearches, saveAlerts, seenVins } from "@/server/radar-store";
+import {
+  effectiveRadarLimits,
+  pauseWatchesRequiringPlan,
+  plansFor,
+} from "@/server/plan-book";
+import { listAlerts, listRuns, listSearches, saveAlerts, saveSearches, seenVins } from "@/server/radar-store";
 import { seenStorageKey } from "@/domain/radar-watch";
 import { isDemoUser, requireVerifiedAccountForRadar } from "@/server/session";
 
@@ -17,13 +22,20 @@ export async function GET() {
   if (!access.ok) return access.response;
   const id = access.id;
   const kv = getKv();
-  const [searches, rawAlerts, runs] = await Promise.all([listSearches(kv), listAlerts(kv), listRuns(kv)]);
+  const [rawSearches, rawAlerts, runs] = await Promise.all([listSearches(kv), listAlerts(kv), listRuns(kv)]);
+  const plans = await plansFor(kv, id);
+  const paused = pauseWatchesRequiringPlan(rawSearches, id, plans);
+  if (paused.changed) {
+    await saveSearches(kv, paused.searches);
+  }
+  const searches = paused.searches;
   const alerts = remapLegacyServSkipAlerts(rawAlerts);
   // Persist remapped statuses once so later reads stay consistent without re-detecting copy.
   if (alerts.some((row, i) => row.status !== rawAlerts[i]?.status)) {
     await saveAlerts(kv, alerts);
   }
   const mine = searches.filter((item) => item.ownerId === id);
+  const limits = effectiveRadarLimits(plans);
   const myAlerts = alerts.filter(
     (item) => item.ownerId === id && (item.status === "new" || item.status === "opened"),
   );
@@ -62,7 +74,12 @@ export async function GET() {
     nextRunAt,
     intervalHours,
     listingCounts,
-    freeWatchLimit: ASSUMPTIONS.radarFreeWatchLimit,
+    /** Paid plan watch cap (0 when no plan). Free radar removed. */
+    watchLimit: limits.watchLimit,
+    planId: limits.paid ? limits.id : null,
+    planName: limits.paid ? limits.name : null,
+    planIntervalHours: limits.paid ? limits.intervalHours : null,
+    requiresPlan: !limits.paid,
     maxServPerSearch: ASSUMPTIONS.radarMaxServPerSearch,
     emailConfigured: false,
     emailNote: "Email alerts are not configured in this deployment. New matches appear on this page only.",

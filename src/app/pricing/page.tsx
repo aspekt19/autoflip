@@ -3,7 +3,8 @@
 import Link from "next/link";
 import { Suspense, useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
-import { FREE_RADAR, PLAN_CATALOG } from "@/domain/plans";
+import { CREDIT_PACKS } from "@/domain/assumptions";
+import { PLAN_CATALOG } from "@/domain/plans";
 
 type PlanModeState = { status: string; lookupKey: string | null; searchLimit?: number };
 type AccountState = {
@@ -12,6 +13,7 @@ type AccountState = {
     personal: PlanModeState;
     flip: PlanModeState;
     billingPortalAvailable: boolean;
+    planId?: string | null;
   };
 };
 
@@ -104,22 +106,28 @@ function PricingContent() {
     personal?.status === "past_due" ||
     flip?.status === "active" ||
     flip?.status === "past_due";
+  const fromWatch = params.get("from") === "watch";
 
   return (
     <div className="sub">
       <div className="sheet-page site-frame">
         <p className="kicker">Pricing</p>
-        <h1>Deal Radar and report credits</h1>
+        <h1>Deal Radar plans</h1>
         <p className="lead">
-          Deal Radar watches searches you start in Find or Resale. Scheduled checks only run when a watch is due; the
-          scheduler ticks hourly and skips watches that are not due yet. Cadences below are the due intervals we
-          enforce — we do not claim a faster check than the scheduler can deliver. In-site alerts only (email/Telegram
-          off). Opening a full vehicle report costs 1 report credit.
+          Deal Radar is paid-only — no free tier and no trial. Watches cover Find and Resale searches under one cap.
+          The scheduler ticks hourly and only checks watches that are due for your plan cadence. In-site alerts only.
+          Opening a full vehicle report costs 1 report credit.
         </p>
         <p className="hint">
-          Preview prices — Stripe TEST mode only. Displayed monthly amounts are test placeholders and do not charge real
-          money. Report credit packs ($9 for 3, $25 for 10) are unchanged on <Link href="/credits">Credits</Link>.
+          Preview prices — Stripe TEST mode only. One-time credit packs ($9 for 3, $25 for 10) buy report credits only
+          and do <strong>not</strong> include Deal Radar — see <Link href="/credits">Credits</Link>.
         </p>
+
+        {fromWatch ? (
+          <p className="warn-box" role="status">
+            Watch with Deal Radar needs an active Radar or Radar Pro plan. Choose a plan below to continue.
+          </p>
+        ) : null}
 
         {params.get("status") === "success" ? (
           <p className="warn-box">
@@ -150,8 +158,7 @@ function PricingContent() {
                   ? "Payment needs attention"
                   : "Active"}
               </strong>
-              {personal?.searchLimit ? ` · up to ${personal.searchLimit} personal` : null}
-              {flip?.searchLimit ? ` · up to ${flip.searchLimit} Flip` : null}
+              {personal?.searchLimit ? ` · up to ${personal.searchLimit} watched searches` : null}
             </p>
             {account?.plans.billingPortalAvailable ? (
               <button className="action" type="button" onClick={() => void manageSubscription()} disabled={pending === "portal"}>
@@ -166,25 +173,14 @@ function PricingContent() {
           </section>
         ) : null}
 
-        <h2>Free</h2>
-        <div className="choice-grid">
-          <article className="choice-card">
-            <strong className="choice-title">{FREE_RADAR.name}</strong>
-            <span className="choice-desc">{FREE_RADAR.detail}</span>
-            <b>$0</b>
-          </article>
-        </div>
-
-        <h2>Paid TEST plans (Stripe test)</h2>
-        <p className="hint">Optional. Raises watch caps, shortens due intervals, and sets a monthly SERV call cap.</p>
+        <h2>Radar plans (Stripe TEST)</h2>
+        <p className="hint">Required for Watch with Deal Radar. Credit packs never unlock radar.</p>
         <div className="choice-grid">
           {PLAN_CATALOG.map((plan) => (
-            <article className="choice-card" key={plan.id}>
+            <article className="choice-card" key={plan.id} id={`plan-${plan.id}`}>
               <strong className="choice-title">{plan.name}</strong>
               <span className="choice-desc">{plan.detail}</span>
-              <b>
-                ${(plan.amountCents / 100).toFixed(plan.amountCents % 100 === 0 ? 0 : 2)}/month (test)
-              </b>
+              <b>${(plan.amountCents / 100).toFixed(0)}/month (test)</b>
               <button
                 className="action"
                 type="button"
@@ -204,10 +200,25 @@ function PricingContent() {
             </article>
           ))}
         </div>
+
+        <h2>Report credit packs (no radar)</h2>
+        <p className="hint">One-time purchases. They add report credits only — they do not create or unlock Deal Radar watches.</p>
+        <div className="choice-grid">
+          {CREDIT_PACKS.map((pack) => (
+            <article className="choice-card" key={pack.id}>
+              <strong className="choice-title">{pack.name}</strong>
+              <span className="choice-desc">
+                ${(pack.amountCents / 100).toFixed(0)} · {pack.credits} report credits. No radar watches included.
+              </span>
+              <b>${(pack.amountCents / 100).toFixed(0)}</b>
+              <Link className="action" href="/credits">
+                Buy on Credits
+              </Link>
+            </article>
+          ))}
+        </div>
+
         {message ? <p className="warn">{message}</p> : null}
-        <p>
-          <Link href="/credits">Report credits are separate.</Link>
-        </p>
         <p>
           <Link href="/radar">Open Deal Radar</Link>
         </p>

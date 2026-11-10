@@ -165,13 +165,14 @@ export async function runRadarCycle(deps: CycleDeps): Promise<StoredRun> {
       planCache.set(ownerId, row);
       return row;
     };
-    // Representative run interval = shortest cadence among enabled watches (for activity log).
-    let minInterval = 24;
+    // Representative run interval = shortest cadence among paid enabled watches (for activity log).
+    let minInterval = Number.POSITIVE_INFINITY;
     for (const item of searches) {
       const plans = await plansOf(item.ownerId);
-      minInterval = Math.min(minInterval, intervalHoursForWatch(item.mode, plans));
+      const h = intervalHoursForWatch(item.mode, plans);
+      if (Number.isFinite(h)) minInterval = Math.min(minInterval, h);
     }
-    hours = searches.length ? minInterval : 24;
+    hours = Number.isFinite(minInterval) ? minInterval : 6;
     const alerts = await listAlerts(deps.kv);
     const freshAlerts: WatchAlert[] = [];
 
@@ -209,9 +210,21 @@ export async function runRadarCycle(deps: CycleDeps): Promise<StoredRun> {
 
     const due: { key: string; group: SavedSearch[]; urls: string[] }[] = [];
     for (const [key, group] of groups) {
+      // Paid-only: skip watches whose owner has no active radar plan.
+      const paidGroup: SavedSearch[] = [];
+      for (const item of group) {
+        const plans = await plansOf(item.ownerId);
+        const interval = intervalHoursForWatch(item.mode, plans);
+        if (!Number.isFinite(interval) || interval <= 0) continue;
+        paidGroup.push(item);
+      }
+      if (paidGroup.length === 0) {
+        skippedDue += group.length;
+        continue;
+      }
       let ready = Boolean(deps.forceAll);
       if (!ready) {
-        for (const item of group) {
+        for (const item of paidGroup) {
           const plans = await plansOf(item.ownerId);
           const intervalMs = intervalHoursForWatch(item.mode, plans) * 60 * 60 * 1000;
           if (isDue(item.lastCheckedAt, deps.now.getTime(), intervalMs)) {
@@ -225,12 +238,12 @@ export async function runRadarCycle(deps: CycleDeps): Promise<StoredRun> {
         continue;
       }
       if (!deps.autodevKey) {
-        stamp(group, deps.now.toISOString());
+        stamp(paidGroup, deps.now.toISOString());
         continue;
       }
       const urls: string[] = [];
       let halted = false;
-      for (const query of listingQueries(group[0]!)) {
+      for (const query of listingQueries(paidGroup[0]!)) {
         const url = listingsSearchUrl(query);
         const cached = await readListingCache(deps.kv, url, deps.now.getTime());
         if (cached) {
@@ -253,7 +266,7 @@ export async function runRadarCycle(deps: CycleDeps): Promise<StoredRun> {
         autodevCalls += 1;
         urls.push(url);
       }
-      if (urls.length) due.push({ key, group, urls });
+      if (urls.length) due.push({ key, group: paidGroup, urls });
       if (halted) break;
     }
 
