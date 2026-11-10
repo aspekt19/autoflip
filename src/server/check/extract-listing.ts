@@ -51,6 +51,11 @@ async function runLlmFill(
   deps: ListingExtractDeps,
 ): Promise<{ fields: ExtractedListingFields; llmUsed: boolean }> {
   let fields = parse.deterministic;
+  // A car already identified from the page does not spend extract calls.
+  // Check's verdict budget is verdict_decide + verdict_challenge (2).
+  if (fields.year.value && fields.make.value && fields.model.value) {
+    return { fields, llmUsed: false };
+  }
   if (!deps.servKey || !parse.llmText.trim()) return { fields, llmUsed: false };
 
   const guarded = await runServ(

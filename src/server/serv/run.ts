@@ -437,6 +437,19 @@ async function readChatStream(response: Response): Promise<{ text: string; paylo
   return { text: text.trim(), payload };
 }
 
+export function servApiBase(baseUrl?: string): string {
+  return (baseUrl || process.env.SERV_BASE_URL || "https://inference-api.openserv.ai/v1").replace(/\/$/, "");
+}
+
+/** True when a URL targets the configured SERV inference host. */
+export function isServEndpointUrl(url: string, baseUrl?: string): boolean {
+  try {
+    return new URL(url).host === new URL(servApiBase(baseUrl)).host;
+  } catch {
+    return false;
+  }
+}
+
 export async function runServ(
   id: ProfileId,
   input: { user: string; facts?: ServFacts },
@@ -448,7 +461,7 @@ export async function runServ(
   const experiment = transportPolicy === "experiment_single_attempt";
   const started = Date.now();
   let httpAttempts = 0;
-  const base = (deps.baseUrl || "https://inference-api.openserv.ai/v1").replace(/\/$/, "");
+  const base = servApiBase(deps.baseUrl);
   const env = deps.env ?? process.env;
   const resolvedModel = resolveProfileBaseModel(id, {
     requested: deps.model ?? null,

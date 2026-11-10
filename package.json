@@ -22,6 +22,7 @@
     "eval:scout-model-compare": "tsx eval/serv-scout-model-compare.ts",
     "eval:serv-compare-preflight": "tsx eval/serv-compare-preflight.ts",
     "eval:flip-t318-decision-pack": "tsx eval/flip-t318-decision-pack.ts",
+    "eval:comparison": "tsx eval/comparison/harness.ts",
     "eval:record-serv-revision": "tsx eval/record-serv-revision.ts",
     "test:hero-scrub": "node scripts/hero-scrub-scroll.mjs",
     "smoke:free-gov": "node scripts/free-gov-smoke.mjs",

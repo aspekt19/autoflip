@@ -59,6 +59,18 @@ type CheckResultView = {
   }>;
   freeChecks?: { remaining: number; limit: number; resetsLabel: string } | null;
   agentVerdict?: AgentVerdict | null;
+  servTrace?: {
+    recordedAt: string;
+    model: string | null;
+    calls: Array<{
+      profile: string;
+      ok: boolean;
+      model: string | null;
+      responseId: string | null;
+      rawResponse: string | null;
+      error: string | null;
+    }>;
+  } | null;
 };
 
 function sourceLabel(source: string | null): string {
@@ -504,6 +516,26 @@ function CheckResultCard({ result }: { result: CheckResultView }) {
       </p>
       <p>{result.summary}</p>
       <AgentDecisionTrail verdict={result.agentVerdict} defaultOpen />
+      {result.servTrace && result.servTrace.calls.length > 0 ? (
+        <section aria-label="Recorded agent calls">
+          <h3>Recorded agent calls</h3>
+          <p className="hint">
+            Recorded {result.servTrace.recordedAt}
+            {result.servTrace.model ? ` · ${result.servTrace.model}` : ""}
+          </p>
+          {result.servTrace.calls.map((call) => (
+            <article key={`${call.profile}-${call.responseId ?? call.error ?? "call"}`}>
+              <p>
+                <strong>{call.profile}</strong>
+                {call.model ? ` · ${call.model}` : ""}
+                {call.responseId ? ` · ${call.responseId}` : ""}
+              </p>
+              {call.rawResponse ? <pre>{call.rawResponse}</pre> : null}
+              {call.error ? <p className="hint">{call.error}</p> : null}
+            </article>
+          ))}
+        </section>
+      ) : null}
 
       {sold ? (
         <p className="warn" role="status">

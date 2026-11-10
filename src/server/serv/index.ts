@@ -47,6 +47,7 @@ export {
 export { assertEnumTypeReconciled, assertStrictJsonSchemaSubset } from "./strict-json-schema";
 export {
   experimentServDeps,
+  isServEndpointUrl,
   messageText,
   requestFor,
   responseShape,
