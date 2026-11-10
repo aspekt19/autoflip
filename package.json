@@ -25,7 +25,8 @@
     "eval:comparison": "tsx eval/comparison/harness.ts",
     "eval:record-serv-revision": "tsx eval/record-serv-revision.ts",
     "test:hero-scrub": "node scripts/hero-scrub-scroll.mjs",
-    "smoke:free-gov": "node scripts/free-gov-smoke.mjs"
+    "smoke:free-gov": "node scripts/free-gov-smoke.mjs",
+    "probe:listing-fetch": "tsx scripts/probe-listing-fetch.ts"
   },
   "engines": {
     "node": "22.x"

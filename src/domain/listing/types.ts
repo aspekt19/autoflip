@@ -12,7 +12,9 @@ export type ListingFieldSource =
   | "llm"
   | "url"
   | "pasted_text"
-  | "vin_decode";
+  | "vin_decode"
+  /** Exact Auto.dev feed match by VDP URL (never invented). */
+  | "listing_feed";
 
 export type Provenanced<T> = {
   value: T | null;
