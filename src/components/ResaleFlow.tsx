@@ -2,11 +2,18 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useId, useState } from "react";
+import { AgentDecisionTrail } from "@/components/AgentDecisionTrail";
+import { ResaleDecisionJournalView } from "@/components/ResaleDecisionJournal";
 import { useAccountLoad } from "@/components/use-account-load";
+import type { AgentVerdict } from "@/domain/agent-verdict-schema";
+import type { ResaleDecisionJournal } from "@/domain/resale-decision-journal";
 import { formatUsd } from "@/domain/format";
+import { NOTE_BODY_STYLES } from "@/domain/note-intake";
 import { NOT_ENOUGH_SIMILAR_CARS } from "@/domain/price-evaluation";
 import type { ResaleAssessment } from "@/domain/resale-evaluate";
+import type { ResaleCandidatePnl } from "@/domain/resale-pnl";
+import { SEARCH_RADII_MILES } from "@/domain/need";
 
 export function ResaleFlow() {
   const account = useAccountLoad();
@@ -14,6 +21,7 @@ export function ResaleFlow() {
   const loading = account.phase === "loading";
   const signedIn = account.phase === "loaded" && account.body?.authenticated === true;
   const authConfigured = account.body?.auth?.configured !== false;
+  const credits = typeof account.body?.credits === "number" ? account.body.credits : null;
 
   if (loading) {
     return (
@@ -28,7 +36,7 @@ export function ResaleFlow() {
       <div className="panel sign-in-gate" role="region" aria-label="Sign in required">
         <h2>Sign in to continue</h2>
         <p className="lead">
-          Resale estimates use live similar listings. A free account keeps that usage tied to you.
+          Resale searches live dealer inventory for flips inside your budget. A free account keeps that usage tied to you.
         </p>
         {authConfigured ? (
           <p className="btn-row">
@@ -45,10 +53,431 @@ export function ResaleFlow() {
     );
   }
 
-  return <ResaleForm onAuthLost={() => router.push(`/login?callbackUrl=${encodeURIComponent("/resale")}`)} />;
+  return (
+    <ResaleSearchForm
+      credits={credits}
+      onAuthLost={() => router.push(`/login?callbackUrl=${encodeURIComponent("/resale")}`)}
+    />
+  );
 }
 
-function ResaleForm({ onAuthLost }: { onAuthLost: () => void }) {
+type SearchResult = {
+  best: ResaleCandidatePnl | null;
+  alternatives: ResaleCandidatePnl[];
+  verdictAction: string;
+  confidence: "High" | "Medium" | "Low";
+  agentVerdict: AgentVerdict;
+  journal: ResaleDecisionJournal;
+  headline: string;
+  message: string;
+  nextStep: string;
+  creditNote: string;
+  balance?: number;
+};
+
+function ResaleSearchForm({ credits, onAuthLost }: { credits: number | null; onAuthLost: () => void }) {
+  const filtersId = useId();
+  const [budget, setBudget] = useState("");
+  const [zip, setZip] = useState("");
+  const [radius, setRadius] = useState<string>("");
+  const [bodyStyle, setBodyStyle] = useState("");
+  const [makes, setMakes] = useState("");
+  const [milesMax, setMilesMax] = useState("");
+  const [repairAbility, setRepairAbility] = useState<"unknown" | "none" | "minor" | "major">("unknown");
+  const [timeToSell, setTimeToSell] = useState<"any" | "faster" | "unknown">("any");
+  const [targetProfit, setTargetProfit] = useState("");
+  const [showFilters, setShowFilters] = useState(false);
+  const [pending, setPending] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [result, setResult] = useState<SearchResult | null>(null);
+  const [idemKey] = useState(
+    () => `resale-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 12)}`,
+  );
+
+  async function submitSearch() {
+    setError(null);
+    setResult(null);
+    setPending(true);
+    try {
+      const response = await fetch("/api/resale/search", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          budgetUsd: budget,
+          zip: zip.trim() || null,
+          distanceMiles: radius === "" ? null : Number(radius),
+          bodyStyle: bodyStyle || null,
+          preferredMakes: makes,
+          milesMax: milesMax.trim() === "" ? null : milesMax,
+          repairAbility,
+          timeToSell,
+          targetProfitUsd: targetProfit.trim() === "" ? null : targetProfit,
+          searchIdempotencyKey: idemKey,
+        }),
+      });
+      const body = (await response.json()) as {
+        error?: string;
+        message?: string;
+        best?: ResaleCandidatePnl | null;
+        alternatives?: ResaleCandidatePnl[];
+        verdictAction?: string;
+        confidence?: "High" | "Medium" | "Low";
+        agentVerdict?: AgentVerdict;
+        journal?: ResaleDecisionJournal;
+        headline?: string;
+        nextStep?: string;
+        creditNote?: string;
+        balance?: number;
+      };
+      if (response.status === 401 || response.status === 403) {
+        if (body.error === "auth_required" || body.error === "email_unverified" || body.error === "auth_unconfigured") {
+          onAuthLost();
+          return;
+        }
+        if (body.error === "credits_required") {
+          setError(body.message ?? "Resale search costs 1 report credit.");
+          return;
+        }
+      }
+      if (!response.ok || !body.agentVerdict || !body.confidence || !body.verdictAction) {
+        setError(body.message ?? "The resale search did not finish.");
+        return;
+      }
+      setResult({
+        best: body.best ?? null,
+        alternatives: body.alternatives ?? [],
+        verdictAction: body.verdictAction,
+        confidence: body.confidence,
+        agentVerdict: body.agentVerdict,
+        journal: body.journal ?? {
+          schemaVersion: "lemonless.resale_journal.v1",
+          steps: [],
+          servCalls: 0,
+          servCallCap: 6,
+        },
+        headline: body.headline ?? "Resale search",
+        message: body.message ?? "",
+        nextStep: body.nextStep ?? "",
+        creditNote: body.creditNote ?? "1 report credit per delivered resale search.",
+        balance: body.balance,
+      });
+    } catch {
+      setError("The resale search did not finish.");
+    } finally {
+      setPending(false);
+    }
+  }
+
+  return (
+    <div className="panel resale-flow">
+      <p className="hint">
+        Budget is the only required field. Everything else is optional. Results always include a verdict (buy /
+        negotiate / pass / needs inspection) with High / Medium / Low confidence — never a dead end. Figures are
+        estimates from asking prices — not sold prices, and not a profit guarantee.
+      </p>
+      {credits != null ? (
+        <p className="hint">
+          Credits on this account: {credits}. This search uses 1 report credit when results are delivered.
+        </p>
+      ) : null}
+
+      <div className="field">
+        <label htmlFor="resale-budget">Budget (required)</label>
+        <input
+          id="resale-budget"
+          value={budget}
+          onChange={(e) => setBudget(e.target.value)}
+          inputMode="decimal"
+          placeholder="e.g. 12,000"
+          required
+        />
+      </div>
+
+      <p className="btn-row">
+        <button
+          type="button"
+          className="ghost"
+          aria-expanded={showFilters}
+          aria-controls={filtersId}
+          onClick={() => setShowFilters((v) => !v)}
+        >
+          {showFilters ? "Hide optional filters" : "Optional filters"}
+        </button>
+      </p>
+
+      {showFilters ? (
+        <div id={filtersId} className="resale-optional-filters">
+          <div className="pair">
+            <div className="field">
+              <label htmlFor="resale-zip">ZIP</label>
+              <input
+                id="resale-zip"
+                value={zip}
+                onChange={(e) => setZip(e.target.value)}
+                inputMode="numeric"
+                placeholder="Nationwide if blank"
+              />
+            </div>
+            <div className="field">
+              <label htmlFor="resale-radius">Radius (miles)</label>
+              <select id="resale-radius" value={radius} onChange={(e) => setRadius(e.target.value)}>
+                <option value="">Nationwide</option>
+                {SEARCH_RADII_MILES.map((miles) => (
+                  <option key={miles} value={String(miles)}>
+                    {miles} miles
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
+          <div className="pair">
+            <div className="field">
+              <label htmlFor="resale-body">Body type</label>
+              <select id="resale-body" value={bodyStyle} onChange={(e) => setBodyStyle(e.target.value)}>
+                <option value="">Any</option>
+                {NOTE_BODY_STYLES.map((style) => (
+                  <option key={style} value={style}>
+                    {style}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="field">
+              <label htmlFor="resale-makes">Makes (comma-separated)</label>
+              <input
+                id="resale-makes"
+                value={makes}
+                onChange={(e) => setMakes(e.target.value)}
+                placeholder="e.g. Honda, Toyota"
+              />
+            </div>
+          </div>
+          <div className="pair">
+            <div className="field">
+              <label htmlFor="resale-miles-max">Max mileage</label>
+              <input
+                id="resale-miles-max"
+                value={milesMax}
+                onChange={(e) => setMilesMax(e.target.value)}
+                inputMode="numeric"
+                placeholder="No cap if blank"
+              />
+            </div>
+            <div className="field">
+              <label htmlFor="resale-target-profit">Target profit (optional)</label>
+              <input
+                id="resale-target-profit"
+                value={targetProfit}
+                onChange={(e) => setTargetProfit(e.target.value)}
+                inputMode="decimal"
+                placeholder="e.g. 1,500"
+              />
+            </div>
+          </div>
+          <fieldset className="field">
+            <legend>Willingness to invest in repairs</legend>
+            <div className="pills" role="radiogroup" aria-label="Repair ability">
+              {(
+                [
+                  ["unknown", "Not sure"],
+                  ["none", "Pay a shop"],
+                  ["minor", "Basic repairs"],
+                  ["major", "Mechanical work"],
+                ] as const
+              ).map(([value, label]) => (
+                <label className="pill" key={value}>
+                  <input
+                    type="radio"
+                    name="repair-search"
+                    checked={repairAbility === value}
+                    onChange={() => setRepairAbility(value)}
+                  />{" "}
+                  {label}
+                </label>
+              ))}
+            </div>
+          </fieldset>
+          <fieldset className="field">
+            <legend>Time to sell preference</legend>
+            <div className="pills" role="radiogroup" aria-label="Time to sell">
+              {(
+                [
+                  ["any", "Any"],
+                  ["faster", "Prefer faster"],
+                  ["unknown", "Do not rank on speed"],
+                ] as const
+              ).map(([value, label]) => (
+                <label className="pill" key={value}>
+                  <input
+                    type="radio"
+                    name="time-to-sell"
+                    checked={timeToSell === value}
+                    onChange={() => setTimeToSell(value)}
+                  />{" "}
+                  {label}
+                </label>
+              ))}
+            </div>
+          </fieldset>
+        </div>
+      ) : null}
+
+      <div className="btn-row">
+        <button className="action" type="button" disabled={pending || !budget.trim()} onClick={() => void submitSearch()}>
+          {pending ? "Searching flips…" : "Find flips (1 credit)"}
+        </button>
+      </div>
+
+      {error ? (
+        <p className="warn" role="alert">
+          {error}
+        </p>
+      ) : null}
+
+      {result ? <ResaleSearchResultView result={result} /> : null}
+
+      <details className="onboarding-note">
+        <summary>
+          <strong>One-car buy-ceiling estimate</strong> (optional, no inventory search)
+        </summary>
+        <ResaleEvaluateForm onAuthLost={onAuthLost} />
+      </details>
+    </div>
+  );
+}
+
+function ResaleSearchResultView({ result }: { result: SearchResult }) {
+  return (
+    <article className="warn-box check-result" aria-live="polite">
+      <h2>{result.headline}</h2>
+      <p className="lead">
+        <strong>Verdict: {result.verdictAction}</strong>
+        {" · "}
+        Confidence: {result.confidence}
+      </p>
+      <p>{result.message}</p>
+      <p className="hint">{result.nextStep}</p>
+      <p className="hint">{result.creditNote}</p>
+      {typeof result.balance === "number" ? <p className="hint">Balance after search: {result.balance}</p> : null}
+
+      {result.best ? <CandidateCard title="Best flip" candidate={result.best} featured /> : null}
+      {result.alternatives.length > 0 ? (
+        <section>
+          <h3>Alternatives</h3>
+          {result.alternatives.map((item) => (
+            <CandidateCard key={item.vin} title={`${item.listing.year} ${item.listing.make} ${item.listing.model}`} candidate={item} />
+          ))}
+        </section>
+      ) : null}
+
+      <ResaleDecisionJournalView journal={result.journal} defaultOpen />
+      <AgentDecisionTrail verdict={result.agentVerdict} defaultOpen />
+    </article>
+  );
+}
+
+function CandidateCard({
+  title,
+  candidate,
+  featured = false,
+}: {
+  title: string;
+  candidate: ResaleCandidatePnl;
+  featured?: boolean;
+}) {
+  const l = candidate.listing;
+  return (
+    <section className={featured ? "resale-best" : undefined}>
+      <h3>
+        {title}
+        {featured ? "" : ""}
+      </h3>
+      <p>
+        {l.year} {l.make} {l.model}
+        {l.trim ? ` ${l.trim}` : ""}
+        {l.miles != null ? ` · ${l.miles.toLocaleString("en-US")} mi` : ""}
+        {l.city || l.state ? ` · ${[l.city, l.state].filter(Boolean).join(", ")}` : ""}
+      </p>
+      <ul className="refuse">
+        <li>Ask: {formatUsd(candidate.askingUsd)}</li>
+        <li>
+          Negotiated offer estimate: {formatUsd(candidate.negotiatedOfferUsd)} — {candidate.negotiateBasis}
+        </li>
+        <li>
+          Sales tax: {candidate.salesTaxUsd != null ? formatUsd(candidate.salesTaxUsd) : "unknown"} — {candidate.salesTaxBasis}
+        </li>
+        <li>
+          Title/registration: unknown dollar amount — {candidate.titleRegistrationBasis}
+        </li>
+        <li>
+          Title/fee assumption used in P&L: {formatUsd(candidate.titleFeeAssumptionUsd)} — {candidate.titleFeeBasis}
+        </li>
+        <li>
+          Reconditioning estimate: {formatUsd(candidate.reconUsd)} — {candidate.reconBasis}
+        </li>
+        <li>
+          Expected resale ({candidate.resaleChannel.replace("_", " ")}):{" "}
+          {candidate.resaleLowUsd != null ? formatUsd(candidate.resaleLowUsd) : "—"} /{" "}
+          {candidate.resaleMidUsd != null ? formatUsd(candidate.resaleMidUsd) : "—"} /{" "}
+          {candidate.resaleHighUsd != null ? formatUsd(candidate.resaleHighUsd) : "—"} — {candidate.resaleChannelBasis}
+        </li>
+        <li>
+          Expected net profit
+          {candidate.profitScopeLabel ? ` (${candidate.profitScopeLabel})` : ""}:{" "}
+          {candidate.profitLowUsd != null ? formatUsd(candidate.profitLowUsd) : "—"} to{" "}
+          {candidate.profitHighUsd != null ? formatUsd(candidate.profitHighUsd) : "—"} (mid{" "}
+          {candidate.profitMidUsd != null ? formatUsd(candidate.profitMidUsd) : "—"})
+          {!candidate.salesTaxKnown && candidate.rankingProfitMidUsd != null
+            ? ` · ranking uses ${formatUsd(candidate.rankingProfitMidUsd)} after the max statewide-base tax haircut`
+            : ""}
+        </li>
+        <li>ROI (mid): {candidate.roiPctMid != null ? `${candidate.roiPctMid}%` : "unknown"}</li>
+        <li>
+          Estimated days to sell:{" "}
+          {candidate.estimatedDaysToSell != null ? String(candidate.estimatedDaysToSell) : "unknown"} —{" "}
+          {candidate.daysToSellBasis}
+        </li>
+        <li>
+          Confidence: {candidate.confidence} — {candidate.confidenceBasis}
+        </li>
+        <li>Similar listings in this scan: {candidate.compCount}</li>
+      </ul>
+      {candidate.provenance?.length ? (
+        <>
+          <h4>Number sources</h4>
+          <ul className="refuse">
+            {candidate.provenance.map((row) => (
+              <li key={row.field}>
+                {row.field}: {row.display} · {row.source}
+              </li>
+            ))}
+          </ul>
+        </>
+      ) : null}
+      <h4>Key risks</h4>
+      <ul className="refuse">
+        {candidate.risks.map((line) => (
+          <li key={line}>{line}</li>
+        ))}
+      </ul>
+      <h4>Check before buying</h4>
+      <ul className="refuse">
+        {candidate.checkBeforeBuying.map((line) => (
+          <li key={line}>{line}</li>
+        ))}
+      </ul>
+      {l.vdp ? (
+        <p>
+          <a href={l.vdp} target="_blank" rel="noreferrer">
+            Open listing
+          </a>
+        </p>
+      ) : null}
+    </section>
+  );
+}
+
+function ResaleEvaluateForm({ onAuthLost }: { onAuthLost: () => void }) {
   const yearNow = new Date().getUTCFullYear();
   const [year, setYear] = useState(String(yearNow - 4));
   const [make, setMake] = useState("");
@@ -113,11 +542,10 @@ function ResaleForm({ onAuthLost }: { onAuthLost: () => void }) {
   }
 
   return (
-    <div className="panel resale-flow">
+    <div>
       <p className="hint">
-        Enter one car you might buy to flip. Lemonless compares the ask with similar dealer listings and shows a buy
-        ceiling, a resale range, and example costs. Figures are estimates from asking prices — not sold prices, and not a
-        profit guarantee.
+        Optional what-if for one car you already have in mind. Does not search inventory and does not use a report
+        credit.
       </p>
       <div className="pair">
         <div className="field">
@@ -180,12 +608,11 @@ function ResaleForm({ onAuthLost }: { onAuthLost: () => void }) {
           inputMode="numeric"
           placeholder="Leave blank if you do not know"
         />
-        <p className="hint">Blank does not mean a clean history. The recon example then uses 1 accident and says so.</p>
       </div>
       <div className="field">
-        <label htmlFor="resale-zip">U.S. ZIP for nearby comps (optional)</label>
+        <label htmlFor="resale-eval-zip">U.S. ZIP for nearby comps (optional)</label>
         <input
-          id="resale-zip"
+          id="resale-eval-zip"
           value={zip}
           onChange={(e) => setZip(e.target.value)}
           inputMode="numeric"
@@ -194,7 +621,7 @@ function ResaleForm({ onAuthLost }: { onAuthLost: () => void }) {
       </div>
       <fieldset className="field">
         <legend>Repair ability (affects recon estimate only)</legend>
-        <div className="pills" role="radiogroup" aria-label="Repair ability">
+        <div className="pills" role="radiogroup" aria-label="Repair ability for estimate">
           {(
             [
               ["unknown", "Not sure"],
@@ -206,7 +633,7 @@ function ResaleForm({ onAuthLost }: { onAuthLost: () => void }) {
             <label className="pill" key={value}>
               <input
                 type="radio"
-                name="repair"
+                name="repair-eval"
                 checked={repairAbility === value}
                 onChange={() => setRepairAbility(value)}
               />{" "}
@@ -225,12 +652,12 @@ function ResaleForm({ onAuthLost }: { onAuthLost: () => void }) {
           {error}
         </p>
       ) : null}
-      {assessment ? <ResaleResult title={title} assessment={assessment} /> : null}
+      {assessment ? <ResaleEvalResult title={title} assessment={assessment} /> : null}
     </div>
   );
 }
 
-function ResaleResult({ title, assessment }: { title: string | null; assessment: ResaleAssessment }) {
+function ResaleEvalResult({ title, assessment }: { title: string | null; assessment: ResaleAssessment }) {
   if (!assessment.ok) {
     return (
       <article className="warn-box" aria-live="polite">

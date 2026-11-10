@@ -38,6 +38,11 @@ export const ASSUMPTIONS = {
   flipReconHighMileUsd: 200,
   flipHighMileThreshold: 100_000,
   flipDesiredProfitUsd: 1_500,
+  /**
+   * Example negotiated-offer haircut under ask for resale P&L.
+   * Labeled estimate only — not a dealer quote or market rule.
+   */
+  flipNegotiateHaircut: 0.05,
   /** Haircut from comparable asking prices to a realistic resale. */
   flipSellFriction: 0.03,
   flipThinMarginUsd: 500,

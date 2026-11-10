@@ -3,7 +3,7 @@ import Link from "next/link";
 import { ResaleFlow } from "@/components/ResaleFlow";
 import { productFlagsUnavailableMessage, resolveProductFlags } from "@/domain/product-flags";
 
-export const metadata: Metadata = { title: "Resale estimate" };
+export const metadata: Metadata = { title: "Resale — find flips" };
 
 /** Runtime flag — must not bake RESALE_EVALUATE_ENABLED at build time. */
 export const dynamic = "force-dynamic";
@@ -31,19 +31,25 @@ export default function ResalePage() {
     <div className="sub">
       <div className="flow-page site-frame">
         <p className="kicker">For resale</p>
-        <h1>Resale estimate</h1>
+        <h1>Resale</h1>
         <p className="lead">
-          One car at a time: buy-ceiling estimate, expected resale range from similar listings, and example costs. Sign-in
-          required. Not a profit guarantee.
+          Enter a budget. Lemonless searches what you can buy now and returns the best flip plus alternatives — with an
+          honest profit calc and a verdict every time. 1 report credit per search.
         </p>
         <div className="onboarding-note">
-          <strong>What this is</strong>
+          <strong>How it works</strong>
           <ol>
-            <li>You enter year, make, model, miles, and the ask you would pay.</li>
-            <li>Lemonless compares that ask with similar dealer listings using the same adjusted-comparables price math as the rest of the product.</li>
-            <li>You get a buy ceiling, a resale range, example fees/recon, and a margin with High / Medium / Low confidence — or “Not enough similar cars.”</li>
+            <li>Budget is required. ZIP, radius, body type, makes, miles, repair skill, and time-to-sell are optional.</li>
+            <li>
+              Code ranks live listings with the same adjusted-comparables math as the rest of the product, then SERV
+              chooses which shortlist cars to look at and the shopper verdict (decide + challenge).
+            </li>
+            <li>
+              Each candidate shows negotiate estimate, fees/tax, recon, resale band, net profit range, ROI, days-to-sell
+              when known, risks, and what to check before buying — or explicit unknowns.
+            </li>
           </ol>
-          <p>Saved-search Deal Radar alerts are a separate preview surface and may be off.</p>
+          <p>Not a profit guarantee. No invented listings. One-car buy-ceiling estimate remains available below the search.</p>
         </div>
         <ResaleFlow />
       </div>

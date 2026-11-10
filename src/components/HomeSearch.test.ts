@@ -14,10 +14,10 @@ describe("HomeSearch Find cars navigation", () => {
     expect(source).not.toMatch(/preventDefault\(\);\s*\n\s*const text/);
   });
 
-  it("routes For resale to the minimal /resale estimate instead of Find", () => {
+  it("routes For resale to budget-first /resale search instead of Find", () => {
     const source = readFileSync(join(__dirname, "HomeSearch.tsx"), "utf8");
     expect(source).toMatch(/href=["']\/resale["']/);
-    expect(source).toMatch(/Estimate resale/);
+    expect(source).toMatch(/Find flips/);
     expect(source).toMatch(/not a\s+profit guarantee/i);
   });
 });
