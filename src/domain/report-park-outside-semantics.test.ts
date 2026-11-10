@@ -96,7 +96,9 @@ describe("parkIt ≠ parkOutside report semantics (t313/t316/t334 follow-up)", (
     expect(decision.line).not.toBe("Skip");
 
     const gates = runOrderedGates(report);
-    expect(gates.gates.find((g) => g.id === "safety_red_flags")?.status).not.toBe("forbid");
+    // Park-outside is stop-level for buy/negotiate (shared with Check/Find), without walk-away.
+    expect(gates.gates.find((g) => g.id === "safety_red_flags")?.status).toBe("forbid");
+    expect(gates.forbid).toEqual(expect.arrayContaining(["buy", "negotiate"]));
   });
 
   it("genuine parkIt forces conditional walk-away / openParkIt without claiming VIN unrepaired proof", () => {

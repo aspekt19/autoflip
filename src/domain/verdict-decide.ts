@@ -88,6 +88,7 @@ export function verdictDecisionFacts(
     dataNotes: report.dataNotes,
     flagSummaries: report.flags.map((flag) => ({ level: flag.level, source: flag.source, text: flag.text })),
     openParkIt: report.openParkIt,
+    openParkOutside: report.openParkOutside === true,
     recallsAvailable: report.recallsAvailable,
     recallCount: report.recalls.length,
     complaintCount: report.complaintCount,

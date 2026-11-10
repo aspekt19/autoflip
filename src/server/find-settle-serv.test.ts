@@ -14,6 +14,7 @@ import {
   type BestDealCandidate,
   type BestDealResult,
 } from "@/domain/find-best-deal";
+import { runOrderedGates } from "@/domain/verdict-gates";
 
 function candidate(partial: Partial<BestDealCandidate> & Pick<BestDealCandidate, "key">): BestDealCandidate {
   return {
@@ -715,4 +716,110 @@ describe("find settle SERV", () => {
     expect(published.choice?.reasons.join(" ")).not.toMatch(/below fair/i);
     expect(published.choice?.reasons.join(" ")).not.toMatch(/solid comps/i);
   });
+
+  it("park-outside pick stamps openParkOutside and cannot publish High confidence", async () => {
+    // Provenance: live Find published High on a Tucson with NHTSA 20V543000 park-outside;
+    // Check correctly gave Medium + stop. Factors/unknowns carry the MMY fire-risk signal.
+    const pick = candidate({
+      key: "tucson-park-outside",
+      make: "Hyundai",
+      model: "Tucson",
+      year: 2019,
+      vin: "KM8J2CA43KU949132",
+      priceUsd: 13_750,
+      miles: 61_425,
+      factors: [
+        {
+          id: "price_vs_model_asks",
+          label: "Price",
+          points: 4,
+          detail: "Asking is near the fair value of $14,000 from similar listings.",
+          source: "code",
+        },
+        {
+          id: "mmy_recall_campaigns",
+          label: "Recalls",
+          points: 2,
+          detail:
+            "2 campaigns recorded for this year/make/model including outdoor-parking / fire-risk guidance (20V543000)",
+          source: "NHTSA recalls (year/make/model scope)",
+        },
+      ],
+      unknowns: [
+        "Park-outside / fire-risk guidance is stop-level until repaired; VIN repair status still unknown",
+      ],
+    });
+    const peers = [1, 2, 3].map((n) =>
+      candidate({
+        key: `t-peer-${n}`,
+        make: "Hyundai",
+        model: "Tucson",
+        year: 2018 + (n % 2),
+        vin: `KM8J2CA43KU94914${n}`,
+        priceUsd: 13_000 + n * 200,
+        miles: 58_000 + n * 1_000,
+      }),
+    );
+
+    const report = buildFindPickComputedReport(pick, peers);
+    expect(report.openParkIt).toBe(false);
+    expect(report.openParkOutside).toBe(true);
+    expect(report.flags.some((flag) => flag.level === "stop")).toBe(true);
+    const gates = runOrderedGates(report);
+    expect(gates.forbid).toEqual(expect.arrayContaining(["buy", "negotiate"]));
+
+    const ranked = [pick, ...peers];
+    const bestDeal = {
+      ranked,
+      pick,
+      confidence: "high",
+      choice: {
+        label: "2019 Hyundai Tucson",
+        runnerUpLabel: null,
+        reasons: ["Code ranked Tucson first."],
+        confidence: "high",
+        confidenceLine: "High: this car is clearly ahead on the checks that are finished.",
+        confirmBeforeBuying: [],
+      },
+      why: "Best choice on current data: 2019 Hyundai Tucson.",
+      stillUnknown: [],
+      sensitivity: [],
+      assumptionsNote: "",
+      honesty: "",
+      evidenceSettled: true,
+      settlementNote: "Checks finished.",
+      fairnessHeldOut: [],
+      priceProvisional: false,
+      allRanked: ranked,
+      baseline: {
+        pick: null,
+        cheapest: null,
+        lowestMiles: null,
+        cheapestIsPick: false,
+        lowestMilesIsPick: false,
+        cheaperLeftOut: null,
+        whyNotCheapest: "",
+        factors: [],
+        leading: null,
+      },
+      closeCall: null,
+    } as unknown as BestDealResult;
+
+    const settled = await runFindSettleServ({ bestDeal });
+    expect(settled.bestDeal.pick?.key).toBe("tucson-park-outside");
+    expect(settled.bestDeal.confidence).not.toBe("high");
+    expect(settled.bestDeal.confidence).toBe("medium");
+    expect(settled.bestDeal.choice?.confidence).toBe("medium");
+    expect(settled.bestDeal.choice?.confidenceLine).toMatch(/^Medium:/);
+    expect(settled.bestDeal.choice?.confidenceLine).toMatch(/Lowered from High|stop-level/i);
+    expect(settled.agentVerdict?.confidence).not.toBe("high");
+    expect(settled.agentVerdict?.serv_steps.some((step) => /stop-level|Lowered from High/i.test(step.decided))).toBe(
+      true,
+    );
+    // Code-fallback pickStep cites find_pick proof fields, not shopper verdict_decide.
+    const pickStep = settled.agentVerdict?.serv_steps[0];
+    expect(pickStep?.decided).toMatch(/Code picked/i);
+    expect(pickStep?.responseId).toBeNull();
+  });
+
 });

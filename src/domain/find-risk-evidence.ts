@@ -318,12 +318,13 @@ export function riskStatusForModelFamily(
     );
   } else if (anyParkOutside && !anyParkIt) {
     status = "mmy_park_outside_flag";
+    // Align with Check/Resale: park-outside (e.g. 20V543000 fire risk) is stop-level.
     whyBits.push(
-      "Government outdoor-parking campaign flag — not a do-not-drive / park-it claim by itself",
+      "Government outdoor-parking / fire-risk campaign — stop-level like Check; investigate VIN repair status before buying",
     );
     outstandingChecks.push("get_history_report");
     unknowns.push(
-      "Outdoor-parking guidance is not the same as a park-it do-not-drive flag; VIN repair status still unknown",
+      "Park-outside / fire-risk guidance is stop-level until repaired; VIN repair status still unknown",
     );
   } else if (complaintsOnly && !anyCampaigns) {
     status = "mmy_complaints_only";
