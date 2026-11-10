@@ -61,14 +61,31 @@ export async function POST(request: Request) {
     }
 
     if (result.kind === "replay") {
-      logResaleStage("route_replay", deadline.startedAtMs, { elapsedMs: deadline.elapsedMs() });
+      // Prefer delivery.charged / chargedCredit when present — never invent a paid claim.
+      const charged =
+        typeof result.delivery.charged === "boolean"
+          ? result.delivery.charged
+          : typeof result.delivery.chargedCredit === "boolean"
+            ? result.delivery.chargedCredit
+            : false;
+      logResaleStage("route_replay", deadline.startedAtMs, {
+        elapsedMs: deadline.elapsedMs(),
+        charged,
+      });
       return Response.json({
         ...result.delivery,
         balance: result.balance,
-        charged: true,
-        done: true,
+        charged,
+        chargedCredit: charged,
+        creditNote:
+          typeof result.delivery.creditNote === "string"
+            ? result.delivery.creditNote
+            : charged
+              ? "1 report credit per delivered resale search."
+              : "Credit not charged.",
+        done: charged,
         step: 4,
-        nextStep: null,
+        nextStep: charged ? null : 4,
         jobId: typeof result.delivery.jobId === "string" ? result.delivery.jobId : undefined,
       });
     }
@@ -78,9 +95,13 @@ export async function POST(request: Request) {
       jobId: result.job.jobId,
       step: result.job.stepCompleted,
       done: client.done,
+      charged: client.chargedCredit,
       elapsedMs: deadline.elapsedMs(),
     });
-    return Response.json(client);
+    return Response.json({
+      ...client,
+      charged: client.chargedCredit,
+    });
   } catch (err) {
     const reason = err instanceof Error ? err.message.slice(0, 180) : "unexpected_error";
     logResaleStage("route_outer_error", deadline.startedAtMs, { reason });

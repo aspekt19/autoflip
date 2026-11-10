@@ -66,7 +66,17 @@ export type ResaleJobRecord = {
   input: ResaleSearchInput;
   /** Highest completed step (0 = created, not yet run). */
   stepCompleted: 0 | ResaleJobStep;
-  status: "running" | "completed" | "failed";
+  /**
+   * - running: steps in progress
+   * - completed: delivery stored and credit charged (or already paid for this spend key)
+   * - delivered_unpaid: SERV finished and result is shown, but debit failed — retry charge on next advance/replay
+   * - failed: hard failure before a deliverable result
+   *
+   * Product choice when debit fails: still return the computed result (the user already waited through
+   * SERV) with an honest "Credit not charged" label, keep the job in delivered_unpaid, and retry the
+   * debit without re-running SERV. Never claim chargedCredit when no debit happened.
+   */
+  status: "running" | "completed" | "delivered_unpaid" | "failed";
   candidates: ResaleCandidatePnl[];
   planJournal: ResaleDecisionJournal;
   settleCheckpoint: ResaleSettleCheckpoint | null;
@@ -149,11 +159,20 @@ function mergeJournals(
   };
 }
 
+export const RESALE_CREDIT_NOTE_CHARGED =
+  "1 report credit per delivered resale search (same as Find). Failed searches do not debit. Retries with the same idempotency key replay the stored delivery.";
+
+export const RESALE_CREDIT_NOTE_UNPAID =
+  "Credit not charged. Results are shown, but 1 report credit is still owed — buy credits and continue/retry to settle. No double charge once paid.";
+
 export function jobToClientBody(
   job: ResaleJobRecord,
   opts?: { balance?: number },
 ): ResaleJobClientBody {
-  const done = job.status === "completed" && job.delivery != null;
+  const paidComplete = job.status === "completed" && job.charged && job.delivery != null;
+  const unpaidDelivered = job.status === "delivered_unpaid" && job.delivery != null;
+  // Unpaid deliveries are "done" for SERV work but not final — client may advance to retry charge.
+  const done = paidComplete;
   const progress = buildResaleJobProgress(job.stepCompleted);
   const journal =
     job.delivery?.journal ??
@@ -165,7 +184,14 @@ export function jobToClientBody(
     ok: true,
     jobId: job.jobId,
     step: job.stepCompleted,
-    nextStep: done || job.stepCompleted >= 4 ? null : ((job.stepCompleted + 1) as ResaleJobStep),
+    nextStep:
+      paidComplete
+        ? null
+        : unpaidDelivered
+          ? 4
+          : job.stepCompleted >= 4
+            ? null
+            : ((job.stepCompleted + 1) as ResaleJobStep),
     done,
     progress,
     journal,
@@ -188,9 +214,14 @@ export function jobToClientBody(
       agentVerdict: job.delivery.agentVerdict,
       headline: job.delivery.headline,
       message: job.delivery.message,
-      nextStepHint: job.delivery.nextStep,
-      creditNote: job.delivery.creditNote,
-      chargedCredit: true,
+      nextStepHint: unpaidDelivered
+        ? "Buy credits, then continue this search to settle the unpaid charge. SERV will not re-run."
+        : job.delivery.nextStep,
+      creditNote: job.charged
+        ? job.delivery.creditNote || RESALE_CREDIT_NOTE_CHARGED
+        : RESALE_CREDIT_NOTE_UNPAID,
+      // Always the real ledger flag — never force true because a delivery exists.
+      chargedCredit: job.charged,
     };
   }
 
@@ -271,7 +302,7 @@ function emptyPassDelivery(input: ResaleSearchInput, journal: ResaleDecisionJour
   return {
     ok: true,
     sample: false,
-    chargedCredit: true,
+    chargedCredit: false,
     budgetUsd: input.budgetUsd,
     best: null,
     alternatives: [],
@@ -286,39 +317,85 @@ function emptyPassDelivery(input: ResaleSearchInput, journal: ResaleDecisionJour
     providerQueriesUsed: 0,
     scope: null,
     emptyReason: "no_flip_candidates",
-    creditNote:
-      "1 report credit per delivered resale search (same as Find). Failed searches do not debit. Retries with the same idempotency key replay the stored delivery.",
+    creditNote: RESALE_CREDIT_NOTE_CHARGED,
   };
 }
 
+/**
+ * Persist delivery, then attempt debit. On debit failure the job stays
+ * `delivered_unpaid` (result still shown) so the next advance/replay can retry the charge.
+ */
 async function chargeAndStoreDelivery(
   kv: Kv,
   job: ResaleJobRecord,
   delivery: ResaleSearchOkBody,
 ): Promise<{ job: ResaleJobRecord; balance: number }> {
-  const payload: ResaleSearchDelivery = {
+  const reserved = await reserveResaleSearchCreditReliable(kv, job.ownerId, job.idempotencyKey);
+  const charged = reserved.ok;
+  const honestDelivery: ResaleSearchOkBody = {
     ...delivery,
+    chargedCredit: charged,
+    creditNote: charged ? RESALE_CREDIT_NOTE_CHARGED : RESALE_CREDIT_NOTE_UNPAID,
+  };
+  const payload: ResaleSearchDelivery = {
+    ...honestDelivery,
     searchIdempotencyKey: job.idempotencyKey,
+    jobId: job.jobId,
+    charged,
   };
   await storeResaleSearchDelivery(kv, job.spendKey, payload);
-  const reserved = await reserveResaleSearchCreditReliable(kv, job.ownerId, job.idempotencyKey);
   const next: ResaleJobRecord = {
     ...job,
-    status: "completed",
+    status: charged ? "completed" : "delivered_unpaid",
     stepCompleted: 4,
-    delivery,
-    charged: reserved.ok,
+    delivery: honestDelivery,
+    charged,
     settleCheckpoint: job.settleCheckpoint,
     updatedAt: new Date().toISOString(),
-    error: reserved.ok
+    error: charged
       ? null
       : {
           error: "credits_required",
-          message: "Resale search costs 1 report credit. Buy credits to search flip inventory.",
+          message:
+            "Results are ready, but 1 report credit could not be charged. Buy credits and continue this search to settle — SERV will not re-run.",
         },
   };
   await storeResaleJob(kv, next);
   return { job: next, balance: reserved.balance };
+}
+
+/** Retry debit for a delivered_unpaid job without re-running SERV. */
+async function retryUnpaidCharge(
+  kv: Kv,
+  job: ResaleJobRecord,
+): Promise<{ job: ResaleJobRecord; balance: number }> {
+  if (job.charged || !job.delivery) {
+    return { job, balance: await creditBalance(kv, job.ownerId) };
+  }
+  if (await creditEventSeen(kv, job.spendKey)) {
+    const paidDelivery: ResaleSearchOkBody = {
+      ...job.delivery,
+      chargedCredit: true,
+      creditNote: RESALE_CREDIT_NOTE_CHARGED,
+    };
+    const next: ResaleJobRecord = {
+      ...job,
+      status: "completed",
+      charged: true,
+      delivery: paidDelivery,
+      error: null,
+      updatedAt: new Date().toISOString(),
+    };
+    await storeResaleSearchDelivery(kv, job.spendKey, {
+      ...paidDelivery,
+      searchIdempotencyKey: job.idempotencyKey,
+      jobId: job.jobId,
+      charged: true,
+    });
+    await storeResaleJob(kv, next);
+    return { job: next, balance: await creditBalance(kv, job.ownerId) };
+  }
+  return chargeAndStoreDelivery(kv, job, job.delivery);
 }
 
 export type CreateResaleJobResult =
@@ -358,21 +435,41 @@ export async function createAndRunResaleJobStep1(
     clientKey: deps.clientIdempotencyKey ?? null,
   });
   const spendKey = resaleSearchSpendKey(deps.ownerId, idempotencyKey);
-  const cached = await readResaleSearchDelivery(deps.kv, spendKey);
-  if (cached) {
-    const balance = await creditBalance(deps.kv, deps.ownerId);
-    return { ok: true, kind: "replay", delivery: cached, balance };
-  }
-
   const existingId = await readResaleJobIdBySpend(deps.kv, spendKey);
   if (existingId) {
     const existing = await readResaleJob(deps.kv, existingId);
     if (existing && existing.ownerId === deps.ownerId && existing.exp * 1000 > Date.now()) {
+      // Retry unpaid debit on create/replay of the same idempotency key.
+      if (existing.status === "delivered_unpaid" && existing.delivery && !existing.charged) {
+        const retried = await retryUnpaidCharge(deps.kv, existing);
+        return { ok: true, kind: "job", job: retried.job, balance: retried.balance };
+      }
       if (existing.stepCompleted >= 1) {
         const balance = await creditBalance(deps.kv, deps.ownerId);
         return { ok: true, kind: "job", job: existing, balance };
       }
     }
+  }
+
+  const cached = await readResaleSearchDelivery(deps.kv, spendKey);
+  if (cached) {
+    const balance = await creditBalance(deps.kv, deps.ownerId);
+    // Prefer job ledger truth when present; never force charged:true from a stale delivery flag.
+    const linkedId =
+      typeof cached.jobId === "string"
+        ? cached.jobId
+        : await readResaleJobIdBySpend(deps.kv, spendKey);
+    if (linkedId) {
+      const linked = await readResaleJob(deps.kv, linkedId);
+      if (linked && linked.ownerId === deps.ownerId) {
+        if (linked.status === "delivered_unpaid" && linked.delivery && !linked.charged) {
+          const retried = await retryUnpaidCharge(deps.kv, linked);
+          return { ok: true, kind: "job", job: retried.job, balance: retried.balance };
+        }
+        return { ok: true, kind: "job", job: linked, balance };
+      }
+    }
+    return { ok: true, kind: "replay", delivery: cached, balance };
   }
 
   const alreadyPaid = await creditEventSeen(deps.kv, spendKey);
@@ -532,21 +629,29 @@ export async function advanceResaleJob(
     };
   }
 
-  const balance = await creditBalance(deps.kv, deps.ownerId);
+  let balance = await creditBalance(deps.kv, deps.ownerId);
 
-  // Idempotent: already complete → replay.
-  if (job.status === "completed" && job.delivery) {
+  // Paid complete → idempotent replay.
+  if (job.status === "completed" && job.charged && job.delivery) {
     return { ok: true, job, balance };
   }
 
-  if (job.stepCompleted >= 4) {
+  // SERV finished but debit failed — retry charge only (no SERV redo).
+  if (job.status === "delivered_unpaid" && job.delivery && !job.charged) {
+    const retried = await retryUnpaidCharge(deps.kv, job);
+    return { ok: true, job: retried.job, balance: retried.balance };
+  }
+
+  if (job.stepCompleted >= 4 && job.charged) {
     return { ok: true, job, balance };
   }
 
   const requested =
     typeof deps.step === "number" && Number.isFinite(deps.step)
       ? Math.floor(deps.step)
-      : job.stepCompleted + 1;
+      : job.status === "delivered_unpaid"
+        ? 4
+        : job.stepCompleted + 1;
 
   if (requested < 2 || requested > 4) {
     return {
@@ -663,6 +768,10 @@ export async function advanceResaleJob(
 
     // nextStep === 4
     if (job.settleCheckpoint?.phaseCompleted === "shopper" && job.delivery) {
+      if (!job.charged) {
+        const retried = await retryUnpaidCharge(deps.kv, job);
+        return { ok: true, job: retried.job, balance: retried.balance };
+      }
       return { ok: true, job, balance };
     }
     if (!job.settleCheckpoint || job.settleCheckpoint.phaseCompleted !== "pick_challenge") {
@@ -672,7 +781,7 @@ export async function advanceResaleJob(
         const delivery: ResaleSearchOkBody = {
           ok: true,
           sample: false,
-          chargedCredit: true,
+          chargedCredit: false,
           budgetUsd: job.input.budgetUsd,
           best: job.settleCheckpoint.best,
           alternatives: job.settleCheckpoint.alternatives,
@@ -690,8 +799,7 @@ export async function advanceResaleJob(
           providerQueriesUsed: job.providerQueriesUsed,
           scope: job.scope,
           emptyReason: null,
-          creditNote:
-            "1 report credit per delivered resale search (same as Find). Failed searches do not debit. Retries with the same idempotency key replay the stored delivery.",
+          creditNote: RESALE_CREDIT_NOTE_CHARGED,
         };
         const charged = await chargeAndStoreDelivery(deps.kv, job, delivery);
         return { ok: true, job: charged.job, balance: charged.balance };
@@ -730,7 +838,7 @@ export async function advanceResaleJob(
     const delivery: ResaleSearchOkBody = {
       ok: true,
       sample: false,
-      chargedCredit: true,
+      chargedCredit: false,
       budgetUsd: job.input.budgetUsd,
       best,
       alternatives: settled.alternatives,
@@ -751,8 +859,7 @@ export async function advanceResaleJob(
       providerQueriesUsed: job.providerQueriesUsed,
       scope: job.scope,
       emptyReason: null,
-      creditNote:
-        "1 report credit per delivered resale search (same as Find). Failed searches do not debit. Retries with the same idempotency key replay the stored delivery.",
+      creditNote: RESALE_CREDIT_NOTE_CHARGED,
     };
 
     job = {

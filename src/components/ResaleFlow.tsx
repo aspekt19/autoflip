@@ -263,6 +263,15 @@ function ResaleSearchForm({ credits, onAuthLost }: { credits: number | null; onA
         if (stepBody.jobId) jobId = stepBody.jobId;
         next = stepBody.nextStep ?? null;
         if (stepBody.done) break;
+        // SERV finished but debit failed — show the result honestly; do not spin on step 4.
+        if (
+          stepBody.step === 4 &&
+          stepBody.agentVerdict &&
+          stepBody.verdictAction &&
+          stepBody.chargedCredit === false
+        ) {
+          break;
+        }
       }
 
       finishFromBody(latest);

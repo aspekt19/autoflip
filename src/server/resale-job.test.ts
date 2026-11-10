@@ -2,13 +2,18 @@
  * Stepped Resale job: happy path through all SERV settle phases, idempotent retries, ownership.
  */
 import { describe, expect, it, vi } from "vitest";
-import { creditBalance, creditGrant } from "@/io/credit-book";
+import { creditBalance, creditEventSeen, creditGrant, creditSpend } from "@/io/credit-book";
 import { MemoryKv } from "@/io/kv";
 import type { Listing } from "@/domain/types";
 import { buildResaleCandidatePnls } from "@/domain/resale-pnl";
 import { topFlipCandidates } from "@/domain/flip-rank";
-import { advanceResaleJob, createAndRunResaleJobStep1, readResaleJob } from "./resale-job";
-import { creditEventSeen } from "@/io/credit-book";
+import {
+  advanceResaleJob,
+  createAndRunResaleJobStep1,
+  jobToClientBody,
+  readResaleJob,
+  RESALE_CREDIT_NOTE_UNPAID,
+} from "./resale-job";
 import { resaleSearchSpendKey } from "./resale-search-credit";
 
 function listing(
@@ -379,6 +384,121 @@ describe("resale stepped job", () => {
     const still = await readResaleJob(kv, created.job.jobId);
     expect(still?.stepCompleted).toBe(1);
     expect(still?.charged).toBe(false);
+  });
+
+  it("failed debit: shows result as delivered_unpaid, honest label, retries charge", async () => {
+    const kv = new MemoryKv();
+    const ownerId = "55555555-5555-4555-8555-555555555555";
+    // Exactly 1 credit — spent after step 3 so step 4 debit fails.
+    await creditGrant(kv, ownerId, 1, "test-grant-unpaid");
+    const listings = pool();
+    const fetchImpl = servFetchMock();
+
+    const created = await createAndRunResaleJobStep1(
+      { budgetUsd: 15_000, searchIdempotencyKey: "job-unpaid-1" },
+      {
+        kv,
+        ownerId,
+        clientIdempotencyKey: "job-unpaid-1",
+        assembleRadarImpl: assembleFixture(listings) as never,
+        autodevKey: "test",
+        autodev: { cache: undefined as never, counter: undefined as never },
+        servKey: "test-key",
+        fetchImpl,
+        env: { VERCEL: undefined, NETLIFY: undefined },
+        maxProviderQueries: 6,
+        parallelProviderQueries: true,
+      },
+    );
+    expect(created.ok && created.kind === "job").toBe(true);
+    if (!created.ok || created.kind !== "job") return;
+
+    for (const step of [2, 3] as const) {
+      const run = await advanceResaleJob({
+        kv,
+        ownerId,
+        jobId: created.job.jobId,
+        step,
+        servKey: "test-key",
+        fetchImpl,
+      });
+      expect(run.ok).toBe(true);
+    }
+
+    // Drain the only credit with an unrelated spend so step 4 debit fails.
+    const drained = await creditSpend(kv, ownerId, "drain-before-step4");
+    expect(drained.ok).toBe(true);
+    expect(await creditBalance(kv, ownerId)).toBe(0);
+
+    const unpaid = await advanceResaleJob({
+      kv,
+      ownerId,
+      jobId: created.job.jobId,
+      step: 4,
+      servKey: "test-key",
+      fetchImpl,
+    });
+    expect(unpaid.ok).toBe(true);
+    if (!unpaid.ok) return;
+    expect(unpaid.job.status).toBe("delivered_unpaid");
+    expect(unpaid.job.charged).toBe(false);
+    expect(unpaid.job.delivery?.best).toBeTruthy();
+    expect(unpaid.job.delivery?.chargedCredit).toBe(false);
+    expect(await creditEventSeen(kv, resaleSearchSpendKey(ownerId, "job-unpaid-1"))).toBe(false);
+
+    const client = jobToClientBody(unpaid.job, { balance: unpaid.balance });
+    expect(client.chargedCredit).toBe(false);
+    expect(client.done).toBe(false);
+    expect(client.creditNote).toBe(RESALE_CREDIT_NOTE_UNPAID);
+    expect(client.creditNote).toMatch(/Credit not charged/i);
+
+    // Replay label stays honest (still unpaid).
+    const replayUnpaid = await createAndRunResaleJobStep1(
+      { budgetUsd: 15_000, searchIdempotencyKey: "job-unpaid-1" },
+      {
+        kv,
+        ownerId,
+        clientIdempotencyKey: "job-unpaid-1",
+        assembleRadarImpl: assembleFixture(listings) as never,
+        autodevKey: "test",
+        autodev: { cache: undefined as never, counter: undefined as never },
+        servKey: "test-key",
+        fetchImpl,
+        env: { VERCEL: undefined, NETLIFY: undefined },
+      },
+    );
+    expect(replayUnpaid.ok && replayUnpaid.kind === "job").toBe(true);
+    if (!replayUnpaid.ok || replayUnpaid.kind !== "job") return;
+    expect(replayUnpaid.job.status).toBe("delivered_unpaid");
+    expect(replayUnpaid.job.charged).toBe(false);
+    expect(jobToClientBody(replayUnpaid.job).chargedCredit).toBe(false);
+
+    // Fund account and retry charge via advance — no SERV redo, then paid.
+    await creditGrant(kv, ownerId, 1, "test-grant-unpaid-retry");
+    const postsBefore = { n: 0 };
+    const countingFetch: typeof fetch = async (input, init) => {
+      const raw = typeof init?.body === "string" ? init.body : "";
+      if (schemaNameFromBody(raw)) postsBefore.n += 1;
+      return fetchImpl(input, init);
+    };
+    const paid = await advanceResaleJob({
+      kv,
+      ownerId,
+      jobId: created.job.jobId,
+      step: 4,
+      servKey: "test-key",
+      fetchImpl: countingFetch,
+    });
+    expect(paid.ok).toBe(true);
+    if (!paid.ok) return;
+    expect(postsBefore.n).toBe(0);
+    expect(paid.job.status).toBe("completed");
+    expect(paid.job.charged).toBe(true);
+    expect(paid.job.delivery?.chargedCredit).toBe(true);
+    expect(jobToClientBody(paid.job).chargedCredit).toBe(true);
+    expect(jobToClientBody(paid.job).done).toBe(true);
+    expect(await creditBalance(kv, ownerId)).toBe(0);
+    expect(await creditEventSeen(kv, resaleSearchSpendKey(ownerId, "job-unpaid-1"))).toBe(true);
   });
 
   it("settle phases chain without duplicating triage work", async () => {

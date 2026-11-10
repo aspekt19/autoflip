@@ -56,7 +56,8 @@ export type ResaleSearchDeps = FindMatchDeps & {
 export type ResaleSearchOkBody = {
   ok: true;
   sample: false;
-  chargedCredit: true;
+  /** True only when 1 report credit was actually reserved/debited for this delivery. */
+  chargedCredit: boolean;
   budgetUsd: number;
   best: ResaleCandidatePnl | null;
   alternatives: ResaleCandidatePnl[];

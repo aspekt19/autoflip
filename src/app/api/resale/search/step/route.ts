@@ -79,7 +79,11 @@ export async function POST(request: Request) {
       charged: client.chargedCredit,
       elapsedMs: deadline.elapsedMs(),
     });
-    return Response.json(client);
+    return Response.json({
+      ...client,
+      charged: client.chargedCredit,
+      ...(result.job.error && !result.job.charged ? { unpaidReason: result.job.error } : {}),
+    });
   } catch (err) {
     const reason = err instanceof Error ? err.message.slice(0, 180) : "unexpected_error";
     logResaleStage("step_route_error", deadline.startedAtMs, { reason, jobId });
