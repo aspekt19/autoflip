@@ -9,6 +9,8 @@ export type OpenservReport = {
   usage?: unknown;
   output?: unknown;
   output_text?: string;
+  /** Chat Completions choices — rawResponse reads choices[0].message.content, not output_text. */
+  choices?: unknown;
   proof?: unknown;
   report?: unknown;
   reasoning?: unknown;
@@ -94,12 +96,55 @@ export function openservReportFrom(payload: unknown): OpenservReport | null {
   const body = payload as Record<string, unknown>;
   const report: OpenservReport = {};
   const writable = report as Record<string, unknown>;
-  for (const key of ["id", "object", "model", "usage", "output", "output_text", "proof", "report", "reasoning"] as const) {
+  for (const key of [
+    "id",
+    "object",
+    "model",
+    "usage",
+    "output",
+    "output_text",
+    "choices",
+    "proof",
+    "report",
+    "reasoning",
+  ] as const) {
     if (key in body && body[key] !== undefined) writable[key] = body[key];
   }
   const choice = Array.isArray(body.choices) ? (body.choices[0] as { finish_reason?: unknown } | undefined) : undefined;
   if (choice && typeof choice.finish_reason === "string") report.finish_reason = choice.finish_reason;
   return Object.keys(report).length > 0 ? report : null;
+}
+
+/**
+ * Chat Completions content for proof/trail rawResponse.
+ * Prefer choices[0].message.content — never invent from output_text alone.
+ */
+export function chatCompletionContent(payload: unknown): string | null {
+  if (!payload || typeof payload !== "object") return null;
+  const choices = (payload as { choices?: unknown }).choices;
+  if (!Array.isArray(choices) || choices.length === 0) return null;
+  const first = choices[0];
+  if (!first || typeof first !== "object") return null;
+  const message = (first as { message?: unknown }).message;
+  if (!message || typeof message !== "object") {
+    const text = (first as { text?: unknown }).text;
+    return typeof text === "string" && text.trim() ? text.trim() : null;
+  }
+  const content = (message as { content?: unknown }).content;
+  if (typeof content === "string" && content.trim()) return content.trim();
+  if (Array.isArray(content)) {
+    const parts: string[] = [];
+    for (const part of content) {
+      if (!part || typeof part !== "object") continue;
+      const row = part as { type?: unknown; text?: unknown };
+      if ((row.type === "text" || row.type === "output_text") && typeof row.text === "string" && row.text.trim()) {
+        parts.push(row.text.trim());
+      }
+    }
+    const joined = parts.join("").trim();
+    return joined || null;
+  }
+  return null;
 }
 
 export function buildServProof(input: {

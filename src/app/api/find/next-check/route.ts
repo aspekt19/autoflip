@@ -148,6 +148,7 @@ export async function POST(request: Request) {
     pickServTrace: result.pickServTrace ?? null,
     pickAgentVerdict: result.pickAgentVerdict ?? null,
     pickProofRecords: result.pickProofRecords ?? [],
+    nextCheckProofRecords: result.nextCheckProofRecords ?? [],
     honesty: result.honesty,
     failureDiag: result.failureDiag
       ? {

@@ -9,7 +9,6 @@ import { proposeDirections } from "@/domain/directions";
 import {
   appendJournalStep,
   emptyResaleJournal,
-  RESALE_SERV_CALL_CAP,
   type ResaleDecisionJournal,
 } from "@/domain/resale-decision-journal";
 import { topFlipCandidates } from "@/domain/flip-rank";
@@ -149,8 +148,7 @@ function mergeJournals(plan: ResaleDecisionJournal, settle: ResaleDecisionJourna
   return {
     schemaVersion: "lemonless.resale_journal.v1",
     steps: [...plan.steps, ...settle.steps],
-    servCalls: Math.min(RESALE_SERV_CALL_CAP, plan.servCalls + settle.servCalls),
-    servCallCap: RESALE_SERV_CALL_CAP,
+    servCalls: plan.servCalls + settle.servCalls,
   };
 }
 
@@ -178,7 +176,7 @@ export async function runResaleSearch(
     deps.deadline ?? makeResaleDeadline(deps.internalBudgetMs ?? RESALE_INTERNAL_BUDGET_MS);
   let planJournal = deps.priorPlanJournal
     ? { ...deps.priorPlanJournal, steps: [...deps.priorPlanJournal.steps] }
-    : emptyResaleJournal(RESALE_SERV_CALL_CAP);
+    : emptyResaleJournal();
   logResaleStage("start", deadline.startedAtMs, {
     budgetUsd: input.budgetUsd,
     budgetMs: deps.internalBudgetMs ?? RESALE_INTERNAL_BUDGET_MS,
@@ -256,7 +254,7 @@ export async function runResaleSearch(
           timeoutMs: planTimeoutMs,
         },
         deadline,
-        canRetry: planJournal.servCalls + 1 < planJournal.servCallCap,
+        canRetry: true,
         validatePayload: (payload, result) => {
           const note = typeof payload?.note === "string" ? payload.note : "";
           const directionIds = stringArrayField(payload, "directionIds").map(normalizeDirectionId);

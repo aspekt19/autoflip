@@ -13,7 +13,6 @@ import { ASSUMPTIONS } from "@/domain/assumptions";
 import {
   appendJournalStep,
   emptyResaleJournal,
-  RESALE_SERV_CALL_CAP,
   type ResaleDecisionJournal,
 } from "@/domain/resale-decision-journal";
 import type { ResaleCandidatePnl } from "@/domain/resale-pnl";
@@ -262,9 +261,9 @@ function buildFlipReport(
     },
     history: { multiplier: 1, lines: [] },
     recalls: [],
-    recallsAvailable: false,
-    openParkIt: false,
-    openParkOutside: false,
+    recallsAvailable: Boolean(candidate.openParkIt || candidate.openParkOutside),
+    openParkIt: candidate.openParkIt === true,
+    openParkOutside: candidate.openParkOutside === true,
     complaintCount: null,
     fuel: null,
     vinDecode: null,
@@ -395,9 +394,10 @@ export function flipMarginPublishedAction(candidate: ResaleCandidatePnl): {
 
 /**
  * Cap a proposed SERV action only on documented hard facts, and only when SERV
- * tried to buy/negotiate. Negative expected profit or walk_away blocks a buy;
- * needs_inspection / pass from SERV (including second-pass disagreement) stand.
- * Thin-margin vs flipDesiredProfitUsd is advisory — never overrides SERV alone.
+ * tried to buy/negotiate. Stop-level campaigns (park-it / park-outside), negative
+ * expected profit, or walk_away block buy/negotiate; needs_inspection / pass from
+ * SERV (including second-pass disagreement) stand. Thin-margin vs flipDesiredProfitUsd
+ * is advisory — never overrides SERV alone.
  */
 export function clampFlipPublishedAction(
   proposed: FlipPublishedAction,
@@ -406,6 +406,22 @@ export function clampFlipPublishedAction(
   // Second-pass / soft SERV choices are not "buys" — do not rewrite them to pass.
   if (proposed === "needs_inspection" || proposed === "pass") {
     return { action: proposed, overridden: false, reason: null };
+  }
+  // Stop-level NHTSA campaigns (park-it or park-outside / fire-risk) — real guardrail.
+  // parkOutSide with parkIt:false is still stop-level (e.g. campaign 20V543000).
+  if (candidate.openParkIt === true) {
+    return {
+      action: "pass",
+      overridden: true,
+      reason: `SERV said ${proposed}; guardrail capped to pass — open park-it (do not drive) campaign is a documented stop-level hard fact.`,
+    };
+  }
+  if (candidate.openParkOutside === true) {
+    return {
+      action: "pass",
+      overridden: true,
+      reason: `SERV said ${proposed}; guardrail capped to pass — open park-outside / fire-risk campaign is a documented stop-level hard fact.`,
+    };
   }
   const marginUsd =
     candidate.profitLowUsd != null
@@ -589,7 +605,8 @@ export async function runResaleSettleServ(input: {
   checkpoint?: ResaleSettleCheckpoint | null;
   /**
    * SERV HTTP calls already counted on the plan journal (or other prior phase).
-   * Global Resale cap is priorServCalls + settle journal.servCalls.
+   * Informational only — there is no artificial per-run Resale SERV call cap.
+   * Real limits: wall-clock budget and the Radar monthly SERV plan cap.
    */
   priorServCalls?: number;
 }): Promise<ResaleSettleServResult> {
@@ -598,7 +615,6 @@ export async function runResaleSettleServ(input: {
   const stepped = phase !== "all";
   const fetchImpl = input.fetchImpl ?? fetch;
   const deadline = input.deadline;
-  const priorServCalls = Math.max(0, Math.floor(input.priorServCalls ?? 0));
 
   /** Stepped jobs: only skip SERV when the per-step deadline is truly expired. */
   const stageOk = (needMs: number, timeoutMs: number | null): boolean => {
@@ -607,17 +623,6 @@ export async function runResaleSettleServ(input: {
     if (stepped) return !deadline.expired();
     return deadline.allow(needMs);
   };
-  /** True when another settle SERV HTTP call fits under the global Resale cap. */
-  const hasServSlot = (journal: ResaleDecisionJournal): boolean =>
-    priorServCalls + journal.servCalls < journal.servCallCap;
-  const totalServCalls = (journal: ResaleDecisionJournal): number =>
-    priorServCalls + journal.servCalls;
-  const remainingServSlots = (journal: ResaleDecisionJournal): number =>
-    Math.max(0, journal.servCallCap - totalServCalls(journal));
-  const callCapSkipLine = (journal: ResaleDecisionJournal): string =>
-    `call cap reached (${totalServCalls(journal)}/${journal.servCallCap})`;
-  const callCapSkipWhy = (journal: ResaleDecisionJournal): string =>
-    `plan ${priorServCalls} + settle ${journal.servCalls} = ${journal.servCallCap}`;
 
   const resumeFrom =
     input.checkpoint &&
@@ -631,7 +636,7 @@ export async function runResaleSettleServ(input: {
 
   let trail: AgentTrailStep[] = resumeFrom ? [...resumeFrom.trail] : [];
   let proofRecords: DecisionProofRecord[] = resumeFrom?.proofRecords ? [...resumeFrom.proofRecords] : [];
-  let journal = resumeFrom ? resumeFrom.journal : emptyResaleJournal(RESALE_SERV_CALL_CAP);
+  let journal = resumeFrom ? resumeFrom.journal : emptyResaleJournal();
   const ranked = resumeFrom ? resumeFrom.rankedAll : sortByProfit(input.candidates);
   const shortlist = resumeFrom ? resumeFrom.shortlist : ranked.slice(0, RESALE_SERV_JUDGE_MAX);
 
@@ -770,7 +775,6 @@ export async function runResaleSettleServ(input: {
     : profile("resale_triage").timeoutMs;
   if (
     input.servKey?.trim() &&
-    hasServSlot(journal) &&
     triageTimeoutMs != null &&
     stageOk(RESALE_STAGE_BUDGET_MS.triage, triageTimeoutMs)
   ) {
@@ -821,7 +825,7 @@ export async function runResaleSettleServ(input: {
           timeoutMs: triageTimeoutMs,
         },
         deadline,
-        canRetry: remainingServSlots(journal) > 1,
+        canRetry: true,
         validatePayload: (payload, result) => {
           const deep = stringArrayField(payload, "deepCheckVins").map(normalizeVin);
           const skip = stringArrayField(payload, "skipVins").map(normalizeVin);
@@ -1107,7 +1111,6 @@ export async function runResaleSettleServ(input: {
   if (
     runPick &&
     input.servKey?.trim() &&
-    hasServSlot(journal) &&
     pickTimeoutMs != null &&
     stageOk(RESALE_STAGE_BUDGET_MS.pick, pickTimeoutMs)
   ) {
@@ -1155,7 +1158,7 @@ export async function runResaleSettleServ(input: {
           timeoutMs: pickTimeoutMs,
         },
         deadline,
-        canRetry: remainingServSlots(journal) > 1,
+        canRetry: true,
         validatePayload: (payload, result) => {
           const pickVinRaw = typeof payload?.pickVin === "string" ? normalizeVin(payload.pickVin) : null;
           const note = typeof payload?.note === "string" ? payload.note : "";
@@ -1279,7 +1282,6 @@ export async function runResaleSettleServ(input: {
   if (
     runPick &&
     input.servKey?.trim() &&
-    hasServSlot(journal) &&
     deadline &&
     !stageOk(RESALE_STAGE_BUDGET_MS.pick, pickTimeoutMs) &&
     !journal.steps.some((s) => s.kind === "pick" && s.actor === "SERV")
@@ -1355,7 +1357,6 @@ export async function runResaleSettleServ(input: {
   if (
     runChallenge &&
     input.servKey?.trim() &&
-    hasServSlot(journal) &&
     challengeTimeoutMs != null &&
     stageOk(RESALE_STAGE_BUDGET_MS.challenge, challengeTimeoutMs)
   ) {
@@ -1404,7 +1405,7 @@ export async function runResaleSettleServ(input: {
           model: input.model,
         },
         deadline,
-        canRetry: remainingServSlots(journal) > 1,
+        canRetry: true,
         validatePayload: (payload, result) => {
           const pickVinRaw = typeof payload?.pickVin === "string" ? normalizeVin(payload.pickVin) : null;
           const objection = typeof payload?.objection === "string" ? payload.objection : null;
@@ -1571,7 +1572,6 @@ export async function runResaleSettleServ(input: {
   if (
     runChallenge &&
     input.servKey?.trim() &&
-    hasServSlot(journal) &&
     deadline &&
     !stageOk(RESALE_STAGE_BUDGET_MS.challenge, challengeTimeoutMs) &&
     secondPass.status === "not_run"
@@ -1648,7 +1648,7 @@ export async function runResaleSettleServ(input: {
     });
   }
 
-  // Optional shopper decide path for ComputedReport parity (counts toward cap when key present and budget remains).
+  // Optional shopper decide path for ComputedReport parity (wall-clock budget only — no artificial call cap).
   // Decide timeout is clamped here; challenge is re-clamped inside runShopperVerdictServ after decide returns.
   const shopperTimeoutDecide = deadline
     ? resaleCallTimeoutMs(profile("verdict_decide").timeoutMs, deadline)
@@ -1657,7 +1657,7 @@ export async function runResaleSettleServ(input: {
     const skipShopper = (
       decided: string,
       why: string,
-      status?: "skipped_no_key" | "skipped_call_cap" | "skipped_time_budget",
+      status?: "skipped_no_key" | "skipped_time_budget",
     ) => {
       journal = appendJournalStep(journal, {
         kind: "fallback",
@@ -1692,12 +1692,6 @@ export async function runResaleSettleServ(input: {
         "SERV_API_KEY is not configured — pick/challenge stand without shopper decide.",
         "skipped_no_key",
       );
-    } else if (!hasServSlot(journal)) {
-      skipShopper(
-        `Verdict decide skipped: ${callCapSkipLine(journal)}`,
-        callCapSkipWhy(journal),
-        "skipped_call_cap",
-      );
     } else if (shopperTimeoutDecide == null || !stageOk(RESALE_STAGE_BUDGET_MS.shopper, shopperTimeoutDecide)) {
       skipShopper(
         `Verdict decide skipped: ${RESALE_TIME_BUDGET_SKIP}`,
@@ -1706,7 +1700,6 @@ export async function runResaleSettleServ(input: {
       );
     } else {
       const report = buildFlipReport(best, input.budgetUsd, ranked);
-      const shopperSlots = remainingServSlots(journal);
       const shopper = await runShopperVerdictServ({
         report,
         mandate: {
@@ -1720,7 +1713,6 @@ export async function runResaleSettleServ(input: {
         fetchImpl,
         deadline,
         decideTimeoutMs: shopperTimeoutDecide,
-        maxAdditionalServCalls: shopperSlots,
       });
       proofRecords = [...proofRecords, ...shopper.proofRecords];
       if (shopper.trace && shopper.trace.calls.length > 0) {
@@ -1817,11 +1809,6 @@ export async function runResaleSettleServ(input: {
           skipShopper(
             `Verdict challenge skipped: ${RESALE_TIME_BUDGET_SKIP}`,
             `Wall-clock budget remaining ${deadline?.remainingMs() ?? 0}ms after decide — shopper challenge skipped.`,
-          );
-        } else if (challengeStep.status === "skipped_call_cap") {
-          skipShopper(
-            `Verdict challenge skipped: ${callCapSkipLine(journal)}`,
-            `${callCapSkipWhy(journal)}. ${reason}`,
           );
         } else {
           skipShopper(`Verdict challenge skipped: ${reason}`, reason);

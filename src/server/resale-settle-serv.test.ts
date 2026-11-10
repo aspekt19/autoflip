@@ -3,7 +3,6 @@ import { emptyAgentVerdict } from "@/domain/agent-verdict-schema";
 import {
   appendJournalStep,
   emptyResaleJournal,
-  RESALE_SERV_CALL_CAP,
 } from "@/domain/resale-decision-journal";
 import type { ResaleCandidatePnl } from "@/domain/resale-pnl";
 import type { Listing } from "@/domain/types";
@@ -211,16 +210,15 @@ describe("runResaleSettleServ", () => {
     expect(result.journal.steps.some((step) => step.why.startsWith("SERV payload rejected:"))).toBe(true);
   });
 
-  it("journals call cap with plan+settle totals when key is present but slots are gone", async () => {
+  it("never journals an artificial call-cap skip — wall-clock is the only settle limit", async () => {
     const best = candidate({
       vin: "VINHIGH0000000001",
       profitMidUsd: 2_500,
       listing: listing({ vin: "VINHIGH0000000001", year: 2018, make: "Toyota", model: "Corolla", priceUsd: 9_000 }),
     });
-    // Soft per-run ceiling for this unit fixture only (not the product default of RESALE_SERV_CALL_CAP).
-    let journal = emptyResaleJournal(6);
-    // Four settle SERV calls already recorded; plan used 2 → fixture cap full.
-    for (let i = 0; i < 4; i += 1) {
+    let journal = emptyResaleJournal();
+    // Many prior SERV calls must NOT invent a per-run call-cap skip.
+    for (let i = 0; i < 40; i += 1) {
       journal = appendJournalStep(journal, {
         kind: "pick",
         actor: "SERV",
@@ -234,14 +232,30 @@ describe("runResaleSettleServ", () => {
         rejected: null,
       });
     }
+    const peers = [2, 3, 4].map((n) =>
+      candidate({
+        vin: `VINPEER0000000000${n}`,
+        profitMidUsd: 1_000 + n * 50,
+        listing: listing({
+          vin: `VINPEER0000000000${n}`,
+          year: 2018,
+          make: "Toyota",
+          model: "Corolla",
+          priceUsd: 9_500 + n * 100,
+          miles: 55_000 + n * 1_000,
+          state: "TX",
+        }),
+      }),
+    );
+    const pool = [best, ...peers];
     const checkpoint: ResaleSettleCheckpoint = {
       phaseCompleted: "challenge",
       journal,
-      rankedAll: [best],
-      ordered: [best],
-      shortlist: [best],
+      rankedAll: pool,
+      ordered: pool,
+      shortlist: pool,
       best,
-      alternatives: [],
+      alternatives: peers,
       verdictAction: "negotiate",
       confidence: "Medium",
       agentVerdict: emptyAgentVerdict({
@@ -265,31 +279,43 @@ describe("runResaleSettleServ", () => {
       trace: null,
       budgetUsd: 12_000,
     };
+    let calls = 0;
     const fetchImpl = vi.fn(async () => {
-      throw new Error("shopper must not call SERV when plan+settle already at cap");
+      calls += 1;
+      const body =
+        calls === 1
+          ? { verdict: "negotiate", note: "Ask sits near fair value from the comps." }
+          : {
+              agrees: true,
+              action: "negotiate",
+              objection: null,
+              evidenceIds: ["ev_fair_value"],
+            };
+      return Response.json({
+        id: `chatcmpl-shopper-nocap-${calls}`,
+        object: "chat.completion",
+        model: SERV_MODEL,
+        choices: [{ finish_reason: "stop", message: { content: JSON.stringify(body) } }],
+        usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 },
+      });
     });
     const result = await runResaleSettleServ({
-      candidates: [best],
+      candidates: pool,
       budgetUsd: 12_000,
       servKey: "test-key",
-      priorServCalls: 2,
+      priorServCalls: 20,
       fetchImpl: fetchImpl as unknown as typeof fetch,
       model: SERV_MODEL,
       phase: "shopper",
       checkpoint,
     });
-    expect(fetchImpl).not.toHaveBeenCalled();
-    expect(
-      result.journal.steps.some(
-        (s) =>
-          /Verdict decide skipped: call cap reached \(6\/6\)/.test(s.decided) &&
-          /plan 2 \+ settle 4 = 6/.test(s.why),
-      ),
-    ).toBe(true);
-    expect(result.journal.steps.some((s) => /SERV not configured/i.test(s.decided))).toBe(false);
+    expect(calls).toBeGreaterThanOrEqual(1);
+    expect(result.journal.steps.some((s) => /call cap reached/i.test(s.decided))).toBe(false);
+    expect(result.journal.steps.some((s) => /call cap reached/i.test(s.why))).toBe(false);
+    expect(result.proofRecords.some((r) => /call cap/i.test(r.reason ?? ""))).toBe(false);
   });
 
-  it("runs shopper decide when plan+settle still have room under the cap", async () => {
+  it("runs shopper decide without an artificial call-count cap", async () => {
     const peers = [2, 3, 4].map((n) =>
       candidate({
         vin: `VINPEER0000000000${n}`,
@@ -319,7 +345,7 @@ describe("runResaleSettleServ", () => {
       }),
     });
     const pool = [best, ...peers];
-    let journal = emptyResaleJournal(RESALE_SERV_CALL_CAP);
+    let journal = emptyResaleJournal();
     for (let i = 0; i < 3; i += 1) {
       journal = appendJournalStep(journal, {
         kind: "pick",

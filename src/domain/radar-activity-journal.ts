@@ -101,7 +101,7 @@ export function journalFromRadarActivity(
   rows: RadarActivityRow[],
   extras?: { notes?: string[]; startedAt?: string; filterBreakdown?: string | null },
 ): ResaleDecisionJournal {
-  let journal = emptyResaleJournal(RADAR_SERV_CALL_CAP);
+  let journal = emptyResaleJournal();
   const recordedAt = extras?.startedAt ?? new Date().toISOString();
 
   if (rows.length === 0) {
@@ -218,9 +218,10 @@ export function journalFromRadarActivity(
     });
   }
 
-  // Never display a call count above the documented Radar cap.
-  if (journal.servCalls > journal.servCallCap) {
-    journal = { ...journal, servCalls: journal.servCallCap };
+  // Soft display clamp for one Radar activity mapping only — not a Resale artificial call cap.
+  // Real Radar limit remains the monthly plan SERV cap (plan-book), not this journal field.
+  if (journal.servCalls > RADAR_SERV_CALL_CAP) {
+    journal = { ...journal, servCalls: RADAR_SERV_CALL_CAP };
   }
 
   return journal;

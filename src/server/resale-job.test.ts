@@ -317,19 +317,10 @@ describe("resale stepped job", () => {
     expect(step6.job.delivery?.best).toBeTruthy();
     expect(step6.job.charged).toBe(true);
     expect(profilesSeen.has("report_verdict_decision")).toBe(true);
-    // Shopper uses remaining global slots after plan+settle. When only one slot is left,
-    // decide runs and challenge is journaled as call-cap — never silently omitted.
-    if (profilesSeen.has("report_verdict_challenge")) {
-      expect(step6.job.delivery?.journal.steps.some((s) => /Verdict challenge →/.test(s.decided))).toBe(
-        true,
-      );
-    } else {
-      expect(
-        step6.job.delivery?.journal.steps.some((s) =>
-          /Verdict challenge skipped: call cap reached/i.test(s.decided),
-        ),
-      ).toBe(true);
-    }
+    // No artificial call-count cap — shopper decide+challenge run under wall-clock only.
+    expect(
+      step6.job.delivery?.journal.steps.some((s) => /call cap reached/i.test(s.decided)),
+    ).toBe(false);
     expect(await creditBalance(kv, ownerId)).toBe(2);
     expect(await creditEventSeen(kv, resaleSearchSpendKey(ownerId, "job-happy-1"))).toBe(true);
   });

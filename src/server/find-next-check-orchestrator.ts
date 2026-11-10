@@ -944,13 +944,13 @@ export async function runFindNextCheckOrchestrator(
       await updateFindSearchContext(deps.kv, updated, { loopSettled });
     }
 
-    const buyerDeal = copyWhileChecksContinue(bestDeal, loop.continue);
+    let buyerDeal = copyWhileChecksContinue(bestDeal, loop.continue);
     let pickSecondPass: import("@/domain/agent-verdict-schema").AgentSecondPassResult | null = null;
     let pickServTrace: import("@/server/shopper-verdict-serv").ShopperServTrace | null = null;
     let pickAgentVerdict: import("@/domain/agent-verdict-schema").AgentVerdict | null = null;
     let pickProofRecords: import("@/domain/decision-proof-record").DecisionProofRecord[] = [];
-    // Run verdict_decide when the loop stops with a pick — even if a soft evidence
-    // flag is still open — so the top pick always gets Buy/Negotiate/Pass + response id.
+    // Run SERV find_pick + verdict_decide when the loop stops with a pick — even if a
+    // soft evidence flag is still open — so the published car is SERV's choice.
     const shouldSettlePick = !loop.continue && Boolean(buyerDeal.pick);
     if (shouldSettlePick && buyerDeal.pick) {
       const { runFindSettleServ } = await import("@/server/find-settle-serv");
@@ -964,6 +964,8 @@ export async function runFindNextCheckOrchestrator(
         // Same adjusted comps pool as cards/Check — not shortlist-only peers.
         marketPool: marketPoolFromListingFacts(updated.compsPool ?? updated.listings ?? []),
       });
+      // Page shows SERV's (or labelled code-fallback) car — not the pre-settle ranking alone.
+      buyerDeal = settled.bestDeal;
       pickSecondPass = settled.secondPass;
       pickServTrace = settled.trace;
       pickAgentVerdict = settled.agentVerdict;

@@ -186,7 +186,6 @@ function ResaleSearchForm({ credits, onAuthLost }: { credits: number | null; onA
         schemaVersion: "lemonless.resale_journal.v1",
         steps: [],
         servCalls: 0,
-        servCallCap: 48,
       },
       proofRecords: Array.isArray(body.proofRecords) ? body.proofRecords : [],
       headline: body.headline ?? "Resale search",

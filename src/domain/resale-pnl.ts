@@ -102,6 +102,12 @@ export type ResaleCandidatePnl = {
    * Example: `score=2100×0.85×0.90=1606.5; mid×risk×max(0.5,(low+mid)/(2×mid)); floor 0.5 design choice; comps=6`
    */
   riskAdjustedRankFormula?: string | null;
+  /**
+   * Stop-level NHTSA flags from deep-check recalls (when checked).
+   * parkOutSide alone (parkIt false) is still stop-level for published buy/negotiate.
+   */
+  openParkIt?: boolean;
+  openParkOutside?: boolean;
 };
 
 function usdOrUnknown(value: number | null | undefined): string {

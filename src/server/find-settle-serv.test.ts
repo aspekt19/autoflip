@@ -72,10 +72,18 @@ describe("find settle SERV", () => {
     expect(report.compScope).toMatch(/evaluateListingPrice/i);
   });
 
-  it("returns an honest not_run second check when SERV is not configured", async () => {
+  it("returns a labelled code verdict when SERV is not configured", async () => {
     const pick = candidate({ key: "a" });
+    const peers = [1, 2, 3].map((n) =>
+      candidate({
+        key: `p${n}`,
+        vin: `4T1BF1FK0EU84844${n}`,
+        priceUsd: 11_500 + n * 200,
+        miles: 85_000 + n * 500,
+      }),
+    );
     const bestDeal = {
-      ranked: [pick],
+      ranked: [pick, ...peers],
       pick,
       confidence: "high",
       choice: null,
@@ -88,7 +96,7 @@ describe("find settle SERV", () => {
       settlementNote: "",
       fairnessHeldOut: [],
       priceProvisional: false,
-      allRanked: [pick],
+      allRanked: [pick, ...peers],
       baseline: {
         pick: null,
         cheapest: null,
@@ -104,9 +112,16 @@ describe("find settle SERV", () => {
     } as unknown as BestDealResult;
     const settled = await runFindSettleServ({ bestDeal });
     expect(settled.ran).toBe(false);
-    expect(settled.agentVerdict).toBeNull();
+    // Code fallback still publishes a verdict — labelled as code, not SERV.
+    expect(settled.agentVerdict).not.toBeNull();
+    expect(settled.agentVerdict?.no_serv_step).toBe(true);
+    expect(settled.agentVerdict?.verdict).toBeTruthy();
+    expect(settled.agentVerdict?.serv_steps.some((s) => /not SERV|code ranking/i.test(s.decided + (s.why ?? "")))).toBe(
+      true,
+    );
     expect(settled.secondPass.status).toBe("skipped_no_key");
-    expect(settled.secondPass.objection).toMatch(/Second check not run/i);
+    expect(settled.secondPass.objection).toMatch(/SERV_API_KEY|Second check not run/i);
+    expect(settled.bestDeal.pick?.key).toBe("a");
   });
 
   it("still runs verdict_decide when evidenceSettled is false but a pick exists", async () => {
@@ -168,9 +183,38 @@ describe("find settle SERV", () => {
     } as unknown as BestDealResult;
 
     let decideCalls = 0;
-    const fetchImpl: typeof fetch = async () => {
-      decideCalls += 1;
-      if (decideCalls === 1) {
+    const fetchImpl: typeof fetch = async (_input, init) => {
+      let schema = "";
+      try {
+        const body = init?.body ? JSON.parse(String(init.body)) : null;
+        schema = body?.response_format?.json_schema?.name ?? body?.response_format?.name ?? "";
+      } catch {
+        schema = "";
+      }
+      if (schema === "find_pick") {
+        return Response.json({
+          id: "chatcmpl-find-pick-soft",
+          object: "chat.completion",
+          model: "gpt-test",
+          choices: [
+            {
+              finish_reason: "stop",
+              message: {
+                content: JSON.stringify({
+                  pickKey: "a",
+                  action: "negotiate",
+                  confidence: "medium",
+                  note: "Best ask vs fair value among finalists.",
+                  evidenceIds: ["car:a"],
+                }),
+              },
+            },
+          ],
+          usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 },
+        });
+      }
+      if (schema === "report_verdict_decision" || (!schema && decideCalls === 0)) {
+        decideCalls += 1;
         return Response.json({
           id: "chatcmpl-decide-soft",
           object: "chat.completion",
@@ -286,9 +330,38 @@ describe("find settle SERV", () => {
     expect(buildFindPickComputedReport(pick, peers).subject.vdp).toBe("https://dealer.example/camry");
 
     let calls = 0;
-    const fetchImpl: typeof fetch = async () => {
+    const fetchImpl: typeof fetch = async (_input, init) => {
+      let schema = "";
+      try {
+        const body = init?.body ? JSON.parse(String(init.body)) : null;
+        schema = body?.response_format?.json_schema?.name ?? body?.response_format?.name ?? "";
+      } catch {
+        schema = "";
+      }
+      if (schema === "find_pick") {
+        return Response.json({
+          id: "chatcmpl-find-pick",
+          object: "chat.completion",
+          model: "gpt-test",
+          choices: [
+            {
+              finish_reason: "stop",
+              message: {
+                content: JSON.stringify({
+                  pickKey: "a",
+                  action: "negotiate",
+                  confidence: "high",
+                  note: "Best ask vs fair value among finalists.",
+                  evidenceIds: ["car:a"],
+                }),
+              },
+            },
+          ],
+          usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 },
+        });
+      }
       calls += 1;
-      if (calls === 1) {
+      if (schema === "report_verdict_decision" || calls === 1) {
         return Response.json({
           id: "chatcmpl-decide",
           object: "chat.completion",

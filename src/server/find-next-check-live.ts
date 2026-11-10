@@ -48,7 +48,7 @@ import {
   FIND_NEXT_CHECK_RUBRIC_ID,
   type DecisionProofRecord,
 } from "@/domain/decision-proof-record";
-import { runServ, type ServProof } from "@/server/serv";
+import { chatCompletionContent, runServ, type ServProof } from "@/server/serv";
 import {
   classifyServPlannerFailure,
   type ServResponseFailureDiag,
@@ -385,8 +385,7 @@ export async function runFindNextCheckLive(
             model: lastProof?.modelReported || lastProof?.modelRequested || deps.servModel || null,
             inputs: { chosenId, targetKeys, note: servNote },
             verdict: chosenId,
-            rawResponse:
-              typeof lastProof?.openserv?.output_text === "string" ? lastProof.openserv.output_text : null,
+            rawResponse: chatCompletionContent(lastProof?.openserv),
             detail: servNote,
           })
         : buildDecisionProofRecord({
@@ -406,8 +405,7 @@ export async function runFindNextCheckLive(
               (key
                 ? `Deterministic fallback chose ${chosenId} after SERV did not return an allowlisted check.`
                 : "SERV_API_KEY not configured — deterministic allowlist only."),
-            rawResponse:
-              typeof lastProof?.openserv?.output_text === "string" ? lastProof.openserv.output_text : null,
+            rawResponse: chatCompletionContent(lastProof?.openserv),
           }),
   ];
   return {

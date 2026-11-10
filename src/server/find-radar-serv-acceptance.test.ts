@@ -236,6 +236,18 @@ describe("find → SERV → watch → radar verdict_decide acceptance (merge gat
         body = null;
       }
       const schema = schemaName(body);
+      if (schema === "find_pick") {
+        return chatCompletion(
+          "chatcmpl-find-pick-accept",
+          JSON.stringify({
+            pickKey: pick.key,
+            action: "negotiate",
+            confidence: "medium",
+            note: "Ask of 14900 is near the fair value of 17000.",
+            evidenceIds: [`car:${pick.key}`],
+          }),
+        );
+      }
       if (schema === "report_verdict_decision") {
         findDecideCalls += 1;
         return chatCompletion(

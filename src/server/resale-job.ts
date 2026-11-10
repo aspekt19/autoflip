@@ -6,7 +6,6 @@ import { randomUUID } from "node:crypto";
 import { emptyAgentVerdict } from "@/domain/agent-verdict-schema";
 import {
   emptyResaleJournal,
-  RESALE_SERV_CALL_CAP,
   type ResaleDecisionJournal,
 } from "@/domain/resale-decision-journal";
 import {
@@ -164,8 +163,7 @@ function mergeJournals(
   return {
     schemaVersion: "lemonless.resale_journal.v1",
     steps: [...plan.steps, ...settle.steps],
-    servCalls: Math.min(RESALE_SERV_CALL_CAP, plan.servCalls + settle.servCalls),
-    servCallCap: RESALE_SERV_CALL_CAP,
+    servCalls: plan.servCalls + settle.servCalls,
   };
 }
 
@@ -514,7 +512,7 @@ export async function createAndRunResaleJobStep1(
     candidates: [],
     planRefine: null,
     plannedDirectionIds: null,
-    planJournal: emptyResaleJournal(RESALE_SERV_CALL_CAP),
+    planJournal: emptyResaleJournal(),
     settleCheckpoint: null,
     providerQueriesUsed: 0,
     scope: null,

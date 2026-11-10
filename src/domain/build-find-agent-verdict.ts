@@ -73,8 +73,11 @@ export function buildFindAgentVerdict(input: {
   const baseline = input.baseline ?? input.bestDeal?.baseline ?? null;
   const vsCheapest = baseline ? formatBaselineForBuyer(baseline).whyNotCheapest : null;
 
+  // Prefer SERV settle confidence/pick when present — never keep code ranking confidence alone.
+  const settleConfidence = input.settleVerdict?.confidence ?? null;
   const confidence =
-    input.bestDeal?.confidence && input.bestDeal.confidence !== "none" ? input.bestDeal.confidence : null;
+    settleConfidence ??
+    (input.bestDeal?.confidence && input.bestDeal.confidence !== "none" ? input.bestDeal.confidence : null);
 
   const confidenceLine =
     input.confidenceLine?.trim() ||
@@ -95,6 +98,10 @@ export function buildFindAgentVerdict(input: {
       confidenceAfter: null,
     } satisfies AgentSecondPassResult);
 
+  const settlePick = input.settleVerdict?.pick ?? null;
+  const publishedPickKey = settlePick?.key ?? pick?.key ?? null;
+  const publishedPickLabel = settlePick?.label ?? (pick && pickLabel ? pickLabel : null);
+
   const unknowns = [
     ...(input.bestDeal?.closeCall
       ? ["Top cars are close — confirm condition and history before buying."]
@@ -103,8 +110,8 @@ export function buildFindAgentVerdict(input: {
   ];
 
   const base = buildAgentVerdictFromFind({
-    pickKey: pick?.key ?? null,
-    pickLabel: pick && pickLabel ? pickLabel : null,
+    pickKey: publishedPickKey,
+    pickLabel: publishedPickLabel,
     confidence,
     decisionLog: input.decisionLog,
     labels: input.labels,
@@ -126,9 +133,11 @@ export function buildFindAgentVerdict(input: {
   );
   if (settleSteps.length === 0 && !input.settleVerdict?.verdict) return base;
 
-  // Append decide/challenge after next-check hops; keep Find pick from code ranking.
+  // Append decide/challenge after next-check hops; published pick/confidence come from SERV settle.
   return {
     ...base,
+    pick: settlePick ?? base.pick,
+    confidence: settleConfidence ?? base.confidence,
     verdict: input.settleVerdict?.verdict ?? base.verdict,
     serv_steps: [
       ...base.serv_steps.filter((step) => !/Second check/i.test(step.decided)),

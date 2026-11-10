@@ -36,7 +36,15 @@ import {
 } from "@/domain/decision-proof-record";
 import { providerResponseIdFromCall } from "@/domain/serv-response-id";
 import { collectReportEvidenceIds, runReportVerdictChallenge } from "@/server/agent-second-pass";
-import { profile, runServ, type ServProof } from "@/server/serv";
+import { chatCompletionContent, profile, runServ, type ServProof } from "@/server/serv";
+
+/** Prefer chat-completions message content for trail rawResponse (not output_text). */
+function rawResponseFromProof(proof: ServProof | null, fallbackText: string | null): string | null {
+  const fromChoices = chatCompletionContent(proof?.openserv);
+  if (fromChoices) return fromChoices;
+  if (fallbackText?.trim()) return fallbackText.trim();
+  return null;
+}
 
 /** Format OpenServ usage for the trail spend line. Never invent a dollar amount. */
 function usageSpendNote(proofs: Array<ServProof | null>): string | null {
@@ -234,10 +242,7 @@ export async function runShopperVerdictServ(input: {
           ok: false,
           model: judged.proof?.modelReported ?? judged.proof?.modelRequested ?? model,
           proof: judged.proof,
-          raw:
-            typeof judged.proof?.openserv?.output_text === "string"
-              ? judged.proof.openserv.output_text
-              : null,
+          raw: rawResponseFromProof(judged.proof, null),
           error: firstError,
         }),
       );
@@ -270,11 +275,7 @@ export async function runShopperVerdictServ(input: {
         ok: judged.ok,
         model: judged.proof?.modelReported ?? judged.proof?.modelRequested ?? (judged.ok ? judged.model : model),
         proof: judged.proof,
-        raw: judged.ok
-          ? judged.text
-          : typeof judged.proof?.openserv?.output_text === "string"
-            ? judged.proof.openserv.output_text
-            : null,
+        raw: rawResponseFromProof(judged.proof, judged.ok ? judged.text : null),
         error: judged.ok ? null : failHonesty,
       }),
     );
@@ -394,7 +395,7 @@ export async function runShopperVerdictServ(input: {
         ok: challenge.result.status === "agreed" || challenge.result.status === "disagreed",
         model: challenge.proof?.modelReported ?? model,
         proof: challenge.proof,
-        raw: challenge.rawText,
+        raw: rawResponseFromProof(challenge.proof, challenge.rawText),
         error:
           challenge.result.status === "unavailable"
             ? challenge.result.objection
@@ -721,7 +722,13 @@ export async function runShopperVerdictServ(input: {
     costNote: costBits.length ? costBits.join(" · ") : null,
     hadServStep,
   });
-  agentVerdict = { ...agentVerdict, serv_steps: recordedSteps };
+  // secondPass.confidenceAfter must not re-inflate past screening/synced confidence
+  // (e.g. stop-level flags already lowered screening High → Medium).
+  agentVerdict = {
+    ...agentVerdict,
+    confidence: syncedConfidence,
+    serv_steps: recordedSteps,
+  };
 
   if (servFailed) {
     // Principle 3: keep the real error on the trail; never invent a tidy fallback verdict.

@@ -5,7 +5,6 @@
  */
 import { describe, expect, it } from "vitest";
 import { proposeDirections } from "@/domain/directions";
-import { RESALE_SERV_CALL_CAP } from "@/domain/resale-decision-journal";
 import type { Listing } from "@/domain/types";
 import { emptyNeed } from "@/domain/need";
 import { needFromResaleSearchInput, parseResaleSearchInput } from "@/domain/resale-search-input";
@@ -16,6 +15,8 @@ import { buildKeyedAutonomyDiag } from "./find-next-check-orchestrator";
 import type { BestDealCandidate } from "@/domain/find-best-deal";
 import { FIND_NEXT_CHECK_RUBRIC_ID } from "@/domain/decision-proof-view";
 import type { ResaleCandidatePnl } from "@/domain/resale-pnl";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 
 function listing(
   partial: Partial<Listing> & Pick<Listing, "vin" | "year" | "make" | "model" | "priceUsd" | "miles">,
@@ -189,10 +190,31 @@ describe("P1 Resale: hard-fact guardrails only", () => {
     expect(clamped.action).toBe("pass");
     expect(clamped.reason).toMatch(/negative/i);
   });
+
+  it("blocks buy/negotiate on park-outside stop even when parkIt is false", () => {
+    const candidate = {
+      ...reportResaleCandidate(),
+      profitLowUsd: 500,
+      profitMidUsd: 1_200,
+      openParkIt: false,
+      openParkOutside: true,
+    };
+    const buy = clampFlipPublishedAction("buy", candidate);
+    expect(buy.overridden).toBe(true);
+    expect(buy.action).toBe("pass");
+    expect(buy.reason).toMatch(/park-outside/i);
+    const negotiate = clampFlipPublishedAction("negotiate", candidate);
+    expect(negotiate.overridden).toBe(true);
+    expect(negotiate.action).toBe("pass");
+  });
 });
 
 describe("P1 Resale: null-content refusal is a real labelled failure", () => {
-  it("describeServCallFailure names message_content_null_refusal_field (REPORT verdict_decide fail)", () => {
+  /**
+   * Provenance: live Resale run on Nov 10, 2026 — job 45678673584e449bbdeb6c04eb0fdc5a.
+   * Real failure shape: no response id, null message content (not an invented chatcmpl id).
+   */
+  it("describeServCallFailure names message_content_null_refusal_field (live job 45678673584e449bbdeb6c04eb0fdc5a)", () => {
     const fail = describeServCallFailure({
       ok: false,
       error: "SERV structured refusal field (message_content_null_refusal_field).",
@@ -212,7 +234,11 @@ describe("P1 Resale: null-content refusal is a real labelled failure", () => {
         promptCache: "default",
         streamed: false,
         endpoint: "chat",
-        openserv: { id: "chatcmpl-EijSNullFixture" },
+        // Live refusal: no response id; choices[0].message.content was null.
+        openserv: {
+          object: "chat.completion",
+          choices: [{ finish_reason: "stop", message: { content: null, refusal: "content_filter" } }],
+        },
       },
       fallback: "ignored_malformed",
       upstream: null,
@@ -242,9 +268,14 @@ describe("P1 Resale: null-content refusal is a real labelled failure", () => {
   });
 });
 
-describe("P1 artificial call cap", () => {
-  it("RESALE_SERV_CALL_CAP is not the old product surface of 6", () => {
-    expect(RESALE_SERV_CALL_CAP).toBeGreaterThan(6);
+describe("P1 artificial call cap removed", () => {
+  it("resale settle source has no RESALE_SERV_CALL_CAP and no call-cap skip line", () => {
+    const settleSrc = readFileSync(join(process.cwd(), "src/server/resale-settle-serv.ts"), "utf8");
+    const journalSrc = readFileSync(join(process.cwd(), "src/domain/resale-decision-journal.ts"), "utf8");
+    expect(journalSrc).not.toMatch(/RESALE_SERV_CALL_CAP/);
+    expect(journalSrc).not.toMatch(/servCallCap/);
+    expect(settleSrc).not.toMatch(/call cap reached/);
+    expect(settleSrc).not.toMatch(/skipped_call_cap/);
   });
 });
 
@@ -268,32 +299,133 @@ describe("P1 next-check honesty: drain does not claim SERV parse failure", () =>
   });
 });
 
-describe("P1 Check: park-outside campaign is stop-level", () => {
-  it("maps open parkOutSide recalls (e.g. 20V543000) to stop red flags", () => {
-    // Same gate as src/server/check/run-check.ts — campaign from REPORT Run 3.
-    const parkOutsideRecalls = [
+describe("P1 Check: park-outside campaign is stop-level end-to-end via runCheck", () => {
+  it("runCheck VIN dossier lowers agentVerdict.confidence when parkOutSide stop exists", async () => {
+    const { runCheck } = await import("./check/run-check");
+    const { TtlCache } = await import("@/io/cache");
+    const { MemoryCounter } = await import("@/io/quota");
+    const { MemoryKv } = await import("@/io/kv");
+    // Campaign 20V543000 shape from REPORT Run 3 — parkIt false, parkOutSide true.
+    const vin = "2HGFC3B33KH356212";
+    let servCalls = 0;
+    const fetchImpl = async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("serv-mock.test")) {
+        servCalls += 1;
+        const body =
+          servCalls === 1
+            ? { verdict: "negotiate", note: "Ask is near the fair value from similar listings." }
+            : { agrees: true, action: "negotiate", objection: null, evidenceIds: ["ev_fair_value"] };
+        return Response.json({
+          id: `chatcmpl-park-outside-${servCalls}`,
+          model: "gpt-5.4-mini",
+          choices: [{ message: { content: JSON.stringify(body) } }],
+        });
+      }
+      if (url.includes(`api.auto.dev/listings/${vin}`) || url.includes(`/listings/${vin}`)) {
+        return Response.json({
+          data: [
+            {
+              vin,
+              vehicle: { year: 2019, make: "Honda", model: "Civic", trim: "EX" },
+              retailListing: {
+                price: 15_189,
+                miles: 17_480,
+                used: true,
+                city: "Omaha",
+                state: "NE",
+                zip: "68114",
+                dealer: "Optimus Auto",
+                vdp: `https://dealer.example/vdp/${vin}`,
+              },
+            },
+          ],
+        });
+      }
+      if (url.includes("api.auto.dev/listings?")) {
+        const rows = Array.from({ length: 10 }, (_, i) => ({
+          vin: `2HGFC3B33KH35620${i}`,
+          year: 2019,
+          price: 14_500 + i * 150,
+          miles: 16_000 + i * 800,
+        }));
+        return Response.json({
+          data: rows.map((row) => ({
+            vin: row.vin,
+            vehicle: { year: row.year, make: "Honda", model: "Civic", trim: "EX" },
+            retailListing: {
+              price: row.price,
+              miles: row.miles,
+              used: true,
+              city: "Omaha",
+              state: "NE",
+              zip: "68114",
+              vdp: `https://dealer.example/vdp/${row.vin}`,
+            },
+          })),
+        });
+      }
+      if (url.includes("DecodeVinValues")) {
+        return Response.json({
+          Results: [
+            {
+              ErrorCode: "0",
+              ModelYear: "2019",
+              Make: "HONDA",
+              Model: "Civic",
+              Trim: "EX",
+              FuelTypePrimary: "Gasoline",
+            },
+          ],
+        });
+      }
+      if (url.includes("recallsByVehicle")) {
+        return Response.json({
+          count: 1,
+          results: [
+            {
+              NHTSACampaignNumber: "20V543000",
+              Component: "ELECTRICAL SYSTEM",
+              Summary: "Park outside fire risk guidance.",
+              Consequence: "Fire risk.",
+              Remedy: "Replace module.",
+              ParkIt: false,
+              ParkOutSide: true,
+            },
+          ],
+        });
+      }
+      if (url.includes("complaintsByVehicle")) {
+        return Response.json({ results: [], count: 0 });
+      }
+      if (url.includes("SafetyRatings")) {
+        return Response.json({ Results: [] });
+      }
+      if (url.includes("fueleconomy") || url.includes("fuel")) {
+        return Response.json({ menuItem: [] });
+      }
+      return new Response("{}", { status: 404 });
+    };
+
+    const result = await runCheck(
+      { kind: "vin", vin, optionalZip: "68114" },
       {
-        campaignNumber: "20V543000",
-        parkIt: false,
-        parkOutSide: true,
+        fetch: fetchImpl as unknown as typeof fetch,
+        servKey: "test-serv-key",
+        servModel: "gpt-5.4-mini",
+        servBaseUrl: "https://serv-mock.test/v1",
+        autodevKey: "test-autodev",
+        autodev: { cache: new TtlCache(), counter: new MemoryCounter() },
+        kv: new MemoryKv(),
       },
-    ];
-    const redFlags: Array<{ id: string; level: string; text: string }> = [];
-    const sample = parkOutsideRecalls.find((r) => r.parkOutSide && !r.parkIt);
-    if (sample) {
-      redFlags.push({
-        id: "park_outside",
-        level: "stop",
-        text: `NHTSA lists outdoor-parking / fire-risk guidance (campaign ${sample.campaignNumber}).`,
-      });
-    }
-    expect(redFlags).toEqual([expect.objectContaining({ id: "park_outside", level: "stop" })]);
-    expect(redFlags[0]!.text).toMatch(/20V543000/);
-    // Stop flags must lower High → Medium (same gate as run-check).
-    let confidence: "High" | "Medium" | "Low" = "High";
-    if (redFlags.some((flag) => flag.level === "stop") && confidence === "High") {
-      confidence = "Medium";
-    }
-    expect(confidence).toBe("Medium");
+    );
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.result.redFlags.some((f) => f.id === "park_outside" && f.level === "stop")).toBe(
+      true,
+    );
+    expect(result.result.confidence).not.toBe("High");
+    expect(result.result.agentVerdict.confidence).not.toBe("high");
+    expect(["medium", "low"]).toContain(result.result.agentVerdict.confidence);
   });
 });
