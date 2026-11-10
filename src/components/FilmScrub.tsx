@@ -51,7 +51,10 @@ declare global {
 }
 
 function phaseFor(progress: number): FilmPhase {
-  if (progress < 0.14) return "open";
+  // Keep the hero CTA clickable through small scroll/focus adjustments (textarea
+  // fill can nudge ~50–80px). film-pin scrub range is only ~0.5 viewport, so 0.14
+  // flipped to detail too early and story-after stole Find cars clicks.
+  if (progress < 0.42) return "open";
   return "detail";
 }
 
