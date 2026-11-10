@@ -1,7 +1,12 @@
 import { creditBalance, creditEventSeen } from "@/io/credit-book";
 import { getKv } from "@/io/kv";
+import {
+  makeResaleDeadline,
+  RESALE_INTERNAL_BUDGET_MS,
+  logResaleStage,
+} from "@/domain/resale-deadline";
 import { runtimeDeps } from "@/server/deps";
-import { runResaleSearch } from "@/server/resale-search";
+import { runResaleSearch, type ResaleSearchResult } from "@/server/resale-search";
 import {
   findSearchIdempotencyKey,
   readResaleSearchDelivery,
@@ -16,6 +21,12 @@ import {
 import { requireVerifiedAccountForFind } from "@/server/session";
 
 export const dynamic = "force-dynamic";
+/**
+ * Prod (Nov 2026) killed this route at 60s ("Task timed out after 60 seconds", CDN 504).
+ * Current Vercel Fluid docs list Hobby maxDuration up to 300s — Fluid alone did not
+ * prevent the observed 60s kill on this deployment. Keep maxDuration at 60 to match
+ * the observed platform kill, and finish under ~50s internally so we always return JSON.
+ */
 export const maxDuration = 60;
 
 /**
@@ -31,6 +42,20 @@ async function replayPaidDelivery(kv: ReturnType<typeof getKv>, userId: string, 
     balance,
     charged: true,
   });
+}
+
+function timeBudgetResult(): ResaleSearchResult {
+  return {
+    ok: false,
+    status: 504,
+    body: {
+      error: "time_budget",
+      message:
+        "The resale search hit its ~50s time budget before finishing every agent step. No credit was used. Code will return inventory flips on retry when Auto.dev responds in time; late SERV steps are marked not run (time budget).",
+      nextStep:
+        "Retry with the same filters. Prefer a ZIP radius under 100 miles if inventory stays slow.",
+    },
+  };
 }
 
 export async function POST(request: Request) {
@@ -93,27 +118,41 @@ export async function POST(request: Request) {
     }
   };
 
+  const deadline = makeResaleDeadline(RESALE_INTERNAL_BUDGET_MS);
+  logResaleStage("route_start", deadline.startedAtMs, { userScoped: true });
+
   try {
     const deps = runtimeDeps();
-    let result: Awaited<ReturnType<typeof runResaleSearch>>;
+    let result: ResaleSearchResult;
     try {
-      result = await runResaleSearch(body, {
+      const searchPromise = runResaleSearch(body, {
         ...deps,
         kv,
         env: process.env,
         servKey: deps.servKey,
         servBaseUrl: deps.servBaseUrl,
         servModel: deps.servModel,
+        deadline,
+        internalBudgetMs: RESALE_INTERNAL_BUDGET_MS,
       });
-    } catch {
+      // Safety net: always resolve JSON before the Hobby 60s platform kill.
+      const guardPromise = new Promise<ResaleSearchResult>((resolve) => {
+        setTimeout(() => resolve(timeBudgetResult()), Math.max(500, deadline.remainingMs()));
+      });
+      result = await Promise.race([searchPromise, guardPromise]);
+    } catch (err) {
       const paid = await creditEventSeen(kv, spendKey);
       await releaseInflight();
+      const reason = err instanceof Error ? err.message.slice(0, 180) : "unexpected_error";
+      logResaleStage("route_error", deadline.startedAtMs, { reason });
       return Response.json(
         {
           error: "search_failed",
+          reason,
           message: paid
-            ? "The resale search did not finish. An earlier delivery already used 1 credit, and it was not refunded."
-            : "The resale search did not finish. No credit was used.",
+            ? `The resale search did not finish (${reason}). An earlier delivery already used 1 credit, and it was not refunded. Retry with the same request — it should replay the stored delivery.`
+            : `The resale search did not finish (${reason}). No credit was used. Retry with the same filters; if Auto.dev is slow, try a tighter ZIP radius.`,
+          nextStep: "Retry this search. Failed searches never debit a credit.",
           balance: await creditBalance(kv, id),
           charged: false,
         },
@@ -124,6 +163,10 @@ export async function POST(request: Request) {
     if (!result.ok) {
       const paid = await creditEventSeen(kv, spendKey);
       await releaseInflight();
+      logResaleStage("route_fail", deadline.startedAtMs, {
+        error: result.body.error,
+        status: result.status,
+      });
       return Response.json(
         {
           ...result.body,
@@ -163,17 +206,25 @@ export async function POST(request: Request) {
 
     balanceAfter = reserved.balance;
     await releaseInflight();
+    logResaleStage("route_ok", deadline.startedAtMs, {
+      remainingMs: deadline.remainingMs(),
+      charged: true,
+    });
     return Response.json({
       ...delivery,
       balance: balanceAfter,
       charged: true,
     });
-  } catch {
+  } catch (err) {
     await releaseInflight();
+    const reason = err instanceof Error ? err.message.slice(0, 180) : "unexpected_error";
+    logResaleStage("route_outer_error", deadline.startedAtMs, { reason });
     return Response.json(
       {
         error: "search_failed",
-        message: "The resale search did not finish. No credit was used.",
+        reason,
+        message: `The resale search did not finish (${reason}). No credit was used. Retry with the same filters.`,
+        nextStep: "Retry this search. Failed searches never debit a credit.",
         balance: await creditBalance(kv, id),
         charged: false,
       },

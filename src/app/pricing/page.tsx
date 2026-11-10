@@ -24,6 +24,7 @@ function PricingContent() {
   const [pending, setPending] = useState<string | null>(null);
   const [radarUi, setRadarUi] = useState<boolean | null>(null);
   const freeLimit = ASSUMPTIONS.radarFreeWatchLimit;
+  const freeFlipLimit = ASSUMPTIONS.radarFreeFlipWatchLimit;
 
   async function refreshAccount() {
     setAccountLoading(true);
@@ -110,10 +111,11 @@ function PricingContent() {
         <p className="kicker">Pricing</p>
         <h1>Deal Radar and report credits</h1>
         <p className="lead">
-          Deal Radar personal watches are free with a signed-in account — up to {freeLimit} saved radars. Scheduled checks and in-app alerts do not spend report credits. Opening a full vehicle report costs 1 report credit. Email alerts are not configured in this deployment (in-app only). Telegram stays off.
+          Deal Radar personal watches are free with a signed-in account — up to {freeLimit} saved radars. Verified accounts also get {freeFlipLimit} free Flip watch
+          {freeFlipLimit === 1 ? "" : "es"} so Deal Radar can send resale options on a schedule. Scheduled checks and in-app alerts do not spend report credits. Opening a full vehicle report costs 1 report credit. Email alerts are not configured in this deployment (in-app only). Telegram stays off.
         </p>
         <p className="hint">
-          Optional Stripe test subscriptions below only raise the personal watch cap above {freeLimit}, or unlock Flip watches. Displayed monthly amounts are Stripe test placeholders and do not charge real money. For a one-car flip estimate without a watch, use{" "}
+          Optional Stripe test subscriptions below only raise the personal watch cap above {freeLimit}, or raise the Flip watch cap above {freeFlipLimit}. Displayed monthly amounts are Stripe test placeholders and do not charge real money. For a one-car flip estimate without a watch, use{" "}
           <Link href="/resale">Resale</Link>.
         </p>
 
@@ -143,7 +145,7 @@ function PricingContent() {
         ) : null}
 
         <h2>Optional paid caps (Stripe test)</h2>
-        <p className="hint">Only needed if you want more than {freeLimit} personal watches, or Flip watches.</p>
+        <p className="hint">Only needed if you want more than {freeLimit} personal watches, or more than {freeFlipLimit} Flip watch{freeFlipLimit === 1 ? "" : "es"}.</p>
         <div className="choice-grid">
           {PLAN_CATALOG.filter((plan) => plan.mode === "personal").map((plan) => (
             <article className="choice-card" key={plan.id}>
@@ -157,7 +159,9 @@ function PricingContent() {
           ))}
         </div>
         <h2>For resale (Flip watches)</h2>
-        <p className="hint">Flip watches still need a Flip radar plan. Personal Deal Radar stays free.</p>
+        <p className="hint">
+          {freeFlipLimit} free Flip watch{freeFlipLimit === 1 ? "" : "es"} per verified account. Paid Flip plans raise that cap. Personal Deal Radar stays free up to {freeLimit}.
+        </p>
         <div className="choice-grid">
           {PLAN_CATALOG.filter((plan) => plan.mode === "flip").map((plan) => (
             <article className="choice-card" key={plan.id}>

@@ -25,6 +25,11 @@ import type { ComputedReport, Listing, Verdict } from "@/domain/types";
 import { rankByRiskAdjustedProfit, runResaleDeepChecks } from "@/server/resale-deep-check";
 import { runShopperVerdictServ, type ShopperServTrace } from "@/server/shopper-verdict-serv";
 import { runServ, type ServProof } from "@/server/serv";
+import {
+  RESALE_STAGE_BUDGET_MS,
+  RESALE_TIME_BUDGET_SKIP,
+  type ResaleDeadline,
+} from "@/domain/resale-deadline";
 
 const RESALE_SERV_JUDGE_MAX = 3;
 
@@ -162,6 +167,8 @@ export async function runResaleSettleServ(input: {
   servBaseUrl?: string;
   model?: string;
   fetchImpl?: typeof fetch;
+  /** When set, skip remaining SERV stages once the wall-clock budget is gone. */
+  deadline?: ResaleDeadline;
 }): Promise<ResaleSettleServResult> {
   const recordedAt = new Date().toISOString();
   const trail: AgentTrailStep[] = [];
@@ -244,7 +251,12 @@ export async function runResaleSettleServ(input: {
 
   // --- Triage (resale_triage) ---
   let selectedCheckIds = ["price_comps", "history"];
-  if (input.servKey?.trim() && journal.servCalls < journal.servCallCap) {
+  const deadline = input.deadline;
+  if (
+    input.servKey?.trim() &&
+    journal.servCalls < journal.servCallCap &&
+    (!deadline || deadline.allow(RESALE_STAGE_BUDGET_MS.triage))
+  ) {
     const allowedCheckIds = ["price_comps", "vin_decode", "recalls", "complaints", "history"];
     const facts = {
       allowedVins: shortlist.map((item) => item.vin),
@@ -362,6 +374,19 @@ export async function runResaleSettleServ(input: {
       recordedAt,
       rejected: null,
     });
+  } else if (deadline && !deadline.allow(RESALE_STAGE_BUDGET_MS.triage)) {
+    journal = appendJournalStep(journal, {
+      kind: "fallback",
+      actor: "code",
+      decided: `Triage ${RESALE_TIME_BUDGET_SKIP}`,
+      why: `Wall-clock budget remaining ${deadline.remainingMs()}ms — keeping code ranking for ${carLabel(shortlist[0]!)}.`,
+      inputsUsed: shortlist.map((item) => `pnl:${item.vin}`),
+      changed: null,
+      model: null,
+      responseId: null,
+      recordedAt,
+      rejected: null,
+    });
   }
 
   // --- Deep-check (code executes the free public lookups SERV selected) ---
@@ -417,7 +442,11 @@ export async function runResaleSettleServ(input: {
     best.profitMidUsd != null && best.profitMidUsd > 0 ? "negotiate" : "needs_inspection";
 
   // --- Pick (resale_pick) ---
-  if (input.servKey?.trim() && journal.servCalls < journal.servCallCap) {
+  if (
+    input.servKey?.trim() &&
+    journal.servCalls < journal.servCallCap &&
+    (!deadline || deadline.allow(RESALE_STAGE_BUDGET_MS.pick))
+  ) {
     const pickFacts = {
       allowedVins: ordered.map((item) => item.vin),
       candidates: ordered.map((item) => ({
@@ -505,6 +534,27 @@ export async function runResaleSettleServ(input: {
     }
   }
 
+  if (
+    input.servKey?.trim() &&
+    journal.servCalls < journal.servCallCap &&
+    deadline &&
+    !deadline.allow(RESALE_STAGE_BUDGET_MS.pick) &&
+    !journal.steps.some((s) => s.kind === "pick" && s.actor === "SERV")
+  ) {
+    journal = appendJournalStep(journal, {
+      kind: "fallback",
+      actor: "code",
+      decided: `Pick ${RESALE_TIME_BUDGET_SKIP}`,
+      why: `Wall-clock budget remaining ${deadline.remainingMs()}ms — code pick ${carLabel(best)} stands.`,
+      inputsUsed: [`vin:${best.vin}`],
+      changed: null,
+      model: null,
+      responseId: null,
+      recordedAt,
+      rejected: null,
+    });
+  }
+
   // --- Challenge (resale_challenge) ---
   let ranDecide = false;
   let trace: ShopperServTrace | null = null;
@@ -520,7 +570,11 @@ export async function runResaleSettleServ(input: {
   };
   let agentConfidence = confidenceFromPnl(best);
 
-  if (input.servKey?.trim() && journal.servCalls < journal.servCallCap) {
+  if (
+    input.servKey?.trim() &&
+    journal.servCalls < journal.servCallCap &&
+    (!deadline || deadline.allow(RESALE_STAGE_BUDGET_MS.challenge))
+  ) {
     const challengeFacts = {
       primaryPickVin: best.vin,
       allowedVins: ordered.map((item) => item.vin),
@@ -647,8 +701,41 @@ export async function runResaleSettleServ(input: {
     }
   }
 
+  if (
+    input.servKey?.trim() &&
+    journal.servCalls < journal.servCallCap &&
+    deadline &&
+    !deadline.allow(RESALE_STAGE_BUDGET_MS.challenge) &&
+    secondPass.status === "not_run"
+  ) {
+    secondPass = {
+      status: "not_run",
+      action: null,
+      objection: `Challenge ${RESALE_TIME_BUDGET_SKIP}. The first verdict stands.`,
+      evidenceIds: [],
+      confidenceBefore: agentConfidence,
+      confidenceAfter: agentConfidence,
+    };
+    journal = appendJournalStep(journal, {
+      kind: "fallback",
+      actor: "code",
+      decided: `Challenge ${RESALE_TIME_BUDGET_SKIP}`,
+      why: `Wall-clock budget remaining ${deadline.remainingMs()}ms — first pick stands.`,
+      inputsUsed: [`vin:${best.vin}`],
+      changed: null,
+      model: null,
+      responseId: null,
+      recordedAt,
+      rejected: null,
+    });
+  }
+
   // Optional shopper decide path for ComputedReport parity (counts toward cap when key present and budget remains).
-  if (input.servKey?.trim() && journal.servCalls < journal.servCallCap) {
+  if (
+    input.servKey?.trim() &&
+    journal.servCalls < journal.servCallCap &&
+    (!deadline || deadline.allow(RESALE_STAGE_BUDGET_MS.shopper))
+  ) {
     const report = buildFlipReport(best, input.budgetUsd);
     const shopper = await runShopperVerdictServ({
       report,

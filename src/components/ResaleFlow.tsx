@@ -73,6 +73,9 @@ type SearchResult = {
   nextStep: string;
   creditNote: string;
   balance?: number;
+  budgetUsd: number;
+  zip?: string | null;
+  distanceMiles?: number | null;
 };
 
 function ResaleSearchForm({ credits, onAuthLost }: { credits: number | null; onAuthLost: () => void }) {
@@ -128,6 +131,7 @@ function ResaleSearchForm({ credits, onAuthLost }: { credits: number | null; onA
         nextStep?: string;
         creditNote?: string;
         balance?: number;
+        budgetUsd?: number;
       };
       if (response.status === 401 || response.status === 403) {
         if (body.error === "auth_required" || body.error === "email_unverified" || body.error === "auth_unconfigured") {
@@ -140,7 +144,8 @@ function ResaleSearchForm({ credits, onAuthLost }: { credits: number | null; onA
         }
       }
       if (!response.ok || !body.agentVerdict || !body.confidence || !body.verdictAction) {
-        setError(body.message ?? "The resale search did not finish.");
+        const hint = typeof body.nextStep === "string" && body.nextStep.trim() ? ` ${body.nextStep.trim()}` : "";
+        setError(`${body.message ?? "The resale search did not finish."}${hint}`);
         return;
       }
       setResult({
@@ -160,9 +165,12 @@ function ResaleSearchForm({ credits, onAuthLost }: { credits: number | null; onA
         nextStep: body.nextStep ?? "",
         creditNote: body.creditNote ?? "1 report credit per delivered resale search.",
         balance: body.balance,
+        budgetUsd: typeof body.budgetUsd === "number" ? body.budgetUsd : Number(budget),
+        zip: zip.trim() || null,
+        distanceMiles: radius === "" ? null : Number(radius),
       });
     } catch {
-      setError("The resale search did not finish.");
+      setError("The resale search did not finish. Retry — failed searches never debit a credit.");
     } finally {
       setPending(false);
     }
@@ -347,6 +355,15 @@ function ResaleSearchForm({ credits, onAuthLost }: { credits: number | null; onA
 }
 
 function ResaleSearchResultView({ result }: { result: SearchResult }) {
+  const watchHref = (() => {
+    if (!result.budgetUsd) return null;
+    const q = new URLSearchParams({ mode: "flip", priceMax: String(result.budgetUsd) });
+    if (result.zip) q.set("zip", result.zip);
+    if (result.distanceMiles != null && Number.isFinite(result.distanceMiles)) {
+      q.set("distanceMiles", String(result.distanceMiles));
+    }
+    return `/radar?${q.toString()}`;
+  })();
   return (
     <article className="warn-box check-result" aria-live="polite">
       <h2>{result.headline}</h2>
@@ -357,6 +374,13 @@ function ResaleSearchResultView({ result }: { result: SearchResult }) {
       </p>
       <p>{result.message}</p>
       <p className="hint">{result.nextStep}</p>
+      {watchHref ? (
+        <p className="btn-row">
+          <Link className="action" href={watchHref}>
+            Watch this budget on Deal Radar
+          </Link>
+        </p>
+      ) : null}
       <p className="hint">{result.creditNote}</p>
       {typeof result.balance === "number" ? <p className="hint">Balance after search: {result.balance}</p> : null}
 

@@ -21,11 +21,11 @@ export const PLAN_CATALOG = [
   {
     id: "flip_metro",
     mode: "flip" as const,
-    name: "Flip · one metro",
+    name: "Flip · three watches",
     amountCents: 4900,
-    searchLimit: 1,
+    searchLimit: 3,
     lookupKey: "autoflip_flip_metro_monthly",
-    detail: "Monitor one local market using a ZIP code, search radius and maximum purchase budget.",
+    detail: "Raise the free Flip watch cap to three local budgets (ZIP, radius, max purchase).",
   },
 ] as const;
 

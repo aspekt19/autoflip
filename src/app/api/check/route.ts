@@ -1,13 +1,26 @@
 import { checkCreditsNeedMessage, freeCheckMonthKey } from "@/domain/free-check-quota";
 import { isValidVin } from "@/domain/vin";
+import { creditEventSeen } from "@/io/credit-book";
 import { commitFreeCheck, freeCheckSlotsRemaining, releaseFreeCheck, reserveFreeCheck } from "@/io/free-check-quota";
 import { getKv } from "@/io/kv";
+import {
+  checkDeliveryKey,
+  readCheckDelivery,
+  storeCheckDelivery,
+} from "@/server/check/check-delivery";
 import { runCheck, type CheckRunInput } from "@/server/check/run-check";
 import { runtimeDeps } from "@/server/deps";
 import { balanceOf, requireVerifiedAccountForChecks, spendCredit } from "@/server/session";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
+
+function vinKeyForInput(input: CheckRunInput, resultVin: string | null): string {
+  if (resultVin && isValidVin(resultVin)) return resultVin;
+  if (input.kind === "vin" && isValidVin(input.vin)) return input.vin;
+  const seed = input.kind === "link" ? input.url : input.kind === "vin" ? input.vin : "paste";
+  return `novin:${Buffer.from(seed).toString("base64url").slice(0, 24)}`;
+}
 
 /**
  * Check a car by listing link, pasted listing text, or VIN.
@@ -17,6 +30,9 @@ export const maxDuration = 60;
  * after a successful delivered result. Failed, blocked, and redirected checks
  * never consume. Capability is gated up front so exhausted accounts are not
  * kept waiting on a listing fetch.
+ *
+ * Billing honesty: a second delivery of the same vehicle in the same month
+ * returns the saved result without claiming a new free-check or credit spend.
  */
 export async function POST(request: Request) {
   const access = await requireVerifiedAccountForChecks();
@@ -83,10 +99,32 @@ export async function POST(request: Request) {
     );
   }
 
+  // VIN checks can short-circuit on a prior delivery before running SERV again.
+  if (input.kind === "vin") {
+    const priorKey = checkDeliveryKey(access.id, month, input.vin);
+    const prior = await readCheckDelivery(kv, priorKey);
+    if (prior) {
+      return Response.json({
+        ok: true,
+        ...prior.result,
+        usedFreeCheck: false,
+        spentCredit: false,
+        fromCache: true,
+        billingNote: prior.spentCredit
+          ? "Returning saved check; no additional credit spent."
+          : prior.usedFreeCheck
+            ? "Returning saved check; free check already used for this vehicle this month."
+            : "Returning saved check; no charge.",
+        freeChecks: slots.view,
+      });
+    }
+  }
+
   let freeCheckKey: string | null = null;
   let usedFreeCheck = false;
   let needsCredit = false;
   let spentCredit = false;
+  let billingNote = "";
 
   try {
     const result = await runCheck(input, {
@@ -116,15 +154,26 @@ export async function POST(request: Request) {
       );
     }
 
+    const vinKey = vinKeyForInput(input, result.result.vin);
+    const deliveryKey = checkDeliveryKey(access.id, month, vinKey);
+    const prior = await readCheckDelivery(kv, deliveryKey);
+    if (prior) {
+      return Response.json({
+        ok: true,
+        ...prior.result,
+        usedFreeCheck: false,
+        spentCredit: false,
+        fromCache: true,
+        billingNote: prior.spentCredit
+          ? "Returning saved check; no additional credit spent."
+          : prior.usedFreeCheck
+            ? "Returning saved check; free check already used for this vehicle this month."
+            : "Returning saved check; no charge.",
+        freeChecks: slots.view,
+      });
+    }
+
     // Deliverable exists — now reserve free slot or spend a credit.
-    const vinKey =
-      result.result.vin && isValidVin(result.result.vin)
-        ? result.result.vin
-        : `novin:${Buffer.from(
-            input.kind === "link" ? input.url : input.kind === "vin" ? input.vin : "paste",
-          )
-            .toString("base64url")
-            .slice(0, 24)}`;
     freeCheckKey = `free-check:check:${access.id}:${month}:${vinKey}`;
     // Order: free monthly check first, then report credit.
     // reserveFreeCheck is preferred whenever a free slot remains; credit only when
@@ -132,6 +181,7 @@ export async function POST(request: Request) {
     const reserved = await reserveFreeCheck(kv, access.id, freeCheckKey);
     if (reserved.ok) {
       usedFreeCheck = true;
+      billingNote = "Free vehicle check used (no report credit).";
     } else if (reserved.reason === "lock_busy") {
       return Response.json(
         {
@@ -159,15 +209,22 @@ export async function POST(request: Request) {
 
     if (needsCredit) {
       const spendKey = `check:${access.id}:${month}:${result.result.vin ?? "novin"}:${result.result.title}`;
-      const spent = await spendCredit(access.id, spendKey);
-      if (!spent.ok) {
-        if (usedFreeCheck && freeCheckKey) await releaseFreeCheck(kv, access.id, freeCheckKey);
-        return Response.json(
-          { error: "credits_required", message: checkCreditsNeedMessage() },
-          { status: 403 },
-        );
+      const alreadyPaid = await creditEventSeen(kv, spendKey);
+      if (alreadyPaid) {
+        spentCredit = false;
+        billingNote = "Report already charged for this check; no additional credit spent.";
+      } else {
+        const spent = await spendCredit(access.id, spendKey);
+        if (!spent.ok) {
+          if (usedFreeCheck && freeCheckKey) await releaseFreeCheck(kv, access.id, freeCheckKey);
+          return Response.json(
+            { error: "credits_required", message: checkCreditsNeedMessage() },
+            { status: 403 },
+          );
+        }
+        spentCredit = true;
+        billingNote = "1 report credit spent.";
       }
-      spentCredit = true;
     }
 
     let freeChecks = (await freeCheckSlotsRemaining(kv, access.id)).view;
@@ -176,7 +233,22 @@ export async function POST(request: Request) {
       freeChecks = committed.view;
     }
 
-    return Response.json({ ok: true, ...result.result, usedFreeCheck, spentCredit, freeChecks });
+    const payload = { ...result.result } as Record<string, unknown>;
+    await storeCheckDelivery(kv, deliveryKey, {
+      settledAt: new Date().toISOString(),
+      result: payload,
+      usedFreeCheck,
+      spentCredit,
+    });
+
+    return Response.json({
+      ok: true,
+      ...result.result,
+      usedFreeCheck,
+      spentCredit,
+      billingNote,
+      freeChecks,
+    });
   } catch (error) {
     if (usedFreeCheck && freeCheckKey) await releaseFreeCheck(kv, access.id, freeCheckKey);
     const message = error instanceof Error ? error.message : "Check failed.";

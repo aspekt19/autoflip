@@ -220,4 +220,69 @@ describe("/api/check settlement", () => {
     expect((await readFreeCheckQuota(kvHolder.kv, ACCOUNT)).remaining).toBe(0);
     expect(await creditBalance(kvHolder.kv, ACCOUNT)).toBe(5);
   });
+
+  it("replays a saved delivery without claiming another free check or credit", async () => {
+    await creditGrant(kvHolder.kv, ACCOUNT, 2, "init-replay");
+    runCheckMock.mockResolvedValue({
+      ok: true,
+      result: {
+        kind: "vin_dossier",
+        title: "2021 Toyota Camry",
+        verdict: "dossier",
+        verdictLabel: "VIN dossier",
+        confidence: "Medium",
+        summary: "ok",
+        badge: null,
+        fairValueUsd: null,
+        priceGap: null,
+        compCount: 0,
+        compScope: "",
+        redFlags: [],
+        questions: [],
+        otd: null,
+        otdNeedsZip: false,
+        walkAwayUsd: null,
+        walkAwayLabel: null,
+        similarCars: [],
+        fields: null,
+        provenance: [],
+        vin: VIN,
+        vinDecode: null,
+        recalls: [],
+        recallsAvailable: false,
+        complaintCount: null,
+        fuel: null,
+        fuelConflict: null,
+        safetySummary: null,
+        knownIssues: [],
+        unknown: [],
+        listingsForVin: [],
+        llmUsed: false,
+        sample: false,
+        agentVerdict: null,
+      },
+    });
+
+    const first = await POST(req({ kind: "vin", vin: VIN }));
+    const firstBody = await first.json();
+    expect(first.status).toBe(200);
+    expect(firstBody.usedFreeCheck).toBe(true);
+    expect(firstBody.spentCredit).toBe(false);
+    expect(firstBody.billingNote).toMatch(/Free vehicle check/i);
+    expect((await readFreeCheckQuota(kvHolder.kv, ACCOUNT)).used).toBe(1);
+    expect(await creditBalance(kvHolder.kv, ACCOUNT)).toBe(2);
+    expect(runCheckMock).toHaveBeenCalledOnce();
+
+    const second = await POST(req({ kind: "vin", vin: VIN }));
+    const secondBody = await second.json();
+    expect(second.status).toBe(200);
+    expect(secondBody.fromCache).toBe(true);
+    expect(secondBody.usedFreeCheck).toBe(false);
+    expect(secondBody.spentCredit).toBe(false);
+    expect(secondBody.billingNote).toMatch(/no additional|already used/i);
+    expect((await readFreeCheckQuota(kvHolder.kv, ACCOUNT)).used).toBe(1);
+    expect(await creditBalance(kvHolder.kv, ACCOUNT)).toBe(2);
+    // Cached VIN short-circuits before runCheck.
+    expect(runCheckMock).toHaveBeenCalledOnce();
+  });
 });

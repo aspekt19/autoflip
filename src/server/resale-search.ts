@@ -21,6 +21,14 @@ import {
 import { validateResaleServOutput } from "@/domain/resale-serv-validate";
 import type { Listing } from "@/domain/types";
 import type { Kv } from "@/io/kv";
+import {
+  logResaleStage,
+  makeResaleDeadline,
+  RESALE_INTERNAL_BUDGET_MS,
+  RESALE_STAGE_BUDGET_MS,
+  RESALE_TIME_BUDGET_SKIP,
+  type ResaleDeadline,
+} from "@/domain/resale-deadline";
 import { runFindMatch, type FindMatchDeps } from "@/server/find-match";
 import { runResaleSettleServ } from "@/server/resale-settle-serv";
 import { runServ } from "@/server/serv";
@@ -33,6 +41,10 @@ export type ResaleSearchDeps = FindMatchDeps & {
   servBaseUrl?: string;
   servModel?: string;
   fetchImpl?: typeof fetch;
+  /** Override wall-clock budget (tests inject a short deadline). */
+  deadline?: ResaleDeadline;
+  /** Internal budget ms when deadline is not injected (Hobby-safe ~50s default). */
+  internalBudgetMs?: number;
 };
 
 export type ResaleSearchOkBody = {
@@ -99,7 +111,13 @@ export async function runResaleSearch(
   const input: ResaleSearchInput = parsed.input;
   const need = needFromResaleSearchInput(input);
   const recordedAt = new Date().toISOString();
+  const deadline =
+    deps.deadline ?? makeResaleDeadline(deps.internalBudgetMs ?? RESALE_INTERNAL_BUDGET_MS);
   let planJournal = emptyResaleJournal(RESALE_SERV_CALL_CAP);
+  logResaleStage("start", deadline.startedAtMs, {
+    budgetUsd: input.budgetUsd,
+    budgetMs: deps.internalBudgetMs ?? RESALE_INTERNAL_BUDGET_MS,
+  });
 
   const directions = proposeDirections(need);
   const allowedDirections = directions.map((d) => ({
@@ -125,7 +143,12 @@ export async function runResaleSearch(
   });
 
   let refine: { make?: string; model?: string; yearMin?: number; yearMax?: number } | undefined;
-  if (deps.servKey?.trim() && allowedDirections.length > 0) {
+  if (
+    deps.servKey?.trim() &&
+    allowedDirections.length > 0 &&
+    deadline.allow(RESALE_STAGE_BUDGET_MS.plan)
+  ) {
+    const planStarted = Date.now();
     const facts = {
       allowedDirections,
       budgetUsd: input.budgetUsd,
@@ -214,9 +237,55 @@ export async function runResaleSearch(
         rejected: null,
       });
     }
+    logResaleStage("plan", planStarted, { remainingMs: deadline.remainingMs() });
+  } else if (deps.servKey?.trim() && allowedDirections.length > 0) {
+    planJournal = appendJournalStep(planJournal, {
+      kind: "fallback",
+      actor: "code",
+      decided: `Plan ${RESALE_TIME_BUDGET_SKIP}`,
+      why: `Wall-clock budget remaining ${deadline.remainingMs()}ms — code runs full editorial directions.`,
+      inputsUsed: allowedDirections.map((d) => `direction:${d.id}`),
+      changed: null,
+      model: null,
+      responseId: null,
+      recordedAt,
+      rejected: null,
+    });
+    logResaleStage("plan_skipped", Date.now(), {
+      reason: RESALE_TIME_BUDGET_SKIP,
+      remainingMs: deadline.remainingMs(),
+    });
   }
 
-  const match = await runFindMatch({ need, refine }, deps);
+  if (deadline.expired()) {
+    return {
+      ok: false,
+      status: 504,
+      body: {
+        error: "time_budget",
+        message:
+          "The resale search hit its time budget before inventory returned. No credit was used. Retry with the same filters — Auto.dev can be slow under load.",
+        nextStep: "Retry this search. If it keeps timing out, try a ZIP radius under 100 miles or a higher budget.",
+      },
+    };
+  }
+
+  const inventoryStarted = Date.now();
+  const inventoryCapMs = Math.min(RESALE_STAGE_BUDGET_MS.inventory, Math.max(1_000, deadline.remainingMs() - 8_000));
+  const match = await runFindMatch(
+    { need, refine },
+    {
+      ...deps,
+      parallelProviderQueries: true,
+      inventoryStageCapMs: inventoryCapMs,
+      deadline,
+    },
+  );
+  logResaleStage("inventory", inventoryStarted, {
+    remainingMs: deadline.remainingMs(),
+    ok: match.ok,
+    queries: match.ok ? match.body.providerQueriesUsed : 0,
+  });
   if (!match.ok) {
     return {
       ok: false,
@@ -247,6 +316,7 @@ export async function runResaleSearch(
   });
 
   const remainingCap = Math.max(0, RESALE_SERV_CALL_CAP - planJournal.servCalls);
+  const settleStarted = Date.now();
   const settled = await runResaleSettleServ({
     candidates: pnls,
     budgetUsd: input.budgetUsd,
@@ -255,11 +325,22 @@ export async function runResaleSearch(
     servBaseUrl: deps.servBaseUrl,
     model: deps.servModel,
     fetchImpl: deps.fetchImpl,
+    deadline,
+  });
+  logResaleStage("settle", settleStarted, {
+    remainingMs: deadline.remainingMs(),
+    bestVin: settled.best?.vin ?? null,
+    servCalls: settled.journal.servCalls,
   });
 
   const journal = mergeJournals(planJournal, settled.journal);
 
   const emptyPool = pnls.length === 0;
+  logResaleStage("done", deadline.startedAtMs, {
+    remainingMs: deadline.remainingMs(),
+    emptyPool,
+    journalSteps: journal.steps.length,
+  });
   const headline = emptyPool
     ? match.body.headline ?? "No flip candidates in this budget"
     : settled.best

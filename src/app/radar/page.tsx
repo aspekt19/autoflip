@@ -536,15 +536,24 @@ function RadarInner() {
 
 function SaveSearchForm({ onSaved }: { onSaved: () => void }) {
   const router = useRouter();
+  const params = useSearchParams();
+  const seedPrice = params.get("priceMax")?.trim() || "";
+  const seedZip = params.get("zip")?.trim() || "";
+  const seedMode = params.get("mode") === "flip" ? "flip" : params.get("mode") === "personal" ? "personal" : null;
+  const seedRadiusRaw = params.get("distanceMiles") ?? params.get("radiusMiles");
+  const seedRadius = seedRadiusRaw != null && seedRadiusRaw !== "" ? Number(seedRadiusRaw) : null;
   const [name, setName] = useState("Saved search");
-  const [searchMode, setSearchMode] = useState<Mode>("personal");
-  const [make, setMake] = useState("");
-  const [model, setModel] = useState("");
+  const [searchMode, setSearchMode] = useState<Mode>(seedMode ?? "personal");
+  const [make, setMake] = useState(params.get("make")?.trim() || "");
+  const [model, setModel] = useState(params.get("model")?.trim() || "");
   const [yearMin, setYearMin] = useState("");
   const [yearMax, setYearMax] = useState("");
-  const [priceMax, setPriceMax] = useState("18000");
-  const [zip, setZip] = useState("");
-  const [distanceMiles, setDistanceMiles] = useState<number | null>(50);
+  // Prefer the actual budget from Resale/Find handoff — never invent 18000 over a known budget.
+  const [priceMax, setPriceMax] = useState(seedPrice);
+  const [zip, setZip] = useState(seedZip);
+  const [distanceMiles, setDistanceMiles] = useState<number | null>(
+    seedRadius != null && Number.isFinite(seedRadius) ? seedRadius : 50,
+  );
   const [notes, setNotes] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);

@@ -7,14 +7,14 @@ import { AgentDecisionTrail } from "@/components/AgentDecisionTrail";
 import { SignInGate } from "@/components/SignInGate";
 import { PriceBadgeView, PriceRatingHow } from "@/components/PriceBadge";
 import { SimilarCarsList } from "@/components/SimilarCarsList";
-import { confidenceLabel } from "@/domain/agent-verdict-schema";
+import { confidenceLabel, type AgentVerdict } from "@/domain/agent-verdict-schema";
+import { actionLabel } from "@/domain/decision-action";
 import {
   formatFreeChecksRemaining,
   freeChecksRemainingFromAccount,
 } from "@/domain/free-check-quota";
 import { isValidVin } from "@/domain/vin";
 import { formatUsd } from "@/domain/format";
-import type { AgentVerdict } from "@/domain/agent-verdict-schema";
 import type { PriceBadge } from "@/domain/price-badge";
 import type { CheckConfidence, CheckRedFlag, ExtractedListingFields } from "@/domain/listing/types";
 import type { SimilarCarView } from "@/domain/purchase-readiness";
@@ -67,6 +67,10 @@ type CheckResultView = {
     state: string | null;
   }>;
   freeChecks?: { remaining: number; limit: number; resetsLabel: string } | null;
+  usedFreeCheck?: boolean;
+  spentCredit?: boolean;
+  fromCache?: boolean;
+  billingNote?: string;
   agentVerdict?: AgentVerdict | null;
   servTrace?: {
     recordedAt: string;
@@ -558,20 +562,31 @@ function CheckResultCard({ result }: { result: CheckResultView }) {
   const stopFlags = result.redFlags.filter((flag) => flag.level === "stop");
   const sold = result.redFlags.some((flag) => flag.id === "sold");
   const similarCars = result.similarCars ?? [];
-  // Single source of truth with the trail: prefer agentVerdict when present.
+  // Single source of truth with the trail: final guarded agent decision wins over price rating.
   const confidenceDisplay =
     result.agentVerdict?.confidence != null
       ? confidenceLabel(result.agentVerdict.confidence)
       : result.confidence;
+  const actionDisplay =
+    sold
+      ? "Pass — listing marked SOLD"
+      : result.agentVerdict?.verdict && !result.agentVerdict.no_serv_step
+        ? actionLabel(result.agentVerdict.verdict, "personal")
+        : result.verdictLabel;
   return (
     <article className="warn-box check-result" aria-live="polite">
       <p className="kicker">{result.kind === "vin_dossier" ? "VIN dossier" : "Listing check"}</p>
       <h2>{result.title}</h2>
       <p className="lead">
-        <strong>{sold ? "Pass — listing marked SOLD" : result.verdictLabel}</strong>
+        <strong>{actionDisplay}</strong>
         {" · "}
         Confidence: {confidenceDisplay}
       </p>
+      {result.billingNote ? <p className="hint">{result.billingNote}</p> : null}
+      {!result.billingNote && result.usedFreeCheck ? (
+        <p className="hint">Free vehicle check used (no report credit).</p>
+      ) : null}
+      {!result.billingNote && result.spentCredit ? <p className="hint">1 report credit spent.</p> : null}
       {result.confidenceWhy ? <p className="hint">{result.confidenceWhy}</p> : null}
       {sold && result.badge?.deltaLabel ? (
         <p className="hint">Price note (not a buy signal while marked SOLD): {result.badge.deltaLabel}</p>
