@@ -1,6 +1,15 @@
 import type { Kv } from "@/io/kv";
-import { ASSUMPTIONS } from "@/domain/assumptions";
-import { planById, planByLookupKey, type PlanId } from "@/domain/plans";
+import { monthKey } from "@/io/quota";
+import { creditGrant } from "@/io/credit-book";
+import {
+  FREE_RADAR,
+  planById,
+  planByLookupKey,
+  radarLimitsForLookup,
+  watchIntervalHours,
+  type PlanId,
+  type RadarPlanLimits,
+} from "@/domain/plans";
 import { DEMO_USER_ID } from "@/domain/radar-watch";
 
 export type PlanStatus = "active" | "past_due" | "canceled" | "none";
@@ -10,6 +19,8 @@ export type StoredPlans = {
   flip: { status: PlanStatus; lookupKey: string | null; searchLimit: number };
   /** Stripe customer used by the test-mode billing portal. */
   stripeCustomerId: string | null;
+  /** Active paid tier id (radar_plus / flipper / dealer) when subscribed. */
+  planId: string | null;
 };
 
 export function emptyPlans(): StoredPlans {
@@ -17,6 +28,7 @@ export function emptyPlans(): StoredPlans {
     personal: { status: "none", lookupKey: null, searchLimit: 0 },
     flip: { status: "none", lookupKey: null, searchLimit: 0 },
     stripeCustomerId: null,
+    planId: null,
   };
 }
 
@@ -33,6 +45,7 @@ export async function readPlans(kv: Kv, userId: string): Promise<StoredPlans> {
       personal: { ...emptyPlans().personal, ...parsed.personal },
       flip: { ...emptyPlans().flip, ...parsed.flip },
       stripeCustomerId: typeof parsed.stripeCustomerId === "string" ? parsed.stripeCustomerId : null,
+      planId: typeof parsed.planId === "string" ? parsed.planId : null,
     };
   } catch {
     return emptyPlans();
@@ -45,9 +58,10 @@ export async function writePlans(kv: Kv, userId: string, plans: StoredPlans): Pr
 
 export function demoPlans(): StoredPlans {
   return {
-    personal: { status: "active", lookupKey: "demo", searchLimit: 5 },
-    flip: { status: "active", lookupKey: "demo", searchLimit: 5 },
+    personal: { status: "active", lookupKey: "demo", searchLimit: 20 },
+    flip: { status: "active", lookupKey: "demo", searchLimit: 20 },
     stripeCustomerId: null,
+    planId: "dealer",
   };
 }
 
@@ -56,36 +70,65 @@ export async function plansFor(kv: Kv, userId: string): Promise<StoredPlans> {
   return readPlans(kv, userId);
 }
 
+/** Effective limits for cadence + watch caps (paid tier or free). */
+export function effectiveRadarLimits(plans: StoredPlans): RadarPlanLimits {
+  const lookup =
+    (plans.personal.status === "active" || plans.personal.status === "past_due"
+      ? plans.personal.lookupKey
+      : null) ??
+    (plans.flip.status === "active" || plans.flip.status === "past_due" ? plans.flip.lookupKey : null) ??
+    plans.planId;
+  if (lookup === "demo") {
+    return {
+      id: "dealer",
+      name: "Dealer",
+      personalLimit: 20,
+      flipLimit: 20,
+      personalIntervalHours: 24,
+      flipIntervalHours: 3,
+      servCallCapPerMonth: 5000,
+      reportCreditsPerMonth: 10,
+    };
+  }
+  return radarLimitsForLookup(lookup);
+}
+
+export function intervalHoursForWatch(mode: "personal" | "flip", plans: StoredPlans): number {
+  return watchIntervalHours(mode, effectiveRadarLimits(plans));
+}
+
 function activate(plans: StoredPlans, planId: string): StoredPlans {
   const plan = planById(planId) ?? planByLookupKey(planId);
   if (!plan) return plans;
-  if (plan.mode === "personal") {
-    return { ...plans, personal: { status: "active", lookupKey: plan.lookupKey, searchLimit: plan.searchLimit } };
-  }
-  return { ...plans, flip: { status: "active", lookupKey: plan.lookupKey, searchLimit: plan.searchLimit } };
+  // One paid tier raises both personal and Flip caps together.
+  return {
+    ...plans,
+    planId: plan.id,
+    personal: { status: "active", lookupKey: plan.lookupKey, searchLimit: plan.personalLimit },
+    flip: { status: "active", lookupKey: plan.lookupKey, searchLimit: plan.flipLimit },
+  };
 }
 
 function setStatus(plans: StoredPlans, planId: string, status: PlanStatus): StoredPlans {
   const plan = planById(planId) ?? planByLookupKey(planId);
   if (!plan) return plans;
-  if (plan.mode === "personal") {
+  if (status === "none" || status === "canceled") {
     return {
       ...plans,
-      personal: {
-        status,
-        lookupKey: status === "none" ? null : plan.lookupKey,
-        searchLimit: status === "active" || status === "past_due" ? plan.searchLimit : 0,
-      },
+      planId: null,
+      personal: { status: "none", lookupKey: null, searchLimit: 0 },
+      flip: { status: "none", lookupKey: null, searchLimit: 0 },
     };
   }
-  return {
-    ...plans,
-    flip: {
-      status,
-      lookupKey: status === "none" ? null : plan.lookupKey,
-      searchLimit: status === "active" || status === "past_due" ? plan.searchLimit : 0,
-    },
-  };
+  if (status === "past_due") {
+    return {
+      ...plans,
+      planId: plan.id,
+      personal: { status: "past_due", lookupKey: plan.lookupKey, searchLimit: plan.personalLimit },
+      flip: { status: "past_due", lookupKey: plan.lookupKey, searchLimit: plan.flipLimit },
+    };
+  }
+  return activate(plans, plan.id);
 }
 
 function metadataOf(object: Record<string, unknown>): { userId: string | null; planId: string | null } {
@@ -100,9 +143,18 @@ function metadataOf(object: Record<string, unknown>): { userId: string | null; p
 export type BillingEffect =
   | { kind: "ignore" }
   | { kind: "credits" }
-  | { kind: "plans"; userId: string; plans: StoredPlans; disableMode: "personal" | "flip" | null };
+  | {
+      kind: "plans";
+      userId: string;
+      plans: StoredPlans;
+      /** When set, disable matching saved watches after cancel. */
+      disableMode: "personal" | "flip" | "all" | null;
+      /** Report credits to grant for this billing event (0 if none). */
+      grantReportCredits: number;
+      grantIdempotencyKey: string | null;
+    };
 
-/** Pure mapping from a Stripe event object to a plan change. Credits stay on the payment path. */
+/** Pure mapping from a Stripe event object to a plan change. Credits packs stay on the payment path. */
 export function billingEffect(current: StoredPlans, type: string, object: Record<string, unknown>): BillingEffect {
   if (type === "checkout.session.completed") {
     if (object.mode === "subscription") {
@@ -111,7 +163,18 @@ export function billingEffect(current: StoredPlans, type: string, object: Record
       if (object.payment_status && object.payment_status !== "paid" && object.payment_status !== "no_payment_required") {
         return { kind: "ignore" };
       }
-      return { kind: "plans", userId, plans: activate(current, planId), disableMode: null };
+      const plan = planById(planId) ?? planByLookupKey(planId);
+      const sessionId = typeof object.id === "string" ? object.id : "session";
+      return {
+        kind: "plans",
+        userId,
+        plans: activate(current, planId),
+        disableMode: null,
+        grantReportCredits: plan?.reportCreditsPerMonth ?? 0,
+        grantIdempotencyKey: plan?.reportCreditsPerMonth
+          ? `plan-credits:${userId}:${plan.id}:${sessionId}`
+          : null,
+      };
     }
     return { kind: "credits" };
   }
@@ -119,36 +182,75 @@ export function billingEffect(current: StoredPlans, type: string, object: Record
     const { userId, planId } = metadataOf(object);
     if (!userId || !planId) return { kind: "ignore" };
     const status = String(object.status ?? "active");
+    const plan = planById(planId) ?? planByLookupKey(planId);
     if (status === "active" || status === "trialing" || type === "invoice.paid") {
-      return { kind: "plans", userId, plans: activate(current, planId), disableMode: null };
+      const invoiceId = typeof object.id === "string" ? object.id : `inv-${Date.now()}`;
+      // Monthly included credits land on invoice.paid (and checkout session for first month).
+      const grantOnInvoice = type === "invoice.paid";
+      return {
+        kind: "plans",
+        userId,
+        plans: activate(current, planId),
+        disableMode: null,
+        grantReportCredits: grantOnInvoice ? (plan?.reportCreditsPerMonth ?? 0) : 0,
+        grantIdempotencyKey:
+          grantOnInvoice && plan?.reportCreditsPerMonth
+            ? `plan-credits:${userId}:${plan.id}:${invoiceId}`
+            : null,
+      };
     }
     if (status === "past_due" || status === "unpaid") {
-      return { kind: "plans", userId, plans: setStatus(current, planId, "past_due"), disableMode: null };
+      return {
+        kind: "plans",
+        userId,
+        plans: setStatus(current, planId, "past_due"),
+        disableMode: null,
+        grantReportCredits: 0,
+        grantIdempotencyKey: null,
+      };
     }
     if (status === "canceled") {
-      const plan = planById(planId) ?? planByLookupKey(planId);
-      return { kind: "plans", userId, plans: setStatus(current, planId, "none"), disableMode: plan?.mode ?? null };
+      return {
+        kind: "plans",
+        userId,
+        plans: setStatus(current, planId, "none"),
+        disableMode: "all",
+        grantReportCredits: 0,
+        grantIdempotencyKey: null,
+      };
     }
     return { kind: "ignore" };
   }
   if (type === "invoice.payment_failed") {
     const { userId, planId } = metadataOf(object);
     if (!userId || !planId) return { kind: "ignore" };
-    return { kind: "plans", userId, plans: setStatus(current, planId, "past_due"), disableMode: null };
+    return {
+      kind: "plans",
+      userId,
+      plans: setStatus(current, planId, "past_due"),
+      disableMode: null,
+      grantReportCredits: 0,
+      grantIdempotencyKey: null,
+    };
   }
   if (type === "customer.subscription.deleted") {
     const { userId, planId } = metadataOf(object);
     if (!userId || !planId) return { kind: "ignore" };
-    const plan = planById(planId) ?? planByLookupKey(planId);
-    return { kind: "plans", userId, plans: setStatus(current, planId, "none"), disableMode: plan?.mode ?? null };
+    return {
+      kind: "plans",
+      userId,
+      plans: setStatus(current, planId, "none"),
+      disableMode: "all",
+      grantReportCredits: 0,
+      grantIdempotencyKey: null,
+    };
   }
   return { kind: "ignore" };
 }
 
 /**
- * Deal Radar watches: personal free up to {@link ASSUMPTIONS.radarFreeWatchLimit};
- * Flip free up to {@link ASSUMPTIONS.radarFreeFlipWatchLimit}. Paid Stripe plans
- * only raise those caps. Opening a full report still costs 1 report credit.
+ * Deal Radar watches: free caps from {@link FREE_RADAR}; paid Stripe TEST tiers
+ * raise both personal and Flip caps. Opening a full report still costs 1 report credit.
  */
 export async function allowance(
   kv: Kv,
@@ -159,28 +261,73 @@ export async function allowance(
 ): Promise<{ ok: true } | { ok: false; message: string }> {
   const plans = await plansFor(kv, userId);
   if (userId === DEMO_USER_ID) return { ok: true };
+  const limits = effectiveRadarLimits(plans);
   if (mode === "flip") {
-    const freeCap = ASSUMPTIONS.radarFreeFlipWatchLimit;
-    const planCap = plans.flip.status === "active" ? plans.flip.searchLimit : 0;
-    const limit = Math.max(freeCap, planCap);
+    const limit = limits.flipLimit;
     if (modeCount >= limit) {
       return {
         ok: false,
-        message: `This account can save up to ${limit} Flip Deal Radar watch${limit === 1 ? "" : "es"} (1 free; paid Flip plans raise the cap). Opening a full report still costs 1 credit.`,
+        message: `This account can save up to ${limit} Flip Deal Radar watch${limit === 1 ? "" : "es"} (${FREE_RADAR.flipLimit} free; paid TEST plans raise the cap). Opening a full report still costs 1 credit.`,
       };
     }
     return { ok: true };
   }
-  const freeCap = ASSUMPTIONS.radarFreeWatchLimit;
-  const planCap = plans.personal.status === "active" ? plans.personal.searchLimit : 0;
-  const limit = Math.max(freeCap, planCap);
+  const limit = limits.personalLimit;
   if (modeCount >= limit) {
     return {
       ok: false,
-      message: `This account can save up to ${limit} personal Deal Radar watches. Opening a full report still costs 1 credit.`,
+      message: `This account can save up to ${limit} personal Deal Radar watches (${FREE_RADAR.personalLimit} free; paid TEST plans raise the cap). Opening a full report still costs 1 credit.`,
     };
   }
   return { ok: true };
 }
 
+function servUsageKey(userId: string, month = monthKey()): string {
+  return `radar:serv-month:${userId}:${month}`;
+}
+
+export async function readServUsage(kv: Kv, userId: string, month = monthKey()): Promise<number> {
+  const raw = await kv.get(servUsageKey(userId, month));
+  const n = raw ? Number(raw) : 0;
+  return Number.isFinite(n) && n > 0 ? Math.floor(n) : 0;
+}
+
+export async function incrementServUsage(kv: Kv, userId: string, by = 1, month = monthKey()): Promise<number> {
+  const next = (await readServUsage(kv, userId, month)) + Math.max(0, by);
+  await kv.set(servUsageKey(userId, month), String(next));
+  return next;
+}
+
+/** True when the account may spend another SERV call under its monthly plan cap. */
+export async function servAllowanceRemaining(
+  kv: Kv,
+  userId: string,
+  plans: StoredPlans,
+): Promise<{ ok: true; remaining: number | null } | { ok: false; remaining: 0; message: string }> {
+  const limits = effectiveRadarLimits(plans);
+  if (limits.servCallCapPerMonth == null) return { ok: true, remaining: null };
+  const used = await readServUsage(kv, userId);
+  const remaining = Math.max(0, limits.servCallCapPerMonth - used);
+  if (remaining < 1) {
+    return {
+      ok: false,
+      remaining: 0,
+      message: `Monthly SERV cap reached (${limits.servCallCapPerMonth} calls on ${limits.name}).`,
+    };
+  }
+  return { ok: true, remaining };
+}
+
+/** Grant included report credits for a paid TEST plan (idempotent). */
+export async function grantPlanReportCredits(
+  kv: Kv,
+  userId: string,
+  credits: number,
+  idempotencyKey: string,
+): Promise<number> {
+  if (credits < 1) return creditGrant(kv, userId, 0, idempotencyKey);
+  return creditGrant(kv, userId, credits, idempotencyKey);
+}
+
 export type { PlanId };
+export { FREE_RADAR, watchIntervalHours };

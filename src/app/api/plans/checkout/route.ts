@@ -31,9 +31,19 @@ export async function POST(request: Request) {
     return Response.json({ error: "demo_included", message: "Both Radar modes are already included in the shared demo. No subscription is needed." }, { status: 409 });
   }
   const current = await readPlans(getKv(), id);
-  const currentMode = plan.mode === "personal" ? current.personal.status : current.flip.status;
-  if (currentMode === "active" || currentMode === "past_due") {
-    return Response.json({ error: "plan_exists", message: "You already have a Radar plan for this mode. Use Manage subscription to change or cancel it." }, { status: 409 });
+  const already =
+    current.personal.status === "active" ||
+    current.personal.status === "past_due" ||
+    current.flip.status === "active" ||
+    current.flip.status === "past_due";
+  if (already) {
+    return Response.json(
+      {
+        error: "plan_exists",
+        message: "You already have a Deal Radar TEST plan. Use Manage subscription to change or cancel it.",
+      },
+      { status: 409 },
+    );
   }
   const origin = originOf(request);
   const price = await ensurePlanPrice(stripe, plan.id);

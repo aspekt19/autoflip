@@ -3,8 +3,7 @@
 import Link from "next/link";
 import { Suspense, useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
-import { ASSUMPTIONS } from "@/domain/assumptions";
-import { PLAN_CATALOG } from "@/domain/plans";
+import { FREE_RADAR, PLAN_CATALOG } from "@/domain/plans";
 
 type PlanModeState = { status: string; lookupKey: string | null; searchLimit?: number };
 type AccountState = {
@@ -23,8 +22,6 @@ function PricingContent() {
   const [message, setMessage] = useState<string | null>(null);
   const [pending, setPending] = useState<string | null>(null);
   const [radarUi, setRadarUi] = useState<boolean | null>(null);
-  const freeLimit = ASSUMPTIONS.radarFreeWatchLimit;
-  const freeFlipLimit = ASSUMPTIONS.radarFreeFlipWatchLimit;
 
   async function refreshAccount() {
     setAccountLoading(true);
@@ -102,8 +99,11 @@ function PricingContent() {
 
   const personal = account?.plans.personal;
   const flip = account?.plans.flip;
-  const personalActive = personal?.status === "active" || personal?.status === "past_due";
-  const flipActive = flip?.status === "active" || flip?.status === "past_due";
+  const planActive =
+    personal?.status === "active" ||
+    personal?.status === "past_due" ||
+    flip?.status === "active" ||
+    flip?.status === "past_due";
 
   return (
     <div className="sub">
@@ -111,73 +111,109 @@ function PricingContent() {
         <p className="kicker">Pricing</p>
         <h1>Deal Radar and report credits</h1>
         <p className="lead">
-          Deal Radar personal watches are free with a signed-in account — up to {freeLimit} saved radars. Verified accounts also get {freeFlipLimit} free Flip watch
-          {freeFlipLimit === 1 ? "" : "es"} so Deal Radar can send resale options on a schedule. Scheduled checks and in-app alerts do not spend report credits. Opening a full vehicle report costs 1 report credit. Email alerts are not configured in this deployment (in-app only). Telegram stays off.
+          Deal Radar watches searches you start in Find or Resale. Scheduled checks only run when a watch is due; the
+          scheduler ticks hourly and skips watches that are not due yet. Cadences below are the due intervals we
+          enforce — we do not claim a faster check than the scheduler can deliver. In-site alerts only (email/Telegram
+          off). Opening a full vehicle report costs 1 report credit.
         </p>
         <p className="hint">
-          Optional Stripe test subscriptions below only raise the personal watch cap above {freeLimit}, or raise the Flip watch cap above {freeFlipLimit}. Displayed monthly amounts are Stripe test placeholders and do not charge real money. For a one-car flip estimate without a watch, use{" "}
-          <Link href="/resale">Resale</Link>.
+          Preview prices — Stripe TEST mode only. Displayed monthly amounts are test placeholders and do not charge real
+          money. Report credit packs ($9 for 3, $25 for 10) are unchanged on <Link href="/credits">Credits</Link>.
         </p>
 
         {params.get("status") === "success" ? (
-          <p className="warn-box">Stripe returned from a successful test checkout. Your plan status may take a few seconds to update. <button className="quiet" type="button" onClick={() => void refreshAccount()}>Refresh status</button></p>
+          <p className="warn-box">
+            Stripe returned from a successful test checkout. Your plan status may take a few seconds to update.{" "}
+            <button className="quiet" type="button" onClick={() => void refreshAccount()}>
+              Refresh status
+            </button>
+          </p>
         ) : null}
-        {params.get("status") === "cancel" ? <p className="warn-box">Test checkout was canceled. No real payment was taken.</p> : null}
-        {params.get("status") === "portal" ? <p className="warn-box">You returned from subscription management. Your current plan status is shown below.</p> : null}
+        {params.get("status") === "cancel" ? (
+          <p className="warn-box">Test checkout was canceled. No real payment was taken.</p>
+        ) : null}
+        {params.get("status") === "portal" ? (
+          <p className="warn-box">You returned from subscription management. Your current plan status is shown below.</p>
+        ) : null}
 
         {accountLoading ? <p className="hint">Loading your current plan…</p> : null}
         {account?.demo ? (
           <p className="warn-box">Shared demo: Deal Radar watches are included. You do not need to start a subscription here.</p>
         ) : null}
-        {!account?.demo && (personalActive || flipActive) ? (
+        {!account?.demo && planActive ? (
           <section className="subscription-status">
             <h2>Your current plan</h2>
-            {personalActive ? <p>For me: <strong>{personal?.status === "past_due" ? "Payment needs attention" : "Active"}</strong> · {personal?.searchLimit ?? 0} saved searches</p> : null}
-            {flipActive ? <p>For resale: <strong>{flip?.status === "past_due" ? "Payment needs attention" : "Active"}</strong> · one local market</p> : null}
+            <p>
+              Status:{" "}
+              <strong>
+                {personal?.status === "past_due" || flip?.status === "past_due"
+                  ? "Payment needs attention"
+                  : "Active"}
+              </strong>
+              {personal?.searchLimit ? ` · up to ${personal.searchLimit} personal` : null}
+              {flip?.searchLimit ? ` · up to ${flip.searchLimit} Flip` : null}
+            </p>
             {account?.plans.billingPortalAvailable ? (
               <button className="action" type="button" onClick={() => void manageSubscription()} disabled={pending === "portal"}>
                 {pending === "portal" ? "Opening…" : "Manage subscription"}
               </button>
             ) : (
-              <p className="hint">The Stripe customer link is not available yet. If you just subscribed, refresh this page after the test webhook completes.</p>
+              <p className="hint">
+                The Stripe customer link is not available yet. If you just subscribed, refresh this page after the test
+                webhook completes.
+              </p>
             )}
           </section>
         ) : null}
 
-        <h2>Optional paid caps (Stripe test)</h2>
-        <p className="hint">Only needed if you want more than {freeLimit} personal watches, or more than {freeFlipLimit} Flip watch{freeFlipLimit === 1 ? "" : "es"}.</p>
+        <h2>Free</h2>
         <div className="choice-grid">
-          {PLAN_CATALOG.filter((plan) => plan.mode === "personal").map((plan) => (
-            <article className="choice-card" key={plan.id}>
-              <strong className="choice-title">{plan.name}</strong>
-              <span className="choice-desc">{plan.detail}</span>
-              <b>${plan.amountCents / 100}/month (test)</b>
-              <button className="action" type="button" disabled={radarUi !== true || accountLoading || pending === plan.id || Boolean(account?.demo) || Boolean(personalActive)} onClick={() => void subscribe(plan.id)}>
-                {radarUi === false ? "Not available in this preview" : personalActive ? "Personal plan active" : account?.demo ? "Included in shared demo" : pending === plan.id ? "Starting…" : "Start test subscription"}
-              </button>
-            </article>
-          ))}
+          <article className="choice-card">
+            <strong className="choice-title">{FREE_RADAR.name}</strong>
+            <span className="choice-desc">{FREE_RADAR.detail}</span>
+            <b>$0</b>
+          </article>
         </div>
-        <h2>For resale (Flip watches)</h2>
-        <p className="hint">
-          {freeFlipLimit} free Flip watch{freeFlipLimit === 1 ? "" : "es"} per verified account. Paid Flip plans raise that cap. Personal Deal Radar stays free up to {freeLimit}.
-        </p>
+
+        <h2>Paid TEST plans (Stripe test)</h2>
+        <p className="hint">Optional. Raises watch caps, shortens due intervals, and sets a monthly SERV call cap.</p>
         <div className="choice-grid">
-          {PLAN_CATALOG.filter((plan) => plan.mode === "flip").map((plan) => (
+          {PLAN_CATALOG.map((plan) => (
             <article className="choice-card" key={plan.id}>
               <strong className="choice-title">{plan.name}</strong>
               <span className="choice-desc">{plan.detail}</span>
-              <b>${plan.amountCents / 100}/month (test)</b>
-              <button className="action" type="button" disabled={radarUi !== true || accountLoading || pending === plan.id || Boolean(account?.demo) || Boolean(flipActive)} onClick={() => void subscribe(plan.id)}>
-                {radarUi === false ? "Not available in this preview" : flipActive ? "For resale plan active" : account?.demo ? "Included in shared demo" : pending === plan.id ? "Starting…" : "Start test subscription"}
+              <b>
+                ${(plan.amountCents / 100).toFixed(plan.amountCents % 100 === 0 ? 0 : 2)}/month (test)
+              </b>
+              <button
+                className="action"
+                type="button"
+                disabled={radarUi !== true || accountLoading || pending === plan.id || Boolean(account?.demo) || planActive}
+                onClick={() => void subscribe(plan.id)}
+              >
+                {radarUi === false
+                  ? "Not available in this preview"
+                  : planActive
+                    ? "Plan active"
+                    : account?.demo
+                      ? "Included in shared demo"
+                      : pending === plan.id
+                        ? "Starting…"
+                        : "Start test subscription"}
               </button>
             </article>
           ))}
         </div>
         {message ? <p className="warn">{message}</p> : null}
-        <p><Link href="/credits">Report credits are separate.</Link></p>
-        <p><Link href="/radar">Open Deal Radar</Link></p>
-        <p><Link href="/reports">View your report history.</Link></p>
+        <p>
+          <Link href="/credits">Report credits are separate.</Link>
+        </p>
+        <p>
+          <Link href="/radar">Open Deal Radar</Link>
+        </p>
+        <p>
+          <Link href="/reports">View your report history.</Link>
+        </p>
       </div>
     </div>
   );

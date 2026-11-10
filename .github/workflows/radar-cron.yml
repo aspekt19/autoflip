@@ -2,9 +2,11 @@ name: radar
 
 on:
   schedule:
-    # Every 6 hours. Vercel Hobby only allows one cron per day (see vercel.json);
-    # this workflow is the primary cadence when RADAR_CRON_SECRET is set.
-    - cron: "0 */6 * * *"
+    # Hourly. Each run only processes watches that are due for their plan cadence
+    # (e.g. free daily, Plus twice-daily, Flipper Flip every 6h, Dealer Flip every 3h).
+    # Vercel Hobby only allows one cron per day (see vercel.json); this workflow is
+    # the primary cadence when RADAR_CRON_SECRET is set.
+    - cron: "0 * * * *"
   workflow_dispatch:
 
 permissions:

@@ -5,7 +5,6 @@ import {
   formatFilterBreakdown,
   groupByCriteria,
   hardReject,
-  intervalHours,
   isDue,
   prefilterListing,
   rankPasses,
@@ -14,6 +13,13 @@ import {
   type SavedSearch,
   type WatchAlert,
 } from "@/domain/radar-watch";
+import {
+  incrementServUsage,
+  intervalHoursForWatch,
+  plansFor,
+  servAllowanceRemaining,
+  type StoredPlans,
+} from "@/server/plan-book";
 import { topFlipCandidates, flipAlertWhy } from "@/domain/flip-rank";
 import { isBroadFlip, isPriceDrop, listingQueries, matchesWatchModels } from "@/domain/watch-queries";
 import { listingsSearchUrl } from "@/io/autodev";
@@ -151,9 +157,21 @@ export async function runRadarCycle(deps: CycleDeps): Promise<StoredRun> {
     const searches = (await listSearches(deps.kv)).filter((item) => item.enabled);
     const groups = groupByCriteria(searches);
     uniqueSearches = groups.size;
-    const callWeight = [...groups.values()].reduce((sum, group) => sum + listingQueries(group[0]!).length, 0);
-    hours = intervalHours(callWeight || 1);
-    const intervalMs = hours * 60 * 60 * 1000;
+    const planCache = new Map<string, StoredPlans>();
+    const plansOf = async (ownerId: string) => {
+      const hit = planCache.get(ownerId);
+      if (hit) return hit;
+      const row = await plansFor(deps.kv, ownerId);
+      planCache.set(ownerId, row);
+      return row;
+    };
+    // Representative run interval = shortest cadence among enabled watches (for activity log).
+    let minInterval = 24;
+    for (const item of searches) {
+      const plans = await plansOf(item.ownerId);
+      minInterval = Math.min(minInterval, intervalHoursForWatch(item.mode, plans));
+    }
+    hours = searches.length ? minInterval : 24;
     const alerts = await listAlerts(deps.kv);
     const freshAlerts: WatchAlert[] = [];
 
@@ -191,7 +209,17 @@ export async function runRadarCycle(deps: CycleDeps): Promise<StoredRun> {
 
     const due: { key: string; group: SavedSearch[]; urls: string[] }[] = [];
     for (const [key, group] of groups) {
-      const ready = deps.forceAll || group.some((item) => isDue(item.lastCheckedAt, deps.now.getTime(), intervalMs));
+      let ready = Boolean(deps.forceAll);
+      if (!ready) {
+        for (const item of group) {
+          const plans = await plansOf(item.ownerId);
+          const intervalMs = intervalHoursForWatch(item.mode, plans) * 60 * 60 * 1000;
+          if (isDue(item.lastCheckedAt, deps.now.getTime(), intervalMs)) {
+            ready = true;
+            break;
+          }
+        }
+      }
       if (!ready) {
         skippedDue += group.length;
         continue;
@@ -302,7 +330,22 @@ export async function runRadarCycle(deps: CycleDeps): Promise<StoredRun> {
           touchedOwnerIds.add(search.ownerId);
           touchedSearchIds.add(search.id);
           bumpSearch(search.id, { listings: job.listings.length });
-          const judged = await judgeFlipAlerts(fresh, deps, remain(), limits.serv, servChecks, search.id);
+          let judged: Awaited<ReturnType<typeof judgeFlipAlerts>> = null;
+          if (fresh.length > 0 && deps.servKey) {
+            const ownerPlans = await plansOf(search.ownerId);
+            const servSlot = await servAllowanceRemaining(deps.kv, search.ownerId, ownerPlans);
+            if (!servSlot.ok) {
+              notes.push(servSlot.message);
+            } else {
+              judged = await judgeFlipAlerts(fresh, deps, remain(), limits.serv, servChecks, search.id);
+              // One batched radar_review HTTP round-trip counts as one SERV call toward the plan cap.
+              if (judged?.activity?.length) {
+                await incrementServUsage(deps.kv, search.ownerId, 1);
+              }
+            }
+          } else if (fresh.length > 0) {
+            judged = await judgeFlipAlerts(fresh, deps, remain(), limits.serv, servChecks, search.id);
+          }
           if (judged?.activity?.length) servActivity.push(...judged.activity);
           if (deps.servKey && fresh.length > 0 && !judged?.decisions) {
             notes.push(
@@ -490,6 +533,13 @@ export async function runRadarCycle(deps: CycleDeps): Promise<StoredRun> {
           servSlot += 1;
           let review: Awaited<ReturnType<typeof reviewPersonalCandidate>>;
           if (deps.servKey) {
+            const ownerPlans = await plansOf(search.ownerId);
+            const servCap = await servAllowanceRemaining(deps.kv, search.ownerId, ownerPlans);
+            if (!servCap.ok) {
+              notes.push(servCap.message);
+              tallyReason(reasons, "monthly SERV cap");
+              continue;
+            }
             review = await reviewPersonalCandidate(
               {
                 listing: winner.listing,
@@ -510,6 +560,9 @@ export async function runRadarCycle(deps: CycleDeps): Promise<StoredRun> {
               },
               servChecks,
             );
+            if (review.activity.some((row) => row.profile === "verdict_decide")) {
+              await incrementServUsage(deps.kv, search.ownerId, 1);
+            }
           } else {
             review = {
               alertWorthy: true,
