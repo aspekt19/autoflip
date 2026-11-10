@@ -1,0 +1,442 @@
+{
+  "schemaVersion": "lemonless.serv_vs_baseline.v1",
+  "dryRun": true,
+  "generatedAt": "2026-11-10T15:39:52.393Z",
+  "cases": [
+    {
+      "caseId": "find-family-suv-15k-68114",
+      "query": "Family SUV around $15,000 near 68114. Prefer Honda CR-V, Hyundai Tucson, or Kia Sportage. Reliable, not too old.",
+      "budgetUsd": 15000,
+      "listingCount": 5,
+      "arms": [
+        {
+          "arm": "serv_decision",
+          "status": "dry_run",
+          "pickVin": "2HKRM4H75FH123456",
+          "pickLabel": "2HKRM4H75FH123456",
+          "verdict": "above",
+          "guardrailCaught": false,
+          "latencyMs": 18,
+          "tokenCostUsd": 0,
+          "model": null,
+          "responseId": null,
+          "rawResponse": null,
+          "detail": "Dry-run: Lemonless deterministic ranking + gates (no SERV HTTP). Live mode adds decide/challenge."
+        },
+        {
+          "arm": "plain_llm_baseline",
+          "status": "not_run",
+          "pickVin": null,
+          "pickLabel": null,
+          "verdict": null,
+          "guardrailCaught": false,
+          "latencyMs": 0,
+          "tokenCostUsd": null,
+          "model": null,
+          "responseId": null,
+          "rawResponse": null,
+          "detail": "Dry-run: plain LLM baseline not executed (no paid call, no canned prose)."
+        }
+      ],
+      "disagreement": false,
+      "provenance": {
+        "fixturePath": "/agent/repos/autoflip/eval/comparison/fixtures/find-cases.json",
+        "capturedAt": "2026-11-09",
+        "dryRun": true,
+        "generatedAt": "2026-11-10T15:39:52.393Z"
+      }
+    },
+    {
+      "caseId": "find-commuter-sedan-12k",
+      "query": "Commuter sedan under $12,000 near 33101. Camry or Accord preferred. Daily highway miles.",
+      "budgetUsd": 12000,
+      "listingCount": 4,
+      "arms": [
+        {
+          "arm": "serv_decision",
+          "status": "dry_run",
+          "pickVin": "4T1BF1FK5EU100001",
+          "pickLabel": "4T1BF1FK5EU100001",
+          "verdict": "fair",
+          "guardrailCaught": false,
+          "latencyMs": 5,
+          "tokenCostUsd": 0,
+          "model": null,
+          "responseId": null,
+          "rawResponse": null,
+          "detail": "Dry-run: Lemonless deterministic ranking + gates (no SERV HTTP). Live mode adds decide/challenge."
+        },
+        {
+          "arm": "plain_llm_baseline",
+          "status": "not_run",
+          "pickVin": null,
+          "pickLabel": null,
+          "verdict": null,
+          "guardrailCaught": false,
+          "latencyMs": 0,
+          "tokenCostUsd": null,
+          "model": null,
+          "responseId": null,
+          "rawResponse": null,
+          "detail": "Dry-run: plain LLM baseline not executed (no paid call, no canned prose)."
+        }
+      ],
+      "disagreement": false,
+      "provenance": {
+        "fixturePath": "/agent/repos/autoflip/eval/comparison/fixtures/find-cases.json",
+        "capturedAt": "2026-11-09",
+        "dryRun": true,
+        "generatedAt": "2026-11-10T15:39:52.393Z"
+      }
+    },
+    {
+      "caseId": "find-teen-first-car-8k",
+      "query": "First car for a careful teen under $8000 near 75201. Something boring and safe.",
+      "budgetUsd": 8000,
+      "listingCount": 3,
+      "arms": [
+        {
+          "arm": "serv_decision",
+          "status": "dry_run",
+          "pickVin": "2T1BU4EE5DC500001",
+          "pickLabel": "2T1BU4EE5DC500001",
+          "verdict": "fair",
+          "guardrailCaught": false,
+          "latencyMs": 2,
+          "tokenCostUsd": 0,
+          "model": null,
+          "responseId": null,
+          "rawResponse": null,
+          "detail": "Dry-run: Lemonless deterministic ranking + gates (no SERV HTTP). Live mode adds decide/challenge."
+        },
+        {
+          "arm": "plain_llm_baseline",
+          "status": "not_run",
+          "pickVin": null,
+          "pickLabel": null,
+          "verdict": null,
+          "guardrailCaught": false,
+          "latencyMs": 0,
+          "tokenCostUsd": null,
+          "model": null,
+          "responseId": null,
+          "rawResponse": null,
+          "detail": "Dry-run: plain LLM baseline not executed (no paid call, no canned prose)."
+        }
+      ],
+      "disagreement": false,
+      "provenance": {
+        "fixturePath": "/agent/repos/autoflip/eval/comparison/fixtures/find-cases.json",
+        "capturedAt": "2026-11-09",
+        "dryRun": true,
+        "generatedAt": "2026-11-10T15:39:52.393Z"
+      }
+    },
+    {
+      "caseId": "find-awd-winter-18k-msp",
+      "query": "Need AWD for Minnesota winters around $18000 near 55401. Crossover preferred.",
+      "budgetUsd": 18000,
+      "listingCount": 4,
+      "arms": [
+        {
+          "arm": "serv_decision",
+          "status": "dry_run",
+          "pickVin": "JM3KE2DY5G0700001",
+          "pickLabel": "JM3KE2DY5G0700001",
+          "verdict": "above",
+          "guardrailCaught": false,
+          "latencyMs": 2,
+          "tokenCostUsd": 0,
+          "model": null,
+          "responseId": null,
+          "rawResponse": null,
+          "detail": "Dry-run: Lemonless deterministic ranking + gates (no SERV HTTP). Live mode adds decide/challenge."
+        },
+        {
+          "arm": "plain_llm_baseline",
+          "status": "not_run",
+          "pickVin": null,
+          "pickLabel": null,
+          "verdict": null,
+          "guardrailCaught": false,
+          "latencyMs": 0,
+          "tokenCostUsd": null,
+          "model": null,
+          "responseId": null,
+          "rawResponse": null,
+          "detail": "Dry-run: plain LLM baseline not executed (no paid call, no canned prose)."
+        }
+      ],
+      "disagreement": false,
+      "provenance": {
+        "fixturePath": "/agent/repos/autoflip/eval/comparison/fixtures/find-cases.json",
+        "capturedAt": "2026-11-09",
+        "dryRun": true,
+        "generatedAt": "2026-11-10T15:39:52.393Z"
+      }
+    },
+    {
+      "caseId": "find-low-mile-camry-20k",
+      "query": "Toyota Camry under $20000 with under 60k miles near 78701.",
+      "budgetUsd": 20000,
+      "listingCount": 3,
+      "arms": [
+        {
+          "arm": "serv_decision",
+          "status": "dry_run",
+          "pickVin": "4T1B11HK1JU700003",
+          "pickLabel": "4T1B11HK1JU700003",
+          "verdict": "below",
+          "guardrailCaught": false,
+          "latencyMs": 4,
+          "tokenCostUsd": 0,
+          "model": null,
+          "responseId": null,
+          "rawResponse": null,
+          "detail": "Dry-run: Lemonless deterministic ranking + gates (no SERV HTTP). Live mode adds decide/challenge."
+        },
+        {
+          "arm": "plain_llm_baseline",
+          "status": "not_run",
+          "pickVin": null,
+          "pickLabel": null,
+          "verdict": null,
+          "guardrailCaught": false,
+          "latencyMs": 0,
+          "tokenCostUsd": null,
+          "model": null,
+          "responseId": null,
+          "rawResponse": null,
+          "detail": "Dry-run: plain LLM baseline not executed (no paid call, no canned prose)."
+        }
+      ],
+      "disagreement": false,
+      "provenance": {
+        "fixturePath": "/agent/repos/autoflip/eval/comparison/fixtures/find-cases.json",
+        "capturedAt": "2026-11-09",
+        "dryRun": true,
+        "generatedAt": "2026-11-10T15:39:52.393Z"
+      }
+    },
+    {
+      "caseId": "find-truck-weekend-22k",
+      "query": "Light truck for weekend hauling under $22000 near 85001. Tacoma or Ranger.",
+      "budgetUsd": 22000,
+      "listingCount": 3,
+      "arms": [
+        {
+          "arm": "serv_decision",
+          "status": "dry_run",
+          "pickVin": "5TFRU5F18GX100001",
+          "pickLabel": "5TFRU5F18GX100001",
+          "verdict": "above",
+          "guardrailCaught": false,
+          "latencyMs": 2,
+          "tokenCostUsd": 0,
+          "model": null,
+          "responseId": null,
+          "rawResponse": null,
+          "detail": "Dry-run: Lemonless deterministic ranking + gates (no SERV HTTP). Live mode adds decide/challenge."
+        },
+        {
+          "arm": "plain_llm_baseline",
+          "status": "not_run",
+          "pickVin": null,
+          "pickLabel": null,
+          "verdict": null,
+          "guardrailCaught": false,
+          "latencyMs": 0,
+          "tokenCostUsd": null,
+          "model": null,
+          "responseId": null,
+          "rawResponse": null,
+          "detail": "Dry-run: plain LLM baseline not executed (no paid call, no canned prose)."
+        }
+      ],
+      "disagreement": false,
+      "provenance": {
+        "fixturePath": "/agent/repos/autoflip/eval/comparison/fixtures/find-cases.json",
+        "capturedAt": "2026-11-09",
+        "dryRun": true,
+        "generatedAt": "2026-11-10T15:39:52.393Z"
+      }
+    },
+    {
+      "caseId": "find-hybrid-fuel-16k",
+      "query": "Want better fuel economy, hybrid preferred, under $16000 near 94107.",
+      "budgetUsd": 16000,
+      "listingCount": 3,
+      "arms": [
+        {
+          "arm": "serv_decision",
+          "status": "dry_run",
+          "pickVin": "JTDKN3DU5E0100001",
+          "pickLabel": "JTDKN3DU5E0100001",
+          "verdict": "fair",
+          "guardrailCaught": false,
+          "latencyMs": 2,
+          "tokenCostUsd": 0,
+          "model": null,
+          "responseId": null,
+          "rawResponse": null,
+          "detail": "Dry-run: Lemonless deterministic ranking + gates (no SERV HTTP). Live mode adds decide/challenge."
+        },
+        {
+          "arm": "plain_llm_baseline",
+          "status": "not_run",
+          "pickVin": null,
+          "pickLabel": null,
+          "verdict": null,
+          "guardrailCaught": false,
+          "latencyMs": 0,
+          "tokenCostUsd": null,
+          "model": null,
+          "responseId": null,
+          "rawResponse": null,
+          "detail": "Dry-run: plain LLM baseline not executed (no paid call, no canned prose)."
+        }
+      ],
+      "disagreement": false,
+      "provenance": {
+        "fixturePath": "/agent/repos/autoflip/eval/comparison/fixtures/find-cases.json",
+        "capturedAt": "2026-11-09",
+        "dryRun": true,
+        "generatedAt": "2026-11-10T15:39:52.393Z"
+      }
+    },
+    {
+      "caseId": "find-luxury-stretch-25k",
+      "query": "Stretch to a nicer sedan under $25000 near 10001. Lexus ES or Acura TLX.",
+      "budgetUsd": 25000,
+      "listingCount": 3,
+      "arms": [
+        {
+          "arm": "serv_decision",
+          "status": "dry_run",
+          "pickVin": "58ABK1GG5GU400001",
+          "pickLabel": "58ABK1GG5GU400001",
+          "verdict": "above",
+          "guardrailCaught": false,
+          "latencyMs": 2,
+          "tokenCostUsd": 0,
+          "model": null,
+          "responseId": null,
+          "rawResponse": null,
+          "detail": "Dry-run: Lemonless deterministic ranking + gates (no SERV HTTP). Live mode adds decide/challenge."
+        },
+        {
+          "arm": "plain_llm_baseline",
+          "status": "not_run",
+          "pickVin": null,
+          "pickLabel": null,
+          "verdict": null,
+          "guardrailCaught": false,
+          "latencyMs": 0,
+          "tokenCostUsd": null,
+          "model": null,
+          "responseId": null,
+          "rawResponse": null,
+          "detail": "Dry-run: plain LLM baseline not executed (no paid call, no canned prose)."
+        }
+      ],
+      "disagreement": false,
+      "provenance": {
+        "fixturePath": "/agent/repos/autoflip/eval/comparison/fixtures/find-cases.json",
+        "capturedAt": "2026-11-09",
+        "dryRun": true,
+        "generatedAt": "2026-11-10T15:39:52.393Z"
+      }
+    },
+    {
+      "caseId": "find-city-crossover-14k",
+      "query": "Small crossover for city parking under $14000 near 60614.",
+      "budgetUsd": 14000,
+      "listingCount": 3,
+      "arms": [
+        {
+          "arm": "serv_decision",
+          "status": "dry_run",
+          "pickVin": "JTMZF4DV5ED600001",
+          "pickLabel": "JTMZF4DV5ED600001",
+          "verdict": "above",
+          "guardrailCaught": false,
+          "latencyMs": 2,
+          "tokenCostUsd": 0,
+          "model": null,
+          "responseId": null,
+          "rawResponse": null,
+          "detail": "Dry-run: Lemonless deterministic ranking + gates (no SERV HTTP). Live mode adds decide/challenge."
+        },
+        {
+          "arm": "plain_llm_baseline",
+          "status": "not_run",
+          "pickVin": null,
+          "pickLabel": null,
+          "verdict": null,
+          "guardrailCaught": false,
+          "latencyMs": 0,
+          "tokenCostUsd": null,
+          "model": null,
+          "responseId": null,
+          "rawResponse": null,
+          "detail": "Dry-run: plain LLM baseline not executed (no paid call, no canned prose)."
+        }
+      ],
+      "disagreement": false,
+      "provenance": {
+        "fixturePath": "/agent/repos/autoflip/eval/comparison/fixtures/find-cases.json",
+        "capturedAt": "2026-11-09",
+        "dryRun": true,
+        "generatedAt": "2026-11-10T15:39:52.393Z"
+      }
+    },
+    {
+      "caseId": "find-cheapest-reliable-honda-33101",
+      "query": "Cheapest reliable Honda near 33101. Civic or Accord.",
+      "budgetUsd": null,
+      "listingCount": 3,
+      "arms": [
+        {
+          "arm": "serv_decision",
+          "status": "dry_run",
+          "pickVin": "2HGFC2F59GH900002",
+          "pickLabel": "2HGFC2F59GH900002",
+          "verdict": "fair",
+          "guardrailCaught": false,
+          "latencyMs": 2,
+          "tokenCostUsd": 0,
+          "model": null,
+          "responseId": null,
+          "rawResponse": null,
+          "detail": "Dry-run: Lemonless deterministic ranking + gates (no SERV HTTP). Live mode adds decide/challenge."
+        },
+        {
+          "arm": "plain_llm_baseline",
+          "status": "not_run",
+          "pickVin": null,
+          "pickLabel": null,
+          "verdict": null,
+          "guardrailCaught": false,
+          "latencyMs": 0,
+          "tokenCostUsd": null,
+          "model": null,
+          "responseId": null,
+          "rawResponse": null,
+          "detail": "Dry-run: plain LLM baseline not executed (no paid call, no canned prose)."
+        }
+      ],
+      "disagreement": false,
+      "provenance": {
+        "fixturePath": "/agent/repos/autoflip/eval/comparison/fixtures/find-cases.json",
+        "capturedAt": "2026-11-09",
+        "dryRun": true,
+        "generatedAt": "2026-11-10T15:39:52.393Z"
+      }
+    }
+  ],
+  "summary": {
+    "caseCount": 10,
+    "disagreements": 0,
+    "guardrailCatches": 0
+  }
+}

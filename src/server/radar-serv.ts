@@ -61,7 +61,8 @@ export type RadarServReview = {
 
 type ReviewDeps = {
   fetchImpl: typeof fetch;
-  servKey: string;
+  /** Absent / empty → honest skip (no alert on code price alone). */
+  servKey: string | undefined;
   servModel?: string;
   servBaseUrl?: string;
   timeoutMs: number;

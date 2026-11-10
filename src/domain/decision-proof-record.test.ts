@@ -51,7 +51,7 @@ describe("decision proof record", () => {
     expect(errored.verdict).toBeNull();
     expect(errored.servResponseId).toBeNull();
     expect(errored.reason).toMatch(/503/);
-    expect(formatDecisionRecordLine(errored)).toMatch(/failed: SERV HTTP 503/);
+    expect(formatDecisionRecordLine(errored)).toMatch(/failed · SERV HTTP 503/);
 
     const skipped = buildDecisionProofRecord({
       purpose: "need_extract",

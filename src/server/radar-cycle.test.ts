@@ -118,7 +118,9 @@ describe("radar cycle", () => {
     expect(run.steps.find((step) => step.id === "serv_verdict" || step.id === "listings")).toBeTruthy();
     expect(run.notes.some((note) => /email alerts are not configured/i.test(note))).toBe(true);
     const seen = await seenVins(kv, seenStorageKey(demoPresets()[0]!.id, demoPresets()[0]!.criteria));
-    expect(seen.size).toBe(4);
+    // Winners stay unmarked when SERV times out so the next Check can retry verdict_decide.
+    expect(seen.size).toBeLessThan(4);
+    expect((await listAlerts(kv)).some((row) => row.status === "not_reviewed")).toBe(true);
     expect((await listRuns(kv)).some((item) => item.id === run.id)).toBe(true);
     expect((await quotaSnapshot(kv, new Date("2026-11-04T12:00:00Z"))).radar).toBe(1);
   });
