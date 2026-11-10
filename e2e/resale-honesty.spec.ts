@@ -104,6 +104,9 @@ test("Scout and Telegram stay hidden; Deal Radar is available when default-on", 
     await page.setViewportSize({ width, height: width === 390 ? 844 : 800 });
     await page.goto("/");
     const primaryNav = page.getByRole("navigation", { name: "Primary" });
+    // Below 1340px the header keeps primary links in the menu (display:none until open).
+    const openMenu = page.getByRole("button", { name: "Open menu" });
+    if (await openMenu.isVisible()) await openMenu.click();
     await expect(primaryNav.getByRole("link", { name: "Resale" })).toBeVisible();
     await expect(primaryNav.getByRole("link", { name: "Deal Radar" })).toBeVisible();
     await expect(page.getByRole("link", { name: "Scout" })).toHaveCount(0);
