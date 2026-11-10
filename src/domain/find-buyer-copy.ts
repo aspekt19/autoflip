@@ -897,19 +897,22 @@ export function sellerQuestionsForBuyer(
   },
   hints: readonly SellerQuestionListingHint[] = [],
 ): string[] {
-  const pool = result.allRanked ?? result.ranked;
-  const first = result.pick ?? result.ranked[0] ?? null;
-  const shownKeys = new Set(
-    (result.shownKeys?.length ? result.shownKeys : result.ranked.slice(0, 5).map((car) => car.key)).filter(Boolean),
-  );
+  // Only shown top-pick cards — never baseline / full allRanked walk (that named Camrys off-card).
+  const shownList =
+    result.shownKeys?.length
+      ? result.shownKeys
+          .map((key) => result.ranked.find((car) => car.key === key) ?? result.allRanked?.find((car) => car.key === key))
+          .filter((car): car is BestDealCandidate => Boolean(car))
+      : result.ranked.slice(0, 5);
+  const shownKeys = new Set(shownList.map((car) => car.key));
+  const first = result.pick && shownKeys.has(result.pick.key) ? result.pick : shownList[0] ?? null;
   const ordered: BestDealCandidate[] = [];
-  if (first && shownKeys.has(first.key)) ordered.push(first);
-  for (const car of result.ranked) {
-    if (!shownKeys.has(car.key)) continue;
+  if (first) ordered.push(first);
+  for (const car of shownList) {
     if (ordered.some((row) => row.key === car.key)) continue;
     ordered.push(car);
   }
-  const labels = buyerCarLabels([...pool, ...ordered].map(labelInputFor));
+  const labels = buyerCarLabels(ordered.map(labelInputFor));
   const lines: string[] = [];
   for (const car of ordered) {
     if (lines.length >= SELLER_QUESTION_LIMIT) break;

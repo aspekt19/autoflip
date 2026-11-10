@@ -299,6 +299,9 @@ function AssistantFlow({
   const [pickSecondPass, setPickSecondPass] = useState<
     import("@/domain/agent-verdict-schema").AgentSecondPassResult | null
   >(null);
+  const [pickAgentVerdict, setPickAgentVerdict] = useState<
+    import("@/domain/agent-verdict-schema").AgentVerdict | null
+  >(null);
   const [baselineView, setBaselineView] = useState<ReturnType<typeof formatBaselineForBuyer> | null>(null);
   /** Structured free-gov receipts for risk-aware grounded shortlist (client mirror of server). */
   const [freeGovReceiptsForShortlist, setFreeGovReceiptsForShortlist] = useState<
@@ -809,6 +812,9 @@ function AssistantFlow({
       const settlePass = (body as { pickSecondPass?: import("@/domain/agent-verdict-schema").AgentSecondPassResult | null })
         .pickSecondPass;
       if (settlePass && typeof settlePass === "object") setPickSecondPass(settlePass);
+      const settleVerdict = (body as { pickAgentVerdict?: import("@/domain/agent-verdict-schema").AgentVerdict | null })
+        .pickAgentVerdict;
+      if (settleVerdict && typeof settleVerdict === "object") setPickAgentVerdict(settleVerdict);
       if (receipts.length > 0) {
         setFreeGovReceiptsForShortlist(receipts);
         // Buyer-visible plain lines; raw receipts only in machine/agent channel.
@@ -1254,6 +1260,7 @@ function AssistantFlow({
       setFindLoopOpen(false);
       setDecisionView({ entries: [], labels: [] });
       setPickSecondPass(null);
+      setPickAgentVerdict(null);
       setBaselineView(null);
       setFreeGovReceiptsForShortlist([]);
       setFreeGovEvidenceLines([]);
@@ -2185,7 +2192,7 @@ function AssistantFlow({
                         <ol className="top-picks">
                           {topRows.map((row) => {
                             const card = cardForRow(row);
-                            const href = buyerListingHref(card?.vdp);
+                            const href = buyerListingHref(row.vdp ?? card?.vdp);
                             const readiness = readinessByKey.get(row.key);
                             const findBits = [
                               row.miles != null ? `${row.miles.toLocaleString("en-US")} mi` : null,
@@ -2347,6 +2354,7 @@ function AssistantFlow({
                         bestDeal,
                         baseline: bestDeal?.baseline ?? null,
                         secondPass: pickSecondPass,
+                        settleVerdict: pickAgentVerdict,
                         confidenceLine: bestDeal?.choice?.confidenceLine ?? null,
                         servCalls: decisionView.entries.filter((entry) => entry.decidedBy === "SERV").length,
                       })}

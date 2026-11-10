@@ -146,6 +146,7 @@ export async function POST(request: Request) {
     targetKeys: result.targetKeys,
     pickSecondPass: result.pickSecondPass ?? null,
     pickServTrace: result.pickServTrace ?? null,
+    pickAgentVerdict: result.pickAgentVerdict ?? null,
     honesty: result.honesty,
     failureDiag: result.failureDiag
       ? {

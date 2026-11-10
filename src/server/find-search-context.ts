@@ -35,6 +35,8 @@ export type FindSearchListingFact = ObservedListingRow & {
   city?: string | null;
   state?: string | null;
   dealer?: string | null;
+  /** Auto.dev dealer page URL when the feed provided one (http/https only). */
+  vdp?: string | null;
 };
 
 export type FindSearchContextRecord = {
@@ -127,8 +129,26 @@ function sanitizeListingFacts(rows: FindSearchListingFact[]): FindSearchListingF
       ...(text(row.city) !== undefined ? { city: text(row.city) } : {}),
       ...(text(row.state) !== undefined ? { state: text(row.state) } : {}),
       ...(text(row.dealer) !== undefined ? { dealer: text(row.dealer) } : {}),
+      ...(httpVdpFact(row.vdp) !== undefined ? { vdp: httpVdpFact(row.vdp) } : {}),
     };
   });
+}
+
+/** Keep only absolute http(s) dealer URLs — fragments and bare hosts are not listing pages. */
+function httpVdpFact(vdp: string | null | undefined): string | null | undefined {
+  if (vdp === undefined) return undefined;
+  if (vdp === null) return null;
+  if (typeof vdp !== "string") return undefined;
+  const trimmed = vdp.trim();
+  if (!/^https?:\/\//i.test(trimmed)) return null;
+  try {
+    const url = new URL(trimmed);
+    if (url.protocol !== "http:" && url.protocol !== "https:") return null;
+    if (!url.hostname || !url.hostname.includes(".")) return null;
+    return trimmed;
+  } catch {
+    return null;
+  }
 }
 
 function contextKey(userId: string, token: string): string {
@@ -346,6 +366,7 @@ export function listingsFromMatchDirections(
     city?: string | null;
     state?: string | null;
     dealer?: string | null;
+    vdp?: string | null;
     priceView?: { usableForBudget?: boolean } | null;
   }> }>,
 ): FindSearchListingFact[] {
@@ -355,6 +376,7 @@ export function listingsFromMatchDirections(
       const usable = row.priceView?.usableForBudget !== false;
       const trim =
         typeof row.trim === "string" && row.trim.trim() ? row.trim.trim() : row.trim === null ? null : undefined;
+      const vdp = httpVdpFact(row.vdp);
       out.push({
         make: row.make,
         model: row.model,
@@ -375,6 +397,7 @@ export function listingsFromMatchDirections(
         ...(row.city !== undefined ? { city: row.city } : {}),
         ...(row.state !== undefined ? { state: row.state } : {}),
         ...(row.dealer !== undefined ? { dealer: row.dealer } : {}),
+        ...(vdp !== undefined ? { vdp } : {}),
       });
     }
   }
@@ -403,6 +426,7 @@ export function listingFactsFromCompsPool(
     city?: string | null;
     state?: string | null;
     dealer?: string | null;
+    vdp?: string | null;
   }>,
 ): FindSearchListingFact[] {
   return sanitizeListingFacts(
@@ -417,6 +441,7 @@ export function listingFactsFromCompsPool(
       ...(row.accidentCount !== undefined ? { accidentCount: row.accidentCount } : {}),
       ...(row.cpo !== undefined ? { cpo: row.cpo } : {}),
       ...(row.fuel !== undefined ? { fuel: row.fuel } : {}),
+      ...(row.vdp !== undefined ? { vdp: row.vdp } : {}),
       ...(row.engine !== undefined ? { engine: row.engine } : {}),
       ...(row.drivetrain !== undefined ? { drivetrain: row.drivetrain } : {}),
       ...(row.ownerCount !== undefined ? { ownerCount: row.ownerCount } : {}),
@@ -462,7 +487,7 @@ export function marketPoolFromListingFacts(
       state: row.state ?? null,
       zip: null,
       dealer: row.dealer ?? null,
-      vdp: null,
+      vdp: httpVdpFact(row.vdp) ?? null,
       primaryImage: null,
       carfaxUrl: null,
       used: true,

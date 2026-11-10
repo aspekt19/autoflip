@@ -135,7 +135,8 @@ describe("runCheck listing paste (no paid Autodev/SERV)", () => {
     expect(servCalls).toBe(2);
     expect(result.result.agentVerdict.no_serv_step).toBe(false);
     expect(result.result.agentVerdict.verdict).toBe("negotiate");
-    expect(result.result.agentVerdict.serv_steps.some((step) => /Lemonless AI chose/i.test(step.decided))).toBe(false);
+    expect(result.result.agentVerdict.serv_steps.some((step) => /Lemonless AI chose negotiate/i.test(step.decided))).toBe(true);
+    expect(result.result.agentVerdict.serv_steps.some((step) => Boolean(step.responseId || step.model))).toBe(true);
     expect(result.result.servTrace?.calls).toHaveLength(2);
     expect(result.result.servTrace?.calls[0]?.responseId).toBe("chatcmpl-check-1");
     expect(result.result.servTrace?.calls[0]?.rawResponse).toMatch(/negotiate/);

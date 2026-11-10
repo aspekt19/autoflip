@@ -6,7 +6,11 @@
 
 import { reconcileMultipathDeterministic, type AgentMultipathCandidate } from "./agent-multipath";
 import { buildAgentVerdictFromFind } from "./agent-trail";
-import type { AgentMultipathResult, AgentSecondPassResult, AgentVerdict } from "./agent-verdict-schema";
+import type {
+  AgentMultipathResult,
+  AgentSecondPassResult,
+  AgentVerdict,
+} from "./agent-verdict-schema";
 import type { BestDealResult } from "./find-best-deal";
 import { closeCallCars } from "./find-close-call";
 import type { DecisionCarLabel, FindDecisionLogEntry } from "./find-decision-log";
@@ -31,6 +35,11 @@ export function buildFindAgentVerdict(input: {
   multipath?: AgentMultipathResult | null;
   /** Always pass an explicit second-pass record (including not_run with a reason). */
   secondPass?: AgentSecondPassResult | null;
+  /**
+   * Optional settle-path agentVerdict from verdict_decide + verdict_challenge.
+   * Trail steps (with model/response ids) and final action are merged in.
+   */
+  settleVerdict?: AgentVerdict | null;
   /** One-line why confidence is Low/Medium when known. */
   confidenceLine?: string | null;
   servCalls?: number;
@@ -74,6 +83,7 @@ export function buildFindAgentVerdict(input: {
 
   const secondPass: AgentSecondPassResult =
     input.secondPass ??
+    input.settleVerdict?.second_pass ??
     ({
       status: "not_run",
       action: null,
@@ -92,7 +102,7 @@ export function buildFindAgentVerdict(input: {
     ...(confidence === "low" && confidenceLine ? [confidenceLine] : []),
   ];
 
-  return buildAgentVerdictFromFind({
+  const base = buildAgentVerdictFromFind({
     pickKey: pick?.key ?? null,
     pickLabel: pick && pickLabel ? pickLabel : null,
     confidence,
@@ -101,8 +111,37 @@ export function buildFindAgentVerdict(input: {
     multipath,
     secondPass,
     vsCheapest,
-    servCalls: input.servCalls,
+    servCalls:
+      typeof input.servCalls === "number"
+        ? input.servCalls + (input.settleVerdict?.serv_spend?.calls ?? 0)
+        : input.settleVerdict?.serv_spend?.calls,
     unknowns,
-    hadServStep: input.decisionLog.some((entry) => entry.decidedBy === "SERV"),
+    hadServStep:
+      input.decisionLog.some((entry) => entry.decidedBy === "SERV") ||
+      input.settleVerdict?.no_serv_step === false,
   });
+
+  const settleSteps = (input.settleVerdict?.serv_steps ?? []).filter(
+    (step) => step.decided.trim().length > 0,
+  );
+  if (settleSteps.length === 0 && !input.settleVerdict?.verdict) return base;
+
+  // Append decide/challenge after next-check hops; keep Find pick from code ranking.
+  return {
+    ...base,
+    verdict: input.settleVerdict?.verdict ?? base.verdict,
+    serv_steps: [
+      ...base.serv_steps.filter((step) => !/Second check/i.test(step.decided)),
+      ...settleSteps,
+    ],
+    second_pass: secondPass,
+    no_serv_step: base.no_serv_step && input.settleVerdict?.no_serv_step !== false ? base.no_serv_step : false,
+    serv_spend: {
+      calls:
+        (base.serv_spend?.calls ?? 0) ||
+        (input.settleVerdict?.serv_spend?.calls ?? 0) ||
+        settleSteps.length,
+      costNote: input.settleVerdict?.serv_spend?.costNote ?? base.serv_spend?.costNote ?? null,
+    },
+  };
 }
