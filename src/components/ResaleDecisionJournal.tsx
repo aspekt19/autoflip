@@ -18,7 +18,7 @@ export function ResaleDecisionJournalView({
         <strong>Decision journal</strong>
         <span className="hint">
           {" "}
-          · SERV {journal.servCalls}/{journal.servCallCap} calls
+          · SERV {journal.servCalls}/{journal.servCallCap} HTTP calls
         </span>
       </summary>
       <ol className="steps-3 story-steps">

@@ -70,6 +70,8 @@ type CheckResultView = {
   usedFreeCheck?: boolean;
   spentCredit?: boolean;
   fromCache?: boolean;
+  /** ISO timestamp when the saved check was originally settled (fromCache only). */
+  settledAt?: string;
   billingNote?: string;
   agentVerdict?: AgentVerdict | null;
   servTrace?: {
@@ -596,6 +598,7 @@ function CheckResultCard({ result }: { result: CheckResultView }) {
         verdict={result.agentVerdict}
         defaultOpen
         confidenceWhy={result.confidenceWhy ?? null}
+        savedRunAt={result.fromCache ? result.settledAt ?? null : null}
       />
       {result.servTrace && result.servTrace.calls.length > 0 ? (
         <section aria-label="Recorded agent calls">

@@ -16,6 +16,7 @@ import {
   resolveVerdictDecision,
   verdictDecisionFacts,
   type VerdictDecisionRecord,
+  decideWhyWithGateResult,
 } from "@/domain/verdict-decide";
 import {
   resaleCallTimeoutMs,
@@ -370,7 +371,10 @@ export async function runShopperVerdictServ(input: {
     ? [
         {
           decided: `Lemonless AI chose ${decision.finalAction}.`,
-          why: decision.note?.trim() || "The agent reviewed code-computed facts under hard gates.",
+          why: decideWhyWithGateResult(
+            decision,
+            "The agent reviewed code-computed facts under hard gates.",
+          ),
           changed:
             decision.servChoice && decision.servChoice !== decision.finalAction
               ? `Model returned ${decision.servChoice}; gates kept ${decision.finalAction}.`

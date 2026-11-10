@@ -29,6 +29,34 @@ export type RadarActivityRow = {
   alerted: boolean;
 };
 
+function stepKind(profile: string): Parameters<typeof appendJournalStep>[1]["kind"] {
+  if (profile === "verdict_challenge" || profile === "resale_challenge") return "challenge";
+  if (profile === "radar_review" || profile === "flip_judge" || profile === "flip_feasibility") return "triage";
+  if (profile === "verdict_decide" || profile === "resale_pick") return "pick";
+  if (profile === "radar_guard") return "stop_or_widen";
+  return "deep_check";
+}
+
+/** Group activity rows that share one HTTP response (same profile + response id). */
+function groupByHttpCall(rows: RadarActivityRow[]): RadarActivityRow[][] {
+  const groups: RadarActivityRow[][] = [];
+  const indexByKey = new Map<string, number>();
+  for (const row of rows) {
+    const key =
+      row.responseId && row.responseId.trim()
+        ? `${row.profile}::${row.responseId.trim()}`
+        : `${row.profile}::row:${groups.length}:${row.vin}`;
+    const existing = indexByKey.get(key);
+    if (existing != null) {
+      groups[existing]!.push(row);
+      continue;
+    }
+    indexByKey.set(key, groups.length);
+    groups.push([row]);
+  }
+  return groups;
+}
+
 export function journalFromRadarActivity(
   rows: RadarActivityRow[],
   extras?: { notes?: string[]; startedAt?: string },
@@ -54,45 +82,68 @@ export function journalFromRadarActivity(
     return journal;
   }
 
-  for (const row of rows) {
-    const kind =
-      row.profile === "verdict_challenge" || row.profile === "resale_challenge"
-        ? "challenge"
-        : row.profile === "radar_review" || row.profile === "flip_judge" || row.profile === "flip_feasibility"
-          ? "triage"
-          : row.profile === "verdict_decide" || row.profile === "resale_pick"
-            ? "pick"
-            : row.profile === "radar_guard"
-              ? "stop_or_widen"
-              : "deep_check";
+  for (const group of groupByHttpCall(rows)) {
+    const head = group[0]!;
+    const kind = stepKind(head.profile);
     const timedOut =
-      !row.ok &&
-      (row.note?.toLowerCase().includes("timed out") ||
-        row.note?.toLowerCase().includes("timeout") ||
-        row.decision === "timeout");
-    const secs = row.latencyMs > 0 ? Math.max(1, Math.round(row.latencyMs / 1000)) : null;
+      !head.ok &&
+      (head.note?.toLowerCase().includes("timed out") ||
+        head.note?.toLowerCase().includes("timeout") ||
+        head.decision === "timeout");
+    const secs = head.latencyMs > 0 ? Math.max(1, Math.round(head.latencyMs / 1000)) : null;
+    const alertCount = group.filter((row) => row.decision === "alert" || row.alerted).length;
+    const skipCount = group.filter((row) => row.decision === "skip" || (row.ok && !row.alerted && row.decision !== "alert")).length;
+    const batched = group.length > 1 && Boolean(head.responseId?.trim());
+
     journal = appendJournalStep(journal, {
       kind,
       actor: "SERV",
-      decided: row.ok
-        ? `${row.profile} → ${row.decision ?? (row.alerted ? "alert" : "skip")}${row.vin ? ` for ${row.vin}` : ""}`
-        : `${row.profile} failed${row.vin ? ` for ${row.vin}` : ""}`,
+      decided: batched
+        ? `${head.profile} HTTP call — ${group.length} decisions (${alertCount} alert, ${skipCount} skip)`
+        : head.ok
+          ? `${head.profile} → ${head.decision ?? (head.alerted ? "alert" : "skip")}${head.vin ? ` for ${head.vin}` : ""}`
+          : `${head.profile} failed${head.vin ? ` for ${head.vin}` : ""}`,
       why: timedOut
         ? secs != null
           ? `SERV timed out after ${secs}s`
           : "SERV timed out"
-        : row.note?.trim() || (row.ok ? "Agent used code-computed facts only." : "Agent call failed."),
+        : batched
+          ? `One batched HTTP response. Decisions: ${group
+              .map((row) => `${row.vin}:${row.decision ?? (row.alerted ? "alert" : "skip")}`)
+              .join(", ")}.`
+          : head.note?.trim() || (head.ok ? "Agent used code-computed facts only." : "Agent call failed."),
       inputsUsed: [
-        ...(row.vin ? [`vin:${row.vin}`] : []),
-        `search:${row.searchId}`,
-        `check:${row.profile}`,
+        ...[...new Set(group.flatMap((row) => (row.vin ? [`vin:${row.vin}`] : [])))],
+        `search:${head.searchId}`,
+        `check:${head.profile}`,
+        ...(batched ? [`http_decisions:${group.length}`] : []),
       ],
       changed: null,
-      model: row.modelReported || row.modelRequested || null,
-      responseId: row.responseId,
-      recordedAt: row.at || recordedAt,
-      rejected: row.ok ? null : timedOut ? "timeout" : "http_error",
+      model: head.modelReported || head.modelRequested || null,
+      responseId: head.responseId,
+      recordedAt: head.at || recordedAt,
+      rejected: head.ok ? null : timedOut ? "timeout" : "http_error",
+      countServCall: true,
     });
+
+    if (batched) {
+      for (const row of group) {
+        journal = appendJournalStep(journal, {
+          kind,
+          actor: "SERV",
+          decided: `${row.profile} → ${row.decision ?? (row.alerted ? "alert" : "skip")} for ${row.vin}`,
+          why: row.note?.trim() || "Decision from the batched HTTP response above.",
+          inputsUsed: [`vin:${row.vin}`, `search:${row.searchId}`, `check:${row.profile}`],
+          changed: null,
+          model: row.modelReported || row.modelRequested || null,
+          responseId: row.responseId,
+          recordedAt: row.at || recordedAt,
+          rejected: row.ok ? null : "http_error",
+          // Same HTTP call — do not inflate SERV call count.
+          countServCall: false,
+        });
+      }
+    }
   }
 
   for (const note of extras?.notes ?? []) {

@@ -57,13 +57,24 @@ export function emptyResaleJournal(cap = RESALE_SERV_CALL_CAP): ResaleDecisionJo
 
 export function appendJournalStep(
   journal: ResaleDecisionJournal,
-  step: Omit<ResaleJournalStep, "id"> & { id?: string },
+  step: Omit<ResaleJournalStep, "id"> & {
+    id?: string;
+    /**
+     * When false, a SERV step is recorded but does not increment servCalls
+     * (e.g. per-VIN decisions from one batched HTTP response).
+     * Default: count SERV actors as one HTTP call each.
+     */
+    countServCall?: boolean;
+  },
 ): ResaleDecisionJournal {
   const id = step.id ?? `step_${journal.steps.length + 1}`;
+  const { countServCall, ...rest } = step;
+  const counts = rest.actor === "SERV" && countServCall !== false;
   return {
     ...journal,
-    steps: [...journal.steps, { ...step, id }],
-    // Count every SERV HTTP attempt, including rejected payloads (they still spent budget).
-    servCalls: step.actor === "SERV" ? journal.servCalls + 1 : journal.servCalls,
+    steps: [...journal.steps, { ...rest, id }],
+    // Count real SERV HTTP attempts (including rejected payloads). Never count
+    // batched per-VIN decision rows as separate calls.
+    servCalls: counts ? journal.servCalls + 1 : journal.servCalls,
   };
 }

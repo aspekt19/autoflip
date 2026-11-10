@@ -14,6 +14,11 @@ type Props = {
   defaultOpen?: boolean;
   /** One-line why confidence is Low/Medium when the trail summary needs it. */
   confidenceWhy?: string | null;
+  /**
+   * When set, labels this trail as a saved/cached run (not a fresh SERV call).
+   * ISO timestamp from check delivery settledAt.
+   */
+  savedRunAt?: string | null;
 };
 
 /**
@@ -21,7 +26,12 @@ type Props = {
  * Structured as decided → why → changed. Never invents steps.
  * Second check is always shown: either a real record or an honest not-run reason.
  */
-export function AgentDecisionTrail({ verdict, defaultOpen = false, confidenceWhy = null }: Props) {
+export function AgentDecisionTrail({
+  verdict,
+  defaultOpen = false,
+  confidenceWhy = null,
+  savedRunAt = null,
+}: Props) {
   if (!verdict) return null;
   const steps = agentTrailSteps(verdict);
   const closePaths = agentCloseCallPaths(verdict);
@@ -32,11 +42,15 @@ export function AgentDecisionTrail({ verdict, defaultOpen = false, confidenceWhy
     (verdict.confidence === "low"
       ? verdict.unknowns.find((line) => /^Low:/i.test(line)) ?? null
       : null);
+  const savedLabel = savedRunAt
+    ? `Saved run from ${new Date(savedRunAt).toLocaleString("en-US", { timeZone: "UTC" })} UTC`
+    : null;
 
   return (
     <details className="agent-decision-trail onboarding-note" open={defaultOpen}>
       <summary>
         <strong>How the agent decided</strong>
+        {savedLabel ? <span className="hint"> · {savedLabel}</span> : null}
         {verdict.confidence ? (
           <span className="hint">
             {" "}

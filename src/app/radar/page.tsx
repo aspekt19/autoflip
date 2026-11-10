@@ -57,6 +57,7 @@ function RadarInner() {
   const [demo, setDemo] = useState(false);
   const [searches, setSearches] = useState<Array<{ id: string; name: string; mode: string; criteria: { priceMax: number; zip: string; radiusMiles: number; make?: string; model?: string; notes?: string }; preset: boolean; lastCheckedAt: string | null }>>([]);
   const [alerts, setAlerts] = useState<Array<{ id: string; vin: string; why: string; createdAt: string; mode: string; priceUsd: number; miles: number | null; year: number; make: string; model: string; checks?: DecisionProof[]; coverage?: string; coverageLevel?: "low" | "medium" | "high"; badge?: PriceBadge }>>([]);
+  const [skippedReviews, setSkippedReviews] = useState<typeof alerts>([]);
   const [watchNote, setWatchNote] = useState<string | null>(null);
   const [checking, setChecking] = useState(false);
   const [telegramNote, setTelegramNote] = useState<string | null>(null);
@@ -98,6 +99,7 @@ function RadarInner() {
       demo?: boolean;
       searches?: typeof searches;
       alerts?: typeof alerts;
+      skippedReviews?: typeof alerts;
       lastRunAt?: string | null;
       nextRunAt?: string | null;
       listingCounts?: typeof listingCounts;
@@ -108,6 +110,7 @@ function RadarInner() {
     setDemo(Boolean(body.demo));
     setSearches(body.searches ?? []);
     setAlerts(body.alerts ?? []);
+    setSkippedReviews(body.skippedReviews ?? []);
     setLastRunAt(body.lastRunAt ?? null);
     setNextRunAt(body.nextRunAt ?? null);
     setListingCounts(body.listingCounts ?? []);
@@ -323,11 +326,18 @@ function RadarInner() {
           <Link href="/pricing">Pricing</Link>
         </p>
         <ul className="refuse">
-          <li>Last run: {lastRunAt ? `${new Date(lastRunAt).toLocaleString("en-US", { timeZone: "UTC" })} UTC` : "No run yet"}</li>
+          <li>
+            Last run finished:{" "}
+            {lastRunAt ? `${new Date(lastRunAt).toLocaleString("en-US", { timeZone: "UTC" })} UTC` : "No run yet"}
+            {activity?.startedAt
+              ? ` · started ${new Date(activity.startedAt).toLocaleString("en-US", { timeZone: "UTC" })} UTC`
+              : ""}
+          </li>
           <li>Next run: {nextRunAt ? `${new Date(nextRunAt).toLocaleString("en-US", { timeZone: "UTC" })} UTC` : "No run yet"}</li>
           <li>
             Alerts on this page: {alerts.length}
             {activity ? ` · ${activity.alertsSent} new in last check` : ""}
+            {skippedReviews.length > 0 ? ` · ${skippedReviews.length} reviewed — skipped` : ""}
           </li>
         </ul>
         {emailNote ? <p className="hint">{emailNote}</p> : null}
@@ -413,7 +423,11 @@ function RadarInner() {
           <article className="warn-box">
             <p className="sheet-label">{activity.runId}</p>
             <p>
-              {new Date(activity.startedAt).toLocaleString("en-US", { timeZone: "UTC" })} UTC · listings {activity.listings} · alerts {activity.alertsSent}
+              Started {new Date(activity.startedAt).toLocaleString("en-US", { timeZone: "UTC" })} UTC
+              {" · "}
+              finished {new Date(activity.finishedAt).toLocaleString("en-US", { timeZone: "UTC" })} UTC
+              {" · "}
+              listings {activity.listings} · alerts {activity.alertsSent}
             </p>
             <ResaleDecisionJournalView journal={activity.decisionJournal} defaultOpen />
             {activity.servActivity.length === 0 ? (
@@ -429,7 +443,21 @@ function RadarInner() {
           </article>
         )}
         <h2>Alerts</h2>
-        {alerts.length === 0 ? <p>No new matches yet. New good/fair listings SERV rates buy or negotiate will appear here after a scheduled check.</p> : null}
+        {alerts.length === 0 ? <p>No new matches yet. New good/fair listings SERV rates alert will appear here after a scheduled check.</p> : null}
+        {skippedReviews.length > 0 ? (
+          <details className="onboarding-note">
+            <summary>
+              Reviewed — skipped ({skippedReviews.length}, not counted as alerts)
+            </summary>
+            <ul className="refuse">
+              {skippedReviews.map((row) => (
+                <li key={row.id}>
+                  {row.year} {row.make} {row.model} · {formatUsd(row.priceUsd)} — {row.why}
+                </li>
+              ))}
+            </ul>
+          </details>
+        ) : null}
         <div className="radar-list">
           {alerts.map((alert) => (
             <article className="radar-row" key={alert.id} id={`alert-${alert.id}`}>

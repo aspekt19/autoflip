@@ -257,3 +257,24 @@ export function resolveVerdictDecision(input: {
     withholdReason: null,
   };
 }
+
+/**
+ * Buyer-facing decide why: keep SERV's note, and surface the real gate forbid/
+ * withhold text when the note only gestures at the "mandate" without citing it.
+ */
+export function decideWhyWithGateResult(
+  decision: Pick<VerdictDecisionRecord, "note" | "gateRun">,
+  fallback = "Shopper decide on code report.",
+): string {
+  const base = decision.note?.trim() || fallback;
+  const active = decision.gateRun.gates.filter(
+    (gate) => gate.status === "forbid" || gate.status === "withhold",
+  );
+  if (active.length === 0) return base;
+  if (active.every((gate) => base.includes(gate.reason))) return base;
+  const mandateGateFired = active.some((gate) => gate.id === "mandate_fit");
+  // Only enrich when SERV named the mandate (or mandate_fit actually forbade buy).
+  if (!/mandate/i.test(base) && !mandateGateFired) return base;
+  const gateLine = active.map((gate) => gate.reason).join(" · ");
+  return `${base} Gate result: ${gateLine}`;
+}

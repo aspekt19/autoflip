@@ -44,6 +44,7 @@ import {
   RESALE_TIME_BUDGET_SKIP,
   type ResaleDeadline,
 } from "@/domain/resale-deadline";
+import { decideWhyWithGateResult } from "@/domain/verdict-decide";
 
 const RESALE_SERV_JUDGE_MAX = 3;
 
@@ -1620,6 +1621,7 @@ export async function runResaleSettleServ(input: {
               latencyMs: call.latencyMs,
             });
         // Count each shopper HTTP attempt via appendJournalStep (not a silent servCalls bump).
+        const decideWhy = decideWhyWithGateResult(shopper.decision);
         journal = appendJournalStep(journal, {
           kind: call.profile === "verdict_decide" ? "pick" : "challenge",
           actor: "SERV",
@@ -1629,7 +1631,7 @@ export async function runResaleSettleServ(input: {
               : `Verdict challenge → ${call.ok ? "ok" : "fail"}`,
           why: call.ok
             ? call.profile === "verdict_decide"
-              ? shopper.decision.note ?? "Shopper decide on code report."
+              ? decideWhy
               : secondPass.objection ?? "Shopper challenge."
             : fail?.why ?? "Shopper SERV call failed.",
           inputsUsed: [`vin:${best.vin}`, `check:${call.profile}`],
@@ -1643,7 +1645,7 @@ export async function runResaleSettleServ(input: {
           decided: call.profile === "verdict_decide" ? `Verdict decide → ${verdictAction}` : `Verdict challenge → ${call.ok ? "ok" : "fail"}`,
           why: call.ok
             ? call.profile === "verdict_decide"
-              ? shopper.decision.note ?? "Shopper decide on code report."
+              ? decideWhy
               : secondPass.objection ?? "Shopper challenge."
             : fail?.why ?? "Shopper SERV call failed.",
           changed: null,

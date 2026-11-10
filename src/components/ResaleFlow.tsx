@@ -16,6 +16,7 @@ import type { ResaleCandidatePnl } from "@/domain/resale-pnl";
 import { sellerLinkHonesty } from "@/domain/listing-seller-honesty";
 import { SEARCH_RADII_MILES } from "@/domain/need";
 import { publishCreditBalance } from "@/domain/credit-balance-event";
+import { resaleVerdictLineage } from "@/domain/resale-verdict-lineage";
 
 export function ResaleFlow() {
   const account = useAccountLoad();
@@ -498,6 +499,7 @@ function ResaleSearchResultView({ result }: { result: SearchResult }) {
     }
     return `/radar?${q.toString()}`;
   })();
+  const lineage = resaleVerdictLineage(result.journal, result.verdictAction);
   return (
     <article className="warn-box check-result" aria-live="polite">
       <h2>{result.headline}</h2>
@@ -506,6 +508,7 @@ function ResaleSearchResultView({ result }: { result: SearchResult }) {
         {" · "}
         Confidence: {result.confidence}
       </p>
+      {lineage ? <p className="hint">{lineage.chain}</p> : null}
       <p>{result.message}</p>
       <p className="hint">{result.nextStep}</p>
       {watchHref ? (

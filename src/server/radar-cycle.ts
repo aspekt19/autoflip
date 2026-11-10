@@ -279,7 +279,6 @@ export async function runRadarCycle(deps: CycleDeps): Promise<StoredRun> {
           }
           for (const item of fresh) {
             const decision = judged?.decisions?.get(item.vin);
-            // Code owns the alert list. SERV may explain a skip preference, but it cannot suppress a ranked deal.
             const badge = priceBadge(item.listing, job.listings, { mode: "flip" });
             const numbers = {
               priceUsd: item.listing.priceUsd ?? 0,
@@ -294,13 +293,6 @@ export async function runRadarCycle(deps: CycleDeps): Promise<StoredRun> {
               roughMarginUsd: item.profitMidUsd,
             };
             const baseWhy = flipAlertWhy(item);
-            const why = decision?.note
-              ? decision.verdict === "skip"
-                ? `${baseWhy} Review note (does not cancel this alert): ${decision.note}`
-                : `${baseWhy} ${decision.note}`
-              : deps.servKey && !decision
-                ? `${baseWhy} The written check did not finish. These figures are from the scan.`
-                : baseWhy;
             const flipCoverage = {
               mode: "flip" as const,
               sample: item.listing.source === "sample",
@@ -308,6 +300,36 @@ export async function runRadarCycle(deps: CycleDeps): Promise<StoredRun> {
               radiusMiles: search.criteria.radiusMiles,
               historyOnListing: item.listing.accidentCount !== null && item.listing.ownerCount !== null,
             };
+            // When SERV returned a decision map, only "alert" becomes a counted new alert.
+            // "skip" is stored as status=skipped (outside the alert count / feed).
+            if (deps.servKey && judged?.decisions) {
+              if (decision?.verdict === "skip") {
+                const skipped = makeAlert(
+                  search,
+                  item.listing,
+                  `Reviewed — skipped: ${decision.note?.trim() || baseWhy}`,
+                  numbers,
+                  deps.now.toISOString(),
+                  judged?.checks,
+                  coverageSentence(flipCoverage),
+                  coverageConfidence(flipCoverage),
+                  item.priceDropFrom,
+                  badge,
+                  "skipped",
+                );
+                alerts.unshift(skipped);
+                continue;
+              }
+              if (decision?.verdict !== "alert") {
+                // No SERV alert for this VIN — do not invent a counted alert.
+                continue;
+              }
+            }
+            const why = decision?.note
+              ? `${baseWhy} ${decision.note}`
+              : deps.servKey && !decision
+                ? `${baseWhy} The written check did not finish. These figures are from the scan.`
+                : baseWhy;
             const alert = makeAlert(
               search,
               item.listing,
@@ -476,10 +498,17 @@ export async function runRadarCycle(deps: CycleDeps): Promise<StoredRun> {
       steps.push({ id: "serv_verdict", status: "no_candidates" });
     } else {
       shadow = summarizeShadow(servActivity.map((row) => (row.ok ? row.decision ?? "ok" : "error")));
+      const httpCallKeys = new Set(
+        servActivity.map((row) =>
+          row.responseId?.trim()
+            ? `${row.profile}::${row.responseId.trim()}`
+            : `${row.profile}::vin:${row.vin}`,
+        ),
+      );
       steps.push({
         id: "serv_verdict",
         status: servActivity.some((row) => !row.ok) ? "partial" : "ok",
-        detail: `${servActivity.length} calls · ${shadow}`,
+        detail: `${httpCallKeys.size} HTTP call${httpCallKeys.size === 1 ? "" : "s"} · ${servActivity.length} decisions · ${shadow}`,
       });
     }
     await saveAlerts(deps.kv, alerts);
@@ -672,7 +701,7 @@ async function judgeFlipAlerts(
         ok: Boolean(judged.ok && decision),
         decision: decision?.verdict ?? null,
         note: decision?.note ?? null,
-        alerted: true,
+        alerted: decision?.verdict === "alert",
       });
     }
     return {
@@ -841,6 +870,7 @@ function makeAlert(
   coverageLevel?: WatchAlert["coverageLevel"],
   priceDropFrom?: number | null,
   badge?: WatchAlert["badge"],
+  status: WatchAlert["status"] = "new",
 ): WatchAlert {
   return {
     id: randomUUID(),
@@ -848,7 +878,7 @@ function makeAlert(
     searchId: search.id,
     vin: listing.vin,
     createdAt: iso,
-    status: "new",
+    status,
     mode: search.mode,
     year: listing.year,
     make: listing.make,

@@ -34,4 +34,37 @@ describe("journalFromRadarActivity", () => {
     expect(journal.steps[0]?.kind).toBe("stop_or_widen");
     expect(journal.servCalls).toBe(0);
   });
+
+  it("counts one batched radar_review HTTP response as one SERV call, not N decisions", () => {
+    const responseId = "chatcmpl-EiYTlwQyEdrZ4bOTwmVam3kWBjvp1";
+    const vins = [
+      "4T1BF1FK4GU197310",
+      "JTMZD31V075052071",
+      "1HGCM82633A004352",
+      "2T1BURHE0JC123456",
+      "3VW2B7AJ5HM123456",
+    ];
+    const journal = journalFromRadarActivity(
+      vins.map((vin, index) => ({
+        at: "2026-11-10T05:13:57.000Z",
+        searchId: "s1",
+        vin,
+        profile: "radar_review",
+        modelRequested: "model-a",
+        modelReported: "model-a",
+        responseId,
+        latencyMs: 4200,
+        ok: true,
+        decision: index < 2 ? "skip" : "alert",
+        note: index < 2 ? "Thin margin." : "Alert worthy.",
+        alerted: index >= 2,
+      })),
+    );
+    expect(journal.servCalls).toBe(1);
+    expect(journal.steps[0]?.decided).toMatch(/HTTP call — 5 decisions/);
+    expect(journal.steps[0]?.decided).toMatch(/3 alert/);
+    expect(journal.steps[0]?.decided).toMatch(/2 skip/);
+    expect(journal.steps.filter((step) => /for 4T1BF1FK4GU197310/.test(step.decided)).length).toBe(1);
+    expect(journal.steps.length).toBeGreaterThanOrEqual(6);
+  });
 });

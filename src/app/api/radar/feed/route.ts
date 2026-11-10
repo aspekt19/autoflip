@@ -15,6 +15,7 @@ export async function GET() {
   const [searches, alerts, runs] = await Promise.all([listSearches(kv), listAlerts(kv), listRuns(kv)]);
   const mine = searches.filter((item) => item.ownerId === id);
   const myAlerts = alerts.filter((item) => item.ownerId === id && item.status !== "skipped");
+  const mySkipped = alerts.filter((item) => item.ownerId === id && item.status === "skipped");
   const mySearchIds = new Set(mine.map((item) => item.id));
   const myRuns = runs.filter(
     (run) =>
@@ -39,6 +40,8 @@ export async function GET() {
     demo: isDemoUser(id),
     searches: mine,
     alerts: myAlerts,
+    /** SERV skip reviews — stored for honesty, not counted as new alerts. */
+    skippedReviews: mySkipped,
     lastRunAt: lastRun?.finishedAt ?? null,
     nextRunAt,
     intervalHours,
@@ -55,11 +58,14 @@ export async function GET() {
             minePerSearch.length > 0
               ? minePerSearch.reduce((sum, row) => sum + row.listings, 0)
               : lastRun.listings;
+          const servAlerted = servActivity.filter((row) => row.alerted || row.decision === "alert").length;
           const ownerAlerts =
             minePerSearch.length > 0
               ? minePerSearch.reduce((sum, row) => sum + row.alertsSent, 0)
-              : // Fall back: count this owner's alerts created in the run window.
-                myAlerts.filter((alert) => alert.createdAt >= lastRun.startedAt).length;
+              : // Prefer SERV alert decisions when activity is present; else counted new alerts.
+                servActivity.length > 0
+                ? servAlerted
+                : myAlerts.filter((alert) => alert.createdAt >= lastRun.startedAt).length;
           // Keep Flip explanation notes only once, and only when they apply to this owner.
           const ownerNotes = Array.from(
             new Set(
