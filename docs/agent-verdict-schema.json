@@ -126,6 +126,7 @@
               ]
             },
             "objection": { "oneOf": [{ "type": "string" }, { "type": "null" }] },
+            "rawDump": { "oneOf": [{ "type": "string" }, { "type": "null" }] },
             "evidenceIds": { "type": "array", "items": { "type": "string" } },
             "confidenceBefore": {
               "oneOf": [{ "type": "null" }, { "type": "string", "enum": ["high", "medium", "low"] }]
