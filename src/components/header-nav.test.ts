@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { primaryNavLinks } from "./header-nav";
+import { primaryNavLinks, splitPrimaryNavLinks } from "./header-nav";
 
 describe("primaryNavLinks", () => {
   it("keeps Resale and Deal Radar together when both product flags are on", () => {
@@ -33,5 +33,23 @@ describe("primaryNavLinks", () => {
     const links = primaryNavLinks({ flags: null, showScout: false });
     expect(links.map((link) => link.label)).toContain("Resale");
     expect(links.map((link) => link.label)).not.toContain("Deal Radar");
+  });
+});
+
+describe("splitPrimaryNavLinks", () => {
+  it("keeps Find/Check/Resale/Radar/Pricing in core and collapses Scout/Reports/Saved/Compare into More", () => {
+    const links = primaryNavLinks({
+      flags: { resaleEvaluate: true, dealRadar: true, scout: true, telegram: false },
+      showScout: true,
+    });
+    const { core, more } = splitPrimaryNavLinks(links);
+    expect(core.map((link) => link.label)).toEqual([
+      "Find a car",
+      "Check a car",
+      "Resale",
+      "Deal Radar",
+      "Pricing",
+    ]);
+    expect(more.map((link) => link.label)).toEqual(["Scout", "Reports", "Saved cars", "Compare cars"]);
   });
 });
