@@ -3,7 +3,7 @@ import Link from "next/link";
 import { ReportView } from "@/components/ReportView";
 import { buildSampleReport } from "@/server/sample-report";
 
-export const metadata: Metadata = { title: "Sample report" };
+export const metadata: Metadata = { title: "Sample" };
 
 export default function SampleReportPage() {
   const report = buildSampleReport("personal");

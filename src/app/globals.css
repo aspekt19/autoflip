@@ -38,9 +38,11 @@
   --mono: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
   --ease: cubic-bezier(0.16, 1, 0.3, 1);
   --pad: 28px;
-  /* Same outer width as the site header on every page. */
+  /* Shared content column for interior pages (header is full-bleed separately). */
   --site-max: 1360px;
   --site-gutter: 14px;
+  /* Edge padding for full-bleed header + home story sections (matches ticker span). */
+  --site-pad: clamp(16px, 3vw, 48px);
   accent-color: var(--blue);
   background: var(--canvas);
   color: var(--ink);
@@ -134,7 +136,7 @@ a { color: inherit; }
   font-weight: 500;
 }
 
-/* One shared content width. Header and every page main column use .site-frame. */
+/* Shared content column for interior pages. Header is full-bleed (.bar); home story-after overrides. */
 .site-frame {
   box-sizing: border-box;
   width: min(var(--site-max), calc(100% - 2 * var(--site-gutter)));
@@ -144,40 +146,30 @@ a { color: inherit; }
 
 .bar {
   position: sticky;
-  top: 14px;
+  top: 0;
   z-index: 40;
+  /* Full viewport width — logo left, nav/credits/account right (like the home ticker). */
+  box-sizing: border-box;
+  width: 100%;
+  max-width: none;
   /* Containing block for absolute compact nav panel */
   display: flex;
   flex-wrap: nowrap;
   align-items: center;
   justify-content: space-between;
   gap: 16px;
-  margin: 14px auto 0;
+  margin: 0;
   min-height: 74px;
-  padding: 10px 12px 10px 16px;
+  padding: 10px var(--site-pad);
   background: rgba(8, 8, 8, 0.94);
   color: var(--ink);
-  border: 1px solid rgba(255, 255, 255, 0.14);
-  border-radius: 999px;
+  border: 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 0;
   backdrop-filter: blur(18px);
 }
+/* Full-bleed bar already paints the top strip; no centered-pill curtain. */
 .bar::before {
-  content: "";
-  position: absolute;
-  z-index: -1;
-  left: 50%;
-  top: -20px;
-  /* 100% of the sticky bar's containing block — avoid 100vw scrollbar overflow. */
-  width: 100vw;
-  width: 100dvw;
-  max-width: 100%;
-  height: calc(100% + 28px);
-  transform: translateX(-50%);
-  background: #050505;
-}
-/* Home film is full-viewport under the pill — remove the solid black curtain so the
-   night-city image stays edge-to-edge with the header overlaid (original showroom intent). */
-.bar.bar-over-media::before {
   content: none;
 }
 .brand {
@@ -348,7 +340,7 @@ nav a {
   text-transform: uppercase;
 }
 nav a:hover { color: #fff; }
-/* Desktop: overflow destinations live under More; compact menu flattens them. */
+/* Desktop: overflow destinations live under More until the viewport is wide enough to fit them. */
 .nav-overflow { display: none; }
 .nav-more {
   position: relative;
@@ -405,6 +397,12 @@ nav a:hover { color: #fff; }
 .nav-more-panel a:hover,
 .nav-more-panel a:focus-visible {
   background: rgba(255, 255, 255, 0.06);
+}
+/* Wide screens: show every primary link inline; More only when they would not fit.
+   Must follow .nav-more { display: inline-flex } so this wins in the cascade. */
+@media (min-width: 1600px) {
+  .nav-overflow { display: inline-flex; }
+  .nav-more { display: none; }
 }
 .nav-go {
   background: var(--blue);
@@ -1262,10 +1260,12 @@ pre.doc {
   :root { --site-gutter: 8px; }
   .bar {
     position: sticky;
-    top: 8px;
-    border-radius: 18px;
-    margin-left: auto;
-    margin-right: auto;
+    top: 0;
+    border-radius: 0;
+    margin: 0;
+    width: 100%;
+    max-width: none;
+    padding-inline: var(--site-pad);
   }
   .brand-mark,
   .brand img { height: 50px; width: 50px; }
@@ -1385,10 +1385,38 @@ pre.doc {
   letter-spacing: 0.12em;
   text-transform: uppercase;
 }
-.story-after { margin: 0 auto; padding: 72px 0; }
+.story-after {
+  box-sizing: border-box;
+  width: 100%;
+  max-width: none;
+  margin: 0;
+  padding: 72px var(--site-pad);
+}
+.home-story > .story-after.site-frame {
+  /* Full-bleed like the ticker — pad only; do not re-cap at --site-max. */
+  width: 100%;
+  max-width: none;
+  margin-inline: 0;
+  padding-inline: var(--site-pad);
+}
 .story-steps { margin-top: 8px; }
 .story-steps li { background: #101010; border: 1px solid rgba(255,255,255,0.12); }
 .story-trust { padding-top: 12px; }
+/* Wide home: grid tracks fill the full padded width (more column room). */
+@media (min-width: 1600px) {
+  .home-story .steps-3 {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 28px;
+  }
+  .home-story .trust-row {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 32px;
+  }
+}
+@media (min-width: 2200px) {
+  .home-story .steps-3 { gap: 40px; }
+  .home-story .trust-row { gap: 48px; }
+}
 .showroom-credit { margin: 12px 0 0; max-width: 46ch; color: var(--muted); font-size: 12px; }
 .marquee { position: relative; z-index: 2; overflow: hidden; border-block: 1px solid rgba(255,255,255,0.12); background: rgba(0,0,0,0.55); }
 .marquee-track { display: flex; gap: 36px; width: max-content; padding: 14px 0; font-family: var(--display); letter-spacing: 0.16em; text-transform: uppercase; font-size: 12px; }
@@ -1450,7 +1478,7 @@ pre.doc {
     max-width: 100%;
     overflow-wrap: anywhere;
   }
-  .story-after { padding: 48px 0; }
+  .story-after { padding: 48px var(--site-pad); }
 }
 
 /* Narrow phones: keep hero copy full-bleed within padding — avoid left-biased squeeze from wide min tracks. */
@@ -1469,11 +1497,11 @@ pre.doc {
   }
   .film-copy .lead { font-size: 12px; }
   .bar {
-    margin-left: auto;
-    margin-right: auto;
+    margin: 0;
+    width: 100%;
+    max-width: none;
     gap: 8px;
-    padding-left: 10px;
-    padding-right: 10px;
+    padding-inline: max(10px, var(--site-pad));
   }
   .nav-auth { padding-inline: 8px; font-size: 12px; letter-spacing: 0.02em; }
   .menu-btn { padding-inline: 10px; }

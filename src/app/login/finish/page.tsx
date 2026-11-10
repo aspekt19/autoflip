@@ -3,7 +3,7 @@ import { firebasePublicConfig, safeAuthCallbackUrl } from "@/auth/config";
 import { EmailLinkFinish } from "@/components/EmailLinkFinish";
 
 export const dynamic = "force-dynamic";
-export const metadata: Metadata = { title: "Finish sign-in" };
+export const metadata: Metadata = { title: "Sign-in" };
 
 export default async function EmailLinkFinishPage({
   searchParams,

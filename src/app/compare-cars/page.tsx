@@ -7,7 +7,7 @@ import { existingUserId } from "@/server/session";
 import type { FullReport } from "@/domain/types";
 
 export const dynamic = "force-dynamic";
-export const metadata: Metadata = { title: "Compare cars" };
+export const metadata: Metadata = { title: "Compare" };
 
 type Row = { label: string; value: (report: FullReport) => string };
 

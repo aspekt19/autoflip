@@ -7,7 +7,7 @@ import { existingLedgerOwnerId, isDemoUser, authenticatedSession } from "@/serve
 import { formatNumber, formatUsd, verdictLabel } from "@/domain/format";
 
 export const dynamic = "force-dynamic";
-export const metadata: Metadata = { title: "Saved cars" };
+export const metadata: Metadata = { title: "Saved" };
 
 export default async function FavoritesPage() {
   const id = await existingLedgerOwnerId();
