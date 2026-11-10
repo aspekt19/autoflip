@@ -3,6 +3,7 @@ import type { ResaleCandidatePnl } from "@/domain/resale-pnl";
 import type { Listing } from "@/domain/types";
 import {
   clampFlipPublishedAction,
+  clampResalePublishedConfidence,
   flipMarginPublishedAction,
   runResaleSettleServ,
 } from "./resale-settle-serv";
@@ -110,6 +111,29 @@ function inventingFetch(content: Record<string, unknown>): typeof fetch {
       usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 },
     })) as typeof fetch;
 }
+
+describe("clampResalePublishedConfidence", () => {
+  it("caps High → Medium when low profit misses the flip target and labels why", () => {
+    const candidate = { ...thinCandidate(), profitLowUsd: 400, profitMidUsd: 2_000, openParkIt: false, openParkOutside: false };
+    // thinCandidate already has Low confidence from comps; force proposed high from SERV.
+    const capped = clampResalePublishedConfidence("high", candidate);
+    expect(capped.confidence).toBe("medium");
+    expect(capped.reason).toMatch(/Lowered from High/i);
+    expect(capped.reason).toMatch(/misses the/i);
+  });
+
+  it("caps High → Medium on park-outside stop and labels why", () => {
+    const candidate = {
+      ...thinCandidate(),
+      profitLowUsd: 2_000,
+      openParkIt: false,
+      openParkOutside: true,
+    };
+    const capped = clampResalePublishedConfidence("high", candidate);
+    expect(capped.confidence).toBe("medium");
+    expect(capped.reason).toMatch(/park-it or park-outside/i);
+  });
+});
 
 describe("flip margin published action", () => {
   it("codes pass for mid +478 / low -235", () => {

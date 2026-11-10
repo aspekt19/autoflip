@@ -6,6 +6,11 @@
 
 import { ASSUMPTIONS } from "./assumptions";
 import type { FlipEstimate, SaleSpeed } from "./flip-rank";
+import {
+  capConfidenceForMarginMiss,
+  confidenceCapReasonForMarginMiss,
+  resaleRecallRiskLine,
+} from "./nhtsa-stop-flags";
 import { reconUsd } from "./recon";
 import {
   assumptionProvenance,
@@ -108,6 +113,13 @@ export type ResaleCandidatePnl = {
    */
   openParkIt?: boolean;
   openParkOutside?: boolean;
+  /**
+   * True only after a usable NHTSA recallsByVehicle response for this MMY.
+   * False/undefined means the recall risk line must say "not checked".
+   */
+  recallsChecked?: boolean;
+  /** Campaign count when recallsChecked; null when unchecked or lookup failed. */
+  recallCampaignCount?: number | null;
 };
 
 function usdOrUnknown(value: number | null | undefined): string {
@@ -287,10 +299,19 @@ export function buildResaleCandidatePnl(
       basis: `${confidence.basis} Lowered: listing URL trim/year may not match the feed row — comps may be off.`,
     };
   }
+  // Conservative low profit must clear the flip target for High confidence.
+  const marginCapReason = confidenceCapReasonForMarginMiss(profitLowUsd);
+  const cappedForMargin = capConfidenceForMarginMiss(confidence.label, profitLowUsd);
+  if (cappedForMargin !== confidence.label && marginCapReason) {
+    confidence = {
+      label: cappedForMargin,
+      basis: `${confidence.basis} ${marginCapReason}`,
+    };
+  }
 
   const risks: string[] = [
     "Title brand and full accident history are unknown until you pull a report and inspect the car.",
-    "Open recalls are not checked in this search — verify before buying.",
+    resaleRecallRiskLine({ recallsChecked: false }),
     "Demand and days-to-sell are inferred from this scan, not a national DOM feed.",
   ];
   if (!salesTaxKnown) {
@@ -405,6 +426,8 @@ export function buildResaleCandidatePnl(
     checkBeforeBuying,
     assumption: estimate.assumption,
     provenance,
+    recallsChecked: false,
+    recallCampaignCount: null,
   };
 }
 

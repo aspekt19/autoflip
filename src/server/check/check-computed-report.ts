@@ -4,6 +4,7 @@
  */
 import { ASSUMPTIONS } from "@/domain/assumptions";
 import type { CheckRedFlag } from "@/domain/listing/types";
+import { stopFlagsFromRecalls } from "@/domain/nhtsa-stop-flags";
 import type { PriceBadge } from "@/domain/price-badge";
 import type {
   ComparableUsed,
@@ -65,7 +66,7 @@ export function buildCheckComputedReport(input: {
 }): ComputedReport {
   const flags = flagsFromCheck(input.redFlags);
   const comps = compsFromSimilar(input.similarCars);
-  const openParkIt = input.recalls.some((r) => r.parkIt);
+  const stops = stopFlagsFromRecalls(input.recalls);
   const reasons = [
     input.summary,
     input.badge?.deltaLabel ?? null,
@@ -83,6 +84,8 @@ export function buildCheckComputedReport(input: {
     comps,
     compSampleSize: input.badge?.sampleSize ?? comps.length,
     compScope: input.compScope,
+    // Same sample size the Check card shows (badge), not the truncated similarCars list.
+    compSampleSize: input.badge?.sampleSize ?? comps.length,
     percentile: null,
     fairValueUsd: input.fairValueUsd,
     fairRangeLowUsd: null,
@@ -99,8 +102,8 @@ export function buildCheckComputedReport(input: {
     history: { multiplier: 1, lines: [] },
     recalls: input.recalls,
     recallsAvailable: input.recallsAvailable,
-    openParkIt,
-    openParkOutside: input.recalls.some((r) => r.parkOutSide),
+    openParkIt: stops.openParkIt,
+    openParkOutside: stops.openParkOutside || stops.openParkIt,
     complaintCount: input.complaintCount,
     fuel: input.fuel,
     vinDecode: input.vinDecode,

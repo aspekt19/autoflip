@@ -18,6 +18,12 @@ import {
 import type { ResaleCandidatePnl } from "@/domain/resale-pnl";
 import { evidenceBundleFromCandidates } from "@/domain/resale-serv-validate";
 import { actionFromVerdict } from "@/domain/decision-action";
+import {
+  capConfidenceForMarginMiss,
+  capConfidenceForStopFlags,
+  confidenceCapReasonForMarginMiss,
+  confidenceCapReasonForStop,
+} from "@/domain/nhtsa-stop-flags";
 import type { ComputedReport, Listing, Verdict } from "@/domain/types";
 import { flipVerdict } from "@/domain/verdict";
 import {
@@ -120,6 +126,78 @@ function confidenceFromPnl(item: ResaleCandidatePnl | null): AgentVerdictConfide
   if (item.confidence === "High") return "high";
   if (item.confidence === "Medium") return "medium";
   return "low";
+}
+
+/**
+ * Cap published Resale confidence so High cannot survive a stop flag or a
+ * low-end profit that misses the flip target. Returns labeled reason when capped.
+ */
+export function clampResalePublishedConfidence(
+  proposed: AgentVerdictConfidence,
+  candidate: ResaleCandidatePnl,
+): { confidence: AgentVerdictConfidence; reason: string | null } {
+  const hasStop = candidate.openParkIt === true || candidate.openParkOutside === true;
+  const afterStop = capConfidenceForStopFlags(proposed, hasStop);
+  const stopReason =
+    proposed === "high" && afterStop !== "high" ? confidenceCapReasonForStop(hasStop) : null;
+  const confidence: AgentVerdictConfidence = capConfidenceForMarginMiss(
+    afterStop,
+    candidate.profitLowUsd,
+  );
+  const marginReason =
+    afterStop === "high" && confidence !== "high"
+      ? confidenceCapReasonForMarginMiss(candidate.profitLowUsd)
+      : null;
+  const reason = [stopReason, marginReason].filter(Boolean).join(" ") || null;
+  return { confidence, reason };
+}
+
+function applyPublishedConfidenceCap(input: {
+  proposed: AgentVerdictConfidence;
+  candidate: ResaleCandidatePnl;
+  journal: ResaleDecisionJournal;
+  trail: AgentTrailStep[];
+  recordedAt: string;
+}): {
+  confidence: AgentVerdictConfidence;
+  reason: string | null;
+  journal: ResaleDecisionJournal;
+  trail: AgentTrailStep[];
+} {
+  const capped = clampResalePublishedConfidence(input.proposed, input.candidate);
+  if (!capped.reason || capped.confidence === input.proposed) {
+    return {
+      confidence: capped.confidence,
+      reason: null,
+      journal: input.journal,
+      trail: input.trail,
+    };
+  }
+  const decided = `Confidence capped ${input.proposed} → ${capped.confidence}`;
+  const journal = appendJournalStep(input.journal, {
+    kind: "fallback",
+    actor: "code",
+    decided,
+    why: capped.reason,
+    inputsUsed: [`vin:${input.candidate.vin}`, "check:confidence_cap"],
+    changed: `Published confidence ${input.proposed} → ${capped.confidence}`,
+    model: null,
+    responseId: null,
+    recordedAt: input.recordedAt,
+    rejected: null,
+  });
+  const trail = [
+    ...input.trail,
+    {
+      decided,
+      why: capped.reason,
+      changed: `Published confidence ${input.proposed} → ${capped.confidence}`,
+      model: null,
+      responseId: null,
+      recordedAt: input.recordedAt,
+    },
+  ];
+  return { confidence: capped.confidence, reason: capped.reason, journal, trail };
 }
 
 function responseIdFrom(proof: ServProof | null, ok = true): string | null {
@@ -261,9 +339,12 @@ function buildFlipReport(
     },
     history: { multiplier: 1, lines: [] },
     recalls: [],
-    recallsAvailable: Boolean(candidate.openParkIt || candidate.openParkOutside),
+    // Honest: available only when deep-check got a usable NHTSA payload — not when a stop flag happens to be true.
+    recallsAvailable: candidate.recallsChecked === true,
     openParkIt: candidate.openParkIt === true,
     openParkOutside: candidate.openParkOutside === true,
+    /** Same valuation sample size the Resale card shows — never peer-shortlist length. */
+    compSampleSize: candidate.compCount,
     complaintCount: null,
     fuel: null,
     vinDecode: null,
@@ -1056,6 +1137,21 @@ export async function runResaleSettleServ(input: {
 
   if (phase === "triage_deep") {
     const alternatives = pickAlternatives(ranked, best.vin, input.budgetUsd);
+    {
+      const capped = applyPublishedConfidenceCap({
+        proposed: agentConfidence,
+        candidate: best,
+        journal,
+        trail,
+        recordedAt,
+      });
+      agentConfidence = capped.confidence;
+      journal = capped.journal;
+      trail = capped.trail;
+      if (capped.reason && secondPass.confidenceAfter === "high") {
+        secondPass = { ...secondPass, confidenceAfter: agentConfidence };
+      }
+    }
     const confidenceLabel =
       agentConfidence === "high" ? "High" : agentConfidence === "medium" ? "Medium" : "Low";
     const agentVerdict = finalizeAgentVerdict({
@@ -1302,6 +1398,21 @@ export async function runResaleSettleServ(input: {
 
   if (phase === "pick") {
     const alternatives = pickAlternatives(ranked, best.vin, input.budgetUsd);
+    {
+      const capped = applyPublishedConfidenceCap({
+        proposed: agentConfidence,
+        candidate: best,
+        journal,
+        trail,
+        recordedAt,
+      });
+      agentConfidence = capped.confidence;
+      journal = capped.journal;
+      trail = capped.trail;
+      if (capped.reason && secondPass.confidenceAfter === "high") {
+        secondPass = { ...secondPass, confidenceAfter: agentConfidence };
+      }
+    }
     const confidenceLabel =
       agentConfidence === "high" ? "High" : agentConfidence === "medium" ? "Medium" : "Low";
     const agentVerdict = finalizeAgentVerdict({
@@ -1600,6 +1711,21 @@ export async function runResaleSettleServ(input: {
 
   if (phase === "challenge" || phase === "pick_challenge") {
     const alternatives = pickAlternatives(ranked, best.vin, input.budgetUsd);
+    {
+      const capped = applyPublishedConfidenceCap({
+        proposed: agentConfidence,
+        candidate: best,
+        journal,
+        trail,
+        recordedAt,
+      });
+      agentConfidence = capped.confidence;
+      journal = capped.journal;
+      trail = capped.trail;
+      if (capped.reason && secondPass.confidenceAfter === "high") {
+        secondPass = { ...secondPass, confidenceAfter: agentConfidence };
+      }
+    }
     const confidenceLabel =
       agentConfidence === "high" ? "High" : agentConfidence === "medium" ? "Medium" : "Low";
     const agentVerdict = finalizeAgentVerdict({
@@ -1818,6 +1944,21 @@ export async function runResaleSettleServ(input: {
   }
 
   const alternatives = pickAlternatives(ranked, best.vin, input.budgetUsd);
+  {
+    const capped = applyPublishedConfidenceCap({
+      proposed: agentConfidence,
+      candidate: best,
+      journal,
+      trail,
+      recordedAt,
+    });
+    agentConfidence = capped.confidence;
+    journal = capped.journal;
+    trail = capped.trail;
+    if (capped.reason && secondPass.confidenceAfter === "high") {
+      secondPass = { ...secondPass, confidenceAfter: agentConfidence };
+    }
+  }
   const confidenceLabel =
     agentConfidence === "high" ? "High" : agentConfidence === "medium" ? "Medium" : "Low";
 

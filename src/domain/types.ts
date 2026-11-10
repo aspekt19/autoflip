@@ -188,6 +188,11 @@ export type ComputedReport = {
    */
   compSampleSize?: number | null;
   compScope: string;
+  /**
+   * Published similar-listing sample size for SERV facts / cards.
+   * Prefer this over comps.length when set (Resale valuation comps vs peer shortlist).
+   */
+  compSampleSize?: number | null;
   percentile: number | null;
   fairValueUsd: number | null;
   /** Low end of the middle half of adjusted asking prices. Omitted on older reports. */

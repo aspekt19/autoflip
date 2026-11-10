@@ -180,4 +180,31 @@ describe("buildResaleCandidatePnl", () => {
     expect(pnl?.estimatedDaysToSell).toBeNull();
     expect(pnl?.daysToSellBasis).toMatch(/unknown/i);
   });
+
+  it("defaults recall risk to not-checked until deep-check stamps status", () => {
+    const pnl = buildResaleCandidatePnl(estimate());
+    expect(pnl?.recallsChecked).toBe(false);
+    expect(pnl?.risks.some((line) => /Open recalls are not checked/i.test(line))).toBe(true);
+  });
+
+  it("caps High confidence when low-end profit misses the flip target", () => {
+    // High needs 8+ comps + known speed + known tax; thin resaleLow forces low profit under target.
+    const pnl = buildResaleCandidatePnl(
+      estimate({
+        compCount: 10,
+        speed: "typical",
+        speedBasis: "Listing age about 30 days. 10 similar listings in this scan.",
+        resaleLowUsd: 9_500,
+        resaleMidUsd: 13_500,
+        resaleHighUsd: 15_000,
+      }),
+    );
+    expect(pnl).not.toBeNull();
+    if (!pnl) return;
+    expect(pnl.profitLowUsd).not.toBeNull();
+    expect(pnl.profitLowUsd!).toBeLessThan(ASSUMPTIONS.flipDesiredProfitUsd);
+    expect(pnl.confidence).toBe("Medium");
+    expect(pnl.confidenceBasis).toMatch(/Lowered from High/i);
+    expect(pnl.confidenceBasis).toMatch(/misses the/i);
+  });
 });

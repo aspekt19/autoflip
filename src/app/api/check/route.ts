@@ -4,7 +4,9 @@ import { creditEventSeen } from "@/io/credit-book";
 import { commitFreeCheck, freeCheckSlotsRemaining, releaseFreeCheck, reserveFreeCheck } from "@/io/free-check-quota";
 import { getKv } from "@/io/kv";
 import {
+  CHECK_DELIVERY_LOGIC_VERSION,
   checkDeliveryKey,
+  legacyCheckDeliveryKey,
   readCheckDelivery,
   storeCheckDelivery,
 } from "@/server/check/check-delivery";
@@ -99,8 +101,11 @@ export async function POST(request: Request) {
     );
   }
 
+  const forceFresh = body.forceFresh === true || body.fresh === true;
+
   // VIN checks can short-circuit on a prior delivery before running SERV again.
-  if (input.kind === "vin") {
+  // Logic-versioned key: pre-fix caches are never served as current.
+  if (input.kind === "vin" && !forceFresh) {
     const priorKey = checkDeliveryKey(access.id, month, input.vin);
     const prior = await readCheckDelivery(kv, priorKey);
     if (prior) {
@@ -110,12 +115,32 @@ export async function POST(request: Request) {
         usedFreeCheck: false,
         spentCredit: false,
         fromCache: true,
+        staleLogic: false,
+        logicVersion: prior.logicVersion ?? CHECK_DELIVERY_LOGIC_VERSION,
         settledAt: prior.settledAt,
         billingNote: prior.spentCredit
           ? "Returning saved check; no additional credit spent."
           : prior.usedFreeCheck
             ? "Returning saved check; free check already used for this vehicle this month."
             : "Returning saved check; no charge.",
+        freeChecks: slots.view,
+      });
+    }
+    // Legacy unversioned row — label as stale and do not treat as current verdict.
+    const legacy = await readCheckDelivery(kv, legacyCheckDeliveryKey(access.id, month, input.vin));
+    if (legacy) {
+      const when = legacy.settledAt.slice(0, 10);
+      return Response.json({
+        ok: true,
+        ...legacy.result,
+        usedFreeCheck: false,
+        spentCredit: false,
+        fromCache: true,
+        staleLogic: true,
+        logicVersion: legacy.logicVersion ?? 1,
+        settledAt: legacy.settledAt,
+        billingNote: `Saved check from ${when} predates current Check logic (v${CHECK_DELIVERY_LOGIC_VERSION}). Shown for history only — run a fresh check to apply today’s stop flags and confidence rules.`,
+        offerFreshCheck: true,
         freeChecks: slots.view,
       });
     }
@@ -157,22 +182,25 @@ export async function POST(request: Request) {
 
     const vinKey = vinKeyForInput(input, result.result.vin);
     const deliveryKey = checkDeliveryKey(access.id, month, vinKey);
-    const prior = await readCheckDelivery(kv, deliveryKey);
-    if (prior) {
-      return Response.json({
-        ok: true,
-        ...prior.result,
-        usedFreeCheck: false,
-        spentCredit: false,
-        fromCache: true,
-        settledAt: prior.settledAt,
-        billingNote: prior.spentCredit
-          ? "Returning saved check; no additional credit spent."
-          : prior.usedFreeCheck
-            ? "Returning saved check; free check already used for this vehicle this month."
-            : "Returning saved check; no charge.",
-        freeChecks: slots.view,
-      });
+    if (!forceFresh) {
+      const prior = await readCheckDelivery(kv, deliveryKey);
+      if (prior) {
+        return Response.json({
+          ok: true,
+          ...prior.result,
+          usedFreeCheck: false,
+          spentCredit: false,
+          fromCache: true,
+          staleLogic: false,
+          settledAt: prior.settledAt,
+          billingNote: prior.spentCredit
+            ? "Returning saved check; no additional credit spent."
+            : prior.usedFreeCheck
+              ? "Returning saved check; free check already used for this vehicle this month."
+              : "Returning saved check; no charge.",
+          freeChecks: slots.view,
+        });
+      }
     }
 
     // Deliverable exists — now reserve free slot or spend a credit.
@@ -241,6 +269,7 @@ export async function POST(request: Request) {
       result: payload,
       usedFreeCheck,
       spentCredit,
+      logicVersion: CHECK_DELIVERY_LOGIC_VERSION,
     });
 
     return Response.json({
