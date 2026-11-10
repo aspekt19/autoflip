@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import localFont from "next/font/local";
 import { BrandLockup, BrandTagline } from "@/components/BrandLockup";
 import { FooterProductLink } from "@/components/FooterProductLink";
@@ -6,6 +6,13 @@ import { Header } from "@/components/Header";
 import { PageFade } from "@/components/PageFade";
 import { SmoothScroll } from "@/components/SmoothScroll";
 import "./globals.css";
+
+/** viewport-fit=cover so env(safe-area-inset-*) works on iOS Safari (hero 100svh). */
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  viewportFit: "cover",
+};
 
 /** Self-hosted Manrope — next/font/google Manrope fetch flakes in CI (null CSS parse). */
 const sans = localFont({
