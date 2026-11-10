@@ -2682,6 +2682,7 @@ function AssistantFlow({
                     <DecisionRecordList
                       records={proofRecords.filter(
                         (row) =>
+                          row.purpose === "find_pick" ||
                           row.purpose === "verdict_decide" ||
                           row.purpose === "verdict_challenge" ||
                           row.purpose === "need_extract" ||

@@ -210,6 +210,46 @@ function codeFactFromPick(pick: BestDealCandidate): string | null {
   return detail ? detail.replace(/\s+/g, " ") : null;
 }
 
+const PRICE_FAIRNESS_UNSCORED_RE =
+  /Not scored for fairness|provisional on price|treated as neutral \(\+0\)/i;
+const PRICE_FAIRNESS_CLAIM_RE =
+  /\b(?:well )?below fair(?: value)?\b|\b(?:well )?above fair(?: value)?\b|\bnear(?:er)?(?: to)? fair(?: value)?\b|\bfair value\b|\bsolid comps?\b/i;
+
+/** True when the pick's price factor (or code fact text) says fairness was not scored. */
+export function priceFairnessUnscored(
+  pick: BestDealCandidate,
+  codeFact?: string | null,
+): boolean {
+  const price = pick.factors.find((factor) => factor.id === "price_vs_model_asks");
+  if (price && PRICE_FAIRNESS_UNSCORED_RE.test(price.detail)) return true;
+  if (codeFact && PRICE_FAIRNESS_UNSCORED_RE.test(codeFact)) return true;
+  return false;
+}
+
+/**
+ * Drop fairness-claim wording when price fairness is unscored / provisional.
+ * Keeps non-fairness bits of a SERV note; drops empty leftovers.
+ */
+export function scrubFairnessClaimsWhenUnscored(
+  text: string | null | undefined,
+  unscored: boolean,
+): string | null {
+  const raw = text?.trim().replace(/\s+/g, " ") || "";
+  if (!raw) return null;
+  if (!unscored || !PRICE_FAIRNESS_CLAIM_RE.test(raw)) return raw;
+  const scrubbed = raw
+    .replace(/\b(?:well )?below fair(?: value)?\b/gi, "")
+    .replace(/\b(?:well )?above fair(?: value)?\b/gi, "")
+    .replace(/\bnear(?:er)?(?: to)? fair(?: value)?(?: of \$[\d,]+)?\b/gi, "")
+    .replace(/\bfair value(?: of \$[\d,]+)?\b/gi, "")
+    .replace(/\bsolid comps?\b/gi, "")
+    .replace(/[;,]\s*[;,]+/g, ";")
+    .replace(/\s{2,}/g, " ")
+    .replace(/^[\s,;:.\-–—]+|[\s,;:.\-–—]+$/g, "")
+    .trim();
+  return scrubbed || null;
+}
+
 /**
  * Buyer-visible confidence line. Content comes from SERV's stated note plus a code
  * fact when present. Code fallback is labelled "code" — never the stale selectBestDeal
@@ -250,8 +290,9 @@ export function publishBestDeal(input: {
   const label = `${input.pick.year} ${input.pick.make} ${input.pick.model}`;
   const ask =
     input.pick.priceUsd != null ? `$${input.pick.priceUsd.toLocaleString("en-US")}` : "price not listed";
-  const servNote = input.servNote?.trim() || null;
   const codeFact = codeFactFromPick(input.pick);
+  const unscored = priceFairnessUnscored(input.pick, codeFact);
+  const servNote = scrubFairnessClaimsWhenUnscored(input.servNote, unscored);
   const reasons: string[] = [];
   if (servNote) reasons.push(servNote);
   if (codeFact && codeFact !== servNote) reasons.push(codeFact);

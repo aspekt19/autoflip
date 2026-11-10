@@ -4,8 +4,16 @@ import {
   formatBuyerBestDeal,
   topPicksInRankOrder,
 } from "@/domain/find-buyer-copy";
-import { buildFindPickComputedReport, runFindSettleServ } from "./find-settle-serv";
-import type { BestDealCandidate, BestDealResult } from "@/domain/find-best-deal";
+import {
+  buildFindPickComputedReport,
+  publishBestDeal,
+  runFindSettleServ,
+} from "./find-settle-serv";
+import {
+  PRICE_FAIRNESS_NEUTRAL_DETAIL,
+  type BestDealCandidate,
+  type BestDealResult,
+} from "@/domain/find-best-deal";
 
 function candidate(partial: Partial<BestDealCandidate> & Pick<BestDealCandidate, "key">): BestDealCandidate {
   return {
@@ -648,5 +656,63 @@ describe("find settle SERV", () => {
     const cards = topPicksInRankOrder(settled.bestDeal.ranked, settled.bestDeal.pick?.key ?? null);
     expect(cards.rows[0]?.key).toBe("camry");
     expect(cards.pickKeyRank).toBe(1);
+  });
+
+  it("drops below-fair / solid-comps claims when price fairness is not scored", () => {
+    const pick = candidate({
+      key: "neutral-price",
+      factors: [
+        {
+          id: "price_vs_model_asks",
+          label: "Price",
+          points: 0,
+          detail: PRICE_FAIRNESS_NEUTRAL_DETAIL,
+          source: "code",
+        },
+      ],
+    });
+    const bestDeal = {
+      ranked: [pick],
+      pick,
+      confidence: "medium",
+      choice: null,
+      why: "",
+      stillUnknown: [],
+      sensitivity: [],
+      assumptionsNote: "",
+      honesty: "",
+      evidenceSettled: true,
+      settlementNote: "",
+      fairnessHeldOut: [],
+      priceProvisional: true,
+      allRanked: [pick],
+      baseline: {
+        pick: null,
+        cheapest: null,
+        lowestMiles: null,
+        cheapestIsPick: false,
+        lowestMilesIsPick: false,
+        cheaperLeftOut: null,
+        whyNotCheapest: "",
+        factors: [],
+        leading: null,
+      },
+      closeCall: null,
+    } as unknown as BestDealResult;
+
+    const published = publishBestDeal({
+      bestDeal,
+      pick,
+      confidence: "medium",
+      actor: "SERV",
+      servNote: "below fair value, solid comps",
+    });
+
+    expect(published.choice?.confidenceLine).toMatch(/Not scored for fairness/i);
+    expect(published.choice?.confidenceLine).not.toMatch(/below fair/i);
+    expect(published.choice?.confidenceLine).not.toMatch(/solid comps/i);
+    expect(published.choice?.reasons.join(" ")).toMatch(/Not scored for fairness/i);
+    expect(published.choice?.reasons.join(" ")).not.toMatch(/below fair/i);
+    expect(published.choice?.reasons.join(" ")).not.toMatch(/solid comps/i);
   });
 });
