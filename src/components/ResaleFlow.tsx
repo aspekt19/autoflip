@@ -776,7 +776,16 @@ function CandidateCard({
       </p>
       {link.flag ? <p className="hint">{link.flag}</p> : null}
       {link.sellerMismatchNote ? <p className="hint">{link.sellerMismatchNote}</p> : null}
-      {link.pageMismatchNote ? <p className="hint">{link.pageMismatchNote}</p> : null}
+      {link.pageMismatchNote ? (
+        <p className="hint">
+          {link.pageMismatchNote} Similar-listing comps may be for a different trim.
+        </p>
+      ) : null}
+      {candidate.risks.some((line) => /^Not profitable at ask$/i.test(line)) ? (
+        <p className="warn" aria-live="off">
+          Not profitable at ask
+        </p>
+      ) : null}
       <ul className="refuse">
         <li>
           {candidate.riskAdjustedRankFormula

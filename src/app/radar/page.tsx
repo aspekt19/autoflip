@@ -216,6 +216,9 @@ function RadarInner() {
     }
     setChecking(true);
     setWatchNote(null);
+    // Drop the previous run's journal before the new check finishes so a stale
+    // role=status / warn line (e.g. http_error) is not still live-announced.
+    setActivity(null);
     try {
       const response = await fetch("/api/radar/check", { method: "POST" });
       const body = (await response.json()) as { message?: string; alertsSent?: number };

@@ -91,7 +91,8 @@ describe("flipCandidateOutcome", () => {
     });
     expect(outcome.kind).toBe("not_reviewed");
     if (outcome.kind === "not_reviewed") {
-      expect(outcome.why).toMatch(/Not reviewed \(no SERV decision\)/);
+      expect(outcome.why).toMatch(/Not reviewed — SERV did not return a decision/i);
+      expect(outcome.why).toMatch(/will retry on next Check/i);
     }
   });
 

@@ -158,7 +158,7 @@ export function flipCandidateOutcome(input: {
   if (!input.decisions) {
     return {
       kind: "not_reviewed",
-      why: `Not reviewed (no SERV decision). ${input.baseWhy}`,
+      why: `Not reviewed — SERV did not return a decision (failed earlier or timed out; will retry on next Check). ${input.baseWhy}`,
     };
   }
   const decision = input.decisions.get(input.vin);
@@ -173,7 +173,7 @@ export function flipCandidateOutcome(input: {
   }
   return {
     kind: "not_reviewed",
-    why: `Not reviewed (no SERV decision). ${input.baseWhy}`,
+    why: `Not reviewed — this VIN had no alert/skip in the SERV response (will retry on next Check). ${input.baseWhy}`,
   };
 }
 
