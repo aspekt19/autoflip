@@ -376,16 +376,34 @@ function CheckFlowForm() {
   return (
     <div className="panel check-flow">
       <div className="pills" role="radiogroup" aria-label="How to check">
-        <label className="pill">
-          <input type="radio" name="check-kind" checked={kind === "link"} onChange={() => setKind("link")} />
+        <label className="pill" htmlFor="check-kind-link">
+          <input
+            id="check-kind-link"
+            type="radio"
+            name="check-kind"
+            checked={kind === "link"}
+            onChange={() => setKind("link")}
+          />
           By listing link
         </label>
-        <label className="pill">
-          <input type="radio" name="check-kind" checked={kind === "vin"} onChange={() => setKind("vin")} />
+        <label className="pill" htmlFor="check-kind-vin">
+          <input
+            id="check-kind-vin"
+            type="radio"
+            name="check-kind"
+            checked={kind === "vin"}
+            onChange={() => setKind("vin")}
+          />
           By VIN
         </label>
-        <label className="pill">
-          <input type="radio" name="check-kind" checked={kind === "paste"} onChange={() => setKind("paste")} />
+        <label className="pill" htmlFor="check-kind-paste">
+          <input
+            id="check-kind-paste"
+            type="radio"
+            name="check-kind"
+            checked={kind === "paste"}
+            onChange={() => setKind("paste")}
+          />
           Paste listing text
         </label>
       </div>

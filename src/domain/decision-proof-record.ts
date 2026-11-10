@@ -30,6 +30,7 @@ export {
   NEED_PARSE_RUBRIC_ID,
   RADAR_VERDICT_RUBRIC_ID,
   FIND_NEXT_CHECK_RUBRIC_ID,
+  RESALE_JUDGE_RUBRIC_ID,
   filterProofRecordsForOwner,
   formatDecisionRecordLine,
   isDecisionProofRecord,

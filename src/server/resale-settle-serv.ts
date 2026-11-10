@@ -36,13 +36,14 @@ import {
   journalWhyFromShopperCall,
   normalizeCheckId,
   normalizeVin,
+  rawResponseFromServResult,
   runResaleServWithRejectRetry,
   softFilterEvidenceIds,
   stringArrayField,
   validationFromCall,
 } from "@/server/resale-serv-call";
 import { runShopperVerdictServ, type ShopperServTrace } from "@/server/shopper-verdict-serv";
-import { profile, type ServProof } from "@/server/serv";
+import { profile, type ServProof, type ServResult } from "@/server/serv";
 import {
   resaleCallTimeoutMs,
   RESALE_STAGE_BUDGET_MS,
@@ -55,9 +56,54 @@ import { redactSecretsOnly } from "@/domain/redact-secrets";
 import { stripUnsupportedNumbers } from "@/domain/resale-serv-validate";
 import {
   buildDecisionProofRecord,
+  RESALE_JUDGE_RUBRIC_ID,
   VERDICT_RUBRIC_ID,
   type DecisionProofRecord,
+  type DecisionProofStatusInput,
 } from "@/domain/decision-proof-record";
+
+function responseIdFrom(proof: ServProof | null, ok = true): string | null {
+  return providerResponseIdFromCall({
+    ok,
+    id: typeof proof?.openserv?.id === "string" ? proof.openserv.id : null,
+  });
+}
+
+function modelFrom(proof: ServProof | null, fallback?: string | null): string | null {
+  return fallback || proof?.modelReported || proof?.modelRequested || null;
+}
+
+function pushResaleJudgeProof(
+  records: DecisionProofRecord[],
+  input: {
+    purpose: "resale_triage" | "resale_pick" | "resale_challenge";
+    status: DecisionProofStatusInput;
+    recordedAt: string;
+    result?: ServResult | null;
+    modelFallback?: string | null;
+    inputs: unknown;
+    verdict?: string | null;
+    detail?: string | null;
+  },
+): DecisionProofRecord[] {
+  const result = input.result ?? null;
+  const ok = input.status === "ok";
+  return [
+    ...records,
+    buildDecisionProofRecord({
+      purpose: input.purpose,
+      rubricId: RESALE_JUDGE_RUBRIC_ID,
+      status: input.status,
+      recordedAt: input.recordedAt,
+      responseId: ok && result ? responseIdFrom(result.proof, true) : null,
+      model: result ? modelFrom(result.proof, input.modelFallback) : input.modelFallback ?? null,
+      inputs: input.inputs,
+      verdict: ok ? input.verdict ?? null : null,
+      detail: input.detail ?? null,
+      rawResponse: result ? rawResponseFromServResult(result) : null,
+    }),
+  ];
+}
 
 const RESALE_SERV_JUDGE_MAX = 3;
 
@@ -198,17 +244,6 @@ function applyPublishedConfidenceCap(input: {
     },
   ];
   return { confidence: capped.confidence, reason: capped.reason, journal, trail };
-}
-
-function responseIdFrom(proof: ServProof | null, ok = true): string | null {
-  return providerResponseIdFromCall({
-    ok,
-    id: typeof proof?.openserv?.id === "string" ? proof.openserv.id : null,
-  });
-}
-
-function modelFrom(proof: ServProof | null, fallback?: string | null): string | null {
-  return fallback || proof?.modelReported || proof?.modelRequested || null;
 }
 
 function buildFlipReport(
@@ -837,12 +872,17 @@ export async function runResaleSettleServ(input: {
   // --- Triage + deep (skipped when resuming pick/shopper) ---
   let selectedCheckIds = ["price_comps", "history"];
   if (runTriageDeep && !resumeFrom) {
+  // Match the consumer cards (best + alternatives), not the SERV shortlist cap alone.
+  const visibleRanked = [
+    shortlist[0]!,
+    ...pickAlternatives(ranked, shortlist[0]!.vin, input.budgetUsd),
+  ];
   journal = appendJournalStep(journal, {
     kind: "rank",
     actor: "code",
-    decided: `Ranked ${shortlist.length} candidates by mid expected profit`,
+    decided: `Ranked ${visibleRanked.length} candidates by mid expected profit`,
     why: `Top: ${carLabel(shortlist[0]!)} (code P&L only).`,
-    inputsUsed: shortlist.map((item) => `pnl:${item.vin}`),
+    inputsUsed: visibleRanked.map((item) => `pnl:${item.vin}`),
     changed: null,
     model: null,
     responseId: null,
@@ -982,6 +1022,15 @@ export async function runResaleSettleServ(input: {
           recordedAt,
           rejected: fail.rejected,
         });
+        proofRecords = pushResaleJudgeProof(proofRecords, {
+          purpose: "resale_triage",
+          status: "failed",
+          recordedAt,
+          result: judged,
+          modelFallback: input.model,
+          inputs: { allowedVins, phase: "resale_triage" },
+          detail: fail.why,
+        });
       } else {
         const deepOk = deep.filter((vin) => allowVin.has(vin));
         const skipOk = skip.filter((vin) => allowVin.has(vin));
@@ -1017,6 +1066,21 @@ export async function runResaleSettleServ(input: {
           responseId: responseIdFrom(judged.proof),
           recordedAt,
         });
+        proofRecords = pushResaleJudgeProof(proofRecords, {
+          purpose: "resale_triage",
+          status: "ok",
+          recordedAt,
+          result: judged,
+          modelFallback: input.model,
+          inputs: {
+            allowedVins,
+            deepCheckVins: deepOk,
+            skipVins: skipOk,
+            checkIds: safeChecks,
+          },
+          verdict: deepOk.length ? `deep_check:${deepOk.join(",")}` : `checks:${safeChecks.join(",")}`,
+          detail: triageWhy,
+        });
       }
     } catch (err) {
       journal = appendJournalStep(journal, {
@@ -1031,6 +1095,14 @@ export async function runResaleSettleServ(input: {
         recordedAt,
         rejected: null,
       });
+      proofRecords = pushResaleJudgeProof(proofRecords, {
+        purpose: "resale_triage",
+        status: "failed",
+        recordedAt,
+        modelFallback: input.model,
+        inputs: { phase: "resale_triage" },
+        detail: err instanceof Error ? err.message : "Triage error.",
+      });
     }
   } else if (!input.servKey?.trim()) {
     journal = appendJournalStep(journal, {
@@ -1044,6 +1116,13 @@ export async function runResaleSettleServ(input: {
       responseId: null,
       recordedAt,
       rejected: null,
+    });
+    proofRecords = pushResaleJudgeProof(proofRecords, {
+      purpose: "resale_triage",
+      status: "skipped_no_key",
+      recordedAt,
+      inputs: { phase: "resale_triage", shortlist: shortlist.map((item) => item.vin) },
+      detail: "SERV_API_KEY is not configured — Resale triage by code ranking only.",
     });
   } else if (
     input.servKey?.trim() &&
@@ -1339,6 +1418,16 @@ export async function runResaleSettleServ(input: {
         verdictAction = published.action;
         journal = published.journal;
         trail = published.trail;
+        proofRecords = pushResaleJudgeProof(proofRecords, {
+          purpose: "resale_pick",
+          status: "ok",
+          recordedAt,
+          result: picked,
+          modelFallback: input.model,
+          inputs: { pickVin, allowedVins, proposed },
+          verdict: proposed,
+          detail: note || `SERV picked ${carLabel(best)}.`,
+        });
       } else {
         const fail = journalWhyFromServAttempt({
           result: picked,
@@ -1358,6 +1447,15 @@ export async function runResaleSettleServ(input: {
           recordedAt,
           rejected: fail.rejected,
         });
+        proofRecords = pushResaleJudgeProof(proofRecords, {
+          purpose: "resale_pick",
+          status: "failed",
+          recordedAt,
+          result: picked,
+          modelFallback: input.model,
+          inputs: { allowedVins, rejectedPickVin: pickVin },
+          detail: fail.why,
+        });
       }
     } catch (err) {
       journal = appendJournalStep(journal, {
@@ -1372,7 +1470,23 @@ export async function runResaleSettleServ(input: {
         recordedAt,
         rejected: null,
       });
+      proofRecords = pushResaleJudgeProof(proofRecords, {
+        purpose: "resale_pick",
+        status: "failed",
+        recordedAt,
+        modelFallback: input.model,
+        inputs: { vin: best.vin },
+        detail: err instanceof Error ? err.message : "Pick error.",
+      });
     }
+  } else if (runPick && !input.servKey?.trim()) {
+    proofRecords = pushResaleJudgeProof(proofRecords, {
+      purpose: "resale_pick",
+      status: "skipped_no_key",
+      recordedAt,
+      inputs: { vin: best.vin, phase: "resale_pick" },
+      detail: "SERV_API_KEY is not configured — Resale pick by code ranking only.",
+    });
   }
 
   if (
@@ -1640,6 +1754,16 @@ export async function runResaleSettleServ(input: {
           responseId: responseIdFrom(challenged.proof),
           recordedAt,
         });
+        proofRecords = pushResaleJudgeProof(proofRecords, {
+          purpose: "resale_challenge",
+          status: "ok",
+          recordedAt,
+          result: challenged,
+          modelFallback: input.model,
+          inputs: { pickVin, agrees, primaryVin: prior },
+          verdict: agrees ? "agreed" : action ?? "revised",
+          detail: objection ?? (agrees ? "Challenge agreed." : "Challenge revised pick."),
+        });
       } else {
         const fail = journalWhyFromServAttempt({
           result: challenged,
@@ -1667,6 +1791,15 @@ export async function runResaleSettleServ(input: {
           recordedAt,
           rejected: fail.rejected,
         });
+        proofRecords = pushResaleJudgeProof(proofRecords, {
+          purpose: "resale_challenge",
+          status: "failed",
+          recordedAt,
+          result: challenged,
+          modelFallback: input.model,
+          inputs: { vin: best.vin },
+          detail: fail.why,
+        });
       }
     } catch {
       secondPass = {
@@ -1677,7 +1810,23 @@ export async function runResaleSettleServ(input: {
         confidenceBefore: agentConfidence,
         confidenceAfter: agentConfidence,
       };
+      proofRecords = pushResaleJudgeProof(proofRecords, {
+        purpose: "resale_challenge",
+        status: "failed",
+        recordedAt,
+        modelFallback: input.model,
+        inputs: { vin: best.vin },
+        detail: "Second check did not finish. The first verdict stands.",
+      });
     }
+  } else if (runChallenge && !input.servKey?.trim()) {
+    proofRecords = pushResaleJudgeProof(proofRecords, {
+      purpose: "resale_challenge",
+      status: "skipped_no_key",
+      recordedAt,
+      inputs: { vin: best.vin, phase: "resale_challenge" },
+      detail: "SERV_API_KEY is not configured — Resale pick challenge skipped.",
+    });
   }
 
   if (
