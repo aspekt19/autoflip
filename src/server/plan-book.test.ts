@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { MemoryKv } from "@/io/kv";
 import { isDue } from "@/domain/radar-watch";
+import { NO_RADAR_PLAN } from "@/domain/plans";
 import {
   allowance,
   billingEffect,
@@ -137,6 +138,26 @@ describe("subscription webhook mapping", () => {
       metadata: { userId: "user-1", credits: "3" },
     });
     expect(credits.kind).toBe("credits");
+  });
+
+  it("refuses trialing and no_payment_required — account stays on NO_RADAR_PLAN with no credit grant", () => {
+    const started = emptyPlans();
+    const trialCheckout = billingEffect(started, "checkout.session.completed", {
+      id: "cs_test_trial",
+      mode: "subscription",
+      payment_status: "no_payment_required",
+      metadata: { userId: "user-1", planId: "radar" },
+    });
+    expect(trialCheckout.kind).toBe("ignore");
+    expect(effectiveRadarLimits(started)).toEqual(NO_RADAR_PLAN);
+
+    const trialingSub = billingEffect(started, "customer.subscription.updated", {
+      status: "trialing",
+      metadata: { userId: "user-1", planId: "radar_pro" },
+    });
+    expect(trialingSub.kind).toBe("ignore");
+    expect(hasActiveRadarPlan(started)).toBe(false);
+    expect(effectiveRadarLimits(started)).toEqual(NO_RADAR_PLAN);
   });
 
   it("marks a failed invoice past due and drops the plan when the subscription ends", () => {

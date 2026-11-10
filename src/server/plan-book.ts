@@ -173,7 +173,9 @@ export function billingEffect(current: StoredPlans, type: string, object: Record
     if (object.mode === "subscription") {
       const { userId, planId } = metadataOf(object);
       if (!userId || !planId) return { kind: "ignore" };
-      if (object.payment_status && object.payment_status !== "paid" && object.payment_status !== "no_payment_required") {
+      // Trials / $0 checkouts must not unlock Radar or grant plan credits.
+      // Only a real paid subscription checkout activates a plan.
+      if (object.payment_status !== "paid") {
         return { kind: "ignore" };
       }
       const plan = planById(planId) ?? planByLookupKey(planId);
@@ -197,7 +199,11 @@ export function billingEffect(current: StoredPlans, type: string, object: Record
     if (!userId || !planId) return { kind: "ignore" };
     const status = String(object.status ?? "active");
     const plan = planById(planId) ?? planByLookupKey(planId);
-    if (status === "active" || status === "trialing" || type === "invoice.paid") {
+    // Refuse trialing — a TEST trial must not unlock Radar / Radar Pro without charge.
+    if (status === "trialing") {
+      return { kind: "ignore" };
+    }
+    if (status === "active" || type === "invoice.paid") {
       const invoiceId = typeof object.id === "string" ? object.id : `inv-${Date.now()}`;
       const grantOnInvoice = type === "invoice.paid";
       return {

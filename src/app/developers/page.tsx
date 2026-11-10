@@ -29,7 +29,7 @@ export default function DevelopersPage() {
             </li>
             <li>
               <code>deal_radar</code> is a free one-shot listing scan (scope <code>read</code>) — it does not create a saved watch. Saved Deal Radar watches live on the signed-in{" "}
-              <a href="/radar">Deal Radar</a> page (free up to three personal radars; full report still costs 1 credit). <code>full_report</code> costs 1 credit (scope <code>check</code>).
+              <a href="/radar">Deal Radar</a> page (paid Radar / Radar Pro plan required for saved watches; full report still costs 1 credit). <code>full_report</code> costs 1 credit (scope <code>check</code>).
             </li>
           </ul>
           <p>
