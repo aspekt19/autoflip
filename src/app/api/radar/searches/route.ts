@@ -1,10 +1,10 @@
 import { randomUUID } from "node:crypto";
 import { productFlagsUnavailableMessage, resolveProductFlags } from "@/domain/product-flags";
-import type { WatchCriteria, WatchModel } from "@/domain/radar-watch";
-import { watchModels } from "@/domain/watch-queries";
+import type { WatchCriteria } from "@/domain/radar-watch";
 import { parseDistanceMiles } from "@/domain/need";
 import { getKv } from "@/io/kv";
 import { allowance } from "@/server/plan-book";
+import { normalizeCriteria } from "@/server/radar-normalize-criteria";
 import { listSearches, saveSearches } from "@/server/radar-store";
 import { requireVerifiedAccountForRadar } from "@/server/session";
 
@@ -93,39 +93,4 @@ export async function POST(request: Request) {
   });
   await saveSearches(kv, searches);
   return Response.json({ ok: true });
-}
-
-function normalizeCriteria(
-  criteria: WatchCriteria,
-  mode: "personal" | "flip",
-  radiusMiles: number | null,
-): WatchCriteria {
-  if (mode === "flip") {
-    return {
-      priceMax: Number(criteria.priceMax),
-      zip: criteria.zip ? String(criteria.zip) : "",
-      // Nationwide Flip: 0 radiusMiles means "no seller-distance filter" (matched to Resale nationwide).
-      radiusMiles: radiusMiles ?? 0,
-      repairAbility: criteria.repairAbility ?? "unknown",
-      minProfitUsd: typeof criteria.minProfitUsd === "number" ? criteria.minProfitUsd : undefined,
-    };
-  }
-  const models = modelList(criteria);
-  return {
-    make: models[0]?.make,
-    model: models[0]?.model,
-    models,
-    yearMin: criteria.yearMin,
-    yearMax: criteria.yearMax,
-    priceMax: Number(criteria.priceMax),
-    zip: String(criteria.zip),
-    radiusMiles: radiusMiles ?? 50,
-    milesMax: criteria.milesMax,
-  };
-}
-
-function modelList(criteria: WatchCriteria): WatchModel[] {
-  if (criteria.models?.length) return watchModels(criteria);
-  if (criteria.make && criteria.model) return watchModels({ ...criteria, models: [{ make: criteria.make, model: criteria.model }] });
-  return [];
 }

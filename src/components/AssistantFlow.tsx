@@ -237,6 +237,11 @@ function AssistantFlow({
   const [need, setNeed] = useState<StructuredNeed | null>(entryNeed);
   const [noteMarks, setNoteMarks] = useState<NoteMarks | null>(entryNeed ? noteMarksFrom(entryNeed) : null);
   const [source, setSource] = useState<"model" | "form" | null>(entryNeed ? "form" : null);
+  const [criteriaParse, setCriteriaParse] = useState<{
+    source: "serv" | "code" | "form";
+    responseId: string | null;
+    label: string;
+  } | null>(entryNeed ? { source: "form", responseId: null, label: "Entered on the form" } : null);
   const [checks, setChecks] = useState<DecisionProof[]>([]);
   const [questions, setQuestions] = useState<FollowUp[]>(entryNeed && entryStage === "follow" ? followUps(entryNeed) : []);
   const [answers, setAnswers] = useState<Record<string, string>>({});
@@ -392,6 +397,7 @@ function AssistantFlow({
         followUps?: FollowUp[];
         checks?: DecisionProof[];
         message?: string;
+        criteriaParse?: { source: "serv" | "code" | "form"; responseId: string | null; label: string };
       };
       if (!response.ok || !body.need) {
         setError(body.message || "That note could not be read.");
@@ -403,6 +409,12 @@ function AssistantFlow({
       if (body.need.yearMin != null) setYearMin(String(body.need.yearMin));
       if (body.need.yearMax != null) setYearMax(String(body.need.yearMax));
       setSource(body.source ?? "form");
+      setCriteriaParse(
+        body.criteriaParse ??
+          (body.source === "model"
+            ? { source: "serv", responseId: null, label: "Parsed by SERV · no response id" }
+            : { source: "code", responseId: null, label: "Parsed by code" }),
+      );
       setChecks(body.checks ?? []);
       const next = body.followUps ?? [];
       if (!followUp && next.length > 0) {
@@ -1329,38 +1341,61 @@ function AssistantFlow({
 
   async function watch(direction: SearchDirection) {
     if (!dealRadarUi) return;
-    // Watches require explicit ZIP + seller-distance radius — never invent 50/100 after Nationwide.
-    if (!need?.zip?.trim() || need.distanceMiles == null) {
-      setError("Saved searches need a ZIP and a seller-distance radius. Choose a radius (Nationwide watches are not supported).");
+    // Drive-it watches need ZIP + radius. Flip may be nationwide (null distance).
+    if (need?.mode !== "flip" && (!need?.zip?.trim() || need.distanceMiles == null)) {
+      setError("Watch with Deal Radar needs a ZIP and a seller-distance radius for Drive it searches.");
+      return;
+    }
+    if (need?.mode === "flip" && need.distanceMiles != null && !need.zip?.trim()) {
+      setError("A Flip watch with a radius needs a ZIP, or leave radius empty for nationwide.");
       return;
     }
     setPending(direction.id);
     try {
-      const priceMax = need.budgetKnown && need.budgetUsd ? need.budgetUsd : 40_000;
+      const priceMax = need!.budgetKnown && need!.budgetUsd ? need!.budgetUsd : 40_000;
+      const freeText = (need!.note?.trim() || text.trim() || "").slice(0, 500) || undefined;
+      const parse = criteriaParse ?? { source: "form" as const, responseId: null };
       const response = await fetch("/api/radar/searches", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           name: direction.segment,
-          mode: need.mode,
+          mode: need!.mode,
           criteria:
-            need.mode === "flip"
+            need!.mode === "flip"
               ? {
                   priceMax,
-                  zip: need.zip,
-                  radiusMiles: need.distanceMiles,
-                  repairAbility: need.repairAbility,
-                  minProfitUsd: need.targetProfitUsd ?? undefined,
+                  zip: need!.zip ?? "",
+                  radiusMiles: need!.distanceMiles,
+                  nationwide: need!.distanceMiles == null || undefined,
+                  repairAbility: need!.repairAbility,
+                  minProfitUsd: need!.targetProfitUsd ?? undefined,
+                  bodyStyle: need!.bodyStyle ?? undefined,
+                  make: need!.preferredMakes[0] ?? need!.make ?? undefined,
+                  preferredMakes: need!.preferredMakes,
+                  models: direction.models.slice(0, 6),
+                  yearMin: direction.yearMin ?? need!.yearMin ?? undefined,
+                  yearMax: direction.yearMax ?? need!.yearMax ?? undefined,
+                  milesMax: need!.milesMax ?? undefined,
+                  freeText,
+                  notes: freeText,
+                  criteriaParseSource: parse.source,
+                  criteriaResponseId: parse.responseId,
                 }
               : {
                   models: direction.models.slice(0, 6),
                   yearMin: direction.yearMin,
                   yearMax: direction.yearMax,
                   priceMax,
-                  zip: need.zip,
-                  radiusMiles: need.distanceMiles,
-                  priorities: need.priorities?.length ? need.priorities : undefined,
-                  notes: need.note?.trim() ? need.note.trim().slice(0, 500) : undefined,
+                  zip: need!.zip,
+                  radiusMiles: need!.distanceMiles,
+                  milesMax: need!.milesMax ?? undefined,
+                  bodyStyle: need!.bodyStyle ?? undefined,
+                  priorities: need!.priorities?.length ? need!.priorities : undefined,
+                  freeText,
+                  notes: freeText,
+                  criteriaParseSource: parse.source,
+                  criteriaResponseId: parse.responseId,
                 },
         }),
       });
@@ -1369,13 +1404,7 @@ function AssistantFlow({
         setError(body.message || "The search was not saved.");
         return;
       }
-      const q = new URLSearchParams({
-        mode: need.mode,
-        priceMax: String(priceMax),
-        zip: need.zip,
-        distanceMiles: String(need.distanceMiles),
-      });
-      router.push(`/radar?${q.toString()}`);
+      router.push("/radar");
     } catch {
       setError("The search was not saved.");
     } finally {
@@ -2527,7 +2556,7 @@ function AssistantFlow({
                 : null}
               {dealRadarUi ? (
                 <button className="quiet" type="button" onClick={() => void watch(group.direction)} disabled={pending === group.direction.id}>
-                  {pending === group.direction.id ? "Saving alert…" : need?.mode === "flip" ? "Get alerts for this budget" : "Get new-listing alerts"}
+                  {pending === group.direction.id ? "Saving watch…" : "Watch with Deal Radar"}
                 </button>
               ) : null}
               <p className="hint">{FIND_RESULTS_BILLING_HINT}</p>

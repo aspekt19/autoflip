@@ -33,6 +33,16 @@ export type WatchCriteria = {
   priorities?: string[];
   /** Free-text notes from Find (or the save form). Stored as-is; not used for filtering. */
   notes?: string;
+  /** Original free-text description from Find/Resale (shopper's own words). */
+  freeText?: string;
+  /**
+   * How structured fields were derived from freeText.
+   * "serv" = need_extract; "code" = local parsers; "form" = structured fields only.
+   * Existing watches omit this — treat as unrecorded, not invented SERV.
+   */
+  criteriaParseSource?: "serv" | "code" | "form";
+  /** Provider response id when criteriaParseSource is serv; never a local UUID. */
+  criteriaResponseId?: string | null;
 };
 
 export type SavedSearch = {
