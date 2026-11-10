@@ -122,6 +122,20 @@ export function describeServCallFailure(result: ServResult): {
   }
   if (!result.ok) {
     const detail = result.error?.trim() || "call failed";
+    const reasonCode = result.failureDiag?.reasonCode ?? null;
+    // Null content + refusal field is a real recorded failure class (not a silent parse miss).
+    if (
+      reasonCode === "message_content_null_refusal_field" ||
+      reasonCode === "message_refusal_field_empty_content" ||
+      /message_content_null_refusal_field|structured refusal/i.test(detail)
+    ) {
+      return {
+        why: `SERV structured refusal with null content (${reasonCode ?? "message_content_null_refusal_field"}) — no usable JSON; retry or code fallback applies.`,
+        rejected: "content_null_refusal_field",
+        isTimeout: false,
+        latencyMs,
+      };
+    }
     // status 0 is transport/local failure (not configured, allowlist, abort) — not HTTP.
     if (!result.status) {
       return {
@@ -189,11 +203,21 @@ export async function runResaleServWithRejectRetry(input: {
   const firstPayload = first.ok ? parseJsonObject(first.text) : null;
   const firstValidation = input.validatePayload(firstPayload, first);
 
-  // No payload (timeout / HTTP / local): do not retry — journal measured latency / error.
-  if (!first.ok || isServTimeout(first) || !firstPayload) {
+  const nullContentRefusal =
+    !first.ok &&
+    (first.failureDiag?.reasonCode === "message_content_null_refusal_field" ||
+      first.failureDiag?.reasonCode === "message_refusal_field_empty_content" ||
+      /message_content_null_refusal_field|structured refusal/i.test(first.error ?? ""));
+
+  // Timeouts / generic HTTP: do not blind-retry — journal measured latency / error.
+  // Null-content refusal: retry once when slots remain (honest fallback if retry also fails).
+  if (isServTimeout(first)) {
     return { result: first, payload: firstPayload, validation: firstValidation, attempt: 1 };
   }
-  if (firstValidation.ok || !input.canRetry) {
+  if ((!first.ok || !firstPayload) && !(nullContentRefusal && input.canRetry)) {
+    return { result: first, payload: firstPayload, validation: firstValidation, attempt: 1 };
+  }
+  if (first.ok && firstPayload && (firstValidation.ok || !input.canRetry)) {
     return { result: first, payload: firstPayload, validation: firstValidation, attempt: 1 };
   }
 
@@ -210,15 +234,21 @@ export async function runResaleServWithRejectRetry(input: {
     retryTimeout = clamped;
   }
 
+  const validationDetail = firstValidation.ok ? "" : firstValidation.detail;
+  const previousRejection = nullContentRefusal
+    ? first.failureDiag?.reasonCode ?? "message_content_null_refusal_field"
+    : validationDetail;
+  const retryInstruction = nullContentRefusal
+    ? "Your previous response had null content with a refusal field. Return schema JSON only. Use only allowlisted ids from facts (copy exact strings)."
+    : "Your previous JSON was rejected. Return JSON again that matches the schema. Use only allowlisted ids from facts (copy exact strings). Fix: " +
+      validationDetail;
   const second = await runServ(
     input.profileId,
     {
       user: JSON.stringify({
         ...userBody,
-        previousRejection: firstValidation.detail,
-        instruction:
-          "Your previous JSON was rejected. Return JSON again that matches the schema. Use only allowlisted ids from facts (copy exact strings). Fix: " +
-          firstValidation.detail,
+        previousRejection,
+        instruction: retryInstruction,
       }),
     },
     { ...input.deps, timeoutMs: retryTimeout },

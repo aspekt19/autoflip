@@ -86,7 +86,7 @@ describe("home account line", () => {
     expect(HOME_ACCOUNT_LINE).toContain(
       `${FREE_VEHICLE_CHECKS_PER_MONTH} free VIN or listing checks per verified account each UTC month`,
     );
-    expect(HOME_ACCOUNT_LINE).toMatch(/credit-priced search when billing is enabled/);
+    expect(HOME_ACCOUNT_LINE).toMatch(/Find costs 1 report credit per delivered search/);
     expect(HOME_ACCOUNT_LINE).toMatch(/free account/);
     expect(assertBuyerSafeText(HOME_ACCOUNT_LINE).ok).toBe(true);
     expect(read("src/components/HomeStage.tsx")).toMatch(/HOME_ACCOUNT_LINE/);

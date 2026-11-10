@@ -961,16 +961,29 @@ async function buildVinDossier(vin: string, deps: CheckRunDeps, optionalZip?: st
     recallCount: bundle.recallsAvailable ? bundle.recalls.length : null,
   });
 
-  const redFlags: CheckRedFlag[] = bundle.recalls.some((r) => r.parkIt)
-    ? [
-        {
-          id: "park_it",
-          level: "stop",
-          text: "NHTSA lists a park-it (do not drive) campaign for this model year. Verify VIN applicability before driving.",
-          source: "nhtsa-recalls",
-        },
-      ]
-    : [];
+  const redFlags: CheckRedFlag[] = [];
+  if (bundle.recalls.some((r) => r.parkIt)) {
+    redFlags.push({
+      id: "park_it",
+      level: "stop",
+      text: "NHTSA lists a park-it (do not drive) campaign for this model year. Verify VIN applicability before driving.",
+      source: "nhtsa-recalls",
+    });
+  }
+  // Park-outside / fire-risk campaigns (e.g. 20V543000) are stop-level for confidence —
+  // never show "No stop-level red flags" with High confidence while these are open.
+  const parkOutsideRecalls = bundle.recalls.filter((r) => r.parkOutSide && !r.parkIt);
+  if (parkOutsideRecalls.length > 0) {
+    const sample = parkOutsideRecalls[0]!;
+    redFlags.push({
+      id: "park_outside",
+      level: "stop",
+      text: `NHTSA lists outdoor-parking / fire-risk guidance${
+        sample.campaignNumber ? ` (campaign ${sample.campaignNumber})` : ""
+      }. Verify VIN applicability before parking indoors or ignoring the campaign.`,
+      source: "nhtsa-recalls",
+    });
+  }
 
   let badge: PriceBadge | null = null;
   let compsScope = hasAsk
@@ -1075,6 +1088,10 @@ async function buildVinDossier(vin: string, deps: CheckRunDeps, optionalZip?: st
     confidence = recordCount >= 2 ? "Medium" : "Low";
     confidenceWhy =
       "Covers public-record identity and safety only — not a buy/negotiate/pass or price rating (no asking price).";
+  }
+  if (redFlags.some((flag) => flag.level === "stop") && confidence === "High") {
+    confidence = "Medium";
+    confidenceWhy = `${confidenceWhy} Lowered from High because a stop-level NHTSA campaign is on file.`;
   }
 
   const askLine = hasAsk

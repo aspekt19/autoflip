@@ -4,12 +4,14 @@ import { criteriaParseLabel, criteriaSourceLine, watchCriteriaSummary } from "./
 describe("criteriaParseLabel", () => {
   it("labels SERV with a real response id", () => {
     expect(criteriaParseLabel({ source: "serv", responseId: "chatcmpl-Eia7abc" })).toBe(
-      "Parsed by SERV · response chatcmpl-Eia7abc",
+      "Parsed from your note · response chatcmpl-Eia7abc",
     );
   });
 
   it("does not invent an id when SERV returned none", () => {
-    expect(criteriaParseLabel({ source: "serv", responseId: null })).toBe("Parsed by SERV · no response id");
+    expect(criteriaParseLabel({ source: "serv", responseId: null })).toBe(
+      "Parsed from your note · no response id",
+    );
   });
 
   it("labels code and form honestly", () => {

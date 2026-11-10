@@ -36,7 +36,7 @@ export default function LoginPage() {
             <LoginForm google={auth.google} email={auth.email} firebase={firebase} />
           </Suspense>
         )}
-        <p className="hint">You can look around without an account. Vehicle checks, Find search, and buying credits need a verified account once sign-in is on.</p>
+        <p className="hint">You can look around without an account. Vehicle checks, Find search, and buying credits need a verified signed-in account.</p>
       </div>
     </div>
   );

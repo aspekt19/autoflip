@@ -394,22 +394,42 @@ export function flipMarginPublishedAction(candidate: ResaleCandidatePnl): {
 }
 
 /**
- * Cap a proposed action (code or SERV) so it cannot be more optimistic than the margin gate.
- * SERV may still choose a more conservative action.
+ * Cap a proposed SERV action only on documented hard facts, and only when SERV
+ * tried to buy/negotiate. Negative expected profit or walk_away blocks a buy;
+ * needs_inspection / pass from SERV (including second-pass disagreement) stand.
+ * Thin-margin vs flipDesiredProfitUsd is advisory — never overrides SERV alone.
  */
 export function clampFlipPublishedAction(
   proposed: FlipPublishedAction,
   candidate: ResaleCandidatePnl,
 ): { action: FlipPublishedAction; overridden: boolean; reason: string | null } {
-  const gated = flipMarginPublishedAction(candidate);
-  if (flipActionOptimism(proposed) <= flipActionOptimism(gated.action)) {
+  // Second-pass / soft SERV choices are not "buys" — do not rewrite them to pass.
+  if (proposed === "needs_inspection" || proposed === "pass") {
     return { action: proposed, overridden: false, reason: null };
   }
-  return {
-    action: gated.action,
-    overridden: true,
-    reason: `SERV said ${proposed}; guardrail capped to ${gated.action}. ${gated.reason}`,
-  };
+  const marginUsd =
+    candidate.profitLowUsd != null
+      ? candidate.profitLowUsd
+      : candidate.profitMidUsd != null
+        ? candidate.profitMidUsd
+        : null;
+  if (marginUsd != null && marginUsd < 0) {
+    return {
+      action: "pass",
+      overridden: true,
+      reason: `SERV said ${proposed}; guardrail capped to pass — risk-adjusted profit $${marginUsd.toLocaleString("en-US")} is negative (documented hard fact).`,
+    };
+  }
+  const codeVerdict = flipVerdict(marginUsd ?? -1, false);
+  if (codeVerdict === "walk_away" && proposed === "buy") {
+    return {
+      action: "pass",
+      overridden: true,
+      reason: `SERV said ${proposed}; guardrail capped to pass — code margin gate is walk_away on hard loss.`,
+    };
+  }
+  // Soft threshold (flipDesiredProfitUsd) does not override SERV.
+  return { action: proposed, overridden: false, reason: null };
 }
 
 function applyFlipPublishedAction(input: {
@@ -540,7 +560,7 @@ function finalizeAgentVerdict(input: {
       no_serv_step: !input.ranJudge && !input.ranDecide,
       serv_spend: {
         calls: input.journal.servCalls,
-        costNote: `Resale SERV call cap ${input.journal.servCallCap}; recorded ${input.journal.servCalls}.`,
+        costNote: `SERV calls this Resale run: ${input.journal.servCalls} (monthly plan + time budgets apply).`,
       },
     }),
   };
@@ -1467,7 +1487,8 @@ export async function runResaleSettleServ(input: {
           trail = published.trail;
           secondPass = {
             status: "disagreed",
-            action: verdictAction,
+            // Record what the challenger chose — not the post-guardrail published action.
+            action: proposed,
             objection: objection ?? "Challenger revised the pick using allowlisted evidence.",
             evidenceIds,
             confidenceBefore: confidenceFromPnl(ordered.find((i) => i.vin === prior) ?? best),

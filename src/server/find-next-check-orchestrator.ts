@@ -184,6 +184,8 @@ export type FindNextCheckOrchestratorOk = {
   pickAgentVerdict?: import("@/domain/agent-verdict-schema").AgentVerdict | null;
   /** One proof record per settle SERV decision (shared site/MCP/af_ contract). */
   pickProofRecords?: import("@/domain/decision-proof-record").DecisionProofRecord[];
+  /** One proof record for this next-check hop (model / response id / raw when SERV ran). */
+  nextCheckProofRecords?: import("@/domain/decision-proof-record").DecisionProofRecord[];
 };
 
 export function buildKeyedAutonomyDiag(input: {
@@ -193,6 +195,8 @@ export function buildKeyedAutonomyDiag(input: {
   source: "serv" | "deterministic_fallback";
   failureDiag: FindNextCheckLiveOk["failureDiag"];
   clampDiag?: FindNextCheckLiveOk["clampDiag"];
+  /** When set, SERV was intentionally not invoked — do not claim parse/refusal failure. */
+  honestyOverride?: string | null;
 }): KeyedAutonomyDiag {
   const failureCategory = input.failureDiag?.category ?? null;
   const failureReasonCode = input.failureDiag?.reasonCode ?? null;
@@ -206,12 +210,22 @@ export function buildKeyedAutonomyDiag(input: {
   } else if (!input.autonomousServ) {
     const denied = input.clampDiag?.deniedCheckId;
     const allow = input.clampDiag?.allowlistIds?.join(",") ?? "";
-    configHint =
-      failureCategory === "http_error" || failureReasonCode?.includes("timeout")
-        ? "SERV find_next_check timed out or HTTP-failed under profile timeout — check OpenServ latency for gpt-5.4-mini; failureDiag has category/reasonCode only (no secrets)."
-        : denied
-          ? `SERV returned checkId outside allowlist: denied=${denied} allowlist=[${allow}]. Live request schema enum is bound to allowlist; inspect clampDiag. Do not treat as missing-key.`
-          : "SERV find_next_check did not return an allowlisted checkId (parse/clamp/refusal). Inspect failureDiag + clampDiag; confirm SERV_API_KEY + SERV_BASE_URL on this deployment. Do not treat as missing-key.";
+    // Do not claim SERV failed when this hop intentionally skipped SERV (free-gov drain / batch).
+    const honesty = input.honestyOverride ?? input.failureDiag?.honesty ?? "";
+    if (
+      /deterministic free public|SERV was not called this hop|bounded_free_gov|free_gov_batch|SERV not invoked/i.test(
+        honesty,
+      )
+    ) {
+      configHint = honesty;
+    } else {
+      configHint =
+        failureCategory === "http_error" || failureReasonCode?.includes("timeout")
+          ? "SERV find_next_check timed out or HTTP-failed under profile timeout — check OpenServ latency for gpt-5.4-mini; failureDiag has category/reasonCode only (no secrets)."
+          : denied
+            ? `SERV returned checkId outside allowlist: denied=${denied} allowlist=[${allow}]. Live request schema enum is bound to allowlist; inspect clampDiag. Do not treat as missing-key.`
+            : "SERV find_next_check did not return an allowlisted checkId (parse/clamp/refusal). Inspect failureDiag + clampDiag; confirm SERV_API_KEY + SERV_BASE_URL on this deployment. Do not treat as missing-key.";
+    }
   }
   return {
     keyed: input.keyed,
@@ -282,6 +296,7 @@ function publicResultPayload(ok: FindNextCheckOrchestratorOk): string {
     pickServTrace: ok.pickServTrace ?? null,
     pickAgentVerdict: ok.pickAgentVerdict ?? null,
     pickProofRecords: ok.pickProofRecords ?? [],
+    nextCheckProofRecords: ok.nextCheckProofRecords ?? [],
   });
 }
 
@@ -885,6 +900,7 @@ export async function runFindNextCheckOrchestrator(
       source: live.source,
       failureDiag: live.failureDiag,
       clampDiag: live.clampDiag,
+      honestyOverride: live.honesty,
     });
 
     const loop = decideFindNextCheckLoop({
@@ -945,12 +961,15 @@ export async function runFindNextCheckOrchestrator(
         model: deps.servModel ?? undefined,
         fetchImpl: deps.fetchImpl,
         budgetUsd: updated.need.budgetUsd ?? null,
+        // Same adjusted comps pool as cards/Check — not shortlist-only peers.
+        marketPool: marketPoolFromListingFacts(updated.compsPool ?? updated.listings ?? []),
       });
       pickSecondPass = settled.secondPass;
       pickServTrace = settled.trace;
       pickAgentVerdict = settled.agentVerdict;
       pickProofRecords = settled.proofRecords;
     }
+    const nextCheckProofRecords = live.proofRecords ?? [];
     const payload: FindNextCheckOrchestratorOk = {
       ok: true,
       searchContextToken: updated.token,
@@ -994,6 +1013,7 @@ export async function runFindNextCheckOrchestrator(
       pickServTrace,
       pickAgentVerdict,
       pickProofRecords,
+      nextCheckProofRecords,
     };
 
     if (claimId) {

@@ -217,8 +217,9 @@ describe("runResaleSettleServ", () => {
       profitMidUsd: 2_500,
       listing: listing({ vin: "VINHIGH0000000001", year: 2018, make: "Toyota", model: "Corolla", priceUsd: 9_000 }),
     });
-    let journal = emptyResaleJournal(RESALE_SERV_CALL_CAP);
-    // Four settle SERV calls already recorded; plan used 2 → global cap full.
+    // Soft per-run ceiling for this unit fixture only (not the product default of RESALE_SERV_CALL_CAP).
+    let journal = emptyResaleJournal(6);
+    // Four settle SERV calls already recorded; plan used 2 → fixture cap full.
     for (let i = 0; i < 4; i += 1) {
       journal = appendJournalStep(journal, {
         kind: "pick",

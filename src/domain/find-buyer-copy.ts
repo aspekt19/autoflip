@@ -106,15 +106,15 @@ export const BUYER_FORBIDDEN_TECH_PATTERNS: RegExp[] = [
 
 /**
  * Find billing copy (shared by /find page + results hint).
- * A new Find search debits 1 report credit for a verified account when sign-in is on.
- * Keep the public phrase "when billing is enabled": do not promise a free Find, and do
- * not fold Find into the separate monthly VIN / own-listing-URL check allotment.
+ * A new Find search debits 1 report credit for a verified signed-in account.
+ * Do not promise a free Find, and do not fold Find into the separate monthly
+ * VIN / own-listing-URL check allotment.
  */
 export const FIND_PAGE_BILLING_STEP =
-  "Find is a credit-priced search when billing is enabled. Open a full report for any car you want to investigate further (1 report credit).";
+  "Find costs 1 report credit per delivered search. Open a full report for any car you want to investigate further (1 report credit).";
 
 export const FIND_RESULTS_BILLING_HINT =
-  "Find is a credit-priced search when billing is enabled. A full per-car report uses 1 report credit. Ongoing new-listing alerts require a separate monthly Radar plan.";
+  "Find costs 1 report credit per delivered search. A full per-car report uses 1 report credit. Ongoing new-listing alerts require a separate monthly Radar plan.";
 
 /**
  * /credits?need=1 copy. Find is never paid by the monthly VIN / own-URL allotment.

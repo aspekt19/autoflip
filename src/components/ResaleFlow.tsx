@@ -186,7 +186,7 @@ function ResaleSearchForm({ credits, onAuthLost }: { credits: number | null; onA
         schemaVersion: "lemonless.resale_journal.v1",
         steps: [],
         servCalls: 0,
-        servCallCap: 6,
+        servCallCap: 48,
       },
       proofRecords: Array.isArray(body.proofRecords) ? body.proofRecords : [],
       headline: body.headline ?? "Resale search",
@@ -804,7 +804,7 @@ function CandidateCard({
         <li>
           {candidate.riskAdjustedRankFormula
             ? `Risk-adjusted rank: ${candidate.riskAdjustedRankFormula}`
-            : `Risk-adjusted rank formula: score = mid × risk × max(0.5, (low+mid)/(2×mid)); floor 0.5 is a design choice; thin comps (&lt;3 / &lt;5) cut risk. Comps in this scan: ${candidate.compCount}.`}
+            : `Risk-adjusted rank: mid profit × risk weight; thin comps (under 3 / under 5) cut risk. Comps in this scan: ${candidate.compCount}.`}
         </li>
         <li>Ask: {formatUsd(candidate.askingUsd)}</li>
         <li>
@@ -845,7 +845,7 @@ function CandidateCard({
           {candidate.daysToSellBasis}
         </li>
         <li>
-          Confidence: {candidate.confidence} — {candidate.confidenceBasis}
+          Comps confidence: {candidate.confidence} — {candidate.confidenceBasis}
         </li>
         <li>Similar listings in this scan: {candidate.compCount}</li>
       </ul>

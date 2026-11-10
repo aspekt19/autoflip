@@ -44,7 +44,12 @@ export type ResaleDecisionJournal = {
   servCallCap: number;
 };
 
-export const RESALE_SERV_CALL_CAP = 6;
+/**
+ * Soft ceiling only so a runaway loop cannot burn unbounded SERV on one search.
+ * Not a product feature — monthly plan caps and wall-clock budgets are the real limits.
+ * Do not surface this number as "Resale SERV call cap N" in buyer UI.
+ */
+export const RESALE_SERV_CALL_CAP = 48;
 
 export function emptyResaleJournal(cap = RESALE_SERV_CALL_CAP): ResaleDecisionJournal {
   return {

@@ -43,6 +43,11 @@ import {
 } from "@/domain/need";
 import type { FuelFact } from "@/domain/types";
 import { redactUntrustedPromptValue, screenUserInput } from "@/domain/screen";
+import {
+  buildDecisionProofRecord,
+  FIND_NEXT_CHECK_RUBRIC_ID,
+  type DecisionProofRecord,
+} from "@/domain/decision-proof-record";
 import { runServ, type ServProof } from "@/server/serv";
 import {
   classifyServPlannerFailure,
@@ -82,6 +87,8 @@ export type FindNextCheckLiveOk = {
   /** Bounded clamp diagnostics — raw denied id + allowlist (no secrets / no prose dump). */
   clampDiag: FindNextCheckClampDiag | null;
   honesty: string;
+  /** One lemonless.decision_proof.v1 row for this hop (ok, skipped, or failed). */
+  proofRecords: DecisionProofRecord[];
 };
 
 export type FindNextCheckLiveErr = {
@@ -353,6 +360,56 @@ export async function runFindNextCheckLive(
     key && deps.skipServ
       ? ` Paid SERV skipped this hop (${deps.skipServReason ?? "bounded_free_gov_drain"}) — deterministic free public batch only.`
       : "";
+  const recordedAt = new Date().toISOString();
+  const lastProof = proofs[proofs.length - 1] ?? null;
+  const proofRecords: DecisionProofRecord[] = [
+    key && deps.skipServ
+      ? buildDecisionProofRecord({
+          purpose: "find_next_check",
+          rubricId: FIND_NEXT_CHECK_RUBRIC_ID,
+          status: "skipped_call_cap",
+          recordedAt,
+          inputs: {
+            chosenId,
+            skipServReason: deps.skipServReason ?? "bounded_free_gov_drain",
+          },
+          detail: `SERV not invoked this hop (${deps.skipServReason ?? "bounded_free_gov_drain"}) — deterministic free public check ${chosenId}.`,
+        })
+      : source === "serv"
+        ? buildDecisionProofRecord({
+            purpose: "find_next_check",
+            rubricId: FIND_NEXT_CHECK_RUBRIC_ID,
+            status: "ok",
+            recordedAt,
+            responseId: typeof lastProof?.openserv?.id === "string" ? lastProof.openserv.id : null,
+            model: lastProof?.modelReported || lastProof?.modelRequested || deps.servModel || null,
+            inputs: { chosenId, targetKeys, note: servNote },
+            verdict: chosenId,
+            rawResponse:
+              typeof lastProof?.openserv?.output_text === "string" ? lastProof.openserv.output_text : null,
+            detail: servNote,
+          })
+        : buildDecisionProofRecord({
+            purpose: "find_next_check",
+            rubricId: FIND_NEXT_CHECK_RUBRIC_ID,
+            status: key ? "failed" : "skipped_no_key",
+            recordedAt,
+            responseId: null,
+            model: lastProof?.modelReported || lastProof?.modelRequested || deps.servModel || null,
+            inputs: {
+              chosenId,
+              failureCategory: failureDiag?.category ?? null,
+              reasonCode: failureDiag?.reasonCode ?? null,
+            },
+            detail:
+              failureDiag?.honesty ||
+              (key
+                ? `Deterministic fallback chose ${chosenId} after SERV did not return an allowlisted check.`
+                : "SERV_API_KEY not configured — deterministic allowlist only."),
+            rawResponse:
+              typeof lastProof?.openserv?.output_text === "string" ? lastProof.openserv.output_text : null,
+          }),
+  ];
   return {
     ok: true,
     source,
@@ -367,9 +424,12 @@ export async function runFindNextCheckLive(
     proofs,
     failureDiag,
     clampDiag,
+    proofRecords,
     honesty:
       source === "serv"
         ? "SERV chose an allowlisted check and optional target cars. Apply/replan is code-owned. Rematch uses NEW need — no invented listings, TCO, or history."
-        : `deterministic_fallback (not autonomous SERV): code allowlist apply only.${skipBit}`,
+        : key && deps.skipServ
+          ? `Deterministic free public check (${deps.skipServReason ?? "bounded_free_gov_drain"}) — SERV was not called this hop.${skipBit}`
+          : `deterministic_fallback (not autonomous SERV): code allowlist apply only.${skipBit}`,
   };
 }

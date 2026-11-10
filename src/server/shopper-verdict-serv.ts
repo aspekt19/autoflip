@@ -206,39 +206,82 @@ export async function runShopperVerdictServ(input: {
     });
   } else if (input.servKey && input.decideTimeoutMs !== null) {
     const decisionFacts = verdictDecisionFacts(input.report, mandate);
-    const judged = await runServ(
-      "verdict_decide",
-      {
-        user: JSON.stringify({
-          facts: decisionFacts,
-          userLookup: input.userLookup ?? null,
+    const decideDeps = {
+      fetch: fetchImpl,
+      apiKey: input.servKey,
+      baseUrl: input.servBaseUrl,
+      model: input.model,
+      transportPolicy,
+      ...(typeof input.decideTimeoutMs === "number" ? { timeoutMs: input.decideTimeoutMs } : {}),
+    };
+    const decideUser = {
+      user: JSON.stringify({
+        facts: decisionFacts,
+        userLookup: input.userLookup ?? null,
+      }),
+    };
+    let judged = await runServ("verdict_decide", decideUser, decideDeps);
+    // Null-content refusal: one honest retry when a slot remains (never invent a verdict).
+    const firstError = judged.ok ? null : judged.error;
+    const nullContentRefusal =
+      !judged.ok &&
+      (judged.failureDiag?.reasonCode === "message_content_null_refusal_field" ||
+        judged.failureDiag?.reasonCode === "message_refusal_field_empty_content" ||
+        /message_content_null_refusal_field|structured refusal/i.test(firstError ?? ""));
+    if (nullContentRefusal && remainingCalls >= 2) {
+      callTraces.push(
+        traceCall("verdict_decide", {
+          ok: false,
+          model: judged.proof?.modelReported ?? judged.proof?.modelRequested ?? model,
+          proof: judged.proof,
+          raw:
+            typeof judged.proof?.openserv?.output_text === "string"
+              ? judged.proof.openserv.output_text
+              : null,
+          error: firstError,
         }),
-      },
-      {
-        fetch: fetchImpl,
-        apiKey: input.servKey,
-        baseUrl: input.servBaseUrl,
-        model: input.model,
-        transportPolicy,
-        ...(typeof input.decideTimeoutMs === "number" ? { timeoutMs: input.decideTimeoutMs } : {}),
-      },
-    );
+      );
+      steps.push({
+        id: "serv_verdict_decide",
+        status: "retry",
+        detail: `Null-content refusal (${judged.failureDiag?.reasonCode ?? "message_content_null_refusal_field"}) — retrying once.`,
+      });
+      judged = await runServ(
+        "verdict_decide",
+        {
+          user: JSON.stringify({
+            facts: decisionFacts,
+            userLookup: input.userLookup ?? null,
+            previousRejection:
+              "Previous response had null content with a refusal field. Return schema JSON only.",
+          }),
+        },
+        decideDeps,
+      );
+    }
     decideProof = judged.proof;
     verdictServOk = judged.ok;
     verdictServText = judged.ok ? judged.text : null;
+    const failHonesty = judged.ok
+      ? null
+      : judged.failureDiag?.honesty || judged.failureDiag?.reasonCode || judged.error || null;
     callTraces.push(
       traceCall("verdict_decide", {
         ok: judged.ok,
-        model: judged.ok ? judged.model : model,
+        model: judged.proof?.modelReported ?? judged.proof?.modelRequested ?? (judged.ok ? judged.model : model),
         proof: judged.proof,
-        raw: judged.ok ? judged.text : null,
-        error: judged.ok ? null : judged.error,
+        raw: judged.ok
+          ? judged.text
+          : typeof judged.proof?.openserv?.output_text === "string"
+            ? judged.proof.openserv.output_text
+            : null,
+        error: judged.ok ? null : failHonesty,
       }),
     );
     steps.push({
       id: "serv_verdict_decide",
-      status: judged.ok ? "ok" : "fallback",
-      detail: judged.ok ? judged.shadowOutcome : judged.error,
+      status: judged.ok ? "ok" : "failed",
+      detail: judged.ok ? judged.shadowOutcome : failHonesty ?? "SERV did not finish",
     });
   } else if (input.servKey && input.decideTimeoutMs === null) {
     steps.push({
@@ -500,18 +543,18 @@ export async function runShopperVerdictServ(input: {
       }),
     );
   } else if (servFailed) {
-    const failWhy =
-      callTraces.find((call) => call.profile === "verdict_decide" && call.error)?.error?.trim() ||
-      "SERV did not finish";
+    const failCall = callTraces.find((call) => call.profile === "verdict_decide" && call.error);
+    const failWhy = failCall?.error?.trim() || "SERV did not finish";
     proofRecords.push(
       buildDecisionProofRecord({
         purpose: "verdict_decide",
         rubricId: VERDICT_RUBRIC_ID,
-        status: "error",
-        model: recordedModel,
+        status: "failed",
+        model: failCall?.model ?? decideProof?.modelReported ?? recordedModel,
         recordedAt,
         inputs: decideFacts,
         detail: failWhy,
+        rawResponse: failCall?.rawResponse ?? decideRaw,
       }),
     );
   } else if (hadServStep) {

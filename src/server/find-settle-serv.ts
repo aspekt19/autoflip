@@ -56,27 +56,40 @@ function verdictFromEvaluation(verdict: Verdict): Verdict {
 
 /**
  * Build a Check-shaped report for the Find pick so verdict_decide/challenge can run.
- * Fair value and comps use the same adjusted-comparable path as ranking (line 9).
+ * Fair value and comps use the same adjusted-comparable path as ranking/cards/Check.
+ * Prefer `marketPool` (Find compsPool / same-model market listings) over shortlist peers —
+ * shortlist alone often has &lt;3 same-model cars while the pool has 9–17.
  * Recalls are "available" only when a free_gov_recalls factor was recorded on the pick.
  */
 export function buildFindPickComputedReport(
   pick: BestDealCandidate,
   peers: readonly BestDealCandidate[] = [],
+  marketPool: readonly Listing[] = [],
 ): ComputedReport {
   const subject = listingFromCandidate(pick);
   const vinPlaceholder = !(pick.vin && pick.vin.length === 17);
+  const peerListings = peers
+    .filter(
+      (row) =>
+        row.key !== pick.key &&
+        row.priceUsd != null &&
+        row.miles != null &&
+        row.make.toLowerCase() === pick.make.toLowerCase() &&
+        row.model.toLowerCase() === pick.model.toLowerCase(),
+    )
+    .map((row) => listingFromCandidate(row));
+  // Market pool first (cards/Check path); fall back to shortlist peers only when empty.
+  const marketSameModel = marketPool.filter(
+    (row) =>
+      row.priceUsd != null &&
+      row.miles != null &&
+      row.make.toLowerCase() === pick.make.toLowerCase() &&
+      row.model.toLowerCase() === pick.model.toLowerCase() &&
+      !(pick.vin && row.vin && row.vin.toUpperCase() === pick.vin.toUpperCase()),
+  );
   const pool: Listing[] = [
     subject,
-    ...peers
-      .filter(
-        (row) =>
-          row.key !== pick.key &&
-          row.priceUsd != null &&
-          row.miles != null &&
-          row.make.toLowerCase() === pick.make.toLowerCase() &&
-          row.model.toLowerCase() === pick.model.toLowerCase(),
-      )
-      .map((row) => listingFromCandidate(row)),
+    ...(marketSameModel.length > 0 ? marketSameModel : peerListings),
   ];
   const evaluation = evaluateListingPrice(subject, pool, { mode: "personal" });
   const comps = evaluation.set.cars.slice(0, 12).map((car) => ({
@@ -99,6 +112,7 @@ export function buildFindPickComputedReport(
     ...pick.unknowns.slice(0, 8),
     ...(vinPlaceholder ? ["VIN not in listing"] : []),
   ];
+  const usedMarket = marketSameModel.length > 0;
   return {
     mode: "personal",
     subject,
@@ -108,7 +122,9 @@ export function buildFindPickComputedReport(
     flags: [],
     questions: pick.sellerQuestions.slice(0, 6),
     comps,
-    compScope: "Adjusted similar asks from this Find shortlist (same evaluateListingPrice path as ranking)",
+    compScope: usedMarket
+      ? "Adjusted similar asks from the Find comps pool (same evaluateListingPrice path as cards/Check)"
+      : "Adjusted similar asks from this Find shortlist (same evaluateListingPrice path as ranking)",
     percentile: evaluation.percentile01,
     fairValueUsd: evaluation.fairValueUsd,
     fairRangeLowUsd: evaluation.fairLowUsd,
@@ -173,10 +189,15 @@ export async function runFindSettleServ(input: {
   model?: string;
   fetchImpl?: typeof fetch;
   budgetUsd?: number | null;
+  /**
+   * Full Find comps pool (same listings as cards/Check badges). Required for the
+   * 3-comp verdict_decide gate when the shortlist has fewer than 3 same-model peers.
+   */
+  marketPool?: readonly Listing[];
   /** Injected for unit tests (unlisted models / single-shot mocks). Production omits. */
   transportPolicy?: "production" | "experiment_single_attempt";
 }): Promise<FindSettleServResult> {
-  const pick = input.bestDeal.pick;
+  let pick = input.bestDeal.pick;
   const recordedAt = new Date().toISOString();
   // Root cause (b): blocking on evidenceSettled skipped verdict_decide after the Find
   // loop already stopped with a pick — UI showed no Buy/Negotiate/Pass. Run decide
@@ -225,7 +246,22 @@ export async function runFindSettleServ(input: {
   const peers = input.bestDeal.allRanked?.length
     ? input.bestDeal.allRanked
     : input.bestDeal.ranked;
-  const report = buildFindPickComputedReport(pick, peers);
+  const marketPool = input.marketPool ?? [];
+  // Prefer a finalist that already clears the 3-comp gate on the market pool so
+  // SERV can decide (code ranking may have put a thin-comp car first).
+  const finalists = (peers.length ? peers : [pick]).filter((row) => !row.excludedFromPick);
+  const withEvidence = finalists.find((row) => {
+    const probe = buildFindPickComputedReport(row, peers, marketPool);
+    return (
+      typeof probe.subject.priceUsd === "number" &&
+      Number.isFinite(probe.subject.priceUsd) &&
+      probe.fairValueUsd != null &&
+      probe.comps.length >= 3
+    );
+  });
+  if (withEvidence) pick = withEvidence;
+
+  const report = buildFindPickComputedReport(pick, peers, marketPool);
   // Principle 4: no verified price evidence → do not call SERV; say why (unknown, not pass).
   const verifiedPrice =
     typeof report.subject.priceUsd === "number" &&
@@ -254,6 +290,8 @@ export async function runFindSettleServ(input: {
             priceUsd: report.subject.priceUsd,
             fairValueUsd: report.fairValueUsd,
             compCount: report.comps.length,
+            marketPoolSize: marketPool.length,
+            shortlistPeers: peers.length,
           },
           detail,
         }),
@@ -274,7 +312,8 @@ export async function runFindSettleServ(input: {
     transportPolicy: input.transportPolicy,
   });
 
-  // Ranking names which car to review; decide + challenge set Buy/Negotiate/Pass under gates.
+  // Market comps unlock decide+challenge; SERV sets Buy/Negotiate/Pass under gates.
+  // Numbers stay on evaluateListingPrice; confidence comes from the shopper trail.
   return {
     ran: Boolean(shopper.trace),
     trace: shopper.trace,
