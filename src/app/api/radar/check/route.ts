@@ -65,7 +65,7 @@ export async function POST(request: Request) {
           (alert) =>
             alert.ownerId === id &&
             mySearchIds.has(alert.searchId) &&
-            alert.status !== "skipped" &&
+            (alert.status === "new" || alert.status === "opened") &&
             alert.createdAt >= run.startedAt,
         ).length;
   return Response.json({

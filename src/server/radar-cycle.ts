@@ -258,17 +258,14 @@ export async function runRadarCycle(deps: CycleDeps): Promise<StoredRun> {
           tallyReason(reasons, "Not enough similar cars", job.listings.length - ranked.length);
           passed += fresh.length;
           filteredOut += job.listings.length - fresh.length;
-          // Count every priced listing this Flip watch examined — not only ranked winners —
-          // so "listings seen" matches the scan log for this watch.
+          // Mark non-fresh priced listings as seen. Fresh VINs stay out until SERV
+          // decides alert/skip — a missing decision must remain reviewable next run.
+          const freshVins = new Set(fresh.map((item) => item.vin));
           for (const listing of job.listings) {
             if (listing.priceUsd == null) continue;
+            if (freshVins.has(listing.vin)) continue;
             book.set(listing.vin, listing.priceUsd);
           }
-          await storeSeenPrices(
-            deps.kv,
-            storageKey,
-            [...book.entries()].map(([vin, priceUsd]) => ({ vin, priceUsd })),
-          );
           touchedOwnerIds.add(search.ownerId);
           touchedSearchIds.add(search.id);
           bumpSearch(search.id, { listings: job.listings.length });
@@ -301,7 +298,7 @@ export async function runRadarCycle(deps: CycleDeps): Promise<StoredRun> {
               historyOnListing: item.listing.accidentCount !== null && item.listing.ownerCount !== null,
             };
             // When SERV returned a decision map, only "alert" becomes a counted new alert.
-            // "skip" is stored as status=skipped (outside the alert count / feed).
+            // Explicit "skip" → serv_skipped (Reviewed — skipped). Missing verdict → not_reviewed, not seen.
             if (deps.servKey && judged?.decisions) {
               if (decision?.verdict === "skip") {
                 const skipped = makeAlert(
@@ -315,13 +312,30 @@ export async function runRadarCycle(deps: CycleDeps): Promise<StoredRun> {
                   coverageConfidence(flipCoverage),
                   item.priceDropFrom,
                   badge,
-                  "skipped",
+                  "serv_skipped",
                 );
                 alerts.unshift(skipped);
+                if (item.listing.priceUsd != null) book.set(item.vin, item.listing.priceUsd);
                 continue;
               }
-              if (decision?.verdict !== "alert") {
-                // No SERV alert for this VIN — do not invent a counted alert.
+              if (decision?.verdict === "alert") {
+                // fall through to counted alert below
+              } else {
+                const pending = makeAlert(
+                  search,
+                  item.listing,
+                  `Not reviewed (no SERV decision). ${baseWhy}`,
+                  numbers,
+                  deps.now.toISOString(),
+                  judged?.checks,
+                  coverageSentence(flipCoverage),
+                  coverageConfidence(flipCoverage),
+                  item.priceDropFrom,
+                  badge,
+                  "not_reviewed",
+                );
+                alerts.unshift(pending);
+                // Leave out of seen book so the next run can re-review.
                 continue;
               }
             }
@@ -346,7 +360,13 @@ export async function runRadarCycle(deps: CycleDeps): Promise<StoredRun> {
             freshAlerts.push(alert);
             alertsSent += 1;
             bumpSearch(search.id, { alertsSent: 1 });
+            if (item.listing.priceUsd != null) book.set(item.vin, item.listing.priceUsd);
           }
+          await storeSeenPrices(
+            deps.kv,
+            storageKey,
+            [...book.entries()].map(([vin, priceUsd]) => ({ vin, priceUsd })),
+          );
           search.lastCheckedAt = deps.now.toISOString();
           continue;
         }
@@ -500,9 +520,11 @@ export async function runRadarCycle(deps: CycleDeps): Promise<StoredRun> {
       shadow = summarizeShadow(servActivity.map((row) => (row.ok ? row.decision ?? "ok" : "error")));
       const httpCallKeys = new Set(
         servActivity.map((row) =>
-          row.responseId?.trim()
-            ? `${row.profile}::${row.responseId.trim()}`
-            : `${row.profile}::vin:${row.vin}`,
+          row.callId?.trim()
+            ? `${row.profile}::call:${row.callId.trim()}`
+            : row.responseId?.trim()
+              ? `${row.profile}::${row.responseId.trim()}`
+              : `${row.profile}::at:${row.at}::lat:${row.latencyMs}`,
         ),
       );
       steps.push({
@@ -674,6 +696,8 @@ async function judgeFlipAlerts(
     }
     const judgeMs = budget("radar_review");
     if (judgeMs < 500) return { decisions: null, checks: rules ? [...guards, visibleProof(rules.proof)] : guards, activity };
+    // One call id for the whole batch — shared even when the provider returns no response id.
+    const reviewCallId = randomUUID();
     const judged = await runServ("radar_review", { user: JSON.stringify({ facts, rulesNote }) }, {
       fetch: deps.fetchImpl,
       apiKey: deps.servKey,
@@ -696,9 +720,11 @@ async function judgeFlipAlerts(
         profile: "radar_review",
         modelRequested: judged.proof.modelRequested,
         modelReported: judged.proof.modelReported,
+        callId: reviewCallId,
         responseId,
         latencyMs: judged.proof.latencyMs,
-        ok: Boolean(judged.ok && decision),
+        // HTTP ok is independent of whether this VIN got a verdict in the batch.
+        ok: judged.ok,
         decision: decision?.verdict ?? null,
         note: decision?.note ?? null,
         alerted: decision?.verdict === "alert",
@@ -760,6 +786,7 @@ async function runGuard(
   if (!deps.servKey) return { status: "not_configured", activity: null };
   const text = searches.map((item) => `${item.name} ${item.mode} ${item.criteria.zip} ${item.criteria.priceMax}`).join("\n");
   if (!text.trim()) return { status: "skipped_empty", activity: null };
+  const guardCallId = randomUUID();
   if (timeoutMs <= 0) {
     return {
       status: "timeout",
@@ -770,6 +797,7 @@ async function runGuard(
         profile: "radar_guard",
         modelRequested: deps.servModel ?? "",
         modelReported: "",
+        callId: guardCallId,
         responseId: null,
         latencyMs: 0,
         ok: false,
@@ -809,6 +837,7 @@ async function runGuard(
         profile: "radar_guard",
         modelRequested: result.proof.modelRequested ?? deps.servModel ?? "",
         modelReported: result.proof.modelReported ?? "",
+        callId: guardCallId,
         responseId: typeof result.proof.openserv?.id === "string" ? result.proof.openserv.id : null,
         latencyMs,
         ok: result.ok && status !== "block",
@@ -831,6 +860,7 @@ async function runGuard(
         profile: "radar_guard",
         modelRequested: deps.servModel ?? "",
         modelReported: "",
+        callId: guardCallId,
         responseId: null,
         latencyMs: timeoutMs,
         ok: false,

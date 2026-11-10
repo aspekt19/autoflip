@@ -21,6 +21,8 @@ export type RadarActivityRow = {
   profile: string;
   modelRequested: string;
   modelReported: string;
+  /** Per-HTTP-invocation id (preferred for call counting). */
+  callId?: string | null;
   responseId: string | null;
   latencyMs: number;
   ok: boolean;
@@ -37,15 +39,20 @@ function stepKind(profile: string): Parameters<typeof appendJournalStep>[1]["kin
   return "deep_check";
 }
 
-/** Group activity rows that share one HTTP response (same profile + response id). */
-function groupByHttpCall(rows: RadarActivityRow[]): RadarActivityRow[][] {
+/** Stable key for one HTTP invocation (never falls back to per-VIN). */
+export function radarHttpCallKey(row: RadarActivityRow): string {
+  if (row.callId?.trim()) return `${row.profile}::call:${row.callId.trim()}`;
+  if (row.responseId?.trim()) return `${row.profile}::${row.responseId.trim()}`;
+  // Legacy rows: same profile + stamp + latency = one call (timeout of N cars stays one).
+  return `${row.profile}::at:${row.at}::lat:${row.latencyMs}`;
+}
+
+/** Group activity rows that share one HTTP invocation. */
+export function groupByHttpCall(rows: RadarActivityRow[]): RadarActivityRow[][] {
   const groups: RadarActivityRow[][] = [];
   const indexByKey = new Map<string, number>();
   for (const row of rows) {
-    const key =
-      row.responseId && row.responseId.trim()
-        ? `${row.profile}::${row.responseId.trim()}`
-        : `${row.profile}::row:${groups.length}:${row.vin}`;
+    const key = radarHttpCallKey(row);
     const existing = indexByKey.get(key);
     if (existing != null) {
       groups[existing]!.push(row);
@@ -55,6 +62,13 @@ function groupByHttpCall(rows: RadarActivityRow[]): RadarActivityRow[][] {
     groups.push([row]);
   }
   return groups;
+}
+
+function decisionLabel(row: RadarActivityRow): string {
+  if (row.decision === "alert" || row.decision === "skip") return row.decision;
+  if (row.alerted) return "alert";
+  if (row.decision == null || row.decision === "") return "no_decision";
+  return row.decision;
 }
 
 export function journalFromRadarActivity(
@@ -92,16 +106,21 @@ export function journalFromRadarActivity(
         head.decision === "timeout");
     const secs = head.latencyMs > 0 ? Math.max(1, Math.round(head.latencyMs / 1000)) : null;
     const alertCount = group.filter((row) => row.decision === "alert" || row.alerted).length;
-    const skipCount = group.filter((row) => row.decision === "skip" || (row.ok && !row.alerted && row.decision !== "alert")).length;
-    const batched = group.length > 1 && Boolean(head.responseId?.trim());
+    const skipCount = group.filter((row) => row.decision === "skip").length;
+    const noDecisionCount = group.filter(
+      (row) => decisionLabel(row) === "no_decision" && !row.alerted,
+    ).length;
+    const batched = group.length > 1;
 
     journal = appendJournalStep(journal, {
       kind,
       actor: "SERV",
       decided: batched
-        ? `${head.profile} HTTP call — ${group.length} decisions (${alertCount} alert, ${skipCount} skip)`
+        ? `${head.profile} HTTP call — ${group.length} decisions (${alertCount} alert, ${skipCount} skip${
+            noDecisionCount > 0 ? `, ${noDecisionCount} no_decision` : ""
+          })`
         : head.ok
-          ? `${head.profile} → ${head.decision ?? (head.alerted ? "alert" : "skip")}${head.vin ? ` for ${head.vin}` : ""}`
+          ? `${head.profile} → ${decisionLabel(head)}${head.vin ? ` for ${head.vin}` : ""}`
           : `${head.profile} failed${head.vin ? ` for ${head.vin}` : ""}`,
       why: timedOut
         ? secs != null
@@ -109,13 +128,14 @@ export function journalFromRadarActivity(
           : "SERV timed out"
         : batched
           ? `One batched HTTP response. Decisions: ${group
-              .map((row) => `${row.vin}:${row.decision ?? (row.alerted ? "alert" : "skip")}`)
+              .map((row) => `${row.vin}:${decisionLabel(row)}`)
               .join(", ")}.`
           : head.note?.trim() || (head.ok ? "Agent used code-computed facts only." : "Agent call failed."),
       inputsUsed: [
         ...[...new Set(group.flatMap((row) => (row.vin ? [`vin:${row.vin}`] : [])))],
         `search:${head.searchId}`,
         `check:${head.profile}`,
+        ...(head.callId?.trim() ? [`call:${head.callId.trim()}`] : []),
         ...(batched ? [`http_decisions:${group.length}`] : []),
       ],
       changed: null,
@@ -128,18 +148,24 @@ export function journalFromRadarActivity(
 
     if (batched) {
       for (const row of group) {
+        const label = decisionLabel(row);
+        const missing = label === "no_decision";
         journal = appendJournalStep(journal, {
           kind,
           actor: "SERV",
-          decided: `${row.profile} → ${row.decision ?? (row.alerted ? "alert" : "skip")} for ${row.vin}`,
-          why: row.note?.trim() || "Decision from the batched HTTP response above.",
+          decided: missing
+            ? `${row.profile} → no decision for ${row.vin}`
+            : `${row.profile} → ${label} for ${row.vin}`,
+          why: missing
+            ? row.note?.trim() || "No decision in this SERV response."
+            : row.note?.trim() || "Decision from the batched HTTP response above.",
           inputsUsed: [`vin:${row.vin}`, `search:${row.searchId}`, `check:${row.profile}`],
           changed: null,
           model: row.modelReported || row.modelRequested || null,
           responseId: row.responseId,
           recordedAt: row.at || recordedAt,
-          rejected: row.ok ? null : "http_error",
-          // Same HTTP call — do not inflate SERV call count.
+          // HTTP succeeded for the batch — a missing VIN verdict is not an http_error.
+          rejected: row.ok ? null : timedOut ? "timeout" : "http_error",
           countServCall: false,
         });
       }
@@ -160,6 +186,11 @@ export function journalFromRadarActivity(
       recordedAt,
       rejected: null,
     });
+  }
+
+  // Never display a call count above the documented Radar cap.
+  if (journal.servCalls > journal.servCallCap) {
+    journal = { ...journal, servCalls: journal.servCallCap };
   }
 
   return journal;

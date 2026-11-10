@@ -19,8 +19,17 @@ function actionFromDecided(decided: string): string | null {
   return match?.[1]?.toLowerCase() ?? null;
 }
 
+function isSuccessfulServPick(decided: string, rejected: string | null): boolean {
+  if (rejected) return false;
+  // Exact pick step — not "Challenge revised pick …", not decide, not rejected/unavailable.
+  if (!/^Pick\s+/i.test(decided.trim())) return false;
+  if (/rejected|unavailable|timed?\s*out|timeout/i.test(decided)) return false;
+  return true;
+}
+
 /**
  * Derive lineage from journal steps plus the published final action.
+ * SERV pick comes only from a successful pick step or the guardrail "SERV said …" line.
  */
 export function resaleVerdictLineage(
   journal: ResaleDecisionJournal | null | undefined,
@@ -31,21 +40,37 @@ export function resaleVerdictLineage(
   let guardrail: string | null = null;
   let guardrailWhy: string | null = null;
   let decideWhy: string | null = null;
+  let codeFallback: string | null = null;
 
   for (const step of journal.steps) {
-    if (step.actor === "SERV" && (step.kind === "pick" || /Pick |Verdict decide/i.test(step.decided))) {
+    if (step.actor === "SERV" && isSuccessfulServPick(step.decided, step.rejected)) {
       const action = actionFromDecided(step.decided);
-      if (action) {
-        // Prefer the earliest SERV pick; later decide may overwrite for display as final.
-        if (servPick == null || /Pick /i.test(step.decided)) servPick = action;
-      }
-      if (/Verdict decide/i.test(step.decided) && step.why?.trim()) {
-        decideWhy = step.why.trim();
-      }
+      if (action && servPick == null) servPick = action;
     }
+
+    if (
+      step.actor === "SERV" &&
+      /Verdict decide/i.test(step.decided) &&
+      !step.rejected &&
+      step.why?.trim() &&
+      /Gate result:/i.test(step.why)
+    ) {
+      decideWhy = step.why.trim();
+    }
+
+    if (
+      step.actor === "SERV" &&
+      (/Pick rejected|Pick unavailable|Pick .*timed?\s*out|timeout/i.test(step.decided) ||
+        (step.rejected != null && /^Pick\s+/i.test(step.decided)))
+    ) {
+      codeFallback = step.why?.trim() || step.decided;
+    }
+
     if (step.actor === "code" && /Guardrail capped SERV/i.test(step.decided)) {
       const to = step.decided.match(/→\s*(buy|negotiate|pass|needs_inspection)\b/i)?.[1];
-      const from = step.decided.match(/SERV\s+(buy|negotiate|pass|needs_inspection)\b/i)?.[1];
+      const from =
+        step.decided.match(/SERV\s+(buy|negotiate|pass|needs_inspection)\b/i)?.[1] ??
+        step.why?.match(/SERV said\s+(buy|negotiate|pass|needs_inspection)\b/i)?.[1];
       if (to) {
         guardrail = to.toLowerCase();
         if (from && !servPick) servPick = from.toLowerCase();
@@ -55,8 +80,7 @@ export function resaleVerdictLineage(
   }
 
   const final = finalAction.trim().toLowerCase();
-  if (!servPick && !guardrail) {
-    // Still show final when no SERV pick was recorded.
+  if (!servPick && !guardrail && !codeFallback) {
     return {
       chain: `Final verdict: ${final}`,
       servPick: null,
@@ -68,13 +92,12 @@ export function resaleVerdictLineage(
 
   const parts: string[] = [];
   if (servPick) parts.push(`SERV pick: ${servPick}`);
+  else if (codeFallback) parts.push("code fallback");
   if (guardrail) parts.push(`margin guardrail: ${guardrail}`);
   parts.push(`final verdict: ${final}`);
 
-  const reason =
-    decideWhy ||
-    guardrailWhy ||
-    null;
+  // Prefer guardrail why (margin numbers); else decide why that already cites Gate result.
+  const reason = guardrailWhy || decideWhy || (codeFallback && !servPick ? codeFallback : null);
   const reasonSuffix = reason
     ? ` (${reason.length > 180 ? `${reason.slice(0, 177)}…` : reason})`
     : "";

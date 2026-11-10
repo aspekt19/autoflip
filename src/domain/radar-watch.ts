@@ -72,7 +72,13 @@ export type WatchAlert = {
   searchId: string;
   vin: string;
   createdAt: string;
-  status: "new" | "skipped" | "opened";
+  /**
+   * new / opened — counted alerts.
+   * skipped — buyer or Telegram dismissal (not a SERV review).
+   * serv_skipped — SERV radar_review said skip (Reviewed — skipped).
+   * not_reviewed — decision map existed but this VIN had no alert/skip.
+   */
+  status: "new" | "skipped" | "opened" | "serv_skipped" | "not_reviewed";
   mode: Mode;
   year: number;
   make: string;
