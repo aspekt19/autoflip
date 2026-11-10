@@ -16,7 +16,8 @@ describe("providerResponseId", () => {
   });
 
   it("rejects bare UUIDs (local callId) and chatcmpl-<uuid>", () => {
-    const uuid = "0fc22f78-ff49-41e6-9ac1-25ec62e96e62";
+    // Provenance: UUID-shaped error-body id recorded in eval/results/latest.json (chatcmpl-6d69ce35-7705-440a-b716-023484661bbe).
+    const uuid = "6d69ce35-7705-440a-b716-023484661bbe";
     expect(isLocalCallUuid(uuid)).toBe(true);
     expect(isSyntheticChatCmplId(`chatcmpl-${uuid}`)).toBe(true);
     expect(providerResponseId(uuid)).toBeNull();

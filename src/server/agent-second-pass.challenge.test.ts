@@ -81,7 +81,8 @@ describe("runReportVerdictChallenge failure trail", () => {
       proof: {
         latencyMs: 14_012,
         modelReported: "gpt-test",
-        openserv: { id: "chatcmpl-7d34dd97-5ff2-4429-84e5-f6361a67fc73", usage: { total_tokens: 40 } },
+        // Provenance: UUID-shaped error-body id from eval/results/latest.json.
+        openserv: { id: "chatcmpl-e628e77a-34ac-41f6-aade-f8e38f0932a1", usage: { total_tokens: 40 } },
       },
       fallback: "ignored_malformed",
       upstream: "empty_text",
@@ -105,7 +106,7 @@ describe("runReportVerdictChallenge failure trail", () => {
     expect(result.rawDump).toMatch(/empty explanation/i);
     // Error-body ids must never be shown as provider response ids.
     expect(result.rawDump).toMatch(/no response id/i);
-    expect(result.rawDump).not.toMatch(/chatcmpl-7d34dd97/);
+    expect(result.rawDump).not.toMatch(/chatcmpl-e628e77a/);
     expect(result.rawDump).toMatch(/first verdict stands/i);
   });
 
@@ -117,7 +118,8 @@ describe("runReportVerdictChallenge failure trail", () => {
       proof: {
         latencyMs: 1_244,
         modelReported: "gpt-5.4-mini",
-        openserv: { id: "chatcmpl-91e97028-9249-4df4-a8ab-eccac014750d", usage: { total_tokens: 40 } },
+        // Provenance: UUID-shaped error-body id from eval/results/latest.json.
+        openserv: { id: "chatcmpl-129673dc-154b-4061-b2b5-4b347044c459", usage: { total_tokens: 40 } },
       },
       fallback: "ignored_malformed",
       upstream: "refusal",
@@ -145,6 +147,6 @@ describe("runReportVerdictChallenge failure trail", () => {
     );
     expect(result.rawDump).toMatch(/message_content_null_refusal_field/);
     expect(result.rawDump).toMatch(/no response id/i);
-    expect(result.rawDump).not.toMatch(/chatcmpl-91e97028/);
+    expect(result.rawDump).not.toMatch(/chatcmpl-129673dc/);
   });
 });
