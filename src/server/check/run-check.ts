@@ -43,7 +43,7 @@ import { actionLabel, isServDecisionAction, verdictFromAction } from "@/domain/d
 import { confidenceLabel } from "@/domain/agent-verdict-schema";
 import { verdictLabel } from "@/domain/format";
 import type { FuelFact, Listing, RecallRecord, Verdict, VinDecode } from "@/domain/types";
-import { valuationReuseNote, type VinDayValuation } from "@/domain/vin-day-valuation";
+import { valuationReuseNote } from "@/domain/vin-day-valuation";
 import { autodevByVin, autodevByVdp, autodevSearch, type AutodevDeps } from "@/io/autodev";
 import {
   complaintCountFor,
@@ -55,7 +55,7 @@ import {
 import { safetyRatingsFor } from "@/io/nhtsa-safety";
 import { extractFromListingUrl, extractFromPastedText, type ListingExtractDeps } from "./extract-listing";
 import { getKv, type Kv } from "@/io/kv";
-import { readVinDayValuation, rememberVinDayValuation } from "@/io/vin-day-valuation-store";
+import { getOrComputeValuation } from "@/io/vin-day-valuation-store";
 import { isServerlessRuntime, requireSharedQuotaForPaidDispatch } from "@/server/paid-dispatch-guard";
 import { GENERATION_YEAR_WINDOW } from "@/domain/adjusted-comparables";
 import { ASSUMPTIONS } from "@/domain/assumptions";
@@ -630,7 +630,24 @@ async function buildListingVerdict(
         : [subject, ...comps.listings]
       : [subject, ...providerListings];
 
-  const badge = priceBadge(subject, pool);
+  // Same getOrComputeValuation path as VIN Check / Find (ZIP + 500 mi when local).
+  const checkRadius = zip ? 500 : null;
+  let badge =
+    subject.vin && subject.vin.length === 17 && subject.priceUsd != null
+      ? (
+          await getOrComputeValuation({
+            kv: input.deps.kv ?? getKv(),
+            vin: subject.vin,
+            zip,
+            radiusMiles: checkRadius,
+            priceUsd: subject.priceUsd,
+            subject,
+            pool,
+            source: "check_listing",
+            now: input.deps.now ?? new Date(),
+          })
+        ).badge
+      : priceBadge(subject, pool);
   const gov = await govBundle(fields.vin.value, subject, { fetch: fetchImpl });
   const vinMismatch = mismatchNote(gov.vinDecode, subject);
 
@@ -1030,6 +1047,8 @@ async function buildVinDossier(vin: string, deps: CheckRunDeps, optionalZip?: st
 
   if (hasAsk && hasMiles) {
     const zip = subject.zip?.replace(/\D/g, "").slice(0, 5) || null;
+    // Match searchComps: wide local radius when ZIP present.
+    const checkRadius = zip ? 500 : null;
     const comps = await searchComps({
       make: subject.make,
       model: subject.model,
@@ -1046,45 +1065,26 @@ async function buildVinDossier(vin: string, deps: CheckRunDeps, optionalZip?: st
           ? comps.listings
           : [subject, ...comps.listings]
         : [subject];
-    badge = priceBadge(subject, pool, { decodedTrim: decode.trim ?? subject.trim });
-    // Same VIN + UTC day → one published fair value across Find and Check.
     const kv = deps.kv ?? getKv();
     const now = deps.now ?? new Date();
-    let locked: VinDayValuation | null = null;
-    if (subject.vin && subject.vin.length === 17) {
-      locked = await readVinDayValuation(kv, subject.vin, now);
-      if (
-        locked &&
-        badge.fairValueUsd != null &&
-        badge.sampleSize != null &&
-        (locked.fairValueUsd !== Math.round(badge.fairValueUsd) || locked.sampleSize !== badge.sampleSize)
-      ) {
-        badge = {
-          ...badge,
-          fairValueUsd: locked.fairValueUsd,
-          sampleSize: locked.sampleSize,
-          deltaUsd:
-            subject.priceUsd != null ? Math.round(subject.priceUsd - locked.fairValueUsd) : badge.deltaUsd,
-          deltaLabel:
-            subject.priceUsd != null
-              ? subject.priceUsd === locked.fairValueUsd
-                ? `At the fair value of $${locked.fairValueUsd.toLocaleString("en-US")}, based on ${locked.sampleSize} similar listings`
-                : subject.priceUsd < locked.fairValueUsd
-                  ? `$${(locked.fairValueUsd - subject.priceUsd).toLocaleString("en-US")} below the fair value of $${locked.fairValueUsd.toLocaleString("en-US")}, based on ${locked.sampleSize} similar listings`
-                  : `$${(subject.priceUsd - locked.fairValueUsd).toLocaleString("en-US")} above the fair value of $${locked.fairValueUsd.toLocaleString("en-US")}, based on ${locked.sampleSize} similar listings`
-              : badge.deltaLabel,
-          sampleNote: `${valuationReuseNote(locked)}${badge.sampleNote ? ` ${badge.sampleNote}` : ""}`,
-        };
-      } else if (badge.fairValueUsd != null && badge.sampleSize != null) {
-        await rememberVinDayValuation(kv, {
-          vin: subject.vin,
-          fairValueUsd: badge.fairValueUsd,
-          sampleSize: badge.sampleSize,
-          methodNote: badge.sampleNote ?? "Check adjusted similar listings",
-          source: "check",
-          now,
-        }).catch(() => undefined);
-      }
+    let valuation = null as Awaited<ReturnType<typeof getOrComputeValuation>>["valuation"];
+    if (subject.vin && subject.vin.length === 17 && subject.priceUsd != null) {
+      const got = await getOrComputeValuation({
+        kv,
+        vin: subject.vin,
+        zip,
+        radiusMiles: checkRadius,
+        priceUsd: subject.priceUsd,
+        subject,
+        pool,
+        source: "check_vin",
+        now,
+        decodedTrim: decode.trim ?? subject.trim,
+      });
+      badge = got.badge;
+      valuation = got.valuation;
+    } else {
+      badge = priceBadge(subject, pool, { decodedTrim: decode.trim ?? subject.trim });
     }
     const zipPick = zipChoice(null, zip);
     readiness = buildPurchaseReadiness({
@@ -1119,20 +1119,20 @@ async function buildVinDossier(vin: string, deps: CheckRunDeps, optionalZip?: st
       now,
       recallCampaignCount: bundle.recallsAvailable ? bundle.recalls.length : null,
     });
-    // When fair value is locked to Find, keep readiness mid aligned so OTD/copy do not diverge.
-    if (locked && readiness.offer.fairMidUsd != null && readiness.offer.fairMidUsd !== locked.fairValueUsd) {
+    // Keep readiness mid / count aligned with the published valuation record.
+    if (valuation && readiness.offer.fairMidUsd != null) {
       readiness = {
         ...readiness,
         offer: {
           ...readiness.offer,
-          fairMidUsd: locked.fairValueUsd,
-          compCount: locked.sampleSize,
+          fairMidUsd: valuation.fairValueUsd,
+          compCount: valuation.sampleSize,
         },
       };
     }
     topComps = (readiness.offer.similarCars ?? []).slice(0, 8);
-    if (locked) {
-      lockedValuationNote = valuationReuseNote(locked);
+    if (valuation) {
+      lockedValuationNote = valuationReuseNote(valuation);
     }
   }
 

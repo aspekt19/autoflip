@@ -22,7 +22,7 @@ import { reconUsd } from "@/domain/recon";
 import type { Listing } from "@/domain/types";
 import { geoScopeFromSearch, rememberComps, type CompGeoScope } from "@/io/comp-cache";
 import type { Kv } from "@/io/kv";
-import { rememberVinDayValuation } from "@/io/vin-day-valuation-store";
+import { getOrComputeValuation } from "@/io/vin-day-valuation-store";
 import { assembleRadar, type AssembleDeps } from "@/server/assemble";
 import {
   isServerlessRuntime,
@@ -650,27 +650,35 @@ export async function runFindMatch(
     compsPool,
   );
   for (const group of groups) {
-    group.listings = group.listings.map((item) => {
-      const priceView = item.priceView;
-      const usable = priceView?.usableForBudget !== false;
-      const badge = usable
-        ? priceBadge(item, compsPool, { rankingPriceProvisional })
-        : priceBadge({ ...item, priceUsd: null }, compsPool, { rankingPriceProvisional });
-      // Remember priced VINs so Check can reuse the same fair value today.
-      if (badge.fairValueUsd != null && badge.sampleSize != null && item.vin && item.vin.length === 17) {
-        void rememberVinDayValuation(deps.kv, {
+    group.listings = await Promise.all(
+      group.listings.map(async (item) => {
+        const priceView = item.priceView;
+        const usable = priceView?.usableForBudget !== false;
+        if (!usable || item.priceUsd == null || !(item.vin && item.vin.length === 17)) {
+          return {
+            ...item,
+            badge: priceBadge(
+              usable ? item : { ...item, priceUsd: null },
+              compsPool,
+              { rankingPriceProvisional },
+            ),
+          };
+        }
+        // One record per VIN/ZIP/radius/day — Find badges from the returned record.
+        const { badge } = await getOrComputeValuation({
+          kv: deps.kv,
           vin: item.vin,
-          fairValueUsd: badge.fairValueUsd,
-          sampleSize: badge.sampleSize,
-          methodNote: badge.sampleNote ?? badge.deltaLabel ?? "Find adjusted similar listings",
+          zip: searchZip ?? item.zip,
+          radiusMiles: radiusMiles,
+          priceUsd: item.priceUsd,
+          subject: item,
+          pool: compsPool,
           source: "find",
-        }).catch(() => undefined);
-      }
-      return {
-        ...item,
-        badge,
-      };
-    });
+          rankingPriceProvisional,
+        });
+        return { ...item, badge };
+      }),
+    );
     const coverageInput = {
       mode: need.mode,
       sample: false,
