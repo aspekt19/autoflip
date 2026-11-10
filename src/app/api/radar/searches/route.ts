@@ -6,7 +6,7 @@ import { parseDistanceMiles } from "@/domain/need";
 import { getKv } from "@/io/kv";
 import { allowance } from "@/server/plan-book";
 import { listSearches, saveSearches } from "@/server/radar-store";
-import { isDemoUser, ledgerOwnerId } from "@/server/session";
+import { requireVerifiedAccountForRadar } from "@/server/session";
 
 export const dynamic = "force-dynamic";
 
@@ -17,7 +17,9 @@ export async function POST(request: Request) {
       { status: 404 },
     );
   }
-  const id = await ledgerOwnerId();
+  const access = await requireVerifiedAccountForRadar();
+  if (!access.ok) return access.response;
+  const id = access.id;
   const body = (await request.json().catch(() => null)) as { name?: string; mode?: string; criteria?: WatchCriteria } | null;
   const criteria = body?.criteria;
   if (!criteria || !criteria.zip || !criteria.priceMax) {
@@ -44,12 +46,6 @@ export async function POST(request: Request) {
   if (!allowed.ok) {
     return Response.json({ error: "plan_required", message: allowed.message }, { status: 402 });
   }
-  if (isDemoUser(id) && mine.some((item) => !item.preset)) {
-    return Response.json(
-      { error: "demo_limit", message: "The shared preview already has its one extra saved search." },
-      { status: 403 },
-    );
-  }
   if (mine.length >= 5) {
     return Response.json({ error: "limit", message: "Five saved searches is the maximum." }, { status: 403 });
   }
@@ -65,17 +61,10 @@ export async function POST(request: Request) {
     lastCheckedAt: null,
   });
   await saveSearches(kv, searches);
-  return Response.json({ ok: true, demo: isDemoUser(id) });
+  return Response.json({ ok: true });
 }
 
 function normalizeCriteria(criteria: WatchCriteria, mode: "personal" | "flip", radiusMiles: number): WatchCriteria {
-  const notes =
-    typeof criteria.notes === "string" && criteria.notes.trim()
-      ? criteria.notes.trim().slice(0, 500)
-      : undefined;
-  const priorities = Array.isArray(criteria.priorities)
-    ? criteria.priorities.filter((item): item is string => typeof item === "string").slice(0, 12)
-    : undefined;
   if (mode === "flip") {
     return {
       priceMax: Number(criteria.priceMax),
@@ -83,8 +72,6 @@ function normalizeCriteria(criteria: WatchCriteria, mode: "personal" | "flip", r
       radiusMiles,
       repairAbility: criteria.repairAbility ?? "unknown",
       minProfitUsd: typeof criteria.minProfitUsd === "number" ? criteria.minProfitUsd : undefined,
-      notes,
-      priorities,
     };
   }
   const models = modelList(criteria);
@@ -98,8 +85,6 @@ function normalizeCriteria(criteria: WatchCriteria, mode: "personal" | "flip", r
     zip: String(criteria.zip),
     radiusMiles,
     milesMax: criteria.milesMax,
-    notes,
-    priorities,
   };
 }
 

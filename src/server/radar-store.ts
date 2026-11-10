@@ -1,7 +1,6 @@
 import type { Kv } from "@/io/kv";
 import { LINK_TTL_MS } from "@/io/telegram";
 import type { SavedSearch, WatchAlert } from "@/domain/radar-watch";
-import { syncPresetSearches } from "@/domain/demo-presets";
 import { DEMO_USER_ID } from "@/domain/radar-watch";
 import { creditSet } from "@/io/credit-book";
 
@@ -233,6 +232,5 @@ export async function ensureDemoAccount(kv: Kv, now = new Date()): Promise<void>
   if (Number.isInteger(credits) && credits >= 0) {
     await creditSet(kv, DEMO_USER_ID, credits, `demo-refill:${day}`);
   }
-  const synced = syncPresetSearches(await listSearches(kv), now.toISOString());
-  if (synced.changed) await saveSearches(kv, synced.searches);
+  // Do not seed demo/preset watches — Radar saved searches are account-owned only.
 }

@@ -168,7 +168,23 @@ describe("radar cycle", () => {
     expect(seenAfter.has("2T3ZFREV2JW123456") || (await listAlerts(kv)).some((item) => item.vin === "2T3ZFREV2JW123456")).toBe(true);
     expect(second.listings).toBeGreaterThan(0);
     const stored = await listSearches(kv);
-    expect(stored.find((item) => item.id === "preset-personal-rav4")?.criteria.priceMax).toBe(demoPresets()[0]!.criteria.priceMax);
+    expect(stored.some((item) => item.preset || item.id.startsWith("preset-"))).toBe(false);
+    expect(stored.map((item) => item.id)).toEqual(["custom-rav4"]);
+  });
+
+  it("does not inject demo preset watches on an empty cron run", async () => {
+    const kv = new MemoryKv();
+    const run = await runRadarCycle({
+      kv,
+      now: new Date("2026-11-04T12:00:00Z"),
+      trigger: "cron",
+      fetchImpl: async () => new Response("{}", { status: 200 }),
+      autodevKey: "test",
+      origin: "https://autoflip.example",
+      env: {},
+    });
+    expect(run.uniqueSearches).toBe(0);
+    expect(await listSearches(kv)).toEqual([]);
   });
 
   it("does not say Not enough similar cars next to a fair value when the miles cap drops comps", async () => {

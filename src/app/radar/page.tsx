@@ -11,6 +11,7 @@ import type { ResaleDecisionJournal } from "@/domain/resale-decision-journal";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useRef, useState, type FormEvent } from "react";
 import { MakeModelFields } from "@/components/MakeModelFields";
+import { SignInGate } from "@/components/SignInGate";
 import { ZipRadiusFields } from "@/components/ZipRadiusFields";
 import { parseUsdInput } from "@/domain/budget";
 import { parseDistanceMiles } from "@/domain/need";
@@ -707,7 +708,9 @@ function SaveSearchForm({ onSaved }: { onSaved: () => void }) {
 export default function RadarPage() {
   return (
     <Suspense fallback={<div className="wrap site-frame page">Loading Deal Radar…</div>}>
-      <RadarInner />
+      <SignInGate callbackPath="/radar">
+        <RadarInner />
+      </SignInGate>
     </Suspense>
   );
 }

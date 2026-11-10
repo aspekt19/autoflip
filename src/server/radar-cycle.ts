@@ -28,7 +28,6 @@ import { validateResaleServOutput } from "@/domain/resale-serv-validate";
 import { interpretGuard, runServ, servBudget, type ProfileId, type ServProof } from "@/server/serv";
 import { alertMessage, type AlertCopy } from "@/io/telegram";
 import type { Listing } from "@/domain/types";
-import { syncPresetSearches } from "@/domain/demo-presets";
 import { resolveProductFlags } from "@/domain/product-flags";
 import { journalFromRadarActivity } from "@/domain/radar-activity-journal";
 import { reviewPersonalCandidate, type RadarServActivity } from "./radar-serv";
@@ -122,9 +121,8 @@ export async function runRadarCycle(deps: CycleDeps): Promise<StoredRun> {
     );
 
   try {
-    const synced = syncPresetSearches(await listSearches(deps.kv), deps.now.toISOString());
-    if (synced.changed) await saveSearches(deps.kv, synced.searches);
-    const searches = synced.searches.filter((item) => item.enabled);
+    // Never inject demo/preset watches on cron — only user-saved searches run in prod.
+    const searches = (await listSearches(deps.kv)).filter((item) => item.enabled);
     const groups = groupByCriteria(searches);
     uniqueSearches = groups.size;
     const callWeight = [...groups.values()].reduce((sum, group) => sum + listingQueries(group[0]!).length, 0);
