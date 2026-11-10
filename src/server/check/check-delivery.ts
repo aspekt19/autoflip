@@ -24,6 +24,6 @@ export async function readCheckDelivery(kv: Kv, key: string): Promise<CheckDeliv
 }
 
 export async function storeCheckDelivery(kv: Kv, key: string, record: CheckDeliveryRecord): Promise<void> {
-  // Month-scoped — TTL a bit over a calendar month so stale keys expire.
-  await kv.set(key, JSON.stringify(record), { ttlMs: 40 * 24 * 60 * 60 * 1000 });
+  // Month is already in the key; Kv.set has no TTL option (only setNx does for locks).
+  await kv.set(key, JSON.stringify(record));
 }
