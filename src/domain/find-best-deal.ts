@@ -273,6 +273,7 @@ export type BestDealRiskIndex = {
   campaignCountByMmy: Map<string, number>;
   ncapOverallByMmy: Map<string, number | null>;
   parkItByMmy: Map<string, boolean>;
+  parkOutsideByMmy: Map<string, boolean>;
 };
 
 /** Build MMY risk indexes from free-gov receipts (MMY-scope only). */
@@ -280,6 +281,7 @@ export function riskIndexFromReceipts(receipts: readonly FindFreeGovReceipt[]): 
   const campaignCountByMmy = new Map<string, number>();
   const ncapOverallByMmy = new Map<string, number | null>();
   const parkItByMmy = new Map<string, boolean>();
+  const parkOutsideByMmy = new Map<string, boolean>();
   for (const r of receipts) {
     const key = mmyListingKey(r.make, r.model, r.year);
     if (r.checkId === "free_gov_recalls" && r.riskFacts) {
@@ -289,6 +291,7 @@ export function riskIndexFromReceipts(receipts: readonly FindFreeGovReceipt[]): 
       }
       if (r.riskFacts.parkIt === true) parkItByMmy.set(key, true);
       else if (recallEvidenceState(r) === "none_found" && !parkItByMmy.has(key)) parkItByMmy.set(key, false);
+      if (r.riskFacts.parkOutside === true) parkOutsideByMmy.set(key, true);
     }
     // Any safety receipt attempt indexes the MMY so settled scoring never says "not on file yet".
     if (r.checkId === "free_gov_safety") {
@@ -297,7 +300,7 @@ export function riskIndexFromReceipts(receipts: readonly FindFreeGovReceipt[]): 
       else if (!ncapOverallByMmy.has(key)) ncapOverallByMmy.set(key, null);
     }
   }
-  return { campaignCountByMmy, ncapOverallByMmy, parkItByMmy };
+  return { campaignCountByMmy, ncapOverallByMmy, parkItByMmy, parkOutsideByMmy };
 }
 
 function extractNcapOverall(r: FindFreeGovReceipt): number | null | undefined {
@@ -794,6 +797,13 @@ function scoreOne(
     unknowns.push("Couldn't confirm recall campaigns for this year/make/model");
   } else if (ctx.risk.campaignCountByMmy.has(mmy)) {
     const count = ctx.risk.campaignCountByMmy.get(mmy) ?? 0;
+    const parkIt = ctx.risk.parkItByMmy.get(mmy) === true;
+    const parkOutside = !parkIt && ctx.risk.parkOutsideByMmy.get(mmy) === true;
+    const stopBit = parkIt
+      ? " including park-it / do-not-drive guidance"
+      : parkOutside
+        ? " including outdoor-parking / fire-risk guidance"
+        : "";
     const points = clamp((3 - Math.min(count, 6)) / 3, -1, 1) * WEIGHTS.recalls;
     score += points;
     factors.push({
@@ -802,8 +812,8 @@ function scoreOne(
       points: round1(points),
       detail:
         count === 0
-          ? "No recall campaigns on file for this year/make/model (not VIN open/closed status)"
-          : `${count} campaign${count === 1 ? "" : "s"} recorded for this year/make/model (not VIN open/closed status)`,
+          ? `No recall campaigns on file for this year/make/model${stopBit} (not VIN open/closed status)`
+          : `${count} campaign${count === 1 ? "" : "s"} recorded for this year/make/model${stopBit} (not VIN open/closed status)`,
       source: "NHTSA recalls (year/make/model scope)",
     });
   } else {
