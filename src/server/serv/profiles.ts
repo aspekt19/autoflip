@@ -14,16 +14,11 @@
 
 import { CONNECT_HELP } from "@/io/telegram";
 
-/**
- * Shared production default for every SERV profile (PR A owns this constant).
- * Gemini requires POST /v1/chat/completions only; schema failures fall back to SCHEMA_FALLBACK_MODEL.
- */
-export const BASE_MODEL = "gemini-3.1-pro-preview";
-/** Retry once on json_schema failure when the primary model cannot satisfy the contract. */
-export const SCHEMA_FALLBACK_MODEL = "gpt-5.6-sol";
+/** Shared production default for every SERV profile (PR A owns this constant). */
+export const BASE_MODEL = "gpt-5.6-sol";
 export const SHADOW_MAX_ITERATIONS = 2;
 
-/** True when the base id (suffixes stripped) is a Gemini model. */
+/** True when the base id (suffixes stripped) is a Gemini model (chat/completions only). */
 export function isGeminiModelId(model: string): boolean {
   const base = model.replace(/-serv-(kronos-multipath|multipath-kronos|multipath|kronos)$/i, "");
   return /^gemini-/i.test(base);
@@ -282,7 +277,7 @@ export const PROFILES = {
     promptCache: "default",
     contentFilter: "default_on",
     stream: false,
-    // Gemini (shared default) is chat/completions-only — never /v1/responses.
+    // Product check path stays on chat/completions (Gemini overrides are chat-only too).
     endpoint: "chat",
     codeComputed: ["askingPriceUsd", "miles", "fairValueUsd", "priceGap", "recalls", "complaintCount"],
   },

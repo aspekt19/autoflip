@@ -1,8 +1,6 @@
 import {
   BASE_MODEL,
-  SCHEMA_FALLBACK_MODEL,
   endpointForProfile,
-  isGeminiModelId,
   modelFor,
   profile,
   streamForProfile,
@@ -180,34 +178,6 @@ function toolsFor(
   }
   if (entry.applicationTool) tools.push(factsTool(endpoint));
   return tools;
-}
-
-/** Lightweight required-keys check for structured json_schema replies. */
-export function structuredTextMatchesSchema(text: string, schema: Record<string, unknown>): boolean {
-  try {
-    const parsed = JSON.parse(text) as unknown;
-    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return false;
-    const required = Array.isArray(schema.required) ? (schema.required as string[]) : [];
-    return required.every((key) => Object.prototype.hasOwnProperty.call(parsed, key));
-  } catch {
-    return false;
-  }
-}
-
-function isSchemaFailureResult(
-  result: ServResult,
-  schema: { name: string; schema: Record<string, unknown> } | null,
-): boolean {
-  if (!schema) return false;
-  // Successful HTTP with unusable structured JSON (parse/required-keys).
-  if (result.ok) return !structuredTextMatchesSchema(result.text, schema.schema);
-  const cat = result.failureDiag?.category;
-  // Gemini parent evidence class: content-null + refusal field / schema mismatch.
-  // Empty-content alone already gets a production empty re-POST — do not model-fallback that.
-  if (cat === "schema_mismatch" || cat === "content_null_refusal_field" || cat === "refusal_prose") {
-    return true;
-  }
-  return false;
 }
 
 export function requestFor(
@@ -522,36 +492,6 @@ export function isServEndpointUrl(url: string, baseUrl?: string): boolean {
 }
 
 export async function runServ(
-  id: ProfileId,
-  input: { user: string; facts?: ServFacts },
-  deps: ServDeps & { env?: Record<string, string | undefined> } = {},
-): Promise<ServResult> {
-  const primary = await runServOnce(id, input, deps);
-  const entry = profile(id);
-  const effectiveJsonSchema = deps.jsonSchemaOverride ?? entry.jsonSchema ?? null;
-  const transportPolicy: ServTransportPolicy = deps.transportPolicy ?? "production";
-  const primaryBase = String(primary.proof?.modelRequested ?? deps.model ?? BASE_MODEL).replace(
-    /-serv-(kronos-multipath|multipath-kronos|multipath|kronos)$/i,
-    "",
-  );
-  // Production only: when the primary is Gemini, one schema-failure retry on SCHEMA_FALLBACK_MODEL.
-  if (
-    transportPolicy === "production" &&
-    effectiveJsonSchema &&
-    isGeminiModelId(primaryBase) &&
-    isSchemaFailureResult(primary, effectiveJsonSchema) &&
-    primaryBase !== SCHEMA_FALLBACK_MODEL
-  ) {
-    const fallback = await runServOnce(id, input, { ...deps, model: SCHEMA_FALLBACK_MODEL });
-    return {
-      ...fallback,
-      httpAttempts: primary.httpAttempts + fallback.httpAttempts,
-    };
-  }
-  return primary;
-}
-
-async function runServOnce(
   id: ProfileId,
   input: { user: string; facts?: ServFacts },
   deps: ServDeps & { env?: Record<string, string | undefined> } = {},

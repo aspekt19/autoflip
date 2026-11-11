@@ -1,17 +1,16 @@
 import { describe, expect, it } from "vitest";
 import {
   BASE_MODEL,
-  SCHEMA_FALLBACK_MODEL,
   PROFILES,
   endpointForProfile,
   requestFor,
   streamForProfile,
 } from "./index";
 
-describe("SERV Gemini default + chat/non-stream invariants", () => {
-  it("defaults BASE_MODEL to gemini-3.1-pro-preview with gpt-5.6-sol schema fallback", () => {
-    expect(BASE_MODEL).toBe("gemini-3.1-pro-preview");
-    expect(SCHEMA_FALLBACK_MODEL).toBe("gpt-5.6-sol");
+describe("SERV shared default + chat/non-stream invariants", () => {
+  it("defaults BASE_MODEL to gpt-5.6-sol for all steps (no Gemini)", () => {
+    expect(BASE_MODEL).toBe("gpt-5.6-sol");
+    expect(BASE_MODEL).not.toMatch(/gemini/i);
   });
 
   it("Find/verdict/check steps POST chat/completions and stay non-stream when Shadow is on", () => {
@@ -38,9 +37,9 @@ describe("SERV Gemini default + chat/non-stream invariants", () => {
     }
   });
 
-  it("forces chat for any Gemini model even if a profile still lists responses", () => {
+  it("forces chat for Gemini overrides even if a profile lists responses", () => {
     const entry = { ...PROFILES.check_rules, endpoint: "responses" as const };
     expect(endpointForProfile(entry, "gemini-3.1-pro-preview")).toBe("chat");
-    expect(endpointForProfile(entry, "gpt-5.6-sol")).toBe("chat");
+    expect(endpointForProfile(entry, BASE_MODEL)).toBe("chat");
   });
 });

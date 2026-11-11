@@ -1,8 +1,7 @@
 /**
  * Reversible per-profile SERV model configuration (t317).
  *
- * Production default is BASE_MODEL (`gemini-3.1-pro-preview`) for all SERV steps.
- * Schema failures fall back to SCHEMA_FALLBACK_MODEL (`gpt-5.6-sol`) in runServ.
+ * Production default is BASE_MODEL (`gpt-5.6-sol`) for all SERV steps.
  * Parent may opt a single profile onto an allowlisted candidate (e.g. Sonnet 5.5
  * for scout_plan) via env without a blanket BASE_MODEL flip.
  *
@@ -15,12 +14,12 @@
  * Unlisted ids fail closed unless SERV_PROFILE_MODEL_ALLOW_UNLISTED=1.
  */
 
-import { BASE_MODEL, SCHEMA_FALLBACK_MODEL, modelFor, type ProfileId } from "./profiles";
+import { BASE_MODEL, modelFor, type ProfileId } from "./profiles";
 
 /**
  * Docs + parent-evidenced candidates for product profiles.
  * Sonnet 5.5: parent SAME-input D1 grounded reject + D2 abstain (HTTP 200).
- * Gemini 3.1 Pro Preview: shared BASE_MODEL; chat/completions only; schema fallback → gpt-5.6-sol.
+ * Gemini 3.1 Pro Preview: allowlisted override only (not production default); chat/completions only.
  */
 export const SERV_PROFILE_MODEL_CANDIDATES: Partial<Record<ProfileId, readonly string[]>> = {
   scout_plan: [
@@ -107,7 +106,6 @@ export function resolveProfileBaseModel(
   // that pass an explicit model are not fail-closed when a profile has no list.
   const candidates = new Set<string>([
     BASE_MODEL,
-    SCHEMA_FALLBACK_MODEL,
     "gpt-5.6-sol",
     "gpt-5.4-mini",
     "gpt-6.1-sol",

@@ -230,7 +230,7 @@ describe("SERV output token bound (offline)", () => {
     }
   });
 
-  it("no production profile uses /v1/responses (Gemini-safe chat default)", () => {
+  it("no production profile uses /v1/responses (chat-only product paths)", () => {
     const responsesProfiles = (Object.values(PROFILES) as ServProfile[]).filter(
       (p) => p.endpoint === "responses",
     );

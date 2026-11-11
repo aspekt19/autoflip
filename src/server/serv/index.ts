@@ -1,6 +1,5 @@
 export {
   BASE_MODEL,
-  SCHEMA_FALLBACK_MODEL,
   DOCUMENTED_FEATURES,
   FLIP_SHADOW_HINT,
   PROFILES,
@@ -83,7 +82,6 @@ export {
   responseShape,
   runServ,
   servErrorSummary,
-  structuredTextMatchesSchema,
   type MessageTextMode,
   type ServDeps,
   type ServResult,

@@ -87,7 +87,7 @@ describe("SERV layer", () => {
     expect(toolNames(telegram.tools)).not.toContain("serv_shadow_agent");
 
     const rules = requestFor("check_rules", "vin");
-    // Gemini (and PR B decide/check steps) use chat/completions only — never /v1/responses.
+    // Decide/check steps use chat/completions only — never /v1/responses.
     expect(rules.endpoint).toBe("chat");
     if (rules.endpoint !== "chat") return;
     expect(rules.model).toBe(`${BASE_MODEL}-serv-kronos`);
@@ -164,8 +164,7 @@ describe("SERV layer", () => {
     for (const id of Object.keys(PROFILES) as ProfileId[]) {
       for (const feature of featuresUsedBy(id)) used.add(feature);
     }
-    // responses_reasoning stays documented but unused while shared default is Gemini
-    // (chat/completions only — no /v1/responses profiles).
+    // responses_reasoning stays documented but unused — product profiles are chat-only.
     const expected = DOCUMENTED_FEATURES.filter((f) => f !== "responses_reasoning");
     expect([...used].sort()).toEqual([...expected].sort());
     expect(used.has("responses_reasoning")).toBe(false);
