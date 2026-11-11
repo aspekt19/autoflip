@@ -52,6 +52,15 @@ export const SERV_PROFILE_MODEL_CANDIDATES: Partial<Record<ProfileId, readonly s
     "gpt-6.1-sol",
     "claude-opus-5.5",
   ],
+  find_plan: [
+    "gpt-5.4-mini",
+    "claude-sonnet-5.5",
+    "claude-sonnet-4.6",
+    "gpt-5.6-sol",
+    "claude-fable-5",
+    "gpt-6.1-sol",
+    "claude-opus-5.5",
+  ],
   verdict_decide: [
     "gpt-5.4-mini",
     "claude-sonnet-5.5",

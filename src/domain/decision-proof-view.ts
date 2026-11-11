@@ -9,7 +9,7 @@ export const DECISION_PROOF_SCHEMA = "lemonless.decision_proof.v1" as const;
 /** Shopper buy/negotiate/pass/needs_inspection rubric (ordered gates + clamp). */
 export const VERDICT_RUBRIC_ID = "lemonless.verdict_rubric.v1" as const;
 
-/** Free-text need_guard + need_extract rubric. */
+/** Free-text find_plan (C1) / legacy need_guard + need_extract rubric. */
 export const NEED_PARSE_RUBRIC_ID = "lemonless.need_parse_rubric.v1" as const;
 
 /** Radar alert/skip judgment over code price facts. */
@@ -134,6 +134,8 @@ export function decisionPurposeLabel(purpose: string): string {
       return "First decision";
     case "verdict_challenge":
       return "Second review";
+    case "find_plan":
+      return "Search plan";
     case "need_extract":
       return "Need parse";
     case "need_guard":
@@ -163,6 +165,9 @@ export function formatDecisionRecordConsumerLine(record: DecisionProofRecord): s
   const verdict = record.verdict?.trim() || null;
   const failed = record.status === "failed" || record.status === "skipped";
   switch (record.purpose) {
+    case "find_plan":
+      if (failed) return "We could not finish planning your search from your note.";
+      return "Our AI planned what to search from your note.";
     case "need_guard":
       if (failed) return "We could not finish the safety check on your note.";
       return "We checked that your note is about buying a car.";

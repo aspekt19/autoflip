@@ -26,6 +26,7 @@ import {
 import type { DecisionProof } from "@/domain/decision-note";
 import type { DecisionProofRecord } from "@/domain/decision-proof-view";
 import type { SearchDirection } from "@/domain/directions";
+import type { FindPlan } from "@/domain/find-plan";
 import { CoverageLine } from "./CoverageNote";
 import { DecisionNote } from "./DecisionNote";
 import { ConsumerDecisionProof } from "./ConsumerDecisionProof";
@@ -270,6 +271,9 @@ function AssistantFlow({
   );
   const [checks, setChecks] = useState<DecisionProof[]>([]);
   const [proofRecords, setProofRecords] = useState<DecisionProofRecord[]>([]);
+  /** C1 find_plan from /api/need — summary + directions for Confirm / match. */
+  const [findPlan, setFindPlan] = useState<FindPlan | null>(null);
+  const [planDirections, setPlanDirections] = useState<SearchDirection[] | null>(null);
   /** Buyer-facing line while a next-check hop is in flight (never a stale spinner sentence). */
   const [pendingCheckLabel, setPendingCheckLabel] = useState<string | null>(null);
   /** Home/deep-link free text used to skip /api/need; fire SERV parse once on entry. */
@@ -443,6 +447,8 @@ function AssistantFlow({
       const body = (await response.json()) as {
         source?: "model" | "form";
         need?: StructuredNeed;
+        findPlan?: FindPlan;
+        directions?: SearchDirection[];
         followUps?: FollowUp[];
         checks?: DecisionProof[];
         message?: string;
@@ -454,6 +460,10 @@ function AssistantFlow({
         return;
       }
       const finalNeed = body.need;
+      if (body.findPlan) setFindPlan(body.findPlan);
+      if (Array.isArray(body.directions) && body.directions.length > 0) {
+        setPlanDirections(body.directions);
+      }
       // Provenance from the note text only — never treat a city-resolved ZIP as “from your note”.
       const intake = intakeFromNote(text);
       const loc = resolveLocationZip({
@@ -1338,6 +1348,8 @@ function AssistantFlow({
         body: JSON.stringify({
           need,
           searchIdempotencyKey,
+          // C1 plan directions — skip proposeDirections collapse when present.
+          ...(planDirections && planDirections.length > 0 ? { directions: planDirections } : {}),
           refine: {
             make: make.trim() || undefined,
             model: model.trim() || undefined,
@@ -2097,6 +2109,19 @@ function AssistantFlow({
                 ? "This is only what you typed and the words we could match. Your ZIP has no radius — search runs Nationwide (sorted by distance to that ZIP when the feed provides it). Pick miles below to narrow, or leave Nationwide. We did not invent a default radius."
                 : "This is only what you typed and the words we could match. Nothing was invented."}
           </p>
+          {findPlan?.summary ? (
+            <p className="onboarding-note" aria-label="Plan summary">
+              {findPlan.summary}
+            </p>
+          ) : null}
+          {source === "form" && findPlan?.summary ? (
+            <p className="hint">Lemonless AI was unavailable. We searched by budget and body style.</p>
+          ) : null}
+          {findPlan?.question?.id === "zip" && findPlan.question.text ? (
+            <p className="hint" role="status">
+              {findPlan.question.text}
+            </p>
+          ) : null}
           <div className="field">
             <label htmlFor="note">Your note</label>
             <textarea id="note" rows={3} value={need.note} onChange={(event) => setNeed({ ...need, note: event.target.value })} />
@@ -2723,6 +2748,7 @@ function AssistantFlow({
                           row.purpose === "find_pick" ||
                           row.purpose === "verdict_decide" ||
                           row.purpose === "verdict_challenge" ||
+                          row.purpose === "find_plan" ||
                           row.purpose === "need_extract" ||
                           row.purpose === "need_guard" ||
                           row.purpose === "find_next_check",

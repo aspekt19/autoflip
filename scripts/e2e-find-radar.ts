@@ -120,13 +120,13 @@ async function main() {
   if (!need.res.ok || !need.body.ok) {
     throw new Error(`/api/need failed (${need.res.status}): ${JSON.stringify(need.body)}`);
   }
-  const needProof = assertProof(need.body.proofRecords, "need_extract", "/api/need");
+  const needProof = assertProof(need.body.proofRecords, "find_plan", "/api/need");
   if (needProof.status !== "ok" || !needProof.servResponseId) {
     throw new Error(
-      `/api/need need_extract must be ok with a SERV id (got status=${needProof.status} id=${needProof.servResponseId})`,
+      `/api/need find_plan must be ok with a SERV id (got status=${needProof.status} id=${needProof.servResponseId})`,
     );
   }
-  console.log("   need_extract", needProof.status, needProof.servResponseId);
+  console.log("   find_plan", needProof.status, needProof.servResponseId);
 
   const structuredNeed = need.body.need;
   if (!structuredNeed || typeof structuredNeed !== "object") {

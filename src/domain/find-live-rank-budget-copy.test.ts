@@ -255,8 +255,7 @@ describe("ranking stays principled outside the live shortlist", () => {
     const row = result.allRanked.find((car) => car.vin === vin);
     expect(row).toBeTruthy();
     const named = row!.factors.find((item) => item.id === "named_model_preference");
-    expect(named).toBeTruthy();
-    return named!;
+    return named ?? null;
   }
 
   it("does not apply a body penalty when no models are named or the named models do not share a body", () => {
@@ -290,10 +289,11 @@ describe("ranking stays principled outside the live shortlist", () => {
       listings: [camry, crv],
       nowYear: 2026,
     });
-    expect(factor(none, "CAM").points).toBe(0);
-    expect(factor(none, "CRV").points).toBe(0);
-    expect(factor(none, "CAM").detail).not.toMatch(/sedan|SUV/i);
-    expect(factor(none, "CRV").detail).not.toMatch(/sedan|SUV/i);
+    // No named models → factor may be omitted (no spam); never a body penalty.
+    expect(factor(none, "CAM")?.points ?? 0).toBe(0);
+    expect(factor(none, "CRV")?.points ?? 0).toBe(0);
+    expect(factor(none, "CAM")?.detail ?? "").not.toMatch(/sedan|SUV/i);
+    expect(factor(none, "CRV")?.detail ?? "").not.toMatch(/sedan|SUV/i);
 
     const mixed = selectBestDealOnEvidence({
       need: {

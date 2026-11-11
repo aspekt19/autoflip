@@ -105,6 +105,7 @@ export const BUYER_FORBIDDEN_TECH_PATTERNS: RegExp[] = [
   // Decision-purpose / proof internals — main view uses plain English only.
   /\bneed_guard\b/,
   /\bneed_extract\b/,
+  /\bfind_plan\b/,
   /\bfind_next_check\b/,
   /\bverdict_decide\b/,
   /\bverdict_challenge\b/,

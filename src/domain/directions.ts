@@ -14,6 +14,8 @@ export type SearchDirection = {
   models: CandidateModel[];
   /** The one make/model this direction will actually query. */
   search: CandidateModel;
+  /** Optional Auto.dev vehicle.bodyStyle when the plan is body-led. */
+  bodyStyle?: string;
 };
 
 const CROSSOVERS: CandidateModel[] = [

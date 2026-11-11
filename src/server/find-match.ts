@@ -23,7 +23,7 @@ import {
   validateNeed,
   type StructuredNeed,
 } from "@/domain/need";
-import { priceCompsUnevenAcrossListings } from "@/domain/find-best-deal";
+import { priceCompsUnevenAcrossListings, selectBestDealOnEvidence } from "@/domain/find-best-deal";
 import { priceBadge, type PriceBadge } from "@/domain/price-badge";
 import { reconUsd } from "@/domain/recon";
 import type { Listing } from "@/domain/types";
@@ -38,6 +38,45 @@ import {
 
 /** Hard ceiling on Autodev searches per /find request — not client-raisable. */
 export const FIND_MAX_PROVIDER_QUERIES = 6;
+
+/** Interim personal ranking until PR B triage — never leave sort key at 0. */
+function personalRankScores(
+  listings: readonly Listing[],
+  need: StructuredNeed,
+): Map<string, number> {
+  if (listings.length === 0) return new Map();
+  const deal = selectBestDealOnEvidence({
+    need: {
+      budgetKnown: need.budgetKnown,
+      budgetUsd: need.budgetUsd,
+      preferredModels: need.preferredModels,
+      conditionPriority: need.conditionPriority,
+      note: need.note,
+      awdPreference: need.awdPreference,
+      mustHaves: need.mustHaves,
+    },
+    listings: listings.map((row) => ({
+      key: (row.vin || `${row.year}-${row.make}-${row.model}-${row.priceUsd}`).toUpperCase(),
+      year: row.year,
+      make: row.make,
+      model: row.model,
+      priceUsd: row.priceUsd,
+      miles: row.miles,
+      vin: row.vin,
+      drivetrain: row.drivetrain,
+      fuel: row.fuel,
+      bodyStyle: row.bodyStyle,
+      style: row.style,
+      engine: row.engine,
+    })),
+  });
+  const out = new Map<string, number>();
+  for (const row of deal.allRanked) {
+    const vin = (row.vin || row.key || "").trim().toUpperCase();
+    if (vin) out.set(vin, row.score);
+  }
+  return out;
+}
 
 export type FindMatchDeps = AssembleDeps & {
   kv: Kv;
@@ -122,18 +161,25 @@ export type FindMatchResult =
       body: Record<string, unknown>;
     };
 
-function queriesForDirection(direction: SearchDirection): Array<{ make: string; model: string }> {
+function queriesForDirection(
+  direction: SearchDirection,
+): Array<{ make: string; model: string; bodyStyle?: string }> {
   // Search every planned model on the direction (named or editorial). The match
   // planner still caps at FIND_MAX_PROVIDER_QUERIES — never explode past that.
   const seen = new Set<string>();
-  const out: Array<{ make: string; model: string }> = [];
+  const out: Array<{ make: string; model: string; bodyStyle?: string }> = [];
   for (const m of direction.models) {
+    if (!m.make?.trim() && !m.model?.trim()) continue;
     const key = `${m.make}\0${m.model}`.toLowerCase();
     if (seen.has(key)) continue;
     seen.add(key);
     out.push(m);
   }
-  if (out.length === 0 && direction.search) out.push(direction.search);
+  if (out.length === 0 && direction.search?.make?.trim()) out.push(direction.search);
+  // Body-style-only direction (models emptied by validateFindPlan) — one inventory query.
+  if (out.length === 0 && direction.bodyStyle) {
+    out.push({ make: "", model: "", bodyStyle: direction.bodyStyle });
+  }
   return out;
 }
 
@@ -278,7 +324,7 @@ export async function runFindMatch(
 
   type PlannedQuery = {
     direction: SearchDirection;
-    query: { make: string; model: string };
+    query: { make: string; model: string; bodyStyle?: string };
     directionIndex: number;
   };
   const planned: PlannedQuery[] = [];
@@ -316,6 +362,7 @@ export async function runFindMatch(
         {
           make: job.query.make,
           model: job.query.model,
+          bodyStyle: job.query.bodyStyle ?? job.direction.bodyStyle,
           zip: searchZip,
           yearMin: job.direction.yearMin,
           yearMax: job.direction.yearMax,
@@ -323,6 +370,7 @@ export async function runFindMatch(
           mode: need.mode,
           milesMax: need.milesMax ?? undefined,
           priceMax: need.budgetKnown && need.budgetUsd ? need.budgetUsd : undefined,
+          skipRadarGuard: true,
         },
         deps,
       );
@@ -340,7 +388,9 @@ export async function runFindMatch(
       deps.deadline ? Math.max(1_000, deps.deadline.remainingMs()) : 60_000,
     ),
   );
-  if (deps.parallelProviderQueries && planned.length > 0) {
+  // PR A: search all planned models in parallel within the inventory stage budget.
+  const useParallel = deps.parallelProviderQueries !== false && planned.length > 0;
+  if (useParallel) {
     // Shared stage AbortController: when the inventory cap fires, abort in-flight
     // Auto.dev fetches so nothing keeps the isolate alive after we return.
     const stageAbort = new AbortController();
@@ -365,6 +415,7 @@ export async function runFindMatch(
           {
             make: job.query.make,
             model: job.query.model,
+            bodyStyle: job.query.bodyStyle ?? job.direction.bodyStyle,
             zip: searchZip,
             yearMin: job.direction.yearMin,
             yearMax: job.direction.yearMax,
@@ -372,6 +423,7 @@ export async function runFindMatch(
             mode: need.mode,
             milesMax: need.milesMax ?? undefined,
             priceMax: need.budgetKnown && need.budgetUsd ? need.budgetUsd : undefined,
+            skipRadarGuard: true,
           },
           cappedDeps,
         );
@@ -523,6 +575,8 @@ export async function runFindMatch(
     const assumption =
       need.mode === "flip" ? reconUsd({ miles: null, repairAbility: need.repairAbility }).because : null;
     const narrowed = collected.filter((item) => listingWithinNeed(item, need));
+    const personalScores =
+      need.mode === "personal" ? personalRankScores(narrowed, need) : new Map<string, number>();
     const rankedReady = withinBudget(narrowed, need.budgetUsd, need.budgetKnown)
       .map((item) => {
         const priceView = item.priceView ?? assessFindListingPrice(item);
@@ -539,7 +593,23 @@ export async function runFindMatch(
         const aOver = a.overBudget ? 1 : 0;
         const bOver = b.overBudget ? 1 : 0;
         if (aOver !== bOver) return aOver - bOver;
-        return (byVin.get(b.vin)?.score ?? 0) - (byVin.get(a.vin)?.score ?? 0);
+        if (need.mode === "flip") {
+          return (byVin.get(b.vin)?.score ?? 0) - (byVin.get(a.vin)?.score ?? 0);
+        }
+        const aKey = (a.vin || "").trim().toUpperCase();
+        const bKey = (b.vin || "").trim().toUpperCase();
+        const scoreDelta = (personalScores.get(bKey) ?? 0) - (personalScores.get(aKey) ?? 0);
+        if (scoreDelta !== 0) return scoreDelta;
+        // Soft AWD before price so preferably-AWD does not bury AWD under FWD ties.
+        if (needPrefersAwd(need)) {
+          const aAwd = /\b(awd|4wd|all[\s-]?wheel|four[\s-]?wheel)\b/i.test(a.drivetrain ?? "") ? 1 : 0;
+          const bAwd = /\b(awd|4wd|all[\s-]?wheel|four[\s-]?wheel)\b/i.test(b.drivetrain ?? "") ? 1 : 0;
+          if (aAwd !== bAwd) return bAwd - aAwd;
+        }
+        const pa = a.priceUsd ?? Number.POSITIVE_INFINITY;
+        const pb = b.priceUsd ?? Number.POSITIVE_INFINITY;
+        if (pa !== pb) return pa - pb;
+        return (a.miles ?? Number.POSITIVE_INFINITY) - (b.miles ?? Number.POSITIVE_INFINITY);
       })
       .filter((item) => {
         // Drop VINs already shown under an earlier direction; only claim shown rows.

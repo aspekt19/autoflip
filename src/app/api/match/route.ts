@@ -321,14 +321,17 @@ export async function POST(request: Request) {
       // Honest empty delivery — keep tokens for rematch but do not debit.
       balanceAfter = await creditBalance(kv, id);
       charged = false;
-      if (!result.body.message) {
-        result.body.message =
-          emptyReason === "no_directions"
-            ? "No model directions could be built for this note, so no listing search ran and no credit was used."
-            : listingCount === 0
-              ? "No cars came back from this search, so no credit was used."
-              : "The search did not deliver listings, so no credit was used.";
-      }
+      const honesty =
+        emptyReason === "no_directions"
+          ? "No model directions could be built for this note, so no listing search ran and no credit was used."
+          : listingCount === 0
+            ? "No cars came back from this search, so no credit was used."
+            : "The search did not deliver listings, so no credit was used.";
+      const prior = typeof result.body.message === "string" ? result.body.message.trim() : "";
+      result.body.message =
+        prior && !/no credit was used/i.test(prior)
+          ? `${prior.replace(/\.*$/, "")}. ${honesty}`
+          : prior || honesty;
     }
 
     const payload: FindSearchDelivery = {
