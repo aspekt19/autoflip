@@ -1,3 +1,4 @@
+import { findDeliveryChargesCredit } from "@/domain/find-delivery";
 import { validateNeed } from "@/domain/need";
 import { creditBalance, creditEventSeen } from "@/io/credit-book";
 import { getKv } from "@/io/kv";
@@ -272,9 +273,8 @@ export async function POST(request: Request) {
       );
     }
 
-    // Never charge when no listing search ran or zero cars came back (REPORT_356a:
-    // no_directions + providerQueriesUsed 0 still debited). Delivered search =
-    // at least one provider query and at least one listing.
+    // Never charge when no listing search ran or zero cars came back (REPORT_356a /
+    // AUDIT R8). Shared gate with API v1 / MCP agent find.
     const providerQueriesUsed =
       typeof result.body.providerQueriesUsed === "number" ? result.body.providerQueriesUsed : 0;
     const listingCount = Array.isArray(result.body.directions)
@@ -285,11 +285,12 @@ export async function POST(request: Request) {
       : 0;
     const emptyReason =
       typeof result.body.emptyReason === "string" ? result.body.emptyReason : null;
-    const deliveredSearch =
-      result.body.ok === true &&
-      providerQueriesUsed > 0 &&
-      listingCount > 0 &&
-      !emptyReason;
+    const deliveredSearch = findDeliveryChargesCredit({
+      ok: result.body.ok === true,
+      providerQueriesUsed,
+      listingCount,
+      emptyReason,
+    });
 
     let charged = false;
     if (!continuation && idemKey && deliveredSearch) {

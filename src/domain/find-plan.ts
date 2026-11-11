@@ -8,7 +8,6 @@ import { directionIdFromSegment, type SearchDirection } from "./directions";
 import {
   emptyNeed,
   explicitNeedFromText,
-  yearBandForBudget,
   type PreferredModel,
   type StructuredNeed,
   type UseCase,
@@ -256,6 +255,38 @@ function normalizeBodyStyle(raw: string): FindPlanBodyStyle {
   return "any";
 }
 
+const NOTE_BODY_TO_PLAN: Record<NoteBodyStyle, FindPlanBodyStyle> = {
+  SUV: "suv",
+  Sedan: "sedan",
+  Truck: "truck",
+  Hatchback: "hatchback",
+  Van: "van",
+  Wagon: "wagon",
+  Coupe: "coupe",
+  Minivan: "minivan",
+};
+
+/** Body style the buyer named in the note — used to reject mismatched SERV directions. */
+export function noteImpliedBodyStyle(note: string): FindPlanBodyStyle | null {
+  const intake = intakeFromNote(note);
+  if (!intake.bodyStyle) return null;
+  return NOTE_BODY_TO_PLAN[intake.bodyStyle] ?? null;
+}
+
+/** EV / battery-electric intent from the note (not hybrid/Prius alone). */
+export function noteImpliesEv(note: string): boolean {
+  return /\b(?:bev|battery[\s-]?electric)\b|\belectric(?:\s+(?:car|vehicle|suv|hatch(?:back)?|sedan))?\b|\bev\b(?!\s*charger)/i.test(
+    note,
+  );
+}
+
+function bodyStylesConflict(implied: FindPlanBodyStyle, direction: FindPlanBodyStyle): boolean {
+  if (implied === "any" || direction === "any") return false;
+  if (implied === direction) return false;
+  // Cargo van ≠ pickup truck; coupe ≠ sedan; etc.
+  return true;
+}
+
 function bodyStyleOnlyDirection(bodyStyles: FindPlanBodyStyle[]): FindPlanDirection {
   const primary = bodyStyles.find((item) => item !== "any") ?? "any";
   const label =
@@ -399,27 +430,61 @@ export function validateFindPlan(
     }
   }
 
+  // Prefer the body style the buyer named when SERV invents a conflicting pool
+  // (coupe→sedans, cargo van→pickups, EV→gas crossovers).
+  const impliedBody = noteImpliedBodyStyle(note);
+  let resolvedStyles = styles;
+  if (impliedBody && impliedBody !== "any") {
+    if (!resolvedStyles.includes(impliedBody) || resolvedStyles.includes("any")) {
+      resolvedStyles = [impliedBody];
+      dropped.push("bodyStyles→note");
+    }
+    const aligned = directions.filter((dir) => {
+      const dirBody = normalizeBodyStyle(dir.bodyStyle);
+      return !bodyStylesConflict(impliedBody, dirBody);
+    });
+    if (aligned.length === 0) {
+      directions = [bodyStyleOnlyDirection([impliedBody])];
+      dropped.push("directions.body→note");
+    } else {
+      directions = aligned.map((dir) =>
+        normalizeBodyStyle(dir.bodyStyle) === "any" ? { ...dir, bodyStyle: impliedBody } : dir,
+      );
+    }
+  }
+
   // Drop directions whose models were all rejected; keep body-style-only when nothing survives.
   const withModels = directions.filter((dir) => dir.models.length > 0);
   if (withModels.length > 0) {
     directions = withModels;
   } else if (directions.length > 0) {
     // All models dropped — collapse to one body-style-only direction.
-    const primary = directions[0]!.bodyStyle as FindPlanBodyStyle;
-    directions = [bodyStyleOnlyDirection(styles.includes(primary) ? [primary, ...styles] : styles)];
+    const primary = normalizeBodyStyle(directions[0]!.bodyStyle);
+    directions = [
+      bodyStyleOnlyDirection(
+        resolvedStyles.includes(primary) ? [primary, ...resolvedStyles] : resolvedStyles,
+      ),
+    ];
     dropped.push("directions.models→body");
   } else {
-    directions = [bodyStyleOnlyDirection(styles)];
+    directions = [bodyStyleOnlyDirection(resolvedStyles)];
     dropped.push("directions.empty→body");
   }
 
   // Cap 1–3 (schema already); ensure never empty.
   directions = directions.slice(0, 3);
-  if (directions.length === 0) directions = [bodyStyleOnlyDirection(styles)];
+  if (directions.length === 0) directions = [bodyStyleOnlyDirection(resolvedStyles)];
+
+  // EV note: do not leave fuel as gas/any when the buyer asked for electric.
+  let resolvedFuel = fuel;
+  if (noteImpliesEv(note) && (fuel.value === "any" || fuel.value === "gas" || fuel.value === "hybrid")) {
+    resolvedFuel = { value: "ev", strength: fuel.strength === "none" ? "preferred" : fuel.strength, quote: fuel.quote };
+    dropped.push("fuel→ev");
+  }
 
   const plan: FindPlan = {
     summary,
-    bodyStyles: styles,
+    bodyStyles: resolvedStyles,
     budget: {
       maxUsd: budgetMax,
       approximate: budgetRaw.approximate === true,
@@ -429,7 +494,7 @@ export function validateFindPlan(
     yearMax,
     milesMax,
     drivetrain,
-    fuel,
+    fuel: resolvedFuel,
     seatsMin,
     location: {
       zip: zip ?? (typeof form.zip === "string" && ZIP_RE.test(form.zip) ? form.zip : null),
@@ -532,17 +597,17 @@ export function planToStructuredNeed(
 
 /** Map plan directions into SearchDirection rows (body-style-only keeps models empty). */
 export function planToDirections(plan: FindPlan, now = new Date()): SearchDirection[] {
-  const band = yearBandForBudget(plan.budget.maxUsd, now, {
-    approximateFromNote: plan.budget.approximate,
-  });
-  const yearMin = plan.yearMin ?? band.yearMin;
-  const yearMax = plan.yearMax ?? band.yearMax;
+  // Never invent a budget year ceiling (AUDIT R5) — only years the buyer/form gave.
+  const openMin = 1990;
+  const openMax = now.getUTCFullYear() + 1;
+  const yearMin = plan.yearMin ?? openMin;
+  const yearMax = plan.yearMax ?? openMax;
   const buyerSetMin = plan.yearMin != null;
   const buyerSetMax = plan.yearMax != null;
   const yearBecause =
     buyerSetMin || buyerSetMax
-      ? `Model years ${yearMin}–${yearMax} come from your note or form.`
-      : band.because;
+      ? `Model years ${buyerSetMin ? yearMin : "any"}–${buyerSetMax ? yearMax : "any"} come from your note or form.`
+      : "No year range in your note — searching without a budget-invented year ceiling.";
 
   return plan.directions.slice(0, 3).map((dir, index) => {
     const models = dir.models.slice(0, 6);
