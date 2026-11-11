@@ -86,6 +86,10 @@ export const SERV_PROFILE_MODEL_CANDIDATES: Partial<Record<ProfileId, readonly s
   resale_pick: [...SERV_SHARED_MODEL_PEERS],
   resale_challenge: [...SERV_SHARED_MODEL_PEERS],
   radar_review: [...SERV_SHARED_MODEL_PEERS],
+  // PR B decide path (bc-b40c892e) — coordinated defaults in profiles.ts.
+  find_triage: ["gpt-5.4-mini", "gpt-5.6-sol", "gpt-6.1-sol", "claude-sonnet-5.5"],
+  find_decide: ["gpt-5.4-mini", "gpt-5.6-sol", "gpt-6.1-sol", "claude-sonnet-5.5"],
+  find_challenge: ["gpt-5.4-mini", "gpt-5.6-sol", "gpt-6.1-sol", "claude-sonnet-5.5"],
 };
 
 export type ProfileModelSource = "caller_requested" | "profile_env" | "base_default";

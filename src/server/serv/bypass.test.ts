@@ -101,10 +101,8 @@ describe("SERV layer", () => {
     expect(toolNames(telegram.tools)).not.toContain("serv_shadow_agent");
 
     const rules = requestFor("check_rules", "vin");
-    expect(rules.endpoint).toBe("responses");
-    if (rules.endpoint !== "responses") return;
+    expect(rules.endpoint).toBe("chat");
     expect(rules.model).toBe("gpt-6.1-sol-serv-kronos");
-    expect(rules.reasoning.summary).toBe("auto");
     expect(rules.stream).toBe(false);
 
     const feasibility = requestFor("flip_feasibility", "facts");
@@ -131,6 +129,9 @@ describe("SERV layer", () => {
         "verdict_challenge",
         "find_close_call_multipath",
         "find_next_check",
+        "find_triage",
+        "find_decide",
+        "find_challenge",
         "resale_plan_search",
         "resale_triage",
         "resale_pick",
@@ -140,16 +141,45 @@ describe("SERV layer", () => {
       ]),
     );
     expect(PROFILES.verdict_challenge.jsonSchema?.name).toBe("report_verdict_challenge");
+    expect(PROFILES.verdict_challenge.feature).toBe("multipath");
+    expect(toolNames(requestFor("verdict_challenge", "{}").tools)).toEqual([
+      "serv_prompt_guard",
+      "serv_shadow_agent",
+    ]);
     expect(PROFILES.find_close_call_multipath.feature).toBe("multipath");
     expect(PROFILES.find_next_check.jsonSchema?.name).toBe("find_next_check_choice");
     expect(PROFILES.find_next_check.codeComputed).toEqual(
       expect.arrayContaining(["allowedChecks"]),
     );
     expect(PROFILES.scout_plan.jsonSchema?.name).toBe("lemonless_scout_plan_action");
-    expect(PROFILES.scout_plan.feature).toBe("none");
-    expect(toolNames(requestFor("scout_plan", "{}").tools)).toEqual(["serv_prompt_guard"]);
+    expect(PROFILES.scout_plan.feature).toBe("multipath");
+    expect(toolNames(requestFor("scout_plan", "{}").tools)).toEqual([
+      "serv_prompt_guard",
+      "serv_shadow_agent",
+    ]);
     expect(PROFILES.verdict_decide.feature).toBe("multipath");
     expect(PROFILES.verdict_decide.jsonSchema?.name).toBe("report_verdict_decision");
+    // Coordinated decide/resale defaults (bc-b40c892e / bc-999715fc).
+    expect(PROFILES.find_triage.feature).toBe("multipath");
+    expect(toolNames(requestFor("find_triage", "{}").tools)).toEqual(["serv_prompt_guard"]);
+    expect(PROFILES.find_decide.feature).toBe("multipath");
+    expect(toolNames(requestFor("find_decide", "{}").tools)).toEqual([
+      "serv_prompt_guard",
+      "serv_shadow_agent",
+    ]);
+    expect(PROFILES.find_challenge.feature).toBe("multipath");
+    expect(toolNames(requestFor("find_challenge", "{}").tools)).toEqual([
+      "serv_prompt_guard",
+      "serv_shadow_agent",
+    ]);
+    expect(PROFILES.resale_challenge.feature).toBe("multipath");
+    expect(toolNames(requestFor("resale_challenge", "{}").tools)).toEqual([
+      "serv_prompt_guard",
+      "serv_shadow_agent",
+    ]);
+    expect((Object.keys(PROFILES) as ProfileId[]).every((id) => PROFILES[id].endpoint === "chat")).toBe(
+      true,
+    );
   });
 
   it("rejects chat function tools that still ask for reasoning effort", () => {

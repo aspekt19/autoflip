@@ -1,5 +1,7 @@
 # Resale + Deal Radar SERV capabilities
 
+OpenServ Reasoning feature matrix (Kronos, Multipath, Shadow, Prompt Guard, …): see [`openserv-reasoning-capabilities.md`](./openserv-reasoning-capabilities.md).
+
 Code owns every dollar figure, VIN, URL, and listing. SERV only chooses among **allowlisted** options. TypeScript validates every SERV output against the input evidence bundle; unsupported references are rejected, logged as `rejected: unsupported reference`, and replaced by deterministic fallbacks — and that rejection appears in the decision journal.
 
 **Addendum 2 (zero fabrication):** nothing the agent/LLM produces may invent listings, prices, VINs, mileage, or URLs. Structured fields are clamped to allowlists; free text is number/VIN/URL/evidence-checked; displayed dollars carry provenance.

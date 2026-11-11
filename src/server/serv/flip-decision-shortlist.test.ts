@@ -7,6 +7,7 @@ import {
   isFlipDecisionShortlistId,
 } from "./flip-decision-shortlist";
 import { resolveServCompareModelIds, listServFlipDecisionShortlist } from "./model-catalog";
+import { BASE_MODEL } from "./profiles";
 import { resolveProfileBaseModel } from "./profile-models";
 
 describe("Flip decision shortlist (t321 Fable excluded)", () => {
@@ -16,7 +17,9 @@ describe("Flip decision shortlist (t321 Fable excluded)", () => {
     expect(SERV_FLIP_DECISION_SHORTLIST[1]!.inputPerMDisplay).toBe("$5.25");
     expect([...SERV_FLIP_EXCLUDED_FROM_PAID]).toEqual(["claude-fable-5"]);
     expect(isFlipDecisionShortlistId("claude-fable-5")).toBe(false);
+    // Production BASE_MODEL is gpt-6.1-sol; shortlist still lists gpt-5.6-sol as a compare candidate.
     expect([...SERV_FLIP_SUPERSEDED_AUTOMATIC_NEXT]).toEqual(["gpt-6.1-sol", "claude-opus-5.5"]);
+    expect(BASE_MODEL).toBe("gpt-6.1-sol");
   });
 
   it("resolves shortlist without ALLOW_UNLISTED", () => {
