@@ -924,18 +924,22 @@ function scoreOne(
               : `you asked for ${wantedBody === "suv" ? "an" : "a"} ${plainBody(wantedBody)}`
           }.`
         : "";
+    // When the note named no models, skip the per-car "You did not name a model" spam.
     const namedBit = named
       ? `You named ${row.make} ${row.model}`
-      : namedCount === 0
-        ? "You did not name a model"
-        : "Not one of the models you named";
-    factors.push({
-      id: "named_model_preference",
-      label: "Matches a model you named",
-      points: round1(points),
-      detail: `${namedBit}${bodyBit}`,
-      source: "Your search note",
-    });
+      : namedCount > 0
+        ? "Not one of the models you named"
+        : "";
+    const detail = `${namedBit}${bodyBit}`.trim();
+    if (detail || points !== 0) {
+      factors.push({
+        id: "named_model_preference",
+        label: "Matches a model you named",
+        points: round1(points),
+        detail: detail || "Fits this search",
+        source: "Your search note",
+      });
+    }
   }
 
   // Soft Preferably-AWD: bonus when drivetrain is known AWD/4WD. Unknown/FWD stay (0) — not filtered.

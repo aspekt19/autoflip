@@ -193,6 +193,17 @@ export function listingVdpVerifiability(input: {
     trim: input.trim,
   });
 
+  // Carfax is never a dealer VDP — history-report hosts stay labelled honestly.
+  if (host === "carfax.com" || host.endsWith(".carfax.com")) {
+    return {
+      href,
+      direct: false,
+      flag: "No direct dealer listing link — this URL is a Carfax page, not the dealer’s vehicle page.",
+      sellerMismatchNote: seller.note,
+      pageMismatchNote,
+    };
+  }
+
   const generic =
     AGGREGATOR_HOSTS.has(host) && looksLikeGenericModelPath(pathname, search, hash);
   if (generic) {
@@ -216,3 +227,49 @@ export function listingVdpVerifiability(input: {
 
 /** Risk haircut applied when ranking a candidate without a verifiable listing page. */
 export const NO_DIRECT_LISTING_RISK_MUL = 0.72;
+
+export type BuyerDealerListingLink = {
+  /** Direct dealer VDP only — never carfax / generic aggregator model pages. */
+  href: string | null;
+  /** True only when href is a real vehicle detail page. */
+  isDealerListing: boolean;
+  /** Plain note when there is no honest dealer listing link. */
+  unavailableNote: string;
+};
+
+/**
+ * Prefer a real dealer VDP. Carfax and generic Autolist `#vin=` pages are not dealer listings.
+ */
+export function buyerDealerListingLink(input: {
+  vdp?: string | null;
+  dealer?: string | null;
+  vin?: string | null;
+  year?: number | null;
+  trim?: string | null;
+  /** Extra bits (miles, city) for the unavailable note. */
+  findBits?: readonly string[];
+}): BuyerDealerListingLink {
+  const assessed = listingVdpVerifiability({
+    vdp: input.vdp,
+    dealer: input.dealer,
+    vin: input.vin,
+    year: input.year,
+    trim: input.trim,
+  });
+  if (assessed.direct && assessed.href) {
+    return {
+      href: assessed.href,
+      isDealerListing: true,
+      unavailableNote: "",
+    };
+  }
+  const bits = (input.findBits ?? []).filter(Boolean);
+  const unavailableNote = bits.length
+    ? `No direct dealer listing link — find it via ${bits.join(" · ")}`
+    : assessed.flag?.trim() || "No direct dealer listing link from the feed.";
+  return {
+    href: null,
+    isDealerListing: false,
+    unavailableNote,
+  };
+}
