@@ -26,7 +26,9 @@ import {
 import type { CriteriaParseProvenance } from "@/domain/radar-criteria-provenance";
 import { criteriaParseLabel } from "@/domain/radar-criteria-provenance";
 import { providerResponseIdFromCall } from "@/domain/serv-response-id";
-import { plannedProof, runServ, type ServProof } from "@/server/serv";
+import { BASE_MODEL, plannedProof, runServ, type ServProof } from "@/server/serv";
+import { isServRetryableFailure } from "@/server/serv/transport-error";
+import { providerResponseId } from "@/domain/serv-response-id";
 import { screenUserInput } from "@/domain/screen";
 
 export type UnderstandDeps = {
@@ -150,21 +152,73 @@ export async function understandNeed(
       formOverrides,
       today: recordedAt.slice(0, 10),
     });
-    const planned = await runServ("find_plan", { user: userPayload }, servDeps);
+    const planDeps = { ...servDeps, timeoutMs: undefined as number | undefined };
+    let planned = await runServ("find_plan", { user: userPayload }, planDeps);
     checks.push(planned.proof);
+    let usedPlainRetry = false;
+    let plainRetryReason: string | null = null;
+
+    // One honest retry on real failure (network/5xx/unparseable/invalid) — not on timeout/abort.
+    // First attempt keeps kronos-multipath; retry uses plain gpt-6.1-sol without the extra reasoning mode.
+    const firstUnparseable =
+      planned.ok && Boolean(planned.text?.trim()) && (() => {
+        try {
+          parseNeedJson(planned.text);
+          return false;
+        } catch {
+          return true;
+        }
+      })();
+    const firstValidationFailed =
+      planned.ok && Boolean(planned.text?.trim()) && !firstUnparseable
+        ? !validateFindPlan(parseNeedJson(planned.text), { note: screened.text, form: formOverrides }).ok
+        : false;
+    const firstStatus = planned.ok ? planned.rawStatus : planned.status;
+    const firstErrorClass = planned.ok ? null : planned.transportErrorClass ?? null;
+    const retryable = isServRetryableFailure({
+      ok: planned.ok && !firstUnparseable && !firstValidationFailed,
+      status: firstStatus,
+      errorClass: firstErrorClass,
+      unparseable: firstUnparseable,
+      validationFailed: firstValidationFailed,
+    });
+    if (retryable) {
+      const retry = await runServ(
+        "find_plan",
+        { user: userPayload },
+        {
+          ...planDeps,
+          model: BASE_MODEL,
+          disableFeatureSuffix: true,
+        },
+      );
+      checks.push(retry.proof);
+      usedPlainRetry = true;
+      plainRetryReason =
+        firstErrorClass === "network" || (typeof firstStatus === "number" && firstStatus >= 500)
+          ? "SERV planned without the extra reasoning mode after a network error"
+          : "SERV planned without the extra reasoning mode after the first reply could not be used";
+      planned = retry;
+    }
+
     // prompt_guard on find_plan — treat a completed call as allow unless the runner blocked.
     guard = planned.ok ? "allow" : "unavailable";
+    const openservId =
+      typeof planned.proof.openserv?.id === "string" ? planned.proof.openserv.id : null;
+    const failedResponseId = providerResponseId(openservId);
 
     if (!planned.ok) {
+      const classBit = planned.transportErrorClass ? ` (${planned.transportErrorClass})` : "";
       proofRecords.push(
         buildDecisionProofRecord({
           purpose: "find_plan",
           rubricId: NEED_PARSE_RUBRIC_ID,
           status: "error",
+          responseId: failedResponseId,
           model: planned.proof.modelReported,
           recordedAt,
           inputs: parseInputs,
-          detail: planned.error,
+          detail: `${planned.error}${classBit}${usedPlainRetry ? ` Retry also failed.` : ""} Code form plan published instead.`,
           rawResponse: null,
         }),
       );
@@ -179,8 +233,12 @@ export async function understandNeed(
           source = "model";
           planResponseId = providerResponseIdFromCall({
             ok: planned.ok,
-            id: planned.proof.openserv?.id ?? null,
+            id: openservId,
           });
+          const detailParts = [
+            usedPlainRetry && plainRetryReason ? plainRetryReason : null,
+            validated.dropped.length > 0 ? `Clamped: ${validated.dropped.slice(0, 8).join(", ")}` : null,
+          ].filter(Boolean);
           proofRecords.push(
             buildDecisionProofRecord({
               purpose: "find_plan",
@@ -192,24 +250,26 @@ export async function understandNeed(
               inputs: parseInputs,
               verdict: "planned",
               rawResponse: planned.text,
-              detail:
-                validated.dropped.length > 0
-                  ? `Clamped: ${validated.dropped.slice(0, 8).join(", ")}`
-                  : null,
+              detail: detailParts.length > 0 ? detailParts.join(" · ") : null,
             }),
           );
         } else {
           findPlan = fallbackFindPlan(screened.text, mode, formOverrides);
           source = "form";
+          const issueText = validated.issues
+            .slice(0, 4)
+            .map((i) => i.message)
+            .join("; ");
           proofRecords.push(
             buildDecisionProofRecord({
               purpose: "find_plan",
               rubricId: NEED_PARSE_RUBRIC_ID,
               status: "unknown",
+              responseId: failedResponseId,
               model: planned.proof.modelReported,
               recordedAt,
               inputs: parseInputs,
-              detail: validated.issues[0]?.message ?? "find_plan failed validation.",
+              detail: `SERV plan failed validation (${issueText || "schema mismatch"}). Code form plan published instead.`,
               rawResponse: planned.text,
             }),
           );
@@ -222,10 +282,11 @@ export async function understandNeed(
             purpose: "find_plan",
             rubricId: NEED_PARSE_RUBRIC_ID,
             status: "unknown",
+            responseId: failedResponseId,
             model: planned.proof.modelReported,
             recordedAt,
             inputs: parseInputs,
-            detail: "find_plan response was unparseable.",
+            detail: "SERV plan response was unparseable. Code form plan published instead.",
             rawResponse: planned.text || null,
           }),
         );

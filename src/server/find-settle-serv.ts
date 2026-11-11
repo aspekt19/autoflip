@@ -630,6 +630,21 @@ export async function runFindSettleServ(input: {
       }),
       // Code shortlist order is not ranking authority — SERV chooses among allowlisted keys.
       codeFallbackKey: codeEligible.key,
+      // Strongest alternative for “why this beats the runner-up” reasons (not buyer limits alone).
+      runnerUpKey: eligible[1]?.row.key ?? null,
+      runnerUp: eligible[1]
+        ? {
+            key: eligible[1].row.key,
+            label: `${eligible[1].row.year} ${eligible[1].row.make} ${eligible[1].row.model}`,
+            askUsd: eligible[1].report.subject.priceUsd,
+            fairValueUsd: eligible[1].report.fairValueUsd,
+            miles: eligible[1].row.miles,
+            drivetrain: eligible[1].row.drivetrain ?? null,
+            accidentCount: eligible[1].row.accidentCount ?? null,
+            stopSale: eligible[1].row.stopSale === true,
+            priceGap: eligible[1].report.priceGap,
+          }
+        : null,
     };
     const judged = await runServ(
       "find_pick",
@@ -674,6 +689,17 @@ export async function runFindSettleServ(input: {
       const conf = payload.confidence;
       if (conf === "high" || conf === "medium" || conf === "low") pickConfidence = conf;
       pickNote = typeof payload.note === "string" ? payload.note.trim() || null : null;
+      // Code clamp: missing fair value → low confidence (never trust a higher SERV label).
+      const pickFair = eligible.find((item) => item.row.key === pick.key)?.report.fairValueUsd ?? null;
+      if (pickFair == null || (typeof pickFair === "number" && !Number.isFinite(pickFair))) {
+        if (pickConfidence !== "low") pickConfidence = "low";
+        pickNote = [
+          pickNote ?? "",
+          "Confidence set to low: no verified fair value from similar listings for this pick.",
+        ]
+          .filter(Boolean)
+          .join(" ");
+      }
       if (Array.isArray(payload.alternatives)) {
         pickAlternatives = payload.alternatives
           .filter((k): k is string => typeof k === "string" && allowedKeys.includes(k) && k !== pickKey)

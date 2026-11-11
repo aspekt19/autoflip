@@ -124,6 +124,9 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             <a href="/favorites">Saved cars</a>
             <a href="/compare-cars">Compare cars</a>
             <a href="/pricing">Pricing</a>
+            <a href="/where-serv-runs">Where SERV runs</a>
+            <a href="/proof">Proof</a>
+            <a href="/verify">Verify</a>
             <a href="/account">Account</a>
             <a href="/developers">For AI agents</a>
             <a href="/privacy">Privacy</a>

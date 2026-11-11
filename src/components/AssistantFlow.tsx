@@ -425,7 +425,8 @@ function AssistantFlow({
     }
     setPending("need");
     const controller = new AbortController();
-    const timer = window.setTimeout(() => controller.abort(), 20_000);
+    // Match /api/need maxDuration (300s) — SERV plan can take up to ~90s (+ one retry).
+    const timer = window.setTimeout(() => controller.abort(), 290_000);
     try {
       const amount = parseUsdInput(budget) ?? Number.NaN;
       const response = await fetch("/api/need", {
@@ -523,8 +524,8 @@ function AssistantFlow({
         (body.source === "model"
           ? { source: "serv" as const, responseId: null, label: criteriaParseLabel({ source: "serv", responseId: null }) }
           : text.trim()
-            ? { source: "code" as const, responseId: null, label: "Parsed by code" }
-            : { source: "form" as const, responseId: null, label: "Entered on the form" });
+            ? { source: "code" as const, responseId: null, label: criteriaParseLabel({ source: "code", responseId: null }) }
+            : { source: "form" as const, responseId: null, label: criteriaParseLabel({ source: "form", responseId: null }) });
       setCriteriaParse(parse);
       setChecks(body.checks ?? []);
       if (Array.isArray((body as { proofRecords?: DecisionProofRecord[] }).proofRecords)) {
@@ -808,7 +809,7 @@ function AssistantFlow({
         setCriteriaParse(
           body.source === "model"
             ? { source: "serv", responseId: null, label: criteriaParseLabel({ source: "serv", responseId: null }) }
-            : { source: "code", responseId: null, label: "Parsed by code" },
+            : { source: "code", responseId: null, label: criteriaParseLabel({ source: "code", responseId: null }) },
         );
       }
       if (body.source) setSource(body.source);
@@ -849,12 +850,13 @@ function AssistantFlow({
       findNextCheckPendingLabel({
         pending: true,
         auto: Boolean(opts?.auto),
-        progressLine: "Reviewing public safety records and picking the best match…",
+        progressLine: "SERV is thinking — reviewing public records and picking the best match…",
       }),
     );
     setFindLoopOpen(true);
     const controller = new AbortController();
-    const timer = window.setTimeout(() => controller.abort(), 70_000);
+    // Match /api/find/decide maxDuration (300s) — free-gov + 3× ~90s SERV steps.
+    const timer = window.setTimeout(() => controller.abort(), 290_000);
     try {
       const response = await fetch("/api/find/decide", {
         method: "POST",
@@ -901,6 +903,11 @@ function AssistantFlow({
       if (body.pickSecondPass) setPickSecondPass(body.pickSecondPass);
       if (Array.isArray(body.freeGovReceipts)) {
         setFreeGovReceiptsForShortlist(body.freeGovReceipts);
+        // Mirror next-check: drive fuel/recall checklist from decide freeGovReceipts.
+        const fuelOutcome = summarizeFuelCheckOutcome(uiRowsToRiskReceipts(body.freeGovReceipts));
+        if (fuelOutcome.attempted > 0) setFuelCheckOutcome(fuelOutcome);
+        // recallOutcome is consumed by the checklist via freeGovReceiptsForShortlist.
+        void summarizeRecallCheckOutcome(uiRowsToRiskReceipts(body.freeGovReceipts));
       }
       if (body.freeGovCoverage && typeof body.freeGovCoverage.anyUnchecked === "boolean") {
         setFreeGovAnyUnchecked(body.freeGovCoverage.anyUnchecked);
@@ -969,7 +976,7 @@ function AssistantFlow({
     // Count this hop when it was triggered by auto-continue/auto-start chain.
     if (opts?.auto) autoContinueCountRef.current += 1;
     const controller = new AbortController();
-    const timer = window.setTimeout(() => controller.abort(), 70_000);
+    const timer = window.setTimeout(() => controller.abort(), 290_000);
     try {
       const response = await fetch("/api/find/next-check", {
         method: "POST",
@@ -1295,7 +1302,7 @@ function AssistantFlow({
         // Server did not rematch — client rematch with NEW need/refine only (stale-year fix).
         setPending("match");
         const controller = new AbortController();
-        const timer = window.setTimeout(() => controller.abort(), 45_000);
+        const timer = window.setTimeout(() => controller.abort(), 290_000);
         try {
           const matchResponse = await fetch("/api/match", {
             method: "POST",
@@ -1439,7 +1446,8 @@ function AssistantFlow({
     setPartialFailure(false);
     setPending("match");
     const controller = new AbortController();
-    const timer = window.setTimeout(() => controller.abort(), 45_000);
+    // Match /api/match maxDuration (300s) — inventory waves must not abort early.
+    const timer = window.setTimeout(() => controller.abort(), 290_000);
     /** Fired after finally so we do not clear next-check pending. */
     let autoNextToken: string | null = null;
     let autoDecidePath = false;
@@ -2058,7 +2066,7 @@ function AssistantFlow({
               Back
             </button>
             <button className="action" type="submit" disabled={text.trim().length < 8 || pending === "need"}>
-              {pending === "need" ? "Reading…" : "Continue"}
+              {pending === "need" ? "SERV is thinking…" : "Continue"}
             </button>
           </div>
           {text.trim().length < 8 ? <p className="hint">Write a short note first, at least a few words.</p> : null}
@@ -2122,7 +2130,7 @@ function AssistantFlow({
               Back
             </button>
             <button className="action" type="submit" disabled={pending === "need"}>
-              {pending === "need" ? "Reading…" : "Continue"}
+              {pending === "need" ? "SERV is thinking…" : "Continue"}
             </button>
           </div>
         </form>
@@ -2226,7 +2234,7 @@ function AssistantFlow({
               Back
             </button>
             <button className="action" type="submit" disabled={pending === "need"}>
-              {pending === "need" ? "Saving…" : "Continue"}
+              {pending === "need" ? "SERV is thinking…" : "Continue"}
             </button>
           </div>
         </form>

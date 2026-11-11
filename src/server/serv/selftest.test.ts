@@ -2,7 +2,15 @@ import { describe, expect, it } from "vitest";
 import { GET } from "@/app/api/serv/selftest/route";
 import { profile, PROFILES, type ProfileId } from "./profiles";
 import type { ServDeps, ServResult } from "./run";
-import { distinctSelftestProfiles, HOBBY_FUNCTION_MS, runSelftestChecks, selftestRepeat, selftestWallClockMs } from "./selftest";
+import {
+  distinctSelftestProfiles,
+  HOBBY_FUNCTION_MS,
+  PRO_FUNCTION_MS,
+  runSelftestChecks,
+  selftestHobbyWallClockMs,
+  selftestRepeat,
+  selftestWallClockMs,
+} from "./selftest";
 import { BASE_MODEL } from "./profiles";
 
 describe("SERV self-test", () => {
@@ -84,15 +92,18 @@ describe("SERV self-test", () => {
       expect(check.latencyMs).toBeLessThan(check.timeoutMs);
       expect(check.withinTimeout).toBe(true);
     }
-    expect(selftestWallClockMs()).toBeLessThan(HOBBY_FUNCTION_MS);
-    expect(selftestWallClockMs()).toBe(profile("report_explain").timeoutMs * 2);
+    expect(selftestHobbyWallClockMs()).toBeLessThan(HOBBY_FUNCTION_MS);
+    expect(selftestHobbyWallClockMs()).toBe(profile("report_explain").timeoutMs * 2);
+    expect(selftestWallClockMs()).toBeLessThanOrEqual(PRO_FUNCTION_MS);
+    expect(profile("find_plan").timeoutMs).toBe(90_000);
   });
 
   it("repeats each profile in parallel and scores a 95 percent pass rate", async () => {
     expect(selftestRepeat("3")).toBe(3);
     expect(selftestRepeat("5")).toBe(5);
     expect(selftestRepeat("9")).toBe(5);
-    expect(selftestWallClockMs()).toBeLessThan(HOBBY_FUNCTION_MS);
+    expect(selftestHobbyWallClockMs()).toBeLessThan(HOBBY_FUNCTION_MS);
+    expect(selftestWallClockMs()).toBeLessThanOrEqual(PRO_FUNCTION_MS);
     expect(selftestRepeat("no")).toBe(1);
     const counts = new Map<string, number>();
     const run = async (id: ProfileId): Promise<ServResult> => {

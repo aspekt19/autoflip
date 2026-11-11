@@ -127,13 +127,20 @@ function toListingStub(
     drivetrain?: string | null;
   },
 ): Listing | null {
+  const make = typeof row.make === "string" ? row.make.trim() : "";
+  const model = typeof row.model === "string" ? row.model.trim() : "";
+  const year =
+    typeof row.year === "number" && Number.isFinite(row.year) ? Math.floor(row.year) : NaN;
+  // Skip rows without a usable year/make/model — otherwise free-gov would skip the wave
+  // and leave recalls/fuel empty while the UI still shows named cars.
+  if (!make || !model || !Number.isFinite(year) || year < 1980 || year > 2100) return null;
   const vin = typeof row.vin === "string" ? row.vin.trim().toUpperCase() : "";
   // vPIC requires VIN; recalls/safety/fuel can run with make/model/year and a placeholder vin field.
   return {
-    vin: vin || `UNKNOWN-${row.make}-${row.model}-${row.year}`.slice(0, 32),
-    year: row.year,
-    make: row.make,
-    model: row.model,
+    vin: vin || `UNKNOWN-${make}-${model}-${year}`.slice(0, 32),
+    year,
+    make,
+    model,
     trim: row.trim ?? null,
     miles: row.miles ?? null,
     priceUsd: row.priceUsd ?? null,

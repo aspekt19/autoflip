@@ -1,9 +1,10 @@
 /**
  * C2 find_triage SERV runner — shortlist 3–8 from the inventory pool.
- * Falls back to code score shortlist when SERV fails validation.
+ * Falls back to code score shortlist when SERV fails validation after one reject-retry.
  */
 import { bestDealCarKey } from "@/domain/find-car-consistency";
 import {
+  isImplausibleAskUsd,
   selectBestDealOnEvidence,
   type BestDealCandidate,
   type BestDealListing,
@@ -13,6 +14,7 @@ import type { FindFreeGovReceipt } from "@/domain/find-free-gov";
 import {
   validateFindTriage,
   type FindTriage,
+  type FindTriageIssue,
 } from "@/domain/find-triage";
 import type { StructuredNeed } from "@/domain/need";
 import type { Listing } from "@/domain/types";
@@ -21,9 +23,10 @@ import {
   VERDICT_RUBRIC_ID,
   type DecisionProofRecord,
 } from "@/domain/decision-proof-record";
-import { providerResponseIdFromCall } from "@/domain/serv-response-id";
+import { providerResponseId } from "@/domain/serv-response-id";
 import { chatCompletionContent, profile, runServ } from "@/server/serv";
 import type { ServDeps } from "@/server/serv";
+import { classifyServTransportError } from "@/server/serv/transport-error";
 
 export type FindTriageServResult = {
   triage: FindTriage;
@@ -70,7 +73,6 @@ function poolFacts(listings: readonly BestDealListing[], receipts: readonly Find
 function codeShortlist(bestDeal: BestDealResult): FindTriage {
   const ranked = bestDeal.ranked.filter((row) => !row.excludedFromPick);
   const take = ranked.slice(0, Math.min(8, Math.max(3, ranked.length)));
-  // When pool is tiny, pad is impossible — validator needs 3; caller must ensure pool ≥3 or accept fail.
   const shortlist = take.map((row) => ({
     key: row.key,
     reason: "Code score shortlist (AI triage unavailable).",
@@ -82,6 +84,31 @@ function codeShortlist(bestDeal: BestDealResult): FindTriage {
     perCarChecks: [],
     revisit: { needed: false, why: null, addModels: [], widenRadiusMiles: null },
   };
+}
+
+function redactIssues(issues: readonly FindTriageIssue[]): string {
+  return issues
+    .slice(0, 6)
+    .map((i) => `${i.field}: ${i.message}`.slice(0, 160))
+    .join("; ");
+}
+
+function failureKindDetail(input: {
+  timedOut: boolean;
+  aborted: boolean;
+  network: boolean;
+  unparseable: boolean;
+  validationFailed: boolean;
+  issuesText: string;
+}): string {
+  if (input.timedOut) return "SERV triage timed out waiting for a reply.";
+  if (input.aborted) return "SERV triage was aborted before a reply arrived.";
+  if (input.network) return "SERV triage hit a network error.";
+  if (input.unparseable) return "SERV triage reply was unparseable.";
+  if (input.validationFailed) {
+    return `SERV triage did not pass validation${input.issuesText ? ` (${input.issuesText})` : ""}.`;
+  }
+  return "SERV triage did not finish.";
 }
 
 export async function runFindTriageServ(input: {
@@ -103,9 +130,15 @@ export async function runFindTriageServ(input: {
     marketPool: input.marketPool,
     shortlistMax: 8,
   });
-  const poolKeys = bestDeal.ranked.map((row) => row.key);
+  // Never hand SERV implausible asks or hard-excluded cars — code already flagged them.
+  const poolRows = (bestDeal.allRanked.length > 0 ? bestDeal.allRanked : bestDeal.ranked).filter(
+    (row) => !row.excludedFromPick && !isImplausibleAskUsd(row.priceUsd),
+  );
+  const poolKeys = poolRows.map((row) => row.key);
+  const poolKeySet = new Set(poolKeys);
+  const poolListings = input.listings.filter((row) => poolKeySet.has(bestDealCarKey(row)));
   const allowedEvidenceIds = new Set<string>();
-  for (const row of bestDeal.ranked) {
+  for (const row of poolRows) {
     allowedEvidenceIds.add(`car:${row.key}`);
     if (typeof row.priceUsd === "number") allowedEvidenceIds.add(`ask:${row.key}`);
   }
@@ -117,7 +150,7 @@ export async function runFindTriageServ(input: {
   const proofRecords: DecisionProofRecord[] = [];
   const servKey = input.servKey?.trim() || "";
 
-  if (servKey && poolKeys.length >= 3) {
+  if (servKey && poolKeys.length >= 1) {
     const facts = {
       intent: {
         note: input.need.note ?? null,
@@ -127,84 +160,127 @@ export async function runFindTriageServ(input: {
         milesMax: input.need.milesMax ?? null,
         mustHaves: input.need.mustHaves ?? [],
         priorities: input.need.priorities ?? [],
+        awdPreference: Boolean(input.need.awdPreference),
       },
-      pool: poolFacts(input.listings, input.receipts),
-      codeRankedKeys: bestDeal.ranked.slice(0, 8).map((row: BestDealCandidate) => row.key),
+      pool: poolFacts(poolListings, input.receipts),
+      codeRankedKeys: poolRows.slice(0, 8).map((row: BestDealCandidate) => row.key),
       poolKeys,
       allowedEvidenceIds: [...allowedEvidenceIds],
       revisitAlreadyUsed: Boolean(input.revisitAlreadyUsed),
     };
-    const judged = await runServ(
-      "find_triage",
-      { user: JSON.stringify({ facts }) },
-      {
-        fetch: input.fetchImpl,
-        apiKey: servKey,
-        baseUrl: input.servBaseUrl,
-        model: input.model,
-        transportPolicy: input.transportPolicy,
-        timeoutMs: profile("find_triage").timeoutMs,
-      },
-    );
-    let payload: unknown = null;
-    if (judged.ok && judged.text?.trim()) {
-      try {
-        payload = JSON.parse(judged.text);
-      } catch {
-        payload = null;
+
+    const runOnce = async (userPayload: string) => {
+      const judged = await runServ(
+        "find_triage",
+        { user: userPayload },
+        {
+          fetch: input.fetchImpl,
+          apiKey: servKey,
+          baseUrl: input.servBaseUrl,
+          model: input.model,
+          transportPolicy: input.transportPolicy,
+          timeoutMs: profile("find_triage").timeoutMs,
+        },
+      );
+      let payload: unknown = null;
+      let unparseable = false;
+      if (judged.ok && judged.text?.trim()) {
+        try {
+          payload = JSON.parse(judged.text);
+        } catch {
+          payload = null;
+          unparseable = true;
+        }
+      } else if (judged.ok) {
+        unparseable = true;
+      }
+      const validated = unparseable
+        ? ({ ok: false as const, issues: [{ field: "triage", message: "Reply was not valid JSON." }] })
+        : validateFindTriage(payload, {
+            poolKeys,
+            allowedEvidenceIds,
+            revisitAlreadyUsed: input.revisitAlreadyUsed,
+          });
+      const rawResponse =
+        chatCompletionContent(judged.proof?.openserv) ?? (judged.ok ? judged.text : null) ?? null;
+      const responseId = providerResponseId(
+        typeof judged.proof?.openserv?.id === "string" ? judged.proof.openserv.id : null,
+      );
+      const transportClass = judged.ok
+        ? null
+        : judged.transportErrorClass ?? classifyServTransportError(new Error(judged.error)).class;
+      return { judged, validated, rawResponse, responseId, unparseable, transportClass };
+    };
+
+    let attempt = await runOnce(JSON.stringify({ facts }));
+    if (!attempt.validated.ok) {
+      // One reject-retry feeding validator issues back to SERV before code fallback.
+      const issuesText = attempt.validated.ok === false ? redactIssues(attempt.validated.issues) : "";
+      attempt = await runOnce(
+        JSON.stringify({
+          facts,
+          validationError: {
+            message: "Previous triage reply failed validation. Fix these issues and return JSON only.",
+            issues: attempt.validated.ok === false ? attempt.validated.issues : [],
+          },
+        }),
+      );
+      if (!attempt.validated.ok && issuesText) {
+        // Keep first issues for detail if second also fails.
       }
     }
-    const validated = validateFindTriage(payload, {
-      poolKeys,
-      allowedEvidenceIds,
-      revisitAlreadyUsed: input.revisitAlreadyUsed,
-    });
-    const rawResponse =
-      chatCompletionContent(judged.proof?.openserv) ?? (judged.ok ? judged.text : null) ?? null;
-    const responseId = providerResponseIdFromCall({
-      ok: judged.ok && validated.ok,
-      id: typeof judged.proof?.openserv?.id === "string" ? judged.proof.openserv.id : null,
-    });
-    if (validated.ok) {
+
+    if (attempt.validated.ok) {
       proofRecords.push(
         buildDecisionProofRecord({
           purpose: "find_triage",
           rubricId: VERDICT_RUBRIC_ID,
           status: "ok",
           recordedAt,
-          responseId,
-          model: judged.proof?.modelReported ?? judged.proof?.modelRequested ?? input.model ?? null,
+          responseId: attempt.responseId,
+          model: attempt.judged.proof?.modelReported ?? attempt.judged.proof?.modelRequested ?? input.model ?? null,
           inputs: {
             poolSize: poolKeys.length,
-            shortlistSize: validated.triage.shortlist.length,
-            dropped: validated.dropped,
+            shortlistSize: attempt.validated.triage.shortlist.length,
+            dropped: attempt.validated.dropped,
           },
-          detail: `SERV shortlisted ${validated.triage.shortlist.length} cars from ${poolKeys.length}.`,
-          rawResponse,
+          detail: `SERV shortlisted ${attempt.validated.triage.shortlist.length} cars from ${poolKeys.length}.`,
+          rawResponse: attempt.rawResponse,
         }),
       );
       return {
-        triage: validated.triage,
+        triage: attempt.validated.triage,
         source: "SERV",
         bestDeal,
-        shortlistKeys: validated.triage.shortlist.map((row) => row.key),
+        shortlistKeys: attempt.validated.triage.shortlist.map((row) => row.key),
         proofRecords,
       };
     }
+
+    const issuesText = attempt.validated.ok === false ? redactIssues(attempt.validated.issues) : "";
+    const detail = failureKindDetail({
+      timedOut: attempt.transportClass === "timeout",
+      aborted: attempt.transportClass === "abort",
+      network: attempt.transportClass === "network",
+      unparseable: attempt.unparseable,
+      validationFailed: !attempt.unparseable && attempt.validated.ok === false,
+      issuesText,
+    });
     proofRecords.push(
       buildDecisionProofRecord({
         purpose: "find_triage",
         rubricId: VERDICT_RUBRIC_ID,
         status: "failed",
         recordedAt,
-        responseId: null,
-        model: judged.proof?.modelReported ?? judged.proof?.modelRequested ?? input.model ?? null,
+        responseId: attempt.responseId,
+        model: attempt.judged.proof?.modelReported ?? attempt.judged.proof?.modelRequested ?? input.model ?? null,
         inputs: {
           poolSize: poolKeys.length,
-          issues: validated.ok === false ? validated.issues : [],
+          issues: attempt.validated.ok === false ? attempt.validated.issues : [],
+          transportErrorClass: attempt.transportClass,
         },
-        detail: "SERV triage failed validation — code score shortlist published.",
-        rawResponse,
+        detail: `${detail} Code score shortlist published instead.`,
+        rawResponse: attempt.rawResponse,
       }),
     );
   } else {
@@ -216,14 +292,13 @@ export async function runFindTriageServ(input: {
         recordedAt,
         inputs: { poolSize: poolKeys.length },
         detail: servKey
-          ? "Pool under 3 cars — code shortlist only."
+          ? "Pool empty — code shortlist only."
           : "SERV_API_KEY not configured — code score shortlist.",
       }),
     );
   }
 
   const fallback = codeShortlist(bestDeal);
-  // When fewer than 3 cars, still return what we have (decide path handles tiny pools).
   if (fallback.shortlist.length < 3 && bestDeal.ranked.length > 0) {
     fallback.shortlist = bestDeal.ranked
       .filter((row) => !row.excludedFromPick)

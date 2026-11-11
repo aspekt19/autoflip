@@ -1160,7 +1160,8 @@ describe("Scenario2 defect 8 — price comps coverage + fairness on live shortli
     const ranked = result.ranked.find((r) => r.vin === "SP-2016")!;
     const flags = ranked.factors.find((f) => f.id === "listing_feed_flags");
     expect(flags).toBeTruthy();
-    expect(flags!.points).toBe(0);
+    // Soft accident penalty keeps market $ unchanged while ranking accident-free peers higher.
+    expect(flags!.points).toBeLessThan(0);
     expect(flags!.detail).toMatch(/2 accidents/i);
     expect(flags!.detail).toMatch(/certified pre-owned/i);
     expect(assertBuyerSafeText(flags!.detail).ok).toBe(true);

@@ -3,6 +3,8 @@ import { requireVerifiedAccountForFind } from "@/server/session";
 import type { FollowUp, StructuredNeed } from "@/domain/need";
 
 export const dynamic = "force-dynamic";
+/** Pro/Fluid allows up to 300s — find_plan kronos-multipath needs generous wall time. */
+export const maxDuration = 300;
 
 const FOLLOW_UP_IDS: ReadonlySet<FollowUp["id"]> = new Set([
   "zip",

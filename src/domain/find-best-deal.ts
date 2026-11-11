@@ -42,6 +42,24 @@ import {
 import { median as statsMedian } from "./stats";
 import type { Listing } from "./types";
 
+/**
+ * Asking prices below this floor are treated as data errors / placeholders
+ * (e.g. $10–$59 Autodev stubs), not real deals. Hard-excluded before SERV.
+ */
+export const IMPLAUSIBLE_ASK_USD_BELOW = 500;
+
+/** True when a finite asking price is too low to be a believable used-car ask. */
+export function isImplausibleAskUsd(priceUsd: number | null | undefined): boolean {
+  if (typeof priceUsd !== "number" || !Number.isFinite(priceUsd)) return false;
+  return priceUsd < IMPLAUSIBLE_ASK_USD_BELOW;
+}
+
+/** Plain buyer/report reason — never jargon. */
+export function implausibleAskReason(priceUsd: number): string {
+  const shown = Math.round(priceUsd);
+  return `Asking price $${shown.toLocaleString("en-US")} is not a believable used-car price — treat it as a data error or placeholder, not a real deal.`;
+}
+
 export type BestDealFactorId =
   | "price_vs_model_asks"
   | "miles_per_year_vs_peers"
@@ -82,7 +100,7 @@ export type BestDealCandidate = {
   unknowns: string[];
   fuelSummary: string | null;
   /**
-   * Hard guardrail exclusion — identity mismatch, stop-sale park-it, or invented facts.
+   * Hard guardrail exclusion — identity mismatch, stop-sale park-it, implausible ask, or invented facts.
    * SERV may only pick among non-excluded finalists.
    */
   excludedFromPick: boolean;
@@ -190,6 +208,8 @@ export const BEST_DEAL_WEIGHTS = {
   namedModel: 16,
   /** Soft Preferably-AWD boost when drivetrain is known AWD/4WD. */
   awd: 10,
+  /** Soft penalty per reported accident on the listing feed (not a clean-history claim). */
+  accident: 8,
   budget: 14,
   condition: 12,
 } as const;
@@ -656,15 +676,35 @@ function scoreOne(
     });
   }
 
-  // Listing-reported accidents / CPO. The price above already adjusts for them. This line does not add a second score.
-  if (feedHistory.length > 0) {
-    factors.push({
-      id: "listing_feed_flags",
-      label: "Listing history flags",
-      points: 0,
-      detail: feedHistory.join(" · "),
-      source: "Listing feed flags on this card",
-    });
+  // Listing-reported accidents: soft score penalty so accident-free peers outrank them.
+  // CPO / other feed flags stay informational (price already adjusts where comps allow).
+  {
+    const accidents =
+      typeof row.accidentCount === "number" && Number.isFinite(row.accidentCount)
+        ? Math.max(0, Math.floor(row.accidentCount))
+        : 0;
+    if (accidents > 0) {
+      const points = -Math.min(WEIGHTS.accident * 2, WEIGHTS.accident * accidents);
+      score += points;
+      factors.push({
+        id: "listing_feed_flags",
+        label: "Listing history flags",
+        points: round1(points),
+        detail:
+          feedHistory.length > 0
+            ? feedHistory.join(" · ")
+            : `${accidents} accident${accidents === 1 ? "" : "s"} on the listing feed`,
+        source: "Listing feed flags on this card",
+      });
+    } else if (feedHistory.length > 0) {
+      factors.push({
+        id: "listing_feed_flags",
+        label: "Listing history flags",
+        points: 0,
+        detail: feedHistory.join(" · "),
+        source: "Listing feed flags on this card",
+      });
+    }
   }
 
   // Miles per year vs peers (and vs the stated miles-per-year assumption when peers are thin/missing)
@@ -1131,12 +1171,20 @@ function scoreOne(
   const identityExclude = Boolean(ctx.carCheck?.identityMismatch);
   // Hard guardrail: stop-sale / park-it MMY campaigns are never SERV pick candidates.
   const stopExclude = stopSale;
-  const excludedFromPick = identityExclude || stopExclude;
+  // Hard guardrail: absurdly low asks ($10–$59 style feed errors) never reach SERV or the pick.
+  const priceExclude =
+    typeof row.priceUsd === "number" && Number.isFinite(row.priceUsd) && isImplausibleAskUsd(row.priceUsd);
+  if (priceExclude && typeof row.priceUsd === "number") {
+    unknowns.push(implausibleAskReason(row.priceUsd));
+  }
+  const excludedFromPick = identityExclude || stopExclude || priceExclude;
   const excludedReason = identityExclude
     ? (ctx.carCheck?.excludedReason ?? "Listing does not match the VIN.")
     : stopExclude
       ? "Stop-sale / park-until-fixed recall guidance is open for this year and model — not eligible as the published pick."
-      : null;
+      : priceExclude && typeof row.priceUsd === "number"
+        ? implausibleAskReason(row.priceUsd)
+        : null;
 
   return {
     key: listingKey(row),
@@ -1565,13 +1613,15 @@ export function selectBestDealOnEvidence(input: {
 
   // Same cars the badge would see. When a caller does not pass a pool, use the
   // listings being ranked — never a raw median of asking prices.
-  const marketPool =
+  // Drop implausible asks ($10–$59 stubs) so they cannot poison fair value or reach SERV.
+  const marketPoolRaw =
     input.marketPool && input.marketPool.length > 0
       ? input.marketPool
       : listings.flatMap((row) => {
           const listing = listingStubForComps(row);
           return listing ? [listing] : [];
         });
+  const marketPool = marketPoolRaw.filter((row) => !isImplausibleAskUsd(row.priceUsd ?? null));
   // Price fairness: neutralize only on a material comps gap (see priceCompsUnevenAcrossListings).
   const priceFairnessNeutral = priceCompsUnevenAcrossListings(listings, marketPool);
   const rankOpts = {
@@ -1591,7 +1641,36 @@ export function selectBestDealOnEvidence(input: {
     bodyClassByKey,
   };
   const rankedAll = rankAll(listings, input.need, rankOpts);
-  const ranked = rankedAll.slice(0, shortlistMax);
+  // When Preferably AWD is set, keep confirmed-AWD cars in the published shortlist
+  // even if diversify/top-N would otherwise drop them for a higher-scoring FWD peer.
+  const wantsAwdShortlist = needPrefersAwd({
+    awdPreference: input.need.awdPreference,
+    note: input.need.note,
+    mustHaves: input.need.mustHaves ?? [],
+  });
+  let ranked = rankedAll.slice(0, shortlistMax);
+  if (wantsAwdShortlist) {
+    const awdKept = ranked.filter((row) => isAwdDrivetrain(row.drivetrain));
+    const awdMissing = rankedAll.filter(
+      (row) => isAwdDrivetrain(row.drivetrain) && !ranked.some((r) => r.key === row.key),
+    );
+    if (awdMissing.length > 0 && awdKept.length < Math.min(3, shortlistMax)) {
+      const room = Math.max(0, shortlistMax - ranked.length);
+      const take = awdMissing.slice(0, Math.max(1, Math.min(room || 1, 3 - awdKept.length)));
+      if (take.length > 0) {
+        // Prefer dropping non-AWD tail slots over dropping confirmed AWD.
+        const nonAwd = ranked.filter((row) => !isAwdDrivetrain(row.drivetrain));
+        const drop = Math.max(0, ranked.length + take.length - shortlistMax);
+        const trimmed =
+          drop > 0 ? [...awdKept, ...nonAwd.slice(0, Math.max(0, nonAwd.length - drop))] : ranked;
+        const merged = [...trimmed];
+        for (const row of take) {
+          if (!merged.some((r) => r.key === row.key)) merged.push(row);
+        }
+        ranked = merged.slice(0, shortlistMax);
+      }
+    }
+  }
   const leader = rankedAll.find((car) => !car.excludedFromPick) ?? null;
   const baselineFor = (pick: BestDealCandidate | null) =>
     computeFindBaseline({

@@ -297,4 +297,36 @@ describe("serv-decision-journal-copy", () => {
     });
     expect(formatJournalOriginMarker(free)).toBe("Decided by SERV.");
   });
+
+  it("does not lowercase into SERV sERV when output already starts with SERV", () => {
+    const text = formatJournalStepSentences({
+      ...emptyServDecisionStep({
+        step: "verdict_decide",
+        by: "SERV",
+        status: "ran",
+        output: "SERV picked the confirmed AWD shortlist car after reading the public facts",
+        origin: "serv",
+        runId: "chatcmpl-synthetic-test-serv-prefix",
+      }),
+      // Unknown step → default branch that previously prepended who + lowercased SERV → "SERV sERV".
+      step: "unknown_future_step" as never,
+    });
+    expect(text).toMatch(/^SERV picked the confirmed AWD/i);
+    expect(text).not.toMatch(/SERV sERV/i);
+  });
+
+  it("labels find_challenge as a second independent SERV check (not free-gov recalls)", () => {
+    const text = formatJournalStepSentences(
+      emptyServDecisionStep({
+        step: "find_challenge",
+        by: "SERV",
+        status: "ran",
+        output: "agree",
+        origin: "serv",
+        runId: "chatcmpl-synthetic-test-find-challenge-label",
+      }),
+    );
+    expect(text).toMatch(/second independent SERV check/i);
+    expect(text).not.toMatch(/recall|government recall database/i);
+  });
 });

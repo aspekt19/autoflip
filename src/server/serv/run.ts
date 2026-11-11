@@ -18,6 +18,10 @@ import {
   inspectServMessageFields,
   type ServResponseFailureDiag,
 } from "./response-failure";
+import {
+  classifyServTransportError,
+  type ServTransportErrorClass,
+} from "./transport-error";
 
 /** JSON-shaped, read-only facts computed by the application before any model call. */
 export type ServFacts = Readonly<Record<string, unknown>>;
@@ -38,6 +42,11 @@ export type ServDeps = {
   baseUrl?: string;
   model?: string;
   timeoutMs?: number;
+  /**
+   * When true, send deps.model (stripped of prior suffixes) without appending the
+   * profile feature suffix — used for an honest one-shot retry after kronos-multipath fails.
+   */
+  disableFeatureSuffix?: boolean;
   /**
    * Default `production`. Model-compare / offline eval must pass `experiment_single_attempt`
    * so production recovery retries are not weakened globally.
@@ -84,6 +93,8 @@ export type ServResult =
       responseShape: string | null;
       /** Safe refusal/usage category — never raw model text. */
       failureDiag?: ServResponseFailureDiag | null;
+      /** Redacted transport failure class (timeout/abort/network). */
+      transportErrorClass?: ServTransportErrorClass | null;
     };
 
 /** Eval/compare helper — never use from production planner paths. */
@@ -182,9 +193,12 @@ export function requestFor(
   user: string,
   model = BASE_MODEL,
   env: Record<string, string | undefined> = process.env,
+  opts?: { disableFeatureSuffix?: boolean },
 ) {
   const entry = profile(id);
-  const chosen = modelFor(id, model);
+  const chosen = opts?.disableFeatureSuffix
+    ? model.replace(/-serv-(kronos-multipath|multipath-kronos|multipath|kronos)$/i, "")
+    : modelFor(id, model);
   const endpoint = endpointForProfile(entry, model);
   const stream = streamForProfile(entry);
   const tools = toolsFor(entry, true, endpoint);
@@ -585,7 +599,9 @@ export async function runServ(
     withServOutputTokenBound(endpoint, body, tokenBound.tokens);
   let inspected: ReturnType<typeof requestFor>;
   try {
-    inspected = requestFor(id, input.user, model, env);
+    inspected = requestFor(id, input.user, model, env, {
+      disableFeatureSuffix: Boolean(deps.disableFeatureSuffix),
+    });
   } catch (err) {
     const message = err instanceof Error ? err.message : "SERV output token bound invalid.";
     const proof = recordServProof(
@@ -910,6 +926,7 @@ export async function runServ(
         responseShape: null,
       };
     }
+    const classified = classifyServTransportError(error);
     const proof = recordServProof(
       buildServProof({
         purpose: id,
@@ -926,14 +943,15 @@ export async function runServ(
     );
     return {
       ok: false,
-      error: "SERV did not respond.",
+      error: classified.detail,
       status: 0,
       proof,
       fallback: entry.fallback,
-      upstream: null,
+      upstream: classified.class,
       httpAttempts,
       transportPolicy,
       responseShape: null,
+      transportErrorClass: classified.class,
     };
   }
 }

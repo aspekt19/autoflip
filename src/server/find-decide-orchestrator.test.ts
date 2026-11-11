@@ -162,4 +162,39 @@ describe("runFindDecideOrchestrator (offline)", () => {
     if (result.ok) return;
     expect(result.error).toBe("decide_path_disabled");
   });
+
+  it("does not invent appliedCheckIds or claim full coverage when free-gov returns empty", async () => {
+    const kv = new MemoryKv();
+    const listings = [listing(1), listing(2), listing(3)];
+    let record = mintFindSearchContextRecord({
+      userId: "synthetic-test-user",
+      need: baseNeed,
+      listings,
+      compsPool: listings,
+      servNextCheckEnabled: false,
+    });
+    record = await updateFindSearchContext(kv, record, { decidePathEnabled: true });
+
+    const result = await runFindDecideOrchestrator(
+      { searchContextToken: record.token },
+      {
+        kv,
+        userId: "synthetic-test-user",
+        servKey: null,
+        runFreeGov: async () => ({
+          receipts: [],
+          evidenceChanged: false,
+          checkIds: [],
+          note: "synthetic-test empty wave",
+        }),
+      },
+    );
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.freeGovReceipts).toEqual([]);
+    expect(result.loop.detail).toMatch(/No public lookup receipts/i);
+    expect(result.loop.detail).not.toMatch(/^Public checks, triage, decide, and challenge finished/i);
+    expect(result.freeGovCoverage?.anyUnchecked).toBe(true);
+  });
 });

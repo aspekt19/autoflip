@@ -181,6 +181,18 @@ describe("publishFindDecideConfidence", () => {
     });
     expect(published.confidence).toBe("medium");
   });
+
+  it("forces low confidence when fairValueUsd is explicitly null", () => {
+    const published = publishFindDecideConfidence({
+      c3: "medium",
+      action: "negotiate",
+      compCount: 6,
+      fairValueUsd: null,
+      evidenceSettled: true,
+    });
+    expect(published.confidence).toBe("low");
+    expect(published.capped).toBe(true);
+  });
 });
 
 describe("applyFindChallengeRevision", () => {

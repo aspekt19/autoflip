@@ -42,7 +42,7 @@ describe("validateFindTriage", () => {
     expect(result.dropped.some((d) => d.includes("made_up") || d.includes("ghost"))).toBe(true);
   });
 
-  it("fails when fewer than 3 shortlist keys survive", () => {
+  it("fails when fewer than 3 shortlist keys survive on a large pool", () => {
     const result = validateFindTriage(
       baseTriage({
         shortlist: [
@@ -53,6 +53,25 @@ describe("validateFindTriage", () => {
       { poolKeys: POOL, allowedEvidenceIds: EVIDENCE },
     );
     expect(result.ok).toBe(false);
+  });
+
+  it("accepts 2 shortlist keys when the pool only has 2 cars", () => {
+    const result = validateFindTriage(
+      {
+        shortlist: [
+          { key: "a", reason: "Best fit", evidenceIds: ["ev:price:a"] },
+          { key: "b", reason: "Runner up", evidenceIds: ["ev:fuel:b"] },
+        ],
+        rejected: [],
+        perCarChecks: [],
+        revisit: { needed: false, why: null, addModels: [], widenRadiusMiles: null },
+        inventedExtra: { ignore: true },
+      },
+      { poolKeys: ["a", "b"], allowedEvidenceIds: EVIDENCE },
+    );
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.triage.shortlist.map((row) => row.key)).toEqual(["a", "b"]);
   });
 
   it("clamps shortlist to 8 and blocks a second revisit", () => {

@@ -145,7 +145,7 @@ describe("experiment_single_attempt transport (compare / eval only)", () => {
     expect(calls).toBe(1);
     expect(result.httpAttempts).toBe(1);
     expect(result.ok).toBe(false);
-    if (!result.ok) expect(result.error).toMatch(/did not respond/i);
+    if (!result.ok) expect(result.error).toMatch(/timed out waiting for a response|did not respond/i);
   });
 
   it("counts every beforeHttp reservation exactly once per upstream attempt", async () => {

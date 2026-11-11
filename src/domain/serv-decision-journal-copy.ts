@@ -296,6 +296,10 @@ export function formatJournalStepSentences(step: ServDecisionStep): string {
       if (reason && reason.length > 8 && !/Decision recorded/i.test(reason)) {
         const cleaned = scrubBuyerText(reason);
         if (journalMainTextViolations(cleaned).length === 0) {
+          // Don't prepend/lowercase when the text already starts with SERV/Code.
+          if (/^(SERV|Code)\b/i.test(cleaned)) {
+            return cleaned.replace(/\.\s*$/, "") + ".";
+          }
           return `${who} ${cleaned.charAt(0).toLowerCase()}${cleaned.slice(1)}`.replace(/\.\s*$/, "") + ".";
         }
       }
