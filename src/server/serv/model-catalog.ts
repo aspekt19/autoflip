@@ -3,15 +3,16 @@
  *
  * ## In-repo catalog (default allowlist)
  * Mechanism — only IDs already evidenced in this repository:
- * 1. `BASE_MODEL` in `src/server/serv/profiles.ts` + README `SERV_MODEL` → `gpt-5.4-mini`
+ * 1. `BASE_MODEL` in `src/server/serv/profiles.ts` + README `SERV_MODEL` → `gpt-5.6-sol`
  * 2. Committed eval artifacts report dated alias `gpt-5.4-mini-2026-03-17`
- *    (`eval/results/latest.json`, `eval/results/serv-proof-trace.json`)
+ *    (`eval/results/latest.json`, `eval/results/serv-proof-trace.json`) — historical Mini
  * 3. `modelFor()` may append profile feature suffixes when a profile's `feature` is set.
  *    `scout_plan` uses `feature: "none"` (suffixes stripped from a requested id).
  *
  * ## Fair cross-provider slate (docs-sourced; Flip live only)
  * Public SERV Models page API IDs (https://docs.openserv.ai/serv-reasoning/models):
- *   - `gpt-5.4-mini` (OpenAI — production baseline)
+ *   - `gpt-5.6-sol` (OpenAI — production BASE_MODEL)
+ *   - `gpt-5.4-mini` (OpenAI — historical peer / prior default)
  *   - `claude-sonnet-4.6` (Anthropic Sonnet peer)
  *   - `gemini-2.5-flash` (Google Gemini peer; chat/completions only)
  * Enabled via `SCOUT_COMPARE_FAIR_SLATE=1` or explicit `SERV_COMPARE_MODELS`.
@@ -25,8 +26,8 @@
  *
  * ## Not a demonstrated product fix
  * Swapping the comparison model alone is **not** the demonstrated fix for the
- * PR63 placeholder-price / reject-grounding failure. Production `BASE_MODEL` /
- * `SERV_MODEL` default stays unchanged by this harness.
+ * PR63 placeholder-price / reject-grounding failure. This harness does not change
+ * production `BASE_MODEL` / `SERV_MODEL`.
  */
 
 import { BASE_MODEL, modelFor, type ProfileId } from "./profiles";
@@ -52,14 +53,25 @@ export type ServCompareBaseModelId = (typeof SERV_COMPARE_BASE_MODEL_IDS)[number
  */
 export const SERV_COMPARE_FAIR_SLATE = [
   {
-    id: "gpt-5.4-mini",
+    id: "gpt-5.6-sol",
     provider: "openai" as const,
     role: "baseline_production_default" as const,
     /** scout_plan profile endpoint. */
     requiredEndpoint: "chat" as const,
     docsSource: "https://docs.openserv.ai/serv-reasoning/models",
     protocolNotes: [
-      "Production BASE_MODEL — unchanged by this harness.",
+      "Production BASE_MODEL (shared default for all SERV steps).",
+      "Harness does not change production BASE_MODEL / SERV_MODEL.",
+    ],
+  },
+  {
+    id: "gpt-5.4-mini",
+    provider: "openai" as const,
+    role: "historical_peer" as const,
+    requiredEndpoint: "chat" as const,
+    docsSource: "https://docs.openserv.ai/serv-reasoning/models",
+    protocolNotes: [
+      "Prior production default — kept as compare peer, not the shared BASE_MODEL.",
       "Known class: cold first-step ~45s timeout under scout_plan.timeoutMs (do not blind-raise).",
     ],
   },
@@ -73,7 +85,7 @@ export const SERV_COMPARE_FAIR_SLATE = [
       "Works on /v1/chat/completions and /v1/messages; scout_plan uses chat.",
       "Historically failed on nullable enum `type:['string','null']+enum` — fixed via anyOf[string-enum|null] on toolId/rationaleKind (product A–C; already on this lineage).",
       "HTTP 200 alone ≠ grounded decision — score schemaValid/grounded/recovery/antiLoop/refusals.",
-      "Parent SAME-input used claude-sonnet-5.5 (allowlisted via SERV_PROFILE_MODEL_SCOUT_PLAN) — production BASE_MODEL stays Mini until review.",
+      "Parent SAME-input used claude-sonnet-5.5 (allowlisted via SERV_PROFILE_MODEL_SCOUT_PLAN).",
     ],
   },
   {
@@ -201,6 +213,13 @@ export function resolveServCompareModelIds(
   const byId = new Map(catalog.map((m) => [m.id, m]));
   const out: ServCompareModelEntry[] = [];
   for (const id of requested) {
+    // Flip shortlist before in-repo catalog so BASE_MODEL on the shortlist keeps
+    // flip_decision_shortlist kind when Flip requests the shortlist CSV.
+    const flipHit = flipById.get(id);
+    if (flipHit) {
+      out.push(flipHit);
+      continue;
+    }
     const known = byId.get(id);
     if (known) {
       out.push(known);
@@ -211,12 +230,6 @@ export function resolveServCompareModelIds(
       // Docs-sourced fair slate IDs are allowed without ALLOW_UNLISTED when explicitly requested
       // (or when SCOUT_COMPARE_FAIR_SLATE=1). Still not a console-enablement claim.
       out.push(fairHit);
-      continue;
-    }
-    const flipHit = flipById.get(id);
-    if (flipHit) {
-      // Flip t318 console-CSV shortlist — allow without UNLISTED when explicitly listed.
-      out.push(flipHit);
       continue;
     }
     // Defensive: keep isFlipDecisionShortlistId import live for catalog consumers / tests.

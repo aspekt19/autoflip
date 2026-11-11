@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { ResaleCandidatePnl } from "@/domain/resale-pnl";
 import type { Listing } from "@/domain/types";
+import { BASE_MODEL } from "@/server/serv";
 import {
   clampFlipPublishedAction,
   clampResalePublishedConfidence,
@@ -94,7 +95,7 @@ function thinCandidate(): ResaleCandidatePnl {
   };
 }
 
-const SERV_MODEL = "gpt-5.4-mini";
+const SERV_MODEL = BASE_MODEL;
 
 function inventingFetch(content: Record<string, unknown>): typeof fetch {
   return (async () =>

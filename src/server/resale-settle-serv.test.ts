@@ -6,6 +6,7 @@ import {
 } from "@/domain/resale-decision-journal";
 import type { ResaleCandidatePnl } from "@/domain/resale-pnl";
 import type { Listing } from "@/domain/types";
+import { BASE_MODEL } from "@/server/serv";
 import { runResaleSettleServ, type ResaleSettleCheckpoint } from "./resale-settle-serv";
 
 function listing(partial: Partial<Listing> & Pick<Listing, "vin" | "year" | "make" | "model" | "priceUsd">): Listing {
@@ -93,7 +94,7 @@ function candidate(partial: Partial<ResaleCandidatePnl> & Pick<ResaleCandidatePn
 }
 
 /** Allowlisted SERV model — "test-model" is rejected before HTTP and must not be used here. */
-const SERV_MODEL = "gpt-5.4-mini";
+const SERV_MODEL = BASE_MODEL;
 
 function inventingFetch(content: Record<string, unknown>): typeof fetch {
   return (async () =>

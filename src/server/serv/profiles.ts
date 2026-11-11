@@ -14,7 +14,8 @@
 
 import { CONNECT_HELP } from "@/io/telegram";
 
-export const BASE_MODEL = "gpt-5.4-mini";
+/** Shared SERV default for every profile (Resale / Radar / agent / Find / Check). */
+export const BASE_MODEL = "gpt-5.6-sol";
 export const SHADOW_MAX_ITERATIONS = 2;
 
 export const REPORT_SHADOW_HINT =

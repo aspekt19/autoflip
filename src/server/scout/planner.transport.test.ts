@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { requestFor, runServ } from "@/server/serv";
+import { BASE_MODEL, requestFor, runServ } from "@/server/serv";
 import { parseScoutPlanText } from "./plan-parse";
 import { servScoutPlanner } from "./planner";
 
@@ -8,7 +8,7 @@ describe("scout_plan transport contracts (offline)", () => {
     const req = requestFor("scout_plan", JSON.stringify({ pendingVins: ["X"] }), undefined, {});
     expect(req.endpoint).toBe("chat");
     expect(req.stream).toBe(false);
-    expect(req.model).toBe("gpt-5.4-mini"); // no multipath/kronos suffix by default
+    expect(req.model).toBe(BASE_MODEL); // no multipath/kronos suffix by default
     expect(req.model).not.toMatch(/serv-multipath|serv-kronos/);
     expect(req).toMatchObject({ max_completion_tokens: 4096 });
     expect("max_output_tokens" in req).toBe(false);
@@ -70,7 +70,7 @@ describe("scout_plan transport contracts (offline)", () => {
       response_format?: { json_schema?: { name: string } };
       messages: Array<{ role: string; content: string }>;
     };
-    expect(body.model).toBe("gpt-5.4-mini");
+    expect(body.model).toBe(BASE_MODEL);
     expect(body.tools.some((t) => (t.function?.name ?? t.name) === "serv_prompt_guard")).toBe(true);
     expect(body.response_format?.json_schema?.name).toBe("lemonless_scout_plan_action");
     expect(body.messages[0]?.role).toBe("system");

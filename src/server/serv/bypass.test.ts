@@ -1,7 +1,7 @@
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
-import { DOCUMENTED_FEATURES, PROFILES, featuresUsedBy, requestFor, runServ, type ProfileId, type ServProfile } from "./index";
+import { BASE_MODEL, DOCUMENTED_FEATURES, PROFILES, featuresUsedBy, modelFor, requestFor, runServ, type ProfileId, type ServProfile } from "./index";
 import { agentReport } from "@/server/agent-report";
 import { buildSampleReport } from "@/server/sample-report";
 import { paymentRequiredBody, radarToolResult } from "@/server/mcp";
@@ -37,14 +37,14 @@ describe("SERV layer", () => {
     expect(extract.endpoint).toBe("chat");
     if (extract.endpoint !== "chat") return;
     expect(extract.stream).toBe(false);
-    expect(extract.model).toBe("gpt-5.4-mini");
+    expect(extract.model).toBe(BASE_MODEL);
     expect(toolNames(extract.tools)).toEqual(["serv_prompt_guard"]);
     expect(extract.response_format?.json_schema.strict).toBe(true);
 
     const flip = requestFor("flip_judge", "{}");
     expect(flip.endpoint).toBe("chat");
     if (flip.endpoint !== "chat") return;
-    expect(flip.model).toBe("gpt-5.4-mini-serv-multipath");
+    expect(flip.model).toBe(modelFor("flip_judge", BASE_MODEL));
     expect(flip.stream).toBe(false);
     expect(toolNames(flip.tools)).toEqual(["serv_prompt_guard", "serv_shadow_agent"]);
     const guardParams = (flip.tools[0]!.function as unknown as { parameters: Record<string, unknown> }).parameters;
@@ -91,12 +91,12 @@ describe("SERV layer", () => {
     const rules = requestFor("check_rules", "vin");
     expect(rules.endpoint).toBe("responses");
     if (rules.endpoint !== "responses") return;
-    expect(rules.model).toBe("gpt-5.4-mini-serv-kronos");
+    expect(rules.model).toBe(modelFor("check_rules", BASE_MODEL));
     expect(rules.reasoning.summary).toBe("auto");
     expect(rules.stream).toBe(false);
 
     const feasibility = requestFor("flip_feasibility", "facts");
-    expect(feasibility.model).toBe("gpt-5.4-mini-serv-kronos");
+    expect(feasibility.model).toBe(modelFor("flip_feasibility", BASE_MODEL));
     expect(toolNames(feasibility.tools)).toEqual(["serv_prompt_guard"]);
     expect(feasibility.endpoint).toBe("chat");
     expect("response_format" in feasibility).toBe(false);
@@ -188,7 +188,7 @@ describe("SERV layer", () => {
     const payload = {
       id: "synthetic-test-1",
       object: "chat.completion",
-      model: "gpt-5.4-mini",
+      model: BASE_MODEL,
       choices: [{ finish_reason: "stop", message: { content: "ALLOW" } }],
       usage: { prompt_tokens: 3, completion_tokens: 1, total_tokens: 4, prompt_tokens_details: { cached_tokens: 2 } },
     };
@@ -196,7 +196,7 @@ describe("SERV layer", () => {
     expect(copied).toEqual({
       id: "synthetic-test-1",
       object: "chat.completion",
-      model: "gpt-5.4-mini",
+      model: BASE_MODEL,
       finish_reason: "stop",
       usage: payload.usage,
       choices: [{ finish_reason: "stop", message: { content: "ALLOW" } }],
@@ -246,7 +246,7 @@ describe("SERV layer", () => {
       return Response.json({
         id: "synthetic-test-2",
         object: "chat.completion",
-        model: "gpt-5.4-mini",
+        model: BASE_MODEL,
         choices: [{ finish_reason: "stop", message: { content: "The fair value is 10000." } }],
         usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 },
       });

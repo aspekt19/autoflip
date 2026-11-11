@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { ASSUMPTIONS } from "@/domain/assumptions";
 import type { ComputedReport, Listing } from "@/domain/types";
 import { runShopperVerdictServ } from "./shopper-verdict-serv";
+import { BASE_MODEL } from "@/server/serv";
 
 function listing(partial: Partial<Listing> = {}): Listing {
   return {
@@ -109,7 +110,7 @@ function report(partial: Partial<ComputedReport> = {}): ComputedReport {
 }
 
 function jsonResponse(body: unknown, id: string) {
-  return new Response(JSON.stringify({ id, model: "gpt-5.4-mini", choices: [{ message: { content: JSON.stringify(body) } }] }), {
+  return new Response(JSON.stringify({ id, model: BASE_MODEL, choices: [{ message: { content: JSON.stringify(body) } }] }), {
     status: 200,
     headers: { "content-type": "application/json" },
   });
@@ -144,7 +145,7 @@ describe("runShopperVerdictServ", () => {
     const result = await runShopperVerdictServ({
       report: report(),
       servKey: "test-key",
-      model: "gpt-5.4-mini",
+      model: BASE_MODEL,
       fetchImpl: fetchImpl as unknown as typeof fetch,
     });
 
@@ -155,7 +156,7 @@ describe("runShopperVerdictServ", () => {
     expect(result.trace?.calls[0]?.rawResponse).toMatch(/negotiate/);
     // synthetic-test-* mock ids must never surface as provider response ids.
     expect(result.trace?.calls[0]?.responseId).toBeNull();
-    expect(result.trace?.model).toBe("gpt-5.4-mini");
+    expect(result.trace?.model).toBe(BASE_MODEL);
     expect(result.trace?.recordedAt).toMatch(/^\d{4}-/);
   });
 
@@ -164,7 +165,7 @@ describe("runShopperVerdictServ", () => {
     const result = await runShopperVerdictServ({
       report: report(),
       servKey: "test-key",
-      model: "gpt-5.4-mini",
+      model: BASE_MODEL,
       fetchImpl: fetchImpl as unknown as typeof fetch,
     });
     expect(result.agentVerdict.no_serv_step).toBe(false);
@@ -192,7 +193,7 @@ describe("runShopperVerdictServ", () => {
         flags: [{ level: "stop", text: "Salvage title.", source: "title-brand" }],
       }),
       servKey: "test-key",
-      model: "gpt-5.4-mini",
+      model: BASE_MODEL,
       fetchImpl: fetchImpl as unknown as typeof fetch,
     });
     expect(result.decision.servChoice).toBe("buy");
@@ -229,7 +230,7 @@ describe("runShopperVerdictServ", () => {
     const result = await runShopperVerdictServ({
       report: report(),
       servKey: "test-key",
-      model: "gpt-5.4-mini",
+      model: BASE_MODEL,
       fetchImpl: fetchImpl as unknown as typeof fetch,
       deadline,
       decideTimeoutMs: 3_500,
@@ -268,7 +269,7 @@ describe("runShopperVerdictServ", () => {
     const result = await runShopperVerdictServ({
       report: report(),
       servKey: "test-key",
-      model: "gpt-5.4-mini",
+      model: BASE_MODEL,
       fetchImpl: fetchImpl as unknown as typeof fetch,
       transportPolicy: "experiment_single_attempt",
     });
@@ -302,7 +303,7 @@ describe("runShopperVerdictServ", () => {
     const result = await runShopperVerdictServ({
       report: report(),
       servKey: "test-key",
-      model: "gpt-5.4-mini",
+      model: BASE_MODEL,
       fetchImpl: fetchImpl as unknown as typeof fetch,
     });
 
@@ -343,7 +344,7 @@ describe("runShopperVerdictServ", () => {
         dataNotes: ["Title brand stop."],
       }),
       servKey: "test-key",
-      model: "gpt-5.4-mini",
+      model: BASE_MODEL,
       fetchImpl: fetchImpl as unknown as typeof fetch,
     });
 
@@ -366,7 +367,7 @@ describe("runShopperVerdictServ", () => {
     const result = await runShopperVerdictServ({
       report: report(),
       servKey: "test-key",
-      model: "gpt-5.4-mini",
+      model: BASE_MODEL,
       fetchImpl: fetchImpl as unknown as typeof fetch,
       maxAdditionalServCalls: 1,
       transportPolicy: "experiment_single_attempt",

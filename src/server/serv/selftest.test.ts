@@ -3,6 +3,7 @@ import { GET } from "@/app/api/serv/selftest/route";
 import { profile, PROFILES, type ProfileId } from "./profiles";
 import type { ServDeps, ServResult } from "./run";
 import { distinctSelftestProfiles, HOBBY_FUNCTION_MS, runSelftestChecks, selftestRepeat, selftestWallClockMs } from "./selftest";
+import { BASE_MODEL } from "./profiles";
 
 describe("SERV self-test", () => {
   it("covers each distinct request shape once", () => {
@@ -46,8 +47,8 @@ describe("SERV self-test", () => {
         fallback: "explanation unavailable",
         proof: {
           purpose: id,
-          modelRequested: "gpt-5.4-mini",
-          modelReported: "gpt-5.4-mini",
+          modelRequested: BASE_MODEL,
+          modelReported: BASE_MODEL,
           tools: [],
           features: [],
           promptGuard: "unavailable",
@@ -98,8 +99,8 @@ describe("SERV self-test", () => {
       counts.set(id, n);
       const proof: ServResult extends { proof: infer P } ? P : never = {
         purpose: id,
-        modelRequested: "gpt-5.4-mini",
-        modelReported: "gpt-5.4-mini",
+        modelRequested: BASE_MODEL,
+        modelReported: BASE_MODEL,
         tools: [],
         features: [],
         promptGuard: "unavailable",
@@ -133,7 +134,7 @@ describe("SERV self-test", () => {
       return {
         ok: true,
         text: "ok",
-        model: "gpt-5.4-mini",
+        model: BASE_MODEL,
         shadowOutcome: "not_used",
         rawStatus: 200,
         proof,

@@ -3,6 +3,7 @@ import { journalFromRadarActivity } from "@/domain/radar-activity-journal";
 import type { Listing } from "@/domain/types";
 import type { AlertNumbers } from "@/domain/radar-watch";
 import type { PriceBadge } from "@/domain/price-badge";
+import { BASE_MODEL } from "@/server/serv";
 import { radarVerdictFacts, reviewPersonalCandidate } from "./radar-serv";
 
 const listing = {
@@ -95,7 +96,7 @@ describe("reviewPersonalCandidate failures", () => {
       {
         fetchImpl: fetch,
         servKey: undefined,
-        servModel: "gpt-5.4-mini",
+        servModel: BASE_MODEL,
         timeoutMs: 8_000,
         searchId: "search-1",
         challenge: false,
@@ -128,7 +129,7 @@ describe("reviewPersonalCandidate failures", () => {
       {
         fetchImpl: fetchImpl as unknown as typeof fetch,
         servKey: "test-key",
-        servModel: "gpt-5.4-mini",
+        servModel: BASE_MODEL,
         timeoutMs: 8_000,
         searchId: "search-1",
         challenge: false,

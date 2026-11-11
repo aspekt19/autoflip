@@ -27,6 +27,7 @@ import { emptyPlans, writePlans } from "@/server/plan-book";
 import type { Listing } from "@/domain/types";
 import type { AlertNumbers } from "@/domain/radar-watch";
 import type { PriceBadge } from "@/domain/price-badge";
+import { BASE_MODEL } from "@/server/serv";
 
 const NOTE =
   "Looking for a Toyota RAV4 near Miami under $18,000 with under 80,000 miles for commuting.";
@@ -172,7 +173,7 @@ describe("find → SERV → watch → radar verdict_decide acceptance (merge gat
 
     const parsed = await understandNeed(
       { text: NOTE, mode: "personal", budgetUsd: 18_000, budgetKnown: true, zip: "33101" },
-      { servKey: "test-key", fetchImpl: findFetch, servModel: "gpt-5.4-mini" },
+      { servKey: "test-key", fetchImpl: findFetch, servModel: BASE_MODEL },
     );
     expect(parsed.ok).toBe(true);
     if (!parsed.ok) return;
@@ -275,7 +276,7 @@ describe("find → SERV → watch → radar verdict_decide acceptance (merge gat
       bestDeal,
       servKey: "test-key",
       fetchImpl: settleFetch,
-      model: "gpt-5.4-mini",
+      model: BASE_MODEL,
       budgetUsd: 18_000,
       transportPolicy: "experiment_single_attempt",
     });
@@ -433,7 +434,7 @@ describe("find → SERV → watch → radar verdict_decide acceptance (merge gat
       fetchImpl: radarFetch,
       autodevKey: "test",
       servKey: "test-key",
-      servModel: "gpt-5.4-mini",
+      servModel: BASE_MODEL,
       origin: "https://autoflip.example",
       env: {},
       forceAll: true,
@@ -507,7 +508,7 @@ describe("find → SERV → watch → radar verdict_decide acceptance (merge gat
       {
         fetchImpl: radarFetch,
         servKey: "test-key",
-        servModel: "gpt-5.4-mini",
+        servModel: BASE_MODEL,
         timeoutMs: 8_000,
         searchId: search.id,
         challenge: false,

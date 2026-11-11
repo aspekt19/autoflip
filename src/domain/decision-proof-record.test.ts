@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { BASE_MODEL } from "@/server/serv";
 import {
   assertServStepProof,
   buildDecisionProofRecord,
@@ -18,7 +19,7 @@ describe("decision proof record", () => {
       rubricId: VERDICT_RUBRIC_ID,
       status: "ok",
       responseId: "chatcmpl-EhAbWoRGDxTDAPz8Lvx93kv1cfycl",
-      model: "gpt-5.4-mini",
+      model: BASE_MODEL,
       inputs: { fairValueUsd: 17_000, priceUsd: 14_900 },
       verdict: "negotiate",
       clamp: {
