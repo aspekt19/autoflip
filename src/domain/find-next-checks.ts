@@ -54,6 +54,7 @@ export type FindNextCheckInput = {
     | "mode"
     | "yearBandResolved"
     | "milesCapResolved"
+    | "note"
   >;
   softGaps: SoftPrefGap[];
   /** Cards currently shown across groups. */
@@ -85,8 +86,14 @@ function hasGap(gaps: SoftPrefGap[], id: SoftPrefGap["id"]): boolean {
 export function wantsFreeVehicleEvidence(
   need: FindNextCheckInput["need"],
   softGaps: SoftPrefGap[],
+  note?: string | null,
 ): boolean {
-  return need.conditionPriority === "inspection_first" || hasGap(softGaps, "history");
+  if (need.conditionPriority === "inspection_first" || hasGap(softGaps, "history")) return true;
+  // Align with find-best-deal prefersConditionFromNote so “reliable” notes still drain free_gov_*.
+  const text = typeof note === "string" ? note : "";
+  return /\bgood condition\b|\bexpensive repairs\b|\bhidden problems\b|\breliable\b|\binspection\b|\bhistory report\b/i.test(
+    text,
+  );
 }
 
 /**
@@ -130,7 +137,7 @@ export function proposeFindNextChecks(input: FindNextCheckInput): FindNextCheck[
     });
   }
 
-  const freeWanted = wantsFreeVehicleEvidence(input.need, input.softGaps);
+  const freeWanted = wantsFreeVehicleEvidence(input.need, input.softGaps, input.need.note);
   const fuelWanted = freeWanted || hasGap(input.softGaps, "fuel_or_running_cost");
   const coverage = input.freeGovCoverage ?? null;
   const recallsOpen = !coverage || freeGovCheckStillHasUnchecked(coverage, "free_gov_recalls");

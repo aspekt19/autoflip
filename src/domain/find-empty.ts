@@ -130,20 +130,27 @@ export function resolveFindEmptyFromOutcomes(
 
 export function findEmptyCopy(
   reason: FindEmptyReason,
-  need?: Pick<StructuredNeed, "make" | "preferredMakes" | "milesMax" | "budgetKnown" | "zip" | "distanceMiles" | "note"> | null,
+  need?: Pick<
+    StructuredNeed,
+    "make" | "preferredMakes" | "milesMax" | "budgetKnown" | "zip" | "distanceMiles" | "note" | "useCase"
+  > | null,
   observedMessage?: string | null,
 ): FindEmptyCopy {
   const scope = need ? searchScopeLabel(need) : "this search";
   switch (reason) {
-    case "no_directions":
+    case "no_directions": {
+      const useAlready = Boolean(need?.useCase && need.useCase !== "unspecified");
       return {
         reason,
         headline: "No search directions yet",
         detail:
           observedMessage?.trim() ||
-          "Lemonless does not have a model direction for this note yet. That is missing guidance, not a listing search result.",
-        nextStep: "Choose what the car is for (for example family or commute), or name a make and model, then search again.",
+          "Lemonless does not have a model direction for this note yet. That is missing guidance, not a listing search result. No listing search ran.",
+        nextStep: useAlready
+          ? "Name a make and model (or a body style with preferred models), then search again. You already chose what the car is for — this was not an empty inventory result."
+          : "Choose what the car is for (for example family or commute), or name a make and model, then search again.",
       };
+    }
     case "empty_inventory":
       return {
         reason,

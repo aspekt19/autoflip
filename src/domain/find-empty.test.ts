@@ -60,7 +60,13 @@ describe("find empty reasons", () => {
 
     const directions = findEmptyCopy("no_directions", need);
     expect(directions.detail).toMatch(/guidance|direction/i);
-    expect(directions.nextStep).toMatch(/what the car is for|make and model/i);
+    // useCase already family — do not ask to choose use again.
+    expect(directions.nextStep).toMatch(/make and model|already chose/i);
+    expect(directions.nextStep).not.toMatch(/Choose what the car is for/i);
+    expect(directions.detail).toMatch(/No listing search ran|not a listing search/i);
+
+    const noUse = findEmptyCopy("no_directions", { ...need, useCase: "unspecified" as const });
+    expect(noUse.nextStep).toMatch(/what the car is for|make and model/i);
 
     const unknown = findEmptyCopy("unknown");
     expect(unknown.detail).toMatch(/unknown/i);

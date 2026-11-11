@@ -103,7 +103,8 @@ import {
   type ReadinessCar,
 } from "@/domain/purchase-readiness";
 import { PurchaseReadinessNote } from "./PurchaseReadinessNote";
-import { buyerListingHref, matchBuyerListing } from "@/domain/find-listing-link";
+import { matchBuyerListing } from "@/domain/find-listing-link";
+import { buyerDealerListingLink } from "@/domain/listing-vdp-verifiability";
 import { mmyListingKey } from "@/domain/find-risk-evidence";
 import {
   ageGapBuyerHonesty,
@@ -1070,13 +1071,20 @@ function AssistantFlow({
           ? { continue: Boolean(body.loop.continue), reason: body.loop.reason ?? "" }
           : null,
       });
+      const shortlistEmpty = !(serverBestDeal?.ranked?.length);
       const settleBit = toolCov
         ? buyerCheckActivityLine({
             anyUnchecked: Boolean(toolCov.anyUnchecked),
             continuing: willContinue,
+            shortlistEmpty,
           })
         : null;
-      const progressLine = [step, status, settleBit].filter(Boolean).join(" ");
+      // Drop contradictory “not running” + “caught up/stopped” pairs when unchecked remain.
+      const progressParts = [step, status, settleBit].filter(Boolean) as string[];
+      const progressLine =
+        toolCov?.anyUnchecked && status && /stopped on the current evidence|caught up/i.test(status)
+          ? progressParts.filter((part) => part !== status).join(" ")
+          : progressParts.join(" ");
       setNextCheckNote(progressLine);
       setPendingCheckLabel(
         findNextCheckPendingLabel({ pending: true, auto: Boolean(opts?.auto), progressLine }),
@@ -2499,27 +2507,29 @@ function AssistantFlow({
                         <ol className="top-picks">
                           {topRows.map((row) => {
                             const card = cardForRow(row);
-                            const href = buyerListingHref(row.vdp ?? card?.vdp);
                             const readiness = readinessByKey.get(row.key);
                             const findBits = [
                               row.miles != null ? `${row.miles.toLocaleString("en-US")} mi` : null,
                               card?.dealer || row.dealer || null,
                               [card?.city || row.city, card?.state || row.state].filter(Boolean).join(", ") || null,
                               row.vin ? `VIN ${row.vin}` : null,
-                            ].filter(Boolean);
+                            ].filter((bit): bit is string => Boolean(bit));
+                            const dealerLink = buyerDealerListingLink({
+                              vdp: row.vdp ?? card?.vdp,
+                              dealer: card?.dealer || row.dealer,
+                              vin: row.vin,
+                              year: row.year,
+                              trim: row.trim,
+                              findBits,
+                            });
                             return (
                               <li key={row.key}>
                                 {formatTopPickLine({ ...row, name: topNames.get(row.key) })}
                                 {" · "}
-                                {href ? (
-                                  <a href={href}>Dealer listing</a>
+                                {dealerLink.isDealerListing && dealerLink.href ? (
+                                  <a href={dealerLink.href}>Dealer listing</a>
                                 ) : (
-                                  <span>
-                                    Listing link unavailable
-                                    {findBits.length
-                                      ? ` — find it via ${findBits.join(" · ")} (feed had no usable dealer URL)`
-                                      : " (feed had no usable dealer URL)"}
-                                  </span>
+                                  <span>{dealerLink.unavailableNote}</span>
                                 )}
                                 {readiness ? <PurchaseReadinessNote view={readiness} /> : null}
                               </li>
@@ -2658,6 +2668,7 @@ function AssistantFlow({
                             freeGovReceiptsForShortlist.length > 0 || Boolean(bestDeal),
                           running: pending === "next-check",
                           loopOpen: findLoopOpen,
+                          shortlistEmpty: !(bestDeal?.ranked?.length),
                           modelCount: new Set(
                             allListings.map((car) => `${car.make}|${car.model}|${car.year}`),
                           ).size,
@@ -2968,13 +2979,24 @@ function AssistantFlow({
                     {car.clearsTarget === false ? <p className="hint">Under the profit target, so it ranks lower.</p> : null}
                     {car.clearsTarget === true ? <p className="hint">Clears the profit target. That target is an assumption, not a promised sale.</p> : null}
                     {(() => {
-                      const href = buyerListingHref(car.vdp);
+                      const dealerLink = buyerDealerListingLink({
+                        vdp: car.vdp,
+                        dealer: car.dealer,
+                        vin: car.vin,
+                        year: car.year,
+                        trim: car.trim,
+                        findBits: [
+                          car.dealer,
+                          car.vin ? `VIN ${car.vin}` : null,
+                          car.city,
+                        ].filter((bit): bit is string => Boolean(bit)),
+                      });
                       const trimNote = trimSourceDisagreement({
                         year: car.year,
                         make: car.make,
                         model: car.model,
                         displayedTrim: car.trim,
-                        listingUrl: href,
+                        listingUrl: dealerLink.href ?? car.vdp,
                         decodedTrim: freeGovReceiptsForShortlist.find(
                           (row) =>
                             (row.checkId === "free_gov_vpic" || row.toolId === "evidence.gov_vpic") &&
@@ -2985,15 +3007,10 @@ function AssistantFlow({
                         <>
                           {trimNote ? <p className="hint">{trimNote.note}</p> : null}
                           <p className="hint">
-                            {href ? (
-                              <a href={href}>Dealer listing</a>
+                            {dealerLink.isDealerListing && dealerLink.href ? (
+                              <a href={dealerLink.href}>Dealer listing</a>
                             ) : (
-                              <>
-                                Listing link unavailable
-                                {car.dealer || car.vin
-                                  ? ` — find it via ${[car.dealer, car.vin ? `VIN ${car.vin}` : null, car.city].filter(Boolean).join(" · ")} (feed had no usable dealer URL)`
-                                  : " (feed had no usable dealer URL)"}
-                              </>
+                              dealerLink.unavailableNote
                             )}
                           </p>
                         </>

@@ -10,7 +10,7 @@ import {
   readCheckDelivery,
   storeCheckDelivery,
 } from "@/server/check/check-delivery";
-import { runCheck, type CheckRunInput } from "@/server/check/run-check";
+import { checkResultIsCacheable, runCheck, type CheckRunInput } from "@/server/check/run-check";
 import { runtimeDeps } from "@/server/deps";
 import { balanceOf, requireVerifiedAccountForChecks, spendCredit } from "@/server/session";
 
@@ -263,14 +263,17 @@ export async function POST(request: Request) {
       freeChecks = committed.view;
     }
 
+    const cacheable = checkResultIsCacheable(result.result);
     const payload = { ...result.result } as Record<string, unknown>;
-    await storeCheckDelivery(kv, deliveryKey, {
-      settledAt: new Date().toISOString(),
-      result: payload,
-      usedFreeCheck,
-      spentCredit,
-      logicVersion: CHECK_DELIVERY_LOGIC_VERSION,
-    });
+    if (cacheable) {
+      await storeCheckDelivery(kv, deliveryKey, {
+        settledAt: new Date().toISOString(),
+        result: payload,
+        usedFreeCheck,
+        spentCredit,
+        logicVersion: CHECK_DELIVERY_LOGIC_VERSION,
+      });
+    }
 
     return Response.json({
       ok: true,
@@ -279,6 +282,15 @@ export async function POST(request: Request) {
       spentCredit,
       billingNote,
       freeChecks,
+      // Degraded SERV/recall runs are not month-cached — offer a fresh check.
+      ...(cacheable
+        ? {}
+        : {
+            staleLogic: true,
+            offerFreshCheck: true,
+            billingNote:
+              `${billingNote} This result was not saved for the month because SERV or recall evidence was incomplete — run a fresh check when ready.`.trim(),
+          }),
     });
   } catch (error) {
     if (usedFreeCheck && freeCheckKey) await releaseFreeCheck(kv, access.id, freeCheckKey);

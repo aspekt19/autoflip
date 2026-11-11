@@ -7,6 +7,7 @@
  * lines are advice, not a reason to withhold the choice.
  */
 
+import { capConfidenceForHonesty } from "./confidence-cap";
 import type { BestDealCandidate, BestDealFactorId } from "./find-best-deal";
 
 /**
@@ -54,6 +55,8 @@ export function findChoiceConfidence(input: {
   usableCount: number;
   evidenceSettled: boolean;
   priceProvisional: boolean;
+  /** When set (e.g. Needs inspection), High is illegal. */
+  verdict?: string | null;
 }): { confidence: FindChoiceConfidence; confidenceLine: string } {
   if (input.close) {
     const extra = !input.evidenceSettled
@@ -71,6 +74,18 @@ export function findChoiceConfidence(input: {
   }
   if (input.priceProvisional) {
     return { confidence: "medium", confidenceLine: "Medium: the price comparison is still provisional." };
+  }
+  // Shared honesty: High cannot pair with Needs inspection / unsettled evidence.
+  const capped = capConfidenceForHonesty({
+    confidence: "high" as const,
+    verdict: input.verdict,
+    evidenceSettled: input.evidenceSettled,
+  });
+  if (capped.capped) {
+    return {
+      confidence: "medium",
+      confidenceLine: `Medium: ${capped.reason?.replace(/^Lowered from High:\s*/i, "") ?? "verdict needs inspection."}`,
+    };
   }
   return { confidence: "high", confidenceLine: "High: this car is clearly ahead on the checks that are finished." };
 }
