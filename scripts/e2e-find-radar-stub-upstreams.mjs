@@ -87,9 +87,60 @@ function chatCompletion(id, content) {
   };
 }
 
+function parseUserFacts(body) {
+  const raw = userText(body);
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw);
+    if (parsed && typeof parsed === "object" && parsed.facts && typeof parsed.facts === "object") {
+      return parsed.facts;
+    }
+    return parsed && typeof parsed === "object" ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+function stringList(value) {
+  if (!Array.isArray(value)) return [];
+  return value.filter((row) => typeof row === "string" && row.trim()).map((row) => row.trim());
+}
+
 function servPayload(body) {
   const schema = schemaName(body);
   const system = systemText(body);
+  const facts = parseUserFacts(body);
+
+  // C1 find_plan — quotes must be verbatim substrings of the e2e NOTE.
+  if (schema === "find_plan") {
+    return chatCompletion(
+      "chatcmpl-EhAXMUOvyEyLBjo5Y5ePSlTGZUccv",
+      JSON.stringify({
+        summary: "Toyota RAV4 under $18,000 near Miami for commuting.",
+        bodyStyles: ["suv"],
+        budget: { maxUsd: 18_000, approximate: false, quote: "under $18,000" },
+        yearMin: null,
+        yearMax: null,
+        milesMax: 80_000,
+        drivetrain: { value: "any", strength: "none", quote: null },
+        fuel: { value: "any", strength: "none", quote: null },
+        seatsMin: null,
+        location: { zip: "33101", phrase: "near Miami", needsZip: false },
+        priorities: [],
+        namedModels: [{ make: "Toyota", model: "RAV4" }],
+        excludedMakes: [],
+        question: { id: "none", text: null },
+        directions: [
+          {
+            label: "The model you named",
+            why: "You named a Toyota RAV4.",
+            bodyStyle: "suv",
+            models: [{ make: "Toyota", model: "RAV4" }],
+          },
+        ],
+      }),
+    );
+  }
 
   if (schema === "need_extract") {
     return chatCompletion(
@@ -104,6 +155,73 @@ function servPayload(body) {
         targetProfitUsd: null,
         milesMax: 80_000,
         make: "Toyota",
+      }),
+    );
+  }
+
+  // C2 triage — echo pool keys from the facts payload (VIN keys from stub listings).
+  if (schema === "find_triage") {
+    const poolKeys = stringList(facts?.poolKeys).slice(0, 8);
+    const shortlist = (poolKeys.length >= 3 ? poolKeys : STUB_RAV4_VINS).slice(0, 4).map((key) => ({
+      key,
+      reason: "STUB triage shortlist — fixture only",
+      evidenceIds: [`car:${key}`],
+    }));
+    return chatCompletion(
+      "chatcmpl-EhAaTriageStubFindDecidePath1",
+      JSON.stringify({
+        shortlist,
+        rejected: [],
+        perCarChecks: [],
+        revisit: { needed: false, why: null, addModels: [], widenRadiusMiles: null },
+      }),
+    );
+  }
+
+  // C3 decide — pick the first shortlist key from facts.
+  if (schema === "find_decide") {
+    const shortlistKeys = stringList(facts?.shortlistKeys);
+    const pickKey =
+      shortlistKeys[0] ||
+      (typeof facts?.codeRankedKey === "string" ? facts.codeRankedKey.trim() : "") ||
+      STUB_RAV4_VINS[0];
+    return chatCompletion(
+      "chatcmpl-EhAaDecideStubFindDecidePath1",
+      JSON.stringify({
+        pickKey,
+        action: "negotiate",
+        confidence: "medium",
+        confidenceWhy: "Asking price is near the fair value of similar listings.",
+        reasons: [
+          {
+            text: "Asking price is near the fair value of similar listings.",
+            evidenceIds: [`ask:${pickKey}`],
+          },
+        ],
+        watchOuts: [
+          {
+            text: "Get a history report and a pre-purchase inspection before you buy.",
+            evidenceIds: [],
+          },
+        ],
+        askSeller: ["Is the asking price firm?"],
+        alternatives: shortlistKeys.slice(1, 3).map((key) => ({
+          key,
+          whyNot: "Not the top shortlist pick in this STUB fixture.",
+        })),
+        offerUsd: null,
+      }),
+    );
+  }
+
+  // C4 challenge — agree with the decide output.
+  if (schema === "find_challenge") {
+    return chatCompletion(
+      "chatcmpl-EhAaChallengeStubFindDecide1",
+      JSON.stringify({
+        agree: true,
+        issues: [],
+        revised: { pickKey: null, action: null, confidence: null },
       }),
     );
   }
