@@ -474,6 +474,128 @@ export type ExecuteFindFreeGovResult = {
   note: string;
 };
 
+/** Listing row shape accepted by free-gov execute helpers. */
+export type FindFreeGovListingRow = ObservedListingRow & {
+  vin?: string | null;
+  trim?: string | null;
+  engine?: string | null;
+  drivetrain?: string | null;
+};
+
+/** Result of the one-shot parallel free-gov pass (PR B decide path). */
+export type ExecuteAllFindFreeGovParallelResult = {
+  receipts: FindFreeGovReceipt[];
+  evidenceChanged: boolean;
+  note: string;
+  coverage: FreeGovToolCoverage;
+  /** Distinct year/make/model keys that received MMY-scoped checks. */
+  mmyCount: number;
+  /** Distinct MMYs that received a VIN decode (VIN present). */
+  vpicCount: number;
+  /** Total gov.run jobs fired in the single parallel wave. */
+  jobCount: number;
+};
+
+const MMY_SCOPED_CHECK_IDS = [
+  "free_gov_recalls",
+  "free_gov_safety",
+  "free_gov_fuel",
+] as const satisfies readonly FindFreeGovCheckId[];
+
+function scrubFreeGovMachineIds(text: string): string {
+  return text
+    .replace(/\bfree_gov_(?:recalls|vpic|safety|fuel)\b/g, "free public check")
+    .replace(/\bevidence\.gov_(?:recalls|vpic|safety|fuel)\b/g, "government data");
+}
+
+/**
+ * One-shot parallel free-gov pass for the SERV decide path (PR B).
+ * Every distinct year/make/model gets recalls + NCAP + fuel in one wave
+ * (complaints ride inside recalls). VIN decode joins the same wave when a VIN exists.
+ * Does not replace the batched next-check loop — callers opt in explicitly.
+ */
+export async function executeAllFindFreeGovParallel(input: {
+  listings: readonly FindFreeGovListingRow[];
+  gov?: ScoutFreeGovPort;
+  /** Shopper note for city-heavy fuel assumptions when using the live port. */
+  shopperNote?: string | null;
+}): Promise<ExecuteAllFindFreeGovParallelResult> {
+  const listings = input.listings;
+  const emptyCoverage = freeGovToolCoverage(listings, []);
+  if (listings.length === 0 || emptyCoverage.listingMmyCount === 0) {
+    return {
+      receipts: [],
+      evidenceChanged: false,
+      note: "No cars to check against public safety records yet.",
+      coverage: emptyCoverage,
+      mmyCount: 0,
+      vpicCount: 0,
+      jobCount: 0,
+    };
+  }
+
+  type ParallelJob = { checkId: FindFreeGovCheckId; listing: Listing };
+  const jobs: ParallelJob[] = [];
+  const unlimited = Number.MAX_SAFE_INTEGER;
+
+  for (const checkId of MMY_SCOPED_CHECK_IDS) {
+    for (const listing of selectFindFreeGovCandidates(listings, checkId, unlimited, [])) {
+      jobs.push({ checkId, listing });
+    }
+  }
+  for (const listing of selectFindFreeGovCandidates(listings, "free_gov_vpic", unlimited, [])) {
+    jobs.push({ checkId: "free_gov_vpic", listing });
+  }
+
+  if (jobs.length === 0) {
+    return {
+      receipts: [],
+      evidenceChanged: false,
+      note: "Public safety records skipped — no listing identity for free public lookup.",
+      coverage: emptyCoverage,
+      mmyCount: 0,
+      vpicCount: 0,
+      jobCount: 0,
+    };
+  }
+
+  const gov =
+    input.gov ??
+    createLiveFreeGovPort({
+      shopperNote: input.shopperNote ?? null,
+      cache: freeGovProcessCache(),
+    });
+
+  const receipts = await Promise.all(
+    jobs.map(async (job) => {
+      const packet = await gov.run(findFreeGovToolIdForCheck(job.checkId), job.listing);
+      return packetToReceipt(job.checkId, job.listing, packet);
+    }),
+  );
+
+  const coverage = freeGovToolCoverage(listings, receipts);
+  const mmyCount = coverage.listingMmyCount;
+  const vpicCount = coverage.vpic.checked;
+  const okish = receipts.filter((r) => r.status === "ok" || r.status === "empty").length;
+  const failed = receipts.length - okish;
+  const note = scrubFreeGovMachineIds(
+    `Free public safety records checked once for ${modelCountPhrase(mmyCount)}` +
+      `${vpicCount > 0 ? ` (${vpicCount} with VIN decode)` : ""}: ` +
+      `${okish} ok/empty, ${failed} unavailable/error. ${coverage.note} ` +
+      `No Report credit. Not NMVTIS/title clearance.`,
+  );
+
+  return {
+    receipts,
+    evidenceChanged: true,
+    note,
+    coverage,
+    mmyCount,
+    vpicCount,
+    jobCount: jobs.length,
+  };
+}
+
 /**
  * Execute one allowlisted free Find check against recorded listings.
  * Inject port for offline tests (unsupported / mock). Live uses createLiveFreeGovPort.
@@ -558,14 +680,10 @@ export async function executeFindFreeGovCheck(input: {
 
   const okish = receipts.filter((r) => r.status === "ok" || r.status === "empty").length;
   const failed = receipts.length - okish;
-  const scrubMachineIds = (text: string) =>
-    text
-      .replace(/\bfree_gov_(?:recalls|vpic|safety|fuel)\b/g, "free public check")
-      .replace(/\bevidence\.gov_(?:recalls|vpic|safety|fuel)\b/g, "government data");
   const perCard = receipts
     .map(
       (r) =>
-        `${r.year} ${r.make} ${r.model}: ${r.status} — ${scrubMachineIds(r.summary).slice(0, 120)}`,
+        `${r.year} ${r.make} ${r.model}: ${r.status} — ${scrubFreeGovMachineIds(r.summary).slice(0, 120)}`,
     )
     .slice(0, 3)
     .join(" | ");
@@ -584,7 +702,7 @@ export async function executeFindFreeGovCheck(input: {
     receipts,
     evidenceChanged: true,
     // Plain English only — never raw checkId / toolId (owner rule for any surface that may echo notes).
-    note: scrubMachineIds(
+    note: scrubFreeGovMachineIds(
       `Free public ${plainTool} batch ${receipts.length} unchecked year/make/model: ${okish} ok/empty, ${failed} unavailable/error. ${perCard}. Progress: ${after.note} ${receipts[0]?.honesty ?? ""} No Report credit. Not NMVTIS/title clearance.`,
     ),
   };
