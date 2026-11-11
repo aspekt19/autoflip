@@ -43,6 +43,7 @@ import { actionLabel, isServDecisionAction, verdictFromAction } from "@/domain/d
 import { confidenceLabel } from "@/domain/agent-verdict-schema";
 import { verdictLabel } from "@/domain/format";
 import type { FuelFact, Listing, RecallRecord, Verdict, VinDecode } from "@/domain/types";
+import { valuationReuseNote } from "@/domain/vin-day-valuation";
 import { autodevByVin, autodevByVdp, autodevSearch, type AutodevDeps } from "@/io/autodev";
 import {
   complaintCountFor,
@@ -54,6 +55,7 @@ import {
 import { safetyRatingsFor } from "@/io/nhtsa-safety";
 import { extractFromListingUrl, extractFromPastedText, type ListingExtractDeps } from "./extract-listing";
 import { getKv, type Kv } from "@/io/kv";
+import { getOrComputeValuation } from "@/io/vin-day-valuation-store";
 import { isServerlessRuntime, requireSharedQuotaForPaidDispatch } from "@/server/paid-dispatch-guard";
 import { GENERATION_YEAR_WINDOW } from "@/domain/adjusted-comparables";
 import { ASSUMPTIONS } from "@/domain/assumptions";
@@ -628,7 +630,24 @@ async function buildListingVerdict(
         : [subject, ...comps.listings]
       : [subject, ...providerListings];
 
-  const badge = priceBadge(subject, pool);
+  // Same getOrComputeValuation path as VIN Check / Find (ZIP + 500 mi when local).
+  const checkRadius = zip ? 500 : null;
+  let badge =
+    subject.vin && subject.vin.length === 17 && subject.priceUsd != null
+      ? (
+          await getOrComputeValuation({
+            kv: input.deps.kv ?? getKv(),
+            vin: subject.vin,
+            zip,
+            radiusMiles: checkRadius,
+            priceUsd: subject.priceUsd,
+            subject,
+            pool,
+            source: "check_listing",
+            now: input.deps.now ?? new Date(),
+          })
+        ).badge
+      : priceBadge(subject, pool);
   const gov = await govBundle(fields.vin.value, subject, { fetch: fetchImpl });
   const vinMismatch = mismatchNote(gov.vinDecode, subject);
 
@@ -1024,9 +1043,12 @@ async function buildVinDossier(vin: string, deps: CheckRunDeps, optionalZip?: st
   let pool: Listing[] = feed ? [subject] : [];
   let readiness: PurchaseReadiness | null = null;
   let topComps: SimilarCarView[] = [];
+  let lockedValuationNote: string | null = null;
 
   if (hasAsk && hasMiles) {
     const zip = subject.zip?.replace(/\D/g, "").slice(0, 5) || null;
+    // Match searchComps: wide local radius when ZIP present.
+    const checkRadius = zip ? 500 : null;
     const comps = await searchComps({
       make: subject.make,
       model: subject.model,
@@ -1043,7 +1065,27 @@ async function buildVinDossier(vin: string, deps: CheckRunDeps, optionalZip?: st
           ? comps.listings
           : [subject, ...comps.listings]
         : [subject];
-    badge = priceBadge(subject, pool, { decodedTrim: decode.trim ?? subject.trim });
+    const kv = deps.kv ?? getKv();
+    const now = deps.now ?? new Date();
+    let valuation = null as Awaited<ReturnType<typeof getOrComputeValuation>>["valuation"];
+    if (subject.vin && subject.vin.length === 17 && subject.priceUsd != null) {
+      const got = await getOrComputeValuation({
+        kv,
+        vin: subject.vin,
+        zip,
+        radiusMiles: checkRadius,
+        priceUsd: subject.priceUsd,
+        subject,
+        pool,
+        source: "check_vin",
+        now,
+        decodedTrim: decode.trim ?? subject.trim,
+      });
+      badge = got.badge;
+      valuation = got.valuation;
+    } else {
+      badge = priceBadge(subject, pool, { decodedTrim: decode.trim ?? subject.trim });
+    }
     const zipPick = zipChoice(null, zip);
     readiness = buildPurchaseReadiness({
       car: {
@@ -1074,10 +1116,24 @@ async function buildVinDossier(vin: string, deps: CheckRunDeps, optionalZip?: st
       })),
       zip: zipPick.zip,
       zipUsedFor: zipPick.zipUsedFor,
-      now: deps.now ?? new Date(),
+      now,
       recallCampaignCount: bundle.recallsAvailable ? bundle.recalls.length : null,
     });
+    // Keep readiness mid / count aligned with the published valuation record.
+    if (valuation && readiness.offer.fairMidUsd != null) {
+      readiness = {
+        ...readiness,
+        offer: {
+          ...readiness.offer,
+          fairMidUsd: valuation.fairValueUsd,
+          compCount: valuation.sampleSize,
+        },
+      };
+    }
     topComps = (readiness.offer.similarCars ?? []).slice(0, 8);
+    if (valuation) {
+      lockedValuationNote = valuationReuseNote(valuation);
+    }
   }
 
   const questions = dealerQuestions({
@@ -1095,6 +1151,7 @@ async function buildVinDossier(vin: string, deps: CheckRunDeps, optionalZip?: st
   if (!hasAsk) unknown.unshift("Asking price (no current listing ask for this VIN)");
   if (!hasMiles) unknown.unshift("Mileage (no current listing mileage for this VIN)");
   if (!listingsForVin.length) unknown.push("Current dealer listings for this VIN");
+  if (lockedValuationNote) unknown.push(lockedValuationNote);
 
   const parkIt = bundle.recalls.some((row) => row.parkIt);
   const priced = Boolean(badge && badge.tone !== "unknown" && badge.fairValueUsd != null);

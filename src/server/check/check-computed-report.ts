@@ -81,6 +81,7 @@ export function buildCheckComputedReport(input: {
     flags,
     questions: input.questions,
     comps,
+    compSampleSize: input.badge?.sampleSize ?? comps.length,
     compScope: input.compScope,
     percentile: null,
     fairValueUsd: input.fairValueUsd,

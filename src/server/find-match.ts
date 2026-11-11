@@ -16,11 +16,13 @@ import { admitFindListingForBudget, assessFindListingPrice, type FindListingPric
 import { diversifyListingsByModel } from "@/domain/find-model-observe";
 import { rankFlipCandidates } from "@/domain/flip-rank";
 import { listingWithinNeed, noMatchMessage, searchScopeLabel, validateNeed, type StructuredNeed } from "@/domain/need";
+import { priceCompsUnevenAcrossListings } from "@/domain/find-best-deal";
 import { priceBadge, type PriceBadge } from "@/domain/price-badge";
 import { reconUsd } from "@/domain/recon";
 import type { Listing } from "@/domain/types";
 import { geoScopeFromSearch, rememberComps, type CompGeoScope } from "@/io/comp-cache";
 import type { Kv } from "@/io/kv";
+import { getOrComputeValuation } from "@/io/vin-day-valuation-store";
 import { assembleRadar, type AssembleDeps } from "@/server/assemble";
 import {
   isServerlessRuntime,
@@ -642,17 +644,41 @@ export async function runFindMatch(
   // One comparable pool across badge + pick/score: use full provider returns for this
   // search (pre-diversify), not only the 24 shown cards, so same-model peers stay honest.
   const compsPool = compsPoolAcc;
+  // Same uneven-comps gate as ranking — when true, card labels must not read as scored GOOD PRICE.
+  const rankingPriceProvisional = priceCompsUnevenAcrossListings(
+    groups.flatMap((group) => group.listings),
+    compsPool,
+  );
   for (const group of groups) {
-    group.listings = group.listings.map((item) => {
-      const priceView = item.priceView;
-      const usable = priceView?.usableForBudget !== false;
-      return {
-        ...item,
-        badge: usable
-          ? priceBadge(item, compsPool)
-          : priceBadge({ ...item, priceUsd: null }, compsPool),
-      };
-    });
+    group.listings = await Promise.all(
+      group.listings.map(async (item) => {
+        const priceView = item.priceView;
+        const usable = priceView?.usableForBudget !== false;
+        if (!usable || item.priceUsd == null || !(item.vin && item.vin.length === 17)) {
+          return {
+            ...item,
+            badge: priceBadge(
+              usable ? item : { ...item, priceUsd: null },
+              compsPool,
+              { rankingPriceProvisional },
+            ),
+          };
+        }
+        // One record per VIN/ZIP/radius/day — Find badges from the returned record.
+        const { badge } = await getOrComputeValuation({
+          kv: deps.kv,
+          vin: item.vin,
+          zip: searchZip ?? item.zip,
+          radiusMiles: radiusMiles,
+          priceUsd: item.priceUsd,
+          subject: item,
+          pool: compsPool,
+          source: "find",
+          rankingPriceProvisional,
+        });
+        return { ...item, badge };
+      }),
+    );
     const coverageInput = {
       mode: need.mode,
       sample: false,

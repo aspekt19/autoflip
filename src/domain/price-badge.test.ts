@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { priceBadge } from "./price-badge";
+import { priceBadge, qualifyPriceBadgeForProvisionalRanking } from "./price-badge";
 import { reconUsd } from "./recon";
 import { summaryLine } from "./summary-line";
 import { emptyNeed, followUps } from "./need";
@@ -75,6 +75,19 @@ describe("price badge", () => {
     expect(b.sampleNote).toMatch(/included in the adjusted price/i);
     expect(b.sampleNote).toMatch(/certified pre-owned/i);
     expect(b.sampleNote).not.toMatch(/not reflected/i);
+  });
+
+  it("qualifies GOOD PRICE when ranking held price neutral for fairness", () => {
+    const low = priceBadge(car({ vin: "LOW", priceUsd: 8000, miles: 80000 }), comps, {
+      rankingPriceProvisional: true,
+    });
+    expect(low.label).toBe("Good price (ranking provisional)");
+    expect(low.label).not.toBe("Good price");
+    expect(low.sampleNote).toMatch(/informational only/i);
+    const plain = qualifyPriceBadgeForProvisionalRanking(
+      priceBadge(car({ vin: "LOW2", priceUsd: 8000, miles: 80000 }), comps),
+    );
+    expect(plain.label).toBe("Good price (ranking provisional)");
   });
 });
 

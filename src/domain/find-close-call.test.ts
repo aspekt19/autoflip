@@ -16,6 +16,7 @@ import {
   CLOSE_CALL_MARGIN,
   closeCallCars,
   closeCallLeadReason,
+  conditionFactorHasKnownEvidence,
   findChoiceConfidence,
   copyWhileChecksContinue,
   planCloseCallAfterHop,
@@ -418,6 +419,67 @@ describe("close-call reason and actions", () => {
     expect(reason).not.toMatch(/do not separate/i);
     expect(reason).not.toMatch(/listed first/i);
     expect(reason).not.toMatch(/\bscore\b/i);
+  });
+
+  it("does not say ahead on condition checks when condition is still unknown", () => {
+    expect(
+      conditionFactorHasKnownEvidence(
+        "You said you'd rather pay more for good condition — history and inspection are still required.",
+      ),
+    ).toBe(false);
+    expect(conditionFactorHasKnownEvidence("Condition preference not set.")).toBe(false);
+    expect(
+      conditionFactorHasKnownEvidence(
+        "You said you'd rather pay more for good condition — this is a high-mileage car for its age.",
+      ),
+    ).toBe(true);
+
+    const lead = candidate({
+      key: "LEAD",
+      year: 2018,
+      make: "Toyota",
+      model: "Camry",
+      factors: [
+        {
+          id: "condition_priority",
+          label: "Condition-first preference",
+          points: 4,
+          detail: "You said you'd rather pay more for good condition — history and inspection are still required.",
+          source: "code",
+        },
+        {
+          id: "price_vs_model_asks",
+          label: "Price",
+          points: 1,
+          detail: "Asking is near the fair value of $12,500 from similar listings.",
+          source: "code",
+        },
+      ],
+    });
+    const other = candidate({
+      key: "OTHER",
+      year: 2017,
+      make: "Toyota",
+      model: "Camry",
+      factors: [
+        {
+          id: "condition_priority",
+          label: "Condition-first preference",
+          points: 0,
+          detail: "You said you'd rather pay more for good condition — history and inspection are still required.",
+          source: "code",
+        },
+        {
+          id: "price_vs_model_asks",
+          label: "Price",
+          points: 0,
+          detail: "Asking is near the fair value of $12,800 from similar listings.",
+          source: "code",
+        },
+      ],
+    });
+    const reason = closeCallLeadReason(lead, other, label);
+    expect(reason).not.toMatch(/condition checks/i);
   });
 
   it("puts the leaning car's own question ahead of the other car", () => {

@@ -79,7 +79,11 @@ export function verdictDecisionFacts(
     priceGap: report.priceGap,
     percentile: report.percentile,
     score: report.score,
-    compCount: report.comps.length,
+    // Prefer the evaluation sampleSize that produced fairValueUsd — not a truncated comps[] length.
+    compCount:
+      typeof report.compSampleSize === "number" && report.compSampleSize > 0
+        ? report.compSampleSize
+        : report.comps.length,
     reasons: report.reasons,
     dataNotes: report.dataNotes,
     flagSummaries: report.flags.map((flag) => ({ level: flag.level, source: flag.source, text: flag.text })),

@@ -1,4 +1,5 @@
 import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
+import type { PriceLabel } from "@/domain/price-evaluation";
 
 export function newLinkCode(): string {
   return randomBytes(9).toString("hex");
@@ -93,7 +94,7 @@ export type AlertCopy = {
   milesMax: number | null;
   bodyStyle: string | null;
   /** Shared price label. Null when this alert has no price evaluation. */
-  priceLabel?: "Good price" | "Fair price" | "High price" | "Not enough similar cars" | null;
+  priceLabel?: PriceLabel | null;
   /** Same fair value as the card, report, and offer. */
   fairValueUsd?: number | null;
   origin: string;
