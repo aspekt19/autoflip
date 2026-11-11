@@ -102,6 +102,7 @@ const FACTOR_PLAIN: Record<BestDealFactorId, string> = {
   condition_priority: "condition checks",
   listing_feed_flags: "listing warnings",
   days_listed: "time on the market",
+  awd_preference: "all-wheel drive preference",
 };
 
 /** Buyer-facing factor text. Drops the word "score" and never includes point totals. */

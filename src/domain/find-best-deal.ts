@@ -472,19 +472,18 @@ export function priceCompsUnevenAcrossListings(
 export const PRICE_FAIRNESS_NEUTRAL_DETAIL =
   "Not scored for fairness — too many shortlist cars still lack usable same-model similar listings from this search, so asking-price comparison is treated as neutral (+0) for everyone. Pick is provisional on price.";
 
+type BestDealNeed = Pick<
+  StructuredNeed,
+  "budgetKnown" | "budgetUsd" | "preferredModels" | "conditionPriority" | "note"
+> & {
+  awdPreference?: boolean;
+  mustHaves?: string[];
+};
+
 function scoreOne(
   row: BestDealListing,
   ctx: {
-    need: Pick<
-      StructuredNeed,
-      | "budgetKnown"
-      | "budgetUsd"
-      | "preferredModels"
-      | "conditionPriority"
-      | "note"
-      | "awdPreference"
-      | "mustHaves"
-    >;
+    need: BestDealNeed;
     peerMilesPerYear: number[];
     peerMileageSamples: readonly PeerMileageSample[];
     nowYear: number;
@@ -1444,16 +1443,7 @@ function rankAll(
  * Compute ranked shortlist and a best choice whenever a usable car exists.
  */
 export function selectBestDealOnEvidence(input: {
-  need: Pick<
-    StructuredNeed,
-    | "budgetKnown"
-    | "budgetUsd"
-    | "preferredModels"
-    | "conditionPriority"
-    | "note"
-    | "awdPreference"
-    | "mustHaves"
-  >;
+  need: BestDealNeed;
   listings: readonly BestDealListing[];
   receipts?: readonly FindFreeGovReceipt[];
   fuelByMmy?: BestDealFuelIndex;
