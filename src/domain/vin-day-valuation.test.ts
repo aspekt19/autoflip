@@ -4,7 +4,9 @@ import { getOrComputeValuation, readVinDayValuation } from "@/io/vin-day-valuati
 import type { Listing } from "./types";
 import {
   applyAskToValuation,
+  buildComparisonSentence,
   buildVinDayValuation,
+  poolScopePhrase,
   vinDayValuationKey,
   valuationReuseNote,
 } from "./vin-day-valuation";
@@ -218,6 +220,15 @@ describe("vin-day valuation v2", () => {
     expect(find.badge.deltaUsd).toBe(15_200 - listing.valuation!.fairValueUsd);
     expect(find.badge.tone).toBe(find.valuation!.tone);
     expect(find.badge.deltaLabel).toBe(find.valuation!.deltaLabel);
+  });
+
+  it("poolScopePhrase is nationwide when radius is null (even if a dealer ZIP leaked in)", () => {
+    expect(poolScopePhrase("33415", null)).toBe("nationwide");
+    expect(poolScopePhrase("none", null)).toBe("nationwide");
+    expect(poolScopePhrase("68114", 500)).toBe("within 500 mi of 68114");
+    expect(buildComparisonSentence({ sampleSize: 8, model: "RAV4", zip: "33415", radiusMiles: null })).toBe(
+      "Compared with 8 similar RAV4 listings nationwide.",
+    );
   });
 
   it("applyAskToValuation keeps sample size and fair value, updates tone from the new ask", () => {

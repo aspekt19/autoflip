@@ -56,7 +56,7 @@ export type StructuredNeed = {
   zip: string | null;
   /**
    * Search radius in miles when zip is set.
-   * Null means nationwide (ZIP is optional context only, not a hard filter).
+   * Null means nationwide (ZIP alone does not narrow geography without a radius).
    */
   distanceMiles: number | null;
   repairAbility: RepairAbility;
@@ -93,6 +93,12 @@ export type StructuredNeed = {
   transmission?: TransmissionPref | null;
   /** True when the note asks for fuel economy (good on gas, mpg, and similar). */
   fuelEconomyPriority?: boolean;
+  /**
+   * Soft AWD/4WD preference ("preferably AWD"). Ranks AWD higher; never filters FWD out.
+   */
+  awdPreference?: boolean;
+  /** Soft reliability priority from the note — not the same as condition-first. */
+  reliabilityPriority?: boolean;
   /** Salvage / accident exclusion the note already stated. */
   historyPreference?: HistoryPref | null;
   /** Body style named in the note, including styles Find does not hard-filter yet. */
@@ -145,6 +151,8 @@ export function emptyNeed(mode: "personal" | "flip" = "personal"): StructuredNee
     conditionPriority: "unspecified",
     transmission: null,
     fuelEconomyPriority: false,
+    awdPreference: false,
+    reliabilityPriority: false,
     historyPreference: null,
     bodyStyle: null,
     locationPhrase: null,
@@ -313,6 +321,8 @@ export function validateNeed(input: unknown): { ok: true; need: StructuredNeed }
       : "unspecified";
   const transmission = raw.transmission === "automatic" || raw.transmission === "manual" ? raw.transmission : null;
   const fuelEconomyPriority = raw.fuelEconomyPriority === true;
+  const awdPreference = raw.awdPreference === true;
+  const reliabilityPriority = raw.reliabilityPriority === true;
   const historyPreference =
     raw.historyPreference === "no_salvage" ||
     raw.historyPreference === "no_accidents" ||
@@ -378,6 +388,8 @@ export function validateNeed(input: unknown): { ok: true; need: StructuredNeed }
       conditionPriority,
       transmission,
       fuelEconomyPriority,
+      awdPreference,
+      reliabilityPriority,
       historyPreference,
       bodyStyle,
       locationPhrase,
@@ -507,6 +519,8 @@ export function explicitNeedFromText(text: string, mode: "personal" | "flip"): S
     distanceMiles: intake.distanceMiles,
     transmission: intake.transmission,
     fuelEconomyPriority: intake.fuelEconomyPriority,
+    awdPreference: intake.awdPreference,
+    reliabilityPriority: intake.reliabilityPriority,
     historyPreference: intake.historyPreference,
     bodyStyle: intake.bodyStyle,
     locationPhrase: intake.locationPhrase,
@@ -755,13 +769,13 @@ export const AGE_GAP_NO_FLOOR = "You chose no year floor. Search uses the years 
 export function softPrefGapsFromText(text: string): SoftPrefGap[] {
   const t = text.toLowerCase();
   const gaps: SoftPrefGap[] = [];
-  // Optional AWD ("ideally", "preferably") is still a soft gap — never a silent hard filter.
+  // Optional AWD ("ideally", "preferably") is a soft ranking preference — never a silent hard filter.
   if (/\b(awd|4wd|all[\s-]?wheel|four[\s-]?wheel)\b/i.test(t)) {
     gaps.push({
       id: "awd",
-      mentioned: "AWD / four-wheel drive",
+      mentioned: "Preferably AWD",
       honesty:
-        "Find does not filter drivetrain in listing search. Confirm AWD on each dealer listing or in a full report — it is not enforced here.",
+        "Preferably AWD is a soft preference: AWD/4WD ranks higher when known, but Find does not drop FWD or cars with unknown drivetrain from search.",
     });
   }
   if (
@@ -1066,6 +1080,8 @@ export function supplementNeedFromNote(need: StructuredNeed, text: string): Stru
     useCase,
     transmission: need.transmission ?? intake.transmission,
     fuelEconomyPriority: need.fuelEconomyPriority === true || intake.fuelEconomyPriority,
+    awdPreference: need.awdPreference === true || intake.awdPreference,
+    reliabilityPriority: need.reliabilityPriority === true || intake.reliabilityPriority,
     historyPreference,
     conditionPriority,
     bodyStyle: need.bodyStyle ?? intake.bodyStyle,

@@ -111,10 +111,11 @@ export function isVinDayValuation(value: unknown): value is VinDayValuation {
 }
 
 export function poolScopePhrase(zip: string, radiusMiles: number | null): string {
+  // Radius unset = nationwide pool. Never say "near {zip}" for a dealer-only ZIP
+  // that leaked in when the buyer searched without a radius.
   if (zip !== "none" && radiusMiles != null) {
     return `within ${radiusMiles} mi of ${zip}`;
   }
-  if (zip !== "none") return `near ${zip}`;
   return "nationwide";
 }
 
