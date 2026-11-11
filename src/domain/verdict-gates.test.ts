@@ -190,6 +190,30 @@ describe("ordered gates", () => {
     expect(run.forbid).toEqual(expect.arrayContaining(["buy", "negotiate"]));
   });
 
+  it("safety_red_flags forbids buy+negotiate on park-outside / fire-risk alone", () => {
+    const report = reportFor(car({ vin: "PARKOUTGATE000001", priceUsd: 12_000, miles: 20_000 }), {
+      recalls: [
+        {
+          campaignNumber: "20V543000",
+          component: "Engine",
+          summary: "Fire risk — park outdoors",
+          consequence: "",
+          remedy: "",
+          parkIt: false,
+          parkOutSide: true,
+        },
+      ],
+    });
+    expect(report.openParkIt).toBe(false);
+    expect(report.openParkOutside).toBe(true);
+    const run = runOrderedGates(report);
+    expect(run.forcePass).toBe(true);
+    expect(run.forbid).toEqual(expect.arrayContaining(["buy", "negotiate"]));
+    expect(run.gates.find((gate) => gate.id === "safety_red_flags")?.reason).toMatch(
+      /park-outside|outdoor-parking|fire-risk/i,
+    );
+  });
+
   it("safety_red_flags forbids buy on odometer caution", () => {
     const report = reportFor(car({ vin: "ODOGATE0000000001", priceUsd: 12_000, miles: 220_000 }));
     const run = runOrderedGates(report);

@@ -17,6 +17,11 @@ import {
   listingVdpVerifiability,
   NO_DIRECT_LISTING_RISK_MUL,
 } from "@/domain/listing-vdp-verifiability";
+import {
+  confidenceCapReasonForStop,
+  stopFlagsFromRecalls,
+  withResaleRecallRisk,
+} from "@/domain/nhtsa-stop-flags";
 import { complaintsFor, decodeVin, recallsFor, type GovDeps } from "@/io/gov";
 
 export type ResaleDeepCheckFinding = {
@@ -146,11 +151,27 @@ async function deepCheckOneVin(input: {
         rejected: null,
       });
     } else {
-      const parkIt = recalls.records.some((r) => r.parkIt);
-      const parkOutside = recalls.records.some((r) => r.parkOutSide && !r.parkIt);
-      // Stamp stop-level flags onto the candidate for clampFlipPublishedAction.
+      const stops = stopFlagsFromRecalls(recalls.records);
+      const parkIt = stops.openParkIt;
+      const parkOutside = stops.openParkOutside;
+      // Stamp stop-level flags onto the candidate for clampFlipPublishedAction + honest risks.
       item.openParkIt = parkIt;
       item.openParkOutside = parkOutside || parkIt;
+      item.recallsChecked = true;
+      item.recallCampaignCount = recalls.records.length;
+      item.risks = withResaleRecallRisk(item.risks, {
+        recallsChecked: true,
+        openParkIt: parkIt,
+        openParkOutside: parkOutside,
+        recallCampaignCount: recalls.records.length,
+      });
+      if (stops.hasStop && item.confidence === "High") {
+        const reason = confidenceCapReasonForStop(true);
+        item.confidence = "Medium";
+        if (reason && !item.confidenceBasis.includes(reason)) {
+          item.confidenceBasis = `${item.confidenceBasis} ${reason}`;
+        }
+      }
       const detail = parkIt
         ? `NHTSA lists a park-it recall campaign for this make/model/year (${recalls.records.length} campaign(s)).`
         : parkOutside
@@ -192,7 +213,7 @@ async function deepCheckOneVin(input: {
           inputsUsed: [`vin:${item.vin}`, `check:recalls`],
           changed: parkOutside
             ? `openParkOutside stamped for clampFlipPublishedAction on ${item.vin}`
-            : null,
+            : `recallsChecked + recallCampaignCount=${recalls.records.length} on ${item.vin}`,
           model: null,
           responseId: null,
           recordedAt,

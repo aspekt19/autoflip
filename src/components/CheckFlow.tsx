@@ -71,6 +71,11 @@ type CheckResultView = {
   usedFreeCheck?: boolean;
   spentCredit?: boolean;
   fromCache?: boolean;
+  /** True when a pre-logic-version delivery is shown for history only. */
+  staleLogic?: boolean;
+  /** Prompt a fresh re-run when staleLogic is true. */
+  offerFreshCheck?: boolean;
+  logicVersion?: number;
   /** ISO timestamp when the saved check delivery was stored ("Saved at …" on the trail). */
   settledAt?: string;
   billingNote?: string;
@@ -220,7 +225,7 @@ function CheckFlowForm() {
     }
   }
 
-  async function submit() {
+  async function submit(opts?: { forceFresh?: boolean }) {
     setError(null);
     setBlocked(false);
     setRecovery(null);
@@ -287,7 +292,12 @@ function CheckFlowForm() {
         kind === "link"
           ? { kind: "link", url: url.trim(), optionalZip: optionalZip.trim() || undefined }
           : kind === "vin"
-            ? { kind: "vin", vin: vin.trim().toUpperCase(), optionalZip: optionalZip.trim() || undefined }
+            ? {
+                kind: "vin",
+                vin: vin.trim().toUpperCase(),
+                optionalZip: optionalZip.trim() || undefined,
+                ...(opts?.forceFresh ? { forceFresh: true } : {}),
+              }
             : {
                 kind: "paste",
                 text: paste,
@@ -376,16 +386,34 @@ function CheckFlowForm() {
   return (
     <div className="panel check-flow">
       <div className="pills" role="radiogroup" aria-label="How to check">
-        <label className="pill">
-          <input type="radio" name="check-kind" checked={kind === "link"} onChange={() => setKind("link")} />
+        <label className="pill" htmlFor="check-kind-link">
+          <input
+            id="check-kind-link"
+            type="radio"
+            name="check-kind"
+            checked={kind === "link"}
+            onChange={() => setKind("link")}
+          />
           By listing link
         </label>
-        <label className="pill">
-          <input type="radio" name="check-kind" checked={kind === "vin"} onChange={() => setKind("vin")} />
+        <label className="pill" htmlFor="check-kind-vin">
+          <input
+            id="check-kind-vin"
+            type="radio"
+            name="check-kind"
+            checked={kind === "vin"}
+            onChange={() => setKind("vin")}
+          />
           By VIN
         </label>
-        <label className="pill">
-          <input type="radio" name="check-kind" checked={kind === "paste"} onChange={() => setKind("paste")} />
+        <label className="pill" htmlFor="check-kind-paste">
+          <input
+            id="check-kind-paste"
+            type="radio"
+            name="check-kind"
+            checked={kind === "paste"}
+            onChange={() => setKind("paste")}
+          />
           Paste listing text
         </label>
       </div>
@@ -555,12 +583,32 @@ function CheckFlowForm() {
         </p>
       ) : null}
 
-      {result ? <CheckResultCard result={result} /> : null}
+      {result ? (
+        <CheckResultCard
+          result={result}
+          freshPending={pending}
+          onFreshCheck={
+            result.offerFreshCheck && kind === "vin"
+              ? () => {
+                  void submit({ forceFresh: true });
+                }
+              : undefined
+          }
+        />
+      ) : null}
     </div>
   );
 }
 
-function CheckResultCard({ result }: { result: CheckResultView }) {
+function CheckResultCard({
+  result,
+  onFreshCheck,
+  freshPending,
+}: {
+  result: CheckResultView;
+  onFreshCheck?: () => void;
+  freshPending?: boolean;
+}) {
   const priced = result.fields?.priceUsd.value;
   const stopFlags = result.redFlags.filter((flag) => flag.level === "stop");
   const sold = result.redFlags.some((flag) => flag.id === "sold");
@@ -576,6 +624,7 @@ function CheckResultCard({ result }: { result: CheckResultView }) {
       : result.agentVerdict?.verdict && !result.agentVerdict.no_serv_step
         ? actionLabel(result.agentVerdict.verdict, "personal")
         : result.verdictLabel;
+  const savedDate = result.settledAt?.slice(0, 10) ?? null;
   return (
     <article className="warn-box check-result" aria-live="polite">
       <p className="kicker">{result.kind === "vin_dossier" ? "VIN dossier" : "Listing check"}</p>
@@ -585,6 +634,20 @@ function CheckResultCard({ result }: { result: CheckResultView }) {
         {" · "}
         Confidence: {confidenceDisplay}
       </p>
+      {result.staleLogic ? (
+        <p className="warn" role="status">
+          Saved check{savedDate ? ` from ${savedDate}` : ""} predates current Check logic
+          {typeof result.logicVersion === "number" ? ` (was v${result.logicVersion})` : ""}. Shown for
+          history only — stop flags and confidence may be outdated.
+        </p>
+      ) : null}
+      {result.offerFreshCheck && onFreshCheck ? (
+        <p>
+          <button type="button" className="btn" onClick={onFreshCheck} disabled={freshPending}>
+            {freshPending ? "Running fresh check…" : "Run a fresh check"}
+          </button>
+        </p>
+      ) : null}
       {result.billingNote ? <p className="hint">{result.billingNote}</p> : null}
       {!result.billingNote && result.usedFreeCheck ? (
         <p className="hint">Free vehicle check used (no report credit).</p>

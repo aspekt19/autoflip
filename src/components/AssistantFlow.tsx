@@ -246,6 +246,8 @@ function AssistantFlow({
   const [text, setText] = useState(initialNote?.trim() ?? "");
   const [budget, setBudget] = useState(entryNeed?.budgetUsd != null ? entryNeed.budgetUsd.toLocaleString("en-US") : "");
   const [budgetKnown, setBudgetKnown] = useState(true);
+  /** True once the shopper types Max price on the budget step — never stamp FROM YOUR NOTE. */
+  const [budgetFormDirty, setBudgetFormDirty] = useState(false);
   const [need, setNeed] = useState<StructuredNeed | null>(entryNeed);
   const [noteMarks, setNoteMarks] = useState<NoteMarks | null>(entryNeed ? noteMarksFrom(entryNeed) : null);
   const [locationResolution, setLocationResolution] = useState<LocationZipResolution | null>(null);
@@ -481,7 +483,12 @@ function AssistantFlow({
                     } satisfies LocationZipResolution)
                   : null;
       setNeed(finalNeed);
-      setNoteMarks(noteMarksFrom(finalNeed, text));
+      {
+        const marks = noteMarksFrom(finalNeed, text);
+        // Typed Max price on the budget form wins over note extraction.
+        if (budgetFormDirty) marks.budget = false;
+        setNoteMarks(marks);
+      }
       setLocationResolution(resolutionForField);
       // Labelled default when server set 100 mi from a city/ZIP with no explicit “within N miles”.
       setRadiusIsDefault(
@@ -1902,7 +1909,17 @@ function AssistantFlow({
         >
           <div className="field">
             <label htmlFor="budget">{mode === "flip" ? "Cash available for the purchase and repairs" : "Maximum vehicle price (before taxes and fees)"}</label>
-            <input id="budget" value={budget} onChange={(event) => setBudget(event.target.value)} inputMode="decimal" disabled={!budgetKnown} placeholder="e.g. 18000" />
+            <input
+              id="budget"
+              value={budget}
+              onChange={(event) => {
+                setBudgetFormDirty(true);
+                setBudget(event.target.value);
+              }}
+              inputMode="decimal"
+              disabled={!budgetKnown}
+              placeholder="e.g. 18000"
+            />
             <label className="check-line" htmlFor="budget-unknown">
               <input
                 id="budget-unknown"
@@ -2080,7 +2097,15 @@ function AssistantFlow({
             <label htmlFor="use-edit">
               Use <FromNote show={Boolean(noteMarks?.use)} />
             </label>
-            <select id="use-edit" value={need.useCase} onChange={(event) => setNeed({ ...need, useCase: event.target.value as StructuredNeed["useCase"] })}>
+            <select
+              id="use-edit"
+              value={need.useCase}
+              onChange={(event) => {
+                setNeed({ ...need, useCase: event.target.value as StructuredNeed["useCase"] });
+                // Typed/selected on the confirm form — never keep FROM YOUR NOTE.
+                if (noteMarks) setNoteMarks({ ...noteMarks, use: false });
+              }}
+            >
               {USE_CASES.map((item) => (
                 <option key={item} value={item}>
                   {USE_LABEL[item]}
@@ -2176,9 +2201,11 @@ function AssistantFlow({
               setNeed({ ...need, budgetUsd: next.budgetUsd, budgetKnown: next.budgetKnown });
               setBudget(next.budgetUsd != null ? next.budgetUsd.toLocaleString("en-US") : "");
               setBudgetKnown(next.budgetKnown);
-              if (noteMarks?.budget && next.budgetUsd !== need.budgetUsd) {
+              // Any edit on the confirm Max price field clears FROM YOUR NOTE.
+              if (noteMarks?.budget) {
                 setNoteMarks({ ...noteMarks, budget: false });
               }
+              setBudgetFormDirty(true);
             }}
           />
           {need.mode === "personal" ? <p className="hint">This limit applies to the vehicle asking price only; taxes, title and dealer fees are not estimated.</p> : null}
@@ -2682,6 +2709,7 @@ function AssistantFlow({
                     <DecisionRecordList
                       records={proofRecords.filter(
                         (row) =>
+                          row.purpose === "find_pick" ||
                           row.purpose === "verdict_decide" ||
                           row.purpose === "verdict_challenge" ||
                           row.purpose === "need_extract" ||

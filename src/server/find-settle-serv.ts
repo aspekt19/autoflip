@@ -11,6 +11,11 @@ import {
   VERDICT_RUBRIC_ID,
   type DecisionProofRecord,
 } from "@/domain/decision-proof-record";
+import {
+  capConfidenceForStopFlags,
+  confidenceCapReasonForStop,
+  stopFlagsForFindPick,
+} from "@/domain/nhtsa-stop-flags";
 import { evaluateListingPrice } from "@/domain/price-evaluation";
 import type { ComputedReport, Listing, Verdict } from "@/domain/types";
 import { ASSUMPTIONS } from "@/domain/assumptions";
@@ -115,6 +120,12 @@ export function buildFindPickComputedReport(
     ...pick.unknowns.slice(0, 8),
     ...(vinPlaceholder ? ["VIN not in listing"] : []),
   ];
+  const stopTexts = [
+    ...pick.factors.flatMap((factor) => [factor.id, factor.detail, factor.label]),
+    ...pick.unknowns,
+    ...pick.sellerQuestions,
+  ];
+  const stop = stopFlagsForFindPick({ texts: stopTexts });
   const usedMarket = marketSameModel.length > 0;
   return {
     mode: "personal",
@@ -122,7 +133,11 @@ export function buildFindPickComputedReport(
     verdict: verdictFromEvaluation(evaluation.priceVerdict),
     score: pick.score,
     reasons: pick.factors.slice(0, 6).map((f) => f.detail).filter(Boolean),
-    flags: [],
+    flags: stop.flags.map((flag) => ({
+      level: flag.level,
+      source: "nhtsa-recalls" as const,
+      text: flag.text,
+    })),
     questions: pick.sellerQuestions.slice(0, 6),
     comps,
     // Prefer evaluation sampleSize for SERV notes — comps[] may be truncated for display.
@@ -146,8 +161,8 @@ export function buildFindPickComputedReport(
     history: { multiplier: 1, lines: [] },
     recalls: [],
     recallsAvailable,
-    openParkIt: false,
-    openParkOutside: false,
+    openParkIt: stop.openParkIt,
+    openParkOutside: stop.openParkOutside,
     complaintCount: null,
     fuel: null,
     vinDecode: null,
@@ -198,9 +213,10 @@ function hasVerifiedPriceEvidence(report: ComputedReport): boolean {
 function mapDealConfidence(
   level: AgentVerdictConfidence | null | undefined,
   fallback: BestDealResult["confidence"],
-): BestDealResult["confidence"] {
+): "high" | "medium" | "low" {
   if (level === "high" || level === "medium" || level === "low") return level;
-  return fallback;
+  if (fallback === "high" || fallback === "medium" || fallback === "low") return fallback;
+  return "medium";
 }
 
 /** Buyer-visible code fact from the published pick (price factor first). */
@@ -208,6 +224,46 @@ function codeFactFromPick(pick: BestDealCandidate): string | null {
   const price = pick.factors.find((factor) => factor.id === "price_vs_model_asks");
   const detail = (price ?? pick.factors[0])?.detail?.trim();
   return detail ? detail.replace(/\s+/g, " ") : null;
+}
+
+const PRICE_FAIRNESS_UNSCORED_RE =
+  /Not scored for fairness|provisional on price|treated as neutral \(\+0\)/i;
+const PRICE_FAIRNESS_CLAIM_RE =
+  /\b(?:well )?below fair(?: value)?\b|\b(?:well )?above fair(?: value)?\b|\bnear(?:er)?(?: to)? fair(?: value)?\b|\bfair value\b|\bsolid comps?\b/i;
+
+/** True when the pick's price factor (or code fact text) says fairness was not scored. */
+export function priceFairnessUnscored(
+  pick: BestDealCandidate,
+  codeFact?: string | null,
+): boolean {
+  const price = pick.factors.find((factor) => factor.id === "price_vs_model_asks");
+  if (price && PRICE_FAIRNESS_UNSCORED_RE.test(price.detail)) return true;
+  if (codeFact && PRICE_FAIRNESS_UNSCORED_RE.test(codeFact)) return true;
+  return false;
+}
+
+/**
+ * Drop fairness-claim wording when price fairness is unscored / provisional.
+ * Keeps non-fairness bits of a SERV note; drops empty leftovers.
+ */
+export function scrubFairnessClaimsWhenUnscored(
+  text: string | null | undefined,
+  unscored: boolean,
+): string | null {
+  const raw = text?.trim().replace(/\s+/g, " ") || "";
+  if (!raw) return null;
+  if (!unscored || !PRICE_FAIRNESS_CLAIM_RE.test(raw)) return raw;
+  const scrubbed = raw
+    .replace(/\b(?:well )?below fair(?: value)?\b/gi, "")
+    .replace(/\b(?:well )?above fair(?: value)?\b/gi, "")
+    .replace(/\bnear(?:er)?(?: to)? fair(?: value)?(?: of \$[\d,]+)?\b/gi, "")
+    .replace(/\bfair value(?: of \$[\d,]+)?\b/gi, "")
+    .replace(/\bsolid comps?\b/gi, "")
+    .replace(/[;,]\s*[;,]+/g, ";")
+    .replace(/\s{2,}/g, " ")
+    .replace(/^[\s,;:.\-–—]+|[\s,;:.\-–—]+$/g, "")
+    .trim();
+  return scrubbed || null;
 }
 
 /**
@@ -245,13 +301,16 @@ export function publishBestDeal(input: {
   actor: "SERV" | "code";
   /** SERV find_pick note (or null) — may only repeat numbers already in facts. */
   servNote?: string | null;
+  /** Appended when stop-level NHTSA guidance capped High → Medium. */
+  confidenceCapReason?: string | null;
 }): BestDealResult {
   const confidence = input.confidence === "none" ? "medium" : input.confidence;
   const label = `${input.pick.year} ${input.pick.make} ${input.pick.model}`;
   const ask =
     input.pick.priceUsd != null ? `$${input.pick.priceUsd.toLocaleString("en-US")}` : "price not listed";
-  const servNote = input.servNote?.trim() || null;
   const codeFact = codeFactFromPick(input.pick);
+  const unscored = priceFairnessUnscored(input.pick, codeFact);
+  const servNote = scrubFairnessClaimsWhenUnscored(input.servNote, unscored);
   const reasons: string[] = [];
   if (servNote) reasons.push(servNote);
   if (codeFact && codeFact !== servNote) reasons.push(codeFact);
@@ -269,12 +328,14 @@ export function publishBestDeal(input: {
     priorPick && priorPick.key !== input.pick.key
       ? `${priorPick.year} ${priorPick.make} ${priorPick.model}`
       : null;
+  const capReason = input.confidenceCapReason?.trim() || null;
+  const baseLine = confidenceLineFor(confidence, input.actor, servNote, codeFact);
   const choice = {
     label,
     runnerUpLabel: priorLabel ?? input.bestDeal.choice?.runnerUpLabel ?? null,
     reasons: trimmedReasons,
     confidence,
-    confidenceLine: confidenceLineFor(confidence, input.actor, servNote, codeFact),
+    confidenceLine: capReason ? `${baseLine} ${capReason}` : baseLine,
     confirmBeforeBuying: input.bestDeal.choice?.confirmBeforeBuying ?? [],
   };
   const movePickFirst = <T extends { key: string }>(rows: readonly T[]): T[] => {
@@ -399,6 +460,9 @@ export async function runFindSettleServ(input: {
   let pickConfidence: AgentVerdictConfidence | null =
     input.bestDeal.confidence !== "none" ? input.bestDeal.confidence : null;
   let pickNote: string | null = null;
+  let pickResponseId: string | null = null;
+  let pickModel: string | null = input.model ?? null;
+  let pickRecordedAt = recordedAt;
   const proofRecords: DecisionProofRecord[] = [];
   const fetchImpl = input.fetchImpl ?? fetch;
   const servKey = input.servKey?.trim() || "";
@@ -477,28 +541,30 @@ export async function runFindSettleServ(input: {
       const conf = payload.confidence;
       if (conf === "high" || conf === "medium" || conf === "low") pickConfidence = conf;
       pickNote = typeof payload.note === "string" ? payload.note.trim() || null : null;
-      proofRecords.push(
-        buildDecisionProofRecord({
-          purpose: "find_pick",
-          rubricId: VERDICT_RUBRIC_ID,
-          status: "ok",
-          recordedAt,
-          responseId,
-          model: judged.proof?.modelReported ?? judged.proof?.modelRequested ?? input.model ?? null,
-          inputs: {
-            allowedKeys,
-            codeRankedKey: codeEligible.key,
-            chosenKey: pick.key,
-            eligibleFinalists: eligible.length,
-          },
-          verdict: typeof payload.action === "string" ? payload.action : null,
-          rawResponse,
-          detail:
-            typeof payload.note === "string" && payload.note.trim()
-              ? payload.note.trim()
-              : `SERV picked ${pick.year} ${pick.make} ${pick.model} among ${eligible.length} eligible finalists.`,
-        }),
-      );
+      pickModel = judged.proof?.modelReported ?? judged.proof?.modelRequested ?? input.model ?? null;
+      pickRecordedAt = recordedAt;
+      const findPickProof = buildDecisionProofRecord({
+        purpose: "find_pick",
+        rubricId: VERDICT_RUBRIC_ID,
+        status: "ok",
+        recordedAt: pickRecordedAt,
+        responseId,
+        model: pickModel,
+        inputs: {
+          allowedKeys,
+          codeRankedKey: codeEligible.key,
+          chosenKey: pick.key,
+          eligibleFinalists: eligible.length,
+        },
+        verdict: typeof payload.action === "string" ? payload.action : null,
+        rawResponse,
+        detail:
+          typeof payload.note === "string" && payload.note.trim()
+            ? payload.note.trim()
+            : `SERV picked ${pick.year} ${pick.make} ${pick.model} among ${eligible.length} eligible finalists.`,
+      });
+      pickResponseId = findPickProof.servResponseId;
+      proofRecords.push(findPickProof);
     } else {
       const rejectWhy = !judged.ok
         ? judged.failureDiag?.honesty ||
@@ -510,14 +576,17 @@ export async function runFindSettleServ(input: {
           : `SERV pickKey ${pickKey} is not in allowedKeys — hard rule reject; code ranking stands.`;
       pick = codeEligible;
       pickActor = "code";
+      pickModel = judged.proof?.modelReported ?? judged.proof?.modelRequested ?? input.model ?? null;
+      pickRecordedAt = recordedAt;
+      pickResponseId = null;
       proofRecords.push(
         buildDecisionProofRecord({
           purpose: "find_pick",
           rubricId: VERDICT_RUBRIC_ID,
           status: judged.ok ? "failed" : "failed",
-          recordedAt,
+          recordedAt: pickRecordedAt,
           responseId: null,
-          model: judged.proof?.modelReported ?? judged.proof?.modelRequested ?? input.model ?? null,
+          model: pickModel,
           inputs: {
             allowedKeys,
             codeRankedKey: codeEligible.key,
@@ -530,12 +599,15 @@ export async function runFindSettleServ(input: {
       );
     }
   } else {
+    pickRecordedAt = recordedAt;
+    pickResponseId = null;
+    pickModel = input.model ?? null;
     proofRecords.push(
       buildDecisionProofRecord({
         purpose: "find_pick",
         rubricId: VERDICT_RUBRIC_ID,
         status: "skipped_no_key",
-        recordedAt,
+        recordedAt: pickRecordedAt,
         inputs: {
           codeRankedKey: codeEligible.key,
           eligibleFinalists: eligible.length,
@@ -547,9 +619,13 @@ export async function runFindSettleServ(input: {
   }
 
   const report = buildFindPickComputedReport(pick, peers, marketPool);
-  const screeningConfidence: AgentVerdictConfidence | null =
+  const hasStop = Boolean(report.openParkIt || report.openParkOutside);
+  const stopCapReason = confidenceCapReasonForStop(hasStop);
+  const screeningConfidence: AgentVerdictConfidence | null = capConfidenceForStopFlags(
     pickConfidence ??
-    (input.bestDeal.confidence !== "none" ? input.bestDeal.confidence : "medium");
+      (input.bestDeal.confidence !== "none" ? input.bestDeal.confidence : "medium"),
+    hasStop,
+  );
 
   const shopper = await runShopperVerdictServ({
     report,
@@ -566,13 +642,30 @@ export async function runFindSettleServ(input: {
   });
 
   // SERV confidence (pick + shopper) becomes published; code fallback stays labelled as code.
-  const publishedConfidence = mapDealConfidence(
+  // Stop-level park-it / park-outside never publish High (same rule as Check).
+  const rawPublished = mapDealConfidence(
     shopper.agentVerdict.confidence ?? pickConfidence,
     input.bestDeal.confidence === "none" ? "medium" : input.bestDeal.confidence,
   );
+  const publishedConfidence = capConfidenceForStopFlags(rawPublished, hasStop);
+  // Count as capped when stop guidance blocked High — including when screening was
+  // capped before shopper so SERV never returned High.
+  const intendedHigh =
+    rawPublished === "high" ||
+    pickConfidence === "high" ||
+    input.bestDeal.confidence === "high" ||
+    shopper.agentVerdict.confidence === "high";
+  const confidenceWasCapped = Boolean(hasStop && publishedConfidence !== "high" && intendedHigh);
   let agentVerdict = shopper.agentVerdict;
   if (agentVerdict) {
     const pickLabel = `${pick.year} ${pick.make} ${pick.model}`;
+    const cappedAgentConfidence = capConfidenceForStopFlags(
+      (shopper.agentVerdict.confidence ??
+        pickConfidence ??
+        agentVerdict.confidence ??
+        "medium") as AgentVerdictConfidence,
+      hasStop,
+    );
     const pickStep = {
       decided:
         pickActor === "SERV"
@@ -585,15 +678,28 @@ export async function runFindSettleServ(input: {
             ? "SERV pick was unavailable or broke a hard allowlist rule — code ranking stands."
             : "SERV_API_KEY is not configured — code ranking is the published pick.",
       changed: pick.key !== codePick.key ? `Earlier code ranking led with ${codePick.key}.` : null,
-      model: shopper.trace?.calls[0]?.model ?? input.model ?? null,
-      responseId: shopper.trace?.calls[0]?.responseId ?? null,
-      recordedAt,
+      model: pickModel,
+      responseId: pickResponseId,
+      recordedAt: pickRecordedAt,
     };
+    const trailExtra =
+      confidenceWasCapped && stopCapReason
+        ? [
+            {
+              decided: stopCapReason,
+              why: "Stop-level NHTSA park-it or park-outside guidance is open on the published pick.",
+              changed: "Published confidence capped from High to Medium.",
+              model: pickModel,
+              responseId: pickResponseId,
+              recordedAt: pickRecordedAt,
+            },
+          ]
+        : [];
     agentVerdict = {
       ...agentVerdict,
       pick: { key: pick.key, label: pickLabel },
-      confidence: shopper.agentVerdict.confidence ?? pickConfidence ?? agentVerdict.confidence,
-      serv_steps: [pickStep, ...(agentVerdict.serv_steps ?? [])],
+      confidence: cappedAgentConfidence,
+      serv_steps: [pickStep, ...trailExtra, ...(agentVerdict.serv_steps ?? [])],
       no_serv_step: pickActor === "SERV" ? false : agentVerdict.no_serv_step,
     };
   }
@@ -605,6 +711,7 @@ export async function runFindSettleServ(input: {
       confidence: publishedConfidence,
       actor: pickActor,
       servNote: pickNote,
+      confidenceCapReason: confidenceWasCapped ? stopCapReason : null,
     }),
     ran: Boolean(shopper.trace) || pickActor === "SERV",
     trace: shopper.trace,

@@ -86,6 +86,8 @@ export type ResaleJobRecord = {
   /** Direction ids from plan step — inventory explores all of these. */
   plannedDirectionIds: string[] | null;
   planJournal: ResaleDecisionJournal;
+  /** Plan-step proof rows merged into delivery with settle proofs. */
+  planProofRecords: NonNullable<ResaleSearchOkBody["proofRecords"]>;
   settleCheckpoint: ResaleSettleCheckpoint | null;
   providerQueriesUsed: number;
   scope: string | null;
@@ -242,7 +244,7 @@ export function jobToClientBody(
       verdictAction: job.settleCheckpoint.verdictAction,
       confidence: job.settleCheckpoint.confidence,
       agentVerdict: job.settleCheckpoint.agentVerdict,
-      proofRecords: job.settleCheckpoint.proofRecords,
+      proofRecords: [...(job.planProofRecords ?? []), ...(job.settleCheckpoint.proofRecords ?? [])],
       headline: `Working — ${progress.label}`,
       message: `Step ${job.stepCompleted} of ${RESALE_JOB_FINAL_STEP} complete. Credit is charged only when the final verdict is delivered.`,
       nextStepHint: "Continue to the next agent step.",
@@ -270,6 +272,7 @@ export async function readResaleJob(kv: Kv, jobId: string): Promise<ResaleJobRec
     if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return null;
     const job = parsed as ResaleJobRecord;
     if (job.v !== 1 || typeof job.jobId !== "string" || typeof job.ownerId !== "string") return null;
+    if (!Array.isArray(job.planProofRecords)) job.planProofRecords = [];
     return job;
   } catch {
     return null;
@@ -513,6 +516,7 @@ export async function createAndRunResaleJobStep1(
     planRefine: null,
     plannedDirectionIds: null,
     planJournal: emptyResaleJournal(),
+    planProofRecords: [],
     settleCheckpoint: null,
     providerQueriesUsed: 0,
     scope: null,
@@ -575,6 +579,7 @@ export async function createAndRunResaleJobStep1(
     planRefine: null,
     plannedDirectionIds: planBody.plannedDirectionIds ?? null,
     planJournal: planBody.journal,
+    planProofRecords: Array.isArray(planBody.proofRecords) ? planBody.proofRecords : [],
     updatedAt: new Date().toISOString(),
   };
 
@@ -941,7 +946,7 @@ export async function advanceResaleJob(
           confidence: job.settleCheckpoint.confidence,
           agentVerdict: job.settleCheckpoint.agentVerdict,
           journal,
-          proofRecords: job.settleCheckpoint.proofRecords,
+          proofRecords: [...(job.planProofRecords ?? []), ...(job.settleCheckpoint.proofRecords ?? [])],
           headline: `Best flip: ${job.settleCheckpoint.best.listing.year} ${job.settleCheckpoint.best.listing.make} ${job.settleCheckpoint.best.listing.model}`,
           message:
             job.settleCheckpoint.best.profitMidUsd != null
@@ -1009,7 +1014,7 @@ export async function advanceResaleJob(
         },
       },
       journal,
-      proofRecords: settled.proofRecords,
+      proofRecords: [...(job.planProofRecords ?? []), ...settled.proofRecords],
       headline: best
         ? `Best flip: ${best.listing.year} ${best.listing.make} ${best.listing.model}`
         : "Resale search complete",

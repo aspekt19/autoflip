@@ -1,6 +1,10 @@
 "use client";
 
 import type { ResaleDecisionJournal } from "@/domain/resale-decision-journal";
+import {
+  buyerSafeResaleJournalText,
+  formatResaleJournalInputId,
+} from "@/domain/resale-journal-copy";
 import { providerResponseId } from "@/domain/serv-response-id";
 
 /** User-facing SERV/code decision journal for Resale and Radar. */
@@ -24,29 +28,20 @@ export function ResaleDecisionJournalView({
       <ol className="steps-3 story-steps">
         {journal.steps.map((step) => {
           const responseId = providerResponseId(step.responseId);
+          const showModelLine = step.actor === "SERV" || Boolean(step.model) || Boolean(responseId);
           return (
           <li key={step.id}>
             <strong>
-              [{step.actor}] {step.decided}
+              [{step.actor}] {buyerSafeResaleJournalText(step.decided)}
             </strong>
             <span>
-              Why: {step.why}
-              {step.changed ? ` What changed: ${step.changed}` : ""}
+              Why: {buyerSafeResaleJournalText(step.why)}
+              {step.changed ? ` What changed: ${buyerSafeResaleJournalText(step.changed)}` : ""}
             </span>
             {step.inputsUsed.length > 0 ? (
               <span className="hint">
                 Inputs:{" "}
-                {step.inputsUsed
-                  .map((id) =>
-                    id.startsWith("pnl:")
-                      ? `P&L for ${id.slice(4)}`
-                      : id.startsWith("vin:")
-                        ? `VIN ${id.slice(4)}`
-                        : id.startsWith("check:")
-                          ? id.slice(6).replace(/_/g, " ")
-                          : id,
-                  )
-                  .join(", ")}
+                {step.inputsUsed.map((id) => formatResaleJournalInputId(id)).join(", ")}
               </span>
             ) : null}
             {step.rejected ? (
@@ -54,17 +49,26 @@ export function ResaleDecisionJournalView({
               // region re-announces stale http_error text when a later Check finishes
               // with 0 new alerts while the previous journal is still on screen.
               <span className="warn" aria-live="off">
-                {step.rejected}
-                {step.why ? ` — ${step.why}` : ""}
+                {buyerSafeResaleJournalText(step.rejected)}
+                {step.why ? ` — ${buyerSafeResaleJournalText(step.why)}` : ""}
               </span>
             ) : null}
-            <span className="hint">
-              {step.model ? `Model ${step.model}` : "Model not recorded"}
-              {responseId ? ` · response ${responseId}` : " · no response id"}
-              {step.recordedAt
-                ? ` · ${new Date(step.recordedAt).toLocaleString("en-US", { timeZone: "UTC" })} UTC`
-                : ""}
-            </span>
+            {showModelLine ? (
+              <span className="hint">
+                {step.model ? `Model ${step.model}` : "Model not recorded"}
+                {responseId ? ` · response ${responseId}` : " · no response id"}
+                {step.recordedAt
+                  ? ` · ${new Date(step.recordedAt).toLocaleString("en-US", { timeZone: "UTC" })} UTC`
+                  : ""}
+              </span>
+            ) : (
+              <span className="hint">
+                Code step (no paid model call)
+                {step.recordedAt
+                  ? ` · ${new Date(step.recordedAt).toLocaleString("en-US", { timeZone: "UTC" })} UTC`
+                  : ""}
+              </span>
+            )}
           </li>
           );
         })}

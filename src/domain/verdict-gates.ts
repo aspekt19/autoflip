@@ -172,11 +172,13 @@ function gateSafety(report: ComputedReport): GateResult {
       forbid: ["buy", "negotiate"],
     };
   }
-  if (report.openParkIt) {
+  if (report.openParkIt || report.openParkOutside) {
     return {
       id: "safety_red_flags",
       status: "forbid",
-      reason: "A park-it (do not drive) campaign matched this model year. Buy and negotiate are forbidden until VIN applicability and repair status are verified. Outdoor-parking guidance alone does not trigger this stop.",
+      reason: report.openParkIt
+        ? "A park-it (do not drive) campaign matched this model year. Buy and negotiate are forbidden until VIN applicability and repair status are verified."
+        : "An outdoor-parking / fire-risk (park-outside) campaign matched this model year. Buy and negotiate are forbidden until VIN applicability and repair status are verified.",
       forbid: ["buy", "negotiate"],
     };
   }
@@ -188,7 +190,12 @@ function gateSafety(report: ComputedReport): GateResult {
       forbid: ["buy"],
     };
   }
-  return { id: "safety_red_flags", status: "pass", reason: "No title-brand, park-it, or odometer stop fired.", forbid: [] };
+  return {
+    id: "safety_red_flags",
+    status: "pass",
+    reason: "No title-brand, park-it, park-outside, or odometer stop fired.",
+    forbid: [],
+  };
 }
 
 function gatePrice(report: ComputedReport): GateResult {

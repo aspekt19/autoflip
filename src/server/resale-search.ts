@@ -4,7 +4,11 @@
  * Code computes all P&L numbers; SERV never invents figures.
  */
 import type { AgentVerdict } from "@/domain/agent-verdict-schema";
-import type { DecisionProofRecord } from "@/domain/decision-proof-record";
+import {
+  buildDecisionProofRecord,
+  RESALE_JUDGE_RUBRIC_ID,
+  type DecisionProofRecord,
+} from "@/domain/decision-proof-record";
 import { proposeDirections } from "@/domain/directions";
 import {
   appendJournalStep,
@@ -33,6 +37,7 @@ import { runFindMatch, type FindMatchDeps } from "@/server/find-match";
 import {
   journalWhyFromServAttempt,
   normalizeDirectionId,
+  rawResponseFromServResult,
   runResaleServWithRejectRetry,
   softFilterEvidenceIds,
   stringArrayField,
@@ -82,7 +87,7 @@ export type ResaleSearchOkBody = {
   confidence: "High" | "Medium" | "Low";
   agentVerdict: AgentVerdict;
   journal: ResaleDecisionJournal;
-  /** Shared lemonless.decision_proof.v1 — shopper decide/challenge (or honest skips). */
+  /** Shared lemonless.decision_proof.v1 — plan/triage/pick/challenge + shopper. */
   proofRecords?: DecisionProofRecord[];
   headline: string;
   message: string;
@@ -101,6 +106,8 @@ export type ResaleSearchPlanBody = {
   stopAfter: "plan";
   budgetUsd: number;
   journal: ResaleDecisionJournal;
+  /** Plan SERV proof rows (or skipped_no_key). */
+  proofRecords?: DecisionProofRecord[];
   /** @deprecated Always null — Resale must not collapse to Confirm refine. */
   planRefine: { make?: string; model?: string; yearMin?: number; yearMax?: number } | null;
   /** Allowlisted direction ids to explore on the inventory step (order preserved). */
@@ -177,6 +184,7 @@ export async function runResaleSearch(
   let planJournal = deps.priorPlanJournal
     ? { ...deps.priorPlanJournal, steps: [...deps.priorPlanJournal.steps] }
     : emptyResaleJournal();
+  let planProofRecords: DecisionProofRecord[] = [];
   logResaleStage("start", deadline.startedAtMs, {
     budgetUsd: input.budgetUsd,
     budgetMs: deps.internalBudgetMs ?? RESALE_INTERNAL_BUDGET_MS,
@@ -309,6 +317,12 @@ export async function runResaleSearch(
           return row ? `${row.segment} (${id})` : id;
         });
         const firstLabel = allowedDirections.find((d) => d.id === safeIds[0]);
+        const planResponseId = providerResponseIdFromCall({
+          ok: true,
+          id: typeof planned.proof.openserv?.id === "string" ? planned.proof.openserv.id : null,
+        });
+        const planModel =
+          deps.servModel || planned.proof.modelReported || planned.proof.modelRequested || null;
         planJournal = appendJournalStep(planJournal, {
           kind: "plan_search",
           actor: "SERV",
@@ -321,14 +335,25 @@ export async function runResaleSearch(
           changed: firstLabel
             ? `Search order starts with ${firstLabel.segment} (${firstLabel.make} ${firstLabel.model}); all ${safeIds.length} selected directions still run`
             : null,
-          model: deps.servModel || planned.proof.modelReported || planned.proof.modelRequested || null,
-          responseId: providerResponseIdFromCall({
-            ok: true,
-            id: typeof planned.proof.openserv?.id === "string" ? planned.proof.openserv.id : null,
-          }),
+          model: planModel,
+          responseId: planResponseId,
           recordedAt,
           rejected: null,
         });
+        planProofRecords.push(
+          buildDecisionProofRecord({
+            purpose: "resale_plan_search",
+            rubricId: RESALE_JUDGE_RUBRIC_ID,
+            status: "ok",
+            recordedAt,
+            responseId: planResponseId,
+            model: planModel,
+            inputs: { directionIds: safeIds, budgetUsd: input.budgetUsd },
+            verdict: safeIds.join(","),
+            detail: note || `SERV planned ${safeIds.length} search direction(s).`,
+            rawResponse: rawResponseFromServResult(planned),
+          }),
+        );
       } else {
         const fail = journalWhyFromServAttempt({
           result: planned,
@@ -336,6 +361,8 @@ export async function runResaleSearch(
           payload,
           missingPayloadFallback: "Plan payload missing allowlisted direction ids.",
         });
+        const planModel =
+          deps.servModel || planned.proof.modelReported || planned.proof.modelRequested || null;
         planJournal = appendJournalStep(planJournal, {
           kind: "fallback",
           actor: "SERV",
@@ -343,7 +370,7 @@ export async function runResaleSearch(
           why: fail.why,
           inputsUsed: directionEvidenceIds,
           changed: null,
-          model: deps.servModel || planned.proof.modelReported || planned.proof.modelRequested || null,
+          model: planModel,
           responseId: providerResponseIdFromCall({
             ok: false,
             id: typeof planned.proof.openserv?.id === "string" ? planned.proof.openserv.id : null,
@@ -351,6 +378,18 @@ export async function runResaleSearch(
           recordedAt,
           rejected: fail.rejected,
         });
+        planProofRecords.push(
+          buildDecisionProofRecord({
+            purpose: "resale_plan_search",
+            rubricId: RESALE_JUDGE_RUBRIC_ID,
+            status: "failed",
+            recordedAt,
+            model: planModel,
+            inputs: { allowedDirectionIds, budgetUsd: input.budgetUsd },
+            detail: fail.why,
+            rawResponse: rawResponseFromServResult(planned),
+          }),
+        );
       }
     } catch (err) {
       planJournal = appendJournalStep(planJournal, {
@@ -365,8 +404,32 @@ export async function runResaleSearch(
         recordedAt,
         rejected: null,
       });
+      planProofRecords.push(
+        buildDecisionProofRecord({
+          purpose: "resale_plan_search",
+          rubricId: RESALE_JUDGE_RUBRIC_ID,
+          status: "failed",
+          recordedAt,
+          inputs: { budgetUsd: input.budgetUsd },
+          detail: err instanceof Error ? err.message : "Plan error.",
+        }),
+      );
     }
     logResaleStage("plan", planStarted, { remainingMs: deadline.remainingMs() });
+  } else if (!deps.servKey?.trim() && allowedDirections.length > 0) {
+    planProofRecords.push(
+      buildDecisionProofRecord({
+        purpose: "resale_plan_search",
+        rubricId: RESALE_JUDGE_RUBRIC_ID,
+        status: "skipped_no_key",
+        recordedAt,
+        inputs: {
+          directionIds: allowedDirections.map((d) => d.id),
+          budgetUsd: input.budgetUsd,
+        },
+        detail: "SERV_API_KEY is not configured — Resale plan uses code editorial directions only.",
+      }),
+    );
   } else if (deps.servKey?.trim() && allowedDirections.length > 0) {
     planJournal = appendJournalStep(planJournal, {
       kind: "fallback",
@@ -403,6 +466,7 @@ export async function runResaleSearch(
         stopAfter: "plan",
         budgetUsd: input.budgetUsd,
         journal: planJournal,
+        proofRecords: planProofRecords,
         // Keep shape for stepped job, but never a single-model Confirm refine.
         planRefine: null,
         plannedDirectionIds,
@@ -580,6 +644,7 @@ export async function runResaleSearch(
       confidence: settled.confidence,
       agentVerdict: settled.agentVerdict,
       journal,
+      proofRecords: [...planProofRecords, ...settled.proofRecords],
       headline,
       message,
       nextStep,

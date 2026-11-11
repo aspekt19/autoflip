@@ -16,6 +16,9 @@ export const NEED_PARSE_RUBRIC_ID = "lemonless.need_parse_rubric.v1" as const;
 export const RADAR_VERDICT_RUBRIC_ID = "lemonless.radar_verdict_rubric.v1" as const;
 export const FIND_NEXT_CHECK_RUBRIC_ID = "lemonless.find_next_check_rubric.v1" as const;
 
+/** Resale plan_search / triage / pick / challenge allowlisted judgment. */
+export const RESALE_JUDGE_RUBRIC_ID = "lemonless.resale_judge_rubric.v1" as const;
+
 /** Public contract status — only these three values leave the process. */
 export type DecisionProofStatus = "ok" | "failed" | "skipped";
 
@@ -137,6 +140,16 @@ export function decisionPurposeLabel(purpose: string): string {
       return "Need screen";
     case "find_next_check":
       return "Next check choice";
+    case "find_pick":
+      return "Find pick";
+    case "resale_plan_search":
+      return "Resale search plan";
+    case "resale_triage":
+      return "Resale triage";
+    case "resale_pick":
+      return "Resale pick";
+    case "resale_challenge":
+      return "Resale pick challenge";
     default:
       return purpose.replace(/_/g, " ");
   }

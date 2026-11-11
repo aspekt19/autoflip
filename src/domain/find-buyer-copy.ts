@@ -528,7 +528,7 @@ export function formatBuyerReceiptLine(r: FindFreeGovReceipt): string {
     }
     if (state === "issue_found" && r.riskFacts?.parkOutside === true) {
       parkBits.push(
-        "Includes outdoor-parking guidance for a campaign (not the same as a do-not-drive park-it flag)",
+        "Includes outdoor-parking / fire-risk guidance — stop-level until the VIN repair status is verified",
       );
     }
     if (state === "none_found" && r.riskFacts?.parkIt === false && r.riskFacts?.parkOutside === false) {

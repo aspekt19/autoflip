@@ -737,6 +737,10 @@ export async function runFindNextCheckOrchestrator(
       }
     }
 
+    // After vPIC: refresh decode fields only on cars that already had free_car_consistency.
+    // Never invent new carCheck rows for unchecked cars — that would close consistencyStillOpen
+    // and block SERV from ever choosing free_car_consistency.
+    const priorConsistencyKeys = priorCarChecks.map((row) => row.key);
     const newCarChecks =
       executedId === "free_car_consistency"
         ? executeCarConsistency({
@@ -744,7 +748,13 @@ export async function runFindNextCheckOrchestrator(
             targetKeys: consistencyTargets,
             vpicReceipts: freeGovReceipts,
           })
-        : [];
+        : executedId === "free_gov_vpic" && priorConsistencyKeys.length > 0
+          ? executeCarConsistency({
+              listings: listingsAfter,
+              targetKeys: priorConsistencyKeys,
+              vpicReceipts: freeGovReceipts,
+            })
+          : [];
     if (newCarChecks.length > 0) {
       carChecks = mergeCarConsistency(priorCarChecks, newCarChecks);
     }

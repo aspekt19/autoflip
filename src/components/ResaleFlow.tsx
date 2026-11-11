@@ -801,9 +801,8 @@ function CandidateCard({
       ) : null}
       <ul className="refuse">
         <li>
-          {candidate.riskAdjustedRankFormula
-            ? `Risk-adjusted rank: ${candidate.riskAdjustedRankFormula}`
-            : `Risk-adjusted rank: mid profit × risk weight; thin comps (under 3 / under 5) cut risk. Comps in this scan: ${candidate.compCount}.`}
+          Risk-adjusted rank: mid profit × risk weight; thin comps (under 3 / under 5) cut risk.
+          Similar listings in this scan: {candidate.compCount}.
         </li>
         <li>Ask: {formatUsd(candidate.askingUsd)}</li>
         <li>

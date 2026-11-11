@@ -160,6 +160,16 @@ describe("runResaleSettleServ", () => {
     expect(result.agentVerdict.pick?.key).toBe("VINHIGH0000000001");
     expect(result.journal.steps.length).toBeGreaterThan(0);
     expect(result.journal.steps.some((step) => step.actor === "code")).toBe(true);
+    const rankStep = result.journal.steps.find((step) => step.kind === "rank");
+    const visibleCards = 1 + result.alternatives.length;
+    expect(rankStep?.decided).toBe(`Ranked ${visibleCards} candidates by mid expected profit`);
+    expect(result.proofRecords.some((row) => row.purpose === "resale_triage" && row.status === "skipped")).toBe(
+      true,
+    );
+    expect(result.proofRecords.some((row) => row.purpose === "resale_pick" && row.status === "skipped")).toBe(true);
+    expect(
+      result.proofRecords.some((row) => row.purpose === "resale_challenge" && row.status === "skipped"),
+    ).toBe(true);
   });
 
   it("rejects mocked SERV that invents a VIN/price and falls back to code pick", async () => {

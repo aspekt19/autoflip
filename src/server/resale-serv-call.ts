@@ -13,7 +13,16 @@ import {
   type ResaleEvidenceBundle,
   type ResaleServValidation,
 } from "@/domain/resale-serv-validate";
-import { profile, runServ, type ProfileId, type ServDeps, type ServResult } from "@/server/serv";
+import { chatCompletionContent, profile, runServ, type ProfileId, type ServDeps, type ServResult } from "@/server/serv";
+
+/** Real SERV body for proofRecords — never invent. */
+export function rawResponseFromServResult(result: ServResult): string | null {
+  return (
+    chatCompletionContent(result.proof?.openserv) ??
+    (result.ok ? result.text?.trim() || null : null) ??
+    null
+  );
+}
 
 export function parseJsonObject(text: string | null | undefined): Record<string, unknown> | null {
   if (!text?.trim()) return null;

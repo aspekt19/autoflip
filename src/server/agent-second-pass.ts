@@ -58,7 +58,10 @@ export function collectReportEvidenceIds(report: ComputedReport): {
   if (report.mode !== "flip" && report.priceGap != null) {
     push("ev_price_gap", `Asking price gap versus fair value: ${report.priceGap}.`);
   }
-  push("ev_comp_count", `Similar listing count: ${report.comps.length}.`);
+  push(
+    "ev_comp_count",
+    `Similar listing count: ${report.compSampleSize ?? report.comps.length}.`,
+  );
   if (report.openParkIt) {
     push("ev_recall_park_it", "An NHTSA park-it campaign exists for this year/make/model.");
   }

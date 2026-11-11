@@ -42,6 +42,7 @@ import { extractVin, isValidVin } from "@/domain/vin";
 import { actionLabel, isServDecisionAction, verdictFromAction } from "@/domain/decision-action";
 import { confidenceLabel } from "@/domain/agent-verdict-schema";
 import { verdictLabel } from "@/domain/format";
+import { confidenceCapReasonForStop } from "@/domain/nhtsa-stop-flags";
 import type { FuelFact, Listing, RecallRecord, Verdict, VinDecode } from "@/domain/types";
 import { valuationReuseNote } from "@/domain/vin-day-valuation";
 import { autodevByVin, autodevByVdp, autodevSearch, type AutodevDeps } from "@/io/autodev";
@@ -477,10 +478,36 @@ async function attachCheckShopperServ(input: {
 
   // Stop-level red flags must never publish High agent confidence.
   const stopPresent = input.redFlags.some((flag) => flag.level === "stop");
-  const agentVerdict =
-    stopPresent && shopper.agentVerdict.confidence === "high"
-      ? { ...shopper.agentVerdict, confidence: "medium" as const }
-      : shopper.agentVerdict;
+  const stopCapReason = confidenceCapReasonForStop(stopPresent);
+  let agentVerdict = shopper.agentVerdict;
+  if (stopPresent && agentVerdict.confidence === "high") {
+    const second = agentVerdict.second_pass;
+    agentVerdict = {
+      ...agentVerdict,
+      confidence: "medium",
+      second_pass:
+        second && (second.confidenceAfter === "high" || second.confidenceBefore === "high")
+          ? {
+              ...second,
+              confidenceAfter: "medium",
+              objection: [second.objection, stopCapReason].filter(Boolean).join(" ") || stopCapReason,
+            }
+          : second,
+      serv_steps: stopCapReason
+        ? [
+            ...agentVerdict.serv_steps,
+            {
+              decided: "Confidence capped high → medium",
+              why: stopCapReason,
+              changed: "Published confidence high → medium",
+              model: null,
+              responseId: null,
+              recordedAt: new Date().toISOString(),
+            },
+          ]
+        : agentVerdict.serv_steps,
+    };
+  }
 
   return { agentVerdict, servTrace: shopper.trace, proofRecords: shopper.proofRecords };
 }
@@ -521,11 +548,21 @@ export function headlineFromGuardedDecision(input: {
       : input.agentVerdict.confidence === "medium"
         ? "Medium"
         : "Low";
+  // Keep stop/margin cap labels visible when screening or trail already explained a High→Medium drop.
+  const capBits = [
+    /Lowered from High/i.test(input.screeningConfidenceWhy) ? input.screeningConfidenceWhy.match(/Lowered from High[^.]*\.?/)?.[0] : null,
+    input.agentVerdict.serv_steps.map((s) => s.why).find((why) => why && /Lowered from High/i.test(why)) ?? null,
+    input.agentVerdict.second_pass?.objection && /Lowered from High/i.test(input.agentVerdict.second_pass.objection)
+      ? input.agentVerdict.second_pass.objection.match(/Lowered from High[^.]*\.?/)?.[0]
+      : null,
+  ].filter((bit): bit is string => Boolean(bit));
+  const capNote = capBits[0] ?? null;
+  const baseWhy = `Final guarded agent decision (${actionLabel(action, "personal")}, confidence ${confidenceLabel(input.agentVerdict.confidence)}) after decide → clamp → challenge — not the price rating alone.`;
   return {
     verdict: mapped === "withheld" ? "insufficient_data" : (mapped as CheckVerdictLabel),
     verdictLabel: actionLabel(action, "personal"),
     confidence,
-    confidenceWhy: `Final guarded agent decision (${actionLabel(action, "personal")}, confidence ${confidenceLabel(input.agentVerdict.confidence)}) after decide → clamp → challenge — not the price rating alone.`,
+    confidenceWhy: capNote && !baseWhy.includes(capNote) ? `${baseWhy} ${capNote}` : baseWhy,
   };
 }
 
@@ -799,7 +836,10 @@ async function buildListingVerdict(
         : "Covers listing and public-record screening only — not a price rating (no asking price).";
   if (stop && confidence === "High") {
     confidence = "Medium";
-    listingConfidenceWhy = `${listingConfidenceWhy} Lowered from High because a stop-level NHTSA campaign is on file.`;
+    const reason = confidenceCapReasonForStop(true);
+    listingConfidenceWhy = reason
+      ? `${listingConfidenceWhy} ${reason}`
+      : `${listingConfidenceWhy} Lowered from High because a stop-level NHTSA campaign is on file.`;
   }
   const summary = joinSummarySentences([
     `${subject.year} ${subject.make} ${subject.model}${subject.trim ? ` ${subject.trim}` : ""}`,
@@ -1179,7 +1219,10 @@ async function buildVinDossier(vin: string, deps: CheckRunDeps, optionalZip?: st
   }
   if (redFlags.some((flag) => flag.level === "stop") && confidence === "High") {
     confidence = "Medium";
-    confidenceWhy = `${confidenceWhy} Lowered from High because a stop-level NHTSA campaign is on file.`;
+    const reason = confidenceCapReasonForStop(true);
+    confidenceWhy = reason
+      ? `${confidenceWhy} ${reason}`
+      : `${confidenceWhy} Lowered from High because a stop-level NHTSA campaign is on file.`;
   }
 
   const askLine = hasAsk

@@ -18,6 +18,12 @@ import {
 import type { ResaleCandidatePnl } from "@/domain/resale-pnl";
 import { evidenceBundleFromCandidates } from "@/domain/resale-serv-validate";
 import { actionFromVerdict } from "@/domain/decision-action";
+import {
+  capConfidenceForMarginMiss,
+  capConfidenceForStopFlags,
+  confidenceCapReasonForMarginMiss,
+  confidenceCapReasonForStop,
+} from "@/domain/nhtsa-stop-flags";
 import type { ComputedReport, Listing, Verdict } from "@/domain/types";
 import { flipVerdict } from "@/domain/verdict";
 import {
@@ -30,13 +36,14 @@ import {
   journalWhyFromShopperCall,
   normalizeCheckId,
   normalizeVin,
+  rawResponseFromServResult,
   runResaleServWithRejectRetry,
   softFilterEvidenceIds,
   stringArrayField,
   validationFromCall,
 } from "@/server/resale-serv-call";
 import { runShopperVerdictServ, type ShopperServTrace } from "@/server/shopper-verdict-serv";
-import { profile, type ServProof } from "@/server/serv";
+import { profile, type ServProof, type ServResult } from "@/server/serv";
 import {
   resaleCallTimeoutMs,
   RESALE_STAGE_BUDGET_MS,
@@ -49,9 +56,54 @@ import { redactSecretsOnly } from "@/domain/redact-secrets";
 import { stripUnsupportedNumbers } from "@/domain/resale-serv-validate";
 import {
   buildDecisionProofRecord,
+  RESALE_JUDGE_RUBRIC_ID,
   VERDICT_RUBRIC_ID,
   type DecisionProofRecord,
+  type DecisionProofStatusInput,
 } from "@/domain/decision-proof-record";
+
+function responseIdFrom(proof: ServProof | null, ok = true): string | null {
+  return providerResponseIdFromCall({
+    ok,
+    id: typeof proof?.openserv?.id === "string" ? proof.openserv.id : null,
+  });
+}
+
+function modelFrom(proof: ServProof | null, fallback?: string | null): string | null {
+  return fallback || proof?.modelReported || proof?.modelRequested || null;
+}
+
+function pushResaleJudgeProof(
+  records: DecisionProofRecord[],
+  input: {
+    purpose: "resale_triage" | "resale_pick" | "resale_challenge";
+    status: DecisionProofStatusInput;
+    recordedAt: string;
+    result?: ServResult | null;
+    modelFallback?: string | null;
+    inputs: unknown;
+    verdict?: string | null;
+    detail?: string | null;
+  },
+): DecisionProofRecord[] {
+  const result = input.result ?? null;
+  const ok = input.status === "ok";
+  return [
+    ...records,
+    buildDecisionProofRecord({
+      purpose: input.purpose,
+      rubricId: RESALE_JUDGE_RUBRIC_ID,
+      status: input.status,
+      recordedAt: input.recordedAt,
+      responseId: ok && result ? responseIdFrom(result.proof, true) : null,
+      model: result ? modelFrom(result.proof, input.modelFallback) : input.modelFallback ?? null,
+      inputs: input.inputs,
+      verdict: ok ? input.verdict ?? null : null,
+      detail: input.detail ?? null,
+      rawResponse: result ? rawResponseFromServResult(result) : null,
+    }),
+  ];
+}
 
 const RESALE_SERV_JUDGE_MAX = 3;
 
@@ -122,15 +174,76 @@ function confidenceFromPnl(item: ResaleCandidatePnl | null): AgentVerdictConfide
   return "low";
 }
 
-function responseIdFrom(proof: ServProof | null, ok = true): string | null {
-  return providerResponseIdFromCall({
-    ok,
-    id: typeof proof?.openserv?.id === "string" ? proof.openserv.id : null,
-  });
+/**
+ * Cap published Resale confidence so High cannot survive a stop flag or a
+ * low-end profit that misses the flip target. Returns labeled reason when capped.
+ */
+export function clampResalePublishedConfidence(
+  proposed: AgentVerdictConfidence,
+  candidate: ResaleCandidatePnl,
+): { confidence: AgentVerdictConfidence; reason: string | null } {
+  const hasStop = candidate.openParkIt === true || candidate.openParkOutside === true;
+  const afterStop = capConfidenceForStopFlags(proposed, hasStop);
+  const stopReason =
+    proposed === "high" && afterStop !== "high" ? confidenceCapReasonForStop(hasStop) : null;
+  const confidence: AgentVerdictConfidence = capConfidenceForMarginMiss(
+    afterStop,
+    candidate.profitLowUsd,
+  );
+  const marginReason =
+    afterStop === "high" && confidence !== "high"
+      ? confidenceCapReasonForMarginMiss(candidate.profitLowUsd)
+      : null;
+  const reason = [stopReason, marginReason].filter(Boolean).join(" ") || null;
+  return { confidence, reason };
 }
 
-function modelFrom(proof: ServProof | null, fallback?: string | null): string | null {
-  return fallback || proof?.modelReported || proof?.modelRequested || null;
+function applyPublishedConfidenceCap(input: {
+  proposed: AgentVerdictConfidence;
+  candidate: ResaleCandidatePnl;
+  journal: ResaleDecisionJournal;
+  trail: AgentTrailStep[];
+  recordedAt: string;
+}): {
+  confidence: AgentVerdictConfidence;
+  reason: string | null;
+  journal: ResaleDecisionJournal;
+  trail: AgentTrailStep[];
+} {
+  const capped = clampResalePublishedConfidence(input.proposed, input.candidate);
+  if (!capped.reason || capped.confidence === input.proposed) {
+    return {
+      confidence: capped.confidence,
+      reason: null,
+      journal: input.journal,
+      trail: input.trail,
+    };
+  }
+  const decided = `Confidence capped ${input.proposed} → ${capped.confidence}`;
+  const journal = appendJournalStep(input.journal, {
+    kind: "fallback",
+    actor: "code",
+    decided,
+    why: capped.reason,
+    inputsUsed: [`vin:${input.candidate.vin}`, "check:confidence_cap"],
+    changed: `Published confidence ${input.proposed} → ${capped.confidence}`,
+    model: null,
+    responseId: null,
+    recordedAt: input.recordedAt,
+    rejected: null,
+  });
+  const trail = [
+    ...input.trail,
+    {
+      decided,
+      why: capped.reason,
+      changed: `Published confidence ${input.proposed} → ${capped.confidence}`,
+      model: null,
+      responseId: null,
+      recordedAt: input.recordedAt,
+    },
+  ];
+  return { confidence: capped.confidence, reason: capped.reason, journal, trail };
 }
 
 function buildFlipReport(
@@ -261,9 +374,12 @@ function buildFlipReport(
     },
     history: { multiplier: 1, lines: [] },
     recalls: [],
-    recallsAvailable: Boolean(candidate.openParkIt || candidate.openParkOutside),
+    // Honest: available only when deep-check got a usable NHTSA payload — not when a stop flag happens to be true.
+    recallsAvailable: candidate.recallsChecked === true,
     openParkIt: candidate.openParkIt === true,
     openParkOutside: candidate.openParkOutside === true,
+    /** Same valuation sample size the Resale card shows — never peer-shortlist length. */
+    compSampleSize: candidate.compCount,
     complaintCount: null,
     fuel: null,
     vinDecode: null,
@@ -756,12 +872,17 @@ export async function runResaleSettleServ(input: {
   // --- Triage + deep (skipped when resuming pick/shopper) ---
   let selectedCheckIds = ["price_comps", "history"];
   if (runTriageDeep && !resumeFrom) {
+  // Match the consumer cards (best + alternatives), not the SERV shortlist cap alone.
+  const visibleRanked = [
+    shortlist[0]!,
+    ...pickAlternatives(ranked, shortlist[0]!.vin, input.budgetUsd),
+  ];
   journal = appendJournalStep(journal, {
     kind: "rank",
     actor: "code",
-    decided: `Ranked ${shortlist.length} candidates by mid expected profit`,
+    decided: `Ranked ${visibleRanked.length} candidates by mid expected profit`,
     why: `Top: ${carLabel(shortlist[0]!)} (code P&L only).`,
-    inputsUsed: shortlist.map((item) => `pnl:${item.vin}`),
+    inputsUsed: visibleRanked.map((item) => `pnl:${item.vin}`),
     changed: null,
     model: null,
     responseId: null,
@@ -901,6 +1022,15 @@ export async function runResaleSettleServ(input: {
           recordedAt,
           rejected: fail.rejected,
         });
+        proofRecords = pushResaleJudgeProof(proofRecords, {
+          purpose: "resale_triage",
+          status: "failed",
+          recordedAt,
+          result: judged,
+          modelFallback: input.model,
+          inputs: { allowedVins, phase: "resale_triage" },
+          detail: fail.why,
+        });
       } else {
         const deepOk = deep.filter((vin) => allowVin.has(vin));
         const skipOk = skip.filter((vin) => allowVin.has(vin));
@@ -936,6 +1066,21 @@ export async function runResaleSettleServ(input: {
           responseId: responseIdFrom(judged.proof),
           recordedAt,
         });
+        proofRecords = pushResaleJudgeProof(proofRecords, {
+          purpose: "resale_triage",
+          status: "ok",
+          recordedAt,
+          result: judged,
+          modelFallback: input.model,
+          inputs: {
+            allowedVins,
+            deepCheckVins: deepOk,
+            skipVins: skipOk,
+            checkIds: safeChecks,
+          },
+          verdict: deepOk.length ? `deep_check:${deepOk.join(",")}` : `checks:${safeChecks.join(",")}`,
+          detail: triageWhy,
+        });
       }
     } catch (err) {
       journal = appendJournalStep(journal, {
@@ -950,6 +1095,14 @@ export async function runResaleSettleServ(input: {
         recordedAt,
         rejected: null,
       });
+      proofRecords = pushResaleJudgeProof(proofRecords, {
+        purpose: "resale_triage",
+        status: "failed",
+        recordedAt,
+        modelFallback: input.model,
+        inputs: { phase: "resale_triage" },
+        detail: err instanceof Error ? err.message : "Triage error.",
+      });
     }
   } else if (!input.servKey?.trim()) {
     journal = appendJournalStep(journal, {
@@ -963,6 +1116,13 @@ export async function runResaleSettleServ(input: {
       responseId: null,
       recordedAt,
       rejected: null,
+    });
+    proofRecords = pushResaleJudgeProof(proofRecords, {
+      purpose: "resale_triage",
+      status: "skipped_no_key",
+      recordedAt,
+      inputs: { phase: "resale_triage", shortlist: shortlist.map((item) => item.vin) },
+      detail: "SERV_API_KEY is not configured — Resale triage by code ranking only.",
     });
   } else if (
     input.servKey?.trim() &&
@@ -1056,6 +1216,21 @@ export async function runResaleSettleServ(input: {
 
   if (phase === "triage_deep") {
     const alternatives = pickAlternatives(ranked, best.vin, input.budgetUsd);
+    {
+      const capped = applyPublishedConfidenceCap({
+        proposed: agentConfidence,
+        candidate: best,
+        journal,
+        trail,
+        recordedAt,
+      });
+      agentConfidence = capped.confidence;
+      journal = capped.journal;
+      trail = capped.trail;
+      if (capped.reason && secondPass.confidenceAfter === "high") {
+        secondPass = { ...secondPass, confidenceAfter: agentConfidence };
+      }
+    }
     const confidenceLabel =
       agentConfidence === "high" ? "High" : agentConfidence === "medium" ? "Medium" : "Low";
     const agentVerdict = finalizeAgentVerdict({
@@ -1243,6 +1418,16 @@ export async function runResaleSettleServ(input: {
         verdictAction = published.action;
         journal = published.journal;
         trail = published.trail;
+        proofRecords = pushResaleJudgeProof(proofRecords, {
+          purpose: "resale_pick",
+          status: "ok",
+          recordedAt,
+          result: picked,
+          modelFallback: input.model,
+          inputs: { pickVin, allowedVins, proposed },
+          verdict: proposed,
+          detail: note || `SERV picked ${carLabel(best)}.`,
+        });
       } else {
         const fail = journalWhyFromServAttempt({
           result: picked,
@@ -1262,6 +1447,15 @@ export async function runResaleSettleServ(input: {
           recordedAt,
           rejected: fail.rejected,
         });
+        proofRecords = pushResaleJudgeProof(proofRecords, {
+          purpose: "resale_pick",
+          status: "failed",
+          recordedAt,
+          result: picked,
+          modelFallback: input.model,
+          inputs: { allowedVins, rejectedPickVin: pickVin },
+          detail: fail.why,
+        });
       }
     } catch (err) {
       journal = appendJournalStep(journal, {
@@ -1276,7 +1470,23 @@ export async function runResaleSettleServ(input: {
         recordedAt,
         rejected: null,
       });
+      proofRecords = pushResaleJudgeProof(proofRecords, {
+        purpose: "resale_pick",
+        status: "failed",
+        recordedAt,
+        modelFallback: input.model,
+        inputs: { vin: best.vin },
+        detail: err instanceof Error ? err.message : "Pick error.",
+      });
     }
+  } else if (runPick && !input.servKey?.trim()) {
+    proofRecords = pushResaleJudgeProof(proofRecords, {
+      purpose: "resale_pick",
+      status: "skipped_no_key",
+      recordedAt,
+      inputs: { vin: best.vin, phase: "resale_pick" },
+      detail: "SERV_API_KEY is not configured — Resale pick by code ranking only.",
+    });
   }
 
   if (
@@ -1302,6 +1512,21 @@ export async function runResaleSettleServ(input: {
 
   if (phase === "pick") {
     const alternatives = pickAlternatives(ranked, best.vin, input.budgetUsd);
+    {
+      const capped = applyPublishedConfidenceCap({
+        proposed: agentConfidence,
+        candidate: best,
+        journal,
+        trail,
+        recordedAt,
+      });
+      agentConfidence = capped.confidence;
+      journal = capped.journal;
+      trail = capped.trail;
+      if (capped.reason && secondPass.confidenceAfter === "high") {
+        secondPass = { ...secondPass, confidenceAfter: agentConfidence };
+      }
+    }
     const confidenceLabel =
       agentConfidence === "high" ? "High" : agentConfidence === "medium" ? "Medium" : "Low";
     const agentVerdict = finalizeAgentVerdict({
@@ -1529,6 +1754,16 @@ export async function runResaleSettleServ(input: {
           responseId: responseIdFrom(challenged.proof),
           recordedAt,
         });
+        proofRecords = pushResaleJudgeProof(proofRecords, {
+          purpose: "resale_challenge",
+          status: "ok",
+          recordedAt,
+          result: challenged,
+          modelFallback: input.model,
+          inputs: { pickVin, agrees, primaryVin: prior },
+          verdict: agrees ? "agreed" : action ?? "revised",
+          detail: objection ?? (agrees ? "Challenge agreed." : "Challenge revised pick."),
+        });
       } else {
         const fail = journalWhyFromServAttempt({
           result: challenged,
@@ -1556,6 +1791,15 @@ export async function runResaleSettleServ(input: {
           recordedAt,
           rejected: fail.rejected,
         });
+        proofRecords = pushResaleJudgeProof(proofRecords, {
+          purpose: "resale_challenge",
+          status: "failed",
+          recordedAt,
+          result: challenged,
+          modelFallback: input.model,
+          inputs: { vin: best.vin },
+          detail: fail.why,
+        });
       }
     } catch {
       secondPass = {
@@ -1566,7 +1810,23 @@ export async function runResaleSettleServ(input: {
         confidenceBefore: agentConfidence,
         confidenceAfter: agentConfidence,
       };
+      proofRecords = pushResaleJudgeProof(proofRecords, {
+        purpose: "resale_challenge",
+        status: "failed",
+        recordedAt,
+        modelFallback: input.model,
+        inputs: { vin: best.vin },
+        detail: "Second check did not finish. The first verdict stands.",
+      });
     }
+  } else if (runChallenge && !input.servKey?.trim()) {
+    proofRecords = pushResaleJudgeProof(proofRecords, {
+      purpose: "resale_challenge",
+      status: "skipped_no_key",
+      recordedAt,
+      inputs: { vin: best.vin, phase: "resale_challenge" },
+      detail: "SERV_API_KEY is not configured — Resale pick challenge skipped.",
+    });
   }
 
   if (
@@ -1600,6 +1860,21 @@ export async function runResaleSettleServ(input: {
 
   if (phase === "challenge" || phase === "pick_challenge") {
     const alternatives = pickAlternatives(ranked, best.vin, input.budgetUsd);
+    {
+      const capped = applyPublishedConfidenceCap({
+        proposed: agentConfidence,
+        candidate: best,
+        journal,
+        trail,
+        recordedAt,
+      });
+      agentConfidence = capped.confidence;
+      journal = capped.journal;
+      trail = capped.trail;
+      if (capped.reason && secondPass.confidenceAfter === "high") {
+        secondPass = { ...secondPass, confidenceAfter: agentConfidence };
+      }
+    }
     const confidenceLabel =
       agentConfidence === "high" ? "High" : agentConfidence === "medium" ? "Medium" : "Low";
     const agentVerdict = finalizeAgentVerdict({
@@ -1818,6 +2093,21 @@ export async function runResaleSettleServ(input: {
   }
 
   const alternatives = pickAlternatives(ranked, best.vin, input.budgetUsd);
+  {
+    const capped = applyPublishedConfidenceCap({
+      proposed: agentConfidence,
+      candidate: best,
+      journal,
+      trail,
+      recordedAt,
+    });
+    agentConfidence = capped.confidence;
+    journal = capped.journal;
+    trail = capped.trail;
+    if (capped.reason && secondPass.confidenceAfter === "high") {
+      secondPass = { ...secondPass, confidenceAfter: agentConfidence };
+    }
+  }
   const confidenceLabel =
     agentConfidence === "high" ? "High" : agentConfidence === "medium" ? "Medium" : "Low";
 

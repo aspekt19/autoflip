@@ -1202,6 +1202,7 @@ button:disabled, .action:disabled, .quiet:disabled, .ghost:disabled {
 .field select { margin-top: 8px; }
 .pills { display: flex; flex-wrap: wrap; gap: 8px; }
 .pill {
+  position: relative;
   display: inline-flex;
   align-items: center;
   min-height: 44px;
@@ -1210,6 +1211,7 @@ button:disabled, .action:disabled, .quiet:disabled, .ghost:disabled {
   border: 1px solid var(--line);
   background: var(--field);
   cursor: pointer;
+  pointer-events: auto;
   font-family: var(--type-brand);
   font-weight: var(--type-brand-weight);
   font-size: max(14px, var(--type-brand-size-label));
@@ -1217,7 +1219,20 @@ button:disabled, .action:disabled, .quiet:disabled, .ghost:disabled {
   text-transform: uppercase;
   line-height: var(--type-brand-line);
 }
-.pill input { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+/* Clip the radio without inheriting global input min-height (that overlay blocked clicks). */
+.pill input {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  margin: 0;
+  padding: 0;
+  opacity: 0;
+  cursor: pointer;
+  pointer-events: auto;
+}
 .pill:has(input:checked) { background: var(--blue); color: var(--on-blue); border-color: var(--blue); }
 .pill:has(input:focus-visible) { outline: 3px solid var(--blue); outline-offset: 3px; }
 input, select, textarea {

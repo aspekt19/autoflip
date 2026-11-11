@@ -68,4 +68,39 @@ describe("headlineFromGuardedDecision", () => {
     expect(headline.verdictLabel).toBe("Buy");
     expect(headline.confidence).toBe("High");
   });
+
+  it("labels why Medium when stop-flag cap lowered High (Check 3b)", () => {
+    const agentVerdict = emptyAgentVerdict({
+      verdict: "pass",
+      confidence: "medium",
+      no_serv_step: false,
+      second_pass: {
+        status: "agreed",
+        action: "pass",
+        objection: "Lowered from High: stop-level NHTSA park-it or park-outside guidance is open.",
+        evidenceIds: [],
+        confidenceBefore: "high",
+        confidenceAfter: "medium",
+      },
+      serv_steps: [
+        {
+          decided: "Confidence capped high → medium",
+          why: "Lowered from High: stop-level NHTSA park-it or park-outside guidance is open.",
+          changed: "Published confidence high → medium",
+          recordedAt: "2026-11-10T20:00:00.000Z",
+        },
+      ],
+    });
+    const headline = headlineFromGuardedDecision({
+      screeningVerdict: "walk_away",
+      screeningLabel: "Pass",
+      screeningConfidence: "Medium",
+      screeningConfidenceWhy:
+        "Verdict confidence from 8 similar listings. Lowered from High: stop-level NHTSA park-it or park-outside guidance is open.",
+      agentVerdict,
+    });
+    expect(headline.confidence).toBe("Medium");
+    expect(headline.confidenceWhy).toMatch(/Lowered from High/i);
+    expect(headline.confidenceWhy).toMatch(/park-it or park-outside/i);
+  });
 });
