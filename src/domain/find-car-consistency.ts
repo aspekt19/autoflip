@@ -897,6 +897,31 @@ export function vpicByVinFromReceipts(receipts: readonly FindFreeGovReceipt[]): 
   return map;
 }
 
+/**
+ * When the listing omitted drivetrain, copy it from a free-gov vPIC decode.
+ * Does not overwrite a listing value. Cars without a decode stay as-is (not dropped).
+ */
+export function fillDrivetrainFromVpic<T extends { vin?: string | null; drivetrain?: string | null }>(
+  listings: readonly T[],
+  receipts: readonly FindFreeGovReceipt[],
+): T[] {
+  const vpic = vpicByVinFromReceipts(receipts);
+  if (vpic.size === 0) return [...listings];
+  return listings.map((row) => {
+    if (typeof row.drivetrain === "string" && row.drivetrain.trim()) return row;
+    const vin = typeof row.vin === "string" ? row.vin.trim().toUpperCase() : "";
+    if (!vin) return row;
+    const decoded = vpic.get(vin)?.drivetrain?.trim();
+    if (!decoded) return row;
+    return { ...row, drivetrain: decoded };
+  });
+}
+
+/** True when the value is AWD / 4WD (or a known all-wheel brand alias). */
+export function isAwdDrivetrain(value: string | null | undefined): boolean {
+  return drivetrainBucket(value) === "awd";
+}
+
 /** Run the free consistency check on target cars only. No network. */
 export function executeCarConsistency(input: {
   listings: readonly BestDealListing[];

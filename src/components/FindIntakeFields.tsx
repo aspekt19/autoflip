@@ -218,11 +218,21 @@ export function NoteFactChips({
   const keep = useRef({
     transmission: need.transmission != null,
     fuel: need.fuelEconomyPriority === true,
+    awd: need.awdPreference === true,
+    reliability: need.reliabilityPriority === true,
     history: need.historyPreference != null,
     body: need.bodyStyle != null,
     location: Boolean(need.locationPhrase),
   });
-  if (!keep.current.transmission && !keep.current.fuel && !keep.current.history && !keep.current.body && !keep.current.location) {
+  if (
+    !keep.current.transmission &&
+    !keep.current.fuel &&
+    !keep.current.awd &&
+    !keep.current.reliability &&
+    !keep.current.history &&
+    !keep.current.body &&
+    !keep.current.location
+  ) {
     return null;
   }
   return (
@@ -258,6 +268,32 @@ export function NoteFactChips({
               onChange={(event) => onChange({ ...need, fuelEconomyPriority: event.target.checked })}
             />
             Fuel economy
+          </span>
+        </label>
+      ) : null}
+      {keep.current.awd ? (
+        <label className="note-chip check-line">
+          <span className="from-note">from your note</span>
+          <span className="check-line">
+            <input
+              type="checkbox"
+              checked={need.awdPreference === true}
+              onChange={(event) => onChange({ ...need, awdPreference: event.target.checked })}
+            />
+            Preferably AWD
+          </span>
+        </label>
+      ) : null}
+      {keep.current.reliability ? (
+        <label className="note-chip check-line">
+          <span className="from-note">from your note</span>
+          <span className="check-line">
+            <input
+              type="checkbox"
+              checked={need.reliabilityPriority === true}
+              onChange={(event) => onChange({ ...need, reliabilityPriority: event.target.checked })}
+            />
+            Reliability
           </span>
         </label>
       ) : null}

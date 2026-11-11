@@ -15,7 +15,14 @@ import {
 import { admitFindListingForBudget, assessFindListingPrice, type FindListingPriceView } from "@/domain/find-listing-price";
 import { diversifyListingsByModel } from "@/domain/find-model-observe";
 import { rankFlipCandidates } from "@/domain/flip-rank";
-import { listingWithinNeed, noMatchMessage, searchScopeLabel, validateNeed, type StructuredNeed } from "@/domain/need";
+import {
+  listingWithinNeed,
+  needPrefersAwd,
+  noMatchMessage,
+  searchScopeLabel,
+  validateNeed,
+  type StructuredNeed,
+} from "@/domain/need";
 import { priceCompsUnevenAcrossListings } from "@/domain/find-best-deal";
 import { priceBadge, type PriceBadge } from "@/domain/price-badge";
 import { reconUsd } from "@/domain/recon";
@@ -581,7 +588,10 @@ export async function runFindMatch(
     }
     // Named multi-model searches: do not let the first-queried model fill all 8 slots
     // when other named models also returned inventory (t310 CR-V-only window).
-    const listings = diversifyListingsByModel(rankedReady, 8);
+    // Soft AWD preference reorders within each model bucket so FWD cannot bury AWD.
+    const listings = diversifyListingsByModel(rankedReady, 8, {
+      preferAwd: needPrefersAwd(need),
+    });
     for (const item of listings) {
       const vin = (item.vin || "").trim().toUpperCase();
       if (vin) seenVins.add(vin);

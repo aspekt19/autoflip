@@ -51,16 +51,43 @@ function median(values: number[]): number | null {
   return Math.round((sorted[mid - 1]! + sorted[mid]!) / 2);
 }
 
+function awdRank(value: string | null | undefined): number {
+  const n = (value ?? "").toLowerCase();
+  if (!n) return 1;
+  if (/\b(awd|4wd|4x4|all[\s-]?wheel|four[\s-]?wheel|quattro|xdrive|4matic|sh[\s-]?awd|all4)\b/.test(n)) {
+    return 0;
+  }
+  return 2;
+}
+
+/**
+ * Within a model bucket, put AWD/4WD ahead of FWD/unknown when the shopper prefers AWD.
+ * Does not drop unknown-drivetrain cars — only reorders.
+ */
+function orderBucketForAwdPref<T extends { drivetrain?: string | null }>(rows: T[], preferAwd: boolean): T[] {
+  if (!preferAwd || rows.length <= 1) return rows;
+  return [...rows].sort((a, b) => {
+    const d = awdRank(a.drivetrain) - awdRank(b.drivetrain);
+    if (d !== 0) return d;
+    return 0;
+  });
+}
+
 /**
  * Round-robin across make/model so the first-named model cannot fill the entire
  * results window when other named models also returned inventory.
+ * When preferAwd is set, each model bucket yields AWD/4WD before FWD so VIN
+ * lexicographic order cannot bury qualifying AWD cars under FWD fillers.
  */
-export function diversifyListingsByModel<T extends { make: string; model: string }>(
+export function diversifyListingsByModel<T extends { make: string; model: string; drivetrain?: string | null }>(
   listings: T[],
   limit: number,
+  opts?: { preferAwd?: boolean },
 ): T[] {
   const cap = Math.max(0, Math.floor(limit));
   if (cap === 0) return [];
+  const preferAwd = Boolean(opts?.preferAwd);
+  // Everything fits the page — nothing is hidden; keep caller order.
   if (listings.length <= cap) return listings;
 
   const buckets = new Map<string, T[]>();
@@ -73,7 +100,13 @@ export function diversifyListingsByModel<T extends { make: string; model: string
     }
     buckets.get(key)!.push(item);
   }
-  if (order.length <= 1) return listings.slice(0, cap);
+  for (const key of order) {
+    buckets.set(key, orderBucketForAwdPref(buckets.get(key)!, preferAwd));
+  }
+  if (order.length <= 1) {
+    const only = buckets.get(order[0]!) ?? listings;
+    return only.slice(0, cap);
+  }
 
   const out: T[] = [];
   let round = 0;
