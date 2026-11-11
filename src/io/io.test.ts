@@ -225,6 +225,8 @@ describe("x402", () => {
       priceAtomic: "1",
       timeoutSeconds: 30,
       description: "report",
+      version: 1,
+      agentPaymentsEnabled: false,
     });
     const fetchImpl: typeof fetch = async () => Response.json({ isValid: false, invalidReason: "wrong amount" });
     const settled = await verifyAndSettle("{}", requirement, { fetch: fetchImpl, facilitatorUrl: "https://facilitator.example" });

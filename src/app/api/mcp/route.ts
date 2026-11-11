@@ -2,7 +2,8 @@ import { randomUUID } from "node:crypto";
 import { scoreRadar } from "@/domain/radar";
 import { getKv } from "@/io/kv";
 import { persistReport } from "@/io/persist-report";
-import { paymentsConfigured, readX402Config } from "@/io/x402";
+import { agentX402PaymentsLive, paymentsConfigured, readX402Config } from "@/io/x402";
+import { creditBalance as readCredits } from "@/io/credit-book";
 import { reportCreditReady, settleReportCredit } from "@/server/agent-access";
 import { authenticateAgentRequest } from "@/server/agent-auth";
 import { runAgentCheck } from "@/server/agent-check";
@@ -13,6 +14,23 @@ import {
   createAgentFindRun,
   readAgentFindRun,
 } from "@/server/agent-find";
+import {
+  advanceAgentResaleRun,
+  agentResaleResultPayload,
+  agentResaleStatusPayload,
+  createAgentResaleRun,
+} from "@/server/agent-resale";
+import {
+  agentListRadarWatches,
+  agentRadarCheckNow,
+  agentRadarFeed,
+  agentSaveRadarWatch,
+} from "@/server/agent-radar";
+import {
+  agentX402ChallengeResponse,
+  beginAgentX402FromPayload,
+  beginAgentX402Payment,
+} from "@/server/agent-x402";
 import { agentReport } from "@/server/agent-report";
 import { assembleRadar, assembleReport } from "@/server/assemble";
 import { runtimeDeps } from "@/server/deps";
@@ -28,6 +46,9 @@ import {
 import { originOf } from "@/server/secrets";
 import { agentProof, plannedProof } from "@/server/serv";
 import type { AgentScope } from "@/server/agent-scopes";
+import { readResaleJob } from "@/server/resale-job";
+import type { WatchCriteria } from "@/domain/radar-watch";
+import type { AgentX402Verified } from "@/server/agent-x402";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -45,11 +66,21 @@ export function GET() {
       createKey: "/developers",
     },
     payment: {
-      check_car: "free monthly check allotment, else 1 credit — settle after success",
-      find_cars: "1 credit after a successful search",
+      check_car: "free monthly check allotment, else 1 credit — settle after success; optional x402 when enabled",
+      find_cars: "1 credit after a successful search; optional x402 settle-on-delivery when enabled",
+      resale_search: "1 credit when final Resale verdict is delivered",
       full_report: "1 credit with Authorization: Bearer af_…",
-      deal_radar: "free",
+      deal_radar: "free (scan)",
+      radar_watches: "plan-gated saved searches (Radar / Radar Pro)",
       credits: "/credits",
+      x402AgentPayments: {
+        enabled: agentX402PaymentsLive(config),
+        flag: "X402_AGENT_PAYMENTS_ENABLED",
+        default: "off",
+        version: config.version,
+        network: config.network || null,
+        note: "Disabled until Yura approves enabling. Charge only on delivery.",
+      },
       optionalHeader: paymentsConfigured(config)
         ? { scheme: config.scheme, network: config.network, priceAtomic: config.priceAtomic, facilitator: config.facilitatorUrl }
         : { configured: false },
@@ -58,6 +89,7 @@ export function GET() {
       agent: "/.well-known/agent.json",
       openapi: "/openapi.json",
       llms: "/llms.txt",
+      docs: "/developers",
     },
   });
 }
@@ -79,9 +111,26 @@ export async function POST(request: Request) {
   const kv = getKv();
 
   const scopeForTool = (tool: string | undefined): AgentScope | null => {
-    if (tool === "deal_radar") return "read";
+    if (
+      tool === "deal_radar" ||
+      tool === "radar_watches" ||
+      tool === "radar_save_watch" ||
+      tool === "radar_check_now" ||
+      tool === "radar_feed"
+    ) {
+      return "read";
+    }
     if (tool === "check_car" || tool === "full_report") return "check";
-    if (tool === "find_cars" || tool === "find_cars_status" || tool === "find_cars_result") return "find";
+    if (
+      tool === "find_cars" ||
+      tool === "find_cars_status" ||
+      tool === "find_cars_result" ||
+      tool === "resale_search" ||
+      tool === "resale_status" ||
+      tool === "resale_result"
+    ) {
+      return "find";
+    }
     return null;
   };
 
@@ -96,7 +145,7 @@ export async function POST(request: Request) {
           message: "Unknown tool.",
           next_steps: {
             action: "list_tools",
-            summary: "Call tools/list for check_car, find_cars, deal_radar, and full_report.",
+            summary: "Call tools/list for check_car, find_cars, resale_search, radar_*, deal_radar, and full_report.",
             request: { method: "POST", url: `${origin}/api/mcp`, body: { jsonrpc: "2.0", id: 1, method: "tools/list" } },
           },
         }),
@@ -104,7 +153,6 @@ export async function POST(request: Request) {
     );
   }
 
-  // Scoped auth + rate limit for all tools that need a live key.
   const auth = await authenticateAgentRequest(kv, request, origin, needed);
   if (!auth.ok) {
     return Response.json(rpcError(id, -32001, auth.body.message, auth.body), {
@@ -114,6 +162,21 @@ export async function POST(request: Request) {
   }
 
   if (name === "check_car") {
+    const resource = `${origin}/api/v1/check`;
+    const paymentArg = typeof args.payment === "string" ? args.payment : null;
+    let x402Payment: AgentX402Verified | null = null;
+
+    const fromHeader = await beginAgentX402Payment(request, resource);
+    if (fromHeader.kind === "rejected") {
+      return Response.json(toolError(id, fromHeader.body), { status: fromHeader.status });
+    }
+    if (fromHeader.kind === "verified") x402Payment = fromHeader.value;
+    else if (paymentArg) {
+      const fromArg = await beginAgentX402FromPayload(paymentArg, resource);
+      if (fromArg.kind === "rejected") return Response.json(toolError(id, fromArg.body), { status: fromArg.status });
+      if (fromArg.kind === "verified") x402Payment = fromArg.value;
+    }
+
     const result = await runAgentCheck(
       auth.caller,
       {
@@ -122,14 +185,34 @@ export async function POST(request: Request) {
         text: typeof args.text === "string" ? args.text : null,
         optionalZip: typeof args.zip === "string" ? args.zip : null,
         idempotencyKey: typeof args.idempotencyKey === "string" ? args.idempotencyKey : id != null ? String(id) : null,
+        x402Payment,
       },
       { ...runtimeDeps(), kv, origin },
     );
-    if (!result.ok) return Response.json(toolError(id, result.body), { status: result.status });
+    if (!result.ok) {
+      if (result.status === 402 && agentX402PaymentsLive() && !x402Payment) {
+        return agentX402ChallengeResponse(resource);
+      }
+      return Response.json(toolError(id, result.body), { status: result.status });
+    }
     return Response.json(rpcResult(id, { content: [{ type: "text", text: JSON.stringify(result.body) }], structuredContent: result.body }));
   }
 
   if (name === "find_cars") {
+    const resource = `${origin}/api/v1/find`;
+    const paymentArg = typeof args.payment === "string" ? args.payment : null;
+    let x402Payment: AgentX402Verified | null = null;
+    const fromHeader = await beginAgentX402Payment(request, resource);
+    if (fromHeader.kind === "rejected") {
+      return Response.json(toolError(id, fromHeader.body), { status: fromHeader.status });
+    }
+    if (fromHeader.kind === "verified") x402Payment = fromHeader.value;
+    else if (paymentArg) {
+      const fromArg = await beginAgentX402FromPayload(paymentArg, resource);
+      if (fromArg.kind === "rejected") return Response.json(toolError(id, fromArg.body), { status: fromArg.status });
+      if (fromArg.kind === "verified") x402Payment = fromArg.value;
+    }
+
     const created = await createAgentFindRun(
       auth.caller,
       {
@@ -141,10 +224,16 @@ export async function POST(request: Request) {
           typeof args.idempotencyKey === "string"
             ? args.idempotencyKey
             : request.headers.get("idempotency-key")?.trim() || (id != null ? String(id) : null),
+        x402Payment,
       },
       { ...runtimeDeps(), kv, origin },
     );
-    if (!created.ok) return Response.json(toolError(id, created.body), { status: created.status });
+    if (!created.ok) {
+      if (created.status === 402 && agentX402PaymentsLive() && !x402Payment) {
+        return agentX402ChallengeResponse(resource);
+      }
+      return Response.json(toolError(id, created.body), { status: created.status });
+    }
     const payload = {
       run_id: created.run.run_id,
       status: created.run.status,
@@ -192,6 +281,101 @@ export async function POST(request: Request) {
       return Response.json(rpcResult(id, { content: [{ type: "text", text: JSON.stringify(payload) }], structuredContent: payload }));
     }
     return Response.json(rpcResult(id, { content: [{ type: "text", text: JSON.stringify(run.result) }], structuredContent: run.result }));
+  }
+
+  if (name === "resale_search") {
+    const created = await createAgentResaleRun(auth.caller, args, { ...runtimeDeps(), kv, origin });
+    if (!created.ok) return Response.json(toolError(id, created.body as { message?: string }), { status: created.status });
+    if (created.value.kind === "replay") {
+      const payload = { ...created.value.delivery, credit_spent: true, balance: created.value.balance };
+      return Response.json(rpcResult(id, { content: [{ type: "text", text: JSON.stringify(payload) }], structuredContent: payload }));
+    }
+    const job = created.value.job;
+    const payload = {
+      job_id: job.jobId,
+      status: job.status,
+      step_completed: job.stepCompleted,
+      credit_spent: false,
+      balance: created.value.balance,
+      next_steps: {
+        action: "poll_resale",
+        summary: "Call resale_status, then resale_result when completed.",
+        request: { method: "tools/call", name: "resale_status", arguments: { job_id: job.jobId } },
+      },
+    };
+    return Response.json(rpcResult(id, { content: [{ type: "text", text: JSON.stringify(payload) }], structuredContent: payload }));
+  }
+
+  if (name === "resale_status" || name === "resale_result") {
+    const jobId = typeof args.job_id === "string" ? args.job_id : "";
+    let job = await readResaleJob(kv, jobId);
+    if (!job || job.ownerId !== auth.caller.userId) {
+      return Response.json(
+        toolError(
+          id,
+          agentError({
+            error_code: "job_not_found",
+            message: "No resale job with that id for this API key.",
+            next_steps: {
+              action: "create_resale",
+              summary: "Call resale_search with budgetUsd first.",
+              request: { method: "tools/call", name: "resale_search", arguments: { budgetUsd: 12_000 } },
+            },
+          }),
+        ),
+        { status: 404 },
+      );
+    }
+    if (name === "resale_result" && job.status !== "completed" && job.status !== "failed") {
+      job =
+        (await advanceAgentResaleRun(jobId, auth.caller, { ...runtimeDeps(), kv, origin }, { untilDone: true })) ?? job;
+    } else if (name === "resale_status" && job.status !== "completed" && job.status !== "failed") {
+      job =
+        (await advanceAgentResaleRun(jobId, auth.caller, { ...runtimeDeps(), kv, origin }, { untilDone: false })) ?? job;
+    }
+    const balance = await readCredits(kv, auth.caller.userId);
+    if (name === "resale_status") {
+      const payload = agentResaleStatusPayload(job, balance);
+      return Response.json(rpcResult(id, { content: [{ type: "text", text: JSON.stringify(payload) }], structuredContent: payload }));
+    }
+    const payload = agentResaleResultPayload(job, balance);
+    return Response.json(rpcResult(id, { content: [{ type: "text", text: JSON.stringify(payload) }], structuredContent: payload }));
+  }
+
+  if (name === "radar_watches") {
+    const out = await agentListRadarWatches(auth.caller, { kv, origin });
+    if (!out.ok) return Response.json(toolError(id, out.body), { status: out.status });
+    return Response.json(rpcResult(id, { content: [{ type: "text", text: JSON.stringify(out.body) }], structuredContent: out.body }));
+  }
+
+  if (name === "radar_save_watch") {
+    const out = await agentSaveRadarWatch(
+      auth.caller,
+      {
+        name: typeof args.name === "string" ? args.name : undefined,
+        mode: typeof args.mode === "string" ? args.mode : undefined,
+        criteria: (args.criteria ?? undefined) as (WatchCriteria & { nationwide?: boolean }) | undefined,
+      },
+      { kv, origin },
+    );
+    if (!out.ok) return Response.json(toolError(id, out.body), { status: out.status });
+    return Response.json(rpcResult(id, { content: [{ type: "text", text: JSON.stringify(out.body) }], structuredContent: out.body }));
+  }
+
+  if (name === "radar_check_now") {
+    const out = await agentRadarCheckNow(auth.caller, {
+      kv,
+      origin,
+      fetchImpl: fetch,
+    });
+    if (!out.ok) return Response.json(toolError(id, out.body), { status: out.status });
+    return Response.json(rpcResult(id, { content: [{ type: "text", text: JSON.stringify(out.body) }], structuredContent: out.body }));
+  }
+
+  if (name === "radar_feed") {
+    const out = await agentRadarFeed(auth.caller, { kv, origin });
+    if (!out.ok) return Response.json(toolError(id, out.body), { status: out.status });
+    return Response.json(rpcResult(id, { content: [{ type: "text", text: JSON.stringify(out.body) }], structuredContent: out.body }));
   }
 
   if (name === "deal_radar") {

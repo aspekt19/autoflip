@@ -27,6 +27,8 @@ export type AgentFindCreateInput = {
   zip?: string | null;
   budgetUsd?: number | null;
   idempotencyKey?: string | null;
+  /** Pre-verified x402 payment — settle only when cars are delivered. */
+  x402Payment?: import("./agent-x402").AgentX402Verified | null;
 };
 
 export type AgentFindRunStatus =
@@ -52,10 +54,18 @@ export type AgentFindRunRecord = {
   spend_key: string;
   input: AgentFindCreateInput;
   error: AgentErrorEnvelope | null;
-  result: AgentApiSuccess | null;
+  result: (AgentApiSuccess & { txHash?: string | null; payment?: string }) | null;
   need: StructuredNeed | null;
   /** Shared lemonless.decision_proof.v1 rows from need parse (+ settle when present). */
   proofRecords: DecisionProofRecord[];
+  /** Serialized x402 payment (flag-gated). Settled only on successful delivery. */
+  x402?: {
+    paymentPayload: unknown;
+    requirement: import("@/io/x402").PaymentRequirements;
+    resourceUrl: string;
+    version: 1 | 2;
+    facilitatorUrl: string;
+  } | null;
 };
 
 function runKey(runId: string): string {
@@ -172,16 +182,20 @@ export async function createAgentFindRun(
   }
 
   const spendKey = findSearchSpendKey(caller.userId, `agent-find:${clientKey}`);
-  if (await creditEventSeen(deps.kv, spendKey)) {
-    // Prior successful settle for this idempotency key — recreate a completed pointer if needed.
-  } else {
-    const balance = await creditBalance(deps.kv, caller.userId);
-    if (balance < 1) {
-      await deps.kv.delete(idem);
-      return { ok: false, status: 402, body: insufficientCreditsEnvelope(deps.origin, balance) };
+  const payWithX402 = Boolean(input.x402Payment);
+  if (!payWithX402) {
+    if (await creditEventSeen(deps.kv, spendKey)) {
+      // Prior successful settle for this idempotency key — recreate a completed pointer if needed.
+    } else {
+      const balance = await creditBalance(deps.kv, caller.userId);
+      if (balance < 1) {
+        await deps.kv.delete(idem);
+        return { ok: false, status: 402, body: insufficientCreditsEnvelope(deps.origin, balance) };
+      }
     }
   }
 
+  const { serializeAgentX402ForStore } = await import("./agent-x402");
   const run: AgentFindRunRecord = {
     run_id: randomUUID(),
     user_id: caller.userId,
@@ -194,11 +208,12 @@ export async function createAgentFindRun(
     updated_at: new Date().toISOString(),
     idempotency_key: clientKey,
     spend_key: spendKey,
-    input: { ...input, text, idempotencyKey: clientKey },
+    input: { ...input, text, idempotencyKey: clientKey, x402Payment: undefined },
     error: null,
     result: null,
     need: null,
     proofRecords: [],
+    x402: input.x402Payment ? serializeAgentX402ForStore(input.x402Payment) : null,
   };
   await saveRun(deps.kv, run);
   await deps.kv.set(idem, run.run_id);
@@ -498,15 +513,42 @@ export async function advanceAgentFindRun(
 
     // Debit only when cars are delivered — empty inventory never charges.
     let creditSpent = false;
+    let x402TxHash: string | null = null;
     if (carsDelivered) {
-      const spent = await creditSpend(deps.kv, fresh.user_id, fresh.spend_key);
-      if (!spent.ok && !(await creditEventSeen(deps.kv, fresh.spend_key))) {
-        fresh.error = insufficientCreditsEnvelope(deps.origin, spent.balance);
-        await mark(fresh, "failed", "failed");
-        await saveRun(deps.kv, fresh);
-        return fresh;
+      if (fresh.x402) {
+        const { restoreAgentX402FromStore, settleAgentX402Payment } = await import("./agent-x402");
+        const settled = await settleAgentX402Payment(restoreAgentX402FromStore(fresh.x402), {
+          fetch: deps.fetch ?? fetch,
+        });
+        if (!settled.ok) {
+          fresh.error = agentError({
+            error_code: "payment_settle_failed",
+            message: settled.error,
+            credit_spent: false,
+            retry_safe: true,
+            next_steps: {
+              action: "retry_payment",
+              summary: "Find completed but x402 settlement failed. Retry with a fresh PAYMENT-SIGNATURE or use site credits.",
+              request: { method: "POST", url: `${deps.origin}/api/v1/find` },
+              docs: `${deps.origin}/developers`,
+            },
+          });
+          await mark(fresh, "failed", "failed");
+          await saveRun(deps.kv, fresh);
+          return fresh;
+        }
+        creditSpent = true;
+        x402TxHash = settled.txHash;
+      } else {
+        const spent = await creditSpend(deps.kv, fresh.user_id, fresh.spend_key);
+        if (!spent.ok && !(await creditEventSeen(deps.kv, fresh.spend_key))) {
+          fresh.error = insufficientCreditsEnvelope(deps.origin, spent.balance);
+          await mark(fresh, "failed", "failed");
+          await saveRun(deps.kv, fresh);
+          return fresh;
+        }
+        creditSpent = true;
       }
-      creditSpent = true;
     }
 
     const top = listings.slice(0, 8).map((row) => ({
@@ -537,51 +579,54 @@ export async function advanceAgentFindRun(
         })
       : null;
 
-    const success = wrapAgentSuccess({
-      tool: "find_cars",
-      verdict,
-      subject: {
-        need: understood.need,
-        scope: match.body.scope,
-        providerQueriesUsed: match.body.providerQueriesUsed,
-      },
-      comparables_summary: { n: match.body.compsPool.length, method: "find_match_comps_pool" },
-      code_computed: {
-        providerQueriesUsed: match.body.providerQueriesUsed,
-        listingCount: listings.length,
-        partialFailure: match.body.partialFailure,
-        carsDelivered,
-      },
-      checks_run: carsDelivered
-        ? ["understand_need", "find_match", mode === "flip" ? "resale_decide" : "find_settle", "price_badge"]
-        : ["understand_need", "find_match"],
-      credit_spent: creditSpent,
-      credits: creditSpent ? 1 : 0,
-      free_check_spent: false,
-      receipt_id: receipt?.receipt_id ?? "no_charge_empty_inventory",
-      run_id: fresh.run_id,
-      summary: match.body.headline ?? match.body.message,
-      proofRecords: fresh.proofRecords,
-      result: {
-        sample: match.body.sample,
-        emptyReason: match.body.emptyReason,
-        message: match.body.message,
-        headline: match.body.headline,
-        nextStep: match.body.nextStep,
-        scope: match.body.scope,
-        listings: top,
-        directions: match.body.directions.map((group) => ({
-          id: group.direction.id,
-          segment: group.direction.segment,
-          coverage: group.coverage,
-          listingCount: group.listings.length,
-        })),
+    const success = {
+      ...wrapAgentSuccess({
+        tool: "find_cars",
+        verdict,
+        subject: {
+          need: understood.need,
+          scope: match.body.scope,
+          providerQueriesUsed: match.body.providerQueriesUsed,
+        },
+        comparables_summary: { n: match.body.compsPool.length, method: "find_match_comps_pool" },
+        code_computed: {
+          providerQueriesUsed: match.body.providerQueriesUsed,
+          listingCount: listings.length,
+          partialFailure: match.body.partialFailure,
+          carsDelivered,
+        },
+        checks_run: carsDelivered
+          ? ["understand_need", "find_match", mode === "flip" ? "resale_decide" : "find_settle", "price_badge"]
+          : ["understand_need", "find_match"],
+        credit_spent: creditSpent,
+        credits: creditSpent ? 1 : 0,
+        free_check_spent: false,
+        receipt_id: receipt?.receipt_id ?? "no_charge_empty_inventory",
+        run_id: fresh.run_id,
+        summary: match.body.headline ?? match.body.message,
         proofRecords: fresh.proofRecords,
-        carsDelivered,
-      },
-    });
+        result: {
+          sample: match.body.sample,
+          emptyReason: match.body.emptyReason,
+          message: match.body.message,
+          headline: match.body.headline,
+          nextStep: match.body.nextStep,
+          scope: match.body.scope,
+          listings: top,
+          directions: match.body.directions.map((group) => ({
+            id: group.direction.id,
+            segment: group.direction.segment,
+            coverage: group.coverage,
+            listingCount: group.listings.length,
+          })),
+          proofRecords: fresh.proofRecords,
+          carsDelivered,
+        },
+      }),
+      ...(x402TxHash ? { txHash: x402TxHash, payment: "x402" } : {}),
+    };
 
-    if (creditSpent) {
+    if (creditSpent && !fresh.x402) {
       await storeFindSearchDelivery(deps.kv, fresh.spend_key, success as unknown as Record<string, unknown>);
     }
     fresh.result = success;

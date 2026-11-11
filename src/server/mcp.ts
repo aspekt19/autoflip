@@ -11,7 +11,7 @@ export function toolList() {
     {
       name: "check_car",
       description:
-        "Check a car by listing URL, VIN, or pasted listing text. Same path as the site /check. Uses the account’s free monthly check allotment when available, otherwise 1 report credit — settled only after success. Requires a key with the check scope. Returns lemonless.agent_verdict.v1 plus proofRecords (lemonless.decision_proof.v1): verdict_decide / verdict_challenge when SERV ran; a skipped row with the withhold reason when SERV_API_KEY is set but ordered gates withhold decide; [] only when SERV_API_KEY is not configured. Never invents servResponseId. Also includes serv.steps, code_computed, unknowns, credit_spent, and receipt_id.",
+        "Check a car by listing URL, VIN, or pasted listing text. Same path as the site /check (SERV plan/decide/second-check + decision journal in proofRecords). Uses the account’s free monthly check allotment when available, otherwise 1 report credit — settled only after success. Optional x402 v2 USDC-on-Base payment when X402_AGENT_PAYMENTS_ENABLED is on (default off). Requires a key with the check scope. Returns lemonless.agent_verdict.v1 plus proofRecords (lemonless.decision_proof.v1).",
       inputSchema: {
         type: "object",
         properties: {
@@ -19,6 +19,11 @@ export function toolList() {
           url: { type: "string", description: "Public listing URL" },
           text: { type: "string", description: "Pasted listing text when the site blocks fetch" },
           zip: { type: "string" },
+          payment: {
+            type: "string",
+            description: "Optional base64 x402 PAYMENT-SIGNATURE (only when agent x402 payments are enabled).",
+          },
+          idempotencyKey: { type: "string" },
         },
       },
       annotations: { readOnlyHint: false, destructiveHint: false },
@@ -26,7 +31,7 @@ export function toolList() {
     {
       name: "find_cars",
       description:
-        "Start an async Find from a natural-language request. Returns run_id; poll find_cars_status / find_cars_result (or REST status/get). Completed results include proofRecords (lemonless.decision_proof.v1 — need_guard / need_extract / verdict_decide / verdict_challenge). Costs 1 report credit after a successful search. Requires the find scope. Idempotency-Key / arguments.idempotencyKey supported.",
+        "Start an async Find from a natural-language buyer request. Same SERV plan/decide path as the site. Returns run_id; poll find_cars_status / find_cars_result. Completed results include proofRecords + decision journal rows. Costs 1 report credit after a successful search (or optional x402 settle-on-delivery when enabled). Requires the find scope. Idempotency-Key / arguments.idempotencyKey supported.",
       inputSchema: {
         type: "object",
         properties: {
@@ -35,6 +40,10 @@ export function toolList() {
           zip: { type: "string" },
           budgetUsd: { type: "number" },
           idempotencyKey: { type: "string" },
+          payment: {
+            type: "string",
+            description: "Optional base64 x402 PAYMENT-SIGNATURE (only when agent x402 payments are enabled).",
+          },
         },
         required: ["text"],
       },
@@ -79,9 +88,93 @@ export function toolList() {
       annotations: { readOnlyHint: true, destructiveHint: false },
     },
     {
+      name: "resale_search",
+      description:
+        "Start a Resale (flip) search from a budget — same stepped SERV plan/decide/journal path as /resale. Returns job_id; poll resale_status / resale_result. Costs 1 report credit only when the final verdict is delivered. Scope: find. Idempotency-Key / arguments.idempotencyKey supported.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          budgetUsd: { type: "number", description: "Buy budget in US dollars" },
+          zip: { type: "string" },
+          distanceMiles: { type: "number" },
+          bodyStyle: { type: "string" },
+          targetProfitUsd: { type: "number" },
+          idempotencyKey: { type: "string" },
+        },
+        required: ["budgetUsd"],
+      },
+      annotations: { readOnlyHint: false, destructiveHint: false },
+    },
+    {
+      name: "resale_status",
+      description: "Poll Resale job status / decision journal for a job_id from resale_search.",
+      inputSchema: {
+        type: "object",
+        properties: { job_id: { type: "string" } },
+        required: ["job_id"],
+      },
+      annotations: { readOnlyHint: true, destructiveHint: false },
+    },
+    {
+      name: "resale_result",
+      description:
+        "Advance and fetch Resale result (same report + decision journal as the site). Advances remaining steps when still running.",
+      inputSchema: {
+        type: "object",
+        properties: { job_id: { type: "string" } },
+        required: ["job_id"],
+      },
+      annotations: { readOnlyHint: false, destructiveHint: false },
+    },
+    {
+      name: "radar_watches",
+      description:
+        "List saved Deal Radar watches for the API key owner (same as /radar). Scope: read. Requires a paid Radar / Radar Pro plan to create watches; listing is free.",
+      inputSchema: { type: "object", properties: {} },
+      annotations: { readOnlyHint: true, destructiveHint: false },
+    },
+    {
+      name: "radar_save_watch",
+      description:
+        "Save a Deal Radar watch (criteria + mode). Same plan gates as the site ($100 Radar / $250 Radar Pro on Stripe TEST). Scope: read.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          name: { type: "string" },
+          mode: { type: "string", enum: ["personal", "flip"] },
+          criteria: {
+            type: "object",
+            properties: {
+              priceMax: { type: "number" },
+              zip: { type: "string" },
+              radiusMiles: { type: "number" },
+              make: { type: "string" },
+              model: { type: "string" },
+              nationwide: { type: "boolean" },
+            },
+          },
+        },
+        required: ["criteria"],
+      },
+      annotations: { readOnlyHint: false, destructiveHint: false },
+    },
+    {
+      name: "radar_check_now",
+      description:
+        "Run Deal Radar check-now for the owner's enabled watches (same SERV plan/decide path + decision journal as the site). Scope: read. Does not debit report credits.",
+      inputSchema: { type: "object", properties: {} },
+      annotations: { readOnlyHint: false, destructiveHint: false },
+    },
+    {
+      name: "radar_feed",
+      description: "List recent Deal Radar alerts for the API key owner. Scope: read.",
+      inputSchema: { type: "object", properties: {} },
+      annotations: { readOnlyHint: true, destructiveHint: false },
+    },
+    {
       name: "full_report",
       description:
-        "Full Lemonless analysis for one VIN. Costs 1 credit on the account that owns the API key. Send Authorization: Bearer af_…. Requires the check scope. A zero balance returns insufficient_credits and does not run the analysis.",
+        "Full Lemonless analysis for one VIN. Costs 1 credit on the account that owns the API key. Send Authorization: Bearer af_…. Requires the check scope. A zero balance returns insufficient_credits and does not run the analysis. Optional x402 PAYMENT-SIGNATURE when X402_AGENT_PAYMENTS_ENABLED is on (disabled by default).",
       inputSchema: {
         type: "object",
         properties: {

@@ -20,12 +20,21 @@ export type AgentCheckInput = {
   text?: string | null;
   optionalZip?: string | null;
   idempotencyKey?: string | null;
+  /**
+   * When set, skip free-check/credit debit and settle this x402 payment only after
+   * a successful delivery (caller must have already verified the payload).
+   */
+  x402Payment?: import("./agent-x402").AgentX402Verified | null;
 };
 
-export type AgentCheckDeps = CheckRunDeps & { kv: Kv; origin: string };
+export type AgentCheckDeps = CheckRunDeps & {
+  kv: Kv;
+  origin: string;
+  fetchImpl?: typeof fetch;
+};
 
 export type AgentCheckOutcome =
-  | { ok: true; body: AgentApiSuccess }
+  | { ok: true; body: AgentApiSuccess & { txHash?: string | null; payment?: string } }
   | { ok: false; status: number; body: AgentErrorEnvelope };
 
 function toRunInput(input: AgentCheckInput): CheckRunInput | { error: AgentErrorEnvelope } {
@@ -137,6 +146,7 @@ export async function runAgentCheck(
   let freeCheckKey: string | null = null;
   let usedFreeCheck = false;
   let needsCredit = false;
+  const payWithX402 = Boolean(input.x402Payment);
 
   const subjectKey =
     parsed.kind === "vin"
@@ -145,8 +155,8 @@ export async function runAgentCheck(
         ? `url:${Buffer.from(parsed.url).toString("base64url").slice(0, 24)}`
         : `paste:${Buffer.from(parsed.text.slice(0, 64)).toString("base64url").slice(0, 24)}`;
 
-  // Gate before work. Settle free-check / credit only after a delivered result.
-  {
+  // Gate before work. Settle free-check / credit / x402 only after a delivered result.
+  if (!payWithX402) {
     const slots = await freeCheckSlotsRemaining(deps.kv, caller.userId);
     if (slots.remaining < 1 && (await creditBalance(deps.kv, caller.userId)) < 1) {
       return { ok: false, status: 402, body: insufficientCreditsEnvelope(deps.origin, 0) };
@@ -182,42 +192,73 @@ export async function runAgentCheck(
 
     const vinKey =
       result.result.vin && isValidVin(result.result.vin) ? result.result.vin : subjectKey;
-    freeCheckKey = `free-check:agent-check:${caller.userId}:${month}:${vinKey}:${clientKey}`;
-    const reserved = await reserveFreeCheck(deps.kv, caller.userId, freeCheckKey);
-    if (reserved.ok) usedFreeCheck = true;
-    else if (reserved.reason === "lock_busy") {
-      return {
-        ok: false,
-        status: 503,
-        body: agentError({
-          error_code: "quota_busy",
-          message: "Could not reserve a free vehicle check right now. Retry in a moment.",
-          credit_spent: false,
-          retry_safe: true,
-          next_steps: {
-            action: "retry",
-            summary: "Retry with the same Idempotency-Key in a few seconds.",
-            request: { method: "POST", url: `${deps.origin}/api/v1/check`, body: input as Record<string, unknown> },
-          },
-        }),
-      };
-    } else if ((await creditBalance(deps.kv, caller.userId)) < 1) {
-      return { ok: false, status: 402, body: insufficientCreditsEnvelope(deps.origin, 0) };
-    } else needsCredit = true;
 
     let creditSpent = false;
     let credits = 0;
-    if (needsCredit) {
-      const spendKey = `agent-check:${caller.userId}:${month}:${clientKey}:${subjectKey}`.slice(0, 180);
-      const spent = await spendReportCredit(deps.kv, caller.userId, spendKey);
-      if (!spent.ok) {
-        if (usedFreeCheck && freeCheckKey) await releaseFreeCheck(deps.kv, caller.userId, freeCheckKey);
-        return { ok: false, status: 402, body: insufficientCreditsEnvelope(deps.origin, spent.balance) };
+    let x402TxHash: string | null = null;
+
+    if (payWithX402 && input.x402Payment) {
+      const { settleAgentX402Payment } = await import("./agent-x402");
+      const settled = await settleAgentX402Payment(input.x402Payment, {
+        fetch: deps.fetchImpl ?? fetch,
+      });
+      if (!settled.ok) {
+        return {
+          ok: false,
+          status: 402,
+          body: agentError({
+            error_code: "payment_settle_failed",
+            message: settled.error,
+            credit_spent: false,
+            retry_safe: true,
+            next_steps: {
+              action: "retry_payment",
+              summary: "The report was built but x402 settlement failed. Retry with a fresh PAYMENT-SIGNATURE or use site credits.",
+              request: { method: "POST", url: `${deps.origin}/api/v1/check` },
+              docs: `${deps.origin}/developers`,
+            },
+          }),
+        };
       }
       creditSpent = true;
       credits = 1;
+      x402TxHash = settled.txHash;
+    } else {
+      freeCheckKey = `free-check:agent-check:${caller.userId}:${month}:${vinKey}:${clientKey}`;
+      const reserved = await reserveFreeCheck(deps.kv, caller.userId, freeCheckKey);
+      if (reserved.ok) usedFreeCheck = true;
+      else if (reserved.reason === "lock_busy") {
+        return {
+          ok: false,
+          status: 503,
+          body: agentError({
+            error_code: "quota_busy",
+            message: "Could not reserve a free vehicle check right now. Retry in a moment.",
+            credit_spent: false,
+            retry_safe: true,
+            next_steps: {
+              action: "retry",
+              summary: "Retry with the same Idempotency-Key in a few seconds.",
+              request: { method: "POST", url: `${deps.origin}/api/v1/check`, body: input as Record<string, unknown> },
+            },
+          }),
+        };
+      } else if ((await creditBalance(deps.kv, caller.userId)) < 1) {
+        return { ok: false, status: 402, body: insufficientCreditsEnvelope(deps.origin, 0) };
+      } else needsCredit = true;
+
+      if (needsCredit) {
+        const spendKey = `agent-check:${caller.userId}:${month}:${clientKey}:${subjectKey}`.slice(0, 180);
+        const spent = await spendReportCredit(deps.kv, caller.userId, spendKey);
+        if (!spent.ok) {
+          if (usedFreeCheck && freeCheckKey) await releaseFreeCheck(deps.kv, caller.userId, freeCheckKey);
+          return { ok: false, status: 402, body: insufficientCreditsEnvelope(deps.origin, spent.balance) };
+        }
+        creditSpent = true;
+        credits = 1;
+      }
+      if (usedFreeCheck && freeCheckKey) await commitFreeCheck(deps.kv, caller.userId, freeCheckKey);
     }
-    if (usedFreeCheck && freeCheckKey) await commitFreeCheck(deps.kv, caller.userId, freeCheckKey);
 
     const verdict = agentVerdictFromCheck(result.result);
     const receipt = await writeAgentReceipt(deps.kv, {
@@ -234,7 +275,8 @@ export async function runAgentCheck(
       summary: result.result.summary,
     });
 
-    const body = wrapAgentSuccess({
+    const body = {
+      ...wrapAgentSuccess({
         tool: "check_car",
         verdict,
         subject: subjectFromCheck(result.result),
@@ -264,7 +306,9 @@ export async function runAgentCheck(
         // Shared lemonless.decision_proof.v1 — empty only when SERV was not configured / not called.
         proofRecords: result.result.proofRecords,
         result: result.result,
-      });
+      }),
+      ...(x402TxHash ? { txHash: x402TxHash, payment: "x402" } : {}),
+    };
     if (suppliedKey) await deps.kv.set(checkIdemKey(caller.userId, clientKey), JSON.stringify(body));
     return { ok: true, body };
   } catch {

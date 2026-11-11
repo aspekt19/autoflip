@@ -14,8 +14,9 @@ export default function DevelopersPage() {
       <div className="sheet-page site-frame prose">
         <h1>For agents</h1>
         <p className="lead">
-          An agent can run the same Check and Find a person uses on the site. Create a key for this browser, then send it as{" "}
-          <code>Authorization: Bearer af_…</code>. Credits settle only after success. Site UI stays sign-in gated.
+          An agent can run the same Check, Find, Resale, and Deal Radar a person uses on the site — same SERV
+          plan/decide/second-check path and the same report with decision journal. Create a key for this browser, then send
+          it as <code>Authorization: Bearer af_…</code>. Credits settle only after success. Site UI stays sign-in gated.
         </p>
 
         <section>
@@ -28,13 +29,23 @@ export default function DevelopersPage() {
               <code>find_cars</code> / <code>POST /api/v1/find</code> — async; 1 report credit after a successful search. Scope: <code>find</code>.
             </li>
             <li>
-              <code>deal_radar</code> is a one-shot listing scan under scope <code>read</code> — it does not create a saved watch and does not unlock Deal Radar. Saved watches require a paid Radar ($100/mo) or Radar Pro ($250/mo) plan on the signed-in{" "}
-              <a href="/radar">Deal Radar</a> page; full report still costs 1 credit. <code>full_report</code> costs 1 credit (scope <code>check</code>).
+              <code>resale_search</code> / <code>POST /api/v1/resale</code> — async budget Resale; 1 report credit when the final verdict is delivered. Scope: <code>find</code>. Poll status/result for journal + <code>proofRecords</code>.
+            </li>
+            <li>
+              <code>deal_radar</code> is a one-shot listing scan under scope <code>read</code>. Saved watches use{" "}
+              <code>radar_watches</code> / <code>radar_save_watch</code> / <code>radar_check_now</code> / <code>radar_feed</code>{" "}
+              (or <code>/api/v1/radar/*</code>) and require a paid Radar ($100/mo) or Radar Pro ($250/mo) plan — same gates as{" "}
+              <a href="/radar">Deal Radar</a>. <code>full_report</code> costs 1 credit (scope <code>check</code>).
             </li>
           </ul>
           <p>
             Failures return <code>credit_spent: false</code>. Reuse the same <code>Idempotency-Key</code> (or JSON-RPC{" "}
             <code>id</code>) to retry without a second charge. Keys are rate-limited to 30 calls per minute.
+          </p>
+          <p>
+            Optional x402 v2 (USDC on Base) pay-per-check/find stays <strong>disabled by default</strong> behind{" "}
+            <code>X402_AGENT_PAYMENTS_ENABLED</code>. When enabled, a missing payment with no credits returns HTTP 402 +{" "}
+            <code>PAYMENT-REQUIRED</code>; settlement happens only after results are delivered.
           </p>
         </section>
 
@@ -96,11 +107,45 @@ export default function DevelopersPage() {
               <code>find_cars_result</code> — need-parse and verdict rows from that Find run.
             </li>
             <li>
-              <code>deal_radar</code> — Deal Radar make/model scan (saved watches need a paid Radar /
-              Radar Pro plan). Always exactly one <code>radar_guard</code> row (
+              <code>deal_radar</code> — Deal Radar make/model scan. Always exactly one <code>radar_guard</code> row (
               <code>ok</code>, <code>skipped</code> when the key is missing, or <code>failed</code>).
             </li>
+            <li>
+              <code>resale_result</code> / Radar <code>check_now</code> — Resale and saved-search decision journals
+              plus <code>proofRecords</code> from the same SERV plan/decide path as the site.
+            </li>
           </ul>
+        </section>
+
+        <section>
+          <h2>Resale (budget)</h2>
+          <pre className="doc">{`# 1) create
+curl -s -X POST https://autoflip-umber.vercel.app/api/v1/resale \\
+  -H 'content-type: application/json' \\
+  -H 'authorization: Bearer af_YOUR_KEY' \\
+  -H 'idempotency-key: resale-demo-1' \\
+  -d '{"budgetUsd":12000,"zip":"78701"}'
+# → { "job_id":"…", "status":"running", … }
+
+# 2) status / result
+curl -s https://autoflip-umber.vercel.app/api/v1/resale/JOB_ID/status \\
+  -H 'authorization: Bearer af_YOUR_KEY'
+curl -s https://autoflip-umber.vercel.app/api/v1/resale/JOB_ID \\
+  -H 'authorization: Bearer af_YOUR_KEY'`}</pre>
+        </section>
+
+        <section>
+          <h2>Deal Radar watches</h2>
+          <pre className="doc">{`curl -s https://autoflip-umber.vercel.app/api/v1/radar/watches \\
+  -H 'authorization: Bearer af_YOUR_KEY'
+
+curl -s -X POST https://autoflip-umber.vercel.app/api/v1/radar/watches \\
+  -H 'content-type: application/json' \\
+  -H 'authorization: Bearer af_YOUR_KEY' \\
+  -d '{"name":"Flip under 12k","mode":"flip","criteria":{"priceMax":12000,"zip":"78701","radiusMiles":100}}'
+
+curl -s -X POST https://autoflip-umber.vercel.app/api/v1/radar/check \\
+  -H 'authorization: Bearer af_YOUR_KEY'`}</pre>
         </section>
 
         <section>
@@ -197,8 +242,8 @@ curl -s https://autoflip-umber.vercel.app/api/v1/find/RUN_ID \\
           <h2>Saved searches and storage</h2>
           <p>
             Persistent storage is Upstash Redis (<code>UPSTASH_REDIS_REST_URL</code> / <code>UPSTASH_REDIS_REST_TOKEN</code>
-            ). Locally, keys and credits fall back to <code>.data/kv.json</code>. No on-chain payment is required for these
-            agent tools.
+            ). Locally, keys and credits fall back to <code>.data/kv.json</code>. Site report credits are the default.
+            Optional x402 agent payments stay off until <code>X402_AGENT_PAYMENTS_ENABLED</code> is explicitly set.
           </p>
         </section>
       </div>
