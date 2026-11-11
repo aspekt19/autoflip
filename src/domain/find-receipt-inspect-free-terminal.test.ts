@@ -203,7 +203,7 @@ describe("honest receipt inspectability (14 MMY / no silent 6-cap)", () => {
         },
       },
     ])[0]!;
-    expect(line).toMatch(/5 recall campaign/);
+    expect(line).toMatch(/5 safety recall/);
     expect(line).toMatch(/NHTSA recalls \(U\.S\. government\)/);
     expect(line).not.toMatch(/api\.nhtsa\.gov|format=json/i);
   });

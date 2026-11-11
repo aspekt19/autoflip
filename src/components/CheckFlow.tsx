@@ -3,13 +3,14 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
-import { AgentDecisionTrail } from "@/components/AgentDecisionTrail";
+import { ConsumerDecisionProof } from "@/components/ConsumerDecisionProof";
 import { SignInGate } from "@/components/SignInGate";
 import { PriceBadgeView, PriceRatingHow } from "@/components/PriceBadge";
 import { SimilarCarsList } from "@/components/SimilarCarsList";
 import { confidenceLabel, type AgentVerdict } from "@/domain/agent-verdict-schema";
 import { actionLabel } from "@/domain/decision-action";
 import { providerResponseId } from "@/domain/serv-response-id";
+import { refreshPublishedCreditBalance } from "@/domain/credit-balance-event";
 import {
   formatFreeChecksRemaining,
   freeChecksRemainingFromAccount,
@@ -80,6 +81,7 @@ type CheckResultView = {
   settledAt?: string;
   billingNote?: string;
   agentVerdict?: AgentVerdict | null;
+  proofRecords?: import("@/domain/decision-proof-view").DecisionProofRecord[];
   servTrace?: {
     recordedAt: string;
     model: string | null;
@@ -95,7 +97,7 @@ type CheckResultView = {
 };
 
 function sourceLabel(source: string | null): string {
-  if (!source) return "unknown";
+  if (!source) return "not listed";
   if (source === "json_ld") return "JSON-LD";
   if (source === "open_graph") return "Open Graph";
   if (source === "visible_text") return "page text";
@@ -370,6 +372,9 @@ function CheckFlowForm() {
 
       setResult(body);
       await refreshAllowance(body);
+      if (body.spentCredit) {
+        await refreshPublishedCreditBalance();
+      }
       try {
         sessionStorage.removeItem("af-check");
       } catch {
@@ -658,35 +663,37 @@ function CheckResultCard({
         <p className="hint">Price note (not a buy signal while marked SOLD): {result.badge.deltaLabel}</p>
       ) : null}
       <p>{result.summary}</p>
-      <AgentDecisionTrail
+      <ConsumerDecisionProof
+        records={result.proofRecords}
         verdict={result.agentVerdict}
-        defaultOpen
         confidenceWhy={result.confidenceWhy ?? null}
         savedRunAt={result.fromCache ? result.settledAt ?? null : null}
-      />
-      {result.servTrace && result.servTrace.calls.length > 0 ? (
-        <section aria-label="Recorded agent calls">
-          <h3>Recorded agent calls</h3>
-          <p className="hint">
-            Recorded {result.servTrace.recordedAt}
-            {result.servTrace.model ? ` · ${result.servTrace.model}` : ""}
-          </p>
-          {result.servTrace.calls.map((call) => {
-            const responseId = call.ok ? providerResponseId(call.responseId) : null;
-            return (
-            <article key={`${call.profile}-${responseId ?? call.error ?? "call"}`}>
-              <p>
-                <strong>{call.profile}</strong>
-                {call.model ? ` · ${call.model}` : ""}
-                {responseId ? ` · ${responseId}` : ""}
+        proofExtra={
+          result.servTrace && result.servTrace.calls.length > 0 ? (
+            <section aria-label="Recorded agent calls">
+              <h3>Recorded agent calls</h3>
+              <p className="hint">
+                Recorded {result.servTrace.recordedAt}
+                {result.servTrace.model ? ` · ${result.servTrace.model}` : ""}
               </p>
-              {call.rawResponse ? <pre>{call.rawResponse}</pre> : null}
-              {call.error ? <p className="hint">{call.error}</p> : null}
-            </article>
-            );
-          })}
-        </section>
-      ) : null}
+              {result.servTrace.calls.map((call) => {
+                const responseId = call.ok ? providerResponseId(call.responseId) : null;
+                return (
+                  <article key={`${call.profile}-${responseId ?? call.error ?? "call"}`}>
+                    <p>
+                      <strong>{call.profile}</strong>
+                      {call.model ? ` · ${call.model}` : ""}
+                      {responseId ? ` · ${responseId}` : ""}
+                    </p>
+                    {call.rawResponse ? <pre>{call.rawResponse}</pre> : null}
+                    {call.error ? <p className="hint">{call.error}</p> : null}
+                  </article>
+                );
+              })}
+            </section>
+          ) : null
+        }
+      />
 
       {sold ? (
         <p className="warn" role="status">
@@ -705,7 +712,7 @@ function CheckResultCard({
 
       {(result.walkAwayLabel || similarCars.length > 0) && (result.kind === "listing" || result.badge) ? (
         <section>
-          <h3>Walk-away and comps</h3>
+          <h3>Walk-away and similar cars</h3>
           {result.walkAwayLabel ? <p>{result.walkAwayLabel}</p> : null}
           {result.walkAwayUsd != null ? (
             <p className="lead">
@@ -756,11 +763,15 @@ function CheckResultCard({
 
       <section>
         <h3>Government checks</h3>
+        <p className="hint">
+          Safety recalls are manufacturer fixes listed by the U.S. safety agency (NHTSA). A model-year recall is
+          not the same as proof that this VIN was repaired.
+        </p>
         <ul className="refuse">
           <li>
-            Recalls:{" "}
+            Safety recalls (NHTSA):{" "}
             {!result.recallsAvailable
-              ? "unavailable"
+              ? "not listed"
               : result.recalls.length === 0
                 ? "none listed for this model year"
                 : `${result.recalls.length} model-year campaign${result.recalls.length === 1 ? "" : "s"}`}

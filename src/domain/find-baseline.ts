@@ -76,9 +76,9 @@ function nameOf(
 }
 
 function factorDetail(car: BestDealCandidate | null, id: string): string {
-  if (!car) return "not in this search";
+  if (!car) return "";
   const factor = car.factors.find((row) => row.id === id);
-  if (!factor) return "not on file";
+  if (!factor) return "";
   return plainBuyerDetail(factor.detail);
 }
 
@@ -193,7 +193,7 @@ export function computeFindBaseline(input: {
 }
 
 function flagSummary(car: BestDealCandidate | null): string {
-  if (!car) return "not in this search";
+  if (!car) return "";
   const bits: string[] = [];
   if (car.excludedFromPick && car.excludedReason) bits.push(plainBuyerDetail(car.excludedReason));
   if (car.sellerQuestions.length > 0) bits.push(car.sellerQuestions.join(" "));
@@ -282,10 +282,16 @@ export function formatBaselineForBuyer(baseline: FindBaselineDelta): FindBaselin
         ? "Lowest miles in budget: same car as our pick."
         : "Lowest miles in budget: same car as the leading car."
       : `Lowest miles in budget: ${nameOf(baseline.lowestMiles)}.`,
-    ...baseline.factors.map(
-      (factor) =>
-        `${factor.label} — ${focusWord}: ${factor.pick} · cheapest: ${factor.cheapest} · lowest miles: ${factor.lowestMiles}`,
-    ),
+    ...baseline.factors
+      .map((factor) => {
+        const bits: string[] = [];
+        if (factor.pick) bits.push(`${focusWord}: ${factor.pick}`);
+        if (factor.cheapest) bits.push(`cheapest: ${factor.cheapest}`);
+        if (factor.lowestMiles) bits.push(`lowest miles: ${factor.lowestMiles}`);
+        if (bits.length === 0) return null;
+        return `${factor.label} — ${bits.join(" · ")}`;
+      })
+      .filter((line): line is string => Boolean(line)),
   ];
   return {
     title: "Compared with simpler picks on the same cars",

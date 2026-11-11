@@ -11,21 +11,16 @@ import { providerResponseId } from "@/domain/serv-response-id";
 export function ResaleDecisionJournalView({
   journal,
   defaultOpen = true,
+  embedded = false,
 }: {
   journal: ResaleDecisionJournal | null | undefined;
   defaultOpen?: boolean;
+  embedded?: boolean;
 }) {
   if (!journal || journal.steps.length === 0) return null;
 
-  return (
-    <details className="agent-decision-trail onboarding-note" open={defaultOpen}>
-      <summary>
-        <strong>Decision journal</strong>
-        {journal.servCalls > 0 ? (
-          <span className="hint"> · {journal.servCalls} paid model call{journal.servCalls === 1 ? "" : "s"} this run</span>
-        ) : null}
-      </summary>
-      <ol className="steps-3 story-steps">
+  const body = (
+    <ol className="steps-3 story-steps">
         {journal.steps.map((step) => {
           const responseId = providerResponseId(step.responseId);
           const showModelLine = step.actor === "SERV" || Boolean(step.model) || Boolean(responseId);
@@ -73,6 +68,31 @@ export function ResaleDecisionJournalView({
           );
         })}
       </ol>
+  );
+
+  if (embedded) {
+    return (
+      <div className="agent-decision-trail onboarding-note">
+        <p className="hint">
+          <strong>Decision journal</strong>
+          {journal.servCalls > 0
+            ? ` · ${journal.servCalls} paid model call${journal.servCalls === 1 ? "" : "s"} this run`
+            : ""}
+        </p>
+        {body}
+      </div>
+    );
+  }
+
+  return (
+    <details className="agent-decision-trail onboarding-note" open={defaultOpen}>
+      <summary>
+        <strong>Decision journal</strong>
+        {journal.servCalls > 0 ? (
+          <span className="hint"> · {journal.servCalls} paid model call{journal.servCalls === 1 ? "" : "s"} this run</span>
+        ) : null}
+      </summary>
+      {body}
     </details>
   );
 }
