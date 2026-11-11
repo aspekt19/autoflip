@@ -959,9 +959,30 @@ export async function runFindNextCheckOrchestrator(
     let pickServTrace: import("@/server/shopper-verdict-serv").ShopperServTrace | null = null;
     let pickAgentVerdict: import("@/domain/agent-verdict-schema").AgentVerdict | null = null;
     let pickProofRecords: import("@/domain/decision-proof-record").DecisionProofRecord[] = [];
-    // Run SERV find_pick + verdict_decide when the loop stops with a pick — even if a
-    // soft evidence flag is still open — so the published car is SERV's choice.
-    const shouldSettlePick = !loop.continue && Boolean(buyerDeal.pick);
+    // Drain free_gov_* (recall / crash / fuel) before settle when those tools are still open.
+    // If the loop stopped with free tools still open, say once that they did not run.
+    const freeGovStillOpen = remainingFreeGovCount > 0;
+    const freeGovDidNotRunNote =
+      !loop.continue &&
+      freeGovStillOpen &&
+      bestDeal.ranked.length > 0 &&
+      !freeGovReceipts.some((r) =>
+        r.checkId === "free_gov_recalls" ||
+        r.checkId === "free_gov_safety" ||
+        r.checkId === "free_gov_fuel",
+      )
+        ? "Free recall, crash-test, and fuel checks did not run for this shortlist."
+        : !loop.continue && freeGovStillOpen
+          ? "Some free public recall, crash-test, or fuel checks did not finish for this shortlist."
+          : null;
+    if (freeGovDidNotRunNote) {
+      freeEvidenceNote = freeEvidenceNote
+        ? `${freeEvidenceNote} ${freeGovDidNotRunNote}`
+        : freeGovDidNotRunNote;
+    }
+    // Prefer draining free_gov_* before settle — do not publish a SERV verdict while open.
+    const shouldSettlePick =
+      !loop.continue && !freeGovStillOpen && Boolean(buyerDeal.pick);
     if (shouldSettlePick && buyerDeal.pick) {
       const { runFindSettleServ } = await import("@/server/find-settle-serv");
       const settled = await runFindSettleServ({

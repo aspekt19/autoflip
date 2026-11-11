@@ -50,10 +50,11 @@ describe("headlineFromGuardedDecision", () => {
     expect(headline.verdictLabel).not.toBe("Buy");
     expect(headline.verdict).toBe("insufficient_data");
     expect(headline.confidence).toBe("Medium");
-    expect(headline.confidenceWhy).toMatch(/guarded agent decision/i);
+    expect(headline.confidence).not.toBe("High");
+    expect(headline.confidenceWhy).toMatch(/guarded agent decision|Needs inspection/i);
   });
 
-  it("keeps screening headline when SERV did not run", () => {
+  it("does not leave Medium/High looking fine when SERV did not run", () => {
     const headline = headlineFromGuardedDecision({
       screeningVerdict: "good_deal",
       screeningLabel: "Buy",
@@ -66,7 +67,24 @@ describe("headlineFromGuardedDecision", () => {
       }),
     });
     expect(headline.verdictLabel).toBe("Buy");
-    expect(headline.confidence).toBe("High");
+    expect(headline.confidence).toBe("Low");
+    expect(headline.confidenceWhy).toMatch(/SERV shopper verdict did not finish/i);
+  });
+
+  it("caps High → Medium when SERV returns needs_inspection with high confidence", () => {
+    const headline = headlineFromGuardedDecision({
+      screeningVerdict: "good_deal",
+      screeningLabel: "Buy",
+      screeningConfidence: "High",
+      screeningConfidenceWhy: "comps",
+      agentVerdict: emptyAgentVerdict({
+        verdict: "needs_inspection",
+        confidence: "high",
+        no_serv_step: false,
+      }),
+    });
+    expect(headline.confidence).toBe("Medium");
+    expect(headline.confidenceWhy).toMatch(/Needs inspection/i);
   });
 
   it("labels why Medium when stop-flag cap lowered High (Check 3b)", () => {

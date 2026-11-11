@@ -42,6 +42,7 @@ import { extractVin, isValidVin } from "@/domain/vin";
 import { actionLabel, isServDecisionAction, verdictFromAction } from "@/domain/decision-action";
 import { confidenceLabel } from "@/domain/agent-verdict-schema";
 import { verdictLabel } from "@/domain/format";
+import { capConfidenceForHonesty, verdictNeedsInspection } from "@/domain/confidence-cap";
 import { confidenceCapReasonForStop } from "@/domain/nhtsa-stop-flags";
 import type { FuelFact, Listing, RecallRecord, Verdict, VinDecode } from "@/domain/types";
 import { valuationReuseNote } from "@/domain/vin-day-valuation";
@@ -530,11 +531,21 @@ export function headlineFromGuardedDecision(input: {
 } {
   const action = input.agentVerdict.verdict;
   if (!action || input.agentVerdict.no_serv_step || !isServDecisionAction(action)) {
+    // SERV failed or withheld — do not leave Medium/High looking "fine".
+    const confidence: CheckConfidence =
+      input.agentVerdict.no_serv_step && input.screeningConfidence !== "Low" ? "Low" : input.screeningConfidence;
+    const honesty = capConfidenceForHonesty({
+      confidence,
+      verdict: input.screeningVerdict,
+      evidenceSettled: true,
+    });
     return {
       verdict: input.screeningVerdict,
       verdictLabel: input.screeningLabel,
-      confidence: input.screeningConfidence,
-      confidenceWhy: input.screeningConfidenceWhy,
+      confidence: honesty.confidence,
+      confidenceWhy: input.agentVerdict.no_serv_step
+        ? `${input.screeningConfidenceWhy} SERV shopper verdict did not finish — confidence is Low until a fresh check completes.`
+        : input.screeningConfidenceWhy,
     };
   }
   const baseline: Verdict =
@@ -542,14 +553,22 @@ export function headlineFromGuardedDecision(input: {
       ? "insufficient_data"
       : (input.screeningVerdict as Verdict);
   const mapped = verdictFromAction(action, baseline);
-  const confidence: CheckConfidence =
+  const mappedVerdict = mapped === "withheld" ? "insufficient_data" : (mapped as CheckVerdictLabel);
+  const rawConfidence: CheckConfidence =
     input.agentVerdict.confidence === "high"
       ? "High"
       : input.agentVerdict.confidence === "medium"
         ? "Medium"
         : "Low";
-  // Keep stop/margin cap labels visible when screening or trail already explained a High→Medium drop.
+  const honesty = capConfidenceForHonesty({
+    confidence: rawConfidence,
+    verdict: action === "needs_inspection" ? "needs_inspection" : mappedVerdict,
+    evidenceSettled: true,
+  });
+  const confidence = honesty.confidence;
+  // Keep stop/margin/honesty cap labels visible when screening or trail already explained a High→Medium drop.
   const capBits = [
+    honesty.reason,
     /Lowered from High/i.test(input.screeningConfidenceWhy) ? input.screeningConfidenceWhy.match(/Lowered from High[^.]*\.?/)?.[0] : null,
     input.agentVerdict.serv_steps.map((s) => s.why).find((why) => why && /Lowered from High/i.test(why)) ?? null,
     input.agentVerdict.second_pass?.objection && /Lowered from High/i.test(input.agentVerdict.second_pass.objection)
@@ -557,13 +576,31 @@ export function headlineFromGuardedDecision(input: {
       : null,
   ].filter((bit): bit is string => Boolean(bit));
   const capNote = capBits[0] ?? null;
-  const baseWhy = `Final guarded agent decision (${actionLabel(action, "personal")}, confidence ${confidenceLabel(input.agentVerdict.confidence)}) after decide → clamp → challenge — not the price rating alone.`;
+  const baseWhy = `Final guarded agent decision (${actionLabel(action, "personal")}, confidence ${confidenceLabel(
+    confidence === "High" ? "high" : confidence === "Medium" ? "medium" : "low",
+  )}) after decide → clamp → challenge — not the price rating alone.`;
   return {
-    verdict: mapped === "withheld" ? "insufficient_data" : (mapped as CheckVerdictLabel),
+    verdict: mappedVerdict,
     verdictLabel: actionLabel(action, "personal"),
     confidence,
     confidenceWhy: capNote && !baseWhy.includes(capNote) ? `${baseWhy} ${capNote}` : baseWhy,
   };
+}
+
+/** True when this Check result must not be month-cached (SERV fail / recalls unavailable). */
+export function checkResultIsCacheable(result: {
+  confidence: CheckConfidence;
+  recallsAvailable?: boolean;
+  agentVerdict?: { no_serv_step?: boolean; verdict?: string | null } | null;
+  verdict?: string | null;
+}): boolean {
+  if (result.agentVerdict?.no_serv_step) return false;
+  if (result.recallsAvailable === false) return false;
+  if (verdictNeedsInspection(result.agentVerdict?.verdict ?? result.verdict)) {
+    // Needs inspection is a valid verdict — cacheable only when SERV actually decided it.
+    return result.agentVerdict?.no_serv_step !== true;
+  }
+  return true;
 }
 
 function verdictFromBadge(
@@ -840,6 +877,10 @@ async function buildListingVerdict(
     listingConfidenceWhy = reason
       ? `${listingConfidenceWhy} ${reason}`
       : `${listingConfidenceWhy} Lowered from High because a stop-level NHTSA campaign is on file.`;
+  }
+  if (!gov.recallsAvailable && confidence !== "Low") {
+    confidence = "Low";
+    listingConfidenceWhy = `${listingConfidenceWhy} Recall lookup was unavailable — confidence is Low until a fresh check can reach NHTSA.`;
   }
   const summary = joinSummarySentences([
     `${subject.year} ${subject.make} ${subject.model}${subject.trim ? ` ${subject.trim}` : ""}`,
@@ -1223,6 +1264,10 @@ async function buildVinDossier(vin: string, deps: CheckRunDeps, optionalZip?: st
     confidenceWhy = reason
       ? `${confidenceWhy} ${reason}`
       : `${confidenceWhy} Lowered from High because a stop-level NHTSA campaign is on file.`;
+  }
+  if (!bundle.recallsAvailable && confidence !== "Low") {
+    confidence = "Low";
+    confidenceWhy = `${confidenceWhy} Recall lookup was unavailable — confidence is Low until a fresh check can reach NHTSA.`;
   }
 
   const askLine = hasAsk

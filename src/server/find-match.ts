@@ -731,7 +731,18 @@ export async function runFindMatch(
   let emptyReason: FindEmptyReason | null = null;
   let headline: string | null = null;
   let nextStep: string | null = null;
-  if (visible === 0 && resolved?.reason === "incomplete_search") {
+  // Never claim empty inventory / widen / year-filter misses when no provider query ran.
+  if (visible === 0 && providerQueriesUsed === 0) {
+    const empty = findEmptyCopy(
+      "no_directions",
+      need,
+      "No listing search ran (providerQueriesUsed=0), so this is not an empty-market or widened-radius result.",
+    );
+    emptyReason = empty.reason;
+    message = empty.detail;
+    headline = empty.headline;
+    nextStep = empty.nextStep;
+  } else if (visible === 0 && resolved?.reason === "incomplete_search") {
     const empty = findEmptyCopy("incomplete_search", need, resolved.observedMessage);
     emptyReason = empty.reason;
     message = empty.detail;
