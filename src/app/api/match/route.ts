@@ -28,7 +28,8 @@ import {
 import { requireVerifiedAccountForFind } from "@/server/session";
 
 export const dynamic = "force-dynamic";
-export const maxDuration = 60;
+/** Pro/Fluid allows up to 300s — inventory + decide handoff must not die at Hobby 60s. */
+export const maxDuration = 300;
 
 /**
  * Find / search — always paid (1 internal credit) for a new Show-cars search.

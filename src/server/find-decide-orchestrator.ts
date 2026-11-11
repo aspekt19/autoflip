@@ -152,17 +152,11 @@ export async function runFindDecideOrchestrator(
     });
     receipts = parallel.receipts;
     freeEvidenceNote = parallel.note;
+    // Only stamp check ids that actually ran — never invent coverage for empty tools.
+    const appliedFromWave = parallel.checkIds.length > 0 ? parallel.checkIds : [];
     record = await updateFindSearchContext(deps.kv, record, {
       freeGovReceipts: receipts,
-      appliedCheckIds: [
-        ...new Set([
-          ...(record.appliedCheckIds ?? []),
-          "free_gov_recalls",
-          "free_gov_safety",
-          "free_gov_fuel",
-          "free_gov_vpic",
-        ]),
-      ],
+      appliedCheckIds: [...new Set([...(record.appliedCheckIds ?? []), ...appliedFromWave])],
     });
   }
 
@@ -211,6 +205,41 @@ export async function runFindDecideOrchestrator(
   const coverage = freeGovToolCoverage(record.listings, receipts);
   const proofRecords = [...triage.proofRecords, ...decide.proofRecords];
 
+  const byTool = new Map<string, { ok: number; empty: number; error: number }>();
+  for (const r of receipts) {
+    const row = byTool.get(r.checkId) ?? { ok: 0, empty: 0, error: 0 };
+    if (r.status === "ok") row.ok += 1;
+    else if (r.status === "empty") row.empty += 1;
+    else row.error += 1;
+    byTool.set(r.checkId, row);
+  }
+  const toolCountBits = [...byTool.entries()].map(([id, c]) => {
+    const short =
+      id === "free_gov_recalls"
+        ? "recalls"
+        : id === "free_gov_fuel"
+          ? "fuel"
+          : id === "free_gov_vpic"
+            ? "VIN decode"
+            : id === "free_gov_safety"
+              ? "crash tests"
+              : id;
+    return `${short}: ${c.ok} ok, ${c.empty} empty, ${c.error} error`;
+  });
+  const stages = [
+    receipts.length > 0 ? "public checks" : null,
+    triage.source === "SERV" ? "triage" : "code triage",
+    decide.source === "SERV" ? "decide" : "code decide",
+    decide.proofRecords.some((p) => p.purpose === "find_challenge") ? "challenge" : null,
+  ].filter(Boolean);
+  const loopDetail = [
+    stages.length > 0 ? `${stages.join(", ")} finished in one pass.` : "Decide finished.",
+    toolCountBits.length > 0 ? `Public lookup counts — ${toolCountBits.join("; ")}.` : "No public lookup receipts were recorded.",
+    coverage.anyUnchecked ? `Still unchecked: ${coverage.note}` : null,
+  ]
+    .filter(Boolean)
+    .join(" ");
+
   return {
     ok: true,
     status: 200,
@@ -229,7 +258,7 @@ export async function runFindDecideOrchestrator(
     loop: {
       continue: false,
       reason: "decide_settled",
-      detail: "Public checks, triage, decide, and challenge finished in one pass.",
+      detail: loopDetail,
     },
     honesty:
       decide.source === "SERV"

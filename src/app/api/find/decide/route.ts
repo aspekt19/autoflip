@@ -11,7 +11,11 @@ import { findContextOwnerId } from "@/server/find-context-owner";
 import { runFindDecideOrchestrator } from "@/server/find-decide-orchestrator";
 
 export const dynamic = "force-dynamic";
-export const maxDuration = 60;
+/**
+ * free-gov + triage + decide + challenge each up to ~90s SERV.
+ * Pro/Fluid maxDuration 300s; keep client abort just under this.
+ */
+export const maxDuration = 300;
 
 export async function POST(request: Request) {
   const id = await findContextOwnerId();

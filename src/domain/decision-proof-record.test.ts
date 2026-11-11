@@ -54,7 +54,8 @@ describe("decision proof record", () => {
     });
     expect(errored.status).toBe("failed");
     expect(errored.verdict).toBeNull();
-    expect(errored.servResponseId).toBeNull();
+    // Keep the real provider id on failed proofs for audit — never invent a pass verdict.
+    expect(errored.servResponseId).toBe("chatcmpl-EhAbWoRGDxTDAPz8Lvx93kv1cfycl");
     expect(errored.reason).toMatch(/503/);
     expect(formatDecisionRecordLine(errored)).toMatch(/failed · SERV HTTP 503/);
 

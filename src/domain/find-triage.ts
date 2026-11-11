@@ -88,8 +88,8 @@ function filterEvidenceIds(claimed: unknown, allowed: Set<string>, dropped: stri
 
 /**
  * Validate and sanitize a raw find_triage payload.
- * Unknown keys are dropped. Shortlist must end with 3–8 pool keys or validation fails
- * (caller falls back to the code score shortlist).
+ * Unknown top-level / row keys are ignored (dropped). Shortlist must end with
+ * min(3, poolSize)–8 pool keys — small pools may return 2 keys when that is all that exists.
  */
 export function validateFindTriage(
   input: unknown,
@@ -102,6 +102,8 @@ export function validateFindTriage(
   const pool = asSet(ctx.poolKeys);
   const allowed = asSet(ctx.allowedEvidenceIds);
   const dropped: string[] = [];
+  // Tolerate unknown top-level keys — do not fail the whole triage for extras.
+  const shortlistMin = Math.min(SHORTLIST_MIN, Math.max(1, pool.size));
 
   const shortlistRaw = Array.isArray(raw.shortlist) ? raw.shortlist : [];
   const shortlist: FindTriageShortlistItem[] = [];
@@ -128,13 +130,13 @@ export function validateFindTriage(
     if (shortlist.length >= SHORTLIST_MAX) break;
   }
 
-  if (shortlist.length < SHORTLIST_MIN) {
+  if (shortlist.length < shortlistMin) {
     return {
       ok: false,
       issues: [
         {
           field: "shortlist",
-          message: `find_triage.shortlist needs ${SHORTLIST_MIN}–${SHORTLIST_MAX} pool keys (got ${shortlist.length}).`,
+          message: `find_triage.shortlist needs ${shortlistMin}–${SHORTLIST_MAX} pool keys (got ${shortlist.length}; pool has ${pool.size}).`,
         },
       ],
     };

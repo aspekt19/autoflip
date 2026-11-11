@@ -897,23 +897,48 @@ export function vpicByVinFromReceipts(receipts: readonly FindFreeGovReceipt[]): 
   return map;
 }
 
+function vpicByMmyFromReceipts(receipts: readonly FindFreeGovReceipt[]): Map<string, VpicSpecs> {
+  const map = new Map<string, VpicSpecs>();
+  for (const receipt of receipts) {
+    if (receipt.checkId !== "free_gov_vpic") continue;
+    if (!Number.isFinite(receipt.year) || !receipt.make?.trim() || !receipt.model?.trim()) continue;
+    const specs = vpicSpecsFromReceipt(receipt);
+    if (!specs?.drivetrain?.trim()) continue;
+    const key = `${Math.floor(receipt.year)}|${receipt.make.trim().toLowerCase()}|${receipt.model.trim().toLowerCase()}`;
+    if (!map.has(key)) map.set(key, specs);
+  }
+  return map;
+}
+
 /**
  * When the listing omitted drivetrain, copy it from a free-gov vPIC decode.
+ * Prefers VIN match; falls back to year/make/model when the listing has no VIN.
  * Does not overwrite a listing value. Cars without a decode stay as-is (not dropped).
  */
-export function fillDrivetrainFromVpic<T extends { vin?: string | null; drivetrain?: string | null }>(
-  listings: readonly T[],
-  receipts: readonly FindFreeGovReceipt[],
-): T[] {
-  const vpic = vpicByVinFromReceipts(receipts);
-  if (vpic.size === 0) return [...listings];
+export function fillDrivetrainFromVpic<
+  T extends {
+    vin?: string | null;
+    drivetrain?: string | null;
+    year?: number | null;
+    make?: string | null;
+    model?: string | null;
+  },
+>(listings: readonly T[], receipts: readonly FindFreeGovReceipt[]): T[] {
+  const byVin = vpicByVinFromReceipts(receipts);
+  const byMmy = vpicByMmyFromReceipts(receipts);
+  if (byVin.size === 0 && byMmy.size === 0) return [...listings];
   return listings.map((row) => {
     if (typeof row.drivetrain === "string" && row.drivetrain.trim()) return row;
     const vin = typeof row.vin === "string" ? row.vin.trim().toUpperCase() : "";
-    if (!vin) return row;
-    const decoded = vpic.get(vin)?.drivetrain?.trim();
-    if (!decoded) return row;
-    return { ...row, drivetrain: decoded };
+    const fromVin = vin ? byVin.get(vin)?.drivetrain?.trim() : "";
+    if (fromVin) return { ...row, drivetrain: fromVin };
+    const year = typeof row.year === "number" && Number.isFinite(row.year) ? Math.floor(row.year) : null;
+    const make = typeof row.make === "string" ? row.make.trim().toLowerCase() : "";
+    const model = typeof row.model === "string" ? row.model.trim().toLowerCase() : "";
+    if (year == null || !make || !model) return row;
+    const fromMmy = byMmy.get(`${year}|${make}|${model}`)?.drivetrain?.trim();
+    if (!fromMmy) return row;
+    return { ...row, drivetrain: fromMmy };
   });
 }
 

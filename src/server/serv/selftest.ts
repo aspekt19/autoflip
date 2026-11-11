@@ -3,6 +3,18 @@ import { runServ, type ServDeps, type ServFacts, type ServResult } from "./run";
 
 /** Hobby serverless functions stop at 60s. Parallel checks must finish inside that. */
 export const HOBBY_FUNCTION_MS = 60_000;
+/** Pro/Fluid Find routes allow up to 300s for generous SERV plan/triage/decide/challenge. */
+export const PRO_FUNCTION_MS = 300_000;
+
+/** Find decide-path profiles use 90s timeouts and are not Hobby-safe as a parallel wave. */
+export function isGenerousFindServProfile(id: ProfileId): boolean {
+  return (
+    id === "find_plan" ||
+    id === "find_triage" ||
+    id === "find_decide" ||
+    id === "find_challenge"
+  );
+}
 
 const CHEAP_USER = "2016 Toyota Camry.";
 const CHEAP_FACTS = { year: 2016, make: "Toyota", model: "Camry", priceUsd: 12000, miles: 80000, compCount: 4, profitMidUsd: 500 };
@@ -40,6 +52,11 @@ export function selftestWallClockMs(ids = distinctSelftestProfiles()): number {
     }),
     0,
   );
+}
+
+/** Hobby-safe wall clock — excludes Find profiles that need Pro maxDuration. */
+export function selftestHobbyWallClockMs(ids = distinctSelftestProfiles()): number {
+  return selftestWallClockMs(ids.filter((id) => !isGenerousFindServProfile(id)));
 }
 
 export const SELFTEST_PASS_RATE = 0.95;

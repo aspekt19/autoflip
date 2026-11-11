@@ -16,9 +16,10 @@ import {
   type FindDecideAction,
   type FindDecideConfidence,
 } from "@/domain/find-decide";
+import { isAwdDrivetrain } from "@/domain/find-car-consistency";
 import type { BestDealCandidate, BestDealResult } from "@/domain/find-best-deal";
 import type { FindFreeGovReceipt } from "@/domain/find-free-gov";
-import type { StructuredNeed } from "@/domain/need";
+import { needPrefersAwd, type StructuredNeed } from "@/domain/need";
 import type { Listing } from "@/domain/types";
 import {
   buildDecisionProofRecord,
@@ -77,15 +78,21 @@ export async function runFindDecideServ(input: {
   transportPolicy?: ServDeps["transportPolicy"];
 }): Promise<FindDecideServResult> {
   const shortlistKeys = [...input.shortlistKeys];
-  const rankedByKey = new Map(input.bestDeal.ranked.map((row) => [row.key, row]));
+  const rankedByKey = new Map(
+    [...(input.bestDeal.allRanked ?? []), ...input.bestDeal.ranked].map((row) => [row.key, row]),
+  );
   const shortlistRows: BestDealCandidate[] = shortlistKeys
     .map((key) => rankedByKey.get(key))
-    .filter((row): row is BestDealCandidate => Boolean(row));
-  const peers = shortlistRows.length > 0 ? shortlistRows : input.bestDeal.ranked;
+    .filter((row): row is BestDealCandidate => Boolean(row))
+    .filter((row) => !row.excludedFromPick);
+  const peers =
+    shortlistRows.length > 0
+      ? shortlistRows
+      : input.bestDeal.ranked.filter((row) => !row.excludedFromPick);
   const codePick =
-    shortlistRows.find((row) => !row.excludedFromPick) ??
+    peers.find((row) => !row.excludedFromPick) ??
     input.bestDeal.pick ??
-    input.bestDeal.ranked[0] ??
+    peers[0] ??
     null;
 
   const recordedAt = new Date().toISOString();
@@ -107,6 +114,11 @@ export async function runFindDecideServ(input: {
         r.model.toLowerCase() === row.model.toLowerCase() &&
         r.year === row.year,
     );
+    const accidents =
+      typeof row.accidentCount === "number" && Number.isFinite(row.accidentCount)
+        ? Math.max(0, Math.floor(row.accidentCount))
+        : null;
+    const drivetrain = row.drivetrain?.trim() || null;
     return {
       key: row.key,
       year: row.year,
@@ -114,10 +126,14 @@ export async function runFindDecideServ(input: {
       model: row.model,
       askUsd: row.priceUsd,
       miles: row.miles,
-      drivetrain: row.drivetrain ?? null,
+      // Explicit drivetrain + accident facts for SERV (including vPIC-filled drivetrain).
+      drivetrain,
+      drivetrainConfirmedAwd: isAwdDrivetrain(drivetrain),
+      drivetrainSource: drivetrain ? "listing_or_vpic" : "unknown",
       fuel: row.fuel ?? null,
       bodyStyle: null,
-      accidentCount: row.accidentCount ?? null,
+      accidentCount: accidents,
+      accidentCountReported: accidents,
       cpo: row.cpo ?? null,
       ownerCount: row.ownerCount ?? null,
       fairValueUsd: report.fairValueUsd,
@@ -136,6 +152,7 @@ export async function runFindDecideServ(input: {
         summary: r.summary,
         riskFacts: r.riskFacts,
         fuelEvidence: r.fuelEvidence,
+        vpicDrivetrain: r.vpicSpecs?.drivetrain ?? null,
       })),
       evidenceIds: [
         `car:${row.key}`,
@@ -151,6 +168,8 @@ export async function runFindDecideServ(input: {
     "Stop-level park-it/park-outside → action ≤ inspect_first and confidence ≤ medium.",
     "Recall data unavailable for the pick → confidence ≤ medium.",
     "Fewer than 3 comps → confidence ≤ medium; word price as limited comparison.",
+    "fairValueUsd null/unknown for the pick → confidence must be low.",
+    "Reasons must say why this pick beats the runner-up with concrete fact differences — do not only restate buyer budget/ZIP/years/must-haves.",
     "offerUsd must be ≤ ask and near code fair value when set.",
     "Published confidence = min(C3, C4 revised, guardrail caps).",
   ];
@@ -175,12 +194,21 @@ export async function runFindDecideServ(input: {
               milesMax: input.need.milesMax ?? null,
               mustHaves: input.need.mustHaves ?? [],
               priorities: input.need.priorities ?? [],
+              awdPreference: needPrefersAwd({
+                awdPreference: input.need.awdPreference,
+                note: input.need.note,
+                mustHaves: input.need.mustHaves ?? [],
+              }),
             },
             shortlist: factSheet,
             shortlistKeys,
             allowedEvidenceIds: [...allowedEvidenceIds],
             codeRankedKey: codePick.key,
-            guardrailRules,
+            guardrailRules: [
+              ...guardrailRules,
+              "When awdPreference is true, prefer confirmed AWD/4WD (drivetrainConfirmedAwd) over unknown/FWD unless other hard risks dominate.",
+              "Use accidentCountReported as a soft risk — do not invent clean history from a zero or null.",
+            ],
           },
         }),
       },
@@ -450,6 +478,7 @@ export async function runFindDecideServ(input: {
     hasStopRecall: hasStop,
     recallsUnavailable,
     compCount: pickReport.compSampleSize ?? pickReport.comps.length,
+    fairValueUsd: pickReport.fairValueUsd ?? null,
     evidenceSettled: true,
   });
   decide = { ...decide, confidence: published.confidence, action: published.action };

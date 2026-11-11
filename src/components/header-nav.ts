@@ -9,6 +9,7 @@ export const NAV_MORE_HREFS = new Set(["/scout", "/reports", "/favorites", "/com
  * Primary header links. Resale is the main Lemonless mode and stays in the nav
  * whenever resaleEvaluate is on; Deal Radar sits next to it when enabled —
  * never replaces Resale.
+ * "How it decides" points at /where-serv-runs so Proof / Verify stay one click away.
  */
 export function primaryNavLinks(input: {
   flags: ProductFlags | null;
@@ -25,6 +26,7 @@ export function primaryNavLinks(input: {
     { href: "/reports", label: "Reports" },
     { href: "/favorites", label: "Saved cars" },
     { href: "/compare-cars", label: "Compare cars" },
+    { href: "/where-serv-runs", label: "How it decides" },
     { href: "/pricing", label: "Pricing" },
   ];
 }

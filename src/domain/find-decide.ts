@@ -98,6 +98,8 @@ export type PublishFindConfidenceInput = {
   recallsUnavailable?: boolean;
   /** Comparable count used for the price claim. */
   compCount?: number | null;
+  /** Fair value for the pick — missing fair value forces low confidence. */
+  fairValueUsd?: number | null;
   evidenceSettled?: boolean;
 };
 
@@ -429,6 +431,17 @@ export function publishFindDecideConfidence(
   if (typeof comps === "number" && Number.isFinite(comps) && comps < 3 && confidence === "high") {
     confidence = "medium";
     reasons.push("Lowered from High: fewer than 3 similar listings (limited comparison).");
+  }
+
+  // Only when callers pass fairValueUsd explicitly (null/NaN) — omit the field to skip this clamp.
+  if (
+    "fairValueUsd" in input &&
+    (input.fairValueUsd == null ||
+      (typeof input.fairValueUsd === "number" && !Number.isFinite(input.fairValueUsd))) &&
+    confidence !== "low"
+  ) {
+    reasons.push("Lowered to Low: no verified fair value from similar listings for this pick.");
+    confidence = "low";
   }
 
   const honesty = capConfidenceForHonesty({

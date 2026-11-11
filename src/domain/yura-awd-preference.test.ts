@@ -119,7 +119,8 @@ describe("Yura Preferably AWD + reliability (REPORT_356a P0 #4)", () => {
     ];
     const filled = fillDrivetrainFromVpic(rows, receipts);
     expect(filled[0]?.drivetrain).toBe("AWD");
-    expect(filled[1]?.drivetrain).toBeNull();
+    // Same year/make/model without a VIN still inherits the decode drivetrain.
+    expect(filled[1]?.drivetrain).toBe("AWD");
     expect(isAwdDrivetrain(filled[0]?.drivetrain)).toBe(true);
 
     const need = explicitNeedFromText(YURA_NOTE, "personal");

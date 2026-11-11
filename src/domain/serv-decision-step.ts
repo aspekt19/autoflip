@@ -160,7 +160,7 @@ export function stepFromDecisionProof(record: DecisionProofRecord): ServDecision
     origin,
     originReason,
     modelId: record.model,
-    runId: record.status === "ok" ? record.servResponseId : null,
+    runId: record.servResponseId ?? null,
     timestamp: record.timestamp,
     inputSummary: `inputs digest ${record.inputsDigest.slice(0, 12)}…`,
     output,

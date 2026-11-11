@@ -90,7 +90,8 @@ export default function DevelopersPage() {
               Decision proof: <code>lemonless.decision_proof.v1</code> on success field{" "}
               <code>proofRecords</code> (same object on site, MCP <code>tools/list</code> /{" "}
               <code>tools/call</code>, and <code>af_</code> REST).{" "}
-              <code>servResponseId</code> only when <code>status</code> is <code>ok</code>.
+              <code>servResponseId</code> when the provider returned one (kept on failed
+              validation too; never a synthetic local id).
             </li>
           </ul>
         </section>
