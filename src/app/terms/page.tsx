@@ -17,9 +17,10 @@ export default function TermsPage() {
 
         <h2>Service description</h2>
         <p>
-          Lemonless turns a US used-car listing into an explainable buy / caution / walk-away reading. Similar listings of the
-          same model come from Auto.dev. Recall and complaint context come from NHTSA when available. Code computes the numbers; model writing only
-          explains those numbers. Stripe on this site is test mode only and does not collect live payment.
+          Lemonless turns a US used-car listing into an explainable buy, caution, or walk-away reading. Similar listings of the
+          same model come from Auto.dev. Recall and complaint context come from the government recall database when it
+          responds. Lemonless calculates the numbers. Writing only explains those numbers. Stripe on this site is test mode
+          only and does not collect live payment.
         </p>
 
         <h2>No warranties</h2>
@@ -36,9 +37,9 @@ export default function TermsPage() {
 
         <h2>Credits and plans</h2>
         <p>
-          A full report costs one report credit. Deal Radar monitoring is a separate optional plan. Agent API keys spend the
-          same report credit as the site. Balances and subscriptions on this preview are for evaluation and may reset when
-          storage or demo settings change.
+          A full report costs one report credit. Deal Radar monitoring is a separate optional plan. Software that calls
+          Lemonless spends the same report credit as the site. Balances and subscriptions on this preview are for evaluation
+          and may reset when storage or demo settings change.
         </p>
 
         <h2>Acceptable use</h2>

@@ -39,14 +39,15 @@ export default function ResalePage() {
         <div className="onboarding-note">
           <strong>How it works</strong>
           <ol>
-            <li>Budget is required. ZIP, radius, body type, makes, miles, repair skill, and time-to-sell are optional.</li>
+            <li>A budget is required. ZIP code, distance, body type, makes, miles, repair skill, and how fast you want to sell are optional.</li>
             <li>
-              Code ranks live listings with the same adjusted-comparables math as the rest of the product, then SERV
-              chooses which shortlist cars to look at and the shopper verdict (decide + challenge).
+              Lemonless ranks cars for sale now with the same price math as the rest of the site, then a review picks
+              which shortlisted cars to look at and whether to buy, negotiate, or pass.
             </li>
             <li>
-              Each candidate shows negotiate estimate, fees/tax, recon, resale band, net profit range, ROI, days-to-sell
-              when known, risks, and what to check before buying — or explicit unknowns.
+              Each car shows a negotiation estimate, fees and tax, a repair allowance, a likely resale range, a profit
+              range, and days to sell when we know them — plus risks and what to check before buying. If we do not know
+              something, the card says so.
             </li>
           </ol>
           <p>Not a profit guarantee. No invented listings. One-car buy-ceiling estimate remains available below the search.</p>

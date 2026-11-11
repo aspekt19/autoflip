@@ -5,6 +5,7 @@ import {
   plainCompScope,
   plainDecisionAction,
   plainDecisionSource,
+  plainShopperText,
   plainExplanationSource,
   plainFlagSource,
   plainGateStatus,
@@ -77,7 +78,7 @@ export function ReportView({ report }: { report: FullReport }) {
         <a href="#report-comparables">Similar listings</a>
         <a href="#report-history">History &amp; recalls</a>
         <a href="#report-sources">Sources</a>
-        <a href="#report-proof">Proof of AI</a>
+        <a href="#report-proof">How this was checked</a>
         <a href="/reports">My reports</a>
       </nav>
       <p className={`verdict-level badge ${computed.verdict}`}>{verdictLabel(computed.verdict)}</p>
@@ -99,15 +100,15 @@ export function ReportView({ report }: { report: FullReport }) {
             {computed.decision.source === "gates_withheld"
               ? "Ordered checks found insufficient evidence. Lemonless withheld a verdict instead of guessing."
               : computed.decision.source === "serv"
-                ? "AI review chose this action from the computed facts. Code checked hard safety gates afterward."
+                ? "A review chose this action from the calculated facts. Safety checks ran afterward."
                 : computed.decision.source === "guardrail_clamp"
-                  ? "AI review proposed an action that code clamped under hard safety gates."
+                  ? "A review suggested an action, and safety rules changed it."
                   : computed.sample || computed.decision.labeledFallback
-                    ? computed.decision.note?.trim() ||
-                      "Labeled code baseline — no AI call ran on this sample."
+                    ? plainShopperText(computed.decision.note?.trim() || "") ||
+                      "This labeled sample uses the calculated reading. No live review was recorded."
                     : computed.decision.source === "deterministic_fallback"
-                      ? "AI review did not finish in time. This action is the labeled code fallback under the same gates."
-                      : "AI review was not configured for this report. This action is the labeled code baseline under hard gates."}
+                      ? "The review did not finish in time. This action is the calculated reading under the same safety checks."
+                      : "A review was not set up for this report. This action is the calculated reading under the safety checks."}
           </p>
           {computed.decision.servChoice && computed.decision.servChoice !== computed.decision.action ? (
             <p className="hint">
@@ -152,17 +153,17 @@ export function ReportView({ report }: { report: FullReport }) {
       <section id="report-checked" className="how-checked" aria-labelledby="how-checked-title">
         <h2 id="how-checked-title">How this was checked</h2>
         <p className="hint">
-          Dollar amounts, percentages, and scores come from code. AI review may choose an action and write the explanation; it cannot invent a number.{" "}
-          <a href="#report-proof">Open this report&apos;s Proof of AI record</a>.
+          Dollar amounts, percentages, and scores are calculated. A review may choose an action and write the explanation; it cannot invent a number.{" "}
+          <a href="#report-proof">Open how this report was checked</a>.
         </p>
         <ul className="refuse">
           <li>
-            <b>From code:</b> fair value {computed.fairValueUsd === null ? "Not enough similar cars" : formatUsd(computed.fairValueUsd)}, asking gap{" "}
+            <b>Calculated:</b> fair value {computed.fairValueUsd === null ? "Not enough similar cars" : formatUsd(computed.fairValueUsd)}, asking gap{" "}
             {computed.priceGap === null ? "—" : formatPct(computed.priceGap)}, {computed.comps.length} similar listings
             {computed.score !== null ? `, price score ${computed.score}/100` : ""}.
           </li>
           <li>
-            <b>Ordered gates:</b>{" "}
+            <b>Safety checks:</b>{" "}
             {computed.decision?.gates?.length
               ? computed.decision.gates.map((gate) => `${plainBuyerPhrase(gate.id)} (${plainGateStatus(gate.status)})`).join(" → ")
               : "Ordered gates did not run on this saved report"}
@@ -185,16 +186,16 @@ export function ReportView({ report }: { report: FullReport }) {
         <section>
           <h3>Facts</h3>
           <ul className="refuse">
-            <li>Asking price and mileage come from the listing{computed.sample ? " fixture" : ""} or from what you typed for a VIN.</li>
+            <li>Asking price and mileage come from the listing{computed.sample ? " in this labeled sample" : ""} or from what you typed for a VIN.</li>
             <li>
               {!computed.recallsAvailable
-                ? "NHTSA recall lookup was unavailable. No campaign count can be reported."
-                : `${computed.recalls.length} NHTSA recall campaign${computed.recalls.length === 1 ? "" : "s"} for this year, make, and model. This is not a count of open repairs on this VIN.`}
+                ? "The government recall database did not respond. No campaign count can be reported."
+                : `${computed.recalls.length} recall campaign${computed.recalls.length === 1 ? "" : "s"} for this year, make, and model in the government recall database. This is not a count of open repairs on this VIN.`}
             </li>
             <li>
               {computed.complaintCount === null
-                ? "NHTSA complaint count was unavailable."
-                : `${computed.complaintCount} NHTSA complaints for this year, make, and model. Source: NHTSA. That is the model year, not this car's history.`}
+                ? "The government complaint count was unavailable."
+                : `${computed.complaintCount} complaints for this year, make, and model in the government recall database. That is the model year, not this car's history.`}
             </li>
           </ul>
         </section>
@@ -250,11 +251,11 @@ export function ReportView({ report }: { report: FullReport }) {
           {report.proof.explanationSource === "unavailable" ? (
             <p className="hint">The written check did not finish. This verdict is calculated from the listing figures.</p>
           ) : null}
-          <p>{report.explanation}</p>
+          <p>{plainShopperText(report.explanation)}</p>
           <h3>Why this verdict</h3>
           <ul className="refuse">
             {computed.reasons.map((reason) => (
-              <li key={reason}>{reason}</li>
+              <li key={reason}>{plainShopperText(reason)}</li>
             ))}
           </ul>
         </section>
@@ -263,7 +264,7 @@ export function ReportView({ report }: { report: FullReport }) {
           {computed.flags.length === 0 ? <p>No flags were raised from the fields we had.</p> : null}
           {computed.flags.map((flag) => (
             <p className={flag.level === "stop" ? "warn" : "warn-box"} key={`${flag.source}-${flag.text}`}>
-              {flag.text}
+              {plainShopperText(flag.text)}
             </p>
           ))}
           <h3>Out-the-door estimate</h3>
@@ -271,7 +272,7 @@ export function ReportView({ report }: { report: FullReport }) {
           <h3>Questions for the dealer</h3>
           <ol className="refuse">
             {dealerQuestions.map((question) => (
-              <li key={question}>{question}</li>
+              <li key={question}>{plainShopperText(question)}</li>
             ))}
           </ol>
         </section>
@@ -344,16 +345,16 @@ export function ReportView({ report }: { report: FullReport }) {
         </ul>
         <h2>Recall campaigns</h2>
         <p className="hint">
-          Source: NHTSA
-          {nhtsaRecallCheck?.checkedAt ? ` · fetched ${formatCheckedAt(nhtsaRecallCheck.checkedAt)} UTC` : ""}. The numbers below are official recall numbers you can look up on NHTSA. They match the year, make, and model. They are not a record of what was fixed on this VIN.
+          Source: the government recall database
+          {nhtsaRecallCheck?.checkedAt ? ` · fetched ${formatCheckedAt(nhtsaRecallCheck.checkedAt)} UTC` : ""}. The numbers below are official recall numbers you can look up there. They match the year, make, and model. They are not a record of what was fixed on this VIN.
         </p>
         <ul className="refuse">
           <li>
             {!computed.recallsAvailable
-              ? "NHTSA could not return usable recall data. Check this VIN directly with NHTSA and the dealer before purchase."
+              ? "The government recall database could not return usable recall data. Check this VIN there, and with the dealer, before you buy."
               : computed.recalls.length === 0
-                ? "NHTSA returned no campaigns for this year, make, and model."
-                : `${computed.recalls.length} NHTSA campaign${computed.recalls.length === 1 ? "" : "s"}.`}
+                ? "The government recall database returned no campaigns for this year, make, and model."
+                : `${computed.recalls.length} campaign${computed.recalls.length === 1 ? "" : "s"} in the government recall database.`}
           </li>
         </ul>
         <h2>Verify this VIN with outside records</h2>
@@ -361,39 +362,39 @@ export function ReportView({ report }: { report: FullReport }) {
         <ul className="refuse">
           <li>
             <a href={`https://www.nhtsa.gov/recalls?vin=${encodeURIComponent(car.vin)}`} target="_blank" rel="noreferrer">
-              NHTSA VIN recall lookup
+              Government recall lookup for this VIN
             </a>
             {" — checks unrepaired recalls associated with this specific VIN."}
           </li>
           <li>
             <a href="https://www.nicb.org/vincheck" target="_blank" rel="noreferrer">
-              NICB VINCheck (free)
+              Free theft and salvage check (NICB)
             </a>
             {" — checks participating insurers’ reports of theft not recovered, salvage, and flood damage. Coverage is limited; a clean result is not a complete history report."}
           </li>
           <li>
             <a href="https://vehiclehistory.bja.ojp.gov/nmvtis_vehiclehistory" target="_blank" rel="noreferrer">
-              DOJ NMVTIS-approved history providers
+              Official title-history providers
             </a>
             {" — offers paid reports with title-brand, odometer, and salvage information from approved providers."}
           </li>
         </ul>
         <h2>Complaints about this model year</h2>
         <p className="hint">
-          Source: NHTSA complaints
+          Source: government complaint records
           {nhtsaComplaintCheck?.checkedAt ? ` · fetched ${formatCheckedAt(nhtsaComplaintCheck.checkedAt)} UTC` : ""}. This is a count for the model year, not this car.
         </p>
         <ul className="refuse">
           {computed.complaintCount === null ? (
             <li>Complaint count was unavailable.</li>
           ) : (
-            <li>NHTSA complaint count for this year, make, and model: {computed.complaintCount}. This is not a failure rate.</li>
+            <li>Complaint count for this year, make, and model: {computed.complaintCount}. This is not a failure rate.</li>
           )}
         </ul>
         <p className="hint">
           {computed.distanceToSearchZipMiles === null
-            ? "Distance from the search ZIP was not calculated."
-            : `About ${formatNumber(computed.distanceToSearchZipMiles)} miles from the search ZIP. Source: Census geocoder.`}
+            ? "Distance from the search ZIP code was not calculated."
+            : `About ${formatNumber(computed.distanceToSearchZipMiles)} miles from the search ZIP code.`}
         </p>
         {computed.recalls.length > 0 ? (
           <div className="table-scroll"><table>
@@ -430,7 +431,7 @@ export function ReportView({ report }: { report: FullReport }) {
             <h3>Missing or unused data</h3>
             <ul className="refuse">
               {computed.dataNotes.map((note) => (
-                <li key={note}>{note}</li>
+                <li key={note}>{plainShopperText(note)}</li>
               ))}
             </ul>
           </>
@@ -445,7 +446,7 @@ export function ReportView({ report }: { report: FullReport }) {
             dateStyle: "medium",
             timeStyle: "short",
             timeZone: "UTC",
-          }).format(new Date(report.createdAt))} UTC. This is Lemonless&apos;s request/report time, not the date a provider last updated its records. Auto.dev may return cached listings for up to 6 hours.
+          }).format(new Date(report.createdAt))} UTC. This is when Lemonless built the report, not the date a source last updated its records. Listing data can be up to 6 hours old.
         </p>
         {computed.sourceChecks?.length ? (
           <div className="table-scroll">
@@ -461,9 +462,9 @@ export function ReportView({ report }: { report: FullReport }) {
               <tbody>
                 {computed.sourceChecks.map((check) => (
                   <tr key={check.source}>
-                    <td>{check.source}</td>
+                    <td>{plainShopperText(check.source)}</td>
                     <td><span className={`source-status ${check.status}`}>{sourceStatusLabel(check.status)}</span></td>
-                    <td>{check.detail}</td>
+                    <td>{plainShopperText(check.detail)}</td>
                     <td>{check.checkedAt ? new Intl.DateTimeFormat("en-US", {
                       dateStyle: "short",
                       timeStyle: "short",
@@ -480,9 +481,9 @@ export function ReportView({ report }: { report: FullReport }) {
       </section>
 
       <section className="ask" id="report-proof">
-        <h2>Proof of AI</h2>
+        <h2>How this was checked</h2>
         <p className="hint">
-          This record shows which numbers came from code and which AI review steps ran for this report. AI review never writes a price, mileage, or score into the decision.
+          This record shows which numbers were calculated and which review steps ran. The review never writes a price, mileage, or score into the decision.
         </p>
         <DecisionNote scene={reportScene(report)} proofs={report.proof.servChecks ?? []} />
         <ul className="refuse">
@@ -505,7 +506,7 @@ export function ReportView({ report }: { report: FullReport }) {
           We show which data the verdict is based on. We separate facts from estimates. We flag what still needs checking before you buy.
         </p>
         <p className="btn-row">
-          <a className="quiet" href="#report-proof">Proof of AI for this report</a>
+          <a className="quiet" href="#report-proof">How this report was checked</a>
           <a className="quiet" href="/reports">My report history</a>
           <a className="quiet" href="/find">Find another car</a>
           <a className="quiet" href="/check">Check another listing</a>
@@ -572,7 +573,7 @@ function RiskSummary({
           {prominent.map((flag) => (
             <li key={`${flag.source}-${flag.text}`} className={`risk-flag ${flag.level}`}>
               <span className="risk-flag-level">{flag.level}</span>
-              <span>{flag.text}</span>
+              <span>{plainShopperText(flag.text)}</span>
               <span className="hint">Source: {plainFlagSource(flag.source)}</span>
             </li>
           ))}
@@ -585,7 +586,7 @@ function RiskSummary({
           <h3 className="risk-missing-title">Missing or unused data</h3>
           <ul className="risk-missing-list">
             {missingData.map((note) => (
-              <li key={note}>{note}</li>
+              <li key={note}>{plainShopperText(note)}</li>
             ))}
           </ul>
         </>

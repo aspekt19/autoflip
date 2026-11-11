@@ -260,11 +260,11 @@ export function ScoutPanel() {
           body.message ??
             body.result?.message ??
             body.error ??
-            `Scout ended with HTTP ${res.status} / state ${body.result?.state ?? "unknown"}`,
+            "Scout did not finish.",
         );
       }
     } catch {
-      setError("Network error talking to /api/scout.");
+      setError("Scout could not be reached. Try again.");
     } finally {
       setBusy(false);
     }
@@ -278,15 +278,17 @@ export function ScoutPanel() {
       <div className="scout-controls">
         {!sessionOk ? (
           <>
-            <p className="muted">
-              Sign in with a grant-bound API key once. Keys minted only from an unsigned browser
-              cookie do not inherit owner privileges. Need a grant? On{" "}
-              <a href="/developers">/developers</a>, copy the Scout binding card (
-              <code>ownerUserId</code> + <code>apiKeyHash</code> only — never the <code>af_</code>{" "}
-              token) and send it to your operator through a channel they trust.
-            </p>
+            <p className="muted">Sign in once with a Scout key. A signed-out browser cannot inherit someone else’s grant.</p>
+            <details className="onboarding-note">
+              <summary>Technical details</summary>
+              <p>
+                Need a grant? On <a href="/developers">/developers</a>, copy the Scout binding card (
+                <code>ownerUserId</code> + <code>apiKeyHash</code> only — never the <code>af_</code> token) and send it
+                to the person who can grant access, through a channel they trust.
+              </p>
+            </details>
             <label>
-              Grant-bound API key (af_…) — used only to open a signed session
+              Scout key — used only to open a signed session
               <input
                 type="password"
                 autoComplete="off"
@@ -318,8 +320,8 @@ export function ScoutPanel() {
         <label>
           Mode
           <select value={mode} onChange={(e) => setMode(e.target.value as "flip" | "personal")} disabled={busy || !sessionOk}>
-            <option value="flip">Flip (investigation)</option>
-            <option value="personal">Personal (investigation)</option>
+            <option value="flip">For resale</option>
+            <option value="personal">For me</option>
           </select>
         </label>
         <label>

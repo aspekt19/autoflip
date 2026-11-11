@@ -8,7 +8,7 @@ const MARQUEE_ITEMS = [
   "Price badge",
   "Mileage",
   "Full analysis",
-  "For agents",
+  "Check a car",
 ] as const;
 
 /**

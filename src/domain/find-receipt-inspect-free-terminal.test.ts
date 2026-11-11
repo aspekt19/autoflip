@@ -159,7 +159,7 @@ describe("honest receipt inspectability (14 MMY / no silent 6-cap)", () => {
     const all = formatFreeGovReceiptsForUi(rows);
     expect(all).toHaveLength(14);
     // Buyer-visible lines: human source label, never raw API URLs / format=json.
-    expect(all.every((line) => /NHTSA recalls \(U\.S\. government\)/.test(line))).toBe(true);
+    expect(all.every((line) => /Government recall database/.test(line))).toBe(true);
     expect(all.every((line) => !/api\.nhtsa\.gov|format=json|src=https?:\/\//i.test(line))).toBe(true);
 
     const preview = formatFreeGovReceiptsForUi(rows, { previewMax: FREE_GOV_UI_DETAIL_PREVIEW });
@@ -204,7 +204,7 @@ describe("honest receipt inspectability (14 MMY / no silent 6-cap)", () => {
       },
     ])[0]!;
     expect(line).toMatch(/5 safety recall/);
-    expect(line).toMatch(/NHTSA recalls \(U\.S\. government\)/);
+    expect(line).toMatch(/Government recall database/);
     expect(line).not.toMatch(/api\.nhtsa\.gov|format=json/i);
   });
 

@@ -122,7 +122,7 @@ describe("buyer-safe Find copy", () => {
     const line = formatBuyerReceiptLine(recallReceipt());
     expect(assertBuyerSafeText(line).ok).toBe(true);
     expect(line).not.toMatch(/vpic\.nhtsa|format=json|api\.nhtsa\.gov/i);
-    expect(line).toMatch(/NHTSA recalls \(U\.S\. government\)/);
+    expect(line).toMatch(/Government recall database/);
     expect(line).toMatch(/2018 Toyota Camry/);
   });
 
@@ -271,7 +271,7 @@ describe("buyer-safe Find copy", () => {
     expect(findForbiddenTechArtifacts(plainBuyerPhrase("price_vs_comps (pass)"))).toEqual([]);
     expect(plainBuyerPhrase("insufficient_comps: buy forbidden")).toMatch(/not enough similar listings/);
     expect(formatOfficialRecallNumber("12V501000")).toBe(
-      "Official recall number 12V501000 — look this up on NHTSA",
+      "Official recall number 12V501000 — look this up in the government recall database",
     );
     const labeled = formatOfficialRecallNumber("12V501000");
     expect(formatOfficialRecallNumber(labeled)).toBe(labeled);
@@ -424,7 +424,7 @@ describe("buyer-safe Find copy", () => {
       }.`;
       expect(findForbiddenTechArtifacts(rendered)).toEqual([]);
       if (row.campaignRefs.length > 0) {
-        expect(rendered).toMatch(/Official recall number \S+ — look this up on NHTSA/);
+        expect(rendered).toMatch(/Official recall number \S+ — look this up in the government recall database/);
       }
     }
   });
@@ -547,7 +547,7 @@ describe("buyer-safe Find copy", () => {
       expect(findForbiddenTechArtifacts(line), line).toEqual([]);
     }
     expect(proofLines.join(" ")).not.toMatch(/SERV_API_KEY|vPIC|selectComparables|evaluateListingPrice|price_vs_comps|no_serv_key|Find-card invent/i);
-    expect(proofLines.join(" ")).toMatch(/Official|automatic review is not configured|NHTSA VIN decoder|1 report credit/i);
+    expect(proofLines.join(" ")).toMatch(/Official|automatic review is not configured|Factory details|1 report credit/i);
 
     const ranked = topFlipCandidates(
       [12000, 13000, 15000, 16000].map((price, index) => noteCar(`FLIP000000000000${index}`, 2018, price, "LE")),

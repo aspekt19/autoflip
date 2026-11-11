@@ -49,7 +49,7 @@ export function HomeSearch({ onModeChange }: { onModeChange?: (mode: Mode) => vo
         <>
           <p className="hint">
             Enter a budget. Lemonless searches what you can buy now and returns the best flip plus alternatives — with an
-            honest profit calc. 1 report credit per search. Not a profit guarantee.
+            honest profit estimate. 1 report credit per search. Not a profit guarantee.
           </p>
           <div className="btn-row">
             <Link className="action" href="/resale">

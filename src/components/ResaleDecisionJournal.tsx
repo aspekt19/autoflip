@@ -1,6 +1,7 @@
 "use client";
 
 import type { ResaleDecisionJournal } from "@/domain/resale-decision-journal";
+import { plainDecisionEngineText } from "@/domain/find-buyer-copy";
 import {
   buyerSafeResaleJournalText,
   formatResaleJournalInputId,
@@ -24,19 +25,20 @@ export function ResaleDecisionJournalView({
         {journal.steps.map((step) => {
           const responseId = providerResponseId(step.responseId);
           const showModelLine = step.actor === "SERV" || Boolean(step.model) || Boolean(responseId);
+          const speak = (value: string) => plainDecisionEngineText(buyerSafeResaleJournalText(value));
           return (
           <li key={step.id}>
             <strong>
-              [{step.actor}] {buyerSafeResaleJournalText(step.decided)}
+              {step.actor === "SERV" ? "Our review" : "Calculated"}. {speak(step.decided)}
             </strong>
             <span>
-              Why: {buyerSafeResaleJournalText(step.why)}
-              {step.changed ? ` What changed: ${buyerSafeResaleJournalText(step.changed)}` : ""}
+              Why: {speak(step.why)}
+              {step.changed ? ` What changed: ${speak(step.changed)}` : ""}
             </span>
             {step.inputsUsed.length > 0 ? (
               <span className="hint">
-                Inputs:{" "}
-                {step.inputsUsed.map((id) => formatResaleJournalInputId(id)).join(", ")}
+                Based on:{" "}
+                {step.inputsUsed.map((id) => plainDecisionEngineText(formatResaleJournalInputId(id))).join(", ")}
               </span>
             ) : null}
             {step.rejected ? (
@@ -44,26 +46,29 @@ export function ResaleDecisionJournalView({
               // region re-announces stale http_error text when a later Check finishes
               // with 0 new alerts while the previous journal is still on screen.
               <span className="warn" aria-live="off">
-                {buyerSafeResaleJournalText(step.rejected)}
-                {step.why ? ` — ${buyerSafeResaleJournalText(step.why)}` : ""}
+                {speak(step.rejected)}
+                {step.why ? ` — ${speak(step.why)}` : ""}
               </span>
             ) : null}
-            {showModelLine ? (
-              <span className="hint">
-                {step.model ? `Model ${step.model}` : "Model not recorded"}
-                {responseId ? ` · response ${responseId}` : " · no response id"}
-                {step.recordedAt
-                  ? ` · ${new Date(step.recordedAt).toLocaleString("en-US", { timeZone: "UTC" })} UTC`
-                  : ""}
-              </span>
-            ) : (
-              <span className="hint">
-                Code step (no paid model call)
-                {step.recordedAt
-                  ? ` · ${new Date(step.recordedAt).toLocaleString("en-US", { timeZone: "UTC" })} UTC`
-                  : ""}
-              </span>
-            )}
+            <details>
+              <summary>Technical details</summary>
+              {showModelLine ? (
+                <span className="hint">
+                  {step.model ? `Model ${step.model}` : "Model not recorded"}
+                  {responseId ? ` · response ${responseId}` : " · no response id"}
+                  {step.recordedAt
+                    ? ` · ${new Date(step.recordedAt).toLocaleString("en-US", { timeZone: "UTC" })} UTC`
+                    : ""}
+                </span>
+              ) : (
+                <span className="hint">
+                  Calculated step (no paid review)
+                  {step.recordedAt
+                    ? ` · ${new Date(step.recordedAt).toLocaleString("en-US", { timeZone: "UTC" })} UTC`
+                    : ""}
+                </span>
+              )}
+            </details>
           </li>
           );
         })}
@@ -76,7 +81,7 @@ export function ResaleDecisionJournalView({
         <p className="hint">
           <strong>Decision journal</strong>
           {journal.servCalls > 0
-            ? ` · ${journal.servCalls} paid model call${journal.servCalls === 1 ? "" : "s"} this run`
+            ? ` · ${journal.servCalls} review call${journal.servCalls === 1 ? "" : "s"} this run`
             : ""}
         </p>
         {body}
@@ -89,7 +94,7 @@ export function ResaleDecisionJournalView({
       <summary>
         <strong>Decision journal</strong>
         {journal.servCalls > 0 ? (
-          <span className="hint"> · {journal.servCalls} paid model call{journal.servCalls === 1 ? "" : "s"} this run</span>
+          <span className="hint"> · {journal.servCalls} review call{journal.servCalls === 1 ? "" : "s"} this run</span>
         ) : null}
       </summary>
       {body}

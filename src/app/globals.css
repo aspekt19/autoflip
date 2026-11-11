@@ -930,6 +930,15 @@ span.nav-go { cursor: default; }
   line-height: var(--type-brand-line);
   color: var(--brand-accent);
 }
+/*
+  Orbitron's contextual alternates paint a stray "s" in front of capital S,
+  so "SERV" can read as "sERV". Turn those features off on brand type.
+*/
+h1, h2, h3, .type-brand, .kicker, .eyebrow, .label, .sheet-label, .file-chip,
+.steps-3 strong, .trust-row strong, nav, .nav-more-btn, .nav-auth, .menu-btn, .brand, .brand-hero-title {
+  font-variant-ligatures: none;
+  font-feature-settings: "liga" 0, "calt" 0;
+}
 h1, h2, h3 {
   font-family: var(--type-brand);
   font-weight: var(--type-brand-weight);

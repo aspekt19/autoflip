@@ -19,7 +19,7 @@ export async function GET(request: Request) {
       {
         ok: false,
         error: "missing_id",
-        message: "Pass ?id=<report-or-run-id> or POST a sealed trail body.",
+        message: "Enter a report id.",
       },
       { status: 400 },
     );
@@ -31,7 +31,7 @@ export async function GET(request: Request) {
       {
         ok: false,
         error: "not_found",
-        message: "No sealed decision trail is stored for that id.",
+        message: "No saved decision is stored for that report id.",
         reportId: id,
       },
       { status: 404 },
@@ -45,7 +45,7 @@ export async function GET(request: Request) {
     reportHashMatch = hashReport(report) === trail.reportHash;
     if (!reportHashMatch) {
       verified.ok = false;
-      verified.issues = [...verified.issues, "Stored report content hash does not match the sealed reportHash"];
+      verified.issues = [...verified.issues, "The saved report no longer matches the sealed copy."];
     }
   }
 
