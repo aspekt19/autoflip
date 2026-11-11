@@ -28,7 +28,7 @@ import type { DecisionProofRecord } from "@/domain/decision-proof-view";
 import type { SearchDirection } from "@/domain/directions";
 import { CoverageLine } from "./CoverageNote";
 import { DecisionNote } from "./DecisionNote";
-import { DecisionRecordList } from "./DecisionRecord";
+import { ConsumerDecisionProof } from "./ConsumerDecisionProof";
 import { decideAfFlowRestore, resumeFindSearchFromFlow } from "@/domain/af-flow-session";
 import {
   resolveManualCheckHandoff,
@@ -36,7 +36,7 @@ import {
   type FindAnalysisPayload,
 } from "@/domain/find-analysis-handoff";
 import { buyerFacingFailure } from "@/domain/buyer-facing-error";
-import { publishCreditBalance } from "@/domain/credit-balance-event";
+import { publishCreditBalance, refreshPublishedCreditBalance } from "@/domain/credit-balance-event";
 import { isReportHardRefusal, reportRefusalUserMessage } from "@/domain/report-refusal-ui";
 import { findEmptyCopy, type FindEmptyReason } from "@/domain/find-empty";
 import type { FindListingPriceView } from "@/domain/find-listing-price";
@@ -83,7 +83,6 @@ import {
   type DecisionCarLabel,
   type FindDecisionLogEntry,
 } from "@/domain/find-decision-log";
-import { AgentDecisionTrail } from "@/components/AgentDecisionTrail";
 import { formatFindFuelEvidenceShort, fuelFactFromFindEvidence } from "@/domain/find-fuel-match";
 import { buildGroundedShortlist } from "@/domain/find-path";
 import {
@@ -1200,6 +1199,7 @@ function AssistantFlow({
             error?: string;
           };
           if (typeof matchBody.balance === "number") publishCreditBalance(matchBody.balance);
+          else void refreshPublishedCreditBalance();
           if (
             matchResponse.status === 401 ||
             (matchResponse.status === 403 &&
@@ -1363,6 +1363,7 @@ function AssistantFlow({
         error?: string;
       };
       if (typeof body.balance === "number") publishCreditBalance(body.balance);
+      else void refreshPublishedCreditBalance();
       if (
         response.status === 401 ||
         (response.status === 403 &&
@@ -2193,7 +2194,12 @@ function AssistantFlow({
           <MilesDraftField
             milesMax={need.milesMax}
             marked={Boolean(noteMarks?.miles)}
-            onCommit={(next) => setNeed({ ...need, milesMax: next.milesMax, milesCapResolved: next.milesCapResolved })}
+            onCommit={(next) => {
+              setNeed({ ...need, milesMax: next.milesMax, milesCapResolved: next.milesCapResolved });
+              if (noteMarks?.miles) {
+                setNoteMarks({ ...noteMarks, miles: false });
+              }
+            }}
           />
           <YearFloorField
             yearMin={need.yearMin}
@@ -2280,7 +2286,6 @@ function AssistantFlow({
           <h2>Cars that fit</h2>
           <PriceRatingHow />
           <DecisionNote scene="find" proofs={checks} />
-          <DecisionRecordList records={proofRecords} />
           {need ? <p className="hint">Scope: {matchScope ?? searchScopeLabel(need)}</p> : null}
           {need
             ? softPrefGapsFromText(need.note).map((gap) => (
@@ -2688,19 +2693,6 @@ function AssistantFlow({
                         ))}
                       </ul>
                     ) : null}
-                    <AgentDecisionTrail
-                      verdict={buildFindAgentVerdict({
-                        decisionLog: decisionView.entries,
-                        labels: decisionLabels,
-                        bestDeal,
-                        baseline: bestDeal?.baseline ?? null,
-                        secondPass: pickSecondPass,
-                        settleVerdict: pickAgentVerdict,
-                        confidenceLine: bestDeal?.choice?.confidenceLine ?? null,
-                        servCalls: decisionView.entries.filter((entry) => entry.decidedBy === "SERV").length,
-                      })}
-                      confidenceWhy={bestDeal?.choice?.confidenceLine ?? null}
-                    />
                     {decisionPresented.lines.length > 0 ? (
                       <div className="hint" role="note">
                         <p>Check checklist (detail)</p>
@@ -2709,16 +2701,6 @@ function AssistantFlow({
                             <li key={`decision-${index}`}>{line}</li>
                           ))}
                         </ul>
-                        {decisionPresented.hiddenSteps.length > 0 ? (
-                          <details>
-                            <summary>Show all steps</summary>
-                            <ul>
-                              {decisionPresented.hiddenSteps.map((line, index) => (
-                                <li key={`decision-all-${index}`}>{line}</li>
-                              ))}
-                            </ul>
-                          </details>
-                        ) : null}
                       </div>
                     ) : null}
                     {confirmLines.length > 0 ? (
@@ -2735,18 +2717,7 @@ function AssistantFlow({
                     {pending === "next-check" && pendingCheckLabel ? (
                       <p className="hint">{pendingCheckLabel}</p>
                     ) : null}
-                    {(() => {
-                      const lineage = findVerdictLineage(proofRecords, pickAgentVerdict?.verdict ?? null);
-                      return lineage ? (
-                        <p className="hint" role="note">
-                          <strong>Lineage:</strong> {lineage.chain}
-                          {pickAgentVerdict?.verdict
-                            ? " · Ranking names which car to review first; the second review can change Buy, Negotiate, or Pass when the guardrails allow it."
-                            : null}
-                        </p>
-                      ) : null;
-                    })()}
-                    <DecisionRecordList
+                    <ConsumerDecisionProof
                       records={proofRecords.filter(
                         (row) =>
                           row.purpose === "find_pick" ||
@@ -2756,6 +2727,31 @@ function AssistantFlow({
                           row.purpose === "need_guard" ||
                           row.purpose === "find_next_check",
                       )}
+                      verdict={buildFindAgentVerdict({
+                        decisionLog: decisionView.entries,
+                        labels: decisionLabels,
+                        bestDeal,
+                        baseline: bestDeal?.baseline ?? null,
+                        secondPass: pickSecondPass,
+                        settleVerdict: pickAgentVerdict,
+                        confidenceLine: bestDeal?.choice?.confidenceLine ?? null,
+                        servCalls: decisionView.entries.filter((entry) => entry.decidedBy === "SERV").length,
+                      })}
+                      plainLines={[
+                        (() => {
+                          const lineage = findVerdictLineage(proofRecords, pickAgentVerdict?.verdict ?? null);
+                          if (!lineage?.finalVerdict && !lineage?.servPick) return null;
+                          if (lineage.guardrail && lineage.servPick) {
+                            return `Our AI first leaned ${lineage.servPick}; safety rules settled on ${lineage.finalVerdict ?? lineage.guardrail}.`;
+                          }
+                          if (lineage.servPick && lineage.finalVerdict && lineage.servPick !== lineage.finalVerdict) {
+                            return `Our AI first leaned ${lineage.servPick}; the final call is ${lineage.finalVerdict}.`;
+                          }
+                          return lineage.finalVerdict ? `Final call: ${lineage.finalVerdict}.` : null;
+                        })(),
+                        ...(decisionPresented.hiddenSteps ?? []),
+                      ].filter((line): line is string => Boolean(line))}
+                      confidenceWhy={bestDeal?.choice?.confidenceLine ?? null}
                       emptyHint="No decision records for this Find run yet."
                     />
                     {settledLine ? <p className="hint">{settledLine}</p> : null}

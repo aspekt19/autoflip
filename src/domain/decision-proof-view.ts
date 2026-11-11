@@ -155,7 +155,62 @@ export function decisionPurposeLabel(purpose: string): string {
   }
 }
 
-/** Compact buyer/agent line for Find / Resale / Radar — purpose, SERV id, what changed. */
+/**
+ * Short plain-English line for the main Find/Check/Resale view.
+ * No purpose ids, model names, response ids, or ISO timestamps.
+ */
+export function formatDecisionRecordConsumerLine(record: DecisionProofRecord): string {
+  const verdict = record.verdict?.trim() || null;
+  const failed = record.status === "failed" || record.status === "skipped";
+  switch (record.purpose) {
+    case "need_guard":
+      if (failed) return "We could not finish the safety check on your note.";
+      return "We checked that your note is about buying a car.";
+    case "need_extract":
+      if (failed) return "We could not finish reading your note.";
+      return "Our AI read what you asked for from your note.";
+    case "find_next_check":
+      if (failed) return "The next public safety check did not finish.";
+      return "Our AI chose what to check next from free public records.";
+    case "find_pick":
+      if (failed) return "Our AI could not finish picking a car from this search.";
+      return verdict
+        ? `Our AI picked this car because of the checks on file (${verdict}).`
+        : "Our AI picked a car from the shortlist.";
+    case "verdict_decide":
+      if (failed) return "The first AI decision did not finish.";
+      return verdict
+        ? `Our AI’s first review: ${verdict}.`
+        : "Our AI recorded a first review of this car.";
+    case "verdict_challenge":
+      if (failed) return "The second AI review did not finish.";
+      if (verdict && /agree|confirm|same/i.test(verdict)) return "Second AI review agreed.";
+      if (verdict) return `Second AI review: ${verdict}.`;
+      return "Second AI review ran on the first decision.";
+    case "resale_plan_search":
+      return failed ? "The resale search plan did not finish." : "Our AI planned the resale search.";
+    case "resale_triage":
+      return failed ? "Resale triage did not finish." : "Our AI triaged the resale candidates.";
+    case "resale_pick":
+      return verdict
+        ? `Our AI’s resale pick: ${verdict}.`
+        : failed
+          ? "The resale pick did not finish."
+          : "Our AI picked a resale candidate.";
+    case "resale_challenge":
+      if (failed) return "The second resale review did not finish.";
+      if (verdict && /agree|confirm|same/i.test(verdict)) return "Second AI review agreed.";
+      return verdict ? `Second AI review: ${verdict}.` : "Second AI review ran on the resale pick.";
+    default:
+      return failed
+        ? "One recorded decision step did not finish."
+        : verdict
+          ? `Our AI recorded a decision (${verdict}).`
+          : "Our AI recorded a decision step.";
+  }
+}
+
+/** Compact technical line for the Show proof expander — purpose, SERV id, model, time. */
 export function formatDecisionRecordLine(record: DecisionProofRecord): string {
   const when = record.timestamp ? new Date(record.timestamp).toISOString() : "time unknown";
   const label = decisionPurposeLabel(record.purpose);
@@ -181,4 +236,21 @@ export function formatDecisionRecordLine(record: DecisionProofRecord): string {
   }
   const skipBits = [label, record.status, record.reason ?? record.status, changed].filter(Boolean);
   return skipBits.join(" · ");
+}
+
+
+/** Deduped plain lines for the main consumer surface (before Show proof). */
+export function consumerDecisionSummaryLines(
+  records: readonly DecisionProofRecord[] | null | undefined,
+): string[] {
+  const rows = Array.isArray(records) ? records.filter(Boolean) : [];
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const row of rows) {
+    const line = formatDecisionRecordConsumerLine(row);
+    if (seen.has(line)) continue;
+    seen.add(line);
+    out.push(line);
+  }
+  return out;
 }

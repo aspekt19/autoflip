@@ -240,7 +240,6 @@ export function NoteFactChips({
       <p className="note-facts-title">From your note</p>
       {keep.current.transmission ? (
         <label className="note-chip">
-          <span className="from-note">from your note</span>
           Transmission
           <select
             aria-label="Transmission"
@@ -260,7 +259,6 @@ export function NoteFactChips({
       ) : null}
       {keep.current.fuel ? (
         <label className="note-chip check-line">
-          <span className="from-note">from your note</span>
           <span className="check-line">
             <input
               type="checkbox"
@@ -273,7 +271,6 @@ export function NoteFactChips({
       ) : null}
       {keep.current.awd ? (
         <label className="note-chip check-line">
-          <span className="from-note">from your note</span>
           <span className="check-line">
             <input
               type="checkbox"
@@ -286,7 +283,6 @@ export function NoteFactChips({
       ) : null}
       {keep.current.reliability ? (
         <label className="note-chip check-line">
-          <span className="from-note">from your note</span>
           <span className="check-line">
             <input
               type="checkbox"
@@ -299,7 +295,6 @@ export function NoteFactChips({
       ) : null}
       {keep.current.history ? (
         <label className="note-chip">
-          <span className="from-note">from your note</span>
           History
           <select
             aria-label="History"
@@ -328,7 +323,6 @@ export function NoteFactChips({
       ) : null}
       {keep.current.body ? (
         <label className="note-chip">
-          <span className="from-note">from your note</span>
           Body
           <select
             aria-label="Body"
@@ -350,7 +344,6 @@ export function NoteFactChips({
       ) : null}
       {keep.current.location ? (
         <label className="note-chip">
-          <span className="from-note">from your note</span>
           Location
           <input
             aria-label="Location"
