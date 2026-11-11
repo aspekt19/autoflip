@@ -3,7 +3,7 @@
  *
  * ## In-repo catalog (default allowlist)
  * Mechanism — only IDs already evidenced in this repository:
- * 1. `BASE_MODEL` in `src/server/serv/profiles.ts` + README `SERV_MODEL` → `gpt-5.6-sol`
+ * 1. `BASE_MODEL` in `src/server/serv/profiles.ts` + README `SERV_MODEL` → `gpt-6.1-sol`
  * 2. Committed eval artifacts report dated alias `gpt-5.4-mini-2026-03-17`
  *    (`eval/results/latest.json`, `eval/results/serv-proof-trace.json`)
  * 3. `modelFor()` may append profile feature suffixes when a profile's `feature` is set.
