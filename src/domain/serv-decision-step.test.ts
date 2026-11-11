@@ -60,8 +60,8 @@ describe("serv-decision-step", () => {
     expect(journal.title).toBe("How this decision was made");
     expect(journal.steps).toHaveLength(1);
     expect(journal.secondCheck.answersAgree).toBe(false);
-    expect(journal.secondCheck.detail).toMatch(/did not agree/i);
-    expect(journal.secondCheck.detail).toMatch(/confidence/i);
+    expect(journal.secondCheck.detail).toMatch(/disagreed/i);
+    expect(journal.secondCheck.detail).toMatch(/confidence is lower/i);
   });
 
   it("says second check did not run when missing", () => {

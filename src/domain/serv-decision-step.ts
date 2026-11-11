@@ -169,22 +169,18 @@ export function summarizeSecondCheck(
     return {
       status: "agreed",
       answersAgree: true,
-      detail: "Both answers agreed. Confidence was not lowered by the second check.",
+      detail: "A second independent SERV check agreed.",
       modelId: second.profile ?? null,
       runId: second.responseId ?? null,
     };
   }
   if (second.status === "disagreed") {
-    const conf =
-      second.confidenceBefore &&
-      second.confidenceAfter &&
-      second.confidenceBefore !== second.confidenceAfter
-        ? ` Confidence dropped from ${second.confidenceBefore} to ${second.confidenceAfter}.`
-        : " Confidence is shown as lower because the answers did not agree.";
     return {
       status: "disagreed",
       answersAgree: false,
-      detail: `The two answers did not agree.${second.objection ? ` ${second.objection}` : ""}${conf}`,
+      detail: second.objection?.trim()
+        ? `A second independent SERV check disagreed, so confidence is lower. ${second.objection.trim()}`
+        : "A second independent SERV check disagreed, so confidence is lower.",
       modelId: second.profile ?? null,
       runId: second.responseId ?? null,
     };
@@ -193,15 +189,33 @@ export function summarizeSecondCheck(
     return {
       status: "not_run",
       answersAgree: null,
-      detail: second.objection ?? "Second check did not run for this report.",
+      detail: second.objection ?? "A second independent SERV check did not run for this report.",
       modelId: null,
       runId: null,
+    };
+  }
+  if (second.status === "skipped_no_budget" || second.status === "skipped_no_key") {
+    return {
+      status: second.status,
+      answersAgree: null,
+      detail: second.objection ?? "A second independent SERV check was skipped.",
+      modelId: null,
+      runId: null,
+    };
+  }
+  if (second.status === "unavailable") {
+    return {
+      status: "unavailable",
+      answersAgree: null,
+      detail: second.objection ?? "A second independent SERV check did not finish.",
+      modelId: second.profile ?? null,
+      runId: second.responseId ?? null,
     };
   }
   return {
     status: second.status,
     answersAgree: null,
-    detail: second.objection ?? `Second check status: ${second.status.replace(/_/g, " ")}.`,
+    detail: second.objection ?? "A second independent SERV check did not run for this report.",
     modelId: second.profile ?? null,
     runId: second.responseId ?? null,
   };
