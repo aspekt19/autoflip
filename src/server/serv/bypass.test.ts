@@ -37,7 +37,7 @@ describe("SERV layer", () => {
     expect(extract.endpoint).toBe("chat");
     if (extract.endpoint !== "chat") return;
     expect(extract.stream).toBe(false);
-    expect(extract.model).toBe("gpt-5.4-mini-serv-kronos-multipath");
+    expect(extract.model).toBe("gpt-5.6-sol-serv-kronos-multipath");
     expect(toolNames(extract.tools)).toEqual(["serv_prompt_guard"]);
     expect(extract.response_format?.json_schema.strict).toBe(true);
 
@@ -45,7 +45,7 @@ describe("SERV layer", () => {
     expect(findPlan.endpoint).toBe("chat");
     if (findPlan.endpoint !== "chat") return;
     expect(findPlan.stream).toBe(false);
-    expect(findPlan.model).toBe("gpt-5.4-mini-serv-kronos-multipath");
+    expect(findPlan.model).toBe("gpt-5.6-sol-serv-kronos-multipath");
     expect(toolNames(findPlan.tools)).toEqual(["serv_prompt_guard"]);
     expect(findPlan.response_format?.json_schema.strict).toBe(true);
     expect(findPlan.response_format?.json_schema.name).toBe("find_plan");
@@ -54,14 +54,14 @@ describe("SERV layer", () => {
     const nextCheck = requestFor("find_next_check", "{}");
     expect(nextCheck.endpoint).toBe("chat");
     if (nextCheck.endpoint === "chat") {
-      expect(nextCheck.model).toBe("gpt-5.4-mini-serv-kronos-multipath");
+      expect(nextCheck.model).toBe("gpt-5.6-sol-serv-kronos-multipath");
       expect(toolNames(nextCheck.tools)).toEqual(["serv_prompt_guard"]);
     }
 
     const flip = requestFor("flip_judge", "{}");
     expect(flip.endpoint).toBe("chat");
     if (flip.endpoint !== "chat") return;
-    expect(flip.model).toBe("gpt-5.4-mini-serv-multipath");
+    expect(flip.model).toBe("gpt-5.6-sol-serv-multipath");
     expect(flip.stream).toBe(false);
     expect(toolNames(flip.tools)).toEqual(["serv_prompt_guard", "serv_shadow_agent"]);
     const guardParams = (flip.tools[0]!.function as unknown as { parameters: Record<string, unknown> }).parameters;
@@ -103,12 +103,12 @@ describe("SERV layer", () => {
     const rules = requestFor("check_rules", "vin");
     expect(rules.endpoint).toBe("responses");
     if (rules.endpoint !== "responses") return;
-    expect(rules.model).toBe("gpt-5.4-mini-serv-kronos");
+    expect(rules.model).toBe("gpt-5.6-sol-serv-kronos");
     expect(rules.reasoning.summary).toBe("auto");
     expect(rules.stream).toBe(false);
 
     const feasibility = requestFor("flip_feasibility", "facts");
-    expect(feasibility.model).toBe("gpt-5.4-mini-serv-kronos");
+    expect(feasibility.model).toBe("gpt-5.6-sol-serv-kronos");
     expect(toolNames(feasibility.tools)).toEqual(["serv_prompt_guard"]);
     expect(feasibility.endpoint).toBe("chat");
     expect("response_format" in feasibility).toBe(false);
