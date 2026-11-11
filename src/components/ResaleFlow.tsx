@@ -10,7 +10,7 @@ import type { AgentVerdict } from "@/domain/agent-verdict-schema";
 import type { DecisionProofRecord } from "@/domain/decision-proof-view";
 import type { ResaleDecisionJournal } from "@/domain/resale-decision-journal";
 import { formatUsd } from "@/domain/format";
-import { criteriaParseLabel } from "@/domain/radar-criteria-provenance";
+import { criteriaParseLabel, criteriaParseTechnicalLine } from "@/domain/radar-criteria-provenance";
 import { NOTE_BODY_STYLES } from "@/domain/note-intake";
 import { NOT_ENOUGH_SIMILAR_CARS } from "@/domain/price-evaluation";
 import type { ResaleAssessment } from "@/domain/resale-evaluate";
@@ -253,12 +253,19 @@ function ResaleSearchForm({ credits, onAuthLost }: { credits: number | null; onA
         message?: string;
       };
       if (!response.ok || !body.need) {
-        setCriteriaParse({ source: "code", responseId: null, label: "Parsed by code" });
+        setCriteriaParse({
+          source: "code",
+          responseId: null,
+          label: criteriaParseLabel({ source: "code", responseId: null }),
+        });
         return;
       }
-      setCriteriaParse(
-        body.criteriaParse ?? { source: "code", responseId: null, label: "Parsed by code" },
-      );
+      const parsed = body.criteriaParse ?? { source: "code" as const, responseId: null, label: "" };
+      setCriteriaParse({
+        source: parsed.source,
+        responseId: parsed.responseId,
+        label: criteriaParseLabel(parsed),
+      });
       if (body.need.budgetUsd != null && !budget.trim()) setBudget(String(body.need.budgetUsd));
       if (body.need.zip && !zip.trim()) setZip(body.need.zip);
       if (body.need.distanceMiles != null && radius === "") setRadius(String(body.need.distanceMiles));
@@ -277,7 +284,11 @@ function ResaleSearchForm({ credits, onAuthLost }: { credits: number | null; onA
       if (body.need.targetProfitUsd != null && !targetProfit.trim()) setTargetProfit(String(body.need.targetProfitUsd));
       setShowFilters(true);
     } catch {
-      setCriteriaParse({ source: "code", responseId: null, label: "Parsed by code" });
+      setCriteriaParse({
+        source: "code",
+        responseId: null,
+        label: criteriaParseLabel({ source: "code", responseId: null }),
+      });
     }
   }
 
@@ -286,7 +297,7 @@ function ResaleSearchForm({ credits, onAuthLost }: { credits: number | null; onA
     setResult(null);
     setPartialJournal(null);
     setProgressSteps(null);
-    setProgressLabel("Plan & inventory");
+    setProgressLabel("Searching cars for sale");
     setPending(true);
     try {
       if (freeText.trim() && !criteriaParse) {
@@ -446,10 +457,20 @@ function ResaleSearchForm({ credits, onAuthLost }: { credits: number | null; onA
         />
         <p className="btn-row">
           <button type="button" className="quiet" onClick={() => void parseFreeText()} disabled={!freeText.trim() || pending}>
-            Parse into filters
+            Turn this note into filters
           </button>
         </p>
-        {criteriaParse ? <p className="hint">{criteriaParse.label}</p> : null}
+        {criteriaParse ? (
+          <>
+            <p className="hint">{criteriaParse.label}</p>
+            {criteriaParseTechnicalLine(criteriaParse) ? (
+              <details className="onboarding-note">
+                <summary>Technical details</summary>
+                <p className="hint">{criteriaParseTechnicalLine(criteriaParse)}</p>
+              </details>
+            ) : null}
+          </>
+        ) : null}
       </div>
 
       <p className="btn-row">
@@ -638,13 +659,13 @@ function ResaleSearchResultView({ result }: { result: SearchResult }) {
   const router = useRouter();
   const [watchPending, setWatchPending] = useState(false);
   const [watchError, setWatchError] = useState<string | null>(null);
-  const parseLabel = criteriaParseLabel(
-    result.criteriaParseSource
-      ? { source: result.criteriaParseSource, responseId: result.criteriaResponseId ?? null }
-      : result.freeText
-        ? { source: "form", responseId: null }
-        : null,
-  );
+  const parseRecord = result.criteriaParseSource
+    ? { source: result.criteriaParseSource, responseId: result.criteriaResponseId ?? null }
+    : result.freeText
+      ? { source: "form" as const, responseId: null }
+      : null;
+  const parseLabel = criteriaParseLabel(parseRecord);
+  const parseTechnical = criteriaParseTechnicalLine(parseRecord);
 
   async function watchWithRadar() {
     if (!result.budgetUsd) return;
@@ -655,7 +676,7 @@ function ResaleSearchResultView({ result }: { result: SearchResult }) {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          name: "Resale flip watch",
+          name: "Resale watch",
           mode: "flip",
           criteria: {
             priceMax: result.budgetUsd,
@@ -706,6 +727,12 @@ function ResaleSearchResultView({ result }: { result: SearchResult }) {
             <p>{result.message}</p>
       <p className="hint">{result.nextStep}</p>
       <p className="hint">{parseLabel}</p>
+      {parseTechnical ? (
+        <details className="onboarding-note">
+          <summary>Technical details</summary>
+          <p className="hint">{parseTechnical}</p>
+        </details>
+      ) : null}
       {result.budgetUsd ? (
         <p className="btn-row">
           <button className="action" type="button" onClick={() => void watchWithRadar()} disabled={watchPending}>

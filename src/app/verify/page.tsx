@@ -3,7 +3,7 @@ import Link from "next/link";
 import { VerifyForm } from "./VerifyForm";
 
 export const dynamic = "force-dynamic";
-export const metadata: Metadata = { title: "Verify decision trail" };
+export const metadata: Metadata = { title: "Check a saved decision" };
 
 export default async function VerifyPage({
   searchParams,
@@ -17,16 +17,23 @@ export default async function VerifyPage({
     <div className="sub">
       <div className="sheet-page site-frame prose">
         <p className="kicker">Audit</p>
-        <h1>Verify a decision trail</h1>
+        <h1>Check a saved decision</h1>
         <p className="lead">
-          Each sealed report stores a sha256 of the report payload and a hash-linked chain of decision steps. This page
-          recomputes those hashes. There is no external ledger anchoring and no payment step.
+          When Lemonless seals a report, it stores a fingerprint of that report and a chain of the steps that led to the
+          decision. This page recomputes those fingerprints. It does not take a payment, and it does not publish the
+          report anywhere else.
         </p>
         <VerifyForm initialId={initialId} />
         <p className="hint">
-          API: <code>GET /api/verify?id=…</code> · <code>POST /api/verify</code> with a trail body.{" "}
-          <Link href="/where-serv-runs">Where SERV runs</Link>.
+          <Link href="/where-serv-runs">Where SERV runs</Link>
         </p>
+        <details className="onboarding-note">
+          <summary>Technical details</summary>
+          <p className="hint">
+            GET /api/verify?id=… or POST /api/verify with a sealed trail. Fingerprints are sha256. There is no outside
+            ledger.
+          </p>
+        </details>
       </div>
     </div>
   );

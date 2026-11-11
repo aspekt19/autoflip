@@ -49,8 +49,8 @@ export function HomeStage() {
           <li>
             <strong>01 Say which goal</strong>
             <span>
-              For me: a short note starts Find. Budget, ZIP, and seller distance come next. For resale: open budget-first
-              Resale search — best flip plus alternatives with an honest P&L.
+              For me: a short note starts Find. Budget, ZIP code, and how far you will travel come next. For resale: open
+              the budget-first search — the best flip plus alternatives, with an honest profit estimate.
             </span>
           </li>
           <li>
@@ -61,15 +61,15 @@ export function HomeStage() {
           </li>
           <li>
             <strong>03 Open the full analysis</strong>
-            <span>1 credit shows the numbers, what we could not check, and a buy, negotiate, or pass line. Your agent can request that same analysis.</span>
+            <span>1 credit shows the numbers, what we could not check, and a buy, negotiate, or pass line.</span>
           </li>
         </ol>
         <p className="sample-link">
           <Link href="/pricing">See pricing</Link>
           <span>
             . Report credits are separate from optional Radar plans.{" "}
-            <Link href="/resale">Resale</Link> is the money-button flip search (1 credit), not a profit guarantee.{" "}
-            <Link href="/where-serv-runs">Decision pipeline</Link> shows which steps use model reasoning versus code.
+            <Link href="/resale">Resale</Link> is the flip search (1 credit), not a profit guarantee.{" "}
+            <Link href="/where-serv-runs">Where the review runs</Link> shows which steps are a judgment and which are calculated.
           </span>
         </p>
       </section>
@@ -80,7 +80,7 @@ export function HomeStage() {
         </article>
         <article>
           <strong>Hidden risks</strong>
-          <span>Recall campaigns and complaint counts come from NHTSA when available. Title brands and odometer brands are not checked here.</span>
+          <span>Recall campaigns and complaint counts come from the government recall database when it responds. Title brands and odometer brands are not checked here.</span>
         </article>
         <article>
           <strong>Proof for every verdict</strong>

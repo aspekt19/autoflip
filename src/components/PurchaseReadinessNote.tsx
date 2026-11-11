@@ -1,4 +1,5 @@
 import type { PurchaseReadiness } from "@/domain/purchase-readiness";
+import { plainShopperText } from "@/domain/find-buyer-copy";
 import { SimilarCarsList } from "./SimilarCarsList";
 
 /** Shared buyer copy for a Find pick and a paid report. */
@@ -16,7 +17,7 @@ export function PurchaseReadinessNote({ view }: { view: PurchaseReadiness }) {
             <span key={source.href}>
               {index > 0 ? " · " : null}
               <a href={source.href} target="_blank" rel="noreferrer">
-                {source.label}
+                {plainShopperText(source.label)}
               </a>
               {` (as of ${source.asOf})`}
             </span>
@@ -33,12 +34,12 @@ export function PurchaseReadinessNote({ view }: { view: PurchaseReadiness }) {
           <p>Negotiation</p>
           <ul>
             {view.talkingPoints.map((point) => (
-              <li key={`${point.topic}-${point.text.slice(0, 40)}`}>{point.text}</li>
+              <li key={`${point.topic}-${point.text.slice(0, 40)}`}>{plainShopperText(point.text)}</li>
             ))}
           </ul>
         </>
       ) : null}
-      {view.talkingPointsNote ? <p>{view.talkingPointsNote}</p> : null}
+      {view.talkingPointsNote ? <p>{plainShopperText(view.talkingPointsNote)}</p> : null}
     </div>
   );
 }

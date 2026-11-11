@@ -248,6 +248,35 @@ const PLAIN_CHECK_IDS = new Set<string>([
   "get_history_report",
 ]);
 
+/**
+ * Last-pass scrub for notes that still name internal systems.
+ * Official recall numbers are left intact.
+ */
+export function plainShopperText(text: string): string {
+  return text
+    .replace(/\bNHTSA['’]s\b/g, "The government recall database's")
+    .replace(/\bNHTSA\b/g, "the government recall database")
+    .replace(/\bNICB VINCheck\b/g, "the free theft and salvage check")
+    .replace(/\bvPIC\b/gi, "the car's factory details")
+    .replace(/\bDecodeVinValues\b/g, "the car's factory details")
+    .replace(/\bNMVTIS\b/g, "the national title database")
+    .replace(/\bNICB\b/g, "the insurance crime bureau")
+    .replace(/\bCensus geocoder\b/gi, "a public distance lookup")
+    .replace(/\bTypeScript\b/g, "our calculations")
+    .replace(/\ballowlisted\b/gi, "approved")
+    .replace(/\bP&L\b/g, "profit figures")
+    .replace(/\bwebhook\b/gi, "payment confirmation");
+}
+
+/** Shopper wording for the review step. The name SERV stays on Where SERV runs, Proof, and Developers. */
+export function plainDecisionEngineText(text: string): string {
+  return plainShopperText(text)
+    .replace(/\bA second independent SERV check\b/g, "A second independent review")
+    .replace(/\bDecided by SERV\b/g, "Decided by our review")
+    .replace(/\bin this SERV response\b/g, "in this review")
+    .replace(/\bSERV\b/g, "Our review");
+}
+
 /** Plain stand-in for an internal gate id when that id would otherwise be shown to a buyer. */
 export function plainBuyerPhrase(text: string): string {
   let out = text;
@@ -264,7 +293,7 @@ export function formatOfficialRecallNumber(id: string): string {
   const trimmed = id.trim();
   if (/^official recall number\b/i.test(trimmed)) return trimmed;
   const bare = trimmed.replace(/^NHTSA recall campaign\s+/i, "").trim();
-  return `Official recall number ${bare} — look this up on NHTSA`;
+  return `Official recall number ${bare} — look this up in the government recall database`;
 }
 
 export function plainGateStatus(status: string): string {
@@ -322,9 +351,9 @@ export function plainExplanationSource(source: string): string {
 export function plainFlagSource(source: string): string {
   switch (source) {
     case "nhtsa-recalls":
-      return "NHTSA recalls";
+      return "government recall database";
     case "nhtsa-complaints":
-      return "NHTSA complaints";
+      return "government complaint counts";
     case "vin-identity":
       return "VIN check";
     case "title-brand":
@@ -419,7 +448,7 @@ function buyerProofDetail(detail: string): string | null {
     return "Automatic review is not configured. The written summary is the standard explanation.";
   }
   if (/\bvPIC\b/i.test(trimmed)) {
-    return "NHTSA VIN decoder, NHTSA recalls, NHTSA complaints, FuelEconomy.gov, and the U.S. Census geocoder.";
+    return "Factory details for this VIN, the government recall database, model-year complaints, the official fuel-economy site, and a public distance lookup.";
   }
   if (/evaluateListingPrice|adjustComparableSet|selectComparables|mileageAdjust|historyAdjustment|verdictFromPriceGap|flipMath|scoreFromGap|dealerQuestions/.test(trimmed)) {
     return "Adjusted similar listings, history flags, price gap, resale math, price score, and dealer questions — computed in code.";
@@ -493,7 +522,7 @@ export function assertBuyerSafeText(text: string): { ok: true } | { ok: false; h
 }
 
 export type BuyerSourceRef = {
-  /** Short human label, e.g. "NHTSA recalls (U.S. government)". */
+  /** Short human label, e.g. "Government recall database". */
   label: string;
   /** Human-readable public page when one exists — never a raw REST API URL. */
   href: string | null;
@@ -508,7 +537,7 @@ export function buyerSourceForReceipt(r: Pick<
   if (r.checkId === "free_gov_recalls" || r.toolId === "evidence.gov_recalls") {
     const vin = r.vin && r.vin.length >= 11 ? r.vin : null;
     return {
-      label: "NHTSA recalls (U.S. government)",
+      label: "Government recall database",
       href: vin
         ? `https://www.nhtsa.gov/recalls?vin=${encodeURIComponent(vin)}`
         : "https://www.nhtsa.gov/recalls",
@@ -517,21 +546,21 @@ export function buyerSourceForReceipt(r: Pick<
   }
   if (r.checkId === "free_gov_safety" || r.toolId === "evidence.gov_safety") {
     return {
-      label: "NHTSA vehicle safety ratings (U.S. government)",
+      label: "Government crash-test ratings",
       href: "https://www.nhtsa.gov/ratings",
       checkedAt,
     };
   }
   if (r.checkId === "free_gov_vpic" || r.toolId === "evidence.gov_vpic") {
     return {
-      label: "NHTSA VIN decoder (U.S. government)",
+      label: "Factory details for this VIN",
       href: null, // no stable non-API public decode page worth linking
       checkedAt,
     };
   }
   if (r.checkId === "free_gov_fuel" || r.toolId === "evidence.gov_fuel") {
     return {
-      label: "FuelEconomy.gov (U.S. Department of Energy)",
+      label: "Official fuel-economy site",
       href: r.fuelEvidence?.humanPageUrl ?? "https://www.fueleconomy.gov/",
       checkedAt,
     };
@@ -680,17 +709,16 @@ export function formatRecallCheckSummary(outcome: RecallCheckOutcomeSummary): st
   const years = outcome.attempted;
   const modelWord = `model${models === 1 ? "" : "s"}`;
   const yearWord = `model year${years === 1 ? "" : "s"}`;
-  // Safety recalls = manufacturer fixes listed by the U.S. safety agency (NHTSA).
   if (years <= 0) {
-    return "Safety recalls from the U.S. safety agency (NHTSA) have not come back for this search yet.";
+    return "Safety recalls from the government recall database have not come back for this search yet.";
   }
   if (outcome.confirmed <= 0) {
-    return `Safety recalls from the U.S. safety agency (NHTSA) did not come back for any of the ${models} ${modelWord} we tried (0 of ${years} ${yearWord}). That is not a clean result.`;
+    return `Safety recalls from the government recall database did not come back for any of the ${models} ${modelWord} we tried (0 of ${years} ${yearWord}). That is not a clean result.`;
   }
   if (outcome.confirmed >= years) {
-    return `Safety recalls from the U.S. safety agency (NHTSA) came back for all ${models} ${modelWord} (${years} ${yearWord}).`;
+    return `Safety recalls from the government recall database came back for all ${models} ${modelWord} (${years} ${yearWord}).`;
   }
-  return `Safety recalls from the U.S. safety agency (NHTSA) came back for ${outcome.confirmedModelCount} of ${models} ${modelWord} (${outcome.confirmed} of ${years} ${yearWord}). The rest could not be confirmed — that is not a clean result.`;
+  return `Safety recalls from the government recall database came back for ${outcome.confirmedModelCount} of ${models} ${modelWord} (${outcome.confirmed} of ${years} ${yearWord}). The rest could not be confirmed — that is not a clean result.`;
 }
 
 export function formatBuyerLoopStep(input: {
@@ -712,7 +740,7 @@ export function formatBuyerLoopStep(input: {
   switch (id) {
     case "free_gov_recalls":
       if (input.recallOutcome) return formatRecallCheckSummary(input.recallOutcome);
-      return "Safety recalls from the U.S. safety agency (NHTSA) have not come back for this search yet.";
+      return "Safety recalls from the government recall database have not come back for this search yet.";
     case "free_gov_safety":
       return `We checked government crash-test ratings for${cars}.`;
     case "free_gov_vpic":
@@ -831,8 +859,8 @@ export function formatBuyerNextCheckWhy(
   // Soft scrub of technicalWhy — never turn "NMVTIS-approved" into "official title history-approved".
   return technicalWhy
     .replace(/\bMMY\b/g, "year/make/model")
-    .replace(/\bvPIC\b/g, "VIN decoder")
-    .replace(/\bNHTSA\b/g, "government")
+    .replace(/\bvPIC\b/g, "the car's factory details")
+    .replace(/\bNHTSA\b/g, "the government recall database")
     .replace(/\bfree_gov_\w+/g, "free public check")
     .replace(/\bErrorCode=0\b/g, "a successful decode")
     .replace(

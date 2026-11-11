@@ -27,7 +27,8 @@ export default function PrivacyPage() {
             <strong>Auto.dev</strong> — dealer listing search used for evaluation. Coverage and freshness follow that free-plan feed.
           </li>
           <li>
-            <strong>NHTSA</strong> — public recall, complaint, and VIN-decode lookups when those endpoints respond.
+            <strong>Government recall database</strong> — public recall, complaint, and factory-detail lookups when those
+            services respond. The official site is nhtsa.gov.
           </li>
           <li>
             Figures on a report (fair value, price gap, flip estimates) are calculated in Lemonless&apos;s own code from those inputs.
@@ -37,12 +38,13 @@ export default function PrivacyPage() {
         <h2>What we store</h2>
         <ul>
           <li>
-            An anonymous browser cookie identifies this device so credits, saved searches, favorites, and report history can
-            continue across page loads. There is no sign-in and no cross-device account recovery on this preview.
+            A browser cookie identifies this device so credits, saved searches, favorites, and report history can continue
+            across page loads. When sign-in is turned on, a verified Google or email account keeps that balance after
+            cookies are cleared. This preview does not promise account recovery on every deploy.
           </li>
           <li>
-            Saved searches, alerts, report history, favorites, API keys you create, and credit balances are stored in the
-            configured persistent store (Upstash Redis on the connected Vercel project).
+            Saved searches, alerts, report history, favorites, keys you create for software that calls Lemonless, and
+            credit balances are stored in this preview’s database.
           </li>
           <li>
             When Telegram linking is enabled for a preview, connecting a chat stores a link you create. Stripe test

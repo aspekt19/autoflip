@@ -13,8 +13,8 @@ export default function AccountPage() {
         <p className="lead">Your signed-in balance and report history stay with this account after cookies are cleared.</p>
         <AccountPanel />
         <p className="hint">
-          Purchases require a verified Google or email sign-in. Success redirects never grant credits — only the signed
-          Stripe webhook does.
+          Purchases require a verified Google or email sign-in. Coming back from checkout does not add credits. Credits
+          are added only after Stripe confirms the test payment.
         </p>
       </div>
     </div>

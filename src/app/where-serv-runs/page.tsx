@@ -22,14 +22,15 @@ export default async function WhereServRunsPage() {
         <p className="kicker">Transparency</p>
         <h1>Where SERV runs</h1>
         <p className="lead">
-          Lemonless keeps every dollar figure in code. SERV reasoning only chooses allowlisted actions and explains them.
-          This page lists the pipeline and live counts from sealed decision trails — never invented numbers.
+          SERV is the review step. It reads facts Lemonless already calculated and chooses an action, such as buy,
+          negotiate, or pass. It does not invent prices. This page lists where that review runs, and counts from real
+          sealed reports. If the counts are empty, nothing has been sealed in this environment yet.
         </p>
 
         <section>
           <h2>Pipeline</h2>
           <p className="hint">
-            Each step is marked SERV or code. Code verifies numbers; SERV may only quote them.{" "}
+            Each step is marked SERV (the review) or code (the calculation). The calculation owns the numbers. SERV may only quote them.{" "}
             <Link href="/verify">Verify a sealed trail</Link>.
           </p>
           <ol className="steps-3 story-steps">
@@ -57,10 +58,10 @@ export default async function WhereServRunsPage() {
                 Sealed trails: <strong>{stats.trailCount}</strong>
               </li>
               <li>
-                SERV calls recorded: <strong>{stats.servCallCount}</strong>
+                SERV review steps recorded: <strong>{stats.servCallCount}</strong>
               </li>
               <li>
-                Code steps recorded: <strong>{stats.codeStepCount}</strong>
+                Calculation steps recorded: <strong>{stats.codeStepCount}</strong>
               </li>
               <li>
                 Second-check agreements: <strong>{stats.secondCheckAgreements}</strong>

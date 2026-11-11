@@ -76,7 +76,7 @@ export function confirmedRecallCount(input: RecallStateInput | null | undefined)
 export function recallFactPlain(input: RecallStateInput, title: string): string {
   const state = recallEvidenceState(input);
   // Plain words: a recall is a manufacturer safety fix listed by the U.S. safety agency (NHTSA).
-  const agency = "the U.S. safety agency (NHTSA)";
+  const agency = "the government recall database";
   if (state === "not_checked") {
     return `${title}: Safety recalls from ${agency} have not been checked yet.`;
   }

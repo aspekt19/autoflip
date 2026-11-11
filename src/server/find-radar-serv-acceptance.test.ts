@@ -21,6 +21,7 @@ import { understandNeed } from "@/server/understand-need";
 import { runFindSettleServ } from "@/server/find-settle-serv";
 import { reviewPersonalCandidate } from "@/server/radar-serv";
 import { BASE_MODEL } from "@/server/serv";
+import { criteriaParseTechnicalLine } from "@/domain/radar-criteria-provenance";
 import { normalizeCriteria } from "@/server/radar-normalize-criteria";
 import { listAlerts, listRuns, saveAlerts, saveSearches, seenVins, storeSeenPrices } from "@/server/radar-store";
 import { runRadarCycle } from "@/server/radar-cycle";
@@ -185,7 +186,11 @@ describe("find → SERV → watch → radar verdict_decide acceptance (merge gat
     expect(["allow", "passed", "not_used"]).toContain(planCheck!.promptGuard);
     expect(parsed.criteriaParse.source).toBe("serv");
     expect(parsed.criteriaParse.responseId).toBe(EXTRACT_ID);
-    expect(parsed.criteriaParse.label).toMatch(/response\s+chatcmpl-EhAXMUOvyEyLBjo5Y5ePSlTGZUccv/);
+    expect(parsed.criteriaParse.label).toBe("Read from your note.");
+    expect(parsed.criteriaParse.label).not.toMatch(/chatcmpl/);
+    expect(criteriaParseTechnicalLine(parsed.criteriaParse)).toMatch(
+      /response\s+chatcmpl-EhAXMUOvyEyLBjo5Y5ePSlTGZUccv/,
+    );
     expect(parsed.proofRecords.every(isDecisionProofRecord)).toBe(true);
     expect(parsed.findPlan.namedModels).toEqual([{ make: "Toyota", model: "RAV4" }]);
     const planProof = assertServStepProof(parsed.proofRecords, "find_plan");

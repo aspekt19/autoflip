@@ -16,14 +16,20 @@ export type CriteriaParseProvenance = {
 };
 
 export function criteriaParseLabel(parse: CriteriaParseProvenance | null | undefined): string {
-  if (!parse) return "How these criteria were read is not on this record";
+  if (!parse) return "How these filters were read is not on this record.";
+  if (parse.source === "form") return "Typed in the form.";
+  return "Read from your note.";
+}
+
+/** Response ids stay out of the main card. Null when there is nothing honest to add. */
+export function criteriaParseTechnicalLine(parse: CriteriaParseProvenance | null | undefined): string | null {
+  if (!parse || parse.source === "form") return null;
   if (parse.source === "serv") {
     return parse.responseId
-      ? `Parsed from your note · response ${parse.responseId}`
-      : "Parsed from your note · no response id";
+      ? `Review response ${parse.responseId}`
+      : "Read from your note. No response id was recorded.";
   }
-  if (parse.source === "code") return "Parsed by code";
-  return "Entered on the form";
+  return "Read by built-in rules. No paid review ran.";
 }
 
 /** Full buyer-facing criteria source line for Deal Radar watch cards. */
@@ -35,20 +41,29 @@ export function criteriaSourceLine(input: {
 }): string {
   const origin =
     input.origin === "find"
-      ? "Find"
+      ? "From Find"
       : input.origin === "resale"
-        ? "Resale"
+        ? "From Resale"
         : input.origin === "fields"
-          ? "Form fields"
+          ? "From the form"
           : null;
-  const how = input.freeText?.trim() ? "free text" : "fields";
-  const id =
-    typeof input.originSearchId === "string" && input.originSearchId.trim()
-      ? ` · search ${input.originSearchId.trim()}`
-      : "";
+  const how = input.freeText?.trim() ? "your note" : "the fields you entered";
   const parse = criteriaParseLabel(input.parse);
   if (!origin) return parse;
-  return `${origin} (${how})${id} · ${parse}`;
+  return `${origin}, using ${how}. ${parse}`;
+}
+
+/** Search ids are internal. Show them only inside technical details. */
+export function criteriaSourceTechnicalLine(input: {
+  parse: CriteriaParseProvenance | null | undefined;
+  originSearchId?: string | null;
+}): string | null {
+  const parts: string[] = [];
+  const parse = criteriaParseTechnicalLine(input.parse);
+  if (parse) parts.push(parse);
+  const id = input.originSearchId?.trim();
+  if (id) parts.push(`Search ${id}`);
+  return parts.length > 0 ? parts.join(" · ") : null;
 }
 
 /** Short human summary for subscription cards (existing + new watches). */
