@@ -170,3 +170,23 @@ describe("fallbackFindPlan", () => {
     expect(plan.yearMax).toBeNull();
   });
 });
+
+describe("understandNeed form ZIP answers near me", () => {
+  it("keeps Confirm ZIP after near-me scrub", async () => {
+    const { understandNeed } = await import("@/server/understand-need");
+    const result = await understandNeed(
+      {
+        text: YURA,
+        mode: "personal",
+        zip: "75201",
+        distanceMiles: 100,
+      },
+      { /* no SERV key → fallback plan */ },
+    );
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.need.zip).toBe("75201");
+    expect(result.need.distanceMiles).toBe(100);
+    expect(result.findPlan.location.needsZip).toBe(false);
+  });
+});

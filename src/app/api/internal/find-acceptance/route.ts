@@ -122,8 +122,15 @@ export async function POST(request: Request) {
     void multiUrl;
   }
 
+  const body = (await request.json().catch(() => null)) as { id?: string } | null;
+  const onlyId = typeof body?.id === "string" ? body.id.trim() : "";
+  const notes = onlyId ? NOTES.filter((n) => n.id === onlyId) : NOTES;
+  if (onlyId && notes.length === 0) {
+    return Response.json({ error: "unknown_id", message: `Unknown note id ${onlyId}` }, { status: 400 });
+  }
+
   const results: Array<Record<string, unknown>> = [];
-  for (const note of NOTES) {
+  for (const note of notes) {
     const understood = await understandNeed(
       { text: note.text, mode: "personal", zip: note.zip, distanceMiles: 100 },
       {

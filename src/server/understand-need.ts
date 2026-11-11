@@ -238,10 +238,20 @@ export async function understandNeed(
   need = overlayExplicit(need, explicit);
   if (body.followUp) need = applyFollowUp(need, body.followUp.id, body.followUp.value);
 
+  const formZip =
+    typeof body.zip === "string" && /^\d{5}$/.test(body.zip.trim()) ? body.zip.trim() : null;
+
   // Drop stale wizard ZIP when this note named a city/place without those digits.
+  // Keep an explicit Confirm/form ZIP (answers needsZip / "near me").
   {
     const intake = intakeFromNote(screened.text);
-    if (intake.locationPhrase && !intake.zip && need.zip && need.zip !== intake.zip) {
+    if (
+      !formZip &&
+      intake.locationPhrase &&
+      !intake.zip &&
+      need.zip &&
+      need.zip !== intake.zip
+    ) {
       need = { ...need, zip: null, locationPhrase: need.locationPhrase ?? intake.locationPhrase };
     }
   }
@@ -250,6 +260,17 @@ export async function understandNeed(
     const withGeo = attachNoteGeo(need, { applyDefaultRadius: true });
     const { locationResolution: _loc, radiusIsDefault: _rad, ...rest } = withGeo;
     need = rest;
+  }
+  // attachNoteGeo only trusts ZIP digits in the note — re-apply Confirm/form geo after scrub.
+  if (formZip) need = { ...need, zip: formZip };
+  if (body.distanceMiles !== undefined) need = { ...need, distanceMiles: body.distanceMiles ?? null };
+  // Answered ZIP clears the blocking question for Confirm.
+  if (formZip && findPlan.location.needsZip) {
+    findPlan = {
+      ...findPlan,
+      location: { ...findPlan.location, zip: formZip, needsZip: false },
+      question: { id: "none", text: null },
+    };
   }
 
   const checked = validateNeed(need);
