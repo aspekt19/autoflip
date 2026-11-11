@@ -15,7 +15,7 @@
 import { CONNECT_HELP } from "@/io/telegram";
 
 /** Shared production default for every SERV profile (PR A owns this constant). */
-export const BASE_MODEL = "gpt-5.6-sol";
+export const BASE_MODEL = "gpt-6.1-sol";
 export const SHADOW_MAX_ITERATIONS = 2;
 
 /** True when the base id (suffixes stripped) is a Gemini model (chat/completions only). */

@@ -1,7 +1,7 @@
 /**
  * Reversible per-profile SERV model configuration (t317).
  *
- * Production default is BASE_MODEL (`gpt-5.6-sol`) for all SERV steps.
+ * Production default is BASE_MODEL (`gpt-6.1-sol`) for all SERV steps.
  * Parent may opt a single profile onto an allowlisted candidate (e.g. Sonnet 5.5
  * for scout_plan) via env without a blanket BASE_MODEL flip.
  *

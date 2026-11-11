@@ -8,8 +8,8 @@ import {
 } from "./index";
 
 describe("SERV shared default + chat/non-stream invariants", () => {
-  it("defaults BASE_MODEL to gpt-5.6-sol for all steps (no Gemini)", () => {
-    expect(BASE_MODEL).toBe("gpt-5.6-sol");
+  it("defaults BASE_MODEL to gpt-6.1-sol for all steps (no Gemini)", () => {
+    expect(BASE_MODEL).toBe("gpt-6.1-sol");
     expect(BASE_MODEL).not.toMatch(/gemini/i);
   });
 
