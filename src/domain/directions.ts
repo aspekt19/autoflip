@@ -77,10 +77,17 @@ export function proposeDirections(
   // Prefer Confirm refine, then clarified need year bounds, then budget editorial band.
   const yearMin = refine?.yearMin ?? need.yearMin ?? band.yearMin;
   const yearMax = refine?.yearMax ?? need.yearMax ?? band.yearMax;
-  const yearFromClarify = refine?.yearMin != null || refine?.yearMax != null || need.yearMin != null || need.yearMax != null;
-  const yearBecause = yearFromClarify
-    ? `Model years ${yearMin}–${yearMax} come from your year clarification or Confirm refine — not only the budget default band.`
-    : band.because;
+  const buyerSetMin = refine?.yearMin != null || need.yearMin != null;
+  const buyerSetMax = refine?.yearMax != null || need.yearMax != null;
+  // Never claim a budget-band yearMax (e.g. 2022) came from the buyer's clarification.
+  const yearBecause =
+    buyerSetMin && buyerSetMax
+      ? `Model years ${yearMin}–${yearMax} come from your year clarification or Confirm refine.`
+      : buyerSetMin && !buyerSetMax
+        ? `Oldest year ${yearMin} comes from your note or Confirm. Newer cars stay open — the ${yearMax} ceiling is Lemonless guidance for this budget, not something you typed.`
+        : buyerSetMax && !buyerSetMin
+          ? `Newest year ${yearMax} comes from your note or Confirm. The ${yearMin} floor is Lemonless guidance for this budget, not something you typed.`
+          : band.because;
   if (refine?.make && refine.model) {
     // Only label "you named" when preferred models came from the buyer (not service/SERV).
     const userNamed =
@@ -163,7 +170,7 @@ export function proposeDirections(
   }
 
   const body = requestedBody(need);
-  const built = directionsFor(need)
+  let built = directionsFor(need)
     .filter((item) => fitsBody(body, item.segment))
     .map((item) => ({
       ...item,
@@ -181,6 +188,44 @@ export function proposeDirections(
       models: item.models.slice(0, 6),
       search: item.models[0]!,
     }));
+
+  // Body filter must never wipe a valid request to zero directions — fall back to
+  // body-appropriate inventory segments (SUV → crossovers, truck → pickups, etc.).
+  if (built.length === 0 && body) {
+    const fallbackSeg =
+      body === "suv"
+        ? {
+            segment: "Compact crossovers",
+            why: "Lemonless guidance: your note asks for an SUV, so the search starts with common compact/midsize crossovers.",
+            models: CROSSOVERS,
+          }
+        : body === "truck"
+          ? {
+              segment: "Midsize pickups",
+              why: "Lemonless guidance: your note asks for a truck, so the search starts with midsize pickups.",
+              models: TRUCKS,
+            }
+          : {
+              segment: "Midsize sedans",
+              why: "Lemonless guidance: your note asks for a sedan, so the search starts with midsize sedans.",
+              models: MIDSIZE,
+            };
+    const models = arrangeModels(fallbackSeg.models, need, { injectPreferred: true }).slice(0, 6);
+    if (models.length > 0) {
+      built = [
+        {
+          ...fallbackSeg,
+          id: directionIdFromSegment(fallbackSeg.segment, 0),
+          guidance: "editorial" as const,
+          yearMin,
+          yearMax,
+          yearBecause,
+          models,
+          search: models[0]!,
+        },
+      ];
+    }
+  }
 
   if (built.length > 0) return built;
 
@@ -308,6 +353,26 @@ function directionsFor(need: StructuredNeed): Array<Pick<SearchDirection, "segme
     ];
   }
   if (need.useCase === "commute") {
+    const body = requestedBody(need);
+    // Body wins over the compact-car default so "commute + SUV" never yields zero directions.
+    if (body === "suv") {
+      return [
+        {
+          segment: "Compact crossovers",
+          why: "Lemonless guidance: a commute note that asks for an SUV starts with compact/midsize crossovers that are common in US used inventory — reliable AWD options when the note prefers them. Fuel cost still has to come from the EPA figure on a specific car.",
+          models: CROSSOVERS,
+        },
+      ];
+    }
+    if (body === "truck") {
+      return [
+        {
+          segment: "Midsize pickups",
+          why: "Lemonless guidance: a commute note that asks for a truck starts with midsize pickups. Towing capacity still has to be checked on the listing.",
+          models: TRUCKS,
+        },
+      ];
+    }
     return [
       {
         segment: "Compact cars",

@@ -12,7 +12,7 @@ import {
   type NoteMarks,
 } from "@/domain/find-intake-stage";
 import { resolveLocationZip, zipFieldMark, type LocationZipResolution } from "@/domain/city-to-zip";
-import { intakeFromNote, NOTE_DEFAULT_RADIUS_WHEN_ZIP } from "@/domain/note-intake";
+import { intakeFromNote, isNearMePhrase, NOTE_DEFAULT_RADIUS_WHEN_ZIP } from "@/domain/note-intake";
 import { criteriaParseLabel } from "@/domain/radar-criteria-provenance";
 import { FOLLOW_HINT } from "@/domain/intake-copy";
 import Link from "next/link";
@@ -1279,7 +1279,13 @@ function AssistantFlow({
       setError("Add a ZIP for a seller-distance radius, or choose Nationwide.");
       return;
     }
-    if (need.distanceMiles == null && !need.zip && (need.locationPhrase || noteMarks?.location)) {
+    // "near me" without a city/ZIP: ZIP is optional — blank continues nationwide.
+    if (
+      need.distanceMiles == null &&
+      !need.zip &&
+      (need.locationPhrase || noteMarks?.location) &&
+      !isNearMePhrase(need.locationPhrase)
+    ) {
       setError(
         `Your note mentioned ${need.locationPhrase ?? "a place"}. Add a U.S. ZIP to search nearby, or leave ZIP blank for Nationwide.`,
       );
@@ -2119,7 +2125,13 @@ function AssistantFlow({
             zip={need.zip ?? ""}
             zipMark={
               zipFieldMark(locationResolution) ??
-              (noteMarks?.zip ? "from your note" : locationResolution?.needed || (need.locationPhrase && !need.zip) ? "needed" : null)
+              (noteMarks?.zip
+                ? "from your note"
+                : isNearMePhrase(need.locationPhrase) && !need.zip
+                  ? "optional — near me"
+                  : locationResolution?.needed || (need.locationPhrase && !need.zip)
+                    ? "needed"
+                    : null)
             }
             distanceMiles={need.distanceMiles}
             onZipChange={(nextZip) => {
@@ -2136,7 +2148,12 @@ function AssistantFlow({
                 trimmed
                   ? { zip: trimmed, from: "note_zip", needed: false, cityLabel: null }
                   : need.locationPhrase
-                    ? { zip: null, from: null, needed: true, cityLabel: need.locationPhrase }
+                    ? {
+                        zip: null,
+                        from: null,
+                        needed: !isNearMePhrase(need.locationPhrase),
+                        cityLabel: need.locationPhrase,
+                      }
                     : null,
               );
               setRadiusIsDefault(false);
@@ -2151,6 +2168,10 @@ function AssistantFlow({
           {radiusIsDefault && need.distanceMiles != null ? (
             <p className="hint" role="note">
               Seller distance {need.distanceMiles} mi is the default for {need.locationPhrase ?? "your city"} — change it if you want a different radius.
+            </p>
+          ) : isNearMePhrase(need.locationPhrase) && !need.zip ? (
+            <p className="hint" role="note">
+              Your note said near me. Add a U.S. ZIP to search nearby, or leave ZIP blank to search nationwide.
             </p>
           ) : need.locationPhrase && !need.zip ? (
             <p className="hint" role="note">
@@ -2179,6 +2200,14 @@ function AssistantFlow({
             }}
           />
           {need.conditionPriority === "inspection_first" ? <p className="hint">{CONDITION_HINT}</p> : null}
+          {need.awdPreference ? (
+            <p className="hint">
+              Preferably AWD is a soft preference — AWD/4WD ranks higher when known; FWD and unknown drivetrain stay in the mix.
+            </p>
+          ) : null}
+          {need.reliabilityPriority || need.priorities?.some((p) => /reliab/i.test(p)) ? (
+            <p className="hint">Priority: reliability.</p>
+          ) : null}
           {need.preferredMakes?.length ? (
             <p className="hint">
               {need.openToOtherMakes

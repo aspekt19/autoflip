@@ -116,24 +116,18 @@ export type FindMatchResult =
     };
 
 function queriesForDirection(direction: SearchDirection): Array<{ make: string; model: string }> {
-  // Named / suggested preferred models: search each supported model (within remaining budget).
-  if (
-    direction.id.endsWith("-named") ||
-    direction.segment === "Models you named" ||
-    direction.segment === "Suggested models"
-  ) {
-    const seen = new Set<string>();
-    const out: Array<{ make: string; model: string }> = [];
-    for (const m of direction.models) {
-      const key = `${m.make}\0${m.model}`.toLowerCase();
-      if (seen.has(key)) continue;
-      seen.add(key);
-      out.push(m);
-    }
-    return out;
+  // Search every planned model on the direction (named or editorial). The match
+  // planner still caps at FIND_MAX_PROVIDER_QUERIES — never explode past that.
+  const seen = new Set<string>();
+  const out: Array<{ make: string; model: string }> = [];
+  for (const m of direction.models) {
+    const key = `${m.make}\0${m.model}`.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(m);
   }
-  // Editorial directions: primary search model only (do not explode Autodev quota).
-  return [direction.search];
+  if (out.length === 0 && direction.search) out.push(direction.search);
+  return out;
 }
 
 function withinBudget(
@@ -668,7 +662,9 @@ export async function runFindMatch(
         const { badge } = await getOrComputeValuation({
           kv: deps.kv,
           vin: item.vin,
-          zip: searchZip ?? item.zip,
+          // Buyer search scope only — never the dealer's listing ZIP (that made
+          // nationwide Find comparisons say "near 33415").
+          zip: radiusMiles != null ? searchZip ?? null : null,
           radiusMiles: radiusMiles,
           priceUsd: item.priceUsd,
           subject: item,
