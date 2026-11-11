@@ -24,20 +24,23 @@ describe("SERV compare model catalog (in-repo evidence only)", () => {
     expect(servCompareCatalogNote()).toMatch(/gpt-6-luna|Console vs catalog/i);
   });
 
-  it("docs fair slate pins Sol / Mini / Sonnet / Gemini IDs without live calls", () => {
+  it("docs fair slate pins Gemini / Sol / Mini / Sonnet IDs without live calls", () => {
     expect(SERV_COMPARE_FAIR_SLATE.map((m) => m.id)).toEqual([
+      "gemini-3.1-pro-preview",
       "gpt-5.6-sol",
       "gpt-5.4-mini",
       "claude-sonnet-4.6",
       "gemini-2.5-flash",
     ]);
     const fair = listServFairSlateModels();
-    expect(fair.map((m) => m.provider)).toEqual(["openai", "openai", "anthropic", "google"]);
+    expect(fair.map((m) => m.provider)).toEqual(["google", "openai", "openai", "anthropic", "google"]);
     const viaFlag = resolveServCompareModelIds("", { fairSlate: true });
     expect(viaFlag.ok).toBe(true);
     if (viaFlag.ok) expect(viaFlag.models.map((m) => m.id)).toEqual(SERV_COMPARE_FAIR_SLATE.map((m) => m.id));
     // Explicit fair IDs allowed without ALLOW_UNLISTED.
-    const explicit = resolveServCompareModelIds("gpt-5.6-sol,gpt-5.4-mini,claude-sonnet-4.6,gemini-2.5-flash");
+    const explicit = resolveServCompareModelIds(
+      "gemini-3.1-pro-preview,gpt-5.6-sol,gpt-5.4-mini,claude-sonnet-4.6,gemini-2.5-flash",
+    );
     expect(explicit.ok).toBe(true);
     expect(servCompareProtocolIssues().some((i) => i.id === "gemini_endpoint" && i.class === "integration")).toBe(
       true,

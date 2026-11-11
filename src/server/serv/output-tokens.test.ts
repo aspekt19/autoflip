@@ -225,35 +225,38 @@ describe("SERV output token bound (offline)", () => {
     }
   });
 
-  it("responses endpoint path serializes max_output_tokens", async () => {
+  it("product profiles are chat-only; check_rules serializes max_completion_tokens", async () => {
     const responsesProfiles = (Object.values(PROFILES) as ServProfile[]).filter(
       (p) => p.endpoint === "responses",
     );
-    expect(responsesProfiles.length).toBeGreaterThan(0);
-    const id = responsesProfiles[0]!.id as ProfileId;
+    expect(responsesProfiles).toEqual([]);
 
     const bodies: string[] = [];
+    const urls: string[] = [];
     const result = await runServ(
-      id,
+      "check_rules",
       { user: "hello" },
       {
         apiKey: "test-key",
         baseUrl: "https://serv-mock.test/v1",
         env: { SERV_MAX_OUTPUT_TOKENS: "1024" },
-        fetch: async (_url, init) => {
+        fetch: async (url, init) => {
+          urls.push(String(url));
           bodies.push(String(init?.body ?? ""));
-          return new Response(JSON.stringify({ output_text: "ok" }), {
-            status: 200,
-            headers: { "Content-Type": "application/json" },
-          });
+          return new Response(
+            JSON.stringify({
+              choices: [{ message: { content: "ok" } }],
+            }),
+            { status: 200, headers: { "Content-Type": "application/json" } },
+          );
         },
       },
     );
     expect(result.ok).toBe(true);
     expect(bodies.length).toBeGreaterThanOrEqual(1);
     const parsed = JSON.parse(bodies[0]!) as Record<string, unknown>;
-    expect(parsed.max_output_tokens).toBe(1024);
-    expect(parsed).not.toHaveProperty("max_completion_tokens");
-    expect(bodies[0]).toContain('"max_output_tokens":1024');
+    expect(parsed.max_completion_tokens).toBe(1024);
+    expect(parsed).not.toHaveProperty("max_output_tokens");
+    expect(urls[0]).toMatch(/\/chat\/completions$/);
   });
 });

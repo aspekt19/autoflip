@@ -1,4 +1,13 @@
-import { BASE_MODEL, modelFor, profile, type ProfileId, type ServProfile } from "./profiles";
+import {
+  BASE_MODEL,
+  SCHEMA_FALLBACK_MODEL,
+  endpointForProfile,
+  modelFor,
+  profile,
+  streamForProfile,
+  type ProfileId,
+  type ServProfile,
+} from "./profiles";
 import { resolveProfileBaseModel } from "./profile-models";
 import { buildServProof, recordServProof, type ServProof } from "./proof";
 import {
@@ -46,7 +55,16 @@ export type ServDeps = {
    * When set, replaces profile.jsonSchema for response_format only — profile name may differ.
    */
   jsonSchemaOverride?: { name: string; schema: Record<string, unknown> } | null;
+  /**
+   * Internal: schema-failure fallback already attempted (prevents loops).
+   * Callers should not set this — runServ sets it when retrying with SCHEMA_FALLBACK_MODEL.
+   */
+  schemaFallbackAttempted?: boolean;
+  /** Internal: primary model base id that failed schema before Sol fallback. */
+  schemaFallbackFrom?: string;
 };
+
+export type SchemaModelFallback = { from: string; to: string };
 
 export type ServResult =
   | {
@@ -63,6 +81,8 @@ export type ServResult =
       failureDiag?: ServResponseFailureDiag | null;
       /** Keys/lengths only — never string values (safe for compare artifacts). */
       responseShape: string | null;
+      /** Present when SCHEMA_FALLBACK_MODEL recovered after a primary schema failure. */
+      schemaModelFallback?: SchemaModelFallback | null;
     }
   | {
       ok: false;
@@ -76,7 +96,22 @@ export type ServResult =
       responseShape: string | null;
       /** Safe refusal/usage category — never raw model text. */
       failureDiag?: ServResponseFailureDiag | null;
+      /** Present when this attempt used SCHEMA_FALLBACK_MODEL after a primary schema failure. */
+      schemaModelFallback?: SchemaModelFallback | null;
     };
+
+/** Categories / HTTP shapes that trigger one Sol schema fallback. */
+export function isServSchemaFailure(result: Extract<ServResult, { ok: false }>): boolean {
+  const cat = result.failureDiag?.category;
+  if (cat === "invalid_json" || cat === "schema_mismatch" || cat === "content_null_refusal_field") {
+    return true;
+  }
+  if (result.status === 400) {
+    const hay = `${result.error ?? ""} ${result.upstream ?? ""}`;
+    if (/invalid schema|response_format|json_schema/i.test(hay)) return true;
+  }
+  return false;
+}
 
 /** Eval/compare helper — never use from production planner paths. */
 export function experimentServDeps(deps: ServDeps = {}): ServDeps {
@@ -174,17 +209,19 @@ export function requestFor(
   const entry = profile(id);
   const tools = toolsFor(entry, true);
   const chosen = modelFor(id, model);
+  const endpoint = endpointForProfile(entry);
+  const stream = streamForProfile(entry);
   const bound = resolveServOutputTokenBound(env);
   if (!bound.ok) {
     throw new Error(bound.message);
   }
-  if (entry.endpoint === "responses") {
+  if (endpoint === "responses") {
     return withServOutputTokenBound(
       "responses",
       {
         endpoint: "responses" as const,
         model: chosen,
-        stream: entry.stream,
+        stream,
         reasoning_effort: entry.reasoningEffort,
         reasoning: { effort: entry.reasoningEffort, summary: "auto" as const },
         instructions: entry.system,
@@ -199,7 +236,7 @@ export function requestFor(
     {
       endpoint: "chat" as const,
       model: chosen,
-      stream: entry.stream,
+      stream,
       reasoning_effort: entry.reasoningEffort,
       messages: [
         { role: "system" as const, content: entry.system },
@@ -480,6 +517,8 @@ export async function runServ(
   deps: ServDeps & { env?: Record<string, string | undefined> } = {},
 ): Promise<ServResult> {
   const entry = profile(id);
+  const endpoint = endpointForProfile(entry);
+  const stream = streamForProfile(entry);
   const timeoutMs = deps.timeoutMs ?? entry.timeoutMs;
   const transportPolicy: ServTransportPolicy = deps.transportPolicy ?? "production";
   const experiment = transportPolicy === "experiment_single_attempt";
@@ -505,8 +544,8 @@ export async function runServ(
         text: "",
         latencyMs: 0,
         fallbackUsed: true,
-        streamed: entry.stream,
-        endpoint: entry.endpoint,
+        streamed: stream,
+        endpoint,
         reasoningEffort: entry.reasoningEffort,
         applicationTool: entry.applicationTool ?? null,
         jsonSchema: entry.jsonSchema?.name ?? null,
@@ -530,6 +569,30 @@ export async function runServ(
   }
   // requestFor applies modelFor feature suffixes; pass base id only.
   const model = resolvedModel.baseId;
+  const schemaFallbackMeta: SchemaModelFallback | null =
+    deps.schemaFallbackAttempted && deps.schemaFallbackFrom
+      ? { from: deps.schemaFallbackFrom, to: SCHEMA_FALLBACK_MODEL }
+      : null;
+  const finishWithOptionalSchemaFallback = async (result: ServResult): Promise<ServResult> => {
+    const tagged: ServResult = schemaFallbackMeta
+      ? { ...result, schemaModelFallback: schemaFallbackMeta }
+      : result;
+    if (tagged.ok || deps.schemaFallbackAttempted || experiment || model === SCHEMA_FALLBACK_MODEL) {
+      return tagged;
+    }
+    if (!isServSchemaFailure(tagged)) return tagged;
+    const retry = await runServ(id, input, {
+      ...deps,
+      model: SCHEMA_FALLBACK_MODEL,
+      schemaFallbackAttempted: true,
+      schemaFallbackFrom: model,
+    });
+    return {
+      ...retry,
+      schemaModelFallback: { from: model, to: SCHEMA_FALLBACK_MODEL },
+      httpAttempts: tagged.httpAttempts + retry.httpAttempts,
+    };
+  };
   const tokenBound = resolveServOutputTokenBound(env);
   if (!tokenBound.ok) {
     const proof = recordServProof(
@@ -543,8 +606,8 @@ export async function runServ(
         text: "",
         latencyMs: 0,
         fallbackUsed: true,
-        streamed: entry.stream,
-        endpoint: entry.endpoint,
+        streamed: stream,
+        endpoint,
         reasoningEffort: entry.reasoningEffort,
         applicationTool: entry.applicationTool ?? null,
         jsonSchema: entry.jsonSchema?.name ?? null,
@@ -566,7 +629,7 @@ export async function runServ(
     };
   }
   const applyTokenBound = <T extends Record<string, unknown>>(body: T) =>
-    withServOutputTokenBound(entry.endpoint, body, tokenBound.tokens);
+    withServOutputTokenBound(endpoint, body, tokenBound.tokens);
   let inspected: ReturnType<typeof requestFor>;
   try {
     inspected = requestFor(id, input.user, model, env);
@@ -583,8 +646,8 @@ export async function runServ(
         text: "",
         latencyMs: 0,
         fallbackUsed: true,
-        streamed: entry.stream,
-        endpoint: entry.endpoint,
+        streamed: stream,
+        endpoint,
         reasoningEffort: entry.reasoningEffort,
         applicationTool: entry.applicationTool ?? null,
         jsonSchema: entry.jsonSchema?.name ?? null,
@@ -607,8 +670,8 @@ export async function runServ(
   }
   const effectiveJsonSchema = deps.jsonSchemaOverride ?? entry.jsonSchema ?? null;
   const proofMeta = {
-    streamed: entry.stream,
-    endpoint: entry.endpoint,
+    streamed: stream,
+    endpoint,
     reasoningEffort: entry.reasoningEffort,
     applicationTool: entry.applicationTool ?? null,
     jsonSchema: effectiveJsonSchema?.name ?? null,
@@ -648,9 +711,9 @@ export async function runServ(
   // Protocol rounds (tool → finalize) are not silent retries. Experiment disables only
   // empty-text / timeout re-POSTs so each requested compare step stays one attempt for
   // profiles without applicationTool (including scout_plan).
-  const protocolRounds = entry.applicationTool && entry.endpoint === "chat" ? 2 : 1;
+  const protocolRounds = entry.applicationTool && endpoint === "chat" ? 2 : 1;
   const deadline = started + timeoutMs * protocolRounds;
-  const postOnce = async (body: unknown, stream: boolean, capMs: number) => {
+  const postOnce = async (body: unknown, useStream: boolean, capMs: number) => {
     const budget = Math.min(deadline - Date.now(), capMs);
     if (budget < 500) throw new DOMException("The operation was aborted.", "TimeoutError");
     if (deps.beforeHttp) {
@@ -662,14 +725,14 @@ export async function runServ(
       }
     }
     httpAttempts += 1;
-    const path = entry.endpoint === "responses" ? "/responses" : "/chat/completions";
+    const path = endpoint === "responses" ? "/responses" : "/chat/completions";
     const response = await (deps.fetch ?? fetch)(`${base}${path}`, {
       method: "POST",
       headers: { Authorization: `Bearer ${deps.apiKey}`, "Content-Type": "application/json" },
       body: JSON.stringify(body),
       signal: AbortSignal.timeout(budget),
     });
-    if (stream && response.ok) {
+    if (useStream && response.ok) {
       const streamed = await readChatStream(response);
       return { response, payload: streamed.payload, text: streamed.text, shape: responseShape(streamed.payload) };
     }
@@ -681,21 +744,21 @@ export async function runServ(
     else if (!text) console.error(`[serv] ${id} HTTP ${response.status} empty ${shape}`);
     return { response, payload, text, shape };
   };
-  const post = async (body: unknown, stream: boolean) => {
+  const post = async (body: unknown, useStream: boolean) => {
     const remain = deadline - Date.now();
     // Production-only: personal_alert_review splits the deadline and retries once on timeout.
-    if (experiment || id !== "personal_alert_review") return postOnce(body, stream, remain);
+    if (experiment || id !== "personal_alert_review") return postOnce(body, useStream, remain);
     const firstWait = Math.min(8_000, Math.floor(timeoutMs / 2));
     try {
-      return await postOnce(body, stream, firstWait);
+      return await postOnce(body, useStream, firstWait);
     } catch (error) {
       if (!isTimeout(error) || deadline - Date.now() < 1_000) throw error;
-      return await postOnce(body, stream, deadline - Date.now());
+      return await postOnce(body, useStream, deadline - Date.now());
     }
   };
 
-  const postProse = async (body: unknown, stream: boolean) => {
-    let turn = await post(body, stream);
+  const postProse = async (body: unknown, useStream: boolean) => {
+    let turn = await post(body, useStream);
     // Production-only: one silent re-POST when the first success returns empty text.
     if (
       !experiment &&
@@ -703,7 +766,7 @@ export async function runServ(
       !turn.text.trim() &&
       deadline - Date.now() > 1_000
     ) {
-      turn = await post(body, stream);
+      turn = await post(body, useStream);
     }
     return turn;
   };
@@ -713,7 +776,7 @@ export async function runServ(
     const userText = entry.applicationTool ? `${input.user}\n\nCalculated facts, the only numbers you may use:\n${factsText}` : input.user;
     const firstTools = toolsFor(entry, !entry.applicationTool);
     const firstBody = applyTokenBound(
-      entry.endpoint === "responses"
+      endpoint === "responses"
         ? {
             model: inspected.model,
             instructions: entry.system,
@@ -724,7 +787,7 @@ export async function runServ(
           }
         : {
             model: inspected.model,
-            stream: entry.stream,
+            stream,
             // Some chat-completions models reject a function tool unless effort is none.
             reasoning_effort: entry.applicationTool ? "none" : entry.reasoningEffort,
             messages: [
@@ -748,9 +811,9 @@ export async function runServ(
           },
     );
 
-    let turn = entry.applicationTool ? await post(firstBody, false) : await postProse(firstBody, entry.stream);
+    let turn = entry.applicationTool ? await post(firstBody, false) : await postProse(firstBody, stream);
     let recordedBody: unknown = firstBody;
-    if (entry.applicationTool && entry.endpoint === "chat") {
+    if (entry.applicationTool && endpoint === "chat") {
       if (!turn.response.ok) {
         const proof = recordServProof(
           buildServProof({
@@ -766,7 +829,7 @@ export async function runServ(
             ...proofMeta,
           }),
         );
-        return {
+        return finishWithOptionalSchemaFallback({
           ok: false,
           error: "SERV returned an error.",
           status: turn.response.status,
@@ -776,7 +839,14 @@ export async function runServ(
           httpAttempts,
           transportPolicy,
           responseShape: turn.shape || null,
-        };
+          failureDiag: classifyServPlannerFailure({
+            payload: turn.payload,
+            httpOk: false,
+            status: turn.response.status,
+            text: turn.text,
+            parseKind: null,
+          }),
+        });
       }
       const call = toolCall(turn.payload);
       const matched = call?.name === entry.applicationTool ? call : null;
@@ -837,7 +907,7 @@ export async function runServ(
         text: effectiveText,
         parseKind: null,
       });
-      return {
+      return finishWithOptionalSchemaFallback({
         ok: false,
         error: turn.response.ok
           ? structuredRefusalOnly
@@ -852,9 +922,9 @@ export async function runServ(
         transportPolicy,
         responseShape: turn.shape || null,
         failureDiag,
-      };
+      });
     }
-    return {
+    return finishWithOptionalSchemaFallback({
       ok: true,
       text: effectiveText,
       model: proof.modelReported,
@@ -865,7 +935,7 @@ export async function runServ(
       transportPolicy,
       responseShape: turn.shape || null,
       failureDiag: null,
-    };
+    });
   } catch (error) {
     if (error instanceof Error && error.name === "ServBudgetError") {
       const proof = recordServProof(

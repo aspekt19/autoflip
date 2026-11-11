@@ -1,7 +1,8 @@
 /**
  * Reversible per-profile SERV model configuration (t317).
  *
- * Production default is BASE_MODEL (`gpt-5.6-sol`) for all SERV steps.
+ * Production default is BASE_MODEL (`gemini-3.1-pro-preview`) for all SERV steps.
+ * Schema / structured-output failures fall back once to SCHEMA_FALLBACK_MODEL (`gpt-5.6-sol`).
  * Parent may opt a single profile onto an allowlisted candidate (e.g. Sonnet 5.5
  * for scout_plan) via env without a blanket BASE_MODEL flip.
  *
@@ -9,20 +10,21 @@
  *   1. SERV_PROFILE_MODEL_<PROFILE> (e.g. SERV_PROFILE_MODEL_SCOUT_PLAN=claude-sonnet-5.5)
  *      — beats global SERV_MODEL so Sonnet can be tried on scout_plan alone
  *   2. Explicit caller `requested` (deps.model / safe-execute SERV_MODEL)
- *   3. BASE_MODEL (shared production default — gpt-5.6-sol)
+ *   3. BASE_MODEL (shared production default — gemini-3.1-pro-preview)
  *
  * Unlisted ids fail closed unless SERV_PROFILE_MODEL_ALLOW_UNLISTED=1.
  */
 
-import { BASE_MODEL, modelFor, type ProfileId } from "./profiles";
+import { BASE_MODEL, SCHEMA_FALLBACK_MODEL, modelFor, type ProfileId } from "./profiles";
 
 /**
  * Docs + parent-evidenced candidates for product profiles.
  * Sonnet 5.5: parent SAME-input D1 grounded reject + D2 abstain (HTTP 200).
- * Gemini 3.1 Pro Preview: parent SAME-input content-null/refusal-field (parse fail) — candidate for diagnostics only, not production default.
+ * Gemini 3.1 Pro Preview: production BASE_MODEL; Sol is SCHEMA_FALLBACK_MODEL.
  */
 export const SERV_PROFILE_MODEL_CANDIDATES: Partial<Record<ProfileId, readonly string[]>> = {
   scout_plan: [
+    "gemini-3.1-pro-preview",
     "gpt-5.6-sol",
     "gpt-5.4-mini",
     "claude-sonnet-5.5",
@@ -31,10 +33,10 @@ export const SERV_PROFILE_MODEL_CANDIDATES: Partial<Record<ProfileId, readonly s
     "gpt-6.1-sol",
     "claude-opus-5.5",
     "gemini-2.5-flash",
-    "gemini-3.1-pro-preview",
   ],
   // Fable EXCLUDED (owner): Sonnet/GPT first-class via SERV_PROFILE_MODEL_FIND_NEXT_CHECK.
   find_next_check: [
+    "gemini-3.1-pro-preview",
     "gpt-5.6-sol",
     "gpt-5.4-mini",
     "claude-sonnet-5.5",
@@ -43,6 +45,7 @@ export const SERV_PROFILE_MODEL_CANDIDATES: Partial<Record<ProfileId, readonly s
     "claude-opus-5.5",
   ],
   need_extract: [
+    "gemini-3.1-pro-preview",
     "gpt-5.6-sol",
     "gpt-5.4-mini",
     "claude-sonnet-5.5",
@@ -52,6 +55,7 @@ export const SERV_PROFILE_MODEL_CANDIDATES: Partial<Record<ProfileId, readonly s
     "claude-opus-5.5",
   ],
   verdict_decide: [
+    "gemini-3.1-pro-preview",
     "gpt-5.6-sol",
     "gpt-5.4-mini",
     "claude-sonnet-5.5",
@@ -103,6 +107,9 @@ export function resolveProfileBaseModel(
   const allowUnlisted =
     opts?.allowUnlisted === true || env.SERV_PROFILE_MODEL_ALLOW_UNLISTED === "1";
   const candidates = new Set(SERV_PROFILE_MODEL_CANDIDATES[id] ?? [BASE_MODEL]);
+  // Shared default + schema fallback are always allowlisted for every profile.
+  candidates.add(BASE_MODEL);
+  candidates.add(SCHEMA_FALLBACK_MODEL);
   const profileRaw = env[envKeyForProfile(id)];
   const profileEnv = typeof profileRaw === "string" && profileRaw.trim() ? profileRaw.trim() : null;
   const requested =
@@ -112,13 +119,13 @@ export function resolveProfileBaseModel(
     if (!isPlausible(baseId)) {
       return { ok: false, message: `Profile model id failed shape check: ${JSON.stringify(baseId)}` };
     }
-    if (!candidates.has(baseId) && !allowUnlisted) {
+    const stripped = baseId.replace(/-serv-(kronos-multipath|multipath-kronos|multipath|kronos)$/i, "");
+    if (!candidates.has(stripped) && !allowUnlisted) {
       return {
         ok: false,
-        message: `Unsupported model ${baseId} for profile ${id}. Allowlisted: ${[...candidates].join(", ")}. Set SERV_PROFILE_MODEL_ALLOW_UNLISTED=1 only after Flip console validation.`,
+        message: `Unsupported model ${stripped} for profile ${id}. Allowlisted: ${[...candidates].join(", ")}. Set SERV_PROFILE_MODEL_ALLOW_UNLISTED=1 only after Flip console validation.`,
       };
     }
-    const stripped = baseId.replace(/-serv-(kronos-multipath|multipath-kronos|multipath|kronos)$/i, "");
     const effectiveId = modelFor(id, stripped);
     return {
       ok: true,

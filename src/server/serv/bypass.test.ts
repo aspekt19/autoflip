@@ -89,10 +89,9 @@ describe("SERV layer", () => {
     expect(toolNames(telegram.tools)).not.toContain("serv_shadow_agent");
 
     const rules = requestFor("check_rules", "vin");
-    expect(rules.endpoint).toBe("responses");
-    if (rules.endpoint !== "responses") return;
+    expect(rules.endpoint).toBe("chat");
+    if (rules.endpoint !== "chat") return;
     expect(rules.model).toBe(modelFor("check_rules", BASE_MODEL));
-    expect(rules.reasoning.summary).toBe("auto");
     expect(rules.stream).toBe(false);
 
     const feasibility = requestFor("flip_feasibility", "facts");

@@ -14,8 +14,13 @@
 
 import { CONNECT_HELP } from "@/io/telegram";
 
-/** Shared SERV default for every profile (Resale / Radar / agent / Find / Check). */
-export const BASE_MODEL = "gpt-5.6-sol";
+/**
+ * Shared SERV default for every profile (Resale / Radar / agent / Find / Check).
+ * Schema / structured-output failures fall back once to SCHEMA_FALLBACK_MODEL.
+ */
+export const BASE_MODEL = "gemini-3.1-pro-preview";
+/** One-shot fallback when the primary model fails schema / structured output. */
+export const SCHEMA_FALLBACK_MODEL = "gpt-5.6-sol";
 export const SHADOW_MAX_ITERATIONS = 2;
 
 export const REPORT_SHADOW_HINT =
@@ -43,7 +48,8 @@ export const DOCUMENTED_FEATURES = [
   "reasoning_effort",
   "prompt_cache",
   "streaming",
-  "responses_reasoning",
+  // Product SERV steps (resale/radar/agent/check) use chat/completions only —
+  // Gemini default is not available on /v1/responses.
   "application_tool",
   "usage",
 ] as const;
@@ -266,7 +272,8 @@ export const PROFILES = {
     promptCache: "default",
     contentFilter: "default_on",
     stream: false,
-    endpoint: "responses",
+    // Chat only — Gemini BASE_MODEL cannot use /v1/responses; agent/report share this profile.
+    endpoint: "chat",
     codeComputed: ["askingPriceUsd", "miles", "fairValueUsd", "priceGap", "recalls", "complaintCount"],
   },
   report_guard: {
@@ -1181,8 +1188,38 @@ export function featuresUsedBy(id: ProfileId): DocumentedFeature[] {
   if (entry.reasoningEffort) used.push("reasoning_effort");
   if (entry.promptCache === "default") used.push("prompt_cache");
   if (entry.stream) used.push("streaming");
-  if (entry.endpoint === "responses") used.push("responses_reasoning");
   if (entry.applicationTool) used.push("application_tool");
   used.push("usage");
   return used;
+}
+
+/** Shadow Agent cannot finalize a second pass on a stream — always non-stream when shadow is on. */
+export function streamForProfile(entry: ServProfile): boolean {
+  if (entry.tools.includes("shadow")) return false;
+  return entry.stream;
+}
+
+/**
+ * Resale / Radar / agent product steps always POST /v1/chat/completions
+ * (Gemini-compatible; no /v1/responses).
+ */
+export function endpointForProfile(entry: ServProfile): "chat" | "responses" {
+  const id = entry.id;
+  if (
+    id.startsWith("resale_") ||
+    id.startsWith("radar_") ||
+    id.startsWith("agent_") ||
+    id.startsWith("flip_") ||
+    id === "personal_alert_review" ||
+    id === "verdict_decide" ||
+    id === "verdict_challenge" ||
+    id === "check_rules" ||
+    id === "check_guard" ||
+    id === "listing_extract" ||
+    id === "report_guard" ||
+    id === "report_explain"
+  ) {
+    return "chat";
+  }
+  return entry.endpoint;
 }
