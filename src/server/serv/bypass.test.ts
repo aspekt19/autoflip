@@ -1,7 +1,7 @@
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
-import { DOCUMENTED_FEATURES, PROFILES, featuresUsedBy, requestFor, runServ, type ProfileId, type ServProfile } from "./index";
+import { BASE_MODEL, DOCUMENTED_FEATURES, PROFILES, featuresUsedBy, modelFor, requestFor, runServ, type ProfileId, type ServProfile } from "./index";
 import { agentReport } from "@/server/agent-report";
 import { buildSampleReport } from "@/server/sample-report";
 import { paymentRequiredBody, radarToolResult } from "@/server/mcp";
@@ -37,7 +37,7 @@ describe("SERV layer", () => {
     expect(extract.endpoint).toBe("chat");
     if (extract.endpoint !== "chat") return;
     expect(extract.stream).toBe(false);
-    expect(extract.model).toBe("gpt-6.1-sol-serv-kronos-multipath");
+    expect(extract.model).toBe(`${BASE_MODEL}-serv-kronos-multipath`);
     expect(toolNames(extract.tools)).toEqual(["serv_prompt_guard"]);
     expect(extract.response_format?.json_schema.strict).toBe(true);
 
@@ -61,7 +61,7 @@ describe("SERV layer", () => {
     const flip = requestFor("flip_judge", "{}");
     expect(flip.endpoint).toBe("chat");
     if (flip.endpoint !== "chat") return;
-    expect(flip.model).toBe("gpt-6.1-sol-serv-multipath");
+    expect(flip.model).toBe(`${BASE_MODEL}-serv-multipath`);
     expect(flip.stream).toBe(false);
     expect(toolNames(flip.tools)).toEqual(["serv_prompt_guard", "serv_shadow_agent"]);
     const guardParams = (flip.tools[0]!.function as unknown as { parameters: Record<string, unknown> }).parameters;
@@ -76,8 +76,7 @@ describe("SERV layer", () => {
     expect(hint.properties.hint.default).toMatch(/estimate/i);
     expect(hint.properties.max_iterations.default).toBe(2);
     expect(JSON.stringify(hint)).toMatch(/"default"\s*:/);
-    expect(JSON.stringify(hint.properties.hint)).not.toMatch(/"enum"\s*:/);
-    const schema = flip.response_format?.json_schema.schema as {
+    expect(JSON.stringify(hint.properties.hint)).not.toMatch(/"enum"\s*:/);    const schema = flip.response_format?.json_schema.schema as {
       properties: { decisions: { items: { properties: { verdict: { enum: string[] } } } } };
     };
     expect(schema.properties.decisions.items.properties.verdict.enum).toEqual(["alert", "skip"]);
@@ -101,15 +100,14 @@ describe("SERV layer", () => {
     expect(toolNames(telegram.tools)).not.toContain("serv_shadow_agent");
 
     const rules = requestFor("check_rules", "vin");
-    expect(rules.endpoint).toBe("responses");
-    if (rules.endpoint !== "responses") return;
-    expect(rules.model).toBe("gpt-6.1-sol-serv-kronos");
-    expect(rules.reasoning.summary).toBe("auto");
+    // Decide/check steps use chat/completions only — never /v1/responses.
+    expect(rules.endpoint).toBe("chat");
+    if (rules.endpoint !== "chat") return;
+    expect(rules.model).toBe(`${BASE_MODEL}-serv-kronos`);
     expect(rules.stream).toBe(false);
 
     const feasibility = requestFor("flip_feasibility", "facts");
-    expect(feasibility.model).toBe("gpt-6.1-sol-serv-kronos");
-    expect(toolNames(feasibility.tools)).toEqual(["serv_prompt_guard"]);
+    expect(feasibility.model).toBe(`${BASE_MODEL}-serv-kronos`);    expect(toolNames(feasibility.tools)).toEqual(["serv_prompt_guard"]);
     expect(feasibility.endpoint).toBe("chat");
     expect("response_format" in feasibility).toBe(false);
     expect(Object.keys(PROFILES)).toEqual(
@@ -140,6 +138,10 @@ describe("SERV layer", () => {
       ]),
     );
     expect(PROFILES.verdict_challenge.jsonSchema?.name).toBe("report_verdict_challenge");
+    expect(PROFILES.verdict_challenge.feature).toBe("kronos");
+    expect(PROFILES.verdict_challenge.tools).toEqual(["prompt_guard"]);
+    expect(toolNames(requestFor("verdict_challenge", "{}").tools)).toEqual(["serv_prompt_guard"]);
+    expect(requestFor("verdict_challenge", "{}").model).toMatch(/-serv-kronos$/);
     expect(PROFILES.find_close_call_multipath.feature).toBe("multipath");
     expect(PROFILES.find_next_check.jsonSchema?.name).toBe("find_next_check_choice");
     expect(PROFILES.find_next_check.codeComputed).toEqual(
@@ -149,6 +151,9 @@ describe("SERV layer", () => {
     expect(PROFILES.scout_plan.feature).toBe("none");
     expect(toolNames(requestFor("scout_plan", "{}").tools)).toEqual(["serv_prompt_guard"]);
     expect(PROFILES.verdict_decide.feature).toBe("multipath");
+    expect(PROFILES.verdict_decide.tools).toEqual(expect.arrayContaining(["prompt_guard", "shadow"]));
+    expect(PROFILES.find_pick.feature).toBe("multipath");
+    expect(PROFILES.find_pick.tools).toEqual(expect.arrayContaining(["prompt_guard", "shadow"]));
     expect(PROFILES.verdict_decide.jsonSchema?.name).toBe("report_verdict_decision");
   });
 
@@ -172,7 +177,10 @@ describe("SERV layer", () => {
     for (const id of Object.keys(PROFILES) as ProfileId[]) {
       for (const feature of featuresUsedBy(id)) used.add(feature);
     }
-    expect([...used].sort()).toEqual([...DOCUMENTED_FEATURES].sort());
+    // responses_reasoning stays documented but unused — product profiles are chat-only.
+    const expected = DOCUMENTED_FEATURES.filter((f) => f !== "responses_reasoning");
+    expect([...used].sort()).toEqual([...expected].sort());
+    expect(used.has("responses_reasoning")).toBe(false);
     // OpenServ Graph product must not appear (t257/t258). Kronos/Multipath are not Graph.
     expect(used.has("graph")).toBe(false);
     const hints = new Set<string>();
@@ -192,6 +200,22 @@ describe("SERV layer", () => {
     expect(PROFILES.flip_feasibility.feature).toBe("kronos");
     expect(PROFILES.flip_judge.feature).toBe("multipath");
     expect(PROFILES.flip_judge.jsonSchema?.name).toBe("flip_alert_judgment");
+  });
+
+  it("modelFor strips prior SERV suffixes including combined kronos-multipath forms", () => {
+    // Combined emission is available when a profile sets feature: "kronos-multipath".
+    // Strip must accept either order so PR A / callers can pass already-suffixed ids.
+    expect(modelFor("verdict_challenge", "gpt-5.6-sol")).toBe("gpt-5.6-sol-serv-kronos");
+    expect(modelFor("verdict_challenge", "gpt-5.6-sol-serv-kronos")).toBe("gpt-5.6-sol-serv-kronos");
+    expect(modelFor("find_pick", "gpt-5.6-sol-serv-kronos-multipath")).toBe(
+      "gpt-5.6-sol-serv-multipath",
+    );
+    expect(modelFor("find_pick", "gpt-5.6-sol-serv-multipath-kronos")).toBe(
+      "gpt-5.6-sol-serv-multipath",
+    );
+    expect(modelFor("find_close_call_multipath", "gpt-5.6-sol")).toBe(
+      "gpt-5.6-sol-serv-multipath",
+    );
   });
 
   it("copies inference fields that exist and always builds an agent proof", () => {

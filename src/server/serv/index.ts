@@ -1,4 +1,21 @@
-export { BASE_MODEL, DOCUMENTED_FEATURES, FLIP_SHADOW_HINT, PROFILES, REPORT_SHADOW_HINT, SHADOW_MAX_ITERATIONS, featuresUsedBy, modelFor, profile, servBudget, type DocumentedFeature, type ProfileId, type ServProfile } from "./profiles";
+export {
+  BASE_MODEL,
+  DOCUMENTED_FEATURES,
+  FLIP_SHADOW_HINT,
+  PROFILES,
+  REPORT_SHADOW_HINT,
+  SHADOW_MAX_ITERATIONS,
+  endpointForProfile,
+  featuresUsedBy,
+  isGeminiModelId,
+  modelFor,
+  profile,
+  servBudget,
+  streamForProfile,
+  type DocumentedFeature,
+  type ProfileId,
+  type ServProfile,
+} from "./profiles";
 export {
   resolveProfileBaseModel,
   requireProfileBaseModel,

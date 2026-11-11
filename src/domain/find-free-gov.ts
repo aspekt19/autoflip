@@ -162,8 +162,14 @@ function toListingStub(
 }
 
 
-/** Bounded free-gov batch size — finite progress per apply; continues across loops. */
+/**
+ * Legacy per-hop batch size (kept for unit tests of selectFindFreeGovCandidates).
+ * Production triage uses executeAllFindFreeGovChecksParallel — all tools × all MMYs.
+ */
 export const FIND_FREE_GOV_BATCH_MAX = 3;
+
+/** Hard ceiling on MMYs per tool in one parallel triage wave (safety bound, not a hop loop). */
+export const FIND_FREE_GOV_TRIAGE_MAX = 64;
 
 export type FreeGovToolCoverageSlice = {
   checked: number;
@@ -474,18 +480,121 @@ export type ExecuteFindFreeGovResult = {
   note: string;
 };
 
+export type ExecuteAllFindFreeGovResult = {
+  receipts: FindFreeGovReceipt[];
+  evidenceChanged: boolean;
+  note: string;
+  /** Which tools produced at least one receipt this wave. */
+  checkIds: FindFreeGovCheckId[];
+};
+
+function scrubFreeGovMachineIds(text: string): string {
+  return text
+    .replace(/\bfree_gov_(?:recalls|vpic|safety|fuel)\b/g, "free public check")
+    .replace(/\bevidence\.gov_(?:recalls|vpic|safety|fuel)\b/g, "government data");
+}
+
+function plainFreeGovToolName(checkId: FindFreeGovCheckId, short = false): string {
+  if (checkId === "free_gov_recalls") return short ? "recall" : "Recall";
+  if (checkId === "free_gov_safety") return short ? "crash-rating" : "Crash-rating";
+  if (checkId === "free_gov_fuel") return "FuelEconomy.gov";
+  return short ? "VIN decode" : "VIN decode";
+}
+
+type FreeGovListingRow = ObservedListingRow & {
+  vin?: string | null;
+  trim?: string | null;
+  engine?: string | null;
+  drivetrain?: string | null;
+};
+
+/**
+ * One parallel free-gov triage wave: every free government tool × every unchecked
+ * year/make/model (and VIN decode where a VIN exists). Replaces the old hop-by-hop
+ * batch-of-3 / 48-round drain. No Report credit. Never invents clean history.
+ */
+export async function executeAllFindFreeGovChecksParallel(input: {
+  listings: readonly FreeGovListingRow[];
+  priorReceipts?: readonly FindFreeGovReceipt[];
+  gov?: ScoutFreeGovPort;
+  shopperNote?: string | null;
+  /** Cap MMYs per tool (default FIND_FREE_GOV_TRIAGE_MAX). */
+  maxPerTool?: number;
+}): Promise<ExecuteAllFindFreeGovResult> {
+  const prior = input.priorReceipts ?? [];
+  const maxPerTool = Math.max(1, Math.floor(input.maxPerTool ?? FIND_FREE_GOV_TRIAGE_MAX));
+  const gov =
+    input.gov ??
+    createLiveFreeGovPort({
+      shopperNote: input.shopperNote ?? null,
+      cache: freeGovProcessCache(),
+    });
+
+  type Job = { checkId: FindFreeGovCheckId; toolId: FreeGovToolId; listing: Listing };
+  const jobs: Job[] = [];
+  for (const checkId of FIND_FREE_GOV_CHECK_IDS) {
+    const toolId = findFreeGovToolIdForCheck(checkId);
+    if (!isFreeGovToolId(toolId)) continue;
+    const candidates = selectFindFreeGovCandidates(
+      input.listings,
+      checkId,
+      maxPerTool,
+      prior,
+    );
+    for (const listing of candidates) {
+      jobs.push({ checkId, toolId, listing });
+    }
+  }
+
+  if (jobs.length === 0) {
+    const coverage = freeGovToolCoverage(input.listings, prior);
+    return {
+      receipts: [],
+      evidenceChanged: false,
+      checkIds: [],
+      note: coverage.anyUnchecked
+        ? scrubFreeGovMachineIds(
+            "Free public checks skipped — no listing identity for free public lookup. Not VIN/title clearance.",
+          )
+        : scrubFreeGovMachineIds(
+            `Public safety records are caught up for these cars. ${coverage.note} No Report credit. Not NMVTIS/title clearance.`,
+          ),
+    };
+  }
+
+  const settled = await Promise.all(
+    jobs.map(async (job) => {
+      const packet = await gov.run(job.toolId, job.listing);
+      return packetToReceipt(job.checkId, job.listing, packet);
+    }),
+  );
+
+  const checkIds = [...new Set(settled.map((r) => r.checkId))];
+  const okish = settled.filter((r) => r.status === "ok" || r.status === "empty").length;
+  const failed = settled.length - okish;
+  const after = freeGovToolCoverage(input.listings, [...prior, ...settled]);
+  const tools = checkIds.map((id) => plainFreeGovToolName(id, true)).join(", ");
+  return {
+    receipts: settled,
+    evidenceChanged: true,
+    checkIds,
+    note: scrubFreeGovMachineIds(
+      `Free public checks in one pass (${settled.length} lookups across ${tools}): ${okish} ok/empty, ${failed} unavailable/error. Progress: ${after.note} No Report credit. Not NMVTIS/title clearance.`,
+    ),
+  };
+}
+
+/** Alias used by the Find decide orchestrator (PR #155 path). */
+export const executeAllFindFreeGovParallel = executeAllFindFreeGovChecksParallel;
+
 /**
  * Execute one allowlisted free Find check against recorded listings.
+ * Prefer executeAllFindFreeGovChecksParallel for production triage.
  * Inject port for offline tests (unsupported / mock). Live uses createLiveFreeGovPort.
  */
 export async function executeFindFreeGovCheck(input: {
   checkId: FindNextCheckId | string;
-  listings: readonly (ObservedListingRow & {
-    vin?: string | null;
-    trim?: string | null;
-    engine?: string | null;
-    drivetrain?: string | null;
-  })[];
+  listings: readonly FreeGovListingRow[];
   /** Prior receipts — next batch prefers unchecked MMYs for this checkId. */
   priorReceipts?: readonly FindFreeGovReceipt[];
   gov?: ScoutFreeGovPort;
@@ -493,6 +602,12 @@ export async function executeFindFreeGovCheck(input: {
   shopperNote?: string | null;
   /** Per-car checks run only on these keys (fallback is the caller's top 3). */
   targetKeys?: readonly string[];
+  /**
+   * When true, drain all unchecked MMYs for this tool (up to FIND_FREE_GOV_TRIAGE_MAX).
+   * Default false keeps the legacy batch-of-3 for unit tests / single-tool hops.
+   * Production triage uses executeAllFindFreeGovChecksParallel instead.
+   */
+  drainAll?: boolean;
 }): Promise<ExecuteFindFreeGovResult | null> {
   if (!isFindFreeGovCheckId(input.checkId)) return null;
   const checkId = input.checkId;
@@ -501,11 +616,16 @@ export async function executeFindFreeGovCheck(input: {
 
   const prior = input.priorReceipts ?? [];
   const coverage = freeGovToolCoverage(input.listings, prior);
-  const explicitTargets = (input.targetKeys ?? []).map((key) => key.trim()).filter(Boolean).slice(0, 3);
+  const drainAll = input.drainAll === true;
+  const batchMax = drainAll ? FIND_FREE_GOV_TRIAGE_MAX : FIND_FREE_GOV_BATCH_MAX;
+  const explicitTargets = (input.targetKeys ?? [])
+    .map((key) => key.trim())
+    .filter(Boolean)
+    .slice(0, drainAll ? FIND_FREE_GOV_TRIAGE_MAX : 3);
   let candidates = selectFindFreeGovCandidates(
     input.listings,
     checkId,
-    FIND_FREE_GOV_BATCH_MAX,
+    batchMax,
     prior,
     explicitTargets.length > 0 ? explicitTargets : undefined,
   );
@@ -514,21 +634,14 @@ export async function executeFindFreeGovCheck(input: {
     const progress = selectFindFreeGovCandidates(
       input.listings,
       checkId,
-      FIND_FREE_GOV_BATCH_MAX,
+      batchMax,
       prior,
     );
     if (progress.length > 0) candidates = progress;
   }
   if (candidates.length === 0) {
     const covered = !freeGovCheckStillHasUnchecked(coverage, checkId);
-    const plainTool =
-      checkId === "free_gov_recalls"
-        ? "Recall"
-        : checkId === "free_gov_safety"
-          ? "Crash-rating"
-          : checkId === "free_gov_fuel"
-            ? "FuelEconomy.gov"
-            : "VIN decode";
+    const plainTool = plainFreeGovToolName(checkId);
     return {
       checkId,
       toolId,
@@ -550,42 +663,28 @@ export async function executeFindFreeGovCheck(input: {
       shopperNote: input.shopperNote ?? null,
       cache: freeGovProcessCache(),
     });
-  const receipts: FindFreeGovReceipt[] = [];
-  for (const listing of candidates) {
-    const packet = await gov.run(toolId, listing);
-    receipts.push(packetToReceipt(checkId, listing, packet));
-  }
+  const packets = await Promise.all(candidates.map((listing) => gov.run(toolId, listing)));
+  const receipts = packets.map((packet, i) => packetToReceipt(checkId, candidates[i]!, packet));
 
   const okish = receipts.filter((r) => r.status === "ok" || r.status === "empty").length;
   const failed = receipts.length - okish;
-  const scrubMachineIds = (text: string) =>
-    text
-      .replace(/\bfree_gov_(?:recalls|vpic|safety|fuel)\b/g, "free public check")
-      .replace(/\bevidence\.gov_(?:recalls|vpic|safety|fuel)\b/g, "government data");
   const perCard = receipts
     .map(
       (r) =>
-        `${r.year} ${r.make} ${r.model}: ${r.status} — ${scrubMachineIds(r.summary).slice(0, 120)}`,
+        `${r.year} ${r.make} ${r.model}: ${r.status} — ${scrubFreeGovMachineIds(r.summary).slice(0, 120)}`,
     )
     .slice(0, 3)
     .join(" | ");
   const after = freeGovToolCoverage(input.listings, [...prior, ...receipts]);
-  const plainTool =
-    checkId === "free_gov_recalls"
-      ? "recall"
-      : checkId === "free_gov_safety"
-        ? "crash-rating"
-        : checkId === "free_gov_fuel"
-          ? "FuelEconomy.gov"
-          : "VIN decode";
+  const plainTool = plainFreeGovToolName(checkId, true);
   return {
     checkId,
     toolId,
     receipts,
     evidenceChanged: true,
     // Plain English only — never raw checkId / toolId (owner rule for any surface that may echo notes).
-    note: scrubMachineIds(
-      `Free public ${plainTool} batch ${receipts.length} unchecked year/make/model: ${okish} ok/empty, ${failed} unavailable/error. ${perCard}. Progress: ${after.note} ${receipts[0]?.honesty ?? ""} No Report credit. Not NMVTIS/title clearance.`,
+    note: scrubFreeGovMachineIds(
+      `Free public ${plainTool} ${drainAll ? "pass" : "batch"} ${receipts.length} unchecked year/make/model: ${okish} ok/empty, ${failed} unavailable/error. ${perCard}. Progress: ${after.note} ${receipts[0]?.honesty ?? ""} No Report credit. Not NMVTIS/title clearance.`,
     ),
   };
 }

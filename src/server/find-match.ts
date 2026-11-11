@@ -564,6 +564,8 @@ export async function runFindMatch(
       ).catch(() => undefined);
     }
 
+    // Flip mode keeps code P&L scores for hard guardrails (negative resale profit).
+    // Personal Find does not invent a score-0 ranking — SERV settles the pick later.
     const ranked =
       need.mode === "flip"
         ? rankFlipCandidates(collected, new Date(), {
@@ -590,26 +592,22 @@ export async function runFindMatch(
         };
       })
       .sort((a, b) => {
+        // Budget hard filter only for personal; flip may order by P&L score for display.
+        // Negative resale profit is a settle/pick guardrail (not an inventory wipe).
         const aOver = a.overBudget ? 1 : 0;
         const bOver = b.overBudget ? 1 : 0;
         if (aOver !== bOver) return aOver - bOver;
         if (need.mode === "flip") {
           return (byVin.get(b.vin)?.score ?? 0) - (byVin.get(a.vin)?.score ?? 0);
         }
-        const aKey = (a.vin || "").trim().toUpperCase();
-        const bKey = (b.vin || "").trim().toUpperCase();
-        const scoreDelta = (personalScores.get(bKey) ?? 0) - (personalScores.get(aKey) ?? 0);
-        if (scoreDelta !== 0) return scoreDelta;
-        // Soft AWD before price so preferably-AWD does not bury AWD under FWD ties.
-        if (needPrefersAwd(need)) {
-          const aAwd = /\b(awd|4wd|all[\s-]?wheel|four[\s-]?wheel)\b/i.test(a.drivetrain ?? "") ? 1 : 0;
-          const bAwd = /\b(awd|4wd|all[\s-]?wheel|four[\s-]?wheel)\b/i.test(b.drivetrain ?? "") ? 1 : 0;
-          if (aAwd !== bAwd) return bAwd - aAwd;
-        }
+        // Stable personal order: lower ask, then lower miles, then VIN — not a fake score-0 rank.
         const pa = a.priceUsd ?? Number.POSITIVE_INFINITY;
         const pb = b.priceUsd ?? Number.POSITIVE_INFINITY;
         if (pa !== pb) return pa - pb;
-        return (a.miles ?? Number.POSITIVE_INFINITY) - (b.miles ?? Number.POSITIVE_INFINITY);
+        const ma = a.miles ?? Number.POSITIVE_INFINITY;
+        const mb = b.miles ?? Number.POSITIVE_INFINITY;
+        if (ma !== mb) return ma - mb;
+        return (a.vin || "").localeCompare(b.vin || "");
       })
       .filter((item) => {
         // Drop VINs already shown under an earlier direction; only claim shown rows.
@@ -718,7 +716,24 @@ export async function runFindMatch(
 
   // Audit fallback: when every planned model returns 0 cars, one broader query —
   // body style only (or any), years ±2, nationwide — before declaring empty.
-  if (visible === 0 && providerQueriesUsed > 0 && !deps.deadline?.expired()) {
+  // Bound by the same deadline/inventory cap so a hanging provider cannot outlive the stage.
+  // Skip when the planned wave already burned the stage budget (timeouts ≠ confirmed empty).
+  const plannedWaveTimedOut =
+    dispatches.length > 0 && dispatches.every((row) => row.timedOut || !row.result);
+  const broadenBudgetMs = Math.max(
+    0,
+    Math.min(
+      8_000,
+      deps.deadline ? Math.max(0, deps.deadline.remainingMs() - 1_000) : 8_000,
+    ),
+  );
+  if (
+    visible === 0 &&
+    providerQueriesUsed > 0 &&
+    !plannedWaveTimedOut &&
+    !deps.deadline?.expired() &&
+    broadenBudgetMs >= 1_000
+  ) {
     const bodyStyle =
       directions.find((d) => d.bodyStyle)?.bodyStyle ?? need.bodyStyle ?? undefined;
     const yearPad = 2;
@@ -736,6 +751,18 @@ export async function runFindMatch(
       search: { make: "", model: "" },
       bodyStyle,
     };
+    const broadenAbort = new AbortController();
+    const broadenTimer = setTimeout(() => broadenAbort.abort(), broadenBudgetMs);
+    const broadenDeps: FindMatchDeps = {
+      ...deps,
+      autodev: deps.autodev
+        ? {
+            ...deps.autodev,
+            signal: broadenAbort.signal,
+            timeoutMs: Math.min(deps.autodev.timeoutMs ?? broadenBudgetMs, broadenBudgetMs),
+          }
+        : deps.autodev,
+    };
     try {
       const broadenResult = await runAssemble(
         {
@@ -751,7 +778,7 @@ export async function runFindMatch(
           priceMax: need.budgetKnown && need.budgetUsd ? need.budgetUsd : undefined,
           skipRadarGuard: true,
         },
-        deps,
+        broadenDeps,
       );
       providerQueriesUsed += 1;
       if (broadenResult.ok && broadenResult.listings.length > 0) {
@@ -813,6 +840,9 @@ export async function runFindMatch(
       }
     } catch {
       // Broaden is best-effort — keep the empty planned result.
+    } finally {
+      clearTimeout(broadenTimer);
+      if (!broadenAbort.signal.aborted) broadenAbort.abort();
     }
   }
 

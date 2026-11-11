@@ -20,6 +20,7 @@ import type { BestDealCandidate, BestDealResult } from "@/domain/find-best-deal"
 import { understandNeed } from "@/server/understand-need";
 import { runFindSettleServ } from "@/server/find-settle-serv";
 import { reviewPersonalCandidate } from "@/server/radar-serv";
+import { BASE_MODEL } from "@/server/serv";
 import { normalizeCriteria } from "@/server/radar-normalize-criteria";
 import { listAlerts, listRuns, saveAlerts, saveSearches, seenVins, storeSeenPrices } from "@/server/radar-store";
 import { runRadarCycle } from "@/server/radar-cycle";
@@ -175,7 +176,7 @@ describe("find → SERV → watch → radar verdict_decide acceptance (merge gat
 
     const parsed = await understandNeed(
       { text: NOTE, mode: "personal", budgetUsd: 18_000, budgetKnown: true, zip: "33101" },
-      { servKey: "test-key", fetchImpl: findFetch, servModel: "gpt-5.4-mini" },
+      { servKey: "test-key", fetchImpl: findFetch, servModel: BASE_MODEL },
     );
     expect(parsed.ok).toBe(true);
     if (!parsed.ok) return;
@@ -434,7 +435,7 @@ describe("find → SERV → watch → radar verdict_decide acceptance (merge gat
       fetchImpl: radarFetch,
       autodevKey: "test",
       servKey: "test-key",
-      servModel: "gpt-5.4-mini",
+      servModel: BASE_MODEL,
       origin: "https://autoflip.example",
       env: {},
       forceAll: true,
@@ -508,7 +509,7 @@ describe("find → SERV → watch → radar verdict_decide acceptance (merge gat
       {
         fetchImpl: radarFetch,
         servKey: "test-key",
-        servModel: "gpt-5.4-mini",
+        servModel: BASE_MODEL,
         timeoutMs: 8_000,
         searchId: search.id,
         challenge: false,

@@ -6,6 +6,7 @@ import { getKv } from "@/io/kv";
 import {
   CHECK_DELIVERY_LOGIC_VERSION,
   checkDeliveryKey,
+  isDegradedCheckDeliveryResult,
   legacyCheckDeliveryKey,
   readCheckDelivery,
   storeCheckDelivery,
@@ -104,11 +105,12 @@ export async function POST(request: Request) {
   const forceFresh = body.forceFresh === true || body.fresh === true;
 
   // VIN checks can short-circuit on a prior delivery before running SERV again.
-  // Logic-versioned key: pre-fix caches are never served as current.
+  // Logic-versioned key: pre-fix and degraded caches are never served as current.
   if (input.kind === "vin" && !forceFresh) {
     const priorKey = checkDeliveryKey(access.id, month, input.vin);
     const prior = await readCheckDelivery(kv, priorKey);
-    if (prior) {
+    if (prior && !isDegradedCheckDeliveryResult(prior.result)) {
+      const creditsNow = await balanceOf(access.id);
       return Response.json({
         ok: true,
         ...prior.result,
@@ -124,25 +126,29 @@ export async function POST(request: Request) {
             ? "Returning saved check; free check already used for this vehicle this month."
             : "Returning saved check; no charge.",
         freeChecks: slots.view,
+        credits: creditsNow,
+        balance: creditsNow,
       });
     }
-    // Legacy unversioned row — label as stale and do not treat as current verdict.
+    // Legacy / degraded row — do not replay as the current verdict.
     const legacy = await readCheckDelivery(kv, legacyCheckDeliveryKey(access.id, month, input.vin));
-    if (legacy) {
-      const when = legacy.settledAt.slice(0, 10);
-      return Response.json({
-        ok: true,
-        ...legacy.result,
-        usedFreeCheck: false,
-        spentCredit: false,
-        fromCache: true,
-        staleLogic: true,
-        logicVersion: legacy.logicVersion ?? 1,
-        settledAt: legacy.settledAt,
-        billingNote: `Saved check from ${when} predates current Check logic (v${CHECK_DELIVERY_LOGIC_VERSION}). Shown for history only — run a fresh check to apply today’s stop flags and confidence rules.`,
-        offerFreshCheck: true,
-        freeChecks: slots.view,
-      });
+    if (legacy || (prior && isDegradedCheckDeliveryResult(prior.result))) {
+      const when = (legacy ?? prior)!.settledAt.slice(0, 10);
+      return Response.json(
+        {
+          ok: false,
+          error: "stale_check_cache",
+          message: `A saved check from ${when} predates current Check logic (v${CHECK_DELIVERY_LOGIC_VERSION}) or is incomplete. Run a fresh check to apply today’s stop flags and confidence rules.`,
+          fromCache: true,
+          staleLogic: true,
+          offerFreshCheck: true,
+          logicVersion: (legacy ?? prior)?.logicVersion ?? 1,
+          settledAt: (legacy ?? prior)!.settledAt,
+          freeChecks: slots.view,
+          credits: await balanceOf(access.id),
+        },
+        { status: 409 },
+      );
     }
   }
 
@@ -184,7 +190,8 @@ export async function POST(request: Request) {
     const deliveryKey = checkDeliveryKey(access.id, month, vinKey);
     if (!forceFresh) {
       const prior = await readCheckDelivery(kv, deliveryKey);
-      if (prior) {
+      if (prior && !isDegradedCheckDeliveryResult(prior.result)) {
+        const creditsNow = await balanceOf(access.id);
         return Response.json({
           ok: true,
           ...prior.result,
@@ -199,6 +206,8 @@ export async function POST(request: Request) {
               ? "Returning saved check; free check already used for this vehicle this month."
               : "Returning saved check; no charge.",
           freeChecks: slots.view,
+          credits: creditsNow,
+          balance: creditsNow,
         });
       }
     }
@@ -275,6 +284,7 @@ export async function POST(request: Request) {
       });
     }
 
+    const creditsAfter = await balanceOf(access.id);
     return Response.json({
       ok: true,
       ...result.result,
@@ -282,6 +292,8 @@ export async function POST(request: Request) {
       spentCredit,
       billingNote,
       freeChecks,
+      credits: creditsAfter,
+      balance: creditsAfter,
       // Degraded SERV/recall runs are not month-cached — offer a fresh check.
       ...(cacheable
         ? {}

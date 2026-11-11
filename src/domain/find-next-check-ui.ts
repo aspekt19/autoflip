@@ -45,10 +45,10 @@ const FREE_GOV_CONTINUE_REASONS = new Set([
 
 /**
  * Hard ceiling on client auto-continues per search token.
- * Sized for a large shortlist (e.g. ~14 MMY × 4 free tools ÷ batch 3 ≈ 19 steps)
- * with headroom for rematch/compare — never an unbounded spinner loop.
+ * Free public checks drain in one parallel triage wave (not a 48-hop batch loop).
+ * This cap only bounds rematch / consistency / close-call hops after triage.
  */
-export const FIND_NEXT_CHECK_AUTO_CONTINUE_MAX = 48;
+export const FIND_NEXT_CHECK_AUTO_CONTINUE_MAX = 8;
 
 /**
  * After a step, continue automatically when server loop says so (evidence→replan).

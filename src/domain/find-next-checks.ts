@@ -82,18 +82,15 @@ function hasGap(gaps: SoftPrefGap[], id: SoftPrefGap["id"]): boolean {
   return gaps.some((g) => g.id === id);
 }
 
-/** Condition / hidden-risk intent — free vehicle checks are useful before median settle. */
+/**
+ * @deprecated Free public checks always run after fetch (no keyword/regex gate).
+ * Kept so older tests/callers compile; always returns true when listings exist upstream.
+ */
 export function wantsFreeVehicleEvidence(
-  need: FindNextCheckInput["need"],
-  softGaps: SoftPrefGap[],
-  note?: string | null,
+  _need: FindNextCheckInput["need"],
+  _softGaps: SoftPrefGap[],
 ): boolean {
-  if (need.conditionPriority === "inspection_first" || hasGap(softGaps, "history")) return true;
-  // Align with find-best-deal prefersConditionFromNote so “reliable” notes still drain free_gov_*.
-  const text = typeof note === "string" ? note : "";
-  return /\bgood condition\b|\bexpensive repairs\b|\bhidden problems\b|\breliable\b|\binspection\b|\bhistory report\b/i.test(
-    text,
-  );
+  return true;
 }
 
 /**
@@ -137,8 +134,8 @@ export function proposeFindNextChecks(input: FindNextCheckInput): FindNextCheck[
     });
   }
 
-  const freeWanted = wantsFreeVehicleEvidence(input.need, input.softGaps, input.need.note);
-  const fuelWanted = freeWanted || hasGap(input.softGaps, "fuel_or_running_cost");
+  // Free public checks always run when cards exist — no keyword/regex gate.
+  // Production drains all four tools in one parallel triage wave (see executeAllFindFreeGovChecksParallel).
   const coverage = input.freeGovCoverage ?? null;
   const recallsOpen = !coverage || freeGovCheckStillHasUnchecked(coverage, "free_gov_recalls");
   const safetyOpen = !coverage || freeGovCheckStillHasUnchecked(coverage, "free_gov_safety");
@@ -147,43 +144,41 @@ export function proposeFindNextChecks(input: FindNextCheckInput): FindNextCheck[
   const vpicOpen =
     Boolean(input.listingsHaveVin) &&
     (!coverage || freeGovCheckStillHasUnchecked(coverage, "free_gov_vpic"));
-  if (freeWanted && input.observedListingCount > 0) {
-    // Keep free_gov_* allowlisted while unchecked year/make/model rows remain — do not permanently burn after one batch.
+  if (input.observedListingCount > 0) {
     if (recallsOpen) {
       out.push({
         id: "free_gov_recalls",
         why: "Check free public recall records for models that are not checked yet. This is not the same as open recalls on this exact car, and it is not a clean history.",
-        evidence: coverage && coverage.recalls.checked > 0 ? "free_gov_mmy_progress" : "condition_or_hidden_risk",
+        evidence: coverage && coverage.recalls.checked > 0 ? "free_gov_mmy_progress" : "listings_present",
       });
     }
     if (vpicOpen) {
       out.push({
         id: "free_gov_vpic",
         why: "Look up free public vehicle specs from the VIN for cars that are not checked yet. Specs are not a clean title or history.",
-        evidence: coverage && coverage.vpic.checked > 0 ? "free_gov_mmy_progress" : "vin_present_condition_risk",
+        evidence: coverage && coverage.vpic.checked > 0 ? "free_gov_mmy_progress" : "vin_present",
       });
     }
     if (safetyOpen) {
       out.push({
         id: "free_gov_safety",
         why: "Check free public crash-test ratings for models that are not checked yet. Not Rated stays unknown.",
-        evidence: coverage && coverage.safety.checked > 0 ? "free_gov_mmy_progress" : "condition_or_hidden_risk",
+        evidence: coverage && coverage.safety.checked > 0 ? "free_gov_mmy_progress" : "listings_present",
       });
     }
-  }
-
-  if (fuelWanted && input.observedListingCount > 0 && fuelOpen) {
-    const fuelSlice = coverage?.fuel;
-    out.push({
-      id: "free_gov_fuel",
-      why: "Estimate annual fuel cost from free public FuelEconomy.gov data for models that are not checked yet. When several configurations match, the result stays a labeled range. This is not a full ownership cost.",
-      evidence:
-        fuelSlice && fuelSlice.checked > 0
-          ? "free_gov_mmy_progress"
-          : hasGap(input.softGaps, "fuel_or_running_cost")
-            ? "soft_pref_fuel"
-            : "condition_or_hidden_risk",
-    });
+    if (fuelOpen) {
+      const fuelSlice = coverage?.fuel;
+      out.push({
+        id: "free_gov_fuel",
+        why: "Estimate annual fuel cost from free public FuelEconomy.gov data for models that are not checked yet. When several configurations match, the result stays a labeled range. This is not a full ownership cost.",
+        evidence:
+          fuelSlice && fuelSlice.checked > 0
+            ? "free_gov_mmy_progress"
+            : hasGap(input.softGaps, "fuel_or_running_cost")
+              ? "soft_pref_fuel"
+              : "listings_present",
+      });
+    }
   }
 
   if (input.observedListingCount > 0 && input.consistencyStillOpen !== false) {

@@ -157,6 +157,25 @@ export function listingVdpVerifiability(input: {
   trim?: string | null;
 }): ListingVdpVerifiability {
   const seller = sellerLinkHonesty({ dealer: input.dealer, vdp: input.vdp });
+  // Carfax / history hosts may be stripped by buyerListingHref — still label them
+  // honestly before the generic "no link" path.
+  try {
+    const raw = typeof input.vdp === "string" ? input.vdp.trim() : "";
+    if (/^https?:\/\//i.test(raw)) {
+      const rawHost = new URL(raw).hostname.replace(/^www\./i, "").toLowerCase();
+      if (rawHost === "carfax.com" || rawHost.endsWith(".carfax.com")) {
+        return {
+          href: null,
+          direct: false,
+          flag: "No direct dealer listing link — this URL is a Carfax page, not the dealer’s vehicle page.",
+          sellerMismatchNote: seller.note,
+          pageMismatchNote: null,
+        };
+      }
+    }
+  } catch {
+    /* fall through */
+  }
   const href = buyerListingHref(input.vdp);
   if (!href) {
     return {

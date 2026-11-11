@@ -10,7 +10,7 @@ import { SimilarCarsList } from "@/components/SimilarCarsList";
 import { confidenceLabel, type AgentVerdict } from "@/domain/agent-verdict-schema";
 import { actionLabel } from "@/domain/decision-action";
 import { providerResponseId } from "@/domain/serv-response-id";
-import { refreshPublishedCreditBalance } from "@/domain/credit-balance-event";
+import { publishCreditBalance, refreshPublishedCreditBalance } from "@/domain/credit-balance-event";
 import {
   formatFreeChecksRemaining,
   freeChecksRemainingFromAccount,
@@ -158,6 +158,8 @@ function CheckFlowForm() {
 
   async function refreshAllowance(from?: {
     freeChecks?: { remaining: number; limit: number; resetsLabel: string } | null;
+    credits?: number;
+    balance?: number;
   }) {
     const token = ++allowanceGen.current;
     if (
@@ -174,11 +176,24 @@ function CheckFlowForm() {
         }),
       );
     }
+    const knownBalance =
+      typeof from?.balance === "number"
+        ? from.balance
+        : typeof from?.credits === "number"
+          ? from.credits
+          : null;
+    if (knownBalance != null) {
+      publishCreditBalance(knownBalance);
+    }
     try {
       const response = await fetch("/api/account", { cache: "no-store" });
-      const body = await response.json();
+      const body = (await response.json()) as {
+        credits?: number;
+        freeChecks?: { remaining?: unknown; limit?: unknown; resetsLabel?: unknown } | null;
+      };
       if (token !== allowanceGen.current) return;
       setAllowance(freeChecksRemainingFromAccount(body));
+      if (typeof body.credits === "number") publishCreditBalance(body.credits);
     } catch {
       if (token !== allowanceGen.current) return;
       setAllowance((prev) => (prev === "loading" ? "missing" : prev));
@@ -321,6 +336,9 @@ function CheckFlowForm() {
         focusVin?: boolean;
         ok?: boolean;
         freeChecks?: { remaining: number; limit: number; resetsLabel: string } | null;
+        credits?: number;
+        balance?: number;
+        offerFreshCheck?: boolean;
       };
 
       if (response.status === 401 || response.status === 403) {
@@ -339,6 +357,19 @@ function CheckFlowForm() {
           router.push(`/login?callbackUrl=${encodeURIComponent("/check")}`);
           return;
         }
+      }
+
+      // Stale/degraded cache — retry once with forceFresh (never replay degraded verdict).
+      if (
+        response.status === 409 &&
+        body.error === "stale_check_cache" &&
+        body.offerFreshCheck &&
+        !opts?.forceFresh
+      ) {
+        await refreshAllowance(body);
+        setPending(false);
+        await submit({ forceFresh: true });
+        return;
       }
 
       if (!response.ok) {

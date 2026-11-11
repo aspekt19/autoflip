@@ -1123,27 +1123,45 @@ export function yearBandForBudget(
   now = new Date(),
   opts?: { approximateFromNote?: boolean },
 ): { yearMin: number; yearMax: number; because: string } {
+  // Bands are relative to the current model-year cap — never a frozen calendar invent (e.g. 2022).
   const cap = now.getUTCFullYear() + 1;
   const approx = Boolean(opts?.approximateFromNote);
-  if (budgetUsd === null) return { yearMin: 2012, yearMax: Math.min(2020, cap), because: "No budget was given, so this is only a starting year band." };
-  if (budgetUsd < 12_000) return { yearMin: 2008, yearMax: 2016, because: "Under $12,000, the guidance table starts with older model years." };
+  if (budgetUsd === null) {
+    return {
+      yearMin: Math.max(2000, cap - 15),
+      yearMax: Math.max(2000, cap - 7),
+      because: "No budget was given, so this is only a starting year band.",
+    };
+  }
+  if (budgetUsd < 12_000) {
+    return {
+      yearMin: Math.max(2000, cap - 19),
+      yearMax: Math.max(2000, cap - 11),
+      because: "Under $12,000, the starting year band favors older model years.",
+    };
+  }
   if (budgetUsd < 20_000) {
     return {
-      yearMin: 2012,
-      yearMax: 2019,
+      yearMin: Math.max(2000, cap - 15),
+      yearMax: Math.max(2000, cap - 8),
       because: approx
-        ? `With a ~$${budgetUsd.toLocaleString("en-US")} note budget, the guidance table uses a mid-2010s band. Asking-price soft tolerance (±${Math.round(BUDGET_AROUND_TOLERANCE_FRAC * 100)}%) still applies until you set a hard max.`
-        : `With a $${budgetUsd.toLocaleString("en-US")} budget, the guidance table uses a mid-2010s band. Set a hard max asking price to filter listings strictly.`,
+        ? `With a ~$${budgetUsd.toLocaleString("en-US")} note budget, the starting year band is mid-age. Asking-price soft tolerance (±${Math.round(BUDGET_AROUND_TOLERANCE_FRAC * 100)}%) still applies until you set a hard max.`
+        : `With a $${budgetUsd.toLocaleString("en-US")} budget, the starting year band is mid-age. Set a hard max asking price to filter listings strictly.`,
     };
   }
   if (budgetUsd < 30_000) {
     return {
-      yearMin: 2015,
-      yearMax: Math.min(2022, cap),
+      yearMin: Math.max(2000, cap - 12),
+      // Relative newer-band ceiling (was a hardcoded 2022 invent).
+      yearMax: Math.max(2000, cap - 5),
       because: approx
-        ? `With a ~$${budgetUsd.toLocaleString("en-US")} note budget, the guidance table uses a newer band. Asking-price soft tolerance (±${Math.round(BUDGET_AROUND_TOLERANCE_FRAC * 100)}%) still applies until you set a hard max.`
-        : `With a $${budgetUsd.toLocaleString("en-US")} budget, the guidance table uses a newer band. Set a hard max asking price to filter listings strictly.`,
+        ? `With a ~$${budgetUsd.toLocaleString("en-US")} note budget, the starting year band is newer. Asking-price soft tolerance (±${Math.round(BUDGET_AROUND_TOLERANCE_FRAC * 100)}%) still applies until you set a hard max.`
+        : `With a $${budgetUsd.toLocaleString("en-US")} budget, the starting year band is newer. Set a hard max asking price to filter listings strictly.`,
     };
   }
-  return { yearMin: 2018, yearMax: cap, because: "At $30,000 or more, the guidance table starts near the current model years." };
+  return {
+    yearMin: Math.max(2000, cap - 9),
+    yearMax: cap,
+    because: "At $30,000 or more, the starting year band is near the current model years.",
+  };
 }

@@ -23,7 +23,7 @@ export type ConfidenceCapResult<T extends ConfidenceLabel | ConfidenceLower> = {
 };
 
 const NEEDS_INSPECTION =
-  /needs[_\s-]?inspection|insufficient[_\s-]?data|not enough (?:price )?data/i;
+  /needs[_\s-]?inspection|inspect[_\s-]?first|insufficient[_\s-]?data|not enough (?:price )?data/i;
 
 function isHigh(c: string): boolean {
   return c === "High" || c === "high";

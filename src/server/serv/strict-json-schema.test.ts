@@ -233,7 +233,15 @@ describe("every SERV requestFor payload is strict-schema clean (tools + response
         }
         // Application / other tool params stay on the strict subset (no `default`).
         const serialized = JSON.stringify(tool.parameters);
-        if (/"default"\s*:/.test(serialized)) {
+        // Shadow Agent uses the documented `default` form. Other tools stay default-free.
+        if (tool.name === "serv_shadow_agent") {
+          if (!/"default"\s*:/.test(serialized)) {
+            failures.push(`${id} tool serv_shadow_agent: documented form requires JSON Schema default`);
+          }
+          if (/"enum"\s*:/.test(serialized)) {
+            failures.push(`${id} tool serv_shadow_agent: must not use enum to pin shadow settings`);
+          }
+        } else if (/"default"\s*:/.test(serialized)) {
           failures.push(`${id} tool ${tool.name}: parameters must not include default (strict subset)`);
         }
         for (const issue of assertStrictJsonSchemaSubset(tool.parameters)) {

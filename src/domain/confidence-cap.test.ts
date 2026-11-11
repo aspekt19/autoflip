@@ -35,6 +35,7 @@ describe("capConfidenceForHonesty", () => {
 
   it("detects Needs inspection labels", () => {
     expect(verdictNeedsInspection("Needs inspection")).toBe(true);
+    expect(verdictNeedsInspection("inspect_first")).toBe(true);
     expect(verdictNeedsInspection("insufficient_data")).toBe(true);
     expect(verdictNeedsInspection("buy")).toBe(false);
   });

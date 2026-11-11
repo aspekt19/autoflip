@@ -25,14 +25,14 @@ export const SERV_SHARED_MODEL_PEERS = ["gpt-6.1-sol", "gpt-5.6-sol", "gpt-5.4-m
 /**
  * Docs + parent-evidenced candidates for product profiles.
  * Sonnet 5.5: parent SAME-input D1 grounded reject + D2 abstain (HTTP 200).
- * Gemini 3.1 Pro Preview: parent SAME-input content-null/refusal-field (parse fail) — candidate for diagnostics only, not production default.
+ * Gemini 3.1 Pro Preview: allowlisted override only (not production default); chat/completions only.
  */
 export const SERV_PROFILE_MODEL_CANDIDATES: Partial<Record<ProfileId, readonly string[]>> = {
   scout_plan: [
-    "gpt-5.4-mini",
+    "gpt-5.6-sol",
     "claude-sonnet-5.5",
     "claude-sonnet-4.6",
-    "gpt-5.6-sol",
+    "gpt-5.4-mini",
     "claude-fable-5",
     "gpt-6.1-sol",
     "claude-opus-5.5",
@@ -41,18 +41,18 @@ export const SERV_PROFILE_MODEL_CANDIDATES: Partial<Record<ProfileId, readonly s
   ],
   // Fable EXCLUDED (owner): Sonnet/GPT first-class via SERV_PROFILE_MODEL_FIND_NEXT_CHECK.
   find_next_check: [
-    "gpt-5.4-mini",
+    "gpt-5.6-sol",
     "claude-sonnet-5.5",
     "claude-sonnet-4.6",
-    "gpt-5.6-sol",
+    "gpt-5.4-mini",
     "gpt-6.1-sol",
     "claude-opus-5.5",
   ],
   need_extract: [
-    "gpt-5.4-mini",
+    "gpt-5.6-sol",
     "claude-sonnet-5.5",
     "claude-sonnet-4.6",
-    "gpt-5.6-sol",
+    "gpt-5.4-mini",
     "claude-fable-5",
     "gpt-6.1-sol",
     "claude-opus-5.5",
@@ -66,11 +66,15 @@ export const SERV_PROFILE_MODEL_CANDIDATES: Partial<Record<ProfileId, readonly s
     "gpt-6.1-sol",
     "claude-opus-5.5",
   ],
+  // PR B C2–C4: Auto models only (no Claude). Production default remains BASE_MODEL (gpt-6.1-sol).
+  find_triage: ["gpt-6.1-sol", "gpt-5.6-sol", "gpt-5.4-mini"],
+  find_decide: ["gpt-6.1-sol", "gpt-5.6-sol", "gpt-5.4-mini"],
+  find_challenge: ["gpt-6.1-sol", "gpt-5.6-sol", "gpt-5.4-mini"],
   verdict_decide: [
-    "gpt-5.4-mini",
+    "gpt-5.6-sol",
     "claude-sonnet-5.5",
     "claude-sonnet-4.6",
-    "gpt-5.6-sol",
+    "gpt-5.4-mini",
     "claude-fable-5",
     "gpt-6.1-sol",
     "claude-opus-5.5",

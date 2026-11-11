@@ -48,6 +48,7 @@ import {
 } from "@/domain/find-model-observe";
 import { proposeFindNextChecks } from "@/domain/find-next-checks";
 import { findNextCheckPendingLabel } from "@/domain/find-next-check-pending";
+import { shouldAutoStartFindDecide } from "@/domain/find-decide-path";
 import {
   FIND_NEXT_CHECK_AUTO_CONTINUE_MAX,
   rematchRefineFromReplan,
@@ -318,9 +319,11 @@ function AssistantFlow({
     coverage: string;
     coverageLevel: "low" | "medium" | "high";
   } | null>(null);
-  /** Owner-bound search context from /api/match — required for next-check. */
+  /** Owner-bound search context from /api/match — required for next-check / decide. */
   const [searchContextToken, setSearchContextToken] = useState<string | null>(null);
   const [servNextCheckEnabled, setServNextCheckEnabled] = useState(false);
+  /** PR B: one-shot decide path instead of next-check loop. */
+  const [decidePathEnabled, setDecidePathEnabled] = useState(false);
   /** Find next-check live path — ids already applied this session (loop guard). */
   const [appliedNextChecks, setAppliedNextChecks] = useState<string[]>([]);
   const [nextCheckNote, setNextCheckNote] = useState<string | null>(null);
@@ -830,6 +833,124 @@ function AssistantFlow({
   }
 
   /**
+   * PR B: one-shot decide via owner-bound searchContextToken.
+   * Free-gov + triage + decide + challenge; never auto-continues.
+   */
+  async function applyLiveFindDecide(opts?: { token?: string; auto?: boolean }) {
+    if (variant !== "find") return;
+    const token = opts?.token ?? searchContextToken;
+    if (!token) {
+      if (!opts?.auto) setError("Search context missing — run Find again before decide.");
+      return;
+    }
+    setError(null);
+    setNextCheckNote(null);
+    setPending("next-check");
+    setPendingCheckLabel(
+      findNextCheckPendingLabel({
+        pending: true,
+        auto: Boolean(opts?.auto),
+        progressLine: "Reviewing public safety records and picking the best match…",
+      }),
+    );
+    setFindLoopOpen(true);
+    const controller = new AbortController();
+    const timer = window.setTimeout(() => controller.abort(), 70_000);
+    try {
+      const response = await fetch("/api/find/decide", {
+        method: "POST",
+        signal: controller.signal,
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ searchContextToken: token }),
+      });
+      const body = (await response.json()) as {
+        ok?: boolean;
+        message?: string;
+        honesty?: string;
+        searchContextToken?: string;
+        bestDeal?: BestDealResult | null;
+        pickAgentVerdict?: import("@/domain/agent-verdict-schema").AgentVerdict | null;
+        pickSecondPass?: import("@/domain/agent-verdict-schema").AgentSecondPassResult | null;
+        pickProofRecords?: DecisionProofRecord[];
+        freeGovReceipts?: FreeGovReceiptUiRow[];
+        freeGovCoverage?: {
+          note?: string;
+          anyUnchecked?: boolean;
+          fuel?: { unchecked?: number };
+        } | null;
+        riskCoverage?: { note?: string } | null;
+        freeEvidenceNote?: string;
+        loop?: { continue?: boolean; reason?: string; detail?: string };
+        needAfter?: StructuredNeed;
+      };
+      if (!response.ok || !body.ok) {
+        setFindLoopOpen(false);
+        const reason = body.message || body.honesty || "Decide could not finish.";
+        setPendingCheckLabel(findNextCheckPendingLabel({ pending: false, terminalReason: reason }));
+        setError(reason);
+        setNextCheckNote(reason);
+        return;
+      }
+      const pickProofs = Array.isArray(body.pickProofRecords) ? body.pickProofRecords : [];
+      if (pickProofs.length > 0) {
+        setProofRecords((prev) => [...prev, ...pickProofs]);
+      }
+      if (body.needAfter) setNeed(body.needAfter);
+      if (typeof body.searchContextToken === "string") setSearchContextToken(body.searchContextToken);
+      if (body.bestDeal) setBestDeal(body.bestDeal);
+      if (body.pickAgentVerdict) setPickAgentVerdict(body.pickAgentVerdict);
+      if (body.pickSecondPass) setPickSecondPass(body.pickSecondPass);
+      if (Array.isArray(body.freeGovReceipts)) {
+        setFreeGovReceiptsForShortlist(body.freeGovReceipts);
+      }
+      if (body.freeGovCoverage && typeof body.freeGovCoverage.anyUnchecked === "boolean") {
+        setFreeGovAnyUnchecked(body.freeGovCoverage.anyUnchecked);
+      }
+      const toolNote =
+        body.freeGovCoverage && typeof body.freeGovCoverage.note === "string"
+          ? body.freeGovCoverage.note.trim()
+          : body.freeEvidenceNote?.trim() || "";
+      const riskNote =
+        body.riskCoverage && typeof body.riskCoverage.note === "string"
+          ? body.riskCoverage.note.trim()
+          : "";
+      if (toolNote || riskNote) {
+        setRiskCoverageNote([toolNote, riskNote].filter(Boolean).join(" "));
+      }
+      const detail =
+        body.loop?.detail ||
+        body.honesty ||
+        "Public checks and AI review finished.";
+      setNextCheckNote(detail);
+      setFindLoopOpen(false);
+      setPendingCheckLabel(null);
+      try {
+        sessionStorage.setItem(
+          "af-find-loop",
+          JSON.stringify({
+            token: typeof body.searchContextToken === "string" ? body.searchContextToken : token,
+            settled: true,
+          }),
+        );
+      } catch {
+        /* ignore */
+      }
+    } catch (err) {
+      setFindLoopOpen(false);
+      const reason =
+        err instanceof DOMException && err.name === "AbortError"
+          ? "Decide timed out — try again."
+          : "Decide could not finish.";
+      setPendingCheckLabel(findNextCheckPendingLabel({ pending: false, terminalReason: reason }));
+      setError(reason);
+      setNextCheckNote(reason);
+    } finally {
+      window.clearTimeout(timer);
+      setPending(null);
+    }
+  }
+
+  /**
    * Live Find next-check via owner-bound searchContextToken.
    * Server loads need/listings, claims keyed SERV, applies, rematches with NEW need.
    * Client yearMin/yearMax UI state is never sent as rematch authority.
@@ -1322,6 +1443,7 @@ function AssistantFlow({
     const timer = window.setTimeout(() => controller.abort(), 45_000);
     /** Fired after finally so we do not clear next-check pending. */
     let autoNextToken: string | null = null;
+    let autoDecidePath = false;
     try {
       let searchIdempotencyKey = findIdempotencyKey.current;
       if (!searchIdempotencyKey) {
@@ -1371,6 +1493,7 @@ function AssistantFlow({
         affordabilityAssessed?: boolean;
         searchContextToken?: string | null;
         servNextCheckEnabled?: boolean;
+        decidePathEnabled?: boolean;
         compsPool?: unknown;
         error?: string;
       };
@@ -1459,6 +1582,7 @@ function AssistantFlow({
           : null;
       setSearchContextToken(nextToken);
       setServNextCheckEnabled(Boolean(body.servNextCheckEnabled && nextToken));
+      setDecidePathEnabled(Boolean(body.decidePathEnabled && nextToken));
       setAppliedNextChecks([]);
       // Clear prior search's free-gov / best-deal state so a new Find cannot inherit
       // a stuck "still checking" banner or stale provisional pick.
@@ -1504,15 +1628,26 @@ function AssistantFlow({
       } catch {
         /* ignore */
       }
-      // Ordinary NL→Find auto-starts next-check when SERV keyed — not a manual-only path.
-      const auto = shouldAutoStartFindNextCheck({
-        servNextCheckEnabled: Boolean(body.servNextCheckEnabled),
+      // PR B: decide path takes one /api/find/decide call. Legacy: next-check loop.
+      const autoDecide = shouldAutoStartFindDecide({
+        decidePathEnabled: Boolean(body.decidePathEnabled),
         searchContextToken: nextToken,
         alreadyAutoStartedForToken: autoNextCheckTokenRef.current,
       });
-      if (auto) {
-        autoNextCheckTokenRef.current = auto;
-        autoNextToken = auto;
+      if (autoDecide) {
+        autoNextCheckTokenRef.current = autoDecide;
+        autoNextToken = autoDecide;
+        autoDecidePath = true;
+      } else {
+        const auto = shouldAutoStartFindNextCheck({
+          servNextCheckEnabled: Boolean(body.servNextCheckEnabled),
+          searchContextToken: nextToken,
+          alreadyAutoStartedForToken: autoNextCheckTokenRef.current,
+        });
+        if (auto) {
+          autoNextCheckTokenRef.current = auto;
+          autoNextToken = auto;
+        }
       }
     } catch (err) {
       const reason: FindEmptyReason = err instanceof DOMException && err.name === "AbortError" ? "provider_timeout" : "provider_failure";
@@ -1530,7 +1665,11 @@ function AssistantFlow({
       setPending(null);
     }
     if (autoNextToken) {
-      void applyLiveNextCheck({ token: autoNextToken, auto: true });
+      if (autoDecidePath) {
+        void applyLiveFindDecide({ token: autoNextToken, auto: true });
+      } else {
+        void applyLiveNextCheck({ token: autoNextToken, auto: true });
+      }
     }
   }
 
@@ -2692,7 +2831,7 @@ function AssistantFlow({
                     ) : (
                       <p>
                         {publicCheckStatusLine({
-                          servEnabled: servNextCheckEnabled,
+                          servEnabled: servNextCheckEnabled || decidePathEnabled,
                           anyUnchecked: freeGovAnyUnchecked,
                           checksHaveRun:
                             freeGovReceiptsForShortlist.length > 0 || Boolean(bestDeal),
@@ -2746,6 +2885,9 @@ function AssistantFlow({
                       records={proofRecords.filter(
                         (row) =>
                           row.purpose === "find_pick" ||
+                          row.purpose === "find_triage" ||
+                          row.purpose === "find_decide" ||
+                          row.purpose === "find_challenge" ||
                           row.purpose === "verdict_decide" ||
                           row.purpose === "verdict_challenge" ||
                           row.purpose === "find_plan" ||

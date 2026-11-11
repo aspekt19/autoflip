@@ -130,14 +130,14 @@ describe("find settle SERV", () => {
     expect(settled.agentVerdict).not.toBeNull();
     expect(settled.agentVerdict?.no_serv_step).toBe(true);
     expect(settled.agentVerdict?.verdict).toBeTruthy();
-    expect(settled.agentVerdict?.serv_steps.some((s) => /not SERV|code ranking/i.test(s.decided + (s.why ?? "")))).toBe(
+    expect(settled.agentVerdict?.serv_steps.some((s) => /not SERV|code fallback/i.test(s.decided + (s.why ?? "")))).toBe(
       true,
     );
     expect(settled.secondPass.status).toBe("skipped_no_key");
     expect(settled.secondPass.objection).toMatch(/SERV_API_KEY|Second check not run/i);
     expect(settled.bestDeal.pick?.key).toBe("a");
     expect(settled.bestDeal.choice?.label).toMatch(/2014 Toyota Camry/);
-    expect(settled.bestDeal.choice?.confidenceLine).toMatch(/code ranking/i);
+    expect(settled.bestDeal.choice?.confidenceLine).toMatch(/code fallback/i);
     expect(assertBuyerSafeText(settled.bestDeal.choice?.confidenceLine ?? "").ok).toBe(true);
   });
 

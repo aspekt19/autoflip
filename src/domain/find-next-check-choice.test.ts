@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { PROFILES } from "@/server/serv/profiles";
+import { BASE_MODEL, PROFILES } from "@/server/serv/profiles";
 import { resolveProfileBaseModel } from "@/server/serv/profile-models";
 import {
   buildFindNextCheckChoiceSchema,
@@ -85,6 +85,7 @@ describe("find next-check choice allowlist alignment", () => {
     const def = resolveProfileBaseModel("find_next_check", { env: {} });
     expect(def.ok).toBe(true);
     if (!def.ok) return;
-    expect(def.baseId).toBe("gpt-6.1-sol");
+    expect(def.baseId).toBe(BASE_MODEL);
+    expect(def.overrideActive).toBe(false);
   });
 });
