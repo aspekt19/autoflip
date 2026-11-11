@@ -6,6 +6,7 @@
  */
 import {
   moreConservativeConfidence,
+  type AgentMultipathResult,
   type AgentSecondPassResult,
   type AgentVerdict,
   type AgentVerdictConfidence,
@@ -16,6 +17,7 @@ import {
   VERDICT_RUBRIC_ID,
   type DecisionProofRecord,
 } from "@/domain/decision-proof-record";
+import { closeCallCars } from "@/domain/find-close-call";
 import {
   capConfidenceForStopFlags,
   confidenceCapReasonForStop,
@@ -25,6 +27,7 @@ import { evaluateListingPrice } from "@/domain/price-evaluation";
 import type { ComputedReport, Listing, Verdict } from "@/domain/types";
 import { ASSUMPTIONS } from "@/domain/assumptions";
 import { providerResponseIdFromCall } from "@/domain/serv-response-id";
+import { runFindCloseCallMultipathServ } from "@/server/find-close-call-serv";
 import { chatCompletionContent, profile, runServ } from "@/server/serv";
 import { runShopperVerdictServ, type ShopperServTrace } from "@/server/shopper-verdict-serv";
 
@@ -518,9 +521,39 @@ export async function runFindSettleServ(input: {
   const proofRecords: DecisionProofRecord[] = [];
   const fetchImpl = input.fetchImpl ?? fetch;
   const servKey = input.servKey?.trim() || "";
+  let closeMultipath: AgentMultipathResult | null = null;
 
-  // Multi-finalist (or single) SERV pick — every real fact per car (never invent).
-  if (servKey) {
+  // Near ties: SERV find_close_call_multipath (not code-only reconcileMultipathDeterministic).
+  const tiedEligible = closeCallCars(eligible.map((item) => item.row));
+  if (tiedEligible.length >= 2 || input.bestDeal.closeCall) {
+    const close = await runFindCloseCallMultipathServ({
+      cars: eligible.map((item) => item.row),
+      servKey: servKey || null,
+      servBaseUrl: input.servBaseUrl,
+      model: input.model,
+      fetchImpl,
+      transportPolicy: input.transportPolicy,
+    });
+    proofRecords.push(...close.proofRecords);
+    closeMultipath = close.multipath;
+    // Only a live SERV close-call pick overrides the shortlist leader. Code
+    // multipath fallback is for path display — it must not replace find_pick.
+    if (close.source === "serv" && close.finalPickKey) {
+      const fromClose = eligible.find((item) => item.row.key === close.finalPickKey)?.row;
+      if (fromClose) {
+        pick = fromClose;
+        pickActor = "SERV";
+        pickModel = input.model ?? null;
+        pickRecordedAt = recordedAt;
+        pickNote = close.multipath?.reconciliation ?? null;
+        pickConfidence = pickConfidence ?? "medium";
+      }
+    }
+  }
+
+  // Multi-finalist SERV pick — every real fact per car (never invent).
+  // Skip when close-call multipath already published a SERV pick among the tied group.
+  if (servKey && !(pickActor === "SERV" && closeMultipath?.source === "serv")) {
     const allowedKeys = eligible.map((item) => item.row.key);
     const allowedEvidenceIds = eligible.flatMap((item) => [
       `car:${item.row.key}`,
@@ -841,6 +874,9 @@ export async function runFindSettleServ(input: {
       ...agentVerdict,
       pick: { key: pick.key, label: pickLabel },
       confidence: cappedAgentConfidence,
+      // Prefer live close-call multipath (SERV or labelled code fallback) over any
+      // earlier code-only reconcile baked into the shopper verdict.
+      multipath: closeMultipath ?? agentVerdict.multipath ?? null,
       serv_steps: [pickStep, ...trailExtra, ...(agentVerdict.serv_steps ?? [])],
       no_serv_step: pickActor === "SERV" ? false : agentVerdict.no_serv_step,
     };

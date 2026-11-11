@@ -54,7 +54,12 @@ export type ServProfile = {
   purpose: string;
   /** Why this profile carries the features it does. */
   reason: string;
-  feature: "none" | "multipath" | "kronos";
+  /**
+   * SERV Reasoning routing suffix. Prefer a single feature when possible.
+   * `kronos-multipath` emits the combined `-serv-kronos-multipath` model id
+   * (compatible with PR A / modelFor stripping of either order).
+   */
+  feature: "none" | "multipath" | "kronos" | "kronos-multipath";
   tools: Array<"prompt_guard" | "shadow">;
   shadowHint?: string;
   shadowMaxIterations?: number;
@@ -481,13 +486,16 @@ export const PROFILES = {
   },
   /**
    * Independent second-pass challenger of the shopper verdict.
-   * Different role from verdict_decide. Must cite evidence ids; code discards invented claims.
+   * Different role from verdict_decide. Kronos reasoning; never Shadow Agent —
+   * independence must not collapse into the decide/pick Shadow pass.
+   * Must cite evidence ids; code discards invented claims.
    */
   verdict_challenge: {
     id: "verdict_challenge",
     purpose: "Challenge the primary shopper verdict using only supplied evidence ids.",
-    reason: "Independent review of the same facts. Strict JSON so software can ignore invented claims.",
-    feature: "none",
+    reason:
+      "Independent Kronos review of the same facts — separate from Multipath+Shadow on decide/pick. Strict JSON so software can ignore invented claims.",
+    feature: "kronos",
     tools: ["prompt_guard"],
     // 22s — 14s was too tight for challenge JSON under load (empty/timeout → "did not finish").
     timeoutMs: 22_000,
@@ -528,6 +536,7 @@ export const PROFILES = {
   /**
    * Close-call multipath: 2–3 reasoning paths then reconciliation.
    * Counted as one paid Find SERV call under FIND_SERV_PAID_CALLS_PER_FIND_MAX.
+   * Wired for near ties instead of code-only reconcileMultipathDeterministic.
    */
   find_close_call_multipath: {
     id: "find_close_call_multipath",
@@ -1179,8 +1188,11 @@ export function servBudget(id: ProfileId, remainMs: number, ceilingMs = Number.P
 }
 
 export function modelFor(id: ProfileId, requested = BASE_MODEL): string {
+  // Strip any prior SERV suffix (including combined forms) so callers can pass
+  // either a bare base id or an already-suffixed model without double-suffixing.
   const base = requested.replace(/-serv-(kronos-multipath|multipath-kronos|multipath|kronos)$/i, "");
   const feature = PROFILES[id].feature;
+  if (feature === "kronos-multipath") return `${base}-serv-kronos-multipath`;
   if (feature === "kronos") return `${base}-serv-kronos`;
   if (feature === "multipath") return `${base}-serv-multipath`;
   return base;
@@ -1193,8 +1205,8 @@ export function featuresUsedBy(id: ProfileId): DocumentedFeature[] {
   if (entry.tools.includes("prompt_guard")) used.push("serv_prompt_guard");
   if (entry.contentFilter === "default_on") used.push("content_filter");
   if (entry.tools.includes("shadow") && entry.shadowHint && typeof entry.shadowMaxIterations === "number") used.push("serv_shadow_agent");
-  if (entry.feature === "multipath") used.push("multipath");
-  if (entry.feature === "kronos") used.push("kronos");
+  if (entry.feature === "multipath" || entry.feature === "kronos-multipath") used.push("multipath");
+  if (entry.feature === "kronos" || entry.feature === "kronos-multipath") used.push("kronos");
   if (entry.jsonSchema) used.push("json_schema");
   if (entry.reasoningEffort) used.push("reasoning_effort");
   if (entry.promptCache === "default") used.push("prompt_cache");
