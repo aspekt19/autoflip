@@ -10,6 +10,8 @@ Makes SERV’s role readable and verifiable without inventing data.
 | --- | --- |
 | step | purpose / kind name |
 | by | `SERV` \| `code` |
+| origin | `serv` \| `rule_clamped` \| `rule_override` \| `code` |
+| originReason | plain reason when a safety rail limited SERV |
 | modelId | model when known |
 | runId | provider response id when SERV succeeded |
 | timestamp | ISO or null if not run |
@@ -35,7 +37,7 @@ Until those producers merge, the journal adapts from stored `DecisionProofRecord
 
 ## Buyer UI
 
-Find / Check / Resale / full report show **How this decision was made** (`ServDecisionJournal`). Main view is plain English only (no snake_case step ids, bracketed tags, model/response ids, or abbreviations like NHTSA / vPIC / comps / TCO / MSRP / ZIP / API / LLM). Copy helpers live in `serv-decision-journal-copy.ts` (`JOURNAL_BANNED_JARGON`). Technical details (model, response id, timestamp, hash) sit in a collapsed section. Missing steps say so plainly. Second-check disagreement lowers confidence and is shown.
+Find / Check / Resale / full report show **How this decision was made** (`ServDecisionJournal`). Main view is plain English only (no snake_case step ids, bracketed tags, or abbreviations like NHTSA / vPIC / comps / TCO / MSRP / ZIP / API / LLM). Each step shows **Decided by SERV** / **Decided by code** / **Limited by safety rule: …**, plus real model / response id / timestamp when recorded. Digests and hashes sit under **Technical details**. Copy helpers: `serv-decision-journal-copy.ts`. Export sealed trails: `node scripts/export-serv-decision-trails.mjs`.
 
 ## Audit
 

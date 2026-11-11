@@ -21,6 +21,7 @@ import {
   emptyServDecisionStep,
   stepFromDecisionProof,
   type ServDecisionActor,
+  type ServDecisionOrigin,
   type ServDecisionStep,
   type ServDecisionStepStatus,
 } from "@/domain/serv-decision-step";
@@ -37,6 +38,8 @@ export type ProduceServDecisionStepInput = {
   timestamp?: string | null;
   latencyMs?: number | null;
   costUsd?: number | null;
+  origin?: ServDecisionOrigin;
+  originReason?: string | null;
 };
 
 /**
@@ -55,6 +58,8 @@ export function produceServDecisionStep(input: ProduceServDecisionStepInput): Se
       timestamp: input.timestamp ?? new Date().toISOString(),
       latencyMs: input.latencyMs ?? null,
       costUsd: null,
+      origin: input.origin ?? "serv",
+      originReason: input.originReason ?? null,
     });
   }
   return emptyServDecisionStep({
@@ -69,6 +74,8 @@ export function produceServDecisionStep(input: ProduceServDecisionStepInput): Se
     latencyMs: input.latencyMs ?? null,
     // Never invent cost — only accept an explicit finite number.
     costUsd: typeof input.costUsd === "number" && Number.isFinite(input.costUsd) ? input.costUsd : null,
+    origin: input.origin,
+    originReason: input.originReason ?? null,
   });
 }
 

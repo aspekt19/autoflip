@@ -27,9 +27,26 @@ type Props = {
   reportHash?: string | null;
 };
 
+function formatProvenance(input: {
+  modelId: string | null;
+  runId: string | null;
+  timestamp: string | null;
+}): string | null {
+  const runId = providerResponseId(input.runId);
+  const bits = [
+    input.modelId ? `Model ${input.modelId}` : null,
+    runId ? `response ${runId}` : null,
+    input.timestamp
+      ? new Date(input.timestamp).toLocaleString("en-US", { timeZone: "UTC" }) + " UTC"
+      : null,
+  ].filter(Boolean);
+  return bits.length > 0 ? bits.join(" · ") : null;
+}
+
 /**
  * Readable "How this decision was made" journal.
- * Main view: plain buyer English only. Technical ids live under "Technical details".
+ * Main view: plain buyer English + origin marker + real response id / timestamp when known.
+ * Digests and hashes stay under "Technical details".
  */
 export function ServDecisionJournal({
   proofRecords,
@@ -53,6 +70,11 @@ export function ServDecisionJournal({
   const agentUnavailable =
     unknowns.some((line) => /agent step unavailable/i.test(line)) ||
     /agent step unavailable/i.test(spendNote);
+  const secondProvenance = formatProvenance({
+    modelId: journal.secondCheck.modelId,
+    runId: journal.secondCheck.runId,
+    timestamp: null,
+  });
 
   return (
     <details className="agent-decision-trail onboarding-note serv-decision-journal" open={defaultOpen}>
@@ -81,16 +103,24 @@ export function ServDecisionJournal({
         <p className="lead">No decision steps were recorded for this run.</p>
       ) : stepViews.length === 0 ? null : (
         <ol className="steps-3 story-steps">
-          {stepViews.map((view, index) => (
-            <li key={`${view.tech.step}-${view.tech.timestamp ?? index}-${view.tech.runId ?? view.tech.status}`}>
-              <p>{view.sentences}</p>
-            </li>
-          ))}
+          {stepViews.map((view, index) => {
+            const provenance = formatProvenance(view.provenance);
+            return (
+              <li key={`${view.tech.step}-${view.tech.timestamp ?? index}-${view.tech.runId ?? view.tech.status}`}>
+                <p>{view.sentences}</p>
+                <p>
+                  <strong>{view.originMarker}</strong>
+                </p>
+                {provenance ? <p className="hint">{provenance}</p> : null}
+              </li>
+            );
+          })}
         </ol>
       )}
 
       <section aria-label="Second check">
         <p>{secondSentences}</p>
+        {secondProvenance ? <p className="hint">{secondProvenance}</p> : null}
       </section>
 
       <details className="onboarding-note">
@@ -104,10 +134,13 @@ export function ServDecisionJournal({
               return (
                 <li key={`tech-${view.tech.step}-${index}`}>
                   <strong>
-                    {view.by} · {view.tech.step} · {view.tech.status}
+                    {view.by} · {view.tech.step} · {view.tech.status} · {view.tech.origin}
                   </strong>
                   <span className="hint">{view.tech.output}</span>
                   <span className="hint">{view.tech.inputSummary}</span>
+                  {view.tech.originReason ? (
+                    <span className="hint">Origin reason: {view.tech.originReason}</span>
+                  ) : null}
                   <span className="hint">
                     {view.tech.modelId ? `Model ${view.tech.modelId}` : "Model not recorded"}
                     {runId ? ` · response ${runId}` : " · no response id"}

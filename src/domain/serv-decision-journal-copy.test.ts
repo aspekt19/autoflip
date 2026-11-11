@@ -3,6 +3,8 @@ import { emptyAgentVerdict } from "./agent-verdict-schema";
 import type { DecisionProofRecord } from "./decision-proof-view";
 import { DECISION_PROOF_SCHEMA, VERDICT_RUBRIC_ID } from "./decision-proof-view";
 import {
+  clampMissingOriginLabel,
+  formatJournalOriginMarker,
   formatJournalSecondCheckSentences,
   formatJournalStepSentences,
   JOURNAL_BANNED_JARGON,
@@ -12,6 +14,7 @@ import {
 import {
   buildServDecisionJournal,
   emptyServDecisionStep,
+  stepFromDecisionProof,
   summarizeSecondCheck,
 } from "./serv-decision-step";
 
@@ -192,10 +195,55 @@ describe("serv-decision-journal-copy", () => {
         status: "ran",
         output: "Decided buy · code clamped buy → pass",
         runId: "chatcmpl-synthetic-test-clamp",
+        origin: "rule_clamped",
+        originReason: "safety rules changed the choice from buy to pass",
       }),
     );
     expect(text).toMatch(/suggested Buy/i);
     expect(text).toMatch(/Skip|Pass|changed/i);
     expect(journalMainTextViolations(text)).toEqual([]);
+  });
+
+  it("labels clamped steps as Limited by safety rule (fails if unlabeled)", () => {
+    const proofRow: DecisionProofRecord = {
+      schemaVersion: DECISION_PROOF_SCHEMA,
+      purpose: "verdict_decide",
+      rubricId: VERDICT_RUBRIC_ID,
+      status: "ok",
+      servResponseId: "chatcmpl-synthetic-test-clamp-2",
+      model: "synthetic-test-model",
+      timestamp: "2026-11-11T00:00:00.000Z",
+      inputsDigest: digest,
+      verdict: "pass",
+      clampResult: {
+        servChoice: "buy",
+        finalAction: "pass",
+        overridden: true,
+        overrideReasons: ["do-not-drive recall matched this car"],
+      },
+      reason: null,
+    };
+    const clamped = stepFromDecisionProof(proofRow);
+    expect(clamped.origin).toBe("rule_clamped");
+    const marker = formatJournalOriginMarker(clamped);
+    expect(marker).toMatch(/^Limited by safety rule:/i);
+    expect(marker).toMatch(/do-not-drive recall/i);
+    expect(clampMissingOriginLabel(clamped)).toBe(false);
+    expect(journalMainTextViolations(marker)).toEqual([]);
+    // Main journal text must include the safety label for every clamp.
+    const journal = buildServDecisionJournal({ proofRecords: [proofRow] });
+    expect(journalMainText(journal)).toMatch(/Limited by safety rule:/i);
+  });
+
+  it("marks free SERV decisions as Decided by SERV", () => {
+    const free = emptyServDecisionStep({
+      step: "verdict_decide",
+      by: "SERV",
+      status: "ran",
+      output: "Decided negotiate",
+      origin: "serv",
+      runId: "chatcmpl-synthetic-test-free",
+    });
+    expect(formatJournalOriginMarker(free)).toBe("Decided by SERV.");
   });
 });

@@ -8,6 +8,7 @@ import { plainDecisionAction } from "./find-buyer-copy";
 import { buyerSafeResaleJournalText } from "./resale-journal-copy";
 import type {
   ServDecisionJournalView,
+  ServDecisionOrigin,
   ServDecisionStep,
   ServSecondCheckSummary,
 } from "./serv-decision-step";
@@ -137,13 +138,52 @@ function extractClampActions(output: string): { from: string; to: string } | nul
   return { from, to };
 }
 
+/** Plain per-step marker: Decided by SERV vs Limited by safety rule. */
+export function formatJournalOriginMarker(step: ServDecisionStep): string {
+  if (step.origin === "rule_clamped" || step.origin === "rule_override") {
+    const plain = scrubBuyerText(step.originReason ?? "safety rules limited this choice");
+    const reason =
+      plain && journalMainTextViolations(plain).length === 0
+        ? plain.replace(/\.\s*$/, "")
+        : "safety rules limited this choice";
+    return `Limited by safety rule: ${reason}.`;
+  }
+  if (step.origin === "code" || step.by === "code") {
+    return "Decided by code.";
+  }
+  return "Decided by SERV.";
+}
+
+/**
+ * True when a clamped / overridden step is missing its buyer-facing safety label.
+ * Used by tests so a clamp cannot ship unlabeled.
+ */
+export function clampMissingOriginLabel(step: ServDecisionStep): boolean {
+  if (step.origin !== "rule_clamped" && step.origin !== "rule_override") return false;
+  const marker = formatJournalOriginMarker(step);
+  return !/^Limited by safety rule:/i.test(marker);
+}
+
 /**
  * One or two plain sentences for a journal step. Never includes step ids, models, or hashes.
+ * Origin marker ("Decided by SERV" / "Limited by safety rule: …") is a separate line via
+ * `formatJournalOriginMarker` so the narrative stays short.
  */
 export function formatJournalStepSentences(step: ServDecisionStep): string {
   const who = step.by === "SERV" ? "SERV" : "Code";
   const action = extractActionFromOutput(step.output);
-  const clamp = extractClampActions(step.output);
+  const clamp = extractClampActions(step.output) ||
+    (step.origin === "rule_clamped" || step.origin === "rule_override"
+      ? (() => {
+          const from = step.output.match(/clamped\s+([a-z_?]+)/i)?.[1];
+          const to = step.output.match(/(?:→|->|to)\s*([a-z_?]+)/i)?.[1];
+          if (!from || !to) return null;
+          return {
+            from: plainAction(from) ?? scrubBuyerText(from),
+            to: plainAction(to) ?? scrubBuyerText(to),
+          };
+        })()
+      : null);
   const reason = scrubBuyerText(step.output);
 
   const safeReason =
@@ -286,7 +326,15 @@ export function formatJournalSecondCheckSentences(second: ServSecondCheckSummary
 
 export type JournalStepView = {
   sentences: string;
+  originMarker: string;
+  origin: ServDecisionOrigin;
   by: ServDecisionStep["by"];
+  /** Real response id / model / timestamp when recorded — shown under the plain sentences. */
+  provenance: {
+    modelId: string | null;
+    runId: string | null;
+    timestamp: string | null;
+  };
   tech: {
     step: string;
     status: string;
@@ -297,13 +345,22 @@ export type JournalStepView = {
     costUsd: number | null;
     inputSummary: string;
     output: string;
+    origin: ServDecisionOrigin;
+    originReason: string | null;
   };
 };
 
 export function journalStepViews(steps: readonly ServDecisionStep[]): JournalStepView[] {
   return steps.map((step) => ({
     sentences: formatJournalStepSentences(step),
+    originMarker: formatJournalOriginMarker(step),
+    origin: step.origin,
     by: step.by,
+    provenance: {
+      modelId: step.modelId,
+      runId: step.runId,
+      timestamp: step.timestamp,
+    },
     tech: {
       step: step.step,
       status: step.status,
@@ -314,6 +371,8 @@ export function journalStepViews(steps: readonly ServDecisionStep[]): JournalSte
       costUsd: step.costUsd,
       inputSummary: step.inputSummary,
       output: step.output,
+      origin: step.origin,
+      originReason: step.originReason,
     },
   }));
 }
@@ -322,12 +381,15 @@ export function journalStepViews(steps: readonly ServDecisionStep[]): JournalSte
 export const JOURNAL_INTRO =
   "Dollar amounts and scores come from code. SERV may choose an action and explain it; it only quotes those numbers. A second check must agree, or confidence drops.";
 
-/** Concatenated main-view text for tests and scrubbing. */
+/** Concatenated main-view text for tests and scrubbing (includes origin markers). */
 export function journalMainText(journal: ServDecisionJournalView): string {
   const parts = [
     journal.title,
     JOURNAL_INTRO,
-    ...journal.steps.map(formatJournalStepSentences),
+    ...journal.steps.flatMap((step) => [
+      formatJournalStepSentences(step),
+      formatJournalOriginMarker(step),
+    ]),
     formatJournalSecondCheckSentences(journal.secondCheck),
   ];
   return parts.join(" ");

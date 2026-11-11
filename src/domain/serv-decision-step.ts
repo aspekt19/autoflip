@@ -21,6 +21,12 @@ export type ServDecisionActor = "SERV" | "code";
 export type ServDecisionStepStatus = "ran" | "skipped" | "failed" | "not_run";
 
 /**
+ * Whether SERV decided freely or a hard rail limited the result.
+ * Hard rails (salvage title, VIN conflict, numeric guardrails) stay in TypeScript.
+ */
+export type ServDecisionOrigin = "serv" | "rule_clamped" | "rule_override" | "code";
+
+/**
  * One journal / audit row.
  * `output` is what was decided (action, pick, skip reason) — not a dollar amount invented by SERV.
  */
@@ -29,6 +35,14 @@ export type ServDecisionStep = {
   /** Stable step name, e.g. verdict_decide, find_next_check, comps_verify. */
   step: string;
   by: ServDecisionActor;
+  /**
+   * How the published result was reached.
+   * `serv` = SERV decided freely; `rule_clamped` / `rule_override` = safety rail limited it;
+   * `code` = code-only step.
+   */
+  origin: ServDecisionOrigin;
+  /** Plain-language reason when origin is rule_clamped / rule_override; otherwise null. */
+  originReason: string | null;
   modelId: string | null;
   /** Provider run / response id when by=SERV and the call succeeded; never a local UUID. */
   runId: string | null;
@@ -62,9 +76,14 @@ export type ServDecisionJournalView = {
   servUsed: boolean;
 };
 
+function defaultOrigin(by: ServDecisionActor): ServDecisionOrigin {
+  return by === "SERV" ? "serv" : "code";
+}
+
 export function emptyServDecisionStep(
   partial: Partial<ServDecisionStep> & Pick<ServDecisionStep, "step" | "by" | "status" | "output">,
 ): ServDecisionStep {
+  const { origin: originIn, originReason: reasonIn, ...rest } = partial;
   return {
     schemaVersion: SERV_DECISION_STEP_SCHEMA,
     modelId: null,
@@ -73,8 +92,38 @@ export function emptyServDecisionStep(
     inputSummary: "Not recorded",
     latencyMs: null,
     costUsd: null,
-    ...partial,
+    ...rest,
+    origin: originIn ?? defaultOrigin(partial.by),
+    originReason: reasonIn ?? null,
   };
+}
+
+function originFromClamp(input: {
+  by: ServDecisionActor;
+  overridden?: boolean;
+  overrideReasons?: string[];
+  servChoice?: string | null;
+  finalAction?: string | null;
+}): { origin: ServDecisionOrigin; originReason: string | null } {
+  if (input.by !== "SERV") {
+    return { origin: "code", originReason: null };
+  }
+  if (!input.overridden) {
+    return { origin: "serv", originReason: null };
+  }
+  const reasons = (input.overrideReasons ?? []).map((r) => r.trim()).filter(Boolean);
+  const plain =
+    reasons.length > 0
+      ? reasons.slice(0, 2).join("; ")
+      : input.servChoice && input.finalAction && input.servChoice !== input.finalAction
+        ? `safety rules changed the choice from ${input.servChoice} to ${input.finalAction}`
+        : "safety rules limited this choice";
+  // Distinct path when rails rewrite the action vs other overrides.
+  const origin: ServDecisionOrigin =
+    input.servChoice && input.finalAction && input.servChoice !== input.finalAction
+      ? "rule_clamped"
+      : "rule_override";
+  return { origin, originReason: plain };
 }
 
 /** Map a lemonless.decision_proof.v1 row into a visible ServDecisionStep. */
@@ -83,13 +132,22 @@ export function stepFromDecisionProof(record: DecisionProofRecord): ServDecision
     record.status === "ok" || record.servResponseId || record.model ? "SERV" : "code";
   const status: ServDecisionStepStatus =
     record.status === "ok" ? "ran" : record.status === "failed" ? "failed" : "skipped";
+  const actor = status === "ran" ? "SERV" : by;
   const label = decisionPurposeLabel(record.purpose);
+  const clamp = record.clampResult;
+  const { origin, originReason } = originFromClamp({
+    by: actor,
+    overridden: Boolean(clamp?.overridden),
+    overrideReasons: clamp?.overrideReasons,
+    servChoice: clamp?.servChoice,
+    finalAction: clamp?.finalAction,
+  });
   const output =
     status === "ran"
       ? [
           record.verdict ? `Decided ${record.verdict}` : "Decision recorded",
-          record.clampResult?.overridden
-            ? `code clamped ${record.clampResult.servChoice ?? "?"} → ${record.clampResult.finalAction ?? "?"}`
+          clamp?.overridden
+            ? `code clamped ${clamp.servChoice ?? "?"} → ${clamp.finalAction ?? "?"}`
             : null,
         ]
           .filter(Boolean)
@@ -98,7 +156,9 @@ export function stepFromDecisionProof(record: DecisionProofRecord): ServDecision
   return {
     schemaVersion: SERV_DECISION_STEP_SCHEMA,
     step: record.purpose,
-    by: status === "ran" ? "SERV" : by,
+    by: actor,
+    origin,
+    originReason,
     modelId: record.model,
     runId: record.status === "ok" ? record.servResponseId : null,
     timestamp: record.timestamp,
@@ -111,10 +171,17 @@ export function stepFromDecisionProof(record: DecisionProofRecord): ServDecision
 }
 
 export function stepFromResaleJournalStep(step: ResaleJournalStep): ServDecisionStep {
+  const origin: ServDecisionOrigin = step.rejected
+    ? "rule_override"
+    : step.actor === "SERV"
+      ? "serv"
+      : "code";
   return {
     schemaVersion: SERV_DECISION_STEP_SCHEMA,
     step: step.kind,
     by: step.actor,
+    origin,
+    originReason: step.rejected?.trim() || null,
     modelId: step.model,
     runId: step.actor === "SERV" ? step.responseId : null,
     timestamp: step.recordedAt,
@@ -139,6 +206,8 @@ export function stepFromAgentTrailStep(step: AgentTrailStep, index: number): Ser
     schemaVersion: SERV_DECISION_STEP_SCHEMA,
     step: `trail_${index + 1}`,
     by,
+    origin: defaultOrigin(by),
+    originReason: null,
     modelId: step.model ?? null,
     runId: step.responseId ?? null,
     timestamp: step.recordedAt ?? null,
@@ -271,6 +340,8 @@ export function servDecisionStepDigestPayload(step: ServDecisionStep): Record<st
     schemaVersion: step.schemaVersion,
     step: step.step,
     by: step.by,
+    origin: step.origin,
+    originReason: step.originReason,
     modelId: step.modelId,
     runId: step.runId,
     timestamp: step.timestamp,
