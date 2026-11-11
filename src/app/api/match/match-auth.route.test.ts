@@ -78,6 +78,62 @@ function req(body: unknown) {
   });
 }
 
+/** Delivered Find body — at least one provider query and one listing (REPORT_356a charge gate). */
+function deliveredMatchBody(overrides: Record<string, unknown> = {}) {
+  return {
+    ok: true,
+    sample: false,
+    emptyReason: null,
+    message: null,
+    headline: null,
+    nextStep: null,
+    scope: "test",
+    affordabilityAssessed: true,
+    partialFailure: false,
+    geoScope: { kind: "nationwide" },
+    directions: [
+      {
+        direction: {
+          id: "d1",
+          segment: "Compact crossovers",
+          models: [{ make: "Mazda", model: "CX-5" }],
+          search: { make: "Mazda", model: "CX-5" },
+          yearMin: 2020,
+          yearMax: 2022,
+        },
+        listings: [
+          {
+            vin: "1M8GDM9AXKP042788",
+            year: 2020,
+            make: "Mazda",
+            model: "CX-5",
+            miles: 40000,
+            priceUsd: 18000,
+            vdp: "https://dealer.example/vdp/1",
+            source: "live",
+            badge: { label: "Fair", tone: "fair" },
+            flipNote: null,
+            clearsTarget: null,
+            priceView: { usableForBudget: true, displayPrimary: "$18,000" },
+          },
+        ],
+        coverage: "ok",
+        coverageLevel: "medium",
+        note: null,
+        plannedModels: [{ make: "Mazda", model: "CX-5" }],
+        searchedModels: [{ make: "Mazda", model: "CX-5" }],
+        failedModels: [],
+        skippedModels: [],
+        providerWarning: null,
+        queryOutcomes: [],
+      },
+    ],
+    compsPool: [],
+    providerQueriesUsed: 1,
+    ...overrides,
+  };
+}
+
 describe("POST /api/match verified-auth Find (t334 Fix A)", () => {
   beforeEach(async () => {
     kvHolder.kv = new MemoryKv();
@@ -237,10 +293,7 @@ describe("POST /api/match verified-auth Find (t334 Fix A)", () => {
     runFind.mockResolvedValueOnce({
       ok: true,
       status: 200,
-      body: {
-        ok: true,
-        directions: [],
-      },
+      body: deliveredMatchBody(),
     });
     const ok = await POST(req({ need: NEED, searchIdempotencyKey: "find-fail-then-ok1" }));
     expect(ok.status).toBe(200);
@@ -255,7 +308,7 @@ describe("POST /api/match verified-auth Find (t334 Fix A)", () => {
     const delivered = {
       ok: true,
       status: 200,
-      body: { ok: true, directions: [] },
+      body: deliveredMatchBody(),
     };
     runFind.mockResolvedValue(delivered);
     const first = await POST(req({ need: NEED, searchIdempotencyKey: "find-once-key-01" }));
@@ -284,7 +337,7 @@ describe("POST /api/match verified-auth Find (t334 Fix A)", () => {
     requireFind.mockResolvedValue({ ok: true, id: ACCOUNT, email: "a@example.com" });
     runFind.mockImplementation(async () => {
       await new Promise((resolve) => setTimeout(resolve, 40));
-      return { ok: true, status: 200, body: { ok: true, directions: [] } };
+      return { ok: true, status: 200, body: deliveredMatchBody() };
     });
     const [a, b] = await Promise.all([
       POST(req({ need: NEED, searchIdempotencyKey: "find-race-key-01" })),
@@ -306,7 +359,7 @@ describe("POST /api/match verified-auth Find (t334 Fix A)", () => {
     const other = "dddddddd-dddd-dddd-dddd-dddddddddddd";
     await creditGrant(kvHolder.kv, other, 3, "init-other");
     requireFind.mockImplementation(async () => ({ ok: true, id: ACCOUNT, email: "a@example.com" }));
-    runFind.mockResolvedValue({ ok: true, status: 200, body: { ok: true, directions: [] } });
+    runFind.mockResolvedValue({ ok: true, status: 200, body: deliveredMatchBody() });
     const first = await POST(req({ need: NEED, searchIdempotencyKey: "shared-client-key" }));
     expect(first.status).toBe(200);
     requireFind.mockImplementation(async () => ({ ok: true, id: other, email: "b@example.com" }));
@@ -315,6 +368,37 @@ describe("POST /api/match verified-auth Find (t334 Fix A)", () => {
     expect(await creditBalance(kvHolder.kv, ACCOUNT)).toBe(2);
     expect(await creditBalance(kvHolder.kv, other)).toBe(2);
     expect(runFind).toHaveBeenCalledTimes(2);
+  });
+
+  it("REPORT_356a: does not charge when no_directions / zero cars / no provider query", async () => {
+    requireFind.mockResolvedValue({ ok: true, id: ACCOUNT, email: "a@example.com" });
+    runFind.mockResolvedValue({
+      ok: true,
+      status: 200,
+      body: {
+        ok: true,
+        emptyReason: "no_directions",
+        message: "No model direction for this note yet.",
+        headline: "No search directions yet",
+        nextStep: "Try again.",
+        directions: [],
+        compsPool: [],
+        providerQueriesUsed: 0,
+      },
+    });
+    const res = await POST(req({ need: NEED, searchIdempotencyKey: "find-no-dirs-yura01" }));
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      charged?: boolean;
+      balance?: number;
+      emptyReason?: string;
+      message?: string;
+    };
+    expect(body.charged).toBe(false);
+    expect(body.balance).toBe(3);
+    expect(body.emptyReason).toBe("no_directions");
+    expect(body.message).toMatch(/no credit was used/i);
+    expect(await creditBalance(kvHolder.kv, ACCOUNT)).toBe(3);
   });
 
   it("does not debit when the search throws", async () => {
