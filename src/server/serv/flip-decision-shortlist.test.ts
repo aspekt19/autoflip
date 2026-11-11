@@ -36,8 +36,8 @@ describe("Flip decision shortlist (t321 Fable excluded)", () => {
       expect(r.ok).toBe(true);
       if (!r.ok) return;
       expect(r.baseId).toBe(id);
-      // gpt-5.6-sol is production BASE_MODEL — env pinning it is not an override.
-      expect(r.overrideActive).toBe(id !== "gpt-5.6-sol");
+      // Shortlist pins differ from production BASE_MODEL (gpt-6.1-sol) → overrideActive.
+      expect(r.overrideActive).toBe(true);
     }
     const findProfile = resolveProfileBaseModel("find_next_check", {
       env: { SERV_PROFILE_MODEL_FIND_NEXT_CHECK: "gpt-5.6-sol" },

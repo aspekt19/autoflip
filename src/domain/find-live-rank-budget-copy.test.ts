@@ -313,10 +313,10 @@ describe("ranking stays principled outside the live shortlist", () => {
       ],
       nowYear: 2026,
     });
-    expect(factor(mixed, "TUC").points).toBe(0);
-    expect(factor(mixed, "TUC").detail).not.toMatch(/this is a/i);
-    expect(factor(mixed, "CAM").points).toBe(BEST_DEAL_WEIGHTS.namedModel);
-    expect(factor(mixed, "CRV").points).toBe(BEST_DEAL_WEIGHTS.namedModel);
+    expect(factor(mixed, "TUC")!.points).toBe(0);
+    expect(factor(mixed, "TUC")!.detail).not.toMatch(/this is a/i);
+    expect(factor(mixed, "CAM")!.points).toBe(BEST_DEAL_WEIGHTS.namedModel);
+    expect(factor(mixed, "CRV")!.points).toBe(BEST_DEAL_WEIGHTS.namedModel);
 
     const conflict = selectBestDealOnEvidence({
       need: {
@@ -329,9 +329,9 @@ describe("ranking stays principled outside the live shortlist", () => {
       listings: [camry, crv],
       nowYear: 2026,
     });
-    expect(factor(conflict, "CAM").points).toBe(0);
-    expect(factor(conflict, "CAM").detail).not.toMatch(/this is a/i);
-    expect(factor(conflict, "CRV").points).toBe(BEST_DEAL_WEIGHTS.namedModel);
+    expect(factor(conflict, "CAM")!.points).toBe(0);
+    expect(factor(conflict, "CAM")!.detail).not.toMatch(/this is a/i);
+    expect(factor(conflict, "CRV")!.points).toBe(BEST_DEAL_WEIGHTS.namedModel);
 
     const sedanNote = selectBestDealOnEvidence({
       need: {
@@ -344,9 +344,9 @@ describe("ranking stays principled outside the live shortlist", () => {
       listings: [camry, crv],
       nowYear: 2026,
     });
-    expect(factor(sedanNote, "CRV").points).toBe(-8);
-    expect(factor(sedanNote, "CRV").detail).toMatch(/you asked for a sedan/i);
-    expect(factor(sedanNote, "CAM").points).toBe(4);
+    expect(factor(sedanNote, "CRV")!.points).toBe(-8);
+    expect(factor(sedanNote, "CRV")!.detail).toMatch(/you asked for a sedan/i);
+    expect(factor(sedanNote, "CAM")!.points).toBe(4);
   });
 
   it("uses vPIC body class or the known model map, and does not trust dealer body text", () => {
@@ -381,10 +381,10 @@ describe("ranking stays principled outside the live shortlist", () => {
       listings: [camry, avalon, { make: "Honda", model: "CR-V", year: 2016, priceUsd: 14_200, miles: 90_000, vin: "CRV" }],
       nowYear: 2026,
     });
-    expect(factor(unknown, "CAM").points).toBe(-8);
-    expect(factor(unknown, "CAM").detail).toMatch(/sedan/i);
-    expect(factor(unknown, "AVA").points).toBe(0);
-    expect(factor(unknown, "AVA").detail).not.toMatch(/this is a/i);
+    expect(factor(unknown, "CAM")!.points).toBe(-8);
+    expect(factor(unknown, "CAM")!.detail).toMatch(/sedan/i);
+    expect(factor(unknown, "AVA")!.points).toBe(0);
+    expect(factor(unknown, "AVA")!.detail).not.toMatch(/this is a/i);
 
     const decoded = selectBestDealOnEvidence({
       need,
@@ -422,9 +422,9 @@ describe("ranking stays principled outside the live shortlist", () => {
       ],
       nowYear: 2026,
     });
-    expect(factor(decoded, "AVA").points).toBe(-8);
-    expect(factor(decoded, "AVA").detail).toMatch(/sedan/i);
-    expect(factor(decoded, "CRV").detail).not.toMatch(/this is a sedan/i);
+    expect(factor(decoded, "AVA")!.points).toBe(-8);
+    expect(factor(decoded, "AVA")!.detail).toMatch(/sedan/i);
+    expect(factor(decoded, "CRV")!.detail).not.toMatch(/this is a sedan/i);
 
     const unread = selectBestDealOnEvidence({
       need,
@@ -443,8 +443,8 @@ describe("ranking stays principled outside the live shortlist", () => {
       ],
       nowYear: 2026,
     });
-    expect(factor(unread, "CAM").points).toBe(0);
-    expect(factor(unread, "CAM").detail).not.toMatch(/this is a/i);
+    expect(factor(unread, "CAM")!.points).toBe(0);
+    expect(factor(unread, "CAM")!.detail).not.toMatch(/this is a/i);
   });
 
   it("lets a clearly better car win when it is not a model you named, and says why", () => {

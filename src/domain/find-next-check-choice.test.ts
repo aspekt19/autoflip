@@ -82,9 +82,9 @@ describe("find next-check choice allowlist alignment", () => {
       env: { SERV_PROFILE_MODEL_FIND_NEXT_CHECK: "claude-fable-5" },
     });
     expect(fable.ok).toBe(false);
-    const mini = resolveProfileBaseModel("find_next_check", { env: {} });
-    expect(mini.ok).toBe(true);
-    if (!mini.ok) return;
-    expect(mini.baseId).toBe("gpt-5.4-mini");
+    const def = resolveProfileBaseModel("find_next_check", { env: {} });
+    expect(def.ok).toBe(true);
+    if (!def.ok) return;
+    expect(def.baseId).toBe("gpt-6.1-sol");
   });
 });

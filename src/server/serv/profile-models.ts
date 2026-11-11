@@ -1,7 +1,7 @@
 /**
  * Reversible per-profile SERV model configuration (t317).
  *
- * Production default is BASE_MODEL (`gpt-5.6-sol`). Override globally with
+ * Production default is BASE_MODEL (`gpt-6.1-sol`). Override globally with
  * `SERV_MODEL`, or per profile with `SERV_PROFILE_MODEL_<PROFILE>`.
  *
  * Priority for the base id (before modelFor feature suffixes):
@@ -14,6 +14,13 @@
  */
 
 import { BASE_MODEL, modelFor, type ProfileId } from "./profiles";
+
+/**
+ * Always-allowlisted Sol/Mini peers for every profile (production default remains BASE_MODEL).
+ * Offline mocks and Flip compare still pin these ids; without them, unlisted profiles
+ * fail closed on `gpt-5.4-mini` after the BASE_MODEL bump to gpt-6.1-sol.
+ */
+export const SERV_SHARED_MODEL_PEERS = ["gpt-6.1-sol", "gpt-5.6-sol", "gpt-5.4-mini"] as const;
 
 /**
  * Docs + parent-evidenced candidates for product profiles.
@@ -68,6 +75,17 @@ export const SERV_PROFILE_MODEL_CANDIDATES: Partial<Record<ProfileId, readonly s
     "gpt-6.1-sol",
     "claude-opus-5.5",
   ],
+  verdict_challenge: [
+    "gpt-5.4-mini",
+    "claude-sonnet-5.5",
+    "gpt-5.6-sol",
+    "gpt-6.1-sol",
+  ],
+  resale_plan_search: [...SERV_SHARED_MODEL_PEERS],
+  resale_triage: [...SERV_SHARED_MODEL_PEERS],
+  resale_pick: [...SERV_SHARED_MODEL_PEERS],
+  resale_challenge: [...SERV_SHARED_MODEL_PEERS],
+  radar_review: [...SERV_SHARED_MODEL_PEERS],
 };
 
 export type ProfileModelSource = "caller_requested" | "profile_env" | "base_default";
@@ -111,6 +129,8 @@ export function resolveProfileBaseModel(
   const allowUnlisted =
     opts?.allowUnlisted === true || env.SERV_PROFILE_MODEL_ALLOW_UNLISTED === "1";
   const candidates = new Set(SERV_PROFILE_MODEL_CANDIDATES[id] ?? [BASE_MODEL]);
+  candidates.add(BASE_MODEL);
+  for (const peer of SERV_SHARED_MODEL_PEERS) candidates.add(peer);
   const profileRaw = env[envKeyForProfile(id)];
   const profileEnv = typeof profileRaw === "string" && profileRaw.trim() ? profileRaw.trim() : null;
   const requested =
@@ -120,13 +140,13 @@ export function resolveProfileBaseModel(
     if (!isPlausible(baseId)) {
       return { ok: false, message: `Profile model id failed shape check: ${JSON.stringify(baseId)}` };
     }
-    if (!candidates.has(baseId) && !allowUnlisted) {
+    const stripped = baseId.replace(/-serv-(kronos-multipath|multipath-kronos|multipath|kronos)$/i, "");
+    if (!candidates.has(stripped) && !allowUnlisted) {
       return {
         ok: false,
-        message: `Unsupported model ${baseId} for profile ${id}. Allowlisted: ${[...candidates].join(", ")}. Set SERV_PROFILE_MODEL_ALLOW_UNLISTED=1 only after Flip console validation.`,
+        message: `Unsupported model ${stripped} for profile ${id}. Allowlisted: ${[...candidates].join(", ")}. Set SERV_PROFILE_MODEL_ALLOW_UNLISTED=1 only after Flip console validation.`,
       };
     }
-    const stripped = baseId.replace(/-serv-(kronos-multipath|multipath-kronos|multipath|kronos)$/i, "");
     const effectiveId = modelFor(id, stripped);
     return {
       ok: true,

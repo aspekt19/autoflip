@@ -15,7 +15,7 @@
 import { CONNECT_HELP } from "@/io/telegram";
 
 /** Production default for all SERV steps. Override with env `SERV_MODEL` (or per-profile `SERV_PROFILE_MODEL_*`). */
-export const BASE_MODEL = "gpt-5.6-sol";
+export const BASE_MODEL = "gpt-6.1-sol";
 export const SHADOW_MAX_ITERATIONS = 2;
 
 export const REPORT_SHADOW_HINT =
