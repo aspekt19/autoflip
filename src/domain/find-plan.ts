@@ -93,6 +93,9 @@ export type FindPlan = {
   directions: FindPlanDirection[];
 };
 
+/** PR B plug-in name — same typed C1 plan object (`validateFindPlan` / `planToDirections`). */
+export type SearchPlan = FindPlan;
+
 export type FindPlanFormOverrides = {
   budgetUsd?: number | null;
   yearMin?: number | null;
