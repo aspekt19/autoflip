@@ -61,6 +61,11 @@ export const SERV_PROFILE_MODEL_CANDIDATES: Partial<Record<ProfileId, readonly s
     "gpt-6.1-sol",
     "claude-opus-5.5",
   ],
+  // PR B C2–C4: Auto models only (no Claude). Default remains gpt-5.4-mini.
+  // C3 may override to gpt-5.6-sol; C4 should use a different Auto id when possible.
+  find_triage: ["gpt-5.4-mini", "gpt-5.6-sol", "gpt-6.1-sol"],
+  find_decide: ["gpt-5.4-mini", "gpt-5.6-sol", "gpt-6.1-sol"],
+  find_challenge: ["gpt-5.4-mini", "gpt-5.6-sol", "gpt-6.1-sol"],
   verdict_decide: [
     "gpt-5.4-mini",
     "claude-sonnet-5.5",

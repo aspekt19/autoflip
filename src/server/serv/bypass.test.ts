@@ -124,6 +124,10 @@ describe("SERV layer", () => {
         "verdict_decide",
         "verdict_challenge",
         "find_close_call_multipath",
+        "find_pick",
+        "find_triage",
+        "find_decide",
+        "find_challenge",
         "find_next_check",
         "resale_plan_search",
         "resale_triage",
@@ -144,6 +148,18 @@ describe("SERV layer", () => {
     expect(toolNames(requestFor("scout_plan", "{}").tools)).toEqual(["serv_prompt_guard"]);
     expect(PROFILES.verdict_decide.feature).toBe("multipath");
     expect(PROFILES.verdict_decide.jsonSchema?.name).toBe("report_verdict_decision");
+    // PR B decision profiles: no prompt_guard / shadow (guard stays on find_plan / listing_extract).
+    expect(PROFILES.find_triage.tools).toEqual([]);
+    expect(PROFILES.find_decide.tools).toEqual([]);
+    expect(PROFILES.find_challenge.tools).toEqual([]);
+    expect(toolNames(requestFor("find_triage", "{}").tools)).toEqual([]);
+    expect(toolNames(requestFor("find_decide", "{}").tools)).toEqual([]);
+    expect(toolNames(requestFor("find_challenge", "{}").tools)).toEqual([]);
+    expect(PROFILES.find_triage.jsonSchema?.name).toBe("find_triage");
+    expect(PROFILES.find_decide.jsonSchema?.name).toBe("find_decide");
+    expect(PROFILES.find_challenge.jsonSchema?.name).toBe("find_challenge");
+    expect(PROFILES.listing_extract.tools).toContain("prompt_guard");
+    expect(PROFILES.find_plan.tools).toContain("prompt_guard");
   });
 
   it("rejects chat function tools that still ask for reasoning effort", () => {

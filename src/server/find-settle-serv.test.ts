@@ -53,6 +53,26 @@ describe("find settle SERV", () => {
     expect(report.compMethodNote).toMatch(/similar|enough|need/i);
   });
 
+  it("passes listing accident/owner/drivetrain/cpo/usage facts through to the subject", () => {
+    const report = buildFindPickComputedReport(
+      candidate({
+        key: "a",
+        accidentCount: 0,
+        ownerCount: 1,
+        oneOwner: true,
+        drivetrain: "AWD",
+        cpo: true,
+        usageType: "Personal",
+      }),
+    );
+    expect(report.subject.accidentCount).toBe(0);
+    expect(report.subject.ownerCount).toBe(1);
+    expect(report.subject.oneOwner).toBe(true);
+    expect(report.subject.drivetrain).toBe("AWD");
+    expect(report.subject.cpo).toBe(true);
+    expect(report.subject.usageType).toBe("Personal");
+  });
+
   it("keeps missing VIN empty and labels VIN not in listing (no FIND* invent)", () => {
     const report = buildFindPickComputedReport(
       candidate({ key: "a", vin: null }),

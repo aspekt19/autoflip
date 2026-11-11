@@ -59,4 +59,25 @@ describe("resolveProfileBaseModel (t317 reversible Sonnet path)", () => {
     expect(on.baseId).toBe("claude-sonnet-5.5");
     expect(off.baseId).toBe(BASE_MODEL);
   });
+
+  it("find_triage / find_decide / find_challenge allow Auto models only", () => {
+    for (const id of ["find_triage", "find_decide", "find_challenge"] as const) {
+      const mini = resolveProfileBaseModel(id, { env: {} });
+      expect(mini.ok).toBe(true);
+      if (!mini.ok) return;
+      expect(mini.baseId).toBe(BASE_MODEL);
+
+      const sol = resolveProfileBaseModel(id, {
+        env: { [`SERV_PROFILE_MODEL_${id.toUpperCase()}`]: "gpt-5.6-sol" },
+      });
+      expect(sol.ok).toBe(true);
+      if (!sol.ok) return;
+      expect(sol.baseId).toBe("gpt-5.6-sol");
+
+      const claude = resolveProfileBaseModel(id, {
+        env: { [`SERV_PROFILE_MODEL_${id.toUpperCase()}`]: "claude-sonnet-5.5" },
+      });
+      expect(claude.ok).toBe(false);
+    }
+  });
 });

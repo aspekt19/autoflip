@@ -89,6 +89,14 @@ export type BestDealCandidate = {
   vdp?: string | null;
   /** Listing or vPIC-filled drivetrain — used for soft AWD preference ties. */
   drivetrain?: string | null;
+  /** Listing-feed history / product flags — passed through to SERV settle facts. */
+  accidentCount?: number | null;
+  ownerCount?: number | null;
+  oneOwner?: boolean | null;
+  cpo?: boolean | null;
+  usageType?: string | null;
+  fuel?: string | null;
+  bodyStyle?: string | null;
 };
 
 /**
@@ -1107,6 +1115,13 @@ function scoreOne(
     dealer: row.dealer ?? null,
     vdp: row.vdp ?? null,
     drivetrain: row.drivetrain ?? null,
+    accidentCount: row.accidentCount ?? null,
+    ownerCount: row.ownerCount ?? null,
+    oneOwner: row.oneOwner ?? null,
+    cpo: row.cpo ?? null,
+    usageType: row.usageType ?? null,
+    fuel: row.fuel ?? null,
+    bodyStyle: row.bodyStyle ?? null,
   };
 }
 
