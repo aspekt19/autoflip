@@ -20,6 +20,16 @@ TypeScript owns the numbers; settle credits (or optional x402) only after succes
 Same object on site, MCP, and `af_` REST: `schemaVersion`, `purpose`, `rubricId`, `status` (`ok`|`failed`|`skipped`), `servResponseId` (only when `ok`), `model`, `timestamp`, `inputsDigest`, `verdict`, `clampResult`, `reason`, optional `rawResponse`.
 - Check / Find / Resale / Radar check-now share the SERV plan/decide/second-check pipeline and decision journal rows in `proofRecords` / `journal`.
 
+## Visible decision step (`lemonless.serv_decision_step.v1`)
+Buyer journal unit on Find / Check / Resale / report: `step`, `by` (`SERV`|`code`), `modelId`, `runId`, `timestamp`, `inputSummary`, `output`, `latencyMs`, `costUsd`, `status` (`ran`|`skipped`|`failed`|`not_run`).
+Producers emit steps via proof records; see `src/server/serv/decision-step-producer.ts` plug-in points. UI title: “How this decision was made”.
+
+## Audit / verify
+- Each sealed report: sha256 report hash + hash-linked decision chain (`lemonless.decision_audit_chain.v1`).
+- `GET /api/verify?id=` · `POST /api/verify` · public page `/verify`
+- Live aggregates (sealed trails only): `GET /api/serv-stats` · `/where-serv-runs`
+- Comparison scaffold (committed provenance only): `/proof`
+
 ## REST
 - `POST /api/v1/check` — same as check_car
 - `POST /api/v1/find` → 202 `{ run_id }` ; status/result GETs
@@ -38,7 +48,8 @@ Same object on site, MCP, and `af_` REST: `schemaVersion`, `purpose`, `rubricId`
 - /.well-known/agent.json
 - /openapi.json
 - /llms-full.txt
-- /developers (agent docs page)
+- /developers (agent docs page — curl + MCP config + OpenServ auth note)
+- /where-serv-runs · /proof · /verify
 
 ## Errors
 Every 4xx/5xx includes `error_code`, `message`, `credit_spent`, `retry_safe`, and `next_steps.request` (method/url/body).

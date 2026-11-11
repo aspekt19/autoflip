@@ -28,7 +28,7 @@ type Props = {
 };
 
 /**
- * Collapsible "How the agent decided" panel.
+ * Collapsible "How this decision was made" panel.
  * Structured as decided → why → changed. Never invents steps.
  * Second check is always shown: either a real record or an honest not-run reason.
  */
@@ -141,7 +141,7 @@ export function AgentDecisionTrail({
   const proofBody = (
     <>
       <p className="hint">
-        <strong>How the agent decided</strong>
+        <strong>How this decision was made</strong>
         {savedLabel ? ` · ${savedLabel}` : ""}
         {verdict.confidence
           ? ` · Confidence ${confidenceLabel(verdict.confidence)}${lowWhy ? ` — ${lowWhy}` : ""}`

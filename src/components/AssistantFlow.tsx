@@ -29,7 +29,6 @@ import type { SearchDirection } from "@/domain/directions";
 import type { FindPlan } from "@/domain/find-plan";
 import { CoverageLine } from "./CoverageNote";
 import { DecisionNote } from "./DecisionNote";
-import { ConsumerDecisionProof } from "./ConsumerDecisionProof";
 import { decideAfFlowRestore, resumeFindSearchFromFlow } from "@/domain/af-flow-session";
 import {
   resolveManualCheckHandoff,
@@ -79,12 +78,12 @@ import type { BestDealResult } from "@/domain/find-best-deal";
 import { buyerCarLabels } from "@/domain/find-car-label";
 import { formatBaselineForBuyer, type FindBaselineDelta } from "@/domain/find-baseline";
 import { buildFindAgentVerdict } from "@/domain/build-find-agent-verdict";
-import { findVerdictLineage } from "@/domain/find-verdict-lineage";
 import {
   presentDecisionLogForBuyer,
   type DecisionCarLabel,
   type FindDecisionLogEntry,
 } from "@/domain/find-decision-log";
+import { ServDecisionJournal } from "@/components/ServDecisionJournal";
 import { formatFindFuelEvidenceShort, fuelFactFromFindEvidence } from "@/domain/find-fuel-match";
 import { buildGroundedShortlist } from "@/domain/find-path";
 import {
@@ -2857,6 +2856,20 @@ function AssistantFlow({
                         ))}
                       </ul>
                     ) : null}
+                    <ServDecisionJournal
+                      proofRecords={proofRecords}
+                      agentVerdict={buildFindAgentVerdict({
+                        decisionLog: decisionView.entries,
+                        labels: decisionLabels,
+                        bestDeal,
+                        baseline: bestDeal?.baseline ?? null,
+                        secondPass: pickSecondPass,
+                        settleVerdict: pickAgentVerdict,
+                        confidenceLine: bestDeal?.choice?.confidenceLine ?? null,
+                        servCalls: decisionView.entries.filter((entry) => entry.decidedBy === "SERV").length,
+                      })}
+                      defaultOpen
+                    />
                     {decisionPresented.lines.length > 0 ? (
                       <div className="hint" role="note">
                         <p>Check checklist (detail)</p>
@@ -2881,47 +2894,6 @@ function AssistantFlow({
                     {pending === "next-check" && pendingCheckLabel ? (
                       <p className="hint">{pendingCheckLabel}</p>
                     ) : null}
-                    <ConsumerDecisionProof
-                      records={proofRecords.filter(
-                        (row) =>
-                          row.purpose === "find_pick" ||
-                          row.purpose === "find_triage" ||
-                          row.purpose === "find_decide" ||
-                          row.purpose === "find_challenge" ||
-                          row.purpose === "verdict_decide" ||
-                          row.purpose === "verdict_challenge" ||
-                          row.purpose === "find_plan" ||
-                          row.purpose === "need_extract" ||
-                          row.purpose === "need_guard" ||
-                          row.purpose === "find_next_check",
-                      )}
-                      verdict={buildFindAgentVerdict({
-                        decisionLog: decisionView.entries,
-                        labels: decisionLabels,
-                        bestDeal,
-                        baseline: bestDeal?.baseline ?? null,
-                        secondPass: pickSecondPass,
-                        settleVerdict: pickAgentVerdict,
-                        confidenceLine: bestDeal?.choice?.confidenceLine ?? null,
-                        servCalls: decisionView.entries.filter((entry) => entry.decidedBy === "SERV").length,
-                      })}
-                      plainLines={[
-                        (() => {
-                          const lineage = findVerdictLineage(proofRecords, pickAgentVerdict?.verdict ?? null);
-                          if (!lineage?.finalVerdict && !lineage?.servPick) return null;
-                          if (lineage.guardrail && lineage.servPick) {
-                            return `Our AI first leaned ${lineage.servPick}; safety rules settled on ${lineage.finalVerdict ?? lineage.guardrail}.`;
-                          }
-                          if (lineage.servPick && lineage.finalVerdict && lineage.servPick !== lineage.finalVerdict) {
-                            return `Our AI first leaned ${lineage.servPick}; the final call is ${lineage.finalVerdict}.`;
-                          }
-                          return lineage.finalVerdict ? `Final call: ${lineage.finalVerdict}.` : null;
-                        })(),
-                        ...(decisionPresented.hiddenSteps ?? []),
-                      ].filter((line): line is string => Boolean(line))}
-                      confidenceWhy={bestDeal?.choice?.confidenceLine ?? null}
-                      emptyHint="No decision records for this Find run yet."
-                    />
                     {settledLine ? <p className="hint">{settledLine}</p> : null}
                     {freeGovEvidenceLines.length > 0 ? (
                       <div className="hint" role="note">

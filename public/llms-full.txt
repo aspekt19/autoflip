@@ -95,6 +95,15 @@ Flow for check/find when enabled:
 
 Primary billing remains site report credits + free monthly Check allotment.
 
+## Visible decision step (`lemonless.serv_decision_step.v1`)
+Buyer journal on Find / Check / Resale / report: step, by (`SERV`|`code`), modelId, runId, timestamp, inputSummary, output, latencyMs, costUsd, status (`ran`|`skipped`|`failed`|`not_run`). Adapted from `proofRecords` until sibling producers emit steps directly (`src/server/serv/decision-step-producer.ts`).
+
+## Audit / transparency
+- Sealed trail: report sha256 + hash-linked steps (`lemonless.decision_audit_chain.v1`)
+- `GET /api/verify?id=` · `POST /api/verify` · `/verify`
+- Aggregates: `GET /api/serv-stats` · `/where-serv-runs` (empty when no sealed trails)
+- Comparison scaffold: `/proof` (committed provenance only; no invented scores)
+
 ## Error envelope
 ```json
 {

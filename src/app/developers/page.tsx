@@ -20,13 +20,19 @@ export default function DevelopersPage() {
         </p>
 
         <section>
-          <h2>What each tool costs</h2>
+          <h2>MCP / API tools</h2>
+          <p>
+            Public discovery: <a href="/llms.txt">/llms.txt</a>, <a href="/openapi.json">/openapi.json</a>,{" "}
+            <a href="/.well-known/agent.json">/.well-known/agent.json</a>. Transparency:{" "}
+            <a href="/where-serv-runs">/where-serv-runs</a>, <a href="/proof">/proof</a>,{" "}
+            <a href="/verify">/verify</a>.
+          </p>
           <ul>
             <li>
-              <code>check_car</code> / <code>POST /api/v1/check</code> — free monthly Check allotment when available, else 1 report credit after success. Scope: <code>check</code>.
+              <code>check_car</code> / <code>POST /api/v1/check</code> — free monthly Check allotment when available, else 1 report credit after success. Scope: <code>check</code>. Returns <code>proofRecords</code>.
             </li>
             <li>
-              <code>find_cars</code> / <code>POST /api/v1/find</code> — async; 1 report credit after a successful search. Scope: <code>find</code>.
+              <code>find_cars</code> / <code>POST /api/v1/find</code> — async; 1 report credit after a successful search. Scope: <code>find</code>. Result includes <code>proofRecords</code>.
             </li>
             <li>
               <code>resale_search</code> / <code>POST /api/v1/resale</code> — async budget Resale; 1 report credit when the final verdict is delivered. Scope: <code>find</code>. Poll status/result for journal + <code>proofRecords</code>.
@@ -36,6 +42,9 @@ export default function DevelopersPage() {
               <code>radar_watches</code> / <code>radar_save_watch</code> / <code>radar_check_now</code> / <code>radar_feed</code>{" "}
               (or <code>/api/v1/radar/*</code>) and require a paid Radar ($100/mo) or Radar Pro ($250/mo) plan — same gates as{" "}
               <a href="/radar">Deal Radar</a>. <code>full_report</code> costs 1 credit (scope <code>check</code>).
+            </li>
+            <li>
+              Resale search is the site <a href="/resale">/resale</a> flow (1 credit) with the same decision-proof journal shape when SERV settle runs. Agent MCP exposure for resale follows the same <code>proofRecords</code> contract when enabled on the server.
             </li>
           </ul>
           <p>

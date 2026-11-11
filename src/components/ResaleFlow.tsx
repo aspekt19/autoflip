@@ -3,9 +3,8 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useId, useState } from "react";
-import { ConsumerDecisionProof } from "@/components/ConsumerDecisionProof";
+import { ServDecisionJournal } from "@/components/ServDecisionJournal";
 import { MakeModelFields } from "@/components/MakeModelFields";
-import { ResaleDecisionJournalView } from "@/components/ResaleDecisionJournal";
 import { useAccountLoad } from "@/components/use-account-load";
 import type { AgentVerdict } from "@/domain/agent-verdict-schema";
 import type { DecisionProofRecord } from "@/domain/decision-proof-view";
@@ -614,7 +613,7 @@ function ResaleSearchForm({ credits, onAuthLost }: { credits: number | null; onA
       ) : null}
 
       {pending && partialJournal && partialJournal.steps.length > 0 ? (
-        <ResaleDecisionJournalView journal={partialJournal} defaultOpen />
+        <ServDecisionJournal resaleJournal={partialJournal} defaultOpen />
       ) : null}
 
       {error ? (
@@ -735,12 +734,11 @@ function ResaleSearchResultView({ result }: { result: SearchResult }) {
         </section>
       ) : null}
 
-      <ConsumerDecisionProof
-        records={result.proofRecords}
-        verdict={result.agentVerdict}
-        plainLines={[`Final call: ${result.verdictAction}`]}
-        emptyHint="No agent decision records for this Resale run yet (shopper decide may have been skipped)."
-        proofExtra={<ResaleDecisionJournalView journal={result.journal} embedded />}
+      <ServDecisionJournal
+        agentVerdict={result.agentVerdict}
+        proofRecords={result.proofRecords}
+        resaleJournal={result.journal}
+        defaultOpen
       />
     </article>
   );

@@ -3,9 +3,9 @@ import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 
 /**
- * Brand chrome (buttons, labels, nav, kickers) must use Orbitron
- * (--type-brand / --display), not Bebas/Manrope/system.
- * Body paragraphs and field values stay on the sans face (Manrope).
+ * Headings, nav, labels, and kickers use Orbitron (--type-brand / --display).
+ * Body paragraphs, field values, and CTA buttons use the sans face (Manrope).
+ * Prices / scores / mono slots use JetBrains Mono (--font-mono).
  */
 
 const SCREEN_DIR = join(process.cwd(), "docs/screenshots/brand-type/after");
@@ -50,6 +50,10 @@ function isBrandFace(family: string): boolean {
 
 function isBodyFace(family: string): boolean {
   return /manrope|avenir|__sans_|sans-serif/i.test(family) && !isBrandFace(family);
+}
+
+function isMonoFace(family: string): boolean {
+  return /jetbrains|__mono_|ui-monospace|sfmono|menlo|consolas|monospace/i.test(family);
 }
 
 async function fontFamilyOf(page: Page, selector: string, opts?: { visible?: boolean }): Promise<string> {
@@ -131,7 +135,7 @@ test.describe("brand type on chrome", () => {
   });
 
   for (const path of PAGES) {
-    test(`${path} buttons and labels use Orbitron brand face`, async ({ page }) => {
+    test(`${path} headings/nav brand; buttons/body sans; scores mono when present`, async ({ page }) => {
       await mockSignedIn(page);
       await page.setViewportSize({ width: 1440, height: 900 });
       await page.goto(path);
@@ -150,11 +154,11 @@ test.describe("brand type on chrome", () => {
         expect(isBrandFace(navFamily), `${path} nav-core font-family=${navFamily}`).toBe(true);
       }
 
-      // CTA / chrome button when present on the page.
+      // CTAs use the readable body sans (not Orbitron).
       const action = page.locator("a.action, button.action, a.quiet, button.quiet").first();
       if ((await action.count()) > 0) {
         const actionFamily = await action.evaluate((el) => getComputedStyle(el).fontFamily);
-        expect(isBrandFace(actionFamily), `${path} .action/.quiet font-family=${actionFamily}`).toBe(true);
+        expect(isBodyFace(actionFamily), `${path} .action/.quiet font-family=${actionFamily}`).toBe(true);
       }
 
       const kicker = page.locator(".kicker, .eyebrow, .sheet-label, .field legend, .field > label").first();
@@ -168,6 +172,12 @@ test.describe("brand type on chrome", () => {
       if ((await lead.count()) > 0 && (await lead.isVisible().catch(() => false))) {
         const leadFamily = await lead.evaluate((el) => getComputedStyle(el).fontFamily);
         expect(isBodyFace(leadFamily), `${path} body paragraph font-family=${leadFamily}`).toBe(true);
+      }
+
+      const score = page.locator(".score, .price-badge strong, .mono").first();
+      if ((await score.count()) > 0 && (await score.isVisible().catch(() => false))) {
+        const scoreFamily = await score.evaluate((el) => getComputedStyle(el).fontFamily);
+        expect(isMonoFace(scoreFamily), `${path} mono/score font-family=${scoreFamily}`).toBe(true);
       }
 
       const slug = path === "/" ? "home" : path.slice(1);

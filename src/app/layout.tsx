@@ -41,6 +41,17 @@ const wide = localFont({
   variable: "--font-wide",
   display: "swap",
 });
+/** Self-hosted JetBrains Mono — prices, mileage, VINs, scores, ids. */
+const mono = localFont({
+  src: [
+    { path: "../fonts/jetbrains-mono/jetbrains-mono-latin-400-normal.woff2", weight: "400", style: "normal" },
+    { path: "../fonts/jetbrains-mono/jetbrains-mono-latin-500-normal.woff2", weight: "500", style: "normal" },
+    { path: "../fonts/jetbrains-mono/jetbrains-mono-latin-600-normal.woff2", weight: "600", style: "normal" },
+    { path: "../fonts/jetbrains-mono/jetbrains-mono-latin-700-normal.woff2", weight: "700", style: "normal" },
+  ],
+  variable: "--font-mono",
+  display: "swap",
+});
 
 const TAGLINE = "Buy smart. Stay lemonless.";
 const CATEGORY = "Used-car verdicts you can check.";
@@ -77,7 +88,7 @@ export const metadata: Metadata = {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en" className={`${sans.variable} ${display.variable} ${wide.variable}`}>
+    <html lang="en" className={`${sans.variable} ${display.variable} ${wide.variable} ${mono.variable}`}>
       <body>
         <SmoothScroll />
         <a className="skip" href="#main">

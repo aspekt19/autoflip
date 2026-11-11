@@ -5,6 +5,15 @@
   "documentation": "https://autoflip-umber.vercel.app/developers",
   "llms": "https://autoflip-umber.vercel.app/llms.txt",
   "openapi": "https://autoflip-umber.vercel.app/openapi.json",
+  "transparency": {
+    "whereServRuns": "https://autoflip-umber.vercel.app/where-serv-runs",
+    "proof": "https://autoflip-umber.vercel.app/proof",
+    "verify": "https://autoflip-umber.vercel.app/verify",
+    "verifyApi": "https://autoflip-umber.vercel.app/api/verify",
+    "servStatsApi": "https://autoflip-umber.vercel.app/api/serv-stats",
+    "decisionStepSchema": "lemonless.serv_decision_step.v1",
+    "auditChainSchema": "lemonless.decision_audit_chain.v1"
+  },
   "version": "0.3.0",
   "authentication": {
     "schemes": ["bearer"],

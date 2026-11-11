@@ -68,7 +68,8 @@ export function HomeStage() {
           <Link href="/pricing">See pricing</Link>
           <span>
             . Report credits are separate from optional Radar plans.{" "}
-            <Link href="/resale">Resale</Link> is the money-button flip search (1 credit), not a profit guarantee.
+            <Link href="/resale">Resale</Link> is the money-button flip search (1 credit), not a profit guarantee.{" "}
+            <Link href="/where-serv-runs">Decision pipeline</Link> shows which steps use model reasoning versus code.
           </span>
         </p>
       </section>

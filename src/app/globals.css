@@ -35,13 +35,16 @@
   --display: var(--font-display), Orbitron, sans-serif;
   --wide: var(--font-wide), "Bebas Neue", Impact, sans-serif;
   --serif: var(--font-sans), Manrope, sans-serif;
-  --mono: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
-  /* Brand chrome = Orbitron (--display), uppercase + letter-spaced — LEVRIX line 18.
-     Not Bebas (--wide). Body/paragraph/table copy stays Manrope (--sans). */
+  --mono: var(--font-mono), "JetBrains Mono", ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+  /* Headings / brand titles = Orbitron (--display). Not Bebas (--wide).
+     Body, paragraphs, inputs, and buttons = Manrope (--sans).
+     Prices, mileage, VINs, scores, ids = JetBrains Mono (--mono). */
   --type-brand: var(--display);
   --type-brand-weight: 600;
   --type-brand-tracking: 0.08em;
   --type-brand-tracking-tight: 0.06em;
+  --type-label-weight: 500;
+  --type-label-tracking: 0.12em;
   --type-brand-size-btn: 1rem; /* 16px — readable CTAs */
   --type-brand-size-label: 0.875rem; /* 14px min for labels */
   --type-brand-size-nav: 0.8125rem; /* 13px nav / tabs */
@@ -71,13 +74,12 @@
 }
 
 /*
-  Brand UI chrome — one place for buttons, labels, nav, tabs, titles, badges.
+  Brand titles (headings / .type-brand) stay on Orbitron.
+  Labels/eyebrows keep the brand face with a slightly open tracking + lighter weight.
+  Buttons use the readable body sans (set with .action/.quiet below).
   Body paragraphs, table cells, and field values stay on --sans via body/input inherit.
 */
-.type-brand,
-.btn,
-.label,
-.eyebrow {
+.type-brand {
   font-family: var(--type-brand);
   font-weight: var(--type-brand-weight);
   letter-spacing: var(--type-brand-tracking);
@@ -86,12 +88,21 @@
 }
 .label,
 .eyebrow {
+  font-family: var(--type-brand);
+  font-weight: var(--type-label-weight);
+  letter-spacing: var(--type-label-tracking);
+  text-transform: uppercase;
+  line-height: var(--type-brand-line);
   font-size: max(14px, var(--type-brand-size-label));
   color: var(--brand-accent);
 }
 .btn {
+  font-family: var(--sans);
+  font-weight: 600;
   font-size: max(14px, var(--type-brand-size-btn));
-  letter-spacing: var(--type-brand-tracking-tight);
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  line-height: var(--type-brand-line);
 }
 
 @supports not (color: light-dark(black, white)) {
@@ -136,9 +147,9 @@ body {
   font-family: var(--sans);
 }
 img { max-width: 100%; display: block; }
-/* Inputs keep body/sans for typed values; buttons get brand type below. */
+/* Inputs and buttons use the readable body sans; headings keep Orbitron. */
 input, select, textarea { font: inherit; color: inherit; }
-button { font-family: var(--type-brand); color: inherit; }
+button { font-family: var(--sans); color: inherit; }
 a { color: inherit; }
 :focus-visible { outline: 3px solid var(--blue); outline-offset: 3px; }
 ::selection { background: var(--blue-soft); }
@@ -912,9 +923,9 @@ span.nav-go { cursor: default; }
 .eyebrow {
   margin: 0 0 12px;
   font-family: var(--type-brand);
-  font-weight: var(--type-brand-weight);
+  font-weight: var(--type-label-weight);
   font-size: max(14px, var(--type-brand-size-label));
-  letter-spacing: 0.14em;
+  letter-spacing: var(--type-label-tracking);
   text-transform: uppercase;
   line-height: var(--type-brand-line);
   color: var(--brand-accent);
@@ -946,10 +957,10 @@ h3 { font-size: 20px; margin-bottom: 8px; }
   /* LEVRIX-like CTAs: near-sharp corners (own CSS, not Framer assets). */
   border-radius: 4px;
   border: 1px solid transparent;
-  font-family: var(--type-brand);
-  font-weight: var(--type-brand-weight);
+  font-family: var(--sans);
+  font-weight: 600;
   font-size: max(14px, var(--type-brand-size-btn));
-  letter-spacing: var(--type-brand-tracking-tight);
+  letter-spacing: 0.02em;
   text-transform: uppercase;
   line-height: var(--type-brand-line);
   text-decoration: none;
@@ -1022,8 +1033,8 @@ button:disabled, .action:disabled, .quiet:disabled, .ghost:disabled {
   margin: 0 0 8px;
   font-family: var(--type-brand);
   font-size: max(14px, var(--type-brand-size-label));
-  font-weight: var(--type-brand-weight);
-  letter-spacing: 0.08em;
+  font-weight: var(--type-label-weight);
+  letter-spacing: var(--type-label-tracking);
   text-transform: uppercase;
   line-height: var(--type-brand-line);
   color: var(--brand-accent);
@@ -1270,7 +1281,18 @@ textarea { min-height: 140px; }
 .binding-section { margin: 20px 0; }
 .binding-card pre.doc { margin: 0 0 10px; max-height: 220px; overflow: auto; }
 .binding-card .quiet { width: auto; min-height: 44px; }
-.mono, .meta dd, code { font-family: var(--mono); }
+/* Tabular data face — prices, mileage, VINs, scores, ids (not prose). */
+.mono,
+.meta dd,
+code,
+.price-badge strong,
+.score,
+.facts-row b,
+.sum,
+.prices .sum {
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
+}
 code, .sheet-page a, .prose a {
   overflow-wrap: anywhere;
   word-break: break-word;
@@ -1320,10 +1342,11 @@ code, .sheet-page a, .prose a {
   line-height: var(--type-brand-line);
 }
 .price-badge strong {
-  font-family: var(--type-brand);
-  font-weight: var(--type-brand-weight);
-  letter-spacing: var(--type-brand-tracking-tight);
-  text-transform: uppercase;
+  font-family: var(--mono);
+  font-weight: 600;
+  letter-spacing: 0;
+  text-transform: none;
+  font-variant-numeric: tabular-nums;
 }
 .price-badge.good strong { color: var(--brand-yellow); }
 .price-badge.fair strong { color: var(--ink); }
@@ -1375,10 +1398,11 @@ code, .sheet-page a, .prose a {
   background: transparent;
 }
 .facts-row b, .sum {
-  font-family: var(--sans);
+  font-family: var(--mono);
   font-weight: 700;
-  letter-spacing: -0.04em;
+  letter-spacing: -0.02em;
   line-height: 0.95;
+  font-variant-numeric: tabular-nums;
 }
 .facts-row b { font-size: clamp(26px, 3vw, 36px); }
 .sum { font-size: clamp(44px, 5vw, 64px); margin: 0; }
@@ -1408,7 +1432,14 @@ code, .sheet-page a, .prose a {
   border-radius: 4px;
   background: var(--blue-soft);
 }
-.score { font-family: var(--sans); font-weight: 700; font-size: 36px; letter-spacing: -0.04em; line-height: 1; }
+.score {
+  font-family: var(--mono);
+  font-weight: 700;
+  font-size: 36px;
+  letter-spacing: -0.02em;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
 .row-actions { display: flex; justify-content: flex-end; }
 .car-title {
   font-family: var(--type-brand);
