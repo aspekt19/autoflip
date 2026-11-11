@@ -113,16 +113,17 @@ function promptGuardTool(endpoint: ServProfile["endpoint"]): Tool {
 }
 
 function shadowTool(entry: ServProfile): Tool {
-  // No `default` — strict response_format rejects it (HTTP 400 Invalid schema).
-  // Single-value enums pin the platform config the way defaults used to.
+  // Documented serv_shadow_agent form uses JSON Schema `default` (not single-value enum)
+  // for hint + max_iterations. See SERV Reasoning shadow-agent tutorial.
   const hint = entry.shadowHint ?? "";
   const maxIterations = entry.shadowMaxIterations ?? 2;
   const parameters = {
     type: "object",
     properties: {
-      hint: { type: "string", enum: [hint] },
-      max_iterations: { type: "integer", enum: [maxIterations] },
+      hint: { type: "string", default: hint },
+      max_iterations: { type: "integer", default: maxIterations },
     },
+    // Keep required[] for strict-subset tool schemas; pin values via `default` (not enum).
     required: ["hint", "max_iterations"],
     additionalProperties: false,
   };

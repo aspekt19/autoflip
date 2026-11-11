@@ -14,8 +14,8 @@
  * - **PR B (free gov checks + decide + independent second check):** replace
  *   `ports.decideResale` / `ports.decideFind` / `ports.decideRadarFlip`. Today the
  *   stubs delegate to `runResaleSettleServ`, `runFindSettleServ`, and Radar
- *   `radar_review` (+ feasibility). Shopper second check stays `verdict_challenge`
- *   inside those modules.
+ *   `flip_judge` (+ `flip_feasibility`). Shopper second check stays `verdict_challenge`
+ *   inside those modules; Resale second check is `resale_challenge` (Kronos).
  *
  * Do not invent listings, prices, or response ids here. Tests must use
  * `synthetic-test-*` fixture ids only.
@@ -607,7 +607,9 @@ async function defaultDecideRadarFlip(req: DecideRadarFlipRequest): Promise<Deci
       if (!rulesNote) rules.proof.fallbackUsed = true;
       proofs.push(rules.proof);
     }
-    const judgeMs = budget("radar_review");
+    // Production Flip/resale-watch decide uses flip_judge (documented Flip Radar pair with
+    // flip_feasibility). radar_review remains in the registry for older activity rows.
+    const judgeMs = budget("flip_judge");
     if (judgeMs < 500) {
       return {
         decisions: null,
@@ -617,7 +619,7 @@ async function defaultDecideRadarFlip(req: DecideRadarFlipRequest): Promise<Deci
       };
     }
     const reviewCallId = randomUUID();
-    const judged = await runServ("radar_review", { user: JSON.stringify({ facts, rulesNote }) }, {
+    const judged = await runServ("flip_judge", { user: JSON.stringify({ facts, rulesNote }) }, {
       fetch: req.fetchImpl,
       apiKey: req.servKey,
       baseUrl: req.servBaseUrl,
@@ -645,13 +647,17 @@ async function defaultDecideRadarFlip(req: DecideRadarFlipRequest): Promise<Deci
       modelReported: judged.proof.modelReported,
     }));
     activity.push(
-      ...buildRadarReviewActivityRows(seeds, {
-        ok: judged.ok,
-        error: judged.ok ? undefined : judged.error,
-        status: judged.ok ? undefined : judged.status,
-        failureCategory: judged.ok ? null : (judged.failureDiag?.category ?? null),
-        decisions: guarded.decisions,
-      }),
+      ...buildRadarReviewActivityRows(
+        seeds,
+        {
+          ok: judged.ok,
+          error: judged.ok ? undefined : judged.error,
+          status: judged.ok ? undefined : judged.status,
+          failureCategory: judged.ok ? null : (judged.failureDiag?.category ?? null),
+          decisions: guarded.decisions,
+        },
+        "flip_judge",
+      ),
     );
     return {
       decisions: guarded.decisions,

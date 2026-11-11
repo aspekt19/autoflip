@@ -705,12 +705,12 @@ export async function runRadarCycle(deps: CycleDeps): Promise<StoredRun> {
     await upsertRun(deps.kv, snapshot());
 
     // Personal alerts already ran verdict_decide (+ optional challenge) above.
-    // Flip alerts record radar_review activity via decideRadarFlip (serv-plan-decide).
+    // Flip alerts record flip_judge activity via decideRadarFlip (serv-plan-decide).
     if (!deps.servKey) {
       shadow = "not_configured";
       steps.push({ id: "serv_verdict", status: "not_configured" });
     } else if (servActivity.length === 0 && freshAlerts.every((alert) => alert.mode === "flip")) {
-      shadow = freshAlerts.length === 0 ? "no_alerts" : "radar_review";
+      shadow = freshAlerts.length === 0 ? "no_alerts" : "flip_judge";
       steps.push({ id: "serv_verdict", status: shadow });
     } else if (servActivity.length === 0) {
       shadow = "no_candidates";

@@ -52,16 +52,19 @@ describe("SERV layer", () => {
     expect(guardParams.required).toEqual([]);
     const hint = (flip.tools[1]!.function as unknown as {
       parameters: {
-        properties: { hint: { enum: string[] }; max_iterations: { enum: number[] } };
+        properties: { hint: { default?: string; enum?: string[] }; max_iterations: { default?: number; enum?: number[] } };
         additionalProperties: boolean;
-        required: string[];
+        required?: string[];
       };
     }).parameters;
     expect(hint.additionalProperties).toBe(false);
     expect(hint.required).toEqual(["hint", "max_iterations"]);
-    expect(hint.properties.hint.enum[0]).toMatch(/estimate/i);
-    expect(hint.properties.max_iterations.enum[0]).toBe(2);
-    expect(JSON.stringify(hint)).not.toMatch(/"default"\s*:/);
+    // Documented shadow form uses `default`, not single-value `enum`.
+    expect(hint.properties.hint.default).toMatch(/estimate/i);
+    expect(hint.properties.max_iterations.default).toBe(2);
+    expect(hint.properties.hint.enum).toBeUndefined();
+    expect(hint.properties.max_iterations.enum).toBeUndefined();
+    expect(JSON.stringify(hint)).toMatch(/"default"\s*:/);
     const schema = flip.response_format?.json_schema.schema as {
       properties: { decisions: { items: { properties: { verdict: { enum: string[] } } } } };
     };
@@ -174,6 +177,9 @@ describe("SERV layer", () => {
     expect(PROFILES.check_rules.feature).toBe("kronos");
     expect((PROFILES.check_rules as ServProfile).jsonSchema).toBeUndefined();
     expect(PROFILES.flip_feasibility.feature).toBe("kronos");
+    expect(PROFILES.resale_challenge.feature).toBe("kronos");
+    expect(PROFILES.resale_challenge.tools).toEqual(["prompt_guard"]);
+    expect(requestFor("resale_challenge", "{}").model).toMatch(/serv-kronos/);
     expect(PROFILES.flip_judge.feature).toBe("multipath");
     expect(PROFILES.flip_judge.jsonSchema?.name).toBe("flip_alert_judgment");
   });

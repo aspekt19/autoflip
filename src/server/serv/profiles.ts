@@ -393,8 +393,9 @@ export const PROFILES = {
   },
   flip_judge: {
     id: "flip_judge",
-    purpose: "Choose alert or skip. Code already computed profit, comps, and speed.",
-    reason: "Alert versus skip is a branching policy, so multipath applies. Software consumes the verdict, so the schema is strict.",
+    purpose: "Choose alert or skip for Flip/resale Deal Radar watches. Code already computed profit, comps, and speed.",
+    reason:
+      "Alert versus skip is a branching policy, so multipath applies. Software consumes the verdict, so the schema is strict. Production Flip Radar decide (decideRadarFlip) calls this after flip_feasibility.",
     feature: "multipath",
     tools: ["prompt_guard", "shadow"],
     shadowHint: FLIP_SHADOW_HINT,
@@ -1037,14 +1038,17 @@ export const PROFILES = {
   },
   /**
    * Resale challenge — independent second pass that may revise the pick.
+   * Kronos audits this challenger prompt (same independent-second-check role as shopper
+   * verdict_challenge, but with Kronos reasoning enabled for Resale).
    */
   resale_challenge: {
     id: "resale_challenge",
     purpose: "Challenge the Resale pick using only supplied evidence ids; may revise the pick VIN.",
-    reason: "Independent review with strict schema; invented refs are discarded by software.",
-    feature: "none",
+    reason:
+      "Independent second check of the Resale pick. Kronos audits the challenger prompt; software discards invented refs and clamps to allowlists. No shadow pass — Kronos alone keeps the step inside the job budget.",
+    feature: "kronos",
     tools: ["prompt_guard"],
-    // Own job step (~50s); multipath tooling not used but prompt_guard+schema still needs headroom.
+    // Own job step (~50s); Kronos + prompt_guard + schema needs headroom (not the old 14s).
     timeoutMs: 38_000,
     fallback: "ignored_malformed",
     system: [

@@ -211,10 +211,24 @@ describe("every SERV requestFor payload is strict-schema clean (tools + response
           failures.push(`${id} tool ${tool.name}: missing parameters object (strict response_format incompatible)`);
           continue;
         }
-        // Tool params must not use JSON Schema `default` (OpenServ HTTP 400 with strict response_format).
         const serialized = JSON.stringify(tool.parameters);
-        if (/"default"\s*:/.test(serialized)) {
+        // serv_shadow_agent uses the documented `default` form for hint/max_iterations.
+        // Other tools must still avoid `default` under strict response_format.
+        if (tool.name !== "serv_shadow_agent" && /"default"\s*:/.test(serialized)) {
           failures.push(`${id} tool ${tool.name}: parameters must not include default (strict subset)`);
+        }
+        if (tool.name === "serv_shadow_agent") {
+          const props = (tool.parameters as { properties?: Record<string, { default?: unknown; enum?: unknown }> })
+            .properties;
+          if (props?.hint && props.hint.default == null) {
+            failures.push(`${id} tool serv_shadow_agent: hint must use documented default form`);
+          }
+          if (props?.max_iterations && props.max_iterations.default == null) {
+            failures.push(`${id} tool serv_shadow_agent: max_iterations must use documented default form`);
+          }
+          if (props?.hint?.enum != null || props?.max_iterations?.enum != null) {
+            failures.push(`${id} tool serv_shadow_agent: must not pin hint/max_iterations via enum`);
+          }
         }
         for (const issue of assertStrictJsonSchemaSubset(tool.parameters)) {
           failures.push(`${id} tool ${tool.name} ${issue.path}: ${issue.message}`);
@@ -224,13 +238,18 @@ describe("every SERV requestFor payload is strict-schema clean (tools + response
     expect(failures).toEqual([]);
   });
 
-  it("verdict_decide keeps prompt_guard + shadow with strict-clean params alongside response_format", () => {
+  it("verdict_decide keeps prompt_guard + shadow with documented shadow defaults alongside response_format", () => {
     const req = requestFor("verdict_decide", JSON.stringify({ facts: {} }), undefined, {});
     const tools = toolParameterSchemas(req);
     expect(tools.map((t) => t.name).sort()).toEqual(["serv_prompt_guard", "serv_shadow_agent"].sort());
     for (const tool of tools) {
       expect(assertStrictJsonSchemaSubset(tool.parameters)).toEqual([]);
-      expect(JSON.stringify(tool.parameters)).not.toMatch(/"default"\s*:/);
+      if (tool.name === "serv_shadow_agent") {
+        expect(JSON.stringify(tool.parameters)).toMatch(/"default"\s*:/);
+        expect(JSON.stringify(tool.parameters)).not.toMatch(/"enum"\s*:/);
+      } else {
+        expect(JSON.stringify(tool.parameters)).not.toMatch(/"default"\s*:/);
+      }
     }
     const rf = (req as { response_format: { json_schema: { strict: boolean; schema: unknown } } })
       .response_format;
