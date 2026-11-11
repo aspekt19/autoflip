@@ -96,14 +96,26 @@ export function AgentDecisionTrail({
   })();
 
   if (mode === "consumer") {
-    return (
-      <div className="agent-decision-trail onboarding-note">
+    const sampleHonesty =
+      verdict.no_serv_step &&
+      (verdict.unknowns.some((line) => /example not yet recorded/i.test(line)) ||
+        /example not yet recorded/i.test(spend?.costNote ?? ""))
+        ? "Example not yet recorded. This sample page shows labeled listing economics only — it does not invent an agent revision or second check."
+        : null;
+    const noAgent =
+      verdict.no_serv_step && !sampleHonesty
+        ? "This run did not use an AI decision step. The ranking or verdict came from the listed checks only."
+        : null;
+    const body = (
+      <>
+        {sampleHonesty ? <p className="lead">{sampleHonesty}</p> : null}
+        {noAgent ? <p className="lead">{noAgent}</p> : null}
         {verdict.pick ? (
           <p>
             Our AI picked this car because: <strong>{verdict.pick.label}</strong>.
           </p>
         ) : null}
-        {verdict.verdict && !verdict.pick ? (
+        {verdict.verdict && !verdict.pick && !sampleHonesty ? (
           <p>
             Our AI’s review: <strong>{verdict.verdict}</strong>
           </p>
@@ -121,11 +133,11 @@ export function AgentDecisionTrail({
             ))}
           </ol>
         ) : null}
-        {secondPlain ? <p>{secondPlain}</p> : null}
+        {secondPlain && !sampleHonesty ? <p>{secondPlain}</p> : null}
         {verdict.vs_cheapest ? (
           <p className="hint">Compared with the cheapest ask: {verdict.vs_cheapest}</p>
         ) : null}
-        {verdict.unknowns.length > 0 ? (
+        {verdict.unknowns.length > 0 && !sampleHonesty ? (
           <p className="hint">
             Still open:{" "}
             {verdict.unknowns
@@ -134,8 +146,19 @@ export function AgentDecisionTrail({
               .join(" · ")}
           </p>
         ) : null}
-      </div>
+      </>
     );
+    if (defaultOpen) {
+      return (
+        <details className="agent-decision-trail onboarding-note" open>
+          <summary>
+            <strong>How the agent decided</strong>
+          </summary>
+          {body}
+        </details>
+      );
+    }
+    return <div className="agent-decision-trail onboarding-note">{body}</div>;
   }
 
   const proofBody = (

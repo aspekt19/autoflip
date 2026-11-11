@@ -246,6 +246,9 @@ test("resale requires sign-in and budget-first search; one-car estimate stays ho
   await expect(page.getByRole("heading", { name: "No flip candidates in this budget" })).toBeVisible();
   await expect(page.getByRole("strong").filter({ hasText: /^Verdict: pass$/i })).toBeVisible();
   await expect(page.getByText(/Confidence: Low/i).first()).toBeVisible();
+  const proof = page.getByText(/Show proof/i).first();
+  await expect(proof).toBeVisible();
+  await proof.click();
   await expect(page.getByText(/Decision journal/i).first()).toBeVisible();
   await expect(page.getByText(/How the agent decided/i).first()).toBeVisible();
 
