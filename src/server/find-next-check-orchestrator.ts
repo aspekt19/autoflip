@@ -222,7 +222,7 @@ export function buildKeyedAutonomyDiag(input: {
     } else {
       configHint =
         failureCategory === "http_error" || failureReasonCode?.includes("timeout")
-          ? "SERV find_next_check timed out or HTTP-failed under profile timeout — check OpenServ latency for gpt-5.4-mini; failureDiag has category/reasonCode only (no secrets)."
+          ? "SERV find_next_check timed out or HTTP-failed under profile timeout — check OpenServ latency for the shared SERV default model; failureDiag has category/reasonCode only (no secrets)."
           : denied
             ? `SERV returned checkId outside allowlist: denied=${denied} allowlist=[${allow}]. Live request schema enum is bound to allowlist; inspect clampDiag. Do not treat as missing-key.`
             : "SERV find_next_check did not return an allowlisted checkId (parse/clamp/refusal). Inspect failureDiag + clampDiag; confirm SERV_API_KEY + SERV_BASE_URL on this deployment. Do not treat as missing-key.";

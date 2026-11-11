@@ -726,7 +726,7 @@ export async function runServ(
         : {
             model: inspected.model,
             stream: entry.stream,
-            // gpt-5.4-mini rejects a function tool on chat completions unless effort is none.
+            // Chat completions reject a function tool unless effort is none.
             reasoning_effort: entry.applicationTool ? "none" : entry.reasoningEffort,
             messages: [
               { role: "system", content: entry.system },
