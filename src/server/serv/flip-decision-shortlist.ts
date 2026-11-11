@@ -8,9 +8,9 @@
  * Overview marketing cards are hypotheses — NOT measured ability.
  * Names/tier ≠ ability proof. No 31-model blind paid matrix.
  *
- * Order: Sonnet 5.5 → gpt-5.6-sol.
+ * Order: Sonnet 5.5 → gpt-6.1-sol (production BASE_MODEL).
  * claude-fable-5 EXCLUDED from paid Flip / production selection (owner t321).
- * gpt-6.1-sol / claude-opus-5.5 are NOT automatic next.
+ * claude-opus-5.5 is NOT automatic next.
  */
 
 export type FlipDecisionShortlistEntry = {
@@ -46,18 +46,18 @@ export const SERV_FLIP_DECISION_SHORTLIST: readonly FlipDecisionShortlistEntry[]
     overviewHypothesis: null,
   },
   {
-    modelId: "gpt-5.6-sol",
-    displayName: "GPT-5.6 Sol",
+    modelId: "gpt-6.1-sol",
+    displayName: "GPT-6.1 Sol",
     providerLogoAlt: "OpenAI",
     contextWindow: "1M",
-    inputPerMDisplay: "$5.25",
-    cachedPerMDisplay: "$0.500",
-    outputPerMDisplay: "$25.00",
+    inputPerMDisplay: "confirm console",
+    cachedPerMDisplay: "confirm console",
+    outputPerMDisplay: "confirm console",
     listedAvailability: "Listed under Available models",
     capabilityIndicators: "Not separately shown",
     flipOrder: 2,
     flipRole: "next",
-    overviewHypothesis: "reasoning/complex long-horizon (marketing — unmeasured)",
+    overviewHypothesis: "production BASE_MODEL — Flip confirms console rates (display prices ≠ capability)",
   },
 ] as const;
 
@@ -65,7 +65,7 @@ export const SERV_FLIP_DECISION_SHORTLIST: readonly FlipDecisionShortlistEntry[]
 export const SERV_FLIP_EXCLUDED_FROM_PAID = ["claude-fable-5"] as const;
 
 /** Formerly automatic-next IDs — remain in catalog for Flip but are not the default order. */
-export const SERV_FLIP_SUPERSEDED_AUTOMATIC_NEXT = ["gpt-6.1-sol", "claude-opus-5.5"] as const;
+export const SERV_FLIP_SUPERSEDED_AUTOMATIC_NEXT = ["gpt-5.6-sol", "claude-opus-5.5"] as const;
 
 export const SERV_FLIP_DECISION_SHORTLIST_IDS = SERV_FLIP_DECISION_SHORTLIST.map(
   (e) => e.modelId,

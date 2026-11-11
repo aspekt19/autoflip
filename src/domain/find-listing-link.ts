@@ -1,6 +1,7 @@
 /**
  * Dealer listing links shown on Find cards.
  * A fragment such as "#-7662…" is an on-page anchor, not a dealer page.
+ * Prefer a real VDP URL; never label carfax.com or generic aggregator #vin= pages as "Dealer listing".
  */
 
 export type ListingMatchRow = {

@@ -54,6 +54,7 @@ export type FindNextCheckInput = {
     | "mode"
     | "yearBandResolved"
     | "milesCapResolved"
+    | "note"
   >;
   softGaps: SoftPrefGap[];
   /** Cards currently shown across groups. */

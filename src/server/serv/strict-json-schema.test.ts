@@ -211,6 +211,27 @@ describe("every SERV requestFor payload is strict-schema clean (tools + response
           failures.push(`${id} tool ${tool.name}: missing parameters object (strict response_format incompatible)`);
           continue;
         }
+        // serv_shadow_agent is a SERV Tools marker consumed before the model.
+        // OpenServ docs pin hint / max_iterations via JSON Schema `default` (not enums).
+        // https://docs.openserv.ai/serv-reasoning/tutorials/shadow-agent
+        if (tool.name === "serv_shadow_agent") {
+          const params = tool.parameters as {
+            properties?: { hint?: { default?: unknown }; max_iterations?: { default?: unknown } };
+          };
+          if (typeof params.properties?.hint?.default !== "string") {
+            failures.push(`${id} tool serv_shadow_agent: hint.default must be a string (OpenServ docs)`);
+          }
+          if (typeof params.properties?.max_iterations?.default !== "number") {
+            failures.push(
+              `${id} tool serv_shadow_agent: max_iterations.default must be a number (OpenServ docs)`,
+            );
+          }
+          if (/"enum"\s*:/.test(JSON.stringify(tool.parameters))) {
+            failures.push(`${id} tool serv_shadow_agent: must not pin hint/max_iterations via enum`);
+          }
+          continue;
+        }
+        // Application / other tool params stay on the strict subset (no `default`).
         const serialized = JSON.stringify(tool.parameters);
         // Shadow Agent uses the documented `default` form. Other tools stay default-free.
         if (tool.name === "serv_shadow_agent") {
@@ -231,19 +252,22 @@ describe("every SERV requestFor payload is strict-schema clean (tools + response
     expect(failures).toEqual([]);
   });
 
-  it("verdict_decide keeps prompt_guard + shadow with documented default shadow params alongside response_format", () => {
+  it("verdict_decide keeps prompt_guard + shadow; shadow uses documented default form", () => {
     const req = requestFor("verdict_decide", JSON.stringify({ facts: {} }), undefined, {});
     const tools = toolParameterSchemas(req);
     expect(tools.map((t) => t.name).sort()).toEqual(["serv_prompt_guard", "serv_shadow_agent"].sort());
-    for (const tool of tools) {
-      expect(assertStrictJsonSchemaSubset(tool.parameters)).toEqual([]);
-      if (tool.name === "serv_shadow_agent") {
-        expect(JSON.stringify(tool.parameters)).toMatch(/"default"\s*:/);
-        expect(JSON.stringify(tool.parameters)).not.toMatch(/"enum"\s*:/);
-      } else {
-        expect(JSON.stringify(tool.parameters)).not.toMatch(/"default"\s*:/);
-      }
-    }
+    const guard = tools.find((t) => t.name === "serv_prompt_guard");
+    const shadow = tools.find((t) => t.name === "serv_shadow_agent");
+    expect(guard).toBeTruthy();
+    expect(shadow).toBeTruthy();
+    expect(assertStrictJsonSchemaSubset(guard!.parameters)).toEqual([]);
+    expect(JSON.stringify(guard!.parameters)).not.toMatch(/"default"\s*:/);
+    const shadowParams = shadow!.parameters as {
+      properties: { hint: { default: string }; max_iterations: { default: number } };
+    };
+    expect(typeof shadowParams.properties.hint.default).toBe("string");
+    expect(typeof shadowParams.properties.max_iterations.default).toBe("number");
+    expect(JSON.stringify(shadow!.parameters)).not.toMatch(/"enum"\s*:/);
     const rf = (req as { response_format: { json_schema: { strict: boolean; schema: unknown } } })
       .response_format;
     expect(rf.json_schema.strict).toBe(true);

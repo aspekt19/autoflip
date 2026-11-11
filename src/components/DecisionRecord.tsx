@@ -1,4 +1,5 @@
 import {
+  formatDecisionRecordConsumerLine,
   formatDecisionRecordLine,
   type DecisionProofRecord,
 } from "@/domain/decision-proof-view";
@@ -7,13 +8,30 @@ import {
 export function DecisionRecordList({
   records,
   emptyHint,
+  mode = "consumer",
 }: {
   records: readonly DecisionProofRecord[] | null | undefined;
   emptyHint?: string | null;
+  /**
+   * consumer = plain English only (no ids/models/timestamps/raw).
+   * proof = full technical line + raw response (for the single Show proof expander).
+   */
+  mode?: "consumer" | "proof";
 }) {
   const rows = Array.isArray(records) ? records.filter(Boolean) : [];
   if (rows.length === 0) {
     return emptyHint ? <p className="hint">{emptyHint}</p> : null;
+  }
+  if (mode === "consumer") {
+    return (
+      <ul className="decision-record-list">
+        {rows.map((row) => (
+          <li key={`${row.purpose}-${row.timestamp}-${row.servResponseId ?? row.reason ?? "x"}`}>
+            <p className="hint">{formatDecisionRecordConsumerLine(row)}</p>
+          </li>
+        ))}
+      </ul>
+    );
   }
   return (
     <ul className="decision-record-list">
@@ -25,12 +43,9 @@ export function DecisionRecordList({
             {formatDecisionRecordLine(row)}
           </p>
           {row.rawResponse ? (
-            <details className="onboarding-note">
-              <summary>Open agent response</summary>
-              <p className="hint" style={{ whiteSpace: "pre-wrap" }}>
-                {row.rawResponse}
-              </p>
-            </details>
+            <p className="hint" style={{ whiteSpace: "pre-wrap" }}>
+              {row.rawResponse}
+            </p>
           ) : null}
         </li>
       ))}

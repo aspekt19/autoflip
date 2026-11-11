@@ -584,6 +584,9 @@ export async function executeAllFindFreeGovChecksParallel(input: {
   };
 }
 
+/** Alias used by the Find decide orchestrator (PR #155 path). */
+export const executeAllFindFreeGovParallel = executeAllFindFreeGovChecksParallel;
+
 /**
  * Execute one allowlisted free Find check against recorded listings.
  * Prefer executeAllFindFreeGovChecksParallel for production triage.

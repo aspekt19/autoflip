@@ -787,6 +787,8 @@ export async function assembleRadar(
   input: {
     make: string;
     model?: string;
+    /** Optional body-style filter for Auto.dev (SUV, Truck, Sedan, …). */
+    bodyStyle?: string;
     zip?: string;
     year?: number;
     yearMin?: number;
@@ -796,6 +798,11 @@ export async function assembleRadar(
     mode: Mode;
     priceMax?: number;
     milesMax?: number;
+    /**
+     * Find/Resale inventory fetch — skip per-query radar_guard (pure cost on
+     * "Mazda CX-5 2020"). Deal Radar watches still run the guard by default.
+     */
+    skipRadarGuard?: boolean;
   },
   deps: AssembleDeps,
 ): Promise<
@@ -822,7 +829,7 @@ export async function assembleRadar(
   } = await import("@/domain/decision-proof-record");
   const { providerResponseIdFromCall } = await import("@/domain/serv-response-id");
   const screened = screenUserInput(
-    [input.make, input.model, input.zip, input.year?.toString(), input.yearMin?.toString(), input.yearMax?.toString()]
+    [input.make, input.model, input.bodyStyle, input.zip, input.year?.toString(), input.yearMin?.toString(), input.yearMax?.toString()]
       .filter(Boolean)
       .join(" "),
   );
@@ -854,30 +861,40 @@ export async function assembleRadar(
       proofRecords,
     };
   }
-  const guard = deps.servKey?.trim()
-    ? await runServ("radar_guard", { user: screened.text }, {
-        fetch: deps.fetch ?? fetch,
-        apiKey: deps.servKey,
-        baseUrl: deps.servBaseUrl,
-        model: deps.servModel,
-      })
-    : null;
+  const guard =
+    input.skipRadarGuard
+      ? null
+      : deps.servKey?.trim()
+        ? await runServ("radar_guard", { user: screened.text }, {
+            fetch: deps.fetch ?? fetch,
+            apiKey: deps.servKey,
+            baseUrl: deps.servBaseUrl,
+            model: deps.servModel,
+          })
+        : null;
   const proof = agentProof([guard?.proof ?? plannedProof("radar_guard")], scanFields);
   const guardDecision =
     guard && guard.ok ? interpretGuard(guard.text) : null;
-  const guardStatus = !deps.servKey?.trim()
-    ? "skipped_no_key"
-    : !guard
+  const guardStatus = input.skipRadarGuard
+    ? "skipped_by_design"
+    : !deps.servKey?.trim()
       ? "skipped_no_key"
-      : !guard.ok
-        ? "error"
-        : guardDecision === "block"
+      : !guard
+        ? "skipped_no_key"
+        : !guard.ok
           ? "error"
-          : "ok";
+          : guardDecision === "block"
+            ? "error"
+            : "ok";
   const guardProofRecord = buildDecisionProofRecord({
     purpose: "radar_guard",
     rubricId: RADAR_VERDICT_RUBRIC_ID,
-    status: guardStatus === "ok" ? "ok" : guardStatus === "skipped_no_key" ? "skipped_no_key" : "error",
+    status:
+      guardStatus === "ok"
+        ? "ok"
+        : guardStatus === "skipped_no_key" || guardStatus === "skipped_by_design"
+          ? "skipped_no_key"
+          : "error",
     responseId: guard
       ? providerResponseIdFromCall({
           ok: guardStatus === "ok",
@@ -891,15 +908,18 @@ export async function assembleRadar(
     detail:
       guardStatus === "ok"
         ? null
-        : !deps.servKey?.trim() || !guard
-          ? "SERV_API_KEY is not configured — radar guard skipped."
-          : !guard.ok
-            ? guard.error
-            : "radar_guard blocked this scan.",
+        : input.skipRadarGuard
+          ? "radar_guard skipped for Find inventory fetch (AUDIT: pure cost on make/model strings)."
+          : !deps.servKey?.trim() || !guard
+            ? "SERV_API_KEY is not configured — radar guard skipped."
+            : !guard.ok
+              ? guard.error
+              : "radar_guard blocked this scan.",
   });
   const proofRecords = [guardProofRecord];
   const flipOpen = input.mode === "flip" && !input.make.trim();
-  if (!input.make.trim() && !flipOpen) {
+  const bodyOnly = Boolean(input.bodyStyle?.trim()) && !input.make.trim();
+  if (!input.make.trim() && !flipOpen && !bodyOnly) {
     return { ok: false, status: 400, error: "make_required", message: "Choose a make.", proof, proofRecords };
   }
   if (flipOpen && (!input.priceMax || !input.zip)) {
@@ -944,6 +964,7 @@ export async function assembleRadar(
     {
       make: input.make.trim() || undefined,
       model: input.model?.trim() || undefined,
+      bodyStyle: input.bodyStyle?.trim() || undefined,
       ...years,
       zip: input.zip,
       distanceMiles:

@@ -1,3 +1,5 @@
+import { findDecidePathEnabled } from "@/domain/find-decide-path";
+import { findDeliveryChargesCredit } from "@/domain/find-delivery";
 import { validateNeed } from "@/domain/need";
 import { creditBalance, creditEventSeen } from "@/io/credit-book";
 import { getKv } from "@/io/kv";
@@ -10,6 +12,7 @@ import {
   loadFindSearchContext,
   mintFindSearchContextRecord,
   storeFindSearchContext,
+  updateFindSearchContext,
 } from "@/server/find-search-context";
 import {
   FIND_SEARCH_INFLIGHT_TTL_MS,
@@ -185,7 +188,10 @@ export async function POST(request: Request) {
     // can call /api/report. Opaque tokens are the only find→report trust proof.
     // Debit only after this succeeds — a failed save must not charge.
     let searchContextToken: string | null = null;
-    const servNextCheckEnabled = Boolean(deps.servKey);
+    const decidePath = findDecidePathEnabled(process.env);
+    // Decide path replaces the next-check auto-loop when SERV is keyed (or code fallback).
+    const servNextCheckEnabled = Boolean(deps.servKey) && !decidePath;
+    let decidePathEnabled = false;
 
     try {
       if (result.body.ok && Array.isArray(result.body.directions)) {
@@ -206,7 +212,7 @@ export async function POST(request: Request) {
           }
         }
 
-        // Owner-bound search context for next-check (server authority — not client body).
+        // Owner-bound search context for next-check / decide (server authority — not client body).
         const validated = validateNeed(body?.need ?? {});
         if (validated.ok) {
           const shown = listingsFromMatchDirections(result.body.directions);
@@ -236,14 +242,25 @@ export async function POST(request: Request) {
                 lastServShortlistFp: prior.record.lastServShortlistFp ?? null,
                 decisionLog: prior.record.decisionLog ?? [],
                 carChecks: prior.record.carChecks ?? [],
-                servNextCheckEnabled: prior.record.servNextCheckEnabled,
+                servNextCheckEnabled: prior.record.servNextCheckEnabled && !decidePath,
+                decidePathEnabled: prior.record.decidePathEnabled || decidePath,
+                triageShortlistKeys: prior.record.triageShortlistKeys ?? [],
+                triageRevisitUsed: prior.record.triageRevisitUsed ?? false,
                 iat: prior.record.iat,
                 exp: prior.record.exp,
               };
             }
           }
-          await storeFindSearchContext(kv, record);
-          searchContextToken = record.token;
+          if (decidePath) {
+            record = await updateFindSearchContext(kv, record, {
+              decidePathEnabled: true,
+            });
+            decidePathEnabled = true;
+            searchContextToken = record.token;
+          } else {
+            await storeFindSearchContext(kv, record);
+            searchContextToken = record.token;
+          }
         }
       }
     } catch {
@@ -272,8 +289,27 @@ export async function POST(request: Request) {
       );
     }
 
+    // Never charge when no listing search ran or zero cars came back (REPORT_356a /
+    // AUDIT R8). Shared gate with API v1 / MCP agent find.
+    const providerQueriesUsed =
+      typeof result.body.providerQueriesUsed === "number" ? result.body.providerQueriesUsed : 0;
+    const listingCount = Array.isArray(result.body.directions)
+      ? result.body.directions.reduce(
+          (n, g) => n + (Array.isArray(g.listings) ? g.listings.length : 0),
+          0,
+        )
+      : 0;
+    const emptyReason =
+      typeof result.body.emptyReason === "string" ? result.body.emptyReason : null;
+    const deliveredSearch = findDeliveryChargesCredit({
+      ok: result.body.ok === true,
+      providerQueriesUsed,
+      listingCount,
+      emptyReason,
+    });
+
     let charged = false;
-    if (!continuation && idemKey) {
+    if (!continuation && idemKey && deliveredSearch) {
       const reserved = await reserveFindSearchCreditReliable(kv, id, idemKey);
       if (!reserved.ok) {
         if (reserved.reason === "busy") {
@@ -298,6 +334,21 @@ export async function POST(request: Request) {
       }
       balanceAfter = reserved.balance;
       charged = true;
+    } else if (!continuation && idemKey && !deliveredSearch) {
+      // Honest empty delivery — keep tokens for rematch but do not debit.
+      balanceAfter = await creditBalance(kv, id);
+      charged = false;
+      const honesty =
+        emptyReason === "no_directions"
+          ? "No model directions could be built for this note, so no listing search ran and no credit was used."
+          : listingCount === 0
+            ? "No cars came back from this search, so no credit was used."
+            : "The search did not deliver listings, so no credit was used.";
+      const prior = typeof result.body.message === "string" ? result.body.message.trim() : "";
+      result.body.message =
+        prior && !/no credit was used/i.test(prior)
+          ? `${prior.replace(/\.*$/, "")}. ${honesty}`
+          : prior || honesty;
     }
 
     const payload: FindSearchDelivery = {
@@ -305,6 +356,8 @@ export async function POST(request: Request) {
       searchContextToken,
       /** UI may auto-start next-check only when true — keyless must not masquerade. */
       servNextCheckEnabled: searchContextToken ? servNextCheckEnabled : false,
+      /** PR B: UI auto-starts /api/find/decide once instead of the next-check loop. */
+      decidePathEnabled: searchContextToken ? decidePathEnabled : false,
       balance: balanceAfter,
       charged,
       rematchContinuation: continuation,

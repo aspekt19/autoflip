@@ -14,6 +14,7 @@ describe("SERV self-test", () => {
     expect(ids).toContain("check_rules");
     expect(ids).toContain("telegram_reply");
     expect(ids).toContain("need_extract");
+    expect(ids).toContain("find_plan");
   });
 
   it("rejects a missing or wrong bearer secret without calling the model", async () => {

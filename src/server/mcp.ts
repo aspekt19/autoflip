@@ -26,7 +26,7 @@ export function toolList() {
     {
       name: "find_cars",
       description:
-        "Start an async Find from a natural-language request. Returns run_id; poll find_cars_status / find_cars_result (or REST status/get). Completed results include proofRecords (lemonless.decision_proof.v1 — need_guard / need_extract / verdict_decide / verdict_challenge). Costs 1 report credit after a successful search. Requires the find scope. Idempotency-Key / arguments.idempotencyKey supported.",
+        "Start an async Find from a natural-language request. Returns run_id; poll find_cars_status / find_cars_result (or REST status/get). Completed results include proofRecords (lemonless.decision_proof.v1 — find_plan / verdict_decide / verdict_challenge). Costs 1 report credit after a successful search. Requires the find scope. Idempotency-Key / arguments.idempotencyKey supported.",
       inputSchema: {
         type: "object",
         properties: {

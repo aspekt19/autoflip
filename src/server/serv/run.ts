@@ -121,10 +121,9 @@ function promptGuardTool(endpoint: ServProfile["endpoint"]): Tool {
 }
 
 function shadowTool(entry: ServProfile): Tool {
-  // Documented Shadow Agent form uses JSON Schema `default` (not single-value enum).
+  // OpenServ docs use JSON Schema `default` on hint / max_iterations (not single-value enums).
+  // This is a SERV Tools marker — not response_format.json_schema — so `default` is valid.
   // https://docs.openserv.ai/serv-reasoning/tutorials/shadow-agent
-  // Keep additionalProperties:false + required[] so these params still pass our
-  // strict tool-parameter subset used alongside response_format.
   const hint = entry.shadowHint ?? "";
   const maxIterations = entry.shadowMaxIterations ?? 2;
   const parameters = {
@@ -133,8 +132,6 @@ function shadowTool(entry: ServProfile): Tool {
       hint: { type: "string", default: hint },
       max_iterations: { type: "integer", default: maxIterations },
     },
-    required: ["hint", "max_iterations"],
-    additionalProperties: false,
   };
   const description = "Enable SERV shadow-agent validation.";
   if (entry.endpoint === "responses") {

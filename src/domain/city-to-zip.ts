@@ -186,6 +186,10 @@ export function resolveLocationZip(input: {
   if (!phrase) {
     return { zip: null, from: null, needed: false, cityLabel: null };
   }
+  // "near me" is not a city — ZIP stays optional; blank search is nationwide.
+  if (/^near\s+me\??$/i.test(phrase)) {
+    return { zip: null, from: null, needed: false, cityLabel: phrase };
+  }
   const parsed = parseCityStatePhrase(phrase);
   if (!parsed) {
     return { zip: null, from: null, needed: true, cityLabel: phrase };

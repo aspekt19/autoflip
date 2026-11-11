@@ -211,7 +211,7 @@ describe("buyer-safe Find copy", () => {
         },
       }),
     ).toMatch(/Fuel costs found|model year/i);
-    expect(formatBuyerLoopStatus("unchanged_state")).toMatch(/caught up/i);
+    expect(formatBuyerLoopStatus("unchanged_state")).toMatch(/stopped on the current evidence/i);
     expect(formatBuyerLoopStatus("evidence_changed_replan")).toMatch(/continuing/i);
     expect(assertBuyerSafeText(formatBuyerLoopStatus("remaining_free_checks")!).ok).toBe(true);
     expect(assertBuyerSafeText(formatBuyerLoopStep({ chosenId: "free_gov_vpic" })).ok).toBe(true);

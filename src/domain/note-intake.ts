@@ -27,6 +27,13 @@ export type NoteIntake = {
   budgetUsd: number | null;
   transmission: TransmissionPref | null;
   fuelEconomyPriority: boolean;
+  /**
+   * Soft AWD/4WD preference from the note ("preferably AWD", "ideally with AWD").
+   * Ranking signal only — never a hard inventory filter.
+   */
+  awdPreference: boolean;
+  /** Soft reliability ask ("reliable", "reliable for road trips") — priority, not condition-first. */
+  reliabilityPriority: boolean;
   historyPreference: HistoryPref | null;
   bodyStyle: NoteBodyStyle | null;
   yearMin: number | null;
@@ -212,6 +219,19 @@ export function fuelEconomyFromText(text: string): boolean {
   );
 }
 
+/** Soft AWD/4WD preference. Mention alone is enough — never a hard must-filter. */
+export function awdPreferenceFromText(text: string): boolean {
+  return /\b(awd|4wd|all[\s-]?wheel|four[\s-]?wheel)\b/i.test(text);
+}
+
+/**
+ * Reliability as a visible priority ("reliable for road trips"), not a condition-first quote.
+ * Bare "reliable" must not invent “you'd rather pay more for good condition”.
+ */
+export function reliabilityPriorityFromText(text: string): boolean {
+  return /\breliable(?:\s+for\s+road\s+trips)?\b|\breliability\b/i.test(text);
+}
+
 export function historyFromText(text: string): HistoryPref | null {
   const salvage =
     /\b(?:no|not|nothing|without|avoid|exclude|excluding)\s+(?:a\s+|any\s+|the\s+)?(?:salvage|rebuilt|branded title)\b/i.test(
@@ -353,7 +373,15 @@ const PLACE_STOP = new Set([
   "below",
 ]);
 
+/** True when the shopper said "near me" (no city/ZIP) — ZIP is optional; blank means nationwide. */
+export function isNearMePhrase(phrase: string | null | undefined): boolean {
+  if (typeof phrase !== "string") return false;
+  return /^near\s+me\??$/i.test(phrase.trim());
+}
+
 export function locationPhraseFromText(text: string): string | null {
+  // "near me" / "near me?" is a location signal, not a city — keep before PLACE_STOP ("me").
+  if (/\bnear\s+me\b/i.test(text)) return "near me";
   const re = /\b(?:near|in|around|from)\s+([A-Za-z][A-Za-z.'-]*(?:\s+[A-Za-z][A-Za-z.'-]*){0,2})/gi;
   for (const match of text.matchAll(re)) {
     const phrase = match[1]!.trim().replace(/[.,]$/, "");
@@ -398,6 +426,8 @@ export function intakeFromNote(text: string, now = new Date()): NoteIntake {
   const budgetUsd = budgetFromText(text, now);
   const transmission = transmissionFromText(text);
   const fuelEconomyPriority = fuelEconomyFromText(text);
+  const awdPreference = awdPreferenceFromText(text);
+  const reliabilityPriority = reliabilityPriorityFromText(text);
   const historyPreference = historyFromText(text);
   const bodyStyle = bodyFromIntake(text);
   const years = yearsFromNote(text, now);
@@ -405,17 +435,23 @@ export function intakeFromNote(text: string, now = new Date()): NoteIntake {
   const zip = zipFromNote(text, budgetUsd);
   const locationPhrase = locationPhraseFromText(text);
   const radius = radiusFromNote(text);
+  // AWD stays out of mustHaves — soft preference only (ranking / Confirm), never a hard filter.
   const mustHaves = [
     transmission === "automatic" ? "automatic" : null,
     transmission === "manual" ? "manual" : null,
     ...historyMusts(historyPreference),
     bodyStyle,
   ].filter((item): item is string => Boolean(item));
-  const priorities = fuelEconomyPriority ? ["fuel economy"] : [];
+  const priorities = [
+    ...(fuelEconomyPriority ? ["fuel economy"] : []),
+    ...(reliabilityPriority ? ["reliability"] : []),
+  ];
   return {
     budgetUsd,
     transmission,
     fuelEconomyPriority,
+    awdPreference,
+    reliabilityPriority,
     historyPreference,
     bodyStyle,
     yearMin: years.yearMin,

@@ -3,7 +3,7 @@
  *
  * ## In-repo catalog (default allowlist)
  * Mechanism — only IDs already evidenced in this repository:
- * 1. `BASE_MODEL` in `src/server/serv/profiles.ts` + README `SERV_MODEL` → shared default
+ * 1. `BASE_MODEL` in `src/server/serv/profiles.ts` + README `SERV_MODEL` → `gpt-6.1-sol`
  * 2. Committed eval artifacts report dated alias `gpt-5.4-mini-2026-03-17`
  *    (`eval/results/latest.json`, `eval/results/serv-proof-trace.json`)
  * 3. `modelFor()` may append profile feature suffixes when a profile's `feature` is set.
@@ -39,6 +39,7 @@ import {
 /** Base model strings evidenced in-repo (no feature suffix). */
 export const SERV_COMPARE_BASE_MODEL_IDS = [
   BASE_MODEL,
+  "gpt-5.4-mini",
   "gpt-5.4-mini-2026-03-17",
 ] as const;
 
@@ -201,8 +202,7 @@ export function resolveServCompareModelIds(
   const byId = new Map(catalog.map((m) => [m.id, m]));
   const out: ServCompareModelEntry[] = [];
   for (const id of requested) {
-    // Flip shortlist before in-repo catalog so BASE_MODEL ids that are also on the
-    // Flip shortlist keep kind=flip_decision_shortlist when explicitly requested.
+    // Prefer Flip shortlist kind when the id is on that slate (even if also BASE_MODEL).
     const flipHit = flipById.get(id);
     if (flipHit) {
       out.push(flipHit);
