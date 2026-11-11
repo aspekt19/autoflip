@@ -46,7 +46,12 @@ describe("scout_plan transport contracts (offline)", () => {
                 content: JSON.stringify({
                   type: "abstain",
                   reason: "insufficient evidence",
-                  servStepId: "t1",
+                  vin: null,
+                  toolId: null,
+                  args: null,
+                  rationaleKind: null,
+                  citedEvidence: null,
+                  assumptionsDisclosed: null,
                 }),
               },
             },

@@ -7,6 +7,7 @@ import {
   isFlipDecisionShortlistId,
 } from "./flip-decision-shortlist";
 import { resolveServCompareModelIds, listServFlipDecisionShortlist } from "./model-catalog";
+import { BASE_MODEL } from "./profiles";
 import { resolveProfileBaseModel } from "./profile-models";
 
 describe("Flip decision shortlist (t321 Fable excluded)", () => {
@@ -36,8 +37,8 @@ describe("Flip decision shortlist (t321 Fable excluded)", () => {
       expect(r.ok).toBe(true);
       if (!r.ok) return;
       expect(r.baseId).toBe(id);
-      // gpt-5.6-sol is the shared BASE_MODEL — env pin is not an override.
-      expect(r.overrideActive).toBe(id !== "gpt-5.6-sol");
+      // Shared BASE_MODEL is gemini-3.1-pro-preview — gpt-5.6-sol env pin is an override (schema fallback).
+      expect(r.overrideActive).toBe(id !== BASE_MODEL);
     }
     const findProfile = resolveProfileBaseModel("find_next_check", {
       env: { SERV_PROFILE_MODEL_FIND_NEXT_CHECK: "gpt-5.6-sol" },
@@ -45,7 +46,7 @@ describe("Flip decision shortlist (t321 Fable excluded)", () => {
     expect(findProfile.ok).toBe(true);
     if (!findProfile.ok) return;
     expect(findProfile.baseId).toBe("gpt-5.6-sol");
-    expect(findProfile.overrideActive).toBe(false);
+    expect(findProfile.overrideActive).toBe(true);
     const fableBlocked = resolveProfileBaseModel("find_next_check", {
       env: { SERV_PROFILE_MODEL_FIND_NEXT_CHECK: "claude-fable-5" },
     });

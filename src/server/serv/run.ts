@@ -1,4 +1,14 @@
-import { BASE_MODEL, modelFor, profile, type ProfileId, type ServProfile } from "./profiles";
+import {
+  BASE_MODEL,
+  SCHEMA_FALLBACK_MODEL,
+  endpointForProfile,
+  isGeminiModelId,
+  modelFor,
+  profile,
+  streamForProfile,
+  type ProfileId,
+  type ServProfile,
+} from "./profiles";
 import { resolveProfileBaseModel } from "./profile-models";
 import { buildServProof, recordServProof, type ServProof } from "./proof";
 import {
@@ -158,12 +168,46 @@ function factsTool(endpoint: ServProfile["endpoint"]): Tool {
   return { type: "function", function: { name: "read_computed_facts", description, parameters } };
 }
 
-function toolsFor(entry: ServProfile, includeShadow: boolean): Tool[] {
+function toolsFor(
+  entry: ServProfile,
+  includeShadow: boolean,
+  endpoint: ServProfile["endpoint"] = entry.endpoint,
+): Tool[] {
   const tools: Tool[] = [];
-  if (entry.tools.includes("prompt_guard")) tools.push(promptGuardTool(entry.endpoint));
-  if (includeShadow && entry.tools.includes("shadow")) tools.push(shadowTool(entry));
-  if (entry.applicationTool) tools.push(factsTool(entry.endpoint));
+  if (entry.tools.includes("prompt_guard")) tools.push(promptGuardTool(endpoint));
+  if (includeShadow && entry.tools.includes("shadow")) {
+    tools.push(endpoint === "responses" ? shadowTool({ ...entry, endpoint }) : shadowTool({ ...entry, endpoint: "chat" }));
+  }
+  if (entry.applicationTool) tools.push(factsTool(endpoint));
   return tools;
+}
+
+/** Lightweight required-keys check for structured json_schema replies. */
+export function structuredTextMatchesSchema(text: string, schema: Record<string, unknown>): boolean {
+  try {
+    const parsed = JSON.parse(text) as unknown;
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return false;
+    const required = Array.isArray(schema.required) ? (schema.required as string[]) : [];
+    return required.every((key) => Object.prototype.hasOwnProperty.call(parsed, key));
+  } catch {
+    return false;
+  }
+}
+
+function isSchemaFailureResult(
+  result: ServResult,
+  schema: { name: string; schema: Record<string, unknown> } | null,
+): boolean {
+  if (!schema) return false;
+  // Successful HTTP with unusable structured JSON (parse/required-keys).
+  if (result.ok) return !structuredTextMatchesSchema(result.text, schema.schema);
+  const cat = result.failureDiag?.category;
+  // Gemini parent evidence class: content-null + refusal field / schema mismatch.
+  // Empty-content alone already gets a production empty re-POST — do not model-fallback that.
+  if (cat === "schema_mismatch" || cat === "content_null_refusal_field" || cat === "refusal_prose") {
+    return true;
+  }
+  return false;
 }
 
 export function requestFor(
@@ -173,19 +217,21 @@ export function requestFor(
   env: Record<string, string | undefined> = process.env,
 ) {
   const entry = profile(id);
-  const tools = toolsFor(entry, true);
   const chosen = modelFor(id, model);
+  const endpoint = endpointForProfile(entry, model);
+  const stream = streamForProfile(entry);
+  const tools = toolsFor(entry, true, endpoint);
   const bound = resolveServOutputTokenBound(env);
   if (!bound.ok) {
     throw new Error(bound.message);
   }
-  if (entry.endpoint === "responses") {
+  if (endpoint === "responses") {
     return withServOutputTokenBound(
       "responses",
       {
         endpoint: "responses" as const,
         model: chosen,
-        stream: entry.stream,
+        stream,
         reasoning_effort: entry.reasoningEffort,
         reasoning: { effort: entry.reasoningEffort, summary: "auto" as const },
         instructions: entry.system,
@@ -200,7 +246,7 @@ export function requestFor(
     {
       endpoint: "chat" as const,
       model: chosen,
-      stream: entry.stream,
+      stream,
       reasoning_effort: entry.reasoningEffort,
       messages: [
         { role: "system" as const, content: entry.system },
@@ -480,6 +526,36 @@ export async function runServ(
   input: { user: string; facts?: ServFacts },
   deps: ServDeps & { env?: Record<string, string | undefined> } = {},
 ): Promise<ServResult> {
+  const primary = await runServOnce(id, input, deps);
+  const entry = profile(id);
+  const effectiveJsonSchema = deps.jsonSchemaOverride ?? entry.jsonSchema ?? null;
+  const transportPolicy: ServTransportPolicy = deps.transportPolicy ?? "production";
+  const primaryBase = String(primary.proof?.modelRequested ?? deps.model ?? BASE_MODEL).replace(
+    /-serv-(kronos-multipath|multipath-kronos|multipath|kronos)$/i,
+    "",
+  );
+  // Production only: when the primary is Gemini, one schema-failure retry on SCHEMA_FALLBACK_MODEL.
+  if (
+    transportPolicy === "production" &&
+    effectiveJsonSchema &&
+    isGeminiModelId(primaryBase) &&
+    isSchemaFailureResult(primary, effectiveJsonSchema) &&
+    primaryBase !== SCHEMA_FALLBACK_MODEL
+  ) {
+    const fallback = await runServOnce(id, input, { ...deps, model: SCHEMA_FALLBACK_MODEL });
+    return {
+      ...fallback,
+      httpAttempts: primary.httpAttempts + fallback.httpAttempts,
+    };
+  }
+  return primary;
+}
+
+async function runServOnce(
+  id: ProfileId,
+  input: { user: string; facts?: ServFacts },
+  deps: ServDeps & { env?: Record<string, string | undefined> } = {},
+): Promise<ServResult> {
   const entry = profile(id);
   const timeoutMs = deps.timeoutMs ?? entry.timeoutMs;
   const transportPolicy: ServTransportPolicy = deps.transportPolicy ?? "production";
@@ -506,8 +582,8 @@ export async function runServ(
         text: "",
         latencyMs: 0,
         fallbackUsed: true,
-        streamed: entry.stream,
-        endpoint: entry.endpoint,
+        streamed: streamForProfile(entry),
+        endpoint: endpointForProfile(entry),
         reasoningEffort: entry.reasoningEffort,
         applicationTool: entry.applicationTool ?? null,
         jsonSchema: entry.jsonSchema?.name ?? null,
@@ -531,6 +607,8 @@ export async function runServ(
   }
   // requestFor applies modelFor feature suffixes; pass base id only.
   const model = resolvedModel.baseId;
+  const endpoint = endpointForProfile(entry, model);
+  const stream = streamForProfile(entry);
   const tokenBound = resolveServOutputTokenBound(env);
   if (!tokenBound.ok) {
     const proof = recordServProof(
@@ -544,8 +622,8 @@ export async function runServ(
         text: "",
         latencyMs: 0,
         fallbackUsed: true,
-        streamed: entry.stream,
-        endpoint: entry.endpoint,
+        streamed: stream,
+        endpoint,
         reasoningEffort: entry.reasoningEffort,
         applicationTool: entry.applicationTool ?? null,
         jsonSchema: entry.jsonSchema?.name ?? null,
@@ -567,7 +645,7 @@ export async function runServ(
     };
   }
   const applyTokenBound = <T extends Record<string, unknown>>(body: T) =>
-    withServOutputTokenBound(entry.endpoint, body, tokenBound.tokens);
+    withServOutputTokenBound(endpoint, body, tokenBound.tokens);
   let inspected: ReturnType<typeof requestFor>;
   try {
     inspected = requestFor(id, input.user, model, env);
@@ -584,8 +662,8 @@ export async function runServ(
         text: "",
         latencyMs: 0,
         fallbackUsed: true,
-        streamed: entry.stream,
-        endpoint: entry.endpoint,
+        streamed: stream,
+        endpoint,
         reasoningEffort: entry.reasoningEffort,
         applicationTool: entry.applicationTool ?? null,
         jsonSchema: entry.jsonSchema?.name ?? null,
@@ -608,8 +686,8 @@ export async function runServ(
   }
   const effectiveJsonSchema = deps.jsonSchemaOverride ?? entry.jsonSchema ?? null;
   const proofMeta = {
-    streamed: entry.stream,
-    endpoint: entry.endpoint,
+    streamed: stream,
+    endpoint,
     reasoningEffort: entry.reasoningEffort,
     applicationTool: entry.applicationTool ?? null,
     jsonSchema: effectiveJsonSchema?.name ?? null,
@@ -649,9 +727,9 @@ export async function runServ(
   // Protocol rounds (tool → finalize) are not silent retries. Experiment disables only
   // empty-text / timeout re-POSTs so each requested compare step stays one attempt for
   // profiles without applicationTool (including scout_plan).
-  const protocolRounds = entry.applicationTool && entry.endpoint === "chat" ? 2 : 1;
+  const protocolRounds = entry.applicationTool && endpoint === "chat" ? 2 : 1;
   const deadline = started + timeoutMs * protocolRounds;
-  const postOnce = async (body: unknown, stream: boolean, capMs: number) => {
+  const postOnce = async (body: unknown, useStream: boolean, capMs: number) => {
     const budget = Math.min(deadline - Date.now(), capMs);
     if (budget < 500) throw new DOMException("The operation was aborted.", "TimeoutError");
     if (deps.beforeHttp) {
@@ -663,14 +741,14 @@ export async function runServ(
       }
     }
     httpAttempts += 1;
-    const path = entry.endpoint === "responses" ? "/responses" : "/chat/completions";
+    const path = endpoint === "responses" ? "/responses" : "/chat/completions";
     const response = await (deps.fetch ?? fetch)(`${base}${path}`, {
       method: "POST",
       headers: { Authorization: `Bearer ${deps.apiKey}`, "Content-Type": "application/json" },
       body: JSON.stringify(body),
       signal: AbortSignal.timeout(budget),
     });
-    if (stream && response.ok) {
+    if (useStream && response.ok) {
       const streamed = await readChatStream(response);
       return { response, payload: streamed.payload, text: streamed.text, shape: responseShape(streamed.payload) };
     }
@@ -682,21 +760,21 @@ export async function runServ(
     else if (!text) console.error(`[serv] ${id} HTTP ${response.status} empty ${shape}`);
     return { response, payload, text, shape };
   };
-  const post = async (body: unknown, stream: boolean) => {
+  const post = async (body: unknown, useStream: boolean) => {
     const remain = deadline - Date.now();
     // Production-only: personal_alert_review splits the deadline and retries once on timeout.
-    if (experiment || id !== "personal_alert_review") return postOnce(body, stream, remain);
+    if (experiment || id !== "personal_alert_review") return postOnce(body, useStream, remain);
     const firstWait = Math.min(8_000, Math.floor(timeoutMs / 2));
     try {
-      return await postOnce(body, stream, firstWait);
+      return await postOnce(body, useStream, firstWait);
     } catch (error) {
       if (!isTimeout(error) || deadline - Date.now() < 1_000) throw error;
-      return await postOnce(body, stream, deadline - Date.now());
+      return await postOnce(body, useStream, deadline - Date.now());
     }
   };
 
-  const postProse = async (body: unknown, stream: boolean) => {
-    let turn = await post(body, stream);
+  const postProse = async (body: unknown, useStream: boolean) => {
+    let turn = await post(body, useStream);
     // Production-only: one silent re-POST when the first success returns empty text.
     if (
       !experiment &&
@@ -704,7 +782,7 @@ export async function runServ(
       !turn.text.trim() &&
       deadline - Date.now() > 1_000
     ) {
-      turn = await post(body, stream);
+      turn = await post(body, useStream);
     }
     return turn;
   };
@@ -712,9 +790,9 @@ export async function runServ(
   try {
     const factsText = JSON.stringify(input.facts ?? {});
     const userText = entry.applicationTool ? `${input.user}\n\nCalculated facts, the only numbers you may use:\n${factsText}` : input.user;
-    const firstTools = toolsFor(entry, !entry.applicationTool);
+    const firstTools = toolsFor(entry, !entry.applicationTool, endpoint);
     const firstBody = applyTokenBound(
-      entry.endpoint === "responses"
+      endpoint === "responses"
         ? {
             model: inspected.model,
             instructions: entry.system,
@@ -725,7 +803,7 @@ export async function runServ(
           }
         : {
             model: inspected.model,
-            stream: entry.stream,
+            stream,
             // Chat completions reject a function tool unless effort is none.
             reasoning_effort: entry.applicationTool ? "none" : entry.reasoningEffort,
             messages: [
@@ -749,14 +827,14 @@ export async function runServ(
           },
     );
 
-    let turn = entry.applicationTool ? await post(firstBody, false) : await postProse(firstBody, entry.stream);
+    let turn = entry.applicationTool ? await post(firstBody, false) : await postProse(firstBody, stream);
     let recordedBody: unknown = firstBody;
-    if (entry.applicationTool && entry.endpoint === "chat") {
+    if (entry.applicationTool && endpoint === "chat") {
       if (!turn.response.ok) {
         const proof = recordServProof(
           buildServProof({
             purpose: id,
-            body: { ...firstBody, tools: toolsFor(entry, true) },
+            body: { ...firstBody, tools: toolsFor(entry, true, endpoint) },
             payload: turn.payload,
             headers: turn.response.headers,
             status: turn.response.status,
@@ -781,7 +859,7 @@ export async function runServ(
       }
       const call = toolCall(turn.payload);
       const matched = call?.name === entry.applicationTool ? call : null;
-      const followTools = toolsFor({ ...entry, applicationTool: undefined }, true);
+      const followTools = toolsFor({ ...entry, applicationTool: undefined }, true, endpoint);
       const followBody = applyTokenBound({
         model: inspected.model,
         stream: false,
@@ -800,7 +878,7 @@ export async function runServ(
         tools: followTools,
       });
       turn = await postProse(followBody, false);
-      recordedBody = { ...followBody, tools: toolsFor(entry, true) };
+      recordedBody = { ...followBody, tools: toolsFor(entry, true, endpoint) };
     }
 
     // Structured json_schema: content null + refusal field is a transport failure class

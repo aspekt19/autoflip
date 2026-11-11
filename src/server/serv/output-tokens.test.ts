@@ -7,7 +7,7 @@ import {
   withServOutputTokenBound,
 } from "./output-tokens";
 import { requestFor, runServ } from "./run";
-import { PROFILES, type ProfileId, type ServProfile } from "./profiles";
+import { PROFILES, type ServProfile } from "./profiles";
 
 /**
  * Provider contract (OpenServ SERV Reasoning docs / working material):
@@ -101,7 +101,12 @@ describe("SERV output token bound (offline)", () => {
                 content: JSON.stringify({
                   type: "abstain",
                   reason: "insufficient evidence",
-                  servStepId: "t1",
+                  vin: null,
+                  toolId: null,
+                  args: null,
+                  rationaleKind: null,
+                  citedEvidence: null,
+                  assumptionsDisclosed: null,
                 }),
               },
             },
@@ -225,35 +230,40 @@ describe("SERV output token bound (offline)", () => {
     }
   });
 
-  it("responses endpoint path serializes max_output_tokens", async () => {
+  it("no production profile uses /v1/responses (Gemini-safe chat default)", () => {
     const responsesProfiles = (Object.values(PROFILES) as ServProfile[]).filter(
       (p) => p.endpoint === "responses",
     );
-    expect(responsesProfiles.length).toBeGreaterThan(0);
-    const id = responsesProfiles[0]!.id as ProfileId;
+    expect(responsesProfiles).toEqual([]);
+  });
 
+  it("check_rules posts chat/completions with max_completion_tokens", async () => {
     const bodies: string[] = [];
+    const urls: string[] = [];
     const result = await runServ(
-      id,
+      "check_rules",
       { user: "hello" },
       {
         apiKey: "test-key",
         baseUrl: "https://serv-mock.test/v1",
         env: { SERV_MAX_OUTPUT_TOKENS: "1024" },
-        fetch: async (_url, init) => {
+        fetch: async (url, init) => {
+          urls.push(String(url));
           bodies.push(String(init?.body ?? ""));
-          return new Response(JSON.stringify({ output_text: "ok" }), {
-            status: 200,
-            headers: { "Content-Type": "application/json" },
-          });
+          return new Response(
+            JSON.stringify({
+              choices: [{ message: { role: "assistant", content: "ok" }, finish_reason: "stop" }],
+            }),
+            { status: 200, headers: { "Content-Type": "application/json" } },
+          );
         },
       },
     );
     expect(result.ok).toBe(true);
+    expect(urls[0]).toContain("/chat/completions");
     expect(bodies.length).toBeGreaterThanOrEqual(1);
     const parsed = JSON.parse(bodies[0]!) as Record<string, unknown>;
-    expect(parsed.max_output_tokens).toBe(1024);
-    expect(parsed).not.toHaveProperty("max_completion_tokens");
-    expect(bodies[0]).toContain('"max_output_tokens":1024');
+    expect(parsed.max_completion_tokens).toBe(1024);
+    expect(parsed).not.toHaveProperty("max_output_tokens");
   });
 });

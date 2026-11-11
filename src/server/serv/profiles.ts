@@ -14,9 +14,20 @@
 
 import { CONNECT_HELP } from "@/io/telegram";
 
-/** Shared production default for every SERV profile (Yura: gpt-5.6-sol for all steps). */
-export const BASE_MODEL = "gpt-5.6-sol";
+/**
+ * Shared production default for every SERV profile (PR A owns this constant).
+ * Gemini requires POST /v1/chat/completions only; schema failures fall back to SCHEMA_FALLBACK_MODEL.
+ */
+export const BASE_MODEL = "gemini-3.1-pro-preview";
+/** Retry once on json_schema failure when the primary model cannot satisfy the contract. */
+export const SCHEMA_FALLBACK_MODEL = "gpt-5.6-sol";
 export const SHADOW_MAX_ITERATIONS = 2;
+
+/** True when the base id (suffixes stripped) is a Gemini model. */
+export function isGeminiModelId(model: string): boolean {
+  const base = model.replace(/-serv-(kronos-multipath|multipath-kronos|multipath|kronos)$/i, "");
+  return /^gemini-/i.test(base);
+}
 
 export const REPORT_SHADOW_HINT =
   "Every number must appear in the provided facts. Do not invent a number. Separate facts from estimates. List what still needs checking. Do not promise a sale or a profit.";
@@ -271,7 +282,8 @@ export const PROFILES = {
     promptCache: "default",
     contentFilter: "default_on",
     stream: false,
-    endpoint: "responses",
+    // Gemini (shared default) is chat/completions-only — never /v1/responses.
+    endpoint: "chat",
     codeComputed: ["askingPriceUsd", "miles", "fairValueUsd", "priceGap", "recalls", "complaintCount"],
   },
   report_guard: {
@@ -1199,6 +1211,44 @@ export function modelFor(id: ProfileId, requested = BASE_MODEL): string {
   return base;
 }
 
+/** Shadow Agent cannot finalize a second pass on a stream — always non-stream when shadow is on. */
+export function streamForProfile(entry: ServProfile): boolean {
+  if (entry.tools.includes("shadow")) return false;
+  return entry.stream;
+}
+
+/**
+ * Effective HTTP endpoint for a profile.
+ * Gemini never uses /v1/responses or /v1/messages — force chat/completions.
+ * Decide/Find/Check product steps stay on chat regardless of model.
+ */
+export function endpointForProfile(entry: ServProfile, model = BASE_MODEL): "chat" | "responses" {
+  if (isGeminiModelId(model) || isGeminiModelId(modelFor(entry.id as ProfileId, model))) {
+    return "chat";
+  }
+  const id = entry.id;
+  if (
+    id.startsWith("find_") ||
+    id.startsWith("resale_") ||
+    id.startsWith("radar_") ||
+    id.startsWith("agent_") ||
+    id.startsWith("flip_") ||
+    id === "personal_alert_review" ||
+    id === "verdict_decide" ||
+    id === "verdict_challenge" ||
+    id === "check_rules" ||
+    id === "check_guard" ||
+    id === "listing_extract" ||
+    id === "report_guard" ||
+    id === "report_explain" ||
+    id === "need_extract" ||
+    id === "scout_plan"
+  ) {
+    return "chat";
+  }
+  return entry.endpoint;
+}
+
 /** Features this profile actually sends. Usage is recorded for every profile by the proof log. */
 export function featuresUsedBy(id: ProfileId): DocumentedFeature[] {
   const entry = PROFILES[id] as ServProfile;
@@ -1211,8 +1261,8 @@ export function featuresUsedBy(id: ProfileId): DocumentedFeature[] {
   if (entry.jsonSchema) used.push("json_schema");
   if (entry.reasoningEffort) used.push("reasoning_effort");
   if (entry.promptCache === "default") used.push("prompt_cache");
-  if (entry.stream) used.push("streaming");
-  if (entry.endpoint === "responses") used.push("responses_reasoning");
+  if (streamForProfile(entry)) used.push("streaming");
+  if (endpointForProfile(entry) === "responses") used.push("responses_reasoning");
   if (entry.applicationTool) used.push("application_tool");
   used.push("usage");
   return used;
