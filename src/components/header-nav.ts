@@ -3,13 +3,7 @@ import type { ProductFlags } from "@/domain/product-flags";
 export type PrimaryNavLink = { href: string; label: string };
 
 /** Secondary destinations collapsed into the desktop "More" menu when the pill is crowded. */
-export const NAV_MORE_HREFS = new Set([
-  "/scout",
-  "/reports",
-  "/favorites",
-  "/compare-cars",
-  "/where-serv-runs",
-]);
+export const NAV_MORE_HREFS = new Set(["/scout", "/reports", "/favorites", "/compare-cars"]);
 
 /**
  * Primary header links. Resale is the main Lemonless mode and stays in the nav

@@ -71,8 +71,9 @@ export function buildDecisionProofRecord(input: {
 }): DecisionProofRecord {
   const status = normalizeDecisionProofStatus(input.status);
   const rawId = input.servResponseId ?? input.responseId ?? null;
-  // Only successful completions may surface a provider response id.
-  const safeResponseId = status === "ok" ? providerResponseId(rawId) : null;
+  // Keep a real provider response id even on failed validation/timeout proofs —
+  // still strip synthetic/local ids via providerResponseId.
+  const safeResponseId = providerResponseId(rawId);
   // Principle 3: failed/skip never invent a pass/buy/negotiate verdict.
   const blocked = status !== "ok";
   const reasonText = (input.reason ?? input.detail)?.trim() || null;

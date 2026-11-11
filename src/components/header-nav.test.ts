@@ -37,7 +37,7 @@ describe("primaryNavLinks", () => {
 });
 
 describe("splitPrimaryNavLinks", () => {
-  it("keeps Find/Check/Resale/Radar/Pricing in core and collapses Scout/Reports/Saved/Compare/How it decides into More", () => {
+  it("keeps Find/Check/Resale/Radar/How it decides/Pricing in core and collapses Scout/Reports/Saved/Compare into More", () => {
     const links = primaryNavLinks({
       flags: { resaleEvaluate: true, dealRadar: true, scout: true, telegram: false },
       showScout: true,
@@ -48,15 +48,10 @@ describe("splitPrimaryNavLinks", () => {
       "Check a car",
       "Resale",
       "Deal Radar",
+      "How it decides",
       "Pricing",
     ]);
-    expect(more.map((link) => link.label)).toEqual([
-      "Scout",
-      "Reports",
-      "Saved cars",
-      "Compare cars",
-      "How it decides",
-    ]);
+    expect(more.map((link) => link.label)).toEqual(["Scout", "Reports", "Saved cars", "Compare cars"]);
     expect(links.find((link) => link.label === "How it decides")?.href).toBe("/where-serv-runs");
   });
 });
