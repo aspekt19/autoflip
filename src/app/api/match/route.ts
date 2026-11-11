@@ -1,3 +1,4 @@
+import { findDeliveryChargesCredit } from "@/domain/find-empty";
 import { validateNeed } from "@/domain/need";
 import { creditBalance, creditEventSeen } from "@/io/credit-book";
 import { getKv } from "@/io/kv";
@@ -285,11 +286,12 @@ export async function POST(request: Request) {
       : 0;
     const emptyReason =
       typeof result.body.emptyReason === "string" ? result.body.emptyReason : null;
-    const deliveredSearch =
-      result.body.ok === true &&
-      providerQueriesUsed > 0 &&
-      listingCount > 0 &&
-      !emptyReason;
+    const deliveredSearch = findDeliveryChargesCredit({
+      ok: result.body.ok === true,
+      providerQueriesUsed,
+      listingCount,
+      emptyReason,
+    });
 
     let charged = false;
     if (!continuation && idemKey && deliveredSearch) {

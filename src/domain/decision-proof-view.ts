@@ -155,12 +155,24 @@ export function decisionPurposeLabel(purpose: string): string {
   }
 }
 
+/** Plain shopper label for a recorded verdict/action — never snake_case codes. */
+function plainConsumerVerdict(verdict: string): string {
+  const v = verdict.trim().toLowerCase();
+  if (v === "buy" || v === "good_deal") return "Buy";
+  if (v === "negotiate" || v === "fair") return "Fair price";
+  if (v === "pass" || v === "walk_away") return "Skip";
+  if (v === "needs_inspection" || v === "insufficient_data") return "Needs inspection";
+  if (v === "withheld") return "Verdict withheld";
+  return verdict.replaceAll("_", " ").trim();
+}
+
 /**
  * Short plain-English line for the main Find/Check/Resale view.
  * No purpose ids, model names, response ids, or ISO timestamps.
  */
 export function formatDecisionRecordConsumerLine(record: DecisionProofRecord): string {
-  const verdict = record.verdict?.trim() || null;
+  const rawVerdict = record.verdict?.trim() || null;
+  const verdict = rawVerdict ? plainConsumerVerdict(rawVerdict) : null;
   const failed = record.status === "failed" || record.status === "skipped";
   switch (record.purpose) {
     case "need_guard":

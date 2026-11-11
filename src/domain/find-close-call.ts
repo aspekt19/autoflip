@@ -98,6 +98,7 @@ const FACTOR_PLAIN: Record<BestDealFactorId, string> = {
   mmy_recall_campaigns: "recall record",
   mmy_ncap_rating: "crash-test rating",
   named_model_preference: "how it matches what you asked for",
+  stated_soft_preference: "stated soft preferences",
   budget_fit: "budget fit",
   condition_priority: "condition checks",
   listing_feed_flags: "listing warnings",

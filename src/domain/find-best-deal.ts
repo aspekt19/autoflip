@@ -51,6 +51,7 @@ export type BestDealFactorId =
   | "mmy_ncap_rating"
   | "named_model_preference"
   | "awd_preference"
+  | "stated_soft_preference"
   | "budget_fit"
   | "condition_priority"
   | "listing_feed_flags"
@@ -169,6 +170,8 @@ export const BEST_DEAL_WEIGHTS = {
   namedModel: 16,
   /** Soft Preferably-AWD boost when drivetrain is known AWD/4WD. */
   awd: 10,
+  /** Soft stated prefs (powertrain, luxury, tow, etc.) when listing evidence matches. */
+  statedSoft: 8,
   budget: 14,
   condition: 12,
 } as const;
@@ -210,6 +213,7 @@ export const BEST_DEAL_FACTOR_PLAIN_LABELS: Record<BestDealFactorId, string> = {
   mmy_ncap_rating: "crash-test ratings",
   named_model_preference: "named model match",
   awd_preference: "preferably AWD",
+  stated_soft_preference: "stated soft preferences",
   budget_fit: "budget fit",
   condition_priority: "condition-first preference",
   listing_feed_flags: "listing history flags",
@@ -478,6 +482,14 @@ type BestDealNeed = Pick<
 > & {
   awdPreference?: boolean;
   mustHaves?: string[];
+  fuelEconomyPriority?: boolean;
+  reliabilityPriority?: boolean;
+  powertrainPreference?: "hybrid" | "ev" | null;
+  luxuryPreference?: boolean;
+  towPreference?: boolean;
+  colorPreference?: string | null;
+  featurePreferences?: string[];
+  seatsPreference?: "third_row" | "seven_seat" | null;
 };
 
 function scoreOne(
@@ -962,6 +974,86 @@ function scoreOne(
             ? `Drivetrain is ${row.drivetrain.trim()} — kept in the mix; AWD/4WD ranks higher when known.`
             : "Drivetrain not on the listing yet — kept in the mix; not filtered out for Preferably AWD.",
         source: "Your soft preference; listing drivetrain or free VIN decode when present",
+      });
+    }
+  }
+
+  // Other stated soft prefs — never invent listing evidence; 0 when unknown, bonus when known match.
+  {
+    const bits: string[] = [];
+    let points = 0;
+    const fuelBlob = `${row.fuel ?? ""} ${row.engine ?? ""} ${row.make} ${row.model}`.toLowerCase();
+    const bodyBlob = `${row.bodyStyle ?? ""} ${row.style ?? ""}`.toLowerCase();
+    if (ctx.need.powertrainPreference === "ev") {
+      const hit = /\b(electric|ev|bev|tesla)\b/.test(fuelBlob) || /model [3syx]|bolt|ioniq|leaf|mach-?e/i.test(fuelBlob);
+      if (hit) {
+        points += WEIGHTS.statedSoft;
+        bits.push("Matches your electric preference");
+      } else {
+        bits.push("Electric preference noted — listing fuel not yet confirmed electric");
+      }
+    } else if (ctx.need.powertrainPreference === "hybrid") {
+      const hit = /\bhybrid|phev|plug-?in\b/.test(fuelBlob) || /prius|insight|rav4 hybrid/i.test(fuelBlob);
+      if (hit) {
+        points += WEIGHTS.statedSoft;
+        bits.push("Matches your hybrid preference");
+      } else {
+        bits.push("Hybrid preference noted — listing fuel not yet confirmed hybrid");
+      }
+    }
+    if (ctx.need.fuelEconomyPriority) {
+      bits.push("Fuel economy / cheap to run is in ranking via the fuel-cost check when available");
+    }
+    if (ctx.need.reliabilityPriority) {
+      bits.push("Reliability preference is reflected in condition and wear scoring");
+    }
+    if (ctx.need.luxuryPreference) {
+      const luxury = /\b(lexus|bmw|mercedes|audi|acura|cadillac|lincoln|infiniti|genesis|porsche|tesla)\b/i.test(
+        row.make,
+      );
+      if (luxury) {
+        points += WEIGHTS.statedSoft * 0.75;
+        bits.push("Matches your luxury / premium preference");
+      } else {
+        bits.push("Luxury preference noted — this make is not a typical luxury brand");
+      }
+    }
+    if (ctx.need.towPreference) {
+      const truck = /\b(truck|pickup|pick-up)\b/.test(bodyBlob) || /\b(f-?150|silverado|sierra|ram|tundra|tacoma|ranger|colorado|frontier)\b/i.test(
+        `${row.make} ${row.model}`,
+      );
+      if (truck) {
+        points += WEIGHTS.statedSoft;
+        bits.push("Truck / tow path matches your towing preference (capacity still needs listing check)");
+      } else {
+        bits.push("Towing preference noted — this body is not a typical tow truck");
+      }
+    }
+    if (ctx.need.seatsPreference) {
+      bits.push(
+        ctx.need.seatsPreference === "third_row"
+          ? "Third-row preference noted — seating still verified on the listing"
+          : "7-seat preference noted — seating still verified on the listing",
+      );
+    }
+    if (ctx.need.colorPreference) {
+      bits.push(
+        `Color preference (${ctx.need.colorPreference}) recorded — listing color is not on this feed yet, so it does not change the score`,
+      );
+    }
+    if (ctx.need.featurePreferences?.length) {
+      bits.push(
+        `Features you named (${ctx.need.featurePreferences.slice(0, 3).join(", ")}) stay on the Confirm card — not scored until the listing exposes them`,
+      );
+    }
+    if (bits.length) {
+      score += points;
+      factors.push({
+        id: "stated_soft_preference",
+        label: "Stated soft preferences",
+        points: round1(points),
+        detail: bits.join(". ") + ".",
+        source: "Your note preferences; listing fuel/body/make when present",
       });
     }
   }

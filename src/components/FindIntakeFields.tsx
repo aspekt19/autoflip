@@ -220,6 +220,12 @@ export function NoteFactChips({
     fuel: need.fuelEconomyPriority === true,
     awd: need.awdPreference === true,
     reliability: need.reliabilityPriority === true,
+    powertrain: need.powertrainPreference != null,
+    seats: need.seatsPreference != null,
+    luxury: need.luxuryPreference === true,
+    tow: need.towPreference === true,
+    color: Boolean(need.colorPreference),
+    features: (need.featurePreferences?.length ?? 0) > 0,
     history: need.historyPreference != null,
     body: need.bodyStyle != null,
     location: Boolean(need.locationPhrase),
@@ -229,6 +235,12 @@ export function NoteFactChips({
     !keep.current.fuel &&
     !keep.current.awd &&
     !keep.current.reliability &&
+    !keep.current.powertrain &&
+    !keep.current.seats &&
+    !keep.current.luxury &&
+    !keep.current.tow &&
+    !keep.current.color &&
+    !keep.current.features &&
     !keep.current.history &&
     !keep.current.body &&
     !keep.current.location
@@ -292,6 +304,91 @@ export function NoteFactChips({
             Reliability
           </span>
         </label>
+      ) : null}
+      {keep.current.powertrain ? (
+        <label className="note-chip">
+          Powertrain
+          <select
+            aria-label="Powertrain preference"
+            value={need.powertrainPreference ?? ""}
+            onChange={(event) => {
+              const value = event.target.value;
+              onChange({
+                ...need,
+                powertrainPreference: value === "hybrid" || value === "ev" ? value : null,
+              });
+            }}
+          >
+            <option value="">Not set</option>
+            <option value="hybrid">Hybrid</option>
+            <option value="ev">Electric</option>
+          </select>
+        </label>
+      ) : null}
+      {keep.current.seats ? (
+        <label className="note-chip">
+          Seats
+          <select
+            aria-label="Seating preference"
+            value={need.seatsPreference ?? ""}
+            onChange={(event) => {
+              const value = event.target.value;
+              onChange({
+                ...need,
+                seatsPreference: value === "third_row" || value === "seven_seat" ? value : null,
+              });
+            }}
+          >
+            <option value="">Not set</option>
+            <option value="third_row">Third row</option>
+            <option value="seven_seat">7-seat</option>
+          </select>
+        </label>
+      ) : null}
+      {keep.current.luxury ? (
+        <label className="note-chip check-line">
+          <span className="check-line">
+            <input
+              type="checkbox"
+              checked={need.luxuryPreference === true}
+              onChange={(event) => onChange({ ...need, luxuryPreference: event.target.checked })}
+            />
+            Luxury / premium
+          </span>
+        </label>
+      ) : null}
+      {keep.current.tow ? (
+        <label className="note-chip check-line">
+          <span className="check-line">
+            <input
+              type="checkbox"
+              checked={need.towPreference === true}
+              onChange={(event) => onChange({ ...need, towPreference: event.target.checked })}
+            />
+            Towing / hauling
+          </span>
+        </label>
+      ) : null}
+      {keep.current.color ? (
+        <label className="note-chip">
+          Color
+          <input
+            aria-label="Color preference"
+            type="text"
+            value={need.colorPreference ?? ""}
+            onChange={(event) =>
+              onChange({
+                ...need,
+                colorPreference: event.target.value.trim() ? event.target.value.trim().toLowerCase() : null,
+              })
+            }
+          />
+        </label>
+      ) : null}
+      {keep.current.features ? (
+        <p className="note-chip hint" role="status">
+          Features: {(need.featurePreferences ?? []).join(", ")}
+        </p>
       ) : null}
       {keep.current.history ? (
         <label className="note-chip">

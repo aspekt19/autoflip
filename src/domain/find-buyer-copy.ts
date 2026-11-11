@@ -76,6 +76,7 @@ export const BUYER_FORBIDDEN_TECH_PATTERNS: RegExp[] = [
   /\bprice_vs_model_asks\b/,
   /\bmiles_per_year_vs_peers\b/,
   /\bnamed_model_preference\b/,
+  /\bstated_soft_preference\b/,
   /\bcondition_priority\b/,
   /\bbudget_fit\b/,
   /\blisting_feed_flags\b/,
@@ -1128,6 +1129,7 @@ export function formatBuyerBestDeal(result: BestDealResult): {
           .replace(/\bprice_vs_model_asks\b/g, "asking price vs same model")
           .replace(/\bmiles_per_year_vs_peers\b/g, "miles per year")
           .replace(/\bnamed_model_preference\b/g, "named model match")
+          .replace(/\bstated_soft_preference\b/g, "stated soft preferences")
           .replace(/\bcondition_priority\b/g, "condition-first preference")
           .replace(/\bbudget_fit\b/g, "budget fit")
           .replace(/\blisting_feed_flags\b/g, "listing history flags")

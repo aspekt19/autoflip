@@ -25,7 +25,7 @@ import {
 } from "@/domain/free-check-quota";
 import type { DecisionProof } from "@/domain/decision-note";
 import type { DecisionProofRecord } from "@/domain/decision-proof-view";
-import type { SearchDirection } from "@/domain/directions";
+import { intentSummaryFromNeed, type SearchDirection } from "@/domain/directions";
 import { CoverageLine } from "./CoverageNote";
 import { DecisionNote } from "./DecisionNote";
 import { ConsumerDecisionProof } from "./ConsumerDecisionProof";
@@ -2102,6 +2102,16 @@ function AssistantFlow({
             <textarea id="note" rows={3} value={need.note} onChange={(event) => setNeed({ ...need, note: event.target.value })} />
           </div>
           <NoteFactChips need={need} onChange={setNeed} />
+          {intentSummaryFromNeed(need).length > 0 ? (
+            <div className="onboarding-note" aria-label="What we will search">
+              <p className="kicker">What we will search</p>
+              <ul className="refuse">
+                {intentSummaryFromNeed(need).map((line) => (
+                  <li key={line}>{line}</li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
           {need.mode === "flip" ? (
             <p className="hint">
               Profit target {need.targetProfitUsd === null ? "not set" : `$${need.targetProfitUsd.toLocaleString("en-US")}`}. Repair skill{" "}

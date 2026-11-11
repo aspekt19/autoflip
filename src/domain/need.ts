@@ -99,6 +99,18 @@ export type StructuredNeed = {
   awdPreference?: boolean;
   /** Soft reliability priority from the note — not the same as condition-first. */
   reliabilityPriority?: boolean;
+  /** Soft hybrid / EV preference from the note. */
+  powertrainPreference?: "hybrid" | "ev" | null;
+  /** Soft seating preference (third row / 7-seat). */
+  seatsPreference?: "third_row" | "seven_seat" | null;
+  /** Soft luxury / premium-brand preference. */
+  luxuryPreference?: boolean;
+  /** Soft towing / hauling preference. */
+  towPreference?: boolean;
+  /** Soft color preference from the note (never invented). */
+  colorPreference?: string | null;
+  /** Soft feature preferences named in the note. */
+  featurePreferences?: string[];
   /** Salvage / accident exclusion the note already stated. */
   historyPreference?: HistoryPref | null;
   /** Body style named in the note, including styles Find does not hard-filter yet. */
@@ -153,6 +165,12 @@ export function emptyNeed(mode: "personal" | "flip" = "personal"): StructuredNee
     fuelEconomyPriority: false,
     awdPreference: false,
     reliabilityPriority: false,
+    powertrainPreference: null,
+    seatsPreference: null,
+    luxuryPreference: false,
+    towPreference: false,
+    colorPreference: null,
+    featurePreferences: [],
     historyPreference: null,
     bodyStyle: null,
     locationPhrase: null,
@@ -323,6 +341,26 @@ export function validateNeed(input: unknown): { ok: true; need: StructuredNeed }
   const fuelEconomyPriority = raw.fuelEconomyPriority === true;
   const awdPreference = raw.awdPreference === true;
   const reliabilityPriority = raw.reliabilityPriority === true;
+  const powertrainPreference =
+    raw.powertrainPreference === "hybrid" || raw.powertrainPreference === "ev"
+      ? raw.powertrainPreference
+      : null;
+  const seatsPreference =
+    raw.seatsPreference === "third_row" || raw.seatsPreference === "seven_seat"
+      ? raw.seatsPreference
+      : null;
+  const luxuryPreference = raw.luxuryPreference === true;
+  const towPreference = raw.towPreference === true;
+  const colorPreference =
+    typeof raw.colorPreference === "string" && raw.colorPreference.trim()
+      ? raw.colorPreference.trim().toLowerCase().slice(0, 24)
+      : null;
+  const featurePreferences = Array.isArray(raw.featurePreferences)
+    ? raw.featurePreferences
+        .filter((item): item is string => typeof item === "string" && item.trim().length > 0)
+        .map((item) => item.trim().slice(0, 40))
+        .slice(0, 8)
+    : [];
   const historyPreference =
     raw.historyPreference === "no_salvage" ||
     raw.historyPreference === "no_accidents" ||
@@ -390,6 +428,12 @@ export function validateNeed(input: unknown): { ok: true; need: StructuredNeed }
       fuelEconomyPriority,
       awdPreference,
       reliabilityPriority,
+      powertrainPreference,
+      seatsPreference,
+      luxuryPreference,
+      towPreference,
+      colorPreference,
+      featurePreferences,
       historyPreference,
       bodyStyle,
       locationPhrase,
@@ -521,6 +565,12 @@ export function explicitNeedFromText(text: string, mode: "personal" | "flip"): S
     fuelEconomyPriority: intake.fuelEconomyPriority,
     awdPreference: intake.awdPreference,
     reliabilityPriority: intake.reliabilityPriority,
+    powertrainPreference: intake.powertrainPreference,
+    seatsPreference: intake.seatsPreference,
+    luxuryPreference: intake.luxuryPreference,
+    towPreference: intake.towPreference,
+    colorPreference: intake.colorPreference,
+    featurePreferences: intake.featurePreferences,
     historyPreference: intake.historyPreference,
     bodyStyle: intake.bodyStyle,
     locationPhrase: intake.locationPhrase,
@@ -1093,6 +1143,12 @@ export function supplementNeedFromNote(need: StructuredNeed, text: string): Stru
     fuelEconomyPriority: need.fuelEconomyPriority === true || intake.fuelEconomyPriority,
     awdPreference: need.awdPreference === true || intake.awdPreference,
     reliabilityPriority: need.reliabilityPriority === true || intake.reliabilityPriority,
+    powertrainPreference: need.powertrainPreference ?? intake.powertrainPreference,
+    seatsPreference: need.seatsPreference ?? intake.seatsPreference,
+    luxuryPreference: need.luxuryPreference === true || intake.luxuryPreference,
+    towPreference: need.towPreference === true || intake.towPreference,
+    colorPreference: need.colorPreference ?? intake.colorPreference,
+    featurePreferences: mergePhraseList(need.featurePreferences ?? [], intake.featurePreferences),
     historyPreference,
     conditionPriority,
     bodyStyle: need.bodyStyle ?? intake.bodyStyle,

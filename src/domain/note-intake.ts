@@ -34,6 +34,12 @@ export type NoteIntake = {
   awdPreference: boolean;
   /** Soft reliability ask ("reliable", "reliable for road trips") — priority, not condition-first. */
   reliabilityPriority: boolean;
+  powertrainPreference: PowertrainPref;
+  seatsPreference: SeatsPref;
+  luxuryPreference: boolean;
+  towPreference: boolean;
+  colorPreference: string | null;
+  featurePreferences: string[];
   historyPreference: HistoryPref | null;
   bodyStyle: NoteBodyStyle | null;
   yearMin: number | null;
@@ -214,9 +220,55 @@ export function transmissionFromText(text: string): TransmissionPref | null {
 }
 
 export function fuelEconomyFromText(text: string): boolean {
-  return /\b(?:good on gas|gas mileage|fuel economy|fuel[- ]efficient|efficient on gas|cheap on gas|saves? gas|\bmpg\b)\b/i.test(
+  return /\b(?:good on gas|gas mileage|fuel economy|fuel[- ]efficient|efficient on gas|cheap on gas|cheap to run|inexpensive to run|saves? gas|\bmpg\b)\b/i.test(
     text,
   );
+}
+
+export type PowertrainPref = "hybrid" | "ev" | null;
+
+export function powertrainPreferenceFromText(text: string): PowertrainPref {
+  if (/\b(electric|ev\b|battery electric|tesla)\b/i.test(text)) return "ev";
+  if (/\bhybrids?\b/i.test(text)) return "hybrid";
+  return null;
+}
+
+export type SeatsPref = "third_row" | "seven_seat" | null;
+
+export function seatsPreferenceFromText(text: string): SeatsPref {
+  if (/\b(third[\s-]?row|3rd[\s-]?row|seven[\s-]?seat|7[\s-]?seat|7[\s-]?passenger)\b/i.test(text)) {
+    return /\b(seven|7)[\s-]?(seat|passenger)/i.test(text) ? "seven_seat" : "third_row";
+  }
+  return null;
+}
+
+export function luxuryPreferenceFromText(text: string): boolean {
+  return /\b(luxury|premium brand|bmw|mercedes|audi|lexus|acura|cadillac|lincoln)\b/i.test(text);
+}
+
+export function towPreferenceFromText(text: string): boolean {
+  return /\b(tow|towing|haul|hauling|trailer)\b/i.test(text);
+}
+
+export function colorPreferenceFromText(text: string): string | null {
+  const hit =
+    text.match(
+      /\b(?:prefer(?:ably)?|want|looking for)\s+(?:a\s+)?(black|white|silver|gray|grey|blue|red|green|brown|beige)\b/i,
+    ) ??
+    text.match(
+      /\b(black|white|silver|gray|grey|blue|red|green|brown|beige)\s+(?:car|sedan|suv|truck|vehicle)\b/i,
+    );
+  return hit?.[1]?.toLowerCase() ?? null;
+}
+
+export function featurePreferencesFromText(text: string): string[] {
+  const features: string[] = [];
+  if (/\bsunroof\b|\bmoonroof\b/i.test(text)) features.push("sunroof");
+  if (/\bleather\b/i.test(text)) features.push("leather");
+  if (/\bnav(?:igation)?\b/i.test(text)) features.push("navigation");
+  if (/\bbackup camera\b|\brear[\s-]?view camera\b/i.test(text)) features.push("backup camera");
+  if (/\bapple carplay\b|\bandroid auto\b/i.test(text)) features.push("CarPlay/Android Auto");
+  return features;
 }
 
 /** Soft AWD/4WD preference. Mention alone is enough — never a hard must-filter. */
@@ -428,6 +480,12 @@ export function intakeFromNote(text: string, now = new Date()): NoteIntake {
   const fuelEconomyPriority = fuelEconomyFromText(text);
   const awdPreference = awdPreferenceFromText(text);
   const reliabilityPriority = reliabilityPriorityFromText(text);
+  const powertrainPreference = powertrainPreferenceFromText(text);
+  const seatsPreference = seatsPreferenceFromText(text);
+  const luxuryPreference = luxuryPreferenceFromText(text);
+  const towPreference = towPreferenceFromText(text);
+  const colorPreference = colorPreferenceFromText(text);
+  const featurePreferences = featurePreferencesFromText(text);
   const historyPreference = historyFromText(text);
   const bodyStyle = bodyFromIntake(text);
   const years = yearsFromNote(text, now);
@@ -435,7 +493,7 @@ export function intakeFromNote(text: string, now = new Date()): NoteIntake {
   const zip = zipFromNote(text, budgetUsd);
   const locationPhrase = locationPhraseFromText(text);
   const radius = radiusFromNote(text);
-  // AWD stays out of mustHaves — soft preference only (ranking / Confirm), never a hard filter.
+  // Soft prefs stay out of mustHaves — ranking / Confirm only, never hard filters.
   const mustHaves = [
     transmission === "automatic" ? "automatic" : null,
     transmission === "manual" ? "manual" : null,
@@ -445,6 +503,11 @@ export function intakeFromNote(text: string, now = new Date()): NoteIntake {
   const priorities = [
     ...(fuelEconomyPriority ? ["fuel economy"] : []),
     ...(reliabilityPriority ? ["reliability"] : []),
+    ...(powertrainPreference === "hybrid" ? ["hybrid"] : []),
+    ...(powertrainPreference === "ev" ? ["electric"] : []),
+    ...(towPreference ? ["towing"] : []),
+    ...(luxuryPreference ? ["luxury"] : []),
+    ...featurePreferences,
   ];
   return {
     budgetUsd,
@@ -452,6 +515,12 @@ export function intakeFromNote(text: string, now = new Date()): NoteIntake {
     fuelEconomyPriority,
     awdPreference,
     reliabilityPriority,
+    powertrainPreference,
+    seatsPreference,
+    luxuryPreference,
+    towPreference,
+    colorPreference,
+    featurePreferences,
     historyPreference,
     bodyStyle,
     yearMin: years.yearMin,

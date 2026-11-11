@@ -239,6 +239,25 @@ export function findEmptyCopy(
   }
 }
 
+/**
+ * Whether a Find delivery may debit 1 credit.
+ * Only a completed search that ran at least one provider query and returned
+ * at least one listing may charge — zero results / no directions never debit.
+ */
+export function findDeliveryChargesCredit(input: {
+  ok: boolean;
+  providerQueriesUsed: number;
+  listingCount: number;
+  emptyReason: string | null | undefined;
+}): boolean {
+  return (
+    input.ok === true &&
+    input.providerQueriesUsed > 0 &&
+    input.listingCount > 0 &&
+    !input.emptyReason
+  );
+}
+
 /** HTTP status for consumer match failures that must not look like successful empty inventory. */
 export function statusForFindEmpty(reason: FindEmptyReason): number {
   switch (reason) {
