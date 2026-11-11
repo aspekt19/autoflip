@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { listingVdpVerifiability } from "./listing-vdp-verifiability";
+import { buyerDealerListingLink, listingVdpVerifiability } from "./listing-vdp-verifiability";
 
 describe("listingVdpVerifiability", () => {
   it("flags Autolist model pages with #vin= as not a direct listing", () => {
@@ -12,6 +12,23 @@ describe("listingVdpVerifiability", () => {
     expect(row.flag).toMatch(/No direct listing link/i);
     expect(row.href).toContain("autolist.com");
     expect(row.sellerMismatchNote).toMatch(/does not match the feed dealer name/i);
+    const link = buyerDealerListingLink({
+      dealer: "Kenney's Automotive",
+      vdp: "https://www.autolist.com/toyota-corolla#vin=2T1BURHE6HC837595",
+      vin: "2T1BURHE6HC837595",
+    });
+    expect(link.isDealerListing).toBe(false);
+    expect(link.href).toBeNull();
+    expect(link.unavailableNote).not.toMatch(/^Dealer listing$/i);
+  });
+
+  it("never labels carfax.com as a dealer listing", () => {
+    const link = buyerDealerListingLink({
+      vdp: "https://www.carfax.com/vehicle/2T1BURHE6HC837595",
+      vin: "2T1BURHE6HC837595",
+    });
+    expect(link.isDealerListing).toBe(false);
+    expect(link.unavailableNote).toMatch(/Carfax|No direct dealer listing/i);
   });
 
   it("accepts a dealer inventory VDP as direct", () => {

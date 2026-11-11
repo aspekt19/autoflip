@@ -18,6 +18,7 @@ import {
 import type { ResaleCandidatePnl } from "@/domain/resale-pnl";
 import { evidenceBundleFromCandidates } from "@/domain/resale-serv-validate";
 import { actionFromVerdict } from "@/domain/decision-action";
+import { capConfidenceForHonesty } from "@/domain/confidence-cap";
 import {
   capConfidenceForMarginMiss,
   capConfidenceForStopFlags,
@@ -175,27 +176,36 @@ function confidenceFromPnl(item: ResaleCandidatePnl | null): AgentVerdictConfide
 }
 
 /**
- * Cap published Resale confidence so High cannot survive a stop flag or a
- * low-end profit that misses the flip target. Returns labeled reason when capped.
+ * Cap published Resale confidence so High cannot survive a stop flag, a
+ * low-end profit miss, Needs inspection, or unsettled evidence.
  */
 export function clampResalePublishedConfidence(
   proposed: AgentVerdictConfidence,
   candidate: ResaleCandidatePnl,
+  opts?: { verdictAction?: string | null; evidenceSettled?: boolean },
 ): { confidence: AgentVerdictConfidence; reason: string | null } {
   const hasStop = candidate.openParkIt === true || candidate.openParkOutside === true;
   const afterStop = capConfidenceForStopFlags(proposed, hasStop);
   const stopReason =
     proposed === "high" && afterStop !== "high" ? confidenceCapReasonForStop(hasStop) : null;
-  const confidence: AgentVerdictConfidence = capConfidenceForMarginMiss(
+  const afterMargin: AgentVerdictConfidence = capConfidenceForMarginMiss(
     afterStop,
     candidate.profitLowUsd,
   );
   const marginReason =
-    afterStop === "high" && confidence !== "high"
+    afterStop === "high" && afterMargin !== "high"
       ? confidenceCapReasonForMarginMiss(candidate.profitLowUsd)
       : null;
-  const reason = [stopReason, marginReason].filter(Boolean).join(" ") || null;
-  return { confidence, reason };
+  const honesty = capConfidenceForHonesty({
+    confidence: afterMargin,
+    verdict: opts?.verdictAction ?? null,
+    evidenceSettled: opts?.evidenceSettled,
+    rankingMayChange: opts?.evidenceSettled === false,
+  });
+  const reason =
+    [stopReason, marginReason, honesty.capped ? honesty.reason : null].filter(Boolean).join(" ") ||
+    null;
+  return { confidence: honesty.confidence, reason };
 }
 
 function applyPublishedConfidenceCap(input: {
@@ -204,13 +214,16 @@ function applyPublishedConfidenceCap(input: {
   journal: ResaleDecisionJournal;
   trail: AgentTrailStep[];
   recordedAt: string;
+  verdictAction?: string | null;
 }): {
   confidence: AgentVerdictConfidence;
   reason: string | null;
   journal: ResaleDecisionJournal;
   trail: AgentTrailStep[];
 } {
-  const capped = clampResalePublishedConfidence(input.proposed, input.candidate);
+  const capped = clampResalePublishedConfidence(input.proposed, input.candidate, {
+    verdictAction: input.verdictAction,
+  });
   if (!capped.reason || capped.confidence === input.proposed) {
     return {
       confidence: capped.confidence,
@@ -1322,6 +1335,7 @@ export async function runResaleSettleServ(input: {
         journal,
         trail,
         recordedAt,
+        verdictAction,
       });
       agentConfidence = capped.confidence;
       journal = capped.journal;
@@ -1618,6 +1632,7 @@ export async function runResaleSettleServ(input: {
         journal,
         trail,
         recordedAt,
+        verdictAction,
       });
       agentConfidence = capped.confidence;
       journal = capped.journal;
@@ -1966,6 +1981,7 @@ export async function runResaleSettleServ(input: {
         journal,
         trail,
         recordedAt,
+        verdictAction,
       });
       agentConfidence = capped.confidence;
       journal = capped.journal;
@@ -2199,6 +2215,7 @@ export async function runResaleSettleServ(input: {
       journal,
       trail,
       recordedAt,
+      verdictAction,
     });
     agentConfidence = capped.confidence;
     journal = capped.journal;

@@ -42,6 +42,7 @@ import {
 /** Base model strings evidenced in-repo (no feature suffix). */
 export const SERV_COMPARE_BASE_MODEL_IDS = [
   BASE_MODEL,
+  "gpt-5.4-mini",
   "gpt-5.4-mini-2026-03-17",
 ] as const;
 
@@ -224,8 +225,7 @@ export function resolveServCompareModelIds(
   const byId = new Map(catalog.map((m) => [m.id, m]));
   const out: ServCompareModelEntry[] = [];
   for (const id of requested) {
-    // Flip shortlist before in-repo catalog so BASE_MODEL on the shortlist keeps
-    // flip_decision_shortlist kind when Flip requests the shortlist CSV.
+    // Prefer Flip shortlist kind when the id is on that slate (even if also BASE_MODEL).
     const flipHit = flipById.get(id);
     if (flipHit) {
       out.push(flipHit);

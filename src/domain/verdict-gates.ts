@@ -1,3 +1,4 @@
+import { accidentHistoryStatement } from "./accident-history-statement";
 import { ASSUMPTIONS } from "./assumptions";
 import { budgetFit } from "./budget";
 import type { DecisionAction } from "./decision-action";
@@ -258,7 +259,7 @@ function gateMandate(report: ComputedReport, mandate: MandateInput): GateResult 
     return {
       id: "mandate_fit",
       status: "forbid",
-      reason: "Accident history is missing from the listing. Buy is forbidden until history is verified.",
+      reason: accidentHistoryStatement(null).gateReason,
       forbid: ["buy"],
     };
   }

@@ -15,15 +15,25 @@
 import { BASE_MODEL, modelFor, type ProfileId } from "./profiles";
 
 /**
- * Production allowlist: gpt-6.1-sol only.
+ * Production allowlist: gpt-6.1-sol only (including Find C2–C4 decide profiles).
  * Compare peers (Sonnet, Mini, prior Sol, Gemini, …) require ALLOW_UNLISTED —
  * they are not tried first and are not production defaults.
  */
 export const SERV_PROFILE_MODEL_CANDIDATES: Partial<Record<ProfileId, readonly string[]>> = {
   scout_plan: [BASE_MODEL],
   find_next_check: [BASE_MODEL],
+  find_plan: [BASE_MODEL],
+  find_triage: [BASE_MODEL],
+  find_decide: [BASE_MODEL],
+  find_challenge: [BASE_MODEL],
   need_extract: [BASE_MODEL],
   verdict_decide: [BASE_MODEL],
+  verdict_challenge: [BASE_MODEL],
+  resale_plan_search: [BASE_MODEL],
+  resale_triage: [BASE_MODEL],
+  resale_pick: [BASE_MODEL],
+  resale_challenge: [BASE_MODEL],
+  radar_review: [BASE_MODEL],
 };
 
 export type ProfileModelSource = "caller_requested" | "profile_env" | "base_default";

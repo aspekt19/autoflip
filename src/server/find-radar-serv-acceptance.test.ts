@@ -20,6 +20,7 @@ import type { BestDealCandidate, BestDealResult } from "@/domain/find-best-deal"
 import { understandNeed } from "@/server/understand-need";
 import { runFindSettleServ } from "@/server/find-settle-serv";
 import { reviewPersonalCandidate } from "@/server/radar-serv";
+import { BASE_MODEL } from "@/server/serv";
 import { normalizeCriteria } from "@/server/radar-normalize-criteria";
 import { listAlerts, listRuns, saveAlerts, saveSearches, seenVins, storeSeenPrices } from "@/server/radar-store";
 import { runRadarCycle } from "@/server/radar-cycle";
@@ -27,7 +28,6 @@ import { emptyPlans, writePlans } from "@/server/plan-book";
 import type { Listing } from "@/domain/types";
 import type { AlertNumbers } from "@/domain/radar-watch";
 import type { PriceBadge } from "@/domain/price-badge";
-import { BASE_MODEL } from "@/server/serv";
 
 const NOTE =
   "Looking for a Toyota RAV4 near Miami under $18,000 with under 80,000 miles for commuting.";
@@ -133,7 +133,7 @@ function candidate(partial: Partial<BestDealCandidate> & Pick<BestDealCandidate,
 
 describe("find → SERV → watch → radar verdict_decide acceptance (merge gate)", () => {
   it("keeps a SERV response id through free-text parse, Find settle, Watch, and radar Check", async () => {
-    // --- (1) Free text → Find need_guard + need_extract with response id ---
+    // --- (1) Free text → Find find_plan (C1) with response id ---
     const findFetch: typeof fetch = async (_input, init) => {
       let body: unknown = null;
       try {
@@ -142,31 +142,34 @@ describe("find → SERV → watch → radar verdict_decide acceptance (merge gat
         body = null;
       }
       const schema = schemaName(body);
-      const system = systemText(body);
-      if (schema === "need_extract") {
+      if (schema === "find_plan") {
         return chatCompletion(
           EXTRACT_ID,
           JSON.stringify({
-            useCase: "commute",
-            mustHaves: [],
-            priorities: ["reliability"],
-            budgetUsd: 18_000,
-            zip: "33101",
-            repairAbility: "unknown",
-            targetProfitUsd: null,
+            summary: "Toyota RAV4 under $18,000 near Miami for commuting.",
+            bodyStyles: ["suv"],
+            budget: { maxUsd: 18_000, approximate: false, quote: "under $18,000" },
+            yearMin: null,
+            yearMax: null,
             milesMax: 80_000,
-            make: "Toyota",
-            preferredMakes: ["Toyota"],
-            preferredModels: [{ make: "Toyota", model: "RAV4" }],
-            bodyStyle: "SUV",
-            transmission: null,
-            fuelEconomyPriority: false,
-            historyPreference: null,
+            drivetrain: { value: "any", strength: "none", quote: null },
+            fuel: { value: "any", strength: "none", quote: null },
+            seatsMin: null,
+            location: { zip: "33101", phrase: "near Miami", needsZip: false },
+            priorities: [],
+            namedModels: [{ make: "Toyota", model: "RAV4" }],
+            excludedMakes: [],
+            question: { id: "none", text: null },
+            directions: [
+              {
+                label: "The model you named",
+                why: "You named a Toyota RAV4.",
+                bodyStyle: "suv",
+                models: [{ make: "Toyota", model: "RAV4" }],
+              },
+            ],
           }),
         );
-      }
-      if (/shopping for a car/i.test(system)) {
-        return chatCompletion(GUARD_ID, "ALLOW");
       }
       return chatCompletion(GUARD_ID, "ALLOW");
     };
@@ -177,19 +180,17 @@ describe("find → SERV → watch → radar verdict_decide acceptance (merge gat
     );
     expect(parsed.ok).toBe(true);
     if (!parsed.ok) return;
-    const guard = parsed.checks.find((c) => c.purpose === "need_guard");
-    expect(guard, "need_guard check missing — UI would show prompt guard not recorded").toBeTruthy();
-    expect(["allow", "passed"]).toContain(guard!.promptGuard);
+    const planCheck = parsed.checks.find((c) => c.purpose === "find_plan");
+    expect(planCheck, "find_plan check missing — UI would show prompt guard not recorded").toBeTruthy();
+    expect(["allow", "passed", "not_used"]).toContain(planCheck!.promptGuard);
     expect(parsed.criteriaParse.source).toBe("serv");
     expect(parsed.criteriaParse.responseId).toBe(EXTRACT_ID);
     expect(parsed.criteriaParse.label).toMatch(/response\s+chatcmpl-EhAXMUOvyEyLBjo5Y5ePSlTGZUccv/);
     expect(parsed.proofRecords.every(isDecisionProofRecord)).toBe(true);
-    const guardProof = assertServStepProof(parsed.proofRecords, "need_guard");
-    expect(guardProof.rubricId).toBe(NEED_PARSE_RUBRIC_ID);
-    expect(guardProof.servResponseId).toBe(GUARD_ID);
-    const extractProof = assertServStepProof(parsed.proofRecords, "need_extract");
-    expect(extractProof.rubricId).toBe(NEED_PARSE_RUBRIC_ID);
-    expect(extractProof.servResponseId).toBe(EXTRACT_ID);
+    expect(parsed.findPlan.namedModels).toEqual([{ make: "Toyota", model: "RAV4" }]);
+    const planProof = assertServStepProof(parsed.proofRecords, "find_plan");
+    expect(planProof.rubricId).toBe(NEED_PARSE_RUBRIC_ID);
+    expect(planProof.servResponseId).toBe(EXTRACT_ID);
 
     // --- (2) Find top-pick verdict_decide even when evidenceSettled is false ---
     const pick = candidate({ key: "top" });

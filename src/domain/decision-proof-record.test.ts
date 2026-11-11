@@ -10,6 +10,7 @@ import {
   NEED_PARSE_RUBRIC_ID,
   VERDICT_RUBRIC_ID,
 } from "./decision-proof-record";
+import { formatDecisionRecordConsumerLine } from "./decision-proof-view";
 
 describe("decision proof record", () => {
   // Provenance: recorded id from eval/results/latest.json.
@@ -37,6 +38,8 @@ describe("decision proof record", () => {
     expect(isDecisionProofRecord(record)).toBe(true);
     expect(assertServStepProof([record], "verdict_decide").verdict).toBe("negotiate");
     expect(formatDecisionRecordLine(record)).toMatch(/response chatcmpl-EhAbWoRGDxTDAPz8Lvx93kv1cfycl/);
+    expect(formatDecisionRecordConsumerLine(record)).toMatch(/first review/i);
+    expect(formatDecisionRecordConsumerLine(record)).not.toMatch(/chatcmpl|gpt-5|need_guard|verdict_decide/);
   });
 
   it("maps error/skip aliases and never keeps an invented verdict", () => {

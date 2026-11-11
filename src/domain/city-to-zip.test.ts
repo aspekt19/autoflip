@@ -33,4 +33,12 @@ describe("city-to-zip", () => {
     expect(resolved.needed).toBe(true);
     expect(zipFieldMark(resolved)).toBe("needed");
   });
+
+  it("treats near me as optional ZIP (not needed) with nationwide when blank", () => {
+    const resolved = resolveLocationZip({ zip: null, locationPhrase: "near me" });
+    expect(resolved.zip).toBeNull();
+    expect(resolved.needed).toBe(false);
+    expect(resolved.cityLabel).toBe("near me");
+    expect(zipFieldMark(resolved)).toBeNull();
+  });
 });

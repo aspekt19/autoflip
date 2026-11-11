@@ -102,6 +102,23 @@ export const BUYER_FORBIDDEN_TECH_PATTERNS: RegExp[] = [
   /\$\/gal/,
   /A blank budget stays blank/i,
   /\bmedian ask\b/i,
+  // Decision-purpose / proof internals — main view uses plain English only.
+  /\bneed_guard\b/,
+  /\bneed_extract\b/,
+  /\bfind_plan\b/,
+  /\bfind_next_check\b/,
+  /\bverdict_decide\b/,
+  /\bverdict_challenge\b/,
+  /\bwiden_or_nationwide\b/,
+  /\bconsistency_deterministic_drain\b/,
+  /\bfailureDiag\b/,
+  /\ballowlisted\b/,
+  /\bmessage_content_null_refusal_field\b/,
+  /\bchatcmpl-[A-Za-z0-9]+\b/,
+  /\bpriceUsd\b/,
+  /\bsellerName\b/,
+  /\bev_note_/,
+  /\bRCA\b/,
 ];
 
 /**
@@ -146,9 +163,14 @@ export function publicCheckStatusLine(input: {
   /** True while the server loop will run another check. */
   loopOpen?: boolean;
   modelCount?: number | null;
+  /** When the shortlist is empty, never claim checks are caught up. */
+  shortlistEmpty?: boolean;
 }): string {
   if (!input.servEnabled) {
     return "Here is what we can check next with the cars already found:";
+  }
+  if (input.shortlistEmpty) {
+    return "No shortlist cars to check — public safety checks did not run.";
   }
   const count =
     typeof input.modelCount === "number" && input.modelCount > 0 ? Math.floor(input.modelCount) : null;
@@ -174,7 +196,12 @@ export function publicCheckStatusLine(input: {
 export function buyerCheckActivityLine(input: {
   anyUnchecked: boolean;
   continuing: boolean;
+  /** Empty shortlist: one plain line, never “caught up” + “not running”. */
+  shortlistEmpty?: boolean;
 }): string {
+  if (input.shortlistEmpty) {
+    return "Public safety checks did not run — the shortlist is empty.";
+  }
   if (!input.anyUnchecked) return "Public safety records are caught up for this shortlist.";
   if (input.continuing) return "Public safety records are still being checked. The best choice may change.";
   return "Public safety checks are not running. Some models are still unchecked.";
@@ -653,14 +680,17 @@ export function formatRecallCheckSummary(outcome: RecallCheckOutcomeSummary): st
   const years = outcome.attempted;
   const modelWord = `model${models === 1 ? "" : "s"}`;
   const yearWord = `model year${years === 1 ? "" : "s"}`;
-  if (years <= 0) return "Government recall records have not come back for this search yet.";
+  // Safety recalls = manufacturer fixes listed by the U.S. safety agency (NHTSA).
+  if (years <= 0) {
+    return "Safety recalls from the U.S. safety agency (NHTSA) have not come back for this search yet.";
+  }
   if (outcome.confirmed <= 0) {
-    return `Government recall records did not come back for any of the ${models} ${modelWord} we tried (0 of ${years} ${yearWord}). That is not a clean result.`;
+    return `Safety recalls from the U.S. safety agency (NHTSA) did not come back for any of the ${models} ${modelWord} we tried (0 of ${years} ${yearWord}). That is not a clean result.`;
   }
   if (outcome.confirmed >= years) {
-    return `Government recall records came back for all ${models} ${modelWord} (${years} ${yearWord}).`;
+    return `Safety recalls from the U.S. safety agency (NHTSA) came back for all ${models} ${modelWord} (${years} ${yearWord}).`;
   }
-  return `Government recall records came back for ${outcome.confirmedModelCount} of ${models} ${modelWord} (${outcome.confirmed} of ${years} ${yearWord}). The rest could not be confirmed — that is not a clean result.`;
+  return `Safety recalls from the U.S. safety agency (NHTSA) came back for ${outcome.confirmedModelCount} of ${models} ${modelWord} (${outcome.confirmed} of ${years} ${yearWord}). The rest could not be confirmed — that is not a clean result.`;
 }
 
 export function formatBuyerLoopStep(input: {
@@ -682,7 +712,7 @@ export function formatBuyerLoopStep(input: {
   switch (id) {
     case "free_gov_recalls":
       if (input.recallOutcome) return formatRecallCheckSummary(input.recallOutcome);
-      return "Government recall records have not come back for this search yet.";
+      return "Safety recalls from the U.S. safety agency (NHTSA) have not come back for this search yet.";
     case "free_gov_safety":
       return `We checked government crash-test ratings for${cars}.`;
     case "free_gov_vpic":
@@ -752,7 +782,8 @@ export function formatBuyerLoopStatus(reason: FindNextCheckLoopReason | string |
     case "remaining_free_checks":
       return "More free public checks are still available — continuing.";
     case "unchanged_state":
-      return "Checks caught up with the current evidence.";
+      // Callers must not pair this with “checks are not running” when anyUnchecked.
+      return "Checks stopped on the current evidence.";
     case "grounded_stop":
       return "We have enough from the current cards to compare — stopping automatic checks.";
     case "needs_clarification":
@@ -942,18 +973,23 @@ export function sellerQuestionsForBuyer(
     const accidentOnCard = car.factors.some(
       (factor) => factor.id === "listing_feed_flags" && /accident/i.test(factor.detail),
     );
+    const accidentUnknown = car.unknowns.find((line) => /accident/i.test(line));
     if (
       accidentOnCard &&
       !car.sellerQuestions.some((question) => /accident/i.test(question))
     ) {
       carLines.push(
-        `Ask the seller for accident records on the ${shown} — the listing says accidents were reported.`,
+        accidentUnknown
+          ? `Ask the seller for accident records on the ${shown} — ${accidentUnknown.replace(/\.$/, "")}.`
+          : `Ask the seller for accident records on the ${shown} — the listing says accidents were reported; a vehicle history report has not been checked.`,
       );
     }
     const isFocus = first != null && car.key === first.key;
     if (isFocus && carLines.length === 0) {
       carLines.push(
-        `Ask the seller for service records and accident history on the ${shown} — a vehicle history report has not been checked.`,
+        accidentUnknown
+          ? `Ask the seller for service records on the ${shown} — ${accidentUnknown.replace(/\.$/, "")}.`
+          : `Ask the seller for service records and accident history on the ${shown} — a vehicle history report has not been checked.`,
       );
     }
     if (

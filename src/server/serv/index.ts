@@ -7,6 +7,7 @@ export {
   SHADOW_MAX_ITERATIONS,
   endpointForProfile,
   featuresUsedBy,
+  isGeminiModelId,
   modelFor,
   profile,
   servBudget,

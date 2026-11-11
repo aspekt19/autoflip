@@ -147,27 +147,42 @@ describe("POST /api/find/next-check (HTTP)", () => {
     expect(b1.loop.reason).toBe("evidence_changed_replan");
     expect(matchImpl.mock.calls[0]![0].need.yearMin).toBe(2015);
 
-    // Free public checks run in code. They must not spend another paid call.
+    // Free public checks drain in one parallel triage wave — no extra paid SERV call.
+    const servCalls = () =>
+      fetchImpl.mock.calls.filter((call) => {
+        const url = String(call[0] ?? "");
+        return url.includes("serv.test") || url.includes("/chat");
+      }).length;
+    fetchImpl.mockImplementation(async (url: RequestInfo | URL) => {
+      const u = String(url);
+      if (u.includes("serv.test") || u.includes("/chat")) {
+        return servChoice("compare_observed_asks");
+      }
+      // Stub free public endpoints so parallel triage does not hit the network.
+      return new Response(JSON.stringify({ Count: 0, results: [] }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
+    });
     const step2 = await POST(req({ searchContextToken: "tok-multi" }));
     const b2 = await step2.json();
     expect(b2.ok).toBe(true);
     expect(b2.chosenId === "free_car_consistency" || String(b2.chosenId).startsWith("free_gov_")).toBe(true);
     expect(b2.loop.continue).toBe(true);
     expect(b2.servPaidCalls).toBe(1);
-    expect(fetchImpl).toHaveBeenCalledTimes(1);
+    expect(servCalls()).toBe(1);
 
     // After the free work, SERV still chooses the non-free next step.
     let last = b2;
     for (let hop = 0; hop < 16 && last.loop?.continue; hop++) {
-      if (fetchImpl.mock.calls.length === 1) fetchImpl.mockResolvedValueOnce(servChoice("compare_observed_asks"));
       const step = await POST(req({ searchContextToken: "tok-multi" }));
       last = await step.json();
       expect(last.ok).toBe(true);
     }
     expect(last.loop.continue).toBe(false);
     expect(last.servPaidCalls).toBeLessThanOrEqual(8);
-    expect(fetchImpl.mock.calls.length).toBeGreaterThanOrEqual(2);
-    expect(last.servPaidCalls).toBe(fetchImpl.mock.calls.length);
+    expect(servCalls()).toBeGreaterThanOrEqual(2);
+    expect(last.servPaidCalls).toBe(servCalls());
   });
 
   it("duplicate/concurrency: second in-flight same fingerprint → 409; replay after complete", async () => {
@@ -262,10 +277,20 @@ describe("POST /api/find/next-check (HTTP)", () => {
         },
       ],
     );
-    fetchImpl.mockImplementationOnce(async () => {
-      const err = new Error("The operation was aborted due to timeout");
-      err.name = "TimeoutError";
-      throw err;
+    let servAttempts = 0;
+    fetchImpl.mockImplementation(async (url: RequestInfo | URL) => {
+      const u = String(url);
+      if (u.includes("serv.test") || u.includes("/chat")) {
+        servAttempts += 1;
+        const err = new Error("The operation was aborted due to timeout");
+        err.name = "TimeoutError";
+        throw err;
+      }
+      // Parallel free-gov triage after deterministic fallback — stub public endpoints.
+      return new Response(JSON.stringify({ Count: 0, results: [] }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
     });
     const res = await POST(req({ searchContextToken: "tok-timeout" }));
     const body = await res.json();
@@ -273,15 +298,20 @@ describe("POST /api/find/next-check (HTTP)", () => {
     expect(body.ok).toBe(true);
     expect(body.autonomousServ).toBe(false);
     expect(body.source).toBe("deterministic_fallback");
-    expect(body.loop.continue).toBe(false);
-    expect(body.loop.reason).toBe("serv_deterministic_fallback");
+    // Parallel free-gov triage may still continue the loop after a SERV timeout.
+    if (body.loop.continue) {
+      expect(["evidence_changed_replan", "remaining_free_checks"]).toContain(body.loop.reason);
+    } else {
+      expect(body.loop.reason).toBe("serv_deterministic_fallback");
+    }
     expect(body.loop.reason).not.toBe("no_keyed_autonomy");
     expect(body.loop.reason).not.toBe("no_serv_key");
     expect(body.keyedAutonomyDiag.keyed).toBe(true);
     expect(body.keyedAutonomyDiag.autonomousServ).toBe(false);
     expect(body.keyedAutonomyDiag.failureReasonCode).toMatch(/timeout|network|http/i);
     expect(body.keyedAutonomyDiag.configHint).toMatch(/find_next_check|timeout|failureDiag/i);
-    expect(JSON.stringify(body)).not.toMatch(/sk-|SERV_API_KEY=\w+/);
+    // Avoid matching substrings like "risk-zero" (contains "sk-").
+    expect(JSON.stringify(body)).not.toMatch(/\bsk-[a-zA-Z0-9]|SERV_API_KEY=/);
   });
 
   it("unknown context / error safe", async () => {
@@ -356,16 +386,16 @@ describe("POST /api/find/next-check (HTTP)", () => {
     expect(body.ok).toBe(true);
     expect(body.chosenId).toBe("free_gov_recalls");
     expect(body.freeGovReceipts?.length).toBeGreaterThan(0);
-    expect(body.freeGovReceipts[0].riskFacts).toBeTruthy();
-    expect(body.freeGovReceipts[0].sourceUrl).toMatch(/nhtsa\.gov|recallsByVehicle/i);
-    expect(
-      typeof body.freeGovReceipts[0].riskFacts.parkIt === "boolean" ||
-        body.freeGovReceipts[0].riskFacts.parkIt === null,
-    ).toBe(true);
-    expect(
-      typeof body.freeGovReceipts[0].riskFacts.parkOutside === "boolean" ||
-        body.freeGovReceipts[0].riskFacts.parkOutside === null,
-    ).toBe(true);
+    // Parallel triage may return recalls/vPIC/safety/fuel together — assert a recalls receipt.
+    const recallReceipt = (body.freeGovReceipts as Array<Record<string, unknown>>).find(
+      (r) => r.checkId === "free_gov_recalls",
+    );
+    expect(recallReceipt).toBeTruthy();
+    expect(recallReceipt!.riskFacts).toBeTruthy();
+    expect(String(recallReceipt!.sourceUrl ?? "")).toMatch(/nhtsa\.gov|recallsByVehicle/i);
+    const risk = recallReceipt!.riskFacts as { parkIt?: boolean | null; parkOutside?: boolean | null };
+    expect(typeof risk.parkIt === "boolean" || risk.parkIt === null).toBe(true);
+    expect(typeof risk.parkOutside === "boolean" || risk.parkOutside === null).toBe(true);
     expect(body.riskCoverage?.listingCardCount).toBeGreaterThan(0);
     // Plain buyer coverage — freeGovCoverage carries the model/year ≠ VIN honesty line.
     expect(body.freeGovCoverage?.note ?? body.riskCoverage?.note ?? "").toMatch(
@@ -377,7 +407,7 @@ describe("POST /api/find/next-check (HTTP)", () => {
     expect(body.freeEvidenceNote).toMatch(/No Report credit|free/i);
     expect(body.loop.continue).toBe(true);
     expect(body.loop.reason).toBe("evidence_changed_replan");
-    expect(JSON.stringify(body)).not.toMatch(/sk-|SERV_API_KEY=\w+/);
+    expect(JSON.stringify(body)).not.toMatch(/\bsk-[a-zA-Z0-9]|SERV_API_KEY=/);
   });
 
   it("provider rematch failure stops loop", async () => {

@@ -38,9 +38,13 @@ vi.mock("@/server/deps", () => ({
   }),
 }));
 
-vi.mock("@/server/check/run-check", () => ({
-  runCheck: (...args: unknown[]) => runCheckMock(...args),
-}));
+vi.mock("@/server/check/run-check", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/server/check/run-check")>();
+  return {
+    ...actual,
+    runCheck: (...args: unknown[]) => runCheckMock(...args),
+  };
+});
 
 import { POST } from "./route";
 
@@ -249,7 +253,8 @@ describe("/api/check settlement", () => {
         vin: VIN,
         vinDecode: null,
         recalls: [],
-        recallsAvailable: false,
+        // Month-cache requires recallsAvailable !== false (degraded results are not cached).
+        recallsAvailable: true,
         complaintCount: null,
         fuel: null,
         fuelConflict: null,

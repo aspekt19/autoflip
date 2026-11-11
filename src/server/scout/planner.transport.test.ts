@@ -8,7 +8,7 @@ describe("scout_plan transport contracts (offline)", () => {
     const req = requestFor("scout_plan", JSON.stringify({ pendingVins: ["X"] }), undefined, {});
     expect(req.endpoint).toBe("chat");
     expect(req.stream).toBe(false);
-    expect(req.model).toBe(BASE_MODEL); // no multipath/kronos suffix by default
+    expect(req.model).toBe(BASE_MODEL); // shared default; no multipath/kronos suffix
     expect(req.model).not.toMatch(/serv-multipath|serv-kronos/);
     expect(req).toMatchObject({ max_completion_tokens: 4096 });
     expect("max_output_tokens" in req).toBe(false);
@@ -46,7 +46,12 @@ describe("scout_plan transport contracts (offline)", () => {
                 content: JSON.stringify({
                   type: "abstain",
                   reason: "insufficient evidence",
-                  servStepId: "t1",
+                  vin: null,
+                  toolId: null,
+                  args: null,
+                  rationaleKind: null,
+                  citedEvidence: null,
+                  assumptionsDisclosed: null,
                 }),
               },
             },

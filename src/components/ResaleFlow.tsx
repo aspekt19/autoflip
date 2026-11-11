@@ -3,8 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useId, useState } from "react";
-import { AgentDecisionTrail } from "@/components/AgentDecisionTrail";
-import { DecisionRecordList } from "@/components/DecisionRecord";
+import { ConsumerDecisionProof } from "@/components/ConsumerDecisionProof";
 import { MakeModelFields } from "@/components/MakeModelFields";
 import { ResaleDecisionJournalView } from "@/components/ResaleDecisionJournal";
 import { useAccountLoad } from "@/components/use-account-load";
@@ -19,8 +18,7 @@ import type { ResaleAssessment } from "@/domain/resale-evaluate";
 import type { ResaleCandidatePnl } from "@/domain/resale-pnl";
 import { resalePrimaryListingLink } from "@/domain/resale-listing-link";
 import { SEARCH_RADII_MILES } from "@/domain/need";
-import { publishCreditBalance } from "@/domain/credit-balance-event";
-import { resaleVerdictLineage } from "@/domain/resale-verdict-lineage";
+import { publishCreditBalance, refreshPublishedCreditBalance } from "@/domain/credit-balance-event";
 
 export function ResaleFlow() {
   const account = useAccountLoad();
@@ -175,6 +173,8 @@ function ResaleSearchForm({ credits, onAuthLost }: { credits: number | null; onA
     }
     if (typeof body.balance === "number" && Number.isFinite(body.balance)) {
       publishCreditBalance(body.balance);
+    } else {
+      void refreshPublishedCreditBalance();
     }
     setResult({
       best: body.best ?? null,
@@ -639,7 +639,6 @@ function ResaleSearchResultView({ result }: { result: SearchResult }) {
   const router = useRouter();
   const [watchPending, setWatchPending] = useState(false);
   const [watchError, setWatchError] = useState<string | null>(null);
-  const lineage = resaleVerdictLineage(result.journal, result.verdictAction);
   const parseLabel = criteriaParseLabel(
     result.criteriaParseSource
       ? { source: result.criteriaParseSource, responseId: result.criteriaResponseId ?? null }
@@ -705,8 +704,7 @@ function ResaleSearchResultView({ result }: { result: SearchResult }) {
         {" · "}
         Confidence: {result.confidence}
       </p>
-      {lineage ? <p className="hint">{lineage.chain}</p> : null}
-      <p>{result.message}</p>
+            <p>{result.message}</p>
       <p className="hint">{result.nextStep}</p>
       <p className="hint">{parseLabel}</p>
       {result.budgetUsd ? (
@@ -737,12 +735,13 @@ function ResaleSearchResultView({ result }: { result: SearchResult }) {
         </section>
       ) : null}
 
-      <ResaleDecisionJournalView journal={result.journal} defaultOpen />
-      <DecisionRecordList
+      <ConsumerDecisionProof
         records={result.proofRecords}
+        verdict={result.agentVerdict}
+        plainLines={[`Final call: ${result.verdictAction}`]}
         emptyHint="No agent decision records for this Resale run yet (shopper decide may have been skipped)."
+        proofExtra={<ResaleDecisionJournalView journal={result.journal} embedded />}
       />
-      <AgentDecisionTrail verdict={result.agentVerdict} defaultOpen />
     </article>
   );
 }
@@ -791,7 +790,7 @@ function CandidateCard({
       {link.sellerMismatchNote ? <p className="hint">{link.sellerMismatchNote}</p> : null}
       {link.pageMismatchNote ? (
         <p className="hint">
-          {link.pageMismatchNote} Similar-listing comps may be for a different trim.
+          {link.pageMismatchNote} Similar cars may be for a different trim.
         </p>
       ) : null}
       {candidate.risks.some((line) => /^Not profitable at ask$/i.test(line)) ? (
@@ -801,8 +800,8 @@ function CandidateCard({
       ) : null}
       <ul className="refuse">
         <li>
-          Risk-adjusted rank: mid profit × risk weight; thin comps (under 3 / under 5) cut risk.
-          Similar listings in this scan: {candidate.compCount}.
+          Risk-adjusted rank: mid profit × risk weight; fewer than 3 or 5 similar cars cuts risk.
+          Similar cars in this scan: {candidate.compCount}.
         </li>
         <li>Ask: {formatUsd(candidate.askingUsd)}</li>
         <li>
@@ -1017,7 +1016,7 @@ function ResaleEvaluateForm({ onAuthLost }: { onAuthLost: () => void }) {
         />
       </div>
       <div className="field">
-        <label htmlFor="resale-eval-zip">U.S. ZIP for nearby comps (optional)</label>
+        <label htmlFor="resale-eval-zip">U.S. ZIP for nearby similar cars (optional)</label>
         <input
           id="resale-eval-zip"
           value={zip}

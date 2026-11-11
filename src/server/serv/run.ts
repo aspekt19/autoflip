@@ -121,8 +121,9 @@ function promptGuardTool(endpoint: ServProfile["endpoint"]): Tool {
 }
 
 function shadowTool(entry: ServProfile): Tool {
-  // Documented serv_shadow_agent form uses JSON Schema `default` (not single-value enum)
-  // for hint + max_iterations. See SERV Reasoning shadow-agent tutorial.
+  // OpenServ docs use JSON Schema `default` on hint / max_iterations (not single-value enums).
+  // This is a SERV Tools marker — not response_format.json_schema — so `default` is valid.
+  // https://docs.openserv.ai/serv-reasoning/tutorials/shadow-agent
   const hint = entry.shadowHint ?? "";
   const maxIterations = entry.shadowMaxIterations ?? 2;
   const parameters = {
@@ -131,9 +132,6 @@ function shadowTool(entry: ServProfile): Tool {
       hint: { type: "string", default: hint },
       max_iterations: { type: "integer", default: maxIterations },
     },
-    // Keep required[] for strict-subset tool schemas; pin values via `default` (not enum).
-    required: ["hint", "max_iterations"],
-    additionalProperties: false,
   };
   const description = "Enable SERV shadow-agent validation.";
   if (entry.endpoint === "responses") {
@@ -165,11 +163,17 @@ function factsTool(endpoint: ServProfile["endpoint"]): Tool {
   return { type: "function", function: { name: "read_computed_facts", description, parameters } };
 }
 
-function toolsFor(entry: ServProfile, includeShadow: boolean): Tool[] {
+function toolsFor(
+  entry: ServProfile,
+  includeShadow: boolean,
+  endpoint: ServProfile["endpoint"] = entry.endpoint,
+): Tool[] {
   const tools: Tool[] = [];
-  if (entry.tools.includes("prompt_guard")) tools.push(promptGuardTool(entry.endpoint));
-  if (includeShadow && entry.tools.includes("shadow")) tools.push(shadowTool(entry));
-  if (entry.applicationTool) tools.push(factsTool(entry.endpoint));
+  if (entry.tools.includes("prompt_guard")) tools.push(promptGuardTool(endpoint));
+  if (includeShadow && entry.tools.includes("shadow")) {
+    tools.push(endpoint === "responses" ? shadowTool({ ...entry, endpoint }) : shadowTool({ ...entry, endpoint: "chat" }));
+  }
+  if (entry.applicationTool) tools.push(factsTool(endpoint));
   return tools;
 }
 
@@ -180,10 +184,10 @@ export function requestFor(
   env: Record<string, string | undefined> = process.env,
 ) {
   const entry = profile(id);
-  const tools = toolsFor(entry, true);
   const chosen = modelFor(id, model);
-  const endpoint = endpointForProfile(entry);
+  const endpoint = endpointForProfile(entry, model);
   const stream = streamForProfile(entry);
+  const tools = toolsFor(entry, true, endpoint);
   const bound = resolveServOutputTokenBound(env);
   if (!bound.ok) {
     throw new Error(bound.message);
@@ -490,8 +494,6 @@ export async function runServ(
   deps: ServDeps & { env?: Record<string, string | undefined> } = {},
 ): Promise<ServResult> {
   const entry = profile(id);
-  const endpoint = endpointForProfile(entry);
-  const stream = streamForProfile(entry);
   const timeoutMs = deps.timeoutMs ?? entry.timeoutMs;
   const transportPolicy: ServTransportPolicy = deps.transportPolicy ?? "production";
   const experiment = transportPolicy === "experiment_single_attempt";
@@ -517,8 +519,8 @@ export async function runServ(
         text: "",
         latencyMs: 0,
         fallbackUsed: true,
-        streamed: stream,
-        endpoint,
+        streamed: streamForProfile(entry),
+        endpoint: endpointForProfile(entry),
         reasoningEffort: entry.reasoningEffort,
         applicationTool: entry.applicationTool ?? null,
         jsonSchema: entry.jsonSchema?.name ?? null,
@@ -542,6 +544,8 @@ export async function runServ(
   }
   // requestFor applies modelFor feature suffixes; pass base id only.
   const model = resolvedModel.baseId;
+  const endpoint = endpointForProfile(entry, model);
+  const stream = streamForProfile(entry);
   const tokenBound = resolveServOutputTokenBound(env);
   if (!tokenBound.ok) {
     const proof = recordServProof(
@@ -723,7 +727,7 @@ export async function runServ(
   try {
     const factsText = JSON.stringify(input.facts ?? {});
     const userText = entry.applicationTool ? `${input.user}\n\nCalculated facts, the only numbers you may use:\n${factsText}` : input.user;
-    const firstTools = toolsFor(entry, !entry.applicationTool);
+    const firstTools = toolsFor(entry, !entry.applicationTool, endpoint);
     const firstBody = applyTokenBound(
       endpoint === "responses"
         ? {
@@ -737,7 +741,7 @@ export async function runServ(
         : {
             model: inspected.model,
             stream,
-            // Some chat-completions models reject a function tool unless effort is none.
+            // Chat completions reject a function tool unless effort is none.
             reasoning_effort: entry.applicationTool ? "none" : entry.reasoningEffort,
             messages: [
               { role: "system", content: entry.system },
@@ -767,7 +771,7 @@ export async function runServ(
         const proof = recordServProof(
           buildServProof({
             purpose: id,
-            body: { ...firstBody, tools: toolsFor(entry, true) },
+            body: { ...firstBody, tools: toolsFor(entry, true, endpoint) },
             payload: turn.payload,
             headers: turn.response.headers,
             status: turn.response.status,
@@ -788,18 +792,11 @@ export async function runServ(
           httpAttempts,
           transportPolicy,
           responseShape: turn.shape || null,
-          failureDiag: classifyServPlannerFailure({
-            payload: turn.payload,
-            httpOk: false,
-            status: turn.response.status,
-            text: turn.text,
-            parseKind: null,
-          }),
         };
       }
       const call = toolCall(turn.payload);
       const matched = call?.name === entry.applicationTool ? call : null;
-      const followTools = toolsFor({ ...entry, applicationTool: undefined }, true);
+      const followTools = toolsFor({ ...entry, applicationTool: undefined }, true, endpoint);
       const followBody = applyTokenBound({
         model: inspected.model,
         stream: false,
@@ -818,7 +815,7 @@ export async function runServ(
         tools: followTools,
       });
       turn = await postProse(followBody, false);
-      recordedBody = { ...followBody, tools: toolsFor(entry, true) };
+      recordedBody = { ...followBody, tools: toolsFor(entry, true, endpoint) };
     }
 
     // Structured json_schema: content null + refusal field is a transport failure class

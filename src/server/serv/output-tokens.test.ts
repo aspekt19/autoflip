@@ -101,7 +101,12 @@ describe("SERV output token bound (offline)", () => {
                 content: JSON.stringify({
                   type: "abstain",
                   reason: "insufficient evidence",
-                  servStepId: "t1",
+                  vin: null,
+                  toolId: null,
+                  args: null,
+                  rationaleKind: null,
+                  citedEvidence: null,
+                  assumptionsDisclosed: null,
                 }),
               },
             },
@@ -225,12 +230,14 @@ describe("SERV output token bound (offline)", () => {
     }
   });
 
-  it("product profiles are chat-only; check_rules serializes max_completion_tokens", async () => {
+  it("no production profile uses /v1/responses (chat-only product paths)", () => {
     const responsesProfiles = (Object.values(PROFILES) as ServProfile[]).filter(
       (p) => p.endpoint === "responses",
     );
     expect(responsesProfiles).toEqual([]);
+  });
 
+  it("check_rules posts chat/completions with max_completion_tokens", async () => {
     const bodies: string[] = [];
     const urls: string[] = [];
     const result = await runServ(
@@ -245,7 +252,7 @@ describe("SERV output token bound (offline)", () => {
           bodies.push(String(init?.body ?? ""));
           return new Response(
             JSON.stringify({
-              choices: [{ message: { content: "ok" } }],
+              choices: [{ message: { role: "assistant", content: "ok" }, finish_reason: "stop" }],
             }),
             { status: 200, headers: { "Content-Type": "application/json" } },
           );
@@ -253,10 +260,10 @@ describe("SERV output token bound (offline)", () => {
       },
     );
     expect(result.ok).toBe(true);
+    expect(urls[0]).toContain("/chat/completions");
     expect(bodies.length).toBeGreaterThanOrEqual(1);
     const parsed = JSON.parse(bodies[0]!) as Record<string, unknown>;
     expect(parsed.max_completion_tokens).toBe(1024);
     expect(parsed).not.toHaveProperty("max_output_tokens");
-    expect(urls[0]).toMatch(/\/chat\/completions$/);
   });
 });

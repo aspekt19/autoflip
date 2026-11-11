@@ -15,8 +15,15 @@ import {
 import { admitFindListingForBudget, assessFindListingPrice, type FindListingPriceView } from "@/domain/find-listing-price";
 import { diversifyListingsByModel } from "@/domain/find-model-observe";
 import { rankFlipCandidates } from "@/domain/flip-rank";
-import { listingWithinNeed, noMatchMessage, searchScopeLabel, validateNeed, type StructuredNeed } from "@/domain/need";
-import { priceCompsUnevenAcrossListings } from "@/domain/find-best-deal";
+import {
+  listingWithinNeed,
+  needPrefersAwd,
+  noMatchMessage,
+  searchScopeLabel,
+  validateNeed,
+  type StructuredNeed,
+} from "@/domain/need";
+import { priceCompsUnevenAcrossListings, selectBestDealOnEvidence } from "@/domain/find-best-deal";
 import { priceBadge, type PriceBadge } from "@/domain/price-badge";
 import { reconUsd } from "@/domain/recon";
 import type { Listing } from "@/domain/types";
@@ -31,6 +38,45 @@ import {
 
 /** Hard ceiling on Autodev searches per /find request — not client-raisable. */
 export const FIND_MAX_PROVIDER_QUERIES = 6;
+
+/** Interim personal ranking until PR B triage — never leave sort key at 0. */
+function personalRankScores(
+  listings: readonly Listing[],
+  need: StructuredNeed,
+): Map<string, number> {
+  if (listings.length === 0) return new Map();
+  const deal = selectBestDealOnEvidence({
+    need: {
+      budgetKnown: need.budgetKnown,
+      budgetUsd: need.budgetUsd,
+      preferredModels: need.preferredModels,
+      conditionPriority: need.conditionPriority,
+      note: need.note,
+      awdPreference: need.awdPreference,
+      mustHaves: need.mustHaves,
+    },
+    listings: listings.map((row) => ({
+      key: (row.vin || `${row.year}-${row.make}-${row.model}-${row.priceUsd}`).toUpperCase(),
+      year: row.year,
+      make: row.make,
+      model: row.model,
+      priceUsd: row.priceUsd,
+      miles: row.miles,
+      vin: row.vin,
+      drivetrain: row.drivetrain,
+      fuel: row.fuel,
+      bodyStyle: row.bodyStyle,
+      style: row.style,
+      engine: row.engine,
+    })),
+  });
+  const out = new Map<string, number>();
+  for (const row of deal.allRanked) {
+    const vin = (row.vin || row.key || "").trim().toUpperCase();
+    if (vin) out.set(vin, row.score);
+  }
+  return out;
+}
 
 export type FindMatchDeps = AssembleDeps & {
   kv: Kv;
@@ -115,25 +161,26 @@ export type FindMatchResult =
       body: Record<string, unknown>;
     };
 
-function queriesForDirection(direction: SearchDirection): Array<{ make: string; model: string }> {
-  // Named / suggested preferred models: search each supported model (within remaining budget).
-  if (
-    direction.id.endsWith("-named") ||
-    direction.segment === "Models you named" ||
-    direction.segment === "Suggested models"
-  ) {
-    const seen = new Set<string>();
-    const out: Array<{ make: string; model: string }> = [];
-    for (const m of direction.models) {
-      const key = `${m.make}\0${m.model}`.toLowerCase();
-      if (seen.has(key)) continue;
-      seen.add(key);
-      out.push(m);
-    }
-    return out;
+function queriesForDirection(
+  direction: SearchDirection,
+): Array<{ make: string; model: string; bodyStyle?: string }> {
+  // Search every planned model on the direction (named or editorial). The match
+  // planner still caps at FIND_MAX_PROVIDER_QUERIES — never explode past that.
+  const seen = new Set<string>();
+  const out: Array<{ make: string; model: string; bodyStyle?: string }> = [];
+  for (const m of direction.models) {
+    if (!m.make?.trim() && !m.model?.trim()) continue;
+    const key = `${m.make}\0${m.model}`.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(m);
   }
-  // Editorial directions: primary search model only (do not explode Autodev quota).
-  return [direction.search];
+  if (out.length === 0 && direction.search?.make?.trim()) out.push(direction.search);
+  // Body-style-only direction (models emptied by validateFindPlan) — one inventory query.
+  if (out.length === 0 && direction.bodyStyle) {
+    out.push({ make: "", model: "", bodyStyle: direction.bodyStyle });
+  }
+  return out;
 }
 
 function withinBudget(
@@ -277,7 +324,7 @@ export async function runFindMatch(
 
   type PlannedQuery = {
     direction: SearchDirection;
-    query: { make: string; model: string };
+    query: { make: string; model: string; bodyStyle?: string };
     directionIndex: number;
   };
   const planned: PlannedQuery[] = [];
@@ -315,6 +362,7 @@ export async function runFindMatch(
         {
           make: job.query.make,
           model: job.query.model,
+          bodyStyle: job.query.bodyStyle ?? job.direction.bodyStyle,
           zip: searchZip,
           yearMin: job.direction.yearMin,
           yearMax: job.direction.yearMax,
@@ -322,6 +370,7 @@ export async function runFindMatch(
           mode: need.mode,
           milesMax: need.milesMax ?? undefined,
           priceMax: need.budgetKnown && need.budgetUsd ? need.budgetUsd : undefined,
+          skipRadarGuard: true,
         },
         deps,
       );
@@ -339,7 +388,9 @@ export async function runFindMatch(
       deps.deadline ? Math.max(1_000, deps.deadline.remainingMs()) : 60_000,
     ),
   );
-  if (deps.parallelProviderQueries && planned.length > 0) {
+  // PR A: search all planned models in parallel within the inventory stage budget.
+  const useParallel = deps.parallelProviderQueries !== false && planned.length > 0;
+  if (useParallel) {
     // Shared stage AbortController: when the inventory cap fires, abort in-flight
     // Auto.dev fetches so nothing keeps the isolate alive after we return.
     const stageAbort = new AbortController();
@@ -364,6 +415,7 @@ export async function runFindMatch(
           {
             make: job.query.make,
             model: job.query.model,
+            bodyStyle: job.query.bodyStyle ?? job.direction.bodyStyle,
             zip: searchZip,
             yearMin: job.direction.yearMin,
             yearMax: job.direction.yearMax,
@@ -371,6 +423,7 @@ export async function runFindMatch(
             mode: need.mode,
             milesMax: need.milesMax ?? undefined,
             priceMax: need.budgetKnown && need.budgetUsd ? need.budgetUsd : undefined,
+            skipRadarGuard: true,
           },
           cappedDeps,
         );
@@ -511,6 +564,8 @@ export async function runFindMatch(
       ).catch(() => undefined);
     }
 
+    // Flip mode keeps code P&L scores for hard guardrails (negative resale profit).
+    // Personal Find does not invent a score-0 ranking — SERV settles the pick later.
     const ranked =
       need.mode === "flip"
         ? rankFlipCandidates(collected, new Date(), {
@@ -522,6 +577,8 @@ export async function runFindMatch(
     const assumption =
       need.mode === "flip" ? reconUsd({ miles: null, repairAbility: need.repairAbility }).because : null;
     const narrowed = collected.filter((item) => listingWithinNeed(item, need));
+    const personalScores =
+      need.mode === "personal" ? personalRankScores(narrowed, need) : new Map<string, number>();
     const rankedReady = withinBudget(narrowed, need.budgetUsd, need.budgetKnown)
       .map((item) => {
         const priceView = item.priceView ?? assessFindListingPrice(item);
@@ -535,10 +592,22 @@ export async function runFindMatch(
         };
       })
       .sort((a, b) => {
+        // Budget hard filter only for personal; flip may order by P&L score for display.
+        // Negative resale profit is a settle/pick guardrail (not an inventory wipe).
         const aOver = a.overBudget ? 1 : 0;
         const bOver = b.overBudget ? 1 : 0;
         if (aOver !== bOver) return aOver - bOver;
-        return (byVin.get(b.vin)?.score ?? 0) - (byVin.get(a.vin)?.score ?? 0);
+        if (need.mode === "flip") {
+          return (byVin.get(b.vin)?.score ?? 0) - (byVin.get(a.vin)?.score ?? 0);
+        }
+        // Stable personal order: lower ask, then lower miles, then VIN — not a fake score-0 rank.
+        const pa = a.priceUsd ?? Number.POSITIVE_INFINITY;
+        const pb = b.priceUsd ?? Number.POSITIVE_INFINITY;
+        if (pa !== pb) return pa - pb;
+        const ma = a.miles ?? Number.POSITIVE_INFINITY;
+        const mb = b.miles ?? Number.POSITIVE_INFINITY;
+        if (ma !== mb) return ma - mb;
+        return (a.vin || "").localeCompare(b.vin || "");
       })
       .filter((item) => {
         // Drop VINs already shown under an earlier direction; only claim shown rows.
@@ -587,7 +656,10 @@ export async function runFindMatch(
     }
     // Named multi-model searches: do not let the first-queried model fill all 8 slots
     // when other named models also returned inventory (t310 CR-V-only window).
-    const listings = diversifyListingsByModel(rankedReady, 8);
+    // Soft AWD preference reorders within each model bucket so FWD cannot bury AWD.
+    const listings = diversifyListingsByModel(rankedReady, 8, {
+      preferAwd: needPrefersAwd(need),
+    });
     for (const item of listings) {
       const vin = (item.vin || "").trim().toUpperCase();
       if (vin) seenVins.add(vin);
@@ -640,7 +712,140 @@ export async function runFindMatch(
     });
   }
 
-  const visible = groups.reduce((sum, group) => sum + group.listings.length, 0);
+  let visible = groups.reduce((sum, group) => sum + group.listings.length, 0);
+
+  // Audit fallback: when every planned model returns 0 cars, one broader query —
+  // body style only (or any), years ±2, nationwide — before declaring empty.
+  // Bound by the same deadline/inventory cap so a hanging provider cannot outlive the stage.
+  // Skip when the planned wave already burned the stage budget (timeouts ≠ confirmed empty).
+  const plannedWaveTimedOut =
+    dispatches.length > 0 && dispatches.every((row) => row.timedOut || !row.result);
+  const broadenBudgetMs = Math.max(
+    0,
+    Math.min(
+      8_000,
+      deps.deadline ? Math.max(0, deps.deadline.remainingMs() - 1_000) : 8_000,
+    ),
+  );
+  if (
+    visible === 0 &&
+    providerQueriesUsed > 0 &&
+    !plannedWaveTimedOut &&
+    !deps.deadline?.expired() &&
+    broadenBudgetMs >= 1_000
+  ) {
+    const bodyStyle =
+      directions.find((d) => d.bodyStyle)?.bodyStyle ?? need.bodyStyle ?? undefined;
+    const yearPad = 2;
+    const yMin = Math.max(1990, Math.min(...directions.map((d) => d.yearMin)) - yearPad);
+    const yMax = Math.max(...directions.map((d) => d.yearMax)) + yearPad;
+    const broadenDir: SearchDirection = {
+      id: "broaden_body",
+      segment: bodyStyle ? `Broader ${bodyStyle} search` : "Broader nationwide search",
+      why: "Widened after the planned models returned no cars.",
+      guidance: "editorial",
+      yearMin: yMin,
+      yearMax: yMax,
+      yearBecause: "Widened year band after empty planned search.",
+      models: [],
+      search: { make: "", model: "" },
+      bodyStyle,
+    };
+    const broadenAbort = new AbortController();
+    const broadenTimer = setTimeout(() => broadenAbort.abort(), broadenBudgetMs);
+    const broadenDeps: FindMatchDeps = {
+      ...deps,
+      autodev: deps.autodev
+        ? {
+            ...deps.autodev,
+            signal: broadenAbort.signal,
+            timeoutMs: Math.min(deps.autodev.timeoutMs ?? broadenBudgetMs, broadenBudgetMs),
+          }
+        : deps.autodev,
+    };
+    try {
+      const broadenResult = await runAssemble(
+        {
+          make: "",
+          model: "",
+          bodyStyle,
+          zip: undefined,
+          yearMin: yMin,
+          yearMax: yMax,
+          distanceMiles: null,
+          mode: need.mode,
+          milesMax: need.milesMax ?? undefined,
+          priceMax: need.budgetKnown && need.budgetUsd ? need.budgetUsd : undefined,
+          skipRadarGuard: true,
+        },
+        broadenDeps,
+      );
+      providerQueriesUsed += 1;
+      if (broadenResult.ok && broadenResult.listings.length > 0) {
+        const nationNeed = { ...need, distanceMiles: null, zip: null };
+        const narrowed = broadenResult.listings.filter((row) => listingWithinNeed(row, nationNeed));
+        const scores = need.mode === "personal" ? personalRankScores(narrowed, need) : new Map<string, number>();
+        const rankedReady = withinBudget(narrowed, need.budgetUsd, need.budgetKnown)
+          .map((item) => {
+            const priceView = item.priceView ?? assessFindListingPrice(item);
+            return {
+              ...item,
+              priceView,
+              badge: priceView.usableForBudget
+                ? priceBadge(item, narrowed)
+                : priceBadge({ ...item, priceUsd: null }, narrowed),
+              flipNote: null as string | null,
+              clearsTarget: null as boolean | null,
+            };
+          })
+          .sort((a, b) => {
+            const aKey = (a.vin || "").trim().toUpperCase();
+            const bKey = (b.vin || "").trim().toUpperCase();
+            const scoreDelta = (scores.get(bKey) ?? 0) - (scores.get(aKey) ?? 0);
+            if (scoreDelta !== 0) return scoreDelta;
+            return (a.priceUsd ?? Number.POSITIVE_INFINITY) - (b.priceUsd ?? Number.POSITIVE_INFINITY);
+          });
+        const listings = diversifyListingsByModel(rankedReady, 8, {
+          preferAwd: needPrefersAwd(need),
+        });
+        if (listings.length > 0) {
+          for (const item of rankedReady) {
+            const vin = (item.vin || "").trim().toUpperCase();
+            if (vin && compsPoolVins.has(vin)) continue;
+            if (vin) compsPoolVins.add(vin);
+            compsPoolAcc.push(item);
+          }
+          groups.push({
+            direction: broadenDir,
+            listings,
+            plannedModels: [{ make: "", model: "" }],
+            searchedModels: [{ make: "", model: "" }],
+            failedModels: [],
+            skippedModels: [],
+            coverage: "Broader nationwide body-style search after planned models returned none.",
+            coverageLevel: "low",
+            note: "No cars matched the first plan. Showing a broader nationwide search by body style and budget.",
+            providerWarning: null,
+            queryOutcomes: [
+              {
+                make: "",
+                model: bodyStyle ?? "",
+                outcome: "ok",
+                message: null,
+              },
+            ],
+          });
+          visible = groups.reduce((sum, group) => sum + group.listings.length, 0);
+        }
+      }
+    } catch {
+      // Broaden is best-effort — keep the empty planned result.
+    } finally {
+      clearTimeout(broadenTimer);
+      if (!broadenAbort.signal.aborted) broadenAbort.abort();
+    }
+  }
+
   // One comparable pool across badge + pick/score: use full provider returns for this
   // search (pre-diversify), not only the 24 shown cards, so same-model peers stay honest.
   const compsPool = compsPoolAcc;
@@ -668,7 +873,9 @@ export async function runFindMatch(
         const { badge } = await getOrComputeValuation({
           kv: deps.kv,
           vin: item.vin,
-          zip: searchZip ?? item.zip,
+          // Buyer search scope only — never the dealer's listing ZIP (that made
+          // nationwide Find comparisons say "near 33415").
+          zip: radiusMiles != null ? searchZip ?? null : null,
           radiusMiles: radiusMiles,
           priceUsd: item.priceUsd,
           subject: item,
@@ -725,7 +932,18 @@ export async function runFindMatch(
   let emptyReason: FindEmptyReason | null = null;
   let headline: string | null = null;
   let nextStep: string | null = null;
-  if (visible === 0 && resolved?.reason === "incomplete_search") {
+  // Never claim empty inventory / widen / year-filter misses when no provider query ran.
+  if (visible === 0 && providerQueriesUsed === 0) {
+    const empty = findEmptyCopy(
+      "no_directions",
+      need,
+      "No listing search ran (providerQueriesUsed=0), so this is not an empty-market or widened-radius result.",
+    );
+    emptyReason = empty.reason;
+    message = empty.detail;
+    headline = empty.headline;
+    nextStep = empty.nextStep;
+  } else if (visible === 0 && resolved?.reason === "incomplete_search") {
     const empty = findEmptyCopy("incomplete_search", need, resolved.observedMessage);
     emptyReason = empty.reason;
     message = empty.detail;

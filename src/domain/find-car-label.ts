@@ -96,7 +96,17 @@ export function buyerCarLabels(cars: readonly CarLabelInput[]): Map<string, stri
       if ((counts.get(text) ?? 0) < 2) continue;
       const n = (seen.get(text) ?? 0) + 1;
       seen.set(text, n);
-      out.set(car.key, `${text} (listing ${n})`);
+      // Prefer year/model/city over "listing 1/2/3". True twins share a city — use VIN tail.
+      const place = placeOf(car);
+      const withPlace =
+        place && !text.includes(place) ? `${text} (${place})` : text;
+      if ((counts.get(withPlace) ?? 0) < 2 && n === 1) {
+        out.set(car.key, withPlace);
+        continue;
+      }
+      const vinish = /^[A-HJ-NPR-Z0-9]{11,}$/i.test(car.key.replace(/\s+/g, ""));
+      const ref = vinish ? `VIN …${car.key.slice(-4).toUpperCase()}` : place || `match ${n}`;
+      out.set(car.key, `${withPlace.includes(ref) ? withPlace : `${withPlace} (${ref})`}`);
     }
   }
   return out;

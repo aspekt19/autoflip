@@ -31,7 +31,7 @@ export function toolList() {
     {
       name: "find_cars",
       description:
-        "Start an async Find from a natural-language buyer request. Same SERV plan/decide path as the site. Returns run_id; poll find_cars_status / find_cars_result. Completed results include proofRecords + decision journal rows. Costs 1 report credit after a successful search (or optional x402 settle-on-delivery when enabled). Requires the find scope. Idempotency-Key / arguments.idempotencyKey supported.",
+        "Start an async Find from a natural-language buyer request. Same decide path as the site (free-gov → find_triage → find_decide → find_challenge / POST /api/find/decide). Returns run_id; poll find_cars_status / find_cars_result. Completed results include proofRecords + decision journal rows. Costs 1 report credit after a successful search (or optional x402 settle-on-delivery when enabled). Requires the find scope. Idempotency-Key / arguments.idempotencyKey supported.",
       inputSchema: {
         type: "object",
         properties: {

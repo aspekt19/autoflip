@@ -79,6 +79,12 @@ export type FindSearchContextRecord = {
    * Stops a second tie-break from spending another SERV call.
    */
   tieBreakSpent?: boolean;
+  /** PR B: opaque shortlist keys from find_triage (bestDealCarKey). */
+  triageShortlistKeys?: string[];
+  /** PR B: inventory revisit already used once this Find. */
+  triageRevisitUsed?: boolean;
+  /** PR B: decide path active — UI calls /api/find/decide instead of next-check. */
+  decidePathEnabled?: boolean;
   iat: number;
   exp: number;
 };
@@ -190,6 +196,9 @@ export function mintFindSearchContextRecord(input: {
     servRetargetPending: false,
     loopSettled: false,
     tieBreakSpent: false,
+    triageShortlistKeys: [],
+    triageRevisitUsed: false,
+    decidePathEnabled: false,
     iat,
     exp: iat + FIND_SEARCH_CONTEXT_TTL_SEC,
   };
@@ -244,6 +253,9 @@ export async function loadFindSearchContext(
   }
   if (!Array.isArray(record.decisionLog)) record.decisionLog = [];
   if (!Array.isArray(record.carChecks)) record.carChecks = [];
+  if (!Array.isArray(record.triageShortlistKeys)) record.triageShortlistKeys = [];
+  if (typeof record.triageRevisitUsed !== "boolean") record.triageRevisitUsed = false;
+  if (typeof record.decidePathEnabled !== "boolean") record.decidePathEnabled = false;
   if (record.userId !== input.userId) {
     return { ok: false, reason: "wrong_user", message: "Search context belongs to another session." };
   }
@@ -276,6 +288,9 @@ export async function updateFindSearchContext(
     servRetargetPending?: boolean;
     loopSettled?: boolean;
     tieBreakSpent?: boolean;
+    triageShortlistKeys?: string[];
+    triageRevisitUsed?: boolean;
+    decidePathEnabled?: boolean;
   },
 ): Promise<FindSearchContextRecord> {
   const next: FindSearchContextRecord = {
@@ -304,6 +319,15 @@ export async function updateFindSearchContext(
       patch.loopSettled !== undefined ? patch.loopSettled : (record.loopSettled ?? false),
     tieBreakSpent:
       patch.tieBreakSpent !== undefined ? patch.tieBreakSpent : (record.tieBreakSpent ?? false),
+    triageShortlistKeys: patch.triageShortlistKeys ?? record.triageShortlistKeys ?? [],
+    triageRevisitUsed:
+      patch.triageRevisitUsed !== undefined
+        ? patch.triageRevisitUsed
+        : (record.triageRevisitUsed ?? false),
+    decidePathEnabled:
+      patch.decidePathEnabled !== undefined
+        ? patch.decidePathEnabled
+        : (record.decidePathEnabled ?? false),
   };
   await storeFindSearchContext(kv, next);
   return next;

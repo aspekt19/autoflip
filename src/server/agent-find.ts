@@ -1,18 +1,25 @@
 /**
  * Agent find_cars — async create / status / get over the same Find/Resale SERV path as the site.
+ * Personal mode uses the site decide path (free-gov → triage → decide → challenge).
  * Balance is checked before work; one report credit settles only after cars are delivered.
  */
 import { createHash, randomUUID } from "node:crypto";
 import type { StructuredNeed } from "@/domain/need";
-import { selectBestDealOnEvidence, type BestDealListing } from "@/domain/find-best-deal";
 import { topFlipCandidates } from "@/domain/flip-rank";
 import { buildResaleCandidatePnls } from "@/domain/resale-pnl";
 import { creditBalance, creditEventSeen, creditSpend } from "@/io/credit-book";
 import type { Kv } from "@/io/kv";
 import { findSearchIdempotencyKey, findSearchSpendKey, storeFindSearchDelivery } from "@/server/find-search-credit";
+import { runFindDecideOrchestrator } from "@/server/find-decide-orchestrator";
 import { runFindMatch, type FindMatchDeps, type FindMatchResult } from "@/server/find-match";
+import {
+  listingFactsFromCompsPool,
+  listingsFromMatchDirections,
+  mintFindSearchContextRecord,
+  updateFindSearchContext,
+} from "@/server/find-search-context";
 import { understandNeed, type UnderstandDeps } from "@/server/understand-need";
-import { decideFind, decideResale } from "@/server/serv-plan-decide";
+import { decideResale } from "@/server/serv-plan-decide";
 import type { AgentCaller } from "./agent-auth";
 import { agentError, insufficientCreditsEnvelope, type AgentErrorEnvelope } from "./agent-envelope";
 import { hashServSteps, writeAgentReceipt } from "./agent-receipts";
@@ -239,31 +246,6 @@ async function mark(
   }
 }
 
-function listingToBestDealRow(listing: Listing): BestDealListing {
-  return {
-    year: listing.year,
-    make: listing.make,
-    model: listing.model,
-    priceUsd: listing.priceUsd,
-    miles: listing.miles,
-    vin: listing.vin,
-    trim: listing.trim,
-    engine: listing.engine,
-    drivetrain: listing.drivetrain,
-    accidentCount: listing.accidentCount,
-    cpo: listing.cpo,
-    fuel: listing.fuel,
-    ownerCount: listing.ownerCount,
-    oneOwner: listing.oneOwner,
-    usageType: listing.usageType,
-    bodyStyle: listing.bodyStyle,
-    city: listing.city,
-    state: listing.state,
-    dealer: listing.dealer,
-    vdp: listing.vdp,
-  };
-}
-
 function runtimeServKey(deps: AgentFindDeps): string | undefined {
   return deps.servKey?.trim() || process.env.SERV_API_KEY?.trim() || undefined;
 }
@@ -433,60 +415,55 @@ export async function advanceAgentFindRun(
       fresh.proofRecords = [...fresh.proofRecords, ...(settled.proofRecords ?? [])];
       verdict = settled.agentVerdict;
     } else if (carsDelivered && mode === "personal") {
-      const bestDealListings = listings.map(listingToBestDealRow);
-      const bestDeal = selectBestDealOnEvidence({
+      // Same decide path as the site: mint owner-bound search context → free-gov →
+      // find_triage → find_decide → find_challenge (POST /api/find/decide).
+      const shown = listingsFromMatchDirections(match.body.directions);
+      const compsPool =
+        match.body.compsPool.length > 0
+          ? listingFactsFromCompsPool(match.body.compsPool)
+          : shown;
+      let context = mintFindSearchContextRecord({
+        userId: fresh.user_id,
         need: understood.need,
-        listings: bestDealListings,
-        marketPool: poolListings,
+        listings: shown,
+        compsPool,
+        servNextCheckEnabled: false,
       });
-      const settled = await decideFind({
-        bestDeal,
-        servKey,
-        servBaseUrl: deps.servBaseUrl,
-        model: deps.servModel,
-        fetchImpl: deps.fetch,
-        budgetUsd: understood.need.budgetUsd,
-        marketPool: poolListings,
-      });
-      fresh.proofRecords = [...fresh.proofRecords, ...(settled.proofRecords ?? [])];
-      if (settled.agentVerdict) {
-        verdict = settled.agentVerdict;
-      } else {
-        const pick = bestDeal.pick;
-        verdict = emptyAgentVerdict({
-          pick: pick
-            ? {
-                key: pick.key,
-                label: `${pick.year} ${pick.make} ${pick.model}`,
-              }
-            : null,
-          verdict: null,
-          confidence: bestDeal.confidence === "none" ? null : bestDeal.confidence,
-          reasons: pick
-            ? [{ evidenceId: "find_rank", text: match.body.headline ?? "Top listing from this search." }]
-            : [],
-          unknowns: match.body.emptyReason ? [String(match.body.emptyReason)] : [],
-          serv_steps: [
-            {
-              decided: pick
-                ? `Shortlist lead: ${pick.year} ${pick.make} ${pick.model}`
-                : "No listing shortlisted",
-              why: match.body.headline ?? match.body.message ?? "Find search completed.",
-              changed: null,
-              evidenceIds: ["find_match"],
+      context = await updateFindSearchContext(deps.kv, context, { decidePathEnabled: true });
+      const decided = await runFindDecideOrchestrator(
+        { searchContextToken: context.token },
+        {
+          kv: deps.kv,
+          userId: fresh.user_id,
+          servKey,
+          servBaseUrl: deps.servBaseUrl,
+          servModel: deps.servModel,
+          fetchImpl: deps.fetch,
+        },
+      );
+      if (!decided.ok) {
+        fresh.error = agentError({
+          error_code: decided.error,
+          message: decided.message,
+          credit_spent: false,
+          retry_safe: decided.status >= 500,
+          next_steps: {
+            action: "retry",
+            summary: decided.message,
+            request: {
+              method: "POST",
+              url: `${deps.origin}/api/v1/find`,
+              headers: { "Idempotency-Key": fresh.idempotency_key },
+              body: { text: fresh.input.text },
             },
-          ],
-          no_serv_step: !settled.ran,
-          serv_spend: {
-            calls: settled.ran ? 1 : 0,
-            costNote: settled.ran
-              ? "Shopper decide ran through the shared plan/decide façade."
-              : understood.source === "model"
-                ? "Need parse may have used a model call."
-                : null,
           },
         });
+        await mark(fresh, "failed", "failed");
+        await saveRun(deps.kv, fresh);
+        return fresh;
       }
+      fresh.proofRecords = [...fresh.proofRecords, ...(decided.pickProofRecords ?? [])];
+      verdict = decided.pickAgentVerdict;
     } else if (carsDelivered) {
       const top = listings[0]!;
       verdict = emptyAgentVerdict({
@@ -596,7 +573,12 @@ export async function advanceAgentFindRun(
           carsDelivered,
         },
         checks_run: carsDelivered
-          ? ["understand_need", "find_match", mode === "flip" ? "resale_decide" : "find_settle", "price_badge"]
+          ? [
+              "understand_need",
+              "find_match",
+              mode === "flip" ? "resale_decide" : "find_decide",
+              "price_badge",
+            ]
           : ["understand_need", "find_match"],
         credit_spent: creditSpent,
         credits: creditSpent ? 1 : 0,
