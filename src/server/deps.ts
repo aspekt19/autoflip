@@ -16,7 +16,8 @@ export function runtimeDeps() {
   return {
     autodevKey,
     servKey,
-    servModel: process.env.SERV_MODEL,
+    /** Override BASE_MODEL (`gpt-5.6-sol`). Empty/unset → profile default via runServ. */
+    servModel: process.env.SERV_MODEL?.trim() || undefined,
     servBaseUrl: process.env.SERV_BASE_URL,
     autodev: autodevKey
       ? { cache: listingCache(), counter: counterStore(), reserve: () => reserveTotalCall(getKv()) }

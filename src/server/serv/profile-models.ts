@@ -1,16 +1,14 @@
 /**
  * Reversible per-profile SERV model configuration (t317).
  *
- * Production default remains BASE_MODEL (`gpt-5.4-mini`) until independent review
- * + parent representative cycle. Parent may opt a single profile onto a
- * allowlisted candidate (e.g. Sonnet 5.5 for scout_plan) via env without a
- * blanket BASE_MODEL flip.
+ * Production default is BASE_MODEL (`gpt-5.6-sol`). Override globally with
+ * `SERV_MODEL`, or per profile with `SERV_PROFILE_MODEL_<PROFILE>`.
  *
  * Priority for the base id (before modelFor feature suffixes):
  *   1. SERV_PROFILE_MODEL_<PROFILE> (e.g. SERV_PROFILE_MODEL_SCOUT_PLAN=claude-sonnet-5.5)
  *      — beats global SERV_MODEL so Sonnet can be tried on scout_plan alone
  *   2. Explicit caller `requested` (deps.model / safe-execute SERV_MODEL)
- *   3. BASE_MODEL (production Mini)
+ *   3. BASE_MODEL (production default)
  *
  * Unlisted ids fail closed unless SERV_PROFILE_MODEL_ALLOW_UNLISTED=1.
  */
@@ -94,8 +92,8 @@ function isPlausible(id: string): boolean {
 }
 
 /**
- * Resolve which base model a profile should use. Reversible: unset profile env → Mini
- * (or global SERV_MODEL via caller), production BASE_MODEL unchanged in code.
+ * Resolve which base model a profile should use. Unset profile env → BASE_MODEL
+ * (or global SERV_MODEL via caller).
  */
 export type ResolveProfileModelResult =
   | ({ ok: true } & ResolvedProfileModel)
