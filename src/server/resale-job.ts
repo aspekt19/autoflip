@@ -34,6 +34,8 @@ import {
   type ResaleSearchOkBody,
 } from "@/server/resale-search";
 import { type ResaleSettleCheckpoint } from "@/server/resale-settle-serv";
+import { pricedBelowSimilarLine } from "@/domain/resale-sanity";
+import { readResaleSpecCache, writeResaleSpecCache } from "@/server/resale-spec-cache";
 import { decideResale } from "@/server/serv-plan-decide";
 
 export const RESALE_JOB_TTL_SEC = 60 * 60 * 2; // 2h
@@ -357,6 +359,7 @@ async function chargeAndStoreDelivery(
     charged,
   };
   await storeResaleSearchDelivery(kv, job.spendKey, payload);
+  await writeResaleSpecCache(kv, job.input, payload);
   const next: ResaleJobRecord = {
     ...job,
     status: charged ? "completed" : "delivered_unpaid",
@@ -429,6 +432,8 @@ export async function createAndRunResaleJobStep1(
     kv: Kv;
     ownerId: string;
     clientIdempotencyKey?: string | null;
+    /** Live runs return the decision cached for this spec hash within 24 hours. */
+    useSpecCache?: boolean;
   },
 ): Promise<CreateResaleJobResult> {
   const parsed = parseResaleSearchInput(rawInput);
@@ -442,6 +447,22 @@ export async function createAndRunResaleJobStep1(
         issues: parsed.issues,
       },
     };
+  }
+
+  if (deps.useSpecCache) {
+    const cachedDecision = await readResaleSpecCache(deps.kv, parsed.input);
+    if (cachedDecision) {
+      const balance = await creditBalance(deps.kv, deps.ownerId);
+      const message = cachedDecision.message
+        ? `${cachedDecision.message} Same decision cached for this search for 24 hours.`
+        : "Same decision cached for this search for 24 hours.";
+      return {
+        ok: true,
+        kind: "replay",
+        delivery: { ...cachedDecision, message },
+        balance,
+      };
+    }
   }
 
   const idempotencyKey = findSearchIdempotencyKey({
@@ -948,7 +969,7 @@ export async function advanceResaleJob(
           headline: `Best flip: ${job.settleCheckpoint.best.listing.year} ${job.settleCheckpoint.best.listing.make} ${job.settleCheckpoint.best.listing.model}`,
           message:
             job.settleCheckpoint.best.profitMidUsd != null
-              ? `Expected mid net profit about $${job.settleCheckpoint.best.profitMidUsd.toLocaleString("en-US")} (estimate). Confidence ${job.settleCheckpoint.confidence}. Verdict: ${job.settleCheckpoint.verdictAction}.`
+              ? `${pricedBelowSimilarLine(job.settleCheckpoint.best.profitMidUsd)}.${job.settleCheckpoint.best.sellWindowNote ? ` ${job.settleCheckpoint.best.sellWindowNote}` : ""} Confidence ${job.settleCheckpoint.confidence}. Verdict: ${job.settleCheckpoint.verdictAction}.`
               : `Best candidate found. Confidence ${job.settleCheckpoint.confidence}. Verdict: ${job.settleCheckpoint.verdictAction}.`,
           nextStep:
             "Review the P&L, verify title/history, and inspect before buying. Deal Radar can watch this budget later.",
@@ -1017,7 +1038,7 @@ export async function advanceResaleJob(
         ? `Best flip: ${best.listing.year} ${best.listing.make} ${best.listing.model}`
         : "Resale search complete",
       message: best?.profitMidUsd != null
-        ? `Expected mid net profit about $${best.profitMidUsd.toLocaleString("en-US")}${
+        ? `${pricedBelowSimilarLine(best.profitMidUsd)}${best.sellWindowNote ? ` ${best.sellWindowNote}` : ""}${
             best.profitScopeLabel ? ` ${best.profitScopeLabel}` : ""
           } (estimate). Confidence ${settled.confidence}. Verdict: ${settled.verdictAction}.`
         : `Best candidate found but profit band is thin. Confidence ${settled.confidence}. Verdict: ${settled.verdictAction}.`,

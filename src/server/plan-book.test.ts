@@ -69,7 +69,7 @@ describe("Deal Radar paid-only allowance", () => {
 });
 
 describe("plan cadence", () => {
-  it("uses Radar 6h and Radar Pro 3h for due checks", () => {
+  it("uses a daily cadence for Radar and Radar Pro due checks", () => {
     expect(intervalHoursForWatch("personal", emptyPlans())).toBe(Number.POSITIVE_INFINITY);
 
     const radar = {
@@ -78,8 +78,8 @@ describe("plan cadence", () => {
       personal: { status: "active" as const, lookupKey: "autoflip_radar_monthly", searchLimit: 5 },
       flip: { status: "active" as const, lookupKey: "autoflip_radar_monthly", searchLimit: 5 },
     };
-    expect(intervalHoursForWatch("personal", radar)).toBe(6);
-    expect(intervalHoursForWatch("flip", radar)).toBe(6);
+    expect(intervalHoursForWatch("personal", radar)).toBe(24);
+    expect(intervalHoursForWatch("flip", radar)).toBe(24);
 
     const pro = {
       ...emptyPlans(),
@@ -87,7 +87,7 @@ describe("plan cadence", () => {
       personal: { status: "active" as const, lookupKey: "autoflip_radar_pro_monthly", searchLimit: 20 },
       flip: { status: "active" as const, lookupKey: "autoflip_radar_pro_monthly", searchLimit: 20 },
     };
-    expect(intervalHoursForWatch("flip", pro)).toBe(3);
+    expect(intervalHoursForWatch("flip", pro)).toBe(24);
     const now = Date.now();
     const threeHours = 3 * 60 * 60 * 1000;
     expect(isDue(new Date(now - threeHours - 1).toISOString(), now, threeHours)).toBe(true);

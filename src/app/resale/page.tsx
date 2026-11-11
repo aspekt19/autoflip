@@ -33,8 +33,9 @@ export default function ResalePage() {
         <p className="kicker">For resale</p>
         <h1>Resale</h1>
         <p className="lead">
-          Enter a budget. Lemonless searches what you can buy now and returns the best flip plus alternatives — with an
-          honest profit calc and a verdict every time. 1 report credit per search.
+          Enter a budget. Lemonless searches what you can buy now and returns cars priced below similar listings
+          (after costs), plus alternatives, and a verdict every time. 1 report credit per search. Not a profit
+          guarantee.
         </p>
         <div className="onboarding-note">
           <strong>How it works</strong>
@@ -45,9 +46,9 @@ export default function ResalePage() {
               which shortlisted cars to look at and whether to buy, negotiate, or pass.
             </li>
             <li>
-              Each car shows a negotiation estimate, fees and tax, a repair allowance, a likely resale range, a profit
-              range, and days to sell when we know them — plus risks and what to check before buying. If we do not know
-              something, the card says so.
+              Each car shows a negotiation estimate, fees and tax, a repair allowance, how it is priced below similar
+              listings (after costs), and days to sell when we know them — plus risks and what to check before buying.
+              If we do not know something, the card says so.
             </li>
           </ol>
           <p>Not a profit guarantee. No invented listings. One-car buy-ceiling estimate remains available below the search.</p>

@@ -33,7 +33,7 @@ import { freeCheckMonthKey } from "@/domain/free-check-quota";
 
 export const dynamic = "force-dynamic";
 /** Listings, government data, then a rules call and a two-step explanation. Hobby allows 60s. */
-export const maxDuration = 60;
+export const maxDuration = 300;
 
 export async function POST(request: Request) {
   const body = (await request.json().catch(() => null)) as Record<string, unknown> | null;

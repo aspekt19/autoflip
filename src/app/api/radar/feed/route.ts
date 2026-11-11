@@ -1,4 +1,5 @@
 import { ASSUMPTIONS } from "@/domain/assumptions";
+import { nextDailyRadarRunIso } from "@/domain/plans";
 import { filterProofRecordsForOwner } from "@/domain/decision-proof-record";
 import { journalFromRadarActivity } from "@/domain/radar-activity-journal";
 import {
@@ -49,11 +50,8 @@ export async function GET() {
       (run.searchIds ?? []).some((searchId) => mySearchIds.has(searchId)),
   );
   const lastRun = myRuns[0] ?? null;
-  const intervalHours = lastRun?.intervalHours ?? 6;
-  const nextRunAt =
-    lastRun?.finishedAt != null
-      ? new Date(new Date(lastRun.finishedAt).getTime() + intervalHours * 60 * 60 * 1000).toISOString()
-      : null;
+  const intervalHours = 24;
+  const nextRunAt = nextDailyRadarRunIso();
 
   const listingCounts = await Promise.all(
     mine.map(async (search) => {

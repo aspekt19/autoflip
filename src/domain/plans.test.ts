@@ -12,14 +12,14 @@ describe("Deal Radar paid plans (no free tier)", () => {
     const radar = planById("radar");
     expect(radar?.amountCents).toBe(10_000);
     expect(radar?.watchLimit).toBe(5);
-    expect(radar?.intervalHours).toBe(6);
+    expect(radar?.intervalHours).toBe(24);
     expect(radar?.servCallCapPerMonth).toBe(1500);
     expect(radar?.reportCreditsPerMonth).toBe(5);
 
     const pro = planById("radar_pro");
     expect(pro?.amountCents).toBe(25_000);
     expect(pro?.watchLimit).toBe(20);
-    expect(pro?.intervalHours).toBe(3);
+    expect(pro?.intervalHours).toBe(24);
     expect(pro?.servCallCapPerMonth).toBe(6000);
     expect(pro?.reportCreditsPerMonth).toBe(15);
 
@@ -34,8 +34,8 @@ describe("Deal Radar paid plans (no free tier)", () => {
 
   it("resolves cadence from plan limits", () => {
     const radar = radarLimitsForLookup("autoflip_radar_monthly");
-    expect(watchIntervalHours(radar)).toBe(6);
+    expect(watchIntervalHours(radar)).toBe(24);
     const pro = radarLimitsForLookup("radar_pro");
-    expect(watchIntervalHours(pro)).toBe(3);
+    expect(watchIntervalHours(pro)).toBe(24);
   });
 });

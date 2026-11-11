@@ -89,7 +89,7 @@ describe("radar pre-filter", () => {
 
   it("requires the flip buy-box margin", () => {
     const flip = demoPresets()[1]!.criteria;
-    const cars = [1, 2, 3, 4].map((index) =>
+    const cars = [1, 2, 3, 4, 5].map((index) =>
       row({
         vin: `C${index}`,
         make: "Honda",
@@ -211,7 +211,7 @@ describe("body style and a 20-row flip page", () => {
     );
     const tightCheap = prefilterListing(tight[0]!, flip, tight, "flip", 2026);
     expect(tightCheap.pass).toBe(false);
-    if (!tightCheap.pass) expect(tightCheap.reason).toBe("rough margin is under the buy box");
+    if (!tightCheap.pass) expect(tightCheap.reason).toBe("not priced below similar listings (after costs)");
 
     const wide = Array.from({ length: 20 }, (_, index) =>
       row({

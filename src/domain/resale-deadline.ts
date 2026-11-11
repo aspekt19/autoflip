@@ -1,10 +1,9 @@
 /**
- * Hard wall-clock budget for one Resale search.
+ * Hard wall-clock budget for one Resale search step.
  *
- * Production (Hobby, Nov 2026): this deployment was killed at 60s
- * ("Task timed out after 60 seconds", CDN 504). Current Vercel Fluid docs list Hobby
- * maxDuration up to 300s, but Fluid did not prevent the observed 60s kill here — do not
- * rely on a higher cap. Keep the internal budget ~50s so the route returns JSON first.
+ * Hobby Fluid compute allows maxDuration 300s. Each stepped request keeps its own
+ * budget under that cap so a SERV decision step can run for 90s, or the step stops
+ * without sending a shorter call.
  */
 
 export type ResaleDeadline = {
@@ -19,14 +18,14 @@ export type ResaleDeadline = {
   elapsedMs: () => number;
 };
 
-/** Default internal budget under Hobby's 60s hard kill. */
-export const RESALE_INTERNAL_BUDGET_MS = 50_000;
+/** One stepped request. Leaves headroom under the 300s route maxDuration. */
+export const RESALE_INTERNAL_BUDGET_MS = 270_000;
 
 /**
  * Absolute worst-case JSON return from request arrival.
- * Internal budget (50s) + small margin for credit settle / JSON serialize — still under Hobby 60s.
+ * Internal budget plus a small margin for credit settle / JSON serialize — still under 300s.
  */
-export const RESALE_HANDLER_HARD_CAP_MS = 52_000;
+export const RESALE_HANDLER_HARD_CAP_MS = 285_000;
 
 /** Leave this much headroom when sizing a SERV/HTTP timeout against the deadline. */
 export const RESALE_SERV_SAFETY_MS = 750;
@@ -34,23 +33,25 @@ export const RESALE_SERV_SAFETY_MS = 750;
 /** Max wait for an in-flight credit lock before returning search_in_progress JSON. */
 export const RESALE_INFLIGHT_WAIT_CAP_MS = 3_000;
 
-/** Floor below which a SERV call is not worth starting. */
-export const RESALE_SERV_MIN_USEFUL_MS = 2_000;
+/**
+ * Floor below which a SERV decision step is not started.
+ * A shorter timeout is an honest stop, not a clipped call.
+ */
+export const RESALE_SERV_MIN_USEFUL_MS = 90_000;
 
 /**
  * Minimum remaining ms before starting each stage.
- * Resale SERV profiles are ~38s; stepped jobs give each call a fresh ~50s budget,
- * so stage gates must not refuse a call that still has enough wall time.
+ * Decision stages match the 90s profile floor. Inventory is not a SERV decision.
  */
 export const RESALE_STAGE_BUDGET_MS = {
-  plan: 35_000,
+  plan: 90_000,
   /** Cap for all Auto.dev inventory queries combined (run in parallel). */
-  inventory: 22_000,
-  triage: 35_000,
-  deepCheck: 8_000,
-  pick: 35_000,
-  challenge: 35_000,
-  shopper: 35_000,
+  inventory: 60_000,
+  triage: 90_000,
+  deepCheck: 30_000,
+  pick: 90_000,
+  challenge: 90_000,
+  shopper: 90_000,
 } as const;
 
 /**
@@ -65,7 +66,9 @@ export function resaleCallTimeoutMs(
 ): number | null {
   const remain = deadline.remainingMs() - RESALE_SERV_SAFETY_MS;
   if (remain < minUsefulMs) return null;
-  return Math.max(1, Math.min(profileTimeoutMs, Math.floor(remain)));
+  const timeout = Math.min(profileTimeoutMs, Math.floor(remain));
+  if (timeout < minUsefulMs) return null;
+  return timeout;
 }
 
 export function makeResaleDeadline(budgetMs: number, nowMs = Date.now()): ResaleDeadline {

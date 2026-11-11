@@ -444,8 +444,8 @@ describe("find → SERV → watch → radar verdict_decide acceptance (merge gat
       origin: "https://autoflip.example",
       env: {},
       forceAll: true,
-      timeouts: { serv: 30_000, autodev: 5_000 },
-      deadlineMs: 60_000,
+      timeouts: { serv: 90_000, autodev: 5_000 },
+      deadlineMs: 200_000,
     });
 
     const decideActivity = (run.servActivity ?? []).filter((row) => row.profile === "verdict_decide");

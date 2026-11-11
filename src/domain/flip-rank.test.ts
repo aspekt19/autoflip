@@ -56,7 +56,7 @@ describe("flip ranking", () => {
     expect(top[0]?.confidence).toBe("ok");
   });
 
-  it("marks three comps as low confidence and uses listing age when it is present", () => {
+  it("excludes a scan with fewer than 5 similar listings inside 25% mileage", () => {
     const rows = [7_000, 9_000, 10_000].map((price, index) =>
       car({
         vin: `AGE0000000000000${index}`,
@@ -71,9 +71,52 @@ describe("flip ranking", () => {
       year: 2015,
       createdAt: "2026-08-01 00:00:00",
     });
-    const [best] = topFlipCandidates([...rows, subject], now, 5);
-    expect(best?.confidence).toBe("low");
-    expect(best?.speed).toBe("slower");
-    expect(best?.speedBasis).toMatch(/days/);
+    const ranked = rankFlipCandidates([...rows, subject], now, { enforceSanity: true });
+    expect(ranked.every((item) => item.excluded)).toBe(true);
+    expect(ranked[0]?.excludeReason).toMatch(/Not enough similar cars|fewer than 5 similar listings/);
+    expect(topFlipCandidates([...rows, subject], now, 5, { enforceSanity: true })).toEqual([]);
+  });
+
+  it("drops a 303,830-mile Civic and does not invent a $1,500 target", () => {
+    const peers = [70_000, 74_000, 78_000, 80_000, 82_000, 84_000].map((miles, index) =>
+      car({
+        vin: `CIVICPEER0000000${index}`,
+        priceUsd: 9_000 + index * 400,
+        year: 2015,
+        miles,
+      }),
+    );
+    const outlier = car({
+      vin: "CIVIC303830MILE01",
+      priceUsd: 3_500,
+      year: 2015,
+      miles: 303_830,
+    });
+    const ranked = rankFlipCandidates([outlier, ...peers], now, {
+      asIs: true,
+      sellWithinDays: 30,
+      enforceSanity: true,
+    });
+    const bad = ranked.find((item) => item.vin === outlier.vin);
+    expect(bad?.excluded).toBe(true);
+    expect(bad?.excludeReason).toMatch(/180,000|similar-listing span/);
+    const shown = topFlipCandidates([outlier, ...peers], now, 5, { asIs: true, enforceSanity: true });
+    expect(shown.some((item) => (item.listing.miles ?? 0) > 180_000)).toBe(false);
+    expect(shown.every((item) => item.clearsTarget === null)).toBe(true);
+    expect(shown[0]?.costUsd).toBe(350);
+  });
+
+  it("returns the same order for the same cars twice", () => {
+    const rows = [0, 1, 2, 3, 4, 5].map((index) =>
+      car({
+        vin: `STABLE0000000000${index}`,
+        priceUsd: 8_000 + (5 - index) * 200,
+        year: 2016,
+        miles: 60_000 + index * 1_000,
+      }),
+    );
+    const first = topFlipCandidates(rows, now, 5).map((item) => item.vin);
+    const second = topFlipCandidates([...rows].reverse(), now, 5).map((item) => item.vin);
+    expect(second).toEqual(first);
   });
 });

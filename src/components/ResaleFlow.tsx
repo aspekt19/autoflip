@@ -560,7 +560,7 @@ function ResaleSearchForm({ credits, onAuthLost }: { credits: number | null; onA
                 value={targetProfit}
                 onChange={(e) => setTargetProfit(e.target.value)}
                 inputMode="decimal"
-                placeholder="e.g. 1,500"
+                placeholder="Leave blank — no default target"
               />
             </div>
           </div>
@@ -918,7 +918,7 @@ function ResaleEvaluateForm({ onAuthLost }: { onAuthLost: () => void }) {
   const [asking, setAsking] = useState("");
   const [zip, setZip] = useState("");
   const [accidents, setAccidents] = useState("");
-  const [targetProfit, setTargetProfit] = useState("1500");
+  const [targetProfit, setTargetProfit] = useState("");
   const [repairAbility, setRepairAbility] = useState<"unknown" | "none" | "minor" | "major">("unknown");
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -943,7 +943,7 @@ function ResaleEvaluateForm({ onAuthLost }: { onAuthLost: () => void }) {
           askingUsd: asking,
           zip: zip.trim() || null,
           accidentCount: accidents.trim() === "" ? null : Number(accidents),
-          targetProfitUsd: targetProfit,
+          targetProfitUsd: targetProfit.trim() === "" ? null : targetProfit,
           repairAbility,
         }),
       });

@@ -1,4 +1,5 @@
 import { ASSUMPTIONS } from "./assumptions";
+import { resaleSanityReason } from "./resale-sanity";
 import type { PriceBadge } from "./price-badge";
 import type { PriceLabel } from "./price-evaluation";
 import { NOT_ENOUGH_SIMILAR_CARS, evaluateListingPrice } from "./price-evaluation";
@@ -272,6 +273,11 @@ export function prefilterListing(
   const price = listing.priceUsd;
   if (price === null) return { pass: false, reason: "no asking price" };
 
+  if (mode === "flip") {
+    const sanity = resaleSanityReason(listing, pool, { milesMax: criteria.milesMax });
+    if (sanity) return { pass: false, reason: sanity };
+  }
+
   const evaluation = evaluateListingPrice(listing, pool, { mode });
   const milesExpected = expectedMiles(listing.year, asOfYear);
   const lowMiles = listing.miles !== null && listing.miles < milesExpected * 0.85;
@@ -305,8 +311,12 @@ export function prefilterListing(
   if (!priced) {
     if (mode === "flip" || !lowMiles) return { pass: false, reason: NOT_ENOUGH_SIMILAR_CARS };
   } else if (mode === "flip") {
-    const needed = criteria.minProfitUsd ?? ASSUMPTIONS.flipDesiredProfitUsd;
-    if (margin === null || margin < needed) return { pass: false, reason: "rough margin is under the buy box" };
+    if (margin === null || margin < 0) {
+      return { pass: false, reason: "not priced below similar listings (after costs)" };
+    }
+    if (criteria.minProfitUsd != null && margin < criteria.minProfitUsd) {
+      return { pass: false, reason: "rough margin is under the buy box" };
+    }
   } else if (evaluation.tone !== "good" && evaluation.tone !== "fair") {
     // Personal Deal Radar alerts only for good / fair asking prices (shared evaluateListingPrice).
     return { pass: false, reason: priced ? evaluation.label : "inside the usual price and mileage band" };

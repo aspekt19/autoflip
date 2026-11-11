@@ -11,6 +11,7 @@ import {
   confidenceCapReasonForMarginMiss,
   resaleRecallRiskLine,
 } from "./nhtsa-stop-flags";
+import { pricedBelowSimilarLine, sellWindowFlag } from "./resale-sanity";
 import { reconUsd } from "./recon";
 import {
   assumptionProvenance,
@@ -97,6 +98,12 @@ export type ResaleCandidatePnl = {
   compCount: number;
   score: number;
   clearsTarget: boolean | null;
+  /** User-set profit target. Null or omitted means none was set. */
+  targetProfitUsd?: number | null;
+  asIs?: boolean;
+  sellWithinDays?: number | null;
+  sellWindowExceeded?: boolean;
+  sellWindowNote?: string | null;
   risks: string[];
   checkBeforeBuying: string[];
   assumption: string | null;
@@ -133,6 +140,10 @@ export type BuildResalePnlOptions = {
   resaleChannel?: ResaleChannel;
   /** Optional shopper state override for tax (else listing.state, else ZIP→state). */
   taxState?: string | null;
+  asIs?: boolean;
+  sellWithinDays?: number | null;
+  /** User-set only. Omitted or null does not apply a dollar target. */
+  targetProfitUsd?: number | null;
 };
 
 function negotiateOffer(askingUsd: number): { usd: number; basis: string } {
@@ -247,10 +258,14 @@ export function buildResaleCandidatePnl(
   const taxState = resolveListingTaxState(estimate.listing, options?.taxState);
   const tax = taxFor(taxState, negotiate.usd);
   const salesTaxKnown = tax.usd != null;
+  const asIs = options?.asIs === true;
+  const sellWithinDays = options?.sellWithinDays ?? null;
+  const targetProfitUsd = options?.targetProfitUsd ?? null;
   const recon = reconUsd({
     miles: estimate.listing.miles,
     accidentCount: estimate.listing.accidentCount,
     repairAbility,
+    asIs,
   });
   const titleFee = ASSUMPTIONS.flipTitleFeeUsd;
   const titleFeeBasis = `Title/fee assumption: $${titleFee.toLocaleString("en-US")} (example, not a DMV quote). ${TITLE_REGISTRATION_LINE}`;
@@ -300,8 +315,8 @@ export function buildResaleCandidatePnl(
     };
   }
   // Conservative low profit must clear the flip target for High confidence.
-  const marginCapReason = confidenceCapReasonForMarginMiss(profitLowUsd);
-  const cappedForMargin = capConfidenceForMarginMiss(confidence.label, profitLowUsd);
+  const marginCapReason = confidenceCapReasonForMarginMiss(profitLowUsd, targetProfitUsd);
+  const cappedForMargin = capConfidenceForMarginMiss(confidence.label, profitLowUsd, targetProfitUsd);
   if (cappedForMargin !== confidence.label && marginCapReason) {
     confidence = {
       label: cappedForMargin,
@@ -309,6 +324,9 @@ export function buildResaleCandidatePnl(
     };
   }
 
+  const windowNote =
+    estimate.sellWindowNote ??
+    sellWindowFlag({ daysToSell: days.days, sellWithinDays });
   const risks: string[] = [
     "Title brand and full accident history are unknown until you pull a report and inspect the car.",
     resaleRecallRiskLine({ recallsChecked: false }),
@@ -325,6 +343,15 @@ export function buildResaleCandidatePnl(
   if (estimate.confidence === "low") {
     risks.push("Thin similar-listing set — resale band is less reliable.");
   }
+  if (asIs) {
+    risks.unshift("As-is: reconditioning is $0 and risk is higher because condition is not repaired before resale.");
+    if (confidence.label === "High") {
+      confidence = { label: "Medium", basis: `${confidence.basis} Lowered: as-is purchase raises condition risk.` };
+    } else if (confidence.label === "Medium") {
+      confidence = { label: "Low", basis: `${confidence.basis} Lowered: as-is purchase raises condition risk.` };
+    }
+  }
+  if (windowNote) risks.unshift(windowNote);
 
   const checkBeforeBuying: string[] = [
     "Confirm title status (clean / rebuilt / salvage) and lien payoff.",
@@ -422,6 +449,11 @@ export function buildResaleCandidatePnl(
     compCount: estimate.compCount,
     score: estimate.score,
     clearsTarget: estimate.clearsTarget,
+    targetProfitUsd,
+    asIs,
+    sellWithinDays,
+    sellWindowExceeded: windowNote != null,
+    sellWindowNote: windowNote,
     risks,
     checkBeforeBuying,
     assumption: estimate.assumption,

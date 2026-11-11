@@ -5,7 +5,7 @@ import { evaluateResaleDeal } from "@/server/resale-evaluate";
 import { requireVerifiedAccountForChecks } from "@/server/session";
 
 export const dynamic = "force-dynamic";
-export const maxDuration = 60;
+export const maxDuration = 300;
 
 /**
  * Minimal resale evaluate: buy ceiling + resale range from shared adjusted comps.

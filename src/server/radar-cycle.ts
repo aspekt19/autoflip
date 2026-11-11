@@ -30,7 +30,7 @@ import { parseAutoDevListings } from "@/io/parsers";
 import { reserveRadarCall } from "@/io/persistent-quota";
 import { coverageConfidence, coverageSentence } from "@/domain/coverage";
 import { visibleProof, type DecisionProof } from "@/domain/decision-note";
-import { interpretGuard, runServ, servBudget, type ServProof } from "@/server/serv";
+import { decisionStepBudget, interpretGuard, runServ, type ServProof } from "@/server/serv";
 import { alertMessage, type AlertCopy } from "@/io/telegram";
 import type { Listing } from "@/domain/types";
 import { resolveProductFlags } from "@/domain/product-flags";
@@ -46,13 +46,13 @@ import { decideRadarFlip, flipCandidateOutcome } from "@/server/serv-plan-decide
 import { reviewPersonalCandidate, type RadarServActivity } from "./radar-serv";
 import { listSearches, upsertRun, saveAlerts, saveSearches, seenBook, storeSeenPrices, readListingCache, writeListingCache, telegramChat, telegramPaused, type StoredRun, listAlerts } from "./radar-store";
 
-/** Stay under the 60s Hobby limit so the log write still happens. */
-export const CYCLE_BUDGET_MS = 52_000;
+/** Stay under the 300s route cap so the log write still happens. */
+export const CYCLE_BUDGET_MS = 270_000;
 
 const CALL_MS = {
   autodev: 8_000,
-  /** Ceiling for one SERV request — match ~35–40s profile budgets (guard/review were timing out at 8–14s). */
-  serv: 40_000,
+  /** One decision step. Shorter than this is an honest stop, not a clipped review. */
+  serv: 90_000,
   telegram: 5_000,
   kite: 8_000,
 };
@@ -175,7 +175,7 @@ export async function runRadarCycle(deps: CycleDeps): Promise<StoredRun> {
     const guardResult = await runGuard(
       searches,
       deps,
-      servBudget("radar_guard", remain(), limits.serv),
+      decisionStepBudget("radar_guard", remain(), limits.serv) ?? 0,
       servChecks,
     );
     promptGuard = guardResult.status;
@@ -307,6 +307,8 @@ export async function runRadarCycle(deps: CycleDeps): Promise<StoredRun> {
           const ranked = topFlipCandidates(job.listings, deps.now, ASSUMPTIONS.radarMaxAlertsPerSearch, {
             repairAbility: search.criteria.repairAbility,
             targetProfitUsd: search.criteria.minProfitUsd ?? null,
+            milesMax: search.criteria.milesMax,
+            enforceSanity: true,
           });
           const storageKey = seenStorageKey(search.id, search.criteria);
           const book = await seenBook(deps.kv, storageKey);
@@ -381,9 +383,12 @@ export async function runRadarCycle(deps: CycleDeps): Promise<StoredRun> {
           if (judged?.activity?.length) {
             servActivity.push(...(judged.activity as RadarServActivity[]));
           }
+          if (judged?.stoppedReason) notes.push(judged.stoppedReason);
           if (deps.servKey && fresh.length > 0 && !judged?.decisions) {
             notes.push(
-              "Flip explanation unavailable. Candidates were left as Not reviewed so they can be checked again next run.",
+              judged?.stoppedReason
+                ? "Candidates were left as Not reviewed so they can be checked again next run."
+                : "Flip explanation unavailable. Candidates were left as Not reviewed so they can be checked again next run.",
             );
           }
           for (const item of fresh) {
@@ -589,7 +594,7 @@ export async function runRadarCycle(deps: CycleDeps): Promise<StoredRun> {
               servKey: deps.servKey,
               servModel: deps.servModel,
               servBaseUrl: deps.servBaseUrl,
-              timeoutMs: servBudget("verdict_decide", remain(), limits.serv),
+              timeoutMs: decisionStepBudget("verdict_decide", remain(), limits.serv) ?? 0,
               searchId: search.id,
               challenge: Boolean(deps.servKey) && servSlot === 1,
               nowIso: deps.now.toISOString(),
@@ -909,7 +914,7 @@ async function runGuard(
         latencyMs: 0,
         ok: false,
         decision: "timeout",
-        note: "SERV timed out before radar_guard could start (budget exhausted).",
+        note: "Stopped: radar_guard needs 90 seconds. No shorter check was sent.",
         alerted: false,
       },
       proofRecord: buildDecisionProofRecord({
@@ -918,7 +923,7 @@ async function runGuard(
         status: "error",
         recordedAt: at,
         inputs: guardInputs,
-        detail: "SERV timed out before radar_guard could start (budget exhausted).",
+        detail: "Stopped: radar_guard needs 90 seconds. No shorter check was sent.",
       }),
     };
   }

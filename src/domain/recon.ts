@@ -9,7 +9,16 @@ export function reconUsd(input: {
   miles: number | null;
   accidentCount?: number | null;
   repairAbility?: RepairAbility;
+  /** As-is purchase: reconditioning is $0 and the risk is labelled, not hidden. */
+  asIs?: boolean;
 }): { usd: number; because: string } {
+  if (input.asIs) {
+    return {
+      usd: 0,
+      because:
+        "As-is: reconditioning is $0. Risk is higher because this car is not repaired before resale. This is a label, not a quote.",
+    };
+  }
   const skill = input.repairAbility ?? "unknown";
   const accidents = input.accidentCount ?? 0;
   const highMile = (input.miles ?? 0) >= ASSUMPTIONS.flipHighMileThreshold ? ASSUMPTIONS.flipReconHighMileUsd : 0;

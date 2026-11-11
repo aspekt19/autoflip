@@ -26,6 +26,7 @@ import {
   confidenceCapReasonForStop,
 } from "@/domain/nhtsa-stop-flags";
 import type { ComputedReport, Listing, Verdict } from "@/domain/types";
+import { pricedBelowSimilarLine } from "@/domain/resale-sanity";
 import { flipVerdict } from "@/domain/verdict";
 import {
   rankByRiskAdjustedProfit,
@@ -191,10 +192,11 @@ export function clampResalePublishedConfidence(
   const afterMargin: AgentVerdictConfidence = capConfidenceForMarginMiss(
     afterStop,
     candidate.profitLowUsd,
+    candidate.targetProfitUsd,
   );
   const marginReason =
     afterStop === "high" && afterMargin !== "high"
-      ? confidenceCapReasonForMarginMiss(candidate.profitLowUsd)
+      ? confidenceCapReasonForMarginMiss(candidate.profitLowUsd, candidate.targetProfitUsd)
       : null;
   const honesty = capConfidenceForHonesty({
     confidence: afterMargin,
@@ -277,7 +279,7 @@ function buildFlipReport(
       : candidate.profitMidUsd != null
         ? candidate.profitMidUsd
         : null;
-  const profitTarget = ASSUMPTIONS.flipDesiredProfitUsd;
+  const profitTarget = candidate.targetProfitUsd ?? 0;
   const friction = ASSUMPTIONS.flipSellFriction;
   // Never invent sales tax as $0 — omit unknown tax from all-in and say so.
   const salesTaxIncluded =
@@ -322,7 +324,7 @@ function buildFlipReport(
       : null;
   let verdict: Verdict = "insufficient_data";
   if (flip) {
-    verdict = flipVerdict(flip.marginUsd, false);
+    verdict = flipVerdict(flip.marginUsd, false, candidate.targetProfitUsd);
   } else if (candidate.profitMidUsd == null) {
     verdict = "insufficient_data";
   }
@@ -346,11 +348,14 @@ function buildFlipReport(
     }));
   const midLine =
     candidate.profitMidUsd != null
-      ? `Code estimate mid profit $${candidate.profitMidUsd.toLocaleString("en-US")}${
+      ? `${pricedBelowSimilarLine(candidate.profitMidUsd)}${
           candidate.profitScopeLabel ? ` ${candidate.profitScopeLabel}` : ""
-        } from ${candidate.compCount} similar listings.`
-      : "Profit band incomplete — similar listings were thin.";
-  const thresholdLine = `Buy only when risk-adjusted (conservative) profit clears the labeled margin threshold of $${profitTarget.toLocaleString("en-US")} (flipDesiredProfitUsd); thin margin is $${ASSUMPTIONS.flipThinMarginUsd.toLocaleString("en-US")} (flipThinMarginUsd). Resale mid $${fair != null ? fair.toLocaleString("en-US") : "—"} is an exit estimate, not a buy-side fair value. Ask $${ask.toLocaleString("en-US")}.`;
+        } from ${candidate.compCount} similar listings. The sale price is an asking-price proxy.`
+      : "Similar listings were too thin to price this car.";
+  const thresholdLine =
+    candidate.targetProfitUsd != null
+      ? `Buy only when the gap clears the $${candidate.targetProfitUsd.toLocaleString("en-US")} target you set. Resale mid $${fair != null ? fair.toLocaleString("en-US") : "—"} is an asking-price proxy, not a closed sale. Ask $${ask.toLocaleString("en-US")}.`
+      : `No profit target was set. ${pricedBelowSimilarLine(candidate.profitMidUsd)}. Resale mid $${fair != null ? fair.toLocaleString("en-US") : "—"} is an asking-price proxy, not a closed sale. Ask $${ask.toLocaleString("en-US")}.`;
   const noFlipLine =
     flip && flip.marginUsd < ASSUMPTIONS.flipThinMarginUsd
       ? "No good flip within this budget on risk-adjusted margin — pass or keep shopping."
@@ -420,7 +425,8 @@ function sortByProfit(items: ResaleCandidatePnl[]): ResaleCandidatePnl[] {
   return [...items].sort((a, b) => {
     const aMid = a.rankingProfitMidUsd ?? a.profitMidUsd ?? Number.NEGATIVE_INFINITY;
     const bMid = b.rankingProfitMidUsd ?? b.profitMidUsd ?? Number.NEGATIVE_INFINITY;
-    return bMid - aMid;
+    if (bMid !== aMid) return bMid - aMid;
+    return a.vin.localeCompare(b.vin);
   });
 }
 
@@ -509,13 +515,17 @@ export function flipMarginPublishedAction(candidate: ResaleCandidatePnl): {
       reason: "Risk-adjusted margin unavailable — profit band incomplete.",
     };
   }
-  const action = actionFromVerdict(flipVerdict(marginUsd, false)) as FlipPublishedAction;
+  const action = actionFromVerdict(flipVerdict(marginUsd, false, candidate.targetProfitUsd)) as FlipPublishedAction;
+  const targetBit =
+    candidate.targetProfitUsd != null
+      ? `buy needs ≥ $${candidate.targetProfitUsd.toLocaleString("en-US")} (the target you set)`
+      : "no profit target was set";
   const bits = [
-    `Risk-adjusted margin $${marginUsd.toLocaleString("en-US")} (low profit when present, else mid)`,
-    mid != null ? `mid $${mid.toLocaleString("en-US")}` : null,
+    pricedBelowSimilarLine(mid),
+    `Risk-adjusted gap $${marginUsd.toLocaleString("en-US")} (low end when present, else mid)`,
     roi != null ? `ROI mid ${roi}%` : null,
-    `buy needs ≥ $${ASSUMPTIONS.flipDesiredProfitUsd.toLocaleString("en-US")} (flipDesiredProfitUsd)`,
-    `negotiate/thin needs ≥ $${ASSUMPTIONS.flipThinMarginUsd.toLocaleString("en-US")} (flipThinMarginUsd)`,
+    targetBit,
+    candidate.sellWindowNote,
     `→ ${action}`,
   ].filter(Boolean);
   return { action, marginUsd, reason: bits.join("; ") + "." };
@@ -565,7 +575,7 @@ export function clampFlipPublishedAction(
       reason: `SERV said ${proposed}; guardrail capped to pass — risk-adjusted profit $${marginUsd.toLocaleString("en-US")} is negative (documented hard fact).`,
     };
   }
-  const codeVerdict = flipVerdict(marginUsd ?? -1, false);
+  const codeVerdict = flipVerdict(marginUsd ?? -1, false, candidate.targetProfitUsd);
   if (codeVerdict === "walk_away" && proposed === "buy") {
     return {
       action: "pass",
@@ -627,9 +637,10 @@ function applyFlipPublishedAction(input: {
 }
 
 function profitHeadline(c: ResaleCandidatePnl): string {
-  if (c.profitMidUsd == null) return "Profit mid unavailable — similar listings were thin.";
+  if (c.profitMidUsd == null) return "Similar listings were too thin to say this is priced below them.";
   const scope = c.profitScopeLabel ? ` ${c.profitScopeLabel}` : "";
-  return `Expected mid net profit about $${c.profitMidUsd.toLocaleString("en-US")}${scope} (estimate from similar listings minus labeled costs).`;
+  const windowBit = c.sellWindowNote ? ` ${c.sellWindowNote}` : "";
+  return `${pricedBelowSimilarLine(c.profitMidUsd)}${scope}.${windowBit} The sale price is an asking-price proxy, not a closed sale.`;
 }
 
 function parseJsonObject(text: string): Record<string, unknown> | null {
@@ -2095,7 +2106,7 @@ export async function runResaleSettleServ(input: {
         mandate: {
           budgetUsd: input.budgetUsd,
           budgetKnown: true,
-          targetProfitUsd: ASSUMPTIONS.flipDesiredProfitUsd,
+          targetProfitUsd: best.targetProfitUsd,
         },
         servKey: input.servKey,
         servBaseUrl: input.servBaseUrl,

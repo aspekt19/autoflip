@@ -56,7 +56,7 @@ import {
   runResaleSettleServ,
   type ResaleSettleServResult,
 } from "@/server/resale-settle-serv";
-import { profile, runServ, type ProfileId, servBudget, type ServProof } from "@/server/serv";
+import { decisionStepBudget, profile, runServ, type ServProof } from "@/server/serv";
 import { quotedNumbersStayIn, visibleProof, type DecisionProof } from "@/domain/decision-note";
 import { validateResaleServOutput } from "@/domain/resale-serv-validate";
 import {
@@ -151,6 +151,8 @@ export type DecideRadarFlipResult = {
   activity: ReturnType<typeof buildRadarReviewActivityRows>;
   /** VINs SERV said alert but code blocked (negative expected profit). */
   blockedNegativeProfit: string[];
+  /** Set when a decision step was not started because 90s was not available. */
+  stoppedReason?: string | null;
 };
 
 export type DecideRequest = DecideResaleRequest | DecideFindRequest | DecideRadarFlipRequest;
@@ -563,6 +565,7 @@ async function defaultDecideRadarFlip(req: DecideRadarFlipRequest): Promise<Deci
     checks: [],
     activity: [],
     blockedNegativeProfit: [],
+    stoppedReason: null,
   };
   if (!req.servKey || req.fresh.length === 0 || req.remainMs <= 0) return empty;
 
@@ -586,13 +589,19 @@ async function defaultDecideRadarFlip(req: DecideRadarFlipRequest): Promise<Deci
     .map((item) => visibleProof(item));
   const activity: DecideRadarFlipResult["activity"] = [];
   const deadline = Date.now() + req.remainMs;
-  const budget = (id: ProfileId) => servBudget(id, deadline - Date.now(), req.ceilingMs);
   const proofs: ServProof[] = [];
 
   try {
-    const rulesMs = budget("flip_feasibility");
+    const judgeFloor = decisionStepBudget("flip_judge", deadline - Date.now(), req.ceilingMs);
+    if (judgeFloor == null) {
+      return {
+        ...empty,
+        stoppedReason: "Stopped: flip_judge needs 90 seconds. No shorter review was sent.",
+      };
+    }
+    const rulesMs = decisionStepBudget("flip_feasibility", deadline - Date.now() - judgeFloor, req.ceilingMs);
     const rules =
-      rulesMs < 500
+      rulesMs == null
         ? null
         : await runServ("flip_feasibility", { user: JSON.stringify({ facts }) }, {
             fetch: req.fetchImpl,
@@ -609,13 +618,14 @@ async function defaultDecideRadarFlip(req: DecideRadarFlipRequest): Promise<Deci
     }
     // Production Flip/resale-watch decide uses flip_judge (documented Flip Radar pair with
     // flip_feasibility). radar_review remains in the registry for older activity rows.
-    const judgeMs = budget("flip_judge");
-    if (judgeMs < 500) {
+    const judgeMs = decisionStepBudget("flip_judge", deadline - Date.now(), req.ceilingMs);
+    if (judgeMs == null) {
       return {
         decisions: null,
         checks: rules ? [...guards, visibleProof(rules.proof)] : guards,
         activity,
         blockedNegativeProfit: [],
+        stoppedReason: "Stopped: flip_judge needs 90 seconds after the rules check. No shorter review was sent.",
       };
     }
     const reviewCallId = randomUUID();

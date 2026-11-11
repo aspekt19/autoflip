@@ -12,24 +12,24 @@ export const PLAN_CATALOG = [
     /** Combined Find + Resale watched searches. */
     watchLimit: 5,
     /** Due interval for every watch under this plan. */
-    intervalHours: 6,
+    intervalHours: 24,
     servCallCapPerMonth: 1500,
     reportCreditsPerMonth: 5,
     lookupKey: "autoflip_radar_monthly",
     detail:
-      "5 watched searches (Find or Resale). Checks every 6 hours when due. Up to 1,500 reviews a month. Includes 5 report credits a month. Stripe test mode.",
+      "5 watched searches (Find or Resale). Checks daily. Up to 1,500 reviews a month. Includes 5 report credits a month. Stripe test mode.",
   },
   {
     id: "radar_pro",
     name: "Radar Pro",
     amountCents: 25_000,
     watchLimit: 20,
-    intervalHours: 3,
+    intervalHours: 24,
     servCallCapPerMonth: 6000,
     reportCreditsPerMonth: 15,
     lookupKey: "autoflip_radar_pro_monthly",
     detail:
-      "20 watched searches (Find or Resale). Checks every 3 hours when due. Up to 6,000 reviews a month. Includes 15 report credits a month. Stripe test mode.",
+      "20 watched searches (Find or Resale). Checks daily. Up to 6,000 reviews a month. Includes 15 report credits a month. Stripe test mode.",
   },
 ] as const;
 
@@ -60,6 +60,13 @@ export const NO_RADAR_PLAN: RadarPlanLimits = {
 
 export function planById(id: string): PaidPlan | null {
   return PLAN_CATALOG.find((plan) => plan.id === id) ?? null;
+}
+
+/** Matches vercel.json: `0 14 * * *` (14:00 UTC, once a day). */
+export function nextDailyRadarRunIso(now = new Date()): string {
+  const next = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), 14, 0, 0, 0));
+  if (next.getTime() <= now.getTime()) next.setUTCDate(next.getUTCDate() + 1);
+  return next.toISOString();
 }
 
 export function planByLookupKey(key: string): PaidPlan | null {

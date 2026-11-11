@@ -50,7 +50,7 @@ export function HomeStage() {
             <strong>01 Say which goal</strong>
             <span>
               For me: a short note starts Find. Budget, ZIP code, and how far you will travel come next. For resale: open
-              the budget-first search — the best flip plus alternatives, with an honest profit estimate.
+              the budget-first search — cars priced below similar listings (after costs), plus alternatives.
             </span>
           </li>
           <li>

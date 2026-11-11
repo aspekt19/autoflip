@@ -27,7 +27,12 @@ export type ResaleSearchInput = {
   yearMax: number | null;
   milesMax: number | null;
   repairAbility: RepairAbility;
+  /** User-set only. Null means no profit target — never a hidden dollar default. */
   targetProfitUsd: number | null;
+  /** Buy as-is: reconditioning is $0 and risk is labelled higher. */
+  asIs: boolean;
+  /** User's sell window in days. Null means no window was set. */
+  sellWithinDays: number | null;
   timeToSell: TimeToSellPref;
   resaleChannel: "private_party" | "dealer_trade";
   /** Shopper free-text description (own words). */
@@ -178,6 +183,33 @@ export function parseResaleSearchInput(
     }
   }
 
+  const freeTextForFlags =
+    typeof body.freeText === "string"
+      ? body.freeText
+      : typeof body.note === "string"
+        ? body.note
+        : "";
+
+  let asIs = false;
+  if (typeof body.asIs === "boolean") asIs = body.asIs;
+  else if (/\bas[-\s]?is\b/i.test(freeTextForFlags)) asIs = true;
+
+  let sellWithinDays: number | null = null;
+  if (body.sellWithinDays != null && body.sellWithinDays !== "") {
+    const n = typeof body.sellWithinDays === "number" ? body.sellWithinDays : Number(body.sellWithinDays);
+    if (!Number.isFinite(n) || n <= 0 || n > 365) {
+      issues.push({ field: "sellWithinDays", message: "Sell-within days must be a number from 1 to 365, or blank." });
+    } else {
+      sellWithinDays = Math.round(n);
+    }
+  } else {
+    const match = freeTextForFlags.match(/\b(?:sell\s+within|within|in)\s+(\d{1,3})\s+days\b/i);
+    if (match) {
+      const n = Number(match[1]);
+      if (Number.isFinite(n) && n > 0 && n <= 365) sellWithinDays = Math.round(n);
+    }
+  }
+
   let targetProfitUsd: number | null = null;
   if (body.targetProfitUsd != null && body.targetProfitUsd !== "") {
     const profitRaw = body.targetProfitUsd;
@@ -232,6 +264,8 @@ export function parseResaleSearchInput(
       milesMax,
       repairAbility,
       targetProfitUsd,
+      asIs,
+      sellWithinDays,
       timeToSell,
       resaleChannel,
       freeText,

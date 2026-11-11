@@ -86,11 +86,13 @@ describe("verdict bands", () => {
   });
 
   it("maps a flip margin and a park-it override", () => {
-    expect(flipVerdict(ASSUMPTIONS.flipDesiredProfitUsd, false)).toBe("good_deal");
-    expect(flipVerdict(ASSUMPTIONS.flipThinMarginUsd, false)).toBe("fair");
-    expect(flipVerdict(100, false)).toBe("overpriced");
-    expect(flipVerdict(-1, false)).toBe("walk_away");
-    expect(flipVerdict(5_000, true)).toBe("walk_away");
+    expect(flipVerdict(ASSUMPTIONS.flipDesiredProfitUsd, false, ASSUMPTIONS.flipDesiredProfitUsd)).toBe("good_deal");
+    expect(flipVerdict(ASSUMPTIONS.flipThinMarginUsd, false, ASSUMPTIONS.flipDesiredProfitUsd)).toBe("fair");
+    expect(flipVerdict(100, false, ASSUMPTIONS.flipDesiredProfitUsd)).toBe("overpriced");
+    expect(flipVerdict(-1, false, ASSUMPTIONS.flipDesiredProfitUsd)).toBe("walk_away");
+    expect(flipVerdict(5_000, true, ASSUMPTIONS.flipDesiredProfitUsd)).toBe("walk_away");
+    expect(flipVerdict(100, false, null)).toBe("good_deal");
+    expect(flipVerdict(-1, false, null)).toBe("walk_away");
     expect(scoreFromGap(0)).toBe(50);
     expect(scoreFromGap(-0.2)).toBe(100);
     expect(scoreFromGap(0.3)).toBe(0);

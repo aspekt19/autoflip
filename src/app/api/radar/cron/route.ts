@@ -3,12 +3,12 @@ import { runRadarCycle } from "@/server/radar-cycle";
 import { bearer, originOf, secretMatch } from "@/server/secrets";
 
 export const dynamic = "force-dynamic";
-/** Hobby allows 60 seconds. The cycle itself stops at 40 so the log is written first. */
-export const maxDuration = 60;
+/** Hobby Fluid allows 300s. The cycle stops earlier so the run log is written first. */
+export const maxDuration = 300;
 
 /**
- * Vercel Cron uses GET. GitHub Actions uses POST with RADAR_CRON_SECRET.
- * Auth accepts RADAR_CRON_SECRET or Vercel's CRON_SECRET bearer token.
+ * Vercel Cron uses GET and sends Authorization: Bearer CRON_SECRET when that
+ * env var is set. Auth also accepts RADAR_CRON_SECRET for a manual check.
  */
 async function handle(request: Request) {
   const radar = process.env.RADAR_CRON_SECRET?.trim() ?? "";
