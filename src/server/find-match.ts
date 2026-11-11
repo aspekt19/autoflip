@@ -714,7 +714,108 @@ export async function runFindMatch(
     });
   }
 
-  const visible = groups.reduce((sum, group) => sum + group.listings.length, 0);
+  let visible = groups.reduce((sum, group) => sum + group.listings.length, 0);
+
+  // Audit fallback: when every planned model returns 0 cars, one broader query —
+  // body style only (or any), years ±2, nationwide — before declaring empty.
+  if (visible === 0 && providerQueriesUsed > 0 && !deps.deadline?.expired()) {
+    const bodyStyle =
+      directions.find((d) => d.bodyStyle)?.bodyStyle ?? need.bodyStyle ?? undefined;
+    const yearPad = 2;
+    const yMin = Math.max(1990, Math.min(...directions.map((d) => d.yearMin)) - yearPad);
+    const yMax = Math.max(...directions.map((d) => d.yearMax)) + yearPad;
+    const broadenDir: SearchDirection = {
+      id: "broaden_body",
+      segment: bodyStyle ? `Broader ${bodyStyle} search` : "Broader nationwide search",
+      why: "Widened after the planned models returned no cars.",
+      guidance: "editorial",
+      yearMin: yMin,
+      yearMax: yMax,
+      yearBecause: "Widened year band after empty planned search.",
+      models: [],
+      search: { make: "", model: "" },
+      bodyStyle,
+    };
+    try {
+      const broadenResult = await runAssemble(
+        {
+          make: "",
+          model: "",
+          bodyStyle,
+          zip: undefined,
+          yearMin: yMin,
+          yearMax: yMax,
+          distanceMiles: null,
+          mode: need.mode,
+          milesMax: need.milesMax ?? undefined,
+          priceMax: need.budgetKnown && need.budgetUsd ? need.budgetUsd : undefined,
+          skipRadarGuard: true,
+        },
+        deps,
+      );
+      providerQueriesUsed += 1;
+      if (broadenResult.ok && broadenResult.listings.length > 0) {
+        const nationNeed = { ...need, distanceMiles: null, zip: null };
+        const narrowed = broadenResult.listings.filter((row) => listingWithinNeed(row, nationNeed));
+        const scores = need.mode === "personal" ? personalRankScores(narrowed, need) : new Map<string, number>();
+        const rankedReady = withinBudget(narrowed, need.budgetUsd, need.budgetKnown)
+          .map((item) => {
+            const priceView = item.priceView ?? assessFindListingPrice(item);
+            return {
+              ...item,
+              priceView,
+              badge: priceView.usableForBudget
+                ? priceBadge(item, narrowed)
+                : priceBadge({ ...item, priceUsd: null }, narrowed),
+              flipNote: null as string | null,
+              clearsTarget: null as boolean | null,
+            };
+          })
+          .sort((a, b) => {
+            const aKey = (a.vin || "").trim().toUpperCase();
+            const bKey = (b.vin || "").trim().toUpperCase();
+            const scoreDelta = (scores.get(bKey) ?? 0) - (scores.get(aKey) ?? 0);
+            if (scoreDelta !== 0) return scoreDelta;
+            return (a.priceUsd ?? Number.POSITIVE_INFINITY) - (b.priceUsd ?? Number.POSITIVE_INFINITY);
+          });
+        const listings = diversifyListingsByModel(rankedReady, 8, {
+          preferAwd: needPrefersAwd(need),
+        });
+        if (listings.length > 0) {
+          for (const item of rankedReady) {
+            const vin = (item.vin || "").trim().toUpperCase();
+            if (vin && compsPoolVins.has(vin)) continue;
+            if (vin) compsPoolVins.add(vin);
+            compsPoolAcc.push(item);
+          }
+          groups.push({
+            direction: broadenDir,
+            listings,
+            plannedModels: [{ make: "", model: "" }],
+            searchedModels: [{ make: "", model: "" }],
+            failedModels: [],
+            skippedModels: [],
+            coverage: "Broader nationwide body-style search after planned models returned none.",
+            coverageLevel: "low",
+            note: "No cars matched the first plan. Showing a broader nationwide search by body style and budget.",
+            providerWarning: null,
+            queryOutcomes: [
+              {
+                make: "",
+                model: bodyStyle ?? "",
+                outcome: "ok",
+                message: null,
+              },
+            ],
+          });
+          visible = groups.reduce((sum, group) => sum + group.listings.length, 0);
+        }
+      }
+    } catch {
+      // Broaden is best-effort — keep the empty planned result.
+    }
+  }
+
   // One comparable pool across badge + pick/score: use full provider returns for this
   // search (pre-diversify), not only the 24 shown cards, so same-model peers stay honest.
   const compsPool = compsPoolAcc;
