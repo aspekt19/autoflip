@@ -116,7 +116,7 @@ export function listingPageSlugMismatch(input: {
   return "Listing page may describe a different trim — verify";
 }
 
-const AGGREGATOR_HOSTS = new Set([
+export const AGGREGATOR_HOSTS = new Set([
   "autolist.com",
   "cars.com",
   "autotrader.com",
