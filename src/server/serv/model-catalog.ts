@@ -3,7 +3,7 @@
  *
  * ## In-repo catalog (default allowlist)
  * Mechanism — only IDs already evidenced in this repository:
- * 1. `BASE_MODEL` in `src/server/serv/profiles.ts` + README `SERV_MODEL` → `gpt-5.6-sol`
+ * 1. `BASE_MODEL` in `src/server/serv/profiles.ts` + README `SERV_MODEL` → `gpt-6.1-sol`
  * 2. Committed eval artifacts report dated alias `gpt-5.4-mini-2026-03-17`
  *    (`eval/results/latest.json`, `eval/results/serv-proof-trace.json`) — historical Mini
  * 3. `modelFor()` may append profile feature suffixes when a profile's `feature` is set.
@@ -11,7 +11,8 @@
  *
  * ## Fair cross-provider slate (docs-sourced; Flip live only)
  * Public SERV Models page API IDs (https://docs.openserv.ai/serv-reasoning/models):
- *   - `gpt-5.6-sol` (OpenAI — production BASE_MODEL)
+ *   - `gpt-6.1-sol` (OpenAI — production BASE_MODEL)
+ *   - `gpt-5.6-sol` (OpenAI — prior Sol peer)
  *   - `gpt-5.4-mini` (OpenAI — historical peer)
  *   - `claude-sonnet-4.6` (Anthropic Sonnet peer)
  *   - `gemini-2.5-flash` (Google Gemini peer; chat/completions only)
@@ -54,7 +55,7 @@ export type ServCompareBaseModelId = (typeof SERV_COMPARE_BASE_MODEL_IDS)[number
  */
 export const SERV_COMPARE_FAIR_SLATE = [
   {
-    id: "gpt-5.6-sol",
+    id: "gpt-6.1-sol",
     provider: "openai" as const,
     role: "baseline_production_default" as const,
     /** scout_plan profile endpoint. */
@@ -63,6 +64,16 @@ export const SERV_COMPARE_FAIR_SLATE = [
     protocolNotes: [
       "Production BASE_MODEL (shared default for all SERV steps).",
       "Harness does not change production BASE_MODEL / SERV_MODEL.",
+    ],
+  },
+  {
+    id: "gpt-5.6-sol",
+    provider: "openai" as const,
+    role: "historical_peer" as const,
+    requiredEndpoint: "chat" as const,
+    docsSource: "https://docs.openserv.ai/serv-reasoning/models",
+    protocolNotes: [
+      "Prior Sol default — kept as compare peer, not the shared BASE_MODEL.",
     ],
   },
   {

@@ -141,7 +141,7 @@ Stripe test card: `4242 4242 4242 4242`. Forward webhooks to `POST /api/stripe/w
 | --- | --- |
 | `AUTODEV_API_KEY` | Auto.dev listings |
 | `SERV_API_KEY` | OpenServ SERV Reasoning |
-| `SERV_MODEL` | Default `gpt-5.6-sol` (shared BASE_MODEL for all SERV steps) |
+| `SERV_MODEL` | Default `gpt-6.1-sol` (shared BASE_MODEL for all SERV steps) |
 | `SERV_BASE_URL` | Default `https://inference-api.openserv.ai/v1` |
 | `STRIPE_SECRET_KEY` | Must start with `sk_test_` |
 | `STRIPE_WEBHOOK_SECRET` | Webhook signature |

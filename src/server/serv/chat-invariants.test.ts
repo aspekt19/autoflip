@@ -3,8 +3,8 @@ import { BASE_MODEL, requestFor } from "./index";
 import { PROFILES } from "./profiles";
 
 describe("SERV shared default + chat/non-stream invariants", () => {
-  it("defaults BASE_MODEL to gpt-5.6-sol for all steps", () => {
-    expect(BASE_MODEL).toBe("gpt-5.6-sol");
+  it("defaults BASE_MODEL to gpt-6.1-sol for all steps", () => {
+    expect(BASE_MODEL).toBe("gpt-6.1-sol");
   });
 
   it("resale/radar/agent product profiles request chat/completions and non-stream when shadow is on", () => {

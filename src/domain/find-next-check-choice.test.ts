@@ -68,7 +68,7 @@ describe("find next-check choice allowlist alignment", () => {
     expect(clampFindNextCheckChoice("invent_best_car", allowed).clamped).toBeNull();
   });
 
-  it("Find profile accepts Sonnet override; shared default is gpt-5.6-sol; Fable blocked", () => {
+  it("Find profile accepts Sonnet override; shared default is gpt-6.1-sol; Fable blocked", () => {
     const sonnet = resolveProfileBaseModel("find_next_check", {
       env: { SERV_PROFILE_MODEL_FIND_NEXT_CHECK: "claude-sonnet-5.5" },
     });
@@ -78,11 +78,11 @@ describe("find next-check choice allowlist alignment", () => {
     expect(sonnet.overrideActive).toBe(true);
 
     const sol = resolveProfileBaseModel("find_next_check", {
-      env: { SERV_PROFILE_MODEL_FIND_NEXT_CHECK: "gpt-5.6-sol" },
+      env: { SERV_PROFILE_MODEL_FIND_NEXT_CHECK: "gpt-6.1-sol" },
     });
     expect(sol.ok).toBe(true);
     if (!sol.ok) return;
-    expect(sol.baseId).toBe("gpt-5.6-sol");
+    expect(sol.baseId).toBe("gpt-6.1-sol");
     // Same id as BASE_MODEL — not an override of the shared default.
     expect(sol.overrideActive).toBe(false);
 
@@ -93,6 +93,6 @@ describe("find next-check choice allowlist alignment", () => {
     const shared = resolveProfileBaseModel("find_next_check", { env: {} });
     expect(shared.ok).toBe(true);
     if (!shared.ok) return;
-    expect(shared.baseId).toBe("gpt-5.6-sol");
+    expect(shared.baseId).toBe("gpt-6.1-sol");
   });
 });

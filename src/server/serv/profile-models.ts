@@ -1,7 +1,7 @@
 /**
  * Reversible per-profile SERV model configuration (t317).
  *
- * Production default is BASE_MODEL (`gpt-5.6-sol`) for all SERV steps.
+ * Production default is BASE_MODEL (`gpt-6.1-sol`) for all SERV steps.
  * Parent may opt a single profile onto an allowlisted candidate (e.g. Sonnet 5.5
  * for scout_plan) via env without a blanket BASE_MODEL flip.
  *
@@ -9,7 +9,7 @@
  *   1. SERV_PROFILE_MODEL_<PROFILE> (e.g. SERV_PROFILE_MODEL_SCOUT_PLAN=claude-sonnet-5.5)
  *      — beats global SERV_MODEL so Sonnet can be tried on scout_plan alone
  *   2. Explicit caller `requested` (deps.model / safe-execute SERV_MODEL)
- *   3. BASE_MODEL (shared production default — gpt-5.6-sol)
+ *   3. BASE_MODEL (shared production default — gpt-6.1-sol)
  *
  * Unlisted ids fail closed unless SERV_PROFILE_MODEL_ALLOW_UNLISTED=1.
  */
@@ -23,41 +23,41 @@ import { BASE_MODEL, modelFor, type ProfileId } from "./profiles";
  */
 export const SERV_PROFILE_MODEL_CANDIDATES: Partial<Record<ProfileId, readonly string[]>> = {
   scout_plan: [
+    "gpt-6.1-sol",
     "gpt-5.6-sol",
     "gpt-5.4-mini",
     "claude-sonnet-5.5",
     "claude-sonnet-4.6",
     "claude-fable-5",
-    "gpt-6.1-sol",
     "claude-opus-5.5",
     "gemini-2.5-flash",
     "gemini-3.1-pro-preview",
   ],
   // Fable EXCLUDED (owner): Sonnet/GPT first-class via SERV_PROFILE_MODEL_FIND_NEXT_CHECK.
   find_next_check: [
+    "gpt-6.1-sol",
     "gpt-5.6-sol",
     "gpt-5.4-mini",
     "claude-sonnet-5.5",
     "claude-sonnet-4.6",
-    "gpt-6.1-sol",
     "claude-opus-5.5",
   ],
   need_extract: [
+    "gpt-6.1-sol",
     "gpt-5.6-sol",
     "gpt-5.4-mini",
     "claude-sonnet-5.5",
     "claude-sonnet-4.6",
     "claude-fable-5",
-    "gpt-6.1-sol",
     "claude-opus-5.5",
   ],
   verdict_decide: [
+    "gpt-6.1-sol",
     "gpt-5.6-sol",
     "gpt-5.4-mini",
     "claude-sonnet-5.5",
     "claude-sonnet-4.6",
     "claude-fable-5",
-    "gpt-6.1-sol",
     "claude-opus-5.5",
   ],
 };

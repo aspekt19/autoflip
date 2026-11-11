@@ -3,7 +3,7 @@ import { BASE_MODEL } from "./profiles";
 import { resolveProfileBaseModel } from "./profile-models";
 
 describe("resolveProfileBaseModel (t317 reversible Sonnet path)", () => {
-  it("defaults to production BASE_MODEL (gpt-5.6-sol) with no override", () => {
+  it("defaults to production BASE_MODEL (gpt-6.1-sol) with no override", () => {
     const r = resolveProfileBaseModel("scout_plan", { env: {} });
     expect(r.ok).toBe(true);
     if (!r.ok) return;
