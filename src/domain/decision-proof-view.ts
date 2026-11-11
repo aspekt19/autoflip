@@ -144,6 +144,14 @@ export function decisionPurposeLabel(purpose: string): string {
       return "Next check choice";
     case "find_pick":
       return "Find pick";
+    case "facts_given":
+      return "Facts given";
+    case "find_triage":
+      return "Triage shortlist";
+    case "find_decide":
+      return "SERV decision";
+    case "find_challenge":
+      return "Second check";
     case "resale_plan_search":
       return "Resale search plan";
     case "resale_triage":
@@ -182,6 +190,23 @@ export function formatDecisionRecordConsumerLine(record: DecisionProofRecord): s
       return verdict
         ? `Our AI picked this car because of the checks on file (${verdict}).`
         : "Our AI picked a car from the shortlist.";
+    case "facts_given":
+      return failed
+        ? "Code could not finish gathering the public-record facts."
+        : "Code gathered the public-record facts used for this decision.";
+    case "find_triage":
+      if (failed) return "Our AI could not finish the triage shortlist.";
+      return "Our AI shortlisted a few cars from the full pool.";
+    case "find_decide":
+      if (failed) return "Our AI could not finish the SERV decision.";
+      return verdict
+        ? `Our AI’s decision: ${verdict}.`
+        : "Our AI reviewed the shortlist and chose what to do next.";
+    case "find_challenge":
+      if (failed) return "The second AI check did not finish.";
+      if (verdict && /agree|confirm|same/i.test(verdict)) return "Second AI check agreed.";
+      if (verdict) return `Second AI check: ${verdict}.`;
+      return "A second AI check reviewed the first decision.";
     case "verdict_decide":
       if (failed) return "The first AI decision did not finish.";
       return verdict

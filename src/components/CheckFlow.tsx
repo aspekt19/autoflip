@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
-import { ConsumerDecisionProof } from "@/components/ConsumerDecisionProof";
+import { ServDecisionJournal } from "@/components/ServDecisionJournal";
 import { SignInGate } from "@/components/SignInGate";
 import { PriceBadgeView, PriceRatingHow } from "@/components/PriceBadge";
 import { SimilarCarsList } from "@/components/SimilarCarsList";
@@ -694,37 +694,35 @@ function CheckResultCard({
         <p className="hint">Price note (not a buy signal while marked SOLD): {result.badge.deltaLabel}</p>
       ) : null}
       <p>{result.summary}</p>
-      <ConsumerDecisionProof
-        records={result.proofRecords}
-        verdict={result.agentVerdict}
-        confidenceWhy={result.confidenceWhy ?? null}
-        savedRunAt={result.fromCache ? result.settledAt ?? null : null}
-        proofExtra={
-          result.servTrace && result.servTrace.calls.length > 0 ? (
-            <section aria-label="Recorded agent calls">
-              <h3>Recorded agent calls</h3>
-              <p className="hint">
-                Recorded {result.servTrace.recordedAt}
-                {result.servTrace.model ? ` · ${result.servTrace.model}` : ""}
-              </p>
-              {result.servTrace.calls.map((call) => {
-                const responseId = call.ok ? providerResponseId(call.responseId) : null;
-                return (
-                  <article key={`${call.profile}-${responseId ?? call.error ?? "call"}`}>
-                    <p>
-                      <strong>{call.profile}</strong>
-                      {call.model ? ` · ${call.model}` : ""}
-                      {responseId ? ` · ${responseId}` : ""}
-                    </p>
-                    {call.rawResponse ? <pre>{call.rawResponse}</pre> : null}
-                    {call.error ? <p className="hint">{call.error}</p> : null}
-                  </article>
-                );
-              })}
-            </section>
-          ) : null
-        }
+      <ServDecisionJournal
+        agentVerdict={result.agentVerdict}
+        proofRecords={result.proofRecords}
+        defaultOpen
+        verifyId={result.settledAt ? `check-${result.settledAt}` : null}
       />
+      {result.servTrace && result.servTrace.calls.length > 0 ? (
+        <section aria-label="Recorded agent calls">
+          <h3>Recorded agent calls</h3>
+          <p className="hint">
+            Recorded {result.servTrace.recordedAt}
+            {result.servTrace.model ? ` · ${result.servTrace.model}` : ""}
+          </p>
+          {result.servTrace.calls.map((call) => {
+            const responseId = call.ok ? providerResponseId(call.responseId) : null;
+            return (
+              <article key={`${call.profile}-${responseId ?? call.error ?? "call"}`}>
+                <p>
+                  <strong>{call.profile}</strong>
+                  {call.model ? ` · ${call.model}` : ""}
+                  {responseId ? ` · ${responseId}` : ""}
+                </p>
+                {call.rawResponse ? <pre>{call.rawResponse}</pre> : null}
+                {call.error ? <p className="hint">{call.error}</p> : null}
+              </article>
+            );
+          })}
+        </section>
+      ) : null}
 
       {sold ? (
         <p className="warn" role="status">

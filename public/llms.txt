@@ -21,6 +21,16 @@ Same object on site, MCP, and `af_` REST: `schemaVersion`, `purpose`, `rubricId`
 - `find_cars_result` / Find settle: need-parse + verdict rows from the run.
 - `deal_radar`: always exactly one `radar_guard` row (`ok`, `skipped` when the key is missing, or `failed` with the real reason).
 
+## Visible decision step (`lemonless.serv_decision_step.v1`)
+Buyer journal unit on Find / Check / Resale / report: `step`, `by` (`SERV`|`code`), `modelId`, `runId`, `timestamp`, `inputSummary`, `output`, `latencyMs`, `costUsd`, `status` (`ran`|`skipped`|`failed`|`not_run`).
+Producers emit steps via proof records; see `src/server/serv/decision-step-producer.ts` plug-in points. UI title: “How this decision was made”.
+
+## Audit / verify
+- Each sealed report: sha256 report hash + hash-linked decision chain (`lemonless.decision_audit_chain.v1`).
+- `GET /api/verify?id=` · `POST /api/verify` · public page `/verify`
+- Live aggregates (sealed trails only): `GET /api/serv-stats` · `/where-serv-runs`
+- Comparison scaffold (committed provenance only): `/proof`
+
 ## REST
 - `POST /api/v1/check` — same as check_car (includes `proofRecords`)
 - `POST /api/v1/find` → 202 `{ run_id }` ; `GET /api/v1/find/{run_id}/status` ; `GET /api/v1/find/{run_id}` (includes `proofRecords` when completed)
@@ -32,6 +42,7 @@ Same object on site, MCP, and `af_` REST: `schemaVersion`, `purpose`, `rubricId`
 - /openapi.json
 - /llms-full.txt
 - /developers (curl + MCP config + OpenServ auth note)
+- /where-serv-runs · /proof · /verify
 
 ## Errors
 Every 4xx/5xx includes `error_code`, `message`, `credit_spent`, `retry_safe`, and `next_steps.request` (method/url/body).

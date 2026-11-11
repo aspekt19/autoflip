@@ -15,13 +15,14 @@ import { summaryLine } from "@/domain/summary-line";
 import { formatNumber, formatPct, formatUsd, verdictLabel } from "@/domain/format";
 import type { DecisionScene } from "@/domain/decision-note";
 import type { FullReport } from "@/domain/types";
-import { AgentDecisionTrail } from "./AgentDecisionTrail";
 import { DecisionNote } from "./DecisionNote";
+import { ServDecisionJournal } from "./ServDecisionJournal";
 import { resolveProductFlags } from "@/domain/product-flags";
 import { FavoriteButton } from "./FavoriteButton";
 import { PurchaseReadinessNote } from "./PurchaseReadinessNote";
 import { SimilarCarsList } from "./SimilarCarsList";
 import { omitQuestionsCoveredByTalkingPoints, purchaseReadinessForReport } from "@/domain/purchase-readiness";
+import { hashReport } from "@/domain/decision-audit-chain";
 
 export function ReportView({ report }: { report: FullReport }) {
   const { computed } = report;
@@ -122,7 +123,12 @@ export function ReportView({ report }: { report: FullReport }) {
           ) : null}
         </div>
       ) : null}
-      <AgentDecisionTrail verdict={computed.agentVerdict} defaultOpen={computed.sample === true} />
+      <ServDecisionJournal
+        agentVerdict={computed.agentVerdict}
+        defaultOpen={computed.sample === true}
+        verifyId={report.id}
+        reportHash={hashReport(report)}
+      />
       <CoverageNote
         input={{
           mode: computed.mode,
@@ -159,13 +165,13 @@ export function ReportView({ report }: { report: FullReport }) {
             <b>Ordered gates:</b>{" "}
             {computed.decision?.gates?.length
               ? computed.decision.gates.map((gate) => `${plainBuyerPhrase(gate.id)} (${plainGateStatus(gate.status)})`).join(" → ")
-              : "not recorded on this saved report"}
+              : "Ordered gates did not run on this saved report"}
             .
           </li>
           <li>
             <b>AI review:</b>{" "}
             {(report.proof.servChecks ?? []).map((check) => formatBuyerServCheckSummary(check)).join("; ") ||
-              "no AI review steps recorded (template or offline report)"}
+              "AI review steps did not run for this report"}
             .
           </li>
           <li>

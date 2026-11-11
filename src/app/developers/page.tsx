@@ -19,17 +19,26 @@ export default function DevelopersPage() {
         </p>
 
         <section>
-          <h2>What each tool costs</h2>
+          <h2>MCP / API tools</h2>
+          <p>
+            Public discovery: <a href="/llms.txt">/llms.txt</a>, <a href="/openapi.json">/openapi.json</a>,{" "}
+            <a href="/.well-known/agent.json">/.well-known/agent.json</a>. Transparency:{" "}
+            <a href="/where-serv-runs">/where-serv-runs</a>, <a href="/proof">/proof</a>,{" "}
+            <a href="/verify">/verify</a>.
+          </p>
           <ul>
             <li>
-              <code>check_car</code> / <code>POST /api/v1/check</code> — free monthly Check allotment when available, else 1 report credit after success. Scope: <code>check</code>.
+              <code>check_car</code> / <code>POST /api/v1/check</code> — free monthly Check allotment when available, else 1 report credit after success. Scope: <code>check</code>. Returns <code>proofRecords</code>.
             </li>
             <li>
-              <code>find_cars</code> / <code>POST /api/v1/find</code> — async; 1 report credit after a successful search. Scope: <code>find</code>.
+              <code>find_cars</code> / <code>POST /api/v1/find</code> — async; 1 report credit after a successful search. Scope: <code>find</code>. Result includes <code>proofRecords</code>.
             </li>
             <li>
               <code>deal_radar</code> is a one-shot listing scan under scope <code>read</code> — it does not create a saved watch and does not unlock Deal Radar. Saved watches require a paid Radar ($100/mo) or Radar Pro ($250/mo) plan on the signed-in{" "}
               <a href="/radar">Deal Radar</a> page; full report still costs 1 credit. <code>full_report</code> costs 1 credit (scope <code>check</code>).
+            </li>
+            <li>
+              Resale search is the site <a href="/resale">/resale</a> flow (1 credit) with the same decision-proof journal shape when SERV settle runs. Agent MCP exposure for resale follows the same <code>proofRecords</code> contract when enabled on the server.
             </li>
           </ul>
           <p>
