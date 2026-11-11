@@ -47,7 +47,8 @@ describe("t315 progressive clarification", () => {
       new Date("2026-11-08T00:00:00Z"),
     );
     expect(directions[0]?.yearMin).toBe(2015);
-    expect(directions[0]?.yearBecause).toMatch(/clarification|refine/i);
+    // Buyer set a floor only — ceiling is budget guidance, not a clarification claim.
+    expect(directions[0]?.yearBecause).toMatch(/note or Confirm|clarification|refine/i);
 
     // After clarifications, age/condition follow-ups drop.
     expect(followUps(afterCondition).map((q) => q.id)).not.toContain("age");

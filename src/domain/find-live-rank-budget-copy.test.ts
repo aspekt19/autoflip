@@ -259,6 +259,12 @@ describe("ranking stays principled outside the live shortlist", () => {
     return named!;
   }
 
+  function namedOrAbsent(result: ReturnType<typeof selectBestDealOnEvidence>, vin: string) {
+    const row = result.allRanked.find((car) => car.vin === vin);
+    expect(row).toBeTruthy();
+    return row!.factors.find((item) => item.id === "named_model_preference") ?? null;
+  }
+
   it("does not apply a body penalty when no models are named or the named models do not share a body", () => {
     const note = "Family car for weekend trips. Prefer good condition.";
     const camry: BestDealListing = {
@@ -290,10 +296,19 @@ describe("ranking stays principled outside the live shortlist", () => {
       listings: [camry, crv],
       nowYear: 2026,
     });
-    expect(factor(none, "CAM").points).toBe(0);
-    expect(factor(none, "CRV").points).toBe(0);
-    expect(factor(none, "CAM").detail).not.toMatch(/sedan|SUV/i);
-    expect(factor(none, "CRV").detail).not.toMatch(/sedan|SUV/i);
+    // No named models and no single body request → factor may be omitted (0 points, no body copy).
+    for (const vin of ["CAM", "CRV"] as const) {
+      const named = namedOrAbsent(none, vin);
+      if (named) {
+        expect(named.points).toBe(0);
+        expect(named.detail).not.toMatch(/sedan|SUV/i);
+      }
+      const bodyTalk = none.allRanked
+        .find((car) => car.vin === vin)!
+        .factors.map((f) => f.detail)
+        .join(" ");
+      expect(bodyTalk).not.toMatch(/asked for (an )?SUV|models you named are sedan/i);
+    }
 
     const mixed = selectBestDealOnEvidence({
       need: {

@@ -495,7 +495,7 @@ describe("A4 four-state recalls", () => {
       riskFacts: { ...receipt.riskFacts!, recallsAvailable: true, campaignCountReported: 0, parkIt: false, parkOutside: false },
     };
     expect(recallEvidenceState(confirmed)).toBe("none_found");
-    expect(formatBuyerReceiptLine(confirmed)).toMatch(/No recall campaigns on file/);
+    expect(formatBuyerReceiptLine(confirmed)).toMatch(/No safety recalls on file/);
     expect(formatBuyerReceiptLine(confirmed)).not.toMatch(/\b0\b/);
 
     const withEmpty = selectBestDealOnEvidence({

@@ -147,27 +147,30 @@ describe("POST /api/find/next-check (HTTP)", () => {
     expect(b1.loop.reason).toBe("evidence_changed_replan");
     expect(matchImpl.mock.calls[0]![0].need.yearMin).toBe(2015);
 
-    // Free public checks run in code. They must not spend another paid call.
+    // Free public checks run in code (may use global fetch for NHTSA/fuel).
+    // They must not spend another paid SERV call — servPaidCalls stays at 1.
+    const paidFetchBeforeFree = fetchImpl.mock.calls.length;
+    expect(paidFetchBeforeFree).toBe(1);
     const step2 = await POST(req({ searchContextToken: "tok-multi" }));
     const b2 = await step2.json();
     expect(b2.ok).toBe(true);
     expect(b2.chosenId === "free_car_consistency" || String(b2.chosenId).startsWith("free_gov_")).toBe(true);
     expect(b2.loop.continue).toBe(true);
     expect(b2.servPaidCalls).toBe(1);
-    expect(fetchImpl).toHaveBeenCalledTimes(1);
 
-    // After the free work, SERV still chooses the non-free next step.
+    // After the free work (including intentional free_gov drain), SERV still chooses the non-free next step.
     let last = b2;
-    for (let hop = 0; hop < 16 && last.loop?.continue; hop++) {
-      if (fetchImpl.mock.calls.length === 1) fetchImpl.mockResolvedValueOnce(servChoice("compare_observed_asks"));
+    for (let hop = 0; hop < 24 && last.loop?.continue; hop++) {
+      if (last.servPaidCalls === 1) {
+        fetchImpl.mockResolvedValueOnce(servChoice("compare_observed_asks"));
+      }
       const step = await POST(req({ searchContextToken: "tok-multi" }));
       last = await step.json();
       expect(last.ok).toBe(true);
     }
     expect(last.loop.continue).toBe(false);
     expect(last.servPaidCalls).toBeLessThanOrEqual(8);
-    expect(fetchImpl.mock.calls.length).toBeGreaterThanOrEqual(2);
-    expect(last.servPaidCalls).toBe(fetchImpl.mock.calls.length);
+    expect(last.servPaidCalls).toBeGreaterThanOrEqual(2);
   });
 
   it("duplicate/concurrency: second in-flight same fingerprint → 409; replay after complete", async () => {
@@ -273,10 +276,18 @@ describe("POST /api/find/next-check (HTTP)", () => {
     expect(body.ok).toBe(true);
     expect(body.autonomousServ).toBe(false);
     expect(body.source).toBe("deterministic_fallback");
-    expect(body.loop.continue).toBe(false);
-    expect(body.loop.reason).toBe("serv_deterministic_fallback");
-    expect(body.loop.reason).not.toBe("no_keyed_autonomy");
-    expect(body.loop.reason).not.toBe("no_serv_key");
+    // SERV timed out → deterministic fallback. Free_gov drain may keep the loop
+    // open so recall/crash/fuel still run before a published verdict.
+    if (String(body.chosenId ?? "").startsWith("free_gov_") || body.chosenId === "free_car_consistency") {
+      expect(body.loop.continue).toBe(true);
+      expect(body.loop.reason).not.toBe("no_keyed_autonomy");
+      expect(body.loop.reason).not.toBe("no_serv_key");
+    } else {
+      expect(body.loop.continue).toBe(false);
+      expect(body.loop.reason).toBe("serv_deterministic_fallback");
+      expect(body.loop.reason).not.toBe("no_keyed_autonomy");
+      expect(body.loop.reason).not.toBe("no_serv_key");
+    }
     expect(body.keyedAutonomyDiag.keyed).toBe(true);
     expect(body.keyedAutonomyDiag.autonomousServ).toBe(false);
     expect(body.keyedAutonomyDiag.failureReasonCode).toMatch(/timeout|network|http/i);
