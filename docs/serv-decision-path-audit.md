@@ -8,7 +8,7 @@ Eval harness (no paid calls by default): `scripts/eval-serv-vs-baseline.ts --dry
 
 | Surface | SERV step | Call site | Changes finalAction / pick / checks? | Notes |
 |---------|-----------|-----------|--------------------------------------|-------|
-| Find need parse | `need_guard` / `need_extract` | `understandNeed` | Criteria / need fields (clamped) | UI: `DecisionRecordList` in `AssistantFlow.tsx`. Resale `/api/need` also calls this but drops `proofRecords` in UI |
+| Find need parse | `find_plan` (C1; replaces `need_guard` / `need_extract`) | `understandNeed` | FindPlan → StructuredNeed (quotes/numbers/models clamped) | UI: `DecisionRecordList` in `AssistantFlow.tsx`. Resale `/api/need` also calls this but drops `proofRecords` in UI |
 | Find next-check | `find_next_check` | `runFindNextCheckLive` → orchestrator | **Yes — which check runs** (allowlist clamp) | Deterministic fallback when SERV unavailable. UI filters for `find_next_check` proofs but live path does not yet emit `DecisionProofRecord` for that purpose. Free-gov open can override executed check away from SERV choice |
 | Find settle | `verdict_decide` + `verdict_challenge` | `runFindSettleServ` → `runShopperVerdictServ` | **Yes — Buy/Negotiate/Pass** via `finalAction`; **pick stays code ranking** | Challenge disagreement applies under guardrails |
 | Resale plan/pick/challenge | `resale_*` | `runResaleSettleServ` | **Yes — VIN pick / challenge** among allowlisted VINs | Journal: `ResaleDecisionJournalView` |

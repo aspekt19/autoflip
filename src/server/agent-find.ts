@@ -321,15 +321,21 @@ export async function advanceAgentFindRun(
     await mark(fresh, "settling", "settling");
     await saveRun(deps.kv, fresh);
 
-    const spent = await creditSpend(deps.kv, fresh.user_id, fresh.spend_key);
-    if (!spent.ok && !(await creditEventSeen(deps.kv, fresh.spend_key))) {
-      fresh.error = insufficientCreditsEnvelope(deps.origin, spent.balance);
-      await mark(fresh, "failed", "failed");
-      await saveRun(deps.kv, fresh);
-      return fresh;
-    }
-
     const listings = match.body.directions.flatMap((group) => group.listings);
+    // Charge only when cars were delivered (same gate as /api/match REPORT_356a).
+    const providerQueriesUsed =
+      typeof match.body.providerQueriesUsed === "number" ? match.body.providerQueriesUsed : 0;
+    const delivered =
+      listings.length > 0 && providerQueriesUsed > 0 && !match.body.emptyReason;
+    if (delivered) {
+      const spent = await creditSpend(deps.kv, fresh.user_id, fresh.spend_key);
+      if (!spent.ok && !(await creditEventSeen(deps.kv, fresh.spend_key))) {
+        fresh.error = insufficientCreditsEnvelope(deps.origin, spent.balance);
+        await mark(fresh, "failed", "failed");
+        await saveRun(deps.kv, fresh);
+        return fresh;
+      }
+    }
     const top = listings.slice(0, 8).map((row) => ({
       vin: row.vin,
       year: row.year,

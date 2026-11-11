@@ -12,7 +12,7 @@ import {
   type NoteMarks,
 } from "@/domain/find-intake-stage";
 import { resolveLocationZip, zipFieldMark, type LocationZipResolution } from "@/domain/city-to-zip";
-import { intakeFromNote, NOTE_DEFAULT_RADIUS_WHEN_ZIP } from "@/domain/note-intake";
+import { intakeFromNote, isNearMePhrase, NOTE_DEFAULT_RADIUS_WHEN_ZIP } from "@/domain/note-intake";
 import { criteriaParseLabel } from "@/domain/radar-criteria-provenance";
 import { FOLLOW_HINT } from "@/domain/intake-copy";
 import Link from "next/link";
@@ -26,9 +26,10 @@ import {
 import type { DecisionProof } from "@/domain/decision-note";
 import type { DecisionProofRecord } from "@/domain/decision-proof-view";
 import type { SearchDirection } from "@/domain/directions";
+import type { FindPlan } from "@/domain/find-plan";
 import { CoverageLine } from "./CoverageNote";
 import { DecisionNote } from "./DecisionNote";
-import { DecisionRecordList } from "./DecisionRecord";
+import { ConsumerDecisionProof } from "./ConsumerDecisionProof";
 import { decideAfFlowRestore, resumeFindSearchFromFlow } from "@/domain/af-flow-session";
 import {
   resolveManualCheckHandoff,
@@ -36,7 +37,7 @@ import {
   type FindAnalysisPayload,
 } from "@/domain/find-analysis-handoff";
 import { buyerFacingFailure } from "@/domain/buyer-facing-error";
-import { publishCreditBalance } from "@/domain/credit-balance-event";
+import { publishCreditBalance, refreshPublishedCreditBalance } from "@/domain/credit-balance-event";
 import { isReportHardRefusal, reportRefusalUserMessage } from "@/domain/report-refusal-ui";
 import { findEmptyCopy, type FindEmptyReason } from "@/domain/find-empty";
 import type { FindListingPriceView } from "@/domain/find-listing-price";
@@ -83,7 +84,6 @@ import {
   type DecisionCarLabel,
   type FindDecisionLogEntry,
 } from "@/domain/find-decision-log";
-import { AgentDecisionTrail } from "@/components/AgentDecisionTrail";
 import { formatFindFuelEvidenceShort, fuelFactFromFindEvidence } from "@/domain/find-fuel-match";
 import { buildGroundedShortlist } from "@/domain/find-path";
 import {
@@ -103,7 +103,8 @@ import {
   type ReadinessCar,
 } from "@/domain/purchase-readiness";
 import { PurchaseReadinessNote } from "./PurchaseReadinessNote";
-import { buyerListingHref, matchBuyerListing } from "@/domain/find-listing-link";
+import { matchBuyerListing } from "@/domain/find-listing-link";
+import { buyerDealerListingLink } from "@/domain/listing-vdp-verifiability";
 import { mmyListingKey } from "@/domain/find-risk-evidence";
 import {
   ageGapBuyerHonesty,
@@ -270,6 +271,9 @@ function AssistantFlow({
   );
   const [checks, setChecks] = useState<DecisionProof[]>([]);
   const [proofRecords, setProofRecords] = useState<DecisionProofRecord[]>([]);
+  /** C1 find_plan from /api/need — summary + directions for Confirm / match. */
+  const [findPlan, setFindPlan] = useState<FindPlan | null>(null);
+  const [planDirections, setPlanDirections] = useState<SearchDirection[] | null>(null);
   /** Buyer-facing line while a next-check hop is in flight (never a stale spinner sentence). */
   const [pendingCheckLabel, setPendingCheckLabel] = useState<string | null>(null);
   /** Home/deep-link free text used to skip /api/need; fire SERV parse once on entry. */
@@ -443,6 +447,8 @@ function AssistantFlow({
       const body = (await response.json()) as {
         source?: "model" | "form";
         need?: StructuredNeed;
+        findPlan?: FindPlan;
+        directions?: SearchDirection[];
         followUps?: FollowUp[];
         checks?: DecisionProof[];
         message?: string;
@@ -454,6 +460,10 @@ function AssistantFlow({
         return;
       }
       const finalNeed = body.need;
+      if (body.findPlan) setFindPlan(body.findPlan);
+      if (Array.isArray(body.directions) && body.directions.length > 0) {
+        setPlanDirections(body.directions);
+      }
       // Provenance from the note text only — never treat a city-resolved ZIP as “from your note”.
       const intake = intakeFromNote(text);
       const loc = resolveLocationZip({
@@ -1070,13 +1080,20 @@ function AssistantFlow({
           ? { continue: Boolean(body.loop.continue), reason: body.loop.reason ?? "" }
           : null,
       });
+      const shortlistEmpty = !(serverBestDeal?.ranked?.length);
       const settleBit = toolCov
         ? buyerCheckActivityLine({
             anyUnchecked: Boolean(toolCov.anyUnchecked),
             continuing: willContinue,
+            shortlistEmpty,
           })
         : null;
-      const progressLine = [step, status, settleBit].filter(Boolean).join(" ");
+      // Drop contradictory “not running” + “caught up/stopped” pairs when unchecked remain.
+      const progressParts = [step, status, settleBit].filter(Boolean) as string[];
+      const progressLine =
+        toolCov?.anyUnchecked && status && /stopped on the current evidence|caught up/i.test(status)
+          ? progressParts.filter((part) => part !== status).join(" ")
+          : progressParts.join(" ");
       setNextCheckNote(progressLine);
       setPendingCheckLabel(
         findNextCheckPendingLabel({ pending: true, auto: Boolean(opts?.auto), progressLine }),
@@ -1192,6 +1209,7 @@ function AssistantFlow({
             error?: string;
           };
           if (typeof matchBody.balance === "number") publishCreditBalance(matchBody.balance);
+          else void refreshPublishedCreditBalance();
           if (
             matchResponse.status === 401 ||
             (matchResponse.status === 403 &&
@@ -1279,7 +1297,13 @@ function AssistantFlow({
       setError("Add a ZIP for a seller-distance radius, or choose Nationwide.");
       return;
     }
-    if (need.distanceMiles == null && !need.zip && (need.locationPhrase || noteMarks?.location)) {
+    // "near me" without a city/ZIP: ZIP is optional — blank continues nationwide.
+    if (
+      need.distanceMiles == null &&
+      !need.zip &&
+      (need.locationPhrase || noteMarks?.location) &&
+      !isNearMePhrase(need.locationPhrase)
+    ) {
       setError(
         `Your note mentioned ${need.locationPhrase ?? "a place"}. Add a U.S. ZIP to search nearby, or leave ZIP blank for Nationwide.`,
       );
@@ -1324,6 +1348,8 @@ function AssistantFlow({
         body: JSON.stringify({
           need,
           searchIdempotencyKey,
+          // C1 plan directions — skip proposeDirections collapse when present.
+          ...(planDirections && planDirections.length > 0 ? { directions: planDirections } : {}),
           refine: {
             make: make.trim() || undefined,
             model: model.trim() || undefined,
@@ -1349,6 +1375,7 @@ function AssistantFlow({
         error?: string;
       };
       if (typeof body.balance === "number") publishCreditBalance(body.balance);
+      else void refreshPublishedCreditBalance();
       if (
         response.status === 401 ||
         (response.status === 403 &&
@@ -2082,6 +2109,19 @@ function AssistantFlow({
                 ? "This is only what you typed and the words we could match. Your ZIP has no radius — search runs Nationwide (sorted by distance to that ZIP when the feed provides it). Pick miles below to narrow, or leave Nationwide. We did not invent a default radius."
                 : "This is only what you typed and the words we could match. Nothing was invented."}
           </p>
+          {findPlan?.summary ? (
+            <p className="onboarding-note" aria-label="Plan summary">
+              {findPlan.summary}
+            </p>
+          ) : null}
+          {source === "form" && findPlan?.summary ? (
+            <p className="hint">Lemonless AI was unavailable. We searched by budget and body style.</p>
+          ) : null}
+          {findPlan?.question?.id === "zip" && findPlan.question.text ? (
+            <p className="hint" role="status">
+              {findPlan.question.text}
+            </p>
+          ) : null}
           <div className="field">
             <label htmlFor="note">Your note</label>
             <textarea id="note" rows={3} value={need.note} onChange={(event) => setNeed({ ...need, note: event.target.value })} />
@@ -2119,7 +2159,13 @@ function AssistantFlow({
             zip={need.zip ?? ""}
             zipMark={
               zipFieldMark(locationResolution) ??
-              (noteMarks?.zip ? "from your note" : locationResolution?.needed || (need.locationPhrase && !need.zip) ? "needed" : null)
+              (noteMarks?.zip
+                ? "from your note"
+                : isNearMePhrase(need.locationPhrase) && !need.zip
+                  ? "optional — near me"
+                  : locationResolution?.needed || (need.locationPhrase && !need.zip)
+                    ? "needed"
+                    : null)
             }
             distanceMiles={need.distanceMiles}
             onZipChange={(nextZip) => {
@@ -2136,7 +2182,12 @@ function AssistantFlow({
                 trimmed
                   ? { zip: trimmed, from: "note_zip", needed: false, cityLabel: null }
                   : need.locationPhrase
-                    ? { zip: null, from: null, needed: true, cityLabel: need.locationPhrase }
+                    ? {
+                        zip: null,
+                        from: null,
+                        needed: !isNearMePhrase(need.locationPhrase),
+                        cityLabel: need.locationPhrase,
+                      }
                     : null,
               );
               setRadiusIsDefault(false);
@@ -2152,6 +2203,10 @@ function AssistantFlow({
             <p className="hint" role="note">
               Seller distance {need.distanceMiles} mi is the default for {need.locationPhrase ?? "your city"} — change it if you want a different radius.
             </p>
+          ) : isNearMePhrase(need.locationPhrase) && !need.zip ? (
+            <p className="hint" role="note">
+              Your note said near me. Add a U.S. ZIP to search nearby, or leave ZIP blank to search nationwide.
+            </p>
           ) : need.locationPhrase && !need.zip ? (
             <p className="hint" role="note">
               Your note mentioned {need.locationPhrase}. Add a U.S. ZIP (needed) to search nearby, or choose Nationwide.
@@ -2164,7 +2219,12 @@ function AssistantFlow({
           <MilesDraftField
             milesMax={need.milesMax}
             marked={Boolean(noteMarks?.miles)}
-            onCommit={(next) => setNeed({ ...need, milesMax: next.milesMax, milesCapResolved: next.milesCapResolved })}
+            onCommit={(next) => {
+              setNeed({ ...need, milesMax: next.milesMax, milesCapResolved: next.milesCapResolved });
+              if (noteMarks?.miles) {
+                setNoteMarks({ ...noteMarks, miles: false });
+              }
+            }}
           />
           <YearFloorField
             yearMin={need.yearMin}
@@ -2179,6 +2239,14 @@ function AssistantFlow({
             }}
           />
           {need.conditionPriority === "inspection_first" ? <p className="hint">{CONDITION_HINT}</p> : null}
+          {need.awdPreference ? (
+            <p className="hint">
+              Preferably AWD is a soft preference — AWD/4WD ranks higher when known; FWD and unknown drivetrain stay in the mix.
+            </p>
+          ) : null}
+          {need.reliabilityPriority || need.priorities?.some((p) => /reliab/i.test(p)) ? (
+            <p className="hint">Priority: reliability.</p>
+          ) : null}
           {need.preferredMakes?.length ? (
             <p className="hint">
               {need.openToOtherMakes
@@ -2243,7 +2311,6 @@ function AssistantFlow({
           <h2>Cars that fit</h2>
           <PriceRatingHow />
           <DecisionNote scene="find" proofs={checks} />
-          <DecisionRecordList records={proofRecords} />
           {need ? <p className="hint">Scope: {matchScope ?? searchScopeLabel(need)}</p> : null}
           {need
             ? softPrefGapsFromText(need.note).map((gap) => (
@@ -2470,27 +2537,29 @@ function AssistantFlow({
                         <ol className="top-picks">
                           {topRows.map((row) => {
                             const card = cardForRow(row);
-                            const href = buyerListingHref(row.vdp ?? card?.vdp);
                             const readiness = readinessByKey.get(row.key);
                             const findBits = [
                               row.miles != null ? `${row.miles.toLocaleString("en-US")} mi` : null,
                               card?.dealer || row.dealer || null,
                               [card?.city || row.city, card?.state || row.state].filter(Boolean).join(", ") || null,
                               row.vin ? `VIN ${row.vin}` : null,
-                            ].filter(Boolean);
+                            ].filter((bit): bit is string => Boolean(bit));
+                            const dealerLink = buyerDealerListingLink({
+                              vdp: row.vdp ?? card?.vdp,
+                              dealer: card?.dealer || row.dealer,
+                              vin: row.vin,
+                              year: row.year,
+                              trim: row.trim,
+                              findBits,
+                            });
                             return (
                               <li key={row.key}>
                                 {formatTopPickLine({ ...row, name: topNames.get(row.key) })}
                                 {" · "}
-                                {href ? (
-                                  <a href={href}>Dealer listing</a>
+                                {dealerLink.isDealerListing && dealerLink.href ? (
+                                  <a href={dealerLink.href}>Dealer listing</a>
                                 ) : (
-                                  <span>
-                                    Listing link unavailable
-                                    {findBits.length
-                                      ? ` — find it via ${findBits.join(" · ")} (feed had no usable dealer URL)`
-                                      : " (feed had no usable dealer URL)"}
-                                  </span>
+                                  <span>{dealerLink.unavailableNote}</span>
                                 )}
                                 {readiness ? <PurchaseReadinessNote view={readiness} /> : null}
                               </li>
@@ -2629,6 +2698,7 @@ function AssistantFlow({
                             freeGovReceiptsForShortlist.length > 0 || Boolean(bestDeal),
                           running: pending === "next-check",
                           loopOpen: findLoopOpen,
+                          shortlistEmpty: !(bestDeal?.ranked?.length),
                           modelCount: new Set(
                             allListings.map((car) => `${car.make}|${car.model}|${car.year}`),
                           ).size,
@@ -2648,19 +2718,6 @@ function AssistantFlow({
                         ))}
                       </ul>
                     ) : null}
-                    <AgentDecisionTrail
-                      verdict={buildFindAgentVerdict({
-                        decisionLog: decisionView.entries,
-                        labels: decisionLabels,
-                        bestDeal,
-                        baseline: bestDeal?.baseline ?? null,
-                        secondPass: pickSecondPass,
-                        settleVerdict: pickAgentVerdict,
-                        confidenceLine: bestDeal?.choice?.confidenceLine ?? null,
-                        servCalls: decisionView.entries.filter((entry) => entry.decidedBy === "SERV").length,
-                      })}
-                      confidenceWhy={bestDeal?.choice?.confidenceLine ?? null}
-                    />
                     {decisionPresented.lines.length > 0 ? (
                       <div className="hint" role="note">
                         <p>Check checklist (detail)</p>
@@ -2669,16 +2726,6 @@ function AssistantFlow({
                             <li key={`decision-${index}`}>{line}</li>
                           ))}
                         </ul>
-                        {decisionPresented.hiddenSteps.length > 0 ? (
-                          <details>
-                            <summary>Show all steps</summary>
-                            <ul>
-                              {decisionPresented.hiddenSteps.map((line, index) => (
-                                <li key={`decision-all-${index}`}>{line}</li>
-                              ))}
-                            </ul>
-                          </details>
-                        ) : null}
                       </div>
                     ) : null}
                     {confirmLines.length > 0 ? (
@@ -2695,27 +2742,42 @@ function AssistantFlow({
                     {pending === "next-check" && pendingCheckLabel ? (
                       <p className="hint">{pendingCheckLabel}</p>
                     ) : null}
-                    {(() => {
-                      const lineage = findVerdictLineage(proofRecords, pickAgentVerdict?.verdict ?? null);
-                      return lineage ? (
-                        <p className="hint" role="note">
-                          <strong>Lineage:</strong> {lineage.chain}
-                          {pickAgentVerdict?.verdict
-                            ? " · Ranking names which car to review first; the second review can change Buy, Negotiate, or Pass when the guardrails allow it."
-                            : null}
-                        </p>
-                      ) : null;
-                    })()}
-                    <DecisionRecordList
+                    <ConsumerDecisionProof
                       records={proofRecords.filter(
                         (row) =>
                           row.purpose === "find_pick" ||
                           row.purpose === "verdict_decide" ||
                           row.purpose === "verdict_challenge" ||
+                          row.purpose === "find_plan" ||
                           row.purpose === "need_extract" ||
                           row.purpose === "need_guard" ||
                           row.purpose === "find_next_check",
                       )}
+                      verdict={buildFindAgentVerdict({
+                        decisionLog: decisionView.entries,
+                        labels: decisionLabels,
+                        bestDeal,
+                        baseline: bestDeal?.baseline ?? null,
+                        secondPass: pickSecondPass,
+                        settleVerdict: pickAgentVerdict,
+                        confidenceLine: bestDeal?.choice?.confidenceLine ?? null,
+                        servCalls: decisionView.entries.filter((entry) => entry.decidedBy === "SERV").length,
+                      })}
+                      plainLines={[
+                        (() => {
+                          const lineage = findVerdictLineage(proofRecords, pickAgentVerdict?.verdict ?? null);
+                          if (!lineage?.finalVerdict && !lineage?.servPick) return null;
+                          if (lineage.guardrail && lineage.servPick) {
+                            return `Our AI first leaned ${lineage.servPick}; safety rules settled on ${lineage.finalVerdict ?? lineage.guardrail}.`;
+                          }
+                          if (lineage.servPick && lineage.finalVerdict && lineage.servPick !== lineage.finalVerdict) {
+                            return `Our AI first leaned ${lineage.servPick}; the final call is ${lineage.finalVerdict}.`;
+                          }
+                          return lineage.finalVerdict ? `Final call: ${lineage.finalVerdict}.` : null;
+                        })(),
+                        ...(decisionPresented.hiddenSteps ?? []),
+                      ].filter((line): line is string => Boolean(line))}
+                      confidenceWhy={bestDeal?.choice?.confidenceLine ?? null}
                       emptyHint="No decision records for this Find run yet."
                     />
                     {settledLine ? <p className="hint">{settledLine}</p> : null}
@@ -2939,13 +3001,24 @@ function AssistantFlow({
                     {car.clearsTarget === false ? <p className="hint">Under the profit target, so it ranks lower.</p> : null}
                     {car.clearsTarget === true ? <p className="hint">Clears the profit target. That target is an assumption, not a promised sale.</p> : null}
                     {(() => {
-                      const href = buyerListingHref(car.vdp);
+                      const dealerLink = buyerDealerListingLink({
+                        vdp: car.vdp,
+                        dealer: car.dealer,
+                        vin: car.vin,
+                        year: car.year,
+                        trim: car.trim,
+                        findBits: [
+                          car.dealer,
+                          car.vin ? `VIN ${car.vin}` : null,
+                          car.city,
+                        ].filter((bit): bit is string => Boolean(bit)),
+                      });
                       const trimNote = trimSourceDisagreement({
                         year: car.year,
                         make: car.make,
                         model: car.model,
                         displayedTrim: car.trim,
-                        listingUrl: href,
+                        listingUrl: dealerLink.href ?? car.vdp,
                         decodedTrim: freeGovReceiptsForShortlist.find(
                           (row) =>
                             (row.checkId === "free_gov_vpic" || row.toolId === "evidence.gov_vpic") &&
@@ -2956,15 +3029,10 @@ function AssistantFlow({
                         <>
                           {trimNote ? <p className="hint">{trimNote.note}</p> : null}
                           <p className="hint">
-                            {href ? (
-                              <a href={href}>Dealer listing</a>
+                            {dealerLink.isDealerListing && dealerLink.href ? (
+                              <a href={dealerLink.href}>Dealer listing</a>
                             ) : (
-                              <>
-                                Listing link unavailable
-                                {car.dealer || car.vin
-                                  ? ` — find it via ${[car.dealer, car.vin ? `VIN ${car.vin}` : null, car.city].filter(Boolean).join(" · ")} (feed had no usable dealer URL)`
-                                  : " (feed had no usable dealer URL)"}
-                              </>
+                              dealerLink.unavailableNote
                             )}
                           </p>
                         </>

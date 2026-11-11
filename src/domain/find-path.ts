@@ -186,7 +186,7 @@ export function applyFindNextCheck(
       refine,
       note: alreadyNationwide
         ? "Already Nationwide — no geography change; will not invent a wider search."
-        : "Switched seller distance to Nationwide (ZIP kept as optional context). Re-run inventory.",
+        : "Switched seller distance to Nationwide. Re-run inventory.",
       research: !alreadyNationwide,
     };
   }

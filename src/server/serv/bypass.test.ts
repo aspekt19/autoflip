@@ -41,6 +41,15 @@ describe("SERV layer", () => {
     expect(toolNames(extract.tools)).toEqual(["serv_prompt_guard"]);
     expect(extract.response_format?.json_schema.strict).toBe(true);
 
+    const findPlan = requestFor("find_plan", JSON.stringify({ note: "family SUV", mode: "personal" }));
+    expect(findPlan.endpoint).toBe("chat");
+    if (findPlan.endpoint !== "chat") return;
+    expect(findPlan.stream).toBe(false);
+    expect(toolNames(findPlan.tools)).toEqual(["serv_prompt_guard"]);
+    expect(findPlan.response_format?.json_schema.strict).toBe(true);
+    expect(findPlan.response_format?.json_schema.name).toBe("find_plan");
+    expect(PROFILES.find_plan.timeoutMs).toBe(15_000);
+
     const flip = requestFor("flip_judge", "{}");
     expect(flip.endpoint).toBe("chat");
     if (flip.endpoint !== "chat") return;
@@ -101,6 +110,7 @@ describe("SERV layer", () => {
       expect.arrayContaining([
         "need_guard",
         "need_extract",
+        "find_plan",
         "check_guard",
         "listing_extract",
         "report_guard",

@@ -11,6 +11,7 @@ import {
   VERDICT_RUBRIC_ID,
   type DecisionProofRecord,
 } from "@/domain/decision-proof-record";
+import { capConfidenceForHonesty } from "@/domain/confidence-cap";
 import {
   capConfidenceForStopFlags,
   confidenceCapReasonForStop,
@@ -647,25 +648,41 @@ export async function runFindSettleServ(input: {
     shopper.agentVerdict.confidence ?? pickConfidence,
     input.bestDeal.confidence === "none" ? "medium" : input.bestDeal.confidence,
   );
-  const publishedConfidence = capConfidenceForStopFlags(rawPublished, hasStop);
-  // Count as capped when stop guidance blocked High — including when screening was
+  const afterStop = capConfidenceForStopFlags(rawPublished, hasStop);
+  const honestyCap = capConfidenceForHonesty({
+    confidence: afterStop,
+    verdict: shopper.agentVerdict.verdict,
+    evidenceSettled: input.bestDeal.evidenceSettled,
+    rankingMayChange: !input.bestDeal.evidenceSettled,
+  });
+  const publishedConfidence = honestyCap.confidence;
+  // Count as capped when stop or honesty rules blocked High — including when screening was
   // capped before shopper so SERV never returned High.
   const intendedHigh =
     rawPublished === "high" ||
     pickConfidence === "high" ||
     input.bestDeal.confidence === "high" ||
     shopper.agentVerdict.confidence === "high";
-  const confidenceWasCapped = Boolean(hasStop && publishedConfidence !== "high" && intendedHigh);
+  const stopCapApplied = Boolean(hasStop && afterStop !== "high" && intendedHigh);
+  const honestyCapApplied = honestyCap.capped;
+  const confidenceWasCapped = stopCapApplied || honestyCapApplied;
+  const publishedCapReason =
+    (honestyCapApplied ? honestyCap.reason : null) || (stopCapApplied ? stopCapReason : null);
   let agentVerdict = shopper.agentVerdict;
   if (agentVerdict) {
     const pickLabel = `${pick.year} ${pick.make} ${pick.model}`;
-    const cappedAgentConfidence = capConfidenceForStopFlags(
-      (shopper.agentVerdict.confidence ??
-        pickConfidence ??
-        agentVerdict.confidence ??
-        "medium") as AgentVerdictConfidence,
-      hasStop,
-    );
+    const cappedAgentConfidence = capConfidenceForHonesty({
+      confidence: capConfidenceForStopFlags(
+        (shopper.agentVerdict.confidence ??
+          pickConfidence ??
+          agentVerdict.confidence ??
+          "medium") as AgentVerdictConfidence,
+        hasStop,
+      ),
+      verdict: shopper.agentVerdict.verdict,
+      evidenceSettled: input.bestDeal.evidenceSettled,
+      rankingMayChange: !input.bestDeal.evidenceSettled,
+    }).confidence;
     const pickStep = {
       decided:
         pickActor === "SERV"
@@ -683,11 +700,13 @@ export async function runFindSettleServ(input: {
       recordedAt: pickRecordedAt,
     };
     const trailExtra =
-      confidenceWasCapped && stopCapReason
+      confidenceWasCapped && publishedCapReason
         ? [
             {
-              decided: stopCapReason,
-              why: "Stop-level NHTSA park-it or park-outside guidance is open on the published pick.",
+              decided: publishedCapReason,
+              why: honestyCapApplied
+                ? "Shared honesty rule: High confidence cannot pair with Needs inspection or unsettled evidence."
+                : "Stop-level NHTSA park-it or park-outside guidance is open on the published pick.",
               changed: "Published confidence capped from High to Medium.",
               model: pickModel,
               responseId: pickResponseId,
@@ -711,7 +730,7 @@ export async function runFindSettleServ(input: {
       confidence: publishedConfidence,
       actor: pickActor,
       servNote: pickNote,
-      confidenceCapReason: confidenceWasCapped ? stopCapReason : null,
+      confidenceCapReason: confidenceWasCapped ? publishedCapReason : null,
     }),
     ran: Boolean(shopper.trace) || pickActor === "SERV",
     trace: shopper.trace,

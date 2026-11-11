@@ -75,20 +75,22 @@ export function confirmedRecallCount(input: RecallStateInput | null | undefined)
 
 export function recallFactPlain(input: RecallStateInput, title: string): string {
   const state = recallEvidenceState(input);
+  // Plain words: a recall is a manufacturer safety fix listed by the U.S. safety agency (NHTSA).
+  const agency = "the U.S. safety agency (NHTSA)";
   if (state === "not_checked") {
-    return `${title}: Recall campaigns have not been checked yet.`;
+    return `${title}: Safety recalls from ${agency} have not been checked yet.`;
   }
   if (state === "could_not_check") {
-    return `${title}: Couldn't confirm recall campaigns for this year/make/model. That is not a clean result.`;
+    return `${title}: Couldn't confirm safety recalls from ${agency} for this year/make/model. That is not a clean result.`;
   }
   if (state === "none_found") {
-    return `${title}: No recall campaigns on file for this year/make/model (not the same as VIN open/closed status).`;
+    return `${title}: No safety recalls on file at ${agency} for this year/make/model (not the same as whether this VIN was repaired).`;
   }
   const count = confirmedRecallCount(input) ?? 0;
   const park = input.riskFacts?.parkIt === true;
   const countBit =
     count > 0
-      ? `${count} recall campaign${count === 1 ? "" : "s"} on file for this year/make/model (not the same as VIN open/closed status)`
-      : "A park-it campaign flag is on file for this year/make/model";
+      ? `${count} safety recall${count === 1 ? "" : "s"} on file at ${agency} for this year/make/model (not the same as whether this VIN was repaired)`
+      : `A park-it safety recall flag is on file at ${agency} for this year/make/model`;
   return `${title}: ${countBit}${park && count > 0 ? ". Includes a park-it campaign flag" : ""}.`;
 }

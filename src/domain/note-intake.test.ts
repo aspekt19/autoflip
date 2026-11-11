@@ -113,6 +113,19 @@ describe("owner find note", () => {
     expect(need.budgetUsd).toBe(12_000);
   });
 
+  it("detects locationPhrase \"near me\" without inventing a ZIP or radius", () => {
+    const note =
+      "Looking for a used SUV around $20k. What are the best deals near me?";
+    const intake = intakeFromNote(note);
+    expect(intake.locationPhrase).toBe("near me");
+    expect(intake.zip).toBeNull();
+    expect(intake.distanceMiles).toBeNull();
+    const need = explicitNeedFromText(note, "personal");
+    expect(need.locationPhrase).toBe("near me");
+    expect(need.zip).toBeNull();
+    expect(need.distanceMiles).toBeNull();
+  });
+
   it("keeps ZIP without inventing a radius (nationwide until Confirm)", () => {
     const need = explicitNeedFromText("Reliable sedan under $15,000 near 68114.", "personal");
     expect(need.zip).toBe("68114");

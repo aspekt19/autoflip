@@ -272,8 +272,27 @@ export async function POST(request: Request) {
       );
     }
 
+    // Never charge when no listing search ran or zero cars came back (REPORT_356a:
+    // no_directions + providerQueriesUsed 0 still debited). Delivered search =
+    // at least one provider query and at least one listing.
+    const providerQueriesUsed =
+      typeof result.body.providerQueriesUsed === "number" ? result.body.providerQueriesUsed : 0;
+    const listingCount = Array.isArray(result.body.directions)
+      ? result.body.directions.reduce(
+          (n, g) => n + (Array.isArray(g.listings) ? g.listings.length : 0),
+          0,
+        )
+      : 0;
+    const emptyReason =
+      typeof result.body.emptyReason === "string" ? result.body.emptyReason : null;
+    const deliveredSearch =
+      result.body.ok === true &&
+      providerQueriesUsed > 0 &&
+      listingCount > 0 &&
+      !emptyReason;
+
     let charged = false;
-    if (!continuation && idemKey) {
+    if (!continuation && idemKey && deliveredSearch) {
       const reserved = await reserveFindSearchCreditReliable(kv, id, idemKey);
       if (!reserved.ok) {
         if (reserved.reason === "busy") {
@@ -298,6 +317,21 @@ export async function POST(request: Request) {
       }
       balanceAfter = reserved.balance;
       charged = true;
+    } else if (!continuation && idemKey && !deliveredSearch) {
+      // Honest empty delivery — keep tokens for rematch but do not debit.
+      balanceAfter = await creditBalance(kv, id);
+      charged = false;
+      const honesty =
+        emptyReason === "no_directions"
+          ? "No model directions could be built for this note, so no listing search ran and no credit was used."
+          : listingCount === 0
+            ? "No cars came back from this search, so no credit was used."
+            : "The search did not deliver listings, so no credit was used.";
+      const prior = typeof result.body.message === "string" ? result.body.message.trim() : "";
+      result.body.message =
+        prior && !/no credit was used/i.test(prior)
+          ? `${prior.replace(/\.*$/, "")}. ${honesty}`
+          : prior || honesty;
     }
 
     const payload: FindSearchDelivery = {

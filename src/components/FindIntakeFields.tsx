@@ -218,11 +218,21 @@ export function NoteFactChips({
   const keep = useRef({
     transmission: need.transmission != null,
     fuel: need.fuelEconomyPriority === true,
+    awd: need.awdPreference === true,
+    reliability: need.reliabilityPriority === true,
     history: need.historyPreference != null,
     body: need.bodyStyle != null,
     location: Boolean(need.locationPhrase),
   });
-  if (!keep.current.transmission && !keep.current.fuel && !keep.current.history && !keep.current.body && !keep.current.location) {
+  if (
+    !keep.current.transmission &&
+    !keep.current.fuel &&
+    !keep.current.awd &&
+    !keep.current.reliability &&
+    !keep.current.history &&
+    !keep.current.body &&
+    !keep.current.location
+  ) {
     return null;
   }
   return (
@@ -230,7 +240,6 @@ export function NoteFactChips({
       <p className="note-facts-title">From your note</p>
       {keep.current.transmission ? (
         <label className="note-chip">
-          <span className="from-note">from your note</span>
           Transmission
           <select
             aria-label="Transmission"
@@ -250,7 +259,6 @@ export function NoteFactChips({
       ) : null}
       {keep.current.fuel ? (
         <label className="note-chip check-line">
-          <span className="from-note">from your note</span>
           <span className="check-line">
             <input
               type="checkbox"
@@ -261,9 +269,32 @@ export function NoteFactChips({
           </span>
         </label>
       ) : null}
+      {keep.current.awd ? (
+        <label className="note-chip check-line">
+          <span className="check-line">
+            <input
+              type="checkbox"
+              checked={need.awdPreference === true}
+              onChange={(event) => onChange({ ...need, awdPreference: event.target.checked })}
+            />
+            Preferably AWD
+          </span>
+        </label>
+      ) : null}
+      {keep.current.reliability ? (
+        <label className="note-chip check-line">
+          <span className="check-line">
+            <input
+              type="checkbox"
+              checked={need.reliabilityPriority === true}
+              onChange={(event) => onChange({ ...need, reliabilityPriority: event.target.checked })}
+            />
+            Reliability
+          </span>
+        </label>
+      ) : null}
       {keep.current.history ? (
         <label className="note-chip">
-          <span className="from-note">from your note</span>
           History
           <select
             aria-label="History"
@@ -292,7 +323,6 @@ export function NoteFactChips({
       ) : null}
       {keep.current.body ? (
         <label className="note-chip">
-          <span className="from-note">from your note</span>
           Body
           <select
             aria-label="Body"
@@ -314,7 +344,6 @@ export function NoteFactChips({
       ) : null}
       {keep.current.location ? (
         <label className="note-chip">
-          <span className="from-note">from your note</span>
           Location
           <input
             aria-label="Location"

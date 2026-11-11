@@ -173,7 +173,7 @@ export function ZipRadiusFields({
         />
         <p id={`${prefix}-zip-hint`} className="hint">
           {mode === "nationwide"
-            ? "Nationwide search — ZIP is optional context only."
+            ? "Search is nationwide. Add a ZIP and pick a radius to search nearby."
             : zipRequiredWithRadius
               ? "Required for a mileage radius. Leading zeros are kept (e.g. 02101)."
               : "Used as the center for seller-distance radius."}
