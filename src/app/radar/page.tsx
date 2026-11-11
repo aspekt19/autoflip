@@ -14,7 +14,7 @@ import { useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useRef, useState } from "react";
 import { SignInGate } from "@/components/SignInGate";
 import { formatUsd } from "@/domain/format";
-import { criteriaSourceLine, watchCriteriaSummary } from "@/domain/radar-criteria-provenance";
+import { criteriaSourceLine, criteriaSourceTechnicalLine, watchCriteriaSummary } from "@/domain/radar-criteria-provenance";
 import { buildRadarReportPayload } from "@/domain/radar-report-handoff";
 import type { WatchCriteria } from "@/domain/radar-watch";
 import type { Mode } from "@/domain/types";
@@ -343,7 +343,7 @@ function RadarInner() {
               ? ` · New from last check: ${activity.alertsSent}`
               : " · New from last check: — (no run yet)"}
             {skippedReviews.length > 0 ? ` · ${skippedReviews.length} reviewed — skipped` : ""}
-            {notReviewed.length > 0 ? ` · ${notReviewed.length} waiting on SERV verdict` : ""}
+            {notReviewed.length > 0 ? ` · ${notReviewed.length} waiting on a review` : ""}
           </li>
         </ul>
         {emailNote ? <p className="hint">{emailNote}</p> : null}
@@ -364,7 +364,7 @@ function RadarInner() {
           <article className="warn-box">
             <h3>No radars yet</h3>
             <p>
-              Set criteria in Find (Drive it) or Resale (flip), run a search, then choose Watch with Deal Radar. A paid
+              Set criteria in Find (for me) or Resale (for resale), run a search, then choose Watch with Deal Radar. A paid
               Radar or Radar Pro plan is required{watchLimit > 0 ? ` (up to ${watchLimit} watches)` : ""}.
             </p>
             <p className="btn-row">
@@ -381,33 +381,41 @@ function RadarInner() {
           {searches.map((search) => {
             const seen = listingCounts.find((row) => row.searchId === search.id)?.listingsSeen ?? 0;
             const summary = watchCriteriaSummary(search.criteria, search.mode === "flip" ? "flip" : "personal");
-            const parseLabel = criteriaSourceLine({
+            const parseInput = {
               parse: search.criteria.criteriaParseSource
                 ? {
                     source: search.criteria.criteriaParseSource,
                     responseId: search.criteria.criteriaResponseId ?? null,
                   }
-                : { source: "form", responseId: null },
+                : { source: "form" as const, responseId: null },
               origin: search.criteria.criteriaOrigin ?? null,
               originSearchId: search.criteria.originSearchId ?? null,
               freeText: search.criteria.freeText ?? search.criteria.notes ?? null,
-            });
+            };
+            const parseLabel = criteriaSourceLine(parseInput);
+            const parseTechnical = criteriaSourceTechnicalLine(parseInput);
             return (
               <article className="radar-row" key={search.id}>
                 <div>
-                  <span className="file-chip">{search.mode === "flip" ? "Flip" : "Drive it"}</span>
+                  <span className="file-chip">{search.mode === "flip" ? "For resale" : "For me"}</span>
                   {search.enabled ? null : (
                     <span className="file-chip">
                       {search.pauseReason === "requires_plan" ? "Paused — requires plan" : "Paused"}
                     </span>
                   )}
-                  {search.preset ? <span className="file-chip">preset</span> : null}
+                  {search.preset ? <span className="file-chip">Starter</span> : null}
                 </div>
                 <div />
                 <div>
                   <h3 className="car-title">{search.name}</h3>
                   <p>{summary}</p>
                   <p className="hint">{parseLabel}</p>
+                  {parseTechnical ? (
+                    <details className="onboarding-note">
+                      <summary>Technical details</summary>
+                      <p className="hint">{parseTechnical}</p>
+                    </details>
+                  ) : null}
                   <p className="hint">
                     Listings seen: {seen}
                     {" · "}
@@ -470,7 +478,10 @@ function RadarInner() {
           <p>No run yet.</p>
         ) : (
           <article className="warn-box">
-            <p className="sheet-label">{activity.runId}</p>
+            <details className="onboarding-note">
+              <summary>Technical details</summary>
+              <p className="hint">Run {activity.runId}</p>
+            </details>
             <p>
               Started {new Date(activity.startedAt).toLocaleString("en-US", { timeZone: "UTC" })} UTC
               {" · "}
@@ -483,7 +494,7 @@ function RadarInner() {
               records={activity.proofRecords?.length ? activity.proofRecords : checkProofRecords}
             />
             {activity.servActivity.length === 0 ? (
-              <p className="hint">No SERV calls in this run (no new good/fair candidates, or SERV was not configured).</p>
+              <p className="hint">No review ran on this check. There were no new good or fair cars, or the review step was not set up.</p>
             ) : null}
             {activity.notes.length > 0 ? (
               <ul className="refuse">
@@ -495,7 +506,7 @@ function RadarInner() {
           </article>
         )}
         <h2>Alerts</h2>
-        {alerts.length === 0 ? <p>No new matches yet. New good/fair listings SERV rates alert will appear here after a scheduled check.</p> : null}
+        {alerts.length === 0 ? <p>No new matches yet. Cars that pass a review will show up here after a scheduled check.</p> : null}
         <div className="radar-list">
           {alerts.map((alert) => {
             const codeOnly = /uses the code price rating only/i.test(alert.why);
@@ -503,8 +514,8 @@ function RadarInner() {
             <article className="radar-row" key={alert.id} id={`alert-${alert.id}`}>
               <div>
                 <div className="score">{formatUsd(alert.priceUsd)}</div>
-                <span className="file-chip">{alert.mode === "flip" ? "Flip" : "Drive it"}</span>
-                {codeOnly ? <span className="file-chip">Code rating only</span> : null}
+                <span className="file-chip">{alert.mode === "flip" ? "For resale" : "For me"}</span>
+                {codeOnly ? <span className="file-chip">Price rating only</span> : null}
               </div>
               <div />
               <div>
@@ -514,7 +525,7 @@ function RadarInner() {
                 {alert.badge ? <PriceBadgeView badge={alert.badge} /> : null}
                 <p><strong>Why this car. </strong>{alert.why}</p>
                 {codeOnly ? (
-                  <p className="hint">Alert uses the code price rating only — SERV did not complete a review for this car.</p>
+                  <p className="hint">This alert uses the price rating only. A full review did not finish for this car.</p>
                 ) : null}
                 {alert.coverage && alert.coverageLevel ? (
                   <CoverageLine confidence={alert.coverageLevel} sentence={alert.coverage} />
@@ -553,7 +564,7 @@ function RadarInner() {
               Reviewed — skipped ({skippedReviews.length})
             </h2>
             <p className="hint">
-              SERV reviewed these cars and chose skip — not alerts. You can still run Analyze; there is no dismiss action here.
+              These cars were reviewed and skipped. They are not alerts. You can still open a full report. There is no dismiss button here.
             </p>
             <div className="radar-list">
               {skippedReviews.map((row) => (
@@ -561,7 +572,7 @@ function RadarInner() {
                   <div>
                     <div className="score">{formatUsd(row.priceUsd)}</div>
                     <span className="file-chip">Reviewed — skipped</span>
-                    <span className="file-chip">{row.mode === "flip" ? "Flip" : "Drive it"}</span>
+                    <span className="file-chip">{row.mode === "flip" ? "For resale" : "For me"}</span>
                   </div>
                   <div />
                   <div>
@@ -597,7 +608,7 @@ function RadarInner() {
               Not reviewed ({notReviewed.length})
             </h2>
             <p className="hint">
-              No SERV decision for these cars on the last run — they will retry on the next check. Not counted as alerts.
+              These cars were not reviewed on the last check. They will be tried again next time. They are not alerts.
             </p>
             <div className="radar-list">
               {notReviewed.map((row) => (
@@ -605,7 +616,7 @@ function RadarInner() {
                   <div>
                     <div className="score">{formatUsd(row.priceUsd)}</div>
                     <span className="file-chip">Not reviewed</span>
-                    <span className="file-chip">{row.mode === "flip" ? "Flip" : "Drive it"}</span>
+                    <span className="file-chip">{row.mode === "flip" ? "For resale" : "For me"}</span>
                   </div>
                   <div />
                   <div>
@@ -660,7 +671,7 @@ export default function RadarPage() {
           <p className="kicker">Subscriptions</p>
           <h1>Deal Radar</h1>
           <p className="lead">
-            Deal Radar is paid-only. Watches cover Find (Drive it) or Resale (flip) under your plan cap. Criteria are not
+            Deal Radar is paid-only. Watches cover Find (for me) or Resale (for resale) under your plan cap. Criteria are not
             edited here — start a search, then choose Watch with Deal Radar. Opening a full report costs 1 report
             credit.
           </p>

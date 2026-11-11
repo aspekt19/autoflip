@@ -16,9 +16,9 @@ export default function ProofPage() {
         <p className="kicker">Proof</p>
         <h1>Same request, three ways</h1>
         <p className="lead">
-          Scaffold for comparing one real buyer request across Lemonless (with SERV reasoning), a plain model call, and
-          other agents — user result quality and cost per run. Rows render only from committed run files with
-          provenance (run id, model, timestamp, raw response when recorded).
+          This page compares one real buyer request three ways: Lemonless with its review step, a plain model call, and
+          other agents. It shows result quality and cost only when a real run was saved. Nothing is filled in to look
+          finished.
         </p>
 
         <section>
@@ -33,36 +33,45 @@ export default function ProofPage() {
               <article key={row.caseId}>
                 <p className="kicker">{row.synthetic ? "Synthetic case" : "Real case"}</p>
                 <h3>{row.title}</h3>
-                <p className="hint">
-                  <span className="mono">{row.caseId}</span>
-                </p>
                 <ul className="refuse">
                   {row.arms.map((arm) => (
                     <li key={`${row.caseId}-${arm.arm}`}>
                       <strong>{arm.arm}</strong>
-                      {" · "}
-                      {arm.status}
-                      {arm.model ? ` · model ${arm.model}` : ""}
-                      {arm.runId ? ` · run ${arm.runId}` : ""}
-                      {arm.timestamp ? ` · ${arm.timestamp}` : ""}
-                      {typeof arm.costUsd === "number" ? ` · $${arm.costUsd.toFixed(4)}` : " · cost not recorded"}
                       {arm.qualityNote ? ` — ${arm.qualityNote}` : ""}
-                      {arm.rawResponse ? (
-                        <details className="onboarding-note">
-                          <summary>Raw response</summary>
+                      {typeof arm.costUsd === "number" ? ` Cost recorded: $${arm.costUsd.toFixed(4)}.` : " Cost was not recorded."}
+                      <details className="onboarding-note">
+                        <summary>Technical details</summary>
+                        <p className="hint">
+                          Status {arm.status}
+                          {arm.model ? ` · model ${arm.model}` : ""}
+                          {arm.runId ? ` · response ${arm.runId}` : " · no response id"}
+                          {arm.timestamp ? ` · ${arm.timestamp}` : ""}
+                          {` · case ${row.caseId}`}
+                        </p>
+                        {arm.rawResponse ? (
                           <p className="hint" style={{ whiteSpace: "pre-wrap" }}>
                             {arm.rawResponse}
                           </p>
-                        </details>
-                      ) : null}
+                        ) : (
+                          <p className="hint">No raw response was saved for this arm.</p>
+                        )}
+                      </details>
                     </li>
                   ))}
                 </ul>
               </article>
             ))
           )}
-          {data.generatedAt ? (
-            <p className="hint">Comparison file generatedAt {data.generatedAt} (shown only when live scores exist).</p>
+          {hasComparison && data.generatedAt ? (
+            <p className="hint">Recorded {data.generatedAt}.</p>
+          ) : data.generatedAt ? (
+            <details className="onboarding-note">
+              <summary>Technical details</summary>
+              <p className="hint">
+                A comparison file was saved at {data.generatedAt}. It is a fixture, so it is not shown as a finished
+                scoreboard.
+              </p>
+            </details>
           ) : null}
         </section>
 
@@ -74,12 +83,19 @@ export default function ProofPage() {
             <ul className="refuse">
               {data.committedTraces.map((trace) => (
                 <li key={trace.id}>
-                  <strong>{trace.id}</strong>
-                  {trace.runId ? ` · response ${trace.runId}` : ""}
-                  {trace.model ? ` · model ${trace.model}` : ""}
-                  {` · ${trace.generatedAt}`}
-                  {trace.decision ? ` · decision ${trace.decision}` : ""}
-                  <p className="hint">{trace.disclosure}</p>
+                  <p>
+                    A recorded review from {trace.generatedAt}. This is not a customer report.
+                    {trace.decision ? ` Decision recorded: ${trace.decision}.` : ""}
+                  </p>
+                  <details className="onboarding-note">
+                    <summary>Technical details</summary>
+                    <p className="hint">{trace.disclosure}</p>
+                    <p className="hint">
+                      {trace.id}
+                      {trace.runId ? ` · response ${trace.runId}` : " · no response id"}
+                      {trace.model ? ` · model ${trace.model}` : ""}
+                    </p>
+                  </details>
                 </li>
               ))}
             </ul>
@@ -91,7 +107,7 @@ export default function ProofPage() {
             Where SERV runs
           </Link>
           <Link className="quiet" href="/compare">
-            Older compare page
+            Saved comparison
           </Link>
           <Link className="ghost" href="/developers">
             Agent API

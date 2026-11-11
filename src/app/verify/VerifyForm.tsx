@@ -53,7 +53,7 @@ export function VerifyForm({ initialId }: { initialId: string }) {
   async function runVerify(reportId: string) {
     const trimmed = reportId.trim();
     if (!trimmed) {
-      setResult({ ok: false, message: "Enter a report or run id." });
+      setResult({ ok: false, message: "Enter a report id." });
       return;
     }
     setPending(true);
@@ -79,11 +79,11 @@ export function VerifyForm({ initialId }: { initialId: string }) {
         }}
       >
         <label>
-          Report or run id
+          Report id
           <input
             value={id}
             onChange={(event) => setId(event.target.value)}
-            placeholder="report id"
+            placeholder="Report id"
             autoComplete="off"
           />
         </label>
@@ -95,56 +95,61 @@ export function VerifyForm({ initialId }: { initialId: string }) {
       {result ? (
         <div className="onboarding-note">
           {result.ok ? (
-            <p className="lead">Trail checks out.</p>
+            <p className="lead">This saved decision checks out.</p>
           ) : (
-            <p className="lead warn">{result.message ?? "Trail did not verify."}</p>
+            <p className="lead warn">{result.message ?? "This saved decision did not check out."}</p>
           )}
-          {result.reportId ? (
-            <ul className="refuse">
-              <li>
-                Id: <span className="mono">{result.reportId}</span>
-              </li>
-              {result.reportHash ? (
+          {result.reportHashMatch === false ? (
+            <p className="warn">The saved report no longer matches the sealed copy.</p>
+          ) : null}
+          {result.reportHashMatch === true ? <p>The saved report matches the sealed copy.</p> : null}
+          <details className="onboarding-note">
+            <summary>Technical details</summary>
+            {result.reportId ? (
+              <ul className="refuse">
                 <li>
-                  Report hash: <span className="mono">{result.reportHash}</span>
+                  Id: <span className="mono">{result.reportId}</span>
                 </li>
-              ) : null}
-              {result.tipHash ? (
-                <li>
-                  Tip hash: <span className="mono">{result.tipHash}</span>
-                </li>
-              ) : null}
-              {typeof result.linkCount === "number" ? <li>Links: {result.linkCount}</li> : null}
-              {result.sealedAt ? <li>Sealed at {result.sealedAt}</li> : null}
-              {result.reportHashMatch === false ? (
-                <li className="warn">Stored report content no longer matches the sealed hash.</li>
-              ) : null}
-              {result.reportHashMatch === true ? <li>Stored report content matches the sealed hash.</li> : null}
-            </ul>
-          ) : null}
-          {result.issues && result.issues.length > 0 ? (
-            <ul className="refuse">
-              {result.issues.map((issue) => (
-                <li key={issue}>{issue}</li>
-              ))}
-            </ul>
-          ) : null}
-          {result.steps && result.steps.length > 0 ? (
-            <ol className="steps-3 story-steps">
-              {result.steps.map((step) => (
-                <li key={`${step.index}-${step.hash}`}>
-                  <strong>
-                    [{step.by}] {step.step} — {step.status}
-                  </strong>
-                  <span className="hint">
-                    hash {step.hash.slice(0, 12)}… · prev {step.prevHash.slice(0, 12)}…
-                    {step.runId ? ` · ${step.runId}` : ""}
-                    {step.modelId ? ` · ${step.modelId}` : ""}
-                  </span>
-                </li>
-              ))}
-            </ol>
-          ) : null}
+                {result.reportHash ? (
+                  <li>
+                    Report hash: <span className="mono">{result.reportHash}</span>
+                  </li>
+                ) : null}
+                {result.tipHash ? (
+                  <li>
+                    Tip hash: <span className="mono">{result.tipHash}</span>
+                  </li>
+                ) : null}
+                {typeof result.linkCount === "number" ? <li>Steps in the chain: {result.linkCount}</li> : null}
+                {result.sealedAt ? <li>Sealed at {result.sealedAt}</li> : null}
+              </ul>
+            ) : (
+              <p className="hint">No fingerprint was returned.</p>
+            )}
+            {result.issues && result.issues.length > 0 ? (
+              <ul className="refuse">
+                {result.issues.map((issue) => (
+                  <li key={issue}>{issue}</li>
+                ))}
+              </ul>
+            ) : null}
+            {result.steps && result.steps.length > 0 ? (
+              <ol className="steps-3 story-steps">
+                {result.steps.map((step) => (
+                  <li key={`${step.index}-${step.hash}`}>
+                    <strong>
+                      {step.by} · {step.step} · {step.status}
+                    </strong>
+                    <span className="hint">
+                      hash {step.hash.slice(0, 12)}… · previous {step.prevHash.slice(0, 12)}…
+                      {step.runId ? ` · ${step.runId}` : ""}
+                      {step.modelId ? ` · ${step.modelId}` : ""}
+                    </span>
+                  </li>
+                ))}
+              </ol>
+            ) : null}
+          </details>
         </div>
       ) : null}
     </section>

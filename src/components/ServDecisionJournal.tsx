@@ -13,6 +13,7 @@ import {
   buildServDecisionJournal,
   type ServDecisionJournalView,
 } from "@/domain/serv-decision-step";
+import { plainDecisionEngineText } from "@/domain/find-buyer-copy";
 import { providerResponseId } from "@/domain/serv-response-id";
 
 type Props = {
@@ -27,26 +28,9 @@ type Props = {
   reportHash?: string | null;
 };
 
-function formatProvenance(input: {
-  modelId: string | null;
-  runId: string | null;
-  timestamp: string | null;
-}): string | null {
-  const runId = providerResponseId(input.runId);
-  const bits = [
-    input.modelId ? `Model ${input.modelId}` : null,
-    runId ? `response ${runId}` : null,
-    input.timestamp
-      ? new Date(input.timestamp).toLocaleString("en-US", { timeZone: "UTC" }) + " UTC"
-      : null,
-  ].filter(Boolean);
-  return bits.length > 0 ? bits.join(" · ") : null;
-}
-
 /**
  * Readable "How this decision was made" journal.
- * Main view: plain buyer English + origin marker + real response id / timestamp when known.
- * Digests and hashes stay under "Technical details".
+ * Main view: plain buyer English. Response ids, models, and hashes stay under Technical details.
  */
 export function ServDecisionJournal({
   proofRecords,
@@ -70,24 +54,18 @@ export function ServDecisionJournal({
   const agentUnavailable =
     unknowns.some((line) => /agent step unavailable/i.test(line)) ||
     /agent step unavailable/i.test(spendNote);
-  const secondProvenance = formatProvenance({
-    modelId: journal.secondCheck.modelId,
-    runId: journal.secondCheck.runId,
-    timestamp: null,
-  });
-
   return (
     <details className="agent-decision-trail onboarding-note serv-decision-journal" open={defaultOpen}>
       <summary>
         <strong>{journal.title}</strong>
         {journal.servUsed ? (
-          <span className="hint"> · SERV reasoning used</span>
+          <span className="hint"> · a review step ran</span>
         ) : (
-          <span className="hint"> · Code checks only</span>
+          <span className="hint"> · calculated checks only</span>
         )}
       </summary>
 
-      <p className="hint">{JOURNAL_INTRO}</p>
+      <p className="hint">{plainDecisionEngineText(JOURNAL_INTRO)}</p>
 
       {agentVerdict?.no_serv_step ? (
         <p className="lead">
@@ -95,7 +73,7 @@ export function ServDecisionJournal({
             ? "The review step was unavailable — price rules only."
             : examplePending
               ? "Example not yet recorded. This sample page shows labeled listing economics only — it does not invent an agent revision or second check."
-              : "This run did not use a SERV reasoning step. The ranking or verdict came from code checks only."}
+              : "This run did not use a review step. The ranking or verdict came from calculated checks only."}
         </p>
       ) : null}
 
@@ -104,14 +82,12 @@ export function ServDecisionJournal({
       ) : stepViews.length === 0 ? null : (
         <ol className="steps-3 story-steps">
           {stepViews.map((view, index) => {
-            const provenance = formatProvenance(view.provenance);
             return (
               <li key={`${view.tech.step}-${view.tech.timestamp ?? index}-${view.tech.runId ?? view.tech.status}`}>
-                <p>{view.sentences}</p>
+                <p>{plainDecisionEngineText(view.sentences)}</p>
                 <p>
-                  <strong>{view.originMarker}</strong>
+                  <strong>{plainDecisionEngineText(view.originMarker)}</strong>
                 </p>
-                {provenance ? <p className="hint">{provenance}</p> : null}
               </li>
             );
           })}
@@ -119,8 +95,7 @@ export function ServDecisionJournal({
       )}
 
       <section aria-label="Second check">
-        <p>{secondSentences}</p>
-        {secondProvenance ? <p className="hint">{secondProvenance}</p> : null}
+        <p>{plainDecisionEngineText(secondSentences)}</p>
       </section>
 
       <details className="onboarding-note">
@@ -171,11 +146,11 @@ export function ServDecisionJournal({
         ) : null}
         {verifyId ? (
           <p className="hint">
-            <a href={`/verify?id=${encodeURIComponent(verifyId)}`}>Verify this decision trail</a>
+            <a href={`/verify?id=${encodeURIComponent(verifyId)}`}>Check this saved decision</a>
           </p>
         ) : (
           <p className="hint">
-            <a href="/verify">Verify a decision trail</a>
+            <a href="/verify">Check a saved decision</a>
           </p>
         )}
       </details>

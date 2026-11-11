@@ -55,8 +55,8 @@ export default function ComparePage() {
             </div>
           </section>
         ) : (
-          board.examples.map((example) => (
-            <section className="compare-listing" key={`${example.title}-${example.task}`}>
+          board.examples.map((example, index) => (
+            <section className="compare-listing" key={`${index}-${example.title}-${example.task}`}>
               <p className="kicker">{example.synthetic ? "Synthetic trap" : "Saved listing"}</p>
               <h2>{example.title}</h2>
               <p>{example.task}</p>

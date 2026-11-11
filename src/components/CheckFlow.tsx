@@ -793,12 +793,12 @@ function CheckResultCard({
       <section>
         <h3>Government checks</h3>
         <p className="hint">
-          Safety recalls are manufacturer fixes listed by the U.S. safety agency (NHTSA). A model-year recall is
+          Safety recalls are manufacturer fixes listed in the government recall database. A model-year recall is
           not the same as proof that this VIN was repaired.
         </p>
         <ul className="refuse">
           <li>
-            Safety recalls (NHTSA):{" "}
+            Safety recalls:{" "}
             {!result.recallsAvailable
               ? "not listed"
               : result.recalls.length === 0

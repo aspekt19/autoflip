@@ -195,7 +195,7 @@ function CreditsInner() {
         })}
       </div>
       {error ? <p className="warn">{error}</p> : null}
-      <p className="hint">These are test prices and test transactions only. No live payment is processed. Success redirects never grant credits — only the signed Stripe webhook does.</p>
+      <p className="hint">These are test prices and test transactions only. No live payment is processed. Coming back from checkout does not add credits. Credits are added only after Stripe confirms the test payment.</p>
       </div>
     </div>
   );

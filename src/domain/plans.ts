@@ -17,7 +17,7 @@ export const PLAN_CATALOG = [
     reportCreditsPerMonth: 5,
     lookupKey: "autoflip_radar_monthly",
     detail:
-      "5 watched searches (Find or Resale). Checks every 6 hours when due. Cap 1,500 SERV calls/mo. Includes 5 report credits/mo (Stripe test).",
+      "5 watched searches (Find or Resale). Checks every 6 hours when due. Up to 1,500 reviews a month. Includes 5 report credits a month. Stripe test mode.",
   },
   {
     id: "radar_pro",
@@ -29,7 +29,7 @@ export const PLAN_CATALOG = [
     reportCreditsPerMonth: 15,
     lookupKey: "autoflip_radar_pro_monthly",
     detail:
-      "20 watched searches (Find or Resale). Checks every 3 hours when due. Cap 6,000 SERV calls/mo. Includes 15 report credits/mo (Stripe test).",
+      "20 watched searches (Find or Resale). Checks every 3 hours when due. Up to 6,000 reviews a month. Includes 15 report credits a month. Stripe test mode.",
   },
 ] as const;
 
