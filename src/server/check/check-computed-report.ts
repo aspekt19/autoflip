@@ -82,10 +82,9 @@ export function buildCheckComputedReport(input: {
     flags,
     questions: input.questions,
     comps,
+    // Same sample size the Check card shows (badge / VIN-day record), not the truncated similarCars list.
     compSampleSize: input.badge?.sampleSize ?? comps.length,
     compScope: input.compScope,
-    // Same sample size the Check card shows (badge), not the truncated similarCars list.
-    compSampleSize: input.badge?.sampleSize ?? comps.length,
     percentile: null,
     fairValueUsd: input.fairValueUsd,
     fairRangeLowUsd: null,
