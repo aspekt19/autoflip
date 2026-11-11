@@ -1,19 +1,25 @@
 /**
- * Agent find_cars — async create / status / get over the same Find match path as the site.
- * Balance is checked before work; one report credit settles only after success.
+ * Agent find_cars — async create / status / get over the same Find/Resale SERV path as the site.
+ * Balance is checked before work; one report credit settles only after cars are delivered.
  */
 import { createHash, randomUUID } from "node:crypto";
 import type { StructuredNeed } from "@/domain/need";
+import { selectBestDealOnEvidence, type BestDealListing } from "@/domain/find-best-deal";
+import { topFlipCandidates } from "@/domain/flip-rank";
+import { buildResaleCandidatePnls } from "@/domain/resale-pnl";
 import { creditBalance, creditEventSeen, creditSpend } from "@/io/credit-book";
 import type { Kv } from "@/io/kv";
 import { findSearchIdempotencyKey, findSearchSpendKey, storeFindSearchDelivery } from "@/server/find-search-credit";
 import { runFindMatch, type FindMatchDeps, type FindMatchResult } from "@/server/find-match";
 import { understandNeed, type UnderstandDeps } from "@/server/understand-need";
+import { decideFind, decideResale } from "@/server/serv-plan-decide";
 import type { AgentCaller } from "./agent-auth";
 import { agentError, insufficientCreditsEnvelope, type AgentErrorEnvelope } from "./agent-envelope";
 import { hashServSteps, writeAgentReceipt } from "./agent-receipts";
 import type { DecisionProofRecord } from "@/domain/decision-proof-record";
+import type { AgentVerdict } from "@/domain/agent-verdict-schema";
 import { emptyAgentVerdict, wrapAgentSuccess, type AgentApiSuccess } from "./agent-result";
+import type { Listing } from "@/domain/types";
 
 export type AgentFindCreateInput = {
   text: string;
@@ -75,7 +81,13 @@ export async function readAgentFindRun(kv: Kv, runId: string): Promise<AgentFind
   }
 }
 
-export type AgentFindDeps = FindMatchDeps & UnderstandDeps & { origin: string };
+export type AgentFindDeps = FindMatchDeps &
+  UnderstandDeps & {
+    origin: string;
+    servKey?: string;
+    servBaseUrl?: string;
+    servModel?: string;
+  };
 
 export async function createAgentFindRun(
   caller: AgentCaller,
@@ -212,6 +224,35 @@ async function mark(
   }
 }
 
+function listingToBestDealRow(listing: Listing): BestDealListing {
+  return {
+    year: listing.year,
+    make: listing.make,
+    model: listing.model,
+    priceUsd: listing.priceUsd,
+    miles: listing.miles,
+    vin: listing.vin,
+    trim: listing.trim,
+    engine: listing.engine,
+    drivetrain: listing.drivetrain,
+    accidentCount: listing.accidentCount,
+    cpo: listing.cpo,
+    fuel: listing.fuel,
+    ownerCount: listing.ownerCount,
+    oneOwner: listing.oneOwner,
+    usageType: listing.usageType,
+    bodyStyle: listing.bodyStyle,
+    city: listing.city,
+    state: listing.state,
+    dealer: listing.dealer,
+    vdp: listing.vdp,
+  };
+}
+
+function runtimeServKey(deps: AgentFindDeps): string | undefined {
+  return deps.servKey?.trim() || process.env.SERV_API_KEY?.trim() || undefined;
+}
+
 export async function advanceAgentFindRun(
   runId: string,
   deps: AgentFindDeps,
@@ -321,42 +362,25 @@ export async function advanceAgentFindRun(
     await mark(fresh, "settling", "settling");
     await saveRun(deps.kv, fresh);
 
-    const spent = await creditSpend(deps.kv, fresh.user_id, fresh.spend_key);
-    if (!spent.ok && !(await creditEventSeen(deps.kv, fresh.spend_key))) {
-      fresh.error = insufficientCreditsEnvelope(deps.origin, spent.balance);
-      await mark(fresh, "failed", "failed");
-      await saveRun(deps.kv, fresh);
-      return fresh;
-    }
-
+    const poolListings: Listing[] =
+      match.body.compsPool.length > 0
+        ? match.body.compsPool
+        : match.body.directions.flatMap((group) => group.listings);
     const listings = match.body.directions.flatMap((group) => group.listings);
-    const top = listings.slice(0, 8).map((row) => ({
-      vin: row.vin,
-      year: row.year,
-      make: row.make,
-      model: row.model,
-      trim: row.trim,
-      priceUsd: row.priceUsd,
-      miles: row.miles,
-      badge: row.badge,
-      vdp: row.vdp,
-    }));
-    const pick = top[0]
-      ? { key: top[0].vin, label: `${top[0].year} ${top[0].make} ${top[0].model}` }
-      : null;
+    const carsDelivered = listings.length > 0;
+    const mode = fresh.input.mode === "flip" ? "flip" : "personal";
+    const servKey = runtimeServKey(deps);
 
-    const verdict = emptyAgentVerdict({
-      pick,
+    let verdict: AgentVerdict = emptyAgentVerdict({
+      pick: null,
       verdict: null,
       confidence: null,
-      reasons: pick
-        ? [{ evidenceId: "find_rank", text: match.body.headline ?? "Top listing from this search." }]
-        : [],
+      reasons: [],
       unknowns: match.body.emptyReason ? [String(match.body.emptyReason)] : [],
       serv_steps: [
         {
-          decided: pick ? `Shortlist lead: ${pick.label}` : "No listing shortlisted",
-          why: match.body.headline ?? match.body.message ?? "Find search completed.",
+          decided: "No listing shortlisted",
+          why: match.body.headline ?? match.body.message ?? "Find search completed with no cars delivered.",
           changed: null,
           evidenceIds: ["find_match"],
         },
@@ -368,19 +392,150 @@ export async function advanceAgentFindRun(
       },
     });
 
-    const receipt = await writeAgentReceipt(deps.kv, {
-      key_id: fresh.key_id,
-      key_prefix: fresh.key_prefix,
-      user_id: fresh.user_id,
-      tool: "find_cars",
-      credit_spent: true,
-      credits: 1,
-      free_check_spent: false,
-      serv_steps_hash: hashServSteps(verdict.serv_steps),
-      idempotency_key: fresh.idempotency_key,
-      run_id: fresh.run_id,
-      summary: match.body.headline ?? match.body.message,
-    });
+    // Same SERV plan/decide façade as site Resale / Find settle (PR A/B plug-in points).
+    if (carsDelivered && mode === "flip") {
+      const budgetUsd =
+        typeof understood.need.budgetUsd === "number" && Number.isFinite(understood.need.budgetUsd)
+          ? understood.need.budgetUsd
+          : typeof fresh.input.budgetUsd === "number"
+            ? fresh.input.budgetUsd
+            : 15_000;
+      const ranked = topFlipCandidates(poolListings, new Date(), 8, {
+        repairAbility: understood.need.repairAbility,
+        targetProfitUsd: understood.need.targetProfitUsd ?? null,
+      });
+      const pnls = buildResaleCandidatePnls(ranked, {
+        repairAbility: understood.need.repairAbility,
+      });
+      const settled = await decideResale({
+        candidates: pnls,
+        budgetUsd,
+        servKey,
+        servBaseUrl: deps.servBaseUrl,
+        model: deps.servModel,
+        fetchImpl: deps.fetch,
+      });
+      fresh.proofRecords = [...fresh.proofRecords, ...(settled.proofRecords ?? [])];
+      verdict = settled.agentVerdict;
+    } else if (carsDelivered && mode === "personal") {
+      const bestDealListings = listings.map(listingToBestDealRow);
+      const bestDeal = selectBestDealOnEvidence({
+        need: understood.need,
+        listings: bestDealListings,
+        marketPool: poolListings,
+      });
+      const settled = await decideFind({
+        bestDeal,
+        servKey,
+        servBaseUrl: deps.servBaseUrl,
+        model: deps.servModel,
+        fetchImpl: deps.fetch,
+        budgetUsd: understood.need.budgetUsd,
+        marketPool: poolListings,
+      });
+      fresh.proofRecords = [...fresh.proofRecords, ...(settled.proofRecords ?? [])];
+      if (settled.agentVerdict) {
+        verdict = settled.agentVerdict;
+      } else {
+        const pick = bestDeal.pick;
+        verdict = emptyAgentVerdict({
+          pick: pick
+            ? {
+                key: pick.key,
+                label: `${pick.year} ${pick.make} ${pick.model}`,
+              }
+            : null,
+          verdict: null,
+          confidence: bestDeal.confidence === "none" ? null : bestDeal.confidence,
+          reasons: pick
+            ? [{ evidenceId: "find_rank", text: match.body.headline ?? "Top listing from this search." }]
+            : [],
+          unknowns: match.body.emptyReason ? [String(match.body.emptyReason)] : [],
+          serv_steps: [
+            {
+              decided: pick
+                ? `Shortlist lead: ${pick.year} ${pick.make} ${pick.model}`
+                : "No listing shortlisted",
+              why: match.body.headline ?? match.body.message ?? "Find search completed.",
+              changed: null,
+              evidenceIds: ["find_match"],
+            },
+          ],
+          no_serv_step: !settled.ran,
+          serv_spend: {
+            calls: settled.ran ? 1 : 0,
+            costNote: settled.ran
+              ? "Shopper decide ran through the shared plan/decide façade."
+              : understood.source === "model"
+                ? "Need parse may have used a model call."
+                : null,
+          },
+        });
+      }
+    } else if (carsDelivered) {
+      const top = listings[0]!;
+      verdict = emptyAgentVerdict({
+        pick: { key: top.vin, label: `${top.year} ${top.make} ${top.model}` },
+        verdict: null,
+        confidence: null,
+        reasons: [{ evidenceId: "find_rank", text: match.body.headline ?? "Top listing from this search." }],
+        unknowns: [],
+        serv_steps: [
+          {
+            decided: `Shortlist lead: ${top.year} ${top.make} ${top.model}`,
+            why: match.body.headline ?? match.body.message ?? "Find search completed.",
+            changed: null,
+            evidenceIds: ["find_match"],
+          },
+        ],
+        no_serv_step: true,
+        serv_spend: {
+          calls: 0,
+          costNote: understood.source === "model" ? "Need parse may have used a model call." : null,
+        },
+      });
+    }
+
+    // Debit only when cars are delivered — empty inventory never charges.
+    let creditSpent = false;
+    if (carsDelivered) {
+      const spent = await creditSpend(deps.kv, fresh.user_id, fresh.spend_key);
+      if (!spent.ok && !(await creditEventSeen(deps.kv, fresh.spend_key))) {
+        fresh.error = insufficientCreditsEnvelope(deps.origin, spent.balance);
+        await mark(fresh, "failed", "failed");
+        await saveRun(deps.kv, fresh);
+        return fresh;
+      }
+      creditSpent = true;
+    }
+
+    const top = listings.slice(0, 8).map((row) => ({
+      vin: row.vin,
+      year: row.year,
+      make: row.make,
+      model: row.model,
+      trim: row.trim,
+      priceUsd: row.priceUsd,
+      miles: row.miles,
+      badge: row.badge,
+      vdp: row.vdp,
+    }));
+
+    const receipt = creditSpent
+      ? await writeAgentReceipt(deps.kv, {
+          key_id: fresh.key_id,
+          key_prefix: fresh.key_prefix,
+          user_id: fresh.user_id,
+          tool: "find_cars",
+          credit_spent: true,
+          credits: 1,
+          free_check_spent: false,
+          serv_steps_hash: hashServSteps(verdict.serv_steps),
+          idempotency_key: fresh.idempotency_key,
+          run_id: fresh.run_id,
+          summary: match.body.headline ?? match.body.message,
+        })
+      : null;
 
     const success = wrapAgentSuccess({
       tool: "find_cars",
@@ -395,12 +550,15 @@ export async function advanceAgentFindRun(
         providerQueriesUsed: match.body.providerQueriesUsed,
         listingCount: listings.length,
         partialFailure: match.body.partialFailure,
+        carsDelivered,
       },
-      checks_run: ["understand_need", "find_match", "price_badge"],
-      credit_spent: true,
-      credits: 1,
+      checks_run: carsDelivered
+        ? ["understand_need", "find_match", mode === "flip" ? "resale_decide" : "find_settle", "price_badge"]
+        : ["understand_need", "find_match"],
+      credit_spent: creditSpent,
+      credits: creditSpent ? 1 : 0,
       free_check_spent: false,
-      receipt_id: receipt.receipt_id,
+      receipt_id: receipt?.receipt_id ?? "no_charge_empty_inventory",
       run_id: fresh.run_id,
       summary: match.body.headline ?? match.body.message,
       proofRecords: fresh.proofRecords,
@@ -419,10 +577,13 @@ export async function advanceAgentFindRun(
           listingCount: group.listings.length,
         })),
         proofRecords: fresh.proofRecords,
+        carsDelivered,
       },
     });
 
-    await storeFindSearchDelivery(deps.kv, fresh.spend_key, success as unknown as Record<string, unknown>);
+    if (creditSpent) {
+      await storeFindSearchDelivery(deps.kv, fresh.spend_key, success as unknown as Record<string, unknown>);
+    }
     fresh.result = success;
     await mark(fresh, "completed", "completed");
     await saveRun(deps.kv, fresh);

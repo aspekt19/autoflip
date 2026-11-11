@@ -33,10 +33,8 @@ import {
   type ResaleSearchDeps,
   type ResaleSearchOkBody,
 } from "@/server/resale-search";
-import {
-  runResaleSettleServ,
-  type ResaleSettleCheckpoint,
-} from "@/server/resale-settle-serv";
+import { type ResaleSettleCheckpoint } from "@/server/resale-settle-serv";
+import { decideResale } from "@/server/serv-plan-decide";
 
 export const RESALE_JOB_TTL_SEC = 60 * 60 * 2; // 2h
 export const RESALE_JOB_STEP_BUDGET_MS = RESALE_INTERNAL_BUDGET_MS;
@@ -794,7 +792,7 @@ export async function advanceResaleJob(
         job = { ...job, stepCompleted: Math.max(job.stepCompleted, 3) as ResaleJobRecord["stepCompleted"] };
         return { ok: true, job, balance };
       }
-      const settled = await runResaleSettleServ({
+      const settled = await decideResale({
         candidates: job.candidates,
         budgetUsd: job.input.budgetUsd,
         timeToSellPref: job.input.timeToSell,
@@ -844,7 +842,7 @@ export async function advanceResaleJob(
           },
         };
       }
-      const settled = await runResaleSettleServ({
+      const settled = await decideResale({
         candidates: job.candidates,
         budgetUsd: job.input.budgetUsd,
         timeToSellPref: job.input.timeToSell,
@@ -893,7 +891,7 @@ export async function advanceResaleJob(
           },
         };
       }
-      const settled = await runResaleSettleServ({
+      const settled = await decideResale({
         candidates: job.candidates,
         budgetUsd: job.input.budgetUsd,
         timeToSellPref: job.input.timeToSell,
@@ -974,7 +972,7 @@ export async function advanceResaleJob(
       };
     }
 
-    const settled = await runResaleSettleServ({
+    const settled = await decideResale({
       candidates: job.candidates,
       budgetUsd: job.input.budgetUsd,
       timeToSellPref: job.input.timeToSell,

@@ -754,14 +754,28 @@ export async function runResaleSettleServ(input: {
   let proofRecords: DecisionProofRecord[] = resumeFrom?.proofRecords ? [...resumeFrom.proofRecords] : [];
   let journal = resumeFrom ? resumeFrom.journal : emptyResaleJournal();
   const ranked = resumeFrom ? resumeFrom.rankedAll : sortByProfit(input.candidates);
-  const shortlist = resumeFrom ? resumeFrom.shortlist : ranked.slice(0, RESALE_SERV_JUDGE_MAX);
+  // Guardrail: never publish a negative expected mid-profit car as the pick.
+  // Alternatives may still list losers with an explicit "Not profitable at ask" label.
+  const profitableRanked = ranked.filter((row) => {
+    const mid = row.rankingProfitMidUsd ?? row.profitMidUsd;
+    return mid != null && Number.isFinite(mid) && mid >= 0;
+  });
+  const shortlist = resumeFrom
+    ? resumeFrom.shortlist
+    : profitableRanked.slice(0, RESALE_SERV_JUDGE_MAX);
 
   if (shortlist.length === 0) {
+    const unprofitableAlts = ranked.slice(0, 4).map(withNotProfitableAtAskLabel);
+    const hadRows = ranked.length > 0;
     journal = appendJournalStep(journal, {
       kind: "stop_or_widen",
       actor: "code",
-      decided: "Stop — no flip candidates cleared economics",
-      why: "No listings in this scan cleared similar-listing P&L. Raise budget or clear filters; this is still a verdict, not a dead end.",
+      decided: hadRows
+        ? "Stop — every candidate has negative expected profit"
+        : "Stop — no flip candidates cleared economics",
+      why: hadRows
+        ? "Listings were found, but none cleared non-negative expected mid profit. Never publish a losing flip as the pick."
+        : "No listings in this scan cleared similar-listing P&L. Raise budget or clear filters; this is still a verdict, not a dead end.",
       inputsUsed: [`budgetUsd:${input.budgetUsd}`],
       changed: null,
       model: null,
@@ -773,7 +787,9 @@ export async function runResaleSettleServ(input: {
       verdict: "pass",
       confidence: "low",
       unknowns: [
-        "No flip candidates cleared similar-listing economics in this search. Budget or filters may be too tight — try a higher budget or nationwide radius.",
+        hadRows
+          ? "Cars were found, but expected profit was negative on every candidate — nothing was published as a buy-to-resell pick."
+          : "No flip candidates cleared similar-listing economics in this search. Budget or filters may be too tight — try a higher budget or nationwide radius.",
       ],
       no_serv_step: true,
       second_pass: {
@@ -786,8 +802,10 @@ export async function runResaleSettleServ(input: {
       },
       serv_steps: [
         {
-          decided: "No candidates — pass",
-          why: "Code found no usable flip P&L rows.",
+          decided: hadRows ? "No profitable pick — pass" : "No candidates — pass",
+          why: hadRows
+            ? "Code refused to publish a negative-profit flip as the pick."
+            : "Code found no usable flip P&L rows.",
           changed: null,
           recordedAt,
         },
@@ -796,11 +814,11 @@ export async function runResaleSettleServ(input: {
     const checkpoint: ResaleSettleCheckpoint = {
       phaseCompleted: "empty",
       journal,
-      rankedAll: [],
+      rankedAll: ranked,
       ordered: [],
       shortlist: [],
       best: null,
-      alternatives: [],
+      alternatives: unprofitableAlts,
       verdictAction: "pass",
       confidence: "Low",
       agentVerdict,
@@ -823,7 +841,7 @@ export async function runResaleSettleServ(input: {
     };
     return buildSettleResult({
       best: null,
-      alternatives: [],
+      alternatives: unprofitableAlts,
       agentVerdict,
       journal,
       trace: null,
@@ -1180,7 +1198,88 @@ export async function runResaleSettleServ(input: {
   }
 
   // Risk-adjusted rank after deep-checks (code math only; formula stamped on each row).
-  ordered = rankByRiskAdjustedProfit(working.length ? working : shortlist, deep.riskByVin);
+  ordered = rankByRiskAdjustedProfit(working.length ? working : shortlist, deep.riskByVin).filter(
+    (row) => {
+      const mid = row.rankingProfitMidUsd ?? row.profitMidUsd;
+      return mid != null && Number.isFinite(mid) && mid >= 0;
+    },
+  );
+  // If deep-checks wiped every profitable VIN, stop — never publish a negative-profit pick.
+  if (ordered.length === 0) {
+    journal = appendJournalStep(journal, {
+      kind: "stop_or_widen",
+      actor: "code",
+      decided: "Stop — no flip candidates remain with non-negative expected profit",
+      why: "After deep-checks, every remaining car has negative expected mid profit. Never publish a losing flip as the pick.",
+      inputsUsed: shortlist.map((item) => `vin:${item.vin}`),
+      changed: null,
+      model: null,
+      responseId: null,
+      recordedAt,
+      rejected: null,
+    });
+    const agentVerdict = emptyAgentVerdict({
+      verdict: "pass",
+      confidence: "low",
+      unknowns: [
+        "No flip candidates cleared non-negative expected profit after public checks. Try a higher budget or wider radius.",
+      ],
+      no_serv_step: !journal.steps.some((s) => s.actor === "SERV"),
+      second_pass: {
+        status: "not_run",
+        action: null,
+        objection: "No profitable pick remained after deep-checks.",
+        evidenceIds: [],
+        confidenceBefore: null,
+        confidenceAfter: null,
+      },
+      serv_spend: {
+        calls: journal.servCalls,
+        costNote: `SERV calls this Resale run: ${journal.servCalls}.`,
+      },
+    });
+    const emptyAfterDeep: ResaleSettleCheckpoint = {
+      phaseCompleted: "empty",
+      journal,
+      rankedAll: ranked,
+      ordered: [],
+      shortlist,
+      best: null,
+      alternatives: ranked.slice(0, 4).map(withNotProfitableAtAskLabel),
+      verdictAction: "pass",
+      confidence: "Low",
+      agentVerdict,
+      trail,
+      secondPass: {
+        status: "not_run",
+        action: null,
+        objection: "No profitable pick remained after deep-checks.",
+        evidenceIds: [],
+        confidenceBefore: null,
+        confidenceAfter: null,
+      },
+      agentConfidence: "low",
+      ranJudge: journal.steps.some((s) => s.actor === "SERV"),
+      ranDecide: false,
+      trace: null,
+      proofRecords,
+      budgetUsd: input.budgetUsd,
+      timeToSellPref: input.timeToSellPref,
+    };
+    return buildSettleResult({
+      best: null,
+      alternatives: emptyAfterDeep.alternatives,
+      agentVerdict,
+      journal,
+      trace: null,
+      proofRecords,
+      verdictAction: "pass",
+      confidence: "Low",
+      ranJudge: emptyAfterDeep.ranJudge,
+      ranDecide: false,
+      checkpoint: emptyAfterDeep,
+    });
+  }
   const topRank = ordered[0]!;
   const topFormula =
     topRank.riskAdjustedRankFormula ??
