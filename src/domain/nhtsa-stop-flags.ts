@@ -158,18 +158,19 @@ export function stopFlagsForFindPick(input: {
 export function capConfidenceForMarginMiss(
   confidence: "High" | "Medium" | "Low",
   profitLowUsd: number | null | undefined,
-  targetUsd?: number,
+  targetUsd?: number | null,
 ): "High" | "Medium" | "Low";
 export function capConfidenceForMarginMiss(
   confidence: "high" | "medium" | "low",
   profitLowUsd: number | null | undefined,
-  targetUsd?: number,
+  targetUsd?: number | null,
 ): "high" | "medium" | "low";
 export function capConfidenceForMarginMiss(
   confidence: "High" | "Medium" | "Low" | "high" | "medium" | "low",
   profitLowUsd: number | null | undefined,
-  targetUsd: number = ASSUMPTIONS.flipDesiredProfitUsd,
+  targetUsd: number | null = null,
 ): "High" | "Medium" | "Low" | "high" | "medium" | "low" {
+  if (targetUsd == null || !Number.isFinite(targetUsd)) return confidence;
   if (profitLowUsd == null || !Number.isFinite(profitLowUsd)) return confidence;
   if (profitLowUsd >= targetUsd) return confidence;
   if (confidence === "High") return "Medium";
@@ -179,8 +180,9 @@ export function capConfidenceForMarginMiss(
 
 export function confidenceCapReasonForMarginMiss(
   profitLowUsd: number | null | undefined,
-  targetUsd: number = ASSUMPTIONS.flipDesiredProfitUsd,
+  targetUsd: number | null = null,
 ): string | null {
+  if (targetUsd == null || !Number.isFinite(targetUsd)) return null;
   if (profitLowUsd == null || !Number.isFinite(profitLowUsd)) return null;
   if (profitLowUsd >= targetUsd) return null;
   return `Lowered from High: conservative (low-end) profit $${profitLowUsd.toLocaleString("en-US")} misses the $${targetUsd.toLocaleString("en-US")} flip target.`;

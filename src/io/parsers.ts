@@ -55,6 +55,16 @@ export function normalizeAutoDevListing(raw: unknown, source: ListingSource): Li
   // Kind stays unknown until a seller-page label is mapped; /find assesses usability separately.
   const priceUsd = positivePrice(retail.price) ?? positivePrice(record.price);
   const vdp = str(retail.vdp) ?? str(retail.vdpUrl) ?? str(retail.vdpURL) ?? str(record.vdp);
+  const titleBlob = [
+    str(retail.title),
+    str(retail.titleStatus),
+    str(retail.condition),
+    history ? str(history.title) : null,
+    history ? str(history.condition) : null,
+  ]
+    .filter((part): part is string => Boolean(part))
+    .join(" ");
+  const titleBrand = titleBlob.match(/\b(salvage|flood|rebuilt|junk|lemon)\b/i)?.[1]?.toLowerCase() ?? null;
 
   return {
     vin,
@@ -87,6 +97,7 @@ export function normalizeAutoDevListing(raw: unknown, source: ListingSource): Li
     longitude,
     removedAt: str(record.removedAt),
     createdAt: str(record.createdAt),
+    titleBrand,
     source,
     askingPriceKind: "unknown",
     askingPriceProvenance: priceUsd != null ? "feed_only" : "missing",

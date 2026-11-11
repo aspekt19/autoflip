@@ -17,7 +17,7 @@ import { ASSUMPTIONS } from "./assumptions";
 import { trimsMatch } from "./find-car-consistency";
 import { formatNumber, formatUsd } from "./format";
 import { listingUsableForPurchaseEconomics } from "./report-purchase-ask";
-import { median, percentileValue, roundDollars } from "./stats";
+import { clamp, median, percentileValue, roundDollars } from "./stats";
 import { TRIM_STEP_RATE, trimTier } from "./trim-tiers";
 import type { AskingPriceKind } from "./scout/asking-price";
 import type { Listing, Mode } from "./types";
@@ -581,6 +581,14 @@ export function adjustComparableSet(input: {
         : null;
 
   const subjectTrim = resolveTrim(subject);
+  // Flip valuation stays inside the comp span. A mileage or year past that span
+  // is clamped to the nearest comp so the rate is never extrapolated.
+  const spanMiles = working.map((car) => car.miles).filter((miles): miles is number => miles != null);
+  const spanYears = working.map((car) => car.year).filter((year) => Number.isFinite(year));
+  const flipSpan = mode === "flip" && spanMiles.length > 0 && spanYears.length > 0;
+  const milesForAdjust = flipSpan ? clamp(subject.miles, Math.min(...spanMiles), Math.max(...spanMiles)) : subject.miles;
+  const yearForAdjust = flipSpan ? clamp(subject.year, Math.min(...spanYears), Math.max(...spanYears)) : subject.year;
+  const interpolationClamped = flipSpan && (milesForAdjust !== subject.miles || yearForAdjust !== subject.year);
   const fitRows: FitRow[] = [];
   for (const car of working) {
     const price = usableAsking(car);
@@ -606,7 +614,7 @@ export function adjustComparableSet(input: {
     const compTrim = resolveTrim(car);
     if (compTrim.tier == null) trimUncertain = true;
     const parts: Part[] = [];
-    const mileDelta = subject.miles! - miles;
+    const mileDelta = milesForAdjust - miles;
     if (mileDelta !== 0 && rates.perMileUsd !== 0) {
       const usd = -mileDelta * rates.perMileUsd;
       parts.push({
@@ -617,7 +625,7 @@ export function adjustComparableSet(input: {
         },
       });
     }
-    const yearDelta = subject.year - car.year;
+    const yearDelta = yearForAdjust - car.year;
     if (yearDelta !== 0 && rates.perYearUsd !== 0) {
       const usd = yearDelta * rates.perYearUsd;
       parts.push({
@@ -680,6 +688,9 @@ export function adjustComparableSet(input: {
   const low = percentileValue(prices, 25);
   const high = percentileValue(prices, 75);
   let methodNote = methodSentence(rates, trimAdjusted);
+  if (interpolationClamped) {
+    methodNote = `Mileage and year adjustments stay inside the similar-listing span. They do not extrapolate past the closest listing. ${methodNote}`;
+  }
   if (milesBandNote) {
     methodNote = `${milesBandNote} ${methodNote}`;
   }

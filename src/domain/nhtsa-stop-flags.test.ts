@@ -71,14 +71,17 @@ describe("resaleRecallRiskLine", () => {
 describe("margin confidence cap", () => {
   it("caps High when low profit misses the flip target", () => {
     const miss = ASSUMPTIONS.flipDesiredProfitUsd - 1;
-    expect(capConfidenceForMarginMiss("High", miss)).toBe("Medium");
-    expect(capConfidenceForMarginMiss("high", miss)).toBe("medium");
-    expect(confidenceCapReasonForMarginMiss(miss)).toMatch(/Lowered from High/i);
-    expect(confidenceCapReasonForMarginMiss(miss)).toMatch(/misses the/);
+    const target = ASSUMPTIONS.flipDesiredProfitUsd;
+    expect(capConfidenceForMarginMiss("High", miss, target)).toBe("Medium");
+    expect(capConfidenceForMarginMiss("high", miss, target)).toBe("medium");
+    expect(confidenceCapReasonForMarginMiss(miss, target)).toMatch(/Lowered from High/i);
+    expect(confidenceCapReasonForMarginMiss(miss, target)).toMatch(/misses the/);
+    expect(capConfidenceForMarginMiss("High", miss, null)).toBe("High");
+    expect(confidenceCapReasonForMarginMiss(miss)).toBeNull();
   });
 
   it("leaves High alone when low profit clears the target", () => {
-    expect(capConfidenceForMarginMiss("High", ASSUMPTIONS.flipDesiredProfitUsd)).toBe("High");
-    expect(confidenceCapReasonForMarginMiss(ASSUMPTIONS.flipDesiredProfitUsd)).toBeNull();
+    expect(capConfidenceForMarginMiss("High", ASSUMPTIONS.flipDesiredProfitUsd, ASSUMPTIONS.flipDesiredProfitUsd)).toBe("High");
+    expect(confidenceCapReasonForMarginMiss(ASSUMPTIONS.flipDesiredProfitUsd, ASSUMPTIONS.flipDesiredProfitUsd)).toBeNull();
   });
 });

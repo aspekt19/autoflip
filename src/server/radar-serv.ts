@@ -236,21 +236,26 @@ export async function reviewPersonalCandidate(
 
   if (!deps.servKey || deps.timeoutMs < 500) {
     // Do not alert on code price alone — SERV must decide alert vs skip when evidence exists.
+    const timeStop = Boolean(deps.servKey) && deps.timeoutMs < 500;
     proofRecords.push(
       buildDecisionProofRecord({
         purpose: "verdict_decide",
         rubricId: RADAR_VERDICT_RUBRIC_ID,
-        status: "skipped_no_key",
+        status: timeStop ? "error" : "skipped_no_key",
         recordedAt,
         inputs: facts,
-        detail: "SERV was not available for this run; no alert without a SERV decision.",
+        detail: timeStop
+          ? "Stopped: verdict_decide needs 90 seconds. No shorter review was sent."
+          : "SERV was not available for this run; no alert without a SERV decision.",
       }),
     );
     return {
       alertWorthy: false,
       action: null,
       note: null,
-      why: `${input.baseWhy} SERV was not available for this run; this match was not alerted (code price rating alone does not alert).`,
+      why: timeStop
+        ? `${input.baseWhy} Stopped: verdict_decide needs 90 seconds. No shorter review was sent.`
+        : `${input.baseWhy} SERV was not available for this run; this match was not alerted (code price rating alone does not alert).`,
       checks: guardChecks,
       activity,
       proofRecords,
@@ -346,7 +351,7 @@ export async function reviewPersonalCandidate(
   if (deps.challenge && alertWorthy && action) {
     // Do not cut challenge below the verdict_challenge profile budget (was hard-capped at 12s).
     const challengeMs = Math.min(deps.timeoutMs, profile("verdict_challenge").timeoutMs);
-    if (challengeMs >= 500) {
+    if (challengeMs >= profile("verdict_challenge").timeoutMs) {
       const challengeCallId = randomUUID();
       const challengeInputs = {
         primaryAction: action,

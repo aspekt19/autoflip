@@ -1,6 +1,7 @@
 import { ASSUMPTIONS } from "./assumptions";
 import { NOT_ENOUGH_SIMILAR_CARS, evaluateListingPrice } from "./price-evaluation";
 import type { RepairAbility } from "./need";
+import { pricedBelowSimilarLine, resaleSanityReason } from "./resale-sanity";
 import { reconUsd } from "./recon";
 import { roundDollars } from "./stats";
 import type { Listing } from "./types";
@@ -27,11 +28,23 @@ export type FlipEstimate = {
   clearsTarget: boolean | null;
   /** Always labeled when costs are applied — never silent null for unknown repair. */
   assumption: string | null;
+  /** True when the listing-age proxy is past the user's sell window. */
+  sellWindowExceeded?: boolean;
+  sellWindowNote?: string | null;
 };
 
 export type FlipRankOptions = {
   repairAbility?: RepairAbility;
+  /** User-set only. Null or omitted applies no dollar target. */
   targetProfitUsd?: number | null;
+  milesMax?: number | null;
+  asIs?: boolean;
+  sellWithinDays?: number | null;
+  /**
+   * Resale and Radar flip scans. Off for older callers (Scout) that still
+   * rank a thin comp set.
+   */
+  enforceSanity?: boolean;
 };
 
 /** Days since createdAt. Missing or unparseable age is null — never guessed. */
@@ -45,9 +58,13 @@ export function listingAgeDays(listing: Listing, now: Date): number | null {
   return days;
 }
 
-function exampleCost(miles: number | null, repairAbility?: RepairAbility): { usd: number; assumption: string } {
+function exampleCost(
+  miles: number | null,
+  repairAbility?: RepairAbility,
+  asIs?: boolean,
+): { usd: number; assumption: string } {
   const skill = repairAbility ?? "unknown";
-  const recon = reconUsd({ miles, accidentCount: 0, repairAbility: skill });
+  const recon = reconUsd({ miles, accidentCount: 0, repairAbility: skill, asIs });
   const title = ASSUMPTIONS.flipTitleFeeUsd;
   const titleLine = `Title/fee assumption: $${title.toLocaleString("en-US")} (example, not a quote).`;
   const soldDisclaimer =
@@ -68,10 +85,15 @@ function profit(resale: number, asking: number, cost: number): number {
  * minus labeled example costs. Listing age is used only when the feed included it.
  */
 export function rankFlipCandidates(pool: Listing[], now: Date, options?: FlipRankOptions): FlipEstimate[] {
-  const estimates = pool
+  const ordered = [...pool].sort((a, b) => a.vin.localeCompare(b.vin) || a.year - b.year);
+  const estimates = ordered
     .filter((item) => typeof item.priceUsd === "number" && item.priceUsd > 0)
-    .map((listing) => estimateOne(listing, pool, now, options));
-  return estimates.sort((a, b) => b.score - a.score);
+    .map((listing) => estimateOne(listing, ordered, now, options));
+  return estimates.sort((a, b) => {
+    if (a.excluded !== b.excluded) return a.excluded ? 1 : -1;
+    if (b.score !== a.score) return b.score - a.score;
+    return a.vin.localeCompare(b.vin);
+  });
 }
 
 export function topFlipCandidates(pool: Listing[], now: Date, limit = 5, options?: FlipRankOptions): FlipEstimate[] {
@@ -85,13 +107,14 @@ export function flipAlertWhy(item: FlipEstimate): string {
   const asking = item.listing.priceUsd ?? 0;
   return [
     `${item.listing.year} ${item.listing.make} ${item.listing.model} · ${money(asking)}.`,
-    `Estimate, not a completed sale: profit about ${money(item.profitLowUsd ?? 0)} to ${money(item.profitHighUsd ?? 0)} (mid ${money(item.profitMidUsd ?? 0)}).`,
+    `Estimate, not a completed sale: ${pricedBelowSimilarLine(item.profitMidUsd)} (range ${money(item.profitLowUsd ?? 0)} to ${money(item.profitHighUsd ?? 0)}). The sale price is an asking-price proxy, not a closed sale.`,
     `Basis: fair value ${money(item.resaleMidUsd ?? 0)} from ${item.compCount} similar listings in this scan, adjusted for mileage, model year, trim, and listing history, minus example costs of ${money(item.costUsd ?? 0)} (fee and reconditioning assumptions, not a quote for this car).`,
     item.confidence === "low" ? "Confidence is low because this scan had only 3 or 4 similar listings." : "Confidence uses 5 or more similar listings in this scan.",
     `Speed of sale: ${item.speed}. ${item.speedBasis}`,
     item.assumption,
-    item.clearsTarget === false ? "This ranks lower because the estimate is under the profit target." : null,
-    item.clearsTarget === true ? "This clears the profit target. The target is an assumption, not a promised sale." : null,
+    item.clearsTarget === false ? "This ranks lower because the estimate is under the profit target you set." : null,
+    item.clearsTarget === true ? "This clears the profit target you set. The target is not a promised sale." : null,
+    item.sellWindowNote,
   ]
     .filter((line): line is string => Boolean(line))
     .join(" ");
@@ -102,7 +125,12 @@ function estimateOne(listing: Listing, pool: Listing[], now: Date, options?: Fli
   const age = listingAgeDays(listing, now);
   const speed = speedOf(evaluation.sampleSize, age);
   const asking = listing.priceUsd ?? 0;
-  const priced = exampleCost(listing.miles, options?.repairAbility);
+  const priced = exampleCost(listing.miles, options?.repairAbility, options?.asIs);
+  const sellWithin = options?.sellWithinDays ?? null;
+  const sellWindowExceeded = sellWithin != null && age != null && age > sellWithin;
+  const sellWindowNote = sellWindowExceeded
+    ? `Days to sell (${age}) is past the ${sellWithin}-day window you set.`
+    : null;
   const cost = priced.usd;
   const target = options?.targetProfitUsd ?? null;
   const blank = {
@@ -120,7 +148,21 @@ function estimateOne(listing: Listing, pool: Listing[], now: Date, options?: Fli
     score: Number.NEGATIVE_INFINITY,
     clearsTarget: null as boolean | null,
     assumption: priced.assumption,
+    sellWindowExceeded,
+    sellWindowNote,
   };
+  const sanity = options?.enforceSanity
+    ? resaleSanityReason(listing, pool, { milesMax: options?.milesMax })
+    : null;
+  if (sanity) {
+    return {
+      ...blank,
+      resaleLowUsd: null,
+      resaleMidUsd: null,
+      resaleHighUsd: null,
+      excludeReason: sanity,
+    };
+  }
   if (
     !evaluation.priced ||
     evaluation.fairValueUsd == null ||
@@ -153,7 +195,10 @@ function estimateOne(listing: Listing, pool: Listing[], now: Date, options?: Fli
   const confidence = evaluation.sampleSize >= 5 ? "ok" : "low";
   const confidenceFactor = confidence === "ok" ? 1 : 0.75;
   const clearsTarget = target === null ? null : profitMidUsd >= target;
-  const score = profitMidUsd * confidenceFactor * speed.factor * (clearsTarget === false ? 0.5 : 1);
+  const asIsFactor = options?.asIs ? 0.85 : 1;
+  const windowFactor = sellWindowExceeded ? 0.5 : 1;
+  const score =
+    profitMidUsd * confidenceFactor * speed.factor * asIsFactor * windowFactor * (clearsTarget === false ? 0.5 : 1);
   return {
     vin: listing.vin,
     listing,
@@ -173,6 +218,8 @@ function estimateOne(listing: Listing, pool: Listing[], now: Date, options?: Fli
     score,
     clearsTarget,
     assumption: priced.assumption,
+    sellWindowExceeded,
+    sellWindowNote,
   };
 }
 

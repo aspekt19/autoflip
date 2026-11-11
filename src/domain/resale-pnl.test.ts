@@ -198,6 +198,7 @@ describe("buildResaleCandidatePnl", () => {
         resaleMidUsd: 13_500,
         resaleHighUsd: 15_000,
       }),
+      { targetProfitUsd: ASSUMPTIONS.flipDesiredProfitUsd },
     );
     expect(pnl).not.toBeNull();
     if (!pnl) return;

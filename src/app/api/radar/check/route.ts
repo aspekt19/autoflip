@@ -11,7 +11,7 @@ import { originOf } from "@/server/secrets";
 import { isDemoUser, requireVerifiedAccountForRadar } from "@/server/session";
 
 export const dynamic = "force-dynamic";
-export const maxDuration = 60;
+export const maxDuration = 300;
 
 export async function POST(request: Request) {
   const access = await requireVerifiedAccountForRadar();

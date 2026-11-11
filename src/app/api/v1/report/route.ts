@@ -11,7 +11,7 @@ import { getKv } from "@/io/kv";
 import { paymentHeader, paymentsConfigured, readX402Config, requirementsFor, settlePayment, verifyPayment } from "@/io/x402";
 
 export const dynamic = "force-dynamic";
-export const maxDuration = 60;
+export const maxDuration = 300;
 
 export async function POST(request: Request) {
   const origin = originOf(request);

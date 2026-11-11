@@ -115,7 +115,14 @@ function inventingFetch(content: Record<string, unknown>): typeof fetch {
 
 describe("clampResalePublishedConfidence", () => {
   it("caps High → Medium when low profit misses the flip target and labels why", () => {
-    const candidate = { ...thinCandidate(), profitLowUsd: 400, profitMidUsd: 2_000, openParkIt: false, openParkOutside: false };
+    const candidate = {
+      ...thinCandidate(),
+      profitLowUsd: 400,
+      profitMidUsd: 2_000,
+      openParkIt: false,
+      openParkOutside: false,
+      targetProfitUsd: 1_500,
+    };
     // thinCandidate already has Low confidence from comps; force proposed high from SERV.
     const capped = clampResalePublishedConfidence("high", candidate);
     expect(capped.confidence).toBe("medium");

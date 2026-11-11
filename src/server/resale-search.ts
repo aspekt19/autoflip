@@ -12,6 +12,7 @@ import {
   type ResaleDecisionJournal,
 } from "@/domain/resale-decision-journal";
 import { topFlipCandidates } from "@/domain/flip-rank";
+import { pricedBelowSimilarLine } from "@/domain/resale-sanity";
 import { buildResaleCandidatePnls, type ResaleCandidatePnl } from "@/domain/resale-pnl";
 import {
   needFromResaleSearchInput,
@@ -324,11 +325,18 @@ export async function runResaleSearch(
   const ranked = topFlipCandidates(poolListings, new Date(), RESALE_SHORTLIST_LIMIT, {
     repairAbility: input.repairAbility,
     targetProfitUsd: input.targetProfitUsd,
+    milesMax: input.milesMax,
+    asIs: input.asIs,
+    sellWithinDays: input.sellWithinDays,
+    enforceSanity: true,
   });
 
   const pnls = buildResaleCandidatePnls(ranked, {
     repairAbility: input.repairAbility,
     resaleChannel: input.resaleChannel,
+    asIs: input.asIs,
+    sellWithinDays: input.sellWithinDays,
+    targetProfitUsd: input.targetProfitUsd,
   });
 
   const emptyPool = pnls.length === 0;
@@ -345,7 +353,7 @@ export async function runResaleSearch(
     const message = emptyPool
       ? match.body.message ??
         "No listings cleared similar-listing economics inside this budget. Try a higher budget, nationwide radius, or fewer filters — this is still a verdict, not a dead end."
-      : `Code ranked ${pnls.length} candidates by expected mid profit. Next steps: triage, pick, and shopper decide.`;
+      : `Code ranked ${pnls.length} candidates that are priced below similar listings (after costs). Next steps: triage, pick, and shopper decide.`;
     const nextStep = emptyPool
       ? match.body.nextStep ?? "Raise the budget or clear optional filters, then search again (1 report credit)."
       : "Continue the resale job — credit is charged only when the final verdict is delivered.";
@@ -407,9 +415,9 @@ export async function runResaleSearch(
     ? match.body.message ??
       "No listings cleared similar-listing economics inside this budget. Try a higher budget, nationwide radius, or fewer filters — this is still a verdict, not a dead end."
     : settled.best?.profitMidUsd != null
-      ? `Expected mid net profit about $${settled.best.profitMidUsd.toLocaleString("en-US")}${
+      ? `${pricedBelowSimilarLine(settled.best.profitMidUsd)}${
           settled.best.profitScopeLabel ? ` ${settled.best.profitScopeLabel}` : ""
-        } (estimate). Confidence ${settled.confidence}. Verdict: ${settled.verdictAction}.`
+        }.${settled.best.sellWindowNote ? ` ${settled.best.sellWindowNote}` : ""} Confidence ${settled.confidence}. Verdict: ${settled.verdictAction}.`
       : `Best candidate found but profit band is thin. Confidence ${settled.confidence}. Verdict: ${settled.verdictAction}.`;
 
   const nextStep = emptyPool

@@ -53,10 +53,11 @@ function pool(): Listing[] {
   });
   return [
     subject,
-    listing({ vin: "1HGCV1F30JA000002", year: 2017, make: "Honda", model: "Accord", priceUsd: 14_800, miles: 62_000 }),
-    listing({ vin: "1HGCV1F30JA000003", year: 2018, make: "Honda", model: "Accord", priceUsd: 15_200, miles: 48_000 }),
-    listing({ vin: "1HGCV1F30JA000004", year: 2019, make: "Honda", model: "Accord", priceUsd: 16_500, miles: 40_000 }),
-    listing({ vin: "1HGCV1F30JA000005", year: 2016, make: "Honda", model: "Accord", priceUsd: 11_900, miles: 80_000 }),
+    listing({ vin: "1HGCV1F30JA000002", year: 2018, make: "Honda", model: "Accord", priceUsd: 14_800, miles: 58_000 }),
+    listing({ vin: "1HGCV1F30JA000003", year: 2018, make: "Honda", model: "Accord", priceUsd: 15_200, miles: 52_000 }),
+    listing({ vin: "1HGCV1F30JA000004", year: 2018, make: "Honda", model: "Accord", priceUsd: 14_500, miles: 54_000 }),
+    listing({ vin: "1HGCV1F30JA000005", year: 2018, make: "Honda", model: "Accord", priceUsd: 8_500, miles: 51_000 }),
+    listing({ vin: "1HGCV1F30JA000006", year: 2018, make: "Honda", model: "Accord", priceUsd: 13_200, miles: 53_000 }),
     listing({ vin: "5J6RM4H75GL000001", year: 2018, make: "Honda", model: "CR-V", priceUsd: 13_900, miles: 58_000 }),
     listing({ vin: "5J6RM4H75GL000002", year: 2017, make: "Honda", model: "CR-V", priceUsd: 14_200, miles: 70_000 }),
     listing({ vin: "5J6RM4H75GL000003", year: 2019, make: "Honda", model: "CR-V", priceUsd: 15_800, miles: 45_000 }),
@@ -214,7 +215,7 @@ describe("resale time budget (Hobby ~50s)", () => {
     expect(calls).toBeGreaterThan(0);
   });
 
-  it("worst case: JSON within 52s of request start with hanging SERV + Auto.dev; no pending work", async () => {
+  it("worst case: JSON before the injected budget with hanging SERV + Auto.dev; no pending work", async () => {
     const kv = new MemoryKv();
     const listings = pool();
     const hang = hangingFetchTracker();
@@ -261,8 +262,12 @@ describe("resale time budget (Hobby ~50s)", () => {
     });
 
     // Simulate request arrival — deadline starts here (same as route first line).
+    expect(RESALE_INTERNAL_BUDGET_MS).toBeGreaterThanOrEqual(90_000);
+    expect(RESALE_INTERNAL_BUDGET_MS).toBeLessThan(300_000);
+    expect(RESALE_HANDLER_HARD_CAP_MS).toBeLessThan(300_000);
+    const injectedBudgetMs = 6_000;
     const requestStarted = Date.now();
-    const deadline = makeResaleDeadline(RESALE_INTERNAL_BUDGET_MS, requestStarted);
+    const deadline = makeResaleDeadline(injectedBudgetMs, requestStarted);
 
     const result = await runResaleSearch(
       { budgetUsd: 15_000 },
@@ -274,8 +279,8 @@ describe("resale time budget (Hobby ~50s)", () => {
         servKey: "test-key",
         fetchImpl: hang.fetchImpl,
         deadline,
-        internalBudgetMs: RESALE_INTERNAL_BUDGET_MS,
-        inventoryStageCapMs: 22_000,
+        internalBudgetMs: injectedBudgetMs,
+        inventoryStageCapMs: 1_500,
         parallelProviderQueries: true,
         maxProviderQueries: 6,
         env: { VERCEL: undefined, NETLIFY: undefined },
@@ -283,7 +288,7 @@ describe("resale time budget (Hobby ~50s)", () => {
     );
     const elapsed = Date.now() - requestStarted;
 
-    expect(elapsed).toBeLessThan(RESALE_HANDLER_HARD_CAP_MS);
+    expect(elapsed).toBeLessThan(injectedBudgetMs + 1_500);
     // Must return a JSON-shaped result (ok or time_budget) — never hang.
     expect(result).toBeTruthy();
     expect(typeof result.ok).toBe("boolean");

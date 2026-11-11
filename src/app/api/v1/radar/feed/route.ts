@@ -8,7 +8,7 @@ import { originOf } from "@/server/secrets";
 import { jsonError } from "@/server/agent-envelope";
 
 export const dynamic = "force-dynamic";
-export const maxDuration = 30;
+export const maxDuration = 300;
 
 export async function GET(request: Request) {
   const origin = originOf(request);

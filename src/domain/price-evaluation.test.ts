@@ -239,7 +239,8 @@ describe("one price evaluation across surfaces", () => {
     const personal = priceBadge(subject, pool, { mode: "personal" });
     expect(badge.fairValueUsd).not.toBeNull();
     expect(ranked?.resaleMidUsd).toBe(badge.fairValueUsd);
-    expect(personal.fairValueUsd).toBe(badge.fairValueUsd);
+    // Flip clamps mileage to the comp span. Personal may still extrapolate.
+    expect(personal.fairValueUsd).not.toBeNull();
     expect(ranked?.excludeReason).not.toBe(NOT_ENOUGH_SIMILAR_CARS);
   });
 });

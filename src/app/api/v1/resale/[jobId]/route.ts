@@ -8,7 +8,7 @@ import { readResaleJob } from "@/server/resale-job";
 import { originOf } from "@/server/secrets";
 
 export const dynamic = "force-dynamic";
-export const maxDuration = 60;
+export const maxDuration = 300;
 
 export async function GET(request: Request, ctx: { params: Promise<{ jobId: string }> }) {
   const origin = originOf(request);

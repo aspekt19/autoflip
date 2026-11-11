@@ -36,6 +36,8 @@ export type Listing = {
   removedAt: string | null;
   /** When the listing was first seen by the provider, if that field was present. */
   createdAt?: string | null;
+  /** Title brand when the feed states one (salvage, flood). Missing means unknown, not clean. */
+  titleBrand?: string | null;
   source: ListingSource;
   /**
    * What priceUsd represents when known (purchase ask vs dealer fee vs unknown).

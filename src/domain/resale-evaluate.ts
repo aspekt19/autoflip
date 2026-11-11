@@ -106,7 +106,9 @@ export function buildResaleAssessment(input: {
 
   const marginWord = flip.marginUsd >= 0 ? "estimated cushion" : "estimated shortfall";
   const summary = [
-    `Buy-ceiling estimate ${formatUsd(flip.targetBuyUsd)} so a typical resale could still leave about ${formatUsd(input.targetProfitUsd ?? ASSUMPTIONS.flipDesiredProfitUsd)} after example costs.`,
+    input.targetProfitUsd != null
+      ? `Buy-ceiling estimate ${formatUsd(flip.targetBuyUsd)} so a typical resale could still leave about ${formatUsd(input.targetProfitUsd)} after example costs.`
+      : `Buy-ceiling estimate ${formatUsd(flip.targetBuyUsd)}. No profit target was set. A car under that ceiling is priced below similar listings (after costs).`,
     `Similar listings imply a resale asking range about ${formatUsd(flip.resaleLowUsd)}–${formatUsd(flip.resaleHighUsd)} (mid ${formatUsd(flip.resaleMidUsd)}).`,
     `At this ask of ${formatUsd(input.askingUsd)}, the conservative ${marginWord} is ${formatUsd(flip.marginUsd)}.`,
     "These are estimates from listing asks — not sold prices, not a profit guarantee.",

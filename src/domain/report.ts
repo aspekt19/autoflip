@@ -2,6 +2,7 @@ import { ASSUMPTIONS } from "./assumptions";
 import { evaluateListingPrice } from "./price-evaluation";
 import { priceGap, rankAgainstAdjusted } from "./comparables";
 import { flipMath } from "./flip";
+import { PRICED_BELOW_SIMILAR_COPY } from "./resale-sanity";
 import { formatPct, formatUsd } from "./format";
 import { historyAdjustment } from "./history";
 import { expectedMiles, odometerCaution } from "./odometer";
@@ -378,7 +379,7 @@ export function buildComputedReport(input: ReportInput): ComputedReport {
     if (!flip) {
       verdict = "insufficient_data";
     } else {
-      verdict = flipVerdict(flip.marginUsd, parkIt);
+      verdict = flipVerdict(flip.marginUsd, parkIt, input.targetProfitUsd ?? null);
       if (titleBrandHit) {
         verdict = "walk_away";
         reasons.push(`Listing text mentions “${titleBrandHit}”. Flip margin is ignored until title brand is cleared.`);
@@ -393,7 +394,9 @@ export function buildComputedReport(input: ReportInput): ComputedReport {
         `Resale range from current comparable asking prices: ${formatUsd(flip.resaleLowUsd)} to ${formatUsd(flip.resaleHighUsd)}. These are asking prices, not closed sales.`,
       );
       reasons.push(
-        `Buy target for a ${formatUsd(input.targetProfitUsd ?? ASSUMPTIONS.flipDesiredProfitUsd)} margin at the midpoint is ${formatUsd(flip.targetBuyUsd)}, before any negotiation you still have to win.`,
+        input.targetProfitUsd != null
+          ? `Buy target for the ${formatUsd(input.targetProfitUsd)} margin you set is ${formatUsd(flip.targetBuyUsd)}, before any negotiation you still have to win.`
+          : `No profit target was set. The car is ${PRICED_BELOW_SIMILAR_COPY} when the ask sits under similar listings after labeled costs. The midpoint ceiling is ${formatUsd(flip.targetBuyUsd)}.`,
       );
       reasons.push(`Time-to-sell risk is ${flip.timeToSellRisk}. ${flip.timeToSellNote}`);
       if (parkIt) {

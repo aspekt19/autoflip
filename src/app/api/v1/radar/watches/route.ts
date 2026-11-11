@@ -10,7 +10,7 @@ import { originOf } from "@/server/secrets";
 import type { WatchCriteria } from "@/domain/radar-watch";
 
 export const dynamic = "force-dynamic";
-export const maxDuration = 60;
+export const maxDuration = 300;
 
 export async function GET(request: Request) {
   const origin = originOf(request);

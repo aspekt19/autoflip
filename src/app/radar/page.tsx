@@ -347,9 +347,10 @@ function RadarInner() {
           </li>
         </ul>
         {emailNote ? <p className="hint">{emailNote}</p> : null}
+        <p className="hint">Checks daily. Run now checks the saved watches immediately.</p>
         <div className="hero-actions">
           <button className="action" type="button" onClick={checkNow} disabled={checking || !feedReady || (!demo && searches.length === 0)}>
-            {checking ? "Checking…" : !feedReady ? "Loading…" : !demo && searches.length === 0 ? "Watch a search first" : "Check now"}
+            {checking ? "Checking…" : !feedReady ? "Loading…" : !demo && searches.length === 0 ? "Watch a search first" : "Run now"}
           </button>
           {telegramUi ? (
             <button className="quiet" type="button" onClick={connectTelegram}>

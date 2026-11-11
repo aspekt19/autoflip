@@ -10,8 +10,8 @@ import { advanceResaleJob, jobToClientBody } from "@/server/resale-job";
 import { requireVerifiedAccountForFind } from "@/server/session";
 
 export const dynamic = "force-dynamic";
-/** Each step gets its own ~50s budget under Hobby's 60s kill. */
-export const maxDuration = 60;
+/** Each step gets its own budget under the 300s Fluid cap. */
+export const maxDuration = 300;
 
 /**
  * Advance an existing Resale search job by one step.

@@ -23,9 +23,16 @@ export function scoreFromGap(gap: number | null): number | null {
   return clamp(Math.round(50 - gap * ASSUMPTIONS.radarScoreSlope), 0, 100);
 }
 
-export function flipVerdict(marginUsd: number, parkIt: boolean): Verdict {
+export function flipVerdict(marginUsd: number, parkIt: boolean, targetUsd?: number | null): Verdict {
   if (parkIt) return "walk_away";
-  if (marginUsd >= ASSUMPTIONS.flipDesiredProfitUsd) return "good_deal";
+  // A user-set target keeps the thin-margin ladder. No target means any positive
+  // gap is priced below similar listings (after costs) — never a hidden $1,500 bar.
+  if (targetUsd == null) {
+    if (marginUsd > 0) return "good_deal";
+    if (marginUsd === 0) return "fair";
+    return "walk_away";
+  }
+  if (marginUsd >= targetUsd) return "good_deal";
   if (marginUsd >= ASSUMPTIONS.flipThinMarginUsd) return "fair";
   if (marginUsd >= 0) return "overpriced";
   return "walk_away";

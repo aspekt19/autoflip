@@ -13,11 +13,8 @@ import {
 import { requireVerifiedAccountForFind } from "@/server/session";
 
 export const dynamic = "force-dynamic";
-/**
- * Prod (Nov 2026) killed this route at 60s ("Task timed out after 60 seconds", CDN 504).
- * Keep maxDuration at 60; each stepped request finishes under ~50s internally.
- */
-export const maxDuration = 60;
+/** Hobby Fluid allows 300s. Each stepped request stays under that so a decision step can take 90s. */
+export const maxDuration = 300;
 
 /**
  * Resale search step 1 — creates a job and runs SERV plan only (own ~50s budget).
@@ -49,6 +46,7 @@ export async function POST(request: Request) {
       servKey: deps.servKey,
       servBaseUrl: deps.servBaseUrl,
       servModel: deps.servModel,
+      useSpecCache: true,
       deadline,
       internalBudgetMs: RESALE_INTERNAL_BUDGET_MS,
     });

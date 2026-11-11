@@ -1,4 +1,4 @@
-import { profile, PROFILES, type ProfileId } from "./profiles";
+import { profile, PROFILES, SERV_DECISION_FLOOR_MS, type ProfileId } from "./profiles";
 import { runServ, type ServDeps, type ServFacts, type ServResult } from "./run";
 
 /** Hobby serverless functions stop at 60s. Parallel checks must finish inside that. */
@@ -54,9 +54,9 @@ export function selftestWallClockMs(ids = distinctSelftestProfiles()): number {
   );
 }
 
-/** Hobby-safe wall clock — excludes Find profiles that need Pro maxDuration. */
+/** Hobby-safe wall clock — excludes decision profiles that need the 300s route cap. */
 export function selftestHobbyWallClockMs(ids = distinctSelftestProfiles()): number {
-  return selftestWallClockMs(ids.filter((id) => !isGenerousFindServProfile(id)));
+  return selftestWallClockMs(ids.filter((id) => profile(id).timeoutMs < SERV_DECISION_FLOOR_MS));
 }
 
 export const SELFTEST_PASS_RATE = 0.95;

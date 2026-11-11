@@ -595,8 +595,8 @@ export const PROFILES = {
     reason: "Saved criteria are untrusted and sit in front of the scan instructions.",
     feature: "none",
     tools: ["prompt_guard"],
-    // Multipath-style tooling on other radar calls needs headroom; guard itself was timing out at 8s under load.
-    timeoutMs: 35_000,
+    // Screen the saved criteria with the same 90s floor as the review that follows.
+    timeoutMs: 90_000,
     fallback: "timeout",
     system: guardSystem,
     reasoningEffort: "low",
@@ -631,7 +631,7 @@ export const PROFILES = {
     reason: "Kronos checks this short rules prompt. A shadow pass on top of Kronos ran past the timeout, so this step is guard plus Kronos only. The next step still parses alert or skip.",
     feature: "kronos",
     tools: ["prompt_guard"],
-    timeoutMs: 12_000,
+    timeoutMs: 90_000,
     fallback: "explanation unavailable",
     system:
       "Do not recalculate. Profit is an estimate. If fairValueUsd is null, or fewer than 3 similar listings were used, say the estimate is too thin. Do not add a number. Two sentences.",
@@ -650,7 +650,7 @@ export const PROFILES = {
     tools: ["prompt_guard", "shadow"],
     shadowHint: FLIP_SHADOW_HINT,
     shadowMaxIterations: SHADOW_MAX_ITERATIONS,
-    timeoutMs: 15_000,
+    timeoutMs: 90_000,
     fallback: "explanation unavailable",
     system: [
       "You judge flip candidates that code already scored. You do not recalculate profit.",
@@ -697,7 +697,7 @@ export const PROFILES = {
     shadowHint:
       "Choose only buy, negotiate, pass, or needs_inspection. Every number in the note must already appear in the facts. Obey allowedActions. Do not invent a price.",
     shadowMaxIterations: SHADOW_MAX_ITERATIONS,
-    timeoutMs: 18_000,
+    timeoutMs: 90_000,
     fallback: "deterministic_fallback",
     system: [
       "You choose Lemonless's shopper action from code-computed facts. You do not calculate prices.",
@@ -743,8 +743,8 @@ export const PROFILES = {
       "Independent Kronos review of the same facts — separate from Multipath+Shadow on decide/pick. Strict JSON so software can ignore invented claims.",
     feature: "kronos",
     tools: ["prompt_guard"],
-    // 22s — 14s was too tight for challenge JSON under load (empty/timeout → "did not finish").
-    timeoutMs: 22_000,
+    // Decision step floor is 90s. A shorter call is an honest stop, not a clipped challenge.
+    timeoutMs: 90_000,
     fallback: "ignored_malformed",
     system: [
       "You are an independent challenger of a Lemonless shopper verdict. You did not choose the first action.",
@@ -790,7 +790,7 @@ export const PROFILES = {
     reason: "Branching close-call policy with a strict schema so software can show paths without inventing picks.",
     feature: "multipath",
     tools: ["prompt_guard"],
-    timeoutMs: 16_000,
+    timeoutMs: 90_000,
     fallback: "deterministic_multipath",
     system: [
       "You compare a small set of close used-car candidates. Code already scored them.",
@@ -850,7 +850,7 @@ export const PROFILES = {
     shadowHint:
       "pickKey must be one of allowedKeys. confidence must be high, medium, or low. Note, reasons, and watchFor may only repeat facts already present.",
     shadowMaxIterations: SHADOW_MAX_ITERATIONS,
-    timeoutMs: 22_000,
+    timeoutMs: 90_000,
     fallback: "deterministic_fallback",
     system: [
       "You pick the best Lemonless Find car from code-computed finalist facts.",
@@ -1372,7 +1372,7 @@ export const PROFILES = {
      * misleading no_keyed_autonomy). Align with other chat decision profiles —
      * not a blind scout_plan 45s raise.
      */
-    timeoutMs: 25_000,
+    timeoutMs: 90_000,
     fallback: "deterministic_fallback",
     system: [
       "You choose the one allowlisted Find check most likely to change which car is the best deal.",
@@ -1459,8 +1459,8 @@ export const PROFILES = {
     shadowHint:
       "Pick only directionIds from the allowlist. Do not invent makes, models, prices, VINs, or URLs. Note may only repeat numbers from facts.",
     shadowMaxIterations: SHADOW_MAX_ITERATIONS,
-    // Stepped jobs give each call ~50s; multipath+guard+shadow+json_schema needs ~35–40s (14s timed out live).
-    timeoutMs: 38_000,
+    // Each stepped request can give this decision step 90s.
+    timeoutMs: 90_000,
     fallback: "deterministic_plan",
     system: [
       "You plan a Lemonless Resale (flip) inventory search. Code already proposed allowlisted directions.",
@@ -1502,7 +1502,7 @@ export const PROFILES = {
     shadowHint:
       "deepCheckVins/skipVins/checkIds must come from the allowlists. Reject risky cars with reasons that cite evidence ids only. Never invent prices or VINs.",
     shadowMaxIterations: SHADOW_MAX_ITERATIONS,
-    timeoutMs: 38_000,
+    timeoutMs: 90_000,
     fallback: "deterministic_triage",
     system: [
       "You triage Lemonless Resale flip candidates that code already scored.",
@@ -1556,7 +1556,7 @@ export const PROFILES = {
     tools: ["prompt_guard", "shadow"],
     shadowHint: "pickVin must be one of allowedVins. Note may only repeat numbers from facts. Never invent a price.",
     shadowMaxIterations: SHADOW_MAX_ITERATIONS,
-    timeoutMs: 38_000,
+    timeoutMs: 90_000,
     fallback: "deterministic_pick",
     system: [
       "You pick the best Lemonless Resale flip from code-computed P&L facts.",
@@ -1596,8 +1596,8 @@ export const PROFILES = {
     reason: "Independent review with strict schema; invented refs are discarded by software.",
     feature: "none",
     tools: ["prompt_guard"],
-    // Own job step (~50s); multipath tooling not used but prompt_guard+schema still needs headroom.
-    timeoutMs: 38_000,
+    // Own job step under the 300s route cap. Do not start this call with less than 90s.
+    timeoutMs: 90_000,
     fallback: "ignored_malformed",
     system: [
       "You are an independent challenger of a Lemonless Resale flip pick. You did not choose the first pick.",
@@ -1638,7 +1638,7 @@ export const PROFILES = {
     tools: ["prompt_guard", "shadow"],
     shadowHint: "vin must be allowlisted. Note may only repeat numbers from facts. Never invent listings.",
     shadowMaxIterations: SHADOW_MAX_ITERATIONS,
-    timeoutMs: 38_000,
+    timeoutMs: 90_000,
     fallback: "deterministic_radar",
     system: [
       "You review NEW Lemonless Deal Radar candidates for a saved resale budget.",
@@ -1705,6 +1705,48 @@ export function profile(id: ProfileId): ServProfile {
 export function servBudget(id: ProfileId, remainMs: number, ceilingMs = Number.POSITIVE_INFINITY): number {
   if (!Number.isFinite(remainMs) || remainMs <= 0) return 0;
   return Math.max(0, Math.min(profile(id).timeoutMs, ceilingMs, Math.floor(remainMs)));
+}
+
+/** Find, resale, verdict, and radar decision steps. A shorter call is an honest stop. */
+export const SERV_DECISION_FLOOR_MS = 90_000;
+
+const SERV_DECISION_PROFILES = new Set<ProfileId>([
+  "find_plan",
+  "find_triage",
+  "find_decide",
+  "find_challenge",
+  "find_pick",
+  "find_close_call_multipath",
+  "find_next_check",
+  "resale_plan_search",
+  "resale_triage",
+  "resale_pick",
+  "resale_challenge",
+  "verdict_decide",
+  "verdict_challenge",
+  "radar_guard",
+  "radar_review",
+  "flip_feasibility",
+  "flip_judge",
+]);
+
+export function isServDecisionProfile(id: ProfileId): boolean {
+  return SERV_DECISION_PROFILES.has(id);
+}
+
+/**
+ * Budget for one decision step. Null means the run must stop honestly —
+ * do not start the call with less than 90 seconds.
+ */
+export function decisionStepBudget(
+  id: ProfileId,
+  remainMs: number,
+  ceilingMs = Number.POSITIVE_INFINITY,
+): number | null {
+  const budget = servBudget(id, remainMs, ceilingMs);
+  if (!isServDecisionProfile(id)) return budget > 0 ? budget : null;
+  if (budget < SERV_DECISION_FLOOR_MS) return null;
+  return budget;
 }
 
 export function modelFor(id: ProfileId, requested = BASE_MODEL): string {

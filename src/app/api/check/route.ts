@@ -16,7 +16,7 @@ import { runtimeDeps } from "@/server/deps";
 import { balanceOf, requireVerifiedAccountForChecks, spendCredit } from "@/server/session";
 
 export const dynamic = "force-dynamic";
-export const maxDuration = 60;
+export const maxDuration = 300;
 
 function vinKeyForInput(input: CheckRunInput, resultVin: string | null): string {
   if (resultVin && isValidVin(resultVin)) return resultVin;

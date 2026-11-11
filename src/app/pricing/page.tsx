@@ -115,7 +115,7 @@ function PricingContent() {
         <h1>Deal Radar plans</h1>
         <p className="lead">
           Deal Radar is paid-only — no free tier and no trial. Watches cover Find and Resale searches under one cap.
-          The scheduler ticks hourly and only checks watches that are due for your plan cadence. In-site alerts only.
+          The scheduler checks daily, on the same cadence as the saved watches. In-site alerts only.
           Opening a full vehicle report costs 1 report credit.
         </p>
         <p className="hint">

@@ -15,6 +15,7 @@ import { resolveVerdictDecision, verdictDecisionFacts } from "@/domain/verdict-d
 import { extractVin } from "@/domain/vin";
 import type { FullReport, Listing, Mode, Proof, ProofStep } from "@/domain/types";
 import { autodevByVin, autodevSearch, type AutodevDeps } from "@/io/autodev";
+import { postFilterFlipInventory, resaleMilesCap } from "@/domain/resale-sanity";
 import {
   geoScopeFromSearch,
   geoScopeLabel,
@@ -978,7 +979,13 @@ export async function assembleRadar(
                 : 100
               : undefined,
       priceRange: input.priceMax ? `1-${Math.round(input.priceMax * 1.05)}` : undefined,
-      milesRange: input.milesMax ? `0-${Math.round(input.milesMax)}` : undefined,
+      milesRange:
+        input.mode === "flip"
+          ? `0-${resaleMilesCap(input.milesMax)}`
+          : input.milesMax
+            ? `0-${Math.round(input.milesMax)}`
+            : undefined,
+      sort: input.mode === "flip" ? "price.asc" : undefined,
       limit: 20,
     },
     {
@@ -1003,9 +1010,17 @@ export async function assembleRadar(
       proofRecords,
     };
   }
+  const listings =
+    input.mode === "flip"
+      ? postFilterFlipInventory(search.listings, {
+          priceMax: input.priceMax,
+          milesMax: input.milesMax,
+          distanceMiles: typeof input.distanceMiles === "number" ? input.distanceMiles : null,
+        })
+      : search.listings;
   return {
     ok: true,
-    listings: search.listings,
+    listings,
     sample: false,
     message: search.listings.length === 0 ? "No listings came back for that search." : null,
     proof,

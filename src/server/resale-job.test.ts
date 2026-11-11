@@ -49,13 +49,17 @@ function listing(
 function pool(): Listing[] {
   return [
     listing({ vin: "1HGCV1F30JA000001", year: 2018, make: "Honda", model: "Accord", priceUsd: 12_500, miles: 55_000 }),
-    listing({ vin: "1HGCV1F30JA000002", year: 2017, make: "Honda", model: "Accord", priceUsd: 14_800, miles: 62_000 }),
-    listing({ vin: "1HGCV1F30JA000003", year: 2018, make: "Honda", model: "Accord", priceUsd: 15_200, miles: 48_000 }),
-    listing({ vin: "1HGCV1F30JA000004", year: 2019, make: "Honda", model: "Accord", priceUsd: 16_500, miles: 40_000 }),
-    listing({ vin: "1HGCV1F30JA000005", year: 2016, make: "Honda", model: "Accord", priceUsd: 11_900, miles: 80_000 }),
+    listing({ vin: "1HGCV1F30JA000002", year: 2018, make: "Honda", model: "Accord", priceUsd: 14_800, miles: 58_000 }),
+    listing({ vin: "1HGCV1F30JA000003", year: 2018, make: "Honda", model: "Accord", priceUsd: 15_200, miles: 52_000 }),
+    listing({ vin: "1HGCV1F30JA000004", year: 2018, make: "Honda", model: "Accord", priceUsd: 14_500, miles: 54_000 }),
+    listing({ vin: "1HGCV1F30JA000005", year: 2018, make: "Honda", model: "Accord", priceUsd: 8_500, miles: 51_000 }),
+    listing({ vin: "1HGCV1F30JA000006", year: 2018, make: "Honda", model: "Accord", priceUsd: 13_200, miles: 53_000 }),
     listing({ vin: "5J6RM4H75GL000001", year: 2018, make: "Honda", model: "CR-V", priceUsd: 13_900, miles: 58_000 }),
-    listing({ vin: "5J6RM4H75GL000002", year: 2017, make: "Honda", model: "CR-V", priceUsd: 14_200, miles: 70_000 }),
-    listing({ vin: "5J6RM4H75GL000003", year: 2019, make: "Honda", model: "CR-V", priceUsd: 15_800, miles: 45_000 }),
+    listing({ vin: "5J6RM4H75GL000002", year: 2018, make: "Honda", model: "CR-V", priceUsd: 14_200, miles: 56_000 }),
+    listing({ vin: "5J6RM4H75GL000003", year: 2018, make: "Honda", model: "CR-V", priceUsd: 15_800, miles: 54_000 }),
+    listing({ vin: "5J6RM4H75GL000004", year: 2018, make: "Honda", model: "CR-V", priceUsd: 13_400, miles: 57_000 }),
+    listing({ vin: "5J6RM4H75GL000005", year: 2018, make: "Honda", model: "CR-V", priceUsd: 14_900, miles: 59_000 }),
+    listing({ vin: "5J6RM4H75GL000006", year: 2018, make: "Honda", model: "CR-V", priceUsd: 12_800, miles: 55_000 }),
   ];
 }
 
