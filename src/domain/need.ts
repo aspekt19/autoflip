@@ -766,6 +766,17 @@ export const AGE_GAP_UNRESOLVED =
 /** Shown after the shopper picks “No year floor.” */
 export const AGE_GAP_NO_FLOOR = "You chose no year floor. Search uses the years that fit your budget.";
 
+/** Soft AWD preference from flag, note text, or a mustHave phrase — never a hard filter. */
+export function needPrefersAwd(
+  need: Pick<StructuredNeed, "awdPreference" | "note" | "mustHaves">,
+): boolean {
+  if (need.awdPreference === true) return true;
+  if (need.mustHaves.some((item) => /\b(awd|4wd|all[\s-]?wheel|four[\s-]?wheel)\b/i.test(item))) {
+    return true;
+  }
+  return /\b(awd|4wd|all[\s-]?wheel|four[\s-]?wheel)\b/i.test(need.note ?? "");
+}
+
 export function softPrefGapsFromText(text: string): SoftPrefGap[] {
   const t = text.toLowerCase();
   const gaps: SoftPrefGap[] = [];
