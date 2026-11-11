@@ -13,23 +13,31 @@ import { secretMatch } from "@/server/secrets";
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 
-const NOTES = [
+const NOTES: Array<{
+  id: string;
+  text: string;
+  zip: string | null;
+  distanceMiles: number | null;
+}> = [
   {
     id: "yura_suv",
     text: "Looking for a used SUV around $20k. Preferably AWD, under 70k miles, 2020 or newer. Mostly for commuting, but I need something reliable for road trips too. What are the best deals near me?",
     zip: "75201",
+    distanceMiles: 100,
   },
   {
     id: "first_car",
     text: "Looking for a cheap first car around $8000. Something reliable and not too old.",
-    zip: "75201",
+    zip: null,
+    distanceMiles: null,
   },
   {
     id: "pickup_tow",
     text: "Need a pickup truck around $30k that can tow. Prefer something 2018 or newer.",
     zip: "75201",
+    distanceMiles: 100,
   },
-] as const;
+];
 
 function bearerToken(request: Request): string {
   const h = request.headers.get("authorization") ?? "";
@@ -132,7 +140,7 @@ export async function POST(request: Request) {
   const results: Array<Record<string, unknown>> = [];
   for (const note of notes) {
     const understood = await understandNeed(
-      { text: note.text, mode: "personal", zip: note.zip, distanceMiles: 100 },
+      { text: note.text, mode: "personal", zip: note.zip, distanceMiles: note.distanceMiles },
       {
         servKey: deps.servKey,
         servModel: deps.servModel,
