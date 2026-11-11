@@ -12,7 +12,7 @@
  *   3. BASE_URL=http://127.0.0.1:PORT npx tsx scripts/e2e-find-radar.ts
  *      (script calls /api/e2e/bootstrap for a stub session cookie when COOKIE is unset)
  *
- * Asserts lemonless.decision_proof.v1 on /api/need, Find settle (next-check), and radar Check.
+ * Asserts lemonless.decision_proof.v1 on /api/need, Find decide (triage→decide→challenge), and radar Check.
  */
 import { isDecisionProofRecord, type DecisionProofRecord } from "../src/domain/decision-proof-record";
 
@@ -133,7 +133,7 @@ async function main() {
     throw new Error("/api/need missing need object");
   }
 
-  // 2) Find match → next-check until settle proof
+  // 2) Find match → decide path (triage → decide → challenge)
   console.log("2) POST /api/match");
   const match = await api(jar, "/api/match", {
     method: "POST",
@@ -142,47 +142,54 @@ async function main() {
   if (!match.res.ok) {
     throw new Error(`/api/match failed (${match.res.status}): ${JSON.stringify(match.body)}`);
   }
-  let token =
+  const token =
     typeof match.body.searchContextToken === "string" ? match.body.searchContextToken : null;
   if (!token) throw new Error("/api/match missing searchContextToken");
+  if (match.body.decidePathEnabled !== true) {
+    throw new Error(
+      `/api/match must enable decidePathEnabled for the default Find settle path (got ${JSON.stringify(match.body.decidePathEnabled)})`,
+    );
+  }
 
-  console.log("3) POST /api/find/next-check (until verdict proof or stop)");
-  let settleProof: DecisionProofRecord | null = null;
-  for (let hop = 0; hop < 8; hop += 1) {
-    const step = await api(jar, "/api/find/next-check", {
-      method: "POST",
-      body: JSON.stringify({ searchContextToken: token }),
-    });
-    if (!step.res.ok || !step.body.ok) {
+  console.log("3) POST /api/find/decide");
+  const decide = await api(jar, "/api/find/decide", {
+    method: "POST",
+    body: JSON.stringify({ searchContextToken: token }),
+  });
+  if (!decide.res.ok || !decide.body.ok) {
+    throw new Error(
+      `/api/find/decide failed (${decide.res.status}): ${JSON.stringify(decide.body)}`,
+    );
+  }
+  const picks = decide.body.pickProofRecords;
+  if (!Array.isArray(picks) || picks.length === 0) {
+    throw new Error(`/api/find/decide missing pickProofRecords: ${JSON.stringify(decide.body)}`);
+  }
+  assertProof(picks, "find_triage", "/api/find/decide");
+  const settleProof =
+    picks.find((row: DecisionProofRecord) => row.purpose === "find_decide") ??
+    assertProof(picks, "find_decide", "/api/find/decide");
+  console.log(
+    "   find_decide",
+    settleProof.status,
+    settleProof.servResponseId ?? settleProof.reason,
+  );
+  // Live preview/prod must get ok+id. Stub inventory may honestly skip when comps < 3.
+  if (process.env.E2E_REQUIRE_FIND_SETTLE_OK === "1") {
+    if (settleProof.status !== "ok" || !settleProof.servResponseId) {
       throw new Error(
-        `/api/find/next-check hop ${hop} failed (${step.res.status}): ${JSON.stringify(step.body)}`,
-      );
-    }
-    if (typeof step.body.searchContextToken === "string") {
-      token = step.body.searchContextToken;
-    }
-    const picks = step.body.pickProofRecords;
-    if (Array.isArray(picks) && picks.length > 0) {
-      settleProof = assertProof(picks, "verdict_decide", `next-check hop ${hop}`);
-      console.log("   verdict_decide", settleProof.status, settleProof.servResponseId ?? settleProof.reason);
-      // Live preview/prod must get ok+id. Stub inventory may honestly skip when comps < 3.
-      if (process.env.E2E_REQUIRE_FIND_SETTLE_OK === "1") {
-        if (settleProof.status !== "ok" || !settleProof.servResponseId) {
-          throw new Error(
-            `Find settle must be ok with SERV id under E2E_REQUIRE_FIND_SETTLE_OK (got ${settleProof.status})`,
-          );
-        }
-      }
-      break;
-    }
-    const loop = step.body.loop as { continue?: boolean } | undefined;
-    if (!loop?.continue) {
-      throw new Error(
-        `next-check stopped without pickProofRecords/verdict_decide (hop ${hop}): ${JSON.stringify(step.body.loop)}`,
+        `Find settle must be ok with SERV id under E2E_REQUIRE_FIND_SETTLE_OK (got ${settleProof.status})`,
       );
     }
   }
-  if (!settleProof) throw new Error("Find settle never returned a verdict_decide proof record");
+  const challengeProof = picks.find((row: DecisionProofRecord) => row.purpose === "find_challenge");
+  if (challengeProof) {
+    console.log(
+      "   find_challenge",
+      challengeProof.status,
+      challengeProof.servResponseId ?? challengeProof.reason,
+    );
+  }
 
   // 4) Watch
   console.log("4) POST /api/radar/searches (Watch)");
