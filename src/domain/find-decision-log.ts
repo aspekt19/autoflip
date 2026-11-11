@@ -56,7 +56,8 @@ const ACTION_PLAIN: Record<string, string> = {
   clarify_year_band: "Asked for a clearer model-year range",
   clarify_miles_cap: "Asked for a mileage limit",
   set_budget: "Still need a maximum price",
-  widen_or_nationwide: "Widened the search distance",
+  // Past tense only when a rematch actually changed distance — this line is the hop label.
+  widen_or_nationwide: "Suggested widening the search distance",
   run_full_analysis: "A full per-car analysis is ready if you want it",
   get_history_report: "A paid history report is the next step if you want accidents and title brands",
 };

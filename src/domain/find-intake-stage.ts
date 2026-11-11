@@ -44,6 +44,8 @@ export type NoteMarks = {
   location: boolean;
   transmission: boolean;
   fuel: boolean;
+  awd: boolean;
+  reliability: boolean;
   history: boolean;
   body: boolean;
 };
@@ -69,6 +71,8 @@ export function noteMarksFrom(need: StructuredNeed, noteText?: string): NoteMark
     location: Boolean(need.locationPhrase && intake?.locationPhrase),
     transmission: need.transmission != null && intake?.transmission === need.transmission,
     fuel: need.fuelEconomyPriority === true && intake?.fuelEconomyPriority === true,
+    awd: need.awdPreference === true && intake?.awdPreference === true,
+    reliability: need.reliabilityPriority === true && intake?.reliabilityPriority === true,
     history: need.historyPreference != null && intake?.historyPreference === need.historyPreference,
     body: need.bodyStyle != null && intake?.bodyStyle === need.bodyStyle,
   };

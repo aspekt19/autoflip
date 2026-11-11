@@ -279,16 +279,16 @@ describe("distinguishing labels", () => {
     expect(view.lines[0]).not.toMatch(/\(AI chose\)/);
   });
 
-  it("uses a plain listing number when no public field differs, and does not print the id", () => {
+  it("distinguishes same-city twins without listing 1/2/3 or printing the full id", () => {
     const names = buyerCarLabels([
       { ...labels[0]!, key: "2HKRM4H75FH111111", trim: "Sport", priceUsd: 14_200, city: "Omaha", state: "NE", dealer: "Same Motors", miles: 80_000 },
       { ...labels[1]!, key: "2HKRM4H75FH222222", trim: "Sport", priceUsd: 14_200, city: "Omaha", state: "NE", dealer: "Same Motors", miles: 80_000 },
     ]);
     expect(names.get("2HKRM4H75FH111111")).not.toBe(names.get("2HKRM4H75FH222222"));
     const joined = [...names.values()].join(" ");
-    expect(joined).toMatch(/listing 1/);
-    expect(joined).toMatch(/listing 2/);
-    expect(joined).not.toMatch(/2HKRM4H75FH/);
+    expect(joined).not.toMatch(/listing \d/);
+    expect(joined).toMatch(/VIN …/);
+    expect(joined).not.toMatch(/2HKRM4H75FH111111|2HKRM4H75FH222222/);
   });
 
   it("uses miles before price when trim does not distinguish the cars", () => {

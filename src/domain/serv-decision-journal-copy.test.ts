@@ -155,6 +155,57 @@ describe("serv-decision-journal-copy", () => {
     expect(disagreed).not.toMatch(/verdict_challenge|medium|\[/);
   });
 
+  it("narrates the find decide path in plain English (facts, triage, decide, challenge)", () => {
+    const journal = buildServDecisionJournal({
+      proofRecords: [
+        proof({ purpose: "find_triage", status: "ok", verdict: null }),
+        proof({
+          purpose: "find_decide",
+          status: "ok",
+          verdict: "negotiate",
+          clampResult: {
+            servChoice: "buy",
+            finalAction: "negotiate",
+            overridden: true,
+            overrideReasons: ["asking price sat above the fair band"],
+          },
+        }),
+        proof({ purpose: "find_challenge", status: "ok", verdict: "agree" }),
+      ],
+      agentVerdict: emptyAgentVerdict({
+        no_serv_step: false,
+        second_pass: {
+          status: "agreed",
+          action: "negotiate",
+          objection: null,
+          evidenceIds: [],
+          confidenceBefore: "medium",
+          confidenceAfter: "medium",
+          responseId: "chatcmpl-synthetic-test-find-challenge",
+          profile: "find_challenge",
+        },
+      }),
+    });
+    expect(journal.steps.map((s) => s.step)).toEqual([
+      "facts_given",
+      "find_triage",
+      "find_decide",
+      "find_challenge",
+    ]);
+    const main = journalMainText(journal);
+    expect(journalMainTextViolations(main), main).toEqual([]);
+    expect(main).toMatch(/public-record facts/i);
+    expect(main).toMatch(/shortlisted/i);
+    expect(main).toMatch(/suggested Buy/i);
+    expect(main).toMatch(/Limited by safety rule:/i);
+    expect(main).toMatch(/second independent SERV check/i);
+    expect(main).not.toMatch(/find_triage|find_decide|find_challenge|facts_given/);
+    const decide = journal.steps.find((s) => s.step === "find_decide")!;
+    expect(decide.modelId).toBe("synthetic-test-model");
+    expect(decide.runId).toBe("chatcmpl-synthetic-test-ok");
+    expect(decide.timestamp).toBe("2026-11-11T00:00:00.000Z");
+  });
+
   it("keeps the full journal main text free of snake_case, tags, and jargon", () => {
     const journal = buildServDecisionJournal({
       proofRecords: [

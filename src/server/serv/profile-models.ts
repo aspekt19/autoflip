@@ -1,16 +1,14 @@
 /**
  * Reversible per-profile SERV model configuration (t317).
  *
- * Production default remains BASE_MODEL (`gpt-5.4-mini`) until independent review
- * + parent representative cycle. Parent may opt a single profile onto a
- * allowlisted candidate (e.g. Sonnet 5.5 for scout_plan) via env without a
- * blanket BASE_MODEL flip.
+ * Production default is BASE_MODEL (`gpt-6.1-sol`). Override globally with
+ * `SERV_MODEL`, or per profile with `SERV_PROFILE_MODEL_<PROFILE>`.
  *
  * Priority for the base id (before modelFor feature suffixes):
  *   1. SERV_PROFILE_MODEL_<PROFILE> (e.g. SERV_PROFILE_MODEL_SCOUT_PLAN=claude-sonnet-5.5)
  *      — beats global SERV_MODEL so Sonnet can be tried on scout_plan alone
  *   2. Explicit caller `requested` (deps.model / safe-execute SERV_MODEL)
- *   3. BASE_MODEL (production Mini)
+ *   3. BASE_MODEL (production default)
  *
  * Unlisted ids fail closed unless SERV_PROFILE_MODEL_ALLOW_UNLISTED=1.
  */
@@ -18,16 +16,23 @@
 import { BASE_MODEL, modelFor, type ProfileId } from "./profiles";
 
 /**
+ * Always-allowlisted Sol/Mini peers for every profile (production default remains BASE_MODEL).
+ * Offline mocks and Flip compare still pin these ids; without them, unlisted profiles
+ * fail closed on `gpt-5.4-mini` after the BASE_MODEL bump to gpt-6.1-sol.
+ */
+export const SERV_SHARED_MODEL_PEERS = ["gpt-6.1-sol", "gpt-5.6-sol", "gpt-5.4-mini"] as const;
+
+/**
  * Docs + parent-evidenced candidates for product profiles.
  * Sonnet 5.5: parent SAME-input D1 grounded reject + D2 abstain (HTTP 200).
- * Gemini 3.1 Pro Preview: parent SAME-input content-null/refusal-field (parse fail) — candidate for diagnostics only, not production default.
+ * Gemini 3.1 Pro Preview: allowlisted override only (not production default); chat/completions only.
  */
 export const SERV_PROFILE_MODEL_CANDIDATES: Partial<Record<ProfileId, readonly string[]>> = {
   scout_plan: [
-    "gpt-5.4-mini",
+    "gpt-5.6-sol",
     "claude-sonnet-5.5",
     "claude-sonnet-4.6",
-    "gpt-5.6-sol",
+    "gpt-5.4-mini",
     "claude-fable-5",
     "gpt-6.1-sol",
     "claude-opus-5.5",
@@ -36,14 +41,23 @@ export const SERV_PROFILE_MODEL_CANDIDATES: Partial<Record<ProfileId, readonly s
   ],
   // Fable EXCLUDED (owner): Sonnet/GPT first-class via SERV_PROFILE_MODEL_FIND_NEXT_CHECK.
   find_next_check: [
-    "gpt-5.4-mini",
+    "gpt-5.6-sol",
     "claude-sonnet-5.5",
     "claude-sonnet-4.6",
-    "gpt-5.6-sol",
+    "gpt-5.4-mini",
     "gpt-6.1-sol",
     "claude-opus-5.5",
   ],
   need_extract: [
+    "gpt-5.6-sol",
+    "claude-sonnet-5.5",
+    "claude-sonnet-4.6",
+    "gpt-5.4-mini",
+    "claude-fable-5",
+    "gpt-6.1-sol",
+    "claude-opus-5.5",
+  ],
+  find_plan: [
     "gpt-5.4-mini",
     "claude-sonnet-5.5",
     "claude-sonnet-4.6",
@@ -52,15 +66,30 @@ export const SERV_PROFILE_MODEL_CANDIDATES: Partial<Record<ProfileId, readonly s
     "gpt-6.1-sol",
     "claude-opus-5.5",
   ],
+  // PR B C2–C4: Auto models only (no Claude). Production default remains BASE_MODEL (gpt-6.1-sol).
+  find_triage: ["gpt-6.1-sol", "gpt-5.6-sol", "gpt-5.4-mini"],
+  find_decide: ["gpt-6.1-sol", "gpt-5.6-sol", "gpt-5.4-mini"],
+  find_challenge: ["gpt-6.1-sol", "gpt-5.6-sol", "gpt-5.4-mini"],
   verdict_decide: [
-    "gpt-5.4-mini",
+    "gpt-5.6-sol",
     "claude-sonnet-5.5",
     "claude-sonnet-4.6",
-    "gpt-5.6-sol",
+    "gpt-5.4-mini",
     "claude-fable-5",
     "gpt-6.1-sol",
     "claude-opus-5.5",
   ],
+  verdict_challenge: [
+    "gpt-5.4-mini",
+    "claude-sonnet-5.5",
+    "gpt-5.6-sol",
+    "gpt-6.1-sol",
+  ],
+  resale_plan_search: [...SERV_SHARED_MODEL_PEERS],
+  resale_triage: [...SERV_SHARED_MODEL_PEERS],
+  resale_pick: [...SERV_SHARED_MODEL_PEERS],
+  resale_challenge: [...SERV_SHARED_MODEL_PEERS],
+  radar_review: [...SERV_SHARED_MODEL_PEERS],
 };
 
 export type ProfileModelSource = "caller_requested" | "profile_env" | "base_default";
@@ -85,8 +114,8 @@ function isPlausible(id: string): boolean {
 }
 
 /**
- * Resolve which base model a profile should use. Reversible: unset profile env → Mini
- * (or global SERV_MODEL via caller), production BASE_MODEL unchanged in code.
+ * Resolve which base model a profile should use. Unset profile env → BASE_MODEL
+ * (or global SERV_MODEL via caller).
  */
 export type ResolveProfileModelResult =
   | ({ ok: true } & ResolvedProfileModel)
@@ -104,6 +133,8 @@ export function resolveProfileBaseModel(
   const allowUnlisted =
     opts?.allowUnlisted === true || env.SERV_PROFILE_MODEL_ALLOW_UNLISTED === "1";
   const candidates = new Set(SERV_PROFILE_MODEL_CANDIDATES[id] ?? [BASE_MODEL]);
+  candidates.add(BASE_MODEL);
+  for (const peer of SERV_SHARED_MODEL_PEERS) candidates.add(peer);
   const profileRaw = env[envKeyForProfile(id)];
   const profileEnv = typeof profileRaw === "string" && profileRaw.trim() ? profileRaw.trim() : null;
   const requested =
@@ -113,13 +144,13 @@ export function resolveProfileBaseModel(
     if (!isPlausible(baseId)) {
       return { ok: false, message: `Profile model id failed shape check: ${JSON.stringify(baseId)}` };
     }
-    if (!candidates.has(baseId) && !allowUnlisted) {
+    const stripped = baseId.replace(/-serv-(kronos-multipath|multipath-kronos|multipath|kronos)$/i, "");
+    if (!candidates.has(stripped) && !allowUnlisted) {
       return {
         ok: false,
-        message: `Unsupported model ${baseId} for profile ${id}. Allowlisted: ${[...candidates].join(", ")}. Set SERV_PROFILE_MODEL_ALLOW_UNLISTED=1 only after Flip console validation.`,
+        message: `Unsupported model ${stripped} for profile ${id}. Allowlisted: ${[...candidates].join(", ")}. Set SERV_PROFILE_MODEL_ALLOW_UNLISTED=1 only after Flip console validation.`,
       };
     }
-    const stripped = baseId.replace(/-serv-(kronos-multipath|multipath-kronos|multipath|kronos)$/i, "");
     const effectiveId = modelFor(id, stripped);
     return {
       ok: true,

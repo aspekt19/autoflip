@@ -1,19 +1,20 @@
 import {
   applyFollowUp,
-  budgetFromText,
-  explicitNeedFromText,
   followUps,
-  makesFromText,
-  milesFromText,
-  preferOpenToOtherMakes,
   overlayExplicit,
-  preferredModelsFromText,
   parseNeedJson,
-  supplementNeedFromNote,
   validateNeed,
   type FollowUp,
   type StructuredNeed,
 } from "@/domain/need";
+import {
+  fallbackFindPlan,
+  planToDirections,
+  planToStructuredNeed,
+  validateFindPlan,
+  type FindPlan,
+} from "@/domain/find-plan";
+import type { SearchDirection } from "@/domain/directions";
 import { attachNoteGeo } from "@/domain/find-intake-stage";
 import { intakeFromNote } from "@/domain/note-intake";
 import type { DecisionProof } from "@/domain/decision-note";
@@ -25,7 +26,7 @@ import {
 import type { CriteriaParseProvenance } from "@/domain/radar-criteria-provenance";
 import { criteriaParseLabel } from "@/domain/radar-criteria-provenance";
 import { providerResponseIdFromCall } from "@/domain/serv-response-id";
-import { interpretGuard, plannedProof, runServ, type ServProof } from "@/server/serv";
+import { plannedProof, runServ, type ServProof } from "@/server/serv";
 import { screenUserInput } from "@/domain/screen";
 
 export type UnderstandDeps = {
@@ -40,12 +41,16 @@ export type UnderstandResult =
       ok: true;
       source: "model" | "form";
       need: StructuredNeed;
+      /** Validated C1 plan (SERV or offline fallback). */
+      findPlan: FindPlan;
+      /** Search directions from the plan (never empty for a valid note). */
+      directions: SearchDirection[];
       followUps: FollowUp[];
       guard: string;
       checks: DecisionProof[];
       /** Honest provenance for free-text → structured criteria (Watch with Deal Radar). */
       criteriaParse: CriteriaParseProvenance & { label: string };
-      /** One proof record per need_guard / need_extract (or honest skip). */
+      /** One proof record for find_plan (or honest skip). */
       proofRecords: DecisionProofRecord[];
     }
   | { ok: false; status: number; error: string; message: string };
@@ -77,6 +82,14 @@ export async function understandNeed(
   const screened = screenUserInput(text || mode);
   if (!screened.ok) return { ok: false, status: 400, error: "rejected_input", message: screened.reason };
 
+  const formOverrides = {
+    budgetUsd: body.budgetUsd ?? null,
+    yearMin: body.yearMin ?? null,
+    yearMax: body.yearMax ?? null,
+    milesMax: body.milesMax ?? null,
+    zip: body.zip ?? null,
+  };
+
   const explicit: Parameters<typeof overlayExplicit>[1] = {
     mode,
     budgetUsd: body.budgetUsd ?? null,
@@ -98,17 +111,17 @@ export async function understandNeed(
 
   let source: "model" | "form" = "form";
   let guard = "not_configured";
-  let extracted = explicitNeedFromText(screened.text, mode);
+  let findPlan: FindPlan = fallbackFindPlan(screened.text, mode, formOverrides);
   const checks: ServProof[] = [];
   const proofRecords: DecisionProofRecord[] = [];
   const recordedAt = new Date().toISOString();
   const parseInputs = { text: screened.text, mode };
-  let extractResponseId: string | null = null;
+  let planResponseId: string | null = null;
 
   if (!screened.text.trim()) {
     proofRecords.push(
       buildDecisionProofRecord({
-        purpose: "need_extract",
+        purpose: "find_plan",
         rubricId: NEED_PARSE_RUBRIC_ID,
         status: "skipped_no_evidence",
         recordedAt,
@@ -119,157 +132,126 @@ export async function understandNeed(
   } else if (!deps.servKey) {
     proofRecords.push(
       buildDecisionProofRecord({
-        purpose: "need_guard",
+        purpose: "find_plan",
         rubricId: NEED_PARSE_RUBRIC_ID,
         status: "skipped_no_key",
         recordedAt,
         inputs: parseInputs,
-        detail: "SERV_API_KEY is not configured — local parsers only.",
-      }),
-      buildDecisionProofRecord({
-        purpose: "need_extract",
-        rubricId: NEED_PARSE_RUBRIC_ID,
-        status: "skipped_no_key",
-        recordedAt,
-        inputs: parseInputs,
-        detail: "SERV_API_KEY is not configured — local parsers only.",
+        detail: "SERV_API_KEY is not configured — local find_plan fallback only.",
       }),
     );
   } else {
     const model = deps.servModel;
     const fetchImpl = deps.fetchImpl ?? fetch;
     const servDeps = { fetch: fetchImpl, apiKey: deps.servKey, baseUrl: deps.servBaseUrl, model };
-    const guarded = await runServ("need_guard", { user: screened.text }, servDeps);
-    checks.push(guarded.proof);
-    if (!guarded.ok) {
-      guard = "unavailable";
+    const userPayload = JSON.stringify({
+      note: screened.text,
+      mode,
+      formOverrides,
+      today: recordedAt.slice(0, 10),
+    });
+    const planned = await runServ("find_plan", { user: userPayload }, servDeps);
+    checks.push(planned.proof);
+    // prompt_guard on find_plan — treat a completed call as allow unless the runner blocked.
+    guard = planned.ok ? "allow" : "unavailable";
+
+    if (!planned.ok) {
       proofRecords.push(
         buildDecisionProofRecord({
-          purpose: "need_guard",
+          purpose: "find_plan",
           rubricId: NEED_PARSE_RUBRIC_ID,
           status: "error",
-          model: guarded.proof.modelReported,
+          model: planned.proof.modelReported,
           recordedAt,
           inputs: parseInputs,
-          detail: guarded.error,
+          detail: planned.error,
+          rawResponse: null,
         }),
       );
+      findPlan = fallbackFindPlan(screened.text, mode, formOverrides);
+      source = "form";
     } else {
-      guard = interpretGuard(guarded.text);
-      proofRecords.push(
-        buildDecisionProofRecord({
-          purpose: "need_guard",
-          rubricId: NEED_PARSE_RUBRIC_ID,
-          status: "ok",
-          responseId: providerResponseIdFromCall({
-            ok: true,
-            id: guarded.proof.openserv?.id ?? null,
-          }),
-          model: guarded.proof.modelReported,
-          recordedAt,
-          inputs: parseInputs,
-          verdict: guard,
-          detail: guard === "block" ? "Input gate blocked this note." : null,
-        }),
-      );
-    }
-    if (guard !== "block") {
-      const extractedCall = await runServ("need_extract", { user: screened.text }, servDeps);
-      checks.push(extractedCall.proof);
-      if (extractedCall.ok) {
-        try {
-          const parsed = validateNeed({ ...(parseNeedJson(extractedCall.text) as object), mode, note: screened.text });
-          if (parsed.ok) {
-            extracted = parsed.need;
-            source = "model";
-            extractResponseId = providerResponseIdFromCall({
-              ok: extractedCall.ok,
-              id: extractedCall.proof.openserv?.id ?? null,
-            });
-            proofRecords.push(
-              buildDecisionProofRecord({
-                purpose: "need_extract",
-                rubricId: NEED_PARSE_RUBRIC_ID,
-                status: "ok",
-                responseId: extractResponseId,
-                model: extractedCall.proof.modelReported,
-                recordedAt,
-                inputs: parseInputs,
-                verdict: "extracted",
-              }),
-            );
-          } else {
-            proofRecords.push(
-              buildDecisionProofRecord({
-                purpose: "need_extract",
-                rubricId: NEED_PARSE_RUBRIC_ID,
-                status: "unknown",
-                model: extractedCall.proof.modelReported,
-                recordedAt,
-                inputs: parseInputs,
-                detail: parsed.issues[0]?.message ?? "Extracted need failed validation.",
-              }),
-            );
-          }
-        } catch {
+      try {
+        const parsed = parseNeedJson(planned.text);
+        const validated = validateFindPlan(parsed, { note: screened.text, form: formOverrides });
+        if (validated.ok) {
+          findPlan = validated.plan;
+          source = "model";
+          planResponseId = providerResponseIdFromCall({
+            ok: planned.ok,
+            id: planned.proof.openserv?.id ?? null,
+          });
+          proofRecords.push(
+            buildDecisionProofRecord({
+              purpose: "find_plan",
+              rubricId: NEED_PARSE_RUBRIC_ID,
+              status: "ok",
+              responseId: planResponseId,
+              model: planned.proof.modelReported,
+              recordedAt,
+              inputs: parseInputs,
+              verdict: "planned",
+              rawResponse: planned.text,
+              detail:
+                validated.dropped.length > 0
+                  ? `Clamped: ${validated.dropped.slice(0, 8).join(", ")}`
+                  : null,
+            }),
+          );
+        } else {
+          findPlan = fallbackFindPlan(screened.text, mode, formOverrides);
           source = "form";
           proofRecords.push(
             buildDecisionProofRecord({
-              purpose: "need_extract",
+              purpose: "find_plan",
               rubricId: NEED_PARSE_RUBRIC_ID,
               status: "unknown",
-              model: extractedCall.proof.modelReported,
+              model: planned.proof.modelReported,
               recordedAt,
               inputs: parseInputs,
-              detail: "Extract response was unparseable.",
+              detail: validated.issues[0]?.message ?? "find_plan failed validation.",
+              rawResponse: planned.text,
             }),
           );
         }
-      } else {
+      } catch {
+        findPlan = fallbackFindPlan(screened.text, mode, formOverrides);
+        source = "form";
         proofRecords.push(
           buildDecisionProofRecord({
-            purpose: "need_extract",
+            purpose: "find_plan",
             rubricId: NEED_PARSE_RUBRIC_ID,
-            status: "error",
-            model: extractedCall.proof.modelReported,
+            status: "unknown",
+            model: planned.proof.modelReported,
             recordedAt,
             inputs: parseInputs,
-            detail: extractedCall.error,
+            detail: "find_plan response was unparseable.",
+            rawResponse: planned.text || null,
           }),
         );
       }
     }
   }
 
-  let need = overlayExplicit(extracted, explicit);
-  const preferredMakes = makesFromText(need.note);
-  const preferredModels = preferredModelsFromText(need.note);
-  const openToOtherMakes = preferOpenToOtherMakes(need.note, preferredMakes.length ? preferredMakes : need.preferredMakes);
-  // Text-extracted models are user-named. SERV-only suggestions keep service provenance —
-  // never label them “Models you named”.
-  const fromNote = preferredModels.length > 0;
-  const fromService = !fromNote && (need.preferredModels?.length ?? 0) > 0;
-  // SERV extract can drop a note budget; re-assert dollars the shopper actually wrote
-  // when form/SERV left budget unknown. Never override a different hard max the form set.
-  const noteBudget = budgetFromText(screened.text);
-  need = {
-    ...need,
-    milesMax: milesFromText(need.note) ?? need.milesMax,
-    preferredMakes: preferredMakes.length ? preferredMakes : need.preferredMakes,
-    preferredModels: fromNote ? preferredModels : need.preferredModels,
-    preferredModelsSource: fromNote ? "user_note" : fromService ? "service" : "none",
-    openToOtherMakes,
-    make: (preferredMakes.length ? preferredMakes : need.preferredMakes)[0] ?? need.make,
-    ...(noteBudget != null && (!need.budgetKnown || need.budgetUsd == null)
-      ? { budgetUsd: noteBudget, budgetKnown: true }
-      : {}),
-  };
-  need = supplementNeedFromNote(need, screened.text);
+  // Success: map plan without regex overlay. Fail/fallback: plan already came from fallbackFindPlan.
+  let need = planToStructuredNeed(findPlan, mode, screened.text);
+  need = overlayExplicit(need, explicit);
   if (body.followUp) need = applyFollowUp(need, body.followUp.id, body.followUp.value);
+
+  const formZip =
+    typeof body.zip === "string" && /^\d{5}$/.test(body.zip.trim()) ? body.zip.trim() : null;
+
   // Drop stale wizard ZIP when this note named a city/place without those digits.
+  // Keep an explicit Confirm/form ZIP (answers needsZip / "near me").
   {
     const intake = intakeFromNote(screened.text);
-    if (intake.locationPhrase && !intake.zip && need.zip && need.zip !== intake.zip) {
+    if (
+      !formZip &&
+      intake.locationPhrase &&
+      !intake.zip &&
+      need.zip &&
+      need.zip !== intake.zip
+    ) {
       need = { ...need, zip: null, locationPhrase: need.locationPhrase ?? intake.locationPhrase };
     }
   }
@@ -279,19 +261,37 @@ export async function understandNeed(
     const { locationResolution: _loc, radiusIsDefault: _rad, ...rest } = withGeo;
     need = rest;
   }
+  // attachNoteGeo only trusts ZIP digits in the note — re-apply Confirm/form geo after scrub.
+  if (formZip) need = { ...need, zip: formZip };
+  if (body.distanceMiles !== undefined) need = { ...need, distanceMiles: body.distanceMiles ?? null };
+  // Answered ZIP clears the blocking question for Confirm.
+  if (formZip && findPlan.location.needsZip) {
+    findPlan = {
+      ...findPlan,
+      location: { ...findPlan.location, zip: formZip, needsZip: false },
+      question: { id: "none", text: null },
+    };
+  }
+
   const checked = validateNeed(need);
-  if (!checked.ok) return { ok: false, status: 400, error: "invalid_need", message: checked.issues[0]?.message ?? "That need is not usable." };
-  const recorded = checks.length > 0 ? checks : [plannedProof("need_guard"), plannedProof("need_extract")];
+  if (!checked.ok) {
+    return { ok: false, status: 400, error: "invalid_need", message: checked.issues[0]?.message ?? "That need is not usable." };
+  }
+
+  const recorded = checks.length > 0 ? checks : [plannedProof("find_plan")];
   const criteriaParse: CriteriaParseProvenance =
     source === "model"
-      ? { source: "serv", responseId: extractResponseId }
+      ? { source: "serv", responseId: planResponseId }
       : screened.text.trim()
         ? { source: "code", responseId: null }
         : { source: "form", responseId: null };
+
   return {
     ok: true,
     source,
     need: checked.need,
+    findPlan,
+    directions: planToDirections(findPlan),
     followUps: followUps(checked.need),
     guard,
     checks: recorded.map(publicCheck),

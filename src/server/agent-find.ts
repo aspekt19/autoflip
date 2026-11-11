@@ -3,6 +3,7 @@
  * Balance is checked before work; one report credit settles only after success.
  */
 import { createHash, randomUUID } from "node:crypto";
+import { findDeliveryChargesCredit } from "@/domain/find-delivery";
 import type { StructuredNeed } from "@/domain/need";
 import { creditBalance, creditEventSeen, creditSpend } from "@/io/credit-book";
 import type { Kv } from "@/io/kv";
@@ -271,7 +272,10 @@ export async function advanceAgentFindRun(
 
     let match: FindMatchResult;
     try {
-      match = await runFindMatch({ need: understood.need }, deps);
+      match = await runFindMatch(
+        { need: understood.need, directions: understood.directions },
+        deps,
+      );
     } catch {
       fresh.error = agentError({
         error_code: "find_failed",
@@ -321,15 +325,27 @@ export async function advanceAgentFindRun(
     await mark(fresh, "settling", "settling");
     await saveRun(deps.kv, fresh);
 
-    const spent = await creditSpend(deps.kv, fresh.user_id, fresh.spend_key);
-    if (!spent.ok && !(await creditEventSeen(deps.kv, fresh.spend_key))) {
-      fresh.error = insufficientCreditsEnvelope(deps.origin, spent.balance);
-      await mark(fresh, "failed", "failed");
-      await saveRun(deps.kv, fresh);
-      return fresh;
-    }
-
     const listings = match.body.directions.flatMap((group) => group.listings);
+    // Charge only when cars were delivered (same gate as /api/match REPORT_356a / AUDIT R8).
+    const providerQueriesUsed =
+      typeof match.body.providerQueriesUsed === "number" ? match.body.providerQueriesUsed : 0;
+    const emptyReason =
+      typeof match.body.emptyReason === "string" ? match.body.emptyReason : null;
+    const delivered = findDeliveryChargesCredit({
+      ok: match.body.ok === true,
+      providerQueriesUsed,
+      listingCount: listings.length,
+      emptyReason,
+    });
+    if (delivered) {
+      const spent = await creditSpend(deps.kv, fresh.user_id, fresh.spend_key);
+      if (!spent.ok && !(await creditEventSeen(deps.kv, fresh.spend_key))) {
+        fresh.error = insufficientCreditsEnvelope(deps.origin, spent.balance);
+        await mark(fresh, "failed", "failed");
+        await saveRun(deps.kv, fresh);
+        return fresh;
+      }
+    }
     const top = listings.slice(0, 8).map((row) => ({
       vin: row.vin,
       year: row.year,
@@ -373,8 +389,8 @@ export async function advanceAgentFindRun(
       key_prefix: fresh.key_prefix,
       user_id: fresh.user_id,
       tool: "find_cars",
-      credit_spent: true,
-      credits: 1,
+      credit_spent: delivered,
+      credits: delivered ? 1 : 0,
       free_check_spent: false,
       serv_steps_hash: hashServSteps(verdict.serv_steps),
       idempotency_key: fresh.idempotency_key,
@@ -395,10 +411,11 @@ export async function advanceAgentFindRun(
         providerQueriesUsed: match.body.providerQueriesUsed,
         listingCount: listings.length,
         partialFailure: match.body.partialFailure,
+        delivered,
       },
       checks_run: ["understand_need", "find_match", "price_badge"],
-      credit_spent: true,
-      credits: 1,
+      credit_spent: delivered,
+      credits: delivered ? 1 : 0,
       free_check_spent: false,
       receipt_id: receipt.receipt_id,
       run_id: fresh.run_id,
@@ -422,7 +439,10 @@ export async function advanceAgentFindRun(
       },
     });
 
-    await storeFindSearchDelivery(deps.kv, fresh.spend_key, success as unknown as Record<string, unknown>);
+    // Only cache a chargeable delivery — empty results must not replay as a spent credit.
+    if (delivered) {
+      await storeFindSearchDelivery(deps.kv, fresh.spend_key, success as unknown as Record<string, unknown>);
+    }
     fresh.result = success;
     await mark(fresh, "completed", "completed");
     await saveRun(deps.kv, fresh);

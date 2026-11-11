@@ -68,7 +68,7 @@ describe("proposeFindNextChecks", () => {
     expect(checks[0]!.id).not.toBe("get_history_report");
   });
 
-  it("does not force free_gov on every search without condition/history intent", () => {
+  it("always allowlists free_gov when cards exist (no keyword/regex gate)", () => {
     const checks = proposeFindNextChecks({
       need: {
         ...emptyNeed("personal"),
@@ -84,8 +84,9 @@ describe("proposeFindNextChecks", () => {
       emptyInventory: false,
       listingsHaveVin: true,
     });
-    expect(checks.every((c) => !c.id.startsWith("free_gov_"))).toBe(true);
+    expect(checks.some((c) => c.id.startsWith("free_gov_"))).toBe(true);
     expect(checks.some((c) => c.id === "compare_observed_asks")).toBe(true);
+    expect(wantsFreeVehicleEvidence(emptyNeed("personal"), [])).toBe(true);
   });
 
   it("clamps unknown SERV ids", () => {

@@ -16,20 +16,29 @@ import http from "node:http";
 // (reuse for stub provenance only — not a new live call). Never invent chatcmpl-* fixtures.
 const PORT = Number(process.env.PORT || 8791);
 
+// VINs must ErrorCode=0 decode as Toyota RAV4 for the listed year. Old Camry VINs
+// made free_car_consistency exclude every card after parallel free-gov triage.
+const STUB_RAV4_VINS = [
+  "2T3N1RFV6MC246998",
+  "2T3N1RFV8MC246100",
+  "2T3N1RFV4MC250001",
+  "2T3N1RFV6MC250002",
+];
 const STUB_LISTINGS = {
   stubLabel: "STUB Auto.dev listings — fixture only",
   data: [14_900, 17_000, 17_500, 18_000].map((price, index) => ({
-    vin: ["4T1KZ1AK4MU060006", "4T1K61AK0MU423359", "4T1K61AK4MU610393", "4T1NZ1AK2LU042082"][index],
+    vin: STUB_RAV4_VINS[index],
     vehicle: {
-      vin: ["4T1KZ1AK4MU060006", "4T1K61AK0MU423359", "4T1K61AK4MU610393", "4T1NZ1AK2LU042082"][index],
-      year: 2016,
+      vin: STUB_RAV4_VINS[index],
+      year: 2021,
       make: "Toyota",
       model: "RAV4",
       bodyStyle: "SUV",
     },
     retailListing: {
       price,
-      miles: index === 0 ? 40_000 : 90_000,
+      // All under the stub need milesMax (80k) so match returns 3+ peers for settle comps.
+      miles: 40_000 + index * 8_000,
       city: "Miami",
       state: "FL",
       zip: "33101",
@@ -102,13 +111,17 @@ function servPayload(body) {
   if (schema === "find_pick") {
     // pickKey must be clamped to allowlisted finalists by code; empty → code fallback.
     // Return a note that only repeats stub listing facts (no invented dollars).
+    // Include alternatives/reasons/watchFor so strict find_pick schema accepts the stub.
     return chatCompletion(
       "chatcmpl-EhAa2CKFP1jFUHXA4zkovlrEvHLiD",
       JSON.stringify({
         pickKey: null,
+        alternatives: [],
         action: "negotiate",
         confidence: "medium",
         note: "Asking price is near the fair value of similar listings.",
+        reasons: ["Asking price is near the fair value of similar listings."],
+        watchFor: ["Get a history report and a pre-purchase inspection before you buy."],
         evidenceIds: [],
       }),
     );

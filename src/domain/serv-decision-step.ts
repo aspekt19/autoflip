@@ -320,6 +320,38 @@ export function buildServDecisionJournal(input: {
     }
   }
 
+  // Decide path (triage → decide → challenge): surface the code "facts given" stage
+  // when proof rows for that path exist but no earlier facts/need/free-gov step was stored.
+  const decidePath = steps.some(
+    (s) => s.step === "find_triage" || s.step === "find_decide" || s.step === "find_challenge",
+  );
+  const alreadyHasFacts = steps.some(
+    (s) =>
+      s.step === "facts_given" ||
+      s.step === "need_extract" ||
+      s.step === "find_plan" ||
+      s.step.startsWith("free_gov_"),
+  );
+  if (decidePath && !alreadyHasFacts) {
+    const anchor = steps.find((s) => s.step === "find_triage" || s.step === "find_decide") ?? steps[0]!;
+    const factsStep: ServDecisionStep = {
+      schemaVersion: SERV_DECISION_STEP_SCHEMA,
+      step: "facts_given",
+      by: "code",
+      origin: "code",
+      originReason: null,
+      modelId: null,
+      runId: null,
+      timestamp: anchor.timestamp,
+      inputSummary: "Public-record facts gathered before triage",
+      output: "Code gathered the public-record facts used for this decision.",
+      latencyMs: null,
+      costUsd: null,
+      status: "ran",
+    };
+    steps = [factsStep, ...steps];
+  }
+
   const secondCheck = summarizeSecondCheck(input.agentVerdict?.second_pass);
   const servUsed =
     steps.some((s) => s.by === "SERV" && s.status === "ran") ||

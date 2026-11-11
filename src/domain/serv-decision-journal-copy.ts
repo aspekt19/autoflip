@@ -70,7 +70,7 @@ function scrubBuyerText(text: string): string {
       .replace(/\bchatcmpl-[A-Za-z0-9_-]+/g, "")
       .replace(/\bresponse\s+[A-Za-z0-9_-]+/gi, "")
       .replace(/\bmodel\s+[A-Za-z0-9._-]+/gi, "")
-      .replace(/\b(verdict_decide|verdict_challenge|need_extract|need_guard|find_next_check|find_pick|resale_[a-z_]+|radar_[a-z_]+)\b/gi, "")
+      .replace(/\b(verdict_decide|verdict_challenge|need_extract|need_guard|find_next_check|find_pick|find_triage|find_decide|find_challenge|facts_given|resale_[a-z_]+|radar_[a-z_]+)\b/gi, "")
       .replace(/\bNHTSA\b/gi, "government recall database")
       .replace(/\bvPIC\b/gi, "the car's factory details")
       .replace(/\bVIN\s*decode(?:r|d|ing)?\b/gi, "the car's factory details")
@@ -221,6 +221,19 @@ export function formatJournalStepSentences(step: ServDecisionStep): string {
       return action
         ? `SERV reviewed the shortlist and leaned toward ${action}.`
         : "SERV reviewed the shortlist and named which car to look at first.";
+    case "facts_given":
+      return "Code gathered the public-record facts used for this decision.";
+    case "find_triage":
+      return "SERV shortlisted a few cars from the full pool for a closer look.";
+    case "find_decide":
+      if (clamp) {
+        return `SERV reviewed the shortlist and suggested ${clamp.from}. Code safety rules changed that to ${clamp.to}.`;
+      }
+      return action
+        ? `SERV reviewed the shortlist facts and chose ${action}.`
+        : "SERV reviewed the shortlist facts and chose what you should do next.";
+    case "find_challenge":
+      return "A second independent SERV check reviewed that decision.";
     case "verdict_decide":
       if (clamp) {
         return `SERV reviewed the facts and suggested ${clamp.from}. Code safety rules changed that to ${clamp.to}.`;

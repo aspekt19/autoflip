@@ -5,10 +5,14 @@
  * Uses only returned real listings + free-gov receipts. Never claims VIN-specific recall
  * clearance, clean history, or that Lemonless is error-free / better than others.
  */
+import {
+  ACCIDENT_HISTORY_STILL_UNKNOWN,
+  accidentHistoryStatement,
+} from "./accident-history-statement";
 import { ASSUMPTIONS } from "./assumptions";
 import { bodyFamily, modelBodyFamily } from "./body-style";
 import type { CarConsistencyReceipt } from "./find-car-consistency";
-import { bestDealCarKey } from "./find-car-consistency";
+import { bestDealCarKey, fillDrivetrainFromVpic, isAwdDrivetrain } from "./find-car-consistency";
 import { buyerCarLabels } from "./find-car-label";
 import { computeFindBaseline, type FindBaselineDelta } from "./find-baseline";
 import {
@@ -32,6 +36,7 @@ import { formatMarketAskDetail, listingFeedHistoryNotes, resolveMarketComps } fr
 import {
   BUDGET_AROUND_TOLERANCE_FRAC,
   budgetIsApproximateFromNote,
+  needPrefersAwd,
   type StructuredNeed,
 } from "./need";
 import { median as statsMedian } from "./stats";
@@ -45,6 +50,7 @@ export type BestDealFactorId =
   | "mmy_recall_campaigns"
   | "mmy_ncap_rating"
   | "named_model_preference"
+  | "awd_preference"
   | "budget_fit"
   | "condition_priority"
   | "listing_feed_flags"
@@ -67,11 +73,18 @@ export type BestDealCandidate = {
   priceUsd: number | null;
   miles: number | null;
   vin: string | null;
+  /**
+   * Code factor total — retained for diagnostics / fallback only.
+   * SERV pick must not treat this as the ranking authority.
+   */
   score: number;
   factors: BestDealFactorBreakdown[];
   unknowns: string[];
   fuelSummary: string | null;
-  /** VIN year/make/model mismatch — kept visible, never chosen as the pick. */
+  /**
+   * Hard guardrail exclusion — identity mismatch, stop-sale park-it, or invented facts.
+   * SERV may only pick among non-excluded finalists.
+   */
   excludedFromPick: boolean;
   excludedReason: string | null;
   sellerQuestions: string[];
@@ -81,6 +94,22 @@ export type BestDealCandidate = {
   dealer?: string | null;
   /** Auto.dev dealer page URL when present on the listing fact. */
   vdp?: string | null;
+  /** Listing-feed facts forwarded to SERV pick (never invented). */
+  drivetrain?: string | null;
+  engine?: string | null;
+  fuel?: string | null;
+  accidentCount?: number | null;
+  ownerCount?: number | null;
+  oneOwner?: boolean | null;
+  usageType?: string | null;
+  cpo?: boolean | null;
+  /** MMY free-gov risk facts when receipts exist. */
+  recallCampaignCount?: number | null;
+  stopSale?: boolean | null;
+  parkOutside?: boolean | null;
+  complaintCount?: number | null;
+  ncapOverall?: number | null;
+  distanceMiles?: number | null;
 };
 
 /**
@@ -159,6 +188,8 @@ export const BEST_DEAL_WEIGHTS = {
    * beats an unnamed alternative. A clearly worse named car can still lose.
    */
   namedModel: 16,
+  /** Soft Preferably-AWD boost when drivetrain is known AWD/4WD. */
+  awd: 10,
   budget: 14,
   condition: 12,
 } as const;
@@ -199,6 +230,7 @@ export const BEST_DEAL_FACTOR_PLAIN_LABELS: Record<BestDealFactorId, string> = {
   mmy_recall_campaigns: "recall campaigns",
   mmy_ncap_rating: "crash-test ratings",
   named_model_preference: "named model match",
+  awd_preference: "preferably AWD",
   budget_fit: "budget fit",
   condition_priority: "condition-first preference",
   listing_feed_flags: "listing history flags",
@@ -249,6 +281,8 @@ export type BestDealListing = ObservedListingRow & {
   dealer?: string | null;
   /** Auto.dev dealer page URL when the search context preserved one. */
   vdp?: string | null;
+  /** Miles from the shopper ZIP when the feed provided it. */
+  distanceMiles?: number | null;
 };
 
 /** Unverified odometer: under this share of the peer median miles per year. */
@@ -274,6 +308,7 @@ export type BestDealRiskIndex = {
   ncapOverallByMmy: Map<string, number | null>;
   parkItByMmy: Map<string, boolean>;
   parkOutsideByMmy: Map<string, boolean>;
+  complaintCountByMmy: Map<string, number | null>;
 };
 
 /** Build MMY risk indexes from free-gov receipts (MMY-scope only). */
@@ -282,6 +317,7 @@ export function riskIndexFromReceipts(receipts: readonly FindFreeGovReceipt[]): 
   const ncapOverallByMmy = new Map<string, number | null>();
   const parkItByMmy = new Map<string, boolean>();
   const parkOutsideByMmy = new Map<string, boolean>();
+  const complaintCountByMmy = new Map<string, number | null>();
   for (const r of receipts) {
     const key = mmyListingKey(r.make, r.model, r.year);
     if (r.checkId === "free_gov_recalls" && r.riskFacts) {
@@ -292,6 +328,15 @@ export function riskIndexFromReceipts(receipts: readonly FindFreeGovReceipt[]): 
       if (r.riskFacts.parkIt === true) parkItByMmy.set(key, true);
       else if (recallEvidenceState(r) === "none_found" && !parkItByMmy.has(key)) parkItByMmy.set(key, false);
       if (r.riskFacts.parkOutside === true) parkOutsideByMmy.set(key, true);
+      if (typeof r.riskFacts.complaintCount === "number" && Number.isFinite(r.riskFacts.complaintCount)) {
+        const prior = complaintCountByMmy.get(key);
+        complaintCountByMmy.set(
+          key,
+          prior == null ? r.riskFacts.complaintCount : Math.max(prior, r.riskFacts.complaintCount),
+        );
+      } else if (!complaintCountByMmy.has(key)) {
+        complaintCountByMmy.set(key, null);
+      }
     }
     // Any safety receipt attempt indexes the MMY so settled scoring never says "not on file yet".
     if (r.checkId === "free_gov_safety") {
@@ -300,7 +345,7 @@ export function riskIndexFromReceipts(receipts: readonly FindFreeGovReceipt[]): 
       else if (!ncapOverallByMmy.has(key)) ncapOverallByMmy.set(key, null);
     }
   }
-  return { campaignCountByMmy, ncapOverallByMmy, parkItByMmy, parkOutsideByMmy };
+  return { campaignCountByMmy, ncapOverallByMmy, parkItByMmy, parkOutsideByMmy, complaintCountByMmy };
 }
 
 function extractNcapOverall(r: FindFreeGovReceipt): number | null | undefined {
@@ -335,17 +380,21 @@ function listingKey(row: BestDealListing): string {
   return bestDealCarKey(row);
 }
 
-/** Note cues that amplify wear/age even when the form left condition unspecified. */
+/**
+ * Note cues that amplify wear/age even when the form left condition unspecified.
+ * Bare "reliable" / "reliable for road trips" is a reliability priority — not this quote.
+ * Prefer StructuredNeed.conditionPriority when extraction already set it.
+ */
 export function prefersConditionFromNote(note: string | null | undefined): boolean {
   if (!note) return false;
-  return /\bgood condition\b|\bexpensive repairs\b|\bhidden problems\b|\breliable\b|\binspection\b|\bhistory report\b/i.test(
+  return /\bgood condition\b|\bexpensive repairs\b|\bhidden problems\b|\binspection\b|\bhistory report\b|\brather pay .{0,48}condition\b|\bcondition (matters|first|over)\b/i.test(
     note,
   );
 }
 
 export function prefersNotTooOldFromNote(note: string | null | undefined): boolean {
   if (!note) return false;
-  return /\bnot too old\b|\bnewer\b|\brecent model\b|\breliable\b/i.test(note);
+  return /\bnot too old\b|\bnewer\b|\brecent model\b/i.test(note);
 }
 
 function listingStubForComps(row: BestDealListing): Listing | null {
@@ -458,13 +507,18 @@ export function priceCompsUnevenAcrossListings(
 export const PRICE_FAIRNESS_NEUTRAL_DETAIL =
   "Not scored for fairness — too many shortlist cars still lack usable same-model similar listings from this search, so asking-price comparison is treated as neutral (+0) for everyone. Pick is provisional on price.";
 
+type BestDealNeed = Pick<
+  StructuredNeed,
+  "budgetKnown" | "budgetUsd" | "preferredModels" | "conditionPriority" | "note"
+> & {
+  awdPreference?: boolean;
+  mustHaves?: string[];
+};
+
 function scoreOne(
   row: BestDealListing,
   ctx: {
-    need: Pick<
-      StructuredNeed,
-      "budgetKnown" | "budgetUsd" | "preferredModels" | "conditionPriority" | "note"
-    >;
+    need: BestDealNeed;
     peerMilesPerYear: number[];
     peerMileageSamples: readonly PeerMileageSample[];
     nowYear: number;
@@ -505,25 +559,19 @@ function scoreOne(
         : recallState === "none_found"
           ? "Recall campaigns were checked for this year and model and none were on file. Open recalls on this exact car are still unknown."
           : "Recall campaigns have not been checked yet for this car.";
-  const accidentUnknown =
-    row.accidentCount == null
-      ? "This listing does not say whether accidents were reported."
-      : row.accidentCount > 0
-        ? `This listing says ${row.accidentCount} accident${row.accidentCount === 1 ? "" : "s"} were reported.`
-        : "This listing says no accidents were reported. That is the seller's claim, not a history report.";
+  const accidentLine = accidentHistoryStatement(row.accidentCount ?? null).line;
   const unknowns: string[] = [
     feedHistory.length > 0
       ? "Listing feed flags are included in the adjusted price and repeated here. Still get a title and history report and an inspection"
-      : "Condition and accident/title history are unknown on these cards",
-    accidentUnknown,
+      : ACCIDENT_HISTORY_STILL_UNKNOWN,
+    accidentLine,
     recallUnknown,
     "Open recalls are not checked at VIN level — only year/make/model campaigns when available",
     "A pre-purchase inspection is still required",
   ];
   const mmy = mmyListingKey(row.make, row.model, row.year);
   let score = 0;
-  const conditionFirst =
-    ctx.need.conditionPriority === "inspection_first" || prefersConditionFromNote(ctx.need.note);
+  const conditionFirst = ctx.need.conditionPriority === "inspection_first";
   const heldOut = ctx.heldOutFactors ?? new Set<BestDealFactorId>();
   const settled = Boolean(ctx.evidenceSettled);
 
@@ -909,18 +957,47 @@ function scoreOne(
               : `you asked for ${wantedBody === "suv" ? "an" : "a"} ${plainBody(wantedBody)}`
           }.`
         : "";
+    // When the note named no models, skip the per-car "You did not name a model" spam.
     const namedBit = named
       ? `You named ${row.make} ${row.model}`
-      : namedCount === 0
-        ? "You did not name a model"
-        : "Not one of the models you named";
-    factors.push({
-      id: "named_model_preference",
-      label: "Matches a model you named",
-      points: round1(points),
-      detail: `${namedBit}${bodyBit}`,
-      source: "Your search note",
+      : namedCount > 0
+        ? "Not one of the models you named"
+        : "";
+    const detail = `${namedBit}${bodyBit}`.trim();
+    if (detail || points !== 0) {
+      factors.push({
+        id: "named_model_preference",
+        label: "Matches a model you named",
+        points: round1(points),
+        detail: detail || "Fits this search",
+        source: "Your search note",
+      });
+    }
+  }
+
+  // Soft Preferably-AWD: bonus when drivetrain is known AWD/4WD. Unknown/FWD stay (0) — not filtered.
+  {
+    const wantsAwd = needPrefersAwd({
+      awdPreference: ctx.need.awdPreference,
+      note: ctx.need.note,
+      mustHaves: ctx.need.mustHaves ?? [],
     });
+    if (wantsAwd) {
+      const awd = isAwdDrivetrain(row.drivetrain);
+      const points = awd ? WEIGHTS.awd : 0;
+      score += points;
+      factors.push({
+        id: "awd_preference",
+        label: "Preferably AWD",
+        points: round1(points),
+        detail: awd
+          ? "Matches your Preferably AWD preference (listing or VIN decode)."
+          : row.drivetrain?.trim()
+            ? `Drivetrain is ${row.drivetrain.trim()} — kept in the mix; AWD/4WD ranks higher when known.`
+            : "Drivetrain not on the listing yet — kept in the mix; not filtered out for Preferably AWD.",
+        source: "Your soft preference; listing drivetrain or free VIN decode when present",
+      });
+    }
   }
 
   // Budget fit — "around $X" soft tolerance; overages beyond soft band are heavily penalized.
@@ -1017,8 +1094,8 @@ function scoreOne(
         parkIt
           ? "This year and model has a recall that says to park the car until it is fixed — look into that before buying (not proof about this exact car)"
           : row.miles != null && row.miles >= BEST_DEAL_HIGH_MILES_SOFT
-            ? "You said you'd rather pay more for good condition than expensive repairs — this high-mileage or older car is scored lower (history and inspection still required)"
-            : "You said you'd rather pay more for good condition — history and inspection are still required"
+            ? "You asked to prioritize condition — this high-mileage or older car is scored lower (history and inspection still required)"
+            : "You asked to prioritize condition — history and inspection are still required"
       }${conditionRiskSentence(ctx.carCheck ?? null)}`,
       source: "Your preference, government recall flags when present, and the listing compared with the VIN when checked",
     });
@@ -1043,6 +1120,24 @@ function scoreOne(
         : `~$${fuel.annualFuelUsdLow.toLocaleString("en-US")}/yr fuel`;
   }
 
+  const stopSale = ctx.risk.parkItByMmy.get(mmy) === true;
+  const parkOutside = !stopSale && ctx.risk.parkOutsideByMmy.get(mmy) === true;
+  const recallCampaignCount = ctx.risk.campaignCountByMmy.has(mmy)
+    ? (ctx.risk.campaignCountByMmy.get(mmy) ?? null)
+    : null;
+  const ncapOverall = ctx.risk.ncapOverallByMmy.has(mmy)
+    ? (ctx.risk.ncapOverallByMmy.get(mmy) ?? null)
+    : null;
+  const identityExclude = Boolean(ctx.carCheck?.identityMismatch);
+  // Hard guardrail: stop-sale / park-it MMY campaigns are never SERV pick candidates.
+  const stopExclude = stopSale;
+  const excludedFromPick = identityExclude || stopExclude;
+  const excludedReason = identityExclude
+    ? (ctx.carCheck?.excludedReason ?? "Listing does not match the VIN.")
+    : stopExclude
+      ? "Stop-sale / park-until-fixed recall guidance is open for this year and model — not eligible as the published pick."
+      : null;
+
   return {
     key: listingKey(row),
     make: row.make,
@@ -1055,14 +1150,30 @@ function scoreOne(
     factors,
     unknowns: [...new Set(unknowns)],
     fuelSummary,
-    excludedFromPick: Boolean(ctx.carCheck?.identityMismatch),
-    excludedReason: ctx.carCheck?.excludedReason ?? null,
+    excludedFromPick,
+    excludedReason,
     sellerQuestions: [...new Set([...(ctx.carCheck?.sellerQuestions ?? []), ...extraSellerQuestions])],
     trim: row.trim ?? null,
     city: row.city ?? null,
     state: row.state ?? null,
     dealer: row.dealer ?? null,
     vdp: row.vdp ?? null,
+    drivetrain: row.drivetrain ?? null,
+    engine: row.engine ?? null,
+    fuel: row.fuel ?? null,
+    accidentCount: row.accidentCount ?? null,
+    ownerCount: row.ownerCount ?? null,
+    oneOwner: row.oneOwner ?? null,
+    usageType: row.usageType ?? null,
+    cpo: row.cpo ?? null,
+    recallCampaignCount,
+    stopSale,
+    parkOutside,
+    complaintCount: ctx.risk.complaintCountByMmy.has(mmy)
+      ? (ctx.risk.complaintCountByMmy.get(mmy) ?? null)
+      : null,
+    ncapOverall,
+    distanceMiles: typeof row.distanceMiles === "number" ? row.distanceMiles : null,
   };
 }
 
@@ -1369,9 +1480,20 @@ function rankAll(
       bodyClassByKey: opts.bodyClassByKey,
     }),
   );
+  const preferAwd = needPrefersAwd({
+    awdPreference: need.awdPreference,
+    note: need.note,
+    mustHaves: need.mustHaves ?? [],
+  });
   scored.sort((a, b) => {
     if (a.excludedFromPick !== b.excludedFromPick) return a.excludedFromPick ? 1 : -1;
     if (b.score !== a.score) return b.score - a.score;
+    // Soft AWD before VIN lexicographic key so preferably-AWD does not bury AWD under FWD.
+    if (preferAwd) {
+      const aAwd = isAwdDrivetrain(a.drivetrain) ? 1 : 0;
+      const bAwd = isAwdDrivetrain(b.drivetrain) ? 1 : 0;
+      if (aAwd !== bAwd) return bAwd - aAwd;
+    }
     // Stable tie-break: lower price, then lower miles, then key
     const pa = a.priceUsd ?? Number.POSITIVE_INFINITY;
     const pb = b.priceUsd ?? Number.POSITIVE_INFINITY;
@@ -1388,10 +1510,7 @@ function rankAll(
  * Compute ranked shortlist and a best choice whenever a usable car exists.
  */
 export function selectBestDealOnEvidence(input: {
-  need: Pick<
-    StructuredNeed,
-    "budgetKnown" | "budgetUsd" | "preferredModels" | "conditionPriority" | "note"
-  >;
+  need: BestDealNeed;
   listings: readonly BestDealListing[];
   receipts?: readonly FindFreeGovReceipt[];
   fuelByMmy?: BestDealFuelIndex;
@@ -1407,11 +1526,13 @@ export function selectBestDealOnEvidence(input: {
   const milesPerYearAssumption = input.milesPerYearAssumption ?? 12_000;
   const shortlistMax = input.shortlistMax ?? 5;
   const receipts = input.receipts ?? [];
+  // Fill missing listing.drivetrain from free-gov vPIC before scoring — never drop unknowns.
+  const listings = fillDrivetrainFromVpic(input.listings, receipts);
   const fuelByMmy = input.fuelByMmy ?? fuelIndexFromReceipts(receipts);
   const risk = riskIndexFromReceipts(receipts);
-  const coverage = freeGovToolCoverage(input.listings, receipts);
+  const coverage = freeGovToolCoverage(listings, receipts);
   const fairnessHeldOut = fairnessHeldOutFactors({
-    listings: input.listings,
+    listings,
     fuelByMmy,
     risk,
     receipts,
@@ -1435,7 +1556,7 @@ export function selectBestDealOnEvidence(input: {
   const ncapAttemptedKeys = checkedMmyKeysForCheck(receipts, "free_gov_safety");
   const recallAttemptedKeys = checkedMmyKeysForCheck(receipts, "free_gov_recalls");
   const carCheckMap = new Map((input.carChecks ?? []).map((row) => [row.key, row]));
-  const bodyClassByKey = bodyClassIndex(input.listings, receipts, input.carChecks ?? []);
+  const bodyClassByKey = bodyClassIndex(listings, receipts, input.carChecks ?? []);
   const recallStateByMmy = new Map<string, EvidenceState>();
   for (const receipt of receipts) {
     if (receipt.checkId !== "free_gov_recalls") continue;
@@ -1447,12 +1568,12 @@ export function selectBestDealOnEvidence(input: {
   const marketPool =
     input.marketPool && input.marketPool.length > 0
       ? input.marketPool
-      : input.listings.flatMap((row) => {
+      : listings.flatMap((row) => {
           const listing = listingStubForComps(row);
           return listing ? [listing] : [];
         });
   // Price fairness: neutralize only on a material comps gap (see priceCompsUnevenAcrossListings).
-  const priceFairnessNeutral = priceCompsUnevenAcrossListings(input.listings, marketPool);
+  const priceFairnessNeutral = priceCompsUnevenAcrossListings(listings, marketPool);
   const rankOpts = {
     nowYear,
     milesPerYearAssumption,
@@ -1469,7 +1590,7 @@ export function selectBestDealOnEvidence(input: {
     recallStateByMmy,
     bodyClassByKey,
   };
-  const rankedAll = rankAll(input.listings, input.need, rankOpts);
+  const rankedAll = rankAll(listings, input.need, rankOpts);
   const ranked = rankedAll.slice(0, shortlistMax);
   const leader = rankedAll.find((car) => !car.excludedFromPick) ?? null;
   const baselineFor = (pick: BestDealCandidate | null) =>
@@ -1490,7 +1611,7 @@ export function selectBestDealOnEvidence(input: {
   const priceProvisional = priceFairnessNeutral || !anyPriceRated;
 
   const stillUnknown = [
-    "Condition, accident history, and title brands stay unknown until a history report + inspection",
+    ACCIDENT_HISTORY_STILL_UNKNOWN,
     "VIN-level open/closed recall status is not verified here",
     "Fuel estimates come from EPA fuel economy and may be a range when several versions of the car match",
   ];
@@ -1545,18 +1666,18 @@ export function selectBestDealOnEvidence(input: {
   const first = firstUsable;
 
   // Sensitivity: fuel weight down; city-heavy already in fuel evidence — re-rank with fuel muted
-  const altFuelMuted = rankAll(input.listings, input.need, {
+  const altFuelMuted = rankAll(listings, input.need, {
     ...rankOpts,
     fuelWeightScale: 0.35,
   });
-  const altMiles = rankAll(input.listings, input.need, {
+  const altMiles = rankAll(listings, input.need, {
     ...rankOpts,
     milesPerYearAssumption: 15_000,
   });
   const altBudgetLoose =
     input.need.budgetKnown && input.need.budgetUsd != null
       ? rankAll(
-          input.listings,
+          listings,
           {
             ...input.need,
             note: `${input.need.note ?? ""} around $${input.need.budgetUsd}`,

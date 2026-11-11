@@ -20,6 +20,11 @@ type Props = {
    * ISO timestamp from check delivery settledAt.
    */
   savedRunAt?: string | null;
+  /**
+   * consumer = plain English main view (no model/ids/ISO/raw).
+   * proof = full technical trail for the single Show proof expander.
+   */
+  mode?: "consumer" | "proof";
 };
 
 /**
@@ -32,6 +37,7 @@ export function AgentDecisionTrail({
   defaultOpen = false,
   confidenceWhy = null,
   savedRunAt = null,
+  mode = "consumer",
 }: Props) {
   if (!verdict) return null;
   const steps = agentTrailSteps(verdict);
@@ -43,12 +49,11 @@ export function AgentDecisionTrail({
     (verdict.confidence === "low"
       ? verdict.unknowns.find((line) => /^Low:/i.test(line)) ?? null
       : null);
-  // settledAt is when the delivery was stored — label as "saved at", not the SERV step time.
   const savedLabel = savedRunAt
     ? `Saved at ${new Date(savedRunAt).toLocaleString("en-US", { timeZone: "UTC" })} UTC`
     : null;
   const secondCite = (() => {
-    if (!second) return "";
+    if (!second || mode !== "proof") return "";
     const secondId = providerResponseId(second.responseId);
     if (second.profile || secondId) {
       return ` (${[second.profile, secondId ? `response ${secondId}` : null]
@@ -62,19 +67,86 @@ export function AgentDecisionTrail({
     return trailId ? ` (response ${trailId})` : "";
   })();
 
-  return (
-    <details className="agent-decision-trail onboarding-note" open={defaultOpen}>
-      <summary>
-        <strong>How this decision was made</strong>
-        {savedLabel ? <span className="hint"> · {savedLabel}</span> : null}
-        {verdict.confidence ? (
-          <span className="hint">
-            {" "}
-            · Confidence {confidenceLabel(verdict.confidence)}
-            {lowWhy ? ` — ${lowWhy}` : ""}
-          </span>
+  const secondPlain = (() => {
+    if (!second || second.status === "not_run") {
+      return `Second AI review not run: ${second?.objection ?? "no challenge record was attached to this run."}`;
+    }
+    if (second.status === "agreed") return "Second AI review agreed.";
+    if (second.status === "disagreed") {
+      const action =
+        second.action === "needs_inspection"
+          ? "needs inspection"
+          : second.action
+            ? second.action
+            : null;
+      return `Second AI review disagreed${action ? ` and chose ${action}` : ""}.${
+        second.objection ? ` ${second.objection}` : ""
+      }`;
+    }
+    if (second.status === "unavailable") {
+      return second.objection ?? "Second AI review unavailable.";
+    }
+    if (second.status === "skipped_no_budget" || second.status === "skipped_no_key") {
+      return second.objection ?? "Second AI review skipped.";
+    }
+    if (second.status === "ignored_malformed" || second.status === "ignored_no_evidence") {
+      return "Second AI review returned nothing usable and was ignored.";
+    }
+    return null;
+  })();
+
+  if (mode === "consumer") {
+    return (
+      <div className="agent-decision-trail onboarding-note">
+        {verdict.pick ? (
+          <p>
+            Our AI picked this car because: <strong>{verdict.pick.label}</strong>.
+          </p>
         ) : null}
-      </summary>
+        {verdict.verdict && !verdict.pick ? (
+          <p>
+            Our AI’s review: <strong>{verdict.verdict}</strong>
+          </p>
+        ) : null}
+        {steps.length > 0 ? (
+          <ol className="steps-3 story-steps">
+            {steps.map((step, index) => (
+              <li key={`trail-${index}`}>
+                <strong>{step.decided}</strong>
+                <span>
+                  Why: {step.why}
+                  {step.changed ? ` What changed: ${step.changed}` : ""}
+                </span>
+              </li>
+            ))}
+          </ol>
+        ) : null}
+        {secondPlain ? <p>{secondPlain}</p> : null}
+        {verdict.vs_cheapest ? (
+          <p className="hint">Compared with the cheapest ask: {verdict.vs_cheapest}</p>
+        ) : null}
+        {verdict.unknowns.length > 0 ? (
+          <p className="hint">
+            Still open:{" "}
+            {verdict.unknowns
+              .slice(0, 4)
+              .map((line) => line.replace(/\bunknown\b/gi, "not listed"))
+              .join(" · ")}
+          </p>
+        ) : null}
+      </div>
+    );
+  }
+
+  const proofBody = (
+    <>
+      <p className="hint">
+        <strong>How this decision was made</strong>
+        {savedLabel ? ` · ${savedLabel}` : ""}
+        {verdict.confidence
+          ? ` · Confidence ${confidenceLabel(verdict.confidence)}${lowWhy ? ` — ${lowWhy}` : ""}`
+          : ""}
+      </p>
 
       {verdict.no_serv_step && !closePaths ? (
         <p className="lead">
@@ -111,30 +183,27 @@ export function AgentDecisionTrail({
           {steps.map((step, index) => {
             const responseId = providerResponseId(step.responseId);
             return (
-            <li key={`trail-${index}`}>
-              <strong>{step.decided}</strong>
-              <span>
-                Why: {step.why}
-                {step.changed ? ` What changed: ${step.changed}` : ""}
-              </span>
-              {step.model || responseId || step.recordedAt ? (
-                <p className="hint">
-                  {step.model ? `Model ${step.model}` : "Model not recorded"}
-                  {responseId ? ` · response ${responseId}` : " · no response id"}
-                  {step.recordedAt
-                    ? ` · ${new Date(step.recordedAt).toLocaleString("en-US", { timeZone: "UTC" })} UTC`
-                    : ""}
-                </p>
-              ) : null}
-              {step.rawResponse ? (
-                <details className="onboarding-note">
-                  <summary>Open agent response</summary>
+              <li key={`trail-${index}`}>
+                <strong>{step.decided}</strong>
+                <span>
+                  Why: {step.why}
+                  {step.changed ? ` What changed: ${step.changed}` : ""}
+                </span>
+                {step.model || responseId || step.recordedAt ? (
+                  <p className="hint">
+                    {step.model ? `Model ${step.model}` : "Model not recorded"}
+                    {responseId ? ` · response ${responseId}` : " · no response id"}
+                    {step.recordedAt
+                      ? ` · ${new Date(step.recordedAt).toLocaleString("en-US", { timeZone: "UTC" })} UTC`
+                      : ""}
+                  </p>
+                ) : null}
+                {step.rawResponse ? (
                   <p className="hint" style={{ whiteSpace: "pre-wrap" }}>
                     {step.rawResponse}
                   </p>
-                </details>
-              ) : null}
-            </li>
+                ) : null}
+              </li>
             );
           })}
         </ol>
@@ -188,12 +257,9 @@ export function AgentDecisionTrail({
           <>
             <p>{second.objection ?? "Second check unavailable: second check did not finish"}</p>
             {second.rawDump ? (
-              <details className="onboarding-note">
-                <summary>Raw second-check dump</summary>
-                <p className="hint" style={{ whiteSpace: "pre-wrap" }}>
-                  {second.rawDump}
-                </p>
-              </details>
+              <p className="hint" style={{ whiteSpace: "pre-wrap" }}>
+                {second.rawDump}
+              </p>
             ) : null}
           </>
         ) : null}
@@ -221,6 +287,9 @@ export function AgentDecisionTrail({
       {verdict.unknowns.length > 0 ? (
         <p className="hint">Still unknown: {verdict.unknowns.slice(0, 4).join(" · ")}</p>
       ) : null}
-    </details>
+    </>
   );
+
+  void defaultOpen;
+  return <div className="agent-decision-trail onboarding-note">{proofBody}</div>;
 }

@@ -123,6 +123,7 @@ function deliveredMatch() {
     body: {
       ok: true,
       sample: false,
+      providerQueriesUsed: 1,
       directions: [
         {
           direction: { id: "d1", segment: "Family SUVs", models: [], search: {}, yearMin: 2012, yearMax: 2019 },
