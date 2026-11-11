@@ -17,7 +17,7 @@ import type { AlertNumbers } from "@/domain/radar-watch";
 import type { PriceBadge } from "@/domain/price-badge";
 import type { Listing } from "@/domain/types";
 import { visibleProof, type DecisionProof } from "@/domain/decision-note";
-import { runServ, type ServProof, type ServResult } from "@/server/serv";
+import { profile, runServ, type ServProof, type ServResult } from "@/server/serv";
 
 export type RadarServActivity = {
   at: string;
@@ -29,6 +29,7 @@ export type RadarServActivity = {
     | "radar_review"
     | "radar_guard"
     | "flip_feasibility"
+    | "flip_judge"
     | "resale_pick"
     | "resale_challenge";
   modelRequested: string;
@@ -343,7 +344,8 @@ export async function reviewPersonalCandidate(
   ];
 
   if (deps.challenge && alertWorthy && action) {
-    const challengeMs = Math.min(deps.timeoutMs, 12_000);
+    // Do not cut challenge below the verdict_challenge profile budget (was hard-capped at 12s).
+    const challengeMs = Math.min(deps.timeoutMs, profile("verdict_challenge").timeoutMs);
     if (challengeMs >= 500) {
       const challengeCallId = randomUUID();
       const challengeInputs = {

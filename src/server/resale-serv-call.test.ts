@@ -5,21 +5,22 @@ import {
   isServTimeout,
   journalWhyFromServAttempt,
 } from "./resale-serv-call";
-import type { ServResult } from "@/server/serv";
+import { BASE_MODEL, modelFor, type ServResult } from "@/server/serv";
 
 function failedResult(partial: {
   error: string;
   status: number;
   latencyMs: number;
 }): ServResult {
+  const multipath = modelFor("resale_plan_search", BASE_MODEL);
   return {
     ok: false,
     error: partial.error,
     status: partial.status,
     proof: {
       purpose: "resale_plan_search",
-      modelRequested: "gpt-5.4-mini-serv-multipath",
-      modelReported: "gpt-5.4-mini-serv-multipath",
+      modelRequested: multipath,
+      modelReported: multipath,
       latencyMs: partial.latencyMs,
       ok: false,
       status: partial.status,
@@ -102,7 +103,7 @@ describe("resale SERV failure labeling", () => {
       ...failedResult({ error: "x", status: 200, latencyMs: 900 }),
       ok: true as const,
       text: "{}",
-      model: "gpt-5.4-mini",
+      model: BASE_MODEL,
       shadowOutcome: "not_exposed",
       rawStatus: 200,
       failureDiag: null,

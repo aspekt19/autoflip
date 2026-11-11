@@ -29,24 +29,20 @@ import { payRadarTicket } from "@/io/kite-pay";
 import { parseAutoDevListings } from "@/io/parsers";
 import { reserveRadarCall } from "@/io/persistent-quota";
 import { coverageConfidence, coverageSentence } from "@/domain/coverage";
-import { quotedNumbersStayIn, visibleProof, type DecisionProof } from "@/domain/decision-note";
-import { validateResaleServOutput } from "@/domain/resale-serv-validate";
-import { interpretGuard, runServ, servBudget, type ProfileId, type ServProof } from "@/server/serv";
+import { visibleProof, type DecisionProof } from "@/domain/decision-note";
+import { interpretGuard, runServ, servBudget, type ServProof } from "@/server/serv";
 import { alertMessage, type AlertCopy } from "@/io/telegram";
 import type { Listing } from "@/domain/types";
 import { resolveProductFlags } from "@/domain/product-flags";
 import { journalFromRadarActivity } from "@/domain/radar-activity-journal";
-import {
-  buildRadarReviewActivityRows,
-  flipCandidateOutcome,
-  upsertNotReviewedAlert,
-} from "@/domain/radar-review-activity";
+import { upsertNotReviewedAlert } from "@/domain/radar-review-activity";
 import {
   buildDecisionProofRecord,
   RADAR_VERDICT_RUBRIC_ID,
   type DecisionProofRecord,
 } from "@/domain/decision-proof-record";
 import { providerResponseIdFromCall } from "@/domain/serv-response-id";
+import { decideRadarFlip, flipCandidateOutcome } from "@/server/serv-plan-decide";
 import { reviewPersonalCandidate, type RadarServActivity } from "./radar-serv";
 import { listSearches, upsertRun, saveAlerts, saveSearches, seenBook, storeSeenPrices, readListingCache, writeListingCache, telegramChat, telegramPaused, type StoredRun, listAlerts } from "./radar-store";
 
@@ -343,23 +339,48 @@ export async function runRadarCycle(deps: CycleDeps): Promise<StoredRun> {
           touchedOwnerIds.add(search.ownerId);
           touchedSearchIds.add(search.id);
           bumpSearch(search.id, { listings: job.listings.length });
-          let judged: Awaited<ReturnType<typeof judgeFlipAlerts>> = null;
+          let judged: Awaited<ReturnType<typeof decideRadarFlip>> | null = null;
           if (fresh.length > 0 && deps.servKey) {
             const ownerPlans = await plansOf(search.ownerId);
             const servSlot = await servAllowanceRemaining(deps.kv, search.ownerId, ownerPlans);
             if (!servSlot.ok) {
               notes.push(servSlot.message);
             } else {
-              judged = await judgeFlipAlerts(fresh, deps, remain(), limits.serv, servChecks, search.id);
+              // Thin decide façade — PR B plugs into decideRadarFlip / ports.decideRadarFlip.
+              judged = await decideRadarFlip({
+                fresh,
+                searchId: search.id,
+                remainMs: remain(),
+                ceilingMs: limits.serv,
+                servKey: deps.servKey,
+                servBaseUrl: deps.servBaseUrl,
+                servModel: deps.servModel,
+                fetchImpl: deps.fetchImpl,
+                nowIso: deps.now.toISOString(),
+                guardProofs: servChecks,
+              });
               // One batched radar_review HTTP round-trip counts as one SERV call toward the plan cap.
               if (judged?.activity?.length) {
                 await incrementServUsage(deps.kv, search.ownerId, 1);
               }
             }
           } else if (fresh.length > 0) {
-            judged = await judgeFlipAlerts(fresh, deps, remain(), limits.serv, servChecks, search.id);
+            judged = await decideRadarFlip({
+              fresh,
+              searchId: search.id,
+              remainMs: remain(),
+              ceilingMs: limits.serv,
+              servKey: deps.servKey,
+              servBaseUrl: deps.servBaseUrl,
+              servModel: deps.servModel,
+              fetchImpl: deps.fetchImpl,
+              nowIso: deps.now.toISOString(),
+              guardProofs: servChecks,
+            });
           }
-          if (judged?.activity?.length) servActivity.push(...judged.activity);
+          if (judged?.activity?.length) {
+            servActivity.push(...(judged.activity as RadarServActivity[]));
+          }
           if (deps.servKey && fresh.length > 0 && !judged?.decisions) {
             notes.push(
               "Flip explanation unavailable. Candidates were left as Not reviewed so they can be checked again next run.",
@@ -684,12 +705,12 @@ export async function runRadarCycle(deps: CycleDeps): Promise<StoredRun> {
     await upsertRun(deps.kv, snapshot());
 
     // Personal alerts already ran verdict_decide (+ optional challenge) above.
-    // Flip alerts record radar_review activity via judgeFlipAlerts.
+    // Flip alerts record flip_judge activity via decideRadarFlip (serv-plan-decide).
     if (!deps.servKey) {
       shadow = "not_configured";
       steps.push({ id: "serv_verdict", status: "not_configured" });
     } else if (servActivity.length === 0 && freshAlerts.every((alert) => alert.mode === "flip")) {
-      shadow = freshAlerts.length === 0 ? "no_alerts" : "radar_review";
+      shadow = freshAlerts.length === 0 ? "no_alerts" : "flip_judge";
       steps.push({ id: "serv_verdict", status: shadow });
     } else if (servActivity.length === 0) {
       shadow = "no_candidates";
@@ -825,138 +846,6 @@ function finish(
     perSearch,
     payment,
   };
-}
-
-async function judgeFlipAlerts(
-  fresh: ReturnType<typeof topFlipCandidates>,
-  deps: CycleDeps,
-  remainMs: number,
-  ceilingMs: number,
-  proofs: ServProof[],
-  searchId: string,
-): Promise<{
-  decisions: Map<string, { verdict: "alert" | "skip"; note: string }> | null;
-  checks: DecisionProof[];
-  activity: RadarServActivity[];
-} | null> {
-  if (!deps.servKey || fresh.length === 0 || remainMs <= 0) return null;
-  const facts = fresh.map((item) => ({
-    vin: item.vin,
-    year: item.listing.year,
-    make: item.listing.make,
-    model: item.listing.model,
-    askingUsd: item.listing.priceUsd ?? 0,
-    fairValueUsd: item.resaleMidUsd,
-    compCount: item.compCount,
-    profitLowUsd: item.profitLowUsd,
-    profitMidUsd: item.profitMidUsd,
-    profitHighUsd: item.profitHighUsd,
-    confidence: item.confidence,
-    speed: item.speed,
-    speedBasis: item.speedBasis,
-  }));
-  const guards = proofs.filter((item) => item.purpose === "radar_guard").map(visibleProof);
-  const activity: RadarServActivity[] = [];
-  const nowIso = deps.now.toISOString();
-  const deadline = Date.now() + remainMs;
-  const budget = (id: ProfileId) => servBudget(id, deadline - Date.now(), ceilingMs);
-  try {
-    const rulesMs = budget("flip_feasibility");
-    const rules =
-      rulesMs < 500
-        ? null
-        : await runServ("flip_feasibility", { user: JSON.stringify({ facts }) }, {
-            fetch: deps.fetchImpl,
-            apiKey: deps.servKey,
-            baseUrl: deps.servBaseUrl,
-            model: deps.servModel,
-            timeoutMs: rulesMs,
-          });
-    const allowed = JSON.stringify(facts);
-    const rulesNote = rules?.ok && quotedNumbersStayIn(rules.text, allowed) ? rules.text : null;
-    if (rules) {
-      if (!rulesNote) rules.proof.fallbackUsed = true;
-      proofs.push(rules.proof);
-    }
-    const judgeMs = budget("radar_review");
-    if (judgeMs < 500) return { decisions: null, checks: rules ? [...guards, visibleProof(rules.proof)] : guards, activity };
-    // One call id for the whole batch — shared even when the provider returns no response id.
-    const reviewCallId = randomUUID();
-    const judged = await runServ("radar_review", { user: JSON.stringify({ facts, rulesNote }) }, {
-      fetch: deps.fetchImpl,
-      apiKey: deps.servKey,
-      baseUrl: deps.servBaseUrl,
-      model: deps.servModel,
-      timeoutMs: judgeMs,
-    });
-    proofs.push(judged.proof);
-    const decisions = judged.ok ? parseFlipJudgment(judged.text, facts) : null;
-    const responseId = providerResponseIdFromCall({
-      ok: judged.ok,
-      id: typeof judged.proof.openserv?.id === "string" ? judged.proof.openserv.id : null,
-    });
-    const seeds = fresh.map((item) => ({
-      at: nowIso,
-      searchId,
-      vin: item.vin,
-      callId: reviewCallId,
-      responseId,
-      latencyMs: judged.proof.latencyMs,
-      modelRequested: judged.proof.modelRequested,
-      modelReported: judged.proof.modelReported,
-    }));
-    activity.push(
-      ...buildRadarReviewActivityRows(seeds, {
-        ok: judged.ok,
-        error: judged.ok ? undefined : judged.error,
-        status: judged.ok ? undefined : judged.status,
-        failureCategory: judged.ok ? null : (judged.failureDiag?.category ?? null),
-        decisions,
-      }),
-    );
-    return {
-      decisions,
-      checks: [...guards, ...(rules ? [visibleProof(rules.proof)] : []), visibleProof(judged.proof)],
-      activity,
-    };
-  } catch {
-    return { decisions: null, checks: guards, activity };
-  }
-}
-
-function parseFlipJudgment(
-  text: string,
-  facts: Array<{ vin: string } & Record<string, unknown>>,
-): Map<string, { verdict: "alert" | "skip"; note: string }> | null {
-  try {
-    const parsed = JSON.parse(text) as { decisions?: Array<{ vin?: string; verdict?: string; note?: string }> };
-    if (!Array.isArray(parsed.decisions)) return null;
-    const known = new Set(facts.map((item) => item.vin));
-    const bundle = {
-      vins: [...known],
-      urls: [] as string[],
-      evidenceIds: [...known].map((vin) => `vin:${vin}`),
-      numberFacts: facts,
-    };
-    const decisions = new Map<string, { verdict: "alert" | "skip"; note: string }>();
-    for (const decision of parsed.decisions) {
-      if (!decision.vin || !known.has(decision.vin)) continue;
-      if (decision.verdict !== "alert" && decision.verdict !== "skip") continue;
-      const note = typeof decision.note === "string" ? decision.note : "";
-      const validation = validateResaleServOutput(
-        { text: note, vins: [decision.vin], evidenceIds: [`vin:${decision.vin}`] },
-        bundle,
-      );
-      // Invented numbers/VINs/URLs → drop the note (code alert still uses scan figures).
-      decisions.set(decision.vin, {
-        verdict: decision.verdict,
-        note: validation.ok ? note : "",
-      });
-    }
-    return decisions;
-  } catch {
-    return null;
-  }
 }
 
 async function runGuard(

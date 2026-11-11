@@ -6,6 +6,7 @@ import {
 } from "@/domain/resale-decision-journal";
 import type { ResaleCandidatePnl } from "@/domain/resale-pnl";
 import type { Listing } from "@/domain/types";
+import { BASE_MODEL } from "@/server/serv";
 import { runResaleSettleServ, type ResaleSettleCheckpoint } from "./resale-settle-serv";
 
 function listing(partial: Partial<Listing> & Pick<Listing, "vin" | "year" | "make" | "model" | "priceUsd">): Listing {
@@ -93,7 +94,7 @@ function candidate(partial: Partial<ResaleCandidatePnl> & Pick<ResaleCandidatePn
 }
 
 /** Allowlisted SERV model — "test-model" is rejected before HTTP and must not be used here. */
-const SERV_MODEL = "gpt-5.4-mini";
+const SERV_MODEL = BASE_MODEL;
 
 function inventingFetch(content: Record<string, unknown>): typeof fetch {
   return (async () =>
@@ -138,9 +139,33 @@ describe("runResaleSettleServ", () => {
       candidates: [loser, high],
       budgetUsd: 12_000,
     });
+    expect(result.best?.vin).toBe("VINHIGH0000000001");
     const alt = result.alternatives.find((item) => item.vin === "VINNEG00000000001");
     expect(alt).toBeTruthy();
     expect(alt?.risks.some((line) => /^Not profitable at ask$/i.test(line))).toBe(true);
+  });
+
+  it("never publishes a negative-profit car as the pick (all losers → pass, no best)", async () => {
+    const loserA = candidate({
+      vin: "VINNEGA0000000001",
+      profitMidUsd: -200,
+      rankingProfitMidUsd: -200,
+      listing: listing({ vin: "VINNEGA0000000001", year: 2013, make: "Toyota", model: "Corolla", priceUsd: 11_500 }),
+    });
+    const loserB = candidate({
+      vin: "VINNEGB0000000001",
+      profitMidUsd: -900,
+      rankingProfitMidUsd: -900,
+      listing: listing({ vin: "VINNEGB0000000001", year: 2012, make: "Honda", model: "Civic", priceUsd: 10_800 }),
+    });
+    const result = await runResaleSettleServ({
+      candidates: [loserA, loserB],
+      budgetUsd: 12_000,
+    });
+    expect(result.best).toBeNull();
+    expect(result.verdictAction).toBe("pass");
+    expect(result.agentVerdict.pick).toBeNull();
+    expect(result.alternatives.every((row) => (row.profitMidUsd ?? 0) < 0)).toBe(true);
   });
 
   it("picks the higher mid-profit candidate without SERV and writes a journal", async () => {

@@ -87,9 +87,67 @@ function chatCompletion(id, content) {
   };
 }
 
+function parseUserJson(body) {
+  const raw = userText(body);
+  if (!raw) return null;
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return null;
+  }
+}
+
+function keysFromFacts(user) {
+  const facts = user?.facts && typeof user.facts === "object" ? user.facts : user;
+  if (!facts || typeof facts !== "object") return [];
+  const ranked = Array.isArray(facts.codeRankedKeys) ? facts.codeRankedKeys : [];
+  const shortlist = Array.isArray(facts.shortlistKeys) ? facts.shortlistKeys : [];
+  const pool = Array.isArray(facts.poolKeys) ? facts.poolKeys : [];
+  const fromPoolRows = Array.isArray(facts.pool)
+    ? facts.pool.map((row) => (row && typeof row.key === "string" ? row.key : null)).filter(Boolean)
+    : [];
+  const fromShortlistRows = Array.isArray(facts.shortlist)
+    ? facts.shortlist.map((row) => (row && typeof row.key === "string" ? row.key : null)).filter(Boolean)
+    : [];
+  const codeRankedKey = typeof facts.codeRankedKey === "string" ? [facts.codeRankedKey] : [];
+  return [...new Set([...ranked, ...shortlist, ...pool, ...fromPoolRows, ...fromShortlistRows, ...codeRankedKey])];
+}
+
 function servPayload(body) {
   const schema = schemaName(body);
   const system = systemText(body);
+  const user = parseUserJson(body);
+
+  if (schema === "find_plan") {
+    // Same shape as find-radar-serv-acceptance offline fixture (validateFindPlan).
+    return chatCompletion(
+      "chatcmpl-EhAYL8BkOR3tLA0IvmYKYaDFasgEz",
+      JSON.stringify({
+        summary: "Toyota RAV4 under $18,000 near Miami for commuting.",
+        bodyStyles: ["suv"],
+        budget: { maxUsd: 18_000, approximate: false, quote: "under $18,000" },
+        yearMin: null,
+        yearMax: null,
+        milesMax: 80_000,
+        drivetrain: { value: "any", strength: "none", quote: null },
+        fuel: { value: "any", strength: "none", quote: null },
+        seatsMin: null,
+        location: { zip: "33101", phrase: "near Miami", needsZip: false },
+        priorities: [],
+        namedModels: [{ make: "Toyota", model: "RAV4" }],
+        excludedMakes: [],
+        question: { id: "none", text: null },
+        directions: [
+          {
+            label: "The model you named",
+            why: "You named a Toyota RAV4.",
+            bodyStyle: "suv",
+            models: [{ make: "Toyota", model: "RAV4" }],
+          },
+        ],
+      }),
+    );
+  }
 
   if (schema === "need_extract") {
     return chatCompletion(
@@ -104,6 +162,65 @@ function servPayload(body) {
         targetProfitUsd: null,
         milesMax: 80_000,
         make: "Toyota",
+      }),
+    );
+  }
+
+  if (schema === "find_triage") {
+    const keys = keysFromFacts(user).slice(0, 8);
+    const shortlist = (keys.length >= 3 ? keys : keys.concat(keys).concat(keys)).slice(0, Math.max(3, keys.length));
+    return chatCompletion(
+      "chatcmpl-EhAaTriageStubFindRadar01",
+      JSON.stringify({
+        shortlist: shortlist.map((key) => ({
+          key,
+          reason: "STUB triage shortlist — fixture only",
+          evidenceIds: [`car:${key}`],
+        })),
+        rejected: [],
+        perCarChecks: [],
+        revisit: { needed: false, why: null, addModels: [], widenRadiusMiles: null },
+      }),
+    );
+  }
+
+  if (schema === "find_decide") {
+    const keys = keysFromFacts(user);
+    const pickKey = keys[0] || "stub-missing-key";
+    const alt = keys.filter((k) => k !== pickKey).slice(0, 2);
+    return chatCompletion(
+      "chatcmpl-EhAaDecideStubFindRadar01",
+      JSON.stringify({
+        pickKey,
+        action: "negotiate",
+        confidence: "medium",
+        confidenceWhy: "STUB decide — asking price is near similar listings.",
+        reasons: [
+          {
+            text: "Asking price is near the fair value of similar listings.",
+            evidenceIds: [`car:${pickKey}`],
+          },
+        ],
+        watchOuts: [
+          {
+            text: "Get a history report and a pre-purchase inspection before you buy.",
+            evidenceIds: [`car:${pickKey}`],
+          },
+        ],
+        askSeller: ["Ask for service records."],
+        alternatives: alt.map((key) => ({ key, whyNot: "STUB alternative — fixture only" })),
+        offerUsd: null,
+      }),
+    );
+  }
+
+  if (schema === "find_challenge") {
+    return chatCompletion(
+      "chatcmpl-EhAaChallengeStubFindRadar1",
+      JSON.stringify({
+        agree: true,
+        issues: [],
+        revised: { pickKey: null, action: null, confidence: null },
       }),
     );
   }
@@ -127,14 +244,14 @@ function servPayload(body) {
     );
   }
 
-  const user = userText(body);
+  const userRaw = userText(body);
   if (
     schema === "report_verdict_decision" ||
-    user.includes("fairValueUsd") ||
-    user.includes("allowedActions") ||
+    userRaw.includes("fairValueUsd") ||
+    userRaw.includes("allowedActions") ||
     /verdict_decide|Buy\/Negotiate\/Pass|shopper verdict/i.test(system)
   ) {
-    const radar = /radar|alert|watch/i.test(system) || user.includes("alertWorthy");
+    const radar = /radar|alert|watch/i.test(system) || userRaw.includes("alertWorthy");
     return negotiateVerdict(radar ? "chatcmpl-EhAYY9x6TMkVDYpmLDnwVyxN4B1wM" : "chatcmpl-EhAYgC3yCPXLLZEYAvYAWkyIL0uuX");
   }
   if (schema === "report_verdict_challenge") {

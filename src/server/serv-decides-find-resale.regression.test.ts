@@ -17,6 +17,7 @@ import { FIND_NEXT_CHECK_RUBRIC_ID } from "@/domain/decision-proof-view";
 import type { ResaleCandidatePnl } from "@/domain/resale-pnl";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+import { BASE_MODEL } from "@/server/serv";
 
 function listing(
   partial: Partial<Listing> & Pick<Listing, "vin" | "year" | "make" | "model" | "priceUsd" | "miles">,
@@ -227,7 +228,7 @@ describe("P1 Resale: null-content refusal is a real labelled failure", () => {
         shadowOutcome: "not_used",
         shadowMaxIterations: null,
         latencyMs: 800,
-        modelRequested: "gpt-5.4-mini",
+        modelRequested: BASE_MODEL,
         modelReported: "gpt-5.4-mini-2026-03-17",
         reasoningEffort: null,
         contentFilter: "default_on",
@@ -318,7 +319,7 @@ describe("P1 Check: park-outside campaign is stop-level end-to-end via runCheck"
             : { agrees: true, action: "negotiate", objection: null, evidenceIds: ["ev_fair_value"] };
         return Response.json({
           id: `synthetic-test-park-outside-${servCalls}`,
-          model: "gpt-5.4-mini",
+          model: BASE_MODEL,
           choices: [{ message: { content: JSON.stringify(body) } }],
         });
       }
@@ -412,7 +413,7 @@ describe("P1 Check: park-outside campaign is stop-level end-to-end via runCheck"
       {
         fetch: fetchImpl as unknown as typeof fetch,
         servKey: "test-serv-key",
-        servModel: "gpt-5.4-mini",
+        servModel: BASE_MODEL,
         servBaseUrl: "https://serv-mock.test/v1",
         autodevKey: "test-autodev",
         autodev: { cache: new TtlCache(), counter: new MemoryCounter() },

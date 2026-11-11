@@ -116,7 +116,7 @@ describe("runReportVerdictChallenge failure trail", () => {
       status: 200,
       proof: {
         latencyMs: 1_244,
-        modelReported: "gpt-5.4-mini",
+        modelReported: "gpt-5.6-sol",
         openserv: { id: "synthetic-test-91e97028-9249-4df4-a8ab-eccac014750d", usage: { total_tokens: 40 } },
       },
       fallback: "ignored_malformed",

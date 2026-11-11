@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { loadServRevisionRecording, parseServRevisionRecording } from "./serv-revision-recording";
+import { BASE_MODEL } from "@/server/serv";
 
 describe("serv revision recording honesty", () => {
   it("rejects the old agent-written revision shape", () => {
@@ -23,22 +24,22 @@ describe("serv revision recording honesty", () => {
     const result = parseServRevisionRecording({
       schema: "lemonless.serv_revision_recording.v1",
       recordedAt: "2026-11-09T00:00:00.000Z",
-      model: "gpt-5.4-mini",
+      model: BASE_MODEL,
       costUsd: null,
       costNote: null,
       subject: {},
       first: {
-        request: { profile: "verdict_decide", model: "gpt-5.4-mini", user: "x" },
+        request: { profile: "verdict_decide", model: BASE_MODEL, user: "x" },
         rawResponse: JSON.stringify({ verdict: "buy", note: "ok" }),
         parsed: { verdict: "buy", note: "ok" },
       },
       revised: {
-        request: { profile: "verdict_decide", model: "gpt-5.4-mini", user: "y" },
+        request: { profile: "verdict_decide", model: BASE_MODEL, user: "y" },
         rawResponse: JSON.stringify({ verdict: "negotiate", note: "changed" }),
         parsed: { verdict: "negotiate", note: "changed" },
       },
       challenge: {
-        request: { profile: "verdict_challenge", model: "gpt-5.4-mini", user: "z" },
+        request: { profile: "verdict_challenge", model: BASE_MODEL, user: "z" },
         rawResponse: JSON.stringify({
           agrees: false,
           action: "pass",
@@ -65,20 +66,20 @@ describe("serv revision recording honesty", () => {
     const result = parseServRevisionRecording({
       schema: "lemonless.serv_revision_recording.v1",
       recordedAt: "2026-11-09T12:00:00.000Z",
-      model: "gpt-5.4-mini",
+      model: BASE_MODEL,
       costUsd: null,
       costNote: null,
       subject: {},
       first: {
-        request: { profile: "verdict_decide", model: "gpt-5.4-mini", user: "first" },
+        request: { profile: "verdict_decide", model: BASE_MODEL, user: "first" },
         rawResponse: JSON.stringify({ verdict: "buy", note: "Under fair value." }),
       },
       revised: {
-        request: { profile: "verdict_decide", model: "gpt-5.4-mini", user: "revised" },
+        request: { profile: "verdict_decide", model: BASE_MODEL, user: "revised" },
         rawResponse: JSON.stringify({ verdict: "negotiate", note: "Newer comps lowered the case." }),
       },
       challenge: {
-        request: { profile: "verdict_challenge", model: "gpt-5.4-mini", user: "challenge" },
+        request: { profile: "verdict_challenge", model: BASE_MODEL, user: "challenge" },
         rawResponse: JSON.stringify({
           agrees: true,
           action: "negotiate",
@@ -98,24 +99,24 @@ describe("serv revision recording honesty", () => {
     const result = parseServRevisionRecording({
       schema: "lemonless.serv_revision_recording.v1",
       recordedAt: "2026-11-09T12:00:00.000Z",
-      model: "gpt-5.4-mini",
+      model: BASE_MODEL,
       costUsd: null,
       costNote: "unit test fixture — not for sample page",
       subject: { vin: "4T1KZ1AK4MU060006" },
       first: {
-        request: { profile: "verdict_decide", model: "gpt-5.4-mini", user: "first" },
+        request: { profile: "verdict_decide", model: BASE_MODEL, user: "first" },
         rawResponse: JSON.stringify({ verdict: "buy", note: "Under fair value." }),
         openserv: { responseId: "synthetic-test-1" },
         parsed: { verdict: "buy", note: "Under fair value." },
       },
       revised: {
-        request: { profile: "verdict_decide", model: "gpt-5.4-mini", user: "revised" },
+        request: { profile: "verdict_decide", model: BASE_MODEL, user: "revised" },
         rawResponse: JSON.stringify({ verdict: "negotiate", note: "Newer comps lowered the case." }),
         openserv: { responseId: "synthetic-test-2" },
         parsed: { verdict: "negotiate", note: "Newer comps lowered the case." },
       },
       challenge: {
-        request: { profile: "verdict_challenge", model: "gpt-5.4-mini", user: "challenge" },
+        request: { profile: "verdict_challenge", model: BASE_MODEL, user: "challenge" },
         rawResponse: JSON.stringify({
           agrees: false,
           action: "needs_inspection",

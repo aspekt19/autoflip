@@ -68,16 +68,36 @@ describe("find next-check choice allowlist alignment", () => {
     expect(clampFindNextCheckChoice("invent_best_car", allowed).clamped).toBeNull();
   });
 
-  it("Find profile accepts Sonnet 5.5 and GPT-5.6 Sol via SERV_PROFILE_MODEL_FIND_NEXT_CHECK; Fable blocked", () => {
-    for (const id of ["claude-sonnet-5.5", "gpt-5.6-sol"] as const) {
-      const r = resolveProfileBaseModel("find_next_check", {
-        env: { SERV_PROFILE_MODEL_FIND_NEXT_CHECK: id },
-      });
-      expect(r.ok).toBe(true);
-      if (!r.ok) return;
-      expect(r.baseId).toBe(id);
-      expect(r.overrideActive).toBe(true);
-    }
+  it("Find profile production default is gpt-6.1-sol; Sonnet needs ALLOW_UNLISTED; Fable blocked", () => {
+    const shared = resolveProfileBaseModel("find_next_check", { env: {} });
+    expect(shared.ok).toBe(true);
+    if (!shared.ok) return;
+    expect(shared.baseId).toBe("gpt-6.1-sol");
+
+    const sol = resolveProfileBaseModel("find_next_check", {
+      env: { SERV_PROFILE_MODEL_FIND_NEXT_CHECK: "gpt-6.1-sol" },
+    });
+    expect(sol.ok).toBe(true);
+    if (!sol.ok) return;
+    expect(sol.baseId).toBe("gpt-6.1-sol");
+    expect(sol.overrideActive).toBe(false);
+
+    const sonnetBlocked = resolveProfileBaseModel("find_next_check", {
+      env: { SERV_PROFILE_MODEL_FIND_NEXT_CHECK: "claude-sonnet-5.5" },
+    });
+    expect(sonnetBlocked.ok).toBe(false);
+
+    const sonnet = resolveProfileBaseModel("find_next_check", {
+      env: {
+        SERV_PROFILE_MODEL_FIND_NEXT_CHECK: "claude-sonnet-5.5",
+        SERV_PROFILE_MODEL_ALLOW_UNLISTED: "1",
+      },
+    });
+    expect(sonnet.ok).toBe(true);
+    if (!sonnet.ok) return;
+    expect(sonnet.baseId).toBe("claude-sonnet-5.5");
+    expect(sonnet.overrideActive).toBe(true);
+
     const fable = resolveProfileBaseModel("find_next_check", {
       env: { SERV_PROFILE_MODEL_FIND_NEXT_CHECK: "claude-fable-5" },
     });

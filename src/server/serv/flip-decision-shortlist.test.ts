@@ -8,15 +8,22 @@ import {
 } from "./flip-decision-shortlist";
 import { resolveServCompareModelIds, listServFlipDecisionShortlist } from "./model-catalog";
 import { resolveProfileBaseModel } from "./profile-models";
+import { BASE_MODEL } from "./profiles";
 
-describe("Flip decision shortlist (t321 Fable excluded)", () => {
-  it("uses Sonnet → gpt-6.1-sol only (Fable excluded from paid)", () => {
-    expect(SERV_FLIP_DECISION_SHORTLIST_IDS).toEqual(["claude-sonnet-5.5", "gpt-6.1-sol"]);
-    expect(SERV_FLIP_DECISION_SHORTLIST.map((e) => e.flipOrder)).toEqual([1, 2]);
-    expect(SERV_FLIP_DECISION_SHORTLIST[1]!.modelId).toBe("gpt-6.1-sol");
+describe("Flip decision shortlist (production = gpt-6.1-sol only)", () => {
+  it("uses gpt-6.1-sol only (Fable excluded; no Sonnet-first order)", () => {
+    expect(SERV_FLIP_DECISION_SHORTLIST_IDS).toEqual(["gpt-6.1-sol"]);
+    expect(SERV_FLIP_DECISION_SHORTLIST.map((e) => e.flipOrder)).toEqual([1]);
+    expect(SERV_FLIP_DECISION_SHORTLIST[0]!.modelId).toBe(BASE_MODEL);
     expect([...SERV_FLIP_EXCLUDED_FROM_PAID]).toEqual(["claude-fable-5"]);
     expect(isFlipDecisionShortlistId("claude-fable-5")).toBe(false);
-    expect([...SERV_FLIP_SUPERSEDED_AUTOMATIC_NEXT]).toEqual(["gpt-5.6-sol", "claude-opus-5.5"]);
+    expect(isFlipDecisionShortlistId("claude-sonnet-5.5")).toBe(false);
+    expect([...SERV_FLIP_SUPERSEDED_AUTOMATIC_NEXT]).toEqual([
+      "claude-sonnet-5.5",
+      "gpt-5.6-sol",
+      "gpt-5.4-mini",
+      "claude-opus-5.5",
+    ]);
   });
 
   it("resolves shortlist without ALLOW_UNLISTED", () => {
@@ -27,25 +34,28 @@ describe("Flip decision shortlist (t321 Fable excluded)", () => {
     expect(r.models.every((m) => m.kind === "flip_decision_shortlist")).toBe(true);
   });
 
-  it("profile override accepts gpt-6.1-sol and sonnet first-class; Fable not shortlist", () => {
-    for (const id of ["gpt-6.1-sol", "claude-sonnet-5.5"] as const) {
-      expect(isFlipDecisionShortlistId(id)).toBe(true);
-      const r = resolveProfileBaseModel("scout_plan", {
-        env: { SERV_PROFILE_MODEL_SCOUT_PLAN: id },
-      });
-      expect(r.ok).toBe(true);
-      if (!r.ok) return;
-      expect(r.baseId).toBe(id);
-      // gpt-6.1-sol is BASE_MODEL — setting it via profile env is not an override.
-      expect(r.overrideActive).toBe(id !== "gpt-6.1-sol");
-    }
-    const findProfile = resolveProfileBaseModel("find_next_check", {
-      env: { SERV_PROFILE_MODEL_FIND_NEXT_CHECK: "gpt-6.1-sol" },
+  it("production profile resolve is gpt-6.1-sol; Sonnet needs ALLOW_UNLISTED", () => {
+    const sol = resolveProfileBaseModel("scout_plan", { env: {} });
+    expect(sol.ok).toBe(true);
+    if (!sol.ok) return;
+    expect(sol.baseId).toBe("gpt-6.1-sol");
+
+    const sonnetBlocked = resolveProfileBaseModel("scout_plan", {
+      env: { SERV_PROFILE_MODEL_SCOUT_PLAN: "claude-sonnet-5.5" },
     });
-    expect(findProfile.ok).toBe(true);
-    if (!findProfile.ok) return;
-    expect(findProfile.baseId).toBe("gpt-6.1-sol");
-    expect(findProfile.overrideActive).toBe(false);
+    expect(sonnetBlocked.ok).toBe(false);
+
+    const sonnet = resolveProfileBaseModel("scout_plan", {
+      env: {
+        SERV_PROFILE_MODEL_SCOUT_PLAN: "claude-sonnet-5.5",
+        SERV_PROFILE_MODEL_ALLOW_UNLISTED: "1",
+      },
+    });
+    expect(sonnet.ok).toBe(true);
+    if (!sonnet.ok) return;
+    expect(sonnet.baseId).toBe("claude-sonnet-5.5");
+    expect(sonnet.overrideActive).toBe(true);
+
     const fableBlocked = resolveProfileBaseModel("find_next_check", {
       env: { SERV_PROFILE_MODEL_FIND_NEXT_CHECK: "claude-fable-5" },
     });
@@ -53,6 +63,6 @@ describe("Flip decision shortlist (t321 Fable excluded)", () => {
   });
 
   it("listServFlipDecisionShortlist matches shortlist length", () => {
-    expect(listServFlipDecisionShortlist()).toHaveLength(2);
+    expect(listServFlipDecisionShortlist()).toHaveLength(1);
   });
 });

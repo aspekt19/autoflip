@@ -277,7 +277,7 @@ describe("find → SERV → watch → radar verdict_decide acceptance (merge gat
       bestDeal,
       servKey: "test-key",
       fetchImpl: settleFetch,
-      model: "gpt-5.4-mini",
+      model: BASE_MODEL,
       budgetUsd: 18_000,
       transportPolicy: "experiment_single_attempt",
     });

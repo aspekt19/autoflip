@@ -2,8 +2,8 @@
   "openapi": "3.0.3",
   "info": {
     "title": "Lemonless Agent API",
-    "version": "0.2.0",
-    "description": "Check a car and Find cars with af_ API keys. Credits settle after success only."
+    "version": "0.3.0",
+    "description": "Check, Find, Resale, and Deal Radar with af_ API keys. Same SERV plan/decide path as the site. Credits (or optional x402) settle after success only."
   },
   "servers": [{ "url": "/" }],
   "components": {
@@ -181,6 +181,90 @@
         }
       }
     },
+    "/api/v1/resale": {
+      "post": {
+        "summary": "Start async Resale (budget)",
+        "parameters": [{ "name": "Idempotency-Key", "in": "header", "schema": { "type": "string" } }],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["budgetUsd"],
+                "properties": {
+                  "budgetUsd": { "type": "number" },
+                  "zip": { "type": "string" },
+                  "distanceMiles": { "type": "number" },
+                  "bodyStyle": { "type": "string" },
+                  "targetProfitUsd": { "type": "number" }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": { "description": "{ job_id, status, step_completed, credit_spent, status_url, result_url }" },
+          "401": { "description": "Auth", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/AgentError" } } } },
+          "402": { "description": "Credits", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/AgentError" } } } },
+          "403": { "description": "Key lacks the find scope", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/AgentError" } } } }
+        }
+      }
+    },
+    "/api/v1/resale/{jobId}/status": {
+      "get": {
+        "summary": "Resale job status + journal",
+        "parameters": [{ "name": "jobId", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "responses": { "200": { "description": "{ job_id, status, step_completed, journal, proofRecords }" } }
+      }
+    },
+    "/api/v1/resale/{jobId}": {
+      "get": {
+        "summary": "Resale job result (advances until done)",
+        "parameters": [{ "name": "jobId", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "responses": { "200": { "description": "Delivery with journal, proofRecords, agentVerdict, best/alternatives" } }
+      }
+    },
+    "/api/v1/radar/watches": {
+      "get": {
+        "summary": "List saved Deal Radar watches",
+        "responses": { "200": { "description": "{ watches, alertCount, credit_spent }" } }
+      },
+      "post": {
+        "summary": "Save a Deal Radar watch (plan-gated)",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "name": { "type": "string" },
+                  "mode": { "type": "string", "enum": ["personal", "flip"] },
+                  "criteria": { "type": "object" }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": { "description": "{ watch, credit_spent, plan }" },
+          "402": { "description": "Radar plan required" }
+        }
+      }
+    },
+    "/api/v1/radar/check": {
+      "post": {
+        "summary": "Deal Radar check-now for owner watches",
+        "responses": { "200": { "description": "{ runId, journal, proofRecords, servActivity, alertsSent }" } }
+      }
+    },
+    "/api/v1/radar/feed": {
+      "get": {
+        "summary": "Recent Deal Radar alerts for owner",
+        "responses": { "200": { "description": "{ watches, alerts, credit_spent }" } }
+      }
+    },
     "/api/v1/receipts": {
       "get": {
         "summary": "List recent receipts",
@@ -200,13 +284,13 @@
         "security": [],
         "responses": {
           "200": {
-            "description": "Server + tools. tools/list descriptions document proofRecords (lemonless.decision_proof.v1) on check_car, find_cars, and deal_radar."
+            "description": "Server + tools. tools/list covers check_car, find_cars, resale_*, radar_*, deal_radar, full_report."
           }
         }
       },
       "post": {
         "summary": "MCP JSON-RPC",
-        "description": "initialize | tools/list | tools/call | ping. Successful check_car / find_cars_result / deal_radar payloads include proofRecords.",
+        "description": "initialize | tools/list | tools/call | ping. Successful payloads include proofRecords / journal where applicable.",
         "responses": { "200": { "description": "JSON-RPC result" } }
       }
     }

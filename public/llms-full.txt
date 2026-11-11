@@ -1,8 +1,10 @@
 # Lemonless agent reference
 
 ## Product
-Lemonless screens used cars. Humans use /check and /find in the browser (sign-in gated).
-Agents use the same analysis paths over MCP and REST with `af_` API keys tied to that account.
+Lemonless screens used cars. Humans use /check, /find, /resale, and /radar in the browser (sign-in gated).
+Agents use the **same** analysis paths over MCP and REST with `af_` API keys tied to that account:
+find (any buyer request), check (listing URL or VIN), resale (budget), radar (saved searches),
+same SERV plan/decide/second-check pipeline and the same report including the decision journal.
 
 ## Authentication
 1. Sign in on the site and open /developers.
@@ -14,9 +16,9 @@ Agents use the same analysis paths over MCP and REST with `af_` API keys tied to
 ## Scopes
 | Scope | Allows |
 |-------|--------|
-| read | deal_radar, receipts list/get |
+| read | deal_radar, radar_watches / radar_save_watch / radar_check_now / radar_feed, receipts |
 | check | check_car, full_report, POST /api/v1/check, POST /api/v1/report |
-| find | find_cars (+ status/result), POST/GET /api/v1/find* |
+| find | find_cars (+ status/result), resale_search (+ status/result), POST/GET /api/v1/find*, POST/GET /api/v1/resale* |
 
 Missing scope → HTTP 403 `missing_scope` with `next_steps` to recreate the key.
 
@@ -30,7 +32,7 @@ Body (one of):
 { "url": "https://dealer.example/listing" }
 { "text": "2014 Toyota Camry LE …" }
 ```
-Optional: `zip`, header `Idempotency-Key`.
+Optional: `zip`, header `Idempotency-Key`, optional `payment` (x402) when agent payments are enabled.
 Billing: free monthly Check allotment when available, else 1 report credit — **only after success**. Failures return `credit_spent: false`.
 
 ## find_cars (async)
@@ -40,20 +42,34 @@ Billing: free monthly Check allotment when available, else 1 report credit — *
 Same via MCP tools `find_cars`, `find_cars_status`, `find_cars_result`.
 Billing: 1 report credit settled only after a successful match. Balance is checked at create; no charge on failed understand/search.
 
+## resale_search (async, budget)
+1. `POST /api/v1/resale` with `{ "budgetUsd": 12000, "zip": "78701" }` → 202 `{ "job_id", … }`
+2. `GET /api/v1/resale/{job_id}/status`
+3. `GET /api/v1/resale/{job_id}` — advances remaining steps; returns best/alternatives, `journal`, `proofRecords`, `agentVerdict`
+Same via MCP `resale_search` / `resale_status` / `resale_result`. Scope: `find`. 1 credit when the final verdict is delivered.
+
+## Deal Radar (saved searches)
+- Scan (no watch): MCP `deal_radar` — free, scope `read`.
+- Saved watches (parity with `/radar`):
+  - `GET /api/v1/radar/watches` / MCP `radar_watches`
+  - `POST /api/v1/radar/watches` / MCP `radar_save_watch` — requires Radar ($100/mo) or Radar Pro ($250/mo) on Stripe TEST
+  - `POST /api/v1/radar/check` / MCP `radar_check_now` — same SERV plan/decide + decision journal
+  - `GET /api/v1/radar/feed` / MCP `radar_feed`
+
 ## Success schema (fixed)
 See docs/agent-verdict-schema.json (`lemonless.agent_verdict.v1`) plus wrapper fields:
 `schema_version`, `tool`, `verdict`, `confidence`, `summary`, `reasons`, `risks`, `unknowns`,
 `subject`, `comparables_summary`, `serv.steps`, `serv.second_pass`, `serv.checks_run`,
 `proofRecords`, `code_computed`, `credit_spent`, `credits`, `free_check_spent`, `receipt_id`,
-`run_id`, `result`.
+`run_id`, `result`. Resale also returns `journal` (decision journal).
 
 ## Decision proof (`lemonless.decision_proof.v1`)
-Shared contract for site Find/Radar, MCP tools, and `af_` REST. Each row:
+Shared contract for site Find/Radar/Resale, MCP tools, and `af_` REST. Each row:
 
 | Field | Notes |
 |-------|--------|
 | schemaVersion | always `lemonless.decision_proof.v1` |
-| purpose | e.g. `need_guard`, `need_extract`, `verdict_decide`, `verdict_challenge`, `radar_guard` |
+| purpose | e.g. `need_guard`, `need_extract`, `verdict_decide`, `verdict_challenge`, `radar_guard`, `resale_*` |
 | rubricId | rubric id for that purpose |
 | status | `ok` \| `failed` \| `skipped` |
 | servResponseId | provider id when `ok`; **null** on failed/skipped — never invented |
@@ -65,14 +81,19 @@ Shared contract for site Find/Radar, MCP tools, and `af_` REST. Each row:
 | reason | required when not `ok` |
 | rawResponse | optional raw SERV body when recorded |
 
-`check_car` / `POST /api/v1/check` fills `proofRecords` from the same shopper decide/challenge path as site `/check` (`run-check` → `runShopperVerdictServ`):
-- `[]` **only** when `SERV_API_KEY` is not configured (TypeScript screening still runs).
-- When the key is set but ordered gates withhold decide, the array has a `skipped` `verdict_decide` row whose `reason` is the withhold reason — not an empty array.
-- When decide/challenge run, rows are `ok` / `failed` / `skipped` with real statuses; never invent `servResponseId` on non-ok rows.
+## Optional x402 v2 (USDC on Base) — OFF by default
+Env (names only; never hardcode secrets):
+- `X402_AGENT_PAYMENTS_ENABLED` — must be `1`/`true` to enable (keep off until Yura approves)
+- `X402_PAY_TO`, `X402_NETWORK` (default `eip155:8453`), `X402_ASSET` (USDC on Base), `X402_FACILITATOR_URL`
+- `X402_PRICE_ATOMIC`, `X402_TIMEOUT_SECONDS`, `X402_DESCRIPTION`, `X402_VERSION` (default `2`), `X402_SCHEME` (default `exact` for v2)
 
-`deal_radar` always returns exactly one `radar_guard` row in `proofRecords` (including `skipped` when `SERV_API_KEY` is missing). It is the Deal Radar make/model scan tool (scope `read`); saved watches still require a paid Radar / Radar Pro plan on `/radar`.
+Flow for check/find when enabled:
+1. Missing payment + no credits → HTTP **402** with body + `PAYMENT-REQUIRED` (base64 PaymentRequired v2)
+2. Client pays USDC on Base and retries with `PAYMENT-SIGNATURE` (or `X-PAYMENT` / body `payment`)
+3. Server **verifies** via facilitator, runs the job, **settles only after results are delivered**
+4. Failures never settle. Tests use a mock facilitator — no real payments in CI.
 
-Docs omit filled proof JSON examples unless captured from a real run (servResponseId, model, timestamp, rawResponse).
+Primary billing remains site report credits + free monthly Check allotment.
 
 ## Visible decision step (`lemonless.serv_decision_step.v1`)
 Buyer journal on Find / Check / Resale / report: step, by (`SERV`|`code`), modelId, runId, timestamp, inputSummary, output, latencyMs, costUsd, status (`ran`|`skipped`|`failed`|`not_run`). Adapted from `proofRecords` until sibling producers emit steps directly (`src/server/serv/decision-step-producer.ts`).
@@ -117,5 +138,6 @@ Buyer journal on Find / Check / Resale / report: step, by (`SERV`|`code`), model
 ## OpenServ note
 OpenServ must forward `Authorization: Bearer af_…` on every tools/call POST. If headers are stripped, you get `auth_required` with `credit_spent: false`. Store the key as a secret; smoke with curl against /api/mcp tools/list first.
 
-## Non-goals
-No on-chain x402 / USDC required for these tools. Optional x402 code may exist elsewhere; agent docs use credits + `af_` only.
+## Docs
+- Agent docs page: `/developers`
+- Discovery: `/.well-known/agent.json`, `/openapi.json`, `/llms.txt`, `/llms-full.txt`

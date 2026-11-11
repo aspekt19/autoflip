@@ -4,11 +4,7 @@
  * Code computes all P&L numbers; SERV never invents figures.
  */
 import type { AgentVerdict } from "@/domain/agent-verdict-schema";
-import {
-  buildDecisionProofRecord,
-  RESALE_JUDGE_RUBRIC_ID,
-  type DecisionProofRecord,
-} from "@/domain/decision-proof-record";
+import { type DecisionProofRecord } from "@/domain/decision-proof-record";
 import { proposeDirections } from "@/domain/directions";
 import {
   appendJournalStep,
@@ -27,25 +23,12 @@ import type { Kv } from "@/io/kv";
 import {
   logResaleStage,
   makeResaleDeadline,
-  resaleCallTimeoutMs,
   RESALE_INTERNAL_BUDGET_MS,
   RESALE_STAGE_BUDGET_MS,
-  RESALE_TIME_BUDGET_SKIP,
   type ResaleDeadline,
 } from "@/domain/resale-deadline";
 import { runFindMatch, type FindMatchDeps } from "@/server/find-match";
-import {
-  journalWhyFromServAttempt,
-  normalizeDirectionId,
-  rawResponseFromServResult,
-  runResaleServWithRejectRetry,
-  softFilterEvidenceIds,
-  stringArrayField,
-  validationFromCall,
-} from "@/server/resale-serv-call";
-import { providerResponseIdFromCall } from "@/domain/serv-response-id";
-import { runResaleSettleServ } from "@/server/resale-settle-serv";
-import { profile } from "@/server/serv";
+import { decideResale, planSearch } from "@/server/serv-plan-decide";
 
 export const RESALE_ALTERNATIVE_LIMIT = 4;
 export const RESALE_SHORTLIST_LIMIT = 8;
@@ -213,241 +196,43 @@ export async function runResaleSearch(
   }
 
   if (!deps.skipPlanServ) {
-  planJournal = appendJournalStep(planJournal, {
-    kind: "plan_search",
-    actor: "code",
-    decided: `Proposed ${allowedDirections.length} search directions for budget $${input.budgetUsd.toLocaleString("en-US")}: ${allowedDirections.map((d) => d.segment).join("; ")}`,
-    why: "Editorial allowlist from budget band and optional filters — not market ranking.",
-    inputsUsed: allowedDirections.map((d) => `direction:${d.id}:${d.segment}`),
-    changed: null,
-    model: null,
-    responseId: null,
-    recordedAt,
-    rejected: null,
-  });
-
-  const planTimeoutMs = resaleCallTimeoutMs(profile("resale_plan_search").timeoutMs, deadline);
-  if (
-    deps.servKey?.trim() &&
-    allowedDirections.length > 0 &&
-    deadline.allow(RESALE_STAGE_BUDGET_MS.plan) &&
-    planTimeoutMs != null
-  ) {
-    const planStarted = Date.now();
-    const allowedDirectionIds = allowedDirections.map((d) => d.id);
-    const directionEvidenceIds = allowedDirectionIds.map((id) => `direction:${id}`);
-    const facts = {
-      allowedDirections,
-      allowedDirectionIds,
-      budgetUsd: input.budgetUsd,
-      zip: input.zip,
-      distanceMiles: input.distanceMiles,
-    };
-    const planBundle = {
-      vins: [] as string[],
-      urls: [] as string[],
-      evidenceIds: directionEvidenceIds,
-      numberFacts: facts,
-    };
-    try {
-      const allowIds = new Set(allowedDirectionIds);
-      const attempt = await runResaleServWithRejectRetry({
-        profileId: "resale_plan_search",
-        facts,
-        deps: {
-          fetch: deps.fetchImpl ?? fetch,
-          apiKey: deps.servKey,
-          baseUrl: deps.servBaseUrl,
-          model: deps.servModel,
-          timeoutMs: planTimeoutMs,
-        },
-        deadline,
-        canRetry: true,
-        validatePayload: (payload, result) => {
-          const note = typeof payload?.note === "string" ? payload.note : "";
-          const directionIds = stringArrayField(payload, "directionIds").map(normalizeDirectionId);
-          const safeIds = directionIds.filter((id) => allowIds.has(id));
-          const base = validationFromCall({
-            result,
-            payload,
-            text: note,
-            evidenceIds: softFilterEvidenceIds(
-              note.match(/direction:[A-Za-z0-9_-]+/g) ?? [],
-              directionEvidenceIds,
-            ),
-            bundle: planBundle,
-          });
-          if (!base.ok) return base;
-          if (safeIds.length === 0) {
-            return {
-              ok: false,
-              reason: "rejected: unsupported reference",
-              detail:
-                "Plan payload missing allowlisted direction ids. Copy exact strings from facts.allowedDirectionIds.",
-            };
-          }
-          return { ok: true };
-        },
-      });
-      const planned = attempt.result;
-      const payload = attempt.payload;
-      const validation = attempt.validation;
-      const directionIds = stringArrayField(payload, "directionIds").map(normalizeDirectionId);
-      const note = typeof payload?.note === "string" ? payload.note : "";
-      const safeIds = directionIds.filter((id) => allowIds.has(id));
-      if (attempt.attempt === 2) {
-        planJournal = appendJournalStep(planJournal, {
-          kind: "fallback",
-          actor: "SERV",
-          decided: "Plan first response rejected — retried once with validation error",
-          why: "Reject-retry within step budget.",
-          inputsUsed: directionEvidenceIds,
-          changed: null,
-          model: deps.servModel || planned.proof.modelReported || planned.proof.modelRequested || null,
-          responseId: null,
-          recordedAt,
-          rejected: "rejected: unsupported reference",
-        });
-      }
-      if (planned.ok && payload && validation.ok && safeIds.length > 0) {
-        // Keep every allowlisted direction SERV selected — do not collapse to safeIds[0].
-        plannedDirectionIds = safeIds;
-        const named = safeIds.map((id) => {
-          const row = allowedDirections.find((d) => d.id === id);
-          return row ? `${row.segment} (${id})` : id;
-        });
-        const firstLabel = allowedDirections.find((d) => d.id === safeIds[0]);
-        const planResponseId = providerResponseIdFromCall({
-          ok: true,
-          id: typeof planned.proof.openserv?.id === "string" ? planned.proof.openserv.id : null,
-        });
-        const planModel =
-          deps.servModel || planned.proof.modelReported || planned.proof.modelRequested || null;
-        planJournal = appendJournalStep(planJournal, {
-          kind: "plan_search",
-          actor: "SERV",
-          decided: `Run directions ${named.join("; ")}${payload.widen === true ? " (widen allowed)" : ""}`,
-          why: note || "Plan used allowlisted direction ids only.",
-          inputsUsed: safeIds.map((id) => {
-            const row = allowedDirections.find((d) => d.id === id);
-            return row ? `direction:${id}:${row.segment}` : `direction:${id}`;
-          }),
-          changed: firstLabel
-            ? `Search order starts with ${firstLabel.segment} (${firstLabel.make} ${firstLabel.model}); all ${safeIds.length} selected directions still run`
-            : null,
-          model: planModel,
-          responseId: planResponseId,
-          recordedAt,
-          rejected: null,
-        });
-        planProofRecords.push(
-          buildDecisionProofRecord({
-            purpose: "resale_plan_search",
-            rubricId: RESALE_JUDGE_RUBRIC_ID,
-            status: "ok",
-            recordedAt,
-            responseId: planResponseId,
-            model: planModel,
-            inputs: { directionIds: safeIds, budgetUsd: input.budgetUsd },
-            verdict: safeIds.join(","),
-            detail: note || `SERV planned ${safeIds.length} search direction(s).`,
-            rawResponse: rawResponseFromServResult(planned),
-          }),
-        );
-      } else {
-        const fail = journalWhyFromServAttempt({
-          result: planned,
-          validation,
-          payload,
-          missingPayloadFallback: "Plan payload missing allowlisted direction ids.",
-        });
-        const planModel =
-          deps.servModel || planned.proof.modelReported || planned.proof.modelRequested || null;
-        planJournal = appendJournalStep(planJournal, {
-          kind: "fallback",
-          actor: "SERV",
-          decided: "Plan rejected or unavailable — code runs full editorial directions",
-          why: fail.why,
-          inputsUsed: directionEvidenceIds,
-          changed: null,
-          model: planModel,
-          responseId: providerResponseIdFromCall({
-            ok: false,
-            id: typeof planned.proof.openserv?.id === "string" ? planned.proof.openserv.id : null,
-          }),
-          recordedAt,
-          rejected: fail.rejected,
-        });
-        planProofRecords.push(
-          buildDecisionProofRecord({
-            purpose: "resale_plan_search",
-            rubricId: RESALE_JUDGE_RUBRIC_ID,
-            status: "failed",
-            recordedAt,
-            model: planModel,
-            inputs: { allowedDirectionIds, budgetUsd: input.budgetUsd },
-            detail: fail.why,
-            rawResponse: rawResponseFromServResult(planned),
-          }),
-        );
-      }
-    } catch (err) {
-      planJournal = appendJournalStep(planJournal, {
-        kind: "fallback",
-        actor: "code",
-        decided: "Plan threw — code runs full editorial directions",
-        why: err instanceof Error ? err.message : "Plan error.",
-        inputsUsed: allowedDirections.map((d) => `direction:${d.id}`),
-        changed: null,
-        model: null,
-        responseId: null,
-        recordedAt,
-        rejected: null,
-      });
-      planProofRecords.push(
-        buildDecisionProofRecord({
-          purpose: "resale_plan_search",
-          rubricId: RESALE_JUDGE_RUBRIC_ID,
-          status: "failed",
-          recordedAt,
-          inputs: { budgetUsd: input.budgetUsd },
-          detail: err instanceof Error ? err.message : "Plan error.",
-        }),
-      );
-    }
-    logResaleStage("plan", planStarted, { remainingMs: deadline.remainingMs() });
-  } else if (!deps.servKey?.trim() && allowedDirections.length > 0) {
-    planProofRecords.push(
-      buildDecisionProofRecord({
-        purpose: "resale_plan_search",
-        rubricId: RESALE_JUDGE_RUBRIC_ID,
-        status: "skipped_no_key",
-        recordedAt,
-        inputs: {
-          directionIds: allowedDirections.map((d) => d.id),
-          budgetUsd: input.budgetUsd,
-        },
-        detail: "SERV_API_KEY is not configured — Resale plan uses code editorial directions only.",
-      }),
-    );
-  } else if (deps.servKey?.trim() && allowedDirections.length > 0) {
     planJournal = appendJournalStep(planJournal, {
-      kind: "fallback",
+      kind: "plan_search",
       actor: "code",
-      decided: `Plan ${RESALE_TIME_BUDGET_SKIP}`,
-      why: `Wall-clock budget remaining ${deadline.remainingMs()}ms — code runs full editorial directions.`,
-      inputsUsed: allowedDirections.map((d) => `direction:${d.id}`),
+      decided: `Proposed ${allowedDirections.length} search directions for budget $${input.budgetUsd.toLocaleString("en-US")}: ${allowedDirections.map((d) => d.segment).join("; ")}`,
+      why: "Editorial allowlist from budget band and optional filters — not market ranking.",
+      inputsUsed: allowedDirections.map((d) => `direction:${d.id}:${d.segment}`),
       changed: null,
       model: null,
       responseId: null,
       recordedAt,
       rejected: null,
     });
-    logResaleStage("plan_skipped", Date.now(), {
-      reason: RESALE_TIME_BUDGET_SKIP,
-      remainingMs: deadline.remainingMs(),
+
+    // Thin plan façade — PR A (understand + plan) plugs into planSearch / ports.planResale.
+    const planned = await planSearch({
+      surface: "resale",
+      budgetUsd: input.budgetUsd,
+      zip: input.zip,
+      distanceMiles: input.distanceMiles,
+      allowedDirections,
+      journal: planJournal,
+      recordedAt,
+      deadline,
+      servKey: deps.servKey,
+      servBaseUrl: deps.servBaseUrl,
+      servModel: deps.servModel,
+      fetchImpl: deps.fetchImpl,
     });
-  }
+    plannedDirectionIds =
+      planned.directionIds.length > 0
+        ? planned.directionIds.filter((id) => allowedDirections.some((d) => d.id === id))
+        : allowedDirections.map((d) => d.id);
+    if (plannedDirectionIds.length === 0) {
+      plannedDirectionIds = allowedDirections.map((d) => d.id);
+    }
+    planJournal = planned.journal;
+    planProofRecords = planned.proofRecords;
   } // end !skipPlanServ
 
   if (deps.stopAfter === "plan") {
@@ -586,7 +371,8 @@ export async function runResaleSearch(
   }
 
   const settleStarted = Date.now();
-  const settled = await runResaleSettleServ({
+  // Thin decide façade — PR B (gov checks + decide) plugs into decideResale / ports.decideResale.
+  const settled = await decideResale({
     candidates: pnls,
     budgetUsd: input.budgetUsd,
     timeToSellPref: input.timeToSell,

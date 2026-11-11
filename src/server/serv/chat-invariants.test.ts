@@ -1,45 +1,33 @@
 import { describe, expect, it } from "vitest";
-import {
-  BASE_MODEL,
-  PROFILES,
-  endpointForProfile,
-  requestFor,
-  streamForProfile,
-} from "./index";
+import { BASE_MODEL, requestFor } from "./index";
+import { PROFILES } from "./profiles";
 
 describe("SERV shared default + chat/non-stream invariants", () => {
-  it("defaults BASE_MODEL to gpt-6.1-sol for all steps (no Gemini)", () => {
+  it("defaults BASE_MODEL to gpt-6.1-sol for all steps", () => {
     expect(BASE_MODEL).toBe("gpt-6.1-sol");
-    expect(BASE_MODEL).not.toMatch(/gemini/i);
   });
 
-  it("Find/verdict/check steps POST chat/completions and stay non-stream when Shadow is on", () => {
+  it("resale/radar/agent product profiles request chat/completions and non-stream when shadow is on", () => {
     const ids = Object.keys(PROFILES).filter(
       (id) =>
-        id.startsWith("find_") ||
+        id.startsWith("resale_") ||
+        id.startsWith("radar_") ||
+        id.startsWith("agent_") ||
+        id.startsWith("flip_") ||
         id === "verdict_decide" ||
         id === "verdict_challenge" ||
         id === "check_rules" ||
-        id === "need_extract" ||
-        id === "scout_plan",
+        id === "personal_alert_review",
     );
     expect(ids.length).toBeGreaterThan(5);
     for (const id of ids) {
-      const entry = PROFILES[id as keyof typeof PROFILES];
-      expect(endpointForProfile(entry)).toBe("chat");
       const req = requestFor(id as keyof typeof PROFILES, "{}");
       expect(req.endpoint).toBe("chat");
       expect(req.model).toContain(BASE_MODEL);
+      const entry = PROFILES[id as keyof typeof PROFILES];
       if ((entry.tools as string[]).includes("shadow")) {
-        expect(streamForProfile(entry)).toBe(false);
         expect(req.stream).toBe(false);
       }
     }
-  });
-
-  it("forces chat for Gemini overrides even if a profile lists responses", () => {
-    const entry = { ...PROFILES.check_rules, endpoint: "responses" as const };
-    expect(endpointForProfile(entry, "gemini-3.1-pro-preview")).toBe("chat");
-    expect(endpointForProfile(entry, BASE_MODEL)).toBe("chat");
   });
 });

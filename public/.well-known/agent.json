@@ -1,6 +1,6 @@
 {
   "name": "Lemonless",
-  "description": "Buy smart. Stay lemonless. Agent Check + Find with the same credits as the site. TypeScript owns every number; settle only after success.",
+  "description": "Buy smart. Stay lemonless. Agent Check + Find + Resale + Deal Radar with the same credits and SERV plan/decide path as the site. TypeScript owns every number; settle only after success.",
   "url": "https://autoflip-umber.vercel.app",
   "documentation": "https://autoflip-umber.vercel.app/developers",
   "llms": "https://autoflip-umber.vercel.app/llms.txt",
@@ -14,7 +14,7 @@
     "decisionStepSchema": "lemonless.serv_decision_step.v1",
     "auditChainSchema": "lemonless.decision_audit_chain.v1"
   },
-  "version": "0.2.1",
+  "version": "0.3.0",
   "authentication": {
     "schemes": ["bearer"],
     "header": "Authorization",
@@ -29,6 +29,10 @@
     "mcp": "https://autoflip-umber.vercel.app/api/mcp",
     "check": "https://autoflip-umber.vercel.app/api/v1/check",
     "find": "https://autoflip-umber.vercel.app/api/v1/find",
+    "resale": "https://autoflip-umber.vercel.app/api/v1/resale",
+    "radarWatches": "https://autoflip-umber.vercel.app/api/v1/radar/watches",
+    "radarCheck": "https://autoflip-umber.vercel.app/api/v1/radar/check",
+    "radarFeed": "https://autoflip-umber.vercel.app/api/v1/radar/feed",
     "receipts": "https://autoflip-umber.vercel.app/api/v1/receipts",
     "report": "https://autoflip-umber.vercel.app/api/v1/report",
     "agentCard": "https://autoflip-umber.vercel.app/.well-known/agent.json"
@@ -38,7 +42,7 @@
       "name": "check_car",
       "transport": ["mcp", "http"],
       "http": "POST /api/v1/check",
-      "cost": "free monthly check allotment, else 1 credit after success",
+      "cost": "free monthly check allotment, else 1 credit after success (optional x402 when enabled)",
       "scope": "check",
       "input": { "vin": "string", "url": "string", "text": "string", "zip": "string" }
     },
@@ -46,14 +50,51 @@
       "name": "find_cars",
       "transport": ["mcp", "http"],
       "http": "POST /api/v1/find → GET /api/v1/find/{run_id}/status → GET /api/v1/find/{run_id}",
-      "cost": "1 credit after successful search",
+      "cost": "1 credit after successful search (optional x402 settle-on-delivery when enabled)",
       "scope": "find",
       "async": true,
       "input": { "text": "string (required)", "mode": "personal|flip", "zip": "string", "budgetUsd": "number" }
     },
     {
+      "name": "resale_search",
+      "transport": ["mcp", "http"],
+      "http": "POST /api/v1/resale → GET /api/v1/resale/{job_id}/status → GET /api/v1/resale/{job_id}",
+      "cost": "1 credit when final Resale verdict is delivered",
+      "scope": "find",
+      "async": true,
+      "input": { "budgetUsd": "number (required)", "zip": "string", "distanceMiles": "number", "targetProfitUsd": "number" }
+    },
+    {
       "name": "deal_radar",
       "transport": "mcp",
+      "cost": "free",
+      "scope": "read"
+    },
+    {
+      "name": "radar_watches",
+      "transport": ["mcp", "http"],
+      "http": "GET /api/v1/radar/watches",
+      "cost": "free (list); create is plan-gated",
+      "scope": "read"
+    },
+    {
+      "name": "radar_save_watch",
+      "transport": ["mcp", "http"],
+      "http": "POST /api/v1/radar/watches",
+      "cost": "Radar / Radar Pro plan required",
+      "scope": "read"
+    },
+    {
+      "name": "radar_check_now",
+      "transport": ["mcp", "http"],
+      "http": "POST /api/v1/radar/check",
+      "cost": "free (no report-credit debit)",
+      "scope": "read"
+    },
+    {
+      "name": "radar_feed",
+      "transport": ["mcp", "http"],
+      "http": "GET /api/v1/radar/feed",
       "cost": "free",
       "scope": "read"
     },
@@ -69,11 +110,13 @@
   "decisionProofSchema": "lemonless.decision_proof.v1",
   "decisionProof": {
     "field": "proofRecords",
-    "description": "Shared on site, MCP, and af_ REST. Each row: schemaVersion, purpose, rubricId, status (ok|failed|skipped), servResponseId (only when ok), model, timestamp, inputsDigest, verdict, clampResult, reason, optional rawResponse.",
+    "description": "Shared on site, MCP, and af_ REST. Each row: schemaVersion, purpose, rubricId, status (ok|failed|skipped), servResponseId (only when ok), model, timestamp, inputsDigest, verdict, clampResult, reason, optional rawResponse. Resale also returns journal.",
     "tools": {
       "check_car": "verdict_decide / verdict_challenge when SERV ran; skipped row with withhold reason when SERV_API_KEY is set but gates withhold decide; [] only when SERV_API_KEY is not configured",
       "find_cars": "need_guard / need_extract / verdict rows on completed find_cars_result",
-      "deal_radar": "always exactly one radar_guard row (ok, skipped_no_key, or failed); Deal Radar make/model scan — saved watches need paid Radar / Radar Pro"
+      "resale_search": "resale_plan_search / triage / pick / challenge journal + proofRecords on delivery",
+      "deal_radar": "always exactly one radar_guard row (ok, skipped_no_key, or failed)",
+      "radar_check_now": "same SERV plan/decide path + decision journal as site /radar"
     }
   },
   "errors": {
@@ -81,6 +124,6 @@
   },
   "payment": {
     "primary": "site report credits + free Check allotment",
-    "onChain": "not required"
+    "onChain": "optional x402 v2 USDC on Base — disabled by default (X402_AGENT_PAYMENTS_ENABLED); charge only on delivery"
   }
 }

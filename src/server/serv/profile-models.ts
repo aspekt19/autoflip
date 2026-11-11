@@ -1,95 +1,39 @@
 /**
- * Reversible per-profile SERV model configuration (t317).
+ * Production SERV model resolution.
  *
- * Production default is BASE_MODEL (`gpt-6.1-sol`). Override globally with
- * `SERV_MODEL`, or per profile with `SERV_PROFILE_MODEL_<PROFILE>`.
+ * Every profile resolves to BASE_MODEL (`gpt-6.1-sol`) unless the caller passes an
+ * explicit `requested` model (typically `SERV_MODEL` / deps.model) or a per-profile
+ * `SERV_PROFILE_MODEL_<PROFILE>` env override. Non-BASE_MODEL ids fail closed unless
+ * `SERV_PROFILE_MODEL_ALLOW_UNLISTED=1` (compare / Flip console validation only).
  *
  * Priority for the base id (before modelFor feature suffixes):
- *   1. SERV_PROFILE_MODEL_<PROFILE> (e.g. SERV_PROFILE_MODEL_SCOUT_PLAN=claude-sonnet-5.5)
- *      — beats global SERV_MODEL so Sonnet can be tried on scout_plan alone
- *   2. Explicit caller `requested` (deps.model / safe-execute SERV_MODEL)
- *   3. BASE_MODEL (production default)
- *
- * Unlisted ids fail closed unless SERV_PROFILE_MODEL_ALLOW_UNLISTED=1.
+ *   1. SERV_PROFILE_MODEL_<PROFILE>
+ *   2. Explicit caller `requested` (deps.model / SERV_MODEL)
+ *   3. BASE_MODEL (shared production default — gpt-6.1-sol)
  */
 
 import { BASE_MODEL, modelFor, type ProfileId } from "./profiles";
 
 /**
- * Always-allowlisted Sol/Mini peers for every profile (production default remains BASE_MODEL).
- * Offline mocks and Flip compare still pin these ids; without them, unlisted profiles
- * fail closed on `gpt-5.4-mini` after the BASE_MODEL bump to gpt-6.1-sol.
- */
-export const SERV_SHARED_MODEL_PEERS = ["gpt-6.1-sol", "gpt-5.6-sol", "gpt-5.4-mini"] as const;
-
-/**
- * Docs + parent-evidenced candidates for product profiles.
- * Sonnet 5.5: parent SAME-input D1 grounded reject + D2 abstain (HTTP 200).
- * Gemini 3.1 Pro Preview: allowlisted override only (not production default); chat/completions only.
+ * Production allowlist: gpt-6.1-sol only (including Find C2–C4 decide profiles).
+ * Compare peers (Sonnet, Mini, prior Sol, Gemini, …) require ALLOW_UNLISTED —
+ * they are not tried first and are not production defaults.
  */
 export const SERV_PROFILE_MODEL_CANDIDATES: Partial<Record<ProfileId, readonly string[]>> = {
-  scout_plan: [
-    "gpt-5.6-sol",
-    "claude-sonnet-5.5",
-    "claude-sonnet-4.6",
-    "gpt-5.4-mini",
-    "claude-fable-5",
-    "gpt-6.1-sol",
-    "claude-opus-5.5",
-    "gemini-2.5-flash",
-    "gemini-3.1-pro-preview",
-  ],
-  // Fable EXCLUDED (owner): Sonnet/GPT first-class via SERV_PROFILE_MODEL_FIND_NEXT_CHECK.
-  find_next_check: [
-    "gpt-5.6-sol",
-    "claude-sonnet-5.5",
-    "claude-sonnet-4.6",
-    "gpt-5.4-mini",
-    "gpt-6.1-sol",
-    "claude-opus-5.5",
-  ],
-  need_extract: [
-    "gpt-5.6-sol",
-    "claude-sonnet-5.5",
-    "claude-sonnet-4.6",
-    "gpt-5.4-mini",
-    "claude-fable-5",
-    "gpt-6.1-sol",
-    "claude-opus-5.5",
-  ],
-  find_plan: [
-    "gpt-5.4-mini",
-    "claude-sonnet-5.5",
-    "claude-sonnet-4.6",
-    "gpt-5.6-sol",
-    "claude-fable-5",
-    "gpt-6.1-sol",
-    "claude-opus-5.5",
-  ],
-  // PR B C2–C4: Auto models only (no Claude). Production default remains BASE_MODEL (gpt-6.1-sol).
-  find_triage: ["gpt-6.1-sol", "gpt-5.6-sol", "gpt-5.4-mini"],
-  find_decide: ["gpt-6.1-sol", "gpt-5.6-sol", "gpt-5.4-mini"],
-  find_challenge: ["gpt-6.1-sol", "gpt-5.6-sol", "gpt-5.4-mini"],
-  verdict_decide: [
-    "gpt-5.6-sol",
-    "claude-sonnet-5.5",
-    "claude-sonnet-4.6",
-    "gpt-5.4-mini",
-    "claude-fable-5",
-    "gpt-6.1-sol",
-    "claude-opus-5.5",
-  ],
-  verdict_challenge: [
-    "gpt-5.4-mini",
-    "claude-sonnet-5.5",
-    "gpt-5.6-sol",
-    "gpt-6.1-sol",
-  ],
-  resale_plan_search: [...SERV_SHARED_MODEL_PEERS],
-  resale_triage: [...SERV_SHARED_MODEL_PEERS],
-  resale_pick: [...SERV_SHARED_MODEL_PEERS],
-  resale_challenge: [...SERV_SHARED_MODEL_PEERS],
-  radar_review: [...SERV_SHARED_MODEL_PEERS],
+  scout_plan: [BASE_MODEL],
+  find_next_check: [BASE_MODEL],
+  find_plan: [BASE_MODEL],
+  find_triage: [BASE_MODEL],
+  find_decide: [BASE_MODEL],
+  find_challenge: [BASE_MODEL],
+  need_extract: [BASE_MODEL],
+  verdict_decide: [BASE_MODEL],
+  verdict_challenge: [BASE_MODEL],
+  resale_plan_search: [BASE_MODEL],
+  resale_triage: [BASE_MODEL],
+  resale_pick: [BASE_MODEL],
+  resale_challenge: [BASE_MODEL],
+  radar_review: [BASE_MODEL],
 };
 
 export type ProfileModelSource = "caller_requested" | "profile_env" | "base_default";
@@ -114,8 +58,7 @@ function isPlausible(id: string): boolean {
 }
 
 /**
- * Resolve which base model a profile should use. Unset profile env → BASE_MODEL
- * (or global SERV_MODEL via caller).
+ * Resolve which base model a profile should use. Reversible: unset overrides → BASE_MODEL.
  */
 export type ResolveProfileModelResult =
   | ({ ok: true } & ResolvedProfileModel)
@@ -133,8 +76,8 @@ export function resolveProfileBaseModel(
   const allowUnlisted =
     opts?.allowUnlisted === true || env.SERV_PROFILE_MODEL_ALLOW_UNLISTED === "1";
   const candidates = new Set(SERV_PROFILE_MODEL_CANDIDATES[id] ?? [BASE_MODEL]);
+  // Shared default is always allowlisted for every profile.
   candidates.add(BASE_MODEL);
-  for (const peer of SERV_SHARED_MODEL_PEERS) candidates.add(peer);
   const profileRaw = env[envKeyForProfile(id)];
   const profileEnv = typeof profileRaw === "string" && profileRaw.trim() ? profileRaw.trim() : null;
   const requested =
@@ -161,11 +104,10 @@ export function resolveProfileBaseModel(
       honesty:
         stripped === BASE_MODEL
           ? `Production default BASE_MODEL=${BASE_MODEL} for ${id}.`
-          : `Reversible profile override for ${id}: ${stripped} (source=${source}). Production BASE_MODEL remains ${BASE_MODEL} until independent review + parent cycle.`,
+          : `Reversible override for ${id}: ${stripped} (source=${source}). Production BASE_MODEL remains ${BASE_MODEL}.`,
     };
   };
 
-  // Profile env beats global SERV_MODEL so scout_plan can try Sonnet without flipping Flip.
   if (profileEnv) return pick(profileEnv, "profile_env");
   if (requested) return pick(requested, "caller_requested");
   return pick(BASE_MODEL, "base_default");

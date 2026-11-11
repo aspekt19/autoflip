@@ -5,15 +5,18 @@
  * Mechanism — only IDs already evidenced in this repository:
  * 1. `BASE_MODEL` in `src/server/serv/profiles.ts` + README `SERV_MODEL` → `gpt-6.1-sol`
  * 2. Committed eval artifacts report dated alias `gpt-5.4-mini-2026-03-17`
- *    (`eval/results/latest.json`, `eval/results/serv-proof-trace.json`)
+ *    (`eval/results/latest.json`, `eval/results/serv-proof-trace.json`) — historical Mini
  * 3. `modelFor()` may append profile feature suffixes when a profile's `feature` is set.
  *    `scout_plan` uses `feature: "none"` (suffixes stripped from a requested id).
  *
  * ## Fair cross-provider slate (docs-sourced; Flip live only)
  * Public SERV Models page API IDs (https://docs.openserv.ai/serv-reasoning/models):
- *   - `gpt-5.4-mini` (OpenAI — production baseline)
+ *   - `gpt-6.1-sol` (OpenAI — production BASE_MODEL)
+ *   - `gpt-5.6-sol` (OpenAI — prior Sol peer)
+ *   - `gpt-5.4-mini` (OpenAI — historical peer)
  *   - `claude-sonnet-4.6` (Anthropic Sonnet peer)
  *   - `gemini-2.5-flash` (Google Gemini peer; chat/completions only)
+ *   - `gemini-3.1-pro-preview` (Google — optional compare peer only)
  * Enabled via `SCOUT_COMPARE_FAIR_SLATE=1` or explicit `SERV_COMPARE_MODELS`.
  * These are **docs API IDs**, not a console scrape and not a claim Flip's
  * billing account already has them enabled. Flip confirms console match before spend.
@@ -25,8 +28,8 @@
  *
  * ## Not a demonstrated product fix
  * Swapping the comparison model alone is **not** the demonstrated fix for the
- * PR63 placeholder-price / reject-grounding failure. Production `BASE_MODEL` /
- * `SERV_MODEL` default stays unchanged by this harness.
+ * PR63 placeholder-price / reject-grounding failure. This harness does not change
+ * production `BASE_MODEL` / `SERV_MODEL`.
  */
 
 import { BASE_MODEL, modelFor, type ProfileId } from "./profiles";
@@ -53,14 +56,35 @@ export type ServCompareBaseModelId = (typeof SERV_COMPARE_BASE_MODEL_IDS)[number
  */
 export const SERV_COMPARE_FAIR_SLATE = [
   {
-    id: "gpt-5.4-mini",
+    id: "gpt-6.1-sol",
     provider: "openai" as const,
     role: "baseline_production_default" as const,
     /** scout_plan profile endpoint. */
     requiredEndpoint: "chat" as const,
     docsSource: "https://docs.openserv.ai/serv-reasoning/models",
     protocolNotes: [
-      "Production BASE_MODEL — unchanged by this harness.",
+      "Production BASE_MODEL (shared default for all SERV steps).",
+      "Harness does not change production BASE_MODEL / SERV_MODEL.",
+    ],
+  },
+  {
+    id: "gpt-5.6-sol",
+    provider: "openai" as const,
+    role: "historical_peer" as const,
+    requiredEndpoint: "chat" as const,
+    docsSource: "https://docs.openserv.ai/serv-reasoning/models",
+    protocolNotes: [
+      "Prior Sol default — kept as compare peer, not the shared BASE_MODEL.",
+    ],
+  },
+  {
+    id: "gpt-5.4-mini",
+    provider: "openai" as const,
+    role: "historical_peer" as const,
+    requiredEndpoint: "chat" as const,
+    docsSource: "https://docs.openserv.ai/serv-reasoning/models",
+    protocolNotes: [
+      "Prior production default — kept as compare peer, not the shared BASE_MODEL.",
       "Known class: cold first-step ~45s timeout under scout_plan.timeoutMs (do not blind-raise).",
     ],
   },
@@ -74,7 +98,7 @@ export const SERV_COMPARE_FAIR_SLATE = [
       "Works on /v1/chat/completions and /v1/messages; scout_plan uses chat.",
       "Historically failed on nullable enum `type:['string','null']+enum` — fixed via anyOf[string-enum|null] on toolId/rationaleKind (product A–C; already on this lineage).",
       "HTTP 200 alone ≠ grounded decision — score schemaValid/grounded/recovery/antiLoop/refusals.",
-      "Parent SAME-input used claude-sonnet-5.5 (allowlisted via SERV_PROFILE_MODEL_SCOUT_PLAN) — production BASE_MODEL stays Mini until review.",
+      "Parent SAME-input used claude-sonnet-5.5 (allowlisted via SERV_PROFILE_MODEL_SCOUT_PLAN).",
     ],
   },
   {
@@ -87,7 +111,6 @@ export const SERV_COMPARE_FAIR_SLATE = [
       "Gemini is NOT available on /v1/messages or /v1/responses — must use /v1/chat/completions (scout_plan endpoint=chat ✓).",
       "google-genai SDK generateContent is unsupported — OpenAI-shape chat only.",
       "Score refusals/timeouts/empty/parse-fail honestly; cost remains unknown until billing reconciliation.",
-      "Parent Gemini 3.1 Pro Preview: content-null + refusal field; classify content_null_refusal_field + usage aliases — never assert format vs safety RCA; no blind rerun.",
     ],
   },
 ] as const;

@@ -53,7 +53,8 @@ export type RadarReviewActivitySeed = {
 };
 
 /**
- * Build one activity row per VIN for a single radar_review HTTP call.
+ * Build one activity row per VIN for a single Flip judge HTTP call
+ * (`flip_judge` in production; `radar_review` kept for older rows).
  * Matches what judgeFlipAlerts stores — including failed calls with real failure text.
  */
 export function buildRadarReviewActivityRows(
@@ -65,11 +66,12 @@ export function buildRadarReviewActivityRows(
     failureCategory?: string | null;
     decisions: Map<string, RadarReviewDecision> | null;
   },
+  profile: "radar_review" | "flip_judge" = "radar_review",
 ): Array<{
   at: string;
   searchId: string;
   vin: string;
-  profile: "radar_review";
+  profile: "radar_review" | "flip_judge";
   modelRequested: string;
   modelReported: string;
   callId: string;
@@ -95,7 +97,7 @@ export function buildRadarReviewActivityRows(
     if (failure) {
       return {
         ...seed,
-        profile: "radar_review" as const,
+        profile,
         ok: false,
         decision: failure.decision,
         note: failure.note,
@@ -105,7 +107,7 @@ export function buildRadarReviewActivityRows(
     if (!judged.decisions) {
       return {
         ...seed,
-        profile: "radar_review" as const,
+        profile,
         ok: true,
         decision: null,
         note: "No usable decision map in SERV response.",
@@ -115,7 +117,7 @@ export function buildRadarReviewActivityRows(
     if (!decision) {
       return {
         ...seed,
-        profile: "radar_review" as const,
+        profile,
         ok: true,
         decision: null,
         note: "No decision in this SERV response.",
@@ -124,7 +126,7 @@ export function buildRadarReviewActivityRows(
     }
     return {
       ...seed,
-      profile: "radar_review" as const,
+      profile,
       ok: true,
       decision: decision.verdict,
       note: decision.note || null,
