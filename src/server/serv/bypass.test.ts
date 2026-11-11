@@ -37,7 +37,7 @@ describe("SERV layer", () => {
     expect(extract.endpoint).toBe("chat");
     if (extract.endpoint !== "chat") return;
     expect(extract.stream).toBe(false);
-    expect(extract.model).toBe("gpt-5.4-mini");
+    expect(extract.model).toBe("gpt-5.4-mini-serv-kronos-multipath");
     expect(toolNames(extract.tools)).toEqual(["serv_prompt_guard"]);
     expect(extract.response_format?.json_schema.strict).toBe(true);
 
@@ -45,10 +45,18 @@ describe("SERV layer", () => {
     expect(findPlan.endpoint).toBe("chat");
     if (findPlan.endpoint !== "chat") return;
     expect(findPlan.stream).toBe(false);
+    expect(findPlan.model).toBe("gpt-5.4-mini-serv-kronos-multipath");
     expect(toolNames(findPlan.tools)).toEqual(["serv_prompt_guard"]);
     expect(findPlan.response_format?.json_schema.strict).toBe(true);
     expect(findPlan.response_format?.json_schema.name).toBe("find_plan");
     expect(PROFILES.find_plan.timeoutMs).toBe(15_000);
+
+    const nextCheck = requestFor("find_next_check", "{}");
+    expect(nextCheck.endpoint).toBe("chat");
+    if (nextCheck.endpoint === "chat") {
+      expect(nextCheck.model).toBe("gpt-5.4-mini-serv-kronos-multipath");
+      expect(toolNames(nextCheck.tools)).toEqual(["serv_prompt_guard"]);
+    }
 
     const flip = requestFor("flip_judge", "{}");
     expect(flip.endpoint).toBe("chat");
@@ -61,16 +69,14 @@ describe("SERV layer", () => {
     expect(guardParams.required).toEqual([]);
     const hint = (flip.tools[1]!.function as unknown as {
       parameters: {
-        properties: { hint: { enum: string[] }; max_iterations: { enum: number[] } };
-        additionalProperties: boolean;
-        required: string[];
+        properties: { hint: { type: string; default: string }; max_iterations: { type: string; default: number } };
       };
     }).parameters;
-    expect(hint.additionalProperties).toBe(false);
-    expect(hint.required).toEqual(["hint", "max_iterations"]);
-    expect(hint.properties.hint.enum[0]).toMatch(/estimate/i);
-    expect(hint.properties.max_iterations.enum[0]).toBe(2);
-    expect(JSON.stringify(hint)).not.toMatch(/"default"\s*:/);
+    // OpenServ docs: hint / max_iterations use JSON Schema `default` (not single-value enums).
+    expect(hint.properties.hint.default).toMatch(/estimate/i);
+    expect(hint.properties.max_iterations.default).toBe(2);
+    expect(JSON.stringify(hint)).toMatch(/"default"\s*:/);
+    expect(JSON.stringify(hint.properties.hint)).not.toMatch(/"enum"\s*:/);
     const schema = flip.response_format?.json_schema.schema as {
       properties: { decisions: { items: { properties: { verdict: { enum: string[] } } } } };
     };

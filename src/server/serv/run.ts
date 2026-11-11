@@ -113,18 +113,17 @@ function promptGuardTool(endpoint: ServProfile["endpoint"]): Tool {
 }
 
 function shadowTool(entry: ServProfile): Tool {
-  // No `default` — strict response_format rejects it (HTTP 400 Invalid schema).
-  // Single-value enums pin the platform config the way defaults used to.
+  // OpenServ docs use JSON Schema `default` on hint / max_iterations (not single-value enums).
+  // This is a SERV Tools marker — not response_format.json_schema — so `default` is valid.
+  // https://docs.openserv.ai/serv-reasoning/tutorials/shadow-agent
   const hint = entry.shadowHint ?? "";
   const maxIterations = entry.shadowMaxIterations ?? 2;
   const parameters = {
     type: "object",
     properties: {
-      hint: { type: "string", enum: [hint] },
-      max_iterations: { type: "integer", enum: [maxIterations] },
+      hint: { type: "string", default: hint },
+      max_iterations: { type: "integer", default: maxIterations },
     },
-    required: ["hint", "max_iterations"],
-    additionalProperties: false,
   };
   const description = "Enable SERV shadow-agent validation.";
   if (entry.endpoint === "responses") {
