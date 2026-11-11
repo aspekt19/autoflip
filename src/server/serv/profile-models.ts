@@ -1,65 +1,29 @@
 /**
- * Reversible per-profile SERV model configuration (t317).
+ * Production SERV model resolution.
  *
- * Production default is BASE_MODEL (`gpt-6.1-sol`) for all SERV steps.
- * Parent may opt a single profile onto an allowlisted candidate (e.g. Sonnet 5.5
- * for scout_plan) via env without a blanket BASE_MODEL flip.
+ * Every profile resolves to BASE_MODEL (`gpt-6.1-sol`) unless the caller passes an
+ * explicit `requested` model (typically `SERV_MODEL` / deps.model) or a per-profile
+ * `SERV_PROFILE_MODEL_<PROFILE>` env override. Non-BASE_MODEL ids fail closed unless
+ * `SERV_PROFILE_MODEL_ALLOW_UNLISTED=1` (compare / Flip console validation only).
  *
  * Priority for the base id (before modelFor feature suffixes):
- *   1. SERV_PROFILE_MODEL_<PROFILE> (e.g. SERV_PROFILE_MODEL_SCOUT_PLAN=claude-sonnet-5.5)
- *      — beats global SERV_MODEL so Sonnet can be tried on scout_plan alone
- *   2. Explicit caller `requested` (deps.model / safe-execute SERV_MODEL)
+ *   1. SERV_PROFILE_MODEL_<PROFILE>
+ *   2. Explicit caller `requested` (deps.model / SERV_MODEL)
  *   3. BASE_MODEL (shared production default — gpt-6.1-sol)
- *
- * Unlisted ids fail closed unless SERV_PROFILE_MODEL_ALLOW_UNLISTED=1.
  */
 
 import { BASE_MODEL, modelFor, type ProfileId } from "./profiles";
 
 /**
- * Docs + parent-evidenced candidates for product profiles.
- * Sonnet 5.5: parent SAME-input D1 grounded reject + D2 abstain (HTTP 200).
- * Gemini 3.1 Pro Preview: optional compare peer only — not the production default.
+ * Production allowlist: gpt-6.1-sol only.
+ * Compare peers (Sonnet, Mini, prior Sol, Gemini, …) require ALLOW_UNLISTED —
+ * they are not tried first and are not production defaults.
  */
 export const SERV_PROFILE_MODEL_CANDIDATES: Partial<Record<ProfileId, readonly string[]>> = {
-  scout_plan: [
-    "gpt-6.1-sol",
-    "gpt-5.6-sol",
-    "gpt-5.4-mini",
-    "claude-sonnet-5.5",
-    "claude-sonnet-4.6",
-    "claude-fable-5",
-    "claude-opus-5.5",
-    "gemini-2.5-flash",
-    "gemini-3.1-pro-preview",
-  ],
-  // Fable EXCLUDED (owner): Sonnet/GPT first-class via SERV_PROFILE_MODEL_FIND_NEXT_CHECK.
-  find_next_check: [
-    "gpt-6.1-sol",
-    "gpt-5.6-sol",
-    "gpt-5.4-mini",
-    "claude-sonnet-5.5",
-    "claude-sonnet-4.6",
-    "claude-opus-5.5",
-  ],
-  need_extract: [
-    "gpt-6.1-sol",
-    "gpt-5.6-sol",
-    "gpt-5.4-mini",
-    "claude-sonnet-5.5",
-    "claude-sonnet-4.6",
-    "claude-fable-5",
-    "claude-opus-5.5",
-  ],
-  verdict_decide: [
-    "gpt-6.1-sol",
-    "gpt-5.6-sol",
-    "gpt-5.4-mini",
-    "claude-sonnet-5.5",
-    "claude-sonnet-4.6",
-    "claude-fable-5",
-    "claude-opus-5.5",
-  ],
+  scout_plan: [BASE_MODEL],
+  find_next_check: [BASE_MODEL],
+  need_extract: [BASE_MODEL],
+  verdict_decide: [BASE_MODEL],
 };
 
 export type ProfileModelSource = "caller_requested" | "profile_env" | "base_default";
@@ -84,8 +48,7 @@ function isPlausible(id: string): boolean {
 }
 
 /**
- * Resolve which base model a profile should use. Reversible: unset profile env →
- * BASE_MODEL (or global SERV_MODEL via caller).
+ * Resolve which base model a profile should use. Reversible: unset overrides → BASE_MODEL.
  */
 export type ResolveProfileModelResult =
   | ({ ok: true } & ResolvedProfileModel)
@@ -131,11 +94,10 @@ export function resolveProfileBaseModel(
       honesty:
         stripped === BASE_MODEL
           ? `Production default BASE_MODEL=${BASE_MODEL} for ${id}.`
-          : `Reversible profile override for ${id}: ${stripped} (source=${source}). Production BASE_MODEL remains ${BASE_MODEL} until independent review + parent cycle.`,
+          : `Reversible override for ${id}: ${stripped} (source=${source}). Production BASE_MODEL remains ${BASE_MODEL}.`,
     };
   };
 
-  // Profile env beats global SERV_MODEL so scout_plan can try Sonnet without flipping Flip.
   if (profileEnv) return pick(profileEnv, "profile_env");
   if (requested) return pick(requested, "caller_requested");
   return pick(BASE_MODEL, "base_default");

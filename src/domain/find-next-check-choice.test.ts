@@ -68,14 +68,11 @@ describe("find next-check choice allowlist alignment", () => {
     expect(clampFindNextCheckChoice("invent_best_car", allowed).clamped).toBeNull();
   });
 
-  it("Find profile accepts Sonnet override; shared default is gpt-6.1-sol; Fable blocked", () => {
-    const sonnet = resolveProfileBaseModel("find_next_check", {
-      env: { SERV_PROFILE_MODEL_FIND_NEXT_CHECK: "claude-sonnet-5.5" },
-    });
-    expect(sonnet.ok).toBe(true);
-    if (!sonnet.ok) return;
-    expect(sonnet.baseId).toBe("claude-sonnet-5.5");
-    expect(sonnet.overrideActive).toBe(true);
+  it("Find profile production default is gpt-6.1-sol; Sonnet needs ALLOW_UNLISTED; Fable blocked", () => {
+    const shared = resolveProfileBaseModel("find_next_check", { env: {} });
+    expect(shared.ok).toBe(true);
+    if (!shared.ok) return;
+    expect(shared.baseId).toBe("gpt-6.1-sol");
 
     const sol = resolveProfileBaseModel("find_next_check", {
       env: { SERV_PROFILE_MODEL_FIND_NEXT_CHECK: "gpt-6.1-sol" },
@@ -83,16 +80,27 @@ describe("find next-check choice allowlist alignment", () => {
     expect(sol.ok).toBe(true);
     if (!sol.ok) return;
     expect(sol.baseId).toBe("gpt-6.1-sol");
-    // Same id as BASE_MODEL — not an override of the shared default.
     expect(sol.overrideActive).toBe(false);
+
+    const sonnetBlocked = resolveProfileBaseModel("find_next_check", {
+      env: { SERV_PROFILE_MODEL_FIND_NEXT_CHECK: "claude-sonnet-5.5" },
+    });
+    expect(sonnetBlocked.ok).toBe(false);
+
+    const sonnet = resolveProfileBaseModel("find_next_check", {
+      env: {
+        SERV_PROFILE_MODEL_FIND_NEXT_CHECK: "claude-sonnet-5.5",
+        SERV_PROFILE_MODEL_ALLOW_UNLISTED: "1",
+      },
+    });
+    expect(sonnet.ok).toBe(true);
+    if (!sonnet.ok) return;
+    expect(sonnet.baseId).toBe("claude-sonnet-5.5");
+    expect(sonnet.overrideActive).toBe(true);
 
     const fable = resolveProfileBaseModel("find_next_check", {
       env: { SERV_PROFILE_MODEL_FIND_NEXT_CHECK: "claude-fable-5" },
     });
     expect(fable.ok).toBe(false);
-    const shared = resolveProfileBaseModel("find_next_check", { env: {} });
-    expect(shared.ok).toBe(true);
-    if (!shared.ok) return;
-    expect(shared.baseId).toBe("gpt-6.1-sol");
   });
 });

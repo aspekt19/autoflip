@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { BASE_MODEL } from "./profiles";
 import { resolveProfileBaseModel } from "./profile-models";
 
-describe("resolveProfileBaseModel (t317 reversible Sonnet path)", () => {
+describe("resolveProfileBaseModel (production gpt-6.1-sol)", () => {
   it("defaults to production BASE_MODEL (gpt-6.1-sol) with no override", () => {
     const r = resolveProfileBaseModel("scout_plan", { env: {} });
     expect(r.ok).toBe(true);
@@ -12,7 +12,7 @@ describe("resolveProfileBaseModel (t317 reversible Sonnet path)", () => {
     expect(r.overrideActive).toBe(false);
   });
 
-  it("SERV_PROFILE_MODEL_SCOUT_PLAN=claude-sonnet-5.5 beats global SERV_MODEL", () => {
+  it("SERV_PROFILE_MODEL_SCOUT_PLAN non-BASE_MODEL fails closed without ALLOW_UNLISTED", () => {
     const r = resolveProfileBaseModel("scout_plan", {
       requested: BASE_MODEL,
       env: {
@@ -20,18 +20,13 @@ describe("resolveProfileBaseModel (t317 reversible Sonnet path)", () => {
         SERV_PROFILE_MODEL_SCOUT_PLAN: "claude-sonnet-5.5",
       },
     });
-    expect(r.ok).toBe(true);
-    if (!r.ok) return;
-    expect(r.baseId).toBe("claude-sonnet-5.5");
-    expect(r.source).toBe("profile_env");
-    expect(r.overrideActive).toBe(true);
-    expect(r.honesty).toMatch(/Reversible profile override/);
+    expect(r.ok).toBe(false);
   });
 
-  it("caller requested wins when profile env unset (compare harness)", () => {
+  it("caller requested wins when profile env unset (compare harness + ALLOW_UNLISTED)", () => {
     const r = resolveProfileBaseModel("scout_plan", {
       requested: "claude-sonnet-5.5",
-      env: {},
+      env: { SERV_PROFILE_MODEL_ALLOW_UNLISTED: "1" },
     });
     expect(r.ok).toBe(true);
     if (!r.ok) return;
@@ -50,7 +45,10 @@ describe("resolveProfileBaseModel (t317 reversible Sonnet path)", () => {
 
   it("unsetting profile env restores BASE_MODEL — reversible", () => {
     const on = resolveProfileBaseModel("scout_plan", {
-      env: { SERV_PROFILE_MODEL_SCOUT_PLAN: "claude-sonnet-5.5" },
+      env: {
+        SERV_PROFILE_MODEL_SCOUT_PLAN: "claude-sonnet-5.5",
+        SERV_PROFILE_MODEL_ALLOW_UNLISTED: "1",
+      },
     });
     const off = resolveProfileBaseModel("scout_plan", { env: {} });
     expect(on.ok).toBe(true);
