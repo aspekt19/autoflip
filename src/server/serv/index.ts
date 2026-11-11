@@ -1,6 +1,5 @@
 export {
   BASE_MODEL,
-  SCHEMA_FALLBACK_MODEL,
   DOCUMENTED_FEATURES,
   FLIP_SHADOW_HINT,
   PROFILES,
@@ -77,14 +76,12 @@ export { assertEnumTypeReconciled, assertStrictJsonSchemaSubset } from "./strict
 export {
   experimentServDeps,
   isServEndpointUrl,
-  isServSchemaFailure,
   messageText,
   requestFor,
   responseShape,
   runServ,
   servErrorSummary,
   type MessageTextMode,
-  type SchemaModelFallback,
   type ServDeps,
   type ServResult,
   type ServTransportPolicy,

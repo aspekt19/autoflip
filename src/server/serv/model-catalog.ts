@@ -3,8 +3,7 @@
  *
  * ## In-repo catalog (default allowlist)
  * Mechanism — only IDs already evidenced in this repository:
- * 1. `BASE_MODEL` in `src/server/serv/profiles.ts` + README `SERV_MODEL` → `gemini-3.1-pro-preview`
- *    (`SCHEMA_FALLBACK_MODEL` → `gpt-5.6-sol` on schema / structured-output failure)
+ * 1. `BASE_MODEL` in `src/server/serv/profiles.ts` + README `SERV_MODEL` → `gpt-5.6-sol`
  * 2. Committed eval artifacts report dated alias `gpt-5.4-mini-2026-03-17`
  *    (`eval/results/latest.json`, `eval/results/serv-proof-trace.json`) — historical Mini
  * 3. `modelFor()` may append profile feature suffixes when a profile's `feature` is set.
@@ -12,11 +11,11 @@
  *
  * ## Fair cross-provider slate (docs-sourced; Flip live only)
  * Public SERV Models page API IDs (https://docs.openserv.ai/serv-reasoning/models):
- *   - `gemini-3.1-pro-preview` (Google — production BASE_MODEL; chat/completions only)
- *   - `gpt-5.6-sol` (OpenAI — SCHEMA_FALLBACK_MODEL)
+ *   - `gpt-5.6-sol` (OpenAI — production BASE_MODEL)
  *   - `gpt-5.4-mini` (OpenAI — historical peer)
  *   - `claude-sonnet-4.6` (Anthropic Sonnet peer)
  *   - `gemini-2.5-flash` (Google Gemini peer; chat/completions only)
+ *   - `gemini-3.1-pro-preview` (Google — optional compare peer only)
  * Enabled via `SCOUT_COMPARE_FAIR_SLATE=1` or explicit `SERV_COMPARE_MODELS`.
  * These are **docs API IDs**, not a console scrape and not a claim Flip's
  * billing account already has them enabled. Flip confirms console match before spend.
@@ -55,26 +54,14 @@ export type ServCompareBaseModelId = (typeof SERV_COMPARE_BASE_MODEL_IDS)[number
  */
 export const SERV_COMPARE_FAIR_SLATE = [
   {
-    id: "gemini-3.1-pro-preview",
-    provider: "google" as const,
+    id: "gpt-5.6-sol",
+    provider: "openai" as const,
     role: "baseline_production_default" as const,
     /** scout_plan profile endpoint. */
     requiredEndpoint: "chat" as const,
     docsSource: "https://docs.openserv.ai/serv-reasoning/models",
     protocolNotes: [
       "Production BASE_MODEL (shared default for all SERV steps).",
-      "Chat/completions only — not available on /v1/responses or /v1/messages.",
-      "Schema / structured-output failures fall back once to SCHEMA_FALLBACK_MODEL=gpt-5.6-sol.",
-    ],
-  },
-  {
-    id: "gpt-5.6-sol",
-    provider: "openai" as const,
-    role: "schema_fallback" as const,
-    requiredEndpoint: "chat" as const,
-    docsSource: "https://docs.openserv.ai/serv-reasoning/models",
-    protocolNotes: [
-      "SCHEMA_FALLBACK_MODEL — one-shot retry after Gemini schema / structured failure.",
       "Harness does not change production BASE_MODEL / SERV_MODEL.",
     ],
   },

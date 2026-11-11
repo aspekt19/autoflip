@@ -14,13 +14,8 @@
 
 import { CONNECT_HELP } from "@/io/telegram";
 
-/**
- * Shared SERV default for every profile (Resale / Radar / agent / Find / Check).
- * Schema / structured-output failures fall back once to SCHEMA_FALLBACK_MODEL.
- */
-export const BASE_MODEL = "gemini-3.1-pro-preview";
-/** One-shot fallback when the primary model fails schema / structured output. */
-export const SCHEMA_FALLBACK_MODEL = "gpt-5.6-sol";
+/** Shared SERV default for every profile (Resale / Radar / agent / Find / Check). */
+export const BASE_MODEL = "gpt-5.6-sol";
 export const SHADOW_MAX_ITERATIONS = 2;
 
 export const REPORT_SHADOW_HINT =
@@ -48,8 +43,7 @@ export const DOCUMENTED_FEATURES = [
   "reasoning_effort",
   "prompt_cache",
   "streaming",
-  // Product SERV steps (resale/radar/agent/check) use chat/completions only —
-  // Gemini default is not available on /v1/responses.
+  // Product SERV steps (resale/radar/agent/check) use chat/completions only.
   "application_tool",
   "usage",
 ] as const;
@@ -272,7 +266,7 @@ export const PROFILES = {
     promptCache: "default",
     contentFilter: "default_on",
     stream: false,
-    // Chat only — Gemini BASE_MODEL cannot use /v1/responses; agent/report share this profile.
+    // Chat only — resale/radar/agent share this profile; keep /v1/chat/completions.
     endpoint: "chat",
     codeComputed: ["askingPriceUsd", "miles", "fairValueUsd", "priceGap", "recalls", "complaintCount"],
   },
@@ -1201,7 +1195,7 @@ export function streamForProfile(entry: ServProfile): boolean {
 
 /**
  * Resale / Radar / agent product steps always POST /v1/chat/completions
- * (Gemini-compatible; no /v1/responses).
+ * (no /v1/responses on these paths).
  */
 export function endpointForProfile(entry: ServProfile): "chat" | "responses" {
   const id = entry.id;

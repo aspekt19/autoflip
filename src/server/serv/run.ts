@@ -1,6 +1,5 @@
 import {
   BASE_MODEL,
-  SCHEMA_FALLBACK_MODEL,
   endpointForProfile,
   modelFor,
   profile,
@@ -55,16 +54,7 @@ export type ServDeps = {
    * When set, replaces profile.jsonSchema for response_format only — profile name may differ.
    */
   jsonSchemaOverride?: { name: string; schema: Record<string, unknown> } | null;
-  /**
-   * Internal: schema-failure fallback already attempted (prevents loops).
-   * Callers should not set this — runServ sets it when retrying with SCHEMA_FALLBACK_MODEL.
-   */
-  schemaFallbackAttempted?: boolean;
-  /** Internal: primary model base id that failed schema before Sol fallback. */
-  schemaFallbackFrom?: string;
 };
-
-export type SchemaModelFallback = { from: string; to: string };
 
 export type ServResult =
   | {
@@ -81,8 +71,6 @@ export type ServResult =
       failureDiag?: ServResponseFailureDiag | null;
       /** Keys/lengths only — never string values (safe for compare artifacts). */
       responseShape: string | null;
-      /** Present when SCHEMA_FALLBACK_MODEL recovered after a primary schema failure. */
-      schemaModelFallback?: SchemaModelFallback | null;
     }
   | {
       ok: false;
@@ -96,22 +84,7 @@ export type ServResult =
       responseShape: string | null;
       /** Safe refusal/usage category — never raw model text. */
       failureDiag?: ServResponseFailureDiag | null;
-      /** Present when this attempt used SCHEMA_FALLBACK_MODEL after a primary schema failure. */
-      schemaModelFallback?: SchemaModelFallback | null;
     };
-
-/** Categories / HTTP shapes that trigger one Sol schema fallback. */
-export function isServSchemaFailure(result: Extract<ServResult, { ok: false }>): boolean {
-  const cat = result.failureDiag?.category;
-  if (cat === "invalid_json" || cat === "schema_mismatch" || cat === "content_null_refusal_field") {
-    return true;
-  }
-  if (result.status === 400) {
-    const hay = `${result.error ?? ""} ${result.upstream ?? ""}`;
-    if (/invalid schema|response_format|json_schema/i.test(hay)) return true;
-  }
-  return false;
-}
 
 /** Eval/compare helper — never use from production planner paths. */
 export function experimentServDeps(deps: ServDeps = {}): ServDeps {
@@ -569,30 +542,6 @@ export async function runServ(
   }
   // requestFor applies modelFor feature suffixes; pass base id only.
   const model = resolvedModel.baseId;
-  const schemaFallbackMeta: SchemaModelFallback | null =
-    deps.schemaFallbackAttempted && deps.schemaFallbackFrom
-      ? { from: deps.schemaFallbackFrom, to: SCHEMA_FALLBACK_MODEL }
-      : null;
-  const finishWithOptionalSchemaFallback = async (result: ServResult): Promise<ServResult> => {
-    const tagged: ServResult = schemaFallbackMeta
-      ? { ...result, schemaModelFallback: schemaFallbackMeta }
-      : result;
-    if (tagged.ok || deps.schemaFallbackAttempted || experiment || model === SCHEMA_FALLBACK_MODEL) {
-      return tagged;
-    }
-    if (!isServSchemaFailure(tagged)) return tagged;
-    const retry = await runServ(id, input, {
-      ...deps,
-      model: SCHEMA_FALLBACK_MODEL,
-      schemaFallbackAttempted: true,
-      schemaFallbackFrom: model,
-    });
-    return {
-      ...retry,
-      schemaModelFallback: { from: model, to: SCHEMA_FALLBACK_MODEL },
-      httpAttempts: tagged.httpAttempts + retry.httpAttempts,
-    };
-  };
   const tokenBound = resolveServOutputTokenBound(env);
   if (!tokenBound.ok) {
     const proof = recordServProof(
@@ -829,7 +778,7 @@ export async function runServ(
             ...proofMeta,
           }),
         );
-        return finishWithOptionalSchemaFallback({
+        return {
           ok: false,
           error: "SERV returned an error.",
           status: turn.response.status,
@@ -846,7 +795,7 @@ export async function runServ(
             text: turn.text,
             parseKind: null,
           }),
-        });
+        };
       }
       const call = toolCall(turn.payload);
       const matched = call?.name === entry.applicationTool ? call : null;
@@ -907,7 +856,7 @@ export async function runServ(
         text: effectiveText,
         parseKind: null,
       });
-      return finishWithOptionalSchemaFallback({
+      return {
         ok: false,
         error: turn.response.ok
           ? structuredRefusalOnly
@@ -922,9 +871,9 @@ export async function runServ(
         transportPolicy,
         responseShape: turn.shape || null,
         failureDiag,
-      });
+      };
     }
-    return finishWithOptionalSchemaFallback({
+    return {
       ok: true,
       text: effectiveText,
       model: proof.modelReported,
@@ -935,7 +884,7 @@ export async function runServ(
       transportPolicy,
       responseShape: turn.shape || null,
       failureDiag: null,
-    });
+    };
   } catch (error) {
     if (error instanceof Error && error.name === "ServBudgetError") {
       const proof = recordServProof(
