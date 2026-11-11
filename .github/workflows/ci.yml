@@ -54,6 +54,8 @@ jobs:
         run: node scripts/assert-openserv-source-boundary.mjs
       - name: Run unit tests
         run: npm test
+      - name: Golden query replay
+        run: npm run golden
       - name: Find/Radar SERV acceptance (merge gate)
         run: npm run test:acceptance:find-radar-serv
       - name: Find/Radar HTTP e2e (stub upstreams)

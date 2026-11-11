@@ -11,6 +11,7 @@
  * Env: PORT (default 8791)
  */
 import http from "node:http";
+import { pathToFileURL } from "node:url";
 
 // Response ids below are recorded live SERV completions from eval/results/latest.json
 // (reuse for stub provenance only — not a new live call). Never invent chatcmpl-* fixtures.
@@ -24,30 +25,259 @@ const STUB_RAV4_VINS = [
   "2T3N1RFV4MC250001",
   "2T3N1RFV6MC250002",
 ];
-const STUB_LISTINGS = {
-  stubLabel: "STUB Auto.dev listings — fixture only",
-  data: [14_900, 17_000, 17_500, 18_000].map((price, index) => ({
-    vin: STUB_RAV4_VINS[index],
+/** Zip centroids so distance filters can drop cars outside the radius. */
+const ZIP_LAT_LON = {
+  "33101": [25.7617, -80.1918],
+  "10001": [40.7506, -73.9971],
+  "60601": [41.8863, -87.6181],
+  "98101": [47.6101, -122.3344],
+};
+
+function haversineMiles(a, b) {
+  const toRad = (deg) => (deg * Math.PI) / 180;
+  const dLat = toRad(b[0] - a[0]);
+  const dLon = toRad(b[1] - a[1]);
+  const lat1 = toRad(a[0]);
+  const lat2 = toRad(b[0]);
+  const h = Math.sin(dLat / 2) ** 2 + Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLon / 2) ** 2;
+  return 3958.8 * 2 * Math.atan2(Math.sqrt(h), Math.sqrt(1 - h));
+}
+
+function stubCar(input) {
+  const coords = ZIP_LAT_LON[input.zip] ?? ZIP_LAT_LON["10001"];
+  return {
+    vin: input.vin,
     vehicle: {
+      vin: input.vin,
+      year: input.year,
+      make: input.make,
+      model: input.model,
+      bodyStyle: input.bodyStyle,
+      drivetrain: input.drivetrain ?? null,
+      fuel: input.fuel ?? null,
+    },
+    retailListing: {
+      price: input.price,
+      miles: input.miles,
+      city: input.city,
+      state: input.state,
+      zip: input.zip,
+      used: true,
+      vdp: input.vdp,
+    },
+    location: [coords[1], coords[0]],
+    history: input.accidents == null ? null : { accidentCount: input.accidents },
+  };
+}
+
+/**
+ * Diverse catalogue. The four Miami RAV4s stay inside the Find/Radar e2e query.
+ * The rest exist so a filter that is ignored would leak the wrong car.
+ */
+const STUB_CATALOG = [
+  ...[14_900, 17_000, 17_500, 18_000].map((price, index) =>
+    stubCar({
       vin: STUB_RAV4_VINS[index],
       year: 2021,
       make: "Toyota",
       model: "RAV4",
       bodyStyle: "SUV",
-    },
-    retailListing: {
+      drivetrain: "AWD",
       price,
-      // All under the stub need milesMax (80k) so match returns 3+ peers for settle comps.
       miles: 40_000 + index * 8_000,
       city: "Miami",
       state: "FL",
       zip: "33101",
-      used: true,
       vdp: `https://stub.example/listing/${index}`,
-    },
-    history: null,
-  })),
-};
+    }),
+  ),
+  stubCar({
+    vin: "1FTEW1EP5JFA00001",
+    year: 2012,
+    make: "Ford",
+    model: "F-150",
+    bodyStyle: "Truck",
+    drivetrain: "4WD",
+    price: 18_000,
+    miles: 140_000,
+    city: "New York",
+    state: "NY",
+    zip: "10001",
+    vdp: "https://stub.example/listing/f150-2012",
+  }),
+  stubCar({
+    vin: "1FTEW1EP5JFA00002",
+    year: 2018,
+    make: "Ford",
+    model: "F-150",
+    bodyStyle: "Truck",
+    drivetrain: "4WD",
+    price: 28_000,
+    miles: 60_000,
+    city: "New York",
+    state: "NY",
+    zip: "10001",
+    vdp: "https://stub.example/listing/f150-2018",
+  }),
+  stubCar({
+    vin: "2HGFC2F59GH000003",
+    year: 2016,
+    make: "Honda",
+    model: "Civic",
+    bodyStyle: "Sedan",
+    price: 4_000,
+    miles: 303_830,
+    city: "New York",
+    state: "NY",
+    zip: "10001",
+    vdp: "https://stub.example/listing/civic-303k",
+  }),
+  stubCar({
+    vin: "2HGFC2F59LH000004",
+    year: 2020,
+    make: "Honda",
+    model: "Civic",
+    bodyStyle: "Sedan",
+    price: 14_000,
+    miles: 40_000,
+    city: "New York",
+    state: "NY",
+    zip: "10001",
+    vdp: "https://stub.example/listing/civic-2020",
+  }),
+  stubCar({
+    vin: "5YFBURHE5KP000005",
+    year: 2019,
+    make: "Toyota",
+    model: "Corolla",
+    bodyStyle: "Sedan",
+    price: 13_000,
+    miles: 35_000,
+    city: "New York",
+    state: "NY",
+    zip: "10001",
+    vdp: "https://stub.example/listing/corolla",
+  }),
+  stubCar({
+    vin: "5XYPG4A59MG000006",
+    year: 2021,
+    make: "Kia",
+    model: "Sorento",
+    bodyStyle: "SUV",
+    price: 19_000,
+    miles: 30_000,
+    city: "New York",
+    state: "NY",
+    zip: "10001",
+    vdp: "https://stub.example/listing/sorento",
+  }),
+  stubCar({
+    vin: "19XFC2F59FE000010",
+    year: 2015,
+    make: "Honda",
+    model: "Civic",
+    bodyStyle: "Sedan",
+    price: 9_000,
+    miles: 50_000,
+    city: "Seattle",
+    state: "WA",
+    zip: "98101",
+    vdp: "https://stub.example/listing/civic-seattle",
+  }),
+];
+
+function numericWindow(spec) {
+  if (!spec) return null;
+  const range = String(spec).match(/^(\d+)?-(\d+)?$/);
+  if (range) {
+    return {
+      lo: range[1] ? Number(range[1]) : null,
+      hi: range[2] ? Number(range[2]) : null,
+    };
+  }
+  if (/^\d+$/.test(String(spec))) {
+    const exact = Number(spec);
+    return { lo: exact, hi: exact };
+  }
+  return null;
+}
+
+function inWindow(value, spec) {
+  const window = numericWindow(spec);
+  if (!window) return true;
+  if (window.lo != null && value < window.lo) return false;
+  if (window.hi != null && value > window.hi) return false;
+  return true;
+}
+
+function sameText(left, right) {
+  return String(left).trim().toLowerCase() === String(right).trim().toLowerCase();
+}
+
+/** Honour year, price, miles, zip/distance, and make/model. Returns a fresh payload. */
+export function filterStubListings(rawUrl) {
+  const url = new URL(rawUrl, "http://127.0.0.1");
+  const vinPath = url.pathname.replace(/\/+$/, "").split("/").filter(Boolean);
+  if (vinPath[0] === "listings" && vinPath[1]) {
+    const vin = decodeURIComponent(vinPath[1]).toUpperCase();
+    const hit = STUB_CATALOG.find((row) => row.vin.toUpperCase() === vin);
+    return {
+      stubLabel: "STUB Auto.dev listings — fixture only",
+      data: hit ? [hit] : [],
+    };
+  }
+  const make = url.searchParams.get("vehicle.make");
+  const model = url.searchParams.get("vehicle.model");
+  const year = url.searchParams.get("vehicle.year");
+  const price = url.searchParams.get("retailListing.price");
+  const miles = url.searchParams.get("retailListing.miles");
+  const zip = url.searchParams.get("zip");
+  const distance = url.searchParams.get("distance");
+  const maxMiles = distance != null && distance !== "" ? Number(distance) : null;
+  const origin = zip ? ZIP_LAT_LON[zip] : null;
+
+  const data = [];
+  for (const row of STUB_CATALOG) {
+    if (make && !sameText(row.vehicle.make, make)) continue;
+    if (model && !sameText(row.vehicle.model, model)) continue;
+    if (year && !inWindow(row.vehicle.year, year)) continue;
+    if (price && !inWindow(row.retailListing.price, price)) continue;
+    if (miles && !inWindow(row.retailListing.miles, miles)) continue;
+    let distanceMiles = null;
+    if (origin && Array.isArray(row.location)) {
+      distanceMiles = haversineMiles(origin, [row.location[1], row.location[0]]);
+      if (maxMiles != null && Number.isFinite(maxMiles) && distanceMiles > maxMiles) continue;
+    } else if (maxMiles != null && zip && row.retailListing.zip !== zip) {
+      continue;
+    }
+    const copy = JSON.parse(JSON.stringify(row));
+    if (distanceMiles != null) copy.retailListing.distance = Math.round(distanceMiles);
+    data.push(copy);
+  }
+  return { stubLabel: "STUB Auto.dev listings — fixture only", data };
+}
+
+function assertStub(cond, message) {
+  if (!cond) throw new Error(message);
+}
+
+export function selfTestStubListings() {
+  const rav4 = filterStubListings(
+    "http://127.0.0.1/listings?vehicle.make=Toyota&vehicle.model=RAV4&retailListing.price=1-18900&retailListing.miles=0-80000&vehicle.year=1990-2027&zip=33101&distance=100",
+  );
+  assertStub(rav4.data.length === 4, `expected 4 RAV4s, got ${rav4.data.length}`);
+  assertStub(rav4.data.every((row) => row.vehicle.model === "RAV4"), "RAV4 query leaked another model");
+  const oldTruck = filterStubListings("http://127.0.0.1/listings?vehicle.year=2012&vehicle.make=Ford&vehicle.model=F-150");
+  assertStub(oldTruck.data.length === 1 && oldTruck.data[0].vehicle.year === 2012, "exact year filter missed the 2012 F-150");
+  const cheap = filterStubListings("http://127.0.0.1/listings?retailListing.price=1-5000");
+  assertStub(cheap.data.length > 0 && cheap.data.every((row) => row.retailListing.price <= 5000), "price filter leaked");
+  const lowMiles = filterStubListings("http://127.0.0.1/listings?retailListing.miles=0-50000&vehicle.make=Honda&vehicle.model=Civic");
+  assertStub(lowMiles.data.every((row) => row.retailListing.miles <= 50_000), "miles filter leaked");
+  const nearNyc = filterStubListings("http://127.0.0.1/listings?zip=10001&distance=100&vehicle.make=Honda&vehicle.model=Civic");
+  assertStub(nearNyc.data.every((row) => row.retailListing.zip !== "98101"), "distance filter kept the Seattle Civic");
+  const none = filterStubListings("http://127.0.0.1/listings?vehicle.make=Toyota&vehicle.model=RAV4&vehicle.year=1999");
+  assertStub(none.data.length === 0, "year filter kept a 2021 RAV4 for 1999");
+}
 
 function schemaName(body) {
   return body?.response_format?.json_schema?.name ?? null;
@@ -309,7 +539,7 @@ const server = http.createServer(async (req, res) => {
 
   if (url.pathname.startsWith("/listings")) {
     res.writeHead(200);
-    res.end(JSON.stringify(STUB_LISTINGS));
+    res.end(JSON.stringify(filterStubListings(url)));
     return;
   }
 
@@ -349,6 +579,12 @@ const server = http.createServer(async (req, res) => {
   res.end(JSON.stringify({ error: "not_found", stub: true }));
 });
 
-server.listen(PORT, "127.0.0.1", () => {
-  console.log(`[e2e-stub] listening on http://127.0.0.1:${PORT} (STUB upstreams — fixture only)`);
-});
+const invokedDirectly = process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href;
+if (invokedDirectly && process.argv.includes("--self-test")) {
+  selfTestStubListings();
+  console.log("stub self-test ok");
+} else if (invokedDirectly) {
+  server.listen(PORT, "127.0.0.1", () => {
+    console.log(`[e2e-stub] listening on http://127.0.0.1:${PORT} (STUB upstreams — fixture only)`);
+  });
+}
