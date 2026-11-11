@@ -3,10 +3,9 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useId, useState } from "react";
-import { AgentDecisionTrail } from "@/components/AgentDecisionTrail";
 import { DecisionRecordList } from "@/components/DecisionRecord";
 import { MakeModelFields } from "@/components/MakeModelFields";
-import { ResaleDecisionJournalView } from "@/components/ResaleDecisionJournal";
+import { ServDecisionJournal } from "@/components/ServDecisionJournal";
 import { useAccountLoad } from "@/components/use-account-load";
 import type { AgentVerdict } from "@/domain/agent-verdict-schema";
 import type { DecisionProofRecord } from "@/domain/decision-proof-view";
@@ -614,7 +613,7 @@ function ResaleSearchForm({ credits, onAuthLost }: { credits: number | null; onA
       ) : null}
 
       {pending && partialJournal && partialJournal.steps.length > 0 ? (
-        <ResaleDecisionJournalView journal={partialJournal} defaultOpen />
+        <ServDecisionJournal resaleJournal={partialJournal} defaultOpen />
       ) : null}
 
       {error ? (
@@ -737,12 +736,16 @@ function ResaleSearchResultView({ result }: { result: SearchResult }) {
         </section>
       ) : null}
 
-      <ResaleDecisionJournalView journal={result.journal} defaultOpen />
+      <ServDecisionJournal
+        agentVerdict={result.agentVerdict}
+        proofRecords={result.proofRecords}
+        resaleJournal={result.journal}
+        defaultOpen
+      />
       <DecisionRecordList
         records={result.proofRecords}
         emptyHint="No agent decision records for this Resale run yet (shopper decide may have been skipped)."
       />
-      <AgentDecisionTrail verdict={result.agentVerdict} defaultOpen />
     </article>
   );
 }

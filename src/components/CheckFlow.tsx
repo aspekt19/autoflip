@@ -3,11 +3,12 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
-import { AgentDecisionTrail } from "@/components/AgentDecisionTrail";
+import { ServDecisionJournal } from "@/components/ServDecisionJournal";
 import { SignInGate } from "@/components/SignInGate";
 import { PriceBadgeView, PriceRatingHow } from "@/components/PriceBadge";
 import { SimilarCarsList } from "@/components/SimilarCarsList";
 import { confidenceLabel, type AgentVerdict } from "@/domain/agent-verdict-schema";
+import type { DecisionProofRecord } from "@/domain/decision-proof-view";
 import { actionLabel } from "@/domain/decision-action";
 import { providerResponseId } from "@/domain/serv-response-id";
 import {
@@ -80,6 +81,7 @@ type CheckResultView = {
   settledAt?: string;
   billingNote?: string;
   agentVerdict?: AgentVerdict | null;
+  proofRecords?: DecisionProofRecord[];
   servTrace?: {
     recordedAt: string;
     model: string | null;
@@ -658,11 +660,11 @@ function CheckResultCard({
         <p className="hint">Price note (not a buy signal while marked SOLD): {result.badge.deltaLabel}</p>
       ) : null}
       <p>{result.summary}</p>
-      <AgentDecisionTrail
-        verdict={result.agentVerdict}
+      <ServDecisionJournal
+        agentVerdict={result.agentVerdict}
+        proofRecords={result.proofRecords}
         defaultOpen
-        confidenceWhy={result.confidenceWhy ?? null}
-        savedRunAt={result.fromCache ? result.settledAt ?? null : null}
+        verifyId={result.settledAt ? `check-${result.settledAt}` : null}
       />
       {result.servTrace && result.servTrace.calls.length > 0 ? (
         <section aria-label="Recorded agent calls">

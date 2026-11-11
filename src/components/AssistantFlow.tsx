@@ -83,7 +83,7 @@ import {
   type DecisionCarLabel,
   type FindDecisionLogEntry,
 } from "@/domain/find-decision-log";
-import { AgentDecisionTrail } from "@/components/AgentDecisionTrail";
+import { ServDecisionJournal } from "@/components/ServDecisionJournal";
 import { formatFindFuelEvidenceShort, fuelFactFromFindEvidence } from "@/domain/find-fuel-match";
 import { buildGroundedShortlist } from "@/domain/find-path";
 import {
@@ -2648,8 +2648,9 @@ function AssistantFlow({
                         ))}
                       </ul>
                     ) : null}
-                    <AgentDecisionTrail
-                      verdict={buildFindAgentVerdict({
+                    <ServDecisionJournal
+                      proofRecords={proofRecords}
+                      agentVerdict={buildFindAgentVerdict({
                         decisionLog: decisionView.entries,
                         labels: decisionLabels,
                         bestDeal,
@@ -2659,7 +2660,7 @@ function AssistantFlow({
                         confidenceLine: bestDeal?.choice?.confidenceLine ?? null,
                         servCalls: decisionView.entries.filter((entry) => entry.decidedBy === "SERV").length,
                       })}
-                      confidenceWhy={bestDeal?.choice?.confidenceLine ?? null}
+                      defaultOpen
                     />
                     {decisionPresented.lines.length > 0 ? (
                       <div className="hint" role="note">

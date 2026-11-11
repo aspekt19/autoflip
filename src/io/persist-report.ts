@@ -1,5 +1,6 @@
 import type { FullReport, Mode, Verdict } from "@/domain/types";
 import type { Kv } from "./kv";
+import { sealAndStoreReportAudit } from "./decision-audit-store";
 import { getKv, storageMode } from "./kv";
 import { loadReport, saveReport } from "./store";
 
@@ -31,6 +32,12 @@ function favoritesKey(userId: string): string {
 export async function persistReport(report: FullReport): Promise<void> {
   await getKv().set(`report:${report.id}`, JSON.stringify(report));
   if (storageMode() === "file") saveReport(report);
+  // Tamper-evident decision chain — never blocks persistence on audit failure.
+  try {
+    await sealAndStoreReportAudit(report);
+  } catch {
+    // Audit is best-effort; report remains readable without a sealed trail.
+  }
 }
 
 function vinLookupKey(userId: string, vin: string, mode?: Mode): string {
