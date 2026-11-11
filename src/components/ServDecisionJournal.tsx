@@ -6,6 +6,7 @@ import type { DecisionProofRecord } from "@/domain/decision-proof-view";
 import type { ResaleDecisionJournal } from "@/domain/resale-decision-journal";
 import {
   formatJournalSecondCheckSentences,
+  JOURNAL_INTRO,
   journalStepViews,
 } from "@/domain/serv-decision-journal-copy";
 import {
@@ -64,15 +65,12 @@ export function ServDecisionJournal({
         )}
       </summary>
 
-      <p className="hint">
-        Dollar amounts and scores come from code. SERV may choose an action and explain it; it only quotes those
-        numbers. A second check must agree, or confidence drops.
-      </p>
+      <p className="hint">{JOURNAL_INTRO}</p>
 
       {agentVerdict?.no_serv_step ? (
         <p className="lead">
           {agentUnavailable
-            ? "The model step was unavailable — price rules only."
+            ? "The review step was unavailable — price rules only."
             : examplePending
               ? "Example not yet recorded. This sample page shows labeled listing economics only — it does not invent an agent revision or second check."
               : "This run did not use a SERV reasoning step. The ranking or verdict came from code checks only."}

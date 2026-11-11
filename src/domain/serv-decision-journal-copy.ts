@@ -1,7 +1,7 @@
 /**
  * Buyer-facing copy for the "How this decision was made" journal.
  * Main view: one or two plain sentences. No snake_case step ids, bracketed tags,
- * model suffixes, response ids, digests, or JSON.
+ * model suffixes, response ids, digests, JSON, or internal abbreviations.
  */
 
 import { plainDecisionAction } from "./find-buyer-copy";
@@ -15,8 +15,39 @@ import type {
 /** Snake_case tokens and [bracketed] tags must not appear in the main journal view. */
 const SNAKE_CASE = /\b[a-z][a-z0-9]*(?:_[a-z0-9]+)+\b/;
 const BRACKETED_TAG = /\[[^\]]+\]/;
-const TECH_LEAK =
-  /\b(chatcmpl-|response id|inputs digest|schemaVersion|rawResponse|TypeScript|JSON)\b/i;
+
+/**
+ * Internal abbreviations / jargon banned from journal main text.
+ * Prefer plain wording: "government recall database", "similar cars for sale nearby",
+ * "the car's factory details", "postal code", etc.
+ */
+export const JOURNAL_BANNED_JARGON: RegExp[] = [
+  /\bNHTSA\b/i,
+  /\bvPIC\b/i,
+  /\bVIN\s*decode\b/i,
+  /\bDecodeVinValues\b/i,
+  /\bcomps?\b/i,
+  /\bcomparables?\b/i,
+  /\bTCO\b/,
+  /\bMSRP\b/i,
+  /\bZIPS?\b/i,
+  /\bAPIs?\b/,
+  /\bLLMs?\b/i,
+  /\bMMY\b/,
+  /\bJSON\b/i,
+  /\bTypeScript\b/i,
+  /\bchatcmpl-/i,
+  /\bresponse id\b/i,
+  /\binputs digest\b/i,
+  /\bschemaVersion\b/i,
+  /\brawResponse\b/i,
+  /\ballowlist(?:ed)?\b/i,
+  /\bparkIt\b/i,
+  /\bNCAP\b/i,
+  /\bUSD\b/,
+  /\bP&L\b/i,
+  /\bPnL\b/i,
+];
 
 export function journalMainTextViolations(text: string): string[] {
   const hits: string[] = [];
@@ -24,8 +55,10 @@ export function journalMainTextViolations(text: string): string[] {
   if (snake) hits.push(snake[0]!);
   const bracket = text.match(BRACKETED_TAG);
   if (bracket) hits.push(bracket[0]!);
-  const tech = text.match(TECH_LEAK);
-  if (tech) hits.push(tech[0]!);
+  for (const re of JOURNAL_BANNED_JARGON) {
+    const m = text.match(re);
+    if (m) hits.push(m[0]!);
+  }
   return hits;
 }
 
@@ -37,6 +70,27 @@ function scrubBuyerText(text: string): string {
       .replace(/\bresponse\s+[A-Za-z0-9_-]+/gi, "")
       .replace(/\bmodel\s+[A-Za-z0-9._-]+/gi, "")
       .replace(/\b(verdict_decide|verdict_challenge|need_extract|need_guard|find_next_check|find_pick|resale_[a-z_]+|radar_[a-z_]+)\b/gi, "")
+      .replace(/\bNHTSA\b/gi, "government recall database")
+      .replace(/\bvPIC\b/gi, "the car's factory details")
+      .replace(/\bVIN\s*decode(?:r|d|ing)?\b/gi, "the car's factory details")
+      .replace(/\bDecodeVinValues\b/gi, "the car's factory details")
+      .replace(/\bcomparables?\b/gi, "similar cars for sale nearby")
+      .replace(/\bcomps?\b/gi, "similar cars for sale nearby")
+      .replace(/\bTCO\b/g, "total cost to own")
+      .replace(/\bMSRP\b/gi, "sticker price")
+      .replace(/\bZIP\s*codes?\b/gi, "postal codes")
+      .replace(/\bZIP\b/g, "postal code")
+      .replace(/\bAPIs?\b/g, "data service")
+      .replace(/\bLLMs?\b/gi, "language model")
+      .replace(/\bMMY\b/g, "year, make, and model")
+      .replace(/\bJSON\b/gi, "")
+      .replace(/\bTypeScript\b/gi, "code")
+      .replace(/\ballowlist(?:ed)?\b/gi, "approved")
+      .replace(/\bparkIt\b/gi, "do-not-drive recall")
+      .replace(/\bNCAP\b/gi, "crash-test rating")
+      .replace(/\bP&L\b/gi, "profit figures")
+      .replace(/\bPnL\b/gi, "profit figures")
+      .replace(/\bUSD\b/g, "dollars")
       .replace(/\b(ok|failed|skipped|not_run)\b/gi, (m) => {
         if (/^ok$/i.test(m)) return "finished";
         if (/^failed$/i.test(m)) return "did not finish";
@@ -92,27 +146,37 @@ export function formatJournalStepSentences(step: ServDecisionStep): string {
   const clamp = extractClampActions(step.output);
   const reason = scrubBuyerText(step.output);
 
+  const safeReason =
+    reason &&
+    reason.length > 0 &&
+    !/^Decision recorded$/i.test(reason) &&
+    !/^was skipped$/i.test(reason) &&
+    journalMainTextViolations(reason).length === 0
+      ? reason.replace(/\.\s*$/, "")
+      : null;
+
   if (step.status === "not_run") {
-    return `${who} did not run this step.${reason ? ` ${reason}.` : ""}`.replace(/\.\s*\./g, ".");
+    return `${who} did not run this step.${safeReason ? ` ${safeReason}.` : ""}`.replace(/\.\s*\./g, ".");
   }
   if (step.status === "skipped") {
-    const why = reason && !/^skipped$/i.test(reason) ? ` ${reason}.` : "";
-    return `${who} skipped this step.${why}`.replace(/\.\s*\./g, ".");
+    return `${who} skipped this step.${safeReason ? ` ${safeReason}.` : ""}`.replace(/\.\s*\./g, ".");
   }
   if (step.status === "failed") {
-    const why = reason ? ` ${reason}.` : "";
-    return `${who} tried this step but it did not finish.${why}`.replace(/\.\s*\./g, ".");
+    return `${who} tried this step but it did not finish.${safeReason ? ` ${safeReason}.` : ""}`.replace(
+      /\.\s*\./g,
+      ".",
+    );
   }
 
   switch (step.step) {
     case "need_guard":
       return "SERV screened your request before reading the details.";
     case "need_extract":
-      return reason && reason.length > 12 && !/^Decision recorded$/i.test(reason)
-        ? `SERV read your request and understood: ${reason.replace(/^Decided\s+/i, "")}.`
+      return safeReason && safeReason.length > 12
+        ? `SERV read your request and understood: ${safeReason.replace(/^Decided\s+/i, "")}.`
         : "SERV read your request and wrote down what you need.";
     case "find_next_check":
-      return "SERV chose which check to run next from the allowed list. Code ran that check and saved the results.";
+      return "SERV chose which check to run next from the approved list. Code ran that check and saved the results.";
     case "find_pick":
       return action
         ? `SERV reviewed the shortlist and leaned toward ${action}.`
@@ -134,7 +198,7 @@ export function formatJournalStepSentences(step: ServDecisionStep): string {
       return "SERV sorted which listings were worth a closer look.";
     case "resale_pick":
     case "pick":
-      return "SERV picked a car from the allowlisted shortlist. Profit figures came from code.";
+      return "SERV picked a car from the shortlist that already passed the checks. Profit figures came from code.";
     case "resale_challenge":
     case "challenge":
       return "A second independent SERV check reviewed that pick.";
@@ -145,24 +209,30 @@ export function formatJournalStepSentences(step: ServDecisionStep): string {
     case "rank":
       return "Code ranked the cars by the recorded profit and risk figures.";
     case "reject":
-      return reason
-        ? `This listing was set aside. ${reason}.`
+      return safeReason
+        ? `This listing was set aside. ${safeReason}.`
         : "This listing was set aside.";
     case "stop_or_widen":
       return "SERV decided whether to stop or widen the search.";
     case "fallback":
-      return "Code used a built-in fallback because the model step was not available.";
+      return "Code used a built-in fallback because the review step was not available.";
     case "comps_verify":
     case "price_badge":
-      return "Code calculated the asking price, fair value, and similar listings.";
+      return "Code calculated the asking price, fair value, and similar cars for sale nearby.";
+    case "free_gov_recalls":
+      return "Code checked the government recall database for this car.";
+    case "free_gov_vpic":
+      return "Code looked up the car's factory details.";
     case "gates":
     case "report_gates":
       return "Code checked safety rules before publishing the answer.";
     default: {
       if (step.by === "code") {
-        return reason && reason.length > 8
-          ? `Code verified this part. ${reason}.`
-          : "Code verified the numbers for this step.";
+        const cleaned = reason && reason.length > 8 ? scrubBuyerText(reason) : "";
+        if (cleaned && journalMainTextViolations(cleaned).length === 0) {
+          return `Code verified this part. ${cleaned.replace(/\.\s*$/, "")}.`;
+        }
+        return "Code verified the numbers for this step.";
       }
       if (clamp) {
         return `SERV suggested ${clamp.from}. Code safety rules changed that to ${clamp.to}.`;
@@ -248,10 +318,15 @@ export function journalStepViews(steps: readonly ServDecisionStep[]): JournalSte
   }));
 }
 
+/** Shared intro shown above the step list — must stay jargon-free. */
+export const JOURNAL_INTRO =
+  "Dollar amounts and scores come from code. SERV may choose an action and explain it; it only quotes those numbers. A second check must agree, or confidence drops.";
+
 /** Concatenated main-view text for tests and scrubbing. */
 export function journalMainText(journal: ServDecisionJournalView): string {
   const parts = [
     journal.title,
+    JOURNAL_INTRO,
     ...journal.steps.map(formatJournalStepSentences),
     formatJournalSecondCheckSentences(journal.secondCheck),
   ];
