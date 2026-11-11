@@ -38,7 +38,7 @@ describe("Flip decision shortlist (t321 Fable excluded)", () => {
       if (!r.ok) return;
       expect(r.baseId).toBe(id);
       // Shared BASE_MODEL is gpt-6.1-sol — gpt-5.6-sol / Sonnet env pins are overrides.
-      expect(r.overrideActive).toBe(id !== BASE_MODEL);
+      expect(r.overrideActive).toBe(true);
     }
     const findProfile = resolveProfileBaseModel("find_next_check", {
       env: { SERV_PROFILE_MODEL_FIND_NEXT_CHECK: "gpt-5.6-sol" },

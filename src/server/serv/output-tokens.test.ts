@@ -7,7 +7,7 @@ import {
   withServOutputTokenBound,
 } from "./output-tokens";
 import { requestFor, runServ } from "./run";
-import { PROFILES, type ServProfile } from "./profiles";
+import { PROFILES, type ProfileId, type ServProfile } from "./profiles";
 
 /**
  * Provider contract (OpenServ SERV Reasoning docs / working material):

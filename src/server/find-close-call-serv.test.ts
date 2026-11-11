@@ -109,7 +109,8 @@ describe("runFindCloseCallMultipathServ", () => {
     expect(result.proofRecords[0]?.purpose).toBe("find_close_call_multipath");
     expect(result.proofRecords[0]?.status).toBe("ok");
     expect(fetchImpl).toHaveBeenCalled();
-    const body = JSON.parse(String((fetchImpl.mock.calls[0]?.[1] as { body?: string })?.body ?? "{}"));
+    const [, init] = fetchImpl.mock.calls[0]! as unknown as [unknown, { body?: string }];
+    const body = JSON.parse(String(init?.body ?? "{}"));
     expect(body.model).toMatch(/-serv-multipath$/);
   });
 

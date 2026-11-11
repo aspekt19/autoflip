@@ -1199,7 +1199,8 @@ export function modelFor(id: ProfileId, requested = BASE_MODEL): string {
   // Strip any prior SERV suffix (including combined forms) so callers can pass
   // either a bare base id or an already-suffixed model without double-suffixing.
   const base = requested.replace(/-serv-(kronos-multipath|multipath-kronos|multipath|kronos)$/i, "");
-  const feature = PROFILES[id].feature;
+  // Cast so unused union members (kronos-multipath) stay reachable when no profile uses them yet.
+  const feature = PROFILES[id].feature as ServProfile["feature"];
   if (feature === "kronos-multipath") return `${base}-serv-kronos-multipath`;
   if (feature === "kronos") return `${base}-serv-kronos`;
   if (feature === "multipath") return `${base}-serv-multipath`;
