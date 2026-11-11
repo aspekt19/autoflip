@@ -19,7 +19,8 @@ import {
 import { top5Ranks, type FindDecisionLogEntry } from "@/domain/find-decision-log";
 import type { FindBaselineDelta } from "@/domain/find-baseline";
 import {
-  executeFindFreeGovCheck,
+  executeAllFindFreeGovChecksParallel,
+  FIND_FREE_GOV_CHECK_IDS,
   fingerprintFreeGovReceipts,
   freeGovReceiptsBrief,
   freeGovToolCoverage,
@@ -662,7 +663,7 @@ export async function runFindNextCheckOrchestrator(
       (overrodeUserAction && executedId !== live.chosenId) || lostInitialDecision;
     const nextRetarget = consumedRetarget ? false : retargetPending || armedRetarget;
 
-    const appliedNext = [...ctx.appliedCheckIds, executedId];
+    const appliedNext: string[] = [...ctx.appliedCheckIds, executedId];
     let rematch: FindNextCheckOrchestratorOk["rematch"] = null;
     let listingsAfter = ctx.listings;
     let compsPoolAfter: FindSearchListingFact[] = ctx.compsPool ?? ctx.listings;
@@ -711,29 +712,31 @@ export async function runFindNextCheckOrchestrator(
       rematchOk = null;
     }
 
-    // Free public government tools — autonomous, no Report credit, reuses Scout free-gov port.
-    if (replan.freeEvidence) {
-      const executed = await executeFindFreeGovCheck({
-        checkId: executedId,
+    // Free public government tools — one parallel triage wave for ALL tools × MMYs.
+    // Replaces the old hop-by-hop batch-of-3 / 48-round drain. No Report credit.
+    const runFreeGovTriage =
+      replan.freeEvidence || (priorFreeGovCount > 0 && isFindFreeGovCheckId(executedId));
+    if (runFreeGovTriage) {
+      const triage = await executeAllFindFreeGovChecksParallel({
         listings: listingsAfter,
         priorReceipts,
         gov: deps.freeGovPort,
         shopperNote: replan.need.note,
-        targetKeys: executedId === "free_gov_vpic" && vpicTargets.length > 0 ? vpicTargets : undefined,
       });
-      if (executed) {
-        // Only this hop's receipts belong in the decision log. Merged history is new
-        // objects, so an identity check against the prior array logged the same lines again.
-        hopReceipts = executed.receipts;
-        // Dedup by checkId+year/make/model so cached re-runs cannot append duplicate receipts / fake cycles.
-        if (executed.receipts.length > 0) {
-          freeGovReceipts = mergeFreeGovReceiptsByMmy(priorReceipts, executed.receipts);
+      hopReceipts = triage.receipts;
+      if (triage.receipts.length > 0) {
+        freeGovReceipts = mergeFreeGovReceiptsByMmy(priorReceipts, triage.receipts);
+      }
+      freeEvidenceNote = triage.note;
+      replan = {
+        ...replan,
+        note: `${replan.note} ${triage.note}`.trim(),
+      };
+      // Record every free-gov id that was open so the next hop does not re-propose them.
+      for (const id of FIND_FREE_GOV_CHECK_IDS) {
+        if (!appliedNext.includes(id) && priorProposedOpen.some((c) => c.id === id)) {
+          appliedNext.push(id);
         }
-        freeEvidenceNote = executed.note;
-        replan = {
-          ...replan,
-          note: `${replan.note} ${executed.note}`.trim(),
-        };
       }
     }
 
@@ -959,10 +962,10 @@ export async function runFindNextCheckOrchestrator(
     let pickServTrace: import("@/server/shopper-verdict-serv").ShopperServTrace | null = null;
     let pickAgentVerdict: import("@/domain/agent-verdict-schema").AgentVerdict | null = null;
     let pickProofRecords: import("@/domain/decision-proof-record").DecisionProofRecord[] = [];
-    // Run SERV find_pick + verdict_decide when the loop stops with a pick — even if a
-    // soft evidence flag is still open — so the published car is SERV's choice.
-    const shouldSettlePick = !loop.continue && Boolean(buyerDeal.pick);
-    if (shouldSettlePick && buyerDeal.pick) {
+    // Run SERV find_pick + verdict_decide when the loop stops — even with no pick
+    // (runFindSettleServ records skipped_no_evidence) — so the buyer always gets a
+    // settle proof trail. Soft evidence flags still open do not block settle.
+    if (!loop.continue) {
       const { runFindSettleServ } = await import("@/server/find-settle-serv");
       const settled = await runFindSettleServ({
         bestDeal: buyerDeal,

@@ -511,6 +511,8 @@ export async function runFindMatch(
       ).catch(() => undefined);
     }
 
+    // Flip mode keeps code P&L scores for hard guardrails (negative resale profit).
+    // Personal Find does not invent a score-0 ranking — SERV settles the pick later.
     const ranked =
       need.mode === "flip"
         ? rankFlipCandidates(collected, new Date(), {
@@ -535,10 +537,22 @@ export async function runFindMatch(
         };
       })
       .sort((a, b) => {
+        // Budget hard filter only for personal; flip may order by P&L score for display.
+        // Negative resale profit is a settle/pick guardrail (not an inventory wipe).
         const aOver = a.overBudget ? 1 : 0;
         const bOver = b.overBudget ? 1 : 0;
         if (aOver !== bOver) return aOver - bOver;
-        return (byVin.get(b.vin)?.score ?? 0) - (byVin.get(a.vin)?.score ?? 0);
+        if (need.mode === "flip") {
+          return (byVin.get(b.vin)?.score ?? 0) - (byVin.get(a.vin)?.score ?? 0);
+        }
+        // Stable personal order: lower ask, then lower miles, then VIN — not a fake score-0 rank.
+        const pa = a.priceUsd ?? Number.POSITIVE_INFINITY;
+        const pb = b.priceUsd ?? Number.POSITIVE_INFINITY;
+        if (pa !== pb) return pa - pb;
+        const ma = a.miles ?? Number.POSITIVE_INFINITY;
+        const mb = b.miles ?? Number.POSITIVE_INFINITY;
+        if (ma !== mb) return ma - mb;
+        return (a.vin || "").localeCompare(b.vin || "");
       })
       .filter((item) => {
         // Drop VINs already shown under an earlier direction; only claim shown rows.

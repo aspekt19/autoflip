@@ -46,7 +46,15 @@ export function matchBuyerListing<T extends ListingMatchRow>(
   return loose.length === 1 ? loose[0]! : null;
 }
 
-/** Absolute http(s) listing URL, or null when the feed did not provide one. */
+/** Hosts that are history/report or generic pages — never buyer listing links. */
+const NON_LISTING_HOSTS = new Set([
+  "carfax.com",
+  "autocheck.com",
+  "nmvtis.com",
+  "vehiclehistory.gov",
+]);
+
+/** Absolute http(s) listing URL, or null when the feed did not provide a real listing. */
 export function buyerListingHref(vdp: string | null | undefined): string | null {
   if (typeof vdp !== "string") return null;
   const trimmed = vdp.trim();
@@ -55,6 +63,11 @@ export function buyerListingHref(vdp: string | null | undefined): string | null 
     const url = new URL(trimmed);
     if (url.protocol !== "http:" && url.protocol !== "https:") return null;
     if (!url.hostname || !url.hostname.includes(".")) return null;
+    const host = url.hostname.replace(/^www\./i, "").toLowerCase();
+    // Never send buyers to Carfax / history-report pages as if they were the listing.
+    if (NON_LISTING_HOSTS.has(host) || [...NON_LISTING_HOSTS].some((h) => host.endsWith(`.${h}`))) {
+      return null;
+    }
     const path = url.pathname.replace(/\/+$/, "") || "/";
     // A bare homepage, or a homepage whose only extra is a hash, is not a listing.
     if (path === "/" && url.search.length === 0) return null;

@@ -4,7 +4,12 @@
  * Code ranking is the honest fallback when SERV is unavailable or rejects a hard rule.
  * Never invents listings or prices — fair value + comps from evaluateListingPrice only.
  */
-import type { AgentSecondPassResult, AgentVerdict, AgentVerdictConfidence } from "@/domain/agent-verdict-schema";
+import {
+  moreConservativeConfidence,
+  type AgentSecondPassResult,
+  type AgentVerdict,
+  type AgentVerdictConfidence,
+} from "@/domain/agent-verdict-schema";
 import type { BestDealCandidate, BestDealResult } from "@/domain/find-best-deal";
 import {
   buildDecisionProofRecord,
@@ -42,20 +47,55 @@ function listingFromCandidate(row: BestDealCandidate): Listing {
     primaryImage: null,
     carfaxUrl: null,
     used: true,
-    cpo: null,
-    accidentCount: null,
-    oneOwner: null,
-    ownerCount: null,
-    usageType: null,
-    fuel: null,
-    engine: null,
-    drivetrain: null,
+    cpo: row.cpo ?? null,
+    // Forward listing-feed facts when present — never invent zeros/clean history.
+    accidentCount: row.accidentCount ?? null,
+    oneOwner: row.oneOwner ?? null,
+    ownerCount: row.ownerCount ?? null,
+    usageType: row.usageType ?? null,
+    fuel: row.fuel ?? null,
+    engine: row.engine ?? null,
+    drivetrain: row.drivetrain ?? null,
     bodyStyle: null,
+    distanceMiles: row.distanceMiles ?? null,
     latitude: null,
     longitude: null,
     removedAt: null,
     source: "autodev",
   };
+}
+
+/** Consistent buyer/SERV accident line — one statement, never invented clean history. */
+export function accidentHistoryFact(row: BestDealCandidate): string {
+  if (row.accidentCount == null) {
+    return "This listing does not say whether accidents were reported.";
+  }
+  if (row.accidentCount > 0) {
+    return `This listing says ${row.accidentCount} accident${row.accidentCount === 1 ? "" : "s"} were reported.`;
+  }
+  return "This listing says no accidents were reported. That is the seller's claim, not a history report.";
+}
+
+/** Direct listing URL only — never Carfax/generic aggregator pages. */
+function listingUrlForServ(row: BestDealCandidate): string | null {
+  const href = row.vdp?.trim() || null;
+  if (!href || !/^https?:\/\//i.test(href)) return null;
+  try {
+    const host = new URL(href).hostname.replace(/^www\./i, "").toLowerCase();
+    if (host === "carfax.com" || host.endsWith(".carfax.com")) return null;
+    return href;
+  } catch {
+    return null;
+  }
+}
+
+/** Cap published confidence: never High next to Needs inspection. */
+export function capConfidenceForNeedsInspection<T extends "high" | "medium" | "low">(
+  confidence: T,
+  verdict: string | null | undefined,
+): T | "medium" {
+  if (verdict === "needs_inspection" && confidence === "high") return "medium";
+  return confidence;
 }
 
 function verdictFromEvaluation(verdict: Verdict): Verdict {
@@ -115,17 +155,26 @@ export function buildFindPickComputedReport(
     sourceLabel: car.sourceLabel ?? null,
     adjustmentNotes: car.reasons.slice(0, 4),
   }));
-  const recallsAvailable = pick.factors.some((factor) => factor.id === "mmy_recall_campaigns");
+  const recallsAvailable =
+    pick.factors.some((factor) => factor.id === "mmy_recall_campaigns") ||
+    pick.recallCampaignCount != null ||
+    pick.stopSale === true ||
+    pick.parkOutside === true;
   const dataNotes = [
-    ...pick.unknowns.slice(0, 8),
+    accidentHistoryFact(pick),
+    ...pick.unknowns.filter((u) => !/accident/i.test(u)).slice(0, 7),
     ...(vinPlaceholder ? ["VIN not in listing"] : []),
   ];
   const stopTexts = [
     ...pick.factors.flatMap((factor) => [factor.id, factor.detail, factor.label]),
     ...pick.unknowns,
     ...pick.sellerQuestions,
+    pick.stopSale ? "park-it stop-sale" : "",
+    pick.parkOutside ? "park-outside" : "",
   ];
   const stop = stopFlagsForFindPick({ texts: stopTexts });
+  const openParkIt = stop.openParkIt || pick.stopSale === true;
+  const openParkOutside = stop.openParkOutside || pick.parkOutside === true;
   const usedMarket = marketSameModel.length > 0;
   return {
     mode: "personal",
@@ -158,15 +207,18 @@ export function buildFindPickComputedReport(
       medianCompMiles: null,
       perMileUsd: null,
     },
-    history: { multiplier: 1, lines: [] },
+    history: {
+      multiplier: 1,
+      lines: [accidentHistoryFact(pick)].filter(Boolean),
+    },
     recalls: [],
     recallsAvailable,
-    openParkIt: stop.openParkIt,
-    openParkOutside: stop.openParkOutside,
-    complaintCount: null,
+    openParkIt,
+    openParkOutside,
+    complaintCount: pick.complaintCount ?? null,
     fuel: null,
     vinDecode: null,
-    distanceToSearchZipMiles: null,
+    distanceToSearchZipMiles: pick.distanceMiles ?? null,
     flip: null,
     assumptions: { ...ASSUMPTIONS },
     dataNotes,
@@ -287,7 +339,7 @@ function confidenceLineFor(
   }
   // Code fallback labelled as code (buyer-safe — no "SERV" token).
   const extra = noteBit || factBit;
-  return extra ? `${cap}: code ranking. ${extra}`.trim() : `${cap}: code ranking.`;
+  return extra ? `${cap}: code fallback. ${extra}`.trim() : `${cap}: code fallback.`;
 }
 
 /**
@@ -317,7 +369,7 @@ export function publishBestDeal(input: {
   if (reasons.length === 0) {
     reasons.push(
       input.actor === "code"
-        ? `${label} (${ask}) — published pick from code ranking.`
+        ? `${label} (${ask}) — published pick from code fallback.`
         : `${label} (${ask}) — chosen among eligible finalists.`,
     );
   }
@@ -467,7 +519,7 @@ export async function runFindSettleServ(input: {
   const fetchImpl = input.fetchImpl ?? fetch;
   const servKey = input.servKey?.trim() || "";
 
-  // Multi-finalist (or single) SERV pick — give SERV all eligible cars with facts.
+  // Multi-finalist (or single) SERV pick — every real fact per car (never invent).
   if (servKey) {
     const allowedKeys = eligible.map((item) => item.row.key);
     const allowedEvidenceIds = eligible.flatMap((item) => [
@@ -475,31 +527,75 @@ export async function runFindSettleServ(input: {
       `ask:${item.row.key}`,
       `fair:${item.row.key}`,
       `comps:${item.row.key}`,
+      `miles:${item.row.key}`,
+      `history:${item.row.key}`,
+      `recalls:${item.row.key}`,
+      `listing:${item.row.key}`,
     ]);
     const facts = {
       allowedKeys,
       allowedEvidenceIds,
-      evidence: allowedEvidenceIds.map((id) => ({
-        id,
-        text: id.startsWith("car:")
-          ? `Finalist ${id.slice(4)}`
-          : id.startsWith("ask:")
-            ? `Asking price for ${id.slice(4)}`
-            : id.startsWith("fair:")
-              ? `Fair value for ${id.slice(5)}`
-              : `Similar-ask count for ${id.slice(6)}`,
-      })),
-      finalists: eligible.map((item) => ({
-        key: item.row.key,
-        label: `${item.row.year} ${item.row.make} ${item.row.model}`,
-        vin: item.row.vin && item.row.vin.length === 17 ? item.row.vin : null,
-        askUsd: item.report.subject.priceUsd,
-        fairValueUsd: item.report.fairValueUsd,
-        compCount: item.report.comps.length,
-        priceGap: item.report.priceGap,
-        score: item.row.score,
-      })),
-      codeRankedKey: codeEligible.key,
+      evidence: allowedEvidenceIds.map((id) => {
+        const [kind, key] = id.split(":");
+        const row = eligible.find((item) => item.row.key === key)?.row;
+        const report = eligible.find((item) => item.row.key === key)?.report;
+        if (!row || !report) return { id, text: id };
+        if (kind === "car") return { id, text: `${row.year} ${row.make} ${row.model}` };
+        if (kind === "ask") return { id, text: `Asking price $${report.subject.priceUsd ?? "unknown"}` };
+        if (kind === "fair") return { id, text: `Fair value $${report.fairValueUsd ?? "unknown"}` };
+        if (kind === "comps") return { id, text: `${report.comps.length} similar asks` };
+        if (kind === "miles") return { id, text: `Odometer ${row.miles ?? "unknown"} miles` };
+        if (kind === "history") return { id, text: accidentHistoryFact(row) };
+        if (kind === "recalls") {
+          return {
+            id,
+            text: row.stopSale
+              ? "Stop-sale / park-until-fixed recall guidance is open for this year and model"
+              : row.recallCampaignCount != null
+                ? `${row.recallCampaignCount} recall campaign(s) on file for this year and model`
+                : "Recall campaigns not confirmed for this year and model",
+          };
+        }
+        return { id, text: listingUrlForServ(row) ?? "No direct listing link" };
+      }),
+      finalists: eligible.map((item) => {
+        const row = item.row;
+        const report = item.report;
+        return {
+          key: row.key,
+          label: `${row.year} ${row.make} ${row.model}`,
+          vin: row.vin && row.vin.length === 17 ? row.vin : null,
+          year: row.year,
+          make: row.make,
+          model: row.model,
+          trim: row.trim ?? null,
+          drivetrain: row.drivetrain ?? null,
+          askUsd: report.subject.priceUsd,
+          fairValueUsd: report.fairValueUsd,
+          adjustedComps: report.comps.slice(0, 8).map((c) => ({
+            year: c.year,
+            miles: c.miles,
+            askUsd: c.priceUsd,
+            adjustedUsd: c.adjustedPriceUsd,
+          })),
+          compCount: report.comps.length,
+          priceGap: report.priceGap,
+          miles: row.miles,
+          accidentCount: row.accidentCount ?? null,
+          accidentHistory: accidentHistoryFact(row),
+          ownerCount: row.ownerCount ?? null,
+          oneOwner: row.oneOwner ?? null,
+          recallCampaignCount: row.recallCampaignCount ?? null,
+          stopSale: row.stopSale === true,
+          parkOutside: row.parkOutside === true,
+          complaintCount: row.complaintCount ?? null,
+          ncapOverall: row.ncapOverall ?? null,
+          distanceMiles: row.distanceMiles ?? report.distanceToSearchZipMiles ?? null,
+          listingUrl: listingUrlForServ(row),
+        };
+      }),
+      // Code shortlist order is not ranking authority — SERV chooses among allowlisted keys.
+      codeFallbackKey: codeEligible.key,
     };
     const judged = await runServ(
       "find_pick",
@@ -535,12 +631,33 @@ export async function runFindSettleServ(input: {
       ok: judged.ok && hardRuleOk,
       id: typeof judged.proof?.openserv?.id === "string" ? judged.proof.openserv.id : null,
     });
+    let pickAlternatives: string[] = [];
+    let pickWatchFor: string[] = [];
+    let pickReasons: string[] = [];
     if (judged.ok && hardRuleOk && payload) {
       pick = eligible.find((item) => item.row.key === pickKey)!.row;
       pickActor = "SERV";
       const conf = payload.confidence;
       if (conf === "high" || conf === "medium" || conf === "low") pickConfidence = conf;
       pickNote = typeof payload.note === "string" ? payload.note.trim() || null : null;
+      if (Array.isArray(payload.alternatives)) {
+        pickAlternatives = payload.alternatives
+          .filter((k): k is string => typeof k === "string" && allowedKeys.includes(k) && k !== pickKey)
+          .slice(0, 3);
+      }
+      if (Array.isArray(payload.reasons)) {
+        pickReasons = payload.reasons
+          .filter((r): r is string => typeof r === "string" && r.trim().length > 0)
+          .map((r) => r.trim())
+          .slice(0, 4);
+      }
+      if (Array.isArray(payload.watchFor)) {
+        pickWatchFor = payload.watchFor
+          .filter((r): r is string => typeof r === "string" && r.trim().length > 0)
+          .map((r) => r.trim())
+          .slice(0, 4);
+      }
+      if (!pickNote && pickReasons.length > 0) pickNote = pickReasons.join(" ");
       pickModel = judged.proof?.modelReported ?? judged.proof?.modelRequested ?? input.model ?? null;
       pickRecordedAt = recordedAt;
       const findPickProof = buildDecisionProofRecord({
@@ -552,8 +669,10 @@ export async function runFindSettleServ(input: {
         model: pickModel,
         inputs: {
           allowedKeys,
-          codeRankedKey: codeEligible.key,
+          codeFallbackKey: codeEligible.key,
           chosenKey: pick.key,
+          alternatives: pickAlternatives,
+          watchFor: pickWatchFor,
           eligibleFinalists: eligible.length,
         },
         verdict: typeof payload.action === "string" ? payload.action : null,
@@ -565,6 +684,10 @@ export async function runFindSettleServ(input: {
       });
       pickResponseId = findPickProof.servResponseId;
       proofRecords.push(findPickProof);
+      // Stash buyer-facing extras on the note when present.
+      if (pickWatchFor.length > 0) {
+        pickNote = [pickNote, `Watch for: ${pickWatchFor.join("; ")}`].filter(Boolean).join(" ");
+      }
     } else {
       const rejectWhy = !judged.ok
         ? judged.failureDiag?.honesty ||
@@ -572,8 +695,8 @@ export async function runFindSettleServ(input: {
           judged.error ||
           "SERV find_pick did not finish."
         : !pickKey
-          ? "SERV find_pick omitted pickKey — code ranking stands."
-          : `SERV pickKey ${pickKey} is not in allowedKeys — hard rule reject; code ranking stands.`;
+          ? "SERV find_pick omitted pickKey — code fallback stands."
+          : `SERV pickKey ${pickKey} is not in allowedKeys — hard rule reject; code fallback stands.`;
       pick = codeEligible;
       pickActor = "code";
       pickModel = judged.proof?.modelReported ?? judged.proof?.modelRequested ?? input.model ?? null;
@@ -589,7 +712,7 @@ export async function runFindSettleServ(input: {
           model: pickModel,
           inputs: {
             allowedKeys,
-            codeRankedKey: codeEligible.key,
+            codeFallbackKey: codeEligible.key,
             rejectedPickKey: pickKey || null,
             eligibleFinalists: eligible.length,
           },
@@ -609,11 +732,11 @@ export async function runFindSettleServ(input: {
         status: "skipped_no_key",
         recordedAt: pickRecordedAt,
         inputs: {
-          codeRankedKey: codeEligible.key,
+          codeFallbackKey: codeEligible.key,
           eligibleFinalists: eligible.length,
         },
         detail:
-          "Find pick by code ranking — SERV_API_KEY is not configured on this deployment (not a SERV pick).",
+          "Find pick by code fallback — SERV_API_KEY is not configured on this deployment (not a SERV pick).",
       }),
     );
   }
@@ -641,30 +764,43 @@ export async function runFindSettleServ(input: {
     screeningConfidence,
   });
 
-  // SERV confidence (pick + shopper) becomes published; code fallback stays labelled as code.
-  // Stop-level park-it / park-outside never publish High (same rule as Check).
+  // One buyer-facing confidence = minimum of pick / decide / challenge / caps.
+  // Never High next to Needs inspection; stop-level park flags never publish High.
+  const shopperVerdict = shopper.agentVerdict.verdict;
+  const challengeAfter = shopper.agentVerdict.second_pass?.confidenceAfter ?? null;
+  const minSteps = moreConservativeConfidence(
+    moreConservativeConfidence(pickConfidence, shopper.agentVerdict.confidence),
+    challengeAfter,
+  );
   const rawPublished = mapDealConfidence(
-    shopper.agentVerdict.confidence ?? pickConfidence,
+    minSteps,
     input.bestDeal.confidence === "none" ? "medium" : input.bestDeal.confidence,
   );
-  const publishedConfidence = capConfidenceForStopFlags(rawPublished, hasStop);
-  // Count as capped when stop guidance blocked High — including when screening was
-  // capped before shopper so SERV never returned High.
+  const afterStop = capConfidenceForStopFlags(rawPublished, hasStop);
+  const publishedConfidence = capConfidenceForNeedsInspection(afterStop, shopperVerdict);
   const intendedHigh =
     rawPublished === "high" ||
     pickConfidence === "high" ||
     input.bestDeal.confidence === "high" ||
     shopper.agentVerdict.confidence === "high";
-  const confidenceWasCapped = Boolean(hasStop && publishedConfidence !== "high" && intendedHigh);
+  const confidenceWasCapped = Boolean(
+    publishedConfidence !== "high" &&
+      intendedHigh &&
+      (hasStop || shopperVerdict === "needs_inspection"),
+  );
   let agentVerdict = shopper.agentVerdict;
   if (agentVerdict) {
     const pickLabel = `${pick.year} ${pick.make} ${pick.model}`;
-    const cappedAgentConfidence = capConfidenceForStopFlags(
-      (shopper.agentVerdict.confidence ??
-        pickConfidence ??
-        agentVerdict.confidence ??
-        "medium") as AgentVerdictConfidence,
-      hasStop,
+    const cappedAgentConfidence = capConfidenceForNeedsInspection(
+      capConfidenceForStopFlags(
+        (minSteps ??
+          shopper.agentVerdict.confidence ??
+          pickConfidence ??
+          agentVerdict.confidence ??
+          "medium") as AgentVerdictConfidence,
+        hasStop,
+      ),
+      shopperVerdict,
     );
     const pickStep = {
       decided:
@@ -675,19 +811,25 @@ export async function runFindSettleServ(input: {
         pickActor === "SERV"
           ? "Published Find pick comes from SERV find_pick under allowlisted finalist facts."
           : servKey
-            ? "SERV pick was unavailable or broke a hard allowlist rule — code ranking stands."
-            : "SERV_API_KEY is not configured — code ranking is the published pick.",
-      changed: pick.key !== codePick.key ? `Earlier code ranking led with ${codePick.key}.` : null,
+            ? "SERV pick was unavailable or broke a hard allowlist rule — code fallback stands."
+            : "SERV_API_KEY is not configured — code fallback is the published pick.",
+      changed: pick.key !== codePick.key ? `Earlier code shortlist led with ${codePick.key}.` : null,
       model: pickModel,
       responseId: pickResponseId,
       recordedAt: pickRecordedAt,
     };
     const trailExtra =
-      confidenceWasCapped && stopCapReason
+      confidenceWasCapped
         ? [
             {
-              decided: stopCapReason,
-              why: "Stop-level NHTSA park-it or park-outside guidance is open on the published pick.",
+              decided:
+                shopperVerdict === "needs_inspection" && !hasStop
+                  ? "Lowered from High: verdict is Needs inspection."
+                  : stopCapReason ?? "Confidence capped for buyer safety.",
+              why:
+                shopperVerdict === "needs_inspection" && !hasStop
+                  ? "Needs inspection never publishes High confidence."
+                  : "Stop-level NHTSA park-it or park-outside guidance is open on the published pick.",
               changed: "Published confidence capped from High to Medium.",
               model: pickModel,
               responseId: pickResponseId,
