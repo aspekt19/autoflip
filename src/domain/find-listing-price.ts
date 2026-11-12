@@ -9,7 +9,7 @@ import {
   assessAskingPrice,
   assessListingAskingPrice,
   type AskingPriceAssessment,
-} from "@/domain/scout/asking-price";
+} from "@/domain/asking-price";
 import { budgetFit, type BudgetFit } from "@/domain/budget";
 import type { Listing } from "@/domain/types";
 

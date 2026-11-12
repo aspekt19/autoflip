@@ -11,7 +11,6 @@
  * No paid calls. servStepId is execution-owned (not in request schema).
  */
 import { describe, expect, it } from "vitest";
-import { parseScoutPlanText } from "@/server/scout/plan-parse";
 import { experimentServDeps, messageText, profile, runServ } from "./index";
 
 const TOOL_ARGS_ONLY = {
@@ -77,12 +76,6 @@ describe("structured messageText (json_schema contract)", () => {
   it("legacy mode still surfaces tool args (synthetic draft-as-JSON mismatch family)", () => {
     const legacy = messageText(TOOL_ARGS_ONLY, "legacy");
     expect(legacy).toContain("Toyota");
-    const parsed = parseScoutPlanText(legacy);
-    expect(parsed.ok).toBe(false);
-    if (!parsed.ok) {
-      expect(parsed.kind).toBe("schema_mismatch");
-      expect(parsed.message).toMatch(/^Missing reason or servStepId/);
-    }
   });
 
   it("structured mode does not treat tool_call args as planner JSON", () => {
@@ -93,9 +86,6 @@ describe("structured messageText (json_schema contract)", () => {
     // Legacy could extract a JSON object missing reason/servStepId from the draft.
     const legacy = messageText(REASONING_DRAFT_ONLY, "legacy");
     expect(legacy).toContain("{");
-    const legacyParsed = parseScoutPlanText(legacy);
-    expect(legacyParsed.ok).toBe(false);
-    if (!legacyParsed.ok) expect(legacyParsed.kind).toBe("schema_mismatch");
 
     expect(messageText(REASONING_DRAFT_ONLY, "structured")).toBe("");
   });
@@ -109,80 +99,5 @@ describe("structured messageText (json_schema contract)", () => {
       "structured",
     );
     expect(refusal.toLowerCase()).toContain("cannot assist");
-  });
-});
-
-describe("scout_plan runServ uses structured extraction (offline)", () => {
-  it("tool_calls-only 200 is empty (not schema_mismatch text) under experiment", async () => {
-    const result = await runServ(
-      "scout_plan",
-      { user: "{}" },
-      experimentServDeps({
-        apiKey: "test-key",
-        baseUrl: "https://serv-mock.test/v1",
-        fetch: async () =>
-          new Response(JSON.stringify(TOOL_ARGS_ONLY), {
-            status: 200,
-            headers: { "Content-Type": "application/json" },
-          }),
-      }),
-    );
-    expect(result.httpAttempts).toBe(1);
-    expect(result.ok).toBe(false);
-    if (!result.ok) {
-      expect(result.error).toMatch(/empty/i);
-      expect(result.status).toBe(200);
-    }
-  });
-
-  it("production empty-text recovery can recover after tool_calls-only first turn", async () => {
-    expect(profile("scout_plan").jsonSchema?.name).toBe("lemonless_scout_plan_action");
-    let calls = 0;
-    const result = await runServ(
-      "scout_plan",
-      { user: "{}" },
-      {
-        apiKey: "test-key",
-        baseUrl: "https://serv-mock.test/v1",
-        // default transportPolicy=production → postProse empty retry
-        fetch: async () => {
-          calls += 1;
-          const body = calls === 1 ? TOOL_ARGS_ONLY : VALID_ABSTAIN_CONTENT;
-          return new Response(JSON.stringify(body), {
-            status: 200,
-            headers: { "Content-Type": "application/json" },
-          });
-        },
-      },
-    );
-    expect(calls).toBe(2);
-    expect(result.httpAttempts).toBe(2);
-    expect(result.ok).toBe(true);
-    if (result.ok) {
-      const parsed = parseScoutPlanText(result.text);
-      expect(parsed.ok).toBe(true);
-      if (parsed.ok) expect(parsed.action.type).toBe("abstain");
-    }
-  });
-
-  it("reasoning-draft-only 200 is empty under experiment (no draft-as-JSON false positive)", async () => {
-    const result = await runServ(
-      "scout_plan",
-      { user: "{}" },
-      experimentServDeps({
-        apiKey: "test-key",
-        baseUrl: "https://serv-mock.test/v1",
-        fetch: async () =>
-          new Response(JSON.stringify(REASONING_DRAFT_ONLY), {
-            status: 200,
-            headers: { "Content-Type": "application/json" },
-          }),
-      }),
-    );
-    expect(result.ok).toBe(false);
-    if (!result.ok) {
-      expect(result.error).toMatch(/empty/i);
-      expect(result.status).toBe(200);
-    }
   });
 });

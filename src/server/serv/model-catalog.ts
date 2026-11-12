@@ -136,7 +136,7 @@ export type ServCompareModelEntry = {
 
 /** Flip t318 console-CSV shortlist — allowlisted without UNLISTED when explicitly requested. */
 export function listServFlipDecisionShortlist(
-  profileId: ProfileId = "scout_plan",
+  profileId: ProfileId = "find_plan",
 ): ServCompareModelEntry[] {
   return SERV_FLIP_DECISION_SHORTLIST.map((entry) => ({
     id: entry.modelId,
@@ -164,7 +164,7 @@ export function isPlausibleServModelId(id: string): boolean {
   return /^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$/.test(id);
 }
 
-export function listServCompareModels(profileId: ProfileId = "scout_plan"): ServCompareModelEntry[] {
+export function listServCompareModels(profileId: ProfileId = "find_plan"): ServCompareModelEntry[] {
   return SERV_COMPARE_BASE_MODEL_IDS.map((id) => ({
     id,
     kind: id === BASE_MODEL ? ("base" as const) : ("dated_alias" as const),
@@ -178,7 +178,7 @@ export function listServCompareModels(profileId: ProfileId = "scout_plan"): Serv
   }));
 }
 
-export function listServFairSlateModels(profileId: ProfileId = "scout_plan"): ServCompareModelEntry[] {
+export function listServFairSlateModels(profileId: ProfileId = "find_plan"): ServCompareModelEntry[] {
   return SERV_COMPARE_FAIR_SLATE.map((entry) => ({
     id: entry.id,
     kind: "docs_fair_slate" as const,
@@ -202,7 +202,7 @@ export function resolveServCompareModelIds(
   raw: string | null | undefined,
   opts?: { profileId?: ProfileId; allowUnlisted?: boolean; fairSlate?: boolean },
 ): { ok: true; models: ServCompareModelEntry[] } | { ok: false; message: string } {
-  const profileId = opts?.profileId ?? "scout_plan";
+  const profileId = opts?.profileId ?? "find_plan";
   const allowUnlisted = opts?.allowUnlisted === true;
   const fairSlate = opts?.fairSlate === true;
   const catalog = listServCompareModels(profileId);

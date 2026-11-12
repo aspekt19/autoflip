@@ -5,7 +5,6 @@ describe("primaryNavLinks", () => {
   it("keeps Resale and Deal Radar together when both product flags are on", () => {
     const links = primaryNavLinks({
       flags: { resaleEvaluate: true, dealRadar: true, scout: false, telegram: false },
-      showScout: false,
     });
     const labels = links.map((link) => link.label);
     expect(labels).toContain("Resale");
@@ -18,11 +17,9 @@ describe("primaryNavLinks", () => {
   it("does not drop Resale when Deal Radar is on", () => {
     const withRadar = primaryNavLinks({
       flags: { resaleEvaluate: true, dealRadar: true, scout: false, telegram: false },
-      showScout: false,
     });
     const withoutRadar = primaryNavLinks({
       flags: { resaleEvaluate: true, dealRadar: false, scout: false, telegram: false },
-      showScout: false,
     });
     expect(withRadar.some((link) => link.label === "Resale")).toBe(true);
     expect(withoutRadar.some((link) => link.label === "Resale")).toBe(true);
@@ -30,28 +27,30 @@ describe("primaryNavLinks", () => {
   });
 
   it("defaults to Resale before flags load (null), without inventing Deal Radar", () => {
-    const links = primaryNavLinks({ flags: null, showScout: false });
+    const links = primaryNavLinks({ flags: null });
     expect(links.map((link) => link.label)).toContain("Resale");
     expect(links.map((link) => link.label)).not.toContain("Deal Radar");
   });
 });
 
 describe("splitPrimaryNavLinks", () => {
-  it("keeps Find/Check/Resale/Radar/How it decides/Pricing in core and collapses Scout/Reports/Saved/Compare into More", () => {
+  it("keeps the demo routes in core and reports in More, with frozen pages out of the nav", () => {
     const links = primaryNavLinks({
-      flags: { resaleEvaluate: true, dealRadar: true, scout: true, telegram: false },
-      showScout: true,
+      flags: { resaleEvaluate: true, dealRadar: true, scout: false, telegram: false },
     });
     const { core, more } = splitPrimaryNavLinks(links);
-    expect(core.map((link) => link.label)).toEqual([
-      "Find a car",
-      "Check a car",
-      "Resale",
-      "Deal Radar",
-      "How it decides",
-      "Pricing",
+    expect(core.map((link) => link.href)).toEqual([
+      "/find",
+      "/check",
+      "/resale",
+      "/radar",
+      "/where-serv-runs",
+      "/pricing",
+      "/proof",
     ]);
-    expect(more.map((link) => link.label)).toEqual(["Scout", "Reports", "Saved cars", "Compare cars"]);
-    expect(links.find((link) => link.label === "How it decides")?.href).toBe("/where-serv-runs");
+    expect(more.map((link) => link.href)).toEqual(["/reports"]);
+    for (const hidden of ["/scout", "/favorites", "/compare-cars", "/verify", "/developers"]) {
+      expect(links.map((link) => link.href)).not.toContain(hidden);
+    }
   });
 });

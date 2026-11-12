@@ -27,7 +27,7 @@ import {
   STATE_SALES_TAX_SOURCE_LABEL,
   STATE_SALES_TAX_SOURCE_URL,
 } from "./state-sales-tax";
-import type { AskingPriceKind } from "./scout/asking-price";
+import type { AskingPriceKind } from "./asking-price";
 import type { ComputedReport, Listing } from "./types";
 import { normalizeZip, stateFromZip, ZIP_PREFIX_AS_OF, ZIP_PREFIX_SOURCE_LABEL, ZIP_PREFIX_SOURCE_URL } from "./zip-to-state";
 

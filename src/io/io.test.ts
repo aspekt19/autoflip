@@ -5,7 +5,6 @@ import { autodevSearch } from "./autodev";
 import { MarketCheckProvider } from "./marketcheck";
 import { fuelFactFromVehicles, parseCensusPoint, parseComplaintCount, parseRecalls, parseVinDecode } from "./parsers";
 import { interpretGuard, shadowOutcomeFrom } from "@/server/serv";
-import { paymentsConfigured, readX402Config, requirementsFor, verifyAndSettle } from "./x402";
 import { CreditLedger } from "./store";
 import { recallsFor } from "./gov";
 import { mkdtempSync } from "node:fs";
@@ -183,54 +182,6 @@ describe("serv outcome words", () => {
     expect(shadowOutcomeFrom({ note: "outcome exhausted" }, headers)).toBe("exhausted");
     expect(shadowOutcomeFrom({}, headers)).toBe("not_exposed");
     expect(shadowOutcomeFrom({}, new Headers({ "x-any-shadow-result": "passed" }))).toBe("passed");
-  });
-});
-
-describe("x402", () => {
-  it("refuses to look configured when the payee is empty", () => {
-    const config = readX402Config({ X402_PAY_TO: "", X402_NETWORK: "kite", X402_ASSET: "usdc" });
-    expect(paymentsConfigured(config)).toBe(false);
-  });
-
-  it("verifies and settles through the facilitator", async () => {
-    const config = readX402Config({
-      X402_PAY_TO: "0xabc",
-      X402_NETWORK: "eip155:1",
-      X402_ASSET: "0xasset",
-      X402_SCHEME: "gokite-aa",
-      X402_FACILITATOR_URL: "https://facilitator.example",
-      X402_PRICE_ATOMIC: "1000000",
-    });
-    const requirement = requirementsFor("https://autoflip.example/api/v1/report", config);
-    const calls: string[] = [];
-    const fetchImpl: typeof fetch = async (url) => {
-      calls.push(String(url));
-      const path = String(url);
-      if (path.endsWith("/verify")) return Response.json({ isValid: true });
-      return Response.json({ success: true, txHash: "0xtx" });
-    };
-    const header = Buffer.from(JSON.stringify({ payload: "signed" })).toString("base64");
-    const settled = await verifyAndSettle(header, requirement, { fetch: fetchImpl, facilitatorUrl: config.facilitatorUrl });
-    expect(settled).toEqual({ ok: true, txHash: "0xtx" });
-    expect(calls).toEqual(["https://facilitator.example/verify", "https://facilitator.example/settle"]);
-  });
-
-  it("does not settle an invalid payment", async () => {
-    const requirement = requirementsFor("https://autoflip.example/api/v1/report", {
-      payTo: "0xabc",
-      scheme: "gokite-aa",
-      network: "n",
-      asset: "a",
-      facilitatorUrl: "https://facilitator.example",
-      priceAtomic: "1",
-      timeoutSeconds: 30,
-      description: "report",
-      version: 1,
-      agentPaymentsEnabled: false,
-    });
-    const fetchImpl: typeof fetch = async () => Response.json({ isValid: false, invalidReason: "wrong amount" });
-    const settled = await verifyAndSettle("{}", requirement, { fetch: fetchImpl, facilitatorUrl: "https://facilitator.example" });
-    expect(settled.ok).toBe(false);
   });
 });
 

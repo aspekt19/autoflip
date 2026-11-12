@@ -5,7 +5,7 @@ import {
   inspectServMessageFields,
 } from "./response-failure";
 import { messageText } from "./run";
-import { normalizeCompareUsageLoose } from "@/server/scout/plan-parse-diagnostics";
+import { normalizeCompareUsageLoose } from "@/server/serv/response-failure";
 
 describe("Gemini-safe response failure diagnostics (t317)", () => {
   const geminiStylePayload = {

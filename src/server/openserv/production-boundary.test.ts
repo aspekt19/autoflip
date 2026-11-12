@@ -49,9 +49,6 @@ describe("production import boundary (experimental OpenServ SDK)", () => {
     expect(rels.some((r: string) => r.endsWith("/src/server/assemble.ts"))).toBe(true);
     expect(rels.some((r: string) => r.endsWith("/src/server/deps.ts"))).toBe(true);
     expect(rels.some((r: string) => r.endsWith("/src/server/stripe.ts"))).toBe(true);
-    expect(rels.some((r: string) => r.endsWith("/src/server/openserv/scout-agent.ts"))).toBe(
-      false,
-    );
   });
 
   it("detects static, dynamic await import, and require of forbidden packages", async () => {
@@ -104,22 +101,6 @@ describe("production import boundary (experimental OpenServ SDK)", () => {
     expect(findForbiddenImportHits(src)).toEqual([]);
   });
 
-  it("scout-agent remains labeled experimental / unmounted", async () => {
-    const { readFileSync } = await import("node:fs");
-    const src = readFileSync(join(ROOT, "src/server/openserv/scout-agent.ts"), "utf8");
-    expect(src).toMatch(/EXPERIMENTAL\s*\/\s*UNMOUNTED/i);
-    expect(src).toMatch(/devDependencies/i);
-    expect(src).toMatch(/Not production integration/i);
-  });
-
-  it("SERV HTTP planner path does not import the SDK package", async () => {
-    const { readFileSync } = await import("node:fs");
-    const { findForbiddenImportHits } = await loadBoundary();
-    const planner = readFileSync(join(ROOT, "src/server/scout/planner.ts"), "utf8");
-    expect(planner).toMatch(/runServ/);
-    expect(findForbiddenImportHits(planner)).toEqual([]);
-  });
-
   it("fail-closed: missing scan root does not report OK", async () => {
     const { scanProductionSources, scanNextServerForOpenServ, assertScanOk } =
       await loadBoundary();
@@ -143,13 +124,6 @@ describe("production import boundary (experimental OpenServ SDK)", () => {
     try {
       const srcDir = join(tmp, "src", "server");
       mkdirSync(srcDir, { recursive: true });
-      // Minimal allowlisted scaffold so allowlist check passes.
-      mkdirSync(join(tmp, "src/server/openserv"), { recursive: true });
-      writeFileSync(
-        join(tmp, "src/server/openserv/scout-agent.ts"),
-        `import { Agent } from "@openserv-labs/sdk";\nexport const AgentRef = Agent;\n`,
-        "utf8",
-      );
       // Offending production file (mcp-like) with dynamic import.
       writeFileSync(
         join(srcDir, "mcp.ts"),

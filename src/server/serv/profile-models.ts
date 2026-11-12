@@ -20,13 +20,10 @@ import { BASE_MODEL, modelFor, type ProfileId } from "./profiles";
  * they are not tried first and are not production defaults.
  */
 export const SERV_PROFILE_MODEL_CANDIDATES: Partial<Record<ProfileId, readonly string[]>> = {
-  scout_plan: [BASE_MODEL],
-  find_next_check: [BASE_MODEL],
   find_plan: [BASE_MODEL],
   find_triage: [BASE_MODEL],
   find_decide: [BASE_MODEL],
   find_challenge: [BASE_MODEL],
-  need_extract: [BASE_MODEL],
   verdict_decide: [BASE_MODEL],
   verdict_challenge: [BASE_MODEL],
   resale_plan_search: [BASE_MODEL],

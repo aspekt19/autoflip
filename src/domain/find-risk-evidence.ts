@@ -7,7 +7,7 @@
  */
 import type { FindFreeGovReceipt } from "./find-free-gov";
 import type { ObservedListingRow } from "./find-model-observe";
-import type { FreeGovEvidencePacket } from "./scout/free-gov";
+import type { FreeGovEvidencePacket } from "./free-gov";
 
 export type FreeGovRiskFacts = {
   /** True only when an NHTSA campaign has parkIt=true. null = unknown / not this tool. */

@@ -58,8 +58,6 @@ function RadarInner() {
   const [notReviewed, setNotReviewed] = useState<typeof alerts>([]);
   const [watchNote, setWatchNote] = useState<string | null>(null);
   const [checking, setChecking] = useState(false);
-  const [telegramNote, setTelegramNote] = useState<string | null>(null);
-  const [telegramUi, setTelegramUi] = useState(false);
   const [credits, setCredits] = useState<number | null>(null);
   const [feedReady, setFeedReady] = useState(false);
   const [savedReportId, setSavedReportId] = useState<string | null>(null);
@@ -136,12 +134,6 @@ function RadarInner() {
         if (typeof body.credits === "number") setCredits(body.credits);
       })
       .catch(() => setCredits(null));
-    fetch("/api/product-flags")
-      .then((response) => response.json())
-      .then((body: { flags?: { telegram?: boolean } }) => {
-        setTelegramUi(Boolean(body.flags?.telegram));
-      })
-      .catch(() => setTelegramUi(false));
   }, []);
 
   // Resume Radar full-report after credit purchase (mirrors Find af-pending-analysis).
@@ -304,16 +296,6 @@ function RadarInner() {
     await loadFeed();
   }
 
-  async function connectTelegram() {
-    const response = await fetch("/api/telegram/link", { method: "POST" });
-    const body = (await response.json()) as { configured?: boolean; url?: string; message?: string };
-    if (!body.configured || !body.url) {
-      setTelegramNote(body.message || "Telegram is not configured. Alerts stay in this app.");
-      return;
-    }
-    window.open(body.url, "_blank", "noopener,noreferrer");
-  }
-
   return (
     <>
         {demo ? <p className="kicker">Guided preview</p> : null}
@@ -352,14 +334,8 @@ function RadarInner() {
           <button className="action" type="button" onClick={checkNow} disabled={checking || !feedReady || (!demo && searches.length === 0)}>
             {checking ? "Checking…" : !feedReady ? "Loading…" : !demo && searches.length === 0 ? "Watch a search first" : "Run now"}
           </button>
-          {telegramUi ? (
-            <button className="quiet" type="button" onClick={connectTelegram}>
-              Connect Telegram
-            </button>
-          ) : null}
         </div>
         {watchNote ? <p className="warn">{watchNote}</p> : null}
-        {telegramUi && telegramNote ? <p className="warn-box">{telegramNote}</p> : null}
         <h2>Subscribed searches</h2>
         {searches.length === 0 ? (
           <article className="warn-box">

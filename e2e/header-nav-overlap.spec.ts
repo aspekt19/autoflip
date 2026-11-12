@@ -72,13 +72,6 @@ async function mockCrowdedHeader(page: Page) {
       }),
     });
   });
-  await page.route("**/api/scout", async (route) => {
-    await route.fulfill({
-      status: 200,
-      contentType: "application/json",
-      body: JSON.stringify({ capabilities: { uiEnabled: true } }),
-    });
-  });
   await page.route("**/api/account", async (route) => {
     await route.fulfill({
       status: 200,
@@ -100,11 +93,12 @@ test("wide viewport shows all primary links without More", async ({ page }) => {
   await page.setViewportSize({ width: 2240, height: 900 });
   await page.goto("/");
   await expect
-    .poll(async () => page.locator("header nav a[href='/scout']").count())
+    .poll(async () => page.locator("header nav a[href='/reports']").count())
     .toBeGreaterThan(0);
   await expect(page.locator("header .nav-more-btn")).toBeHidden();
-  for (const href of ["/scout", "/reports", "/favorites", "/compare-cars"]) {
-    await expect(page.locator(`header nav a.nav-overflow[href='${href}']`)).toBeVisible();
+  await expect(page.locator("header nav a.nav-overflow[href='/reports']")).toBeVisible();
+  for (const href of ["/scout", "/favorites", "/compare-cars", "/verify", "/developers"]) {
+    await expect(page.locator(`header nav a[href='${href}']`)).toHaveCount(0);
   }
 });
 
@@ -132,7 +126,7 @@ for (const width of WIDTHS) {
       .not.toBe("true");
     // Flags load into the DOM even when links are in the compact Menu.
     await expect
-      .poll(async () => page.locator("header nav a[href='/radar'], header nav a[href='/scout']").count())
+      .poll(async () => page.locator("header nav a[href='/radar'], header nav a[href='/find']").count())
       .toBeGreaterThan(0);
 
     const logo = page.locator("header .brand");

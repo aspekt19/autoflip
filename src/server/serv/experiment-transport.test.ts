@@ -23,29 +23,29 @@ function jsonResponse(body: unknown, status = 200): Response {
 }
 
 describe("experiment_single_attempt transport (compare / eval only)", () => {
-  const scoutTimeout = profile("scout_plan").timeoutMs;
+  const profileTimeout = profile("find_plan").timeoutMs;
 
   it("exposes honest deadline + output-token bounds without inventing a SERV run quota", () => {
-    expect(scoutTimeout).toBe(45_000);
+    expect(profileTimeout).toBe(90_000);
     const bound = resolveServOutputTokenBound({});
     expect(bound.ok).toBe(true);
     if (!bound.ok) return;
     expect(bound.tokens).toBe(SERV_OUTPUT_TOKEN_DEFAULT);
     expect(bound.source).toBe("default");
     // requestFor serializes the bound; no hidden batch/multi-call wrapper.
-    const req = requestFor("scout_plan", "{}", undefined, {});
+    const req = requestFor("find_plan", "{}", undefined, {});
     expect(req).toMatchObject({ max_completion_tokens: SERV_OUTPUT_TOKEN_DEFAULT });
   });
 
   it("records empty 200 with exactly one HTTP — no silent postProse retry", async () => {
     let calls = 0;
     const result = await runServ(
-      "scout_plan",
+      "find_plan",
       { user: "{}" },
       experimentServDeps({
         apiKey: "test-key",
         baseUrl: "https://serv-mock.test/v1",
-        timeoutMs: scoutTimeout,
+        timeoutMs: profileTimeout,
         fetch: async () => {
           calls += 1;
           return jsonResponse({
@@ -67,7 +67,7 @@ describe("experiment_single_attempt transport (compare / eval only)", () => {
   it("records HTTP error with exactly one attempt — no hidden batch/retry", async () => {
     let calls = 0;
     const result = await runServ(
-      "scout_plan",
+      "find_plan",
       { user: "{}" },
       experimentServDeps({
         apiKey: "test-key",
@@ -92,7 +92,7 @@ describe("experiment_single_attempt transport (compare / eval only)", () => {
     let calls = 0;
     const refusal = "I cannot assist with that request.";
     const result = await runServ(
-      "scout_plan",
+      "find_plan",
       { user: "{}" },
       experimentServDeps({
         apiKey: "test-key",
@@ -120,10 +120,10 @@ describe("experiment_single_attempt transport (compare / eval only)", () => {
     expect(JSON.stringify(result)).not.toContain(refusal);
   });
 
-  it("does not timeout-retry under experiment even for personal_alert_review", async () => {
+  it("does not timeout-retry under experiment even for find_plan", async () => {
     let calls = 0;
     const result = await runServ(
-      "personal_alert_review",
+      "find_plan",
       { user: "alert" },
       experimentServDeps({
         apiKey: "test-key",
@@ -152,7 +152,7 @@ describe("experiment_single_attempt transport (compare / eval only)", () => {
     const reservations: number[] = [];
     let calls = 0;
     const result = await runServ(
-      "scout_plan",
+      "find_plan",
       { user: "{}" },
       experimentServDeps({
         apiKey: "test-key",
@@ -193,37 +193,6 @@ describe("production transport recovery remains unchanged (default policy)", () 
     expect(result.ok).toBe(true);
     expect(calls).toBe(2);
     expect(result.httpAttempts).toBe(2);
-  });
-
-  it("still timeout-retries personal_alert_review under production default", async () => {
-    let reviewCalls = 0;
-    const recovered = await runServ(
-      "personal_alert_review",
-      { user: "alert" },
-      {
-        apiKey: "test",
-        timeoutMs: 3_000,
-        fetch: async (_url, init) => {
-          reviewCalls += 1;
-          if (reviewCalls === 1) {
-            await new Promise((_resolve, reject) => {
-              const timer = setTimeout(() => reject(new Error("should have aborted")), 5_000);
-              init?.signal?.addEventListener("abort", () => {
-                clearTimeout(timer);
-                reject(new DOMException("The operation was aborted.", "TimeoutError"));
-              });
-            });
-          }
-          return jsonResponse({
-            choices: [{ message: { content: "The price is already in the facts." } }],
-          });
-        },
-      },
-    );
-    expect(recovered.ok).toBe(true);
-    expect(reviewCalls).toBe(2);
-    expect(recovered.httpAttempts).toBe(2);
-    expect(recovered.transportPolicy).toBe("production");
   });
 });
 

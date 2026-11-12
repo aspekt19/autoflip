@@ -25,15 +25,12 @@ import { isBroadFlip, isPriceDrop, listingQueries, matchesWatchModels } from "@/
 import { listingsSearchUrl } from "@/io/autodev";
 import type { Kv } from "@/io/kv";
 import { storageMode } from "@/io/kv";
-import { payRadarTicket } from "@/io/kite-pay";
 import { parseAutoDevListings } from "@/io/parsers";
 import { reserveRadarCall } from "@/io/persistent-quota";
 import { coverageConfidence, coverageSentence } from "@/domain/coverage";
 import { visibleProof, type DecisionProof } from "@/domain/decision-note";
 import { decisionStepBudget, interpretGuard, runServ, type ServProof } from "@/server/serv";
-import { alertMessage, type AlertCopy } from "@/io/telegram";
 import type { Listing } from "@/domain/types";
-import { resolveProductFlags } from "@/domain/product-flags";
 import { journalFromRadarActivity } from "@/domain/radar-activity-journal";
 import { upsertNotReviewedAlert } from "@/domain/radar-review-activity";
 import {
@@ -44,7 +41,7 @@ import {
 import { providerResponseIdFromCall } from "@/domain/serv-response-id";
 import { decideRadarFlip, flipCandidateOutcome } from "@/server/serv-plan-decide";
 import { reviewPersonalCandidate, type RadarServActivity } from "./radar-serv";
-import { listSearches, upsertRun, saveAlerts, saveSearches, seenBook, storeSeenPrices, readListingCache, writeListingCache, telegramChat, telegramPaused, type StoredRun, listAlerts } from "./radar-store";
+import { listSearches, upsertRun, saveAlerts, saveSearches, seenBook, storeSeenPrices, readListingCache, writeListingCache, type StoredRun, listAlerts } from "./radar-store";
 
 /** Stay under the 300s route cap so the log write still happens. */
 export const CYCLE_BUDGET_MS = 270_000;
@@ -53,8 +50,6 @@ const CALL_MS = {
   autodev: 8_000,
   /** One decision step. Shorter than this is an honest stop, not a clipped review. */
   serv: 90_000,
-  telegram: 5_000,
-  kite: 8_000,
 };
 
 export type CycleDeps = {
@@ -112,7 +107,7 @@ export async function runRadarCycle(deps: CycleDeps): Promise<StoredRun> {
     status: "not_configured",
     missing: [],
     tx: null,
-    detail: "Payment step did not run.",
+    detail: "The daily check does not take a per-run payment.",
     costAtomic: null,
     network: null,
   };
@@ -743,34 +738,8 @@ export async function runRadarCycle(deps: CycleDeps): Promise<StoredRun> {
     notes.push("Email alerts are not configured. New matches stay in the Deal Radar page.");
     steps.push({ id: "email", status: "not_configured", detail: "No email provider in this repo." });
 
-    const telegramEnabled = resolveProductFlags(deps.env).telegram;
-    if (!telegramEnabled) {
-      notes.push("Telegram delivery is hidden. Alerts stay in the app.");
-      steps.push({ id: "telegram", status: "hidden" });
-    } else if (!deps.env.TELEGRAM_BOT_TOKEN) {
-      notes.push("Telegram is not configured. Alerts stay in the app.");
-      steps.push({ id: "telegram", status: "not_configured" });
-    } else {
-      const chats = new Map<string, string | null>();
-      await Promise.all(
-        [...new Set(freshAlerts.map((alert) => alert.ownerId))].map(async (ownerId) => {
-          chats.set(ownerId, await telegramChat(deps.kv, ownerId));
-        }),
-      );
-      const sends = freshAlerts.filter((alert) => chats.get(alert.ownerId));
-      const outcomes = await Promise.all(sends.map((alert) => sendTelegram(chats.get(alert.ownerId)!, alert, deps, Math.min(limits.telegram, remain()))));
-      const telegramStatus = outcomes.some((item) => item === "timeout") ? "timeout" : "ok";
-      steps.push({ id: "telegram", status: sends.length === 0 ? "no_chat" : telegramStatus });
-    }
-
-    try {
-      payment = await withTimeout(
-        payRadarTicket({ ticketUrl: `${deps.origin}/api/v1/radar-ticket`, env: deps.env, fetchImpl: deps.fetchImpl }),
-        Math.min(limits.kite, remain()),
-      );
-    } catch {
-      payment = { ...payment, status: "failed", detail: "Payment step timed out. No transaction was recorded." };
-    }
+    notes.push("New matches stay on the Deal Radar page.");
+    steps.push({ id: "delivery", status: "in_app", detail: "Alerts stay in the app." });
     steps.push({ id: "payment", status: payment.status, detail: payment.detail });
 
     const run = snapshot();
@@ -1093,52 +1062,6 @@ async function fetchListings(
     return { ok: true, listings: parseAutoDevListings(json, "autodev") };
   } catch {
     return { ok: false, message: "timeout" };
-  }
-}
-
-async function sendTelegram(chatId: string, alert: WatchAlert, deps: CycleDeps, timeoutMs: number): Promise<"ok" | "timeout" | "skipped"> {
-  const token = deps.env.TELEGRAM_BOT_TOKEN;
-  if (!token || timeoutMs <= 0) return "skipped";
-  if (await telegramPaused(deps.kv, alert.ownerId)) return "skipped";
-  const search = (await listSearches(deps.kv)).find((item) => item.id === alert.searchId);
-  const criteria = search?.criteria;
-  const copy: AlertCopy = {
-    searchName: search?.name ?? "Saved search",
-    mode: alert.mode,
-    year: alert.year,
-    make: alert.make,
-    model: alert.model,
-    priceUsd: alert.priceUsd,
-    miles: alert.miles,
-    city: alert.city,
-    state: alert.state,
-    priceDropFrom: alert.priceDropFrom ?? null,
-    budgetUsd: criteria?.priceMax ?? null,
-    radiusMiles: criteria?.radiusMiles ?? null,
-    zip: criteria?.zip ?? null,
-    yearMin: criteria?.yearMin ?? null,
-    yearMax: criteria?.yearMax ?? null,
-    milesMax: criteria?.milesMax ?? null,
-    bodyStyle: criteria?.bodyStyle ?? null,
-    priceLabel: alert.badge?.label ?? alert.numbers.priceLabel,
-    fairValueUsd: alert.badge ? alert.badge.fairValueUsd : alert.numbers.fairValueUsd,
-    origin: deps.origin,
-    alertId: alert.id,
-  };
-  const message = alertMessage(copy);
-  try {
-    await withTimeout(
-      deps.fetchImpl(`https://api.telegram.org/bot${token}/sendMessage`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ chat_id: chatId, text: message.text, reply_markup: message.reply_markup }),
-        signal: AbortSignal.timeout(timeoutMs),
-      }),
-      timeoutMs,
-    );
-    return "ok";
-  } catch {
-    return "timeout";
   }
 }
 

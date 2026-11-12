@@ -24,7 +24,6 @@ export type AgentCheckInput = {
    * When set, skip free-check/credit debit and settle this x402 payment only after
    * a successful delivery (caller must have already verified the payload).
    */
-  x402Payment?: import("./agent-x402").AgentX402Verified | null;
 };
 
 export type AgentCheckDeps = CheckRunDeps & {
@@ -146,7 +145,6 @@ export async function runAgentCheck(
   let freeCheckKey: string | null = null;
   let usedFreeCheck = false;
   let needsCredit = false;
-  const payWithX402 = Boolean(input.x402Payment);
 
   const subjectKey =
     parsed.kind === "vin"
@@ -155,8 +153,8 @@ export async function runAgentCheck(
         ? `url:${Buffer.from(parsed.url).toString("base64url").slice(0, 24)}`
         : `paste:${Buffer.from(parsed.text.slice(0, 64)).toString("base64url").slice(0, 24)}`;
 
-  // Gate before work. Settle free-check / credit / x402 only after a delivered result.
-  if (!payWithX402) {
+  // Gate before work. Settle a free check or a report credit only after a delivered result.
+  {
     const slots = await freeCheckSlotsRemaining(deps.kv, caller.userId);
     if (slots.remaining < 1 && (await creditBalance(deps.kv, caller.userId)) < 1) {
       return { ok: false, status: 402, body: insufficientCreditsEnvelope(deps.origin, 0) };
@@ -195,35 +193,8 @@ export async function runAgentCheck(
 
     let creditSpent = false;
     let credits = 0;
-    let x402TxHash: string | null = null;
 
-    if (payWithX402 && input.x402Payment) {
-      const { settleAgentX402Payment } = await import("./agent-x402");
-      const settled = await settleAgentX402Payment(input.x402Payment, {
-        fetch: deps.fetchImpl ?? fetch,
-      });
-      if (!settled.ok) {
-        return {
-          ok: false,
-          status: 402,
-          body: agentError({
-            error_code: "payment_settle_failed",
-            message: settled.error,
-            credit_spent: false,
-            retry_safe: true,
-            next_steps: {
-              action: "retry_payment",
-              summary: "The report was built but x402 settlement failed. Retry with a fresh PAYMENT-SIGNATURE or use site credits.",
-              request: { method: "POST", url: `${deps.origin}/api/v1/check` },
-              docs: `${deps.origin}/developers`,
-            },
-          }),
-        };
-      }
-      creditSpent = true;
-      credits = 1;
-      x402TxHash = settled.txHash;
-    } else {
+    {
       freeCheckKey = `free-check:agent-check:${caller.userId}:${month}:${vinKey}:${clientKey}`;
       const reserved = await reserveFreeCheck(deps.kv, caller.userId, freeCheckKey);
       if (reserved.ok) usedFreeCheck = true;
@@ -307,7 +278,6 @@ export async function runAgentCheck(
         proofRecords: result.result.proofRecords,
         result: result.result,
       }),
-      ...(x402TxHash ? { txHash: x402TxHash, payment: "x402" } : {}),
     };
     if (suppliedKey) await deps.kv.set(checkIdemKey(caller.userId, clientKey), JSON.stringify(body));
     return { ok: true, body };

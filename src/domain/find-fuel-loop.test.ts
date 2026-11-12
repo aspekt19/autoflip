@@ -8,7 +8,7 @@ import {
 import { decideFindNextCheckLoop } from "./find-next-check-loop";
 import { proposeFindNextChecks } from "./find-next-checks";
 import { softPrefGapsFromText, emptyNeed } from "./need";
-import type { FreeGovEvidencePacket, ScoutFreeGovPort } from "./scout/free-gov";
+import type { FreeGovEvidencePacket, ScoutFreeGovPort } from "./free-gov";
 import { buildFindFuelAssumptions } from "./find-fuel-match";
 
 function fuelPort(): ScoutFreeGovPort {

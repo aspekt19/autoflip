@@ -20,7 +20,7 @@ import {
   riskFactsFromPacket,
   type FreeGovRiskFacts,
 } from "./find-risk-evidence";
-import type { FreeGovEvidencePacket } from "./scout/free-gov";
+import type { FreeGovEvidencePacket } from "./free-gov";
 import { softPrefGapsFromText } from "./need";
 
 function recallPacket(opts?: {

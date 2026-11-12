@@ -7,10 +7,71 @@
  * format-failure or safety-cause RCA. Never persist raw refusal / content prose.
  */
 
-import {
-  normalizeCompareUsage,
-  type CompareUsage,
-} from "@/server/scout/plan-parse-diagnostics";
+export type CompareUsage = {
+  prompt_tokens?: number;
+  completion_tokens?: number;
+  total_tokens?: number;
+};
+
+/**
+ * All-zero usage is unknown — not proof of a free call.
+ * Accepts already-coerced CompareUsage.
+ */
+export function normalizeCompareUsage(usage: CompareUsage | null | undefined): CompareUsage | null {
+  if (!usage || typeof usage !== "object") return null;
+  const prompt = typeof usage.prompt_tokens === "number" ? usage.prompt_tokens : undefined;
+  const completion = typeof usage.completion_tokens === "number" ? usage.completion_tokens : undefined;
+  const total = typeof usage.total_tokens === "number" ? usage.total_tokens : undefined;
+  if (
+    (prompt === undefined || prompt === 0) &&
+    (completion === undefined || completion === 0) &&
+    (total === undefined || total === 0)
+  ) {
+    return null;
+  }
+  return {
+    prompt_tokens: prompt,
+    completion_tokens: completion,
+    total_tokens: total,
+  };
+}
+
+/** Normalize raw usage objects that may use Gemini camelCase or nested shapes. */
+export function normalizeCompareUsageLoose(usage: unknown): CompareUsage | null {
+  if (!usage || typeof usage !== "object") return null;
+  const r = usage as Record<string, unknown>;
+  const coerced: CompareUsage = {
+    prompt_tokens:
+      typeof r.prompt_tokens === "number"
+        ? r.prompt_tokens
+        : typeof r.promptTokens === "number"
+          ? r.promptTokens
+          : typeof r.promptTokenCount === "number"
+            ? r.promptTokenCount
+            : typeof r.input_tokens === "number"
+              ? r.input_tokens
+              : undefined,
+    completion_tokens:
+      typeof r.completion_tokens === "number"
+        ? r.completion_tokens
+        : typeof r.completionTokens === "number"
+          ? r.completionTokens
+          : typeof r.candidatesTokenCount === "number"
+            ? r.candidatesTokenCount
+            : typeof r.output_tokens === "number"
+              ? r.output_tokens
+              : undefined,
+    total_tokens:
+      typeof r.total_tokens === "number"
+        ? r.total_tokens
+        : typeof r.totalTokens === "number"
+          ? r.totalTokens
+          : typeof r.totalTokenCount === "number"
+            ? r.totalTokenCount
+            : undefined,
+  };
+  return normalizeCompareUsage(coerced);
+}
 
 export type ServResponseFailureCategory =
   | "content_null_refusal_field"

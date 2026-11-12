@@ -23,9 +23,7 @@ export const NEXT_SERVER_FORBIDDEN_MARKERS = Object.freeze([
  * Explicit allowlist: unmounted experimental SDK scaffold only.
  * Relative to repo root, posix-style.
  */
-export const ALLOWED_SOURCE_REL_PATHS = Object.freeze([
-  "src/server/openserv/scout-agent.ts",
-]);
+export const ALLOWED_SOURCE_REL_PATHS = Object.freeze([]);
 
 const SOURCE_EXT = /\.(?:[cm]?[jt]sx?)$/;
 const TEST_FILE = /\.test\.[cm]?[jt]sx?$/;

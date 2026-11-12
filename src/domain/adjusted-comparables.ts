@@ -19,7 +19,7 @@ import { formatNumber, formatUsd } from "./format";
 import { listingUsableForPurchaseEconomics } from "./report-purchase-ask";
 import { clamp, median, percentileValue, roundDollars } from "./stats";
 import { TRIM_STEP_RATE, trimTier } from "./trim-tiers";
-import type { AskingPriceKind } from "./scout/asking-price";
+import type { AskingPriceKind } from "./asking-price";
 import type { Listing, Mode } from "./types";
 
 export { TRIM_STEP_RATE };

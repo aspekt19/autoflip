@@ -349,6 +349,6 @@ describe("account load surfaces", () => {
     expect(find).not.toMatch(/Sign-in is not configured/);
     expect(flow).not.toMatch(/Boolean\([^)]*auth\?\.configured\)/);
     // Find search reports auth_unconfigured only from an explicit match error code.
-    expect(flow).toMatch(/matchBody\.error === "auth_unconfigured"/);
+    expect(flow).toMatch(/body\.error === "auth_unconfigured"/);
   });
 });

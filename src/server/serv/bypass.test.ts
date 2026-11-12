@@ -33,14 +33,6 @@ describe("SERV layer", () => {
   });
 
   it("builds the documented tool shape and suffix for each profile", () => {
-    const extract = requestFor("need_extract", "family car");
-    expect(extract.endpoint).toBe("chat");
-    if (extract.endpoint !== "chat") return;
-    expect(extract.stream).toBe(false);
-    expect(extract.model).toBe(`${BASE_MODEL}-serv-kronos-multipath`);
-    expect(toolNames(extract.tools)).toEqual(["serv_prompt_guard"]);
-    expect(extract.response_format?.json_schema.strict).toBe(true);
-
     const findPlan = requestFor("find_plan", JSON.stringify({ note: "family SUV", mode: "personal" }));
     expect(findPlan.endpoint).toBe("chat");
     if (findPlan.endpoint !== "chat") return;
@@ -50,13 +42,6 @@ describe("SERV layer", () => {
     expect(findPlan.response_format?.json_schema.strict).toBe(true);
     expect(findPlan.response_format?.json_schema.name).toBe("find_plan");
     expect(PROFILES.find_plan.timeoutMs).toBe(90_000);
-
-    const nextCheck = requestFor("find_next_check", "{}");
-    expect(nextCheck.endpoint).toBe("chat");
-    if (nextCheck.endpoint === "chat") {
-      expect(nextCheck.model).toBe("gpt-6.1-sol-serv-kronos-multipath");
-      expect(toolNames(nextCheck.tools)).toEqual(["serv_prompt_guard"]);
-    }
 
     const flip = requestFor("flip_judge", "{}");
     expect(flip.endpoint).toBe("chat");
@@ -88,16 +73,6 @@ describe("SERV layer", () => {
       expect(toolNames(request.tools)).toContain("serv_shadow_agent");
       expect(toolNames(request.tools)).toContain("read_computed_facts");
     }
-    const personal = requestFor("personal_alert_review", "alert");
-    expect(personal.endpoint).toBe("chat");
-    if (personal.endpoint === "chat") expect(personal.reasoning_effort).toBe("none");
-    expect(personal.stream).toBe(false);
-    expect(toolNames(personal.tools)).toContain("serv_shadow_agent");
-    expect(toolNames(personal.tools)).not.toContain("read_computed_facts");
-    const telegram = requestFor("telegram_reply", "help");
-    expect(telegram.stream).toBe(true);
-    expect(toolNames(telegram.tools)).toEqual(["serv_prompt_guard"]);
-    expect(toolNames(telegram.tools)).not.toContain("serv_shadow_agent");
 
     const rules = requestFor("check_rules", "vin");
     // Decide/check steps use chat/completions only — never /v1/responses.
@@ -112,8 +87,6 @@ describe("SERV layer", () => {
     expect("response_format" in feasibility).toBe(false);
     expect(Object.keys(PROFILES)).toEqual(
       expect.arrayContaining([
-        "need_guard",
-        "need_extract",
         "find_plan",
         "check_guard",
         "listing_extract",
@@ -122,19 +95,15 @@ describe("SERV layer", () => {
         "agent_guard",
         "agent_explain",
         "radar_guard",
-        "personal_alert_review",
         "flip_judge",
-        "scout_plan",
         "verdict_decide",
         "verdict_challenge",
         "find_close_call_multipath",
-        "find_next_check",
         "resale_plan_search",
         "resale_triage",
         "resale_pick",
         "resale_challenge",
         "radar_review",
-        "telegram_reply",
       ]),
     );
     expect(PROFILES.verdict_challenge.jsonSchema?.name).toBe("report_verdict_challenge");
@@ -143,13 +112,6 @@ describe("SERV layer", () => {
     expect(toolNames(requestFor("verdict_challenge", "{}").tools)).toEqual(["serv_prompt_guard"]);
     expect(requestFor("verdict_challenge", "{}").model).toMatch(/-serv-kronos$/);
     expect(PROFILES.find_close_call_multipath.feature).toBe("multipath");
-    expect(PROFILES.find_next_check.jsonSchema?.name).toBe("find_next_check_choice");
-    expect(PROFILES.find_next_check.codeComputed).toEqual(
-      expect.arrayContaining(["allowedChecks"]),
-    );
-    expect(PROFILES.scout_plan.jsonSchema?.name).toBe("lemonless_scout_plan_action");
-    expect(PROFILES.scout_plan.feature).toBe("none");
-    expect(toolNames(requestFor("scout_plan", "{}").tools)).toEqual(["serv_prompt_guard"]);
     expect(PROFILES.verdict_decide.feature).toBe("multipath");
     expect(PROFILES.verdict_decide.tools).toEqual(expect.arrayContaining(["prompt_guard", "shadow"]));
     expect(PROFILES.find_pick.feature).toBe("multipath");
@@ -430,31 +392,6 @@ it("logs a redacted shape when a 200 is empty, and retries a personal review tha
   expect(logged.join(" ")).not.toMatch(/sk-/);
   expect(judgeCalls).toBe(2);
   spy.mockRestore();
-
-  let reviewCalls = 0;
-  const recovered = await runServ(
-    "personal_alert_review",
-    { user: "alert" },
-    {
-      apiKey: "test",
-      timeoutMs: 3_000,
-      fetch: async (_url, init) => {
-        reviewCalls += 1;
-        if (reviewCalls === 1) {
-          await new Promise((_resolve, reject) => {
-            const timer = setTimeout(() => reject(new Error("should have aborted")), 5_000);
-            init?.signal?.addEventListener("abort", () => {
-              clearTimeout(timer);
-              reject(new DOMException("The operation was aborted.", "TimeoutError"));
-            });
-          });
-        }
-        return Response.json({ choices: [{ message: { content: "The price is already in the facts." } }] });
-      },
-    },
-  );
-  expect(recovered.ok).toBe(true);
-  expect(reviewCalls).toBe(2);
 });
 
 function toolNames(tools: ReadonlyArray<{ name?: string; function?: { name?: string } }>): string[] {

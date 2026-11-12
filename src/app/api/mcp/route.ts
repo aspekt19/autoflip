@@ -2,7 +2,6 @@ import { randomUUID } from "node:crypto";
 import { scoreRadar } from "@/domain/radar";
 import { getKv } from "@/io/kv";
 import { persistReport } from "@/io/persist-report";
-import { agentX402PaymentsLive, paymentsConfigured, readX402Config } from "@/io/x402";
 import { creditBalance as readCredits } from "@/io/credit-book";
 import { reportCreditReady, settleReportCredit } from "@/server/agent-access";
 import { authenticateAgentRequest } from "@/server/agent-auth";
@@ -26,11 +25,6 @@ import {
   agentRadarFeed,
   agentSaveRadarWatch,
 } from "@/server/agent-radar";
-import {
-  agentX402ChallengeResponse,
-  beginAgentX402FromPayload,
-  beginAgentX402Payment,
-} from "@/server/agent-x402";
 import { agentReport } from "@/server/agent-report";
 import { assembleRadar, assembleReport } from "@/server/assemble";
 import { runtimeDeps } from "@/server/deps";
@@ -48,13 +42,11 @@ import { agentProof, plannedProof } from "@/server/serv";
 import type { AgentScope } from "@/server/agent-scopes";
 import { readResaleJob } from "@/server/resale-job";
 import type { WatchCriteria } from "@/domain/radar-watch";
-import type { AgentX402Verified } from "@/server/agent-x402";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 
 export function GET() {
-  const config = readX402Config();
   return Response.json({
     name: "lemonless",
     protocol: "2025-06-18",
@@ -66,24 +58,13 @@ export function GET() {
       createKey: "/developers",
     },
     payment: {
-      check_car: "free monthly check allotment, else 1 credit — settle after success; optional x402 when enabled",
-      find_cars: "1 credit after a successful search; optional x402 settle-on-delivery when enabled",
+      check_car: "free monthly check allotment, else 1 credit — settle after success",
+      find_cars: "1 credit after a successful search",
       resale_search: "1 credit when final Resale verdict is delivered",
       full_report: "1 credit with Authorization: Bearer af_…",
       deal_radar: "free (scan)",
       radar_watches: "plan-gated saved searches (Radar / Radar Pro)",
       credits: "/credits",
-      x402AgentPayments: {
-        enabled: agentX402PaymentsLive(config),
-        flag: "X402_AGENT_PAYMENTS_ENABLED",
-        default: "off",
-        version: config.version,
-        network: config.network || null,
-        note: "Disabled until Yura approves enabling. Charge only on delivery.",
-      },
-      optionalHeader: paymentsConfigured(config)
-        ? { scheme: config.scheme, network: config.network, priceAtomic: config.priceAtomic, facilitator: config.facilitatorUrl }
-        : { configured: false },
     },
     discovery: {
       agent: "/.well-known/agent.json",
@@ -162,21 +143,6 @@ export async function POST(request: Request) {
   }
 
   if (name === "check_car") {
-    const resource = `${origin}/api/v1/check`;
-    const paymentArg = typeof args.payment === "string" ? args.payment : null;
-    let x402Payment: AgentX402Verified | null = null;
-
-    const fromHeader = await beginAgentX402Payment(request, resource);
-    if (fromHeader.kind === "rejected") {
-      return Response.json(toolError(id, fromHeader.body), { status: fromHeader.status });
-    }
-    if (fromHeader.kind === "verified") x402Payment = fromHeader.value;
-    else if (paymentArg) {
-      const fromArg = await beginAgentX402FromPayload(paymentArg, resource);
-      if (fromArg.kind === "rejected") return Response.json(toolError(id, fromArg.body), { status: fromArg.status });
-      if (fromArg.kind === "verified") x402Payment = fromArg.value;
-    }
-
     const result = await runAgentCheck(
       auth.caller,
       {
@@ -185,34 +151,16 @@ export async function POST(request: Request) {
         text: typeof args.text === "string" ? args.text : null,
         optionalZip: typeof args.zip === "string" ? args.zip : null,
         idempotencyKey: typeof args.idempotencyKey === "string" ? args.idempotencyKey : id != null ? String(id) : null,
-        x402Payment,
       },
       { ...runtimeDeps(), kv, origin },
     );
     if (!result.ok) {
-      if (result.status === 402 && agentX402PaymentsLive() && !x402Payment) {
-        return agentX402ChallengeResponse(resource);
-      }
       return Response.json(toolError(id, result.body), { status: result.status });
     }
     return Response.json(rpcResult(id, { content: [{ type: "text", text: JSON.stringify(result.body) }], structuredContent: result.body }));
   }
 
   if (name === "find_cars") {
-    const resource = `${origin}/api/v1/find`;
-    const paymentArg = typeof args.payment === "string" ? args.payment : null;
-    let x402Payment: AgentX402Verified | null = null;
-    const fromHeader = await beginAgentX402Payment(request, resource);
-    if (fromHeader.kind === "rejected") {
-      return Response.json(toolError(id, fromHeader.body), { status: fromHeader.status });
-    }
-    if (fromHeader.kind === "verified") x402Payment = fromHeader.value;
-    else if (paymentArg) {
-      const fromArg = await beginAgentX402FromPayload(paymentArg, resource);
-      if (fromArg.kind === "rejected") return Response.json(toolError(id, fromArg.body), { status: fromArg.status });
-      if (fromArg.kind === "verified") x402Payment = fromArg.value;
-    }
-
     const created = await createAgentFindRun(
       auth.caller,
       {
@@ -224,14 +172,10 @@ export async function POST(request: Request) {
           typeof args.idempotencyKey === "string"
             ? args.idempotencyKey
             : request.headers.get("idempotency-key")?.trim() || (id != null ? String(id) : null),
-        x402Payment,
       },
       { ...runtimeDeps(), kv, origin },
     );
     if (!created.ok) {
-      if (created.status === 402 && agentX402PaymentsLive() && !x402Payment) {
-        return agentX402ChallengeResponse(resource);
-      }
       return Response.json(toolError(id, created.body), { status: created.status });
     }
     const payload = {

@@ -5,7 +5,7 @@ import {
   freeGovToolCoverage,
   type FindFreeGovReceipt,
 } from "./find-free-gov";
-import type { FreeGovEvidencePacket, FreeGovToolId, ScoutFreeGovPort } from "./scout/free-gov";
+import type { FreeGovEvidencePacket, FreeGovToolId, ScoutFreeGovPort } from "./free-gov";
 
 function listing(partial: {
   year: number;

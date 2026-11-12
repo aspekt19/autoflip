@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { BASE_MODEL, PROFILES } from "@/server/serv/profiles";
+import { BASE_MODEL } from "@/server/serv/profiles";
 import { resolveProfileBaseModel } from "@/server/serv/profile-models";
 import {
   buildFindNextCheckChoiceSchema,
@@ -26,13 +26,6 @@ describe("find next-check choice allowlist alignment", () => {
     expect(enumIds).toEqual(allowed);
     expect(enumIds).not.toContain("free_gov_vpic"); // not in this allowlist
     expect(enumIds.length).toBeLessThan(FIND_NEXT_CHECK_IDS.length);
-    // Profile catalog still documents the full set — live override must narrow it.
-    const catalogEnum = (
-      PROFILES.find_next_check.jsonSchema?.schema as {
-        properties: { checkId: { enum: string[] } };
-      }
-    ).properties.checkId.enum;
-    expect(catalogEnum).toEqual(expect.arrayContaining([...FIND_NEXT_CHECK_IDS]));
   });
 
   it("maps Scout evidence.gov_* aliases to free_gov_* then clamps", () => {
@@ -69,27 +62,27 @@ describe("find next-check choice allowlist alignment", () => {
   });
 
   it("Find profile production default is gpt-6.1-sol; Sonnet needs ALLOW_UNLISTED; Fable blocked", () => {
-    const shared = resolveProfileBaseModel("find_next_check", { env: {} });
+    const shared = resolveProfileBaseModel("find_plan", { env: {} });
     expect(shared.ok).toBe(true);
     if (!shared.ok) return;
     expect(shared.baseId).toBe("gpt-6.1-sol");
 
-    const sol = resolveProfileBaseModel("find_next_check", {
-      env: { SERV_PROFILE_MODEL_FIND_NEXT_CHECK: "gpt-6.1-sol" },
+    const sol = resolveProfileBaseModel("find_plan", {
+      env: { SERV_PROFILE_MODEL_FIND_PLAN: "gpt-6.1-sol" },
     });
     expect(sol.ok).toBe(true);
     if (!sol.ok) return;
     expect(sol.baseId).toBe("gpt-6.1-sol");
     expect(sol.overrideActive).toBe(false);
 
-    const sonnetBlocked = resolveProfileBaseModel("find_next_check", {
-      env: { SERV_PROFILE_MODEL_FIND_NEXT_CHECK: "claude-sonnet-5.5" },
+    const sonnetBlocked = resolveProfileBaseModel("find_plan", {
+      env: { SERV_PROFILE_MODEL_FIND_PLAN: "claude-sonnet-5.5" },
     });
     expect(sonnetBlocked.ok).toBe(false);
 
-    const sonnet = resolveProfileBaseModel("find_next_check", {
+    const sonnet = resolveProfileBaseModel("find_plan", {
       env: {
-        SERV_PROFILE_MODEL_FIND_NEXT_CHECK: "claude-sonnet-5.5",
+        SERV_PROFILE_MODEL_FIND_PLAN: "claude-sonnet-5.5",
         SERV_PROFILE_MODEL_ALLOW_UNLISTED: "1",
       },
     });
@@ -98,11 +91,11 @@ describe("find next-check choice allowlist alignment", () => {
     expect(sonnet.baseId).toBe("claude-sonnet-5.5");
     expect(sonnet.overrideActive).toBe(true);
 
-    const fable = resolveProfileBaseModel("find_next_check", {
-      env: { SERV_PROFILE_MODEL_FIND_NEXT_CHECK: "claude-fable-5" },
+    const fable = resolveProfileBaseModel("find_plan", {
+      env: { SERV_PROFILE_MODEL_FIND_PLAN: "claude-fable-5" },
     });
     expect(fable.ok).toBe(false);
-    const def = resolveProfileBaseModel("find_next_check", { env: {} });
+    const def = resolveProfileBaseModel("find_plan", { env: {} });
     expect(def.ok).toBe(true);
     if (!def.ok) return;
     expect(def.baseId).toBe(BASE_MODEL);

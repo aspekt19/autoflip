@@ -38,7 +38,13 @@ describe("OpenServ Graph hackathon ban", () => {
 
     const hits: string[] = [];
     for (const root of roots) {
-      for (const file of walk(resolve(process.cwd(), root))) {
+      const abs = resolve(process.cwd(), root);
+      try {
+        statSync(abs);
+      } catch {
+        continue;
+      }
+      for (const file of walk(abs)) {
         const text = readFileSync(file, "utf8");
         for (const re of banned) {
           if (re.test(text)) hits.push(`${file} ~ ${re}`);

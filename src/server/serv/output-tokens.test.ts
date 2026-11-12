@@ -59,10 +59,10 @@ describe("SERV output token bound (offline)", () => {
     expect("max_completion_tokens" in responses).toBe(false);
   });
 
-  it("requestFor(scout_plan) serializes exact chat bound field", () => {
-    const req = requestFor("scout_plan", JSON.stringify({ pendingVins: ["X"] }), undefined, {});
+  it("requestFor(find_plan) serializes exact chat bound field", () => {
+    const req = requestFor("find_plan", JSON.stringify({ pendingVins: ["X"] }), undefined, {});
     expect(req.endpoint).toBe("chat");
-    expect(PROFILES.scout_plan.endpoint).toBe("chat");
+    expect(PROFILES.find_plan.endpoint).toBe("chat");
     expect(req).toMatchObject({ max_completion_tokens: SERV_OUTPUT_TOKEN_DEFAULT });
     expect("max_output_tokens" in req).toBe(false);
 
@@ -76,11 +76,11 @@ describe("SERV output token bound (offline)", () => {
 
   it("requestFor throws on invalid env (fail closed before HTTP)", () => {
     expect(() =>
-      requestFor("scout_plan", "{}", undefined, { SERV_MAX_OUTPUT_TOKENS: "999999" }),
+      requestFor("find_plan", "{}", undefined, { SERV_MAX_OUTPUT_TOKENS: "999999" }),
     ).toThrow(/SERV_MAX_OUTPUT_TOKENS/);
   });
 
-  it("runServ scout_plan posts exact serialized max_completion_tokens on every HTTP (incl empty retry)", async () => {
+  it("runServ find_plan posts exact serialized max_completion_tokens on every HTTP (incl empty retry)", async () => {
     const bodies: string[] = [];
     let calls = 0;
     const fetchImpl: typeof fetch = async (_url, init) => {
@@ -118,7 +118,7 @@ describe("SERV output token bound (offline)", () => {
 
     const reservations: number[] = [];
     const result = await runServ(
-      "scout_plan",
+      "find_plan",
       { user: JSON.stringify({ pendingVins: [] }) },
       {
         fetch: fetchImpl,
@@ -147,7 +147,7 @@ describe("SERV output token bound (offline)", () => {
     let fetched = false;
     let reserved = false;
     const result = await runServ(
-      "scout_plan",
+      "find_plan",
       { user: "{}" },
       {
         apiKey: "test-key",

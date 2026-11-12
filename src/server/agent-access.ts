@@ -1,6 +1,5 @@
 import { creditBalance, creditEventSeen } from "@/io/credit-book";
 import type { Kv } from "@/io/kv";
-import { paymentsConfigured, readX402Config, requirementsFor } from "@/io/x402";
 import { resolveApiKey, spendReportCredit } from "./api-keys";
 import { agentProof, plannedProof } from "./serv";
 
@@ -25,23 +24,13 @@ export function invalidKeyBody() {
   };
 }
 
-export function reportPaymentBody(resource: string, origin: string) {
-  const base = {
+export function reportPaymentBody(_resource: string, origin: string) {
+  return {
+    error: "api_key_required" as const,
     message: "A full report costs 1 credit. Send Authorization: Bearer with a key from For agents.",
     buyCreditsUrl: `${origin}/credits`,
     next_action: `Create a key at ${origin}/developers and buy credits at ${origin}/credits.`,
     proof: proof(),
-  };
-  const config = readX402Config();
-  if (!paymentsConfigured(config)) {
-    return { error: "api_key_required" as const, ...base };
-  }
-  return {
-    error: "payment_required" as const,
-    ...base,
-    message: "A full report costs 1 credit with an API key. A payment header is also accepted.",
-    accepts: [requirementsFor(resource, config)],
-    next_action: `Send Authorization: Bearer af_… or pay this resource, then retry. Buy credits at ${origin}/credits.`,
   };
 }
 

@@ -35,19 +35,19 @@ describe("Flip decision shortlist (production = gpt-6.1-sol only)", () => {
   });
 
   it("production profile resolve is gpt-6.1-sol; Sonnet needs ALLOW_UNLISTED", () => {
-    const sol = resolveProfileBaseModel("scout_plan", { env: {} });
+    const sol = resolveProfileBaseModel("find_plan", { env: {} });
     expect(sol.ok).toBe(true);
     if (!sol.ok) return;
     expect(sol.baseId).toBe("gpt-6.1-sol");
 
-    const sonnetBlocked = resolveProfileBaseModel("scout_plan", {
-      env: { SERV_PROFILE_MODEL_SCOUT_PLAN: "claude-sonnet-5.5" },
+    const sonnetBlocked = resolveProfileBaseModel("find_plan", {
+      env: { SERV_PROFILE_MODEL_FIND_PLAN: "claude-sonnet-5.5" },
     });
     expect(sonnetBlocked.ok).toBe(false);
 
-    const sonnet = resolveProfileBaseModel("scout_plan", {
+    const sonnet = resolveProfileBaseModel("find_plan", {
       env: {
-        SERV_PROFILE_MODEL_SCOUT_PLAN: "claude-sonnet-5.5",
+        SERV_PROFILE_MODEL_FIND_PLAN: "claude-sonnet-5.5",
         SERV_PROFILE_MODEL_ALLOW_UNLISTED: "1",
       },
     });
@@ -56,8 +56,8 @@ describe("Flip decision shortlist (production = gpt-6.1-sol only)", () => {
     expect(sonnet.baseId).toBe("claude-sonnet-5.5");
     expect(sonnet.overrideActive).toBe(true);
 
-    const fableBlocked = resolveProfileBaseModel("find_next_check", {
-      env: { SERV_PROFILE_MODEL_FIND_NEXT_CHECK: "claude-fable-5" },
+    const fableBlocked = resolveProfileBaseModel("find_plan", {
+      env: { SERV_PROFILE_MODEL_FIND_PLAN: "claude-fable-5" },
     });
     expect(fableBlocked.ok).toBe(false);
   });

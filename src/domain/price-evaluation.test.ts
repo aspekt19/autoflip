@@ -1,6 +1,5 @@
 import { describe, expect, it } from "vitest";
 import { sampleListings } from "@/io/sample";
-import { alertText } from "@/io/telegram";
 import { buildSampleReport } from "@/server/sample-report";
 import { selectBestDealOnEvidence } from "./find-best-deal";
 import { rankFlipCandidates } from "./flip-rank";
@@ -123,29 +122,6 @@ describe("one price evaluation across surfaces", () => {
       .find((row) => row.vin === subject.vin)
       ?.factors.find((item) => item.id === "price_vs_model_asks");
     const alert = prefilterListing(subject, { priceMax: 40_000, zip: "72201", radiusMiles: 500 }, listings, "personal", 2026);
-    const text = alertText({
-      searchName: "Sample",
-      mode: "personal",
-      year: subject.year,
-      make: subject.make,
-      model: subject.model,
-      priceUsd: subject.priceUsd!,
-      miles: subject.miles,
-      city: subject.city,
-      state: subject.state,
-      priceDropFrom: null,
-      budgetUsd: 40_000,
-      radiusMiles: 500,
-      zip: "72201",
-      yearMin: null,
-      yearMax: null,
-      milesMax: null,
-      bodyStyle: null,
-      priceLabel: badge.label,
-      fairValueUsd: badge.fairValueUsd,
-      origin: "https://example.test",
-      alertId: "11111111-1111-1111-1111-111111111111",
-    });
 
     expect(badge.fairValueUsd).toBe(33_699);
     expect(badge.label).toBe("Fair price");
@@ -166,8 +142,6 @@ describe("one price evaluation across surfaces", () => {
       expect(alert.why).toContain("Fair price");
       expect(alert.why).toContain("$33,699");
     }
-    expect(text).toContain("Price: Fair price. Fair value $33,699.");
-    expect(text).not.toContain("$32,014");
   });
 
   it("says Not enough similar cars on every surface instead of a mileage-only number", () => {
