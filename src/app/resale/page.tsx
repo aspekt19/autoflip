@@ -51,7 +51,7 @@ export default function ResalePage() {
               If we do not know something, the card says so.
             </li>
           </ol>
-          <p>Not a profit guarantee. No invented listings. One-car buy-ceiling estimate remains available below the search.</p>
+          <p>Not a profit guarantee. No invented listings.</p>
         </div>
         <ResaleChatFlow />
       </div>
