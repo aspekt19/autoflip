@@ -1,8 +1,9 @@
 /**
  * Find-agent application tools — server-side keys only; args validated at the boundary.
  */
-import { bodyStyleMatches, providerBodyStyleParam } from "@/domain/body-style";
-import { autodevSearch, type AutodevDeps } from "@/io/autodev";
+import { bodyFamily, bodyStyleMatches, providerBodyStyleParam } from "@/domain/body-style";
+import { isPassengerOrLightTruck } from "@/domain/passenger-vehicle";
+import { autodevSearch, listingsSearchUrl, type AutodevDeps } from "@/io/autodev";
 import { complaintsFor, recallsFor, type GovDeps } from "@/io/gov";
 import { safetyRatingsFor } from "@/io/nhtsa-safety";
 import type { Listing } from "@/domain/types";
@@ -16,21 +17,53 @@ export const FIND_AGENT_TOOL_NAMES = [
 ] as const;
 export type FindAgentToolName = (typeof FIND_AGENT_TOOL_NAMES)[number];
 
+/** Soft provider price ceiling vs shopper max (Find/Resale admit path uses ~1.05). */
+export const SEARCH_LISTINGS_PRICE_SOFT_FACTOR = 1.05;
+
 export type SearchListingsArgs = {
   make?: string;
   model?: string;
+  /** Legacy free-form body (Sedan, SUV, …). Never sent as Sedan to Auto.dev. */
   bodyStyle?: string;
+  /** Preferred: car | suv | truck | van — filter after fetch; car-family omitted on provider. */
+  bodyFamily?: "car" | "suv" | "truck" | "van";
   priceMaxUsd?: number;
   milesMax?: number;
   yearMin?: number;
   yearMax?: number;
   zip?: string;
+  /** null / omitted = nationwide (do not invent 100). */
   radiusMi?: number;
+  /** Post-filter only (automatic | manual | …). */
+  transmission?: string;
   fuel?: string;
   drivetrain?: string;
   sort?: string;
   limit?: number;
 };
+
+export type SearchFunnelStep = {
+  step:
+    | "provider_raw"
+    | "normalized_vin_ymm"
+    | "passenger_gate"
+    | "transmission"
+    | "body_family"
+    | "price"
+    | "miles"
+    | "radius";
+  count: number;
+};
+
+export type SearchRelaxHint =
+  | "omit_body"
+  | "widen_radius"
+  | "raise_price"
+  | "drop_transmission"
+  | "drop_fuel"
+  | "drop_drivetrain"
+  | "next_model"
+  | "widen_miles";
 
 export type MakeModelYearArgs = {
   make: string;
@@ -61,9 +94,16 @@ export type ListingCard = {
   price: number | null;
   miles: number | null;
   drivetrain: string | null;
+  transmission: string | null;
+  fuel: string | null;
+  bodyStyle: string | null;
+  style: string | null;
+  distanceMiles: number | null;
+  /** Alias of distanceMiles for older prompts. */
   distance: number | null;
   city: string | null;
   state: string | null;
+  createdAt: string | null;
 };
 
 export type FindAgentToolState = {
@@ -172,18 +212,26 @@ export function parseSearchListingsArgs(raw: unknown): ToolArgResult<SearchListi
 
   if (issues.length > 0) return { ok: false, issues };
 
+  const bodyFamilyRaw = asTrimmed(row.bodyFamily, 20)?.toLowerCase();
+  const bodyFamilyArg =
+    bodyFamilyRaw === "car" || bodyFamilyRaw === "suv" || bodyFamilyRaw === "truck" || bodyFamilyRaw === "van"
+      ? bodyFamilyRaw
+      : undefined;
+
   return {
     ok: true,
     value: {
       make: asTrimmed(row.make, 40) ?? undefined,
       model: asTrimmed(row.model, 40) ?? undefined,
       bodyStyle: asTrimmed(row.bodyStyle, 40) ?? undefined,
+      bodyFamily: bodyFamilyArg,
       priceMaxUsd: priceMaxUsd ?? undefined,
       milesMax: milesMax ?? undefined,
       yearMin: yearMin ?? undefined,
       yearMax: yearMax ?? undefined,
       zip: zip.ok ? zip.value : undefined,
       radiusMi: radiusMi ?? undefined,
+      transmission: asTrimmed(row.transmission, 40) ?? undefined,
       fuel: asTrimmed(row.fuel, 40) ?? undefined,
       drivetrain: asTrimmed(row.drivetrain, 40) ?? undefined,
       sort: asTrimmed(row.sort, 40) ?? undefined,
@@ -256,12 +304,14 @@ export function findAgentChatTools(): Array<{
       make: { type: ["string", "null"] },
       model: { type: ["string", "null"] },
       bodyStyle: { type: ["string", "null"] },
+      bodyFamily: { type: ["string", "null"], description: "car|suv|truck|van — post-filter; never send Sedan to Auto.dev" },
       priceMaxUsd: { type: ["number", "null"] },
       milesMax: { type: ["number", "null"] },
       yearMin: { type: ["number", "null"] },
       yearMax: { type: ["number", "null"] },
       zip: { type: ["string", "null"] },
       radiusMi: { type: ["number", "null"] },
+      transmission: { type: ["string", "null"] },
       fuel: { type: ["string", "null"] },
       drivetrain: { type: ["string", "null"] },
       sort: { type: ["string", "null"] },
@@ -271,12 +321,14 @@ export function findAgentChatTools(): Array<{
       "make",
       "model",
       "bodyStyle",
+      "bodyFamily",
       "priceMaxUsd",
       "milesMax",
       "yearMin",
       "yearMax",
       "zip",
       "radiusMi",
+      "transmission",
       "fuel",
       "drivetrain",
       "sort",
@@ -314,7 +366,7 @@ export function findAgentChatTools(): Array<{
       function: {
         name: "search_listings",
         description:
-          "Search live dealer listings (asking prices). Prefer tight filters first; relax soft conditions and re-search when empty or poor.",
+          "Search live dealer listings (asking prices). Returns a per-filter funnel so you can see which condition hit zero and relax it. Never send Sedan/Coupe/Hatch as provider body — use bodyFamily=car (post-filter). transmission/fuel/drivetrain are post-filters. Sell-window and profit are NOT inventory filters. If provider_raw=0 with a car body requested, retry without body before raising budget.",
         parameters: searchParams,
       },
     },
@@ -364,6 +416,7 @@ export function findAgentResponsesTools(): Array<{
 export function listingToCard(listing: Listing): ListingCard | null {
   const vin = listing.vin?.trim().toUpperCase();
   if (!vin) return null;
+  const distance = listing.distanceMiles ?? null;
   return {
     vin,
     year: listing.year,
@@ -371,10 +424,16 @@ export function listingToCard(listing: Listing): ListingCard | null {
     model: listing.model,
     price: listing.priceUsd,
     miles: listing.miles,
-    drivetrain: listing.drivetrain,
-    distance: listing.distanceMiles ?? null,
+    drivetrain: listing.drivetrain ?? null,
+    transmission: listing.transmission ?? null,
+    fuel: listing.fuel ?? null,
+    bodyStyle: listing.bodyStyle ?? null,
+    style: listing.style ?? null,
+    distanceMiles: distance,
+    distance,
     city: listing.city,
     state: listing.state,
+    createdAt: listing.createdAt ?? null,
   };
 }
 
@@ -397,6 +456,11 @@ function rememberListings(state: FindAgentToolState, listings: readonly Listing[
   }
 }
 
+function resolveBodyIntent(args: SearchListingsArgs): string | undefined {
+  if (args.bodyFamily) return args.bodyFamily;
+  return args.bodyStyle?.trim() || undefined;
+}
+
 function toListingQuery(args: SearchListingsArgs): ListingQuery {
   const yearRange =
     args.yearMin != null && args.yearMax != null
@@ -406,12 +470,16 @@ function toListingQuery(args: SearchListingsArgs): ListingQuery {
         : args.yearMax != null
           ? `1980-${args.yearMax}`
           : undefined;
-  const priceRange = args.priceMaxUsd != null ? `0-${args.priceMaxUsd}` : undefined;
+  // Soft ceiling so borderline asks still arrive for local price filter.
+  const providerPriceMax =
+    args.priceMaxUsd != null ? Math.round(args.priceMaxUsd * SEARCH_LISTINGS_PRICE_SOFT_FACTOR) : undefined;
+  const priceRange = providerPriceMax != null ? `1-${providerPriceMax}` : undefined;
   const milesRange = args.milesMax != null ? `0-${args.milesMax}` : undefined;
   return {
     make: args.make,
     model: args.model,
-    bodyStyle: args.bodyStyle,
+    // listingsSearchUrl applies providerBodyStyleParam (omits Sedan/car-family).
+    bodyStyle: resolveBodyIntent(args),
     yearRange,
     priceRange,
     milesRange,
@@ -423,24 +491,130 @@ function toListingQuery(args: SearchListingsArgs): ListingQuery {
   };
 }
 
-function filterClientSide(
+function transmissionMatches(want: string, listing: Listing): boolean {
+  const have = (listing.transmission ?? "").trim().toLowerCase();
+  if (!have) return true; // unknown is not a hard reject
+  const w = want.trim().toLowerCase();
+  if (!w) return true;
+  if (w === "automatic" || w === "auto") {
+    return /auto|cvt|dct|dual.?clutch|amt/.test(have) && !/manual/.test(have);
+  }
+  if (w === "manual") return /manual|stick|mt\b/.test(have);
+  return have.includes(w);
+}
+
+function bodyIntentMatches(intent: string | undefined, listing: Listing): boolean {
+  if (!intent?.trim()) return true;
+  const family = bodyFamily(intent);
+  if (family) {
+    const observed = bodyFamily(listing.bodyStyle) ?? bodyFamily(listing.style ?? null);
+    if (observed == null) return true;
+    return observed === family;
+  }
+  return bodyStyleMatches(intent, listing);
+}
+
+/**
+ * Apply inventory filters in documented funnel order and return step counts.
+ * Sell-window / profit are intentionally absent (ranking/verdict only).
+ */
+export function applySearchListingsFunnel(
   listings: readonly Listing[],
-  opts: { fuel?: string; drivetrain?: string; bodyStyle?: string },
-): Listing[] {
-  let out = [...listings];
-  // Provider omits car-family bodyStyle (Sedan→empty feed). Enforce locally.
-  if (opts.bodyStyle?.trim() && !providerBodyStyleParam(opts.bodyStyle)) {
-    out = out.filter((row) => bodyStyleMatches(opts.bodyStyle, row));
+  args: SearchListingsArgs,
+): { listings: Listing[]; funnel: SearchFunnelStep[] } {
+  const funnel: SearchFunnelStep[] = [{ step: "provider_raw", count: listings.length }];
+
+  let cur = listings.filter((row) => Boolean(row.vin?.trim()) && row.year > 0 && Boolean(row.make) && Boolean(row.model));
+  funnel.push({ step: "normalized_vin_ymm", count: cur.length });
+
+  cur = cur.filter((row) => isPassengerOrLightTruck(row));
+  funnel.push({ step: "passenger_gate", count: cur.length });
+
+  if (args.transmission?.trim()) {
+    cur = cur.filter((row) => transmissionMatches(args.transmission!, row));
   }
-  if (opts.fuel?.trim()) {
-    const want = opts.fuel.trim().toLowerCase();
-    out = out.filter((row) => (row.fuel ?? "").toLowerCase().includes(want));
+  funnel.push({ step: "transmission", count: cur.length });
+
+  const bodyIntent = resolveBodyIntent(args);
+  if (bodyIntent) {
+    cur = cur.filter((row) => bodyIntentMatches(bodyIntent, row));
   }
-  if (opts.drivetrain?.trim()) {
-    const want = opts.drivetrain.trim().toLowerCase();
-    out = out.filter((row) => (row.drivetrain ?? "").toLowerCase().includes(want));
+  funnel.push({ step: "body_family", count: cur.length });
+
+  if (args.priceMaxUsd != null) {
+    const ceiling = Math.round(args.priceMaxUsd * SEARCH_LISTINGS_PRICE_SOFT_FACTOR);
+    cur = cur.filter((row) => row.priceUsd != null && row.priceUsd > 0 && row.priceUsd <= ceiling);
   }
-  return out;
+  funnel.push({ step: "price", count: cur.length });
+
+  if (args.milesMax != null) {
+    cur = cur.filter((row) => row.miles == null || row.miles <= args.milesMax!);
+  }
+  funnel.push({ step: "miles", count: cur.length });
+
+  if (args.radiusMi != null && args.zip) {
+    cur = cur.filter(
+      (row) => row.distanceMiles == null || (Number.isFinite(row.distanceMiles) && row.distanceMiles <= args.radiusMi!),
+    );
+  }
+  funnel.push({ step: "radius", count: cur.length });
+
+  // Soft post-filters that are not separate funnel steps in the doc, but still applied.
+  if (args.fuel?.trim()) {
+    const want = args.fuel.trim().toLowerCase();
+    cur = cur.filter((row) => (row.fuel ?? "").toLowerCase().includes(want));
+  }
+  if (args.drivetrain?.trim()) {
+    const want = args.drivetrain.trim().toLowerCase();
+    cur = cur.filter((row) => (row.drivetrain ?? "").toLowerCase().includes(want));
+  }
+
+  return { listings: cur, funnel };
+}
+
+export function relaxHintsFromFunnel(
+  funnel: readonly SearchFunnelStep[],
+  args: SearchListingsArgs,
+): SearchRelaxHint[] {
+  const hints: SearchRelaxHint[] = [];
+  const byStep = Object.fromEntries(funnel.map((s) => [s.step, s.count])) as Record<string, number>;
+  const bodyIntent = resolveBodyIntent(args);
+  const carBody =
+    Boolean(bodyIntent) &&
+    (bodyFamily(bodyIntent) === "car" || /sedan|coupe|hatch|convertible|car/i.test(bodyIntent ?? ""));
+
+  if ((byStep.provider_raw ?? 0) === 0) {
+    if (carBody || Boolean(args.bodyStyle) || args.bodyFamily === "car") hints.push("omit_body");
+    hints.push("next_model");
+    if (args.radiusMi != null) hints.push("widen_radius");
+    if (args.priceMaxUsd != null) hints.push("raise_price");
+    return hints;
+  }
+
+  const ordered: Array<{ step: SearchFunnelStep["step"]; hint: SearchRelaxHint }> = [
+    { step: "transmission", hint: "drop_transmission" },
+    { step: "body_family", hint: "omit_body" },
+    { step: "price", hint: "raise_price" },
+    { step: "miles", hint: "widen_miles" },
+    { step: "radius", hint: "widen_radius" },
+  ];
+  for (const { step, hint } of ordered) {
+    const idx = funnel.findIndex((s) => s.step === step);
+    if (idx <= 0) continue;
+    const prev = funnel[idx - 1]!.count;
+    const cur = funnel[idx]!.count;
+    if (prev > 0 && cur === 0) hints.push(hint);
+  }
+  if (args.fuel?.trim() && (byStep.radius ?? byStep.miles ?? 0) > 0 && hints.length === 0) {
+    // Fuel filtered after radius; if we ended at 0 with prior >0, suggest drop_fuel.
+    const last = funnel[funnel.length - 1]?.count ?? 0;
+    if (last === 0) hints.push("drop_fuel");
+  }
+  if (args.drivetrain?.trim() && hints.includes("drop_fuel") === false) {
+    const last = funnel[funnel.length - 1]?.count ?? 0;
+    if (last === 0 && (byStep.radius ?? 0) > 0) hints.push("drop_drivetrain");
+  }
+  return [...new Set(hints)];
 }
 
 function priceBand(prices: number[]): {
@@ -516,7 +690,8 @@ export async function executeFindAgentTool(
       };
     }
     const query = toListingQuery(parsed.value);
-    const providerBody = providerBodyStyleParam(parsed.value.bodyStyle);
+    const providerBody = providerBodyStyleParam(resolveBodyIntent(parsed.value));
+    const providerUrl = listingsSearchUrl(query);
     const search = await autodevSearch(query, autodevDeps);
     if (!search.ok) {
       return {
@@ -526,43 +701,46 @@ export async function executeFindAgentTool(
         summary: `search_listings failed: ${search.message}`,
       };
     }
-    const rawCount = search.listings.length;
-    const filtered = filterClientSide(search.listings, {
-      fuel: parsed.value.fuel,
-      drivetrain: parsed.value.drivetrain,
-      bodyStyle: parsed.value.bodyStyle,
-    });
+    const { listings: filtered, funnel } = applySearchListingsFunnel(search.listings, parsed.value);
     rememberListings(state, filtered);
-    const cars = capListingCards(filtered, Math.min(parsed.value.limit ?? LISTING_CAP, LISTING_CAP));
-    const funnelHint =
-      rawCount === 0
-        ? [
-            "Provider returned 0 rows for this query.",
-            providerBody
-              ? `Provider bodyStyle was ${providerBody}. Relax body/make/model or widen radius, then re-search.`
-              : parsed.value.bodyStyle
-                ? `Requested bodyStyle ${parsed.value.bodyStyle} is not sent to Auto.dev (car-family empties the feed); local match found 0 of ${rawCount}. Relax make/model/price/radius.`
-                : "Relax make/model/price/miles/radius (not profit or sell-window — those are not inventory filters).",
-          ].join(" ")
-        : filtered.length === 0 && rawCount > 0
-          ? `Provider returned ${rawCount} rows; local fuel/drivetrain/body filters removed all. Soften those client filters and re-search.`
-          : null;
+    const pageLimit = Math.min(parsed.value.limit ?? LISTING_CAP, LISTING_CAP);
+    const cars = capListingCards(filtered, pageLimit);
+    const relaxHints = relaxHintsFromFunnel(funnel, parsed.value);
+    const totalReturned = filtered.length;
+    const truncated = search.listings.length >= (query.limit ?? LIMIT_MAX);
+    const zeroStep = [...funnel].reverse().find((s) => s.count === 0);
+    const summary =
+      totalReturned === 0
+        ? `search_listings → 0 usable (raw=${funnel[0]?.count ?? 0}; zero_at=${zeroStep?.step ?? "unknown"}); hints=${relaxHints.join(",") || "—"}`
+        : `search_listings → ${totalReturned} hits, returning ${cars.length}`;
     return {
       name,
       ok: true,
       result: {
-        count: filtered.length,
-        providerRawCount: rawCount,
+        query: {
+          ...parsed.value,
+          providerBodyStyle: providerBody ?? null,
+          providerPriceMaxUsd:
+            parsed.value.priceMaxUsd != null
+              ? Math.round(parsed.value.priceMaxUsd * SEARCH_LISTINGS_PRICE_SOFT_FACTOR)
+              : null,
+          providerUrl,
+        },
+        totalReturned,
+        funnel,
+        listings: cars,
+        // Back-compat aliases for earlier agent prompts / tests.
+        count: totalReturned,
+        providerRawCount: funnel[0]?.count ?? 0,
         returned: cars.length,
         cars,
-        query: parsed.value,
-        providerBodyStyle: providerBody ?? null,
-        funnelHint,
+        relaxHints,
+        truncated,
         cached: search.cached,
+        honesty:
+          "Asking prices only. Funnel steps are inventory filters — sell-window and profit floor are ranking/verdict, never silent deletes. If provider_raw=0 with a car body, retry omit_body before raise_price.",
       },
-      summary: funnelHint
-        ? `search_listings → 0 usable (raw=${rawCount}); ${funnelHint.slice(0, 120)}`
-        : `search_listings → ${filtered.length} hits, returning ${cars.length}`,
+      summary,
     };
   }
 
