@@ -1,15 +1,18 @@
 /**
  * KV-backed stepped live-eval batch.
- * Each HTTP request runs at most one query so Hobby maxDuration 300s is enough.
+ * Each HTTP request runs at most one chat turn (or one resumable search step)
+ * so Hobby maxDuration 300s is enough — same shape as /api/find/chat and
+ * /api/resale/chat.
  */
 import { randomUUID } from "node:crypto";
 import type { Kv } from "@/io/kv";
+import type { EvalLiveActiveChat } from "../../eval/live/step-chat";
 import type { GeneratedQuery, LiveEvalCaseResult, LiveEvalReport } from "../../eval/live/types";
 import {
   ESTIMATED_USD_PER_QUERY,
   SERV_CALLS_PER_QUERY,
   USD_PER_SERV_CALL,
-} from "../../eval/live/run-one";
+} from "../../eval/live/spend";
 import { countByProduct } from "../../eval/live/generate";
 
 export const EVAL_LIVE_BATCH_TTL_SEC = 60 * 60 * 6; // 6h
@@ -22,7 +25,10 @@ export type EvalLiveBatchRecord = {
   maxUsd: number;
   queries: GeneratedQuery[];
   results: LiveEvalCaseResult[];
+  /** Index of the query currently in progress (or next to start). */
   nextIndex: number;
+  /** In-flight chat session for the current query; null between queries. */
+  active: EvalLiveActiveChat | null;
   status: "running" | "completed";
   stoppedReason: LiveEvalReport["stoppedReason"];
   createdAt: string;
@@ -47,7 +53,9 @@ export async function readEvalLiveBatch(
   try {
     const parsed = JSON.parse(raw) as unknown;
     if (!parsed || typeof parsed !== "object") return null;
-    return parsed as EvalLiveBatchRecord;
+    const batch = { ...(parsed as EvalLiveBatchRecord) };
+    if (batch.active === undefined) batch.active = null;
+    return batch;
   } catch {
     return null;
   }
@@ -74,6 +82,7 @@ export function createEvalLiveBatch(input: {
     queries: affordable,
     results: [],
     nextIndex: 0,
+    active: null,
     status: "running",
     stoppedReason,
     createdAt: new Date(now).toISOString(),
@@ -97,8 +106,20 @@ export function appendEvalLiveResult(
     ...batch,
     results,
     nextIndex,
+    active: null,
     status: done ? "completed" : "running",
     stoppedReason: done ? stoppedReason ?? "completed" : stoppedReason,
+    updatedAt: new Date().toISOString(),
+  };
+}
+
+export function withEvalLiveActive(
+  batch: EvalLiveBatchRecord,
+  active: EvalLiveActiveChat | null,
+): EvalLiveBatchRecord {
+  return {
+    ...batch,
+    active,
     updatedAt: new Date().toISOString(),
   };
 }

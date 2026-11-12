@@ -10,6 +10,10 @@
 # Optional:
 #   EVAL_LIVE_SEED  — Numeric seed for reproducible notes (default: run id hash).
 #
+# Stepping: action=start then action=step repeatedly. Each step is one chat
+# turn (send / ask-reply / brief-confirm / continue) — never a full query —
+# matching /api/find/chat and /api/resale/chat under Hobby 300s.
+#
 # The workflow fails with a clear message if neither CRON_SECRET nor
 # RADAR_CRON_SECRET is set. It never echoes secret values.
 name: Live eval (4 queries)
@@ -134,20 +138,32 @@ jobs:
           }
 
           (async () => {
+            // Per-query chat hop ceiling matches eval/live/drive-chat.ts.
+            const maxHopsPerQuery = 40;
+            const maxHops = maxQueries * maxHopsPerQuery + 4;
             console.log(`live-eval start seed=${seed} maxQueries=${maxQueries} url=${url}`);
             let report = await post({ action: "start", seed, maxQueries });
             const batchId = report.batchId;
             if (!batchId) throw new Error("start did not return batchId");
             let hops = 0;
-            while (!report.done && hops < maxQueries + 2) {
+            while (!report.done && hops < maxHops) {
               hops += 1;
               report = await post({ action: "step", batchId });
+              const hopStatus = report.hopStatus || report.lastHop?.status || "—";
+              const queryId = report.queryId || "—";
+              const product = report.product || "—";
+              console.log(
+                `hop=${hops} query=${queryId} product=${product} status=${hopStatus} session=${report.sessionId || "—"} asked=${report.asked ?? false} brief=${report.briefConfirmed ?? false}`,
+              );
               const last = report.lastResult;
               if (last) {
                 console.log(
                   `[${last.id}] product=${last.product} ok=${last.ok} mode=${last.agentMode ?? "—"} rounds=${last.toolRounds ?? 0} verdictReached=${last.verdictReached ?? false} durationMs=${last.durationMs ?? last.elapsedMs ?? 0}`,
                 );
               }
+            }
+            if (!report.done) {
+              throw new Error(`live-eval hit hop ceiling (${maxHops}) before batch done`);
             }
             const outPath = `eval/results/live/gha-${seed}-report.json`;
             fs.writeFileSync(outPath, `${JSON.stringify(report, null, 2)}\n`);

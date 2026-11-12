@@ -2,19 +2,22 @@
  * POST /api/internal/eval-live
  *
  * Auth: Bearer CRON_SECRET or RADAR_CRON_SECRET (same pattern as radar cron).
- * Allowed in production. Stepped live-eval: one query per request under Hobby 300s.
- * Never charges report credits (no debitFindDelivery).
+ * Allowed in production. Stepped live-eval: one chat turn (or one resumable
+ * search step) per request under Hobby 300s — same per-turn shape as
+ * /api/find/chat and /api/resale/chat. Never charges report credits.
  *
  * Body:
- *   { action: "start", seed?, maxQueries?, notes? } → create batch, return batchId (no query yet)
- *   { action: "step", batchId } → run the next query, return partial/full report
- *   { seed?, maxQueries?, notes? } without action → start + first step (compat)
+ *   { action: "start", seed?, maxQueries?, notes? } → create batch, return batchId (no turn yet)
+ *   { action: "step", batchId } → one chat hop for the current query
+ *   { seed?, maxQueries?, notes? } without action → start + first hop (compat)
  */
 import { HTTP_MAX_QUERIES } from "../../../../../eval/live/harness";
 import { generateQueries, resolveSeed } from "../../../../../eval/live/generate";
 import { liveKeysFromEnv } from "../../../../../eval/live/run-one";
-import { runOneQuery } from "../../../../../eval/live/run-one";
-import { runOneResaleQuery } from "../../../../../eval/live/run-one-resale";
+import {
+  beginEvalActiveChat,
+  runEvalChatHop,
+} from "../../../../../eval/live/step-chat";
 import type { GeneratedQuery } from "../../../../../eval/live/types";
 import { getKv } from "@/io/kv";
 import { runtimeDeps } from "@/server/deps";
@@ -24,11 +27,12 @@ import {
   evalLiveBatchToReport,
   readEvalLiveBatch,
   storeEvalLiveBatch,
+  withEvalLiveActive,
 } from "@/server/eval-live-batch";
 import { bearer, secretMatch } from "@/server/secrets";
 
 export const dynamic = "force-dynamic";
-/** One query per request — must stay within Vercel Hobby maxDuration 300. */
+/** One chat hop per request — must stay within Vercel Hobby maxDuration 300. */
 export const maxDuration = 300;
 
 type Body = {
@@ -132,7 +136,7 @@ export async function POST(request: Request) {
   const runtime = runtimeDeps();
   const userId = "internal-eval-live";
 
-  async function runNextQuery(batchId: string) {
+  async function runNextHop(batchId: string) {
     const batch = await readEvalLiveBatch(kv, batchId);
     if (!batch || batch.exp < Math.floor(Date.now() / 1000)) {
       return Response.json(
@@ -148,25 +152,52 @@ export async function POST(request: Request) {
         done: true,
         batchId: batch.batchId,
         nextIndex: batch.nextIndex,
+        active: null,
         ...report,
       });
     }
 
     const query = batch.queries[batch.nextIndex]!;
+    const active = batch.active ?? beginEvalActiveChat(batch.nextIndex);
     const deps = {
       kv,
       userId,
-      servKey: keys.servKey ?? runtime.servKey,
-      autodevKey: keys.autodevKey ?? runtime.autodevKey,
+      servKey: keys.servKey ?? runtime.servKey!,
+      autodevKey: keys.autodevKey ?? runtime.autodevKey!,
       servModel: runtime.servModel,
       servBaseUrl: runtime.servBaseUrl,
-      secrets: [keys.servKey, keys.autodevKey].filter((v): v is string => Boolean(v)),
     };
-    const result =
-      query.product === "resale"
-        ? await runOneResaleQuery(query, deps)
-        : await runOneQuery(query, deps);
-    const next = appendEvalLiveResult(batch, result);
+
+    const hop = await runEvalChatHop({ query, active, deps });
+
+    if (hop.kind === "in_progress") {
+      const next = withEvalLiveActive(batch, hop.active);
+      await storeEvalLiveBatch(kv, next);
+      const report = evalLiveBatchToReport(next);
+      return Response.json({
+        ok: true,
+        charged: false,
+        done: false,
+        batchId: next.batchId,
+        nextIndex: next.nextIndex,
+        queryId: query.id,
+        product: query.product,
+        hopStatus: hop.turnStatus,
+        sessionId: hop.active.sessionId,
+        hops: hop.active.hops,
+        asked: hop.active.asked,
+        briefConfirmed: hop.active.briefConfirmed,
+        active: hop.active,
+        lastHop: {
+          status: hop.turnStatus,
+          ok: hop.turnOk,
+          httpStatus: hop.httpStatus,
+        },
+        ...report,
+      });
+    }
+
+    const next = appendEvalLiveResult(batch, hop.result);
     await storeEvalLiveBatch(kv, next);
     const report = evalLiveBatchToReport(next);
     return Response.json({
@@ -175,7 +206,21 @@ export async function POST(request: Request) {
       done: next.status === "completed",
       batchId: next.batchId,
       nextIndex: next.nextIndex,
-      lastResult: result,
+      queryId: query.id,
+      product: query.product,
+      hopStatus: hop.turnStatus,
+      sessionId:
+        typeof hop.body.sessionId === "string" ? hop.body.sessionId : active.sessionId,
+      hops: hop.hops,
+      asked: hop.asked,
+      briefConfirmed: hop.briefConfirmed,
+      active: null,
+      lastResult: hop.result,
+      lastHop: {
+        status: hop.turnStatus,
+        ok: hop.turnOk,
+        httpStatus: hop.httpStatus,
+      },
       ...report,
     });
   }
@@ -188,7 +233,7 @@ export async function POST(request: Request) {
         { status: 400 },
       );
     }
-    return runNextQuery(batchId);
+    return runNextHop(batchId);
   }
 
   const parsed = parseStart(raw);
@@ -211,10 +256,11 @@ export async function POST(request: Request) {
       done: false,
       batchId: batch.batchId,
       nextIndex: 0,
+      active: null,
       ...report,
     });
   }
 
-  // Compat: start and immediately run the first query.
-  return runNextQuery(batch.batchId);
+  // Compat: start and immediately run the first chat hop (not a full query).
+  return runNextHop(batch.batchId);
 }
