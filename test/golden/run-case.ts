@@ -23,6 +23,7 @@ import { understandNeed } from "@/server/understand-need";
 import type { GoldenCase, CaseTurn } from "./cases";
 import { scriptedGoldenFetch } from "./fixtures";
 import { resaleFixtureFetch } from "./resale-fixture-fetch";
+import { toRunView } from "@/domain/run";
 import { permalinkHtml, storeGoldenRun } from "./materialize-run";
 import { createGoldenFetch, listingSearchUrls, recordingsRoot, type GoldenMode, type TransportAttempt } from "./transport";
 import type { GoldenRun, ObservedSpec, Prov, ShownListing, StepTiming } from "./types";
@@ -555,6 +556,7 @@ export async function runGoldenCase(specCase: GoldenCase, mode: GoldenMode, spen
       verdict: stored.verdict,
       creditsCharged: stored.creditsCharged,
       permalinkHtml: permalinkHtml(stored),
+      publicRun: toRunView(stored, null),
     },
   };
 }

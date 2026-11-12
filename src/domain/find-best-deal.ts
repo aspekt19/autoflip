@@ -55,6 +55,25 @@ export function isImplausibleAskUsd(priceUsd: number | null | undefined): boolea
   return priceUsd < IMPLAUSIBLE_ASK_USD_BELOW;
 }
 
+/**
+ * A young car with an extreme odometer (for example a 2020 with 274,000 miles).
+ * About 40,000 miles a year, and at least 200,000 miles, is not a believable reading.
+ */
+export function implausibleOdometer(
+  year: number | null | undefined,
+  miles: number | null | undefined,
+  nowYear = new Date().getFullYear(),
+): boolean {
+  if (typeof year !== "number" || typeof miles !== "number" || !Number.isFinite(year) || !Number.isFinite(miles)) return false;
+  if (year < 1990 || miles < 200_000) return false;
+  const age = Math.max(1, nowYear - year);
+  return miles / age >= 40_000;
+}
+
+export function implausibleOdometerReason(year: number, miles: number): string {
+  return `The mileage does not look believable for a ${year} (${miles.toLocaleString("en-US")} miles), so this car is left out of the ranking.`;
+}
+
 /** Plain buyer/report reason — never jargon. */
 export function implausibleAskReason(priceUsd: number): string {
   const shown = Math.round(priceUsd);
@@ -246,14 +265,16 @@ export function reportedAccidentCount(row: { accidentCount?: number | null }): n
 export function cleanLowerMileAlternative<
   T extends { key: string; miles?: number | null; accidentCount?: number | null; excludedFromPick?: boolean },
 >(pick: T, pool: readonly T[]): T | null {
-  if (reportedAccidentCount(pick) <= 0 || pick.miles == null || pick.excludedFromPick) return null;
+  const dirtyMiles = pick.miles != null && pick.miles >= BEST_DEAL_HIGH_MILES_HARD;
+  if ((reportedAccidentCount(pick) <= 0 && !dirtyMiles) || pick.miles == null || pick.excludedFromPick) return null;
   const cleaner = pool.filter(
     (car) =>
       car.key !== pick.key &&
       !car.excludedFromPick &&
       reportedAccidentCount(car) === 0 &&
       car.miles != null &&
-      car.miles < pick.miles!,
+      car.miles < pick.miles! &&
+      car.miles < BEST_DEAL_HIGH_MILES_HARD,
   );
   if (cleaner.length === 0) return null;
   cleaner.sort((a, b) => a.miles! - b.miles! || a.key.localeCompare(b.key));
@@ -1249,14 +1270,18 @@ function scoreOne(
   if (priceExclude && typeof row.priceUsd === "number") {
     unknowns.push(implausibleAskReason(row.priceUsd));
   }
-  const excludedFromPick = identityExclude || stopExclude || priceExclude;
+  const odoExclude = implausibleOdometer(row.year, row.miles, ctx.nowYear);
+  if (odoExclude && row.miles != null) unknowns.push(implausibleOdometerReason(row.year, row.miles));
+  const excludedFromPick = identityExclude || stopExclude || priceExclude || odoExclude;
   const excludedReason = identityExclude
     ? (ctx.carCheck?.excludedReason ?? "Listing does not match the VIN.")
     : stopExclude
       ? "Stop-sale / park-until-fixed recall guidance is open for this year and model — not eligible as the published pick."
       : priceExclude && typeof row.priceUsd === "number"
         ? implausibleAskReason(row.priceUsd)
-        : null;
+        : odoExclude && row.miles != null
+          ? implausibleOdometerReason(row.year, row.miles)
+          : null;
 
   return {
     key: listingKey(row),
@@ -1612,6 +1637,10 @@ function rankAll(
     const bAcc = reportedAccidentCount(b);
     if (aAcc > 0 && bAcc === 0 && b.miles != null && a.miles != null && b.miles < a.miles) return 1;
     if (bAcc > 0 && aAcc === 0 && a.miles != null && b.miles != null && a.miles < b.miles) return -1;
+    const aHigh = a.miles != null && a.miles >= BEST_DEAL_HIGH_MILES_HARD;
+    const bHigh = b.miles != null && b.miles >= BEST_DEAL_HIGH_MILES_HARD;
+    if (aHigh && !bHigh && bAcc === 0 && b.miles != null && a.miles != null && b.miles < a.miles) return 1;
+    if (bHigh && !aHigh && aAcc === 0 && a.miles != null && b.miles != null && a.miles < b.miles) return -1;
     if (b.score !== a.score) return b.score - a.score;
     // Soft AWD before VIN lexicographic key so preferably-AWD does not bury AWD under FWD.
     if (preferAwd) {

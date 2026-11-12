@@ -782,13 +782,10 @@ async function buildListingVerdict(
   }
   const parkOutsideOnly = gov.recalls.filter((r) => r.parkOutSide && !r.parkIt);
   if (parkOutsideOnly.length > 0) {
-    const sample = parkOutsideOnly[0]!;
     flags.push({
       id: "park_outside",
       level: "stop",
-      text: `NHTSA lists outdoor-parking / fire-risk guidance${
-        sample.campaignNumber ? ` (campaign ${sample.campaignNumber})` : ""
-      }. Verify VIN applicability before parking indoors or ignoring the campaign.`,
+      text: "NHTSA lists outdoor-parking / fire-risk guidance. Verify VIN applicability before parking indoors or ignoring the campaign.",
       source: "nhtsa-recalls",
     });
   }
@@ -1105,13 +1102,10 @@ async function buildVinDossier(vin: string, deps: CheckRunDeps, optionalZip?: st
   // never show "No stop-level red flags" with High confidence while these are open.
   const parkOutsideRecalls = bundle.recalls.filter((r) => r.parkOutSide && !r.parkIt);
   if (parkOutsideRecalls.length > 0) {
-    const sample = parkOutsideRecalls[0]!;
     redFlags.push({
       id: "park_outside",
       level: "stop",
-      text: `NHTSA lists outdoor-parking / fire-risk guidance${
-        sample.campaignNumber ? ` (campaign ${sample.campaignNumber})` : ""
-      }. Verify VIN applicability before parking indoors or ignoring the campaign.`,
+      text: "NHTSA lists outdoor-parking / fire-risk guidance. Verify VIN applicability before parking indoors or ignoring the campaign.",
       source: "nhtsa-recalls",
     });
   }

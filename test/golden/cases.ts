@@ -24,7 +24,13 @@ export type GoldenCaseId =
   | "L7"
   | "L8"
   | "L9"
-  | "L10";
+  | "L10"
+  | "L11"
+  | "L12"
+  | "L13"
+  | "L14"
+  | "L15"
+  | "L16";
 
 export type CaseTurn =
   | { note: string }
@@ -55,7 +61,7 @@ export type CaseExpect = {
   noDefaultTarget?: boolean;
   queriesRequired?: boolean;
   /** Hand-written fixture responses. Replay does not have live SERV recordings for these. */
-  scripted?: "live-a" | "live-b" | "live-c" | "live-d" | "live-rank" | "live-suv";
+  scripted?: "live-a" | "live-b" | "live-c" | "live-d" | "live-rank" | "live-suv" | "live-odd";
   noMilesMax?: boolean;
   noVerdictWhenEmpty?: boolean;
   /** Distinct make/model pairs the inventory URLs must include. */
@@ -75,7 +81,7 @@ export type CaseExpect = {
 export type GoldenCase = {
   id: GoldenCaseId;
   kind: "personal" | "flip" | "sequence";
-  scripted?: "live-a" | "live-b" | "live-c" | "live-d" | "live-rank" | "live-suv";
+  scripted?: "live-a" | "live-b" | "live-c" | "live-d" | "live-rank" | "live-suv" | "live-odd";
   /** from-note: do not overwrite a ZIP the note resolved. nationwide: radius null, no ZIP. */
   location: { zip: string; radiusMi: number } | "from-note" | "nationwide";
   turns: CaseTurn[];
@@ -336,6 +342,70 @@ export const GOLDEN_CASES: readonly GoldenCase[] = [
       queriesRequired: true,
       pickVin: "JF2SJAKC0FH550958",
     },
+  },
+  {
+    id: "L11",
+    kind: "personal",
+    scripted: "live-c",
+    location: "from-note",
+    search: "final",
+    turns: [{ note: "first car for a new driver in Chicago, max $12k, up to 120k miles, safe and cheap to run" }],
+    expect: {
+      budgetUsd: 12000,
+      priceCeilUsd: 12600,
+      milesMax: 120_000,
+      zip: "60601",
+      queriesRequired: true,
+    },
+  },
+  {
+    id: "L12",
+    kind: "personal",
+    scripted: "live-suv",
+    location: { zip: "80202", radiusMi: 100 },
+    search: "final",
+    turns: [{ note: "AWD SUV in Denver, budget $25k, must have AWD" }],
+    expect: {
+      budgetUsd: 25000,
+      priceCeilUsd: 26250,
+      drivetrain: "awd_4wd",
+      queriesRequired: true,
+      flagVeryHighMiles: true,
+    },
+  },
+  {
+    id: "L13",
+    kind: "flip",
+    location: NYC,
+    search: "final",
+    turns: [{ note: "a few hundred dollars is not a flip" }],
+    expect: { budgetUsd: 10000, priceCeilUsd: 10500, queriesRequired: true, passIsNotAFlip: true },
+  },
+  {
+    id: "L14",
+    kind: "personal",
+    scripted: "live-odd",
+    location: NYC,
+    search: "final",
+    turns: [{ note: "Used SUV under $20,000" }],
+    expect: { budgetUsd: 20000, priceCeilUsd: 21000, queriesRequired: true },
+  },
+  {
+    id: "L15",
+    kind: "personal",
+    scripted: "live-rank",
+    location: NYC,
+    search: "final",
+    turns: [{ note: "Used SUV under $15,000" }],
+    expect: { budgetUsd: 15000, priceCeilUsd: 15750, queriesRequired: true, pickVin: "JF1SJADC8HH000003" },
+  },
+  {
+    id: "L16",
+    kind: "flip",
+    location: NYC,
+    search: "final",
+    turns: [{ note: "skip the second review" }],
+    expect: { budgetUsd: 15000, priceCeilUsd: 15750, queriesRequired: true },
   },
 ];
 

@@ -221,6 +221,8 @@ describe("resale live defects (Nov 12)", () => {
       limits: ["Budget up to $10,000.", "Sell within 30 days."],
       verdict: "pass",
       confidence: "Low",
+      confidenceReason: null,
+      buyerMessage: null,
       creditsCharged: 1,
       failureReasons: ["review_unavailable"],
       steps: [],

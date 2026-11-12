@@ -60,12 +60,13 @@ function deliveryBuyerCopy(input: {
   sellWithinDays: number | null;
 }) {
   const margin =
-    input.best == null ? null : input.best.profitLowUsd != null ? input.best.profitLowUsd : input.best.profitMidUsd;
+    input.best == null ? null : input.best.profitMidUsd != null ? input.best.profitMidUsd : input.best.profitLowUsd;
   return resaleBuyerCopy({
     outcome: input.best ? "pick" : "skip",
     action: input.action,
     confidence: input.confidence,
     marginUsd: margin,
+    thresholdUsd: input.best?.targetProfitUsd,
     skipReason:
       input.sellWithinDays != null
         ? `No car is estimated to sell within ${input.sellWithinDays} days.`
@@ -491,8 +492,8 @@ export async function createAndRunResaleJobStep1(
     if (cachedDecision) {
       const balance = await creditBalance(deps.kv, deps.ownerId);
       const message = cachedDecision.message
-        ? `${cachedDecision.message} Same decision cached for this search for 24 hours.`
-        : "Same decision cached for this search for 24 hours.";
+        ? `${cachedDecision.message} This is the saved result for these same filters.`
+        : "This is the saved result for these same filters.";
       return {
         ok: true,
         kind: "replay",

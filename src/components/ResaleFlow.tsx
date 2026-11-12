@@ -177,8 +177,14 @@ function ResaleSearchForm({ credits, onAuthLost }: { credits: number | null; onA
     if (body.journal) setPartialJournal(body.journal);
   }
 
+  function openRun(id: string) {
+    setRunId(id);
+    window.sessionStorage.setItem("lemonless-resale-run", id);
+    router.push(`/run/${id}`);
+  }
+
   function finishFromBody(body: JobBody) {
-    if (typeof body.runId === "string" && body.runId) setRunId(body.runId);
+    if (typeof body.runId === "string" && body.runId) openRun(body.runId);
     if (!body.agentVerdict || !body.confidence || !body.verdictAction) {
       if (runId || body.runId) {
         setFollowRun(true);
@@ -346,7 +352,7 @@ function ResaleSearchForm({ credits, onAuthLost }: { credits: number | null; onA
           zip: zip.trim() || null,
           distanceMiles: radius === "" ? null : Number(radius),
           bodyStyle: bodyStyle || null,
-          preferredMakes: makes,
+          preferredMakes: make ? [make] : makes,
           make: make || undefined,
           model: model || undefined,
           preferredModels: make && model ? [{ make, model }] : undefined,
@@ -460,6 +466,14 @@ function ResaleSearchForm({ credits, onAuthLost }: { credits: number | null; onA
       setPending(false);
     }
   }
+
+  useEffect(() => {
+    const saved = window.sessionStorage.getItem("lemonless-resale-run");
+    if (saved) {
+      setRunId(saved);
+      setFollowRun(true);
+    }
+  }, []);
 
   useEffect(() => {
     if (!result) return;
@@ -589,15 +603,6 @@ function ResaleSearchForm({ credits, onAuthLost }: { credits: number | null; onA
                   </option>
                 ))}
               </select>
-            </div>
-            <div className="field">
-              <label htmlFor="resale-makes">Makes (comma-separated)</label>
-              <input
-                id="resale-makes"
-                value={makes}
-                onChange={(e) => setMakes(e.target.value)}
-                placeholder="e.g. Honda, Toyota"
-              />
             </div>
           </div>
           <MakeModelFields
@@ -818,6 +823,7 @@ function ResaleSearchResultView({ result, runId }: { result: SearchResult; runId
           budgetUsd={result.budgetUsd}
           action={result.verdictAction}
           reason={result.message}
+          resultConfidence={result.confidence}
         />
       ) : null}
       {result.alternatives.length > 0 ? (
@@ -853,6 +859,7 @@ function CandidateCard({
   budgetUsd = null,
   action = null,
   reason = null,
+  resultConfidence = null,
 }: {
   title: string;
   candidate: ResaleCandidatePnl;
@@ -860,6 +867,7 @@ function CandidateCard({
   budgetUsd?: number | null;
   action?: string | null;
   reason?: string | null;
+  resultConfidence?: string | null;
 }) {
   const l = candidate.listing;
   const overBudget =
@@ -888,6 +896,7 @@ function CandidateCard({
             amountUsd: candidate.profitMidUsd,
             action,
             reason: action === "pass" || action === "skip" ? reason : null,
+            thresholdUsd: candidate.targetProfitUsd,
           })}
         </p>
       ) : null}
@@ -918,7 +927,7 @@ function CandidateCard({
         </li>
         <li>Ask: {formatUsd(candidate.askingUsd)}</li>
         <li>
-          Negotiated offer estimate: {formatUsd(candidate.negotiatedOfferUsd)} — {candidate.negotiateBasis}
+          {candidate.negotiateBasis}
         </li>
         <li>
           Sales tax: {candidate.salesTaxUsd != null ? formatUsd(candidate.salesTaxUsd) : "unknown"} — {candidate.salesTaxBasis}
@@ -955,7 +964,10 @@ function CandidateCard({
           {candidate.daysToSellBasis}
         </li>
         <li>
-          Comps confidence: {candidate.confidence} — {candidate.confidenceBasis}
+          Confidence: {featured && action ? (resultConfidence ?? candidate.confidence) : candidate.confidence}
+          {featured && resultConfidence && resultConfidence !== candidate.confidence
+            ? `. Similar-car prices support the dollar estimate. The result stays ${resultConfidence} because the profit is below the minimum that is worth the effort and time.`
+            : ` — ${candidate.confidenceBasis}`}
         </li>
         <li>Similar listings in this scan: {candidate.compCount}</li>
       </ul>

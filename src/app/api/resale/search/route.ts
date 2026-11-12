@@ -72,6 +72,37 @@ export async function POST(request: Request) {
         elapsedMs: deadline.elapsedMs(),
         charged,
       });
+      const note = typeof body?.freeText === "string" ? body.freeText : "";
+      const replayClient = result.delivery as {
+        best?: {
+          vin?: string | null;
+          profitMidUsd?: number | null;
+          profitLowUsd?: number | null;
+          listing?: { year?: number | null; make?: string | null; model?: string | null } | null;
+        } | null;
+        alternatives?: Array<{
+          vin?: string | null;
+          profitMidUsd?: number | null;
+          profitLowUsd?: number | null;
+          listing?: { year?: number | null; make?: string | null; model?: string | null } | null;
+        }> | null;
+        proofRecords?: unknown;
+        verdictAction?: string | null;
+        confidence?: string | null;
+        reviewNote?: string | null;
+        message?: string | null;
+        providerQueriesUsed?: number | null;
+      };
+      const runId = await syncResaleRun(kv, {
+        ownerId: id,
+        runId: typeof body?.runId === "string" ? body.runId : null,
+        note,
+        client: {
+          ...replayClient,
+          chargedCredit: charged,
+          done: true,
+        },
+      });
       return Response.json({
         ...result.delivery,
         balance: result.balance,
@@ -83,10 +114,11 @@ export async function POST(request: Request) {
             : charged
               ? "1 report credit per delivered resale search."
               : "Credit not charged.",
-        done: charged,
+        done: true,
         step: 4,
-        nextStep: charged ? null : 4,
+        nextStep: null,
         jobId: typeof result.delivery.jobId === "string" ? result.delivery.jobId : undefined,
+        runId,
       });
     }
 

@@ -56,7 +56,7 @@ const VERDICT_COPY: Record<VerdictId, string> = {
 
 const FAILURE_COPY: Record<FailureReasonId, string> = {
   no_cars: "No cars matched this search, so there is no verdict and nothing was charged.",
-  could_not_plan: "We could not plan this search.",
+  could_not_plan: "We could not plan this search, so there is no verdict and no credit was used.",
   search_failed: "The listing search did not finish.",
   decision_failed: "The decision did not finish.",
   second_check_incomplete: "The second check did not finish.",
@@ -76,7 +76,7 @@ const JOURNAL_COPY: Record<JournalStepId, { title: string; ok: string; failed: s
   plan_search: {
     title: "Plan the search",
     ok: "We turned your request into a search for cars that fit.",
-    failed: "We could not plan this search.",
+    failed: "We could not plan this search, so there is no verdict and no credit was used.",
     skipped: "Planning was skipped.",
     running: "We are planning the search.",
   },

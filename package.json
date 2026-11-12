@@ -10,6 +10,7 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "golden": "tsx test/golden/cli.ts",
+    "check:run": "tsx scripts/check-run.ts",
     "ci:local": "bash scripts/ci-local.sh",
     "test:acceptance:find-radar-serv": "vitest run src/server/find-radar-serv-acceptance.test.ts",
     "test:e2e:find-radar-http": "bash scripts/e2e-find-radar-ci.sh",

@@ -39,6 +39,16 @@ export type RunListingView = {
   picked?: boolean;
   /** Plain resale line, such as the price gap after costs. */
   summary?: string | null;
+  drivetrain?: string | null;
+  accidentCount?: number | null;
+  bodyStyle?: string | null;
+  offerUsd?: number | null;
+  offerLabel?: string | null;
+  reason?: string | null;
+  confidence?: string | null;
+  implausible?: boolean;
+  drivetrainUnknown?: boolean;
+  bodyUnknown?: boolean;
 };
 
 export type RunStepView = {
@@ -59,8 +69,10 @@ export type RunView = {
   limits: string[];
   verdict: VerdictId | null;
   confidence: RunConfidence | null;
+  confidenceReason: string | null;
   creditsCharged: number;
   failureReasons: FailureReasonId[];
+  buyerMessage: string | null;
   steps: RunStepView[];
   sources: SourceId[];
   listings: RunListingView[];
@@ -75,6 +87,7 @@ export type RunReportModel = {
   confidenceLine: string | null;
   failureLines: string[];
   chargeLine: string;
+  buyerMessage: string | null;
   note: string;
   clarifications: string[];
   limits: string[];
@@ -135,9 +148,14 @@ export function runReportModel(view: RunView): RunReportModel {
     title,
     phaseLine: phaseCopy(view.phase),
     verdictLine,
-    confidenceLine: view.confidence ? `Confidence: ${confidenceCopy(view.confidence)}` : null,
+    confidenceLine: view.confidence
+      ? view.confidenceReason?.trim()
+        ? view.confidenceReason.trim()
+        : `Confidence: ${confidenceCopy(view.confidence)}`
+      : null,
     failureLines: view.failureReasons.map((id) => failureCopy(id)),
     chargeLine,
+    buyerMessage: view.buyerMessage,
     note: view.note,
     clarifications: view.clarifications,
     limits: view.limits,
@@ -152,7 +170,9 @@ export function runReportModel(view: RunView): RunReportModel {
         title: carTitle(car),
         place,
         linkLabel: host ? `Listing on ${host}` : car.vdp ? "Dealer listing" : null,
-        summary: [car.summary, mileageFlag].filter(Boolean).join(" ") || null,
+        summary: [car.summary, car.reason, car.offerLabel, car.drivetrain ? `Drivetrain: ${car.drivetrain}` : car.drivetrainUnknown ? "Drivetrain: not listed" : null, mileageFlag]
+          .filter(Boolean)
+          .join(" ") || null,
       };
     }),
     permalink: view.permalink,
@@ -177,6 +197,7 @@ export function renderRunPermalinkHtml(view: RunView): string {
   parts.push(`<h1>${esc(model.title)}</h1>`);
   parts.push(`<p>${esc(model.phaseLine)}</p>`);
   if (model.verdictLine) parts.push(`<p class="verdict-level">Verdict: ${esc(model.verdictLine)}</p>`);
+  if (view.buyerMessage) parts.push(`<p>${esc(view.buyerMessage)}</p>`);
   if (model.confidenceLine) parts.push(`<p>${esc(model.confidenceLine)}</p>`);
   for (const line of model.failureLines) parts.push(`<p>${esc(line)}</p>`);
   parts.push(`<p>${esc(model.chargeLine)}</p>`);
@@ -209,6 +230,13 @@ export function renderRunPermalinkHtml(view: RunView): string {
     if (heading) parts.push(`<h2 class="prose-title">${esc(heading)}</h2>`);
     parts.push(`<h2>${esc(car.title)}</h2>`);
     if (car.summary) parts.push(`<p>${esc(car.summary)}</p>`);
+    const facts = [
+      car.priceUsd == null ? "Price not listed" : money(car.priceUsd),
+      car.miles == null ? null : `${car.miles.toLocaleString("en-US")} miles`,
+      car.drivetrain ? `Drivetrain: ${car.drivetrain}` : car.drivetrainUnknown ? "Drivetrain: not listed" : null,
+      car.place,
+    ].filter(Boolean);
+    if (facts.length) parts.push(`<p>${esc(facts.join(" · "))}</p>`);
     if (car.dealer) parts.push(`<p>${esc(car.dealer)}</p>`);
     if (car.vdp && car.linkLabel) parts.push(`<a href="${esc(car.vdp)}">${esc(car.linkLabel)}</a>`);
     parts.push("</section>");

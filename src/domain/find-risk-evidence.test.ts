@@ -244,7 +244,7 @@ describe("find risk evidence (structured shapes)", () => {
       expect.arrayContaining(["get_history_report"]),
     );
     expect(short[0]!.campaignRefs).toContain(
-      "A government safety recall from 2018 is on file for this model year (campaign 18V123).",
+      "A government safety recall from 2018 is on file for this model year.",
     );
     expect(short[0]!.why).toMatch(/investigate VIN|not auto-buy/i);
   });

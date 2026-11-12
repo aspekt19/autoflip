@@ -13,10 +13,13 @@ import {
   type RunObservation,
   type RunRecord,
 } from "@/domain/run";
+import { buildPurchaseReadiness } from "@/domain/purchase-readiness";
 import { resaleEdgeSentence } from "@/domain/resale-presentation";
+import type { BestDealResult } from "@/domain/find-best-deal";
 import { buildSearchSpec, type SearchFormEdits, type SearchSpec } from "@/domain/search-spec";
 import type { Kv } from "@/io/kv";
 import { insertRun, readRun, updateRun } from "@/io/run-store";
+import { releaseFindSearchCredit } from "@/server/find-search-credit";
 
 export type SyncRunInput = {
   runId?: string | null;
@@ -37,6 +40,9 @@ export type SyncRunInput = {
   confidence?: string | null;
   creditsCharged?: number;
   failureReasons?: FailureReasonId[];
+  spendKey?: string | null;
+  buyerMessage?: string | null;
+  confidenceReason?: string | null;
   terminal?: boolean;
 };
 
@@ -71,8 +77,20 @@ function observationFrom(input: SyncRunInput): RunObservation {
     confidence: input.confidence,
     creditsCharged: input.creditsCharged,
     failureReasons: input.failureReasons,
+    spendKey: input.spendKey,
+    buyerMessage: input.buyerMessage,
+    confidenceReason: input.confidenceReason,
     terminal: input.terminal,
   };
+}
+
+async function refundIfUnpublished(kv: Kv, ownerId: string, before: number, next: RunRecord | null): Promise<void> {
+  if (!next || next.creditsCharged > 0 || !next.spendKey || before <= 0) return;
+  try {
+    await releaseFindSearchCredit(kv, ownerId, next.spendKey);
+  } catch {
+    /* The stored run already says nothing was charged. */
+  }
 }
 
 /** Create or update the owner's run. Returns the id, or null when the store rejects the write. */
@@ -81,7 +99,9 @@ export async function syncRun(kv: Kv, input: SyncRunInput): Promise<string | nul
   if (requested) {
     const existing = await readRun(kv, requested);
     if (existing && existing.ownerId === input.ownerId && existing.kind === input.kind) {
+      const before = Math.max(existing.creditsCharged, input.creditsCharged ?? 0);
       const next = await updateRun(kv, existing.id, (current) => applyObservation(current, observationFrom(input)));
+      await refundIfUnpublished(kv, input.ownerId, before, next);
       return next?.id ?? null;
     }
     if (existing) return null;
@@ -95,7 +115,10 @@ export async function syncRun(kv: Kv, input: SyncRunInput): Promise<string | nul
   });
   record = applyObservation(record, observationFrom(input));
   const inserted = await insertRun(kv, record);
-  if (inserted) return record.id;
+  if (inserted) {
+    await refundIfUnpublished(kv, input.ownerId, input.creditsCharged ?? 0, record);
+    return record.id;
+  }
   const raced = await readRun(kv, record.id);
   if (!raced || raced.ownerId !== input.ownerId) return null;
   const next = await updateRun(kv, raced.id, (current) => applyObservation(current, observationFrom(input)));
@@ -138,6 +161,13 @@ export function listingFromCar(car: {
   vdp?: string | null;
   city?: string | null;
   state?: string | null;
+  drivetrain?: string | null;
+  accidentCount?: number | null;
+  bodyStyle?: string | null;
+  offerUsd?: number | null;
+  offerLabel?: string | null;
+  reason?: string | null;
+  confidence?: string | null;
 }): RunListing | null {
   const vin = car.vin?.trim();
   if (!vin) return null;
@@ -153,7 +183,62 @@ export function listingFromCar(car: {
     vdp: car.vdp?.trim() || null,
     city: car.city?.trim() || null,
     state: car.state?.trim() || null,
+    drivetrain: car.drivetrain?.trim() || null,
+    accidentCount: typeof car.accidentCount === "number" ? car.accidentCount : null,
+    bodyStyle: car.bodyStyle?.trim() || null,
+    offerUsd: typeof car.offerUsd === "number" ? car.offerUsd : null,
+    offerLabel: car.offerLabel?.trim() || null,
+    reason: car.reason?.trim() || null,
+    confidence: car.confidence?.trim() || null,
   };
+}
+
+/** The cars, offers, and reasons the permalink and the live page both render. */
+export function listingsFromBestDeal(deal: BestDealResult | null, verdict: string | null): RunListing[] {
+  const ranked = deal?.ranked ?? [];
+  if (!ranked.length) return [];
+  const pool = ranked.map((car) => ({
+    vin: car.vin,
+    year: car.year,
+    make: car.make,
+    model: car.model,
+    trim: car.trim ?? null,
+    priceUsd: car.priceUsd,
+    miles: car.miles,
+    accidentCount: car.accidentCount ?? null,
+  }));
+  const now = new Date();
+  return ranked.flatMap((car) => {
+    const offer = verdict
+      ? buildPurchaseReadiness({
+          car: pool.find((row) => row.vin === car.vin) ?? pool[0]!,
+          pool,
+          zip: null,
+          zipUsedFor: null,
+          now,
+        }).offer
+      : null;
+    const row = listingFromCar({
+      vin: car.vin,
+      year: car.year,
+      make: car.make,
+      model: car.model,
+      trim: car.trim,
+      priceUsd: car.priceUsd,
+      miles: car.miles,
+      dealer: car.dealer,
+      vdp: car.vdp,
+      city: car.city,
+      state: car.state,
+      drivetrain: car.drivetrain,
+      accidentCount: car.accidentCount,
+      reason: car.vin && car.vin === deal?.pick?.vin ? deal?.why : car.excludedReason,
+      offerUsd: offer?.openingUsd ?? null,
+      offerLabel: offer?.openingLabel ?? null,
+      confidence: null,
+    });
+    return row ? [row] : [];
+  });
 }
 
 export async function loadOwnedRun(kv: Kv, id: string, ownerId: string): Promise<RunRecord | null> {
@@ -175,6 +260,9 @@ type ResaleCar = {
   vin?: string | null;
   profitLowUsd?: number | null;
   profitMidUsd?: number | null;
+  targetProfitUsd?: number | null;
+  confidence?: string | null;
+  reason?: string | null;
   listing?: {
     year?: number | null;
     make?: string | null;
@@ -232,6 +320,7 @@ export async function syncResaleRun(
       verdictAction?: string | null;
       confidence?: string | null;
       reviewNote?: string | null;
+      message?: string | null;
       chargedCredit?: boolean;
       providerQueriesUsed?: number | null;
       done?: boolean;
@@ -245,15 +334,22 @@ export async function syncResaleRun(
     if (!car) return [];
     const row = listingFromCar({ ...car.listing, vin: car.vin });
     if (!row) return [];
-    const margin = car.profitLowUsd != null ? car.profitLowUsd : car.profitMidUsd;
+    const margin = car.profitMidUsd != null ? car.profitMidUsd : car.profitLowUsd;
     const summary =
       typeof margin === "number" || input.client.verdictAction
         ? resaleEdgeSentence({
             amountUsd: typeof margin === "number" ? margin : null,
             action: input.client.verdictAction ?? null,
+            thresholdUsd: car.targetProfitUsd,
           })
         : null;
-    return [{ ...row, picked: car.vin === bestVin, summary }];
+    return [{
+      ...row,
+      picked: car.vin === bestVin,
+      summary,
+      reason: car.reason ?? summary,
+      confidence: input.client.confidence ?? null,
+    }];
   });
   const queries = typeof input.client.providerQueriesUsed === "number" ? input.client.providerQueriesUsed : 0;
   const finished = input.client.done === true || Boolean(input.client.emptyReason);
@@ -282,6 +378,11 @@ export async function syncResaleRun(
     queryCount: finished || queries > 0 ? queries : undefined,
     verdict: finished ? (input.client.verdictAction ?? null) : null,
     confidence: finished ? (input.client.confidence ?? null) : null,
+    buyerMessage: finished ? (input.client.message ?? null) : null,
+    confidenceReason:
+      finished && input.client.confidence
+        ? `${input.client.confidence}: this is the confidence for this resale result.`
+        : null,
     failureReasons,
     creditsCharged: input.client.chargedCredit ? 1 : 0,
     terminal: finished,

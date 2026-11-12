@@ -29,8 +29,9 @@ function listing(over: Partial<BestDealListing> & Pick<BestDealListing, "make" |
 }
 
 describe("find prod defects (timeouts + ranking)", () => {
-  it("uses 90s timeouts for find_plan / find_triage / find_decide / find_challenge", () => {
-    for (const id of ["find_plan", "find_triage", "find_decide", "find_challenge"] as const) {
+  it("waits out the route budget for find_plan and keeps 90s for the later find steps", () => {
+    expect(profile("find_plan").timeoutMs).toBe(290_000);
+    for (const id of ["find_triage", "find_decide", "find_challenge"] as const) {
       expect(profile(id).timeoutMs).toBe(90_000);
     }
   });

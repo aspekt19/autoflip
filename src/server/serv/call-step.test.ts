@@ -60,7 +60,7 @@ describe("callStep", () => {
       profileId: "find_plan",
       user: "note",
       critical: true,
-      remainingMs: 120_000,
+      remainingMs: 300_000,
       run: async () => {
         calls += 1;
         if (calls === 1) {

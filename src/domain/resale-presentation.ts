@@ -2,6 +2,7 @@
  * One resale story. A pass or skip is not a "best flip", and a few dollars
  * under similar listings is not a deal.
  */
+import { ASSUMPTIONS } from "./assumptions";
 
 export const MEANINGFUL_EDGE_USD = 100;
 
@@ -34,6 +35,8 @@ export function resaleEdgeSentence(input: {
   amountUsd: number | null | undefined;
   action: string | null | undefined;
   reason?: string | null;
+  /** Stated when a positive gap is still a pass. Defaults to the effort minimum. */
+  thresholdUsd?: number | null;
 }): string {
   const action = (input.action ?? "").toLowerCase();
   const passed = action === "pass" || action === "skip" || action === "walk_away";
@@ -48,7 +51,8 @@ export function resaleEdgeSentence(input: {
     return passed && why ? `${small} ${why}` : small;
   }
   if (amount > 0 && passed) {
-    return `Priced ${money(amount)} under similar listings after costs, but this is the closest candidate and it is not worth buying.${why ? ` ${why}` : ""}`.replace(
+    const threshold = input.thresholdUsd != null && input.thresholdUsd > 0 ? input.thresholdUsd : ASSUMPTIONS.flipDesiredProfitUsd;
+    return `Priced ${money(amount)} under similar listings after costs. It is still a pass because ${money(amount)} is below ${money(threshold)}, the minimum that is worth the effort and time.${why ? ` ${why}` : ""}`.replace(
       /\s+/g,
       " ",
     );
