@@ -12,6 +12,7 @@ import { runFindDecideOrchestrator } from "@/server/find-decide-orchestrator";
 import { loadFindSearchContext } from "@/server/find-search-context";
 import { proofsFromRecords, syncRunSafely } from "@/server/run-sync";
 import type { SourceId } from "@/domain/buyer-copy-table";
+import { buildDecisionProofRecord, VERDICT_RUBRIC_ID } from "@/domain/decision-proof-record";
 
 export const dynamic = "force-dynamic";
 /**
@@ -68,12 +69,21 @@ export async function POST(request: Request) {
       terminal: true,
       failureReasons: ["no_cars"],
     });
+    const emptyProof = buildDecisionProofRecord({
+      purpose: "find_decide",
+      rubricId: VERDICT_RUBRIC_ID,
+      status: "skipped_no_evidence",
+      recordedAt: new Date().toISOString(),
+      inputs: { listingCount: 0 },
+      detail: "No cars matched this search, so there is no verdict and nothing was charged.",
+    });
     return Response.json(
       {
         ok: true,
         searchContextToken: token,
         bestDeal: null,
         pickAgentVerdict: null,
+        pickProofRecords: [emptyProof],
         message: "No cars matched this search, so there is no verdict and nothing was charged.",
         runId: emptyRunId,
       },
