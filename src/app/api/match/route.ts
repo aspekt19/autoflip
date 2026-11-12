@@ -238,6 +238,8 @@ export async function POST(request: Request) {
             listings: [],
             compsPool: [],
             servNextCheckEnabled,
+            // Display filters stay UI-only — empty seed above. User form bag travels separately.
+            userFormEdits: body?.constraints ? pickUserFormConstraints(body.constraints) : null,
           });
           // Owned rematch keeps the same token and the paid-call counter.
           // A new token would open another hard cap of 8 SERV calls for free.
@@ -258,6 +260,8 @@ export async function POST(request: Request) {
                 decidePathEnabled: prior.record.decidePathEnabled || decidePath,
                 triageShortlistKeys: prior.record.triageShortlistKeys ?? [],
                 triageRevisitUsed: prior.record.triageRevisitUsed ?? false,
+                // Prefer fresh bag from this rematch; fall back to prior stored edits.
+                userFormEdits: minted.userFormEdits ?? prior.record.userFormEdits ?? null,
                 iat: prior.record.iat,
                 exp: prior.record.exp,
               };
@@ -425,6 +429,7 @@ export async function POST(request: Request) {
           : {}),
       },
     });
+    const matchFormEdits = body?.constraints ? pickUserFormConstraints(body.constraints) : undefined;
     const runId = await syncRunSafely(kv, {
       runId: typeof body?.runId === "string" ? body.runId : null,
       ownerId: id,
@@ -432,6 +437,7 @@ export async function POST(request: Request) {
       note,
       mode,
       spec,
+      formEdits: matchFormEdits,
       listings,
       queryCount: providerQueriesUsed,
       creditsCharged: charged ? 1 : 0,

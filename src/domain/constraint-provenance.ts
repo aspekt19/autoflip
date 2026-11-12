@@ -2,15 +2,26 @@
  * Single field-level provenance for shopper constraints.
  *
  * Only `origin: "user"` may reach SERV as a hard / form constraint.
+ * A value is `origin: "user"` ONLY when created by a shopper input event
+ * (form edit or follow-up answer) via {@link fromShopperInputEvent}.
  * `note` / `serv` / `suggestion` travel as context or UI suggestions — never as Form edits.
+ *
+ * No code path may promote, infer, or overlay provenance onto `"user"`.
  */
+
+/** Runtime brand — only {@link fromShopperInputEvent} sets this key. */
+const UserOriginBrand = Symbol.for("lemonless.constraint.userOrigin");
 
 export type ConstraintOrigin = "user" | "note" | "serv" | "suggestion";
 
 export type Provenanced<T> = { value: T; origin: ConstraintOrigin };
 
 /** Type-level: only this shape is accepted by SERV form/hard constraint builders. */
-export type UserProvenanced<T> = { value: T; origin: "user" };
+export type UserProvenanced<T> = {
+  value: T;
+  origin: "user";
+  readonly [UserOriginBrand]: typeof UserOriginBrand;
+};
 
 export const CONSTRAINT_FIELD_KEYS = [
   "priceMaxUsd",
@@ -47,6 +58,36 @@ export type ServFormConstraints = {
   >;
 };
 
+/** Follow-up question ids that produce constraint bag cells. */
+export type ShopperFollowUpConstraintId = "zip" | "cash" | "age" | "miles";
+
+/**
+ * The only legal constructors of `origin: "user"`.
+ * - `form_edit` — Confirm / intake field the shopper typed.
+ * - `follow_up` — clarification answer (zip / cash / age / miles).
+ * - `wire` — revive a value already tagged user on a prior hop (never invent).
+ * - `legacy_dirty` — migrate `{ dirty: true }` wire into branded user.
+ */
+export type ShopperInputEvent<T = unknown> =
+  | { kind: "form_edit"; field: ConstraintFieldKey; value: T }
+  | { kind: "follow_up"; id: ShopperFollowUpConstraintId; field: ConstraintFieldKey; value: T }
+  | { kind: "wire"; field: ConstraintFieldKey; value: T }
+  | { kind: "legacy_dirty"; field: ConstraintFieldKey; value: T };
+
+function brandUser<T>(value: T): UserProvenanced<T> {
+  return { value, origin: "user", [UserOriginBrand]: UserOriginBrand };
+}
+
+/**
+ * Sole factory for `origin: "user"`. Call sites that need a user-tagged cell
+ * must pass a shopper input event — never a bare `{ value, origin: "user" }` spread.
+ */
+export function fromShopperInputEvent<T>(event: ShopperInputEvent<T>): UserProvenanced<T> {
+  void event.kind;
+  void event.field;
+  return brandUser(event.value);
+}
+
 export function isConstraintOrigin(value: unknown): value is ConstraintOrigin {
   return value === "user" || value === "note" || value === "serv" || value === "suggestion";
 }
@@ -57,8 +98,11 @@ export function isUserProvenanced<T>(
   return field != null && field.origin === "user";
 }
 
-export function userProvenanced<T>(value: T): UserProvenanced<T> {
-  return { value, origin: "user" };
+/** @deprecated Use {@link fromShopperInputEvent} — kept only for note/serv/suggestion helpers symmetry. */
+export function userProvenanced<T>(_value: T): never {
+  throw new Error(
+    "userProvenanced is removed — construct origin:\"user\" only via fromShopperInputEvent(...)",
+  );
 }
 
 export function noteProvenanced<T>(value: T): Provenanced<T> {
@@ -85,7 +129,9 @@ export function pickUserFormConstraints(bag: ConstraintBag | null | undefined): 
   for (const key of CONSTRAINT_FIELD_KEYS) {
     const field = bag[key] as Provenanced<unknown> | undefined;
     if (isUserProvenanced(field)) {
-      (out as Record<string, UserProvenanced<unknown>>)[key] = acceptUserConstraint(field);
+      (out as Record<string, UserProvenanced<unknown>>)[key] = acceptUserConstraint(
+        fromShopperInputEvent({ kind: "wire", field: key, value: field.value }),
+      );
     }
   }
   return out;
@@ -97,17 +143,25 @@ export function isUserOrigin(field: Provenanced<unknown> | null | undefined): bo
 
 /**
  * Read a Provenanced cell from wire JSON.
- * Accepts `{ value, origin }` (canonical) or legacy `{ value, dirty: true }` → user.
+ * Accepts `{ value, origin }` (canonical) or legacy `{ value, dirty: true }` → user via factory.
  * Bare values are never inferred as user.
  */
-export function readProvenanced<T>(raw: unknown): Provenanced<T> | undefined {
+export function readProvenanced<T>(
+  raw: unknown,
+  field?: ConstraintFieldKey,
+): Provenanced<T> | undefined {
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) return undefined;
   const row = raw as { value?: unknown; origin?: unknown; dirty?: unknown };
-  if (isConstraintOrigin(row.origin)) {
+  if (row.origin === "user") {
+    const key = field ?? "priceMaxUsd";
+    return fromShopperInputEvent<T>({ kind: "wire", field: key, value: row.value as T });
+  }
+  if (isConstraintOrigin(row.origin) && row.origin !== "user") {
     return { value: row.value as T, origin: row.origin };
   }
   if (row.dirty === true) {
-    return { value: row.value as T, origin: "user" };
+    const key = field ?? "priceMaxUsd";
+    return fromShopperInputEvent<T>({ kind: "legacy_dirty", field: key, value: row.value as T });
   }
   return undefined;
 }
@@ -119,8 +173,103 @@ export function setUserEdit<K extends ConstraintFieldKey>(
 ): ConstraintBag {
   return {
     ...bag,
-    [key]: { value, origin: "user" as const },
+    [key]: fromShopperInputEvent({ kind: "form_edit", field: key, value }),
   };
+}
+
+/**
+ * Apply a follow-up answer into the constraint bag with provenance.
+ * Returns the bag unchanged when the id is not a constraint-producing follow-up
+ * or the value does not parse into a constraint cell.
+ */
+export function applyFollowUpToConstraintBag(
+  bag: ConstraintBag,
+  id: string,
+  value: string,
+): ConstraintBag {
+  const trimmed = value.trim();
+  if (id === "zip") {
+    if (!/^\d{5}$/.test(trimmed)) return bag;
+    return {
+      ...bag,
+      zip: fromShopperInputEvent({
+        kind: "follow_up",
+        id: "zip",
+        field: "zip",
+        value: trimmed,
+      }),
+    };
+  }
+  if (id === "cash") {
+    const amount = Number(trimmed.replace(/[$,\s]/g, ""));
+    if (!Number.isFinite(amount) || amount < 1000 || amount > 50_000) return bag;
+    return {
+      ...bag,
+      priceMaxUsd: fromShopperInputEvent({
+        kind: "follow_up",
+        id: "cash",
+        field: "priceMaxUsd",
+        value: Math.round(amount),
+      }),
+    };
+  }
+  if (id === "age") {
+    if (/^any$/i.test(trimmed)) {
+      return {
+        ...bag,
+        yearMin: fromShopperInputEvent({
+          kind: "follow_up",
+          id: "age",
+          field: "yearMin",
+          value: null,
+        }),
+        yearMax: fromShopperInputEvent({
+          kind: "follow_up",
+          id: "age",
+          field: "yearMax",
+          value: null,
+        }),
+      };
+    }
+    const year = Number(trimmed);
+    const cap = new Date().getUTCFullYear() + 1;
+    if (!Number.isFinite(year) || year < 1980 || year > cap) return bag;
+    return {
+      ...bag,
+      yearMin: fromShopperInputEvent({
+        kind: "follow_up",
+        id: "age",
+        field: "yearMin",
+        value: Math.round(year),
+      }),
+    };
+  }
+  if (id === "miles") {
+    const raw = trimmed.replace(/,/g, "");
+    if (/^any$/i.test(raw)) {
+      return {
+        ...bag,
+        milesMax: fromShopperInputEvent({
+          kind: "follow_up",
+          id: "miles",
+          field: "milesMax",
+          value: null,
+        }),
+      };
+    }
+    const amount = Number(raw);
+    if (!Number.isFinite(amount) || amount < 1_000 || amount > 400_000) return bag;
+    return {
+      ...bag,
+      milesMax: fromShopperInputEvent({
+        kind: "follow_up",
+        id: "miles",
+        field: "milesMax",
+        value: Math.round(amount),
+      }),
+    };
+  }
+  return bag;
 }
 
 export function setNonUserField<K extends ConstraintFieldKey>(

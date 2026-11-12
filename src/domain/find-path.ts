@@ -121,51 +121,38 @@ export function applyFindNextCheck(
   }
 
   if (id === "clarify_year_band") {
-    // Shopper already chose no floor (budget band) — never force an arbitrary year.
-    if (need.yearBandResolved && need.yearMin == null) {
+    // Never invent a model-year floor (e.g. 2015). SERV / the shopper own the band.
+    if (need.yearMin != null || need.yearMax != null) {
       return {
-        need,
-        refine,
-        note: "Year floor left open — using the budget editorial band only (no forced model year).",
+        need: { ...need, yearBandResolved: true },
+        refine: { ...refine, yearMin: need.yearMin ?? refine.yearMin },
+        note: "Year band already set — no change.",
         research: false,
       };
     }
-    const next =
-      need.yearMin == null
-        ? { ...need, yearMin: 2015, yearBandResolved: true }
-        : { ...need, yearBandResolved: true };
     return {
-      need: next,
-      refine: { ...refine, yearMin: next.yearMin ?? refine.yearMin },
-      note:
-        next.yearMin !== need.yearMin
-          ? `Set year floor to ${next.yearMin} (clarification default when shopper only said “not too old”). Edit on Confirm if wrong.`
-          : "Year band already set — no change.",
-      research: next.yearMin !== need.yearMin,
+      need: { ...need, yearBandResolved: true },
+      refine,
+      note: "Year floor still open — ask the shopper; code does not invent a model year.",
+      research: false,
     };
   }
 
   if (id === "clarify_miles_cap") {
-    if (need.milesCapResolved && need.milesMax == null) {
+    // Never invent a mileage ceiling (e.g. 100_000). SERV / the shopper own the cap.
+    if (need.milesMax != null) {
       return {
-        need,
+        need: { ...need, milesCapResolved: true },
         refine,
-        note: "Mileage left uncapped by shopper choice — no forced odometer ceiling.",
+        note: "Mileage cap already set — no change.",
         research: false,
       };
     }
-    const next =
-      need.milesMax == null
-        ? { ...need, milesMax: 100_000, milesCapResolved: true }
-        : { ...need, milesCapResolved: true };
     return {
-      need: next,
+      need: { ...need, milesCapResolved: true },
       refine,
-      note:
-        next.milesMax !== need.milesMax
-          ? `Set mileage cap to ${next.milesMax?.toLocaleString("en-US")} mi as a clarification starting point — edit or clear on Confirm.`
-          : "Mileage cap already set — no change.",
-      research: next.milesMax !== need.milesMax,
+      note: "Mileage still uncapped — ask the shopper; code does not invent an odometer ceiling.",
+      research: false,
     };
   }
 

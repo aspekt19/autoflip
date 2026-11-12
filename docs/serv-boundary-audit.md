@@ -43,7 +43,10 @@ Primary fate only (first bold fate tag per bullet / product-rule row). `still pr
 | `search_listings` thin proxy + pagination | **Implemented** | Unfiltered rows + funnel; `page` / limit≤50; no silent hide-20 |
 | Charge gate (`chosen` \| documented `nothing_fits` / Check SERV verdict) | **Updated** | Find/Resale/Check charge helpers |
 | `reasoning_effort` never `"none"` | **Enforced** | Agent builders + profiles + `run.ts` normalize; sweep test |
-| Typed provenance to SERV (`user`\|`note`\|`serv`\|`suggestion`) | **Enforced** | Only `origin: "user"` reaches SERV as Form edits (`constraint-provenance.ts`) |
+| Typed provenance to SERV (`user`\|`note`\|`serv`\|`suggestion`) | **Enforced** | Only `origin: "user"` reaches SERV as Form edits; constructed solely via `fromShopperInputEvent` (`constraint-provenance.ts`) |
+| Follow-up answers bagged with provenance end-to-end | **Enforced** | `applyFollowUpToConstraintBag` → `/api/need` → run/`userFormEdits` → decide agent |
+| Invented `clarify_*` yearMin 2015 / milesMax 100000 | **Removed** | `find-path.ts` no longer invents defaults |
+| Untagged `need.budgetUsd` as agent ceiling | **Removed** | Decide passes labeled user/note budget only |
 | Check `verdictFromBadge` / screening headline fallback | **Removed** | Headline follows SERV decide; no charge without SERV verdict |
 | Radar soft `prefilterListing` | **Removed** | `radarCandidateForServ` (hard criteria + facts only) |
 | Eval classic `runFindMatch`-first | **Removed** | Live eval mints empty seed → agent loop |

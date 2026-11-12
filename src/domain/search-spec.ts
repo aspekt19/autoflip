@@ -1,6 +1,8 @@
 import { resolveBudgetPrecedence, type BudgetConflict } from "./budget-conflict";
 import {
+  fromShopperInputEvent,
   isUserProvenanced,
+  type ConstraintFieldKey,
   type ConstraintBag,
   type Provenanced,
   type UserProvenanced,
@@ -113,29 +115,43 @@ export type ServPlanHint = {
   priorities?: Array<{ id: string; quote?: string }>;
 };
 
-function asProvenanced<T>(edit: FormEdit<T> | undefined): Provenanced<T> | undefined {
+function asProvenanced<T>(
+  edit: FormEdit<T> | undefined,
+  field: ConstraintFieldKey,
+): Provenanced<T> | undefined {
   if (!edit) return undefined;
+  if ("origin" in edit && edit.origin === "user") {
+    return fromShopperInputEvent({ kind: "wire", field, value: edit.value });
+  }
   if ("origin" in edit && edit.origin) return edit as Provenanced<T>;
-  if ("dirty" in edit && edit.dirty === true) return { value: edit.value, origin: "user" };
+  if ("dirty" in edit && edit.dirty === true) {
+    return fromShopperInputEvent({ kind: "legacy_dirty", field, value: edit.value });
+  }
   return undefined;
 }
 
 /** Only `origin: "user"` (or legacy dirty:true) counts as a form override. */
-function userNumber(edit: FormEdit<number | null> | undefined): number | null {
-  const prov = asProvenanced(edit);
+function userNumber(
+  edit: FormEdit<number | null> | undefined,
+  field: ConstraintFieldKey,
+): number | null {
+  const prov = asProvenanced(edit, field);
   if (!isUserProvenanced(prov) || prov.value == null || !Number.isFinite(prov.value)) return null;
   return Math.round(prov.value);
 }
 
-function userString(edit: FormEdit<string | null> | undefined): string | null {
-  const prov = asProvenanced(edit);
+function userString(
+  edit: FormEdit<string | null> | undefined,
+  field: ConstraintFieldKey,
+): string | null {
+  const prov = asProvenanced(edit, field);
   if (!isUserProvenanced(prov)) return null;
   const value = prov.value?.trim() ?? "";
   return value || null;
 }
 
-function isUserEdit(edit: FormEdit<unknown> | undefined): boolean {
-  return isUserProvenanced(asProvenanced(edit));
+function isUserEdit(edit: FormEdit<unknown> | undefined, field: ConstraintFieldKey): boolean {
+  return isUserProvenanced(asProvenanced(edit, field));
 }
 
 function quoteInNote(quote: string | null | undefined, note: string): string | null {
@@ -181,7 +197,7 @@ function hardPrice(
   serv: ServPlanHint | undefined,
 ): { hard: Hard<number> | undefined; conflict: BudgetConflict | null } {
   const fromNote = budgetFromText(note);
-  const userBudget = userNumber(form.priceMaxUsd);
+  const userBudget = userNumber(form.priceMaxUsd, "priceMaxUsd");
   const resolved = resolveBudgetPrecedence({
     noteUsd: fromNote,
     formUsd: userBudget,
@@ -231,8 +247,8 @@ export function buildSearchSpec(input: {
   const zipNote = zipFromNote(note, budgetFromText(note));
   const hasServ = serv != null;
 
-  const yearMinUser = userNumber(form.yearMin);
-  const yearMaxUser = userNumber(form.yearMax);
+  const yearMinUser = userNumber(form.yearMin, "yearMin");
+  const yearMaxUser = userNumber(form.yearMax, "yearMax");
   const yearQuote = quoteInNote(serv?.yearQuote, note) ?? undefined;
   const yearMin =
     yearMinUser != null
@@ -253,7 +269,7 @@ export function buildSearchSpec(input: {
           ? { value: years.yearMax, source: "note" as const }
           : undefined;
 
-  const milesUser = userNumber(form.milesMax);
+  const milesUser = userNumber(form.milesMax, "milesMax");
   const milesNote = milesFromText(note);
   const milesQuote = quoteInNote(serv?.milesQuote, note) ?? undefined;
   const milesMax =
@@ -265,7 +281,7 @@ export function buildSearchSpec(input: {
           ? { value: milesNote, source: "note" as const }
           : undefined;
 
-  const zipUser = userString(form.zip);
+  const zipUser = userString(form.zip, "zip");
   const servZip = serv?.location?.zip?.trim() ?? "";
   const zip =
     zipUser && /^\d{5}$/.test(zipUser)
@@ -277,13 +293,13 @@ export function buildSearchSpec(input: {
           : undefined;
 
   let radiusMi: Hard<number | null> | undefined;
-  const radiusProv = asProvenanced(form.radiusMi);
+  const radiusProv = asProvenanced(form.radiusMi, "radiusMi");
   if (isUserProvenanced(radiusProv)) {
     radiusMi = { value: radiusProv.value, source: "form" };
   }
 
-  const bodyUser = isUserEdit(form.bodyStyles)
-    ? (asProvenanced(form.bodyStyles)?.value?.filter(Boolean) ?? [])
+  const bodyUser = isUserEdit(form.bodyStyles, "bodyStyles")
+    ? (asProvenanced(form.bodyStyles, "bodyStyles")?.value?.filter(Boolean) ?? [])
     : null;
   const servBody = servBodies(serv);
   const bodyNote = hasServ && serv?.bodyStyles != null ? null : bodyFromIntake(note);
@@ -298,8 +314,8 @@ export function buildSearchSpec(input: {
           ? { value: [bodyNote], source: "note" as const }
           : undefined;
 
-  const excludeUser = isUserEdit(form.excludeMakes)
-    ? (asProvenanced(form.excludeMakes)?.value?.filter(Boolean) ?? [])
+  const excludeUser = isUserEdit(form.excludeMakes, "excludeMakes")
+    ? (asProvenanced(form.excludeMakes, "excludeMakes")?.value?.filter(Boolean) ?? [])
     : null;
   const excludeServ = (serv?.excludeMakes ?? []).map((item) => item.trim()).filter(Boolean);
   const excludeNote = excludedMakesFromNote(note);
@@ -314,7 +330,9 @@ export function buildSearchSpec(input: {
           ? { value: excludeNote, source: "note" as const }
           : undefined;
 
-  const driveUser = isUserEdit(form.drivetrain) ? asProvenanced(form.drivetrain)?.value : undefined;
+  const driveUser = isUserEdit(form.drivetrain, "drivetrain")
+    ? asProvenanced(form.drivetrain, "drivetrain")?.value
+    : undefined;
   let drivetrain: Hard<"awd_4wd"> | undefined;
   let softDrivetrain: Soft<"awd_4wd"> | undefined;
   if (driveUser === "awd_4wd") {
@@ -374,7 +392,7 @@ export function buildSearchSpec(input: {
     excludeMakes,
     titleClean,
   };
-  const sellUser = userNumber(form.sellWithinDays);
+  const sellUser = userNumber(form.sellWithinDays, "sellWithinDays");
   const sellNote = note.match(/\b(?:sell\s+within|within)\s+(\d{1,3})\s+days\b/i);
   const sellFromNote = sellNote ? Number(sellNote[1]) : null;
   const sellWithinDays =

@@ -3,7 +3,12 @@
  * Legacy match→decide path is deleted. Agent failure → honest failure (no code choose).
  */
 import { findAgentLoopEnabled, resolveFindAgentMode, type FindAgentRelaxedCondition } from "@/domain/find-agent";
-import { buildUserIntent, serializeUserIntentConstraints } from "@/domain/serv-boundary";
+import { pickUserFormConstraints } from "@/domain/constraint-provenance";
+import {
+  buildUserIntent,
+  serializeServFormConstraints,
+} from "@/domain/serv-boundary";
+import type { SearchFormEdits } from "@/domain/search-spec";
 import { FIND_DECIDE_ROUTE_MS } from "@/domain/route-budget";
 import {
   executeAllFindFreeGovParallel,
@@ -27,6 +32,7 @@ import { counterStore } from "@/io/store";
 import { reserveTotalCall } from "@/io/persistent-quota";
 import type { ServDeps } from "@/server/serv";
 import { buildDecisionProofRecord, type DecisionProofRecord } from "@/domain/decision-proof-record";
+import { readRun } from "@/io/run-store";
 
 export type FindAgentLoopMeta = {
   agentMode: "tools" | "next_action";
@@ -221,13 +227,26 @@ export async function runFindDecideOrchestrator(
         ? marketPool
         : marketPoolFromListingFacts(record.listings);
     const note = deps.shopperNote?.trim() || record.need.note || "";
-    // Provenance: only note-extracted user constraints reach SERV. Need fields may
-    // include defaults / SERV inventions — never re-tag them as dirty form edits.
-    const userIntent = buildUserIntent({ note });
+    // Stored user form edits (from /api/need → run / search context). Never re-tag
+    // need.budgetUsd / year / miles as user — those may include SERV / defaults.
+    let storedFormEdits: SearchFormEdits = pickUserFormConstraints(record.userFormEdits ?? {});
+    if (Object.keys(storedFormEdits).length === 0 && record.runId) {
+      const run = await readRun(deps.kv, record.runId);
+      if (run?.inputs.formEdits) {
+        storedFormEdits = pickUserFormConstraints(run.inputs.formEdits);
+      }
+    }
+    const userIntent = buildUserIntent({ note, formEdits: storedFormEdits });
+    // Budget ceiling only from user/note provenance on the intent — labeled.
+    const budgetField = userIntent.fields.priceMaxUsd;
+    const labeledBudgetUsd =
+      budgetField && (budgetField.origin === "user" || budgetField.origin === "note" || budgetField.provenance === "user" || budgetField.provenance === "note")
+        ? budgetField.value
+        : null;
     const agent = await runAgent({
       note,
       mode: resolveFindAgentMode(env),
-      formEdits: serializeUserIntentConstraints(userIntent),
+      formEdits: serializeServFormConstraints(userIntent),
       checkpoint: record.agentLoopCheckpoint ?? null,
       budgetMs: remainingMs(),
       deps: {
@@ -236,7 +255,10 @@ export async function runFindDecideOrchestrator(
         fetch: deps.fetchImpl,
         servBaseUrl: deps.servBaseUrl,
         seedListings,
-        budgetUsd: record.need.budgetUsd,
+        budgetUsd: labeledBudgetUsd,
+        budgetProvenance: budgetField
+          ? (budgetField.origin ?? budgetField.provenance)
+          : null,
         autodev: {
           cache: listingCache(),
           counter: counterStore(),

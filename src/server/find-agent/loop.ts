@@ -7,6 +7,7 @@
 import {
   synthesizeRelaxedConditionsFromSearches,
 } from "@/domain/agent-verdict-complete";
+import { fromShopperInputEvent } from "@/domain/constraint-provenance";
 import {
   assertNoNonUserSetConstraints,
   buildUserIntentFromFlatForm,
@@ -180,7 +181,13 @@ export type FindAgentLoopDeps = {
   /** Autodev cache/counter/reserve — tests inject MemoryCounter. */
   autodev?: FindAgentToolDeps["autodev"];
   seedListings?: readonly Listing[];
+  /**
+   * Budget USD ceiling — only when labeled user/note provenance.
+   * Untagged need.budgetUsd must never be passed here.
+   */
   budgetUsd?: number | null;
+  /** Provenance label for the budget ceiling (user | note). */
+  budgetProvenance?: "user" | "note" | "form" | string | null;
 };
 
 export type FindAgentLoopContinue = {
@@ -337,8 +344,14 @@ function constraintsFromFormEdits(
       const row = raw as { value?: unknown; provenance?: unknown; origin?: unknown; quote?: unknown };
       const origin = typeof row.origin === "string" ? row.origin : row.provenance;
       if (origin !== "user" && origin !== "form") continue;
-      const field = {
+      // Revive wire-tagged user cells — do not invent user from bare values.
+      const revived = fromShopperInputEvent({
+        kind: "wire",
+        field: key as import("@/domain/constraint-provenance").ConstraintFieldKey,
         value: row.value,
+      });
+      const field = {
+        value: revived.value,
         provenance: "user" as const,
         origin: "user" as const,
         ...(typeof row.quote === "string" ? { quote: row.quote } : {}),
@@ -609,6 +622,7 @@ async function finalizeVerdict(input: {
   priorMessages: ChatMessage[];
   mode: FindAgentModeResolved;
   budgetUsd: number | null;
+  budgetProvenance?: string | null;
   bundle: AgentServFeatureBundle;
   rejections: AgentServFeatureRejection[];
 }): Promise<
@@ -616,11 +630,15 @@ async function finalizeVerdict(input: {
   | { ok: false; error: string; message: string }
 > {
   const vinList = [...input.state.knownVins].slice(0, 40);
+  const budgetLine =
+    input.budgetUsd != null
+      ? `Budget USD ceiling (${input.budgetProvenance === "user" || input.budgetProvenance === "form" ? "user" : input.budgetProvenance === "note" ? "note" : "labeled"}): ${input.budgetUsd}`
+      : "Budget unknown (no user/note-labeled ceiling).";
   const finishUser = [
     "Return the final find_agent_result JSON now.",
     "picks[].vin must be copied exactly from tool listing results.",
     `Known VINs from tools: ${vinList.length ? vinList.join(", ") : "(none — pass with passReason)"}`,
-    input.budgetUsd != null ? `Budget USD ceiling: ${input.budgetUsd}` : "Budget unknown.",
+    budgetLine,
   ].join("\n");
 
   const messages: ChatMessage[] = [
@@ -955,6 +973,7 @@ async function runToolsMode(input: {
         priorMessages: finishMessages,
         mode: "tools",
         budgetUsd: input.deps.budgetUsd ?? null,
+        budgetProvenance: input.deps.budgetProvenance ?? null,
         bundle,
         rejections,
       });

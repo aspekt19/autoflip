@@ -4,10 +4,13 @@ import { getKv } from "@/io/kv";
 import { proofsFromRecords, syncRunSafely } from "@/server/run-sync";
 import type { FollowUp, StructuredNeed } from "@/domain/need";
 import {
+  CONSTRAINT_FIELD_KEYS,
+  fromShopperInputEvent,
   isUserProvenanced,
   pickUserFormConstraints,
   readProvenanced,
   type ConstraintBag,
+  type ConstraintFieldKey,
 } from "@/domain/constraint-provenance";
 import type { SearchFormEdits } from "@/domain/search-spec";
 
@@ -26,11 +29,10 @@ const FOLLOW_UP_IDS: ReadonlySet<FollowUp["id"]> = new Set([
   "condition",
 ]);
 
-
 /**
  * Build SearchFormEdits for the run sync / understand path.
- * Only origin `"user"` (or legacy dirty/companion flags) become form constraints —
- * never infer user from "value present".
+ * Only origin `"user"` (via factory / wire revive / legacy dirty) become form constraints —
+ * never infer user from "value present", and never forward flat years without origin.
  */
 function formEditsFromNeedBody(body: Record<string, unknown>): SearchFormEdits {
   const bag: ConstraintBag = {};
@@ -44,68 +46,90 @@ function formEditsFromNeedBody(body: Record<string, unknown>): SearchFormEdits {
       : null);
   if (rawBag) {
     const row = rawBag as Record<string, unknown>;
-    for (const key of [
-      "priceMaxUsd",
-      "yearMin",
-      "yearMax",
-      "milesMax",
-      "zip",
-      "radiusMi",
-      "bodyStyles",
-      "drivetrain",
-      "excludeMakes",
-      "sellWithinDays",
-    ] as const) {
-      const prov = readProvenanced(row[key]);
+    for (const key of CONSTRAINT_FIELD_KEYS) {
+      const prov = readProvenanced(row[key], key);
       if (prov) (bag as Record<string, unknown>)[key] = prov;
     }
   }
 
   if (body.budgetDirty === true && typeof body.budgetUsd === "number") {
-    bag.priceMaxUsd = { value: body.budgetUsd, origin: "user" };
+    bag.priceMaxUsd = fromShopperInputEvent({
+      kind: "legacy_dirty",
+      field: "priceMaxUsd",
+      value: body.budgetUsd,
+    });
   }
   if (body.radiusDirty === true || body.distanceMiles === "nationwide") {
-    bag.radiusMi = {
+    bag.radiusMi = fromShopperInputEvent({
+      kind: "legacy_dirty",
+      field: "radiusMi",
       value:
         body.distanceMiles === "nationwide" || body.distanceMiles === null
           ? null
           : typeof body.distanceMiles === "number"
             ? body.distanceMiles
             : null,
-      origin: "user",
-    };
+    });
   }
 
-  const flatUser = (valueKey: string, originKey: string) => {
+  const flatUser = <T,>(
+    valueKey: string,
+    originKey: string,
+    field: ConstraintFieldKey,
+  ): ReturnType<typeof fromShopperInputEvent<T>> | undefined => {
     if (body[originKey] !== "user") return undefined;
     if (!(valueKey in body)) return undefined;
-    return { value: body[valueKey], origin: "user" as const };
+    return fromShopperInputEvent<T>({ kind: "wire", field, value: body[valueKey] as T });
   };
-  const budgetFlat = flatUser("budgetUsd", "budgetOrigin");
+  const budgetFlat = flatUser<number>("budgetUsd", "budgetOrigin", "priceMaxUsd");
   if (budgetFlat && typeof budgetFlat.value === "number") {
-    bag.priceMaxUsd = { value: budgetFlat.value, origin: "user" };
+    bag.priceMaxUsd = budgetFlat;
   }
-  const yearMinFlat = flatUser("yearMin", "yearMinOrigin");
-  if (yearMinFlat) bag.yearMin = { value: yearMinFlat.value as number | null, origin: "user" };
-  const yearMaxFlat = flatUser("yearMax", "yearMaxOrigin");
-  if (yearMaxFlat) bag.yearMax = { value: yearMaxFlat.value as number | null, origin: "user" };
-  const milesFlat = flatUser("milesMax", "milesMaxOrigin");
-  if (milesFlat) bag.milesMax = { value: milesFlat.value as number | null, origin: "user" };
-  const zipFlat = flatUser("zip", "zipOrigin");
+  const yearMinFlat = flatUser<number | null>("yearMin", "yearMinOrigin", "yearMin");
+  if (yearMinFlat) bag.yearMin = yearMinFlat;
+  const yearMaxFlat = flatUser<number | null>("yearMax", "yearMaxOrigin", "yearMax");
+  if (yearMaxFlat) bag.yearMax = yearMaxFlat;
+  const milesFlat = flatUser<number | null>("milesMax", "milesMaxOrigin", "milesMax");
+  if (milesFlat) bag.milesMax = milesFlat;
+  const zipFlat = flatUser<string>("zip", "zipOrigin", "zip");
   if (zipFlat && typeof zipFlat.value === "string" && zipFlat.value.trim()) {
-    bag.zip = { value: zipFlat.value.trim(), origin: "user" };
+    bag.zip = fromShopperInputEvent({
+      kind: "wire",
+      field: "zip",
+      value: zipFlat.value.trim(),
+    });
   }
-  if (body.radiusOrigin === "user" || flatUser("distanceMiles", "radiusOrigin")) {
+  if (body.radiusOrigin === "user" || flatUser("distanceMiles", "radiusOrigin", "radiusMi")) {
     const v =
       body.distanceMiles === "nationwide" || body.distanceMiles === null
         ? null
         : typeof body.distanceMiles === "number"
           ? body.distanceMiles
           : null;
-    bag.radiusMi = { value: v, origin: "user" };
+    bag.radiusMi = fromShopperInputEvent({ kind: "wire", field: "radiusMi", value: v });
   }
 
   return pickUserFormConstraints(bag);
+}
+
+function parseFollowUps(body: Record<string, unknown>): Array<{ id: FollowUp["id"]; value: string }> {
+  const out: Array<{ id: FollowUp["id"]; value: string }> = [];
+  const list = Array.isArray(body.followUps) ? body.followUps : [];
+  for (const row of list) {
+    if (!row || typeof row !== "object" || Array.isArray(row)) continue;
+    const id = typeof (row as { id?: unknown }).id === "string" ? (row as { id: string }).id : "";
+    if (!FOLLOW_UP_IDS.has(id as FollowUp["id"])) continue;
+    out.push({ id: id as FollowUp["id"], value: String((row as { value?: unknown }).value ?? "") });
+  }
+  if (out.length === 0) {
+    const followRaw =
+      body.followUp && typeof body.followUp === "object" ? (body.followUp as { id?: unknown; value?: unknown }) : null;
+    const followId = followRaw && typeof followRaw.id === "string" ? followRaw.id : "";
+    if (followRaw && FOLLOW_UP_IDS.has(followId as FollowUp["id"])) {
+      out.push({ id: followId as FollowUp["id"], value: String(followRaw.value ?? "") });
+    }
+  }
+  return out;
 }
 
 export async function POST(request: Request) {
@@ -114,38 +138,29 @@ export async function POST(request: Request) {
 
   const body = (await request.json().catch(() => null)) as Record<string, unknown> | null;
   if (!body) return Response.json({ error: "invalid_json", message: "Send JSON." }, { status: 400 });
-  const followRaw = body.followUp && typeof body.followUp === "object" ? (body.followUp as { id?: unknown; value?: unknown }) : null;
-  const followId = followRaw && typeof followRaw.id === "string" ? followRaw.id : "";
+  const followUps = parseFollowUps(body);
   const formEdits = formEditsFromNeedBody(body);
+  // Flat year/miles only when the bag already carries user provenance — never
+  // forward untagged body.yearMin/yearMax/milesMax into understandNeed.
   const result = await understandNeed(
     {
       text: typeof body.text === "string" ? body.text : "",
       mode: body.mode === "flip" ? "flip" : "personal",
-      budgetUsd: typeof body.budgetUsd === "number" ? body.budgetUsd : null,
+      budgetUsd: isUserProvenanced(formEdits.priceMaxUsd) ? formEdits.priceMaxUsd.value : null,
       budgetKnown: typeof body.budgetKnown === "boolean" ? body.budgetKnown : undefined,
       budgetDirty: typeof body.budgetDirty === "boolean" ? body.budgetDirty : undefined,
       constraints: formEdits,
       budgetScope: body.budgetScope === "car" || body.budgetScope === "all_in" ? body.budgetScope : "unspecified",
-      zip: typeof body.zip === "string" ? body.zip : null,
-      distanceMiles:
-        body.distanceMiles === null
-          ? null
-          : typeof body.distanceMiles === "number"
-            ? body.distanceMiles
-            : body.distanceMiles === "nationwide"
-              ? null
-              : undefined,
+      zip: isUserProvenanced(formEdits.zip) ? formEdits.zip.value : null,
+      distanceMiles: isUserProvenanced(formEdits.radiusMi) ? formEdits.radiusMi.value : undefined,
       radiusDirty: isUserProvenanced(formEdits.radiusMi),
       repairAbility: isRepair(body.repairAbility) ? body.repairAbility : undefined,
       useCase: isUse(body.useCase) ? body.useCase : undefined,
       targetProfitUsd: typeof body.targetProfitUsd === "number" ? body.targetProfitUsd : undefined,
-      yearMin:
-        body.yearMin === null ? null : typeof body.yearMin === "number" ? body.yearMin : undefined,
-      yearMax:
-        body.yearMax === null ? null : typeof body.yearMax === "number" ? body.yearMax : undefined,
+      yearMin: isUserProvenanced(formEdits.yearMin) ? formEdits.yearMin.value : undefined,
+      yearMax: isUserProvenanced(formEdits.yearMax) ? formEdits.yearMax.value : undefined,
       yearBandResolved: typeof body.yearBandResolved === "boolean" ? body.yearBandResolved : undefined,
-      milesMax:
-        body.milesMax === null ? null : typeof body.milesMax === "number" ? body.milesMax : undefined,
+      milesMax: isUserProvenanced(formEdits.milesMax) ? formEdits.milesMax.value : undefined,
       milesCapResolved: typeof body.milesCapResolved === "boolean" ? body.milesCapResolved : undefined,
       conditionPriority:
         body.conditionPriority === "inspection_first" ||
@@ -153,10 +168,8 @@ export async function POST(request: Request) {
         body.conditionPriority === "unspecified"
           ? body.conditionPriority
           : undefined,
-      followUp:
-        followRaw && FOLLOW_UP_IDS.has(followId as FollowUp["id"])
-          ? { id: followId as FollowUp["id"], value: String(followRaw.value ?? "") }
-          : undefined,
+      followUp: followUps[0],
+      followUps,
       fastConfirm: body.fastConfirm === true,
     },
     {
@@ -167,8 +180,9 @@ export async function POST(request: Request) {
   );
   if (!result.ok) return Response.json({ error: result.error, message: result.message }, { status: result.status });
   // formEdits already built from user-origin only — never stamp year/miles/zip dirty when merely present.
-  const clarification =
-    followRaw && typeof followRaw.value === "string" && followRaw.value.trim() ? [followRaw.value.trim()] : [];
+  const clarification = followUps
+    .map((f) => f.value.trim())
+    .filter(Boolean);
   const runId = await syncRunSafely(getKv(), {
     runId: typeof body.runId === "string" ? body.runId : null,
     ownerId: access.id,
@@ -176,7 +190,7 @@ export async function POST(request: Request) {
     note: result.need.note || (typeof body.text === "string" ? body.text : ""),
     clarifications: clarification,
     mode: result.need.mode,
-    formEdits,
+    formEdits: result.userFormEdits ?? formEdits,
     proofs: proofsFromRecords(result.proofRecords),
     terminal: false,
   });

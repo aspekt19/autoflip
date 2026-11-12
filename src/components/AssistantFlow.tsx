@@ -19,6 +19,7 @@ import { yearSpanSentence } from "@/domain/year-span";
 import { criteriaParseLabel } from "@/domain/radar-criteria-provenance";
 import { FOLLOW_HINT } from "@/domain/intake-copy";
 import {
+  applyFollowUpToConstraintBag,
   isUserProvenanced,
   servFormPayload,
   setNonUserField,
@@ -848,17 +849,18 @@ function AssistantFlow({
     }
     setPending("need");
     try {
-      // One sync round-trip carrying prior resolutions (yearBandResolved / condition / miles).
-      const followConstraints = servFormPayload(constraintBag);
-      if (current.yearBandResolved && current.yearMin != null) {
-        followConstraints.yearMin = { value: current.yearMin, origin: "user" };
+      // Bag follow-up answers with provenance (factory only) — never stamp
+      // yearBandResolved / milesCapResolved / plan-derived values as origin user.
+      let followBag = constraintBag;
+      const followUpAnswers: Array<{ id: FollowUp["id"]; value: string }> = [];
+      for (const question of questions) {
+        const value = answers[question.id]?.trim();
+        if (!value) continue;
+        followUpAnswers.push({ id: question.id, value });
+        followBag = applyFollowUpToConstraintBag(followBag, question.id, value);
       }
-      if (current.yearBandResolved && current.yearMax != null) {
-        followConstraints.yearMax = { value: current.yearMax, origin: "user" };
-      }
-      if (current.milesCapResolved && current.milesMax != null) {
-        followConstraints.milesMax = { value: current.milesMax, origin: "user" };
-      }
+      const followConstraints = servFormPayload(followBag);
+      setConstraintBag(followBag);
       const response = await fetch("/api/need", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -866,6 +868,12 @@ function AssistantFlow({
           text,
           mode: current.mode,
           constraints: followConstraints,
+          // Multi-answer follow-ups travel as provenanced bag + answers list.
+          followUps: followUpAnswers,
+          // Single followUp kept for legacy server paths (last constraint answer).
+          followUp: followUpAnswers.length
+            ? followUpAnswers[followUpAnswers.length - 1]
+            : undefined,
           budgetUsd: isUserProvenanced(followConstraints.priceMaxUsd)
             ? followConstraints.priceMaxUsd.value
             : null,

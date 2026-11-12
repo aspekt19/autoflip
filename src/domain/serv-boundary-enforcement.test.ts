@@ -238,3 +238,50 @@ describe("SERV boundary enforcement — Radar prefilterListing removed", () => {
     expect(offenders, `prefilterListing still in: ${offenders.join(", ")}`).toEqual([]);
   });
 });
+
+describe("SERV boundary enforcement — provenance only from shopper input events", () => {
+  it("find-path must not invent yearMin 2015 / milesMax 100000 defaults", () => {
+    const text = readFileSync(join(SRC, "domain/find-path.ts"), "utf8");
+    const body = stripComments(text);
+    expect(body).not.toMatch(/yearMin:\s*2015/);
+    expect(body).not.toMatch(/milesMax:\s*100_?000/);
+  });
+
+  it("AssistantFlow must not stamp yearBandResolved/milesCapResolved as origin user", () => {
+    const text = readFileSync(join(SRC, "components/AssistantFlow.tsx"), "utf8");
+    const body = stripComments(text);
+    expect(body).not.toMatch(/yearBandResolved[\s\S]{0,200}origin:\s*["']user["']/);
+    expect(body).not.toMatch(/milesCapResolved[\s\S]{0,200}origin:\s*["']user["']/);
+    expect(body).toMatch(/applyFollowUpToConstraintBag/);
+  });
+
+  it("decide orchestrator must wire stored formEdits and not pass untagged need.budgetUsd", () => {
+    const text = readFileSync(join(SRC, "server/find-decide-orchestrator.ts"), "utf8");
+    const body = stripComments(text);
+    expect(body).toMatch(/userFormEdits|formEdits/);
+    expect(body).toMatch(/labeledBudgetUsd|budgetProvenance/);
+    // Untagged record.need.budgetUsd must not be the agent budgetUsd arg.
+    expect(body).not.toMatch(/budgetUsd:\s*record\.need\.budgetUsd/);
+  });
+
+  it("production code constructs origin user via fromShopperInputEvent (not bare spreads)", () => {
+    const allow = new Set([
+      "src/domain/constraint-provenance.ts",
+      // Serialization / wire revive after origin already checked:
+      "src/domain/serv-boundary.ts",
+      "src/server/find-agent/loop.ts",
+      "src/server/resale-agent/loop.ts",
+    ]);
+    const files = productionSources();
+    const offenders: string[] = [];
+    for (const f of files) {
+      if (allow.has(f.path)) continue;
+      const body = stripComments(f.text);
+      // Bare object literal stamping origin user without nearby factory call.
+      if (!/origin\s*:\s*["']user["']/.test(body)) continue;
+      if (f.text.includes("fromShopperInputEvent")) continue;
+      offenders.push(f.path);
+    }
+    expect(offenders, `bare origin:\"user\" without factory in: ${offenders.join(", ")}`).toEqual([]);
+  });
+});

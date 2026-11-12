@@ -22,9 +22,11 @@ import type { Listing } from "@/domain/types";
 import type { SearchFormEdits } from "@/domain/search-spec";
 import {
   acceptUserConstraint,
+  fromShopperInputEvent,
   isUserProvenanced,
   pickUserFormConstraints,
   readProvenanced,
+  type ConstraintFieldKey,
   type ConstraintOrigin,
   type Provenanced,
   type UserProvenanced,
@@ -127,8 +129,8 @@ function userString(edit: Provenanced<string | null> | undefined): string | null
   return value || null;
 }
 
-function userField<T>(value: T): UserIntentField<T> {
-  const gated = acceptUserConstraint({ value, origin: "user" as const });
+function userField<T>(value: T, field: ConstraintFieldKey): UserIntentField<T> {
+  const gated = acceptUserConstraint(fromShopperInputEvent({ kind: "wire", field, value }));
   return { value: gated.value, provenance: "user", origin: "user" };
 }
 
@@ -154,7 +156,7 @@ export function buildUserIntent(input: {
 
   const priceUser = userNumber(form.priceMaxUsd);
   if (priceUser != null && priceUser >= 1000) {
-    fields.priceMaxUsd = userField(priceUser);
+    fields.priceMaxUsd = userField(priceUser, "priceMaxUsd");
   } else {
     const fromNote = budgetFromText(note);
     if (fromNote != null && fromNote >= 1000) {
@@ -166,12 +168,12 @@ export function buildUserIntent(input: {
   const yearMaxUser = userNumber(form.yearMax);
   const years = yearsFromNote(note, now);
   if (yearMinUser != null) {
-    fields.yearMin = userField(yearMinUser);
+    fields.yearMin = userField(yearMinUser, "yearMin");
   } else if (years.yearMin != null) {
     fields.yearMin = noteField(years.yearMin);
   }
   if (yearMaxUser != null) {
-    fields.yearMax = userField(yearMaxUser);
+    fields.yearMax = userField(yearMaxUser, "yearMax");
   } else if (years.yearMax != null) {
     fields.yearMax = noteField(years.yearMax);
   }
@@ -179,7 +181,7 @@ export function buildUserIntent(input: {
   const milesUser = userNumber(form.milesMax);
   const milesNote = milesFromText(note);
   if (milesUser != null) {
-    fields.milesMax = userField(milesUser);
+    fields.milesMax = userField(milesUser, "milesMax");
   } else if (milesNote != null) {
     fields.milesMax = noteField(milesNote);
   }
@@ -187,20 +189,20 @@ export function buildUserIntent(input: {
   const zipUser = userString(form.zip);
   const zipNote = zipFromNote(note, budgetFromText(note));
   if (zipUser && /^\d{5}$/.test(zipUser)) {
-    fields.zip = userField(zipUser);
+    fields.zip = userField(zipUser, "zip");
   } else if (zipNote) {
     fields.zip = noteField(zipNote);
   }
 
   if (isUserProvenanced(form.radiusMi)) {
-    fields.radiusMi = userField(form.radiusMi.value);
+    fields.radiusMi = userField(form.radiusMi.value, "radiusMi");
   }
 
   const bodyUser = isUserProvenanced(form.bodyStyles)
     ? form.bodyStyles.value?.filter(Boolean) ?? []
     : null;
   if (bodyUser && bodyUser.length) {
-    fields.bodyStyles = userField(bodyUser);
+    fields.bodyStyles = userField(bodyUser, "bodyStyles");
   } else {
     const bodyNote = bodyFromIntake(note);
     if (bodyNote) fields.bodyStyles = noteField([bodyNote]);
@@ -208,7 +210,7 @@ export function buildUserIntent(input: {
 
   const driveUser = isUserProvenanced(form.drivetrain) ? form.drivetrain.value : undefined;
   if (driveUser === "awd_4wd") {
-    fields.drivetrain = userField("awd_4wd" as const);
+    fields.drivetrain = userField("awd_4wd" as const, "drivetrain");
   } else if (awdLimitFromText(note) === "hard") {
     fields.drivetrain = noteField("awd_4wd" as const);
   }
@@ -217,7 +219,7 @@ export function buildUserIntent(input: {
     ? form.excludeMakes.value?.filter(Boolean) ?? []
     : null;
   if (excludeUser && excludeUser.length) {
-    fields.excludeMakes = userField(excludeUser);
+    fields.excludeMakes = userField(excludeUser, "excludeMakes");
   }
 
   if (/\bautomatic only\b|\bonly automatic\b|\bmust be automatic\b/i.test(note)) {
@@ -245,61 +247,94 @@ export function buildUserIntentFromFlatForm(input: {
     typeof v === "number" && Number.isFinite(v) ? Math.round(v) : null;
   const asStr = (v: unknown): string | null => (typeof v === "string" && v.trim() ? v.trim() : null);
 
-  const userEdit = <T,>(raw: unknown): UserProvenanced<T> | undefined => {
-    const prov = readProvenanced<T>(raw);
+  const userEdit = <T,>(raw: unknown, field: ConstraintFieldKey): UserProvenanced<T> | undefined => {
+    const prov = readProvenanced<T>(raw, field);
     if (!isUserProvenanced(prov)) return undefined;
     return acceptUserConstraint(prov);
   };
 
   const priceUser =
-    userEdit<number | null>(form.priceMaxUsd) ?? userEdit<number | null>(form.budgetUsd);
+    userEdit<number | null>(form.priceMaxUsd, "priceMaxUsd") ??
+    userEdit<number | null>(form.budgetUsd, "priceMaxUsd");
   if (priceUser) {
     edits.priceMaxUsd = priceUser;
   } else if (form.budgetDirty === true || form.priceMaxUsdDirty === true) {
     const budget = asNum(form.budgetUsd ?? form.priceMaxUsd);
     if (budget != null || form.budgetUsd === null || form.priceMaxUsd === null) {
-      edits.priceMaxUsd = acceptUserConstraint({ value: budget, origin: "user" });
+      edits.priceMaxUsd = fromShopperInputEvent({
+        kind: "legacy_dirty",
+        field: "priceMaxUsd",
+        value: budget,
+      });
     }
   }
 
-  const yearMinUser = userEdit<number | null>(form.yearMin);
+  const yearMinUser = userEdit<number | null>(form.yearMin, "yearMin");
   if (yearMinUser) edits.yearMin = yearMinUser;
   else if (form.yearMinDirty === true) {
-    edits.yearMin = acceptUserConstraint({ value: asNum(form.yearMin), origin: "user" });
+    edits.yearMin = fromShopperInputEvent({
+      kind: "legacy_dirty",
+      field: "yearMin",
+      value: asNum(form.yearMin),
+    });
   }
 
-  const yearMaxUser = userEdit<number | null>(form.yearMax);
+  const yearMaxUser = userEdit<number | null>(form.yearMax, "yearMax");
   if (yearMaxUser) edits.yearMax = yearMaxUser;
   else if (form.yearMaxDirty === true) {
-    edits.yearMax = acceptUserConstraint({ value: asNum(form.yearMax), origin: "user" });
+    edits.yearMax = fromShopperInputEvent({
+      kind: "legacy_dirty",
+      field: "yearMax",
+      value: asNum(form.yearMax),
+    });
   }
 
-  const milesUser = userEdit<number | null>(form.milesMax);
+  const milesUser = userEdit<number | null>(form.milesMax, "milesMax");
   if (milesUser) edits.milesMax = milesUser;
   else if (form.milesMaxDirty === true) {
-    edits.milesMax = acceptUserConstraint({ value: asNum(form.milesMax), origin: "user" });
+    edits.milesMax = fromShopperInputEvent({
+      kind: "legacy_dirty",
+      field: "milesMax",
+      value: asNum(form.milesMax),
+    });
   }
 
-  const zipUser = userEdit<string | null>(form.zip);
+  const zipUser = userEdit<string | null>(form.zip, "zip");
   if (zipUser) edits.zip = zipUser;
   else if (form.zipDirty === true) {
-    edits.zip = acceptUserConstraint({ value: asStr(form.zip), origin: "user" });
+    edits.zip = fromShopperInputEvent({
+      kind: "legacy_dirty",
+      field: "zip",
+      value: asStr(form.zip),
+    });
   }
 
-  const bodyUser = userEdit<string[] | null>(form.bodyStyles);
+  const bodyUser = userEdit<string[] | null>(form.bodyStyles, "bodyStyles");
   if (bodyUser) {
     edits.bodyStyles = bodyUser;
   } else if (form.bodyStylesDirty === true || form.bodyStyleDirty === true) {
     if (Array.isArray(form.bodyStyles)) {
       const bodies = form.bodyStyles.map((b) => String(b).trim()).filter(Boolean);
-      edits.bodyStyles = acceptUserConstraint({ value: bodies, origin: "user" });
+      edits.bodyStyles = fromShopperInputEvent({
+        kind: "legacy_dirty",
+        field: "bodyStyles",
+        value: bodies,
+      });
     } else {
       const bodyStyle = asStr(form.bodyStyle);
-      if (bodyStyle) edits.bodyStyles = acceptUserConstraint({ value: [bodyStyle], origin: "user" });
+      if (bodyStyle) {
+        edits.bodyStyles = fromShopperInputEvent({
+          kind: "legacy_dirty",
+          field: "bodyStyles",
+          value: [bodyStyle],
+        });
+      }
     }
   }
 
-  const radiusUser = userEdit<number | null>(form.radiusMi) ?? userEdit<number | null>(form.distanceMiles);
+  const radiusUser =
+    userEdit<number | null>(form.radiusMi, "radiusMi") ??
+    userEdit<number | null>(form.distanceMiles, "radiusMi");
   if (radiusUser) {
     edits.radiusMi = radiusUser;
   } else if (form.radiusDirty === true || form.distanceMilesDirty === true) {
@@ -310,9 +345,10 @@ export function buildUserIntentFromFlatForm(input: {
       radius != null ||
       form.distanceMiles === "nationwide"
     ) {
-      edits.radiusMi = acceptUserConstraint({
+      edits.radiusMi = fromShopperInputEvent({
+        kind: "legacy_dirty",
+        field: "radiusMi",
         value: form.distanceMiles === "nationwide" ? null : radius,
-        origin: "user",
       });
     }
   }

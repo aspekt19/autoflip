@@ -4,6 +4,7 @@
 import { isFailureReasonId, isVerdictId, type RunKind } from "@/domain/buyer-copy-table";
 import { appendClarification, createRun, isRunId, toRunView, type RunRecord } from "@/domain/run";
 import type { SearchFormEdits } from "@/domain/search-spec";
+import { fromShopperInputEvent, type ConstraintFieldKey } from "@/domain/constraint-provenance";
 import type { RunView } from "@/domain/run-view";
 import type { Kv } from "@/io/kv";
 import { insertRun, readRun, updateRun } from "@/io/run-store";
@@ -30,22 +31,27 @@ function readFormEdits(value: unknown): SearchFormEdits | null {
     const cell = row[key];
     if (!cell || typeof cell !== "object" || Array.isArray(cell)) continue;
     const rec = cell as { value?: unknown; dirty?: unknown; origin?: unknown };
-    const isUser = rec.origin === "user" || rec.dirty === true;
-    if (!isUser) continue;
+    const kind = rec.origin === "user" ? "wire" : rec.dirty === true ? "legacy_dirty" : null;
+    if (!kind) continue;
+    const field = key as ConstraintFieldKey;
     if (rec.value === null) {
-      out[key] = { value: null, origin: "user" };
+      out[key] = fromShopperInputEvent({ kind, field, value: null });
       continue;
     }
     if (typeof rec.value === "number" && Number.isFinite(rec.value)) {
-      out[key] = { value: Math.round(rec.value), origin: "user" };
+      out[key] = fromShopperInputEvent({ kind, field, value: Math.round(rec.value) });
     }
   }
   const zip = row.zip;
   if (zip && typeof zip === "object" && !Array.isArray(zip)) {
     const rec = zip as { value?: unknown; dirty?: unknown; origin?: unknown };
-    const isUser = rec.origin === "user" || rec.dirty === true;
-    if (isUser && (rec.value === null || typeof rec.value === "string")) {
-      out.zip = { value: typeof rec.value === "string" ? rec.value : null, origin: "user" };
+    const kind = rec.origin === "user" ? "wire" : rec.dirty === true ? "legacy_dirty" : null;
+    if (kind && (rec.value === null || typeof rec.value === "string")) {
+      out.zip = fromShopperInputEvent({
+        kind,
+        field: "zip",
+        value: typeof rec.value === "string" ? rec.value : null,
+      });
     }
   }
   return out;

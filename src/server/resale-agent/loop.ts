@@ -5,6 +5,7 @@
  * (persist checkpoint; never clip SERV call timeouts).
  */
 import { synthesizeRelaxedConditionsFromSearches } from "@/domain/agent-verdict-complete";
+import { fromShopperInputEvent } from "@/domain/constraint-provenance";
 import {
   assertNoNonUserSetConstraints,
   buildUserIntentFromFlatForm,
@@ -338,8 +339,13 @@ function constraintsFromFormEdits(
       const row = raw as { value?: unknown; provenance?: unknown; origin?: unknown; quote?: unknown };
       const origin = typeof row.origin === "string" ? row.origin : row.provenance;
       if (origin !== "user" && origin !== "form") continue;
-      const field = {
+      const revived = fromShopperInputEvent({
+        kind: "wire",
+        field: key as import("@/domain/constraint-provenance").ConstraintFieldKey,
         value: row.value,
+      });
+      const field = {
+        value: revived.value,
         provenance: "user" as const,
         origin: "user" as const,
         ...(typeof row.quote === "string" ? { quote: row.quote } : {}),
