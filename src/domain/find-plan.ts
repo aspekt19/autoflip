@@ -8,6 +8,7 @@ import { directionIdFromSegment, type SearchDirection } from "./directions";
 import {
   emptyNeed,
   explicitNeedFromText,
+  yearBandForBudget,
   type PreferredModel,
   type StructuredNeed,
   type UseCase,
@@ -619,8 +620,15 @@ export function planToStructuredNeed(
     distanceMiles: null,
     milesMax: plan.milesMax,
     milesCapResolved: plan.milesMax != null,
-    yearMin: plan.yearMin,
+    yearMin:
+      plan.yearMin ??
+      (plan.yearMax == null
+        ? yearBandForBudget(plan.budget.maxUsd, new Date(), {
+            approximateFromNote: plan.budget.approximate,
+          }).yearMin
+        : null),
     yearMax: plan.yearMax,
+    // Buyer/form years only — a budget floor is a search guide, not a resolved clarification.
     yearBandResolved: plan.yearMin != null || plan.yearMax != null,
     conditionPriority: "unspecified",
     fuelEconomyPriority,
@@ -639,17 +647,24 @@ export function planToStructuredNeed(
 /** Map plan directions into SearchDirection rows (body-style-only keeps models empty). */
 export function planToDirections(plan: FindPlan, now = new Date()): SearchDirection[] {
   // Never invent a budget year ceiling (AUDIT R5) — only years the buyer/form gave.
-  const openMin = 1990;
+  // When the plan has no floor, use yearBandForBudget so a $20k search does not open to 1990.
   const openMax = now.getUTCFullYear() + 1;
   const buyerSetMin = plan.yearMin != null;
   const buyerSetMax = plan.yearMax != null;
+  const band =
+    !buyerSetMin && !buyerSetMax
+      ? yearBandForBudget(plan.budget.maxUsd, now, { approximateFromNote: plan.budget.approximate })
+      : null;
+  const openMin = band?.yearMin ?? 1990;
   const ordered = orderedYearBounds(plan.yearMin ?? openMin, plan.yearMax ?? openMax, buyerSetMax, openMax);
   const yearMin = ordered.yearMin;
   const yearMax = ordered.yearMax;
   const yearBecause =
     buyerSetMin || buyerSetMax
       ? `Model years ${buyerSetMin ? yearMin : "any"}–${buyerSetMax ? yearMax : "any"} come from your note or form.`
-      : "No year range in your note — searching without a budget-invented year ceiling.";
+      : band
+        ? `${band.because} No year ceiling was invented — searching up to current model years.`
+        : "No year range in your note — searching without a budget-invented year ceiling.";
 
   return plan.directions.slice(0, 3).map((dir, index) => {
     const models = dir.models.slice(0, 6);

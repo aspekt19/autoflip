@@ -246,6 +246,12 @@ describe("header balance and account signed-out copy", () => {
       short: "Credits",
       accessibleLabel: "Report credits",
     });
+    expect(headerBalancePresentation({ phase: "loaded", credits: 10, held: 1 })).toEqual({
+      kind: "balance",
+      full: "9 available (1 held)",
+      short: "9 avail",
+      accessibleLabel: "9 report credits available, 1 held",
+    });
     expect(headerAuthConfiguredProp("loaded", { auth: { configured: false } })).toBe(false);
     expect(headerAuthConfiguredProp("loaded", { auth: { configured: true } })).toBe(true);
     expect(headerAuthConfiguredProp("loaded", {})).toBeUndefined();

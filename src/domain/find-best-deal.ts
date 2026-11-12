@@ -503,6 +503,12 @@ export function prefersNotTooOldFromNote(note: string | null | undefined): boole
   return /\bnot too old\b|\bnewer\b|\brecent model\b/i.test(note);
 }
 
+/** Soft “low miles” without a hard odometer cap still ranks lower-mileage cars higher. */
+export function prefersLowMilesFromNote(note: string | null | undefined): boolean {
+  if (!note) return false;
+  return /\b(low miles|low mileage|not too many miles|lower miles|low odometer)\b/i.test(note);
+}
+
 function listingStubForComps(row: BestDealListing): Listing | null {
   if (row.priceUsd == null || row.miles == null) return null;
   const vin =
@@ -827,6 +833,7 @@ function scoreOne(
   const mpy = row.miles != null ? row.miles / ageYears : null;
   const assumedPace = ctx.milesPerYearAssumption;
   const notTooOld = prefersNotTooOldFromNote(ctx.need.note) || conditionFirst;
+  const lowMilesPref = prefersLowMilesFromNote(ctx.need.note) || conditionFirst;
   let lowMileageUnverified = false;
   const extraSellerQuestions: string[] = [];
   if (mpy != null) {
@@ -891,8 +898,10 @@ function scoreOne(
     let vsExpected = 0;
     if (row.miles != null && expected > 0) {
       vsExpected = clamp(
-        ((expected - row.miles) / expected) * WEIGHTS.ageAndWear * (notTooOld ? 0.35 : 0.25),
-        -WEIGHTS.ageAndWear * 0.55,
+        ((expected - row.miles) / expected) *
+          WEIGHTS.ageAndWear *
+          (notTooOld || lowMilesPref ? 0.4 : 0.25),
+        -WEIGHTS.ageAndWear * (lowMilesPref ? 0.7 : 0.55),
         WEIGHTS.ageAndWear * 0.35,
       );
       if (lowMileageUnverified && vsExpected > 0) vsExpected = 0;
@@ -902,9 +911,11 @@ function scoreOne(
       if (row.miles >= 200_000) {
         absoluteWear = -(WEIGHTS.price + WEIGHTS.ageAndWear);
       } else if (row.miles >= BEST_DEAL_HIGH_MILES_HARD) {
-        absoluteWear = -WEIGHTS.price;
+        absoluteWear = -WEIGHTS.price * (lowMilesPref ? 1.15 : 1);
       } else if (row.miles >= BEST_DEAL_HIGH_MILES_SOFT) {
-        absoluteWear = -WEIGHTS.ageAndWear * (conditionFirst ? 0.55 : 0.35);
+        absoluteWear = -WEIGHTS.ageAndWear * (conditionFirst || lowMilesPref ? 0.55 : 0.35);
+      } else if (lowMilesPref && row.miles >= 90_000) {
+        absoluteWear = -WEIGHTS.ageAndWear * 0.25;
       }
     }
     const agePoints = ageScore + vsExpected + absoluteWear;
@@ -1674,6 +1685,7 @@ function rankAll(
     mustHaves: need.mustHaves ?? [],
   });
   const safetyFirst = safetyOrientedRequest(need.note);
+  const lowMilesPref = prefersLowMilesFromNote(need.note);
   scored.sort((a, b) => {
     if (a.excludedFromPick !== b.excludedFromPick) return a.excludedFromPick ? 1 : -1;
     if (safetyFirst) {
@@ -1690,6 +1702,11 @@ function rankAll(
     const bHigh = b.miles != null && b.miles >= BEST_DEAL_HIGH_MILES_HARD;
     if (aHigh && !bHigh && bAcc === 0 && b.miles != null && a.miles != null && b.miles < a.miles) return 1;
     if (bHigh && !aHigh && aAcc === 0 && a.miles != null && b.miles != null && a.miles < b.miles) return -1;
+    // Soft low-miles preference: among otherwise-close cars, lower odometer wins before score ties.
+    if (lowMilesPref && a.miles != null && b.miles != null && Math.abs(a.miles - b.miles) >= 15_000) {
+      const scoreGap = Math.abs((b.score ?? 0) - (a.score ?? 0));
+      if (scoreGap < 4 && a.miles !== b.miles) return a.miles - b.miles;
+    }
     if (b.score !== a.score) return b.score - a.score;
     // Soft AWD before VIN lexicographic key so preferably-AWD does not bury AWD under FWD.
     if (preferAwd) {

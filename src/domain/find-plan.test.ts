@@ -358,6 +358,25 @@ describe("validateFindPlan recorded fixtures (reviewer #149 gaps)", () => {
   });
 });
 
+describe("planToDirections year floor", () => {
+  it("uses yearBandForBudget when the plan has no years, not 1990", () => {
+    const plan = fallbackFindPlan(
+      "Family 3-row SUV under $20,000 in Denver. Need something safe for kids.",
+      "personal",
+      { budgetUsd: 20_000 },
+    );
+    expect(plan.yearMin).toBeNull();
+    expect(plan.yearMax).toBeNull();
+    const dirs = planToDirections(plan, new Date("2026-11-11T00:00:00Z"));
+    expect(dirs[0]!.yearMin).toBeGreaterThanOrEqual(2010);
+    expect(dirs[0]!.yearMin).toBeGreaterThan(1990);
+    expect(dirs[0]!.yearMax).toBeGreaterThanOrEqual(2026);
+    const need = planToStructuredNeed(plan, "personal", "Family 3-row SUV under $20,000 in Denver.");
+    expect(need.yearMin).toBeGreaterThanOrEqual(2010);
+    expect(need.yearBandResolved).toBe(false);
+  });
+});
+
 describe("fallbackFindPlan", () => {
   it("never empty for a valid note", () => {
     for (const note of [

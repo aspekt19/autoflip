@@ -596,14 +596,19 @@ export function checkRunInvariants(value: unknown, html?: string | null): Invari
     ),
   );
 
-  const stopIndex = cars.findIndex((car) => DO_NOT_DRIVE.test(`${car.reason ?? ""} ${car.summary ?? ""}`));
+  const stopCars = cars.filter((car) => isDoNotDriveCar(car));
+  const buyableCars = cars.filter((car) => !isDoNotDriveCar(car));
+  const stopMixed = stopCars.length > 0 && buyableCars.length > 0;
+  const stopIndex = cars.findIndex((car) => isDoNotDriveCar(car));
   checks.push(
     check(
       "do-not-drive",
-      stopIndex < 0 || stopIndex === cars.length - 1,
-      stopIndex >= 0
-        ? "A car with an open do-not-drive recall is still listed above cars without that warning."
-        : "An open do-not-drive recall is ranked last and flagged, or none is shown.",
+      !stopMixed && (stopIndex < 0 || stopIndex === cars.length - 1),
+      stopMixed
+        ? "A do-not-drive car is mixed into the main list with buyable cars."
+        : stopIndex >= 0
+          ? "A car with an open do-not-drive recall is still listed above cars without that warning."
+          : "An open do-not-drive recall is ranked last and flagged, or none is shown.",
     ),
   );
 
@@ -683,13 +688,71 @@ export function checkRunInvariants(value: unknown, html?: string | null): Invari
     ),
   );
 
+  const strayFailure = INTERNAL_FAILURE_FRAGMENT.test(`${text} ${visible}`);
+  checks.push(
+    check(
+      "stray-failure",
+      !strayFailure,
+      strayFailure
+        ? "Buyer-facing text still contains an internal failure fragment such as “answer unreadable”."
+        : "Buyer-facing text has no internal failure fragments.",
+    ),
+  );
+
+  const emptyListings = cars.length === 0;
+  // Do not treat the automatic "No credit was used." charge line as an empty-result reason.
+  const emptyCopy = `${run.buyerMessage ?? ""} ${run.message ?? ""} ${visible}`;
+  const emptyExplained =
+    (run.failureReasons ?? []).length > 0 ||
+    EMPTY_RESULT_REASON.test(emptyCopy) ||
+    (typeof (run as { emptyReason?: unknown }).emptyReason === "string" &&
+      Boolean((run as { emptyReason?: string }).emptyReason?.trim()));
+  const emptyNeedsReason =
+    emptyListings && settled && (run.kind === "find" || run.kind === "resale");
+  checks.push(
+    check(
+      "empty-reason",
+      !emptyNeedsReason || emptyExplained,
+      emptyNeedsReason && !emptyExplained
+        ? "The run has no listings and no plain reason for the empty result."
+        : "An empty result names why, or listings are present.",
+    ),
+  );
+
+  const softAwdNote =
+    typeof run.note === "string" &&
+    (/\b(preferably|preferred|prefer|ideally|if possible)\b[\s\S]{0,40}\b(awd|4wd|4x4|all[-\s]?wheel|four[-\s]?wheel)\b/i.test(
+      run.note,
+    ) ||
+      /\b(awd|4wd|4x4|all[-\s]?wheel|four[-\s]?wheel)\b[\s\S]{0,40}\b(preferably|preferred|prefer|ideally|if possible)\b/i.test(
+        run.note,
+      ));
+  checks.push(
+    check(
+      "soft-awd-hard",
+      !(softAwdNote && limits.drivetrain),
+      softAwdNote && limits.drivetrain
+        ? "The note only preferred all-wheel drive, but the run stored it as a hard drivetrain limit."
+        : "A soft AWD preference is not stored as a hard drivetrain limit.",
+    ),
+  );
+
   return { ok: checks.every((item) => item.pass), checks };
 }
 
-const DO_NOT_DRIVE = /don't drive it until the recall repair is done/i;
+const DO_NOT_DRIVE =
+  /don't drive it until the recall repair is done|do-not-drive|do not drive|park-it stop-sale/i;
+const INTERNAL_FAILURE_FRAGMENT =
+  /\banswer unreadable\b|\bunreadable answer\b|\bfinish_reason\b|\bchatcmpl-/i;
+const EMPTY_RESULT_REASON =
+  /no cars|no listings|nothing matched|could not plan|search did not|no credit was used|empty result|no model directions|did not come back|zero cars/i;
+
+function isDoNotDriveCar(car: { reason?: string | null; summary?: string | null }): boolean {
+  return DO_NOT_DRIVE.test(`${car.reason ?? ""} ${car.summary ?? ""}`);
+}
 
 function band(car: RunListing): number {
-  if (DO_NOT_DRIVE.test(`${car.reason ?? ""} ${car.summary ?? ""}`)) return 4;
+  if (isDoNotDriveCar(car)) return 4;
   if (car.implausible) return 2;
   if ((car.accidentCount ?? 0) > 0 || (car.miles ?? 0) >= HIGH_MILES) return 1;
   return 0;
@@ -744,6 +807,11 @@ export function settlePublishedRun(run: RunRecord): RunRecord {
       offerLabel: car.offerLabel ? scrubBuyerText(car.offerLabel) : car.offerLabel,
     };
   });
+  // Hide do-not-drive cars from the main list when any eligible car remains.
+  const driveable = listings.filter((car) => !isDoNotDriveCar(car));
+  if (driveable.length > 0 && driveable.length < listings.length) {
+    listings = driveable;
+  }
   listings.sort((a, b) => band(a) - band(b));
   listings = listings.map((car) => {
     const summary = car.summary?.trim() ?? "";

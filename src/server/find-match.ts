@@ -783,13 +783,24 @@ export async function runFindMatch(
         if (need.mode === "flip") {
           return (byVin.get(b.vin)?.score ?? 0) - (byVin.get(a.vin)?.score ?? 0);
         }
-        // Stable personal order: lower ask, then lower miles, then VIN — not a fake score-0 rank.
-        const pa = a.priceUsd ?? Number.POSITIVE_INFINITY;
-        const pb = b.priceUsd ?? Number.POSITIVE_INFINITY;
-        if (pa !== pb) return pa - pb;
+        // Prefer personalRankScores (newer + lower miles within budget) over ask-price alone.
+        const vinA = (a.vin || "").trim().toUpperCase();
+        const vinB = (b.vin || "").trim().toUpperCase();
+        const scoreA = personalScores.get(vinA);
+        const scoreB = personalScores.get(vinB);
+        if (scoreA != null || scoreB != null) {
+          const sa = scoreA ?? Number.NEGATIVE_INFINITY;
+          const sb = scoreB ?? Number.NEGATIVE_INFINITY;
+          if (sa !== sb) return sb - sa;
+        }
+        // Tie-break: newer year, then lower miles, then lower ask, then VIN.
+        if (a.year !== b.year) return b.year - a.year;
         const ma = a.miles ?? Number.POSITIVE_INFINITY;
         const mb = b.miles ?? Number.POSITIVE_INFINITY;
         if (ma !== mb) return ma - mb;
+        const pa = a.priceUsd ?? Number.POSITIVE_INFINITY;
+        const pb = b.priceUsd ?? Number.POSITIVE_INFINITY;
+        if (pa !== pb) return pa - pb;
         return (a.vin || "").localeCompare(b.vin || "");
       })
       .filter((item) => {

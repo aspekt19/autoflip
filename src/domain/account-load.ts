@@ -172,6 +172,8 @@ export function canStartCreditCheckout(input: {
 export function headerBalancePresentation(input: {
   phase: AccountLoadPhase;
   credits: number | null;
+  /** Credits reserved for an in-flight charge (not a lock-only inflight key). */
+  held?: number | null;
 }): { kind: "loading" | "failed" | "balance"; full: string; short: string; accessibleLabel: string } {
   // Visible chip stays short. The header row is nowrap, and a full sentence
   // crowds the Sign in control. The accessible name keeps the full sentence.
@@ -194,7 +196,18 @@ export function headerBalancePresentation(input: {
   if (input.credits === null) {
     return { kind: "balance", full: "Report credits", short: "Credits", accessibleLabel: "Report credits" };
   }
-  const noun = input.credits === 1 ? "credit" : "credits";
+  const held = typeof input.held === "number" && input.held > 0 ? Math.floor(input.held) : 0;
+  const available = Math.max(0, input.credits - held);
+  const noun = available === 1 ? "credit" : "credits";
+  if (held > 0) {
+    const full = `${available} available (${held} held)`;
+    return {
+      kind: "balance",
+      full,
+      short: `${available} avail`,
+      accessibleLabel: `${available} report ${noun} available, ${held} held`,
+    };
+  }
   const full = `${input.credits} report ${noun}`;
   return { kind: "balance", full, short: `${input.credits} ${noun}`, accessibleLabel: full };
 }

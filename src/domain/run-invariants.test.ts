@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { implausibleOdometer } from "./find-best-deal";
 import { applyObservation, createRun, toRunView } from "./run";
-import { checkRunInvariants } from "./run-invariants";
+import { checkRunInvariants, settlePublishedRun } from "./run-invariants";
 import { resaleEdgeSentence } from "./resale-presentation";
 
 const chicagoStopped = {
@@ -246,6 +246,177 @@ describe("r5 blind spots", () => {
       html,
     );
     expect(failed).toEqual(expect.arrayContaining(["starter-mix", "vin-mismatch", "offer-at-ask", "tax-state", "repeated-text"]));
+  });
+
+  it("fails buyer text that still contains answer unreadable", () => {
+    const failed = ids({
+      kind: "find",
+      phase: "stopped",
+      note: "SUV under $20k",
+      verdict: null,
+      confidence: null,
+      creditsCharged: 0,
+      failureReasons: ["decision_failed"],
+      buyerMessage: "The choose_car step failed: answer unreadable.",
+      listings: [],
+      picks: [],
+    });
+    expect(failed).toEqual(expect.arrayContaining(["stray-failure"]));
+  });
+
+  it("fails a finished empty find with no reason", () => {
+    const failed = ids({
+      kind: "find",
+      phase: "finished",
+      note: "Family car under $20k",
+      verdict: null,
+      confidence: null,
+      creditsCharged: 0,
+      failureReasons: [],
+      buyerMessage: "Done.",
+      listings: [],
+      picks: [],
+    });
+    expect(failed).toEqual(expect.arrayContaining(["empty-reason"]));
+  });
+
+  it("passes an empty find that names why", () => {
+    const failed = ids({
+      kind: "find",
+      phase: "finished",
+      note: "Family car under $20k",
+      verdict: null,
+      confidence: null,
+      creditsCharged: 0,
+      failureReasons: ["no_cars"],
+      buyerMessage: "No cars came back from this search, so no credit was used.",
+      listings: [],
+      picks: [],
+    });
+    expect(failed).not.toContain("empty-reason");
+  });
+
+  it("hides do-not-drive cars from the published list when a buyable car exists", () => {
+    const created = createRun({
+      ownerId: "owner",
+      kind: "find",
+      inputs: {
+        note: "AWD SUV under $20k, low miles",
+        clarifications: [],
+        mode: "personal",
+        vin: null,
+        formEdits: null,
+      },
+    });
+    const stored = applyObservation(created, {
+      listings: [
+        {
+          vin: "1HGCM82633A004352",
+          year: 2018,
+          make: "Honda",
+          model: "CR-V",
+          trim: null,
+          priceUsd: 16_500,
+          miles: 72_000,
+          dealer: null,
+          vdp: null,
+          city: null,
+          state: null,
+          reason: "The maker says don't drive it until the recall repair is done, so this car is not the one to buy.",
+        },
+        {
+          vin: "2T3DFREV1HW615902",
+          year: 2017,
+          make: "Toyota",
+          model: "RAV4",
+          trim: null,
+          priceUsd: 14_451,
+          miles: 89_000,
+          dealer: null,
+          vdp: null,
+          city: null,
+          state: null,
+          reason: "Solid fit within budget.",
+        },
+      ],
+      picks: ["2T3DFREV1HW615902"],
+      verdict: "needs_inspection",
+      confidence: "Low",
+      confidenceReason: "Low: history is incomplete, so this is not a firm read.",
+      creditsCharged: 1,
+      buyerMessage: "Best choice on current data.",
+      terminal: true,
+    });
+    const settled = settlePublishedRun(stored);
+    expect(settled.listings.map((car) => car.vin)).toEqual(["2T3DFREV1HW615902"]);
+    expect(ids(toRunView(settled, null))).not.toContain("do-not-drive");
+  });
+
+  it("fails when a do-not-drive car is mixed with buyable cars", () => {
+    const failed = ids({
+      kind: "find",
+      phase: "finished",
+      note: "AWD SUV in San Diego, low miles",
+      verdict: "needs_inspection",
+      confidence: "Low",
+      confidenceReason: "Low: history is incomplete, so this is not a firm read.",
+      creditsCharged: 1,
+      failureReasons: [],
+      buyerMessage: "Best choice on current data.",
+      listings: [
+        {
+          vin: "1HGCM82633A004352",
+          year: 2018,
+          make: "Honda",
+          model: "CR-V",
+          priceUsd: 16_500,
+          miles: 72_000,
+          reason: "The maker says don't drive it until the recall repair is done, so this car is not the one to buy.",
+          picked: true,
+        },
+        {
+          vin: "2T3DFREV1HW615902",
+          year: 2017,
+          make: "Toyota",
+          model: "RAV4",
+          priceUsd: 14_451,
+          miles: 89_000,
+          reason: "Solid fit within budget.",
+        },
+      ],
+      picks: ["1HGCM82633A004352"],
+    });
+    expect(failed).toEqual(expect.arrayContaining(["do-not-drive"]));
+  });
+
+  it("fails when soft Preferably AWD is stored as a hard drivetrain limit", () => {
+    const failed = ids({
+      kind: "find",
+      phase: "finished",
+      note: "Used SUV around $20k. Preferably AWD, under 70k miles.",
+      verdict: "needs_inspection",
+      confidence: "Low",
+      confidenceReason: "Low: history is incomplete, so this is not a firm read.",
+      creditsCharged: 1,
+      failureReasons: [],
+      limits: ["Budget up to $20,000.", "All-wheel drive or four-wheel drive."],
+      buyerMessage: "Best choice on current data.",
+      listings: [
+        {
+          vin: "2T3DFREV1HW615902",
+          year: 2017,
+          make: "Toyota",
+          model: "RAV4",
+          priceUsd: 14_451,
+          miles: 69_000,
+          drivetrain: "AWD",
+          reason: "Fits the budget.",
+          picked: true,
+        },
+      ],
+      picks: ["2T3DFREV1HW615902"],
+    });
+    expect(failed).toEqual(expect.arrayContaining(["soft-awd-hard"]));
   });
 
   it("fails a finished find whose top pick says the opening offer was not given", () => {
