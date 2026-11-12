@@ -234,3 +234,109 @@ describe("note→constraint enforcement — production builders must not call no
     }
   });
 });
+
+describe("note→search enforcement — no free-text readers / catalogs outside SERV client", () => {
+  /**
+   * SERV client = src/server/serv/** (HTTP transport). Agent loops may embed the
+   * shopper note as opaque prompt text. Anti-fab quote grounding may check that a
+   * SERV quote substring appears in the note. Everything else must not regex /
+   * keyword-scan need.note / mustHaves to invent searches or constraints.
+   */
+  const SERV_CLIENT_PREFIXES = ["src/server/serv/"];
+  const NOTE_READ_ALLOWLIST = new Set([
+    // Anti-fab: quote / token grounding against the shopper note.
+    "src/domain/find-plan.ts",
+    "src/domain/search-spec.ts",
+    "src/domain/serv-boundary.ts",
+    "src/domain/run-invariants.ts",
+    // Opaque pass-through of note into SERV prompts / tools.
+    "src/server/find-agent/loop.ts",
+    "src/server/find-agent/tools.ts",
+    "src/server/resale-agent/loop.ts",
+    "src/server/understand-need.ts",
+    "src/server/find-decide-serv.ts",
+    "src/server/find-triage-serv.ts",
+    "src/server/find-decide-orchestrator.ts",
+    "src/server/find-settle-serv.ts",
+    "src/server/shopper-verdict-serv.ts",
+    "src/server/radar-serv.ts",
+  ]);
+
+  const FORBIDDEN_SYMBOLS = [
+    "proposeDirections",
+    "previewFindFromNote",
+    "broadenStarterDirections",
+    "broadenOpenDirections",
+    "isOpenStarterNote",
+    "buyerNamedStarterModel",
+    "towingCapacityCaveat",
+    "unnamedTruckRequest",
+    "noteNames",
+    "requestedBody",
+    "directionsFor",
+    "STARTER_FIRST_WAVE",
+    "STARTER_RETRY_WAVE",
+    "OPEN_TRUCK_MODELS",
+    "SOFT_HYBRID_MODELS",
+    "CROSSOVERS",
+    "COMPACTS",
+    "MIDSIZE",
+  ];
+
+  /** Regex / includes applied to shopper need.note / run.note free text. */
+  const NOTE_INTERPRET_RE =
+    /(?:need\.note|input\.note|opts\.note|run\.note)\s*(?:\?\.)?\s*(?:\.toLowerCase\(\)\s*)?\.(?:test|includes|match)\s*\(/;
+  const MUSTHAVES_INTERPRET_RE =
+    /mustHaves(?:\s*\?\?\s*\[\])?[^\n]{0,80}\.(?:test|includes|match)\s*\(/;
+  const KEYWORD_ON_NOTE_RE =
+    /\/\\b(?:first car|new driver|tow(?:ing|s|ed)?|trailer|awd|4wd|hybrid|suv|truck|sedan|college)\\b\/[a-z]*\.test\([^)]*note/;
+
+  it("deleted note/catalog modules stay gone", () => {
+    for (const rel of [
+      "src/domain/open-search.ts",
+      "src/domain/starter-search.ts",
+      "src/domain/find-preview.ts",
+    ]) {
+      expect(() => readFileSync(join(ROOT, rel), "utf8"), `${rel} must stay deleted`).toThrow();
+    }
+  });
+
+  it("no production src outside SERV client interprets shopper note / mustHaves free text", () => {
+    const hits: string[] = [];
+    for (const abs of walkTsFiles(SRC)) {
+      const path = relative(ROOT, abs).replace(/\\/g, "/");
+      if (SERV_CLIENT_PREFIXES.some((p) => path.startsWith(p))) continue;
+      if (NOTE_READ_ALLOWLIST.has(path)) continue;
+      const body = stripComments(readFileSync(abs, "utf8"));
+      for (const sym of FORBIDDEN_SYMBOLS) {
+        // Allow comments that say the symbol was deleted.
+        if (new RegExp(`\\b${sym}\\b`).test(body) && !new RegExp(`(?:deleted|removed|no code).*\\b${sym}\\b`, "i").test(body)) {
+          // Symbol as identifier use (not only in a prose comment mentioning deletion).
+          if (new RegExp(`(?:function|const|let|var|import|{|,)\\s*${sym}\\b|\\b${sym}\\s*(?:\\(|=|,|})`).test(body)) {
+            hits.push(`${path}: forbidden symbol ${sym}`);
+          }
+        }
+      }
+      if (NOTE_INTERPRET_RE.test(body)) hits.push(`${path}: note .test/.includes/.match`);
+      if (MUSTHAVES_INTERPRET_RE.test(body)) hits.push(`${path}: mustHaves .test/.includes/.match`);
+      if (KEYWORD_ON_NOTE_RE.test(body)) hits.push(`${path}: keyword regex on note`);
+    }
+    expect(hits).toEqual([]);
+  });
+
+  it("directions.ts has no hardcoded make/model search catalogs", () => {
+    const text = stripComments(readFileSync(join(SRC, "domain/directions.ts"), "utf8"));
+    expect(text).not.toMatch(/\bCROSSOVERS\b/);
+    expect(text).not.toMatch(/\bCOMPACTS\b/);
+    expect(text).not.toMatch(/\bTRUCKS\b/);
+    expect(text).not.toMatch(/\bMIDSIZE\b/);
+    expect(text).not.toMatch(/\bproposeDirections\b/);
+    expect(text).not.toMatch(/\brequestedBody\b/);
+  });
+
+  it("resale-search does not call proposeDirections", () => {
+    const text = stripComments(readFileSync(join(SRC, "server/resale-search.ts"), "utf8"));
+    expect(text).not.toMatch(/\bproposeDirections\b/);
+    expect(text).toMatch(/search_listings/);
+  });
+});

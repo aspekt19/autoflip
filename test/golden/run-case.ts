@@ -4,7 +4,7 @@
  * budget (AssistantFlow reads it from the render closure), and a year set on
  * Confirm updates the need without rebuilding plan directions.
  */
-import { proposeDirections, type SearchDirection } from "@/domain/directions";
+import type { SearchDirection } from "@/domain/directions";
 import type { StructuredNeed } from "@/domain/need";
 import { findDeliveryChargesCredit } from "@/domain/find-delivery";
 import { sha256Canonical } from "@/domain/hash";
@@ -263,9 +263,8 @@ class ClientSession {
     // Production Find uses SERV search_listings; this harness keeps Auto.dev URL observations.
     const yearMin = this.yearMinDraft ? Number(this.yearMinDraft) : this.need.yearMin ?? undefined;
     const yearMax = this.need.yearMax ?? undefined;
-    const planDirs = this.directions.length > 0 ? this.directions : [];
-    const modelCount = planDirs.reduce((n, d) => n + (d.models?.length || (d.search?.make ? 1 : 0)), 0);
-    const dirs = modelCount >= 2 ? planDirs : proposeDirections(this.need);
+    // SERV plan directions only — no code model catalogs / proposeDirections.
+    const dirs = this.directions.length > 0 ? this.directions : [];
     const deps = depsFor(fetchImpl);
     const groups = [];
     const compsPool = [];
@@ -677,7 +676,7 @@ async function runFlip(
     yearMax: null,
     milesMax: null,
   };
-  // Build a minimal need via emptyNeed path through proposeDirections.
+  // Budget/ZIP-only observation queries — no hardcoded make/model catalogs.
   const { emptyNeed } = await import("@/domain/need");
   const flipNeed = {
     ...emptyNeed("flip"),
@@ -687,31 +686,24 @@ async function runFlip(
     zip: placeOf(specCase).zip,
     distanceMiles: placeOf(specCase).radiusMi,
   };
-  const flipDirs = proposeDirections(flipNeed);
   const flipDeps = depsFor(fetchForSearch);
   const fixtureListings: Array<Record<string, unknown>> = [];
   let flipQueries = 0;
-  for (const direction of flipDirs.slice(0, 2)) {
-    const models = direction.models.length > 0 ? direction.models : [direction.search];
-    for (const model of models.slice(0, 2)) {
-      if (!model?.make?.trim()) continue;
-      flipQueries += 1;
-      const assembled = await assembleRadar(
-        {
-          make: model.make,
-          model: model.model,
-          zip: flipNeed.zip ?? undefined,
-          distanceMiles: flipNeed.distanceMiles,
-          mode: "flip",
-          priceMax: budget,
-          skipRadarGuard: true,
-        },
-        flipDeps,
-      );
-      if (assembled.ok) {
-        for (const row of assembled.listings) fixtureListings.push(row as unknown as Record<string, unknown>);
-      }
-    }
+  flipQueries += 1;
+  const assembled = await assembleRadar(
+    {
+      make: "",
+      model: "",
+      zip: flipNeed.zip ?? undefined,
+      distanceMiles: flipNeed.distanceMiles,
+      mode: "flip",
+      priceMax: budget,
+      skipRadarGuard: true,
+    },
+    flipDeps,
+  );
+  if (assembled.ok) {
+    for (const row of assembled.listings) fixtureListings.push(row as unknown as Record<string, unknown>);
   }
   void needForFlip;
 

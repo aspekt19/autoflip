@@ -277,11 +277,7 @@ export function NoteFactChips({
               checked={need.awdPreference === true}
               onChange={(event) => onChange({ ...need, awdPreference: event.target.checked })}
             />
-            {(need.mustHaves ?? []).some((item) =>
-              /\b(?:awd|4wd|4x4|all[-\s]?wheel|four[-\s]?wheel)\b/i.test(item),
-            )
-              ? "All-wheel drive required"
-              : "Preferably all-wheel drive"}
+            Preferably all-wheel drive
           </span>
         </label>
       ) : null}

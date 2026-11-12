@@ -301,17 +301,18 @@ function ResaleSearchForm({ credits, onAuthLost }: { credits: number | null; onA
       if (body.need.zip && !zip.trim()) setZip(body.need.zip);
       if (body.need.distanceMiles != null && radius === "") setRadius(String(body.need.distanceMiles));
       if (body.need.bodyStyle && !bodyStyle) setBodyStyle(body.need.bodyStyle);
-      const noteText = freeText.toLowerCase();
-      const namedMakes = (body.need.preferredMakes ?? []).filter((item) => noteText.includes(item.toLowerCase()));
-      if (namedMakes.length && !makes.trim()) setMakes(namedMakes.join(", "));
-      if (body.need.make && !make && noteText.includes(body.need.make.toLowerCase())) setMake(body.need.make);
+      // SERV/form fields only — never re-scan free text for make/model keywords.
+      if ((body.need.preferredMakes?.length ?? 0) > 0 && !makes.trim()) {
+        setMakes((body.need.preferredMakes ?? []).join(", "));
+      }
+      if (body.need.make && !make) setMake(body.need.make);
       const firstModel = body.need.preferredModels?.[0];
       if (firstModel && !model) {
         const modelName = typeof firstModel === "string" ? firstModel : firstModel.model;
         const makeName = typeof firstModel === "string" ? body.need.make : firstModel.make;
-        if (modelName && noteText.includes(modelName.toLowerCase())) {
+        if (modelName) {
           setModel(modelName);
-          if (makeName && !make && noteText.includes(makeName.toLowerCase())) setMake(makeName);
+          if (makeName && !make) setMake(makeName);
         }
       }
       if (body.need.yearMin != null && !yearMin) setYearMin(String(body.need.yearMin));

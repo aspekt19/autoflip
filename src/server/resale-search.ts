@@ -1,11 +1,10 @@
 /**
  * Budget-first Resale plan search.
  * Inventory + choose run only via the SERV Resale agent loop (`search_listings`).
- * Classic runFindMatch / flip-rank inventory is deleted.
+ * Classic runFindMatch / flip-rank inventory and hardcoded direction catalogs are deleted.
  */
 import type { AgentVerdict } from "@/domain/agent-verdict-schema";
 import { type DecisionProofRecord } from "@/domain/decision-proof-record";
-import { proposeDirections } from "@/domain/directions";
 import {
   appendJournalStep,
   emptyResaleJournal,
@@ -13,7 +12,6 @@ import {
 } from "@/domain/resale-decision-journal";
 import type { ResaleCandidatePnl } from "@/domain/resale-pnl";
 import {
-  needFromResaleSearchInput,
   parseResaleSearchInput,
   type ResaleSearchInput,
 } from "@/domain/resale-search-input";
@@ -152,7 +150,6 @@ export async function runResaleSearch(
   }
 
   const input: ResaleSearchInput = parsed.input;
-  const need = needFromResaleSearchInput(input);
   const recordedAt = new Date().toISOString();
   const deadline =
     deps.deadline ?? makeResaleDeadline(deps.internalBudgetMs ?? RESALE_INTERNAL_BUDGET_MS);
@@ -166,34 +163,33 @@ export async function runResaleSearch(
     stopAfter: deps.stopAfter ?? "full",
   });
 
-  const directions = proposeDirections(need);
-  const allowedDirections = directions.map((d) => ({
-    id: d.id,
-    segment: d.segment,
-    make: d.search.make,
-    model: d.search.model,
-    yearMin: d.yearMin,
-    yearMax: d.yearMax,
-  }));
+  // No hardcoded make/model/body catalogs. SERV search_listings owns inventory.
+  // Plan step records budget/form context only; plannedDirectionIds stay empty.
+  const allowedDirections: Array<{
+    id: string;
+    segment: string;
+    make: string;
+    model: string;
+    yearMin: number;
+    yearMax: number;
+  }> = [];
 
-  // SERV may order/filter which editorial directions to run. Never set Confirm-style
-  // make/model refine here — that collapses proposeDirections to one model labeled
-  // "The model you named" even when the buyer named none (budget-only Resale).
   let plannedDirectionIds: string[] =
     deps.plannedDirectionIds && deps.plannedDirectionIds.length > 0
-      ? deps.plannedDirectionIds.filter((id) => allowedDirections.some((d) => d.id === id))
-      : allowedDirections.map((d) => d.id);
-  if (plannedDirectionIds.length === 0) {
-    plannedDirectionIds = allowedDirections.map((d) => d.id);
-  }
+      ? [...deps.plannedDirectionIds]
+      : [];
 
   if (!deps.skipPlanServ) {
     planJournal = appendJournalStep(planJournal, {
       kind: "plan_search",
       actor: "code",
-      decided: `Proposed ${allowedDirections.length} search directions for budget $${input.budgetUsd.toLocaleString("en-US")}: ${allowedDirections.map((d) => d.segment).join("; ")}`,
-      why: "Editorial allowlist from budget band and optional filters — not market ranking.",
-      inputsUsed: allowedDirections.map((d) => `direction:${d.id}:${d.segment}`),
+      decided: `Resale plan for budget $${input.budgetUsd.toLocaleString("en-US")} — SERV agent will choose search_listings filters (no code model catalog).`,
+      why: "Hardcoded editorial directions deleted; inventory only via SERV search_listings.",
+      inputsUsed: [
+        `budgetUsd:${input.budgetUsd}`,
+        input.zip ? `zip:${input.zip}` : "zip:none",
+        input.freeText?.trim() ? "freeText:present" : "freeText:none",
+      ],
       changed: null,
       model: null,
       responseId: null,
@@ -201,7 +197,6 @@ export async function runResaleSearch(
       rejected: null,
     });
 
-    // Thin plan façade — PR A (understand + plan) plugs into planSearch / ports.planResale.
     const planned = await planSearch({
       surface: "resale",
       budgetUsd: input.budgetUsd,
@@ -216,16 +211,10 @@ export async function runResaleSearch(
       servModel: deps.servModel,
       fetchImpl: deps.fetchImpl,
     });
-    plannedDirectionIds =
-      planned.directionIds.length > 0
-        ? planned.directionIds.filter((id) => allowedDirections.some((d) => d.id === id))
-        : allowedDirections.map((d) => d.id);
-    if (plannedDirectionIds.length === 0) {
-      plannedDirectionIds = allowedDirections.map((d) => d.id);
-    }
+    plannedDirectionIds = planned.directionIds.length > 0 ? [...planned.directionIds] : [];
     planJournal = planned.journal;
     planProofRecords = planned.proofRecords;
-  } // end !skipPlanServ
+  }
 
   if (deps.stopAfter === "plan") {
     logResaleStage("plan_stop", deadline.startedAtMs, {
@@ -244,14 +233,11 @@ export async function runResaleSearch(
         budgetUsd: input.budgetUsd,
         journal: planJournal,
         proofRecords: planProofRecords,
-        // Keep shape for stepped job, but never a single-model Confirm refine.
         planRefine: null,
         plannedDirectionIds,
         headline: "Search plan ready",
         message:
-          plannedDirectionIds.length > 1
-            ? `Agent planned ${plannedDirectionIds.length} search directions. Next: pull inventory for this budget.`
-            : "Code directions stand. Next: pull inventory for this budget.",
+          "Plan recorded. Next: SERV agent loop pulls inventory via search_listings (no code model catalog).",
         nextStep: "Continue to inventory — credit is charged only when the final verdict is delivered.",
       },
     };

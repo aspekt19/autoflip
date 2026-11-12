@@ -14,7 +14,6 @@ import { readRun } from "@/io/run-store";
 import { listingsFromBestDeal, proofsFromRecords, syncRunSafely } from "@/server/run-sync";
 import type { SourceId } from "@/domain/buyer-copy-table";
 import { FIND_DECIDE_ROUTE_MS } from "@/domain/route-budget";
-import { towingCapacityCaveat } from "@/domain/open-search";
 
 export const dynamic = "force-dynamic";
 /**
@@ -165,7 +164,7 @@ export async function POST(request: Request) {
     verdict: proposedVerdict,
     confidence: result.pickAgentVerdict?.confidence ?? null,
     confidenceReason: result.bestDeal?.why ?? result.pickAgentVerdict?.reasons?.[0]?.text ?? null,
-    buyerMessage: [result.bestDeal?.why, towingCapacityCaveat(result.needAfter.note)].filter(Boolean).join(" "),
+    buyerMessage: result.bestDeal?.why ?? "",
     terminal: true,
   });
   const stored = settledRunId ? await readRun(kv, settledRunId) : null;

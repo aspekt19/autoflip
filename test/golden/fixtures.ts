@@ -258,12 +258,21 @@ function stubPlanFromNote(note: string): Record<string, unknown> {
   if (/\bcorolla\b/i.test(note)) namedModels.push({ make: "Toyota", model: "Corolla" });
   const excludedMakes: string[] = [];
   if (/\bnot a kia\b|\bno kia\b/i.test(note)) excludedMakes.push("Kia");
+  // Golden SERV stub owns first-car breadth (production code has no starter catalog).
+  const firstCar = /\b(?:first car|new driver|learner driver|student driver)\b/i.test(note);
   const directionModels =
     namedModels.length > 0
       ? namedModels
-      : body === "suv"
-        ? [{ make: "Toyota", model: "RAV4" }]
-        : [{ make: "Toyota", model: "Camry" }];
+      : firstCar
+        ? [
+            { make: "Toyota", model: "Corolla" },
+            { make: "Honda", model: "Civic" },
+            { make: "Toyota", model: "Camry" },
+            { make: "Honda", model: "Accord" },
+          ]
+        : body === "suv"
+          ? [{ make: "Toyota", model: "RAV4" }]
+          : [{ make: "Toyota", model: "Camry" }];
   return {
     summary: note.trim().slice(0, 200) || "Car shopping request.",
     bodyStyles: [body],
@@ -287,7 +296,7 @@ function stubPlanFromNote(note: string): Record<string, unknown> {
     question: maxUsd == null ? { id: "budget", text: "What is your maximum budget?" } : { id: "none", text: null },
     directions: [
       {
-        label: body === "suv" ? "SUVs and crossovers" : namedModels.length ? "Named models" : "Starting search",
+        label: body === "suv" ? "SUVs and crossovers" : namedModels.length ? "Named models" : firstCar ? "Reliable starter cars" : "Starting search",
         why: "Golden SERV stub plan for offline gate.",
         bodyStyle: body,
         models: directionModels,

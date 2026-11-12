@@ -552,18 +552,16 @@ function noteBodyFromPlan(styles: FindPlanBodyStyle[]): NoteBodyStyle | null {
   return BODY_TO_NOTE[primary] ?? null;
 }
 
+/** Structured plan fields only — never regex plan.summary / free text. */
 function useCaseFromPlan(plan: FindPlan, mode: "personal" | "flip"): UseCase {
   if (mode === "flip") return "unspecified";
-  if (/\bfirst car|new driver|college|beater\b/i.test(plan.summary)) return "first_car";
   if (plan.priorities.some((p) => p.id === "cargo" || p.id === "towing") || plan.bodyStyles.includes("truck")) {
     return "haul";
   }
   if (plan.seatsMin != null && plan.seatsMin >= 5 && plan.bodyStyles.includes("suv")) return "family";
-  if (/\bfamily|kids\b/i.test(plan.summary)) return "family";
   if (plan.priorities.some((p) => p.id === "fuel_cost") || plan.fuel.value === "hybrid" || plan.fuel.value === "ev") {
     return "commute";
   }
-  if (/\bcommute|daily drive|work\b/i.test(plan.summary)) return "commute";
   return "unspecified";
 }
 

@@ -1,5 +1,4 @@
 import { describe, expect, it } from "vitest";
-import { proposeDirections } from "./directions";
 import { explicitNeedFromText, followUps, parseNeedJson, validateNeed } from "./need";
 import { isVinOnlyLookup, vinDetailGaps } from "./vin-report";
 
@@ -27,67 +26,6 @@ describe("need extraction validation", () => {
     expect(need.budgetKnown).toBe(false);
     const questions = followUps({ ...need, zip: "33101", useCase: "unspecified", mode: "flip", repairAbility: "unknown", targetProfitUsd: null, budgetKnown: false, budgetUsd: null });
     expect(questions.map((item) => item.id)).toEqual(["cash"]);
-  });
-
-  it("maps college / new-driver / first-car cues to first_car, not commute from fuel economy", () => {
-  });
-});
-
-describe("editorial directions", () => {
-  it("suggests compact crossovers for a family budget and does not query more than three", () => {
-    const parsed = validateNeed({
-      mode: "personal",
-      useCase: "family",
-      note: "family",
-      budgetUsd: 18_000,
-      budgetKnown: true,
-      budgetScope: "car",
-      mustHaves: [],
-      priorities: [],
-      zip: "33101",
-      repairAbility: "unknown",
-      targetProfitUsd: null,
-    });
-    expect(parsed.ok).toBe(true);
-    if (!parsed.ok) return;
-    const directions = proposeDirections(parsed.need, undefined, new Date("2026-11-04T00:00:00Z"));
-    expect(directions.length).toBeGreaterThan(0);
-    expect(directions.length).toBeLessThanOrEqual(3);
-    expect(directions[0]?.models.map((item) => item.model)).toContain("RAV4");
-    expect(directions[0]?.models.length).toBeGreaterThanOrEqual(3);
-    expect(directions[0]?.models.length).toBeLessThanOrEqual(6);
-    // Budget year bands are ranking copy only — open search bounds, not invented constraints.
-    expect(directions[0]?.yearMin).toBe(1990);
-    expect(directions[0]?.yearMax).toBeGreaterThanOrEqual(2026);
-    expect(directions[0]?.yearBecause).toMatch(/without a budget-invented year|Confirm/i);
-    expect(directions[0]?.why).toContain("Lemonless guidance");
-    expect(directions.every((item) => item.guidance === "editorial")).toBe(true);
-  });
-
-  it("offers broad starting points when a personal shopper is undecided, and does not turn repairs into a risk path", () => {
-    const blank = validateNeed({
-      mode: "personal",
-      useCase: "unspecified",
-      note: "",
-      budgetUsd: null,
-      budgetKnown: false,
-      budgetScope: "unspecified",
-      mustHaves: [],
-      priorities: [],
-      zip: null,
-      repairAbility: "major",
-      targetProfitUsd: null,
-    });
-    expect(blank.ok).toBe(true);
-    if (!blank.ok) return;
-    const broad = proposeDirections(blank.need);
-    expect(broad.length).toBeGreaterThan(0);
-    expect(broad.length).toBeLessThanOrEqual(3);
-    expect(broad.map((item) => item.segment)).toContain("Compact crossovers");
-    const flip = { ...blank.need, mode: "flip" as const, useCase: "family" as const };
-    const fromRepairs = proposeDirections(flip).map((item) => item.segment);
-    const fromUnknown = proposeDirections({ ...flip, repairAbility: "unknown" }).map((item) => item.segment);
-    expect(fromRepairs).toEqual(fromUnknown);
   });
 });
 

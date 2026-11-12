@@ -11,9 +11,7 @@ import {
   noteMarksFrom,
   type NoteMarks,
 } from "@/domain/find-intake-stage";
-import { previewFindFromNote } from "@/domain/find-preview";
 import { resolveLocationZip, zipFieldMark, type LocationZipResolution } from "@/domain/city-to-zip";
-import { towingCapacityCaveat } from "@/domain/open-search";
 import { yearSpanSentence } from "@/domain/year-span";
 import { criteriaParseLabel } from "@/domain/radar-criteria-provenance";
 import { FOLLOW_HINT } from "@/domain/intake-copy";
@@ -296,7 +294,6 @@ function AssistantFlow({
   const [proofRecords, setProofRecords] = useState<DecisionProofRecord[]>([]);
   /** C1 find_plan from /api/need — summary + directions for Confirm / match. */
   const [findPlan, setFindPlan] = useState<FindPlan | null>(null);
-  const [planDirections, setPlanDirections] = useState<SearchDirection[] | null>(null);
   /** Buyer-facing line while a next-check hop is in flight (never a stale spinner sentence). */
   const [pendingCheckLabel, setPendingCheckLabel] = useState<string | null>(null);
   /** Home/deep-link free text used to skip /api/need; fire SERV parse once on entry. */
@@ -451,21 +448,7 @@ function AssistantFlow({
       setError("Add a ZIP for a seller-distance radius, or choose Nationwide.");
       return;
     }
-    if (!followUp && !opts?.freshNote && text.trim().length >= 8) {
-      const preview = previewFindFromNote(text, mode);
-      setNeed(preview.need);
-      setFindPlan(preview.findPlan);
-      setPlanDirections(preview.directions);
-      setSource("form");
-      setRadiusIsDefault(preview.radiusIsDefault);
-      setZipDraft(preview.need.zip ?? "");
-      setDistanceDraft(preview.need.distanceMiles);
-      if (preview.need.budgetUsd != null) {
-        setBudget(preview.need.budgetUsd.toLocaleString("en-US"));
-        setBudgetKnown(preview.need.budgetKnown);
-      }
-      setStage(findStageAfterNote(preview.need));
-    }
+    // No client-side note→catalog preview. SERV /api/need owns plan + directions.
     setPending("need");
     const controller = new AbortController();
     // The confirm screen stays up. The plan itself waits out the route budget.
@@ -519,9 +502,6 @@ function AssistantFlow({
       // SERV/form own bodyStyle — never overlay from note regex.
       const finalNeed = body.need;
       if (body.findPlan) setFindPlan(body.findPlan);
-      if (Array.isArray(body.directions) && body.directions.length > 0) {
-        setPlanDirections(body.directions);
-      }
       // SERV/form own ZIP/phrase — never treat city-resolved ZIP as “from your note”.
       const loc = resolveLocationZip({
         zip: finalNeed.zip,
@@ -1193,9 +1173,8 @@ function AssistantFlow({
           need,
           searchIdempotencyKey,
           runId,
-          // C1 plan — owns SearchSpec hard/soft; directions skip proposeDirections collapse.
+          // C1 plan — form/SERV only. Do not POST client-invented direction catalogs.
           ...(findPlan ? { findPlan } : {}),
-          ...(planDirections && planDirections.length > 0 ? { directions: planDirections } : {}),
           refine: {
             make: make.trim() || undefined,
             model: model.trim() || undefined,
@@ -2170,10 +2149,7 @@ function AssistantFlow({
             }}
           />
           {need.conditionPriority === "inspection_first" ? <p className="hint">{CONDITION_HINT}</p> : null}
-          {towingCapacityCaveat(need.note) ? <p className="hint">{towingCapacityCaveat(need.note)}</p> : null}
-          {(need.mustHaves ?? []).some((item) =>
-            /\b(?:awd|4wd|4x4|all[-\s]?wheel|four[-\s]?wheel)\b/i.test(item),
-          ) ? (
+          {findPlan?.drivetrain.value === "awd_4wd" && findPlan.drivetrain.strength === "required" ? (
             <p className="hint">
               All-wheel drive is required. Front-wheel drive is left out. If the listing does not say, we check the VIN and leave the car out when we still cannot tell.
             </p>
@@ -2182,7 +2158,7 @@ function AssistantFlow({
               All-wheel drive is a preference, so those cars rank higher. Front-wheel drive can still show up. A car with no drivetrain listed stays in the list and is marked unverified.
             </p>
           ) : null}
-          {need.reliabilityPriority || need.priorities?.some((p) => /reliab/i.test(p)) ? (
+          {need.reliabilityPriority || need.priorities?.includes("reliability") ? (
             <p className="hint">Priority: reliability.</p>
           ) : null}
           {need.preferredMakes?.length ? (
@@ -2946,11 +2922,7 @@ function AssistantFlow({
                       <p className="budget-flag">Not ranked yet. The verdict has not been decided.</p>
                     ) : null}
                     {veryHighMileageLabel(car.miles) ? <p className="budget-flag">Very high mileage</p> : null}
-                    {car.drivetrain ||
-                    (need &&
-                      (need.mustHaves ?? []).some((item) =>
-                        /\b(?:awd|4wd|4x4|all[-\s]?wheel|four[-\s]?wheel)\b/i.test(item),
-                      )) ? (
+                    {car.drivetrain || need?.awdPreference ? (
                       <p>Drivetrain: {car.drivetrain?.trim() || "not listed"}</p>
                     ) : null}
                     {car.overBudget ? <p className="budget-flag">Asking price is slightly over your limit</p> : null}
