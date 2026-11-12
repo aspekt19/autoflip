@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { ResaleFlow } from "@/components/ResaleFlow";
+import { ResaleChatFlow } from "@/components/ResaleChatFlow";
 import { productFlagsUnavailableMessage, resolveProductFlags } from "@/domain/product-flags";
 
 export const metadata: Metadata = { title: "Resale" };
@@ -33,10 +33,9 @@ export default function ResalePage() {
         <p className="kicker">For resale</p>
         <h1>Resale</h1>
         <p className="lead">
-          Enter a budget. Lemonless searches what you can buy now and shows cars priced below similar listings
-          (after costs), plus alternatives, when it finds them. If no cars match, the result says so and there is
-          no verdict. A delivered search uses 1 report credit. A search with no cars is not charged. Not a profit
-          guarantee.
+          Chat with SERV about the flip you want. SERV asks whatever it needs, then searches live inventory in the
+          same conversation. If nothing fits, you get that explanation and no verdict. A delivered verdict uses 1 report
+          credit. Chat turns without a verdict are free. Not a profit guarantee.
         </p>
         <div className="onboarding-note">
           <strong>How it works</strong>
@@ -52,9 +51,9 @@ export default function ResalePage() {
               If we do not know something, the card says so.
             </li>
           </ol>
-          <p>Not a profit guarantee. No invented listings. One-car buy-ceiling estimate remains available below the search.</p>
+          <p>Not a profit guarantee. No invented listings.</p>
         </div>
-        <ResaleFlow />
+        <ResaleChatFlow />
       </div>
     </div>
   );

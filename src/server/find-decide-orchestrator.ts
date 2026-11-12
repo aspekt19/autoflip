@@ -26,7 +26,6 @@ import {
 } from "@/server/find-agent/loop";
 import { mapFindAgentLoopToDecide } from "@/server/find-agent/map-to-decide";
 import { runFindDecideServ } from "@/server/find-decide-serv";
-import { runFindTriageServ } from "@/server/find-triage-serv";
 import {
   loadFindSearchContext,
   marketPoolFromListingFacts,
@@ -142,36 +141,27 @@ export async function runFindDecideOrchestrator(
     };
   }
 
-  // Idempotent replay after settle.
+  // Idempotent replay after settle — no classic triage / selectBestDealOnEvidence.
   if (record.loopSettled && record.triageShortlistKeys && record.triageShortlistKeys.length > 0) {
     const marketPool = marketPoolFromListingFacts(record.compsPool ?? record.listings);
-    const triage = await runFindTriageServ({
-      need: record.need,
-      listings: record.listings,
-      receipts: record.freeGovReceipts ?? [],
-      marketPool,
-      revisitAlreadyUsed: true,
-      servKey: null, // replay uses code shortlist from stored keys
-    });
-    // Force shortlist from stored keys for replay.
     const shortlistKeys = record.triageShortlistKeys;
-    const decide = await runFindDecideServ({
-      need: record.need,
-      bestDeal: triage.bestDeal,
-      shortlistKeys,
-      receipts: record.freeGovReceipts ?? [],
-      marketPool,
-      servKey: null,
-    });
     const coverage = freeGovToolCoverage(record.listings, record.freeGovReceipts ?? []);
+    const pickSecondPass: import("@/domain/agent-verdict-schema").AgentSecondPassResult = {
+      status: "not_run",
+      action: null,
+      objection: null,
+      evidenceIds: [],
+      confidenceBefore: null,
+      confidenceAfter: null,
+    };
     return {
       ok: true,
       status: 200,
       searchContextToken: record.token,
-      bestDeal: decide.bestDeal,
-      pickAgentVerdict: decide.agentVerdict,
-      pickSecondPass: decide.secondPass,
-      pickProofRecords: decide.proofRecords,
+      bestDeal: null,
+      pickAgentVerdict: null,
+      pickSecondPass,
+      pickProofRecords: [],
       freeGovReceipts: record.freeGovReceipts ?? [],
       freeGovCoverage: coverage,
       riskCoverage: riskCoverageHonesty(record.listings, record.freeGovReceipts ?? []),
@@ -239,9 +229,9 @@ export async function runFindDecideOrchestrator(
     // Stored user form edits (from /api/need → run / search context). Never re-tag
     // need.budgetUsd / year / miles as user — those may include SERV / defaults.
     let storedFormEdits: SearchFormEdits = pickUserFormConstraints(record.userFormEdits ?? {});
-    if (Object.keys(storedFormEdits).length === 0 && record.runId) {
+    if (record.runId) {
       const run = await readRun(deps.kv, record.runId);
-      if (run?.inputs.formEdits) {
+      if (Object.keys(storedFormEdits).length === 0 && run?.inputs.formEdits) {
         storedFormEdits = pickUserFormConstraints(run.inputs.formEdits);
       }
     }

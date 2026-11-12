@@ -1,35 +1,27 @@
 /**
- * One live-eval Resale query through the agentic Resale loop.
- * Never charges report credits.
+ * One live-eval Resale query through the SERV chat intake.
+ * Never charges report credits (skipCredit).
  */
 import { mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { joinChosenListing } from "@/domain/join-chosen-listing";
-import { carsFoundFromSearchJournal } from "@/domain/search-listings-feedback";
-import { TtlCache } from "@/io/cache";
-import { MemoryCounter } from "@/io/quota";
-import {
-  runResaleAgentLoop,
-  searchesFromResaleJournal,
-  summarizeResaleAgentJournal,
-} from "@/server/resale-agent/loop";
+import type { Listing } from "@/domain/types";
+import { runResaleChatTurn } from "@/server/resale-chat";
 import { createGoldenFetch } from "../../test/golden/transport";
-import { liveEvalJournalMeta } from "./journal-meta";
+import { driveServChatEval } from "./drive-chat";
 import { ESTIMATED_USD_PER_QUERY, type RunOneDeps } from "./run-one";
-import type { GeneratedQuery, LiveEvalCaseResult } from "./types";
+import type { GeneratedQuery, LiveEvalCaseResult, LiveEvalPick } from "./types";
 
-function parseBudgetUsd(note: string): number | null {
-  const m =
-    note.match(/\$\s*([\d,]+(?:\.\d+)?)\s*k\b/i) ||
-    note.match(/under\s+\$?\s*([\d,]+)/i) ||
-    note.match(/around\s+\$?\s*([\d,]+)/i) ||
-    note.match(/max\s+\$?\s*([\d,]+)/i) ||
-    note.match(/budget\s+is\s+\$?\s*([\d,]+)/i);
-  if (!m?.[1]) return null;
-  let n = Number(m[1].replace(/,/g, ""));
-  if (!Number.isFinite(n) || n <= 0) return null;
-  if (/k\b/i.test(m[0]) && n < 1000) n *= 1000;
-  return Math.round(n);
+function listingFromBest(best: Record<string, unknown> | null): Listing | null {
+  const listing = best?.listing;
+  if (listing && typeof listing === "object" && typeof (listing as Listing).vin === "string") {
+    return listing as Listing;
+  }
+  return null;
+}
+
+function listingVdp(listing: Listing | null | undefined): string | null {
+  return listing?.vdp?.trim() || listing?.dealerUrl?.trim() || null;
 }
 
 export async function runOneResaleQuery(
@@ -77,43 +69,27 @@ export async function runOneResaleQuery(
     fetchImpl = golden.fetch;
   }
 
-  const budgetUsd = parseBudgetUsd(query.note);
-  const shopperContext = {
-    zip: query.zip,
-    distanceMiles: query.distanceMiles,
-    budgetUsd,
-    product: "resale",
-  };
-
-  const loopDeps = {
-    servKey,
-    autodevKey,
-    fetch: fetchImpl,
-    servBaseUrl: deps.servBaseUrl,
-    budgetUsd,
-    pnlOptions: { repairAbility: "unknown" as const },
-    shopperContext,
-    // Isolated quota/cache per parallel query.
-    autodev: { cache: new TtlCache<unknown>(), counter: new MemoryCounter() },
-  };
-
-  // Stepped across request budgets (in-process here: fresh deadline each hop).
-  let agent = await runResaleAgentLoop({
-    note: query.note,
-    shopperContext,
-    deps: loopDeps,
+  const driven = await driveServChatEval({
+    firstMessage: query.note,
+    turn: (turn) =>
+      runResaleChatTurn({
+        kv: deps.kv,
+        userId: deps.userId,
+        sessionId: turn.sessionId,
+        message: turn.message,
+        continue: turn.continue,
+        confirmBrief: turn.confirmBrief,
+        skipCredit: true,
+        servKey,
+        autodevKey,
+        servBaseUrl: deps.servBaseUrl,
+        fetchImpl,
+      }),
   });
-  for (let hop = 0; hop < 40 && "continue" in agent && agent.continue; hop += 1) {
-    agent = await runResaleAgentLoop({
-      note: query.note,
-      shopperContext,
-      deps: loopDeps,
-      checkpoint: agent.checkpoint,
-    });
-  }
 
-  const journal = summarizeResaleAgentJournal(agent.journal);
-  const meta = liveEvalJournalMeta(agent.journal);
+  const result = (driven.body.result && typeof driven.body.result === "object"
+    ? (driven.body.result as Record<string, unknown>)
+    : null);
   const elapsedMs = Date.now() - started;
 
   if (deps.fixtureRoot && deps.caseId) {
@@ -125,10 +101,11 @@ export async function runOneResaleQuery(
         {
           product: "resale",
           note: query.note,
-          ok: agent.ok,
-          agentMode: agent.agentMode,
-          toolRounds: agent.toolRounds,
-          journal,
+          ok: driven.ok,
+          asked: driven.asked,
+          briefConfirmed: driven.briefConfirmed,
+          hops: driven.hops,
+          confirmedBrief: result?.confirmedBrief ?? null,
         },
         null,
         2,
@@ -136,77 +113,92 @@ export async function runOneResaleQuery(
     );
   }
 
-  if (!agent.ok) {
-    const lastServ = [...agent.journal].reverse().find((e) => e.kind === "serv");
+  if (!driven.ok || !result) {
     return {
       ...base,
       ok: false,
       searchSpec: null,
-      carsFound: agent.knownVins.length,
+      carsFound: 0,
       pick: null,
       failure: {
-        step: "resale_agent",
-        error: agent.error,
-        message: agent.message,
-        responseId: lastServ && lastServ.kind === "serv" ? lastServ.responseId : null,
+        step: "resale_chat",
+        error: typeof driven.body.error === "string" ? driven.body.error : "chat_failed",
+        message:
+          typeof driven.body.message === "string"
+            ? driven.body.message
+            : "Resale chat did not deliver a verdict.",
       },
       proofRecords: [],
       elapsedMs,
       durationMs: elapsedMs,
-      agentMode: agent.agentMode,
-      toolRounds: agent.toolRounds,
-      verdictReached: false,
-      relaxedConditions: [],
-      journalServCalls: journal.servCalls,
-      journalToolCalls: journal.toolCalls,
-      featuresActive: meta.featuresActive,
-      featureRejections: meta.featureRejections,
-      servResponseIds: meta.servResponseIds,
     };
   }
 
-  const actionable = agent.verdict.picks.find((p) => p.action !== "pass") ?? null;
-  const top = actionable ?? null;
-  const joined = top ? joinChosenListing(top.vin, agent.listingsByVin) : null;
-  const chosenVin = top?.vin ?? null;
-  const passReason = !chosenVin ? agent.verdict.summary?.trim() || null : null;
+  const agentLoop = (result.agentLoop && typeof result.agentLoop === "object"
+    ? (result.agentLoop as Record<string, unknown>)
+    : null);
+  const best = (result.best && typeof result.best === "object" ? (result.best as Record<string, unknown>) : null);
+  const listing = listingFromBest(best);
+  const chosenVin = typeof best?.vin === "string" && best.vin.trim() ? String(best.vin) : listing?.vin ?? null;
+  const listingsByVin = new Map<string, Listing>();
+  if (listing) listingsByVin.set(listing.vin.toUpperCase(), listing);
+  const joined = chosenVin ? joinChosenListing(chosenVin, listingsByVin) : null;
+  const passReason = !chosenVin
+    ? (typeof result.passReason === "string" ? result.passReason : typeof agentLoop?.passReason === "string" ? agentLoop.passReason : null)
+    : null;
+  const toolRounds = typeof agentLoop?.toolRounds === "number" ? agentLoop.toolRounds : 0;
+  const relaxedConditions = Array.isArray(agentLoop?.relaxedConditions)
+    ? (agentLoop!.relaxedConditions as LiveEvalCaseResult["relaxedConditions"])
+    : [];
+  const verdictReachedFlag = agentLoop?.verdictReached === true;
   const nothingFits =
     !chosenVin &&
-    agent.verdictReached &&
-    agent.toolRounds > 0 &&
-    agent.relaxedConditions.length > 0 &&
+    verdictReachedFlag &&
+    toolRounds > 0 &&
+    (relaxedConditions?.length ?? 0) > 0 &&
     Boolean(passReason);
   const scoringOk = Boolean(chosenVin) || nothingFits;
-  const carsFound = Math.max(
-    carsFoundFromSearchJournal(searchesFromResaleJournal(agent.journal)),
-    agent.knownVins.length,
-  );
+  const carsFound =
+    typeof agentLoop?.carsFound === "number"
+      ? agentLoop.carsFound
+      : listing
+        ? 1
+        : 0;
+  const pick: LiveEvalPick = chosenVin
+    ? {
+        vin: chosenVin,
+        label: joined?.label ?? null,
+        verdict: "buy",
+        confidence: typeof best?.confidence === "string" ? best.confidence : null,
+        priceUsd: joined?.priceUsd ?? listing?.priceUsd ?? null,
+        miles: joined?.miles ?? listing?.miles ?? null,
+        vdp: listingVdp(listing),
+      }
+    : {
+        vin: null,
+        label: null,
+        verdict: "pass",
+        confidence: typeof best?.confidence === "string" ? best.confidence : null,
+        priceUsd: null,
+        miles: null,
+        vdp: null,
+      };
+  const confirmedBrief = result.confirmedBrief && typeof result.confirmedBrief === "object"
+    ? (result.confirmedBrief as { summary?: string })
+    : null;
+
   return {
     ...base,
     ok: scoringOk,
-    searchSpec: null,
+    searchSpec: confirmedBrief?.summary
+      ? { hard: {}, soft: {}, planSummary: confirmedBrief.summary }
+      : null,
     carsFound,
-    pick: top
-      ? {
-          vin: top.vin,
-          label: joined?.label ?? null,
-          verdict: top.action,
-          confidence: agent.verdict.confidence,
-          priceUsd: joined?.priceUsd ?? null,
-          miles: joined?.miles ?? null,
-        }
-      : {
-          vin: null,
-          label: null,
-          verdict: "pass",
-          confidence: agent.verdict.confidence,
-          priceUsd: null,
-          miles: null,
-        },
+    pick,
     failure: scoringOk
       ? null
       : {
-          step: "resale_agent",
+          step: "resale_chat",
           error: "incomplete_verdict",
           message:
             "No chosen flip and no documented nothing-fits (searches + reasons). Agent must repair.",
@@ -214,16 +206,13 @@ export async function runOneResaleQuery(
     proofRecords: [],
     elapsedMs,
     durationMs: elapsedMs,
-    agentMode: agent.agentMode,
-    toolRounds: agent.toolRounds,
+    agentMode: typeof agentLoop?.agentMode === "string" ? (agentLoop.agentMode as "tools" | "next_action") : null,
+    toolRounds,
     verdictReached: Boolean(chosenVin) || nothingFits,
-    relaxedConditions: agent.relaxedConditions,
+    relaxedConditions,
     passReason,
-    journalServCalls: journal.servCalls,
-    journalToolCalls: journal.toolCalls,
-    featuresActive: meta.featuresActive,
-    featureRejections: meta.featureRejections,
-    servResponseIds: meta.servResponseIds,
+    journalServCalls: typeof agentLoop?.journalServCalls === "number" ? agentLoop.journalServCalls : 0,
+    journalToolCalls: typeof agentLoop?.journalToolCalls === "number" ? agentLoop.journalToolCalls : 0,
     chosenListingCount: chosenVin ? 1 : 0,
   };
 }

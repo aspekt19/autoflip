@@ -197,6 +197,114 @@ function completion(id: string, content: unknown): Response {
   });
 }
 
+/**
+ * Offline SERV stand-in for golden only. Production SERV interprets the note;
+ * domain code must not. Keep this local to test/golden — never import into src/.
+ */
+function stubPlanFromNote(note: string): Record<string, unknown> {
+  const money =
+    note.match(/\b(?:under|below|max(?:imum)?|budget|around|about|tops?)\s*\$?\s*(\d{1,3}(?:,\d{3})+)\b/i) ||
+    note.match(/\$\s*(\d{1,3}(?:,\d{3})+)\b/) ||
+    note.match(/\b(?:under|below|max(?:imum)?|budget|around|about)\s*\$?\s*(\d{1,3}(?:,\d{3})+|\d+)\s*k\b/i) ||
+    note.match(/\$\s*(\d{1,3}(?:,\d{3})+|\d+)\s*k\b/i) ||
+    note.match(/\b(?:under|below|max(?:imum)?|budget|around|about)\s+(\d{1,3})\s*grand\b/i) ||
+    note.match(/\b(\d{1,3})\s*grand\b/i) ||
+    note.match(/\bbudget\s+(\d{2,3})\s*[-–]\s*(\d{2,3})\s*k\b/i);
+  let maxUsd: number | null = null;
+  let quote: string | null = null;
+  if (money) {
+    const raw = (money[2] ?? money[1]!).replace(/,/g, "");
+    const n = Number(raw);
+    if (Number.isFinite(n)) {
+      maxUsd = n < 1000 ? Math.round(n * 1000) : Math.round(n);
+      quote = money[0]!.trim();
+    }
+  }
+  const milesHit =
+    note.match(/\b(?:less than|under|up to|max(?:imum)?)\s+(\d{1,3})\s*k\s*miles\b/i) ||
+    note.match(/\b(?:less than|under|up to|max(?:imum)?)\s+(\d{2,3}(?:,\d{3})+)\s*miles\b/i) ||
+    note.match(/\b(\d{1,3})\s*k\s*miles\b/i);
+  let milesMax: number | null = null;
+  if (milesHit) {
+    const raw = milesHit[1]!.replace(/,/g, "");
+    const n = Number(raw);
+    if (Number.isFinite(n)) milesMax = n < 1000 ? Math.round(n * 1000) : Math.round(n);
+  }
+  const yearHit =
+    note.match(/\b(20\d{2}|19\d{2})\s+or\s+newer\b/i) ||
+    note.match(/\bnothing older than\s+(20\d{2}|19\d{2})\b/i) ||
+    note.match(/\bnewer than\s+(20\d{2}|19\d{2})\b/i);
+  let yearMin: number | null = null;
+  if (yearHit) {
+    yearMin = Number(yearHit[1]);
+    if (/newer than/i.test(yearHit[0])) yearMin += 1;
+  }
+  const body = /\bminivan|3-row|three[\s-]?row\b/i.test(note)
+    ? "minivan"
+    : /\bsuv|crossover\b/i.test(note)
+      ? "suv"
+      : /\btruck|pickup\b/i.test(note)
+        ? "truck"
+        : /\bsedan\b/i.test(note)
+          ? "sedan"
+          : "any";
+  const hybrid = /\bhybrid\b/i.test(note);
+  const awd = /\b(?:awd|4wd|4x4|all[\s-]?wheel)\b/i.test(note);
+  const chicago = /\bchicago\b/i.test(note);
+  const seats = note.match(/\b(\d+)\s*seats?\b/i);
+  const seatsMin = seats ? Number(seats[1]) : /\b7\s*seats?\b|\b3-row\b/i.test(note) ? 7 : null;
+  const namedModels: { make: string; model: string }[] = [];
+  if (/\bcivic\b/i.test(note)) namedModels.push({ make: "Honda", model: "Civic" });
+  if (/\bcorolla\b/i.test(note)) namedModels.push({ make: "Toyota", model: "Corolla" });
+  const excludedMakes: string[] = [];
+  if (/\bnot a kia\b|\bno kia\b/i.test(note)) excludedMakes.push("Kia");
+  // Golden SERV stub owns first-car breadth (production code has no starter catalog).
+  const firstCar = /\b(?:first car|new driver|learner driver|student driver)\b/i.test(note);
+  const directionModels =
+    namedModels.length > 0
+      ? namedModels
+      : firstCar
+        ? [
+            { make: "Toyota", model: "Corolla" },
+            { make: "Honda", model: "Civic" },
+            { make: "Toyota", model: "Camry" },
+            { make: "Honda", model: "Accord" },
+          ]
+        : body === "suv"
+          ? [{ make: "Toyota", model: "RAV4" }]
+          : [{ make: "Toyota", model: "Camry" }];
+  return {
+    summary: note.trim().slice(0, 200) || "Car shopping request.",
+    bodyStyles: [body],
+    budget: { maxUsd, approximate: /\baround|about|approximately|roughly|~\b/i.test(note), quote },
+    yearMin,
+    yearMax: null,
+    milesMax,
+    drivetrain: awd
+      ? { value: "awd_4wd", strength: "required", quote: "AWD" }
+      : { value: "any", strength: "none", quote: null },
+    fuel: hybrid
+      ? { value: "hybrid", strength: "preferred", quote: "hybrid" }
+      : { value: "any", strength: "none", quote: null },
+    seatsMin,
+    location: chicago
+      ? { zip: "60601", phrase: "Chicago", needsZip: false }
+      : { zip: null, phrase: null, needsZip: false },
+    priorities: [],
+    namedModels,
+    excludedMakes,
+    questions: maxUsd == null ? [{ text: "What is your maximum budget?" }] : [],
+    directions: [
+      {
+        label: body === "suv" ? "SUVs and crossovers" : namedModels.length ? "Named models" : firstCar ? "Reliable starter cars" : "Starting search",
+        why: "Golden SERV stub plan for offline gate.",
+        bodyStyle: body,
+        models: directionModels,
+      },
+    ],
+  };
+}
+
 /** Valid plan / decide / challenge answers for the offline full Find path. */
 export function scriptedServResponse(body: string): Response | null {
   let name = "";
@@ -204,14 +312,37 @@ export function scriptedServResponse(body: string): Response | null {
     const parsed = JSON.parse(body) as { response_format?: { json_schema?: { name?: string } }; messages?: { role?: string; content?: string }[] };
     name = parsed.response_format?.json_schema?.name ?? "";
     if (name === "find_plan") {
-      // HTTP 200 that fails validation, so the note's own limits stay in force.
-      // A transport error would mark planning failed and wipe a later verdict.
-      return completion("chatcmpl-goldenplan", { summary: "" });
+      const user = parsed.messages?.find((message) => message.role === "user")?.content ?? "";
+      let note = "";
+      try {
+        const payload = JSON.parse(user) as { note?: unknown };
+        note = typeof payload.note === "string" ? payload.note : user;
+      } catch {
+        note = user;
+      }
+      return completion("chatcmpl-goldenplan", stubPlanFromNote(note));
     }
     if (name === "find_decide") {
       const user = parsed.messages?.find((message) => message.role === "user")?.content ?? "";
-      const facts = JSON.parse(user).facts as { shortlistKeys?: string[]; shortlist?: { key?: string }[] };
-      const key = facts.shortlistKeys?.[0] || facts.shortlist?.[0]?.key || "";
+      const facts = JSON.parse(user).facts as {
+        shortlistKeys?: string[];
+        shortlist?: { key?: string; vin?: string; make?: string; model?: string; miles?: number }[];
+      };
+      // Prefer a lower-mile AWD Subaru when present — mirrors a SERV preference pick offline.
+      const shortlist = facts.shortlist ?? [];
+      const preferred =
+        shortlist.find(
+          (row) =>
+            /subaru/i.test(row.make ?? "") &&
+            /forester|crosstrek/i.test(row.model ?? "") &&
+            (row.miles == null || row.miles < 100_000),
+        ) ?? shortlist[0];
+      const key =
+        preferred?.key ||
+        preferred?.vin ||
+        facts.shortlistKeys?.[0] ||
+        shortlist[0]?.key ||
+        "";
       return completion("chatcmpl-goldendecide", {
         pickKey: key,
         action: "negotiate",

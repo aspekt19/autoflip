@@ -108,7 +108,7 @@ describe("summary line", () => {
 });
 
 describe("flip questions", () => {
-  it("asks profit, repair skill, and cash instead of a use case", () => {
+  it("does not invent cash/zip follow-ups — SERV owns clarifying questions", () => {
     const questions = followUps({
       ...emptyNeed("flip"),
       note: "flip",
@@ -118,8 +118,7 @@ describe("flip questions", () => {
       budgetKnown: false,
       budgetUsd: null,
     });
-    expect(questions.map((item) => item.id)).toEqual(["cash"]);
-    expect(questions.some((item) => item.id === "use")).toBe(false);
+    expect(questions).toEqual([]);
   });
 
   it("lowers the reconditioning assumption when the buyer can do the work", () => {

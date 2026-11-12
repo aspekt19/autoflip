@@ -1,7 +1,7 @@
 /**
  * Preview-only Find acceptance + Auto.dev probe.
  * Gated by FIND_ACCEPTANCE_TOKEN. Never enabled in production target.
- * Does not charge credits — exercises understandNeed + runFindMatch with live keys.
+ * Does not charge credits — exercises understandNeed + mint-only match handoff (SERV owns search).
  */
 import { listingsSearchUrl } from "@/io/autodev";
 import { getKv } from "@/io/kv";

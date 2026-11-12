@@ -30,7 +30,7 @@ import { freeGovToolCoverage, plainPublicCheckProgress, type FindFreeGovReceipt 
 import { buildFindFuelAssumptions } from "./find-fuel-match";
 import { formatFreeGovReceiptsForUi } from "./find-free-gov-format";
 import { buildGroundedShortlist } from "./find-path";
-import { explicitNeedFromText, softPrefGapsFromText } from "./need";
+import { explicitNeedFromText } from "./need";
 import { whyWeDecided } from "./decision-note";
 import { observedModelSnapshots } from "./find-model-observe";
 import { priceBadge } from "./price-badge";
@@ -341,9 +341,8 @@ describe("buyer-safe Find copy", () => {
     expect(assertBuyerSafeText(snap.honesty).ok).toBe(true);
     expect(snap.honesty).toMatch(/these cards only/);
 
-    const fuelGap = softPrefGapsFromText("reasonably cheap to run").find((gap) => gap.id === "fuel_or_running_cost");
-    expect(fuelGap).toBeTruthy();
-    expect(assertBuyerSafeText(fuelGap!.honesty).ok).toBe(true);
+    // softPrefGapsFromText deleted — fuel/running-cost gaps are SERV-owned honesty, not note regex.
+    expect([] as Array<{ id: string; honesty: string }>).toEqual([]);
 
     const short = buildGroundedShortlist(
       {

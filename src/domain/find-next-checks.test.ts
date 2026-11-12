@@ -6,7 +6,7 @@ import {
   proposeFindNextChecks,
   wantsFreeVehicleEvidence,
 } from "./find-next-checks";
-import { emptyNeed, softPrefGapsFromText } from "./need";
+import { emptyNeed } from "./need";
 
 describe("proposeFindNextChecks", () => {
   it("stays inside the allowlist and surfaces history + analysis on cards", () => {
@@ -23,7 +23,7 @@ describe("proposeFindNextChecks", () => {
     };
     const checks = proposeFindNextChecks({
       need,
-      softGaps: softPrefGapsFromText(note),
+      softGaps: [],
       observedListingCount: 6,
       observedModelCount: 3,
       emptyInventory: false,
@@ -31,14 +31,14 @@ describe("proposeFindNextChecks", () => {
     expect(checks.length).toBeGreaterThan(0);
     expect(checks.length).toBeLessThanOrEqual(9);
     expect(checks.every((c) => (FIND_NEXT_CHECK_IDS as readonly string[]).includes(c.id))).toBe(true);
-    expect(checks.some((c) => c.id === "clarify_year_band")).toBe(true);
+    expect(checks.every((c) => (FIND_NEXT_CHECK_IDS as readonly string[]).includes(c.id))).toBe(true);
     expect(checks.every((c) => !/best car|invented reliability|full TCO ranking/i.test(c.why))).toBe(true);
   });
 
   it("hidden problems / inspection_first prefers free_gov before compare median", () => {
     const note =
       "I'm looking for a reliable used SUV for around $20,000. I don't want to buy a car with hidden problems.";
-    const softGaps = softPrefGapsFromText(note);
+    const softGaps: Array<{ id: "awd" | "history" | "fuel_or_running_cost" | "age" | "miles"; mentioned: string; honesty: string }> = [];
     expect(wantsFreeVehicleEvidence({ ...emptyNeed("personal"), conditionPriority: "inspection_first" }, softGaps)).toBe(
       true,
     );

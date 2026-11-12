@@ -4,10 +4,7 @@
  * No paid SERV calls — fixtures are structural / recorded failure shapes only.
  */
 import { describe, expect, it } from "vitest";
-import { proposeDirections } from "@/domain/directions";
 import type { Listing } from "@/domain/types";
-import { emptyNeed } from "@/domain/need";
-import { needFromResaleSearchInput, parseResaleSearchInput } from "@/domain/resale-search-input";
 import { buildFindPickComputedReport } from "./find-settle-serv";
 import { clampFlipPublishedAction } from "./resale-settle-serv";
 import { describeServCallFailure } from "./resale-serv-call";
@@ -149,31 +146,6 @@ describe("P0 Find: adjusted comps pool gates verdict_decide", () => {
     expect(withPool.comps.length).toBeGreaterThanOrEqual(3);
     expect(withPool.compScope).toMatch(/comps pool/i);
     expect(withPool.fairValueUsd).not.toBeNull();
-  });
-});
-
-describe("P0 Resale: budget-only directions stay multi-model", () => {
-  it("never labels refine as The model you named when the buyer named none", () => {
-    const need = {
-      ...emptyNeed("flip"),
-      budgetKnown: true,
-      budgetUsd: 15_000,
-      preferredModels: [],
-      preferredModelsSource: "service" as const,
-    };
-    const dirs = proposeDirections(need, { make: "Toyota", model: "Corolla" });
-    expect(dirs).toHaveLength(1);
-    expect(dirs[0]!.segment).toBe("Focused model");
-    expect(dirs[0]!.segment).not.toMatch(/you named/i);
-  });
-
-  it("budget-only need without refine keeps several editorial directions", () => {
-    const parsed = parseResaleSearchInput({ budgetUsd: 15_000 });
-    expect(parsed.ok).toBe(true);
-    if (!parsed.ok) return;
-    const dirs = proposeDirections(needFromResaleSearchInput(parsed.input), undefined, new Date("2026-11-10T00:00:00Z"));
-    expect(dirs.length).toBeGreaterThanOrEqual(2);
-    expect(dirs.every((d) => !/you named/i.test(d.segment))).toBe(true);
   });
 });
 

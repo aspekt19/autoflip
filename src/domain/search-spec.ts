@@ -1,4 +1,4 @@
-import { resolveBudgetPrecedence, type BudgetConflict } from "./budget-conflict";
+import { type BudgetConflict } from "./budget-conflict";
 import {
   fromShopperInputEvent,
   isUserProvenanced,
@@ -9,16 +9,6 @@ import {
 } from "./constraint-provenance";
 import { sha256Canonical } from "./hash";
 import { bodyStyleMatches } from "./body-style";
-import { milesFromText } from "./need";
-import {
-  awdLimitFromText,
-  bodyFromIntake,
-  budgetFromText,
-  historyFromText,
-  intakeFromNote,
-  yearsFromNote,
-  zipFromNote,
-} from "./note-intake";
 import type { Listing } from "./types";
 
 export type Prov = "note" | "form" | "serv" | "default";
@@ -160,25 +150,6 @@ function quoteInNote(quote: string | null | undefined, note: string): string | n
   return trimmed;
 }
 
-function newerThanExclusive(note: string, now = new Date()): number | null {
-  const match = note.match(/\bnewer than\s+(19\d{2}|20\d{2})\b/i);
-  if (!match) return null;
-  const year = Number(match[1]) + 1;
-  const cap = now.getUTCFullYear() + 1;
-  if (year < 1980 || year > cap) return null;
-  return year;
-}
-
-function excludedMakesFromNote(note: string): string[] {
-  const found = new Set<string>();
-  const pattern = /\b(?:not a|no|avoid|except|excluding|without)\s+([A-Z][a-zA-Z]+)\b/g;
-  for (const match of note.matchAll(pattern)) {
-    const name = match[1]?.trim();
-    if (name && name.length > 2) found.add(name);
-  }
-  return [...found];
-}
-
 function servBodies(serv: ServPlanHint | undefined): string[] {
   return (serv?.bodyStyles ?? [])
     .map((item) => item.trim())
@@ -187,27 +158,32 @@ function servBodies(serv: ServPlanHint | undefined): string[] {
 }
 
 /**
- * Explicit dirty form > SERV hard > note literal only when SERV missed the field.
- * Untouched / default form values must never override note or SERV.
- * Money/safety: price always enforceable; titleClean stays note-only.
+ * Explicit user form > SERV. Code never parses the free-text note into constraints.
+ * Untouched / default form values must never override SERV.
  */
 function hardPrice(
   note: string,
   form: SearchFormEdits,
   serv: ServPlanHint | undefined,
 ): { hard: Hard<number> | undefined; conflict: BudgetConflict | null } {
-  const fromNote = budgetFromText(note);
   const userBudget = userNumber(form.priceMaxUsd, "priceMaxUsd");
-  const resolved = resolveBudgetPrecedence({
-    noteUsd: fromNote,
-    formUsd: userBudget,
-    formDirty: userBudget != null,
-  });
-  if (resolved.source === "form" && resolved.budgetUsd != null) {
-    return {
-      hard: { value: resolved.budgetUsd, source: "form" },
-      conflict: resolved.conflict,
-    };
+  if (userBudget != null && userBudget >= 1000) {
+    let conflict: BudgetConflict | null = null;
+    if (
+      serv?.priceMaxUsd != null &&
+      serv.priceMaxUsd >= 1000 &&
+      Math.abs(Math.round(serv.priceMaxUsd) - userBudget) > 1
+    ) {
+      const servUsd = Math.round(serv.priceMaxUsd);
+      conflict = {
+        noteUsd: servUsd,
+        formUsd: userBudget,
+        chosenUsd: userBudget,
+        chosenSource: "form",
+        journalLine: `budget_conflict: form=$${userBudget.toLocaleString("en-US")} serv=$${servUsd.toLocaleString("en-US")} — kept explicit form per precedence rule`,
+      };
+    }
+    return { hard: { value: userBudget, source: "form" }, conflict };
   }
   if (serv?.priceMaxUsd != null && serv.priceMaxUsd >= 1000) {
     const quote = quoteInNote(serv.priceQuote, note) ?? undefined;
@@ -220,15 +196,12 @@ function hardPrice(
       conflict: null,
     };
   }
-  if (resolved.budgetUsd != null) {
-    return { hard: { value: resolved.budgetUsd, source: "note" }, conflict: null };
-  }
   return { hard: undefined, conflict: null };
 }
 
 /**
- * One builder. Precedence: dirty form > SERV required/hard > note only when SERV missed the field.
- * SERV preferred lands in soft only. Money/safety (price, titleClean, form radius) stay in code.
+ * One builder. Precedence: user-origin form > SERV.
+ * SERV preferred lands in soft only. Code never regex-parses the note into hard/soft.
  */
 export function buildSearchSpec(input: {
   note: string;
@@ -240,11 +213,6 @@ export function buildSearchSpec(input: {
   const note = input.note ?? "";
   const form = input.formEdits ?? {};
   const serv = input.servPlan;
-  const now = input.now ?? new Date();
-  const years = yearsFromNote(note, now);
-  const exclusive = newerThanExclusive(note, now);
-  const intake = intakeFromNote(note, now);
-  const zipNote = zipFromNote(note, budgetFromText(note));
   const hasServ = serv != null;
 
   const yearMinUser = userNumber(form.yearMin, "yearMin");
@@ -255,31 +223,22 @@ export function buildSearchSpec(input: {
       ? { value: yearMinUser, source: "form" as const }
       : serv?.yearMin != null
         ? { value: Math.round(serv.yearMin), source: "serv" as const, ...(yearQuote ? { quote: yearQuote } : {}) }
-        : exclusive != null
-          ? { value: exclusive, source: "note" as const }
-          : years.yearMin != null
-            ? { value: years.yearMin, source: "note" as const }
-            : undefined;
+        : undefined;
   const yearMax =
     yearMaxUser != null
       ? { value: yearMaxUser, source: "form" as const }
       : serv?.yearMax != null
         ? { value: Math.round(serv.yearMax), source: "serv" as const, ...(yearQuote ? { quote: yearQuote } : {}) }
-        : years.yearMax != null
-          ? { value: years.yearMax, source: "note" as const }
-          : undefined;
+        : undefined;
 
   const milesUser = userNumber(form.milesMax, "milesMax");
-  const milesNote = milesFromText(note);
   const milesQuote = quoteInNote(serv?.milesQuote, note) ?? undefined;
   const milesMax =
     milesUser != null
       ? { value: milesUser, source: "form" as const }
       : serv?.milesMax != null
         ? { value: Math.round(serv.milesMax), source: "serv" as const, ...(milesQuote ? { quote: milesQuote } : {}) }
-        : milesNote != null
-          ? { value: milesNote, source: "note" as const }
-          : undefined;
+        : undefined;
 
   const zipUser = userString(form.zip, "zip");
   const servZip = serv?.location?.zip?.trim() ?? "";
@@ -288,9 +247,7 @@ export function buildSearchSpec(input: {
       ? { value: zipUser, source: "form" as const }
       : /^\d{5}$/.test(servZip)
         ? { value: servZip, source: "serv" as const }
-        : zipNote
-          ? { value: zipNote, source: "note" as const }
-          : undefined;
+        : undefined;
 
   let radiusMi: Hard<number | null> | undefined;
   const radiusProv = asProvenanced(form.radiusMi, "radiusMi");
@@ -302,7 +259,6 @@ export function buildSearchSpec(input: {
     ? (asProvenanced(form.bodyStyles, "bodyStyles")?.value?.filter(Boolean) ?? [])
     : null;
   const servBody = servBodies(serv);
-  const bodyNote = hasServ && serv?.bodyStyles != null ? null : bodyFromIntake(note);
   const bodyStyles =
     bodyUser && bodyUser.length
       ? { value: bodyUser, source: "form" as const }
@@ -310,15 +266,12 @@ export function buildSearchSpec(input: {
         ? servBody.length
           ? { value: servBody, source: "serv" as const }
           : undefined
-        : bodyNote
-          ? { value: [bodyNote], source: "note" as const }
-          : undefined;
+        : undefined;
 
   const excludeUser = isUserEdit(form.excludeMakes, "excludeMakes")
     ? (asProvenanced(form.excludeMakes, "excludeMakes")?.value?.filter(Boolean) ?? [])
     : null;
   const excludeServ = (serv?.excludeMakes ?? []).map((item) => item.trim()).filter(Boolean);
-  const excludeNote = excludedMakesFromNote(note);
   const excludeMakes =
     excludeUser && excludeUser.length
       ? { value: excludeUser, source: "form" as const }
@@ -326,9 +279,7 @@ export function buildSearchSpec(input: {
         ? excludeServ.length
           ? { value: excludeServ, source: "serv" as const }
           : undefined
-        : excludeNote.length
-          ? { value: excludeNote, source: "note" as const }
-          : undefined;
+        : undefined;
 
   const driveUser = isUserEdit(form.drivetrain, "drivetrain")
     ? asProvenanced(form.drivetrain, "drivetrain")?.value
@@ -338,17 +289,13 @@ export function buildSearchSpec(input: {
   if (driveUser === "awd_4wd") {
     drivetrain = { value: "awd_4wd", source: "form" };
   } else if (serv?.drivetrain?.strength != null) {
-    // SERV owns hard vs soft — do not call awdLimitFromText.
+    // SERV owns hard vs soft — never re-parse the note for drivetrain.
     if (serv.drivetrain.strength === "required" && serv.drivetrain.value === "awd_4wd") {
       const quote = quoteInNote(serv.drivetrain.quote, note) ?? undefined;
       drivetrain = { value: "awd_4wd", source: "serv", ...(quote ? { quote } : {}) };
     } else if (serv.drivetrain.strength === "preferred" && serv.drivetrain.value === "awd_4wd") {
       softDrivetrain = { value: "awd_4wd", source: "serv", weight: "prefer" };
     }
-  } else if (awdLimitFromText(note) === "hard") {
-    drivetrain = { value: "awd_4wd", source: "note" };
-  } else if (awdLimitFromText(note) === "soft") {
-    softDrivetrain = { value: "awd_4wd", source: "note", weight: "prefer" };
   }
 
   let softFuel: Soft<string> | undefined;
@@ -362,12 +309,6 @@ export function buildSearchSpec(input: {
     softSeats = { value: Math.round(serv.seatsMin), source: "serv", weight: "prefer" };
   }
 
-  const history = historyFromText(note);
-  const titleClean =
-    history === "no_accidents" || history === "no_salvage_no_accidents"
-      ? { value: true as const, source: "note" as const }
-      : undefined;
-
   const servModels = (serv?.models ?? []).filter((item) => item.make?.trim() && item.model?.trim());
   const queries: SearchQuery[] = servModels.slice(0, 6).map((item) => ({
     make: item.make.trim(),
@@ -380,6 +321,7 @@ export function buildSearchSpec(input: {
   if (queries.length === 0) queries.push({});
 
   const priced = hardPrice(note, form, serv);
+  // Title / accident hard filters: SERV or user form only — never note regex.
   const hard = {
     priceMaxUsd: priced.hard,
     yearMin,
@@ -390,23 +332,18 @@ export function buildSearchSpec(input: {
     drivetrain,
     bodyStyles,
     excludeMakes,
-    titleClean,
   };
   const sellUser = userNumber(form.sellWithinDays, "sellWithinDays");
-  const sellNote = note.match(/\b(?:sell\s+within|within)\s+(\d{1,3})\s+days\b/i);
-  const sellFromNote = sellNote ? Number(sellNote[1]) : null;
   const sellWithinDays =
     sellUser != null && sellUser >= 1 && sellUser <= 365
       ? { value: sellUser, source: "form" as const, weight: "prefer" as const }
-      : sellFromNote != null && sellFromNote >= 1 && sellFromNote <= 365
-        ? { value: sellFromNote, source: "note" as const, weight: "prefer" as const }
-        : undefined;
+      : undefined;
 
   const priorityIds =
     hasServ && serv.priorities != null
       ? serv.priorities.map((item) => item.id).filter(Boolean)
-      : intake.priorities ?? [];
-  const prioritySource: Prov = hasServ && serv.priorities != null ? "serv" : "note";
+      : [];
+  const prioritySource: Prov = hasServ && serv.priorities != null ? "serv" : "default";
 
   const specWithoutIds = {
     v: 1 as const,

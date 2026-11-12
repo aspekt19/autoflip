@@ -1,54 +1,29 @@
 /**
- * Product surface flags.
- * Deal Radar is ON by default (real watches + cron). Scout and Telegram stay OFF
- * unless explicitly enabled — Telegram delivery is not part of the default Radar path.
- * The minimal /resale evaluate flow stays ON by default.
+ * Product surface availability.
+ * Resale + Deal Radar are always on (kept product). Scout and Telegram stay off —
+ * no env kill-switches that hide Resale/Radar between the shopper and SERV.
  */
 
-function flagOn(raw: string | undefined): boolean {
-  const v = raw?.trim().toLowerCase();
-  return v === "1" || v === "true" || v === "yes" || v === "on";
-}
-
-function flagOffExplicit(raw: string | undefined): boolean {
-  const v = raw?.trim().toLowerCase();
-  return v === "0" || v === "false" || v === "no" || v === "off";
-}
-
 export type ProductFlags = {
-  /** Minimal resale evaluate at /resale. Default ON. */
+  /** Minimal resale evaluate at /resale. Always on. */
   resaleEvaluate: boolean;
-  /** Full Deal Radar watches / cron / plans UI. Default ON. */
+  /** Full Deal Radar watches / cron / plans UI. Always on. */
   dealRadar: boolean;
-  /** Scout investigation UI. Default OFF (mirrors SCOUT_UI_ENABLED). */
+  /** Scout investigation UI. Always off. */
   scout: boolean;
-  /**
-   * Telegram connect buttons and marketing mentions.
-   * Default OFF — Deal Radar alerts are in-app (and email only when a provider is configured).
-   */
+  /** Telegram connect buttons. Always off — alerts are in-app. */
   telegram: boolean;
 };
 
 export function resolveProductFlags(
-  env: Record<string, string | undefined> = process.env,
+  _env: Record<string, string | undefined> = process.env,
 ): ProductFlags {
-  const resaleEvaluate = flagOffExplicit(env.RESALE_EVALUATE_ENABLED)
-    ? false
-    : env.RESALE_EVALUATE_ENABLED === undefined || env.RESALE_EVALUATE_ENABLED === ""
-      ? true
-      : flagOn(env.RESALE_EVALUATE_ENABLED);
-
-  const dealRadar = flagOffExplicit(env.DEAL_RADAR_UI_ENABLED)
-    ? false
-    : env.DEAL_RADAR_UI_ENABLED === undefined || env.DEAL_RADAR_UI_ENABLED === ""
-      ? true
-      : flagOn(env.DEAL_RADAR_UI_ENABLED);
-
+  void _env;
   return {
-    resaleEvaluate,
-    dealRadar,
-    scout: flagOn(env.SCOUT_UI_ENABLED),
-    telegram: flagOn(env.TELEGRAM_UI_ENABLED),
+    resaleEvaluate: true,
+    dealRadar: true,
+    scout: false,
+    telegram: false,
   };
 }
 

@@ -130,6 +130,7 @@ describe("SERV boundary enforcement — non-dirty constraints must not reach SER
   it("defaults / null pads fail assertNoNonUserSetConstraints", () => {
     const intent = buildUserIntent({ note: "reliable car under $12,000" });
     const serialized = serializeUserIntentConstraints(intent);
+    expect(serialized).toEqual({});
     expect(serialized.radiusMi).toBeUndefined();
     expect(assertNoNonUserSetConstraints(serialized, intent).ok).toBe(true);
 

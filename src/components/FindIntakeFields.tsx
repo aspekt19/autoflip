@@ -4,7 +4,7 @@ import { useRef, useState } from "react";
 import { CONDITION_HINT, YEAR_HINT_BLANK, YEAR_HINT_NO_FLOOR, yearHintKnown } from "@/domain/intake-copy";
 import { milesDraftState, priceDraftState, yearDraftState } from "@/domain/numeric-draft";
 import type { HistoryPref, NoteBodyStyle, TransmissionPref } from "@/domain/note-intake";
-import { awdLimitFromText, bodyFromIntake, NOTE_BODY_STYLES } from "@/domain/note-intake";
+import { NOTE_BODY_STYLES } from "@/domain/note-intake";
 import type { StructuredNeed } from "@/domain/need";
 
 export function FromNote({ show }: { show: boolean }) {
@@ -221,7 +221,7 @@ export function NoteFactChips({
     awd: need.awdPreference === true,
     reliability: need.reliabilityPriority === true,
     history: need.historyPreference != null,
-    body: need.bodyStyle != null || Boolean(bodyFromIntake(need.note ?? "")),
+    body: need.bodyStyle != null,
     location: Boolean(need.locationPhrase),
   });
   if (
@@ -277,7 +277,7 @@ export function NoteFactChips({
               checked={need.awdPreference === true}
               onChange={(event) => onChange({ ...need, awdPreference: event.target.checked })}
             />
-            {awdLimitFromText(need.note ?? "") === "hard" ? "All-wheel drive required" : "Preferably all-wheel drive"}
+            Preferably all-wheel drive
           </span>
         </label>
       ) : null}
@@ -326,7 +326,7 @@ export function NoteFactChips({
           Body
           <select
             aria-label="Body"
-            value={need.bodyStyle || bodyFromIntake(need.note ?? "") || ""}
+            value={need.bodyStyle || ""}
             onChange={(event) => {
               const value = event.target.value;
               const bodyStyle = NOTE_BODY_STYLES.find((item) => item === value) ?? null;

@@ -33,6 +33,20 @@ export type AgentLoopCheckpointV1 = {
   submitNudgeSent: boolean;
   firstTurn: boolean;
   featureRejections: Array<Record<string, unknown>>;
+  /** SERV-extracted chat facts (budget/ZIP/radius) for anti-fab. */
+  shopperFacts?: {
+    budgetUsd: number | null;
+    zip: string | null;
+    radiusMi: number | null;
+  };
+  /** Pending ask_shopper call_id while waiting for the shopper reply. */
+  pendingAskCallId?: string | null;
+  pendingAskQuestion?: string | null;
+  /** Pending submit_brief awaiting Confirm/Correct. */
+  pendingBrief?: Record<string, unknown> | null;
+  pendingBriefCallId?: string | null;
+  /** Shopper confirmed the brief — search may proceed. */
+  briefConfirmed?: boolean;
 };
 
 export type AgentLoopCheckpoint = AgentLoopCheckpointV1;

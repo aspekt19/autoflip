@@ -27,7 +27,7 @@ import {
   type BestDealResult,
 } from "@/domain/find-best-deal";
 import type { FindFreeGovReceipt } from "@/domain/find-free-gov";
-import { needPrefersAwd, type StructuredNeed } from "@/domain/need";
+import { type StructuredNeed } from "@/domain/need";
 import { extractServJson, tryExtractServJson } from "@/domain/serv-json";
 import type { Listing } from "@/domain/types";
 import {
@@ -286,11 +286,7 @@ export async function runFindDecideServ(input: {
         milesMax: input.need.milesMax ?? null,
         mustHaves: input.need.mustHaves ?? [],
         priorities: input.need.priorities ?? [],
-        awdPreference: needPrefersAwd({
-          awdPreference: input.need.awdPreference,
-          note: input.need.note,
-          mustHaves: input.need.mustHaves ?? [],
-        }),
+        awdPreference: input.need.awdPreference === true,
       },
       shortlist: factSheet,
       shortlistKeys,

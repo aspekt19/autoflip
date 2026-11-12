@@ -6,8 +6,7 @@ import type { Mode } from "@/domain/types";
 
 /**
  * Homepage task entry: intent + mode only.
- * ZIP and seller-distance radius are collected later in /find (budget → confirm)
- * before geographically constrained inventory runs — not on the hero.
+ * Find opens a SERV chat on /find. ZIP/budget are collected in chat by SERV — not on the hero.
  *
  * "For resale" routes to budget-first /resale inventory search (honest flip P&L).
  * "For me" keeps the native GET submit to /find.

@@ -1,5 +1,5 @@
 /**
- * API v1 / MCP Find must not charge when match ok but zero cars delivered.
+ * API v1 / MCP Find must not charge when SERV settles with no chosen car.
  */
 import { describe, expect, it, vi } from "vitest";
 import { creditBalance, creditGrant } from "@/io/credit-book";
@@ -56,7 +56,7 @@ vi.mock("@/server/understand-need", () => ({
       priorities: [],
       namedModels: [],
       excludedMakes: [],
-      question: { id: "none", text: null },
+      questions: [],
       directions: [
         {
           label: "Empty sedans",
@@ -66,21 +66,10 @@ vi.mock("@/server/understand-need", () => ({
         },
       ],
     },
-    directions: [
-      {
-        id: "empty-sedans",
-        segment: "Empty sedans",
-        why: "synthetic-test-zero-cars",
-        guidance: "editorial",
-        yearMin: 1990,
-        yearMax: 2027,
-        yearBecause: "No year range in your note — searching without a budget-invented year ceiling.",
-        models: [{ make: "Toyota", model: "Corolla" }],
-        search: { make: "Toyota", model: "Corolla" },
-        bodyStyle: "Sedan",
-      },
-    ],
+    directions: [],
     followUps: [],
+    clarifyingQuestions: [],
+    clarifyingAnswers: [],
     guard: "allow",
     checks: [],
     criteriaParse: { source: "code", responseId: null, label: "code" },
@@ -88,61 +77,69 @@ vi.mock("@/server/understand-need", () => ({
   })),
 }));
 
-vi.mock("@/server/find-match", async () => {
-  const actual = await vi.importActual<typeof import("@/server/find-match")>("@/server/find-match");
-  return {
-    ...actual,
-    runFindMatch: vi.fn(async () => ({
-      ok: true,
-      status: 200,
-      body: {
-        ok: true,
-        sample: false,
-        emptyReason: "empty_inventory",
-        message: "No listings came back for that search.",
-        headline: "No cars found",
-        nextStep: "Widen the search.",
-        scope: "Nationwide",
-        affordabilityAssessed: true,
-        partialFailure: false,
-        geoScope: { zip: null, distanceMiles: null },
-        directions: [
-          {
-            direction: {
-              id: "empty-sedans",
-              segment: "Empty sedans",
-              why: "synthetic-test-zero-cars",
-              guidance: "editorial",
-              yearMin: 1990,
-              yearMax: 2027,
-              yearBecause: "test",
-              models: [{ make: "Toyota", model: "Corolla" }],
-              search: { make: "Toyota", model: "Corolla" },
-            },
-            listings: [],
-            plannedModels: [{ make: "Toyota", model: "Corolla" }],
-            searchedModels: [{ make: "Toyota", model: "Corolla" }],
-            failedModels: [],
-            skippedModels: [],
-            coverage: "empty",
-            coverageLevel: "low",
-            note: null,
-            providerWarning: null,
-            queryOutcomes: [
-              { make: "Toyota", model: "Corolla", outcome: "empty", message: null },
-            ],
-          },
-        ],
-        compsPool: [],
-        providerQueriesUsed: 1,
-      },
-    })),
-  };
-});
+vi.mock("@/server/find-decide-orchestrator", () => ({
+  runFindDecideOrchestrator: vi.fn(async () => ({
+    ok: true,
+    status: 200,
+    searchContextToken: "synthetic-token",
+    bestDeal: null,
+    pickAgentVerdict: {
+      pick: null,
+      verdict: null,
+      confidence: null,
+      reasons: [],
+      unknowns: ["nothing_fits"],
+      serv_steps: [
+        {
+          decided: "Nothing fits",
+          why: "No listings matched after SERV search.",
+          changed: null,
+          evidenceIds: ["find_agent_loop"],
+        },
+      ],
+      no_serv_step: false,
+      serv_spend: { calls: 1, costNote: null },
+    },
+    pickSecondPass: {
+      status: "not_run",
+      action: null,
+      objection: null,
+      evidenceIds: [],
+      confidenceBefore: null,
+      confidenceAfter: null,
+    },
+    pickProofRecords: [],
+    freeGovReceipts: [],
+    freeGovCoverage: { note: "", anyUnchecked: false },
+    riskCoverage: { note: "" },
+    freeEvidenceNote: "",
+    triageSource: "SERV",
+    decideSource: "SERV",
+    shortlistKeys: [],
+    loop: { continue: false, reason: "decide_settled", detail: "Nothing fits." },
+    honesty: "SERV agent loop found nothing that fits.",
+    needAfter: null,
+    appliedCheckIds: [],
+    decisionLog: [],
+    carChecks: [],
+    replay: false,
+    offerPool: [],
+    agentLoop: {
+      agentMode: "find",
+      toolRounds: 1,
+      // Incomplete empty search — not a documented nothing-fits; must not charge.
+      verdictReached: false,
+      relaxedConditions: [],
+      journalServCalls: 1,
+      journalToolCalls: 1,
+      carsFound: 0,
+      passReason: null,
+    },
+  })),
+}));
 
 describe("advanceAgentFindRun zero-car charge gate", () => {
-
-  it("completes with credit_spent false when match ok but zero cars", async () => {
+  it("completes with credit_spent false when SERV finds no cars", async () => {
     const kv = getKv();
     await creditGrant(kv, "agent-zero-user", 3, "seed-zero");
     const created = await createApiKey(kv, "agent-zero-user", "Zero", ["find", "read"]);

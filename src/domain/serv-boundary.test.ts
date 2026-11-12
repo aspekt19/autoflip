@@ -63,16 +63,11 @@ function listing(partial?: Partial<Listing>): Listing {
 }
 
 describe("UserIntent — only origin=user Form edits to SERV", () => {
-  it("omits note-extracted fields from Form-edits serialization (note is context)", () => {
+  it("does not extract constraints from the note — fields stay empty without user form", () => {
     const intent = buildUserIntent({ note: "reliable car under $12,000 near 43215" });
-    // Note values live on intent for context, but Form edits channel is empty.
-    expect(intent.fields.priceMaxUsd?.provenance).toBe("note");
-    expect(intent.fields.zip?.provenance).toBe("note");
+    expect(intent.fields).toEqual({});
     const serialized = serializeUserIntentConstraints(intent);
-    expect(serialized.priceMaxUsd).toBeUndefined();
-    expect(serialized.zip).toBeUndefined();
-    expect(serialized.radiusMi).toBeUndefined();
-    expect(serialized.yearMin).toBeUndefined();
+    expect(serialized).toEqual({});
     expect(assertNoNonUserSetConstraints(serialized, intent).ok).toBe(true);
   });
 
@@ -106,22 +101,17 @@ describe("UserIntent — only origin=user Form edits to SERV", () => {
     }
   });
 
-  it("flat bare numbers are not user-origin; note extraction still applies on intent", () => {
+  it("flat bare numbers are not user-origin; note is not parsed into fields", () => {
     const intent = buildUserIntentFromFlatForm({
       note: "under $11k near 43215",
       form: { budgetUsd: 11_000, zip: "43215", yearMin: null, milesMax: null, distanceMiles: null },
     });
-    // Bare finite values must NOT become user form — note still extracts onto intent.
-    expect(intent.fields.priceMaxUsd).toEqual({
-      value: 11_000,
-      provenance: "note",
-      origin: "note",
-    });
-    expect(intent.fields.zip).toEqual({ value: "43215", provenance: "note", origin: "note" });
+    // Bare finite values must NOT become user form — and code must not invent note fields.
+    expect(intent.fields.priceMaxUsd).toBeUndefined();
+    expect(intent.fields.zip).toBeUndefined();
     expect(intent.fields.yearMin).toBeUndefined();
     expect(intent.fields.milesMax).toBeUndefined();
     expect(intent.fields.radiusMi).toBeUndefined();
-    // Form-edits serialization stays empty.
     expect(serializeUserIntentConstraints(intent)).toEqual({});
     expect(assertNoNonUserSetConstraints(serializeUserIntentConstraints(intent), intent).ok).toBe(
       true,

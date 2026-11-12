@@ -7,7 +7,7 @@ import {
 } from "./find-free-gov";
 import { decideFindNextCheckLoop } from "./find-next-check-loop";
 import { proposeFindNextChecks } from "./find-next-checks";
-import { softPrefGapsFromText, emptyNeed } from "./need";
+import {  emptyNeed } from "./need";
 import type { FreeGovEvidencePacket, ScoutFreeGovPort } from "./free-gov";
 import { buildFindFuelAssumptions } from "./find-fuel-match";
 
@@ -109,7 +109,7 @@ describe("free_gov_fuel allowlist + loop replan", () => {
         zip: "68114",
         distanceMiles: 50,
       },
-      softGaps: softPrefGapsFromText(note),
+      softGaps: [],
       observedListingCount: 24,
       observedModelCount: 5,
       emptyInventory: false,

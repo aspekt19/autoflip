@@ -160,7 +160,7 @@ describe("find → SERV → watch → radar verdict_decide acceptance (merge gat
             priorities: [],
             namedModels: [{ make: "Toyota", model: "RAV4" }],
             excludedMakes: [],
-            question: { id: "none", text: null },
+            questions: [],
             directions: [
               {
                 label: "The model you named",

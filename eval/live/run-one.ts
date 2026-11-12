@@ -1,24 +1,19 @@
 /**
- * One live-eval query through the real in-process Find pipeline.
- * never calls debitFindDelivery — no report credits.
+ * One live-eval Find query through the SERV chat intake.
+ * Never charges report credits (skipCredit).
  */
 import { mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { joinChosenListing } from "@/domain/join-chosen-listing";
-import type { SearchSpec } from "@/domain/search-spec";
+import type { Listing } from "@/domain/types";
 import type { Kv } from "@/io/kv";
 import { runtimeDeps } from "@/server/deps";
-import { runFindDecideOrchestrator } from "@/server/find-decide-orchestrator";
-import {
-  mintFindSearchContextRecord,
-  updateFindSearchContext,
-} from "@/server/find-search-context";
-import { BASE_MODEL, profile } from "@/server/serv";
-import { understandNeed } from "@/server/understand-need";
+import { runFindChatTurn } from "@/server/find-chat";
 import { createGoldenFetch } from "../../test/golden/transport";
-import type { GeneratedQuery, LiveEvalCaseResult, SearchSpecSummary } from "./types";
+import { driveServChatEval } from "./drive-chat";
+import type { GeneratedQuery, LiveEvalCaseResult, LiveEvalPick } from "./types";
 
-/** Rough spend model: understand + agent loop (search_listings + settle). */
+/** Rough spend model: chat intake + agent loop (search_listings + settle). */
 export const SERV_CALLS_PER_QUERY = 4;
 /** Conservative USD per SERV call for the eval hard cap (not a bill). */
 export const USD_PER_SERV_CALL = 0.03;
@@ -38,28 +33,6 @@ export type RunOneDeps = {
   secrets?: readonly string[];
 };
 
-function summarizeSpec(spec: SearchSpec | null, planSummary: string | null): SearchSpecSummary {
-  if (!spec) {
-    return { hard: {}, soft: {}, planSummary };
-  }
-  return {
-    hard: { ...spec.hard },
-    soft: {
-      models: spec.soft.models,
-      priorities: spec.soft.priorities,
-      ...(spec.soft.drivetrain ? { drivetrain: spec.soft.drivetrain } : {}),
-      ...(spec.soft.fuel ? { fuel: spec.soft.fuel } : {}),
-      ...(spec.soft.bodyStyles ? { bodyStyles: spec.soft.bodyStyles } : {}),
-    },
-    planSummary,
-  };
-}
-
-function pickLabel(year: number | null | undefined, make: string | null | undefined, model: string | null | undefined): string | null {
-  const parts = [year, make, model].filter((part) => part != null && String(part).trim());
-  return parts.length > 0 ? parts.join(" ") : null;
-}
-
 export function liveKeysFromEnv(env: NodeJS.ProcessEnv = process.env): {
   ok: boolean;
   servKey: string | undefined;
@@ -78,6 +51,16 @@ export function liveKeysFromEnv(env: NodeJS.ProcessEnv = process.env): {
     };
   }
   return { ok: true, servKey, autodevKey, message: null };
+}
+
+function pickLabel(year: number | null | undefined, make: string | null | undefined, model: string | null | undefined): string | null {
+  const parts = [year, make, model].filter((part) => part != null && String(part).trim());
+  return parts.length > 0 ? parts.join(" ") : null;
+}
+
+function listingVdp(listing: Listing | null | undefined): string | null {
+  const vdp = listing?.vdp?.trim() || listing?.dealerUrl?.trim() || null;
+  return vdp || null;
 }
 
 export async function runOneQuery(
@@ -127,53 +110,49 @@ export async function runOneQuery(
     fetchImpl = golden.fetch;
   }
 
-  const settle = (result: LiveEvalCaseResult): LiveEvalCaseResult => {
-    const finished = { ...result, elapsedMs: Date.now() - started };
+  const driven = await driveServChatEval({
+    firstMessage: query.note,
+    turn: (turn) =>
+      runFindChatTurn({
+        kv: deps.kv,
+        userId: deps.userId,
+        sessionId: turn.sessionId,
+        message: turn.message,
+        continue: turn.continue,
+        confirmBrief: turn.confirmBrief,
+        skipCredit: true,
+        servKey: keys.servKey!,
+        autodevKey: keys.autodevKey!,
+        servBaseUrl: deps.servBaseUrl,
+        fetchImpl,
+      }),
+  });
+
+  const result = (driven.body.result && typeof driven.body.result === "object"
+    ? (driven.body.result as Record<string, unknown>)
+    : null);
+
+  const settle = (row: LiveEvalCaseResult): LiveEvalCaseResult => {
+    const finished = { ...row, elapsedMs: Date.now() - started, durationMs: Date.now() - started };
     if (deps.fixtureRoot && deps.caseId) {
-      const proofs = finished.proofRecords;
       writeProvenance(deps.fixtureRoot, deps.caseId, {
         note: query.note,
-        model: deps.servModel || BASE_MODEL,
-        profiles: ["find_plan", "find_triage", "find_decide", "find_challenge"],
-        profileTimeoutsMs: {
-          find_plan: profile("find_plan").timeoutMs,
-          find_triage: profile("find_triage").timeoutMs,
-          find_decide: profile("find_decide").timeoutMs,
-          find_challenge: profile("find_challenge").timeoutMs,
-        },
-        responseIds: proofs
-          .map((row) =>
-            row && typeof row === "object" && "servResponseId" in row
-              ? (row as { servResponseId?: string | null }).servResponseId
-              : null,
-          )
-          .filter((id): id is string => typeof id === "string" && id.length > 0),
-        at: new Date().toISOString(),
+        product: "find",
         ok: finished.ok,
         failure: finished.failure,
         pick: finished.pick,
         carsFound: finished.carsFound,
+        asked: driven.asked,
+        briefConfirmed: driven.briefConfirmed,
+        hops: driven.hops,
+        confirmedBrief: result?.confirmedBrief ?? null,
+        at: new Date().toISOString(),
       });
     }
     return finished;
   };
 
-  const understood = await understandNeed(
-    {
-      text: query.note,
-      mode: "personal",
-      zip: query.zip,
-      distanceMiles: query.distanceMiles,
-    },
-    {
-      servKey: keys.servKey,
-      servModel: deps.servModel,
-      servBaseUrl: deps.servBaseUrl,
-      fetchImpl,
-    },
-  );
-
-  if (!understood.ok) {
+  if (!driven.ok || !result) {
     return settle({
       ...base,
       ok: false,
@@ -181,188 +160,109 @@ export async function runOneQuery(
       carsFound: 0,
       pick: null,
       failure: {
-        step: "understand",
-        error: understood.error,
-        message: understood.message,
-        responseId: null,
+        step: "chat",
+        error: typeof driven.body.error === "string" ? driven.body.error : "chat_failed",
+        message:
+          typeof driven.body.message === "string"
+            ? driven.body.message
+            : "Find chat did not deliver a verdict.",
       },
       proofRecords: [],
-      elapsedMs: 0,
     });
   }
 
-  const searchSpec = summarizeSpec(understood.searchSpec, understood.findPlan.summary || null);
+  const offerPool = Array.isArray(result.offerPool) ? (result.offerPool as Listing[]) : [];
+  const offerByVin = new Map(offerPool.map((row) => [row.vin.toUpperCase(), row]));
+  const agentLoop = (result.agentLoop && typeof result.agentLoop === "object"
+    ? (result.agentLoop as Record<string, unknown>)
+    : null);
+  const bestDeal = (result.bestDeal && typeof result.bestDeal === "object"
+    ? (result.bestDeal as { pick?: { vin?: string | null; key?: string | null; year?: number; make?: string; model?: string; priceUsd?: number; miles?: number }; confidence?: unknown })
+    : null);
+  const pickAgentVerdict = (result.pickAgentVerdict && typeof result.pickAgentVerdict === "object"
+    ? (result.pickAgentVerdict as { verdict?: string | null; confidence?: unknown; pick?: { key?: string | null; label?: string | null } })
+    : null);
 
-  // No classic runFindMatch seed. SERV agent loop owns search via search_listings.
-  let context = mintFindSearchContextRecord({
-    userId: deps.userId,
-    need: understood.need,
-    listings: [],
-    compsPool: [],
-    servNextCheckEnabled: false,
-  });
-  context = await updateFindSearchContext(deps.kv, context, { decidePathEnabled: true });
-
-  // Stepped agentic decide: re-enter until settled or hard failure (Hobby 300s per hop).
-  let decided = await runFindDecideOrchestrator(
-    { searchContextToken: context.token },
-    {
-      kv: deps.kv,
-      userId: deps.userId,
-      servKey: keys.servKey,
-      autodevKey: keys.autodevKey,
-      servModel: deps.servModel,
-      servBaseUrl: deps.servBaseUrl,
-      fetchImpl,
-      env: process.env,
-    },
-  );
-  for (let hop = 0; hop < 40 && decided.ok && decided.loop.continue; hop += 1) {
-    decided = await runFindDecideOrchestrator(
-      { searchContextToken: context.token },
-      {
-        kv: deps.kv,
-        userId: deps.userId,
-        servKey: keys.servKey,
-        autodevKey: keys.autodevKey,
-        servModel: deps.servModel,
-        servBaseUrl: deps.servBaseUrl,
-        fetchImpl,
-        env: process.env,
-      },
-    );
-  }
-
-  if (!decided.ok) {
-    return settle({
-      ...base,
-      ok: false,
-      searchSpec,
-      carsFound: 0,
-      pick: null,
-      failure: {
-        step: "decide",
-        error: decided.error,
-        message: decided.message,
-      },
-      proofRecords: [...(understood.proofRecords ?? [])],
-      elapsedMs: 0,
-    });
-  }
-
-  const proofs = [...(understood.proofRecords ?? []), ...(decided.pickProofRecords ?? [])];
-  const decideProof = decided.pickProofRecords?.find((row) => row.purpose === "find_decide");
-  const decideFailed = decideProof != null && decideProof.status !== "ok";
-  const verdict = decided.pickAgentVerdict?.verdict ?? null;
-  const pickVin =
-    decided.bestDeal?.pick?.vin ??
-    decided.bestDeal?.pick?.key ??
-    decided.pickAgentVerdict?.pick?.key ??
+  const pickVinRaw =
+    bestDeal?.pick?.vin ??
+    bestDeal?.pick?.key ??
+    pickAgentVerdict?.pick?.key ??
     null;
-  const offerByVin = new Map(
-    (decided.offerPool ?? []).map((row) => [row.vin.toUpperCase(), row]),
-  );
-  const joined = joinChosenListing(
-    typeof pickVin === "string" ? pickVin : null,
-    offerByVin,
-  );
-  const best = decided.bestDeal?.pick ?? null;
+  const joined = joinChosenListing(typeof pickVinRaw === "string" ? pickVinRaw : null, offerByVin);
+  const chosenVin = joined?.vin ?? (typeof pickVinRaw === "string" && pickVinRaw.trim() ? pickVinRaw : null);
+  const listing = chosenVin ? offerByVin.get(chosenVin.toUpperCase()) ?? null : null;
+  const verdict = pickAgentVerdict?.verdict ?? null;
+  const confidence =
+    pickAgentVerdict?.confidence != null
+      ? String(pickAgentVerdict.confidence)
+      : bestDeal?.confidence != null
+        ? String(bestDeal.confidence)
+        : null;
   const label =
     joined?.label ??
-    decided.pickAgentVerdict?.pick?.label ??
-    pickLabel(best?.year, best?.make, best?.model);
-  const confidence =
-    decided.pickAgentVerdict?.confidence != null
-      ? String(decided.pickAgentVerdict.confidence)
-      : decided.bestDeal?.confidence != null
-        ? String(decided.bestDeal.confidence)
-        : null;
-
-  const agentLoop = decided.agentLoop ?? null;
-  // Count from agent journal search results — never hardcode 0 when funnel kept rows.
-  const carsFound = agentLoop?.carsFound ?? decided.offerPool?.length ?? 0;
-
-  if (decideFailed) {
-    return settle({
-      ...base,
-      ok: false,
-      searchSpec,
-      carsFound,
-      pick: {
-        vin: typeof pickVin === "string" ? pickVin : null,
-        label,
-        verdict: null,
-        confidence: null,
-        priceUsd: joined?.priceUsd ?? best?.priceUsd ?? null,
-        miles: joined?.miles ?? best?.miles ?? null,
-      },
-      failure: {
-        step: "decide",
-        error: "decide_validation_failed",
-        message: decideProof?.reason ?? "find_decide failed validation",
-        responseId: decideProof?.servResponseId ?? null,
-      },
-      proofRecords: proofs,
-      elapsedMs: 0,
-      passReason: agentLoop?.passReason ?? null,
-    });
-  }
-
-  const elapsed = Date.now() - started;
-  const chosenVin = typeof pickVin === "string" && pickVin.trim() ? pickVin : null;
-  const passReason = agentLoop?.passReason ?? null;
+    pickAgentVerdict?.pick?.label ??
+    pickLabel(bestDeal?.pick?.year, bestDeal?.pick?.make, bestDeal?.pick?.model);
+  const passReason = typeof agentLoop?.passReason === "string" ? agentLoop.passReason : null;
+  const carsFound =
+    typeof agentLoop?.carsFound === "number" ? agentLoop.carsFound : offerPool.length;
+  const toolRounds = typeof agentLoop?.toolRounds === "number" ? agentLoop.toolRounds : 0;
+  const relaxedConditions = Array.isArray(agentLoop?.relaxedConditions)
+    ? (agentLoop!.relaxedConditions as LiveEvalCaseResult["relaxedConditions"])
+    : [];
+  const verdictReachedFlag = agentLoop?.verdictReached === true;
   const nothingFits =
     !chosenVin &&
-    Boolean(agentLoop?.verdictReached) &&
+    verdictReachedFlag &&
     (verdict === "pass" || verdict == null) &&
     Boolean(passReason?.trim()) &&
-    (agentLoop?.relaxedConditions?.length ?? 0) > 0 &&
-    (agentLoop?.toolRounds ?? 0) > 0;
+    (relaxedConditions?.length ?? 0) > 0 &&
+    toolRounds > 0;
   const verdictReached = Boolean(chosenVin) || nothingFits;
-  const scoringOk = verdictReached;
+  const confirmedBrief = result.confirmedBrief && typeof result.confirmedBrief === "object"
+    ? (result.confirmedBrief as { summary?: string })
+    : null;
+  const pick: LiveEvalPick = {
+    vin: chosenVin,
+    label,
+    verdict: typeof verdict === "string" ? verdict : chosenVin ? null : "pass",
+    confidence,
+    priceUsd: joined?.priceUsd ?? bestDeal?.pick?.priceUsd ?? null,
+    miles: joined?.miles ?? bestDeal?.pick?.miles ?? null,
+    vdp: listingVdp(listing),
+  };
+
   return settle({
     ...base,
-    ok: scoringOk,
-    searchSpec,
+    ok: verdictReached,
+    searchSpec: confirmedBrief?.summary
+      ? { hard: {}, soft: {}, planSummary: confirmedBrief.summary }
+      : null,
     carsFound,
-    pick: {
-      vin: chosenVin,
-      label,
-      verdict: typeof verdict === "string" ? verdict : null,
-      confidence,
-      priceUsd: joined?.priceUsd ?? best?.priceUsd ?? null,
-      miles: joined?.miles ?? best?.miles ?? null,
-    },
-    failure: scoringOk
+    pick,
+    failure: verdictReached
       ? null
       : {
-          step: "decide",
+          step: "chat",
           error: "incomplete_verdict",
           message:
             "No chosen listing and no documented nothing-fits (searches + reasons). Agent must repair.",
         },
-    proofRecords: proofs,
-    elapsedMs: elapsed,
-    durationMs: elapsed,
-    agentMode: agentLoop?.agentMode ?? null,
-    toolRounds: agentLoop?.toolRounds ?? 0,
+    proofRecords: [],
+    agentMode: typeof agentLoop?.agentMode === "string" ? (agentLoop.agentMode as "tools" | "next_action") : null,
+    toolRounds,
     verdictReached,
-    relaxedConditions: agentLoop?.relaxedConditions ?? [],
+    relaxedConditions,
     passReason,
-    journalServCalls: agentLoop?.journalServCalls ?? 0,
-    journalToolCalls: agentLoop?.journalToolCalls ?? 0,
-    featuresActive: agentLoop?.featuresActive ?? [],
-    featureRejections: agentLoop?.featureRejections ?? [],
+    journalServCalls: typeof agentLoop?.journalServCalls === "number" ? agentLoop.journalServCalls : 0,
+    journalToolCalls: typeof agentLoop?.journalToolCalls === "number" ? agentLoop.journalToolCalls : 0,
+    featuresActive: Array.isArray(agentLoop?.featuresActive) ? (agentLoop!.featuresActive as string[]) : [],
+    featureRejections: Array.isArray(agentLoop?.featureRejections)
+      ? (agentLoop!.featureRejections as string[])
+      : [],
     chosenListingCount: chosenVin ? 1 : 0,
-    servResponseIds:
-      agentLoop?.servResponseIds ??
-      proofs
-        .map((row) =>
-          row && typeof row === "object" && "servResponseId" in row
-            ? (row as { servResponseId?: string | null }).servResponseId
-            : null,
-        )
-        .filter((id): id is string => typeof id === "string" && id.length > 0),
+    servResponseIds: Array.isArray(agentLoop?.servResponseIds)
+      ? (agentLoop!.servResponseIds as string[])
+      : [],
   });
 }
 

@@ -94,12 +94,6 @@ function finitePositive(n: unknown): n is number {
   return typeof n === "number" && Number.isFinite(n) && n > 0;
 }
 
-/** Detect city-heavy intent from shopper note (Find). */
-export function parseCityHeavyFromNote(note: string | null | undefined): boolean {
-  if (!note) return false;
-  return /\bmostly\s+city\b|\bcity\s+driving\b|\bcity[\s-]?heavy\b|\bmainly\s+city\b/i.test(note);
-}
-
 export function buildFindFuelAssumptions(input: {
   note?: string | null;
   milesPerYear?: number | null;
@@ -110,7 +104,7 @@ export function buildFindFuelAssumptions(input: {
   electric?: boolean;
   usdPerKwh?: number | null;
 }): FindFuelAssumptions {
-  const cityHeavy = parseCityHeavyFromNote(input.note);
+  const cityHeavy = false;
   const cityShare = cityHeavy ? FIND_FUEL_CITY_HEAVY_SHARE : FIND_FUEL_DEFAULT_CITY_SHARE;
   const milesPerYear =
     finitePositive(input.milesPerYear) ? Math.round(input.milesPerYear) : FIND_FUEL_DEFAULT_MILES_PER_YEAR;

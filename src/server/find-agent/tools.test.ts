@@ -319,4 +319,62 @@ describe("search_listings funnel", () => {
     const cars = executed.result.cars as Array<{ vin: string; model: string }>;
     expect(cars.map((c) => c.model).sort()).toEqual(["Camry", "RAV4"]);
   });
+
+  it("passes real upstream status/cause to SERV (not a generic error)", async () => {
+    // 400 is non-retryable so the tool result surfaces in one attempt.
+    const fetchImpl: typeof fetch = async () => new Response("bad filter", { status: 400 });
+    const executed = await executeFindAgentTool(
+      "search_listings",
+      { make: "Toyota", model: "Camry", priceMaxUsd: 15_000 },
+      {
+        fetch: fetchImpl,
+        autodevKey: "test",
+        autodev: {
+          cache: new TtlCache<unknown>(),
+          counter: new MemoryCounter(),
+        },
+      },
+      createFindAgentToolState(),
+    );
+    expect(executed.ok).toBe(false);
+    expect(executed.result.error).toBe("upstream");
+    expect(executed.result.status).toBe(400);
+    expect(executed.result.cause).toBe("http_error");
+    expect(executed.result.attempts).toBe(1);
+    expect(String(executed.summary)).toMatch(/status=400/);
+    expect(String(executed.summary)).toMatch(/cause=http_error/);
+  });
+});
+
+describe("search waits for brief confirmation", () => {
+  const deps = {
+    fetch: (async () => new Response("should not run", { status: 500 })) as typeof fetch,
+    autodevKey: "test",
+    autodev: { cache: new TtlCache<unknown>(), counter: new MemoryCounter() },
+  };
+
+  it("rejects search_listings until the brief is confirmed", async () => {
+    const state = createFindAgentToolState();
+    state.requireBriefConfirm = true;
+    const blocked = await executeFindAgentTool(
+      "search_listings",
+      { make: "Toyota", zip: "43215" },
+      deps,
+      state,
+    );
+    expect(blocked.ok).toBe(false);
+    expect(blocked.result.error).toBe("brief_not_confirmed");
+  });
+
+  it("allows ask_shopper and submit_brief before confirm", async () => {
+    const state = createFindAgentToolState();
+    state.requireBriefConfirm = true;
+    const asked = await executeFindAgentTool(
+      "ask_shopper",
+      { question: "What is your budget?" },
+      deps,
+      state,
+    );
+    expect(asked.ok).toBe(true);
+  });
 });

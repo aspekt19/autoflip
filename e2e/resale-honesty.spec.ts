@@ -152,117 +152,58 @@ test("Scout and Telegram stay hidden; Deal Radar is available when default-on", 
   expect(await scoutTelegramHrefs(page)).toEqual([]);
 });
 
-test("resale requires sign-in and budget-first search; one-car estimate stays honest", async ({ page }) => {
+test("resale requires sign-in then SERV chat; charge copy stays honest", async ({ page }) => {
   await mockFlags(page);
   await mockAccount(page, false);
   await page.goto("/resale");
   await expect(page.getByRole("heading", { name: "Sign in to continue" })).toBeVisible();
   await expect(page.locator("#resale-budget")).toHaveCount(0);
+  await expect(page.getByLabel("Message")).toHaveCount(0);
 
   await mockAccount(page, true);
-  const assessment = pricedAssessment();
-  expect(assessment.ok).toBe(true);
-
-  await page.route("**/api/resale/search", async (route) => {
+  await page.route("**/api/resale/chat", async (route) => {
+    const body = route.request().postDataJSON() as { message?: string };
+    const message = typeof body.message === "string" ? body.message : "flip under $12k";
     await route.fulfill({
       status: 200,
       contentType: "application/json",
       body: JSON.stringify({
         ok: true,
-        sample: false,
+        status: "done",
+        sessionId: "e2e-resale-chat",
+        messages: [
+          { role: "user", content: message },
+          { role: "assistant", content: "No listings cleared similar-listing economics inside this budget." },
+        ],
         charged: true,
-        chargedCredit: true,
-        budgetUsd: 12_000,
-        best: null,
-        alternatives: [],
-        verdictAction: "pass",
-        confidence: "Low",
-        agentVerdict: {
-          schemaVersion: "lemonless.agent_verdict.v1",
-          pick: null,
-          verdict: "pass",
-          reasons: [],
-          risks: [],
-          confidence: "low",
-          unknowns: ["No flip candidates cleared similar-listing economics in this search."],
-          serv_steps: [],
-          second_pass: {
-            status: "not_run",
-            action: null,
-            objection: "Second check not run: no candidate to challenge.",
-            evidenceIds: [],
-            confidenceBefore: null,
-            confidenceAfter: null,
-          },
-          multipath: null,
-          vs_cheapest: null,
-          serv_spend: null,
-          no_serv_step: true,
-        },
-        journal: {
-          schemaVersion: "lemonless.resale_journal.v1",
-          steps: [
-            {
-              id: "step_1",
-              kind: "stop_or_widen",
-              actor: "code",
-              decided: "Stop — no flip candidates cleared economics",
-              why: "No listings cleared similar-listing P&L.",
-              inputsUsed: ["budgetUsd:12000"],
-              changed: null,
-              model: null,
-              responseId: null,
-              recordedAt: "2026-11-09T00:00:00.000Z",
-              rejected: null,
-            },
-          ],
-          servCalls: 0,
-        },
-        headline: "No flip candidates in this budget",
-        message: "No listings cleared similar-listing economics inside this budget.",
-        nextStep: "Raise the budget or clear optional filters.",
-        creditNote: "1 report credit per delivered resale search (same as Find).",
         balance: 2,
+        result: {
+          ok: true,
+          best: null,
+          alternatives: [],
+          message: "No listings cleared similar-listing economics inside this budget.",
+          creditNote: "1 report credit used for this delivered Resale verdict.",
+          charged: true,
+          balance: 2,
+        },
       }),
     });
   });
 
-  await page.route("**/api/resale/evaluate", async (route) => {
-    await route.fulfill({
-      status: 200,
-      contentType: "application/json",
-      body: JSON.stringify({ ok: true, title: "2018 Honda CR-V", sample: false, assessment }),
-    });
-  });
-
   await page.goto("/resale");
-  await expect(page.locator("#resale-budget")).toBeVisible();
-  await expect(page.getByRole("button", { name: /Find flips/i })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Resale" })).toBeVisible();
   await expect(page.getByText(/1 report credit/i).first()).toBeVisible();
+  await expect(page.getByText(/no verdict/i).first()).toBeVisible();
   await expect(page.getByText(/not a profit guarantee/i).first()).toBeVisible();
+  await expect(page.locator("#resale-budget")).toHaveCount(0);
+  await expect(page.getByRole("button", { name: /Find flips/i })).toHaveCount(0);
+  await expect(page.getByLabel("Message")).toBeVisible();
 
-  await page.locator("#resale-budget").fill("12000");
-  await page.getByRole("button", { name: /Find flips/i }).click();
-  await expect(page.getByRole("heading", { name: "No flip candidates in this budget" })).toBeVisible();
+  await page.getByLabel("Message").fill("Looking for a flip under $12k that can clear $2k after light detail.");
+  await page.getByRole("button", { name: "Send" }).click();
   await expect(page.getByText(/No listings cleared similar-listing economics/i).first()).toBeVisible();
+  await expect(page.getByText(/1 report credit used/i).first()).toBeVisible();
   await expect(page.getByRole("strong").filter({ hasText: /^Verdict: pass$/i })).toHaveCount(0);
-  // Buyer-facing journal title (replaces the old "Decision journal" / "How the agent decided" labels).
-  await expect(page.getByText(/How this decision was made/i).first()).toBeVisible();
-  await expect(page.getByText(/calculated checks only/i).first()).toBeVisible();
-
-  await page.getByRole("strong").filter({ hasText: /^One-car buy-ceiling estimate$/i }).click();
-  await expect(page.locator("#resale-year")).toBeVisible();
-  await page.locator("#resale-make").fill("Honda");
-  await page.locator("#resale-model").fill("CR-V");
-  await page.locator("#resale-miles").fill("70000");
-  await page.locator("#resale-ask").fill("8000");
-  await page.getByRole("button", { name: "Estimate resale" }).click();
-  await expect(page.getByRole("heading", { name: "2018 Honda CR-V" })).toBeVisible();
-  await expect(page.getByText(/Buy ceiling/)).toBeVisible();
-  if (assessment.ok) {
-    expect(assessment.resaleMidUsd).toBeGreaterThan(12_000);
-    expect(assessment.resaleMidUsd).not.toBe(8_000);
-  }
 
   await page.setViewportSize({ width: 390, height: 844 });
   const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);

@@ -1,4 +1,4 @@
-# Live eval (8 queries) — manually triggered.
+# Live eval (4 queries: 2 Find + 2 Resale) — manually triggered.
 #
 # Auth / URL (values are never printed):
 #   Bearer token = secrets.CRON_SECRET, or secrets.RADAR_CRON_SECRET if the
@@ -12,7 +12,7 @@
 #
 # The workflow fails with a clear message if neither CRON_SECRET nor
 # RADAR_CRON_SECRET is set. It never echoes secret values.
-name: Live eval (8 queries)
+name: Live eval (4 queries)
 
 on:
   workflow_dispatch:
@@ -22,9 +22,9 @@ on:
         required: false
         type: string
       max_queries:
-        description: "Max queries (1–8; default 8 = 5 Find + 3 Resale)"
+        description: "Max queries (1–4; default 4 = 2 Find + 2 Resale)"
         required: false
-        default: "8"
+        default: "4"
         type: string
 
 permissions:
@@ -96,7 +96,7 @@ jobs:
 
           const maxQueries = Math.max(
             1,
-            Math.min(8, Number(process.env.INPUT_MAX_QUERIES || "8") || 8),
+            Math.min(4, Number(process.env.INPUT_MAX_QUERIES || "4") || 4),
           );
           const seedInput = String(process.env.INPUT_SEED || "").trim();
           const seed = /^\d+$/.test(seedInput)

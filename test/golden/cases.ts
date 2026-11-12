@@ -642,7 +642,8 @@ export const GOLDEN_CASES: readonly GoldenCase[] = [
     location: NYC,
     search: "final",
     turns: [{ note: "Used car under $15,000" }],
-    expect: { budgetUsd: 15000, priceCeilUsd: 15750, queriesRequired: true, honestStop: true },
+    // SERV plan always length-fails; code must not invent catalog queries.
+    expect: { budgetUsd: 15000, priceCeilUsd: 15750, queriesRequired: false, honestStop: true },
   },
 ];
 

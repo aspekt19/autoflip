@@ -35,14 +35,13 @@ function car(over: Partial<Listing> & Pick<Listing, "vin" | "year" | "priceUsd">
 }
 
 describe("buildSearchSpec", () => {
-  it("reads $20k, around $20k, about $8,000, and $30k", () => {
-    expect(buildSearchSpec({ note: "$20k" }).hard.priceMaxUsd?.value).toBe(20_000);
-    expect(buildSearchSpec({ note: "around $20k" }).hard.priceMaxUsd?.value).toBe(20_000);
-    expect(buildSearchSpec({ note: "about $8,000" }).hard.priceMaxUsd?.value).toBe(8_000);
-    expect(buildSearchSpec({ note: "$30k" }).hard.priceMaxUsd?.value).toBe(30_000);
+  it("does not invent hard price from note text alone — SERV or user form required", () => {
+    expect(buildSearchSpec({ note: "$20k" }).hard.priceMaxUsd).toBeUndefined();
+    expect(buildSearchSpec({ note: "around $20k" }).hard.priceMaxUsd).toBeUndefined();
+    expect(buildSearchSpec({ note: "about $8,000" }).hard.priceMaxUsd).toBeUndefined();
   });
 
-  it("lets a user-origin form budget beat the note, and ignores suggestion/note form cells", () => {
+  it("lets a user-origin form budget win; suggestion/note form cells do not invent hard price", () => {
     const dirty = buildSearchSpec({
       note: "reliable first car about $8,000",
       formEdits: { priceMaxUsd: { value: 20_000, origin: "user" } },
@@ -53,27 +52,35 @@ describe("buildSearchSpec", () => {
       note: "reliable first car about $8,000",
       formEdits: { priceMaxUsd: { value: 20_000, origin: "suggestion" } },
     });
-    expect(stale.hard.priceMaxUsd).toEqual({ value: 8_000, source: "note" });
+    expect(stale.hard.priceMaxUsd).toBeUndefined();
   });
 
-  it("keeps the second note's budget after an earlier $20k search", () => {
-    const first = buildSearchSpec({ note: "SUV under $20,000" });
+  it("uses SERV budget when form is empty", () => {
+    const first = buildSearchSpec({
+      note: "SUV under $20,000",
+      servPlan: { priceMaxUsd: 20_000 },
+    });
     const second = buildSearchSpec({
       note: "reliable first car about $8,000",
+      servPlan: { priceMaxUsd: 8_000 },
       formEdits: { priceMaxUsd: { value: first.hard.priceMaxUsd?.value ?? null, origin: "note" } },
     });
     expect(second.hard.priceMaxUsd?.value).toBe(8_000);
+    expect(second.hard.priceMaxUsd?.source).toBe("serv");
     expect(second.hash).not.toBe(first.hash);
   });
 
-  it("uses a user-origin oldest year and treats newer-than as the next model year", () => {
+  it("uses a user-origin oldest year; note alone does not invent yearMin", () => {
     const spec = buildSearchSpec({
       note: "Looking for a pickup truck that can tow a camper, budget around $30k",
       formEdits: { yearMin: { value: 2018, origin: "user" } },
+      servPlan: { priceMaxUsd: 30_000 },
     });
     expect(spec.hard.yearMin).toEqual({ value: 2018, source: "form" });
     expect(spec.hard.priceMaxUsd?.value).toBe(30_000);
-    expect(buildSearchSpec({ note: "I want a hybrid, budget 18-22k, newer than 2019" }).hard.yearMin?.value).toBe(2020);
+    expect(
+      buildSearchSpec({ note: "I want a hybrid, budget 18-22k, newer than 2019" }).hard.yearMin,
+    ).toBeUndefined();
   });
 
   it("never builds an empty query list", () => {
@@ -87,6 +94,7 @@ describe("enforceHard", () => {
     const spec = buildSearchSpec({
       note: "around $30k",
       formEdits: { yearMin: { value: 2018, origin: "user" } },
+      servPlan: { priceMaxUsd: 30_000 },
     });
     const { kept, dropped } = enforceHard(spec, [
       car({ vin: "NEW", year: 2019, priceUsd: 28_000 }),
@@ -137,7 +145,7 @@ describe("buildSearchSpec SERV hard vs soft", () => {
     expect(spec.soft.drivetrain).toBeUndefined();
   });
 
-  it("does not let note soft AWD force hard when SERV said preferred", () => {
+  it("does not invent hard AWD from the note when SERV said preferred", () => {
     const note = "Family SUV under $20k, AWD would be great";
     const spec = buildSearchSpec({
       note,
@@ -150,7 +158,7 @@ describe("buildSearchSpec SERV hard vs soft", () => {
     expect(spec.soft.drivetrain?.value).toBe("awd_4wd");
   });
 
-  it("skips note body regex when SERV bodyStyles are present", () => {
+  it("uses SERV bodyStyles and never falls back to note body regex", () => {
     const note = "Looking for a sedan under $15k";
     const spec = buildSearchSpec({
       note,
@@ -160,5 +168,6 @@ describe("buildSearchSpec SERV hard vs soft", () => {
       },
     });
     expect(spec.hard.bodyStyles).toEqual({ value: ["SUV"], source: "serv" });
+    expect(buildSearchSpec({ note }).hard.bodyStyles).toBeUndefined();
   });
 });

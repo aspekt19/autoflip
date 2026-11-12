@@ -5,28 +5,23 @@
  */
 import { createHash, randomUUID } from "node:crypto";
 import type { StructuredNeed } from "@/domain/need";
-import { topFlipCandidates } from "@/domain/flip-rank";
-import { buildResaleCandidatePnls } from "@/domain/resale-pnl";
 import { creditBalance, creditEventSeen, creditSpend } from "@/io/credit-book";
 import type { Kv } from "@/io/kv";
 import { findSearchIdempotencyKey, findSearchSpendKey, storeFindSearchDelivery } from "@/server/find-search-credit";
 import { runFindDecideOrchestrator } from "@/server/find-decide-orchestrator";
-import { runFindMatch, type FindMatchDeps, type FindMatchResult } from "@/server/find-match";
+import type { FindMatchDeps } from "@/server/find-match";
 import {
-  listingFactsFromCompsPool,
-  listingsFromMatchDirections,
   mintFindSearchContextRecord,
   updateFindSearchContext,
 } from "@/server/find-search-context";
 import { understandNeed, type UnderstandDeps } from "@/server/understand-need";
-import { decideResale } from "@/server/serv-plan-decide";
+import { findDeliveryChargesCredit } from "@/domain/find-delivery";
 import type { AgentCaller } from "./agent-auth";
 import { agentError, insufficientCreditsEnvelope, type AgentErrorEnvelope } from "./agent-envelope";
 import { hashServSteps, writeAgentReceipt } from "./agent-receipts";
 import type { DecisionProofRecord } from "@/domain/decision-proof-record";
 import type { AgentVerdict } from "@/domain/agent-verdict-schema";
 import { emptyAgentVerdict, wrapAgentSuccess, type AgentApiSuccess } from "./agent-result";
-import type { Listing } from "@/domain/types";
 
 export type AgentFindCreateInput = {
   text: string;
@@ -292,18 +287,71 @@ export async function advanceAgentFindRun(
     await mark(fresh, "ranking", "ranking");
     await saveRun(deps.kv, fresh);
 
-    let match: FindMatchResult;
-    try {
-      match = await runFindMatch({ need: understood.need }, deps);
-    } catch {
+    await mark(fresh, "settling", "settling");
+    await saveRun(deps.kv, fresh);
+
+    const mode = fresh.input.mode === "flip" ? "flip" : "personal";
+    const servKey = runtimeServKey(deps);
+
+    if (mode === "flip") {
       fresh.error = agentError({
-        error_code: "find_failed",
-        message: "Find failed. No credit was spent.",
+        error_code: "agent_loop_required",
+        message:
+          "API Find flip mode requires the SERV Resale agent loop. Classic inventory ranking is removed.",
         credit_spent: false,
-        retry_safe: true,
+        retry_safe: false,
+        next_steps: {
+          action: "use_resale",
+          summary: "Use the Resale product path (SERV agent loop) for flips.",
+          request: {
+            method: "POST",
+            url: `${deps.origin}/api/resale/search`,
+            body: { freeText: fresh.input.text },
+          },
+        },
+      });
+      await mark(fresh, "failed", "failed");
+      await saveRun(deps.kv, fresh);
+      return fresh;
+    }
+
+    // Empty seed — SERV search_listings owns inventory (same as live eval /api/match).
+    let context = mintFindSearchContextRecord({
+      userId: fresh.user_id,
+      need: understood.need,
+      listings: [],
+      compsPool: [],
+      servNextCheckEnabled: false,
+    });
+    context = await updateFindSearchContext(deps.kv, context, { decidePathEnabled: true });
+    const decideDeps = {
+      kv: deps.kv,
+      userId: fresh.user_id,
+      servKey,
+      servBaseUrl: deps.servBaseUrl,
+      servModel: deps.servModel,
+      fetchImpl: deps.fetch,
+      autodevKey: typeof deps.autodevKey === "string" ? deps.autodevKey : undefined,
+    };
+    let decided = await runFindDecideOrchestrator(
+      { searchContextToken: context.token },
+      decideDeps,
+    );
+    for (let hop = 0; hop < 40 && decided.ok && decided.loop.continue; hop += 1) {
+      decided = await runFindDecideOrchestrator(
+        { searchContextToken: context.token },
+        decideDeps,
+      );
+    }
+    if (!decided.ok) {
+      fresh.error = agentError({
+        error_code: decided.error,
+        message: decided.message,
+        credit_spent: false,
+        retry_safe: decided.status >= 500,
         next_steps: {
           action: "retry",
-          summary: "Retry with the same Idempotency-Key. No credit was spent.",
+          summary: decided.message,
           request: {
             method: "POST",
             url: `${deps.origin}/api/v1/find`,
@@ -316,204 +364,57 @@ export async function advanceAgentFindRun(
       await saveRun(deps.kv, fresh);
       return fresh;
     }
-
-    if (!match.ok) {
-      const errCode = typeof match.body.error === "string" ? match.body.error : "find_failed";
-      const errMessage =
-        typeof match.body.message === "string" ? match.body.message : "Find could not complete.";
+    if (decided.loop.continue || !decided.pickAgentVerdict) {
       fresh.error = agentError({
-        error_code: errCode,
-        message: errMessage,
+        error_code: "decide_incomplete",
+        message: decided.loop.detail || "Find decide did not finish within the stepped loop budget.",
         credit_spent: false,
-        retry_safe: match.status >= 500,
+        retry_safe: true,
         next_steps: {
-          action: "adjust_need",
-          summary: errMessage,
+          action: "retry",
+          summary: "Call find status again to continue the decide loop.",
           request: {
-            method: "POST",
-            url: `${deps.origin}/api/v1/find`,
-            body: { text: fresh.input.text, zip: fresh.input.zip ?? "78701" },
+            method: "GET",
+            url: `${deps.origin}/api/v1/find/${fresh.run_id}/status`,
+            headers: {},
+            body: {},
           },
         },
       });
-      await mark(fresh, "failed", "failed");
+      await mark(fresh, "settling", "settling");
       await saveRun(deps.kv, fresh);
       return fresh;
     }
 
-    await mark(fresh, "settling", "settling");
-    await saveRun(deps.kv, fresh);
-
-    const poolListings: Listing[] =
-      match.body.compsPool.length > 0
-        ? match.body.compsPool
-        : match.body.directions.flatMap((group) => group.listings);
-    const listings = match.body.directions.flatMap((group) => group.listings);
-    const carsDelivered = listings.length > 0;
-    const mode = fresh.input.mode === "flip" ? "flip" : "personal";
-    const servKey = runtimeServKey(deps);
-
-    let verdict: AgentVerdict = emptyAgentVerdict({
-      pick: null,
-      verdict: null,
-      confidence: null,
-      reasons: [],
-      unknowns: match.body.emptyReason ? [String(match.body.emptyReason)] : [],
-      serv_steps: [
-        {
-          decided: "No listing shortlisted",
-          why: match.body.headline ?? match.body.message ?? "Find search completed with no cars delivered.",
-          changed: null,
-          evidenceIds: ["find_match"],
-        },
-      ],
-      no_serv_step: true,
-      serv_spend: {
-        calls: 0,
-        costNote: understood.source === "model" ? "Need parse may have used a model call." : null,
-      },
+    fresh.proofRecords = [...fresh.proofRecords, ...(decided.pickProofRecords ?? [])];
+    const verdict = decided.pickAgentVerdict;
+    const listings = decided.offerPool ?? [];
+    const carsFound = decided.agentLoop?.carsFound ?? listings.length;
+    const chosenVin =
+      decided.bestDeal?.pick?.vin ??
+      decided.bestDeal?.pick?.key ??
+      decided.pickAgentVerdict?.pick?.key ??
+      null;
+    const nothingFits = Boolean(decided.agentLoop?.passReason) && !chosenVin;
+    const shouldCharge = findDeliveryChargesCredit({
+      ok: true,
+      providerQueriesUsed: carsFound > 0 ? 1 : 0,
+      listingCount: carsFound,
+      chosenVin: typeof chosenVin === "string" ? chosenVin : null,
+      nothingFitsDocumented: nothingFits,
+      agentSettled: decided.agentLoop?.verdictReached === true || Boolean(chosenVin) || nothingFits,
     });
 
-    // Same SERV plan/decide façade as site Resale / Find settle (PR A/B plug-in points).
-    if (carsDelivered && mode === "flip") {
-      const budgetUsd =
-        typeof understood.need.budgetUsd === "number" && Number.isFinite(understood.need.budgetUsd)
-          ? understood.need.budgetUsd
-          : typeof fresh.input.budgetUsd === "number"
-            ? fresh.input.budgetUsd
-            : 15_000;
-      const ranked = topFlipCandidates(poolListings, new Date(), 8, {
-        repairAbility: understood.need.repairAbility,
-        targetProfitUsd: understood.need.targetProfitUsd ?? null,
-      });
-      const pnls = buildResaleCandidatePnls(ranked, {
-        repairAbility: understood.need.repairAbility,
-      });
-      const settled = await decideResale({
-        candidates: pnls,
-        budgetUsd,
-        servKey,
-        servBaseUrl: deps.servBaseUrl,
-        model: deps.servModel,
-        fetchImpl: deps.fetch,
-      });
-      fresh.proofRecords = [...fresh.proofRecords, ...(settled.proofRecords ?? [])];
-      verdict = settled.agentVerdict;
-    } else if (carsDelivered && mode === "personal") {
-      // Same decide path as the site: mint owner-bound search context → free-gov →
-      // find_triage → find_decide → find_challenge (POST /api/find/decide).
-      const shown = listingsFromMatchDirections(match.body.directions);
-      const compsPool =
-        match.body.compsPool.length > 0
-          ? listingFactsFromCompsPool(match.body.compsPool)
-          : shown;
-      let context = mintFindSearchContextRecord({
-        userId: fresh.user_id,
-        need: understood.need,
-        listings: shown,
-        compsPool,
-        servNextCheckEnabled: false,
-      });
-      context = await updateFindSearchContext(deps.kv, context, { decidePathEnabled: true });
-      const decideDeps = {
-        kv: deps.kv,
-        userId: fresh.user_id,
-        servKey,
-        servBaseUrl: deps.servBaseUrl,
-        servModel: deps.servModel,
-        fetchImpl: deps.fetch,
-      };
-      let decided = await runFindDecideOrchestrator(
-        { searchContextToken: context.token },
-        decideDeps,
-      );
-      for (let hop = 0; hop < 40 && decided.ok && decided.loop.continue; hop += 1) {
-        decided = await runFindDecideOrchestrator(
-          { searchContextToken: context.token },
-          decideDeps,
-        );
-      }
-      if (!decided.ok) {
-        fresh.error = agentError({
-          error_code: decided.error,
-          message: decided.message,
-          credit_spent: false,
-          retry_safe: decided.status >= 500,
-          next_steps: {
-            action: "retry",
-            summary: decided.message,
-            request: {
-              method: "POST",
-              url: `${deps.origin}/api/v1/find`,
-              headers: { "Idempotency-Key": fresh.idempotency_key },
-              body: { text: fresh.input.text },
-            },
-          },
-        });
+    let creditSpent = false;
+    if (shouldCharge) {
+      const spent = await creditSpend(deps.kv, fresh.user_id, fresh.spend_key);
+      if (!spent.ok && !(await creditEventSeen(deps.kv, fresh.spend_key))) {
+        fresh.error = insufficientCreditsEnvelope(deps.origin, spent.balance);
         await mark(fresh, "failed", "failed");
         await saveRun(deps.kv, fresh);
         return fresh;
       }
-      if (decided.loop.continue || !decided.pickAgentVerdict) {
-        fresh.error = agentError({
-          error_code: "decide_incomplete",
-          message: decided.loop.detail || "Find decide did not finish within the stepped loop budget.",
-          credit_spent: false,
-          retry_safe: true,
-          next_steps: {
-            action: "retry",
-            summary: "Call find status again to continue the decide loop.",
-            request: {
-              method: "GET",
-              url: `${deps.origin}/api/v1/find/${fresh.run_id}/status`,
-              headers: {},
-              body: {},
-            },
-          },
-        });
-        await mark(fresh, "settling", "settling");
-        await saveRun(deps.kv, fresh);
-        return fresh;
-      }
-      fresh.proofRecords = [...fresh.proofRecords, ...(decided.pickProofRecords ?? [])];
-      verdict = decided.pickAgentVerdict;
-    } else if (carsDelivered) {
-      const top = listings[0]!;
-      verdict = emptyAgentVerdict({
-        pick: { key: top.vin, label: `${top.year} ${top.make} ${top.model}` },
-        verdict: null,
-        confidence: null,
-        reasons: [{ evidenceId: "find_rank", text: match.body.headline ?? "Top listing from this search." }],
-        unknowns: [],
-        serv_steps: [
-          {
-            decided: `Shortlist lead: ${top.year} ${top.make} ${top.model}`,
-            why: match.body.headline ?? match.body.message ?? "Find search completed.",
-            changed: null,
-            evidenceIds: ["find_match"],
-          },
-        ],
-        no_serv_step: true,
-        serv_spend: {
-          calls: 0,
-          costNote: understood.source === "model" ? "Need parse may have used a model call." : null,
-        },
-      });
-    }
-
-    // Debit only when cars are delivered — empty inventory never charges.
-    let creditSpent = false;
-    if (carsDelivered) {
-      {
-        const spent = await creditSpend(deps.kv, fresh.user_id, fresh.spend_key);
-        if (!spent.ok && !(await creditEventSeen(deps.kv, fresh.spend_key))) {
-          fresh.error = insufficientCreditsEnvelope(deps.origin, spent.balance);
-          await mark(fresh, "failed", "failed");
-          await saveRun(deps.kv, fresh);
-          return fresh;
-        }
-        creditSpent = true;
-      }
+      creditSpent = true;
     }
 
     const top = listings.slice(0, 8).map((row) => ({
@@ -524,7 +425,7 @@ export async function advanceAgentFindRun(
       trim: row.trim,
       priceUsd: row.priceUsd,
       miles: row.miles,
-      badge: row.badge,
+      badge: null,
       vdp: row.vdp,
     }));
 
@@ -540,7 +441,7 @@ export async function advanceAgentFindRun(
           serv_steps_hash: hashServSteps(verdict.serv_steps),
           idempotency_key: fresh.idempotency_key,
           run_id: fresh.run_id,
-          summary: match.body.headline ?? match.body.message,
+          summary: decided.honesty ?? "SERV Find agent loop settled.",
         })
       : null;
 
@@ -550,47 +451,35 @@ export async function advanceAgentFindRun(
         verdict,
         subject: {
           need: understood.need,
-          scope: match.body.scope,
-          providerQueriesUsed: match.body.providerQueriesUsed,
+          scope: "SERV agent loop",
+          providerQueriesUsed: carsFound > 0 ? 1 : 0,
         },
-        comparables_summary: { n: match.body.compsPool.length, method: "find_match_comps_pool" },
+        comparables_summary: { n: listings.length, method: "find_agent_search_listings" },
         code_computed: {
-          providerQueriesUsed: match.body.providerQueriesUsed,
+          providerQueriesUsed: carsFound > 0 ? 1 : 0,
           listingCount: listings.length,
-          partialFailure: match.body.partialFailure,
-          carsDelivered,
+          partialFailure: false,
+          carsDelivered: listings.length > 0,
         },
-        checks_run: carsDelivered
-          ? [
-              "understand_need",
-              "find_match",
-              mode === "flip" ? "resale_decide" : "find_decide",
-              "price_badge",
-            ]
-          : ["understand_need", "find_match"],
+        checks_run: ["understand_need", "find_agent_loop"],
         credit_spent: creditSpent,
         credits: creditSpent ? 1 : 0,
         free_check_spent: false,
-        receipt_id: receipt?.receipt_id ?? "no_charge_empty_inventory",
+        receipt_id: receipt?.receipt_id ?? "no_charge",
         run_id: fresh.run_id,
-        summary: match.body.headline ?? match.body.message,
+        summary: decided.honesty ?? "SERV Find agent loop settled.",
         proofRecords: fresh.proofRecords,
         result: {
-          sample: match.body.sample,
-          emptyReason: match.body.emptyReason,
-          message: match.body.message,
-          headline: match.body.headline,
-          nextStep: match.body.nextStep,
-          scope: match.body.scope,
+          sample: false,
+          emptyReason: nothingFits ? "nothing_fits" : null,
+          message: decided.honesty,
+          headline: chosenVin ? "SERV pick ready" : nothingFits ? "Nothing fits" : "Find settled",
+          nextStep: null,
+          scope: "SERV agent loop",
           listings: top,
-          directions: match.body.directions.map((group) => ({
-            id: group.direction.id,
-            segment: group.direction.segment,
-            coverage: group.coverage,
-            listingCount: group.listings.length,
-          })),
+          directions: [],
           proofRecords: fresh.proofRecords,
-          carsDelivered,
+          carsDelivered: listings.length > 0,
         },
       }),
     };

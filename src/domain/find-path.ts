@@ -32,7 +32,6 @@ import {
   applyFollowUp,
   explicitNeedFromText,
   followUps,
-  softPrefGapsFromText,
   type FollowUp,
   type SoftPrefGap,
   type StructuredNeed,
@@ -359,17 +358,12 @@ export function runFindVerticalSliceOffline(input: {
 }): FindVerticalSliceResult {
   let need = explicitNeedFromText(input.note, input.mode ?? "personal");
   const answers = input.followUpAnswers ?? {};
-  for (const q of followUps(need)) {
-    const value = answers[q.id];
-    if (value) need = applyFollowUp(need, q.id, value);
-  }
-  // Second pass after answers (age/condition may drop).
-  for (const q of followUps(need)) {
-    const value = answers[q.id];
-    if (value) need = applyFollowUp(need, q.id, value);
+  // Apply provided answers directly — note regex no longer invents follow-up prompts.
+  for (const [id, value] of Object.entries(answers)) {
+    if (value) need = applyFollowUp(need, id as FollowUp["id"], value);
   }
 
-  const softGaps = softPrefGapsFromText(need.note);
+  const softGaps: SoftPrefGap[] = [];
   const listings = input.listings ?? [];
   const compare = compareObservedModels(listings, input.fuelsByModelKey ?? {});
   const nextChecks = proposeFindNextChecks({

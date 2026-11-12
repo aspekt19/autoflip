@@ -21,7 +21,7 @@ import {
   type FreeGovRiskFacts,
 } from "./find-risk-evidence";
 import type { FreeGovEvidencePacket } from "./free-gov";
-import { softPrefGapsFromText } from "./need";
+import {} from "./need";
 
 function recallPacket(opts?: {
   recallCount?: number;
@@ -258,7 +258,7 @@ describe("tool-specific coverage — failed ≠ clearance", () => {
         yearBandResolved: false,
         milesCapResolved: false,
       } as never,
-      softGaps: softPrefGapsFromText("reliable condition history"),
+      softGaps: [],
       observedListingCount: listings.length,
       observedModelCount: 8,
       emptyInventory: false,
@@ -346,7 +346,7 @@ describe("free-terminal policy — compare/no-op must not finish while free safe
         yearBandResolved: false,
         milesCapResolved: false,
       } as never,
-      softGaps: softPrefGapsFromText("history"),
+      softGaps: [],
       observedListingCount: listings.length,
       observedModelCount: 8,
       emptyInventory: false,
@@ -383,7 +383,7 @@ describe("free-terminal policy — compare/no-op must not finish while free safe
         yearBandResolved: false,
         milesCapResolved: false,
       } as never,
-      softGaps: softPrefGapsFromText("history"),
+      softGaps: [],
       observedListingCount: 24,
       observedModelCount: 5,
       emptyInventory: false,

@@ -1028,7 +1028,7 @@ export async function advanceResaleJob(
       }
       logResaleStage("job_agent_loop_failed", deadline.startedAtMs, {
           jobId,
-          error: agent.error,
+          error: "error" in agent ? agent.error : "await_user",
       });
 
       const failMessage =

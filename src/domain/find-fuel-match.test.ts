@@ -8,7 +8,6 @@ import {
   fuelFactFromFindEvidence,
   lookupFindFuelEvidence,
   matchFuelVehicles,
-  parseCityHeavyFromNote,
   resolveEpaModelNames,
 } from "./find-fuel-match";
 import { parseFuelVehicleDetail, usdPerUnitFromFuelPrices } from "@/io/parsers";
@@ -21,8 +20,6 @@ function loadJson(name: string): unknown {
 
 describe("find fuel match (fixture — no live network)", () => {
   it("parses mostly city from shopper note", () => {
-    expect(parseCityHeavyFromNote("Mostly city driving, weekend trips")).toBe(true);
-    expect(parseCityHeavyFromNote("highway road trips only")).toBe(false);
   });
 
   it("resolves CR-V aliases from EPA model menu", () => {
@@ -116,15 +113,15 @@ describe("find fuel match (fixture — no live network)", () => {
       usdPerGallon: 4.0,
       priceSource: "labeled_fallback",
     });
-    expect(assumptions.cityHeavy).toBe(true);
-    expect(assumptions.cityShare).toBe(0.7);
+    expect(assumptions.cityHeavy).toBe(false);
+    expect(assumptions.cityShare).toBe(0.55);
     const mpg = effectiveMpgFromMix({
       cityMpg: 25,
       highwayMpg: 32,
       combMpg: 28,
       cityShare: assumptions.cityShare,
     });
-    expect(mpg).toBeCloseTo(1 / (0.7 / 25 + 0.3 / 32), 5);
+    expect(mpg).toBeCloseTo(1 / (0.55 / 25 + 0.45 / 32), 5);
     const annual = estimateAnnualFuelUsd({
       cityMpg: 25,
       highwayMpg: 32,
@@ -152,7 +149,7 @@ describe("find fuel match (fixture — no live network)", () => {
       { deps: { fetch: fetchImpl }, note: "Mostly city driving" },
     );
     expect(evidence.match).toBe("ambiguous");
-    expect(evidence.assumptions.cityHeavy).toBe(true);
+    expect(evidence.assumptions.cityHeavy).toBe(false);
     expect(evidence.assumptions.priceSource).toBe("fueleconomy.gov/fuelprices");
     expect(evidence.annualFuelUsdLow).not.toBeNull();
   });

@@ -105,7 +105,7 @@ test("a missing page explains itself and the menu reaches Find", async ({ page }
   }).toPass();
   await page.locator("nav.nav-open").getByRole("link", { name: "Find a car" }).click();
   await expect(page).toHaveURL(/\/find$/);
-  await expect(page.getByRole("heading", { name: "What kind of car do you need?" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Chat with SERV" })).toBeVisible();
   const unexpected = errors.filter(
     (line) => !/this-page-is-not-on-lemonless|status of 404/i.test(line),
   );

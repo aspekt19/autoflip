@@ -4,17 +4,14 @@ import { parseCountInput, parseUsdInput } from "@/domain/budget";
 import type { PriceBadge } from "@/domain/price-badge";
 import { whyThisCar } from "@/domain/why-car";
 import { PriceBadgeView, PriceRatingHow } from "./PriceBadge";
-import { budgetFromText, budgetWorkingCopy } from "@/domain/need";
+import { budgetWorkingCopy } from "@/domain/need";
 import {
   findStageAfterNote,
   needFromFindEntry,
   noteMarksFrom,
   type NoteMarks,
 } from "@/domain/find-intake-stage";
-import { previewFindFromNote } from "@/domain/find-preview";
 import { resolveLocationZip, zipFieldMark, type LocationZipResolution } from "@/domain/city-to-zip";
-import { awdLimitFromText, intakeFromNote, isNearMePhrase, NOTE_DEFAULT_RADIUS_WHEN_ZIP } from "@/domain/note-intake";
-import { towingCapacityCaveat } from "@/domain/open-search";
 import { yearSpanSentence } from "@/domain/year-span";
 import { criteriaParseLabel } from "@/domain/radar-criteria-provenance";
 import { FOLLOW_HINT } from "@/domain/intake-copy";
@@ -118,14 +115,11 @@ import { veryHighMileageLabel } from "@/domain/find-best-deal";
 import { buyerDealerListingLink } from "@/domain/listing-vdp-verifiability";
 import { mmyListingKey } from "@/domain/find-risk-evidence";
 import {
-  ageGapBuyerHonesty,
   applyFollowUp,
   explicitNeedFromText,
   followUps,
-  needPrefersAwd,
   USE_CASES,
   searchScopeLabel,
-  softPrefGapsFromText,
   type FollowUp,
   type StructuredNeed,
 } from "@/domain/need";
@@ -141,6 +135,15 @@ import {
   YearFloorField,
   FromNote,
 } from "./FindIntakeFields";
+
+/** UI-only near-me copy. Not a search constraint. */
+function isNearMePhrase(phrase: string | null | undefined): boolean {
+  return /\bnear\s+me\b/i.test(phrase ?? "");
+}
+
+/** UI draft suggestion only — never stamped as a hard radius constraint. */
+const SUGGESTED_RADIUS_MI = 100;
+
 
 type ListingCard = {
   vin: string;
@@ -291,7 +294,6 @@ function AssistantFlow({
   const [proofRecords, setProofRecords] = useState<DecisionProofRecord[]>([]);
   /** C1 find_plan from /api/need — summary + directions for Confirm / match. */
   const [findPlan, setFindPlan] = useState<FindPlan | null>(null);
-  const [planDirections, setPlanDirections] = useState<SearchDirection[] | null>(null);
   /** Buyer-facing line while a next-check hop is in flight (never a stale spinner sentence). */
   const [pendingCheckLabel, setPendingCheckLabel] = useState<string | null>(null);
   /** Home/deep-link free text used to skip /api/need; fire SERV parse once on entry. */
@@ -446,21 +448,7 @@ function AssistantFlow({
       setError("Add a ZIP for a seller-distance radius, or choose Nationwide.");
       return;
     }
-    if (!followUp && !opts?.freshNote && text.trim().length >= 8) {
-      const preview = previewFindFromNote(text, mode);
-      setNeed(preview.need);
-      setFindPlan(preview.findPlan);
-      setPlanDirections(preview.directions);
-      setSource("form");
-      setRadiusIsDefault(preview.radiusIsDefault);
-      setZipDraft(preview.need.zip ?? "");
-      setDistanceDraft(preview.need.distanceMiles);
-      if (preview.need.budgetUsd != null) {
-        setBudget(preview.need.budgetUsd.toLocaleString("en-US"));
-        setBudgetKnown(preview.need.budgetKnown);
-      }
-      setStage(findStageAfterNote(preview.need));
-    }
+    // No client-side note→catalog preview. SERV /api/need owns plan + directions.
     setPending("need");
     const controller = new AbortController();
     // The confirm screen stays up. The plan itself waits out the route budget.
@@ -511,17 +499,13 @@ function AssistantFlow({
         return;
       }
       if (typeof body.runId === "string" && body.runId) setRunId(body.runId);
-      const notedBody = intakeFromNote(text).bodyStyle;
-      const finalNeed = !body.need.bodyStyle && notedBody ? { ...body.need, bodyStyle: notedBody } : body.need;
+      // SERV/form own bodyStyle — never overlay from note regex.
+      const finalNeed = body.need;
       if (body.findPlan) setFindPlan(body.findPlan);
-      if (Array.isArray(body.directions) && body.directions.length > 0) {
-        setPlanDirections(body.directions);
-      }
-      // Provenance from the note text only — never treat a city-resolved ZIP as “from your note”.
-      const intake = intakeFromNote(text);
+      // SERV/form own ZIP/phrase — never treat city-resolved ZIP as “from your note”.
       const loc = resolveLocationZip({
-        zip: intake.zip ?? finalNeed.zip,
-        locationPhrase: finalNeed.locationPhrase ?? intake.locationPhrase,
+        zip: finalNeed.zip,
+        locationPhrase: finalNeed.locationPhrase,
         distanceMiles: finalNeed.distanceMiles,
       });
       // Prefer a successful city→ZIP resolve over a blank finalNeed.zip.
@@ -544,7 +528,7 @@ function AssistantFlow({
             : withCityZip.zip
               ? {
                   zip: withCityZip.zip,
-                  from: intake.zip && withCityZip.zip === intake.zip ? ("note_zip" as const) : null,
+                  from: null,
                   needed: false,
                   cityLabel: withCityZip.locationPhrase ?? null,
                 }
@@ -573,7 +557,7 @@ function AssistantFlow({
       );
       setRadiusIsDefault(suggestDefaultRadius);
       setZipDraft(withCityZip.zip ?? "");
-      const suggestedRadius = suggestDefaultRadius ? NOTE_DEFAULT_RADIUS_WHEN_ZIP : null;
+      const suggestedRadius = suggestDefaultRadius ? SUGGESTED_RADIUS_MI : null;
       setDistanceDraft(withCityZip.distanceMiles ?? suggestedRadius);
       setConstraintBag((prev) => {
         let next = opts?.freshNote ? {} : { ...prev };
@@ -615,6 +599,15 @@ function AssistantFlow({
       }
       if ((body.checks ?? []).length === 0 && body.guard === "unavailable") {
         setError("The safety check on your note did not finish. You can continue with the calculated reading.");
+      }
+      const servQs = (body as { clarifyingQuestions?: Array<{ text: string }> }).clarifyingQuestions
+        ?? [];
+      if (!followUp && Array.isArray(servQs) && servQs.length > 0) {
+        // Legacy FollowUp UI expects id+prompt — map SERV free-form text into cash-like free text inputs via zip/cash fields is wrong.
+        // Prefer confirm; Find chat owns ask_shopper. Keep follow empty unless legacy followUps remain.
+        setQuestions([]);
+        setStage("confirm");
+        return;
       }
       const next = body.followUps ?? [];
       if (!followUp && next.length > 0) {
@@ -944,10 +937,7 @@ function AssistantFlow({
         );
       }
       if (body.source) setSource(body.source);
-      if (!current.bodyStyle) {
-        const body = intakeFromNote(text).bodyStyle;
-        if (body) current = { ...current, bodyStyle: body };
-      }
+      // Body style comes from SERV/form only — never note regex overlay.
       if (followUps(current).length > 0) {
         setNeed(current);
         setQuestions(followUps(current));
@@ -1192,9 +1182,8 @@ function AssistantFlow({
           need,
           searchIdempotencyKey,
           runId,
-          // C1 plan — owns SearchSpec hard/soft; directions skip proposeDirections collapse.
+          // C1 plan — form/SERV only. Do not POST client-invented direction catalogs.
           ...(findPlan ? { findPlan } : {}),
-          ...(planDirections && planDirections.length > 0 ? { directions: planDirections } : {}),
           refine: {
             make: make.trim() || undefined,
             model: model.trim() || undefined,
@@ -1414,7 +1403,7 @@ function AssistantFlow({
       setWatchGeoDraft({
         direction,
         zip: zip || zipDraft || "",
-        distanceMiles: distanceMiles ?? NOTE_DEFAULT_RADIUS_WHEN_ZIP,
+        distanceMiles: distanceMiles ?? SUGGESTED_RADIUS_MI,
       });
       return;
     }
@@ -1856,11 +1845,11 @@ function AssistantFlow({
               Not sure yet
             </label>
           </div>
-          {!budgetKnown && budgetFromText(text) != null ? (
+          {!budgetKnown && need?.budgetUsd != null ? (
             <p className="hint">
               {budgetWorkingCopy({
                 budgetKnown: true,
-                budgetUsd: budgetFromText(text),
+                budgetUsd: need.budgetUsd,
                 note: text,
               })}
             </p>
@@ -2025,11 +2014,6 @@ function AssistantFlow({
             </p>
           ) : null}
           {pending === "need" ? <p className="hint">Planning the search. This can take a few minutes.</p> : null}
-          {findPlan?.question?.id === "zip" && findPlan.question.text ? (
-            <p className="hint" role="status">
-              {findPlan.question.text}
-            </p>
-          ) : null}
           <div className="field">
             <label htmlFor="note">Your note</label>
             <textarea id="note" rows={3} value={need.note} onChange={(event) => setNeed({ ...need, note: event.target.value })} />
@@ -2122,7 +2106,7 @@ function AssistantFlow({
           />
           {radiusIsDefault ? (
             <p className="hint" role="note">
-              Suggested seller distance {NOTE_DEFAULT_RADIUS_WHEN_ZIP} mi for{" "}
+              Suggested seller distance {SUGGESTED_RADIUS_MI} mi for{" "}
               {need.locationPhrase ?? "your city"} — set a radius to constrain geography. Untouched
               suggestion is not a search constraint.
             </p>
@@ -2169,8 +2153,7 @@ function AssistantFlow({
             }}
           />
           {need.conditionPriority === "inspection_first" ? <p className="hint">{CONDITION_HINT}</p> : null}
-          {towingCapacityCaveat(need.note) ? <p className="hint">{towingCapacityCaveat(need.note)}</p> : null}
-          {awdLimitFromText(need.note) === "hard" ? (
+          {findPlan?.drivetrain.value === "awd_4wd" && findPlan.drivetrain.strength === "required" ? (
             <p className="hint">
               All-wheel drive is required. Front-wheel drive is left out. If the listing does not say, we check the VIN and leave the car out when we still cannot tell.
             </p>
@@ -2179,7 +2162,7 @@ function AssistantFlow({
               All-wheel drive is a preference, so those cars rank higher. Front-wheel drive can still show up. A car with no drivetrain listed stays in the list and is marked unverified.
             </p>
           ) : null}
-          {need.reliabilityPriority || need.priorities?.some((p) => /reliab/i.test(p)) ? (
+          {need.reliabilityPriority || need.priorities?.includes("reliability") ? (
             <p className="hint">Priority: reliability.</p>
           ) : null}
           {need.preferredMakes?.length ? (
@@ -2275,13 +2258,6 @@ function AssistantFlow({
           <DecisionNote scene="find" proofs={checks} />
           {need ? <p className="hint">Scope: {matchScope ?? searchScopeLabel(need)}</p> : null}
           {need
-            ? softPrefGapsFromText(need.note).map((gap) => (
-                <p className="hint" key={`results-${gap.id}`}>
-                  {gap.id === "age" ? ageGapBuyerHonesty(need) : gap.honesty}
-                </p>
-              ))
-            : null}
-          {need
             ? (() => {
                 const allListings = groups.flatMap((g) => g.listings);
                 const snaps = observedModelSnapshots(
@@ -2297,7 +2273,7 @@ function AssistantFlow({
                   groups.length === 0 || groups.every((group) => group.listings.length === 0);
                 const checks = proposeFindNextChecks({
                   need,
-                  softGaps: softPrefGapsFromText(need.note),
+                  softGaps: [],
                   observedListingCount: allListings.length,
                   observedModelCount: snaps.length,
                   emptyInventory: empty,
@@ -2950,7 +2926,7 @@ function AssistantFlow({
                       <p className="budget-flag">Not ranked yet. The verdict has not been decided.</p>
                     ) : null}
                     {veryHighMileageLabel(car.miles) ? <p className="budget-flag">Very high mileage</p> : null}
-                    {car.drivetrain || (need && awdLimitFromText(need.note) === "hard") ? (
+                    {car.drivetrain || need?.awdPreference ? (
                       <p>Drivetrain: {car.drivetrain?.trim() || "not listed"}</p>
                     ) : null}
                     {car.overBudget ? <p className="budget-flag">Asking price is slightly over your limit</p> : null}

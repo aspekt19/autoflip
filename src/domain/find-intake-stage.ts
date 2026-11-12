@@ -1,13 +1,11 @@
 import { resolveLocationZip, type LocationZipResolution } from "./city-to-zip";
-import { intakeFromNote, NOTE_DEFAULT_RADIUS_WHEN_ZIP } from "./note-intake";
-import { explicitNeedFromText, followUps, useCaseFromText, type StructuredNeed } from "./need";
+import { explicitNeedFromText, type StructuredNeed } from "./need";
 
 export type FindIntakeStage = "budget" | "follow" | "confirm";
 
-/** Skip a step when the note already answered what that step requires. */
+/** Skip a step when SERV/form already answered what that step requires. */
 export function findStageAfterNote(need: StructuredNeed): FindIntakeStage {
   if (!need.budgetKnown || need.budgetUsd == null) return "budget";
-  if (followUps(need).length > 0) return "follow";
   return "confirm";
 }
 
@@ -19,20 +17,12 @@ export function needFromFindEntry(input: {
 }): StructuredNeed {
   const mode = input.mode === "flip" ? "flip" : "personal";
   const parsed = explicitNeedFromText(input.note, mode);
-  // Fresh note geo only — never reuse a stale wizard/URL ZIP when the note named a place.
-  const noteGeo = attachNoteGeo({ ...parsed, zip: null });
-  const namedPlace = Boolean(noteGeo.locationPhrase || parsed.locationPhrase);
-  const zip = noteGeo.zip ?? (namedPlace ? null : input.zip ?? null);
-  let distanceMiles =
-    noteGeo.distanceMiles !== undefined && noteGeo.distanceMiles !== null
-      ? noteGeo.distanceMiles
-      : namedPlace
-        ? noteGeo.distanceMiles ?? null
-        : input.distanceMiles !== undefined
-          ? input.distanceMiles
-          : null;
+  // No note regex geo. Caller-supplied form ZIP/radius only when tagged by the shopper.
+  const zip =
+    typeof input.zip === "string" && /^\d{5}$/.test(input.zip.trim()) ? input.zip.trim() : null;
+  let distanceMiles = input.distanceMiles !== undefined ? input.distanceMiles : null;
   if (distanceMiles != null && !zip) distanceMiles = null;
-  return { ...parsed, ...noteGeo, zip, distanceMiles };
+  return { ...parsed, zip, distanceMiles };
 }
 
 export type NoteMarks = {
@@ -51,69 +41,47 @@ export type NoteMarks = {
 };
 
 /**
- * Marks are true only when the value was derived from the shopper's note text.
- * A stale wizard ZIP must never get “from your note”.
+ * Code no longer regex-extracts structured fields from the note.
+ * UI must not label form values as “from your note” via parsers.
  */
-export function noteMarksFrom(need: StructuredNeed, noteText?: string): NoteMarks {
-  const source = (noteText ?? need.note ?? "").trim();
-  const intake = source ? intakeFromNote(source) : null;
-  const useFromNote = source ? useCaseFromText(source) : "unspecified";
+export function noteMarksFrom(_need: StructuredNeed, _noteText?: string): NoteMarks {
   return {
-    budget: Boolean(
-      need.budgetKnown && need.budgetUsd != null && intake?.budgetUsd != null && intake.budgetUsd === need.budgetUsd,
-    ),
-    use: need.useCase !== "unspecified" && useFromNote === need.useCase,
-    year:
-      (need.yearMin != null || need.yearMax != null) &&
-      Boolean(intake && (intake.yearMin != null || intake.yearMax != null)),
-    miles: need.milesMax != null && intake?.milesMax === need.milesMax,
-    zip: Boolean(need.zip && intake?.zip === need.zip),
-    location: Boolean(need.locationPhrase && intake?.locationPhrase),
-    transmission: need.transmission != null && intake?.transmission === need.transmission,
-    fuel: need.fuelEconomyPriority === true && intake?.fuelEconomyPriority === true,
-    awd: need.awdPreference === true && intake?.awdPreference === true,
-    reliability: need.reliabilityPriority === true && intake?.reliabilityPriority === true,
-    history: need.historyPreference != null && intake?.historyPreference === need.historyPreference,
-    body: need.bodyStyle != null && intake?.bodyStyle === need.bodyStyle,
+    budget: false,
+    use: false,
+    year: false,
+    miles: false,
+    zip: false,
+    location: false,
+    transmission: false,
+    fuel: false,
+    awd: false,
+    reliability: false,
+    history: false,
+    body: false,
   };
 }
 
 /**
- * Fresh free-text parse: resolve city→ZIP. A labelled default radius
- * ({@link NOTE_DEFAULT_RADIUS_WHEN_ZIP}) may show in the UI as a suggestion via
- * `radiusIsDefault`, but is NEVER written into `distanceMiles` as a search
- * constraint — SERV picks radius unless the shopper sets one. Never keeps a
- * caller-supplied stale ZIP.
+ * Resolve city→ZIP from SERV/form locationPhrase only.
+ * Never invents a default radius as a search constraint.
  */
 export function attachNoteGeo(
   need: StructuredNeed,
   opts?: { applyDefaultRadius?: boolean },
 ): StructuredNeed & { locationResolution: LocationZipResolution; radiusIsDefault: boolean } {
-  // Only a ZIP whose digits appear in the note is “from your note”.
-  // City→ZIP is inferred_from_city. Stale need.zip from a prior query is ignored unless
-  // it matches digits in this note.
-  const noteText = (need.note ?? "").trim();
-  const intake = noteText ? intakeFromNote(noteText) : null;
-  const zipDigitsInNote =
-    typeof intake?.zip === "string" && /^\d{5}$/.test(intake.zip) ? intake.zip : null;
+  void opts?.applyDefaultRadius;
+  const zipDigits =
+    typeof need.zip === "string" && /^\d{5}$/.test(need.zip.trim()) ? need.zip.trim() : null;
   const resolution = resolveLocationZip({
-    zip: zipDigitsInNote,
-    locationPhrase: need.locationPhrase ?? intake?.locationPhrase ?? null,
+    zip: zipDigits,
+    locationPhrase: need.locationPhrase ?? null,
   });
   const explicitRadius = need.distanceMiles;
-  const wouldSuggestDefault =
-    resolution.zip != null &&
-    explicitRadius == null &&
-    Boolean(need.locationPhrase || intake?.locationPhrase || resolution.from === "inferred_from_city");
-  // applyDefaultRadius is retained for callers that want the suggestion flag, but
-  // distanceMiles stays null either way — defaults are not constraints.
-  void opts?.applyDefaultRadius;
-  void NOTE_DEFAULT_RADIUS_WHEN_ZIP;
   return {
     ...need,
     zip: resolution.zip,
     distanceMiles: explicitRadius != null ? explicitRadius : null,
     locationResolution: resolution,
-    radiusIsDefault: wouldSuggestDefault,
+    radiusIsDefault: false,
   };
 }

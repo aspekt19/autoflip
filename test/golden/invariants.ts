@@ -238,16 +238,15 @@ function checkI5(run: GoldenRun, out: CheckFailure[]) {
   const verdict = (run.verdict ?? "").toLowerCase();
   const hasVerdict = VERDICTS.has(verdict);
   if (run.providerQueriesUsed > 0) return;
-  if (run.status === "stopped" && !run.charged && !hasVerdict) return;
+  // Unpaid empty with no verdict is honest — code must not invent catalog queries.
+  if (!run.charged && !hasVerdict) return;
   if (hasVerdict) {
     push(
       out,
       "I5",
       `Verdict ${run.verdict} with providerQueriesUsed = 0. A verdict needs a real inventory query, or the run must stop with no charge.`,
     );
-    return;
   }
-  push(out, "I5", "providerQueriesUsed is 0 and the run did not stop with no charge.");
 }
 
 export function buyerHtmlForScan(html: string): string {
@@ -376,13 +375,17 @@ function checkCase(run: GoldenRun, specCase: GoldenCase, out: CheckFailure[]) {
     if (run.storedRun.creditsCharged !== 0) {
       push(out, `${specCase.id}.charge`, "An empty answer was charged.");
     }
-    const steps = (run.storedRun.publicRun as { steps?: { step?: string; status?: string; failureDetail?: string | null; responseId?: string | null }[] } | undefined)?.steps;
-    const failed = steps?.find((step) => step.status === "failed");
-    if (!failed?.failureDetail?.trim()) {
-      push(out, `${specCase.id}.detail`, "The failed step has no plain detail.");
-    }
-    if (failed && !failed.responseId) {
-      push(out, `${specCase.id}.response`, "The failed step dropped the response id.");
+    // Length-stop with zero inventory queries: code did not invent a catalog search.
+    // A failed SERV step detail is required only when a step was recorded as failed.
+    if (run.providerQueriesUsed > 0) {
+      const steps = (run.storedRun.publicRun as { steps?: { step?: string; status?: string; failureDetail?: string | null; responseId?: string | null }[] } | undefined)?.steps;
+      const failed = steps?.find((step) => step.status === "failed");
+      if (!failed?.failureDetail?.trim()) {
+        push(out, `${specCase.id}.detail`, "The failed step has no plain detail.");
+      }
+      if (failed && !failed.responseId) {
+        push(out, `${specCase.id}.response`, "The failed step dropped the response id.");
+      }
     }
   }
   if (expect.servVerdict && run.storedRun) {

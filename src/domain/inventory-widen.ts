@@ -4,13 +4,7 @@
  * widenExplanation remain for observational copy / tests.
  */
 import type { StructuredNeed } from "./need";
-import { listingWithinNeed } from "./need";
-import {
-  buildSearchSpec,
-  type HardDrop,
-  type SearchSpec,
-  type ServPlanHint,
-} from "./search-spec";
+import { type SearchSpec, type ServPlanHint } from "./search-spec";
 import type { Listing } from "./types";
 
 export type SoftFilterKind = "awd_soft" | "fuel_hybrid_soft" | "preferred_make_soft" | "body_soft";
@@ -33,10 +27,10 @@ export type InventoryWidenResult = {
 
 /**
  * Soft preferences that were applied as inventory filters.
- * Prefer SearchSpec.soft (SERV strengths) over fresh note regex.
+ * Prefer SearchSpec.soft (SERV strengths) — never re-parse note / mustHaves.
  */
 export function softFiltersAppliedAsHard(
-  need: Pick<StructuredNeed, "note" | "openToOtherMakes" | "preferredMakes" | "bodyStyle" | "mustHaves">,
+  need: Pick<StructuredNeed, "openToOtherMakes" | "preferredMakes" | "bodyStyle">,
   spec?: SearchSpec,
 ): SoftFilterKind[] {
   const out: SoftFilterKind[] = [];
@@ -54,99 +48,16 @@ export function softFiltersAppliedAsHard(
   return out;
 }
 
-function dropSoftFromSpec(spec: SearchSpec, soft: SoftFilterKind[]): SearchSpec {
-  const hard = { ...spec.hard };
-  const softFields = { ...spec.soft };
-  if (soft.includes("awd_soft")) {
-    delete hard.drivetrain;
-    delete softFields.drivetrain;
-  }
-  if (soft.includes("body_soft")) {
-    delete hard.bodyStyles;
-    delete softFields.bodyStyles;
-  }
-  if (soft.includes("fuel_hybrid_soft")) {
-    delete softFields.fuel;
-  }
-  return { ...spec, hard, soft: softFields };
-}
-
-function needAfterSoftDrop(
-  need: StructuredNeed,
-  soft: SoftFilterKind[],
-): StructuredNeed {
-  let next = need;
-  if (soft.includes("preferred_make_soft")) {
-    next = { ...next, openToOtherMakes: true };
-  }
-  if (soft.includes("awd_soft")) {
-    next = {
-      ...next,
-      mustHaves: next.mustHaves.filter((item) => !/\b(awd|4wd|all[\s-]?wheel|four[\s-]?wheel)\b/i.test(item)),
-      awdPreference: true,
-    };
-  }
-  if (soft.includes("body_soft")) {
-    next = { ...next, bodyStyle: null };
-  }
-  return next;
-}
-
-function softFilterLabel(filters: SoftFilterKind[]): string {
-  const parts: string[] = [];
-  if (filters.includes("awd_soft")) parts.push("preferably all-wheel drive");
-  if (filters.includes("fuel_hybrid_soft")) parts.push("hybrid / fuel preference");
-  if (filters.includes("preferred_make_soft")) parts.push("preferred-make-only");
-  if (filters.includes("body_soft")) parts.push("preferred body style");
-  if (parts.length === 0) return "soft preferences";
-  if (parts.length === 1) return parts[0]!;
-  return `${parts.slice(0, -1).join(", ")} and ${parts[parts.length - 1]}`;
-}
-
-function dominantDropLabel(dropped: readonly HardDrop[] | readonly InventoryFilterDrop[]): string | null {
-  if (dropped.length === 0) return null;
-  const counts = new Map<string, number>();
-  for (const row of dropped) {
-    counts.set(row.rule, (counts.get(row.rule) ?? 0) + 1);
-  }
-  let best: string | null = null;
-  let n = 0;
-  for (const [rule, count] of counts) {
-    if (count > n) {
-      best = rule;
-      n = count;
-    }
-  }
-  if (!best) return null;
-  if (best === "drivetrain") return "all-wheel drive only";
-  if (best === "miles") return "your mileage limit";
-  if (best === "radius") return "your search distance";
-  if (best === "price") return "your budget";
-  if (best === "year") return "your year limit";
-  if (best === "body") return "the body style filter";
-  if (best === "make" || best === "preferred_make") return "preferred-make-only";
-  if (best === "accidents") return "accident history";
-  return best;
-}
-
-/** Next seller-distance steps after soft filters still leave zero. Never jumps to Nationwide. */
-const RADIUS_WIDEN_STEPS_MI = [100, 150, 250] as const;
-
 /**
- * Filter inventory with hard gates + listingWithinNeed, then auto-widen:
- * 1) soft preferences that were applied as filters,
- * 2) seller distance stepwise (100 → 150 → 250 mi) on already-fetched rows.
- *
- * Never drops the radius to Nationwide here — that was a Chicago live defect.
- * Soft-filter recovery still runs at the same geography first.
+ * Filter inventory with hard gates + listingWithinNeed, then auto-widen.
+ * Pre-SERV enforceHard / widen product filters are deleted. SERV owns search /
+ * re-search / relax via search_listings. Return inventory unchanged.
  */
 export function filterInventoryWithWiden(
   listings: readonly Listing[],
   _need: StructuredNeed,
   _opts?: { servPlan?: ServPlanHint },
 ): InventoryWidenResult {
-  // Pre-SERV enforceHard / widen product filters are deleted. SERV owns search /
-  // re-search / relax via search_listings. Return inventory unchanged.
   void _need;
   void _opts;
   return {

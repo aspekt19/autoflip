@@ -74,7 +74,10 @@ export type AssembleDeps = {
    * Autodev deps. `reserve` must be the persistent shared monthly ledger (reserveTotalCall)
    * in production — not only an in-memory counter. Cache hits skip reserve inside autodevSearch.
    */
-  autodev?: Pick<AutodevDeps, "cache" | "counter" | "reserve" | "signal" | "timeoutMs">;
+  autodev?: Pick<
+    AutodevDeps,
+    "cache" | "counter" | "reserve" | "signal" | "timeoutMs" | "maxAttempts" | "retryBaseMs" | "sleep"
+  >;
   now?: Date;
   /** When set (e.g. /find), use this Kv for shared-store gate instead of process getKv(). */
   kv?: Kv;
@@ -679,6 +682,9 @@ async function resolveSubject(
     reserve: deps.autodev.reserve,
     signal: deps.autodev.signal,
     timeoutMs: deps.autodev.timeoutMs,
+    maxAttempts: deps.autodev.maxAttempts,
+    retryBaseMs: deps.autodev.retryBaseMs,
+    sleep: deps.autodev.sleep,
   });
   if (!byVin.ok) {
     const status = byVin.error === "demo_limit" ? 429 : byVin.status === 404 ? 404 : 502;
@@ -755,6 +761,9 @@ async function resolveSubject(
       reserve: deps.autodev.reserve,
       signal: deps.autodev.signal,
       timeoutMs: deps.autodev.timeoutMs,
+      maxAttempts: deps.autodev.maxAttempts,
+      retryBaseMs: deps.autodev.retryBaseMs,
+      sleep: deps.autodev.sleep,
     },
   );
   if (!search.ok) {
@@ -1004,6 +1013,9 @@ export async function assembleRadar(
       reserve: deps.autodev.reserve,
       signal: deps.autodev.signal,
       timeoutMs: deps.autodev.timeoutMs,
+      maxAttempts: deps.autodev.maxAttempts,
+      retryBaseMs: deps.autodev.retryBaseMs,
+      sleep: deps.autodev.sleep,
     },
   );
   if (!search.ok) {

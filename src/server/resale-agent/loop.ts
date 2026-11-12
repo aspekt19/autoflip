@@ -7,6 +7,11 @@
 import { synthesizeRelaxedConditionsFromSearches } from "@/domain/agent-verdict-complete";
 import { fromShopperInputEvent } from "@/domain/constraint-provenance";
 import {
+  formatShopperBriefCard,
+  SERV_TOPIC_SCOPE_RULE,
+  type ShopperBrief,
+} from "@/domain/shopper-brief";
+import {
   fingerprintsFromSearchJournal,
   hardSearchKeysFromUserBag,
 } from "@/domain/search-listings-feedback";
@@ -111,6 +116,12 @@ export type ResaleAgentJournalToolCall = {
   ok: boolean;
   resultCount?: number;
   funnel?: Array<{ step: string; count: number }>;
+  /** Provider HTTP status when search_listings failed upstream (0 = network/timeout). */
+  providerStatus?: number;
+  /** Upstream cause: http_error | timeout | network | aborted | … */
+  providerCause?: string;
+  /** Attempts including retries before the final provider outcome. */
+  providerAttempts?: number;
 };
 
 export type ResaleAgentJournalEntry = ResaleAgentJournalServCall | ResaleAgentJournalToolCall;
@@ -166,13 +177,27 @@ function journalResaleSearchEntry(
       : typeof resultRecord?.count === "number"
         ? resultRecord.count
         : undefined;
+  const providerStatus =
+    typeof resultRecord?.status === "number" ? resultRecord.status : undefined;
+  const providerCause =
+    typeof resultRecord?.cause === "string" ? resultRecord.cause : undefined;
+  const providerAttempts =
+    typeof resultRecord?.attempts === "number" ? resultRecord.attempts : undefined;
   return {
     kind: "tool",
     name: executed.name,
     args,
     summary: executed.summary,
     ok: executed.ok,
-    ...(executed.name === "search_listings" ? { resultCount, funnel } : {}),
+    ...(executed.name === "search_listings"
+      ? {
+          resultCount,
+          funnel,
+          ...(providerStatus != null ? { providerStatus } : {}),
+          ...(providerCause ? { providerCause } : {}),
+          ...(providerAttempts != null ? { providerAttempts } : {}),
+        }
+      : {}),
   };
 }
 
@@ -206,6 +231,26 @@ export type ResaleAgentLoopContinue = {
   checkpoint: AgentLoopCheckpoint;
 };
 
+/** SERV called ask_shopper or submit_brief — pause for the shopper. */
+export type ResaleAgentLoopAwaitUser = {
+  ok: false;
+  awaitUser: true;
+  question: string;
+  message: string;
+  awaitKind?: "ask" | "brief";
+  brief?: ShopperBrief | null;
+  agentMode: ResaleAgentModeResolved;
+  requestedMode: ResaleAgentMode;
+  toolRounds: number;
+  verdictReached: false;
+  journal: ResaleAgentJournalEntry[];
+  knownVins: string[];
+  featureRejections: AgentServFeatureRejection[];
+  featureFlags: string[];
+  servFeatures: AgentServFeatureJournal | null;
+  checkpoint: AgentLoopCheckpoint;
+};
+
 export type ResaleAgentLoopResult =
   | {
       ok: true;
@@ -225,9 +270,11 @@ export type ResaleAgentLoopResult =
       servFeatures: AgentServFeatureJournal;
     }
   | ResaleAgentLoopContinue
+  | ResaleAgentLoopAwaitUser
   | {
       ok: false;
       continue?: false;
+      awaitUser?: false;
       agentMode: ResaleAgentModeResolved | null;
       requestedMode: ResaleAgentMode;
       toolRounds: number;
@@ -271,6 +318,7 @@ function buildResaleCheckpoint(input: {
     submitNudgeSent: input.submitNudgeSent,
     firstTurn: input.firstTurn,
     featureRejections: input.featureRejections as unknown as Array<Record<string, unknown>>,
+    briefConfirmed: input.state.briefConfirmed === true,
   };
 }
 
@@ -307,6 +355,7 @@ function restoreResaleStateFromCheckpoint(
   state.knownVins = new Set(checkpoint.knownVins.map((v) => v.toUpperCase()));
   state.listingsByVin = deserializeListingsByVin(checkpoint.listingsByVin);
   state.pnlByVin = deserializePnlByVin(checkpoint.pnlByVin);
+  state.briefConfirmed = checkpoint.briefConfirmed === true;
   const journal = checkpoint.journal as unknown as ResaleAgentJournalEntry[];
   state.searchFingerprints = fingerprintsFromSearchJournal(searchesFromResaleJournal(journal));
   return {
@@ -402,7 +451,9 @@ User form constraints (origin=user only; note/serv/suggestion excluded): ${JSON.
 Flip ranking context (not hard inventory filters): ${JSON.stringify(ranking)}`
       : "";
   return [
-    "You are Lemonless Resale's flip shopper agent on SERV (gpt-6.1-sol).",
+    "You are Lemonless Resale. Use ask_shopper in this same chat when budget or material facts are missing; call record_shopper_facts; then submit_brief for Confirm/Correct before search_listings / submit_picks. You are Lemonless Resale's flip shopper agent on SERV (gpt-6.1-sol).",
+    SERV_TOPIC_SCOPE_RULE,
+    "When enough, call submit_brief with budget.maxUsd + budget.userQuote (verbatim shopper words). Do not search until the shopper confirms.",
     "You decide which listings to search for profitable flips given budget, region, and flip goal.",
     "Prefer tight filters first. When results are empty or weak, read funnel + relaxHints + constraintRoles and change a relaxable (SERV-chosen) filter then re-search. Code never auto-relaxes or forces filter changes.",
     "constraintRoles.hard are shopper origin=user filters — keep unless the shopper note allows otherwise; never invent which keys are hard. Explain every relaxation in relaxedConditions (real text; never redacted).",
@@ -993,6 +1044,58 @@ async function runToolsMode(input: {
           args = {};
         }
 
+        if (call.name === "ask_shopper") {
+          const executed = await executeResaleAgentTool(call.name, args, input.toolDeps, input.state);
+          input.journal.push(journalResaleSearchEntry(executed, args));
+          const question =
+            executed.ok && typeof (executed.result as { question?: unknown }).question === "string"
+              ? String((executed.result as { question: string }).question)
+              : typeof (args as { question?: unknown }).question === "string"
+                ? String((args as { question: string }).question)
+                : "Could you share a bit more about the flip you want?";
+          return {
+            callId: call.callId,
+            name: "ask_shopper" as const,
+            accepted: false as const,
+            askQuestion: question,
+            output: { ok: true, status: "awaiting_shopper", message: "Paused for the shopper reply in chat.", question },
+          };
+        }
+
+        if (call.name === "submit_brief") {
+          const executed = await executeResaleAgentTool(call.name, args, input.toolDeps, input.state);
+          input.journal.push(journalResaleSearchEntry(executed, args));
+          if (!executed.ok) {
+            return {
+              callId: call.callId,
+              name: "submit_brief" as const,
+              accepted: false as const,
+              output: executed.result,
+            };
+          }
+          const brief = (executed.result as { brief?: ShopperBrief }).brief ?? null;
+          const card =
+            typeof (executed.result as { card?: unknown }).card === "string"
+              ? String((executed.result as { card: string }).card)
+              : brief
+                ? formatShopperBriefCard(brief)
+                : "Please confirm this search brief.";
+          return {
+            callId: call.callId,
+            name: "submit_brief" as const,
+            accepted: false as const,
+            brief,
+            askQuestion: card,
+            output: {
+              ok: true,
+              status: "awaiting_brief_confirm",
+              message: "Paused for Confirm/Correct on the search brief.",
+              brief,
+              card,
+            },
+          };
+        }
+
         if (call.name === "submit_picks") {
           const checked = validateResaleSubmitPicks(args, {
             listingsByVin: listingFactsFromState(input.state),
@@ -1063,6 +1166,89 @@ async function runToolsMode(input: {
       responseOutput: output,
       outputs: settled.map((row) => ({ callId: row.callId, output: row.output })),
     });
+
+    const asked = settled.find(
+      (row) => row.name === "ask_shopper" && "askQuestion" in row && typeof (row as { askQuestion?: unknown }).askQuestion === "string",
+    ) as { callId: string; name: "ask_shopper"; askQuestion: string; output: unknown } | undefined;
+    if (asked) {
+      const checkpoint = buildResaleCheckpoint({
+        phase: "tools",
+        toolRounds,
+        roundsCompleted: round + 1,
+        responsesInput,
+        messages: finishMessages,
+        journal: input.journal,
+        state: input.state,
+        submitNudgeSent,
+        firstTurn,
+        featureRejections: rejections,
+      });
+      checkpoint.pendingAskCallId = asked.callId;
+      checkpoint.pendingAskQuestion = asked.askQuestion;
+      return {
+        ok: false,
+        awaitUser: true as const,
+        awaitKind: "ask" as const,
+        question: asked.askQuestion,
+        message: asked.askQuestion,
+        agentMode: "tools" as const,
+        requestedMode,
+        toolRounds,
+        verdictReached: false as const,
+        journal: input.journal,
+        knownVins: [...input.state.knownVins],
+        checkpoint,
+        featureRejections: rejections,
+        featureFlags: [] as string[],
+        servFeatures: null,
+      };
+    }
+
+    const briefed = settled.find(
+      (row) =>
+        row.name === "submit_brief" &&
+        "brief" in row &&
+        (row as { brief?: unknown }).brief &&
+        typeof (row as { askQuestion?: unknown }).askQuestion === "string",
+    ) as
+      | { callId: string; name: "submit_brief"; brief: ShopperBrief; askQuestion: string; output: unknown }
+      | undefined;
+    if (briefed) {
+      const checkpoint = buildResaleCheckpoint({
+        phase: "tools",
+        toolRounds,
+        roundsCompleted: round + 1,
+        responsesInput,
+        messages: finishMessages,
+        journal: input.journal,
+        state: input.state,
+        submitNudgeSent,
+        firstTurn,
+        featureRejections: rejections,
+      });
+      checkpoint.pendingBriefCallId = briefed.callId;
+      checkpoint.pendingBrief = briefed.brief as unknown as Record<string, unknown>;
+      checkpoint.pendingAskQuestion = briefed.askQuestion;
+      checkpoint.briefConfirmed = false;
+      return {
+        ok: false,
+        awaitUser: true as const,
+        awaitKind: "brief" as const,
+        brief: briefed.brief,
+        question: briefed.askQuestion,
+        message: briefed.askQuestion,
+        agentMode: "tools" as const,
+        requestedMode,
+        toolRounds,
+        verdictReached: false as const,
+        journal: input.journal,
+        knownVins: [...input.state.knownVins],
+        checkpoint,
+        featureRejections: rejections,
+        featureFlags: [] as string[],
+        servFeatures: null,
+      };
+    }
 
     const accepted = settled.find(
       (row) => row.name === "submit_picks" && "accepted" in row && row.accepted === true && "verdict" in row,
@@ -1506,6 +1692,9 @@ export async function runResaleAgentLoop(input: {
   deadline?: AgentLoopDeadline | null;
   checkpoint?: AgentLoopCheckpoint | null;
   budgetMs?: number;
+  shopperReply?: string | null;
+  briefConfirmed?: boolean;
+  requireBriefConfirm?: boolean;
 }): Promise<ResaleAgentLoopResult> {
   const requestedMode = input.mode ?? resolveResaleAgentMode(process.env);
   const maxRounds = input.maxRounds ?? 40;
@@ -1514,6 +1703,7 @@ export async function runResaleAgentLoop(input: {
   const restored = restoreResaleStateFromCheckpoint(input.checkpoint, input.deps.seedListings);
   const journal = restored.journal;
   const state = restored.state;
+  state.requireBriefConfirm = input.requireBriefConfirm === true;
   const shopperContext = input.shopperContext ?? input.deps.shopperContext;
   // Provenance → constraintRoles: origin=user form keys are hard; SERV-chosen are relaxable.
   const { constraints: userFormConstraints } = constraintsFromFormEdits(
@@ -1534,13 +1724,76 @@ export async function runResaleAgentLoop(input: {
     },
     seedListings: input.deps.seedListings,
     pnlOptions: input.deps.pnlOptions,
+    chatTranscript: input.note,
   };
+
+  const reply = typeof input.shopperReply === "string" ? input.shopperReply.trim() : "";
+  let responsesInput = restored.responsesInput;
+  let messages = restored.messages;
+  const pendingBrief = input.checkpoint?.pendingBrief as ShopperBrief | null | undefined;
+  if (input.briefConfirmed && pendingBrief && responsesInput) {
+    const card = formatShopperBriefCard(pendingBrief);
+    journal.push({
+      kind: "tool",
+      name: "submit_brief_confirmed",
+      args: pendingBrief,
+      summary: `submit_brief confirmed: ${pendingBrief.summary.slice(0, 80)}`,
+      ok: true,
+    });
+    if (pendingBrief.budget.maxUsd != null) input.deps.budgetUsd = pendingBrief.budget.maxUsd;
+    responsesInput = [
+      ...responsesInput,
+      responsesUserMessage(
+        `Shopper CONFIRMED the search brief:\n${card}\nJournal recorded submit_brief_confirmed. Proceed with search_listings / submit_picks.`,
+      ),
+    ];
+    messages = [...(messages ?? []), { role: "user" as const, content: `Shopper confirmed the search brief:\n${card}` }];
+    state.briefConfirmed = true;
+    if (pendingBrief.budget.maxUsd != null) state.shopperFacts.budgetUsd = pendingBrief.budget.maxUsd;
+    if (pendingBrief.zip) state.shopperFacts.zip = pendingBrief.zip;
+    if (Object.prototype.hasOwnProperty.call(pendingBrief, "radiusMi")) {
+      state.shopperFacts.radiusMi = pendingBrief.radiusMi;
+    }
+    if (input.checkpoint) {
+      input.checkpoint.pendingBrief = null;
+      input.checkpoint.pendingBriefCallId = null;
+      input.checkpoint.pendingAskQuestion = null;
+      input.checkpoint.briefConfirmed = true;
+    }
+  } else if (reply && pendingBrief && responsesInput) {
+    responsesInput = [
+      ...responsesInput,
+      responsesUserMessage(
+        `Shopper CORRECTED the search brief:\n${reply}\nCall submit_brief again. Do not search until they confirm.`,
+      ),
+    ];
+    messages = [...(messages ?? []), { role: "user" as const, content: `Shopper corrected the search brief:\n${reply}` }];
+    if (input.checkpoint) {
+      input.checkpoint.pendingBrief = null;
+      input.checkpoint.pendingBriefCallId = null;
+      input.checkpoint.pendingAskQuestion = null;
+      input.checkpoint.briefConfirmed = false;
+    }
+  } else if (reply && responsesInput) {
+    const question = input.checkpoint?.pendingAskQuestion?.trim() || "your question";
+    responsesInput = [
+      ...responsesInput,
+      responsesUserMessage(
+        `Shopper replied to ask_shopper ("${question}"):\n${reply}\nContinue: submit_brief before search_listings / submit_picks.`,
+      ),
+    ];
+    messages = [...(messages ?? []), { role: "user" as const, content: `Shopper replied: ${reply}` }];
+    if (input.checkpoint) {
+      input.checkpoint.pendingAskCallId = null;
+      input.checkpoint.pendingAskQuestion = null;
+    }
+  }
 
   const resume = {
     toolRounds: restored.toolRounds,
     roundsCompleted: restored.roundsCompleted,
-    responsesInput: restored.responsesInput,
-    messages: restored.messages,
+    responsesInput,
+    messages,
     submitNudgeSent: restored.submitNudgeSent,
     firstTurn: restored.firstTurn,
     featureRejections: restored.featureRejections,
@@ -1580,6 +1833,9 @@ export async function runResaleAgentLoop(input: {
   const toolsAttempt = await runToolsMode(shared);
   if (toolsAttempt.ok) return toolsAttempt;
   if ("continue" in toolsAttempt && toolsAttempt.continue) return toolsAttempt;
+  if ("awaitUser" in toolsAttempt && toolsAttempt.awaitUser) {
+    return toolsAttempt;
+  }
   if (toolsAttempt.error !== "tools_unsupported_or_empty") {
     return toolsAttempt;
   }

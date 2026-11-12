@@ -206,16 +206,11 @@ describe("resale time budget (Hobby ~50s)", () => {
     const elapsed = Date.now() - started;
 
     expect(elapsed).toBeLessThan(2_400);
-    expect(result.ok).toBe(true);
-    if (!result.ok) return;
-    expect("best" in result.body && result.body.best).not.toBeNull();
-    expect(result.body.budgetUsd).toBe(15_000);
-    expect(
-      result.body.journal.steps.some(
-        (s) => s.decided.includes(RESALE_TIME_BUDGET_SKIP) || /time budget/i.test(s.why),
-      ),
-    ).toBe(true);
-    expect(calls).toBeGreaterThan(0);
+    // Classic inventory deleted — non-plan resale search requires the SERV agent loop.
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.body.error).toBe("agent_loop_required");
+    expect(calls).toBe(0);
   });
 
   it("worst case: JSON before the injected budget with hanging SERV + Auto.dev; no pending work", async () => {

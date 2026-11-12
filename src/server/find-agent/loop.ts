@@ -3,11 +3,19 @@
  * Model: gpt-6.1-sol only. No profile abort; SERV_HTTP_DEADLINE_MS on each HTTP.
  * Multi-round runs are stepped across requests under the Hobby 300s cap
  * (persist checkpoint; never clip SERV call timeouts).
+ *
+ * OWNER DECISION (PR thin-boundary): intake is ask_shopper chat only.
+ * Do not reintroduce clarifying-questions / findPlan.questions / followUp widgets.
  */
 import {
   synthesizeRelaxedConditionsFromSearches,
 } from "@/domain/agent-verdict-complete";
 import { fromShopperInputEvent } from "@/domain/constraint-provenance";
+import {
+  formatShopperBriefCard,
+  SERV_TOPIC_SCOPE_RULE,
+  type ShopperBrief,
+} from "@/domain/shopper-brief";
 import {
   fingerprintsFromSearchJournal,
   hardSearchKeysFromUserBag,
@@ -110,6 +118,12 @@ export type FindAgentJournalToolCall = {
   /** search_listings: listings kept after funnel (for scoring / nothing-fits). */
   resultCount?: number;
   funnel?: Array<{ step: string; count: number }>;
+  /** Provider HTTP status when search_listings failed upstream (0 = network/timeout). */
+  providerStatus?: number;
+  /** Upstream cause: http_error | timeout | network | aborted | … */
+  providerCause?: string;
+  /** Attempts including retries before the final provider outcome. */
+  providerAttempts?: number;
 };
 
 /** Extract documented search_listings rows from the agent journal. */
@@ -165,13 +179,27 @@ function journalSearchListingsEntry(
       : typeof resultRecord?.count === "number"
         ? resultRecord.count
         : undefined;
+  const providerStatus =
+    typeof resultRecord?.status === "number" ? resultRecord.status : undefined;
+  const providerCause =
+    typeof resultRecord?.cause === "string" ? resultRecord.cause : undefined;
+  const providerAttempts =
+    typeof resultRecord?.attempts === "number" ? resultRecord.attempts : undefined;
   return {
     kind: "tool",
     name: executed.name,
     args,
     summary: executed.summary,
     ok: executed.ok,
-    ...(executed.name === "search_listings" ? { resultCount, funnel } : {}),
+    ...(executed.name === "search_listings"
+      ? {
+          resultCount,
+          funnel,
+          ...(providerStatus != null ? { providerStatus } : {}),
+          ...(providerCause ? { providerCause } : {}),
+          ...(providerAttempts != null ? { providerAttempts } : {}),
+        }
+      : {}),
   };
 }
 
@@ -211,6 +239,32 @@ export type FindAgentLoopContinue = {
   checkpoint: AgentLoopCheckpoint;
 };
 
+/** SERV called ask_shopper or submit_brief — pause for the shopper in the same conversation. */
+export type FindAgentLoopAwaitUser = {
+  ok: false;
+  awaitUser: true;
+  question: string;
+  message: string;
+  /** ask = free-text reply; brief = Confirm/Correct card */
+  awaitKind?: "ask" | "brief";
+  brief?: ShopperBrief | null;
+  agentMode: FindAgentModeResolved;
+  requestedMode: FindAgentMode;
+  toolRounds: number;
+  verdictReached: false;
+  journal: FindAgentJournalEntry[];
+  knownVins: string[];
+  featureRejections: AgentServFeatureRejection[];
+  featureFlags: string[];
+  servFeatures: AgentServFeatureJournal | null;
+  checkpoint: AgentLoopCheckpoint;
+  shopperFacts: {
+    budgetUsd: number | null;
+    zip: string | null;
+    radiusMi: number | null;
+  };
+};
+
 export type FindAgentLoopResult =
   | {
       ok: true;
@@ -228,11 +282,18 @@ export type FindAgentLoopResult =
       featureRejections: AgentServFeatureRejection[];
       featureFlags: string[];
       servFeatures: AgentServFeatureJournal;
+      shopperFacts: {
+        budgetUsd: number | null;
+        zip: string | null;
+        radiusMi: number | null;
+      };
     }
   | FindAgentLoopContinue
+  | FindAgentLoopAwaitUser
   | {
       ok: false;
       continue?: false;
+      awaitUser?: false;
       agentMode: FindAgentModeResolved | null;
       requestedMode: FindAgentMode;
       toolRounds: number;
@@ -248,6 +309,18 @@ export type FindAgentLoopResult =
 
 type ChatMessage = ServChatTurnMessage;
 type ToolCallWire = ServChatToolCallWire;
+
+function effectiveBudgetUsd(
+  depsBudget: number | null | undefined,
+  facts: { budgetUsd: number | null },
+): number | null {
+  if (depsBudget != null && Number.isFinite(depsBudget) && depsBudget > 0) return depsBudget;
+  if (facts.budgetUsd != null && Number.isFinite(facts.budgetUsd) && facts.budgetUsd > 0) {
+    return facts.budgetUsd;
+  }
+  return null;
+}
+
 
 function buildFindCheckpoint(input: {
   phase: "tools" | "next_action";
@@ -275,6 +348,8 @@ function buildFindCheckpoint(input: {
     submitNudgeSent: input.submitNudgeSent,
     firstTurn: input.firstTurn,
     featureRejections: input.featureRejections as unknown as Array<Record<string, unknown>>,
+    shopperFacts: { ...input.state.shopperFacts },
+    briefConfirmed: input.state.briefConfirmed === true,
   };
 }
 
@@ -310,6 +385,14 @@ function restoreFindStateFromCheckpoint(
   const state = createFindAgentToolState(seedListings);
   state.knownVins = new Set(checkpoint.knownVins.map((v) => v.toUpperCase()));
   state.listingsByVin = deserializeListingsByVin(checkpoint.listingsByVin);
+  if (checkpoint.shopperFacts) {
+    state.shopperFacts = {
+      budgetUsd: checkpoint.shopperFacts.budgetUsd ?? null,
+      zip: checkpoint.shopperFacts.zip ?? null,
+      radiusMi: checkpoint.shopperFacts.radiusMi ?? null,
+    };
+  }
+  state.briefConfirmed = checkpoint.briefConfirmed === true;
   const journal = checkpoint.journal as unknown as FindAgentJournalEntry[];
   state.searchFingerprints = fingerprintsFromSearchJournal(searchesFromFindJournal(journal));
   return {
@@ -385,6 +468,12 @@ function systemPrompt(note: string, formEdits?: Record<string, unknown> | null):
       : "";
   return [
     "You are Lemonless Find's search agent on SERV (gpt-6.1-sol).",
+    "You chat with the shopper in this same conversation, then search live inventory with tools.",
+    SERV_TOPIC_SCOPE_RULE,
+    "If budget, location, or other material facts are missing, call ask_shopper with one clear English question. Do not invent answers. Ask as many turns as you need.",
+    "When the shopper has stated a budget (or ZIP/radius), call record_shopper_facts so offer ≤ budget anti-fab uses those values.",
+    "When you have enough, call submit_brief with a compact card (budget.maxUsd + budget.userQuote verbatim from chat). Code pauses for Confirm/Correct — do not call search_listings until the brief is confirmed.",
+    "After the shopper confirms the brief, call search_listings (and other tools) in this same conversation, then submit_picks — or explain nothing fits with passReason.",
     "You decide which listings to search. Prefer tight filters first.",
     "When results are empty or poor, read search_listings.funnel + relaxHints + constraintRoles: change a relaxable (SERV-chosen) filter at the step that hit zero (omit_body, widen_radius, raise_price, drop_transmission, next_model) and re-search. Prefer bodyFamily=car over Sedan. constraintRoles.hard are shopper origin=user filters — keep unless the shopper's note allows otherwise; never invent which keys are hard. Profit and sell-window are not inventory filters. Code never auto-relaxes or forces filter changes — you decide.",
     "search_listings returns unfiltered provider rows plus an observational funnel — code does not drop rows for product decisions. If duplicateSearch is set, prefer changing a relaxable filter; a reasoned pass with journaled searches is still valid.",
@@ -393,7 +482,7 @@ function systemPrompt(note: string, formEdits?: Record<string, unknown> | null):
     "Finish by calling submit_picks with the find_agent_result fields. Code validates VINs against tool results, offer ≤ budget, and offer ≤ asking — on failure you get issues back and must fix via another submit_picks. Code never substitutes a pick.",
     "Never invent cars, prices, or VINs. Parallel tool calls are fine.",
     "Use tools for live evidence. Asking-price comps are not sold prices.",
-    `Shopper note:\n${note.trim() || "(empty)"}${edits}`,
+    `Shopper conversation / note:\n${note.trim() || "(empty)"}${edits}`,
   ].join(" ");
 }
 
@@ -898,6 +987,7 @@ async function runToolsMode(input: {
         journal: input.journal,
         knownVins: [...input.state.knownVins],
         checkpoint,
+        shopperFacts: { ...input.state.shopperFacts },
         ...findLoopMeta(bundle, rejections),
       };
     }
@@ -1012,6 +1102,7 @@ async function runToolsMode(input: {
         knownVins: [...input.state.knownVins],
         listingsByVin: input.state.listingsByVin,
         droppedPicks: finished.dropped,
+        shopperFacts: { ...input.state.shopperFacts },
         ...findLoopMeta(bundle, rejections),
       };
     }
@@ -1026,10 +1117,68 @@ async function runToolsMode(input: {
           args = {};
         }
 
+        if (call.name === "ask_shopper") {
+          const executed = await executeFindAgentTool(call.name, args, input.toolDeps, input.state);
+          input.journal.push(journalSearchListingsEntry(executed, args));
+          const question =
+            executed.ok && typeof executed.result.question === "string"
+              ? executed.result.question
+              : typeof (args as { question?: unknown }).question === "string"
+                ? String((args as { question: string }).question)
+                : "Could you share a bit more about what you need?";
+          return {
+            callId: call.callId,
+            name: "ask_shopper" as const,
+            accepted: false as const,
+            askQuestion: question,
+            output: {
+              ok: true,
+              status: "awaiting_shopper",
+              message: "Paused for the shopper reply in chat.",
+              question,
+            },
+          };
+        }
+
+        if (call.name === "submit_brief") {
+          const executed = await executeFindAgentTool(call.name, args, input.toolDeps, input.state);
+          input.journal.push(journalSearchListingsEntry(executed, args));
+          if (!executed.ok) {
+            return {
+              callId: call.callId,
+              name: "submit_brief" as const,
+              accepted: false as const,
+              output: executed.result,
+            };
+          }
+          const brief = (executed.result as { brief?: ShopperBrief }).brief ?? null;
+          const card =
+            typeof (executed.result as { card?: unknown }).card === "string"
+              ? String((executed.result as { card: string }).card)
+              : brief
+                ? formatShopperBriefCard(brief)
+                : "Please confirm this search brief.";
+          return {
+            callId: call.callId,
+            name: "submit_brief" as const,
+            accepted: false as const,
+            brief,
+            askQuestion: card,
+            output: {
+              ok: true,
+              status: "awaiting_brief_confirm",
+              message: "Paused for Confirm/Correct on the search brief.",
+              brief,
+              card,
+            },
+          };
+        }
+
         if (call.name === "submit_picks") {
+          const budgetUsd = effectiveBudgetUsd(input.deps.budgetUsd, input.state.shopperFacts);
           const checked = validateFindSubmitPicks(args, {
             listingsByVin: listingFactsFromState(input.state),
-            budgetUsd: input.deps.budgetUsd ?? null,
+            budgetUsd,
             searches: searchesFromFindJournal(input.journal),
           });
           if (!checked.ok) {
@@ -1096,6 +1245,90 @@ async function runToolsMode(input: {
       outputs: settled.map((row) => ({ callId: row.callId, output: row.output })),
     });
 
+    const asked = settled.find(
+      (row) =>
+        row.name === "ask_shopper" &&
+        "askQuestion" in row &&
+        typeof (row as { askQuestion?: unknown }).askQuestion === "string",
+    ) as { callId: string; name: "ask_shopper"; askQuestion: string; output: unknown } | undefined;
+    if (asked) {
+      const checkpoint = buildFindCheckpoint({
+        phase: "tools",
+        toolRounds,
+        roundsCompleted: round + 1,
+        responsesInput,
+        messages: finishMessages,
+        journal: input.journal,
+        state: input.state,
+        submitNudgeSent,
+        firstTurn,
+        featureRejections: rejections,
+      });
+      checkpoint.pendingAskCallId = asked.callId;
+      checkpoint.pendingAskQuestion = asked.askQuestion;
+      return {
+        ok: false,
+        awaitUser: true,
+        awaitKind: "ask",
+        question: asked.askQuestion,
+        message: asked.askQuestion,
+        agentMode: "tools",
+        requestedMode,
+        toolRounds,
+        verdictReached: false,
+        journal: input.journal,
+        knownVins: [...input.state.knownVins],
+        checkpoint,
+        shopperFacts: { ...input.state.shopperFacts },
+        ...findLoopMeta(bundle, rejections),
+      };
+    }
+
+    const briefed = settled.find(
+      (row) =>
+        row.name === "submit_brief" &&
+        "brief" in row &&
+        (row as { brief?: unknown }).brief &&
+        typeof (row as { askQuestion?: unknown }).askQuestion === "string",
+    ) as
+      | { callId: string; name: "submit_brief"; brief: ShopperBrief; askQuestion: string; output: unknown }
+      | undefined;
+    if (briefed) {
+      const checkpoint = buildFindCheckpoint({
+        phase: "tools",
+        toolRounds,
+        roundsCompleted: round + 1,
+        responsesInput,
+        messages: finishMessages,
+        journal: input.journal,
+        state: input.state,
+        submitNudgeSent,
+        firstTurn,
+        featureRejections: rejections,
+      });
+      checkpoint.pendingBriefCallId = briefed.callId;
+      checkpoint.pendingBrief = briefed.brief as unknown as Record<string, unknown>;
+      checkpoint.pendingAskQuestion = briefed.askQuestion;
+      checkpoint.briefConfirmed = false;
+      return {
+        ok: false,
+        awaitUser: true,
+        awaitKind: "brief",
+        brief: briefed.brief,
+        question: briefed.askQuestion,
+        message: briefed.askQuestion,
+        agentMode: "tools",
+        requestedMode,
+        toolRounds,
+        verdictReached: false,
+        journal: input.journal,
+        knownVins: [...input.state.knownVins],
+        checkpoint,
+        shopperFacts: { ...input.state.shopperFacts },
+        ...findLoopMeta(bundle, rejections),
+      };
+    }
+
     const accepted = settled.find(
       (row) => row.name === "submit_picks" && "accepted" in row && row.accepted === true && "verdict" in row,
     ) as
@@ -1114,6 +1347,7 @@ async function runToolsMode(input: {
         knownVins: [...input.state.knownVins],
         listingsByVin: input.state.listingsByVin,
         droppedPicks: [],
+        shopperFacts: { ...input.state.shopperFacts },
         ...findLoopMeta(bundle, rejections),
       };
     }
@@ -1496,6 +1730,7 @@ async function runNextActionMode(input: {
         knownVins: [...input.state.knownVins],
         listingsByVin: input.state.listingsByVin,
         droppedPicks: guarded.dropped,
+        shopperFacts: { ...input.state.shopperFacts },
         ...findLoopMeta(bundle, rejections),
       };
     }
@@ -1537,6 +1772,12 @@ export async function runFindAgentLoop(input: {
   checkpoint?: AgentLoopCheckpoint | null;
   /** When true, create a fresh deadline for this request (default). */
   budgetMs?: number;
+  /** Shopper reply after ask_shopper — injected into the same conversation. */
+  shopperReply?: string | null;
+  /** Shopper confirmed the pending submit_brief card. */
+  briefConfirmed?: boolean;
+  /** Chat path: reject search_listings / submit_picks until the brief is confirmed. */
+  requireBriefConfirm?: boolean;
 }): Promise<FindAgentLoopResult> {
   const requestedMode = input.mode ?? resolveFindAgentMode(process.env);
   const maxRounds = input.maxRounds ?? 40;
@@ -1545,6 +1786,7 @@ export async function runFindAgentLoop(input: {
   const restored = restoreFindStateFromCheckpoint(input.checkpoint, input.deps.seedListings);
   const journal = restored.journal;
   const state = restored.state;
+  state.requireBriefConfirm = input.requireBriefConfirm === true;
   // Provenance → constraintRoles: origin=user form keys are hard; SERV-chosen are relaxable.
   const { constraints: userFormConstraints } = constraintsFromFormEdits(
     input.note,
@@ -1563,13 +1805,88 @@ export async function runFindAgentLoop(input: {
       counter: new MemoryCounter(),
     },
     seedListings: input.deps.seedListings,
+    chatTranscript: input.note,
   };
+
+  const reply = typeof input.shopperReply === "string" ? input.shopperReply.trim() : "";
+  let responsesInput = restored.responsesInput;
+  let messages = restored.messages;
+  const pendingBrief = input.checkpoint?.pendingBrief as ShopperBrief | null | undefined;
+  if (input.briefConfirmed && pendingBrief && responsesInput) {
+    const card = formatShopperBriefCard(pendingBrief);
+    journal.push({
+      kind: "tool",
+      name: "submit_brief_confirmed",
+      args: pendingBrief,
+      summary: `submit_brief confirmed: ${pendingBrief.summary.slice(0, 80)}`,
+      ok: true,
+    });
+    if (pendingBrief.budget.maxUsd != null) state.shopperFacts.budgetUsd = pendingBrief.budget.maxUsd;
+    if (pendingBrief.zip) state.shopperFacts.zip = pendingBrief.zip;
+    if (Object.prototype.hasOwnProperty.call(pendingBrief, "radiusMi")) {
+      state.shopperFacts.radiusMi = pendingBrief.radiusMi;
+    }
+    responsesInput = [
+      ...responsesInput,
+      responsesUserMessage(
+        `Shopper CONFIRMED the search brief:\n${card}\nJournal recorded submit_brief_confirmed. Proceed with search_listings / submit_picks. Do not re-ask unless they correct later.`,
+      ),
+    ];
+    messages = [
+      ...(messages ?? []),
+      { role: "user", content: `Shopper confirmed the search brief:\n${card}` },
+    ];
+    state.briefConfirmed = true;
+    if (input.checkpoint) {
+      input.checkpoint.pendingBrief = null;
+      input.checkpoint.pendingBriefCallId = null;
+      input.checkpoint.pendingAskQuestion = null;
+      input.checkpoint.briefConfirmed = true;
+    }
+  } else if (reply && pendingBrief && responsesInput) {
+    responsesInput = [
+      ...responsesInput,
+      responsesUserMessage(
+        `Shopper CORRECTED the search brief (previous card held):\n${reply}\nCall submit_brief again with an updated brief. Do not search until they confirm.`,
+      ),
+    ];
+    messages = [
+      ...(messages ?? []),
+      { role: "user", content: `Shopper corrected the search brief:\n${reply}` },
+    ];
+    if (input.checkpoint) {
+      input.checkpoint.pendingBrief = null;
+      input.checkpoint.pendingBriefCallId = null;
+      input.checkpoint.pendingAskQuestion = null;
+      input.checkpoint.briefConfirmed = false;
+    }
+  } else if (reply && responsesInput) {
+    const question = input.checkpoint?.pendingAskQuestion?.trim() || "your question";
+    responsesInput = [
+      ...responsesInput,
+      responsesUserMessage(
+        `Shopper replied to ask_shopper ("${question}"):\n${reply}\nContinue: record_shopper_facts if needed, then submit_brief before search_listings / submit_picks. Do not invent facts the shopper did not state.`,
+      ),
+    ];
+    messages = [
+      ...(messages ?? []),
+      { role: "user", content: `Shopper replied to ask_shopper ("${question}"):\n${reply}` },
+    ];
+    if (input.checkpoint) {
+      input.checkpoint.pendingAskCallId = null;
+      input.checkpoint.pendingAskQuestion = null;
+    }
+  }
+  if (state.shopperFacts.budgetUsd != null && (input.deps.budgetUsd == null || input.deps.budgetUsd <= 0)) {
+    input.deps.budgetUsd = state.shopperFacts.budgetUsd;
+    input.deps.budgetProvenance = input.deps.budgetProvenance ?? "serv";
+  }
 
   const resume = {
     toolRounds: restored.toolRounds,
     roundsCompleted: restored.roundsCompleted,
-    responsesInput: restored.responsesInput,
-    messages: restored.messages,
+    responsesInput,
+    messages,
     submitNudgeSent: restored.submitNudgeSent,
     firstTurn: restored.firstTurn,
     featureRejections: restored.featureRejections,
@@ -1611,6 +1928,7 @@ export async function runFindAgentLoop(input: {
   const toolsAttempt = await runToolsMode(shared);
   if (toolsAttempt.ok) return toolsAttempt;
   if ("continue" in toolsAttempt && toolsAttempt.continue) return toolsAttempt;
+  if ("awaitUser" in toolsAttempt && toolsAttempt.awaitUser) return toolsAttempt;
   if (toolsAttempt.error !== "tools_unsupported_or_empty") {
     return toolsAttempt;
   }

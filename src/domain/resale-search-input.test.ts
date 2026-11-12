@@ -45,4 +45,28 @@ describe("parseResaleSearchInput", () => {
     expect(need.bodyStyle).toBe("SUV");
     expect(need.repairAbility).toBe("minor");
   });
+
+  it("takes asIs and sellWithinDays only from form/SERV fields, never freeText", () => {
+    const ignored = parseResaleSearchInput({
+      budgetUsd: 12_000,
+      freeText: "as-is flip, sell within 14 days",
+      note: "within 7 days as is",
+    });
+    expect(ignored.ok).toBe(true);
+    if (!ignored.ok) return;
+    expect(ignored.input.asIs).toBe(false);
+    expect(ignored.input.sellWithinDays).toBeNull();
+    expect(ignored.input.freeText).toBe("as-is flip, sell within 14 days");
+
+    const form = parseResaleSearchInput({
+      budgetUsd: 12_000,
+      asIs: true,
+      sellWithinDays: 14,
+      freeText: "whatever text",
+    });
+    expect(form.ok).toBe(true);
+    if (!form.ok) return;
+    expect(form.input.asIs).toBe(true);
+    expect(form.input.sellWithinDays).toBe(14);
+  });
 });
