@@ -631,48 +631,10 @@ export async function runFindMatch(
     }
   }
 
-  // Soft filters emptied local inventory, or the radius returned nothing — try Nationwide once.
-  let nationwideWidenNote: string | null = null;
-  let filterNeed = need;
-  if (need.mode !== "flip" && need.distanceMiles != null && searchZip) {
-    const returned = dispatches.flatMap((row) => (row.result?.ok ? row.result.listings : []));
-    const cars = returned.filter((row) => isPassengerOrLightTruck(row));
-    const local = filterInventoryWithWiden(cars, need);
-    if (local.listings.length === 0) {
-      const retryJobs = planned.map((job) => ({ ...job }));
-      const more = await Promise.all(
-        retryJobs.map(async (job) => {
-          try {
-            const result = await runAssemble(
-              {
-                make: job.query.make,
-                model: job.query.model,
-                bodyStyle: bodyStyleForQuery(job.query.model, job.query.bodyStyle ?? job.direction.bodyStyle),
-                zip: searchZip,
-                ...confirmedYears(job.direction, need, body?.refine),
-                distanceMiles: null,
-                mode: need.mode,
-                milesMax: need.milesMax ?? undefined,
-                priceMax: need.budgetKnown && need.budgetUsd ? need.budgetUsd : undefined,
-                skipRadarGuard: true,
-              },
-              deps,
-            );
-            return { planned: job, result, timedOut: false };
-          } catch {
-            return { planned: job, result: null, timedOut: true };
-          }
-        }),
-      );
-      dispatches = [...dispatches, ...more];
-      providerQueriesUsed += more.length;
-      filterNeed = { ...need, distanceMiles: null };
-      const softBit = local.steps.find((s) => s.kind === "drop_soft");
-      nationwideWidenNote = softBit
-        ? `No cars matched with ${softBit.label} within ${need.distanceMiles} miles of ${searchZip}; we loosened that preference and widened to Nationwide.`
-        : `No cars matched within ${need.distanceMiles} miles of ${searchZip}; we widened to Nationwide.`;
-    }
-  }
+  // Soft preferences that emptied local inventory are loosened in filterInventoryWithWiden.
+  // An explicit radius is never auto-widened to Nationwide (Chicago live defect).
+  const nationwideWidenNote: string | null = null;
+  const filterNeed = need;
 
   // Group dispatch results by direction index for the existing post-processing.
   const byDirection = new Map<number, DispatchRow[]>();

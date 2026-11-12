@@ -633,15 +633,9 @@ export function planToStructuredNeed(
     milesMax: plan.milesMax,
     milesCapResolved: plan.milesMax != null,
     seatsMin: plan.seatsMin ?? seatsMinFromNote(note),
-    yearMin:
-      plan.yearMin ??
-      (plan.yearMax == null
-        ? yearBandForBudget(plan.budget.maxUsd, new Date(), {
-            approximateFromNote: plan.budget.approximate,
-          }).yearMin
-        : null),
+    // Budget year bands rank newer cars higher; they are not a hard yearMin the buyer never set.
+    yearMin: plan.yearMin,
     yearMax: plan.yearMax,
-    // Buyer/form years only — a budget floor is a search guide, not a resolved clarification.
     yearBandResolved: plan.yearMin != null || plan.yearMax != null,
     conditionPriority: "unspecified",
     fuelEconomyPriority,
@@ -659,8 +653,9 @@ export function planToStructuredNeed(
 
 /** Map plan directions into SearchDirection rows (body-style-only keeps models empty). */
 export function planToDirections(plan: FindPlan, now = new Date()): SearchDirection[] {
-  // Never invent a budget year ceiling (AUDIT R5) — only years the buyer/form gave.
-  // When the plan has no floor, use yearBandForBudget so a $20k search does not open to 1990.
+  // Never invent a hard year floor or ceiling the buyer did not give (AUDIT R5).
+  // Budget year bands still guide ranking (newer / lower miles preferred) without wiping older inventory.
+  const openMin = 1990;
   const openMax = now.getUTCFullYear() + 1;
   const buyerSetMin = plan.yearMin != null;
   const buyerSetMax = plan.yearMax != null;
@@ -668,7 +663,6 @@ export function planToDirections(plan: FindPlan, now = new Date()): SearchDirect
     !buyerSetMin && !buyerSetMax
       ? yearBandForBudget(plan.budget.maxUsd, now, { approximateFromNote: plan.budget.approximate })
       : null;
-  const openMin = band?.yearMin ?? 1990;
   const ordered = orderedYearBounds(plan.yearMin ?? openMin, plan.yearMax ?? openMax, buyerSetMax, openMax);
   const yearMin = ordered.yearMin;
   const yearMax = ordered.yearMax;
@@ -676,7 +670,7 @@ export function planToDirections(plan: FindPlan, now = new Date()): SearchDirect
     buyerSetMin || buyerSetMax
       ? `Model years ${buyerSetMin ? yearMin : "any"}–${buyerSetMax ? yearMax : "any"} come from your note or form.`
       : band
-        ? `${band.because} No year ceiling was invented — searching up to current model years.`
+        ? `${band.because} That is a ranking preference, not a hard year filter — older cars can still appear.`
         : "No year range in your note — searching without a budget-invented year ceiling.";
 
   return plan.directions.slice(0, 3).map((dir, index) => {

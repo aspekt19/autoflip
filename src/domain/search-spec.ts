@@ -289,6 +289,7 @@ function dropReason(rule: string): string {
   if (rule === "drivetrain") return "not all-wheel drive";
   if (rule === "accidents") return "a reported accident";
   if (rule === "make") return "a make you excluded";
+  if (rule === "preferred_make") return "outside your preferred makes";
   if (rule === "body") return "the wrong body style";
   return rule;
 }

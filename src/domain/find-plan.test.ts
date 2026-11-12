@@ -359,7 +359,7 @@ describe("validateFindPlan recorded fixtures (reviewer #149 gaps)", () => {
 });
 
 describe("planToDirections year floor", () => {
-  it("uses yearBandForBudget when the plan has no years, not 1990", () => {
+  it("keeps an open search when the plan has no years; budget band is ranking copy only", () => {
     const plan = fallbackFindPlan(
       "Family 3-row SUV under $20,000 in Denver. Need something safe for kids.",
       "personal",
@@ -368,11 +368,12 @@ describe("planToDirections year floor", () => {
     expect(plan.yearMin).toBeNull();
     expect(plan.yearMax).toBeNull();
     const dirs = planToDirections(plan, new Date("2026-11-11T00:00:00Z"));
-    expect(dirs[0]!.yearMin).toBeGreaterThanOrEqual(2010);
-    expect(dirs[0]!.yearMin).toBeGreaterThan(1990);
+    // Hard filter stays open — budget year bands must not wipe older inventory.
+    expect(dirs[0]!.yearMin).toBe(1990);
     expect(dirs[0]!.yearMax).toBeGreaterThanOrEqual(2026);
+    expect(dirs[0]!.yearBecause).toMatch(/ranking preference|starting year band/i);
     const need = planToStructuredNeed(plan, "personal", "Family 3-row SUV under $20,000 in Denver.");
-    expect(need.yearMin).toBeGreaterThanOrEqual(2010);
+    expect(need.yearMin).toBeNull();
     expect(need.yearBandResolved).toBe(false);
   });
 });

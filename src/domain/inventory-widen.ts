@@ -1,6 +1,6 @@
 /**
  * When hard gates / soft-as-filter preferences empty a live inventory, relax in order:
- * soft preferences first, then seller distance → nationwide. Always name what excluded cars.
+ * soft preferences first, then seller distance stepwise (not Nationwide). Always name what excluded cars.
  */
 import { hybridLimitFromText } from "./open-search";
 import { awdLimitFromText } from "./note-intake";
@@ -114,10 +114,16 @@ function dominantDropLabel(dropped: readonly HardDrop[] | readonly InventoryFilt
   return best;
 }
 
+/** Next seller-distance steps after soft filters still leave zero. Never jumps to Nationwide. */
+const RADIUS_WIDEN_STEPS_MI = [100, 150, 250] as const;
+
 /**
- * Filter inventory with hard gates + listingWithinNeed, then auto-widen soft filters
- * and (when still empty) drop the radius filter on already-fetched rows.
- * Distance re-query is the caller's job when kept is still empty and a radius was set.
+ * Filter inventory with hard gates + listingWithinNeed, then auto-widen:
+ * 1) soft preferences that were applied as filters,
+ * 2) seller distance stepwise (100 → 150 → 250 mi) on already-fetched rows.
+ *
+ * Never drops the radius to Nationwide here — that was a Chicago live defect.
+ * Soft-filter recovery still runs at the same geography first.
  */
 export function filterInventoryWithWiden(
   listings: readonly Listing[],
@@ -138,7 +144,7 @@ export function filterInventoryWithWiden(
     ...first.dropped,
     ...first.kept
       .filter((item) => !listingWithinNeed(item, need))
-      .map((item) => ({ vin: item.vin, rule: "preferred_make" as const })),
+      .map((item) => ({ vin: item.vin, rule: "preferred_make" })),
   ];
 
   if (firstKept.length > 0 || listings.length === 0) {
@@ -167,7 +173,7 @@ export function filterInventoryWithWiden(
       ...second.dropped,
       ...second.kept
         .filter((item) => !listingWithinNeed(item, workingNeed))
-        .map((item) => ({ vin: item.vin, rule: "preferred_make" as const })),
+        .map((item) => ({ vin: item.vin, rule: "preferred_make" })),
     ];
     steps.push({
       kind: "drop_soft",
@@ -177,31 +183,44 @@ export function filterInventoryWithWiden(
   }
 
   if (kept.length === 0 && need.distanceMiles != null) {
-    const noRadius: SearchSpec = {
-      ...workingSpec,
-      hard: { ...workingSpec.hard, radiusMi: { value: null, source: "form" } },
-    };
-    const third = enforceHard(noRadius, listings);
-    kept = third.kept.filter((item) => listingWithinNeed(item, workingNeed));
-    dropped = [
-      ...third.dropped,
-      ...third.kept
-        .filter((item) => !listingWithinNeed(item, workingNeed))
-        .map((item) => ({ vin: item.vin, rule: "preferred_make" as const })),
-    ];
-    steps.push({
-      kind: "widen_distance",
-      fromMiles: need.distanceMiles,
-      label: `within ${need.distanceMiles} miles`,
-    });
+    const fromMiles = need.distanceMiles;
+    for (const next of RADIUS_WIDEN_STEPS_MI) {
+      if (next <= fromMiles) continue;
+      const widened: SearchSpec = {
+        ...workingSpec,
+        hard: {
+          ...workingSpec.hard,
+          radiusMi: { value: next, source: "form" },
+        },
+      };
+      const third = enforceHard(widened, listings);
+      kept = third.kept.filter((item) => listingWithinNeed(item, workingNeed));
+      dropped = [
+        ...third.dropped,
+        ...third.kept
+          .filter((item) => !listingWithinNeed(item, workingNeed))
+          .map((item) => ({ vin: item.vin, rule: "preferred_make" })),
+      ];
+      steps.push({
+        kind: "widen_distance",
+        fromMiles,
+        label: `within ${fromMiles} miles → tried ${next} miles`,
+      });
+      if (kept.length > 0) break;
+    }
   }
 
-  const explanation = widenExplanation({
-    excludeLabel,
-    steps,
-    recovered: kept.length,
-    hadInventory: listings.length,
-  });
+  const explanation =
+    steps.length > 0
+      ? widenExplanation({
+          excludeLabel,
+          steps,
+          recovered: kept.length,
+          hadInventory: listings.length,
+        })
+      : kept.length === 0
+        ? hardDropSentence(dropped)
+        : null;
 
   return { listings: kept, dropped, steps, explanation };
 }
@@ -228,8 +247,8 @@ export function widenExplanation(input: {
   if (dist) {
     parts.push(
       soft
-        ? `then widened beyond ${dist.label}`
-        : `so we widened beyond ${dist.label} / tried a broader geography on the cars already returned`,
+        ? `then widened the search distance (${dist.label})`
+        : `so we widened the search distance (${dist.label}) on the cars already returned`,
     );
   }
   const base = parts.join(", ");
