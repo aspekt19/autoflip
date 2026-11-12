@@ -3,6 +3,7 @@
  * A finished run's public fields are the last in-progress snapshot plus the decision.
  */
 import { formatNumber, formatUsd } from "./format";
+import { settlePublishedRun } from "./run-invariants";
 import { yearSpanSentence } from "./year-span";
 import { buildSearchSpec, type SearchFormEdits, type SearchSpec } from "./search-spec";
 import {
@@ -76,6 +77,12 @@ export type RunRecord = {
   picks: string[];
   verdict: VerdictId | null;
   confidence: RunConfidence | null;
+  /** One sentence that states the confidence and why. */
+  confidenceReason?: string | null;
+  /** Plain outcome, including an honest stop. */
+  buyerMessage?: string | null;
+  /** Ledger key for a Find or Resale charge, so a wiped verdict can be refunded. */
+  spendKey?: string | null;
   creditsCharged: number;
   failureReasons: FailureReasonId[];
   /** Snapshots taken before each decision was applied. */
@@ -107,6 +114,10 @@ export type RunObservation = {
   confidence?: string | null;
   creditsCharged?: number;
   failureReasons?: FailureReasonId[];
+  /** Ledger key, kept off the public page, so a wiped verdict can be refunded. */
+  spendKey?: string | null;
+  buyerMessage?: string | null;
+  confidenceReason?: string | null;
   /** True when this update is the end of the pipeline (verdict or an honest stop). */
   terminal?: boolean;
   at?: string;
@@ -329,12 +340,11 @@ export function applyObservation(run: RunRecord, observation: RunObservation): R
       failureReasons: uniqueReasons([...reasons, "no_cars"]),
     };
   } else if (critical && observation.terminal === true) {
-    const charged = listings.length === 0 ? 0 : Math.max(0, observation.creditsCharged ?? run.creditsCharged);
     decision = {
       phase: "stopped",
       verdict: null,
       confidence: null,
-      creditsCharged: charged,
+      creditsCharged: 0,
       failureReasons: reasons.length ? reasons : ["decision_failed"],
     };
   } else if (observation.terminal === true) {
@@ -344,7 +354,7 @@ export function applyObservation(run: RunRecord, observation: RunObservation): R
       phase: verdict ? "finished" : "stopped",
       verdict,
       confidence: verdict ? (secondFailed ? "Low" : requestedConfidence) : null,
-      creditsCharged: listings.length === 0 ? 0 : charged,
+      creditsCharged: verdict ? charged : 0,
       failureReasons: uniqueReasons([
         ...reasons,
         ...(verdict ? [] : listings.length === 0 ? (["no_cars"] as const) : (["not_enough_evidence"] as const)),
@@ -372,19 +382,7 @@ export function applyObservation(run: RunRecord, observation: RunObservation): R
     };
   }
 
-  const snapshot: RunProgress = {
-    at,
-    phase: "running",
-    listingVins: listings.map((car) => car.vin),
-    pickVin: picks[0] ?? null,
-    verdict: null,
-    confidence: null,
-    creditsCharged: 0,
-    failureReasons: [],
-    steps: steps.map((step) => step.step),
-  };
-
-  return {
+  let published: RunRecord = {
     ...run,
     updatedAt: at,
     inputs,
@@ -398,8 +396,24 @@ export function applyObservation(run: RunRecord, observation: RunObservation): R
     confidence: decision.confidence,
     creditsCharged: decision.creditsCharged,
     failureReasons: decision.failureReasons,
-    progress: [...run.progress, snapshot],
+    buyerMessage: observation.buyerMessage ?? run.buyerMessage ?? null,
+    confidenceReason: observation.confidenceReason ?? run.confidenceReason ?? null,
+    spendKey: observation.spendKey ?? run.spendKey ?? null,
+    progress: run.progress,
   };
+  if (published.phase !== "running") published = settlePublishedRun(published);
+  const snapshot: RunProgress = {
+    at,
+    phase: "running",
+    listingVins: published.listings.map((car) => car.vin),
+    pickVin: published.picks[0] ?? null,
+    verdict: null,
+    confidence: null,
+    creditsCharged: 0,
+    failureReasons: [],
+    steps: published.steps.map((step) => step.step),
+  };
+  return { ...published, progress: [...run.progress, snapshot] };
 }
 
 /** Last in-progress snapshot, plus the decision stored on the run, equals the run. */
@@ -462,6 +476,8 @@ export function limitSentences(spec: SearchSpec | null): string[] {
   else if (zip && radius != null) lines.push(`Within ${formatNumber(radius)} miles of ${zip}.`);
   else if (zip) lines.push(`Near ${zip}.`);
   if (spec.hard.drivetrain?.value === "awd_4wd") lines.push("All-wheel drive or four-wheel drive.");
+  const bodies = spec.hard.bodyStyles?.value ?? [];
+  if (bodies.length) lines.push(`Body type ${bodies.join(" or ")}.`);
   const excluded = spec.hard.excludeMakes?.value ?? [];
   if (excluded.length) lines.push(`Not ${excluded.join(" or ")}.`);
   const sell = spec.soft.sellWithinDays;
@@ -481,8 +497,10 @@ export function toRunView(run: RunRecord, viewerId: string | null): RunView {
     limits: limitSentences(run.spec),
     verdict: run.verdict,
     confidence: run.confidence,
+    confidenceReason: run.confidenceReason ?? null,
     creditsCharged: run.creditsCharged,
     failureReasons: [...run.failureReasons],
+    buyerMessage: run.buyerMessage ?? null,
     steps: run.steps.map((step) => ({
       step: step.step,
       status: step.status,
@@ -531,6 +549,9 @@ export function parseRunRecord(raw: string): RunRecord | null {
       verdict: typeof row.verdict === "string" ? verdictIdFromRaw(row.verdict) : null,
       confidence: row.confidence === "High" || row.confidence === "Medium" || row.confidence === "Low" ? row.confidence : null,
       creditsCharged: typeof row.creditsCharged === "number" && row.creditsCharged > 0 ? Math.round(row.creditsCharged) : 0,
+      confidenceReason: typeof row.confidenceReason === "string" ? row.confidenceReason : null,
+      buyerMessage: typeof row.buyerMessage === "string" ? row.buyerMessage : null,
+      spendKey: typeof row.spendKey === "string" ? row.spendKey : null,
       failureReasons,
       progress: row.progress.filter((item): item is RunProgress => Boolean(item) && typeof item === "object"),
     };

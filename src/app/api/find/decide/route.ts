@@ -10,7 +10,8 @@ import { runtimeDeps } from "@/server/deps";
 import { findContextOwnerId } from "@/server/find-context-owner";
 import { runFindDecideOrchestrator } from "@/server/find-decide-orchestrator";
 import { loadFindSearchContext } from "@/server/find-search-context";
-import { proofsFromRecords, syncRunSafely } from "@/server/run-sync";
+import { readRun } from "@/io/run-store";
+import { listingsFromBestDeal, proofsFromRecords, syncRunSafely } from "@/server/run-sync";
 import type { SourceId } from "@/domain/buyer-copy-table";
 import { buildDecisionProofRecord, VERDICT_RUBRIC_ID } from "@/domain/decision-proof-record";
 
@@ -127,6 +128,8 @@ export async function POST(request: Request) {
   }
   const pick = result.bestDeal?.pick;
   const pickVin = pick && typeof pick.vin === "string" ? pick.vin : null;
+  const proposedVerdict = result.pickAgentVerdict?.verdict ?? null;
+  const shown = listingsFromBestDeal(result.bestDeal, proposedVerdict);
   const settledRunId = await syncRunSafely(kv, {
     runId,
     ownerId: id,
@@ -134,18 +137,24 @@ export async function POST(request: Request) {
     note: result.needAfter.note ?? "",
     mode: result.needAfter.mode === "flip" ? "flip" : "personal",
     proofs: proofsFromRecords(result.pickProofRecords),
+    listings: shown.length ? shown : undefined,
     picks: pickVin ? [pickVin] : [],
     sources,
-    verdict: result.pickAgentVerdict?.verdict ?? null,
+    verdict: proposedVerdict,
     confidence: result.pickAgentVerdict?.confidence ?? null,
+    confidenceReason: result.bestDeal?.why ?? result.pickAgentVerdict?.reasons?.[0]?.text ?? null,
+    buyerMessage: result.bestDeal?.why ?? null,
     terminal: true,
   });
+  const stored = settledRunId ? await readRun(kv, settledRunId) : null;
+  const publishedVerdict = stored?.verdict ?? null;
 
   return Response.json({
     ok: true,
     searchContextToken: result.searchContextToken,
-    bestDeal: result.bestDeal,
-    pickAgentVerdict: result.pickAgentVerdict,
+    bestDeal: publishedVerdict ? result.bestDeal : null,
+    pickAgentVerdict: publishedVerdict ? result.pickAgentVerdict : null,
+    message: stored?.buyerMessage ?? null,
     pickSecondPass: result.pickSecondPass,
     pickProofRecords: result.pickProofRecords,
     freeGovReceipts: result.freeGovReceipts,

@@ -93,7 +93,7 @@ describe("SERV self-test", () => {
     expect(selftestHobbyWallClockMs()).toBeLessThan(HOBBY_FUNCTION_MS);
     expect(selftestHobbyWallClockMs()).toBe(profile("report_explain").timeoutMs * 2);
     expect(selftestWallClockMs()).toBeLessThanOrEqual(PRO_FUNCTION_MS);
-    expect(profile("find_plan").timeoutMs).toBe(90_000);
+    expect(profile("find_plan").timeoutMs).toBe(290_000);
   });
 
   it("repeats each profile in parallel and scores a 95 percent pass rate", async () => {

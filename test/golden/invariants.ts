@@ -3,6 +3,7 @@
  * Price uses the documented 5% slight-over rule (src/domain/budget.ts).
  */
 import { formatOfficialRecallNumber } from "@/domain/find-buyer-copy";
+import { checkRunInvariants } from "@/domain/run-invariants";
 import { AGGREGATOR_HOSTS } from "@/domain/listing-vdp-verifiability";
 import { computedProvenance } from "@/domain/resale-provenance";
 import type { GoldenCase } from "./cases";
@@ -524,6 +525,12 @@ export function assertInvariants(input: {
       push(out, "U5.charge", "No cars were found, but the stored run still charged a credit.");
     }
     checkI6(run.storedRun.permalinkHtml, out);
+    if (run.storedRun.publicRun) {
+      const report = checkRunInvariants(run.storedRun.publicRun);
+      for (const item of report.checks) {
+        if (!item.pass) push(out, `R.${item.id}`, item.message);
+      }
+    }
   }
   checkI7(run, out);
   checkI8(run, html, out);

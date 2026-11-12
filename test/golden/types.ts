@@ -114,6 +114,8 @@ export type GoldenRun = {
     verdict: string | null;
     creditsCharged: number;
     permalinkHtml: string;
+    /** Public GET /api/run body. The same object the invariant checker reads. */
+    publicRun?: unknown;
   };
 };
 

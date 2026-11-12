@@ -122,8 +122,8 @@ export const PROFILES = {
     reason: "Kronos+Multipath with prompt_guard and a strict schema so software can drop invented quotes, years, and unknown models.",
     feature: "kronos-multipath",
     tools: ["prompt_guard"],
-    // Generous wall time — kronos-multipath needs room; client + route maxDuration must match.
-    timeoutMs: 90_000,
+    // Wait for the plan up to the route budget. Do not stop early.
+    timeoutMs: 290_000,
     fallback: "form",
     system: [
       "Extract a Lemonless Find shopping plan from the buyer's note into the response schema.",

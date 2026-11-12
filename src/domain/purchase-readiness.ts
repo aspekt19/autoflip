@@ -290,7 +290,7 @@ function blankOffer(
     fairLowUsd: null,
     fairHighUsd: null,
     fairMidUsd: null,
-    openingLabel: "Opening offer: not given.",
+    openingLabel: "Opening offer: not given. There is not enough similar-car data to name one.",
     walkAwayLabel: "Walk-away price: not given.",
     sentence,
     methodNote: extra?.methodNote ?? "",

@@ -772,8 +772,8 @@ export function fallbackFindPlan(
           {
             label: namedModels.length ? "Models from your note" : "Makes from your note",
             why: namedModels.length
-              ? "Lemonless AI was unavailable, so the search uses models named in your note."
-              : "Lemonless AI was unavailable, so the search uses makes named in your note with common models.",
+              ? "The search uses the models named in your note."
+              : "The search uses the makes named in your note with common models.",
             bodyStyle: bodyStyles[0] ?? "any",
             models: seedModels,
           },

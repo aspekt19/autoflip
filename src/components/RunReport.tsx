@@ -18,6 +18,7 @@ export function RunReport({ run }: { run: RunView }) {
       <h1>{model.title}</h1>
       <p className="hint">{model.phaseLine}</p>
       {model.verdictLine ? <p className="verdict-level badge">{model.verdictLine}</p> : null}
+      {model.buyerMessage ? <p>{model.buyerMessage}</p> : null}
       {model.confidenceLine ? <p>{model.confidenceLine}</p> : null}
       {model.failureLines.map((line) => (
         <p key={line}>{line}</p>
@@ -72,6 +73,7 @@ export function RunReport({ run }: { run: RunView }) {
           <p className="support">
             {car.priceUsd == null ? "Price not listed" : formatUsd(car.priceUsd)}
             {car.miles == null ? "" : ` · ${formatNumber(car.miles)} miles`}
+            {car.drivetrain ? ` · ${car.drivetrain}` : car.drivetrainUnknown ? " · Drivetrain not listed" : ""}
             {car.place ? ` · ${car.place}` : ""}
             {car.dealer ? ` · ${car.dealer}` : ""}
           </p>

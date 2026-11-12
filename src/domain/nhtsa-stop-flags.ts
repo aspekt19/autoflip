@@ -41,9 +41,7 @@ export function stopFlagsFromRecalls(recalls: readonly NhtsaRecallLike[]): {
     flags.push({
       id: "park_it",
       level: "stop",
-      text: campaign
-        ? `NHTSA lists a park-it / do-not-drive campaign (${campaign}). Do not drive until repaired.`
-        : "NHTSA lists a park-it / do-not-drive campaign. Do not drive until repaired.",
+      text: "NHTSA lists a park-it / do-not-drive campaign. Do not drive until repaired.",
       campaignNumber: campaign,
     });
   }
@@ -52,9 +50,7 @@ export function stopFlagsFromRecalls(recalls: readonly NhtsaRecallLike[]): {
     flags.push({
       id: "park_outside",
       level: "stop",
-      text: campaign
-        ? `NHTSA lists outdoor-parking / fire-risk guidance (campaign ${campaign}). Treat as a stop until repaired.`
-        : "NHTSA lists outdoor-parking / fire-risk guidance. Treat as a stop until repaired.",
+      text: "NHTSA lists outdoor-parking / fire-risk guidance. Treat as a stop until repaired.",
       campaignNumber: campaign,
     });
   }

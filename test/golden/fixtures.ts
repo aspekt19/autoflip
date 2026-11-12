@@ -82,7 +82,12 @@ const LIVE_SUV = [
   car({ vin: "5J6RW2H81HL019561", year: 2017, make: "Honda", model: "CR-V", bodyStyle: "SUV", price: 12298, miles: 206977, distance: 60, drivetrain: "AWD" }),
 ];
 
-type ScriptedKind = "live-a" | "live-b" | "live-c" | "live-d" | "live-rank" | "live-suv";
+const LIVE_ODD = [
+  car({ vin: "7FARW2H85LE016314", year: 2020, make: "Honda", model: "CR-V", bodyStyle: "SUV", price: 12500, miles: 274026, distance: 30, drivetrain: "AWD" }),
+  car({ vin: "JF2SJAKC0FH550111", year: 2016, make: "Subaru", model: "Forester", bodyStyle: "SUV", price: 14000, miles: 72000, distance: 12, drivetrain: "AWD" }),
+];
+
+type ScriptedKind = "live-a" | "live-b" | "live-c" | "live-d" | "live-rank" | "live-suv" | "live-odd";
 
 function rowsFor(kind: ScriptedKind, href: string) {
   if (kind === "live-a") return LIVE_A;
@@ -93,6 +98,7 @@ function rowsFor(kind: ScriptedKind, href: string) {
       row.vin === "JF2SJAECXEH443264" ? { ...row, history: { accidentCount: 1 } } : { ...row, history: { accidentCount: 0 } },
     );
   }
+  if (kind === "live-odd") return LIVE_ODD;
   if (kind === "live-rank") {
     return LIVE_RANK.map((row, index) => (index === 1 ? { ...row, history: { accidentCount: 1 } } : row));
   }

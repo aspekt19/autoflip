@@ -446,8 +446,8 @@ function AssistantFlow({
     }
     setPending("need");
     const controller = new AbortController();
-    // The confirm screen is already up. This only refreshes it if the model replies quickly.
-    const timer = window.setTimeout(() => controller.abort(), 20_000);
+    // The confirm screen stays up. The plan itself waits out the route budget.
+    const timer = window.setTimeout(() => controller.abort(), 290_000);
     try {
       const amount = parseUsdInput(budget) ?? Number.NaN;
       const response = await fetch("/api/need", {
@@ -473,7 +473,6 @@ function AssistantFlow({
           useCase: opts?.freshNote ? undefined : need?.useCase,
           targetProfitUsd: opts?.freshNote ? undefined : need?.targetProfitUsd,
           followUp,
-          fastConfirm: true,
         }),
       });
       const body = (await response.json()) as {
@@ -1897,9 +1896,7 @@ function AssistantFlow({
               {findPlan.summary}
             </p>
           ) : null}
-          {source === "form" && findPlan?.summary ? (
-            <p className="hint">Lemonless AI was unavailable. We searched by budget and body style.</p>
-          ) : null}
+          {pending === "need" ? <p className="hint">Planning the search. This can take a few minutes.</p> : null}
           {findPlan?.question?.id === "zip" && findPlan.question.text ? (
             <p className="hint" role="status">
               {findPlan.question.text}
@@ -2351,7 +2348,7 @@ function AssistantFlow({
                                 ) : (
                                   <span>{dealerLink.unavailableNote}</span>
                                 )}
-                                {readiness ? <PurchaseReadinessNote view={readiness} /> : null}
+                                {readiness && pickAgentVerdict?.verdict ? <PurchaseReadinessNote view={readiness} /> : null}
                               </li>
                             );
                           })}
@@ -2766,7 +2763,9 @@ function AssistantFlow({
                       <p className="budget-flag">Not ranked yet. The verdict has not been decided.</p>
                     ) : null}
                     {veryHighMileageLabel(car.miles) ? <p className="budget-flag">Very high mileage</p> : null}
-                    {need && needPrefersAwd(need) && car.drivetrain ? <p>Drivetrain: {car.drivetrain}</p> : null}
+                    {car.drivetrain || (need && awdLimitFromText(need.note) === "hard") ? (
+                      <p>Drivetrain: {car.drivetrain?.trim() || "not listed"}</p>
+                    ) : null}
                     {car.overBudget ? <p className="budget-flag">Asking price is slightly over your limit</p> : null}
                     {car.drivetrainUnverified ? (
                       <p className="budget-flag">All-wheel drive was not verified for this car.</p>

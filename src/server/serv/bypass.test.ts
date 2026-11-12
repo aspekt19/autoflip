@@ -41,7 +41,7 @@ describe("SERV layer", () => {
     expect(toolNames(findPlan.tools)).toEqual(["serv_prompt_guard"]);
     expect(findPlan.response_format?.json_schema.strict).toBe(true);
     expect(findPlan.response_format?.json_schema.name).toBe("find_plan");
-    expect(PROFILES.find_plan.timeoutMs).toBe(90_000);
+    expect(PROFILES.find_plan.timeoutMs).toBe(290_000);
 
     const flip = requestFor("flip_judge", "{}");
     expect(flip.endpoint).toBe("chat");

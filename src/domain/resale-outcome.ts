@@ -76,6 +76,7 @@ export function resaleBuyerCopy(input: {
   skipReason: string | null;
   reviewNote: string | null;
   carTitle: string | null;
+  thresholdUsd?: number | null;
 }): { headline: string; verdictLabel: string; message: string } {
   const review = input.reviewNote?.trim() ? ` ${input.reviewNote.trim()}` : "";
   if (input.outcome === "skip") {
@@ -87,7 +88,11 @@ export function resaleBuyerCopy(input: {
     };
   }
   const word = resaleActionLabel(input.action);
-  const gap = resaleEdgeSentence({ amountUsd: input.marginUsd, action: input.action });
+  const gap = resaleEdgeSentence({
+    amountUsd: input.marginUsd,
+    action: input.action,
+    thresholdUsd: input.thresholdUsd,
+  });
   const car = input.carTitle ? `${input.carTitle}: ` : "";
   const gapBit = gap ? `${car}${gap} ` : "";
   return {

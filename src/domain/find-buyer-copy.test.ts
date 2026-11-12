@@ -271,8 +271,9 @@ describe("buyer-safe Find copy", () => {
     expect(findForbiddenTechArtifacts(plainBuyerPhrase("price_vs_comps (pass)"))).toEqual([]);
     expect(plainBuyerPhrase("insufficient_comps: buy forbidden")).toMatch(/not enough similar listings/);
     expect(formatOfficialRecallNumber("12V501000")).toBe(
-      "A government safety recall from 2012 is on file for this model year (campaign 12V501000).",
+      "A government safety recall from 2012 is on file for this model year.",
     );
+    expect(formatOfficialRecallNumber("12V501000")).not.toMatch(/\b12V501000\b/);
     expect(formatOfficialRecallNumber("12V501000")).not.toMatch(/look this up in the government recall database/);
     const labeled = formatOfficialRecallNumber("12V501000");
     expect(formatOfficialRecallNumber(labeled)).toBe(labeled);

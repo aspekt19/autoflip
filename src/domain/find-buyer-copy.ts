@@ -304,7 +304,7 @@ export function formatOfficialRecallNumber(id: string): string {
   const bare = trimmed.replace(/^NHTSA recall campaign\s+/i, "").replace(/^official recall number\s+/i, "").trim();
   const year = /^(\d{2})V/i.exec(bare);
   const when = year ? ` from 20${year[1]}` : "";
-  return `A government safety recall${when} is on file for this model year (campaign ${bare}).`;
+  return `A government safety recall${when} is on file for this model year.`;
 }
 
 export function plainGateStatus(status: string): string {

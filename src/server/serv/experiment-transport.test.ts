@@ -26,7 +26,7 @@ describe("experiment_single_attempt transport (compare / eval only)", () => {
   const profileTimeout = profile("find_plan").timeoutMs;
 
   it("exposes honest deadline + output-token bounds without inventing a SERV run quota", () => {
-    expect(profileTimeout).toBe(90_000);
+    expect(profileTimeout).toBe(290_000);
     const bound = resolveServOutputTokenBound({});
     expect(bound.ok).toBe(true);
     if (!bound.ok) return;

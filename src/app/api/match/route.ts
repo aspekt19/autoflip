@@ -6,6 +6,7 @@ import { creditBalance, creditEventSeen } from "@/io/credit-book";
 import { getKv } from "@/io/kv";
 import { rememberFindAnalysisContexts } from "@/server/find-analysis-context";
 import { runFindMatch } from "@/server/find-match";
+import { readRun } from "@/io/run-store";
 import { listingFromCar, syncRunSafely } from "@/server/run-sync";
 import { runtimeDeps } from "@/server/deps";
 import {
@@ -306,12 +307,19 @@ export async function POST(request: Request) {
       : 0;
     const emptyReason =
       typeof result.body.emptyReason === "string" ? result.body.emptyReason : null;
-    const deliveredSearch = findDeliveryChargesCredit({
-      ok: result.body.ok === true,
-      providerQueriesUsed,
-      listingCount,
-      emptyReason,
-    });
+    const priorRun = typeof body?.runId === "string" ? await readRun(kv, body.runId) : null;
+    const planFailed = Boolean(
+      priorRun?.steps.some((step) => step.step === "plan_search" && step.status === "failed") ||
+        priorRun?.failureReasons.includes("could_not_plan"),
+    );
+    const deliveredSearch =
+      !planFailed &&
+      findDeliveryChargesCredit({
+        ok: result.body.ok === true,
+        providerQueriesUsed,
+        listingCount,
+        emptyReason,
+      });
 
     let charged = false;
     if (!continuation && idemKey && deliveredSearch) {
@@ -344,6 +352,12 @@ export async function POST(request: Request) {
       }
       balanceAfter = reserved.balance;
       charged = true;
+    } else if (!continuation && idemKey && planFailed) {
+      balanceAfter = await creditBalance(kv, id);
+      charged = false;
+      const honesty = "We could not plan this search, so there is no verdict and no credit was used.";
+      const prior = typeof result.body.message === "string" ? result.body.message.trim() : "";
+      result.body.message = prior && !/no credit was used/i.test(prior) ? `${prior.replace(/\.*$/, "")}. ${honesty}` : prior || honesty;
     } else if (!continuation && idemKey && !deliveredSearch) {
       // Honest empty delivery — keep tokens for rematch but do not debit.
       balanceAfter = await creditBalance(kv, id);
@@ -410,7 +424,8 @@ export async function POST(request: Request) {
       listings,
       queryCount: providerQueriesUsed,
       creditsCharged: charged ? 1 : 0,
-      terminal: listingCount === 0,
+      spendKey: charged ? spendKey : null,
+      terminal: listingCount === 0 || planFailed,
       sources: providerQueriesUsed > 0 ? ["cars_for_sale"] : [],
     });
     if (runId) payload.runId = runId;
