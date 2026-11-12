@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { FindFlow } from "@/components/AssistantFlow";
+import { FindChatFlow } from "@/components/FindChatFlow";
 import { SignInGate } from "@/components/SignInGate";
 import { FIND_PAGE_BILLING_STEP } from "@/domain/find-buyer-copy";
 import { parseFindEntryParams } from "@/domain/need";
@@ -19,12 +19,12 @@ export default async function FindPage({
     <div className="sub">
       <div className="flow-page site-frame">
         <p className="kicker">Help me choose</p>
-        <h1>What kind of car do you need?</h1>
+        <h1>Chat with SERV</h1>
         <div className="onboarding-note">
           <strong>How this works</strong>
           <ol>
-            <li>Describe the car and your budget.</li>
-            <li>Add a U.S. ZIP and seller-distance radius when you want nearby listings — or choose Nationwide.</li>
+            <li>Describe the car you need in plain English.</li>
+            <li>SERV asks whatever it needs, then searches live listings in the same chat.</li>
             <li>Review matching dealer listings. {FIND_PAGE_BILLING_STEP}</li>
           </ol>
           {resolveProductFlags().dealRadar ? (
@@ -34,12 +34,7 @@ export default async function FindPage({
           ) : null}
         </div>
         <SignInGate callbackPath="/find">
-          <FindFlow
-            initialNote={entry.note}
-            initialMode={entry.mode}
-            initialZip={entry.zip}
-            initialDistanceMiles={entry.distanceMiles}
-          />
+          <FindChatFlow initialNote={entry.note} />
         </SignInGate>
       </div>
     </div>

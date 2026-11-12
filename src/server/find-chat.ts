@@ -1,0 +1,359 @@
+/**
+ * Find chat intake — one SERV conversation (ask_shopper + search tools).
+ * Chat turns without a delivered verdict do not charge report credits.
+ */
+import { findDeliveryChargesCredit } from "@/domain/find-delivery";
+import { emptyNeed, type StructuredNeed } from "@/domain/need";
+import { formatServChatTranscript, type ServChatMessage } from "@/domain/serv-chat";
+import { chargeOutcomeFromAgentSettlement } from "@/domain/serv-boundary";
+import { makeAgentLoopDeadline } from "@/domain/agent-loop-deadline";
+import { FIND_DECIDE_ROUTE_MS } from "@/domain/route-budget";
+import { TtlCache } from "@/io/cache";
+import { creditBalance, creditEventSeen, creditSpend } from "@/io/credit-book";
+import type { Kv } from "@/io/kv";
+import { MemoryCounter } from "@/io/quota";
+import {
+  runFindAgentLoop,
+  summarizeFindAgentJournal,
+  type FindAgentLoopResult,
+} from "@/server/find-agent/loop";
+import { mapFindAgentLoopToDecide } from "@/server/find-agent/map-to-decide";
+import {
+  findSearchIdempotencyKey,
+  findSearchSpendKey,
+  storeFindSearchDelivery,
+} from "@/server/find-search-credit";
+import type { AgentLoopCheckpoint } from "@/server/serv/agent-loop-checkpoint";
+
+export type FindChatSession = {
+  sessionId: string;
+  userId: string;
+  messages: ServChatMessage[];
+  checkpoint: AgentLoopCheckpoint | null;
+  status: "open" | "awaiting_user" | "searching" | "done" | "failed";
+  pendingQuestion: string | null;
+  spendKey: string;
+  charged: boolean;
+  result: Record<string, unknown> | null;
+  error: string | null;
+  updatedAt: string;
+};
+
+function sessionKey(sessionId: string): string {
+  return `find:chat:v1:${sessionId}`;
+}
+
+export async function loadFindChatSession(kv: Kv, sessionId: string): Promise<FindChatSession | null> {
+  const raw = await kv.get(sessionKey(sessionId));
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw) as FindChatSession;
+    if (!parsed || typeof parsed !== "object" || typeof parsed.sessionId !== "string") return null;
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+export async function storeFindChatSession(kv: Kv, session: FindChatSession): Promise<void> {
+  await kv.set(sessionKey(session.sessionId), JSON.stringify(session));
+}
+
+function progressFromJournal(agent: FindAgentLoopResult): string[] {
+  const lines: string[] = [];
+  for (const entry of agent.journal) {
+    if (entry.kind !== "tool") continue;
+    if (entry.name === "ask_shopper" || entry.name === "record_shopper_facts") continue;
+    if (entry.name.startsWith("_")) continue;
+    const summary = typeof entry.summary === "string" ? entry.summary.trim() : "";
+    if (summary) lines.push(summary);
+  }
+  return lines.slice(-6);
+}
+
+function needFromChat(
+  transcript: string,
+  facts: { budgetUsd: number | null; zip: string | null; radiusMi: number | null },
+): StructuredNeed {
+  const need = emptyNeed("personal");
+  return {
+    ...need,
+    note: transcript,
+    budgetUsd: facts.budgetUsd,
+    budgetKnown: facts.budgetUsd != null,
+    zip: facts.zip,
+    distanceMiles: facts.radiusMi,
+  };
+}
+
+export async function runFindChatTurn(input: {
+  kv: Kv;
+  userId: string;
+  sessionId?: string | null;
+  message?: string | null;
+  continue?: boolean;
+  servKey: string;
+  autodevKey: string;
+  servBaseUrl?: string;
+  fetchImpl?: typeof fetch;
+}): Promise<{ ok: boolean; status: number; body: Record<string, unknown> }> {
+  const fetchImpl = input.fetchImpl ?? fetch;
+  let session: FindChatSession | null =
+    input.sessionId && input.sessionId.trim()
+      ? await loadFindChatSession(input.kv, input.sessionId.trim())
+      : null;
+
+  if (session && session.userId !== input.userId) {
+    return {
+      ok: false,
+      status: 403,
+      body: { ok: false, error: "forbidden", message: "This chat belongs to another account." },
+    };
+  }
+
+  const userText = typeof input.message === "string" ? input.message.trim() : "";
+  const isContinue = input.continue === true;
+
+  if (!session) {
+    if (!userText) {
+      return {
+        ok: false,
+        status: 400,
+        body: {
+          ok: false,
+          error: "message_required",
+          message: "Send a message to start chatting with SERV.",
+        },
+      };
+    }
+    const sessionId = crypto.randomUUID();
+    const idem = findSearchIdempotencyKey({ clientKey: null });
+    session = {
+      sessionId,
+      userId: input.userId,
+      messages: [{ role: "user", content: userText, at: new Date().toISOString() }],
+      checkpoint: null,
+      status: "searching",
+      pendingQuestion: null,
+      spendKey: findSearchSpendKey(input.userId, idem),
+      charged: false,
+      result: null,
+      error: null,
+      updatedAt: new Date().toISOString(),
+    };
+  } else if (session.status === "done" && session.result) {
+    return {
+      ok: true,
+      status: 200,
+      body: {
+        ok: true,
+        status: "done",
+        sessionId: session.sessionId,
+        messages: session.messages,
+        result: session.result,
+        charged: session.charged,
+      },
+    };
+  } else if (userText) {
+    session.messages.push({ role: "user", content: userText, at: new Date().toISOString() });
+    session.pendingQuestion = null;
+    session.status = "searching";
+  } else if (!isContinue && session.status === "awaiting_user") {
+    return {
+      ok: false,
+      status: 400,
+      body: {
+        ok: false,
+        error: "reply_required",
+        message: session.pendingQuestion || "SERV is waiting for your reply.",
+        sessionId: session.sessionId,
+        messages: session.messages,
+        status: "ask",
+        question: session.pendingQuestion,
+      },
+    };
+  }
+
+  const transcript = formatServChatTranscript(session.messages);
+  const shopperReply = session.checkpoint?.pendingAskQuestion && userText ? userText : null;
+
+  const agent = await runFindAgentLoop({
+    note: transcript,
+    formEdits: null,
+    checkpoint: session.checkpoint,
+    shopperReply,
+    budgetMs: FIND_DECIDE_ROUTE_MS,
+    deadline: makeAgentLoopDeadline(FIND_DECIDE_ROUTE_MS),
+    deps: {
+      servKey: input.servKey,
+      autodevKey: input.autodevKey,
+      fetch: fetchImpl,
+      servBaseUrl: input.servBaseUrl,
+      autodev: { cache: new TtlCache<unknown>(), counter: new MemoryCounter() },
+      budgetUsd: null,
+      budgetProvenance: null,
+    },
+  });
+
+  for (const line of progressFromJournal(agent)) {
+    const last = session.messages[session.messages.length - 1];
+    if (last?.role === "progress" && last.content === line) continue;
+    session.messages.push({ role: "progress", content: line, at: new Date().toISOString() });
+  }
+
+  if ("awaitUser" in agent && agent.awaitUser) {
+    session.checkpoint = agent.checkpoint;
+    session.pendingQuestion = agent.question;
+    session.status = "awaiting_user";
+    session.messages.push({ role: "assistant", content: agent.question, at: new Date().toISOString() });
+    session.updatedAt = new Date().toISOString();
+    await storeFindChatSession(input.kv, session);
+    return {
+      ok: true,
+      status: 200,
+      body: {
+        ok: true,
+        status: "ask",
+        sessionId: session.sessionId,
+        messages: session.messages,
+        question: agent.question,
+        charged: false,
+      },
+    };
+  }
+
+  if ("continue" in agent && agent.continue) {
+    session.checkpoint = agent.checkpoint;
+    session.status = "searching";
+    session.messages.push({
+      role: "progress",
+      content: agent.message || "Still searching — continuing…",
+      at: new Date().toISOString(),
+    });
+    session.updatedAt = new Date().toISOString();
+    await storeFindChatSession(input.kv, session);
+    return {
+      ok: true,
+      status: 200,
+      body: {
+        ok: true,
+        status: "continue",
+        sessionId: session.sessionId,
+        messages: session.messages,
+        detail: agent.message,
+        charged: false,
+      },
+    };
+  }
+
+  if (!agent.ok) {
+    session.status = "failed";
+    session.error = agent.message;
+    session.checkpoint = null;
+    session.messages.push({
+      role: "assistant",
+      content: agent.message || "SERV could not finish this search.",
+      at: new Date().toISOString(),
+    });
+    session.updatedAt = new Date().toISOString();
+    await storeFindChatSession(input.kv, session);
+    return {
+      ok: false,
+      status: 502,
+      body: {
+        ok: false,
+        status: "error",
+        sessionId: session.sessionId,
+        messages: session.messages,
+        error: agent.error,
+        message: agent.message,
+        charged: false,
+      },
+    };
+  }
+
+  const mapped = mapFindAgentLoopToDecide({ agent });
+  const need = needFromChat(transcript, agent.shopperFacts);
+  const journalMeta = summarizeFindAgentJournal(agent.journal);
+  const chosenVin = mapped.bestDeal.pick?.vin ?? null;
+  const nothingFits = !chosenVin && Boolean(agent.verdict.passReason?.trim());
+  const outcome = chargeOutcomeFromAgentSettlement({
+    chosenVin,
+    nothingFitsDocumented: nothingFits,
+    settled: true,
+  });
+  const shouldCharge = findDeliveryChargesCredit({
+    ok: true,
+    providerQueriesUsed: journalMeta.toolCalls,
+    listingCount: mapped.offerPool.length,
+    outcome,
+    chosenVin,
+    nothingFitsDocumented: nothingFits,
+    agentSettled: true,
+  });
+
+  let charged = session.charged;
+  if (shouldCharge && !charged) {
+    if (await creditEventSeen(input.kv, session.spendKey)) charged = true;
+    else charged = (await creditSpend(input.kv, input.userId, session.spendKey)).ok;
+  }
+  const balance = await creditBalance(input.kv, input.userId);
+
+  const assistantSummary =
+    agent.verdict.summary?.trim() ||
+    (nothingFits
+      ? agent.verdict.passReason || "Nothing in live inventory fit this request."
+      : "Here are the cars SERV chose from live listings.");
+  session.messages.push({ role: "assistant", content: assistantSummary, at: new Date().toISOString() });
+
+  const result: Record<string, unknown> = {
+    ok: true,
+    need,
+    bestDeal: mapped.bestDeal,
+    pickAgentVerdict: mapped.agentVerdict,
+    offerPool: mapped.offerPool,
+    shortlistKeys: mapped.shortlistKeys,
+    agentLoop: {
+      agentMode: agent.agentMode,
+      toolRounds: agent.toolRounds,
+      verdictReached: true,
+      relaxedConditions: agent.relaxedConditions,
+      journalServCalls: journalMeta.servCalls,
+      journalToolCalls: journalMeta.toolCalls,
+      carsFound: mapped.offerPool.length,
+      passReason: agent.verdict.passReason,
+    },
+    honesty: nothingFits
+      ? "SERV searched live inventory and explained why nothing fit."
+      : "SERV searched live inventory and chose from returned listings.",
+    creditNote: charged
+      ? "1 report credit used for this delivered Find verdict."
+      : "No report credit charged — chat turns without a delivered verdict stay free.",
+    charged,
+    balance,
+    transcript: session.messages,
+  };
+
+  session.result = result;
+  session.charged = charged;
+  session.status = "done";
+  session.checkpoint = null;
+  session.pendingQuestion = null;
+  session.updatedAt = new Date().toISOString();
+  await storeFindChatSession(input.kv, session);
+  await storeFindSearchDelivery(input.kv, session.spendKey, result);
+
+  return {
+    ok: true,
+    status: 200,
+    body: {
+      ok: true,
+      status: "done",
+      sessionId: session.sessionId,
+      messages: session.messages,
+      result,
+      charged,
+      balance,
+    },
+  };
+}
