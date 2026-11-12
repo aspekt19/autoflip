@@ -32,6 +32,10 @@ export type RunListingView = {
   vdp: string | null;
   city: string | null;
   state: string | null;
+  /** Resale: this row is the chosen flip. */
+  picked?: boolean;
+  /** Plain resale line, such as the price gap after costs. */
+  summary?: string | null;
 };
 
 export type RunStepView = {
@@ -79,6 +83,13 @@ export type RunReportModel = {
   viewerIsOwner: boolean;
 };
 
+function resaleVerdictLine(view: RunView): string | null {
+  if (view.kind === "resale" && view.failureReasons.includes("no_qualifying_flip")) return "Skip";
+  if (!view.verdict) return null;
+  if (view.kind === "resale" && view.verdict === "pass") return "Pass";
+  return verdictCopy(view.verdict);
+}
+
 function carTitle(car: RunListingView): string {
   const name = [car.year > 0 ? String(car.year) : "", car.make, car.model, car.trim ?? ""]
     .map((part) => part.trim())
@@ -102,7 +113,7 @@ function hostOf(href: string): string | null {
 export function runReportModel(view: RunView): RunReportModel {
   const lead = view.listings[0] ? carTitle(view.listings[0]) : kindCopy(view.kind);
   const title = view.listings.length === 1 ? lead : view.listings.length > 1 ? `${view.listings.length} cars` : lead;
-  const verdictLine = view.verdict ? verdictCopy(view.verdict) : null;
+  const verdictLine = resaleVerdictLine(view);
   const chargeLine =
     view.creditsCharged > 0
       ? view.creditsCharged === 1
@@ -182,7 +193,9 @@ export function renderRunPermalinkHtml(view: RunView): string {
   }
   for (const car of model.listings) {
     parts.push(`<section data-vin="${esc(car.vin)}">`);
+    if (car.picked) parts.push("<h2>Best flip</h2>");
     parts.push(`<h2>${esc(car.title)}</h2>`);
+    if (car.summary) parts.push(`<p>${esc(car.summary)}</p>`);
     if (car.dealer) parts.push(`<p>${esc(car.dealer)}</p>`);
     if (car.vdp && car.linkLabel) parts.push(`<a href="${esc(car.vdp)}">${esc(car.linkLabel)}</a>`);
     parts.push("</section>");

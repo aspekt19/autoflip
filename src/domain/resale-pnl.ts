@@ -11,6 +11,7 @@ import {
   confidenceCapReasonForMarginMiss,
   resaleRecallRiskLine,
 } from "./nhtsa-stop-flags";
+import { daysToSellEstimate } from "./resale-days";
 import { pricedBelowSimilarLine, sellWindowFlag } from "./resale-sanity";
 import { reconUsd } from "./recon";
 import {
@@ -174,33 +175,12 @@ function daysToSell(speed: SaleSpeed, speedBasis: string, listingAgeDays: number
   days: number | null;
   basis: string;
 } {
-  if (listingAgeDays == null && speed === "unknown") {
-    return {
-      days: null,
-      basis: "Estimated days to sell: unknown. Listing age was not in the feed and no separate market days-on-market feed is wired.",
-    };
-  }
-  if (speed === "faster") {
-    return {
-      days: listingAgeDays != null ? Math.max(7, listingAgeDays) : 14,
-      basis: `Estimated days to sell: proxy from listing age and similar-listing density (${speedBasis}). Not closed-sale days-on-market data.`,
-    };
-  }
-  if (speed === "slower") {
-    return {
-      days: listingAgeDays != null ? Math.max(45, listingAgeDays) : 60,
-      basis: `Estimated days to sell: proxy from listing age (${speedBasis}). Not closed-sale days-on-market data.`,
-    };
-  }
-  if (speed === "typical") {
-    return {
-      days: listingAgeDays != null ? Math.max(21, listingAgeDays) : 30,
-      basis: `Estimated days to sell: proxy from listing age (${speedBasis}). Not closed-sale days-on-market data.`,
-    };
-  }
+  const estimated = daysToSellEstimate({ speed, listingAgeDays });
+  if (listingAgeDays != null && listingAgeDays > 120) return estimated;
+  if (estimated.days == null) return estimated;
   return {
-    days: null,
-    basis: "Estimated days to sell: unknown.",
+    days: estimated.days,
+    basis: `${estimated.basis} ${speedBasis}`,
   };
 }
 
@@ -302,6 +282,7 @@ export function buildResaleCandidatePnl(
   const days = daysToSell(estimate.speed, estimate.speedBasis, listingAgeDays);
   const link = listingVdpVerifiability({
     vdp: estimate.listing.vdp,
+    dealerUrl: estimate.listing.dealerUrl,
     dealer: estimate.listing.dealer,
     vin: estimate.vin,
     year: estimate.listing.year,
@@ -387,12 +368,12 @@ export function buildResaleCandidatePnl(
       : computedProvenance(
           "Expected resale mid",
           usdOrUnknown(estimate.resaleMidUsd),
-          "evaluateListingPrice adjusted similar asks (this Auto.dev scan)",
+          "Adjusted asking prices of similar cars in this scan.",
         ),
     computedProvenance(
       "Similar listing count",
       String(estimate.compCount),
-      "Count of same-scan Auto.dev comps used by evaluateListingPrice",
+      "How many similar cars for sale were in this scan.",
     ),
     profitMidUsd == null
       ? unknownProvenance("Expected net profit mid", "Resale band or all-in cost incomplete.")
@@ -400,8 +381,8 @@ export function buildResaleCandidatePnl(
           salesTaxKnown ? "Expected net profit mid" : "Expected net profit mid (before sales tax)",
           usdOrUnknown(profitMidUsd),
           salesTaxKnown
-            ? "resaleMid × (1 − sellFriction) − (negotiate + tax + titleFee + recon)"
-            : `Before sales tax (state unknown). resaleMid × (1 − sellFriction) − (negotiate + titleFee + recon). ${RANKING_UNKNOWN_STATE_TAX_NOTE}`,
+            ? "Expected sale price minus selling costs, taxes, title fee and reconditioning."
+            : `Before sales tax (state unknown). Expected sale price minus selling costs, title fee and reconditioning. ${RANKING_UNKNOWN_STATE_TAX_NOTE}`,
         ),
     roiPctMid == null
       ? unknownProvenance("ROI mid", "Profit or all-in cost incomplete.")

@@ -1157,6 +1157,32 @@ button:disabled, .action:disabled, .quiet:disabled, .ghost:disabled {
 .check-result {
   margin-top: 1.5rem;
 }
+/* Resale results stay in the same column as the form. The home-page 3-column step grid must not widen this card. */
+.resale-flow,
+.resale-results,
+.resale-results .run-report {
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+}
+.resale-results .steps-3,
+.resale-flow .steps-3 {
+  grid-template-columns: minmax(0, 1fr);
+}
+.resale-results .steps-3 li,
+.resale-flow .steps-3 li {
+  min-height: 0;
+  min-width: 0;
+}
+.resale-results h1,
+.resale-results h2,
+.resale-results .verdict-level {
+  max-width: 100%;
+  text-align: left;
+  font-size: clamp(28px, 3vw, 40px);
+  overflow-wrap: anywhere;
+}
 .check-result h3 {
   margin-top: 1.25rem;
 }

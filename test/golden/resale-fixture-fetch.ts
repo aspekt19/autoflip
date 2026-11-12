@@ -1,0 +1,96 @@
+/**
+ * Inventory for flip golden cases when no live recording exists.
+ * The real ranker, P&L, and decision code still run. SERV answers are
+ * unusable on purpose so a missed review cannot publish High confidence.
+ */
+import type { GoldenCase } from "./cases";
+
+function daysAgo(days: number): string {
+  return new Date(Date.now() - days * 86_400_000).toISOString();
+}
+
+function row(input: {
+  vin: string;
+  price: number;
+  miles: number;
+  ageDays: number;
+  zip: string | null;
+}): unknown {
+  return {
+    vin: input.vin,
+    createdAt: daysAgo(input.ageDays),
+    vehicle: {
+      year: 2016,
+      make: "Honda",
+      model: "Civic",
+      trim: "LX",
+      fuel: "Gasoline",
+      drivetrain: "FWD",
+      bodyStyle: "Sedan",
+    },
+    retailListing: {
+      price: input.price,
+      miles: input.miles,
+      city: "Dallas",
+      state: "TX",
+      zip: input.zip ?? "75201",
+      dealer: "Dallas Honda",
+      vdp: `https://www.dallashonda.example/used/${input.vin}`,
+      distance: input.zip ? 12 : null,
+      used: true,
+    },
+    history: { accidentCount: 0, oneOwner: true, ownerCount: 1 },
+  };
+}
+
+export function resaleFixtureFetch(specCase: GoldenCase): typeof fetch {
+  const budget = specCase.expect.budgetUsd ?? 10_000;
+  const zip = specCase.location === "nationwide" || specCase.location === "from-note" ? null : specCase.location.zip;
+  const peerPrice = Math.round(budget * 0.7);
+  const rows = [0, 1, 2, 3, 4, 5].map((index) =>
+    row({
+      vin: `1HGCM82633A13${String(index).padStart(4, "0")}`,
+      price: peerPrice + index * 80,
+      miles: 55_000 + index * 1_200,
+      ageDays: 12 + index,
+      zip,
+    }),
+  );
+  rows.push(
+    row({
+      vin: "1HGCM82633A004012",
+      price: Math.round(budget * 0.5),
+      miles: 60_000,
+      ageDays: 10,
+      zip,
+    }),
+  );
+  rows.push(
+    row({
+      vin: "19XFB2F54CE000500",
+      price: Math.round(budget * 0.35),
+      miles: 64_000,
+      ageDays: 500,
+      zip,
+    }),
+  );
+  return async (input) => {
+    const href = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+    if (/\/listings\/?/.test(href)) {
+      return new Response(JSON.stringify({ data: rows }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    }
+    if (/\/chat\/completions|\/responses(?:\?|$)/.test(href)) {
+      return new Response(JSON.stringify({ error: { message: "fixture review unavailable" } }), {
+        status: 503,
+        headers: { "content-type": "application/json" },
+      });
+    }
+    return new Response(JSON.stringify({ Results: [], data: [] }), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    });
+  };
+}

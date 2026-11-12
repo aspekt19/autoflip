@@ -55,6 +55,13 @@ export function normalizeAutoDevListing(raw: unknown, source: ListingSource): Li
   // Kind stays unknown until a seller-page label is mapped; /find assesses usability separately.
   const priceUsd = positivePrice(retail.price) ?? positivePrice(record.price);
   const vdp = str(retail.vdp) ?? str(retail.vdpUrl) ?? str(retail.vdpURL) ?? str(record.vdp);
+  const dealerUrl =
+    str(retail.dealerUrl) ??
+    str(retail.dealerURL) ??
+    str(retail.website) ??
+    str(retail.url) ??
+    str(record.dealerUrl) ??
+    str(record.listingUrl);
   const titleBlob = [
     str(retail.title),
     str(retail.titleStatus),
@@ -79,6 +86,7 @@ export function normalizeAutoDevListing(raw: unknown, source: ListingSource): Li
     zip: str(retail.zip),
     dealer: str(retail.dealer),
     vdp,
+    dealerUrl,
     primaryImage: str(retail.primaryImage),
     carfaxUrl: str(retail.carfaxUrl),
     used: bool(retail.used),

@@ -1,4 +1,4 @@
-import { listingVdpVerifiability } from "./listing-vdp-verifiability";
+import { isCarfaxHref, listingVdpVerifiability } from "./listing-vdp-verifiability";
 
 /**
  * Resale card listing CTA from the feed URL the record actually returned.
@@ -8,17 +8,26 @@ import { listingVdpVerifiability } from "./listing-vdp-verifiability";
  */
 export function resalePrimaryListingLink(input: {
   vdp?: string | null;
+  dealerUrl?: string | null;
   dealer?: string | null;
   vin?: string | null;
   year?: number | null;
   trim?: string | null;
 }): {
   href: string | null;
-  label: "Open listing" | "Open feed link (not a verified listing page)" | null;
+  label: "Open listing" | "Open feed link (not a verified listing page)" | "Listing on Carfax" | null;
   unavailableHint: string | null;
   verifiability: ReturnType<typeof listingVdpVerifiability>;
 } {
   const verifiability = listingVdpVerifiability(input);
+  if (verifiability.href && isCarfaxHref(verifiability.href)) {
+    return {
+      href: verifiability.href,
+      label: "Listing on Carfax",
+      unavailableHint: null,
+      verifiability,
+    };
+  }
   if (verifiability.href) {
     return {
       href: verifiability.href,

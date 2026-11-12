@@ -51,7 +51,7 @@ describe("resaleRecallRiskLine", () => {
       openParkOutside: false,
       recallCampaignCount: 3,
     });
-    expect(line).toMatch(/3 NHTSA campaigns/i);
+    expect(line).toMatch(/3 government recall campaigns/i);
     expect(line).toMatch(/no park-it or park-outside stop/i);
     expect(line).toMatch(/not VIN-cleared/i);
     expect(line).not.toMatch(/not checked/i);
@@ -62,7 +62,7 @@ describe("resaleRecallRiskLine", () => {
       ["Open recalls are not checked in this search — verify before buying.", "other"],
       { recallsChecked: true, recallCampaignCount: 0 },
     );
-    expect(next[0]).toMatch(/0 NHTSA campaigns/i);
+    expect(next[0]).toMatch(/0 government recall campaigns/i);
     expect(next.some((line) => /not checked/i.test(line))).toBe(false);
     expect(next).toContain("other");
   });

@@ -21,6 +21,7 @@ import { runResaleSearch, type ResaleSearchResult } from "@/server/resale-search
 import { BASE_MODEL, profile } from "@/server/serv";
 import { understandNeed } from "@/server/understand-need";
 import type { GoldenCase, CaseTurn } from "./cases";
+import { resaleFixtureFetch } from "./resale-fixture-fetch";
 import { permalinkHtml, storeGoldenRun } from "./materialize-run";
 import { createGoldenFetch, listingSearchUrls, recordingsRoot, type GoldenMode, type TransportAttempt } from "./transport";
 import type { GoldenRun, ObservedSpec, Prov, ShownListing, StepTiming } from "./types";
@@ -385,6 +386,7 @@ async function runFlip(
   const budget = specCase.expect.budgetUsd ?? 0;
   const started = Date.now();
   const cursor = attempts.length;
+  const fetchForSearch = transportPending ? resaleFixtureFetch(specCase) : fetchImpl;
   const result: ResaleSearchResult = await runResaleSearch(
     {
       budgetUsd: budget,
@@ -394,8 +396,9 @@ async function runFlip(
       targetProfitUsd: null,
       timeToSell: "any",
       repairAbility: "unknown",
+      sellWithinDays: specCase.expect.sellWithinDays ?? null,
     },
-    { ...depsFor(fetchImpl), servKey: DUMMY_KEY, servModel: BASE_MODEL, fetchImpl },
+    { ...depsFor(fetchForSearch), servKey: DUMMY_KEY, servModel: BASE_MODEL, fetchImpl: fetchForSearch },
   );
   const elapsed = Date.now() - started;
   const body = result.body;

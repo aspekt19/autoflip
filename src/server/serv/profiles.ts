@@ -1061,9 +1061,9 @@ export const PROFILES = {
   resale_plan_search: {
     id: "resale_plan_search",
     purpose: "Choose which allowlisted search segments to run for a budget-first resale flip search.",
-    reason: "Branching search plan with a strict schema so software rejects invented models.",
-    feature: "multipath",
-    tools: ["prompt_guard", "shadow"],
+    reason: "Strict JSON on gpt-6.1-sol. Prompt-guard and multipath returned no usable choice on the live resale review.",
+    feature: "none",
+    tools: [],
     shadowHint:
       "Pick only directionIds from the allowlist. Do not invent makes, models, prices, VINs, or URLs. Note may only repeat numbers from facts.",
     shadowMaxIterations: SHADOW_MAX_ITERATIONS,
@@ -1104,9 +1104,9 @@ export const PROFILES = {
   resale_triage: {
     id: "resale_triage",
     purpose: "Choose which flip shortlist VINs to deep-check and which allowlisted checks to run.",
-    reason: "Triage is branching policy; software clamps to allowlisted VINs and check ids.",
-    feature: "multipath",
-    tools: ["prompt_guard", "shadow"],
+    reason: "Strict JSON on gpt-6.1-sol. A tool call beside the schema does not return a usable triage decision.",
+    feature: "none",
+    tools: [],
     shadowHint:
       "deepCheckVins/skipVins/checkIds must come from the allowlists. Reject risky cars with reasons that cite evidence ids only. Never invent prices or VINs.",
     shadowMaxIterations: SHADOW_MAX_ITERATIONS,
@@ -1159,9 +1159,9 @@ export const PROFILES = {
   resale_pick: {
     id: "resale_pick",
     purpose: "Pick the best flip VIN from an allowlisted shortlist using code-computed profit facts.",
-    reason: "Final pick is branching; TypeScript clamps to allowlisted VINs and strips invented numbers.",
-    feature: "multipath",
-    tools: ["prompt_guard", "shadow"],
+    reason: "Strict JSON on gpt-6.1-sol. The live shopper review failed when this step also sent prompt-guard and a multipath suffix.",
+    feature: "none",
+    tools: [],
     shadowHint: "pickVin must be one of allowedVins. Note may only repeat numbers from facts. Never invent a price.",
     shadowMaxIterations: SHADOW_MAX_ITERATIONS,
     timeoutMs: 90_000,
@@ -1201,9 +1201,9 @@ export const PROFILES = {
   resale_challenge: {
     id: "resale_challenge",
     purpose: "Challenge the Resale pick using only supplied evidence ids; may revise the pick VIN.",
-    reason: "Independent review with strict schema; invented refs are discarded by software.",
+    reason: "Strict JSON on gpt-6.1-sol. The second check must return schema JSON, not a prompt-guard tool call.",
     feature: "none",
-    tools: ["prompt_guard"],
+    tools: [],
     // Own job step under the 300s route cap. Do not start this call with less than 90s.
     timeoutMs: 90_000,
     fallback: "ignored_malformed",

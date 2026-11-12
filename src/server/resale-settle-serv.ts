@@ -26,6 +26,7 @@ import {
   confidenceCapReasonForStop,
 } from "@/domain/nhtsa-stop-flags";
 import type { ComputedReport, Listing, Verdict } from "@/domain/types";
+import { capResaleConfidence } from "@/domain/resale-outcome";
 import { pricedBelowSimilarLine } from "@/domain/resale-sanity";
 import { flipVerdict } from "@/domain/verdict";
 import {
@@ -156,6 +157,7 @@ export type ResaleSettleServResult = {
   trace: ShopperServTrace | null;
   verdictAction: "buy" | "negotiate" | "pass" | "needs_inspection";
   confidence: "High" | "Medium" | "Low";
+  reviewNote: string | null;
   ranJudge: boolean;
   ranDecide: boolean;
   /** Shared lemonless.decision_proof.v1 — same contract as Find/Radar. */
@@ -661,6 +663,7 @@ function buildSettleResult(state: {
   trace: ShopperServTrace | null;
   verdictAction: ResaleSettleServResult["verdictAction"];
   confidence: ResaleSettleServResult["confidence"];
+  reviewNote?: string | null;
   ranJudge: boolean;
   ranDecide: boolean;
   proofRecords: DecisionProofRecord[];
@@ -675,6 +678,7 @@ function buildSettleResult(state: {
     proofRecords: state.proofRecords,
     verdictAction: state.verdictAction,
     confidence: state.confidence,
+    reviewNote: state.reviewNote ?? null,
     ranJudge: state.ranJudge,
     ranDecide: state.ranDecide,
     checkpoint: state.checkpoint,
@@ -2114,6 +2118,7 @@ export async function runResaleSettleServ(input: {
         fetchImpl,
         deadline,
         decideTimeoutMs: shopperTimeoutDecide,
+        bareModel: true,
       });
       proofRecords = [...proofRecords, ...shopper.proofRecords];
       if (shopper.trace && shopper.trace.calls.length > 0) {
@@ -2235,8 +2240,19 @@ export async function runResaleSettleServ(input: {
       secondPass = { ...secondPass, confidenceAfter: agentConfidence };
     }
   }
-  const confidenceLabel =
+  const proposedWord =
     agentConfidence === "high" ? "High" : agentConfidence === "medium" ? "Medium" : "Low";
+  const reviewDecided = journal.steps.some(
+    (step) => step.actor === "SERV" && step.kind === "pick" && !step.rejected,
+  );
+  const secondCheckRan = secondPass.status === "agreed" || secondPass.status === "disagreed";
+  const honesty = capResaleConfidence({
+    proposed: proposedWord,
+    reviewDecided,
+    secondCheckRan,
+  });
+  const confidenceLabel = honesty.confidence;
+  agentConfidence = confidenceLabel === "High" ? "high" : confidenceLabel === "Medium" ? "medium" : "low";
 
   const agentVerdict = finalizeAgentVerdict({
     best,
@@ -2280,6 +2296,7 @@ export async function runResaleSettleServ(input: {
     proofRecords,
     verdictAction,
     confidence: confidenceLabel,
+    reviewNote: honesty.reviewNote,
     ranJudge,
     ranDecide,
     checkpoint,

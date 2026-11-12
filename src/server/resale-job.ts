@@ -34,7 +34,7 @@ import {
   type ResaleSearchOkBody,
 } from "@/server/resale-search";
 import { type ResaleSettleCheckpoint } from "@/server/resale-settle-serv";
-import { pricedBelowSimilarLine } from "@/domain/resale-sanity";
+import { resaleBuyerCopy, resaleCardCopy } from "@/domain/resale-outcome";
 import { readResaleSpecCache, writeResaleSpecCache } from "@/server/resale-spec-cache";
 import { decideResale } from "@/server/serv-plan-decide";
 
@@ -43,14 +43,37 @@ export const RESALE_JOB_STEP_BUDGET_MS = RESALE_INTERNAL_BUDGET_MS;
 
 export const RESALE_JOB_STEP_LABELS = [
   "Plan search",
-  "Inventory & P&L",
-  "Triage & deep checks",
+  resaleCardCopy.progressInventory,
+  resaleCardCopy.progressTriage,
   "Pick",
-  "Challenge",
-  "Shopper decide",
+  "Second check",
+  "Decision",
 ] as const;
 
 export const RESALE_JOB_FINAL_STEP = 6 as const;
+
+function deliveryBuyerCopy(input: {
+  best: ResaleSearchOkBody["best"];
+  action: ResaleSearchOkBody["verdictAction"];
+  confidence: ResaleSearchOkBody["confidence"];
+  reviewNote: string | null;
+  sellWithinDays: number | null;
+}) {
+  const margin =
+    input.best == null ? null : input.best.profitLowUsd != null ? input.best.profitLowUsd : input.best.profitMidUsd;
+  return resaleBuyerCopy({
+    outcome: input.best ? "pick" : "skip",
+    action: input.action,
+    confidence: input.confidence,
+    marginUsd: margin,
+    skipReason:
+      input.sellWithinDays != null
+        ? `No car is estimated to sell within ${input.sellWithinDays} days.`
+        : "No car was priced below similar listings after costs.",
+    reviewNote: input.reviewNote,
+    carTitle: input.best ? `${input.best.listing.year} ${input.best.listing.make} ${input.best.listing.model}` : null,
+  });
+}
 
 export type ResaleJobStep = 1 | 2 | 3 | 4 | 5 | 6;
 
@@ -116,7 +139,9 @@ export type ResaleJobClientBody = {
   best?: ResaleSearchOkBody["best"];
   alternatives?: ResaleSearchOkBody["alternatives"];
   verdictAction?: ResaleSearchOkBody["verdictAction"];
+  verdictLabel?: string;
   confidence?: ResaleSearchOkBody["confidence"];
+  reviewNote?: string | null;
   agentVerdict?: ResaleSearchOkBody["agentVerdict"];
   proofRecords?: ResaleSearchOkBody["proofRecords"];
   headline?: string;
@@ -170,7 +195,7 @@ function mergeJournals(
 }
 
 export const RESALE_CREDIT_NOTE_CHARGED =
-  "1 report credit per delivered resale search (same as Find). Failed searches do not debit. Retries with the same idempotency key replay the stored delivery.";
+  resaleCardCopy.creditNote;
 
 export const RESALE_CREDIT_NOTE_UNPAID =
   "Credit not charged. Results are shown, but 1 report credit is still owed — buy credits and continue/retry to settle. No double charge once paid.";
@@ -220,7 +245,9 @@ export function jobToClientBody(
       best: job.delivery.best,
       alternatives: job.delivery.alternatives,
       verdictAction: job.delivery.verdictAction,
+      verdictLabel: job.delivery.verdictLabel,
       confidence: job.delivery.confidence,
+      reviewNote: job.delivery.reviewNote,
       agentVerdict: job.delivery.agentVerdict,
       proofRecords: job.delivery.proofRecords,
       headline: job.delivery.headline,
@@ -314,6 +341,15 @@ function emptyPassDelivery(input: ResaleSearchInput, journal: ResaleDecisionJour
       },
     ],
   });
+  const buyer = resaleBuyerCopy({
+    outcome: "skip",
+    action: "pass",
+    confidence: "Low",
+    marginUsd: null,
+    skipReason: "No listings cleared the price comparison inside this budget. Try a higher budget, a wider radius, or fewer filters.",
+    reviewNote: resaleCardCopy.reviewMissed,
+    carTitle: null,
+  });
   return {
     ok: true,
     sample: false,
@@ -322,12 +358,13 @@ function emptyPassDelivery(input: ResaleSearchInput, journal: ResaleDecisionJour
     best: null,
     alternatives: [],
     verdictAction: "pass",
+    verdictLabel: buyer.verdictLabel,
     confidence: "Low",
+    reviewNote: resaleCardCopy.reviewMissed,
     agentVerdict,
     journal,
-    headline: "No flip candidates in this budget",
-    message:
-      "No listings cleared similar-listing economics inside this budget. Try a higher budget, nationwide radius, or fewer filters — this is still a verdict, not a dead end.",
+    headline: buyer.headline,
+    message: buyer.message,
     nextStep: "Raise the budget or clear optional filters, then search again (1 report credit).",
     providerQueriesUsed: 0,
     scope: null,
@@ -962,17 +999,34 @@ export async function advanceResaleJob(
           best: job.settleCheckpoint.best,
           alternatives: job.settleCheckpoint.alternatives,
           verdictAction: job.settleCheckpoint.verdictAction,
+          verdictLabel: deliveryBuyerCopy({
+            best: job.settleCheckpoint.best,
+            action: job.settleCheckpoint.verdictAction,
+            confidence: job.settleCheckpoint.confidence,
+            reviewNote: null,
+            sellWithinDays: job.input.sellWithinDays,
+          }).verdictLabel,
           confidence: job.settleCheckpoint.confidence,
+          reviewNote: null,
           agentVerdict: job.settleCheckpoint.agentVerdict,
           journal,
           proofRecords: [...(job.planProofRecords ?? []), ...(job.settleCheckpoint.proofRecords ?? [])],
-          headline: `Best flip: ${job.settleCheckpoint.best.listing.year} ${job.settleCheckpoint.best.listing.make} ${job.settleCheckpoint.best.listing.model}`,
-          message:
-            job.settleCheckpoint.best.profitMidUsd != null
-              ? `${pricedBelowSimilarLine(job.settleCheckpoint.best.profitMidUsd)}.${job.settleCheckpoint.best.sellWindowNote ? ` ${job.settleCheckpoint.best.sellWindowNote}` : ""} Confidence ${job.settleCheckpoint.confidence}. Verdict: ${job.settleCheckpoint.verdictAction}.`
-              : `Best candidate found. Confidence ${job.settleCheckpoint.confidence}. Verdict: ${job.settleCheckpoint.verdictAction}.`,
+          headline: deliveryBuyerCopy({
+            best: job.settleCheckpoint.best,
+            action: job.settleCheckpoint.verdictAction,
+            confidence: job.settleCheckpoint.confidence,
+            reviewNote: null,
+            sellWithinDays: job.input.sellWithinDays,
+          }).headline,
+          message: deliveryBuyerCopy({
+            best: job.settleCheckpoint.best,
+            action: job.settleCheckpoint.verdictAction,
+            confidence: job.settleCheckpoint.confidence,
+            reviewNote: null,
+            sellWithinDays: job.input.sellWithinDays,
+          }).message,
           nextStep:
-            "Review the P&L, verify title/history, and inspect before buying. Deal Radar can watch this budget later.",
+            "Review the costs, confirm the title, and inspect the car before you buy.",
           providerQueriesUsed: job.providerQueriesUsed,
           scope: job.scope,
           emptyReason: null,
@@ -1016,6 +1070,13 @@ export async function advanceResaleJob(
       };
     }
     const best = settled.best;
+    const buyer = deliveryBuyerCopy({
+      best,
+      action: settled.verdictAction,
+      confidence: settled.confidence,
+      reviewNote: settled.reviewNote,
+      sellWithinDays: job.input.sellWithinDays,
+    });
     const delivery: ResaleSearchOkBody = {
       ok: true,
       sample: false,
@@ -1024,7 +1085,9 @@ export async function advanceResaleJob(
       best,
       alternatives: settled.alternatives,
       verdictAction: settled.verdictAction,
+      verdictLabel: buyer.verdictLabel,
       confidence: settled.confidence,
+      reviewNote: settled.reviewNote,
       agentVerdict: {
         ...settled.agentVerdict,
         serv_spend: {
@@ -1034,16 +1097,10 @@ export async function advanceResaleJob(
       },
       journal,
       proofRecords: [...(job.planProofRecords ?? []), ...settled.proofRecords],
-      headline: best
-        ? `Best flip: ${best.listing.year} ${best.listing.make} ${best.listing.model}`
-        : "Resale search complete",
-      message: best?.profitMidUsd != null
-        ? `${pricedBelowSimilarLine(best.profitMidUsd)}${best.sellWindowNote ? ` ${best.sellWindowNote}` : ""}${
-            best.profitScopeLabel ? ` ${best.profitScopeLabel}` : ""
-          } (estimate). Confidence ${settled.confidence}. Verdict: ${settled.verdictAction}.`
-        : `Best candidate found but profit band is thin. Confidence ${settled.confidence}. Verdict: ${settled.verdictAction}.`,
+      headline: buyer.headline,
+      message: buyer.message,
       nextStep:
-        "Review the P&L, verify title/history, and inspect before buying. Deal Radar can watch this budget later.",
+        "Review the costs, confirm the title, and inspect the car before you buy.",
       providerQueriesUsed: job.providerQueriesUsed,
       scope: job.scope,
       emptyReason: null,

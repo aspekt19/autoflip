@@ -16,6 +16,7 @@ import { NOT_ENOUGH_SIMILAR_CARS } from "@/domain/price-evaluation";
 import type { ResaleAssessment } from "@/domain/resale-evaluate";
 import type { ResaleCandidatePnl } from "@/domain/resale-pnl";
 import { resalePrimaryListingLink } from "@/domain/resale-listing-link";
+import { resaleCardCopy } from "@/domain/resale-outcome";
 import { SEARCH_RADII_MILES } from "@/domain/need";
 import { publishCreditBalance, refreshPublishedCreditBalance } from "@/domain/credit-balance-event";
 import { RunMirror } from "./RunMirror";
@@ -70,7 +71,9 @@ type SearchResult = {
   best: ResaleCandidatePnl | null;
   alternatives: ResaleCandidatePnl[];
   verdictAction: string;
+  verdictLabel: string;
   confidence: "High" | "Medium" | "Low";
+  reviewNote: string | null;
   agentVerdict: AgentVerdict;
   journal: ResaleDecisionJournal;
   proofRecords: DecisionProofRecord[];
@@ -111,6 +114,7 @@ function ResaleSearchForm({ credits, onAuthLost }: { credits: number | null; onA
   const [milesMax, setMilesMax] = useState("");
   const [repairAbility, setRepairAbility] = useState<"unknown" | "none" | "minor" | "major">("unknown");
   const [timeToSell, setTimeToSell] = useState<"any" | "faster" | "unknown">("any");
+  const [sellWithinDays, setSellWithinDays] = useState("30");
   const [targetProfit, setTargetProfit] = useState("");
   const [criteriaParse, setCriteriaParse] = useState<{
     source: "serv" | "code" | "form";
@@ -145,7 +149,9 @@ function ResaleSearchForm({ credits, onAuthLost }: { credits: number | null; onA
     best?: ResaleCandidatePnl | null;
     alternatives?: ResaleCandidatePnl[];
     verdictAction?: string;
+    verdictLabel?: string;
     confidence?: "High" | "Medium" | "Low";
+    reviewNote?: string | null;
     agentVerdict?: AgentVerdict;
     journal?: ResaleDecisionJournal;
     proofRecords?: DecisionProofRecord[];
@@ -182,7 +188,9 @@ function ResaleSearchForm({ credits, onAuthLost }: { credits: number | null; onA
       best: body.best ?? null,
       alternatives: body.alternatives ?? [],
       verdictAction: body.verdictAction,
+      verdictLabel: body.verdictLabel || body.headline || "Pass",
       confidence: body.confidence,
+      reviewNote: body.reviewNote ?? null,
       agentVerdict: body.agentVerdict,
       journal: body.journal ?? {
         schemaVersion: "lemonless.resale_journal.v1",
@@ -211,7 +219,7 @@ function ResaleSearchForm({ credits, onAuthLost }: { credits: number | null; onA
       milesMax: milesMax.trim() === "" ? null : Number(milesMax.replace(/[^0-9.]/g, "")),
       repairAbility,
       targetProfitUsd: targetProfit.trim() === "" ? null : Number(targetProfit.replace(/[^0-9.]/g, "")),
-      criteriaParseSource: criteriaParse?.source,
+      criteriaParseSource: criteriaParse?.source ?? "form",
       criteriaResponseId: criteriaParse?.responseId ?? null,
     });
     setProgressLabel(null);
@@ -323,9 +331,10 @@ function ResaleSearchForm({ credits, onAuthLost }: { credits: number | null; onA
           milesMax: milesMax.trim() === "" ? null : milesMax,
           repairAbility,
           timeToSell,
+          sellWithinDays: sellWithinDays.trim() === "" ? null : sellWithinDays,
           targetProfitUsd: targetProfit.trim() === "" ? null : targetProfit,
           freeText: freeText.trim() || null,
-          criteriaParseSource: criteriaParse?.source,
+          criteriaParseSource: criteriaParse?.source ?? "form",
           criteriaResponseId: criteriaParse?.responseId ?? null,
           searchIdempotencyKey: idemKey,
           runId: null,
@@ -451,6 +460,18 @@ function ResaleSearchForm({ credits, onAuthLost }: { credits: number | null; onA
           placeholder="e.g. 12,000"
           required
         />
+      </div>
+
+      <div className="field">
+        <label htmlFor="resale-sell-within">Sell within (days)</label>
+        <input
+          id="resale-sell-within"
+          value={sellWithinDays}
+          onChange={(e) => setSellWithinDays(e.target.value)}
+          inputMode="numeric"
+          placeholder="30"
+        />
+        <p className="hint">Default is 30. A car estimated to take longer is not picked. Clear this for no window.</p>
       </div>
 
       <div className="field">
@@ -669,11 +690,10 @@ function ResaleSearchResultView({ result, runId }: { result: SearchResult; runId
   const router = useRouter();
   const [watchPending, setWatchPending] = useState(false);
   const [watchError, setWatchError] = useState<string | null>(null);
-  const parseRecord = result.criteriaParseSource
-    ? { source: result.criteriaParseSource, responseId: result.criteriaResponseId ?? null }
-    : result.freeText
-      ? { source: "form" as const, responseId: null }
-      : null;
+  const parseRecord = {
+    source: result.criteriaParseSource ?? ("form" as const),
+    responseId: result.criteriaResponseId ?? null,
+  };
   const parseLabel = criteriaParseLabel(parseRecord);
   const parseTechnical = criteriaParseTechnicalLine(parseRecord);
 
@@ -727,18 +747,15 @@ function ResaleSearchResultView({ result, runId }: { result: SearchResult; runId
   }
 
   return (
-    <article className="warn-box check-result" aria-live="polite">
-      {runId ? <RunMirror runId={runId} /> : <h2>{result.headline}</h2>}
-      {runId ? null : result.best ? (
-        <p className="lead">
-          <strong>Verdict: {result.verdictAction}</strong>
-          {" · "}
-          Confidence: {result.confidence}
-        </p>
-      ) : (
-        <p className="lead">{result.message || "No cars matched this search. No credit was used for a verdict."}</p>
-      )}
-            <p>{result.message}</p>
+    <article className="warn-box check-result resale-results" aria-live="polite">
+      {runId ? <RunMirror runId={runId} /> : <h2 className="verdict-level">{result.verdictLabel}</h2>}
+      <p className="lead">
+        <strong>Verdict: {result.verdictLabel}</strong>
+        {" · "}
+        Confidence: {result.confidence}
+      </p>
+      {result.reviewNote ? <p>{result.reviewNote}</p> : null}
+      <p>{result.message}</p>
       <p className="hint">{result.nextStep}</p>
       <p className="hint">{parseLabel}</p>
       {parseTechnical ? (
@@ -806,6 +823,7 @@ function CandidateCard({
   const primary = resalePrimaryListingLink({
     dealer: l.dealer,
     vdp: l.vdp,
+    dealerUrl: l.dealerUrl,
     vin: candidate.vin,
     year: l.year,
     trim: l.trim,
@@ -816,7 +834,7 @@ function CandidateCard({
       <h3>
         {title}
         {overBudget ? " · over budget" : ""}
-        {!link.direct ? " · no direct listing link" : ""}
+        {!link.direct && primary.label !== "Listing on Carfax" ? " · no direct listing link" : ""}
       </h3>
       <p>
         {l.year} {l.make} {l.model}
@@ -841,8 +859,7 @@ function CandidateCard({
       ) : null}
       <ul className="refuse">
         <li>
-          Risk-adjusted rank: mid profit × risk weight; fewer than 3 or 5 similar cars cuts risk.
-          Similar cars in this scan: {candidate.compCount}.
+          {resaleCardCopy.rank} Similar cars in this scan: {candidate.compCount}.
         </li>
         <li>Ask: {formatUsd(candidate.askingUsd)}</li>
         <li>
@@ -855,7 +872,7 @@ function CandidateCard({
           Title/registration: unknown dollar amount — {candidate.titleRegistrationBasis}
         </li>
         <li>
-          Title/fee assumption used in P&L: {formatUsd(candidate.titleFeeAssumptionUsd)} — {candidate.titleFeeBasis}
+          Title fee used in the cost estimate: {formatUsd(candidate.titleFeeAssumptionUsd)} — {candidate.titleFeeBasis}
         </li>
         <li>
           Reconditioning estimate: {formatUsd(candidate.reconUsd)} — {candidate.reconBasis}

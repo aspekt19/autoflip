@@ -295,7 +295,7 @@ describe("serv-decision-journal-copy", () => {
       origin: "serv",
       runId: "chatcmpl-synthetic-test-free",
     });
-    expect(formatJournalOriginMarker(free)).toBe("Decided by SERV.");
+    expect(formatJournalOriginMarker(free)).toBe("");
   });
 
   it("does not lowercase into SERV sERV when output already starts with SERV", () => {

@@ -149,9 +149,9 @@ export function formatJournalOriginMarker(step: ServDecisionStep): string {
     return `Limited by safety rule: ${reason}.`;
   }
   if (step.origin === "code" || step.by === "code") {
-    return "Decided by code.";
+    return "";
   }
-  return "Decided by SERV.";
+  return "";
 }
 
 /**
@@ -268,7 +268,7 @@ export function formatJournalStepSentences(step: ServDecisionStep): string {
     case "stop_or_widen":
       return "SERV decided whether to stop or widen the search.";
     case "fallback":
-      return "Code used a built-in fallback because the review step was not available.";
+      return "SERV did not decide this step.";
     case "comps_verify":
     case "price_badge":
       return "Code calculated the asking price, fair value, and similar cars for sale nearby.";

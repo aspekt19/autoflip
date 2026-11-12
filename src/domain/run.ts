@@ -444,7 +444,7 @@ export function appendClarification(run: RunRecord, text: string, formEdits?: Se
   };
 }
 
-function limitSentences(spec: SearchSpec | null): string[] {
+export function limitSentences(spec: SearchSpec | null): string[] {
   if (!spec) return [];
   const lines: string[] = [];
   const price = spec.hard.priceMaxUsd?.value;
@@ -464,6 +464,11 @@ function limitSentences(spec: SearchSpec | null): string[] {
   if (spec.hard.drivetrain?.value === "awd_4wd") lines.push("All-wheel drive or four-wheel drive.");
   const excluded = spec.hard.excludeMakes?.value ?? [];
   if (excluded.length) lines.push(`Not ${excluded.join(" or ")}.`);
+  const sell = spec.soft.sellWithinDays;
+  if (sell) {
+    const where = sell.source === "form" ? "typed in the form" : sell.source === "note" ? "from your note" : "from the search";
+    lines.push(`Sell within ${sell.value} days (${where}).`);
+  }
   return lines;
 }
 
