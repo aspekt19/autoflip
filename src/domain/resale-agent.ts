@@ -346,3 +346,74 @@ export function applyResaleAgentGuardrails(
     dropped,
   };
 }
+
+export type ResaleSubmitPicksListingFact = {
+  vin: string;
+  priceUsd: number | null;
+};
+
+/**
+ * Strict submit_picks gate for the Responses tools loop.
+ * On failure, return issues as function_call_output so SERV can fix — do not silently drop/clamp.
+ */
+export function validateResaleSubmitPicks(
+  input: unknown,
+  opts: {
+    listingsByVin: ReadonlyMap<string, ResaleSubmitPicksListingFact>;
+    budgetUsd: number | null;
+    pnlByVin?: ReadonlyMap<string, ResaleAgentPnlFact>;
+  },
+):
+  | { ok: true; verdict: ResaleAgentVerdict }
+  | { ok: false; issues: Array<{ field: string; message: string }> } {
+  const validated = validateResaleAgentVerdict(input);
+  if (!validated.ok) return validated;
+
+  const issues: Array<{ field: string; message: string }> = [];
+  const budget =
+    opts.budgetUsd != null && Number.isFinite(opts.budgetUsd) && opts.budgetUsd > 0
+      ? Math.round(opts.budgetUsd)
+      : null;
+
+  for (const [index, pick] of validated.verdict.picks.entries()) {
+    const vin = pick.vin.toUpperCase();
+    const listing = opts.listingsByVin.get(vin);
+    if (!listing) {
+      issues.push({
+        field: `picks[${index}].vin`,
+        message: `VIN ${vin} was not returned by search_listings / comps tools. Copy a real VIN from tool results.`,
+      });
+      continue;
+    }
+    if (pick.offerUsd != null && budget != null && pick.offerUsd > budget) {
+      issues.push({
+        field: `picks[${index}].offerUsd`,
+        message: `offerUsd ${pick.offerUsd} exceeds budget ${budget}. Lower the offer.`,
+      });
+    }
+    if (
+      pick.offerUsd != null &&
+      listing.priceUsd != null &&
+      Number.isFinite(listing.priceUsd) &&
+      listing.priceUsd > 0 &&
+      pick.offerUsd > listing.priceUsd
+    ) {
+      issues.push({
+        field: `picks[${index}].offerUsd`,
+        message: `offerUsd ${pick.offerUsd} is above listing asking price ${listing.priceUsd} for VIN ${vin}. Match or beat asking.`,
+      });
+    }
+    if (pick.action === "buy" || pick.action === "negotiate") {
+      const mid = midProfitOf(opts.pnlByVin?.get(vin));
+      if (mid != null && mid < 0) {
+        issues.push({
+          field: `picks[${index}].action`,
+          message: `Code mid-profit $${mid} is negative for VIN ${vin}. Use action pass (or needs_inspection) — do not buy/negotiate on negative mid-profit.`,
+        });
+      }
+    }
+  }
+
+  if (issues.length > 0) return { ok: false, issues };
+  return { ok: true, verdict: validated.verdict };
+}

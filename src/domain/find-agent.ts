@@ -325,3 +325,64 @@ export function applyFindAgentGuardrails(
     dropped,
   };
 }
+
+export type FindSubmitPicksListingFact = {
+  vin: string;
+  priceUsd: number | null;
+};
+
+/**
+ * Strict submit_picks gate for the Responses tools loop.
+ * On failure, return issues as function_call_output so SERV can fix — do not silently drop.
+ */
+export function validateFindSubmitPicks(
+  input: unknown,
+  opts: {
+    listingsByVin: ReadonlyMap<string, FindSubmitPicksListingFact>;
+    budgetUsd: number | null;
+  },
+):
+  | { ok: true; verdict: FindAgentVerdict }
+  | { ok: false; issues: Array<{ field: string; message: string }> } {
+  const validated = validateFindAgentVerdict(input);
+  if (!validated.ok) return validated;
+
+  const issues: Array<{ field: string; message: string }> = [];
+  const budget =
+    opts.budgetUsd != null && Number.isFinite(opts.budgetUsd) && opts.budgetUsd > 0
+      ? Math.round(opts.budgetUsd)
+      : null;
+
+  for (const [index, pick] of validated.verdict.picks.entries()) {
+    const vin = pick.vin.toUpperCase();
+    const listing = opts.listingsByVin.get(vin);
+    if (!listing) {
+      issues.push({
+        field: `picks[${index}].vin`,
+        message: `VIN ${vin} was not returned by search_listings / comps tools. Copy a real VIN from tool results.`,
+      });
+      continue;
+    }
+    if (pick.offerUsd != null && budget != null && pick.offerUsd > budget) {
+      issues.push({
+        field: `picks[${index}].offerUsd`,
+        message: `offerUsd ${pick.offerUsd} exceeds budget ${budget}. Lower the offer.`,
+      });
+    }
+    if (
+      pick.offerUsd != null &&
+      listing.priceUsd != null &&
+      Number.isFinite(listing.priceUsd) &&
+      listing.priceUsd > 0 &&
+      pick.offerUsd > listing.priceUsd
+    ) {
+      issues.push({
+        field: `picks[${index}].offerUsd`,
+        message: `offerUsd ${pick.offerUsd} is above listing asking price ${listing.priceUsd} for VIN ${vin}. Match or beat asking.`,
+      });
+    }
+  }
+
+  if (issues.length > 0) return { ok: false, issues };
+  return { ok: true, verdict: validated.verdict };
+}

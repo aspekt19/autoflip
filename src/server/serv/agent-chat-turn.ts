@@ -51,16 +51,22 @@ export type ServChatTurnBody = {
 };
 
 export type ServResponsesTurnBody = {
-  /** System / developer instructions (Responses `instructions`). */
+  /** System / developer instructions (Responses `instructions`) — required for gpt-6.1-sol. */
   instructions: string;
-  /** User turn or pragmatic multi-round transcript (Responses `input`). */
-  input: string;
+  /**
+   * Responses `input`: string (simple) or item array (agentic multi-turn).
+   * Agentic turns must keep prior input + reasoning/function_call items +
+   * function_call_output for every call_id (live gpt-6.1-sol contract).
+   */
+  input: string | Array<Record<string, unknown>>;
   tools?: ServResponsesToolDef[];
   toolChoice?: "auto" | "required" | "none" | { type: "function"; name: string };
   maxTokens?: number;
   model?: string;
   /** Live probe: effort low works with tools; default low. */
   reasoning?: { effort: "none" | "low" | "medium" | "high"; summary?: "auto" | "concise" | "detailed" };
+  /** Optional Responses structured output (text.format json_schema). Prefer submit_picks tool for agent loops. */
+  textFormat?: { name: string; schema: Record<string, unknown>; strict?: boolean };
 };
 
 export type ServChatTurnResult = {
@@ -137,6 +143,16 @@ export function buildServResponsesTurnBody(input: ServResponsesTurnBody): Record
   if (input.tools && input.tools.length > 0) {
     bare.tools = input.tools;
     bare.tool_choice = input.toolChoice ?? "auto";
+  }
+  if (input.textFormat) {
+    bare.text = {
+      format: {
+        type: "json_schema",
+        name: input.textFormat.name,
+        strict: input.textFormat.strict ?? true,
+        schema: input.textFormat.schema,
+      },
+    };
   }
   return withServOutputTokenBound("responses", bare, input.maxTokens ?? SERV_OUTPUT_TOKEN_DEFAULT);
 }

@@ -8,6 +8,7 @@ import {
   RESALE_AGENT_RESULT_SCHEMA,
   resolveResaleAgentMode,
   validateResaleAgentVerdict,
+  validateResaleSubmitPicks,
   type ResaleAgentMode,
   type ResaleAgentModeResolved,
   type ResaleAgentRelaxedCondition,
@@ -26,6 +27,13 @@ import {
   type ServChatToolCallWire,
   type ServChatTurnMessage,
 } from "@/server/serv/agent-chat-turn";
+import {
+  appendResponsesToolRound,
+  extractResponsesFunctionCalls,
+  responsesOutputOf,
+  responsesUserMessage,
+  type ResponsesInputItem,
+} from "@/server/serv/agent-tool-loop-protocol";
 import { servApiBase, toolCall } from "@/server/serv/run";
 import { servFinishReason } from "@/server/serv/response-failure";
 import {
@@ -115,7 +123,8 @@ function systemPrompt(note: string, shopperContext?: Record<string, unknown> | n
     "Dollar facts for fees, tax, recon, and expected resale come ONLY from tool flipPnl / get_flip_pnl — never invent those numbers.",
     "Profit floors and sell-within-N-days are ranking/verdict signals — never hard inventory filters. When search_listings returns funnel counts or relaxHints, relax the step that hit zero (omit_body / widen_radius / raise_price / drop_transmission) and re-search. Prefer bodyFamily=car; never rely on provider Sedan.",
     "Pick buy|negotiate only when code mid-profit is positive; otherwise pass or needs_inspection with justification.",
-    "offerUsd must be ≤ the shopper budget when a budget is known.",
+    "Finish by calling submit_picks. Code validates real VINs, offer ≤ budget/asking, and buy|negotiate only with non-negative code mid-profit — on failure you get issues back and must fix via another submit_picks.",
+    "Parallel tool calls are fine. Never invent cars, prices, VINs, or dollar figures.",
     `Shopper note:\n${note.trim() || "(empty)"}${ctx}`,
   ].join(" ");
 }
@@ -249,7 +258,7 @@ function chatBody(input: {
 
 function responsesBody(input: {
   instructions: string;
-  input: string;
+  input: string | ResponsesInputItem[];
   tools: ReturnType<typeof resaleAgentResponsesTools>;
 }): Record<string, unknown> {
   return buildServResponsesTurnBody({
@@ -275,60 +284,14 @@ async function postResponses(input: {
   });
 }
 
-async function runToolCalls(input: {
-  calls: ToolCallWire[];
-  deps: ResaleAgentToolDeps;
-  state: ResaleAgentToolState;
-  journal: ResaleAgentJournalEntry[];
-  toolResultBlocks: string[];
-  finishMessages: ChatMessage[];
-}): Promise<number> {
-  let rounds = 0;
-  const assistantCalls = input.calls;
-  input.finishMessages.push({
-    role: "assistant",
-    content: `Calling tools: ${assistantCalls.map((c) => c.function.name).join(", ")}`,
-  });
-  for (const call of assistantCalls) {
-    rounds += 1;
-    let args: unknown = {};
-    try {
-      args = JSON.parse(call.function.arguments || "{}") as unknown;
-    } catch {
-      args = {};
-    }
-    const executed = await executeResaleAgentTool(call.function.name, args, input.deps, input.state);
-    input.journal.push({
-      kind: "tool",
-      name: executed.name,
-      args,
-      summary: executed.summary,
-      ok: executed.ok,
-    });
-    const resultJson = JSON.stringify(executed.result);
-    input.toolResultBlocks.push(
-      JSON.stringify({
-        type: "function_call_output",
-        call_id: call.id,
-        name: executed.name,
-        output: executed.result,
-      }),
-    );
-    input.finishMessages.push({
-      role: "user",
-      content: `Tool result for ${executed.name} (call_id=${call.id}):\n${resultJson}`,
-    });
+function listingFactsFromState(
+  state: ResaleAgentToolState,
+): Map<string, { vin: string; priceUsd: number | null }> {
+  const out = new Map<string, { vin: string; priceUsd: number | null }>();
+  for (const [vin, listing] of state.listingsByVin) {
+    out.set(vin, { vin, priceUsd: listing.priceUsd ?? null });
   }
-  return rounds;
-}
-
-function buildResponsesFollowUpInput(seedUser: string, toolResultBlocks: readonly string[]): string {
-  if (toolResultBlocks.length === 0) return seedUser;
-  return [
-    seedUser,
-    "Prior tool results (function_call_output JSON). Use them; call more tools if needed, or stop tool use when ready to finalize.",
-    ...toolResultBlocks,
-  ].join("\n\n");
+  return out;
 }
 
 async function finalizeVerdict(input: {
@@ -467,20 +430,21 @@ async function runToolsMode(input: {
   const requestedMode = resolveResaleAgentMode(process.env);
   const instructions = systemPrompt(input.note, input.shopperContext);
   const seedUser =
-    "Search for profitable flips that fit the shopper. Call tools as needed (search_listings injects code flipPnl). Stop tool use when ready so we can finalize the verdict.";
+    "Search for profitable flips that fit the shopper. Call tools as needed (search_listings injects code flipPnl; parallel OK). When ready, call submit_picks — do not invent VINs or dollars.";
   const finishMessages: ChatMessage[] = [
     { role: "system", content: instructions },
     { role: "user", content: seedUser },
   ];
   const tools = resaleAgentResponsesTools();
-  const toolResultBlocks: string[] = [];
+  let responsesInput: ResponsesInputItem[] = [responsesUserMessage(seedUser)];
   let toolRounds = 0;
   let firstTurn = true;
+  let submitNudgeSent = false;
 
   for (let round = 0; round < input.maxRounds; round += 1) {
     const body = responsesBody({
       instructions,
-      input: buildResponsesFollowUpInput(seedUser, toolResultBlocks),
+      input: responsesInput,
       tools,
     });
     const turn = await postResponses({
@@ -489,7 +453,8 @@ async function runToolsMode(input: {
       fetch: input.fetchImpl,
       body,
     });
-    const calls = turn.ok ? extractToolCalls(turn.payload) : [];
+    const output = turn.ok ? responsesOutputOf(turn.payload) : null;
+    const calls = turn.ok ? extractResponsesFunctionCalls(output) : [];
     input.journal.push({
       kind: "serv",
       responseId: responseIdOf(turn.payload),
@@ -515,75 +480,177 @@ async function runToolsMode(input: {
     }
 
     if (firstTurn && calls.length === 0) {
-      const text = messageText(turn.payload, "legacy");
-      const maybe = validateResaleAgentVerdict(parseJsonObject(text));
-      if (!maybe.ok) {
-        return {
-          ok: false,
-          agentMode: "tools",
-          requestedMode,
-          toolRounds,
-          verdictReached: false,
-          error: "tools_unsupported_or_empty",
-          message: "First tools-mode response had no tool_calls and no usable finish.",
-          journal: input.journal,
-          knownVins: [...input.state.knownVins],
-        };
-      }
-    }
-    firstTurn = false;
-
-    if (calls.length > 0) {
-      toolRounds += await runToolCalls({
-        calls,
-        deps: input.toolDeps,
-        state: input.state,
-        journal: input.journal,
-        toolResultBlocks,
-        finishMessages,
-      });
-      continue;
-    }
-
-    const finished = await finalizeVerdict({
-      apiKey: input.deps.servKey,
-      baseUrl: input.baseUrl,
-      fetch: input.fetchImpl,
-      note: input.note,
-      shopperContext: input.shopperContext,
-      state: input.state,
-      journal: input.journal,
-      priorMessages: finishMessages,
-      mode: "tools",
-      budgetUsd: input.deps.budgetUsd ?? null,
-    });
-    if (!finished.ok) {
       return {
         ok: false,
         agentMode: "tools",
         requestedMode,
         toolRounds,
         verdictReached: false,
-        error: finished.error,
-        message: finished.message,
+        error: "tools_unsupported_or_empty",
+        message: "First tools-mode response had no function_call items.",
         journal: input.journal,
         knownVins: [...input.state.knownVins],
       };
     }
-    return {
-      ok: true,
-      agentMode: "tools",
-      requestedMode,
-      toolRounds,
-      verdictReached: true,
-      verdict: finished.verdict,
-      relaxedConditions: finished.verdict.relaxedConditions,
-      journal: input.journal,
-      knownVins: [...input.state.knownVins],
-      listingsByVin: input.state.listingsByVin,
-      pnlByVin: input.state.pnlByVin,
-      droppedPicks: finished.dropped,
-    };
+    firstTurn = false;
+
+    if (calls.length === 0) {
+      if (!submitNudgeSent) {
+        submitNudgeSent = true;
+        responsesInput = [
+          ...responsesInput,
+          responsesUserMessage(
+            "No tool calls received. Call submit_picks now with summary/confidence/picks/relaxedConditions using only VINs and code flipPnl from prior tool results.",
+          ),
+        ];
+        continue;
+      }
+      const finished = await finalizeVerdict({
+        apiKey: input.deps.servKey,
+        baseUrl: input.baseUrl,
+        fetch: input.fetchImpl,
+        note: input.note,
+        shopperContext: input.shopperContext,
+        state: input.state,
+        journal: input.journal,
+        priorMessages: finishMessages,
+        mode: "tools",
+        budgetUsd: input.deps.budgetUsd ?? null,
+      });
+      if (!finished.ok) {
+        return {
+          ok: false,
+          agentMode: "tools",
+          requestedMode,
+          toolRounds,
+          verdictReached: false,
+          error: finished.error,
+          message: finished.message,
+          journal: input.journal,
+          knownVins: [...input.state.knownVins],
+        };
+      }
+      return {
+        ok: true,
+        agentMode: "tools",
+        requestedMode,
+        toolRounds,
+        verdictReached: true,
+        verdict: finished.verdict,
+        relaxedConditions: finished.verdict.relaxedConditions,
+        journal: input.journal,
+        knownVins: [...input.state.knownVins],
+        listingsByVin: input.state.listingsByVin,
+        pnlByVin: input.state.pnlByVin,
+        droppedPicks: finished.dropped,
+      };
+    }
+
+    const settled = await Promise.all(
+      calls.map(async (call) => {
+        let args: unknown = {};
+        try {
+          args = JSON.parse(call.arguments || "{}") as unknown;
+        } catch {
+          args = {};
+        }
+
+        if (call.name === "submit_picks") {
+          const checked = validateResaleSubmitPicks(args, {
+            listingsByVin: listingFactsFromState(input.state),
+            budgetUsd: input.deps.budgetUsd ?? null,
+            pnlByVin: pnlFactsFromState(input.state),
+          });
+          if (!checked.ok) {
+            input.journal.push({
+              kind: "tool",
+              name: "submit_picks",
+              args,
+              summary: `submit_picks rejected: ${checked.issues.map((i) => i.message).join("; ")}`,
+              ok: false,
+            });
+            return {
+              callId: call.callId,
+              name: "submit_picks" as const,
+              accepted: false as const,
+              output: {
+                ok: false,
+                error: "validation_failed",
+                issues: checked.issues,
+                message: "Fix these issues and call submit_picks again.",
+              },
+            };
+          }
+          input.journal.push({
+            kind: "tool",
+            name: "submit_picks",
+            args,
+            summary: `submit_picks accepted picks=${checked.verdict.picks.length}`,
+            ok: true,
+          });
+          return {
+            callId: call.callId,
+            name: "submit_picks" as const,
+            accepted: true as const,
+            verdict: checked.verdict,
+            output: {
+              ok: true,
+              accepted: true,
+              picks: checked.verdict.picks.length,
+              message: "Verdict accepted.",
+            },
+          };
+        }
+
+        const executed = await executeResaleAgentTool(call.name, args, input.toolDeps, input.state);
+        input.journal.push({
+          kind: "tool",
+          name: executed.name,
+          args,
+          summary: executed.summary,
+          ok: executed.ok,
+        });
+        finishMessages.push({
+          role: "user",
+          content: `Tool result for ${executed.name} (call_id=${call.callId}):\n${JSON.stringify(executed.result)}`,
+        });
+        return {
+          callId: call.callId,
+          name: executed.name,
+          accepted: false as const,
+          output: executed.result,
+        };
+      }),
+    );
+
+    toolRounds += calls.length;
+    responsesInput = appendResponsesToolRound({
+      priorInput: responsesInput,
+      responseOutput: output,
+      outputs: settled.map((row) => ({ callId: row.callId, output: row.output })),
+    });
+
+    const accepted = settled.find(
+      (row) => row.name === "submit_picks" && "accepted" in row && row.accepted === true && "verdict" in row,
+    ) as
+      | { callId: string; name: "submit_picks"; accepted: true; verdict: ResaleAgentVerdict; output: unknown }
+      | undefined;
+    if (accepted) {
+      return {
+        ok: true,
+        agentMode: "tools",
+        requestedMode,
+        toolRounds,
+        verdictReached: true,
+        verdict: accepted.verdict,
+        relaxedConditions: accepted.verdict.relaxedConditions,
+        journal: input.journal,
+        knownVins: [...input.state.knownVins],
+        listingsByVin: input.state.listingsByVin,
+        pnlByVin: input.state.pnlByVin,
+        droppedPicks: [],
+      };
+    }
   }
 
   return {

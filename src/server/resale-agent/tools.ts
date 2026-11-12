@@ -8,7 +8,7 @@ import {
   type BuildResalePnlOptions,
   type ResaleCandidatePnl,
 } from "@/domain/resale-pnl";
-import type { ResaleAgentPnlFact } from "@/domain/resale-agent";
+import { RESALE_AGENT_RESULT_SCHEMA, type ResaleAgentPnlFact } from "@/domain/resale-agent";
 import type { Listing } from "@/domain/types";
 import {
   createFindAgentToolState,
@@ -32,6 +32,7 @@ export const RESALE_AGENT_TOOL_NAMES = [
   "get_safety_ratings",
   "get_market_comps",
   "get_flip_pnl",
+  "submit_picks",
 ] as const;
 export type ResaleAgentToolName = (typeof RESALE_AGENT_TOOL_NAMES)[number];
 
@@ -148,7 +149,8 @@ export function resaleAgentChatTools(): Array<{
   type: "function";
   function: { name: string; description: string; parameters: Record<string, unknown> };
 }> {
-  const base = findAgentChatTools();
+  // Drop Find's submit_picks; Resale has its own schema + get_flip_pnl.
+  const base = findAgentChatTools().filter((tool) => tool.function.name !== "submit_picks");
   return [
     ...base,
     {
@@ -168,6 +170,15 @@ export function resaleAgentChatTools(): Array<{
           },
           required: ["vins"],
         },
+      },
+    },
+    {
+      type: "function",
+      function: {
+        name: "submit_picks",
+        description:
+          "Submit the final resale flip verdict. Code validates real VINs, offer ≤ budget/asking, and buy|negotiate only when code mid-profit is non-negative. On validation failure the tool returns issues — fix and call submit_picks again.",
+        parameters: RESALE_AGENT_RESULT_SCHEMA as unknown as Record<string, unknown>,
       },
     },
   ];

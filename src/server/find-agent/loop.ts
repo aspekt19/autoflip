@@ -8,6 +8,7 @@ import {
   FIND_AGENT_RESULT_SCHEMA,
   resolveFindAgentMode,
   validateFindAgentVerdict,
+  validateFindSubmitPicks,
   type FindAgentMode,
   type FindAgentModeResolved,
   type FindAgentRelaxedCondition,
@@ -25,6 +26,13 @@ import {
   type ServChatToolCallWire,
   type ServChatTurnMessage,
 } from "@/server/serv/agent-chat-turn";
+import {
+  appendResponsesToolRound,
+  extractResponsesFunctionCalls,
+  responsesOutputOf,
+  responsesUserMessage,
+  type ResponsesInputItem,
+} from "@/server/serv/agent-tool-loop-protocol";
 import { servApiBase, toolCall } from "@/server/serv/run";
 import { servFinishReason } from "@/server/serv/response-failure";
 import {
@@ -106,8 +114,8 @@ function systemPrompt(note: string, formEdits?: Record<string, unknown> | null):
     "You decide which listings to search. Prefer tight filters first.",
     "When results are empty or poor, read search_listings.funnel + relaxHints: relax the step that hit zero (omit_body, widen_radius, raise_price, drop_transmission, next_model) and re-search. Prefer bodyFamily=car over Sedan. Hard budget and must-haves stay unless the shopper's note allows otherwise. Profit and sell-window are not inventory filters.",
     "Explain every relaxation in relaxedConditions when you finish.",
-    "Finish only with picks whose VIN appeared in tool listing results. Never invent cars, prices, or VINs.",
-    "offerUsd must be ≤ the shopper budget when a budget is known.",
+    "Finish by calling submit_picks with the find_agent_result fields. Code validates VINs against tool results, offer ≤ budget, and offer ≤ asking — on failure you get issues back and must fix via another submit_picks.",
+    "Never invent cars, prices, or VINs. Parallel tool calls are fine.",
     "Use tools for live evidence. Asking-price comps are not sold prices.",
     `Shopper note:\n${note.trim() || "(empty)"}${edits}`,
   ].join(" ");
@@ -242,7 +250,7 @@ function chatBody(input: {
 
 function responsesBody(input: {
   instructions: string;
-  input: string;
+  input: string | ResponsesInputItem[];
   tools: ReturnType<typeof findAgentResponsesTools>;
 }): Record<string, unknown> {
   return buildServResponsesTurnBody({
@@ -268,61 +276,12 @@ async function postResponses(input: {
   });
 }
 
-/** Execute tool calls; append JSON results for the next Responses `input`. */
-async function runToolCalls(input: {
-  calls: ToolCallWire[];
-  deps: FindAgentToolDeps;
-  state: FindAgentToolState;
-  journal: FindAgentJournalEntry[];
-  toolResultBlocks: string[];
-  finishMessages: ChatMessage[];
-}): Promise<number> {
-  let rounds = 0;
-  const assistantCalls = input.calls;
-  input.finishMessages.push({
-    role: "assistant",
-    content: `Calling tools: ${assistantCalls.map((c) => c.function.name).join(", ")}`,
-  });
-  for (const call of assistantCalls) {
-    rounds += 1;
-    let args: unknown = {};
-    try {
-      args = JSON.parse(call.function.arguments || "{}") as unknown;
-    } catch {
-      args = {};
-    }
-    const executed = await executeFindAgentTool(call.function.name, args, input.deps, input.state);
-    input.journal.push({
-      kind: "tool",
-      name: executed.name,
-      args,
-      summary: executed.summary,
-      ok: executed.ok,
-    });
-    const resultJson = JSON.stringify(executed.result);
-    input.toolResultBlocks.push(
-      JSON.stringify({
-        type: "function_call_output",
-        call_id: call.id,
-        name: executed.name,
-        output: executed.result,
-      }),
-    );
-    input.finishMessages.push({
-      role: "user",
-      content: `Tool result for ${executed.name} (call_id=${call.id}):\n${resultJson}`,
-    });
+function listingFactsFromState(state: FindAgentToolState): Map<string, { vin: string; priceUsd: number | null }> {
+  const out = new Map<string, { vin: string; priceUsd: number | null }>();
+  for (const [vin, listing] of state.listingsByVin) {
+    out.set(vin, { vin, priceUsd: listing.priceUsd ?? null });
   }
-  return rounds;
-}
-
-function buildResponsesFollowUpInput(seedUser: string, toolResultBlocks: readonly string[]): string {
-  if (toolResultBlocks.length === 0) return seedUser;
-  return [
-    seedUser,
-    "Prior tool results (function_call_output JSON). Use them; call more tools if needed, or stop tool use when ready to finalize.",
-    ...toolResultBlocks,
-  ].join("\n\n");
+  return out;
 }
 
 async function finalizeVerdict(input: {
@@ -456,21 +415,22 @@ async function runToolsMode(input: {
   const requestedMode = resolveFindAgentMode(process.env);
   const instructions = systemPrompt(input.note, input.formEdits);
   const seedUser =
-    "Search for cars that fit the shopper. Call tools as needed, then stop tool use when ready so we can finalize the verdict.";
-  // Chat transcript for the finish json_schema turn (proven path); tools rounds use Responses.
+    "Search for cars that fit the shopper. Call tools as needed (parallel OK). When ready, call submit_picks with the final verdict — do not invent VINs.";
+  // Chat transcript kept only as a safety-net finish path if submit_picks never lands.
   const finishMessages: ChatMessage[] = [
     { role: "system", content: instructions },
     { role: "user", content: seedUser },
   ];
   const tools = findAgentResponsesTools();
-  const toolResultBlocks: string[] = [];
+  let responsesInput: ResponsesInputItem[] = [responsesUserMessage(seedUser)];
   let toolRounds = 0;
   let firstTurn = true;
+  let submitNudgeSent = false;
 
   for (let round = 0; round < input.maxRounds; round += 1) {
     const body = responsesBody({
       instructions,
-      input: buildResponsesFollowUpInput(seedUser, toolResultBlocks),
+      input: responsesInput,
       tools,
     });
     const turn = await postResponses({
@@ -479,7 +439,8 @@ async function runToolsMode(input: {
       fetch: input.fetchImpl,
       body,
     });
-    const calls = turn.ok ? extractToolCalls(turn.payload) : [];
+    const output = turn.ok ? responsesOutputOf(turn.payload) : null;
+    const calls = turn.ok ? extractResponsesFunctionCalls(output) : [];
     input.journal.push({
       kind: "serv",
       responseId: responseIdOf(turn.payload),
@@ -505,75 +466,176 @@ async function runToolsMode(input: {
     }
 
     if (firstTurn && calls.length === 0) {
-      const text = messageText(turn.payload, "legacy");
-      const maybe = validateFindAgentVerdict(parseJsonObject(text));
-      if (!maybe.ok) {
-        return {
-          ok: false,
-          agentMode: "tools",
-          requestedMode,
-          toolRounds,
-          verdictReached: false,
-          error: "tools_unsupported_or_empty",
-          message: "First tools-mode response had no tool_calls and no usable finish.",
-          journal: input.journal,
-          knownVins: [...input.state.knownVins],
-        };
-      }
-    }
-    firstTurn = false;
-
-    if (calls.length > 0) {
-      toolRounds += await runToolCalls({
-        calls,
-        deps: input.toolDeps,
-        state: input.state,
-        journal: input.journal,
-        toolResultBlocks,
-        finishMessages,
-      });
-      continue;
-    }
-
-    // No tool calls → finalize structured verdict on chat json_schema.
-    const finished = await finalizeVerdict({
-      apiKey: input.deps.servKey,
-      baseUrl: input.baseUrl,
-      fetch: input.fetchImpl,
-      note: input.note,
-      formEdits: input.formEdits,
-      state: input.state,
-      journal: input.journal,
-      priorMessages: finishMessages,
-      mode: "tools",
-      budgetUsd: input.deps.budgetUsd ?? null,
-    });
-    if (!finished.ok) {
       return {
         ok: false,
         agentMode: "tools",
         requestedMode,
         toolRounds,
         verdictReached: false,
-        error: finished.error,
-        message: finished.message,
+        error: "tools_unsupported_or_empty",
+        message: "First tools-mode response had no function_call items.",
         journal: input.journal,
         knownVins: [...input.state.knownVins],
       };
     }
-    return {
-      ok: true,
-      agentMode: "tools",
-      requestedMode,
-      toolRounds,
-      verdictReached: true,
-      verdict: finished.verdict,
-      relaxedConditions: finished.verdict.relaxedConditions,
-      journal: input.journal,
-      knownVins: [...input.state.knownVins],
-      listingsByVin: input.state.listingsByVin,
-      droppedPicks: finished.dropped,
-    };
+    firstTurn = false;
+
+    if (calls.length === 0) {
+      if (!submitNudgeSent) {
+        submitNudgeSent = true;
+        responsesInput = [
+          ...responsesInput,
+          responsesUserMessage(
+            "No tool calls received. Call submit_picks now with summary/confidence/picks/relaxedConditions/passReason using only VINs from prior tool results.",
+          ),
+        ];
+        continue;
+      }
+      // Safety net: chat json_schema finish if SERV stopped without submit_picks.
+      const finished = await finalizeVerdict({
+        apiKey: input.deps.servKey,
+        baseUrl: input.baseUrl,
+        fetch: input.fetchImpl,
+        note: input.note,
+        formEdits: input.formEdits,
+        state: input.state,
+        journal: input.journal,
+        priorMessages: finishMessages,
+        mode: "tools",
+        budgetUsd: input.deps.budgetUsd ?? null,
+      });
+      if (!finished.ok) {
+        return {
+          ok: false,
+          agentMode: "tools",
+          requestedMode,
+          toolRounds,
+          verdictReached: false,
+          error: finished.error,
+          message: finished.message,
+          journal: input.journal,
+          knownVins: [...input.state.knownVins],
+        };
+      }
+      return {
+        ok: true,
+        agentMode: "tools",
+        requestedMode,
+        toolRounds,
+        verdictReached: true,
+        verdict: finished.verdict,
+        relaxedConditions: finished.verdict.relaxedConditions,
+        journal: input.journal,
+        knownVins: [...input.state.knownVins],
+        listingsByVin: input.state.listingsByVin,
+        droppedPicks: finished.dropped,
+      };
+    }
+
+    // Parallel tool execution; every call_id must get a function_call_output.
+    const settled = await Promise.all(
+      calls.map(async (call) => {
+        let args: unknown = {};
+        try {
+          args = JSON.parse(call.arguments || "{}") as unknown;
+        } catch {
+          args = {};
+        }
+
+        if (call.name === "submit_picks") {
+          const checked = validateFindSubmitPicks(args, {
+            listingsByVin: listingFactsFromState(input.state),
+            budgetUsd: input.deps.budgetUsd ?? null,
+          });
+          if (!checked.ok) {
+            input.journal.push({
+              kind: "tool",
+              name: "submit_picks",
+              args,
+              summary: `submit_picks rejected: ${checked.issues.map((i) => i.message).join("; ")}`,
+              ok: false,
+            });
+            return {
+              callId: call.callId,
+              name: "submit_picks" as const,
+              accepted: false as const,
+              output: {
+                ok: false,
+                error: "validation_failed",
+                issues: checked.issues,
+                message: "Fix these issues and call submit_picks again.",
+              },
+            };
+          }
+          input.journal.push({
+            kind: "tool",
+            name: "submit_picks",
+            args,
+            summary: `submit_picks accepted picks=${checked.verdict.picks.length}`,
+            ok: true,
+          });
+          return {
+            callId: call.callId,
+            name: "submit_picks" as const,
+            accepted: true as const,
+            verdict: checked.verdict,
+            output: {
+              ok: true,
+              accepted: true,
+              picks: checked.verdict.picks.length,
+              message: "Verdict accepted.",
+            },
+          };
+        }
+
+        const executed = await executeFindAgentTool(call.name, args, input.toolDeps, input.state);
+        input.journal.push({
+          kind: "tool",
+          name: executed.name,
+          args,
+          summary: executed.summary,
+          ok: executed.ok,
+        });
+        finishMessages.push({
+          role: "user",
+          content: `Tool result for ${executed.name} (call_id=${call.callId}):\n${JSON.stringify(executed.result)}`,
+        });
+        return {
+          callId: call.callId,
+          name: executed.name,
+          accepted: false as const,
+          output: executed.result,
+        };
+      }),
+    );
+
+    toolRounds += calls.length;
+    responsesInput = appendResponsesToolRound({
+      priorInput: responsesInput,
+      responseOutput: output,
+      outputs: settled.map((row) => ({ callId: row.callId, output: row.output })),
+    });
+
+    const accepted = settled.find(
+      (row) => row.name === "submit_picks" && "accepted" in row && row.accepted === true && "verdict" in row,
+    ) as
+      | { callId: string; name: "submit_picks"; accepted: true; verdict: FindAgentVerdict; output: unknown }
+      | undefined;
+    if (accepted) {
+      return {
+        ok: true,
+        agentMode: "tools",
+        requestedMode,
+        toolRounds,
+        verdictReached: true,
+        verdict: accepted.verdict,
+        relaxedConditions: accepted.verdict.relaxedConditions,
+        journal: input.journal,
+        knownVins: [...input.state.knownVins],
+        listingsByVin: input.state.listingsByVin,
+        droppedPicks: [],
+      };
+    }
   }
 
   return {

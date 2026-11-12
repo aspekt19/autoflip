@@ -2,6 +2,7 @@
  * Find-agent application tools — server-side keys only; args validated at the boundary.
  */
 import { bodyFamily, bodyStyleMatches, providerBodyStyleParam } from "@/domain/body-style";
+import { FIND_AGENT_RESULT_SCHEMA } from "@/domain/find-agent";
 import { isPassengerOrLightTruck } from "@/domain/passenger-vehicle";
 import { autodevSearch, listingsSearchUrl, type AutodevDeps } from "@/io/autodev";
 import { complaintsFor, recallsFor, type GovDeps } from "@/io/gov";
@@ -14,6 +15,7 @@ export const FIND_AGENT_TOOL_NAMES = [
   "get_recalls_complaints",
   "get_safety_ratings",
   "get_market_comps",
+  "submit_picks",
 ] as const;
 export type FindAgentToolName = (typeof FIND_AGENT_TOOL_NAMES)[number];
 
@@ -393,6 +395,15 @@ export function findAgentChatTools(): Array<{
         description:
           "Same-model asking-price comps and a rough price band from listings already in hand or a fresh narrow search. Not true sold prices.",
         parameters: compsParams,
+      },
+    },
+    {
+      type: "function",
+      function: {
+        name: "submit_picks",
+        description:
+          "Submit the final find verdict. Code validates real VINs from tool results, offer ≤ budget, and offer ≤ asking. On validation failure the tool returns issues — fix and call submit_picks again. Do not invent cars.",
+        parameters: FIND_AGENT_RESULT_SCHEMA as unknown as Record<string, unknown>,
       },
     },
   ];

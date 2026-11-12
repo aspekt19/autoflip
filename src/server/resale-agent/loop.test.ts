@@ -89,15 +89,16 @@ describe("resale-agent guardrails (domain)", () => {
 });
 
 describe("runResaleAgentLoop", () => {
-  it("tools mode: search injects flipPnl then finish → verdict", async () => {
+  it("tools mode: search injects flipPnl then submit_picks → verdict", async () => {
     let responsesCalls = 0;
     let sawFlipPnl = false;
+    let sawReasoningEcho = false;
     const fetchImpl: typeof fetch = async (input, init) => {
       const url = String(input);
       if (url.includes("/listings")) {
-        // Need a few comps so flip-rank can produce PnL.
+        // Cheap ask on the target VIN vs higher comps → positive code mid-profit.
         const peers = [
-          listing({ priceUsd: 12_500 }),
+          listing({ priceUsd: 11_500, miles: 42000 }),
           listing({ vin: "JTMRWRFV0KJ123457", priceUsd: 17_200, miles: 40000 }),
           listing({ vin: "JTMRWRFV0KJ123458", priceUsd: 17_800, miles: 36000 }),
           listing({ vin: "JTMRWRFV0KJ123459", priceUsd: 16_900, miles: 41000 }),
@@ -114,29 +115,38 @@ describe("runResaleAgentLoop", () => {
         responsesCalls += 1;
         const body = JSON.parse(String(init?.body ?? "{}")) as {
           tools?: Array<{ name?: string }>;
-          input?: string;
+          instructions?: string;
+          input?: unknown;
         };
+        expect(typeof body.instructions).toBe("string");
         expect(body.tools?.some((t) => t.name === "search_listings")).toBe(true);
         expect(body.tools?.some((t) => t.name === "get_flip_pnl")).toBe(true);
+        expect(body.tools?.some((t) => t.name === "submit_picks")).toBe(true);
+        expect(Array.isArray(body.input)).toBe(true);
+
         if (responsesCalls === 1) {
           return new Response(
             JSON.stringify({
               id: "resp_resale_1",
               output: [
+                { type: "reasoning", id: "rs_1", summary: [{ type: "summary_text", text: "Search Civic." }] },
                 {
                   type: "function_call",
+                  id: "fc_1",
                   call_id: "call_search_1",
                   name: "search_listings",
                   arguments: JSON.stringify({
                     make: "Honda",
                     model: "Civic",
                     bodyStyle: null,
+                    bodyFamily: "car",
                     priceMaxUsd: 18000,
                     milesMax: 60000,
                     yearMin: 2018,
                     yearMax: 2022,
                     zip: "78701",
                     radiusMi: 100,
+                    transmission: null,
                     fuel: null,
                     drivetrain: null,
                     sort: null,
@@ -148,44 +158,43 @@ describe("runResaleAgentLoop", () => {
             { status: 200, headers: { "Content-Type": "application/json" } },
           );
         }
-        if (String(body.input ?? "").includes("flipPnl")) sawFlipPnl = true;
+
+        const inputItems = body.input as Array<Record<string, unknown>>;
+        if (inputItems.some((item) => item.type === "reasoning")) sawReasoningEcho = true;
+        const blob = JSON.stringify(inputItems);
+        if (blob.includes("flipPnl")) sawFlipPnl = true;
+
         return new Response(
           JSON.stringify({
             id: "resp_resale_2",
-            output: [{ type: "message", role: "assistant", content: [{ type: "output_text", text: "Ready." }] }],
-          }),
-          { status: 200, headers: { "Content-Type": "application/json" } },
-        );
-      }
-      if (!isServChatCompletionsUrl(url)) {
-        return new Response("{}", { status: 404 });
-      }
-      return new Response(
-        JSON.stringify({
-          id: "chatcmpl-resale-finish",
-          choices: [
-            {
-              finish_reason: "stop",
-              message: {
-                content: JSON.stringify({
+            output: [
+              {
+                type: "function_call",
+                call_id: "call_submit_1",
+                name: "submit_picks",
+                arguments: JSON.stringify({
                   summary: "Negotiate the Civic — code PnL looks positive.",
                   confidence: "high",
                   picks: [
                     {
                       vin: VIN,
                       action: "negotiate",
-                      offerUsd: 15_800,
+                      offerUsd: 11_000,
                       why: "Code flipPnl mid-profit clears target.",
                     },
                   ],
                   relaxedConditions: [{ name: "radius", why: "Opened to 100 miles for inventory." }],
                 }),
               },
-            },
-          ],
-        }),
-        { status: 200, headers: { "Content-Type": "application/json" } },
-      );
+            ],
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        );
+      }
+      if (isServChatCompletionsUrl(url)) {
+        return new Response("{}", { status: 500 });
+      }
+      return new Response("{}", { status: 404 });
     };
 
     const result = await runResaleAgentLoop({
@@ -205,9 +214,10 @@ describe("runResaleAgentLoop", () => {
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     expect(result.agentMode).toBe("tools");
-    expect(result.toolRounds).toBeGreaterThanOrEqual(1);
+    expect(result.toolRounds).toBeGreaterThanOrEqual(2);
     expect(result.verdict.picks[0]?.vin).toBe(VIN);
     expect(sawFlipPnl).toBe(true);
+    expect(sawReasoningEcho).toBe(true);
     expect(result.pnlByVin.size).toBeGreaterThan(0);
     expect(responsesCalls).toBe(2);
   });
@@ -254,12 +264,12 @@ describe("runResaleAgentLoop", () => {
                     yearMin: 2018,
                     yearMax: 2022,
                     zip: "78701",
-                    radiusMi: 50,
+                    radiusMi: 100,
                     fuel: null,
                     drivetrain: null,
                     sort: null,
                     limit: 10,
-                    searchWhy: "Named model flip",
+                    searchWhy: "Named model",
                     summary: null,
                     confidence: null,
                     picks: null,
@@ -272,10 +282,11 @@ describe("runResaleAgentLoop", () => {
           { status: 200, headers: { "Content-Type": "application/json" } },
         );
       }
-      const body = String(init?.body ?? "");
-      if (body.includes("flipPnl") || body.includes("Tool result for search_listings")) {
-        // messages include prior tool result with flipPnl
-      }
+      const body = JSON.parse(String(init?.body ?? "{}")) as {
+        messages?: Array<{ content?: string }>;
+      };
+      const last = body.messages?.[body.messages.length - 1]?.content ?? "";
+      if (last.includes("flipPnl")) sawFlipPnl = true;
       return new Response(
         JSON.stringify({
           id: "chatcmpl-na-2",
@@ -299,16 +310,9 @@ describe("runResaleAgentLoop", () => {
                   sort: null,
                   limit: null,
                   searchWhy: null,
-                  summary: "Take the Civic as a negotiate.",
+                  summary: "Negotiate the Civic.",
                   confidence: "medium",
-                  picks: [
-                    {
-                      vin: VIN,
-                      action: "negotiate",
-                      offerUsd: 15_500,
-                      why: "Asking near comps with code PnL.",
-                    },
-                  ],
+                  picks: [{ vin: VIN, action: "negotiate", offerUsd: 15_500, why: "Code PnL." }],
                   relaxedConditions: [],
                 }),
               },
@@ -319,25 +323,15 @@ describe("runResaleAgentLoop", () => {
       );
     };
 
-    // Intercept to detect PnL in the user message after search.
-    const wrapped: typeof fetch = async (input, init) => {
-      const url = String(input);
-      if (isServChatCompletionsUrl(url) && servCalls >= 1) {
-        const raw = String(init?.body ?? "");
-        if (raw.includes("flipPnl")) sawFlipPnl = true;
-      }
-      return fetchImpl(input, init);
-    };
-
     const result = await runResaleAgentLoop({
-      note: "Civic flip near Austin",
+      note: "Civic flip",
       mode: "next_action",
       deps: {
         servKey: "test-serv",
         autodevKey: "test-autodev",
-        fetch: wrapped,
+        fetch: fetchImpl,
         budgetUsd: 18_000,
-        pnlOptions: { taxState: "TX" },
+        pnlOptions: { taxState: "TX", repairAbility: "unknown" },
         autodev: { cache: new TtlCache<unknown>(), counter: new MemoryCounter() },
       },
       maxRounds: 10,
@@ -347,7 +341,7 @@ describe("runResaleAgentLoop", () => {
     if (!result.ok) return;
     expect(result.agentMode).toBe("next_action");
     expect(result.toolRounds).toBe(1);
-    expect(result.verdict.picks[0]?.action).toBe("negotiate");
     expect(sawFlipPnl).toBe(true);
+    expect(result.verdict.picks[0]?.action).toBe("negotiate");
   });
 });

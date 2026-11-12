@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { applyFindAgentGuardrails, validateFindAgentVerdict } from "@/domain/find-agent";
+import { applyFindAgentGuardrails, validateFindAgentVerdict, validateFindSubmitPicks } from "@/domain/find-agent";
 import { TtlCache } from "@/io/cache";
 import { MemoryCounter } from "@/io/quota";
 import type { Listing } from "@/domain/types";
@@ -100,12 +100,40 @@ describe("find-agent guardrails", () => {
     expect(guarded.verdict.picks).toHaveLength(1);
     expect(guarded.verdict.picks[0]?.offerUsd).toBe(25_000);
   });
+
+  it("submit_picks rejects invented VIN and over-asking offer", () => {
+    const listings = new Map([[VIN, { vin: VIN, priceUsd: 24_500 }]]);
+    const badVin = validateFindSubmitPicks(
+      {
+        summary: "Nope.",
+        confidence: "low",
+        picks: [{ vin: "INVENTEDVIN000001", label: "Fake", action: "buy", offerUsd: 10_000, why: "x" }],
+        relaxedConditions: [],
+        passReason: null,
+      },
+      { listingsByVin: listings, budgetUsd: 26_000 },
+    );
+    expect(badVin.ok).toBe(false);
+
+    const overAsk = validateFindSubmitPicks(
+      {
+        summary: "Over ask.",
+        confidence: "medium",
+        picks: [{ vin: VIN, label: "RAV4", action: "buy", offerUsd: 26_000, why: "x" }],
+        relaxedConditions: [],
+        passReason: null,
+      },
+      { listingsByVin: listings, budgetUsd: 30_000 },
+    );
+    expect(overAsk.ok).toBe(false);
+  });
 });
 
 describe("runFindAgentLoop", () => {
-  it("tools mode: Responses function_call round then chat finish JSON → verdict", async () => {
+  it("tools mode: Responses parallel calls + reasoning kept + submit_picks", async () => {
     let responsesCalls = 0;
-    let chatCalls = 0;
+    let sawReasoningEcho = false;
+    let sawBothOutputs = false;
     const fetchImpl: typeof fetch = async (input, init) => {
       const url = String(input);
       if (url.includes("/listings")) {
@@ -119,30 +147,61 @@ describe("runFindAgentLoop", () => {
         const body = JSON.parse(String(init?.body ?? "{}")) as {
           tools?: Array<{ type?: string; name?: string }>;
           reasoning?: { effort?: string };
-          input?: string;
+          instructions?: string;
+          input?: unknown;
         };
-        expect(Array.isArray(body.tools) && body.tools.length > 0).toBe(true);
-        expect(body.tools?.[0]?.name).toBeTruthy();
+        expect(typeof body.instructions).toBe("string");
+        expect(body.instructions!.length).toBeGreaterThan(0);
+        expect(Array.isArray(body.tools) && body.tools.some((t) => t.name === "submit_picks")).toBe(true);
         expect(body.reasoning?.effort).toBe("low");
+        expect(Array.isArray(body.input)).toBe(true);
+
         if (responsesCalls === 1) {
           return new Response(
             JSON.stringify({
               id: "resp_tools_1",
               output: [
+                { type: "reasoning", id: "rs_1", summary: [{ type: "summary_text", text: "Try Toyota + Honda." }] },
                 {
                   type: "function_call",
-                  call_id: "call_search_1",
+                  id: "fc_1",
+                  call_id: "call_search_toyota",
                   name: "search_listings",
                   arguments: JSON.stringify({
                     make: "Toyota",
                     model: "RAV4",
                     bodyStyle: null,
+                    bodyFamily: "suv",
                     priceMaxUsd: 26000,
                     milesMax: 60000,
                     yearMin: 2019,
                     yearMax: 2022,
                     zip: "33101",
                     radiusMi: 100,
+                    transmission: null,
+                    fuel: null,
+                    drivetrain: null,
+                    sort: null,
+                    limit: 10,
+                  }),
+                },
+                {
+                  type: "function_call",
+                  id: "fc_2",
+                  call_id: "call_search_honda",
+                  name: "search_listings",
+                  arguments: JSON.stringify({
+                    make: "Honda",
+                    model: "CR-V",
+                    bodyStyle: null,
+                    bodyFamily: "suv",
+                    priceMaxUsd: 26000,
+                    milesMax: 60000,
+                    yearMin: 2019,
+                    yearMax: 2022,
+                    zip: "33101",
+                    radiusMi: 100,
+                    transmission: null,
                     fuel: null,
                     drivetrain: null,
                     sort: null,
@@ -154,49 +213,59 @@ describe("runFindAgentLoop", () => {
             { status: 200, headers: { "Content-Type": "application/json" } },
           );
         }
-        // Second Responses turn: model stops calling tools after seeing results in input.
-        expect(String(body.input ?? "")).toContain("function_call_output");
+
+        const inputItems = body.input as Array<Record<string, unknown>>;
+        if (inputItems.some((item) => item.type === "reasoning")) sawReasoningEcho = true;
+        const outs = inputItems.filter((item) => item.type === "function_call_output");
+        const callIds = outs.map((o) => o.call_id).sort();
+        if (callIds.includes("call_search_honda") && callIds.includes("call_search_toyota")) {
+          sawBothOutputs = true;
+        }
+
+        if (responsesCalls === 2) {
+          return new Response(
+            JSON.stringify({
+              id: "resp_tools_2",
+              output: [
+                {
+                  type: "function_call",
+                  id: "fc_submit",
+                  call_id: "call_submit_1",
+                  name: "submit_picks",
+                  arguments: JSON.stringify({
+                    summary: "Buy the RAV4 in budget.",
+                    confidence: "high",
+                    picks: [
+                      {
+                        vin: VIN,
+                        label: "2021 Toyota RAV4",
+                        action: "buy",
+                        offerUsd: 24_000,
+                        why: "Clean asking price under budget.",
+                      },
+                    ],
+                    relaxedConditions: [{ name: "radius", why: "Opened to 100 miles for inventory." }],
+                    passReason: null,
+                  }),
+                },
+              ],
+            }),
+            { status: 200, headers: { "Content-Type": "application/json" } },
+          );
+        }
+
         return new Response(
           JSON.stringify({
-            id: "resp_tools_2",
-            output: [{ type: "message", role: "assistant", content: [{ type: "output_text", text: "Ready." }] }],
+            id: "resp_tools_3",
+            output: [{ type: "message", role: "assistant", content: [{ type: "output_text", text: "Done." }] }],
           }),
           { status: 200, headers: { "Content-Type": "application/json" } },
         );
       }
-      if (!isServChatCompletionsUrl(url)) {
-        return new Response("{}", { status: 404 });
+      if (isServChatCompletionsUrl(url)) {
+        return new Response("{}", { status: 500 });
       }
-      chatCalls += 1;
-      // Finish / repair structured turns on chat json_schema
-      return new Response(
-        JSON.stringify({
-          id: "chatcmpl-finish-1",
-          choices: [
-            {
-              finish_reason: "stop",
-              message: {
-                content: JSON.stringify({
-                  summary: "Buy the RAV4 in budget.",
-                  confidence: "high",
-                  picks: [
-                    {
-                      vin: VIN,
-                      label: "2021 Toyota RAV4",
-                      action: "buy",
-                      offerUsd: 24_000,
-                      why: "Clean asking price under budget.",
-                    },
-                  ],
-                  relaxedConditions: [{ name: "radius", why: "Opened to 100 miles for inventory." }],
-                  passReason: null,
-                }),
-              },
-            },
-          ],
-        }),
-        { status: 200, headers: { "Content-Type": "application/json" } },
-      );
+      return new Response("{}", { status: 404 });
     };
 
     const result = await runFindAgentLoop({
@@ -215,16 +284,144 @@ describe("runFindAgentLoop", () => {
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     expect(result.agentMode).toBe("tools");
-    expect(result.toolRounds).toBeGreaterThanOrEqual(1);
+    expect(result.toolRounds).toBeGreaterThanOrEqual(3);
     expect(result.verdict.picks[0]?.vin).toBe(VIN);
     expect(result.relaxedConditions[0]?.name).toBe("radius");
+    expect(sawReasoningEcho).toBe(true);
+    expect(sawBothOutputs).toBe(true);
     expect(responsesCalls).toBe(2);
-    expect(chatCalls).toBeGreaterThanOrEqual(1);
+  });
+
+  it("tools mode: rejected submit_picks returns issues then accepts repair", async () => {
+    let responsesCalls = 0;
+    const fetchImpl: typeof fetch = async (input, init) => {
+      const url = String(input);
+      if (url.includes("/listings")) {
+        return new Response(JSON.stringify(autodevListingsPayload([listing()])), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+      if (isServResponsesUrl(url)) {
+        responsesCalls += 1;
+        if (responsesCalls === 1) {
+          return new Response(
+            JSON.stringify({
+              id: "resp_1",
+              output: [
+                {
+                  type: "function_call",
+                  call_id: "call_search_1",
+                  name: "search_listings",
+                  arguments: JSON.stringify({
+                    make: "Toyota",
+                    model: "RAV4",
+                    bodyStyle: null,
+                    bodyFamily: null,
+                    priceMaxUsd: 26000,
+                    milesMax: null,
+                    yearMin: null,
+                    yearMax: null,
+                    zip: "33101",
+                    radiusMi: 50,
+                    transmission: null,
+                    fuel: null,
+                    drivetrain: null,
+                    sort: null,
+                    limit: 5,
+                  }),
+                },
+              ],
+            }),
+            { status: 200, headers: { "Content-Type": "application/json" } },
+          );
+        }
+        if (responsesCalls === 2) {
+          return new Response(
+            JSON.stringify({
+              id: "resp_2",
+              output: [
+                {
+                  type: "function_call",
+                  call_id: "call_submit_bad",
+                  name: "submit_picks",
+                  arguments: JSON.stringify({
+                    summary: "Invented.",
+                    confidence: "high",
+                    picks: [
+                      {
+                        vin: "INVENTEDVIN000001",
+                        label: "Fake",
+                        action: "buy",
+                        offerUsd: 10_000,
+                        why: "Invented.",
+                      },
+                    ],
+                    relaxedConditions: [],
+                    passReason: null,
+                  }),
+                },
+              ],
+            }),
+            { status: 200, headers: { "Content-Type": "application/json" } },
+          );
+        }
+        const body = JSON.parse(String(init?.body ?? "{}")) as { input?: Array<Record<string, unknown>> };
+        const lastOut = [...(body.input ?? [])].reverse().find((item) => item.type === "function_call_output");
+        expect(String(lastOut?.output ?? "")).toContain("validation_failed");
+        return new Response(
+          JSON.stringify({
+            id: "resp_3",
+            output: [
+              {
+                type: "function_call",
+                call_id: "call_submit_ok",
+                name: "submit_picks",
+                arguments: JSON.stringify({
+                  summary: "Fixed.",
+                  confidence: "medium",
+                  picks: [
+                    {
+                      vin: VIN,
+                      label: "2021 Toyota RAV4",
+                      action: "negotiate",
+                      offerUsd: 23_000,
+                      why: "Real VIN.",
+                    },
+                  ],
+                  relaxedConditions: [],
+                  passReason: null,
+                }),
+              },
+            ],
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        );
+      }
+      return new Response("{}", { status: 404 });
+    };
+
+    const result = await runFindAgentLoop({
+      note: "RAV4",
+      mode: "tools",
+      deps: {
+        servKey: "test-serv",
+        autodevKey: "test-autodev",
+        fetch: fetchImpl,
+        budgetUsd: 26_000,
+        autodev: { cache: new TtlCache<unknown>(), counter: new MemoryCounter() },
+      },
+      maxRounds: 10,
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.verdict.picks[0]?.vin).toBe(VIN);
+    expect(responsesCalls).toBe(3);
   });
 
   it("next_action mode: search then finish", async () => {
     let servCalls = 0;
-    const fetchImpl: typeof fetch = async (input, init) => {
+    const fetchImpl: typeof fetch = async (input) => {
       const url = String(input);
       if (url.includes("/listings")) {
         return new Response(JSON.stringify(autodevListingsPayload([listing()])), {

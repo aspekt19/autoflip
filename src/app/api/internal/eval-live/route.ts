@@ -14,7 +14,8 @@ import { liveKeysFromEnv } from "../../../../../eval/live/run-one";
 import { bearer, secretMatch } from "@/server/secrets";
 
 export const dynamic = "force-dynamic";
-export const maxDuration = 300;
+/** Agentic 8-query batch (5 Find + 3 Resale, concurrency 4) needs headroom beyond a single decide call. */
+export const maxDuration = 800;
 
 type Body = {
   seed?: unknown;
