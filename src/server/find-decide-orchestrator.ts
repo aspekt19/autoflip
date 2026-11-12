@@ -26,7 +26,7 @@ import {
 import { counterStore } from "@/io/store";
 import { reserveTotalCall } from "@/io/persistent-quota";
 import type { ServDeps } from "@/server/serv";
-import { DECISION_PROOF_SCHEMA, type DecisionProofRecord } from "@/domain/decision-proof-view";
+import { buildDecisionProofRecord, type DecisionProofRecord } from "@/domain/decision-proof-record";
 
 export type FindAgentLoopMeta = {
   agentMode: "tools" | "next_action";
@@ -321,20 +321,24 @@ export async function runFindDecideOrchestrator(
         .filter((e): e is Extract<typeof e, { kind: "serv" }> => e.kind === "serv")
         .map((e) => e.responseId)
         .filter((id): id is string => typeof id === "string" && id.length > 0);
+      // lemonless.decision_proof.v1 requires a ≥32-char digest; never ship a raw
+      // agent:mode:rounds string (e2e isDecisionProofRecord filters those out → "got none").
       const proofRecords: DecisionProofRecord[] = [
-        {
-          schemaVersion: DECISION_PROOF_SCHEMA,
+        buildDecisionProofRecord({
           purpose: "find_agent_loop",
           rubricId: "find_agent_loop",
           status: "ok",
           servResponseId: lastServ && lastServ.kind === "serv" ? lastServ.responseId : null,
           model: "gpt-6.1-sol",
-          timestamp: new Date().toISOString(),
-          inputsDigest: `agent:${agent.agentMode}:${agent.toolRounds}:dropped=${agent.droppedPicks.length}`,
+          inputs: {
+            agentMode: agent.agentMode,
+            toolRounds: agent.toolRounds,
+            droppedPicks: agent.droppedPicks.length,
+            verdictReached: agent.verdictReached,
+            pickVins: mapped.shortlistKeys,
+          },
           verdict: mapped.agentVerdict.verdict,
-          clampResult: null,
-          reason: null,
-        },
+        }),
       ];
       return {
         ok: true,

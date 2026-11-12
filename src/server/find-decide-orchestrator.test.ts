@@ -159,5 +159,9 @@ describe("runFindDecideOrchestrator (offline)", () => {
     expect(result.decideSource).toBe("SERV");
     expect(result.agentLoop?.verdictReached).toBe(true);
     expect(result.bestDeal?.pick?.vin ?? result.pickAgentVerdict?.pick?.key).toBeTruthy();
+    const settle = result.pickProofRecords.find((row) => row.purpose === "find_agent_loop");
+    expect(settle).toBeTruthy();
+    expect(settle?.status).toBe("ok");
+    expect(settle?.inputsDigest.length).toBeGreaterThanOrEqual(32);
   });
 });

@@ -159,9 +159,42 @@ async function main() {
         `/api/find/decide failed (${decided.res.status}): ${JSON.stringify(decided.body)}`,
       );
     }
-    const picks = decided.body.pickProofRecords;
-    settleProof = assertProof(picks, "find_decide", "/api/find/decide");
-    console.log("   find_decide", settleProof.status, settleProof.servResponseId ?? settleProof.reason);
+    // Classic find_decide proof is gone — agent loop is the only settle path.
+    // Retry a few times when the loop pauses under the request time budget.
+    let decideBody = decided.body;
+    for (let hop = 0; hop < 6; hop += 1) {
+      const loop = decideBody.loop as { continue?: boolean } | undefined;
+      const picks = decideBody.pickProofRecords;
+      if (Array.isArray(picks) && picks.length > 0) {
+        settleProof = assertProof(picks, "find_agent_loop", "/api/find/decide");
+        break;
+      }
+      if (!loop?.continue) {
+        throw new Error(
+          `/api/find/decide settled without find_agent_loop proof: ${JSON.stringify({
+            pickProofRecords: picks,
+            loop,
+          })}`,
+        );
+      }
+      const nextToken =
+        typeof decideBody.searchContextToken === "string" ? decideBody.searchContextToken : token;
+      console.log(`   agent loop continue hop ${hop + 1} — re-POST /api/find/decide`);
+      const again = await api(jar, "/api/find/decide", {
+        method: "POST",
+        body: JSON.stringify({ searchContextToken: nextToken }),
+      });
+      if (!again.res.ok || !again.body.ok) {
+        throw new Error(
+          `/api/find/decide continue hop ${hop} failed (${again.res.status}): ${JSON.stringify(again.body)}`,
+        );
+      }
+      decideBody = again.body;
+    }
+    if (!settleProof) {
+      throw new Error("/api/find/decide never returned find_agent_loop proof after continue hops");
+    }
+    console.log("   find_agent_loop", settleProof.status, settleProof.servResponseId ?? settleProof.reason);
     if (process.env.E2E_REQUIRE_FIND_SETTLE_OK === "1") {
       if (settleProof.status !== "ok" || !settleProof.servResponseId) {
         throw new Error(

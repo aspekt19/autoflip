@@ -150,6 +150,8 @@ export function decisionPurposeLabel(purpose: string): string {
       return "Triage shortlist";
     case "find_decide":
       return "SERV decision";
+    case "find_agent_loop":
+      return "SERV agent decision";
     case "find_challenge":
       return "Second check";
     case "resale_plan_search":
@@ -202,6 +204,11 @@ export function formatDecisionRecordConsumerLine(record: DecisionProofRecord): s
       return verdict
         ? `Our AI’s decision: ${verdict}.`
         : "Our AI reviewed the shortlist and chose what to do next.";
+    case "find_agent_loop":
+      if (failed) return "Our AI could not finish choosing a car.";
+      return verdict
+        ? `Our AI’s decision: ${verdict}.`
+        : "Our AI searched and chose what to do next.";
     case "find_challenge":
       if (failed) return "The second AI check did not finish.";
       if (verdict && /agree|confirm|same/i.test(verdict)) return "Second AI check agreed.";
