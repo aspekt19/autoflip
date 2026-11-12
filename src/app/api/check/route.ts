@@ -13,7 +13,12 @@ import {
   readCheckDelivery,
   storeCheckDelivery,
 } from "@/server/check/check-delivery";
-import { checkResultIsCacheable, runCheck, type CheckRunInput } from "@/server/check/run-check";
+import {
+  checkResultIsCacheable,
+  hasDeliveredServVerdict,
+  runCheck,
+  type CheckRunInput,
+} from "@/server/check/run-check";
 import { runtimeDeps } from "@/server/deps";
 import { balanceOf, requireVerifiedAccountForChecks, spendCredit } from "@/server/session";
 
@@ -95,9 +100,9 @@ async function rememberVinCheck(input: {
  * Requires verified Auth.js account.
  *
  * Settlement rule: free-check slots and report credits are reserved/spent only
- * after a successful delivered result. Failed, blocked, and redirected checks
- * never consume. Capability is gated up front so exhausted accounts are not
- * kept waiting on a listing fetch.
+ * after a successful delivered SERV shopper verdict. Failed, blocked, SERV-less,
+ * and redirected checks never consume. Capability is gated up front so exhausted
+ * accounts are not kept waiting on a listing fetch.
  *
  * Billing honesty: a second delivery of the same vehicle in the same month
  * returns the saved result without claiming a new free-check or credit spend.
@@ -262,6 +267,22 @@ export async function POST(request: Request) {
       );
     }
 
+    // Charge only when SERV delivered a shopper verdict (not code screening).
+    if (!hasDeliveredServVerdict(result.result.agentVerdict)) {
+      return Response.json(
+        {
+          error: "serv_verdict_unavailable",
+          message:
+            "Shopper verdict did not finish — nothing was charged. Retry when a fresh SERV decide step can complete.",
+          freeChecks: slots.view,
+          creditCharged: false,
+          spentCredit: false,
+          usedFreeCheck: false,
+        },
+        { status: 503 },
+      );
+    }
+
     const vinKey = vinKeyForInput(input, result.result.vin);
     const deliveryKey = checkDeliveryKey(access.id, month, vinKey);
     if (!forceFresh) {
@@ -288,7 +309,7 @@ export async function POST(request: Request) {
       }
     }
 
-    // Deliverable exists — now reserve free slot or spend a credit.
+    // SERV verdict delivered — now reserve free slot or spend a credit.
     freeCheckKey = `free-check:check:${access.id}:${month}:${vinKey}`;
     // Order: free monthly check first, then report credit.
     // reserveFreeCheck is preferred whenever a free slot remains; credit only when

@@ -46,7 +46,10 @@ export type SearchListingsArgs = {
   fuel?: string;
   drivetrain?: string;
   sort?: string;
+  /** Provider page size for this call (SERV-chosen; capped by LIMIT_MAX). */
   limit?: number;
+  /** 1-based provider page — SERV paginates so no inventory page stays hidden. */
+  page?: number;
 };
 
 export type SearchFunnelStep = {
@@ -128,8 +131,10 @@ export type FindAgentToolDeps = {
   seedListings?: readonly Listing[];
 };
 
-const LISTING_CAP = 12;
-const LIMIT_MAX = 20;
+/** Default page size when SERV omits limit — not a silent hide-rows cap. */
+const LISTING_DEFAULT = 20;
+/** Sane max rows per provider call; SERV paginates via `page` for the rest. */
+const LIMIT_MAX = 50;
 
 function asTrimmed(value: unknown, max = 80): string | null {
   if (typeof value !== "string") return null;
@@ -169,13 +174,25 @@ export function parseZipArg(value: unknown): ToolArgResult<string | undefined> {
 }
 
 export function parseLimitArg(value: unknown): ToolArgResult<number> {
-  if (value == null || value === "") return { ok: true, value: 12 };
+  if (value == null || value === "") return { ok: true, value: LISTING_DEFAULT };
   const n = asPositiveInt(value);
   if (n == null) {
-    return { ok: false, issues: [{ field: "limit", message: "limit must be a positive integer ≤ 20." }] };
+    return {
+      ok: false,
+      issues: [{ field: "limit", message: `limit must be a positive integer ≤ ${LIMIT_MAX}.` }],
+    };
   }
   if (n > LIMIT_MAX) {
     return { ok: false, issues: [{ field: "limit", message: `limit must be ≤ ${LIMIT_MAX}.` }] };
+  }
+  return { ok: true, value: n };
+}
+
+export function parsePageArg(value: unknown): ToolArgResult<number | undefined> {
+  if (value == null || value === "") return { ok: true, value: undefined };
+  const n = asPositiveInt(value);
+  if (n == null) {
+    return { ok: false, issues: [{ field: "page", message: "page must be a positive integer ≥ 1." }] };
   }
   return { ok: true, value: n };
 }
@@ -190,6 +207,8 @@ export function parseSearchListingsArgs(raw: unknown): ToolArgResult<SearchListi
   if (!zip.ok) issues.push(...zip.issues);
   const limit = parseLimitArg(row.limit);
   if (!limit.ok) issues.push(...limit.issues);
+  const page = parsePageArg(row.page);
+  if (!page.ok) issues.push(...page.issues);
 
   const yearMin = row.yearMin == null || row.yearMin === "" ? undefined : asYear(row.yearMin);
   const yearMax = row.yearMax == null || row.yearMax === "" ? undefined : asYear(row.yearMax);
@@ -242,7 +261,8 @@ export function parseSearchListingsArgs(raw: unknown): ToolArgResult<SearchListi
       fuel: asTrimmed(row.fuel, 40) ?? undefined,
       drivetrain: asTrimmed(row.drivetrain, 40) ?? undefined,
       sort: asTrimmed(row.sort, 40) ?? undefined,
-      limit: limit.ok ? limit.value : 12,
+      limit: limit.ok ? limit.value : LISTING_DEFAULT,
+      page: page.ok ? page.value : undefined,
     },
   };
 }
@@ -294,7 +314,7 @@ export function parseMarketCompsArgs(raw: unknown): ToolArgResult<MarketCompsArg
       priceMaxUsd,
       zip: zip.ok ? zip.value : undefined,
       radiusMi,
-      limit: limit.ok ? limit.value : 12,
+      limit: limit.ok ? limit.value : LISTING_DEFAULT,
     },
   };
 }
@@ -322,7 +342,14 @@ export function findAgentChatTools(): Array<{
       fuel: { type: ["string", "null"] },
       drivetrain: { type: ["string", "null"] },
       sort: { type: ["string", "null"] },
-      limit: { type: ["number", "null"] },
+      limit: {
+        type: ["number", "null"],
+        description: `Page size for this call (max ${LIMIT_MAX}). Omit for default ${LISTING_DEFAULT}.`,
+      },
+      page: {
+        type: ["number", "null"],
+        description: "1-based provider page. Request page+1 when truncated is true so nothing stays hidden.",
+      },
     },
     required: [
       "make",
@@ -340,6 +367,7 @@ export function findAgentChatTools(): Array<{
       "drivetrain",
       "sort",
       "limit",
+      "page",
     ],
   };
   const mmyParams = {
@@ -373,7 +401,7 @@ export function findAgentChatTools(): Array<{
       function: {
         name: "search_listings",
         description:
-          "Search live dealer listings (asking prices). Returns a per-filter funnel so you can see which condition hit zero and relax it. Never send Sedan/Coupe/Hatch as provider body — use bodyFamily=car (post-filter). transmission/fuel/drivetrain are post-filters. Sell-window and profit are NOT inventory filters. If provider_raw=0 with a car body requested, retry without body before raising budget.",
+          "Search live dealer listings (asking prices). Pass limit/page for pagination (max 50 per call); when truncated=true request the next page so nothing stays hidden. Returns unfiltered provider rows plus an observational funnel. Never send Sedan/Coupe/Hatch as provider body — use bodyFamily=car. Sell-window and profit are NOT inventory filters. If provider_raw=0 with a car body requested, retry without body before raising budget.",
         parameters: searchParams,
       },
     },
@@ -453,10 +481,12 @@ export function listingToCard(listing: Listing): ListingCard | null {
   };
 }
 
-export function capListingCards(listings: readonly Listing[], limit = LISTING_CAP): ListingCard[] {
+/** Map listings → cards for the SERV-requested page size (not a silent hide-rows cap). */
+export function capListingCards(listings: readonly Listing[], limit = LISTING_DEFAULT): ListingCard[] {
   const out: ListingCard[] = [];
+  const max = Math.min(Math.max(1, limit), LIMIT_MAX);
   for (const row of listings) {
-    if (out.length >= limit) break;
+    if (out.length >= max) break;
     const card = listingToCard(row);
     if (card) out.push(card);
   }
@@ -503,7 +533,8 @@ function toListingQuery(args: SearchListingsArgs): ListingQuery {
     zip: args.zip,
     distanceMiles: args.radiusMi,
     sort: args.sort,
-    limit: Math.min(args.limit ?? 12, LIMIT_MAX),
+    limit: Math.min(args.limit ?? LISTING_DEFAULT, LIMIT_MAX),
+    page: args.page != null && args.page > 1 ? args.page : undefined,
   };
 }
 
@@ -739,11 +770,12 @@ export async function executeFindAgentTool(
       };
     }
     rememberListings(state, proxy.listings);
-    const pageLimit = Math.min(parsed.value.limit ?? LISTING_CAP, LISTING_CAP);
+    // Honor SERV page size (≤ LIMIT_MAX). Do not shrink below the requested page.
+    const pageLimit = Math.min(parsed.value.limit ?? LISTING_DEFAULT, LIMIT_MAX);
     const cars = capListingCards(proxy.listings, pageLimit);
     const relaxHints = relaxHintsFromFunnel(funnel, parsed.value);
     const totalReturned = proxy.listings.length;
-    const truncated = search.listings.length >= (query.limit ?? LIMIT_MAX);
+    const truncated = search.listings.length >= pageLimit;
     const zeroStep = [...funnel].reverse().find((s) => s.count === 0);
     const funnelKeptCount = funnelKept.length;
     const summary =
@@ -775,9 +807,10 @@ export async function executeFindAgentTool(
         cars,
         relaxHints,
         truncated,
+        nextPage: truncated ? (parsed.value.page ?? 1) + 1 : null,
         cached: search.cached,
         honesty:
-          "Asking prices only. Thin proxy: unfiltered provider rows + observational funnel — code does not drop rows for product decisions. Sell-window and profit floor are ranking/verdict, never silent deletes. If provider_raw=0 with a car body, retry omit_body before raise_price.",
+          "Asking prices only. Thin proxy: unfiltered provider rows + observational funnel — code does not drop rows for product decisions. Paginate with page/limit when truncated=true. Sell-window and profit floor are ranking/verdict, never silent deletes. If provider_raw=0 with a car body, retry omit_body before raise_price.",
       },
       summary,
     };
@@ -910,7 +943,7 @@ export async function executeFindAgentTool(
       }
     }
 
-    const cars = capListingCards(listings, Math.min(args.limit ?? LISTING_CAP, LISTING_CAP));
+    const cars = capListingCards(listings, Math.min(args.limit ?? LISTING_DEFAULT, LIMIT_MAX));
     const prices = cars.map((c) => c.price).filter((p): p is number => typeof p === "number" && p > 0);
     const band = priceBand(prices);
     return {

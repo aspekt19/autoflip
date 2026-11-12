@@ -9,9 +9,9 @@
 - Code after SERV: validate listing in results, VIN/price/mileage, budget, math only; else repair to SERV.
 - Charge only on chosen flip/car or explained nothing-fits.
 
-**Format:** `path:line` — what it does — proposed fate: `removed` | `moved into SERV tool param` | `kept as guardrail` (justification)
+**Format:** `path:line` — what it does — fate: `removed` (target) | `still present` | `moved into SERV tool param` | `kept as guardrail` (justification)
 
-Line numbers are from `cursor/serv-boundary-structural-3e9b` at audit time; prefer symbols if they drift.
+`removed` in this partial is a **target** unless the main audit Verified table marks the cluster gone. Prefer symbols if line numbers drift.
 
 ---
 
@@ -73,9 +73,9 @@ Line numbers are from `cursor/serv-boundary-structural-3e9b` at audit time; pref
 
 ## 3. Resale agent domain guardrails / mode defaults
 
-- `src/domain/resale-agent.ts:53` — `RESALE_AGENT_LOOP` default **`auto`** (on when SERV key present) — **kept as guardrail** (feature flag, not shopper constraint).
-- `src/domain/resale-agent.ts:58-60` — e2e stub forces classic path unless explicitly on — **kept as guardrail** (test harness).
-- `src/domain/resale-agent.ts:74` — `RESALE_AGENT_MODE` default **`auto`** — **kept as guardrail**.
+- `src/domain/resale-agent.ts` — `RESALE_AGENT_LOOP` off switch — **removed** (verified: env ignored; agent always when keyed).
+- `src/domain/resale-agent.ts` — e2e stub (`LEMONLESS_E2E_STUB=1`) forces classic path — **kept as guardrail** (test harness).
+- `src/domain/resale-agent.ts` — `RESALE_AGENT_MODE` default **`tools`/`auto`** — **kept as guardrail**.
 - `src/domain/resale-agent.ts:257` — default pick `why` invents copy when missing — **kept as guardrail** (presentation fill).
 - `src/domain/resale-agent.ts:301-347` (`applyResaleAgentGuardrails`) — **drops** invented VINs; **clamps** offer to budget; **clamps** buy/negotiate/needs_inspection → pass on negative mid-profit — VIN allowlist + budget/math clamps **kept as guardrail**; silent drop/clamp path is superseded by `validateResaleSubmitPicks` on tools mode — prefer repair-only (**kept as guardrail** with repair loop; do not silent-drop in tools mode).
 - `src/domain/resale-agent.ts:359-418` (`validateResaleSubmitPicks`) — rejects invented VIN, offer > budget, offer > asking, buy/negotiate on negative mid — **kept as guardrail** (validate + repair to SERV).
@@ -189,8 +189,8 @@ Line numbers are from `cursor/serv-boundary-structural-3e9b` at audit time; pref
 ## 9. Resale job + credit + agent map
 
 - `src/server/resale-job.ts:51` / deadline per step — **kept as guardrail**.
-- `src/server/resale-job.ts:812-918` — agent loop preferred on step 2; on success jumps to final step + `chargeAndStoreDelivery` — charges even when `publishedBest` null / emptyReason set — **removed** unless SERV produced explained nothing-fits (map currently sets emptyReason without requiring relaxedConditions) — align charge gate.
-- `src/server/resale-job.ts:919` — fallback to classic inventory on agent failure — **moved into SERV** retry; classic path reintroduces code rank (**removed** long-term).
+- `src/server/resale-job.ts` — agent loop preferred on step 2; charge gate aligned to chosen / documented nothing-fits — **kept as guardrail** (billing) once outcome gate holds.
+- `src/server/resale-job.ts` — fallback to classic inventory on agent failure (`job_agent_loop_fallback`) — **removed** (verified: returns `agent_loop_failed`; no fallthrough). Classic `runResaleSearch` when e2e/no key — **still present**.
 - `src/server/resale-job.ts:395-428` — debit on delivery; unpaid still shows result — **kept as guardrail** (billing honesty).
 - `src/server/resale-agent/map-to-settle.ts:41` — pads candidates from pnl map up to **12** — **moved into SERV**.
 - `src/server/resale-agent/map-to-settle.ts:62-70` — picks first non-pass as best; alts slice 4 — presentation after SERV **kept as guardrail**.
@@ -212,7 +212,7 @@ Line numbers are from `cursor/serv-boundary-structural-3e9b` at audit time; pref
 - `src/domain/watch-queries.ts:5-18` — `MAX_PERSONAL_MODELS = 6`; broad flip invents Toyota Corolla/RAV4/Camry × `FLIP_SCAN_PAGES=3` — **removed** invented models as constraints; **moved into SERV**.
 - `src/domain/watch-queries.ts:72-75` — price-drop threshold $300 and 3% — **kept as guardrail** (seen-book refresh policy) or **moved into SERV** if alert policy should be model-owned.
 - `src/domain/radar-watch.ts:220-249` (`hardReject`) — make/model/price/year/miles/body/radius/new-car/current-year rejects — user-set fields **kept as guardrail** validate; **new-car / current-year** product rules **kept as guardrail**; do not apply unset optional fields.
-- `src/domain/radar-watch.ts:276-323` (`prefilterListing`) — flip sanity + margin≥0 + minProfit; personal only good/fair tone — **rank/filter-to-drop before SERV** — **removed**; pass candidates + facts to SERV review.
+- `src/domain/radar-watch.ts` (`prefilterListing`) — flip sanity + margin≥0 + minProfit; personal only good/fair tone — **rank/filter-to-drop before SERV** — **still present** (target: remove; pass candidates + facts to SERV review).
 - `src/domain/radar-watch.ts:256-260` — roughMargin uses assumption recon/title/friction — **kept as guardrail** (labeled math).
 - `src/domain/radar-watch.ts:363-366` — `intervalHours` clamps 3–24h from monthly budget — **kept as guardrail** (ops quota).
 - `src/domain/radar-watch.ts:381+` (`rankPasses`) — ranks personal passes — **moved into SERV** for alert choice.

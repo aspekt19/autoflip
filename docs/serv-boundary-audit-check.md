@@ -11,7 +11,8 @@
 - Charge only on a delivered verdict; refund / never settle otherwise.
 
 **Fate key:**
-- `removed` — code should stop deciding this; SERV owns it (or honesty fail / repair).
+- `removed` — **target** disposition (SERV owns it, or honesty fail / repair). Not verified gone unless the main audit Verified table says so.
+- `still present` — verified still reachable in production code (honest status).
 - `moved into SERV` — keep capability as SERV input/tool evidence or SERV-owned param, not a silent code decision.
 - `kept as guardrail` — post-SERV validation / money math / auth / infra / fetch hygiene; justification required.
 
@@ -84,7 +85,7 @@ These paths create or reshape the published Check `verdict` / `verdictLabel` / b
 
 - `src/domain/price-evaluation.ts:108-111` — `verdictFromPriceGap` → good/fair/high tone — fate: **removed** as Check **verdict** owner; fair-value **math** may stay as exact numbers passed to SERV (**moved into SERV** as evidence fields only).
 - `src/domain/price-badge.ts:52+` — wraps evaluation into badge for UI/report — fate: **moved into SERV** for decision use; display badge OK only if non-authoritative after SERV owns action.
-- `src/server/check/run-check.ts:606-621` (`verdictFromBadge`) — sold/stop → `walk_away`; badge tone → `good_deal`/`fair`/`overpriced`; else `insufficient_data` — fate: **removed** (core code verdict shortcut).
+- `src/server/check/run-check.ts` (`verdictFromBadge`) — sold/stop → `walk_away`; badge tone → `good_deal`/`fair`/`overpriced`; else `insufficient_data` — fate: **still present** (core code verdict shortcut; target: remove).
 - `src/domain/listing/red-flags.ts:15+` — phrase/schema scans produce stop/caution flags — fate: **moved into SERV** as raw listing text + structured extract evidence; code must not map flags → final action. Post-SERV validate that cited flags exist in fetched text (**kept as guardrail** for citation grounding).
 - `src/server/check/run-check.ts:740-791` / `1093-1111` — injects odometer, VIN mismatch, fuel conflict, park-it, park-outside stop flags — fate: **moved into SERV** as NHTSA/gov facts; stop→`walk_away` via `verdictFromBadge` **removed**.
 - `src/domain/listing/confidence.ts:7-32` (`checkConfidence`) — weighted score → High/Medium/Low — fate: **removed** as published/screening confidence owner; evidence counts may be passed raw to SERV (**moved into SERV**).
@@ -102,7 +103,7 @@ These paths create or reshape the published Check `verdict` / `verdictLabel` / b
 - `src/server/check/run-check.ts:450-458` — `runShopperVerdictServ` with `screeningConfidence: codeTrail.confidence` — fate: **removed** screening confidence prior; pass evidence only.
 - `src/server/check/run-check.ts:460-477` — gates withheld → `emptyAgentVerdict` + `no_serv_step` (no decide call) — fate: **removed** as silent skip of SERV; thin evidence should be SERV’s call or honest withhold **after** SERV sees raw facts (code withhold-before-spend is a verdict shortcut).
 - `src/server/check/run-check.ts:480-510` — post-SERV stop flag forces confidence high→medium + synthetic serv_step — fate: **kept as guardrail** (honesty vs NHTSA stop facts) **or** repair challenge to SERV; rewriting confidence without response id is code influence — prefer journal as validation.
-- `src/server/check/run-check.ts:520-587` (`headlineFromGuardedDecision`) — SERV action maps headline; **else publishes `screeningVerdict`** — fate: SERV mapping **kept as guardrail** (action∈allowlist + math); fallback to code screening **removed**.
+- `src/server/check/run-check.ts` (`headlineFromGuardedDecision`) — SERV action maps headline; **else publishes `screeningVerdict`** — fate: SERV mapping **kept as guardrail** (action∈allowlist + math); fallback to code screening **still present** (target: remove).
 - `src/server/check/run-check.ts:590-603` (`checkResultIsCacheable`) — refuses cache on `no_serv_step` / recalls down — fate: **kept as guardrail**.
 
 ---

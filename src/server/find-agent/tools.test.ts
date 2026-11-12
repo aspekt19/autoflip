@@ -24,10 +24,15 @@ describe("find-agent tool arg validation", () => {
     expect(ok).toEqual({ ok: true, value: "33101" });
   });
 
-  it("rejects limit over 20", () => {
-    const bad = parseLimitArg(50);
+  it("rejects limit over the sane per-call max (50)", () => {
+    const bad = parseLimitArg(51);
     expect(bad.ok).toBe(false);
     if (!bad.ok) expect(bad.issues[0]?.field).toBe("limit");
+  });
+
+  it("accepts SERV-requested page sizes up to 50", () => {
+    const ok = parseLimitArg(40);
+    expect(ok).toEqual({ ok: true, value: 40 });
   });
 
   it("rejects search_listings with bad zip and limit together", () => {
@@ -36,6 +41,15 @@ describe("find-agent tool arg validation", () => {
     if (!bad.ok) {
       expect(bad.issues.some((i) => i.field === "zip")).toBe(true);
       expect(bad.issues.some((i) => i.field === "limit")).toBe(true);
+    }
+  });
+
+  it("accepts page for provider pagination", () => {
+    const ok = parseSearchListingsArgs({ make: "Toyota", zip: "43215", limit: 20, page: 2 });
+    expect(ok.ok).toBe(true);
+    if (ok.ok) {
+      expect(ok.value.limit).toBe(20);
+      expect(ok.value.page).toBe(2);
     }
   });
 

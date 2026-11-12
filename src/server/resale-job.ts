@@ -930,8 +930,8 @@ export async function advanceResaleJob(
       }
 
 
-        const runAgent = deps.runResaleAgentLoopImpl ?? runResaleAgentLoop;
-        const note =
+      const runAgent = deps.runResaleAgentLoopImpl ?? runResaleAgentLoop;
+      const note =
           job.input.freeText?.trim() ||
           [
             job.input.preferredMakes.length ? `Preferred makes: ${job.input.preferredMakes.join(", ")}` : null,
@@ -942,7 +942,7 @@ export async function advanceResaleJob(
           ]
             .filter(Boolean)
             .join(". ");
-        const agent = await runAgent({
+      const agent = await runAgent({
           note,
           mode: resolveResaleAgentMode(env),
           shopperContext: {
@@ -984,8 +984,8 @@ export async function advanceResaleJob(
               counter: new MemoryCounter(),
             },
           },
-        });
-        if ("continue" in agent && agent.continue) {
+      });
+      if ("continue" in agent && agent.continue) {
           // Stay on step 1 completed so the next advance re-enters step 2 with the checkpoint.
           job = {
             ...job,
@@ -999,8 +999,8 @@ export async function advanceResaleJob(
             roundsCompleted: agent.checkpoint.roundsCompleted,
           });
           return { ok: true, job, balance };
-        }
-        if (agent.ok) {
+      }
+      if (agent.ok) {
           const mapped = mapResaleAgentLoopToSettle({
             agent,
             searchInput: job.input,
@@ -1025,20 +1025,17 @@ export async function advanceResaleJob(
             bestVin: mapped.delivery.best?.vin ?? null,
           });
           return { ok: true, job: charged.job, balance: charged.balance };
-        }
-        logResaleStage("job_agent_loop_failed", deadline.startedAtMs, {
+      }
+      logResaleStage("job_agent_loop_failed", deadline.startedAtMs, {
           jobId,
           error: agent.error,
-        });
-        if (job.agentLoopCheckpoint) {
-          job = { ...job, agentLoopCheckpoint: null, updatedAt: new Date().toISOString() };
-          await storeResaleJob(deps.kv, job);
-        }
-        const failMessage =
+      });
+
+      const failMessage =
           typeof agent.message === "string" && agent.message.trim()
             ? agent.message
             : "The SERV Resale agent loop did not finish. No code fallback pick was published.";
-        job = {
+      job = {
           ...job,
           status: "failed",
           agentLoopCheckpoint: null,
@@ -1048,10 +1045,10 @@ export async function advanceResaleJob(
             nextStep: null,
           },
           updatedAt: new Date().toISOString(),
-        };
-        await storeResaleJob(deps.kv, job);
-        // Honest failure only — never classic inventory / code choose. No charge to refund.
-        return {
+      };
+      await storeResaleJob(deps.kv, job);
+      // Honest failure only — never classic inventory / code choose. No charge to refund.
+      return {
           ok: false,
           status: 503,
           body: {
@@ -1061,8 +1058,8 @@ export async function advanceResaleJob(
             charged: false,
             balance,
           },
-        };
-      }
+      };
+
     }
     // Step 3: triage + deep checks
     if (nextStep === 3) {

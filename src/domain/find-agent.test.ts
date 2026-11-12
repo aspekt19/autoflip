@@ -7,26 +7,17 @@ import {
 } from "./find-agent";
 
 describe("findAgentLoopEnabled", () => {
-  it("defaults on when servKey present and not e2e stub", () => {
+  it("is on whenever a SERV key is present", () => {
     expect(findAgentLoopEnabled({ FIND_AGENT_LOOP: "auto" }, { servKey: "sk" })).toBe(true);
     expect(findAgentLoopEnabled({}, { servKey: "sk" })).toBe(true);
-  });
-
-  it("stays off under the labelled e2e stub (classic path)", () => {
-    expect(
-      findAgentLoopEnabled({ LEMONLESS_E2E_STUB: "1", FIND_AGENT_LOOP: "auto" }, { servKey: "sk" }),
-    ).toBe(false);
-    expect(
-      findAgentLoopEnabled({ LEMONLESS_E2E_STUB: "1", FIND_AGENT_LOOP: "1" }, { servKey: "sk" }),
-    ).toBe(false);
-  });
-
-  it("ignores FIND_AGENT_LOOP=0 — agent loop always when keyed", () => {
     expect(findAgentLoopEnabled({ FIND_AGENT_LOOP: "0" }, { servKey: "sk" })).toBe(true);
+    // E2E stub must not disable the agent loop — stub upstreams instead.
+    expect(findAgentLoopEnabled({ LEMONLESS_E2E_STUB: "1" }, { servKey: "sk" })).toBe(true);
   });
 
   it("requires a serv key", () => {
     expect(findAgentLoopEnabled({ FIND_AGENT_LOOP: "1" }, { servKey: "" })).toBe(false);
+    expect(findAgentLoopEnabled({ LEMONLESS_E2E_STUB: "1" }, { servKey: "" })).toBe(false);
   });
 });
 
