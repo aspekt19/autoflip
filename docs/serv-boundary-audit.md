@@ -80,10 +80,10 @@ Primary fate only (first bold tag per bullet in the partials).
 
 | Metric | Count |
 |--------|------:|
-| Decision points catalogued (all audit docs) | 376 |
-| Removed / stripped | 141 |
-| Moved into SERV tool param / note provenance | 87 |
-| Kept as guardrails | 211 |
+| Decision points catalogued (all audit docs) | 372 |
+| Removed / stripped | 139 |
+| Moved into SERV tool param / note provenance | 85 |
+| Kept as guardrails | 209 |
 
 Structural enforcement: `src/domain/serv-boundary.ts` + `src/domain/serv-boundary.test.ts`.
 Inventories: `docs/serv-boundary-audit.md`, `docs/serv-boundary-audit-find.md`, `docs/serv-boundary-audit-resale-radar-api.md`, `docs/serv-boundary-audit-check.md`.
