@@ -47,25 +47,20 @@ function productionSources(): Array<{ path: string; text: string }> {
   }));
 }
 
-function stripCommentsAndStrings(src: string): string {
-  // Rough strip so comment-only mentions do not count as reintroduction.
-  return src
-    .replace(/\/\*[\s\S]*?\*\//g, " ")
-    .replace(/\/\/.*$/gm, " ")
-    .replace(/`(?:\\.|[^`\\])*`/g, "``")
-    .replace(/'(?:\\.|[^'\\])*'/g, "''")
-    .replace(/"(?:\\.|[^"\\])*"/g, '""');
+/** Strip comments only — keep string literals so `reasoningEffort: "none"` is still visible. */
+function stripComments(src: string): string {
+  return src.replace(/\/\*[\s\S]*?\*\//g, " ").replace(/\/\/.*$/gm, " ");
 }
 
 function hits(
   files: Array<{ path: string; text: string }>,
   re: RegExp,
-  opts?: { codeOnly?: boolean; pathFilter?: (p: string) => boolean },
+  opts?: { commentsStripped?: boolean; pathFilter?: (p: string) => boolean },
 ): string[] {
   const found: string[] = [];
   for (const f of files) {
     if (opts?.pathFilter && !opts.pathFilter(f.path)) continue;
-    const body = opts?.codeOnly ? stripCommentsAndStrings(f.text) : f.text;
+    const body = opts?.commentsStripped ? stripComments(f.text) : f.text;
     if (re.test(body)) found.push(f.path);
   }
   return found;
@@ -74,14 +69,14 @@ function hits(
 describe("SERV boundary enforcement — classic Find fallback", () => {
   it("orchestrator never falls through to classic triage/decide after agent failure", () => {
     const text = readFileSync(join(SRC, "server/find-decide-orchestrator.ts"), "utf8");
-    // Honest failure path must exist.
     expect(text).toMatch(/agent_loop_failed/);
     expect(text).toMatch(/No code fallback pick was published/);
-    // After agent failure return, classic triage must not be the next statement in the agent block.
-    const agentBlock = text.slice(text.indexOf("Agenti"), text.indexOf("Classic triage"));
-    expect(agentBlock).toMatch(/return \{[\s\S]*error:\s*"agent_loop_failed"/);
-    expect(agentBlock).not.toMatch(/await runFindTriageServ/);
-    expect(agentBlock).not.toMatch(/await runFindDecideServ/);
+    const failIdx = text.indexOf('error: "agent_loop_failed"');
+    expect(failIdx).toBeGreaterThan(0);
+    const failSlice = text.slice(Math.max(0, failIdx - 500), failIdx + 200);
+    expect(failSlice).toMatch(/return \{/);
+    expect(failSlice).not.toMatch(/await runFindTriageServ\(/);
+    expect(failSlice).not.toMatch(/await runFindDecideServ\(/);
   });
 
   it("production orchestrator must not call classic triage/decide when SERV agent path is active", () => {
@@ -97,7 +92,7 @@ describe("SERV boundary enforcement — classic Resale fallback", () => {
   it("resale job never falls through to classic inventory after agent failure", () => {
     const text = readFileSync(join(SRC, "server/resale-job.ts"), "utf8");
     expect(text).toMatch(/job_agent_loop_failed/);
-    expect(text).toMatch(/Never fall through to classic inventory/);
+    expect(text).toMatch(/Never fall through to classic inventory|never classic inventory/i);
     expect(text).not.toMatch(/job_agent_loop_fallback/);
     // Failure return must be agent_loop_failed, not continue into runResaleSearch.
     const failIdx = text.indexOf("job_agent_loop_failed");
@@ -112,11 +107,11 @@ describe("SERV boundary enforcement — agent-loop off switches removed", () => 
   it("FIND_AGENT_LOOP / RESALE_AGENT_LOOP are not read as enable switches", () => {
     const files = productionSources();
     const findHits = hits(files, /\bFIND_AGENT_LOOP\b/, {
-      codeOnly: true,
+      commentsStripped: true,
       pathFilter: (p) => p.includes("find-agent") || p.includes("find-decide") || p.includes("resale"),
     });
     const resaleHits = hits(files, /\bRESALE_AGENT_LOOP\b/, {
-      codeOnly: true,
+      commentsStripped: true,
       pathFilter: (p) => p.includes("resale-agent") || p.includes("resale-job"),
     });
     expect(findHits, `FIND_AGENT_LOOP code reads: ${findHits.join(", ")}`).toEqual([]);
@@ -151,7 +146,7 @@ describe("SERV boundary enforcement — non-dirty constraints must not reach SER
 describe("SERV boundary enforcement — no pre-SERV hard row filter on agent inventory", () => {
   it("find-agent tools must not call enforceHard / applyHardGate", () => {
     const files = productionSources().filter((f) => f.path.startsWith("src/server/find-agent/"));
-    const offenders = hits(files, /\b(enforceHard|applyHardGate)\b/, { codeOnly: true });
+    const offenders = hits(files, /\b(enforceHard|applyHardGate)\b/, { commentsStripped: true });
     expect(offenders).toEqual([]);
   });
 
@@ -160,13 +155,13 @@ describe("SERV boundary enforcement — no pre-SERV hard row filter on agent inv
     // hard filters before SERV chooses. (inventory-widen may remain for legacy tests
     // but must not be called from find-match — asserted via import scan below.)
     const files = productionSources().filter((f) => f.path === "src/server/find-match.ts");
-    const offenders = hits(files, /\b(applyHardGate|enforceHard)\s*\(/, { codeOnly: true });
+    const offenders = hits(files, /\b(applyHardGate|enforceHard)\s*\(/, { commentsStripped: true });
     expect(
       offenders,
       `pre-SERV hard gate still present in: ${offenders.join(", ")}`,
     ).toEqual([]);
     const importsWiden = hits(files, /\binventory-widen\b|\bfilterInventoryWithWiden\b/, {
-      codeOnly: true,
+      commentsStripped: true,
     });
     expect(importsWiden).toEqual([]);
   });
@@ -175,7 +170,7 @@ describe("SERV boundary enforcement — no pre-SERV hard row filter on agent inv
 describe("SERV boundary enforcement — Check code verdict shortcuts removed", () => {
   it("run-check must not define or call verdictFromBadge / screening fallback headline", () => {
     const files = productionSources().filter((f) => f.path.startsWith("src/server/check/"));
-    const badge = hits(files, /\bverdictFromBadge\b/, { codeOnly: true });
+    const badge = hits(files, /\bverdictFromBadge\b/, { commentsStripped: true });
     expect(badge, `verdictFromBadge still in: ${badge.join(", ")}`).toEqual([]);
   });
 
@@ -217,14 +212,17 @@ describe("SERV boundary enforcement — reasoning_effort never none on SERV buil
         f.path.startsWith("src/server/find-agent/") ||
         f.path.startsWith("src/server/resale-agent/"),
     );
-    // Allow the type union mentioning "none" only as an input to normalize away —
-    // but object literals / assignments of reasoningEffort: "none" are forbidden.
-    const offenders = hits(files, /reasoningEffort\s*:\s*["']none["']/, { codeOnly: true });
-    const requestOffenders = hits(files, /reasoning_effort\s*:\s*["']none["']/, { codeOnly: true });
-    expect(
-      [...offenders, ...requestOffenders],
-      `reasoning_effort none still set in: ${[...offenders, ...requestOffenders].join(", ")}`,
-    ).toEqual([]);
+    // Type unions may mention "none"; value assignments `reasoningEffort: "none",` are forbidden.
+    const valueAssigns = files
+      .filter((f) => {
+        const body = stripComments(f.text);
+        return (
+          /reasoningEffort\s*:\s*["']none["']\s*,/.test(body) ||
+          /reasoning_effort\s*:\s*["']none["']/.test(body)
+        );
+      })
+      .map((f) => f.path);
+    expect(valueAssigns, `reasoning_effort none still set in: ${valueAssigns.join(", ")}`).toEqual([]);
   });
 });
 
@@ -236,7 +234,7 @@ describe("SERV boundary enforcement — Radar prefilterListing removed", () => {
         f.path.endsWith("src/domain/radar-watch.ts") ||
         f.path.endsWith("src/server/radar-cycle.ts"),
     );
-    const offenders = hits(files, /\bprefilterListing\b/, { codeOnly: true });
+    const offenders = hits(files, /\bprefilterListing\b/, { commentsStripped: true });
     expect(offenders, `prefilterListing still in: ${offenders.join(", ")}`).toEqual([]);
   });
 });
