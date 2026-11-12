@@ -11,6 +11,7 @@ import {
   noteMarksFrom,
   type NoteMarks,
 } from "@/domain/find-intake-stage";
+import { previewFindFromNote } from "@/domain/find-preview";
 import { resolveLocationZip, zipFieldMark, type LocationZipResolution } from "@/domain/city-to-zip";
 import { awdLimitFromText, intakeFromNote, isNearMePhrase, NOTE_DEFAULT_RADIUS_WHEN_ZIP } from "@/domain/note-intake";
 import { yearSpanSentence } from "@/domain/year-span";
@@ -424,10 +425,25 @@ function AssistantFlow({
       setError("Add a ZIP for a seller-distance radius, or choose Nationwide.");
       return;
     }
+    if (!followUp && !opts?.freshNote && text.trim().length >= 8) {
+      const preview = previewFindFromNote(text, mode);
+      setNeed(preview.need);
+      setFindPlan(preview.findPlan);
+      setPlanDirections(preview.directions);
+      setSource("form");
+      setRadiusIsDefault(preview.radiusIsDefault);
+      setZipDraft(preview.need.zip ?? "");
+      setDistanceDraft(preview.need.distanceMiles);
+      if (preview.need.budgetUsd != null) {
+        setBudget(preview.need.budgetUsd.toLocaleString("en-US"));
+        setBudgetKnown(preview.need.budgetKnown);
+      }
+      setStage(findStageAfterNote(preview.need));
+    }
     setPending("need");
     const controller = new AbortController();
-    // Match /api/need maxDuration (300s) — SERV plan can take up to ~90s (+ one retry).
-    const timer = window.setTimeout(() => controller.abort(), 290_000);
+    // The confirm screen is already up. This only refreshes it if the model replies quickly.
+    const timer = window.setTimeout(() => controller.abort(), 20_000);
     try {
       const amount = parseUsdInput(budget) ?? Number.NaN;
       const response = await fetch("/api/need", {
@@ -453,6 +469,7 @@ function AssistantFlow({
           useCase: opts?.freshNote ? undefined : need?.useCase,
           targetProfitUsd: opts?.freshNote ? undefined : need?.targetProfitUsd,
           followUp,
+          fastConfirm: true,
         }),
       });
       const body = (await response.json()) as {
@@ -2001,9 +2018,13 @@ function AssistantFlow({
             }}
           />
           {need.conditionPriority === "inspection_first" ? <p className="hint">{CONDITION_HINT}</p> : null}
-          {need.awdPreference ? (
+          {awdLimitFromText(need.note) === "hard" ? (
             <p className="hint">
-              Preferably AWD is a soft preference — AWD/4WD ranks higher when known; FWD and unknown drivetrain stay in the mix.
+              All-wheel drive is required. Front-wheel drive is left out. If the listing does not say, we check the VIN and leave the car out when we still cannot tell.
+            </p>
+          ) : need.awdPreference ? (
+            <p className="hint">
+              All-wheel drive is a preference, so those cars rank higher. Front-wheel drive can still show up. A car with no drivetrain listed stays in the list and is marked unverified.
             </p>
           ) : null}
           {need.reliabilityPriority || need.priorities?.some((p) => /reliab/i.test(p)) ? (
@@ -2071,7 +2092,7 @@ function AssistantFlow({
       {stage === "results" ? (
         <div id="find-results" className="find-results">
           <RunMirror runId={runId} />
-          <h2>Cars that fit</h2>
+          <h2 className="prose-title">Cars that fit</h2>
           <PriceRatingHow />
           <DecisionNote scene="find" proofs={checks} />
           {need ? <p className="hint">Scope: {matchScope ?? searchScopeLabel(need)}</p> : null}

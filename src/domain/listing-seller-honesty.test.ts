@@ -13,6 +13,15 @@ describe("sellerLinkHonesty", () => {
     expect(row.vdp).toContain("gengrasford.com");
   });
 
+  it("does not treat an aggregator host as a dealer-name mismatch", () => {
+    const row = sellerLinkHonesty({
+      dealer: "Toyota of Grapevine",
+      vdp: "https://details.vast.com/inventory/123",
+    });
+    expect(row.mismatch).toBe(false);
+    expect(row.note).toBeNull();
+  });
+
   it("accepts matching dealer tokens in the host", () => {
     const row = sellerLinkHonesty({
       dealer: "Gengras Ford",

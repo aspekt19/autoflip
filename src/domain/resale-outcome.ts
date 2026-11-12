@@ -4,6 +4,8 @@
  * positive gap after costs. A chosen car is never called Skip.
  */
 
+import { resaleEdgeSentence } from "./resale-presentation";
+
 export type ResaleOutcomeKind = "pick" | "skip";
 export type ResaleActionWord = "buy" | "negotiate" | "pass" | "needs_inspection";
 export type ResaleConfidenceWord = "High" | "Medium" | "Low";
@@ -28,7 +30,7 @@ export const resaleCardCopy = {
   progressTriage: "Closer look",
   recallCampaigns: (count: number) =>
     count === 1 ? "1 government recall campaign" : `${count} government recall campaigns`,
-  reviewMissed: "SERV did not decide this one.",
+  reviewMissed: "The review did not run, so confidence is Low.",
   secondMissed: "A second check did not run, so confidence is Low.",
 };
 
@@ -85,9 +87,9 @@ export function resaleBuyerCopy(input: {
     };
   }
   const word = resaleActionLabel(input.action);
-  const gap = decisionGapLine(input.marginUsd);
-  const car = input.carTitle ? `${input.carTitle} is ` : "";
-  const gapBit = gap ? `${car}${gap}. ` : "";
+  const gap = resaleEdgeSentence({ amountUsd: input.marginUsd, action: input.action });
+  const car = input.carTitle ? `${input.carTitle}: ` : "";
+  const gapBit = gap ? `${car}${gap} ` : "";
   return {
     headline: word,
     verdictLabel: word,

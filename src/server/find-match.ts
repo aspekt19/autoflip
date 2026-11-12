@@ -25,6 +25,7 @@ import {
 } from "@/domain/need";
 import { isPassengerOrLightTruck } from "@/domain/passenger-vehicle";
 import { awdLimitFromText } from "@/domain/note-intake";
+import { broadenStarterDirections, isOpenStarterNote, starterRetryModels } from "@/domain/starter-search";
 import { buildSearchSpec, enforceHard, hardDropSentence } from "@/domain/search-spec";
 import { decodeVin } from "@/io/gov";
 import { priceCompsUnevenAcrossListings, selectBestDealOnEvidence } from "@/domain/find-best-deal";
@@ -338,10 +339,10 @@ export async function runFindMatch(
   }
 
   const need = parsed.need;
-  let directions =
-    body?.directions && body.directions.length > 0
-      ? body.directions
-      : proposeDirections(need, body?.refine);
+  let directions = broadenStarterDirections(
+    need.note,
+    body?.directions && body.directions.length > 0 ? body.directions : proposeDirections(need, body?.refine),
+  );
   if (directions.length === 0) directions = [budgetOnlyDirection(need)];
   if (directions.length === 0) {
     const empty = findEmptyCopy("no_directions", need);
@@ -536,6 +537,33 @@ export async function runFindMatch(
       }
       dispatches.push(await dispatchOne(job));
       providerQueriesUsed += 1;
+    }
+  }
+
+  if (isOpenStarterNote(need.note)) {
+    const returned = dispatches.flatMap((row) => (row.result?.ok ? row.result.listings : []));
+    const anyFit = returned.some((row) => {
+      if (!isPassengerOrLightTruck(row)) return false;
+      if (need.budgetKnown && need.budgetUsd != null && row.priceUsd != null && row.priceUsd > need.budgetUsd) return false;
+      if (need.milesMax != null && row.miles != null && row.miles > need.milesMax) return false;
+      if (need.yearMin != null && row.year < need.yearMin) return false;
+      if (need.distanceMiles != null && row.distanceMiles != null && row.distanceMiles > need.distanceMiles) return false;
+      return true;
+    });
+    if (!anyFit) {
+      const already = new Set(
+        dispatches.map((row) => `${row.planned.query.make}\0${row.planned.query.model}`.toLowerCase()),
+      );
+      const retryJobs = starterRetryModels(already).map((query) => ({
+        direction: directions[0] ?? budgetOnlyDirection(need),
+        query,
+        directionIndex: 0,
+      }));
+      if (retryJobs.length > 0) {
+        const more = await Promise.all(retryJobs.map((job) => dispatchOne(job)));
+        dispatches = [...dispatches, ...more];
+        providerQueriesUsed += more.length;
+      }
     }
   }
 

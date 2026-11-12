@@ -2,7 +2,9 @@
  * I1–I10 from docs/STABILIZATION.md §5.
  * Price uses the documented 5% slight-over rule (src/domain/budget.ts).
  */
+import { formatOfficialRecallNumber } from "@/domain/find-buyer-copy";
 import { AGGREGATOR_HOSTS } from "@/domain/listing-vdp-verifiability";
+import { computedProvenance } from "@/domain/resale-provenance";
 import type { GoldenCase } from "./cases";
 import type { CheckFailure, GoldenRun, ObservedSpec, ShownListing } from "./types";
 
@@ -341,6 +343,61 @@ function checkCase(run: GoldenRun, specCase: GoldenCase, out: CheckFailure[]) {
   }
   if (expect.queriesRequired && run.providerQueriesUsed <= 0) {
     push(out, `${specCase.id}.queries`, "providerQueriesUsed is 0.");
+  }
+  if (expect.minModels != null) {
+    const models = new Set(
+      run.listingUrls.map((url) => listingParam(url, "vehicle.model")?.toLowerCase()).filter((model): model is string => Boolean(model)),
+    );
+    if (models.size < expect.minModels) {
+      push(out, `${specCase.id}.models`, `Only ${models.size} models were searched (${[...models].join(", ")}). A first car needs a broader set.`);
+    }
+  }
+  if (expect.includesModel) {
+    const found = run.listings.some((car) => car.model.toLowerCase() === expect.includesModel!.toLowerCase());
+    if (!found) push(out, `${specCase.id}.models`, `No ${expect.includesModel} in the results.`);
+  }
+  if (expect.excludeUnknownDrivetrain) {
+    const blank = run.listings.filter((car) => !car.drivetrain?.trim());
+    if (blank.length > 0) {
+      push(out, `${specCase.id}.drivetrain`, `Unknown drivetrain stayed in the results: ${blank.map((car) => car.vin).join(", ")}.`);
+    }
+  }
+  if (expect.pickVin && run.pickVin !== expect.pickVin) {
+    push(out, `${specCase.id}.rank`, `Pick is ${run.pickVin ?? "none"}; expected ${expect.pickVin}.`);
+  }
+  if (expect.passIsNotAFlip && run.storedRun) {
+    const html = run.storedRun.permalinkHtml;
+    const verdict = (run.verdict ?? "").toLowerCase();
+    if (verdict === "pass" || verdict === "skip") {
+      if (/Best flip/i.test(html)) push(out, `${specCase.id}.story`, "A pass result still has a Best flip heading.");
+      if (!/Closest candidate, not worth it/i.test(html)) {
+        push(out, `${specCase.id}.story`, "A pass result does not say this is the closest candidate, not worth it.");
+      }
+    }
+    const blob = `${html} ${run.buyer.message ?? ""}`;
+    if (/\$16\b/.test(blob) && /deal|best flip/i.test(blob)) {
+      push(out, `${specCase.id}.edge`, "A $16 gap is framed as a deal.");
+    }
+  }
+  if (specCase.id === "L7") {
+    const recall = formatOfficialRecallNumber("19V007000");
+    if (/\b19V007000\b/.test(recall) && /look this up in the government recall database/i.test(recall)) {
+      push(out, "L7.copy", "The recall campaign number is still the main line with a repeated lookup instruction.");
+    }
+    if (/Computed:|profitMid \/ allInCost|no computed is available|Free public checks and SERV decide finished/i.test(
+      `${recall} ${computedProvenance("ROI", "1%", "Expected profit divided by the all-in cost.").source}`,
+    )) {
+      push(out, "L7.copy", "A buyer-facing template still has a broken or internal label.");
+    }
+  }
+  if (specCase.id === "L8") {
+    if (run.confidence !== "Low") {
+      push(out, "L8.confidence", `A skipped second check left confidence at ${run.confidence ?? "missing"}.`);
+    }
+    const blob = `${run.buyer.message ?? ""} ${run.buyer.journal.join(" ")}`;
+    if (!/second|review/i.test(blob) || !/low/i.test(blob)) {
+      push(out, "L8.confidence", "The skipped review is not explained, or confidence is not said to be Low.");
+    }
   }
   if (specCase.id === "G1" && (run.verdict ?? "").toLowerCase() === "pass" && run.providerQueriesUsed <= 0) {
     push(out, "G1.verdict", "Pass with zero provider queries.");

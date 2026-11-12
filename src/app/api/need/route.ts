@@ -67,6 +67,7 @@ export async function POST(request: Request) {
         followRaw && FOLLOW_UP_IDS.has(followId as FollowUp["id"])
           ? { id: followId as FollowUp["id"], value: String(followRaw.value ?? "") }
           : undefined,
+      fastConfirm: body.fastConfirm === true,
     },
     {
       servKey: process.env.SERV_API_KEY?.trim(),

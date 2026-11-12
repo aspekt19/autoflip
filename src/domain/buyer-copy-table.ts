@@ -62,7 +62,7 @@ const FAILURE_COPY: Record<FailureReasonId, string> = {
   second_check_incomplete: "The second check did not finish.",
   not_enough_evidence: "There is not enough information for a verdict.",
   no_qualifying_flip: "Skip. No car is estimated to sell within the window you set, or none was priced below similar listings after costs.",
-  review_unavailable: "SERV did not decide this one.",
+  review_unavailable: "The review did not run, so confidence is Low.",
 };
 
 const JOURNAL_COPY: Record<JournalStepId, { title: string; ok: string; failed: string; skipped: string; running: string }> = {

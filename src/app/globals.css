@@ -952,6 +952,15 @@ h1, h2, h3 {
   margin: 0;
   text-transform: uppercase;
 }
+/* Result headings stay in normal case. Brand display type was shouting them. */
+.prose-title,
+h2.prose-title,
+h3.prose-title,
+summary.prose-title {
+  text-transform: none;
+  letter-spacing: 0;
+  font-family: var(--font-sans), sans-serif;
+}
 h1 { font-size: clamp(40px, 7vw, 96px); max-width: min(12ch, 100%); overflow-wrap: anywhere; }
 h2 { font-size: clamp(36px, 4vw, 64px); margin-bottom: 22px; }
 h3 { font-size: 20px; margin-bottom: 8px; }

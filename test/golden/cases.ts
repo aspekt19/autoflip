@@ -16,7 +16,13 @@ export type GoldenCaseId =
   | "G9"
   | "G10"
   | "L1"
-  | "L2";
+  | "L2"
+  | "L3"
+  | "L4"
+  | "L5"
+  | "L6"
+  | "L7"
+  | "L8";
 
 export type CaseTurn =
   | { note: string }
@@ -47,15 +53,25 @@ export type CaseExpect = {
   noDefaultTarget?: boolean;
   queriesRequired?: boolean;
   /** Hand-written fixture responses. Replay does not have live SERV recordings for these. */
-  scripted?: "live-a" | "live-b";
+  scripted?: "live-a" | "live-b" | "live-c" | "live-d" | "live-rank";
   noMilesMax?: boolean;
   noVerdictWhenEmpty?: boolean;
+  /** Distinct make/model pairs the inventory URLs must include. */
+  minModels?: number;
+  /** Shown listings must include this model. */
+  includesModel?: string;
+  /** The ranked pick, when the decide step runs. */
+  pickVin?: string;
+  /** Hard drivetrain drops cars whose drivetrain is blank. */
+  excludeUnknownDrivetrain?: boolean;
+  /** Permalink must not recommend a pass as a best flip. */
+  passIsNotAFlip?: boolean;
 };
 
 export type GoldenCase = {
   id: GoldenCaseId;
   kind: "personal" | "flip" | "sequence";
-  scripted?: "live-a" | "live-b";
+  scripted?: "live-a" | "live-b" | "live-c" | "live-d" | "live-rank";
   /** from-note: do not overwrite a ZIP the note resolved. nationwide: radius null, no ZIP. */
   location: { zip: string; radiusMi: number } | "from-note" | "nationwide";
   turns: CaseTurn[];
@@ -204,6 +220,86 @@ export const GOLDEN_CASES: readonly GoldenCase[] = [
       drivetrain: "awd_4wd",
       queriesRequired: true,
     },
+  },
+  {
+    id: "L3",
+    kind: "personal",
+    scripted: "live-c",
+    location: "from-note",
+    search: "final",
+    turns: [
+      {
+        note: "first car for a new driver in Chicago, max $12k, up to 120k miles, safe and cheap to run",
+      },
+    ],
+    expect: {
+      budgetUsd: 12000,
+      priceCeilUsd: 12600,
+      milesMax: 120_000,
+      zip: "60601",
+      queriesRequired: true,
+      minModels: 4,
+      includesModel: "Camry",
+    },
+  },
+  {
+    id: "L4",
+    kind: "personal",
+    scripted: "live-d",
+    location: NYC,
+    search: "final",
+    turns: [{ note: "Family SUV under $20k, must have AWD, no accidents" }],
+    expect: {
+      budgetUsd: 20000,
+      priceCeilUsd: 21000,
+      drivetrain: "awd_4wd",
+      excludeUnknownDrivetrain: true,
+      queriesRequired: true,
+    },
+  },
+  {
+    id: "L5",
+    kind: "flip",
+    location: NYC,
+    search: "final",
+    turns: [{ note: "a few hundred dollars is not a flip" }],
+    expect: {
+      budgetUsd: 10000,
+      priceCeilUsd: 10500,
+      queriesRequired: true,
+      passIsNotAFlip: true,
+    },
+  },
+  {
+    id: "L6",
+    kind: "personal",
+    scripted: "live-rank",
+    location: NYC,
+    search: "final",
+    turns: [{ note: "Used SUV under $15,000" }],
+    expect: {
+      budgetUsd: 15000,
+      priceCeilUsd: 15750,
+      queriesRequired: true,
+      pickVin: "JF1SJADC8HH000003",
+    },
+  },
+  {
+    id: "L7",
+    kind: "personal",
+    scripted: "live-a",
+    location: NYC,
+    search: "final",
+    turns: [{ note: "Honda Civic under $15,000 near me" }],
+    expect: { budgetUsd: 15000, priceCeilUsd: 15750, queriesRequired: true },
+  },
+  {
+    id: "L8",
+    kind: "flip",
+    location: NYC,
+    search: "final",
+    turns: [{ note: "skip the second review" }],
+    expect: { budgetUsd: 15000, priceCeilUsd: 15750, queriesRequired: true },
   },
 ];
 

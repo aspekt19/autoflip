@@ -160,9 +160,12 @@ export function findEmptyCopy(
           (need
             ? noMatchMessage(need)
             : `The live listings provider returned no cars that match these filters in ${scope}.`),
-        nextStep: need?.zip && need.distanceMiles != null
-          ? "Try a wider radius, switch to nationwide, raise the mileage cap, or loosen the make/model refine."
-          : "Try raising the mileage or budget cap, or refine to a different model. This was a confirmed empty provider result, not a connection failure.",
+        nextStep:
+          need?.note && /\b(?:first car|new driver)\b/i.test(need.note)
+            ? "We already searched several reliable compacts, sedans, and small SUVs, then a second set. Try a wider radius or a higher budget."
+            : need?.zip && need.distanceMiles != null
+              ? "Try a wider radius, switch to nationwide, raise the mileage cap, or loosen the make/model refine."
+              : "Try raising the mileage or budget cap, or refine to a different model. This was a confirmed empty provider result, not a connection failure.",
       };
     case "incomplete_search":
       return {

@@ -37,7 +37,7 @@ export function computedProvenance(field: string, display: string, formula: stri
     field,
     display,
     kind: "computed",
-    source: `Computed: ${formula}`,
+    source: formula,
   };
 }
 

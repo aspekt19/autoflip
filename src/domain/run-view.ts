@@ -2,6 +2,7 @@
  * Buyer view of a stored run. Safe to import from client components:
  * it does not touch the search spec builder or Node crypto.
  */
+import { resaleEdgeSentence, resalePickHeading } from "./resale-presentation";
 import {
   confidenceCopy,
   failureCopy,
@@ -193,7 +194,8 @@ export function renderRunPermalinkHtml(view: RunView): string {
   }
   for (const car of model.listings) {
     parts.push(`<section data-vin="${esc(car.vin)}">`);
-    if (car.picked) parts.push("<h2>Best flip</h2>");
+    const heading = resalePickHeading(view.verdict, Boolean(car.picked));
+    if (heading) parts.push(`<h2 class="prose-title">${esc(heading)}</h2>`);
     parts.push(`<h2>${esc(car.title)}</h2>`);
     if (car.summary) parts.push(`<p>${esc(car.summary)}</p>`);
     if (car.dealer) parts.push(`<p>${esc(car.dealer)}</p>`);

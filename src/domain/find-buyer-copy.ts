@@ -272,7 +272,8 @@ export function plainShopperText(text: string): string {
     .replace(/\bTypeScript\b/g, "our calculations")
     .replace(/\ballowlisted\b/gi, "approved")
     .replace(/\bP&L\b/g, "profit figures")
-    .replace(/\bwebhook\b/gi, "payment confirmation");
+    .replace(/\bwebhook\b/gi, "payment confirmation")
+    .replace(/\bno computed is available\b/gi, "That number is not available");
 }
 
 /** Shopper wording for the review step. The name SERV stays on Where SERV runs, Proof, and Developers. */
@@ -293,14 +294,17 @@ export function plainBuyerPhrase(text: string): string {
 }
 
 /**
- * NHTSA campaign ids (for example 12V501000) stay visible only with a plain label:
- * they are the official recall number a buyer can look up.
+ * A recall campaign id is a lookup code, not the sentence.
+ * Say what it is once. The raw id stays available for someone who wants to look it up,
+ * but it is not the main line and the lookup instruction is not repeated per campaign.
  */
 export function formatOfficialRecallNumber(id: string): string {
   const trimmed = id.trim();
-  if (/^official recall number\b/i.test(trimmed)) return trimmed;
-  const bare = trimmed.replace(/^NHTSA recall campaign\s+/i, "").trim();
-  return `Official recall number ${bare} — look this up in the government recall database`;
+  if (/^a government safety recall\b/i.test(trimmed)) return trimmed;
+  const bare = trimmed.replace(/^NHTSA recall campaign\s+/i, "").replace(/^official recall number\s+/i, "").trim();
+  const year = /^(\d{2})V/i.exec(bare);
+  const when = year ? ` from 20${year[1]}` : "";
+  return `A government safety recall${when} is on file for this model year (campaign ${bare}).`;
 }
 
 export function plainGateStatus(status: string): string {

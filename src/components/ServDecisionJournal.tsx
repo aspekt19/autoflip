@@ -7,6 +7,7 @@ import type { ResaleDecisionJournal } from "@/domain/resale-decision-journal";
 import {
   formatJournalSecondCheckSentences,
   JOURNAL_INTRO,
+  collapseRepeatedStepViews,
   journalStepViews,
 } from "@/domain/serv-decision-journal-copy";
 import {
@@ -45,6 +46,7 @@ export function ServDecisionJournal({
     journalProp ??
     buildServDecisionJournal({ proofRecords, agentVerdict, resaleJournal });
   const stepViews = journalStepViews(journal.steps);
+  const shownSteps = collapseRepeatedStepViews(stepViews);
   const secondSentences = formatJournalSecondCheckSentences(journal.secondCheck);
   const unknowns = agentVerdict?.unknowns ?? [];
   const spendNote = agentVerdict ? agentSpend(agentVerdict)?.costNote ?? "" : "";
@@ -77,11 +79,11 @@ export function ServDecisionJournal({
         </p>
       ) : null}
 
-      {stepViews.length === 0 && !agentVerdict?.no_serv_step ? (
+      {shownSteps.length === 0 && !agentVerdict?.no_serv_step ? (
         <p className="lead">No decision steps were recorded for this run.</p>
-      ) : stepViews.length === 0 ? null : (
+      ) : shownSteps.length === 0 ? null : (
         <ol className="steps-3 story-steps">
-          {stepViews.map((view, index) => {
+          {shownSteps.map((view, index) => {
             return (
               <li key={`${view.tech.step}-${view.tech.timestamp ?? index}-${view.tech.runId ?? view.tech.status}`}>
                 <p>{plainDecisionEngineText(view.sentences)}</p>

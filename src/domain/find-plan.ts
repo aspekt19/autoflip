@@ -363,7 +363,7 @@ export function validateFindPlan(
   if (milesMaxRaw != null && milesMax == null) dropped.push("milesMax");
   if (seatsMinRaw != null && seatsMin == null) dropped.push("seatsMin");
 
-  const drivetrain = readQuotedPref(
+  let drivetrain = readQuotedPref(
     raw.drivetrain,
     DRIVE_SET,
     "any" as FindPlanDrivetrainValue,
@@ -371,6 +371,20 @@ export function validateFindPlan(
     dropped,
     "drivetrain",
   );
+  const notedDrive = awdLimitFromText(note);
+  if (notedDrive === "hard") {
+    drivetrain = {
+      value: "awd_4wd",
+      strength: "required",
+      quote: drivetrain.quote ?? verbatimQuote("AWD", note) ?? verbatimQuote("awd", note),
+    };
+  } else if (notedDrive === "soft") {
+    drivetrain = {
+      value: "awd_4wd",
+      strength: "preferred",
+      quote: drivetrain.quote,
+    };
+  }
   const fuel = readQuotedPref(raw.fuel, FUEL_SET, "any" as FindPlanFuelValue, note, dropped, "fuel");
 
   const locationRaw =
