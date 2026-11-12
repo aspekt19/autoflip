@@ -87,6 +87,11 @@ export type FindSearchContextRecord = {
   decidePathEnabled?: boolean;
   /** The Run permalink for this search. Decide finalizes this id, not a new one. */
   runId?: string | null;
+  /**
+   * Mid-loop agentic SERV checkpoint (Responses input + journal + tool state).
+   * When set, /api/find/decide resumes instead of restarting the loop.
+   */
+  agentLoopCheckpoint?: import("@/server/serv/agent-loop-checkpoint").AgentLoopCheckpoint | null;
   iat: number;
   exp: number;
 };
@@ -294,6 +299,7 @@ export async function updateFindSearchContext(
     triageRevisitUsed?: boolean;
     decidePathEnabled?: boolean;
     runId?: string | null;
+    agentLoopCheckpoint?: import("@/server/serv/agent-loop-checkpoint").AgentLoopCheckpoint | null;
   },
 ): Promise<FindSearchContextRecord> {
   const next: FindSearchContextRecord = {
@@ -332,6 +338,10 @@ export async function updateFindSearchContext(
         ? patch.decidePathEnabled
         : (record.decidePathEnabled ?? false),
     runId: patch.runId !== undefined ? patch.runId : (record.runId ?? null),
+    agentLoopCheckpoint:
+      patch.agentLoopCheckpoint !== undefined
+        ? patch.agentLoopCheckpoint
+        : (record.agentLoopCheckpoint ?? null),
   };
   await storeFindSearchContext(kv, next);
   return next;

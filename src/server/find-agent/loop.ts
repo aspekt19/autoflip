@@ -1,6 +1,8 @@
 /**
  * Agentic Find SERV loop — tools mode (preferred) or next_action fallback.
  * Model: gpt-6.1-sol only. No profile abort; SERV_HTTP_DEADLINE_MS on each HTTP.
+ * Multi-round runs are stepped across requests under the Hobby 300s cap
+ * (persist checkpoint; never clip SERV call timeouts).
  */
 import {
   applyFindAgentGuardrails,
@@ -14,6 +16,12 @@ import {
   type FindAgentRelaxedCondition,
   type FindAgentVerdict,
 } from "@/domain/find-agent";
+import {
+  AGENT_LOOP_BUDGET_CONTINUE,
+  agentLoopMayStartRound,
+  makeAgentLoopDeadline,
+  type AgentLoopDeadline,
+} from "@/domain/agent-loop-deadline";
 import type { Listing } from "@/domain/types";
 import { TtlCache } from "@/io/cache";
 import { MemoryCounter } from "@/io/quota";
@@ -27,6 +35,11 @@ import {
   type ServChatToolDef,
   type ServChatTurnMessage,
 } from "@/server/serv/agent-chat-turn";
+import {
+  deserializeListingsByVin,
+  serializeListingsByVin,
+  type AgentLoopCheckpoint,
+} from "@/server/serv/agent-loop-checkpoint";
 import {
   classifyAgentFeatureRejection,
   findAgentServFeatureBundle,
@@ -96,6 +109,23 @@ export type FindAgentLoopDeps = {
   budgetUsd?: number | null;
 };
 
+export type FindAgentLoopContinue = {
+  ok: false;
+  continue: true;
+  error: typeof AGENT_LOOP_BUDGET_CONTINUE;
+  message: string;
+  agentMode: FindAgentModeResolved;
+  requestedMode: FindAgentMode;
+  toolRounds: number;
+  verdictReached: false;
+  journal: FindAgentJournalEntry[];
+  knownVins: string[];
+  featureRejections: AgentServFeatureRejection[];
+  featureFlags: string[];
+  servFeatures: AgentServFeatureJournal | null;
+  checkpoint: AgentLoopCheckpoint;
+};
+
 export type FindAgentLoopResult =
   | {
       ok: true;
@@ -114,8 +144,10 @@ export type FindAgentLoopResult =
       featureFlags: string[];
       servFeatures: AgentServFeatureJournal;
     }
+  | FindAgentLoopContinue
   | {
       ok: false;
+      continue?: false;
       agentMode: FindAgentModeResolved | null;
       requestedMode: FindAgentMode;
       toolRounds: number;
@@ -131,6 +163,81 @@ export type FindAgentLoopResult =
 
 type ChatMessage = ServChatTurnMessage;
 type ToolCallWire = ServChatToolCallWire;
+
+function buildFindCheckpoint(input: {
+  phase: "tools" | "next_action";
+  toolRounds: number;
+  roundsCompleted: number;
+  responsesInput: ResponsesInputItem[];
+  messages: ChatMessage[];
+  journal: FindAgentJournalEntry[];
+  state: FindAgentToolState;
+  submitNudgeSent: boolean;
+  firstTurn: boolean;
+  featureRejections: AgentServFeatureRejection[];
+}): AgentLoopCheckpoint {
+  return {
+    v: 1,
+    product: "find",
+    phase: input.phase,
+    toolRounds: input.toolRounds,
+    roundsCompleted: input.roundsCompleted,
+    responsesInput: input.responsesInput,
+    messages: input.messages,
+    journal: input.journal as unknown as Array<Record<string, unknown>>,
+    knownVins: [...input.state.knownVins],
+    listingsByVin: serializeListingsByVin(input.state.listingsByVin),
+    submitNudgeSent: input.submitNudgeSent,
+    firstTurn: input.firstTurn,
+    featureRejections: input.featureRejections as unknown as Array<Record<string, unknown>>,
+  };
+}
+
+function restoreFindStateFromCheckpoint(
+  checkpoint: AgentLoopCheckpoint | null | undefined,
+  seedListings?: readonly Listing[],
+): {
+  state: FindAgentToolState;
+  journal: FindAgentJournalEntry[];
+  toolRounds: number;
+  roundsCompleted: number;
+  responsesInput: ResponsesInputItem[] | null;
+  messages: ChatMessage[] | null;
+  submitNudgeSent: boolean;
+  firstTurn: boolean;
+  featureRejections: AgentServFeatureRejection[];
+  phase: "tools" | "next_action" | null;
+} {
+  if (!checkpoint || checkpoint.product !== "find") {
+    return {
+      state: createFindAgentToolState(seedListings),
+      journal: [],
+      toolRounds: 0,
+      roundsCompleted: 0,
+      responsesInput: null,
+      messages: null,
+      submitNudgeSent: false,
+      firstTurn: true,
+      featureRejections: [],
+      phase: null,
+    };
+  }
+  const state = createFindAgentToolState(seedListings);
+  state.knownVins = new Set(checkpoint.knownVins.map((v) => v.toUpperCase()));
+  state.listingsByVin = deserializeListingsByVin(checkpoint.listingsByVin);
+  return {
+    state,
+    journal: checkpoint.journal as unknown as FindAgentJournalEntry[],
+    toolRounds: checkpoint.toolRounds,
+    roundsCompleted: checkpoint.roundsCompleted,
+    responsesInput: checkpoint.responsesInput,
+    messages: checkpoint.messages as ChatMessage[],
+    submitNudgeSent: checkpoint.submitNudgeSent,
+    firstTurn: checkpoint.firstTurn,
+    featureRejections: checkpoint.featureRejections as unknown as AgentServFeatureRejection[],
+    phase: checkpoint.phase,
+  };
+}
 
 function systemPrompt(note: string, formEdits?: Record<string, unknown> | null): string {
   const edits =
@@ -565,25 +672,69 @@ async function runToolsMode(input: {
   maxRounds: number;
   baseUrl: string;
   fetchImpl: typeof fetch;
+  deadline?: AgentLoopDeadline | null;
+  resume?: {
+    toolRounds: number;
+    roundsCompleted: number;
+    responsesInput: ResponsesInputItem[] | null;
+    messages: ChatMessage[] | null;
+    submitNudgeSent: boolean;
+    firstTurn: boolean;
+    featureRejections: AgentServFeatureRejection[];
+  } | null;
 }): Promise<FindAgentLoopResult> {
   const requestedMode = resolveFindAgentMode(process.env);
   const bundle = findAgentServFeatureBundle();
-  const rejections: AgentServFeatureRejection[] = [];
+  const rejections: AgentServFeatureRejection[] = [...(input.resume?.featureRejections ?? [])];
   const instructions = systemPrompt(input.note, input.formEdits);
   const seedUser =
     "Search for cars that fit the shopper. Call tools as needed (parallel OK). When ready, call submit_picks with the final verdict — do not invent VINs.";
   // Chat transcript kept only as a safety-net finish path if submit_picks never lands.
-  const finishMessages: ChatMessage[] = [
-    { role: "system", content: instructions },
-    { role: "user", content: seedUser },
-  ];
+  const finishMessages: ChatMessage[] = input.resume?.messages?.length
+    ? [...input.resume.messages]
+    : [
+        { role: "system", content: instructions },
+        { role: "user", content: seedUser },
+      ];
   const applicationTools = findAgentResponsesTools();
-  let responsesInput: ResponsesInputItem[] = [responsesUserMessage(seedUser)];
-  let toolRounds = 0;
-  let firstTurn = true;
-  let submitNudgeSent = false;
+  let responsesInput: ResponsesInputItem[] = input.resume?.responsesInput?.length
+    ? [...input.resume.responsesInput]
+    : [responsesUserMessage(seedUser)];
+  let toolRounds = input.resume?.toolRounds ?? 0;
+  let firstTurn = input.resume?.firstTurn ?? true;
+  let submitNudgeSent = input.resume?.submitNudgeSent ?? false;
+  const startRound = input.resume?.roundsCompleted ?? 0;
 
-  for (let round = 0; round < input.maxRounds; round += 1) {
+  for (let round = startRound; round < input.maxRounds; round += 1) {
+    if (!agentLoopMayStartRound(input.deadline)) {
+      const checkpoint = buildFindCheckpoint({
+        phase: "tools",
+        toolRounds,
+        roundsCompleted: round,
+        responsesInput,
+        messages: finishMessages,
+        journal: input.journal,
+        state: input.state,
+        submitNudgeSent,
+        firstTurn,
+        featureRejections: rejections,
+      });
+      return {
+        ok: false,
+        continue: true,
+        error: AGENT_LOOP_BUDGET_CONTINUE,
+        message:
+          "Agentic Find loop paused under the request time budget; continue on the next decide call.",
+        agentMode: "tools",
+        requestedMode,
+        toolRounds,
+        verdictReached: false,
+        journal: input.journal,
+        knownVins: [...input.state.knownVins],
+        checkpoint,
+        ...findLoopMeta(bundle, rejections),
+      };
+    }
     const body = responsesBody({
       instructions,
       input: responsesInput,
@@ -829,23 +980,36 @@ async function runNextActionMode(input: {
   maxRounds: number;
   baseUrl: string;
   fetchImpl: typeof fetch;
+  deadline?: AgentLoopDeadline | null;
+  resume?: {
+    toolRounds: number;
+    roundsCompleted: number;
+    responsesInput: ResponsesInputItem[] | null;
+    messages: ChatMessage[] | null;
+    submitNudgeSent: boolean;
+    firstTurn: boolean;
+    featureRejections: AgentServFeatureRejection[];
+  } | null;
 }): Promise<FindAgentLoopResult> {
   const requestedMode = resolveFindAgentMode(process.env);
   const bundle = findAgentServFeatureBundle();
-  const rejections: AgentServFeatureRejection[] = [];
-  const messages: ChatMessage[] = [
-    {
-      role: "system",
-      content: [
-        systemPrompt(input.note, input.formEdits),
-        "Each turn return JSON with action search or finish.",
-        "search runs search_listings with the provided filters.",
-        "finish must include the find_agent_result fields (summary, confidence, picks, relaxedConditions, passReason).",
-      ].join(" "),
-    },
-    { role: "user", content: "Begin. Prefer a focused search first." },
-  ];
-  let toolRounds = 0;
+  const rejections: AgentServFeatureRejection[] = [...(input.resume?.featureRejections ?? [])];
+  const messages: ChatMessage[] = input.resume?.messages?.length
+    ? [...input.resume.messages]
+    : [
+        {
+          role: "system",
+          content: [
+            systemPrompt(input.note, input.formEdits),
+            "Each turn return JSON with action search or finish.",
+            "search runs search_listings with the provided filters.",
+            "finish must include the find_agent_result fields (summary, confidence, picks, relaxedConditions, passReason).",
+          ].join(" "),
+        },
+        { role: "user", content: "Begin. Prefer a focused search first." },
+      ];
+  let toolRounds = input.resume?.toolRounds ?? 0;
+  const startRound = input.resume?.roundsCompleted ?? 0;
 
   const nextActionBody = (msgs: ChatMessage[]) =>
     chatBody({
@@ -859,7 +1023,36 @@ async function runNextActionMode(input: {
       },
     });
 
-  for (let round = 0; round < input.maxRounds; round += 1) {
+  for (let round = startRound; round < input.maxRounds; round += 1) {
+    if (!agentLoopMayStartRound(input.deadline)) {
+      const checkpoint = buildFindCheckpoint({
+        phase: "next_action",
+        toolRounds,
+        roundsCompleted: round,
+        responsesInput: [],
+        messages,
+        journal: input.journal,
+        state: input.state,
+        submitNudgeSent: false,
+        firstTurn: false,
+        featureRejections: rejections,
+      });
+      return {
+        ok: false,
+        continue: true,
+        error: AGENT_LOOP_BUDGET_CONTINUE,
+        message:
+          "Agentic Find loop paused under the request time budget; continue on the next decide call.",
+        agentMode: "next_action",
+        requestedMode,
+        toolRounds,
+        verdictReached: false,
+        journal: input.journal,
+        knownVins: [...input.state.knownVins],
+        checkpoint,
+        ...findLoopMeta(bundle, rejections),
+      };
+    }
     let body = nextActionBody(messages);
     let turn = await postChat({
       apiKey: input.deps.servKey,
@@ -1155,6 +1348,7 @@ async function runNextActionMode(input: {
 /**
  * Run the Find agentic SERV loop.
  * maxRounds is a runaway guard only — not a wall-clock timeout.
+ * Pass `deadline` + prior `checkpoint` to step across Hobby 300s requests.
  */
 export async function runFindAgentLoop(input: {
   note: string;
@@ -1162,13 +1356,24 @@ export async function runFindAgentLoop(input: {
   formEdits?: Record<string, unknown> | null;
   deps: FindAgentLoopDeps;
   maxRounds?: number;
+  /** Per-request wall budget. When nearly spent, returns continue + checkpoint. */
+  deadline?: AgentLoopDeadline | null;
+  /** Resume mid-loop state from a prior request. */
+  checkpoint?: AgentLoopCheckpoint | null;
+  /** When true, create a fresh deadline for this request (default). */
+  budgetMs?: number;
 }): Promise<FindAgentLoopResult> {
   const requestedMode = input.mode ?? resolveFindAgentMode(process.env);
   const maxRounds = input.maxRounds ?? 40;
   const fetchImpl = input.deps.fetch ?? fetch;
   const baseUrl = servApiBase(input.deps.servBaseUrl);
-  const journal: FindAgentJournalEntry[] = [];
-  const state = createFindAgentToolState(input.deps.seedListings);
+  const restored = restoreFindStateFromCheckpoint(input.checkpoint, input.deps.seedListings);
+  const journal = restored.journal;
+  const state = restored.state;
+  const deadline =
+    input.deadline === undefined
+      ? makeAgentLoopDeadline(input.budgetMs)
+      : input.deadline;
   const toolDeps: FindAgentToolDeps = {
     fetch: fetchImpl,
     autodevKey: input.deps.autodevKey,
@@ -1177,6 +1382,16 @@ export async function runFindAgentLoop(input: {
       counter: new MemoryCounter(),
     },
     seedListings: input.deps.seedListings,
+  };
+
+  const resume = {
+    toolRounds: restored.toolRounds,
+    roundsCompleted: restored.roundsCompleted,
+    responsesInput: restored.responsesInput,
+    messages: restored.messages,
+    submitNudgeSent: restored.submitNudgeSent,
+    firstTurn: restored.firstTurn,
+    featureRejections: restored.featureRejections,
   };
 
   const shared = {
@@ -1189,7 +1404,17 @@ export async function runFindAgentLoop(input: {
     maxRounds,
     baseUrl,
     fetchImpl,
+    deadline,
+    resume: input.checkpoint ? resume : null,
   };
+
+  // Resume sticks to the checkpoint phase when present.
+  if (restored.phase === "next_action") {
+    return runNextActionMode(shared);
+  }
+  if (restored.phase === "tools") {
+    return runToolsMode(shared);
+  }
 
   if (requestedMode === "next_action") {
     return runNextActionMode(shared);
@@ -1202,6 +1427,7 @@ export async function runFindAgentLoop(input: {
   // auto: Responses tools first; fall back to next_action on empty tools or SERV HTTP failure.
   const toolsAttempt = await runToolsMode(shared);
   if (toolsAttempt.ok) return toolsAttempt;
+  if ("continue" in toolsAttempt && toolsAttempt.continue) return toolsAttempt;
   if (toolsAttempt.error !== "tools_unsupported_or_empty" && toolsAttempt.error !== "serv_http") {
     return toolsAttempt;
   }
@@ -1216,7 +1442,8 @@ export async function runFindAgentLoop(input: {
 
   return runNextActionMode({
     ...shared,
-    // Fresh message transcript; keep tool state + journal across the mode switch.
+    // Fresh message transcript for next_action; keep tool state + journal.
+    resume: null,
   });
 }
 

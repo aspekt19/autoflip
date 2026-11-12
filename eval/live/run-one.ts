@@ -264,7 +264,8 @@ export async function runOneQuery(
   });
   context = await updateFindSearchContext(deps.kv, context, { decidePathEnabled: true });
 
-  const decided = await runFindDecideOrchestrator(
+  // Stepped agentic decide: re-enter until settled or hard failure (Hobby 300s per hop).
+  let decided = await runFindDecideOrchestrator(
     { searchContextToken: context.token },
     {
       kv: deps.kv,
@@ -277,6 +278,21 @@ export async function runOneQuery(
       env: process.env,
     },
   );
+  for (let hop = 0; hop < 40 && decided.ok && decided.loop.continue; hop += 1) {
+    decided = await runFindDecideOrchestrator(
+      { searchContextToken: context.token },
+      {
+        kv: deps.kv,
+        userId: deps.userId,
+        servKey: keys.servKey,
+        autodevKey: keys.autodevKey,
+        servModel: deps.servModel,
+        servBaseUrl: deps.servBaseUrl,
+        fetchImpl,
+        env: process.env,
+      },
+    );
+  }
 
   if (!decided.ok) {
     return settle({
@@ -342,6 +358,7 @@ export async function runOneQuery(
   }
 
   const agentLoop = decided.agentLoop ?? null;
+  const elapsed = Date.now() - started;
   return settle({
     ...base,
     ok: true,
@@ -355,13 +372,25 @@ export async function runOneQuery(
     },
     failure: null,
     proofRecords: proofs,
-    elapsedMs: 0,
+    elapsedMs: elapsed,
+    durationMs: elapsed,
     agentMode: agentLoop?.agentMode ?? null,
     toolRounds: agentLoop?.toolRounds ?? 0,
     verdictReached: agentLoop?.verdictReached ?? Boolean(verdict),
     relaxedConditions: agentLoop?.relaxedConditions ?? [],
     journalServCalls: agentLoop?.journalServCalls ?? 0,
     journalToolCalls: agentLoop?.journalToolCalls ?? 0,
+    featuresActive: agentLoop?.featuresActive ?? [],
+    featureRejections: agentLoop?.featureRejections ?? [],
+    servResponseIds:
+      agentLoop?.servResponseIds ??
+      proofs
+        .map((row) =>
+          row && typeof row === "object" && "servResponseId" in row
+            ? (row as { servResponseId?: string | null }).servResponseId
+            : null,
+        )
+        .filter((id): id is string => typeof id === "string" && id.length > 0),
   });
 }
 

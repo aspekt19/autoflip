@@ -137,11 +137,11 @@ describe("runFindDecideOrchestrator (offline)", () => {
     if (!result.ok) return;
     expect(result.loop.continue).toBe(false);
     expect(result.freeGovReceipts.length).toBeGreaterThan(0);
-    expect(result.bestDeal.pick).toBeTruthy();
+    expect(result.bestDeal?.pick).toBeTruthy();
     expect(result.decideSource).toBe("code");
     expect(result.pickProofRecords.some((p) => p.purpose === "find_triage")).toBe(true);
     expect(result.pickProofRecords.some((p) => p.purpose === "find_decide")).toBe(true);
-    expect(result.pickAgentVerdict.confidence).not.toBe("high");
+    expect(result.pickAgentVerdict?.confidence).not.toBe("high");
   });
 
   it("rejects contexts minted for next-check only", async () => {

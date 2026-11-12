@@ -8,6 +8,7 @@ import { TtlCache } from "@/io/cache";
 import { MemoryCounter } from "@/io/quota";
 import { runResaleAgentLoop, summarizeResaleAgentJournal } from "@/server/resale-agent/loop";
 import { createGoldenFetch } from "../../test/golden/transport";
+import { liveEvalJournalMeta } from "./journal-meta";
 import { ESTIMATED_USD_PER_QUERY, type RunOneDeps } from "./run-one";
 import type { GeneratedQuery, LiveEvalCaseResult } from "./types";
 
@@ -78,23 +79,35 @@ export async function runOneResaleQuery(
     product: "resale",
   };
 
-  const agent = await runResaleAgentLoop({
+  const loopDeps = {
+    servKey,
+    autodevKey,
+    fetch: fetchImpl,
+    servBaseUrl: deps.servBaseUrl,
+    budgetUsd,
+    pnlOptions: { repairAbility: "unknown" as const },
+    shopperContext,
+    // Isolated quota/cache per parallel query.
+    autodev: { cache: new TtlCache<unknown>(), counter: new MemoryCounter() },
+  };
+
+  // Stepped across request budgets (in-process here: fresh deadline each hop).
+  let agent = await runResaleAgentLoop({
     note: query.note,
     shopperContext,
-    deps: {
-      servKey,
-      autodevKey,
-      fetch: fetchImpl,
-      servBaseUrl: deps.servBaseUrl,
-      budgetUsd,
-      pnlOptions: { repairAbility: "unknown" },
-      shopperContext,
-      // Isolated quota/cache per parallel query.
-      autodev: { cache: new TtlCache<unknown>(), counter: new MemoryCounter() },
-    },
+    deps: loopDeps,
   });
+  for (let hop = 0; hop < 40 && "continue" in agent && agent.continue; hop += 1) {
+    agent = await runResaleAgentLoop({
+      note: query.note,
+      shopperContext,
+      deps: loopDeps,
+      checkpoint: agent.checkpoint,
+    });
+  }
 
   const journal = summarizeResaleAgentJournal(agent.journal);
+  const meta = liveEvalJournalMeta(agent.journal);
   const elapsedMs = Date.now() - started;
 
   if (deps.fixtureRoot && deps.caseId) {
@@ -133,12 +146,16 @@ export async function runOneResaleQuery(
       },
       proofRecords: [],
       elapsedMs,
+      durationMs: elapsedMs,
       agentMode: agent.agentMode,
       toolRounds: agent.toolRounds,
       verdictReached: false,
       relaxedConditions: [],
       journalServCalls: journal.servCalls,
       journalToolCalls: journal.toolCalls,
+      featuresActive: meta.featuresActive,
+      featureRejections: meta.featureRejections,
+      servResponseIds: meta.servResponseIds,
     };
   }
 
@@ -168,11 +185,15 @@ export async function runOneResaleQuery(
     failure: null,
     proofRecords: [],
     elapsedMs,
+    durationMs: elapsedMs,
     agentMode: agent.agentMode,
     toolRounds: agent.toolRounds,
     verdictReached: agent.verdictReached,
     relaxedConditions: agent.relaxedConditions,
     journalServCalls: journal.servCalls,
     journalToolCalls: journal.toolCalls,
+    featuresActive: meta.featuresActive,
+    featureRejections: meta.featureRejections,
+    servResponseIds: meta.servResponseIds,
   };
 }
