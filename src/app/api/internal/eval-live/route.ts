@@ -6,7 +6,7 @@
  * Never charges report credits (no debitFindDelivery).
  *
  * Body optional: { seed?, maxQueries?, notes? }
- * maxQueries capped at 8 on HTTP to keep SERV spend small.
+ * Default/max 8 queries (≈5 Find + 3 Resale), parallel, no charges.
  */
 import { HTTP_MAX_QUERIES, runLiveEvalBatch } from "../../../../../eval/live/harness";
 import { resolveSeed } from "../../../../../eval/live/generate";

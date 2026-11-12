@@ -109,7 +109,7 @@ export const MESSY: readonly MessyTemplate[] = [
   },
 ];
 
-/** Assemble a clean note before optional messy wrapping. */
+/** Assemble a clean Find note before optional messy wrapping. */
 export function assembleCleanNote(input: {
   body: BodyTemplate;
   budget: BudgetTemplate;
@@ -121,4 +121,32 @@ export function assembleCleanNote(input: {
       ? "Anywhere in the US is fine"
       : `Near ${input.city.name} (${input.city.zip})`;
   return `Looking for ${input.body.phrase} ${input.budget.phrase}. ${input.need.phrase}. ${where}.`;
+}
+
+export type FlipGoalTemplate = {
+  id: string;
+  phrase: string;
+};
+
+/** Flip-oriented need lines for Resale agent eval notes. */
+export const FLIP_GOALS: readonly FlipGoalTemplate[] = [
+  { id: "quick", phrase: "want a quick flip with clear margin after fees and tax" },
+  { id: "local", phrase: "buy local, fix light stuff myself, resell in the same market" },
+  { id: "thin", phrase: "okay with a thinner margin if days-to-sell looks short" },
+  { id: "safe", phrase: "skip do-not-drive recalls; prefer clean title flips" },
+  { id: "volume", phrase: "looking for underpriced comps I can wholesale or private-party" },
+];
+
+/** Assemble a clean Resale/flip note before optional messy wrapping. */
+export function assembleResaleNote(input: {
+  body: BodyTemplate;
+  budget: BudgetTemplate;
+  goal: FlipGoalTemplate;
+  city: CityTemplate;
+}): string {
+  const where =
+    input.city.id === "nationwide"
+      ? "Nationwide sourcing is fine"
+      : `Around ${input.city.name} (${input.city.zip})`;
+  return `Flip search: ${input.body.phrase} ${input.budget.phrase}. ${input.goal.phrase}. ${where}.`;
 }

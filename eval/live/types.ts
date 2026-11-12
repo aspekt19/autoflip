@@ -1,17 +1,22 @@
 /**
  * Live-SERV offline eval report shapes.
- * One query is understandNeed → runFindMatch → decide (orchestrator), never debitFindDelivery.
+ * Find: understandNeed → match → decide (orchestrator), never debitFindDelivery.
+ * Resale: runResaleAgentLoop in-process, never charges report credits.
  */
 
 export type LiveEvalMode = "dry-run" | "live";
 
+export type LiveEvalProduct = "find" | "resale";
+
 export type GeneratedQuery = {
   id: string;
+  product: LiveEvalProduct;
   note: string;
   zip: string | null;
   distanceMiles: number | null;
   /** Template tags that built this note (for debugging variety). */
   tags: {
+    product: LiveEvalProduct;
     city: string;
     budget: string;
     body: string;
@@ -30,6 +35,7 @@ export type LiveEvalFailureStep =
   | "understand"
   | "match"
   | "decide"
+  | "resale_agent"
   | "spend_cap"
   | "missing_keys";
 
@@ -55,6 +61,7 @@ export type LiveEvalRelaxedCondition = {
 
 export type LiveEvalCaseResult = {
   id: string;
+  product: LiveEvalProduct;
   note: string;
   ok: boolean;
   searchSpec: SearchSpecSummary | null;
@@ -65,20 +72,13 @@ export type LiveEvalCaseResult = {
   elapsedMs: number;
   estimatedUsd: number;
   fixtureDir: string | null;
-  /** Agentic Find loop mode that won this query, when used. */
+  /** Agentic loop mode that won this query, when used. */
   agentMode?: "tools" | "next_action" | null;
   toolRounds?: number;
   verdictReached?: boolean;
   relaxedConditions?: LiveEvalRelaxedCondition[];
   journalServCalls?: number;
   journalToolCalls?: number;
-  /**
-   * Resale agentic loop fields (same shape as Find).
-   * eval:live is Find-only today — Resale agent metrics are reported on the job path
-   * when RESALE_AGENT_LOOP is on; leave null here until live resale queries exist.
-   */
-  resaleAgentMode?: "tools" | "next_action" | null;
-  resaleToolRounds?: number;
 };
 
 export type LiveEvalReport = {
@@ -93,6 +93,8 @@ export type LiveEvalReport = {
   generatedAt: string;
   queries: GeneratedQuery[];
   results: LiveEvalCaseResult[];
+  findCount: number;
+  resaleCount: number;
 };
 
 export type LiveEvalBatchOptions = {
@@ -100,7 +102,7 @@ export type LiveEvalBatchOptions = {
   maxQueries: number;
   maxUsd: number;
   mode: LiveEvalMode;
-  /** When set, only these note strings (HTTP notes override). */
+  /** When set, only these note strings (HTTP notes override) — treated as Find. */
   notes?: string[];
   /** Write golden recordings under test/golden/recordings/live-eval/<seed>/. */
   recordFixtures?: boolean;
@@ -109,4 +111,6 @@ export type LiveEvalBatchOptions = {
    * When set, uses getKv() (HTTP/prod). When omitted, CLI uses MemoryKv.
    */
   userId?: string;
+  /** Max concurrent query runners (default 4). */
+  concurrency?: number;
 };

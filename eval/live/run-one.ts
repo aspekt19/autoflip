@@ -91,6 +91,7 @@ export async function runOneQuery(
   const started = Date.now();
   const base: Omit<LiveEvalCaseResult, "ok" | "searchSpec" | "carsFound" | "pick" | "failure" | "proofRecords"> = {
     id: query.id,
+    product: query.product ?? "find",
     note: query.note,
     elapsedMs: 0,
     estimatedUsd: ESTIMATED_USD_PER_QUERY,

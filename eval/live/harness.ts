@@ -1,11 +1,12 @@
 /**
  * Live-SERV offline eval harness.
  *
+ * Default batch: 8 queries (≈5 Find + 3 Resale), randomized templates, parallel.
+ * Never charges report credits.
+ *
  * Spend model (documented assumption, not a bill):
- *   each query ≈ find_plan + find_triage + find_decide + find_challenge = 4 SERV calls
- *   ESTIMATED_USD_PER_QUERY = 4 * $0.03 = $0.12
- *   Cap: stop after EVAL_LIVE_MAX_USD (default 3) OR EVAL_LIVE_MAX_QUERIES (default 24).
- *   4 * 24 = 96 calls ≈ $2.88 under the $3 hard cap.
+ *   each query ≈ 4 SERV calls × $0.03 = $0.12
+ *   Cap: stop after EVAL_LIVE_MAX_USD (default 3) OR EVAL_LIVE_MAX_QUERIES (default 8).
  *
  * Default = dry-run (print planned notes, no network).
  * Live needs EVAL_LIVE_ALLOW_PAID=1 + SERV_API_KEY + AUTODEV_API_KEY.
@@ -17,7 +18,12 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { MemoryKv, getKv } from "@/io/kv";
 import { runtimeDeps } from "@/server/deps";
-import { generateQueries, resolveSeed } from "./generate";
+import {
+  countByProduct,
+  DEFAULT_EVAL_QUERIES,
+  generateQueries,
+  resolveSeed,
+} from "./generate";
 import {
   ESTIMATED_USD_PER_QUERY,
   SERV_CALLS_PER_QUERY,
@@ -25,13 +31,15 @@ import {
   liveKeysFromEnv,
   runOneQuery,
 } from "./run-one";
-import type { GeneratedQuery, LiveEvalBatchOptions, LiveEvalReport } from "./types";
+import { runOneResaleQuery } from "./run-one-resale";
+import type { GeneratedQuery, LiveEvalBatchOptions, LiveEvalCaseResult, LiveEvalReport } from "./types";
 
-const DEFAULT_MAX_QUERIES = 24;
+const DEFAULT_MAX_QUERIES = DEFAULT_EVAL_QUERIES;
 const DEFAULT_MAX_USD = 3;
-const HTTP_MAX_QUERIES = 8;
+const HTTP_MAX_QUERIES = DEFAULT_EVAL_QUERIES;
+const DEFAULT_CONCURRENCY = 4;
 
-export { HTTP_MAX_QUERIES, DEFAULT_MAX_QUERIES, DEFAULT_MAX_USD };
+export { HTTP_MAX_QUERIES, DEFAULT_MAX_QUERIES, DEFAULT_MAX_USD, DEFAULT_CONCURRENCY };
 
 function envInt(name: string, fallback: number): number {
   const raw = process.env[name]?.trim();
@@ -44,41 +52,78 @@ export function livePaidAllowed(env: NodeJS.ProcessEnv = process.env): boolean {
   return env.EVAL_LIVE_ALLOW_PAID === "1";
 }
 
-function printCaseLine(result: LiveEvalReport["results"][number]): void {
-  const hardKeys = result.searchSpec ? Object.keys(result.searchSpec.hard).join(",") || "—" : "—";
-  const softKeys = result.searchSpec ? Object.keys(result.searchSpec.soft).join(",") || "—" : "—";
+function printCaseLine(result: LiveEvalCaseResult): void {
+  const product = result.product ?? "find";
   const pick =
     result.pick?.vin || result.pick?.label
       ? `${result.pick.label ?? "?"} (${result.pick.vin ?? "no-vin"}) verdict=${result.pick.verdict ?? "—"}`
       : "—";
+  const relaxed =
+    result.relaxedConditions && result.relaxedConditions.length > 0
+      ? result.relaxedConditions.map((r) => `${r.name}:${r.why}`).join(" | ")
+      : "—";
+  const agent = `mode=${result.agentMode ?? "—"} rounds=${result.toolRounds ?? 0} verdictReached=${result.verdictReached ?? false}`;
   if (result.ok) {
     console.log(
-      `[ok] ${result.id} cars=${result.carsFound} hard={${hardKeys}} soft={${softKeys}} pick=${pick} ${result.elapsedMs}ms`,
+      `[ok] ${result.id} [${product}] cars=${result.carsFound} pick=${pick} ${agent} ${result.elapsedMs}ms`,
     );
   } else {
     const fail = result.failure;
     console.log(
-      `[fail] ${result.id} step=${fail?.step ?? "?"} error=${fail?.error ?? "?"} ${fail?.message ?? ""}` +
+      `[fail] ${result.id} [${product}] step=${fail?.step ?? "?"} error=${fail?.error ?? "?"} ${fail?.message ?? ""}` +
         (fail?.responseId ? ` responseId=${fail.responseId}` : ""),
     );
   }
+  console.log(`  relaxed: ${relaxed}`);
   console.log(`  note: ${result.note.slice(0, 140)}${result.note.length > 140 ? "…" : ""}`);
+}
+
+/** Run async work with a concurrency limit; preserves input order in results. */
+export async function mapPool<T, R>(
+  items: readonly T[],
+  concurrency: number,
+  worker: (item: T, index: number) => Promise<R>,
+): Promise<R[]> {
+  const limit = Math.max(1, Math.floor(concurrency));
+  const results: R[] = new Array(items.length);
+  let next = 0;
+  async function runWorker(): Promise<void> {
+    while (true) {
+      const i = next;
+      next += 1;
+      if (i >= items.length) return;
+      results[i] = await worker(items[i]!, i);
+    }
+  }
+  const runners = Array.from({ length: Math.min(limit, items.length) }, () => runWorker());
+  await Promise.all(runners);
+  return results;
 }
 
 export async function runLiveEvalBatch(options: LiveEvalBatchOptions): Promise<LiveEvalReport> {
   const maxQueries = Math.max(1, Math.floor(options.maxQueries));
   const maxUsd = Math.max(0.01, options.maxUsd);
+  const concurrency = Math.max(1, Math.floor(options.concurrency ?? DEFAULT_CONCURRENCY));
   const queriesFromNotes: GeneratedQuery[] | null = options.notes?.length
     ? options.notes.map((note, i) => ({
         id: `note_${String(i + 1).padStart(2, "0")}`,
+        product: "find" as const,
         note,
         zip: null,
         distanceMiles: null,
-        tags: { city: "custom", budget: "custom", body: "custom", need: "custom", messy: false },
+        tags: {
+          product: "find" as const,
+          city: "custom",
+          budget: "custom",
+          body: "custom",
+          need: "custom",
+          messy: false,
+        },
       }))
     : null;
   const queries = queriesFromNotes ?? generateQueries(options.seed, maxQueries);
   const planned = queries.slice(0, maxQueries);
+  const counts = countByProduct(planned);
 
   if (options.mode === "dry-run") {
     return {
@@ -93,13 +138,15 @@ export async function runLiveEvalBatch(options: LiveEvalBatchOptions): Promise<L
       generatedAt: new Date().toISOString(),
       queries: planned,
       results: [],
+      findCount: counts.find,
+      resaleCount: counts.resale,
     };
   }
 
   const keys = liveKeysFromEnv();
   const runtime = runtimeDeps();
   const userId = options.userId ?? "live-eval";
-  // HTTP/prod passes useSharedKv; CLI uses MemoryKv (not serverless).
+  // Shared KV only for Find search-context when HTTP/prod; each Find query also mints its own context.
   const kv = options.userId ? getKv() : new MemoryKv();
 
   const fixtureRoot = options.recordFixtures
@@ -107,22 +154,16 @@ export async function runLiveEvalBatch(options: LiveEvalBatchOptions): Promise<L
     : undefined;
   if (fixtureRoot) mkdirSync(fixtureRoot, { recursive: true });
 
-  const results: LiveEvalReport["results"] = [];
-  let estimatedUsd = 0;
-  let stoppedReason: LiveEvalReport["stoppedReason"] = "completed";
+  // Affordability gate before parallel dispatch (8 × $0.12 ≪ $3).
+  const affordable = planned.filter((_, i) => (i + 1) * ESTIMATED_USD_PER_QUERY <= maxUsd + 1e-9);
+  let stoppedReason: LiveEvalReport["stoppedReason"] =
+    affordable.length < planned.length ? "max_usd" : "completed";
 
-  for (const query of planned) {
-    if (estimatedUsd + ESTIMATED_USD_PER_QUERY > maxUsd + 1e-9) {
-      stoppedReason = "max_usd";
-      break;
-    }
-    if (results.length >= maxQueries) {
-      stoppedReason = "max_queries";
-      break;
-    }
-
-    const result = await runOneQuery(query, {
-      kv,
+  const results = await mapPool(affordable, concurrency, async (query) => {
+    // Isolate Find KV per query so parallel mint/update cannot race.
+    const queryKv = options.userId ? kv : new MemoryKv();
+    const deps = {
+      kv: queryKv,
       userId,
       servKey: keys.servKey ?? runtime.servKey,
       autodevKey: keys.autodevKey ?? runtime.autodevKey,
@@ -131,16 +172,18 @@ export async function runLiveEvalBatch(options: LiveEvalBatchOptions): Promise<L
       fixtureRoot,
       caseId: options.recordFixtures ? query.id : undefined,
       secrets: [keys.servKey, keys.autodevKey].filter((v): v is string => Boolean(v)),
-    });
-    results.push(result);
-    estimatedUsd += result.estimatedUsd;
+    };
+    const result =
+      query.product === "resale" ? await runOneResaleQuery(query, deps) : await runOneQuery(query, deps);
     printCaseLine(result);
-  }
+    return result;
+  });
 
   if (results.length >= maxQueries && stoppedReason === "completed") {
     stoppedReason = "max_queries";
   }
 
+  const estimatedUsd = results.reduce((sum, r) => sum + r.estimatedUsd, 0);
   const report: LiveEvalReport = {
     mode: "live",
     seed: options.seed,
@@ -153,6 +196,8 @@ export async function runLiveEvalBatch(options: LiveEvalBatchOptions): Promise<L
     generatedAt: new Date().toISOString(),
     queries: planned,
     results,
+    findCount: counts.find,
+    resaleCount: counts.resale,
   };
 
   if (options.recordFixtures) {
@@ -168,6 +213,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
   const seed = resolveSeed();
   const maxQueries = Math.floor(envInt("EVAL_LIVE_MAX_QUERIES", DEFAULT_MAX_QUERIES));
   const maxUsd = envInt("EVAL_LIVE_MAX_USD", DEFAULT_MAX_USD);
+  const concurrency = Math.floor(envInt("EVAL_LIVE_CONCURRENCY", DEFAULT_CONCURRENCY));
   const wantLive = livePaidAllowed() || argv.includes("--live");
 
   if (!wantLive) {
@@ -176,19 +222,21 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       maxQueries,
       maxUsd,
       mode: "dry-run",
+      concurrency,
     });
-    console.log(`eval:live dry-run seed=${report.seed} queries=${report.queries.length}`);
     console.log(
-      `Spend model: ~${SERV_CALLS_PER_QUERY} SERV calls/query × $${USD_PER_SERV_CALL} ≈ $${ESTIMATED_USD_PER_QUERY}/query; caps maxQueries=${maxQueries} maxUsd=$${maxUsd}`,
+      `eval:live dry-run seed=${report.seed} queries=${report.queries.length} find=${report.findCount} resale=${report.resaleCount}`,
+    );
+    console.log(
+      `Spend model: ~${SERV_CALLS_PER_QUERY} SERV calls/query × $${USD_PER_SERV_CALL} ≈ $${ESTIMATED_USD_PER_QUERY}/query; caps maxQueries=${maxQueries} maxUsd=$${maxUsd} concurrency=${concurrency}`,
     );
     for (const q of report.queries) {
-      console.log(`- ${q.id} [${q.tags.city}/${q.tags.body}/${q.tags.budget}/${q.tags.need}${q.tags.messy ? "/messy" : ""}]`);
+      console.log(
+        `- ${q.id} [${q.product}/${q.tags.city}/${q.tags.body}/${q.tags.budget}/${q.tags.need}${q.tags.messy ? "/messy" : ""}]`,
+      );
       console.log(`  ${q.note}`);
     }
     console.log("Dry-run only. Set EVAL_LIVE_ALLOW_PAID=1 with SERV_API_KEY + AUTODEV_API_KEY for live.");
-    console.log(
-      "Note: eval:live queries are Find-only; agentMode/toolRounds/relaxedConditions cover the Find agent. Resale agent (RESALE_AGENT_*) is exercised on the Resale job path, not this harness.",
-    );
     return 0;
   }
 
@@ -198,16 +246,19 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
     return 1;
   }
 
-  console.log(`eval:live LIVE seed=${seed} maxQueries=${maxQueries} maxUsd=$${maxUsd}`);
+  console.log(
+    `eval:live LIVE seed=${seed} maxQueries=${maxQueries} maxUsd=$${maxUsd} concurrency=${concurrency}`,
+  );
   const report = await runLiveEvalBatch({
     seed,
     maxQueries,
     maxUsd,
     mode: "live",
     recordFixtures: true,
+    concurrency,
   });
   console.log(
-    `Done. results=${report.results.length} ok=${report.results.filter((r) => r.ok).length} estimatedUsd=$${report.estimatedUsd.toFixed(2)} stopped=${report.stoppedReason}`,
+    `Done. results=${report.results.length} find=${report.findCount} resale=${report.resaleCount} ok=${report.results.filter((r) => r.ok).length} estimatedUsd=$${report.estimatedUsd.toFixed(2)} stopped=${report.stoppedReason}`,
   );
   console.log(`Report: eval/results/live/${report.seed}/report.json`);
   console.log(`Fixtures: test/golden/recordings/live-eval/${report.seed}/`);
