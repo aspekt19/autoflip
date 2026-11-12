@@ -6,6 +6,7 @@ import { findDeliveryChargesCredit } from "@/domain/find-delivery";
 import { emptyNeed, type StructuredNeed } from "@/domain/need";
 import { formatServChatTranscript, type ServChatMessage } from "@/domain/serv-chat";
 import { chargeOutcomeFromAgentSettlement } from "@/domain/serv-boundary";
+import { chatLimitViolation, type ShopperBrief } from "@/domain/shopper-brief";
 import { makeAgentLoopDeadline } from "@/domain/agent-loop-deadline";
 import { FIND_DECIDE_ROUTE_MS } from "@/domain/route-budget";
 import { TtlCache } from "@/io/cache";
@@ -32,6 +33,7 @@ export type FindChatSession = {
   checkpoint: AgentLoopCheckpoint | null;
   status: "open" | "awaiting_user" | "searching" | "done" | "failed";
   pendingQuestion: string | null;
+  pendingBrief: ShopperBrief | null;
   spendKey: string;
   charged: boolean;
   result: Record<string, unknown> | null;
@@ -49,6 +51,7 @@ export async function loadFindChatSession(kv: Kv, sessionId: string): Promise<Fi
   try {
     const parsed = JSON.parse(raw) as FindChatSession;
     if (!parsed || typeof parsed !== "object" || typeof parsed.sessionId !== "string") return null;
+    if (!("pendingBrief" in parsed)) (parsed as FindChatSession).pendingBrief = null;
     return parsed;
   } catch {
     return null;
@@ -92,6 +95,8 @@ export async function runFindChatTurn(input: {
   sessionId?: string | null;
   message?: string | null;
   continue?: boolean;
+  /** Shopper confirmed the pending submit_brief card. */
+  confirmBrief?: boolean;
   servKey: string;
   autodevKey: string;
   servBaseUrl?: string;
@@ -113,6 +118,27 @@ export async function runFindChatTurn(input: {
 
   const userText = typeof input.message === "string" ? input.message.trim() : "";
   const isContinue = input.continue === true;
+  const confirmBrief = input.confirmBrief === true;
+
+  const limit = chatLimitViolation({
+    message: userText,
+    messages: session?.messages ?? [],
+    addingUserMessage: Boolean(userText) && !confirmBrief,
+  });
+  if (!limit.ok) {
+    return {
+      ok: false,
+      status: 400,
+      body: {
+        ok: false,
+        error: "chat_limit",
+        message: limit.message,
+        sessionId: session?.sessionId ?? null,
+        messages: session?.messages ?? [],
+        charged: false,
+      },
+    };
+  }
 
   if (!session) {
     if (!userText) {
@@ -135,6 +161,7 @@ export async function runFindChatTurn(input: {
       checkpoint: null,
       status: "searching",
       pendingQuestion: null,
+      pendingBrief: null,
       spendKey: findSearchSpendKey(input.userId, idem),
       charged: false,
       result: null,
@@ -154,9 +181,18 @@ export async function runFindChatTurn(input: {
         charged: session.charged,
       },
     };
+  } else if (confirmBrief) {
+    session.messages.push({
+      role: "user",
+      content: "Confirmed — go ahead with this brief.",
+      at: new Date().toISOString(),
+    });
+    session.pendingQuestion = null;
+    session.status = "searching";
   } else if (userText) {
     session.messages.push({ role: "user", content: userText, at: new Date().toISOString() });
     session.pendingQuestion = null;
+    session.pendingBrief = null;
     session.status = "searching";
   } else if (!isContinue && session.status === "awaiting_user") {
     return {
@@ -168,20 +204,23 @@ export async function runFindChatTurn(input: {
         message: session.pendingQuestion || "SERV is waiting for your reply.",
         sessionId: session.sessionId,
         messages: session.messages,
-        status: "ask",
+        status: session.pendingBrief ? "brief" : "ask",
         question: session.pendingQuestion,
+        brief: session.pendingBrief,
       },
     };
   }
 
   const transcript = formatServChatTranscript(session.messages);
-  const shopperReply = session.checkpoint?.pendingAskQuestion && userText ? userText : null;
+  const shopperReply =
+    !confirmBrief && session.checkpoint?.pendingAskQuestion && userText ? userText : null;
 
   const agent = await runFindAgentLoop({
     note: transcript,
     formEdits: null,
     checkpoint: session.checkpoint,
     shopperReply,
+    briefConfirmed: confirmBrief,
     budgetMs: FIND_DECIDE_ROUTE_MS,
     deadline: makeAgentLoopDeadline(FIND_DECIDE_ROUTE_MS),
     deps: {
@@ -204,6 +243,7 @@ export async function runFindChatTurn(input: {
   if ("awaitUser" in agent && agent.awaitUser) {
     session.checkpoint = agent.checkpoint;
     session.pendingQuestion = agent.question;
+    session.pendingBrief = agent.awaitKind === "brief" ? (agent.brief ?? null) : null;
     session.status = "awaiting_user";
     session.messages.push({ role: "assistant", content: agent.question, at: new Date().toISOString() });
     session.updatedAt = new Date().toISOString();
@@ -213,10 +253,11 @@ export async function runFindChatTurn(input: {
       status: 200,
       body: {
         ok: true,
-        status: "ask",
+        status: agent.awaitKind === "brief" ? "brief" : "ask",
         sessionId: session.sessionId,
         messages: session.messages,
         question: agent.question,
+        brief: session.pendingBrief,
         charged: false,
       },
     };

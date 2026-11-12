@@ -20,10 +20,17 @@ import { complaintsFor, recallsFor, type GovDeps } from "@/io/gov";
 import { safetyRatingsFor } from "@/io/nhtsa-safety";
 import type { Listing } from "@/domain/types";
 import type { ListingQuery } from "@/io/marketcheck";
+import {
+  checkBudgetUserQuote,
+  formatShopperBriefCard,
+  parseShopperBrief,
+  type ShopperBrief,
+} from "@/domain/shopper-brief";
 
 export const FIND_AGENT_TOOL_NAMES = [
   "ask_shopper",
   "record_shopper_facts",
+  "submit_brief",
   "search_listings",
   "get_recalls_complaints",
   "get_safety_ratings",
@@ -156,6 +163,8 @@ export type FindAgentToolDeps = {
   >;
   /** Optional seed inventory already in hand (match pool). */
   seedListings?: readonly Listing[];
+  /** Full shopper chat transcript for budget.userQuote verbatim checks. */
+  chatTranscript?: string | null;
 };
 
 /** Default page size when SERV omits limit — not a silent hide-rows cap. */
@@ -454,6 +463,37 @@ export function findAgentChatTools(): Array<{
             radiusMi: { type: ["number", "null"], description: "Miles radius, or null for nationwide." },
           },
           required: ["budgetUsd", "zip", "radiusMi"],
+        },
+      },
+    },
+    {
+      type: "function",
+      function: {
+        name: "submit_brief",
+        description:
+          "When you have enough facts, submit a compact search brief for the shopper to confirm before any search_listings. budget.userQuote must be verbatim shopper words from chat (with maxUsd). Code pauses for Confirm/Correct — do not search until confirmed.",
+        parameters: {
+          type: "object",
+          additionalProperties: false,
+          properties: {
+            summary: { type: "string", description: "One short English summary of what you will search for." },
+            budget: {
+              type: "object",
+              additionalProperties: false,
+              properties: {
+                maxUsd: { type: ["number", "null"] },
+                userQuote: {
+                  type: ["string", "null"],
+                  description: "Verbatim shopper words for the budget from chat, or null if none stated.",
+                },
+              },
+              required: ["maxUsd", "userQuote"],
+            },
+            zip: { type: ["string", "null"] },
+            radiusMi: { type: ["number", "null"] },
+            notes: { type: ["string", "null"] },
+          },
+          required: ["summary", "budget", "zip", "radiusMi", "notes"],
         },
       },
     },
@@ -887,6 +927,34 @@ export async function executeFindAgentTool(
       ok: true,
       result: { ok: true, facts: { ...state.shopperFacts } },
       summary: `record_shopper_facts budget=${state.shopperFacts.budgetUsd ?? "—"} zip=${state.shopperFacts.zip ?? "—"}`,
+    };
+  }
+
+  if (name === "submit_brief") {
+    const parsed = parseShopperBrief(rawArgs);
+    if (!parsed.ok) {
+      return {
+        name: "submit_brief",
+        ok: false,
+        result: { error: "invalid_args", issues: parsed.issues },
+        summary: `submit_brief rejected: ${parsed.issues.map((i) => i.message).join("; ")}`,
+      };
+    }
+    const quoteCheck = checkBudgetUserQuote(parsed.brief.budget, deps.chatTranscript ?? "");
+    if (!quoteCheck.ok) {
+      return {
+        name: "submit_brief",
+        ok: false,
+        result: { error: "budget_quote", status: quoteCheck.status, issues: [{ field: "budget", message: quoteCheck.message }] },
+        summary: `submit_brief rejected: ${quoteCheck.status}`,
+      };
+    }
+    const card = formatShopperBriefCard(parsed.brief);
+    return {
+      name: "submit_brief",
+      ok: true,
+      result: { ok: true, paused: true, brief: parsed.brief as ShopperBrief, card, quoteStatus: quoteCheck.status },
+      summary: `submit_brief: ${parsed.brief.summary.slice(0, 80)}`,
     };
   }
 

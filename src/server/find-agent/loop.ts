@@ -12,6 +12,11 @@ import {
 } from "@/domain/agent-verdict-complete";
 import { fromShopperInputEvent } from "@/domain/constraint-provenance";
 import {
+  formatShopperBriefCard,
+  SERV_TOPIC_SCOPE_RULE,
+  type ShopperBrief,
+} from "@/domain/shopper-brief";
+import {
   fingerprintsFromSearchJournal,
   hardSearchKeysFromUserBag,
 } from "@/domain/search-listings-feedback";
@@ -234,12 +239,15 @@ export type FindAgentLoopContinue = {
   checkpoint: AgentLoopCheckpoint;
 };
 
-/** SERV called ask_shopper — pause for a shopper reply in the same conversation. */
+/** SERV called ask_shopper or submit_brief — pause for the shopper in the same conversation. */
 export type FindAgentLoopAwaitUser = {
   ok: false;
   awaitUser: true;
   question: string;
   message: string;
+  /** ask = free-text reply; brief = Confirm/Correct card */
+  awaitKind?: "ask" | "brief";
+  brief?: ShopperBrief | null;
   agentMode: FindAgentModeResolved;
   requestedMode: FindAgentMode;
   toolRounds: number;
@@ -459,9 +467,11 @@ function systemPrompt(note: string, formEdits?: Record<string, unknown> | null):
   return [
     "You are Lemonless Find's search agent on SERV (gpt-6.1-sol).",
     "You chat with the shopper in this same conversation, then search live inventory with tools.",
+    SERV_TOPIC_SCOPE_RULE,
     "If budget, location, or other material facts are missing, call ask_shopper with one clear English question. Do not invent answers. Ask as many turns as you need.",
     "When the shopper has stated a budget (or ZIP/radius), call record_shopper_facts so offer ≤ budget anti-fab uses those values.",
-    "When you have enough, call search_listings (and other tools) in this same conversation, then submit_picks — or explain nothing fits with passReason.",
+    "When you have enough, call submit_brief with a compact card (budget.maxUsd + budget.userQuote verbatim from chat). Code pauses for Confirm/Correct — do not call search_listings until the brief is confirmed.",
+    "After the shopper confirms the brief, call search_listings (and other tools) in this same conversation, then submit_picks — or explain nothing fits with passReason.",
     "You decide which listings to search. Prefer tight filters first.",
     "When results are empty or poor, read search_listings.funnel + relaxHints + constraintRoles: change a relaxable (SERV-chosen) filter at the step that hit zero (omit_body, widen_radius, raise_price, drop_transmission, next_model) and re-search. Prefer bodyFamily=car over Sedan. constraintRoles.hard are shopper origin=user filters — keep unless the shopper's note allows otherwise; never invent which keys are hard. Profit and sell-window are not inventory filters. Code never auto-relaxes or forces filter changes — you decide.",
     "search_listings returns unfiltered provider rows plus an observational funnel — code does not drop rows for product decisions. If duplicateSearch is set, prefer changing a relaxable filter; a reasoned pass with journaled searches is still valid.",
@@ -1128,6 +1138,40 @@ async function runToolsMode(input: {
           };
         }
 
+        if (call.name === "submit_brief") {
+          const executed = await executeFindAgentTool(call.name, args, input.toolDeps, input.state);
+          input.journal.push(journalSearchListingsEntry(executed, args));
+          if (!executed.ok) {
+            return {
+              callId: call.callId,
+              name: "submit_brief" as const,
+              accepted: false as const,
+              output: executed.result,
+            };
+          }
+          const brief = (executed.result as { brief?: ShopperBrief }).brief ?? null;
+          const card =
+            typeof (executed.result as { card?: unknown }).card === "string"
+              ? String((executed.result as { card: string }).card)
+              : brief
+                ? formatShopperBriefCard(brief)
+                : "Please confirm this search brief.";
+          return {
+            callId: call.callId,
+            name: "submit_brief" as const,
+            accepted: false as const,
+            brief,
+            askQuestion: card,
+            output: {
+              ok: true,
+              status: "awaiting_brief_confirm",
+              message: "Paused for Confirm/Correct on the search brief.",
+              brief,
+              card,
+            },
+          };
+        }
+
         if (call.name === "submit_picks") {
           const budgetUsd = effectiveBudgetUsd(input.deps.budgetUsd, input.state.shopperFacts);
           const checked = validateFindSubmitPicks(args, {
@@ -1223,8 +1267,54 @@ async function runToolsMode(input: {
       return {
         ok: false,
         awaitUser: true,
+        awaitKind: "ask",
         question: asked.askQuestion,
         message: asked.askQuestion,
+        agentMode: "tools",
+        requestedMode,
+        toolRounds,
+        verdictReached: false,
+        journal: input.journal,
+        knownVins: [...input.state.knownVins],
+        checkpoint,
+        shopperFacts: { ...input.state.shopperFacts },
+        ...findLoopMeta(bundle, rejections),
+      };
+    }
+
+    const briefed = settled.find(
+      (row) =>
+        row.name === "submit_brief" &&
+        "brief" in row &&
+        (row as { brief?: unknown }).brief &&
+        typeof (row as { askQuestion?: unknown }).askQuestion === "string",
+    ) as
+      | { callId: string; name: "submit_brief"; brief: ShopperBrief; askQuestion: string; output: unknown }
+      | undefined;
+    if (briefed) {
+      const checkpoint = buildFindCheckpoint({
+        phase: "tools",
+        toolRounds,
+        roundsCompleted: round + 1,
+        responsesInput,
+        messages: finishMessages,
+        journal: input.journal,
+        state: input.state,
+        submitNudgeSent,
+        firstTurn,
+        featureRejections: rejections,
+      });
+      checkpoint.pendingBriefCallId = briefed.callId;
+      checkpoint.pendingBrief = briefed.brief as unknown as Record<string, unknown>;
+      checkpoint.pendingAskQuestion = briefed.askQuestion;
+      checkpoint.briefConfirmed = false;
+      return {
+        ok: false,
+        awaitUser: true,
+        awaitKind: "brief",
+        brief: briefed.brief,
+        question: briefed.askQuestion,
+        message: briefed.askQuestion,
         agentMode: "tools",
         requestedMode,
         toolRounds,
@@ -1682,6 +1772,8 @@ export async function runFindAgentLoop(input: {
   budgetMs?: number;
   /** Shopper reply after ask_shopper — injected into the same conversation. */
   shopperReply?: string | null;
+  /** Shopper confirmed the pending submit_brief card. */
+  briefConfirmed?: boolean;
 }): Promise<FindAgentLoopResult> {
   const requestedMode = input.mode ?? resolveFindAgentMode(process.env);
   const maxRounds = input.maxRounds ?? 40;
@@ -1708,17 +1800,66 @@ export async function runFindAgentLoop(input: {
       counter: new MemoryCounter(),
     },
     seedListings: input.deps.seedListings,
+    chatTranscript: input.note,
   };
 
   const reply = typeof input.shopperReply === "string" ? input.shopperReply.trim() : "";
   let responsesInput = restored.responsesInput;
   let messages = restored.messages;
-  if (reply && responsesInput) {
+  const pendingBrief = input.checkpoint?.pendingBrief as ShopperBrief | null | undefined;
+  if (input.briefConfirmed && pendingBrief && responsesInput) {
+    const card = formatShopperBriefCard(pendingBrief);
+    journal.push({
+      kind: "tool",
+      name: "submit_brief_confirmed",
+      args: pendingBrief,
+      summary: `submit_brief confirmed: ${pendingBrief.summary.slice(0, 80)}`,
+      ok: true,
+    });
+    if (pendingBrief.budget.maxUsd != null) state.shopperFacts.budgetUsd = pendingBrief.budget.maxUsd;
+    if (pendingBrief.zip) state.shopperFacts.zip = pendingBrief.zip;
+    if (Object.prototype.hasOwnProperty.call(pendingBrief, "radiusMi")) {
+      state.shopperFacts.radiusMi = pendingBrief.radiusMi;
+    }
+    responsesInput = [
+      ...responsesInput,
+      responsesUserMessage(
+        `Shopper CONFIRMED the search brief:\n${card}\nJournal recorded submit_brief_confirmed. Proceed with search_listings / submit_picks. Do not re-ask unless they correct later.`,
+      ),
+    ];
+    messages = [
+      ...(messages ?? []),
+      { role: "user", content: `Shopper confirmed the search brief:\n${card}` },
+    ];
+    if (input.checkpoint) {
+      input.checkpoint.pendingBrief = null;
+      input.checkpoint.pendingBriefCallId = null;
+      input.checkpoint.pendingAskQuestion = null;
+      input.checkpoint.briefConfirmed = true;
+    }
+  } else if (reply && pendingBrief && responsesInput) {
+    responsesInput = [
+      ...responsesInput,
+      responsesUserMessage(
+        `Shopper CORRECTED the search brief (previous card held):\n${reply}\nCall submit_brief again with an updated brief. Do not search until they confirm.`,
+      ),
+    ];
+    messages = [
+      ...(messages ?? []),
+      { role: "user", content: `Shopper corrected the search brief:\n${reply}` },
+    ];
+    if (input.checkpoint) {
+      input.checkpoint.pendingBrief = null;
+      input.checkpoint.pendingBriefCallId = null;
+      input.checkpoint.pendingAskQuestion = null;
+      input.checkpoint.briefConfirmed = false;
+    }
+  } else if (reply && responsesInput) {
     const question = input.checkpoint?.pendingAskQuestion?.trim() || "your question";
     responsesInput = [
       ...responsesInput,
       responsesUserMessage(
-        `Shopper replied to ask_shopper ("${question}"):\n${reply}\nContinue: record_shopper_facts if needed, then search_listings / submit_picks. Do not invent facts the shopper did not state.`,
+        `Shopper replied to ask_shopper ("${question}"):\n${reply}\nContinue: record_shopper_facts if needed, then submit_brief before search_listings / submit_picks. Do not invent facts the shopper did not state.`,
       ),
     ];
     messages = [

@@ -3,6 +3,7 @@
  * Credit only when a verdict is delivered.
  */
 import { formatServChatTranscript, type ServChatMessage } from "@/domain/serv-chat";
+import { chatLimitViolation, type ShopperBrief } from "@/domain/shopper-brief";
 import { makeAgentLoopDeadline } from "@/domain/agent-loop-deadline";
 import { RESALE_INTERNAL_BUDGET_MS } from "@/domain/resale-deadline";
 import { TtlCache } from "@/io/cache";
@@ -24,6 +25,7 @@ type Session = {
   checkpoint: AgentLoopCheckpoint | null;
   status: "open" | "awaiting_user" | "searching" | "done" | "failed";
   pendingQuestion: string | null;
+  pendingBrief: ShopperBrief | null;
   spendKey: string;
   charged: boolean;
   result: Record<string, unknown> | null;
@@ -52,6 +54,7 @@ export async function runResaleChatTurn(input: {
   sessionId?: string | null;
   message?: string | null;
   continue?: boolean;
+  confirmBrief?: boolean;
   servKey: string;
   autodevKey: string;
   servBaseUrl?: string;
@@ -64,6 +67,7 @@ export async function runResaleChatTurn(input: {
   }
   const userText = typeof input.message === "string" ? input.message.trim() : "";
   const isContinue = input.continue === true;
+  const confirmBrief = input.confirmBrief === true;
 
   if (!session) {
     if (!userText) {
@@ -77,6 +81,7 @@ export async function runResaleChatTurn(input: {
       checkpoint: null,
       status: "searching",
       pendingQuestion: null,
+      pendingBrief: null,
       spendKey: resaleSearchSpendKey(input.userId, idem),
       charged: false,
       result: null,
@@ -88,10 +93,19 @@ export async function runResaleChatTurn(input: {
       status: 200,
       body: { ok: true, status: "done", sessionId: session.sessionId, messages: session.messages, result: session.result, charged: session.charged },
     };
+  } else if (confirmBrief) {
+    session.messages.push({
+      role: "user",
+      content: "Confirmed — go ahead with this brief.",
+      at: new Date().toISOString(),
+    });
+    session.status = "searching";
+    session.pendingQuestion = null;
   } else if (userText) {
     session.messages.push({ role: "user", content: userText, at: new Date().toISOString() });
     session.status = "searching";
     session.pendingQuestion = null;
+    session.pendingBrief = null;
   } else if (!isContinue && session.status === "awaiting_user") {
     return {
       ok: false,
@@ -102,19 +116,42 @@ export async function runResaleChatTurn(input: {
         message: session.pendingQuestion || "SERV is waiting for your reply.",
         sessionId: session.sessionId,
         messages: session.messages,
-        status: "ask",
+        status: session.pendingBrief ? "brief" : "ask",
         question: session.pendingQuestion,
+        brief: session.pendingBrief,
+      },
+    };
+  }
+
+  const limit = chatLimitViolation({
+    message: userText,
+    messages: session.messages,
+    // Message already appended above when present — do not double-count.
+    addingUserMessage: false,
+  });
+  if (!limit.ok) {
+    return {
+      ok: false,
+      status: 400,
+      body: {
+        ok: false,
+        error: "chat_limit",
+        message: limit.message,
+        sessionId: session.sessionId,
+        messages: session.messages,
+        charged: false,
       },
     };
   }
 
   const transcript = formatServChatTranscript(session.messages);
-  const shopperReply = session.checkpoint?.pendingAskQuestion && userText ? userText : null;
+  const shopperReply = !confirmBrief && session.checkpoint?.pendingAskQuestion && userText ? userText : null;
   const agent = await runResaleAgentLoop({
     note: transcript,
     shopperContext: null,
     checkpoint: session.checkpoint,
     shopperReply,
+    briefConfirmed: confirmBrief,
     budgetMs: RESALE_INTERNAL_BUDGET_MS,
     deadline: makeAgentLoopDeadline(RESALE_INTERNAL_BUDGET_MS),
     deps: {
@@ -131,13 +168,22 @@ export async function runResaleChatTurn(input: {
     const a = agent;
     session.checkpoint = a.checkpoint;
     session.pendingQuestion = a.question;
+    session.pendingBrief = a.awaitKind === "brief" ? (a.brief ?? null) : null;
     session.status = "awaiting_user";
     session.messages.push({ role: "assistant", content: a.question, at: new Date().toISOString() });
     await save(input.kv, session);
     return {
       ok: true,
       status: 200,
-      body: { ok: true, status: "ask", sessionId: session.sessionId, messages: session.messages, question: a.question, charged: false },
+      body: {
+        ok: true,
+        status: a.awaitKind === "brief" ? "brief" : "ask",
+        sessionId: session.sessionId,
+        messages: session.messages,
+        question: a.question,
+        brief: session.pendingBrief,
+        charged: false,
+      },
     };
   }
   if ("continue" in agent && agent.continue) {

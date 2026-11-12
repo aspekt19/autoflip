@@ -40,6 +40,7 @@ export async function POST(request: Request) {
     sessionId: typeof body.sessionId === "string" ? body.sessionId : null,
     message: typeof body.message === "string" ? body.message : null,
     continue: body.continue === true,
+    confirmBrief: body.confirmBrief === true,
     servKey: deps.servKey,
     autodevKey: deps.autodevKey,
     servBaseUrl: deps.servBaseUrl,

@@ -7,6 +7,11 @@
 import { synthesizeRelaxedConditionsFromSearches } from "@/domain/agent-verdict-complete";
 import { fromShopperInputEvent } from "@/domain/constraint-provenance";
 import {
+  formatShopperBriefCard,
+  SERV_TOPIC_SCOPE_RULE,
+  type ShopperBrief,
+} from "@/domain/shopper-brief";
+import {
   fingerprintsFromSearchJournal,
   hardSearchKeysFromUserBag,
 } from "@/domain/search-listings-feedback";
@@ -226,12 +231,14 @@ export type ResaleAgentLoopContinue = {
   checkpoint: AgentLoopCheckpoint;
 };
 
-/** SERV called ask_shopper — pause for a shopper reply in the same conversation. */
+/** SERV called ask_shopper or submit_brief — pause for the shopper. */
 export type ResaleAgentLoopAwaitUser = {
   ok: false;
   awaitUser: true;
   question: string;
   message: string;
+  awaitKind?: "ask" | "brief";
+  brief?: ShopperBrief | null;
   agentMode: ResaleAgentModeResolved;
   requestedMode: ResaleAgentMode;
   toolRounds: number;
@@ -442,7 +449,9 @@ User form constraints (origin=user only; note/serv/suggestion excluded): ${JSON.
 Flip ranking context (not hard inventory filters): ${JSON.stringify(ranking)}`
       : "";
   return [
-    "You are Lemonless Resale. Use ask_shopper in this same chat when budget or material facts are missing; call record_shopper_facts; then search_listings / submit_picks. You are Lemonless Resale's flip shopper agent on SERV (gpt-6.1-sol).",
+    "You are Lemonless Resale. Use ask_shopper in this same chat when budget or material facts are missing; call record_shopper_facts; then submit_brief for Confirm/Correct before search_listings / submit_picks. You are Lemonless Resale's flip shopper agent on SERV (gpt-6.1-sol).",
+    SERV_TOPIC_SCOPE_RULE,
+    "When enough, call submit_brief with budget.maxUsd + budget.userQuote (verbatim shopper words). Do not search until the shopper confirms.",
     "You decide which listings to search for profitable flips given budget, region, and flip goal.",
     "Prefer tight filters first. When results are empty or weak, read funnel + relaxHints + constraintRoles and change a relaxable (SERV-chosen) filter then re-search. Code never auto-relaxes or forces filter changes.",
     "constraintRoles.hard are shopper origin=user filters — keep unless the shopper note allows otherwise; never invent which keys are hard. Explain every relaxation in relaxedConditions (real text; never redacted).",
@@ -1051,6 +1060,40 @@ async function runToolsMode(input: {
           };
         }
 
+        if (call.name === "submit_brief") {
+          const executed = await executeResaleAgentTool(call.name, args, input.toolDeps, input.state);
+          input.journal.push(journalResaleSearchEntry(executed, args));
+          if (!executed.ok) {
+            return {
+              callId: call.callId,
+              name: "submit_brief" as const,
+              accepted: false as const,
+              output: executed.result,
+            };
+          }
+          const brief = (executed.result as { brief?: ShopperBrief }).brief ?? null;
+          const card =
+            typeof (executed.result as { card?: unknown }).card === "string"
+              ? String((executed.result as { card: string }).card)
+              : brief
+                ? formatShopperBriefCard(brief)
+                : "Please confirm this search brief.";
+          return {
+            callId: call.callId,
+            name: "submit_brief" as const,
+            accepted: false as const,
+            brief,
+            askQuestion: card,
+            output: {
+              ok: true,
+              status: "awaiting_brief_confirm",
+              message: "Paused for Confirm/Correct on the search brief.",
+              brief,
+              card,
+            },
+          };
+        }
+
         if (call.name === "submit_picks") {
           const checked = validateResaleSubmitPicks(args, {
             listingsByVin: listingFactsFromState(input.state),
@@ -1143,8 +1186,55 @@ async function runToolsMode(input: {
       return {
         ok: false,
         awaitUser: true as const,
+        awaitKind: "ask" as const,
         question: asked.askQuestion,
         message: asked.askQuestion,
+        agentMode: "tools" as const,
+        requestedMode,
+        toolRounds,
+        verdictReached: false as const,
+        journal: input.journal,
+        knownVins: [...input.state.knownVins],
+        checkpoint,
+        featureRejections: rejections,
+        featureFlags: [] as string[],
+        servFeatures: null,
+      };
+    }
+
+    const briefed = settled.find(
+      (row) =>
+        row.name === "submit_brief" &&
+        "brief" in row &&
+        (row as { brief?: unknown }).brief &&
+        typeof (row as { askQuestion?: unknown }).askQuestion === "string",
+    ) as
+      | { callId: string; name: "submit_brief"; brief: ShopperBrief; askQuestion: string; output: unknown }
+      | undefined;
+    if (briefed) {
+      const checkpoint = buildResaleCheckpoint({
+        phase: "tools",
+        toolRounds,
+        roundsCompleted: round + 1,
+        responsesInput,
+        messages: finishMessages,
+        journal: input.journal,
+        state: input.state,
+        submitNudgeSent,
+        firstTurn,
+        featureRejections: rejections,
+      });
+      checkpoint.pendingBriefCallId = briefed.callId;
+      checkpoint.pendingBrief = briefed.brief as unknown as Record<string, unknown>;
+      checkpoint.pendingAskQuestion = briefed.askQuestion;
+      checkpoint.briefConfirmed = false;
+      return {
+        ok: false,
+        awaitUser: true as const,
+        awaitKind: "brief" as const,
+        brief: briefed.brief,
+        question: briefed.askQuestion,
+        message: briefed.askQuestion,
         agentMode: "tools" as const,
         requestedMode,
         toolRounds,
@@ -1601,6 +1691,7 @@ export async function runResaleAgentLoop(input: {
   checkpoint?: AgentLoopCheckpoint | null;
   budgetMs?: number;
   shopperReply?: string | null;
+  briefConfirmed?: boolean;
 }): Promise<ResaleAgentLoopResult> {
   const requestedMode = input.mode ?? resolveResaleAgentMode(process.env);
   const maxRounds = input.maxRounds ?? 40;
@@ -1629,16 +1720,57 @@ export async function runResaleAgentLoop(input: {
     },
     seedListings: input.deps.seedListings,
     pnlOptions: input.deps.pnlOptions,
+    chatTranscript: input.note,
   };
 
   const reply = typeof input.shopperReply === "string" ? input.shopperReply.trim() : "";
   let responsesInput = restored.responsesInput;
   let messages = restored.messages;
-  if (reply && responsesInput) {
+  const pendingBrief = input.checkpoint?.pendingBrief as ShopperBrief | null | undefined;
+  if (input.briefConfirmed && pendingBrief && responsesInput) {
+    const card = formatShopperBriefCard(pendingBrief);
+    journal.push({
+      kind: "tool",
+      name: "submit_brief_confirmed",
+      args: pendingBrief,
+      summary: `submit_brief confirmed: ${pendingBrief.summary.slice(0, 80)}`,
+      ok: true,
+    });
+    if (pendingBrief.budget.maxUsd != null) input.deps.budgetUsd = pendingBrief.budget.maxUsd;
+    responsesInput = [
+      ...responsesInput,
+      responsesUserMessage(
+        `Shopper CONFIRMED the search brief:\n${card}\nJournal recorded submit_brief_confirmed. Proceed with search_listings / submit_picks.`,
+      ),
+    ];
+    messages = [...(messages ?? []), { role: "user" as const, content: `Shopper confirmed the search brief:\n${card}` }];
+    if (input.checkpoint) {
+      input.checkpoint.pendingBrief = null;
+      input.checkpoint.pendingBriefCallId = null;
+      input.checkpoint.pendingAskQuestion = null;
+      input.checkpoint.briefConfirmed = true;
+    }
+  } else if (reply && pendingBrief && responsesInput) {
+    responsesInput = [
+      ...responsesInput,
+      responsesUserMessage(
+        `Shopper CORRECTED the search brief:\n${reply}\nCall submit_brief again. Do not search until they confirm.`,
+      ),
+    ];
+    messages = [...(messages ?? []), { role: "user" as const, content: `Shopper corrected the search brief:\n${reply}` }];
+    if (input.checkpoint) {
+      input.checkpoint.pendingBrief = null;
+      input.checkpoint.pendingBriefCallId = null;
+      input.checkpoint.pendingAskQuestion = null;
+      input.checkpoint.briefConfirmed = false;
+    }
+  } else if (reply && responsesInput) {
     const question = input.checkpoint?.pendingAskQuestion?.trim() || "your question";
     responsesInput = [
       ...responsesInput,
-      responsesUserMessage(`Shopper replied to ask_shopper ("${question}"):\n${reply}\nContinue searching or submit_picks.`),
+      responsesUserMessage(
+        `Shopper replied to ask_shopper ("${question}"):\n${reply}\nContinue: submit_brief before search_listings / submit_picks.`,
+      ),
     ];
     messages = [...(messages ?? []), { role: "user" as const, content: `Shopper replied: ${reply}` }];
     if (input.checkpoint) {

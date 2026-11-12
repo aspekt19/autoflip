@@ -42,6 +42,11 @@ export type AgentLoopCheckpointV1 = {
   /** Pending ask_shopper call_id while waiting for the shopper reply. */
   pendingAskCallId?: string | null;
   pendingAskQuestion?: string | null;
+  /** Pending submit_brief awaiting Confirm/Correct. */
+  pendingBrief?: Record<string, unknown> | null;
+  pendingBriefCallId?: string | null;
+  /** Shopper confirmed the brief — search may proceed. */
+  briefConfirmed?: boolean;
 };
 
 export type AgentLoopCheckpoint = AgentLoopCheckpointV1;

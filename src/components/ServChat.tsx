@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import type { ServChatMessage } from "@/domain/serv-chat";
+import { formatShopperBriefCard, type ShopperBrief } from "@/domain/shopper-brief";
 
 export type ServChatDonePayload = {
   sessionId: string;
@@ -34,14 +35,20 @@ export function ServChat({
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [brief, setBrief] = useState<ShopperBrief | null>(null);
   const bottomRef = useRef<HTMLDivElement | null>(null);
   const bootstrapped = useRef(false);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ block: "end", behavior: "smooth" });
-  }, [messages, pending]);
+  }, [messages, pending, brief]);
 
-  async function postTurn(opts: { message?: string; cont?: boolean; sid?: string | null }) {
+  async function postTurn(opts: {
+    message?: string;
+    cont?: boolean;
+    sid?: string | null;
+    confirmBrief?: boolean;
+  }) {
     setPending(true);
     setError(null);
     try {
@@ -57,6 +64,7 @@ export function ServChat({
             sessionId: opts.sid ?? sessionId,
             message: opts.message ?? null,
             continue: opts.cont === true,
+            confirmBrief: opts.confirmBrief === true,
           }),
         });
       } finally {
@@ -71,9 +79,12 @@ export function ServChat({
         result?: Record<string, unknown>;
         charged?: boolean;
         balance?: number | null;
+        brief?: ShopperBrief | null;
       };
       if (typeof body.sessionId === "string") setSessionId(body.sessionId);
       if (Array.isArray(body.messages)) setMessages(body.messages);
+      if (body.status === "brief" && body.brief) setBrief(body.brief);
+      else if (body.status !== "ask") setBrief(null);
 
       if (!response.ok || body.ok === false) {
         const msg = body.message || "SERV could not continue this chat.";
@@ -88,6 +99,7 @@ export function ServChat({
       }
 
       if (body.status === "done" && body.result) {
+        setBrief(null);
         onDone({
           sessionId: body.sessionId || sessionId || "",
           messages: Array.isArray(body.messages) ? body.messages : messages,
@@ -124,8 +136,15 @@ export function ServChat({
     const text = draft.trim();
     if (text.length < 1) return;
     setDraft("");
+    setBrief(null);
     setMessages((prev) => [...prev, { role: "user", content: text }]);
     void postTurn({ message: text });
+  }
+
+  function onConfirmBrief() {
+    if (pending || disabled || !brief) return;
+    setBrief(null);
+    void postTurn({ confirmBrief: true });
   }
 
   return (
@@ -153,6 +172,27 @@ export function ServChat({
             <p>{row.content}</p>
           </div>
         ))}
+        {brief ? (
+          <div className="serv-chat-bubble serv-chat-assistant serv-brief-card" role="group" aria-label="Search brief">
+            <span className="serv-chat-who">Search brief</span>
+            <p>{formatShopperBriefCard(brief)}</p>
+            <div className="btn-row">
+              <button className="action" type="button" disabled={pending || disabled} onClick={onConfirmBrief}>
+                Confirm
+              </button>
+              <button
+                className="quiet"
+                type="button"
+                disabled={pending || disabled}
+                onClick={() => {
+                  /* Correct = type a free-text fix in the compose box */
+                }}
+              >
+                Correct below
+              </button>
+            </div>
+          </div>
+        ) : null}
         {pending ? <p className="hint">SERV is working…</p> : null}
         <div ref={bottomRef} />
       </div>
@@ -166,11 +206,11 @@ export function ServChat({
           value={draft}
           disabled={pending || disabled}
           onChange={(event) => setDraft(event.target.value)}
-          placeholder={placeholder}
+          placeholder={brief ? "Type a correction to the brief…" : placeholder}
         />
         <div className="btn-row">
           <button className="action" type="submit" disabled={pending || disabled || draft.trim().length < 1}>
-            {pending ? "Sending…" : "Send"}
+            {pending ? "Sending…" : brief ? "Send correction" : "Send"}
           </button>
         </div>
       </form>
