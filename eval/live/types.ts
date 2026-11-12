@@ -1,0 +1,93 @@
+/**
+ * Live-SERV offline eval report shapes.
+ * One query is understandNeed → runFindMatch → decide (orchestrator), never debitFindDelivery.
+ */
+
+export type LiveEvalMode = "dry-run" | "live";
+
+export type GeneratedQuery = {
+  id: string;
+  note: string;
+  zip: string | null;
+  distanceMiles: number | null;
+  /** Template tags that built this note (for debugging variety). */
+  tags: {
+    city: string;
+    budget: string;
+    body: string;
+    need: string;
+    messy: boolean;
+  };
+};
+
+export type SearchSpecSummary = {
+  hard: Record<string, unknown>;
+  soft: Record<string, unknown>;
+  planSummary: string | null;
+};
+
+export type LiveEvalFailureStep =
+  | "understand"
+  | "match"
+  | "decide"
+  | "spend_cap"
+  | "missing_keys";
+
+export type LiveEvalFailure = {
+  step: LiveEvalFailureStep;
+  error: string;
+  message: string;
+  validationIssues?: unknown[];
+  responseId?: string | null;
+};
+
+export type LiveEvalPick = {
+  vin: string | null;
+  label: string | null;
+  verdict: string | null;
+  confidence: string | null;
+};
+
+export type LiveEvalCaseResult = {
+  id: string;
+  note: string;
+  ok: boolean;
+  searchSpec: SearchSpecSummary | null;
+  carsFound: number;
+  pick: LiveEvalPick | null;
+  failure: LiveEvalFailure | null;
+  proofRecords: unknown[];
+  elapsedMs: number;
+  estimatedUsd: number;
+  fixtureDir: string | null;
+};
+
+export type LiveEvalReport = {
+  mode: LiveEvalMode;
+  seed: number;
+  maxQueries: number;
+  maxUsd: number;
+  estimatedUsd: number;
+  servCallsAssumedPerQuery: number;
+  usdPerServCall: number;
+  stoppedReason: "completed" | "max_queries" | "max_usd" | "dry-run" | null;
+  generatedAt: string;
+  queries: GeneratedQuery[];
+  results: LiveEvalCaseResult[];
+};
+
+export type LiveEvalBatchOptions = {
+  seed: number;
+  maxQueries: number;
+  maxUsd: number;
+  mode: LiveEvalMode;
+  /** When set, only these note strings (HTTP notes override). */
+  notes?: string[];
+  /** Write golden recordings under test/golden/recordings/live-eval/<seed>/. */
+  recordFixtures?: boolean;
+  /**
+   * Owner id for search-context minting.
+   * When set, uses getKv() (HTTP/prod). When omitted, CLI uses MemoryKv.
+   */
+  userId?: string;
+};
