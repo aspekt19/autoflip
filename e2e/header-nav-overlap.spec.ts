@@ -97,7 +97,7 @@ async function mockCrowdedHeader(page: Page) {
 
 test("wide viewport shows all primary links without More", async ({ page }) => {
   await mockCrowdedHeader(page);
-  await page.setViewportSize({ width: 1920, height: 900 });
+  await page.setViewportSize({ width: 2240, height: 900 });
   await page.goto("/");
   await expect
     .poll(async () => page.locator("header nav a[href='/scout']").count())

@@ -459,9 +459,14 @@ nav a:hover { color: #fff; }
   background: rgba(255, 255, 255, 0.06);
 }
 /* Wide screens: show every primary link inline; More only when they would not fit.
-   Orbitron tracked chrome needs more room than the old sans — 1728 still crowds the logo.
+   Orbitron tracked chrome crowds the logo through 1920, so inline overflow starts at 2200.
    Must follow .nav-more { display: inline-flex } so this wins in the cascade. */
-@media (min-width: 1920px) {
+@media (max-width: 2100px) {
+  .bar .brand-name { display: none; }
+  .bar .brand-mark,
+  .bar .brand img { height: 48px; width: 48px; }
+}
+@media (min-width: 2200px) {
   .nav-overflow { display: inline-flex; }
   .nav-more { display: none; }
 }

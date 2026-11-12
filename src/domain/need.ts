@@ -966,7 +966,7 @@ export function overlayExplicit(
       | "preferredModelsSource"
       | "openToOtherMakes"
     >
-  >,
+  > & { budgetDirty?: boolean },
 ): StructuredNeed {
   const preferredMakes =
     explicit.preferredMakes !== undefined
@@ -995,7 +995,11 @@ export function overlayExplicit(
     Number.isFinite(explicit.budgetUsd);
   let budgetUsd: number | null;
   let budgetKnown: boolean;
-  if (formGaveNumber) {
+  // A number already written in the note wins unless this session edited the field.
+  if (noteBudgetUsd != null && explicit.budgetDirty !== true) {
+    budgetUsd = noteBudgetUsd;
+    budgetKnown = true;
+  } else if (formGaveNumber) {
     budgetUsd = explicit.budgetUsd ?? null;
     budgetKnown = true;
   } else if (noteBudgetUsd != null) {

@@ -16,9 +16,9 @@ test("/developers shows Check/Find curl, MCP config, and OpenServ note", async (
   await expect(page.getByText(/OpenServ auth note/i)).toBeVisible();
   await expect(page.getByText(/Authorization: Bearer af_/i).first()).toBeVisible();
   await expect(page.locator("pre.doc").filter({ hasText: "mcpServers" })).toBeVisible();
-  await expect(page.getByRole("link", { name: "/.well-known/agent.json" })).toBeVisible();
-  await expect(page.getByRole("link", { name: "/llms.txt" })).toBeVisible();
-  await expect(page.getByRole("link", { name: "/openapi.json" })).toBeVisible();
+  await expect(page.getByRole("link", { name: "/.well-known/agent.json" }).first()).toBeVisible();
+  await expect(page.getByRole("link", { name: "/llms.txt" }).first()).toBeVisible();
+  await expect(page.getByRole("link", { name: "/openapi.json" }).first()).toBeVisible();
   await page.screenshot({ path: join(SCREEN_DIR, "developers-1280.png"), fullPage: true });
 });
 

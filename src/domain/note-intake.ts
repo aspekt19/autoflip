@@ -136,6 +136,18 @@ export function budgetFromText(text: string, now = new Date()): number | null {
     hits.push({ index, usd });
   };
 
+  // "max 12k" next to a price word is a budget. Bare "max 50k" stays a mileage cap.
+  if (/\b(?:cheap|budget|price|priced|\$)\b/i.test(text)) {
+    const maxPrice = text.match(/\bmax(?:imum)?\s+\$?\s*(\d+(?:\.\d+)?)\s*(k)?\b/i);
+    if (maxPrice) {
+      const end = (maxPrice.index ?? 0) + maxPrice[0].length;
+      consider(maxPrice.index ?? 0, maxPrice[1] ?? "", Boolean(maxPrice[2]), end, {
+        dollar: maxPrice[0].includes("$"),
+        keyword: "budget",
+      });
+    }
+  }
+
   const dollar = new RegExp(String.raw`\$\s*(${MONEY_NUMBER})\s*(k)?\b`, "gi");
   for (const match of text.matchAll(dollar)) {
     const raw = match[1] ?? "";
@@ -214,7 +226,7 @@ export function transmissionFromText(text: string): TransmissionPref | null {
 }
 
 export function fuelEconomyFromText(text: string): boolean {
-  return /\b(?:good on gas|gas mileage|fuel economy|fuel[- ]efficient|efficient on gas|cheap on gas|saves? gas|\bmpg\b)\b/i.test(
+  return /\b(?:hybrid|good on gas|gas mileage|fuel economy|fuel[- ]efficient|efficient on gas|cheap on gas|saves? gas|\bmpg\b)\b/i.test(
     text,
   );
 }
@@ -274,10 +286,15 @@ export function yearsFromNote(text: string, now = new Date()): { yearMin: number
     if (lo > hi) [lo, hi] = [hi, lo];
     if (ok(lo) && ok(hi)) return { yearMin: lo, yearMax: hi };
   }
+  const newerThan = text.match(new RegExp(String.raw`\b(?:newer than|after)\s+${Y}\b`, "i"));
+  if (newerThan) {
+    const year = Number(newerThan[1]) + 1;
+    if (ok(year)) return { yearMin: year, yearMax: null };
+  }
   const floor =
     text.match(
       new RegExp(
-        String.raw`\b(?:no older than|newer than|after|from|minimum year|oldest(?: model year)?(?: of| is)?)\s+${Y}\b`,
+        String.raw`\b(?:no older than|from|minimum year|oldest(?: model year)?(?: of| is)?)\s+${Y}\b`,
         "i",
       ),
     ) || text.match(new RegExp(String.raw`\b${Y}\s*(?:or newer|and newer|or later|\+|and up)\b`, "i"));

@@ -31,6 +31,7 @@ export async function POST(request: Request) {
       mode: body.mode === "flip" ? "flip" : "personal",
       budgetUsd: typeof body.budgetUsd === "number" ? body.budgetUsd : null,
       budgetKnown: typeof body.budgetKnown === "boolean" ? body.budgetKnown : undefined,
+      budgetDirty: typeof body.budgetDirty === "boolean" ? body.budgetDirty : undefined,
       budgetScope: body.budgetScope === "car" || body.budgetScope === "all_in" ? body.budgetScope : "unspecified",
       zip: typeof body.zip === "string" ? body.zip : null,
       distanceMiles:

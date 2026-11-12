@@ -48,6 +48,10 @@ export type ServDeps = {
    */
   disableFeatureSuffix?: boolean;
   /**
+   * Refusal retry: bare gpt-6.1-sol, no kronos/multipath suffix and no prompt-guard tool.
+   */
+  bareRetry?: boolean;
+  /**
    * Default `production`. Model-compare / offline eval must pass `experiment_single_attempt`
    * so production recovery retries are not weakened globally.
    */
@@ -178,8 +182,13 @@ function toolsFor(
   entry: ServProfile,
   includeShadow: boolean,
   endpoint: ServProfile["endpoint"] = entry.endpoint,
+  bare = false,
 ): Tool[] {
   const tools: Tool[] = [];
+  if (bare) {
+    if (entry.applicationTool) tools.push(factsTool(endpoint));
+    return tools;
+  }
   if (entry.tools.includes("prompt_guard")) tools.push(promptGuardTool(endpoint));
   if (includeShadow && entry.tools.includes("shadow")) {
     tools.push(endpoint === "responses" ? shadowTool({ ...entry, endpoint }) : shadowTool({ ...entry, endpoint: "chat" }));
@@ -743,7 +752,8 @@ export async function runServ(
   try {
     const factsText = JSON.stringify(input.facts ?? {});
     const userText = entry.applicationTool ? `${input.user}\n\nCalculated facts, the only numbers you may use:\n${factsText}` : input.user;
-    const firstTools = toolsFor(entry, !entry.applicationTool, endpoint);
+    const bare = Boolean(deps.bareRetry);
+    const firstTools = toolsFor(entry, !entry.applicationTool, endpoint, bare);
     const firstBody = applyTokenBound(
       endpoint === "responses"
         ? {
@@ -787,7 +797,7 @@ export async function runServ(
         const proof = recordServProof(
           buildServProof({
             purpose: id,
-            body: { ...firstBody, tools: toolsFor(entry, true, endpoint) },
+            body: { ...firstBody, tools: toolsFor(entry, true, endpoint, bare) },
             payload: turn.payload,
             headers: turn.response.headers,
             status: turn.response.status,
@@ -812,7 +822,7 @@ export async function runServ(
       }
       const call = toolCall(turn.payload);
       const matched = call?.name === entry.applicationTool ? call : null;
-      const followTools = toolsFor({ ...entry, applicationTool: undefined }, true, endpoint);
+      const followTools = toolsFor({ ...entry, applicationTool: undefined }, true, endpoint, bare);
       const followBody = applyTokenBound({
         model: inspected.model,
         stream: false,
@@ -831,7 +841,7 @@ export async function runServ(
         tools: followTools,
       });
       turn = await postProse(followBody, false);
-      recordedBody = { ...followBody, tools: toolsFor(entry, true, endpoint) };
+      recordedBody = { ...followBody, tools: toolsFor(entry, true, endpoint, bare) };
     }
 
     // Structured json_schema: content null + refusal field is a transport failure class

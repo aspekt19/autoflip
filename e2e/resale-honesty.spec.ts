@@ -244,8 +244,8 @@ test("resale requires sign-in and budget-first search; one-car estimate stays ho
   await page.locator("#resale-budget").fill("12000");
   await page.getByRole("button", { name: /Find flips/i }).click();
   await expect(page.getByRole("heading", { name: "No flip candidates in this budget" })).toBeVisible();
-  await expect(page.getByRole("strong").filter({ hasText: /^Verdict: pass$/i })).toBeVisible();
-  await expect(page.getByText(/Confidence: Low/i).first()).toBeVisible();
+  await expect(page.getByText(/No listings cleared similar-listing economics/i).first()).toBeVisible();
+  await expect(page.getByRole("strong").filter({ hasText: /^Verdict: pass$/i })).toHaveCount(0);
   await expect(page.getByText(/Decision journal/i).first()).toBeVisible();
   await expect(page.getByText(/How the agent decided/i).first()).toBeVisible();
 

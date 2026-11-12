@@ -69,6 +69,7 @@ describe("budget from note (Not sure yet must not wipe)", () => {
     const overlaid = overlayExplicit(extracted, {
       budgetKnown: true,
       budgetUsd: 18_000,
+      budgetDirty: true,
     });
     expect(overlaid.budgetUsd).toBe(18_000);
   });

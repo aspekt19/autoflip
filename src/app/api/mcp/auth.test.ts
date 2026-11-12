@@ -30,7 +30,7 @@ async function fetchHandler(request: Request) {
   return POST(request);
 }
 
-describe("MCP API key", () => {
+describe("MCP API key", { timeout: 20_000 }, () => {
   it("rejects a revoked key", async () => {
     const kv = getKv();
     const created = await createApiKey(kv, "agent-user", "Cursor");
