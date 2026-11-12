@@ -50,27 +50,24 @@ export type ValidateResaleAgentVerdictResult =
 const ACTIONS = new Set(["buy", "negotiate", "pass", "needs_inspection"]);
 const CONFIDENCE = new Set(["high", "medium", "low"]);
 
-/** True when RESALE_AGENT_LOOP is on and a SERV key is present. Off under e2e stub by default. */
+/**
+ * Agent loop always runs when a SERV key is present.
+ * No RESALE_AGENT_LOOP off switch — legacy pre-decide path is deleted.
+ * Only the labelled e2e stub keeps classic inventory→settle.
+ */
 export function resaleAgentLoopEnabled(
   env: NodeJS.ProcessEnv | Record<string, string | undefined> = process.env,
   opts?: { servKey?: string | null },
 ): boolean {
-  const raw = (env.RESALE_AGENT_LOOP ?? "auto").trim().toLowerCase();
-  if (raw === "0" || raw === "false" || raw === "off" || raw === "no") return false;
   const servKey = (opts?.servKey ?? env.SERV_API_KEY ?? "").trim();
   if (!servKey) return false;
-  // Keep the classic inventory→settle path under the labelled e2e stub.
-  if ((env.LEMONLESS_E2E_STUB ?? "").trim() === "1") {
-    return raw === "1" || raw === "true" || raw === "on" || raw === "yes";
-  }
-  if (raw === "1" || raw === "true" || raw === "on" || raw === "yes" || raw === "auto" || raw === "") {
-    return true;
-  }
-  return false;
+  // Labelled e2e stub: classic path (stub upstreams are not a full agent tool loop).
+  if ((env.LEMONLESS_E2E_STUB ?? "").trim() === "1") return false;
+  return true;
 }
 
 /**
- * Default is tools: Resale always uses Responses-API tools mode when available.
+ * Default is tools: Resale always uses /v1/responses tools mode when available.
  * `auto` still tries tools first and only falls back to schema-only chat when
  * tools are unsupported/empty (never on serv_http).
  */

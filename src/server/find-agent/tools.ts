@@ -4,6 +4,11 @@
 import { bodyFamily, bodyStyleMatches, providerBodyStyleParam } from "@/domain/body-style";
 import { FIND_AGENT_RESULT_SCHEMA } from "@/domain/find-agent";
 import { isPassengerOrLightTruck } from "@/domain/passenger-vehicle";
+import {
+  assertThinSearchProxyDidNotDropProductRows,
+  buildThinSearchProxyResult,
+  mapBodyStyleForProvider,
+} from "@/domain/serv-boundary";
 import { autodevSearch, listingsSearchUrl, type AutodevDeps } from "@/io/autodev";
 import { complaintsFor, recallsFor, type GovDeps } from "@/io/gov";
 import { safetyRatingsFor } from "@/io/nhtsa-safety";
@@ -19,11 +24,8 @@ export const FIND_AGENT_TOOL_NAMES = [
 ] as const;
 export type FindAgentToolName = (typeof FIND_AGENT_TOOL_NAMES)[number];
 
-/**
- * @deprecated Soft price widen was a silent constraint. Provider now receives SERV’s
- * priceMaxUsd as-is. Kept export for test import stability during boundary rewrite.
- */
-export const SEARCH_LISTINGS_PRICE_SOFT_FACTOR = 1;
+/** Soft provider price ceiling vs shopper max (Find/Resale admit path uses ~1.05). */
+export const SEARCH_LISTINGS_PRICE_SOFT_FACTOR = 1.05;
 
 export type SearchListingsArgs = {
   make?: string;
@@ -126,9 +128,8 @@ export type FindAgentToolDeps = {
   seedListings?: readonly Listing[];
 };
 
-/** Default page size only when SERV omits limit — not a hide-rows cap on the return set. */
-const LISTING_DEFAULT = 20;
-const LIMIT_MAX = 50;
+const LISTING_CAP = 12;
+const LIMIT_MAX = 20;
 
 function asTrimmed(value: unknown, max = 80): string | null {
   if (typeof value !== "string") return null;
@@ -168,10 +169,10 @@ export function parseZipArg(value: unknown): ToolArgResult<string | undefined> {
 }
 
 export function parseLimitArg(value: unknown): ToolArgResult<number> {
-  if (value == null || value === "") return { ok: true, value: LISTING_DEFAULT };
+  if (value == null || value === "") return { ok: true, value: 12 };
   const n = asPositiveInt(value);
   if (n == null) {
-    return { ok: false, issues: [{ field: "limit", message: `limit must be a positive integer ≤ ${LIMIT_MAX}.` }] };
+    return { ok: false, issues: [{ field: "limit", message: "limit must be a positive integer ≤ 20." }] };
   }
   if (n > LIMIT_MAX) {
     return { ok: false, issues: [{ field: "limit", message: `limit must be ≤ ${LIMIT_MAX}.` }] };
@@ -241,7 +242,7 @@ export function parseSearchListingsArgs(raw: unknown): ToolArgResult<SearchListi
       fuel: asTrimmed(row.fuel, 40) ?? undefined,
       drivetrain: asTrimmed(row.drivetrain, 40) ?? undefined,
       sort: asTrimmed(row.sort, 40) ?? undefined,
-      limit: limit.ok ? limit.value : LISTING_DEFAULT,
+      limit: limit.ok ? limit.value : 12,
     },
   };
 }
@@ -293,7 +294,7 @@ export function parseMarketCompsArgs(raw: unknown): ToolArgResult<MarketCompsArg
       priceMaxUsd,
       zip: zip.ok ? zip.value : undefined,
       radiusMi,
-      limit: limit.ok ? limit.value : LISTING_DEFAULT,
+      limit: limit.ok ? limit.value : 12,
     },
   };
 }
@@ -452,13 +453,10 @@ export function listingToCard(listing: Listing): ListingCard | null {
   };
 }
 
-/**
- * Map listings → cards for SERV. No hide-rows cap — SERV sees every normalized row.
- * `limit` is retained for call-site compatibility but does not truncate.
- */
-export function capListingCards(listings: readonly Listing[], _limit = LISTING_DEFAULT): ListingCard[] {
+export function capListingCards(listings: readonly Listing[], limit = LISTING_CAP): ListingCard[] {
   const out: ListingCard[] = [];
   for (const row of listings) {
+    if (out.length >= limit) break;
     const card = listingToCard(row);
     if (card) out.push(card);
   }
@@ -488,8 +486,10 @@ function toListingQuery(args: SearchListingsArgs): ListingQuery {
         : args.yearMax != null
           ? `1980-${args.yearMax}`
           : undefined;
-  // Provider gets SERV’s price as-is — no silent soft widen.
-  const priceRange = args.priceMaxUsd != null ? `1-${Math.round(args.priceMaxUsd)}` : undefined;
+  // Soft ceiling so borderline asks still arrive for local price filter.
+  const providerPriceMax =
+    args.priceMaxUsd != null ? Math.round(args.priceMaxUsd * SEARCH_LISTINGS_PRICE_SOFT_FACTOR) : undefined;
+  const priceRange = providerPriceMax != null ? `1-${providerPriceMax}` : undefined;
   const milesRange = args.milesMax != null ? `0-${args.milesMax}` : undefined;
   return {
     make: args.make,
@@ -503,7 +503,7 @@ function toListingQuery(args: SearchListingsArgs): ListingQuery {
     zip: args.zip,
     distanceMiles: args.radiusMi,
     sort: args.sort,
-    limit: Math.min(args.limit ?? LISTING_DEFAULT, LIMIT_MAX),
+    limit: Math.min(args.limit ?? 12, LIMIT_MAX),
   };
 }
 
@@ -531,66 +531,61 @@ function bodyIntentMatches(intent: string | undefined, listing: Listing): boolea
 }
 
 /**
- * Compute per-filter funnel counts for SERV. Does NOT drop rows from the return set —
- * shopper constraints are informational so SERV can relax/re-search.
- * Returned `listings` are VIN/YMM-normalized passenger vehicles only (feed noise gate).
+ * Apply inventory filters in documented funnel order and return step counts.
+ * Sell-window / profit are intentionally absent (ranking/verdict only).
  */
 export function applySearchListingsFunnel(
   listings: readonly Listing[],
   args: SearchListingsArgs,
-): { listings: Listing[]; funnel: SearchFunnelStep[]; constraintFilteredAway: number } {
+): { listings: Listing[]; funnel: SearchFunnelStep[] } {
   const funnel: SearchFunnelStep[] = [{ step: "provider_raw", count: listings.length }];
 
-  const normalized = listings.filter(
-    (row) => Boolean(row.vin?.trim()) && row.year > 0 && Boolean(row.make) && Boolean(row.model),
-  );
-  funnel.push({ step: "normalized_vin_ymm", count: normalized.length });
+  let cur = listings.filter((row) => Boolean(row.vin?.trim()) && row.year > 0 && Boolean(row.make) && Boolean(row.model));
+  funnel.push({ step: "normalized_vin_ymm", count: cur.length });
 
-  const passengers = normalized.filter((row) => isPassengerOrLightTruck(row));
-  funnel.push({ step: "passenger_gate", count: passengers.length });
+  cur = cur.filter((row) => isPassengerOrLightTruck(row));
+  funnel.push({ step: "passenger_gate", count: cur.length });
 
-  // Funnel counts only — do not use these filtered arrays as the return set.
-  let counted = passengers;
   if (args.transmission?.trim()) {
-    counted = counted.filter((row) => transmissionMatches(args.transmission!, row));
+    cur = cur.filter((row) => transmissionMatches(args.transmission!, row));
   }
-  funnel.push({ step: "transmission", count: counted.length });
+  funnel.push({ step: "transmission", count: cur.length });
 
   const bodyIntent = resolveBodyIntent(args);
   if (bodyIntent) {
-    counted = counted.filter((row) => bodyIntentMatches(bodyIntent, row));
+    cur = cur.filter((row) => bodyIntentMatches(bodyIntent, row));
   }
-  funnel.push({ step: "body_family", count: counted.length });
+  funnel.push({ step: "body_family", count: cur.length });
 
   if (args.priceMaxUsd != null) {
-    const ceiling = Math.round(args.priceMaxUsd);
-    counted = counted.filter((row) => row.priceUsd != null && row.priceUsd > 0 && row.priceUsd <= ceiling);
+    const ceiling = Math.round(args.priceMaxUsd * SEARCH_LISTINGS_PRICE_SOFT_FACTOR);
+    cur = cur.filter((row) => row.priceUsd != null && row.priceUsd > 0 && row.priceUsd <= ceiling);
   }
-  funnel.push({ step: "price", count: counted.length });
+  funnel.push({ step: "price", count: cur.length });
 
   if (args.milesMax != null) {
-    counted = counted.filter((row) => row.miles == null || row.miles <= args.milesMax!);
+    cur = cur.filter((row) => row.miles == null || row.miles <= args.milesMax!);
   }
-  funnel.push({ step: "miles", count: counted.length });
+  funnel.push({ step: "miles", count: cur.length });
 
   if (args.radiusMi != null && args.zip) {
-    counted = counted.filter(
+    cur = cur.filter(
       (row) => row.distanceMiles == null || (Number.isFinite(row.distanceMiles) && row.distanceMiles <= args.radiusMi!),
     );
   }
-  funnel.push({ step: "radius", count: counted.length });
+  funnel.push({ step: "radius", count: cur.length });
 
+  // Soft post-filters that are not separate funnel steps in the doc, but still applied.
   if (args.fuel?.trim()) {
     const want = args.fuel.trim().toLowerCase();
-    counted = counted.filter((row) => (row.fuel ?? "").toLowerCase().includes(want));
+    cur = cur.filter((row) => (row.fuel ?? "").toLowerCase().includes(want));
   }
   if (args.drivetrain?.trim()) {
     const want = args.drivetrain.trim().toLowerCase();
-    counted = counted.filter((row) => (row.drivetrain ?? "").toLowerCase().includes(want));
+    cur = cur.filter((row) => (row.drivetrain ?? "").toLowerCase().includes(want));
   }
 
-  // constraintFilteredAway is 0 by contract — we return passengers unfiltered by shopper constraints.
-  return { listings: passengers, funnel, constraintFilteredAway: 0 };
+  return { listings: cur, funnel };
 }
 
 export function relaxHintsFromFunnel(
@@ -711,7 +706,9 @@ export async function executeFindAgentTool(
       };
     }
     const query = toListingQuery(parsed.value);
-    const providerBody = providerBodyStyleParam(resolveBodyIntent(parsed.value));
+    const bodyIntent = resolveBodyIntent(parsed.value);
+    const providerBody =
+      mapBodyStyleForProvider(bodyIntent) ?? providerBodyStyleParam(bodyIntent) ?? null;
     const providerUrl = listingsSearchUrl(query);
     const search = await autodevSearch(query, autodevDeps);
     if (!search.ok) {
@@ -722,34 +719,54 @@ export async function executeFindAgentTool(
         summary: `search_listings failed: ${search.message}`,
       };
     }
-    const { listings: usable, funnel, constraintFilteredAway } = applySearchListingsFunnel(
-      search.listings,
-      parsed.value,
-    );
-    // Boundary: SERV sees all normalized passenger rows + funnel — code does not drop by shopper filters.
-    rememberListings(state, usable);
-    const cars = capListingCards(usable);
+    // Observational funnel for SERV's eyes — product filters must not drop returned rows.
+    const { listings: funnelKept, funnel } = applySearchListingsFunnel(search.listings, parsed.value);
+    const proxy = buildThinSearchProxyResult({
+      providerListings: search.listings,
+      params: parsed.value,
+      funnel,
+    });
+    const dropGate = assertThinSearchProxyDidNotDropProductRows({
+      providerListings: search.listings,
+      returnedListings: proxy.listings,
+    });
+    if (!dropGate.ok) {
+      return {
+        name,
+        ok: false,
+        result: { error: "thin_proxy_violation", message: dropGate.detail },
+        summary: `search_listings architecture violation: ${dropGate.detail}`,
+      };
+    }
+    rememberListings(state, proxy.listings);
+    const pageLimit = Math.min(parsed.value.limit ?? LISTING_CAP, LISTING_CAP);
+    const cars = capListingCards(proxy.listings, pageLimit);
     const relaxHints = relaxHintsFromFunnel(funnel, parsed.value);
-    const totalReturned = usable.length;
+    const totalReturned = proxy.listings.length;
     const truncated = search.listings.length >= (query.limit ?? LIMIT_MAX);
     const zeroStep = [...funnel].reverse().find((s) => s.count === 0);
+    const funnelKeptCount = funnelKept.length;
     const summary =
       totalReturned === 0
         ? `search_listings → 0 usable (raw=${funnel[0]?.count ?? 0}; zero_at=${zeroStep?.step ?? "unknown"}); hints=${relaxHints.join(",") || "—"}`
-        : `search_listings → ${totalReturned} unfiltered hits (funnel last=${funnel[funnel.length - 1]?.count ?? 0})`;
+        : `search_listings → ${totalReturned} provider hits (funnel would keep ${funnelKeptCount}), returning ${cars.length}`;
     return {
       name,
       ok: true,
       result: {
         query: {
           ...parsed.value,
-          providerBodyStyle: providerBody ?? null,
-          providerPriceMaxUsd: parsed.value.priceMaxUsd != null ? Math.round(parsed.value.priceMaxUsd) : null,
+          providerBodyStyle: providerBody,
+          providerPriceMaxUsd:
+            parsed.value.priceMaxUsd != null
+              ? Math.round(parsed.value.priceMaxUsd * SEARCH_LISTINGS_PRICE_SOFT_FACTOR)
+              : null,
           providerUrl,
         },
         totalReturned,
         funnel,
-        constraintFilteredAway,
+        funnelWouldKeep: funnelKeptCount,
+        productFiltersWouldDrop: proxy.productFiltersWouldDrop,
         listings: cars,
         // Back-compat aliases for earlier agent prompts / tests.
         count: totalReturned,
@@ -760,7 +777,7 @@ export async function executeFindAgentTool(
         truncated,
         cached: search.cached,
         honesty:
-          "Asking prices only. Funnel is informational — rows returned are unfiltered (VIN/YMM + passenger gate only). Sell-window and profit are ranking/verdict, never silent deletes. If provider_raw=0 with a car body, retry omit_body before raise_price.",
+          "Asking prices only. Thin proxy: unfiltered provider rows + observational funnel — code does not drop rows for product decisions. Sell-window and profit floor are ranking/verdict, never silent deletes. If provider_raw=0 with a car body, retry omit_body before raise_price.",
       },
       summary,
     };
@@ -893,7 +910,7 @@ export async function executeFindAgentTool(
       }
     }
 
-    const cars = capListingCards(listings);
+    const cars = capListingCards(listings, Math.min(args.limit ?? LISTING_CAP, LISTING_CAP));
     const prices = cars.map((c) => c.price).filter((p): p is number => typeof p === "number" && p > 0);
     const band = priceBand(prices);
     return {

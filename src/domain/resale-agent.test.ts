@@ -14,17 +14,17 @@ describe("resaleAgentLoopEnabled", () => {
     expect(resaleAgentLoopEnabled({}, { servKey: "sk" })).toBe(true);
   });
 
-  it("stays off under e2e stub unless explicitly forced on", () => {
+  it("stays off under the labelled e2e stub (classic path)", () => {
     expect(
       resaleAgentLoopEnabled({ LEMONLESS_E2E_STUB: "1", RESALE_AGENT_LOOP: "auto" }, { servKey: "sk" }),
     ).toBe(false);
     expect(
       resaleAgentLoopEnabled({ LEMONLESS_E2E_STUB: "1", RESALE_AGENT_LOOP: "1" }, { servKey: "sk" }),
-    ).toBe(true);
+    ).toBe(false);
   });
 
-  it("honors explicit off", () => {
-    expect(resaleAgentLoopEnabled({ RESALE_AGENT_LOOP: "0" }, { servKey: "sk" })).toBe(false);
+  it("ignores RESALE_AGENT_LOOP=0 — agent loop always when keyed", () => {
+    expect(resaleAgentLoopEnabled({ RESALE_AGENT_LOOP: "0" }, { servKey: "sk" })).toBe(true);
   });
 
   it("requires a serv key", () => {
@@ -33,7 +33,7 @@ describe("resaleAgentLoopEnabled", () => {
 });
 
 describe("resolveResaleAgentMode", () => {
-  it("defaults to tools (Responses-API preferred)", () => {
+  it("defaults to tools", () => {
     expect(resolveResaleAgentMode({})).toBe("tools");
     expect(resolveResaleAgentMode({ RESALE_AGENT_MODE: "tools" })).toBe("tools");
     expect(resolveResaleAgentMode({ RESALE_AGENT_MODE: "next_action" })).toBe("next_action");

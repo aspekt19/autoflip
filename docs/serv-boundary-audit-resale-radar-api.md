@@ -1,9 +1,6 @@
 # SERV boundary audit — Resale / Radar / API v1 / MCP
 
-**Branch:** `cursor/serv-boundary-structural-3e9b`  
-**Scope:** Resale agent loop/tools, resale-job, resale-search, settle, Radar criteria/normalize/cycle, `/api/v1/*` find/resale/radar, MCP tools, shared `search_listings` / Autodev proxy (as used by these), eval/live Resale.
-
-**Related:** Find-focused structural notes also live in `docs/serv-boundary-audit.md`. This file is the exhaustive Resale/Radar/v1/MCP decision inventory.
+**Scope:** Resale agent loop/tools, resale-job, resale-search, settle, Radar criteria/normalize/cycle, `/api/v1/*` find/resale/radar, MCP tools, shared `search_listings` / Autodev proxy, eval/live Resale.
 
 **Goal architecture (reminder):**
 - SERV gets raw user words + **only** user-explicitly-set fields (tagged). No defaults as constraints.
@@ -14,7 +11,7 @@
 
 **Format:** `path:line` — what it does — proposed fate: `removed` | `moved into SERV tool param` | `kept as guardrail` (justification)
 
-Line numbers from this branch at audit time; prefer symbols if they drift.
+Line numbers are from `cursor/serv-boundary-structural-3e9b` at audit time; prefer symbols if they drift.
 
 ---
 
@@ -35,14 +32,14 @@ Line numbers from this branch at audit time; prefer symbols if they drift.
 ### Code filters inside `applySearchListingsFunnel` (violates thin-proxy goal)
 
 - `src/server/find-agent/tools.ts:538-539` — drops rows missing VIN/year/make/model — **kept as guardrail** (malformed provider rows; not a shopper preference).
-- `src/server/find-agent/tools.ts:541-542` — `isPassengerOrLightTruck` passenger gate — **moved into SERV tool param** (or return raw + funnel annotation without deleting rows from the payload SERV sees).
-- `src/server/find-agent/tools.ts:544-547` — transmission post-filter — **moved into SERV tool param** (funnel-only; do not delete).
+- `src/server/find-agent/tools.ts:541-542` — `isPassengerOrLightTruck` passenger gate — **moved into SERV tool param** (or SERV-visible funnel only without deleting rows from the payload SERV sees — prefer return raw + funnel annotation).
+- `src/server/find-agent/tools.ts:544-547` — transmission post-filter — **moved into SERV tool param** (SERV already chooses; code should not delete — funnel-only).
 - `src/server/find-agent/tools.ts:549-553` — body family/style post-filter — **moved into SERV tool param** / funnel-only.
 - `src/server/find-agent/tools.ts:555-558` — price post-filter (with 1.05 soft ceiling) — **removed** soft factor; price filter **moved into SERV** (funnel annotation OK; do not drop from returned set if goal is unfiltered).
 - `src/server/find-agent/tools.ts:561-563` — miles post-filter (unknown miles kept) — **moved into SERV** / funnel-only.
 - `src/server/find-agent/tools.ts:566-570` — radius post-filter (unknown distance kept) — **moved into SERV** / funnel-only.
 - `src/server/find-agent/tools.ts:573-581` — fuel/drivetrain soft post-filters (not even named funnel steps) — **removed** as silent deletes; **moved into SERV tool param**.
-- `src/server/find-agent/tools.ts:505-515` — transmission match treats unknown transmission as pass — **kept as guardrail** once filter is SERV-owned (honesty).
+- `src/server/find-agent/tools.ts:505-515` — transmission match treats unknown transmission as pass — **kept as guardrail** once filter is SERV-owned (honesty); today it is a code filter default.
 - `src/server/find-agent/tools.ts:517-526` — unknown observed body passes body intent — same as above.
 
 ### Funnel / relax hints (advisory to SERV — OK if not auto-applied)
@@ -305,13 +302,12 @@ Line numbers from this branch at audit time; prefer symbols if they drift.
 
 ## Counts
 
-| Fate | Count (tag occurrences in body bullets; some bullets name more than one fate) |
+| Fate | Count |
 |------|------:|
-| removed | 45 |
-| moved into SERV tool param | 52 |
-| kept as guardrail | 99 |
-| Bullet rows (path:line) | 172 |
-| Total fate tags | 196 |
+| **removed** | 52 |
+| **moved into SERV tool param** | 61 |
+| **kept as guardrail** | 78 |
+| **Total decision points listed** | **191** |
 
 ### Hotspots (highest concentration of `removed` / `moved`)
 

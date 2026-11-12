@@ -258,7 +258,7 @@ describe("reasoning_effort — never none on agent builders", () => {
     expect(assertReasoningEffortNotNone("low").ok).toBe(true);
   });
 
-  it("chat and Responses builders never emit reasoning_effort none", () => {
+  it("chat/responses builders never emit reasoning_effort none", () => {
     const chat = buildServChatTurnBody({
       messages: [{ role: "user", content: "hi" }],
       reasoningEffort: "none",

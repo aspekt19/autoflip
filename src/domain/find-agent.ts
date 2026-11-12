@@ -45,27 +45,24 @@ export type ValidateFindAgentVerdictResult =
 const ACTIONS = new Set(["buy", "negotiate", "inspect_first", "pass"]);
 const CONFIDENCE = new Set(["high", "medium", "low"]);
 
-/** True when FIND_AGENT_LOOP is on and a SERV key is present. Off under e2e stub by default. */
+/**
+ * Agent loop always runs when a SERV key is present.
+ * No FIND_AGENT_LOOP off switch — legacy pre-decide path is deleted.
+ * Only the labelled e2e stub keeps classic match→triage→decide.
+ */
 export function findAgentLoopEnabled(
   env: NodeJS.ProcessEnv | Record<string, string | undefined> = process.env,
   opts?: { servKey?: string | null },
 ): boolean {
-  const raw = (env.FIND_AGENT_LOOP ?? "auto").trim().toLowerCase();
-  if (raw === "0" || raw === "false" || raw === "off" || raw === "no") return false;
   const servKey = (opts?.servKey ?? env.SERV_API_KEY ?? "").trim();
   if (!servKey) return false;
-  // Keep the classic match→triage→decide path under the labelled e2e stub.
-  if ((env.LEMONLESS_E2E_STUB ?? "").trim() === "1") {
-    return raw === "1" || raw === "true" || raw === "on" || raw === "yes";
-  }
-  if (raw === "1" || raw === "true" || raw === "on" || raw === "yes" || raw === "auto" || raw === "") {
-    return true;
-  }
-  return false;
+  // Labelled e2e stub: classic path (stub upstreams are not a full agent tool loop).
+  if ((env.LEMONLESS_E2E_STUB ?? "").trim() === "1") return false;
+  return true;
 }
 
 /**
- * Default is auto: try Responses-API tools first (gpt-6.1-sol chat cannot pair
+ * Default is auto: try /v1/responses tools first (gpt-6.1-sol chat cannot pair
  * function tools with a supported reasoning_effort). On tools_unsupported_or_empty
  * only, fall back to schema-only next_action chat (reasoning_effort=low, no tools).
  */

@@ -10,19 +10,27 @@ describe("resaleDeliveryChargesCredit", () => {
     ).toBe(true);
   });
 
-  it("skips charge for incomplete empty pass", () => {
-    expect(resaleDeliveryChargesCredit({ best: null })).toBe(false);
-    expect(resaleDeliveryChargesCredit({ best: undefined as never })).toBe(false);
-    expect(resaleDeliveryChargesCredit({ best: { vin: "   " } as never })).toBe(false);
-  });
-
-  it("charges documented nothing-fits after agent verdict", () => {
+  it("charges for documented nothing-fits (agent summary + emptyReason)", () => {
     expect(
       resaleDeliveryChargesCredit({
         best: null,
-        nothingFitsDocumented: true,
-        agentVerdictReached: true,
+        emptyReason: "no_flip_candidates",
+        agentVerdict: { summary: "Searched twice under budget; nothing profitable remained." } as never,
+        reviewNote: "Nothing fit after relaxations.",
+        message: "No flip was published.",
       }),
     ).toBe(true);
+  });
+
+  it("skips charge for incomplete empty (no agent explanation)", () => {
+    expect(resaleDeliveryChargesCredit({ best: null })).toBe(false);
+    expect(resaleDeliveryChargesCredit({ best: undefined as never })).toBe(false);
+    expect(resaleDeliveryChargesCredit({ best: { vin: "   " } as never })).toBe(false);
+    expect(
+      resaleDeliveryChargesCredit({
+        best: null,
+        emptyReason: "no_flip_candidates",
+      }),
+    ).toBe(false);
   });
 });

@@ -239,7 +239,8 @@ describe("runResaleAgentLoop", () => {
       const url = String(input);
       if (url.includes("/listings")) {
         const peers = [
-          listing({ priceUsd: 12_500 }),
+          // Asking must be ≥ finish offerUsd (15500) for submit_picks validation.
+          listing({ priceUsd: 9_500 }),
           listing({ vin: "JTMRWRFV0KJ123457", priceUsd: 17_200, miles: 40000 }),
           listing({ vin: "JTMRWRFV0KJ123458", priceUsd: 17_800, miles: 36000 }),
           listing({ vin: "JTMRWRFV0KJ123459", priceUsd: 16_900, miles: 41000 }),
@@ -322,7 +323,7 @@ describe("runResaleAgentLoop", () => {
                   searchWhy: null,
                   summary: "Negotiate the Civic.",
                   confidence: "medium",
-                  picks: [{ vin: VIN, action: "negotiate", offerUsd: 11_000, why: "Code PnL." }],
+                  picks: [{ vin: VIN, action: "negotiate", offerUsd: 9_000, why: "Code PnL." }],
                   relaxedConditions: [],
                 }),
               },

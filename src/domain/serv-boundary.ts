@@ -11,7 +11,7 @@
  * 3. SERV answers validated (VIN in results, price/miles/budget/code math); on fail return
  *    repair issues — never substitute a code decision.
  * 4. Find/Resale final results require the agent loop to have run.
- * 5. Agent chat and Responses builders never send reasoning_effort "none".
+ * 5. Agent chat/responses builders never send reasoning_effort "none".
  * 6. relaxedConditions store real text (never "redacted"); eval ok only for chosen OR
  *    documented nothing-fits, with chosenListingCount separate.
  */
