@@ -97,6 +97,8 @@ export type ProofObservation = {
   model?: string | null;
   timestamp?: string | null;
   elapsedMs?: number | null;
+  /** Plain sentence. Stored on the step when this proof failed. */
+  detail?: string | null;
 };
 
 export type RunObservation = {
@@ -149,6 +151,7 @@ function readStep(step: JournalStepId, status: StepStatus, at: string, extra?: P
     finishedAt: extra?.finishedAt ?? at,
     elapsedMs: extra?.elapsedMs ?? null,
     failureReason: extra?.failureReason ?? null,
+    failureDetail: extra?.failureDetail ?? null,
   };
 }
 
@@ -246,6 +249,7 @@ function mergeStep(steps: RunStep[], next: RunStep): RunStep[] {
           model: next.model ?? prior.model,
           elapsedMs: next.elapsedMs ?? prior.elapsedMs,
           failureReason: winner.failureReason ?? prior.failureReason,
+          failureDetail: winner.failureDetail ?? prior.failureDetail,
         },
   );
 }
@@ -264,6 +268,7 @@ function stepsFromProofs(proofs: ProofObservation[], at: string): RunStep[] {
         startedAt: proof.timestamp ?? at,
         finishedAt: proof.timestamp ?? at,
         failureReason: failureFor(step, status),
+        failureDetail: status === "failed" && proof.detail?.trim() ? proof.detail.trim() : null,
       }),
     );
   }
@@ -499,7 +504,7 @@ export function toRunView(run: RunRecord, viewerId: string | null): RunView {
     verdict: run.verdict,
     confidence: run.confidence,
     confidenceReason: run.confidenceReason ?? null,
-    creditsCharged: run.creditsCharged,
+    creditsCharged: run.verdict ? run.creditsCharged : 0,
     failureReasons: [...run.failureReasons],
     buyerMessage: run.buyerMessage ?? null,
     steps: [...run.steps]
@@ -509,6 +514,7 @@ export function toRunView(run: RunRecord, viewerId: string | null): RunView {
         status: step.status,
         responseId: step.responseId,
         elapsedMs: step.elapsedMs,
+        failureDetail: step.failureDetail ?? null,
       })),
     sources: [...run.sources],
     listings: run.listings.map((car) => ({ ...car, picked: run.picks.includes(car.vin) })),

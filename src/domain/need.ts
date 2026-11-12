@@ -856,12 +856,8 @@ export function ageGapBuyerHonesty(
 export function followUps(need: StructuredNeed): FollowUp[] {
   if (need.mode === "flip") {
     const questions: FollowUp[] = [];
-    if (need.targetProfitUsd === null) {
-      questions.push({ id: "profit", prompt: "What profit do you want after fees and reconditioning?" });
-    }
-    if (need.repairAbility === "unknown") {
-      questions.push({ id: "repair", prompt: "What repair work can you do? This changes the reconditioning assumption, not a risk level." });
-    }
+    // Profit target and repair skill have defaults and stay optional. They must
+    // not block the search or drop every car.
     if (!need.budgetKnown) {
       questions.push({ id: "cash", prompt: "How much cash can you put into the car?" });
     }

@@ -37,7 +37,9 @@ export type GoldenCaseId =
   | "L20"
   | "L21"
   | "L22"
-  | "L23";
+  | "L23"
+  | "L24"
+  | "L25";
 
 export type CaseTurn =
   | { note: string }
@@ -83,6 +85,8 @@ export type CaseExpect = {
   passIsNotAFlip?: boolean;
   /** Shown cars at or above 160,000 miles must be flagged. */
   flagVeryHighMiles?: boolean;
+  /** The stub returns a valid decide answer and the stored run must keep a verdict. */
+  servVerdict?: boolean;
 };
 
 export type GoldenCase = {
@@ -490,6 +494,32 @@ export const GOLDEN_CASES: readonly GoldenCase[] = [
     search: "final",
     turns: [{ note: "Used car near Chicago, max $12,000" }],
     expect: { budgetUsd: 12000, priceCeilUsd: 12600, zip: "60601", queriesRequired: true },
+  },
+  {
+    id: "L24",
+    kind: "personal",
+    scripted: "live-starter",
+    location: "from-note",
+    search: "final",
+    turns: [{ note: "First car for a new driver in Chicago, max $12k, up to 120k miles, safe and cheap to run" }],
+    expect: {
+      budgetUsd: 12000,
+      priceCeilUsd: 12600,
+      milesMax: 120_000,
+      zip: "60601",
+      queriesRequired: true,
+      includesModel: "Corolla",
+      servVerdict: true,
+    },
+  },
+  {
+    id: "L25",
+    kind: "personal",
+    scripted: "live-odd",
+    location: NYC,
+    search: "final",
+    turns: [{ note: "Used SUV under $20,000 near 10001" }],
+    expect: { budgetUsd: 20000, priceCeilUsd: 21000, queriesRequired: true, servVerdict: true },
   },
 ];
 

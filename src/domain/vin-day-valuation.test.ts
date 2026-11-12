@@ -181,7 +181,8 @@ describe("vin-day valuation v2", () => {
     expect(find.valuation!.fairValueUsd).toBe(check.valuation!.fairValueUsd);
     expect(find.badge.sampleSize).toBe(check.badge.sampleSize);
     expect(find.badge.tone).toBe(check.badge.tone);
-    expect(valuationReuseNote(find.valuation!)).toMatch(/VIN Check/);
+    expect(valuationReuseNote(find.valuation!)).toMatch(/VIN check/i);
+    expect(valuationReuseNote(find.valuation!)).not.toMatch(/FAIR VALUE LOCKED|locked to/i);
   });
 
   it("listing-URL Check uses the store", async () => {

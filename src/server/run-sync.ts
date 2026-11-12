@@ -136,6 +136,7 @@ export function proofsFromRecords(records: unknown): ProofObservation[] {
       servResponseId?: unknown;
       model?: unknown;
       timestamp?: unknown;
+      detail?: unknown;
     };
     if (typeof rec.purpose !== "string" || !rec.purpose.trim()) continue;
     out.push({
@@ -144,6 +145,7 @@ export function proofsFromRecords(records: unknown): ProofObservation[] {
       responseId: typeof rec.servResponseId === "string" ? rec.servResponseId : null,
       model: typeof rec.model === "string" ? rec.model : null,
       timestamp: typeof rec.timestamp === "string" ? rec.timestamp : null,
+      detail: typeof rec.detail === "string" ? rec.detail : null,
     });
   }
   return out;

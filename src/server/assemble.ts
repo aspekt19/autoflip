@@ -8,7 +8,6 @@ import { priceBadge } from "@/domain/price-badge";
 import { buildComputedReport } from "@/domain/report";
 import { resolvePurchaseAskForEconomics } from "@/domain/report-purchase-ask";
 import { screenUserInput } from "@/domain/screen";
-import { passengerBodyStyleParam } from "@/domain/passenger-vehicle";
 import { providerYearQuery } from "@/domain/search-spec";
 import { templateExplanation } from "@/domain/template";
 import { buildAgentVerdictFromReport } from "@/domain/agent-trail";
@@ -1084,10 +1083,14 @@ export async function previewListing(input: AssembleInput, deps: AssembleDeps) {
   };
 }
 
-/** A named style is sent. An open search asks for passenger bodies, not motorcycles. */
+/**
+ * A single named style is sent. An open search sends no body style.
+ * The feed tags many sedans as "Car", so a list of Sedan,SUV,... drops them.
+ * Motorcycles are removed after the response.
+ */
 function findBodyStyleParam(explicit?: string | null): string | undefined {
   const named = explicit?.trim();
-  if (!named || /^any$/i.test(named) || named.includes(",")) return passengerBodyStyleParam(undefined);
+  if (!named || /^any$/i.test(named) || named.includes(",")) return undefined;
   return named;
 }
 

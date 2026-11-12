@@ -91,12 +91,14 @@ const LIVE_ODD = [
 ];
 
 const LIVE_STARTER = [
-  car({ vin: "2T1BURHE0JC000221", year: 2018, make: "Toyota", model: "Corolla", bodyStyle: "Sedan", price: 10900, miles: 78000, distance: 12 }),
-  car({ vin: "2HGFC2F79JH000222", year: 2018, make: "Honda", model: "Civic", bodyStyle: "Sedan", price: 11200, miles: 64000, distance: 18 }),
-  car({ vin: "4T1BF1FK5JU000223", year: 2018, make: "Toyota", model: "Camry", bodyStyle: "Sedan", price: 11500, miles: 70000, distance: 20 }),
-  car({ vin: "1HGCV1F36JA000224", year: 2018, make: "Honda", model: "Accord", bodyStyle: "Sedan", price: 11800, miles: 72000, distance: 22 }),
-  car({ vin: "KMHD84LF5JU000225", year: 2018, make: "Hyundai", model: "Elantra", bodyStyle: "Sedan", price: 9800, miles: 81000, distance: 14 }),
-  car({ vin: "JM1BL1UG0J1000226", year: 2018, make: "Mazda", model: "Mazda3", bodyStyle: "Hatchback", price: 10200, miles: 69000, distance: 16 }),
+  // The live feed tags these as "Car", not "Sedan". A body filter that omits Car returns nothing.
+  car({ vin: "2T1BURHE0JC000221", year: 2018, make: "Toyota", model: "Corolla", bodyStyle: "Car", price: 10900, miles: 78000, distance: 12 }),
+  car({ vin: "2HGFC2F79JH000222", year: 2018, make: "Honda", model: "Civic", bodyStyle: "Car", price: 11200, miles: 64000, distance: 18 }),
+  car({ vin: "4T1BF1FK5JU000223", year: 2018, make: "Toyota", model: "Camry", bodyStyle: "Car", price: 11500, miles: 70000, distance: 20 }),
+  car({ vin: "1HGCV1F36JA000224", year: 2018, make: "Honda", model: "Accord", bodyStyle: "Car", price: 11800, miles: 72000, distance: 22 }),
+  car({ vin: "KMHD84LF5JU000225", year: 2018, make: "Hyundai", model: "Elantra", bodyStyle: "Car", price: 9800, miles: 81000, distance: 14 }),
+  car({ vin: "3N1AB7AP5JY000229", year: 2018, make: "Nissan", model: "Sentra", bodyStyle: "Car", price: 8900, miles: 77000, distance: 15 }),
+  car({ vin: "JM1BL1UG0J1000226", year: 2018, make: "Mazda", model: "Mazda3", bodyStyle: "Car", price: 10200, miles: 69000, distance: 16 }),
   car({ vin: "JF2SHABCXJH000227", year: 2018, make: "Subaru", model: "Forester", bodyStyle: "SUV", price: 11900, miles: 74000, distance: 24, drivetrain: "AWD" }),
   car({ vin: "2T3BFREV5JW000228", year: 2018, make: "Toyota", model: "RAV4", bodyStyle: "SUV", price: 12100, miles: 88000, distance: 26, drivetrain: "AWD" }),
 ];
@@ -142,10 +144,12 @@ function rowsFor(kind: ScriptedKind, href: string) {
     } catch {
       model = "";
     }
-    const compact = /corolla|civic|camry|accord|elantra|mazda3/.test(model);
+    const compact = /corolla|civic|camry|accord|elantra|mazda3|sentra/.test(model);
     if (compact && /^(suv|truck|van|minivan)$/i.test(body)) return [];
-    if (!model) return LIVE_STARTER;
-    return LIVE_STARTER.filter((row) => String(row.vehicle.model).toLowerCase() === model);
+    const rows = !model ? LIVE_STARTER : LIVE_STARTER.filter((row) => String(row.vehicle.model).toLowerCase() === model);
+    if (!body) return rows;
+    const allowed = new Set(body.split(",").map((part) => part.trim().toLowerCase()).filter(Boolean));
+    return rows.filter((row) => allowed.has(String(row.vehicle.bodyStyle).toLowerCase()));
   }
   if (kind === "live-rank") {
     return LIVE_RANK.map((row, index) => (index === 1 ? { ...row, history: { accidentCount: 1 } } : row));
@@ -159,13 +163,74 @@ function rowsFor(kind: ScriptedKind, href: string) {
   return LIVE_C.filter((row) => String(row.vehicle.model).toLowerCase() === model);
 }
 
+function completion(id: string, content: unknown): Response {
+  return Response.json({
+    id,
+    object: "chat.completion",
+    created: 1,
+    model: "gpt-6.1-sol",
+    choices: [
+      {
+        index: 0,
+        message: { role: "assistant", content: JSON.stringify(content), refusal: null },
+        finish_reason: "stop",
+      },
+    ],
+  });
+}
+
+/** Valid plan / decide / challenge answers for the offline full Find path. */
+export function scriptedServResponse(body: string): Response | null {
+  let name = "";
+  try {
+    const parsed = JSON.parse(body) as { response_format?: { json_schema?: { name?: string } }; messages?: { role?: string; content?: string }[] };
+    name = parsed.response_format?.json_schema?.name ?? "";
+    if (name === "find_plan") {
+      // HTTP 200 that fails validation, so the note's own limits stay in force.
+      // A transport error would mark planning failed and wipe a later verdict.
+      return completion("chatcmpl-goldenplan", { summary: "" });
+    }
+    if (name === "find_decide") {
+      const user = parsed.messages?.find((message) => message.role === "user")?.content ?? "";
+      const facts = JSON.parse(user).facts as { shortlistKeys?: string[]; shortlist?: { key?: string }[] };
+      const key = facts.shortlistKeys?.[0] || facts.shortlist?.[0]?.key || "";
+      return completion("chatcmpl-goldendecide", {
+        pickKey: key,
+        action: "negotiate",
+        confidence: "medium",
+        confidenceWhy: "This car fits the budget and has fewer miles than the next one.",
+        reasons: [{ text: "It fits the budget and has fewer miles than the next car in the list.", evidenceIds: [`car:${key}`] }],
+        watchOuts: [],
+        askSeller: [],
+        alternatives: [],
+        offerUsd: null,
+      });
+    }
+    if (name === "find_challenge") {
+      return completion("chatcmpl-goldenchallenge", {
+        agree: true,
+        issues: [],
+        revised: { pickKey: null, action: null, confidence: null },
+      });
+    }
+  } catch {
+    return null;
+  }
+  return null;
+}
+
 export function scriptedGoldenFetch(
   kind: ScriptedKind,
   urls: string[],
 ): typeof fetch {
-  return async (input) => {
+  return async (input, init) => {
     const href = String(input);
     urls.push(href);
+    const rawBody = typeof init?.body === "string" ? init.body : "";
+    if (href.includes("/chat/completions") || href.includes("/responses")) {
+      const serv = scriptedServResponse(rawBody);
+      if (serv) return serv;
+    }
     if (href.includes("/listings")) return Response.json({ data: rowsFor(kind, href) });
     if (href.includes("recallsByVehicle")) {
       return Response.json({ Count: 0, Message: "Results returned successfully", results: [] });

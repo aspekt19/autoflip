@@ -25,11 +25,11 @@ export function reconUsd(input: {
   const usd = roundDollars(ASSUMPTIONS.flipReconBaseUsd * SKILL[skill] + accidents * ASSUMPTIONS.flipReconPerAccidentUsd + highMile);
   const because =
     skill === "none"
-      ? `Reconditioning assumption: $${usd.toLocaleString("en-US")}, because the plan is to pay a shop. This is not a quote.`
+      ? `Repair estimate: $${usd.toLocaleString("en-US")}, because the plan is to pay a shop. This is not a quote.`
       : skill === "minor"
-        ? `Reconditioning assumption: $${usd.toLocaleString("en-US")}, because you can do basic repairs. This is not a quote.`
+        ? `Repair estimate: $${usd.toLocaleString("en-US")}, because you can do basic repairs. This is not a quote.`
         : skill === "major"
-          ? `Reconditioning assumption: $${usd.toLocaleString("en-US")}, because you can do mechanical work. This is not a quote.`
-          : `Reconditioning assumption: $${usd.toLocaleString("en-US")}, using the standard example. This is not a quote.`;
+          ? `Repair estimate: $${usd.toLocaleString("en-US")}, because you can do mechanical work. This is not a quote.`
+          : `Repair estimate: $${usd.toLocaleString("en-US")}. This is not a quote.`;
   return { usd, because };
 }

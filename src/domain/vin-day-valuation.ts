@@ -187,9 +187,11 @@ export function applyAskToValuation(stored: VinDayValuation, askUsd: number): Vi
 
 export function valuationReuseNote(snap: VinDayValuation): string {
   const who =
-    snap.source === "find" ? "Find" : snap.source === "check_vin" ? "VIN Check" : "listing Check";
+    snap.source === "find" ? "an earlier search" : snap.source === "check_vin" ? "a VIN check" : "a listing check";
   const scope = poolScopePhrase(snap.zip, snap.radiusMiles);
-  return `Fair value locked to ${who} valuation from ${snap.utcDate} UTC ($${snap.fairValueUsd.toLocaleString("en-US")} based on ${snap.sampleSize} similar within ${snap.radiusMiles != null && snap.zip !== "none" ? `${snap.radiusMiles} mi of ${snap.zip}` : scope}).`;
+  const where =
+    snap.radiusMiles != null && snap.zip !== "none" ? `${snap.radiusMiles} miles of ${snap.zip}` : scope;
+  return `This price comparison uses the fair value already saved from ${who} on ${snap.utcDate} ($${snap.fairValueUsd.toLocaleString("en-US")} from ${snap.sampleSize} similar cars within ${where}).`;
 }
 
 export function buildVinDayValuation(input: {

@@ -115,7 +115,7 @@ export function flipAlertWhy(item: FlipEstimate): string {
   return [
     `${item.listing.year} ${item.listing.make} ${item.listing.model} · ${money(asking)}.`,
     `Estimate, not a completed sale: ${pricedBelowSimilarLine(item.profitMidUsd)} (range ${money(item.profitLowUsd ?? 0)} to ${money(item.profitHighUsd ?? 0)}). The sale price is an asking-price proxy, not a closed sale.`,
-    `Basis: fair value ${money(item.resaleMidUsd ?? 0)} from ${item.compCount} similar listings in this scan, adjusted for mileage, model year, trim, and listing history, minus example costs of ${money(item.costUsd ?? 0)} (fee and reconditioning assumptions, not a quote for this car).`,
+    `Basis: fair value ${money(item.resaleMidUsd ?? 0)} from ${item.compCount} similar listings in this scan, adjusted for mileage, model year, trim, and listing history, minus example costs of ${money(item.costUsd ?? 0)} (a fee and a repair estimate, not a quote for this car).`,
     item.confidence === "low" ? "Confidence is low because this scan had only 3 or 4 similar listings." : "Confidence uses 5 or more similar listings in this scan.",
     `Speed of sale: ${item.speed}. ${item.speedBasis}`,
     item.assumption,

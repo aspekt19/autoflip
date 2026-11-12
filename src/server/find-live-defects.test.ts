@@ -89,7 +89,9 @@ describe("live Find defects — inventory, radius, and the credit ledger", () =>
     expect(result.body.scope).not.toMatch(/Nationwide/);
     expect(urls.some((url) => url.includes("distance=50") && url.includes("60601"))).toBe(true);
     expect(urls.some((url) => url.includes("api.auto.dev") && !url.includes("distance="))).toBe(false);
-    expect(urls.some((url) => /vehicle\.bodyStyle=/.test(url) && /Sedan/.test(url) && !/Motorcycle/i.test(url))).toBe(true);
+    const modelQueries = urls.filter((url) => /vehicle\.model=/i.test(url) && url.includes("api.auto.dev"));
+    expect(modelQueries.length).toBeGreaterThan(0);
+    expect(modelQueries.every((url) => !/vehicle\.bodyStyle=/i.test(url))).toBe(true);
 
     const kv = new MemoryKv();
     await creditGrant(kv, "shopper", 9, "grant-9");

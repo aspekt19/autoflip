@@ -36,7 +36,8 @@ import {
   buildFindPickComputedReport,
   publishBestDeal,
 } from "@/server/find-settle-serv";
-import { chatCompletionContent, profile, runServ, type ServDeps } from "@/server/serv";
+import { FIND_DECIDE_MIN_MS } from "@/domain/route-budget";
+import { chatCompletionContent, profile, type ServDeps, type ServResult } from "@/server/serv";
 import { callStep, SECOND_CHECK_MISSED } from "@/server/serv/call-step";
 
 function receiptEvidenceId(r: FindFreeGovReceipt): string {
@@ -46,6 +47,17 @@ function receiptEvidenceId(r: FindFreeGovReceipt): string {
 function mapActionToVerdict(action: FindDecideAction): AgentVerdict["verdict"] {
   if (action === "inspect_first") return "needs_inspection";
   return action;
+}
+
+function plainDecideFailure(judged: ServResult, issues: { field: string; message: string }[]): string {
+  if (!judged.ok) {
+    if (judged.transportErrorClass === "timeout" || judged.transportErrorClass === "abort") return "timed out before an answer";
+    if (judged.httpAttempts === 0) return "timed out before asking";
+    if (judged.status === 200) return "answer unreadable";
+    return "the decision service returned an error";
+  }
+  if (issues.some((issue) => issue.field === "pickKey")) return "blocked by rule: the choice was not one of the cars in this search";
+  return "answer unreadable";
 }
 
 function emptySecondPass(
@@ -82,6 +94,10 @@ export async function runFindDecideServ(input: {
   model?: string;
   fetchImpl?: typeof fetch;
   transportPolicy?: ServDeps["transportPolicy"];
+  /** How long this call may wait. The route sets this from the time still left. */
+  timeoutMs?: number;
+  /** Time left on the route, including this call. A retry runs only when this covers another full wait. */
+  remainingMs?: number;
 }): Promise<FindDecideServResult> {
   const shortlistKeys = [...input.shortlistKeys];
   const rankedByKey = new Map(
@@ -185,48 +201,64 @@ export async function runFindDecideServ(input: {
   let source: "SERV" | "code" = "code";
   let decideModel: string | null = null;
   let decideResponseId: string | null = null;
-
-  if (servKey && codePick && shortlistKeys.length > 0) {
-    const judged = await runServ(
-      "find_decide",
-      {
-        user: JSON.stringify({
-          facts: {
-            intent: {
-              note: input.need.note ?? null,
-              budgetUsd: input.need.budgetUsd ?? null,
-              yearMin: input.need.yearMin ?? null,
-              yearMax: input.need.yearMax ?? null,
-              milesMax: input.need.milesMax ?? null,
-              mustHaves: input.need.mustHaves ?? [],
-              priorities: input.need.priorities ?? [],
-              awdPreference: needPrefersAwd({
-                awdPreference: input.need.awdPreference,
-                note: input.need.note,
-                mustHaves: input.need.mustHaves ?? [],
-              }),
-            },
-            shortlist: factSheet,
-            shortlistKeys,
-            allowedEvidenceIds: [...allowedEvidenceIds],
-            codeRankedKey: codePick.key,
-            guardrailRules: [
-              ...guardrailRules,
-              "When awdPreference is true, prefer confirmed AWD/4WD (drivetrainConfirmedAwd) over unknown/FWD unless other hard risks dominate.",
-              "Use accidentCountReported as a soft risk — do not invent clean history from a zero or null.",
-            ],
-          },
+  let decideFailureDetail: string | null = null;
+  const decideTimeoutMs = input.timeoutMs ?? profile("find_decide").timeoutMs;
+  const decideUser = JSON.stringify({
+    facts: {
+      intent: {
+        note: input.need.note ?? null,
+        budgetUsd: input.need.budgetUsd ?? null,
+        yearMin: input.need.yearMin ?? null,
+        yearMax: input.need.yearMax ?? null,
+        milesMax: input.need.milesMax ?? null,
+        mustHaves: input.need.mustHaves ?? [],
+        priorities: input.need.priorities ?? [],
+        awdPreference: needPrefersAwd({
+          awdPreference: input.need.awdPreference,
+          note: input.need.note,
+          mustHaves: input.need.mustHaves ?? [],
         }),
       },
-      {
+      shortlist: factSheet,
+      shortlistKeys,
+      allowedEvidenceIds: [...allowedEvidenceIds],
+      codeRankedKey: codePick?.key ?? null,
+      guardrailRules: [
+        ...guardrailRules,
+        "When awdPreference is true, prefer confirmed AWD/4WD (drivetrainConfirmedAwd) over unknown/FWD unless other hard risks dominate.",
+        "Use accidentCountReported as a soft risk — do not invent clean history from a zero or null.",
+      ],
+    },
+  });
+
+  if (servKey && codePick && shortlistKeys.length > 0 && decideTimeoutMs >= FIND_DECIDE_MIN_MS) {
+    const step = await callStep({
+      profileId: "find_decide",
+      user: decideUser,
+      critical: true,
+      remainingMs: input.remainingMs ?? decideTimeoutMs,
+      accept: (text) => {
+        try {
+          const payload = JSON.parse(text) as unknown;
+          return validateFindDecide(payload, {
+            shortlistKeys,
+            allowedEvidenceIds,
+            askUsd: codePick.priceUsd ?? null,
+          }).ok;
+        } catch {
+          return false;
+        }
+      },
+      deps: {
         fetch: input.fetchImpl,
         apiKey: servKey,
         baseUrl: input.servBaseUrl,
         model: input.model,
         transportPolicy: input.transportPolicy,
-        timeoutMs: profile("find_decide").timeoutMs,
+        timeoutMs: decideTimeoutMs,
       },
-    );
+    });
+    const judged = step.result;
     let payload: unknown = null;
     if (judged.ok && judged.text?.trim()) {
       try {
@@ -278,6 +310,8 @@ export async function runFindDecideServ(input: {
         }),
       );
     } else {
+      decideFailureDetail = plainDecideFailure(judged, revalidated.ok === false ? revalidated.issues : []);
+      console.error(`[choose_car] ${decideFailureDetail}`);
       proofRecords.push(
         buildDecisionProofRecord({
           purpose: "find_decide",
@@ -290,12 +324,18 @@ export async function runFindDecideServ(input: {
             shortlistKeys,
             issues: revalidated.ok === false ? revalidated.issues : [],
           },
-          detail: "SERV did not decide this one.",
+          detail: decideFailureDetail,
           rawResponse,
         }),
       );
     }
   } else {
+    decideFailureDetail = !servKey
+      ? null
+      : !codePick || shortlistKeys.length === 0
+        ? "there was no shortlist to decide"
+        : "timed out before asking";
+    if (servKey) console.error(`[choose_car] ${decideFailureDetail}`);
     proofRecords.push(
       buildDecisionProofRecord({
         purpose: "find_decide",
@@ -304,7 +344,7 @@ export async function runFindDecideServ(input: {
         recordedAt,
         inputs: { shortlistKeys },
         detail: servKey
-          ? "No shortlist pick available — code fallback."
+          ? decideFailureDetail ?? "timed out before asking"
           : "SERV_API_KEY not configured — code pick.",
       }),
     );

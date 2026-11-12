@@ -186,7 +186,7 @@ describe("checkRunInvariants on the public run", () => {
     const view = toRunView(stored, null);
     expect(checkRunInvariants(view).ok).toBe(true);
     expect(view.picks[0]).toBe("CLEANLOW0000000001");
-    expect(view.listings.find((car) => car.vin === "ODDCRV000000000001")?.implausible).toBe(true);
+    expect(view.listings.find((car) => car.vin === "ODDCRV000000000001")).toBeUndefined();
     expect(view.listings[0]?.vin).toBe("CLEANLOW0000000001");
   });
 });
