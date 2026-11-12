@@ -7,13 +7,6 @@
 import {
   synthesizeRelaxedConditionsFromSearches,
 } from "@/domain/agent-verdict-complete";
-import {
-  clarifyingQaContextBlock,
-  formatClarifyingQaLines,
-  noteWithClarifyingQa,
-  parseClarifyingAnswers,
-  type ClarifyingQaPair,
-} from "@/domain/clarifying-questions";
 import { fromShopperInputEvent } from "@/domain/constraint-provenance";
 import {
   fingerprintsFromSearchJournal,
@@ -125,14 +118,6 @@ export type FindAgentJournalToolCall = {
   providerAttempts?: number;
 };
 
-/** Shopper clarifying Q&A recorded before the first search_listings. */
-export type FindAgentJournalClarifyingQa = {
-  kind: "clarifying_qa";
-  pairs: ClarifyingQaPair[];
-  lines: string[];
-  summary: string;
-};
-
 /** Extract documented search_listings rows from the agent journal. */
 export function searchesFromFindJournal(
   journal: readonly FindAgentJournalEntry[],
@@ -210,10 +195,7 @@ function journalSearchListingsEntry(
   };
 }
 
-export type FindAgentJournalEntry =
-  | FindAgentJournalServCall
-  | FindAgentJournalToolCall
-  | FindAgentJournalClarifyingQa;
+export type FindAgentJournalEntry = FindAgentJournalServCall | FindAgentJournalToolCall;
 
 export type FindAgentLoopDeps = {
   servKey: string;
@@ -317,6 +299,18 @@ export type FindAgentLoopResult =
 type ChatMessage = ServChatTurnMessage;
 type ToolCallWire = ServChatToolCallWire;
 
+function effectiveBudgetUsd(
+  depsBudget: number | null | undefined,
+  facts: { budgetUsd: number | null },
+): number | null {
+  if (depsBudget != null && Number.isFinite(depsBudget) && depsBudget > 0) return depsBudget;
+  if (facts.budgetUsd != null && Number.isFinite(facts.budgetUsd) && facts.budgetUsd > 0) {
+    return facts.budgetUsd;
+  }
+  return null;
+}
+
+
 function buildFindCheckpoint(input: {
   phase: "tools" | "next_action";
   toolRounds: number;
@@ -379,6 +373,13 @@ function restoreFindStateFromCheckpoint(
   const state = createFindAgentToolState(seedListings);
   state.knownVins = new Set(checkpoint.knownVins.map((v) => v.toUpperCase()));
   state.listingsByVin = deserializeListingsByVin(checkpoint.listingsByVin);
+  if (checkpoint.shopperFacts) {
+    state.shopperFacts = {
+      budgetUsd: checkpoint.shopperFacts.budgetUsd ?? null,
+      zip: checkpoint.shopperFacts.zip ?? null,
+      radiusMi: checkpoint.shopperFacts.radiusMi ?? null,
+    };
+  }
   const journal = checkpoint.journal as unknown as FindAgentJournalEntry[];
   state.searchFingerprints = fingerprintsFromSearchJournal(searchesFromFindJournal(journal));
   return {
@@ -440,13 +441,8 @@ function constraintsFromFormEdits(
   return { intent, constraints: serializeUserIntentConstraints(intent) };
 }
 
-function systemPrompt(
-  note: string,
-  formEdits?: Record<string, unknown> | null,
-  clarifyingQa?: ClarifyingQaPair[] | null,
-): string {
-  const noteWithQa = noteWithClarifyingQa(note, clarifyingQa);
-  const { intent, constraints } = constraintsFromFormEdits(noteWithQa, formEdits);
+function systemPrompt(note: string, formEdits?: Record<string, unknown> | null): string {
+  const { intent, constraints } = constraintsFromFormEdits(note, formEdits);
   const gate = assertNoNonUserSetConstraints(constraints, intent);
   if (!gate.ok) {
     throw new Error(
@@ -457,12 +453,12 @@ function systemPrompt(
     Object.keys(constraints).length > 0
       ? `\nUser form constraints (origin=user only; note/serv/suggestion excluded): ${JSON.stringify(constraints)}`
       : "";
-  const qaExtra =
-    clarifyingQa && clarifyingQa.length > 0
-      ? `\n${clarifyingQaContextBlock(clarifyingQa)}`
-      : "";
   return [
     "You are Lemonless Find's search agent on SERV (gpt-6.1-sol).",
+    "You chat with the shopper in this same conversation, then search live inventory with tools.",
+    "If budget, location, or other material facts are missing, call ask_shopper with one clear English question. Do not invent answers. Ask as many turns as you need.",
+    "When the shopper has stated a budget (or ZIP/radius), call record_shopper_facts so offer ≤ budget anti-fab uses those values.",
+    "When you have enough, call search_listings (and other tools) in this same conversation, then submit_picks — or explain nothing fits with passReason.",
     "You decide which listings to search. Prefer tight filters first.",
     "When results are empty or poor, read search_listings.funnel + relaxHints + constraintRoles: change a relaxable (SERV-chosen) filter at the step that hit zero (omit_body, widen_radius, raise_price, drop_transmission, next_model) and re-search. Prefer bodyFamily=car over Sedan. constraintRoles.hard are shopper origin=user filters — keep unless the shopper's note allows otherwise; never invent which keys are hard. Profit and sell-window are not inventory filters. Code never auto-relaxes or forces filter changes — you decide.",
     "search_listings returns unfiltered provider rows plus an observational funnel — code does not drop rows for product decisions. If duplicateSearch is set, prefer changing a relaxable filter; a reasoned pass with journaled searches is still valid.",
@@ -471,11 +467,9 @@ function systemPrompt(
     "Finish by calling submit_picks with the find_agent_result fields. Code validates VINs against tool results, offer ≤ budget, and offer ≤ asking — on failure you get issues back and must fix via another submit_picks. Code never substitutes a pick.",
     "Never invent cars, prices, or VINs. Parallel tool calls are fine.",
     "Use tools for live evidence. Asking-price comps are not sold prices.",
-    "Build search filters from the shopper note, form constraints, and clarifying Q&A already in context before the first search_listings. Do not invent a budget ceiling the shopper did not state.",
-    `Shopper note:\n${note.trim() || "(empty)"}${qaExtra}${edits}`,
+    `Shopper conversation / note:\n${note.trim() || "(empty)"}${edits}`,
   ].join(" ");
 }
-
 
 function argumentText(value: unknown): string {
   if (typeof value === "string") return value;
@@ -911,7 +905,6 @@ function findLoopMeta(bundle: AgentServFeatureBundle, rejections: AgentServFeatu
 async function runToolsMode(input: {
   note: string;
   formEdits?: Record<string, unknown> | null;
-  clarifyingQa?: ClarifyingQaPair[] | null;
   deps: FindAgentLoopDeps;
   toolDeps: FindAgentToolDeps;
   state: FindAgentToolState;
@@ -933,7 +926,7 @@ async function runToolsMode(input: {
   const requestedMode = resolveFindAgentMode(process.env);
   const bundle = findAgentServFeatureBundle();
   const rejections: AgentServFeatureRejection[] = [...(input.resume?.featureRejections ?? [])];
-  const instructions = systemPrompt(input.note, input.formEdits, input.clarifyingQa);
+  const instructions = systemPrompt(input.note, input.formEdits);
   const seedUser =
     "Search for cars that fit the shopper. Call tools as needed (parallel OK). When ready, call submit_picks with the final verdict — do not invent VINs.";
   // Chat transcript kept only as a safety-net finish path if submit_picks never lands.
@@ -979,6 +972,7 @@ async function runToolsMode(input: {
         journal: input.journal,
         knownVins: [...input.state.knownVins],
         checkpoint,
+        shopperFacts: { ...input.state.shopperFacts },
         ...findLoopMeta(bundle, rejections),
       };
     }
@@ -1093,6 +1087,7 @@ async function runToolsMode(input: {
         knownVins: [...input.state.knownVins],
         listingsByVin: input.state.listingsByVin,
         droppedPicks: finished.dropped,
+        shopperFacts: { ...input.state.shopperFacts },
         ...findLoopMeta(bundle, rejections),
       };
     }
@@ -1107,10 +1102,34 @@ async function runToolsMode(input: {
           args = {};
         }
 
+        if (call.name === "ask_shopper") {
+          const executed = await executeFindAgentTool(call.name, args, input.toolDeps, input.state);
+          input.journal.push(journalSearchListingsEntry(executed, args));
+          const question =
+            executed.ok && typeof executed.result.question === "string"
+              ? executed.result.question
+              : typeof (args as { question?: unknown }).question === "string"
+                ? String((args as { question: string }).question)
+                : "Could you share a bit more about what you need?";
+          return {
+            callId: call.callId,
+            name: "ask_shopper" as const,
+            accepted: false as const,
+            askQuestion: question,
+            output: {
+              ok: true,
+              status: "awaiting_shopper",
+              message: "Paused for the shopper reply in chat.",
+              question,
+            },
+          };
+        }
+
         if (call.name === "submit_picks") {
+          const budgetUsd = effectiveBudgetUsd(input.deps.budgetUsd, input.state.shopperFacts);
           const checked = validateFindSubmitPicks(args, {
             listingsByVin: listingFactsFromState(input.state),
-            budgetUsd: input.deps.budgetUsd ?? null,
+            budgetUsd,
             searches: searchesFromFindJournal(input.journal),
           });
           if (!checked.ok) {
@@ -1177,6 +1196,44 @@ async function runToolsMode(input: {
       outputs: settled.map((row) => ({ callId: row.callId, output: row.output })),
     });
 
+    const asked = settled.find(
+      (row) =>
+        row.name === "ask_shopper" &&
+        "askQuestion" in row &&
+        typeof (row as { askQuestion?: unknown }).askQuestion === "string",
+    ) as { callId: string; name: "ask_shopper"; askQuestion: string; output: unknown } | undefined;
+    if (asked) {
+      const checkpoint = buildFindCheckpoint({
+        phase: "tools",
+        toolRounds,
+        roundsCompleted: round + 1,
+        responsesInput,
+        messages: finishMessages,
+        journal: input.journal,
+        state: input.state,
+        submitNudgeSent,
+        firstTurn,
+        featureRejections: rejections,
+      });
+      checkpoint.pendingAskCallId = asked.callId;
+      checkpoint.pendingAskQuestion = asked.askQuestion;
+      return {
+        ok: false,
+        awaitUser: true,
+        question: asked.askQuestion,
+        message: asked.askQuestion,
+        agentMode: "tools",
+        requestedMode,
+        toolRounds,
+        verdictReached: false,
+        journal: input.journal,
+        knownVins: [...input.state.knownVins],
+        checkpoint,
+        shopperFacts: { ...input.state.shopperFacts },
+        ...findLoopMeta(bundle, rejections),
+      };
+    }
+
     const accepted = settled.find(
       (row) => row.name === "submit_picks" && "accepted" in row && row.accepted === true && "verdict" in row,
     ) as
@@ -1195,6 +1252,7 @@ async function runToolsMode(input: {
         knownVins: [...input.state.knownVins],
         listingsByVin: input.state.listingsByVin,
         droppedPicks: [],
+        shopperFacts: { ...input.state.shopperFacts },
         ...findLoopMeta(bundle, rejections),
       };
     }
@@ -1217,7 +1275,6 @@ async function runToolsMode(input: {
 async function runNextActionMode(input: {
   note: string;
   formEdits?: Record<string, unknown> | null;
-  clarifyingQa?: ClarifyingQaPair[] | null;
   deps: FindAgentLoopDeps;
   toolDeps: FindAgentToolDeps;
   state: FindAgentToolState;
@@ -1245,7 +1302,7 @@ async function runNextActionMode(input: {
         {
           role: "system",
           content: [
-            systemPrompt(input.note, input.formEdits, input.clarifyingQa),
+            systemPrompt(input.note, input.formEdits),
             "Each turn return JSON with action search or finish.",
             "search runs search_listings with the provided filters.",
             "finish must include the find_agent_result fields (summary, confidence, picks, relaxedConditions, passReason).",
@@ -1578,6 +1635,7 @@ async function runNextActionMode(input: {
         knownVins: [...input.state.knownVins],
         listingsByVin: input.state.listingsByVin,
         droppedPicks: guarded.dropped,
+        shopperFacts: { ...input.state.shopperFacts },
         ...findLoopMeta(bundle, rejections),
       };
     }
@@ -1611,8 +1669,6 @@ export async function runFindAgentLoop(input: {
   note: string;
   mode?: FindAgentMode;
   formEdits?: Record<string, unknown> | null;
-  /** SERV clarifying Q&A — in context before first search_listings. */
-  clarifyingQa?: ClarifyingQaPair[] | null;
   deps: FindAgentLoopDeps;
   maxRounds?: number;
   /** Per-request wall budget. When nearly spent, returns continue + checkpoint. */
@@ -1621,6 +1677,8 @@ export async function runFindAgentLoop(input: {
   checkpoint?: AgentLoopCheckpoint | null;
   /** When true, create a fresh deadline for this request (default). */
   budgetMs?: number;
+  /** Shopper reply after ask_shopper — injected into the same conversation. */
+  shopperReply?: string | null;
 }): Promise<FindAgentLoopResult> {
   const requestedMode = input.mode ?? resolveFindAgentMode(process.env);
   const maxRounds = input.maxRounds ?? 40;
@@ -1629,19 +1687,6 @@ export async function runFindAgentLoop(input: {
   const restored = restoreFindStateFromCheckpoint(input.checkpoint, input.deps.seedListings);
   const journal = restored.journal;
   const state = restored.state;
-  const clarifyingQa = parseClarifyingAnswers(input.clarifyingQa ?? []);
-  if (
-    clarifyingQa.length > 0 &&
-    !journal.some((entry) => entry.kind === "clarifying_qa")
-  ) {
-    const lines = formatClarifyingQaLines(clarifyingQa);
-    journal.push({
-      kind: "clarifying_qa",
-      pairs: clarifyingQa,
-      lines,
-      summary: `clarifying_qa ×${clarifyingQa.length}`,
-    });
-  }
   // Provenance → constraintRoles: origin=user form keys are hard; SERV-chosen are relaxable.
   const { constraints: userFormConstraints } = constraintsFromFormEdits(
     input.note,
@@ -1662,11 +1707,36 @@ export async function runFindAgentLoop(input: {
     seedListings: input.deps.seedListings,
   };
 
+  const reply = typeof input.shopperReply === "string" ? input.shopperReply.trim() : "";
+  let responsesInput = restored.responsesInput;
+  let messages = restored.messages;
+  if (reply && responsesInput) {
+    const question = input.checkpoint?.pendingAskQuestion?.trim() || "your question";
+    responsesInput = [
+      ...responsesInput,
+      responsesUserMessage(
+        `Shopper replied to ask_shopper ("${question}"):\n${reply}\nContinue: record_shopper_facts if needed, then search_listings / submit_picks. Do not invent facts the shopper did not state.`,
+      ),
+    ];
+    messages = [
+      ...(messages ?? []),
+      { role: "user", content: `Shopper replied to ask_shopper ("${question}"):\n${reply}` },
+    ];
+    if (input.checkpoint) {
+      input.checkpoint.pendingAskCallId = null;
+      input.checkpoint.pendingAskQuestion = null;
+    }
+  }
+  if (state.shopperFacts.budgetUsd != null && (input.deps.budgetUsd == null || input.deps.budgetUsd <= 0)) {
+    input.deps.budgetUsd = state.shopperFacts.budgetUsd;
+    input.deps.budgetProvenance = input.deps.budgetProvenance ?? "serv";
+  }
+
   const resume = {
     toolRounds: restored.toolRounds,
     roundsCompleted: restored.roundsCompleted,
-    responsesInput: restored.responsesInput,
-    messages: restored.messages,
+    responsesInput,
+    messages,
     submitNudgeSent: restored.submitNudgeSent,
     firstTurn: restored.firstTurn,
     featureRejections: restored.featureRejections,
@@ -1675,7 +1745,6 @@ export async function runFindAgentLoop(input: {
   const shared = {
     note: input.note,
     formEdits: input.formEdits,
-    clarifyingQa,
     deps: input.deps,
     toolDeps,
     state,
@@ -1709,6 +1778,7 @@ export async function runFindAgentLoop(input: {
   const toolsAttempt = await runToolsMode(shared);
   if (toolsAttempt.ok) return toolsAttempt;
   if ("continue" in toolsAttempt && toolsAttempt.continue) return toolsAttempt;
+  if ("awaitUser" in toolsAttempt && toolsAttempt.awaitUser) return toolsAttempt;
   if (toolsAttempt.error !== "tools_unsupported_or_empty") {
     return toolsAttempt;
   }
