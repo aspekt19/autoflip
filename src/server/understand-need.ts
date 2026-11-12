@@ -95,15 +95,14 @@ export async function understandNeed(
   const screened = screenUserInput(text || mode);
   if (!screened.ok) return { ok: false, status: 400, error: "rejected_input", message: screened.reason };
 
-  const noteBudget = intakeFromNote(screened.text).budgetUsd;
-  const formBudget =
-    body.budgetDirty === true || noteBudget == null ? (body.budgetUsd ?? null) : null;
+  // Only dirty form budget reaches SERV as a form override — never a finite leftover.
+  const formBudget = body.budgetDirty === true ? (body.budgetUsd ?? null) : null;
   const formOverrides = {
-    budgetUsd: formBudget,
-    yearMin: body.yearMin ?? null,
-    yearMax: body.yearMax ?? null,
-    milesMax: body.milesMax ?? null,
-    zip: body.zip ?? null,
+    ...(body.budgetDirty === true ? { budgetUsd: formBudget } : {}),
+    ...(body.yearMin !== undefined ? { yearMin: body.yearMin ?? null } : {}),
+    ...(body.yearMax !== undefined ? { yearMax: body.yearMax ?? null } : {}),
+    ...(body.milesMax !== undefined ? { milesMax: body.milesMax ?? null } : {}),
+    ...(body.zip !== undefined && body.zip != null ? { zip: body.zip } : {}),
   };
 
   const explicit: Parameters<typeof overlayExplicit>[1] = {
@@ -113,7 +112,8 @@ export async function understandNeed(
     budgetDirty: body.budgetDirty,
     budgetScope: body.budgetScope,
     zip: body.zip,
-    distanceMiles: body.distanceMiles,
+    // Radius only when dirty — a finite leftover must not become a constraint.
+    distanceMiles: body.radiusDirty === true ? body.distanceMiles : undefined,
     repairAbility: body.repairAbility,
     useCase: body.useCase,
     targetProfitUsd: body.targetProfitUsd,
@@ -326,16 +326,16 @@ export async function understandNeed(
       need = { ...need, zip: null, locationPhrase: need.locationPhrase ?? intake.locationPhrase };
     }
   }
-  // City/phrase → ZIP via free table; labelled default radius when city given without miles.
+  // City/phrase → ZIP via free table. Default radius is UI suggestion only — never a constraint.
   {
-    const withGeo = attachNoteGeo(need, { applyDefaultRadius: true });
+    const withGeo = attachNoteGeo(need, { applyDefaultRadius: false });
     const { locationResolution: _loc, radiusIsDefault: _rad, ...rest } = withGeo;
     need = rest;
   }
   // attachNoteGeo only trusts ZIP digits in the note — re-apply Confirm/form geo after scrub.
   if (formZip) need = { ...need, zip: formZip };
-  // null without radiusDirty means "no form radius yet", not "search nationwide".
-  if (body.radiusDirty === true || (body.distanceMiles != null && Number.isFinite(body.distanceMiles))) {
+  // Radius reaches need only when the shopper dirty-edited it (or chose Nationwide).
+  if (body.radiusDirty === true) {
     need = { ...need, distanceMiles: body.distanceMiles ?? null };
   }
   // Answered ZIP clears the blocking question for Confirm.
@@ -384,7 +384,7 @@ export async function understandNeed(
         ? { value: checked.need.zip, dirty: true as const }
         : undefined,
     radiusMi:
-      body.radiusDirty === true || (body.distanceMiles != null && Number.isFinite(body.distanceMiles))
+      body.radiusDirty === true
         ? { value: checked.need.distanceMiles, dirty: true as const }
         : undefined,
   };

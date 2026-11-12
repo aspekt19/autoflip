@@ -413,6 +413,7 @@ describe("understandNeed form ZIP answers near me", () => {
         mode: "personal",
         zip: "75201",
         distanceMiles: 100,
+        radiusDirty: true,
       },
       { /* no SERV key → fallback plan */ },
     );

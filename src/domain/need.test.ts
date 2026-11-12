@@ -63,8 +63,10 @@ describe("editorial directions", () => {
     expect(directions[0]?.models.map((item) => item.model)).toContain("RAV4");
     expect(directions[0]?.models.length).toBeGreaterThanOrEqual(3);
     expect(directions[0]?.models.length).toBeLessThanOrEqual(6);
-    expect(directions[0]?.yearMin).toBe(2012);
-    expect(directions[0]?.yearMax).toBe(2019);
+    // Budget year bands are ranking copy only — open search bounds, not invented constraints.
+    expect(directions[0]?.yearMin).toBe(1990);
+    expect(directions[0]?.yearMax).toBeGreaterThanOrEqual(2026);
+    expect(directions[0]?.yearBecause).toMatch(/ranking preference|\$/);
     expect(directions[0]?.why).toContain("Lemonless guidance");
     expect(directions.every((item) => item.guidance === "editorial")).toBe(true);
   });

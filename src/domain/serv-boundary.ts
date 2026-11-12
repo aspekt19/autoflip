@@ -198,8 +198,12 @@ export function buildUserIntent(input: {
 }
 
 /**
- * Build UserIntent from legacy flat form blobs (zip/budgetUsd/…) used by agent loops.
- * Only finite / non-empty values become fields — null pads are omitted.
+ * Build UserIntent from legacy flat form blobs used by agent loops.
+ *
+ * Only fields the shopper actually touched (`dirty: true` SearchFormEdits shape,
+ * or companion `*Dirty` flags) become form provenance. Bare finite / non-empty
+ * values are NEVER inferred as dirty — note extraction still applies via
+ * {@link buildUserIntent}.
  */
 export function buildUserIntentFromFlatForm(input: {
   note: string;
@@ -212,30 +216,79 @@ export function buildUserIntentFromFlatForm(input: {
     typeof v === "number" && Number.isFinite(v) ? Math.round(v) : null;
   const asStr = (v: unknown): string | null => (typeof v === "string" && v.trim() ? v.trim() : null);
 
-  const budget = asNum(form.budgetUsd ?? form.priceMaxUsd);
-  if (budget != null) edits.priceMaxUsd = { value: budget, dirty: true };
-  const yearMin = asNum(form.yearMin);
-  if (yearMin != null) edits.yearMin = { value: yearMin, dirty: true };
-  const yearMax = asNum(form.yearMax);
-  if (yearMax != null) edits.yearMax = { value: yearMax, dirty: true };
-  const milesMax = asNum(form.milesMax);
-  if (milesMax != null) edits.milesMax = { value: milesMax, dirty: true };
-  const zip = asStr(form.zip);
-  if (zip) edits.zip = { value: zip, dirty: true };
-  const bodyStyle = asStr(form.bodyStyle);
-  if (bodyStyle) edits.bodyStyles = { value: [bodyStyle], dirty: true };
-  if (Array.isArray(form.bodyStyles) && form.bodyStyles.length > 0) {
-    const bodies = form.bodyStyles.map((b) => String(b).trim()).filter(Boolean);
-    if (bodies.length) edits.bodyStyles = { value: bodies, dirty: true };
-  }
-  if ("distanceMiles" in form || "radiusMi" in form) {
-    const radius = asNum(form.distanceMiles ?? form.radiusMi);
-    if (form.distanceMiles === null || form.radiusMi === null) {
-      edits.radiusMi = { value: null, dirty: true };
-    } else if (radius != null) {
-      edits.radiusMi = { value: radius, dirty: true };
+  const dirtyEdit = <T,>(raw: unknown): { value: T; dirty: true } | undefined => {
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) return undefined;
+    const row = raw as { value?: unknown; dirty?: unknown };
+    if (row.dirty !== true) return undefined;
+    return { value: row.value as T, dirty: true };
+  };
+
+  const priceDirty =
+    dirtyEdit<number | null>(form.priceMaxUsd) ?? dirtyEdit<number | null>(form.budgetUsd);
+  if (priceDirty) {
+    edits.priceMaxUsd = priceDirty;
+  } else if (form.budgetDirty === true || form.priceMaxUsdDirty === true) {
+    const budget = asNum(form.budgetUsd ?? form.priceMaxUsd);
+    if (budget != null || form.budgetUsd === null || form.priceMaxUsd === null) {
+      edits.priceMaxUsd = { value: budget, dirty: true };
     }
   }
+
+  const yearMinDirty = dirtyEdit<number | null>(form.yearMin);
+  if (yearMinDirty) edits.yearMin = yearMinDirty;
+  else if (form.yearMinDirty === true) {
+    edits.yearMin = { value: asNum(form.yearMin), dirty: true };
+  }
+
+  const yearMaxDirty = dirtyEdit<number | null>(form.yearMax);
+  if (yearMaxDirty) edits.yearMax = yearMaxDirty;
+  else if (form.yearMaxDirty === true) {
+    edits.yearMax = { value: asNum(form.yearMax), dirty: true };
+  }
+
+  const milesDirty = dirtyEdit<number | null>(form.milesMax);
+  if (milesDirty) edits.milesMax = milesDirty;
+  else if (form.milesMaxDirty === true) {
+    edits.milesMax = { value: asNum(form.milesMax), dirty: true };
+  }
+
+  const zipDirty = dirtyEdit<string | null>(form.zip);
+  if (zipDirty) edits.zip = zipDirty;
+  else if (form.zipDirty === true) {
+    edits.zip = { value: asStr(form.zip), dirty: true };
+  }
+
+  const bodyDirty = dirtyEdit<string[] | null>(form.bodyStyles);
+  if (bodyDirty) {
+    edits.bodyStyles = bodyDirty;
+  } else if (form.bodyStylesDirty === true || form.bodyStyleDirty === true) {
+    if (Array.isArray(form.bodyStyles)) {
+      const bodies = form.bodyStyles.map((b) => String(b).trim()).filter(Boolean);
+      edits.bodyStyles = { value: bodies, dirty: true };
+    } else {
+      const bodyStyle = asStr(form.bodyStyle);
+      if (bodyStyle) edits.bodyStyles = { value: [bodyStyle], dirty: true };
+    }
+  }
+
+  const radiusDirty = dirtyEdit<number | null>(form.radiusMi) ?? dirtyEdit<number | null>(form.distanceMiles);
+  if (radiusDirty) {
+    edits.radiusMi = radiusDirty;
+  } else if (form.radiusDirty === true || form.distanceMilesDirty === true) {
+    const radius = asNum(form.distanceMiles ?? form.radiusMi);
+    if (
+      form.distanceMiles === null ||
+      form.radiusMi === null ||
+      radius != null ||
+      form.distanceMiles === "nationwide"
+    ) {
+      edits.radiusMi = {
+        value: form.distanceMiles === "nationwide" ? null : radius,
+        dirty: true,
+      };
+    }
+  }
+
   return buildUserIntent({ note: input.note, formEdits: edits, now: input.now });
 }
 

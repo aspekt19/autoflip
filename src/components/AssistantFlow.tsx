@@ -548,17 +548,18 @@ function AssistantFlow({
         setNoteMarks(marks);
       }
       setLocationResolution(resolutionForField);
-      // Labelled default when server set 100 mi from a city/ZIP with no explicit “within N miles”.
-      setRadiusIsDefault(
-        Boolean(
-          withCityZip.zip &&
-            withCityZip.distanceMiles === NOTE_DEFAULT_RADIUS_WHEN_ZIP &&
-            (withCityZip.locationPhrase || loc.from === "inferred_from_city") &&
-            !/\bwithin\s+\d+/i.test(text),
-        ),
+      // Suggestion only — default radius is not a constraint until the shopper sets it.
+      const suggestDefaultRadius = Boolean(
+        withCityZip.zip &&
+          withCityZip.distanceMiles == null &&
+          (withCityZip.locationPhrase || loc.from === "inferred_from_city") &&
+          !/\bwithin\s+\d+/i.test(text),
       );
+      setRadiusIsDefault(suggestDefaultRadius);
       setZipDraft(withCityZip.zip ?? "");
-      setDistanceDraft(withCityZip.distanceMiles);
+      setDistanceDraft(
+        withCityZip.distanceMiles ?? (suggestDefaultRadius ? NOTE_DEFAULT_RADIUS_WHEN_ZIP : null),
+      );
       if (withCityZip.yearMin != null) setYearMin(String(withCityZip.yearMin));
       if (withCityZip.yearMax != null) setYearMax(String(withCityZip.yearMax));
       if (withCityZip.budgetUsd != null) setBudget(withCityZip.budgetUsd.toLocaleString("en-US"));
@@ -1353,7 +1354,12 @@ function AssistantFlow({
     setPending(direction.id);
     setWatchGeoDraft(null);
     try {
-      const priceMax = need.budgetKnown && need.budgetUsd ? need.budgetUsd : 40_000;
+      if (!(need.budgetKnown && need.budgetUsd != null && need.budgetUsd > 0)) {
+        setError("A Deal Radar watch needs a maximum price from your budget.");
+        setPending(null);
+        return;
+      }
+      const priceMax = need.budgetUsd;
       const freeText = (need.note?.trim() || text.trim() || "").slice(0, 500) || undefined;
       const parse = criteriaParse ?? { source: "form" as const, responseId: null };
       const originSearchId = searchContextToken?.slice(0, 80) || null;
@@ -2020,9 +2026,11 @@ function AssistantFlow({
               setRadiusIsDefault(false);
             }}
           />
-          {radiusIsDefault && need.distanceMiles != null ? (
+          {radiusIsDefault ? (
             <p className="hint" role="note">
-              Seller distance {need.distanceMiles} mi is the default for {need.locationPhrase ?? "your city"} — change it if you want a different radius.
+              Suggested seller distance {NOTE_DEFAULT_RADIUS_WHEN_ZIP} mi for{" "}
+              {need.locationPhrase ?? "your city"} — set a radius to constrain geography. Untouched
+              suggestion is not a search constraint.
             </p>
           ) : isNearMePhrase(need.locationPhrase) && !need.zip ? (
             <p className="hint" role="note">

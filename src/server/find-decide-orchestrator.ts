@@ -1,12 +1,10 @@
 /**
- * Find decide orchestrator: free-gov (if needed) → agentic SERV loop (always when keyed).
- * Classic triage→decide remains only for the labelled e2e stub / missing SERV key.
- * Agent failure never falls through to a code choose.
+ * Find decide orchestrator: free-gov (if needed) → agentic SERV loop only.
+ * Classic triage→decide is deleted. Agent failure → honest failure (no code choose).
  */
 import { findAgentLoopEnabled, resolveFindAgentMode, type FindAgentRelaxedCondition } from "@/domain/find-agent";
-import { buildUserIntentFromFlatForm, serializeUserIntentConstraints } from "@/domain/serv-boundary";
-import { alignPublishedConfidence } from "@/domain/find-best-deal";
-import { decideBudgetMs, FIND_DECIDE_ROUTE_MS } from "@/domain/route-budget";
+import { buildUserIntent, serializeUserIntentConstraints } from "@/domain/serv-boundary";
+import { FIND_DECIDE_ROUTE_MS } from "@/domain/route-budget";
 import {
   executeAllFindFreeGovParallel,
   freeGovToolCoverage,
@@ -203,27 +201,29 @@ export async function runFindDecideOrchestrator(
 
   const marketPool = marketPoolFromListingFacts(record.compsPool ?? record.listings);
 
-  // 1b) Agentic SERV loop always when keyed (unless labelled e2e stub).
+  // Agentic SERV loop is the only decide path. Missing keys → honest failure.
   const env = deps.env ?? process.env;
   const autodevKey = deps.autodevKey?.trim() || env.AUTODEV_API_KEY?.trim() || "";
   const agentEnabled = findAgentLoopEnabled(env, { servKey: deps.servKey });
-  if (agentEnabled && deps.servKey?.trim() && autodevKey) {
-    const runAgent = deps.runFindAgentLoopImpl ?? runFindAgentLoop;
+  if (!agentEnabled || !deps.servKey?.trim() || !autodevKey) {
+    return {
+      ok: false,
+      status: 503,
+      error: "agent_loop_required",
+      message:
+        "Find decide requires the SERV agent loop (SERV_API_KEY + AUTODEV_API_KEY). Classic triage→decide is removed.",
+    };
+  }
+
+  const runAgent = deps.runFindAgentLoopImpl ?? runFindAgentLoop;
     const seedListings =
       marketPool.length > 0
         ? marketPool
         : marketPoolFromListingFacts(record.listings);
     const note = deps.shopperNote?.trim() || record.need.note || "";
-    const flat: Record<string, unknown> = {};
-    if (record.need.zip) flat.zip = record.need.zip;
-    if (record.need.distanceMiles != null) flat.distanceMiles = record.need.distanceMiles;
-    if (record.need.budgetUsd != null && record.need.budgetKnown !== false) {
-      flat.budgetUsd = record.need.budgetUsd;
-    }
-    if (record.need.yearMin != null) flat.yearMin = record.need.yearMin;
-    if (record.need.yearMax != null) flat.yearMax = record.need.yearMax;
-    if (record.need.milesMax != null) flat.milesMax = record.need.milesMax;
-    const userIntent = buildUserIntentFromFlatForm({ note, form: flat });
+    // Provenance: only note-extracted user constraints reach SERV. Need fields may
+    // include defaults / SERV inventions — never re-tag them as dirty form edits.
+    const userIntent = buildUserIntent({ note });
     const agent = await runAgent({
       note,
       mode: resolveFindAgentMode(env),
@@ -401,125 +401,4 @@ export async function runFindDecideOrchestrator(
           ? agentErr.message
           : "The SERV agent loop did not finish. No code fallback pick was published.",
     };
-  }
-
-  // Classic triage→decide: labelled e2e stub or missing SERV/autodev key only.
-  // 2) C2 triage
-  const triage = await runFindTriageServ({
-    need: record.need,
-    listings: record.listings,
-    receipts,
-    marketPool,
-    revisitAlreadyUsed: Boolean(record.triageRevisitUsed),
-    servKey: deps.servKey,
-    servBaseUrl: deps.servBaseUrl,
-    model: deps.servModel,
-    fetchImpl: deps.fetchImpl,
-    transportPolicy: deps.transportPolicy,
-  });
-
-  // Revisit: at most once — widen radius / add models would rematch; for v1 mark used and continue.
-  const revisitUsed = Boolean(record.triageRevisitUsed) || triage.triage.revisit.needed;
-  record = await updateFindSearchContext(deps.kv, record, {
-    triageShortlistKeys: triage.shortlistKeys,
-    triageRevisitUsed: revisitUsed,
-  });
-
-  // 3) C3 + C4. Leave the second check its own reserve, and give the decision the rest.
-  const decideMs = decideBudgetMs(remainingMs());
-  const decide = await runFindDecideServ({
-    need: record.need,
-    bestDeal: triage.bestDeal,
-    shortlistKeys: triage.shortlistKeys.length > 0 ? triage.shortlistKeys : triage.bestDeal.ranked.map((r) => r.key).slice(0, 8),
-    receipts,
-    marketPool,
-    servKey: deps.servKey,
-    servBaseUrl: deps.servBaseUrl,
-    model: deps.servModel,
-    fetchImpl: deps.fetchImpl,
-    transportPolicy: deps.transportPolicy,
-    timeoutMs: decideMs,
-    remainingMs: remainingMs(),
-  });
-
-  record = await updateFindSearchContext(deps.kv, record, {
-    loopSettled: true,
-    triageShortlistKeys: triage.shortlistKeys,
-  });
-
-  const coverage = freeGovToolCoverage(record.listings, receipts);
-  const proofRecords = [...triage.proofRecords, ...decide.proofRecords];
-
-  const byTool = new Map<string, { ok: number; empty: number; error: number }>();
-  for (const r of receipts) {
-    const row = byTool.get(r.checkId) ?? { ok: 0, empty: 0, error: 0 };
-    if (r.status === "ok") row.ok += 1;
-    else if (r.status === "empty") row.empty += 1;
-    else row.error += 1;
-    byTool.set(r.checkId, row);
-  }
-  const recallRow = byTool.get("free_gov_recalls");
-  const recallFailed = (recallRow?.error ?? 0) > 0;
-  const stages = [
-    receipts.length > 0 ? "public record checks" : null,
-    triage.source === "SERV" ? "compare the cars" : "compare the cars",
-    decide.source === "SERV" ? "choose a car" : "choose a car",
-    decide.proofRecords.some((p) => p.purpose === "find_challenge") ? "second check" : null,
-  ].filter(Boolean);
-  const recallSentence = recallRow
-    ? recallFailed
-      ? `The government recall database answered for ${recallRow.ok} model${recallRow.ok === 1 ? "" : "s"}, had nothing listed for ${recallRow.empty}, and did not answer for ${recallRow.error}. That lowers confidence.`
-      : `The government recall database answered for ${recallRow.ok + recallRow.empty} model${recallRow.ok + recallRow.empty === 1 ? "" : "s"}.`
-    : "No public record checks were recorded.";
-  const loopDetail = [
-    stages.length > 0 ? `${stages.join(", ")} finished.` : "The decision finished.",
-    recallSentence,
-    coverage.anyUnchecked ? `Some checks are still missing: ${coverage.note}` : null,
-  ]
-    .filter(Boolean)
-    .join(" ");
-  if (recallFailed && decide.bestDeal && decide.bestDeal.confidence !== "none") {
-    const next = decide.bestDeal.confidence === "high" ? "medium" : decide.bestDeal.confidence;
-    const sentence =
-      next === "low"
-        ? "A recall check failed, so confidence is Low."
-        : "A recall check did not finish for every car, so confidence stays Medium.";
-    decide.bestDeal = alignPublishedConfidence(decide.bestDeal, next, sentence);
-    if (decide.agentVerdict) {
-      decide.agentVerdict = { ...decide.agentVerdict, confidence: next };
-    }
-  }
-
-  return {
-    ok: true,
-    status: 200,
-    searchContextToken: record.token,
-    bestDeal: decide.bestDeal,
-    pickAgentVerdict: decide.agentVerdict,
-    pickSecondPass: decide.secondPass,
-    pickProofRecords: proofRecords,
-    freeGovReceipts: receipts,
-    freeGovCoverage: coverage,
-    riskCoverage: riskCoverageHonesty(record.listings, receipts),
-    freeEvidenceNote: freeEvidenceNote || coverage.note,
-    triageSource: triage.source,
-    decideSource: decide.source,
-    shortlistKeys: triage.shortlistKeys,
-    loop: {
-      continue: false,
-      reason: "decide_settled",
-      detail: loopDetail,
-    },
-    honesty:
-      decide.source === "SERV"
-        ? "SERV decide + challenge published under code guardrails."
-        : "Code ranking published — AI decide unavailable or failed validation.",
-    needAfter: record.need,
-    appliedCheckIds: record.appliedCheckIds,
-    decisionLog: record.decisionLog ?? [],
-    carChecks: record.carChecks ?? [],
-    replay: false,
-    offerPool: marketPool,
-    agentLoop: null,
-  };
 }

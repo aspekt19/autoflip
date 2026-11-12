@@ -77,12 +77,14 @@ export function proposeDirections(
   const band = yearBandForBudget(need.budgetUsd, now, {
     approximateFromNote: budgetIsApproximateFromNote(need.note),
   });
-  // Prefer Confirm refine, then clarified need year bounds, then budget editorial band.
-  const rawMin = refine?.yearMin ?? need.yearMin ?? band.yearMin;
-  const rawMax = refine?.yearMax ?? need.yearMax ?? band.yearMax;
+  // Prefer Confirm refine / clarified need years. Budget year bands are ranking
+  // copy only — never invent them as search yearMin/yearMax constraints (SERV picks years).
+  const openMin = 1990;
+  const openMax = now.getUTCFullYear() + 1;
   const buyerSetMin = refine?.yearMin != null || need.yearMin != null;
   const buyerSetMax = refine?.yearMax != null || need.yearMax != null;
-  const openMax = now.getUTCFullYear() + 1;
+  const rawMin = refine?.yearMin ?? need.yearMin ?? openMin;
+  const rawMax = refine?.yearMax ?? need.yearMax ?? openMax;
   const ordered = orderedYearBounds(rawMin, rawMax, buyerSetMax, openMax);
   const yearMin = ordered.yearMin;
   const yearMax = ordered.yearMax;
@@ -91,10 +93,10 @@ export function proposeDirections(
     buyerSetMin && buyerSetMax
       ? `Model years ${yearMin}–${yearMax} come from your year clarification or Confirm refine.`
       : buyerSetMin && !buyerSetMax
-        ? `Oldest year ${yearMin} comes from your note or Confirm. Newer cars stay open — the ${yearMax} ceiling is Lemonless guidance for this budget, not something you typed.`
+        ? `Oldest year ${yearMin} comes from your note or Confirm. Newer cars stay open — no budget-invented year ceiling.`
         : buyerSetMax && !buyerSetMin
-          ? `Newest year ${yearMax} comes from your note or Confirm. The ${yearMin} floor is Lemonless guidance for this budget, not something you typed.`
-          : band.because;
+          ? `Newest year ${yearMax} comes from your note or Confirm. No budget-invented year floor.`
+          : `${band.because} That is a ranking preference, not a hard year filter — older cars can still appear.`;
   if (refine?.make && refine.model) {
     // Only label "you named" when preferred models came from the buyer (not service/SERV).
     const userNamed =

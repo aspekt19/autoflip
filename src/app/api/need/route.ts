@@ -82,7 +82,17 @@ export async function POST(request: Request) {
   if (typeof body.yearMax === "number") formEdits.yearMax = { value: body.yearMax, dirty: true };
   if (typeof body.milesMax === "number") formEdits.milesMax = { value: body.milesMax, dirty: true };
   if (typeof body.zip === "string" && body.zip.trim()) formEdits.zip = { value: body.zip.trim(), dirty: true };
-  if (typeof body.distanceMiles === "number") formEdits.radiusMi = { value: body.distanceMiles, dirty: true };
+  if (body.radiusDirty === true) {
+    formEdits.radiusMi = {
+      value:
+        body.distanceMiles === "nationwide" || body.distanceMiles === null
+          ? null
+          : typeof body.distanceMiles === "number"
+            ? body.distanceMiles
+            : null,
+      dirty: true,
+    };
+  }
   const clarification =
     followRaw && typeof followRaw.value === "string" && followRaw.value.trim() ? [followRaw.value.trim()] : [];
   const runId = await syncRunSafely(getKv(), {

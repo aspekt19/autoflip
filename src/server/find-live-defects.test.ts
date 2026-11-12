@@ -160,7 +160,14 @@ describe("live Find defects — inventory, radius, and the credit ledger", () =>
       });
     });
     const understood = await understandNeed(
-      { text: CASE_B, mode: "personal", zip: null, distanceMiles: null },
+      {
+        text: CASE_B,
+        mode: "personal",
+        zip: null,
+        // Explicit dirty radius — defaults are not inventable as constraints.
+        distanceMiles: 100,
+        radiusDirty: true,
+      },
       { servKey: "" },
     );
     expect(understood.ok).toBe(true);

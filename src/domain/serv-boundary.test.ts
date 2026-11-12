@@ -102,20 +102,32 @@ describe("UserIntent — no non-user-set constraints to SERV", () => {
     }
   });
 
-  it("flat form pads omit nulls via buildUserIntentFromFlatForm", () => {
+  it("flat bare numbers are not form-dirty; note extraction still applies", () => {
     const intent = buildUserIntentFromFlatForm({
-      note: "under $11k",
+      note: "under $11k near 43215",
       form: { budgetUsd: 11_000, zip: "43215", yearMin: null, milesMax: null, distanceMiles: null },
     });
-    // Explicit null distanceMiles is user-cleared nationwide.
-    expect(intent.fields.priceMaxUsd?.value).toBe(11_000);
-    expect(intent.fields.zip?.value).toBe("43215");
+    // Bare finite values must NOT become form provenance — note still extracts budget/zip.
+    expect(intent.fields.priceMaxUsd).toEqual({ value: 11_000, provenance: "note" });
+    expect(intent.fields.zip).toEqual({ value: "43215", provenance: "note" });
     expect(intent.fields.yearMin).toBeUndefined();
     expect(intent.fields.milesMax).toBeUndefined();
-    expect(intent.fields.radiusMi).toEqual({ value: null, provenance: "form" });
+    expect(intent.fields.radiusMi).toBeUndefined();
     expect(assertNoNonUserSetConstraints(serializeUserIntentConstraints(intent), intent).ok).toBe(
       true,
     );
+  });
+
+  it("dirty-tagged flat edits become form provenance", () => {
+    const intent = buildUserIntentFromFlatForm({
+      note: "SUV",
+      form: {
+        priceMaxUsd: { value: 15_000, dirty: true },
+        radiusMi: { value: null, dirty: true },
+      },
+    });
+    expect(intent.fields.priceMaxUsd).toEqual({ value: 15_000, provenance: "form" });
+    expect(intent.fields.radiusMi).toEqual({ value: null, provenance: "form" });
   });
 });
 
@@ -273,6 +285,44 @@ describe("reasoning_effort — never none on agent builders", () => {
     });
     expect(assertAgentRequestReasoningEffort(responses).ok).toBe(true);
     expect((responses.reasoning as { effort: string }).effort).not.toBe("none");
+  });
+});
+
+describe("reasoning_effort — sweep every SERV profile / request builder", () => {
+  it("every profile requestFor body has reasoning_effort !== none (or omits the field)", async () => {
+    const profiles = await import("@/server/serv/profiles");
+    const { requestFor } = await import("@/server/serv/run");
+    const ids = Object.keys(profiles.PROFILES) as Array<keyof typeof profiles.PROFILES>;
+    expect(ids.length).toBeGreaterThan(10);
+    for (const id of ids) {
+      const entry = profiles.PROFILES[id];
+      expect((entry.reasoningEffort as string) === "none").toBe(false);
+      const body = requestFor(id, "sweep");
+      const effort =
+        typeof body.reasoning_effort === "string"
+          ? body.reasoning_effort
+          : body.reasoning && typeof body.reasoning === "object" && !Array.isArray(body.reasoning)
+            ? (body.reasoning as { effort?: unknown }).effort
+            : undefined;
+      if (effort !== undefined) {
+        expect(effort, `${id} reasoning effort`).not.toBe("none");
+        expect(assertReasoningEffortNotNone(effort).ok, `${id} assert`).toBe(true);
+      }
+      expect(assertAgentRequestReasoningEffort(body as Record<string, unknown>).ok, `${id} body`).toBe(
+        true,
+      );
+    }
+    // Agent builders are also request builders for the agent loop.
+    expect(
+      assertAgentRequestReasoningEffort(
+        buildServChatTurnBody({ messages: [{ role: "user", content: "hi" }], reasoningEffort: "low" }),
+      ).ok,
+    ).toBe(true);
+    expect(
+      assertAgentRequestReasoningEffort(
+        buildServResponsesTurnBody({ instructions: "sys", input: "hi", reasoning: { effort: "low" } }),
+      ).ok,
+    ).toBe(true);
   });
 });
 

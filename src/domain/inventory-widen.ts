@@ -146,9 +146,9 @@ export function filterInventoryWithWiden(
   need: StructuredNeed,
   opts?: { servPlan?: ServPlanHint },
 ): InventoryWidenResult {
-  const formEdits = {
-    radiusMi: { value: need.distanceMiles, dirty: true as const },
-  };
+  // Never invent radiusMi dirty:true from a finite need.distanceMiles — defaults
+  // and SERV suggestions are not user-touched form constraints.
+  const formEdits = {};
   const spec = buildSearchSpec({
     note: need.note ?? "",
     mode: need.mode,

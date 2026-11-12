@@ -171,7 +171,7 @@ describe("SERV output token bound (offline)", () => {
     expect(reserved).toBe(false);
   });
 
-  it("application-tool chat finalize/follow body also carries max_completion_tokens", async () => {
+  it("application-tool responses finalize/follow body carries max_output_tokens", async () => {
     const bodies: Array<Record<string, unknown>> = [];
     let n = 0;
     const fetchImpl: typeof fetch = async (_url, init) => {
@@ -180,18 +180,12 @@ describe("SERV output token bound (offline)", () => {
       if (n === 1) {
         return new Response(
           JSON.stringify({
-            choices: [
+            output: [
               {
-                message: {
-                  content: null,
-                  tool_calls: [
-                    {
-                      id: "call_1",
-                      type: "function",
-                      function: { name: "read_computed_facts", arguments: '{"seen":true}' },
-                    },
-                  ],
-                },
+                type: "function_call",
+                call_id: "call_1",
+                name: "read_computed_facts",
+                arguments: '{"seen":true}',
               },
             ],
           }),
@@ -200,15 +194,14 @@ describe("SERV output token bound (offline)", () => {
       }
       return new Response(
         JSON.stringify({
-          choices: [{ message: { content: "explanation text for the shopper" } }],
+          output_text: "explanation text for the shopper",
+          output: [{ type: "message", content: [{ type: "output_text", text: "explanation text for the shopper" }] }],
         }),
         { status: 200, headers: { "Content-Type": "application/json" } },
       );
     };
 
-    const appToolProfiles = (Object.values(PROFILES) as ServProfile[]).filter(
-      (p) => p.endpoint === "chat" && p.applicationTool,
-    );
+    const appToolProfiles = (Object.values(PROFILES) as ServProfile[]).filter((p) => Boolean(p.applicationTool));
     expect(appToolProfiles.length).toBeGreaterThan(0);
     const id = appToolProfiles[0]!.id as ProfileId;
 
@@ -225,15 +218,19 @@ describe("SERV output token bound (offline)", () => {
     expect(result.ok).toBe(true);
     expect(bodies.length).toBeGreaterThanOrEqual(2);
     for (const body of bodies) {
-      expect(body.max_completion_tokens).toBe(SERV_OUTPUT_TOKEN_DEFAULT);
+      expect(body.max_output_tokens).toBe(SERV_OUTPUT_TOKEN_DEFAULT);
+      expect(body.reasoning_effort === "none" || (body.reasoning as { effort?: string } | undefined)?.effort === "none").toBe(
+        false,
+      );
     }
   });
 
-  it("no production profile uses /v1/responses (chat-only product paths)", () => {
+  it("only applicationTool profiles declare endpoint responses", () => {
     const responsesProfiles = (Object.values(PROFILES) as ServProfile[]).filter(
       (p) => p.endpoint === "responses",
     );
-    expect(responsesProfiles).toEqual([]);
+    expect(responsesProfiles.length).toBeGreaterThan(0);
+    expect(responsesProfiles.every((p) => Boolean(p.applicationTool))).toBe(true);
   });
 
   it("check_rules posts chat/completions with max_completion_tokens", async () => {

@@ -18,7 +18,8 @@ describe("fresh free-text geo honesty", () => {
       { applyDefaultRadius: true },
     );
     expect(attached.zip).toBe("43215");
-    expect(attached.distanceMiles).toBe(100);
+    // Default radius is a UI suggestion only — not written into distanceMiles.
+    expect(attached.distanceMiles).toBeNull();
     expect(attached.radiusIsDefault).toBe(true);
     expect(zipFieldMark(attached.locationResolution)).toBe("near Columbus, OH (inferred)");
 
