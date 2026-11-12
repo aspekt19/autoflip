@@ -8,6 +8,7 @@ import { priceBadge } from "@/domain/price-badge";
 import { buildComputedReport } from "@/domain/report";
 import { resolvePurchaseAskForEconomics } from "@/domain/report-purchase-ask";
 import { screenUserInput } from "@/domain/screen";
+import { providerBodyStyleParam } from "@/domain/body-style";
 import { providerYearQuery } from "@/domain/search-spec";
 import { templateExplanation } from "@/domain/template";
 import { buildAgentVerdictFromReport } from "@/domain/agent-trail";
@@ -1084,14 +1085,12 @@ export async function previewListing(input: AssembleInput, deps: AssembleDeps) {
 }
 
 /**
- * A single named style is sent. An open search sends no body style.
- * The feed tags many sedans as "Car", so a list of Sedan,SUV,... drops them.
+ * Provider body filter for Find. Car-family styles (Sedan, Coupe, …) are omitted
+ * — Auto.dev often tags those rows as `Car`. See `providerBodyStyleParam`.
  * Motorcycles are removed after the response.
  */
 function findBodyStyleParam(explicit?: string | null): string | undefined {
-  const named = explicit?.trim();
-  if (!named || /^any$/i.test(named) || named.includes(",")) return undefined;
-  return named;
+  return providerBodyStyleParam(explicit);
 }
 
 function yearQuery(input: { year?: number; yearMin?: number; yearMax?: number }): { year?: number; yearRange?: string } {

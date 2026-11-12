@@ -97,6 +97,7 @@ export function normalizeAutoDevListing(raw: unknown, source: ListingSource): Li
     usageType: history ? str(history.usageType) : null,
     fuel: str(vehicle.fuel),
     engine: str(vehicle.engine),
+    transmission: str(vehicle.transmission),
     drivetrain: str(vehicle.drivetrain),
     bodyStyle: str(vehicle.bodyStyle),
     style: str(vehicle.style),

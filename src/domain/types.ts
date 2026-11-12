@@ -27,6 +27,8 @@ export type Listing = {
   usageType: string | null;
   fuel: string | null;
   engine: string | null;
+  /** Feed transmission when present (Automatic, Manual, CVT, …). Missing is unknown. */
+  transmission?: string | null;
   drivetrain: string | null;
   /** Hard all-wheel drive was requested and this listing did not publish a drivetrain we could confirm. */
   drivetrainUnverified?: boolean;

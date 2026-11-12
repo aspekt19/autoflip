@@ -25,6 +25,24 @@ export function bodyFamily(value: string | null | undefined): "suv" | "truck" | 
   return null;
 }
 
+/**
+ * Auto.dev `vehicle.bodyStyle` value for a listings query.
+ *
+ * The feed often tags sedans/coupes/hatchbacks as `Car` while `style`/`type` say
+ * Sedan. Sending `vehicle.bodyStyle=Sedan` therefore returns nothing for those
+ * rows. Omit car-family styles (and Wagon) so the provider keeps them; local
+ * `bodyStyleMatches` still enforces sedan/car intent after fetch.
+ * Do not widen `bodyFamily("Wagon")` — ranking treats unknown vPIC Wagon as
+ * no penalty. Comma lists and open/"any" searches send no body filter.
+ */
+export function providerBodyStyleParam(explicit?: string | null): string | undefined {
+  const named = explicit?.trim();
+  if (!named || /^any$/i.test(named) || named.includes(",")) return undefined;
+  if (bodyFamily(named) === "car") return undefined;
+  if (/\bwagons?\b/i.test(named)) return undefined;
+  return named;
+}
+
 const SUV_MODELS = new Set([
   "cr-v", "crv", "hr-v", "hrv", "pilot", "passport", "rav4", "rav-4", "highlander", "4runner",
   "tucson", "santa fe", "santafe", "sportage", "sorento", "soul", "cx-5", "cx5", "cx-30", "cx-9",

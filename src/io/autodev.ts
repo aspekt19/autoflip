@@ -2,6 +2,7 @@ import { parseAutoDevListings } from "./parsers";
 import { TtlCache } from "./cache";
 import { monthKey, reserveCall, type MonthlyCounter, type QuotaDecision } from "./quota";
 import { ASSUMPTIONS } from "@/domain/assumptions";
+import { providerBodyStyleParam } from "@/domain/body-style";
 import type { Listing, ListingSource } from "@/domain/types";
 import type { ListingQuery } from "./marketcheck";
 import { combineAbortSignals } from "./abort-signal";
@@ -43,7 +44,8 @@ export function listingsSearchUrl(query: ListingQuery): string {
   if (query.model) params.set("vehicle.model", query.model);
   if (query.yearRange) params.set("vehicle.year", query.yearRange);
   else if (query.year) params.set("vehicle.year", String(query.year));
-  if (query.bodyStyle) params.set("vehicle.bodyStyle", query.bodyStyle);
+  const bodyStyle = providerBodyStyleParam(query.bodyStyle);
+  if (bodyStyle) params.set("vehicle.bodyStyle", bodyStyle);
   if (query.priceRange) params.set("retailListing.price", query.priceRange);
   if (query.milesRange) params.set("retailListing.miles", query.milesRange);
   if (query.used) params.set("retailListing.used", "true");
