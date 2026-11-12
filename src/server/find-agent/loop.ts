@@ -131,6 +131,7 @@ function enrichFindRelaxed(
   verdict: FindAgentVerdict,
   journal: readonly FindAgentJournalEntry[],
 ): FindAgentVerdict {
+  // Placeholders already stripped in validateFindAgentVerdict; synthesize when empty.
   if (verdict.relaxedConditions.length > 0) return verdict;
   const synthesized = synthesizeRelaxedConditionsFromSearches(searchesFromFindJournal(journal));
   if (synthesized.length === 0) return verdict;

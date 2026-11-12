@@ -215,14 +215,32 @@ export const RESALE_CREDIT_NOTE_CHARGED =
 export const RESALE_CREDIT_NOTE_UNPAID =
   "Credit not charged. Results are shown, but 1 report credit is still owed — buy credits and continue/retry to settle. No double charge once paid.";
 
+/** No flip chosen (pass / empty) — intentional free completion, not an unpaid debit. */
+export const RESALE_CREDIT_NOTE_NO_FLIP =
+  "No report credit charged — no flip was chosen.";
+
+/** True only when a concrete flip VIN was published (charge gate). */
+export function resaleDeliveryChargesCredit(delivery: Pick<ResaleSearchOkBody, "best">): boolean {
+  const best = delivery.best;
+  if (!best || typeof best !== "object") return false;
+  const vin = typeof (best as { vin?: unknown }).vin === "string" ? (best as { vin: string }).vin.trim() : "";
+  return vin.length > 0;
+}
+
 export function jobToClientBody(
   job: ResaleJobRecord,
   opts?: { balance?: number },
 ): ResaleJobClientBody {
   const paidComplete = job.status === "completed" && job.charged && job.delivery != null;
+  const freeComplete =
+    job.status === "completed" &&
+    !job.charged &&
+    job.delivery != null &&
+    !resaleDeliveryChargesCredit(job.delivery);
   const unpaidDelivered = job.status === "delivered_unpaid" && job.delivery != null;
   // Unpaid deliveries are "done" for SERV work but not final — client may advance to retry charge.
-  const done = paidComplete;
+  // Free completes (documented nothing-fits / empty) are done without a debit.
+  const done = paidComplete || freeComplete;
   const progress = buildResaleJobProgress(job.stepCompleted);
   const journal =
     job.delivery?.journal ??
@@ -272,7 +290,9 @@ export function jobToClientBody(
         : job.delivery.nextStep,
       creditNote: job.charged
         ? job.delivery.creditNote || RESALE_CREDIT_NOTE_CHARGED
-        : RESALE_CREDIT_NOTE_UNPAID,
+        : freeComplete
+          ? job.delivery.creditNote || RESALE_CREDIT_NOTE_NO_FLIP
+          : RESALE_CREDIT_NOTE_UNPAID,
       // Always the real ledger flag — never force true because a delivery exists.
       chargedCredit: job.charged,
     };
@@ -384,12 +404,49 @@ function emptyPassDelivery(input: ResaleSearchInput, journal: ResaleDecisionJour
     providerQueriesUsed: 0,
     scope: null,
     emptyReason: "no_flip_candidates",
-    creditNote: RESALE_CREDIT_NOTE_CHARGED,
+    creditNote: RESALE_CREDIT_NOTE_NO_FLIP,
   };
 }
 
 /**
- * Persist delivery, then attempt debit. On debit failure the job stays
+ * Persist a no-flip / empty delivery without debiting. Completes the job free.
+ */
+async function storeFreeNoFlipDelivery(
+  kv: Kv,
+  job: ResaleJobRecord,
+  delivery: ResaleSearchOkBody,
+): Promise<{ job: ResaleJobRecord; balance: number }> {
+  const honestDelivery: ResaleSearchOkBody = {
+    ...delivery,
+    chargedCredit: false,
+    creditNote: RESALE_CREDIT_NOTE_NO_FLIP,
+  };
+  const payload: ResaleSearchDelivery = {
+    ...honestDelivery,
+    searchIdempotencyKey: job.idempotencyKey,
+    jobId: job.jobId,
+    charged: false,
+  };
+  await storeResaleSearchDelivery(kv, job.spendKey, payload);
+  // Pass/empty is not reusable as a paid verdict cache.
+  const next: ResaleJobRecord = {
+    ...job,
+    status: "completed",
+    stepCompleted: RESALE_JOB_FINAL_STEP,
+    delivery: honestDelivery,
+    charged: false,
+    settleCheckpoint: job.settleCheckpoint,
+    updatedAt: new Date().toISOString(),
+    error: null,
+    emptyReason: honestDelivery.emptyReason ?? job.emptyReason,
+  };
+  await storeResaleJob(kv, next);
+  return { job: next, balance: await creditBalance(kv, job.ownerId) };
+}
+
+/**
+ * Persist delivery, then attempt debit only when a flip was chosen.
+ * Nothing-fits / empty → free complete (no charge). On debit failure the job stays
  * `delivered_unpaid` (result still shown) so the next advance/replay can retry the charge.
  */
 async function chargeAndStoreDelivery(
@@ -397,6 +454,9 @@ async function chargeAndStoreDelivery(
   job: ResaleJobRecord,
   delivery: ResaleSearchOkBody,
 ): Promise<{ job: ResaleJobRecord; balance: number }> {
+  if (!resaleDeliveryChargesCredit(delivery)) {
+    return storeFreeNoFlipDelivery(kv, job, delivery);
+  }
   const reserved = await reserveResaleSearchCreditReliable(kv, job.ownerId, job.idempotencyKey);
   const charged = reserved.ok;
   const honestDelivery: ResaleSearchOkBody = {

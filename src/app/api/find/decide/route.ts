@@ -13,7 +13,6 @@ import { loadFindSearchContext } from "@/server/find-search-context";
 import { readRun } from "@/io/run-store";
 import { listingsFromBestDeal, proofsFromRecords, syncRunSafely } from "@/server/run-sync";
 import type { SourceId } from "@/domain/buyer-copy-table";
-import { buildDecisionProofRecord, VERDICT_RUBRIC_ID } from "@/domain/decision-proof-record";
 import { FIND_DECIDE_ROUTE_MS } from "@/domain/route-budget";
 import { towingCapacityCaveat } from "@/domain/open-search";
 

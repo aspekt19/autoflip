@@ -367,7 +367,8 @@ export async function runFindDecideOrchestrator(
         agentLoop: {
           agentMode: agent.agentMode,
           toolRounds: agent.toolRounds,
-          verdictReached: true,
+          // Completeness comes from the agent loop (chosen listing or documented nothing-fits).
+          verdictReached: agent.verdictReached,
           relaxedConditions: agent.relaxedConditions,
           journalServCalls: counts.servCalls,
           journalToolCalls: counts.toolCalls,

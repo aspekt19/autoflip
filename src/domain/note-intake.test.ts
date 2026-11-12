@@ -53,6 +53,15 @@ describe("budget phrases the old regex dropped", () => {
     expect(budgetFromText("about fifteen thousand for a commuter")).toBe(15_000);
   });
 
+  it("parses compound word budgets like thirty five thousand", () => {
+    expect(budgetFromText("under thirty five thousand")).toBe(35_000);
+    expect(budgetFromText("around thirty-five thousand")).toBe(35_000);
+    expect(budgetFromText("budget is twenty five thousand")).toBe(25_000);
+    expect(budgetFromText("up to forty five thousand")).toBe(45_000);
+    // Longest match — do not accept bare "five thousand" inside "thirty five thousand".
+    expect(budgetFromText("max thirty five thousand for an SUV")).toBe(35_000);
+  });
+
   it("does not invent a budget or treat miles and model years as prices", () => {
     expect(budgetFromText("a reliable car for errands")).toBeNull();
     expect(budgetFromText("under 80k miles")).toBeNull();

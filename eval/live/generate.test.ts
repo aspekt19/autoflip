@@ -25,6 +25,15 @@ describe("generateQueries", () => {
     expect(a).not.toEqual(b);
   });
 
+  it("broadens the pool so many seeds yield mostly unique notes", () => {
+    const notes = new Set<string>();
+    for (let seed = 100; seed < 140; seed += 1) {
+      for (const q of generateQueries(seed, 8)) notes.add(q.note);
+    }
+    // 40 seeds × 8 queries = 320 slots; expanded templates should keep most unique.
+    expect(notes.size).toBeGreaterThan(200);
+  });
+
   it("splitFindResale keeps the 5/3 mix at 8", () => {
     expect(splitFindResale(8)).toEqual({ find: 5, resale: 3 });
     expect(splitFindResale(1)).toEqual({ find: 1, resale: 0 });

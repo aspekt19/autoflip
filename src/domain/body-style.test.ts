@@ -17,10 +17,34 @@ describe("providerBodyStyleParam", () => {
     expect(providerBodyStyleParam("Minivan")).toBe("Minivan");
   });
 
+  it("canonicalizes crossover / CUV free text to SUV for Auto.dev", () => {
+    expect(bodyFamily("crossover")).toBe("suv");
+    expect(bodyFamily("compact crossover")).toBe("suv");
+    expect(bodyFamily("CUV")).toBe("suv");
+    expect(providerBodyStyleParam("crossover")).toBe("SUV");
+    expect(providerBodyStyleParam("compact crossover")).toBe("SUV");
+    expect(providerBodyStyleParam("cuv")).toBe("SUV");
+    expect(providerBodyStyleParam("suv")).toBe("SUV");
+  });
+
   it("omits open, any, and comma-joined lists", () => {
     expect(providerBodyStyleParam(null)).toBeUndefined();
     expect(providerBodyStyleParam("any")).toBeUndefined();
     expect(providerBodyStyleParam("Sedan,SUV,Truck")).toBeUndefined();
+  });
+});
+
+describe("listingsSearchUrl crossover → SUV", () => {
+  it("sends vehicle.bodyStyle=SUV for crossover intent", () => {
+    const url = listingsSearchUrl({
+      make: "Toyota",
+      model: "RAV4",
+      bodyStyle: "crossover",
+      zip: "75201",
+      distanceMiles: 100,
+      limit: 20,
+    });
+    expect(new URL(url).searchParams.get("vehicle.bodyStyle")).toBe("SUV");
   });
 });
 
