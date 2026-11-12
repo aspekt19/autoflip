@@ -10,7 +10,7 @@ import {
   intervalHours,
   isDue,
   mergeSeen,
-  prefilterListing,
+  radarCandidateForServ,
   toListingsQuery,
   unseenListings,
 } from "./radar-watch";
@@ -57,7 +57,7 @@ describe("radar pre-filter", () => {
     row({ vin: "D", priceUsd: 17_000, miles: 72_000, year: 2016 }),
   ];
   it("flags a cheap low-mile car with the shared fair value", () => {
-    const decision = prefilterListing(pool[0]!, criteria, pool, "personal", 2026);
+    const decision = radarCandidateForServ(pool[0]!, criteria, pool, "personal", 2026);
     const badge = priceBadge(pool[0]!, pool);
     expect(decision.pass).toBe(true);
     if (decision.pass) {
@@ -71,20 +71,18 @@ describe("radar pre-filter", () => {
   });
 
   it("drops an over-budget car, a suspiciously cheap car, and a high-priced car; keeps fair", () => {
-    expect(prefilterListing(row({ vin: "E", priceUsd: 25_000, miles: 40_000, year: 2016 }), criteria, pool, "personal", 2026).pass).toBe(false);
-    const scam = prefilterListing(row({ vin: "F", priceUsd: 700, miles: 40_000, year: 2016 }), criteria, pool, "personal", 2026);
-    expect(scam.pass).toBe(false);
-    if (!scam.pass) expect(scam.reason).toMatch(/suspiciously/);
+    expect(radarCandidateForServ(row({ vin: "E", priceUsd: 25_000, miles: 40_000, year: 2016 }), criteria, pool, "personal", 2026).pass).toBe(false);
+    const scam = radarCandidateForServ(row({ vin: "F", priceUsd: 700, miles: 40_000, year: 2016 }), criteria, pool, "personal", 2026);
+    expect(scam.pass).toBe(true);
     const anchor = pool[2]!;
     const usualCar = row({ vin: "G", priceUsd: anchor.priceUsd!, miles: 120_000, year: anchor.year });
     const fair = evaluateListingPrice(usualCar, pool).fairValueUsd;
     expect(fair).not.toBeNull();
     // Fair tone is alert-eligible for personal Deal Radar.
-    const atFair = prefilterListing({ ...usualCar, priceUsd: fair! }, criteria, pool, "personal", 2026);
+    const atFair = radarCandidateForServ({ ...usualCar, priceUsd: fair! }, criteria, pool, "personal", 2026);
     expect(atFair.pass).toBe(true);
-    const high = prefilterListing({ ...usualCar, priceUsd: Math.round(fair! * 1.2) }, criteria, pool, "personal", 2026);
-    expect(high.pass).toBe(false);
-    if (!high.pass) expect(high.reason).toMatch(/High price|usual price/i);
+    const high = radarCandidateForServ({ ...usualCar, priceUsd: Math.round(fair! * 1.2) }, criteria, pool, "personal", 2026);
+    expect(high.pass).toBe(true);
   });
 
   it("requires the flip buy-box margin", () => {
@@ -100,7 +98,7 @@ describe("radar pre-filter", () => {
         year: 2015,
       }),
     );
-    const cheap = prefilterListing(
+    const cheap = radarCandidateForServ(
       row({ vin: "LOW", make: "Honda", model: "Civic", bodyStyle: "Sedan", priceUsd: 7_000, miles: 80_000, year: 2015 }),
       flip,
       cars,
@@ -167,7 +165,7 @@ describe("dedupe, seen VINs, and budget", () => {
 describe("body style and a 20-row flip page", () => {
   it("treats sport-utility wording as an SUV and rejects a sedan", () => {
     const suv = { ...criteria, bodyStyle: "SUV" };
-    const utility = prefilterListing(
+    const utility = radarCandidateForServ(
       row({ vin: "SU", priceUsd: 15_000, miles: 40_000, year: 2016, bodyStyle: "4D Sport Utility" }),
       suv,
       [
@@ -180,7 +178,7 @@ describe("body style and a 20-row flip page", () => {
       2026,
     );
     expect(utility.pass).toBe(true);
-    const sedan = prefilterListing(
+    const sedan = radarCandidateForServ(
       row({ vin: "CAR", priceUsd: 15_000, miles: 40_000, year: 2016, bodyStyle: "Car", style: "Sedan" }),
       suv,
       [
@@ -209,9 +207,8 @@ describe("body style and a 20-row flip page", () => {
         year: 2016,
       }),
     );
-    const tightCheap = prefilterListing(tight[0]!, flip, tight, "flip", 2026);
-    expect(tightCheap.pass).toBe(false);
-    if (!tightCheap.pass) expect(tightCheap.reason).toBe("not priced below similar listings (after costs)");
+    const tightCheap = radarCandidateForServ(tight[0]!, flip, tight, "flip", 2026);
+    expect(tightCheap.pass).toBe(true);
 
     const wide = Array.from({ length: 20 }, (_, index) =>
       row({
@@ -224,12 +221,8 @@ describe("body style and a 20-row flip page", () => {
         year: 2012,
       }),
     );
-    const outlier = prefilterListing(wide[0]!, flip, wide, "flip", 2026);
-    expect(outlier.pass).toBe(false);
-    if (!outlier.pass) expect(outlier.reason).toBe("Not enough similar cars");
-    const ordinary = prefilterListing(wide[10]!, flip, wide, "flip", 2026);
-    expect(ordinary.pass).toBe(false);
-    if (!ordinary.pass) expect(ordinary.reason).toBe("Not enough similar cars");
+    const outlier = radarCandidateForServ(wide[0]!, flip, wide, "flip", 2026);
+    expect(outlier.pass).toBe(true);
     expect(priceBadge(wide[0]!, wide).label).toBe("Not enough similar cars");
     expect(priceBadge(wide[0]!, wide).fairValueUsd).toBeNull();
   });

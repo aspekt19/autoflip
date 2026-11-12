@@ -1,6 +1,6 @@
 /**
- * Find decide orchestrator: free-gov (if needed) → agentic SERV loop only.
- * Classic triage→decide is deleted. Agent failure → honest failure (no code choose).
+ * Find decide orchestrator: free-gov (if needed) → SERV agent loop only.
+ * Legacy match→decide path is deleted. Agent failure → honest failure (no code choose).
  */
 import { findAgentLoopEnabled, resolveFindAgentMode, type FindAgentRelaxedCondition } from "@/domain/find-agent";
 import { buildUserIntent, serializeUserIntentConstraints } from "@/domain/serv-boundary";
@@ -211,7 +211,7 @@ export async function runFindDecideOrchestrator(
       status: 503,
       error: "agent_loop_required",
       message:
-        "Find decide requires the SERV agent loop (SERV_API_KEY + AUTODEV_API_KEY). Classic triage→decide is removed.",
+        "Find decide requires the SERV agent loop (SERV_API_KEY + AUTODEV_API_KEY). Legacy match→decide is removed.",
     };
   }
 
@@ -401,4 +401,5 @@ export async function runFindDecideOrchestrator(
           ? agentErr.message
           : "The SERV agent loop did not finish. No code fallback pick was published.",
     };
+  // Classic triage removed — agent_loop_failed returns above; never reintroduce.
 }
