@@ -257,8 +257,8 @@ export function formatJournalStepSentences(step: ServDecisionStep): string {
       return "A second independent SERV check reviewed that pick.";
     case "deep_check":
       return step.by === "SERV"
-        ? "SERV asked for a deeper look at one listing. Code supplied the numbers."
-        : "Code ran a deeper check on one listing.";
+        ? "The review asked for a closer look at one listing. The numbers came from the calculation."
+        : "We took a closer look at one listing.";
     case "rank":
       return "Code ranked the cars by the recorded profit and risk figures.";
     case "reject":
@@ -327,18 +327,18 @@ export function formatJournalSecondCheckSentences(second: ServSecondCheckSummary
       : base;
   }
   if (second.status === "missing" || second.status === "not_run") {
-    return "A second independent SERV check did not run for this report.";
+    return "A second independent SERV check did not run, so confidence is Low. Nothing checked the first reading again.";
   }
   if (second.status === "skipped_no_budget" || second.status === "skipped_no_key") {
-    return "A second independent SERV check was skipped.";
+    return "A second independent SERV check was skipped, so confidence is Low. The review step was not available.";
   }
   if (second.status === "unavailable") {
-    return "A second independent SERV check did not finish.";
+    return "A second independent SERV check did not finish, so confidence is Low.";
   }
   if (second.status === "ignored_malformed" || second.status === "ignored_no_evidence") {
-    return "A second independent SERV check returned nothing usable and was ignored.";
+    return "A second independent SERV check returned nothing usable, so confidence is Low.";
   }
-  return "A second independent SERV check did not run for this report.";
+  return "A second independent SERV check did not run, so confidence is Low. Nothing checked the first reading again.";
 }
 
 export type JournalStepView = {
@@ -366,6 +366,28 @@ export type JournalStepView = {
     originReason: string | null;
   };
 };
+
+/** Identical back-to-back lines become one line. Seven "closer look" steps read as one count. */
+export function collapseRepeatedStepViews<T extends { sentences: string }>(views: readonly T[]): T[] {
+  const out: T[] = [];
+  let index = 0;
+  while (index < views.length) {
+    let next = index + 1;
+    while (next < views.length && views[next]!.sentences === views[index]!.sentences) next += 1;
+    const count = next - index;
+    const current = views[index]!;
+    if (count === 1) {
+      out.push(current);
+    } else {
+      const sentence = /closer look at one listing/i.test(current.sentences)
+        ? `We took a closer look at ${count} listings.`
+        : `${current.sentences.replace(/\.\s*$/, "")} — repeated ${count} times.`;
+      out.push({ ...current, sentences: sentence });
+    }
+    index = next;
+  }
+  return out;
+}
 
 export function journalStepViews(steps: readonly ServDecisionStep[]): JournalStepView[] {
   return steps.map((step) => ({

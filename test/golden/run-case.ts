@@ -4,7 +4,7 @@
  * budget (AssistantFlow reads it from the render closure), and a year set on
  * Confirm updates the need without rebuilding plan directions.
  */
-import { budgetFromText } from "@/domain/note-intake";
+import { awdLimitFromText, budgetFromText } from "@/domain/note-intake";
 import { selectBestDealOnEvidence } from "@/domain/find-best-deal";
 import type { SearchDirection } from "@/domain/directions";
 import type { StructuredNeed } from "@/domain/need";
@@ -118,6 +118,7 @@ class ClientSession {
     if (need.yearMin != null) hard.yearMin = { value: need.yearMin, source: this.yearMinDraft ? "form" : "note" };
     if (need.yearMax != null) hard.yearMax = { value: need.yearMax, source: "note" };
     if (need.milesMax != null) hard.milesMax = { value: need.milesMax, source: "note" };
+    if (awdLimitFromText(note) === "hard") hard.drivetrain = { value: "awd_4wd", source: "note" };
     if (need.zip) {
       const fromNote = location === "from-note" || note.includes(need.zip);
       hard.zip = { value: need.zip, source: fromNote ? "note" : "form" };
@@ -304,10 +305,30 @@ async function runPersonal(
   const queries = queriesFrom(matched, lastUrls.length);
   let verdict: string | null = null;
   let confidence: GoldenRun["confidence"] = null;
+  let pickVin: string | null = listings[0]?.vin ?? null;
   let headline: string | null = matched.ok ? matched.body.headline : null;
   let message: string | null = matched.ok ? matched.body.message : (!matched.ok ? String(matched.body.message ?? "") : null);
   let nextStep: string | null = matched.ok ? matched.body.nextStep : null;
   const decideStarted = Date.now();
+  if (skipDecide && matched.ok && session.need && listings.length > 0) {
+    const ranked = selectBestDealOnEvidence({
+      need: session.need,
+      listings: listings.map((car) => ({
+        make: car.make,
+        model: car.model,
+        year: car.year,
+        priceUsd: car.priceUsd,
+        miles: car.miles,
+        vin: car.vin,
+        drivetrain: car.drivetrain,
+        fuel: car.fuel,
+        accidentCount: car.accidentCount,
+      })),
+      marketPool: [],
+    });
+    pickVin = ranked.pick?.key ?? pickVin;
+    confidence = confidenceOf(ranked.confidence);
+  }
   if (!skipDecide && matched.ok && session.need && listings.length > 0) {
     const best = selectBestDealOnEvidence({
       need: session.need,
@@ -335,6 +356,7 @@ async function runPersonal(
       fetchImpl,
     });
     proofs.push(...decided.proofRecords);
+    pickVin = best.pick?.key ?? pickVin;
     verdict = decided.agentVerdict.verdict;
     confidence = confidenceOf(decided.decide.confidence);
     if (!message) message = decided.bestDeal.why;
@@ -363,7 +385,7 @@ async function runPersonal(
     confidence,
     status: stopped ? "stopped" : matched.ok ? "ok" : "error",
     charged,
-    pickVin: listings[0]?.vin ?? null,
+    pickVin,
     proofRecords: proofs,
     buyer: { headline, message, nextStep, journal: [] },
     steps,
@@ -438,7 +460,8 @@ async function runFlip(
   const fromBody = "providerQueriesUsed" in body && typeof body.providerQueriesUsed === "number" ? body.providerQueriesUsed : 0;
   const searchUrls = listingSearchUrls(attempts.slice(cursor));
   const queries = Math.max(fromBody, searchUrls.length);
-  const message = ("message" in body ? body.message : null) ?? null;
+  const reviewNote = okBody?.reviewNote ?? null;
+  const message = [("message" in body ? body.message : null) ?? null, reviewNote].filter(Boolean).join(" ") || null;
   const headline = ("headline" in body ? body.headline : null) ?? null;
   const nextStep = ("nextStep" in body ? body.nextStep : null) ?? null;
   const journal = "journal" in body ? body.journal.steps.flatMap((step) => [step.decided, step.why].filter((line): line is string => Boolean(line))) : [];

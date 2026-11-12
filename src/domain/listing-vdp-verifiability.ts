@@ -4,7 +4,10 @@
  */
 
 import { buyerListingHref } from "./find-listing-link";
+import { isAggregatorHost } from "./listing-aggregators";
 import { sellerLinkHonesty } from "./listing-seller-honesty";
+
+export { AGGREGATOR_HOSTS, isAggregatorHost } from "./listing-aggregators";
 
 export type ListingVdpVerifiability = {
   /** Absolute http(s) URL from the feed, or null when unusable. */
@@ -115,18 +118,6 @@ export function listingPageSlugMismatch(input: {
   if (feedSet === slugSet) return null;
   return "Listing page may describe a different trim — verify";
 }
-
-export const AGGREGATOR_HOSTS = new Set([
-  "autolist.com",
-  "cars.com",
-  "autotrader.com",
-  "cargurus.com",
-  "carfax.com",
-  "truecar.com",
-  "edmunds.com",
-  "carvana.com",
-  "carmax.com",
-]);
 
 /** Model/make search paths like /toyota-corolla or /cars-for-sale/toyota — not a VDP. */
 function looksLikeGenericModelPath(pathname: string, search: string, hash: string): boolean {
@@ -241,7 +232,7 @@ export function listingVdpVerifiability(input: {
   }
 
   const generic =
-    AGGREGATOR_HOSTS.has(host) && looksLikeGenericModelPath(pathname, search, hash);
+    isAggregatorHost(host) && looksLikeGenericModelPath(pathname, search, hash);
   if (generic) {
     return {
       href,

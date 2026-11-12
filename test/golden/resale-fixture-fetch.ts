@@ -44,6 +44,36 @@ function row(input: {
 }
 
 export function resaleFixtureFetch(specCase: GoldenCase): typeof fetch {
+  if (specCase.id === "L5") {
+    return async (input) => {
+      const href = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+      if (!/\/listings\/?/.test(href)) {
+        return new Response(JSON.stringify({ error: "no serv in fixture" }), { status: 503 });
+      }
+      const rows = [0, 1, 2, 3, 4].map((index) =>
+        row({
+          vin: `1HGCM82633A20${String(index).padStart(4, "0")}`,
+          price: 10_000 + index,
+          miles: 70_000,
+          ageDays: 20,
+          zip: "10001",
+        }),
+      );
+      rows.push(
+        row({
+          vin: "1HGCM82633A200016",
+          price: 9_984,
+          miles: 71_000,
+          ageDays: 18,
+          zip: "10001",
+        }),
+      );
+      return new Response(JSON.stringify({ data: rows }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    };
+  }
   const budget = specCase.expect.budgetUsd ?? 10_000;
   const zip = specCase.location === "nationwide" || specCase.location === "from-note" ? null : specCase.location.zip;
   const peerPrice = Math.round(budget * 0.7);

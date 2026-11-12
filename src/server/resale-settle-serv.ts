@@ -27,6 +27,7 @@ import {
 } from "@/domain/nhtsa-stop-flags";
 import type { ComputedReport, Listing, Verdict } from "@/domain/types";
 import { capResaleConfidence } from "@/domain/resale-outcome";
+import { resaleEdgeSentence } from "@/domain/resale-presentation";
 import { pricedBelowSimilarLine } from "@/domain/resale-sanity";
 import { flipVerdict } from "@/domain/verdict";
 import {
@@ -638,11 +639,11 @@ function applyFlipPublishedAction(input: {
   return { action: clamped.action, journal, trail };
 }
 
-function profitHeadline(c: ResaleCandidatePnl): string {
-  if (c.profitMidUsd == null) return "Similar listings were too thin to say this is priced below them.";
+function profitHeadline(c: ResaleCandidatePnl, action?: string | null): string {
+  const edge = resaleEdgeSentence({ amountUsd: c.profitMidUsd, action: action ?? null });
   const scope = c.profitScopeLabel ? ` ${c.profitScopeLabel}` : "";
   const windowBit = c.sellWindowNote ? ` ${c.sellWindowNote}` : "";
-  return `${pricedBelowSimilarLine(c.profitMidUsd)}${scope}.${windowBit} The sale price is an asking-price proxy, not a closed sale.`;
+  return `${edge}${scope}${windowBit} The sale price is an asking-price proxy, not a closed sale.`.replace(/\s+/g, " ").trim();
 }
 
 function parseJsonObject(text: string): Record<string, unknown> | null {
@@ -703,7 +704,7 @@ function finalizeAgentVerdict(input: {
       reasons: [
         {
           evidenceId: "pnl_mid",
-          text: profitHeadline(input.best),
+          text: profitHeadline(input.best, input.verdictAction),
         },
         { evidenceId: "comps", text: `${input.best.compCount} similar listings in this scan.` },
       ],

@@ -229,7 +229,7 @@ export function summarizeSecondCheck(
     return {
       status: "missing",
       answersAgree: null,
-      detail: "Second check did not run for this report.",
+      detail: "A second check did not run, so confidence is Low.",
       modelId: null,
       runId: null,
     };
@@ -258,7 +258,7 @@ export function summarizeSecondCheck(
     return {
       status: "not_run",
       answersAgree: null,
-      detail: second.objection ?? "A second independent SERV check did not run for this report.",
+      detail: second.objection ?? "A second independent SERV check did not run, so confidence is Low.",
       modelId: null,
       runId: null,
     };
@@ -267,7 +267,7 @@ export function summarizeSecondCheck(
     return {
       status: second.status,
       answersAgree: null,
-      detail: second.objection ?? "A second independent SERV check was skipped.",
+      detail: second.objection ?? "A second independent SERV check was skipped, so confidence is Low.",
       modelId: null,
       runId: null,
     };
@@ -276,7 +276,7 @@ export function summarizeSecondCheck(
     return {
       status: "unavailable",
       answersAgree: null,
-      detail: second.objection ?? "A second independent SERV check did not finish.",
+      detail: second.objection ?? "A second independent SERV check did not finish, so confidence is Low.",
       modelId: second.profile ?? null,
       runId: second.responseId ?? null,
     };
@@ -284,7 +284,7 @@ export function summarizeSecondCheck(
   return {
     status: second.status,
     answersAgree: null,
-    detail: second.objection ?? "A second independent SERV check did not run for this report.",
+    detail: second.objection ?? "A second independent SERV check did not run, so confidence is Low.",
     modelId: second.profile ?? null,
     runId: second.responseId ?? null,
   };

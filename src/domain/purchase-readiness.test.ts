@@ -271,8 +271,8 @@ describe("offer range", () => {
     expect(view.offer.walkAwayUsd).toBeNull();
     expect(view.offer.sentence).toMatch(/not enough data/i);
     expect(view.offer.sentence).toMatch(/\b2\b/);
-    expect(view.offer.openingLabel).toMatch(/not estimated/);
-    expect(view.offer.walkAwayLabel).toMatch(/not estimated/);
+    expect(view.offer.openingLabel).toMatch(/not given/);
+    expect(view.offer.walkAwayLabel).toMatch(/not given/);
     expect(view.talkingPoints.some((point) => point.topic === "price")).toBe(false);
   });
 
@@ -432,8 +432,8 @@ describe("offer range", () => {
     expect(view.offer.status).toBe("wide_gap");
     expect(view.offer.openingUsd).toBeNull();
     expect(view.offer.walkAwayUsd).toBeNull();
-    expect(view.offer.openingLabel).toMatch(/not estimated/);
-    expect(view.offer.walkAwayLabel).toMatch(/not estimated/);
+    expect(view.offer.openingLabel).toMatch(/not given/);
+    expect(view.offer.walkAwayLabel).toMatch(/not given/);
     expect(view.offer.sentence).toMatch(/too wide to turn into an opening offer/);
     expect(view.offer.sentence).toMatch(/not sold prices/);
     expect(view.offer.sentence).not.toMatch(/Reasonable opening offer is \$/);

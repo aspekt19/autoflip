@@ -73,7 +73,11 @@ export function findChoiceConfidence(input: {
     return { confidence: "medium", confidenceLine: "Medium: some checks are still open, so this uses partial data." };
   }
   if (input.priceProvisional) {
-    return { confidence: "medium", confidenceLine: "Medium: the price comparison is still provisional." };
+    return {
+      confidence: "medium",
+      confidenceLine:
+        "Medium: we could not rate the asking price against enough similar cars. Mileage and accident history still count. This is uncertainty in the price comparison, not a failed review.",
+    };
   }
   // Shared honesty: High cannot pair with Needs inspection / unsettled evidence.
   const capped = capConfidenceForHonesty({

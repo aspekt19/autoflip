@@ -55,12 +55,47 @@ const LIVE_B = [
   car({ vin: "5XYZU3LB5HG000013", year: 2019, make: "Hyundai", model: "Tucson", bodyStyle: "SUV", price: 21000, distance: 40, drivetrain: "AWD" }),
 ];
 
-export function scriptedGoldenFetch(kind: "live-a" | "live-b", urls: string[]): typeof fetch {
-  const rows = kind === "live-a" ? LIVE_A : LIVE_B;
+const LIVE_C = [
+  car({ vin: "4T1BF1FK5HU000021", year: 2017, make: "Toyota", model: "Camry", bodyStyle: "Sedan", price: 10900, miles: 88_000, distance: 18 }),
+  car({ vin: "2T3R1RFV5HW000022", year: 2016, make: "Toyota", model: "RAV4", bodyStyle: "SUV", price: 11200, miles: 96_000, distance: 22 }),
+];
+
+const LIVE_D = [
+  car({ vin: "5N1AT2MT5LC000031", year: 2019, make: "Nissan", model: "Rogue", bodyStyle: "SUV", price: 16000, distance: 12, drivetrain: "FWD" }),
+  car({ vin: "2T3R1RFV5NW000032", year: 2018, make: "Toyota", model: "RAV4", bodyStyle: "SUV", price: 17000, distance: 15, drivetrain: null }),
+  car({ vin: "5XYZU3LB5HG000033", year: 2018, make: "Hyundai", model: "Tucson", bodyStyle: "SUV", price: 16500, distance: 10, drivetrain: "AWD" }),
+];
+
+const LIVE_RANK = [
+  car({ vin: "JF1SJADC8HH000001", year: 2014, make: "Subaru", model: "Forester", bodyStyle: "SUV", price: 6500, miles: 219_000, distance: 12, drivetrain: "AWD" }),
+  car({ vin: "JF1SJADC8HH000002", year: 2016, make: "Subaru", model: "Forester", bodyStyle: "SUV", price: 9000, miles: 80_000, distance: 14, drivetrain: "AWD" }),
+  car({ vin: "JF1SJADC8HH000003", year: 2017, make: "Subaru", model: "Forester", bodyStyle: "SUV", price: 9800, miles: 62_000, distance: 9, drivetrain: "AWD" }),
+];
+
+function rowsFor(kind: "live-a" | "live-b" | "live-c" | "live-d" | "live-rank", href: string) {
+  if (kind === "live-a") return LIVE_A;
+  if (kind === "live-b") return LIVE_B;
+  if (kind === "live-d") return LIVE_D;
+  if (kind === "live-rank") {
+    return LIVE_RANK.map((row, index) => (index === 1 ? { ...row, history: { accidentCount: 1 } } : row));
+  }
+  let model = "";
+  try {
+    model = new URL(href).searchParams.get("vehicle.model")?.toLowerCase() ?? "";
+  } catch {
+    model = "";
+  }
+  return LIVE_C.filter((row) => String(row.vehicle.model).toLowerCase() === model);
+}
+
+export function scriptedGoldenFetch(
+  kind: "live-a" | "live-b" | "live-c" | "live-d" | "live-rank",
+  urls: string[],
+): typeof fetch {
   return async (input) => {
     const href = String(input);
     urls.push(href);
-    if (href.includes("/listings")) return Response.json({ data: rows });
+    if (href.includes("/listings")) return Response.json({ data: rowsFor(kind, href) });
     if (href.includes("recallsByVehicle")) {
       return Response.json({ Count: 0, Message: "Results returned successfully", results: [] });
     }

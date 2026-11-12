@@ -19,17 +19,30 @@ export function ResaleDecisionJournalView({
   embedded?: boolean;
 }) {
   if (!journal || journal.steps.length === 0) return null;
+  const collapsed: Array<(typeof journal.steps)[number] & { repeat: number }> = [];
+  for (const step of journal.steps) {
+    const prev = collapsed[collapsed.length - 1];
+    if (prev && prev.decided === step.decided && prev.why === step.why) prev.repeat += 1;
+    else collapsed.push({ ...step, repeat: 1 });
+  }
 
   const body = (
     <ol className="steps-3 story-steps">
-        {journal.steps.map((step) => {
+        {collapsed.map((step) => {
           const responseId = providerResponseId(step.responseId);
           const showModelLine = step.actor === "SERV" || Boolean(step.model) || Boolean(responseId);
           const speak = (value: string) => plainDecisionEngineText(buyerSafeResaleJournalText(value));
           return (
           <li key={step.id}>
             <strong>
-              {step.actor === "SERV" ? "Our review" : "Calculated"}. {speak(step.decided)}
+              {step.actor === "SERV" ? "Our review" : "Calculated"}.{" "}
+              {speak(
+                step.repeat > 1 && /closer look|deeper check/i.test(step.decided)
+                  ? `We took a closer look at ${step.repeat} listings.`
+                  : step.repeat > 1
+                    ? `${step.decided.replace(/\.\s*$/, "")} — repeated ${step.repeat} times.`
+                    : step.decided,
+              )}
             </strong>
             <span>
               Why: {speak(step.why)}

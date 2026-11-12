@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useId, useState } from "react";
+import { useEffect, useId, useState } from "react";
 import { ServDecisionJournal } from "@/components/ServDecisionJournal";
 import { MakeModelFields } from "@/components/MakeModelFields";
 import { useAccountLoad } from "@/components/use-account-load";
@@ -17,6 +17,7 @@ import type { ResaleAssessment } from "@/domain/resale-evaluate";
 import type { ResaleCandidatePnl } from "@/domain/resale-pnl";
 import { resalePrimaryListingLink } from "@/domain/resale-listing-link";
 import { resaleCardCopy } from "@/domain/resale-outcome";
+import { resaleEdgeSentence, resalePickHeading } from "@/domain/resale-presentation";
 import { SEARCH_RADII_MILES } from "@/domain/need";
 import { publishCreditBalance, refreshPublishedCreditBalance } from "@/domain/credit-balance-event";
 import { RunMirror } from "./RunMirror";
@@ -437,8 +438,18 @@ function ResaleSearchForm({ credits, onAuthLost }: { credits: number | null; onA
     }
   }
 
+  useEffect(() => {
+    if (!result) return;
+    document.getElementById("resale-result")?.scrollIntoView({ block: "start" });
+  }, [result]);
+
   return (
     <div className="panel resale-flow">
+      {result ? (
+        <div id="resale-result">
+          <ResaleSearchResultView result={result} runId={runId} />
+        </div>
+      ) : null}
       <p className="hint">
         Budget is the only required field. Everything else is optional. Results always include a verdict (buy /
         negotiate / pass / needs inspection) with High / Medium / Low confidence — never a dead end. Figures are
@@ -674,8 +685,6 @@ function ResaleSearchForm({ credits, onAuthLost }: { credits: number | null; onA
         </p>
       ) : null}
 
-      {result ? <ResaleSearchResultView result={result} runId={runId} /> : null}
-
       <details className="onboarding-note">
         <summary>
           <strong>One-car buy-ceiling estimate</strong> (optional, no inventory search)
@@ -776,7 +785,14 @@ function ResaleSearchResultView({ result, runId }: { result: SearchResult; runId
       {typeof result.balance === "number" ? <p className="hint">Balance after search: {result.balance}</p> : null}
 
       {result.best ? (
-        <CandidateCard title="Best flip" candidate={result.best} featured budgetUsd={result.budgetUsd} />
+        <CandidateCard
+          title={resalePickHeading(result.verdictAction, true) ?? "Closest candidate"}
+          candidate={result.best}
+          featured
+          budgetUsd={result.budgetUsd}
+          action={result.verdictAction}
+          reason={result.message}
+        />
       ) : null}
       {result.alternatives.length > 0 ? (
         <section>
@@ -809,11 +825,15 @@ function CandidateCard({
   candidate,
   featured = false,
   budgetUsd = null,
+  action = null,
+  reason = null,
 }: {
   title: string;
   candidate: ResaleCandidatePnl;
   featured?: boolean;
   budgetUsd?: number | null;
+  action?: string | null;
+  reason?: string | null;
 }) {
   const l = candidate.listing;
   const overBudget =
@@ -831,11 +851,20 @@ function CandidateCard({
   const link = primary.verifiability;
   return (
     <section className={featured ? "resale-best" : undefined}>
-      <h3>
+      <h3 className="prose-title">
         {title}
         {overBudget ? " · over budget" : ""}
         {!link.direct && primary.label !== "Listing on Carfax" ? " · no direct listing link" : ""}
       </h3>
+      {featured ? (
+        <p>
+          {resaleEdgeSentence({
+            amountUsd: candidate.profitMidUsd,
+            action,
+            reason: action === "pass" || action === "skip" ? reason : null,
+          })}
+        </p>
+      ) : null}
       <p>
         {l.year} {l.make} {l.model}
         {l.trim ? ` ${l.trim}` : ""}

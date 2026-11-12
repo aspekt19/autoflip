@@ -474,6 +474,14 @@ export async function runFindDecideServ(input: {
     }
   }
 
+  if (secondPass.status !== "agreed" && secondPass.status !== "disagreed" && decide.confidence !== "low") {
+    decide = {
+      ...decide,
+      confidence: "low",
+      confidenceWhy: "A second check did not run, so confidence is Low.",
+    };
+  }
+
   const pick = rankedByKey.get(decide.pickKey) ?? codePick;
   const pickReport = buildFindPickComputedReport(pick, peers, input.marketPool ?? []);
   const hasStop = Boolean(pickReport.openParkIt || pickReport.openParkOutside);
@@ -494,7 +502,7 @@ export async function runFindDecideServ(input: {
     bestDeal: {
       ...input.bestDeal,
       evidenceSettled: true,
-      settlementNote: "Free public checks and SERV decide finished for this Find.",
+      settlementNote: "Public checks and the decision are finished.",
     },
     pick,
     confidence: published.confidence,

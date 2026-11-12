@@ -389,7 +389,9 @@ export function buildResaleCandidatePnl(
       : computedProvenance(
           salesTaxKnown ? "ROI mid" : "ROI mid (before sales tax)",
           `${roiPctMid}%`,
-          salesTaxKnown ? "profitMid / allInCost" : "profitMid (before tax) / cost before tax",
+          salesTaxKnown
+            ? "Expected profit divided by the all-in cost."
+            : "Expected profit before sales tax, divided by the cost before tax.",
         ),
     days.days == null
       ? unknownProvenance("Estimated days to sell", days.basis)

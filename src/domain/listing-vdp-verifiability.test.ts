@@ -11,7 +11,7 @@ describe("listingVdpVerifiability", () => {
     expect(row.direct).toBe(false);
     expect(row.flag).toMatch(/No direct listing link/i);
     expect(row.href).toContain("autolist.com");
-    expect(row.sellerMismatchNote).toMatch(/does not match the feed dealer name/i);
+    expect(row.sellerMismatchNote).toBeNull();
     const link = buyerDealerListingLink({
       dealer: "Kenney's Automotive",
       vdp: "https://www.autolist.com/toyota-corolla#vin=2T1BURHE6HC837595",

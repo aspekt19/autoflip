@@ -269,7 +269,7 @@ export type HardDrop = { vin: string; rule: string };
 
 const AWD = /\b(awd|4wd|4x4|all[-\s]?wheel|four[-\s]?wheel)\b/i;
 
-/** Drop listings that miss a hard limit. Unknown drivetrain or distance stays, and is named. */
+/** Drop listings that miss a hard limit. Unknown distance stays. Unknown drivetrain does not, when drive is required. */
 export function enforceHard(spec: SearchSpec, listings: readonly Listing[]): { kept: Listing[]; dropped: HardDrop[] } {
   const kept: Listing[] = [];
   const dropped: HardDrop[] = [];
@@ -297,7 +297,7 @@ function hardMiss(spec: SearchSpec, listing: Listing): string | null {
   if (spec.hard.titleClean && listing.accidentCount != null && listing.accidentCount > 0) return "accidents";
   if (spec.hard.drivetrain?.value === "awd_4wd") {
     const drive = listing.drivetrain?.trim() ?? "";
-    if (drive && !AWD.test(drive)) return "drivetrain";
+    if (listing.drivetrainUnverified || !drive || !AWD.test(drive)) return "drivetrain";
   }
   const bodies = spec.hard.bodyStyles?.value ?? [];
   if (bodies.length && (listing.bodyStyle || listing.style)) {

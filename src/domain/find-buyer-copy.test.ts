@@ -271,8 +271,9 @@ describe("buyer-safe Find copy", () => {
     expect(findForbiddenTechArtifacts(plainBuyerPhrase("price_vs_comps (pass)"))).toEqual([]);
     expect(plainBuyerPhrase("insufficient_comps: buy forbidden")).toMatch(/not enough similar listings/);
     expect(formatOfficialRecallNumber("12V501000")).toBe(
-      "Official recall number 12V501000 — look this up in the government recall database",
+      "A government safety recall from 2012 is on file for this model year (campaign 12V501000).",
     );
+    expect(formatOfficialRecallNumber("12V501000")).not.toMatch(/look this up in the government recall database/);
     const labeled = formatOfficialRecallNumber("12V501000");
     expect(formatOfficialRecallNumber(labeled)).toBe(labeled);
     expect(findForbiddenTechArtifacts(labeled)).toEqual([]);
@@ -424,7 +425,8 @@ describe("buyer-safe Find copy", () => {
       }.`;
       expect(findForbiddenTechArtifacts(rendered)).toEqual([]);
       if (row.campaignRefs.length > 0) {
-        expect(rendered).toMatch(/Official recall number \S+ — look this up in the government recall database/);
+        expect(rendered).toMatch(/A government safety recall/);
+        expect(rendered).not.toMatch(/look this up in the government recall database/);
       }
     }
   });
@@ -480,8 +482,8 @@ describe("buyer-safe Find copy", () => {
           plainCompScope(computed.compScope),
           `${computed.comps.length} similar listings`,
           "Similar listings",
-          "Official recall number",
-          "The numbers below are official recall numbers you can look up on NHTSA.",
+          "A government safety recall",
+          "The numbers below are government safety recalls.",
           ...computed.reasons,
           ...computed.dataNotes,
           ...computed.questions,

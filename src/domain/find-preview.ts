@@ -1,0 +1,26 @@
+/**
+ * Instant confirm screen. The note's own words are enough to show the form.
+ * A slower model reading can still replace this once it returns.
+ */
+import { attachNoteGeo } from "./find-intake-stage";
+import { fallbackFindPlan, planToDirections, planToStructuredNeed, type FindPlan } from "./find-plan";
+import type { SearchDirection } from "./directions";
+import type { StructuredNeed } from "./need";
+import { broadenStarterDirections } from "./starter-search";
+
+export function previewFindFromNote(
+  note: string,
+  mode: "personal" | "flip",
+): {
+  need: StructuredNeed;
+  directions: SearchDirection[];
+  findPlan: FindPlan;
+  radiusIsDefault: boolean;
+} {
+  const findPlan = fallbackFindPlan(note, mode, {});
+  const directions = broadenStarterDirections(note, planToDirections(findPlan));
+  const mapped = planToStructuredNeed(findPlan, mode, note);
+  const withGeo = attachNoteGeo(mapped, { applyDefaultRadius: true });
+  const { locationResolution: _location, radiusIsDefault, ...need } = withGeo;
+  return { need, directions, findPlan, radiusIsDefault: radiusIsDefault === true };
+}

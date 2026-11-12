@@ -102,7 +102,7 @@ describe("resale live defects (Nov 12)", () => {
   it("caps confidence at Low when the review did not decide", () => {
     expect(capResaleConfidence({ proposed: "High", reviewDecided: false, secondCheckRan: false })).toEqual({
       confidence: "Low",
-      reviewNote: "SERV did not decide this one.",
+      reviewNote: "The review did not run, so confidence is Low.",
     });
     expect(capResaleConfidence({ proposed: "High", reviewDecided: true, secondCheckRan: false }).confidence).toBe("Low");
     expect(capResaleConfidence({ proposed: "High", reviewDecided: true, secondCheckRan: true })).toEqual({
@@ -248,9 +248,10 @@ describe("resale live defects (Nov 12)", () => {
     expect(model.phaseLine).toMatch(/finished/i);
     expect(model.verdictLine).toBe("Pass");
     expect(model.confidenceLine).toBe("Confidence: Low");
-    expect(model.failureLines.join(" ")).toMatch(/SERV did not decide this one/);
+    expect(model.failureLines.join(" ")).toMatch(/The review did not run, so confidence is Low/);
     const html = renderRunPermalinkHtml(view);
-    expect(html).toMatch(/Best flip/);
+    expect(html).toMatch(/Closest candidate, not worth it/);
+    expect(html).not.toMatch(/Best flip/);
     expect(html).toMatch(/\$642/);
     expect(html).toMatch(/finished/i);
     expect(html).not.toMatch(RESALE_CARD_JARGON);

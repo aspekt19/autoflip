@@ -493,7 +493,7 @@ export function toRunView(run: RunRecord, viewerId: string | null): RunView {
       elapsedMs: step.elapsedMs,
     })),
     sources: [...run.sources],
-    listings: run.listings.map((car) => ({ ...car })),
+    listings: run.listings.map((car) => ({ ...car, picked: run.picks.includes(car.vin) })),
     picks: [...run.picks],
   };
 }

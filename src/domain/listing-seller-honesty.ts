@@ -1,7 +1,9 @@
 /**
  * Detect when the feed's dealer name and VDP host do not match.
  * Prefer the feed's own vdpUrl for that VIN; never invent a corrected dealer.
+ * Aggregator hosts (vast.com and the like) are not a dealer-name mismatch.
  */
+import { isAggregatorHost } from "./listing-aggregators";
 
 export type SellerLinkHonesty = {
   dealer: string | null;
@@ -116,6 +118,9 @@ export function sellerLinkHonesty(input: {
   const vdp = typeof input.vdp === "string" && input.vdp.trim() ? input.vdp.trim() : null;
   const vdpHost = hostOf(vdp);
   if (!dealer || !vdpHost) {
+    return { dealer, vdp, vdpHost, mismatch: false, note: null };
+  }
+  if (isAggregatorHost(vdpHost)) {
     return { dealer, vdp, vdpHost, mismatch: false, note: null };
   }
   const hostCompact = vdpHost.replace(/[^a-z0-9]/g, "");

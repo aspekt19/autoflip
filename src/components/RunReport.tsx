@@ -1,12 +1,17 @@
 "use client";
 
+import { useEffect } from "react";
 import type { RunView } from "@/domain/run-view";
 import { runReportModel } from "@/domain/run-view";
+import { resalePickHeading } from "@/domain/resale-presentation";
 import { formatNumber, formatUsd } from "@/domain/format";
 import { RunClarificationForm } from "./RunClarificationForm";
 
 export function RunReport({ run }: { run: RunView }) {
   const model = runReportModel(run);
+  useEffect(() => {
+    document.getElementById("main")?.scrollIntoView({ block: "start" });
+  }, [run.id]);
   return (
     <article className="run-report">
       <p className="kicker">{model.kicker}</p>
@@ -59,7 +64,9 @@ export function RunReport({ run }: { run: RunView }) {
       ) : null}
       {model.listings.map((car) => (
         <section key={car.vin} data-vin={car.vin}>
-          {car.picked ? <h2>Best flip</h2> : null}
+          {resalePickHeading(run.verdict, Boolean(car.picked)) ? (
+            <h2 className="prose-title">{resalePickHeading(run.verdict, true)}</h2>
+          ) : null}
           <h2>{car.title}</h2>
           {car.summary ? <p>{car.summary}</p> : null}
           <p className="support">

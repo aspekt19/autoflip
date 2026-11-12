@@ -33,6 +33,7 @@ import { checkedMmyKeysForCheck, freeGovToolCoverage, plainPublicCheckProgress }
 import type { ObservedListingRow } from "./find-model-observe";
 import { mmyListingKey } from "./find-risk-evidence";
 import { formatMarketAskDetail, listingFeedHistoryNotes, resolveMarketComps } from "./market-comps";
+import { awdLimitFromText } from "./note-intake";
 import {
   BUDGET_AROUND_TOLERANCE_FRAC,
   budgetIsApproximateFromNote,
@@ -684,7 +685,9 @@ function scoreOne(
         ? Math.max(0, Math.floor(row.accidentCount))
         : 0;
     if (accidents > 0) {
-      const points = -Math.min(WEIGHTS.accident * 2, WEIGHTS.accident * accidents);
+      // One reported accident outweighs a cheap asking price. High-mile cars
+      // get the same treatment in the wear term below.
+      const points = -(WEIGHTS.price * 0.75 + WEIGHTS.accident * accidents);
       score += points;
       factors.push({
         id: "listing_feed_flags",
@@ -783,18 +786,20 @@ function scoreOne(
       if (lowMileageUnverified && vsExpected > 0) vsExpected = 0;
     }
     let absoluteWear = 0;
-    if (row.miles != null && conditionFirst) {
-      if (row.miles >= BEST_DEAL_HIGH_MILES_HARD) {
-        absoluteWear = -WEIGHTS.ageAndWear * 0.55;
+    if (row.miles != null) {
+      if (row.miles >= 200_000) {
+        absoluteWear = -(WEIGHTS.price + WEIGHTS.ageAndWear);
+      } else if (row.miles >= BEST_DEAL_HIGH_MILES_HARD) {
+        absoluteWear = -WEIGHTS.price;
       } else if (row.miles >= BEST_DEAL_HIGH_MILES_SOFT) {
-        absoluteWear = -WEIGHTS.ageAndWear * 0.3;
+        absoluteWear = -WEIGHTS.ageAndWear * (conditionFirst ? 0.55 : 0.35);
       }
     }
     const agePoints = ageScore + vsExpected + absoluteWear;
     score += agePoints;
     const wearBit =
-      row.miles != null && conditionFirst && row.miles >= BEST_DEAL_HIGH_MILES_SOFT
-        ? `; very high odometer (${row.miles.toLocaleString("en-US")} mi) weighed down because you prioritized condition`
+      row.miles != null && row.miles >= BEST_DEAL_HIGH_MILES_SOFT
+        ? `; very high odometer (${row.miles.toLocaleString("en-US")} mi) weighed down`
         : "";
     factors.push({
       id: "age",
@@ -1015,27 +1020,43 @@ function scoreOne(
     }
   }
 
-  // Soft Preferably-AWD: bonus when drivetrain is known AWD/4WD. Unknown/FWD stay (0) — not filtered.
+  // Hard all-wheel drive is a limit (those cars are dropped earlier). A preference only ranks.
   {
-    const wantsAwd = needPrefersAwd({
-      awdPreference: ctx.need.awdPreference,
-      note: ctx.need.note,
-      mustHaves: ctx.need.mustHaves ?? [],
-    });
-    if (wantsAwd) {
+    const driveLimit = awdLimitFromText(ctx.need.note ?? "");
+    const wantsAwd =
+      driveLimit != null ||
+      needPrefersAwd({
+        awdPreference: ctx.need.awdPreference,
+        note: ctx.need.note,
+        mustHaves: ctx.need.mustHaves ?? [],
+      });
+    if (wantsAwd && driveLimit !== "hard") {
       const awd = isAwdDrivetrain(row.drivetrain);
       const points = awd ? WEIGHTS.awd : 0;
       score += points;
       factors.push({
         id: "awd_preference",
-        label: "Preferably AWD",
+        label: "Preferably all-wheel drive",
         points: round1(points),
         detail: awd
-          ? "Matches your Preferably AWD preference (listing or VIN decode)."
+          ? "All-wheel drive is a preference, and this listing has it."
           : row.drivetrain?.trim()
-            ? `Drivetrain is ${row.drivetrain.trim()} — kept in the mix; AWD/4WD ranks higher when known.`
-            : "Drivetrain not on the listing yet — kept in the mix; not filtered out for Preferably AWD.",
-        source: "Your soft preference; listing drivetrain or free VIN decode when present",
+            ? `Drivetrain is ${row.drivetrain.trim()}. All-wheel drive ranks higher. This is not a hard limit.`
+            : "Drivetrain is not on the listing. It stays in the list because all-wheel drive is only a preference.",
+        source: "Your note and the listing drivetrain, or a VIN decode when we have one",
+      });
+    } else if (driveLimit === "hard") {
+      const awd = isAwdDrivetrain(row.drivetrain);
+      const points = awd ? 0 : -WEIGHTS.price;
+      score += points;
+      factors.push({
+        id: "awd_preference",
+        label: "All-wheel drive required",
+        points: round1(points),
+        detail: awd
+          ? "All-wheel drive is required, and this listing has it."
+          : "All-wheel drive is required. This car is not confirmed all-wheel drive, so it should not be a pick.",
+        source: "Your note and the listing drivetrain, or a VIN decode when we have one",
       });
     }
   }

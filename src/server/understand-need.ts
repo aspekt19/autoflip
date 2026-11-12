@@ -80,6 +80,8 @@ export async function understandNeed(
     milesCapResolved?: boolean;
     conditionPriority?: StructuredNeed["conditionPriority"];
     followUp?: { id: FollowUp["id"]; value: string };
+    /** Confirm should not wait out the full plan timeout. */
+    fastConfirm?: boolean;
   },
   deps: UnderstandDeps,
 ): Promise<UnderstandResult> {
@@ -160,12 +162,14 @@ export async function understandNeed(
       formOverrides,
       today: recordedAt.slice(0, 10),
     });
-    const planDeps = { ...servDeps, timeoutMs: undefined as number | undefined };
+    const interactive = body.fastConfirm === true;
+    const planDeps = { ...servDeps, timeoutMs: interactive ? 8_000 : (undefined as number | undefined) };
     const step = await callStep({
       profileId: "find_plan",
       user: userPayload,
       deps: planDeps,
-      critical: true,
+      critical: !interactive,
+      remainingMs: interactive ? 8_000 : undefined,
       accept: (text) => {
         try {
           return validateFindPlan(parseNeedJson(text), { note: screened.text, form: formOverrides }).ok;

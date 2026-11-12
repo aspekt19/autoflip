@@ -13,6 +13,7 @@ import {
   type RunObservation,
   type RunRecord,
 } from "@/domain/run";
+import { resaleEdgeSentence } from "@/domain/resale-presentation";
 import { buildSearchSpec, type SearchFormEdits, type SearchSpec } from "@/domain/search-spec";
 import type { Kv } from "@/io/kv";
 import { insertRun, readRun, updateRun } from "@/io/run-store";
@@ -246,8 +247,11 @@ export async function syncResaleRun(
     if (!row) return [];
     const margin = car.profitLowUsd != null ? car.profitLowUsd : car.profitMidUsd;
     const summary =
-      typeof margin === "number"
-        ? `Priced below similar listings by $${Math.abs(Math.round(margin)).toLocaleString("en-US")} (after costs).`
+      typeof margin === "number" || input.client.verdictAction
+        ? resaleEdgeSentence({
+            amountUsd: typeof margin === "number" ? margin : null,
+            action: input.client.verdictAction ?? null,
+          })
         : null;
     return [{ ...row, picked: car.vin === bestVin, summary }];
   });

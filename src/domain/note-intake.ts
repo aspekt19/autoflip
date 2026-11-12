@@ -1,4 +1,5 @@
 import { parseUsdInput } from "./budget";
+import { constraintStrength } from "./constraint-strength";
 
 /** Same ceiling as MAX_DISTANCE_MILES in need.ts. Kept local to avoid an import cycle. */
 const NOTE_RADIUS_MAX = 3000;
@@ -232,23 +233,19 @@ export function fuelEconomyFromText(text: string): boolean {
 }
 
 const AWD_WORD = String.raw`(?:awd|4wd|4x4|all[\s-]?wheel|four[\s-]?wheel)`;
+const AWD_SUBJECT = new RegExp(String.raw`\b${AWD_WORD}\b`, "i");
 
 /** True when the note mentions AWD/4WD at all (hard or soft). */
 export function awdPreferenceFromText(text: string): boolean {
-  return new RegExp(String.raw`\b${AWD_WORD}\b`, "i").test(text);
+  return AWD_SUBJECT.test(text);
 }
 
 /**
- * Explicit "with AWD / 4WD / all-wheel drive" is a hard limit.
- * "Preferably" or "ideally" next to that phrase is ranking only.
+ * Strength of an all-wheel-drive mention.
+ * Uses the shared must/need/required vs prefer/ideally parser — not a one-off keyword.
  */
 export function awdLimitFromText(text: string): "hard" | "soft" | null {
-  if (!awdPreferenceFromText(text)) return null;
-  const soft = new RegExp(
-    String.raw`\b(?:prefer(?:ably)?|ideally|if possible|nice to have|would like)\b[^.]{0,48}\b${AWD_WORD}\b|\b${AWD_WORD}\b[^.]{0,32}\b(?:if possible|preferably|ideally)\b`,
-    "i",
-  );
-  return soft.test(text) ? "soft" : "hard";
+  return constraintStrength(text, AWD_SUBJECT);
 }
 
 /**
