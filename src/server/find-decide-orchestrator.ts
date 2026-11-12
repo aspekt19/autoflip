@@ -213,32 +213,32 @@ export async function runFindDecideOrchestrator(
     else row.error += 1;
     byTool.set(r.checkId, row);
   }
-  const toolCountBits = [...byTool.entries()].map(([id, c]) => {
-    const short =
-      id === "free_gov_recalls"
-        ? "recalls"
-        : id === "free_gov_fuel"
-          ? "fuel"
-          : id === "free_gov_vpic"
-            ? "VIN decode"
-            : id === "free_gov_safety"
-              ? "crash tests"
-              : id;
-    return `${short}: ${c.ok} ok, ${c.empty} empty, ${c.error} error`;
-  });
+  const recallRow = byTool.get("free_gov_recalls");
+  const recallFailed = (recallRow?.error ?? 0) > 0;
   const stages = [
-    receipts.length > 0 ? "public checks" : null,
-    triage.source === "SERV" ? "triage" : "code triage",
-    decide.source === "SERV" ? "decide" : "code decide",
-    decide.proofRecords.some((p) => p.purpose === "find_challenge") ? "challenge" : null,
+    receipts.length > 0 ? "public record checks" : null,
+    triage.source === "SERV" ? "compare the cars" : "compare the cars",
+    decide.source === "SERV" ? "choose a car" : "choose a car",
+    decide.proofRecords.some((p) => p.purpose === "find_challenge") ? "second check" : null,
   ].filter(Boolean);
+  const recallSentence = recallRow
+    ? recallFailed
+      ? `The government recall database answered for ${recallRow.ok} model${recallRow.ok === 1 ? "" : "s"}, had nothing listed for ${recallRow.empty}, and did not answer for ${recallRow.error}. That lowers confidence.`
+      : `The government recall database answered for ${recallRow.ok + recallRow.empty} model${recallRow.ok + recallRow.empty === 1 ? "" : "s"}.`
+    : "No public record checks were recorded.";
   const loopDetail = [
-    stages.length > 0 ? `${stages.join(", ")} finished in one pass.` : "Decide finished.",
-    toolCountBits.length > 0 ? `Public lookup counts — ${toolCountBits.join("; ")}.` : "No public lookup receipts were recorded.",
-    coverage.anyUnchecked ? `Still unchecked: ${coverage.note}` : null,
+    stages.length > 0 ? `${stages.join(", ")} finished.` : "The decision finished.",
+    recallSentence,
+    coverage.anyUnchecked ? `Some checks are still missing: ${coverage.note}` : null,
   ]
     .filter(Boolean)
     .join(" ");
+  if (recallFailed && decide.agentVerdict) {
+    decide.agentVerdict = { ...decide.agentVerdict, confidence: "low" };
+  }
+  if (recallFailed && decide.bestDeal) {
+    decide.bestDeal = { ...decide.bestDeal, confidence: "low" };
+  }
 
   return {
     ok: true,

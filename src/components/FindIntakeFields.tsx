@@ -4,7 +4,7 @@ import { useRef, useState } from "react";
 import { CONDITION_HINT, YEAR_HINT_BLANK, YEAR_HINT_NO_FLOOR, yearHintKnown } from "@/domain/intake-copy";
 import { milesDraftState, priceDraftState, yearDraftState } from "@/domain/numeric-draft";
 import type { HistoryPref, NoteBodyStyle, TransmissionPref } from "@/domain/note-intake";
-import { NOTE_BODY_STYLES } from "@/domain/note-intake";
+import { awdLimitFromText, NOTE_BODY_STYLES } from "@/domain/note-intake";
 import type { StructuredNeed } from "@/domain/need";
 
 export function FromNote({ show }: { show: boolean }) {
@@ -277,7 +277,7 @@ export function NoteFactChips({
               checked={need.awdPreference === true}
               onChange={(event) => onChange({ ...need, awdPreference: event.target.checked })}
             />
-            Preferably AWD
+            {awdLimitFromText(need.note ?? "") === "hard" ? "All-wheel drive required" : "Preferably all-wheel drive"}
           </span>
         </label>
       ) : null}

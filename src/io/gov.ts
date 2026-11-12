@@ -82,23 +82,48 @@ export async function decodeVin(vin: string, deps: GovDeps): Promise<VinDecode |
 
 export type RecallsLookup = {
   records: RecallRecord[];
-  /** True only when NHTSA returned a well-formed results array (including an empty one). */
+  /** True only when the government recall database returned a well-formed results array (including an empty one). */
   available: boolean;
+  /** Plain reason when the lookup did not return a list. */
+  error?: string | null;
 };
 
+/** Make and model are lowercased. Spaces are encoded as %20. Parameter names stay make, model, modelYear. */
+export function recallLookupUrl(make: string, model: string, year: number): string {
+  const clean = (value: string) => value.trim().toLowerCase().replace(/\s+/g, " ");
+  const query = [
+    `make=${encodeURIComponent(clean(make))}`,
+    `model=${encodeURIComponent(clean(model))}`,
+    `modelYear=${encodeURIComponent(String(Math.round(year)))}`,
+  ].join("&");
+  return `https://api.nhtsa.gov/recalls/recallsByVehicle?${query}`;
+}
+
 export async function recallsFor(make: string, model: string, year: number, deps: GovDeps): Promise<RecallsLookup> {
-  const params = new URLSearchParams({ make, model, modelYear: String(year) });
-  const payload = await fetchRecallPayload(
-    `https://api.nhtsa.gov/recalls/recallsByVehicle?${params.toString()}`,
-    deps,
-  );
+  if (!make.trim() || !model.trim() || !Number.isFinite(year)) {
+    return { records: [], available: false, error: "The recall lookup needs a make, a model, and a model year." };
+  }
+  const payload = await fetchRecallPayload(recallLookupUrl(make, model, year), deps);
   if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
-    return { records: [], available: false };
+    return {
+      records: [],
+      available: false,
+      error: "The government recall database did not return a usable answer for this model.",
+    };
   }
   const record = payload as Record<string, unknown>;
   const results = record.results ?? record.Results;
-  if (!Array.isArray(results)) return { records: [], available: false };
-  return { records: parseRecalls(payload), available: true };
+  if (Array.isArray(results)) return { records: parseRecalls(payload), available: true };
+  const count = record.Count ?? record.count;
+  const message = typeof record.Message === "string" ? record.Message : typeof record.message === "string" ? record.message : "";
+  if (count === 0 && !/error|invalid|exception/i.test(message)) {
+    return { records: [], available: true };
+  }
+  return {
+    records: [],
+    available: false,
+    error: message.trim() || "The government recall database did not return a list for this make, model, and year.",
+  };
 }
 
 export type ComplaintsLookup = {

@@ -1,6 +1,7 @@
 import { parseUsdInput } from "./budget";
 import { bodyStyleMatches } from "./body-style";
 import {
+  awdLimitFromText,
   budgetFromText,
   intakeFromNote,
   milesCapFromNote,
@@ -730,7 +731,7 @@ export function noMatchMessage(
   if (need.budgetKnown) parts.push("within budget");
   if (need.zip && need.distanceMiles != null) parts.push(`within ${need.distanceMiles} miles of ${need.zip}`);
   else if (need.zip) parts.push(`near ${need.zip}`);
-  return `${parts.join(" ")}. Empty inventory for this search — not a parse failure. You can widen the radius or raise the mileage cap and search again.`;
+  return `${parts.join(" ")}. Empty inventory for this search — not a parse failure. Nothing matched these limits, so the search was not widened. You can choose a larger radius or a higher mileage cap and search again. Motorcycles and RVs are not included.`;
 }
 
 /** Shown when the only rows on hand are the labeled sample and none match the body asked for. */
@@ -780,13 +781,13 @@ export function needPrefersAwd(
 export function softPrefGapsFromText(text: string): SoftPrefGap[] {
   const t = text.toLowerCase();
   const gaps: SoftPrefGap[] = [];
-  // Optional AWD ("ideally", "preferably") is a soft ranking preference — never a silent hard filter.
-  if (/\b(awd|4wd|all[\s-]?wheel|four[\s-]?wheel)\b/i.test(t)) {
+  // Only a softened phrase is a ranking preference. "with AWD" is a hard limit, not this gap.
+  if (awdLimitFromText(text) === "soft") {
     gaps.push({
       id: "awd",
       mentioned: "Preferably AWD",
       honesty:
-        "Preferably AWD is a soft preference: AWD/4WD ranks higher when known, but Find does not drop FWD or cars with unknown drivetrain from search.",
+        "Preferably all-wheel drive ranks higher when we know it. This is not a hard limit. Front-wheel drive stays in the list. Cars whose drivetrain we could not check are marked unverified.",
     });
   }
   if (
@@ -800,7 +801,7 @@ export function softPrefGapsFromText(text: string): SoftPrefGap[] {
       id: "history",
       mentioned: "condition / vehicle history",
       honesty:
-        "Find listings are not a vehicle-history or condition check. Missing history is not a clean history — there is no condition score here. Title brands, accidents, and odometer brands need a full report plus an NMVTIS-approved history report before purchase.",
+        "Find listings are not a vehicle-history or condition check. Missing history is not a clean history — there is no condition score here. Title brands, accidents, and odometer brands need a full report plus a vehicle history check before purchase.",
     });
   }
   if (
@@ -812,7 +813,7 @@ export function softPrefGapsFromText(text: string): SoftPrefGap[] {
       id: "fuel_or_running_cost",
       mentioned: "running cost / fuel economy",
       honesty:
-        "Find can estimate annual fuel cost from free public FuelEconomy.gov when year/make/model matches (ambiguous configs stay a labeled range). That is not a full ownership cost — insurance, maintenance, and repairs stay out of scope.",
+        "Find can estimate annual fuel cost from official fuel economy data when year, make, and model match (ambiguous configs stay a labeled range). That is not a full ownership cost — insurance, maintenance, and repairs stay out of scope.",
     });
   }
   if (/\b(not too old|newer|recent(?:er)?|not ancient)\b/i.test(t) && !/\b(19|20)\d{2}\b/.test(t) && !/\bunder\s+\d+\s+years?\b/i.test(t)) {

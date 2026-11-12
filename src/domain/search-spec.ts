@@ -2,7 +2,7 @@ import { sha256Canonical } from "./hash";
 import { bodyStyleMatches } from "./body-style";
 import { milesFromText } from "./need";
 import {
-  awdPreferenceFromText,
+  awdLimitFromText,
   bodyFromIntake,
   budgetFromText,
   historyFromText,
@@ -203,7 +203,7 @@ export function buildSearchSpec(input: {
         : undefined;
 
   const driveDirty = form.drivetrain?.dirty ? form.drivetrain.value : undefined;
-  const awdHard = awdPreferenceFromText(note) && !/\b(prefer(?:ably)?|ideally|if possible|nice to have)\b/i.test(note);
+  const awdHard = awdLimitFromText(note) === "hard";
   const drivetrain =
     driveDirty === "awd_4wd"
       ? { value: "awd_4wd" as const, source: "form" as const }

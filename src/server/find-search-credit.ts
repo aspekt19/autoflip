@@ -3,6 +3,7 @@
  * Free monthly vehicle-check allotment does NOT apply to Find.
  */
 
+import { findDeliveryChargesCredit, type FindDeliveryChargeInput } from "@/domain/find-delivery";
 import type { Kv } from "@/io/kv";
 import { creditCompensateSpend, creditEventSeen, creditSpend, creditBalance } from "@/io/credit-book";
 
@@ -75,6 +76,23 @@ export function findSearchIdempotencyKey(input: {
     return input.clientKey.trim();
   }
   return crypto.randomUUID();
+}
+
+/**
+ * Debit one credit only when the search actually delivered cars that matched.
+ * A hard-limit miss (including motorcycles dropped after the fact) does not spend.
+ */
+export async function debitFindDelivery(
+  kv: Kv,
+  userId: string,
+  idempotencyKey: string,
+  gate: FindDeliveryChargeInput,
+): Promise<{ charged: boolean; balance: number }> {
+  if (!findDeliveryChargesCredit(gate)) {
+    return { charged: false, balance: await creditBalance(kv, userId) };
+  }
+  const reserved = await reserveFindSearchCreditReliable(kv, userId, idempotencyKey);
+  return { charged: reserved.ok, balance: reserved.balance };
 }
 
 export async function reserveFindSearchCredit(

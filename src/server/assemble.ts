@@ -8,6 +8,7 @@ import { priceBadge } from "@/domain/price-badge";
 import { buildComputedReport } from "@/domain/report";
 import { resolvePurchaseAskForEconomics } from "@/domain/report-purchase-ask";
 import { screenUserInput } from "@/domain/screen";
+import { passengerBodyStyleParam } from "@/domain/passenger-vehicle";
 import { providerYearQuery } from "@/domain/search-spec";
 import { templateExplanation } from "@/domain/template";
 import { buildAgentVerdictFromReport } from "@/domain/agent-trail";
@@ -967,7 +968,10 @@ export async function assembleRadar(
     {
       make: input.make.trim() || undefined,
       model: input.model?.trim() || undefined,
-      bodyStyle: input.bodyStyle?.trim() || undefined,
+      bodyStyle:
+        input.mode === "flip"
+          ? input.bodyStyle?.trim() || undefined
+          : passengerBodyStyleParam(input.bodyStyle),
       ...years,
       zip: input.zip,
       distanceMiles:

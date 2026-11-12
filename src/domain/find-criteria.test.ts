@@ -14,7 +14,8 @@ describe("mileage cap from a note", () => {
     expect(milesFromText(NOTE)).toBe(50_000);
     expect(milesFromText("under 50k miles")).toBe(50_000);
     expect(milesFromText("less than 50000 mi")).toBe(50_000);
-    expect(milesFromText("max 50k")).toBe(50_000);
+    expect(milesFromText("max 50k")).toBeNull();
+    expect(milesFromText("max 50k miles")).toBe(50_000);
     expect(milesFromText("no more than 60,000 miles")).toBe(60_000);
     expect(milesFromText("low mileage")).toBeNull();
     expect(milesFromText("under $18,000")).toBeNull();
@@ -48,7 +49,7 @@ describe("mileage cap from a note", () => {
     expect(need.ok).toBe(true);
     if (!need.ok) return;
     expect(noMatchMessage(need.need)).toBe(
-      "No Toyota SUV listings under 50,000 mi within budget near 68114. Empty inventory for this search — not a parse failure. You can widen the radius or raise the mileage cap and search again.",
+      "No Toyota SUV listings under 50,000 mi within budget near 68114. Empty inventory for this search — not a parse failure. Nothing matched these limits, so the search was not widened. You can choose a larger radius or a higher mileage cap and search again. Motorcycles and RVs are not included.",
     );
     expect(listingWithinNeed({ make: "Toyota", miles: 109_488, bodyStyle: "SUV" }, need.need)).toBe(false);
     expect(listingWithinNeed({ make: "Toyota", miles: 119_010, bodyStyle: "SUV" }, need.need)).toBe(false);
@@ -71,7 +72,7 @@ describe("mileage cap from a note", () => {
         bodyStyle: "SUV",
         requestedMake: "Toyota",
       }),
-    ).toBe("2017 Toyota RAV4. Toyota, SUV, 42,100 mi (under your 50,000 cap), $17,500 (within $25,000).");
+    ).toBe("2017 Toyota RAV4. Toyota, SUV, 42,100 mi (under your 50,000 cap), $17,500 asking price (within your $25,000 asking-price limit).");
     // Owner t321: CR-V card must not show joined preferredMakes (Mazda/Toyota) as make label.
     const crv = whyThisCar({
       year: 2015,

@@ -9,6 +9,7 @@ import { getKv } from "@/io/kv";
 import { runtimeDeps } from "@/server/deps";
 import { findContextOwnerId } from "@/server/find-context-owner";
 import { runFindDecideOrchestrator } from "@/server/find-decide-orchestrator";
+import { loadFindSearchContext } from "@/server/find-search-context";
 import { proofsFromRecords, syncRunSafely } from "@/server/run-sync";
 import type { SourceId } from "@/domain/buyer-copy-table";
 
@@ -49,6 +50,36 @@ export async function POST(request: Request) {
 
   const deps = runtimeDeps();
   const kv = getKv();
+  const owned = await loadFindSearchContext(kv, { userId: id, token });
+  const runIdFromContext = owned.ok && typeof owned.record.runId === "string" ? owned.record.runId : null;
+  const runId =
+    (typeof body.runId === "string" && body.runId.trim()) || runIdFromContext;
+
+  if (owned.ok && owned.record.listings.length === 0) {
+    const emptyRunId = await syncRunSafely(kv, {
+      runId,
+      ownerId: id,
+      kind: "find",
+      note: owned.record.need.note ?? "",
+      mode: owned.record.need.mode === "flip" ? "flip" : "personal",
+      listings: [],
+      verdict: null,
+      creditsCharged: 0,
+      terminal: true,
+      failureReasons: ["no_cars"],
+    });
+    return Response.json(
+      {
+        ok: true,
+        searchContextToken: token,
+        bestDeal: null,
+        pickAgentVerdict: null,
+        message: "No cars matched this search, so there is no verdict and nothing was charged.",
+        runId: emptyRunId,
+      },
+      { status: 200 },
+    );
+  }
 
   const result = await runFindDecideOrchestrator(
     { searchContextToken: token },
@@ -63,7 +94,7 @@ export async function POST(request: Request) {
 
   if (!result.ok) {
     const failedRunId = await syncRunSafely(kv, {
-      runId: typeof body.runId === "string" ? body.runId : null,
+      runId,
       ownerId: id,
       kind: "find",
       note: "",
@@ -86,8 +117,8 @@ export async function POST(request: Request) {
   }
   const pick = result.bestDeal?.pick;
   const pickVin = pick && typeof pick.vin === "string" ? pick.vin : null;
-  const runId = await syncRunSafely(kv, {
-    runId: typeof body.runId === "string" ? body.runId : null,
+  const settledRunId = await syncRunSafely(kv, {
+    runId,
     ownerId: id,
     kind: "find",
     note: result.needAfter.note ?? "",
@@ -121,7 +152,7 @@ export async function POST(request: Request) {
     decisionLog: result.decisionLog,
     carChecks: result.carChecks,
     replay: result.replay,
-    runId,
+    runId: settledRunId ?? runId,
     /** Compatibility with next-check UI consumers. */
     replan: { need: result.needAfter, refine: {}, note: result.honesty },
     autonomousServ: result.decideSource === "SERV",

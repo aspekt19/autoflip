@@ -710,11 +710,16 @@ export async function runShopperVerdictServ(input: {
         ]
       : [];
 
-  const agentOnlyConfidence =
-    challenge.result.confidenceAfter ??
-    (decision.gateRun.withheld ? null : challengeConfidence);
+  const servMissed = decision.source === "deterministic_fallback";
+  const agentOnlyConfidence = servMissed
+    ? "low"
+    : (challenge.result.confidenceAfter ?? (decision.gateRun.withheld ? null : challengeConfidence));
   // Single source of truth with Check screening: never show trail High when screening is Low.
-  const syncedConfidence = moreConservativeConfidence(input.screeningConfidence, agentOnlyConfidence);
+  // A code fallback is Low even when the screening score was higher.
+  const syncedConfidence = moreConservativeConfidence(
+    servMissed ? "low" : input.screeningConfidence,
+    agentOnlyConfidence,
+  );
 
   let agentVerdict = buildAgentVerdictFromReport({
     verdict: decision.finalAction,

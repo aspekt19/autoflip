@@ -3,6 +3,7 @@
  * A finished run's public fields are the last in-progress snapshot plus the decision.
  */
 import { formatNumber, formatUsd } from "./format";
+import { yearSpanSentence } from "./year-span";
 import { buildSearchSpec, type SearchFormEdits, type SearchSpec } from "./search-spec";
 import {
   confidenceFromRaw,
@@ -451,9 +452,8 @@ export function limitSentences(spec: SearchSpec | null): string[] {
   if (price != null) lines.push(`Budget up to ${formatUsd(price)}.`);
   const yearMin = spec.hard.yearMin?.value;
   const yearMax = spec.hard.yearMax?.value;
-  if (yearMin != null && yearMax != null) lines.push(`Years ${yearMin} through ${yearMax}.`);
-  else if (yearMin != null) lines.push(`Oldest year ${yearMin}.`);
-  else if (yearMax != null) lines.push(`Newest year ${yearMax}.`);
+  const years = yearSpanSentence(yearMin, yearMax);
+  if (years) lines.push(years.endsWith(".") ? years : `${years}.`);
   const miles = spec.hard.milesMax?.value;
   if (miles != null) lines.push(`No more than ${formatNumber(miles)} miles.`);
   const zip = spec.hard.zip?.value;

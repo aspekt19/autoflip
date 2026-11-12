@@ -22,6 +22,7 @@ import {
   findSearchInflightKey,
   findSearchSpendKey,
   readFindSearchDelivery,
+  debitFindDelivery,
   reserveFindSearchCreditReliable,
   storeFindSearchDelivery,
   waitForFindSearchDelivery,
@@ -314,19 +315,13 @@ export async function POST(request: Request) {
 
     let charged = false;
     if (!continuation && idemKey && deliveredSearch) {
-      const reserved = await reserveFindSearchCreditReliable(kv, id, idemKey);
-      if (!reserved.ok) {
-        if (reserved.reason === "busy") {
-          return Response.json(
-            {
-              error: "search_busy",
-              message: "The credit balance could not be updated. Retry this search in a moment. No credit was used.",
-              balance: reserved.balance,
-              charged: false,
-            },
-            { status: 503 },
-          );
-        }
+      const reserved = await debitFindDelivery(kv, id, idemKey, {
+        ok: result.body.ok === true,
+        providerQueriesUsed,
+        listingCount,
+        emptyReason,
+      });
+      if (!reserved.charged && (await creditBalance(kv, id)) < 1) {
         return Response.json(
           {
             error: "credits_required",
@@ -334,6 +329,17 @@ export async function POST(request: Request) {
             message: "Find search costs 1 report credit. Buy credits to search dealer listings.",
           },
           { status: 403 },
+        );
+      }
+      if (!reserved.charged) {
+        return Response.json(
+          {
+            error: "search_busy",
+            message: "The credit balance could not be updated. Retry this search in a moment. No credit was used.",
+            balance: reserved.balance,
+            charged: false,
+          },
+          { status: 503 },
         );
       }
       balanceAfter = reserved.balance;
@@ -408,6 +414,10 @@ export async function POST(request: Request) {
       sources: providerQueriesUsed > 0 ? ["cars_for_sale"] : [],
     });
     if (runId) payload.runId = runId;
+    if (runId && searchContextToken) {
+      const owned = await loadFindSearchContext(kv, { userId: id, token: searchContextToken });
+      if (owned.ok) await updateFindSearchContext(kv, owned.record, { runId });
+    }
     // Publish before the response so a concurrent retry observes this token
     // instead of starting a second provider search. A store miss still returns
     // the delivery the shopper already paid for.

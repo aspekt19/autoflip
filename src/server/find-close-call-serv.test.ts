@@ -111,7 +111,8 @@ describe("runFindCloseCallMultipathServ", () => {
     expect(fetchImpl).toHaveBeenCalled();
     const [, init] = fetchImpl.mock.calls[0]! as unknown as [unknown, { body?: string }];
     const body = JSON.parse(String(init?.body ?? "{}"));
-    expect(body.model).toMatch(/-serv-multipath$/);
+    expect(body.model).toBe("gpt-6.1-sol");
+    expect(body.tools ?? []).toEqual([]);
   });
 
   it("falls back to code reconcile when SERV is unavailable", async () => {

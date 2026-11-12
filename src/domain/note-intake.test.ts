@@ -33,7 +33,8 @@ describe("budget phrases the old regex dropped", () => {
     expect(budgetFromText("2015 or newer")).toBeNull();
     expect(budgetFromText("around 2015")).toBeNull();
     expect(milesFromText("under 15k")).toBeNull();
-    expect(milesFromText("max 50k")).toBe(50_000);
+    expect(milesFromText("max 50k")).toBeNull();
+    expect(milesFromText("max 50k miles")).toBe(50_000);
     expect(milesFromText("under 50k miles")).toBe(50_000);
   });
 });

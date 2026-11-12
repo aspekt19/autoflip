@@ -328,6 +328,17 @@ function checkI10(run: GoldenRun, mode: "replay" | "record" | "live", out: Check
 
 function checkCase(run: GoldenRun, specCase: GoldenCase, out: CheckFailure[]) {
   const expect = specCase.expect;
+  if (expect.noMilesMax && run.specs.at(-1)?.hard.milesMax) {
+    push(out, `${specCase.id}.miles`, "A bare max Nk was also stored as a mileage cap.");
+  }
+  if (expect.noVerdictWhenEmpty && run.listings.length === 0) {
+    if (run.verdict) push(out, `${specCase.id}.verdict`, `Empty search still has verdict ${run.verdict}.`);
+    if (run.charged) push(out, `${specCase.id}.charge`, "Empty search debited a credit.");
+    if (run.storedRun?.verdict) push(out, `${specCase.id}.verdict`, "Stored run has a verdict with no cars.");
+    if (run.storedRun && run.storedRun.creditsCharged !== 0) {
+      push(out, `${specCase.id}.charge`, "Stored run charged with no cars.");
+    }
+  }
   if (expect.queriesRequired && run.providerQueriesUsed <= 0) {
     push(out, `${specCase.id}.queries`, "providerQueriesUsed is 0.");
   }

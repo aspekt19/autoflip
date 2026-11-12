@@ -557,9 +557,9 @@ export const PROFILES = {
   verdict_decide: {
     id: "verdict_decide",
     purpose: "Choose buy, negotiate, pass, or needs_inspection from code-computed facts.",
-    reason: "Final shopper action is a branching policy, so multipath applies. Software clamps the choice against hard guardrails and consumes a strict schema.",
-    feature: "multipath",
-    tools: ["prompt_guard", "shadow"],
+    reason: "Strict JSON on gpt-6.1-sol. Multipath plus prompt-guard and shadow returned no usable choice on the live review.",
+    feature: "none",
+    tools: [],
     shadowHint:
       "Choose only buy, negotiate, pass, or needs_inspection. Every number in the note must already appear in the facts. Obey allowedActions. Do not invent a price.",
     shadowMaxIterations: SHADOW_MAX_ITERATIONS,
@@ -605,10 +605,9 @@ export const PROFILES = {
   verdict_challenge: {
     id: "verdict_challenge",
     purpose: "Challenge the primary shopper verdict using only supplied evidence ids.",
-    reason:
-      "Independent Kronos review of the same facts — separate from Multipath+Shadow on decide/pick. Strict JSON so software can ignore invented claims.",
-    feature: "kronos",
-    tools: ["prompt_guard"],
+    reason: "Strict JSON on gpt-6.1-sol. A prompt-guard tool beside this schema does not return a usable second check.",
+    feature: "none",
+    tools: [],
     // Decision step floor is 90s. A shorter call is an honest stop, not a clipped challenge.
     timeoutMs: 90_000,
     fallback: "ignored_malformed",
@@ -653,9 +652,9 @@ export const PROFILES = {
   find_close_call_multipath: {
     id: "find_close_call_multipath",
     purpose: "Evaluate close Find candidates on price-first, risk-first, and total-cost-first paths, then reconcile.",
-    reason: "Branching close-call policy with a strict schema so software can show paths without inventing picks.",
-    feature: "multipath",
-    tools: ["prompt_guard"],
+    reason: "Strict JSON on gpt-6.1-sol. Multipath plus prompt-guard returned no usable close-call choice.",
+    feature: "none",
+    tools: [],
     timeoutMs: 90_000,
     fallback: "deterministic_multipath",
     system: [
@@ -710,9 +709,9 @@ export const PROFILES = {
   find_pick: {
     id: "find_pick",
     purpose: "Pick the best Find shortlist car from allowlisted finalists using code-computed facts.",
-    reason: "Final Find pick is branching; TypeScript clamps to allowlisted keys and strips invented numbers.",
-    feature: "multipath",
-    tools: ["prompt_guard", "shadow"],
+    reason: "Strict JSON on gpt-6.1-sol. Multipath plus prompt-guard and shadow returned no usable pick.",
+    feature: "none",
+    tools: [],
     shadowHint:
       "pickKey must be one of allowedKeys. confidence must be high, medium, or low. Note, reasons, and watchFor may only repeat facts already present.",
     shadowMaxIterations: SHADOW_MAX_ITERATIONS,

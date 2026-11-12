@@ -42,6 +42,13 @@ export function decideAfFlowRestore(saved: AfFlowRestoreInput): AfFlowRestoreDec
   };
 }
 
+/**
+ * A fresh /find visit starts blank. A saved search is offered, not applied.
+ */
+export function freshVisitRestorePolicy(): { autoApply: false; resumeLabel: string } {
+  return { autoApply: false, resumeLabel: "Resume last search" };
+}
+
 /** Search-context fields saved with a Find result. Missing token means the loop cannot resume. */
 export function resumeFindSearchFromFlow(saved: {
   searchContextToken?: unknown;

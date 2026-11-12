@@ -731,7 +731,7 @@ describe("fuel checklist honesty + NMVTIS copy", () => {
       "Condition unknown. NMVTIS-approved history + inspection before purchase — Lemonless does not invent clean history.",
     );
     expect(why).not.toMatch(/official title history-approved/i);
-    expect(why).toMatch(/NMVTIS-approved vehicle history report/i);
+    expect(why).toMatch(/vehicle history check/i);
     expect(why).toMatch(/pre-purchase inspection/i);
     expect(findForbiddenTechArtifacts(why)).toEqual([]);
   });

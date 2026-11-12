@@ -259,7 +259,14 @@ export function plainShopperText(text: string): string {
     .replace(/\bNICB VINCheck\b/g, "the free theft and salvage check")
     .replace(/\bvPIC\b/gi, "the car's factory details")
     .replace(/\bDecodeVinValues\b/g, "the car's factory details")
-    .replace(/\bNMVTIS\b/g, "the national title database")
+    .replace(/\bNMVTIS-approved\b/g, "a vehicle history check")
+    .replace(/\bNMVTIS\b/g, "a vehicle history check")
+    .replace(/FuelEconomy\.gov/g, "official fuel economy data")
+    .replace(/\bevaluateListingPrice\b/g, "the price check")
+    .replace(/Public lookup counts\s*[—-]\s*/g, "")
+    .replace(/\bSERV is thinking\b/g, "Working")
+    .replace(/\bSERV decide\b/g, "the decision")
+    .replace(/\btriage, decide, challenge\b/gi, "compare, choose, and second-check")
     .replace(/\bNICB\b/g, "the insurance crime bureau")
     .replace(/\bCensus geocoder\b/gi, "a public distance lookup")
     .replace(/\bTypeScript\b/g, "our calculations")
@@ -847,7 +854,7 @@ export function formatBuyerNextCheckWhy(
 ): string {
   // Prefer rewriting known ids; strip technical tokens from fallback.
   if (id === "get_history_report") {
-    return "Get an NMVTIS-approved vehicle history report and a pre-purchase inspection before you buy — free public checks do not cover accidents or title brands.";
+    return "Get a vehicle history check and a pre-purchase inspection before you buy — these free checks do not cover accidents or title brands.";
   }
   const plain = formatBuyerLoopStep({
     chosenId: id,
@@ -865,10 +872,11 @@ export function formatBuyerNextCheckWhy(
     .replace(/\bErrorCode=0\b/g, "a successful decode")
     .replace(
       /\bNMVTIS-approved history\s*\+\s*inspection before purchase\b/gi,
-      "an NMVTIS-approved vehicle history report and a pre-purchase inspection before you buy",
+      "a vehicle history check and a pre-purchase inspection before you buy",
     )
-    .replace(/\bNMVTIS-approved\b/g, "NMVTIS-approved")
-    .replace(/\bNMVTIS\b/g, "NMVTIS (official title history)");
+    .replace(/\bNMVTIS-approved\b/g, "a vehicle history check")
+    .replace(/\bNMVTIS\b/g, "a vehicle history check")
+    .replace(/FuelEconomy\.gov/g, "official fuel economy data");
 }
 
 /** Plain factor line. Point totals stay off the page. */

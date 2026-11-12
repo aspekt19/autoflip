@@ -126,7 +126,9 @@ describe("recall lookup availability", () => {
         return new Response("upstream unavailable", { status: 503 });
       },
     });
-    expect(unavailable).toEqual({ records: [], available: false });
+    expect(unavailable.available).toBe(false);
+    expect(unavailable.records).toEqual([]);
+    expect(unavailable.error).toMatch(/did not return a usable answer/i);
     expect(unavailableCalls).toBe(2);
 
     let malformedCalls = 0;
@@ -136,7 +138,8 @@ describe("recall lookup availability", () => {
         return Response.json({ message: "unexpected response" });
       },
     });
-    expect(malformed).toEqual({ records: [], available: false });
+    expect(malformed.available).toBe(false);
+    expect(malformed.error).toMatch(/did not return a list|unexpected response/i);
     expect(malformedCalls).toBe(1);
   });
 
