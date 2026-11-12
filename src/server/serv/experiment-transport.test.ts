@@ -131,14 +131,10 @@ describe("experiment_single_attempt transport (compare / eval only)", () => {
         timeoutMs: 3_000,
         fetch: async (_url, init) => {
           calls += 1;
-          await new Promise((_resolve, reject) => {
-            const timer = setTimeout(() => reject(new Error("should have aborted")), 5_000);
-            init?.signal?.addEventListener("abort", () => {
-              clearTimeout(timer);
-              reject(new DOMException("The operation was aborted.", "TimeoutError"));
-            });
-          });
-          return jsonResponse({ choices: [{ message: { content: "never" } }] });
+          // A short caller timeout must not abort the request. The signal
+          // lasts until the platform function limit.
+          expect(init?.signal?.aborted).toBe(false);
+          throw new DOMException("The operation was aborted.", "TimeoutError");
         },
       }),
     );

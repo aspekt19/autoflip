@@ -54,13 +54,13 @@ export function providerResponseId(raw: string | null | undefined): string | nul
 
 /**
  * Response id for display/storage from a SERV call.
- * Error bodies often still carry an `id` — never treat that as a provider response id.
- * Only successful completions may surface an id.
+ * A failed completion can still carry a real provider id (empty answer,
+ * finish_reason length). Keep that id. Synthetic and local ids are still dropped.
  */
 export function providerResponseIdFromCall(input: {
   ok: boolean;
   id?: string | null;
 }): string | null {
-  if (!input.ok) return null;
+  void input.ok;
   return providerResponseId(input.id);
 }

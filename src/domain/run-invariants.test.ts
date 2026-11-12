@@ -85,7 +85,7 @@ describe("checkRunInvariants on the public run", () => {
       inputs: { note: "First car under $12,000", clarifications: [], mode: "personal", vin: null, formEdits: null },
     });
     const stored = applyObservation(created, {
-      proofs: [{ purpose: "find_plan", status: "error" }],
+      proofs: [{ purpose: "find_plan", status: "error", detail: "The model returned no answer." }],
       listings: [
         {
           vin: "JF2SHABCXBH756889",

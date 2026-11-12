@@ -140,10 +140,20 @@ function hostOf(href: string): string | null {
 export function runReportModel(view: RunView): RunReportModel {
   const lead = view.listings[0] ? carTitle(view.listings[0]) : kindCopy(view.kind);
   const title = view.listings.length === 1 ? lead : view.listings.length > 1 ? `${view.listings.length} cars` : lead;
-  const journal = [...view.steps]
-    .sort((a, b) => JOURNAL_STEP_IDS.indexOf(a.step) - JOURNAL_STEP_IDS.indexOf(b.step))
-    .map((step) => journalStepCopy(step.step, step.status));
-  const journalSentences = new Set(journal.map((step) => step.sentence));
+  const orderedSteps = [...view.steps].sort(
+    (a, b) => JOURNAL_STEP_IDS.indexOf(a.step) - JOURNAL_STEP_IDS.indexOf(b.step),
+  );
+  const journal = orderedSteps.map((step) => {
+    const copy = journalStepCopy(step.step, step.status);
+    const detail = step.failureDetail?.trim();
+    if (step.status !== "failed" || !detail || copy.sentence.includes(detail)) return copy;
+    const sentence = /[.!?]$/.test(copy.sentence.trim()) ? copy.sentence.trim() : `${copy.sentence.trim()}.`;
+    return { ...copy, sentence: `${sentence} ${detail}` };
+  });
+  const journalSentences = new Set([
+    ...journal.map((step) => step.sentence),
+    ...orderedSteps.map((step) => journalStepCopy(step.step, step.status).sentence),
+  ]);
   const verdictLine = resaleVerdictLine(view);
   const confidenceText = view.confidenceReason?.trim() || (view.confidence ? `Confidence: ${confidenceCopy(view.confidence)}` : "");
   const messageText = view.buyerMessage?.trim() ?? "";

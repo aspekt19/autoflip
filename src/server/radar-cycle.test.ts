@@ -94,13 +94,8 @@ describe("radar cycle", () => {
     const fetchImpl: typeof fetch = (url, init) => {
       const target = String(url);
       if (target.includes("auto.dev")) return Promise.resolve(new Response(JSON.stringify(listings), { status: 200 }));
-      return new Promise((resolve, reject) => {
-        const timer = setTimeout(() => resolve(new Response("late", { status: 200 })), 5_000);
-        init?.signal?.addEventListener("abort", () => {
-          clearTimeout(timer);
-          reject(new Error("aborted"));
-        });
-      });
+      void init;
+      return Promise.reject(new DOMException("The operation was aborted.", "TimeoutError"));
     };
     const run = await runRadarCycle({
       kv,

@@ -1,17 +1,32 @@
 /**
- * Explicit SERV output-token ceilings (not USD, not timeout).
+ * Explicit SERV output-token ceilings (not USD).
  *
  * Provider contract (OpenServ SERV Reasoning docs):
- * - Chat completions: `max_completion_tokens`
+ * - Chat completions: `max_completion_tokens` (includes reasoning tokens)
  * - Responses: `max_output_tokens`
  *
- * Day-one guidance: avoid *tight* caps; when a product requires a hard ceiling,
- * use a comfortable bound and monitor finish_reason. TimeoutMs is independent.
+ * gpt-6.1-sol spends this budget on reasoning before it writes an answer.
+ * A 4096 cap was exhausted by `usage.completion_tokens_details.reasoning_tokens`
+ * and came back as finish_reason "length" with empty content. The default is
+ * large enough for that reasoning plus the JSON answer. A length or empty
+ * reply is retried once at SERV_OUTPUT_TOKEN_MAX.
+ *
+ * Recorded eval usage (eval/results/latest.json) summed 10,940 completion
+ * tokens across a batch of calls. One live call can spend the whole cap on
+ * reasoning, so the per-call ceiling stays far above that batch total.
  */
 
-export const SERV_OUTPUT_TOKEN_DEFAULT = 4096;
+/** First-call budget. Includes reasoning tokens, not just the visible answer. */
+export const SERV_OUTPUT_TOKEN_DEFAULT = 65_536;
 export const SERV_OUTPUT_TOKEN_MIN = 256;
-export const SERV_OUTPUT_TOKEN_MAX = 16_384;
+/** Retry budget when finish_reason is length or the answer text is empty. */
+export const SERV_OUTPUT_TOKEN_MAX = 131_072;
+
+/** Larger budget for the one allowed empty/length retry. Never below the first cap. */
+export function completionRetryBudget(firstTokens: number): number {
+  const doubled = Number.isFinite(firstTokens) && firstTokens > 0 ? firstTokens * 2 : SERV_OUTPUT_TOKEN_MAX;
+  return Math.min(SERV_OUTPUT_TOKEN_MAX, Math.max(doubled, SERV_OUTPUT_TOKEN_DEFAULT));
+}
 
 export type ServOutputTokenBound =
   | { ok: true; tokens: number; source: "default" | "env" }

@@ -14,6 +14,7 @@ import {
 import { previewFindFromNote } from "@/domain/find-preview";
 import { resolveLocationZip, zipFieldMark, type LocationZipResolution } from "@/domain/city-to-zip";
 import { awdLimitFromText, intakeFromNote, isNearMePhrase, NOTE_DEFAULT_RADIUS_WHEN_ZIP } from "@/domain/note-intake";
+import { towingCapacityCaveat } from "@/domain/open-search";
 import { yearSpanSentence } from "@/domain/year-span";
 import { criteriaParseLabel } from "@/domain/radar-criteria-provenance";
 import { FOLLOW_HINT } from "@/domain/intake-copy";
@@ -62,6 +63,7 @@ import {
   publicCheckStatusLine,
   formatGroundedShortlistLine,
   findSettledStatusLine,
+  omitUnpickableWhenAlternativesExist,
   formatBuyerBestDeal,
   formatBuyerNextCheckWhy,
   formatOfficialRecallNumber,
@@ -448,7 +450,7 @@ function AssistantFlow({
     setPending("need");
     const controller = new AbortController();
     // The confirm screen stays up. The plan itself waits out the route budget.
-    const timer = window.setTimeout(() => controller.abort(), 290_000);
+    const timer = window.setTimeout(() => controller.abort(), 300_000);
     try {
       const amount = parseUsdInput(budget) ?? Number.NaN;
       const response = await fetch("/api/need", {
@@ -907,7 +909,7 @@ function AssistantFlow({
     setFindLoopOpen(true);
     const controller = new AbortController();
     // Match /api/find/decide maxDuration (300s) — free-gov + 3× ~90s SERV steps.
-    const timer = window.setTimeout(() => controller.abort(), 290_000);
+    const timer = window.setTimeout(() => controller.abort(), 300_000);
     try {
       const response = await fetch("/api/find/decide", {
         method: "POST",
@@ -1041,7 +1043,7 @@ function AssistantFlow({
     setPending("match");
     const controller = new AbortController();
     // Match /api/match maxDuration (300s) — inventory waves must not abort early.
-    const timer = window.setTimeout(() => controller.abort(), 290_000);
+    const timer = window.setTimeout(() => controller.abort(), 300_000);
     /** Fired after finally so we do not clear next-check pending. */
     let autoNextToken: string | null = null;
     let autoDecidePath = false;
@@ -2024,6 +2026,7 @@ function AssistantFlow({
             }}
           />
           {need.conditionPriority === "inspection_first" ? <p className="hint">{CONDITION_HINT}</p> : null}
+          {towingCapacityCaveat(need.note) ? <p className="hint">{towingCapacityCaveat(need.note)}</p> : null}
           {awdLimitFromText(need.note) === "hard" ? (
             <p className="hint">
               All-wheel drive is required. Front-wheel drive is left out. If the listing does not say, we check the VIN and leave the car out when we still cannot tell.
@@ -2097,7 +2100,17 @@ function AssistantFlow({
 
       {stage === "results" ? (
         <div id="find-results" className="find-results">
-          <RunMirror runId={runId} />
+          <RunMirror
+            runId={runId}
+            onPhase={(phase) => {
+              if (phase !== "finished" && phase !== "stopped") return;
+              setFindLoopOpen(false);
+              setPending((current) => (current === "next-check" ? null : current));
+              setPendingCheckLabel((current) =>
+                current && /reviewing public records|choosing the best match|still running/i.test(current) ? null : current,
+              );
+            }}
+          />
           {groups.some((group) => group.listings.length > 0) ? (
             <h2 className="prose-title">Cars that fit</h2>
           ) : null}
@@ -2327,7 +2340,9 @@ function AssistantFlow({
                                 hasPick: Boolean(bestDeal.pick),
                                 evidenceSettled: bestDeal.evidenceSettled,
                               })
-                            : "These cars are not ranked yet"}
+                            : pending === "next-check" || findLoopOpen
+                              ? "These cars are not ranked yet"
+                              : "These cars were found. The ranking did not finish."}
                         </p>
                         <ol className="top-picks">
                           {topRows.map((row) => {
@@ -2383,7 +2398,7 @@ function AssistantFlow({
                             <strong>Confidence:</strong> {dealCopy.choice.confidenceLine}
                           </p>
                         ) : null}
-                        {pickAgentVerdict?.verdict && groups.some((group) => group.listings.length > 0) ? (
+                        {runId ? null : pickAgentVerdict?.verdict && groups.some((group) => group.listings.length > 0) ? (
                           <p>
                             Verdict:{" "}
                             <strong>
@@ -2411,7 +2426,7 @@ function AssistantFlow({
                               ))}
                             </ul>
                           </>
-                        ) : (
+                        ) : runId ? null : (
                           <p>{dealCopy.why}</p>
                         )}
                         {dealCopy.rankedLines.length > 0 ? (
@@ -2735,8 +2750,9 @@ function AssistantFlow({
                 <p className="hint">{group.note}</p>
               ) : null}
               {(() => {
-                const inBudget = group.listings.filter((car) => !car.overBudget);
-                const slightOver = group.listings.filter((car) => car.overBudget);
+                const visibleCars = omitUnpickableWhenAlternativesExist(group.listings);
+                const inBudget = visibleCars.filter((car) => !car.overBudget);
+                const slightOver = visibleCars.filter((car) => car.overBudget);
                 const renderCard = (car: (typeof group.listings)[number]) => (
                   <article className="listing-card" key={car.vin}>
                     {car.primaryImage ? (
@@ -2773,7 +2789,7 @@ function AssistantFlow({
                         <p className="hint">{formatFindFuelEvidenceShort(fuelRow.fuelEvidence)}</p>
                       );
                     })()}
-                    {!pickAgentVerdict?.verdict ? (
+                    {!pickAgentVerdict?.verdict && (pending === "next-check" || findLoopOpen) ? (
                       <p className="budget-flag">Not ranked yet. The verdict has not been decided.</p>
                     ) : null}
                     {veryHighMileageLabel(car.miles) ? <p className="budget-flag">Very high mileage</p> : null}
@@ -2785,7 +2801,18 @@ function AssistantFlow({
                       <p className="budget-flag">All-wheel drive was not verified for this car.</p>
                     ) : null}
                     {car.source !== "autodev" ? <p className="hint">Source {car.source}: not treated as verified live inventory.</p> : null}
-                    {car.badge ? <PriceBadgeView badge={car.badge} /> : null}
+                    {car.badge ? (
+                      <PriceBadgeView
+                        badge={
+                          pending === "next-check" || findLoopOpen
+                            ? car.badge
+                            : {
+                                ...car.badge,
+                                label: car.badge.label.replace(" (ranking provisional)", "") as PriceBadge["label"],
+                              }
+                        }
+                      />
+                    ) : null}
                     {car.flipNote ? <p className="hint">{car.flipNote}</p> : null}
                     {car.clearsTarget === false ? <p className="hint">Under the profit target, so it ranks lower.</p> : null}
                     {car.clearsTarget === true ? <p className="hint">Clears the profit target. That target is an assumption, not a promised sale.</p> : null}

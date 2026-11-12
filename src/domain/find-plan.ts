@@ -12,7 +12,7 @@ import {
   type StructuredNeed,
   type UseCase,
 } from "./need";
-import { awdLimitFromText, bodyFromIntake, intakeFromNote, type NoteBodyStyle } from "./note-intake";
+import { awdLimitFromText, bodyFromIntake, budgetFromText, intakeFromNote, type NoteBodyStyle } from "./note-intake";
 import { orderedYearBounds } from "./year-span";
 import {
   autoDevMake,
@@ -180,12 +180,19 @@ export function groundedNumberTokens(note: string, form: FindPlanFormOverrides =
     const num = Number(raw);
     if (Number.isFinite(num)) tokens.add(String(Math.round(num)));
   }
-  // $20k / 70k miles → 20000 / 70000
+  // $20k / 70k miles / 15 grand → 20000 / 70000 / 15000
   for (const match of note.matchAll(/(\d+(?:\.\d+)?)\s*k\b/gi)) {
     const base = Number(match[1]);
     if (!Number.isFinite(base)) continue;
     tokens.add(String(Math.round(base * 1000)));
   }
+  for (const match of note.matchAll(/(\d+(?:\.\d+)?)\s*grand\b/gi)) {
+    const base = Number(match[1]);
+    if (!Number.isFinite(base)) continue;
+    tokens.add(String(Math.round(base * 1000)));
+  }
+  const fromWords = budgetFromText(note);
+  add(fromWords);
   return tokens;
 }
 

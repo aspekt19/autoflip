@@ -12,7 +12,7 @@ import { recallEvidenceState, recallFactPlain } from "./find-evidence-state";
 import type { FindFreeGovReceipt } from "./find-free-gov";
 import type { FindNextCheckLoopReason } from "./find-next-check-loop";
 import type { FindNextCheckId } from "./find-next-checks";
-import type { BestDealCandidate, BestDealResult } from "./find-best-deal";
+import { BEST_DEAL_HIGH_MILES_HARD, type BestDealCandidate, type BestDealResult } from "./find-best-deal";
 import { formatFindFuelEvidenceShort } from "./find-fuel-match";
 import { mmyListingKey } from "./find-risk-evidence";
 import {
@@ -900,7 +900,7 @@ export function formatGroundedShortlistLine(row: {
   const unknowns = row.unknowns
     .map((line) => line.trim().replace(/\.+$/, ""))
     .filter(Boolean);
-  const campaigns = (row.campaignRefs ?? []).map((id) => id.trim()).filter(Boolean);
+  const campaigns = groupRecallSentences((row.campaignRefs ?? []).map((id) => id.trim()).filter(Boolean));
   let line = `${row.make} ${row.model}: ${why}.`;
   if (unknowns.length > 0) line += ` Still unknown: ${unknowns.join("; ")}.`;
   if (campaigns.length > 0) line += ` ${campaigns.join("; ")}.`;
@@ -1054,17 +1054,54 @@ export function sellerQuestionsForBuyer(
 }
 
 /**
+ * A do-not-drive car or a very high mileage car stays off the shown list
+ * when any other car in the same search is still eligible. If every car
+ * is in that state, the list stays so the page is not empty.
+ */
+export function omitUnpickableWhenAlternativesExist<
+  T extends { miles?: number | null; stopSale?: boolean | null; excludedFromPick?: boolean },
+>(ranked: readonly T[]): T[] {
+  const hide = (row: T) =>
+    row.stopSale === true ||
+    row.excludedFromPick === true ||
+    (typeof row.miles === "number" && Number.isFinite(row.miles) && row.miles >= BEST_DEAL_HIGH_MILES_HARD);
+  const kept = ranked.filter((row) => !hide(row));
+  return kept.length > 0 ? kept : [...ranked];
+}
+
+/** Identical recall sentences for one model year become one line. */
+export function groupRecallSentences(lines: readonly string[]): string[] {
+  const counts = new Map<string, number>();
+  const order: string[] = [];
+  for (const raw of lines) {
+    const line = raw.trim();
+    if (!line) continue;
+    if (!counts.has(line)) order.push(line);
+    counts.set(line, (counts.get(line) ?? 0) + 1);
+  }
+  return order.map((line) => {
+    const count = counts.get(line) ?? 1;
+    if (count === 1) return line;
+    if (/^A government safety recall from \d{4} is on file/i.test(line)) {
+      return `${line.replace(/\.+$/, "")} (${count} campaigns).`;
+    }
+    return line;
+  });
+}
+
+/**
  * First five cars for the Top picks list.
  * When a published pick exists, it goes first; other cars keep their relative order.
  */
-export function topPicksInRankOrder<T extends { key: string }>(
+export function topPicksInRankOrder<T extends { key: string; miles?: number | null; stopSale?: boolean | null; excludedFromPick?: boolean }>(
   ranked: readonly T[],
   pickKey: string | null,
 ): { rows: T[]; pickKeyRank: number | null } {
-  if (!pickKey) return { rows: ranked.slice(0, 5), pickKeyRank: null };
-  const pick = ranked.find((row) => row.key === pickKey) ?? null;
-  const rest = ranked.filter((row) => row.key !== pickKey);
-  const ordered = pick ? [pick, ...rest] : [...ranked];
+  const pool = omitUnpickableWhenAlternativesExist(ranked);
+  if (!pickKey) return { rows: pool.slice(0, 5), pickKeyRank: null };
+  const pick = pool.find((row) => row.key === pickKey) ?? null;
+  const rest = pool.filter((row) => row.key !== pickKey);
+  const ordered = pick ? [pick, ...rest] : [...pool];
   const rows = ordered.slice(0, 5);
   const index = rows.findIndex((row) => row.key === pickKey);
   return { rows, pickKeyRank: index === -1 ? null : index + 1 };

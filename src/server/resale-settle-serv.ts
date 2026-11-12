@@ -99,7 +99,7 @@ function pushResaleJudgeProof(
       rubricId: RESALE_JUDGE_RUBRIC_ID,
       status: input.status,
       recordedAt: input.recordedAt,
-      responseId: ok && result ? responseIdFrom(result.proof, true) : null,
+      responseId: result ? responseIdFrom(result.proof, ok) : null,
       model: result ? modelFrom(result.proof, input.modelFallback) : input.modelFallback ?? null,
       inputs: input.inputs,
       verdict: ok ? input.verdict ?? null : null,

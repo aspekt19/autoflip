@@ -22,7 +22,7 @@ describe("SERV output token bound (offline)", () => {
       tokens: SERV_OUTPUT_TOKEN_DEFAULT,
       source: "default",
     });
-    expect(SERV_OUTPUT_TOKEN_DEFAULT).toBe(4096);
+    expect(SERV_OUTPUT_TOKEN_DEFAULT).toBe(65_536);
     expect(SERV_OUTPUT_TOKEN_DEFAULT).toBeGreaterThanOrEqual(SERV_OUTPUT_TOKEN_MIN);
     expect(SERV_OUTPUT_TOKEN_DEFAULT).toBeLessThanOrEqual(SERV_OUTPUT_TOKEN_MAX);
   });
@@ -68,7 +68,7 @@ describe("SERV output token bound (offline)", () => {
 
     const serialized = JSON.stringify(req);
     const parsed = JSON.parse(serialized) as Record<string, unknown>;
-    expect(parsed.max_completion_tokens).toBe(4096);
+    expect(parsed.max_completion_tokens).toBe(SERV_OUTPUT_TOKEN_DEFAULT);
     expect(parsed).not.toHaveProperty("max_output_tokens");
     // Schema + bound coexist (useful scout JSON fits under 4096).
     expect(parsed.response_format).toBeTruthy();
@@ -134,12 +134,11 @@ describe("SERV output token bound (offline)", () => {
     expect(result.ok).toBe(true);
     expect(bodies.length).toBeGreaterThanOrEqual(2);
     expect(reservations.length).toBe(bodies.length);
-    for (const raw of bodies) {
-      const parsed = JSON.parse(raw) as Record<string, unknown>;
-      expect(parsed.max_completion_tokens).toBe(3072);
+    const parsedBodies = bodies.map((raw) => JSON.parse(raw) as Record<string, unknown>);
+    expect(parsedBodies[0]?.max_completion_tokens).toBe(3072);
+    expect(parsedBodies[1]?.max_completion_tokens).toBeGreaterThan(3072);
+    for (const parsed of parsedBodies) {
       expect(parsed).not.toHaveProperty("max_output_tokens");
-      expect(raw).toContain('"max_completion_tokens":3072');
-      expect(raw).not.toContain("max_output_tokens");
     }
   });
 

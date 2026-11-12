@@ -48,7 +48,7 @@ type Car = {
   bodyUnknown?: boolean;
 };
 
-type PublicStep = { step?: string; status?: string | null };
+type PublicStep = { step?: string; status?: string | null; failureDetail?: string | null; responseId?: string | null };
 
 type PublicRun = {
   kind?: string;
@@ -640,6 +640,48 @@ export function checkRunInvariants(value: unknown, html?: string | null): Invari
       ),
     );
   }
+
+  const settled = run.phase === "finished" || run.phase === "stopped";
+  const progressCopy = /Reviewing public records|Not ranked yet|ranking provisional/i;
+  const progressHit = settled && html ? progressCopy.exec(visible) : null;
+  checks.push(
+    check(
+      "settled-copy",
+      !progressHit,
+      progressHit
+        ? `A finished run still shows in-progress text “${progressHit[0]}”.`
+        : "A finished run does not show in-progress ranking text.",
+    ),
+  );
+
+  const message = run.buyerMessage?.trim() ?? "";
+  const echoed =
+    message.length >= 40 &&
+    (run.listings ?? []).some((car) => {
+      const blob = `${car.summary ?? ""} ${car.reason ?? ""}`;
+      return blob.includes(message);
+    });
+  checks.push(
+    check(
+      "verdict-once",
+      !echoed,
+      echoed ? "The verdict paragraph is stored on the run and again on a car." : "The verdict paragraph is stored once.",
+    ),
+  );
+
+  const failedSteps = (run.steps ?? []).filter(
+    (step) => step.status === "failed" && (step.step === "choose_car" || step.step === "compare_cars" || step.step === "plan_search"),
+  );
+  const missingDetail = failedSteps.filter((step) => !step.failureDetail?.trim());
+  checks.push(
+    check(
+      "failure-detail",
+      missingDetail.length === 0,
+      missingDetail.length
+        ? `${missingDetail.map((step) => step.step).join(", ")} failed without a stored detail.`
+        : "A failed decision step stores a plain detail.",
+    ),
+  );
 
   return { ok: checks.every((item) => item.pass), checks };
 }

@@ -1,4 +1,5 @@
 import { parseUsdInput } from "./budget";
+import { cityPhraseInText } from "./city-to-zip";
 import { constraintStrength } from "./constraint-strength";
 
 /** Same ceiling as MAX_DISTANCE_MILES in need.ts. Kept local to avoid an import cycle. */
@@ -213,6 +214,42 @@ export function budgetFromText(text: string, now = new Date()): number | null {
     consider(index, raw, k, end, { dollar: false });
   }
 
+  const WORD_AMOUNT: Record<string, number> = {
+    one: 1,
+    two: 2,
+    three: 3,
+    four: 4,
+    five: 5,
+    six: 6,
+    seven: 7,
+    eight: 8,
+    nine: 9,
+    ten: 10,
+    eleven: 11,
+    twelve: 12,
+    thirteen: 13,
+    fourteen: 14,
+    fifteen: 15,
+    sixteen: 16,
+    seventeen: 17,
+    eighteen: 18,
+    nineteen: 19,
+    twenty: 20,
+    thirty: 30,
+    forty: 40,
+    fifty: 50,
+  };
+  const wordRe = new RegExp(
+    String.raw`\b(${Object.keys(WORD_AMOUNT).join("|")})\s+(thousand|grand)\b`,
+    "gi",
+  );
+  for (const match of text.matchAll(wordRe)) {
+    const base = WORD_AMOUNT[(match[1] ?? "").toLowerCase()];
+    if (!base) continue;
+    const usd = base * 1000;
+    if (usd >= 1000 && usd <= 250_000) hits.push({ index: match.index ?? 0, usd });
+  }
+
   hits.sort((a, b) => a.index - b.index);
   return hits[0]?.usd ?? null;
 }
@@ -306,7 +343,7 @@ export function yearsFromNote(text: string, now = new Date()): { yearMin: number
   const floor =
     text.match(
       new RegExp(
-        String.raw`\b(?:no older than|from|minimum year|oldest(?: model year)?(?: of| is)?)\s+${Y}\b`,
+        String.raw`\b(?:nothing older than|not older than|no older than|from|minimum year|oldest(?: model year)?(?: of| is)?)\s+${Y}\b`,
         "i",
       ),
     ) || text.match(new RegExp(String.raw`\b${Y}\s*(?:or newer|and newer|or later|\+|and up)\b`, "i"));
@@ -421,7 +458,7 @@ export function locationPhraseFromText(text: string): string | null {
     if (!first || PLACE_STOP.has(first)) continue;
     return phrase;
   }
-  return null;
+  return cityPhraseInText(text);
 }
 
 export function zipFromNote(text: string, budgetUsd: number | null): string | null {

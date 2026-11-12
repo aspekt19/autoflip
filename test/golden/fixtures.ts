@@ -128,7 +128,7 @@ const LIVE_TAX = [
   car({ vin: "2HGFC2F79JH000331", year: 2018, make: "Honda", model: "Civic", bodyStyle: "Sedan", price: 9900, miles: 60000, distance: 8 }),
 ];
 
-type ScriptedKind = "live-a" | "live-b" | "live-c" | "live-d" | "live-rank" | "live-suv" | "live-odd" | "live-starter" | "live-tax" | "live-safety";
+type ScriptedKind = "live-a" | "live-b" | "live-c" | "live-d" | "live-rank" | "live-suv" | "live-odd" | "live-starter" | "live-tax" | "live-safety" | "length-retry" | "length-stop";
 
 function rowsFor(kind: ScriptedKind, href: string) {
   if (kind === "live-a") return LIVE_A;
@@ -158,6 +158,16 @@ function rowsFor(kind: ScriptedKind, href: string) {
     if (!body) return rows;
     const allowed = new Set(body.split(",").map((part) => part.trim().toLowerCase()).filter(Boolean));
     return rows.filter((row) => allowed.has(String(row.vehicle.bodyStyle).toLowerCase()));
+  }
+  if (kind === "length-retry" || kind === "length-stop") {
+    let model = "";
+    try {
+      model = new URL(href).searchParams.get("vehicle.model")?.toLowerCase() ?? "";
+    } catch {
+      model = "";
+    }
+    if (!model) return LIVE_C;
+    return LIVE_C.filter((row) => String(row.vehicle.model).toLowerCase() === model);
   }
   if (kind === "live-rank") {
     return LIVE_RANK.map((row, index) => (index === 1 ? { ...row, history: { accidentCount: 1 } } : row));
@@ -227,15 +237,47 @@ export function scriptedServResponse(body: string): Response | null {
   return null;
 }
 
+function emptyLength(id: string): Response {
+  return Response.json({
+    id,
+    object: "chat.completion",
+    created: 1,
+    model: "gpt-6.1-sol",
+    choices: [{ index: 0, message: { role: "assistant", content: "", refusal: null }, finish_reason: "length" }],
+    usage: {
+      prompt_tokens: 800,
+      completion_tokens: 65536,
+      total_tokens: 66336,
+      completion_tokens_details: { reasoning_tokens: 65536 },
+    },
+  });
+}
+
+function schemaName(rawBody: string): string {
+  try {
+    const parsed = JSON.parse(rawBody) as { response_format?: { json_schema?: { name?: string } } };
+    return parsed.response_format?.json_schema?.name ?? "serv";
+  } catch {
+    return "serv";
+  }
+}
+
 export function scriptedGoldenFetch(
   kind: ScriptedKind,
   urls: string[],
 ): typeof fetch {
+  const attempts = new Map<string, number>();
   return async (input, init) => {
     const href = String(input);
     urls.push(href);
     const rawBody = typeof init?.body === "string" ? init.body : "";
     if (href.includes("/chat/completions") || href.includes("/responses")) {
+      if (kind === "length-retry" || kind === "length-stop") {
+        const name = schemaName(rawBody);
+        const count = (attempts.get(name) ?? 0) + 1;
+        attempts.set(name, count);
+        if (kind === "length-stop" || count === 1) return emptyLength(`chatcmpl-len${name}${count}`);
+      }
       const serv = scriptedServResponse(rawBody);
       if (serv) return serv;
     }

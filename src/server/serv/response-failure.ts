@@ -11,6 +11,8 @@ export type CompareUsage = {
   prompt_tokens?: number;
   completion_tokens?: number;
   total_tokens?: number;
+  /** From completion_tokens_details.reasoning_tokens. Counted inside completion_tokens. */
+  reasoning_tokens?: number;
 };
 
 /**
@@ -22,10 +24,12 @@ export function normalizeCompareUsage(usage: CompareUsage | null | undefined): C
   const prompt = typeof usage.prompt_tokens === "number" ? usage.prompt_tokens : undefined;
   const completion = typeof usage.completion_tokens === "number" ? usage.completion_tokens : undefined;
   const total = typeof usage.total_tokens === "number" ? usage.total_tokens : undefined;
+  const reasoning = typeof usage.reasoning_tokens === "number" ? usage.reasoning_tokens : undefined;
   if (
     (prompt === undefined || prompt === 0) &&
     (completion === undefined || completion === 0) &&
-    (total === undefined || total === 0)
+    (total === undefined || total === 0) &&
+    (reasoning === undefined || reasoning === 0)
   ) {
     return null;
   }
@@ -33,6 +37,7 @@ export function normalizeCompareUsage(usage: CompareUsage | null | undefined): C
     prompt_tokens: prompt,
     completion_tokens: completion,
     total_tokens: total,
+    reasoning_tokens: reasoning,
   };
 }
 
@@ -76,6 +81,7 @@ export function normalizeCompareUsageLoose(usage: unknown): CompareUsage | null 
 export type ServResponseFailureCategory =
   | "content_null_refusal_field"
   | "empty_content"
+  | "output_budget_exhausted"
   | "refusal_prose"
   | "invalid_json"
   | "schema_mismatch"
@@ -148,12 +154,54 @@ export function coerceUsageRecord(usage: unknown): CompareUsage | null {
   const total = numToken(
     src.total_tokens ?? src.totalTokens ?? src.totalTokenCount ?? src.total,
   );
-  if (prompt === undefined && completion === undefined && total === undefined) return null;
+  const details = src.completion_tokens_details ?? src.completionTokensDetails;
+  const detailRecord =
+    details && typeof details === "object" && !Array.isArray(details)
+      ? (details as Record<string, unknown>)
+      : null;
+  const reasoning = numToken(
+    src.reasoning_tokens ??
+      src.reasoningTokens ??
+      detailRecord?.reasoning_tokens ??
+      detailRecord?.reasoningTokens,
+  );
+  if (prompt === undefined && completion === undefined && total === undefined && reasoning === undefined) {
+    return null;
+  }
   return {
     prompt_tokens: prompt,
     completion_tokens: completion,
     total_tokens: total,
+    reasoning_tokens: reasoning,
   };
+}
+
+/** Reasoning tokens spent inside the completion budget. Null when the payload omits them. */
+export function reasoningTokensFromPayload(payload: unknown): number | null {
+  const usage = extractUsageFromPayload(payload);
+  return typeof usage?.reasoning_tokens === "number" ? usage.reasoning_tokens : null;
+}
+
+export function servFinishReason(payload: unknown): string | null {
+  return finishReasonOf(payload);
+}
+
+/**
+ * Plain sentence for a buyer-visible failure. No model prose.
+ * A length finish, or reasoning tokens with an empty answer, means the
+ * completion budget was spent before the answer was written.
+ */
+export function plainOutputFailure(payload: unknown, text: string): string | null {
+  const reason = finishReasonOf(payload);
+  const reasoning = reasoningTokensFromPayload(payload);
+  const empty = text.trim().length === 0;
+  if (reason === "length" || (empty && reasoning != null && reasoning > 0)) {
+    const spent = reasoning != null ? ` Reasoning tokens: ${reasoning}.` : "";
+    return `The model spent the answer budget on reasoning and returned no answer.${spent}`;
+  }
+  if (empty && reason) return `The model returned an empty answer (finish reason ${reason}).`;
+  if (empty) return "The model returned an empty answer.";
+  return null;
 }
 
 /** Extract + normalize usage from a chat/completions-style payload or proof.openserv. */
@@ -315,10 +363,13 @@ export function classifyServPlannerFailure(input: {
   }
 
   if (fields.contentEmpty && !text) {
+    const spentOnReasoning = fields.finishReason === "length" || (usage?.reasoning_tokens ?? 0) > 0;
     return {
-      category: "empty_content",
-      reasonCode: "empty_planner_content",
-      honesty: UNKNOWN_CAUSE_HONESTY,
+      category: spentOnReasoning ? "output_budget_exhausted" : "empty_content",
+      reasonCode: spentOnReasoning ? "output_budget_exhausted" : "empty_planner_content",
+      honesty: spentOnReasoning
+        ? "The completion budget was spent on reasoning tokens, so the answer text was empty."
+        : UNKNOWN_CAUSE_HONESTY,
       fields,
       usage,
     };
