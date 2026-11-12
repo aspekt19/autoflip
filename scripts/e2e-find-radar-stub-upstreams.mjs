@@ -28,6 +28,8 @@ const STUB_RAV4_VINS = [
 /** Zip centroids so distance filters can drop cars outside the radius. */
 const ZIP_LAT_LON = {
   "33101": [25.7617, -80.1918],
+  // City table resolves "near Miami" to 33130, a few miles from the 33101 stub cars.
+  "33130": [25.765, -80.23],
   "10001": [40.7506, -73.9971],
   "60601": [41.8863, -87.6181],
   "98101": [47.6101, -122.3344],
@@ -277,6 +279,10 @@ export function selfTestStubListings() {
   assertStub(nearNyc.data.every((row) => row.retailListing.zip !== "98101"), "distance filter kept the Seattle Civic");
   const none = filterStubListings("http://127.0.0.1/listings?vehicle.make=Toyota&vehicle.model=RAV4&vehicle.year=1999");
   assertStub(none.data.length === 0, "year filter kept a 2021 RAV4 for 1999");
+  const miami = filterStubListings(
+    "http://127.0.0.1/listings?vehicle.make=Toyota&vehicle.model=RAV4&zip=33130&distance=100",
+  );
+  assertStub(miami.data.length === 4, `33130 within 100 miles should keep the Miami RAV4s, got ${miami.data.length}`);
 }
 
 function schemaName(body) {
