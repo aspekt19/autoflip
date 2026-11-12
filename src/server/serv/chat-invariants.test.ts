@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { BASE_MODEL, requestFor } from "./index";
+import { BASE_MODEL, requestFor, type ServProfile } from "./index";
 import { PROFILES } from "./profiles";
 
 describe("SERV shared default + chat/non-stream invariants", () => {
@@ -22,7 +22,7 @@ describe("SERV shared default + chat/non-stream invariants", () => {
     expect(ids.length).toBeGreaterThan(5);
     for (const id of ids) {
       const req = requestFor(id as keyof typeof PROFILES, "{}");
-      const entry = PROFILES[id as keyof typeof PROFILES];
+      const entry = PROFILES[id as keyof typeof PROFILES] as ServProfile;
       // applicationTool must use /v1/responses with a real reasoning_effort (never chat+none).
       expect(req.endpoint).toBe(entry.applicationTool ? "responses" : "chat");
       expect(req.model).toContain(BASE_MODEL);
