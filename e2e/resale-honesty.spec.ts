@@ -104,7 +104,7 @@ test("Scout and Telegram stay hidden; Deal Radar is available when default-on", 
     await page.setViewportSize({ width, height: width === 390 ? 844 : 800 });
     await page.goto("/");
     const primaryNav = page.getByRole("navigation", { name: "Primary" });
-    // Below 1340px the header keeps primary links in the menu (display:none until open).
+    // Below 1400px the header keeps primary links in the menu (display:none until open).
     const openMenu = page.getByRole("button", { name: "Open menu" });
     if (await openMenu.isVisible()) await openMenu.click();
     await expect(primaryNav.getByRole("link", { name: "Resale" })).toBeVisible();
@@ -246,8 +246,9 @@ test("resale requires sign-in and budget-first search; one-car estimate stays ho
   await expect(page.getByRole("heading", { name: "No flip candidates in this budget" })).toBeVisible();
   await expect(page.getByText(/No listings cleared similar-listing economics/i).first()).toBeVisible();
   await expect(page.getByRole("strong").filter({ hasText: /^Verdict: pass$/i })).toHaveCount(0);
-  await expect(page.getByText(/Decision journal/i).first()).toBeVisible();
-  await expect(page.getByText(/How the agent decided/i).first()).toBeVisible();
+  // Buyer-facing journal title (replaces the old "Decision journal" / "How the agent decided" labels).
+  await expect(page.getByText(/How this decision was made/i).first()).toBeVisible();
+  await expect(page.getByText(/calculated checks only/i).first()).toBeVisible();
 
   await page.getByRole("strong").filter({ hasText: /^One-car buy-ceiling estimate$/i }).click();
   await expect(page.locator("#resale-year")).toBeVisible();

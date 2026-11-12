@@ -133,11 +133,17 @@ test("signed-out /check shows sign-in before any form fields", async ({ page }) 
   await mockSignedOut(page);
   await page.goto("/check");
   await expect(page.getByRole("heading", { name: "Sign in to continue" })).toBeVisible();
+  // Listing-link tab was intentionally removed in #170 (Check is VIN + paste only).
   await expect(page.getByLabel("Listing link")).toHaveCount(0);
+  await expect(page.getByRole("textbox", { name: "17-character VIN" })).toHaveCount(0);
   await page.screenshot({ path: join(SCREEN_DIR, "check-signed-out.png"), fullPage: true });
 });
 
-test("listing-link flow with dealer JSON-LD fixture (mocked API, no paid calls)", async ({ page }) => {
+/**
+ * "By listing link" was intentionally removed in cut(u6)/#170 — Check is VIN + paste only.
+ * These cases keep the dealer/sold fixture result contracts via the paste path.
+ */
+test("paste listing flow with dealer JSON-LD fixture (mocked API, no paid calls)", async ({ page }) => {
   await mockSignedIn(page);
   let accountRemaining = 3;
   await page.route("**/api/account", async (route) => {
@@ -169,11 +175,14 @@ test("listing-link flow with dealer JSON-LD fixture (mocked API, no paid calls)"
   });
 
   await page.goto("/check");
-  const urlBox = page.getByRole("textbox", { name: "Listing link" });
-  await expect(urlBox).toBeVisible();
+  await expect(page.getByRole("radio", { name: "By listing link" })).toHaveCount(0);
   await expect(page.getByText("Who is this for")).toHaveCount(0);
   await expect(page.getByText(/3 of 3 free checks left/i)).toBeVisible();
-  await urlBox.fill("https://dealer.example/inventory/camry-2021");
+  await page.locator("label.pill", { hasText: "Paste listing text" }).click({ force: true });
+  const html = readFileSync(join(FIXTURES, "dealer-jsonld.html"), "utf8");
+  await page.getByRole("textbox", { name: "Listing text" }).fill(
+    html.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim(),
+  );
   await page.getByRole("button", { name: "Check this car" }).click();
   await expect(page.getByRole("heading", { name: "2021 Toyota Camry" })).toBeVisible();
   await expect(page.getByText("VIN: 4T1KZ1AK4MU060006", { exact: true })).toBeVisible();
@@ -184,7 +193,7 @@ test("listing-link flow with dealer JSON-LD fixture (mocked API, no paid calls)"
   await page.screenshot({ path: join(SCREEN_DIR, "check-listing-dealer.png"), fullPage: true });
 });
 
-test("sold listing fixture shows stop warning and no soft no-red-flag copy", async ({ page }) => {
+test("sold listing fixture via paste shows stop warning and no soft no-red-flag copy", async ({ page }) => {
   await mockSignedIn(page);
   const payload = listingResultFromFixture("sold-schema-camry.html", "listing");
   await page.route("**/api/check", async (route) => {
@@ -196,8 +205,10 @@ test("sold listing fixture shows stop warning and no soft no-red-flag copy", asy
   });
 
   await page.goto("/check");
-  await page.getByRole("textbox", { name: "Listing link" }).fill(
-    "https://www.autoboutiquetexas.com/vehicle-details/used-2014-toyota-camry-le-4t1bf1fk0eu848445",
+  await page.locator("label.pill", { hasText: "Paste listing text" }).click({ force: true });
+  const html = readFileSync(join(FIXTURES, "sold-schema-camry.html"), "utf8");
+  await page.getByRole("textbox", { name: "Listing text" }).fill(
+    html.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim(),
   );
   await page.getByRole("button", { name: "Check this car" }).click();
   await expect(page.getByRole("heading", { name: /2014 Toyota Camry/i })).toBeVisible();

@@ -34,7 +34,7 @@ describe("primaryNavLinks", () => {
 });
 
 describe("splitPrimaryNavLinks", () => {
-  it("keeps the demo routes in core and reports in More, with frozen pages out of the nav", () => {
+  it("keeps product verbs + Pricing in core and parks docs under More, with frozen pages out of the nav", () => {
     const links = primaryNavLinks({
       flags: { resaleEvaluate: true, dealRadar: true, scout: false, telegram: false },
     });
@@ -44,11 +44,9 @@ describe("splitPrimaryNavLinks", () => {
       "/check",
       "/resale",
       "/radar",
-      "/where-serv-runs",
       "/pricing",
-      "/proof",
     ]);
-    expect(more.map((link) => link.href)).toEqual(["/reports"]);
+    expect(more.map((link) => link.href)).toEqual(["/reports", "/where-serv-runs", "/proof"]);
     for (const hidden of ["/scout", "/favorites", "/compare-cars", "/verify", "/developers"]) {
       expect(links.map((link) => link.href)).not.toContain(hidden);
     }
