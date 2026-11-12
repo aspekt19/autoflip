@@ -13,6 +13,7 @@ import {
   journalStepCopy,
   kindCopy,
   phaseCopy,
+  scrubJournalFailureDetail,
   sourceCopy,
   verdictCopy,
   type FailureReasonId,
@@ -145,7 +146,7 @@ export function runReportModel(view: RunView): RunReportModel {
   );
   const journal = orderedSteps.map((step) => {
     const copy = journalStepCopy(step.step, step.status);
-    const detail = step.failureDetail?.trim();
+    const detail = scrubJournalFailureDetail(step.failureDetail);
     if (step.status !== "failed" || !detail || copy.sentence.includes(detail)) return copy;
     const sentence = /[.!?]$/.test(copy.sentence.trim()) ? copy.sentence.trim() : `${copy.sentence.trim()}.`;
     return { ...copy, sentence: `${sentence} ${detail}` };

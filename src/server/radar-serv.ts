@@ -12,6 +12,7 @@ import {
 } from "@/domain/decision-proof-record";
 import { radarReviewFailureFields } from "@/domain/radar-review-activity";
 import { providerResponseIdFromCall } from "@/domain/serv-response-id";
+import { tryExtractServJson } from "@/domain/serv-json";
 import { parseServVerdict } from "@/domain/verdict-decide";
 import type { AlertNumbers } from "@/domain/radar-watch";
 import type { PriceBadge } from "@/domain/price-badge";
@@ -396,7 +397,11 @@ export async function reviewPersonalCandidate(
         );
       } else {
         try {
-          const body = JSON.parse(challenged.text) as {
+          const extracted = tryExtractServJson(challenged.text);
+          if (!extracted || typeof extracted !== "object" || Array.isArray(extracted)) {
+            throw new Error("challenge JSON unreadable");
+          }
+          const body = extracted as {
             agrees?: boolean;
             action?: string;
             objection?: string | null;

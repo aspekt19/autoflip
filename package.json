@@ -28,7 +28,8 @@
     "test:hero-scrub": "node scripts/hero-scrub-scroll.mjs",
     "smoke:free-gov": "node scripts/free-gov-smoke.mjs",
     "probe:listing-fetch": "tsx scripts/probe-listing-fetch.ts",
-    "eval:serv-vs-baseline": "tsx scripts/eval-serv-vs-baseline.ts --dry-run"
+    "eval:serv-vs-baseline": "tsx scripts/eval-serv-vs-baseline.ts --dry-run",
+    "replay:choose-car-messy": "tsx scripts/replay-choose-car-messy.ts"
   },
   "engines": {
     "node": "22.x"

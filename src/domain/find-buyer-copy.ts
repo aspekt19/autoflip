@@ -287,7 +287,9 @@ export function plainDecisionEngineText(text: string): string {
 
 /** Plain stand-in for an internal gate id when that id would otherwise be shown to a buyer. */
 export function plainBuyerPhrase(text: string): string {
-  let out = text;
+  let out = text
+    .replace(/\banswer unreadable\b/gi, "the decision answer could not be read")
+    .replace(/\bunreadable answer\b/gi, "the decision answer could not be read");
   const ids = Object.keys(BUYER_ID_LABELS).sort((a, b) => b.length - a.length);
   for (const id of ids) out = out.replaceAll(id, BUYER_ID_LABELS[id]!);
   return out;

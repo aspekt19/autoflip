@@ -201,6 +201,21 @@ export function journalStepCopy(id: JournalStepId, status: StepStatus): { title:
   return { title: row.title, sentence: row[status] };
 }
 
+/**
+ * Map internal decide-failure fragments onto buyer-safe journal detail.
+ * Never append "answer unreadable" (or similar) to a journal sentence.
+ */
+export function scrubJournalFailureDetail(detail: string | null | undefined): string | null {
+  const text = (detail ?? "").trim();
+  if (!text) return null;
+  const scrubbed = text
+    .replace(/\banswer unreadable\b/gi, "the decision answer could not be read")
+    .replace(/\bunreadable answer\b/gi, "the decision answer could not be read")
+    .replace(/\s{2,}/g, " ")
+    .trim();
+  return scrubbed || null;
+}
+
 export function sourceCopy(id: SourceId): string {
   return SOURCE_COPY[id];
 }

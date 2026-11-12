@@ -14,6 +14,7 @@ import {
   clampFindNextCheckId,
   type FindNextCheckId,
 } from "./find-next-checks";
+import { tryExtractServJson } from "./serv-json";
 
 /** Documented Scout free-gov toolId → Find checkId (same NHTSA families). */
 export const FIND_NEXT_CHECK_SCOUT_ALIASES: Readonly<Record<string, FindNextCheckId>> = {
@@ -182,12 +183,10 @@ export function resolveConsistencyTargetKeys(
 export function parseFindNextCheckChoice(
   text: string,
 ): { checkId: string; note: string; targetKeys: string[] | null } | null {
-  const trimmed = text.trim();
-  const start = trimmed.indexOf("{");
-  const end = trimmed.lastIndexOf("}");
-  if (start < 0 || end <= start) return null;
   try {
-    const raw = JSON.parse(trimmed.slice(start, end + 1)) as {
+    const extracted = tryExtractServJson(text);
+    if (!extracted || typeof extracted !== "object" || Array.isArray(extracted)) return null;
+    const raw = extracted as {
       checkId?: unknown;
       note?: unknown;
       targetKeys?: unknown;

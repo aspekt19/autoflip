@@ -10,6 +10,7 @@ import {
   type NoteBodyStyle,
   type TransmissionPref,
 } from "./note-intake";
+import { extractServJson } from "./serv-json";
 import { FALLBACK_MODELS, MAINSTREAM_MAKES } from "./vehicle-names";
 
 export { budgetFromText };
@@ -1111,12 +1112,7 @@ export function supplementNeedFromNote(need: StructuredNeed, text: string): Stru
 }
 
 export function parseNeedJson(text: string): unknown {
-  const fenced = text.match(/```(?:json)?\s*([\s\S]*?)```/i);
-  const body = (fenced?.[1] ?? text).trim();
-  const start = body.indexOf("{");
-  const end = body.lastIndexOf("}");
-  if (start < 0 || end <= start) throw new Error("no json");
-  return JSON.parse(body.slice(start, end + 1));
+  return extractServJson(text);
 }
 
 export function yearBandForBudget(

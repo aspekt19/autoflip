@@ -13,6 +13,7 @@ import {
   type ResaleEvidenceBundle,
   type ResaleServValidation,
 } from "@/domain/resale-serv-validate";
+import { tryExtractServJson } from "@/domain/serv-json";
 import { chatCompletionContent, profile, runServ, type ProfileId, type ServDeps, type ServResult } from "@/server/serv";
 
 /** Real SERV body for proofRecords — never invent. */
@@ -26,13 +27,9 @@ export function rawResponseFromServResult(result: ServResult): string | null {
 
 export function parseJsonObject(text: string | null | undefined): Record<string, unknown> | null {
   if (!text?.trim()) return null;
-  try {
-    const parsed = JSON.parse(text) as unknown;
-    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return null;
-    return parsed as Record<string, unknown>;
-  } catch {
-    return null;
-  }
+  const parsed = tryExtractServJson(text);
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return null;
+  return parsed as Record<string, unknown>;
 }
 
 /** Strip known citation prefixes models often echo into structured fields. */

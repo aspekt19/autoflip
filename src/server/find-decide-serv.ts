@@ -15,6 +15,9 @@ import {
   type FindDecide,
   type FindDecideAction,
   type FindDecideConfidence,
+  type FindDecideIssue,
+  type FindDecideShortlistMeta,
+  type ValidateFindDecideResult,
 } from "@/domain/find-decide";
 import { isAwdDrivetrain } from "@/domain/find-car-consistency";
 import {
@@ -25,6 +28,7 @@ import {
 } from "@/domain/find-best-deal";
 import type { FindFreeGovReceipt } from "@/domain/find-free-gov";
 import { needPrefersAwd, type StructuredNeed } from "@/domain/need";
+import { extractServJson, tryExtractServJson } from "@/domain/serv-json";
 import type { Listing } from "@/domain/types";
 import {
   buildDecisionProofRecord,
@@ -37,7 +41,13 @@ import {
   publishBestDeal,
 } from "@/server/find-settle-serv";
 import { FIND_DECIDE_MIN_MS } from "@/domain/route-budget";
-import { chatCompletionContent, profile, type ServDeps, type ServResult } from "@/server/serv";
+import {
+  chatCompletionContent,
+  profile,
+  runServ,
+  type ServDeps,
+  type ServResult,
+} from "@/server/serv";
 import { callStep, DECIDE_STOP_MESSAGE, SECOND_CHECK_MISSED } from "@/server/serv/call-step";
 
 function receiptEvidenceId(r: FindFreeGovReceipt): string {
@@ -49,15 +59,82 @@ function mapActionToVerdict(action: FindDecideAction): AgentVerdict["verdict"] {
   return action;
 }
 
-function plainDecideFailure(judged: ServResult, issues: { field: string; message: string }[]): string {
+/** Never store or show the internal fragment "answer unreadable". */
+export function scrubDecideFailureDetail(detail: string | null | undefined): string {
+  const text = (detail ?? "").trim();
+  if (!text) return "the decision answer could not be read";
+  return text
+    .replace(/\banswer unreadable\b/gi, "the decision answer could not be read")
+    .replace(/\s{2,}/g, " ")
+    .trim();
+}
+
+function plainDecideFailure(judged: ServResult, issues: FindDecideIssue[]): string {
   if (!judged.ok) {
-    if (judged.transportErrorClass === "timeout" || judged.transportErrorClass === "abort") return "timed out before an answer";
+    if (judged.transportErrorClass === "timeout" || judged.transportErrorClass === "abort") {
+      return "timed out before an answer";
+    }
     if (judged.httpAttempts === 0) return "timed out before asking";
-    if (judged.status === 200) return judged.error?.trim() || "answer unreadable";
+    if (judged.status === 200) {
+      return scrubDecideFailureDetail(judged.error) || "the decision answer could not be read";
+    }
     return "the decision service returned an error";
   }
-  if (issues.some((issue) => issue.field === "pickKey")) return "blocked by rule: the choice was not one of the cars in this search";
-  return "answer unreadable";
+  if (issues.some((issue) => issue.field === "pickKey")) {
+    return "blocked by rule: the choice was not one of the cars in this search";
+  }
+  if (issues.length === 1 && issues[0]?.message) return issues[0].message;
+  if (issues.length > 0) return "the decision answer failed validation";
+  return "the decision answer could not be read";
+}
+
+function logRejectedDecideAnswer(text: string | null | undefined, issues: FindDecideIssue[]): void {
+  const sample = (text ?? "").slice(0, 2000);
+  console.error(
+    `[choose_car] rejected decide answer (${sample.length} chars): ${sample}`,
+  );
+  console.error(`[choose_car] validation issues: ${JSON.stringify(issues)}`);
+}
+
+function parseDecidePayload(
+  text: string | null | undefined,
+  ctx: {
+    shortlistKeys: readonly string[];
+    allowedEvidenceIds: ReadonlySet<string>;
+    askUsd?: number | null;
+    fairValueUsd?: number | null;
+    fairValueLowUsd?: number | null;
+    fairValueHighUsd?: number | null;
+    shortlist?: readonly FindDecideShortlistMeta[];
+  },
+): { payload: unknown; validated: ValidateFindDecideResult; unparseable: boolean } {
+  if (!text?.trim()) {
+    return {
+      payload: null,
+      unparseable: true,
+      validated: {
+        ok: false,
+        issues: [{ field: "decide", message: "the decision answer could not be read" }],
+      },
+    };
+  }
+  try {
+    const payload = extractServJson(text);
+    return {
+      payload,
+      unparseable: false,
+      validated: validateFindDecide(payload, ctx),
+    };
+  } catch {
+    return {
+      payload: null,
+      unparseable: true,
+      validated: {
+        ok: false,
+        issues: [{ field: "decide", message: "the decision answer could not be read" }],
+      },
+    };
+  }
 }
 
 function emptySecondPass(
@@ -231,56 +308,124 @@ export async function runFindDecideServ(input: {
     },
   });
 
+  const shortlistMeta: FindDecideShortlistMeta[] = peers.map((row) => ({
+    key: row.key,
+    vin: row.vin ?? null,
+    year: row.year,
+    make: row.make,
+    model: row.model,
+  }));
+
+  const decideValidateCtx = (pickRow: BestDealCandidate) => {
+    const report = buildFindPickComputedReport(pickRow, peers, input.marketPool ?? []);
+    return {
+      shortlistKeys,
+      allowedEvidenceIds,
+      askUsd: pickRow.priceUsd ?? null,
+      fairValueUsd: report.fairValueUsd ?? null,
+      fairValueLowUsd: report.fairRangeLowUsd ?? null,
+      fairValueHighUsd: report.fairRangeHighUsd ?? null,
+      shortlist: shortlistMeta,
+    };
+  };
+
+  const acceptDecideText = (text: string): boolean => {
+    try {
+      return validateFindDecide(extractServJson(text), {
+        shortlistKeys,
+        allowedEvidenceIds,
+        askUsd: codePick?.priceUsd ?? null,
+        shortlist: shortlistMeta,
+      }).ok;
+    } catch {
+      return false;
+    }
+  };
+
   if (servKey && codePick && shortlistKeys.length > 0 && decideTimeoutMs >= FIND_DECIDE_MIN_MS) {
+    const servDeps: ServDeps = {
+      fetch: input.fetchImpl,
+      apiKey: servKey,
+      baseUrl: input.servBaseUrl,
+      model: input.model,
+      transportPolicy: input.transportPolicy,
+      timeoutMs: decideTimeoutMs,
+    };
     const step = await callStep({
       profileId: "find_decide",
       user: decideUser,
       critical: true,
       remainingMs: input.remainingMs ?? decideTimeoutMs,
-      accept: (text) => {
-        try {
-          const payload = JSON.parse(text) as unknown;
-          return validateFindDecide(payload, {
-            shortlistKeys,
-            allowedEvidenceIds,
-            askUsd: codePick.priceUsd ?? null,
-          }).ok;
-        } catch {
-          return false;
-        }
-      },
-      deps: {
-        fetch: input.fetchImpl,
-        apiKey: servKey,
-        baseUrl: input.servBaseUrl,
-        model: input.model,
-        transportPolicy: input.transportPolicy,
-        timeoutMs: decideTimeoutMs,
-      },
+      accept: acceptDecideText,
+      deps: servDeps,
     });
-    const judged = step.result;
-    let payload: unknown = null;
-    if (judged.ok && judged.text?.trim()) {
-      try {
-        payload = JSON.parse(judged.text);
-      } catch {
-        payload = null;
-      }
+    let judged = step.result;
+    let parsed = parseDecidePayload(
+      judged.ok ? judged.text : null,
+      decideValidateCtx(
+        (() => {
+          const guess =
+            judged.ok && judged.text
+              ? (() => {
+                  const payload = tryExtractServJson(judged.text);
+                  if (
+                    payload &&
+                    typeof payload === "object" &&
+                    !Array.isArray(payload) &&
+                    typeof (payload as { pickKey?: unknown }).pickKey === "string"
+                  ) {
+                    return String((payload as { pickKey: string }).pickKey).trim();
+                  }
+                  return "";
+                })()
+              : "";
+          return rankedByKey.get(guess) ?? codePick;
+        })(),
+      ),
+    );
+
+    // One validation-error repair call (triage pattern). Real transport failure still stops.
+    if (!parsed.validated.ok && judged.ok) {
+      logRejectedDecideAnswer(
+        judged.text,
+        parsed.validated.ok === false ? parsed.validated.issues : [],
+      );
+      const repair = await runServ(
+        "find_decide",
+        {
+          user: JSON.stringify({
+            facts: JSON.parse(decideUser).facts,
+            validationError: {
+              message: "Previous decide reply failed validation. Fix these issues and return JSON only.",
+              issues: parsed.validated.ok === false ? parsed.validated.issues : [],
+            },
+          }),
+        },
+        servDeps,
+      );
+      judged = repair;
+      const repairGuess =
+        repair.ok && repair.text
+          ? (() => {
+              const payload = tryExtractServJson(repair.text);
+              if (
+                payload &&
+                typeof payload === "object" &&
+                !Array.isArray(payload) &&
+                typeof (payload as { pickKey?: unknown }).pickKey === "string"
+              ) {
+                return String((payload as { pickKey: string }).pickKey).trim();
+              }
+              return "";
+            })()
+          : "";
+      parsed = parseDecidePayload(
+        repair.ok ? repair.text : null,
+        decideValidateCtx(rankedByKey.get(repairGuess) ?? codePick),
+      );
     }
-    const pickKeyGuess =
-      payload && typeof payload === "object" && !Array.isArray(payload) && typeof (payload as { pickKey?: unknown }).pickKey === "string"
-        ? String((payload as { pickKey: string }).pickKey).trim()
-        : "";
-    const servPickRow = rankedByKey.get(pickKeyGuess) ?? codePick;
-    const servPickReport = buildFindPickComputedReport(servPickRow, peers, input.marketPool ?? []);
-    const revalidated = validateFindDecide(payload, {
-      shortlistKeys,
-      allowedEvidenceIds,
-      askUsd: servPickRow.priceUsd ?? null,
-      fairValueUsd: servPickReport.fairValueUsd ?? null,
-      fairValueLowUsd: servPickReport.fairRangeLowUsd ?? null,
-      fairValueHighUsd: servPickReport.fairRangeHighUsd ?? null,
-    });
+
+    const revalidated = parsed.validated;
     const rawResponse =
       chatCompletionContent(judged.proof?.openserv) ?? (judged.ok ? judged.text : null) ?? null;
     decideModel = judged.proof?.modelReported ?? judged.proof?.modelRequested ?? input.model ?? null;
@@ -312,7 +457,9 @@ export async function runFindDecideServ(input: {
         }),
       );
     } else {
-      decideFailureDetail = plainDecideFailure(judged, revalidated.ok === false ? revalidated.issues : []);
+      const issues = revalidated.ok === false ? revalidated.issues : [];
+      logRejectedDecideAnswer(judged.ok ? judged.text : null, issues);
+      decideFailureDetail = scrubDecideFailureDetail(plainDecideFailure(judged, issues));
       console.error(`[choose_car] ${decideFailureDetail}`);
       const failedId = providerResponseId(providerId);
       proofRecords.push(
@@ -325,14 +472,14 @@ export async function runFindDecideServ(input: {
           model: decideModel,
           inputs: {
             shortlistKeys,
-            issues: revalidated.ok === false ? revalidated.issues : [],
+            issues,
           },
           detail: decideFailureDetail,
           rawResponse,
         }),
       );
-      // An empty or unreadable answer is not a decision. Do not publish a code verdict.
-      if (!judged.ok) {
+      // Stopped / unreadable decide is not a decision. Do not publish a code verdict.
+      if (!judged.ok || step.status === "stopped" || parsed.unparseable) {
         return {
           bestDeal: input.bestDeal,
           decide: {
@@ -487,15 +634,12 @@ export async function runFindDecideServ(input: {
     }
     let payload: unknown = null;
     if (challenged.ok && challenged.text?.trim()) {
-      try {
-        payload = JSON.parse(challenged.text);
-      } catch {
-        payload = null;
-      }
+      payload = tryExtractServJson(challenged.text);
     }
     const validated = validateFindChallenge(payload, {
       shortlistKeys,
       allowedEvidenceIds,
+      shortlist: shortlistMeta,
     });
     const rawResponse =
       chatCompletionContent(challenged.proof?.openserv) ??

@@ -24,6 +24,7 @@ import {
   type DecisionProofRecord,
 } from "@/domain/decision-proof-record";
 import { providerResponseId } from "@/domain/serv-response-id";
+import { tryExtractServJson } from "@/domain/serv-json";
 import { chatCompletionContent, profile, runServ } from "@/server/serv";
 import type { ServDeps } from "@/server/serv";
 import { classifyServTransportError } from "@/server/serv/transport-error";
@@ -185,12 +186,8 @@ export async function runFindTriageServ(input: {
       let payload: unknown = null;
       let unparseable = false;
       if (judged.ok && judged.text?.trim()) {
-        try {
-          payload = JSON.parse(judged.text);
-        } catch {
-          payload = null;
-          unparseable = true;
-        }
+        payload = tryExtractServJson(judged.text);
+        if (payload == null) unparseable = true;
       } else if (judged.ok) {
         unparseable = true;
       }
