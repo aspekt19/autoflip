@@ -1,7 +1,8 @@
 /**
  * PR B Find decide orchestrator: free-gov (if needed) → C2 triage → C3 decide → C4 challenge.
- * Replaces the next-check hop loop for the decide path.
+ * When FIND_AGENT_LOOP is on (and SERV is keyed), prefers the agentic tool loop; falls back to triage→decide.
  */
+import { findAgentLoopEnabled, resolveFindAgentMode, type FindAgentRelaxedCondition } from "@/domain/find-agent";
 import { alignPublishedConfidence } from "@/domain/find-best-deal";
 import { decideBudgetMs, FIND_DECIDE_ROUTE_MS } from "@/domain/route-budget";
 import {
@@ -11,6 +12,9 @@ import {
 } from "@/domain/find-free-gov";
 import { riskCoverageHonesty } from "@/domain/find-risk-evidence";
 import type { Kv } from "@/io/kv";
+import { listingCache } from "@/server/deps";
+import { runFindAgentLoop, summarizeFindAgentJournal } from "@/server/find-agent/loop";
+import { mapFindAgentLoopToDecide } from "@/server/find-agent/map-to-decide";
 import { runFindDecideServ } from "@/server/find-decide-serv";
 import { runFindTriageServ } from "@/server/find-triage-serv";
 import {
@@ -19,7 +23,19 @@ import {
   updateFindSearchContext,
   type FindSearchContextRecord,
 } from "@/server/find-search-context";
+import { counterStore } from "@/io/store";
+import { reserveTotalCall } from "@/io/persistent-quota";
 import type { ServDeps } from "@/server/serv";
+import { DECISION_PROOF_SCHEMA, type DecisionProofRecord } from "@/domain/decision-proof-view";
+
+export type FindAgentLoopMeta = {
+  agentMode: "tools" | "next_action";
+  toolRounds: number;
+  verdictReached: boolean;
+  relaxedConditions: FindAgentRelaxedCondition[];
+  journalServCalls: number;
+  journalToolCalls: number;
+};
 
 export type FindDecideOrchestratorOk = {
   ok: true;
@@ -45,6 +61,8 @@ export type FindDecideOrchestratorOk = {
   replay: boolean;
   /** Same inventory the live offer uses. The permalink must not recompute from the shortlist alone. */
   offerPool: import("@/domain/types").Listing[];
+  /** Present when the agentic Find loop published this decide. */
+  agentLoop?: FindAgentLoopMeta | null;
 };
 
 export type FindDecideOrchestratorErr = {
@@ -62,6 +80,7 @@ export async function runFindDecideOrchestrator(
     kv: Kv;
     userId: string;
     servKey?: string | null;
+    autodevKey?: string | null;
     servModel?: string;
     servBaseUrl?: string;
     fetchImpl?: typeof fetch;
@@ -72,6 +91,9 @@ export async function runFindDecideOrchestrator(
     /** Route clock. The decision call waits for whatever is left after the second-check reserve. */
     budgetMs?: number;
     startedAtMs?: number;
+    env?: NodeJS.ProcessEnv | Record<string, string | undefined>;
+    /** Test seam for the agentic loop. */
+    runFindAgentLoopImpl?: typeof runFindAgentLoop;
   },
 ): Promise<FindDecideOrchestratorResult> {
   const startedAtMs = deps.startedAtMs ?? Date.now();
@@ -149,6 +171,7 @@ export async function runFindDecideOrchestrator(
       carChecks: record.carChecks ?? [],
       replay: true,
       offerPool: marketPool,
+      agentLoop: null,
     };
   }
 
@@ -172,6 +195,112 @@ export async function runFindDecideOrchestrator(
   }
 
   const marketPool = marketPoolFromListingFacts(record.compsPool ?? record.listings);
+
+  // 1b) Agentic SERV loop (preferred when flagged + keyed). Falls back to triage→decide on failure.
+  const env = deps.env ?? process.env;
+  const autodevKey = deps.autodevKey?.trim() || env.AUTODEV_API_KEY?.trim() || "";
+  const agentEnabled = findAgentLoopEnabled(env, { servKey: deps.servKey });
+  if (agentEnabled && deps.servKey?.trim() && autodevKey) {
+    const runAgent = deps.runFindAgentLoopImpl ?? runFindAgentLoop;
+    const seedListings =
+      marketPool.length > 0
+        ? marketPool
+        : marketPoolFromListingFacts(record.listings);
+    const agent = await runAgent({
+      note: deps.shopperNote?.trim() || record.need.note || "",
+      mode: resolveFindAgentMode(env),
+      formEdits: {
+        zip: record.need.zip,
+        distanceMiles: record.need.distanceMiles,
+        budgetUsd: record.need.budgetUsd,
+        yearMin: record.need.yearMin,
+        yearMax: record.need.yearMax,
+        milesMax: record.need.milesMax,
+      },
+      deps: {
+        servKey: deps.servKey.trim(),
+        autodevKey,
+        fetch: deps.fetchImpl,
+        servBaseUrl: deps.servBaseUrl,
+        seedListings,
+        budgetUsd: record.need.budgetUsd,
+        autodev: {
+          cache: listingCache(),
+          counter: counterStore(),
+          reserve: () => reserveTotalCall(deps.kv),
+        },
+      },
+    });
+    if (agent.ok) {
+      const mapped = mapFindAgentLoopToDecide({ agent });
+      record = await updateFindSearchContext(deps.kv, record, {
+        loopSettled: true,
+        triageShortlistKeys: mapped.shortlistKeys,
+      });
+      const coverage = freeGovToolCoverage(record.listings, receipts);
+      const counts = summarizeFindAgentJournal(agent.journal);
+      const lastServ = [...agent.journal].reverse().find((e) => e.kind === "serv");
+      const proofRecords: DecisionProofRecord[] = [
+        {
+          schemaVersion: DECISION_PROOF_SCHEMA,
+          purpose: "find_agent_loop",
+          rubricId: "find_agent_loop",
+          status: "ok",
+          servResponseId: lastServ && lastServ.kind === "serv" ? lastServ.responseId : null,
+          model: "gpt-6.1-sol",
+          timestamp: new Date().toISOString(),
+          inputsDigest: `agent:${agent.agentMode}:${agent.toolRounds}:dropped=${agent.droppedPicks.length}`,
+          verdict: mapped.agentVerdict.verdict,
+          clampResult: null,
+          reason: null,
+        },
+      ];
+      return {
+        ok: true,
+        status: 200,
+        searchContextToken: record.token,
+        bestDeal: mapped.bestDeal,
+        pickAgentVerdict: mapped.agentVerdict,
+        pickSecondPass: mapped.agentVerdict.second_pass ?? {
+          status: "not_run",
+          action: null,
+          objection: "Second check not run: agentic Find loop path.",
+          evidenceIds: [],
+          confidenceBefore: null,
+          confidenceAfter: null,
+        },
+        pickProofRecords: proofRecords,
+        freeGovReceipts: receipts,
+        freeGovCoverage: coverage,
+        riskCoverage: riskCoverageHonesty(record.listings, receipts),
+        freeEvidenceNote: freeEvidenceNote || coverage.note,
+        triageSource: "SERV",
+        decideSource: "SERV",
+        shortlistKeys: mapped.shortlistKeys,
+        loop: {
+          continue: false,
+          reason: "decide_settled",
+          detail: `Agentic Find loop finished (mode=${agent.agentMode}, toolRounds=${agent.toolRounds}).`,
+        },
+        honesty: "SERV agentic Find loop published under VIN/budget guardrails.",
+        needAfter: record.need,
+        appliedCheckIds: record.appliedCheckIds,
+        decisionLog: record.decisionLog ?? [],
+        carChecks: record.carChecks ?? [],
+        replay: false,
+        offerPool: mapped.offerPool.length > 0 ? mapped.offerPool : marketPool,
+        agentLoop: {
+          agentMode: agent.agentMode,
+          toolRounds: agent.toolRounds,
+          verdictReached: true,
+          relaxedConditions: agent.relaxedConditions,
+          journalServCalls: counts.servCalls,
+          journalToolCalls: counts.toolCalls,
+        },
+      };
+    }
+    // Fall through to classic triage→decide when the agent loop cannot finish.
+  }
 
   // 2) C2 triage
   const triage = await runFindTriageServ({
@@ -289,5 +418,6 @@ export async function runFindDecideOrchestrator(
     carChecks: record.carChecks ?? [],
     replay: false,
     offerPool: marketPool,
+    agentLoop: null,
   };
 }

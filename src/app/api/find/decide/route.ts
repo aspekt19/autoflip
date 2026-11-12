@@ -100,10 +100,12 @@ export async function POST(request: Request) {
       kv,
       userId: id,
       servKey: deps.servKey,
+      autodevKey: deps.autodevKey,
       servModel: deps.servModel,
       servBaseUrl: deps.servBaseUrl,
       budgetMs: FIND_DECIDE_ROUTE_MS,
       startedAtMs: Date.now(),
+      env: process.env,
     },
   );
 

@@ -37,6 +37,15 @@ import { type ResaleSettleCheckpoint } from "@/server/resale-settle-serv";
 import { resaleBuyerCopy, resaleCardCopy } from "@/domain/resale-outcome";
 import { readResaleSpecCache, replayCreditLine, writeResaleSpecCache } from "@/server/resale-spec-cache";
 import { decideResale } from "@/server/serv-plan-decide";
+import {
+  resaleAgentLoopEnabled,
+  resolveResaleAgentMode,
+} from "@/domain/resale-agent";
+import { stateFromZip } from "@/domain/zip-to-state";
+import { TtlCache } from "@/io/cache";
+import { MemoryCounter } from "@/io/quota";
+import { runResaleAgentLoop } from "@/server/resale-agent/loop";
+import { mapResaleAgentLoopToSettle } from "@/server/resale-agent/map-to-settle";
 
 export const RESALE_JOB_TTL_SEC = 60 * 60 * 2; // 2h
 export const RESALE_JOB_STEP_BUDGET_MS = RESALE_INTERNAL_BUDGET_MS;
@@ -680,8 +689,11 @@ export async function advanceResaleJob(
     servBaseUrl?: string;
     servModel?: string;
     fetchImpl?: typeof fetch;
+    env?: NodeJS.ProcessEnv | Record<string, string | undefined>;
     /** Required for step 2 inventory (Auto.dev). */
     inventoryDeps?: Omit<ResaleSearchDeps, "kv" | "deadline" | "stopAfter" | "skipPlanServ" | "priorPlanJournal" | "planRefine">;
+    /** Test seam: inject agent loop. */
+    runResaleAgentLoopImpl?: typeof runResaleAgentLoop;
   },
 ): Promise<AdvanceResaleJobResult> {
   const jobId = deps.jobId.trim();
@@ -765,12 +777,119 @@ export async function advanceResaleJob(
   logResaleStage(`job_step${nextStep}_start`, deadline.startedAtMs, { jobId });
 
   try {
-    // Step 2: inventory + code PnL (own ~50s budget; plan already done).
+    // Step 2: agentic Resale loop (preferred) or classic inventory + code PnL.
     if (nextStep === 2) {
       if (job.candidates.length > 0 || job.emptyReason) {
         job = { ...job, stepCompleted: Math.max(job.stepCompleted, 2) as ResaleJobRecord["stepCompleted"] };
         return { ok: true, job, balance };
       }
+      if (job.delivery && job.settleCheckpoint?.phaseCompleted === "shopper") {
+        job = {
+          ...job,
+          stepCompleted: RESALE_JOB_FINAL_STEP,
+          updatedAt: new Date().toISOString(),
+        };
+        if (!job.charged) {
+          const retried = await retryUnpaidCharge(deps.kv, job);
+          return { ok: true, job: retried.job, balance: retried.balance };
+        }
+        return { ok: true, job, balance };
+      }
+
+      const env = deps.env ?? process.env;
+      const servKey = (deps.servKey ?? deps.inventoryDeps?.servKey ?? env.SERV_API_KEY ?? "").trim();
+      const autodevKey = (
+        deps.inventoryDeps?.autodevKey ??
+        env.AUTODEV_API_KEY ??
+        ""
+      ).trim();
+      const agentEnabled = resaleAgentLoopEnabled(env, { servKey });
+      if (agentEnabled && servKey && autodevKey) {
+        const runAgent = deps.runResaleAgentLoopImpl ?? runResaleAgentLoop;
+        const note =
+          job.input.freeText?.trim() ||
+          [
+            job.input.preferredMakes.length ? `Preferred makes: ${job.input.preferredMakes.join(", ")}` : null,
+            job.input.bodyStyle ? `Body: ${job.input.bodyStyle}` : null,
+            `Budget $${job.input.budgetUsd}`,
+            job.input.zip ? `Near ${job.input.zip}` : null,
+            "Find profitable flips.",
+          ]
+            .filter(Boolean)
+            .join(". ");
+        const agent = await runAgent({
+          note,
+          mode: resolveResaleAgentMode(env),
+          shopperContext: {
+            budgetUsd: job.input.budgetUsd,
+            zip: job.input.zip,
+            distanceMiles: job.input.distanceMiles,
+            bodyStyle: job.input.bodyStyle,
+            preferredMakes: job.input.preferredMakes,
+            preferredModels: job.input.preferredModels,
+            yearMin: job.input.yearMin,
+            yearMax: job.input.yearMax,
+            milesMax: job.input.milesMax,
+            repairAbility: job.input.repairAbility,
+            targetProfitUsd: job.input.targetProfitUsd,
+            asIs: job.input.asIs,
+            sellWithinDays: job.input.sellWithinDays,
+            timeToSell: job.input.timeToSell,
+            resaleChannel: job.input.resaleChannel,
+            plannedDirectionIds: job.plannedDirectionIds,
+          },
+          deps: {
+            servKey,
+            autodevKey,
+            fetch: deps.fetchImpl ?? deps.inventoryDeps?.fetchImpl,
+            servBaseUrl: deps.servBaseUrl ?? deps.inventoryDeps?.servBaseUrl,
+            budgetUsd: job.input.budgetUsd,
+            pnlOptions: {
+              repairAbility: job.input.repairAbility,
+              resaleChannel: job.input.resaleChannel,
+              asIs: job.input.asIs,
+              sellWithinDays: job.input.sellWithinDays,
+              targetProfitUsd: job.input.targetProfitUsd,
+              taxState: stateFromZip(job.input.zip),
+            },
+            autodev: deps.inventoryDeps?.autodev ?? {
+              cache: new TtlCache<unknown>(),
+              counter: new MemoryCounter(),
+            },
+          },
+        });
+        if (agent.ok) {
+          const mapped = mapResaleAgentLoopToSettle({
+            agent,
+            searchInput: job.input,
+            priorJournal: job.planJournal,
+            providerQueriesUsed: job.providerQueriesUsed,
+            scope: job.scope,
+          });
+          job = {
+            ...job,
+            stepCompleted: RESALE_JOB_FINAL_STEP,
+            candidates: mapped.candidates,
+            settleCheckpoint: mapped.checkpoint,
+            emptyReason: mapped.delivery.emptyReason,
+            updatedAt: new Date().toISOString(),
+          };
+          const charged = await chargeAndStoreDelivery(deps.kv, job, mapped.delivery);
+          logResaleStage("job_agent_loop_done", deadline.startedAtMs, {
+            jobId,
+            mode: agent.agentMode,
+            toolRounds: agent.toolRounds,
+            bestVin: mapped.delivery.best?.vin ?? null,
+          });
+          return { ok: true, job: charged.job, balance: charged.balance };
+        }
+        logResaleStage("job_agent_loop_fallback", deadline.startedAtMs, {
+          jobId,
+          error: agent.error,
+        });
+        // Fall through to classic inventory when the agent loop cannot finish.
+      }
+
       if (!deps.inventoryDeps) {
         return {
           ok: false,

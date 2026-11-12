@@ -1,5 +1,7 @@
 import { findDecidePathEnabled } from "@/domain/find-decide-path";
 import { findDeliveryChargesCredit } from "@/domain/find-delivery";
+import type { SearchDirection } from "@/domain/directions";
+import { findPlanToServHint, type FindPlan } from "@/domain/find-plan";
 import { buildSearchSpec } from "@/domain/search-spec";
 import { validateNeed } from "@/domain/need";
 import { creditBalance, creditEventSeen } from "@/io/credit-book";
@@ -66,6 +68,9 @@ export async function POST(request: Request) {
     refine?: { make?: string; model?: string; yearMin?: number; yearMax?: number };
     searchIdempotencyKey?: string;
     runId?: string;
+    /** C1 find_plan — owns SearchSpec hard vs soft when present. */
+    findPlan?: FindPlan;
+    directions?: SearchDirection[];
     /** When set and owned by this verified account, rematch continues without a second debit. */
     searchContextToken?: string;
   } | null;
@@ -413,6 +418,7 @@ export async function POST(request: Request) {
             radiusMi: { value: validatedNeed.need.distanceMiles, dirty: true },
           }
         : undefined,
+      servPlan: body?.findPlan ? findPlanToServHint(body.findPlan) : undefined,
     });
     const runId = await syncRunSafely(kv, {
       runId: typeof body?.runId === "string" ? body.runId : null,

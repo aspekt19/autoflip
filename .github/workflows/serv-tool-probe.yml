@@ -1,0 +1,65 @@
+name: SERV tool-calling probe
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - "cursor/choose-car-parse-stabilize-13d2"
+    paths:
+      - "scripts/probe-serv-tools.ts"
+      - "src/server/serv/agent-chat-turn.ts"
+      - "src/app/api/internal/serv-tool-probe/**"
+      - ".github/workflows/serv-tool-probe.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: serv-tool-probe
+  cancel-in-progress: true
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check out
+        uses: actions/checkout@v4
+
+      - name: Require SERV credentials
+        env:
+          SERV_API_KEY: ${{ secrets.SERV_API_KEY }}
+        run: |
+          if [ -z "$SERV_API_KEY" ]; then
+            echo "::error::Repository secret SERV_API_KEY is missing."
+            exit 1
+          fi
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: One cheap tool-calling probe
+        env:
+          SERV_API_KEY: ${{ secrets.SERV_API_KEY }}
+          SERV_BASE_URL: ${{ secrets.SERV_BASE_URL }}
+        run: |
+          mkdir -p eval/results
+          npm run probe:serv-tools | tee eval/results/serv-tool-probe.json
+          echo "## SERV tool-calling probe" >> "$GITHUB_STEP_SUMMARY"
+          echo '```json' >> "$GITHUB_STEP_SUMMARY"
+          cat eval/results/serv-tool-probe.json >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload probe result
+        uses: actions/upload-artifact@v4
+        with:
+          name: serv-tool-probe
+          path: eval/results/serv-tool-probe.json
+          if-no-files-found: error
+          retention-days: 30

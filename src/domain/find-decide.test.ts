@@ -6,13 +6,21 @@ import { describe, expect, it } from "vitest";
 import {
   applyFindChallengeRevision,
   publishFindDecideConfidence,
+  resolveShortlistPickKey,
   validateFindChallenge,
   validateFindDecide,
   type FindDecide,
 } from "./find-decide";
+import { extractServJson } from "./serv-json";
 
 const SHORTLIST = ["a", "b", "c", "d"];
-const EVIDENCE = ["ev:price:a", "ev:recall:a", "ev:miles:b", "ev:comp:a"];
+const EVIDENCE = ["ev:price:a", "ev:recall:a", "ev:miles:b", "ev:comp:a", "car:a", "car:b"];
+const SHORTLIST_META = [
+  { key: "a", vin: "1HGCM82633A004352" },
+  { key: "b", vin: "2T1BURHE0JC000001" },
+  { key: "c", vin: null },
+  { key: "d", vin: null },
+];
 
 function baseDecide(over: Record<string, unknown> = {}) {
   return {
@@ -30,7 +38,7 @@ function baseDecide(over: Record<string, unknown> = {}) {
 }
 
 describe("validateFindDecide", () => {
-  it("accepts a shortlist pick and drops invented evidence claims", () => {
+  it("accepts a shortlist pick and soft-attaches car evidence for invented claims", () => {
     const result = validateFindDecide(
       baseDecide({
         reasons: [
@@ -47,7 +55,8 @@ describe("validateFindDecide", () => {
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     expect(result.decide.pickKey).toBe("a");
-    expect(result.decide.reasons).toHaveLength(1);
+    expect(result.decide.reasons).toHaveLength(2);
+    expect(result.decide.reasons[1]?.evidenceIds).toEqual(["car:a"]);
     expect(result.decide.alternatives.map((row) => row.key)).toEqual(["b"]);
     expect(result.dropped.some((d) => d.includes("made_up") || d.includes("ghost"))).toBe(true);
   });
@@ -71,6 +80,132 @@ describe("validateFindDecide", () => {
     if (!result.ok) return;
     expect(result.decide.offerUsd).toBeNull();
     expect(result.dropped).toContain("offerUsd>ask");
+  });
+
+  it("accepts needs_inspection alias and Medium confidence", () => {
+    const result = validateFindDecide(
+      baseDecide({ action: "needs_inspection", confidence: "Medium", offerUsd: null }),
+      { shortlistKeys: SHORTLIST, allowedEvidenceIds: EVIDENCE },
+    );
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.decide.action).toBe("inspect_first");
+    expect(result.decide.confidence).toBe("medium");
+  });
+
+  it("coerces string offerUsd", () => {
+    const result = validateFindDecide(baseDecide({ offerUsd: "18,500" }), {
+      shortlistKeys: SHORTLIST,
+      allowedEvidenceIds: EVIDENCE,
+      askUsd: 19_000,
+      fairValueUsd: 18_800,
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.decide.offerUsd).toBe(18_500);
+  });
+
+  it("resolves pickKey from VIN / car: prefix / index", () => {
+    const byVin = validateFindDecide(baseDecide({ pickKey: "1HGCM82633A004352" }), {
+      shortlistKeys: SHORTLIST,
+      allowedEvidenceIds: EVIDENCE,
+      shortlist: SHORTLIST_META,
+    });
+    expect(byVin.ok).toBe(true);
+    if (byVin.ok) expect(byVin.decide.pickKey).toBe("a");
+
+    const byPrefix = validateFindDecide(baseDecide({ pickKey: "car:a" }), {
+      shortlistKeys: SHORTLIST,
+      allowedEvidenceIds: EVIDENCE,
+      shortlist: SHORTLIST_META,
+    });
+    expect(byPrefix.ok).toBe(true);
+    if (byPrefix.ok) expect(byPrefix.decide.pickKey).toBe("a");
+
+    const byIndex = validateFindDecide(baseDecide({ pickKey: "#2" }), {
+      shortlistKeys: SHORTLIST,
+      allowedEvidenceIds: EVIDENCE,
+      shortlist: SHORTLIST_META,
+    });
+    expect(byIndex.ok).toBe(true);
+    if (byIndex.ok) expect(byIndex.decide.pickKey).toBe("b");
+  });
+
+  it("soft-attaches car:pickKey when reasons lose all evidence ids", () => {
+    const result = validateFindDecide(
+      baseDecide({
+        reasons: [{ text: "Fits the budget", evidenceIds: ["made_up"] }],
+      }),
+      { shortlistKeys: SHORTLIST, allowedEvidenceIds: EVIDENCE },
+    );
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.decide.reasons).toHaveLength(1);
+    expect(result.decide.reasons[0]?.evidenceIds).toEqual(["car:a"]);
+  });
+
+  it("yields a verdict from fenced + prose messy SERV answers", () => {
+    const fenced = `\`\`\`json
+${JSON.stringify(baseDecide({ action: "Buy", confidence: "Medium", offerUsd: "18500" }))}
+\`\`\``;
+    const fromFence = validateFindDecide(extractServJson(fenced), {
+      shortlistKeys: SHORTLIST,
+      allowedEvidenceIds: EVIDENCE,
+      askUsd: 19_000,
+      fairValueUsd: 18_800,
+      shortlist: SHORTLIST_META,
+    });
+    expect(fromFence.ok).toBe(true);
+    if (fromFence.ok) {
+      expect(fromFence.decide.action).toBe("buy");
+      expect(fromFence.decide.confidence).toBe("medium");
+      expect(fromFence.decide.offerUsd).toBe(18_500);
+    }
+
+    const prose = `I recommend this car.\n${JSON.stringify(
+      baseDecide({ pickKey: "vin:1HGCM82633A004352", action: "needs_inspection", confidence: "MEDIUM", offerUsd: null }),
+    )}\nEnd.`;
+    const fromProse = validateFindDecide(extractServJson(prose), {
+      shortlistKeys: SHORTLIST,
+      allowedEvidenceIds: EVIDENCE,
+      shortlist: SHORTLIST_META,
+    });
+    expect(fromProse.ok).toBe(true);
+    if (fromProse.ok) {
+      expect(fromProse.decide.pickKey).toBe("a");
+      expect(fromProse.decide.action).toBe("inspect_first");
+    }
+  });
+});
+
+describe("resolveShortlistPickKey", () => {
+  it("matches case-insensitively and by first", () => {
+    expect(resolveShortlistPickKey("A", SHORTLIST)).toBe("a");
+    expect(resolveShortlistPickKey("first", SHORTLIST, SHORTLIST_META)).toBe("a");
+    expect(resolveShortlistPickKey("0", SHORTLIST, SHORTLIST_META)).toBe("a");
+  });
+});
+
+describe("messy golden decide fixtures", () => {
+  it("every messy fixture yields a validated decide", async () => {
+    const {
+      ALL_MESSY_DECIDE_ANSWERS,
+      MESSY_EVIDENCE_IDS,
+      MESSY_SHORTLIST_KEYS,
+      MESSY_SHORTLIST_META,
+    } = await import("../../test/golden/messy-decide-fixtures");
+    for (const row of ALL_MESSY_DECIDE_ANSWERS) {
+      const payload = extractServJson(row.text);
+      const result = validateFindDecide(payload, {
+        shortlistKeys: [...MESSY_SHORTLIST_KEYS],
+        allowedEvidenceIds: [...MESSY_EVIDENCE_IDS],
+        askUsd: 17_000,
+        fairValueUsd: 16_800,
+        shortlist: [...MESSY_SHORTLIST_META],
+      });
+      expect(result.ok, row.id).toBe(true);
+      if (result.ok) expect(result.decide.pickKey).toBe("synth-a");
+    }
   });
 });
 
@@ -107,6 +242,24 @@ describe("validateFindChallenge", () => {
     if (!result.ok) return;
     expect(result.challenge.revised).toEqual({ pickKey: null, action: null, confidence: null });
     expect(result.dropped).toContain("revised_while_agree");
+  });
+
+  it("resolves revised pickKey aliases case-insensitively", () => {
+    const result = validateFindChallenge(
+      {
+        agree: false,
+        issues: [{ kind: "Wrong_Pick", text: "b is safer", evidenceIds: ["ev:miles:b"] }],
+        revised: { pickKey: "car:b", action: "Needs_Inspection", confidence: "Medium" },
+      },
+      { shortlistKeys: SHORTLIST, allowedEvidenceIds: EVIDENCE, shortlist: SHORTLIST_META },
+    );
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.challenge.revised).toEqual({
+      pickKey: "b",
+      action: "inspect_first",
+      confidence: "medium",
+    });
   });
 
   it("drops issues with invented evidence ids", () => {

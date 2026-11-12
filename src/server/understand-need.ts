@@ -2,7 +2,6 @@ import {
   applyFollowUp,
   followUps,
   overlayExplicit,
-  parseNeedJson,
   supplementNeedFromNote,
   validateNeed,
   type FollowUp,
@@ -10,11 +9,13 @@ import {
 } from "@/domain/need";
 import {
   fallbackFindPlan,
+  findPlanToServHint,
   planToDirections,
   planToStructuredNeed,
   validateFindPlan,
   type FindPlan,
 } from "@/domain/find-plan";
+import { buildSearchSpec, type SearchSpec } from "@/domain/search-spec";
 import type { SearchDirection } from "@/domain/directions";
 import { attachNoteGeo } from "@/domain/find-intake-stage";
 import { intakeFromNote } from "@/domain/note-intake";
@@ -27,6 +28,7 @@ import {
 import type { CriteriaParseProvenance } from "@/domain/radar-criteria-provenance";
 import { criteriaParseLabel } from "@/domain/radar-criteria-provenance";
 import { providerResponseIdFromCall } from "@/domain/serv-response-id";
+import { extractServJson } from "@/domain/serv-json";
 import { plannedProof, type ServProof } from "@/server/serv";
 import { callStep } from "@/server/serv/call-step";
 import { providerResponseId } from "@/domain/serv-response-id";
@@ -46,6 +48,8 @@ export type UnderstandResult =
       need: StructuredNeed;
       /** Validated C1 plan (SERV or offline fallback). */
       findPlan: FindPlan;
+      /** SearchSpec built with SERV hint — hard/soft owned by the plan. */
+      searchSpec: SearchSpec;
       /** Search directions from the plan (never empty for a valid note). */
       directions: SearchDirection[];
       followUps: FollowUp[];
@@ -163,52 +167,74 @@ export async function understandNeed(
       formOverrides,
       today: recordedAt.slice(0, 10),
     });
+    const validatePlanText = (text: string) => {
+      try {
+        const validated = validateFindPlan(extractServJson(text), {
+          note: screened.text,
+          form: formOverrides,
+        });
+        if (validated.ok) return { ok: true as const };
+        return { ok: false as const, issues: validated.issues };
+      } catch (err) {
+        const message =
+          err instanceof Error && err.message.trim()
+            ? err.message.trim()
+            : "SERV plan answer had no usable JSON";
+        return { ok: false as const, issues: [{ field: "plan", message }] };
+      }
+    };
     const step = await callStep({
       profileId: "find_plan",
       user: userPayload,
       deps: servDeps,
       critical: true,
-      accept: (text) => {
-        try {
-          return validateFindPlan(parseNeedJson(text), { note: screened.text, form: formOverrides }).ok;
-        } catch {
-          return false;
-        }
-      },
+      validate: validatePlanText,
     });
     const planned = step.result;
     checks.push(planned.proof);
-    const usedPlainRetry = step.retried;
-    const plainRetryReason = step.retried
-      ? "SERV planned again on the base model after the first reply could not be used."
-      : null;
+    const usedPlainRetry = step.retried || step.repaired;
+    const plainRetryReason = step.repaired
+      ? "SERV planned again after the first reply failed validation."
+      : step.retried
+        ? "SERV planned again on the base model after the first reply could not be used."
+        : null;
     // A failed plan does not invent a verdict. The note's own budget and limits
     // still drive one inventory search (never zero queries).
 
     // prompt_guard on find_plan — treat a completed call as allow unless the runner blocked.
-    guard = planned.ok ? "allow" : "unavailable";
+    guard = planned.ok && step.status === "ok" ? "allow" : "unavailable";
     const openservId =
       typeof planned.proof.openserv?.id === "string" ? planned.proof.openserv.id : null;
     const failedResponseId = providerResponseId(openservId);
 
-    if (!planned.ok) {
-      const classBit = planned.transportErrorClass ? ` (${planned.transportErrorClass})` : "";
+    if (step.status !== "ok" || !planned.ok) {
+      const issueText = step.validationIssues
+        ?.slice(0, 4)
+        .map((i) => i.message)
+        .join("; ");
+      let detail: string;
+      if (!planned.ok) {
+        const classBit = planned.transportErrorClass ? ` (${planned.transportErrorClass})` : "";
+        detail = `${planned.error}${classBit}${usedPlainRetry ? ` Retry also failed.` : ""} The note's own limits were used for the search.`;
+      } else {
+        detail = `SERV plan failed validation (${issueText || "schema mismatch"}). The note's own limits were used for the search.`;
+      }
       proofRecords.push(
         buildDecisionProofRecord({
           purpose: "find_plan",
           rubricId: NEED_PARSE_RUBRIC_ID,
-          status: "error",
+          status: !planned.ok ? "error" : "unknown",
           responseId: failedResponseId,
           model: planned.proof.modelReported,
           recordedAt,
           inputs: parseInputs,
-          detail: `${planned.error}${classBit}${usedPlainRetry ? ` Retry also failed.` : ""} The note's own limits were used for the search.`,
-          rawResponse: null,
+          detail,
+          rawResponse: planned.ok ? planned.text : null,
         }),
       );
     } else {
       try {
-        const parsed = parseNeedJson(planned.text);
+        const parsed = extractServJson(planned.text);
         const validated = validateFindPlan(parsed, { note: screened.text, form: formOverrides });
         if (validated.ok) {
           findPlan = validated.plan;
@@ -254,8 +280,24 @@ export async function understandNeed(
             }),
           );
         }
-      } catch {
-        /* Keep the note-derived plan. */
+      } catch (err) {
+        const message =
+          err instanceof Error && err.message.trim()
+            ? err.message.trim()
+            : "SERV plan answer had no usable JSON";
+        proofRecords.push(
+          buildDecisionProofRecord({
+            purpose: "find_plan",
+            rubricId: NEED_PARSE_RUBRIC_ID,
+            status: "unknown",
+            responseId: failedResponseId,
+            model: planned.proof.modelReported,
+            recordedAt,
+            inputs: parseInputs,
+            detail: `SERV plan failed validation (${message}). The note's own limits were used for the search.`,
+            rawResponse: planned.text,
+          }),
+        );
       }
     }
   }
@@ -318,11 +360,30 @@ export async function understandNeed(
         ? { source: "code", responseId: null }
         : { source: "form", responseId: null };
 
+  const formEditsForSpec = {
+    priceMaxUsd:
+      checked.need.budgetKnown && checked.need.budgetUsd != null
+        ? { value: checked.need.budgetUsd, dirty: true as const }
+        : undefined,
+    yearMin: checked.need.yearMin != null ? { value: checked.need.yearMin, dirty: true as const } : undefined,
+    yearMax: checked.need.yearMax != null ? { value: checked.need.yearMax, dirty: true as const } : undefined,
+    milesMax: checked.need.milesMax != null ? { value: checked.need.milesMax, dirty: true as const } : undefined,
+    zip: checked.need.zip ? { value: checked.need.zip, dirty: true as const } : undefined,
+    radiusMi: { value: checked.need.distanceMiles, dirty: true as const },
+  };
+  const searchSpec = buildSearchSpec({
+    note: checked.need.note ?? screened.text,
+    mode,
+    formEdits: formEditsForSpec,
+    servPlan: findPlanToServHint(findPlan),
+  });
+
   return {
     ok: true,
     source,
     need: checked.need,
     findPlan,
+    searchSpec,
     directions: planToDirections(findPlan),
     followUps: followUps(checked.need),
     guard,

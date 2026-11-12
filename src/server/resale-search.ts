@@ -336,12 +336,18 @@ export async function runResaleSearch(
   };
   const windowBlocked = sellWindowBlockedCount(poolListings, new Date(), rankOptions);
   let ranked = topFlipCandidates(poolListings, new Date(), RESALE_SHORTLIST_LIMIT, rankOptions);
+  let sellWindowWidenNote: string | null = null;
   // A 30-day window must not turn a full inventory into "no cars matched".
-  // Cars outside the window stay listed and are not the recommended flip.
+  // Cars outside the window stay listed with why, and are not the recommended flip.
   if (ranked.length === 0 && poolListings.length > 0) {
-    ranked = rankFlipCandidates(poolListings, new Date(), rankOptions)
-      .filter((item) => !item.excluded)
-      .slice(0, RESALE_SHORTLIST_LIMIT);
+    const relaxed = rankFlipCandidates(poolListings, new Date(), rankOptions).filter((item) => !item.excluded);
+    ranked = relaxed.slice(0, RESALE_SHORTLIST_LIMIT);
+    if (windowBlocked > 0 && input.sellWithinDays != null) {
+      sellWindowWidenNote = `${windowBlocked} car${windowBlocked === 1 ? "" : "s"} missed the ${input.sellWithinDays}-day sell window estimate, so those cars stay listed with that flag instead of emptying the page.`;
+    } else if (ranked.length > 0) {
+      sellWindowWidenNote =
+        "No car cleared every soft sell constraint as a recommended flip; showing the closest priced comps with why they did not rank first.";
+    }
   }
 
   const pnls = buildResaleCandidatePnls(ranked, {
@@ -354,6 +360,10 @@ export async function runResaleSearch(
   });
 
   const emptyPool = pnls.length === 0;
+  const sellWindowEmptyDetail =
+    emptyPool && poolListings.length > 0 && windowBlocked > 0 && input.sellWithinDays != null
+      ? `Inventory had ${poolListings.length} listing${poolListings.length === 1 ? "" : "s"}, but none are estimated to sell within ${input.sellWithinDays} days after costs. Loosen the sell-within window or raise the budget.`
+      : null;
 
   if (deps.stopAfter === "inventory") {
     logResaleStage("inventory_stop", deadline.startedAtMs, {
@@ -365,11 +375,17 @@ export async function runResaleSearch(
       ? match.body.headline ?? "No flip candidates in this budget"
       : `Shortlisted ${pnls.length} flip candidate${pnls.length === 1 ? "" : "s"} — continuing agent steps`;
     const message = emptyPool
-      ? match.body.message ??
+      ? sellWindowEmptyDetail ??
+        match.body.message ??
         "No listings cleared similar-listing economics inside this budget. Try a higher budget, a wider radius, or fewer filters."
-      : `Code ranked ${pnls.length} candidates that are priced below similar listings (after costs). Next steps: triage, pick, and shopper decide.`;
+      : [sellWindowWidenNote, `Code ranked ${pnls.length} candidates that are priced below similar listings (after costs). Next steps: triage, pick, and shopper decide.`]
+          .filter(Boolean)
+          .join(" ");
     const nextStep = emptyPool
-      ? match.body.nextStep ?? "Raise the budget or clear optional filters, then search again (1 report credit)."
+      ? match.body.nextStep ??
+        (sellWindowEmptyDetail
+          ? "Widen the sell-within days or raise the budget, then search again (1 report credit)."
+          : "Raise the budget or clear optional filters, then search again (1 report credit).")
       : "Continue the resale job — credit is charged only when the final verdict is delivered.";
     return {
       ok: true,
@@ -431,10 +447,11 @@ export async function runResaleSearch(
     confidence: settled.confidence,
     marginUsd: margin,
     skipReason: emptyPool
-      ? windowBlocked > 0 && input.sellWithinDays != null
-        ? `No car is estimated to sell within ${input.sellWithinDays} days.`
-        : "No listings cleared the price comparison inside this budget."
-      : null,
+      ? sellWindowEmptyDetail ??
+        (windowBlocked > 0 && input.sellWithinDays != null
+          ? `No car is estimated to sell within ${input.sellWithinDays} days.`
+          : "No listings cleared the price comparison inside this budget.")
+      : sellWindowWidenNote,
     reviewNote: settled.reviewNote,
     carTitle: settled.best
       ? `${settled.best.listing.year} ${settled.best.listing.make} ${settled.best.listing.model}`

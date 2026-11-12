@@ -39,6 +39,7 @@ import {
 } from "@/domain/resale-deadline";
 import type { ResaleCandidatePnl } from "@/domain/resale-pnl";
 import { providerResponseIdFromCall } from "@/domain/serv-response-id";
+import { tryExtractServJson } from "@/domain/serv-json";
 import type { Listing } from "@/domain/types";
 import { topFlipCandidates } from "@/domain/flip-rank";
 import type { FindSettleServResult } from "@/server/find-settle-serv";
@@ -500,7 +501,9 @@ function parseFlipJudgment(
   facts: Array<{ vin: string } & Record<string, unknown>>,
 ): Map<string, RadarReviewDecision> | null {
   try {
-    const parsed = JSON.parse(text) as {
+    const extracted = tryExtractServJson(text);
+    if (!extracted || typeof extracted !== "object" || Array.isArray(extracted)) return null;
+    const parsed = extracted as {
       decisions?: Array<{ vin?: string; verdict?: string; note?: string }>;
     };
     if (!Array.isArray(parsed.decisions)) return null;

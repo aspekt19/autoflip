@@ -54,9 +54,14 @@ export function Header() {
     };
   }, [accountLoad.reload]);
 
+  // Sync from the ledger when /api/account returns. Do not clear liveCredits to
+  // null on every body identity change — that flickers 9→10 during a search when
+  // an event published a temporary count and the next account load restores it.
   useEffect(() => {
-    setLiveCredits(null);
-  }, [accountLoad.body]);
+    if (accountLoad.phase !== "loaded") return;
+    if (typeof accountLoad.body?.credits !== "number") return;
+    setLiveCredits(accountLoad.body.credits);
+  }, [accountLoad.phase, accountLoad.body]);
 
   useEffect(() => {
     let cancelled = false;

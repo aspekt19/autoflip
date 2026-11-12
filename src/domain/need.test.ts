@@ -30,6 +30,14 @@ describe("need extraction validation", () => {
     const questions = followUps({ ...need, zip: "33101", useCase: "unspecified", mode: "flip", repairAbility: "unknown", targetProfitUsd: null, budgetKnown: false, budgetUsd: null });
     expect(questions.map((item) => item.id)).toEqual(["cash"]);
   });
+
+  it("maps college / new-driver / first-car cues to first_car, not commute from fuel economy", () => {
+    expect(useCaseFromText("daughter starting college, good on gas, under $10k")).toBe("first_car");
+    expect(useCaseFromText("safe car for college, fuel economy matters")).toBe("first_car");
+    expect(useCaseFromText("new driver first car, cheap on gas")).toBe("first_car");
+    expect(useCaseFromText("first car for my daughter")).toBe("first_car");
+    expect(useCaseFromText("daily commute, good mpg")).toBe("commute");
+  });
 });
 
 describe("editorial directions", () => {

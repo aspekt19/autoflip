@@ -29,7 +29,9 @@ import { implausibleOdometer } from "@/domain/find-best-deal";
 import { FIND_INVENTORY_QUERY_MS, FIND_INVENTORY_STAGE_MS } from "@/domain/route-budget";
 import { broadenOpenDirections, openRetryModels, towingCapacityCaveat } from "@/domain/open-search";
 import { broadenStarterDirections, isOpenStarterNote, starterRetryModels } from "@/domain/starter-search";
-import { buildSearchSpec, enforceHard, hardDropSentence } from "@/domain/search-spec";
+import { findPlanToServHint, type FindPlan } from "@/domain/find-plan";
+import { filterInventoryWithWiden } from "@/domain/inventory-widen";
+import { buildSearchSpec, enforceHard, hardDropSentence, type ServPlanHint } from "@/domain/search-spec";
 import { decodeVin } from "@/io/gov";
 import { priceCompsUnevenAcrossListings, selectBestDealOnEvidence } from "@/domain/find-best-deal";
 import { priceBadge, type PriceBadge } from "@/domain/price-badge";
@@ -251,7 +253,11 @@ async function fillHardDrivetrain(listings: Listing[], need: StructuredNeed, fet
   return out;
 }
 
-function applyHardGate(collected: Listing[], need: StructuredNeed): { listings: Listing[]; note: string | null } {
+function applyHardGate(
+  collected: Listing[],
+  need: StructuredNeed,
+  servPlan?: ServPlanHint,
+): { listings: Listing[]; note: string | null } {
   const cars = need.mode === "flip" ? collected : collected.filter((row) => isPassengerOrLightTruck(row));
   const hiddenOther = collected.length - cars.length;
   const spec = buildSearchSpec({
@@ -265,6 +271,7 @@ function applyHardGate(collected: Listing[], need: StructuredNeed): { listings: 
       milesMax: need.milesMax != null ? { value: need.milesMax, dirty: true } : undefined,
       radiusMi: { value: need.distanceMiles, dirty: true },
     },
+    servPlan,
   });
   const gated = enforceHard(spec, cars);
   const otherNote =
@@ -332,6 +339,9 @@ export async function runFindMatch(
     refine?: { make?: string; model?: string; yearMin?: number; yearMax?: number };
     /** When set (e.g. Resale multi-direction plan), skip proposeDirections collapse. */
     directions?: SearchDirection[];
+    /** C1 find_plan — owns hard vs soft SearchSpec when present. */
+    findPlan?: FindPlan | null;
+    servPlan?: ServPlanHint | null;
   } | null,
   deps: FindMatchDeps,
 ): Promise<FindMatchResult> {
@@ -352,6 +362,11 @@ export async function runFindMatch(
   }
 
   const need = parsed.need;
+  const servPlanHint: ServPlanHint | undefined = body?.servPlan
+    ? body.servPlan
+    : body?.findPlan
+      ? findPlanToServHint(body.findPlan)
+      : undefined;
   let directions = broadenOpenDirections(
     need.note,
     broadenStarterDirections(
@@ -630,6 +645,11 @@ export async function runFindMatch(
     }
   }
 
+  // Soft preferences that emptied local inventory are loosened in filterInventoryWithWiden.
+  // An explicit radius is never auto-widened to Nationwide (Chicago live defect).
+  const nationwideWidenNote: string | null = null;
+  const filterNeed = need;
+
   // Group dispatch results by direction index for the existing post-processing.
   const byDirection = new Map<number, DispatchRow[]>();
   for (const row of dispatches) {
@@ -757,9 +777,29 @@ export async function runFindMatch(
     const assumption =
       need.mode === "flip" ? reconUsd({ miles: null, repairAbility: need.repairAbility }).because : null;
     const prepared = await fillHardDrivetrain(collected, need, deps.fetch);
-    const gated = applyHardGate(prepared, need);
-    if (gated.note) directionNote = [directionNote, gated.note].filter(Boolean).join(" ");
-    const narrowed = gated.listings.filter((item) => listingWithinNeed(item, need));
+    let narrowed: Listing[];
+    if (need.mode === "flip") {
+      const gated = applyHardGate(prepared, need, servPlanHint);
+      if (gated.note) directionNote = [directionNote, gated.note].filter(Boolean).join(" ");
+      narrowed = gated.listings.filter((item) => listingWithinNeed(item, need));
+    } else {
+      const cars = prepared.filter((row) => isPassengerOrLightTruck(row));
+      const hiddenOther = prepared.length - cars.length;
+      const widen = filterInventoryWithWiden(cars, filterNeed, { servPlan: servPlanHint });
+      const otherNote =
+        hiddenOther > 0
+          ? `${hiddenOther} motorcycle${hiddenOther === 1 ? "" : "s"}, RV${hiddenOther === 1 ? "" : "s"}, or other non-car${hiddenOther === 1 ? "" : "s"} ${hiddenOther === 1 ? "was" : "were"} left out.`
+          : null;
+      // Nationwide widen note is attached once on the first direction only.
+      const onceWiden = di === 0 ? nationwideWidenNote : null;
+      const widenNote =
+        onceWiden ??
+        widen.explanation ??
+        (widen.dropped.length && widen.listings.length === 0 ? hardDropSentence(widen.dropped) : null);
+      const gateNote = [widenNote, otherNote].filter(Boolean).join(" ") || null;
+      if (gateNote) directionNote = [directionNote, gateNote].filter(Boolean).join(" ");
+      narrowed = widen.listings;
+    }
     const personalScores =
       need.mode === "personal" ? personalRankScores(narrowed, need) : new Map<string, number>();
     const rankedReady = withinBudget(narrowed, need.budgetUsd, need.budgetKnown)
@@ -783,13 +823,24 @@ export async function runFindMatch(
         if (need.mode === "flip") {
           return (byVin.get(b.vin)?.score ?? 0) - (byVin.get(a.vin)?.score ?? 0);
         }
-        // Stable personal order: lower ask, then lower miles, then VIN — not a fake score-0 rank.
-        const pa = a.priceUsd ?? Number.POSITIVE_INFINITY;
-        const pb = b.priceUsd ?? Number.POSITIVE_INFINITY;
-        if (pa !== pb) return pa - pb;
+        // Prefer personalRankScores (newer + lower miles within budget) over ask-price alone.
+        const vinA = (a.vin || "").trim().toUpperCase();
+        const vinB = (b.vin || "").trim().toUpperCase();
+        const scoreA = personalScores.get(vinA);
+        const scoreB = personalScores.get(vinB);
+        if (scoreA != null || scoreB != null) {
+          const sa = scoreA ?? Number.NEGATIVE_INFINITY;
+          const sb = scoreB ?? Number.NEGATIVE_INFINITY;
+          if (sa !== sb) return sb - sa;
+        }
+        // Tie-break: newer year, then lower miles, then lower ask, then VIN.
+        if (a.year !== b.year) return b.year - a.year;
         const ma = a.miles ?? Number.POSITIVE_INFINITY;
         const mb = b.miles ?? Number.POSITIVE_INFINITY;
         if (ma !== mb) return ma - mb;
+        const pa = a.priceUsd ?? Number.POSITIVE_INFINITY;
+        const pb = b.priceUsd ?? Number.POSITIVE_INFINITY;
+        if (pa !== pb) return pa - pb;
         return (a.vin || "").localeCompare(b.vin || "");
       })
       .filter((item) => {
@@ -864,7 +915,13 @@ export async function runFindMatch(
       radiusMiles: radiusMiles,
       historyOnListing: false,
     };
-    const emptyNote = listings.length === 0 ? noMatchMessage(need) : null;
+    const emptyNote =
+      listings.length === 0
+        ? // Prefer the single widen/drop sentence already on directionNote — avoid repeating “No cars…”.
+          directionNote && /No cars matched|widened|loosened|listings were hidden/i.test(directionNote)
+            ? null
+            : noMatchMessage(filterNeed, { widenExplanation: di === 0 ? nationwideWidenNote : null })
+        : null;
     const succeeded = queryOutcomes.filter((o) => o.outcome === "ok" || o.outcome === "empty");
     const confirmedEmpty = queryOutcomes.filter((o) => o.outcome === "empty");
     const failed = queryOutcomes.filter(

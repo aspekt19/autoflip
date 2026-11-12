@@ -5,6 +5,7 @@ import {
   verdictFromAction,
   type DecisionAction,
 } from "./decision-action";
+import { tryExtractServJson } from "./serv-json";
 import {
   allowedServActions,
   clampDecision,
@@ -132,8 +133,9 @@ export function verdictDecisionFacts(
 
 export function parseServVerdict(text: string): ServVerdictPayload | null {
   try {
-    const parsed = JSON.parse(text) as Record<string, unknown>;
-    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return null;
+    const extracted = tryExtractServJson(text);
+    if (!extracted || typeof extracted !== "object" || Array.isArray(extracted)) return null;
+    const parsed = extracted as Record<string, unknown>;
     const keys = Object.keys(parsed);
     if (keys.length !== 2 || !("verdict" in parsed) || !("note" in parsed)) return null;
     if (!isServDecisionAction(parsed.verdict)) return null;

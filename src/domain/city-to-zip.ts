@@ -125,7 +125,10 @@ export type LocationZipResolution = {
    * - inferred_from_city — city/state table lookup (never “from your note”)
    */
   from: "note_zip" | "inferred_from_city" | null;
-  /** True when a place was named but no ZIP could be resolved. */
+  /**
+   * True when a place was named but no ZIP could be resolved.
+   * Never true for Nationwide scope (distanceMiles null) — ZIP stays optional.
+   */
   needed: boolean;
   /** Normalised city label when resolved from phrase (e.g. "Columbus, OH"). */
   cityLabel: string | null;
@@ -150,20 +153,40 @@ export function knownCityNames(): string[] {
 }
 
 /**
- * A table city written as a place, including "Atlanta area".
- * A bare city word is left to the near/in/around parser so a model name
- * that shares a city (Lincoln) is not treated as a location.
+ * A table city written as a place, including "Atlanta area" and bare multi-word
+ * cities ("San Diego"). A bare single-word city still needs area/metro/region
+ * so a model name that shares a city (Lincoln) is not treated as a location.
+ * "in San Diego" / "near San Diego" are handled by the near/in/around parser too.
  */
 export function cityPhraseInText(text: string): string | null {
   for (const city of knownCityNames()) {
     const escaped = city.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-    const re = new RegExp(`\\b${escaped}\\s+(?:area|metro|region)\\b`, "i");
-    if (re.test(text)) return city;
+    const words = city.split(/\s+/).length;
+    if (words >= 2) {
+      const bare = new RegExp(`\\b${escaped}\\b`, "i");
+      if (bare.test(text)) return city;
+    }
+    const withArea = new RegExp(`\\b${escaped}\\s+(?:area|metro|region)\\b`, "i");
+    if (withArea.test(text)) return city;
   }
   return null;
 }
 
-/** Parse "Columbus OH", "Columbus, Ohio", "near Austin TX", "Atlanta area". */
+/** Longest CITY_ZIP city that exactly equals the cleaned phrase (no state). */
+function cityOnlyFromTable(cleaned: string): { city: string; state: string } | null {
+  const needle = cleaned.toLowerCase().replace(/\s+/g, " ");
+  for (const city of knownCityNames()) {
+    if (city !== needle) continue;
+    const hits = Object.keys(CITY_ZIP).filter((key) => key.startsWith(`${city}|`));
+    if (hits.length === 1) {
+      const state = hits[0]!.split("|")[1];
+      if (state) return { city, state };
+    }
+  }
+  return null;
+}
+
+/** Parse "Columbus OH", "Columbus, Ohio", "near Austin TX", "Atlanta area", "San Diego". */
 export function parseCityStatePhrase(phrase: string): { city: string; state: string } | null {
   const cleaned = phrase
     .trim()
@@ -191,13 +214,16 @@ export function parseCityStatePhrase(phrase: string): { city: string; state: str
     }
     return null;
   }
-  if (parts.length < 2) return null;
-  const last = parts[parts.length - 1]!;
-  const state = normalizeStateToken(last);
-  if (!state) return null;
-  const city = parts.slice(0, -1).join(" ").toLowerCase().replace(/\s+/g, " ");
-  if (!city) return null;
-  return { city, state };
+  if (parts.length >= 2) {
+    const last = parts[parts.length - 1]!;
+    const state = normalizeStateToken(last);
+    if (state) {
+      const city = parts.slice(0, -1).join(" ").toLowerCase().replace(/\s+/g, " ");
+      if (city) return { city, state };
+    }
+  }
+  // Multi-word city with no state ("San Diego", "Salt Lake City") — longest table match.
+  return cityOnlyFromTable(cleaned);
 }
 
 export function zipForCityState(city: string, state: string): string | null {
@@ -207,12 +233,19 @@ export function zipForCityState(city: string, state: string): string | null {
 
 /**
  * Prefer an explicit 5-digit ZIP from the note; else resolve city+state via the free table.
- * Unknown places → needed (caller must show “needed”, never a stale wizard ZIP).
+ * Unknown places → needed only when a radius is in play (not Nationwide).
+ * Never invent a stale wizard ZIP.
  */
 export function resolveLocationZip(input: {
   zip: string | null | undefined;
   locationPhrase: string | null | undefined;
+  /**
+   * Pass explicit null for Nationwide so an unresolved place is not marked needed.
+   * Omit this field when scope is unknown — unresolved places stay needed.
+   */
+  distanceMiles?: number | null;
 }): LocationZipResolution {
+  const nationwideScope = Object.prototype.hasOwnProperty.call(input, "distanceMiles") && input.distanceMiles == null;
   const zip =
     typeof input.zip === "string" && /^\d{5}$/.test(input.zip.trim()) ? input.zip.trim() : null;
   if (zip) {
@@ -228,13 +261,13 @@ export function resolveLocationZip(input: {
   }
   const parsed = parseCityStatePhrase(phrase);
   if (!parsed) {
-    return { zip: null, from: null, needed: true, cityLabel: phrase };
+    return { zip: null, from: null, needed: !nationwideScope, cityLabel: phrase };
   }
   const resolved = zipForCityState(parsed.city, parsed.state);
   const cityTitle = parsed.city.replace(/\b\w/g, (c) => c.toUpperCase());
   const label = `${cityTitle}, ${parsed.state}`;
   if (!resolved) {
-    return { zip: null, from: null, needed: true, cityLabel: label };
+    return { zip: null, from: null, needed: !nationwideScope, cityLabel: label };
   }
   return { zip: resolved, from: "inferred_from_city", needed: false, cityLabel: label };
 }

@@ -9,8 +9,10 @@
 export type ConstraintStrength = "hard" | "soft";
 
 const HARD_MODAL = /\b(?:must|needs?|needed|require[ds]?|required|have to|has to|only)\b/gi;
-const SOFT_MODAL = /\b(?:preferably|preferred|prefer|ideally|if possible|nice to have|would like|would prefer)\b/gi;
-const SOFT_HEDGE = /^\s*(?:,|;)?\s*(?:if possible|preferably|ideally)\b/i;
+const SOFT_MODAL =
+  /\b(?:preferably|preferred|prefer|ideally|if possible|nice to have|nice if|would like|would prefer|would be great|would be nice|it'?d be great|it would be great)\b/gi;
+const SOFT_HEDGE =
+  /^\s*(?:,|;)?\s*(?:if possible|preferably|ideally|would be great|would be nice|nice to have)\b/i;
 
 function lastIndex(text: string, pattern: RegExp): number {
   pattern.lastIndex = 0;

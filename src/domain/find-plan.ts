@@ -8,11 +8,18 @@ import { directionIdFromSegment, type SearchDirection } from "./directions";
 import {
   emptyNeed,
   explicitNeedFromText,
+  yearBandForBudget,
   type PreferredModel,
   type StructuredNeed,
   type UseCase,
 } from "./need";
-import { awdLimitFromText, bodyFromIntake, budgetFromText, intakeFromNote, type NoteBodyStyle } from "./note-intake";
+import {
+  awdLimitFromText,
+  budgetFromText,
+  intakeFromNote,
+  type NoteBodyStyle,
+} from "./note-intake";
+import type { ServPlanHint } from "./search-spec";
 import { orderedYearBounds } from "./year-span";
 import {
   autoDevMake,
@@ -30,6 +37,7 @@ export const FIND_PLAN_BODY_STYLES = [
   "hatchback",
   "wagon",
   "coupe",
+  "convertible",
   "van",
   "any",
 ] as const;
@@ -127,6 +135,7 @@ const BODY_TO_NOTE: Record<Exclude<FindPlanBodyStyle, "any">, NoteBodyStyle> = {
   hatchback: "Hatchback",
   wagon: "Wagon",
   coupe: "Coupe",
+  convertible: "Convertible",
   van: "Van",
 };
 
@@ -261,6 +270,7 @@ function normalizeBodyStyle(raw: string): FindPlanBodyStyle {
   if (/minivan/.test(key)) return "minivan";
   if (/hatch/.test(key)) return "hatchback";
   if (/wagon/.test(key)) return "wagon";
+  if (/convertible/.test(key)) return "convertible";
   if (/coupe/.test(key)) return "coupe";
   if (/van/.test(key)) return "van";
   return "any";
@@ -274,6 +284,7 @@ const NOTE_BODY_TO_PLAN: Record<NoteBodyStyle, FindPlanBodyStyle> = {
   Van: "van",
   Wagon: "wagon",
   Coupe: "coupe",
+  Convertible: "convertible",
   Minivan: "minivan",
 };
 
@@ -382,7 +393,7 @@ export function validateFindPlan(
   if (milesMaxRaw != null && milesMax == null) dropped.push("milesMax");
   if (seatsMinRaw != null && seatsMin == null) dropped.push("seatsMin");
 
-  let drivetrain = readQuotedPref(
+  const drivetrain = readQuotedPref(
     raw.drivetrain,
     DRIVE_SET,
     "any" as FindPlanDrivetrainValue,
@@ -390,20 +401,6 @@ export function validateFindPlan(
     dropped,
     "drivetrain",
   );
-  const notedDrive = awdLimitFromText(note);
-  if (notedDrive === "hard") {
-    drivetrain = {
-      value: "awd_4wd",
-      strength: "required",
-      quote: drivetrain.quote ?? verbatimQuote("AWD", note) ?? verbatimQuote("awd", note),
-    };
-  } else if (notedDrive === "soft") {
-    drivetrain = {
-      value: "awd_4wd",
-      strength: "preferred",
-      quote: drivetrain.quote,
-    };
-  }
   const fuel = readQuotedPref(raw.fuel, FUEL_SET, "any" as FindPlanFuelValue, note, dropped, "fuel");
 
   const locationRaw =
@@ -559,19 +556,56 @@ function noteBodyFromPlan(styles: FindPlanBodyStyle[]): NoteBodyStyle | null {
 
 function useCaseFromPlan(plan: FindPlan, mode: "personal" | "flip"): UseCase {
   if (mode === "flip") return "unspecified";
+  if (/\bfirst car|new driver|college|beater\b/i.test(plan.summary)) return "first_car";
   if (plan.priorities.some((p) => p.id === "cargo" || p.id === "towing") || plan.bodyStyles.includes("truck")) {
     return "haul";
   }
   if (plan.seatsMin != null && plan.seatsMin >= 5 && plan.bodyStyles.includes("suv")) return "family";
+  if (/\bfamily|kids\b/i.test(plan.summary)) return "family";
   if (plan.priorities.some((p) => p.id === "fuel_cost") || plan.fuel.value === "hybrid" || plan.fuel.value === "ev") {
     return "commute";
   }
   if (/\bcommute|daily drive|work\b/i.test(plan.summary)) return "commute";
-  if (/\bfamily|kids|school\b/i.test(plan.summary)) return "family";
   return "unspecified";
 }
 
-/** Map a validated FindPlan into StructuredNeed (no regex overlay). */
+/** Map validated FindPlan → ServPlanHint for buildSearchSpec (SERV owns hard vs soft). */
+export function findPlanToServHint(plan: FindPlan): ServPlanHint {
+  const bodies = plan.bodyStyles
+    .map((style) => (style === "any" ? null : BODY_TO_NOTE[style] ?? null))
+    .filter((item): item is NoteBodyStyle => Boolean(item));
+  const models = plan.namedModels.length
+    ? plan.namedModels
+    : plan.directions.flatMap((dir) => dir.models).slice(0, 6);
+  return {
+    priceMaxUsd: plan.budget.maxUsd,
+    priceQuote: plan.budget.quote,
+    yearMin: plan.yearMin,
+    yearMax: plan.yearMax,
+    yearQuote: null,
+    milesMax: plan.milesMax,
+    milesQuote: null,
+    drivetrain: {
+      value: plan.drivetrain.value,
+      strength: plan.drivetrain.strength,
+      quote: plan.drivetrain.quote,
+    },
+    fuel: {
+      value: plan.fuel.value,
+      strength: plan.fuel.strength,
+      quote: plan.fuel.quote,
+    },
+    bodyStyles: bodies,
+    seatsMin: plan.seatsMin,
+    seatsStrength: plan.seatsMin != null ? "preferred" : "none",
+    models,
+    excludeMakes: plan.excludedMakes,
+    location: { zip: plan.location.zip, phrase: plan.location.phrase },
+    priorities: plan.priorities.map((item) => ({ id: item.id, quote: item.quote })),
+  };
+}
+
+/** Map a validated FindPlan into StructuredNeed. Trust plan fields — no note regex re-overlay. */
 export function planToStructuredNeed(
   plan: FindPlan,
   mode: "personal" | "flip",
@@ -590,18 +624,16 @@ export function planToStructuredNeed(
     models.push(item);
   }
   const makesFromNamed = [...new Set(models.map((item) => item.make))];
-  const noteAwd = awdLimitFromText(note);
   const awdPreference =
-    noteAwd != null ||
-    (plan.drivetrain.value === "awd_4wd" &&
-      (plan.drivetrain.strength === "preferred" || plan.drivetrain.strength === "required"));
+    plan.drivetrain.value === "awd_4wd" &&
+    (plan.drivetrain.strength === "preferred" || plan.drivetrain.strength === "required");
   const reliabilityPriority = plan.priorities.some((p) => p.id === "reliability");
   const fuelEconomyPriority =
     plan.priorities.some((p) => p.id === "fuel_cost") ||
     ((plan.fuel.value === "hybrid" || plan.fuel.value === "ev") && plan.fuel.strength !== "none");
   const priorityLabels = plan.priorities.map((p) => p.id);
   const mustHaves: string[] = [];
-  if ((plan.drivetrain.strength === "required" && plan.drivetrain.value === "awd_4wd") || noteAwd === "hard") {
+  if (plan.drivetrain.strength === "required" && plan.drivetrain.value === "awd_4wd") {
     mustHaves.push("AWD");
   }
   if (plan.fuel.strength === "required" && plan.fuel.value !== "any") mustHaves.push(plan.fuel.value);
@@ -619,6 +651,8 @@ export function planToStructuredNeed(
     distanceMiles: null,
     milesMax: plan.milesMax,
     milesCapResolved: plan.milesMax != null,
+    seatsMin: plan.seatsMin,
+    // Budget year bands rank newer cars higher; they are not a hard yearMin the buyer never set.
     yearMin: plan.yearMin,
     yearMax: plan.yearMax,
     yearBandResolved: plan.yearMin != null || plan.yearMax != null,
@@ -626,7 +660,7 @@ export function planToStructuredNeed(
     fuelEconomyPriority,
     awdPreference,
     reliabilityPriority,
-    bodyStyle: noteBodyFromPlan(plan.bodyStyles) ?? bodyFromIntake(note),
+    bodyStyle: noteBodyFromPlan(plan.bodyStyles),
     locationPhrase: plan.location.phrase,
     make: makesFromNamed[0] ?? null,
     preferredMakes: makesFromNamed,
@@ -638,18 +672,25 @@ export function planToStructuredNeed(
 
 /** Map plan directions into SearchDirection rows (body-style-only keeps models empty). */
 export function planToDirections(plan: FindPlan, now = new Date()): SearchDirection[] {
-  // Never invent a budget year ceiling (AUDIT R5) — only years the buyer/form gave.
+  // Never invent a hard year floor or ceiling the buyer did not give (AUDIT R5).
+  // Budget year bands still guide ranking (newer / lower miles preferred) without wiping older inventory.
   const openMin = 1990;
   const openMax = now.getUTCFullYear() + 1;
   const buyerSetMin = plan.yearMin != null;
   const buyerSetMax = plan.yearMax != null;
+  const band =
+    !buyerSetMin && !buyerSetMax
+      ? yearBandForBudget(plan.budget.maxUsd, now, { approximateFromNote: plan.budget.approximate })
+      : null;
   const ordered = orderedYearBounds(plan.yearMin ?? openMin, plan.yearMax ?? openMax, buyerSetMax, openMax);
   const yearMin = ordered.yearMin;
   const yearMax = ordered.yearMax;
   const yearBecause =
     buyerSetMin || buyerSetMax
       ? `Model years ${buyerSetMin ? yearMin : "any"}–${buyerSetMax ? yearMax : "any"} come from your note or form.`
-      : "No year range in your note — searching without a budget-invented year ceiling.";
+      : band
+        ? `${band.because} That is a ranking preference, not a hard year filter — older cars can still appear.`
+        : "No year range in your note — searching without a budget-invented year ceiling.";
 
   return plan.directions.slice(0, 3).map((dir, index) => {
     const models = dir.models.slice(0, 6);

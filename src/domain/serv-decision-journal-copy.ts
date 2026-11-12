@@ -66,6 +66,8 @@ export function journalMainTextViolations(text: string): string[] {
 function scrubBuyerText(text: string): string {
   return buyerSafeResaleJournalText(
     text
+      .replace(/\banswer unreadable\b/gi, "the decision answer could not be read")
+      .replace(/\bunreadable answer\b/gi, "the decision answer could not be read")
       .replace(/\binputs digest\s+[a-f0-9]+…?/gi, "")
       .replace(/\bchatcmpl-[A-Za-z0-9_-]+/g, "")
       .replace(/\bresponse\s+[A-Za-z0-9_-]+/gi, "")

@@ -29,6 +29,7 @@ import { evaluateListingPrice } from "@/domain/price-evaluation";
 import type { ComputedReport, Listing, Verdict } from "@/domain/types";
 import { ASSUMPTIONS } from "@/domain/assumptions";
 import { providerResponseIdFromCall } from "@/domain/serv-response-id";
+import { tryExtractServJson } from "@/domain/serv-json";
 import { runFindCloseCallMultipathServ } from "@/server/find-close-call-serv";
 import { chatCompletionContent, profile, runServ } from "@/server/serv";
 import { runShopperVerdictServ, type ShopperServTrace } from "@/server/shopper-verdict-serv";
@@ -664,13 +665,9 @@ export async function runFindSettleServ(input: {
     );
     let payload: Record<string, unknown> | null = null;
     if (judged.ok && judged.text?.trim()) {
-      try {
-        const parsed = JSON.parse(judged.text) as unknown;
-        if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
-          payload = parsed as Record<string, unknown>;
-        }
-      } catch {
-        payload = null;
+      const parsed = tryExtractServJson(judged.text);
+      if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+        payload = parsed as Record<string, unknown>;
       }
     }
     const pickKey = typeof payload?.pickKey === "string" ? payload.pickKey.trim() : "";

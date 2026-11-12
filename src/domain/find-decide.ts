@@ -8,12 +8,26 @@ import {
 } from "./agent-verdict-schema";
 import { capConfidenceForHonesty } from "./confidence-cap";
 import { capConfidenceForStopFlags } from "./nhtsa-stop-flags";
+import {
+  asFiniteNumber,
+  asTrimmedString,
+  normalizeEnum,
+} from "./serv-json";
 
 export const FIND_DECIDE_ACTIONS = ["buy", "negotiate", "inspect_first", "pass"] as const;
 export type FindDecideAction = (typeof FIND_DECIDE_ACTIONS)[number];
 
 export const FIND_DECIDE_CONFIDENCE = ["high", "medium", "low"] as const;
 export type FindDecideConfidence = (typeof FIND_DECIDE_CONFIDENCE)[number];
+
+/** Outbound / schema aliases that map onto FindDecideAction. */
+const FIND_DECIDE_ACTION_ALIASES: Record<string, FindDecideAction> = {
+  buy: "buy",
+  negotiate: "negotiate",
+  inspect_first: "inspect_first",
+  needs_inspection: "inspect_first",
+  pass: "pass",
+};
 
 export type FindDecideCitedLine = {
   text: string;
@@ -71,6 +85,14 @@ export type ValidateFindChallengeResult =
   | { ok: true; challenge: FindChallenge; dropped: string[] }
   | { ok: false; issues: FindDecideIssue[] };
 
+export type FindDecideShortlistMeta = {
+  key: string;
+  vin?: string | null;
+  year?: number;
+  make?: string;
+  model?: string;
+};
+
 export type ValidateFindDecideContext = {
   shortlistKeys: ReadonlySet<string> | readonly string[];
   allowedEvidenceIds: ReadonlySet<string> | readonly string[];
@@ -80,11 +102,15 @@ export type ValidateFindDecideContext = {
   fairValueUsd?: number | null;
   fairValueLowUsd?: number | null;
   fairValueHighUsd?: number | null;
+  /** Optional shortlist rows for VIN / index pickKey resolution. */
+  shortlist?: readonly FindDecideShortlistMeta[];
 };
 
 export type ValidateFindChallengeContext = {
   shortlistKeys: ReadonlySet<string> | readonly string[];
   allowedEvidenceIds: ReadonlySet<string> | readonly string[];
+  /** Optional shortlist rows for VIN / index pickKey resolution. */
+  shortlist?: readonly FindDecideShortlistMeta[];
 };
 
 export type PublishFindConfidenceInput = {
@@ -115,14 +141,7 @@ export type PublishFindConfidenceResult = {
   reasons: string[];
 };
 
-const ACTION_SET = new Set<string>(FIND_DECIDE_ACTIONS);
-const CONF_SET = new Set<string>(FIND_DECIDE_CONFIDENCE);
-const ISSUE_KINDS = new Set<string>([
-  "wrong_pick",
-  "overconfident",
-  "missed_risk",
-  "unsupported_claim",
-]);
+const ISSUE_KINDS = ["wrong_pick", "overconfident", "missed_risk", "unsupported_claim"] as const;
 
 const ACTION_RANK: Record<FindDecideAction, number> = {
   pass: 3,
@@ -133,6 +152,92 @@ const ACTION_RANK: Record<FindDecideAction, number> = {
 
 function asSet(input: ReadonlySet<string> | readonly string[]): Set<string> {
   return input instanceof Set ? new Set(input) : new Set(input);
+}
+
+function orderedShortlistKeys(
+  shortlistKeys: ReadonlySet<string> | readonly string[],
+  meta?: readonly FindDecideShortlistMeta[],
+): string[] {
+  if (meta?.length) {
+    const fromMeta = meta.map((row) => row.key.trim()).filter(Boolean);
+    if (fromMeta.length) return fromMeta;
+  }
+  return shortlistKeys instanceof Set ? [...shortlistKeys] : [...shortlistKeys];
+}
+
+function stripPickPrefix(raw: string): string {
+  return raw.replace(/^(car|vin|key|id)\s*:\s*/i, "").trim();
+}
+
+/**
+ * Resolve a SERV pickKey onto a shortlist key.
+ * Exact, case-insensitive, car:/vin: prefix strip, VIN match, or unambiguous index.
+ */
+export function resolveShortlistPickKey(
+  raw: unknown,
+  shortlistKeys: ReadonlySet<string> | readonly string[],
+  meta?: readonly FindDecideShortlistMeta[],
+): string | null {
+  const text = asTrimmedString(raw);
+  if (!text) return null;
+  const keys = orderedShortlistKeys(shortlistKeys, meta);
+  const keySet = new Set(keys);
+  if (keySet.has(text)) return text;
+
+  const lower = text.toLowerCase();
+  for (const key of keys) {
+    if (key.toLowerCase() === lower) return key;
+  }
+
+  const stripped = stripPickPrefix(text);
+  if (stripped && keySet.has(stripped)) return stripped;
+  if (stripped) {
+    const strippedLower = stripped.toLowerCase();
+    for (const key of keys) {
+      if (key.toLowerCase() === strippedLower) return key;
+    }
+  }
+
+  const vinNeedle = stripped.toUpperCase();
+  if (vinNeedle && meta?.length) {
+    const vinHits = meta.filter(
+      (row) => typeof row.vin === "string" && row.vin.trim().toUpperCase() === vinNeedle,
+    );
+    if (vinHits.length === 1 && keySet.has(vinHits[0]!.key)) return vinHits[0]!.key;
+  }
+  // Bare VIN sometimes equals the shortlist key itself.
+  if (vinNeedle) {
+    for (const key of keys) {
+      if (key.toUpperCase() === vinNeedle) return key;
+      if (stripPickPrefix(key).toUpperCase() === vinNeedle) return key;
+    }
+  }
+
+  if (keys.length === 0) return null;
+  const indexToken = stripped.toLowerCase();
+  let index: number | null = null;
+  if (indexToken === "first" || indexToken === "#1" || indexToken === "1st") index = 0;
+  else {
+    const hash = indexToken.match(/^#(\d+)$/);
+    const plain = indexToken.match(/^(\d+)$/);
+    const n = hash ? Number(hash[1]) : plain ? Number(plain[1]) : NaN;
+    if (Number.isFinite(n) && n >= 0) {
+      // 1-based when 1..N; 0-based only when the token is "0".
+      if (n === 0) index = 0;
+      else if (n >= 1 && n <= keys.length) index = n - 1;
+    }
+  }
+  if (index != null && index >= 0 && index < keys.length) return keys[index]!;
+
+  return null;
+}
+
+function normalizeDecideAction(raw: unknown): FindDecideAction | null {
+  const text = asTrimmedString(raw);
+  if (!text) return null;
+  const lower = text.toLowerCase().replace(/\s+/g, "_");
+  if (lower in FIND_DECIDE_ACTION_ALIASES) return FIND_DECIDE_ACTION_ALIASES[lower]!;
+  return normalizeEnum(lower, FIND_DECIDE_ACTIONS);
 }
 
 function filterEvidenceIds(claimed: unknown, allowed: Set<string>, dropped: string[], field: string): string[] {
@@ -156,6 +261,7 @@ function readCitedLines(
   allowed: Set<string>,
   dropped: string[],
   field: string,
+  softEvidenceId?: string,
 ): FindDecideCitedLine[] {
   if (!Array.isArray(raw)) return [];
   const out: FindDecideCitedLine[] = [];
@@ -167,9 +273,12 @@ function readCitedLines(
       dropped.push(`${field}[${index}].text`);
       continue;
     }
-    const evidenceIds = filterEvidenceIds(row.evidenceIds, allowed, dropped, `${field}[${index}].evidenceIds`);
-    // A claim with no surviving evidence id is dropped, not rewritten.
-    if (evidenceIds.length === 0) {
+    let evidenceIds = filterEvidenceIds(row.evidenceIds, allowed, dropped, `${field}[${index}].evidenceIds`);
+    // Soft-attach the pick car evidence rather than dropping every reason.
+    if (evidenceIds.length === 0 && softEvidenceId && allowed.has(softEvidenceId)) {
+      evidenceIds = [softEvidenceId];
+      dropped.push(`${field}[${index}].evidenceIds:soft_attached`);
+    } else if (evidenceIds.length === 0) {
       dropped.push(`${field}[${index}].evidenceIds`);
       continue;
     }
@@ -194,7 +303,7 @@ export function validateFindDecide(
   const allowed = asSet(ctx.allowedEvidenceIds);
   const dropped: string[] = [];
 
-  const pickKey = typeof raw.pickKey === "string" ? raw.pickKey.trim() : "";
+  const pickKey = resolveShortlistPickKey(raw.pickKey, ctx.shortlistKeys, ctx.shortlist);
   if (!pickKey || !shortlist.has(pickKey)) {
     return {
       ok: false,
@@ -202,28 +311,27 @@ export function validateFindDecide(
     };
   }
 
-  const actionRaw = typeof raw.action === "string" ? raw.action.trim() : "";
-  if (!ACTION_SET.has(actionRaw)) {
+  const action = normalizeDecideAction(raw.action);
+  if (!action) {
     return {
       ok: false,
       issues: [{ field: "action", message: "find_decide.action must be buy|negotiate|inspect_first|pass." }],
     };
   }
-  const action = actionRaw as FindDecideAction;
 
-  const confidenceRaw = typeof raw.confidence === "string" ? raw.confidence.trim() : "";
-  if (!CONF_SET.has(confidenceRaw)) {
+  const confidence = normalizeEnum(raw.confidence, FIND_DECIDE_CONFIDENCE);
+  if (!confidence) {
     return {
       ok: false,
       issues: [{ field: "confidence", message: "find_decide.confidence must be high|medium|low." }],
     };
   }
-  const confidence = confidenceRaw as FindDecideConfidence;
 
   const confidenceWhy =
     typeof raw.confidenceWhy === "string" ? raw.confidenceWhy.trim().slice(0, 280) : "";
-  const reasons = readCitedLines(raw.reasons, allowed, dropped, "reasons");
-  const watchOuts = readCitedLines(raw.watchOuts, allowed, dropped, "watchOuts");
+  const softCarEvidence = `car:${pickKey}`;
+  const reasons = readCitedLines(raw.reasons, allowed, dropped, "reasons", softCarEvidence);
+  const watchOuts = readCitedLines(raw.watchOuts, allowed, dropped, "watchOuts", softCarEvidence);
 
   const askSeller: string[] = [];
   if (Array.isArray(raw.askSeller)) {
@@ -239,7 +347,7 @@ export function validateFindDecide(
     for (const [index, item] of raw.alternatives.entries()) {
       if (!item || typeof item !== "object" || Array.isArray(item)) continue;
       const row = item as Record<string, unknown>;
-      const key = typeof row.key === "string" ? row.key.trim() : "";
+      const key = resolveShortlistPickKey(row.key, ctx.shortlistKeys, ctx.shortlist);
       if (!key || !shortlist.has(key) || key === pickKey) {
         dropped.push(`alternatives[${index}].key`);
         continue;
@@ -250,8 +358,8 @@ export function validateFindDecide(
     }
   }
 
-  let offerUsd: number | null =
-    typeof raw.offerUsd === "number" && Number.isFinite(raw.offerUsd) ? Math.round(raw.offerUsd) : null;
+  const offerRaw = asFiniteNumber(raw.offerUsd);
+  let offerUsd: number | null = offerRaw != null ? Math.round(offerRaw) : null;
   if (offerUsd != null) {
     const ask = ctx.askUsd;
     if (typeof ask === "number" && Number.isFinite(ask) && offerUsd > ask) {
@@ -320,8 +428,8 @@ export function validateFindChallenge(
     for (const [index, item] of raw.issues.entries()) {
       if (!item || typeof item !== "object" || Array.isArray(item)) continue;
       const row = item as Record<string, unknown>;
-      const kind = typeof row.kind === "string" ? row.kind.trim() : "";
-      if (!ISSUE_KINDS.has(kind)) {
+      const kind = normalizeEnum(row.kind, ISSUE_KINDS);
+      if (!kind) {
         dropped.push(`issues[${index}].kind`);
         continue;
       }
@@ -335,7 +443,7 @@ export function validateFindChallenge(
         dropped.push(`issues[${index}].evidenceIds`);
         continue;
       }
-      issues.push({ kind: kind as FindChallengeIssueKind, text, evidenceIds });
+      issues.push({ kind, text, evidenceIds });
     }
   }
 
@@ -344,28 +452,26 @@ export function validateFindChallenge(
       ? (raw.revised as Record<string, unknown>)
       : {};
 
-  let pickKey: string | null =
-    typeof revisedRaw.pickKey === "string" && revisedRaw.pickKey.trim()
-      ? revisedRaw.pickKey.trim()
-      : null;
-  if (pickKey && !shortlist.has(pickKey)) {
+  let pickKey: string | null = resolveShortlistPickKey(
+    revisedRaw.pickKey,
+    ctx.shortlistKeys,
+    ctx.shortlist,
+  );
+  if (asTrimmedString(revisedRaw.pickKey) && (!pickKey || !shortlist.has(pickKey))) {
+    dropped.push("revised.pickKey");
+    pickKey = null;
+  } else if (pickKey && !shortlist.has(pickKey)) {
     dropped.push("revised.pickKey");
     pickKey = null;
   }
 
-  let action: FindDecideAction | null =
-    typeof revisedRaw.action === "string" && ACTION_SET.has(revisedRaw.action.trim())
-      ? (revisedRaw.action.trim() as FindDecideAction)
-      : null;
-  if (typeof revisedRaw.action === "string" && revisedRaw.action.trim() && !action) {
+  let action = normalizeDecideAction(revisedRaw.action);
+  if (asTrimmedString(revisedRaw.action) && !action) {
     dropped.push("revised.action");
   }
 
-  let confidence: FindDecideConfidence | null =
-    typeof revisedRaw.confidence === "string" && CONF_SET.has(revisedRaw.confidence.trim())
-      ? (revisedRaw.confidence.trim() as FindDecideConfidence)
-      : null;
-  if (typeof revisedRaw.confidence === "string" && revisedRaw.confidence.trim() && !confidence) {
+  let confidence = normalizeEnum(revisedRaw.confidence, FIND_DECIDE_CONFIDENCE);
+  if (asTrimmedString(revisedRaw.confidence) && !confidence) {
     dropped.push("revised.confidence");
   }
 

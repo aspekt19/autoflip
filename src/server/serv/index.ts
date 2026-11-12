@@ -5,6 +5,7 @@ export {
   PROFILES,
   REPORT_SHADOW_HINT,
   SHADOW_MAX_ITERATIONS,
+  bareServModelId,
   endpointForProfile,
   featuresUsedBy,
   isGeminiModelId,
@@ -19,6 +20,19 @@ export {
   type ProfileId,
   type ServProfile,
 } from "./profiles";
+export {
+  classifyAgentFeatureRejection,
+  findAgentServFeatureBundle,
+  formatFeatureRejectionFlags,
+  journalFromBundle,
+  mergeResponsesTools,
+  resaleAgentServFeatureBundle,
+  servModelWithFeature,
+  shadowOutcomeForAgentTurn,
+  type AgentServFeatureBundle,
+  type AgentServFeatureJournal,
+  type AgentServFeatureRejection,
+} from "./agent-serv-features";
 export {
   resolveProfileBaseModel,
   requireProfileBaseModel,
@@ -90,3 +104,19 @@ export {
   type ServResult,
   type ServTransportPolicy,
 } from "./run";
+export {
+  buildServChatTurnBody,
+  buildServResponsesTurnBody,
+  isServChatCompletionsUrl,
+  isServResponsesUrl,
+  postServChatTurn,
+  postServResponsesTurn,
+  type ServChatToolCallWire,
+  type ServChatToolDef,
+  type ServChatTurnBody,
+  type ServChatTurnMessage,
+  type ServChatTurnResult,
+  type ServResponsesToolDef,
+  type ServResponsesTurnBody,
+  type ServResponsesTurnResult,
+} from "./agent-chat-turn";

@@ -504,34 +504,45 @@ function AssistantFlow({
       // Provenance from the note text only — never treat a city-resolved ZIP as “from your note”.
       const intake = intakeFromNote(text);
       const loc = resolveLocationZip({
-        zip: intake.zip,
+        zip: intake.zip ?? finalNeed.zip,
         locationPhrase: finalNeed.locationPhrase ?? intake.locationPhrase,
+        distanceMiles: finalNeed.distanceMiles,
       });
-      const resolutionForField =
-        loc.from === "inferred_from_city" && finalNeed.zip
-          ? { ...loc, zip: finalNeed.zip }
-          : loc.needed && !finalNeed.zip
-            ? loc
-            : intake.zip && finalNeed.zip === intake.zip
-              ? loc
-              : finalNeed.zip
-                ? ({
-                    zip: finalNeed.zip,
+      // Prefer a successful city→ZIP resolve over a blank finalNeed.zip.
+      const withCityZip =
+        !finalNeed.zip && loc.zip && loc.from === "inferred_from_city"
+          ? { ...finalNeed, zip: loc.zip }
+          : finalNeed;
+      const resolutionForField: LocationZipResolution | null =
+        loc.zip || loc.from === "inferred_from_city" || loc.from === "note_zip"
+          ? {
+              ...loc,
+              zip: withCityZip.zip ?? loc.zip,
+              needed:
+                withCityZip.distanceMiles != null &&
+                !withCityZip.zip &&
+                (loc.needed || Boolean(withCityZip.locationPhrase)),
+            }
+          : loc.needed && !withCityZip.zip
+            ? { ...loc, needed: withCityZip.distanceMiles != null }
+            : withCityZip.zip
+              ? {
+                  zip: withCityZip.zip,
+                  from: intake.zip && withCityZip.zip === intake.zip ? ("note_zip" as const) : null,
+                  needed: false,
+                  cityLabel: withCityZip.locationPhrase ?? null,
+                }
+              : withCityZip.locationPhrase
+                ? {
+                    zip: null,
                     from: null,
-                    needed: false,
-                    cityLabel: finalNeed.locationPhrase ?? null,
-                  } satisfies LocationZipResolution)
-                : finalNeed.locationPhrase
-                  ? ({
-                      zip: null,
-                      from: null,
-                      needed: true,
-                      cityLabel: finalNeed.locationPhrase,
-                    } satisfies LocationZipResolution)
-                  : null;
-      setNeed(finalNeed);
+                    needed: withCityZip.distanceMiles != null && !isNearMePhrase(withCityZip.locationPhrase),
+                    cityLabel: withCityZip.locationPhrase,
+                  }
+                : null;
+      setNeed(withCityZip);
       {
-        const marks = noteMarksFrom(finalNeed, text);
+        const marks = noteMarksFrom(withCityZip, text);
         // Typed Max price on the budget form wins over note extraction.
         if (budgetFormDirty) marks.budget = false;
         setNoteMarks(marks);
@@ -540,18 +551,18 @@ function AssistantFlow({
       // Labelled default when server set 100 mi from a city/ZIP with no explicit “within N miles”.
       setRadiusIsDefault(
         Boolean(
-          finalNeed.zip &&
-            finalNeed.distanceMiles === NOTE_DEFAULT_RADIUS_WHEN_ZIP &&
-            (finalNeed.locationPhrase || loc.from === "inferred_from_city") &&
+          withCityZip.zip &&
+            withCityZip.distanceMiles === NOTE_DEFAULT_RADIUS_WHEN_ZIP &&
+            (withCityZip.locationPhrase || loc.from === "inferred_from_city") &&
             !/\bwithin\s+\d+/i.test(text),
         ),
       );
-      setZipDraft(finalNeed.zip ?? "");
-      setDistanceDraft(finalNeed.distanceMiles);
-      if (finalNeed.yearMin != null) setYearMin(String(finalNeed.yearMin));
-      if (finalNeed.yearMax != null) setYearMax(String(finalNeed.yearMax));
-      if (finalNeed.budgetUsd != null) setBudget(finalNeed.budgetUsd.toLocaleString("en-US"));
-      setBudgetKnown(finalNeed.budgetKnown);
+      setZipDraft(withCityZip.zip ?? "");
+      setDistanceDraft(withCityZip.distanceMiles);
+      if (withCityZip.yearMin != null) setYearMin(String(withCityZip.yearMin));
+      if (withCityZip.yearMax != null) setYearMax(String(withCityZip.yearMax));
+      if (withCityZip.budgetUsd != null) setBudget(withCityZip.budgetUsd.toLocaleString("en-US"));
+      setBudgetKnown(withCityZip.budgetKnown);
       setSource(body.source ?? "form");
       const parse =
         body.criteriaParse ??
@@ -1014,22 +1025,9 @@ function AssistantFlow({
 
   async function findCars() {
     if (!need) return;
-    // Geography: a radius still needs a ZIP. ZIP with no radius is allowed — Nationwide
-    // (results can still sort by distance when ZIP is present). Never dead-end on Confirm.
+    // Radius needs a ZIP. Nationwide (distanceMiles null) with blank ZIP proceeds.
     if (need.distanceMiles != null && !need.zip) {
       setError("Add a ZIP for a seller-distance radius, or choose Nationwide.");
-      return;
-    }
-    // "near me" without a city/ZIP: ZIP is optional — blank continues nationwide.
-    if (
-      need.distanceMiles == null &&
-      !need.zip &&
-      (need.locationPhrase || noteMarks?.location) &&
-      !isNearMePhrase(need.locationPhrase)
-    ) {
-      setError(
-        `Your note mentioned ${need.locationPhrase ?? "a place"}. Add a U.S. ZIP to search nearby, or leave ZIP blank for Nationwide.`,
-      );
       return;
     }
     if (findSubmitLock.current) return;
@@ -1093,7 +1091,8 @@ function AssistantFlow({
           need,
           searchIdempotencyKey,
           runId,
-          // C1 plan directions — skip proposeDirections collapse when present.
+          // C1 plan — owns SearchSpec hard/soft; directions skip proposeDirections collapse.
+          ...(findPlan ? { findPlan } : {}),
           ...(planDirections && planDirections.length > 0 ? { directions: planDirections } : {}),
           refine: {
             make: make.trim() || undefined,
@@ -1945,14 +1944,20 @@ function AssistantFlow({
             idPrefix="find-confirm"
             zip={need.zip ?? ""}
             zipMark={
-              zipFieldMark(locationResolution) ??
+              zipFieldMark(
+                locationResolution
+                  ? { ...locationResolution, needed: need.distanceMiles != null && locationResolution.needed }
+                  : locationResolution,
+              ) ??
               (noteMarks?.zip
                 ? "from your note"
                 : isNearMePhrase(need.locationPhrase) && !need.zip
                   ? "optional — near me"
-                  : locationResolution?.needed || (need.locationPhrase && !need.zip)
+                  : need.distanceMiles != null && !need.zip && (locationResolution?.needed || need.locationPhrase)
                     ? "needed"
-                    : null)
+                    : need.distanceMiles == null && !need.zip
+                      ? null
+                      : null)
             }
             distanceMiles={need.distanceMiles}
             onZipChange={(nextZip) => {
@@ -1972,7 +1977,8 @@ function AssistantFlow({
                     ? {
                         zip: null,
                         from: null,
-                        needed: !isNearMePhrase(need.locationPhrase),
+                        // Nationwide keeps ZIP optional even when a place was named.
+                        needed: need.distanceMiles != null && !isNearMePhrase(need.locationPhrase),
                         cityLabel: need.locationPhrase,
                       }
                     : null,
@@ -1994,9 +2000,13 @@ function AssistantFlow({
             <p className="hint" role="note">
               Your note said near me. Add a U.S. ZIP to search nearby, or leave ZIP blank to search nationwide.
             </p>
-          ) : need.locationPhrase && !need.zip ? (
+          ) : need.locationPhrase && !need.zip && need.distanceMiles != null ? (
             <p className="hint" role="note">
-              Your note mentioned {need.locationPhrase}. Add a U.S. ZIP (needed) to search nearby, or choose Nationwide.
+              Your note mentioned {need.locationPhrase}. Add a U.S. ZIP for this radius, or choose Nationwide.
+            </p>
+          ) : need.locationPhrase && !need.zip && need.distanceMiles == null ? (
+            <p className="hint" role="note">
+              Searching Nationwide ({need.locationPhrase} named; ZIP optional). Add a ZIP and radius to search nearby.
             </p>
           ) : null}
           {criteriaParse ? <p className="hint">{criteriaParse.label}</p> : null}

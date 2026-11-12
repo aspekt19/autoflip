@@ -10,8 +10,24 @@ describe("note limits that are easy to miss", () => {
   it("reads a body word, a city area, and nothing-older-than", () => {
     expect(bodyFromIntake("truck for work, can tow a trailer")).toBe("Truck");
     expect(bodyFromIntake("a minivan for the kids")).toBe("Minivan");
+    expect(bodyFromIntake("looking for a convertible for weekends")).toBe("Convertible");
+    expect(bodyFromIntake("convertible coupe")).toBe("Convertible");
     expect(locationPhraseFromText("truck for work, atlanta area, can tow a trailer")).toBe("atlanta");
+    expect(locationPhraseFromText("near San Diego under $15k")).toBe("San Diego");
     expect(yearsFromNote("nothing older than 2015").yearMin).toBe(2015);
+  });
+
+  it("captures 3rd-row / seats and low-miles preference from the note", () => {
+    const third = intakeFromNote("Family SUV with a 3rd row under $25k");
+    expect(third.seatsMin).toBe(7);
+    expect(intakeFromNote("Need a third row or 7 seats").seatsMin).toBe(7);
+    expect(intakeFromNote("7-seater for the kids").seatsMin).toBe(7);
+    const low = intakeFromNote("Reliable sedan, low mileage, around $12k");
+    expect(low.milesMax).toBeNull();
+    expect(low.priorities).toEqual(expect.arrayContaining(["low_miles"]));
+    const need = explicitNeedFromText("Reliable sedan, low miles, around $12k", "personal");
+    expect(need.priorities).toEqual(expect.arrayContaining(["low_miles"]));
+    expect(need.milesCapResolved).toBe(false);
   });
 });
 

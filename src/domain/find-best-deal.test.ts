@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   BEST_DEAL_TIE_EPSILON,
+  prefersLowMilesFromNote,
   selectBestDealOnEvidence,
   type BestDealListing,
 } from "./find-best-deal";
@@ -230,6 +231,42 @@ describe("selectBestDealOnEvidence (deterministic)", () => {
     });
     expect(result.sensitivity.length).toBeGreaterThan(0);
     expect(result.honesty).toMatch(/not a guarantee|current evidence/i);
+  });
+
+  it("ranks a lower-mileage car above a high-mile peer when the note asks for low miles", () => {
+    expect(prefersLowMilesFromNote("San Diego SUV, low miles, under $18k")).toBe(true);
+    const rows: BestDealListing[] = [
+      {
+        make: "Toyota",
+        model: "RAV4",
+        year: 2016,
+        priceUsd: 11_000,
+        miles: 165_000,
+        vin: "HIGHMILES00000001",
+        drivetrain: "AWD",
+      },
+      {
+        make: "Toyota",
+        model: "RAV4",
+        year: 2016,
+        priceUsd: 12_500,
+        miles: 78_000,
+        vin: "LOWMILES000000002",
+        drivetrain: "AWD",
+      },
+    ];
+    const result = selectBestDealOnEvidence({
+      need: {
+        ...baseNeed,
+        note: "San Diego SUV under $18k, low miles preferred.",
+        budgetUsd: 18_000,
+        preferredModels: [{ make: "Toyota", model: "RAV4" }],
+      },
+      listings: rows,
+      receipts: [],
+      nowYear: 2026,
+    });
+    expect(result.allRanked[0]?.vin).toBe("LOWMILES000000002");
   });
 
   it("miles/year sensitivity axis can change scores (not a dead void)", () => {

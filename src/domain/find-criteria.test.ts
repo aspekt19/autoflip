@@ -49,7 +49,7 @@ describe("mileage cap from a note", () => {
     expect(need.ok).toBe(true);
     if (!need.ok) return;
     expect(noMatchMessage(need.need)).toBe(
-      "No Toyota SUV listings under 50,000 mi within budget near 68114. Empty inventory for this search — not a parse failure. Nothing matched these limits, so the search was not widened. You can choose a larger radius or a higher mileage cap and search again. Motorcycles and RVs are not included.",
+      "No Toyota SUV listings under 50,000 mi within budget near 68114. Empty inventory for this search — not a parse failure. Raise the mileage or budget cap, or loosen make/model filters. Motorcycles and RVs are not included.",
     );
     expect(listingWithinNeed({ make: "Toyota", miles: 109_488, bodyStyle: "SUV" }, need.need)).toBe(false);
     expect(listingWithinNeed({ make: "Toyota", miles: 119_010, bodyStyle: "SUV" }, need.need)).toBe(false);

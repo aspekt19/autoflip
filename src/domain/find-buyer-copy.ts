@@ -170,7 +170,7 @@ export function publicCheckStatusLine(input: {
     return "Here is what we can check next with the cars already found:";
   }
   if (input.shortlistEmpty) {
-    return "No shortlist cars to check — public safety checks did not run.";
+    return "No cars on the shortlist yet. Public safety checks start after cars are found.";
   }
   const count =
     typeof input.modelCount === "number" && input.modelCount > 0 ? Math.floor(input.modelCount) : null;
@@ -200,7 +200,7 @@ export function buyerCheckActivityLine(input: {
   shortlistEmpty?: boolean;
 }): string {
   if (input.shortlistEmpty) {
-    return "Public safety checks did not run — the shortlist is empty.";
+    return "No cars on the shortlist yet.";
   }
   if (!input.anyUnchecked) return "Public safety records are caught up for this shortlist.";
   if (input.continuing) return "Public safety records are still being checked. The best choice may change.";
@@ -287,7 +287,9 @@ export function plainDecisionEngineText(text: string): string {
 
 /** Plain stand-in for an internal gate id when that id would otherwise be shown to a buyer. */
 export function plainBuyerPhrase(text: string): string {
-  let out = text;
+  let out = text
+    .replace(/\banswer unreadable\b/gi, "the decision answer could not be read")
+    .replace(/\bunreadable answer\b/gi, "the decision answer could not be read");
   const ids = Object.keys(BUYER_ID_LABELS).sort((a, b) => b.length - a.length);
   for (const id of ids) out = out.replaceAll(id, BUYER_ID_LABELS[id]!);
   return out;
@@ -1196,22 +1198,24 @@ export function formatBuyerBestDeal(result: BestDealResult): {
     headline,
     why: result.why,
     sellerQuestionLines: sellerQuestionsForBuyer(result),
-    stillUnknown: result.stillUnknown
-      .map((line) => {
-        // Belt-and-suspenders: never surface raw factor ids if a caller built stillUnknown ad hoc.
-        return line
-          .replace(/\bestimated_fuel_cost\b/g, "estimated fuel cost")
-          .replace(/\bmmy_recall_campaigns\b/g, "recall campaigns")
-          .replace(/\bmmy_ncap_rating\b/g, "crash-test ratings")
-          .replace(/\bprice_vs_model_asks\b/g, "asking price vs same model")
-          .replace(/\bmiles_per_year_vs_peers\b/g, "miles per year")
-          .replace(/\bnamed_model_preference\b/g, "named model match")
-          .replace(/\bcondition_priority\b/g, "condition-first preference")
-          .replace(/\bbudget_fit\b/g, "budget fit")
-          .replace(/\blisting_feed_flags\b/g, "listing history flags")
-          .replace(/\bdays_listed\b/g, "days on the market");
-      })
-      .filter((line) => !/^Ask the seller\b/i.test(line)),
+    stillUnknown: groupRecallSentences(
+      result.stillUnknown
+        .map((line) => {
+          // Belt-and-suspenders: never surface raw factor ids if a caller built stillUnknown ad hoc.
+          return line
+            .replace(/\bestimated_fuel_cost\b/g, "estimated fuel cost")
+            .replace(/\bmmy_recall_campaigns\b/g, "recall campaigns")
+            .replace(/\bmmy_ncap_rating\b/g, "crash-test ratings")
+            .replace(/\bprice_vs_model_asks\b/g, "asking price vs same model")
+            .replace(/\bmiles_per_year_vs_peers\b/g, "miles per year")
+            .replace(/\bnamed_model_preference\b/g, "named model match")
+            .replace(/\bcondition_priority\b/g, "condition-first preference")
+            .replace(/\bbudget_fit\b/g, "budget fit")
+            .replace(/\blisting_feed_flags\b/g, "listing history flags")
+            .replace(/\bdays_listed\b/g, "days on the market");
+        })
+        .filter((line) => !/^Ask the seller\b/i.test(line)),
+    ),
     rankedLines,
     factorLines,
     sensitivityLines,

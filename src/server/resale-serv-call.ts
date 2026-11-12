@@ -13,7 +13,9 @@ import {
   type ResaleEvidenceBundle,
   type ResaleServValidation,
 } from "@/domain/resale-serv-validate";
+import { tryExtractServJson } from "@/domain/serv-json";
 import { chatCompletionContent, profile, runServ, type ProfileId, type ServDeps, type ServResult } from "@/server/serv";
+import { logRejectedServAnswer } from "@/server/serv/call-step";
 
 /** Real SERV body for proofRecords — never invent. */
 export function rawResponseFromServResult(result: ServResult): string | null {
@@ -26,13 +28,9 @@ export function rawResponseFromServResult(result: ServResult): string | null {
 
 export function parseJsonObject(text: string | null | undefined): Record<string, unknown> | null {
   if (!text?.trim()) return null;
-  try {
-    const parsed = JSON.parse(text) as unknown;
-    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return null;
-    return parsed as Record<string, unknown>;
-  } catch {
-    return null;
-  }
+  const parsed = tryExtractServJson(text);
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return null;
+  return parsed as Record<string, unknown>;
 }
 
 /** Strip known citation prefixes models often echo into structured fields. */
@@ -227,7 +225,18 @@ export async function runResaleServWithRejectRetry(input: {
     return { result: first, payload: firstPayload, validation: firstValidation, attempt: 1 };
   }
   if (first.ok && firstPayload && (firstValidation.ok || !input.canRetry)) {
+    if (first.ok && !firstValidation.ok) {
+      logRejectedServAnswer(input.profileId, first.text, [
+        { field: "resale", message: firstValidation.detail || firstValidation.reason },
+      ]);
+    }
     return { result: first, payload: firstPayload, validation: firstValidation, attempt: 1 };
+  }
+
+  if (first.ok && !firstValidation.ok) {
+    logRejectedServAnswer(input.profileId, first.text, [
+      { field: "resale", message: firstValidation.detail || firstValidation.reason },
+    ]);
   }
 
   let retryTimeout = input.deps.timeoutMs;
@@ -264,6 +273,11 @@ export async function runResaleServWithRejectRetry(input: {
   );
   const secondPayload = second.ok ? parseJsonObject(second.text) : null;
   const secondValidation = input.validatePayload(secondPayload, second);
+  if (second.ok && !secondValidation.ok) {
+    logRejectedServAnswer(input.profileId, second.text, [
+      { field: "resale", message: secondValidation.detail || secondValidation.reason },
+    ]);
+  }
   // Retry got no payload (timeout/HTTP): keep the first payload rejection as journal truth.
   if ((!second.ok || isServTimeout(second) || !secondPayload) && !firstValidation.ok) {
     return { result: first, payload: firstPayload, validation: firstValidation, attempt: 2 };

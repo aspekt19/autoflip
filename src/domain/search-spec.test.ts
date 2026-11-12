@@ -106,3 +106,59 @@ describe("providerYearQuery", () => {
     expect(providerYearQuery({ yearMin: 2018, yearMax: 2020 })).toEqual({ yearRange: "2018-2020" });
   });
 });
+
+describe("buildSearchSpec SERV hard vs soft", () => {
+  it("keeps SERV preferred AWD soft, never hard", () => {
+    const note = "Family SUV under $20k, AWD would be great";
+    const spec = buildSearchSpec({
+      note,
+      servPlan: {
+        priceMaxUsd: 20_000,
+        drivetrain: { value: "awd_4wd", strength: "preferred", quote: "AWD would be great" },
+        bodyStyles: ["SUV"],
+        priorities: [],
+      },
+    });
+    expect(spec.hard.drivetrain).toBeUndefined();
+    expect(spec.soft.drivetrain).toEqual({ value: "awd_4wd", source: "serv", weight: "prefer" });
+  });
+
+  it("puts SERV required AWD in hard", () => {
+    const note = "Used compact SUV with AWD under $25,000";
+    const spec = buildSearchSpec({
+      note,
+      servPlan: {
+        priceMaxUsd: 25_000,
+        drivetrain: { value: "awd_4wd", strength: "required", quote: "with AWD" },
+        bodyStyles: ["SUV"],
+      },
+    });
+    expect(spec.hard.drivetrain).toEqual({ value: "awd_4wd", source: "serv", quote: "with AWD" });
+    expect(spec.soft.drivetrain).toBeUndefined();
+  });
+
+  it("does not let note soft AWD force hard when SERV said preferred", () => {
+    const note = "Family SUV under $20k, AWD would be great";
+    const spec = buildSearchSpec({
+      note,
+      servPlan: {
+        drivetrain: { value: "awd_4wd", strength: "preferred" },
+        bodyStyles: ["SUV"],
+      },
+    });
+    expect(spec.hard.drivetrain).toBeUndefined();
+    expect(spec.soft.drivetrain?.value).toBe("awd_4wd");
+  });
+
+  it("skips note body regex when SERV bodyStyles are present", () => {
+    const note = "Looking for a sedan under $15k";
+    const spec = buildSearchSpec({
+      note,
+      servPlan: {
+        bodyStyles: ["SUV"],
+        drivetrain: { value: "any", strength: "none" },
+      },
+    });
+    expect(spec.hard.bodyStyles).toEqual({ value: ["SUV"], source: "serv" });
+  });
+});
