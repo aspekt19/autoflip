@@ -360,16 +360,33 @@ export async function understandNeed(
         ? { source: "code", responseId: null }
         : { source: "form", responseId: null };
 
+  // Only mark form dirty when the shopper explicitly edited the field.
+  // Note/SERV-derived values must keep note|serv provenance — never pretend they are form.
   const formEditsForSpec = {
     priceMaxUsd:
-      checked.need.budgetKnown && checked.need.budgetUsd != null
+      body.budgetDirty === true && checked.need.budgetKnown && checked.need.budgetUsd != null
         ? { value: checked.need.budgetUsd, dirty: true as const }
         : undefined,
-    yearMin: checked.need.yearMin != null ? { value: checked.need.yearMin, dirty: true as const } : undefined,
-    yearMax: checked.need.yearMax != null ? { value: checked.need.yearMax, dirty: true as const } : undefined,
-    milesMax: checked.need.milesMax != null ? { value: checked.need.milesMax, dirty: true as const } : undefined,
-    zip: checked.need.zip ? { value: checked.need.zip, dirty: true as const } : undefined,
-    radiusMi: { value: checked.need.distanceMiles, dirty: true as const },
+    yearMin:
+      body.yearMin != null && checked.need.yearMin != null
+        ? { value: checked.need.yearMin, dirty: true as const }
+        : undefined,
+    yearMax:
+      body.yearMax != null && checked.need.yearMax != null
+        ? { value: checked.need.yearMax, dirty: true as const }
+        : undefined,
+    milesMax:
+      body.milesMax != null && checked.need.milesMax != null
+        ? { value: checked.need.milesMax, dirty: true as const }
+        : undefined,
+    zip:
+      body.zip != null && checked.need.zip
+        ? { value: checked.need.zip, dirty: true as const }
+        : undefined,
+    radiusMi:
+      body.radiusDirty === true || (body.distanceMiles != null && Number.isFinite(body.distanceMiles))
+        ? { value: checked.need.distanceMiles, dirty: true as const }
+        : undefined,
   };
   const searchSpec = buildSearchSpec({
     note: checked.need.note ?? screened.text,
@@ -377,6 +394,20 @@ export async function understandNeed(
     formEdits: formEditsForSpec,
     servPlan: findPlanToServHint(findPlan),
   });
+  if (searchSpec.budgetConflict) {
+    proofRecords.push(
+      buildDecisionProofRecord({
+        purpose: "find_plan",
+        rubricId: NEED_PARSE_RUBRIC_ID,
+        status: "ok",
+        responseId: planResponseId,
+        model: null,
+        recordedAt: new Date().toISOString(),
+        inputs: { budgetConflict: searchSpec.budgetConflict },
+        detail: searchSpec.budgetConflict.journalLine,
+      }),
+    );
+  }
 
   return {
     ok: true,

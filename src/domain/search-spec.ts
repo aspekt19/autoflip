@@ -1,3 +1,4 @@
+import { resolveBudgetPrecedence, type BudgetConflict } from "./budget-conflict";
 import { sha256Canonical } from "./hash";
 import { bodyStyleMatches } from "./body-style";
 import { milesFromText } from "./need";
@@ -49,6 +50,11 @@ export type SearchSpec = {
   };
   /** Derived inventory queries. Never empty: a budget-only query has no make or model. */
   queries: SearchQuery[];
+  /**
+   * When an explicit form budget conflicts with the note, the form wins and this
+   * records the conflict for the SERV journal / user-visible trail.
+   */
+  budgetConflict?: BudgetConflict | null;
 };
 
 export type FormEdit<T> = { value: T; dirty: boolean };
@@ -144,19 +150,43 @@ function servBodies(serv: ServPlanHint | undefined): string[] {
 }
 
 /**
- * dirty form > SERV hard > note literal only when SERV missed the field.
+ * Explicit dirty form > SERV hard > note literal only when SERV missed the field.
+ * Untouched / default form values must never override note or SERV.
  * Money/safety: price always enforceable; titleClean stays note-only.
  */
-function hardPrice(note: string, form: SearchFormEdits, serv: ServPlanHint | undefined): Hard<number> | undefined {
+function hardPrice(
+  note: string,
+  form: SearchFormEdits,
+  serv: ServPlanHint | undefined,
+): { hard: Hard<number> | undefined; conflict: BudgetConflict | null } {
+  const fromNote = budgetFromText(note);
   const dirty = dirtyNumber(form.priceMaxUsd);
-  if (dirty != null && dirty >= 1000) return { value: dirty, source: "form" };
+  const resolved = resolveBudgetPrecedence({
+    noteUsd: fromNote,
+    formUsd: dirty,
+    formDirty: dirty != null,
+  });
+  if (resolved.source === "form" && resolved.budgetUsd != null) {
+    return {
+      hard: { value: resolved.budgetUsd, source: "form" },
+      conflict: resolved.conflict,
+    };
+  }
   if (serv?.priceMaxUsd != null && serv.priceMaxUsd >= 1000) {
     const quote = quoteInNote(serv.priceQuote, note) ?? undefined;
-    return { value: Math.round(serv.priceMaxUsd), source: "serv", ...(quote ? { quote } : {}) };
+    return {
+      hard: {
+        value: Math.round(serv.priceMaxUsd),
+        source: "serv",
+        ...(quote ? { quote } : {}),
+      },
+      conflict: null,
+    };
   }
-  const fromNote = budgetFromText(note);
-  if (fromNote != null) return { value: fromNote, source: "note" };
-  return undefined;
+  if (resolved.budgetUsd != null) {
+    return { hard: { value: resolved.budgetUsd, source: "note" }, conflict: null };
+  }
+  return { hard: undefined, conflict: null };
 }
 
 /**
@@ -305,8 +335,9 @@ export function buildSearchSpec(input: {
   }
   if (queries.length === 0) queries.push({});
 
+  const priced = hardPrice(note, form, serv);
   const hard = {
-    priceMaxUsd: hardPrice(note, form, serv),
+    priceMaxUsd: priced.hard,
     yearMin,
     yearMax,
     milesMax,
@@ -353,7 +384,12 @@ export function buildSearchSpec(input: {
     queries,
   };
   const hash = sha256Canonical(specWithoutIds);
-  return { ...specWithoutIds, id: `spec_${hash.slice(0, 16)}`, hash };
+  return {
+    ...specWithoutIds,
+    id: `spec_${hash.slice(0, 16)}`,
+    hash,
+    budgetConflict: priced.conflict,
+  };
 }
 
 export type HardDrop = { vin: string; rule: string };

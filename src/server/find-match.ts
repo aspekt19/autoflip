@@ -263,15 +263,24 @@ function applyHardGate(
   const spec = buildSearchSpec({
     note: need.note ?? "",
     mode: need.mode,
+    // Do not mark need-derived price as dirty form — that mislabels note/SERV as form
+    // and can let a stale default override the shopper's stated budget. Pass the
+    // resolved need budget through servPlan so hard gates still enforce it.
+    // Radius has no SERV/note path in SearchSpec today — keep the selected miles dirty.
     formEdits: {
-      priceMaxUsd:
-        need.budgetKnown && need.budgetUsd != null ? { value: need.budgetUsd, dirty: true } : undefined,
-      yearMin: need.yearMin != null ? { value: need.yearMin, dirty: true } : undefined,
-      yearMax: need.yearMax != null ? { value: need.yearMax, dirty: true } : undefined,
-      milesMax: need.milesMax != null ? { value: need.milesMax, dirty: true } : undefined,
       radiusMi: { value: need.distanceMiles, dirty: true },
     },
-    servPlan,
+    servPlan: {
+      ...servPlan,
+      priceMaxUsd: need.budgetKnown && need.budgetUsd != null ? need.budgetUsd : servPlan?.priceMaxUsd,
+      yearMin: need.yearMin ?? servPlan?.yearMin,
+      yearMax: need.yearMax ?? servPlan?.yearMax,
+      milesMax: need.milesMax ?? servPlan?.milesMax,
+      location: {
+        ...servPlan?.location,
+        zip: need.zip ?? servPlan?.location?.zip,
+      },
+    },
   });
   const gated = enforceHard(spec, cars);
   const otherNote =

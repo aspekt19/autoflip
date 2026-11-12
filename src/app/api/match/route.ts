@@ -407,18 +407,24 @@ export async function POST(request: Request) {
       mode,
       formEdits: validatedNeed.ok
         ? {
-            priceMaxUsd:
-              validatedNeed.need.budgetKnown && validatedNeed.need.budgetUsd != null
-                ? { value: validatedNeed.need.budgetUsd, dirty: true }
-                : undefined,
-            yearMin: validatedNeed.need.yearMin != null ? { value: validatedNeed.need.yearMin, dirty: true } : undefined,
-            yearMax: validatedNeed.need.yearMax != null ? { value: validatedNeed.need.yearMax, dirty: true } : undefined,
-            milesMax: validatedNeed.need.milesMax != null ? { value: validatedNeed.need.milesMax, dirty: true } : undefined,
-            zip: validatedNeed.need.zip ? { value: validatedNeed.need.zip, dirty: true } : undefined,
             radiusMi: { value: validatedNeed.need.distanceMiles, dirty: true },
           }
         : undefined,
-      servPlan: body?.findPlan ? findPlanToServHint(body.findPlan) : undefined,
+      servPlan: {
+        ...(body?.findPlan ? findPlanToServHint(body.findPlan) : {}),
+        ...(validatedNeed.ok
+          ? {
+              priceMaxUsd:
+                validatedNeed.need.budgetKnown && validatedNeed.need.budgetUsd != null
+                  ? validatedNeed.need.budgetUsd
+                  : undefined,
+              yearMin: validatedNeed.need.yearMin ?? undefined,
+              yearMax: validatedNeed.need.yearMax ?? undefined,
+              milesMax: validatedNeed.need.milesMax ?? undefined,
+              location: { zip: validatedNeed.need.zip },
+            }
+          : {}),
+      },
     });
     const runId = await syncRunSafely(kv, {
       runId: typeof body?.runId === "string" ? body.runId : null,

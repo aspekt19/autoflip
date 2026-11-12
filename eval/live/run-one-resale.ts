@@ -159,14 +159,23 @@ export async function runOneResaleQuery(
     };
   }
 
-  const top = agent.verdict.picks[0] ?? null;
+  const actionable = agent.verdict.picks.find((p) => p.action !== "pass") ?? null;
+  const top = actionable ?? null;
   const listing = top ? agent.listingsByVin.get(top.vin.toUpperCase()) : null;
   const label = listing
     ? [listing.year, listing.make, listing.model].filter(Boolean).join(" ") || null
     : null;
+  const chosenVin = top?.vin ?? null;
+  const nothingFits =
+    !chosenVin &&
+    agent.verdictReached &&
+    agent.toolRounds > 0 &&
+    agent.relaxedConditions.length > 0 &&
+    Boolean(agent.verdict.summary?.trim());
+  const scoringOk = Boolean(chosenVin) || nothingFits;
   return {
     ...base,
-    ok: true,
+    ok: scoringOk,
     searchSpec: null,
     carsFound: agent.knownVins.length,
     pick: top
@@ -179,21 +188,29 @@ export async function runOneResaleQuery(
       : {
           vin: null,
           label: null,
-          verdict: agent.verdict.picks.length === 0 ? "pass" : null,
+          verdict: "pass",
           confidence: agent.verdict.confidence,
         },
-    failure: null,
+    failure: scoringOk
+      ? null
+      : {
+          step: "resale_agent",
+          error: "incomplete_verdict",
+          message:
+            "No chosen flip and no documented nothing-fits (searches + reasons). Agent must repair.",
+        },
     proofRecords: [],
     elapsedMs,
     durationMs: elapsedMs,
     agentMode: agent.agentMode,
     toolRounds: agent.toolRounds,
-    verdictReached: agent.verdictReached,
+    verdictReached: Boolean(chosenVin) || nothingFits,
     relaxedConditions: agent.relaxedConditions,
     journalServCalls: journal.servCalls,
     journalToolCalls: journal.toolCalls,
     featuresActive: meta.featuresActive,
     featureRejections: meta.featureRejections,
     servResponseIds: meta.servResponseIds,
+    chosenListingCount: chosenVin ? 1 : 0,
   };
 }

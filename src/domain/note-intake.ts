@@ -229,7 +229,9 @@ export function budgetFromText(text: string, now = new Date()): number | null {
     consider(index, raw, k, end, { dollar: false });
   }
 
-  const WORD_AMOUNT: Record<string, number> = {
+  // Compound word amounts: "thirty five thousand" / "thirty-five thousand" → 35000.
+  // Longest match wins — do not accept bare "five thousand" inside "thirty five thousand".
+  const WORD_ONES: Record<string, number> = {
     one: 1,
     two: 2,
     three: 3,
@@ -239,6 +241,8 @@ export function budgetFromText(text: string, now = new Date()): number | null {
     seven: 7,
     eight: 8,
     nine: 9,
+  };
+  const WORD_TEENS: Record<string, number> = {
     ten: 10,
     eleven: 11,
     twelve: 12,
@@ -249,17 +253,30 @@ export function budgetFromText(text: string, now = new Date()): number | null {
     seventeen: 17,
     eighteen: 18,
     nineteen: 19,
+  };
+  const WORD_TENS: Record<string, number> = {
     twenty: 20,
     thirty: 30,
     forty: 40,
     fifty: 50,
   };
+  const tensAlt = Object.keys(WORD_TENS).join("|");
+  const onesAlt = Object.keys(WORD_ONES).join("|");
+  const teensAlt = Object.keys(WORD_TEENS).join("|");
   const wordRe = new RegExp(
-    String.raw`\b(${Object.keys(WORD_AMOUNT).join("|")})\s+(thousand|grand)\b`,
+    String.raw`\b(?:(${tensAlt})(?:[\s-]+(${onesAlt}))?|(${teensAlt})|(${onesAlt}))\s+(thousand|grand)\b`,
     "gi",
   );
   for (const match of text.matchAll(wordRe)) {
-    const base = WORD_AMOUNT[(match[1] ?? "").toLowerCase()];
+    let base = 0;
+    if (match[1]) {
+      base = WORD_TENS[(match[1] ?? "").toLowerCase()] ?? 0;
+      if (match[2]) base += WORD_ONES[(match[2] ?? "").toLowerCase()] ?? 0;
+    } else if (match[3]) {
+      base = WORD_TEENS[(match[3] ?? "").toLowerCase()] ?? 0;
+    } else if (match[4]) {
+      base = WORD_ONES[(match[4] ?? "").toLowerCase()] ?? 0;
+    }
     if (!base) continue;
     const usd = base * 1000;
     if (usd >= 1000 && usd <= 250_000) hits.push({ index: match.index ?? 0, usd });

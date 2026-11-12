@@ -2,14 +2,29 @@
  * Multi-turn agent SERV posts (chat next_action / Responses tools). Kept inside
  * serv/ so every model HTTP still goes through the SERV layer (bypass.test).
  *
- * gpt-6.1-sol: chat/completions rejects function tools (reasoning_effort cannot
- * be none, but tools require none). Responses with reasoning.effort=low works
- * (probe winningLabel responses:tools+reasoning.low). Prefer Responses for
- * tools mode; keep chat json_schema for next_action and finish.
+ * gpt-6.1-sol: never send reasoning_effort "none" (unsupported; supported
+ * low/medium/high/xhigh). Chat + function tools is not a workable path for this
+ * model — Prefer /v1/responses tools mode. Chat fallback is json_schema only
+ * (no function tools) with reasoning_effort "low" or omitted.
+ *
+ * Agent turns omit max_output_tokens / max_completion_tokens (no SERV token
+ * caps on the agent loop). HTTP still uses a platform deadline so Hobby
+ * requests can step; that is not a model token budget.
  */
 import { SERV_HTTP_DEADLINE_MS, servApiBase } from "./run";
-import { withServOutputTokenBound, SERV_OUTPUT_TOKEN_DEFAULT } from "./output-tokens";
 import { BASE_MODEL } from "./profiles";
+
+/** gpt-6.1-sol-supported efforts. Never "none". */
+export const SERV_AGENT_REASONING_EFFORTS = ["low", "medium", "high", "xhigh"] as const;
+export type ServAgentReasoningEffort = (typeof SERV_AGENT_REASONING_EFFORTS)[number];
+
+export function normalizeServAgentReasoningEffort(
+  effort: string | null | undefined,
+): ServAgentReasoningEffort {
+  const raw = (effort ?? "").trim().toLowerCase();
+  if (raw === "medium" || raw === "high" || raw === "xhigh") return raw;
+  return "low";
+}
 
 export type ServChatTurnMessage =
   | { role: "system"; content: string }
@@ -45,9 +60,16 @@ export type ServChatTurnBody = {
   tools?: ServChatToolDef[];
   toolChoice?: "auto" | "required" | "none" | { type: "function"; function: { name: string } };
   jsonSchema?: { name: string; schema: Record<string, unknown> };
+  /** Ignored on agent turns — no token caps. Kept for call-site compatibility. */
   maxTokens?: number;
   model?: string;
-  reasoningEffort?: "none" | "low" | "medium" | "high";
+  /**
+   * Chat reasoning effort. Never send "none" for gpt-6.1-sol.
+   * Pass null/undefined to omit the field; otherwise normalize to low|medium|high|xhigh.
+   */
+  reasoningEffort?: ServAgentReasoningEffort | "none" | null;
+  /** When true (default), omit reasoning_effort entirely rather than sending a value. */
+  omitReasoningEffort?: boolean;
 };
 
 export type ServResponsesTurnBody = {
@@ -61,10 +83,11 @@ export type ServResponsesTurnBody = {
   input: string | Array<Record<string, unknown>>;
   tools?: ServResponsesToolDef[];
   toolChoice?: "auto" | "required" | "none" | { type: "function"; name: string };
+  /** Ignored on agent turns — no token caps. */
   maxTokens?: number;
   model?: string;
-  /** Live probe: effort low works with tools; default low. */
-  reasoning?: { effort: "none" | "low" | "medium" | "high"; summary?: "auto" | "concise" | "detailed" };
+  /** Live probe: effort low works with tools; default low. Never "none". */
+  reasoning?: { effort: ServAgentReasoningEffort | "none"; summary?: "auto" | "concise" | "detailed" };
   /** Optional Responses structured output (text.format json_schema). Prefer submit_picks tool for agent loops. */
   textFormat?: { name: string; schema: Record<string, unknown>; strict?: boolean };
 };
@@ -105,9 +128,14 @@ export function buildServChatTurnBody(input: ServChatTurnBody): Record<string, u
   const bare: Record<string, unknown> = {
     model: input.model ?? BASE_MODEL,
     stream: false,
-    reasoning_effort: input.reasoningEffort ?? "none",
     messages: input.messages,
   };
+  // Never send reasoning_effort "none" (gpt-6.1-sol rejects it). Omit only when asked.
+  if (input.omitReasoningEffort !== true) {
+    bare.reasoning_effort = normalizeServAgentReasoningEffort(
+      input.reasoningEffort === "none" ? "low" : (input.reasoningEffort ?? "low"),
+    );
+  }
   if (input.tools && input.tools.length > 0) {
     bare.tools = input.tools;
     bare.tool_choice = input.toolChoice ?? "auto";
@@ -122,7 +150,8 @@ export function buildServChatTurnBody(input: ServChatTurnBody): Record<string, u
       },
     };
   }
-  return withServOutputTokenBound("chat", bare, input.maxTokens ?? SERV_OUTPUT_TOKEN_DEFAULT);
+  // Agent turns: no max_completion_tokens (architecture: no SERV token caps).
+  return bare;
 }
 
 /**
@@ -131,7 +160,7 @@ export function buildServChatTurnBody(input: ServChatTurnBody): Record<string, u
  * responses_reasoning unused on product profiles).
  */
 export function buildServResponsesTurnBody(input: ServResponsesTurnBody): Record<string, unknown> {
-  const effort = input.reasoning?.effort ?? "low";
+  const effort = normalizeServAgentReasoningEffort(input.reasoning?.effort ?? "low");
   const summary = input.reasoning?.summary ?? "auto";
   const bare: Record<string, unknown> = {
     model: input.model ?? BASE_MODEL,
@@ -154,7 +183,8 @@ export function buildServResponsesTurnBody(input: ServResponsesTurnBody): Record
       },
     };
   }
-  return withServOutputTokenBound("responses", bare, input.maxTokens ?? SERV_OUTPUT_TOKEN_DEFAULT);
+  // Agent turns: no max_output_tokens (architecture: no SERV token caps).
+  return bare;
 }
 
 export async function postServChatTurn(input: {

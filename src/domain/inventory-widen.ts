@@ -147,18 +147,24 @@ export function filterInventoryWithWiden(
   opts?: { servPlan?: ServPlanHint },
 ): InventoryWidenResult {
   const formEdits = {
-    priceMaxUsd:
-      need.budgetKnown && need.budgetUsd != null ? { value: need.budgetUsd, dirty: true as const } : undefined,
-    yearMin: need.yearMin != null ? { value: need.yearMin, dirty: true as const } : undefined,
-    yearMax: need.yearMax != null ? { value: need.yearMax, dirty: true as const } : undefined,
-    milesMax: need.milesMax != null ? { value: need.milesMax, dirty: true as const } : undefined,
     radiusMi: { value: need.distanceMiles, dirty: true as const },
   };
   const spec = buildSearchSpec({
     note: need.note ?? "",
     mode: need.mode,
     formEdits,
-    servPlan: opts?.servPlan,
+    servPlan: {
+      ...opts?.servPlan,
+      priceMaxUsd:
+        need.budgetKnown && need.budgetUsd != null ? need.budgetUsd : opts?.servPlan?.priceMaxUsd,
+      yearMin: need.yearMin ?? opts?.servPlan?.yearMin,
+      yearMax: need.yearMax ?? opts?.servPlan?.yearMax,
+      milesMax: need.milesMax ?? opts?.servPlan?.milesMax,
+      location: {
+        ...opts?.servPlan?.location,
+        zip: need.zip ?? opts?.servPlan?.location?.zip,
+      },
+    },
   });
   const first = enforceHard(spec, listings);
   const firstKept = first.kept.filter((item) => listingWithinNeed(item, need));

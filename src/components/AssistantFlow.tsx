@@ -1281,16 +1281,14 @@ function AssistantFlow({
       } catch {
         /* ignore */
       }
-      // PR B: decide path takes one /api/find/decide call. Legacy: next-check loop.
-      const hasCars = nextGroups.some((group) => group.listings.length > 0);
+      // Decide path always auto-starts (including 0 initial cars) so SERV can
+      // re-search and relax SOFT conditions in the agent loop.
       matchedRunId = typeof body.runId === "string" ? body.runId : null;
-      const autoDecide = hasCars
-        ? shouldAutoStartFindDecide({
-            decidePathEnabled: Boolean(body.decidePathEnabled),
-            searchContextToken: nextToken,
-            alreadyAutoStartedForToken: autoNextCheckTokenRef.current,
-          })
-        : null;
+      const autoDecide = shouldAutoStartFindDecide({
+        decidePathEnabled: Boolean(body.decidePathEnabled),
+        searchContextToken: nextToken,
+        alreadyAutoStartedForToken: autoNextCheckTokenRef.current,
+      });
       if (autoDecide) {
         autoNextCheckTokenRef.current = autoDecide;
         autoNextToken = autoDecide;

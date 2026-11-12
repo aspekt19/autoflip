@@ -59,40 +59,8 @@ export async function POST(request: Request) {
   const runId =
     (typeof body.runId === "string" && body.runId.trim()) || runIdFromContext;
 
-  if (owned.ok && owned.record.listings.length === 0) {
-    const emptyRunId = await syncRunSafely(kv, {
-      runId,
-      ownerId: id,
-      kind: "find",
-      note: owned.record.need.note ?? "",
-      mode: owned.record.need.mode === "flip" ? "flip" : "personal",
-      listings: [],
-      verdict: null,
-      creditsCharged: 0,
-      terminal: true,
-      failureReasons: ["no_cars"],
-    });
-    const emptyProof = buildDecisionProofRecord({
-      purpose: "find_decide",
-      rubricId: VERDICT_RUBRIC_ID,
-      status: "skipped_no_evidence",
-      recordedAt: new Date().toISOString(),
-      inputs: { listingCount: 0 },
-      detail: "No cars matched this search, so there is no verdict and nothing was charged.",
-    });
-    return Response.json(
-      {
-        ok: true,
-        searchContextToken: token,
-        bestDeal: null,
-        pickAgentVerdict: null,
-        pickProofRecords: [emptyProof],
-        message: "No cars matched this search, so there is no verdict and nothing was charged.",
-        runId: emptyRunId,
-      },
-      { status: 200 },
-    );
-  }
+  // Zero initial listings still enter the agent loop so SERV can re-search and
+  // relax SOFT conditions. Do not short-circuit before the orchestrator.
 
   const result = await runFindDecideOrchestrator(
     { searchContextToken: token },

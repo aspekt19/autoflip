@@ -239,18 +239,8 @@ export async function runOneQuery(
 
   const listings = match.body.directions.flatMap((group) => group.listings);
   const carsFound = listings.length;
-  if (carsFound === 0) {
-    return settle({
-      ...base,
-      ok: true,
-      searchSpec,
-      carsFound: 0,
-      pick: null,
-      failure: null,
-      proofRecords: understood.proofRecords ?? [],
-      elapsedMs: 0,
-    });
-  }
+  // Always enter the agent loop — zero initial cars must be handed to SERV so it
+  // can re-search and relax SOFT conditions (radius, year, body family).
 
   const shown = listingsFromMatchDirections(match.body.directions);
   const compsPool =
@@ -359,29 +349,46 @@ export async function runOneQuery(
 
   const agentLoop = decided.agentLoop ?? null;
   const elapsed = Date.now() - started;
+  const chosenVin = typeof pickVin === "string" && pickVin.trim() ? pickVin : null;
+  const nothingFits =
+    !chosenVin &&
+    Boolean(agentLoop?.verdictReached) &&
+    (verdict === "pass" || verdict == null) &&
+    (agentLoop?.relaxedConditions?.length ?? 0) > 0 &&
+    (agentLoop?.toolRounds ?? 0) > 0;
+  const verdictReached = Boolean(chosenVin) || nothingFits;
+  const scoringOk = verdictReached;
   return settle({
     ...base,
-    ok: true,
+    ok: scoringOk,
     searchSpec,
     carsFound,
     pick: {
-      vin: typeof pickVin === "string" ? pickVin : null,
+      vin: chosenVin,
       label,
       verdict: typeof verdict === "string" ? verdict : null,
       confidence,
     },
-    failure: null,
+    failure: scoringOk
+      ? null
+      : {
+          step: "decide",
+          error: "incomplete_verdict",
+          message:
+            "No chosen listing and no documented nothing-fits (searches + reasons). Agent must repair.",
+        },
     proofRecords: proofs,
     elapsedMs: elapsed,
     durationMs: elapsed,
     agentMode: agentLoop?.agentMode ?? null,
     toolRounds: agentLoop?.toolRounds ?? 0,
-    verdictReached: agentLoop?.verdictReached ?? Boolean(verdict),
+    verdictReached,
     relaxedConditions: agentLoop?.relaxedConditions ?? [],
     journalServCalls: agentLoop?.journalServCalls ?? 0,
     journalToolCalls: agentLoop?.journalToolCalls ?? 0,
     featuresActive: agentLoop?.featuresActive ?? [],
     featureRejections: agentLoop?.featureRejections ?? [],
+    chosenListingCount: chosenVin ? 1 : 0,
     servResponseIds:
       agentLoop?.servResponseIds ??
       proofs

@@ -32,14 +32,23 @@ export function bodyFamily(value: string | null | undefined): "suv" | "truck" | 
  * Sedan. Sending `vehicle.bodyStyle=Sedan` therefore returns nothing for those
  * rows. Omit car-family styles (and Wagon) so the provider keeps them; local
  * `bodyStyleMatches` still enforces sedan/car intent after fetch.
+ *
+ * SUV-family free text ("crossover", "compact crossover", "cuv", lowercase "suv")
+ * must canonicalize to `SUV` — Auto.dev rejects non-canonical tags with an empty
+ * page. Local `bodyFamily` still matches Crossover/Sport Utility after fetch.
+ *
  * Do not widen `bodyFamily("Wagon")` — ranking treats unknown vPIC Wagon as
  * no penalty. Comma lists and open/"any" searches send no body filter.
  */
 export function providerBodyStyleParam(explicit?: string | null): string | undefined {
   const named = explicit?.trim();
   if (!named || /^any$/i.test(named) || named.includes(",")) return undefined;
-  if (bodyFamily(named) === "car") return undefined;
+  const family = bodyFamily(named);
+  if (family === "car") return undefined;
   if (/\bwagons?\b/i.test(named)) return undefined;
+  if (family === "suv") return "SUV";
+  if (family === "truck") return "Truck";
+  if (family === "van") return "Minivan";
   return named;
 }
 
