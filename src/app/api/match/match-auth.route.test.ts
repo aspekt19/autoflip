@@ -263,6 +263,58 @@ describe("POST /api/match verified-auth Find (t334 Fix A)", () => {
     expect(await creditBalance(kvHolder.kv, ACCOUNT)).toBe(2);
   });
 
+  it("mints empty SERV seed on decide path (agent owns search; match cards are display-only)", async () => {
+    requireFind.mockResolvedValue({ ok: true, id: ACCOUNT, email: "a@example.com" });
+    runFind.mockResolvedValue({
+      ok: true,
+      status: 200,
+      body: deliveredMatchBody({
+        compsPool: [
+          {
+            vin: "1M8GDM9AXKP042788",
+            year: 2020,
+            make: "Mazda",
+            model: "CX-5",
+            miles: 40_000,
+            priceUsd: 18_000,
+            vdp: "https://dealer.example/vdp/1",
+            source: "live",
+          },
+          {
+            vin: "1M8GDM9AXKP042799",
+            year: 2019,
+            make: "Mazda",
+            model: "CX-5",
+            miles: 55_000,
+            priceUsd: 45_000,
+            vdp: "https://dealer.example/vdp/2",
+            source: "live",
+          },
+        ],
+      }),
+    });
+
+    const res = await POST(req({ need: NEED, searchIdempotencyKey: "find-empty-seed-0001" }));
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      searchContextToken?: string;
+      decidePathEnabled?: boolean;
+      directions?: Array<{ listings: unknown[] }>;
+    };
+    expect(body.decidePathEnabled).toBe(true);
+    // UI may still receive match cards for display.
+    expect(body.directions?.[0]?.listings?.length).toBeGreaterThan(0);
+    const token = body.searchContextToken!;
+    expect(typeof token).toBe("string");
+    const loaded = await loadFindSearchContext(kvHolder.kv, { userId: ACCOUNT, token });
+    expect(loaded.ok).toBe(true);
+    if (!loaded.ok) return;
+    // Same as eval/live/run-one: empty seed → agent loop owns search_listings.
+    expect(loaded.record.listings).toEqual([]);
+    expect(loaded.record.compsPool).toEqual([]);
+    expect(loaded.record.decidePathEnabled).toBe(true);
+  });
+
   it("refuses a new Find at balance 0 before searching", async () => {
     requireFind.mockResolvedValue({ ok: true, id: ACCOUNT, email: "a@example.com" });
     kvHolder.kv = new MemoryKv();

@@ -757,8 +757,49 @@ export async function runFindMatch(
     const hygiene = passengerHygiene(prepared, need);
     if (hygiene.note) directionNote = [directionNote, hygiene.note].filter(Boolean).join(" ");
     const narrowed = hygiene.listings;
+    // SERV seed / market comps: full hygiene-only provider returns.
+    // Never apply withinBudget / implausible-odo / diversify-8 drops to this pool —
+    // those are display-only for the UI page of cards.
+    for (const item of narrowed) {
+      const vin = (item.vin || "").trim().toUpperCase();
+      if (vin && compsPoolVins.has(vin)) continue;
+      if (vin) compsPoolVins.add(vin);
+      compsPoolAcc.push({
+        vin: item.vin,
+        year: item.year,
+        make: item.make,
+        model: item.model,
+        trim: item.trim,
+        priceUsd: item.priceUsd,
+        miles: item.miles,
+        city: item.city,
+        state: item.state,
+        zip: item.zip,
+        dealer: item.dealer,
+        vdp: item.vdp,
+        primaryImage: item.primaryImage,
+        carfaxUrl: item.carfaxUrl,
+        used: item.used,
+        cpo: item.cpo,
+        accidentCount: item.accidentCount,
+        oneOwner: item.oneOwner,
+        ownerCount: item.ownerCount,
+        usageType: item.usageType,
+        fuel: item.fuel,
+        engine: item.engine,
+        drivetrain: item.drivetrain,
+        bodyStyle: item.bodyStyle,
+        latitude: item.latitude,
+        longitude: item.longitude,
+        removedAt: item.removedAt,
+        createdAt: item.createdAt,
+        source: item.source,
+        distanceMiles: item.distanceMiles,
+      });
+    }
     const personalScores =
       need.mode === "personal" ? personalRankScores(narrowed, need) : new Map<string, number>();
+    // Display page only — budget / missing / untrusted drops do not feed SERV seed.
     const rankedReady = withinBudget(narrowed, need.budgetUsd, need.budgetKnown)
       .map((item) => {
         const priceView = item.priceView ?? assessFindListingPrice(item);
@@ -807,47 +848,10 @@ export async function runFindMatch(
         if (seenVins.has(vin)) return false;
         return true;
       });
-    // Keep full provider returns for comps before diversify shrinks the shown page.
-    for (const item of rankedReady) {
-      const vin = (item.vin || "").trim().toUpperCase();
-      if (vin && compsPoolVins.has(vin)) continue;
-      if (vin) compsPoolVins.add(vin);
-      compsPoolAcc.push({
-        vin: item.vin,
-        year: item.year,
-        make: item.make,
-        model: item.model,
-        trim: item.trim,
-        priceUsd: item.priceUsd,
-        miles: item.miles,
-        city: item.city,
-        state: item.state,
-        zip: item.zip,
-        dealer: item.dealer,
-        vdp: item.vdp,
-        primaryImage: item.primaryImage,
-        carfaxUrl: item.carfaxUrl,
-        used: item.used,
-        cpo: item.cpo,
-        accidentCount: item.accidentCount,
-        oneOwner: item.oneOwner,
-        ownerCount: item.ownerCount,
-        usageType: item.usageType,
-        fuel: item.fuel,
-        engine: item.engine,
-        drivetrain: item.drivetrain,
-        bodyStyle: item.bodyStyle,
-        latitude: item.latitude,
-        longitude: item.longitude,
-        removedAt: item.removedAt,
-        createdAt: item.createdAt,
-        source: item.source,
-        distanceMiles: item.distanceMiles,
-      });
-    }
     // Named multi-model searches: do not let the first-queried model fill all 8 slots
     // when other named models also returned inventory (t310 CR-V-only window).
     // Soft AWD preference reorders within each model bucket so FWD cannot bury AWD.
+    // Display-only: hide implausible odo + diversify/cap the UI page — not SERV's seed.
     const believable = rankedReady.filter((item) => !implausibleOdometer(item.year, item.miles));
     const hiddenOdd = rankedReady.length - believable.length;
     if (hiddenOdd > 0) {

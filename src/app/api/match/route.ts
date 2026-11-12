@@ -12,8 +12,6 @@ import { readRun } from "@/io/run-store";
 import { listingFromCar, syncRunSafely } from "@/server/run-sync";
 import { runtimeDeps } from "@/server/deps";
 import {
-  listingFactsFromCompsPool,
-  listingsFromMatchDirections,
   loadFindSearchContext,
   mintFindSearchContextRecord,
   storeFindSearchContext,
@@ -226,16 +224,16 @@ export async function POST(request: Request) {
         // Owner-bound search context for next-check / decide (server authority — not client body).
         const validated = validateNeed(body?.need ?? {});
         if (validated.ok) {
-          const shown = listingsFromMatchDirections(result.body.directions);
-          const compsPool = Array.isArray(result.body.compsPool)
-            ? listingFactsFromCompsPool(result.body.compsPool)
-            : shown;
+          // Same as eval/live/run-one: empty seed → agent loop owns search via
+          // search_listings. Match directions remain for UI cards only
+          // (display paging/diversity OK). Never seed SERV from post-budget /
+          // post-odo / diversify-8 filtered lists.
           const minted = mintFindSearchContextRecord({
             userId: id,
             need: validated.need,
             refine: body?.refine ?? {},
-            listings: shown,
-            compsPool,
+            listings: [],
+            compsPool: [],
             servNextCheckEnabled,
           });
           // Owned rematch keeps the same token and the paid-call counter.
