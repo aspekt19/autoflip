@@ -27,7 +27,6 @@ import {
 } from "@/server/find-agent/loop";
 import { mapFindAgentLoopToDecide } from "@/server/find-agent/map-to-decide";
 import { runFindDecideServ } from "@/server/find-decide-serv";
-import { runFindTriageServ } from "@/server/find-triage-serv";
 import {
   loadFindSearchContext,
   marketPoolFromListingFacts,
@@ -143,22 +142,63 @@ export async function runFindDecideOrchestrator(
     };
   }
 
-  // Idempotent replay after settle.
+  // Idempotent replay after settle — no classic triage / selectBestDealOnEvidence.
   if (record.loopSettled && record.triageShortlistKeys && record.triageShortlistKeys.length > 0) {
     const marketPool = marketPoolFromListingFacts(record.compsPool ?? record.listings);
-    const triage = await runFindTriageServ({
-      need: record.need,
-      listings: record.listings,
-      receipts: record.freeGovReceipts ?? [],
-      marketPool,
-      revisitAlreadyUsed: true,
-      servKey: null, // replay uses code shortlist from stored keys
-    });
-    // Force shortlist from stored keys for replay.
     const shortlistKeys = record.triageShortlistKeys;
+    const byKey = new Map<string, (typeof record.listings)[number]>();
+    for (const listing of record.listings) {
+      const vin = listing.vin?.trim().toUpperCase();
+      if (vin) byKey.set(vin, listing);
+    }
+    const ranked = shortlistKeys.flatMap((key) => {
+      const listing = byKey.get(key.toUpperCase());
+      if (!listing) return [];
+      return [{
+        key,
+        make: listing.make,
+        model: listing.model,
+        year: listing.year,
+        priceUsd: listing.priceUsd,
+        miles: listing.miles,
+        vin: listing.vin,
+        score: 0,
+        factors: [] as string[],
+        unknowns: [] as string[],
+        fuelSummary: null,
+        excludedFromPick: false,
+        excludedReason: null,
+        sellerQuestions: [] as string[],
+        trim: listing.trim,
+        city: listing.city,
+        state: listing.state,
+        dealer: listing.dealer,
+        vdp: listing.vdp,
+        drivetrain: listing.drivetrain,
+        engine: listing.engine,
+        fuel: listing.fuel,
+        accidentCount: listing.accidentCount,
+        ownerCount: listing.ownerCount,
+        oneOwner: listing.oneOwner,
+        usageType: listing.usageType,
+        cpo: listing.cpo,
+        distanceMiles: listing.distanceMiles ?? null,
+      }];
+    });
+    const pick = ranked[0] ?? null;
+    const bestDeal = {
+      ranked,
+      pick,
+      confidence: (pick ? "medium" : "none") as "medium" | "none",
+      choice: pick
+        ? { label: `${pick.year} ${pick.make} ${pick.model}`, why: "Replaying the stored Find shortlist.", nextCheck: null }
+        : null,
+      notes: [] as string[],
+      excluded: [] as typeof ranked,
+    };
     const decide = await runFindDecideServ({
       need: record.need,
-      bestDeal: triage.bestDeal,
+      bestDeal,
       shortlistKeys,
       receipts: record.freeGovReceipts ?? [],
       marketPool,

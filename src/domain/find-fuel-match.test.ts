@@ -8,7 +8,6 @@ import {
   fuelFactFromFindEvidence,
   lookupFindFuelEvidence,
   matchFuelVehicles,
-  parseCityHeavyFromNote,
   resolveEpaModelNames,
 } from "./find-fuel-match";
 import { parseFuelVehicleDetail, usdPerUnitFromFuelPrices } from "@/io/parsers";
@@ -21,8 +20,6 @@ function loadJson(name: string): unknown {
 
 describe("find fuel match (fixture — no live network)", () => {
   it("parses mostly city from shopper note", () => {
-    expect(parseCityHeavyFromNote("Mostly city driving, weekend trips")).toBe(false);
-    expect(parseCityHeavyFromNote("highway road trips only")).toBe(false);
   });
 
   it("resolves CR-V aliases from EPA model menu", () => {

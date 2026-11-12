@@ -16,6 +16,7 @@ import {
 import { createGoldenFetch } from "../../test/golden/transport";
 import { liveEvalJournalMeta } from "./journal-meta";
 import { ESTIMATED_USD_PER_QUERY, type RunOneDeps } from "./run-one";
+import { LIVE_EVAL_GENERIC_SHOPPER_REPLY } from "@/domain/serv-chat";
 import type { GeneratedQuery, LiveEvalCaseResult } from "./types";
 
 function parseBudgetUsd(note: string): number | null {
@@ -40,7 +41,7 @@ export async function runOneResaleQuery(
   const base: Omit<LiveEvalCaseResult, "ok" | "searchSpec" | "carsFound" | "pick" | "failure" | "proofRecords"> = {
     id: query.id,
     product: "resale",
-    note: query.note,
+    note: `${query.note}\n\n${LIVE_EVAL_GENERIC_SHOPPER_REPLY}`,
     elapsedMs: 0,
     estimatedUsd: ESTIMATED_USD_PER_QUERY,
     fixtureDir: deps.fixtureRoot && deps.caseId ? `${deps.fixtureRoot}/${deps.caseId}` : null,

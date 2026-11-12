@@ -422,7 +422,7 @@ User form constraints (origin=user only; note/serv/suggestion excluded): ${JSON.
 Flip ranking context (not hard inventory filters): ${JSON.stringify(ranking)}`
       : "";
   return [
-    "You are Lemonless Resale's flip shopper agent on SERV (gpt-6.1-sol).",
+    "You are Lemonless Resale. Use ask_shopper in this same chat when budget or material facts are missing; call record_shopper_facts; then search_listings / submit_picks. You are Lemonless Resale's flip shopper agent on SERV (gpt-6.1-sol).",
     "You decide which listings to search for profitable flips given budget, region, and flip goal.",
     "Prefer tight filters first. When results are empty or weak, read funnel + relaxHints + constraintRoles and change a relaxable (SERV-chosen) filter then re-search. Code never auto-relaxes or forces filter changes.",
     "constraintRoles.hard are shopper origin=user filters — keep unless the shopper note allows otherwise; never invent which keys are hard. Explain every relaxation in relaxedConditions (real text; never redacted).",
@@ -1013,6 +1013,24 @@ async function runToolsMode(input: {
           args = {};
         }
 
+        if (call.name === "ask_shopper") {
+          const executed = await executeResaleAgentTool(call.name, args, input.toolDeps, input.state);
+          input.journal.push(journalSearchListingsEntry(executed, args));
+          const question =
+            executed.ok && typeof (executed.result as { question?: unknown }).question === "string"
+              ? String((executed.result as { question: string }).question)
+              : typeof (args as { question?: unknown }).question === "string"
+                ? String((args as { question: string }).question)
+                : "Could you share a bit more about the flip you want?";
+          return {
+            callId: call.callId,
+            name: "ask_shopper" as const,
+            accepted: false as const,
+            askQuestion: question,
+            output: { ok: true, status: "awaiting_shopper", message: "Paused for the shopper reply in chat.", question },
+          };
+        }
+
         if (call.name === "submit_picks") {
           const checked = validateResaleSubmitPicks(args, {
             listingsByVin: listingFactsFromState(input.state),
@@ -1083,6 +1101,42 @@ async function runToolsMode(input: {
       responseOutput: output,
       outputs: settled.map((row) => ({ callId: row.callId, output: row.output })),
     });
+
+    const asked = settled.find(
+      (row) => row.name === "ask_shopper" && "askQuestion" in row && typeof (row as { askQuestion?: unknown }).askQuestion === "string",
+    ) as { callId: string; name: "ask_shopper"; askQuestion: string; output: unknown } | undefined;
+    if (asked) {
+      const checkpoint = buildResaleCheckpoint({
+        phase: "tools",
+        toolRounds,
+        roundsCompleted: round + 1,
+        responsesInput,
+        messages: finishMessages,
+        journal: input.journal,
+        state: input.state,
+        submitNudgeSent,
+        firstTurn,
+        featureRejections: rejections,
+      });
+      checkpoint.pendingAskCallId = asked.callId;
+      checkpoint.pendingAskQuestion = asked.askQuestion;
+      return {
+        ok: false,
+        awaitUser: true as const,
+        question: asked.askQuestion,
+        message: asked.askQuestion,
+        agentMode: "tools" as const,
+        requestedMode,
+        toolRounds,
+        verdictReached: false as const,
+        journal: input.journal,
+        knownVins: [...input.state.knownVins],
+        checkpoint,
+        featureRejections: rejections,
+        featureFlags: [] as string[],
+        servFeatures: null,
+      };
+    }
 
     const accepted = settled.find(
       (row) => row.name === "submit_picks" && "accepted" in row && row.accepted === true && "verdict" in row,
@@ -1526,6 +1580,7 @@ export async function runResaleAgentLoop(input: {
   deadline?: AgentLoopDeadline | null;
   checkpoint?: AgentLoopCheckpoint | null;
   budgetMs?: number;
+  shopperReply?: string | null;
 }): Promise<ResaleAgentLoopResult> {
   const requestedMode = input.mode ?? resolveResaleAgentMode(process.env);
   const maxRounds = input.maxRounds ?? 40;
@@ -1556,11 +1611,27 @@ export async function runResaleAgentLoop(input: {
     pnlOptions: input.deps.pnlOptions,
   };
 
+  const reply = typeof input.shopperReply === "string" ? input.shopperReply.trim() : "";
+  let responsesInput = restored.responsesInput;
+  let messages = restored.messages;
+  if (reply && responsesInput) {
+    const question = input.checkpoint?.pendingAskQuestion?.trim() || "your question";
+    responsesInput = [
+      ...responsesInput,
+      responsesUserMessage(`Shopper replied to ask_shopper ("${question}"):\n${reply}\nContinue searching or submit_picks.`),
+    ];
+    messages = [...(messages ?? []), { role: "user" as const, content: `Shopper replied: ${reply}` }];
+    if (input.checkpoint) {
+      input.checkpoint.pendingAskCallId = null;
+      input.checkpoint.pendingAskQuestion = null;
+    }
+  }
+
   const resume = {
     toolRounds: restored.toolRounds,
     roundsCompleted: restored.roundsCompleted,
-    responsesInput: restored.responsesInput,
-    messages: restored.messages,
+    responsesInput,
+    messages,
     submitNudgeSent: restored.submitNudgeSent,
     firstTurn: restored.firstTurn,
     featureRejections: restored.featureRejections,
@@ -1600,6 +1671,9 @@ export async function runResaleAgentLoop(input: {
   const toolsAttempt = await runToolsMode(shared);
   if (toolsAttempt.ok) return toolsAttempt;
   if ("continue" in toolsAttempt && toolsAttempt.continue) return toolsAttempt;
+  if ("awaitUser" in toolsAttempt && (toolsAttempt as { awaitUser?: boolean }).awaitUser) {
+    return toolsAttempt as ResaleAgentLoopResult;
+  }
   if (toolsAttempt.error !== "tools_unsupported_or_empty") {
     return toolsAttempt;
   }

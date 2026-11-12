@@ -17,6 +17,7 @@ import { BASE_MODEL, profile } from "@/server/serv";
 import { understandNeed } from "@/server/understand-need";
 import { createGoldenFetch } from "../../test/golden/transport";
 import type { GeneratedQuery, LiveEvalCaseResult, SearchSpecSummary } from "./types";
+import { LIVE_EVAL_GENERIC_SHOPPER_REPLY } from "@/domain/serv-chat";
 
 /** Rough spend model: understand + agent loop (search_listings + settle). */
 export const SERV_CALLS_PER_QUERY = 4;
