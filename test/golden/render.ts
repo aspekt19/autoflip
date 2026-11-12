@@ -61,7 +61,7 @@ export function renderBuyerHtml(run: GoldenRun): string {
   const ids = proofs
     .map((row) => row.servResponseId)
     .filter((id): id is string => Boolean(id));
-  parts.push("<details class=\"technical-details\"><summary>Technical details</summary>");
+  parts.push("<details class=\"technical-details\"><summary>Reference codes</summary>");
   for (const id of ids) parts.push(`<p class="response-id">${esc(id)}</p>`);
   parts.push("</details>");
   parts.push("</article>");

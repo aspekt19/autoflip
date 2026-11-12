@@ -103,6 +103,13 @@ const LIVE_STARTER = [
   car({ vin: "2T3BFREV5JW000228", year: 2018, make: "Toyota", model: "RAV4", bodyStyle: "SUV", price: 12100, miles: 88000, distance: 26, drivetrain: "AWD" }),
 ];
 
+const LIVE_SAFETY = [
+  car({ vin: "1HGCD7261RA043976", year: 1994, make: "Honda", model: "Accord", bodyStyle: "Sedan", price: 2761, miles: 73392, distance: 30, city: "Chesterton", state: "IN" }),
+  car({ vin: "JHMES96625S024987", year: 2005, make: "Honda", model: "Civic", bodyStyle: "Sedan", price: 3495, miles: 104424, distance: 22 }),
+  car({ vin: "2T1BURHE9GC669191", year: 2016, make: "Toyota", model: "Corolla", bodyStyle: "Sedan", price: 8000, miles: 106833, distance: 18 }),
+  car({ vin: "1HGFA16896L133231", year: 2006, make: "Honda", model: "Civic", bodyStyle: "Sedan", price: 5900, miles: 82641, distance: 20 }),
+];
+
 const LIVE_TAX = [
   car({
     vin: "JTMBK33V286041380",
@@ -121,7 +128,7 @@ const LIVE_TAX = [
   car({ vin: "2HGFC2F79JH000331", year: 2018, make: "Honda", model: "Civic", bodyStyle: "Sedan", price: 9900, miles: 60000, distance: 8 }),
 ];
 
-type ScriptedKind = "live-a" | "live-b" | "live-c" | "live-d" | "live-rank" | "live-suv" | "live-odd" | "live-starter" | "live-tax";
+type ScriptedKind = "live-a" | "live-b" | "live-c" | "live-d" | "live-rank" | "live-suv" | "live-odd" | "live-starter" | "live-tax" | "live-safety";
 
 function rowsFor(kind: ScriptedKind, href: string) {
   if (kind === "live-a") return LIVE_A;
@@ -134,6 +141,7 @@ function rowsFor(kind: ScriptedKind, href: string) {
   }
   if (kind === "live-odd") return LIVE_ODD;
   if (kind === "live-tax") return LIVE_TAX;
+  if (kind === "live-safety") return LIVE_SAFETY;
   if (kind === "live-starter") {
     let model = "";
     let body = "";

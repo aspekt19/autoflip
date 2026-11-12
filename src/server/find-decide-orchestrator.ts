@@ -43,6 +43,8 @@ export type FindDecideOrchestratorOk = {
   decisionLog: FindSearchContextRecord["decisionLog"];
   carChecks: FindSearchContextRecord["carChecks"];
   replay: boolean;
+  /** Same inventory the live offer uses. The permalink must not recompute from the shortlist alone. */
+  offerPool: import("@/domain/types").Listing[];
 };
 
 export type FindDecideOrchestratorErr = {
@@ -146,6 +148,7 @@ export async function runFindDecideOrchestrator(
       decisionLog: record.decisionLog ?? [],
       carChecks: record.carChecks ?? [],
       replay: true,
+      offerPool: marketPool,
     };
   }
 
@@ -285,5 +288,6 @@ export async function runFindDecideOrchestrator(
     decisionLog: record.decisionLog ?? [],
     carChecks: record.carChecks ?? [],
     replay: false,
+    offerPool: marketPool,
   };
 }

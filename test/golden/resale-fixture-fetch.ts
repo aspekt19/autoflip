@@ -44,6 +44,28 @@ function row(input: {
 }
 
 export function resaleFixtureFetch(specCase: GoldenCase): typeof fetch {
+  if (specCase.id === "L27") {
+    return async (input) => {
+      const href = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+      if (!/\/listings\/?/.test(href)) {
+        return new Response(JSON.stringify({ error: "no serv in fixture" }), { status: 503 });
+      }
+      const peers = [0, 1, 2, 3, 4].map((index) =>
+        row({
+          vin: `1HGCM82633A40${String(index).padStart(4, "0")}`,
+          price: 7_200 + index * 100,
+          miles: 70_000 + index * 2_000,
+          ageDays: 14,
+          zip: "75201",
+        }),
+      );
+      peers.push(
+        row({ vin: "2T1BURHE2GC640812", price: 5_900, miles: 150_733, ageDays: 20, zip: "75201" }),
+        row({ vin: "1HGCM82633A400099", price: 6_400, miles: 82_000, ageDays: 12, zip: "75201" }),
+      );
+      return new Response(JSON.stringify({ data: peers }), { status: 200, headers: { "content-type": "application/json" } });
+    };
+  }
   if (specCase.id === "L5") {
     return async (input) => {
       const href = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;

@@ -15,6 +15,7 @@ import {
 } from "@/domain/run";
 import { buildPurchaseReadiness } from "@/domain/purchase-readiness";
 import { resaleEdgeSentence } from "@/domain/resale-presentation";
+import { highMileageFlipExplanation } from "@/domain/resale-sanity";
 import type { BestDealResult } from "@/domain/find-best-deal";
 import { buildSearchSpec, type SearchFormEdits, type SearchSpec } from "@/domain/search-spec";
 import type { Kv } from "@/io/kv";
@@ -196,10 +197,23 @@ export function listingFromCar(car: {
 }
 
 /** The cars, offers, and reasons the permalink and the live page both render. */
-export function listingsFromBestDeal(deal: BestDealResult | null, verdict: string | null): RunListing[] {
+export function listingsFromBestDeal(
+  deal: BestDealResult | null,
+  verdict: string | null,
+  marketPool?: readonly {
+    vin?: string | null;
+    year: number;
+    make: string;
+    model: string;
+    trim?: string | null;
+    priceUsd?: number | null;
+    miles?: number | null;
+    accidentCount?: number | null;
+  }[],
+): RunListing[] {
   const ranked = deal?.ranked ?? [];
   if (!ranked.length) return [];
-  const pool = ranked.map((car) => ({
+  const rankedPool = ranked.map((car) => ({
     vin: car.vin,
     year: car.year,
     make: car.make,
@@ -209,11 +223,24 @@ export function listingsFromBestDeal(deal: BestDealResult | null, verdict: strin
     miles: car.miles,
     accidentCount: car.accidentCount ?? null,
   }));
+  const pool = marketPool && marketPool.length > 0
+    ? marketPool.map((car) => ({
+        vin: car.vin ?? null,
+        year: car.year,
+        make: car.make,
+        model: car.model,
+        trim: car.trim ?? null,
+        priceUsd: car.priceUsd ?? null,
+        miles: car.miles ?? null,
+        accidentCount: car.accidentCount ?? null,
+      }))
+    : rankedPool;
   const now = new Date();
   return ranked.flatMap((car) => {
+    const subject = rankedPool.find((row) => row.vin === car.vin) ?? rankedPool[0]!;
     const offer = verdict
       ? buildPurchaseReadiness({
-          car: pool.find((row) => row.vin === car.vin) ?? pool[0]!,
+          car: subject,
           pool,
           zip: null,
           zipUsedFor: null,
@@ -345,11 +372,12 @@ export async function syncResaleRun(
             thresholdUsd: car.targetProfitUsd,
           })
         : null;
+    const milesNote = highMileageFlipExplanation(row.miles ?? Number.NaN, input.search?.sellWithinDays ?? null);
     return [{
       ...row,
       picked: car.vin === bestVin,
       summary,
-      reason: car.reason ?? summary,
+      reason: [car.reason ?? summary, milesNote].filter(Boolean).join(" "),
       confidence: input.client.confidence ?? null,
     }];
   });

@@ -28,7 +28,7 @@ import {
 import type { ComputedReport, Listing, Verdict } from "@/domain/types";
 import { capResaleConfidence } from "@/domain/resale-outcome";
 import { resaleEdgeSentence } from "@/domain/resale-presentation";
-import { pricedBelowSimilarLine } from "@/domain/resale-sanity";
+import { pricedBelowSimilarLine, resaleMileageRankBias } from "@/domain/resale-sanity";
 import { flipVerdict } from "@/domain/verdict";
 import {
   rankByRiskAdjustedProfit,
@@ -426,6 +426,12 @@ function buildFlipReport(
 
 function sortByProfit(items: ResaleCandidatePnl[]): ResaleCandidatePnl[] {
   return [...items].sort((a, b) => {
+    const aMiles = a.listing.miles;
+    const bMiles = b.listing.miles;
+    if (typeof aMiles === "number" && typeof bMiles === "number") {
+      if (resaleMileageRankBias(aMiles, bMiles)) return 1;
+      if (resaleMileageRankBias(bMiles, aMiles)) return -1;
+    }
     const aMid = a.rankingProfitMidUsd ?? a.profitMidUsd ?? Number.NEGATIVE_INFINITY;
     const bMid = b.rankingProfitMidUsd ?? b.profitMidUsd ?? Number.NEGATIVE_INFINITY;
     if (bMid !== aMid) return bMid - aMid;

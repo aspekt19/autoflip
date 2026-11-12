@@ -492,7 +492,8 @@ function AssistantFlow({
         return;
       }
       if (typeof body.runId === "string" && body.runId) setRunId(body.runId);
-      const finalNeed = body.need;
+      const notedBody = intakeFromNote(text).bodyStyle;
+      const finalNeed = !body.need.bodyStyle && notedBody ? { ...body.need, bodyStyle: notedBody } : body.need;
       if (body.findPlan) setFindPlan(body.findPlan);
       if (Array.isArray(body.directions) && body.directions.length > 0) {
         setPlanDirections(body.directions);

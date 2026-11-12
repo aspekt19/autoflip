@@ -1,6 +1,11 @@
-/** Hide concatenated option codes such as Premium+AWP+M/R. Keep a normal trim name. */
+/** Hide concatenated option codes and emissions jargon. Keep a normal trim name. */
 export function buyerTrim(trim: string | null | undefined): string {
-  const text = (trim?.trim() ?? "").replace(/\bPZEV\b/g, "partial zero-emission");
+  const text = (trim?.trim() ?? "")
+    .replace(/\bpartial\s+zero[-\s]?emission\b/gi, "")
+    .replace(/\bPZEV\b/gi, "")
+    .replace(/\s{2,}/g, " ")
+    .replace(/\s+([,/-])/g, "$1")
+    .trim();
   if (!text || !text.includes("+")) return text;
   const words = text
     .split("+")

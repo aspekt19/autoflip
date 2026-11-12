@@ -120,6 +120,7 @@ class ClientSession {
     if (need.yearMax != null) hard.yearMax = { value: need.yearMax, source: "note" };
     if (need.milesMax != null) hard.milesMax = { value: need.milesMax, source: "note" };
     if (awdLimitFromText(note) === "hard") hard.drivetrain = { value: "awd_4wd", source: "note" };
+    if (need.bodyStyle) hard.bodyStyles = { value: [need.bodyStyle], source: "note" };
     if (need.zip) {
       const fromNote = location === "from-note" || note.includes(need.zip);
       hard.zip = { value: need.zip, source: fromNote ? "note" : "form" };
@@ -328,8 +329,9 @@ async function runPersonal(
       })),
       marketPool: [],
     });
-    pickVin = ranked.pick?.key ?? pickVin;
+    pickVin = ranked.pick?.vin ?? ranked.pick?.key ?? pickVin;
     confidence = confidenceOf(ranked.confidence);
+    if (!message) message = ranked.why;
   }
   if (!skipDecide && matched.ok && session.need && listings.length > 0) {
     const best = selectBestDealOnEvidence({
@@ -359,9 +361,9 @@ async function runPersonal(
     });
     proofs.push(...decided.proofRecords);
     pickVin = decided.bestDeal.pick?.vin ?? decided.bestDeal.pick?.key ?? best.pick?.key ?? pickVin;
-    verdict = decided.agentVerdict.verdict;
-    confidence = confidenceOf(decided.decide.confidence);
-    if (!message) message = decided.bestDeal.why;
+    verdict = decided.agentVerdict?.verdict ?? null;
+    confidence = confidenceOf(decided.decide?.confidence);
+    if (!message) message = decided.bestDeal.why || best.why;
   }
   steps.push({
     name: "find_decide",

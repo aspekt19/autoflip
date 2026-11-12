@@ -326,7 +326,7 @@ export function NoteFactChips({
           Body
           <select
             aria-label="Body"
-            value={need.bodyStyle ?? bodyFromIntake(need.note ?? "") ?? ""}
+            value={need.bodyStyle || bodyFromIntake(need.note ?? "") || ""}
             onChange={(event) => {
               const value = event.target.value;
               const bodyStyle = NOTE_BODY_STYLES.find((item) => item === value) ?? null;

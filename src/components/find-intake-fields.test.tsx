@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -194,6 +194,63 @@ describe("find intake from the home note", () => {
     expect(box.closest("label")).toHaveClass("check-line");
     expect(box.closest(".pill")).toBeNull();
     expect(screen.getByLabelText(/maximum vehicle price/i)).toBeEnabled();
+  });
+});
+
+describe("confirm body from the note", () => {
+  it("shows SUV on the confirm control after the plan returns no body", async () => {
+    const note = "AWD SUV in Denver under $18k, must have AWD, up to 130k miles";
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url.includes("/api/product-flags")) return Response.json({ flags: { dealRadar: false } });
+        if (url.includes("/api/need")) {
+          return Response.json({
+            ok: true,
+            source: "model",
+            need: {
+              mode: "personal",
+              useCase: "unspecified",
+              note: "AWD in Denver under $18k, must have AWD, up to 130k miles",
+              budgetUsd: 18_000,
+              budgetKnown: true,
+              budgetScope: "car",
+              mustHaves: ["AWD"],
+              priorities: [],
+              zip: "80202",
+              distanceMiles: 100,
+              repairAbility: "unknown",
+              targetProfitUsd: null,
+              milesMax: 130_000,
+              yearMin: null,
+              yearMax: null,
+              yearBandResolved: false,
+              milesCapResolved: true,
+              conditionPriority: "unspecified",
+              make: null,
+              preferredMakes: [],
+              preferredModels: [],
+              preferredModelsSource: "none",
+              openToOtherMakes: true,
+              bodyStyle: null,
+              transmission: null,
+              fuelEconomyPriority: false,
+              historyPreference: null,
+              locationPhrase: "Denver",
+              awdPreference: true,
+            },
+            findPlan: { summary: "AWD in Denver", bodyStyles: ["any"], budget: { maxUsd: 18000 }, directions: [] },
+            directions: [],
+            followUps: [],
+            checks: [],
+          });
+        }
+        return Response.json({ ok: false }, { status: 404 });
+      }),
+    );
+    render(<FindFlow initialNote={note} initialMode="personal" />);
+    await waitFor(() => expect(screen.getByLabelText("Body")).toHaveValue("SUV"));
   });
 });
 

@@ -284,7 +284,7 @@ function codeFactFromPick(pick: BestDealCandidate): string | null {
 }
 
 const PRICE_FAIRNESS_UNSCORED_RE =
-  /Not scored for fairness|provisional on price|treated as neutral \(\+0\)|Asking prices were not compared/i;
+  /Not scored for fairness|provisional on price|treated as neutral \(\+0\)|Asking prices were not compared|Not enough similar cars to compare this asking price/i;
 const PRICE_FAIRNESS_CLAIM_RE =
   /\b(?:well )?below fair(?: value)?\b|\b(?:well )?above fair(?: value)?\b|\bnear(?:er)?(?: to)? fair(?: value)?\b|\bfair value\b|\bsolid comps?\b/i;
 
@@ -403,11 +403,15 @@ export function publishBestDeal(input: {
   };
   const ranked = movePickFirst(input.bestDeal.ranked);
   const allRanked = movePickFirst(input.bestDeal.allRanked?.length ? input.bestDeal.allRanked : ranked);
+  const safetyNote = /Electronic stability control was not required/i.test(input.bestDeal.why)
+    ? input.bestDeal.why.slice(input.bestDeal.why.indexOf("Cars from before 2012"))
+    : null;
   const why = joinBuyerParts([
     `Best choice on current data: ${label}.`,
     choice.confidenceLine,
     ...choice.reasons,
     input.bestDeal.settlementNote || null,
+    safetyNote,
   ]);
   return {
     ...input.bestDeal,

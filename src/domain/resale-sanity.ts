@@ -2,6 +2,7 @@
  * Resale sanity gates. A listing is ranked only when mileage and year sit inside
  * the similar-listing span (interpolation). Asking-price gaps are not "profit".
  */
+import { ASSUMPTIONS } from "./assumptions";
 import type { Listing } from "./types";
 
 export const RESALE_MILES_HARD_CAP = 180_000;
@@ -20,6 +21,20 @@ export function pricedBelowSimilarLine(amountUsd: number | null | undefined): st
     maximumFractionDigits: 0,
   });
   return `priced below similar listings by ${money} (after costs)`;
+}
+
+/** A higher-mileage car loses to one with at least this many fewer miles once both are past the flip mileage line. */
+export const RESALE_MILEAGE_RANK_GAP = 20_000;
+
+export function highMileageFlipExplanation(miles: number, sellWithinDays: number | null | undefined): string | null {
+  if (!Number.isFinite(miles) || miles < ASSUMPTIONS.flipHighMileThreshold) return null;
+  const window = sellWithinDays != null && sellWithinDays > 0 ? ` in ${sellWithinDays} days` : "";
+  return `High-mileage cars are hard to flip${window}. Many buyers skip them, so they usually take longer to sell. This one shows ${miles.toLocaleString("en-US")} miles.`;
+}
+
+/** True when `higher` should rank after `lower` for a resale search. */
+export function resaleMileageRankBias(higherMiles: number, lowerMiles: number): boolean {
+  return higherMiles >= ASSUMPTIONS.flipHighMileThreshold && higherMiles - lowerMiles >= RESALE_MILEAGE_RANK_GAP;
 }
 
 export function resaleMilesCap(userCap: number | null | undefined): number {

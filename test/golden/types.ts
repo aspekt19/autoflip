@@ -21,6 +21,7 @@ export type ObservedSpec = {
     zip?: Hard<string | null>;
     radiusMi?: Hard<number | null>;
     drivetrain?: Hard<"awd_4wd">;
+    bodyStyles?: Hard<string[]>;
     excludeMakes?: Hard<string[]>;
   };
   /** What inventory was actually asked for (direction years, not the confirm draft). */

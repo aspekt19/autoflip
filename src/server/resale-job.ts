@@ -35,7 +35,7 @@ import {
 } from "@/server/resale-search";
 import { type ResaleSettleCheckpoint } from "@/server/resale-settle-serv";
 import { resaleBuyerCopy, resaleCardCopy } from "@/domain/resale-outcome";
-import { readResaleSpecCache, writeResaleSpecCache } from "@/server/resale-spec-cache";
+import { readResaleSpecCache, replayCreditLine, writeResaleSpecCache } from "@/server/resale-spec-cache";
 import { decideResale } from "@/server/serv-plan-decide";
 
 export const RESALE_JOB_TTL_SEC = 60 * 60 * 2; // 2h
@@ -397,7 +397,7 @@ async function chargeAndStoreDelivery(
     charged,
   };
   await storeResaleSearchDelivery(kv, job.spendKey, payload);
-  await writeResaleSpecCache(kv, job.input, payload);
+  await writeResaleSpecCache(kv, job.ownerId, job.input, payload);
   const next: ResaleJobRecord = {
     ...job,
     status: charged ? "completed" : "delivered_unpaid",
@@ -488,16 +488,29 @@ export async function createAndRunResaleJobStep1(
   }
 
   if (deps.useSpecCache) {
-    const cachedDecision = await readResaleSpecCache(deps.kv, parsed.input);
-    if (cachedDecision) {
+    const cached = await readResaleSpecCache(deps.kv, deps.ownerId, parsed.input);
+    if (cached) {
       const balance = await creditBalance(deps.kv, deps.ownerId);
-      const message = cachedDecision.message
-        ? `${cachedDecision.message} This is the saved result for these same filters.`
-        : "This is the saved result for these same filters.";
+      const saved = cached.delivery as Partial<ResaleSearchOkBody>;
+      const aligned = deliveryBuyerCopy({
+        best: saved.best ?? null,
+        action: saved.verdictAction ?? "pass",
+        confidence: saved.confidence ?? "Low",
+        reviewNote: saved.reviewNote ?? null,
+        sellWithinDays: parsed.input.sellWithinDays,
+      });
       return {
         ok: true,
         kind: "replay",
-        delivery: { ...cachedDecision, message },
+        delivery: {
+          ...cached.delivery,
+          charged: false,
+          chargedCredit: false,
+          creditNote: "No credit used.",
+          headline: aligned.headline,
+          verdictLabel: aligned.verdictLabel,
+          message: `${replayCreditLine(cached.savedAt)} ${aligned.message}`.replace(/\s+/g, " ").trim(),
+        },
         balance,
       };
     }

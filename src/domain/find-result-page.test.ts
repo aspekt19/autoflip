@@ -102,12 +102,10 @@ describe("trim sources", () => {
       decodedTrim: "Eco",
     });
     expect(gap).not.toBeNull();
-    expect(gap!.note).toMatch(/Listing data on this card says Eco/);
-    expect(gap!.note).toMatch(/dealer listing link title says Sport/);
+    expect(gap!.note).toMatch(/listing title and its VIN record name different trims/i);
     expect(gap!.note).toMatch(/Government vehicle specs also say Eco/);
-    expect(gap!.sellerQuestion).toMatch(/2016 Hyundai Tucson/);
-    expect(gap!.sellerQuestion).toMatch(/Sport/);
-    expect(gap!.sellerQuestion).toMatch(/Eco/);
+    expect(gap!.sellerQuestion).toMatch(/listing title and its VIN record name different trims/i);
+    expect(gap!.sellerQuestion).not.toMatch(/Trim names disagree/);
     expect(gap!.note).not.toMatch(/vPIC|JSON/i);
     expect(assertBuyerSafeText(gap!.note).ok).toBe(true);
     expect(assertBuyerSafeText(gap!.sellerQuestion).ok).toBe(true);
@@ -312,7 +310,7 @@ describe("trim sources", () => {
       listingTitle: "Used 2016 Hyundai Tucson Sport",
     });
     expect(readable?.listingTitleTrim).toBe("Sport");
-    expect(readable?.note).toMatch(/dealer listing link title says Sport/);
+    expect(readable?.note).toMatch(/listing title and its VIN record name different trims/i);
     const kingRanch = trimSourceDisagreement({
       year: 2018,
       make: "Ford",
@@ -369,7 +367,7 @@ describe("seller questions stay on the shortlist", () => {
     );
     expect(lines.length).toBeLessThanOrEqual(5);
     expect(lines[0]).toMatch(/2016 Hyundai Tucson/);
-    expect(lines[0]).toMatch(/Sport/);
+    expect(lines[0]).toMatch(/listing title and its VIN record name different trims/i);
     expect(lines.join(" ")).not.toMatch(/2014 Toyota Camry/);
     expect(lines.join(" ")).not.toMatch(outsider.model === "Camry" ? /2018 Camry/ : /nope/);
     expect(lines.every((line) => /20\d\d /.test(line))).toBe(true);
