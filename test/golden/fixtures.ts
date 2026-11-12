@@ -293,7 +293,7 @@ function stubPlanFromNote(note: string): Record<string, unknown> {
     priorities: [],
     namedModels,
     excludedMakes,
-    question: maxUsd == null ? { id: "budget", text: "What is your maximum budget?" } : { id: "none", text: null },
+    questions: maxUsd == null ? [{ text: "What is your maximum budget?" }] : [],
     directions: [
       {
         label: body === "suv" ? "SUVs and crossovers" : namedModels.length ? "Named models" : firstCar ? "Reliable starter cars" : "Starting search",

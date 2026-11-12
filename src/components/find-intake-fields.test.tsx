@@ -81,7 +81,7 @@ function mockEntryNeedParse() {
             priorities: [],
             namedModels: [],
             excludedMakes: [],
-            question: { id: "none", text: null },
+            questions: [],
             directions: [
               {
                 label: "Cars in budget",

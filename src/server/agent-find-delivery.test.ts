@@ -56,7 +56,7 @@ vi.mock("@/server/understand-need", () => ({
       priorities: [],
       namedModels: [],
       excludedMakes: [],
-      question: { id: "none", text: null },
+      questions: [],
       directions: [
         {
           label: "Empty sedans",
@@ -68,6 +68,8 @@ vi.mock("@/server/understand-need", () => ({
     },
     directions: [],
     followUps: [],
+    clarifyingQuestions: [],
+    clarifyingAnswers: [],
     guard: "allow",
     checks: [],
     criteriaParse: { source: "code", responseId: null, label: "code" },

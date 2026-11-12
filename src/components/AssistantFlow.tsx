@@ -600,6 +600,16 @@ function AssistantFlow({
       if ((body.checks ?? []).length === 0 && body.guard === "unavailable") {
         setError("The safety check on your note did not finish. You can continue with the calculated reading.");
       }
+      const servQs = (body as { clarifyingQuestions?: Array<{ text: string }> }).clarifyingQuestions
+        ?? body.findPlan?.questions
+        ?? [];
+      if (!followUp && Array.isArray(servQs) && servQs.length > 0) {
+        // Legacy FollowUp UI expects id+prompt — map SERV free-form text into cash-like free text inputs via zip/cash fields is wrong.
+        // Prefer confirm; Find chat owns ask_shopper. Keep follow empty unless legacy followUps remain.
+        setQuestions([]);
+        setStage("confirm");
+        return;
+      }
       const next = body.followUps ?? [];
       if (!followUp && next.length > 0) {
         setQuestions(next);
@@ -2005,11 +2015,6 @@ function AssistantFlow({
             </p>
           ) : null}
           {pending === "need" ? <p className="hint">Planning the search. This can take a few minutes.</p> : null}
-          {findPlan?.question?.id === "zip" && findPlan.question.text ? (
-            <p className="hint" role="status">
-              {findPlan.question.text}
-            </p>
-          ) : null}
           <div className="field">
             <label htmlFor="note">Your note</label>
             <textarea id="note" rows={3} value={need.note} onChange={(event) => setNeed({ ...need, note: event.target.value })} />

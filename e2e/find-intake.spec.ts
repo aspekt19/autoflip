@@ -96,7 +96,7 @@ async function mockNeedParse(page: Page) {
           priorities: [],
           namedModels: [],
           excludedMakes: [],
-          question: { id: "none", text: null },
+          questions: [],
           directions: [
             {
               label: "Cars in budget",

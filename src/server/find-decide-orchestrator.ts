@@ -3,6 +3,7 @@
  * Legacy match→decide path is deleted. Agent failure → honest failure (no code choose).
  */
 import { findAgentLoopEnabled, resolveFindAgentMode, type FindAgentRelaxedCondition } from "@/domain/find-agent";
+import { clarifyingQaFromRunLines } from "@/domain/clarifying-questions";
 import { pickUserFormConstraints } from "@/domain/constraint-provenance";
 import { carsFoundFromSearchJournal } from "@/domain/search-listings-feedback";
 import {
@@ -239,10 +240,14 @@ export async function runFindDecideOrchestrator(
     // Stored user form edits (from /api/need → run / search context). Never re-tag
     // need.budgetUsd / year / miles as user — those may include SERV / defaults.
     let storedFormEdits: SearchFormEdits = pickUserFormConstraints(record.userFormEdits ?? {});
-    if (Object.keys(storedFormEdits).length === 0 && record.runId) {
+    let clarifyingQa = clarifyingQaFromRunLines(null);
+    if (record.runId) {
       const run = await readRun(deps.kv, record.runId);
-      if (run?.inputs.formEdits) {
+      if (Object.keys(storedFormEdits).length === 0 && run?.inputs.formEdits) {
         storedFormEdits = pickUserFormConstraints(run.inputs.formEdits);
+      }
+      if (run?.inputs.clarifications?.length) {
+        clarifyingQa = clarifyingQaFromRunLines(run.inputs.clarifications);
       }
     }
     const userIntent = buildUserIntent({ note, formEdits: storedFormEdits });
@@ -256,6 +261,7 @@ export async function runFindDecideOrchestrator(
       note,
       mode: resolveFindAgentMode(env),
       formEdits: serializeServFormConstraints(userIntent),
+      clarifyingQa,
       checkpoint: record.agentLoopCheckpoint ?? null,
       budgetMs: remainingMs(),
       deps: {

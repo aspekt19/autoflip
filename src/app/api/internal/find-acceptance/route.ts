@@ -183,7 +183,7 @@ export async function POST(request: Request) {
       ok: match.ok && cars >= 1,
       cars,
       planSummary: understood.findPlan.summary,
-      question: understood.findPlan.question,
+      questions: understood.findPlan.questions,
       directions: understood.directions.map((d) => ({
         segment: d.segment,
         models: d.models,

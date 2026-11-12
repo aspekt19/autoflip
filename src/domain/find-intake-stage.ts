@@ -1,12 +1,11 @@
 import { resolveLocationZip, type LocationZipResolution } from "./city-to-zip";
-import { explicitNeedFromText, followUps, type StructuredNeed } from "./need";
+import { explicitNeedFromText, type StructuredNeed } from "./need";
 
 export type FindIntakeStage = "budget" | "follow" | "confirm";
 
 /** Skip a step when SERV/form already answered what that step requires. */
 export function findStageAfterNote(need: StructuredNeed): FindIntakeStage {
   if (!need.budgetKnown || need.budgetUsd == null) return "budget";
-  if (followUps(need).length > 0) return "follow";
   return "confirm";
 }
 

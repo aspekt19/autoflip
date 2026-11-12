@@ -36,7 +36,7 @@ describe("validateFindPlan", () => {
         ],
         namedModels: [],
         excludedMakes: [],
-        question: { id: "zip", text: "What ZIP?" },
+        questions: [{ text: "What ZIP?" }],
         directions: [
           {
             label: "Compact crossovers",
@@ -81,7 +81,7 @@ describe("validateFindPlan", () => {
         priorities: [],
         namedModels: [{ make: "NotAReal", model: "GhostCar" }],
         excludedMakes: [],
-        question: { id: "none", text: null },
+        questions: [],
         directions: [
           {
             label: "Ghost trucks",
@@ -120,7 +120,7 @@ describe("validateFindPlan", () => {
         priorities: [],
         namedModels: [],
         excludedMakes: [],
-        question: { id: "zip", text: null },
+        questions: [],
         directions: [
           {
             label: "Crossovers",
@@ -152,7 +152,7 @@ describe("validateFindPlan recorded fixtures (reviewer #149 gaps)", () => {
     priorities: [] as Array<{ id: string; quote: string }>,
     namedModels: [] as Array<{ make: string; model: string }>,
     excludedMakes: [] as string[],
-    question: { id: "none" as const, text: null as string | null },
+    questions: [] as Array<{ text: string }>,
     drivetrain: { value: "any" as const, strength: "none" as const, quote: null as string | null },
     fuel: { value: "any" as const, strength: "none" as const, quote: null as string | null },
   };
@@ -170,7 +170,7 @@ describe("validateFindPlan recorded fixtures (reviewer #149 gaps)", () => {
         drivetrain: { value: "awd_4wd", strength: "preferred", quote: "Preferably AWD" },
         location: { zip: null, phrase: "near me", needsZip: true },
         priorities: [{ id: "reliability", quote: "reliable for road trips" }],
-        question: { id: "zip", text: "What ZIP?" },
+        questions: [{ text: "What ZIP?" }],
         directions: [
           {
             label: "Compact AWD SUVs",

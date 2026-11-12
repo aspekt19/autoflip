@@ -25,7 +25,7 @@ describe("need extraction validation", () => {
     expect(need.budgetUsd).toBeNull();
     expect(need.budgetKnown).toBe(false);
     const questions = followUps({ ...need, zip: "33101", useCase: "unspecified", mode: "flip", repairAbility: "unknown", targetProfitUsd: null, budgetKnown: false, budgetUsd: null });
-    expect(questions.map((item) => item.id)).toEqual(["cash"]);
+    expect(questions).toEqual([]);
   });
 });
 

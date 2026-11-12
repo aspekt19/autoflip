@@ -111,7 +111,7 @@ describe("note→constraint enforcement — SearchSpec / UserIntent", () => {
         priorities: [],
         namedModels: [],
         excludedMakes: [],
-        question: { id: "none", text: null },
+        questions: [],
         directions: [
           {
             label: "Compact SUVs",

@@ -572,20 +572,8 @@ export function ageGapBuyerHonesty(
   return AGE_GAP_UNRESOLVED;
 }
 
-export function followUps(need: StructuredNeed): FollowUp[] {
-  if (need.mode === "flip") {
-    const questions: FollowUp[] = [];
-    // Profit target and repair skill have defaults and stay optional. They must
-    // not block the search or drop every car.
-    if (!need.budgetKnown) {
-      questions.push({ id: "cash", prompt: "How much cash can you put into the car?" });
-    }
-    if (!need.zip && questions.length < 3) {
-      questions.push({ id: "zip", prompt: "What ZIP should we shop around? Leave blank for nationwide." });
-    }
-    return questions.slice(0, 3);
-  }
-  // Personal follow-ups come from Confirm / SERV — never from note regex gaps.
+/** Code never invents clarifying prompts — SERV returns find_plan.questions / ask_shopper. */
+export function followUps(_need: StructuredNeed): FollowUp[] {
   return [];
 }
 
