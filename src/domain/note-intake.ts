@@ -22,7 +22,17 @@ export type TransmissionPref = "automatic" | "manual";
 
 export type HistoryPref = "no_salvage" | "no_accidents" | "no_salvage_no_accidents";
 
-export const NOTE_BODY_STYLES = ["SUV", "Sedan", "Truck", "Hatchback", "Van", "Wagon", "Coupe", "Minivan"] as const;
+export const NOTE_BODY_STYLES = [
+  "SUV",
+  "Sedan",
+  "Truck",
+  "Hatchback",
+  "Van",
+  "Wagon",
+  "Coupe",
+  "Convertible",
+  "Minivan",
+] as const;
 export type NoteBodyStyle = (typeof NOTE_BODY_STYLES)[number];
 
 export type NoteIntake = {
@@ -41,6 +51,11 @@ export type NoteIntake = {
   yearMin: number | null;
   yearMax: number | null;
   milesMax: number | null;
+  /**
+   * Minimum seats / third-row ask from the note (e.g. 7). Null when not stated.
+   * Preference / verify flag — never a silent inventory wipe.
+   */
+  seatsMin: number | null;
   zip: string | null;
   /** City or place named in the note. Not a guessed ZIP. */
   locationPhrase: string | null;
@@ -318,10 +333,31 @@ export function bodyFromIntake(text: string): NoteBodyStyle | null {
   if (/\b(?:pick-?ups?|trucks?)\b/i.test(text)) return "Truck";
   if (/\bhatchbacks?\b/i.test(text)) return "Hatchback";
   if (/\bwagons?\b/i.test(text)) return "Wagon";
+  // Convertible before coupe — "convertible coupe" is a convertible.
+  if (/\bconvertibles?\b/i.test(text)) return "Convertible";
   if (/\bcoupes?\b/i.test(text)) return "Coupe";
   if (/\bvans?\b/i.test(text)) return "Van";
   if (/\bsedans?\b/i.test(text)) return "Sedan";
   return null;
+}
+
+/**
+ * Third-row / seat count from the note.
+ * "3rd row", "third row", "7 seats", "7-seater" → 7. Other explicit N seats/seater when 2–15.
+ */
+export function seatsMinFromNote(text: string): number | null {
+  if (/\b(?:3rd|third)\s+rows?\b/i.test(text)) return 7;
+  const seats = text.match(/\b([2-9]|1[0-5])\s*-?\s*(?:seats?|seaters?)\b/i);
+  if (seats) {
+    const n = Number(seats[1]);
+    if (Number.isFinite(n) && n >= 2 && n <= 15) return n;
+  }
+  return null;
+}
+
+/** Soft low-miles preference without a numeric cap. */
+export function lowMilesPreferenceFromText(text: string): boolean {
+  return /\b(?:low miles|low mileage|not too many miles|lower miles)\b/i.test(text);
 }
 
 export function yearsFromNote(text: string, now = new Date()): { yearMin: number | null; yearMax: number | null } {
@@ -453,8 +489,14 @@ export function locationPhraseFromText(text: string): string | null {
   if (/\bnear\s+me\b/i.test(text)) return "near me";
   const re = /\b(?:near|in|around|from)\s+([A-Za-z][A-Za-z.'-]*(?:\s+[A-Za-z][A-Za-z.'-]*){0,2})/gi;
   for (const match of text.matchAll(re)) {
-    const phrase = match[1]!.trim().replace(/[.,]$/, "");
-    const first = phrase.split(/\s+/)[0]?.toLowerCase() ?? "";
+    const raw = match[1]!.trim().replace(/[.,]$/, "");
+    const words = raw.split(/\s+/).filter(Boolean);
+    // Drop trailing stop words ("San Diego under $15k" → "San Diego").
+    while (words.length > 1 && PLACE_STOP.has(words[words.length - 1]!.toLowerCase())) {
+      words.pop();
+    }
+    const phrase = words.join(" ");
+    const first = words[0]?.toLowerCase() ?? "";
     if (!first || PLACE_STOP.has(first)) continue;
     return phrase;
   }
@@ -501,6 +543,8 @@ export function intakeFromNote(text: string, now = new Date()): NoteIntake {
   const bodyStyle = bodyFromIntake(text);
   const years = yearsFromNote(text, now);
   const milesMax = milesCapFromNote(text);
+  const seatsMin = seatsMinFromNote(text);
+  const lowMilesPreference = lowMilesPreferenceFromText(text) && milesMax == null;
   const awdLimit = awdLimitFromText(text);
   const zip = zipFromNote(text, budgetUsd);
   const locationPhrase = locationPhraseFromText(text);
@@ -510,12 +554,14 @@ export function intakeFromNote(text: string, now = new Date()): NoteIntake {
     transmission === "automatic" ? "automatic" : null,
     transmission === "manual" ? "manual" : null,
     awdLimit === "hard" ? "AWD" : null,
+    seatsMin != null ? (seatsMin >= 7 ? "3rd row / 7 seats" : `${seatsMin}+ seats`) : null,
     ...historyMusts(historyPreference),
     bodyStyle,
   ].filter((item): item is string => Boolean(item));
   const priorities = [
     ...(fuelEconomyPriority ? ["fuel economy"] : []),
     ...(reliabilityPriority ? ["reliability"] : []),
+    ...(lowMilesPreference ? ["low_miles"] : []),
   ];
   return {
     budgetUsd,
@@ -528,6 +574,7 @@ export function intakeFromNote(text: string, now = new Date()): NoteIntake {
     yearMin: years.yearMin,
     yearMax: years.yearMax,
     milesMax,
+    seatsMin,
     zip,
     locationPhrase,
     // Only an explicit “within N miles” sets radius. ZIP alone → nationwide until Confirm.

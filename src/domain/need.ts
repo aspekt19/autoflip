@@ -2,6 +2,7 @@ import { parseUsdInput } from "./budget";
 import { bodyStyleMatches } from "./body-style";
 import {
   awdLimitFromText,
+  bodyFromIntake,
   budgetFromText,
   intakeFromNote,
   milesCapFromNote,
@@ -65,6 +66,11 @@ export type StructuredNeed = {
   targetProfitUsd: number | null;
   /** Hard mileage cap taken from the note. Null means no cap. */
   milesMax: number | null;
+  /**
+   * Minimum seats / third-row ask from the note. Null when not stated.
+   * Surfaced for verify/flag — never silently drops inventory alone.
+   */
+  seatsMin: number | null;
   /**
    * Explicit model-year floor from clarification or Confirm refine.
    * Null means use the budget-based editorial year band only.
@@ -146,6 +152,7 @@ export function emptyNeed(mode: "personal" | "flip" = "personal"): StructuredNee
     repairAbility: "unknown",
     targetProfitUsd: null,
     milesMax: null,
+    seatsMin: null,
     yearMin: null,
     yearMax: null,
     yearBandResolved: false,
@@ -299,6 +306,11 @@ export function validateNeed(input: unknown): { ok: true; need: StructuredNeed }
   else if (typeof raw.milesMax === "number" && Number.isFinite(raw.milesMax) && raw.milesMax >= 1_000 && raw.milesMax <= 400_000) {
     milesMax = Math.round(raw.milesMax);
   } else issues.push({ field: "milesMax", message: "Mileage cap has to be a mileage, or left blank." });
+  let seatsMin: number | null = null;
+  if (raw.seatsMin === null || raw.seatsMin === undefined || raw.seatsMin === "") seatsMin = null;
+  else if (typeof raw.seatsMin === "number" && Number.isFinite(raw.seatsMin) && raw.seatsMin >= 2 && raw.seatsMin <= 15) {
+    seatsMin = Math.round(raw.seatsMin);
+  } else issues.push({ field: "seatsMin", message: "Seat minimum has to be a seat count, or left blank." });
   const yearNow = new Date().getUTCFullYear() + 1;
   let yearMin: number | null = null;
   if (raw.yearMin === null || raw.yearMin === undefined || raw.yearMin === "") yearMin = null;
@@ -383,6 +395,7 @@ export function validateNeed(input: unknown): { ok: true; need: StructuredNeed }
       repairAbility,
       targetProfitUsd,
       milesMax,
+      seatsMin,
       yearMin,
       yearMax,
       yearBandResolved,
@@ -482,10 +495,13 @@ export function budgetWorkingCopy(need: Pick<StructuredNeed, "budgetKnown" | "bu
 
 export function useCaseFromText(text: string): UseCase {
   const t = text.toLowerCase();
-  if (/\b(kids?|family|school|car seat|third row)\b/.test(t)) return "family";
+  // First-car cues win over fuel-economy/commute wording in the same note.
+  if (/\b(?:first car|beater|new driver|first[- ]time driver|college)\b/.test(t)) {
+    return "first_car";
+  }
+  if (/\b(kids?|family|car seat|third row|3rd row)\b/.test(t)) return "family";
   if (/\b(truck|haul|towing|tow|cargo)\b/.test(t)) return "haul";
   if (/\b(commute|city driving|mpg|fuel economy)\b/.test(t)) return "commute";
-  if (/\b(first car|beater)\b/.test(t)) return "first_car";
   if (/\b(comfort|quiet cabin)\b/.test(t)) return "comfort";
   return "unspecified";
 }
@@ -514,6 +530,7 @@ export function explicitNeedFromText(text: string, mode: "personal" | "flip"): S
     repairAbility: mode === "flip" ? repairFromText(text) : "unknown",
     milesMax,
     milesCapResolved: milesMax != null,
+    seatsMin: intake.seatsMin,
     yearMin: intake.yearMin,
     yearMax: intake.yearMax,
     yearBandResolved: intake.yearMin != null || intake.yearMax != null,
@@ -706,7 +723,7 @@ export function bodyFromNote(text: string): "SUV" | "Sedan" | "Truck" | null {
 
 export function listingWithinNeed(
   listing: { make: string; miles: number | null; bodyStyle?: string | null; style?: string | null },
-  need: Pick<StructuredNeed, "make" | "preferredMakes" | "openToOtherMakes" | "milesMax" | "note">,
+  need: Pick<StructuredNeed, "make" | "preferredMakes" | "openToOtherMakes" | "milesMax" | "note" | "bodyStyle">,
 ): boolean {
   const makes = need.preferredMakes?.length ? need.preferredMakes : need.make ? [need.make] : [];
   const open = need.openToOtherMakes ?? makes.length === 0;
@@ -715,14 +732,19 @@ export function listingWithinNeed(
     if (!makes.some((make) => make.trim().toLowerCase() === listingMake)) return false;
   }
   if (need.milesMax != null && (listing.miles == null || listing.miles > need.milesMax)) return false;
-  const body = bodyFromNote(need.note);
+  const body = need.bodyStyle ?? bodyFromIntake(need.note ?? "") ?? bodyFromNote(need.note ?? "");
   if (body && !bodyStyleMatches(body, { bodyStyle: listing.bodyStyle ?? null, style: listing.style })) return false;
   return true;
 }
 
 export function noMatchMessage(
   need: Pick<StructuredNeed, "make" | "preferredMakes" | "milesMax" | "budgetKnown" | "zip" | "distanceMiles" | "note">,
+  opts?: { dropSentence?: string | null; widenExplanation?: string | null },
 ): string {
+  if (opts?.widenExplanation?.trim()) return opts.widenExplanation.trim();
+  if (opts?.dropSentence?.trim()) {
+    return `${opts.dropSentence.trim()} Empty inventory for this search — not a parse failure.`;
+  }
   const body = bodyFromNote(need.note);
   const makes = need.preferredMakes?.length ? need.preferredMakes : need.make ? [need.make] : [];
   const makeLabel = makes.length ? makes.join("/") : null;
@@ -732,7 +754,11 @@ export function noMatchMessage(
   if (need.budgetKnown) parts.push("within budget");
   if (need.zip && need.distanceMiles != null) parts.push(`within ${need.distanceMiles} miles of ${need.zip}`);
   else if (need.zip) parts.push(`near ${need.zip}`);
-  return `${parts.join(" ")}. Empty inventory for this search — not a parse failure. Nothing matched these limits, so the search was not widened. You can choose a larger radius or a higher mileage cap and search again. Motorcycles and RVs are not included.`;
+  const tip =
+    need.distanceMiles == null
+      ? "Raise the mileage or budget cap, or loosen make/model filters."
+      : "You can choose a larger radius or a higher mileage cap and search again.";
+  return `${parts.join(" ")}. Empty inventory for this search — not a parse failure. ${tip} Motorcycles and RVs are not included.`;
 }
 
 /** Shown when the only rows on hand are the labeled sample and none match the body asked for. */
@@ -1104,6 +1130,7 @@ export function supplementNeedFromNote(need: StructuredNeed, text: string): Stru
     yearBandResolved: need.yearBandResolved || yearMin != null || yearMax != null,
     milesMax,
     milesCapResolved: need.milesCapResolved || milesMax != null,
+    seatsMin: need.seatsMin ?? intake.seatsMin,
     zip,
     distanceMiles,
     mustHaves: mergePhraseList(need.mustHaves, intake.mustHaves),

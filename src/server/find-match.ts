@@ -29,6 +29,7 @@ import { implausibleOdometer } from "@/domain/find-best-deal";
 import { FIND_INVENTORY_QUERY_MS, FIND_INVENTORY_STAGE_MS } from "@/domain/route-budget";
 import { broadenOpenDirections, openRetryModels, towingCapacityCaveat } from "@/domain/open-search";
 import { broadenStarterDirections, isOpenStarterNote, starterRetryModels } from "@/domain/starter-search";
+import { filterInventoryWithWiden } from "@/domain/inventory-widen";
 import { buildSearchSpec, enforceHard, hardDropSentence } from "@/domain/search-spec";
 import { decodeVin } from "@/io/gov";
 import { priceCompsUnevenAcrossListings, selectBestDealOnEvidence } from "@/domain/find-best-deal";
@@ -630,6 +631,49 @@ export async function runFindMatch(
     }
   }
 
+  // Soft filters emptied local inventory, or the radius returned nothing — try Nationwide once.
+  let nationwideWidenNote: string | null = null;
+  let filterNeed = need;
+  if (need.mode !== "flip" && need.distanceMiles != null && searchZip) {
+    const returned = dispatches.flatMap((row) => (row.result?.ok ? row.result.listings : []));
+    const cars = returned.filter((row) => isPassengerOrLightTruck(row));
+    const local = filterInventoryWithWiden(cars, need);
+    if (local.listings.length === 0) {
+      const retryJobs = planned.map((job) => ({ ...job }));
+      const more = await Promise.all(
+        retryJobs.map(async (job) => {
+          try {
+            const result = await runAssemble(
+              {
+                make: job.query.make,
+                model: job.query.model,
+                bodyStyle: bodyStyleForQuery(job.query.model, job.query.bodyStyle ?? job.direction.bodyStyle),
+                zip: searchZip,
+                ...confirmedYears(job.direction, need, body?.refine),
+                distanceMiles: null,
+                mode: need.mode,
+                milesMax: need.milesMax ?? undefined,
+                priceMax: need.budgetKnown && need.budgetUsd ? need.budgetUsd : undefined,
+                skipRadarGuard: true,
+              },
+              deps,
+            );
+            return { planned: job, result, timedOut: false };
+          } catch {
+            return { planned: job, result: null, timedOut: true };
+          }
+        }),
+      );
+      dispatches = [...dispatches, ...more];
+      providerQueriesUsed += more.length;
+      filterNeed = { ...need, distanceMiles: null };
+      const softBit = local.steps.find((s) => s.kind === "drop_soft");
+      nationwideWidenNote = softBit
+        ? `No cars matched with ${softBit.label} within ${need.distanceMiles} miles of ${searchZip}; we loosened that preference and widened to Nationwide.`
+        : `No cars matched within ${need.distanceMiles} miles of ${searchZip}; we widened to Nationwide.`;
+    }
+  }
+
   // Group dispatch results by direction index for the existing post-processing.
   const byDirection = new Map<number, DispatchRow[]>();
   for (const row of dispatches) {
@@ -757,9 +801,29 @@ export async function runFindMatch(
     const assumption =
       need.mode === "flip" ? reconUsd({ miles: null, repairAbility: need.repairAbility }).because : null;
     const prepared = await fillHardDrivetrain(collected, need, deps.fetch);
-    const gated = applyHardGate(prepared, need);
-    if (gated.note) directionNote = [directionNote, gated.note].filter(Boolean).join(" ");
-    const narrowed = gated.listings.filter((item) => listingWithinNeed(item, need));
+    let narrowed: Listing[];
+    if (need.mode === "flip") {
+      const gated = applyHardGate(prepared, need);
+      if (gated.note) directionNote = [directionNote, gated.note].filter(Boolean).join(" ");
+      narrowed = gated.listings.filter((item) => listingWithinNeed(item, need));
+    } else {
+      const cars = prepared.filter((row) => isPassengerOrLightTruck(row));
+      const hiddenOther = prepared.length - cars.length;
+      const widen = filterInventoryWithWiden(cars, filterNeed);
+      const otherNote =
+        hiddenOther > 0
+          ? `${hiddenOther} motorcycle${hiddenOther === 1 ? "" : "s"}, RV${hiddenOther === 1 ? "" : "s"}, or other non-car${hiddenOther === 1 ? "" : "s"} ${hiddenOther === 1 ? "was" : "were"} left out.`
+          : null;
+      // Nationwide widen note is attached once on the first direction only.
+      const onceWiden = di === 0 ? nationwideWidenNote : null;
+      const widenNote =
+        onceWiden ??
+        widen.explanation ??
+        (widen.dropped.length && widen.listings.length === 0 ? hardDropSentence(widen.dropped) : null);
+      const gateNote = [widenNote, otherNote].filter(Boolean).join(" ") || null;
+      if (gateNote) directionNote = [directionNote, gateNote].filter(Boolean).join(" ");
+      narrowed = widen.listings;
+    }
     const personalScores =
       need.mode === "personal" ? personalRankScores(narrowed, need) : new Map<string, number>();
     const rankedReady = withinBudget(narrowed, need.budgetUsd, need.budgetKnown)
@@ -875,7 +939,13 @@ export async function runFindMatch(
       radiusMiles: radiusMiles,
       historyOnListing: false,
     };
-    const emptyNote = listings.length === 0 ? noMatchMessage(need) : null;
+    const emptyNote =
+      listings.length === 0
+        ? // Prefer the single widen/drop sentence already on directionNote — avoid repeating “No cars…”.
+          directionNote && /No cars matched|widened|loosened|listings were hidden/i.test(directionNote)
+            ? null
+            : noMatchMessage(filterNeed, { widenExplanation: di === 0 ? nationwideWidenNote : null })
+        : null;
     const succeeded = queryOutcomes.filter((o) => o.outcome === "ok" || o.outcome === "empty");
     const confirmedEmpty = queryOutcomes.filter((o) => o.outcome === "empty");
     const failed = queryOutcomes.filter(

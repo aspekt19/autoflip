@@ -113,5 +113,19 @@ describe("proposeFindNextChecks", () => {
     });
     expect(checks.some((c) => c.id === "widen_or_nationwide")).toBe(true);
     expect(checks.every((c) => c.id !== "compare_observed_asks")).toBe(true);
+    expect(checks.every((c) => c.id !== "clarify_miles_cap")).toBe(true);
+  });
+
+  it("does not offer widen when already Nationwide, and does not ask for miles when miles were not the gap", () => {
+    const need = { ...emptyNeed("personal"), budgetUsd: 15_000, budgetKnown: true, zip: "68114", distanceMiles: null };
+    const checks = proposeFindNextChecks({
+      need,
+      softGaps: [],
+      observedListingCount: 0,
+      observedModelCount: 0,
+      emptyInventory: true,
+    });
+    expect(checks.every((c) => c.id !== "widen_or_nationwide")).toBe(true);
+    expect(checks.every((c) => c.id !== "clarify_miles_cap")).toBe(true);
   });
 });

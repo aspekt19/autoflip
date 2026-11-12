@@ -13,7 +13,14 @@ import {
   type StructuredNeed,
   type UseCase,
 } from "./need";
-import { awdLimitFromText, bodyFromIntake, budgetFromText, intakeFromNote, type NoteBodyStyle } from "./note-intake";
+import {
+  awdLimitFromText,
+  bodyFromIntake,
+  budgetFromText,
+  intakeFromNote,
+  seatsMinFromNote,
+  type NoteBodyStyle,
+} from "./note-intake";
 import { orderedYearBounds } from "./year-span";
 import {
   autoDevMake,
@@ -31,6 +38,7 @@ export const FIND_PLAN_BODY_STYLES = [
   "hatchback",
   "wagon",
   "coupe",
+  "convertible",
   "van",
   "any",
 ] as const;
@@ -128,6 +136,7 @@ const BODY_TO_NOTE: Record<Exclude<FindPlanBodyStyle, "any">, NoteBodyStyle> = {
   hatchback: "Hatchback",
   wagon: "Wagon",
   coupe: "Coupe",
+  convertible: "Convertible",
   van: "Van",
 };
 
@@ -262,6 +271,7 @@ function normalizeBodyStyle(raw: string): FindPlanBodyStyle {
   if (/minivan/.test(key)) return "minivan";
   if (/hatch/.test(key)) return "hatchback";
   if (/wagon/.test(key)) return "wagon";
+  if (/convertible/.test(key)) return "convertible";
   if (/coupe/.test(key)) return "coupe";
   if (/van/.test(key)) return "van";
   return "any";
@@ -275,6 +285,7 @@ const NOTE_BODY_TO_PLAN: Record<NoteBodyStyle, FindPlanBodyStyle> = {
   Van: "van",
   Wagon: "wagon",
   Coupe: "coupe",
+  Convertible: "convertible",
   Minivan: "minivan",
 };
 
@@ -560,15 +571,16 @@ function noteBodyFromPlan(styles: FindPlanBodyStyle[]): NoteBodyStyle | null {
 
 function useCaseFromPlan(plan: FindPlan, mode: "personal" | "flip"): UseCase {
   if (mode === "flip") return "unspecified";
+  if (/\bfirst car|new driver|college|beater\b/i.test(plan.summary)) return "first_car";
   if (plan.priorities.some((p) => p.id === "cargo" || p.id === "towing") || plan.bodyStyles.includes("truck")) {
     return "haul";
   }
   if (plan.seatsMin != null && plan.seatsMin >= 5 && plan.bodyStyles.includes("suv")) return "family";
+  if (/\bfamily|kids\b/i.test(plan.summary)) return "family";
   if (plan.priorities.some((p) => p.id === "fuel_cost") || plan.fuel.value === "hybrid" || plan.fuel.value === "ev") {
     return "commute";
   }
   if (/\bcommute|daily drive|work\b/i.test(plan.summary)) return "commute";
-  if (/\bfamily|kids|school\b/i.test(plan.summary)) return "family";
   return "unspecified";
 }
 
@@ -620,6 +632,7 @@ export function planToStructuredNeed(
     distanceMiles: null,
     milesMax: plan.milesMax,
     milesCapResolved: plan.milesMax != null,
+    seatsMin: plan.seatsMin ?? seatsMinFromNote(note),
     yearMin:
       plan.yearMin ??
       (plan.yearMax == null

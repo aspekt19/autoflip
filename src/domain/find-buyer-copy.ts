@@ -170,7 +170,7 @@ export function publicCheckStatusLine(input: {
     return "Here is what we can check next with the cars already found:";
   }
   if (input.shortlistEmpty) {
-    return "No shortlist cars to check — public safety checks did not run.";
+    return "No cars on the shortlist yet. Public safety checks start after cars are found.";
   }
   const count =
     typeof input.modelCount === "number" && input.modelCount > 0 ? Math.floor(input.modelCount) : null;
@@ -200,7 +200,7 @@ export function buyerCheckActivityLine(input: {
   shortlistEmpty?: boolean;
 }): string {
   if (input.shortlistEmpty) {
-    return "Public safety checks did not run — the shortlist is empty.";
+    return "No cars on the shortlist yet.";
   }
   if (!input.anyUnchecked) return "Public safety records are caught up for this shortlist.";
   if (input.continuing) return "Public safety records are still being checked. The best choice may change.";

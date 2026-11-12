@@ -122,15 +122,12 @@ export function proposeFindNextChecks(input: FindNextCheckInput): FindNextCheck[
     });
   }
 
-  if (
-    input.need.milesMax == null &&
-    !input.need.milesCapResolved &&
-    (hasGap(input.softGaps, "miles") || input.emptyInventory)
-  ) {
+  // Miles clarification only when the note asked about low miles — not as a generic empty-inventory tip.
+  if (input.need.milesMax == null && !input.need.milesCapResolved && hasGap(input.softGaps, "miles")) {
     out.push({
       id: "clarify_miles_cap",
       why: "No odometer cap is set. Add a maximum mileage if that matters, or leave blank to keep all odometers.",
-      evidence: hasGap(input.softGaps, "miles") ? "soft_pref_miles" : "empty_inventory",
+      evidence: "soft_pref_miles",
     });
   }
 
@@ -223,7 +220,8 @@ export function proposeFindNextChecks(input: FindNextCheckInput): FindNextCheck[
     });
   }
 
-  if (input.emptyInventory || (input.need.distanceMiles != null && input.need.zip)) {
+  // Widen only when a radius is set. Already Nationwide → do not suggest widening distance.
+  if (input.need.distanceMiles != null && input.need.zip) {
     out.push({
       id: "widen_or_nationwide",
       why: input.emptyInventory
