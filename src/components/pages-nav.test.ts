@@ -34,9 +34,9 @@ describe("pages smoke — every nav route", () => {
       "/check",
       "/resale",
       "/radar",
+      "/pricing",
       "/reports",
       "/where-serv-runs",
-      "/pricing",
       "/proof",
     ]);
   });

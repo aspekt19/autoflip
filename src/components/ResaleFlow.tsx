@@ -762,15 +762,16 @@ function ResaleSearchForm({ credits, onAuthLost }: { credits: number | null; onA
           {error}
         </p>
       ) : null}
+      </>
+      ) : null}
 
+      {/* Page copy promises this stays available below the search — keep it after results too. */}
       <details className="onboarding-note">
         <summary>
           <strong>One-car buy-ceiling estimate</strong> (optional, no inventory search)
         </summary>
         <ResaleEvaluateForm onAuthLost={onAuthLost} />
       </details>
-      </>
-      ) : null}
     </div>
   );
 }

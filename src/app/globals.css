@@ -466,6 +466,11 @@ nav a:hover { color: #fff; }
   .bar .brand-mark,
   .bar .brand img { height: 48px; width: 48px; }
 }
+/* Mid-desktop (just above the compact menu): tighten tracked Orbitron gaps so core + More fit. */
+@media (min-width: 1401px) and (max-width: 1600px) {
+  nav { gap: 10px; }
+  .nav-go { padding-inline: 12px; }
+}
 @media (min-width: 2200px) {
   .nav-overflow { display: inline-flex; }
   .nav-more { display: none; }
@@ -1796,8 +1801,9 @@ details.similar-cars > summary,
 @keyframes enter { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: none; } }
 
 /* Compact header before labels would wrap: keep desktop type size, use a menu instead.
-   Threshold raised because the header lockup is larger after logo size bumps. */
-@media (max-width: 1340px) {
+   Threshold covers common 1366 laptops — crowded core (Find/Check/Resale/Radar/Pricing)
+   plus credits + Account still overlapped the logo just above the old 1340 cut. */
+@media (max-width: 1400px) {
   .menu-btn { display: inline-flex; }
   nav a:not(.nav-go) { display: none; }
   .nav-more { display: none; }
