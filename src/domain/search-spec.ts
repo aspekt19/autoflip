@@ -281,6 +281,18 @@ export function enforceHard(spec: SearchSpec, listings: readonly Listing[]): { k
   return { kept, dropped };
 }
 
+function dropReason(rule: string): string {
+  if (rule === "year") return "outside your year limit";
+  if (rule === "price") return "over your price limit";
+  if (rule === "miles") return "over your mileage limit";
+  if (rule === "radius") return "outside your distance";
+  if (rule === "drivetrain") return "not all-wheel drive";
+  if (rule === "accidents") return "a reported accident";
+  if (rule === "make") return "a make you excluded";
+  if (rule === "body") return "the wrong body style";
+  return rule;
+}
+
 function hardMiss(spec: SearchSpec, listing: Listing): string | null {
   const price = spec.hard.priceMaxUsd?.value;
   if (price != null && listing.priceUsd != null && listing.priceUsd > price) return "price";
@@ -309,22 +321,12 @@ function hardMiss(spec: SearchSpec, listing: Listing): string | null {
 
 export function hardDropSentence(dropped: readonly HardDrop[]): string | null {
   if (dropped.length === 0) return null;
-  const rules = [...new Set(dropped.map((row) => row.rule))];
-  const label = rules
-    .map((rule) => {
-      if (rule === "year") return "year limit";
-      if (rule === "price") return "price limit";
-      if (rule === "miles") return "mileage limit";
-      if (rule === "radius") return "distance limit";
-      if (rule === "drivetrain") return "drivetrain";
-      if (rule === "accidents") return "accident limit";
-      if (rule === "make") return "make limit";
-      if (rule === "body") return "body style";
-      return rule;
-    })
-    .join(", ");
+  const reasons = [...new Set(dropped.map((row) => dropReason(row.rule)))];
   const count = dropped.length;
-  return `${count} listing${count === 1 ? "" : "s"} outside your ${label} ${count === 1 ? "was" : "were"} hidden.`;
+  const hidden = count === 1 ? "1 listing was hidden" : `${count} listings were hidden`;
+  if (reasons.length === 1) return `${hidden}: ${reasons[0]}.`;
+  const last = reasons[reasons.length - 1];
+  return `${hidden}: ${reasons.slice(0, -1).join(", ")} or ${last}.`;
 }
 
 /** Provider year filter. A minimum alone is a range through next year, not that exact year. */

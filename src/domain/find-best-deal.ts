@@ -226,6 +226,57 @@ export const BEST_DEAL_THIN_MODEL_SAMPLE = 3;
 /** Absolute miles above this under condition-first draw a strong wear penalty. */
 export const BEST_DEAL_HIGH_MILES_SOFT = 120_000;
 export const BEST_DEAL_HIGH_MILES_HARD = 160_000;
+
+/** Buyer flag for cars at or above the hard mileage line. */
+export function veryHighMileageLabel(miles: number | null | undefined): string | null {
+  if (typeof miles !== "number" || !Number.isFinite(miles) || miles < BEST_DEAL_HIGH_MILES_HARD) return null;
+  return "Very high mileage";
+}
+
+export function reportedAccidentCount(row: { accidentCount?: number | null }): number {
+  return typeof row.accidentCount === "number" && Number.isFinite(row.accidentCount) && row.accidentCount > 0
+    ? Math.floor(row.accidentCount)
+    : 0;
+}
+
+/**
+ * A reported accident loses to a lower-mileage car with no reported accident.
+ * Unknown history is "no reported accident", not a claim the car is clean.
+ */
+export function cleanLowerMileAlternative<
+  T extends { key: string; miles?: number | null; accidentCount?: number | null; excludedFromPick?: boolean },
+>(pick: T, pool: readonly T[]): T | null {
+  if (reportedAccidentCount(pick) <= 0 || pick.miles == null || pick.excludedFromPick) return null;
+  const cleaner = pool.filter(
+    (car) =>
+      car.key !== pick.key &&
+      !car.excludedFromPick &&
+      reportedAccidentCount(car) === 0 &&
+      car.miles != null &&
+      car.miles < pick.miles!,
+  );
+  if (cleaner.length === 0) return null;
+  cleaner.sort((a, b) => a.miles! - b.miles! || a.key.localeCompare(b.key));
+  return cleaner[0] ?? null;
+}
+
+/** One confidence level and one sentence, so the header and the card cannot disagree. */
+export function alignPublishedConfidence(
+  deal: BestDealResult,
+  confidence: Exclude<BestDealResult["confidence"], "none">,
+  sentence: string,
+): BestDealResult {
+  const cap = confidence === "high" ? "High" : confidence === "medium" ? "Medium" : "Low";
+  const plain =
+    sentence.replace(/^(High|Medium|Low):\s*/i, "").replace(/^Lowered (?:from|to) [^:]+:\s*/i, "").trim() ||
+    "This is the confidence for the published pick.";
+  const line = `${cap}: ${plain}`;
+  return {
+    ...deal,
+    confidence,
+    choice: deal.choice ? { ...deal.choice, confidence, confidenceLine: line } : deal.choice,
+  };
+}
 /**
  * Under condition-first, relative discount credited toward the price bonus is
  * capped here. Extreme under-median asks often reflect condition/mileage risk;
@@ -1556,6 +1607,11 @@ function rankAll(
   });
   scored.sort((a, b) => {
     if (a.excludedFromPick !== b.excludedFromPick) return a.excludedFromPick ? 1 : -1;
+    // A reported accident never ranks above a lower-mileage car with no reported accident.
+    const aAcc = reportedAccidentCount(a);
+    const bAcc = reportedAccidentCount(b);
+    if (aAcc > 0 && bAcc === 0 && b.miles != null && a.miles != null && b.miles < a.miles) return 1;
+    if (bAcc > 0 && aAcc === 0 && a.miles != null && b.miles != null && a.miles < b.miles) return -1;
     if (b.score !== a.score) return b.score - a.score;
     // Soft AWD before VIN lexicographic key so preferably-AWD does not bury AWD under FWD.
     if (preferAwd) {

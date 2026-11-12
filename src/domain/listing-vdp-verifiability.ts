@@ -290,7 +290,7 @@ export function buyerDealerListingLink(input: {
       unavailableNote: "",
     };
   }
-  const bits = (input.findBits ?? []).filter(Boolean);
+  const bits = (input.findBits ?? []).filter((bit) => bit && !/\b\d[\d,]*\s*mi\b/i.test(bit) && !/\bmiles\b/i.test(bit));
   const unavailableNote = bits.length
     ? `No direct dealer listing link — find it via ${bits.join(" · ")}`
     : assessed.flag?.trim() || "No direct dealer listing link from the feed.";

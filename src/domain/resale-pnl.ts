@@ -167,7 +167,7 @@ function taxFor(state: string | null | undefined, offerUsd: number): { usd: numb
   const usd = stateBaseTaxUsd(offerUsd, row.milliPercent);
   return {
     usd,
-    basis: `Sales tax estimate: $${usd.toLocaleString("en-US")} at ${formatTaxRate(row.milliPercent)} statewide base (${row.name}). ${STATE_SALES_TAX_SOURCE_LABEL} as of ${STATE_SALES_TAX_AS_OF}. Local add-ons unknown.`,
+    basis: `Sales tax estimate: $${usd.toLocaleString("en-US")} at ${formatTaxRate(row.milliPercent)} statewide base (${row.name}). ${STATE_SALES_TAX_SOURCE_LABEL} as of ${STATE_SALES_TAX_AS_OF}. Local tax on top of that is not included.`,
   };
 }
 

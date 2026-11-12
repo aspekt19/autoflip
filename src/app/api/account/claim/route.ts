@@ -87,6 +87,7 @@ export async function POST(request: Request) {
         customer_details: session.customer_details,
         customer_email: session.customer_email,
         metadata: session.metadata as Record<string, string> | null,
+        livemode: session.livemode,
       },
     });
     if (!result.ok) {

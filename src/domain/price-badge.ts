@@ -17,7 +17,7 @@ export type PriceBadge = {
 };
 
 export const PRICE_RATING_HOW =
-  "We rate the asking price against other listings of the same make and model already in this search, within 3 model years, any trim. Each similar asking price is adjusted for mileage, model year, trim, and listing history flags. The middle of those adjusted prices is the fair value. Find cards, ranking, the offer, the report, Compare, Deal Radar, and alerts use that same fair value. Fewer than 3 similar cars, or adjusted prices that are too far apart, is labeled “Not enough similar cars.” We do not switch to a different comparison. These are asking prices, not sold prices.";
+  "We compare the asking price with other listings of the same model already in this search, a few years apart. Each asking price is lined up for miles, year, and listing history. The middle of those prices is the comparison. Find cards, ranking, the offer, the report, Compare, Deal Radar, and alerts use that same comparison. Fewer than 3 similar cars, or prices that are too far apart, is labeled “Not enough similar cars.” These are asking prices, not prices cars actually sold for.";
 
 function withFeedHistoryNote(base: string | null, subject: Listing): string | null {
   const flags = listingFeedHistoryNotes(subject);

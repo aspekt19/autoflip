@@ -2,6 +2,7 @@
  * PR B Find decide orchestrator: free-gov (if needed) → C2 triage → C3 decide → C4 challenge.
  * Replaces the next-check hop loop for the decide path.
  */
+import { alignPublishedConfidence } from "@/domain/find-best-deal";
 import {
   executeAllFindFreeGovParallel,
   freeGovToolCoverage,
@@ -233,11 +234,16 @@ export async function runFindDecideOrchestrator(
   ]
     .filter(Boolean)
     .join(" ");
-  if (recallFailed && decide.agentVerdict) {
-    decide.agentVerdict = { ...decide.agentVerdict, confidence: "low" };
-  }
-  if (recallFailed && decide.bestDeal) {
-    decide.bestDeal = { ...decide.bestDeal, confidence: "low" };
+  if (recallFailed && decide.bestDeal && decide.bestDeal.confidence !== "none") {
+    const next = decide.bestDeal.confidence === "high" ? "medium" : decide.bestDeal.confidence;
+    const sentence =
+      next === "low"
+        ? "A recall check failed, so confidence is Low."
+        : "A recall check did not finish for every car, so confidence stays Medium.";
+    decide.bestDeal = alignPublishedConfidence(decide.bestDeal, next, sentence);
+    if (decide.agentVerdict) {
+      decide.agentVerdict = { ...decide.agentVerdict, confidence: next };
+    }
   }
 
   return {

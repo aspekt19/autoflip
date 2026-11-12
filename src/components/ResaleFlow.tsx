@@ -27,10 +27,14 @@ export function ResaleFlow() {
   const router = useRouter();
   const loading = account.phase === "loading";
   const signedIn = account.phase === "loaded" && account.body?.authenticated === true;
+  const [keptForm, setKeptForm] = useState(false);
+  useEffect(() => {
+    if (signedIn) setKeptForm(true);
+  }, [signedIn]);
   const authConfigured = account.body?.auth?.configured !== false;
   const credits = typeof account.body?.credits === "number" ? account.body.credits : null;
 
-  if (loading) {
+  if (loading && !keptForm) {
     return (
       <div className="panel" aria-busy="true">
         <p className="hint">Checking your sign-in…</p>
@@ -38,7 +42,7 @@ export function ResaleFlow() {
     );
   }
 
-  if (!signedIn) {
+  if (!signedIn && !keptForm) {
     return (
       <div className="panel sign-in-gate" role="region" aria-label="Sign in required">
         <h2>Sign in to continue</h2>
@@ -101,6 +105,7 @@ type SearchResult = {
 };
 
 function ResaleSearchForm({ credits, onAuthLost }: { credits: number | null; onAuthLost: () => void }) {
+  const router = useRouter();
   const filtersId = useId();
   const [budget, setBudget] = useState("");
   const [freeText, setFreeText] = useState("");
@@ -132,6 +137,7 @@ function ResaleSearchForm({ credits, onAuthLost }: { credits: number | null; onA
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<SearchResult | null>(null);
   const [runId, setRunId] = useState<string | null>(null);
+  const [followRun, setFollowRun] = useState(false);
   const [idemKey] = useState(
     () => `resale-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 12)}`,
   );
@@ -172,7 +178,12 @@ function ResaleSearchForm({ credits, onAuthLost }: { credits: number | null; onA
   }
 
   function finishFromBody(body: JobBody) {
+    if (typeof body.runId === "string" && body.runId) setRunId(body.runId);
     if (!body.agentVerdict || !body.confidence || !body.verdictAction) {
+      if (runId || body.runId) {
+        setFollowRun(true);
+        return;
+      }
       const hint =
         typeof body.nextStepHint === "string" && body.nextStepHint.trim()
           ? ` ${body.nextStepHint.trim()}`
@@ -226,7 +237,13 @@ function ResaleSearchForm({ credits, onAuthLost }: { credits: number | null; onA
     setProgressLabel(null);
     setProgressSteps(null);
     setPartialJournal(null);
+    setFollowRun(true);
   }
+
+  useEffect(() => {
+    if (!followRun || !runId || pending) return;
+    router.replace(`/run/${runId}`);
+  }, [followRun, runId, pending, router]);
 
   async function parseFreeText() {
     if (!freeText.trim()) {
@@ -282,12 +299,18 @@ function ResaleSearchForm({ credits, onAuthLost }: { credits: number | null; onA
       if (body.need.zip && !zip.trim()) setZip(body.need.zip);
       if (body.need.distanceMiles != null && radius === "") setRadius(String(body.need.distanceMiles));
       if (body.need.bodyStyle && !bodyStyle) setBodyStyle(body.need.bodyStyle);
-      if (body.need.preferredMakes?.length && !makes.trim()) setMakes(body.need.preferredMakes.join(", "));
-      if (body.need.make && !make) setMake(body.need.make);
+      const noteText = freeText.toLowerCase();
+      const namedMakes = (body.need.preferredMakes ?? []).filter((item) => noteText.includes(item.toLowerCase()));
+      if (namedMakes.length && !makes.trim()) setMakes(namedMakes.join(", "));
+      if (body.need.make && !make && noteText.includes(body.need.make.toLowerCase())) setMake(body.need.make);
       const firstModel = body.need.preferredModels?.[0];
       if (firstModel && !model) {
-        setModel(typeof firstModel === "string" ? firstModel : firstModel.model);
-        if (typeof firstModel !== "string" && firstModel.make && !make) setMake(firstModel.make);
+        const modelName = typeof firstModel === "string" ? firstModel : firstModel.model;
+        const makeName = typeof firstModel === "string" ? body.need.make : firstModel.make;
+        if (modelName && noteText.includes(modelName.toLowerCase())) {
+          setModel(modelName);
+          if (makeName && !make && noteText.includes(makeName.toLowerCase())) setMake(makeName);
+        }
       }
       if (body.need.yearMin != null && !yearMin) setYearMin(String(body.need.yearMin));
       if (body.need.yearMax != null && !yearMax) setYearMax(String(body.need.yearMax));
@@ -445,6 +468,9 @@ function ResaleSearchForm({ credits, onAuthLost }: { credits: number | null; onA
 
   return (
     <div className="panel resale-flow">
+      {runId && !result ? <RunMirror runId={runId} onPhase={(phase) => {
+        if (phase === "finished" || phase === "stopped") setFollowRun(true);
+      }} /> : null}
       {result ? (
         <div id="resale-result">
           <ResaleSearchResultView result={result} runId={runId} />

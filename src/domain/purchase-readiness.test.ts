@@ -243,14 +243,14 @@ describe("offer range", () => {
     expect(view.offer.openingUsd).toBeLessThanOrEqual(priced[0]!.priceUsd!);
     expect(view.offer.walkAwayUsd).toBeLessThanOrEqual(priced[0]!.priceUsd!);
     if ((view.offer.fairMidUsd ?? 0) >= priced[0]!.priceUsd!) {
-      expect(view.offer.sentence).toMatch(/at or below the fair value/i);
+      expect(view.offer.sentence).toMatch(/at or below the middle of similar listings/i);
       expect(view.offer.walkAwayUsd).toBe(priced[0]!.priceUsd);
     }
     expect(view.offer.sentence).toMatch(/middle half/);
     expect(view.offer.sentence).toMatch(/3 similar Tucson cars/);
-    expect(view.offer.sentence).toMatch(/3 model years/);
-    expect(view.offer.sentence).toMatch(/any trim/);
-    expect(view.offer.sentence).toMatch(/not sold prices/);
+    expect(view.offer.sentence).toMatch(/similar cars of the same model/);
+    expect(view.offer.sentence).not.toMatch(/any trim/);
+    expect(view.offer.methodNote).toMatch(/not sold prices/);
     expect(view.offer.sentence).not.toMatch(/15 percent/);
     expect(view.offer.sentence).not.toMatch(/same trim/);
     if ((view.offer.fairMidUsd ?? 0) >= priced[0]!.priceUsd!) {
@@ -314,7 +314,7 @@ describe("offer range", () => {
     expect(view.offer.openingUsd).toBeLessThanOrEqual(11000);
     expect(view.offer.walkAwayUsd).toBe(11000);
     expect(view.offer.walkAwayUsd).toBeGreaterThanOrEqual(view.offer.openingUsd!);
-    expect(view.offer.sentence).toMatch(/at or below the fair value|stays at this car’s asking price|stays at this car's asking price/);
+    expect(view.offer.sentence).toMatch(/at or below the middle of similar listings|Opening offer:/);
     expect(view.offer.sentence).toMatch(/do not pay more than/i);
   });
 
@@ -504,7 +504,7 @@ describe("offer range", () => {
     expect(view.offer.openingUsd).not.toBeNull();
     expect(view.offer.walkAwayUsd).toBeGreaterThanOrEqual(view.offer.openingUsd!);
     expect(view.offer.sentence).toMatch(/rough/i);
-    expect(view.offer.sentence).toMatch(/trim was not adjusted/i);
+    expect(view.offer.methodNote).toMatch(/trim was not adjusted/i);
     expect(view.offer.similarCars.every((item) => item.reasons.every((reason) => !/trim/i.test(reason)))).toBe(true);
   });
 
@@ -593,7 +593,7 @@ describe("offer range", () => {
     expect(view.offer.fairMidUsd).toBeGreaterThanOrEqual(19_500);
     expect(view.offer.openingUsd).toBeLessThan(19_500);
     expect(view.offer.walkAwayUsd).toBe(19_500);
-    expect(view.offer.sentence).toMatch(/at or below the fair value/i);
+    expect(view.offer.sentence).toMatch(/at or below the middle of similar listings/i);
     expect(view.offer.sentence).toMatch(/paying the asking price is also reasonable/i);
     expect(view.offer.walkAwayLabel).toMatch(/do not pay more than the asking price/i);
   });
@@ -638,7 +638,8 @@ describe("offer range", () => {
     expect(view.offer.fairMidUsd).toBeGreaterThanOrEqual(20_000);
     expect(view.offer.openingUsd).toBe(20_000);
     expect(view.offer.walkAwayUsd).toBe(20_000);
-    expect(view.offer.sentence).toMatch(/offer a little less, or pay the asking price/i);
+    expect(view.offer.openingLabel).toMatch(/Opening offer: \$20,000/);
+    expect(view.offer.sentence).toMatch(/Opening offer: \$20,000/);
     expect(view.offer.openingLabel).not.toMatch(/\$17,500|\$14,000/);
     expect(view.offer.sentence).not.toMatch(/opening offer is \$17,500|opening offer is \$14,000/);
   });
@@ -707,11 +708,11 @@ describe("offer range", () => {
     expect(view.offer.walkAwayUsd).toBeGreaterThanOrEqual(view.offer.openingUsd!);
     expect(view.offer.fairMidUsd).toBe(report.computed.fairValueUsd);
     expect(view.offer.sentence).toMatch(/not sold prices/);
-    expect(view.offer.sentence).toMatch(/Lemonless rules/);
-    expect(view.offer.sentence).not.toMatch(/published/i);
-    expect(view.offer.methodNote).toMatch(/Lemonless rules/);
-    expect(view.offer.methodNote).toMatch(/0\.5%/);
-    expect(view.offer.methodNote).toMatch(/5%/);
+    expect(view.offer.sentence).not.toMatch(/Lemonless rules/);
+    expect(view.offer.sentence).not.toMatch(/0\.5%/);
+    expect(view.offer.methodNote).toMatch(/standard adjustment/);
+    expect(view.offer.methodNote).not.toMatch(/0\.5%/);
+    expect(view.offer.methodNote).not.toMatch(/5%/);
     expect(view.offer.similarCars).toHaveLength(4);
     const byMiles = (miles: number) => view.offer.similarCars.find((item) => item.miles === miles)!;
     expect(byMiles(45872)).toMatchObject({ year: 2021, trim: "XSE", askingUsd: 29998, adjustedUsd: 33338 });

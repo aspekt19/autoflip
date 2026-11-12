@@ -12,7 +12,7 @@
 
 export const STATE_SALES_TAX_AS_OF = "2026-01-01";
 export const STATE_SALES_TAX_SOURCE_URL = "https://taxfoundation.org/data/all/state/sales-tax-rates/";
-export const STATE_SALES_TAX_SOURCE_LABEL = "Tax Foundation statewide base sales tax";
+export const STATE_SALES_TAX_SOURCE_LABEL = "Statewide base sales tax";
 
 export type StateSalesTax = {
   code: string;

@@ -465,10 +465,7 @@ export function limitSentences(spec: SearchSpec | null): string[] {
   const excluded = spec.hard.excludeMakes?.value ?? [];
   if (excluded.length) lines.push(`Not ${excluded.join(" or ")}.`);
   const sell = spec.soft.sellWithinDays;
-  if (sell) {
-    const where = sell.source === "form" ? "typed in the form" : sell.source === "note" ? "from your note" : "from the search";
-    lines.push(`Sell within ${sell.value} days (${where}).`);
-  }
+  if (sell) lines.push(`Sell within ${sell.value} days.`);
   return lines;
 }
 

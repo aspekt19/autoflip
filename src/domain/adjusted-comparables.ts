@@ -401,20 +401,18 @@ export function estimateMileYearRates(rows: readonly FitRow[], referencePriceUsd
 function methodSentence(rates: MileYearRates, trimAdjusted: boolean): string {
   let ratesBit: string;
   if (rates.milesFrom === "search" && rates.yearFrom === "search") {
-    ratesBit = "Mileage and model year were adjusted from the asking prices in this search.";
+    ratesBit = "Miles and model year were lined up with the asking prices in this search.";
   } else if (rates.milesFrom === "published" && rates.yearFrom === "published") {
     ratesBit =
-      "Mileage and model year were adjusted with Lemonless rules (0.5% of a typical asking price for every thousand miles, and 5% for each model year), because this search did not show a stable price pattern.";
+      "Miles and model year were lined up with a standard adjustment, because this search did not show a clear price pattern.";
   } else if (rates.milesFrom === "search") {
     ratesBit =
-      "Mileage was adjusted from the asking prices in this search. Model year was adjusted with the Lemonless rule of 5% of a typical asking price for each model year, because this search did not show a stable year pattern.";
+      "Miles were lined up with this search. Model year used a standard adjustment, because this search did not show a clear year pattern.";
   } else {
     ratesBit =
-      "Model year was adjusted from the asking prices in this search. Mileage was adjusted with the Lemonless rule of 0.5% of a typical asking price for every thousand miles, because this search did not show a stable mileage pattern.";
+      "Model year was lined up with this search. Miles used a standard adjustment, because this search did not show a clear mileage pattern.";
   }
-  const trimBit = trimAdjusted
-    ? " Trim was adjusted with the Lemonless trim list, at 4% of a typical asking price per trim step."
-    : "";
+  const trimBit = trimAdjusted ? " Trim was lined up with the other cars in this search." : "";
   return `${ratesBit}${trimBit} These are asking prices, not sold prices.`;
 }
 
@@ -573,11 +571,11 @@ export function adjustComparableSet(input: {
   const working = banded ? nearMiles : selected;
   // Keep buyer-facing copy free of new absolute thresholds (audit allowlists report numbers only).
   const milesBandNote = banded
-    ? `Similar listings were limited to a mileage band around this car; ${nearMiles.length} of ${selected.length} generation peers were in-band.`
+    ? `We compared this car with ${nearMiles.length} similar listings that have about the same mileage.`
     : nearMiles.length > 0
-      ? `Only ${nearMiles.length} similar listing${nearMiles.length === 1 ? " was" : "s were"} in the mileage band around this car, so the window was widened to ${selected.length} generation peers.`
+      ? `Only ${nearMiles.length} similar listing${nearMiles.length === 1 ? "" : "s"} had about the same mileage, so we also used ${selected.length} similar listings from this search.`
       : selected.length > 0
-        ? `No similar listings were in the mileage band around this car, so the window used ${selected.length} generation peers.`
+        ? `We used ${selected.length} similar listings from this search.`
         : null;
 
   const subjectTrim = resolveTrim(subject);
@@ -698,10 +696,10 @@ export function adjustComparableSet(input: {
     methodNote = `This car's trim came from the government VIN decoder. ${methodNote}`;
   }
   if (trimUncertain) {
-    methodNote = `Trim was not adjusted where the name was missing or not on the Lemonless trim list, so this estimate is rough. ${methodNote}`;
+    methodNote = `Trim was not adjusted where the name was missing, so this estimate is rough. ${methodNote}`;
   }
   if (unknownAccident) {
-    methodNote = `Accident history is missing on this car, so each adjusted price is reduced by ${Math.round(ASSUMPTIONS.unknownHistoryHaircut * 100)}%. ${methodNote}`;
+    methodNote = `Accident history is missing on this car, so the comparison is a little lower. Missing history is not a clean record. ${methodNote}`;
   }
 
   if (cars.length < ASSUMPTIONS.minComps || mid == null || low == null || high == null || mid <= 0) {

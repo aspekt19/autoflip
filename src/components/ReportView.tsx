@@ -153,7 +153,7 @@ export function ReportView({ report }: { report: FullReport }) {
       <section id="report-checked" className="how-checked" aria-labelledby="how-checked-title">
         <h2 id="how-checked-title">How this was checked</h2>
         <p className="hint">
-          Dollar amounts, percentages, and scores are calculated. A review may choose an action and write the explanation; it cannot invent a number.{" "}
+          The prices on this page are calculated. A review may choose what to do next. It cannot invent a number.{" "}
           <a href="#report-proof">Open how this report was checked</a>.
         </p>
         <ul className="refuse">

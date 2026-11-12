@@ -418,7 +418,7 @@ export function journalStepViews(steps: readonly ServDecisionStep[]): JournalSte
 
 /** Shared intro shown above the step list — must stay jargon-free. */
 export const JOURNAL_INTRO =
-  "Dollar amounts and scores come from code. SERV may choose an action and explain it; it only quotes those numbers. A second check must agree, or confidence drops.";
+  "The prices come from the listings in this search. A second review has to agree, or we say so.";
 
 /** Concatenated main-view text for tests and scrubbing (includes origin markers). */
 export function journalMainText(journal: ServDecisionJournalView): string {
