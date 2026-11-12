@@ -715,7 +715,7 @@ describe("Scenario2 defect 8 — price comps coverage + fairness on live shortli
       expect(unfairWouldBe.priceProvisional).toBe(true);
       for (const r of unfairWouldBe.ranked) {
         const f = r.factors.find((x) => x.id === "price_vs_model_asks")!;
-        expect(f.detail).toMatch(/Not scored for fairness|Not scored —/);
+        expect(f.detail).toMatch(/Asking prices were not compared|Not scored —/);
       }
     }
   });
@@ -838,7 +838,7 @@ describe("Scenario2 defect 8 — price comps coverage + fairness on live shortli
     for (const row of result.ranked) {
       const price = row.factors.find((f) => f.id === "price_vs_model_asks")!;
       expect(price.points).toBe(0);
-      expect(price.detail).toMatch(/Not scored for fairness|provisional on price/i);
+      expect(price.detail).toMatch(/Asking prices were not compared|provisional on price/i);
     }
     // No CX-5-only +9.5 edge.
     const cx = result.ranked.find((r) => r.vin === "CX-2014")!;

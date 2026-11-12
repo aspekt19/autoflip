@@ -709,10 +709,10 @@ describe("find settle SERV", () => {
       servNote: "below fair value, solid comps",
     });
 
-    expect(published.choice?.confidenceLine).toMatch(/Not scored for fairness/i);
+    expect(published.choice?.confidenceLine).toMatch(/Asking prices were not compared/i);
     expect(published.choice?.confidenceLine).not.toMatch(/below fair/i);
     expect(published.choice?.confidenceLine).not.toMatch(/solid comps/i);
-    expect(published.choice?.reasons.join(" ")).toMatch(/Not scored for fairness/i);
+    expect(published.choice?.reasons.join(" ")).toMatch(/Asking prices were not compared/i);
     expect(published.choice?.reasons.join(" ")).not.toMatch(/below fair/i);
     expect(published.choice?.reasons.join(" ")).not.toMatch(/solid comps/i);
   });

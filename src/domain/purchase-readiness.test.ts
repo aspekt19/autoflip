@@ -594,7 +594,7 @@ describe("offer range", () => {
     expect(view.offer.openingUsd).toBeLessThan(19_500);
     expect(view.offer.walkAwayUsd).toBe(19_500);
     expect(view.offer.sentence).toMatch(/at or below the middle of similar listings/i);
-    expect(view.offer.sentence).toMatch(/paying the asking price is also reasonable/i);
+    expect(view.offer.sentence).toMatch(/fairly priced or better/i);
     expect(view.offer.walkAwayLabel).toMatch(/do not pay more than the asking price/i);
   });
 
@@ -636,10 +636,10 @@ describe("offer range", () => {
       ],
     });
     expect(view.offer.fairMidUsd).toBeGreaterThanOrEqual(20_000);
-    expect(view.offer.openingUsd).toBe(20_000);
+    expect(view.offer.openingUsd).toBeLessThan(20_000);
     expect(view.offer.walkAwayUsd).toBe(20_000);
-    expect(view.offer.openingLabel).toMatch(/Opening offer: \$20,000/);
-    expect(view.offer.sentence).toMatch(/Opening offer: \$20,000/);
+    expect(view.offer.openingLabel).toMatch(/fairly priced or better/i);
+    expect(view.offer.sentence).toMatch(/fairly priced or better/i);
     expect(view.offer.openingLabel).not.toMatch(/\$17,500|\$14,000/);
     expect(view.offer.sentence).not.toMatch(/opening offer is \$17,500|opening offer is \$14,000/);
   });

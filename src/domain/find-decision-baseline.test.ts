@@ -417,7 +417,8 @@ describe("A2 free_car_consistency", () => {
       NOW,
     );
     expect(mismatch.identityMismatch).toBe(true);
-    expect(mismatch.excludedReason).toMatch(/left out of the pick/i);
+    expect(mismatch.excludedReason).toMatch(/listing's VIN decodes to a different model/i);
+    expect(mismatch.excludedReason).toMatch(/ask the seller/i);
 
     const flagged = buildCarConsistencyReceipt(crv, specs(), NOW);
     expect(flagged.identityMismatch).toBe(false);
@@ -559,12 +560,12 @@ describe("A5 baseline", () => {
       listings: [sportage, crv, cheap],
       carChecks: [excluded],
     });
-    expect(ranked.baseline.cheaperLeftOut).toMatch(/left out of the pick/i);
+    expect(ranked.baseline.cheaperLeftOut).toMatch(/listing's VIN decodes to a different model/i);
     expect(ranked.baseline.cheapest?.key).not.toBe(cheap.vin);
-    expect(ranked.baseline.whyNotCheapest).toMatch(/left out of the pick/i);
+    expect(ranked.baseline.whyNotCheapest).toMatch(/listing's VIN decodes to a different model/i);
     expect(ranked.baseline.whyNotCheapest).not.toMatch(/stronger deal on the checks we could score.*2014 Honda CR-V/);
     const buyer = formatBaselineForBuyer(ranked.baseline);
-    expect(buyer.lines.join(" ")).toMatch(/left out of the pick/i);
+    expect(buyer.lines.join(" ")).toMatch(/listing's VIN decodes to a different model/i);
     expect(buyer.whyNotCheapest).not.toMatch(/free_car_consistency|issue_found/);
   });
 });

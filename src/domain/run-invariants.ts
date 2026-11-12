@@ -2,10 +2,12 @@
  * One validator for a stored Run — the same object GET /api/run/[id] returns.
  * A hard failure must not be published as a normal result.
  */
-import { failureCopy, type FailureReasonId } from "./buyer-copy-table";
+import { failureCopy, JOURNAL_STEP_IDS, type FailureReasonId, type JournalStepId } from "./buyer-copy-table";
+import { collapseRepeatedSentences, findRepeatedSentenceInHtml, joinBuyerParts, visibleHtmlText } from "./buyer-text";
 import { formatNumber, formatUsd } from "./format";
 import { implausibleOdometer, implausibleOdometerReason } from "./find-best-deal";
 import { isAwdDrivetrain } from "./find-car-consistency";
+import { registrationTaxSentence } from "./purchase-readiness";
 import type { RunListing, RunRecord } from "./run";
 import { yearSpanSentence } from "./year-span";
 
@@ -38,6 +40,7 @@ type Car = {
   bodyStyle?: string | null;
   offerUsd?: number | null;
   offerLabel?: string | null;
+  state?: string | null;
   reason?: string | null;
   confidence?: string | null;
   implausible?: boolean;
@@ -45,9 +48,12 @@ type Car = {
   bodyUnknown?: boolean;
 };
 
+type PublicStep = { step?: string; status?: string | null };
+
 type PublicRun = {
   kind?: string;
   phase?: string;
+  note?: string | null;
   verdict?: string | null;
   confidence?: string | null;
   confidenceReason?: string | null;
@@ -58,6 +64,7 @@ type PublicRun = {
   picks?: string[];
   buyerMessage?: string | null;
   message?: string | null;
+  steps?: PublicStep[];
 };
 
 const JARGON: Array<{ re: RegExp; label: string }> = [
@@ -68,7 +75,18 @@ const JARGON: Array<{ re: RegExp; label: string }> = [
   { re: /cached for this search/i, label: "cached for this search" },
   { re: /\bThey want\b/, label: "They want" },
   { re: /Lemonless AI was unavailable/i, label: "Lemonless AI was unavailable" },
+  { re: /\(\s*[+-]\d+(?:\.\d+)?\s*\)/, label: "a parenthesised score delta" },
+  { re: /Not scored for fairness/i, label: "Not scored for fairness" },
+  { re: /treated as neutral/i, label: "treated as neutral" },
+  { re: /\bPZEV\b/, label: "PZEV" },
+  { re: /Stop-sale|park-until-fixed/i, label: "Stop-sale / park-until-fixed" },
+  { re: /supplied VIN/i, label: "supplied VIN" },
 ];
+
+const STEP_ORDER: JournalStepId[] = [...JOURNAL_STEP_IDS];
+
+const COMPACT_OR_SEDAN = /corolla|civic|camry|accord|mazda3|elantra|sentra|jetta|impreza|malibu|sonata|altima/i;
+const SUV_ONLY = /forester|rav4|cr-?v|tucson|cx-5|equinox|sportage|crosstrek|escape|rogue/i;
 
 export function scrubBuyerText(value: string): string {
   let text = value.replace(/\s+/g, " ").trim();
@@ -79,15 +97,20 @@ export function scrubBuyerText(value: string): string {
   text = text.replace(/Same decision cached for this search for 24 hours\.?/gi, "This is the saved result for these same filters.");
   text = text.replace(/\bThey want\b/g, "You want");
   text = text.replace(/Lemonless AI was unavailable\.?\s*/gi, "");
-  const sentences = text.split(/(?<=[.!?])\s+/);
-  const kept: string[] = [];
-  for (const sentence of sentences) {
-    const norm = sentence.trim().toLowerCase();
-    if (!norm) continue;
-    if (kept.length && kept[kept.length - 1]!.trim().toLowerCase() === norm) continue;
-    kept.push(sentence.trim());
-  }
-  return kept.join(" ").replace(/\s+/g, " ").trim();
+  text = text.replace(/\(\s*[+-]\d+(?:\.\d+)?\s*\)/g, "");
+  text = text.replace(/Not scored for fairness\s*[—-]\s*/gi, "");
+  text = text.replace(/asking-price comparison is treated as neutral\s*/gi, "Asking prices were not compared ");
+  text = text.replace(/treated as neutral/gi, "not compared");
+  text = text.replace(/\bPZEV\b/g, "partial zero-emission");
+  text = text.replace(
+    /Stop-sale\s*\/\s*park-until-fixed recall guidance is open for this year and model(?:\s*[—-]\s*not eligible as the published pick)?\.?/gi,
+    "The maker says don't drive it until the recall repair is done, so this car is not the one to buy.",
+  );
+  text = text.replace(
+    /the supplied VIN decode references a different vehicle/gi,
+    "the listing's VIN decodes to a different model, ask the seller",
+  );
+  return collapseRepeatedSentences(text);
 }
 
 function asRun(value: unknown): PublicRun | null {
@@ -187,7 +210,53 @@ function offerDollars(car: Car): boolean {
   return /opening offer:\s*\$/i.test(`${car.offerLabel ?? ""} ${car.summary ?? ""}`);
 }
 
-export function checkRunInvariants(value: unknown): InvariantReport {
+function stepOrderProblem(steps: PublicStep[] | undefined, html: string | null): string | null {
+  const titles = ["Read your request", "Plan the search", "Look for cars", "Compare the cars", "Choose a car", "Second check"];
+  if (html) {
+    const visible = visibleHtmlText(html);
+    const found = titles
+      .map((title) => ({ title, index: visible.indexOf(title) }))
+      .filter((row) => row.index >= 0);
+    for (let i = 1; i < found.length; i += 1) {
+      const prev = found[i - 1]!;
+      const next = found[i]!;
+      if (next.index < prev.index) return `${prev.title} is listed after ${next.title}.`;
+    }
+  }
+  const ids = (steps ?? []).map((row) => row.step).filter((step): step is string => Boolean(step));
+  const rank = new Map(STEP_ORDER.map((id, index) => [id, index]));
+  let prev = -1;
+  for (const id of ids) {
+    const index = rank.get(id as JournalStepId);
+    if (index == null) continue;
+    if (index < prev) return `${id} is after a step that should follow it.`;
+    prev = index;
+  }
+  return null;
+}
+
+function starterMixProblem(run: PublicRun): string | null {
+  const note = run.note ?? "";
+  if (!/\b(?:first car|new driver)\b/i.test(note)) return null;
+  const models = (run.listings ?? []).map((car) => car.model).filter(Boolean);
+  if (models.length < 2) return null;
+  if (models.some((model) => COMPACT_OR_SEDAN.test(model))) return null;
+  if (models.every((model) => SUV_ONLY.test(model))) {
+    return "A first-car search returned only SUVs. Compact sedans and hatchbacks should be in the mix.";
+  }
+  return null;
+}
+
+function fairValueAboveAsk(text: string, ask: number): boolean {
+  const re = /fair value \$([0-9,]+)/gi;
+  let match: RegExpExecArray | null;
+  while ((match = re.exec(text))) {
+    if (moneyToNumber(match[1]!) > ask) return true;
+  }
+  return false;
+}
+
+export function checkRunInvariants(value: unknown, html?: string | null): InvariantReport {
   const run = asRun(value);
   const checks: InvariantCheck[] = [];
   if (!run) {
@@ -353,18 +422,139 @@ export function checkRunInvariants(value: unknown): InvariantReport {
   );
 
   const fields = buyerFields(run);
-  const jargon = JARGON.find((item) => fields.some((field) => item.re.test(field)));
   const duplicated = fields.some((field) => {
     const sentences = field.split(/(?<=[.!?])\s+/).map((line) => line.trim().toLowerCase()).filter(Boolean);
     return sentences.some((line, index) => index > 0 && sentences[index - 1] === line);
   });
+  const visible = html ? visibleHtmlText(html) : "";
+  const jargonHits = JARGON.filter((item) => {
+    if (fields.some((field) => item.re.test(field))) return true;
+    if (!visible || item.label === "They want") return false;
+    return item.re.test(visible);
+  });
+  const repeated = html ? findRepeatedSentenceInHtml(html) : null;
   checks.push(
     check(
       "plain-language",
-      !jargon && !duplicated,
-      jargon ? `Buyer text contains ${jargon.label}.` : duplicated ? "A sentence is repeated back to back." : "Buyer text is plain.",
+      jargonHits.length === 0 && !duplicated,
+      jargonHits.length
+        ? `Buyer text contains ${jargonHits.map((item) => item.label).join(", ")}.`
+        : duplicated
+          ? "A sentence is repeated back to back."
+          : "Buyer text is plain.",
     ),
   );
+
+  checks.push(
+    check(
+      "repeated-text",
+      !repeated,
+      repeated ? `The page repeats “${repeated.sentence.slice(0, 80)}”.` : "The page does not repeat a sentence.",
+    ),
+  );
+
+  const orderProblem = stepOrderProblem(run.steps, html ?? null);
+  checks.push(
+    check("step-order", !orderProblem, orderProblem ?? "The decision steps are in order, with the search before the choice."),
+  );
+
+  const mixProblem = starterMixProblem(run);
+  checks.push(check("starter-mix", !mixProblem, mixProblem ?? "A first-car search includes more than one body type, or this is not a first-car search."));
+
+  const suppliedVin = /supplied VIN/i.test(text) || (html ? /supplied VIN/i.test(visible) : false);
+  checks.push(
+    check(
+      "vin-mismatch",
+      !suppliedVin,
+      suppliedVin
+        ? "A VIN decode mismatch is written as if the shopper supplied a VIN."
+        : "VIN mismatches, when named, are about the listing's VIN.",
+    ),
+  );
+
+  const choiceFinished = (run.steps ?? []).some((step) => step.step === "choose_car" && step.status !== "failed" && step.status !== "skipped");
+  const evaluatedCopy =
+    cars.some((car) => /still a pass|priced \$[0-9,]+ under similar/i.test(`${car.reason ?? ""} ${car.summary ?? ""}`)) ||
+    /not enough information for a verdict|did not meet the checks for a published verdict/i.test(`${text} ${visible}`);
+  const resaleDeadEnd = run.kind === "resale" && cars.length > 0 && !verdict && choiceFinished && evaluatedCopy;
+  checks.push(
+    check(
+      "evaluated-verdict",
+      !resaleDeadEnd,
+      resaleDeadEnd
+        ? "Every shown car was evaluated, so this is a verdict (no flip worth it, with the closest car), not a search that stopped."
+        : "A search with evaluated cars has a verdict, or it did not evaluate them.",
+    ),
+  );
+
+  const pickedCar = cars.find((car) => car.picked) ?? cars.find((car) => picks.includes(car.vin)) ?? cars[0] ?? null;
+  const firstOffer = visible.match(/Opening offer:\s*([^.]{0,120})/i);
+  const offerNotGiven = Boolean(firstOffer && /not given/i.test(firstOffer[1] ?? ""));
+  const finishedFind = run.kind === "find" && verdict != null && pickedCar?.priceUsd != null;
+  checks.push(
+    check(
+      "offer-rendered",
+      !(finishedFind && offerNotGiven),
+      offerNotGiven
+        ? "The permalink's top pick says the opening offer was not given."
+        : "The top pick's opening offer is on the page, or this page has no opening-offer line.",
+    ),
+  );
+
+  const askEqualsOffer =
+    finishedFind &&
+    pickedCar != null &&
+    pickedCar.offerUsd != null &&
+    pickedCar.priceUsd != null &&
+    pickedCar.offerUsd === pickedCar.priceUsd &&
+    fairValueAboveAsk(`${text} ${visible}`, pickedCar.priceUsd);
+  checks.push(
+    check(
+      "offer-at-ask",
+      !askEqualsOffer,
+      askEqualsOffer
+        ? "The opening offer equals the asking price even though fair value is higher."
+        : "An opening offer is not the asking price when the car is under fair value.",
+    ),
+  );
+
+  const buyerState = /\bchicago\b/i.test(run.note ?? "")
+    ? "Illinois"
+    : /\bdenver\b/i.test(run.note ?? "")
+      ? "Colorado"
+      : /\bdallas\b/i.test(run.note ?? "")
+        ? "Texas"
+        : null;
+  const stateCode = buyerState === "Illinois" ? "IL" : buyerState === "Colorado" ? "CO" : buyerState === "Texas" ? "TX" : null;
+  const otherState = stateCode != null && cars.some((car) => car.state && car.state.toUpperCase() !== stateCode);
+  const namesBuyerState = buyerState != null && new RegExp(buyerState, "i").test(`${text} ${visible}`);
+  checks.push(
+    check(
+      "tax-state",
+      !otherState || namesBuyerState,
+      otherState && !namesBuyerState
+        ? `A car is listed in another state, and the page does not say sales tax assumes ${buyerState}, where you would register.`
+        : "Sales tax, when a car is in another state, names the state we assumed.",
+    ),
+  );
+
+  if (html && pickedCar) {
+    const offerAmount = typeof pickedCar.offerUsd === "number" && pickedCar.offerUsd > 0 ? formatUsd(pickedCar.offerUsd) : null;
+    const missingOffer = offerAmount != null && !visible.includes(offerAmount);
+    const reasonBit = pickedCar.reason?.trim();
+    const missingReason = Boolean(reasonBit && reasonBit.length > 24 && !visible.toLowerCase().includes(reasonBit.slice(0, 24).toLowerCase()));
+    checks.push(
+      check(
+        "same-story-html",
+        !missingOffer && !missingReason,
+        missingOffer
+          ? `The stored opening offer ${offerAmount} is not on the permalink.`
+          : missingReason
+            ? "The stored pick reason is not on the permalink."
+            : "The permalink shows the stored offer and the pick reason.",
+      ),
+    );
+  }
 
   return { ok: checks.every((item) => item.pass), checks };
 }
@@ -423,6 +613,24 @@ export function settlePublishedRun(run: RunRecord): RunRecord {
     };
   });
   listings.sort((a, b) => band(a) - band(b));
+  listings = listings.map((car) => {
+    const summary = car.summary?.trim() ?? "";
+    const reason = car.reason?.trim() ?? "";
+    if (summary && reason && reason.toLowerCase().includes(summary.toLowerCase().slice(0, Math.min(40, summary.length)))) {
+      return { ...car, summary: null };
+    }
+    return car;
+  });
+  listings = listings.map((car) => {
+    if (car.priceUsd == null || car.offerUsd == null || car.offerUsd !== car.priceUsd) return car;
+    if (!fairValueAboveAsk(`${car.reason ?? ""} ${car.summary ?? ""} ${buyerBlob({ buyerMessage: run.buyerMessage })}`, car.priceUsd)) return car;
+    const opening = Math.max(1, car.priceUsd - Math.max(100, Math.round(car.priceUsd * 0.03)));
+    return {
+      ...car,
+      offerUsd: opening,
+      offerLabel: scrubBuyerText(`Fairly priced or better; offering a little less is reasonable, e.g. ${formatUsd(opening)}.`),
+    };
+  });
 
   let verdict = run.verdict;
   let confidence = run.confidence;
@@ -445,6 +653,36 @@ export function settlePublishedRun(run: RunRecord): RunRecord {
       const line = "A cleaner, lower-mileage car that also fits is the one to look at first.";
       top.reason = scrubBuyerText([top.reason, line].filter(Boolean).join(" "));
     }
+  }
+
+  const vinFlag = /listing's VIN decodes to a different model|supplied VIN/i;
+  if (verdict && picks[0]) {
+    const picked = listings.find((car) => car.vin === picks[0]);
+    const flagged = picked && vinFlag.test(`${picked.reason ?? ""} ${picked.summary ?? ""}`);
+    const other = flagged ? listings.find((car) => car.vin !== picked!.vin && !vinFlag.test(`${car.reason ?? ""} ${car.summary ?? ""}`) && !car.implausible) : null;
+    if (picked && other) {
+      picks = [other.vin];
+      other.reason = scrubBuyerText(
+        [other.reason, "A car whose listing VIN decodes to a different model was set aside. Ask the seller before relying on that listing."].filter(Boolean).join(" "),
+      );
+    }
+  }
+
+  const passCars = listings.filter((car) => /still a pass|priced .+ under similar|not worth/i.test(`${car.reason ?? ""} ${car.summary ?? ""}`));
+  if (!verdict && run.kind === "resale" && passCars.length > 0) {
+    const gapOf = (car: RunListing) => {
+      const match = `${car.summary ?? ""} ${car.reason ?? ""}`.match(/\$([0-9,]+)/);
+      return match ? moneyToNumber(match[1]!) : 0;
+    };
+    const closest = [...passCars].sort((a, b) => gapOf(b) - gapOf(a))[0]!;
+    verdict = "pass";
+    picks = [closest.vin];
+    confidence = "Low";
+    confidenceReason = "Low: every car was priced, and none clears the minimum that is worth the effort.";
+    failureReasons = failureReasons.filter((id) => id !== "not_enough_evidence");
+    listings = listings.map((car) => ({ ...car, confidence: "Low" }));
+    const name = `${closest.year} ${closest.make} ${closest.model}`.trim();
+    buyerMessage = scrubBuyerText(`No flip worth it here. Closest is the ${name}. ${closest.reason ?? closest.summary ?? ""}`);
   }
 
   if (!verdict) {
@@ -474,14 +712,21 @@ export function settlePublishedRun(run: RunRecord): RunRecord {
       pick.reason = buyerMessage || confidenceReason;
     }
     if (run.kind === "resale" && (verdict === "pass" || failureReasons.includes("no_qualifying_flip"))) {
-      const gap = pick?.summary ?? buyerMessage ?? "";
-      if (/priced below similar listings by \$/i.test(gap) && !/minimum that is worth the effort/i.test(gap)) {
+      const gap = pick?.summary ?? pick?.reason ?? buyerMessage ?? "";
+      if (/priced below similar listings by \$|priced \$[0-9,]+ under similar/i.test(gap) && !/minimum that is worth the effort|no flip worth it/i.test(`${gap} ${buyerMessage ?? ""}`)) {
         const extra = " It is still a pass because that amount is below the minimum that is worth the effort and time.";
-        if (pick) pick.summary = scrubBuyerText(`${pick.summary ?? ""} ${extra}`);
+        if (pick && pick.summary) pick.summary = scrubBuyerText(`${pick.summary} ${extra}`);
         buyerMessage = scrubBuyerText(`${buyerMessage ?? ""} ${extra}`);
+      }
+      if (pick && !/no flip worth it here/i.test(buyerMessage ?? "")) {
+        const name = `${pick.year} ${pick.make} ${pick.model}`.trim();
+        buyerMessage = joinBuyerParts([`No flip worth it here. Closest is the ${name}.`, buyerMessage, pick.reason]);
       }
     }
   }
+
+  const tax = registrationTaxSentence(run.spec?.hard.zip?.value ?? null, listings.map((car) => car.state ?? null));
+  if (tax) buyerMessage = joinBuyerParts([buyerMessage, tax]);
 
   const settled: RunRecord = {
     ...run,
@@ -507,7 +752,18 @@ export function settlePublishedRun(run: RunRecord): RunRecord {
     buyerMessage: settled.buyerMessage,
     kind: settled.kind,
   });
-  if (report.ok || !verdict) return settled;
+  const publishBlockers = new Set([
+    "no-verdict-charge",
+    "confidence-one",
+    "verdict-label",
+    "hard-limits",
+    "rank-clean",
+    "implausible",
+    "same-story",
+    "plain-language",
+  ]);
+  const blocking = report.checks.some((item) => !item.pass && publishBlockers.has(item.id));
+  if (!blocking || !verdict) return settled;
   return {
     ...settled,
     verdict: null,

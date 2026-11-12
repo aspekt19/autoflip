@@ -52,6 +52,7 @@ export type ShownListing = {
   fuel: string | null;
   dealer: string | null;
   vdp: string | null;
+  state: string | null;
   reconUsd: number | null;
   estimatedDaysToSell: number | null;
   daysFlagged: boolean;

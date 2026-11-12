@@ -20,6 +20,7 @@ import {
   type ResaleSearchInput,
 } from "@/domain/resale-search-input";
 import type { Listing } from "@/domain/types";
+import { stateFromZip } from "@/domain/zip-to-state";
 import type { Kv } from "@/io/kv";
 import {
   logResaleStage,
@@ -342,6 +343,7 @@ export async function runResaleSearch(
     asIs: input.asIs,
     sellWithinDays: input.sellWithinDays,
     targetProfitUsd: input.targetProfitUsd,
+    taxState: stateFromZip(input.zip),
   });
 
   const emptyPool = pnls.length === 0;

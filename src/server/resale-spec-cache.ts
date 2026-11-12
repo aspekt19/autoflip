@@ -35,6 +35,20 @@ function keyFor(hash: string): string {
   return `resale:spec:v1:${hash}`;
 }
 
+const VERDICT_ACTIONS = new Set(["buy", "negotiate", "pass", "needs_inspection"]);
+
+/** A 24h replay is only a finished verdict. A stop or a non-verdict is searched again. */
+export function resaleDeliveryReusable(delivery: ResaleSearchDelivery): boolean {
+  const action = delivery.verdictAction;
+  if (typeof action !== "string" || !VERDICT_ACTIONS.has(action)) return false;
+  const message = `${typeof delivery.message === "string" ? delivery.message : ""} ${typeof delivery.headline === "string" ? delivery.headline : ""}`;
+  if (/not enough information for a verdict|stopped before a verdict|did not meet the checks for a published verdict/i.test(message)) {
+    return false;
+  }
+  if (action === "pass" && (delivery.best == null || typeof delivery.best !== "object")) return false;
+  return true;
+}
+
 export async function readResaleSpecCache(
   kv: Kv,
   input: ResaleSearchInput,
@@ -45,6 +59,7 @@ export async function readResaleSpecCache(
   try {
     const parsed = JSON.parse(raw) as Cached;
     if (!parsed || typeof parsed.exp !== "number" || parsed.exp <= nowMs || !parsed.delivery) return null;
+    if (!resaleDeliveryReusable(parsed.delivery)) return null;
     return parsed.delivery;
   } catch {
     return null;
@@ -57,6 +72,11 @@ export async function writeResaleSpecCache(
   delivery: ResaleSearchDelivery,
   nowMs = Date.now(),
 ): Promise<void> {
+  const key = keyFor(resaleSpecHash(input));
+  if (!resaleDeliveryReusable(delivery)) {
+    await kv.delete(key);
+    return;
+  }
   const payload: Cached = { exp: nowMs + RESALE_SPEC_CACHE_MS, delivery };
-  await kv.set(keyFor(resaleSpecHash(input)), JSON.stringify(payload));
+  await kv.set(key, JSON.stringify(payload));
 }

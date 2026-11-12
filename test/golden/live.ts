@@ -49,6 +49,7 @@ function listingsFrom(json: Json): ShownListing[] {
         fuel: typeof car.fuel === "string" ? car.fuel : null,
         dealer: typeof car.dealer === "string" ? car.dealer : null,
         vdp: typeof car.vdp === "string" ? car.vdp : null,
+        state: typeof car.state === "string" ? car.state : null,
         reconUsd: null,
         estimatedDaysToSell: null,
         daysFlagged: false,

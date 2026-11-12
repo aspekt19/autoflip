@@ -16,7 +16,7 @@ export function resalePickHeading(action: string | null | undefined, picked: boo
   if (!picked) return null;
   const word = (action ?? "").toLowerCase();
   if (word === "buy" || word === "negotiate") return "Best flip";
-  return "Closest candidate, not worth it";
+  return "No flip worth it here";
 }
 
 function money(amount: number): string {

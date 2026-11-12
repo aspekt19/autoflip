@@ -10,6 +10,7 @@ import {
   confidenceFromRaw,
   isFailureReasonId,
   isJournalStepId,
+  JOURNAL_STEP_IDS,
   isSourceId,
   journalStepForPurpose,
   verdictIdFromRaw,
@@ -501,12 +502,14 @@ export function toRunView(run: RunRecord, viewerId: string | null): RunView {
     creditsCharged: run.creditsCharged,
     failureReasons: [...run.failureReasons],
     buyerMessage: run.buyerMessage ?? null,
-    steps: run.steps.map((step) => ({
-      step: step.step,
-      status: step.status,
-      responseId: step.responseId,
-      elapsedMs: step.elapsedMs,
-    })),
+    steps: [...run.steps]
+      .sort((a, b) => JOURNAL_STEP_IDS.indexOf(a.step) - JOURNAL_STEP_IDS.indexOf(b.step))
+      .map((step) => ({
+        step: step.step,
+        status: step.status,
+        responseId: step.responseId,
+        elapsedMs: step.elapsedMs,
+      })),
     sources: [...run.sources],
     listings: run.listings.map((car) => ({ ...car, picked: run.picks.includes(car.vin) })),
     picks: [...run.picks],

@@ -367,7 +367,7 @@ function checkCase(run: GoldenRun, specCase: GoldenCase, out: CheckFailure[]) {
     push(out, `${specCase.id}.rank`, `Pick is ${run.pickVin ?? "none"}; expected ${expect.pickVin}.`);
   }
   if (specCase.kind === "personal" && run.storedRun) {
-    if (/Closest candidate, not worth it|Best flip/i.test(run.storedRun.permalinkHtml)) {
+    if (/No flip worth it here|Closest candidate, not worth it|Best flip/i.test(run.storedRun.permalinkHtml)) {
       push(out, `${specCase.id}.heading`, "A Find result uses a resale heading.");
     }
   }
@@ -378,13 +378,18 @@ function checkCase(run: GoldenRun, specCase: GoldenCase, out: CheckFailure[]) {
       push(out, `${specCase.id}.miles`, "Very high mileage cars are not flagged.");
     }
   }
+  if (specCase.id === "L23" && run.storedRun) {
+    if (!/Illinois/i.test(run.storedRun.permalinkHtml)) {
+      push(out, "L23.tax", "A Hammond, IN car in a Chicago search does not say sales tax assumes Illinois.");
+    }
+  }
   if (expect.passIsNotAFlip && run.storedRun) {
     const html = run.storedRun.permalinkHtml;
     const verdict = (run.verdict ?? "").toLowerCase();
     if (verdict === "pass" || verdict === "skip") {
       if (/Best flip/i.test(html)) push(out, `${specCase.id}.story`, "A pass result still has a Best flip heading.");
-      if (!/Closest candidate, not worth it/i.test(html)) {
-        push(out, `${specCase.id}.story`, "A pass result does not say this is the closest candidate, not worth it.");
+      if (!/No flip worth it here/i.test(html)) {
+        push(out, `${specCase.id}.story`, "A pass result does not say no flip is worth it here.");
       }
     }
     const blob = `${html} ${run.buyer.message ?? ""}`;
@@ -526,7 +531,7 @@ export function assertInvariants(input: {
     }
     checkI6(run.storedRun.permalinkHtml, out);
     if (run.storedRun.publicRun) {
-      const report = checkRunInvariants(run.storedRun.publicRun);
+      const report = checkRunInvariants(run.storedRun.publicRun, run.storedRun.permalinkHtml);
       for (const item of report.checks) {
         if (!item.pass) push(out, `R.${item.id}`, item.message);
       }
