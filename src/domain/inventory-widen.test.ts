@@ -52,28 +52,6 @@ describe("inventory widen", () => {
     const spec = buildSearchSpec({ note: need.note, mode: "personal", servPlan });
     expect(softFiltersAppliedAsHard(need, spec)).toContain("awd_soft");
     expect(spec.hard.drivetrain).toBeUndefined();
-    const listings = [
-      car({
-        vin: "FWD1",
-        year: 2019,
-        priceUsd: 15_000,
-        make: "Honda",
-        model: "CR-V",
-        drivetrain: "FWD",
-        bodyStyle: "SUV",
-      }),
-      car({
-        vin: "AWD1",
-        year: 2019,
-        priceUsd: 16_000,
-        make: "Subaru",
-        drivetrain: "AWD",
-        model: "Forester",
-        bodyStyle: "SUV",
-      }),
-    ];
-    const result = filterInventoryWithWiden(listings, need, { servPlan });
-    expect(result.listings.map((row) => row.vin).sort()).toEqual(["AWD1", "FWD1"]);
   });
 
   it("names the soft preference that emptied the list when widening", () => {
@@ -87,7 +65,7 @@ describe("inventory widen", () => {
     expect(text).toMatch(/Showing 2 cars after widening/i);
   });
 
-  it("drops soft filters before stepwise distance widen", () => {
+  it("passes inventory through unchanged — pre-SERV hard/widen deleted", () => {
     const need = {
       ...emptyNeed("personal"),
       note: "Honda only under $12k near 60601",
@@ -108,16 +86,23 @@ describe("inventory widen", () => {
         model: "Corolla",
         distanceMiles: 120,
       }),
+      car({
+        vin: "NEAR1",
+        year: 2019,
+        priceUsd: 11_000,
+        make: "Honda",
+        model: "Civic",
+        distanceMiles: 10,
+      }),
     ];
     const result = filterInventoryWithWiden(listings, need);
-    expect(result.steps.some((s) => s.kind === "drop_soft")).toBe(true);
-    expect(result.steps.some((s) => s.kind === "widen_distance")).toBe(true);
-    expect(result.listings.map((row) => row.vin)).toEqual(["FAR1"]);
-    expect(result.explanation).toMatch(/preferred-make-only/i);
-    expect(result.explanation).toMatch(/widened the search distance/i);
+    expect(result.listings.map((row) => row.vin)).toEqual(["FAR1", "NEAR1"]);
+    expect(result.steps).toEqual([]);
+    expect(result.dropped).toEqual([]);
+    expect(result.explanation).toBeNull();
   });
 
-  it("opens preferred-make-only when that soft lock emptied inventory", () => {
+  it("still classifies preferred-make soft lock without filtering inventory", () => {
     const need = {
       ...emptyNeed("personal"),
       note: "looking at Honda",
@@ -133,6 +118,6 @@ describe("inventory widen", () => {
     ];
     const result = filterInventoryWithWiden(listings, need);
     expect(result.listings.map((row) => row.vin)).toEqual(["TYT1"]);
-    expect(result.steps.some((s) => s.kind === "drop_soft")).toBe(true);
+    expect(result.steps).toEqual([]);
   });
 });

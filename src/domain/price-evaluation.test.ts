@@ -198,8 +198,10 @@ describe("one price evaluation across surfaces", () => {
     expect(flip?.excluded).toBe(true);
     expect(flip?.resaleMidUsd).toBeNull();
     expect(flip?.excludeReason).toBe(NOT_ENOUGH_SIMILAR_CARS);
-    expect(alert.pass).toBe(false);
-    if (!alert.pass) expect(alert.reason).toBe(NOT_ENOUGH_SIMILAR_CARS);
+    // Soft price prefilter is deleted — thin comps still pass hard criteria to SERV
+    // with observational "Not enough similar cars" facts (not a code skip).
+    expect(alert.pass).toBe(true);
+    if (alert.pass) expect(alert.why).toMatch(new RegExp(NOT_ENOUGH_SIMILAR_CARS, "i"));
   });
 
   it("uses the same flip fair value for scout ranking and a flip report", () => {
