@@ -689,13 +689,13 @@ export async function runFindSettleServ(input: {
       const conf = payload.confidence;
       if (conf === "high" || conf === "medium" || conf === "low") pickConfidence = conf;
       pickNote = typeof payload.note === "string" ? payload.note.trim() || null : null;
-      // Code clamp: missing fair value → low confidence (never trust a higher SERV label).
+      // Missing fair value is a thin comparison, not a failed review. Stay at Medium.
       const pickFair = eligible.find((item) => item.row.key === pick.key)?.report.fairValueUsd ?? null;
       if (pickFair == null || (typeof pickFair === "number" && !Number.isFinite(pickFair))) {
-        if (pickConfidence !== "low") pickConfidence = "low";
+        if (pickConfidence === "high" || pickConfidence === "low") pickConfidence = "medium";
         pickNote = [
           pickNote ?? "",
-          "Confidence set to low: no verified fair value from similar listings for this pick.",
+          "We could not compare this asking price with enough similar cars, so confidence stays Medium.",
         ]
           .filter(Boolean)
           .join(" ");

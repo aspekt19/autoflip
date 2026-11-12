@@ -315,6 +315,18 @@ function bodyStyleOnlyDirection(bodyStyles: FindPlanBodyStyle[]): FindPlanDirect
  * Validate and sanitize a raw find_plan payload.
  * Invented quotes/numbers are dropped; unknown models are dropped; directions stay 1–3 and never empty.
  */
+/** Confirm copy speaks to the shopper. A plan summary must not say "They want…". */
+export function addressTheShopper(summary: string): string {
+  return summary
+    .replace(/\bThey want\b/g, "You want")
+    .replace(/\bThey need\b/g, "You need")
+    .replace(/\bThey're looking\b/g, "You're looking")
+    .replace(/\bThey are looking\b/g, "You are looking")
+    .replace(/\bTheir\b/g, "Your")
+    .replace(/\btheir\b/g, "your")
+    .replace(/\bThey\b/g, "You");
+}
+
 export function validateFindPlan(
   input: unknown,
   ctx: { note: string; form?: FindPlanFormOverrides },
@@ -501,7 +513,7 @@ export function validateFindPlan(
   }
 
   const plan: FindPlan = {
-    summary,
+    summary: addressTheShopper(summary),
     bodyStyles: resolvedStyles,
     budget: {
       maxUsd: budgetMax,

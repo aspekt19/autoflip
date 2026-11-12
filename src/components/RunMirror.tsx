@@ -14,7 +14,13 @@ function isRunView(value: unknown): value is RunView {
  * The live Find / Resale / Check pages read the stored run.
  * While the search is still running, this polls the same record the permalink will show.
  */
-export function RunMirror({ runId }: { runId: string | null }) {
+export function RunMirror({
+  runId,
+  onPhase,
+}: {
+  runId: string | null;
+  onPhase?: (phase: string) => void;
+}) {
   const [run, setRun] = useState<RunView | null>(null);
   const [missing, setMissing] = useState(false);
 
@@ -35,6 +41,7 @@ export function RunMirror({ runId }: { runId: string | null }) {
         if (stop || !isRunView(body.run)) return;
         setMissing(false);
         setRun(body.run);
+        if (typeof body.run.phase === "string") onPhase?.(body.run.phase);
         if (body.run.phase === "draft" || body.run.phase === "running") {
           timer = window.setTimeout(() => void tick(), 1500);
         }

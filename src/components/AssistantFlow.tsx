@@ -102,6 +102,8 @@ import {
 } from "@/domain/purchase-readiness";
 import { PurchaseReadinessNote } from "./PurchaseReadinessNote";
 import { matchBuyerListing } from "@/domain/find-listing-link";
+import { buyerTrim } from "@/domain/buyer-trim";
+import { veryHighMileageLabel } from "@/domain/find-best-deal";
 import { buyerDealerListingLink } from "@/domain/listing-vdp-verifiability";
 import { mmyListingKey } from "@/domain/find-risk-evidence";
 import {
@@ -109,6 +111,7 @@ import {
   applyFollowUp,
   explicitNeedFromText,
   followUps,
+  needPrefersAwd,
   USE_CASES,
   searchScopeLabel,
   softPrefGapsFromText,
@@ -145,6 +148,7 @@ type ListingCard = {
   bodyStyle?: string | null;
   style?: string | null;
   overBudget?: boolean;
+  drivetrain?: string | null;
   drivetrainUnverified?: boolean;
   badge?: PriceBadge;
   flipNote?: string | null;
@@ -2314,17 +2318,18 @@ function AssistantFlow({
                     {bestDeal && bestDeal.ranked.length > 0 ? (
                       <div>
                         <p>
-                          {topCarsHeading({
-                            hasPick: Boolean(bestDeal.pick),
-                            evidenceSettled: bestDeal.evidenceSettled,
-                          })}
+                          {pickAgentVerdict?.verdict
+                            ? topCarsHeading({
+                                hasPick: Boolean(bestDeal.pick),
+                                evidenceSettled: bestDeal.evidenceSettled,
+                              })
+                            : "These cars are not ranked yet"}
                         </p>
                         <ol className="top-picks">
                           {topRows.map((row) => {
                             const card = cardForRow(row);
                             const readiness = readinessByKey.get(row.key);
                             const findBits = [
-                              row.miles != null ? `${row.miles.toLocaleString("en-US")} mi` : null,
                               card?.dealer || row.dealer || null,
                               [card?.city || row.city, card?.state || row.state].filter(Boolean).join(", ") || null,
                               row.vin ? `VIN ${row.vin}` : null,
@@ -2730,7 +2735,7 @@ function AssistantFlow({
                     )}
                     <div className="listing-body">
                     <h3 className="car-title">
-                      {car.year} {car.make} {car.model} {car.trim ?? ""}
+                      {car.year} {car.make} {car.model} {buyerTrim(car.trim)}
                       {car.miles != null ? ` · ${car.miles.toLocaleString("en-US")} mi` : ""}
                       {car.dealer ? ` · ${car.dealer}` : ""}
                       {car.city ? ` · ${car.city}${car.state ? `, ${car.state}` : ""}` : ""}
@@ -2757,6 +2762,11 @@ function AssistantFlow({
                         <p className="hint">{formatFindFuelEvidenceShort(fuelRow.fuelEvidence)}</p>
                       );
                     })()}
+                    {!pickAgentVerdict?.verdict ? (
+                      <p className="budget-flag">Not ranked yet. The verdict has not been decided.</p>
+                    ) : null}
+                    {veryHighMileageLabel(car.miles) ? <p className="budget-flag">Very high mileage</p> : null}
+                    {need && needPrefersAwd(need) && car.drivetrain ? <p>Drivetrain: {car.drivetrain}</p> : null}
                     {car.overBudget ? <p className="budget-flag">Asking price is slightly over your limit</p> : null}
                     {car.drivetrainUnverified ? (
                       <p className="budget-flag">All-wheel drive was not verified for this car.</p>

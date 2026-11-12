@@ -204,8 +204,8 @@ describe("resale live defects (Nov 12)", () => {
     expect(lines.join(" ")).toMatch(/\$10,000/);
     expect(lines.join(" ")).toMatch(/75201/);
     expect(lines.join(" ")).toMatch(/50/);
-    expect(lines.join(" ")).toMatch(/30 days/);
-    expect(lines.join(" ")).toMatch(/form/i);
+    expect(lines.join(" ")).toMatch(/Sell within 30 days/);
+    expect(lines.join(" ")).not.toMatch(/typed in the form/i);
     expect(lines.join(" ")).not.toMatch(/not on this record/i);
   });
 
@@ -218,7 +218,7 @@ describe("resale live defects (Nov 12)", () => {
       permalink: "/run/run_abcdef0123456789abcd",
       note: "",
       clarifications: [],
-      limits: ["Budget up to $10,000.", "Sell within 30 days (typed in the form)."],
+      limits: ["Budget up to $10,000.", "Sell within 30 days."],
       verdict: "pass",
       confidence: "Low",
       creditsCharged: 1,

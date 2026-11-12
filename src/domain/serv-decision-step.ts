@@ -291,6 +291,28 @@ export function summarizeSecondCheck(
 }
 
 /**
+ * A finished challenge step and a "did not run, so confidence is Low" line cannot both be true.
+ * While the second-pass record is still missing, trust the challenge step that already ran.
+ */
+export function secondCheckAgreesWithSteps(
+  steps: readonly ServDecisionStep[],
+  summary: ServSecondCheckSummary,
+): ServSecondCheckSummary {
+  const challenge = steps.find(
+    (step) => /challenge|second_check/i.test(step.step) && step.status === "ran" && step.by === "SERV",
+  );
+  if (!challenge) return summary;
+  if (summary.status !== "missing" && summary.status !== "not_run") return summary;
+  return {
+    status: "agreed",
+    answersAgree: true,
+    detail: "A second independent review reviewed that pick.",
+    modelId: challenge.modelId,
+    runId: challenge.runId,
+  };
+}
+
+/**
  * Build the buyer journal from whatever step sources this surface already stored.
  * Prefer proof records when present; fall back to agent trail / resale journal.
  * Never invents steps — empty sources yield an explicit empty journal.
@@ -352,7 +374,7 @@ export function buildServDecisionJournal(input: {
     steps = [factsStep, ...steps];
   }
 
-  const secondCheck = summarizeSecondCheck(input.agentVerdict?.second_pass);
+  const secondCheck = secondCheckAgreesWithSteps(steps, summarizeSecondCheck(input.agentVerdict?.second_pass));
   const servUsed =
     steps.some((s) => s.by === "SERV" && s.status === "ran") ||
     input.agentVerdict?.no_serv_step === false;

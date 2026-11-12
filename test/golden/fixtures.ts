@@ -72,10 +72,27 @@ const LIVE_RANK = [
   car({ vin: "JF1SJADC8HH000003", year: 2017, make: "Subaru", model: "Forester", bodyStyle: "SUV", price: 9800, miles: 62_000, distance: 9, drivetrain: "AWD" }),
 ];
 
-function rowsFor(kind: "live-a" | "live-b" | "live-c" | "live-d" | "live-rank", href: string) {
+const LIVE_SUV = [
+  car({ vin: "JF2SJAKC0FH550958", year: 2015, make: "Subaru", model: "Forester", bodyStyle: "SUV", price: 7396, miles: 65298, distance: 40, drivetrain: "AWD" }),
+  car({ vin: "JF2SJAECXEH443264", year: 2014, make: "Subaru", model: "Forester", bodyStyle: "SUV", price: 12789, miles: 71568, distance: 18, drivetrain: "AWD" }),
+  car({ vin: "2T3BF4DV3BW082762", year: 2011, make: "Toyota", model: "RAV4", bodyStyle: "SUV", price: 13529, miles: 94001, distance: 12, drivetrain: "AWD" }),
+  car({ vin: "JF2GPABCXG9264082", year: 2016, make: "Subaru", model: "Crosstrek", bodyStyle: "SUV", price: 9300, miles: 169533, distance: 22, drivetrain: "AWD" }),
+  car({ vin: "5J6RE4H52AL015464", year: 2010, make: "Honda", model: "CR-V", bodyStyle: "SUV", price: 10199, miles: 164010, distance: 50, drivetrain: "AWD" }),
+  car({ vin: "JF2GTAMC6KH204551", year: 2019, make: "Subaru", model: "Crosstrek", bodyStyle: "SUV", price: 9498, miles: 174074, distance: 8, drivetrain: "AWD" }),
+  car({ vin: "5J6RW2H81HL019561", year: 2017, make: "Honda", model: "CR-V", bodyStyle: "SUV", price: 12298, miles: 206977, distance: 60, drivetrain: "AWD" }),
+];
+
+type ScriptedKind = "live-a" | "live-b" | "live-c" | "live-d" | "live-rank" | "live-suv";
+
+function rowsFor(kind: ScriptedKind, href: string) {
   if (kind === "live-a") return LIVE_A;
   if (kind === "live-b") return LIVE_B;
   if (kind === "live-d") return LIVE_D;
+  if (kind === "live-suv") {
+    return LIVE_SUV.map((row) =>
+      row.vin === "JF2SJAECXEH443264" ? { ...row, history: { accidentCount: 1 } } : { ...row, history: { accidentCount: 0 } },
+    );
+  }
   if (kind === "live-rank") {
     return LIVE_RANK.map((row, index) => (index === 1 ? { ...row, history: { accidentCount: 1 } } : row));
   }
@@ -89,7 +106,7 @@ function rowsFor(kind: "live-a" | "live-b" | "live-c" | "live-d" | "live-rank", 
 }
 
 export function scriptedGoldenFetch(
-  kind: "live-a" | "live-b" | "live-c" | "live-d" | "live-rank",
+  kind: ScriptedKind,
   urls: string[],
 ): typeof fetch {
   return async (input) => {

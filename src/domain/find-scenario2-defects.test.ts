@@ -987,7 +987,7 @@ describe("Scenario2 defect 8 — price comps coverage + fairness on live shortli
       expect(assertBuyerSafeText(resolved.methodNote).ok).toBe(true);
       expect(assertBuyerSafeText(resolved.sampleNote).ok).toBe(true);
       expect(assertBuyerSafeText(resolved.methodNoteTechnical).ok).toBe(true);
-      expect(resolved.methodNote).toMatch(/Lemonless|asking prices in this search/i);
+      expect(resolved.methodNote).toMatch(/lined up with this search|lined up with the asking prices in this search/i);
     }
   });
 

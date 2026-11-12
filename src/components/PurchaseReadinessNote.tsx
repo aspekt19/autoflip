@@ -28,6 +28,12 @@ export function PurchaseReadinessNote({ view }: { view: PurchaseReadiness }) {
       <p>{view.offer.openingLabel}</p>
       <p>{view.offer.walkAwayLabel}</p>
       <p>{view.offer.sentence}</p>
+      {view.offer.methodNote ? (
+        <details>
+          <summary>How we estimated this</summary>
+          <p>{view.offer.methodNote}</p>
+        </details>
+      ) : null}
       <SimilarCarsList cars={view.offer.similarCars} />
       {view.talkingPoints.length > 0 ? (
         <>

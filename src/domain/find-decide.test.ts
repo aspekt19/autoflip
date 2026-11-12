@@ -182,13 +182,27 @@ describe("publishFindDecideConfidence", () => {
     expect(published.confidence).toBe("medium");
   });
 
-  it("forces low confidence when fairValueUsd is explicitly null", () => {
+  it("keeps a missing price comparison at Medium when the second check ran", () => {
+    const published = publishFindDecideConfidence({
+      c3: "low",
+      action: "inspect_first",
+      compCount: 6,
+      fairValueUsd: null,
+      evidenceSettled: true,
+      secondCheckMissed: false,
+    });
+    expect(published.confidence).toBe("medium");
+    expect(published.reasons.join(" ")).toMatch(/enough similar cars/i);
+  });
+
+  it("stays Low when the second check did not run", () => {
     const published = publishFindDecideConfidence({
       c3: "medium",
       action: "negotiate",
       compCount: 6,
       fairValueUsd: null,
       evidenceSettled: true,
+      secondCheckMissed: true,
     });
     expect(published.confidence).toBe("low");
     expect(published.capped).toBe(true);

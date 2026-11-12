@@ -98,10 +98,15 @@ export type PublishFindConfidenceInput = {
   recallsUnavailable?: boolean;
   /** Comparable count used for the price claim. */
   compCount?: number | null;
-  /** Fair value for the pick — missing fair value forces low confidence. */
+  /** Fair value for the pick. Missing fair value stays Medium when a second check ran. */
   fairValueUsd?: number | null;
   evidenceSettled?: boolean;
+  /** True when the second check did not run. That, not a missing price comparison, forces Low. */
+  secondCheckMissed?: boolean;
 };
+
+export const MISSING_PRICE_COMPARISON_SENTENCE =
+  "We could not compare this asking price with enough similar cars, so confidence stays Medium.";
 
 export type PublishFindConfidenceResult = {
   confidence: FindDecideConfidence;
@@ -433,15 +438,24 @@ export function publishFindDecideConfidence(
     reasons.push("Lowered from High: fewer than 3 similar listings (limited comparison).");
   }
 
-  // Only when callers pass fairValueUsd explicitly (null/NaN) — omit the field to skip this clamp.
+  // Missing fair value is common (thin same-model comps). It is uncertainty, not a failed review.
+  // Low is reserved for a missed second check or a stop-level risk already applied above.
   if (
     "fairValueUsd" in input &&
     (input.fairValueUsd == null ||
-      (typeof input.fairValueUsd === "number" && !Number.isFinite(input.fairValueUsd))) &&
-    confidence !== "low"
+      (typeof input.fairValueUsd === "number" && !Number.isFinite(input.fairValueUsd)))
   ) {
-    reasons.push("Lowered to Low: no verified fair value from similar listings for this pick.");
-    confidence = "low";
+    if (input.secondCheckMissed) {
+      if (confidence !== "low") {
+        reasons.push("A second check did not run, so confidence is Low.");
+        confidence = "low";
+      }
+    } else if (confidence !== "medium") {
+      reasons.push(MISSING_PRICE_COMPARISON_SENTENCE);
+      confidence = "medium";
+    } else {
+      reasons.push(MISSING_PRICE_COMPARISON_SENTENCE);
+    }
   }
 
   const honesty = capConfidenceForHonesty({

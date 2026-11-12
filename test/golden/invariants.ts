@@ -365,6 +365,18 @@ function checkCase(run: GoldenRun, specCase: GoldenCase, out: CheckFailure[]) {
   if (expect.pickVin && run.pickVin !== expect.pickVin) {
     push(out, `${specCase.id}.rank`, `Pick is ${run.pickVin ?? "none"}; expected ${expect.pickVin}.`);
   }
+  if (specCase.kind === "personal" && run.storedRun) {
+    if (/Closest candidate, not worth it|Best flip/i.test(run.storedRun.permalinkHtml)) {
+      push(out, `${specCase.id}.heading`, "A Find result uses a resale heading.");
+    }
+  }
+  if (expect.flagVeryHighMiles && run.storedRun) {
+    const high = run.listings.filter((car) => (car.miles ?? 0) >= 160_000);
+    if (high.length === 0) push(out, `${specCase.id}.miles`, "No very high mileage car was in the results.");
+    if (!/Very high mileage/i.test(run.storedRun.permalinkHtml)) {
+      push(out, `${specCase.id}.miles`, "Very high mileage cars are not flagged.");
+    }
+  }
   if (expect.passIsNotAFlip && run.storedRun) {
     const html = run.storedRun.permalinkHtml;
     const verdict = (run.verdict ?? "").toLowerCase();

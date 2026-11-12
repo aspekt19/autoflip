@@ -17,7 +17,12 @@ import {
   type FindDecideConfidence,
 } from "@/domain/find-decide";
 import { isAwdDrivetrain } from "@/domain/find-car-consistency";
-import type { BestDealCandidate, BestDealResult } from "@/domain/find-best-deal";
+import {
+  alignPublishedConfidence,
+  cleanLowerMileAlternative,
+  type BestDealCandidate,
+  type BestDealResult,
+} from "@/domain/find-best-deal";
 import type { FindFreeGovReceipt } from "@/domain/find-free-gov";
 import { needPrefersAwd, type StructuredNeed } from "@/domain/need";
 import type { Listing } from "@/domain/types";
@@ -169,7 +174,7 @@ export async function runFindDecideServ(input: {
     "Stop-level park-it/park-outside → action ≤ inspect_first and confidence ≤ medium.",
     "Recall data unavailable for the pick → confidence ≤ medium.",
     "Fewer than 3 comps → confidence ≤ medium; word price as limited comparison.",
-    "fairValueUsd null/unknown for the pick → confidence must be low.",
+    "fairValueUsd null/unknown for the pick → confidence at most medium, and say the price comparison is thin. Low only when the second check did not run.",
     "Reasons must say why this pick beats the runner-up with concrete fact differences — do not only restate buyer budget/ZIP/years/must-haves.",
     "offerUsd must be ≤ ask and near code fair value when set.",
     "Published confidence = min(C3, C4 revised, guardrail caps).",
@@ -482,7 +487,16 @@ export async function runFindDecideServ(input: {
     };
   }
 
-  const pick = rankedByKey.get(decide.pickKey) ?? codePick;
+  const chosen = rankedByKey.get(decide.pickKey) ?? codePick;
+  const safer = cleanLowerMileAlternative(chosen, peers);
+  const pick = safer ?? chosen;
+  if (safer && decide.pickKey !== safer.key) {
+    decide = {
+      ...decide,
+      pickKey: safer.key,
+      confidenceWhy: "A car with fewer miles and no reported accident outranks the one with a reported accident.",
+    };
+  }
   const pickReport = buildFindPickComputedReport(pick, peers, input.marketPool ?? []);
   const hasStop = Boolean(pickReport.openParkIt || pickReport.openParkOutside);
   const recallsUnavailable = !pickReport.recallsAvailable;
@@ -495,21 +509,26 @@ export async function runFindDecideServ(input: {
     compCount: pickReport.compSampleSize ?? pickReport.comps.length,
     fairValueUsd: pickReport.fairValueUsd ?? null,
     evidenceSettled: true,
+    secondCheckMissed: secondPass.status !== "agreed" && secondPass.status !== "disagreed",
   });
   decide = { ...decide, confidence: published.confidence, action: published.action };
 
-  const publishedBestDeal = publishBestDeal({
-    bestDeal: {
-      ...input.bestDeal,
-      evidenceSettled: true,
-      settlementNote: "Public checks and the decision are finished.",
-    },
-    pick,
-    confidence: published.confidence,
-    actor: source,
-    servNote: decide.confidenceWhy,
-    confidenceCapReason: published.capped ? published.reasons[0] ?? null : null,
-  });
+  const publishedBestDeal = alignPublishedConfidence(
+    publishBestDeal({
+      bestDeal: {
+        ...input.bestDeal,
+        evidenceSettled: true,
+        settlementNote: "Public checks and the decision are finished.",
+      },
+      pick,
+      confidence: published.confidence,
+      actor: source,
+      servNote: decide.confidenceWhy,
+      confidenceCapReason: published.reasons.at(-1) ?? null,
+    }),
+    published.confidence,
+    published.reasons.at(-1) ?? decide.confidenceWhy,
+  );
 
   const pickLabel = `${pick.year} ${pick.make} ${pick.model}`;
   const agentVerdict: AgentVerdict = {

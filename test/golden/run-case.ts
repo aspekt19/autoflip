@@ -356,7 +356,7 @@ async function runPersonal(
       fetchImpl,
     });
     proofs.push(...decided.proofRecords);
-    pickVin = best.pick?.key ?? pickVin;
+    pickVin = decided.bestDeal.pick?.vin ?? decided.bestDeal.pick?.key ?? best.pick?.key ?? pickVin;
     verdict = decided.agentVerdict.verdict;
     confidence = confidenceOf(decided.decide.confidence);
     if (!message) message = decided.bestDeal.why;

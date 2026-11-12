@@ -2,7 +2,9 @@
  * Buyer view of a stored run. Safe to import from client components:
  * it does not touch the search spec builder or Node crypto.
  */
+import { veryHighMileageLabel } from "./find-best-deal";
 import { resaleEdgeSentence, resalePickHeading } from "./resale-presentation";
+import { buyerTrim } from "./buyer-trim";
 import {
   confidenceCopy,
   failureCopy,
@@ -92,11 +94,18 @@ function resaleVerdictLine(view: RunView): string | null {
 }
 
 function carTitle(car: RunListingView): string {
-  const name = [car.year > 0 ? String(car.year) : "", car.make, car.model, car.trim ?? ""]
+  const name = [car.year > 0 ? String(car.year) : "", car.make, car.model, buyerTrim(car.trim)]
     .map((part) => part.trim())
     .filter(Boolean)
     .join(" ");
   return name || "Vehicle";
+}
+
+export function pickHeading(view: RunView, picked: boolean): string | null {
+  if (!picked) return null;
+  if (view.kind === "resale") return resalePickHeading(view.verdict, true);
+  if (view.verdict) return verdictCopy(view.verdict);
+  return null;
 }
 
 function money(value: number): string {
@@ -137,11 +146,13 @@ export function runReportModel(view: RunView): RunReportModel {
     listings: view.listings.map((car) => {
       const host = car.vdp ? hostOf(car.vdp) : null;
       const place = [car.city, car.state].filter(Boolean).join(", ") || null;
+      const mileageFlag = veryHighMileageLabel(car.miles);
       return {
         ...car,
         title: carTitle(car),
         place,
         linkLabel: host ? `Listing on ${host}` : car.vdp ? "Dealer listing" : null,
+        summary: [car.summary, mileageFlag].filter(Boolean).join(" ") || null,
       };
     }),
     permalink: view.permalink,
@@ -194,7 +205,7 @@ export function renderRunPermalinkHtml(view: RunView): string {
   }
   for (const car of model.listings) {
     parts.push(`<section data-vin="${esc(car.vin)}">`);
-    const heading = resalePickHeading(view.verdict, Boolean(car.picked));
+    const heading = pickHeading(view, Boolean(car.picked));
     if (heading) parts.push(`<h2 class="prose-title">${esc(heading)}</h2>`);
     parts.push(`<h2>${esc(car.title)}</h2>`);
     if (car.summary) parts.push(`<p>${esc(car.summary)}</p>`);

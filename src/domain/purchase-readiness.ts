@@ -175,7 +175,7 @@ function zipPhrase(zip: string, usedFor: PurchaseReadinessInput["zipUsedFor"]): 
 
 function localTaxLine(statewideLocalMilli: number | null): string {
   if (statewideLocalMilli != null && statewideLocalMilli > 0) {
-    return `Tax Foundation already includes a mandatory statewide local add-on of ${formatTaxRate(statewideLocalMilli)} in this state rate. Local sales-tax add-ons beyond that are unknown and not included, so the total can be higher.`;
+    return `The state rate already includes a local add-on of ${formatTaxRate(statewideLocalMilli)}. Local sales-tax add-ons beyond that are unknown and not included, so the total can be higher.`;
   }
   return "Local sales-tax add-ons are unknown and not included, so the total can be higher.";
 }
@@ -238,7 +238,7 @@ function buildOtd(input: PurchaseReadinessInput, asking: number | null): Purchas
     status: "estimated",
     headline: `Out-the-door estimate: ${formatUsd(floor)} or more.`,
     lines: [
-      `That starts from the ${formatUsd(asking)} asking price plus ${formatUsd(taxUsd)} of ${tax.name} state sales tax at ${formatTaxRate(tax.milliPercent)} (Tax Foundation statewide base rate as of January 1, 2026, from ${zipPhrase(normalized, input.zipUsedFor)}).`,
+      `That starts from the ${formatUsd(asking)} asking price plus ${formatUsd(taxUsd)} of ${tax.name} state sales tax at ${formatTaxRate(tax.milliPercent)} (${zipPhrase(normalized, input.zipUsedFor)}, as of January 1, 2026).`,
       localTaxLine(tax.statewideLocalMilli),
       "This is the published statewide base sales-tax rate, not a motor-vehicle tax bill from the dealer or the DMV.",
       TITLE_REGISTRATION_LINE,
@@ -328,7 +328,7 @@ function buildOffer(
   }).set;
   const similarCars = toSimilarCars(adjusted.cars);
   const closeAskingUsd = adjusted.confidence === "not_available" ? [] : adjusted.cars.map((item) => item.askingUsd);
-  const windowPhrase = `same model, within ${GENERATION_YEAR_WINDOW} model years, any trim`;
+  const windowPhrase = "similar cars of the same model from this search";
   if (adjusted.confidence === "not_available") {
     const count = adjusted.cars.length;
     let sentence: string;
@@ -336,7 +336,7 @@ function buildOffer(
       sentence =
         "There is not enough data for a reasonable opening offer or a walk-away price. Mileage is missing, so similar cars could not be adjusted to this car. The estimate is not available.";
     } else if (adjusted.blockReason === "spread") {
-      sentence = `There is not enough data for a reasonable opening offer or a walk-away price. Compared with ${similarPhrase(count, car.model)} from this search (${windowPhrase}), the adjusted asking prices are too far apart. The estimate is not available. ${adjusted.methodNote}`;
+      sentence = `There is not enough data for a reasonable opening offer or a walk-away price. Compared with ${similarPhrase(count, car.model)} from this search (${windowPhrase}), the adjusted asking prices are too far apart. The estimate is not available.`;
     } else {
       sentence = `There is not enough data for a reasonable opening offer or a walk-away price. This search has ${similarPhrase(count, car.model)} within ${GENERATION_YEAR_WINDOW} model years. That needs at least ${ASSUMPTIONS.minComps}. The estimate is not available.`;
     }
@@ -367,16 +367,16 @@ function buildOffer(
     const modest = fairLow < ask && ask - fairLow <= ask * OFFER_MAX_BELOW_ASK;
     const opening = modest ? fairLow : ask;
     const payBit = modest
-      ? `A modest opening offer is ${formatUsd(opening)}. Paying the asking price is also reasonable.`
-      : "You can offer a little less, or pay the asking price.";
+      ? `Opening offer: ${formatUsd(opening)}. Paying the asking price is also reasonable.`
+      : `Opening offer: ${formatUsd(ask)}.`;
     return {
       ...base,
       status: adjusted.confidence === "rough" ? "rough" : "ok",
       openingUsd: opening,
       walkAwayUsd: ask,
-      openingLabel: modest ? `${openWord}: ${formatUsd(opening)}.` : `You can pay the asking price of ${formatUsd(ask)}, or offer a little less.`,
+      openingLabel: `Opening offer: ${formatUsd(opening)}.`,
       walkAwayLabel: `Do not pay more than the asking price of ${formatUsd(ask)}.`,
-      sentence: `${rough}${compared} ${range} ${adjusted.methodNote} The asking price of ${formatUsd(ask)} is at or below the fair value of ${formatUsd(fairMid)}. ${payBit} Do not pay more than ${formatUsd(ask)}.`,
+      sentence: `${rough}${compared} ${range} The asking price of ${formatUsd(ask)} is at or below the middle of similar listings, ${formatUsd(fairMid)}. ${payBit} Do not pay more than ${formatUsd(ask)}. These are asking prices, not sold prices.`,
     };
   }
   let opening = fairLow;
@@ -395,7 +395,7 @@ function buildOffer(
       walkAwayUsd: null,
       openingLabel: "Opening offer: not given. The gap versus similar cars is too wide.",
       walkAwayLabel: "Walk-away price: not given. The gap versus similar cars is too wide.",
-      sentence: `${rough}There is not enough support for a reasonable opening offer or a walk-away price. ${compared} ${range} ${adjusted.methodNote} The low end is ${gapPhrase} this car's ${formatUsd(asking)} asking price. That gap is too wide to turn into an opening offer from listing prices alone.`,
+      sentence: `${rough}There is not enough support for a reasonable opening offer or a walk-away price. ${compared} ${range} The low end is ${gapPhrase} this car's ${formatUsd(asking)} asking price. That gap is too wide to turn into an opening offer from listing prices alone. These are asking prices, not sold prices.`,
     };
   }
   let walkAway = fairHigh;
@@ -408,8 +408,8 @@ function buildOffer(
       ? ` The high end of that range is above the asking price, so do not pay more than the asking price of ${formatUsd(ask)}.`
       : "";
   const sentence = anchored
-    ? `${rough}${compared} ${range} ${adjusted.methodNote} ${openWord} stays at this car's asking price of ${formatUsd(opening)}, which is already under that range. The walk-away price is ${formatUsd(walkAway)}.${capBit}`
-    : `${rough}${compared} ${range} ${adjusted.methodNote} ${openWord} is ${formatUsd(opening)}, the low end of that range. The walk-away price is ${formatUsd(walkAway)}, ${capped ? "the asking price." : "the high end of that range."}${capBit}`;
+    ? `${rough}${compared} ${range} ${openWord} stays at this car's asking price of ${formatUsd(opening)}, which is already under that range. The walk-away price is ${formatUsd(walkAway)}.${capBit} These are asking prices, not sold prices.`
+    : `${rough}${compared} ${range} ${openWord} is ${formatUsd(opening)}, the low end of that range. The walk-away price is ${formatUsd(walkAway)}, ${capped ? "the asking price." : "the high end of that range."}${capBit} These are asking prices, not sold prices.`;
   return {
     ...base,
     status: adjusted.confidence === "rough" ? "rough" : "ok",
@@ -493,7 +493,7 @@ function buildPoints(
       push(
         "price",
         withSource(
-          `The asking price is at or below the fair value from ${similarPhrase(offer.compCount, input.car.model)} in this search. You can offer a little less, or pay the asking price. Do not pay more than ${formatUsd(asking)}.`,
+          `The asking price is at or below similar listings. Opening offer: ${formatUsd(offer.openingUsd ?? asking)}. Do not pay more than ${formatUsd(asking)}.`,
           "similar listings in this search",
         ),
         "similar listings in this search",
@@ -558,14 +558,13 @@ function buildPoints(
 
   const recalls = input.recallCampaignCount;
   if (typeof recalls === "number" && Number.isFinite(recalls) && recalls > 0) {
-    const noun = recalls === 1 ? "recall campaign" : "recall campaigns";
     push(
       "recall",
       withSource(
-        `Government recall records list ${recalls} ${noun} for this year, make, and model. Ask which ones apply to this VIN and whether the repairs are done. A model-year list is not proof this VIN is unrepaired.`,
-        "NHTSA recalls",
+        `This model year has ${recalls} ${recalls === 1 ? "recall campaign" : "recall campaigns"}. Ask the seller which ones apply to this car and whether they are fixed. A model-year list is not proof this VIN is unrepaired.`,
+        "the government recall database",
       ),
-      "NHTSA recalls",
+      "the government recall database",
     );
   }
 

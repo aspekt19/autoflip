@@ -73,7 +73,7 @@ describe("buildResaleCandidatePnl", () => {
     expect(pnl.salesTaxUsd).not.toBeNull();
     expect(pnl.salesTaxKnown).toBe(true);
     expect(pnl.profitScopeLabel).toBe("");
-    expect(pnl.salesTaxBasis).toMatch(/Tax Foundation/i);
+    expect(pnl.salesTaxBasis).toMatch(/Statewide base sales tax/i);
     expect(pnl.rankingProfitMidUsd).toBe(pnl.profitMidUsd);
     expect(pnl.titleRegistrationUsd).toBeNull();
     expect(pnl.titleRegistrationBasis).toMatch(/unknown/i);
@@ -107,7 +107,7 @@ describe("buildResaleCandidatePnl", () => {
     if (!pnl) return;
     expect(pnl.salesTaxKnown).toBe(true);
     expect(pnl.salesTaxUsd).not.toBeNull();
-    expect(pnl.salesTaxBasis).toMatch(/NE|Nebraska|Tax Foundation/i);
+    expect(pnl.salesTaxBasis).toMatch(/NE|Nebraska|Statewide base sales tax/i);
     expect(pnl.profitScopeLabel).toBe("");
     expect(pnl.rankingProfitMidUsd).toBe(pnl.profitMidUsd);
   });

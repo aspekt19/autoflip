@@ -1,6 +1,7 @@
 import type { Kv } from "@/io/kv";
 import { transferCredits } from "@/io/credit-transfer";
 import { creditSeen } from "@/io/credit-book";
+import { grantPaidTestSessionCredits } from "@/server/test-checkout-credits";
 import { listFavoriteReportIds, listUserReports } from "@/io/persist-report";
 import { DEMO_USER_ID } from "@/domain/radar-watch";
 
@@ -181,6 +182,7 @@ export async function claimPurchaseOwnership(
       customer_details?: { email?: string | null } | null;
       customer_email?: string | null;
       metadata?: Record<string, string> | null;
+      livemode?: boolean | null;
     };
   },
 ): Promise<ClaimResult> {
@@ -205,12 +207,19 @@ export async function claimPurchaseOwnership(
     return { ok: false, error: "missing_owner", message: "Checkout has no owner metadata." };
   }
   if (fromUserId === opts.toUserId) {
-    // Session already belonged to this account (post-auth checkout). Mark purchase claimed.
+    // The checkout already belongs to this account. If the webhook never granted
+    // the test credits, apply that existing paid session. No new amount is accepted.
+    const granted = await grantPaidTestSessionCredits(kv, {
+      userId: opts.toUserId,
+      sessionId: session.id,
+      credits: Number(session.metadata?.credits ?? "0"),
+      livemode: session.livemode,
+    });
     await kv.set(
       purchaseClaimKey(session.id),
-      JSON.stringify({ toUserId: opts.toUserId, fromUserId, at: new Date().toISOString() }),
+      JSON.stringify({ toUserId: opts.toUserId, fromUserId, at: new Date().toISOString(), granted }),
     );
-    return { ok: true, fromUserId, movedCredits: 0, movedReports: 0 };
+    return { ok: true, fromUserId, movedCredits: granted, movedReports: 0 };
   }
 
   const locked = await withClaimLock(kv, purchaseLockKey(session.id), async () => {

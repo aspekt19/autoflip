@@ -164,7 +164,23 @@ describe("find prod defects (timeouts + ranking)", () => {
     ).toBe(true);
   });
 
-  it("clamps find confidence to low when fair value is missing", () => {
+  it("ranks a clean lower-mile car ahead of a reported accident", () => {
+    const need = explicitNeedFromText("AWD SUV in Denver, budget $25k, must have AWD", "personal");
+    const result = selectBestDealOnEvidence({
+      need,
+      nowYear: 2026,
+      listings: [
+        listing({ make: "Subaru", model: "Forester", year: 2014, vin: "JF2SJAECXEH443264", priceUsd: 12789, miles: 71568, accidentCount: 1, drivetrain: "AWD" }),
+        listing({ make: "Subaru", model: "Forester", year: 2015, vin: "JF2SJAKC0FH550958", priceUsd: 7396, miles: 65298, accidentCount: 0, drivetrain: "AWD" }),
+        listing({ make: "Toyota", model: "RAV4", year: 2011, vin: "2T3BF4DV3BW082762", priceUsd: 13529, miles: 94001, accidentCount: 0, drivetrain: "AWD" }),
+        listing({ make: "Honda", model: "CR-V", year: 2017, vin: "5J6RW2H81HL019561", priceUsd: 12298, miles: 206977, accidentCount: 0, drivetrain: "AWD" }),
+      ],
+    });
+    expect(result.pick?.vin).toBe("JF2SJAKC0FH550958");
+    expect(result.ranked[0]?.vin).toBe("JF2SJAKC0FH550958");
+  });
+
+  it("keeps a missing price comparison at Medium instead of always Low", () => {
     const published = publishFindDecideConfidence({
       c3: "high",
       action: "negotiate",
@@ -172,8 +188,8 @@ describe("find prod defects (timeouts + ranking)", () => {
       fairValueUsd: null,
       evidenceSettled: true,
     });
-    expect(published.confidence).toBe("low");
-    expect(published.reasons.join(" ")).toMatch(/no verified fair value/i);
+    expect(published.confidence).toBe("medium");
+    expect(published.reasons.join(" ")).toMatch(/enough similar cars/i);
   });
 
   it("find_pick / find_decide prompts require runner-up reasons and low confidence without fair value", () => {

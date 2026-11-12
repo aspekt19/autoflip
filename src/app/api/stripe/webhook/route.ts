@@ -4,6 +4,7 @@ import { billingEffect, emptyPlans, grantPlanReportCredits, readPlans, writePlan
 import { listSearches, saveSearches } from "@/server/radar-store";
 import { stripeClient, stripeWebhookSecret } from "@/server/stripe";
 import { grantCredit } from "@/server/session";
+import { grantPaidTestSessionCredits } from "@/server/test-checkout-credits";
 
 export const dynamic = "force-dynamic";
 
@@ -102,7 +103,18 @@ export async function POST(request: Request) {
       credits <= 100 &&
       session.payment_status === "paid"
     ) {
-      await grantCredit(user, credits, `stripe:${event.id}`);
+      const sessionId = typeof session.id === "string" ? session.id : "";
+      if (sessionId.startsWith("cs_test_")) {
+        await grantPaidTestSessionCredits(getKv(), {
+          userId: user,
+          sessionId,
+          credits,
+          eventId: event.id,
+          livemode: false,
+        });
+      } else {
+        await grantCredit(user, credits, `stripe:${event.id}`);
+      }
     }
   }
   if (effect.kind === "plans") {

@@ -137,9 +137,10 @@ describe("adjusted comparables", () => {
     expect(view.fairLowUsd).toBe(23_200);
     expect(view.fairHighUsd).toBe(23_200);
     expect(view.fairMidUsd).toBe(23_200);
-    expect(view.methodNote).toMatch(/Lemonless trim list/);
+    expect(view.methodNote).toMatch(/Trim was lined up/);
     expect(view.methodNote).not.toMatch(/published/i);
-    expect(view.methodNote).toMatch(/4%/);
+    expect(view.methodNote).toMatch(/Trim was lined up/);
+    expect(view.methodNote).not.toMatch(/4%/);
     expect(view.methodNote).toMatch(/not sold prices/);
     expect(assertBuyerSafeText(view.methodNote).ok).toBe(true);
   });
@@ -158,7 +159,7 @@ describe("adjusted comparables", () => {
     const view = adjustComparableSet({ subject: rows[0]!, pool: rows });
     expect(view.rates?.milesFrom).toBe("search");
     expect(view.rates?.yearFrom).toBe("search");
-    expect(view.methodNote).toMatch(/adjusted from the asking prices in this search/);
+    expect(view.methodNote).toMatch(/lined up with the asking prices in this search/);
     expect(view.methodNote).not.toMatch(/published rules/i);
     const highMiles = view.cars.find((item) => item.miles === 60_000)!;
     expect(highMiles.adjustedUsd).toBeGreaterThan(highMiles.askingUsd);
@@ -478,7 +479,7 @@ describe("adjusted comparables", () => {
       car({ vin: "FAR4", year: 2017, make: "Honda", model: "Civic", trim: "EX", miles: 68_000, priceUsd: 10_900 }),
     ];
     const view = adjustComparableSet({ subject, pool: [subject, ...near, ...far] });
-    expect(view.methodNote).toMatch(/mileage band/i);
+    expect(view.methodNote).toMatch(/about the same mileage/i);
     expect(view.cars.length).toBeGreaterThanOrEqual(ASSUMPTIONS.minComps);
     expect(view.cars.every((row) => row.miles <= 17_480 + 25_000)).toBe(true);
     expect(view.fairMidUsd).not.toBeNull();

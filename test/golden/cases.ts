@@ -22,7 +22,9 @@ export type GoldenCaseId =
   | "L5"
   | "L6"
   | "L7"
-  | "L8";
+  | "L8"
+  | "L9"
+  | "L10";
 
 export type CaseTurn =
   | { note: string }
@@ -53,7 +55,7 @@ export type CaseExpect = {
   noDefaultTarget?: boolean;
   queriesRequired?: boolean;
   /** Hand-written fixture responses. Replay does not have live SERV recordings for these. */
-  scripted?: "live-a" | "live-b" | "live-c" | "live-d" | "live-rank";
+  scripted?: "live-a" | "live-b" | "live-c" | "live-d" | "live-rank" | "live-suv";
   noMilesMax?: boolean;
   noVerdictWhenEmpty?: boolean;
   /** Distinct make/model pairs the inventory URLs must include. */
@@ -66,12 +68,14 @@ export type CaseExpect = {
   excludeUnknownDrivetrain?: boolean;
   /** Permalink must not recommend a pass as a best flip. */
   passIsNotAFlip?: boolean;
+  /** Shown cars at or above 160,000 miles must be flagged. */
+  flagVeryHighMiles?: boolean;
 };
 
 export type GoldenCase = {
   id: GoldenCaseId;
   kind: "personal" | "flip" | "sequence";
-  scripted?: "live-a" | "live-b" | "live-c" | "live-d" | "live-rank";
+  scripted?: "live-a" | "live-b" | "live-c" | "live-d" | "live-rank" | "live-suv";
   /** from-note: do not overwrite a ZIP the note resolved. nationwide: radius null, no ZIP. */
   location: { zip: string; radiusMi: number } | "from-note" | "nationwide";
   turns: CaseTurn[];
@@ -300,6 +304,38 @@ export const GOLDEN_CASES: readonly GoldenCase[] = [
     search: "final",
     turns: [{ note: "skip the second review" }],
     expect: { budgetUsd: 15000, priceCeilUsd: 15750, queriesRequired: true },
+  },
+  {
+    id: "L9",
+    kind: "personal",
+    scripted: "live-suv",
+    location: { zip: "80202", radiusMi: 100 },
+    search: "final",
+    turns: [{ note: "AWD SUV in Denver, budget $25k, must have AWD" }],
+    expect: {
+      budgetUsd: 25000,
+      priceCeilUsd: 26250,
+      zip: "80202",
+      drivetrain: "awd_4wd",
+      queriesRequired: true,
+      pickVin: "JF2SJAKC0FH550958",
+      flagVeryHighMiles: true,
+    },
+  },
+  {
+    id: "L10",
+    kind: "personal",
+    scripted: "live-suv",
+    location: { zip: "80202", radiusMi: 100 },
+    search: "final",
+    turns: [{ note: "They want an SUV in Denver under $25,000 with AWD" }],
+    expect: {
+      budgetUsd: 25000,
+      priceCeilUsd: 26250,
+      drivetrain: "awd_4wd",
+      queriesRequired: true,
+      pickVin: "JF2SJAKC0FH550958",
+    },
   },
 ];
 
