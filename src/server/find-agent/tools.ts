@@ -22,6 +22,8 @@ import type { Listing } from "@/domain/types";
 import type { ListingQuery } from "@/io/marketcheck";
 
 export const FIND_AGENT_TOOL_NAMES = [
+  "ask_shopper",
+  "record_shopper_facts",
   "search_listings",
   "get_recalls_complaints",
   "get_safety_ratings",
@@ -122,6 +124,13 @@ export type ListingCard = {
   createdAt: string | null;
 };
 
+export type FindAgentShopperFacts = {
+  /** SERV-extracted budget from chat — used for offer ≤ budget anti-fab. */
+  budgetUsd: number | null;
+  zip: string | null;
+  radiusMi: number | null;
+};
+
 export type FindAgentToolState = {
   /** VINs returned by any tool this run (uppercase). */
   knownVins: Set<string>;
@@ -134,6 +143,8 @@ export type FindAgentToolState = {
    * Drives constraintRoles — never a hardcoded HARD_KEYS list.
    */
   userHardKeys: Set<SearchFilterKey>;
+  /** Facts SERV recorded from the chat (budget / ZIP / radius). */
+  shopperFacts: FindAgentShopperFacts;
 };
 
 export type FindAgentToolDeps = {
@@ -412,6 +423,40 @@ export function findAgentChatTools(): Array<{
     required: ["make", "model", "yearMin", "yearMax", "priceMaxUsd", "zip", "radiusMi", "limit"],
   };
   return [
+    {
+      type: "function",
+      function: {
+        name: "ask_shopper",
+        description:
+          "Ask the shopper one clarifying question in the same chat before searching. Use when budget, location, or other material facts are missing. Code pauses for the shopper's reply — do not invent answers. Call again for further questions if needed. When enough, call record_shopper_facts (if applicable) then search_listings / submit_picks.",
+        parameters: {
+          type: "object",
+          additionalProperties: false,
+          properties: {
+            question: { type: "string", description: "One clear English question for the shopper." },
+          },
+          required: ["question"],
+        },
+      },
+    },
+    {
+      type: "function",
+      function: {
+        name: "record_shopper_facts",
+        description:
+          "Record budget / ZIP / radius the shopper stated in chat (SERV-extracted). Call before or while searching so offer ≤ budget anti-fab uses the stated budget. Omit unknown fields as null.",
+        parameters: {
+          type: "object",
+          additionalProperties: false,
+          properties: {
+            budgetUsd: { type: ["number", "null"] },
+            zip: { type: ["string", "null"] },
+            radiusMi: { type: ["number", "null"], description: "Miles radius, or null for nationwide." },
+          },
+          required: ["budgetUsd", "zip", "radiusMi"],
+        },
+      },
+    },
     {
       type: "function",
       function: {
@@ -725,9 +770,63 @@ export function createFindAgentToolState(
     listingsByVin: new Map(),
     searchFingerprints: [],
     userHardKeys: new Set(userHardKeys ?? []),
+    shopperFacts: { budgetUsd: null, zip: null, radiusMi: null },
   };
   if (seed?.length) rememberListings(state, seed);
   return state;
+}
+
+
+export function parseAskShopperArgs(raw: unknown): ToolArgResult<{ question: string }> {
+  if (raw == null || typeof raw !== "object" || Array.isArray(raw)) {
+    return { ok: false, issues: [{ field: "args", message: "ask_shopper args must be an object." }] };
+  }
+  const row = raw as Record<string, unknown>;
+  const question = typeof row.question === "string" ? row.question.trim() : "";
+  if (!question) {
+    return { ok: false, issues: [{ field: "question", message: "question is required." }] };
+  }
+  return { ok: true, value: { question: question.slice(0, 500) } };
+}
+
+export function parseRecordShopperFactsArgs(raw: unknown): ToolArgResult<{
+  budgetUsd: number | null;
+  zip: string | null;
+  radiusMi: number | null;
+}> {
+  if (raw == null || typeof raw !== "object" || Array.isArray(raw)) {
+    return { ok: false, issues: [{ field: "args", message: "record_shopper_facts args must be an object." }] };
+  }
+  const row = raw as Record<string, unknown>;
+  const issues: ToolArgIssue[] = [];
+  let budgetUsd: number | null = null;
+  if (row.budgetUsd != null && row.budgetUsd !== "") {
+    const n = asPositiveInt(row.budgetUsd);
+    if (n == null || n > 500_000) {
+      issues.push({ field: "budgetUsd", message: "budgetUsd must be a positive dollar amount." });
+    } else {
+      budgetUsd = n;
+    }
+  }
+  let zip: string | null = null;
+  if (row.zip != null && row.zip !== "") {
+    const parsed = parseZipArg(row.zip);
+    if (!parsed.ok) issues.push(...parsed.issues);
+    else zip = parsed.value ?? null;
+  }
+  let radiusMi: number | null = null;
+  if (row.radiusMi != null && row.radiusMi !== "") {
+    const n = asPositiveInt(row.radiusMi);
+    if (n == null || n > 3000) {
+      issues.push({ field: "radiusMi", message: "radiusMi must be a positive miles value or null for nationwide." });
+    } else {
+      radiusMi = n;
+    }
+  } else if (row.radiusMi === null) {
+    radiusMi = null;
+  }
+  if (issues.length > 0) return { ok: false, issues };
+  return { ok: true, value: { budgetUsd, zip, radiusMi } };
 }
 
 export async function executeFindAgentTool(
@@ -749,6 +848,47 @@ export async function executeFindAgentTool(
     sleep: deps.autodev.sleep,
     source: "autodev",
   };
+
+  if (name === "ask_shopper") {
+    const parsed = parseAskShopperArgs(rawArgs);
+    if (!parsed.ok) {
+      return {
+        name: "ask_shopper",
+        ok: false,
+        result: { error: "invalid_args", issues: parsed.issues },
+        summary: `ask_shopper rejected: ${parsed.issues.map((i) => i.message).join("; ")}`,
+      };
+    }
+    return {
+      name: "ask_shopper",
+      ok: true,
+      result: { ok: true, paused: true, question: parsed.value.question },
+      summary: `ask_shopper: ${parsed.value.question.slice(0, 80)}`,
+    };
+  }
+
+  if (name === "record_shopper_facts") {
+    const parsed = parseRecordShopperFactsArgs(rawArgs);
+    if (!parsed.ok) {
+      return {
+        name: "record_shopper_facts",
+        ok: false,
+        result: { error: "invalid_args", issues: parsed.issues },
+        summary: `record_shopper_facts rejected: ${parsed.issues.map((i) => i.message).join("; ")}`,
+      };
+    }
+    if (parsed.value.budgetUsd != null) state.shopperFacts.budgetUsd = parsed.value.budgetUsd;
+    if (parsed.value.zip != null) state.shopperFacts.zip = parsed.value.zip;
+    if (rawArgs && typeof rawArgs === "object" && !Array.isArray(rawArgs) && Object.prototype.hasOwnProperty.call(rawArgs, "radiusMi")) {
+      state.shopperFacts.radiusMi = parsed.value.radiusMi;
+    }
+    return {
+      name: "record_shopper_facts",
+      ok: true,
+      result: { ok: true, facts: { ...state.shopperFacts } },
+      summary: `record_shopper_facts budget=${state.shopperFacts.budgetUsd ?? "—"} zip=${state.shopperFacts.zip ?? "—"}`,
+    };
+  }
 
   if (name === "search_listings") {
     const parsed = parseSearchListingsArgs(rawArgs);
