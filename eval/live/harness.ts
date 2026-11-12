@@ -186,6 +186,9 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       console.log(`  ${q.note}`);
     }
     console.log("Dry-run only. Set EVAL_LIVE_ALLOW_PAID=1 with SERV_API_KEY + AUTODEV_API_KEY for live.");
+    console.log(
+      "Note: eval:live queries are Find-only; agentMode/toolRounds/relaxedConditions cover the Find agent. Resale agent (RESALE_AGENT_*) is exercised on the Resale job path, not this harness.",
+    );
     return 0;
   }
 

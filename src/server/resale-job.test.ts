@@ -195,6 +195,7 @@ async function advanceThrough(
       step,
       servKey: "test-key",
       fetchImpl: args.fetchImpl,
+      env: { RESALE_AGENT_LOOP: "0" },
       inventoryDeps: inventoryDeps(args.listings, args.fetchImpl),
     });
     expect(run.ok).toBe(true);
@@ -250,6 +251,7 @@ describe("resale stepped job", () => {
       jobId: created.job.jobId,
       step: 2,
       servKey: "test-key",
+      env: { RESALE_AGENT_LOOP: "0" },
       fetchImpl: trackingFetch,
       inventoryDeps: inv,
     });
@@ -264,6 +266,7 @@ describe("resale stepped job", () => {
       jobId: created.job.jobId,
       step: 3,
       servKey: "test-key",
+      env: { RESALE_AGENT_LOOP: "0" },
       fetchImpl: trackingFetch,
       inventoryDeps: inv,
     });
@@ -279,6 +282,7 @@ describe("resale stepped job", () => {
       jobId: created.job.jobId,
       step: 4,
       servKey: "test-key",
+      env: { RESALE_AGENT_LOOP: "0" },
       fetchImpl: trackingFetch,
       inventoryDeps: inv,
     });
@@ -295,6 +299,7 @@ describe("resale stepped job", () => {
       jobId: created.job.jobId,
       step: 5,
       servKey: "test-key",
+      env: { RESALE_AGENT_LOOP: "0" },
       fetchImpl: trackingFetch,
       inventoryDeps: inv,
     });
@@ -311,6 +316,7 @@ describe("resale stepped job", () => {
       jobId: created.job.jobId,
       step: 6,
       servKey: "test-key",
+      env: { RESALE_AGENT_LOOP: "0" },
       fetchImpl: trackingFetch,
       inventoryDeps: inv,
     });
@@ -368,6 +374,7 @@ describe("resale stepped job", () => {
       jobId: created.job.jobId,
       step: 2,
       servKey: "test-key",
+      env: { RESALE_AGENT_LOOP: "0" },
       fetchImpl: countingFetch,
       inventoryDeps: inv,
     });
@@ -382,6 +389,7 @@ describe("resale stepped job", () => {
       jobId: created.job.jobId,
       step: 2,
       servKey: "test-key",
+      env: { RESALE_AGENT_LOOP: "0" },
       fetchImpl: countingFetch,
       inventoryDeps: inv,
     });
@@ -398,6 +406,7 @@ describe("resale stepped job", () => {
         jobId: created.job.jobId,
         step,
         servKey: "test-key",
+      env: { RESALE_AGENT_LOOP: "0" },
         fetchImpl: countingFetch,
         inventoryDeps: inv,
       });
@@ -413,6 +422,7 @@ describe("resale stepped job", () => {
       jobId: created.job.jobId,
       step: 6,
       servKey: "test-key",
+      env: { RESALE_AGENT_LOOP: "0" },
       fetchImpl: countingFetch,
       inventoryDeps: inv,
     });
@@ -456,6 +466,7 @@ describe("resale stepped job", () => {
       jobId: created.job.jobId,
       step: 2,
       servKey: "test-key",
+      env: { RESALE_AGENT_LOOP: "0" },
       fetchImpl: servFetchMock(),
       inventoryDeps: inventoryDeps(listings, servFetchMock()),
     });
@@ -504,6 +515,7 @@ describe("resale stepped job", () => {
         jobId: created.job.jobId,
         step,
         servKey: "test-key",
+      env: { RESALE_AGENT_LOOP: "0" },
         fetchImpl,
         inventoryDeps: inv,
       });
@@ -521,6 +533,7 @@ describe("resale stepped job", () => {
       jobId: created.job.jobId,
       step: 6,
       servKey: "test-key",
+      env: { RESALE_AGENT_LOOP: "0" },
       fetchImpl,
       inventoryDeps: inv,
     });
@@ -573,6 +586,7 @@ describe("resale stepped job", () => {
       jobId: created.job.jobId,
       step: 6,
       servKey: "test-key",
+      env: { RESALE_AGENT_LOOP: "0" },
       fetchImpl: countingFetch,
       inventoryDeps: inv,
     });

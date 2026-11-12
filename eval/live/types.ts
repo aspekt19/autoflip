@@ -72,6 +72,13 @@ export type LiveEvalCaseResult = {
   relaxedConditions?: LiveEvalRelaxedCondition[];
   journalServCalls?: number;
   journalToolCalls?: number;
+  /**
+   * Resale agentic loop fields (same shape as Find).
+   * eval:live is Find-only today — Resale agent metrics are reported on the job path
+   * when RESALE_AGENT_LOOP is on; leave null here until live resale queries exist.
+   */
+  resaleAgentMode?: "tools" | "next_action" | null;
+  resaleToolRounds?: number;
 };
 
 export type LiveEvalReport = {
