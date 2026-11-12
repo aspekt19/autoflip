@@ -367,6 +367,20 @@ export type JournalStepView = {
   };
 };
 
+/**
+ * Same line shown back to back becomes one plain sentence.
+ * A closer look at several listings is counted in words. Other repeats say how often they came up.
+ */
+export function plainRepeatLine(sentence: string, count: number): string {
+  const text = sentence.replace(/\s+/g, " ").trim();
+  if (!text || count <= 1) return text;
+  if (/closer look|deeper check/i.test(text)) {
+    return `We took a closer look at ${count} listings.`;
+  }
+  const base = text.replace(/[.!?…]+$/, "");
+  return `${base}. This came up ${count} times.`;
+}
+
 /** Identical back-to-back lines become one line. Seven "closer look" steps read as one count. */
 export function collapseRepeatedStepViews<T extends { sentences: string }>(views: readonly T[]): T[] {
   const out: T[] = [];
@@ -379,10 +393,7 @@ export function collapseRepeatedStepViews<T extends { sentences: string }>(views
     if (count === 1) {
       out.push(current);
     } else {
-      const sentence = /closer look at one listing/i.test(current.sentences)
-        ? `We took a closer look at ${count} listings.`
-        : `${current.sentences.replace(/\.\s*$/, "")} — repeated ${count} times.`;
-      out.push({ ...current, sentences: sentence });
+      out.push({ ...current, sentences: plainRepeatLine(current.sentences, count) });
     }
     index = next;
   }

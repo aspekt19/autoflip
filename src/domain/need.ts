@@ -27,7 +27,7 @@ export type BudgetScope = (typeof BUDGET_SCOPES)[number];
  * Seller-distance radius presets (miles from search ZIP).
  * Null distance means nationwide. Custom positive miles are also allowed — presets are UX shortcuts, not a hard enum.
  */
-export const SEARCH_RADII_MILES = [25, 50, 100, 150, 250, 500] as const;
+export const SEARCH_RADII_MILES = [25, 50, 75, 100, 150, 250] as const;
 export type SearchRadiusMiles = (typeof SEARCH_RADII_MILES)[number];
 
 /**

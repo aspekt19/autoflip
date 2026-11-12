@@ -259,8 +259,8 @@ export function renderRunPermalinkHtml(view: RunView): string {
   for (const car of model.listings) {
     parts.push(`<section data-vin="${esc(car.vin)}">`);
     const heading = pickHeading(view, Boolean(car.picked));
-    if (heading) parts.push(`<h2 class="prose-title">${esc(heading)}</h2>`);
-    parts.push(`<h2>${esc(car.title)}</h2>`);
+    if (heading) parts.push(`<p class="run-pick-label">${esc(heading)}</p>`);
+    parts.push(`<h2 class="run-car-title">${esc(car.title)}</h2>`);
     if (car.summary) parts.push(`<p>${esc(car.summary)}</p>`);
     const facts = [
       car.priceUsd == null ? "Price not listed" : money(car.priceUsd),

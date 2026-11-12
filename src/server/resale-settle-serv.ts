@@ -734,7 +734,7 @@ function finalizeAgentVerdict(input: {
 }
 
 /**
- * Pick best flip + alternatives. Always returns a verdict (never a dead end).
+ * Pick best flip + alternatives. An empty scan says so; it does not invent a verdict.
  * Optional `phase` + `checkpoint` split the SERV chain across stepped job requests.
  */
 export async function runResaleSettleServ(input: {
@@ -810,7 +810,7 @@ export async function runResaleSettleServ(input: {
         : "Stop — no flip candidates cleared economics",
       why: hadRows
         ? "Listings were found, but none cleared non-negative expected mid profit. Never publish a losing flip as the pick."
-        : "No listings in this scan cleared similar-listing P&L. Raise budget or clear filters; this is still a verdict, not a dead end.",
+        : "No listings in this scan cleared similar-listing economics. Try a higher budget or a wider radius.",
       inputsUsed: [`budgetUsd:${input.budgetUsd}`],
       changed: null,
       model: null,

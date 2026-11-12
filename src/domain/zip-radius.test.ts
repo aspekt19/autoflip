@@ -24,8 +24,8 @@ function baseNeed(extra: Record<string, unknown> = {}) {
 }
 
 describe("ZIP + seller-distance radius normalization", () => {
-  it("exposes presets 25/50/100/150/250/500", () => {
-    expect([...SEARCH_RADII_MILES]).toEqual([25, 50, 100, 150, 250, 500]);
+  it("exposes presets 25/50/75/100/150/250", () => {
+    expect([...SEARCH_RADII_MILES]).toEqual([25, 50, 75, 100, 150, 250]);
   });
 
   it("honors each preset and maps request distance without snapping", () => {

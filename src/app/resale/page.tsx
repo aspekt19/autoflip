@@ -33,8 +33,9 @@ export default function ResalePage() {
         <p className="kicker">For resale</p>
         <h1>Resale</h1>
         <p className="lead">
-          Enter a budget. Lemonless searches what you can buy now and returns cars priced below similar listings
-          (after costs), plus alternatives, and a verdict every time. 1 report credit per search. Not a profit
+          Enter a budget. Lemonless searches what you can buy now and shows cars priced below similar listings
+          (after costs), plus alternatives, when it finds them. If no cars match, the result says so and there is
+          no verdict. A delivered search uses 1 report credit. A search with no cars is not charged. Not a profit
           guarantee.
         </p>
         <div className="onboarding-note">
