@@ -35,7 +35,7 @@ Primary fate only (first bold fate tag per bullet / product-rule row). `still pr
 
 | Cluster | Verified status | Evidence |
 |---------|-----------------|----------|
-| `FIND_AGENT_LOOP` / `RESALE_AGENT_LOOP` / `LEMONLESS_E2E_STUB` off switches | **Removed** | Enable helpers are keyed-SERV only; e2e stubs SERV/Auto.dev and stays on the agent loop |
+| `FIND_AGENT_LOOP` / `RESALE_AGENT_LOOP` off switches | **Removed** | Enable helpers are keyed-SERV only (`LEMONLESS_E2E_STUB` stubs providers; does not flip classic decide) |
 | Classic Find triage→decide fallthrough after agent failure | **Removed** | `find-decide-orchestrator` returns `agent_loop_failed` / 503 |
 | Classic Resale inventory fallthrough after agent failure | **Removed** | `resale-job` returns `agent_loop_failed`; no `runResaleSearch` after fail |
 | Classic Find/Resale when unkeyed | **Removed as product path** | Returns `agent_loop_required` (503) — no code choose |

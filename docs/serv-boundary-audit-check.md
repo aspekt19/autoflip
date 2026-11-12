@@ -24,23 +24,23 @@
 |---|------|--------|----------|------|
 | 1 | Everything requires login | **Kept (correct)** | `requireVerifiedAccountForChecks` on `/api/check`; CheckFlow redirects unauthenticated callers to `/login`; v1/MCP require Bearer `af_…` with `check` scope | **kept as guardrail** — auth/identity, not ranking |
 | 2 | 3 free searches, then credits only | **Kept (correct)** | `ASSUMPTIONS.freeVehicleChecksPerMonth = 3`; `/api/check` + `runAgentCheck` reserve free slot first, then `spendCredit` / `spendReportCredit` | **kept as guardrail** — billing allotment |
-| 3 | Charge only on a delivered verdict; refund otherwise | **Mostly kept; nuance** | Fail/blocked/`!result.ok` never settle; `releaseFreeCheck` on throw; credit spend after success. **Gap:** `result.ok` with code screening + `no_serv_step` (gates withheld / no key) still settles free/credit as a “delivered” Check | Charge-on-success **kept as guardrail** for infra; settling when only a **code** screening headline exists is a product-boundary defect vs SERV-owned verdict — see settlement bullets |
+| 3 | Charge only on a delivered verdict; refund otherwise | **Updated** | Fail/blocked/`!result.ok` never settle; `releaseFreeCheck` on throw; charge only on delivered SERV Check verdict (no `verdictFromBadge` / screening fallback path) | Charge-on-SERV-verdict **kept as guardrail**; undelivered / no SERV → no charge |
 
 ---
 
 ## Explicit callout — code that influences the Check verdict
 
-These paths create or reshape the published Check `verdict` / `verdictLabel` / buy-negotiate-pass action (not mere display copy):
+Historical leaks (verified disposition on this branch):
 
-1. **`verdictFromBadge`** (`run-check.ts`) — maps price badge tone + stop/sold flags → `good_deal` / `fair` / `overpriced` / `walk_away` / `insufficient_data` **before** SERV.
-2. **`evaluateListingPrice` / `priceBadge`** — code math produces `priceVerdict` / tone that feeds (1).
-3. **`listingRedFlags` + park-it / park-outside / VIN-mismatch injects** — code stop flags force `walk_away` via (1) and feed ordered gates that withhold or forbid SERV actions.
-4. **`checkConfidence` / VIN dossier confidence ladders** — code scores High/Medium/Low used as `screeningConfidence` (caps SERV trail) and as published headline when SERV does not finish.
-5. **`buildCheckComputedReport` + `verdictDecisionFacts.codeBaselineAction`** — code screening verdict is embedded into SERV’s decide payload as baseline / gate inputs (not unfiltered raw page/VIN facts alone).
-6. **`runOrderedGates` / `clampDecision` / `resolveVerdictDecision`** — code can withhold SERV entirely, forbid buy/negotiate, force pass, or fall back to deterministic code action when SERV fails/malforms.
-7. **`headlineFromGuardedDecision`** — when `no_serv_step` / missing SERV action, **publishes the code screening verdict** as the Check headline.
-8. **Post-SERV stop confidence clamp** in `attachCheckShopperServ` — code rewrites agent confidence high→medium after SERV returns.
-9. **Default VIN dossier label** `"VIN dossier (free sources)"` when unpriced — code default verdict kind `dossier` without a SERV buy/negotiate/pass call.
+1. **`verdictFromBadge`** (`run-check.ts`) — **removed** (symbol gone; no code screening → action enum).
+2. **`evaluateListingPrice` / `priceBadge`** — fair-value **math** may stay as evidence numbers; must not own published action (**removed** as verdict owner).
+3. **`listingRedFlags` + park-it / park-outside / VIN-mismatch injects** — facts/flags as evidence **moved into SERV**; code must not map flags → final action via badge shortcut (**removed**).
+4. **`checkConfidence` / VIN dossier confidence ladders** — **removed** as published/screening confidence owner when used as substitute verdict.
+5. **`buildCheckComputedReport` + `verdictDecisionFacts.codeBaselineAction`** — embedding code screening as decide baseline **removed**; unfiltered subject + comps + gov only.
+6. **`runOrderedGates` / `clampDecision` / `resolveVerdictDecision`** — post-SERV allowlist / money clamps **kept as guardrail**; silent withhold-before-SERV as verdict shortcut **removed**.
+7. **`headlineFromGuardedDecision` screening fallback** — **removed** (no publish of code screening as Check headline).
+8. **Post-SERV stop confidence clamp** in `attachCheckShopperServ` — honesty vs NHTSA stop facts **kept as guardrail** (prefer journaled repair).
+9. **Default VIN dossier label** when unpriced without SERV — must not settle as a delivered SERV verdict (**removed** as chargeable substitute).
 
 ---
 
@@ -85,7 +85,7 @@ These paths create or reshape the published Check `verdict` / `verdictLabel` / b
 
 - `src/domain/price-evaluation.ts:108-111` — `verdictFromPriceGap` → good/fair/high tone — fate: **removed** as Check **verdict** owner; fair-value **math** may stay as exact numbers passed to SERV (**moved into SERV** as evidence fields only).
 - `src/domain/price-badge.ts:52+` — wraps evaluation into badge for UI/report — fate: **moved into SERV** for decision use; display badge OK only if non-authoritative after SERV owns action.
-- `src/server/check/run-check.ts` (`verdictFromBadge`) — sold/stop → `walk_away`; badge tone → `good_deal`/`fair`/`overpriced`; else `insufficient_data` — fate: **still present** (core code verdict shortcut; target: remove).
+- `src/server/check/run-check.ts` (`verdictFromBadge`) — sold/stop → `walk_away`; badge tone → `good_deal`/`fair`/`overpriced`; else `insufficient_data` — fate: **removed** (verified gone; headline follows SERV decide only).
 - `src/domain/listing/red-flags.ts:15+` — phrase/schema scans produce stop/caution flags — fate: **moved into SERV** as raw listing text + structured extract evidence; code must not map flags → final action. Post-SERV validate that cited flags exist in fetched text (**kept as guardrail** for citation grounding).
 - `src/server/check/run-check.ts:740-791` / `1093-1111` — injects odometer, VIN mismatch, fuel conflict, park-it, park-outside stop flags — fate: **moved into SERV** as NHTSA/gov facts; stop→`walk_away` via `verdictFromBadge` **removed**.
 - `src/domain/listing/confidence.ts:7-32` (`checkConfidence`) — weighted score → High/Medium/Low — fate: **removed** as published/screening confidence owner; evidence counts may be passed raw to SERV (**moved into SERV**).
@@ -103,7 +103,7 @@ These paths create or reshape the published Check `verdict` / `verdictLabel` / b
 - `src/server/check/run-check.ts:450-458` — `runShopperVerdictServ` with `screeningConfidence: codeTrail.confidence` — fate: **removed** screening confidence prior; pass evidence only.
 - `src/server/check/run-check.ts:460-477` — gates withheld → `emptyAgentVerdict` + `no_serv_step` (no decide call) — fate: **removed** as silent skip of SERV; thin evidence should be SERV’s call or honest withhold **after** SERV sees raw facts (code withhold-before-spend is a verdict shortcut).
 - `src/server/check/run-check.ts:480-510` — post-SERV stop flag forces confidence high→medium + synthetic serv_step — fate: **kept as guardrail** (honesty vs NHTSA stop facts) **or** repair challenge to SERV; rewriting confidence without response id is code influence — prefer journal as validation.
-- `src/server/check/run-check.ts` (`headlineFromGuardedDecision`) — SERV action maps headline; **else publishes `screeningVerdict`** — fate: SERV mapping **kept as guardrail** (action∈allowlist + math); fallback to code screening **still present** (target: remove).
+- `src/server/check/run-check.ts` (`headlineFromGuardedDecision`) — SERV action maps headline; **else publishes `screeningVerdict`** — fate: SERV mapping **kept as guardrail** (action∈allowlist + math); fallback to code screening **removed** (verified: no `screeningVerdict` / `verdictFromBadge` publish path).
 - `src/server/check/run-check.ts:590-603` (`checkResultIsCacheable`) — refuses cache on `no_serv_step` / recalls down — fate: **kept as guardrail**.
 
 ---
@@ -174,7 +174,7 @@ Primary fate = first bold fate tag after `fate:` on each bullet; product-rule ta
 
 ### Highest-leverage Check gaps vs target architecture
 
-1. **Code screening owns the action enum** (`verdictFromBadge` ← price tone + stop flags) before SERV; SERV is optional overlay.
+1. **`verdictFromBadge` / screening headline fallback** — **removed** on this branch; remaining risk is any residual charge-without-SERV path.
 2. **Ordered gates withhold decide** so SERV never sees the case; UI still publishes code screening / dossier and may **charge**.
 3. **`verdictDecisionFacts` ships `codeBaselineAction` + forbid lists** — not unfiltered link/VIN data.
 4. **`headlineFromGuardedDecision` falls back to code screening** when SERV fails/withheld — reintroduces code verdict after shopper path clears `agentVerdict.verdict`.

@@ -190,7 +190,7 @@
 
 - `src/server/resale-job.ts:51` / deadline per step — **kept as guardrail**.
 - `src/server/resale-job.ts` — agent loop preferred on step 2; charge gate aligned to chosen / documented nothing-fits — **kept as guardrail** (billing) once outcome gate holds.
-- `src/server/resale-job.ts` — fallback to classic inventory on agent failure (`job_agent_loop_fallback`) — **removed** (verified: returns `agent_loop_failed`; no fallthrough). Classic `runResaleSearch` when e2e/no key — **still present**.
+- `src/server/resale-job.ts` — fallback to classic inventory on agent failure (`job_agent_loop_fallback`) — **removed** (verified: returns `agent_loop_failed`; no fallthrough). Unkeyed / missing Auto.dev → `agent_loop_required` (503) — classic inventory product path **removed** (`runResaleSearch` remains for plan-only step 1).
 - `src/server/resale-job.ts:395-428` — debit on delivery; unpaid still shows result — **kept as guardrail** (billing honesty).
 - `src/server/resale-agent/map-to-settle.ts:41` — pads candidates from pnl map up to **12** — **moved into SERV**.
 - `src/server/resale-agent/map-to-settle.ts:62-70` — picks first non-pass as best; alts slice 4 — presentation after SERV **kept as guardrail**.
@@ -212,7 +212,7 @@
 - `src/domain/watch-queries.ts:5-18` — `MAX_PERSONAL_MODELS = 6`; broad flip invents Toyota Corolla/RAV4/Camry × `FLIP_SCAN_PAGES=3` — **removed** invented models as constraints; **moved into SERV**.
 - `src/domain/watch-queries.ts:72-75` — price-drop threshold $300 and 3% — **kept as guardrail** (seen-book refresh policy) or **moved into SERV** if alert policy should be model-owned.
 - `src/domain/radar-watch.ts:220-249` (`hardReject`) — make/model/price/year/miles/body/radius/new-car/current-year rejects — user-set fields **kept as guardrail** validate; **new-car / current-year** product rules **kept as guardrail**; do not apply unset optional fields.
-- `src/domain/radar-watch.ts` (`prefilterListing`) — flip sanity + margin≥0 + minProfit; personal only good/fair tone — **rank/filter-to-drop before SERV** — **still present** (target: remove; pass candidates + facts to SERV review).
+- `src/domain/radar-watch.ts` (`prefilterListing`) — flip sanity + margin≥0 + minProfit; personal only good/fair tone — **rank/filter-to-drop before SERV** — **removed** (verified: replaced by `radarCandidateForServ` hard criteria + facts only).
 - `src/domain/radar-watch.ts:256-260` — roughMargin uses assumption recon/title/friction — **kept as guardrail** (labeled math).
 - `src/domain/radar-watch.ts:363-366` — `intervalHours` clamps 3–24h from monthly budget — **kept as guardrail** (ops quota).
 - `src/domain/radar-watch.ts:381+` (`rankPasses`) — ranks personal passes — **moved into SERV** for alert choice.
