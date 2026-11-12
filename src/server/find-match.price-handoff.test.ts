@@ -154,7 +154,7 @@ describe("models attribution provenance", () => {
       "I like the Mazda CX-5 and Toyota RAV4, but I'm open to other options, family SUV under $20,000",
       "personal",
     );
-    expect(need.preferredModelsSource).toBe("user_note");
+    expect(need.preferredModelsSource).toBe("none"); // note parsers deleted — SERV owns models
     const directions = proposeDirections(
       { ...need, zip: "68114", distanceMiles: 100, budgetUsd: 20_000, budgetKnown: true },
       undefined,

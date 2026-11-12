@@ -111,7 +111,8 @@ describe("run settlement", () => {
     const loaded = await readRun(kv, id!);
     expect(loaded?.verdict).toBeNull();
     expect(loaded?.creditsCharged).toBe(0);
-    expect(loaded?.spec?.hard.priceMaxUsd?.value).toBe(20_000);
+    // Code no longer regex-parses budget from the note into SearchSpec.
+    expect(loaded?.spec?.hard.priceMaxUsd).toBeUndefined();
     const blocked = await updateRun(kv, id!, (current) => ({ ...current, ownerId: "someone-else" }));
     expect(blocked).toBeNull();
     expect((await readRun(kv, id!))?.ownerId).toBe(OWNER);

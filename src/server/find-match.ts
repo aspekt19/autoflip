@@ -673,7 +673,8 @@ export async function runFindMatch(
 
       if (!result.ok) {
         const reason = emptyReasonFromProviderError(
-          result.error === "listings_error" && /did not respond|timed? ?out/i.test(result.message)
+          result.error === "listings_error" &&
+          /did not respond|timed?\s*out|network failed|lookup timed out|cancelled/i.test(result.message)
             ? "provider_timeout"
             : result.error,
         );

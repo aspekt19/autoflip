@@ -20,12 +20,12 @@ describe("need extraction validation", () => {
     expect(rejected.ok).toBe(false);
   });
 
-  it("does not invent a budget or a use that was not written", () => {
+  it("does not invent a budget or a use from free text (SERV owns that)", () => {
     expect(useCaseFromText("a reliable car for errands")).toBe("unspecified");
     const need = explicitNeedFromText("Need a reliable family car under $18,000", "personal");
-    expect(need.useCase).toBe("family");
-    expect(need.budgetUsd).toBe(18000);
-    expect(need.budgetKnown).toBe(true);
+    expect(need.useCase).toBe("unspecified");
+    expect(need.budgetUsd).toBeNull();
+    expect(need.budgetKnown).toBe(false);
     const questions = followUps({ ...need, zip: "33101", useCase: "unspecified", mode: "flip", repairAbility: "unknown", targetProfitUsd: null, budgetKnown: false, budgetUsd: null });
     expect(questions.map((item) => item.id)).toEqual(["cash"]);
   });
