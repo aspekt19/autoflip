@@ -108,6 +108,13 @@ export type GoldenRun = {
   /** True when replay saw a hash that is not in an existing recording set. */
   unseenRequest: boolean;
   final: GoldenFinal;
+  /** Server Run produced from this pipeline result. */
+  storedRun?: {
+    finalMatchesProgress: boolean;
+    verdict: string | null;
+    creditsCharged: number;
+    permalinkHtml: string;
+  };
 };
 
 export type CheckFailure = { id: string; message: string };

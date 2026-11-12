@@ -3,6 +3,8 @@ import { isValidVin } from "@/domain/vin";
 import { creditEventSeen } from "@/io/credit-book";
 import { commitFreeCheck, freeCheckSlotsRemaining, releaseFreeCheck, reserveFreeCheck } from "@/io/free-check-quota";
 import { getKv } from "@/io/kv";
+import { listingFromCar, proofsFromRecords, syncRunSafely } from "@/server/run-sync";
+import type { SourceId } from "@/domain/buyer-copy-table";
 import {
   CHECK_DELIVERY_LOGIC_VERSION,
   checkDeliveryKey,
@@ -23,6 +25,69 @@ function vinKeyForInput(input: CheckRunInput, resultVin: string | null): string 
   if (input.kind === "vin" && isValidVin(input.vin)) return input.vin;
   const seed = input.kind === "link" ? input.url : input.kind === "vin" ? input.vin : "paste";
   return `novin:${Buffer.from(seed).toString("base64url").slice(0, 24)}`;
+}
+
+async function rememberVinCheck(input: {
+  ownerId: string;
+  runId: string | null;
+  vin: string;
+  spentCredit: boolean;
+  result: Record<string, unknown>;
+}): Promise<string | null> {
+  const decoded =
+    input.result.vinDecode && typeof input.result.vinDecode === "object"
+      ? (input.result.vinDecode as { year?: number | null; make?: string | null; model?: string | null; trim?: string | null })
+      : null;
+  const listedRaw = Array.isArray(input.result.listingsForVin) ? input.result.listingsForVin[0] : null;
+  const listed =
+    listedRaw && typeof listedRaw === "object"
+      ? (listedRaw as {
+          priceUsd?: number | null;
+          miles?: number | null;
+          dealer?: string | null;
+          vdp?: string | null;
+          city?: string | null;
+          state?: string | null;
+        })
+      : null;
+  const agent =
+    input.result.agentVerdict && typeof input.result.agentVerdict === "object"
+      ? (input.result.agentVerdict as { verdict?: string | null; confidence?: string | null })
+      : null;
+  const vin = typeof input.result.vin === "string" ? input.result.vin : input.vin;
+  const car = listingFromCar({
+    vin,
+    year: decoded?.year,
+    make: decoded?.make,
+    model: decoded?.model,
+    trim: decoded?.trim,
+    priceUsd: listed?.priceUsd,
+    miles: listed?.miles,
+    dealer: listed?.dealer,
+    vdp: listed?.vdp,
+    city: listed?.city,
+    state: listed?.state,
+  });
+  const sources: SourceId[] = [];
+  if (input.result.recallsAvailable === true) sources.push("government_recalls");
+  if (decoded?.make) sources.push("factory_details");
+  if (typeof input.result.safetySummary === "string" && input.result.safetySummary.trim()) sources.push("crash_tests");
+  if (Array.isArray(input.result.similarCars) && input.result.similarCars.length > 0) sources.push("similar_cars");
+  return syncRunSafely(getKv(), {
+    runId: input.runId,
+    ownerId: input.ownerId,
+    kind: "check",
+    note: input.vin,
+    vin: input.vin,
+    mode: "personal",
+    listings: car ? [car] : [],
+    proofs: proofsFromRecords(input.result.proofRecords),
+    sources,
+    verdict: agent?.verdict ?? null,
+    confidence: agent?.confidence ?? (typeof input.result.confidence === "string" ? input.result.confidence : null),
+    creditsCharged: input.spentCredit ? 1 : 0,
+    terminal: true,
+  });
 }
 
 /**
@@ -111,9 +176,20 @@ export async function POST(request: Request) {
     const prior = await readCheckDelivery(kv, priorKey);
     if (prior && !isDegradedCheckDeliveryResult(prior.result)) {
       const creditsNow = await balanceOf(access.id);
+      const runId =
+        input.kind === "vin"
+          ? await rememberVinCheck({
+              ownerId: access.id,
+              runId: typeof body.runId === "string" ? body.runId : null,
+              vin: input.vin,
+              spentCredit: prior.spentCredit === true,
+              result: prior.result,
+            })
+          : null;
       return Response.json({
         ok: true,
         ...prior.result,
+        runId,
         usedFreeCheck: false,
         spentCredit: false,
         fromCache: true,
@@ -285,9 +361,20 @@ export async function POST(request: Request) {
     }
 
     const creditsAfter = await balanceOf(access.id);
+    const runId =
+      input.kind === "vin"
+        ? await rememberVinCheck({
+            ownerId: access.id,
+            runId: typeof body.runId === "string" ? body.runId : null,
+            vin: input.vin,
+            spentCredit,
+            result: result.result as unknown as Record<string, unknown>,
+          })
+        : null;
     return Response.json({
       ok: true,
       ...result.result,
+      runId,
       usedFreeCheck,
       spentCredit,
       billingNote,

@@ -1,6 +1,9 @@
 import { understandNeed } from "@/server/understand-need";
 import { requireVerifiedAccountForFind } from "@/server/session";
+import { getKv } from "@/io/kv";
+import { proofsFromRecords, syncRunSafely } from "@/server/run-sync";
 import type { FollowUp, StructuredNeed } from "@/domain/need";
+import type { SearchFormEdits } from "@/domain/search-spec";
 
 export const dynamic = "force-dynamic";
 /** Pro/Fluid allows up to 300s — find_plan kronos-multipath needs generous wall time. */
@@ -71,7 +74,27 @@ export async function POST(request: Request) {
     },
   );
   if (!result.ok) return Response.json({ error: result.error, message: result.message }, { status: result.status });
-  return Response.json(result);
+  const formEdits: SearchFormEdits = {};
+  if (body.budgetDirty === true && typeof body.budgetUsd === "number") formEdits.priceMaxUsd = { value: body.budgetUsd, dirty: true };
+  if (typeof body.yearMin === "number") formEdits.yearMin = { value: body.yearMin, dirty: true };
+  if (typeof body.yearMax === "number") formEdits.yearMax = { value: body.yearMax, dirty: true };
+  if (typeof body.milesMax === "number") formEdits.milesMax = { value: body.milesMax, dirty: true };
+  if (typeof body.zip === "string" && body.zip.trim()) formEdits.zip = { value: body.zip.trim(), dirty: true };
+  if (typeof body.distanceMiles === "number") formEdits.radiusMi = { value: body.distanceMiles, dirty: true };
+  const clarification =
+    followRaw && typeof followRaw.value === "string" && followRaw.value.trim() ? [followRaw.value.trim()] : [];
+  const runId = await syncRunSafely(getKv(), {
+    runId: typeof body.runId === "string" ? body.runId : null,
+    ownerId: access.id,
+    kind: result.need.mode === "flip" ? "resale" : "find",
+    note: result.need.note || (typeof body.text === "string" ? body.text : ""),
+    clarifications: clarification,
+    mode: result.need.mode,
+    formEdits,
+    proofs: proofsFromRecords(result.proofRecords),
+    terminal: false,
+  });
+  return Response.json({ ...result, runId });
 }
 
 function isRepair(value: unknown): value is StructuredNeed["repairAbility"] {

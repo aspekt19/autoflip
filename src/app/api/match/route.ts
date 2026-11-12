@@ -1,10 +1,12 @@
 import { findDecidePathEnabled } from "@/domain/find-decide-path";
 import { findDeliveryChargesCredit } from "@/domain/find-delivery";
+import { buildSearchSpec } from "@/domain/search-spec";
 import { validateNeed } from "@/domain/need";
 import { creditBalance, creditEventSeen } from "@/io/credit-book";
 import { getKv } from "@/io/kv";
 import { rememberFindAnalysisContexts } from "@/server/find-analysis-context";
 import { runFindMatch } from "@/server/find-match";
+import { listingFromCar, syncRunSafely } from "@/server/run-sync";
 import { runtimeDeps } from "@/server/deps";
 import {
   listingFactsFromCompsPool,
@@ -61,6 +63,7 @@ export async function POST(request: Request) {
     need?: unknown;
     refine?: { make?: string; model?: string; yearMin?: number; yearMax?: number };
     searchIdempotencyKey?: string;
+    runId?: string;
     /** When set and owned by this verified account, rematch continues without a second debit. */
     searchContextToken?: string;
   } | null;
@@ -363,6 +366,48 @@ export async function POST(request: Request) {
       charged,
       rematchContinuation: continuation,
     };
+    const validatedNeed = validateNeed(body?.need ?? {});
+    const note = validatedNeed.ok ? validatedNeed.need.note : "";
+    const mode = validatedNeed.ok && validatedNeed.need.mode === "flip" ? "flip" : "personal";
+    const listings = Array.isArray(result.body.directions)
+      ? result.body.directions.flatMap((group) =>
+          (Array.isArray(group.listings) ? group.listings : []).flatMap((car) => {
+            const row = listingFromCar(car);
+            return row ? [row] : [];
+          }),
+        )
+      : [];
+    const spec = buildSearchSpec({
+      note,
+      mode,
+      formEdits: validatedNeed.ok
+        ? {
+            priceMaxUsd:
+              validatedNeed.need.budgetKnown && validatedNeed.need.budgetUsd != null
+                ? { value: validatedNeed.need.budgetUsd, dirty: true }
+                : undefined,
+            yearMin: validatedNeed.need.yearMin != null ? { value: validatedNeed.need.yearMin, dirty: true } : undefined,
+            yearMax: validatedNeed.need.yearMax != null ? { value: validatedNeed.need.yearMax, dirty: true } : undefined,
+            milesMax: validatedNeed.need.milesMax != null ? { value: validatedNeed.need.milesMax, dirty: true } : undefined,
+            zip: validatedNeed.need.zip ? { value: validatedNeed.need.zip, dirty: true } : undefined,
+            radiusMi: { value: validatedNeed.need.distanceMiles, dirty: true },
+          }
+        : undefined,
+    });
+    const runId = await syncRunSafely(kv, {
+      runId: typeof body?.runId === "string" ? body.runId : null,
+      ownerId: id,
+      kind: mode === "flip" ? "resale" : "find",
+      note,
+      mode,
+      spec,
+      listings,
+      queryCount: providerQueriesUsed,
+      creditsCharged: charged ? 1 : 0,
+      terminal: listingCount === 0,
+      sources: providerQueriesUsed > 0 ? ["cars_for_sale"] : [],
+    });
+    if (runId) payload.runId = runId;
     // Publish before the response so a concurrent retry observes this token
     // instead of starting a second provider search. A store miss still returns
     // the delivery the shopper already paid for.
@@ -374,7 +419,7 @@ export async function POST(request: Request) {
       }
     }
 
-    return Response.json(payload, { status: result.status });
+    return Response.json({ ...payload, runId }, { status: result.status });
   } finally {
     await releaseInflight();
   }

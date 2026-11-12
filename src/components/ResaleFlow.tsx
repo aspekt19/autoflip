@@ -18,6 +18,7 @@ import type { ResaleCandidatePnl } from "@/domain/resale-pnl";
 import { resalePrimaryListingLink } from "@/domain/resale-listing-link";
 import { SEARCH_RADII_MILES } from "@/domain/need";
 import { publishCreditBalance, refreshPublishedCreditBalance } from "@/domain/credit-balance-event";
+import { RunMirror } from "./RunMirror";
 
 export function ResaleFlow() {
   const account = useAccountLoad();
@@ -125,6 +126,7 @@ function ResaleSearchForm({ credits, onAuthLost }: { credits: number | null; onA
   const [partialJournal, setPartialJournal] = useState<ResaleDecisionJournal | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<SearchResult | null>(null);
+  const [runId, setRunId] = useState<string | null>(null);
   const [idemKey] = useState(
     () => `resale-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 12)}`,
   );
@@ -147,6 +149,7 @@ function ResaleSearchForm({ credits, onAuthLost }: { credits: number | null; onA
     agentVerdict?: AgentVerdict;
     journal?: ResaleDecisionJournal;
     proofRecords?: DecisionProofRecord[];
+    runId?: string | null;
     headline?: string;
     nextStepHint?: string;
     creditNote?: string;
@@ -325,9 +328,11 @@ function ResaleSearchForm({ credits, onAuthLost }: { credits: number | null; onA
           criteriaParseSource: criteriaParse?.source,
           criteriaResponseId: criteriaParse?.responseId ?? null,
           searchIdempotencyKey: idemKey,
+          runId: null,
         }),
       });
       const body = (await response.json()) as JobBody;
+      if (typeof body.runId === "string" && body.runId) setRunId(body.runId);
       if (response.status === 401 || response.status === 403) {
         if (body.error === "auth_required" || body.error === "email_unverified" || body.error === "auth_unconfigured") {
           onAuthLost();
@@ -359,6 +364,7 @@ function ResaleSearchForm({ credits, onAuthLost }: { credits: number | null; onA
       }
 
       applyProgress(body);
+      let activeRun = typeof body.runId === "string" ? body.runId : null;
       let jobId = body.jobId;
       let next = body.nextStep ?? null;
       let latest = body;
@@ -367,9 +373,13 @@ function ResaleSearchForm({ credits, onAuthLost }: { credits: number | null; onA
         const stepRes = await fetch("/api/resale/search/step", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ jobId, step: next }),
+          body: JSON.stringify({ jobId, step: next, runId: activeRun }),
         });
         const stepBody = (await stepRes.json()) as JobBody;
+        if (typeof stepBody.runId === "string" && stepBody.runId) {
+          activeRun = stepBody.runId;
+          setRunId(stepBody.runId);
+        }
         if (stepRes.status === 401 || stepRes.status === 403) {
           if (
             stepBody.error === "auth_required" ||
@@ -643,7 +653,7 @@ function ResaleSearchForm({ credits, onAuthLost }: { credits: number | null; onA
         </p>
       ) : null}
 
-      {result ? <ResaleSearchResultView result={result} /> : null}
+      {result ? <ResaleSearchResultView result={result} runId={runId} /> : null}
 
       <details className="onboarding-note">
         <summary>
@@ -655,7 +665,7 @@ function ResaleSearchForm({ credits, onAuthLost }: { credits: number | null; onA
   );
 }
 
-function ResaleSearchResultView({ result }: { result: SearchResult }) {
+function ResaleSearchResultView({ result, runId }: { result: SearchResult; runId: string | null }) {
   const router = useRouter();
   const [watchPending, setWatchPending] = useState(false);
   const [watchError, setWatchError] = useState<string | null>(null);
@@ -718,8 +728,8 @@ function ResaleSearchResultView({ result }: { result: SearchResult }) {
 
   return (
     <article className="warn-box check-result" aria-live="polite">
-      <h2>{result.headline}</h2>
-      {result.best ? (
+      {runId ? <RunMirror runId={runId} /> : <h2>{result.headline}</h2>}
+      {runId ? null : result.best ? (
         <p className="lead">
           <strong>Verdict: {result.verdictAction}</strong>
           {" · "}
@@ -765,12 +775,14 @@ function ResaleSearchResultView({ result }: { result: SearchResult }) {
         </section>
       ) : null}
 
+      {runId ? null : (
       <ServDecisionJournal
         agentVerdict={result.agentVerdict}
         proofRecords={result.proofRecords}
         resaleJournal={result.journal}
         defaultOpen
       />
+      )}
     </article>
   );
 }

@@ -11,6 +11,7 @@ import {
   jobToClientBody,
 } from "@/server/resale-job";
 import { requireVerifiedAccountForFind } from "@/server/session";
+import { syncResaleRun } from "@/server/run-sync";
 
 export const dynamic = "force-dynamic";
 /** Hobby Fluid allows 300s. Each stepped request stays under that so a decision step can take 90s. */
@@ -90,6 +91,13 @@ export async function POST(request: Request) {
     }
 
     const client = jobToClientBody(result.job, { balance: result.balance });
+    const note = typeof body?.freeText === "string" ? body.freeText : "";
+    const runId = await syncResaleRun(kv, {
+      ownerId: id,
+      runId: typeof body?.runId === "string" ? body.runId : null,
+      note,
+      client,
+    });
     logResaleStage("route_ok", deadline.startedAtMs, {
       jobId: result.job.jobId,
       step: result.job.stepCompleted,
@@ -100,6 +108,7 @@ export async function POST(request: Request) {
     return Response.json({
       ...client,
       charged: client.chargedCredit,
+      runId,
     });
   } catch (err) {
     const reason = err instanceof Error ? err.message.slice(0, 180) : "unexpected_error";

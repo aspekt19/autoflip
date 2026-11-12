@@ -8,6 +8,7 @@ import {
 import { runtimeDeps } from "@/server/deps";
 import { advanceResaleJob, jobToClientBody } from "@/server/resale-job";
 import { requireVerifiedAccountForFind } from "@/server/session";
+import { syncResaleRun } from "@/server/run-sync";
 
 export const dynamic = "force-dynamic";
 /** Each step gets its own budget under the 300s Fluid cap. */
@@ -79,6 +80,13 @@ export async function POST(request: Request) {
     }
 
     const client = jobToClientBody(result.job, { balance: result.balance });
+    const note = typeof body?.freeText === "string" ? body.freeText : result.job.input.freeText ?? "";
+    const runId = await syncResaleRun(kv, {
+      ownerId: id,
+      runId: typeof body?.runId === "string" ? body.runId : null,
+      note,
+      client,
+    });
     logResaleStage("step_route_ok", deadline.startedAtMs, {
       jobId,
       step: result.job.stepCompleted,
@@ -89,6 +97,7 @@ export async function POST(request: Request) {
     return Response.json({
       ...client,
       charged: client.chargedCredit,
+      runId,
       ...(result.job.error && !result.job.charged ? { unpaidReason: result.job.error } : {}),
     });
   } catch (err) {
