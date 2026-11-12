@@ -1,6 +1,6 @@
 /**
  * C2 find_triage SERV runner — shortlist 3–8 from the inventory pool.
- * Falls back to code score shortlist when SERV fails validation after one reject-retry.
+ * Falls back to code score shortlist when SERV fails validation after one repair.
  */
 import { bestDealCarKey } from "@/domain/find-car-consistency";
 import {
@@ -24,9 +24,10 @@ import {
   type DecisionProofRecord,
 } from "@/domain/decision-proof-record";
 import { providerResponseId } from "@/domain/serv-response-id";
-import { tryExtractServJson } from "@/domain/serv-json";
-import { chatCompletionContent, profile, runServ } from "@/server/serv";
+import { extractServJson, tryExtractServJson } from "@/domain/serv-json";
+import { chatCompletionContent, profile } from "@/server/serv";
 import type { ServDeps } from "@/server/serv";
+import { callStep } from "@/server/serv/call-step";
 import { classifyServTransportError } from "@/server/serv/transport-error";
 
 export type FindTriageServResult = {
@@ -170,97 +171,113 @@ export async function runFindTriageServ(input: {
       revisitAlreadyUsed: Boolean(input.revisitAlreadyUsed),
     };
 
-    const runOnce = async (userPayload: string) => {
-      const judged = await runServ(
-        "find_triage",
-        { user: userPayload },
-        {
-          fetch: input.fetchImpl,
-          apiKey: servKey,
-          baseUrl: input.servBaseUrl,
-          model: input.model,
-          transportPolicy: input.transportPolicy,
-          timeoutMs: profile("find_triage").timeoutMs,
-        },
-      );
-      let payload: unknown = null;
-      let unparseable = false;
-      if (judged.ok && judged.text?.trim()) {
-        payload = tryExtractServJson(judged.text);
-        if (payload == null) unparseable = true;
-      } else if (judged.ok) {
-        unparseable = true;
+    const validateTriageText = (text: string) => {
+      try {
+        const payload = extractServJson(text);
+        const validated = validateFindTriage(payload, {
+          poolKeys,
+          allowedEvidenceIds,
+          revisitAlreadyUsed: input.revisitAlreadyUsed,
+        });
+        if (validated.ok) return { ok: true as const };
+        return { ok: false as const, issues: validated.issues };
+      } catch (err) {
+        const message =
+          err instanceof Error && err.message.trim()
+            ? err.message.trim()
+            : "Reply was not valid JSON.";
+        return {
+          ok: false as const,
+          issues: [{ field: "triage", message }],
+        };
       }
-      const validated = unparseable
-        ? ({ ok: false as const, issues: [{ field: "triage", message: "Reply was not valid JSON." }] })
-        : validateFindTriage(payload, {
-            poolKeys,
-            allowedEvidenceIds,
-            revisitAlreadyUsed: input.revisitAlreadyUsed,
-          });
-      const rawResponse =
-        chatCompletionContent(judged.proof?.openserv) ?? (judged.ok ? judged.text : null) ?? null;
-      const responseId = providerResponseId(
-        typeof judged.proof?.openserv?.id === "string" ? judged.proof.openserv.id : null,
-      );
-      const transportClass = judged.ok
-        ? null
-        : judged.transportErrorClass ?? classifyServTransportError(new Error(judged.error)).class;
-      return { judged, validated, rawResponse, responseId, unparseable, transportClass };
     };
 
-    let attempt = await runOnce(JSON.stringify({ facts }));
-    if (!attempt.validated.ok) {
-      // One reject-retry feeding validator issues back to SERV before code fallback.
-      const issuesText = attempt.validated.ok === false ? redactIssues(attempt.validated.issues) : "";
-      attempt = await runOnce(
-        JSON.stringify({
-          facts,
-          validationError: {
-            message: "Previous triage reply failed validation. Fix these issues and return JSON only.",
-            issues: attempt.validated.ok === false ? attempt.validated.issues : [],
-          },
-        }),
-      );
-      if (!attempt.validated.ok && issuesText) {
-        // Keep first issues for detail if second also fails.
+    const step = await callStep({
+      profileId: "find_triage",
+      user: JSON.stringify({ facts }),
+      critical: false,
+      validate: validateTriageText,
+      deps: {
+        fetch: input.fetchImpl,
+        apiKey: servKey,
+        baseUrl: input.servBaseUrl,
+        model: input.model,
+        transportPolicy: input.transportPolicy,
+        timeoutMs: profile("find_triage").timeoutMs,
+      },
+    });
+
+    const judged = step.result;
+    const rawResponse =
+      chatCompletionContent(judged.proof?.openserv) ?? (judged.ok ? judged.text : null) ?? null;
+    const responseId = providerResponseId(
+      typeof judged.proof?.openserv?.id === "string" ? judged.proof.openserv.id : null,
+    );
+    const transportClass = judged.ok
+      ? null
+      : judged.transportErrorClass ?? classifyServTransportError(new Error(judged.error)).class;
+
+    let validated:
+      | ReturnType<typeof validateFindTriage>
+      | { ok: false; issues: FindTriageIssue[] } = {
+      ok: false,
+      issues: step.validationIssues ?? [{ field: "triage", message: "SERV triage did not finish." }],
+    };
+    let unparseable = false;
+    if (step.status === "ok" && judged.ok && judged.text?.trim()) {
+      const payload = tryExtractServJson(judged.text);
+      if (payload == null) {
+        unparseable = true;
+        validated = { ok: false, issues: [{ field: "triage", message: "Reply was not valid JSON." }] };
+      } else {
+        validated = validateFindTriage(payload, {
+          poolKeys,
+          allowedEvidenceIds,
+          revisitAlreadyUsed: input.revisitAlreadyUsed,
+        });
       }
+    } else if (judged.ok && !judged.text?.trim()) {
+      unparseable = true;
+    } else if (step.validationIssues?.some((i) => i.field === "triage" && /JSON/i.test(i.message))) {
+      unparseable = true;
     }
 
-    if (attempt.validated.ok) {
+    if (validated.ok) {
       proofRecords.push(
         buildDecisionProofRecord({
           purpose: "find_triage",
           rubricId: VERDICT_RUBRIC_ID,
           status: "ok",
           recordedAt,
-          responseId: attempt.responseId,
-          model: attempt.judged.proof?.modelReported ?? attempt.judged.proof?.modelRequested ?? input.model ?? null,
+          responseId,
+          model: judged.proof?.modelReported ?? judged.proof?.modelRequested ?? input.model ?? null,
           inputs: {
             poolSize: poolKeys.length,
-            shortlistSize: attempt.validated.triage.shortlist.length,
-            dropped: attempt.validated.dropped,
+            shortlistSize: validated.triage.shortlist.length,
+            dropped: validated.dropped,
+            repaired: step.repaired,
           },
-          detail: `SERV shortlisted ${attempt.validated.triage.shortlist.length} cars from ${poolKeys.length}.`,
-          rawResponse: attempt.rawResponse,
+          detail: `SERV shortlisted ${validated.triage.shortlist.length} cars from ${poolKeys.length}.`,
+          rawResponse,
         }),
       );
       return {
-        triage: attempt.validated.triage,
+        triage: validated.triage,
         source: "SERV",
         bestDeal,
-        shortlistKeys: attempt.validated.triage.shortlist.map((row) => row.key),
+        shortlistKeys: validated.triage.shortlist.map((row) => row.key),
         proofRecords,
       };
     }
 
-    const issuesText = attempt.validated.ok === false ? redactIssues(attempt.validated.issues) : "";
+    const issuesText = validated.ok === false ? redactIssues(validated.issues) : "";
     const detail = failureKindDetail({
-      timedOut: attempt.transportClass === "timeout",
-      aborted: attempt.transportClass === "abort",
-      network: attempt.transportClass === "network",
-      unparseable: attempt.unparseable,
-      validationFailed: !attempt.unparseable && attempt.validated.ok === false,
+      timedOut: transportClass === "timeout",
+      aborted: transportClass === "abort",
+      network: transportClass === "network",
+      unparseable,
+      validationFailed: !unparseable && validated.ok === false,
       issuesText,
     });
     proofRecords.push(
@@ -269,15 +286,16 @@ export async function runFindTriageServ(input: {
         rubricId: VERDICT_RUBRIC_ID,
         status: "failed",
         recordedAt,
-        responseId: attempt.responseId,
-        model: attempt.judged.proof?.modelReported ?? attempt.judged.proof?.modelRequested ?? input.model ?? null,
+        responseId,
+        model: judged.proof?.modelReported ?? judged.proof?.modelRequested ?? input.model ?? null,
         inputs: {
           poolSize: poolKeys.length,
-          issues: attempt.validated.ok === false ? attempt.validated.issues : [],
-          transportErrorClass: attempt.transportClass,
+          issues: validated.ok === false ? validated.issues : [],
+          transportErrorClass: transportClass,
+          repaired: step.repaired,
         },
         detail: `${detail} Code score shortlist published instead.`,
-        rawResponse: attempt.rawResponse,
+        rawResponse,
       }),
     );
   } else {

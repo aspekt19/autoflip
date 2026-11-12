@@ -151,7 +151,18 @@ export const PROFILES = {
             type: "array",
             items: {
               type: "string",
-              enum: ["suv", "sedan", "truck", "minivan", "hatchback", "wagon", "coupe", "van", "any"],
+              enum: [
+                "suv",
+                "sedan",
+                "truck",
+                "minivan",
+                "hatchback",
+                "wagon",
+                "coupe",
+                "convertible",
+                "van",
+                "any",
+              ],
             },
           },
           budget: {

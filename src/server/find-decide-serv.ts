@@ -44,11 +44,15 @@ import { FIND_DECIDE_MIN_MS } from "@/domain/route-budget";
 import {
   chatCompletionContent,
   profile,
-  runServ,
   type ServDeps,
   type ServResult,
 } from "@/server/serv";
-import { callStep, DECIDE_STOP_MESSAGE, SECOND_CHECK_MISSED } from "@/server/serv/call-step";
+import {
+  callStep,
+  DECIDE_STOP_MESSAGE,
+  logRejectedServAnswer,
+  SECOND_CHECK_MISSED,
+} from "@/server/serv/call-step";
 
 function receiptEvidenceId(r: FindFreeGovReceipt): string {
   return `${r.checkId}:${r.make}|${r.model}|${r.year}`.toLowerCase();
@@ -86,14 +90,6 @@ function plainDecideFailure(judged: ServResult, issues: FindDecideIssue[]): stri
   if (issues.length === 1 && issues[0]?.message) return issues[0].message;
   if (issues.length > 0) return "the decision answer failed validation";
   return "the decision answer could not be read";
-}
-
-function logRejectedDecideAnswer(text: string | null | undefined, issues: FindDecideIssue[]): void {
-  const sample = (text ?? "").slice(0, 2000);
-  console.error(
-    `[choose_car] rejected decide answer (${sample.length} chars): ${sample}`,
-  );
-  console.error(`[choose_car] validation issues: ${JSON.stringify(issues)}`);
 }
 
 function parseDecidePayload(
@@ -329,16 +325,32 @@ export async function runFindDecideServ(input: {
     };
   };
 
-  const acceptDecideText = (text: string): boolean => {
+  const pickKeyFromText = (text: string | null | undefined): string => {
+    const payload = tryExtractServJson(text);
+    if (
+      payload &&
+      typeof payload === "object" &&
+      !Array.isArray(payload) &&
+      typeof (payload as { pickKey?: unknown }).pickKey === "string"
+    ) {
+      return String((payload as { pickKey: string }).pickKey).trim();
+    }
+    return "";
+  };
+
+  const validateDecideText = (text: string) => {
     try {
-      return validateFindDecide(extractServJson(text), {
-        shortlistKeys,
-        allowedEvidenceIds,
-        askUsd: codePick?.priceUsd ?? null,
-        shortlist: shortlistMeta,
-      }).ok;
-    } catch {
-      return false;
+      const payload = extractServJson(text);
+      const pickRow = rankedByKey.get(pickKeyFromText(text)) ?? codePick!;
+      const validated = validateFindDecide(payload, decideValidateCtx(pickRow));
+      if (validated.ok) return { ok: true as const };
+      return { ok: false as const, issues: validated.issues };
+    } catch (err) {
+      const message =
+        err instanceof Error && err.message.trim()
+          ? err.message.trim()
+          : "the decision answer could not be read";
+      return { ok: false as const, issues: [{ field: "decide", message }] };
     }
   };
 
@@ -356,74 +368,14 @@ export async function runFindDecideServ(input: {
       user: decideUser,
       critical: true,
       remainingMs: input.remainingMs ?? decideTimeoutMs,
-      accept: acceptDecideText,
+      validate: validateDecideText,
       deps: servDeps,
     });
-    let judged = step.result;
-    let parsed = parseDecidePayload(
+    const judged = step.result;
+    const parsed = parseDecidePayload(
       judged.ok ? judged.text : null,
-      decideValidateCtx(
-        (() => {
-          const guess =
-            judged.ok && judged.text
-              ? (() => {
-                  const payload = tryExtractServJson(judged.text);
-                  if (
-                    payload &&
-                    typeof payload === "object" &&
-                    !Array.isArray(payload) &&
-                    typeof (payload as { pickKey?: unknown }).pickKey === "string"
-                  ) {
-                    return String((payload as { pickKey: string }).pickKey).trim();
-                  }
-                  return "";
-                })()
-              : "";
-          return rankedByKey.get(guess) ?? codePick;
-        })(),
-      ),
+      decideValidateCtx(rankedByKey.get(pickKeyFromText(judged.ok ? judged.text : null)) ?? codePick),
     );
-
-    // One validation-error repair call (triage pattern). Real transport failure still stops.
-    if (!parsed.validated.ok && judged.ok) {
-      logRejectedDecideAnswer(
-        judged.text,
-        parsed.validated.ok === false ? parsed.validated.issues : [],
-      );
-      const repair = await runServ(
-        "find_decide",
-        {
-          user: JSON.stringify({
-            facts: JSON.parse(decideUser).facts,
-            validationError: {
-              message: "Previous decide reply failed validation. Fix these issues and return JSON only.",
-              issues: parsed.validated.ok === false ? parsed.validated.issues : [],
-            },
-          }),
-        },
-        servDeps,
-      );
-      judged = repair;
-      const repairGuess =
-        repair.ok && repair.text
-          ? (() => {
-              const payload = tryExtractServJson(repair.text);
-              if (
-                payload &&
-                typeof payload === "object" &&
-                !Array.isArray(payload) &&
-                typeof (payload as { pickKey?: unknown }).pickKey === "string"
-              ) {
-                return String((payload as { pickKey: string }).pickKey).trim();
-              }
-              return "";
-            })()
-          : "";
-      parsed = parseDecidePayload(
-        repair.ok ? repair.text : null,
-        decideValidateCtx(rankedByKey.get(repairGuess) ?? codePick),
-      );
-    }
 
     const revalidated = parsed.validated;
     const rawResponse =
@@ -435,7 +387,7 @@ export async function runFindDecideServ(input: {
       ok: judged.ok && revalidated.ok,
       id: providerId,
     });
-    if (revalidated.ok) {
+    if (step.status === "ok" && revalidated.ok) {
       decide = revalidated.decide;
       source = "SERV";
       proofRecords.push(
@@ -450,6 +402,7 @@ export async function runFindDecideServ(input: {
             shortlistKeys,
             pickKey: decide.pickKey,
             dropped: revalidated.dropped,
+            repaired: step.repaired,
           },
           verdict: decide.action,
           detail: decide.confidenceWhy,
@@ -457,8 +410,12 @@ export async function runFindDecideServ(input: {
         }),
       );
     } else {
-      const issues = revalidated.ok === false ? revalidated.issues : [];
-      logRejectedDecideAnswer(judged.ok ? judged.text : null, issues);
+      const issues =
+        step.validationIssues ??
+        (revalidated.ok === false ? revalidated.issues : []);
+      if (judged.ok && issues.length > 0) {
+        logRejectedServAnswer("find_decide", judged.text, issues);
+      }
       decideFailureDetail = scrubDecideFailureDetail(plainDecideFailure(judged, issues));
       console.error(`[choose_car] ${decideFailureDetail}`);
       const failedId = providerResponseId(providerId);
@@ -473,13 +430,14 @@ export async function runFindDecideServ(input: {
           inputs: {
             shortlistKeys,
             issues,
+            repaired: step.repaired,
           },
           detail: decideFailureDetail,
           rawResponse,
         }),
       );
       // Stopped / unreadable decide is not a decision. Do not publish a code verdict.
-      if (!judged.ok || step.status === "stopped" || parsed.unparseable) {
+      if (!judged.ok || step.status === "stopped" || parsed.unparseable || !revalidated.ok) {
         return {
           bestDeal: input.bestDeal,
           decide: {
