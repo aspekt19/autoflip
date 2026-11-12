@@ -1,6 +1,7 @@
 /**
- * When hard gates / soft-as-filter preferences empty a live inventory, relax in order:
- * soft preferences first, then seller distance stepwise (not Nationwide). Always name what excluded cars.
+ * Legacy inventory widen helpers. Pre-SERV enforceHard / distance widen is deleted —
+ * {@link filterInventoryWithWiden} is a passthrough. softFiltersAppliedAsHard /
+ * widenExplanation remain for observational copy / tests.
  */
 import type { StructuredNeed } from "./need";
 import { listingWithinNeed } from "./need";

@@ -297,7 +297,7 @@ describe("reasoning_effort — sweep every SERV profile / request builder", () =
     for (const id of ids) {
       const entry = profiles.PROFILES[id];
       expect((entry.reasoningEffort as string) === "none").toBe(false);
-      const body = requestFor(id, "sweep");
+      const body = requestFor(id, "sweep") as Record<string, unknown>;
       const effort =
         typeof body.reasoning_effort === "string"
           ? body.reasoning_effort

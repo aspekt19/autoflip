@@ -1047,7 +1047,7 @@ export async function advanceResaleJob(
           updatedAt: new Date().toISOString(),
       };
       await storeResaleJob(deps.kv, job);
-      // Honest failure only — never classic inventory / code choose. No charge to refund.
+      // Never fall through to classic inventory / code choose. No charge to refund.
       return {
           ok: false,
           status: 503,

@@ -156,16 +156,19 @@ describe("SERV boundary enforcement — no pre-SERV hard row filter on agent inv
   });
 
   it("find-match must not use applyHardGate / enforceHard as a pre-SERV inventory gate", () => {
-    // Classic inventory brain is deleted; if find-match remains, it must not drop rows
-    // for product hard filters before SERV chooses.
-    const files = productionSources().filter(
-      (f) => f.path === "src/server/find-match.ts" || f.path === "src/domain/inventory-widen.ts",
-    );
+    // Classic inventory brain is deleted; find-match must not drop rows for product
+    // hard filters before SERV chooses. (inventory-widen may remain for legacy tests
+    // but must not be called from find-match — asserted via import scan below.)
+    const files = productionSources().filter((f) => f.path === "src/server/find-match.ts");
     const offenders = hits(files, /\b(applyHardGate|enforceHard)\s*\(/, { codeOnly: true });
     expect(
       offenders,
       `pre-SERV hard gate still present in: ${offenders.join(", ")}`,
     ).toEqual([]);
+    const importsWiden = hits(files, /\binventory-widen\b|\bfilterInventoryWithWiden\b/, {
+      codeOnly: true,
+    });
+    expect(importsWiden).toEqual([]);
   });
 });
 

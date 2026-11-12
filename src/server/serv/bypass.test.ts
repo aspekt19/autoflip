@@ -29,6 +29,7 @@ describe("SERV layer", () => {
       if (file.includes(`${path.sep}find-agent${path.sep}`)) continue;
       if (file.includes(`${path.sep}resale-agent${path.sep}`)) continue;
       if (file.endsWith(`${path.sep}serv-boundary.ts`) || file.endsWith(`${path.sep}serv-boundary.test.ts`)) continue;
+      if (file.endsWith(`${path.sep}serv-boundary-enforcement.test.ts`)) continue;
       if (file.endsWith(`${path.sep}find-agent.ts`) || file.endsWith(`${path.sep}resale-agent.ts`)) continue;
       const text = readFileSync(file, "utf8");
       if (/postServ\s*\(/.test(text) || text.includes("inference-api.openserv.ai") || text.includes("/chat/completions") || text.includes("/responses")) {

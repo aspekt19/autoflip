@@ -326,17 +326,6 @@ export function radarCandidateForServ(
   return { pass: true, why, numbers };
 }
 
-/** @deprecated Use radarCandidateForServ — soft prefilter is deleted. */
-export function prefilterListing(
-  listing: Listing,
-  criteria: WatchCriteria,
-  pool: readonly Listing[],
-  mode: Mode,
-  asOfYear: number,
-): PrefilterDecision {
-  return radarCandidateForServ(listing, criteria, pool, mode, asOfYear);
-}
-
 function formatMoney(value: number): string {
   return value.toLocaleString("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 });
 }
