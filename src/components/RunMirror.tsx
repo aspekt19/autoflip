@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { refreshPublishedCreditBalance } from "@/domain/credit-balance-event";
 import type { RunView } from "@/domain/run-view";
 import { RunReport } from "./RunReport";
 
@@ -55,6 +56,12 @@ export function RunMirror({
       window.clearTimeout(timer);
     };
   }, [runId]);
+
+  useEffect(() => {
+    if (run?.phase === "finished" || run?.phase === "stopped") {
+      void refreshPublishedCreditBalance();
+    }
+  }, [run?.id, run?.phase]);
 
   if (!runId) return null;
   if (!run && missing) return <p className="hint">This search is not saved yet.</p>;

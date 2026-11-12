@@ -19,7 +19,7 @@ import { resalePrimaryListingLink } from "@/domain/resale-listing-link";
 import { resaleCardCopy } from "@/domain/resale-outcome";
 import { resaleEdgeSentence, resalePickHeading } from "@/domain/resale-presentation";
 import { SEARCH_RADII_MILES } from "@/domain/need";
-import { publishCreditBalance, refreshPublishedCreditBalance } from "@/domain/credit-balance-event";
+import { refreshPublishedCreditBalance } from "@/domain/credit-balance-event";
 import { RunMirror } from "./RunMirror";
 
 export function ResaleFlow() {
@@ -197,11 +197,7 @@ function ResaleSearchForm({ credits, onAuthLost }: { credits: number | null; onA
       setError(`${body.message ?? "The resale search did not finish."}${hint}`);
       return;
     }
-    if (typeof body.balance === "number" && Number.isFinite(body.balance)) {
-      publishCreditBalance(body.balance);
-    } else {
-      void refreshPublishedCreditBalance();
-    }
+    void refreshPublishedCreditBalance();
     setResult({
       best: body.best ?? null,
       alternatives: body.alternatives ?? [],
@@ -475,8 +471,26 @@ function ResaleSearchForm({ credits, onAuthLost }: { credits: number | null; onA
 
   useEffect(() => {
     if (!result) return;
-    document.getElementById("resale-result")?.scrollIntoView({ block: "start" });
+    document.getElementById("resale-result")?.scrollIntoView?.({ block: "start" });
   }, [result]);
+
+  function startNewSearch() {
+    setResult(null);
+    setRunId(null);
+    setFollowRun(false);
+    setError(null);
+    setProgressLabel(null);
+    setProgressSteps(null);
+    setPartialJournal(null);
+    setSavedRunId(null);
+    try {
+      window.sessionStorage.removeItem("lemonless-resale-run");
+    } catch {
+      /* ignore */
+    }
+  }
+
+  const resultIsPrimary = Boolean(result) || followRun;
 
   return (
     <div className="panel resale-flow">
@@ -488,7 +502,14 @@ function ResaleSearchForm({ credits, onAuthLost }: { credits: number | null; onA
           <ResaleSearchResultView result={result} runId={runId} />
         </div>
       ) : null}
-      {savedRunId && !runId && !result ? (
+      {resultIsPrimary ? (
+        <p className="btn-row">
+          <button type="button" className="quiet" onClick={startNewSearch}>
+            New search
+          </button>
+        </p>
+      ) : null}
+      {!resultIsPrimary && savedRunId && !runId && !result ? (
         <p className="hint">
           You have a recent resale search.{" "}
           <button
@@ -513,10 +534,13 @@ function ResaleSearchForm({ credits, onAuthLost }: { credits: number | null; onA
           </button>
         </p>
       ) : null}
+      {!resultIsPrimary ? (
+      <>
       <p className="hint">
-        Budget is the only required field. Profit target and repair skill are optional. Results always include a verdict (buy /
-        negotiate / pass / needs inspection) with High / Medium / Low confidence — never a dead end. Figures are
-        estimates from asking prices — not sold prices, and not a profit guarantee.
+        Budget is the only required field. Profit target and repair skill are optional. When cars match, the result
+        includes a verdict (buy, negotiate, pass, or get it inspected) with High, Medium, or Low confidence. If no
+        cars match, you get that explanation and no verdict. Figures are estimates from asking prices — not sold
+        prices, and not a profit guarantee.
       </p>
       {credits != null ? (
         <p className="hint">
@@ -745,6 +769,8 @@ function ResaleSearchForm({ credits, onAuthLost }: { credits: number | null; onA
         </summary>
         <ResaleEvaluateForm onAuthLost={onAuthLost} />
       </details>
+      </>
+      ) : null}
     </div>
   );
 }

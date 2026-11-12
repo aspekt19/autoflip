@@ -366,7 +366,7 @@ export async function runResaleSearch(
       : `Shortlisted ${pnls.length} flip candidate${pnls.length === 1 ? "" : "s"} — continuing agent steps`;
     const message = emptyPool
       ? match.body.message ??
-        "No listings cleared similar-listing economics inside this budget. Try a higher budget, nationwide radius, or fewer filters — this is still a verdict, not a dead end."
+        "No listings cleared similar-listing economics inside this budget. Try a higher budget, a wider radius, or fewer filters."
       : `Code ranked ${pnls.length} candidates that are priced below similar listings (after costs). Next steps: triage, pick, and shopper decide.`;
     const nextStep = emptyPool
       ? match.body.nextStep ?? "Raise the budget or clear optional filters, then search again (1 report credit)."

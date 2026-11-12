@@ -178,15 +178,6 @@ function CheckFlowForm() {
         }),
       );
     }
-    const knownBalance =
-      typeof from?.balance === "number"
-        ? from.balance
-        : typeof from?.credits === "number"
-          ? from.credits
-          : null;
-    if (knownBalance != null) {
-      publishCreditBalance(knownBalance);
-    }
     try {
       const response = await fetch("/api/account", { cache: "no-store" });
       const body = (await response.json()) as {

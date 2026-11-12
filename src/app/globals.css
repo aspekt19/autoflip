@@ -580,10 +580,46 @@ span.nav-go { cursor: default; }
 .hero-chat { display: grid; gap: 12px; margin-top: 18px; }
 .hero-chat textarea { width: 100%; min-height: 96px; border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; background: var(--paper); resize: vertical; }
 .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; border: 0; }
-.listing-grid { display: grid; gap: 16px; margin: 16px 0 28px; }
-.listing-card { display: grid; grid-template-columns: 240px minmax(0, 1fr); gap: 16px; border: 1px solid var(--line); border-radius: 16px; background: var(--paper); overflow: hidden; }
-.listing-card img, .listing-card .photo-fallback { width: 100%; height: 100%; min-height: 160px; object-fit: cover; background: var(--blue-soft); }
-.listing-body { padding: 16px 16px 16px 0; }
+.listing-grid {
+  container-type: inline-size;
+  display: grid;
+  gap: 16px;
+  margin: 16px 0 28px;
+  /* auto-fit drops empty tracks, so one car does not leave a blank column. */
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 36rem), 1fr));
+}
+.listing-card {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 16px;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: var(--paper);
+  min-inline-size: 0;
+}
+.listing-card > img,
+.listing-card > .photo-fallback {
+  inline-size: 100%;
+  aspect-ratio: 16 / 10;
+  max-block-size: 220px;
+  object-fit: cover;
+  background: var(--blue-soft);
+}
+.listing-body { min-inline-size: 0; padding: 0 16px 16px; }
+@container (min-width: 32rem) {
+  .listing-card:has(> img),
+  .listing-card:has(> .photo-fallback) {
+    grid-template-columns: minmax(0, 11rem) minmax(12rem, 1fr);
+    align-items: start;
+  }
+  .listing-card > img,
+  .listing-card > .photo-fallback {
+    max-block-size: none;
+    block-size: 100%;
+    min-block-size: 8rem;
+  }
+  .listing-body { padding: 16px 16px 16px 0; }
+}
 .listing-meta {
   margin: 0 0 8px;
   font-family: var(--type-brand);
@@ -881,7 +917,7 @@ span.nav-go { cursor: default; }
 .progress {
   list-style: none;
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 9rem), 1fr));
   gap: 8px;
   margin: 8px 0 28px;
   padding: 0;
@@ -889,15 +925,19 @@ span.nav-go { cursor: default; }
 .progress li {
   min-width: 0;
   padding-top: 10px;
+  padding-inline: 0.15em;
   border-top: 3px solid var(--line);
-  font-family: var(--type-brand);
+  /* Sentence case in the body face. Uppercase display type clips the first
+     letter, so "Closer look" was painting as "LOSER LOOK". */
+  font-family: var(--sans);
   font-size: max(14px, var(--type-brand-size-label));
-  font-weight: var(--type-brand-weight);
-  letter-spacing: var(--type-brand-tracking);
-  text-transform: uppercase;
-  line-height: var(--type-brand-line);
+  font-weight: 700;
+  letter-spacing: 0;
+  text-transform: none;
+  line-height: 1.35;
+  overflow: visible;
+  overflow-wrap: break-word;
   color: var(--muted);
-  overflow-wrap: anywhere;
 }
 .progress li.is-done { border-color: var(--ink); color: var(--ink); }
 .progress li.is-current { border-color: var(--blue); color: var(--ink); }
@@ -1184,13 +1224,73 @@ button:disabled, .action:disabled, .quiet:disabled, .ghost:disabled {
   min-height: 0;
   min-width: 0;
 }
+.run-report {
+  container-type: inline-size;
+}
+.sheet-page .run-report h1,
+.flow-page .run-report h1,
+.run-report h1,
+.run-report h2,
+.run-report h3,
+.run-report .verdict-level,
+.run-report .verdict-level.badge,
+.run-report .run-car-title,
+.run-report .run-pick-label {
+  font-family: var(--sans);
+  font-weight: 700;
+  letter-spacing: 0;
+  text-transform: none;
+  line-height: 1.3;
+  text-align: left;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+}
+.sheet-page .run-report h1,
+.flow-page .run-report h1,
+.run-report h1 {
+  font-size: 1.5rem;
+  font-size: clamp(1.35rem, 3cqi, 1.75rem);
+  margin-bottom: 8px;
+}
+.run-report h2,
+.run-report .verdict-level,
+.run-report .verdict-level.badge {
+  font-size: 1.25rem;
+  font-size: clamp(1.15rem, 2.4cqi, 1.4rem);
+  margin: 12px 0 8px;
+  padding: 0;
+}
+.run-report .run-car-title {
+  font-size: 1.15rem;
+  font-size: clamp(1.05rem, 2.2cqi, 1.25rem);
+  margin: 0 0 8px;
+}
+.run-report .run-pick-label {
+  margin: 0 0 4px;
+  font-size: 0.95rem;
+  color: var(--muted);
+}
+.run-listings {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 16px;
+  margin-top: 16px;
+}
+.run-car {
+  min-inline-size: 0;
+  padding-top: 12px;
+  border-top: 1px solid var(--line);
+}
 .resale-results h1,
 .resale-results h2,
 .resale-results .verdict-level {
   max-width: 100%;
   text-align: left;
-  font-size: clamp(28px, 3vw, 40px);
+  font-size: clamp(1.35rem, 3cqi, 1.75rem);
   overflow-wrap: anywhere;
+  font-family: var(--sans);
+  letter-spacing: 0;
+  text-transform: none;
 }
 .run-report-footer {
   display: flex;
@@ -1243,6 +1343,7 @@ button:disabled, .action:disabled, .quiet:disabled, .ghost:disabled {
   display: grid;
   gap: 28px 32px;
   align-items: start;
+  grid-template-columns: minmax(0, 1fr);
 }
 .find-col-main,
 .find-col-side { min-width: 0; }
@@ -1259,8 +1360,10 @@ button:disabled, .action:disabled, .quiet:disabled, .ghost:disabled {
 }
 .top-picks .purchase-readiness { margin-left: 0; }
 @media (min-width: 1100px) {
-  .find-results-grid { grid-template-columns: minmax(0, 1.15fr) minmax(0, 0.85fr); }
-  .listing-grid { grid-template-columns: 1fr 1fr; }
+  /* A second column only when the main column actually has cars or notes. */
+  .find-results-grid:has(.find-col-main :is(li, ul, ol, p)) {
+    grid-template-columns: minmax(0, 1.15fr) minmax(min(100%, 18rem), 0.85fr);
+  }
   .report-history-list { grid-template-columns: 1fr 1fr; }
 }
 .panel { background: transparent; padding: 8px 0 0; }
@@ -1511,13 +1614,15 @@ code, .sheet-page a, .prose a {
 }
 .row-actions { display: flex; justify-content: flex-end; }
 .car-title {
-  font-family: var(--type-brand);
-  font-size: max(18px, 1.25rem);
-  font-weight: var(--type-brand-weight);
-  letter-spacing: var(--type-brand-tracking-tight);
-  text-transform: uppercase;
-  line-height: var(--type-brand-line);
+  font-family: var(--sans);
+  font-size: 1.15rem;
+  font-size: clamp(1.05rem, 2.5cqi, 1.3rem);
+  font-weight: 700;
+  letter-spacing: 0;
+  text-transform: none;
+  line-height: 1.3;
   margin: 0 0 4px;
+  overflow-wrap: anywhere;
 }
 
 table { width: 100%; border-collapse: collapse; font-size: 16px; }
@@ -1959,6 +2064,15 @@ details.similar-cars > summary,
   max-width: none;
   margin-inline: 0;
   padding-inline: var(--site-pad);
+}
+.agent-decision-trail .steps-3 strong,
+.serv-decision-journal strong {
+  font-family: var(--sans);
+  font-weight: 700;
+  letter-spacing: 0;
+  text-transform: none;
+  line-height: 1.35;
+  overflow-wrap: break-word;
 }
 .story-steps { margin-top: 8px; }
 .story-steps li { background: #101010; border: 1px solid rgba(255,255,255,0.12); }

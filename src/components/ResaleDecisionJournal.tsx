@@ -6,6 +6,7 @@ import {
   buyerSafeResaleJournalText,
   formatResaleJournalInputId,
 } from "@/domain/resale-journal-copy";
+import { plainRepeatLine } from "@/domain/serv-decision-journal-copy";
 import { providerResponseId } from "@/domain/serv-response-id";
 
 /** User-facing SERV/code decision journal for Resale and Radar. */
@@ -36,13 +37,7 @@ export function ResaleDecisionJournalView({
           <li key={step.id}>
             <strong>
               {step.actor === "SERV" ? "Our review" : "Calculated"}.{" "}
-              {speak(
-                step.repeat > 1 && /closer look|deeper check/i.test(step.decided)
-                  ? `We took a closer look at ${step.repeat} listings.`
-                  : step.repeat > 1
-                    ? `${step.decided.replace(/\.\s*$/, "")} — repeated ${step.repeat} times.`
-                    : step.decided,
-              )}
+              {speak(plainRepeatLine(step.decided, step.repeat))}
             </strong>
             <span>
               Why: {speak(step.why)}

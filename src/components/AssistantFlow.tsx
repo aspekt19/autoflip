@@ -39,7 +39,8 @@ import {
   type FindAnalysisPayload,
 } from "@/domain/find-analysis-handoff";
 import { buyerFacingFailure } from "@/domain/buyer-facing-error";
-import { publishCreditBalance, refreshPublishedCreditBalance } from "@/domain/credit-balance-event";
+import { joinBuyerParts } from "@/domain/buyer-text";
+import { refreshPublishedCreditBalance } from "@/domain/credit-balance-event";
 import { isReportHardRefusal, reportRefusalUserMessage } from "@/domain/report-refusal-ui";
 import { findEmptyCopy, type FindEmptyReason } from "@/domain/find-empty";
 import type { FindListingPriceView } from "@/domain/find-listing-price";
@@ -973,7 +974,7 @@ function AssistantFlow({
           ? body.riskCoverage.note.trim()
           : "";
       if (toolNote || riskNote) {
-        setRiskCoverageNote([toolNote, riskNote].filter(Boolean).join(" "));
+        setRiskCoverageNote(joinBuyerParts([toolNote, riskNote]));
       }
       const detail =
         body.loop?.detail ||
@@ -1118,8 +1119,7 @@ function AssistantFlow({
         error?: string;
         runId?: string | null;
       };
-      if (typeof body.balance === "number") publishCreditBalance(body.balance);
-      else void refreshPublishedCreditBalance();
+      void refreshPublishedCreditBalance();
       if (
         response.status === 401 ||
         (response.status === 403 &&
@@ -2098,7 +2098,9 @@ function AssistantFlow({
       {stage === "results" ? (
         <div id="find-results" className="find-results">
           <RunMirror runId={runId} />
-          <h2 className="prose-title">Cars that fit</h2>
+          {groups.some((group) => group.listings.length > 0) ? (
+            <h2 className="prose-title">Cars that fit</h2>
+          ) : null}
           <PriceRatingHow />
           <DecisionNote scene="find" proofs={checks} />
           {need ? <p className="hint">Scope: {matchScope ?? searchScopeLabel(need)}</p> : null}
@@ -2622,7 +2624,14 @@ function AssistantFlow({
               {error} {dealRadarUi && /plan|watch/i.test(error) ? <a href="/pricing">See radar plans</a> : null}
             </p>
           ) : null}
-          {groups.map((group) => (
+          {groups.map((group) =>
+            group.listings.length === 0 ? (
+              group.providerWarning ? (
+                <p className="warn-box" key={group.direction.id}>
+                  {group.providerWarning}
+                </p>
+              ) : null
+            ) : (
             <section key={group.direction.id}>
               <h3>{group.direction.segment}</h3>
               <p>{group.direction.why}</p>
@@ -2863,7 +2872,8 @@ function AssistantFlow({
                 );
               })()}
             </section>
-          ))}
+          ),
+          )}
         </div>
       ) : null}
 

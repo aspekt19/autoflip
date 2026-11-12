@@ -42,6 +42,19 @@ export function Header() {
   }, []);
 
   useEffect(() => {
+    function refreshBalance() {
+      if (document.visibilityState === "hidden") return;
+      void accountLoad.reload();
+    }
+    window.addEventListener("focus", refreshBalance);
+    document.addEventListener("visibilitychange", refreshBalance);
+    return () => {
+      window.removeEventListener("focus", refreshBalance);
+      document.removeEventListener("visibilitychange", refreshBalance);
+    };
+  }, [accountLoad.reload]);
+
+  useEffect(() => {
     setLiveCredits(null);
   }, [accountLoad.body]);
 

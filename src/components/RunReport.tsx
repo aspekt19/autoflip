@@ -1,11 +1,18 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect } from "react";
 import type { RunView } from "@/domain/run-view";
 import { runReportModel } from "@/domain/run-view";
 import { pickHeading } from "@/domain/run-view";
 import { formatNumber, formatUsd } from "@/domain/format";
 import { RunClarificationForm } from "./RunClarificationForm";
+
+function newSearchHref(kind: RunView["kind"]): string {
+  if (kind === "resale") return "/resale";
+  if (kind === "check") return "/check";
+  return "/find";
+}
 
 export function RunReport({ run }: { run: RunView }) {
   const model = runReportModel(run);
@@ -63,30 +70,40 @@ export function RunReport({ run }: { run: RunView }) {
           </ul>
         </section>
       ) : null}
-      {model.listings.map((car) => (
-        <section key={car.vin} data-vin={car.vin}>
-          {pickHeading(run, Boolean(car.picked)) ? (
-            <h2 className="prose-title">{pickHeading(run, true)}</h2>
-          ) : null}
-          <h2>{car.title}</h2>
-          {car.summary ? <p>{car.summary}</p> : null}
-          <p className="support">
-            {car.priceUsd == null ? "Price not listed" : formatUsd(car.priceUsd)}
-            {car.miles == null ? "" : ` · ${formatNumber(car.miles)} miles`}
-            {car.drivetrain ? ` · ${car.drivetrain}` : car.drivetrainUnknown ? " · Drivetrain not listed" : ""}
-            {car.place ? ` · ${car.place}` : ""}
-            {car.dealer ? ` · ${car.dealer}` : ""}
-          </p>
-          {car.vdp && car.linkLabel ? (
-            <p>
-              <a href={car.vdp}>{car.linkLabel}</a>
-            </p>
-          ) : null}
-        </section>
-      ))}
+      {model.listings.length > 0 ? (
+        <div className="run-listings">
+          {model.listings.map((car) => {
+            const guidance = pickHeading(run, Boolean(car.picked));
+            return (
+              <article key={car.vin} className="run-car" data-vin={car.vin}>
+                {guidance ? <p className="run-pick-label">{guidance}</p> : null}
+                <h2 className="run-car-title">{car.title}</h2>
+                {car.summary ? <p>{car.summary}</p> : null}
+                <p className="support">
+                  {car.priceUsd == null ? "Price not listed" : formatUsd(car.priceUsd)}
+                  {car.miles == null ? "" : ` · ${formatNumber(car.miles)} miles`}
+                  {car.drivetrain ? ` · ${car.drivetrain}` : car.drivetrainUnknown ? " · Drivetrain not listed" : ""}
+                  {car.place ? ` · ${car.place}` : ""}
+                  {car.dealer ? ` · ${car.dealer}` : ""}
+                </p>
+                {car.vdp && car.linkLabel ? (
+                  <p>
+                    <a href={car.vdp}>{car.linkLabel}</a>
+                  </p>
+                ) : null}
+              </article>
+            );
+          })}
+        </div>
+      ) : null}
       <div className="run-report-footer">
-        <p className="hint">
-          <a href={model.permalink}>Open this search</a>
+        <p className="btn-row">
+          <Link className="quiet" href={newSearchHref(run.kind)}>
+            New search
+          </Link>
+          <a className="quiet" href={model.permalink}>
+            Open this search
+          </a>
         </p>
         {model.viewerIsOwner ? <RunClarificationForm runId={run.id} /> : null}
       </div>

@@ -3,9 +3,18 @@
  */
 
 const SENTENCE_SPLIT = /(?<=[.!?])\s+/;
+const SENTENCE_END = /[.!?…](?:["”')\]]+)?$/;
 
 export function normalizeBuyerSpace(value: string): string {
   return value.replace(/\s+/g, " ").trim();
+}
+
+/** A joined sentence needs an end mark. Fragments that already end with one are left as they are. */
+export function ensureSentenceEnd(value: string): string {
+  const text = normalizeBuyerSpace(value);
+  if (!text) return "";
+  if (SENTENCE_END.test(text)) return text;
+  return `${text}.`;
 }
 
 /** Drop a later sentence that repeats an earlier one, including when it is glued on without a period. */
@@ -27,7 +36,7 @@ export function collapseRepeatedSentences(value: string): string {
     if (laterHoldsEarlier >= 0) continue;
     kept.push(part);
   }
-  return kept.join(" ");
+  return kept.map((part) => ensureSentenceEnd(part)).join(" ");
 }
 
 /** Join paragraphs that say the same thing only once. */
@@ -50,7 +59,7 @@ export function joinBuyerParts(parts: Array<string | null | undefined>): string 
         break;
       }
     }
-    if (!skip) out.push(norm);
+    if (!skip) out.push(ensureSentenceEnd(norm));
   }
   return collapseRepeatedSentences(out.join(" "));
 }

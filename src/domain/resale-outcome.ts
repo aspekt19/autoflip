@@ -4,6 +4,7 @@
  * positive gap after costs. A chosen car is never called Skip.
  */
 
+import { ensureSentenceEnd, joinBuyerParts } from "./buyer-text";
 import { resaleEdgeSentence } from "./resale-presentation";
 
 export type ResaleOutcomeKind = "pick" | "skip";
@@ -78,13 +79,12 @@ export function resaleBuyerCopy(input: {
   carTitle: string | null;
   thresholdUsd?: number | null;
 }): { headline: string; verdictLabel: string; message: string } {
-  const review = input.reviewNote?.trim() ? ` ${input.reviewNote.trim()}` : "";
   if (input.outcome === "skip") {
     const why = input.skipReason?.trim() || "No car met the sell window or a positive gap after costs.";
     return {
       headline: "Skip",
       verdictLabel: "Skip",
-      message: `${why}${review}`.replace(/\s+/g, " ").trim(),
+      message: joinBuyerParts([why, input.reviewNote]),
     };
   }
   const word = resaleActionLabel(input.action);
@@ -94,10 +94,10 @@ export function resaleBuyerCopy(input: {
     thresholdUsd: input.thresholdUsd,
   });
   const car = input.carTitle ? `${input.carTitle}: ` : "";
-  const gapBit = gap ? `${car}${gap} ` : "";
+  const gapBit = gap ? `${car}${ensureSentenceEnd(gap)}` : "";
   return {
     headline: word,
     verdictLabel: word,
-    message: `${gapBit}${word}. Confidence ${input.confidence}.${review}`.replace(/\s+/g, " ").trim(),
+    message: joinBuyerParts([gapBit, word, `Confidence ${input.confidence}.`, input.reviewNote]),
   };
 }
