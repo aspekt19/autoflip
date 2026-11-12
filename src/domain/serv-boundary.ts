@@ -5,7 +5,8 @@
  * SERV owns: product decisions (what to search, what to pick, what to relax).
  *
  * Invariants (enforced by serv-boundary.test.ts):
- * 1. Only user-set constraints (note/form provenance) serialize to SERV — defaults absent.
+ * 1. Only origin `"user"` form constraints serialize to SERV as Form edits —
+ *    note/serv/suggestion are context/suggestions; defaults absent.
  * 2. search_listings is a thin proxy: pass-through params + body vocabulary mapping;
  *    return unfiltered provider rows + funnel; code must not drop rows for product decisions.
  * 3. SERV answers validated (VIN in results, price/miles/budget/code math); on fail return
@@ -19,6 +20,15 @@
 import { bodyFamily, providerBodyStyleParam } from "@/domain/body-style";
 import type { Listing } from "@/domain/types";
 import type { SearchFormEdits } from "@/domain/search-spec";
+import {
+  acceptUserConstraint,
+  isUserProvenanced,
+  pickUserFormConstraints,
+  readProvenanced,
+  type ConstraintOrigin,
+  type Provenanced,
+  type UserProvenanced,
+} from "@/domain/constraint-provenance";
 import {
   budgetFromText,
   bodyFromIntake,
@@ -41,6 +51,7 @@ export {
   synthesizeRelaxedConditionsFromSearches,
 };
 export type { AgentSearchJournalRow };
+export type { ConstraintOrigin, Provenanced, UserProvenanced };
 
 /** gpt-6.1-sol-supported efforts. Never "none". */
 export const SERV_AGENT_REASONING_EFFORTS = ["low", "medium", "high", "xhigh"] as const;
@@ -58,17 +69,21 @@ export function normalizeServAgentReasoningEffort(
 /* UserIntent — raw note + only user-set fields                               */
 /* -------------------------------------------------------------------------- */
 
-export type UserIntentProvenance = "note" | "form";
+/** @deprecated Prefer ConstraintOrigin; `"form"` maps to `"user"`. */
+export type UserIntentProvenance = ConstraintOrigin | "form";
 
 export type UserIntentField<T> = {
   value: T;
-  provenance: UserIntentProvenance;
+  /** Canonical wire key is `origin`; `provenance` kept for agent prompt compat. */
+  provenance: ConstraintOrigin;
+  origin?: ConstraintOrigin;
   quote?: string;
 };
 
 /**
  * Shopper intent for SERV. Untouched / default / code-invented fields are
  * **absent** (not null). Never invent radius, year bands, or body from defaults.
+ * Form/hard constraints on `fields` are user-origin only; note text is context.
  */
 export type UserIntent = {
   note: string;
@@ -101,109 +116,123 @@ export const USER_INTENT_CONSTRAINT_KEYS = [
 
 export type UserIntentConstraintKey = (typeof USER_INTENT_CONSTRAINT_KEYS)[number];
 
-function dirtyNumber(edit: { value: number | null; dirty: boolean } | undefined): number | null {
-  if (!edit?.dirty || edit.value == null || !Number.isFinite(edit.value)) return null;
+function userNumber(edit: Provenanced<number | null> | undefined): number | null {
+  if (!isUserProvenanced(edit) || edit.value == null || !Number.isFinite(edit.value)) return null;
   return Math.round(edit.value);
 }
 
-function dirtyString(edit: { value: string | null; dirty: boolean } | undefined): string | null {
-  if (!edit?.dirty) return null;
+function userString(edit: Provenanced<string | null> | undefined): string | null {
+  if (!isUserProvenanced(edit)) return null;
   const value = edit.value?.trim() ?? "";
   return value || null;
 }
 
-/** Build UserIntent from raw note + optional dirty form edits. */
+function userField<T>(value: T): UserIntentField<T> {
+  const gated = acceptUserConstraint({ value, origin: "user" as const });
+  return { value: gated.value, provenance: "user", origin: "user" };
+}
+
+function noteField<T>(value: T): UserIntentField<T> {
+  return { value, provenance: "note", origin: "note" };
+}
+
+/**
+ * Build UserIntent from raw note + optional provenanced form edits.
+ * Only `origin: "user"` form cells become hard/form constraints on `fields`.
+ * Note-extracted values stay as `origin: "note"` for context — stripped from
+ * {@link serializeServFormConstraints} (Form edits channel).
+ */
 export function buildUserIntent(input: {
   note: string;
   formEdits?: SearchFormEdits | null;
   now?: Date;
 }): UserIntent {
   const note = input.note ?? "";
-  const form = input.formEdits ?? {};
+  const form = pickUserFormConstraints(input.formEdits ?? {});
   const now = input.now ?? new Date();
   const fields: UserIntent["fields"] = {};
 
-  const priceDirty = dirtyNumber(form.priceMaxUsd);
-  if (priceDirty != null && priceDirty >= 1000) {
-    fields.priceMaxUsd = { value: priceDirty, provenance: "form" };
+  const priceUser = userNumber(form.priceMaxUsd);
+  if (priceUser != null && priceUser >= 1000) {
+    fields.priceMaxUsd = userField(priceUser);
   } else {
     const fromNote = budgetFromText(note);
     if (fromNote != null && fromNote >= 1000) {
-      fields.priceMaxUsd = { value: fromNote, provenance: "note" };
+      fields.priceMaxUsd = noteField(fromNote);
     }
   }
 
-  const yearMinDirty = dirtyNumber(form.yearMin);
-  const yearMaxDirty = dirtyNumber(form.yearMax);
+  const yearMinUser = userNumber(form.yearMin);
+  const yearMaxUser = userNumber(form.yearMax);
   const years = yearsFromNote(note, now);
-  if (yearMinDirty != null) {
-    fields.yearMin = { value: yearMinDirty, provenance: "form" };
+  if (yearMinUser != null) {
+    fields.yearMin = userField(yearMinUser);
   } else if (years.yearMin != null) {
-    fields.yearMin = { value: years.yearMin, provenance: "note" };
+    fields.yearMin = noteField(years.yearMin);
   }
-  if (yearMaxDirty != null) {
-    fields.yearMax = { value: yearMaxDirty, provenance: "form" };
+  if (yearMaxUser != null) {
+    fields.yearMax = userField(yearMaxUser);
   } else if (years.yearMax != null) {
-    fields.yearMax = { value: years.yearMax, provenance: "note" };
+    fields.yearMax = noteField(years.yearMax);
   }
 
-  const milesDirty = dirtyNumber(form.milesMax);
+  const milesUser = userNumber(form.milesMax);
   const milesNote = milesFromText(note);
-  if (milesDirty != null) {
-    fields.milesMax = { value: milesDirty, provenance: "form" };
+  if (milesUser != null) {
+    fields.milesMax = userField(milesUser);
   } else if (milesNote != null) {
-    fields.milesMax = { value: milesNote, provenance: "note" };
+    fields.milesMax = noteField(milesNote);
   }
 
-  const zipDirty = dirtyString(form.zip);
+  const zipUser = userString(form.zip);
   const zipNote = zipFromNote(note, budgetFromText(note));
-  if (zipDirty && /^\d{5}$/.test(zipDirty)) {
-    fields.zip = { value: zipDirty, provenance: "form" };
+  if (zipUser && /^\d{5}$/.test(zipUser)) {
+    fields.zip = userField(zipUser);
   } else if (zipNote) {
-    fields.zip = { value: zipNote, provenance: "note" };
+    fields.zip = noteField(zipNote);
   }
 
-  // Radius only when the shopper dirty-edited it — never invent 100.
-  if (form.radiusMi?.dirty) {
-    fields.radiusMi = { value: form.radiusMi.value, provenance: "form" };
+  if (isUserProvenanced(form.radiusMi)) {
+    fields.radiusMi = userField(form.radiusMi.value);
   }
 
-  const bodyDirty = form.bodyStyles?.dirty ? form.bodyStyles.value?.filter(Boolean) ?? [] : null;
-  if (bodyDirty && bodyDirty.length) {
-    fields.bodyStyles = { value: bodyDirty, provenance: "form" };
+  const bodyUser = isUserProvenanced(form.bodyStyles)
+    ? form.bodyStyles.value?.filter(Boolean) ?? []
+    : null;
+  if (bodyUser && bodyUser.length) {
+    fields.bodyStyles = userField(bodyUser);
   } else {
     const bodyNote = bodyFromIntake(note);
-    if (bodyNote) fields.bodyStyles = { value: [bodyNote], provenance: "note" };
+    if (bodyNote) fields.bodyStyles = noteField([bodyNote]);
   }
 
-  const driveDirty = form.drivetrain?.dirty ? form.drivetrain.value : undefined;
-  if (driveDirty === "awd_4wd") {
-    fields.drivetrain = { value: "awd_4wd", provenance: "form" };
+  const driveUser = isUserProvenanced(form.drivetrain) ? form.drivetrain.value : undefined;
+  if (driveUser === "awd_4wd") {
+    fields.drivetrain = userField("awd_4wd" as const);
   } else if (awdLimitFromText(note) === "hard") {
-    fields.drivetrain = { value: "awd_4wd", provenance: "note" };
+    fields.drivetrain = noteField("awd_4wd" as const);
   }
 
-  const excludeDirty = form.excludeMakes?.dirty ? form.excludeMakes.value?.filter(Boolean) ?? [] : null;
-  if (excludeDirty && excludeDirty.length) {
-    fields.excludeMakes = { value: excludeDirty, provenance: "form" };
+  const excludeUser = isUserProvenanced(form.excludeMakes)
+    ? form.excludeMakes.value?.filter(Boolean) ?? []
+    : null;
+  if (excludeUser && excludeUser.length) {
+    fields.excludeMakes = userField(excludeUser);
   }
 
   if (/\bautomatic only\b|\bonly automatic\b|\bmust be automatic\b/i.test(note)) {
-    fields.transmission = { value: "automatic", provenance: "note" };
+    fields.transmission = noteField("automatic");
   } else if (/\bmanual only\b|\bonly manual\b|\bstick shift\b/i.test(note)) {
-    fields.transmission = { value: "manual", provenance: "note" };
+    fields.transmission = noteField("manual");
   }
 
   return { note, fields };
 }
 
 /**
- * Build UserIntent from legacy flat form blobs used by agent loops.
- *
- * Only fields the shopper actually touched (`dirty: true` SearchFormEdits shape,
- * or companion `*Dirty` flags) become form provenance. Bare finite / non-empty
- * values are NEVER inferred as dirty — note extraction still applies via
- * {@link buildUserIntent}.
+ * Build UserIntent from flat / legacy form blobs used by agent loops.
+ * Only `origin: "user"` (or legacy `dirty: true` / companion `*Dirty` flags)
+ * become form constraints. Bare values are NEVER inferred as user.
  */
 export function buildUserIntentFromFlatForm(input: {
   note: string;
@@ -216,64 +245,63 @@ export function buildUserIntentFromFlatForm(input: {
     typeof v === "number" && Number.isFinite(v) ? Math.round(v) : null;
   const asStr = (v: unknown): string | null => (typeof v === "string" && v.trim() ? v.trim() : null);
 
-  const dirtyEdit = <T,>(raw: unknown): { value: T; dirty: true } | undefined => {
-    if (!raw || typeof raw !== "object" || Array.isArray(raw)) return undefined;
-    const row = raw as { value?: unknown; dirty?: unknown };
-    if (row.dirty !== true) return undefined;
-    return { value: row.value as T, dirty: true };
+  const userEdit = <T,>(raw: unknown): UserProvenanced<T> | undefined => {
+    const prov = readProvenanced<T>(raw);
+    if (!isUserProvenanced(prov)) return undefined;
+    return acceptUserConstraint(prov);
   };
 
-  const priceDirty =
-    dirtyEdit<number | null>(form.priceMaxUsd) ?? dirtyEdit<number | null>(form.budgetUsd);
-  if (priceDirty) {
-    edits.priceMaxUsd = priceDirty;
+  const priceUser =
+    userEdit<number | null>(form.priceMaxUsd) ?? userEdit<number | null>(form.budgetUsd);
+  if (priceUser) {
+    edits.priceMaxUsd = priceUser;
   } else if (form.budgetDirty === true || form.priceMaxUsdDirty === true) {
     const budget = asNum(form.budgetUsd ?? form.priceMaxUsd);
     if (budget != null || form.budgetUsd === null || form.priceMaxUsd === null) {
-      edits.priceMaxUsd = { value: budget, dirty: true };
+      edits.priceMaxUsd = acceptUserConstraint({ value: budget, origin: "user" });
     }
   }
 
-  const yearMinDirty = dirtyEdit<number | null>(form.yearMin);
-  if (yearMinDirty) edits.yearMin = yearMinDirty;
+  const yearMinUser = userEdit<number | null>(form.yearMin);
+  if (yearMinUser) edits.yearMin = yearMinUser;
   else if (form.yearMinDirty === true) {
-    edits.yearMin = { value: asNum(form.yearMin), dirty: true };
+    edits.yearMin = acceptUserConstraint({ value: asNum(form.yearMin), origin: "user" });
   }
 
-  const yearMaxDirty = dirtyEdit<number | null>(form.yearMax);
-  if (yearMaxDirty) edits.yearMax = yearMaxDirty;
+  const yearMaxUser = userEdit<number | null>(form.yearMax);
+  if (yearMaxUser) edits.yearMax = yearMaxUser;
   else if (form.yearMaxDirty === true) {
-    edits.yearMax = { value: asNum(form.yearMax), dirty: true };
+    edits.yearMax = acceptUserConstraint({ value: asNum(form.yearMax), origin: "user" });
   }
 
-  const milesDirty = dirtyEdit<number | null>(form.milesMax);
-  if (milesDirty) edits.milesMax = milesDirty;
+  const milesUser = userEdit<number | null>(form.milesMax);
+  if (milesUser) edits.milesMax = milesUser;
   else if (form.milesMaxDirty === true) {
-    edits.milesMax = { value: asNum(form.milesMax), dirty: true };
+    edits.milesMax = acceptUserConstraint({ value: asNum(form.milesMax), origin: "user" });
   }
 
-  const zipDirty = dirtyEdit<string | null>(form.zip);
-  if (zipDirty) edits.zip = zipDirty;
+  const zipUser = userEdit<string | null>(form.zip);
+  if (zipUser) edits.zip = zipUser;
   else if (form.zipDirty === true) {
-    edits.zip = { value: asStr(form.zip), dirty: true };
+    edits.zip = acceptUserConstraint({ value: asStr(form.zip), origin: "user" });
   }
 
-  const bodyDirty = dirtyEdit<string[] | null>(form.bodyStyles);
-  if (bodyDirty) {
-    edits.bodyStyles = bodyDirty;
+  const bodyUser = userEdit<string[] | null>(form.bodyStyles);
+  if (bodyUser) {
+    edits.bodyStyles = bodyUser;
   } else if (form.bodyStylesDirty === true || form.bodyStyleDirty === true) {
     if (Array.isArray(form.bodyStyles)) {
       const bodies = form.bodyStyles.map((b) => String(b).trim()).filter(Boolean);
-      edits.bodyStyles = { value: bodies, dirty: true };
+      edits.bodyStyles = acceptUserConstraint({ value: bodies, origin: "user" });
     } else {
       const bodyStyle = asStr(form.bodyStyle);
-      if (bodyStyle) edits.bodyStyles = { value: [bodyStyle], dirty: true };
+      if (bodyStyle) edits.bodyStyles = acceptUserConstraint({ value: [bodyStyle], origin: "user" });
     }
   }
 
-  const radiusDirty = dirtyEdit<number | null>(form.radiusMi) ?? dirtyEdit<number | null>(form.distanceMiles);
-  if (radiusDirty) {
-    edits.radiusMi = radiusDirty;
+  const radiusUser = userEdit<number | null>(form.radiusMi) ?? userEdit<number | null>(form.distanceMiles);
+  if (radiusUser) {
+    edits.radiusMi = radiusUser;
   } else if (form.radiusDirty === true || form.distanceMilesDirty === true) {
     const radius = asNum(form.distanceMiles ?? form.radiusMi);
     if (
@@ -282,34 +310,44 @@ export function buildUserIntentFromFlatForm(input: {
       radius != null ||
       form.distanceMiles === "nationwide"
     ) {
-      edits.radiusMi = {
+      edits.radiusMi = acceptUserConstraint({
         value: form.distanceMiles === "nationwide" ? null : radius,
-        dirty: true,
-      };
+        origin: "user",
+      });
     }
   }
 
   return buildUserIntent({ note: input.note, formEdits: edits, now: input.now });
 }
 
-/** Serialize UserIntent for the agent prompt. Only set fields appear. */
-export function serializeUserIntentConstraints(intent: UserIntent): Record<string, unknown> {
+/** Serialize only origin=user fields for the agent Form-edits channel. */
+export function serializeServFormConstraints(intent: UserIntent): Record<string, unknown> {
   const out: Record<string, unknown> = {};
   for (const key of USER_INTENT_CONSTRAINT_KEYS) {
     const field = intent.fields[key];
     if (!field) continue;
+    const origin = field.origin ?? field.provenance;
+    if (origin !== "user") continue;
     out[key] = {
       value: field.value,
-      provenance: field.provenance,
+      origin: "user",
+      provenance: "user",
       ...(field.quote ? { quote: field.quote } : {}),
     };
   }
   return out;
 }
 
+/**
+ * @deprecated Prefer {@link serializeServFormConstraints} (user-only Form edits).
+ */
+export function serializeUserIntentConstraints(intent: UserIntent): Record<string, unknown> {
+  return serializeServFormConstraints(intent);
+}
+
 export type NonUserSetConstraintHit = { key: string; detail: string };
 
-/** Find non-user-set constraints that must not be serialized to SERV. */
+/** Only origin "user" (legacy "form") may appear in the form-constraints payload. */
 export function findNonUserSetConstraints(
   constraints: Record<string, unknown> | null | undefined,
   intent: UserIntent,
@@ -326,19 +364,22 @@ export function findNonUserSetConstraints(
       continue;
     }
     const typedKey = key as UserIntentConstraintKey;
-    if (!intent.fields[typedKey]) {
+    const intentField = intent.fields[typedKey];
+    const intentOrigin = intentField?.origin ?? intentField?.provenance;
+    if (!intentField || intentOrigin !== "user") {
       hits.push({
         key,
-        detail: `Constraint "${key}" is not user-set on UserIntent — do not send to SERV.`,
+        detail: `Constraint "${key}" is not a user-origin form edit — do not send to SERV as Form edits.`,
       });
       continue;
     }
     if (raw && typeof raw === "object" && !Array.isArray(raw)) {
-      const prov = (raw as { provenance?: unknown }).provenance;
-      if (typeof prov === "string" && prov !== "note" && prov !== "form") {
+      const row = raw as { provenance?: unknown; origin?: unknown };
+      const prov = typeof row.origin === "string" ? row.origin : row.provenance;
+      if (typeof prov === "string" && prov !== "user" && prov !== "form") {
         hits.push({
           key,
-          detail: `Constraint "${key}" has non-user provenance "${prov}".`,
+          detail: `Constraint "${key}" has non-user origin "${prov}" — only "user" may reach SERV as Form edits.`,
         });
       }
     }
@@ -353,6 +394,7 @@ export function assertNoNonUserSetConstraints(
   const hits = findNonUserSetConstraints(constraints, intent);
   return hits.length === 0 ? { ok: true } : { ok: false, hits };
 }
+
 
 /* -------------------------------------------------------------------------- */
 /* Thin search proxy                                                          */

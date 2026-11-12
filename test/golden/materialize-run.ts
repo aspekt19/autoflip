@@ -19,7 +19,7 @@ export async function storeGoldenRun(golden: Omit<GoldenRun, "final" | "elapsedM
     note,
     mode,
     formEdits: spec?.hard.zip?.value
-      ? { zip: { value: spec.hard.zip.value, dirty: true }, radiusMi: { value: spec.hard.radiusMi?.value ?? null, dirty: true } }
+      ? { zip: { value: spec.hard.zip.value, origin: "user" as const }, radiusMi: { value: spec.hard.radiusMi?.value ?? null, origin: "user" as const } }
       : null,
     proofs: golden.proofRecords.flatMap((row) =>
       row.purpose

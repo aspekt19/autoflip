@@ -1,4 +1,10 @@
 import { resolveBudgetPrecedence, type BudgetConflict } from "./budget-conflict";
+import {
+  isUserProvenanced,
+  type ConstraintBag,
+  type Provenanced,
+  type UserProvenanced,
+} from "./constraint-provenance";
 import { sha256Canonical } from "./hash";
 import { bodyStyleMatches } from "./body-style";
 import { milesFromText } from "./need";
@@ -57,19 +63,20 @@ export type SearchSpec = {
   budgetConflict?: BudgetConflict | null;
 };
 
-export type FormEdit<T> = { value: T; dirty: boolean };
+/**
+ * @deprecated Prefer {@link Provenanced} with `origin`. Legacy `{ dirty: true }`
+ * is still accepted by readers as `origin: "user"`.
+ */
+export type FormEdit<T> = Provenanced<T> | { value: T; dirty: boolean };
 
-export type SearchFormEdits = {
-  priceMaxUsd?: FormEdit<number | null>;
-  yearMin?: FormEdit<number | null>;
-  yearMax?: FormEdit<number | null>;
-  milesMax?: FormEdit<number | null>;
-  zip?: FormEdit<string | null>;
-  radiusMi?: FormEdit<number | null>;
-  drivetrain?: FormEdit<"awd_4wd" | null>;
-  bodyStyles?: FormEdit<string[] | null>;
-  excludeMakes?: FormEdit<string[] | null>;
-  sellWithinDays?: FormEdit<number | null>;
+/** Form / constraint bag carried through UI → /api/need → SearchSpec → agent. */
+export type SearchFormEdits = ConstraintBag;
+
+/** Only user-origin cells may be treated as form overrides. */
+export type UserSearchFormEdits = {
+  [K in keyof ConstraintBag]?: UserProvenanced<
+    ConstraintBag[K] extends Provenanced<infer V> | undefined ? V : never
+  >;
 };
 
 export type ServStrength = "required" | "preferred" | "none";
@@ -106,15 +113,29 @@ export type ServPlanHint = {
   priorities?: Array<{ id: string; quote?: string }>;
 };
 
-function dirtyNumber(edit: FormEdit<number | null> | undefined): number | null {
-  if (!edit?.dirty || edit.value == null || !Number.isFinite(edit.value)) return null;
-  return Math.round(edit.value);
+function asProvenanced<T>(edit: FormEdit<T> | undefined): Provenanced<T> | undefined {
+  if (!edit) return undefined;
+  if ("origin" in edit && edit.origin) return edit as Provenanced<T>;
+  if ("dirty" in edit && edit.dirty === true) return { value: edit.value, origin: "user" };
+  return undefined;
 }
 
-function dirtyString(edit: FormEdit<string | null> | undefined): string | null {
-  if (!edit?.dirty) return null;
-  const value = edit.value?.trim() ?? "";
+/** Only `origin: "user"` (or legacy dirty:true) counts as a form override. */
+function userNumber(edit: FormEdit<number | null> | undefined): number | null {
+  const prov = asProvenanced(edit);
+  if (!isUserProvenanced(prov) || prov.value == null || !Number.isFinite(prov.value)) return null;
+  return Math.round(prov.value);
+}
+
+function userString(edit: FormEdit<string | null> | undefined): string | null {
+  const prov = asProvenanced(edit);
+  if (!isUserProvenanced(prov)) return null;
+  const value = prov.value?.trim() ?? "";
   return value || null;
+}
+
+function isUserEdit(edit: FormEdit<unknown> | undefined): boolean {
+  return isUserProvenanced(asProvenanced(edit));
 }
 
 function quoteInNote(quote: string | null | undefined, note: string): string | null {
@@ -160,11 +181,11 @@ function hardPrice(
   serv: ServPlanHint | undefined,
 ): { hard: Hard<number> | undefined; conflict: BudgetConflict | null } {
   const fromNote = budgetFromText(note);
-  const dirty = dirtyNumber(form.priceMaxUsd);
+  const userBudget = userNumber(form.priceMaxUsd);
   const resolved = resolveBudgetPrecedence({
     noteUsd: fromNote,
-    formUsd: dirty,
-    formDirty: dirty != null,
+    formUsd: userBudget,
+    formDirty: userBudget != null,
   });
   if (resolved.source === "form" && resolved.budgetUsd != null) {
     return {
@@ -210,12 +231,12 @@ export function buildSearchSpec(input: {
   const zipNote = zipFromNote(note, budgetFromText(note));
   const hasServ = serv != null;
 
-  const yearMinDirty = dirtyNumber(form.yearMin);
-  const yearMaxDirty = dirtyNumber(form.yearMax);
+  const yearMinUser = userNumber(form.yearMin);
+  const yearMaxUser = userNumber(form.yearMax);
   const yearQuote = quoteInNote(serv?.yearQuote, note) ?? undefined;
   const yearMin =
-    yearMinDirty != null
-      ? { value: yearMinDirty, source: "form" as const }
+    yearMinUser != null
+      ? { value: yearMinUser, source: "form" as const }
       : serv?.yearMin != null
         ? { value: Math.round(serv.yearMin), source: "serv" as const, ...(yearQuote ? { quote: yearQuote } : {}) }
         : exclusive != null
@@ -224,31 +245,31 @@ export function buildSearchSpec(input: {
             ? { value: years.yearMin, source: "note" as const }
             : undefined;
   const yearMax =
-    yearMaxDirty != null
-      ? { value: yearMaxDirty, source: "form" as const }
+    yearMaxUser != null
+      ? { value: yearMaxUser, source: "form" as const }
       : serv?.yearMax != null
         ? { value: Math.round(serv.yearMax), source: "serv" as const, ...(yearQuote ? { quote: yearQuote } : {}) }
         : years.yearMax != null
           ? { value: years.yearMax, source: "note" as const }
           : undefined;
 
-  const milesDirty = dirtyNumber(form.milesMax);
+  const milesUser = userNumber(form.milesMax);
   const milesNote = milesFromText(note);
   const milesQuote = quoteInNote(serv?.milesQuote, note) ?? undefined;
   const milesMax =
-    milesDirty != null
-      ? { value: milesDirty, source: "form" as const }
+    milesUser != null
+      ? { value: milesUser, source: "form" as const }
       : serv?.milesMax != null
         ? { value: Math.round(serv.milesMax), source: "serv" as const, ...(milesQuote ? { quote: milesQuote } : {}) }
         : milesNote != null
           ? { value: milesNote, source: "note" as const }
           : undefined;
 
-  const zipDirty = dirtyString(form.zip);
+  const zipUser = userString(form.zip);
   const servZip = serv?.location?.zip?.trim() ?? "";
   const zip =
-    zipDirty && /^\d{5}$/.test(zipDirty)
-      ? { value: zipDirty, source: "form" as const }
+    zipUser && /^\d{5}$/.test(zipUser)
+      ? { value: zipUser, source: "form" as const }
       : /^\d{5}$/.test(servZip)
         ? { value: servZip, source: "serv" as const }
         : zipNote
@@ -256,16 +277,19 @@ export function buildSearchSpec(input: {
           : undefined;
 
   let radiusMi: Hard<number | null> | undefined;
-  if (form.radiusMi?.dirty) {
-    radiusMi = { value: form.radiusMi.value, source: "form" };
+  const radiusProv = asProvenanced(form.radiusMi);
+  if (isUserProvenanced(radiusProv)) {
+    radiusMi = { value: radiusProv.value, source: "form" };
   }
 
-  const bodyDirty = form.bodyStyles?.dirty ? form.bodyStyles.value?.filter(Boolean) ?? [] : null;
+  const bodyUser = isUserEdit(form.bodyStyles)
+    ? (asProvenanced(form.bodyStyles)?.value?.filter(Boolean) ?? [])
+    : null;
   const servBody = servBodies(serv);
   const bodyNote = hasServ && serv?.bodyStyles != null ? null : bodyFromIntake(note);
   const bodyStyles =
-    bodyDirty && bodyDirty.length
-      ? { value: bodyDirty, source: "form" as const }
+    bodyUser && bodyUser.length
+      ? { value: bodyUser, source: "form" as const }
       : hasServ && serv?.bodyStyles != null
         ? servBody.length
           ? { value: servBody, source: "serv" as const }
@@ -274,12 +298,14 @@ export function buildSearchSpec(input: {
           ? { value: [bodyNote], source: "note" as const }
           : undefined;
 
-  const excludeDirty = form.excludeMakes?.dirty ? form.excludeMakes.value?.filter(Boolean) ?? [] : null;
+  const excludeUser = isUserEdit(form.excludeMakes)
+    ? (asProvenanced(form.excludeMakes)?.value?.filter(Boolean) ?? [])
+    : null;
   const excludeServ = (serv?.excludeMakes ?? []).map((item) => item.trim()).filter(Boolean);
   const excludeNote = excludedMakesFromNote(note);
   const excludeMakes =
-    excludeDirty && excludeDirty.length
-      ? { value: excludeDirty, source: "form" as const }
+    excludeUser && excludeUser.length
+      ? { value: excludeUser, source: "form" as const }
       : hasServ && serv?.excludeMakes != null
         ? excludeServ.length
           ? { value: excludeServ, source: "serv" as const }
@@ -288,10 +314,10 @@ export function buildSearchSpec(input: {
           ? { value: excludeNote, source: "note" as const }
           : undefined;
 
-  const driveDirty = form.drivetrain?.dirty ? form.drivetrain.value : undefined;
+  const driveUser = isUserEdit(form.drivetrain) ? asProvenanced(form.drivetrain)?.value : undefined;
   let drivetrain: Hard<"awd_4wd"> | undefined;
   let softDrivetrain: Soft<"awd_4wd"> | undefined;
-  if (driveDirty === "awd_4wd") {
+  if (driveUser === "awd_4wd") {
     drivetrain = { value: "awd_4wd", source: "form" };
   } else if (serv?.drivetrain?.strength != null) {
     // SERV owns hard vs soft — do not call awdLimitFromText.
@@ -348,12 +374,12 @@ export function buildSearchSpec(input: {
     excludeMakes,
     titleClean,
   };
-  const sellDirty = dirtyNumber(form.sellWithinDays);
+  const sellUser = userNumber(form.sellWithinDays);
   const sellNote = note.match(/\b(?:sell\s+within|within)\s+(\d{1,3})\s+days\b/i);
   const sellFromNote = sellNote ? Number(sellNote[1]) : null;
   const sellWithinDays =
-    sellDirty != null && sellDirty >= 1 && sellDirty <= 365
-      ? { value: sellDirty, source: "form" as const, weight: "prefer" as const }
+    sellUser != null && sellUser >= 1 && sellUser <= 365
+      ? { value: sellUser, source: "form" as const, weight: "prefer" as const }
       : sellFromNote != null && sellFromNote >= 1 && sellFromNote <= 365
         ? { value: sellFromNote, source: "note" as const, weight: "prefer" as const }
         : undefined;

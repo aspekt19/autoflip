@@ -3,6 +3,12 @@ import { requireVerifiedAccountForFind } from "@/server/session";
 import { getKv } from "@/io/kv";
 import { proofsFromRecords, syncRunSafely } from "@/server/run-sync";
 import type { FollowUp, StructuredNeed } from "@/domain/need";
+import {
+  isUserProvenanced,
+  pickUserFormConstraints,
+  readProvenanced,
+  type ConstraintBag,
+} from "@/domain/constraint-provenance";
 import type { SearchFormEdits } from "@/domain/search-spec";
 
 export const dynamic = "force-dynamic";
@@ -20,6 +26,88 @@ const FOLLOW_UP_IDS: ReadonlySet<FollowUp["id"]> = new Set([
   "condition",
 ]);
 
+
+/**
+ * Build SearchFormEdits for the run sync / understand path.
+ * Only origin `"user"` (or legacy dirty/companion flags) become form constraints —
+ * never infer user from "value present".
+ */
+function formEditsFromNeedBody(body: Record<string, unknown>): SearchFormEdits {
+  const bag: ConstraintBag = {};
+
+  const rawBag =
+    (body.constraints && typeof body.constraints === "object" && !Array.isArray(body.constraints)
+      ? body.constraints
+      : null) ??
+    (body.formEdits && typeof body.formEdits === "object" && !Array.isArray(body.formEdits)
+      ? body.formEdits
+      : null);
+  if (rawBag) {
+    const row = rawBag as Record<string, unknown>;
+    for (const key of [
+      "priceMaxUsd",
+      "yearMin",
+      "yearMax",
+      "milesMax",
+      "zip",
+      "radiusMi",
+      "bodyStyles",
+      "drivetrain",
+      "excludeMakes",
+      "sellWithinDays",
+    ] as const) {
+      const prov = readProvenanced(row[key]);
+      if (prov) (bag as Record<string, unknown>)[key] = prov;
+    }
+  }
+
+  if (body.budgetDirty === true && typeof body.budgetUsd === "number") {
+    bag.priceMaxUsd = { value: body.budgetUsd, origin: "user" };
+  }
+  if (body.radiusDirty === true || body.distanceMiles === "nationwide") {
+    bag.radiusMi = {
+      value:
+        body.distanceMiles === "nationwide" || body.distanceMiles === null
+          ? null
+          : typeof body.distanceMiles === "number"
+            ? body.distanceMiles
+            : null,
+      origin: "user",
+    };
+  }
+
+  const flatUser = (valueKey: string, originKey: string) => {
+    if (body[originKey] !== "user") return undefined;
+    if (!(valueKey in body)) return undefined;
+    return { value: body[valueKey], origin: "user" as const };
+  };
+  const budgetFlat = flatUser("budgetUsd", "budgetOrigin");
+  if (budgetFlat && typeof budgetFlat.value === "number") {
+    bag.priceMaxUsd = { value: budgetFlat.value, origin: "user" };
+  }
+  const yearMinFlat = flatUser("yearMin", "yearMinOrigin");
+  if (yearMinFlat) bag.yearMin = { value: yearMinFlat.value as number | null, origin: "user" };
+  const yearMaxFlat = flatUser("yearMax", "yearMaxOrigin");
+  if (yearMaxFlat) bag.yearMax = { value: yearMaxFlat.value as number | null, origin: "user" };
+  const milesFlat = flatUser("milesMax", "milesMaxOrigin");
+  if (milesFlat) bag.milesMax = { value: milesFlat.value as number | null, origin: "user" };
+  const zipFlat = flatUser("zip", "zipOrigin");
+  if (zipFlat && typeof zipFlat.value === "string" && zipFlat.value.trim()) {
+    bag.zip = { value: zipFlat.value.trim(), origin: "user" };
+  }
+  if (body.radiusOrigin === "user" || flatUser("distanceMiles", "radiusOrigin")) {
+    const v =
+      body.distanceMiles === "nationwide" || body.distanceMiles === null
+        ? null
+        : typeof body.distanceMiles === "number"
+          ? body.distanceMiles
+          : null;
+    bag.radiusMi = { value: v, origin: "user" };
+  }
+
+  return pickUserFormConstraints(bag);
+}
+
 export async function POST(request: Request) {
   const access = await requireVerifiedAccountForFind();
   if (!access.ok) return access.response;
@@ -28,6 +116,7 @@ export async function POST(request: Request) {
   if (!body) return Response.json({ error: "invalid_json", message: "Send JSON." }, { status: 400 });
   const followRaw = body.followUp && typeof body.followUp === "object" ? (body.followUp as { id?: unknown; value?: unknown }) : null;
   const followId = followRaw && typeof followRaw.id === "string" ? followRaw.id : "";
+  const formEdits = formEditsFromNeedBody(body);
   const result = await understandNeed(
     {
       text: typeof body.text === "string" ? body.text : "",
@@ -35,6 +124,7 @@ export async function POST(request: Request) {
       budgetUsd: typeof body.budgetUsd === "number" ? body.budgetUsd : null,
       budgetKnown: typeof body.budgetKnown === "boolean" ? body.budgetKnown : undefined,
       budgetDirty: typeof body.budgetDirty === "boolean" ? body.budgetDirty : undefined,
+      constraints: formEdits,
       budgetScope: body.budgetScope === "car" || body.budgetScope === "all_in" ? body.budgetScope : "unspecified",
       zip: typeof body.zip === "string" ? body.zip : null,
       distanceMiles:
@@ -45,7 +135,7 @@ export async function POST(request: Request) {
             : body.distanceMiles === "nationwide"
               ? null
               : undefined,
-      radiusDirty: body.radiusDirty === true || body.distanceMiles === "nationwide",
+      radiusDirty: isUserProvenanced(formEdits.radiusMi),
       repairAbility: isRepair(body.repairAbility) ? body.repairAbility : undefined,
       useCase: isUse(body.useCase) ? body.useCase : undefined,
       targetProfitUsd: typeof body.targetProfitUsd === "number" ? body.targetProfitUsd : undefined,
@@ -76,23 +166,7 @@ export async function POST(request: Request) {
     },
   );
   if (!result.ok) return Response.json({ error: result.error, message: result.message }, { status: result.status });
-  const formEdits: SearchFormEdits = {};
-  if (body.budgetDirty === true && typeof body.budgetUsd === "number") formEdits.priceMaxUsd = { value: body.budgetUsd, dirty: true };
-  if (typeof body.yearMin === "number") formEdits.yearMin = { value: body.yearMin, dirty: true };
-  if (typeof body.yearMax === "number") formEdits.yearMax = { value: body.yearMax, dirty: true };
-  if (typeof body.milesMax === "number") formEdits.milesMax = { value: body.milesMax, dirty: true };
-  if (typeof body.zip === "string" && body.zip.trim()) formEdits.zip = { value: body.zip.trim(), dirty: true };
-  if (body.radiusDirty === true) {
-    formEdits.radiusMi = {
-      value:
-        body.distanceMiles === "nationwide" || body.distanceMiles === null
-          ? null
-          : typeof body.distanceMiles === "number"
-            ? body.distanceMiles
-            : null,
-      dirty: true,
-    };
-  }
+  // formEdits already built from user-origin only — never stamp year/miles/zip dirty when merely present.
   const clarification =
     followRaw && typeof followRaw.value === "string" && followRaw.value.trim() ? [followRaw.value.trim()] : [];
   const runId = await syncRunSafely(getKv(), {
