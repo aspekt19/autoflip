@@ -47,6 +47,22 @@ describe("scoringVerdictComplete", () => {
     });
     expect(result).toEqual({ complete: true, kind: "nothing_fits" });
   });
+
+  it("accepts a reasoned pass after identical empty searches", () => {
+    const result = scoringVerdictComplete({
+      verdict: {
+        picks: [],
+        nothingFitsReason:
+          "Three identical searches at zip 33101 / 35mi / $45k SUV returned zero; nothing fits without changing the shopper's ask.",
+      },
+      searches: [
+        { params: { zip: "33101", radiusMi: 35, priceMaxUsd: 45000, bodyFamily: "suv" }, resultCount: 0 },
+        { params: { zip: "33101", radiusMi: 35, priceMaxUsd: 45000, bodyFamily: "suv" }, resultCount: 0 },
+        { params: { zip: "33101", radiusMi: 35, priceMaxUsd: 45000, bodyFamily: "suv" }, resultCount: 0 },
+      ],
+    });
+    expect(result).toEqual({ complete: true, kind: "nothing_fits" });
+  });
 });
 
 describe("relaxedConditions text", () => {

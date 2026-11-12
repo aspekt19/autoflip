@@ -66,8 +66,11 @@ export type CompactFlipPnl = {
   honesty: string;
 };
 
-export function createResaleAgentToolState(seed?: readonly Listing[]): ResaleAgentToolState {
-  const base = createFindAgentToolState(seed);
+export function createResaleAgentToolState(
+  seed?: readonly Listing[],
+  userHardKeys?: Iterable<import("@/domain/search-listings-feedback").SearchFilterKey> | null,
+): ResaleAgentToolState {
+  const base = createFindAgentToolState(seed, userHardKeys);
   return {
     ...base,
     pnlByVin: new Map(),

@@ -144,6 +144,59 @@ describe("search_listings funnel", () => {
     expect(hints).toContain("raise_price");
   });
 
+  it("reports searched filters, provenance constraint roles, and duplicateSearch on identical re-calls", async () => {
+    const fetchImpl: typeof fetch = async (input) => {
+      if (String(input).includes("listings")) {
+        return new Response(JSON.stringify({ data: [] }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+      return new Response("{}", { status: 404 });
+    };
+    const deps = {
+      fetch: fetchImpl,
+      autodevKey: "test",
+      autodev: { cache: new TtlCache<unknown>(), counter: new MemoryCounter() },
+    };
+    // User set yearMin + priceMaxUsd; zip is SERV-chosen → relaxable.
+    const state = createFindAgentToolState(undefined, ["yearMin", "priceMaxUsd"]);
+    const args = {
+      zip: "33101",
+      radiusMi: 35,
+      priceMaxUsd: 45000,
+      yearMin: 2018,
+      bodyFamily: "suv",
+    };
+    const first = await executeFindAgentTool("search_listings", args, deps, state);
+    expect(first.ok).toBe(true);
+    expect(first.result.searched).toEqual(
+      expect.objectContaining({
+        zip: "33101",
+        radiusMi: 35,
+        priceMaxUsd: 45000,
+        yearMin: 2018,
+        bodyFamily: "suv",
+      }),
+    );
+    expect(first.result.hardKeys).toEqual(expect.arrayContaining(["yearMin", "priceMaxUsd"]));
+    expect(first.result.hardKeys).not.toContain("zip");
+    expect(first.result.relaxableKeys).toEqual(
+      expect.arrayContaining(["zip", "radiusMi", "bodyFamily"]),
+    );
+    expect(first.result.duplicateSearch).toBeNull();
+
+    const second = await executeFindAgentTool("search_listings", args, deps, state);
+    expect(second.ok).toBe(true);
+    expect(second.result.duplicateSearch).toEqual(
+      expect.objectContaining({
+        duplicate: true,
+        priorCallIndex: 1,
+      }),
+    );
+    expect(String(second.summary)).toMatch(/DUPLICATE/i);
+  });
+
   it("omits Sedan on the provider URL and returns funnel + relaxHints", async () => {
     let requestedUrl = "";
     const fetchImpl: typeof fetch = async (input) => {

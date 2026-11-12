@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { liveEvalOutcomeOk, scoringVerdictComplete } from "@/domain/agent-verdict-complete";
+import { carsFoundFromSearchJournal } from "@/domain/search-listings-feedback";
+import { joinChosenListing } from "@/domain/join-chosen-listing";
 
 /**
  * Live-eval scoring rules (defect 7):
@@ -63,5 +65,43 @@ describe("live eval scoring", () => {
         scoring,
       }).ok,
     ).toBe(false);
+  });
+
+  it("carsFound comes from journal search maxima (not a hardcoded 0)", () => {
+    expect(
+      carsFoundFromSearchJournal([
+        { params: { zip: "75201" }, resultCount: 0 },
+        {
+          params: { zip: "75201", radiusMi: 100 },
+          resultCount: 8,
+          funnel: [
+            { step: "provider_raw", count: 20 },
+            { step: "price", count: 8 },
+          ],
+        },
+      ]),
+    ).toBe(20);
+  });
+
+  it("chosen-car report fields join listing price/miles by VIN", () => {
+    const joined = joinChosenListing(
+      "5J8TB4H32FL025729",
+      new Map([
+        [
+          "5J8TB4H32FL025729",
+          {
+            year: 2015,
+            make: "Acura",
+            model: "RDX",
+            priceUsd: 14_900,
+            miles: 98_100,
+          },
+        ],
+      ]),
+    );
+    expect(joined?.priceUsd).toBe(14_900);
+    expect(joined?.miles).toBe(98_100);
+    expect(joined?.label).toMatch(/\$14,900/);
+    expect(joined?.label).toMatch(/98,100 mi/);
   });
 });

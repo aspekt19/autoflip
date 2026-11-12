@@ -5,6 +5,12 @@ import { bodyFamily, bodyStyleMatches, providerBodyStyleParam } from "@/domain/b
 import { FIND_AGENT_RESULT_SCHEMA } from "@/domain/find-agent";
 import { isPassengerOrLightTruck } from "@/domain/passenger-vehicle";
 import {
+  classifySearchConstraints,
+  duplicateSearchInfo,
+  fingerprintSearchFilters,
+  type SearchFilterKey,
+} from "@/domain/search-listings-feedback";
+import {
   assertThinSearchProxyDidNotDropProductRows,
   buildThinSearchProxyResult,
   mapBodyStyleForProvider,
@@ -121,6 +127,13 @@ export type FindAgentToolState = {
   knownVins: Set<string>;
   /** Full listings keyed by VIN for comps / finish mapping. */
   listingsByVin: Map<string, Listing>;
+  /** Prior search_listings fingerprints this run (for duplicate detection). */
+  searchFingerprints: string[];
+  /**
+   * Search filter keys the shopper set (origin=user on the form bag).
+   * Drives constraintRoles — never a hardcoded HARD_KEYS list.
+   */
+  userHardKeys: Set<SearchFilterKey>;
 };
 
 export type FindAgentToolDeps = {
@@ -401,7 +414,7 @@ export function findAgentChatTools(): Array<{
       function: {
         name: "search_listings",
         description:
-          "Search live dealer listings (asking prices). Pass limit/page for pagination (max 50 per call); when truncated=true request the next page so nothing stays hidden. Returns unfiltered provider rows plus an observational funnel. Never send Sedan/Coupe/Hatch as provider body — use bodyFamily=car. Sell-window and profit are NOT inventory filters. If provider_raw=0 with a car body requested, retry without body before raising budget.",
+          "Search live dealer listings (asking prices). Pass limit/page for pagination (max 50 per call); when truncated=true request the next page so nothing stays hidden. Returns unfiltered provider rows plus an observational funnel, constraintRoles (hard = shopper origin=user; relaxable = SERV-chosen), and duplicateSearch when filters match a prior call — change a relaxable filter; code never auto-relaxes or forces filter changes. Never send Sedan/Coupe/Hatch as provider body — use bodyFamily=car. Sell-window and profit are NOT inventory filters. If provider_raw=0 with a car body requested, retry without body before raising budget.",
         parameters: searchParams,
       },
     },
@@ -700,10 +713,15 @@ export type ExecuteToolResult = {
   summary: string;
 };
 
-export function createFindAgentToolState(seed?: readonly Listing[]): FindAgentToolState {
+export function createFindAgentToolState(
+  seed?: readonly Listing[],
+  userHardKeys?: Iterable<SearchFilterKey> | null,
+): FindAgentToolState {
   const state: FindAgentToolState = {
     knownVins: new Set(),
     listingsByVin: new Map(),
+    searchFingerprints: [],
+    userHardKeys: new Set(userHardKeys ?? []),
   };
   if (seed?.length) rememberListings(state, seed);
   return state;
@@ -778,10 +796,17 @@ export async function executeFindAgentTool(
     const truncated = search.listings.length >= pageLimit;
     const zeroStep = [...funnel].reverse().find((s) => s.count === 0);
     const funnelKeptCount = funnelKept.length;
+    const argsRecord = parsed.value as unknown as Record<string, unknown>;
+    const fingerprint = fingerprintSearchFilters(argsRecord);
+    const duplicate = duplicateSearchInfo(fingerprint, state.searchFingerprints);
+    state.searchFingerprints.push(fingerprint);
+    const constraintInfo = classifySearchConstraints(argsRecord, state.userHardKeys);
     const summary =
-      totalReturned === 0
-        ? `search_listings → 0 usable (raw=${funnel[0]?.count ?? 0}; zero_at=${zeroStep?.step ?? "unknown"}); hints=${relaxHints.join(",") || "—"}`
-        : `search_listings → ${totalReturned} provider hits (funnel would keep ${funnelKeptCount}), returning ${cars.length}`;
+      duplicate != null
+        ? `search_listings → DUPLICATE of call #${duplicate.priorCallIndex}; change a relaxable filter (raw=${funnel[0]?.count ?? 0})`
+        : totalReturned === 0
+          ? `search_listings → 0 usable (raw=${funnel[0]?.count ?? 0}; zero_at=${zeroStep?.step ?? "unknown"}); hints=${relaxHints.join(",") || "—"}`
+          : `search_listings → ${totalReturned} provider hits (funnel would keep ${funnelKeptCount}), returning ${cars.length}`;
     return {
       name,
       ok: true,
@@ -795,6 +820,15 @@ export async function executeFindAgentTool(
               : null,
           providerUrl,
         },
+        /** Exact filters SERV asked for on this call. */
+        searched: constraintInfo.searched,
+        /** Per-filter hard vs relaxable roles — SERV decides; code never auto-relaxes. */
+        constraintRoles: constraintInfo.roles,
+        hardKeys: constraintInfo.hardKeys,
+        relaxableKeys: constraintInfo.relaxableKeys,
+        fingerprint,
+        callIndex: state.searchFingerprints.length,
+        duplicateSearch: duplicate,
         totalReturned,
         funnel,
         funnelWouldKeep: funnelKeptCount,
@@ -810,7 +844,7 @@ export async function executeFindAgentTool(
         nextPage: truncated ? (parsed.value.page ?? 1) + 1 : null,
         cached: search.cached,
         honesty:
-          "Asking prices only. Thin proxy: unfiltered provider rows + observational funnel — code does not drop rows for product decisions. Paginate with page/limit when truncated=true. Sell-window and profit floor are ranking/verdict, never silent deletes. If provider_raw=0 with a car body, retry omit_body before raise_price.",
+          "Asking prices only. Thin proxy: unfiltered provider rows + observational funnel — code does not drop rows for product decisions. Paginate with page/limit when truncated=true. Sell-window and profit floor are ranking/verdict, never silent deletes. If duplicateSearch is set, change a relaxable filter before re-searching — code never auto-relaxes. If provider_raw=0 with a car body, retry omit_body before raise_price. A pass/nothing-fits must explain what you tried and why nothing fit.",
       },
       summary,
     };

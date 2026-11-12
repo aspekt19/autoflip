@@ -4,6 +4,7 @@
  */
 import { findAgentLoopEnabled, resolveFindAgentMode, type FindAgentRelaxedCondition } from "@/domain/find-agent";
 import { pickUserFormConstraints } from "@/domain/constraint-provenance";
+import { carsFoundFromSearchJournal } from "@/domain/search-listings-feedback";
 import {
   buildUserIntent,
   serializeServFormConstraints,
@@ -18,7 +19,11 @@ import {
 import { riskCoverageHonesty } from "@/domain/find-risk-evidence";
 import type { Kv } from "@/io/kv";
 import { listingCache } from "@/server/deps";
-import { runFindAgentLoop, summarizeFindAgentJournal } from "@/server/find-agent/loop";
+import {
+  runFindAgentLoop,
+  searchesFromFindJournal,
+  summarizeFindAgentJournal,
+} from "@/server/find-agent/loop";
 import { mapFindAgentLoopToDecide } from "@/server/find-agent/map-to-decide";
 import { runFindDecideServ } from "@/server/find-decide-serv";
 import { runFindTriageServ } from "@/server/find-triage-serv";
@@ -41,6 +46,10 @@ export type FindAgentLoopMeta = {
   relaxedConditions: FindAgentRelaxedCondition[];
   journalServCalls: number;
   journalToolCalls: number;
+  /** Max search_listings result count from the agent journal. */
+  carsFound?: number;
+  /** SERV passReason when nothing was chosen. */
+  passReason?: string | null;
   featuresActive?: string[];
   featureRejections?: string[];
   servResponseIds?: string[];
@@ -404,6 +413,8 @@ export async function runFindDecideOrchestrator(
           relaxedConditions: agent.relaxedConditions,
           journalServCalls: counts.servCalls,
           journalToolCalls: counts.toolCalls,
+          carsFound: carsFoundFromSearchJournal(searchesFromFindJournal(agent.journal)),
+          passReason: agent.verdict.passReason,
           featuresActive,
           featureRejections,
           servResponseIds,

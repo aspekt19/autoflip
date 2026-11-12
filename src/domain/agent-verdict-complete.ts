@@ -9,6 +9,10 @@
  *
  * A bare pass with no vehicle and no documented reasons is incomplete and must
  * go back to SERV for a repair turn — it must not score as verdictReached.
+ *
+ * A pass that has BOTH a written nothing-fits reason and journaled searches is
+ * accepted — including after identical empty searches. Code never forces SERV
+ * to change filters; duplicateSearch feedback on the tool is observational only.
  */
 
 export type AgentSearchJournalRow = {
@@ -119,7 +123,7 @@ export function scoringVerdictComplete(
   const reason = (input.verdict.nothingFitsReason ?? "").trim();
   if (!reason) {
     issues.push(
-      "Empty picks require an explicit nothing-fits reason (passReason / summary) listing why no car was chosen.",
+      "Empty picks require an explicit nothing-fits reason (passReason / summary) listing why no car was chosen and what searches were tried.",
     );
   }
   if (!searchesDocumented(input.searches)) {

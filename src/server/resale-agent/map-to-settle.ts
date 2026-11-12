@@ -2,6 +2,7 @@
  * Map a successful resale-agent loop result onto the settle / job delivery shape.
  */
 import { emptyAgentVerdict } from "@/domain/agent-verdict-schema";
+import { joinChosenListing } from "@/domain/join-chosen-listing";
 import {
   appendJournalStep,
   emptyResaleJournal,
@@ -114,6 +115,14 @@ export function mapResaleAgentLoopToSettle(input: {
   }
 
   const confidence = confidenceLabel(agent.verdict.confidence);
+  const joinedPick = publishedBest
+    ? joinChosenListing(publishedBest.vin, agent.listingsByVin)
+    : null;
+  const carTitle =
+    joinedPick?.label ??
+    (publishedBest
+      ? `${publishedBest.listing.year} ${publishedBest.listing.make} ${publishedBest.listing.model}`
+      : null);
   const buyer = resaleBuyerCopy({
     outcome: publishedBest ? "pick" : "skip",
     action: verdictAction,
@@ -130,18 +139,22 @@ export function mapResaleAgentLoopToSettle(input: {
         ? `No car is estimated to sell within ${input.searchInput.sellWithinDays} days.`
         : "No car was priced below similar listings after costs.",
     reviewNote: publishedBest ? null : resaleCardCopy.reviewMissed,
-    carTitle: publishedBest
-      ? `${publishedBest.listing.year} ${publishedBest.listing.make} ${publishedBest.listing.model}`
-      : null,
+    carTitle,
   });
 
   const agentVerdict = emptyAgentVerdict({
-    pick: publishedBest
+    // Price/miles/VIN label from verified listing join — never SERV prose alone.
+    pick: joinedPick
       ? {
-          key: publishedBest.vin.toUpperCase(),
-          label: `${publishedBest.listing.year} ${publishedBest.listing.make} ${publishedBest.listing.model}`,
+          key: joinedPick.vin,
+          label: joinedPick.label,
         }
-      : null,
+      : publishedBest
+        ? {
+            key: publishedBest.vin.toUpperCase(),
+            label: `${publishedBest.listing.year} ${publishedBest.listing.make} ${publishedBest.listing.model}`,
+          }
+        : null,
     verdict: publishedBest ? verdictAction : "pass",
     confidence: agent.verdict.confidence,
     reasons: topPick
