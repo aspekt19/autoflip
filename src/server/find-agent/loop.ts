@@ -17,15 +17,27 @@ import {
 import type { Listing } from "@/domain/types";
 import { TtlCache } from "@/io/cache";
 import { MemoryCounter } from "@/io/quota";
-import { BASE_MODEL, messageText } from "@/server/serv";
+import { messageText } from "@/server/serv";
 import {
   buildServChatTurnBody,
   buildServResponsesTurnBody,
   postServChatTurn,
   postServResponsesTurn,
   type ServChatToolCallWire,
+  type ServChatToolDef,
   type ServChatTurnMessage,
 } from "@/server/serv/agent-chat-turn";
+import {
+  classifyAgentFeatureRejection,
+  findAgentServFeatureBundle,
+  formatFeatureRejectionFlags,
+  journalFromBundle,
+  mergeResponsesTools,
+  shadowOutcomeForAgentTurn,
+  type AgentServFeatureBundle,
+  type AgentServFeatureJournal,
+  type AgentServFeatureRejection,
+} from "@/server/serv/agent-serv-features";
 import {
   appendResponsesToolRound,
   extractResponsesFunctionCalls,
@@ -52,6 +64,15 @@ export type FindAgentJournalServCall = {
   mode: FindAgentModeResolved;
   finishReason: string | null;
   hadToolCalls: boolean;
+  endpoint: "responses" | "chat";
+  /** Documented SERV features requested on this call (never silently omitted). */
+  features: AgentServFeatureJournal["features"];
+  promptGuard: AgentServFeatureJournal["promptGuard"];
+  shadowRequested: boolean;
+  shadowMaxIterations: number | null;
+  shadowOutcome: string | null;
+  featureRejections: AgentServFeatureRejection[];
+  featureFlags: string[];
 };
 
 export type FindAgentJournalToolCall = {
@@ -88,6 +109,10 @@ export type FindAgentLoopResult =
       knownVins: string[];
       listingsByVin: Map<string, Listing>;
       droppedPicks: Array<{ vin: string; reason: string }>;
+      /** Exact Responses/chat feature rejection strings — empty when all extensions accepted. */
+      featureRejections: AgentServFeatureRejection[];
+      featureFlags: string[];
+      servFeatures: AgentServFeatureJournal;
     }
   | {
       ok: false;
@@ -99,6 +124,9 @@ export type FindAgentLoopResult =
       message: string;
       journal: FindAgentJournalEntry[];
       knownVins: string[];
+      featureRejections: AgentServFeatureRejection[];
+      featureFlags: string[];
+      servFeatures: AgentServFeatureJournal | null;
     };
 
 type ChatMessage = ServChatTurnMessage;
@@ -240,25 +268,81 @@ function chatBody(input: {
   messages: ChatMessage[];
   jsonSchema?: { name: string; schema: Record<string, unknown> };
   maxTokens?: number;
+  model?: string;
+  tools?: ServChatToolDef[];
+  reasoningEffort?: "none" | "low" | "medium" | "high";
 }): Record<string, unknown> {
   return buildServChatTurnBody({
     messages: input.messages,
     jsonSchema: input.jsonSchema,
     maxTokens: input.maxTokens,
+    model: input.model,
+    tools: input.tools,
+    // Chat rejects function tools unless reasoning_effort is none.
+    reasoningEffort: input.tools && input.tools.length > 0 ? "none" : input.reasoningEffort ?? "none",
   });
 }
 
 function responsesBody(input: {
   instructions: string;
   input: string | ResponsesInputItem[];
-  tools: ReturnType<typeof findAgentResponsesTools>;
+  applicationTools: ReturnType<typeof findAgentResponsesTools>;
+  bundle: AgentServFeatureBundle;
 }): Record<string, unknown> {
   return buildServResponsesTurnBody({
+    model: input.bundle.model,
     instructions: input.instructions,
     input: input.input,
-    tools: input.tools,
+    tools: mergeResponsesTools(input.bundle.responsesExtensionTools, input.applicationTools),
     toolChoice: "auto",
-    reasoning: { effort: "low", summary: "auto" },
+    reasoning: { effort: input.bundle.reasoningEffort, summary: "auto" },
+  });
+}
+
+function pushServJournal(input: {
+  journal: FindAgentJournalEntry[];
+  rejections: AgentServFeatureRejection[];
+  bundle: AgentServFeatureBundle;
+  responseId: string | null;
+  latencyMs: number;
+  mode: FindAgentModeResolved;
+  finishReason: string | null;
+  hadToolCalls: boolean;
+  endpoint: "responses" | "chat";
+  turn: { ok: boolean; status: number; payload: unknown; error?: string };
+}): void {
+  const turnRejections = input.turn.ok
+    ? []
+    : classifyAgentFeatureRejection({
+        status: input.turn.status,
+        payload: input.turn.payload,
+        error: input.turn.error,
+        endpoint: input.endpoint,
+        requestedFeatures: input.bundle.features,
+      });
+  for (const row of turnRejections) input.rejections.push(row);
+  const flags = formatFeatureRejectionFlags(turnRejections);
+  const base = journalFromBundle(input.bundle, {
+    endpoint: input.endpoint,
+    shadowOutcome: input.turn.ok ? shadowOutcomeForAgentTurn(input.turn.payload) : null,
+    featureRejections: turnRejections,
+  });
+  input.journal.push({
+    kind: "serv",
+    responseId: input.responseId,
+    model: base.model,
+    latencyMs: input.latencyMs,
+    mode: input.mode,
+    finishReason: input.finishReason,
+    hadToolCalls: input.hadToolCalls,
+    endpoint: input.endpoint,
+    features: base.features,
+    promptGuard: base.promptGuard,
+    shadowRequested: base.shadowRequested,
+    shadowMaxIterations: base.shadowMaxIterations,
+    shadowOutcome: base.shadowOutcome,
+    featureRejections: turnRejections,
+    featureFlags: flags,
   });
 }
 
@@ -295,6 +379,8 @@ async function finalizeVerdict(input: {
   priorMessages: ChatMessage[];
   mode: FindAgentModeResolved;
   budgetUsd: number | null;
+  bundle: AgentServFeatureBundle;
+  rejections: AgentServFeatureRejection[];
 }): Promise<
   | { ok: true; verdict: FindAgentVerdict; dropped: Array<{ vin: string; reason: string }> }
   | { ok: false; error: string; message: string }
@@ -312,25 +398,81 @@ async function finalizeVerdict(input: {
     { role: "user", content: finishUser },
   ];
 
-  const body = chatBody({
+  // Prefer the same OpenServ extensions on structured finish (model suffix + guard + shadow).
+  // Chat requires reasoning_effort=none when function tools are present.
+  const withExtensions = chatBody({
     messages,
+    model: input.bundle.model,
+    tools: input.bundle.chatExtensionTools,
     jsonSchema: { name: "find_agent_result", schema: FIND_AGENT_RESULT_SCHEMA as unknown as Record<string, unknown> },
   });
-  const turn = await postChat({
+  let turn = await postChat({
     apiKey: input.apiKey,
     baseUrl: input.baseUrl,
     fetch: input.fetch,
-    body,
+    body: withExtensions,
   });
-  input.journal.push({
-    kind: "serv",
+  pushServJournal({
+    journal: input.journal,
+    rejections: input.rejections,
+    bundle: input.bundle,
     responseId: responseIdOf(turn.payload),
-    model: BASE_MODEL,
     latencyMs: turn.latencyMs,
     mode: input.mode,
     finishReason: turn.payload ? servFinishReason(turn.payload) : null,
     hadToolCalls: false,
+    endpoint: "chat",
+    turn,
   });
+
+  // If chat rejects guard/shadow beside json_schema, keep requesting them on Responses;
+  // for this chat finish only, retry schema-only WITH the feature model suffix still set,
+  // and flag the exact error (never silent).
+  if (!turn.ok) {
+    const flagged = classifyAgentFeatureRejection({
+      status: turn.status,
+      payload: turn.payload,
+      error: turn.error,
+      endpoint: "chat",
+      requestedFeatures: input.bundle.features,
+    });
+    if (flagged.length > 0) {
+      const schemaOnly = chatBody({
+        messages,
+        model: input.bundle.model,
+        jsonSchema: {
+          name: "find_agent_result",
+          schema: FIND_AGENT_RESULT_SCHEMA as unknown as Record<string, unknown>,
+        },
+      });
+      turn = await postChat({
+        apiKey: input.apiKey,
+        baseUrl: input.baseUrl,
+        fetch: input.fetch,
+        body: schemaOnly,
+      });
+      pushServJournal({
+        journal: input.journal,
+        rejections: input.rejections,
+        bundle: input.bundle,
+        responseId: responseIdOf(turn.payload),
+        latencyMs: turn.latencyMs,
+        mode: input.mode,
+        finishReason: turn.payload ? servFinishReason(turn.payload) : null,
+        hadToolCalls: false,
+        endpoint: "chat",
+        turn,
+      });
+      input.journal.push({
+        kind: "tool",
+        name: "_feature_flag",
+        args: { phase: "chat_finish_schema_only_retry", flagged },
+        summary: formatFeatureRejectionFlags(flagged).join(" | "),
+        ok: false,
+      });
+    }
+  }
+
   if (!turn.ok) {
     return {
       ok: false,
@@ -356,6 +498,7 @@ async function finalizeVerdict(input: {
           }),
         },
       ],
+      model: input.bundle.model,
       jsonSchema: {
         name: "find_agent_result",
         schema: FIND_AGENT_RESULT_SCHEMA as unknown as Record<string, unknown>,
@@ -367,14 +510,17 @@ async function finalizeVerdict(input: {
       fetch: input.fetch,
       body: repairBody,
     });
-    input.journal.push({
-      kind: "serv",
+    pushServJournal({
+      journal: input.journal,
+      rejections: input.rejections,
+      bundle: input.bundle,
       responseId: responseIdOf(repair.payload),
-      model: BASE_MODEL,
       latencyMs: repair.latencyMs,
       mode: input.mode,
       finishReason: repair.payload ? servFinishReason(repair.payload) : null,
       hadToolCalls: false,
+      endpoint: "chat",
+      turn: repair,
     });
     if (!repair.ok) {
       return {
@@ -401,6 +547,14 @@ async function finalizeVerdict(input: {
   return { ok: true, verdict: guarded.verdict, dropped: guarded.dropped };
 }
 
+function findLoopMeta(bundle: AgentServFeatureBundle, rejections: AgentServFeatureRejection[]) {
+  return {
+    featureRejections: [...rejections],
+    featureFlags: formatFeatureRejectionFlags(rejections),
+    servFeatures: journalFromBundle(bundle, { featureRejections: rejections, endpoint: "responses" }),
+  };
+}
+
 async function runToolsMode(input: {
   note: string;
   formEdits?: Record<string, unknown> | null;
@@ -413,6 +567,8 @@ async function runToolsMode(input: {
   fetchImpl: typeof fetch;
 }): Promise<FindAgentLoopResult> {
   const requestedMode = resolveFindAgentMode(process.env);
+  const bundle = findAgentServFeatureBundle();
+  const rejections: AgentServFeatureRejection[] = [];
   const instructions = systemPrompt(input.note, input.formEdits);
   const seedUser =
     "Search for cars that fit the shopper. Call tools as needed (parallel OK). When ready, call submit_picks with the final verdict — do not invent VINs.";
@@ -421,7 +577,7 @@ async function runToolsMode(input: {
     { role: "system", content: instructions },
     { role: "user", content: seedUser },
   ];
-  const tools = findAgentResponsesTools();
+  const applicationTools = findAgentResponsesTools();
   let responsesInput: ResponsesInputItem[] = [responsesUserMessage(seedUser)];
   let toolRounds = 0;
   let firstTurn = true;
@@ -431,7 +587,8 @@ async function runToolsMode(input: {
     const body = responsesBody({
       instructions,
       input: responsesInput,
-      tools,
+      applicationTools,
+      bundle,
     });
     const turn = await postResponses({
       apiKey: input.deps.servKey,
@@ -441,14 +598,17 @@ async function runToolsMode(input: {
     });
     const output = turn.ok ? responsesOutputOf(turn.payload) : null;
     const calls = turn.ok ? extractResponsesFunctionCalls(output) : [];
-    input.journal.push({
-      kind: "serv",
+    pushServJournal({
+      journal: input.journal,
+      rejections,
+      bundle,
       responseId: responseIdOf(turn.payload),
-      model: BASE_MODEL,
       latencyMs: turn.latencyMs,
       mode: "tools",
       finishReason: turn.payload ? servFinishReason(turn.payload) : null,
       hadToolCalls: calls.length > 0,
+      endpoint: "responses",
+      turn,
     });
 
     if (!turn.ok) {
@@ -462,6 +622,7 @@ async function runToolsMode(input: {
         message: turn.error || `SERV tools call failed (HTTP ${turn.status}).`,
         journal: input.journal,
         knownVins: [...input.state.knownVins],
+        ...findLoopMeta(bundle, rejections),
       };
     }
 
@@ -476,6 +637,7 @@ async function runToolsMode(input: {
         message: "First tools-mode response had no function_call items.",
         journal: input.journal,
         knownVins: [...input.state.knownVins],
+        ...findLoopMeta(bundle, rejections),
       };
     }
     firstTurn = false;
@@ -503,6 +665,8 @@ async function runToolsMode(input: {
         priorMessages: finishMessages,
         mode: "tools",
         budgetUsd: input.deps.budgetUsd ?? null,
+        bundle,
+        rejections,
       });
       if (!finished.ok) {
         return {
@@ -515,6 +679,7 @@ async function runToolsMode(input: {
           message: finished.message,
           journal: input.journal,
           knownVins: [...input.state.knownVins],
+          ...findLoopMeta(bundle, rejections),
         };
       }
       return {
@@ -529,6 +694,7 @@ async function runToolsMode(input: {
         knownVins: [...input.state.knownVins],
         listingsByVin: input.state.listingsByVin,
         droppedPicks: finished.dropped,
+        ...findLoopMeta(bundle, rejections),
       };
     }
 
@@ -634,6 +800,7 @@ async function runToolsMode(input: {
         knownVins: [...input.state.knownVins],
         listingsByVin: input.state.listingsByVin,
         droppedPicks: [],
+        ...findLoopMeta(bundle, rejections),
       };
     }
   }
@@ -648,6 +815,7 @@ async function runToolsMode(input: {
     message: `Hit runaway guard maxRounds=${input.maxRounds}.`,
     journal: input.journal,
     knownVins: [...input.state.knownVins],
+    ...findLoopMeta(bundle, rejections),
   };
 }
 
@@ -663,6 +831,8 @@ async function runNextActionMode(input: {
   fetchImpl: typeof fetch;
 }): Promise<FindAgentLoopResult> {
   const requestedMode = resolveFindAgentMode(process.env);
+  const bundle = findAgentServFeatureBundle();
+  const rejections: AgentServFeatureRejection[] = [];
   const messages: ChatMessage[] = [
     {
       role: "system",
@@ -677,29 +847,83 @@ async function runNextActionMode(input: {
   ];
   let toolRounds = 0;
 
-  for (let round = 0; round < input.maxRounds; round += 1) {
-    const body = chatBody({
-      messages,
+  const nextActionBody = (msgs: ChatMessage[]) =>
+    chatBody({
+      messages: msgs,
+      model: bundle.model,
+      // Prefer extensions; chat requires reasoning_effort=none when tools are present.
+      tools: bundle.chatExtensionTools,
       jsonSchema: {
         name: "find_agent_next_action",
         schema: FIND_AGENT_NEXT_ACTION_SCHEMA as unknown as Record<string, unknown>,
       },
     });
-    const turn = await postChat({
+
+  for (let round = 0; round < input.maxRounds; round += 1) {
+    let body = nextActionBody(messages);
+    let turn = await postChat({
       apiKey: input.deps.servKey,
       baseUrl: input.baseUrl,
       fetch: input.fetchImpl,
       body,
     });
-    input.journal.push({
-      kind: "serv",
+    pushServJournal({
+      journal: input.journal,
+      rejections,
+      bundle,
       responseId: responseIdOf(turn.payload),
-      model: BASE_MODEL,
       latencyMs: turn.latencyMs,
       mode: "next_action",
       finishReason: turn.payload ? servFinishReason(turn.payload) : null,
       hadToolCalls: false,
+      endpoint: "chat",
+      turn,
     });
+    if (!turn.ok) {
+      const flagged = classifyAgentFeatureRejection({
+        status: turn.status,
+        payload: turn.payload,
+        error: turn.error,
+        endpoint: "chat",
+        requestedFeatures: bundle.features,
+      });
+      if (flagged.length > 0) {
+        // Schema-only retry keeps the feature model suffix; flag the tool rejection.
+        body = chatBody({
+          messages,
+          model: bundle.model,
+          jsonSchema: {
+            name: "find_agent_next_action",
+            schema: FIND_AGENT_NEXT_ACTION_SCHEMA as unknown as Record<string, unknown>,
+          },
+        });
+        turn = await postChat({
+          apiKey: input.deps.servKey,
+          baseUrl: input.baseUrl,
+          fetch: input.fetchImpl,
+          body,
+        });
+        pushServJournal({
+          journal: input.journal,
+          rejections,
+          bundle,
+          responseId: responseIdOf(turn.payload),
+          latencyMs: turn.latencyMs,
+          mode: "next_action",
+          finishReason: turn.payload ? servFinishReason(turn.payload) : null,
+          hadToolCalls: false,
+          endpoint: "chat",
+          turn,
+        });
+        input.journal.push({
+          kind: "tool",
+          name: "_feature_flag",
+          args: { phase: "next_action_schema_only_retry", flagged },
+          summary: formatFeatureRejectionFlags(flagged).join(" | "),
+          ok: false,
+        });
+      }
+    }
     if (!turn.ok) {
       return {
         ok: false,
@@ -711,6 +935,7 @@ async function runNextActionMode(input: {
         message: turn.error || `SERV next_action call failed (HTTP ${turn.status}).`,
         journal: input.journal,
         knownVins: [...input.state.knownVins],
+        ...findLoopMeta(bundle, rejections),
       };
     }
 
@@ -731,6 +956,7 @@ async function runNextActionMode(input: {
             }),
           },
         ],
+        model: bundle.model,
         jsonSchema: {
           name: "find_agent_next_action",
           schema: FIND_AGENT_NEXT_ACTION_SCHEMA as unknown as Record<string, unknown>,
@@ -742,14 +968,17 @@ async function runNextActionMode(input: {
         fetch: input.fetchImpl,
         body: repairBody,
       });
-      input.journal.push({
-        kind: "serv",
+      pushServJournal({
+        journal: input.journal,
+        rejections,
+        bundle,
         responseId: responseIdOf(repair.payload),
-        model: BASE_MODEL,
         latencyMs: repair.latencyMs,
         mode: "next_action",
         finishReason: repair.payload ? servFinishReason(repair.payload) : null,
         hadToolCalls: false,
+        endpoint: "chat",
+        turn: repair,
       });
       if (!repair.ok) {
         return {
@@ -762,6 +991,7 @@ async function runNextActionMode(input: {
           message: repair.error || `SERV next_action repair failed (HTTP ${repair.status}).`,
           journal: input.journal,
           knownVins: [...input.state.knownVins],
+          ...findLoopMeta(bundle, rejections),
         };
       }
       parsed = parseJsonObject(messageText(repair.payload, "structured"));
@@ -778,6 +1008,7 @@ async function runNextActionMode(input: {
         message: "Could not parse next_action JSON.",
         journal: input.journal,
         knownVins: [...input.state.knownVins],
+        ...findLoopMeta(bundle, rejections),
       };
     }
 
@@ -825,6 +1056,7 @@ async function runNextActionMode(input: {
               }),
             },
           ],
+          model: bundle.model,
           jsonSchema: {
             name: "find_agent_next_action",
             schema: FIND_AGENT_NEXT_ACTION_SCHEMA as unknown as Record<string, unknown>,
@@ -836,14 +1068,17 @@ async function runNextActionMode(input: {
           fetch: input.fetchImpl,
           body: repairBody,
         });
-        input.journal.push({
-          kind: "serv",
+        pushServJournal({
+          journal: input.journal,
+          rejections,
+          bundle,
           responseId: responseIdOf(repair.payload),
-          model: BASE_MODEL,
           latencyMs: repair.latencyMs,
           mode: "next_action",
           finishReason: repair.payload ? servFinishReason(repair.payload) : null,
           hadToolCalls: false,
+          endpoint: "chat",
+          turn: repair,
         });
         if (!repair.ok) {
           return {
@@ -856,6 +1091,7 @@ async function runNextActionMode(input: {
             message: repair.error || "SERV finish repair failed.",
             journal: input.journal,
             knownVins: [...input.state.knownVins],
+            ...findLoopMeta(bundle, rejections),
           };
         }
         const repaired = parseJsonObject(messageText(repair.payload, "structured"));
@@ -871,6 +1107,7 @@ async function runNextActionMode(input: {
             message: validated.issues.map((i) => i.message).join("; "),
             journal: input.journal,
             knownVins: [...input.state.knownVins],
+            ...findLoopMeta(bundle, rejections),
           };
         }
       }
@@ -891,6 +1128,7 @@ async function runNextActionMode(input: {
         knownVins: [...input.state.knownVins],
         listingsByVin: input.state.listingsByVin,
         droppedPicks: guarded.dropped,
+        ...findLoopMeta(bundle, rejections),
       };
     }
 
@@ -910,6 +1148,7 @@ async function runNextActionMode(input: {
     message: `Hit runaway guard maxRounds=${input.maxRounds}.`,
     journal: input.journal,
     knownVins: [...input.state.knownVins],
+    ...findLoopMeta(bundle, rejections),
   };
 }
 

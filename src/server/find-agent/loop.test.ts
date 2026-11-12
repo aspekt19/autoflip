@@ -145,6 +145,7 @@ describe("runFindAgentLoop", () => {
       if (isServResponsesUrl(url)) {
         responsesCalls += 1;
         const body = JSON.parse(String(init?.body ?? "{}")) as {
+          model?: string;
           tools?: Array<{ type?: string; name?: string }>;
           reasoning?: { effort?: string };
           instructions?: string;
@@ -152,6 +153,11 @@ describe("runFindAgentLoop", () => {
         };
         expect(typeof body.instructions).toBe("string");
         expect(body.instructions!.length).toBeGreaterThan(0);
+        expect(body.model).toBe("gpt-6.1-sol-serv-kronos-multipath");
+        expect(body.tools?.map((t) => t.name).slice(0, 2)).toEqual([
+          "serv_prompt_guard",
+          "serv_shadow_agent",
+        ]);
         expect(Array.isArray(body.tools) && body.tools.some((t) => t.name === "submit_picks")).toBe(true);
         expect(body.reasoning?.effort).toBe("low");
         expect(Array.isArray(body.input)).toBe(true);
@@ -290,6 +296,10 @@ describe("runFindAgentLoop", () => {
     expect(sawReasoningEcho).toBe(true);
     expect(sawBothOutputs).toBe(true);
     expect(responsesCalls).toBe(2);
+    expect(result.servFeatures.features).toEqual(
+      expect.arrayContaining(["serv_prompt_guard", "serv_shadow_agent", "multipath", "kronos"]),
+    );
+    expect(result.featureFlags).toEqual([]);
   });
 
   it("tools mode: rejected submit_picks returns issues then accepts repair", async () => {

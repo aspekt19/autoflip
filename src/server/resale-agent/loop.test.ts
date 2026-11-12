@@ -114,11 +114,17 @@ describe("runResaleAgentLoop", () => {
       if (isServResponsesUrl(url)) {
         responsesCalls += 1;
         const body = JSON.parse(String(init?.body ?? "{}")) as {
+          model?: string;
           tools?: Array<{ name?: string }>;
           instructions?: string;
           input?: unknown;
         };
         expect(typeof body.instructions).toBe("string");
+        expect(body.model).toBe("gpt-6.1-sol-serv-multipath");
+        expect(body.tools?.map((t) => t.name).slice(0, 2)).toEqual([
+          "serv_prompt_guard",
+          "serv_shadow_agent",
+        ]);
         expect(body.tools?.some((t) => t.name === "search_listings")).toBe(true);
         expect(body.tools?.some((t) => t.name === "get_flip_pnl")).toBe(true);
         expect(body.tools?.some((t) => t.name === "submit_picks")).toBe(true);
@@ -220,6 +226,10 @@ describe("runResaleAgentLoop", () => {
     expect(sawReasoningEcho).toBe(true);
     expect(result.pnlByVin.size).toBeGreaterThan(0);
     expect(responsesCalls).toBe(2);
+    expect(result.servFeatures.features).toEqual(
+      expect.arrayContaining(["serv_prompt_guard", "serv_shadow_agent", "multipath"]),
+    );
+    expect(result.featureFlags).toEqual([]);
   });
 
   it("next_action mode: search then finish", async () => {
