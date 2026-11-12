@@ -719,11 +719,15 @@ function ResaleSearchResultView({ result }: { result: SearchResult }) {
   return (
     <article className="warn-box check-result" aria-live="polite">
       <h2>{result.headline}</h2>
-      <p className="lead">
-        <strong>Verdict: {result.verdictAction}</strong>
-        {" · "}
-        Confidence: {result.confidence}
-      </p>
+      {result.best ? (
+        <p className="lead">
+          <strong>Verdict: {result.verdictAction}</strong>
+          {" · "}
+          Confidence: {result.confidence}
+        </p>
+      ) : (
+        <p className="lead">{result.message || "No cars matched this search. No credit was used for a verdict."}</p>
+      )}
             <p>{result.message}</p>
       <p className="hint">{result.nextStep}</p>
       <p className="hint">{parseLabel}</p>

@@ -65,6 +65,7 @@ class ClientSession {
   constructor(private readonly mode: "personal" | "flip") {}
 
   async submit(note: string, fetchImpl: typeof fetch): Promise<{ sentBudget: number | null }> {
+    this.idem = null;
     const amount = parseUsdInput(this.budget);
     const sentBudget = this.budgetKnown && amount != null ? amount : null;
     const result = await understandNeed(
@@ -125,8 +126,9 @@ class ClientSession {
       source: location === "from-note" ? "note" : "form",
     };
     const direction = this.directions[0];
+    const draftedYear = this.yearMinDraft ? Number(this.yearMinDraft) : null;
     const enforced = {
-      yearMin: direction?.yearMin ?? need.yearMin ?? null,
+      yearMin: draftedYear ?? need.yearMin ?? direction?.yearMin ?? null,
       yearMax: direction?.yearMax ?? need.yearMax ?? null,
       milesMax: need.milesMax,
       priceMaxUsd: need.budgetKnown ? need.budgetUsd : null,
@@ -444,7 +446,7 @@ async function runFlip(
   const enforced = {
     yearMin: null,
     yearMax: null,
-    milesMax: null,
+    milesMax: 180_000,
     priceMaxUsd: budget,
     zip: hard.zip?.value ?? null,
     radiusMi: hard.radiusMi?.value ?? null,

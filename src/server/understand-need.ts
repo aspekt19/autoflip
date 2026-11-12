@@ -26,8 +26,8 @@ import {
 import type { CriteriaParseProvenance } from "@/domain/radar-criteria-provenance";
 import { criteriaParseLabel } from "@/domain/radar-criteria-provenance";
 import { providerResponseIdFromCall } from "@/domain/serv-response-id";
-import { BASE_MODEL, plannedProof, runServ, type ServProof } from "@/server/serv";
-import { isServRetryableFailure } from "@/server/serv/transport-error";
+import { plannedProof, type ServProof } from "@/server/serv";
+import { callStep } from "@/server/serv/call-step";
 import { providerResponseId } from "@/domain/serv-response-id";
 import { screenUserInput } from "@/domain/screen";
 
@@ -63,6 +63,8 @@ export async function understandNeed(
     mode?: "personal" | "flip";
     budgetUsd?: number | null;
     budgetKnown?: boolean;
+    /** False means the number is leftover form state and must not beat the note. */
+    budgetDirty?: boolean;
     budgetScope?: StructuredNeed["budgetScope"];
     zip?: string | null;
     distanceMiles?: number | null;
@@ -84,8 +86,11 @@ export async function understandNeed(
   const screened = screenUserInput(text || mode);
   if (!screened.ok) return { ok: false, status: 400, error: "rejected_input", message: screened.reason };
 
+  const noteBudget = intakeFromNote(screened.text).budgetUsd;
+  const formBudget =
+    body.budgetDirty === true || noteBudget == null ? (body.budgetUsd ?? null) : null;
   const formOverrides = {
-    budgetUsd: body.budgetUsd ?? null,
+    budgetUsd: formBudget,
     yearMin: body.yearMin ?? null,
     yearMax: body.yearMax ?? null,
     milesMax: body.milesMax ?? null,
@@ -94,8 +99,9 @@ export async function understandNeed(
 
   const explicit: Parameters<typeof overlayExplicit>[1] = {
     mode,
-    budgetUsd: body.budgetUsd ?? null,
-    budgetKnown: body.budgetKnown,
+    budgetUsd: formBudget,
+    budgetKnown: body.budgetDirty === false ? false : body.budgetKnown,
+    budgetDirty: body.budgetDirty,
     budgetScope: body.budgetScope,
     zip: body.zip,
     distanceMiles: body.distanceMiles,
@@ -153,53 +159,27 @@ export async function understandNeed(
       today: recordedAt.slice(0, 10),
     });
     const planDeps = { ...servDeps, timeoutMs: undefined as number | undefined };
-    let planned = await runServ("find_plan", { user: userPayload }, planDeps);
-    checks.push(planned.proof);
-    let usedPlainRetry = false;
-    let plainRetryReason: string | null = null;
-
-    // One honest retry on real failure (network/5xx/unparseable/invalid) — not on timeout/abort.
-    // First attempt keeps kronos-multipath; retry uses plain gpt-6.1-sol without the extra reasoning mode.
-    const firstUnparseable =
-      planned.ok && Boolean(planned.text?.trim()) && (() => {
+    const step = await callStep({
+      profileId: "find_plan",
+      user: userPayload,
+      deps: planDeps,
+      critical: true,
+      accept: (text) => {
         try {
-          parseNeedJson(planned.text);
-          return false;
+          return validateFindPlan(parseNeedJson(text), { note: screened.text, form: formOverrides }).ok;
         } catch {
-          return true;
+          return false;
         }
-      })();
-    const firstValidationFailed =
-      planned.ok && Boolean(planned.text?.trim()) && !firstUnparseable
-        ? !validateFindPlan(parseNeedJson(planned.text), { note: screened.text, form: formOverrides }).ok
-        : false;
-    const firstStatus = planned.ok ? planned.rawStatus : planned.status;
-    const firstErrorClass = planned.ok ? null : planned.transportErrorClass ?? null;
-    const retryable = isServRetryableFailure({
-      ok: planned.ok && !firstUnparseable && !firstValidationFailed,
-      status: firstStatus,
-      errorClass: firstErrorClass,
-      unparseable: firstUnparseable,
-      validationFailed: firstValidationFailed,
+      },
     });
-    if (retryable) {
-      const retry = await runServ(
-        "find_plan",
-        { user: userPayload },
-        {
-          ...planDeps,
-          model: BASE_MODEL,
-          disableFeatureSuffix: true,
-        },
-      );
-      checks.push(retry.proof);
-      usedPlainRetry = true;
-      plainRetryReason =
-        firstErrorClass === "network" || (typeof firstStatus === "number" && firstStatus >= 500)
-          ? "SERV planned without the extra reasoning mode after a network error"
-          : "SERV planned without the extra reasoning mode after the first reply could not be used";
-      planned = retry;
-    }
+    const planned = step.result;
+    checks.push(planned.proof);
+    const usedPlainRetry = step.retried;
+    const plainRetryReason = step.retried
+      ? "SERV planned again on the base model after the first reply could not be used."
+      : null;
+    // A failed plan does not invent a verdict. The note's own budget and limits
+    // still drive one inventory search (never zero queries).
 
     // prompt_guard on find_plan — treat a completed call as allow unless the runner blocked.
     guard = planned.ok ? "allow" : "unavailable";
@@ -218,12 +198,10 @@ export async function understandNeed(
           model: planned.proof.modelReported,
           recordedAt,
           inputs: parseInputs,
-          detail: `${planned.error}${classBit}${usedPlainRetry ? ` Retry also failed.` : ""} Code form plan published instead.`,
+          detail: `${planned.error}${classBit}${usedPlainRetry ? ` Retry also failed.` : ""} The note's own limits were used for the search.`,
           rawResponse: null,
         }),
       );
-      findPlan = fallbackFindPlan(screened.text, mode, formOverrides);
-      source = "form";
     } else {
       try {
         const parsed = parseNeedJson(planned.text);
@@ -254,8 +232,6 @@ export async function understandNeed(
             }),
           );
         } else {
-          findPlan = fallbackFindPlan(screened.text, mode, formOverrides);
-          source = "form";
           const issueText = validated.issues
             .slice(0, 4)
             .map((i) => i.message)
@@ -269,27 +245,13 @@ export async function understandNeed(
               model: planned.proof.modelReported,
               recordedAt,
               inputs: parseInputs,
-              detail: `SERV plan failed validation (${issueText || "schema mismatch"}). Code form plan published instead.`,
+              detail: `SERV plan failed validation (${issueText || "schema mismatch"}). The note's own limits were used for the search.`,
               rawResponse: planned.text,
             }),
           );
         }
       } catch {
-        findPlan = fallbackFindPlan(screened.text, mode, formOverrides);
-        source = "form";
-        proofRecords.push(
-          buildDecisionProofRecord({
-            purpose: "find_plan",
-            rubricId: NEED_PARSE_RUBRIC_ID,
-            status: "unknown",
-            responseId: failedResponseId,
-            model: planned.proof.modelReported,
-            recordedAt,
-            inputs: parseInputs,
-            detail: "SERV plan response was unparseable. Code form plan published instead.",
-            rawResponse: planned.text || null,
-          }),
-        );
+        /* Keep the note-derived plan. */
       }
     }
   }

@@ -32,6 +32,7 @@ import {
   publishBestDeal,
 } from "@/server/find-settle-serv";
 import { chatCompletionContent, profile, runServ, type ServDeps } from "@/server/serv";
+import { callStep, SECOND_CHECK_MISSED } from "@/server/serv/call-step";
 
 function receiptEvidenceId(r: FindFreeGovReceipt): string {
   return `${r.checkId}:${r.make}|${r.model}|${r.year}`.toLowerCase();
@@ -304,7 +305,7 @@ export async function runFindDecideServ(input: {
     );
   }
 
-  if (!decide && codePick) {
+  if (!decide && codePick && !servKey) {
     decide = {
       pickKey: codePick.key,
       action: "negotiate",
@@ -345,12 +346,16 @@ export async function runFindDecideServ(input: {
       source: "code",
       agentVerdict: {
         schemaVersion: "lemonless.agent_verdict.v1",
-        verdict: "pass",
+        verdict: null,
         confidence: "low",
         pick: null,
         reasons: [],
         risks: [],
-        unknowns: ["No cars to decide among."],
+        unknowns: [
+          servKey && codePick
+            ? "Our AI couldn't finish this decision; no credit used."
+            : "No cars matched. Nothing was charged for a verdict.",
+        ],
         serv_steps: [],
         no_serv_step: true,
         second_pass: emptySecondPass("No cars to decide among."),
@@ -372,20 +377,19 @@ export async function runFindDecideServ(input: {
   let revisedConfidence: FindDecideConfidence | null = null;
 
   if (servKey && source === "SERV") {
-    const challenged = await runServ(
-      "find_challenge",
-      {
-        user: JSON.stringify({
-          facts: {
-            shortlist: factSheet,
-            shortlistKeys,
-            allowedEvidenceIds: [...allowedEvidenceIds],
-            decide,
-            guardrailRules,
-          },
-        }),
-      },
-      {
+    const challengeStep = await callStep({
+      profileId: "find_challenge",
+      critical: false,
+      user: JSON.stringify({
+        facts: {
+          shortlist: factSheet,
+          shortlistKeys,
+          allowedEvidenceIds: [...allowedEvidenceIds],
+          decide,
+          guardrailRules,
+        },
+      }),
+      deps: {
         fetch: input.fetchImpl,
         apiKey: servKey,
         baseUrl: input.servBaseUrl,
@@ -393,7 +397,11 @@ export async function runFindDecideServ(input: {
         transportPolicy: input.transportPolicy,
         timeoutMs: profile("find_challenge").timeoutMs,
       },
-    );
+    });
+    const challenged = challengeStep.result;
+    if (challengeStep.degraded) {
+      decide = { ...decide, confidence: "low" };
+    }
     let payload: unknown = null;
     if (challenged.ok && challenged.text?.trim()) {
       try {
@@ -448,9 +456,8 @@ export async function runFindDecideServ(input: {
         }),
       );
     } else {
-      // C4 fail → publish C3 with confidence capped at medium.
-      if (decide.confidence === "high") decide = { ...decide, confidence: "medium" };
-      secondPass = emptySecondPass("Second review unavailable — confidence capped at medium.", "unavailable");
+      decide = { ...decide, confidence: "low" };
+      secondPass = emptySecondPass(SECOND_CHECK_MISSED, "unavailable");
       proofRecords.push(
         buildDecisionProofRecord({
           purpose: "find_challenge",
@@ -460,7 +467,7 @@ export async function runFindDecideServ(input: {
           responseId: null,
           model: challengeModel,
           inputs: { issues: validated.ok === false ? validated.issues : [] },
-          detail: "Second review unavailable — confidence capped at medium.",
+          detail: SECOND_CHECK_MISSED,
           rawResponse,
         }),
       );

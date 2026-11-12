@@ -34,13 +34,14 @@ describe("golden invariants", () => {
     expect(`<p>Pool empty</p>`).toMatch(I6_FORBIDDEN);
   });
 
-  it("allowlists only the known main failures", () => {
-    expect(dispositionFor("G1", ["I5", "G1.verdict"])).toBe("known_failure");
-    expect(dispositionFor("G1", [])).toBe("known_cleared");
-    expect(dispositionFor("G2", ["I1.year"])).toBe("known_failure");
+  it("allowlists only the remaining recorded-inventory gap", () => {
+    expect(dispositionFor("G1", [])).toBe("pass");
+    expect(dispositionFor("G2", [])).toBe("pass");
+    expect(dispositionFor("G4", ["G4.recon", "G4.days"])).toBe("known_failure");
+    expect(dispositionFor("G4", ["G4.miles"])).toBe("unexpected");
     expect(dispositionFor("G3", ["I5"])).toBe("unexpected");
-    expect(dispositionFor("G5", [])).toBe("pass");
-    expect(dispositionFor("G6", ["I2", "G6.zip"])).toBe("known_failure");
-    expect(dispositionFor("G8", ["I1.year", "G8.fuel"])).toBe("known_failure");
+    expect(dispositionFor("G6", [])).toBe("pass");
+    expect(dispositionFor("G8", [])).toBe("pass");
+    expect(dispositionFor("G9", [])).toBe("pass");
   });
 });

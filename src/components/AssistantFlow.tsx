@@ -363,6 +363,7 @@ function AssistantFlow({
   const findSubmitLock = useRef(false);
   /** Reused until a Find response is received, so a lost response is not a second purchase. */
   const findIdempotencyKey = useRef<string | null>(null);
+  const findIdemFingerprint = useRef<string | null>(null);
   /** Auto-continues fired for the current search token — hard-bounded in shouldAutoContinue. */
   const autoContinueCountRef = useRef(0);
 
@@ -436,8 +437,9 @@ function AssistantFlow({
         body: JSON.stringify({
           text,
           mode,
-          budgetUsd: budgetKnown && Number.isFinite(amount) ? amount : null,
-          budgetKnown,
+          budgetUsd: opts?.freshNote || !budgetFormDirty ? null : budgetKnown && Number.isFinite(amount) ? amount : null,
+          budgetKnown: opts?.freshNote || !budgetFormDirty ? false : budgetKnown,
+          budgetDirty: opts?.freshNote ? false : budgetFormDirty,
           zip: zipForNeed,
           // Always send the user-selected radius (null = Nationwide). Never drop it silently.
           distanceMiles: distanceForNeed,
@@ -1452,6 +1454,24 @@ function AssistantFlow({
     let autoNextToken: string | null = null;
     let autoDecidePath = false;
     try {
+      const specFingerprint = JSON.stringify({
+        text,
+        budget: budgetFormDirty ? budget : null,
+        yearMin,
+        yearMax,
+        milesMax: need?.milesMax ?? null,
+        zip: zipDraft,
+        distance: distanceDraft,
+      });
+      if (findIdemFingerprint.current !== specFingerprint) {
+        findIdempotencyKey.current = null;
+        findIdemFingerprint.current = specFingerprint;
+        try {
+          sessionStorage.removeItem("af-find-idem");
+        } catch {
+          /* ignore */
+        }
+      }
       let searchIdempotencyKey = findIdempotencyKey.current;
       if (!searchIdempotencyKey) {
         try {
@@ -2043,6 +2063,13 @@ function AssistantFlow({
             setPickAgentVerdict(null);
             setPickSecondPass(null);
             setFindLoopOpen(false);
+            setBudgetFormDirty(false);
+            findIdempotencyKey.current = null;
+            try {
+              sessionStorage.removeItem("af-find-idem");
+            } catch {
+              /* ignore */
+            }
             const parsed = explicitNeedFromText(text, mode);
             if (parsed.budgetUsd != null) {
               setBudget(parsed.budgetUsd.toLocaleString("en-US"));
@@ -2735,7 +2762,7 @@ function AssistantFlow({
                             <strong>Confidence:</strong> {dealCopy.choice.confidenceLine}
                           </p>
                         ) : null}
-                        {pickAgentVerdict?.verdict ? (
+                        {pickAgentVerdict?.verdict && groups.some((group) => group.listings.length > 0) ? (
                           <p>
                             Verdict:{" "}
                             <strong>

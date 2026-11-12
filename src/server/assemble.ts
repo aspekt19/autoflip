@@ -8,6 +8,7 @@ import { priceBadge } from "@/domain/price-badge";
 import { buildComputedReport } from "@/domain/report";
 import { resolvePurchaseAskForEconomics } from "@/domain/report-purchase-ask";
 import { screenUserInput } from "@/domain/screen";
+import { providerYearQuery } from "@/domain/search-spec";
 import { templateExplanation } from "@/domain/template";
 import { buildAgentVerdictFromReport } from "@/domain/agent-trail";
 import { collectReportEvidenceIds, runReportVerdictChallenge } from "@/server/agent-second-pass";
@@ -920,7 +921,8 @@ export async function assembleRadar(
   const proofRecords = [guardProofRecord];
   const flipOpen = input.mode === "flip" && !input.make.trim();
   const bodyOnly = Boolean(input.bodyStyle?.trim()) && !input.make.trim();
-  if (!input.make.trim() && !flipOpen && !bodyOnly) {
+  const budgetOnly = !input.make.trim() && !input.bodyStyle?.trim() && Boolean(input.priceMax);
+  if (!input.make.trim() && !flipOpen && !bodyOnly && !budgetOnly) {
     return { ok: false, status: 400, error: "make_required", message: "Choose a make.", proof, proofRecords };
   }
   if (flipOpen && (!input.priceMax || !input.zip)) {
@@ -1079,14 +1081,5 @@ export async function previewListing(input: AssembleInput, deps: AssembleDeps) {
 }
 
 function yearQuery(input: { year?: number; yearMin?: number; yearMax?: number }): { year?: number; yearRange?: string } {
-  const min = input.yearMin ?? input.year;
-  const max = input.yearMax ?? (input.yearMin ? undefined : input.year);
-  if (min && max) {
-    const low = Math.min(min, max);
-    const high = Math.max(min, max);
-    return low === high ? { year: low } : { yearRange: `${low}-${high}` };
-  }
-  if (min) return { year: min };
-  if (max) return { year: max };
-  return {};
+  return providerYearQuery(input);
 }

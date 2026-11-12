@@ -23,6 +23,7 @@ import {
   validateNeed,
   type StructuredNeed,
 } from "@/domain/need";
+import { buildSearchSpec, enforceHard, hardDropSentence } from "@/domain/search-spec";
 import { priceCompsUnevenAcrossListings, selectBestDealOnEvidence } from "@/domain/find-best-deal";
 import { priceBadge, type PriceBadge } from "@/domain/price-badge";
 import { reconUsd } from "@/domain/recon";
@@ -183,6 +184,56 @@ function queriesForDirection(
   return out;
 }
 
+function confirmedYears(
+  direction: SearchDirection,
+  need: StructuredNeed,
+  refine?: { yearMin?: number; yearMax?: number },
+): { yearMin?: number; yearMax?: number } {
+  return {
+    yearMin: refine?.yearMin ?? need.yearMin ?? direction.yearMin,
+    yearMax: refine?.yearMax ?? need.yearMax ?? direction.yearMax,
+  };
+}
+
+function budgetOnlyDirection(need: StructuredNeed): SearchDirection {
+  const year = new Date().getUTCFullYear();
+  return {
+    id: "budget-only",
+    segment: "Your budget",
+    why: "No model was named, so this search uses your budget and hard limits only.",
+    guidance: "editorial",
+    yearMin: need.yearMin ?? year,
+    yearMax: need.yearMax ?? year + 1,
+    yearBecause: "Budget-only search.",
+    models: [],
+    search: { make: "", model: "" },
+  };
+}
+
+function applyHardGate(collected: Listing[], need: StructuredNeed): { listings: Listing[]; note: string | null } {
+  const spec = buildSearchSpec({
+    note: need.note ?? "",
+    mode: need.mode,
+    formEdits: {
+      priceMaxUsd:
+        need.budgetKnown && need.budgetUsd != null ? { value: need.budgetUsd, dirty: true } : undefined,
+      yearMin: need.yearMin != null ? { value: need.yearMin, dirty: true } : undefined,
+      yearMax: need.yearMax != null ? { value: need.yearMax, dirty: true } : undefined,
+      milesMax: need.milesMax != null ? { value: need.milesMax, dirty: true } : undefined,
+      radiusMi: { value: need.distanceMiles, dirty: true },
+    },
+  });
+  const gated = enforceHard(spec, collected);
+  if (need.mode !== "flip") return { listings: gated.kept, note: hardDropSentence(gated.dropped) };
+  // Flip ranking needs the wider asking-price set as comps. Price-only misses stay
+  // in that pool; the ranker excludes anomalies and does not treat a gap as profit.
+  const blocked = new Set(gated.dropped.filter((row) => row.rule !== "price").map((row) => row.vin));
+  return {
+    listings: collected.filter((car) => !blocked.has(car.vin)),
+    note: hardDropSentence(gated.dropped.filter((row) => row.rule !== "price")),
+  };
+}
+
 function withinBudget(
   listings: Listing[],
   budgetUsd: number | null,
@@ -252,10 +303,11 @@ export async function runFindMatch(
   }
 
   const need = parsed.need;
-  const directions =
+  let directions =
     body?.directions && body.directions.length > 0
       ? body.directions
       : proposeDirections(need, body?.refine);
+  if (directions.length === 0) directions = [budgetOnlyDirection(need)];
   if (directions.length === 0) {
     const empty = findEmptyCopy("no_directions", need);
     return {
@@ -347,6 +399,10 @@ export async function runFindMatch(
       planned.push({ direction, query, directionIndex: di });
     }
   }
+  if (planned.length === 0) {
+    const direction = directions[0] ?? budgetOnlyDirection(need);
+    planned.push({ direction, query: { make: "", model: "", bodyStyle: direction.bodyStyle }, directionIndex: 0 });
+  }
 
   type DispatchRow = {
     planned: PlannedQuery;
@@ -364,8 +420,7 @@ export async function runFindMatch(
           model: job.query.model,
           bodyStyle: job.query.bodyStyle ?? job.direction.bodyStyle,
           zip: searchZip,
-          yearMin: job.direction.yearMin,
-          yearMax: job.direction.yearMax,
+          ...confirmedYears(job.direction, need, body?.refine),
           distanceMiles: radiusMiles,
           mode: need.mode,
           milesMax: need.milesMax ?? undefined,
@@ -417,8 +472,7 @@ export async function runFindMatch(
             model: job.query.model,
             bodyStyle: job.query.bodyStyle ?? job.direction.bodyStyle,
             zip: searchZip,
-            yearMin: job.direction.yearMin,
-            yearMax: job.direction.yearMax,
+            ...confirmedYears(job.direction, need, body?.refine),
             distanceMiles: radiusMiles,
             mode: need.mode,
             milesMax: need.milesMax ?? undefined,
@@ -576,7 +630,9 @@ export async function runFindMatch(
     const byVin = new Map(ranked.map((item) => [item.vin, item]));
     const assumption =
       need.mode === "flip" ? reconUsd({ miles: null, repairAbility: need.repairAbility }).because : null;
-    const narrowed = collected.filter((item) => listingWithinNeed(item, need));
+    const gated = applyHardGate(collected, need);
+    if (gated.note) directionNote = [directionNote, gated.note].filter(Boolean).join(" ");
+    const narrowed = gated.listings.filter((item) => listingWithinNeed(item, need));
     const personalScores =
       need.mode === "personal" ? personalRankScores(narrowed, need) : new Map<string, number>();
     const rankedReady = withinBudget(narrowed, need.budgetUsd, need.budgetKnown)
@@ -737,8 +793,12 @@ export async function runFindMatch(
     const bodyStyle =
       directions.find((d) => d.bodyStyle)?.bodyStyle ?? need.bodyStyle ?? undefined;
     const yearPad = 2;
-    const yMin = Math.max(1990, Math.min(...directions.map((d) => d.yearMin)) - yearPad);
-    const yMax = Math.max(...directions.map((d) => d.yearMax)) + yearPad;
+    const confirmedFloor = body?.refine?.yearMin ?? need.yearMin ?? null;
+    const yMin =
+      confirmedFloor != null
+        ? confirmedFloor
+        : Math.max(1990, Math.min(...directions.map((d) => d.yearMin)) - yearPad);
+    const yMax = Math.max(...directions.map((d) => d.yearMax), confirmedFloor ?? 0) + yearPad;
     const broadenDir: SearchDirection = {
       id: "broaden_body",
       segment: bodyStyle ? `Broader ${bodyStyle} search` : "Broader nationwide search",
@@ -783,7 +843,8 @@ export async function runFindMatch(
       providerQueriesUsed += 1;
       if (broadenResult.ok && broadenResult.listings.length > 0) {
         const nationNeed = { ...need, distanceMiles: null, zip: null };
-        const narrowed = broadenResult.listings.filter((row) => listingWithinNeed(row, nationNeed));
+        const gated = applyHardGate(broadenResult.listings, nationNeed);
+        const narrowed = gated.listings.filter((row) => listingWithinNeed(row, nationNeed));
         const scores = need.mode === "personal" ? personalRankScores(narrowed, need) : new Map<string, number>();
         const rankedReady = withinBudget(narrowed, need.budgetUsd, need.budgetKnown)
           .map((item) => {
@@ -937,7 +998,7 @@ export async function runFindMatch(
     const empty = findEmptyCopy(
       "no_directions",
       need,
-      "No listing search ran (providerQueriesUsed=0), so this is not an empty-market or widened-radius result.",
+      "No listing search ran, so this is not an empty market and it is not a verdict.",
     );
     emptyReason = empty.reason;
     message = empty.detail;

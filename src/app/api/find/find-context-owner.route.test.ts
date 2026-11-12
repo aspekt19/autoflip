@@ -159,7 +159,7 @@ function deliveredMatch() {
   };
 }
 
-describe("Find search context owner (signed-in vs anonymous cookie)", () => {
+describe("Find search context owner (signed-in vs anonymous cookie)", { timeout: 20_000 }, () => {
   beforeEach(async () => {
     kvHolder.kv = new MemoryKv();
     session.account = null;

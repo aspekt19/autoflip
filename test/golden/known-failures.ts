@@ -16,31 +16,9 @@ export type KnownFailure = {
 };
 
 export const KNOWN_FAILURES: Partial<Record<GoldenCaseId, KnownFailure>> = {
-  G1: {
-    summary: "zero queries — Pass with providerQueriesUsed = 0",
-    checks: ["I5", "I6", "G1.queries", "G1.verdict"],
-  },
-  G2: {
-    summary: "year — oldest year 2018 is not what inventory is asked for",
-    checks: ["I1.year", "G2.year"],
-  },
   G4: {
-    summary: "303k-mile resale pick — no 180k gate, as-is recon, or 30-day flag",
-    checks: ["I1.miles", "G4.miles", "G4.recon", "G4.days", "G4.target", "G4.span"],
-  },
-  G9: {
-    summary: "stale budget — previous search's $20,000 overrides the new $8,000 note",
-    checks: ["I2", "I3", "I5", "I6", "G9.budget", "G9.idempotency", "I1.price", "G9.queries"],
-  },
-  // Observed on this main, same class as the four above. Allowlisted so the gate
-  // can stay on; drop them when the checks start passing.
-  G6: {
-    summary: "max 12k is not a budget, Chicago does not resolve, and the search never runs",
-    checks: ["I2", "I5", "I6", "G6.zip"],
-  },
-  G8: {
-    summary: "newer than 2019 stays 2019, hybrid is dropped, and the search never runs",
-    checks: ["I1.year", "I5", "I6", "G8.fuel"],
+    summary: "No recorded inventory, so there is no pick to check as-is recon or the 30-day flag.",
+    checks: ["G4.recon", "G4.days"],
   },
 };
 

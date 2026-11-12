@@ -155,6 +155,15 @@ export function parseCityStatePhrase(phrase: string): { city: string; state: str
     if (state && city) return { city, state };
   }
   const parts = cleaned.split(/\s+/);
+  if (parts.length === 1) {
+    const city = parts[0]!.toLowerCase();
+    const hits = Object.keys(CITY_ZIP).filter((key) => key.startsWith(`${city}|`));
+    if (hits.length === 1) {
+      const state = hits[0]!.split("|")[1];
+      if (state) return { city, state };
+    }
+    return null;
+  }
   if (parts.length < 2) return null;
   const last = parts[parts.length - 1]!;
   const state = normalizeStateToken(last);
