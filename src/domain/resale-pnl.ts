@@ -156,7 +156,11 @@ function negotiateOffer(askingUsd: number): { usd: number; basis: string } {
   };
 }
 
-function taxFor(state: string | null | undefined, offerUsd: number): { usd: number | null; basis: string } {
+function taxFor(
+  state: string | null | undefined,
+  offerUsd: number,
+  source: "buyer" | "listing",
+): { usd: number | null; basis: string } {
   const row = stateSalesTax(state);
   if (!row) {
     return {
@@ -165,9 +169,13 @@ function taxFor(state: string | null | undefined, offerUsd: number): { usd: numb
     };
   }
   const usd = stateBaseTaxUsd(offerUsd, row.milliPercent);
+  const assumed =
+    source === "buyer"
+      ? `This assumes you register the car in ${row.name}.`
+      : `Your state was not given, so this uses the listing's state (${row.name}) and is not a registration quote.`;
   return {
     usd,
-    basis: `Sales tax estimate: $${usd.toLocaleString("en-US")} at ${formatTaxRate(row.milliPercent)} statewide base (${row.name}). ${STATE_SALES_TAX_SOURCE_LABEL} as of ${STATE_SALES_TAX_AS_OF}. Local tax on top of that is not included.`,
+    basis: `Sales tax estimate: $${usd.toLocaleString("en-US")} at ${formatTaxRate(row.milliPercent)} statewide base (${row.name}). ${assumed} ${STATE_SALES_TAX_SOURCE_LABEL} as of ${STATE_SALES_TAX_AS_OF}. Local tax on top of that is not included.`,
   };
 }
 
@@ -205,6 +213,17 @@ function confidenceLabel(
   return { label: "Low", basis: `Confidence Low: only ${compCount} similar listings in this scan (need 5+ for Medium).` };
 }
 
+/** Buyer registration state when we know it. Otherwise the listing state, labelled as such. */
+export function resolveBuyerTaxState(
+  listing: Listing,
+  buyerState?: string | null,
+): { state: string | null; source: "buyer" | "listing" } {
+  const fromBuyer = buyerState?.trim().toUpperCase() || null;
+  if (fromBuyer && stateSalesTax(fromBuyer)) return { state: fromBuyer, source: "buyer" };
+  const fromListing = resolveListingTaxState(listing, null);
+  return { state: fromListing, source: "listing" };
+}
+
 /** Prefer listing.state; fall back to ZIP→state prefix table (same as OTD). */
 export function resolveListingTaxState(listing: Listing, override?: string | null): string | null {
   const fromOverride = override?.trim().toUpperCase() || null;
@@ -235,8 +254,8 @@ export function buildResaleCandidatePnl(
   const repairAbility = options?.repairAbility ?? "unknown";
   const channel = options?.resaleChannel ?? "private_party";
   const negotiate = negotiateOffer(asking);
-  const taxState = resolveListingTaxState(estimate.listing, options?.taxState);
-  const tax = taxFor(taxState, negotiate.usd);
+  const taxResolved = resolveBuyerTaxState(estimate.listing, options?.taxState);
+  const tax = taxFor(taxResolved.state, negotiate.usd, taxResolved.source);
   const salesTaxKnown = tax.usd != null;
   const asIs = options?.asIs === true;
   const sellWithinDays = options?.sellWithinDays ?? null;

@@ -2,12 +2,14 @@
  * Buyer view of a stored run. Safe to import from client components:
  * it does not touch the search spec builder or Node crypto.
  */
+import { joinBuyerParts } from "./buyer-text";
 import { veryHighMileageLabel } from "./find-best-deal";
 import { resaleEdgeSentence, resalePickHeading } from "./resale-presentation";
 import { buyerTrim } from "./buyer-trim";
 import {
   confidenceCopy,
   failureCopy,
+  JOURNAL_STEP_IDS,
   journalStepCopy,
   kindCopy,
   phaseCopy,
@@ -136,7 +138,17 @@ function hostOf(href: string): string | null {
 export function runReportModel(view: RunView): RunReportModel {
   const lead = view.listings[0] ? carTitle(view.listings[0]) : kindCopy(view.kind);
   const title = view.listings.length === 1 ? lead : view.listings.length > 1 ? `${view.listings.length} cars` : lead;
+  const journal = [...view.steps]
+    .sort((a, b) => JOURNAL_STEP_IDS.indexOf(a.step) - JOURNAL_STEP_IDS.indexOf(b.step))
+    .map((step) => journalStepCopy(step.step, step.status));
+  const journalSentences = new Set(journal.map((step) => step.sentence));
   const verdictLine = resaleVerdictLine(view);
+  const confidenceText = view.confidenceReason?.trim() || (view.confidence ? `Confidence: ${confidenceCopy(view.confidence)}` : "");
+  const messageText = view.buyerMessage?.trim() ?? "";
+  const confidenceRepeatsMessage =
+    Boolean(messageText) &&
+    Boolean(confidenceText) &&
+    (messageText.toLowerCase().includes(confidenceText.toLowerCase()) || confidenceText.toLowerCase().includes(messageText.toLowerCase()));
   const chargeLine =
     view.creditsCharged > 0
       ? view.creditsCharged === 1
@@ -148,18 +160,14 @@ export function runReportModel(view: RunView): RunReportModel {
     title,
     phaseLine: phaseCopy(view.phase),
     verdictLine,
-    confidenceLine: view.confidence
-      ? view.confidenceReason?.trim()
-        ? view.confidenceReason.trim()
-        : `Confidence: ${confidenceCopy(view.confidence)}`
-      : null,
-    failureLines: view.failureReasons.map((id) => failureCopy(id)),
+    confidenceLine: view.confidence && !confidenceRepeatsMessage ? confidenceText : null,
+    failureLines: view.failureReasons.map((id) => failureCopy(id)).filter((line) => !journalSentences.has(line)),
     chargeLine,
     buyerMessage: view.buyerMessage,
     note: view.note,
     clarifications: view.clarifications,
     limits: view.limits,
-    journal: view.steps.map((step) => journalStepCopy(step.step, step.status)),
+    journal,
     sources: view.sources.map((id) => sourceCopy(id)),
     listings: view.listings.map((car) => {
       const host = car.vdp ? hostOf(car.vdp) : null;
@@ -170,9 +178,14 @@ export function runReportModel(view: RunView): RunReportModel {
         title: carTitle(car),
         place,
         linkLabel: host ? `Listing on ${host}` : car.vdp ? "Dealer listing" : null,
-        summary: [car.summary, car.reason, car.offerLabel, car.drivetrain ? `Drivetrain: ${car.drivetrain}` : car.drivetrainUnknown ? "Drivetrain: not listed" : null, mileageFlag]
-          .filter(Boolean)
-          .join(" ") || null,
+        summary:
+          joinBuyerParts([
+            car.summary,
+            car.reason,
+            car.offerLabel,
+            car.drivetrain ? `Drivetrain: ${car.drivetrain}` : car.drivetrainUnknown ? "Drivetrain: not listed" : null,
+            mileageFlag,
+          ]) || null,
       };
     }),
     permalink: view.permalink,

@@ -11,6 +11,7 @@ import {
   type AgentVerdict,
   type AgentVerdictConfidence,
 } from "@/domain/agent-verdict-schema";
+import { joinBuyerParts } from "@/domain/buyer-text";
 import type { BestDealCandidate, BestDealResult } from "@/domain/find-best-deal";
 import {
   buildDecisionProofRecord,
@@ -283,7 +284,7 @@ function codeFactFromPick(pick: BestDealCandidate): string | null {
 }
 
 const PRICE_FAIRNESS_UNSCORED_RE =
-  /Not scored for fairness|provisional on price|treated as neutral \(\+0\)/i;
+  /Not scored for fairness|provisional on price|treated as neutral \(\+0\)|Asking prices were not compared/i;
 const PRICE_FAIRNESS_CLAIM_RE =
   /\b(?:well )?below fair(?: value)?\b|\b(?:well )?above fair(?: value)?\b|\bnear(?:er)?(?: to)? fair(?: value)?\b|\bfair value\b|\bsolid comps?\b/i;
 
@@ -338,8 +339,9 @@ function confidenceLineFor(
   const factBit = codeFact?.trim() ? codeFact.trim().replace(/\s+/g, " ") : "";
   if (actor === "SERV") {
     const bits = [noteBit, factBit && factBit !== noteBit ? factBit : ""].filter(Boolean);
-    if (bits.length === 0) return `${cap}: chosen among eligible finalists.`;
-    return `${cap}: ${bits.join(" ")}`.trim();
+    const merged = joinBuyerParts(bits);
+    if (!merged) return `${cap}: chosen among eligible finalists.`;
+    return `${cap}: ${merged}`.trim();
   }
   // Code fallback labelled as code (buyer-safe — no "SERV" token).
   const extra = noteBit || factBit;
@@ -401,14 +403,12 @@ export function publishBestDeal(input: {
   };
   const ranked = movePickFirst(input.bestDeal.ranked);
   const allRanked = movePickFirst(input.bestDeal.allRanked?.length ? input.bestDeal.allRanked : ranked);
-  const why = [
+  const why = joinBuyerParts([
     `Best choice on current data: ${label}.`,
     choice.confidenceLine,
     ...choice.reasons,
     input.bestDeal.settlementNote || null,
-  ]
-    .filter(Boolean)
-    .join(" ");
+  ]);
   return {
     ...input.bestDeal,
     pick: input.pick,
@@ -584,7 +584,7 @@ export async function runFindSettleServ(input: {
           return {
             id,
             text: row.stopSale
-              ? "Stop-sale / park-until-fixed recall guidance is open for this year and model"
+              ? "The maker says don't drive it until the recall repair is done"
               : row.recallCampaignCount != null
                 ? `${row.recallCampaignCount} recall campaign(s) on file for this year and model`
                 : "Recall campaigns not confirmed for this year and model",

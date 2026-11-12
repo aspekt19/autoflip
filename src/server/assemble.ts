@@ -971,7 +971,7 @@ export async function assembleRadar(
       bodyStyle:
         input.mode === "flip"
           ? input.bodyStyle?.trim() || undefined
-          : passengerBodyStyleParam(input.bodyStyle),
+          : findBodyStyleParam(input.bodyStyle),
       ...years,
       zip: input.zip,
       distanceMiles:
@@ -1082,6 +1082,13 @@ export async function previewListing(input: AssembleInput, deps: AssembleDeps) {
     coverage: coverageSentence(coverageInput),
     coverageLevel: coverageConfidence(coverageInput),
   };
+}
+
+/** A named style is sent. An open search asks for passenger bodies, not motorcycles. */
+function findBodyStyleParam(explicit?: string | null): string | undefined {
+  const named = explicit?.trim();
+  if (!named || /^any$/i.test(named) || named.includes(",")) return passengerBodyStyleParam(undefined);
+  return named;
 }
 
 function yearQuery(input: { year?: number; yearMin?: number; yearMax?: number }): { year?: number; yearRange?: string } {

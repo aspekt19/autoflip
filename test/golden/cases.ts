@@ -30,7 +30,14 @@ export type GoldenCaseId =
   | "L13"
   | "L14"
   | "L15"
-  | "L16";
+  | "L16"
+  | "L17"
+  | "L18"
+  | "L19"
+  | "L20"
+  | "L21"
+  | "L22"
+  | "L23";
 
 export type CaseTurn =
   | { note: string }
@@ -61,7 +68,7 @@ export type CaseExpect = {
   noDefaultTarget?: boolean;
   queriesRequired?: boolean;
   /** Hand-written fixture responses. Replay does not have live SERV recordings for these. */
-  scripted?: "live-a" | "live-b" | "live-c" | "live-d" | "live-rank" | "live-suv" | "live-odd";
+  scripted?: "live-a" | "live-b" | "live-c" | "live-d" | "live-rank" | "live-suv" | "live-odd" | "live-starter" | "live-tax";
   noMilesMax?: boolean;
   noVerdictWhenEmpty?: boolean;
   /** Distinct make/model pairs the inventory URLs must include. */
@@ -81,7 +88,7 @@ export type CaseExpect = {
 export type GoldenCase = {
   id: GoldenCaseId;
   kind: "personal" | "flip" | "sequence";
-  scripted?: "live-a" | "live-b" | "live-c" | "live-d" | "live-rank" | "live-suv" | "live-odd";
+  scripted?: "live-a" | "live-b" | "live-c" | "live-d" | "live-rank" | "live-suv" | "live-odd" | "live-starter" | "live-tax";
   /** from-note: do not overwrite a ZIP the note resolved. nationwide: radius null, no ZIP. */
   location: { zip: string; radiusMi: number } | "from-note" | "nationwide";
   turns: CaseTurn[];
@@ -406,6 +413,83 @@ export const GOLDEN_CASES: readonly GoldenCase[] = [
     search: "final",
     turns: [{ note: "skip the second review" }],
     expect: { budgetUsd: 15000, priceCeilUsd: 15750, queriesRequired: true },
+  },
+  {
+    id: "L17",
+    kind: "flip",
+    location: { zip: "75201", radiusMi: 100 },
+    search: "final",
+    turns: [{ note: "Resale near Dallas 75201, budget $15,000, sell within 30 days, within 100 miles." }],
+    expect: { budgetUsd: 15000, priceCeilUsd: 15750, queriesRequired: true, sellWithinDays: 30 },
+  },
+  {
+    id: "L18",
+    kind: "personal",
+    scripted: "live-starter",
+    location: "from-note",
+    search: "final",
+    turns: [{ note: "First car for a new driver in Chicago, max $12k, up to 120k miles, safe and cheap to run" }],
+    expect: {
+      budgetUsd: 12000,
+      priceCeilUsd: 12600,
+      milesMax: 120_000,
+      zip: "60601",
+      queriesRequired: true,
+      includesModel: "Corolla",
+      minModels: 2,
+    },
+  },
+  {
+    id: "L19",
+    kind: "personal",
+    scripted: "live-starter",
+    location: "from-note",
+    search: "final",
+    turns: [{ note: "First car for a new driver in Chicago, max $12k, up to 120k miles, safe and cheap to run" }],
+    expect: {
+      budgetUsd: 12000,
+      priceCeilUsd: 12600,
+      milesMax: 120_000,
+      zip: "60601",
+      queriesRequired: true,
+      includesModel: "Civic",
+    },
+  },
+  {
+    id: "L20",
+    kind: "personal",
+    scripted: "live-c",
+    location: "from-note",
+    search: "final",
+    turns: [{ note: "first car for a new driver in Chicago, max $12k, up to 120k miles, safe and cheap to run" }],
+    expect: { budgetUsd: 12000, priceCeilUsd: 12600, milesMax: 120_000, zip: "60601", queriesRequired: true },
+  },
+  {
+    id: "L21",
+    kind: "personal",
+    scripted: "live-suv",
+    location: { zip: "80202", radiusMi: 100 },
+    search: "final",
+    turns: [{ note: "AWD SUV in Denver, budget $25k, must have AWD" }],
+    expect: { budgetUsd: 25000, priceCeilUsd: 26250, drivetrain: "awd_4wd", queriesRequired: true },
+  },
+  {
+    id: "L22",
+    kind: "personal",
+    scripted: "live-starter",
+    location: "from-note",
+    search: "final",
+    turns: [{ note: "First car for a new driver in Chicago, max $12k, up to 120k miles, safe and cheap to run" }],
+    expect: { budgetUsd: 12000, priceCeilUsd: 12600, milesMax: 120_000, zip: "60601", queriesRequired: true, includesModel: "Corolla" },
+  },
+  {
+    id: "L23",
+    kind: "personal",
+    scripted: "live-tax",
+    location: "from-note",
+    search: "final",
+    turns: [{ note: "Used car near Chicago, max $12,000" }],
+    expect: { budgetUsd: 12000, priceCeilUsd: 12600, zip: "60601", queriesRequired: true },
   },
 ];
 

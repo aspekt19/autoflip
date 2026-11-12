@@ -13,6 +13,9 @@ function car(input: {
   miles?: number;
   distance: number;
   drivetrain?: string | null;
+  city?: string;
+  state?: string;
+  zip?: string;
 }) {
   return {
     vin: input.vin,
@@ -22,15 +25,15 @@ function car(input: {
       model: input.model,
       bodyStyle: input.bodyStyle,
       drivetrain: input.drivetrain ?? null,
-      trim: null,
+      trim: input.model === "Forester" ? "2.5i Premium PZEV" : null,
     },
     retailListing: {
       price: input.price,
       miles: input.miles ?? 30_000,
       used: true,
-      city: "Chicago",
-      state: "IL",
-      zip: "60601",
+      city: input.city ?? "Chicago",
+      state: input.state ?? null,
+      zip: input.zip ?? "60601",
       distance: input.distance,
       dealer: "Example Motors",
       vdpURL: `https://dealer.example/${input.vin}`,
@@ -87,7 +90,36 @@ const LIVE_ODD = [
   car({ vin: "JF2SJAKC0FH550111", year: 2016, make: "Subaru", model: "Forester", bodyStyle: "SUV", price: 14000, miles: 72000, distance: 12, drivetrain: "AWD" }),
 ];
 
-type ScriptedKind = "live-a" | "live-b" | "live-c" | "live-d" | "live-rank" | "live-suv" | "live-odd";
+const LIVE_STARTER = [
+  car({ vin: "2T1BURHE0JC000221", year: 2018, make: "Toyota", model: "Corolla", bodyStyle: "Sedan", price: 10900, miles: 78000, distance: 12 }),
+  car({ vin: "2HGFC2F79JH000222", year: 2018, make: "Honda", model: "Civic", bodyStyle: "Sedan", price: 11200, miles: 64000, distance: 18 }),
+  car({ vin: "4T1BF1FK5JU000223", year: 2018, make: "Toyota", model: "Camry", bodyStyle: "Sedan", price: 11500, miles: 70000, distance: 20 }),
+  car({ vin: "1HGCV1F36JA000224", year: 2018, make: "Honda", model: "Accord", bodyStyle: "Sedan", price: 11800, miles: 72000, distance: 22 }),
+  car({ vin: "KMHD84LF5JU000225", year: 2018, make: "Hyundai", model: "Elantra", bodyStyle: "Sedan", price: 9800, miles: 81000, distance: 14 }),
+  car({ vin: "JM1BL1UG0J1000226", year: 2018, make: "Mazda", model: "Mazda3", bodyStyle: "Hatchback", price: 10200, miles: 69000, distance: 16 }),
+  car({ vin: "JF2SHABCXJH000227", year: 2018, make: "Subaru", model: "Forester", bodyStyle: "SUV", price: 11900, miles: 74000, distance: 24, drivetrain: "AWD" }),
+  car({ vin: "2T3BFREV5JW000228", year: 2018, make: "Toyota", model: "RAV4", bodyStyle: "SUV", price: 12100, miles: 88000, distance: 26, drivetrain: "AWD" }),
+];
+
+const LIVE_TAX = [
+  car({
+    vin: "JTMBK33V286041380",
+    year: 2008,
+    make: "Toyota",
+    model: "RAV4",
+    bodyStyle: "SUV",
+    price: 8094,
+    miles: 112173,
+    distance: 20,
+    drivetrain: "4WD",
+    city: "Hammond",
+    state: "IN",
+    zip: "46320",
+  }),
+  car({ vin: "2HGFC2F79JH000331", year: 2018, make: "Honda", model: "Civic", bodyStyle: "Sedan", price: 9900, miles: 60000, distance: 8 }),
+];
+
+type ScriptedKind = "live-a" | "live-b" | "live-c" | "live-d" | "live-rank" | "live-suv" | "live-odd" | "live-starter" | "live-tax";
 
 function rowsFor(kind: ScriptedKind, href: string) {
   if (kind === "live-a") return LIVE_A;
@@ -99,6 +131,22 @@ function rowsFor(kind: ScriptedKind, href: string) {
     );
   }
   if (kind === "live-odd") return LIVE_ODD;
+  if (kind === "live-tax") return LIVE_TAX;
+  if (kind === "live-starter") {
+    let model = "";
+    let body = "";
+    try {
+      const url = new URL(href);
+      model = url.searchParams.get("vehicle.model")?.toLowerCase() ?? "";
+      body = url.searchParams.get("vehicle.bodyStyle")?.toLowerCase() ?? "";
+    } catch {
+      model = "";
+    }
+    const compact = /corolla|civic|camry|accord|elantra|mazda3/.test(model);
+    if (compact && /^(suv|truck|van|minivan)$/i.test(body)) return [];
+    if (!model) return LIVE_STARTER;
+    return LIVE_STARTER.filter((row) => String(row.vehicle.model).toLowerCase() === model);
+  }
   if (kind === "live-rank") {
     return LIVE_RANK.map((row, index) => (index === 1 ? { ...row, history: { accidentCount: 1 } } : row));
   }

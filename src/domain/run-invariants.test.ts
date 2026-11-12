@@ -37,8 +37,8 @@ const denver = {
   picks: ["JF2SHADC0BH725227"],
 };
 
-function ids(value: unknown) {
-  return checkRunInvariants(value).checks.filter((item) => !item.pass).map((item) => item.id);
+function ids(value: unknown, html?: string) {
+  return checkRunInvariants(value, html).checks.filter((item) => !item.pass).map((item) => item.id);
 }
 
 describe("checkRunInvariants on the public run", () => {
@@ -188,5 +188,85 @@ describe("checkRunInvariants on the public run", () => {
     expect(view.picks[0]).toBe("CLEANLOW0000000001");
     expect(view.listings.find((car) => car.vin === "ODDCRV000000000001")?.implausible).toBe(true);
     expect(view.listings[0]?.vin).toBe("CLEANLOW0000000001");
+  });
+});
+
+describe("r5 blind spots", () => {
+  it("fails a resale that evaluated every car and then stopped", () => {
+    const failed = ids({
+      kind: "resale",
+      phase: "stopped",
+      verdict: null,
+      creditsCharged: 0,
+      failureReasons: ["not_enough_evidence"],
+      buyerMessage: "This search stopped before a verdict. There is not enough information for a verdict.",
+      steps: [
+        { step: "read_request" },
+        { step: "plan_search" },
+        { step: "compare_cars" },
+        { step: "choose_car" },
+        { step: "second_check" },
+        { step: "search_listings" },
+      ],
+      listings: [
+        {
+          vin: "2T1BURHE2GC640812",
+          year: 2016,
+          make: "Toyota",
+          model: "Corolla",
+          priceUsd: 5900,
+          miles: 150733,
+          reason: "Priced $965 under similar listings after costs. It is still a pass because $965 is below $1,500, the minimum that is worth the effort and time.",
+          summary: "Priced $965 under similar listings after costs. It is still a pass because $965 is below $1,500, the minimum that is worth the effort and time.",
+        },
+      ],
+      picks: [],
+    });
+    expect(failed).toEqual(expect.arrayContaining(["evaluated-verdict", "step-order"]));
+  });
+
+  it("fails a first-car page that is only SUVs, with a supplied-VIN line and an offer at the asking price", () => {
+    const html = `<article><p>Best choice on current data: 2011 Subaru Forester. The asking-price comparison and mileage favor this Forester, but the supplied VIN decode references a different vehicle. Ask $7,995 vs fair value $10,064.</p><p>Best choice on current data: 2011 Subaru Forester. The asking-price comparison and mileage favor this Forester, but the supplied VIN decode references a different vehicle. Ask $7,995 vs fair value $10,064.</p><section><p>Opening offer: $7,995.</p></section></article>`;
+    const failed = ids(
+      {
+        kind: "find",
+        phase: "finished",
+        note: "First car for a new driver in Chicago, max $12k",
+        verdict: "needs_inspection",
+        confidence: "Low",
+        confidenceReason: "Low: the listing's history is unknown, so this is not a firm read.",
+        creditsCharged: 1,
+        buyerMessage: "Best choice.",
+        listings: [
+          { vin: "JF2SHABCXBH756889", year: 2011, make: "Subaru", model: "Forester", priceUsd: 7995, miles: 73029, offerUsd: 7995, offerLabel: "Opening offer: $7,995.", reason: "Ask $7,995 vs fair value $10,064. the supplied VIN decode references a different vehicle.", picked: true, state: "IL" },
+          { vin: "JTMBK33V286041380", year: 2008, make: "Toyota", model: "RAV4", priceUsd: 8094, miles: 112173, state: "IN" },
+        ],
+        picks: ["JF2SHABCXBH756889"],
+      },
+      html,
+    );
+    expect(failed).toEqual(expect.arrayContaining(["starter-mix", "vin-mismatch", "offer-at-ask", "tax-state", "repeated-text"]));
+  });
+
+  it("fails a finished find whose top pick says the opening offer was not given", () => {
+    const html = `<article><p>Not scored for fairness. Asking-price comparison is treated as neutral (+0). PZEV</p><section><p>Opening offer: not given. There is not enough similar-car data to name one.</p></section></article>`;
+    const failed = ids(
+      {
+        kind: "find",
+        phase: "finished",
+        note: "AWD SUV in Denver",
+        verdict: "needs_inspection",
+        confidence: "Low",
+        confidenceReason: "Low: price comparisons are incomplete, so this is not a firm read.",
+        creditsCharged: 1,
+        buyerMessage: "Best choice on current data.",
+        listings: [
+          { vin: "2T3DF4DV0CW261822", year: 2012, make: "Toyota", model: "RAV4", priceUsd: 14900, miles: 97746, offerUsd: null, offerLabel: "Opening offer: not given. There is not enough similar-car data to name one.", reason: "Best choice on current data: 2012 Toyota RAV4.", picked: true, state: "CO" },
+        ],
+        picks: ["2T3DF4DV0CW261822"],
+      },
+      html,
+    );
+    expect(failed).toEqual(expect.arrayContaining(["offer-rendered", "plain-language"]));
   });
 });

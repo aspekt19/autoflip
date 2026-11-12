@@ -18,6 +18,9 @@ export async function storeGoldenRun(golden: Omit<GoldenRun, "final" | "elapsedM
     kind: mode === "flip" ? "resale" : "find",
     note,
     mode,
+    formEdits: spec?.hard.zip?.value
+      ? { zip: { value: spec.hard.zip.value, dirty: true }, radiusMi: { value: spec.hard.radiusMi?.value ?? null, dirty: true } }
+      : null,
     proofs: golden.proofRecords.flatMap((row) =>
       row.purpose
         ? [{ purpose: row.purpose, status: row.status ?? null, responseId: row.servResponseId ?? null }]
@@ -34,7 +37,7 @@ export async function storeGoldenRun(golden: Omit<GoldenRun, "final" | "elapsedM
       dealer: car.dealer,
       vdp: car.vdp,
       city: null,
-      state: null,
+      state: car.state,
     })),
     picks: golden.pickVin ? [golden.pickVin] : [],
     queryCount: golden.providerQueriesUsed,

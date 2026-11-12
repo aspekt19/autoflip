@@ -52,7 +52,7 @@ describe("starter search", () => {
 
 describe("resale story and aggregator hosts", () => {
   it("does not recommend a pass, and does not call a $16 gap a deal", () => {
-    expect(resalePickHeading("pass", true)).toBe("Closest candidate, not worth it");
+    expect(resalePickHeading("pass", true)).toBe("No flip worth it here");
     expect(resalePickHeading("buy", true)).toBe("Best flip");
     expect(resaleEdgeSentence({ amountUsd: 16, action: "pass" })).toMatch(/too small to call a deal/i);
     expect(resaleEdgeSentence({ amountUsd: 16, action: "pass" })).not.toMatch(/best flip/i);

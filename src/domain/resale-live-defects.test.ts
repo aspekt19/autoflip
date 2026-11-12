@@ -252,7 +252,7 @@ describe("resale live defects (Nov 12)", () => {
     expect(model.confidenceLine).toBe("Confidence: Low");
     expect(model.failureLines.join(" ")).toMatch(/The review did not run, so confidence is Low/);
     const html = renderRunPermalinkHtml(view);
-    expect(html).toMatch(/Closest candidate, not worth it/);
+    expect(html).toMatch(/No flip worth it here/);
     expect(html).not.toMatch(/Best flip/);
     expect(html).toMatch(/\$642/);
     expect(html).toMatch(/finished/i);

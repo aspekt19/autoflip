@@ -598,7 +598,7 @@ export function priceCompsUnevenAcrossListings(
 }
 
 export const PRICE_FAIRNESS_NEUTRAL_DETAIL =
-  "Not scored for fairness — too many shortlist cars still lack usable same-model similar listings from this search, so asking-price comparison is treated as neutral (+0) for everyone. Pick is provisional on price.";
+  "Asking prices were not compared, because too many of these cars do not have enough similar listings in this search. The pick can still change once those prices are compared.";
 
 type BestDealNeed = Pick<
   StructuredNeed,
@@ -1276,7 +1276,7 @@ function scoreOne(
   const excludedReason = identityExclude
     ? (ctx.carCheck?.excludedReason ?? "Listing does not match the VIN.")
     : stopExclude
-      ? "Stop-sale / park-until-fixed recall guidance is open for this year and model — not eligible as the published pick."
+      ? "The maker says don't drive it until the recall repair is done, so this car is not the one to buy."
       : priceExclude && typeof row.priceUsd === "number"
         ? implausibleAskReason(row.priceUsd)
         : odoExclude && row.miles != null
@@ -1807,7 +1807,7 @@ export function selectBestDealOnEvidence(input: {
   if (fairnessNote) stillUnknown.push(fairnessNote);
   if (priceFairnessNeutral) {
     stillUnknown.push(
-      "Asking-price comparison is provisional — treated as neutral because too many shortlist cars still lack usable same-model similar listings from this search",
+      "Asking prices were not compared, because too many of these cars do not have enough similar listings in this search.",
     );
   } else if (priceProvisional) {
     stillUnknown.push(

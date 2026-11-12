@@ -692,7 +692,7 @@ export function buildCarConsistencyReceipt(
     (f) => (f.field === "year" || f.field === "make" || f.field === "model") && f.state === "issue_found",
   );
   const excludedReason = identityMismatch
-    ? `${title} is left out of the pick because the VIN year, make, or model does not match the listing.`
+    ? `The listing's VIN decodes to a different model. Ask the seller before you rely on this car.`
     : null;
 
   const trimState = trimsMatch(row.trim, specs?.trim ?? null);

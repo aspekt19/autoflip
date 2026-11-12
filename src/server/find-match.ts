@@ -200,6 +200,16 @@ function confirmedYears(
   };
 }
 
+/** A named compact is not searched as an SUV. An open or comma-joined style is left off the request. */
+function bodyStyleForQuery(model: string, body?: string | null): string | undefined {
+  const named = body?.trim();
+  if (!named || /^any$/i.test(named) || named.includes(",")) return undefined;
+  if (/corolla|civic|camry|accord|mazda3|elantra|sentra|jetta|impreza/i.test(model) && /suv|truck|van|minivan/i.test(named)) {
+    return undefined;
+  }
+  return named;
+}
+
 function budgetOnlyDirection(need: StructuredNeed): SearchDirection {
   const year = new Date().getUTCFullYear();
   return {
@@ -454,7 +464,7 @@ export async function runFindMatch(
         {
           make: job.query.make,
           model: job.query.model,
-          bodyStyle: job.query.bodyStyle ?? job.direction.bodyStyle,
+          bodyStyle: bodyStyleForQuery(job.query.model, job.query.bodyStyle ?? job.direction.bodyStyle),
           zip: searchZip,
           ...confirmedYears(job.direction, need, body?.refine),
           distanceMiles: radiusMiles,
@@ -492,7 +502,9 @@ export async function runFindMatch(
         ? {
             ...deps.autodev,
             signal: stageAbort.signal,
-            timeoutMs: Math.min(deps.autodev.timeoutMs ?? 12_000, inventoryCapMs),
+            // Wait out the inventory stage. A 12s cap was aborting the earlier model
+            // queries in a first-car wave and leaving only the fast SUV responses.
+            timeoutMs: deps.autodev.timeoutMs ?? inventoryCapMs,
           }
         : deps.autodev,
     };
@@ -506,7 +518,7 @@ export async function runFindMatch(
           {
             make: job.query.make,
             model: job.query.model,
-            bodyStyle: job.query.bodyStyle ?? job.direction.bodyStyle,
+            bodyStyle: bodyStyleForQuery(job.query.model, job.query.bodyStyle ?? job.direction.bodyStyle),
             zip: searchZip,
             ...confirmedYears(job.direction, need, body?.refine),
             distanceMiles: radiusMiles,
@@ -550,12 +562,30 @@ export async function runFindMatch(
       if (need.distanceMiles != null && row.distanceMiles != null && row.distanceMiles > need.distanceMiles) return false;
       return true;
     });
-    if (!anyFit) {
+    const compactBack = /corolla|civic|camry|accord|mazda3|elantra|sentra|jetta|impreza/i;
+    const fitting = returned.filter((row) => {
+      if (!isPassengerOrLightTruck(row)) return false;
+      if (need.budgetKnown && need.budgetUsd != null && row.priceUsd != null && row.priceUsd > need.budgetUsd) return false;
+      if (need.milesMax != null && row.miles != null && row.miles > need.milesMax) return false;
+      if (need.yearMin != null && row.year < need.yearMin) return false;
+      if (need.distanceMiles != null && row.distanceMiles != null && row.distanceMiles > need.distanceMiles) return false;
+      return true;
+    });
+    const needsCompact = !fitting.some((row) => compactBack.test(`${row.make} ${row.model}`));
+    if (!anyFit || needsCompact) {
       const already = new Set(
         dispatches.map((row) => `${row.planned.query.make}\0${row.planned.query.model}`.toLowerCase()),
       );
-      const retryJobs = starterRetryModels(already).map((query) => ({
-        direction: directions[0] ?? budgetOnlyDirection(need),
+      const emptyFirst = dispatches.flatMap((row) => {
+        const model = row.planned.query.model;
+        if (!compactBack.test(model)) return [];
+        const listings = row.result?.ok ? row.result.listings : [];
+        if (!row.timedOut && listings.length > 0) return [];
+        return [{ make: row.planned.query.make, model }];
+      });
+      const retryModels = [...emptyFirst, ...starterRetryModels(already)];
+      const retryJobs = retryModels.map((query) => ({
+        direction: { ...(directions[0] ?? budgetOnlyDirection(need)), bodyStyle: undefined },
         query,
         directionIndex: 0,
       }));
