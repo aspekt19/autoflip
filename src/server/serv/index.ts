@@ -92,11 +92,17 @@ export {
 } from "./run";
 export {
   buildServChatTurnBody,
+  buildServResponsesTurnBody,
   isServChatCompletionsUrl,
+  isServResponsesUrl,
   postServChatTurn,
+  postServResponsesTurn,
   type ServChatToolCallWire,
   type ServChatToolDef,
   type ServChatTurnBody,
   type ServChatTurnMessage,
   type ServChatTurnResult,
+  type ServResponsesToolDef,
+  type ServResponsesTurnBody,
+  type ServResponsesTurnResult,
 } from "./agent-chat-turn";
