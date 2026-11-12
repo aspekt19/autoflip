@@ -21,7 +21,7 @@ export function bodyFamily(value: string | null | undefined): "suv" | "truck" | 
   if (/suv|sport utility|crossover|\bcuv\b/.test(text)) return "suv";
   if (/pickup|\btruck\b/.test(text)) return "truck";
   if (/\bvan\b|minivan/.test(text)) return "van";
-  if (/sedan|coupe|hatchback|convertible|wagon|\bcar\b/.test(text)) return "car";
+  if (/sedan|coupe|hatchback|convertible|\bcar\b/.test(text)) return "car";
   return null;
 }
 
@@ -30,15 +30,16 @@ export function bodyFamily(value: string | null | undefined): "suv" | "truck" | 
  *
  * The feed often tags sedans/coupes/hatchbacks as `Car` while `style`/`type` say
  * Sedan. Sending `vehicle.bodyStyle=Sedan` therefore returns nothing for those
- * rows. Omit car-family styles so the provider keeps them; local
+ * rows. Omit car-family styles (and Wagon) so the provider keeps them; local
  * `bodyStyleMatches` still enforces sedan/car intent after fetch.
- * Comma lists and open/"any" searches send no body filter (motorcycles are
- * dropped after the response).
+ * Do not widen `bodyFamily("Wagon")` — ranking treats unknown vPIC Wagon as
+ * no penalty. Comma lists and open/"any" searches send no body filter.
  */
 export function providerBodyStyleParam(explicit?: string | null): string | undefined {
   const named = explicit?.trim();
   if (!named || /^any$/i.test(named) || named.includes(",")) return undefined;
   if (bodyFamily(named) === "car") return undefined;
+  if (/\bwagons?\b/i.test(named)) return undefined;
   return named;
 }
 

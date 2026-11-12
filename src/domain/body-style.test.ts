@@ -7,6 +7,8 @@ describe("providerBodyStyleParam", () => {
     for (const style of ["Sedan", "Coupe", "Hatchback", "Wagon", "Convertible", "car"]) {
       expect(providerBodyStyleParam(style), style).toBeUndefined();
     }
+    // Ranking still treats vPIC "Wagon" as unknown — not a car-family match.
+    expect(bodyFamily("Wagon")).toBeNull();
   });
 
   it("keeps SUV / truck / van styles for the provider", () => {
