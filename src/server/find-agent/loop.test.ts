@@ -3,7 +3,7 @@ import { applyFindAgentGuardrails, validateFindAgentVerdict } from "@/domain/fin
 import { TtlCache } from "@/io/cache";
 import { MemoryCounter } from "@/io/quota";
 import type { Listing } from "@/domain/types";
-import { isServChatCompletionsUrl } from "@/server/serv/agent-chat-turn";
+import { isServChatCompletionsUrl, isServResponsesUrl } from "@/server/serv/agent-chat-turn";
 import { runFindAgentLoop } from "./loop";
 
 const VIN = "JTMRWRFV0KJ123456";
@@ -103,8 +103,9 @@ describe("find-agent guardrails", () => {
 });
 
 describe("runFindAgentLoop", () => {
-  it("tools mode: one tool_calls round then finish JSON → verdict", async () => {
-    let servCalls = 0;
+  it("tools mode: Responses function_call round then chat finish JSON → verdict", async () => {
+    let responsesCalls = 0;
+    let chatCalls = 0;
     const fetchImpl: typeof fetch = async (input, init) => {
       const url = String(input);
       if (url.includes("/listings")) {
@@ -113,56 +114,61 @@ describe("runFindAgentLoop", () => {
           headers: { "Content-Type": "application/json" },
         });
       }
-      if (!isServChatCompletionsUrl(url)) {
-        return new Response("{}", { status: 404 });
-      }
-      servCalls += 1;
-      const body = JSON.parse(String(init?.body ?? "{}")) as {
-        tools?: unknown[];
-        response_format?: { json_schema?: { name?: string } };
-        messages?: Array<{ role?: string }>;
-      };
-      if (servCalls === 1 && Array.isArray(body.tools) && body.tools.length > 0) {
+      if (isServResponsesUrl(url)) {
+        responsesCalls += 1;
+        const body = JSON.parse(String(init?.body ?? "{}")) as {
+          tools?: Array<{ type?: string; name?: string }>;
+          reasoning?: { effort?: string };
+          input?: string;
+        };
+        expect(Array.isArray(body.tools) && body.tools.length > 0).toBe(true);
+        expect(body.tools?.[0]?.name).toBeTruthy();
+        expect(body.reasoning?.effort).toBe("low");
+        if (responsesCalls === 1) {
+          return new Response(
+            JSON.stringify({
+              id: "resp_tools_1",
+              output: [
+                {
+                  type: "function_call",
+                  call_id: "call_search_1",
+                  name: "search_listings",
+                  arguments: JSON.stringify({
+                    make: "Toyota",
+                    model: "RAV4",
+                    bodyStyle: null,
+                    priceMaxUsd: 26000,
+                    milesMax: 60000,
+                    yearMin: 2019,
+                    yearMax: 2022,
+                    zip: "33101",
+                    radiusMi: 100,
+                    fuel: null,
+                    drivetrain: null,
+                    sort: null,
+                    limit: 10,
+                  }),
+                },
+              ],
+            }),
+            { status: 200, headers: { "Content-Type": "application/json" } },
+          );
+        }
+        // Second Responses turn: model stops calling tools after seeing results in input.
+        expect(String(body.input ?? "")).toContain("function_call_output");
         return new Response(
           JSON.stringify({
-            id: "chatcmpl-tools-1",
-            choices: [
-              {
-                finish_reason: "tool_calls",
-                message: {
-                  content: null,
-                  tool_calls: [
-                    {
-                      id: "call_search_1",
-                      type: "function",
-                      function: {
-                        name: "search_listings",
-                        arguments: JSON.stringify({
-                          make: "Toyota",
-                          model: "RAV4",
-                          bodyStyle: null,
-                          priceMaxUsd: 26000,
-                          milesMax: 60000,
-                          yearMin: 2019,
-                          yearMax: 2022,
-                          zip: "33101",
-                          radiusMi: 100,
-                          fuel: null,
-                          drivetrain: null,
-                          sort: null,
-                          limit: 10,
-                        }),
-                      },
-                    },
-                  ],
-                },
-              },
-            ],
+            id: "resp_tools_2",
+            output: [{ type: "message", role: "assistant", content: [{ type: "output_text", text: "Ready." }] }],
           }),
           { status: 200, headers: { "Content-Type": "application/json" } },
         );
       }
-      // Finish / repair structured turns
+      if (!isServChatCompletionsUrl(url)) {
+        return new Response("{}", { status: 404 });
+      }
+      chatCalls += 1;
+      // Finish / repair structured turns on chat json_schema
       return new Response(
         JSON.stringify({
           id: "chatcmpl-finish-1",
@@ -212,6 +218,8 @@ describe("runFindAgentLoop", () => {
     expect(result.toolRounds).toBeGreaterThanOrEqual(1);
     expect(result.verdict.picks[0]?.vin).toBe(VIN);
     expect(result.relaxedConditions[0]?.name).toBe("radius");
+    expect(responsesCalls).toBe(2);
+    expect(chatCalls).toBeGreaterThanOrEqual(1);
   });
 
   it("next_action mode: search then finish", async () => {

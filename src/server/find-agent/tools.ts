@@ -345,6 +345,21 @@ export function findAgentChatTools(): Array<{
   ];
 }
 
+/** Flat Responses tool defs (name/description/parameters at top level). */
+export function findAgentResponsesTools(): Array<{
+  type: "function";
+  name: string;
+  description: string;
+  parameters: Record<string, unknown>;
+}> {
+  return findAgentChatTools().map((tool) => ({
+    type: "function" as const,
+    name: tool.function.name,
+    description: tool.function.description,
+    parameters: tool.function.parameters,
+  }));
+}
+
 export function listingToCard(listing: Listing): ListingCard | null {
   const vin = listing.vin?.trim().toUpperCase();
   if (!vin) return null;

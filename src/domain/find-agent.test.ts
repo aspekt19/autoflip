@@ -31,9 +31,10 @@ describe("findAgentLoopEnabled", () => {
 });
 
 describe("resolveFindAgentMode", () => {
-  it("defaults to next_action (gpt-6.1-sol chat cannot combine tools + reasoning)", () => {
-    expect(resolveFindAgentMode({})).toBe("next_action");
+  it("defaults to auto (Responses tools first, next_action fallback)", () => {
+    expect(resolveFindAgentMode({})).toBe("auto");
     expect(resolveFindAgentMode({ FIND_AGENT_MODE: "tools" })).toBe("tools");
+    expect(resolveFindAgentMode({ FIND_AGENT_MODE: "next_action" })).toBe("next_action");
     expect(resolveFindAgentMode({ FIND_AGENT_MODE: "auto" })).toBe("auto");
   });
 });

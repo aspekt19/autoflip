@@ -19,7 +19,9 @@ import { MemoryCounter } from "@/io/quota";
 import { BASE_MODEL, messageText } from "@/server/serv";
 import {
   buildServChatTurnBody,
+  buildServResponsesTurnBody,
   postServChatTurn,
+  postServResponsesTurn,
   type ServChatToolCallWire,
   type ServChatTurnMessage,
 } from "@/server/serv/agent-chat-turn";
@@ -28,7 +30,7 @@ import { servFinishReason } from "@/server/serv/response-failure";
 import {
   createFindAgentToolState,
   executeFindAgentTool,
-  findAgentChatTools,
+  findAgentResponsesTools,
   parseSearchListingsArgs,
   type FindAgentToolDeps,
   type FindAgentToolState,
@@ -111,6 +113,12 @@ function systemPrompt(note: string, formEdits?: Record<string, unknown> | null):
   ].join(" ");
 }
 
+function argumentText(value: unknown): string {
+  if (typeof value === "string") return value;
+  if (value && typeof value === "object") return JSON.stringify(value);
+  return "{}";
+}
+
 function extractToolCalls(payload: unknown): ToolCallWire[] {
   if (!payload || typeof payload !== "object") return [];
   const record = payload as { choices?: unknown; output?: unknown };
@@ -132,12 +140,39 @@ function extractToolCalls(payload: unknown): ToolCallWire[] {
           typeof call.id === "string" && call.id
             ? call.id
             : `call_${name}_${out.length}`;
-        const args =
-          typeof call.function?.arguments === "string"
-            ? call.function.arguments
-            : JSON.stringify(call.function?.arguments ?? {});
-        out.push({ id, type: "function", function: { name, arguments: args } });
+        out.push({
+          id,
+          type: "function",
+          function: { name, arguments: argumentText(call.function?.arguments) },
+        });
       }
+    }
+  }
+
+  if (Array.isArray(record.output)) {
+    for (const item of record.output) {
+      if (!item || typeof item !== "object") continue;
+      const call = item as {
+        type?: unknown;
+        id?: unknown;
+        call_id?: unknown;
+        name?: unknown;
+        arguments?: unknown;
+      };
+      if (call.type !== "function_call") continue;
+      const name = typeof call.name === "string" ? call.name : "";
+      if (!name || name.startsWith("serv_")) continue;
+      const id =
+        typeof call.id === "string" && call.id
+          ? call.id
+          : typeof call.call_id === "string" && call.call_id
+            ? call.call_id
+            : `call_${name}_${out.length}`;
+      out.push({
+        id,
+        type: "function",
+        function: { name, arguments: argumentText(call.arguments) },
+      });
     }
   }
 
@@ -195,33 +230,58 @@ async function postChat(input: {
 
 function chatBody(input: {
   messages: ChatMessage[];
-  tools?: ReturnType<typeof findAgentChatTools>;
-  toolChoice?: "auto" | "required" | "none" | { type: "function"; function: { name: string } };
   jsonSchema?: { name: string; schema: Record<string, unknown> };
   maxTokens?: number;
 }): Record<string, unknown> {
   return buildServChatTurnBody({
     messages: input.messages,
-    tools: input.tools,
-    toolChoice: input.toolChoice,
     jsonSchema: input.jsonSchema,
     maxTokens: input.maxTokens,
   });
 }
 
+function responsesBody(input: {
+  instructions: string;
+  input: string;
+  tools: ReturnType<typeof findAgentResponsesTools>;
+}): Record<string, unknown> {
+  return buildServResponsesTurnBody({
+    instructions: input.instructions,
+    input: input.input,
+    tools: input.tools,
+    toolChoice: "auto",
+    reasoning: { effort: "low", summary: "auto" },
+  });
+}
+
+async function postResponses(input: {
+  apiKey: string;
+  baseUrl: string;
+  fetch: typeof fetch;
+  body: Record<string, unknown>;
+}): Promise<{ ok: boolean; status: number; payload: unknown; latencyMs: number; error?: string }> {
+  return postServResponsesTurn({
+    apiKey: input.apiKey,
+    baseUrl: input.baseUrl,
+    fetch: input.fetch,
+    body: input.body,
+  });
+}
+
+/** Execute tool calls; append JSON results for the next Responses `input`. */
 async function runToolCalls(input: {
   calls: ToolCallWire[];
   deps: FindAgentToolDeps;
   state: FindAgentToolState;
   journal: FindAgentJournalEntry[];
-  messages: ChatMessage[];
+  toolResultBlocks: string[];
+  finishMessages: ChatMessage[];
 }): Promise<number> {
   let rounds = 0;
   const assistantCalls = input.calls;
-  input.messages.push({
+  input.finishMessages.push({
     role: "assistant",
-    content: null,
-    tool_calls: assistantCalls,
+    content: `Calling tools: ${assistantCalls.map((c) => c.function.name).join(", ")}`,
   });
   for (const call of assistantCalls) {
     rounds += 1;
@@ -239,13 +299,30 @@ async function runToolCalls(input: {
       summary: executed.summary,
       ok: executed.ok,
     });
-    input.messages.push({
-      role: "tool",
-      tool_call_id: call.id,
-      content: JSON.stringify(executed.result),
+    const resultJson = JSON.stringify(executed.result);
+    input.toolResultBlocks.push(
+      JSON.stringify({
+        type: "function_call_output",
+        call_id: call.id,
+        name: executed.name,
+        output: executed.result,
+      }),
+    );
+    input.finishMessages.push({
+      role: "user",
+      content: `Tool result for ${executed.name} (call_id=${call.id}):\n${resultJson}`,
     });
   }
   return rounds;
+}
+
+function buildResponsesFollowUpInput(seedUser: string, toolResultBlocks: readonly string[]): string {
+  if (toolResultBlocks.length === 0) return seedUser;
+  return [
+    seedUser,
+    "Prior tool results (function_call_output JSON). Use them; call more tools if needed, or stop tool use when ready to finalize.",
+    ...toolResultBlocks,
+  ].join("\n\n");
 }
 
 async function finalizeVerdict(input: {
@@ -377,25 +454,26 @@ async function runToolsMode(input: {
   fetchImpl: typeof fetch;
 }): Promise<FindAgentLoopResult> {
   const requestedMode = resolveFindAgentMode(process.env);
-  const messages: ChatMessage[] = [
-    { role: "system", content: systemPrompt(input.note, input.formEdits) },
-    {
-      role: "user",
-      content:
-        "Search for cars that fit the shopper. Call tools as needed, then stop tool use when ready so we can finalize the verdict.",
-    },
+  const instructions = systemPrompt(input.note, input.formEdits);
+  const seedUser =
+    "Search for cars that fit the shopper. Call tools as needed, then stop tool use when ready so we can finalize the verdict.";
+  // Chat transcript for the finish json_schema turn (proven path); tools rounds use Responses.
+  const finishMessages: ChatMessage[] = [
+    { role: "system", content: instructions },
+    { role: "user", content: seedUser },
   ];
-  const tools = findAgentChatTools();
+  const tools = findAgentResponsesTools();
+  const toolResultBlocks: string[] = [];
   let toolRounds = 0;
   let firstTurn = true;
 
   for (let round = 0; round < input.maxRounds; round += 1) {
-    const body = chatBody({
-      messages,
+    const body = responsesBody({
+      instructions,
+      input: buildResponsesFollowUpInput(seedUser, toolResultBlocks),
       tools,
-      toolChoice: "auto",
     });
-    const turn = await postChat({
+    const turn = await postResponses({
       apiKey: input.deps.servKey,
       baseUrl: input.baseUrl,
       fetch: input.fetchImpl,
@@ -451,12 +529,13 @@ async function runToolsMode(input: {
         deps: input.toolDeps,
         state: input.state,
         journal: input.journal,
-        messages,
+        toolResultBlocks,
+        finishMessages,
       });
       continue;
     }
 
-    // No tool calls → finalize structured verdict.
+    // No tool calls → finalize structured verdict on chat json_schema.
     const finished = await finalizeVerdict({
       apiKey: input.deps.servKey,
       baseUrl: input.baseUrl,
@@ -465,7 +544,7 @@ async function runToolsMode(input: {
       formEdits: input.formEdits,
       state: input.state,
       journal: input.journal,
-      priorMessages: messages,
+      priorMessages: finishMessages,
       mode: "tools",
       budgetUsd: input.deps.budgetUsd ?? null,
     });
@@ -819,16 +898,18 @@ export async function runFindAgentLoop(input: {
     return runToolsMode(shared);
   }
 
-  // auto: try tools first; fall back to next_action when first response has no tool_calls / usable finish.
+  // auto: Responses tools first; fall back to next_action on empty tools or SERV HTTP failure.
   const toolsAttempt = await runToolsMode(shared);
   if (toolsAttempt.ok) return toolsAttempt;
-  if (toolsAttempt.error !== "tools_unsupported_or_empty") return toolsAttempt;
+  if (toolsAttempt.error !== "tools_unsupported_or_empty" && toolsAttempt.error !== "serv_http") {
+    return toolsAttempt;
+  }
 
   journal.push({
     kind: "tool",
     name: "_mode_fallback",
-    args: { from: "tools", to: "next_action" },
-    summary: "auto mode fell back to next_action after empty tools response",
+    args: { from: "tools", to: "next_action", reason: toolsAttempt.error },
+    summary: `auto mode fell back to next_action after tools error=${toolsAttempt.error}`,
     ok: true,
   });
 

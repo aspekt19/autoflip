@@ -60,16 +60,16 @@ export function findAgentLoopEnabled(
 }
 
 /**
- * Default is next_action: live gpt-6.1-sol chat/completions rejects function tools
- * (reasoning_effort cannot be none, but tools require none). Prefer structured
- * next_action turns; tools/auto remain available when Responses proves out.
+ * Default is auto: try Responses tools first (gpt-6.1-sol chat rejects function
+ * tools; Responses with reasoning.effort=low works). On tools_unsupported_or_empty
+ * or SERV HTTP failure, fall back to next_action chat json_schema.
  */
 export function resolveFindAgentMode(
   env: NodeJS.ProcessEnv | Record<string, string | undefined> = process.env,
 ): FindAgentMode {
-  const raw = (env.FIND_AGENT_MODE ?? "next_action").trim().toLowerCase();
+  const raw = (env.FIND_AGENT_MODE ?? "auto").trim().toLowerCase();
   if (raw === "tools" || raw === "next_action" || raw === "auto") return raw;
-  return "next_action";
+  return "auto";
 }
 
 /** Strict JSON schema for the final find_agent_result turn. */
