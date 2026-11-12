@@ -11,7 +11,7 @@ import type { Kv } from "@/io/kv";
 import { runtimeDeps } from "@/server/deps";
 import { runFindChatTurn } from "@/server/find-chat";
 import { createGoldenFetch } from "../../test/golden/transport";
-import { driveServChatEval } from "./drive-chat";
+import { driveServChatEval, evalShopperReplyFromQuery } from "./drive-chat";
 import { settleFindChatCaseResult } from "./settle-chat-result";
 import {
   ESTIMATED_USD_PER_QUERY,
@@ -104,6 +104,7 @@ export async function runOneQuery(
 
   const driven = await driveServChatEval({
     firstMessage: query.note,
+    genericReply: evalShopperReplyFromQuery(query),
     turn: (turn) =>
       runFindChatTurn({
         kv: deps.kv,

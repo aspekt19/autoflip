@@ -8,6 +8,7 @@
  * Do not reintroduce clarifying-questions / findPlan.questions / followUp widgets.
  */
 import {
+  boundaryRepairMessage,
   synthesizeRelaxedConditionsFromSearches,
 } from "@/domain/agent-verdict-complete";
 import { fromShopperInputEvent } from "@/domain/constraint-provenance";
@@ -146,6 +147,7 @@ export function searchesFromFindJournal(
       params,
       resultCount: Number.isFinite(resultCount) ? resultCount : 0,
       funnel: entry.funnel ?? null,
+      providerStatus: entry.providerStatus ?? null,
     });
   }
   return out;
@@ -470,20 +472,41 @@ function systemPrompt(note: string, formEdits?: Record<string, unknown> | null):
     "You are Lemonless Find's search agent on SERV (gpt-6.1-sol).",
     "You chat with the shopper in this same conversation, then search live inventory with tools.",
     SERV_TOPIC_SCOPE_RULE,
-    "If budget, location, or other material facts are missing, call ask_shopper with one clear English question. Do not invent answers. Ask as many turns as you need.",
+    "If budget, location, or use/need is missing, call ask_shopper once for the missing fact. Do not invent answers.",
+    "As soon as you have budget (or the shopper explicitly said no budget), location, and use/need — call submit_brief immediately. Do not keep asking once those three are known.",
     "When the shopper has stated a budget (or ZIP/radius), call record_shopper_facts so offer ≤ budget anti-fab uses those values.",
-    "When you have enough, call submit_brief with a compact card (budget.maxUsd + budget.userQuote verbatim from chat). Code pauses for Confirm/Correct — do not call search_listings until the brief is confirmed.",
-    "After the shopper confirms the brief, call search_listings (and other tools) in this same conversation, then submit_picks — or explain nothing fits with passReason.",
+    "submit_brief card: budget.maxUsd + budget.userQuote verbatim from chat (or explicit no-budget). Code pauses for Confirm/Correct — do not call search_listings until the brief is confirmed.",
+    "After the shopper confirms the brief, call search_listings (and other tools) in this same conversation, then end ONLY with a terminal tool: submit_picks (chosen cars) or submit_nothing_fits (written reason). Code journals every search_listings call — never re-document those params/counts.",
     "You decide which listings to search. Prefer tight filters first.",
     "When results are empty or poor, read search_listings.funnel + relaxHints + constraintRoles: change a relaxable (SERV-chosen) filter at the step that hit zero (omit_body, widen_radius, raise_price, drop_transmission, next_model) and re-search. Prefer bodyFamily=car over Sedan. constraintRoles.hard are shopper origin=user filters — keep unless the shopper's note allows otherwise; never invent which keys are hard. Profit and sell-window are not inventory filters. Code never auto-relaxes or forces filter changes — you decide.",
     "search_listings returns unfiltered provider rows plus an observational funnel — code does not drop rows for product decisions. If duplicateSearch is set, prefer changing a relaxable filter; a reasoned pass with journaled searches is still valid.",
     "Explain every relaxation in relaxedConditions when you finish (real text; never redacted).",
-    "A pass/nothing-fits must include passReason that states what you tried and why nothing fit — never pass silently without a written reason and journaled searches.",
-    "Finish by calling submit_picks with the find_agent_result fields. Code validates VINs against tool results, offer ≤ budget, and offer ≤ asking — on failure you get issues back and must fix via another submit_picks. Code never substitutes a pick.",
+    "submit_nothing_fits reason must state why nothing fit; code attaches journaled search evidence automatically.",
+    "On validation failure you get a repair message with the exact problem — fix via another terminal tool call. Code never substitutes a pick.",
     "Never invent cars, prices, or VINs. Parallel tool calls are fine.",
     "Use tools for live evidence. Asking-price comps are not sold prices.",
     `Shopper conversation / note:\n${note.trim() || "(empty)"}${edits}`,
   ].join(" ");
+}
+
+const FIND_TERMINAL_NUDGE =
+  "No terminal tool yet. Call submit_picks (chosen cars) or submit_nothing_fits (reason only). Code already journals every search_listings call — do not re-document searches.";
+
+const FIND_COULD_NOT_FINISH =
+  "We couldn't finish this search — SERV stopped without submit_picks or submit_nothing_fits after a repair turn.";
+
+function nothingFitsVerdictFromReason(
+  reason: string,
+  journal: readonly FindAgentJournalEntry[],
+): FindAgentVerdict {
+  const searches = searchesFromFindJournal(journal);
+  return {
+    summary: reason.trim(),
+    confidence: "low",
+    picks: [],
+    relaxedConditions: synthesizeRelaxedConditionsFromSearches(searches),
+    passReason: reason.trim(),
+  };
 }
 
 function argumentText(value: unknown): string {
@@ -886,17 +909,77 @@ async function finalizeVerdict(input: {
     }
   }
 
-  const gated = validateFindSubmitPicks(validated.verdict, {
+  const searches = searchesFromFindJournal(input.journal);
+  let gated = validateFindSubmitPicks(validated.verdict, {
     listingsByVin: listingFactsFromState(input.state),
     budgetUsd: input.budgetUsd,
-    searches: searchesFromFindJournal(input.journal),
+    searches,
   });
   if (!gated.ok) {
-    return {
-      ok: false,
-      error: "verdict_incomplete",
-      message: gated.issues.map((i) => i.message).join("; "),
-    };
+    const repairBody = chatBody({
+      messages: [
+        ...messages,
+        { role: "assistant", content: text || "{}" },
+        {
+          role: "user",
+          content: boundaryRepairMessage({
+            issues: gated.issues,
+            searches,
+            hint: "Return corrected find_agent_result JSON only. Prefer submit_picks / submit_nothing_fits on the tools path.",
+          }),
+        },
+      ],
+      model: input.bundle.model,
+      jsonSchema: {
+        name: "find_agent_result",
+        schema: FIND_AGENT_RESULT_SCHEMA as unknown as Record<string, unknown>,
+      },
+    });
+    const repair = await postChat({
+      apiKey: input.apiKey,
+      baseUrl: input.baseUrl,
+      fetch: input.fetch,
+      body: repairBody,
+    });
+    pushServJournal({
+      journal: input.journal,
+      rejections: input.rejections,
+      bundle: input.bundle,
+      responseId: responseIdOf(repair.payload),
+      latencyMs: repair.latencyMs,
+      mode: input.mode,
+      finishReason: repair.payload ? servFinishReason(repair.payload) : null,
+      hadToolCalls: false,
+      endpoint: "chat",
+      turn: repair,
+    });
+    if (!repair.ok) {
+      return {
+        ok: false,
+        error: "serv_repair_http",
+        message: repair.error || `SERV boundary repair failed (HTTP ${repair.status}).`,
+      };
+    }
+    const repaired = validateFindAgentVerdict(parseJsonObject(messageText(repair.payload, "structured")));
+    if (!repaired.ok) {
+      return {
+        ok: false,
+        error: "verdict_validation_failed",
+        message: FIND_COULD_NOT_FINISH,
+      };
+    }
+    gated = validateFindSubmitPicks(repaired.verdict, {
+      listingsByVin: listingFactsFromState(input.state),
+      budgetUsd: input.budgetUsd,
+      searches: searchesFromFindJournal(input.journal),
+    });
+    if (!gated.ok) {
+      return {
+        ok: false,
+        error: "verdict_incomplete",
+        message: FIND_COULD_NOT_FINISH,
+      };
+    }
   }
   const guarded = applyFindAgentGuardrails(gated.verdict, {
     allowedVins: input.state.knownVins,
@@ -1055,53 +1138,25 @@ async function runToolsMode(input: {
         responsesInput = [
           ...responsesInput,
           responsesUserMessage(
-            "No tool calls received. Call submit_picks now with summary/confidence/picks/relaxedConditions/passReason using only VINs from prior tool results.",
+            `${FIND_TERMINAL_NUDGE}\n${boundaryRepairMessage({
+              issues: ["Missing terminal tool call."],
+              searches: searchesFromFindJournal(input.journal),
+            })}`,
           ),
         ];
         continue;
       }
-      // Safety net: chat json_schema finish if SERV stopped without submit_picks.
-      const finished = await finalizeVerdict({
-        apiKey: input.deps.servKey,
-        baseUrl: input.baseUrl,
-        fetch: input.fetchImpl,
-        note: input.note,
-        formEdits: input.formEdits,
-        state: input.state,
-        journal: input.journal,
-        priorMessages: finishMessages,
-        mode: "tools",
-        budgetUsd: input.deps.budgetUsd ?? null,
-        budgetProvenance: input.deps.budgetProvenance ?? null,
-        bundle,
-        rejections,
-      });
-      if (!finished.ok) {
-        return {
-          ok: false,
-          agentMode: "tools",
-          requestedMode,
-          toolRounds,
-          verdictReached: false,
-          error: finished.error,
-          message: finished.message,
-          journal: input.journal,
-          knownVins: [...input.state.knownVins],
-          ...findLoopMeta(bundle, rejections),
-        };
-      }
+      // Typed terminal required — never finish via chat schema without submit_picks / submit_nothing_fits.
       return {
-        ok: true,
+        ok: false,
         agentMode: "tools",
         requestedMode,
         toolRounds,
-        verdictReached: true,
-        verdict: finished.verdict,
-        relaxedConditions: finished.verdict.relaxedConditions,
+        verdictReached: false,
+        error: "missing_terminal",
+        message: FIND_COULD_NOT_FINISH,
         journal: input.journal,
         knownVins: [...input.state.knownVins],
-        listingsByVin: input.state.listingsByVin,
-        droppedPicks: finished.dropped,
         shopperFacts: { ...input.state.shopperFacts },
         ...findLoopMeta(bundle, rejections),
       };
@@ -1174,44 +1229,63 @@ async function runToolsMode(input: {
           };
         }
 
-        if (call.name === "submit_picks") {
+        if (call.name === "submit_picks" || call.name === "submit_nothing_fits") {
           const budgetUsd = effectiveBudgetUsd(input.deps.budgetUsd, input.state.shopperFacts);
-          const checked = validateFindSubmitPicks(args, {
+          const searches = searchesFromFindJournal(input.journal);
+          const submitArgs =
+            call.name === "submit_nothing_fits"
+              ? nothingFitsVerdictFromReason(
+                  typeof (args as { reason?: unknown }).reason === "string"
+                    ? String((args as { reason: string }).reason)
+                    : "",
+                  input.journal,
+                )
+              : args;
+          const checked = validateFindSubmitPicks(submitArgs, {
             listingsByVin: listingFactsFromState(input.state),
             budgetUsd,
-            searches: searchesFromFindJournal(input.journal),
+            searches,
           });
           if (!checked.ok) {
+            const repair = boundaryRepairMessage({
+              issues: checked.issues,
+              searches,
+              hint:
+                call.name === "submit_nothing_fits"
+                  ? "Fix the reason (or run search_listings first), then call submit_nothing_fits again."
+                  : "Fix these issues and call submit_picks or submit_nothing_fits again.",
+            });
             input.journal.push({
               kind: "tool",
-              name: "submit_picks",
+              name: call.name,
               args,
-              summary: `submit_picks rejected: ${checked.issues.map((i) => i.message).join("; ")}`,
+              summary: `${call.name} rejected: ${checked.issues.map((i) => i.message).join("; ")}`,
               ok: false,
             });
             return {
               callId: call.callId,
-              name: "submit_picks" as const,
+              name: call.name as "submit_picks" | "submit_nothing_fits",
               accepted: false as const,
               output: {
                 ok: false,
                 error: "validation_failed",
                 issues: checked.issues,
-                message: "Fix these issues and call submit_picks again.",
+                message: repair,
+                searchJournalEvidence: searches,
               },
             };
           }
           const enriched = enrichFindRelaxed(checked.verdict, input.journal);
           input.journal.push({
             kind: "tool",
-            name: "submit_picks",
+            name: call.name,
             args,
-            summary: `submit_picks accepted picks=${enriched.picks.length}`,
+            summary: `${call.name} accepted picks=${enriched.picks.length}`,
             ok: true,
           });
           return {
             callId: call.callId,
-            name: "submit_picks" as const,
+            name: call.name as "submit_picks" | "submit_nothing_fits",
             accepted: true as const,
             verdict: enriched,
             output: {
@@ -1330,9 +1404,19 @@ async function runToolsMode(input: {
     }
 
     const accepted = settled.find(
-      (row) => row.name === "submit_picks" && "accepted" in row && row.accepted === true && "verdict" in row,
+      (row) =>
+        (row.name === "submit_picks" || row.name === "submit_nothing_fits") &&
+        "accepted" in row &&
+        row.accepted === true &&
+        "verdict" in row,
     ) as
-      | { callId: string; name: "submit_picks"; accepted: true; verdict: FindAgentVerdict; output: unknown }
+      | {
+          callId: string;
+          name: "submit_picks" | "submit_nothing_fits";
+          accepted: true;
+          verdict: FindAgentVerdict;
+          output: unknown;
+        }
       | undefined;
     if (accepted) {
       return {
@@ -1359,10 +1443,11 @@ async function runToolsMode(input: {
     requestedMode,
     toolRounds,
     verdictReached: false,
-    error: "max_rounds",
-    message: `Hit runaway guard maxRounds=${input.maxRounds}.`,
+    error: "missing_terminal",
+    message: FIND_COULD_NOT_FINISH,
     journal: input.journal,
     knownVins: [...input.state.knownVins],
+    shopperFacts: { ...input.state.shopperFacts },
     ...findLoopMeta(bundle, rejections),
   };
 }
@@ -1696,19 +1781,19 @@ async function runNextActionMode(input: {
         }
       }
 
+      const searches = searchesFromFindJournal(input.journal);
       const gated = validateFindSubmitPicks(validated.verdict, {
         listingsByVin: listingFactsFromState(input.state),
         budgetUsd: input.deps.budgetUsd ?? null,
-        searches: searchesFromFindJournal(input.journal),
+        searches,
       });
       if (!gated.ok) {
         messages.push({
           role: "user",
-          content: JSON.stringify({
-            validationError: {
-              message: "Finish verdict incomplete. Fix and return finish again.",
-              issues: gated.issues,
-            },
+          content: boundaryRepairMessage({
+            issues: gated.issues,
+            searches,
+            hint: "Finish verdict incomplete. Return a corrected finish action JSON (or keep searching).",
           }),
         });
         continue;
@@ -1787,6 +1872,8 @@ export async function runFindAgentLoop(input: {
   const journal = restored.journal;
   const state = restored.state;
   state.requireBriefConfirm = input.requireBriefConfirm === true;
+  // Form/decide routes pass briefConfirmed without a pending card — honor that gate.
+  if (input.briefConfirmed === true) state.briefConfirmed = true;
   // Provenance → constraintRoles: origin=user form keys are hard; SERV-chosen are relaxable.
   const { constraints: userFormConstraints } = constraintsFromFormEdits(
     input.note,
@@ -1865,7 +1952,7 @@ export async function runFindAgentLoop(input: {
     responsesInput = [
       ...responsesInput,
       responsesUserMessage(
-        `Shopper replied to ask_shopper ("${question}"):\n${reply}\nContinue: record_shopper_facts if needed, then submit_brief before search_listings / submit_picks. Do not invent facts the shopper did not state.`,
+        `Shopper replied to ask_shopper ("${question}"):\n${reply}\nIf you now have budget (or explicit no budget), location, and use — call submit_brief immediately. Do not keep asking. Do not invent facts the shopper did not state.`,
       ),
     ];
     messages = [

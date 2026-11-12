@@ -7,6 +7,7 @@ import { runFindChatTurn } from "@/server/find-chat";
 import { runResaleChatTurn } from "@/server/resale-chat";
 import {
   LIVE_EVAL_CHAT_MAX_HOPS,
+  evalShopperReplyFromQuery,
   planNextEvalChatTurn,
   type ChatTurnFn,
 } from "./drive-chat";
@@ -147,6 +148,7 @@ export async function runEvalChatHop(input: {
     firstMessage: input.query.note,
     lastStatus: active.lastStatus,
     sessionId: active.sessionId,
+    genericReply: evalShopperReplyFromQuery(input.query),
   });
 
   if (plan.kind === "done") {

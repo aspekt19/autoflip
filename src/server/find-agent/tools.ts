@@ -36,6 +36,7 @@ export const FIND_AGENT_TOOL_NAMES = [
   "get_safety_ratings",
   "get_market_comps",
   "submit_picks",
+  "submit_nothing_fits",
 ] as const;
 export type FindAgentToolName = (typeof FIND_AGENT_TOOL_NAMES)[number];
 
@@ -540,8 +541,28 @@ export function findAgentChatTools(): Array<{
       function: {
         name: "submit_picks",
         description:
-          "Submit the final find verdict. Code validates real VINs from tool results, offer ≤ budget, and offer ≤ asking. On validation failure the tool returns issues — fix and call submit_picks again. Do not invent cars.",
+          "Submit the final find verdict with chosen cars. Code validates real VINs from tool results, offer ≤ budget, and offer ≤ asking. On validation failure the tool returns issues — fix and call submit_picks again. Do not invent cars. To pass with no pick, call submit_nothing_fits instead.",
         parameters: FIND_AGENT_RESULT_SCHEMA as unknown as Record<string, unknown>,
+      },
+    },
+    {
+      type: "function",
+      function: {
+        name: "submit_nothing_fits",
+        description:
+          "Terminal: no car fits after searching. Pass a written reason only. Code attaches journaled search_listings evidence (params, counts, HTTP status) automatically — do not re-document searches.",
+        parameters: {
+          type: "object",
+          additionalProperties: false,
+          properties: {
+            reason: {
+              type: "string",
+              description:
+                "Why nothing fits, referencing what you tried. Code already journals every search_listings call.",
+            },
+          },
+          required: ["reason"],
+        },
       },
     },
   ];

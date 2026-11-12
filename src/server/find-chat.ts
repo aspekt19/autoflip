@@ -309,27 +309,71 @@ export async function runFindChatTurn(input: {
   }
 
   if (!agent.ok) {
-    session.status = "failed";
-    session.error = agent.message;
+    // Boundary / terminal failures never 502 — honest couldn't-finish after repairs.
+    const honesty =
+      agent.message?.trim() ||
+      "We couldn't finish this search.";
+    session.status = "done";
+    session.error = honesty;
     session.checkpoint = null;
     session.messages.push({
       role: "assistant",
-      content: agent.message || "SERV could not finish this search.",
+      content: honesty,
       at: new Date().toISOString(),
     });
     session.updatedAt = new Date().toISOString();
+    const journalMeta = summarizeFindAgentJournal(agent.journal ?? []);
+    const rawFacts =
+      "shopperFacts" in agent && agent.shopperFacts && typeof agent.shopperFacts === "object"
+        ? (agent.shopperFacts as {
+            budgetUsd?: number | null;
+            zip?: string | null;
+            radiusMi?: number | null;
+          })
+        : null;
+    const facts = {
+      budgetUsd: rawFacts?.budgetUsd ?? null,
+      zip: rawFacts?.zip ?? null,
+      radiusMi: rawFacts?.radiusMi ?? null,
+    };
+    const result: Record<string, unknown> = {
+      ok: false,
+      need: needFromChat(transcript, facts),
+      bestDeal: null,
+      pickAgentVerdict: null,
+      offerPool: [],
+      shortlistKeys: [],
+      agentLoop: {
+        agentMode: "agentMode" in agent ? agent.agentMode : null,
+        toolRounds: "toolRounds" in agent ? agent.toolRounds : 0,
+        verdictReached: false,
+        relaxedConditions: [],
+        journalServCalls: journalMeta.servCalls,
+        journalToolCalls: journalMeta.toolCalls,
+        carsFound: 0,
+        passReason: null,
+      },
+      honesty,
+      creditNote: "No report credit charged — incomplete chat stays free.",
+      charged: false,
+      transcript: session.messages,
+      confirmedBrief: session.confirmedBrief,
+      error: "error" in agent ? agent.error : "could_not_finish",
+      message: honesty,
+    };
+    session.result = result;
     await storeFindChatSession(input.kv, session);
     return {
-      ok: false,
-      status: 502,
+      ok: true,
+      status: 200,
       body: {
-        ok: false,
-        status: "error",
+        ok: true,
+        status: "done",
         sessionId: session.sessionId,
         messages: session.messages,
-        error: agent.error,
-        message: agent.message,
+        result,
         charged: false,
+        message: honesty,
       },
     };
   }

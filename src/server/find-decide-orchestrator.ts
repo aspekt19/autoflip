@@ -248,6 +248,9 @@ export async function runFindDecideOrchestrator(
       formEdits: serializeServFormConstraints(userIntent),
       checkpoint: record.agentLoopCheckpoint ?? null,
       budgetMs: remainingMs(),
+      // Form/decide path already collected constraints — treat brief as confirmed.
+      requireBriefConfirm: true,
+      briefConfirmed: true,
       deps: {
         servKey: deps.servKey.trim(),
         autodevKey,
