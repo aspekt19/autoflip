@@ -263,11 +263,13 @@ function applyHardGate(
   const spec = buildSearchSpec({
     note: need.note ?? "",
     mode: need.mode,
-    // Do not mark need-derived fields as dirty form — that mislabels note/SERV/default
-    // as user-touched. Pass resolved need budget/years/miles/zip through servPlan.
-    // Radius is only a hard constraint when the shopper dirty-edited it upstream;
-    // inventing dirty:true here would force default/SERV radius into SearchSpec.
-    formEdits: {},
+    // Do not mark need-derived price/years as dirty form. Radius is hard only when
+    // need.distanceMiles is set — intake no longer invents the 100mi default into
+    // that field, so a finite value here means the shopper (or note) set it.
+    formEdits:
+      need.distanceMiles != null
+        ? { radiusMi: { value: need.distanceMiles, dirty: true as const } }
+        : {},
     servPlan: {
       ...servPlan,
       priceMaxUsd: need.budgetKnown && need.budgetUsd != null ? need.budgetUsd : servPlan?.priceMaxUsd,

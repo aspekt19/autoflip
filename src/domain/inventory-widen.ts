@@ -146,9 +146,12 @@ export function filterInventoryWithWiden(
   need: StructuredNeed,
   opts?: { servPlan?: ServPlanHint },
 ): InventoryWidenResult {
-  // Never invent radiusMi dirty:true from a finite need.distanceMiles — defaults
-  // and SERV suggestions are not user-touched form constraints.
-  const formEdits = {};
+  // Radius hard only when need.distanceMiles is set. Intake no longer invents the
+  // 100mi default into that field, so a finite value means shopper/note set it.
+  const formEdits =
+    need.distanceMiles != null
+      ? { radiusMi: { value: need.distanceMiles, dirty: true as const } }
+      : {};
   const spec = buildSearchSpec({
     note: need.note ?? "",
     mode: need.mode,
