@@ -3,7 +3,6 @@
  * Legacy match→decide path is deleted. Agent failure → honest failure (no code choose).
  */
 import { findAgentLoopEnabled, resolveFindAgentMode, type FindAgentRelaxedCondition } from "@/domain/find-agent";
-import { clarifyingQaFromRunLines } from "@/domain/clarifying-questions";
 import { pickUserFormConstraints } from "@/domain/constraint-provenance";
 import { carsFoundFromSearchJournal } from "@/domain/search-listings-feedback";
 import {
@@ -146,73 +145,23 @@ export async function runFindDecideOrchestrator(
   if (record.loopSettled && record.triageShortlistKeys && record.triageShortlistKeys.length > 0) {
     const marketPool = marketPoolFromListingFacts(record.compsPool ?? record.listings);
     const shortlistKeys = record.triageShortlistKeys;
-    const byKey = new Map<string, (typeof record.listings)[number]>();
-    for (const listing of record.listings) {
-      const vin = listing.vin?.trim().toUpperCase();
-      if (vin) byKey.set(vin, listing);
-    }
-    const ranked = shortlistKeys.flatMap((key) => {
-      const listing = byKey.get(key.toUpperCase());
-      if (!listing) return [];
-      return [{
-        key,
-        make: listing.make,
-        model: listing.model,
-        year: listing.year,
-        priceUsd: listing.priceUsd,
-        miles: listing.miles,
-        vin: listing.vin,
-        score: 0,
-        factors: [] as string[],
-        unknowns: [] as string[],
-        fuelSummary: null,
-        excludedFromPick: false,
-        excludedReason: null,
-        sellerQuestions: [] as string[],
-        trim: listing.trim,
-        city: listing.city,
-        state: listing.state,
-        dealer: listing.dealer,
-        vdp: listing.vdp,
-        drivetrain: listing.drivetrain,
-        engine: listing.engine,
-        fuel: listing.fuel,
-        accidentCount: listing.accidentCount,
-        ownerCount: listing.ownerCount,
-        oneOwner: listing.oneOwner,
-        usageType: listing.usageType,
-        cpo: listing.cpo,
-        distanceMiles: listing.distanceMiles ?? null,
-      }];
-    });
-    const pick = ranked[0] ?? null;
-    const bestDeal = {
-      ranked,
-      pick,
-      confidence: (pick ? "medium" : "none") as "medium" | "none",
-      choice: pick
-        ? { label: `${pick.year} ${pick.make} ${pick.model}`, why: "Replaying the stored Find shortlist.", nextCheck: null }
-        : null,
-      notes: [] as string[],
-      excluded: [] as typeof ranked,
-    };
-    const decide = await runFindDecideServ({
-      need: record.need,
-      bestDeal,
-      shortlistKeys,
-      receipts: record.freeGovReceipts ?? [],
-      marketPool,
-      servKey: null,
-    });
     const coverage = freeGovToolCoverage(record.listings, record.freeGovReceipts ?? []);
+    const pickSecondPass: import("@/domain/agent-verdict-schema").AgentSecondPassResult = {
+      status: "not_run",
+      action: null,
+      objection: null,
+      evidenceIds: [],
+      confidenceBefore: null,
+      confidenceAfter: null,
+    };
     return {
       ok: true,
       status: 200,
       searchContextToken: record.token,
-      bestDeal: decide.bestDeal,
-      pickAgentVerdict: decide.agentVerdict,
-      pickSecondPass: decide.secondPass,
-      pickProofRecords: decide.proofRecords,
+      bestDeal: null,
+      pickAgentVerdict: null,
+      pickSecondPass,
+      pickProofRecords: [],
       freeGovReceipts: record.freeGovReceipts ?? [],
       freeGovCoverage: coverage,
       riskCoverage: riskCoverageHonesty(record.listings, record.freeGovReceipts ?? []),
@@ -280,14 +229,10 @@ export async function runFindDecideOrchestrator(
     // Stored user form edits (from /api/need → run / search context). Never re-tag
     // need.budgetUsd / year / miles as user — those may include SERV / defaults.
     let storedFormEdits: SearchFormEdits = pickUserFormConstraints(record.userFormEdits ?? {});
-    let clarifyingQa = clarifyingQaFromRunLines(null);
     if (record.runId) {
       const run = await readRun(deps.kv, record.runId);
       if (Object.keys(storedFormEdits).length === 0 && run?.inputs.formEdits) {
         storedFormEdits = pickUserFormConstraints(run.inputs.formEdits);
-      }
-      if (run?.inputs.clarifications?.length) {
-        clarifyingQa = clarifyingQaFromRunLines(run.inputs.clarifications);
       }
     }
     const userIntent = buildUserIntent({ note, formEdits: storedFormEdits });
@@ -301,7 +246,6 @@ export async function runFindDecideOrchestrator(
       note,
       mode: resolveFindAgentMode(env),
       formEdits: serializeServFormConstraints(userIntent),
-      clarifyingQa,
       checkpoint: record.agentLoopCheckpoint ?? null,
       budgetMs: remainingMs(),
       deps: {

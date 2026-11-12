@@ -601,7 +601,6 @@ function AssistantFlow({
         setError("The safety check on your note did not finish. You can continue with the calculated reading.");
       }
       const servQs = (body as { clarifyingQuestions?: Array<{ text: string }> }).clarifyingQuestions
-        ?? body.findPlan?.questions
         ?? [];
       if (!followUp && Array.isArray(servQs) && servQs.length > 0) {
         // Legacy FollowUp UI expects id+prompt — map SERV free-form text into cash-like free text inputs via zip/cash fields is wrong.

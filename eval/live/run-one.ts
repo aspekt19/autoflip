@@ -86,10 +86,11 @@ export async function runOneQuery(
   deps: RunOneDeps,
 ): Promise<LiveEvalCaseResult> {
   const started = Date.now();
+  const noteWithGenericReply = `${query.note}\n\n${LIVE_EVAL_GENERIC_SHOPPER_REPLY}`;
   const base: Omit<LiveEvalCaseResult, "ok" | "searchSpec" | "carsFound" | "pick" | "failure" | "proofRecords"> = {
     id: query.id,
     product: query.product ?? "find",
-    note: query.note,
+    note: noteWithGenericReply,
     elapsedMs: 0,
     estimatedUsd: ESTIMATED_USD_PER_QUERY,
     fixtureDir: deps.fixtureRoot && deps.caseId ? `${deps.fixtureRoot}/${deps.caseId}` : null,
@@ -133,7 +134,7 @@ export async function runOneQuery(
     if (deps.fixtureRoot && deps.caseId) {
       const proofs = finished.proofRecords;
       writeProvenance(deps.fixtureRoot, deps.caseId, {
-        note: query.note,
+        note: noteWithGenericReply,
         model: deps.servModel || BASE_MODEL,
         profiles: ["find_plan", "find_triage", "find_decide", "find_challenge"],
         profileTimeoutsMs: {
@@ -161,7 +162,7 @@ export async function runOneQuery(
 
   const understood = await understandNeed(
     {
-      text: query.note,
+      text: noteWithGenericReply,
       mode: "personal",
       zip: query.zip,
       distanceMiles: query.distanceMiles,

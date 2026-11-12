@@ -572,7 +572,6 @@ export function ageGapBuyerHonesty(
   return AGE_GAP_UNRESOLVED;
 }
 
-/** Code never invents clarifying prompts — SERV returns find_plan.questions / ask_shopper. */
 export function followUps(_need: StructuredNeed): FollowUp[] {
   return [];
 }

@@ -1,11 +1,4 @@
 import {
-  formatClarifyingQaLines,
-  noteWithClarifyingQa,
-  parseClarifyingAnswers,
-  type ClarifyingQaPair,
-  type ClarifyingQuestion,
-} from "@/domain/clarifying-questions";
-import {
   applyFollowUp,
   followUps,
   overlayExplicit,
@@ -65,8 +58,6 @@ export type UnderstandResult =
       /** Search directions from the plan (never empty for a valid note). */
       directions: SearchDirection[];
       followUps: FollowUp[];
-      clarifyingQuestions: ClarifyingQuestion[];
-      clarifyingAnswers: ClarifyingQaPair[];
       guard: string;
       checks: DecisionProof[];
       /** Honest provenance for free-text → structured criteria (Watch with Deal Radar). */
@@ -103,8 +94,8 @@ export async function understandNeed(
     milesCapResolved?: boolean;
     conditionPriority?: StructuredNeed["conditionPriority"];
     followUp?: { id: FollowUp["id"]; value: string };
+    /** All follow-up answers this hop (bagged with provenance on the client). */
     followUps?: Array<{ id: FollowUp["id"]; value: string }>;
-    clarifyingAnswers?: ClarifyingQaPair[];
     /** Ignored. The plan waits for the profile budget. It does not stop early. */
     fastConfirm?: boolean;
   },
@@ -114,8 +105,6 @@ export async function understandNeed(
   const text = typeof body.text === "string" ? body.text : "";
   const screened = screenUserInput(text || mode);
   if (!screened.ok) return { ok: false, status: 400, error: "rejected_input", message: screened.reason };
-  const clarifyingAnswers = parseClarifyingAnswers(body.clarifyingAnswers ?? []);
-  const noteForPlan = noteWithClarifyingQa(screened.text, clarifyingAnswers);
 
   // Merge legacy *Dirty flags into the provenanced bag via factory, then keep user-origin only.
   let constraintBag: ConstraintBag = { ...(body.constraints ?? {}) };
@@ -205,14 +194,14 @@ export async function understandNeed(
 
   let source: "model" | "form" = "form";
   let guard = "not_configured";
-  let findPlan: FindPlan = fallbackFindPlan(noteForPlan, mode, formOverrides);
+  let findPlan: FindPlan = fallbackFindPlan(screened.text, mode, formOverrides);
   const checks: ServProof[] = [];
   const proofRecords: DecisionProofRecord[] = [];
   const recordedAt = new Date().toISOString();
-  const parseInputs = { text: screened.text, mode, clarifyingAnswers };
+  const parseInputs = { text: screened.text, mode };
   let planResponseId: string | null = null;
 
-  if (!screened.text.trim() && clarifyingAnswers.length === 0) {
+  if (!screened.text.trim()) {
     proofRecords.push(
       buildDecisionProofRecord({
         purpose: "find_plan",
@@ -242,13 +231,12 @@ export async function understandNeed(
       note: screened.text,
       mode,
       formOverrides,
-      clarifyingAnswers: clarifyingAnswers.length ? clarifyingAnswers : undefined,
       today: recordedAt.slice(0, 10),
     });
     const validatePlanText = (text: string) => {
       try {
         const validated = validateFindPlan(extractServJson(text), {
-          note: noteForPlan,
+          note: screened.text,
           form: formOverrides,
         });
         if (validated.ok) return { ok: true as const };
@@ -313,7 +301,7 @@ export async function understandNeed(
     } else {
       try {
         const parsed = extractServJson(planned.text);
-        const validated = validateFindPlan(parsed, { note: noteForPlan, form: formOverrides });
+        const validated = validateFindPlan(parsed, { note: screened.text, form: formOverrides });
         if (validated.ok) {
           findPlan = validated.plan;
           source = "model";
@@ -406,14 +394,13 @@ export async function understandNeed(
   if (radiusIsUser) {
     need = { ...need, distanceMiles: userConstraints.radiusMi!.value ?? null };
   }
+  // Answered ZIP clears the blocking question for Confirm.
   if (formZip && findPlan.location.needsZip) {
     findPlan = {
       ...findPlan,
       location: { ...findPlan.location, zip: formZip, needsZip: false },
+      question: { id: "none", text: null },
     };
-  }
-  if (clarifyingAnswers.length > 0) {
-    findPlan = { ...findPlan, questions: [] };
   }
 
   const checked = validateNeed(need);
@@ -460,8 +447,6 @@ export async function understandNeed(
     searchSpec,
     directions: planToDirections(findPlan),
     followUps: followUps(checked.need),
-    clarifyingQuestions: findPlan.questions,
-    clarifyingAnswers,
     guard,
     checks: recorded.map(publicCheck),
     criteriaParse: { ...criteriaParse, label: criteriaParseLabel(criteriaParse) },
@@ -484,8 +469,4 @@ function publicCheck(proof: ServProof): DecisionProof {
     fallbackUsed: proof.fallbackUsed,
     codeComputed: proof.codeComputed,
   };
-}
-
-export function clarifyingLinesForRun(answers: ClarifyingQaPair[]): string[] {
-  return formatClarifyingQaLines(answers);
 }

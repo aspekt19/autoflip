@@ -226,6 +226,24 @@ export type ResaleAgentLoopContinue = {
   checkpoint: AgentLoopCheckpoint;
 };
 
+/** SERV called ask_shopper — pause for a shopper reply in the same conversation. */
+export type ResaleAgentLoopAwaitUser = {
+  ok: false;
+  awaitUser: true;
+  question: string;
+  message: string;
+  agentMode: ResaleAgentModeResolved;
+  requestedMode: ResaleAgentMode;
+  toolRounds: number;
+  verdictReached: false;
+  journal: ResaleAgentJournalEntry[];
+  knownVins: string[];
+  featureRejections: AgentServFeatureRejection[];
+  featureFlags: string[];
+  servFeatures: AgentServFeatureJournal | null;
+  checkpoint: AgentLoopCheckpoint;
+};
+
 export type ResaleAgentLoopResult =
   | {
       ok: true;
@@ -245,9 +263,11 @@ export type ResaleAgentLoopResult =
       servFeatures: AgentServFeatureJournal;
     }
   | ResaleAgentLoopContinue
+  | ResaleAgentLoopAwaitUser
   | {
       ok: false;
       continue?: false;
+      awaitUser?: false;
       agentMode: ResaleAgentModeResolved | null;
       requestedMode: ResaleAgentMode;
       toolRounds: number;
@@ -1015,7 +1035,7 @@ async function runToolsMode(input: {
 
         if (call.name === "ask_shopper") {
           const executed = await executeResaleAgentTool(call.name, args, input.toolDeps, input.state);
-          input.journal.push(journalSearchListingsEntry(executed, args));
+          input.journal.push(journalResaleSearchEntry(executed, args));
           const question =
             executed.ok && typeof (executed.result as { question?: unknown }).question === "string"
               ? String((executed.result as { question: string }).question)
@@ -1671,8 +1691,8 @@ export async function runResaleAgentLoop(input: {
   const toolsAttempt = await runToolsMode(shared);
   if (toolsAttempt.ok) return toolsAttempt;
   if ("continue" in toolsAttempt && toolsAttempt.continue) return toolsAttempt;
-  if ("awaitUser" in toolsAttempt && (toolsAttempt as { awaitUser?: boolean }).awaitUser) {
-    return toolsAttempt as ResaleAgentLoopResult;
+  if ("awaitUser" in toolsAttempt && toolsAttempt.awaitUser) {
+    return toolsAttempt;
   }
   if (toolsAttempt.error !== "tools_unsupported_or_empty") {
     return toolsAttempt;

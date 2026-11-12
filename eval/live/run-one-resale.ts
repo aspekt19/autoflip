@@ -147,7 +147,7 @@ export async function runOneResaleQuery(
       pick: null,
       failure: {
         step: "resale_agent",
-        error: agent.error,
+        error: "error" in agent ? agent.error : "await_user",
         message: agent.message,
         responseId: lastServ && lastServ.kind === "serv" ? lastServ.responseId : null,
       },

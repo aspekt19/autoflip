@@ -1,8 +1,7 @@
-import { clarifyingLinesForRun, understandNeed } from "@/server/understand-need";
+import { understandNeed } from "@/server/understand-need";
 import { requireVerifiedAccountForFind } from "@/server/session";
 import { getKv } from "@/io/kv";
 import { proofsFromRecords, syncRunSafely } from "@/server/run-sync";
-import { parseClarifyingAnswers } from "@/domain/clarifying-questions";
 import type { FollowUp, StructuredNeed } from "@/domain/need";
 import {
   CONSTRAINT_FIELD_KEYS,
@@ -140,7 +139,6 @@ export async function POST(request: Request) {
   const body = (await request.json().catch(() => null)) as Record<string, unknown> | null;
   if (!body) return Response.json({ error: "invalid_json", message: "Send JSON." }, { status: 400 });
   const followUps = parseFollowUps(body);
-  const clarifyingAnswers = parseClarifyingAnswers(body.clarifyingAnswers);
   const formEdits = formEditsFromNeedBody(body);
   // Flat year/miles only when the bag already carries user provenance — never
   // forward untagged body.yearMin/yearMax/milesMax into understandNeed.
@@ -172,7 +170,6 @@ export async function POST(request: Request) {
           : undefined,
       followUp: followUps[0],
       followUps,
-      clarifyingAnswers,
       fastConfirm: body.fastConfirm === true,
     },
     {
@@ -183,10 +180,9 @@ export async function POST(request: Request) {
   );
   if (!result.ok) return Response.json({ error: result.error, message: result.message }, { status: result.status });
   // formEdits already built from user-origin only — never stamp year/miles/zip dirty when merely present.
-  const clarification = [
-    ...clarifyingLinesForRun(result.clarifyingAnswers),
-    ...followUps.map((f) => f.value.trim()).filter(Boolean),
-  ];
+  const clarification = followUps
+    .map((f) => f.value.trim())
+    .filter(Boolean);
   const runId = await syncRunSafely(getKv(), {
     runId: typeof body.runId === "string" ? body.runId : null,
     ownerId: access.id,

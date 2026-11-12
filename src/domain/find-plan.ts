@@ -4,10 +4,6 @@
  * are allowlisted against mainstreamMakes() + FALLBACK_MODELS (sync; no network).
  */
 
-import {
-  validateClarifyingQuestions,
-  type ClarifyingQuestion,
-} from "./clarifying-questions";
 import { directionIdFromSegment, type SearchDirection } from "./directions";
 import {
   emptyNeed,
@@ -63,6 +59,10 @@ export const FIND_PLAN_PRIORITY_IDS = [
 ] as const;
 export type FindPlanPriorityId = (typeof FIND_PLAN_PRIORITY_IDS)[number];
 
+/** Chat intake owns questions — plan question ids retired. */
+export const FIND_PLAN_QUESTION_IDS = ["none"] as const;
+export type FindPlanQuestionId = (typeof FIND_PLAN_QUESTION_IDS)[number];
+
 export type FindPlanQuotedPref<T extends string> = {
   value: T;
   strength: FindPlanStrength;
@@ -92,7 +92,7 @@ export type FindPlan = {
   priorities: Array<{ id: FindPlanPriorityId; quote: string }>;
   namedModels: FindPlanModel[];
   excludedMakes: string[];
-  questions: ClarifyingQuestion[];
+  question: { id: FindPlanQuestionId; text: string | null };
   directions: FindPlanDirection[];
 };
 
@@ -119,6 +119,7 @@ const BODY_SET = new Set<string>(FIND_PLAN_BODY_STYLES);
 const DRIVE_SET = new Set<string>(FIND_PLAN_DRIVETRAINS);
 const FUEL_SET = new Set<string>(FIND_PLAN_FUELS);
 const STRENGTH_SET = new Set<string>(FIND_PLAN_STRENGTHS);
+const QUESTION_SET = new Set<string>(FIND_PLAN_QUESTION_IDS);
 
 const BODY_TO_NOTE: Record<Exclude<FindPlanBodyStyle, "any">, NoteBodyStyle> = {
   suv: "SUV",
@@ -463,7 +464,10 @@ export function validateFindPlan(
     .map((make) => allowlistedMake(make))
     .filter((make): make is string => Boolean(make));
 
-  const questions = validateClarifyingQuestions(raw.questions);
+  // Chat intake owns shopper questions — plan question ids are retired.
+  const questionId: FindPlanQuestionId = "none";
+  const questionText = null;
+  void QUESTION_SET;
 
   let directions: FindPlanDirection[] = [];
   if (Array.isArray(raw.directions)) {
@@ -528,7 +532,10 @@ export function validateFindPlan(
     priorities,
     namedModels,
     excludedMakes,
-    questions,
+    question: {
+      id: questionId,
+      text: questionId === "none" ? null : questionText,
+    },
     directions,
   };
 
@@ -755,7 +762,7 @@ export function fallbackFindPlan(
     priorities: [],
     namedModels: [],
     excludedMakes: [],
-    questions: [],
+    question: { id: "none", text: null },
     directions: [bodyStyleOnlyDirection(bodyStyles)],
   };
 }

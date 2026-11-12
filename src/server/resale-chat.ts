@@ -127,8 +127,8 @@ export async function runResaleChatTurn(input: {
     },
   });
 
-  if ("awaitUser" in agent && (agent as { awaitUser?: boolean }).awaitUser) {
-    const a = agent as { checkpoint: AgentLoopCheckpoint; question: string };
+  if ("awaitUser" in agent && agent.awaitUser) {
+    const a = agent;
     session.checkpoint = a.checkpoint;
     session.pendingQuestion = a.question;
     session.status = "awaiting_user";
@@ -165,7 +165,7 @@ export async function runResaleChatTurn(input: {
   const alternatives = [...agent.pnlByVin.values()];
   const bestVin = agent.verdict.picks[0]?.vin?.toUpperCase() ?? null;
   const best = bestVin ? agent.pnlByVin.get(bestVin) ?? alternatives[0] ?? null : null;
-  const shouldCharge = Boolean(best) || Boolean(agent.verdict.passReason?.trim());
+  const shouldCharge = Boolean(best) || (agent.verdict.picks.length === 0 && Boolean(agent.verdict.summary?.trim()));
   let charged = session.charged;
   if (shouldCharge && !charged) {
     if (await creditEventSeen(input.kv, session.spendKey)) charged = true;
@@ -187,7 +187,7 @@ export async function runResaleChatTurn(input: {
       : "No report credit charged — chat turns without a delivered verdict stay free.",
     transcript: session.messages,
     journalMeta: summarizeResaleAgentJournal(agent.journal),
-    passReason: agent.verdict.passReason,
+    passReason: agent.verdict.picks.length === 0 ? agent.verdict.summary : null,
   };
   session.result = result;
   session.charged = charged;

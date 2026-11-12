@@ -7,13 +7,6 @@
 import {
   synthesizeRelaxedConditionsFromSearches,
 } from "@/domain/agent-verdict-complete";
-import {
-  clarifyingQaContextBlock,
-  formatClarifyingQaLines,
-  noteWithClarifyingQa,
-  parseClarifyingAnswers,
-  type ClarifyingQaPair,
-} from "@/domain/clarifying-questions";
 import { fromShopperInputEvent } from "@/domain/constraint-provenance";
 import {
   fingerprintsFromSearchJournal,
@@ -448,13 +441,8 @@ function constraintsFromFormEdits(
   return { intent, constraints: serializeUserIntentConstraints(intent) };
 }
 
-function systemPrompt(
-  note: string,
-  formEdits?: Record<string, unknown> | null,
-  clarifyingQa?: ClarifyingQaPair[] | null,
-): string {
-  const noteWithQa = noteWithClarifyingQa(note, clarifyingQa);
-  const { intent, constraints } = constraintsFromFormEdits(noteWithQa, formEdits);
+function systemPrompt(note: string, formEdits?: Record<string, unknown> | null): string {
+  const { intent, constraints } = constraintsFromFormEdits(note, formEdits);
   const gate = assertNoNonUserSetConstraints(constraints, intent);
   if (!gate.ok) {
     throw new Error(
@@ -465,15 +453,10 @@ function systemPrompt(
     Object.keys(constraints).length > 0
       ? `\nUser form constraints (origin=user only; note/serv/suggestion excluded): ${JSON.stringify(constraints)}`
       : "";
-  const qaExtra =
-    clarifyingQa && clarifyingQa.length > 0
-      ? `\n${clarifyingQaContextBlock(clarifyingQa)}`
-      : "";
   return [
     "You are Lemonless Find's search agent on SERV (gpt-6.1-sol).",
     "You chat with the shopper in this same conversation, then search live inventory with tools.",
-    "If clarifying Q&A is already in context, use it before the first search_listings — do not re-ask answered questions.",
-    "If budget, location, or other material facts are still missing, call ask_shopper with one clear English question. Do not invent answers. Ask as many turns as you need.",
+    "If budget, location, or other material facts are missing, call ask_shopper with one clear English question. Do not invent answers. Ask as many turns as you need.",
     "When the shopper has stated a budget (or ZIP/radius), call record_shopper_facts so offer ≤ budget anti-fab uses those values.",
     "When you have enough, call search_listings (and other tools) in this same conversation, then submit_picks — or explain nothing fits with passReason.",
     "You decide which listings to search. Prefer tight filters first.",
@@ -484,8 +467,7 @@ function systemPrompt(
     "Finish by calling submit_picks with the find_agent_result fields. Code validates VINs against tool results, offer ≤ budget, and offer ≤ asking — on failure you get issues back and must fix via another submit_picks. Code never substitutes a pick.",
     "Never invent cars, prices, or VINs. Parallel tool calls are fine.",
     "Use tools for live evidence. Asking-price comps are not sold prices.",
-    "Do not invent a budget ceiling the shopper did not state in note, form, or clarifying Q&A.",
-    `Shopper conversation / note:\n${note.trim() || "(empty)"}${qaExtra}${edits}`,
+    `Shopper conversation / note:\n${note.trim() || "(empty)"}${edits}`,
   ].join(" ");
 }
 
@@ -923,7 +905,6 @@ function findLoopMeta(bundle: AgentServFeatureBundle, rejections: AgentServFeatu
 async function runToolsMode(input: {
   note: string;
   formEdits?: Record<string, unknown> | null;
-  clarifyingQa?: ClarifyingQaPair[] | null;
   deps: FindAgentLoopDeps;
   toolDeps: FindAgentToolDeps;
   state: FindAgentToolState;
@@ -945,7 +926,7 @@ async function runToolsMode(input: {
   const requestedMode = resolveFindAgentMode(process.env);
   const bundle = findAgentServFeatureBundle();
   const rejections: AgentServFeatureRejection[] = [...(input.resume?.featureRejections ?? [])];
-  const instructions = systemPrompt(input.note, input.formEdits, input.clarifyingQa);
+  const instructions = systemPrompt(input.note, input.formEdits);
   const seedUser =
     "Search for cars that fit the shopper. Call tools as needed (parallel OK). When ready, call submit_picks with the final verdict — do not invent VINs.";
   // Chat transcript kept only as a safety-net finish path if submit_picks never lands.
@@ -1294,7 +1275,6 @@ async function runToolsMode(input: {
 async function runNextActionMode(input: {
   note: string;
   formEdits?: Record<string, unknown> | null;
-  clarifyingQa?: ClarifyingQaPair[] | null;
   deps: FindAgentLoopDeps;
   toolDeps: FindAgentToolDeps;
   state: FindAgentToolState;
@@ -1322,7 +1302,7 @@ async function runNextActionMode(input: {
         {
           role: "system",
           content: [
-            systemPrompt(input.note, input.formEdits, input.clarifyingQa),
+            systemPrompt(input.note, input.formEdits),
             "Each turn return JSON with action search or finish.",
             "search runs search_listings with the provided filters.",
             "finish must include the find_agent_result fields (summary, confidence, picks, relaxedConditions, passReason).",
@@ -1689,7 +1669,6 @@ export async function runFindAgentLoop(input: {
   note: string;
   mode?: FindAgentMode;
   formEdits?: Record<string, unknown> | null;
-  clarifyingQa?: ClarifyingQaPair[] | null;
   deps: FindAgentLoopDeps;
   maxRounds?: number;
   /** Per-request wall budget. When nearly spent, returns continue + checkpoint. */
@@ -1708,11 +1687,6 @@ export async function runFindAgentLoop(input: {
   const restored = restoreFindStateFromCheckpoint(input.checkpoint, input.deps.seedListings);
   const journal = restored.journal;
   const state = restored.state;
-  const clarifyingQa = parseClarifyingAnswers(input.clarifyingQa ?? []);
-  if (clarifyingQa.length > 0 && !journal.some((entry) => entry.kind === "clarifying_qa")) {
-    const lines = formatClarifyingQaLines(clarifyingQa);
-    journal.push({ kind: "clarifying_qa", pairs: clarifyingQa, lines, summary: `clarifying_qa ×${clarifyingQa.length}` });
-  }
   // Provenance → constraintRoles: origin=user form keys are hard; SERV-chosen are relaxable.
   const { constraints: userFormConstraints } = constraintsFromFormEdits(
     input.note,
@@ -1771,7 +1745,6 @@ export async function runFindAgentLoop(input: {
   const shared = {
     note: input.note,
     formEdits: input.formEdits,
-    clarifyingQa,
     deps: input.deps,
     toolDeps,
     state,
