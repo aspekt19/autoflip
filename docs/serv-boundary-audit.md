@@ -43,7 +43,7 @@ Primary fate only (first bold fate tag per bullet / product-rule row). `still pr
 | `search_listings` thin proxy + pagination | **Implemented** | Unfiltered rows + funnel; `page` / limit≤50; no silent hide-20 |
 | Charge gate (`chosen` \| documented `nothing_fits` / Check SERV verdict) | **Updated** | Find/Resale/Check charge helpers |
 | `reasoning_effort` never `"none"` | **Enforced** | Agent builders + profiles + `run.ts` normalize; sweep test |
-| Dirty-only provenance to SERV | **Enforced** | `buildUserIntent` / `buildUserIntentFromFlatForm` require `dirty: true` |
+| Typed provenance to SERV (`user`\|`note`\|`serv`\|`suggestion`) | **Enforced** | Only `origin: "user"` reaches SERV as Form edits (`constraint-provenance.ts`) |
 | Check `verdictFromBadge` / screening headline fallback | **Removed** | Headline follows SERV decide; no charge without SERV verdict |
 | Radar soft `prefilterListing` | **Removed** | `radarCandidateForServ` (hard criteria + facts only) |
 | Eval classic `runFindMatch`-first | **Removed** | Live eval mints empty seed → agent loop |
